@@ -51,7 +51,7 @@ fn dtw_distance(s1: Vec<f64>, s2: Vec<f64>, radius: Option<usize>) -> PyResult<f
 
 /// A Python module implemented in Rust.
 #[pymodule]
-fn pyfunc(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn rust_pyfunc(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(sum_as_string, m)?)?;
     m.add_function(wrap_pyfunction!(dtw_distance, m)?)?;
     Ok(())
