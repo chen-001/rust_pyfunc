@@ -4,6 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "rust_pyfunc"
+long-description = "Python bindings for Rust functions"
 requires-python = ">=3.8"
 classifiers = [
     "Programming Language :: Rust",
