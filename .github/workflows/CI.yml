@@ -175,6 +175,7 @@ jobs:
   #         args: --non-interactive --skip-existing wheels-*/*
   pypi-publish:
     name: Upload to PyPI
+    needs: [windows, linux, macos, sdist]
     runs-on: ubuntu-latest
     environment:
       name: release
@@ -185,13 +186,13 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           pattern: wheels-*
-          path: wheels
+          path: dist
           merge-multiple: true
       - name: Publish to PyPi
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           skip-existing: true
-          packages-dir: wheels
+          packages-dir: dist
           verbose: true
 
   # release:
