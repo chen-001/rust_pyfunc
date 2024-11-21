@@ -159,7 +159,7 @@ pub fn transfer_entropy(x_: Vec<f64>, y_: Vec<f64>, k: usize, c: usize) -> f64 {
 
 
 #[cfg(target_arch = "x86_64")]
-use core::arch::x86_64::*;
+use std::arch::x86_64::*;
 
 /// 计算输入数组与自然数序列(1, 2, ..., n)之间的皮尔逊相关系数。
 /// 这个函数可以用来判断一个序列的趋势性，如果返回值接近1表示强上升趋势，接近-1表示强下降趋势。
@@ -287,13 +287,16 @@ pub fn trend(arr: &PyAny) -> PyResult<f64> {
 #[pyfunction]
 #[pyo3(signature = (arr))]
 pub fn trend_fast(arr: PyReadonlyArray1<f64>) -> PyResult<f64> {
-    if is_x86_feature_detected!("avx") {
-        unsafe {
-            return trend_fast_avx(arr);
+    #[cfg(target_arch = "x86_64")]
+    {
+        if is_x86_feature_detected!("avx") {
+            unsafe {
+                return trend_fast_avx(arr);
+            }
         }
     }
     
-    // 如果不支持AVX，回退到标量版本
+    // 如果不支持AVX或不是x86_64架构，回退到标量版本
     trend_fast_scalar(arr)
 }
 
