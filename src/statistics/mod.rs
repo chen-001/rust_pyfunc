@@ -209,7 +209,7 @@ pub fn max_range_loop(s: Vec<f64>) -> Vec<i32> {
 
     for i in 0..s.len() {
         while let Some(&j) = stack.last() {
-            if s[j] < s[i] {
+            if s[j] > s[i] {
                 maxranges.push(i as i32 - j as i32);
                 break;
             }
