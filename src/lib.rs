@@ -1147,6 +1147,8 @@
 //     m.add_function(wrap_pyfunction!(trend, m)?)?;
 //     m.add_function(wrap_pyfunction!(trend_fast, m)?)?;
 //     m.add_function(wrap_pyfunction!(find_max_range_product, m)?)?;
+//     m.add_function(wrap_pyfunction!(text::min_word_edit_distance, m)?)?;
+//     m.add_function(wrap_pyfunction!(text::normalized_diff, m)?)?;
 //     Ok(())
 // }
 
@@ -1181,5 +1183,7 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(time_series::trend, m)?)?;
     m.add_function(wrap_pyfunction!(time_series::trend_fast, m)?)?;
     m.add_function(wrap_pyfunction!(sequence::find_max_range_product, m)?)?;
+    m.add_function(wrap_pyfunction!(text::min_word_edit_distance, m)?)?;
+    // m.add_function(wrap_pyfunction!(text::normalized_diff, m)?)?;
     Ok(())
 }

@@ -175,6 +175,10 @@ pub fn vectorize_sentences_list(sentences: Vec<&str>) -> Vec<Vec<usize>> {
 #[pyfunction]
 #[pyo3(signature = (str1, str2))]
 pub fn jaccard_similarity(str1: &str, str2: &str) -> f64 {
+    // 预处理文本
+    let str1 = preprocess_text(str1);
+    let str2 = preprocess_text(str2);
+
     // 将字符串分词并转换为集合
     let set1: HashSet<&str> = str1.split_whitespace().collect();
     let set2: HashSet<&str> = str2.split_whitespace().collect();
@@ -191,6 +195,17 @@ pub fn jaccard_similarity(str1: &str, str2: &str) -> f64 {
     }
 }
 
+/// 预处理文本，转为小写并删除标点符号和非字母数字字符。
+fn preprocess_text(text: &str) -> String {
+    // 转为小写
+    let text = text.to_lowercase();
+    // 删除标点符号和非字母数字字符
+    let text: String = text.chars()
+        .filter(|c| c.is_alphanumeric() || c.is_whitespace())
+        .collect();
+    // 去除多余空格（可选，已通过split_whitespace处理）
+    text
+}
 
 /// Given a sentence, return a dictionary where the keys are the words in the sentence
 /// and the values are their frequencies.
@@ -211,4 +226,48 @@ fn sentence_to_word_count(sentence: &str) -> HashMap<String, usize> {
     }
 
     word_count
+}
+
+/// Calculate the minimum number of word operations (additions/deletions) needed to transform one sentence into another.
+/// 
+/// # Arguments
+/// * `str1` - The source sentence
+/// * `str2` - The target sentence
+/// 
+/// # Examples
+/// ```python
+/// from rust_pyfunc import min_word_edit_distance
+/// 
+/// # Example 1: Adding one word
+/// da = "We expect demand to increase"
+/// db = "We expect worldwide demand to increase"
+/// print(min_word_edit_distance(da, db))  # Output: 1 (add "worldwide")
+/// 
+/// # Example 2: Multiple changes
+/// dc = "We expect weakness in sales"
+/// print(min_word_edit_distance(da, dc))  # Output: 6 (delete 3 words, add 3 words)
+/// ```
+#[pyfunction]
+#[pyo3(signature = (str1, str2))]
+pub fn min_word_edit_distance(str1: &str, str2: &str) -> usize {
+    // 预处理文本
+    let str1 = preprocess_text(str1);
+    let str2 = preprocess_text(str2);
+
+    // 将句子分割成单词数组
+    let words1: Vec<&str> = str1.split_whitespace().collect();
+    let words2: Vec<&str> = str2.split_whitespace().collect();
+
+    // 创建两个HashSet来存储单词
+    let set1: HashSet<&str> = words1.iter().copied().collect();
+    let set2: HashSet<&str> = words2.iter().copied().collect();
+
+    // 计算需要删除的单词数（在str1中但不在str2中的单词）
+    let deletions = set1.difference(&set2).count();
+    
+    // 计算需要添加的单词数（在str2中但不在str1中的单词）
+    let additions = set2.difference(&set1).count();
+
+    // 总的编辑距离是删除和添加操作的总和
+    deletions + additions
 }
