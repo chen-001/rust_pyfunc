@@ -228,24 +228,24 @@ fn sentence_to_word_count(sentence: &str) -> HashMap<String, usize> {
     word_count
 }
 
-/// Calculate the minimum number of word operations (additions/deletions) needed to transform one sentence into another.
-/// 
-/// # Arguments
-/// * `str1` - The source sentence
-/// * `str2` - The target sentence
-/// 
-/// # Examples
+/// 计算将一个句子转换为另一个句子所需的最少单词操作次数（添加/删除）。
+///
+/// # 参数
+/// * `str1` - 源句子
+/// * `str2` - 目标句子
+///
+/// # 示例
 /// ```python
 /// from rust_pyfunc import min_word_edit_distance
-/// 
-/// # Example 1: Adding one word
+///
+/// # 示例1：添加一个单词
 /// da = "We expect demand to increase"
 /// db = "We expect worldwide demand to increase"
-/// print(min_word_edit_distance(da, db))  # Output: 1 (add "worldwide")
-/// 
-/// # Example 2: Multiple changes
+/// print(min_word_edit_distance(da, db))  # 输出: 1 (添加 "worldwide")
+///
+/// # 示例2：多次修改
 /// dc = "We expect weakness in sales"
-/// print(min_word_edit_distance(da, dc))  # Output: 6 (delete 3 words, add 3 words)
+/// print(min_word_edit_distance(da, dc))  # 输出: 6 (删除3个单词，添加3个单词)
 /// ```
 #[pyfunction]
 #[pyo3(signature = (str1, str2))]

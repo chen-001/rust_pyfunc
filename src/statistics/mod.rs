@@ -177,6 +177,9 @@ fn solve_linear_system3(a: &ArrayView2<f64>, b: &ArrayView1<f64>) -> Array1<f64>
 /// ----------
 /// s : array_like
 ///     输入序列，一个数值列表
+/// allow_equal : bool, 默认为False
+///     是否允许相等。如果为True，则当前位置的值大于前面的值时计入长度；
+///     如果为False，则当前位置的值大于等于前面的值时计入长度。
 ///
 /// 返回值：
 /// -------
@@ -190,26 +193,23 @@ fn solve_linear_system3(a: &ArrayView2<f64>, b: &ArrayView1<f64>) -> Array1<f64>
 /// # 测试序列
 /// seq = [1.0, 2.0, 3.0, 2.0, 1.0]
 ///
-/// # 计算最大值范围
-/// ranges = max_range_loop(seq)
+/// # 计算最大值范围（不允许相等）
+/// ranges = max_range_loop(seq, allow_equal=False)
 /// print(f"最大值范围: {ranges}")  # 输出: [1, 2, 3, 1, 1]
 ///
-/// # 解释结果：
-/// # - ranges[0] = 1: 序列[1.0]的长度，最大值1.0在位置0
-/// # - ranges[1] = 2: 序列[1.0, 2.0]的长度，最大值2.0在位置1
-/// # - ranges[2] = 3: 序列[1.0, 2.0, 3.0]的长度，最大值3.0在位置2
-/// # - ranges[3] = 1: 序列[2.0]的长度，最大值2.0在位置3
-/// # - ranges[4] = 1: 序列[1.0]的长度，最大值1.0在位置4
+/// # 计算最大值范围（允许相等）
+/// ranges = max_range_loop(seq, allow_equal=True)
+/// print(f"最大值范围: {ranges}")  # 输出可能不同
 /// ```
 #[pyfunction]
-#[pyo3(signature = (s))]
-pub fn max_range_loop(s: Vec<f64>) -> Vec<i32> {
+#[pyo3(signature = (s, allow_equal=true))]
+pub fn max_range_loop(s: Vec<f64>, allow_equal: bool) -> Vec<i32> {
     let mut maxranges = Vec::with_capacity(s.len());
     let mut stack = Vec::new();
 
     for i in 0..s.len() {
         while let Some(&j) = stack.last() {
-            if s[j] > s[i] {
+            if (!allow_equal && s[j] >= s[i]) || (allow_equal && s[j] > s[i]) {
                 maxranges.push(i as i32 - j as i32);
                 break;
             }
@@ -231,6 +231,9 @@ pub fn max_range_loop(s: Vec<f64>) -> Vec<i32> {
 /// ----------
 /// s : array_like
 ///     输入序列，一个数值列表
+/// allow_equal : bool, 默认为False
+///     是否允许相等。如果为True，则当前位置的值小于前面的值时计入长度；
+///     如果为False，则当前位置的值小于等于前面的值时计入长度。
 ///
 /// 返回值：
 /// -------
@@ -244,26 +247,23 @@ pub fn max_range_loop(s: Vec<f64>) -> Vec<i32> {
 /// # 测试序列
 /// seq = [1.0, 2.0, 3.0, 2.0, 1.0]
 ///
-/// # 计算最小值范围
-/// ranges = min_range_loop(seq)
+/// # 计算最小值范围（不允许相等）
+/// ranges = min_range_loop(seq, allow_equal=False)
 /// print(f"最小值范围: {ranges}")  # 输出: [1, 2, 3, 1, 5]
 ///
-/// # 解释结果：
-/// # - ranges[0] = 1: 序列[1.0]的长度，最小值1.0在位置0
-/// # - ranges[1] = 2: 序列[1.0, 2.0]的长度，最小值1.0不在位置1
-/// # - ranges[2] = 3: 序列[1.0, 2.0, 3.0]的长度，最小值1.0不在位置2
-/// # - ranges[3] = 1: 序列[2.0]的长度，最小值2.0在位置3
-/// # - ranges[4] = 5: 序列[1.0, 2.0, 3.0, 2.0, 1.0]的长度，最小值1.0在位置4
+/// # 计算最小值范围（允许相等）
+/// ranges = min_range_loop(seq, allow_equal=True)
+/// print(f"最小值范围: {ranges}")  # 输出可能不同
 /// ```
 #[pyfunction]
-#[pyo3(signature = (s))]
-pub fn min_range_loop(s: Vec<f64>) -> Vec<i32> {
+#[pyo3(signature = (s, allow_equal=true))]
+pub fn min_range_loop(s: Vec<f64>, allow_equal: bool) -> Vec<i32> {
     let mut minranges = Vec::with_capacity(s.len());
     let mut stack = Vec::new();
 
     for i in 0..s.len() {
         while let Some(&j) = stack.last() {
-            if s[j] < s[i] {
+            if (!allow_equal && s[j] <= s[i]) || (allow_equal && s[j] < s[i]) {
                 minranges.push(i as i32 - j as i32);
                 break;
             }

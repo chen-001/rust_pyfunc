@@ -3,6 +3,8 @@ use pyo3::types::PyList;
 use numpy::PyReadonlyArray1;
 use ndarray::Array1;
 use std::collections::HashMap;
+// use std::collections::VecDeque;
+// use std::collections::BTreeMap;
 
 /// 计算两个序列之间的动态时间规整(DTW)距离。
 /// DTW是一种衡量两个时间序列相似度的算法，可以处理不等长的序列。
@@ -525,4 +527,72 @@ fn discretize(data_: Vec<f64>, c: usize) -> Array1<f64> {
         Array1::from(discretized.iter().map(|&x| x as f64).collect::<Vec<f64>>());
 
     discretized_f64
+}
+
+/// 查找时间序列中价格在指定时间窗口内为局部最大值的点。
+/// 
+/// 参数说明：
+/// ----------
+/// times : array_like
+///     时间戳数组（单位：秒）
+/// prices : array_like
+///     价格数组
+/// window : float
+///     时间窗口大小（单位：秒）
+/// 
+/// 返回值：
+/// -------
+/// numpy.ndarray
+///     布尔数组，True表示该点的价格大于指定时间窗口内的所有价格
+/// 
+/// Python调用示例：
+/// ```python
+/// import numpy as np
+/// from rust_pyfunc import find_local_peaks_within_window
+/// 
+/// # 创建示例数据
+/// times = np.array([0.0, 10.0, 20.0, 30.0, 40.0])  # 时间戳（秒）
+/// prices = np.array([1.0, 3.0, 2.0, 1.5, 1.0])     # 价格
+/// window = 100.0  # 时间窗口大小（秒）
+/// 
+/// # 查找局部最大值点
+/// peaks = find_local_peaks_within_window(times, prices, window)
+/// # 获取满足条件的数据
+/// result_times = times[peaks]
+/// result_prices = prices[peaks]
+/// ```
+#[pyfunction]
+pub fn find_local_peaks_within_window(times: PyReadonlyArray1<f64>, prices: PyReadonlyArray1<f64>, window: f64) -> PyResult<Vec<bool>> {
+    let times = times.as_array();
+    let prices = prices.as_array();
+    let n = times.len();
+    let mut result = vec![false; n];
+    
+    // 对每个点，检查之后window秒内是否存在更大的价格
+    for i in 0..n {
+        let current_time = times[i];
+        let mut is_peak = true;
+        
+        // 检查之后的点
+        for j in (i + 1)..n {
+            // 如果时间差超过window秒，退出内层循环
+            if times[j] - current_time > window {
+                break;
+            }
+            // 如果找到更大的价格，说明当前点不是局部最大值
+            if prices[j] > prices[i] {
+                is_peak = false;
+                break;
+            }
+        }
+        
+        result[i] = is_peak;
+    }
+    
+    // 最后一个点总是局部最大值（因为之后没有点了）
+    if n > 0 {
+        result[n-1] = true;
+    }
+    
+    Ok(result)
 }
