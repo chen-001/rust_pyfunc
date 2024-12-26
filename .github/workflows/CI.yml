@@ -122,7 +122,7 @@ jobs:
       matrix:
         # python-version: ['3.8', '3.9', '3.10', '3.11']  
         platform:
-          - runner: macos-12
+          - runner: macos-13
             target: x86_64
           - runner: macos-14
             target: aarch64
