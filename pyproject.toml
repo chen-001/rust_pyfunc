@@ -13,6 +13,15 @@ classifiers = [
 ]
 
 dynamic = ["version"]
+
 [tool.maturin]
 features = ["pyo3/extension-module"]
+python-source = "python"
+module-name = "rust_pyfunc"
+include = ["python/rust_pyfunc/*.pyi"]
+
+[tool.mypy]
+mypy_path = "python"
+packages = ["rust_pyfunc"]
+python_version = "3.9"
 

@@ -1,4 +1,4 @@
-from rust_pyfunc import min_word_edit_distance
+from rust_pyfunc.rust_pyfunc import min_word_edit_distance
 
 def test_min_word_edit_distance():
     # 测试用例1：从DA到DB（添加一个单词）

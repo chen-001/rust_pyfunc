@@ -2,7 +2,7 @@ import sys
 import os
 
 # Import the Rust module
-from rust_pyfunc import jaccard_similarity
+from rust_pyfunc.rust_pyfunc import jaccard_similarity
 
 def test_jaccard_similarity():
     # 测试用例1：完全相同的句子

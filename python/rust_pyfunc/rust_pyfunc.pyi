@@ -1,4 +1,4 @@
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union, Dict
 import numpy as np
 from numpy.typing import NDArray
 
@@ -277,28 +277,265 @@ def rolling_window_stat(
     stat_type: str,
     include_current: bool = True,
 ) -> np.ndarray:
-    """计算滚动窗口统计量
+    """计算时间序列在指定时间窗口内向后滚动的统计量。
+    对于每个时间点，计算该点之后指定时间窗口内所有数据的指定统计量。
 
-    参数：
-        times (np.ndarray): 时间序列
-        values (np.ndarray): 值序列
-        window (float): 窗口大小（纳秒）
-        stat_type (str): 统计量类型，可选值：
-            - "mean": 均值
-            - "sum": 求和
-            - "max": 最大值
-            - "min": 最小值
-            - "last": 最后一个值
-            - "std": 标准差
-            - "median": 中位数
-            - "count": 计数
-            - "rank": 排名
-            - "skew": 偏度
-            - "trend_time": 与时间序列的相关系数
-            - "trend_oneton": 与1到n序列的相关系数（忽略时间间隔）
-        include_current (bool): 是否包含当前时间点的值
+    参数说明：
+    ----------
+    times : np.ndarray
+        时间戳数组（单位：秒）
+    values : np.ndarray
+        数值数组
+    window : float
+        时间窗口大小（单位：秒）
+    stat_type : str
+        统计量类型，可选值：
+        - "mean": 均值
+        - "sum": 总和
+        - "max": 最大值
+        - "min": 最小值
+        - "last": 时间窗口内最后一个值
+        - "std": 标准差
+        - "median": 中位数
+        - "count": 数据点数量
+        - "rank": 分位数（0到1之间）
+        - "skew": 偏度
+        - "trend_time": 与时间序列的相关系数
+        - "trend_oneton": 与1到n序列的相关系数（时间间隔）
+    include_current : bool, default=True
+        是否包含当前时间点的值。如果为False，则计算时会排除当前时间点的值。
 
-    返回：
-        np.ndarray: 每个时间点的统计量
+    返回值：
+    -------
+    np.ndarray
+        与输入时间序列等长的数组，包含每个时间点对应的统计量。
+        对于无效的计算结果（如窗口内数据点不足），返回NaN。
+
+    示例：
+    -------
+    >>> import numpy as np
+    >>> from rust_pyfunc import rolling_window_stat
+    >>> times = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
+    >>> values = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    >>> window = 2.0
+    >>> rolling_window_stat(times, values, window, "mean")
+    array([2.0, 2.5, 3.5, 4.5, 5.0])
+
+    注意：
+    -----
+    1. 时间窗口是向后滚动的，即对于每个时间点t，计算[t, t+window]范围内的统计量
+    2. 当include_current=False时，计算范围为(t, t+window]
+    3. 对于不同的统计类型，可能需要不同数量的有效数据点才能计算结果
+    4. 所有时间单位都是秒
     """
     pass
+
+class PriceTree:
+    """价格树结构，用于分析价格序列的层次关系和分布特征。
+    
+    这是一个二叉树结构，每个节点代表一个价格水平，包含该价格的成交量和时间信息。
+    树的构建基于价格的大小关系，支持快速的价格查找和区间统计。
+    """
+    
+    def __init__(self) -> None:
+        """初始化一个空的价格树。"""
+        ...
+    
+    def build_tree(
+        self,
+        times: NDArray[np.int64],
+        prices: NDArray[np.float64],
+        volumes: NDArray[np.float64]
+    ) -> None:
+        """根据时间序列、价格序列和成交量序列构建价格树。
+
+        参数说明：
+        ----------
+        times : numpy.ndarray
+            时间戳序列，Unix时间戳格式
+        prices : numpy.ndarray
+            价格序列
+        volumes : numpy.ndarray
+            成交量序列
+        """
+        ...
+
+    def get_tree_structure(self) -> str:
+        """获取树的结构字符串表示。
+
+        返回值：
+        -------
+        str
+            树结构的字符串表示
+        """
+        ...
+
+    def get_tree_statistics(self) -> List[Tuple[str, str]]:
+        """获取树的统计特征。
+
+        返回值：
+        -------
+        List[Tuple[str, str]]
+            包含多个统计指标的列表，每个元素为(指标名称, 指标值)对
+        """
+        ...
+
+    @property
+    def min_depth(self) -> int:
+        """获取树的最小深度"""
+        ...
+
+    @property
+    def max_depth(self) -> int:
+        """获取树的最大深度"""
+        ...
+
+    @property
+    def avg_depth(self) -> float:
+        """获取树的平均深度"""
+        ...
+
+    @property
+    def total_nodes(self) -> int:
+        """获取树的总节点数"""
+        ...
+
+    @property
+    def leaf_nodes(self) -> int:
+        """获取叶子节点数"""
+        ...
+
+    @property
+    def internal_nodes(self) -> int:
+        """获取内部节点数"""
+        ...
+
+    @property
+    def leaf_internal_ratio(self) -> float:
+        """获取叶子节点与内部节点的比率"""
+        ...
+
+    @property
+    def degree_one_nodes(self) -> int:
+        """获取度为1的节点数"""
+        ...
+
+    @property
+    def degree_two_nodes(self) -> int:
+        """获取度为2的节点数"""
+        ...
+
+    @property
+    def degree_ratio(self) -> float:
+        """获取度为1和度为2节点的比率"""
+        ...
+
+    @property
+    def avg_balance_factor(self) -> float:
+        """获取平均平衡因子"""
+        ...
+
+    @property
+    def max_balance_factor(self) -> int:
+        """获取最大平衡因子"""
+        ...
+
+    @property
+    def skewness(self) -> float:
+        """获取树的倾斜度"""
+        ...
+
+    @property
+    def avg_path_length(self) -> float:
+        """获取平均路径长度"""
+        ...
+
+    @property
+    def max_path_length(self) -> int:
+        """获取最大路径长度"""
+        ...
+
+    @property
+    def avg_subtree_nodes(self) -> float:
+        """获取平均子树节点数"""
+        ...
+
+    @property
+    def max_subtree_nodes(self) -> int:
+        """获取最大子树节点数"""
+        ...
+
+    @property
+    def min_width(self) -> int:
+        """获取树的最小宽度"""
+        ...
+
+    @property
+    def max_width(self) -> int:
+        """获取树的最大宽度"""
+        ...
+
+    @property
+    def avg_width(self) -> float:
+        """获取树的平均宽度"""
+        ...
+
+    @property
+    def completeness(self) -> float:
+        """获取树的完整度"""
+        ...
+
+    @property
+    def density(self) -> float:
+        """获取树的密度"""
+        ...
+
+    @property
+    def critical_nodes(self) -> int:
+        """获取关键节点数"""
+        ...
+
+    @property
+    def asl(self) -> float:
+        """获取平均查找长度(ASL)"""
+        ...
+
+    @property
+    def wpl(self) -> float:
+        """获取加权路径长度(WPL)"""
+        ...
+
+    @property
+    def diameter(self) -> int:
+        """获取树的直径"""
+        ...
+
+    @property
+    def total_volume(self) -> float:
+        """获取总成交量"""
+        ...
+
+    @property
+    def avg_volume_per_node(self) -> float:
+        """获取每个节点的平均成交量"""
+        ...
+
+    @property
+    def price_range(self) -> Tuple[float, float]:
+        """获取价格范围"""
+        ...
+
+    @property
+    def time_range(self) -> Tuple[int, int]:
+        """获取时间范围"""
+        ...
+
+    def get_all_features(self) -> Dict[str, Dict[str, Union[float, int]]]:
+        """获取所有树的特征。
+
+        返回值：
+        -------
+        Dict[str, Dict[str, Union[float, int]]]
+            包含所有特征的嵌套字典，按类别组织
+        """
+        ...

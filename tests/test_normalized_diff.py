@@ -1,4 +1,4 @@
-from rust_pyfunc import normalized_diff
+from rust_pyfunc.rust_pyfunc import normalized_diff
 
 def test_normalized_diff():
     # 测试用例1：原始例子中的DA和DB

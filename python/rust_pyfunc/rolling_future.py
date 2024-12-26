@@ -1,7 +1,7 @@
 from typing import Union, Literal, overload
 import pandas as pd
 import numpy as np
-from rust_pyfunc import rolling_window_stat
+from rust_pyfunc.rust_pyfunc import rolling_window_stat
 
 StatType = Literal["mean", "sum", "max", "min", "std", "median", "count", "rank", "skew", "trend_time", "trend_oneton", "last"]
 
@@ -48,6 +48,20 @@ class RollingFutureAccessor:
     """
     
     def __init__(self, pandas_obj: Union[pd.DataFrame, pd.Series]):
+        """设置滚动窗口的大小。
+        
+        参数：
+        -----
+        window : str
+            时间窗口大小，例如'5s'表示5秒，'1min'表示1分钟
+        include_current : bool, default False
+            是否在计算时包含当前行的值
+            
+        返回值：
+        -------
+        RollingFutureAccessor
+            返回self以支持链式调用
+        """
         self._obj = pandas_obj
         self._window = None
         self._include_current = False  # 默认不包含当前行
@@ -320,3 +334,4 @@ class RollingFutureAccessor:
         if len(self._obj.columns) == 1:
             return self._apply_stat(self._obj.columns[0], "last")
         return pd.DataFrame({col: self._apply_stat(col, "last") for col in self._obj.columns})
+

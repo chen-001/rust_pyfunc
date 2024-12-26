@@ -1,6 +1,6 @@
 import numpy as np
 from scipy import stats
-from rust_pyfunc import rolling_window_stat
+from rust_pyfunc.rust_pyfunc import rolling_window_stat
 
 def test_rolling_window_stat():
     # 创建测试数据 - 使用不均匀时间序列以测试所有统计特性
