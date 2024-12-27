@@ -1,6 +1,7 @@
 use pyo3::prelude::*;
-use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1};
+use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1, PyReadonlyArray2};
 use ndarray::Array1;
+use pyo3::exceptions::PyValueError;
 
 
 /// 识别数组中的连续相等值段，并为每个段分配唯一标识符。
@@ -75,9 +76,9 @@ pub fn identify_segments(arr: PyReadonlyArray1<f64>) -> PyResult<Py<PyArray1<i32
 /// 
 /// print(f"最大乘积出现在索引 {x} 和 {y}")
 /// print(f"对应的值为 {arr[x]} 和 {arr[y]}")
-/// print(f"最大乘积为: {max_product}")
+/// print(f"最大乘���为: {max_product}")
 ///
-/// # 例如，如果x=0, y=3，那么：
+/// # 例如，如果x=0, y=3那么：
 /// # min(arr[0], arr[3]) * |0-3| = min(4.0, 3.0) * 3 = 3.0 * 3 = 9.0
 /// ```
 #[pyfunction]
@@ -118,4 +119,92 @@ pub fn find_max_range_product(arr: PyReadonlyArray1<f64>) -> PyResult<(i64, i64,
     }
     
     Ok((result.0, result.1, max_product))
+}
+
+
+
+/// 计算二维方阵的最大特征值和对应的特征向量
+/// 使用幂迭代法计算，不使用并行计算
+///
+/// 参数说明：
+/// ----------
+/// matrix : numpy.ndarray
+///     输入二维方阵，类型为float64
+///
+/// 返回值：
+/// -------
+/// tuple
+///     返回一个元组(eigenvalue, eigenvector)，
+///     eigenvalue是最大特征值（float64），
+///     eigenvector是对应的特征向量（numpy.ndarray）
+///
+/// Python调用示例：
+/// ```python
+/// import numpy as np
+/// from rust_pyfunc import compute_max_eigenvalue
+///
+/// # 创建测试矩阵
+/// matrix = np.array([[4.0, -1.0], 
+///                    [-1.0, 3.0]], dtype=np.float64)
+/// eigenvalue, eigenvector = compute_max_eigenvalue(matrix)
+/// print(f"最大特征值: {eigenvalue}")
+/// print(f"对应的特征向量: {eigenvector}")
+/// ```
+#[pyfunction]
+#[pyo3(signature = (matrix))]
+pub fn compute_max_eigenvalue(matrix: PyReadonlyArray2<f64>) -> PyResult<(f64, Py<PyArray1<f64>>)> {
+    let matrix_view = matrix.as_array();
+    let shape = matrix_view.shape();
+    
+    if shape[0] != shape[1] {
+        return Err(PyValueError::new_err("输入必须是方阵"));
+    }
+    
+    let n = shape[0];
+    let mut v = Array1::<f64>::ones(n);
+    v.mapv_inplace(|x| x / (n as f64).sqrt());
+    
+    let max_iter = 30;
+    let tolerance = 1e-4;
+    let mut eigenvalue: f64;
+    let mut prev_eigenvalue: f64;
+    
+    // 预分配内存并确保内存对齐
+    let mut new_v = Array1::<f64>::zeros(n);
+    let mut temp = Array1::<f64>::zeros(n);
+    
+    // 预计算第一次矩阵向量乘积并存储在temp中
+    matrix_view.dot(&v).assign_to(&mut temp);
+    eigenvalue = v.dot(&temp);
+    
+    for _ in 0..max_iter {
+        prev_eigenvalue = eigenvalue;
+        
+        // 使用预分配的数组进行矩阵向量乘法
+        matrix_view.dot(&v).assign_to(&mut new_v);
+        
+        // 快速计算范数
+        let norm = new_v.dot(&new_v).sqrt();
+        if norm < 1e-5 {
+            break;
+        }
+        
+        // 原地归一化
+        new_v.mapv_inplace(|x| x / norm);
+        
+        // 计算瑞利商
+        matrix_view.dot(&new_v).assign_to(&mut temp);
+        eigenvalue = new_v.dot(&temp);
+        
+        // 交换向量引用
+        std::mem::swap(&mut v, &mut new_v);
+        
+        // 收敛检查
+        let rel_error = (eigenvalue - prev_eigenvalue).abs();
+        if rel_error < tolerance * eigenvalue.abs() {
+            break;
+        }
+    }
+    
+    Ok((eigenvalue, v.into_pyarray(matrix.py()).to_owned()))
 }

@@ -35,6 +35,7 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(time_series::find_local_peaks_within_window, m)?)?;
     m.add_function(wrap_pyfunction!(pandas_ext::rolling_window_stat, m)?)?;
     m.add_class::<tree::PriceTree>()?;
+    m.add_function(wrap_pyfunction!(sequence::compute_max_eigenvalue, m)?)?;
     // m.add_function(wrap_pyfunction!(text::normalized_diff, m)?)?;
     Ok(())
 }

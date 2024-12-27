@@ -539,3 +539,33 @@ class PriceTree:
             包含所有特征的嵌套字典，按类别组织
         """
         ...
+
+def compute_max_eigenvalue(matrix: NDArray[np.float64]) -> Tuple[float, NDArray[np.float64]]:
+    """计算二维方阵的最大特征值和对应的特征向量。
+    使用幂迭代法计算，不使用并行计算。
+
+    参数说明：
+    ----------
+    matrix : numpy.ndarray
+        输入二维方阵，类型为float64
+
+    返回值：
+    -------
+    tuple
+        返回一个元组(eigenvalue, eigenvector)，
+        eigenvalue是最大特征值（float64），
+        eigenvector是对应的特征向量（numpy.ndarray）
+
+    示例：
+    -------
+    >>> import numpy as np
+    >>> from rust_pyfunc import compute_max_eigenvalue
+    >>> 
+    >>> # 创建测试矩阵
+    >>> matrix = np.array([[4.0, -1.0], 
+    ...                    [-1.0, 3.0]], dtype=np.float64)
+    >>> eigenvalue, eigenvector = compute_max_eigenvalue(matrix)
+    >>> print(f"最大特征值: {eigenvalue}")
+    >>> print(f"对应的特征向量: {eigenvector}")
+    """
+    ...
