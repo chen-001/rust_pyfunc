@@ -48,8 +48,8 @@ jobs:
           python-version: 3.x
       - name: Install OpenSSL
         run: |
-          yum update -y
-          yum install -y openssl-devel
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev pkg-config
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
@@ -99,66 +99,83 @@ jobs:
   #         path: dist
 
   windows:
-    runs-on: ${{ matrix.platform.runner }}
+    runs-on: windows-latest
     strategy:
       matrix:
-        # python-version: ['3.8', '3.9', '3.10', '3.11']   
         platform:
-          - runner: windows-latest
-            target: x64
-          - runner: windows-latest
-            target: x86
+          - target: x64
+            cross: false
+          - target: x86
+            cross: false
+        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13']
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+      VCPKG_DEFAULT_TRIPLET: x64-windows-static
+
     steps:
       - uses: actions/checkout@v4
+      
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v7
+        with:
+          vcpkgGitCommitId: 'a42af01b72c28a8e1d7b48107b33e4f286a55ef6'
+      
+      - name: Install Dependencies
+        run: |
+          vcpkg install openblas:x64-windows-static
+          choco install openssl
+          echo "VCPKG_ROOT=$env:GITHUB_WORKSPACE/vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Append
+      
       - uses: actions/setup-python@v5
         with:
-          # python-version: ${{ matrix.python-version }}
           python-version: 3.x
           architecture: ${{ matrix.platform.target }}
-      - name: Install OpenSSL
-        run: |
-          choco install openssl
+      
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --find-interpreter
           sccache: 'true'
+      
       - name: Upload wheels
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
-          name: wheels-windows-${{ matrix.platform.target }}
+          name: wheels-windows-${{ matrix.platform.target }}-${{ matrix.python-version }}
           path: dist
 
   macos:
-    runs-on: ${{ matrix.platform.runner }}
+    runs-on: macos-latest
     strategy:
       matrix:
-        # python-version: ['3.8', '3.9', '3.10', '3.11']  
-        platform:
-          - runner: macos-13
-            target: x86_64
-          - runner: macos-14
-            target: aarch64
+        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13']
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          # python-version: ${{ matrix.python-version }}
           python-version: 3.x
-      - name: Install OpenSSL
+      
+      - name: Install Dependencies
         run: |
-          brew install openssl
+          brew install openssl@3
+          brew install openblas
+          brew install pkg-config
+          echo 'export PKG_CONFIG_PATH="/opt/homebrew/opt/openblas/lib/pkgconfig:$PKG_CONFIG_PATH"' >> ~/.bash_profile
+          source ~/.bash_profile
+      
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
-          target: ${{ matrix.platform.target }}
           args: --release --out dist --find-interpreter
           sccache: 'true'
+        env:
+          PKG_CONFIG_PATH: /opt/homebrew/opt/openblas/lib/pkgconfig
+      
       - name: Upload wheels
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
-          name: wheels-macos-${{ matrix.platform.target }}
+          name: wheels-macos-${{ matrix.python-version }}
           path: dist
 
   sdist:
@@ -167,8 +184,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install OpenSSL
         run: |
-          yum update -y
-          yum install -y openssl-devel
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev pkg-config
       - name: Build sdist
         uses: PyO3/maturin-action@v1
         with:
