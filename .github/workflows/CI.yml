@@ -18,6 +18,9 @@ on:
 permissions:
   contents: read
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   linux:
     runs-on: ${{ matrix.platform.runner }}
@@ -43,6 +46,10 @@ jobs:
         with:
           # python-version: ${{ matrix.python-version }}
           python-version: 3.x
+      - name: Install OpenSSL
+        run: |
+          yum update -y
+          yum install -y openssl-devel
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
@@ -74,6 +81,10 @@ jobs:
   #     - uses: actions/setup-python@v5
   #       with:
   #         python-version: 3.x
+  #     - name: Install OpenSSL
+  #       run: |
+  #         yum update -y
+  #         yum install -y openssl-devel
   #     - name: Build wheels
   #       uses: PyO3/maturin-action@v1
   #       with:
@@ -104,6 +115,9 @@ jobs:
           # python-version: ${{ matrix.python-version }}
           python-version: 3.x
           architecture: ${{ matrix.platform.target }}
+      - name: Install OpenSSL
+        run: |
+          choco install openssl
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
@@ -132,6 +146,9 @@ jobs:
         with:
           # python-version: ${{ matrix.python-version }}
           python-version: 3.x
+      - name: Install OpenSSL
+        run: |
+          brew install openssl
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
@@ -148,6 +165,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install OpenSSL
+        run: |
+          yum update -y
+          yum install -y openssl-devel
       - name: Build sdist
         uses: PyO3/maturin-action@v1
         with:
