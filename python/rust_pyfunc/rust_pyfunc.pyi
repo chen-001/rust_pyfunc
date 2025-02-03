@@ -569,3 +569,333 @@ def compute_max_eigenvalue(matrix: NDArray[np.float64]) -> Tuple[float, NDArray[
     >>> print(f"对应的特征向量: {eigenvector}")
     """
     ...
+
+def find_follow_volume_sum_same_price(times: NDArray[np.float64], prices: NDArray[np.float64], volumes: NDArray[np.float64], time_window: float = 0.1) -> NDArray[np.float64]:
+    """计算每一行在其后0.1秒内具有相同price和volume的行的volume总和。
+
+    参数说明：
+    ----------
+    times : numpy.ndarray
+        时间戳数组（单位：秒）
+    prices : numpy.ndarray
+        价格数组
+    volumes : numpy.ndarray
+        成交量数组
+    time_window : float, optional
+        时间窗口大小（单位：秒），默认为0.1
+
+    返回值：
+    -------
+    numpy.ndarray
+        每一行在其后time_window秒内（包括当前行）具有相同price和volume的行的volume总和
+
+    示例：
+    -------
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> from rust_pyfunc import find_follow_volume_sum
+    >>> 
+    >>> # 创建示例DataFrame
+    >>> df = pd.DataFrame({
+    ...     'exchtime': [1.0, 1.05, 1.08, 1.15, 1.2],
+    ...     'price': [10.0, 10.0, 10.0, 11.0, 10.0],
+    ...     'volume': [100, 100, 100, 200, 100]
+    ... })
+    >>> 
+    >>> # 计算follow列
+    >>> df['follow'] = find_follow_volume_sum(
+    ...     df['exchtime'].values,
+    ...     df['price'].values,
+    ...     df['volume'].values
+    ... )
+    >>> print(df)
+       exchtime  price  volume  follow
+    0     1.00   10.0    100    300.0  # 1.0秒后0.1秒内有两个相同的交易
+    1     1.05   10.0    100    200.0  # 1.05秒后0.1秒内有一个相同的交易
+    2     1.08   10.0    100    100.0  # 1.08秒后0.1秒内没有相同的交易
+    3     1.15   11.0    200    200.0  # 不同价格的交易
+    4     1.20   10.0    100    100.0  # 最后一个交易
+    """
+    ...
+
+def find_follow_volume_sum_same_price_and_flag(times: NDArray[np.float64], prices: NDArray[np.float64], volumes: NDArray[np.float64], flags: NDArray[np.int32], time_window: float = 0.1) -> NDArray[np.float64]:
+    """计算每一行在其后0.1秒内具有相同flag、price和volume的行的volume总和。
+
+    参数说明：
+    ----------
+    times : array_like
+        时间戳数组（单位：秒）
+    prices : array_like
+        价格数组
+    volumes : array_like
+        成交量数组
+    flags : array_like
+        主买卖标志数组
+    time_window : float, optional
+        时间窗口大小（单位：秒），默认为0.1
+
+    返回值：
+    -------
+    numpy.ndarray
+        每一行在其后time_window秒内具有相同price和volume的行的volume总和
+
+    示例：
+    -------
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> from rust_pyfunc import find_follow_volume_sum
+    >>> 
+    >>> # 创建示例DataFrame
+    >>> df = pd.DataFrame({
+    ...     'exchtime': [1.0, 1.05, 1.08, 1.15, 1.2],
+    ...     'price': [10.0, 10.0, 10.0, 11.0, 10.0],
+    ...     'volume': [100, 100, 100, 200, 100],
+    ...     'flag': [66, 66, 66, 83, 66]
+    ... })
+    >>> 
+    >>> # 计算follow列
+    >>> df['follow'] = find_follow_volume_sum_same_price_and_flag(
+    ...     df['exchtime'].values,
+    ...     df['price'].values,
+    ...     df['volume'].values,
+    ...     df['flag'].values
+    ... )
+    """
+    ...
+
+def mark_follow_groups(times: NDArray[np.float64], prices: NDArray[np.float64], volumes: NDArray[np.float64], time_window: float = 0.1) -> NDArray[np.int32]:
+    """标记每一行在其后0.1秒内具有相同price和volume的行组。
+    对于同一个时间窗口内的相同交易组，标记相同的组号。
+    组号从1开始递增，每遇到一个新的交易组就分配一个新的组号。
+
+    参数说明：
+    ----------
+    times : numpy.ndarray
+        时间戳数组（单位：秒）
+    prices : numpy.ndarray
+        价格数组
+    volumes : numpy.ndarray
+        成交量数组
+    time_window : float, optional
+        时间窗口大小（单位：秒），默认为0.1
+
+    返回值：
+    -------
+    numpy.ndarray
+        整数数组，表示每行所属的组号。0表示不属于任何组。
+
+    示例：
+    -------
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> from rust_pyfunc import mark_follow_groups
+    >>> 
+    >>> # 创建示例DataFrame
+    >>> df = pd.DataFrame({
+    ...     'exchtime': [1.0, 1.05, 1.08, 1.15, 1.2],
+    ...     'price': [10.0, 10.0, 10.0, 11.0, 10.0],
+    ...     'volume': [100, 100, 100, 200, 100]
+    ... })
+    >>> 
+    >>> # 标记协同交易组
+    >>> df['group'] = mark_follow_groups(
+    ...     df['exchtime'].values,
+    ...     df['price'].values,
+    ...     df['volume'].values
+    ... )
+    >>> print(df)
+    #    exchtime  price  volume  group
+    # 0     1.00   10.0    100      1  # 第一组的起始点
+    # 1     1.05   10.0    100      1  # 属于第一组
+    # 2     1.08   10.0    100      1  # 属于第一组
+    # 3     1.15   11.0    200      2  # 第二组的起始点
+    # 4     1.20   10.0    100      3  # 第三组的起始点
+    """
+    ...
+
+def mark_follow_groups_with_flag(times: NDArray[np.float64], prices: NDArray[np.float64], volumes: NDArray[np.float64], flags: NDArray[np.int64], time_window: float = 0.1) -> NDArray[np.int32]:
+    """标记每一行在其后time_window秒内具有相同flag、price和volume的行组。
+    对于同一个时间窗口内的相同交易组，标记相同的组号。
+    组号从1开始递增，每遇到一个新的交易组就分配一个新的组号。
+
+    参数说明：
+    ----------
+    times : numpy.ndarray
+        时间戳数组（单位：秒）
+    prices : numpy.ndarray
+        价格数组
+    volumes : numpy.ndarray
+        成交量数组
+    flags : numpy.ndarray
+        主买卖标志数组
+    time_window : float, optional
+        时间窗口大小（单位：秒），默认为0.1
+
+    返回值：
+    -------
+    numpy.ndarray
+        整数数组，表示每行所属的组号。0表示不属于任何组。
+
+    示例：
+    -------
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> from rust_pyfunc import mark_follow_groups_with_flag
+    >>> 
+    >>> # 创建示例DataFrame
+    >>> df = pd.DataFrame({
+    ...     'exchtime': [1.0, 1.05, 1.08, 1.15, 1.2],
+    ...     'price': [10.0, 10.0, 10.0, 11.0, 10.0],
+    ...     'volume': [100, 100, 100, 200, 100],
+    ...     'flag': [66, 66, 66, 83, 66]
+    ... })
+    >>> 
+    >>> # 标记协同交易组
+    >>> df['group'] = mark_follow_groups_with_flag(
+    ...     df['exchtime'].values,
+    ...     df['price'].values,
+    ...     df['volume'].values,
+    ...     df['flag'].values
+    ... )
+    >>> print(df)
+    #    exchtime  price  volume  flag  group
+    # 0     1.00   10.0    100    66      1  # 第一组的起始点
+    # 1     1.05   10.0    100    66      1  # 属于第一组
+    # 2     1.08   10.0    100    66      1  # 属于第一组
+    # 3     1.15   11.0    200    83      2  # 第二组的起始点
+    # 4     1.20   10.0    100    66      3  # 第三组的起始点
+    """
+    ...
+
+def find_half_energy_time(times: NDArray[np.float64], prices: NDArray[np.float64], time_window: float = 5.0) -> NDArray[np.float64]:
+    """计算每一行在其后指定时间窗口内的价格变动能量，并找出首次达到最终能量一半时所需的时间。
+
+    参数说明：
+    ----------
+    times : numpy.ndarray
+        时间戳数组（单位：秒）
+    prices : numpy.ndarray
+        价格数组
+    time_window : float, optional
+        时间窗口大小（单位：秒），默认为5.0
+
+    返回值：
+    -------
+    numpy.ndarray
+        浮点数数组，表示每行达到最终能量一半所需的时间（秒）。
+        如果在时间窗口内未达到一半能量，或者最终能量为0，则返回time_window值。
+
+    示例：
+    -------
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> from rust_pyfunc import find_half_energy_time
+    >>> 
+    >>> # 创建示例DataFrame
+    >>> df = pd.DataFrame({
+    ...     'exchtime': [1.0, 1.1, 1.2, 1.3, 1.4],
+    ...     'price': [10.0, 10.2, 10.5, 10.3, 10.1]
+    ... })
+    >>> 
+    >>> # 计算达到一半能量所需时间
+    >>> df['half_energy_time'] = find_half_energy_time(
+    ...     df['exchtime'].values,
+    ...     df['price'].values,
+    ...     time_window=5.0
+    ... )
+    >>> print(df)
+    #    exchtime  price  half_energy_time
+    # 0      1.0   10.0              2.1  # 在2.1秒时达到5秒能量的一半
+    # 1      1.1   10.2              1.9  # 在1.9秒时达到5秒能量的一半
+    # 2      1.2   10.5              1.8  # 在1.8秒时达到5秒能量的一半
+    # 3      1.3   10.3              1.7  # 在1.7秒时达到5秒能量的一半
+    # 4      1.4   10.1              5.0  # 未达到5秒能量的一半
+    """
+    ...
+
+def calculate_shannon_entropy_change(exchtime: NDArray[np.float64], order: NDArray[np.int64], volume: NDArray[np.float64], price: NDArray[np.float64], window_seconds: float = 0.1) -> NDArray[np.float64]:
+    """计算价格创新高时的香农熵变化。
+
+    参数说明：
+    ----------
+    exchtime : numpy.ndarray
+        交易时间数组，纳秒时间戳，类型为float64
+    order : numpy.ndarray
+        订单机构ID数组，类型为int64
+    volume : numpy.ndarray
+        成交量数组，类型为float64
+    price : numpy.ndarray
+        价格数组，类型为float64
+    window_seconds : float
+        计算香农熵变的时间窗口，单位为秒
+
+    返回值：
+    -------
+    numpy.ndarray
+        香农熵变数组，类型为float64。只在价格创新高时计算熵变，其他时刻为NaN。
+        熵变值表示在价格创新高时，从当前时刻到未来window_seconds时间窗口内，
+        交易分布的变化程度。正值表示分布变得更分散，负值表示分布变得更集中。
+
+    示例：
+    -------
+    >>> import numpy as np
+    >>> from rust_pyfunc import calculate_shannon_entropy_change
+    >>> 
+    >>> # 创建测试数据
+    >>> exchtime = np.array([1e9, 2e9, 3e9, 4e9], dtype=np.float64)  # 时间戳（纳秒）
+    >>> order = np.array([100, 200, 300, 400], dtype=np.int64)  # 机构ID
+    >>> volume = np.array([10.0, 20.0, 30.0, 40.0], dtype=np.float64)
+    >>> price = np.array([100.0, 102.0, 101.0, 103.0], dtype=np.float64)
+    >>> 
+    >>> # 计算3秒窗口的香农熵变
+    >>> entropy_changes = calculate_shannon_entropy_change(exchtime, order, volume, price, 3.0)
+    >>> print(entropy_changes)  # 只有价格为100.0、102.0和103.0的位置有非NaN值
+    """
+    ...
+
+def calculate_shannon_entropy_change_at_low(
+    exchtime: NDArray[np.float64],
+    order: NDArray[np.int64],
+    volume: NDArray[np.float64],
+    price: NDArray[np.float64],
+    window_seconds: float
+) -> NDArray[np.float64]:
+    """
+    在价格创新低时计算香农熵变
+
+    参数：
+    ----------
+    exchtime : numpy.ndarray
+        交易时间数组，纳秒时间戳，类型为float64
+    order : numpy.ndarray
+        订单机构ID数组，类型为int64
+    volume : numpy.ndarray
+        成交量数组，类型为float64
+    price : numpy.ndarray
+        价格数组，类型为float64
+    window_seconds : float
+        计算香农熵变的时间窗口，单位为秒
+
+    返回值：
+    -------
+    numpy.ndarray
+        香农熵变数组，类型为float64。只在价格创新低时有值，其他位置为NaN。
+        熵变值表示在价格创新低时，从当前时刻到未来window_seconds时间窗口内，
+        交易分布的变化程度。正值表示分布变得更分散，负值表示分布变得更集中。
+
+    示例：
+    -------
+    >>> import numpy as np
+    >>> from rust_pyfunc import calculate_shannon_entropy_change_at_low
+    >>> 
+    >>> # 创建测试数据
+    >>> exchtime = np.array([1e9, 2e9, 3e9, 4e9], dtype=np.float64)  # 时间戳（纳秒）
+    >>> order = np.array([100, 200, 300, 400], dtype=np.int64)  # 机构ID
+    >>> volume = np.array([10.0, 20.0, 30.0, 40.0], dtype=np.float64)
+    >>> price = np.array([100.0, 102.0, 101.0, 103.0], dtype=np.float64)
+    >>> 
+    >>> # 计算3秒窗口的香农熵变
+    >>> entropy_changes = calculate_shannon_entropy_change_at_low(exchtime, order, volume, price, 3.0)
+    >>> print(entropy_changes)  # 只有价格为100.0、101.0的位置有非NaN值
+    """
+    ...

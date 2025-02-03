@@ -564,6 +564,7 @@ fn discretize(data_: Vec<f64>, c: usize) -> Array1<f64> {
 #[pyfunction]
 pub fn find_local_peaks_within_window(times: PyReadonlyArray1<f64>, prices: PyReadonlyArray1<f64>, window: f64) -> PyResult<Vec<bool>> {
     let times = times.as_array();
+    let times: Vec<f64> = times.iter().map(|&x| x / 1.0e9).collect();
     let prices = prices.as_array();
     let n = times.len();
     let mut result = vec![false; n];
@@ -592,6 +593,496 @@ pub fn find_local_peaks_within_window(times: PyReadonlyArray1<f64>, prices: PyRe
     // 最后一个点总是局部最大值（因为之后没有点了）
     if n > 0 {
         result[n-1] = true;
+    }
+    
+    Ok(result)
+}
+
+/// 计算每一行在其后0.1秒内具有相同price和volume的行的volume总和。
+/// 
+/// 参数说明：
+/// ----------
+/// times : array_like
+///     时间戳数组（单位：秒）
+/// prices : array_like
+///     价格数组
+/// volumes : array_like
+///     成交量数组
+/// 
+/// 返回值：
+/// -------
+/// numpy.ndarray
+///     每一行在其后0.1秒内具有相同price和volume的行的volume总和
+/// 
+/// Python调用示例：
+/// ```python
+/// import pandas as pd
+/// import numpy as np
+/// from rust_pyfunc import find_follow_volume_sum
+/// 
+/// # 创建示例DataFrame
+/// df = pd.DataFrame({
+///     'exchtime': [1.0, 1.05, 1.08, 1.15, 1.2],
+///     'price': [10.0, 10.0, 10.0, 11.0, 10.0],
+///     'volume': [100, 100, 100, 200, 100]
+/// })
+/// 
+/// # 计算follow列
+/// df['follow'] = find_follow_volume_sum(
+///     df['exchtime'].values,
+///     df['price'].values,
+///     df['volume'].values
+/// )
+/// ```
+#[pyfunction]
+#[pyo3(signature = (times, prices, volumes, time_window=0.1))]
+pub fn find_follow_volume_sum_same_price(
+    times: PyReadonlyArray1<f64>,
+    prices: PyReadonlyArray1<f64>,
+    volumes: PyReadonlyArray1<f64>,
+    time_window: f64
+) -> PyResult<Vec<f64>> {
+    let times = times.as_array();
+    let times: Vec<f64> = times.iter().map(|&x| x / 1.0e9).collect();
+    let prices = prices.as_array();
+    let volumes = volumes.as_array();
+    let n = times.len();
+    let mut result = vec![0.0; n];
+    
+    // 对每个点，检查之后time_window秒内的点
+    for i in 0..n {
+        let current_time = times[i];
+        let current_price = prices[i];
+        let current_volume = volumes[i];
+        let mut sum = current_volume; // 包含当前点的成交量
+        
+        // 检查之后的点
+        for j in (i + 1)..n {
+            // 如果时间差超过time_window秒，退出内层循环
+            if times[j] - current_time > time_window {
+                break;
+            }
+            // 如果价格和成交量都相同，加入总和
+            if (prices[j] - current_price).abs() < 1e-10 && 
+               (volumes[j] - current_volume).abs() < 1e-10 {
+                sum += volumes[j];
+            }
+        }
+        
+        result[i] = sum;
+    }
+    
+    Ok(result)
+}
+
+
+/// 计算每一行在其后time_window秒内具有相同flag、price和volume的行的volume总和。
+/// 
+/// 参数说明：
+/// ----------
+/// times : array_like
+///     时间戳数组（单位：秒）
+/// prices : array_like
+///     价格数组
+/// volumes : array_like
+///     成交量数组
+/// flags : array_like
+///     主买卖标志数组
+/// time_window : float, optional
+///     时间窗口大小（单位：秒），默认为0.1
+/// 
+/// 返回值：
+/// -------
+/// numpy.ndarray
+///     每一行在其后time_window秒内具有相同price和volume的行的volume总和
+/// 
+/// Python调用示例：
+/// ```python
+/// import pandas as pd
+/// import numpy as np
+/// from rust_pyfunc import find_follow_volume_sum
+/// 
+/// # 创建示例DataFrame
+/// df = pd.DataFrame({
+///     'exchtime': [1.0, 1.05, 1.08, 1.15, 1.2],
+///     'price': [10.0, 10.0, 10.0, 11.0, 10.0],
+///     'volume': [100, 100, 100, 200, 100],
+///     'flag': [66, 66, 66, 83, 66]
+/// })
+/// 
+/// # 计算follow列
+/// df['follow'] = find_follow_volume_sum(
+///     df['exchtime'].values,
+///     df['price'].values,
+///     df['volume'].values,
+///     df['flag'].values,
+///     time_window=0.1
+/// )
+/// ```
+#[pyfunction]
+#[pyo3(signature = (times, prices, volumes, flags, time_window=0.1))]
+pub fn find_follow_volume_sum_same_price_and_flag(
+    times: PyReadonlyArray1<f64>,
+    prices: PyReadonlyArray1<f64>,
+    volumes: PyReadonlyArray1<f64>,
+    flags: PyReadonlyArray1<i64>,
+    time_window: f64
+) -> PyResult<Vec<f64>> {
+    let times = times.as_array();
+    let times: Vec<f64> = times.iter().map(|&x| x / 1.0e9).collect();
+    let prices = prices.as_array();
+    let volumes = volumes.as_array();
+    let flags = flags.as_array();
+    let n = times.len();
+    let mut result = vec![0.0; n];
+    
+    // 对每个点，检查之后time_window秒内的点
+    for i in 0..n {
+        let current_time = times[i];
+        let current_price = prices[i];
+        let current_volume = volumes[i];
+        let current_flag = flags[i];
+        let mut sum = current_volume; // 包含当前点的成交量
+        
+        // 检查之后的点
+        for j in (i + 1)..n {
+            // 如果时间差超过time_window秒，退出内层循环
+            if times[j] - current_time > time_window {
+                break;
+            }
+            // 如果价格和成交量都相同，加入总和
+            if (prices[j] - current_price).abs() < 1e-10 && 
+               (volumes[j] - current_volume).abs() < 1e-10 &&
+               flags[j] == current_flag {
+                sum += volumes[j];
+            }
+        }
+        
+        result[i] = sum;
+    }
+    
+    Ok(result)
+}
+
+/// 标记每一行在其后0.1秒内具有相同price和volume的行组。
+/// 对于同一个时间窗口内的相同交易组，标记相同的组号。
+/// 组号从1开始递增，每遇到一个新的交易组就分配一个新的组号。
+/// 
+/// 参数说明：
+/// ----------
+/// times : array_like
+///     时间戳数组（单位：秒）
+/// prices : array_like
+///     价格数组
+/// volumes : array_like
+///     成交量数组
+/// time_window : float, optional
+///     时间窗口大小（单位：秒），默认为0.1
+/// 
+/// 返回值：
+/// -------
+/// numpy.ndarray
+///     整数数组，表示每行所属的组号。0表示不属于任何组。
+/// 
+/// Python调用示例：
+/// ```python
+/// import pandas as pd
+/// import numpy as np
+/// from rust_pyfunc import mark_follow_groups
+/// 
+/// # 创建示例DataFrame
+/// df = pd.DataFrame({
+///     'exchtime': [1.0, 1.05, 1.08, 1.15, 1.2],
+///     'price': [10.0, 10.0, 10.0, 11.0, 10.0],
+///     'volume': [100, 100, 100, 200, 100]
+/// })
+/// 
+/// # 标记协同交易组
+/// df['group'] = mark_follow_groups(
+///     df['exchtime'].values,
+///     df['price'].values,
+///     df['volume'].values
+/// )
+/// print(df)
+/// #    exchtime  price  volume  group
+/// # 0     1.00   10.0    100      1  # 第一组的起始点
+/// # 1     1.05   10.0    100      1  # 属于第一组
+/// # 2     1.08   10.0    100      1  # 属于第一组
+/// # 3     1.15   11.0    200      2  # 第二组的起始点
+/// # 4     1.20   10.0    100      3  # 第三组的起始点
+/// ```
+#[pyfunction]
+#[pyo3(signature = (times, prices, volumes, time_window=0.1))]
+pub fn mark_follow_groups(
+    times: PyReadonlyArray1<f64>,
+    prices: PyReadonlyArray1<f64>,
+    volumes: PyReadonlyArray1<f64>,
+    time_window: f64
+) -> PyResult<Vec<i32>> {
+    let times = times.as_array();
+    let times: Vec<f64> = times.iter().map(|&x| x / 1.0e9).collect();
+    let prices = prices.as_array();
+    let volumes = volumes.as_array();
+    let n = times.len();
+    let mut result = vec![0; n];
+    let mut current_group = 0;
+    
+    // 对每个未标记的点，检查是否可以形成新组
+    for i in 0..n {
+        // 如果当前点已经被标记，跳过
+        if result[i] != 0 {
+            continue;
+        }
+        
+        let current_time = times[i];
+        let current_price = prices[i];
+        let current_volume = volumes[i];
+        let mut has_group = false;
+        
+        // 检查之后的点，看是否有相同的交易
+        for j in i..n {
+            // 如果时间差超过time_window秒，退出内层循环
+            if j > i && times[j] - current_time > time_window {
+                break;
+            }
+            
+            // 如果价格和成交量都相同
+            if (prices[j] - current_price).abs() < 1e-10 && 
+               (volumes[j] - current_volume).abs() < 1e-10 {
+                // 如果还没有分配组号，分配新组号
+                if !has_group {
+                    current_group += 1;
+                    has_group = true;
+                }
+                // 标记这个点属于当前组
+                result[j] = current_group;
+            }
+        }
+    }
+    
+    Ok(result)
+}
+
+/// 标记每一行在其后time_window秒内具有相同flag、price和volume的行组。
+/// 对于同一个时间窗口内的相同交易组，标记相同的组号。
+/// 组号从1开始递增，每遇到一个新的交易组就分配一个新的组号。
+/// 
+/// 参数说明：
+/// ----------
+/// times : array_like
+///     时间戳数组（单位：秒）
+/// prices : array_like
+///     价格数组
+/// volumes : array_like
+///     成交量数组
+/// flags : array_like
+///     主买卖标志数组
+/// time_window : float, optional
+///     时间窗口大小（单位：秒），默认为0.1
+/// 
+/// 返回值：
+/// -------
+/// numpy.ndarray
+///     整数数组，表示每行所属的组号。0表示不属于任何组。
+/// 
+/// Python调用示例：
+/// ```python
+/// import pandas as pd
+/// import numpy as np
+/// from rust_pyfunc import mark_follow_groups_with_flag
+/// 
+/// # 创建示例DataFrame
+/// df = pd.DataFrame({
+///     'exchtime': [1.0, 1.05, 1.08, 1.15, 1.2],
+///     'price': [10.0, 10.0, 10.0, 11.0, 10.0],
+///     'volume': [100, 100, 100, 200, 100],
+///     'flag': [66, 66, 66, 83, 66]
+/// })
+/// 
+/// # 标记协同交易组
+/// df['group'] = mark_follow_groups_with_flag(
+///     df['exchtime'].values,
+///     df['price'].values,
+///     df['volume'].values,
+///     df['flag'].values
+/// )
+/// print(df)
+/// #    exchtime  price  volume  flag  group
+/// # 0     1.00   10.0    100    66      1  # 第一组的起始点
+/// # 1     1.05   10.0    100    66      1  # 属于第一组
+/// # 2     1.08   10.0    100    66      1  # 属于第一组
+/// # 3     1.15   11.0    200    83      2  # 第二组的起始点
+/// # 4     1.20   10.0    100    66      3  # 第三组的起始点
+/// ```
+#[pyfunction]
+#[pyo3(signature = (times, prices, volumes, flags, time_window=0.1))]
+pub fn mark_follow_groups_with_flag(
+    times: PyReadonlyArray1<f64>,
+    prices: PyReadonlyArray1<f64>,
+    volumes: PyReadonlyArray1<f64>,
+    flags: PyReadonlyArray1<i64>,
+    time_window: f64
+) -> PyResult<Vec<i32>> {
+    let times = times.as_array();
+    let times: Vec<f64> = times.iter().map(|&x| x / 1.0e9).collect();
+    let prices = prices.as_array();
+    let volumes = volumes.as_array();
+    let flags = flags.as_array();
+    let n = times.len();
+    let mut result = vec![0; n];
+    let mut current_group = 0;
+    
+    // 对每个未标记的点，检查是否可以形成新组
+    for i in 0..n {
+        // 如果当前点已经被标记，跳过
+        if result[i] != 0 {
+            continue;
+        }
+        
+        let current_time = times[i];
+        let current_price = prices[i];
+        let current_volume = volumes[i];
+        let current_flag = flags[i];
+        let mut has_group = false;
+        
+        // 检查之后的点，看是否有相同的交易
+        for j in i..n {
+            // 如果时间差超过time_window秒，退出内层循环
+            if j > i && times[j] - current_time > time_window {
+                break;
+            }
+            
+            // 如果价格、成交量和标志都相同
+            if (prices[j] - current_price).abs() < 1e-10 && 
+               (volumes[j] - current_volume).abs() < 1e-10 &&
+               flags[j] == current_flag {
+                // 如果还没有分配组号，分配新组号
+                if !has_group {
+                    current_group += 1;
+                    has_group = true;
+                }
+                // 标记这个点属于当前组
+                result[j] = current_group;
+            }
+        }
+    }
+    
+    Ok(result)
+}
+
+/// 计算每一行在其后指定时间窗口内的价格变动能量，并找出首次达到最终能量一半时所需的时间。
+/// 
+/// 参数说明：
+/// ----------
+/// times : array_like
+///     时间戳数组（单位：秒）
+/// prices : array_like
+///     价格数组
+/// time_window : float, optional
+///     时间窗口大小（单位：秒），默认为5.0
+/// 
+/// 返回值：
+/// -------
+/// numpy.ndarray
+///     浮点数数组，表示每行达到最终能量一半所需的时间（秒）。
+///     如果在时间窗口内未达到一半能量，或者最终能量为0，则返回time_window值。
+/// 
+/// Python调用示例：
+/// ```python
+/// import pandas as pd
+/// import numpy as np
+/// from rust_pyfunc import find_half_energy_time
+/// 
+/// # 创建示例DataFrame
+/// df = pd.DataFrame({
+///     'exchtime': [1.0, 1.1, 1.2, 1.3, 1.4],
+///     'price': [10.0, 10.2, 10.5, 10.3, 10.1]
+/// })
+/// 
+/// # 计算达到一半能量所需时间
+/// df['half_energy_time'] = find_half_energy_time(
+///     df['exchtime'].values,
+///     df['price'].values,
+///     time_window=5.0
+/// )
+/// print(df)
+/// #    exchtime  price  half_energy_time
+/// # 0      1.0   10.0              2.1  # 在2.1秒时达到5秒能量的一半
+/// # 1      1.1   10.2              1.9  # 在1.9秒时达到5秒能量的一半
+/// # 2      1.2   10.5              1.8  # 在1.8秒时达到5秒能量的一半
+/// # 3      1.3   10.3              1.7  # 在1.7秒时达到5秒能量的一半
+/// # 4      1.4   10.1              5.0  # 未达到5秒能量的一半
+/// ```
+#[pyfunction]
+#[pyo3(signature = (times, prices, time_window=5.0))]
+pub fn find_half_energy_time(
+    times: PyReadonlyArray1<f64>,
+    prices: PyReadonlyArray1<f64>,
+    time_window: f64
+) -> PyResult<Vec<f64>> {
+    let times = times.as_array();
+    let times: Vec<f64> = times.iter().map(|&x| x / 1.0e9).collect();
+    let prices = prices.as_array();
+    let n = times.len();
+    let mut result = vec![time_window; n];
+    
+    // 对每个点，计算其后time_window秒内的能量
+    for i in 0..n {
+        let current_time = times[i];
+        let current_price = prices[i];
+        let mut final_energy = 0.0;
+        let mut found_half_time = false;
+        
+        // 首先计算time_window秒后的最终能量
+        for j in i..n {
+            if j == i {
+                continue;
+            }
+            
+            let time_diff = times[j] - current_time;
+            if time_diff < time_window {
+                continue;
+            }
+            
+            // 计算价格变动比率的绝对值
+            final_energy = (prices[j] - current_price).abs() / current_price;
+            break;
+        }
+        
+        // 如果最终能量为0，继续下一个点
+        if final_energy == 0.0 {
+            result[i] = 0.0;
+            continue;
+        }
+        
+        let half_energy = final_energy / 2.0;
+        
+        // 再次遍历，找到第一次达到一半能量的时间
+        for j in i..n {
+            if j == i {
+                continue;
+            }
+            
+            let time_diff = times[j] - current_time;
+            if time_diff > time_window {
+                break;
+            }
+            
+            // 计算当前时刻的能量
+            let price_ratio = (prices[j] - current_price).abs() / current_price;
+            
+            // 如果达到一半能量
+            if price_ratio >= half_energy {
+                result[i] = time_diff;
+                found_half_time = true;
+                break;
+            }
+        }
+        
+        // 如果没有找到达到一半能量的时间，保持默认值time_window
+        if !found_half_time {
+            result[i] = time_window;
+        }
     }
     
     Ok(result)
