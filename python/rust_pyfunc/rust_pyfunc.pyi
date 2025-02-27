@@ -813,7 +813,7 @@ def find_half_energy_time(times: NDArray[np.float64], prices: NDArray[np.float64
     """
     ...
 
-def calculate_shannon_entropy_change(exchtime: NDArray[np.float64], order: NDArray[np.int64], volume: NDArray[np.float64], price: NDArray[np.float64], window_seconds: float = 0.1) -> NDArray[np.float64]:
+def calculate_shannon_entropy_change(exchtime: NDArray[np.float64], order: NDArray[np.int64], volume: NDArray[np.float64], price: NDArray[np.float64], window_seconds: float = 0.1, top_k: Optional[int] = None) -> NDArray[np.float64]:
     """计算价格创新高时的香农熵变化。
 
     参数说明：
@@ -828,6 +828,8 @@ def calculate_shannon_entropy_change(exchtime: NDArray[np.float64], order: NDArr
         价格数组，类型为float64
     window_seconds : float
         计算香农熵变的时间窗口，单位为秒
+    top_k : Optional[int]
+        如果提供，则只计算价格最高的k个点的熵变，默认为None（计算所有价格创新高点）
 
     返回值：
     -------
@@ -850,6 +852,9 @@ def calculate_shannon_entropy_change(exchtime: NDArray[np.float64], order: NDArr
     >>> # 计算3秒窗口的香农熵变
     >>> entropy_changes = calculate_shannon_entropy_change(exchtime, order, volume, price, 3.0)
     >>> print(entropy_changes)  # 只有价格为100.0、102.0和103.0的位置有非NaN值
+    >>>
+    >>> # 只计算价格最高的2个点的熵变
+    >>> entropy_changes = calculate_shannon_entropy_change(exchtime, order, volume, price, 3.0, top_k=2)
     """
     ...
 
@@ -858,7 +863,8 @@ def calculate_shannon_entropy_change_at_low(
     order: NDArray[np.int64],
     volume: NDArray[np.float64],
     price: NDArray[np.float64],
-    window_seconds: float
+    window_seconds: float,
+    bottom_k: Optional[int] = None
 ) -> NDArray[np.float64]:
     """
     在价格创新低时计算香农熵变
@@ -875,6 +881,8 @@ def calculate_shannon_entropy_change_at_low(
         价格数组，类型为float64
     window_seconds : float
         计算香农熵变的时间窗口，单位为秒
+    bottom_k : Optional[int]
+        如果提供，则只计算价格最低的k个点的熵变，默认为None（计算所有价格创新低点）
 
     返回值：
     -------
@@ -897,5 +905,8 @@ def calculate_shannon_entropy_change_at_low(
     >>> # 计算3秒窗口的香农熵变
     >>> entropy_changes = calculate_shannon_entropy_change_at_low(exchtime, order, volume, price, 3.0)
     >>> print(entropy_changes)  # 只有价格为100.0、101.0的位置有非NaN值
+    >>>
+    >>> # 只计算价格最低的2个点的熵变
+    >>> entropy_changes = calculate_shannon_entropy_change_at_low(exchtime, order, volume, price, 3.0, bottom_k=2)
     """
     ...
