@@ -1,10 +1,11 @@
-use ndarray::{s, Array1, Array2};
-use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
+use ndarray::Array1;
+use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
-use std::collections::HashMap;
+// use std::collections::HashMap;
 use std::f64;
 use std::cmp::Ordering;
+use std::collections::HashMap;
 
 /// 识别数组中的连续相等值段，并为每个段分配唯一标识符。
 /// 每个连续相等的值构成一个段，第一个段标识符为1，第二个为2，以此类推。
@@ -78,7 +79,7 @@ pub fn identify_segments(arr: PyReadonlyArray1<f64>) -> PyResult<Py<PyArray1<i32
 /// 
 /// print(f"最大乘积出现在索引 {x} 和 {y}")
 /// print(f"对应的值为 {arr[x]} 和 {arr[y]}")
-/// print(f"最大乘���为: {max_product}")
+/// print(f"最大乘积为: {max_product}")
 ///
 /// # 例如，如果x=0, y=3那么：
 /// # min(arr[0], arr[3]) * |0-3| = min(4.0, 3.0) * 3 = 3.0 * 3 = 9.0
@@ -218,6 +219,8 @@ pub fn compute_max_eigenvalue(matrix: PyReadonlyArray2<f64>) -> PyResult<(f64, P
 ///     价格数组，类型为float64
 /// window_seconds : float
 ///     计算香农熵变的时间窗口，单位为秒
+/// top_k : Optional[int]
+///     如果提供，则只计算价格最高的k个点的熵变，默认为None（计算所有价格创新高点）
 ///
 /// 返回值：
 /// -------
@@ -241,18 +244,21 @@ pub fn compute_max_eigenvalue(matrix: PyReadonlyArray2<f64>) -> PyResult<(f64, P
 /// >>> entropy_changes = calculate_shannon_entropy_change(exchtime, order, volume, price, 3.0)
 /// >>> print(entropy_changes)  # 只有价格为100.0、102.0和103.0的位置有非NaN值
 #[pyfunction]
-#[pyo3(signature = (exchtime, order, volume, price, window_seconds))]
+#[pyo3(signature = (exchtime, order, volume, price, window_seconds, top_k=None))]
 pub fn calculate_shannon_entropy_change(
     exchtime: PyReadonlyArray1<f64>,
     order: PyReadonlyArray1<i64>,
     volume: PyReadonlyArray1<f64>,
     price: PyReadonlyArray1<f64>,
     window_seconds: f64,
+    top_k: Option<usize>,
 ) -> PyResult<Py<PyArray1<f64>>> {
     let py = exchtime.py();
     
     // 转换为ndarray视图
     let exchtime = exchtime.as_array();
+    // 将时间戳从纳秒转换为秒
+    let exchtime: Vec<i64> = exchtime.iter().map(|&x| (x / 1.0e9) as i64).collect();
     let order = order.as_array();
     let volume = volume.as_array();
     let price = price.as_array();
@@ -266,30 +272,20 @@ pub fn calculate_shannon_entropy_change(
     // 创建结果数组，初始化为NaN
     let mut result = Array1::from_elem(n, f64::NAN);
     
-    // 将window_seconds转换为纳秒
-    let window_nanos = (window_seconds * 1e9) as i64;
+    // 将window_seconds转换为秒
+    let window_nanos = window_seconds as i64;
     
-    // 找到最小和最大的order ID，用于创建固定大小的数组
-    let mut min_order = order[0];
-    let mut max_order = order[0];
-    for &ord in order.iter() {
-        if ord < min_order {
-            min_order = ord;
-        }
-        if ord > max_order {
-            max_order = ord;
-        }
-    }
-    let order_range = (max_order - min_order + 1) as usize;
-    
-    // 使用固定大小的栈分配数组，避免堆分配
-    let mut base_volumes = vec![0.0; order_range];
-    let mut window_volumes = vec![0.0; order_range];
+    // 使用HashMap存储数据
+    let mut base_volumes: HashMap<i64, f64> = HashMap::new();
+    let mut window_volumes: HashMap<i64, f64> = HashMap::new();
     
     // 跟踪最高价格
     let mut max_price = f64::NEG_INFINITY;
     let mut window_end = 0;
     let mut cumulative_volume = 0.0;
+    
+    // 存储价格创新高的点
+    let mut high_points: Vec<(usize, f64)> = Vec::new();
     
     // 处理每个时间点
     for i in 0..n {
@@ -297,65 +293,116 @@ pub fn calculate_shannon_entropy_change(
         let current_price = price[i];
         
         // 更新基准分布
-        let ord_idx = (order[i] - min_order) as usize;
-        base_volumes[ord_idx] += volume[i];
+        *base_volumes.entry(order[i]).or_insert(0.0) += volume[i];
         cumulative_volume += volume[i];
         
         // 检查是否是价格创新高
         if current_price > max_price {
             max_price = current_price;
+            high_points.push((i, current_price));
             
-            // 计算基准熵
-            let base_entropy = if cumulative_volume > 0.0 {
-                calculate_entropy(&base_volumes, cumulative_volume)
-            } else {
-                0.0
-            };
-            
-            // 更新窗口结束位置
-            let window_end_time = current_time + window_nanos;
-            while window_end + 1 < n {
-                let next_time = exchtime[window_end + 1] as i64;
-                match next_time.cmp(&window_end_time) {
-                    Ordering::Less | Ordering::Equal => window_end += 1,
-                    Ordering::Greater => break,
+            // 如果未指定top_k或未收集足够数量的高点，直接计算熵变
+            if top_k.is_none() {
+                // 计算基准熵
+                let base_entropy = if cumulative_volume > 0.0 {
+                    calculate_entropy_hashmap(&base_volumes, cumulative_volume)
+                } else {
+                    0.0
+                };
+                
+                // 更新窗口结束位置
+                let window_end_time = current_time + window_nanos;
+                while window_end + 1 < n {
+                    let next_time = exchtime[window_end + 1] as i64;
+                    match next_time.cmp(&window_end_time) {
+                        Ordering::Less | Ordering::Equal => window_end += 1,
+                        Ordering::Greater => break,
+                    }
+                }
+                
+                if window_end > i {
+                    // 计算窗口分布
+                    window_volumes.clear();
+                    window_volumes.extend(base_volumes.iter().map(|(&k, &v)| (k, v)));
+                    let mut window_volume = cumulative_volume;
+                    
+                    // 累加窗口内的数据
+                    for j in (i + 1)..=window_end {
+                        *window_volumes.entry(order[j]).or_insert(0.0) += volume[j];
+                        window_volume += volume[j];
+                    }
+                    
+                    // 计算窗口熵
+                    if window_volume > 0.0 {
+                        let window_entropy = calculate_entropy_hashmap(&window_volumes, window_volume);
+                        result[i] = window_entropy - base_entropy;
+                    }
                 }
             }
+        }
+    }
+    
+    // 如果指定了top_k，只计算价格最高的k个点
+    if let Some(k) = top_k {
+        if k > 0 && !high_points.is_empty() {
+            // 按价格降序排序
+            high_points.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
             
-            if window_end > i {
-                // 计算窗口分布
-                window_volumes.copy_from_slice(&base_volumes);
-                let mut window_volume = cumulative_volume;
+            // 只保留前k个点（或者所有点，如果点数少于k）
+            let k = k.min(high_points.len());
+            let top_points: Vec<usize> = high_points[0..k].iter().map(|&(idx, _)| idx).collect();
+            
+            // 重置结果数组（因为之前已经计算过了）
+            result = Array1::from_elem(n, f64::NAN);
+            
+            // 重新计算这些点的熵变
+            for &i in &top_points {
+                let current_time = exchtime[i] as i64;
                 
-                // 优化窗口数据累加
-                let mut j = i + 1;
-                while j + 4 <= window_end {
-                    let ord1 = (order[j] - min_order) as usize;
-                    let ord2 = (order[j+1] - min_order) as usize;
-                    let ord3 = (order[j+2] - min_order) as usize;
-                    let ord4 = (order[j+3] - min_order) as usize;
-                    
-                    window_volumes[ord1] += volume[j];
-                    window_volumes[ord2] += volume[j+1];
-                    window_volumes[ord3] += volume[j+2];
-                    window_volumes[ord4] += volume[j+3];
-                    
-                    window_volume += volume[j] + volume[j+1] + volume[j+2] + volume[j+3];
-                    j += 4;
+                // 计算到此点为止的基准分布
+                let mut local_base_volumes: HashMap<i64, f64> = HashMap::new();
+                let mut local_cumulative_volume = 0.0;
+                
+                for j in 0..=i {
+                    *local_base_volumes.entry(order[j]).or_insert(0.0) += volume[j];
+                    local_cumulative_volume += volume[j];
                 }
                 
-                // 处理剩余数据
-                while j <= window_end {
-                    let ord_idx = (order[j] - min_order) as usize;
-                    window_volumes[ord_idx] += volume[j];
-                    window_volume += volume[j];
-                    j += 1;
+                // 计算基准熵
+                let base_entropy = if local_cumulative_volume > 0.0 {
+                    calculate_entropy_hashmap(&local_base_volumes, local_cumulative_volume)
+                } else {
+                    0.0
+                };
+                
+                // 确定窗口结束位置
+                let mut local_window_end = i;
+                let window_end_time = current_time + window_nanos;
+                while local_window_end + 1 < n {
+                    let next_time = exchtime[local_window_end + 1] as i64;
+                    match next_time.cmp(&window_end_time) {
+                        Ordering::Less | Ordering::Equal => local_window_end += 1,
+                        Ordering::Greater => break,
+                    }
                 }
                 
-                // 计算窗口熵
-                if window_volume > 0.0 {
-                    let window_entropy = calculate_entropy(&window_volumes, window_volume);
-                    result[i] = window_entropy - base_entropy;
+                if local_window_end > i {
+                    // 计算窗口分布
+                    window_volumes.clear();
+                    window_volumes.extend(local_base_volumes.iter().map(|(&k, &v)| (k, v)));
+                    let mut window_volume = local_cumulative_volume;
+                    
+                    // 累加窗口内的数据
+                    for j in (i + 1)..=local_window_end {
+                        *window_volumes.entry(order[j]).or_insert(0.0) += volume[j];
+                        window_volume += volume[j];
+                    }
+                    
+                    // 计算窗口熵
+                    if window_volume > 0.0 {
+                        let window_entropy = calculate_entropy_hashmap(&window_volumes, window_volume);
+                        result[i] = window_entropy - base_entropy;
+                    }
                 }
             }
         }
@@ -376,45 +423,14 @@ fn fast_ln(x: f64) -> f64 {
 }
 
 #[inline(always)]
-fn calculate_entropy(volumes: &[f64], total_volume: f64) -> f64 {
+fn calculate_entropy_hashmap(volumes: &HashMap<i64, f64>, total_volume: f64) -> f64 {
     let mut entropy = 0.0;
-    let mut i = 0;
     
-    // 每次处理4个元素
-    while i + 4 <= volumes.len() {
-        let vol1 = volumes[i];
-        let vol2 = volumes[i + 1];
-        let vol3 = volumes[i + 2];
-        let vol4 = volumes[i + 3];
-        
-        if vol1 > 0.0 {
-            let p = vol1 / total_volume;
-            entropy -= p * fast_ln(p);
-        }
-        if vol2 > 0.0 {
-            let p = vol2 / total_volume;
-            entropy -= p * fast_ln(p);
-        }
-        if vol3 > 0.0 {
-            let p = vol3 / total_volume;
-            entropy -= p * fast_ln(p);
-        }
-        if vol4 > 0.0 {
-            let p = vol4 / total_volume;
-            entropy -= p * fast_ln(p);
-        }
-        
-        i += 4;
-    }
-    
-    // 处理剩余的元素
-    while i < volumes.len() {
-        let vol = volumes[i];
+    for &vol in volumes.values() {
         if vol > 0.0 {
             let p = vol / total_volume;
             entropy -= p * fast_ln(p);
         }
-        i += 1;
     }
     
     entropy
@@ -428,21 +444,28 @@ fn calculate_entropy(volumes: &[f64], total_volume: f64) -> f64 {
 /// * volume: 成交量数组
 /// * price: 价格数组
 /// * window_seconds: 时间窗口大小（秒）
+/// * bottom_k: 如果提供，则只计算价格最低的k个点的熵变，默认为None（计算所有价格创新低点）
 /// 
 /// 返回:
 /// * 香农熵变数组，只在价格创新低时有值，其他位置为NaN
 #[pyfunction]
+#[pyo3(signature = (exchtime, order, volume, price, window_seconds, bottom_k=None))]
 pub fn calculate_shannon_entropy_change_at_low(
     exchtime: PyReadonlyArray1<f64>,
     order: PyReadonlyArray1<i64>,
     volume: PyReadonlyArray1<f64>,
     price: PyReadonlyArray1<f64>,
     window_seconds: f64,
+    bottom_k: Option<usize>,
 ) -> PyResult<Py<PyArray1<f64>>> {
+    use std::collections::HashMap;
+    
     let py = exchtime.py();
     
     // 转换为ndarray视图
     let exchtime = exchtime.as_array();
+    // 将时间戳从纳秒转换为秒
+    let exchtime: Vec<i64> = exchtime.iter().map(|&x| (x / 1.0e9) as i64).collect();
     let order = order.as_array();
     let volume = volume.as_array();
     let price = price.as_array();
@@ -456,30 +479,20 @@ pub fn calculate_shannon_entropy_change_at_low(
     // 创建结果数组，初始化为NaN
     let mut result = Array1::from_elem(n, f64::NAN);
     
-    // 将window_seconds转换为纳秒
-    let window_nanos = (window_seconds * 1e9) as i64;
+    // 将window_seconds转换为秒
+    let window_nanos = window_seconds as i64;
     
-    // 找到最小和最大的order ID，用于创建固定大小的数组
-    let mut min_order = order[0];
-    let mut max_order = order[0];
-    for &ord in order.iter() {
-        if ord < min_order {
-            min_order = ord;
-        }
-        if ord > max_order {
-            max_order = ord;
-        }
-    }
-    let order_range = (max_order - min_order + 1) as usize;
-    
-    // 使用固定大小的栈分配数组，避免堆分配
-    let mut base_volumes = vec![0.0; order_range];
-    let mut window_volumes = vec![0.0; order_range];
+    // 使用HashMap存储数据
+    let mut base_volumes: HashMap<i64, f64> = HashMap::new();
+    let mut window_volumes: HashMap<i64, f64> = HashMap::new();
     
     // 跟踪最低价格
     let mut min_price = f64::INFINITY;
     let mut window_end = 0;
     let mut cumulative_volume = 0.0;
+    
+    // 存储价格创新低的点
+    let mut low_points: Vec<(usize, f64)> = Vec::new();
     
     // 处理每个时间点
     for i in 0..n {
@@ -487,65 +500,116 @@ pub fn calculate_shannon_entropy_change_at_low(
         let current_price = price[i];
         
         // 更新基准分布
-        let ord_idx = (order[i] - min_order) as usize;
-        base_volumes[ord_idx] += volume[i];
+        *base_volumes.entry(order[i]).or_insert(0.0) += volume[i];
         cumulative_volume += volume[i];
         
         // 检查是否是价格创新低
         if current_price < min_price {
             min_price = current_price;
+            low_points.push((i, current_price));
             
-            // 计算基准熵
-            let base_entropy = if cumulative_volume > 0.0 {
-                calculate_entropy(&base_volumes, cumulative_volume)
-            } else {
-                0.0
-            };
-            
-            // 更新窗口结束位置
-            let window_end_time = current_time + window_nanos;
-            while window_end + 1 < n {
-                let next_time = exchtime[window_end + 1] as i64;
-                match next_time.cmp(&window_end_time) {
-                    Ordering::Less | Ordering::Equal => window_end += 1,
-                    Ordering::Greater => break,
+            // 如果未指定bottom_k或未收集足够数量的低点，直接计算熵变
+            if bottom_k.is_none() {
+                // 计算基准熵
+                let base_entropy = if cumulative_volume > 0.0 {
+                    calculate_entropy_hashmap(&base_volumes, cumulative_volume)
+                } else {
+                    0.0
+                };
+                
+                // 更新窗口结束位置
+                let window_end_time = current_time + window_nanos;
+                while window_end + 1 < n {
+                    let next_time = exchtime[window_end + 1] as i64;
+                    match next_time.cmp(&window_end_time) {
+                        Ordering::Less | Ordering::Equal => window_end += 1,
+                        Ordering::Greater => break,
+                    }
+                }
+                
+                if window_end > i {
+                    // 计算窗口分布
+                    window_volumes.clear();
+                    window_volumes.extend(base_volumes.iter().map(|(&k, &v)| (k, v)));
+                    let mut window_volume = cumulative_volume;
+                    
+                    // 累加窗口内的数据
+                    for j in (i + 1)..=window_end {
+                        *window_volumes.entry(order[j]).or_insert(0.0) += volume[j];
+                        window_volume += volume[j];
+                    }
+                    
+                    // 计算窗口熵
+                    if window_volume > 0.0 {
+                        let window_entropy = calculate_entropy_hashmap(&window_volumes, window_volume);
+                        result[i] = window_entropy - base_entropy;
+                    }
                 }
             }
+        }
+    }
+    
+    // 如果指定了bottom_k，只计算价格最低的k个点
+    if let Some(k) = bottom_k {
+        if k > 0 && !low_points.is_empty() {
+            // 按价格升序排序
+            low_points.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
             
-            if window_end > i {
-                // 计算窗口分布
-                window_volumes.copy_from_slice(&base_volumes);
-                let mut window_volume = cumulative_volume;
+            // 只保留前k个点（或者所有点，如果点数少于k）
+            let k = k.min(low_points.len());
+            let bottom_points: Vec<usize> = low_points[0..k].iter().map(|&(idx, _)| idx).collect();
+            
+            // 重置结果数组（因为之前已经计算过了）
+            result = Array1::from_elem(n, f64::NAN);
+            
+            // 重新计算这些点的熵变
+            for &i in &bottom_points {
+                let current_time = exchtime[i] as i64;
                 
-                // 优化窗口数据累加
-                let mut j = i + 1;
-                while j + 4 <= window_end {
-                    let ord1 = (order[j] - min_order) as usize;
-                    let ord2 = (order[j+1] - min_order) as usize;
-                    let ord3 = (order[j+2] - min_order) as usize;
-                    let ord4 = (order[j+3] - min_order) as usize;
-                    
-                    window_volumes[ord1] += volume[j];
-                    window_volumes[ord2] += volume[j+1];
-                    window_volumes[ord3] += volume[j+2];
-                    window_volumes[ord4] += volume[j+3];
-                    
-                    window_volume += volume[j] + volume[j+1] + volume[j+2] + volume[j+3];
-                    j += 4;
+                // 计算到此点为止的基准分布
+                let mut local_base_volumes: HashMap<i64, f64> = HashMap::new();
+                let mut local_cumulative_volume = 0.0;
+                
+                for j in 0..=i {
+                    *local_base_volumes.entry(order[j]).or_insert(0.0) += volume[j];
+                    local_cumulative_volume += volume[j];
                 }
                 
-                // 处理剩余数据
-                while j <= window_end {
-                    let ord_idx = (order[j] - min_order) as usize;
-                    window_volumes[ord_idx] += volume[j];
-                    window_volume += volume[j];
-                    j += 1;
+                // 计算基准熵
+                let base_entropy = if local_cumulative_volume > 0.0 {
+                    calculate_entropy_hashmap(&local_base_volumes, local_cumulative_volume)
+                } else {
+                    0.0
+                };
+                
+                // 确定窗口结束位置
+                let mut local_window_end = i;
+                let window_end_time = current_time + window_nanos;
+                while local_window_end + 1 < n {
+                    let next_time = exchtime[local_window_end + 1] as i64;
+                    match next_time.cmp(&window_end_time) {
+                        Ordering::Less | Ordering::Equal => local_window_end += 1,
+                        Ordering::Greater => break,
+                    }
                 }
                 
-                // 计算窗口熵
-                if window_volume > 0.0 {
-                    let window_entropy = calculate_entropy(&window_volumes, window_volume);
-                    result[i] = window_entropy - base_entropy;
+                if local_window_end > i {
+                    // 计算窗口分布
+                    window_volumes.clear();
+                    window_volumes.extend(local_base_volumes.iter().map(|(&k, &v)| (k, v)));
+                    let mut window_volume = local_cumulative_volume;
+                    
+                    // 累加窗口内的数据
+                    for j in (i + 1)..=local_window_end {
+                        *window_volumes.entry(order[j]).or_insert(0.0) += volume[j];
+                        window_volume += volume[j];
+                    }
+                    
+                    // 计算窗口熵
+                    if window_volume > 0.0 {
+                        let window_entropy = calculate_entropy_hashmap(&window_volumes, window_volume);
+                        result[i] = window_entropy - base_entropy;
+                    }
                 }
             }
         }
