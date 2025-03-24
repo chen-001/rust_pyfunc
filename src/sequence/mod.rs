@@ -156,53 +156,60 @@ pub fn find_max_range_product(arr: PyReadonlyArray1<f64>) -> PyResult<(i64, i64,
 #[pyfunction]
 #[pyo3(signature = (matrix))]
 pub fn compute_max_eigenvalue(matrix: PyReadonlyArray2<f64>) -> PyResult<(f64, Py<PyArray1<f64>>)> {
-    let py = matrix.py();
-    let matrix = matrix.as_array();
-    let n = matrix.shape()[0];
+    let matrix_view = matrix.as_array();
+    let shape = matrix_view.shape();
     
-    if matrix.shape()[0] != matrix.shape()[1] {
-        return Err(PyValueError::new_err("矩阵必须是方阵"));
+    if shape[0] != shape[1] {
+        return Err(PyValueError::new_err("输入必须是方阵"));
     }
     
-    let mut v = Array1::from_vec(vec![1.0; n]);
-    let mut v_next = Array1::zeros(n);
-    let mut eigenvalue = 0.0;
-    let mut prev_eigenvalue = 0.0;
-    let tolerance = 1e-10;
-    let max_iter = 1000;
+    let n = shape[0];
+    let mut v = Array1::<f64>::ones(n);
+    v.mapv_inplace(|x| x / (n as f64).sqrt());
+    
+    let max_iter = 30;
+    let tolerance = 1e-4;
+    let mut eigenvalue: f64;
+    let mut prev_eigenvalue: f64;
+    
+    // 预分配内存并确保内存对齐
+    let mut new_v = Array1::<f64>::zeros(n);
+    let mut temp = Array1::<f64>::zeros(n);
+    
+    // 预计算第一次矩阵向量乘积并存储在temp中
+    matrix_view.dot(&v).assign_to(&mut temp);
+    eigenvalue = v.dot(&temp);
     
     for _ in 0..max_iter {
-        // 计算 v_next = A * v
-        for i in 0..n {
-            v_next[i] = 0.0;
-            for j in 0..n {
-                v_next[i] += matrix[[i, j]] * v[j];
-            }
-        }
+        prev_eigenvalue = eigenvalue;
         
-        // 计算特征值
-        let mut max_component = 0.0;
-        for i in 0..n {
-            if v_next[i].abs() > max_component {
-                max_component = v_next[i].abs();
-            }
-        }
+        // 使用预分配的数组进行矩阵向量乘法
+        matrix_view.dot(&v).assign_to(&mut new_v);
         
-        eigenvalue = max_component;
-        
-        // 归一化
-        for i in 0..n {
-            v[i] = v_next[i] / max_component;
-        }
-        
-        // 检查收敛
-        if (eigenvalue - prev_eigenvalue).abs() < tolerance {
+        // 快速计算范数
+        let norm = new_v.dot(&new_v).sqrt();
+        if norm < 1e-5 {
             break;
         }
-        prev_eigenvalue = eigenvalue;
+        
+        // 原地归一化
+        new_v.mapv_inplace(|x| x / norm);
+        
+        // 计算瑞利商
+        matrix_view.dot(&new_v).assign_to(&mut temp);
+        eigenvalue = new_v.dot(&temp);
+        
+        // 交换向量引用
+        std::mem::swap(&mut v, &mut new_v);
+        
+        // 收敛检查
+        let rel_error = (eigenvalue - prev_eigenvalue).abs();
+        if rel_error < tolerance * eigenvalue.abs() {
+            break;
+        }
     }
     
-    Ok((eigenvalue, v.into_pyarray(py).to_owned()))
+    Ok((eigenvalue, v.into_pyarray(matrix.py()).to_owned()))
 }
 
 /// 计算价格变化后的香农熵变
