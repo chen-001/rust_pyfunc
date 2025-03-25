@@ -18,21 +18,21 @@ pub struct TreeNode {
 
 impl TreeNode {
     // 计算节点的平衡因子
-    fn balance_factor(&self) -> i32 {
+    fn balance_factor(&self) -> i64 {
         let left_height = self.left.as_ref().map_or(0, |n| n.height());
         let right_height = self.right.as_ref().map_or(0, |n| n.height());
         left_height - right_height
     }
 
     // 计算节点的高度
-    fn height(&self) -> i32 {
+    fn height(&self) -> i64 {
         let left_height = self.left.as_ref().map_or(0, |n| n.height());
         let right_height = self.right.as_ref().map_or(0, |n| n.height());
         1 + cmp::max(left_height, right_height)
     }
 
     // 计算子树节点数
-    fn subtree_size(&self) -> i32 {
+    fn subtree_size(&self) -> i64 {
         let left_size = self.left.as_ref().map_or(0, |n| n.subtree_size());
         let right_size = self.right.as_ref().map_or(0, |n| n.subtree_size());
         1 + left_size + right_size
@@ -45,27 +45,27 @@ pub struct PriceTree {
     last_price: Option<f64>,
     last_node: Option<*mut TreeNode>,
     // 基本特征
-    depth: i32,
-    node_count: i32,
-    leaf_count: i32,
+    depth: i64,
+    node_count: i64,
+    leaf_count: i64,
     total_volume: f64,
     min_price: f64,
     max_price: f64,
     earliest_time: i64,
     latest_time: i64,
     // 新增特征
-    degree_one_count: i32,    // 度为1的节点数
-    degree_two_count: i32,    // 度为2的节点数
-    total_depth: i32,         // 所有节点深度之和
-    min_depth: i32,           // 最小深度
-    max_balance_factor: i32,  // 最大平衡因子
-    total_balance_factor: i32,// 总平衡因子
-    total_path_length: i32,   // 总路径长度
-    max_path_length: i32,     // 最长路径长度
-    max_subtree_nodes: i32,   // 最大子树节点数
-    total_subtree_nodes: i32, // 总子树节点数
-    tree_width: i32,          // 树的最大宽度
-    internal_nodes: i32,      // 内部节点数
+    degree_one_count: i64,    // 度为1的节点数
+    degree_two_count: i64,    // 度为2的节点数
+    total_depth: i64,         // 所有节点深度之和
+    min_depth: i64,           // 最小深度
+    max_balance_factor: i64,  // 最大平衡因子
+    total_balance_factor: i64,// 总平衡因子
+    total_path_length: i64,   // 总路径长度
+    max_path_length: i64,     // 最长路径长度
+    max_subtree_nodes: i64,   // 最大子树节点数
+    total_subtree_nodes: i64, // 总子树节点数
+    tree_width: i64,          // 树的最大宽度
+    internal_nodes: i64,      // 内部节点数
 }
 
 // 实现Send trait，表明可以安全地在线程间传递
@@ -309,12 +309,12 @@ impl PriceTree {
 
     // 基本结构统计
     #[getter]
-    fn get_min_depth(&self) -> i32 {
+    fn get_min_depth(&self) -> i64 {
         self.min_depth
     }
 
     #[getter]
-    fn get_max_depth(&self) -> i32 {
+    fn get_max_depth(&self) -> i64 {
         self.depth
     }
 
@@ -328,18 +328,18 @@ impl PriceTree {
     }
 
     #[getter]
-    fn get_total_nodes(&self) -> i32 {
+    fn get_total_nodes(&self) -> i64 {
         self.node_count
     }
 
     #[getter]
-    fn get_leaf_nodes(&self) -> i32 {
+    fn get_leaf_nodes(&self) -> i64 {
         self.leaf_count
     }
 
     // 节点分布统计
     #[getter]
-    fn get_internal_nodes(&self) -> i32 {
+    fn get_internal_nodes(&self) -> i64 {
         self.internal_nodes
     }
 
@@ -353,12 +353,12 @@ impl PriceTree {
     }
 
     #[getter]
-    fn get_degree_one_nodes(&self) -> i32 {
+    fn get_degree_one_nodes(&self) -> i64 {
         self.degree_one_count
     }
 
     #[getter]
-    fn get_degree_two_nodes(&self) -> i32 {
+    fn get_degree_two_nodes(&self) -> i64 {
         self.degree_two_count
     }
 
@@ -382,7 +382,7 @@ impl PriceTree {
     }
 
     #[getter]
-    fn get_max_balance_factor(&self) -> i32 {
+    fn get_max_balance_factor(&self) -> i64 {
         self.max_balance_factor
     }
 
@@ -402,7 +402,7 @@ impl PriceTree {
     }
 
     #[getter]
-    fn get_max_path_length(&self) -> i32 {
+    fn get_max_path_length(&self) -> i64 {
         self.max_path_length
     }
 
@@ -416,18 +416,18 @@ impl PriceTree {
     }
 
     #[getter]
-    fn get_max_subtree_nodes(&self) -> i32 {
+    fn get_max_subtree_nodes(&self) -> i64 {
         self.max_subtree_nodes
     }
 
     // 树的形态统计
     #[getter]
-    fn get_min_width(&self) -> i32 {
+    fn get_min_width(&self) -> i64 {
         self.calculate_width_stats().0
     }
 
     #[getter]
-    fn get_max_width(&self) -> i32 {
+    fn get_max_width(&self) -> i64 {
         self.calculate_width_stats().1
     }
 
@@ -462,7 +462,7 @@ impl PriceTree {
     }
 
     #[getter]
-    fn get_critical_nodes(&self) -> i32 {
+    fn get_critical_nodes(&self) -> i64 {
         self.calculate_critical_nodes()
     }
 
@@ -478,7 +478,7 @@ impl PriceTree {
     }
 
     #[getter]
-    fn get_diameter(&self) -> i32 {
+    fn get_diameter(&self) -> i64 {
         self.calculate_diameter()
     }
 
@@ -721,14 +721,14 @@ impl PriceTree {
         }
     }
 
-    fn calculate_features(&mut self, node: &TreeNode, current_depth: i32) {
+    fn calculate_features(&mut self, node: &TreeNode, current_depth: i64) {
         self.node_count += 1;
         self.total_depth += current_depth;
         self.min_depth = cmp::min(self.min_depth, current_depth);
         self.depth = cmp::max(self.depth, current_depth);
         
         // 更新节点度数统计
-        let children_count = node.left.is_some() as i32 + node.right.is_some() as i32;
+        let children_count = node.left.is_some() as i64 + node.right.is_some() as i64;
         match children_count {
             1 => self.degree_one_count += 1,
             2 => self.degree_two_count += 1,
@@ -737,17 +737,17 @@ impl PriceTree {
 
         // 更新平衡因子统计
         let balance_factor = node.balance_factor().abs();
-        self.max_balance_factor = cmp::max(self.max_balance_factor, balance_factor);
-        self.total_balance_factor += balance_factor;
+        self.max_balance_factor = cmp::max(self.max_balance_factor, balance_factor as i64);
+        self.total_balance_factor += balance_factor as i64;
 
         // 更新路径长度
         self.total_path_length += current_depth;
-        self.max_path_length = cmp::max(self.max_path_length, current_depth);
+        self.max_path_length = cmp::max(self.max_path_length, current_depth as i64);
 
         // 更新子树节点数统计
         let subtree_size = node.subtree_size();
-        self.max_subtree_nodes = cmp::max(self.max_subtree_nodes, subtree_size);
-        self.total_subtree_nodes += subtree_size;
+        self.max_subtree_nodes = cmp::max(self.max_subtree_nodes, subtree_size as i64);
+        self.total_subtree_nodes += subtree_size as i64;
 
         // 更新其他基本特征
         self.min_price = self.min_price.min(node.price);
@@ -773,7 +773,7 @@ impl PriceTree {
     }
 
     // 计算树的宽度
-    fn calculate_width(&self) -> i32 {
+    fn calculate_width(&self) -> i64 {
         if let Some(root) = &self.root {
             let mut max_width = 0;
             let mut queue = VecDeque::new();
@@ -794,7 +794,7 @@ impl PriceTree {
                     }
                 }
             }
-            max_width as i32
+            max_width as i64
         } else {
             0
         }
@@ -826,7 +826,7 @@ impl PriceTree {
     }
 
     // 计算关键节点数（度为1且子树大小超过平均值的节点）
-    fn calculate_critical_nodes(&self) -> i32 {
+    fn calculate_critical_nodes(&self) -> i64 {
         let avg_subtree_size = if self.node_count > 0 {
             self.total_subtree_nodes as f64 / self.node_count as f64
         } else {
@@ -837,7 +837,7 @@ impl PriceTree {
         if let Some(root) = &self.root {
             let mut stack = vec![root];
             while let Some(node) = stack.pop() {
-                let children_count = node.left.is_some() as i32 + node.right.is_some() as i32;
+                let children_count = node.left.is_some() as i64 + node.right.is_some() as i64;
                 if children_count == 1 && node.subtree_size() as f64 > avg_subtree_size {
                     count += 1;
                 }
@@ -879,7 +879,7 @@ impl PriceTree {
         }
     }
 
-    // 计算加权路径���度 (WPL)
+    // 计算加权路径长度 (WPL)
     fn calculate_wpl(&self) -> f64 {
         if let Some(root) = &self.root {
             let mut wpl = 0.0;
@@ -905,8 +905,8 @@ impl PriceTree {
     }
 
     // 计算树的直径
-    fn calculate_diameter(&self) -> i32 {
-        fn height_and_diameter(node: &TreeNode) -> (i32, i32) {
+    fn calculate_diameter(&self) -> i64 {
+        fn height_and_diameter(node: &TreeNode) -> (i64, i64) {
             let left_result = node.left.as_ref()
                 .map(|n| height_and_diameter(n))
                 .unwrap_or((0, 0));
@@ -931,9 +931,9 @@ impl PriceTree {
     }
 
     // 改进树的宽度计算
-    fn calculate_width_stats(&self) -> (i32, i32, f64) {
+    fn calculate_width_stats(&self) -> (i64, i64, f64) {
         if let Some(root) = &self.root {
-            let mut min_width = i32::MAX;
+            let mut min_width = i64::MAX;
             let mut max_width = 0;
             let mut total_width = 0;
             let mut level_count = 0;
@@ -944,9 +944,9 @@ impl PriceTree {
                 let level_size = queue.len();
                 
                 // 更新统计信息
-                min_width = std::cmp::min(min_width, level_size as i32);
-                max_width = std::cmp::max(max_width, level_size as i32);
-                total_width += level_size as i32;
+                min_width = std::cmp::min(min_width, level_size as i64);
+                max_width = std::cmp::max(max_width, level_size as i64);
+                total_width += level_size as i64;
                 level_count += 1;
 
                 for _ in 0..level_size {
