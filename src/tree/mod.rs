@@ -134,7 +134,7 @@ impl PriceTree {
         self.last_price = Some(prices[0]);
         
         // 预分配一个缓存数组来存储当前路径上的节点引用
-        let mut path = Vec::with_capacity(32);  // 假设树的深度不会超过32
+        let mut path: Vec<*mut TreeNode> = Vec::with_capacity(32);  // 假设树的深度不会超过32
         
         // 按时间顺序构建树
         for i in 1..n {
@@ -775,12 +775,12 @@ impl PriceTree {
     // 计算树的宽度
     fn calculate_width(&self) -> i64 {
         if let Some(root) = &self.root {
-            let mut max_width = 0;
+            let mut max_width: i64 = 0;
             let mut queue = VecDeque::new();
             queue.push_back(root);
 
             while !queue.is_empty() {
-                let level_size = queue.len();
+                let level_size = queue.len() as i64;
                 max_width = cmp::max(max_width, level_size);
 
                 for _ in 0..level_size {
@@ -833,7 +833,7 @@ impl PriceTree {
             0.0
         };
         
-        let mut count = 0;
+        let mut count: i64 = 0;
         if let Some(root) = &self.root {
             let mut stack = vec![root];
             while let Some(node) = stack.pop() {
@@ -856,8 +856,8 @@ impl PriceTree {
     // 计算平均查找长度 (ASL)
     fn calculate_asl(&self) -> f64 {
         if let Some(root) = &self.root {
-            let mut total_comparisons = 0;
-            let mut total_successful_paths = 0;
+            let mut total_comparisons: i64 = 0;
+            let mut total_successful_paths: i64 = 0;
             
             // DFS遍历计算每个节点的查找路径长度
             let mut stack = vec![(root, 1)]; // (node, level)
@@ -933,15 +933,15 @@ impl PriceTree {
     // 改进树的宽度计算
     fn calculate_width_stats(&self) -> (i64, i64, f64) {
         if let Some(root) = &self.root {
-            let mut min_width = i64::MAX;
-            let mut max_width = 0;
-            let mut total_width = 0;
-            let mut level_count = 0;
+            let mut min_width: i64 = i64::MAX;
+            let mut max_width: i64 = 0;
+            let mut total_width: i64 = 0;
+            let mut level_count: i64 = 0;
             let mut queue = VecDeque::new();
             queue.push_back(root);
 
             while !queue.is_empty() {
-                let level_size = queue.len();
+                let level_size = queue.len() as i64;
                 
                 // 更新统计信息
                 min_width = std::cmp::min(min_width, level_size as i64);
