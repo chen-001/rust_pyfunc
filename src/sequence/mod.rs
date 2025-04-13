@@ -629,3 +629,197 @@ pub fn calculate_shannon_entropy_change_at_low(
     
     Ok(result.into_pyarray(py).to_owned())
 }
+
+/// 计算最速曲线（投掷线）并返回x_series对应的y坐标
+/// 
+/// 参数说明：
+/// ----------
+/// x1 : float
+///     起点x坐标
+/// y1 : float
+///     起点y坐标
+/// x2 : float
+///     终点x坐标
+/// y2 : float
+///     终点y坐标
+/// x_series : numpy.ndarray
+///     需要计算y坐标的x点序列
+///
+/// 返回值：
+/// -------
+/// numpy.ndarray
+///     与x_series相对应的y坐标值数组
+///
+/// Python调用示例：
+/// ```python
+/// import numpy as np
+/// import pandas as pd
+/// from rust_pyfunc import brachistochrone_curve
+///
+/// # 创建x序列
+/// x_vals = pd.Series(np.linspace(0, 5, 100))
+/// # 计算从点(0,0)到点(5,-3)的最速曲线
+/// y_vals = brachistochrone_curve(0.0, 0.0, 5.0, -3.0, x_vals)
+/// ```
+#[pyfunction]
+#[pyo3(signature = (x1, y1, x2, y2, x_series))]
+pub fn brachistochrone_curve(
+    x1: f64, 
+    y1: f64, 
+    x2: f64, 
+    y2: f64, 
+    x_series: PyReadonlyArray1<f64>
+) -> PyResult<Py<PyArray1<f64>>> {
+    let py = x_series.py();
+    let x_view = x_series.as_array();
+    let n = x_view.len();
+    
+    // 确保x1 < x2
+    let (x1, y1, x2, y2) = if x1 > x2 {
+        (x2, y2, x1, y1)
+    } else {
+        (x1, y1, x2, y2)
+    };
+    
+    // 转换坐标使起点位于原点
+    let x_offset = x1;
+    let y_offset = y1;
+    let x2_shifted = x2 - x_offset;
+    let y2_shifted = y2 - y_offset;
+    
+    // 如果y2_shifted > 0，需要翻转坐标系，使粒子沿着重力方向移动
+    let (y2_shifted, flip) = if y2_shifted > 0.0 {
+        (-y2_shifted, true)
+    } else {
+        (y2_shifted, false)
+    };
+    
+    // 使用Nelder-Mead算法寻找最优R和theta
+    let initial_r = (x2_shifted * x2_shifted + y2_shifted * y2_shifted).sqrt() / 2.0;
+    let initial_theta = std::f64::consts::PI;
+    let (r, theta_max) = optimize_r_theta(initial_r, initial_theta, x2_shifted, y2_shifted);
+    
+    // 创建结果数组
+    let mut result = Array1::from_elem(n, f64::NAN);
+    
+    // 计算x_series对应的y值
+    for (i, &x) in x_view.iter().enumerate() {
+        let x_shifted = x - x_offset;
+        
+        // 超出范围的值设为NaN
+        if x_shifted < 0.0 || x_shifted > x2_shifted {
+            result[i] = f64::NAN;
+            continue;
+        }
+        
+        // 求解theta
+        match solve_theta_for_x(r, theta_max, x_shifted) {
+            Some(theta) => {
+                // 计算对应的y值
+                let mut y = -r * (1.0 - theta.cos());
+                if flip {
+                    y = -y;
+                }
+                result[i] = y + y_offset;
+            },
+            None => {
+                result[i] = f64::NAN;
+            }
+        }
+    }
+    
+    Ok(result.into_pyarray(py).to_owned())
+}
+
+// 内部函数：优化R和theta参数
+fn optimize_r_theta(initial_r: f64, initial_theta: f64, x_target: f64, y_target: f64) -> (f64, f64) {
+    // 目标函数：计算参数方程得到的终点与目标点的距离平方
+    fn objective(r: f64, theta: f64, x_target: f64, y_target: f64) -> f64 {
+        let x_end = r * (theta - theta.sin());
+        let y_end = -r * (1.0 - theta.cos());
+        (x_end - x_target).powi(2) + (y_end - y_target).powi(2)
+    }
+    
+    // 使用简化版的Nelder-Mead算法进行优化
+    // 实际实现中，这里可能需要一个更复杂的优化算法库
+    let mut r = initial_r;
+    let mut theta = initial_theta;
+    let mut step_size_r = initial_r * 0.1;
+    let mut step_size_theta = 0.1;
+    let tolerance = 1e-6;
+    let max_iterations = 100;
+    
+    for _ in 0..max_iterations {
+        let current_error = objective(r, theta, x_target, y_target);
+        
+        // 尝试在r方向上移动
+        let r_plus = objective(r + step_size_r, theta, x_target, y_target);
+        let r_minus = objective(r - step_size_r, theta, x_target, y_target);
+        
+        if r_plus < current_error {
+            r += step_size_r;
+        } else if r_minus < current_error {
+            r -= step_size_r;
+        } else {
+            step_size_r *= 0.5;
+        }
+        
+        // 尝试在theta方向上移动
+        let theta_plus = objective(r, theta + step_size_theta, x_target, y_target);
+        let theta_minus = objective(r, theta - step_size_theta, x_target, y_target);
+        
+        if theta_plus < current_error {
+            theta += step_size_theta;
+        } else if theta_minus < current_error {
+            theta -= step_size_theta;
+        } else {
+            step_size_theta *= 0.5;
+        }
+        
+        // 检查是否已经收敛
+        if step_size_r < tolerance && step_size_theta < tolerance {
+            break;
+        }
+    }
+    
+    // 返回优化后的r和theta
+    (r, theta)
+}
+
+// 内部函数：为给定的x值求解theta
+fn solve_theta_for_x(r: f64, theta_max: f64, x: f64) -> Option<f64> {
+    // 使用二分法求解方程 r*(theta - sin(theta)) = x
+    
+    // 设置搜索范围
+    let mut low = 0.0;
+    let mut high = theta_max;
+    let tolerance = 1e-6;
+    let max_iterations = 50;
+    
+    for _ in 0..max_iterations {
+        let mid = (low + high) / 2.0;
+        let x_mid = r * (mid - mid.sin());
+        
+        if (x_mid - x).abs() < tolerance {
+            return Some(mid);
+        }
+        
+        if x_mid < x {
+            low = mid;
+        } else {
+            high = mid;
+        }
+    }
+    
+    // 如果未收敛，检查最终结果是否足够接近
+    let final_mid = (low + high) / 2.0;
+    let final_x = r * (final_mid - final_mid.sin());
+    
+    if (final_x - x).abs() < tolerance * 10.0 {
+        Some(final_mid)
+    } else {
+        None
+    }
+}
+
+
