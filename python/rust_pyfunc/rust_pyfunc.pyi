@@ -910,3 +910,64 @@ def calculate_shannon_entropy_change_at_low(
     >>> entropy_changes = calculate_shannon_entropy_change_at_low(exchtime, order, volume, price, 3.0, bottom_k=2)
     """
     ...
+
+def brachistochrone_curve(x1: float, y1: float, x2: float, y2: float, x_series: NDArray[np.float64], timeout_seconds: Optional[float] = None) -> NDArray[np.float64]:
+    """计算最速曲线（投掷线）并返回x_series对应的y坐标。
+    
+    最速曲线是指在重力作用下，一个质点从一点到另一点所需时间最短的路径，也被称为投掷线或摆线。
+    其参数方程为：x = R(θ - sin θ), y = -R(1 - cos θ)。
+
+    参数说明：
+    ----------
+    x1 : float
+        起点x坐标
+    y1 : float
+        起点y坐标
+    x2 : float
+        终点x坐标
+    y2 : float
+        终点y坐标
+    x_series : numpy.ndarray
+        需要计算y坐标的x点序列
+    timeout_seconds : float, optional
+        计算超时时间，单位为秒。如果函数执行时间超过此值，将立即中断计算并抛出异常。默认值为None，表示无超时限制。
+
+    返回值：
+    -------
+    numpy.ndarray
+        与x_series相对应的y坐标值数组。对于超出曲线定义域的x值，返回NaN。
+        
+    异常：
+    ------
+    RuntimeError
+        当计算时间超过timeout_seconds指定的秒数时抛出，错误信息包含具体的超时时长。
+
+    示例：
+    -------
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> from rust_pyfunc import brachistochrone_curve
+    >>> 
+    >>> # 创建x序列
+    >>> x_vals = pd.Series(np.linspace(0, 5, 100))
+    >>> # 计算从点(0,0)到点(5,-3)的最速曲线，设置5秒超时
+    >>> try:
+    >>>     y_vals = brachistochrone_curve(0.0, 0.0, 5.0, -3.0, x_vals, 5.0)
+    >>> except RuntimeError as e:
+    >>>     print(f"计算超时: {e}")
+    >>>     
+    >>> # 正常计算示例（不设置超时）
+    >>> y_vals = brachistochrone_curve(0.0, 0.0, 5.0, -3.0, x_vals)
+    >>> 
+    >>> # 绘制曲线
+    >>> import matplotlib.pyplot as plt
+    >>> plt.figure(figsize=(10, 6))
+    >>> plt.plot(x_vals, y_vals)
+    >>> plt.scatter([0, 5], [0, -3], color='red', s=50)  # 标记起点和终点
+    >>> plt.grid(True)
+    >>> plt.title('最速曲线 (Brachistochrone Curve)')
+    >>> plt.xlabel('x')
+    >>> plt.ylabel('y')
+    >>> plt.show()
+    """
+    ...

@@ -3,55 +3,100 @@ use pyo3::types::PyList;
 use numpy::PyReadonlyArray1;
 use ndarray::Array1;
 use std::collections::HashMap;
+use std::time::Instant;
+
+use crate::error::TimeoutError;
 // use std::collections::VecDeque;
 // use std::collections::BTreeMap;
 
-/// 计算两个序列之间的动态时间规整(DTW)距离。
-/// DTW是一种衡量两个时间序列相似度的算法，可以处理不等长的序列。
-/// 它通过寻找两个序列之间的最佳对齐方式来计算距离。
+/// DTW（动态时间规整）是一种测量两个时间序列相似度的方法。
+/// 该算法计算两个可能长度不同、tempo不同的时间序列间的最优匹配。
 ///
 /// 参数说明：
 /// ----------
 /// s1 : array_like
-///     第一个输入序列
+///     第一个时间序列
 /// s2 : array_like
-///     第二个输入序列
+///     第二个时间序列
 /// radius : int, optional
 ///     Sakoe-Chiba半径，用于限制规整路径，可以提高计算效率。
 ///     如果不指定，则不使用路径限制。
+/// timeout_seconds : float, optional
+///     计算超时时间，单位为秒。如果函数执行时间超过此值，将抛出TimeoutError异常。
+///     默认为None，表示无超时限制。
 ///
 /// 返回值：
 /// -------
 /// float
-///     两个序列之间的DTW距离，值越小表示序列越相似
+///     两个序列之间的DTW距离。值越小表示序列越相似。
+///
+/// 异常：
+/// -----
+/// TimeoutError
+///     当计算时间超过timeout_seconds指定的秒数时抛出
 ///
 /// Python调用示例：
 /// ```python
+/// import numpy as np
 /// from rust_pyfunc import dtw_distance
 ///
-/// # 计算两个序列的DTW距离
-/// s1 = [1.0, 2.0, 3.0, 4.0]
-/// s2 = [1.0, 2.0, 2.5, 3.0, 4.0]
-/// 
-/// # 不使用radius限制
+/// # 创建两个测试序列
+/// s1 = [1.0, 2.0, 3.0, 4.0, 5.0]
+/// s2 = [1.0, 2.0, 2.5, 3.5, 4.0, 5.0]
+///
+/// # 计算完整DTW距离
 /// dist1 = dtw_distance(s1, s2)
-/// print(f"不限制路径的DTW距离: {dist1}")
+/// print(f"DTW距离: {dist1}")
 ///
 /// # 使用radius=1限制规整路径
 /// dist2 = dtw_distance(s1, s2, radius=1)
 /// print(f"使用radius=1的DTW距离: {dist2}")
+///
+/// # 设置超时时间为1秒
+/// try:
+///     dist3 = dtw_distance(s1, s2, timeout_seconds=1.0)
+///     print(f"DTW距离: {dist3}")
+/// except RuntimeError as e:
+///     print(f"超时错误: {e}")
 /// ```
 #[pyfunction]
-#[pyo3(signature = (s1, s2, radius=None))]
-pub fn dtw_distance(s1: Vec<f64>, s2: Vec<f64>, radius: Option<usize>) -> PyResult<f64> {
-    // let radius_after_default = set_c(radius);
+#[pyo3(signature = (s1, s2, radius=None, timeout_seconds=None))]
+pub fn dtw_distance(s1: Vec<f64>, s2: Vec<f64>, radius: Option<usize>, timeout_seconds: Option<f64>) -> PyResult<f64> {
+    // 记录开始时间
+    let start_time = Instant::now();
+    
+    // 检查超时的闭包函数
+    let check_timeout = |timeout: Option<f64>| -> Result<(), TimeoutError> {
+        if let Some(timeout) = timeout {
+            let elapsed = start_time.elapsed().as_secs_f64();
+            if elapsed > timeout {
+                return Err(TimeoutError {
+                    message: "DTW距离计算超时".to_string(),
+                    duration: elapsed,
+                });
+            }
+        }
+        Ok(())
+    };
+    
     let len_s1 = s1.len();
     let len_s2 = s2.len();
     let mut warp_dist_mat = vec![vec![f64::INFINITY; len_s2 + 1]; len_s1 + 1];
     warp_dist_mat[0][0] = 0.0;
 
+    // 检查初始化后是否超时
+    check_timeout(timeout_seconds)?;
+
     for i in 1..=len_s1 {
+        // 每行开始时检查一次超时
+        check_timeout(timeout_seconds)?;
+        
         for j in 1..=len_s2 {
+            // 对于大型序列，每100次计算检查一次超时
+            if (i * len_s2 + j) % 100 == 0 {
+                check_timeout(timeout_seconds)?;
+            }
+            
             match radius {
                 Some(_) => {
                     if !sakoe_chiba_window(i, j, radius.unwrap()) {
@@ -66,6 +111,10 @@ pub fn dtw_distance(s1: Vec<f64>, s2: Vec<f64>, radius: Option<usize>) -> PyResu
                     .min(warp_dist_mat[i][j - 1].min(warp_dist_mat[i - 1][j - 1]));
         }
     }
+    
+    // 最终检查一次超时
+    check_timeout(timeout_seconds)?;
+    
     Ok(warp_dist_mat[len_s1][len_s2])
 }
 

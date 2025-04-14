@@ -7,6 +7,7 @@ pub mod statistics;
 pub mod time_series;
 pub mod pandas_ext;
 pub mod tree;
+pub mod error;
 
 /// Formats the sum of two numbers as string.
 #[pyfunction]

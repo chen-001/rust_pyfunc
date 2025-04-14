@@ -6,6 +6,9 @@ use pyo3::exceptions::PyValueError;
 use std::f64;
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::time::Instant;
+
+use crate::error::TimeoutError;
 
 /// 识别数组中的连续相等值段，并为每个段分配唯一标识符。
 /// 每个连续相等的值构成一个段，第一个段标识符为1，第二个为2，以此类推。
@@ -630,49 +633,37 @@ pub fn calculate_shannon_entropy_change_at_low(
     Ok(result.into_pyarray(py).to_owned())
 }
 
-/// 计算最速曲线（投掷线）并返回x_series对应的y坐标
-/// 
-/// 参数说明：
-/// ----------
-/// x1 : float
-///     起点x坐标
-/// y1 : float
-///     起点y坐标
-/// x2 : float
-///     终点x坐标
-/// y2 : float
-///     终点y坐标
-/// x_series : numpy.ndarray
-///     需要计算y坐标的x点序列
-///
-/// 返回值：
-/// -------
-/// numpy.ndarray
-///     与x_series相对应的y坐标值数组
-///
-/// Python调用示例：
-/// ```python
-/// import numpy as np
-/// import pandas as pd
-/// from rust_pyfunc import brachistochrone_curve
-///
-/// # 创建x序列
-/// x_vals = pd.Series(np.linspace(0, 5, 100))
-/// # 计算从点(0,0)到点(5,-3)的最速曲线
-/// y_vals = brachistochrone_curve(0.0, 0.0, 5.0, -3.0, x_vals)
-/// ```
-#[pyfunction]
-#[pyo3(signature = (x1, y1, x2, y2, x_series))]
-pub fn brachistochrone_curve(
+// 核心计算函数
+fn brachistochrone_curve_impl(
     x1: f64, 
     y1: f64, 
     x2: f64, 
     y2: f64, 
-    x_series: PyReadonlyArray1<f64>
-) -> PyResult<Py<PyArray1<f64>>> {
-    let py = x_series.py();
+    x_series: &PyReadonlyArray1<f64>,
+    timeout_seconds: Option<f64>
+) -> Result<Array1<f64>, TimeoutError> {
+    // 记录开始时间
+    let start_time = Instant::now();
+    
+    // 检查超时的闭包函数
+    let check_timeout = |timeout: Option<f64>| -> Result<(), TimeoutError> {
+        if let Some(timeout) = timeout {
+            let elapsed = start_time.elapsed().as_secs_f64();
+            if elapsed > timeout {
+                return Err(TimeoutError {
+                    message: "最速曲线计算超时".to_string(),
+                    duration: elapsed,
+                });
+            }
+        }
+        Ok(())
+    };
+    
     let x_view = x_series.as_array();
     let n = x_view.len();
+    
+    // 创建结果数组
+    let mut result = Array1::from_elem(n, f64::NAN);
     
     // 确保x1 < x2
     let (x1, y1, x2, y2) = if x1 > x2 {
@@ -694,45 +685,125 @@ pub fn brachistochrone_curve(
         (y2_shifted, false)
     };
     
+    // 频繁检查超时
+    check_timeout(timeout_seconds)?;
+    
     // 使用Nelder-Mead算法寻找最优R和theta
     let initial_r = (x2_shifted * x2_shifted + y2_shifted * y2_shifted).sqrt() / 2.0;
     let initial_theta = std::f64::consts::PI;
-    let (r, theta_max) = optimize_r_theta(initial_r, initial_theta, x2_shifted, y2_shifted);
+    let (r, theta_max) = optimize_r_theta(initial_r, initial_theta, x2_shifted, y2_shifted, timeout_seconds, &start_time)?;
     
-    // 创建结果数组
-    let mut result = Array1::from_elem(n, f64::NAN);
+    // 计算x_series对应的y值，批量处理以减少超时检查次数
+    let chunk_size = 10;  // 每10个点检查一次超时
+    let mut i = 0;
     
-    // 计算x_series对应的y值
-    for (i, &x) in x_view.iter().enumerate() {
-        let x_shifted = x - x_offset;
+    while i < n {
+        // 检查超时
+        check_timeout(timeout_seconds)?;
         
-        // 超出范围的值设为NaN
-        if x_shifted < 0.0 || x_shifted > x2_shifted {
-            result[i] = f64::NAN;
-            continue;
-        }
-        
-        // 求解theta
-        match solve_theta_for_x(r, theta_max, x_shifted) {
-            Some(theta) => {
-                // 计算对应的y值
-                let mut y = -r * (1.0 - theta.cos());
-                if flip {
-                    y = -y;
-                }
-                result[i] = y + y_offset;
-            },
-            None => {
-                result[i] = f64::NAN;
+        // 处理当前批次的点
+        let end = (i + chunk_size).min(n);
+        for j in i..end {
+            let x = x_view[j];
+            let x_shifted = x - x_offset;
+            
+            // 超出范围的值设为NaN
+            if x_shifted < 0.0 || x_shifted > x2_shifted {
+                result[j] = f64::NAN;
+                continue;
+            }
+            
+            // 求解theta
+            match solve_theta_for_x(r, theta_max, x_shifted, timeout_seconds, &start_time) {
+                Ok(Some(theta)) => {
+                    // 计算对应的y值
+                    let mut y = -r * (1.0 - theta.cos());
+                    if flip {
+                        y = -y;
+                    }
+                    result[j] = y + y_offset;
+                },
+                Ok(None) => {
+                    result[j] = f64::NAN;
+                },
+                Err(e) => return Err(e),
             }
         }
+        
+        i = end;
     }
     
-    Ok(result.into_pyarray(py).to_owned())
+    Ok(result)
+}
+
+/// 计算最速曲线（投掷线）并返回x_series对应的y坐标
+/// 
+/// 参数说明：
+/// ----------
+/// x1 : float
+///     起点x坐标
+/// y1 : float
+///     起点y坐标
+/// x2 : float
+///     终点x坐标
+/// y2 : float
+///     终点y坐标
+/// x_series : numpy.ndarray
+///     需要计算y坐标的x点序列
+/// timeout_seconds : float, optional
+///     计算超时时间，单位为秒。如果函数执行时间超过此值，将立即中断计算并抛出异常。默认值为None，表示无超时限制。
+///
+/// 返回值：
+/// -------
+/// numpy.ndarray
+///     与x_series相对应的y坐标值数组
+///
+/// 异常：
+/// -----
+/// TimeoutError
+///     当计算时间超过timeout_seconds指定的秒数时抛出
+///
+/// Python调用示例：
+/// ```python
+/// import numpy as np
+/// import pandas as pd
+/// from rust_pyfunc import brachistochrone_curve
+///
+/// # 创建x序列
+/// x_vals = pd.Series(np.linspace(0, 5, 100))
+/// 
+/// # 计算从点(0,0)到点(5,-3)的最速曲线，设置5秒超时
+/// try:
+///     y_vals = brachistochrone_curve(0.0, 0.0, 5.0, -3.0, x_vals, 5.0)
+/// except RuntimeError as e:
+///     print(f"计算超时: {e}")
+/// ```
+#[pyfunction]
+pub fn brachistochrone_curve(
+    x1: f64, 
+    y1: f64, 
+    x2: f64, 
+    y2: f64, 
+    x_series: PyReadonlyArray1<f64>,
+    timeout_seconds: Option<f64>
+) -> PyResult<Py<PyArray1<f64>>> {
+    let py = x_series.py();
+    
+    match brachistochrone_curve_impl(x1, y1, x2, y2, &x_series, timeout_seconds) {
+        Ok(result) => Ok(result.into_pyarray(py).to_owned()),
+        Err(err) => Err(err.into()),
+    }
 }
 
 // 内部函数：优化R和theta参数
-fn optimize_r_theta(initial_r: f64, initial_theta: f64, x_target: f64, y_target: f64) -> (f64, f64) {
+fn optimize_r_theta(
+    initial_r: f64, 
+    initial_theta: f64, 
+    x_target: f64, 
+    y_target: f64,
+    timeout_seconds: Option<f64>,
+    start_time: &Instant
+) -> Result<(f64, f64), TimeoutError> {
     // 目标函数：计算参数方程得到的终点与目标点的距离平方
     fn objective(r: f64, theta: f64, x_target: f64, y_target: f64) -> f64 {
         let x_end = r * (theta - theta.sin());
@@ -741,7 +812,6 @@ fn optimize_r_theta(initial_r: f64, initial_theta: f64, x_target: f64, y_target:
     }
     
     // 使用简化版的Nelder-Mead算法进行优化
-    // 实际实现中，这里可能需要一个更复杂的优化算法库
     let mut r = initial_r;
     let mut theta = initial_theta;
     let mut step_size_r = initial_r * 0.1;
@@ -750,6 +820,17 @@ fn optimize_r_theta(initial_r: f64, initial_theta: f64, x_target: f64, y_target:
     let max_iterations = 100;
     
     for _ in 0..max_iterations {
+        // 每次迭代都检查超时，确保能够立即响应
+        if let Some(timeout) = timeout_seconds {
+            let elapsed = start_time.elapsed().as_secs_f64();
+            if elapsed > timeout {
+                return Err(TimeoutError {
+                    message: "优化R和theta参数时超时".to_string(),
+                    duration: elapsed,
+                });
+            }
+        }
+        
         let current_error = objective(r, theta, x_target, y_target);
         
         // 尝试在r方向上移动
@@ -783,11 +864,17 @@ fn optimize_r_theta(initial_r: f64, initial_theta: f64, x_target: f64, y_target:
     }
     
     // 返回优化后的r和theta
-    (r, theta)
+    Ok((r, theta))
 }
 
 // 内部函数：为给定的x值求解theta
-fn solve_theta_for_x(r: f64, theta_max: f64, x: f64) -> Option<f64> {
+fn solve_theta_for_x(
+    r: f64, 
+    theta_max: f64, 
+    x: f64,
+    timeout_seconds: Option<f64>,
+    start_time: &Instant
+) -> Result<Option<f64>, TimeoutError> {
     // 使用二分法求解方程 r*(theta - sin(theta)) = x
     
     // 设置搜索范围
@@ -797,11 +884,22 @@ fn solve_theta_for_x(r: f64, theta_max: f64, x: f64) -> Option<f64> {
     let max_iterations = 50;
     
     for _ in 0..max_iterations {
+        // 每次迭代都检查超时，确保能够立即响应
+        if let Some(timeout) = timeout_seconds {
+            let elapsed = start_time.elapsed().as_secs_f64();
+            if elapsed > timeout {
+                return Err(TimeoutError {
+                    message: "求解theta时超时".to_string(),
+                    duration: elapsed,
+                });
+            }
+        }
+        
         let mid = (low + high) / 2.0;
         let x_mid = r * (mid - mid.sin());
         
         if (x_mid - x).abs() < tolerance {
-            return Some(mid);
+            return Ok(Some(mid));
         }
         
         if x_mid < x {
@@ -816,9 +914,9 @@ fn solve_theta_for_x(r: f64, theta_max: f64, x: f64) -> Option<f64> {
     let final_x = r * (final_mid - final_mid.sin());
     
     if (final_x - x).abs() < tolerance * 10.0 {
-        Some(final_mid)
+        Ok(Some(final_mid))
     } else {
-        None
+        Ok(None)
     }
 }
 
