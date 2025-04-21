@@ -277,3 +277,362 @@ pub fn min_range_loop(s: Vec<f64>, allow_equal: bool) -> Vec<i32> {
 
     minranges
 }
+
+/// 计算价格序列的滚动波动率。
+///
+/// 对于位置i，从数据范围[i-lookback+1, i]中每隔interval个点取样，
+/// 然后计算相邻样本之间的对数收益率（后面的价格除以前面的价格的对数），
+/// 最后计算这些收益率的标准差作为波动率。
+///
+/// 参数说明：
+/// ----------
+/// prices : array_like
+///     价格序列
+/// lookback : usize
+///     表示回溯的数据范围长度，对于位置i，考虑[i-lookback+1, i]范围内的数据
+/// interval : usize
+///     取样间隔，每隔interval个点取一个样本
+/// min_periods : usize, 可选
+///     计算波动率所需的最小样本数，默认为2
+///
+/// 返回值：
+/// -------
+/// array_like
+///     与输入序列等长的波动率序列
+///
+/// Python调用示例：
+/// ```python
+/// import numpy as np
+/// from rust_pyfunc import rolling_volatility
+///
+/// # 创建价格序列
+/// prices = np.array([a1, a2, a3, a4, a5, a6, a7, a8, a9], dtype=np.float64)
+///
+/// # 计算滚动波动率，lookback=5, interval=1
+/// # 结果应该是[nan, nan, nan, nan, std(log(a3/a1), log(a5/a3)), ...]
+/// vol = rolling_volatility(prices, 5, 1)
+///
+/// # 计算滚动波动率，lookback=7, interval=2
+/// # 结果应该是[nan, nan, nan, nan, nan, nan, std(log(a4/a1), log(a7/a4)), ...]
+/// vol = rolling_volatility(prices, 7, 2)
+/// ```
+#[pyfunction]
+#[pyo3(signature = (prices, lookback, interval, min_periods=2))]
+pub fn rolling_volatility(
+    py: Python,
+    prices: PyReadonlyArray1<f64>,
+    lookback: usize,
+    interval: usize,
+    min_periods: Option<usize>,
+) -> PyResult<Py<PyArray1<f64>>> {
+    let prices = prices.as_array();
+    let n = prices.len();
+    let min_periods = min_periods.unwrap_or(2);
+    
+    // 创建结果数组，初始化为NaN
+    let mut result = Array1::from_elem(n, f64::NAN);
+    
+    // 对每个位置计算波动率
+    for i in 0..n {
+        // 如果历史数据不足，直接跳过
+        if i < lookback - 1 {
+            continue;
+        }
+        
+        // 确定数据范围的起始位置
+        let start_idx = i - (lookback - 1);
+        
+        // 在范围[start_idx, i]内按interval间隔收集样本
+        let mut samples = Vec::new();
+        let mut pos = start_idx;
+        while pos <= i {
+            samples.push(prices[pos]);
+            pos += interval;
+            if pos > i {
+                break;
+            }
+        }
+        
+        // 确保有足够的样本点
+        if samples.len() < min_periods {
+            continue;
+        }
+        
+        // 计算相邻样本之间的对数收益率
+        let mut returns = Vec::new();
+        for k in 0..samples.len() - 1 {
+            // 后面的价格除以前面的价格的对数
+            let ret = (samples[k+1] / samples[k]).ln();
+            returns.push(ret);
+        }
+        
+        // 有足够的收益率样本才计算标准差
+        if returns.len() >= min_periods - 1 {
+            // 计算均值
+            let mean = returns.iter().sum::<f64>() / returns.len() as f64;
+            
+            // 计算方差
+            let variance = returns.iter()
+                .map(|&r| (r - mean).powi(2))
+                .sum::<f64>() / returns.len() as f64;
+            
+            // 计算标准差（波动率）
+            if variance > 0.0 {
+                result[i] = variance.sqrt();
+            } else {
+                // 如果方差为0，波动率也为0
+                result[i] = 0.0;
+            }
+        }
+    }
+    
+    Ok(result.into_pyarray(py).to_owned())
+}
+
+/// 计算价格序列的滚动变异系数(CV)。
+///
+/// 对于位置i，从数据范围[i-lookback+1, i]中每隔interval个点取样，
+/// 然后计算相邻样本之间的对数收益率（后面的价格除以前面的价格的对数），
+/// 最后计算这些收益率的变异系数（标准差除以均值）。
+///
+/// 参数说明：
+/// ----------
+/// values : array_like
+///     数值序列
+/// lookback : usize
+///     表示回溯的数据范围长度，对于位置i，考虑[i-lookback+1, i]范围内的数据
+/// interval : usize
+///     取样间隔，每隔interval个点取一个样本
+/// min_periods : usize, 可选
+///     计算变异系数所需的最小样本数，默认为2
+///
+/// 返回值：
+/// -------
+/// array_like
+///     与输入序列等长的变异系数序列
+///
+/// Python调用示例：
+/// ```python
+/// import numpy as np
+/// from rust_pyfunc import rolling_cv
+///
+/// # 创建数值序列
+/// values = np.array([a1, a2, a3, a4, a5, a6, a7, a8, a9], dtype=np.float64)
+///
+/// # 计算滚动变异系数，lookback=5, interval=1
+/// cv = rolling_cv(values, 5, 1)
+///
+/// # 计算滚动变异系数，lookback=7, interval=2
+/// cv = rolling_cv(values, 7, 2)
+/// ```
+#[pyfunction]
+#[pyo3(signature = (values, lookback, interval, min_periods=2))]
+pub fn rolling_cv(
+    py: Python,
+    values: PyReadonlyArray1<f64>,
+    lookback: usize,
+    interval: usize,
+    min_periods: Option<usize>,
+) -> PyResult<Py<PyArray1<f64>>> {
+    let values = values.as_array();
+    let n = values.len();
+    let min_periods = min_periods.unwrap_or(2);
+    
+    // 创建结果数组，初始化为NaN
+    let mut result = Array1::from_elem(n, f64::NAN);
+    
+    // 对每个位置计算变异系数
+    for i in 0..n {
+        // 如果历史数据不足，直接跳过
+        if i < lookback - 1 {
+            continue;
+        }
+        
+        // 确定数据范围的起始位置
+        let start_idx = i - (lookback - 1);
+        
+        // 在范围[start_idx, i]内按interval间隔收集样本
+        let mut samples = Vec::new();
+        let mut pos = start_idx;
+        while pos <= i {
+            samples.push(values[pos]);
+            pos += interval;
+            if pos > i {
+                break;
+            }
+        }
+        
+        // 确保有足够的样本点
+        if samples.len() < min_periods {
+            continue;
+        }
+        
+        // 计算相邻样本之间的对数收益率
+        let mut returns = Vec::new();
+        for k in 0..samples.len() - 1 {
+            // 后面的价格除以前面的价格的对数
+            let ret = (samples[k+1] / samples[k]).ln();
+            returns.push(ret);
+        }
+        
+        // 有足够的收益率样本才计算变异系数
+        if returns.len() >= min_periods - 1 {
+            // 计算收益率均值
+            let mean = returns.iter().sum::<f64>() / returns.len() as f64;
+            
+            // 避免除以零的情况
+            if mean.abs() < f64::EPSILON {
+                continue;
+            }
+            
+            // 计算收益率的方差
+            let variance = returns.iter()
+                .map(|&r| (r - mean).powi(2))
+                .sum::<f64>() / returns.len() as f64;
+            
+            if variance > 0.0 {
+                let std_dev = variance.sqrt();
+                // 计算变异系数 (std/mean)
+                result[i] = std_dev / mean.abs();  // 使用绝对值避免负均值导致的符号问题
+            } else {
+                // 如果方差为0，变异系数也为0
+                result[i] = 0.0;
+            }
+        }
+    }
+    
+    Ok(result.into_pyarray(py).to_owned())
+}
+
+/// 计算价格序列的滚动四分位变异系数(QCV)。
+///
+/// 对于位置i，从数据范围[i-lookback+1, i]中每隔interval个点取样，
+/// 然后计算相邻样本之间的对数收益率（后面的价格除以前面的价格的对数），
+/// 最后计算这些收益率的四分位变异系数（四分位间距除以中位数的绝对值）。
+/// 这种方法对异常值和均值接近零的情况更加稳健。
+///
+/// 参数说明：
+/// ----------
+/// values : array_like
+///     数值序列
+/// lookback : usize
+///     表示回溯的数据范围长度，对于位置i，考虑[i-lookback+1, i]范围内的数据
+/// interval : usize
+///     取样间隔，每隔interval个点取一个样本
+/// min_periods : usize, 可选
+///     计算变异系数所需的最小样本数，默认为3（需要至少3个点才能计算有意义的IQR）
+///
+/// 返回值：
+/// -------
+/// array_like
+///     与输入序列等长的四分位变异系数序列
+///
+/// Python调用示例：
+/// ```python
+/// import numpy as np
+/// from rust_pyfunc import rolling_qcv
+///
+/// # 创建数值序列
+/// values = np.array([a1, a2, a3, a4, a5, a6, a7, a8, a9], dtype=np.float64)
+///
+/// # 计算滚动四分位变异系数，lookback=5, interval=1
+/// qcv = rolling_qcv(values, 5, 1)
+/// ```
+#[pyfunction]
+#[pyo3(signature = (values, lookback, interval, min_periods=3))]
+pub fn rolling_qcv(
+    py: Python,
+    values: PyReadonlyArray1<f64>,
+    lookback: usize,
+    interval: usize,
+    min_periods: Option<usize>,
+) -> PyResult<Py<PyArray1<f64>>> {
+    let values = values.as_array();
+    let n = values.len();
+    let min_periods = min_periods.unwrap_or(3);
+    
+    // 创建结果数组，初始化为NaN
+    let mut result = Array1::from_elem(n, f64::NAN);
+    
+    // 对每个位置计算四分位变异系数
+    for i in 0..n {
+        // 如果历史数据不足，直接跳过
+        if i < lookback - 1 {
+            continue;
+        }
+        
+        // 确定数据范围的起始位置
+        let start_idx = i - (lookback - 1);
+        
+        // 在范围[start_idx, i]内按interval间隔收集样本
+        let mut samples = Vec::new();
+        let mut pos = start_idx;
+        while pos <= i {
+            samples.push(values[pos]);
+            pos += interval;
+            if pos > i {
+                break;
+            }
+        }
+        
+        // 确保有足够的样本点
+        if samples.len() < min_periods {
+            continue;
+        }
+        
+        // 计算相邻样本之间的对数收益率
+        let mut returns = Vec::new();
+        for k in 0..samples.len() - 1 {
+            // 后面的价格除以前面的价格的对数
+            let ret = (samples[k+1] / samples[k]).ln();
+            returns.push(ret);
+        }
+        
+        // 有足够的收益率样本才计算四分位变异系数
+        if returns.len() >= min_periods - 1 {
+            // 对收益率进行排序（用于计算中位数和四分位数）
+            returns.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            
+            // 计算中位数
+            let median = if returns.len() % 2 == 0 {
+                (returns[returns.len() / 2 - 1] + returns[returns.len() / 2]) / 2.0
+            } else {
+                returns[returns.len() / 2]
+            };
+            
+            // 如果中位数接近0，跳过计算
+            if median.abs() < f64::EPSILON {
+                continue;
+            }
+            
+            // 计算第一四分位数 (Q1)
+            let q1_pos = returns.len() / 4;
+            let q1 = if returns.len() % 4 == 0 {
+                (returns[q1_pos - 1] + returns[q1_pos]) / 2.0
+            } else {
+                returns[q1_pos]
+            };
+            
+            // 计算第三四分位数 (Q3)
+            let q3_pos = returns.len() * 3 / 4;
+            let q3 = if returns.len() % 4 == 0 {
+                (returns[q3_pos - 1] + returns[q3_pos]) / 2.0
+            } else {
+                returns[q3_pos]
+            };
+            
+            // 计算四分位间距 (IQR)
+            let iqr = q3 - q1;
+            
+            // 计算四分位变异系数 (IQR/|中位数|)
+            if iqr >= 0.0 {
+                result[i] = iqr / median.abs();
+            } else {
+                // 如果IQR为负（不应该发生，但以防万一），跳过计算
+                continue;
+            }
+        }
+    }
+    
+    Ok(result.into_pyarray(py).to_owned())
+}

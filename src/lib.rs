@@ -26,6 +26,9 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(statistics::ols_predict, m)?)?;
     m.add_function(wrap_pyfunction!(statistics::min_range_loop, m)?)?;
     m.add_function(wrap_pyfunction!(statistics::max_range_loop, m)?)?;
+    m.add_function(wrap_pyfunction!(statistics::rolling_volatility, m)?)?;
+    m.add_function(wrap_pyfunction!(statistics::rolling_cv, m)?)?;
+    m.add_function(wrap_pyfunction!(statistics::rolling_qcv, m)?)?;
     m.add_function(wrap_pyfunction!(text::vectorize_sentences, m)?)?;
     m.add_function(wrap_pyfunction!(text::vectorize_sentences_list, m)?)?;
     m.add_function(wrap_pyfunction!(text::jaccard_similarity, m)?)?;

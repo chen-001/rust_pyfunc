@@ -971,3 +971,123 @@ def brachistochrone_curve(x1: float, y1: float, x2: float, y2: float, x_series: 
     >>> plt.show()
     """
     ...
+
+def rolling_volatility(prices: NDArray[np.float64], lookback: int, interval: int, min_periods: int = 2) -> NDArray[np.float64]:
+    """计算价格序列的滚动波动率。
+
+    对于每个位置，从该位置向前取n个点，间隔k个点取样，
+    计算每个取出的价格点相对上一个价格点的对数收益率，
+    然后计算这些收益率的标准差作为波动率。
+
+    参数说明：
+    ----------
+    prices : numpy.ndarray
+        价格序列，形状为(n_samples,)，类型为float64
+    lookback : int
+        向前查看的样本点数量
+    interval : int
+        取样间隔，每隔多少个点取一个样本
+    min_periods : int, optional
+        计算波动率所需的最小样本数，默认为2
+
+    返回值：
+    -------
+    numpy.ndarray
+        与输入序列等长的波动率序列，每个元素表示该位置的历史波动率。
+        对于没有足够样本点的位置，返回NaN。
+
+    示例：
+    -------
+    >>> import numpy as np
+    >>> from rust_pyfunc import rolling_volatility
+    >>> 
+    >>> # 创建价格序列
+    >>> prices = np.array([100.0, 102.0, 101.0, 103.0, 102.0, 104.0, 103.0])
+    >>> 
+    >>> # 计算滚动波动率，向前查看5个点，每隔1个点取样
+    >>> vol = rolling_volatility(prices, 5, 1)
+    >>> print(vol)
+    """
+    ...
+
+def rolling_cv(values: NDArray[np.float64], lookback: int, interval: int, min_periods: int = 2) -> NDArray[np.float64]:
+    """计算数值序列的滚动变异系数(CV)。
+
+    对于每个位置，从该位置向前取n个点，间隔k个点取样，
+    计算每个取出的价格点相对上一个价格点的对数收益率，
+    然后计算这些收益率的变异系数（标准差除以均值绝对值）。
+
+    变异系数是标准化的离散程度测量，可用于比较不同单位或数量级的数据。
+    与波动率相比，变异系数考虑了均值信息，能更好地反映相对波动程度。
+
+    参数说明：
+    ----------
+    values : numpy.ndarray
+        价格序列，形状为(n_samples,)，类型为float64
+    lookback : int
+        向前查看的样本点数量
+    interval : int
+        取样间隔，每隔多少个点取一个样本
+    min_periods : int, optional
+        计算变异系数所需的最小样本数，默认为2
+
+    返回值：
+    -------
+    numpy.ndarray
+        与输入序列等长的变异系数序列，每个元素表示该位置的历史收益率变异系数。
+        对于没有足够样本点的位置或收益率均值接近零的位置，返回NaN。
+
+    示例：
+    -------
+    >>> import numpy as np
+    >>> from rust_pyfunc import rolling_cv
+    >>> 
+    >>> # 创建价格序列
+    >>> prices = np.array([100.0, 102.0, 101.0, 103.0, 102.0, 104.0, 103.0])
+    >>> 
+    >>> # 计算滚动变异系数，向前查看5个点，每隔1个点取样
+    >>> cv = rolling_cv(prices, 5, 1)
+    >>> print(cv)
+    """
+    ...
+
+def rolling_qcv(values: NDArray[np.float64], lookback: int, interval: int, min_periods: int = 3) -> NDArray[np.float64]:
+    """计算数值序列的滚动四分位变异系数(QCV)。
+
+    对于每个位置，从该位置向前取n个点，间隔k个点取样，
+    计算每个取出的价格点相对上一个价格点的对数收益率，
+    然后计算这些收益率的四分位变异系数（四分位间距IQR除以中位数绝对值）。
+
+    四分位变异系数是标准变异系数的稳健替代方案，对异常值和均值接近零的情况
+    更具鲁棒性。当收益率分布接近对称分布时，QCV与传统CV趋于一致。
+
+    参数说明：
+    ----------
+    values : numpy.ndarray
+        价格序列，形状为(n_samples,)，类型为float64
+    lookback : int
+        向前查看的样本点数量
+    interval : int
+        取样间隔，每隔多少个点取一个样本
+    min_periods : int, optional
+        计算变异系数所需的最小样本数，默认为3（需要至少3个点计算有意义的IQR）
+
+    返回值：
+    -------
+    numpy.ndarray
+        与输入序列等长的四分位变异系数序列，每个元素表示该位置的历史收益率四分位变异系数。
+        对于没有足够样本点的位置或收益率中位数接近零的位置，返回NaN。
+
+    示例：
+    -------
+    >>> import numpy as np
+    >>> from rust_pyfunc import rolling_qcv
+    >>> 
+    >>> # 创建价格序列
+    >>> prices = np.array([100.0, 102.0, 101.0, 103.0, 102.0, 104.0, 103.0, 105.0, 106.0])
+    >>> 
+    >>> # 计算滚动四分位变异系数，向前查看5个点，每隔1个点取样
+    >>> qcv = rolling_qcv(prices, 5, 1)
+    >>> print(qcv)
+    """
+    ...
