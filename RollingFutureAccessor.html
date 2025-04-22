@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RollingFutureAccessor - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>RollingFutureAccessor</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <p>用于在pandas DataFrame或Series上实现向后滚动窗口计算的访问器。
+
+支持的统计量类型：
+---------------
+- mean: 计算后面窗口内的均值
+- sum: 计算后面窗口内的总和
+- max: 计算后面窗口内的最大值
+- min: 计算后面窗口内的最小值
+- std: 计算后面窗口内的标准差
+- median: 计算后面窗口内的中位数
+- count: 计算后面窗口内的数据点数量
+- rank: 计算当前值在后面窗口内的分位数（0到1之间）
+- skew: 计算后面窗口的偏度
+- trend_time: 计算后面窗口内数据序列与时间序列的相关系数
+- trend_oneton: 计算后面窗口内数据序列与1到n序列的相关系数（忽略时间间隔）
+- last: 计算后面窗口内的最后一个值
+
+注意：所有计算都不包括当前时间点的值，只考虑后面窗口内的值
+
+使用方法：
+---------
+&gt;&gt;&gt; import pandas as pd
+&gt;&gt;&gt; from rust_pyfunc import rolling_future
+&gt;&gt;&gt; # DataFrame示例
+&gt;&gt;&gt; df = pd.DataFrame({
+...     &#39;time&#39;: pd.date_range(&#39;2024-01-01&#39;, periods=5, freq=&#39;s&#39;),
+...     &#39;value&#39;: [1, 2, 3, 4, 5]
+... })
+&gt;&gt;&gt; df.set_index(&#39;time&#39;, inplace=True)
+&gt;&gt;&gt; df.rolling_future(&#39;2s&#39;).mean()  # 计算每个时间点之后2秒内的均值
+&gt;&gt;&gt; df.rolling_future(&#39;2s&#39;).rank()  # 计算每个值在后面2秒内的分位数
+&gt;&gt;&gt; 
+&gt;&gt;&gt; # Series示例
+&gt;&gt;&gt; s = pd.Series([1, 2, 3, 4, 5], 
+...               index=pd.date_range(&#39;2024-01-01&#39;, periods=5, freq=&#39;s&#39;))
+&gt;&gt;&gt; s.rolling_future(&#39;2s&#39;).mean()  # 计算每个时间点之后2秒内的均值
+&gt;&gt;&gt; s.rolling_future(&#39;2s&#39;).trend_time()  # 计算后面2秒内的趋势</p>
+        </div>
+        
+        <div class="function-signature">
+            <h2>函数签名</h2>
+            <code>RollingFutureAccessor(pandas_obj) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                <p>此函数没有参数</p>
+            
+        </div>
+        
+        <div class="function-returns">
+            <h2>返回值</h2>
+            <p></p>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

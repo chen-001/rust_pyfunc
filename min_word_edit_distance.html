@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>min_word_edit_distance - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>min_word_edit_distance</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <p>计算将一个句子转换为另一个句子所需的最少单词操作次数（添加/删除）。
+
+# 参数
+* `str1` - 源句子
+* `str2` - 目标句子
+
+# 示例
+```python
+from rust_pyfunc import min_word_edit_distance
+
+# 示例1：添加一个单词
+da = &#34;We expect demand to increase&#34;
+db = &#34;We expect worldwide demand to increase&#34;
+print(min_word_edit_distance(da, db))  # 输出: 1 (添加 &#34;worldwide&#34;)
+
+# 示例2：多次修改
+dc = &#34;We expect weakness in sales&#34;
+print(min_word_edit_distance(da, dc))  # 输出: 6 (删除3个单词，添加3个单词)
+```</p>
+        </div>
+        
+        <div class="function-signature">
+            <h2>函数签名</h2>
+            <code>min_word_edit_distance(str1, str2) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                <p>此函数没有参数</p>
+            
+        </div>
+        
+        <div class="function-returns">
+            <h2>返回值</h2>
+            <p></p>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                
+                <div class="example">
+                    <p><strong>输入:</strong></p>
+                    <code>min_word_edit_distance(这是一个测试句子, 这是另一个测试句子)</code>
+                    
+                    
+                    <p><strong>输出:</strong></p>
+                    <code>2</code>
+                    
+                </div>
+                
+                <div class="example">
+                    <p><strong>输入:</strong></p>
+                    <code>min_word_edit_distance(深度学习算法, 机器学习算法)</code>
+                    
+                    
+                    <p><strong>输出:</strong></p>
+                    <code>2</code>
+                    
+                </div>
+                
+            
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>dtw_distance - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>dtw_distance</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <p>DTW（动态时间规整）是一种测量两个时间序列相似度的方法。
+该算法计算两个可能长度不同、tempo不同的时间序列间的最优匹配。</p>
+        </div>
+        
+        <div class="function-signature">
+            <h2>函数签名</h2>
+            <code>dtw_distance(s1, s2, radius, timeout_seconds) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">s1</span>
+                    <span class="parameter-type">(array_like)</span>
+                    <p>第一个时间序列</p>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">s2</span>
+                    <span class="parameter-type">(array_like)</span>
+                    <p>第二个时间序列</p>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">radius</span>
+                    <span class="parameter-type">(int, optional)</span>
+                    <p>Sakoe-Chiba半径，用于限制规整路径，可以提高计算效率。</p>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">timeout_seconds</span>
+                    <span class="parameter-type">(float, optional)</span>
+                    <p>计算超时时间，单位为秒。如果函数执行时间超过此值，将抛出TimeoutError异常。</p>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns">
+            <h2>返回值</h2>
+            <p>-------
+float
+    两个序列之间的DTW距离。值越小表示序列越相似。
+
+异常：
+-----
+TimeoutError
+    当计算时间超过timeout_seconds指定的秒数时抛出
+
+Python调用示例：
+```python
+import numpy as np
+from rust_pyfunc import dtw_distance
+
+# 创建两个测试序列
+s1 = [1.0, 2.0, 3.0, 4.0, 5.0]
+s2 = [1.0, 2.0, 2.5, 3.5, 4.0, 5.0]
+
+# 计算完整DTW距离
+dist1 = dtw_distance(s1, s2)
+print(f&#34;DTW距离: {dist1}&#34;)
+
+# 使用radius=1限制规整路径
+dist2 = dtw_distance(s1, s2, radius=1)
+print(f&#34;使用radius=1的DTW距离: {dist2}&#34;)
+
+# 设置超时时间为1秒
+try:
+    dist3 = dtw_distance(s1, s2, timeout_seconds=1.0)
+    print(f&#34;DTW距离: {dist3}&#34;)
+except RuntimeError as e:
+    print(f&#34;超时错误: {e}&#34;)
+```</p>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                
+                <div class="example">
+                    <p><strong>输入:</strong></p>
+                    <code>dtw_distance([1.0, 2.0, 3.0, 4.0], [1.0, 2.0, 2.5, 3.0, 4.0])</code>
+                    
+                    
+                    <p><strong>输出:</strong></p>
+                    <code>0.5</code>
+                    
+                </div>
+                
+                <div class="example">
+                    <p><strong>输入:</strong></p>
+                    <code>dtw_distance([1.0, 2.0, 3.0, 4.0], [4.0, 3.0, 2.0, 1.0])</code>
+                    
+                    
+                    <p><strong>输出:</strong></p>
+                    <code>8.0</code>
+                    
+                </div>
+                
+                <div class="example">
+                    <p><strong>输入:</strong></p>
+                    <code>dtw_distance([1.0, 2.0, 3.0, 4.0], [1.0, 2.0, 3.0, 4.0], 1)</code>
+                    
+                    
+                    <p><strong>输出:</strong></p>
+                    <code>0.0</code>
+                    
+                </div>
+                
+            
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>find_follow_volume_sum_same_price - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>find_follow_volume_sum_same_price</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <p>计算每一行在其后0.1秒内具有相同price和volume的行的volume总和。</p>
+        </div>
+        
+        <div class="function-signature">
+            <h2>函数签名</h2>
+            <code>find_follow_volume_sum_same_price(times, prices, volumes, time_window) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">times</span>
+                    <span class="parameter-type">(array_like)</span>
+                    <p>时间戳数组（单位：秒）</p>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">prices</span>
+                    <span class="parameter-type">(array_like)</span>
+                    <p>价格数组</p>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">volumes</span>
+                    <span class="parameter-type">(array_like)</span>
+                    <p>成交量数组</p>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns">
+            <h2>返回值</h2>
+            <p>-------
+numpy.ndarray
+    每一行在其后0.1秒内具有相同price和volume的行的volume总和
+
+Python调用示例：
+```python
+import pandas as pd
+import numpy as np
+from rust_pyfunc import find_follow_volume_sum
+
+# 创建示例DataFrame
+df = pd.DataFrame({
+    &#39;exchtime&#39;: [1.0, 1.05, 1.08, 1.15, 1.2],
+    &#39;price&#39;: [10.0, 10.0, 10.0, 11.0, 10.0],
+    &#39;volume&#39;: [100, 100, 100, 200, 100]
+})
+
+# 计算follow列
+df[&#39;follow&#39;] = find_follow_volume_sum(
+    df[&#39;exchtime&#39;].values,
+    df[&#39;price&#39;].values,
+    df[&#39;volume&#39;].values
+)
+```</p>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>vectorize_sentences_list - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>vectorize_sentences_list</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <p>将多个句子转换为词频向量列表。
+生成的所有向量长度相同，等于所有句子中不同单词的总数。
+每个向量中的每个位置对应一个单词，值表示该单词在对应句子中出现的次数。</p>
+        </div>
+        
+        <div class="function-signature">
+            <h2>函数签名</h2>
+            <code>vectorize_sentences_list(sentences) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">sentences</span>
+                    <span class="parameter-type">(list[str])</span>
+                    <p>输入句子列表，每个元素是一个字符串</p>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns">
+            <h2>返回值</h2>
+            <p>-------
+list[list[int]]
+    返回词频向量列表，其中：
+    - 每个向量对应一个输入句子
+    - 所有向量长度相同，等于所有句子中不同单词的总数
+    - 向量中的每个值表示对应单词在该句子中的出现次数
+
+Python调用示例：
+```python
+from rust_pyfunc import vectorize_sentences_list
+
+# 准备测试句子列表
+sentences = [
+    &#34;The quick brown fox&#34;,
+    &#34;The lazy brown dog&#34;,
+    &#34;A quick brown fox jumps&#34;
+]
+
+# 转换为词频向量列表
+vectors = vectorize_sentences_list(sentences)
+
+# 打印每个句子的词频向量
+for i, vec in enumerate(vectors):
+    print(f&#34;句子{i+1}的词频向量: {vec}&#34;)
+
+# 示例输出解释：
+# 假设合并后的词表为 [&#34;a&#34;, &#34;brown&#34;, &#34;dog&#34;, &#34;fox&#34;, &#34;jumps&#34;, &#34;lazy&#34;, &#34;quick&#34;, &#34;the&#34;]
+# 第一个句子: [0, 1, 0, 1, 0, 0, 1, 1]  # &#34;The quick brown fox&#34;
+# 第二个句子: [0, 1, 1, 0, 0, 1, 0, 1]  # &#34;The lazy brown dog&#34;
+# 第三个句子: [1, 1, 0, 1, 1, 0, 1, 0]  # &#34;A quick brown fox jumps&#34;
+```</p>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                
+                <div class="example">
+                    <p><strong>输入:</strong></p>
+                    <code>vectorize_sentences_list([&#39;这是第一个句子&#39;, &#39;这是第二个句子&#39;, &#39;这是第三个句子&#39;])</code>
+                    
+                    
+                    <p><strong>输出:</strong></p>
+                    <code>[[1, 0, 0], [0, 1, 0], [0, 0, 1]]</code>
+                    
+                </div>
+                
+            
+        </div>
+    </div>
+</div>
+
+</body>
+</html>
