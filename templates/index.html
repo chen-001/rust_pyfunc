@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <div class="sidebar">
+        <h2>函数分类</h2>
+        <ul class="function-list">
+            <li><a href="#text">文本处理</a></li>
+            <li><a href="#sequence">序列分析</a></li>
+            <li><a href="#statistics">统计分析</a></li>
+            <li><a href="#time_series">时间序列</a></li>
+            <li><a href="#other">其他函数</a></li>
+        </ul>
+    </div>
+    
+    <div class="content">
+        <h1>API 文档</h1>
+        <p>本文档提供了Rust PyFunc库中所有公开函数的详细说明和使用示例。这些示例基于真实的Python运行结果生成。</p>
+        
+        <div id="text" class="category">
+            <h2 class="category-title">文本处理函数</h2>
+            {% for func in categorized_functions.text %}
+            <div class="function-item">
+                <h3 class="function-name"><a href="{{ func.name }}.html">{{ func.name }}</a></h3>
+                <p>{{ func.parsed_doc.description }}</p>
+                <a href="{{ func.name }}.html">查看详情</a>
+            </div>
+            {% endfor %}
+        </div>
+        
+        <div id="sequence" class="category">
+            <h2 class="category-title">序列分析函数</h2>
+            {% for func in categorized_functions.sequence %}
+            <div class="function-item">
+                <h3 class="function-name"><a href="{{ func.name }}.html">{{ func.name }}</a></h3>
+                <p>{{ func.parsed_doc.description }}</p>
+                <a href="{{ func.name }}.html">查看详情</a>
+            </div>
+            {% endfor %}
+        </div>
+        
+        <div id="statistics" class="category">
+            <h2 class="category-title">统计分析函数</h2>
+            {% for func in categorized_functions.statistics %}
+            <div class="function-item">
+                <h3 class="function-name"><a href="{{ func.name }}.html">{{ func.name }}</a></h3>
+                <p>{{ func.parsed_doc.description }}</p>
+                <a href="{{ func.name }}.html">查看详情</a>
+            </div>
+            {% endfor %}
+        </div>
+        
+        <div id="time_series" class="category">
+            <h2 class="category-title">时间序列函数</h2>
+            {% for func in categorized_functions.time_series %}
+            <div class="function-item">
+                <h3 class="function-name"><a href="{{ func.name }}.html">{{ func.name }}</a></h3>
+                <p>{{ func.parsed_doc.description }}</p>
+                <a href="{{ func.name }}.html">查看详情</a>
+            </div>
+            {% endfor %}
+        </div>
+        
+        <div id="other" class="category">
+            <h2 class="category-title">其他函数</h2>
+            {% for func in categorized_functions.other %}
+            <div class="function-item">
+                <h3 class="function-name"><a href="{{ func.name }}.html">{{ func.name }}</a></h3>
+                <p>{{ func.parsed_doc.description }}</p>
+                <a href="{{ func.name }}.html">查看详情</a>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endblock %}

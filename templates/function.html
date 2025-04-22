@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block title %}{{ function.name }} - Rust PyFunc API文档{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="sidebar">
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>{{ function.name }}</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <p>{{ function.parsed_doc.description }}</p>
+        </div>
+        
+        <div class="function-signature">
+            <h2>函数签名</h2>
+            <code>{{ function.name }}(
+            {%- for param in function.signature.parameters -%}
+                {{ param.name }}{% if not loop.last %}, {% endif %}
+            {%- endfor -%}
+            ) -> {{ function.signature.return_annotation }}</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            {% if function.parsed_doc.parameters %}
+                {% for param in function.parsed_doc.parameters %}
+                <div class="parameter">
+                    <span class="parameter-name">{{ param.name }}</span>
+                    <span class="parameter-type">({{ param.type }})</span>
+                    <p>{{ param.description }}</p>
+                </div>
+                {% endfor %}
+            {% else %}
+                <p>此函数没有参数</p>
+            {% endif %}
+        </div>
+        
+        <div class="function-returns">
+            <h2>返回值</h2>
+            <p>{{ function.parsed_doc.returns }}</p>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            {% if function.examples %}
+                {% for example in function.examples %}
+                <div class="example">
+                    <p><strong>输入:</strong></p>
+                    <code>{{ function.name }}(
+                    {%- for arg in example.args -%}
+                        {{ arg }}{% if not loop.last %}, {% endif %}
+                    {%- endfor -%}
+                    )</code>
+                    
+                    {% if example.error %}
+                    <p><strong>错误:</strong></p>
+                    <code>{{ example.error }}</code>
+                    {% else %}
+                    <p><strong>输出:</strong></p>
+                    <code>{{ example.result }}</code>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            {% else %}
+                <p>暂无示例</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
