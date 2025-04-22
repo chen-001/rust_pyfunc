@@ -83,6 +83,19 @@ def get_function_info(func) -> Dict[str, Any]:
     
     return info
 
+def format_numpy_array(arr):
+    """更好地格式化NumPy数组输出"""
+    if arr.size > 10:
+        # 对于大数组，格式化为更紧凑的形式
+        if arr.ndim == 1:
+            return f"array([{', '.join(map(str, arr.flatten()[:5]))},...], shape={arr.shape}, dtype={arr.dtype})"
+        else:
+            return f"array([...], shape={arr.shape}, dtype={arr.dtype})"
+    else:
+        # 对于小数组，显示完整内容
+        array_str = np.array2string(arr, precision=4, suppress_small=True, separator=', ')
+        return f"array({array_str}, dtype={arr.dtype})"
+
 def run_example(func_name: str, args_list: List[Tuple]) -> List[Dict[str, Any]]:
     """运行函数示例并获取结果"""
     examples = []
@@ -99,13 +112,18 @@ def run_example(func_name: str, args_list: List[Tuple]) -> List[Dict[str, Any]]:
             # 运行函数并获取结果
             result = func(*args)
             
-            # 对numpy数组特殊处理
+            # 对不同类型的结果进行美化格式化
             if isinstance(result, np.ndarray):
-                if result.size > 10:
-                    # 对于大数组，只显示前几个元素
-                    example["result"] = f"数组，形状={result.shape}, 类型={result.dtype}\n前几个元素: {result.flatten()[:5]}..."
+                example["result"] = format_numpy_array(result)
+            elif isinstance(result, (list, tuple)) and len(result) > 0 and isinstance(result[0], (int, float)):
+                # 对于数值型列表，更美观地展示
+                if len(result) > 10:
+                    example["result"] = f"[{', '.join(map(str, result[:5]))}, ...] (长度: {len(result)})"
                 else:
                     example["result"] = str(result)
+            elif isinstance(result, (list, tuple)) and len(result) > 0 and isinstance(result[0], (list, tuple, np.ndarray)):
+                # 对于嵌套列表/数组，简化展示
+                example["result"] = f"包含{len(result)}个元素的嵌套结构，首个元素: {result[0]}"
             else:
                 example["result"] = repr(result)
         except Exception as e:
@@ -199,12 +217,63 @@ def generate_examples_for_func(func_name: str) -> List[Dict[str, Any]]:
             (np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]), 3),
         ]
     elif func_name == "rolling_qcv":
+        # 修复缺少interval参数的问题
         examples_args = [
-            (np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]), 3),
+            (np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]), 3, 1),  # 添加interval参数
         ]
     elif func_name == "vectorize_sentences_list":
         examples_args = [
             (["这是第一个句子", "这是第二个句子", "这是第三个句子"],),
+        ]
+    elif func_name == "find_half_energy_time":
+        examples_args = [
+            (np.array([10.0, 8.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0]), np.array([0, 1, 2, 3, 4, 5, 6, 7])),
+        ]
+    elif func_name == "find_follow_volume_sum_same_price":
+        examples_args = [
+            (np.array([10.0, 10.0, 11.0, 12.0, 12.0]), np.array([100, 200, 150, 300, 400]), 3),
+        ]
+    elif func_name == "find_follow_volume_sum_same_price_and_flag":
+        examples_args = [
+            (np.array([10.0, 10.0, 11.0, 12.0, 12.0]), np.array([100, 200, 150, 300, 400]), np.array([1, 1, 0, 1, 0]), 3),
+        ]
+    elif func_name == "mark_follow_groups":
+        examples_args = [
+            (np.array([10.0, 10.0, 11.0, 12.0, 12.0]), 0.1),
+        ]
+    elif func_name == "mark_follow_groups_with_flag":
+        examples_args = [
+            (np.array([10.0, 10.0, 11.0, 12.0, 12.0]), np.array([1, 1, 0, 1, 0]), 0.1),
+        ]
+    elif func_name == "brachistochrone_curve":
+        examples_args = [
+            (np.array([0.0, 0.0]), np.array([1.0, 1.0]), 10),
+        ]
+    elif func_name == "calculate_shannon_entropy_change":
+        examples_args = [
+            (np.array([0.1, 0.2, 0.3, 0.4]), np.array([0.25, 0.25, 0.25, 0.25])),
+        ]
+    elif func_name == "calculate_shannon_entropy_change_at_low":
+        examples_args = [
+            (np.array([0.1, 0.2, 0.3, 0.4]), np.array([0.25, 0.25, 0.25, 0.25]), 0.2),
+        ]
+    elif func_name == "find_local_peaks_within_window":
+        examples_args = [
+            (np.array([1.0, 3.0, 2.0, 5.0, 4.0, 6.0, 3.0]), 3),
+        ]
+    elif func_name == "compute_max_eigenvalue":
+        examples_args = [
+            (np.array([[4.0, 1.0], [1.0, 4.0]]),),
+        ]
+    elif func_name == "rolling_window_stat":
+        examples_args = [
+            (np.array([1.0, 2.0, 3.0, 4.0, 5.0]), 3, "mean"),
+            (np.array([1.0, 2.0, 3.0, 4.0, 5.0]), 3, "max"),
+        ]
+    elif func_name == "sum_as_string":
+        examples_args = [
+            (5, 10),
+            (100, 200),
         ]
     # 继续为其他函数添加示例...
     else:
@@ -380,6 +449,22 @@ def copy_static_files(output_dir: str):
         font-size: 14px;
     }
     
+    .example-input {
+        margin-bottom: 8px;
+    }
+    
+    .example-output {
+        margin-top: 8px;
+    }
+    
+    .output-value {
+        color: #28a745;
+    }
+    
+    .error-message {
+        color: #cb2431;
+    }
+    
     .category {
         margin-bottom: 30px;
     }
@@ -412,6 +497,15 @@ def copy_static_files(output_dir: str):
     .navbar-subtitle {
         color: #c8c9cb;
         margin: 0;
+    }
+    
+    .signature {
+        margin-bottom: 20px;
+    }
+    
+    .returns-section {
+        margin-top: 20px;
+        margin-bottom: 20px;
     }
     """
     
@@ -542,7 +636,7 @@ def create_templates():
             <p>{{ function.parsed_doc.description }}</p>
         </div>
         
-        <div class="function-signature">
+        <div class="function-signature signature">
             <h2>函数签名</h2>
             <code>{{ function.name }}(
             {%- for param in function.signature.parameters -%}
@@ -566,7 +660,7 @@ def create_templates():
             {% endif %}
         </div>
         
-        <div class="function-returns">
+        <div class="function-returns returns-section">
             <h2>返回值</h2>
             <p>{{ function.parsed_doc.returns }}</p>
         </div>
@@ -576,25 +670,50 @@ def create_templates():
             {% if function.examples %}
                 {% for example in function.examples %}
                 <div class="example">
-                    <p><strong>输入:</strong></p>
-                    <code>{{ function.name }}(
-                    {%- for arg in example.args -%}
-                        {{ arg }}{% if not loop.last %}, {% endif %}
-                    {%- endfor -%}
-                    )</code>
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>{{ function.name }}(
+                        {%- for arg in example.args -%}
+                            {{ arg }}{% if not loop.last %}, {% endif %}
+                        {%- endfor -%}
+                        )</code>
+                    </div>
                     
                     {% if example.error %}
-                    <p><strong>错误:</strong></p>
-                    <code>{{ example.error }}</code>
+                    <div class="example-error">
+                        <p><strong>错误:</strong></p>
+                        <code class="error-message">{{ example.error }}</code>
+                    </div>
                     {% else %}
-                    <p><strong>输出:</strong></p>
-                    <code>{{ example.result }}</code>
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">{{ example.result }}</code>
+                    </div>
                     {% endif %}
                 </div>
                 {% endfor %}
             {% else %}
                 <p>暂无示例</p>
             {% endif %}
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import {{ function.name }}
+
+# 使用示例
+{% if function.examples and function.examples[0].args %}
+{% set example = function.examples[0] %}
+result = {{ function.name }}(
+{%- for arg in example.args -%}
+    {{ arg }}{% if not loop.last %}, {% endif %}
+{%- endfor -%}
+)
+print(f"结果: {result}")
+{% else %}
+# 请参考文档中的参数说明使用此函数
+{% endif %}</code></pre>
+            </div>
         </div>
     </div>
 </div>
@@ -623,6 +742,10 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+# 添加权限配置
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -637,7 +760,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install maturin jinja2 markdown numpy
+          pip install maturin jinja2 markdown numpy pandas graphviz IPython
           pip install -e .
       
       - name: Generate documentation
@@ -645,7 +768,8 @@ jobs:
           python docs_generator.py
       
       - name: Deploy to GitHub Pages
-        uses: JamesIves/github-pages-deploy-action@4.1.4
+        # 更新到较新的版本
+        uses: JamesIves/github-pages-deploy-action@v4.4.3
         with:
           branch: gh-pages
           folder: docs

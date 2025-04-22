@@ -17,7 +17,7 @@
             <p>{{ function.parsed_doc.description }}</p>
         </div>
         
-        <div class="function-signature">
+        <div class="function-signature signature">
             <h2>函数签名</h2>
             <code>{{ function.name }}(
             {%- for param in function.signature.parameters -%}
@@ -41,7 +41,7 @@
             {% endif %}
         </div>
         
-        <div class="function-returns">
+        <div class="function-returns returns-section">
             <h2>返回值</h2>
             <p>{{ function.parsed_doc.returns }}</p>
         </div>
@@ -51,25 +51,50 @@
             {% if function.examples %}
                 {% for example in function.examples %}
                 <div class="example">
-                    <p><strong>输入:</strong></p>
-                    <code>{{ function.name }}(
-                    {%- for arg in example.args -%}
-                        {{ arg }}{% if not loop.last %}, {% endif %}
-                    {%- endfor -%}
-                    )</code>
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>{{ function.name }}(
+                        {%- for arg in example.args -%}
+                            {{ arg }}{% if not loop.last %}, {% endif %}
+                        {%- endfor -%}
+                        )</code>
+                    </div>
                     
                     {% if example.error %}
-                    <p><strong>错误:</strong></p>
-                    <code>{{ example.error }}</code>
+                    <div class="example-error">
+                        <p><strong>错误:</strong></p>
+                        <code class="error-message">{{ example.error }}</code>
+                    </div>
                     {% else %}
-                    <p><strong>输出:</strong></p>
-                    <code>{{ example.result }}</code>
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">{{ example.result }}</code>
+                    </div>
                     {% endif %}
                 </div>
                 {% endfor %}
             {% else %}
                 <p>暂无示例</p>
             {% endif %}
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import {{ function.name }}
+
+# 使用示例
+{% if function.examples and function.examples[0].args %}
+{% set example = function.examples[0] %}
+result = {{ function.name }}(
+{%- for arg in example.args -%}
+    {{ arg }}{% if not loop.last %}, {% endif %}
+{%- endfor -%}
+)
+print(f"结果: {result}")
+{% else %}
+# 请参考文档中的参数说明使用此函数
+{% endif %}</code></pre>
+            </div>
         </div>
     </div>
 </div>
