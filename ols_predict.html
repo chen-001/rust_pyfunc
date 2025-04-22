@@ -27,7 +27,7 @@
             <p>使用已有数据和响应变量，对新的数据点进行OLS线性回归预测。</p>
         </div>
         
-        <div class="function-signature">
+        <div class="function-signature signature">
             <h2>函数签名</h2>
             <code>ols_predict(x, y, x_pred) -> None</code>
         </div>
@@ -57,7 +57,7 @@
             
         </div>
         
-        <div class="function-returns">
+        <div class="function-returns returns-section">
             <h2>返回值</h2>
             <p>-------
 numpy.ndarray
@@ -86,19 +86,39 @@ print(f&#34;预测值: {predictions}&#34;)  # 预期输出接近[8, 10]
             
                 
                 <div class="example">
-                    <p><strong>输入:</strong></p>
-                    <code>ols_predict([[1. 1.]
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>ols_predict([[1. 1.]
  [1. 2.]
  [1. 3.]], [2. 3. 4.], [[1. 4.]
  [1. 5.]])</code>
+                    </div>
                     
                     
-                    <p><strong>输出:</strong></p>
-                    <code>[nan nan]</code>
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">array([nan, nan], dtype=float64)</code>
+                    </div>
                     
                 </div>
                 
             
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import ols_predict
+
+# 使用示例
+
+
+result = ols_predict([[1. 1.]
+ [1. 2.]
+ [1. 3.]], [2. 3. 4.], [[1. 4.]
+ [1. 5.]])
+print(f"结果: {result}")
+</code></pre>
+            </div>
         </div>
     </div>
 </div>

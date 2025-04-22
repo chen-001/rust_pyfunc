@@ -32,7 +32,7 @@
 这种方法对异常值和均值接近零的情况更加稳健。</p>
         </div>
         
-        <div class="function-signature">
+        <div class="function-signature signature">
             <h2>函数签名</h2>
             <code>rolling_qcv(values, lookback, interval, min_periods) -> None</code>
         </div>
@@ -68,7 +68,7 @@
             
         </div>
         
-        <div class="function-returns">
+        <div class="function-returns returns-section">
             <h2>返回值</h2>
             <p>-------
 array_like
@@ -92,16 +92,34 @@ qcv = rolling_qcv(values, 5, 1)
             
                 
                 <div class="example">
-                    <p><strong>输入:</strong></p>
-                    <code>rolling_qcv([ 1.  2.  3.  4.  5.  6.  7.  8.  9. 10.], 3)</code>
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>rolling_qcv([ 1.  2.  3.  4.  5.  6.  7.  8.  9. 10.], 3, 1)</code>
+                    </div>
                     
                     
-                    <p><strong>错误:</strong></p>
-                    <code>rolling_qcv() missing 1 required positional argument: &#39;interval&#39;</code>
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">array([   nan,    nan, 0.5237, 0.3399, 0.2527, 0.2014, 0.1674, 0.1433, 0.1253,
+ 0.1113], dtype=float64)</code>
+                    </div>
                     
                 </div>
                 
             
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import rolling_qcv
+
+# 使用示例
+
+
+result = rolling_qcv([ 1.  2.  3.  4.  5.  6.  7.  8.  9. 10.], 3, 1)
+print(f"结果: {result}")
+</code></pre>
+            </div>
         </div>
     </div>
 </div>

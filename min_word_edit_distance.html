@@ -45,7 +45,7 @@ print(min_word_edit_distance(da, dc))  # 输出: 6 (删除3个单词，添加3�
 ```</p>
         </div>
         
-        <div class="function-signature">
+        <div class="function-signature signature">
             <h2>函数签名</h2>
             <code>min_word_edit_distance(str1, str2) -> None</code>
         </div>
@@ -57,7 +57,7 @@ print(min_word_edit_distance(da, dc))  # 输出: 6 (删除3个单词，添加3�
             
         </div>
         
-        <div class="function-returns">
+        <div class="function-returns returns-section">
             <h2>返回值</h2>
             <p></p>
         </div>
@@ -67,26 +67,47 @@ print(min_word_edit_distance(da, dc))  # 输出: 6 (删除3个单词，添加3�
             
                 
                 <div class="example">
-                    <p><strong>输入:</strong></p>
-                    <code>min_word_edit_distance(这是一个测试句子, 这是另一个测试句子)</code>
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>min_word_edit_distance(这是一个测试句子, 这是另一个测试句子)</code>
+                    </div>
                     
                     
-                    <p><strong>输出:</strong></p>
-                    <code>2</code>
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">2</code>
+                    </div>
                     
                 </div>
                 
                 <div class="example">
-                    <p><strong>输入:</strong></p>
-                    <code>min_word_edit_distance(深度学习算法, 机器学习算法)</code>
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>min_word_edit_distance(深度学习算法, 机器学习算法)</code>
+                    </div>
                     
                     
-                    <p><strong>输出:</strong></p>
-                    <code>2</code>
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">2</code>
+                    </div>
                     
                 </div>
                 
             
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import min_word_edit_distance
+
+# 使用示例
+
+
+result = min_word_edit_distance(这是一个测试句子, 这是另一个测试句子)
+print(f"结果: {result}")
+</code></pre>
+            </div>
         </div>
     </div>
 </div>

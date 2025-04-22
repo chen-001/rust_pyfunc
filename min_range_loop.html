@@ -27,7 +27,7 @@
             <p>计算序列中每个位置结尾的最长连续子序列长度，其中子序列的最小值在该位置。</p>
         </div>
         
-        <div class="function-signature">
+        <div class="function-signature signature">
             <h2>函数签名</h2>
             <code>min_range_loop(s, allow_equal) -> None</code>
         </div>
@@ -51,7 +51,7 @@
             
         </div>
         
-        <div class="function-returns">
+        <div class="function-returns returns-section">
             <h2>返回值</h2>
             <p>-------
 list
@@ -79,16 +79,33 @@ print(f&#34;最小值范围: {ranges}&#34;)  # 输出可能不同
             
                 
                 <div class="example">
-                    <p><strong>输入:</strong></p>
-                    <code>min_range_loop([3. 1. 4. 2. 5.], 3)</code>
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>min_range_loop([3. 1. 4. 2. 5.], 3)</code>
+                    </div>
                     
                     
-                    <p><strong>错误:</strong></p>
-                    <code>argument &#39;allow_equal&#39;: &#39;int&#39; object cannot be converted to &#39;PyBool&#39;</code>
+                    <div class="example-error">
+                        <p><strong>错误:</strong></p>
+                        <code class="error-message">argument &#39;allow_equal&#39;: &#39;int&#39; object cannot be converted to &#39;PyBool&#39;</code>
+                    </div>
                     
                 </div>
                 
             
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import min_range_loop
+
+# 使用示例
+
+
+result = min_range_loop([3. 1. 4. 2. 5.], 3)
+print(f"结果: {result}")
+</code></pre>
+            </div>
         </div>
     </div>
 </div>

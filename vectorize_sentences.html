@@ -29,7 +29,7 @@
 向量中的每个位置对应一个单词，值表示该单词在句子中出现的次数。</p>
         </div>
         
-        <div class="function-signature">
+        <div class="function-signature signature">
             <h2>函数签名</h2>
             <code>vectorize_sentences(sentence1, sentence2) -> None</code>
         </div>
@@ -53,7 +53,7 @@
             
         </div>
         
-        <div class="function-returns">
+        <div class="function-returns returns-section">
             <h2>返回值</h2>
             <p>-------
 tuple
@@ -87,26 +87,47 @@ print(f&#34;句子2的词频向量: {v2}&#34;)  # 例如：[1, 0, 1, 0, 1]
             
                 
                 <div class="example">
-                    <p><strong>输入:</strong></p>
-                    <code>vectorize_sentences(这是第一个句子, 这是第二个句子)</code>
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>vectorize_sentences(这是第一个句子, 这是第二个句子)</code>
+                    </div>
                     
                     
-                    <p><strong>输出:</strong></p>
-                    <code>([1, 0], [0, 1])</code>
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">包含2个元素的嵌套结构，首个元素: [1, 0]</code>
+                    </div>
                     
                 </div>
                 
                 <div class="example">
-                    <p><strong>输入:</strong></p>
-                    <code>vectorize_sentences(机器学习很有趣, 深度学习也很有趣)</code>
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>vectorize_sentences(机器学习很有趣, 深度学习也很有趣)</code>
+                    </div>
                     
                     
-                    <p><strong>输出:</strong></p>
-                    <code>([0, 1], [1, 0])</code>
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">包含2个元素的嵌套结构，首个元素: [1, 0]</code>
+                    </div>
                     
                 </div>
                 
             
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import vectorize_sentences
+
+# 使用示例
+
+
+result = vectorize_sentences(这是第一个句子, 这是第二个句子)
+print(f"结果: {result}")
+</code></pre>
+            </div>
         </div>
     </div>
 </div>

@@ -28,7 +28,7 @@
 使用了显式的SIMD指令和缓存优化处理，比普通版本更快。</p>
         </div>
         
-        <div class="function-signature">
+        <div class="function-signature signature">
             <h2>函数签名</h2>
             <code>trend_fast(arr) -> None</code>
         </div>
@@ -46,7 +46,7 @@
             
         </div>
         
-        <div class="function-returns">
+        <div class="function-returns returns-section">
             <h2>返回值</h2>
             <p>-------
 float
@@ -69,36 +69,61 @@ print(f&#34;趋势系数: {result}&#34;)  # 对于这个例子，应该非常接
             
                 
                 <div class="example">
-                    <p><strong>输入:</strong></p>
-                    <code>trend_fast([1. 2. 3. 4. 5.])</code>
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>trend_fast([1. 2. 3. 4. 5.])</code>
+                    </div>
                     
                     
-                    <p><strong>输出:</strong></p>
-                    <code>2.23606797749979</code>
-                    
-                </div>
-                
-                <div class="example">
-                    <p><strong>输入:</strong></p>
-                    <code>trend_fast([5. 4. 3. 2. 1.])</code>
-                    
-                    
-                    <p><strong>输出:</strong></p>
-                    <code>-2.23606797749979</code>
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">2.23606797749979</code>
+                    </div>
                     
                 </div>
                 
                 <div class="example">
-                    <p><strong>输入:</strong></p>
-                    <code>trend_fast([1. 3. 2. 5. 4.])</code>
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>trend_fast([5. 4. 3. 2. 1.])</code>
+                    </div>
                     
                     
-                    <p><strong>输出:</strong></p>
-                    <code>1.7888543819998317</code>
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">-2.23606797749979</code>
+                    </div>
+                    
+                </div>
+                
+                <div class="example">
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>trend_fast([1. 3. 2. 5. 4.])</code>
+                    </div>
+                    
+                    
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">1.7888543819998317</code>
+                    </div>
                     
                 </div>
                 
             
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import trend_fast
+
+# 使用示例
+
+
+result = trend_fast([1. 2. 3. 4. 5.])
+print(f"结果: {result}")
+</code></pre>
+            </div>
         </div>
     </div>
 </div>

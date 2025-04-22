@@ -28,7 +28,7 @@
 每个连续相等的值构成一个段，第一个段标识符为1，第二个为2，以此类推。</p>
         </div>
         
-        <div class="function-signature">
+        <div class="function-signature signature">
             <h2>函数签名</h2>
             <code>identify_segments(arr) -> None</code>
         </div>
@@ -46,7 +46,7 @@
             
         </div>
         
-        <div class="function-returns">
+        <div class="function-returns returns-section">
             <h2>返回值</h2>
             <p>-------
 numpy.ndarray
@@ -74,26 +74,47 @@ print(f&#34;段标识: {segments}&#34;)  # 输出: [1, 1, 2, 2, 2, 3]
             
                 
                 <div class="example">
-                    <p><strong>输入:</strong></p>
-                    <code>identify_segments([1. 1. 2. 2. 2. 3. 3.])</code>
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>identify_segments([1. 1. 2. 2. 2. 3. 3.])</code>
+                    </div>
                     
                     
-                    <p><strong>输出:</strong></p>
-                    <code>[0 1 2 2 2 3 3]</code>
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">array([0, 1, 2, 2, 2, 3, 3], dtype=int32)</code>
+                    </div>
                     
                 </div>
                 
                 <div class="example">
-                    <p><strong>输入:</strong></p>
-                    <code>identify_segments([5. 5. 5. 5. 5.])</code>
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>identify_segments([5. 5. 5. 5. 5.])</code>
+                    </div>
                     
                     
-                    <p><strong>输出:</strong></p>
-                    <code>[0 1 1 1 1]</code>
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">array([0, 1, 1, 1, 1], dtype=int32)</code>
+                    </div>
                     
                 </div>
                 
             
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import identify_segments
+
+# 使用示例
+
+
+result = identify_segments([1. 1. 2. 2. 2. 3. 3.])
+print(f"结果: {result}")
+</code></pre>
+            </div>
         </div>
     </div>
 </div>

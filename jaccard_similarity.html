@@ -29,7 +29,7 @@ Jaccard相似度是两个集合交集大小除以并集大小，用于衡量两�
 这里将每个句子视为单词集合，忽略单词出现的顺序和频率。</p>
         </div>
         
-        <div class="function-signature">
+        <div class="function-signature signature">
             <h2>函数签名</h2>
             <code>jaccard_similarity(str1, str2) -> None</code>
         </div>
@@ -53,7 +53,7 @@ Jaccard相似度是两个集合交集大小除以并集大小，用于衡量两�
             
         </div>
         
-        <div class="function-returns">
+        <div class="function-returns returns-section">
             <h2>返回值</h2>
             <p>-------
 float
@@ -94,36 +94,61 @@ print(f&#34;大小写不同的相似度: {sim4}&#34;)  # 输出: 1.0
             
                 
                 <div class="example">
-                    <p><strong>输入:</strong></p>
-                    <code>jaccard_similarity(机器学习算法, 深度学习算法)</code>
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>jaccard_similarity(机器学习算法, 深度学习算法)</code>
+                    </div>
                     
                     
-                    <p><strong>输出:</strong></p>
-                    <code>0.0</code>
-                    
-                </div>
-                
-                <div class="example">
-                    <p><strong>输入:</strong></p>
-                    <code>jaccard_similarity(Python编程, Python编程语言)</code>
-                    
-                    
-                    <p><strong>输出:</strong></p>
-                    <code>0.0</code>
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">0.0</code>
+                    </div>
                     
                 </div>
                 
                 <div class="example">
-                    <p><strong>输入:</strong></p>
-                    <code>jaccard_similarity(完全不同的句子, 毫无共同点的文本)</code>
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>jaccard_similarity(Python编程, Python编程语言)</code>
+                    </div>
                     
                     
-                    <p><strong>输出:</strong></p>
-                    <code>0.0</code>
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">0.0</code>
+                    </div>
+                    
+                </div>
+                
+                <div class="example">
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>jaccard_similarity(完全不同的句子, 毫无共同点的文本)</code>
+                    </div>
+                    
+                    
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">0.0</code>
+                    </div>
                     
                 </div>
                 
             
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import jaccard_similarity
+
+# 使用示例
+
+
+result = jaccard_similarity(机器学习算法, 深度学习算法)
+print(f"结果: {result}")
+</code></pre>
+            </div>
         </div>
     </div>
 </div>

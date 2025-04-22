@@ -77,6 +77,22 @@
         font-size: 14px;
     }
     
+    .example-input {
+        margin-bottom: 8px;
+    }
+    
+    .example-output {
+        margin-top: 8px;
+    }
+    
+    .output-value {
+        color: #28a745;
+    }
+    
+    .error-message {
+        color: #cb2431;
+    }
+    
     .category {
         margin-bottom: 30px;
     }
@@ -109,5 +125,14 @@
     .navbar-subtitle {
         color: #c8c9cb;
         margin: 0;
+    }
+    
+    .signature {
+        margin-bottom: 20px;
+    }
+    
+    .returns-section {
+        margin-top: 20px;
+        margin-bottom: 20px;
     }
     

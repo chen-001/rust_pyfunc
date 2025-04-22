@@ -28,7 +28,7 @@
 这个函数可以用来找到数组中距离最远的两个元素，同时考虑它们的最小值。</p>
         </div>
         
-        <div class="function-signature">
+        <div class="function-signature signature">
             <h2>函数签名</h2>
             <code>find_max_range_product(arr) -> None</code>
         </div>
@@ -46,7 +46,7 @@
             
         </div>
         
-        <div class="function-returns">
+        <div class="function-returns returns-section">
             <h2>返回值</h2>
             <p>-------
 tuple
@@ -75,26 +75,47 @@ print(f&#34;最大乘积为: {max_product}&#34;)
             
                 
                 <div class="example">
-                    <p><strong>输入:</strong></p>
-                    <code>find_max_range_product([3. 1. 6. 4. 2. 8.])</code>
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>find_max_range_product([3. 1. 6. 4. 2. 8.])</code>
+                    </div>
                     
                     
-                    <p><strong>输出:</strong></p>
-                    <code>(2, 5, 18.0)</code>
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">(2, 5, 18.0)</code>
+                    </div>
                     
                 </div>
                 
                 <div class="example">
-                    <p><strong>输入:</strong></p>
-                    <code>find_max_range_product([10.  8.  6.  4.  2.])</code>
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>find_max_range_product([10.  8.  6.  4.  2.])</code>
+                    </div>
                     
                     
-                    <p><strong>输出:</strong></p>
-                    <code>(0, 3, 12.0)</code>
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">(0, 3, 12.0)</code>
+                    </div>
                     
                 </div>
                 
             
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import find_max_range_product
+
+# 使用示例
+
+
+result = find_max_range_product([3. 1. 6. 4. 2. 8.])
+print(f"结果: {result}")
+</code></pre>
+            </div>
         </div>
     </div>
 </div>

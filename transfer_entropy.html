@@ -29,7 +29,7 @@
 具体来说，它测量了在已知x的过去k个状态的情况下，对y的当前状态预测能力的提升程度。</p>
         </div>
         
-        <div class="function-signature">
+        <div class="function-signature signature">
             <h2>函数签名</h2>
             <code>transfer_entropy(x_, y_, k, c) -> None</code>
         </div>
@@ -65,7 +65,7 @@
             
         </div>
         
-        <div class="function-returns">
+        <div class="function-returns returns-section">
             <h2>返回值</h2>
             <p>-------
 float
@@ -97,26 +97,47 @@ print(f&#34;从y到x的转移熵: {te_reverse}&#34;)  # 应该比te小，因为y
             
                 
                 <div class="example">
-                    <p><strong>输入:</strong></p>
-                    <code>transfer_entropy([1.0, 2.0, 3.0, 4.0, 5.0], [1.5, 2.5, 3.5, 4.5, 5.5], 2, 3)</code>
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>transfer_entropy([1.0, 2.0, 3.0, 4.0, 5.0], [1.5, 2.5, 3.5, 4.5, 5.5], 2, 3)</code>
+                    </div>
                     
                     
-                    <p><strong>输出:</strong></p>
-                    <code>-inf</code>
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">-inf</code>
+                    </div>
                     
                 </div>
                 
                 <div class="example">
-                    <p><strong>输入:</strong></p>
-                    <code>transfer_entropy([1.0, 2.0, 3.0, 4.0, 5.0], [5.0, 4.0, 3.0, 2.0, 1.0], 2, 3)</code>
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>transfer_entropy([1.0, 2.0, 3.0, 4.0, 5.0], [5.0, 4.0, 3.0, 2.0, 1.0], 2, 3)</code>
+                    </div>
                     
                     
-                    <p><strong>输出:</strong></p>
-                    <code>0.0</code>
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">0.0</code>
+                    </div>
                     
                 </div>
                 
             
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import transfer_entropy
+
+# 使用示例
+
+
+result = transfer_entropy([1.0, 2.0, 3.0, 4.0, 5.0], [1.5, 2.5, 3.5, 4.5, 5.5], 2, 3)
+print(f"结果: {result}")
+</code></pre>
+            </div>
         </div>
     </div>
 </div>

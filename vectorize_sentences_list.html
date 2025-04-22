@@ -29,7 +29,7 @@
 每个向量中的每个位置对应一个单词，值表示该单词在对应句子中出现的次数。</p>
         </div>
         
-        <div class="function-signature">
+        <div class="function-signature signature">
             <h2>函数签名</h2>
             <code>vectorize_sentences_list(sentences) -> None</code>
         </div>
@@ -47,7 +47,7 @@
             
         </div>
         
-        <div class="function-returns">
+        <div class="function-returns returns-section">
             <h2>返回值</h2>
             <p>-------
 list[list[int]]
@@ -87,16 +87,33 @@ for i, vec in enumerate(vectors):
             
                 
                 <div class="example">
-                    <p><strong>输入:</strong></p>
-                    <code>vectorize_sentences_list([&#39;这是第一个句子&#39;, &#39;这是第二个句子&#39;, &#39;这是第三个句子&#39;])</code>
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>vectorize_sentences_list([&#39;这是第一个句子&#39;, &#39;这是第二个句子&#39;, &#39;这是第三个句子&#39;])</code>
+                    </div>
                     
                     
-                    <p><strong>输出:</strong></p>
-                    <code>[[1, 0, 0], [0, 1, 0], [0, 0, 1]]</code>
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">包含3个元素的嵌套结构，首个元素: [0, 1, 0]</code>
+                    </div>
                     
                 </div>
                 
             
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import vectorize_sentences_list
+
+# 使用示例
+
+
+result = vectorize_sentences_list([&#39;这是第一个句子&#39;, &#39;这是第二个句子&#39;, &#39;这是第三个句子&#39;])
+print(f"结果: {result}")
+</code></pre>
+            </div>
         </div>
     </div>
 </div>

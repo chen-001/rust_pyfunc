@@ -28,7 +28,7 @@
 这个函数可以用来判断一个序列的趋势性，如果返回值接近1表示强上升趋势，接近-1表示强下降趋势。</p>
         </div>
         
-        <div class="function-signature">
+        <div class="function-signature signature">
             <h2>函数签名</h2>
             <code>trend(arr) -> None</code>
         </div>
@@ -46,7 +46,7 @@
             
         </div>
         
-        <div class="function-returns">
+        <div class="function-returns returns-section">
             <h2>返回值</h2>
             <p>-------
 float
@@ -77,36 +77,61 @@ result3 = trend(arr3)  # 返回0.0
             
                 
                 <div class="example">
-                    <p><strong>输入:</strong></p>
-                    <code>trend([1.0, 2.0, 3.0, 4.0, 5.0])</code>
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>trend([1.0, 2.0, 3.0, 4.0, 5.0])</code>
+                    </div>
                     
                     
-                    <p><strong>输出:</strong></p>
-                    <code>0.9999999999999998</code>
-                    
-                </div>
-                
-                <div class="example">
-                    <p><strong>输入:</strong></p>
-                    <code>trend([5.0, 4.0, 3.0, 2.0, 1.0])</code>
-                    
-                    
-                    <p><strong>输出:</strong></p>
-                    <code>-0.9999999999999998</code>
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">0.9999999999999998</code>
+                    </div>
                     
                 </div>
                 
                 <div class="example">
-                    <p><strong>输入:</strong></p>
-                    <code>trend([1.0, 3.0, 2.0, 5.0, 4.0])</code>
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>trend([5.0, 4.0, 3.0, 2.0, 1.0])</code>
+                    </div>
                     
                     
-                    <p><strong>输出:</strong></p>
-                    <code>0.7999999999999998</code>
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">-0.9999999999999998</code>
+                    </div>
+                    
+                </div>
+                
+                <div class="example">
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>trend([1.0, 3.0, 2.0, 5.0, 4.0])</code>
+                    </div>
+                    
+                    
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">0.7999999999999998</code>
+                    </div>
                     
                 </div>
                 
             
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import trend
+
+# 使用示例
+
+
+result = trend([1.0, 2.0, 3.0, 4.0, 5.0])
+print(f"结果: {result}")
+</code></pre>
+            </div>
         </div>
     </div>
 </div>

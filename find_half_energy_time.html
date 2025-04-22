@@ -27,7 +27,7 @@
             <p>计算每一行在其后指定时间窗口内的价格变动能量，并找出首次达到最终能量一半时所需的时间。</p>
         </div>
         
-        <div class="function-signature">
+        <div class="function-signature signature">
             <h2>函数签名</h2>
             <code>find_half_energy_time(times, prices, time_window) -> None</code>
         </div>
@@ -57,7 +57,7 @@
             
         </div>
         
-        <div class="function-returns">
+        <div class="function-returns returns-section">
             <h2>返回值</h2>
             <p>-------
 numpy.ndarray
@@ -95,8 +95,36 @@ print(df)
         <div class="function-examples">
             <h2>示例</h2>
             
-                <p>暂无示例</p>
+                
+                <div class="example">
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>find_half_energy_time([10.  8.  6.  5.  4.  3.  2.  1.], [0 1 2 3 4 5 6 7])</code>
+                    </div>
+                    
+                    
+                    <div class="example-error">
+                        <p><strong>错误:</strong></p>
+                        <code class="error-message">argument &#39;prices&#39;: type mismatch:
+ from=int64, to=float64</code>
+                    </div>
+                    
+                </div>
+                
             
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import find_half_energy_time
+
+# 使用示例
+
+
+result = find_half_energy_time([10.  8.  6.  5.  4.  3.  2.  1.], [0 1 2 3 4 5 6 7])
+print(f"结果: {result}")
+</code></pre>
+            </div>
         </div>
     </div>
 </div>

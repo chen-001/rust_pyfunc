@@ -28,7 +28,7 @@
 对于每个时间点，计算该点之后指定时间窗口内所有数据的指定统计量。</p>
         </div>
         
-        <div class="function-signature">
+        <div class="function-signature signature">
             <h2>函数签名</h2>
             <code>rolling_window_stat(times, values, window, stat_type, include_current) -> None</code>
         </div>
@@ -64,7 +64,7 @@
             
         </div>
         
-        <div class="function-returns">
+        <div class="function-returns returns-section">
             <h2>返回值</h2>
             <p>-------
 numpy.ndarray
@@ -88,8 +88,49 @@ mean_result = rolling_window_stat(times, values, window, &#34;mean&#34;)
         <div class="function-examples">
             <h2>示例</h2>
             
-                <p>暂无示例</p>
+                
+                <div class="example">
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>rolling_window_stat([1. 2. 3. 4. 5.], 3, mean)</code>
+                    </div>
+                    
+                    
+                    <div class="example-error">
+                        <p><strong>错误:</strong></p>
+                        <code class="error-message">rolling_window_stat() missing 2 required positional arguments: &#39;stat_type&#39; and &#39;include_current&#39;</code>
+                    </div>
+                    
+                </div>
+                
+                <div class="example">
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>rolling_window_stat([1. 2. 3. 4. 5.], 3, max)</code>
+                    </div>
+                    
+                    
+                    <div class="example-error">
+                        <p><strong>错误:</strong></p>
+                        <code class="error-message">rolling_window_stat() missing 2 required positional arguments: &#39;stat_type&#39; and &#39;include_current&#39;</code>
+                    </div>
+                    
+                </div>
+                
             
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import rolling_window_stat
+
+# 使用示例
+
+
+result = rolling_window_stat([1. 2. 3. 4. 5.], 3, mean)
+print(f"结果: {result}")
+</code></pre>
+            </div>
         </div>
     </div>
 </div>

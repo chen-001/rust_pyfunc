@@ -29,7 +29,7 @@
 组号从1开始递增，每遇到一个新的交易组就分配一个新的组号。</p>
         </div>
         
-        <div class="function-signature">
+        <div class="function-signature signature">
             <h2>函数签名</h2>
             <code>mark_follow_groups_with_flag(times, prices, volumes, flags, time_window) -> None</code>
         </div>
@@ -71,7 +71,7 @@
             
         </div>
         
-        <div class="function-returns">
+        <div class="function-returns returns-section">
             <h2>返回值</h2>
             <p>-------
 numpy.ndarray
@@ -111,8 +111,35 @@ print(df)
         <div class="function-examples">
             <h2>示例</h2>
             
-                <p>暂无示例</p>
+                
+                <div class="example">
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>mark_follow_groups_with_flag([10. 10. 11. 12. 12.], [1 1 0 1 0], 0.1)</code>
+                    </div>
+                    
+                    
+                    <div class="example-error">
+                        <p><strong>错误:</strong></p>
+                        <code class="error-message">mark_follow_groups_with_flag() missing 1 required positional argument: &#39;flags&#39;</code>
+                    </div>
+                    
+                </div>
+                
             
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import mark_follow_groups_with_flag
+
+# 使用示例
+
+
+result = mark_follow_groups_with_flag([10. 10. 11. 12. 12.], [1 1 0 1 0], 0.1)
+print(f"结果: {result}")
+</code></pre>
+            </div>
         </div>
     </div>
 </div>

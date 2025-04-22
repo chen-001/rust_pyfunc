@@ -38,7 +38,7 @@
 * 香农熵变数组，只在价格创新低时有值，其他位置为NaN</p>
         </div>
         
-        <div class="function-signature">
+        <div class="function-signature signature">
             <h2>函数签名</h2>
             <code>calculate_shannon_entropy_change_at_low(exchtime, order, volume, price, window_seconds, bottom_k) -> None</code>
         </div>
@@ -50,7 +50,7 @@
             
         </div>
         
-        <div class="function-returns">
+        <div class="function-returns returns-section">
             <h2>返回值</h2>
             <p></p>
         </div>
@@ -58,8 +58,35 @@
         <div class="function-examples">
             <h2>示例</h2>
             
-                <p>暂无示例</p>
+                
+                <div class="example">
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>calculate_shannon_entropy_change_at_low([0.1 0.2 0.3 0.4], [0.25 0.25 0.25 0.25], 0.2)</code>
+                    </div>
+                    
+                    
+                    <div class="example-error">
+                        <p><strong>错误:</strong></p>
+                        <code class="error-message">calculate_shannon_entropy_change_at_low() missing 2 required positional arguments: &#39;price&#39; and &#39;window_seconds&#39;</code>
+                    </div>
+                    
+                </div>
+                
             
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import calculate_shannon_entropy_change_at_low
+
+# 使用示例
+
+
+result = calculate_shannon_entropy_change_at_low([0.1 0.2 0.3 0.4], [0.25 0.25 0.25 0.25], 0.2)
+print(f"结果: {result}")
+</code></pre>
+            </div>
         </div>
     </div>
 </div>

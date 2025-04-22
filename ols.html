@@ -28,7 +28,7 @@
 用于拟合线性回归模型 y = Xβ + ε，其中β是要估计的回归系数。</p>
         </div>
         
-        <div class="function-signature">
+        <div class="function-signature signature">
             <h2>函数签名</h2>
             <code>ols(x, y, calculate_r2) -> None</code>
         </div>
@@ -58,7 +58,7 @@
             
         </div>
         
-        <div class="function-returns">
+        <div class="function-returns returns-section">
             <h2>返回值</h2>
             <p>-------
 numpy.ndarray
@@ -84,30 +84,53 @@ print(f&#34;回归系数: {coefficients}&#34;)  # 预期输出接近[0, 2]，表
             
                 
                 <div class="example">
-                    <p><strong>输入:</strong></p>
-                    <code>ols([[1. 1.]
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>ols([[1. 1.]
  [1. 2.]
  [1. 3.]], [2. 3. 4.])</code>
+                    </div>
                     
                     
-                    <p><strong>输出:</strong></p>
-                    <code>[nan nan nan nan]</code>
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">array([nan, nan, nan, nan], dtype=float64)</code>
+                    </div>
                     
                 </div>
                 
                 <div class="example">
-                    <p><strong>输入:</strong></p>
-                    <code>ols([[1. 1.]
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>ols([[1. 1.]
  [1. 2.]
  [1. 3.]], [2. 3. 4.], False)</code>
+                    </div>
                     
                     
-                    <p><strong>输出:</strong></p>
-                    <code>[nan nan nan]</code>
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">array([nan, nan, nan], dtype=float64)</code>
+                    </div>
                     
                 </div>
                 
             
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import ols
+
+# 使用示例
+
+
+result = ols([[1. 1.]
+ [1. 2.]
+ [1. 3.]], [2. 3. 4.])
+print(f"结果: {result}")
+</code></pre>
+            </div>
         </div>
     </div>
 </div>

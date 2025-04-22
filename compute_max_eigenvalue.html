@@ -28,7 +28,7 @@
 使用幂迭代法计算，不使用并行计算</p>
         </div>
         
-        <div class="function-signature">
+        <div class="function-signature signature">
             <h2>函数签名</h2>
             <code>compute_max_eigenvalue(matrix) -> None</code>
         </div>
@@ -46,7 +46,7 @@
             
         </div>
         
-        <div class="function-returns">
+        <div class="function-returns returns-section">
             <h2>返回值</h2>
             <p>-------
 tuple
@@ -71,8 +71,37 @@ print(f&#34;对应的特征向量: {eigenvector}&#34;)
         <div class="function-examples">
             <h2>示例</h2>
             
-                <p>暂无示例</p>
+                
+                <div class="example">
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>compute_max_eigenvalue([[4. 1.]
+ [1. 4.]])</code>
+                    </div>
+                    
+                    
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">(4.999999999999999, array([0.70710678, 0.70710678]))</code>
+                    </div>
+                    
+                </div>
+                
             
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import compute_max_eigenvalue
+
+# 使用示例
+
+
+result = compute_max_eigenvalue([[4. 1.]
+ [1. 4.]])
+print(f"结果: {result}")
+</code></pre>
+            </div>
         </div>
     </div>
 </div>

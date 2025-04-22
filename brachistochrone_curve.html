@@ -27,7 +27,7 @@
             <p>计算最速曲线（投掷线）并返回x_series对应的y坐标</p>
         </div>
         
-        <div class="function-signature">
+        <div class="function-signature signature">
             <h2>函数签名</h2>
             <code>brachistochrone_curve(x1, y1, x2, y2, x_series, timeout_seconds) -> None</code>
         </div>
@@ -75,7 +75,7 @@
             
         </div>
         
-        <div class="function-returns">
+        <div class="function-returns returns-section">
             <h2>返回值</h2>
             <p>-------
 numpy.ndarray
@@ -106,8 +106,35 @@ except RuntimeError as e:
         <div class="function-examples">
             <h2>示例</h2>
             
-                <p>暂无示例</p>
+                
+                <div class="example">
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>brachistochrone_curve([0. 0.], [1. 1.], 10)</code>
+                    </div>
+                    
+                    
+                    <div class="example-error">
+                        <p><strong>错误:</strong></p>
+                        <code class="error-message">brachistochrone_curve() missing 2 required positional arguments: &#39;y2&#39; and &#39;x_series&#39;</code>
+                    </div>
+                    
+                </div>
+                
             
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import brachistochrone_curve
+
+# 使用示例
+
+
+result = brachistochrone_curve([0. 0.], [1. 1.], 10)
+print(f"结果: {result}")
+</code></pre>
+            </div>
         </div>
     </div>
 </div>

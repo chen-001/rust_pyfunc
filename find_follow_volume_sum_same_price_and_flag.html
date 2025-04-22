@@ -27,7 +27,7 @@
             <p>计算每一行在其后time_window秒内具有相同flag、price和volume的行的volume总和。</p>
         </div>
         
-        <div class="function-signature">
+        <div class="function-signature signature">
             <h2>函数签名</h2>
             <code>find_follow_volume_sum_same_price_and_flag(times, prices, volumes, flags, time_window) -> None</code>
         </div>
@@ -69,7 +69,7 @@
             
         </div>
         
-        <div class="function-returns">
+        <div class="function-returns returns-section">
             <h2>返回值</h2>
             <p>-------
 numpy.ndarray
@@ -103,8 +103,36 @@ df[&#39;follow&#39;] = find_follow_volume_sum(
         <div class="function-examples">
             <h2>示例</h2>
             
-                <p>暂无示例</p>
+                
+                <div class="example">
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>find_follow_volume_sum_same_price_and_flag([10. 10. 11. 12. 12.], [100 200 150 300 400], [1 1 0 1 0], 3)</code>
+                    </div>
+                    
+                    
+                    <div class="example-error">
+                        <p><strong>错误:</strong></p>
+                        <code class="error-message">argument &#39;prices&#39;: type mismatch:
+ from=int64, to=float64</code>
+                    </div>
+                    
+                </div>
+                
             
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import find_follow_volume_sum_same_price_and_flag
+
+# 使用示例
+
+
+result = find_follow_volume_sum_same_price_and_flag([10. 10. 11. 12. 12.], [100 200 150 300 400], [1 1 0 1 0], 3)
+print(f"结果: {result}")
+</code></pre>
+            </div>
         </div>
     </div>
 </div>
