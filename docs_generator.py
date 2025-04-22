@@ -30,25 +30,34 @@ def parse_docstring(docstring: str) -> Dict[str, str]:
     }
     
     # 分割文档字符串的主要部分
-    parts = re.split(r'参数说明：|返回值：', docstring)
+    parts = re.split(r'参数说明：|参数：|返回值：|返回：', docstring)
     
     if len(parts) >= 1:
-        result["description"] = parts[0].strip()
+        # 处理描述部分，将markdown转换为HTML
+        desc_md = parts[0].strip()
+        result["description"] = markdown.markdown(desc_md)
     
     if len(parts) >= 2:
         # 解析参数
         param_section = parts[1].strip()
-        param_blocks = re.findall(r'(\w+)\s*:\s*([^\n]+)(?:\n\s+([^-][^\n]+))?', param_section)
+        # 改进参数匹配正则表达式，使其能更好地处理多行参数描述
+        param_blocks = re.findall(r'(\w+)\s*:\s*([^\n]+)(?:\n\s+([^-\n][^\n]*(?:\n\s+[^-\n][^\n]*)*)?)?', param_section)
         for name, type_info, description in param_blocks:
+            # 清理可能的多行描述
+            clean_description = re.sub(r'\s+', ' ', description.strip()) if description else ""
+            # 将参数描述中的markdown转换为HTML
+            param_desc_html = markdown.markdown(clean_description) if clean_description else ""
             result["parameters"].append({
                 "name": name,
                 "type": type_info.strip(),
-                "description": description.strip() if description else ""
+                "description": param_desc_html
             })
     
     if len(parts) >= 3:
-        # 解析返回值
-        result["returns"] = parts[2].strip()
+        # 解析返回值，并清理格式
+        returns_text = parts[2].strip()
+        # 将返回值中的markdown转换为HTML
+        result["returns"] = markdown.markdown(returns_text)
     
     return result
 
@@ -85,21 +94,40 @@ def get_function_info(func) -> Dict[str, Any]:
 
 def format_numpy_array(arr):
     """更好地格式化NumPy数组输出"""
-    if arr.size > 10:
-        # 对于大数组，格式化为更紧凑的形式
-        if arr.ndim == 1:
-            return f"array([{', '.join(map(str, arr.flatten()[:5]))},...], shape={arr.shape}, dtype={arr.dtype})"
+    if arr is None:
+        return "None"
+    
+    try:
+        if arr.size > 10:
+            # 对于大数组，格式化为更紧凑的形式
+            if arr.ndim == 1:
+                return f"array([{', '.join(f'{x:.4f}' if isinstance(x, float) else str(x) for x in arr.flatten()[:5])},...], shape={arr.shape}, dtype={arr.dtype})"
+            else:
+                return f"array([...], shape={arr.shape}, dtype={arr.dtype})"
         else:
-            return f"array([...], shape={arr.shape}, dtype={arr.dtype})"
-    else:
-        # 对于小数组，显示完整内容
-        array_str = np.array2string(arr, precision=4, suppress_small=True, separator=', ')
-        return f"array({array_str}, dtype={arr.dtype})"
+            # 对于小数组，显示完整内容但格式更清晰
+            if arr.ndim == 1:
+                values = [f'{x:.4f}' if isinstance(x, float) else str(x) for x in arr]
+                return f"array([{', '.join(values)}], dtype={arr.dtype})"
+            else:
+                # 多维数组，使用更清晰的格式
+                array_str = np.array2string(arr, precision=4, suppress_small=True, separator=', ')
+                return f"array({array_str}, dtype={arr.dtype})"
+    except Exception as e:
+        # 处理格式化失败的情况
+        return f"array(shape={arr.shape if hasattr(arr, 'shape') else 'unknown'}, dtype={arr.dtype if hasattr(arr, 'dtype') else 'unknown'})"
 
 def run_example(func_name: str, args_list: List[Tuple]) -> List[Dict[str, Any]]:
     """运行函数示例并获取结果"""
     examples = []
-    func = getattr(rust_pyfunc, func_name)
+    
+    # 尝试获取函数
+    try:
+        func = getattr(rust_pyfunc, func_name)
+    except AttributeError:
+        # 如果函数不存在，返回空示例列表
+        print(f"警告: 函数 {func_name} 不存在")
+        return []
     
     for args in args_list:
         example = {
@@ -108,6 +136,24 @@ def run_example(func_name: str, args_list: List[Tuple]) -> List[Dict[str, Any]]:
             "error": None
         }
         
+        # 检查参数类型，确保正确格式化
+        formatted_args = []
+        for arg in args:
+            if isinstance(arg, np.ndarray):
+                # 对NumPy数组进行特殊处理，确保示例中正确显示
+                formatted_args.append(f"np.array({arg.tolist()})")
+            elif isinstance(arg, str):
+                # 字符串加引号
+                formatted_args.append(f'"{arg}"')
+            elif isinstance(arg, (list, tuple)):
+                # 列表或元组
+                formatted_args.append(str(arg))
+            else:
+                # 其他类型
+                formatted_args.append(str(arg))
+        
+        example["formatted_args"] = formatted_args
+        
         try:
             # 运行函数并获取结果
             result = func(*args)
@@ -115,19 +161,34 @@ def run_example(func_name: str, args_list: List[Tuple]) -> List[Dict[str, Any]]:
             # 对不同类型的结果进行美化格式化
             if isinstance(result, np.ndarray):
                 example["result"] = format_numpy_array(result)
-            elif isinstance(result, (list, tuple)) and len(result) > 0 and isinstance(result[0], (int, float)):
-                # 对于数值型列表，更美观地展示
-                if len(result) > 10:
-                    example["result"] = f"[{', '.join(map(str, result[:5]))}, ...] (长度: {len(result)})"
+            elif isinstance(result, (tuple, list)) and len(result) > 0:
+                if isinstance(result[0], np.ndarray):
+                    # 处理返回元组/列表包含numpy数组的情况
+                    formatted_result = []
+                    for item in result:
+                        if isinstance(item, np.ndarray):
+                            formatted_result.append(format_numpy_array(item))
+                        else:
+                            formatted_result.append(str(item))
+                    example["result"] = f"({', '.join(formatted_result)})" if isinstance(result, tuple) else f"[{', '.join(formatted_result)}]"
+                elif isinstance(result[0], (int, float)):
+                    # 数值型列表/元组
+                    if len(result) > 10:
+                        example["result"] = f"({', '.join(map(str, result[:5]))}, ...) (长度: {len(result)})" if isinstance(result, tuple) else f"[{', '.join(map(str, result[:5]))}, ...] (长度: {len(result)})"
+                    else:
+                        example["result"] = str(result)
                 else:
+                    # 其他类型的列表/元组
                     example["result"] = str(result)
-            elif isinstance(result, (list, tuple)) and len(result) > 0 and isinstance(result[0], (list, tuple, np.ndarray)):
-                # 对于嵌套列表/数组，简化展示
-                example["result"] = f"包含{len(result)}个元素的嵌套结构，首个元素: {result[0]}"
             else:
-                example["result"] = repr(result)
+                example["result"] = str(result)
         except Exception as e:
-            example["error"] = str(e)
+            # 获取详细错误信息
+            import traceback
+            error_msg = f"{type(e).__name__}: {str(e)}"
+            example["error"] = error_msg
+            example["traceback"] = traceback.format_exc()
+            print(f"示例 {func_name}{args} 执行失败: {error_msg}")
         
         examples.append(example)
     
@@ -137,6 +198,24 @@ def generate_examples_for_func(func_name: str) -> List[Dict[str, Any]]:
     """为函数生成示例"""
     # 根据函数名选择合适的示例参数
     examples_args = []
+    
+    # 检查函数是否在已知存在问题的列表中
+    problematic_functions = [
+        "calculate_shannon_entropy_change", 
+        "calculate_shannon_entropy_change_at_low",
+        "find_follow_volume_sum_same_price", 
+        "find_follow_volume_sum_same_price_and_flag",
+        "find_local_peaks_within_window",
+        "mark_follow_groups",
+        "mark_follow_groups_with_flag",
+        "rolling_window_stat",
+        "max_range_loop",
+        "min_range_loop"
+    ]
+    
+    # 对于问题函数，返回空示例
+    if func_name in problematic_functions:
+        return []
     
     if func_name == "trend":
         examples_args = [
@@ -157,8 +236,8 @@ def generate_examples_for_func(func_name: str) -> List[Dict[str, Any]]:
         ]
     elif func_name == "find_max_range_product":
         examples_args = [
-            (np.array([3.0, 1.0, 6.0, 4.0, 2.0, 8.0]),),
-            (np.array([10.0, 8.0, 6.0, 4.0, 2.0]),),
+            (np.array([3.0, 1.0, 6.0, 4.0, 2.0, 8.0], dtype=np.float64),),
+            (np.array([10.0, 8.0, 6.0, 4.0, 2.0], dtype=np.float64),),
         ]
     elif func_name == "vectorize_sentences":
         examples_args = [
@@ -200,24 +279,15 @@ def generate_examples_for_func(func_name: str) -> List[Dict[str, Any]]:
         examples_args = [
             (np.array([[1.0, 1.0], [1.0, 2.0], [1.0, 3.0]]), np.array([2.0, 3.0, 4.0])),
         ]
-    elif func_name == "min_range_loop":
-        examples_args = [
-            (np.array([3.0, 1.0, 4.0, 2.0, 5.0]), 3),
-        ]
-    elif func_name == "max_range_loop":
-        examples_args = [
-            (np.array([3.0, 1.0, 4.0, 2.0, 5.0]), 3),
-        ]
     elif func_name == "rolling_volatility":
         examples_args = [
-            (np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]), 3),
+            (np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]), 3, 1),  # 添加interval参数
         ]
     elif func_name == "rolling_cv":
         examples_args = [
-            (np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]), 3),
+            (np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]), 3, 1),  # 添加interval参数
         ]
     elif func_name == "rolling_qcv":
-        # 修复缺少interval参数的问题
         examples_args = [
             (np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]), 3, 1),  # 添加interval参数
         ]
@@ -227,57 +297,18 @@ def generate_examples_for_func(func_name: str) -> List[Dict[str, Any]]:
         ]
     elif func_name == "find_half_energy_time":
         examples_args = [
-            (np.array([10.0, 8.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0]), np.array([0, 1, 2, 3, 4, 5, 6, 7])),
-        ]
-    elif func_name == "find_follow_volume_sum_same_price":
-        examples_args = [
-            (np.array([10.0, 10.0, 11.0, 12.0, 12.0]), np.array([100, 200, 150, 300, 400]), 3),
-        ]
-    elif func_name == "find_follow_volume_sum_same_price_and_flag":
-        examples_args = [
-            (np.array([10.0, 10.0, 11.0, 12.0, 12.0]), np.array([100, 200, 150, 300, 400]), np.array([1, 1, 0, 1, 0]), 3),
-        ]
-    elif func_name == "mark_follow_groups":
-        examples_args = [
-            (np.array([10.0, 10.0, 11.0, 12.0, 12.0]), 0.1),
-        ]
-    elif func_name == "mark_follow_groups_with_flag":
-        examples_args = [
-            (np.array([10.0, 10.0, 11.0, 12.0, 12.0]), np.array([1, 1, 0, 1, 0]), 0.1),
+            (np.array([10.0, 8.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0], dtype=np.float64), np.array([0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0], dtype=np.float64)),  
         ]
     elif func_name == "brachistochrone_curve":
         examples_args = [
-            (np.array([0.0, 0.0]), np.array([1.0, 1.0]), 10),
+            (0.0, 0.0, 1.0, 1.0, np.linspace(0.0, 1.0, 10)),  # 修复参数顺序
         ]
-    elif func_name == "calculate_shannon_entropy_change":
-        examples_args = [
-            (np.array([0.1, 0.2, 0.3, 0.4]), np.array([0.25, 0.25, 0.25, 0.25])),
-        ]
-    elif func_name == "calculate_shannon_entropy_change_at_low":
-        examples_args = [
-            (np.array([0.1, 0.2, 0.3, 0.4]), np.array([0.25, 0.25, 0.25, 0.25]), 0.2),
-        ]
-    elif func_name == "find_local_peaks_within_window":
-        examples_args = [
-            (np.array([1.0, 3.0, 2.0, 5.0, 4.0, 6.0, 3.0]), 3),
-        ]
-    elif func_name == "compute_max_eigenvalue":
-        examples_args = [
-            (np.array([[4.0, 1.0], [1.0, 4.0]]),),
-        ]
-    elif func_name == "rolling_window_stat":
-        examples_args = [
-            (np.array([1.0, 2.0, 3.0, 4.0, 5.0]), 3, "mean"),
-            (np.array([1.0, 2.0, 3.0, 4.0, 5.0]), 3, "max"),
-        ]
-    elif func_name == "sum_as_string":
-        examples_args = [
-            (5, 10),
-            (100, 200),
-        ]
-    # 继续为其他函数添加示例...
-    else:
-        # 对于没有特定示例的函数，返回空列表
+    elif func_name == "RollingFutureAccessor":
+        # 这个特殊的函数可能需要pandas对象，由于不能直接在示例中创建，使用空列表
+        examples_args = []
+    
+    # 对于没有特定示例的函数，返回空列表
+    if not examples_args:
         return []
     
     return run_example(func_name, examples_args)
@@ -361,6 +392,18 @@ def generate_html_docs(functions: List[Dict[str, Any]], output_dir: str):
         with open(os.path.join(output_dir, f"{func['name']}.html"), "w", encoding="utf-8") as f:
             f.write(func_html)
     
+    # 生成搜索数据
+    search_data = []
+    for func in functions:
+        search_data.append({
+            "name": func["name"],
+            "description": func["parsed_doc"]["description"],
+            "params": [param["name"] for param in func["parsed_doc"]["parameters"]]
+        })
+    
+    with open(os.path.join(output_dir, "search_data.json"), "w", encoding="utf-8") as f:
+        json.dump(search_data, f, ensure_ascii=False, indent=2)
+    
     # 复制CSS和JS文件
     copy_static_files(output_dir)
 
@@ -369,7 +412,7 @@ def copy_static_files(output_dir: str):
     static_dir = os.path.join(output_dir, "static")
     os.makedirs(static_dir, exist_ok=True)
     
-    # 创建CSS文件
+    # 创建CSS文件，增强markdown渲染效果
     css_content = """
     body {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -430,39 +473,54 @@ def copy_static_files(output_dir: str):
     
     .parameter {
         margin-bottom: 10px;
+        padding: 10px;
+        background-color: #f8f9fa;
+        border-radius: 4px;
     }
     
     .parameter-name {
         font-weight: bold;
+        color: #0366d6;
     }
     
     .parameter-type {
         color: #6a737d;
+        font-style: italic;
+        margin-left: 5px;
     }
     
     .example {
         background-color: #f6f8fa;
-        padding: 10px;
-        border-radius: 3px;
-        margin-bottom: 10px;
-        font-family: SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
-        font-size: 14px;
+        padding: 16px;
+        border-radius: 6px;
+        margin-bottom: 16px;
+        border: 1px solid #e1e4e8;
     }
     
     .example-input {
-        margin-bottom: 8px;
+        margin-bottom: 12px;
     }
     
     .example-output {
-        margin-top: 8px;
+        margin-top: 12px;
+        padding: 8px;
+        background-color: #f0fff4;
+        border-radius: 4px;
     }
     
     .output-value {
         color: #28a745;
+        word-break: break-all;
+        white-space: pre-wrap;
     }
     
     .error-message {
         color: #cb2431;
+        padding: 8px;
+        background-color: #fff5f5;
+        border-radius: 4px;
+        word-break: break-all;
+        white-space: pre-wrap;
     }
     
     .category {
@@ -479,6 +537,14 @@ def copy_static_files(output_dir: str):
         background-color: #f6f8fa;
         padding: 2px 4px;
         border-radius: 3px;
+        white-space: pre-wrap;
+    }
+    
+    pre code {
+        display: block;
+        padding: 16px;
+        overflow-x: auto;
+        line-height: 1.45;
     }
     
     .navbar {
@@ -486,6 +552,7 @@ def copy_static_files(output_dir: str):
         padding: 15px 20px;
         margin-bottom: 20px;
         border-radius: 6px;
+        position: relative;
     }
     
     .navbar-title {
@@ -501,23 +568,204 @@ def copy_static_files(output_dir: str):
     
     .signature {
         margin-bottom: 20px;
+        padding: 12px;
+        background-color: #f6f8fa;
+        border-radius: 6px;
+        border-left: 4px solid #0366d6;
     }
     
     .returns-section {
         margin-top: 20px;
         margin-bottom: 20px;
+        padding: 16px;
+        background-color: #f8f9fa;
+        border-radius: 6px;
+        border-left: 4px solid #28a745;
+    }
+    
+    .function-description {
+        border-left: 4px solid #0366d6;
+        padding-left: 16px;
+        margin-bottom: 24px;
+    }
+    
+    .search-container {
+        margin-bottom: 20px;
+        position: relative;
+    }
+    
+    #search-input {
+        width: 100%;
+        padding: 10px;
+        border: 1px solid #e1e4e8;
+        border-radius: 6px;
+        font-size: 16px;
+    }
+    
+    #search-results {
+        position: absolute;
+        width: 100%;
+        max-height: 300px;
+        overflow-y: auto;
+        background-color: white;
+        border: 1px solid #e1e4e8;
+        border-radius: 0 0 6px 6px;
+        z-index: 1000;
+        display: none;
+    }
+    
+    .search-result-item {
+        padding: 10px;
+        border-bottom: 1px solid #e1e4e8;
+        cursor: pointer;
+    }
+    
+    .search-result-item:hover {
+        background-color: #f6f8fa;
+    }
+    
+    .search-result-item:last-child {
+        border-bottom: none;
+    }
+    
+    .example-usage-note {
+        margin-top: 20px;
+        padding: 16px;
+        background-color: #f6f8fa;
+        border-radius: 6px;
+        border-left: 4px solid #f9c513;
+    }
+    
+    /* 增强markdown渲染样式 */
+    .function-description p, 
+    .function-parameters p, 
+    .function-returns p {
+        margin: 0.5em 0;
+    }
+    
+    .function-description ul, 
+    .function-parameters ul, 
+    .function-returns ul {
+        padding-left: 20px;
+    }
+    
+    .function-description code, 
+    .function-parameters code, 
+    .function-returns code {
+        background-color: #f0f0f0;
+        padding: 2px 4px;
+        border-radius: 3px;
+        font-family: monospace;
+    }
+    
+    .function-description pre, 
+    .function-parameters pre, 
+    .function-returns pre {
+        background-color: #f6f8fa;
+        padding: 10px;
+        border-radius: 4px;
+        overflow-x: auto;
+    }
+    
+    /* 格式化表格 */
+    table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 1em 0;
+    }
+    
+    th, td {
+        border: 1px solid #ddd;
+        padding: 8px;
+    }
+    
+    th {
+        background-color: #f2f2f2;
+        text-align: left;
+    }
+    
+    tr:nth-child(even) {
+        background-color: #f9f9f9;
     }
     """
     
     with open(os.path.join(static_dir, "style.css"), "w", encoding="utf-8") as f:
         f.write(css_content)
+    
+    # 创建搜索功能的JS文件
+    search_js_content = """
+    // 搜索功能
+    document.addEventListener('DOMContentLoaded', function() {
+        const searchInput = document.getElementById('search-input');
+        const searchResults = document.getElementById('search-results');
+        
+        if (!searchInput || !searchResults) return;
+        
+        // 加载函数数据
+        fetch('search_data.json')
+            .then(response => response.json())
+            .then(functions => {
+                // 搜索函数
+                searchInput.addEventListener('input', function() {
+                    const query = this.value.toLowerCase().trim();
+                    
+                    if (query.length < 2) {
+                        searchResults.style.display = 'none';
+                        return;
+                    }
+                    
+                    // 过滤函数
+                    const filtered = functions.filter(func => {
+                        return func.name.toLowerCase().includes(query) || 
+                               func.description.toLowerCase().includes(query);
+                    });
+                    
+                    // 显示结果
+                    if (filtered.length > 0) {
+                        searchResults.innerHTML = '';
+                        filtered.forEach(func => {
+                            const resultItem = document.createElement('div');
+                            resultItem.className = 'search-result-item';
+                            resultItem.innerHTML = `<strong>${func.name}</strong> - ${func.description.substring(0, 100).replace(/<\/?[^>]+(>|$)/g, "")}${func.description.length > 100 ? '...' : ''}`;
+                            resultItem.onclick = function() {
+                                window.location.href = `${func.name}.html`;
+                            };
+                            searchResults.appendChild(resultItem);
+                        });
+                        searchResults.style.display = 'block';
+                    } else {
+                        searchResults.innerHTML = '<div class="search-result-item">没有找到相关函数</div>';
+                        searchResults.style.display = 'block';
+                    }
+                });
+                
+                // 点击外部关闭搜索结果
+                document.addEventListener('click', function(e) {
+                    if (e.target !== searchInput && !searchResults.contains(e.target)) {
+                        searchResults.style.display = 'none';
+                    }
+                });
+                
+                // ESC键关闭搜索结果
+                document.addEventListener('keydown', function(e) {
+                    if (e.key === 'Escape') {
+                        searchResults.style.display = 'none';
+                    }
+                });
+            })
+            .catch(error => console.error('加载搜索数据失败:', error));
+    });
+    """
+    
+    with open(os.path.join(static_dir, "search.js"), "w", encoding="utf-8") as f:
+        f.write(search_js_content)
 
 def create_templates():
     """创建HTML模板文件"""
     templates_dir = "templates"
     os.makedirs(templates_dir, exist_ok=True)
     
-    # 创建基础模板
+    # 创建基础模板，添加搜索JS
     base_template = """<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -525,6 +773,7 @@ def create_templates():
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Rust PyFunc API文档{% endblock %}</title>
     <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
 </head>
 <body>
     <div class="navbar">
@@ -537,12 +786,17 @@ def create_templates():
 </html>
 """
     
-    # 创建索引页模板
+    # 更新索引模板，添加搜索功能
     index_template = """{% extends "base.html" %}
 
 {% block content %}
 <div class="container">
     <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
         <h2>函数分类</h2>
         <ul class="function-list">
             <li><a href="#text">文本处理</a></li>
@@ -562,7 +816,7 @@ def create_templates():
             {% for func in categorized_functions.text %}
             <div class="function-item">
                 <h3 class="function-name"><a href="{{ func.name }}.html">{{ func.name }}</a></h3>
-                <p>{{ func.parsed_doc.description }}</p>
+                <div>{{ func.parsed_doc.description|safe }}</div>
                 <a href="{{ func.name }}.html">查看详情</a>
             </div>
             {% endfor %}
@@ -573,7 +827,7 @@ def create_templates():
             {% for func in categorized_functions.sequence %}
             <div class="function-item">
                 <h3 class="function-name"><a href="{{ func.name }}.html">{{ func.name }}</a></h3>
-                <p>{{ func.parsed_doc.description }}</p>
+                <div>{{ func.parsed_doc.description|safe }}</div>
                 <a href="{{ func.name }}.html">查看详情</a>
             </div>
             {% endfor %}
@@ -584,7 +838,7 @@ def create_templates():
             {% for func in categorized_functions.statistics %}
             <div class="function-item">
                 <h3 class="function-name"><a href="{{ func.name }}.html">{{ func.name }}</a></h3>
-                <p>{{ func.parsed_doc.description }}</p>
+                <div>{{ func.parsed_doc.description|safe }}</div>
                 <a href="{{ func.name }}.html">查看详情</a>
             </div>
             {% endfor %}
@@ -595,7 +849,7 @@ def create_templates():
             {% for func in categorized_functions.time_series %}
             <div class="function-item">
                 <h3 class="function-name"><a href="{{ func.name }}.html">{{ func.name }}</a></h3>
-                <p>{{ func.parsed_doc.description }}</p>
+                <div>{{ func.parsed_doc.description|safe }}</div>
                 <a href="{{ func.name }}.html">查看详情</a>
             </div>
             {% endfor %}
@@ -606,7 +860,7 @@ def create_templates():
             {% for func in categorized_functions.other %}
             <div class="function-item">
                 <h3 class="function-name"><a href="{{ func.name }}.html">{{ func.name }}</a></h3>
-                <p>{{ func.parsed_doc.description }}</p>
+                <div>{{ func.parsed_doc.description|safe }}</div>
                 <a href="{{ func.name }}.html">查看详情</a>
             </div>
             {% endfor %}
@@ -616,7 +870,7 @@ def create_templates():
 {% endblock %}
 """
     
-    # 创建函数详情页模板
+    # 更新函数详情页模板，修复使用示例的显示问题，添加safe过滤器允许HTML渲染
     function_template = """{% extends "base.html" %}
 
 {% block title %}{{ function.name }} - Rust PyFunc API文档{% endblock %}
@@ -624,6 +878,11 @@ def create_templates():
 {% block content %}
 <div class="container">
     <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
         <h3>导航</h3>
         <p><a href="index.html">返回首页</a></p>
     </div>
@@ -633,7 +892,7 @@ def create_templates():
         
         <div class="function-description">
             <h2>描述</h2>
-            <p>{{ function.parsed_doc.description }}</p>
+            <div>{{ function.parsed_doc.description|safe }}</div>
         </div>
         
         <div class="function-signature signature">
@@ -652,7 +911,7 @@ def create_templates():
                 <div class="parameter">
                     <span class="parameter-name">{{ param.name }}</span>
                     <span class="parameter-type">({{ param.type }})</span>
-                    <p>{{ param.description }}</p>
+                    <div>{{ param.description|safe }}</div>
                 </div>
                 {% endfor %}
             {% else %}
@@ -662,7 +921,7 @@ def create_templates():
         
         <div class="function-returns returns-section">
             <h2>返回值</h2>
-            <p>{{ function.parsed_doc.returns }}</p>
+            <div>{{ function.parsed_doc.returns|safe }}</div>
         </div>
         
         <div class="function-examples">
@@ -673,9 +932,15 @@ def create_templates():
                     <div class="example-input">
                         <p><strong>输入:</strong></p>
                         <code>{{ function.name }}(
-                        {%- for arg in example.args -%}
-                            {{ arg }}{% if not loop.last %}, {% endif %}
-                        {%- endfor -%}
+                        {%- if example.formatted_args is defined -%}
+                            {% for arg in example.formatted_args %}
+                                {{ arg }}{% if not loop.last %}, {% endif %}
+                            {% endfor %}
+                        {%- else -%}
+                            {%- for arg in example.args -%}
+                                {{ arg }}{% if not loop.last %}, {% endif %}
+                            {%- endfor -%}
+                        {%- endif -%}
                         )</code>
                     </div>
                     
@@ -702,7 +967,15 @@ def create_templates():
 from rust_pyfunc import {{ function.name }}
 
 # 使用示例
-{% if function.examples and function.examples[0].args %}
+{% if function.examples and function.examples[0].formatted_args is defined %}
+{% set example = function.examples[0] %}
+result = {{ function.name }}(
+{%- for arg in example.formatted_args -%}
+    {{ arg }}{% if not loop.last %}, {% endif %}
+{%- endfor -%}
+)
+print(f"结果: {result}")
+{% elif function.examples and function.examples[0].args %}
 {% set example = function.examples[0] %}
 result = {{ function.name }}(
 {%- for arg in example.args -%}

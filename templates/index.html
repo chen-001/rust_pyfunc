@@ -3,6 +3,11 @@
 {% block content %}
 <div class="container">
     <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
         <h2>函数分类</h2>
         <ul class="function-list">
             <li><a href="#text">文本处理</a></li>
@@ -22,7 +27,7 @@
             {% for func in categorized_functions.text %}
             <div class="function-item">
                 <h3 class="function-name"><a href="{{ func.name }}.html">{{ func.name }}</a></h3>
-                <p>{{ func.parsed_doc.description }}</p>
+                <div>{{ func.parsed_doc.description|safe }}</div>
                 <a href="{{ func.name }}.html">查看详情</a>
             </div>
             {% endfor %}
@@ -33,7 +38,7 @@
             {% for func in categorized_functions.sequence %}
             <div class="function-item">
                 <h3 class="function-name"><a href="{{ func.name }}.html">{{ func.name }}</a></h3>
-                <p>{{ func.parsed_doc.description }}</p>
+                <div>{{ func.parsed_doc.description|safe }}</div>
                 <a href="{{ func.name }}.html">查看详情</a>
             </div>
             {% endfor %}
@@ -44,7 +49,7 @@
             {% for func in categorized_functions.statistics %}
             <div class="function-item">
                 <h3 class="function-name"><a href="{{ func.name }}.html">{{ func.name }}</a></h3>
-                <p>{{ func.parsed_doc.description }}</p>
+                <div>{{ func.parsed_doc.description|safe }}</div>
                 <a href="{{ func.name }}.html">查看详情</a>
             </div>
             {% endfor %}
@@ -55,7 +60,7 @@
             {% for func in categorized_functions.time_series %}
             <div class="function-item">
                 <h3 class="function-name"><a href="{{ func.name }}.html">{{ func.name }}</a></h3>
-                <p>{{ func.parsed_doc.description }}</p>
+                <div>{{ func.parsed_doc.description|safe }}</div>
                 <a href="{{ func.name }}.html">查看详情</a>
             </div>
             {% endfor %}
@@ -66,7 +71,7 @@
             {% for func in categorized_functions.other %}
             <div class="function-item">
                 <h3 class="function-name"><a href="{{ func.name }}.html">{{ func.name }}</a></h3>
-                <p>{{ func.parsed_doc.description }}</p>
+                <div>{{ func.parsed_doc.description|safe }}</div>
                 <a href="{{ func.name }}.html">查看详情</a>
             </div>
             {% endfor %}

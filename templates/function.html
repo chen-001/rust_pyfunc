@@ -5,6 +5,11 @@
 {% block content %}
 <div class="container">
     <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
         <h3>导航</h3>
         <p><a href="index.html">返回首页</a></p>
     </div>
@@ -14,7 +19,7 @@
         
         <div class="function-description">
             <h2>描述</h2>
-            <p>{{ function.parsed_doc.description }}</p>
+            <div>{{ function.parsed_doc.description|safe }}</div>
         </div>
         
         <div class="function-signature signature">
@@ -33,7 +38,7 @@
                 <div class="parameter">
                     <span class="parameter-name">{{ param.name }}</span>
                     <span class="parameter-type">({{ param.type }})</span>
-                    <p>{{ param.description }}</p>
+                    <div>{{ param.description|safe }}</div>
                 </div>
                 {% endfor %}
             {% else %}
@@ -43,7 +48,7 @@
         
         <div class="function-returns returns-section">
             <h2>返回值</h2>
-            <p>{{ function.parsed_doc.returns }}</p>
+            <div>{{ function.parsed_doc.returns|safe }}</div>
         </div>
         
         <div class="function-examples">
@@ -54,9 +59,15 @@
                     <div class="example-input">
                         <p><strong>输入:</strong></p>
                         <code>{{ function.name }}(
-                        {%- for arg in example.args -%}
-                            {{ arg }}{% if not loop.last %}, {% endif %}
-                        {%- endfor -%}
+                        {%- if example.formatted_args is defined -%}
+                            {% for arg in example.formatted_args %}
+                                {{ arg }}{% if not loop.last %}, {% endif %}
+                            {% endfor %}
+                        {%- else -%}
+                            {%- for arg in example.args -%}
+                                {{ arg }}{% if not loop.last %}, {% endif %}
+                            {%- endfor -%}
+                        {%- endif -%}
                         )</code>
                     </div>
                     
@@ -83,7 +94,15 @@
 from rust_pyfunc import {{ function.name }}
 
 # 使用示例
-{% if function.examples and function.examples[0].args %}
+{% if function.examples and function.examples[0].formatted_args is defined %}
+{% set example = function.examples[0] %}
+result = {{ function.name }}(
+{%- for arg in example.formatted_args -%}
+    {{ arg }}{% if not loop.last %}, {% endif %}
+{%- endfor -%}
+)
+print(f"结果: {result}")
+{% elif function.examples and function.examples[0].args %}
 {% set example = function.examples[0] %}
 result = {{ function.name }}(
 {%- for arg in example.args -%}
