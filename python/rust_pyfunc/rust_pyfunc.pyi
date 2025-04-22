@@ -214,6 +214,24 @@ def ols_predict(x: NDArray[np.float64], y: NDArray[np.float64], x_pred: NDArray[
     """
     ...
 
+def ols_residuals(x: NDArray[np.float64], y: NDArray[np.float64]) -> NDArray[np.float64]:
+    """计算普通最小二乘(OLS)回归的残差序列。
+    残差表示实际观测值与模型预测值之间的差异: ε = y - Xβ。
+
+    参数说明：
+    ----------
+    x : numpy.ndarray
+        设计矩阵，形状为(n_samples, n_features)
+    y : numpy.ndarray
+        响应变量，形状为(n_samples,)
+
+    返回值：
+    -------
+    numpy.ndarray
+        残差序列，形状为(n_samples,)
+    """
+    ...
+
 def max_range_loop(s: List[float], allow_equal: bool = False) -> List[int]:
     """计算序列中每个位置结尾的最长连续子序列长度，其中子序列的最大值在该位置。
 

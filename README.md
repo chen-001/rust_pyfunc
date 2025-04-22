@@ -63,8 +63,8 @@ te = rp.transfer_entropy(x, y, k=2, c=3)
 
 ### 2. 统计分析
 
-#### 2.1 最小二乘回归 (ols 和 ols_predict)
-执行最小二乘回归分析和预测。
+#### 2.1 最小二乘回归 (ols, ols_predict 和 ols_residuals)
+执行最小二乘回归分析、预测和残差计算。
 
 ```python
 import numpy as np
@@ -82,7 +82,16 @@ coefficients = rp.ols(X, y, calculate_r2=False)
 # 预测新数据
 X_pred = np.array([[7, 8], [9, 10]], dtype=np.float64)
 predictions = rp.ols_predict(X, y, X_pred)
+
+# 计算回归残差
+residuals = rp.ols_residuals(X, y)
+print(f"残差: {residuals}")  # 模型拟合得好的话，残差应该接近零
 ```
+
+其中：
+- `ols`: 计算线性回归系数
+- `ols_predict`: 使用回归模型进行预测
+- `ols_residuals`: 计算实际值与预测值之差（残差）
 
 #### 2.2 滚动窗口统计 (rolling_window_stat)
 对时间序列进行基于时间窗口的滚动统计分析。

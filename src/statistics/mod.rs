@@ -71,7 +71,7 @@ pub fn ols(
     Ok(Array1::from(result).into_pyarray(py).to_owned())
 }
 
-    /// 使用已有数据和响应变量，对新的数据点进行OLS线性回归预测。
+/// 使用已有数据和响应变量，对新的数据点进行OLS线性回归预测。
 ///
 /// 参数说明：
 /// ----------
@@ -170,6 +170,62 @@ fn solve_linear_system3(a: &ArrayView2<f64>, b: &ArrayView1<f64>) -> Array1<f64>
     x
 }
 
+/// 计算普通最小二乘(OLS)回归的残差序列。
+/// 残差表示实际观测值与模型预测值之间的差异: ε = y - Xβ。
+///
+/// 参数说明：
+/// ----------
+/// x : numpy.ndarray
+///     设计矩阵，形状为(n_samples, n_features)
+/// y : numpy.ndarray
+///     响应变量，形状为(n_samples,)
+///
+/// 返回值：
+/// -------
+/// numpy.ndarray
+///     残差序列，形状为(n_samples,)
+///
+/// Python调用示例：
+/// ```python
+/// import numpy as np
+/// from rust_pyfunc import ols_residuals
+///
+/// # 准备训练数据
+/// X = np.array([[1, 1], [1, 2], [1, 3]], dtype=np.float64)  # 包含一个常数项和一个特征
+/// y = np.array([2, 4, 6], dtype=np.float64)  # 目标变量
+///
+/// # 计算残差
+/// residuals = ols_residuals(X, y)
+/// print(f"残差: {residuals}")  # 如果模型拟合良好，残差应该接近于零
+/// ```
+#[pyfunction]
+#[pyo3(signature = (x, y))]
+pub fn ols_residuals(
+    py: Python,
+    x: PyReadonlyArray2<f64>,
+    y: PyReadonlyArray1<f64>,
+) -> PyResult<Py<PyArray1<f64>>> {
+    let x: ArrayView2<f64> = x.as_array();
+    let y: ArrayView1<f64> = y.as_array();
+
+    // 创建带有截距项的设计矩阵
+    let mut x_with_intercept = Array2::ones((x.nrows(), x.ncols() + 1));
+    x_with_intercept.slice_mut(s![.., 1..]).assign(&x);
+
+    // 计算回归系数 β = (X^T * X)^(-1) * X^T * y
+    let xt_x = x_with_intercept.t().dot(&x_with_intercept);
+    let xt_y = x_with_intercept.t().dot(&y);
+    let coefficients = solve_linear_system3(&xt_x.view(), &xt_y.view());
+
+    // 计算预测值 y_hat = X * β
+    let y_pred = x_with_intercept.dot(&coefficients);
+
+    // 计算残差 ε = y - y_hat
+    let residuals = &y - &y_pred;
+
+    // 将残差转换为 Python 数组
+    Ok(residuals.into_pyarray(py).to_owned())
+}
 
 /// 计算序列中每个位置结尾的最长连续子序列长度，其中子序列的最大值在该位置。
 ///
@@ -223,7 +279,6 @@ pub fn max_range_loop(s: Vec<f64>, allow_equal: bool) -> Vec<i32> {
 
     maxranges
 }
-
 
 /// 计算序列中每个位置结尾的最长连续子序列长度，其中子序列的最小值在该位置。
 ///

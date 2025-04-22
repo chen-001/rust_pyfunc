@@ -45,6 +45,7 @@ tests/
 
 # Documentation
 /doc/
+/docs/
 /docs/_build/
 
 # Testing

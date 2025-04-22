@@ -24,6 +24,7 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(time_series::transfer_entropy, m)?)?;
     m.add_function(wrap_pyfunction!(statistics::ols, m)?)?;
     m.add_function(wrap_pyfunction!(statistics::ols_predict, m)?)?;
+    m.add_function(wrap_pyfunction!(statistics::ols_residuals, m)?)?;
     m.add_function(wrap_pyfunction!(statistics::min_range_loop, m)?)?;
     m.add_function(wrap_pyfunction!(statistics::max_range_loop, m)?)?;
     m.add_function(wrap_pyfunction!(statistics::rolling_volatility, m)?)?;
