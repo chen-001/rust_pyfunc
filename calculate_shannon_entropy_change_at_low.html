@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>calculate_shannon_entropy_change_at_low - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
 </head>
 <body>
     <div class="navbar">
@@ -15,6 +16,11 @@
     
 <div class="container">
     <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
         <h3>导航</h3>
         <p><a href="index.html">返回首页</a></p>
     </div>
@@ -24,18 +30,16 @@
         
         <div class="function-description">
             <h2>描述</h2>
-            <p>在价格创新低时计算香农熵变
-
-参数:
+            <div><p>在价格创新低时计算香农熵变</p>
+<p>参数:
 * exchtime: 交易时间数组
 * order: 订单号数组
 * volume: 成交量数组
 * price: 价格数组
 * window_seconds: 时间窗口大小（秒）
-* bottom_k: 如果提供，则只计算价格最低的k个点的熵变，默认为None（计算所有价格创新低点）
-
-返回:
-* 香农熵变数组，只在价格创新低时有值，其他位置为NaN</p>
+* bottom_k: 如果提供，则只计算价格最低的k个点的熵变，默认为None（计算所有价格创新低点）</p>
+<p>返回:
+* 香农熵变数组，只在价格创新低时有值，其他位置为NaN</p></div>
         </div>
         
         <div class="function-signature signature">
@@ -52,27 +56,13 @@
         
         <div class="function-returns returns-section">
             <h2>返回值</h2>
-            <p></p>
+            <div></div>
         </div>
         
         <div class="function-examples">
             <h2>示例</h2>
             
-                
-                <div class="example">
-                    <div class="example-input">
-                        <p><strong>输入:</strong></p>
-                        <code>calculate_shannon_entropy_change_at_low([0.1 0.2 0.3 0.4], [0.25 0.25 0.25 0.25], 0.2)</code>
-                    </div>
-                    
-                    
-                    <div class="example-error">
-                        <p><strong>错误:</strong></p>
-                        <code class="error-message">calculate_shannon_entropy_change_at_low() missing 2 required positional arguments: &#39;price&#39; and &#39;window_seconds&#39;</code>
-                    </div>
-                    
-                </div>
-                
+                <p>暂无示例</p>
             
             
             <div class="example-usage-note">
@@ -82,9 +72,7 @@ from rust_pyfunc import calculate_shannon_entropy_change_at_low
 
 # 使用示例
 
-
-result = calculate_shannon_entropy_change_at_low([0.1 0.2 0.3 0.4], [0.25 0.25 0.25 0.25], 0.2)
-print(f"结果: {result}")
+# 请参考文档中的参数说明使用此函数
 </code></pre>
             </div>
         </div>

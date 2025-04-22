@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>brachistochrone_curve - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
 </head>
 <body>
     <div class="navbar">
@@ -15,6 +16,11 @@
     
 <div class="container">
     <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
         <h3>导航</h3>
         <p><a href="index.html">返回首页</a></p>
     </div>
@@ -24,7 +30,7 @@
         
         <div class="function-description">
             <h2>描述</h2>
-            <p>计算最速曲线（投掷线）并返回x_series对应的y坐标</p>
+            <div><p>计算最速曲线（投掷线）并返回x_series对应的y坐标</p></div>
         </div>
         
         <div class="function-signature signature">
@@ -39,37 +45,37 @@
                 <div class="parameter">
                     <span class="parameter-name">x1</span>
                     <span class="parameter-type">(float)</span>
-                    <p>起点x坐标</p>
+                    <div><p>起点x坐标</p></div>
                 </div>
                 
                 <div class="parameter">
                     <span class="parameter-name">y1</span>
                     <span class="parameter-type">(float)</span>
-                    <p>起点y坐标</p>
+                    <div><p>起点y坐标</p></div>
                 </div>
                 
                 <div class="parameter">
                     <span class="parameter-name">x2</span>
                     <span class="parameter-type">(float)</span>
-                    <p>终点x坐标</p>
+                    <div><p>终点x坐标</p></div>
                 </div>
                 
                 <div class="parameter">
                     <span class="parameter-name">y2</span>
                     <span class="parameter-type">(float)</span>
-                    <p>终点y坐标</p>
+                    <div><p>终点y坐标</p></div>
                 </div>
                 
                 <div class="parameter">
                     <span class="parameter-name">x_series</span>
                     <span class="parameter-type">(numpy.ndarray)</span>
-                    <p>需要计算y坐标的x点序列</p>
+                    <div><p>需要计算y坐标的x点序列</p></div>
                 </div>
                 
                 <div class="parameter">
                     <span class="parameter-name">timeout_seconds</span>
                     <span class="parameter-type">(float, optional)</span>
-                    <p>计算超时时间，单位为秒。如果函数执行时间超过此值，将立即中断计算并抛出异常。默认值为None，表示无超时限制。</p>
+                    <div><p>计算超时时间，单位为秒。如果函数执行时间超过此值，将立即中断计算并抛出异常。默认值为None，表示无超时限制。</p></div>
                 </div>
                 
             
@@ -77,30 +83,25 @@
         
         <div class="function-returns returns-section">
             <h2>返回值</h2>
-            <p>-------
-numpy.ndarray
-    与x_series相对应的y坐标值数组
-
-异常：
------
-TimeoutError
-    当计算时间超过timeout_seconds指定的秒数时抛出
-
-Python调用示例：
+            <div><hr />
+<p>numpy.ndarray
+    与x_series相对应的y坐标值数组</p>
+<h2>异常：</h2>
+<p>TimeoutError
+    当计算时间超过timeout_seconds指定的秒数时抛出</p>
+<p>Python调用示例：
 ```python
 import numpy as np
 import pandas as pd
-from rust_pyfunc import brachistochrone_curve
-
-# 创建x序列
-x_vals = pd.Series(np.linspace(0, 5, 100))
-
-# 计算从点(0,0)到点(5,-3)的最速曲线，设置5秒超时
-try:
+from rust_pyfunc import brachistochrone_curve</p>
+<h1>创建x序列</h1>
+<p>x_vals = pd.Series(np.linspace(0, 5, 100))</p>
+<h1>计算从点(0,0)到点(5,-3)的最速曲线，设置5秒超时</h1>
+<p>try:
     y_vals = brachistochrone_curve(0.0, 0.0, 5.0, -3.0, x_vals, 5.0)
 except RuntimeError as e:
-    print(f&#34;计算超时: {e}&#34;)
-```</p>
+    print(f"计算超时: {e}")
+```</p></div>
         </div>
         
         <div class="function-examples">
@@ -110,13 +111,23 @@ except RuntimeError as e:
                 <div class="example">
                     <div class="example-input">
                         <p><strong>输入:</strong></p>
-                        <code>brachistochrone_curve([0. 0.], [1. 1.], 10)</code>
+                        <code>brachistochrone_curve(
+                                0.0, 
+                            
+                                0.0, 
+                            
+                                1.0, 
+                            
+                                1.0, 
+                            
+                                np.array([0.0, 0.1111111111111111, 0.2222222222222222, 0.3333333333333333, 0.4444444444444444, 0.5555555555555556, 0.6666666666666666, 0.7777777777777777, 0.8888888888888888, 1.0])
+                            )</code>
                     </div>
                     
                     
-                    <div class="example-error">
-                        <p><strong>错误:</strong></p>
-                        <code class="error-message">brachistochrone_curve() missing 2 required positional arguments: &#39;y2&#39; and &#39;x_series&#39;</code>
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">array([0.0001, 0.2987, 0.4567, 0.5787, 0.6791, 0.7639, 0.8365, 0.8991, 0.9528, 0.9988], dtype=float64)</code>
                     </div>
                     
                 </div>
@@ -131,7 +142,7 @@ from rust_pyfunc import brachistochrone_curve
 # 使用示例
 
 
-result = brachistochrone_curve([0. 0.], [1. 1.], 10)
+result = brachistochrone_curve(0.0, 0.0, 1.0, 1.0, np.array([0.0, 0.1111111111111111, 0.2222222222222222, 0.3333333333333333, 0.4444444444444444, 0.5555555555555556, 0.6666666666666666, 0.7777777777777777, 0.8888888888888888, 1.0]))
 print(f"结果: {result}")
 </code></pre>
             </div>

@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>sum_as_string - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
 </head>
 <body>
     <div class="navbar">
@@ -15,6 +16,11 @@
     
 <div class="container">
     <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
         <h3>导航</h3>
         <p><a href="index.html">返回首页</a></p>
     </div>
@@ -24,7 +30,7 @@
         
         <div class="function-description">
             <h2>描述</h2>
-            <p>Formats the sum of two numbers as string.</p>
+            <div><p>Formats the sum of two numbers as string.</p></div>
         </div>
         
         <div class="function-signature signature">
@@ -41,41 +47,13 @@
         
         <div class="function-returns returns-section">
             <h2>返回值</h2>
-            <p></p>
+            <div></div>
         </div>
         
         <div class="function-examples">
             <h2>示例</h2>
             
-                
-                <div class="example">
-                    <div class="example-input">
-                        <p><strong>输入:</strong></p>
-                        <code>sum_as_string(5, 10)</code>
-                    </div>
-                    
-                    
-                    <div class="example-output">
-                        <p><strong>输出:</strong></p>
-                        <code class="output-value">&#39;15&#39;</code>
-                    </div>
-                    
-                </div>
-                
-                <div class="example">
-                    <div class="example-input">
-                        <p><strong>输入:</strong></p>
-                        <code>sum_as_string(100, 200)</code>
-                    </div>
-                    
-                    
-                    <div class="example-output">
-                        <p><strong>输出:</strong></p>
-                        <code class="output-value">&#39;300&#39;</code>
-                    </div>
-                    
-                </div>
-                
+                <p>暂无示例</p>
             
             
             <div class="example-usage-note">
@@ -85,9 +63,7 @@ from rust_pyfunc import sum_as_string
 
 # 使用示例
 
-
-result = sum_as_string(5, 10)
-print(f"结果: {result}")
+# 请参考文档中的参数说明使用此函数
 </code></pre>
             </div>
         </div>

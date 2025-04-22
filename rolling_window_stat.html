@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>rolling_window_stat - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
 </head>
 <body>
     <div class="navbar">
@@ -15,6 +16,11 @@
     
 <div class="container">
     <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
         <h3>导航</h3>
         <p><a href="index.html">返回首页</a></p>
     </div>
@@ -24,8 +30,8 @@
         
         <div class="function-description">
             <h2>描述</h2>
-            <p>计算时间序列在指定时间窗口内向后滚动的统计量。
-对于每个时间点，计算该点之后指定时间窗口内所有数据的指定统计量。</p>
+            <div><p>计算时间序列在指定时间窗口内向后滚动的统计量。
+对于每个时间点，计算该点之后指定时间窗口内所有数据的指定统计量。</p></div>
         </div>
         
         <div class="function-signature signature">
@@ -40,25 +46,25 @@
                 <div class="parameter">
                     <span class="parameter-name">times</span>
                     <span class="parameter-type">(array_like)</span>
-                    <p>时间戳数组（单位：秒）</p>
+                    <div><p>时间戳数组（单位：秒）</p></div>
                 </div>
                 
                 <div class="parameter">
                     <span class="parameter-name">values</span>
                     <span class="parameter-type">(array_like)</span>
-                    <p>数值数组</p>
+                    <div><p>数值数组</p></div>
                 </div>
                 
                 <div class="parameter">
                     <span class="parameter-name">window</span>
                     <span class="parameter-type">(float)</span>
-                    <p>时间窗口大小（单位：秒）</p>
+                    <div><p>时间窗口大小（单位：秒）</p></div>
                 </div>
                 
                 <div class="parameter">
                     <span class="parameter-name">stat_type</span>
                     <span class="parameter-type">(str)</span>
-                    <p>统计量类型，可选值：</p>
+                    <div><p>统计量类型，可选值： - "mean": 均值 - "sum": 总和 - "max": 最大值 - "min": 最小值 - "last": 时间窗口内最后一个值 - "std": 标准差 - "median": 中位数 - "count": 数据点数量 - "rank": 分位数（0到1之间） - "skew": 偏度 - "trend_time": 与时间序列的相关系数 - "last": 时间窗口内最后一个值 - "trend_oneton": 与1到n序列的相关系数（时间间隔）</p></div>
                 </div>
                 
             
@@ -66,57 +72,26 @@
         
         <div class="function-returns returns-section">
             <h2>返回值</h2>
-            <p>-------
-numpy.ndarray
-    计算得到的向后滚动统计量数组
-
-Python调用示例：
+            <div><hr />
+<p>numpy.ndarray
+    计算得到的向后滚动统计量数组</p>
+<p>Python调用示例：
 ```python
 import numpy as np
-from rust_pyfunc import rolling_window_stat
-
-# 创建示例数据
-times = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
+from rust_pyfunc import rolling_window_stat</p>
+<h1>创建示例数据</h1>
+<p>times = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
 values = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
-window = 2.0  # 2秒的时间窗口
-
-# 计算向后滚动均值
-mean_result = rolling_window_stat(times, values, window, &#34;mean&#34;)
-```</p>
+window = 2.0  # 2秒的时间窗口</p>
+<h1>计算向后滚动均值</h1>
+<p>mean_result = rolling_window_stat(times, values, window, "mean")
+```</p></div>
         </div>
         
         <div class="function-examples">
             <h2>示例</h2>
             
-                
-                <div class="example">
-                    <div class="example-input">
-                        <p><strong>输入:</strong></p>
-                        <code>rolling_window_stat([1. 2. 3. 4. 5.], 3, mean)</code>
-                    </div>
-                    
-                    
-                    <div class="example-error">
-                        <p><strong>错误:</strong></p>
-                        <code class="error-message">rolling_window_stat() missing 2 required positional arguments: &#39;stat_type&#39; and &#39;include_current&#39;</code>
-                    </div>
-                    
-                </div>
-                
-                <div class="example">
-                    <div class="example-input">
-                        <p><strong>输入:</strong></p>
-                        <code>rolling_window_stat([1. 2. 3. 4. 5.], 3, max)</code>
-                    </div>
-                    
-                    
-                    <div class="example-error">
-                        <p><strong>错误:</strong></p>
-                        <code class="error-message">rolling_window_stat() missing 2 required positional arguments: &#39;stat_type&#39; and &#39;include_current&#39;</code>
-                    </div>
-                    
-                </div>
-                
+                <p>暂无示例</p>
             
             
             <div class="example-usage-note">
@@ -126,9 +101,7 @@ from rust_pyfunc import rolling_window_stat
 
 # 使用示例
 
-
-result = rolling_window_stat([1. 2. 3. 4. 5.], 3, mean)
-print(f"结果: {result}")
+# 请参考文档中的参数说明使用此函数
 </code></pre>
             </div>
         </div>

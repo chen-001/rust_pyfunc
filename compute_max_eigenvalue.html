@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>compute_max_eigenvalue - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
 </head>
 <body>
     <div class="navbar">
@@ -15,6 +16,11 @@
     
 <div class="container">
     <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
         <h3>导航</h3>
         <p><a href="index.html">返回首页</a></p>
     </div>
@@ -24,8 +30,8 @@
         
         <div class="function-description">
             <h2>描述</h2>
-            <p>计算二维方阵的最大特征值和对应的特征向量
-使用幂迭代法计算，不使用并行计算</p>
+            <div><p>计算二维方阵的最大特征值和对应的特征向量
+使用幂迭代法计算，不使用并行计算</p></div>
         </div>
         
         <div class="function-signature signature">
@@ -40,7 +46,7 @@
                 <div class="parameter">
                     <span class="parameter-name">matrix</span>
                     <span class="parameter-type">(numpy.ndarray)</span>
-                    <p>输入二维方阵，类型为float64</p>
+                    <div><p>输入二维方阵，类型为float64</p></div>
                 </div>
                 
             
@@ -48,45 +54,28 @@
         
         <div class="function-returns returns-section">
             <h2>返回值</h2>
-            <p>-------
-tuple
+            <div><hr />
+<p>tuple
     返回一个元组(eigenvalue, eigenvector)，
     eigenvalue是最大特征值（float64），
-    eigenvector是对应的特征向量（numpy.ndarray）
-
-Python调用示例：
+    eigenvector是对应的特征向量（numpy.ndarray）</p>
+<p>Python调用示例：
 ```python
 import numpy as np
-from rust_pyfunc import compute_max_eigenvalue
-
-# 创建测试矩阵
-matrix = np.array([[4.0, -1.0], 
+from rust_pyfunc import compute_max_eigenvalue</p>
+<h1>创建测试矩阵</h1>
+<p>matrix = np.array([[4.0, -1.0], 
                    [-1.0, 3.0]], dtype=np.float64)
 eigenvalue, eigenvector = compute_max_eigenvalue(matrix)
-print(f&#34;最大特征值: {eigenvalue}&#34;)
-print(f&#34;对应的特征向量: {eigenvector}&#34;)
-```</p>
+print(f"最大特征值: {eigenvalue}")
+print(f"对应的特征向量: {eigenvector}")
+```</p></div>
         </div>
         
         <div class="function-examples">
             <h2>示例</h2>
             
-                
-                <div class="example">
-                    <div class="example-input">
-                        <p><strong>输入:</strong></p>
-                        <code>compute_max_eigenvalue([[4. 1.]
- [1. 4.]])</code>
-                    </div>
-                    
-                    
-                    <div class="example-output">
-                        <p><strong>输出:</strong></p>
-                        <code class="output-value">(4.999999999999999, array([0.70710678, 0.70710678]))</code>
-                    </div>
-                    
-                </div>
-                
+                <p>暂无示例</p>
             
             
             <div class="example-usage-note">
@@ -96,10 +85,7 @@ from rust_pyfunc import compute_max_eigenvalue
 
 # 使用示例
 
-
-result = compute_max_eigenvalue([[4. 1.]
- [1. 4.]])
-print(f"结果: {result}")
+# 请参考文档中的参数说明使用此函数
 </code></pre>
             </div>
         </div>

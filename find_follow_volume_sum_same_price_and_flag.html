@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>find_follow_volume_sum_same_price_and_flag - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
 </head>
 <body>
     <div class="navbar">
@@ -15,6 +16,11 @@
     
 <div class="container">
     <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
         <h3>导航</h3>
         <p><a href="index.html">返回首页</a></p>
     </div>
@@ -24,7 +30,7 @@
         
         <div class="function-description">
             <h2>描述</h2>
-            <p>计算每一行在其后time_window秒内具有相同flag、price和volume的行的volume总和。</p>
+            <div><p>计算每一行在其后time_window秒内具有相同flag、price和volume的行的volume总和。</p></div>
         </div>
         
         <div class="function-signature signature">
@@ -39,31 +45,31 @@
                 <div class="parameter">
                     <span class="parameter-name">times</span>
                     <span class="parameter-type">(array_like)</span>
-                    <p>时间戳数组（单位：秒）</p>
+                    <div><p>时间戳数组（单位：秒）</p></div>
                 </div>
                 
                 <div class="parameter">
                     <span class="parameter-name">prices</span>
                     <span class="parameter-type">(array_like)</span>
-                    <p>价格数组</p>
+                    <div><p>价格数组</p></div>
                 </div>
                 
                 <div class="parameter">
                     <span class="parameter-name">volumes</span>
                     <span class="parameter-type">(array_like)</span>
-                    <p>成交量数组</p>
+                    <div><p>成交量数组</p></div>
                 </div>
                 
                 <div class="parameter">
                     <span class="parameter-name">flags</span>
                     <span class="parameter-type">(array_like)</span>
-                    <p>主买卖标志数组</p>
+                    <div><p>主买卖标志数组</p></div>
                 </div>
                 
                 <div class="parameter">
                     <span class="parameter-name">time_window</span>
                     <span class="parameter-type">(float, optional)</span>
-                    <p>时间窗口大小（单位：秒），默认为0.1</p>
+                    <div><p>时间窗口大小（单位：秒），默认为0.1</p></div>
                 </div>
                 
             
@@ -71,54 +77,36 @@
         
         <div class="function-returns returns-section">
             <h2>返回值</h2>
-            <p>-------
-numpy.ndarray
-    每一行在其后time_window秒内具有相同price和volume的行的volume总和
-
-Python调用示例：
+            <div><hr />
+<p>numpy.ndarray
+    每一行在其后time_window秒内具有相同price和volume的行的volume总和</p>
+<p>Python调用示例：
 ```python
 import pandas as pd
 import numpy as np
-from rust_pyfunc import find_follow_volume_sum
-
-# 创建示例DataFrame
-df = pd.DataFrame({
-    &#39;exchtime&#39;: [1.0, 1.05, 1.08, 1.15, 1.2],
-    &#39;price&#39;: [10.0, 10.0, 10.0, 11.0, 10.0],
-    &#39;volume&#39;: [100, 100, 100, 200, 100],
-    &#39;flag&#39;: [66, 66, 66, 83, 66]
-})
-
-# 计算follow列
-df[&#39;follow&#39;] = find_follow_volume_sum(
-    df[&#39;exchtime&#39;].values,
-    df[&#39;price&#39;].values,
-    df[&#39;volume&#39;].values,
-    df[&#39;flag&#39;].values,
+from rust_pyfunc import find_follow_volume_sum</p>
+<h1>创建示例DataFrame</h1>
+<p>df = pd.DataFrame({
+    'exchtime': [1.0, 1.05, 1.08, 1.15, 1.2],
+    'price': [10.0, 10.0, 10.0, 11.0, 10.0],
+    'volume': [100, 100, 100, 200, 100],
+    'flag': [66, 66, 66, 83, 66]
+})</p>
+<h1>计算follow列</h1>
+<p>df['follow'] = find_follow_volume_sum(
+    df['exchtime'].values,
+    df['price'].values,
+    df['volume'].values,
+    df['flag'].values,
     time_window=0.1
 )
-```</p>
+```</p></div>
         </div>
         
         <div class="function-examples">
             <h2>示例</h2>
             
-                
-                <div class="example">
-                    <div class="example-input">
-                        <p><strong>输入:</strong></p>
-                        <code>find_follow_volume_sum_same_price_and_flag([10. 10. 11. 12. 12.], [100 200 150 300 400], [1 1 0 1 0], 3)</code>
-                    </div>
-                    
-                    
-                    <div class="example-error">
-                        <p><strong>错误:</strong></p>
-                        <code class="error-message">argument &#39;prices&#39;: type mismatch:
- from=int64, to=float64</code>
-                    </div>
-                    
-                </div>
-                
+                <p>暂无示例</p>
             
             
             <div class="example-usage-note">
@@ -128,9 +116,7 @@ from rust_pyfunc import find_follow_volume_sum_same_price_and_flag
 
 # 使用示例
 
-
-result = find_follow_volume_sum_same_price_and_flag([10. 10. 11. 12. 12.], [100 200 150 300 400], [1 1 0 1 0], 3)
-print(f"结果: {result}")
+# 请参考文档中的参数说明使用此函数
 </code></pre>
             </div>
         </div>

@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RollingFutureAccessor - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
 </head>
 <body>
     <div class="navbar">
@@ -15,6 +16,11 @@
     
 <div class="container">
     <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
         <h3>导航</h3>
         <p><a href="index.html">返回首页</a></p>
     </div>
@@ -24,43 +30,45 @@
         
         <div class="function-description">
             <h2>描述</h2>
-            <p>用于在pandas DataFrame或Series上实现向后滚动窗口计算的访问器。
-
-支持的统计量类型：
----------------
-- mean: 计算后面窗口内的均值
-- sum: 计算后面窗口内的总和
-- max: 计算后面窗口内的最大值
-- min: 计算后面窗口内的最小值
-- std: 计算后面窗口内的标准差
-- median: 计算后面窗口内的中位数
-- count: 计算后面窗口内的数据点数量
-- rank: 计算当前值在后面窗口内的分位数（0到1之间）
-- skew: 计算后面窗口的偏度
-- trend_time: 计算后面窗口内数据序列与时间序列的相关系数
-- trend_oneton: 计算后面窗口内数据序列与1到n序列的相关系数（忽略时间间隔）
-- last: 计算后面窗口内的最后一个值
-
-注意：所有计算都不包括当前时间点的值，只考虑后面窗口内的值
-
-使用方法：
----------
-&gt;&gt;&gt; import pandas as pd
-&gt;&gt;&gt; from rust_pyfunc import rolling_future
-&gt;&gt;&gt; # DataFrame示例
-&gt;&gt;&gt; df = pd.DataFrame({
-...     &#39;time&#39;: pd.date_range(&#39;2024-01-01&#39;, periods=5, freq=&#39;s&#39;),
-...     &#39;value&#39;: [1, 2, 3, 4, 5]
+            <div><p>用于在pandas DataFrame或Series上实现向后滚动窗口计算的访问器。</p>
+<h2>支持的统计量类型：</h2>
+<ul>
+<li>mean: 计算后面窗口内的均值</li>
+<li>sum: 计算后面窗口内的总和</li>
+<li>max: 计算后面窗口内的最大值</li>
+<li>min: 计算后面窗口内的最小值</li>
+<li>std: 计算后面窗口内的标准差</li>
+<li>median: 计算后面窗口内的中位数</li>
+<li>count: 计算后面窗口内的数据点数量</li>
+<li>rank: 计算当前值在后面窗口内的分位数（0到1之间）</li>
+<li>skew: 计算后面窗口的偏度</li>
+<li>trend_time: 计算后面窗口内数据序列与时间序列的相关系数</li>
+<li>trend_oneton: 计算后面窗口内数据序列与1到n序列的相关系数（忽略时间间隔）</li>
+<li>last: 计算后面窗口内的最后一个值</li>
+</ul>
+<p>注意：所有计算都不包括当前时间点的值，只考虑后面窗口内的值</p>
+<h2>使用方法：</h2>
+<blockquote>
+<blockquote>
+<blockquote>
+<p>import pandas as pd
+from rust_pyfunc import rolling_future</p>
+<h1>DataFrame示例</h1>
+<p>df = pd.DataFrame({
+...     'time': pd.date_range('2024-01-01', periods=5, freq='s'),
+...     'value': [1, 2, 3, 4, 5]
 ... })
-&gt;&gt;&gt; df.set_index(&#39;time&#39;, inplace=True)
-&gt;&gt;&gt; df.rolling_future(&#39;2s&#39;).mean()  # 计算每个时间点之后2秒内的均值
-&gt;&gt;&gt; df.rolling_future(&#39;2s&#39;).rank()  # 计算每个值在后面2秒内的分位数
-&gt;&gt;&gt; 
-&gt;&gt;&gt; # Series示例
-&gt;&gt;&gt; s = pd.Series([1, 2, 3, 4, 5], 
-...               index=pd.date_range(&#39;2024-01-01&#39;, periods=5, freq=&#39;s&#39;))
-&gt;&gt;&gt; s.rolling_future(&#39;2s&#39;).mean()  # 计算每个时间点之后2秒内的均值
-&gt;&gt;&gt; s.rolling_future(&#39;2s&#39;).trend_time()  # 计算后面2秒内的趋势</p>
+df.set_index('time', inplace=True)
+df.rolling_future('2s').mean()  # 计算每个时间点之后2秒内的均值
+df.rolling_future('2s').rank()  # 计算每个值在后面2秒内的分位数</p>
+<h1>Series示例</h1>
+<p>s = pd.Series([1, 2, 3, 4, 5], 
+...               index=pd.date_range('2024-01-01', periods=5, freq='s'))
+s.rolling_future('2s').mean()  # 计算每个时间点之后2秒内的均值
+s.rolling_future('2s').trend_time()  # 计算后面2秒内的趋势</p>
+</blockquote>
+</blockquote>
+</blockquote></div>
         </div>
         
         <div class="function-signature signature">
@@ -77,7 +85,7 @@
         
         <div class="function-returns returns-section">
             <h2>返回值</h2>
-            <p></p>
+            <div></div>
         </div>
         
         <div class="function-examples">

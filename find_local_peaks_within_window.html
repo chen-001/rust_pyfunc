@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>find_local_peaks_within_window - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
 </head>
 <body>
     <div class="navbar">
@@ -15,6 +16,11 @@
     
 <div class="container">
     <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
         <h3>导航</h3>
         <p><a href="index.html">返回首页</a></p>
     </div>
@@ -24,7 +30,7 @@
         
         <div class="function-description">
             <h2>描述</h2>
-            <p>查找时间序列中价格在指定时间窗口内为局部最大值的点。</p>
+            <div><p>查找时间序列中价格在指定时间窗口内为局部最大值的点。</p></div>
         </div>
         
         <div class="function-signature signature">
@@ -39,19 +45,19 @@
                 <div class="parameter">
                     <span class="parameter-name">times</span>
                     <span class="parameter-type">(array_like)</span>
-                    <p>时间戳数组（单位：秒）</p>
+                    <div><p>时间戳数组（单位：秒）</p></div>
                 </div>
                 
                 <div class="parameter">
                     <span class="parameter-name">prices</span>
                     <span class="parameter-type">(array_like)</span>
-                    <p>价格数组</p>
+                    <div><p>价格数组</p></div>
                 </div>
                 
                 <div class="parameter">
                     <span class="parameter-name">window</span>
                     <span class="parameter-type">(float)</span>
-                    <p>时间窗口大小（单位：秒）</p>
+                    <div><p>时间窗口大小（单位：秒）</p></div>
                 </div>
                 
             
@@ -59,46 +65,29 @@
         
         <div class="function-returns returns-section">
             <h2>返回值</h2>
-            <p>-------
-numpy.ndarray
-    布尔数组，True表示该点的价格大于指定时间窗口内的所有价格
-
-Python调用示例：
+            <div><hr />
+<p>numpy.ndarray
+    布尔数组，True表示该点的价格大于指定时间窗口内的所有价格</p>
+<p>Python调用示例：
 ```python
 import numpy as np
-from rust_pyfunc import find_local_peaks_within_window
-
-# 创建示例数据
-times = np.array([0.0, 10.0, 20.0, 30.0, 40.0])  # 时间戳（秒）
+from rust_pyfunc import find_local_peaks_within_window</p>
+<h1>创建示例数据</h1>
+<p>times = np.array([0.0, 10.0, 20.0, 30.0, 40.0])  # 时间戳（秒）
 prices = np.array([1.0, 3.0, 2.0, 1.5, 1.0])     # 价格
-window = 100.0  # 时间窗口大小（秒）
-
-# 查找局部最大值点
-peaks = find_local_peaks_within_window(times, prices, window)
-# 获取满足条件的数据
-result_times = times[peaks]
+window = 100.0  # 时间窗口大小（秒）</p>
+<h1>查找局部最大值点</h1>
+<p>peaks = find_local_peaks_within_window(times, prices, window)</p>
+<h1>获取满足条件的数据</h1>
+<p>result_times = times[peaks]
 result_prices = prices[peaks]
-```</p>
+```</p></div>
         </div>
         
         <div class="function-examples">
             <h2>示例</h2>
             
-                
-                <div class="example">
-                    <div class="example-input">
-                        <p><strong>输入:</strong></p>
-                        <code>find_local_peaks_within_window([1. 3. 2. 5. 4. 6. 3.], 3)</code>
-                    </div>
-                    
-                    
-                    <div class="example-error">
-                        <p><strong>错误:</strong></p>
-                        <code class="error-message">find_local_peaks_within_window() missing 1 required positional argument: &#39;window&#39;</code>
-                    </div>
-                    
-                </div>
-                
+                <p>暂无示例</p>
             
             
             <div class="example-usage-note">
@@ -108,9 +97,7 @@ from rust_pyfunc import find_local_peaks_within_window
 
 # 使用示例
 
-
-result = find_local_peaks_within_window([1. 3. 2. 5. 4. 6. 3.], 3)
-print(f"结果: {result}")
+# 请参考文档中的参数说明使用此函数
 </code></pre>
             </div>
         </div>

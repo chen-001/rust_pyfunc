@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PriceTree - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
 </head>
 <body>
     <div class="navbar">
@@ -15,6 +16,11 @@
     
 <div class="container">
     <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
         <h3>导航</h3>
         <p><a href="index.html">返回首页</a></p>
     </div>
@@ -24,7 +30,7 @@
         
         <div class="function-description">
             <h2>描述</h2>
-            <p>无文档</p>
+            <div><p>无文档</p></div>
         </div>
         
         <div class="function-signature signature">
@@ -41,7 +47,7 @@
         
         <div class="function-returns returns-section">
             <h2>返回值</h2>
-            <p></p>
+            <div></div>
         </div>
         
         <div class="function-examples">
