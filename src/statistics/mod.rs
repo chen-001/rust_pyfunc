@@ -208,23 +208,52 @@ pub fn ols_residuals(
     let x: ArrayView2<f64> = x.as_array();
     let y: ArrayView1<f64> = y.as_array();
 
-    // 创建带有截距项的设计矩阵
-    let mut x_with_intercept = Array2::ones((x.nrows(), x.ncols() + 1));
-    x_with_intercept.slice_mut(s![.., 1..]).assign(&x);
-
-    // 计算回归系数 β = (X^T * X)^(-1) * X^T * y
-    let xt_x = x_with_intercept.t().dot(&x_with_intercept);
-    let xt_y = x_with_intercept.t().dot(&y);
+    // 新增：过滤含 NaN 的样本
+    let n_samples = x.nrows();
+    let n_features = x.ncols();
+    let mut valid_indices = Vec::new();
+    for i in 0..n_samples {
+        if y[i].is_nan() {
+            continue;
+        }
+        let mut row_valid = true;
+        for j in 0..n_features {
+            if x[[i, j]].is_nan() {
+                row_valid = false;
+                break;
+            }
+        }
+        if row_valid {
+            valid_indices.push(i);
+        }
+    }
+    if valid_indices.is_empty() {
+        let full_residuals = Array1::<f64>::from_elem(n_samples, f64::NAN);
+        return Ok(full_residuals.into_pyarray(py).to_owned());
+    }
+    let m = valid_indices.len();
+    let mut x_sub = Array2::<f64>::zeros((m, n_features));
+    let mut y_sub = Array1::<f64>::zeros(m);
+    for (row, &orig_idx) in valid_indices.iter().enumerate() {
+        x_sub.row_mut(row).assign(&x.row(orig_idx));
+        y_sub[row] = y[orig_idx];
+    }
+    // 创建带截距项的设计矩阵
+    let mut x_sub_with_intercept = Array2::ones((m, n_features + 1));
+    x_sub_with_intercept.slice_mut(s![.., 1..]).assign(&x_sub);
+    // 计算回归系数
+    let xt_x = x_sub_with_intercept.t().dot(&x_sub_with_intercept);
+    let xt_y = x_sub_with_intercept.t().dot(&y_sub);
     let coefficients = solve_linear_system3(&xt_x.view(), &xt_y.view());
-
-    // 计算预测值 y_hat = X * β
-    let y_pred = x_with_intercept.dot(&coefficients);
-
-    // 计算残差 ε = y - y_hat
-    let residuals = &y - &y_pred;
-
-    // 将残差转换为 Python 数组
-    Ok(residuals.into_pyarray(py).to_owned())
+    // 计算预测值和残差
+    let y_pred_sub = x_sub_with_intercept.dot(&coefficients);
+    let residuals_sub = &y_sub - &y_pred_sub;
+    // 填充到完整残差向量
+    let mut full_residuals = Array1::<f64>::from_elem(n_samples, f64::NAN);
+    for (row, &orig_idx) in valid_indices.iter().enumerate() {
+        full_residuals[orig_idx] = residuals_sub[row];
+    }
+    Ok(full_residuals.into_pyarray(py).to_owned())
 }
 
 /// 计算序列中每个位置结尾的最长连续子序列长度，其中子序列的最大值在该位置。
