@@ -1,4 +1,4 @@
-# Rust_Pyfunc
+# Rust_Pyfunc [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/chen-001/rust_pyfunc)
 
 一些用Python计算起来很慢的指标，这里用Rust来实现，提升计算速度。
 

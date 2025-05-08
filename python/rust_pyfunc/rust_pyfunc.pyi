@@ -876,6 +876,84 @@ def calculate_shannon_entropy_change(exchtime: NDArray[np.float64], order: NDArr
     """
     ...
 
+def calculate_base_entropy(exchtime: NDArray[np.float64], order: NDArray[np.int64], volume: NDArray[np.float64], index: int) -> float:
+    """计算基准熵 - 基于到当前时间点为止的订单分布计算香农熵。
+
+    参数说明：
+    ----------
+    exchtime : numpy.ndarray
+        交易时间数组，纳秒时间戳，类型为float64
+    order : numpy.ndarray
+        订单机构ID数组，类型为int64
+    volume : numpy.ndarray
+        成交量数组，类型为float64
+    index : int
+        计算熵值的当前索引位置
+
+    返回值：
+    -------
+    float
+        基准熵值，表示到当前时间点为止的订单分布熵
+
+    示例：
+    -------
+    >>> import numpy as np
+    >>> from rust_pyfunc import calculate_base_entropy
+    >>> 
+    >>> # 创建测试数据
+    >>> exchtime = np.array([1e9, 2e9, 3e9, 4e9], dtype=np.float64)  # 时间戳（纳秒）
+    >>> order = np.array([100, 200, 100, 300], dtype=np.int64)  # 机构ID
+    >>> volume = np.array([10.0, 20.0, 30.0, 40.0], dtype=np.float64)
+    >>> 
+    >>> # 计算索引2处的基准熵
+    >>> base_entropy = calculate_base_entropy(exchtime, order, volume, 2)
+    >>> print(f"基准熵: {base_entropy}")
+    """
+    ...
+
+def calculate_window_entropy(exchtime: NDArray[np.float64], order: NDArray[np.int64], volume: NDArray[np.float64], index: int, window_seconds: float) -> float:
+    """计算窗口熵 - 基于从当前时间点到未来指定时间窗口内的订单分布计算香农熵。
+
+    参数说明：
+    ----------
+    exchtime : numpy.ndarray
+        交易时间数组，纳秒时间戳，类型为float64
+    order : numpy.ndarray
+        订单机构ID数组，类型为int64
+    volume : numpy.ndarray
+        成交量数组，类型为float64
+    index : int
+        计算熵值的当前索引位置
+    window_seconds : float
+        向前查看的时间窗口大小，单位为秒
+
+    返回值：
+    -------
+    float
+        窗口熵值，表示从当前时间点到未来指定时间窗口内的订单分布熵
+
+    示例：
+    -------
+    >>> import numpy as np
+    >>> from rust_pyfunc import calculate_window_entropy
+    >>> 
+    >>> # 创建测试数据
+    >>> exchtime = np.array([1e9, 2e9, 3e9, 4e9], dtype=np.float64)  # 时间戳（纳秒）
+    >>> order = np.array([100, 200, 100, 300], dtype=np.int64)  # 机构ID
+    >>> volume = np.array([10.0, 20.0, 30.0, 40.0], dtype=np.float64)
+    >>> 
+    >>> # 计算索引1处的3秒窗口熵
+    >>> window_entropy = calculate_window_entropy(exchtime, order, volume, 1, 3.0)
+    >>> print(f"窗口熵: {window_entropy}")
+    >>> 
+    >>> # 计算熵变（可以通过组合两个函数）
+    >>> base = calculate_base_entropy(exchtime, order, volume, 1)
+    >>> window = calculate_window_entropy(exchtime, order, volume, 1, 3.0)
+    >>> entropy_change = window - base
+    >>> print(f"熵变: {entropy_change}")
+    """
+    ...
+
 def calculate_shannon_entropy_change_at_low(
     exchtime: NDArray[np.float64],
     order: NDArray[np.int64],
@@ -1107,5 +1185,75 @@ def rolling_qcv(values: NDArray[np.float64], lookback: int, interval: int, min_p
     >>> # 计算滚动四分位变异系数，向前查看5个点，每隔1个点取样
     >>> qcv = rolling_qcv(prices, 5, 1)
     >>> print(qcv)
+    """
+    ...
+
+def calculate_large_order_nearby_small_order_time_gap(
+    volumes: NDArray[np.float64],
+    exchtimes: NDArray[np.float64],
+    large_quantile: float,
+    small_quantile: float,
+    near_number: int,
+    exclude_same_time: bool = False,
+    order_type: str = "small",
+    flags: Optional[NDArray[np.int32]] = None,
+    flag_filter: str = "ignore"
+) -> NDArray[np.float64]:
+    """计算每个大单与其临近订单之间的时间间隔均值。
+
+    参数说明：
+    ----------
+    volumes : numpy.ndarray
+        交易量数组
+    exchtimes : numpy.ndarray
+        交易时间数组（单位：纳秒）
+    large_quantile : float
+        大单的分位点阈值
+    small_quantile : float
+        小单的分位点阈值
+    near_number : int
+        每个大单要考虑的临近订单数量
+    exclude_same_time : bool, default=False
+        是否排除与大单时间戳相同的订单
+    order_type : str, default="small"
+        指定与大单计算时间间隔的订单类型：
+        - "small"：计算大单与小于small_quantile分位点的订单的时间间隔
+        - "mid"：计算大单与位于small_quantile和large_quantile分位点之间的订单的时间间隔
+        - "full"：计算大单与小于large_quantile分位点的所有订单的时间间隔
+    flags : Optional[NDArray[np.int32]], default=None
+        交易标志数组，通常66表示主动买入，83表示主动卖出
+    flag_filter : str, default="ignore"
+        指定如何根据交易标志筛选计算对象：
+        - "same"：只计算与大单交易标志相同的订单的时间间隔
+        - "diff"：只计算与大单交易标志不同的订单的时间间隔
+        - "ignore"：忽略交易标志，计算所有符合条件的订单的时间间隔
+
+    返回值：
+    -------
+    numpy.ndarray
+        浮点数数组，与输入volumes等长。对于大单，返回其与临近目标订单的时间间隔均值（秒）；
+        对于非大单，返回NaN。
+
+    示例：
+    -------
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> from rust_pyfunc import calculate_large_order_nearby_small_order_time_gap
+    >>> 
+    >>> # 创建示例DataFrame
+    >>> df = pd.DataFrame({
+    >>>     'exchtime': [1.0e9, 1.1e9, 1.2e9, 1.3e9, 1.4e9],  # 纳秒时间戳
+    >>>     'volume': [100, 10, 200, 20, 150]
+    >>> })
+    >>> 
+    >>> # 计算大单与临近小单的时间间隔
+    >>> df['time_gap'] = calculate_large_order_nearby_small_order_time_gap(
+    >>>     df['volume'].values,
+    >>>     df['exchtime'].values,
+    >>>     large_quantile=0.7,  # 70%分位点以上为大单
+    >>>     small_quantile=0.3,  # 30%分位点以下为小单
+    >>>     near_number=2        # 每个大单考虑最近的2个小单
+    >>> )
+    >>> print(df)
     """
     ...

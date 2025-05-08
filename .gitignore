@@ -65,3 +65,6 @@ ENV/
 *.log
 .*.swp
 *~
+
+.cursor/
+.windsurf/

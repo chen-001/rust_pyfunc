@@ -446,6 +446,152 @@ fn calculate_entropy_hashmap(volumes: &HashMap<i64, f64>, total_volume: f64) -> 
     entropy
 }
 
+/// 计算基准熵 - 基于到当前时间点为止的订单分布计算香农熵
+/// 
+/// 参数:
+/// * exchtime: 交易时间数组（纳秒时间戳）
+/// * order: 订单号数组
+/// * volume: 成交量数组
+/// * index: 计算熵值的当前索引位置
+/// 
+/// 返回:
+/// * 基准熵值
+#[pyfunction]
+#[pyo3(signature = (exchtime, order, volume, index))]
+pub fn calculate_base_entropy(
+    exchtime: PyReadonlyArray1<f64>,
+    order: PyReadonlyArray1<i64>,
+    volume: PyReadonlyArray1<f64>,
+    index: usize,
+) -> PyResult<f64> {
+    
+    // 转换为ndarray视图
+    let exchtime = exchtime.as_array();
+    let order = order.as_array();
+    let volume = volume.as_array();
+    let n = exchtime.len();
+    
+    // 检查所有输入数组长度是否一致
+    if order.len() != n || volume.len() != n {
+        return Err(PyValueError::new_err("所有输入数组长度必须相同"));
+    }
+    
+    // 检查索引是否有效
+    if index >= n {
+        return Err(PyValueError::new_err("索引超出数组范围"));
+    }
+    
+    // 计算到此点为止的基准分布
+    let mut base_volumes: HashMap<i64, f64> = HashMap::new();
+    let mut cumulative_volume = 0.0;
+    
+    for j in 0..=index {
+        *base_volumes.entry(order[j]).or_insert(0.0) += volume[j];
+        cumulative_volume += volume[j];
+    }
+    
+    // 计算基准熵
+    let base_entropy = if cumulative_volume > 0.0 {
+        calculate_entropy_hashmap(&base_volumes, cumulative_volume)
+    } else {
+        0.0
+    };
+    
+    Ok(base_entropy)
+}
+
+/// 计算窗口熵 - 基于从当前时间点到未来指定时间窗口内的订单分布计算香农熵
+/// 
+/// 参数:
+/// * exchtime: 交易时间数组（纳秒时间戳）
+/// * order: 订单号数组
+/// * volume: 成交量数组
+/// * index: 计算熵值的当前索引位置
+/// * window_seconds: 向前查看的时间窗口大小，单位为秒
+/// 
+/// 返回:
+/// * 窗口熵值
+#[pyfunction]
+#[pyo3(signature = (exchtime, order, volume, index, window_seconds))]
+pub fn calculate_window_entropy(
+    exchtime: PyReadonlyArray1<f64>,
+    order: PyReadonlyArray1<i64>,
+    volume: PyReadonlyArray1<f64>,
+    index: usize,
+    window_seconds: f64,
+) -> PyResult<f64> {
+    
+    // 转换为ndarray视图
+    let exchtime = exchtime.as_array();
+    // 将时间戳从纳秒转换为秒
+    let exchtime: Vec<i64> = exchtime.iter().map(|&x| (x / 1.0e9) as i64).collect();
+    let order = order.as_array();
+    let volume = volume.as_array();
+    let n = exchtime.len();
+    
+    // 检查所有输入数组长度是否一致
+    if order.len() != n || volume.len() != n {
+        return Err(PyValueError::new_err("所有输入数组长度必须相同"));
+    }
+    
+    // 检查索引是否有效
+    if index >= n {
+        return Err(PyValueError::new_err("索引超出数组范围"));
+    }
+    
+    // 先计算基础分布（与calculate_base_entropy相同）
+    let mut base_volumes: HashMap<i64, f64> = HashMap::new();
+    let mut cumulative_volume = 0.0;
+    
+    for j in 0..=index {
+        *base_volumes.entry(order[j]).or_insert(0.0) += volume[j];
+        cumulative_volume += volume[j];
+    }
+    
+    // 确定窗口结束位置
+    let current_time = exchtime[index] as i64;
+    let window_nanos = window_seconds as i64;
+    let window_end_time = current_time + window_nanos;
+    let mut window_end = index;
+    
+    while window_end + 1 < n {
+        let next_time = exchtime[window_end + 1] as i64;
+        match next_time.cmp(&window_end_time) {
+            Ordering::Less | Ordering::Equal => window_end += 1,
+            Ordering::Greater => break,
+        }
+    }
+    
+    // 如果窗口内没有足够的数据点，直接返回基准熵
+    if window_end <= index {
+        if cumulative_volume > 0.0 {
+            return Ok(calculate_entropy_hashmap(&base_volumes, cumulative_volume));
+        } else {
+            return Ok(0.0);
+        }
+    }
+    
+    // 计算窗口分布
+    let mut window_volumes: HashMap<i64, f64> = HashMap::new();
+    window_volumes.extend(base_volumes.iter().map(|(&k, &v)| (k, v)));
+    let mut window_volume = cumulative_volume;
+    
+    // 累加窗口内的数据
+    for j in (index + 1)..=window_end {
+        *window_volumes.entry(order[j]).or_insert(0.0) += volume[j];
+        window_volume += volume[j];
+    }
+    
+    // 计算窗口熵
+    let window_entropy = if window_volume > 0.0 {
+        calculate_entropy_hashmap(&window_volumes, window_volume)
+    } else {
+        0.0
+    };
+    
+    Ok(window_entropy)
+}
+
 /// 在价格创新低时计算香农熵变
 /// 
 /// 参数:

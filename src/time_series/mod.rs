@@ -1136,3 +1136,245 @@ pub fn find_half_energy_time(
     
     Ok(result)
 }
+
+/// 计算每个大单与其临近小单之间的时间间隔均值。
+/// 
+/// 参数说明：
+/// ----------
+/// volumes : numpy.ndarray
+///     交易量数组
+/// exchtimes : numpy.ndarray
+///     交易时间数组（单位：纳秒）
+/// large_quantile : float
+///     大单的分位点阈值
+/// small_quantile : float
+///     小单的分位点阈值
+/// near_number : int
+///     每个大单要考虑的临近小单数量
+/// exclude_same_time : bool, optional
+///     是否排除时间戳与大单完全相同的小单，默认为False
+///     当为True时，计算附近小单时不包含时间戳与大单完全相同的小单
+///     当为False时，包含与大单时间戳完全相同的小单
+/// 
+/// 返回值：
+/// -------
+/// numpy.ndarray
+///     浮点数数组，与输入volumes等长。对于大单，返回其与临近小单的时间间隔均值（秒）；
+///     对于非大单，返回NaN。
+/// 
+/// Python调用示例：
+/// ```python
+/// import pandas as pd
+/// import numpy as np
+/// from rust_pyfunc import calculate_large_order_nearby_small_order_time_gap
+/// 
+/// # 创建示例DataFrame
+/// df = pd.DataFrame({
+///     'exchtime': [1.0e9, 1.1e9, 1.2e9, 1.3e9, 1.4e9],  # 纳秒时间戳
+///     'volume': [100, 10, 200, 20, 150]
+/// })
+/// 
+/// # 计算大单与临近小单的时间间隔
+/// df['time_gap'] = calculate_large_order_nearby_small_order_time_gap(
+///     df['volume'].values,
+///     df['exchtime'].values,
+///     large_quantile=0.7,  # 70%分位点以上为大单
+///     small_quantile=0.3,  # 30%分位点以下为小单
+///     near_number=2        # 每个大单考虑最近的2个小单
+/// )
+/// print(df)
+/// #    exchtime  volume    time_gap
+/// # 0      1.0e9    100        NaN  # 不是大单
+/// # 1      1.1e9     10        NaN  # 不是大单
+/// # 2      1.2e9    200       0.15  # 大单，与附近2个小单的时间间隔均值
+/// # 3      1.3e9     20        NaN  # 不是大单
+/// # 4      1.4e9    150        NaN  # 不是大单
+/// 
+/// # 计算大单与临近小单的时间间隔（排除时间戳相同的小单）
+/// df['time_gap_exc'] = calculate_large_order_nearby_small_order_time_gap(
+///     df['volume'].values,
+///     df['exchtime'].values,
+///     large_quantile=0.7,  # 70%分位点以上为大单
+///     small_quantile=0.3,  # 30%分位点以下为小单
+///     near_number=2,       # 每个大单考虑最近的2个小单
+///     exclude_same_time=True  # 排除时间戳相同的小单
+/// )
+/// ```
+#[pyfunction]
+#[pyo3(signature = (volumes, exchtimes, large_quantile, small_quantile, near_number, exclude_same_time=false, order_type="small", flags=None, flag_filter="ignore"))]
+pub fn calculate_large_order_nearby_small_order_time_gap(
+    volumes: PyReadonlyArray1<f64>,
+    exchtimes: PyReadonlyArray1<f64>,
+    large_quantile: f64,
+    small_quantile: f64,
+    near_number: usize,
+    exclude_same_time: bool,
+    order_type: &str,
+    flags: Option<PyReadonlyArray1<i64>>,
+    flag_filter: &str
+) -> PyResult<Vec<f64>> {
+    // 转换为Rust类型处理
+    let volumes = volumes.as_array();
+    let exchtimes = exchtimes.as_array();
+    let n = volumes.len();
+    
+    // 确保输入数组长度一致
+    if exchtimes.len() != n {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "volumes和exchtimes的长度必须一致"
+        ));
+    }
+    
+    // 处理flags参数
+    let flags_vec = if let Some(flags_array) = flags {
+        // 确保flags长度与volumes和exchtimes一致
+        if flags_array.len() != n {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "flags的长度必须与volumes和exchtimes一致"
+            ));
+        }
+        flags_array.as_slice().unwrap_or(&[]).to_vec()
+    } else {
+        // 如果没有提供flags，则创建默认值
+        vec![0; n]
+    };
+    
+    // 转换时间戳为秒单位，并复制为向量
+    let times: Vec<f64> = exchtimes.iter().map(|&x| x / 1.0e9).collect();
+    let volumes_vec: Vec<f64> = volumes.iter().cloned().collect();
+    
+    // 计算分位点
+    let mut volumes_sorted = volumes_vec.clone();
+    volumes_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    
+    let large_threshold_idx = ((n as f64) * large_quantile).ceil() as usize;
+    let small_threshold_idx = ((n as f64) * small_quantile).floor() as usize;
+    
+    // 确保索引不越界
+    let large_threshold_idx = if large_threshold_idx >= n { n - 1 } else { large_threshold_idx };
+    let small_threshold_idx = if small_threshold_idx >= n { n - 1 } else { small_threshold_idx };
+    
+    let large_threshold = volumes_sorted[large_threshold_idx];
+    let small_threshold = volumes_sorted[small_threshold_idx];
+    
+    // 标记大单和目标订单
+    let mut is_large_order = vec![false; n];
+    let mut is_target_order = vec![false; n];
+    
+    for i in 0..n {
+        if volumes[i] >= large_threshold {
+            is_large_order[i] = true;
+        }
+        
+        match order_type {
+            "small" => {
+                // 标记小单
+                if volumes[i] <= small_threshold {
+                    is_target_order[i] = true;
+                }
+            },
+            "mid" => {
+                // 标记中间订单
+                if volumes[i] > small_threshold && volumes[i] < large_threshold {
+                    is_target_order[i] = true;
+                }
+            },
+            "full" => {
+                // 标记所有小于large_threshold的订单
+                if volumes[i] < large_threshold {
+                    is_target_order[i] = true;
+                }
+            },
+            _ => {
+                // 默认为"small"，标记小单
+                if volumes[i] <= small_threshold {
+                    is_target_order[i] = true;
+                }
+            }
+        }
+    }
+    
+    // 结果数组，初始化为NaN
+    let mut result = vec![f64::NAN; n];
+    
+    // 对每个大单计算与临近小单的时间间隔
+    for i in 0..n {
+        if !is_large_order[i] {
+            continue; // 跳过非大单
+        }
+        
+        let large_time = times[i];
+        let mut time_gaps = Vec::new();
+        
+        // 获取当前大单的flag
+        let large_flag = flags_vec[i];
+        
+        // 查找前面的目标订单
+        let mut before_count = 0;
+        for j in (0..i).rev() {
+            if is_target_order[j] {
+                // 根据flag_filter判断是否满足条件
+                let flag_match = match flag_filter {
+                    "same" => flags_vec[j] == large_flag,
+                    "diff" => flags_vec[j] != large_flag,
+                    _ => true, // "ignore"或其他值，忽略flag判断
+                };
+                
+                if flag_match {
+                    let time_diff = (large_time - times[j]).abs();
+                    // 如果排除相同时间戳的订单，且时间差为0，则跳过
+                    if exclude_same_time && time_diff == 0.0 {
+                        continue;
+                    }
+                    time_gaps.push(time_diff);
+                    before_count += 1;
+                    if before_count >= near_number {
+                        break;
+                    }
+                }
+            }
+        }
+        
+        // 查找后面的目标订单
+        let mut after_count = 0;
+        for j in (i+1)..n {
+            if is_target_order[j] {
+                // 根据flag_filter判断是否满足条件
+                let flag_match = match flag_filter {
+                    "same" => flags_vec[j] == large_flag,
+                    "diff" => flags_vec[j] != large_flag,
+                    _ => true, // "ignore"或其他值，忽略flag判断
+                };
+                
+                if flag_match {
+                    let time_diff = (times[j] - large_time).abs();
+                    // 如果排除相同时间戳的订单，且时间差为0，则跳过
+                    if exclude_same_time && time_diff == 0.0 {
+                        continue;
+                    }
+                    time_gaps.push(time_diff);
+                    after_count += 1;
+                    if after_count >= near_number {
+                        break;
+                    }
+                }
+            }
+        }
+        
+        // 如果找到了至少一个小单，选择最小的near_number个间隔计算均值
+        if !time_gaps.is_empty() {
+            // 对时间间隔进行排序
+            time_gaps.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            
+            // 取出最小的near_number个（或全部如果数量不足）
+            let count = std::cmp::min(near_number, time_gaps.len());
+            let min_gaps: Vec<f64> = time_gaps.iter().take(count).cloned().collect();
+            
+            // 计算这些最小间隔的均值
+            let avg_gap = min_gaps.iter().sum::<f64>() / min_gaps.len() as f64;
+            result[i] = avg_gap;
+        }
+    }
+    
+    Ok(result)
+}

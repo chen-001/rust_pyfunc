@@ -48,8 +48,11 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(time_series::mark_follow_groups, m)?)?;
     m.add_function(wrap_pyfunction!(time_series::mark_follow_groups_with_flag, m)?)?;
     m.add_function(wrap_pyfunction!(time_series::find_half_energy_time, m)?)?;
+    m.add_function(wrap_pyfunction!(time_series::calculate_large_order_nearby_small_order_time_gap, m)?)?;
     m.add_function(wrap_pyfunction!(sequence::calculate_shannon_entropy_change, m)?)?;
     m.add_function(wrap_pyfunction!(sequence::calculate_shannon_entropy_change_at_low, m)?)?;
+    m.add_function(wrap_pyfunction!(sequence::calculate_base_entropy, m)?)?;
+    m.add_function(wrap_pyfunction!(sequence::calculate_window_entropy, m)?)?;
     m.add_function(wrap_pyfunction!(sequence::brachistochrone_curve, m)?)?;
     // m.add_function(wrap_pyfunction!(text::normalized_diff, m)?)?;
     Ok(())
