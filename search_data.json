@@ -27,6 +27,23 @@
     ]
   },
   {
+    "name": "calculate_base_entropy",
+    "description": "<p>计算基准熵 - 基于到当前时间点为止的订单分布计算香农熵</p>\n<p>参数:\n* exchtime: 交易时间数组（纳秒时间戳）\n* order: 订单号数组\n* volume: 成交量数组\n* index: 计算熵值的当前索引位置</p>\n<p>返回:\n* 基准熵值</p>",
+    "params": []
+  },
+  {
+    "name": "calculate_large_order_nearby_small_order_time_gap",
+    "description": "<p>计算每个大单与其临近小单之间的时间间隔均值。</p>",
+    "params": [
+      "volumes",
+      "exchtimes",
+      "large_quantile",
+      "small_quantile",
+      "near_number",
+      "exclude_same_time"
+    ]
+  },
+  {
     "name": "calculate_shannon_entropy_change",
     "description": "<p>计算价格变化后的香农熵变</p>",
     "params": [
@@ -41,6 +58,11 @@
   {
     "name": "calculate_shannon_entropy_change_at_low",
     "description": "<p>在价格创新低时计算香农熵变</p>\n<p>参数:\n* exchtime: 交易时间数组\n* order: 订单号数组\n* volume: 成交量数组\n* price: 价格数组\n* window_seconds: 时间窗口大小（秒）\n* bottom_k: 如果提供，则只计算价格最低的k个点的熵变，默认为None（计算所有价格创新低点）</p>\n<p>返回:\n* 香农熵变数组，只在价格创新低时有值，其他位置为NaN</p>",
+    "params": []
+  },
+  {
+    "name": "calculate_window_entropy",
+    "description": "<p>计算窗口熵 - 基于从当前时间点到未来指定时间窗口内的订单分布计算香农熵</p>\n<p>参数:\n* exchtime: 交易时间数组（纳秒时间戳）\n* order: 订单号数组\n* volume: 成交量数组\n* index: 计算熵值的当前索引位置\n* window_seconds: 向前查看的时间窗口大小，单位为秒</p>\n<p>返回:\n* 窗口熵值</p>",
     "params": []
   },
   {
