@@ -110,8 +110,52 @@ print(min_word_edit_distance(da, dc))  # 输出: 6 (删除3个单词，添加3�
             
             <div class="function-item">
                 <h3 class="function-name"><a href="find_half_energy_time.html">find_half_energy_time</a></h3>
-                <div><p>计算每一行在其后指定时间窗口内的价格变动能量，并找出首次达到最终能量一半时所需的时间。</p></div>
+                <div><p>计算每个时间点价格达到时间窗口内最终能量一半所需的时间。</p>
+<p>该函数首先计算时间窗口结束时的能量（价格变动的绝对值比率），
+然后计算第一次达到该能量一半所需的时间。</p>
+<h1>参数说明</h1>
+<ul>
+<li><code>times</code> - 时间戳数组（单位：秒）</li>
+<li><code>prices</code> - 价格数组</li>
+<li><code>time_window</code> - 时间窗口大小（单位：秒），默认为5.0</li>
+</ul>
+<h1>返回值</h1>
+<p>浮点数数组，表示每个时间点达到最终能量一半所需的时间（秒）。
+如果在时间窗口内未达到一半能量，则返回time_window值。
+如果最终能量为0，则返回0。</p>
+<h1>特殊情况处理</h1>
+<ul>
+<li>当价格为NaN或Inf时，对应结果为NaN</li>
+<li>当最终能量为0时，结果为0</li>
+<li>当时间窗口内无法计算出最终能量时，结果为time_window</li>
+</ul>
+<h1>性能</h1>
+<p>该函数使用并行处理加速计算，在大规模数据集上比等效的Python实现快约20-100倍。</p>
+<h1>示例</h1>
+<p>```python
+import pandas as pd
+import numpy as np
+from rust_pyfunc import find_half_energy_time</p>
+<h1>创建示例DataFrame</h1>
+<p>df = pd.DataFrame({
+    'exchtime': [1.0, 1.1, 1.2, 1.3, 1.4],
+    'price': [10.0, 10.2, 10.5, 10.3, 10.1]
+})</p>
+<h1>计算达到一半能量所需时间</h1>
+<p>df['half_energy_time'] = find_half_energy_time(
+    df['exchtime'].values,
+    df['price'].values,
+    time_window=5.0
+)
+print(df)
+```</p></div>
                 <a href="find_half_energy_time.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="find_half_extreme_time.html">find_half_extreme_time</a></h3>
+                <div><p>计算每一行在其后指定时间窗口内的价格变动能量，并找出首次达到最终能量一半时所需的时间。</p></div>
+                <a href="find_half_extreme_time.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -253,6 +297,25 @@ s.rolling_future('2s').trend_time()  # 计算后面2秒内的趋势</p>
 <p>返回:
 * 窗口熵值</p></div>
                 <a href="calculate_window_entropy.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="corrwith.html">corrwith</a></h3>
+                <div><p>计算两个DataFrame对应列或行之间的相关系数。</p>
+<p>这个函数是pandas的corrwith方法的Rust实现包装，用于计算两个DataFrame中对应列（或行）
+之间的皮尔逊相关系数。会自动处理两个DataFrame的列名（或行名）匹配情况。</p></div>
+                <a href="corrwith.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="dataframe_corrwith.html">dataframe_corrwith</a></h3>
+                <div><p>计算两个数据框对应列的相关系数。</p>
+<p>这个函数类似于pandas中的df.corrwith(df1)，计算两个数据框中对应列之间的皮尔逊相关系数。
+相关系数范围为[-1, 1]，其中：
+- 1表示完全正相关
+- -1表示完全负相关
+- 0表示无相关性</p></div>
+                <a href="dataframe_corrwith.html">查看详情</a>
             </div>
             
             <div class="function-item">

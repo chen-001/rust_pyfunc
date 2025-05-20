@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>dataframe_corrwith - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>dataframe_corrwith</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>计算两个数据框对应列的相关系数。</p>
+<p>这个函数类似于pandas中的df.corrwith(df1)，计算两个数据框中对应列之间的皮尔逊相关系数。
+相关系数范围为[-1, 1]，其中：
+- 1表示完全正相关
+- -1表示完全负相关
+- 0表示无相关性</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>dataframe_corrwith(df1, df2, axis, drop_na) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">df1</span>
+                    <span class="parameter-type">(numpy.ndarray)</span>
+                    <div><p>第一个数据框，形状为(n_rows, n_cols)，必须是float64类型</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">df2</span>
+                    <span class="parameter-type">(numpy.ndarray)</span>
+                    <div><p>第二个数据框，形状为(n_rows, m_cols)，必须是float64类型</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">axis</span>
+                    <span class="parameter-type">(int, 可选)</span>
+                    <div><p>计算相关性的轴，默认为0（按列计算）。目前只支持按列计算。</p></div>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div><hr />
+<p>numpy.ndarray
+    一维数组，长度为min(n_cols, m_cols)，包含对应列的相关系数</p>
+<p>Python调用示例：
+```python
+import numpy as np
+import pandas as pd
+from rust_pyfunc import dataframe_corrwith</p>
+<h1>创建两个数据框</h1>
+<p>df1 = pd.DataFrame({
+    'A': [1.0, 2.0, 3.0, 4.0, 5.0],
+    'B': [5.0, 4.0, 3.0, 2.0, 1.0],
+    'C': [2.0, 4.0, 6.0, 8.0, 10.0]
+})
+df2 = pd.DataFrame({
+    'A': [1.1, 2.2, 2.9, 4.1, 5.2],
+    'B': [5.2, 4.1, 2.9, 2.1, 0.9],
+    'D': [1.0, 2.0, 3.0, 4.0, 5.0]
+})</p>
+<h1>计算相关系数</h1>
+<p>corr = dataframe_corrwith(df1.values, df2.values)</p>
+<h1>转换为Series以获得与pandas相同的输出格式</h1>
+<p>result = pd.Series(corr, index=['A', 'B', 'C'])</p>
+<h1>只保留有效对应列（A和B）</h1>
+<p>result = result.iloc[:2]
+```</p></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import dataframe_corrwith
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

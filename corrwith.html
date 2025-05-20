@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>corrwith - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>corrwith</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>计算两个DataFrame对应列或行之间的相关系数。</p>
+<p>这个函数是pandas的corrwith方法的Rust实现包装，用于计算两个DataFrame中对应列（或行）
+之间的皮尔逊相关系数。会自动处理两个DataFrame的列名（或行名）匹配情况。</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>corrwith(df1, df2, axis) -> &lt;class &#39;pandas.core.series.Series&#39;&gt;</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">df1</span>
+                    <span class="parameter-type">(pd.DataFrame)</span>
+                    <div><p>第一个数据框</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">df2</span>
+                    <span class="parameter-type">(pd.DataFrame)</span>
+                    <div><p>第二个数据框</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">axis</span>
+                    <span class="parameter-type">(int, 默认为0)</span>
+                    <div><p>计算相关性的轴，0表示按列计算，1表示按行计算</p></div>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div><hr />
+<p>pd.Series
+    包含对应列（或行）相关系数的Series，索引为共同的列名（或行名）</p>
+<h2>示例：</h2>
+<blockquote>
+<blockquote>
+<blockquote>
+<p>df1 = pd.DataFrame({
+...     'A': [1.0, 2.0, 3.0, 4.0, 5.0],
+...     'B': [5.0, 4.0, 3.0, 2.0, 1.0],
+...     'C': [2.0, 4.0, 6.0, 8.0, 10.0]
+... })
+df2 = pd.DataFrame({
+...     'A': [1.1, 2.2, 2.9, 4.1, 5.2],
+...     'B': [5.2, 4.1, 2.9, 2.1, 0.9],
+...     'D': [1.0, 2.0, 3.0, 4.0, 5.0]
+... })
+corrwith(df1, df2)
+A    0.998867
+B    0.997492
+dtype: float64</p>
+</blockquote>
+</blockquote>
+</blockquote></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import corrwith
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

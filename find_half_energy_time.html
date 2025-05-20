@@ -30,47 +30,29 @@
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><p>计算每一行在其后指定时间窗口内的价格变动能量，并找出首次达到最终能量一半时所需的时间。</p></div>
-        </div>
-        
-        <div class="function-signature signature">
-            <h2>函数签名</h2>
-            <code>find_half_energy_time(times, prices, time_window) -> None</code>
-        </div>
-        
-        <div class="function-parameters">
-            <h2>参数</h2>
-            
-                
-                <div class="parameter">
-                    <span class="parameter-name">times</span>
-                    <span class="parameter-type">(array_like)</span>
-                    <div><p>时间戳数组（单位：秒）</p></div>
-                </div>
-                
-                <div class="parameter">
-                    <span class="parameter-name">prices</span>
-                    <span class="parameter-type">(array_like)</span>
-                    <div><p>价格数组</p></div>
-                </div>
-                
-                <div class="parameter">
-                    <span class="parameter-name">time_window</span>
-                    <span class="parameter-type">(float, optional)</span>
-                    <div><p>时间窗口大小（单位：秒），默认为5.0</p></div>
-                </div>
-                
-            
-        </div>
-        
-        <div class="function-returns returns-section">
-            <h2>返回值</h2>
-            <div><hr />
-<p>numpy.ndarray
-    浮点数数组，表示每行达到最终能量一半所需的时间（秒）。
-    如果在时间窗口内未达到一半能量，或者最终能量为0，则返回time_window值。</p>
-<p>Python调用示例：
-```python
+            <div><p>计算每个时间点价格达到时间窗口内最终能量一半所需的时间。</p>
+<p>该函数首先计算时间窗口结束时的能量（价格变动的绝对值比率），
+然后计算第一次达到该能量一半所需的时间。</p>
+<h1>参数说明</h1>
+<ul>
+<li><code>times</code> - 时间戳数组（单位：秒）</li>
+<li><code>prices</code> - 价格数组</li>
+<li><code>time_window</code> - 时间窗口大小（单位：秒），默认为5.0</li>
+</ul>
+<h1>返回值</h1>
+<p>浮点数数组，表示每个时间点达到最终能量一半所需的时间（秒）。
+如果在时间窗口内未达到一半能量，则返回time_window值。
+如果最终能量为0，则返回0。</p>
+<h1>特殊情况处理</h1>
+<ul>
+<li>当价格为NaN或Inf时，对应结果为NaN</li>
+<li>当最终能量为0时，结果为0</li>
+<li>当时间窗口内无法计算出最终能量时，结果为time_window</li>
+</ul>
+<h1>性能</h1>
+<p>该函数使用并行处理加速计算，在大规模数据集上比等效的Python实现快约20-100倍。</p>
+<h1>示例</h1>
+<p>```python
 import pandas as pd
 import numpy as np
 from rust_pyfunc import find_half_energy_time</p>
@@ -85,14 +67,25 @@ from rust_pyfunc import find_half_energy_time</p>
     df['price'].values,
     time_window=5.0
 )
-print(df)</p>
-<h1>exchtime  price  half_energy_time</h1>
-<h1>0      1.0   10.0              2.1  # 在2.1秒时达到5秒能量的一半</h1>
-<h1>1      1.1   10.2              1.9  # 在1.9秒时达到5秒能量的一半</h1>
-<h1>2      1.2   10.5              1.8  # 在1.8秒时达到5秒能量的一半</h1>
-<h1>3      1.3   10.3              1.7  # 在1.7秒时达到5秒能量的一半</h1>
-<h1>4      1.4   10.1              5.0  # 未达到5秒能量的一半</h1>
-<p>```</p></div>
+print(df)
+```</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>find_half_energy_time(times, prices, time_window, direction) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                <p>此函数没有参数</p>
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div></div>
         </div>
         
         <div class="function-examples">
