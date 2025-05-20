@@ -102,23 +102,20 @@
   },
   {
     "name": "find_follow_volume_sum_same_price",
-    "description": "<p>计算每一行在其后0.1秒内具有相同price和volume的行的volume总和。</p>",
-    "params": [
-      "times",
-      "prices",
-      "volumes"
-    ]
-  },
-  {
-    "name": "find_follow_volume_sum_same_price_and_flag",
-    "description": "<p>计算每一行在其后time_window秒内具有相同flag、price和volume的行的volume总和。</p>",
+    "description": "<p>计算每一行在其后time_window秒内具有相同volume（及可选相同price）的行的volume总和。</p>",
     "params": [
       "times",
       "prices",
       "volumes",
-      "flags",
-      "time_window"
+      "time_window",
+      "check_price",
+      "filter_frequent_volumes"
     ]
+  },
+  {
+    "name": "find_follow_volume_sum_same_price_and_flag",
+    "description": "<p>无文档</p>",
+    "params": []
   },
   {
     "name": "find_half_energy_time",

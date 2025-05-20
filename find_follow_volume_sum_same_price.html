@@ -30,12 +30,12 @@
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><p>计算每一行在其后0.1秒内具有相同price和volume的行的volume总和。</p></div>
+            <div><p>计算每一行在其后time_window秒内具有相同volume（及可选相同price）的行的volume总和。</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>find_follow_volume_sum_same_price(times, prices, volumes, time_window) -> None</code>
+            <code>find_follow_volume_sum_same_price(times, prices, volumes, time_window, check_price, filter_ratio) -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -60,6 +60,24 @@
                     <div><p>成交量数组</p></div>
                 </div>
                 
+                <div class="parameter">
+                    <span class="parameter-name">time_window</span>
+                    <span class="parameter-type">(float, optional, default=0.1)</span>
+                    <div><p>时间窗口（单位：秒）</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">check_price</span>
+                    <span class="parameter-type">(bool, optional, default=True)</span>
+                    <div><p>是否检查价格是否相同</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">filter_frequent_volumes</span>
+                    <span class="parameter-type">(bool, optional, default=False)</span>
+                    <div><p>是否过滤频繁出现的相同volume值</p></div>
+                </div>
+                
             
         </div>
         
@@ -67,12 +85,13 @@
             <h2>返回值</h2>
             <div><hr />
 <p>numpy.ndarray
-    每一行在其后0.1秒内具有相同price和volume的行的volume总和</p>
+    每一行在其后time_window秒内具有相同条件的行的volume总和
+    如果filter_frequent_volumes=True，则出现频率超过30%的volume值对应的行会被设为NaN</p>
 <p>Python调用示例：
 ```python
 import pandas as pd
 import numpy as np
-from rust_pyfunc import find_follow_volume_sum</p>
+from rust_pyfunc import find_follow_volume_sum_same_price</p>
 <h1>创建示例DataFrame</h1>
 <p>df = pd.DataFrame({
     'exchtime': [1.0, 1.05, 1.08, 1.15, 1.2],
@@ -80,12 +99,13 @@ from rust_pyfunc import find_follow_volume_sum</p>
     'volume': [100, 100, 100, 200, 100]
 })</p>
 <h1>计算follow列</h1>
-<p>df['follow'] = find_follow_volume_sum(
+<p>df['follow'] = find_follow_volume_sum_same_price(
     df['exchtime'].values,
     df['price'].values,
     df['volume'].values
 )
-```</p></div>
+```
+计算每一行在其后time_window秒内具有相同volume（及可选相同price）的行的volume总和。</p></div>
         </div>
         
         <div class="function-examples">
