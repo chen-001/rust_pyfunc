@@ -2,6 +2,7 @@ use pyo3::prelude::*;
 // use pyo3::types::{PyList, PyModule};
 use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1, PyReadonlyArray2};
 use ndarray::{s, Array1, Array2, ArrayView1, ArrayView2};
+use rayon::prelude::*;
 // use std::collections::{HashMap, HashSet};
 
 /// 普通最小二乘(OLS)回归。
@@ -720,3 +721,186 @@ pub fn rolling_qcv(
     
     Ok(result.into_pyarray(py).to_owned())
 }
+
+/// 计算两个数据框对应列的相关系数。
+///
+/// 这个函数类似于pandas中的df.corrwith(df1)，计算两个数据框中对应列之间的皮尔逊相关系数。
+/// 相关系数范围为[-1, 1]，其中：
+/// - 1表示完全正相关
+/// - -1表示完全负相关
+/// - 0表示无相关性
+///
+/// 参数说明：
+/// ----------
+/// df1 : numpy.ndarray
+///     第一个数据框，形状为(n_rows, n_cols)，必须是float64类型
+/// df2 : numpy.ndarray
+///     第二个数据框，形状为(n_rows, m_cols)，必须是float64类型
+/// axis : int, 可选
+///     计算相关性的轴，默认为0（按列计算）。目前只支持按列计算。
+///
+/// 返回值：
+/// -------
+/// numpy.ndarray
+///     一维数组，长度为min(n_cols, m_cols)，包含对应列的相关系数
+///
+/// Python调用示例：
+/// ```python
+/// import numpy as np
+/// import pandas as pd
+/// from rust_pyfunc import dataframe_corrwith
+///
+/// # 创建两个数据框
+/// df1 = pd.DataFrame({
+///     'A': [1.0, 2.0, 3.0, 4.0, 5.0],
+///     'B': [5.0, 4.0, 3.0, 2.0, 1.0],
+///     'C': [2.0, 4.0, 6.0, 8.0, 10.0]
+/// })
+/// df2 = pd.DataFrame({
+///     'A': [1.1, 2.2, 2.9, 4.1, 5.2],
+///     'B': [5.2, 4.1, 2.9, 2.1, 0.9],
+///     'D': [1.0, 2.0, 3.0, 4.0, 5.0]
+/// })
+///
+/// # 计算相关系数
+/// corr = dataframe_corrwith(df1.values, df2.values)
+/// # 转换为Series以获得与pandas相同的输出格式
+/// result = pd.Series(corr, index=['A', 'B', 'C'])
+/// # 只保留有效对应列（A和B）
+/// result = result.iloc[:2]
+/// ```
+#[pyfunction]
+#[pyo3(signature = (df1, df2, axis=0, drop_na=true))]
+pub fn dataframe_corrwith(
+    py: Python,
+    df1: PyReadonlyArray2<f64>,
+    df2: PyReadonlyArray2<f64>,
+    axis: Option<i32>,
+    drop_na: Option<bool>,
+) -> PyResult<Py<PyArray1<f64>>> {
+    let df1 = df1.as_array();
+    let df2 = df2.as_array();
+    
+    // 目前只支持按列计算相关系数（axis=0）
+    let _axis = axis.unwrap_or(0);
+    if _axis != 0 {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "当前仅支持按列计算相关系数(axis=0)",
+        ));
+    }
+    
+    let drop_na = drop_na.unwrap_or(true);
+    
+    // 判断行数是否相同
+    if df1.nrows() != df2.nrows() {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "两个数据框的行数必须相同",
+        ));
+    }
+    
+    // 获取列数并确定结果数组大小
+    let n_cols = std::cmp::min(df1.ncols(), df2.ncols());
+    
+    // 创建结果数组
+    let result = if n_cols > 0 {
+        // 使用并行迭代计算相关系数
+        let mut corrs: Vec<f64> = vec![f64::NAN; n_cols];
+        
+        // 将计算分块并行处理
+        corrs.par_iter_mut().enumerate().for_each(|(i, corr)| {
+            if i < n_cols {
+                // 提取对应列的数据
+                let col1 = df1.column(i);
+                let col2 = df2.column(i);
+                
+                // 计算相关系数
+                *corr = calculate_correlation_optimized(&col1, &col2, drop_na);
+            }
+        });
+        
+        Array1::from(corrs)
+    } else {
+        Array1::from_elem(n_cols, f64::NAN)
+    };
+    
+    Ok(result.into_pyarray(py).to_owned())
+}
+
+
+// 已优化的辅助函数：计算两个向量的皮尔逊相关系数
+fn calculate_correlation_optimized(x: &ArrayView1<f64>, y: &ArrayView1<f64>, drop_na: bool) -> f64 {
+    assert_eq!(x.len(), y.len());
+    let n = x.len();
+    
+    // 如果长度为0，返回NaN
+    if n == 0 {
+        return f64::NAN;
+    }
+    
+    // 优化的NaN处理：一次遍历计算均值和有效数据点
+    // 这种方法减少了多次遍历向量的开销
+    let mut count = 0;
+    let mut sum_x = 0.0;
+    let mut sum_y = 0.0;
+    let mut valid_pairs = Vec::with_capacity(n);
+    
+    // 一次遍历找出有效值对并计算和
+    for i in 0..n {
+        let xi = x[i];
+        let yi = y[i];
+        
+        if !xi.is_nan() && !yi.is_nan() {
+            valid_pairs.push((xi, yi));
+            sum_x += xi;
+            sum_y += yi;
+            count += 1;
+        }
+    }
+    
+    // 如果有NaN值且不允许忽略，或有效点太少
+    if (valid_pairs.len() < n && !drop_na) || count < 2 {
+        return f64::NAN;
+    }
+    
+    let mean_x = sum_x / count as f64;
+    let mean_y = sum_y / count as f64;
+    
+    // 计算协方差和方差 - 向量化计算以提高缓存局部性
+    // 使用高效的向量累加，最大化CPU的SIMD指令使用
+    
+    // 使用预先分配和批处理来提高性能
+    const BATCH_SIZE: usize = 32; // 根据CPU缓存行大小选择合适的批次大小
+    
+    let mut cov_xy = 0.0;
+    let mut var_x = 0.0;
+    let mut var_y = 0.0;
+    
+    // 批量处理向量元素以提高缓存命中率
+    for chunk in valid_pairs.chunks(BATCH_SIZE) {
+        let mut local_cov_xy = 0.0;
+        let mut local_var_x = 0.0;
+        let mut local_var_y = 0.0;
+        
+        for &(xi, yi) in chunk {
+            let dx = xi - mean_x;
+            let dy = yi - mean_y;
+            
+            local_cov_xy += dx * dy;
+            local_var_x += dx * dx;
+            local_var_y += dy * dy;
+        }
+        
+        cov_xy += local_cov_xy;
+        var_x += local_var_x;
+        var_y += local_var_y;
+    }
+    
+    // 计算相关系数
+    if var_x.abs() < f64::EPSILON || var_y.abs() < f64::EPSILON {
+        return f64::NAN; // 如果任一变量的方差为0，则相关系数未定义
+    }
+    
+    cov_xy / (var_x.sqrt() * var_y.sqrt())
+}
+
+
