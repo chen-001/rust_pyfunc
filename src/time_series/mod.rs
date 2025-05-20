@@ -647,7 +647,7 @@ pub fn find_local_peaks_within_window(times: PyReadonlyArray1<f64>, prices: PyRe
     Ok(result)
 }
 
-/// 计算每一行在其后0.1秒内具有相同price和volume的行的volume总和。
+/// 计算每一行在其后time_window秒内具有相同volume（及可选相同price）的行的volume总和。
 /// 
 /// 参数说明：
 /// ----------
@@ -657,17 +657,24 @@ pub fn find_local_peaks_within_window(times: PyReadonlyArray1<f64>, prices: PyRe
 ///     价格数组
 /// volumes : array_like
 ///     成交量数组
+/// time_window : float, optional, default=0.1
+///     时间窗口（单位：秒）
+/// check_price : bool, optional, default=True
+///     是否检查价格是否相同
+/// filter_frequent_volumes : bool, optional, default=False
+///     是否过滤频繁出现的相同volume值
 /// 
 /// 返回值：
 /// -------
 /// numpy.ndarray
-///     每一行在其后0.1秒内具有相同price和volume的行的volume总和
+///     每一行在其后time_window秒内具有相同条件的行的volume总和
+///     如果filter_frequent_volumes=True，则出现频率超过30%的volume值对应的行会被设为NaN
 /// 
 /// Python调用示例：
 /// ```python
 /// import pandas as pd
 /// import numpy as np
-/// from rust_pyfunc import find_follow_volume_sum
+/// from rust_pyfunc import find_follow_volume_sum_same_price
 /// 
 /// # 创建示例DataFrame
 /// df = pd.DataFrame({
@@ -677,55 +684,13 @@ pub fn find_local_peaks_within_window(times: PyReadonlyArray1<f64>, prices: PyRe
 /// })
 /// 
 /// # 计算follow列
-/// df['follow'] = find_follow_volume_sum(
+/// df['follow'] = find_follow_volume_sum_same_price(
 ///     df['exchtime'].values,
 ///     df['price'].values,
 ///     df['volume'].values
 /// )
 /// ```
-#[pyfunction]
-#[pyo3(signature = (times, prices, volumes, time_window=0.1))]
-pub fn find_follow_volume_sum_same_price(
-    times: PyReadonlyArray1<f64>,
-    prices: PyReadonlyArray1<f64>,
-    volumes: PyReadonlyArray1<f64>,
-    time_window: f64
-) -> PyResult<Vec<f64>> {
-    let times = times.as_array();
-    let times: Vec<f64> = times.iter().map(|&x| x / 1.0e9).collect();
-    let prices = prices.as_array();
-    let volumes = volumes.as_array();
-    let n = times.len();
-    let mut result = vec![0.0; n];
-    
-    // 对每个点，检查之后time_window秒内的点
-    for i in 0..n {
-        let current_time = times[i];
-        let current_price = prices[i];
-        let current_volume = volumes[i];
-        let mut sum = current_volume; // 包含当前点的成交量
-        
-        // 检查之后的点
-        for j in (i + 1)..n {
-            // 如果时间差超过time_window秒，退出内层循环
-            if times[j] - current_time > time_window {
-                break;
-            }
-            // 如果价格和成交量都相同，加入总和
-            if (prices[j] - current_price).abs() < 1e-10 && 
-               (volumes[j] - current_volume).abs() < 1e-10 {
-                sum += volumes[j];
-            }
-        }
-        
-        result[i] = sum;
-    }
-    
-    Ok(result)
-}
-
-
-/// 计算每一行在其后time_window秒内具有相同flag、price和volume的行的volume总和。
+/// 计算每一行在其后time_window秒内具有相同volume（及可选相同price）的行的volume总和。
 /// 
 /// 参数说明：
 /// ----------
@@ -735,39 +700,127 @@ pub fn find_follow_volume_sum_same_price(
 ///     价格数组
 /// volumes : array_like
 ///     成交量数组
-/// flags : array_like
-///     主买卖标志数组
-/// time_window : float, optional
-///     时间窗口大小（单位：秒），默认为0.1
+/// time_window : float, optional, default=0.1
+///     时间窗口（单位：秒）
+/// check_price : bool, optional, default=True
+///     是否检查价格是否相同，默认为True。设为False时只检查volume是否相同。
+/// filter_ratio : float, optional, default=0.0
+///     要过滤的volume数值比例，默认为0（不过滤）。如果大于0，则过滤出现频率最高的前 filter_ratio 比例的volume种类，对应的行会被设为NaN。
 /// 
 /// 返回值：
 /// -------
 /// numpy.ndarray
-///     每一行在其后time_window秒内具有相同price和volume的行的volume总和
-/// 
-/// Python调用示例：
-/// ```python
-/// import pandas as pd
-/// import numpy as np
-/// from rust_pyfunc import find_follow_volume_sum
-/// 
-/// # 创建示例DataFrame
-/// df = pd.DataFrame({
-///     'exchtime': [1.0, 1.05, 1.08, 1.15, 1.2],
-///     'price': [10.0, 10.0, 10.0, 11.0, 10.0],
-///     'volume': [100, 100, 100, 200, 100],
-///     'flag': [66, 66, 66, 83, 66]
-/// })
-/// 
-/// # 计算follow列
-/// df['follow'] = find_follow_volume_sum(
-///     df['exchtime'].values,
-///     df['price'].values,
-///     df['volume'].values,
-///     df['flag'].values,
-///     time_window=0.1
-/// )
-/// ```
+///     每一行在其后time_window秒内（包括当前行）具有相同条件的行的volume总和。
+///     如果filter_frequent_volumes=True，则出现频率超过30%的volume值对应的行会被设为NaN。
+#[pyfunction]
+#[pyo3(signature = (times, prices, volumes, time_window=0.1, check_price=true, filter_ratio=0.0))]
+pub fn find_follow_volume_sum_same_price(
+    times: PyReadonlyArray1<f64>,
+    prices: PyReadonlyArray1<f64>,
+    volumes: PyReadonlyArray1<f64>,
+    time_window: f64,
+    check_price: bool,
+    filter_ratio: f64
+) -> PyResult<Vec<f64>> {
+    // 准备数据
+    let times = times.as_array();
+    let times: Vec<f64> = times.iter().map(|&x| x / 1.0e9).collect();
+    let prices = prices.as_array();
+    let volumes = volumes.as_array();
+    let n = times.len();
+    let mut result = vec![0.0; n];
+    
+    // 导入OrderedFloat以便使用浮点数作为BTreeMap的键
+    use ordered_float::OrderedFloat;
+    
+    // 第1步：计算每个点在time_window内的volume总和并标记无匹配的点为NaN
+    for i in 0..n {
+        let current_time = times[i];
+        let current_price = prices[i];
+        let current_volume = volumes[i];
+        let mut sum = current_volume; // 包含当前点的成交量
+        let mut has_match = false; // 记录是否有匹配
+        
+        // 检查之后的点
+        for j in (i + 1)..n {
+            // 如果时间差超过time_window秒，退出内层循环
+            if times[j] - current_time > time_window {
+                break;
+            }
+            
+            // 根据check_price参数决定是否检查价格
+            let price_match = !check_price || (prices[j] - current_price).abs() < 1e-10;
+            let volume_match = (volumes[j] - current_volume).abs() < 1e-10;
+            
+            if price_match && volume_match {
+                has_match = true;
+                sum += volumes[j];
+            }
+        }
+        
+        // 如果没有找到匹配项，则设为NaN
+        if !has_match {
+            result[i] = f64::NAN;
+        } else {
+            result[i] = sum;
+        }
+    }
+    
+    // 第2步：如果需要过滤频繁出现的volume，统计非NaN点的volume出现频率
+    if filter_ratio > 0.0 {
+        let mut volume_counts: std::collections::BTreeMap<OrderedFloat<f64>, usize> = std::collections::BTreeMap::new();
+        
+        // 只统计非NaN点的volume频率
+        for i in 0..n {
+            // 如果该点是NaN，则跳过不统计
+            if result[i].is_nan() {
+                continue;
+            }
+            
+            let current_volume = volumes[i];
+            *volume_counts.entry(OrderedFloat(current_volume)).or_insert(0) += 1;
+        }
+        
+        // 过滤出现频率最高的前30%的volume类型
+        if !volume_counts.is_empty() {
+            // 将volume按出现频率从高到低排序
+            let mut volume_freq: Vec<(OrderedFloat<f64>, usize)> = volume_counts
+                .iter()
+                .map(|(k, v)| (*k, *v))
+                .collect();
+                
+            // 按频率降序排序
+            volume_freq.sort_by(|a, b| b.1.cmp(&a.1));
+            
+            // 计算需要过滤的volume种类数量（根据filter_ratio参数）
+            let total_types = volume_freq.len();
+            let filter_count = (total_types as f64 * filter_ratio).ceil() as usize;
+            
+            // 确保至少过滤一种如果有多种类型
+            let filter_count = if filter_count == 0 && total_types > 0 { 1 } else { filter_count };
+            
+            // 选取出现频率最高的前几种volume类型
+            let volume_to_filter: Vec<f64> = volume_freq
+                .iter()
+                .take(filter_count)
+                .map(|(vol, _)| vol.into_inner())
+                .collect();
+            
+            // 将这些高频率volume对应的行设为NaN
+            if !volume_to_filter.is_empty() {
+                for i in 0..n {
+                    // 浮点数比较需要小心处理
+                    if volume_to_filter.iter().any(|&v| (v - volumes[i]).abs() < 1e-10) {
+                        // 使用f64::NAN表示NaN
+                        result[i] = f64::NAN;
+                    }
+                }
+            }
+        }
+    }
+    
+    Ok(result)
+}
 #[pyfunction]
 #[pyo3(signature = (times, prices, volumes, flags, time_window=0.1))]
 pub fn find_follow_volume_sum_same_price_and_flag(
@@ -1704,7 +1757,5 @@ pub fn calculate_large_order_nearby_small_order_time_gap(
             result[i] = avg_gap;
         }
     }
-    
     Ok(result)
 }
- 

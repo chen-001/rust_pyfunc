@@ -588,8 +588,8 @@ def compute_max_eigenvalue(matrix: NDArray[np.float64]) -> Tuple[float, NDArray[
     """
     ...
 
-def find_follow_volume_sum_same_price(times: NDArray[np.float64], prices: NDArray[np.float64], volumes: NDArray[np.float64], time_window: float = 0.1) -> NDArray[np.float64]:
-    """计算每一行在其后0.1秒内具有相同price和volume的行的volume总和。
+def find_follow_volume_sum_same_price(times: NDArray[np.float64], prices: NDArray[np.float64], volumes: NDArray[np.float64], time_window: float = 0.1, check_price: bool = True, filter_ratio: float = 0.0) -> NDArray[np.float64]:
+    """计算每一行在其后time_window秒内具有相同volume（及可选相同price）的行的volume总和。
 
     参数说明：
     ----------
@@ -601,11 +601,16 @@ def find_follow_volume_sum_same_price(times: NDArray[np.float64], prices: NDArra
         成交量数组
     time_window : float, optional
         时间窗口大小（单位：秒），默认为0.1
+    check_price : bool, optional
+        是否检查价格是否相同，默认为True。设为False时只检查volume是否相同。
+    filter_ratio : float, optional
+        要过滤的volume数值比例，默认为0（不过滤）。如果大于0，则过滤出现频率最高的前 filter_ratio 比例的volume种类，对应的行会被设为NaN。
 
     返回值：
     -------
     numpy.ndarray
-        每一行在其后time_window秒内（包括当前行）具有相同price和volume的行的volume总和
+        每一行在其后time_window秒内（包括当前行）具有相同条件的行的volume总和。
+        如果filter_ratio>0，则出现频率最高的前filter_ratio比例的volume值对应的行会被设为NaN。
 
     示例：
     -------
@@ -620,11 +625,27 @@ def find_follow_volume_sum_same_price(times: NDArray[np.float64], prices: NDArra
     ...     'volume': [100, 100, 100, 200, 100]
     ... })
     >>> 
-    >>> # 计算follow列
-    >>> df['follow'] = find_follow_volume_sum(
+    >>> # 计算follow列（默认检查price和volume）
+    >>> df['follow'] = find_follow_volume_sum_same_price(
     ...     df['exchtime'].values,
     ...     df['price'].values,
     ...     df['volume'].values
+    ... )
+    >>>
+    >>> # 不检查价格，只检查volume是否相同
+    >>> df['follow_no_price_check'] = find_follow_volume_sum_same_price(
+    ...     df['exchtime'].values,
+    ...     df['price'].values,
+    ...     df['volume'].values,
+    ...     check_price=False
+    ... )
+    >>>
+    >>> # 过滤频繁出现的volume值
+    >>> df['follow_filtered'] = find_follow_volume_sum_same_price(
+    ...     df['exchtime'].values,
+    ...     df['price'].values,
+    ...     df['volume'].values,
+    ...     filter_ratio=0.3
     ... )
     >>> print(df)
        exchtime  price  volume  follow
