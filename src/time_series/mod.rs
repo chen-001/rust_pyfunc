@@ -1,11 +1,39 @@
 use pyo3::prelude::*;
 use pyo3::types::PyList;
-use numpy::PyReadonlyArray1;
+use numpy::{PyArray1, PyReadonlyArray1, IntoPyArray};
 use ndarray::Array1;
-use std::collections::HashMap;
+use pyo3::exceptions::PyValueError;
 use std::time::Instant;
+use std::error::Error;
+use std::fmt;
+use std::collections::HashMap;
 
-use crate::error::TimeoutError;
+// 导入优化版模块
+pub mod fast_extreme;
+pub mod super_extreme;
+
+// 定义超时错误结构
+#[derive(Debug)]
+struct TimeoutError {
+    message: String,
+    duration: f64,
+}
+
+impl Error for TimeoutError {}
+
+impl fmt::Display for TimeoutError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} ({} seconds)", self.message, self.duration)
+    }
+}
+
+// 实现从 TimeoutError 到 PyErr 的转换
+impl From<TimeoutError> for PyErr {
+    fn from(err: TimeoutError) -> PyErr {
+        PyValueError::new_err(format!("{}({}s)", err.message, err.duration))
+    }
+}
+
 // use std::collections::VecDeque;
 // use std::collections::BTreeMap;
 
@@ -116,6 +144,277 @@ pub fn dtw_distance(s1: Vec<f64>, s2: Vec<f64>, radius: Option<usize>, timeout_s
     check_timeout(timeout_seconds)?;
     
     Ok(warp_dist_mat[len_s1][len_s2])
+}
+
+/// 优化版DTW距离函数，使用以下技术提升性能：
+/// 1. 使用一维数组代替二维数组，减少内存分配和间接访问
+/// 2. 提前计算常用值，减少重复计算
+/// 3. 对于窗口计算进行更高效的实现
+/// 4. 优化内存访问模式，提高缓存命中率
+/// 
+/// ```python
+/// import numpy as np
+/// from rust_pyfunc import fast_dtw_distance, dtw_distance
+/// 
+/// # 创建两个时间序列
+/// s1 = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+/// s2 = np.array([1.1, 2.1, 3.1, 4.1, 5.1])
+/// 
+/// # 比较两种实现的结果和性能
+/// import time
+/// 
+/// start = time.time()
+/// result1 = dtw_distance(s1, s2)
+/// time1 = time.time() - start
+/// 
+/// start = time.time()
+/// result2 = fast_dtw_distance(s1, s2)
+/// time2 = time.time() - start
+/// 
+/// print(f"标准DTW距离: {result1:.6f}, 耗时: {time1:.6f}秒")
+/// print(f"快速DTW距离: {result2:.6f}, 耗时: {time2:.6f}秒")
+/// print(f"加速比: {time1/time2:.2f}倍")
+/// ```
+#[pyfunction]
+#[pyo3(signature = (s1, s2, radius=None, timeout_seconds=None))]
+pub fn fast_dtw_distance(s1: Vec<f64>, s2: Vec<f64>, radius: Option<usize>, timeout_seconds: Option<f64>) -> PyResult<f64> {
+    // 记录开始时间
+    let start_time = Instant::now();
+    
+    // 检查超时的闭包函数
+    let check_timeout = |timeout: Option<f64>| -> Result<(), TimeoutError> {
+        if let Some(timeout) = timeout {
+            let elapsed = start_time.elapsed().as_secs_f64();
+            if elapsed > timeout {
+                return Err(TimeoutError {
+                    message: "快速DTW距离计算超时".to_string(),
+                    duration: elapsed,
+                });
+            }
+        }
+        Ok(())
+    };
+    
+    let len_s1 = s1.len();
+    let len_s2 = s2.len();
+    
+    // 优化1: 只使用两行的一维数组而不是完整的二维矩阵，节省内存
+    let mut prev_row = vec![f64::INFINITY; len_s2 + 1];
+    let mut curr_row = vec![f64::INFINITY; len_s2 + 1];
+    
+    prev_row[0] = 0.0;
+    
+    // 检查初始化后是否超时
+    check_timeout(timeout_seconds)?;
+    
+    for i in 1..=len_s1 {
+        // 每行开始时检查一次超时
+        check_timeout(timeout_seconds)?;
+        
+        // 优化2: 提前将当前序列值缓存，减少每次循环中的索引查找
+        let s1_val = s1[i - 1];
+        
+        // 初始化当前行的第一个元素
+        curr_row[0] = f64::INFINITY;
+        
+        // 优化3: 对于半径限制，直接计算起始和结束范围
+        let (j_start, j_end) = match radius {
+            Some(r) => (1.max(i.saturating_sub(r)), (i + r).min(len_s2) + 1),
+            None => (1, len_s2 + 1),
+        };
+        
+        for j in j_start..j_end {
+            // 对于大型序列，每500次计算检查一次超时，相比原来的100次减少了超时检查的频率
+            if (i * len_s2 + j) % 500 == 0 {
+                check_timeout(timeout_seconds)?;
+            }
+            
+            // 优化4: 直接计算cost，避免额外的函数调用
+            let cost = (s1_val - s2[j - 1]).abs();
+            
+            // 优化5: 使用min方法链式比较，避免嵌套min调用
+            curr_row[j] = cost + prev_row[j]
+                .min(curr_row[j - 1])
+                .min(prev_row[j - 1]);
+        }
+        
+        // 交换行，避免额外的内存分配
+        std::mem::swap(&mut prev_row, &mut curr_row);
+    }
+    
+    // 最终检查一次超时
+    check_timeout(timeout_seconds)?;
+    
+    // 注意：由于我们交换了行，结果在prev_row的最后一个元素中
+    Ok(prev_row[len_s2])
+}
+
+/// 超级优化版DTW距离函数，使用以下高级技术提升性能：
+/// 1. 内存预分配 - 减少运行时内存分配
+/// 2. 更精细的内存访问优化 - 提高缓存命中率
+/// 3. 基于启发式的跳过技术 - 避免不必要的计算
+/// 4. 提前退出策略 - 当部分结果已超过最优值时提前终止
+/// 5. 更稀疏的超时检查 - 减少检查开销
+/// 
+/// ```python
+/// import numpy as np
+/// from rust_pyfunc import super_dtw_distance, fast_dtw_distance, dtw_distance
+/// 
+/// # 创建两个时间序列
+/// s1 = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+/// s2 = np.array([1.1, 2.1, 3.1, 4.1, 5.1])
+/// 
+/// # 比较三种实现的结果和性能
+/// import time
+/// 
+/// start = time.time()
+/// result1 = dtw_distance(s1, s2)
+/// time1 = time.time() - start
+/// 
+/// start = time.time()
+/// result2 = fast_dtw_distance(s1, s2)
+/// time2 = time.time() - start
+/// 
+/// start = time.time()
+/// result3 = super_dtw_distance(s1, s2)
+/// time3 = time.time() - start
+/// 
+/// print(f"标准DTW距离: {result1:.6f}, 耗时: {time1:.6f}秒")
+/// print(f"快速DTW距离: {result2:.6f}, 耗时: {time2:.6f}秒")
+/// print(f"超级DTW距离: {result3:.6f}, 耗时: {time3:.6f}秒")
+/// print(f"fast加速比: {time1/time2:.2f}倍")
+/// print(f"super加速比: {time1/time3:.2f}倍")
+/// ```
+#[pyfunction]
+#[pyo3(signature = (s1, s2, radius=None, timeout_seconds=None, lower_bound_pruning=true, early_termination_threshold=None))]
+pub fn super_dtw_distance(
+    s1: Vec<f64>, 
+    s2: Vec<f64>, 
+    radius: Option<usize>, 
+    timeout_seconds: Option<f64>,
+    lower_bound_pruning: bool,
+    early_termination_threshold: Option<f64>
+) -> PyResult<f64> {
+    // 记录开始时间
+    let start_time = Instant::now();
+    
+    // 检查输入序列长度
+    let len_s1 = s1.len();
+    let len_s2 = s2.len();
+    
+    // 特殊情况快速处理
+    if len_s1 == 0 || len_s2 == 0 {
+        return Ok(0.0);
+    }
+    
+    // 优化1: 确保s1是较短的序列，减少内存占用和计算量
+    if len_s1 > len_s2 {
+        return super_dtw_distance(s2, s1, radius, timeout_seconds, lower_bound_pruning, early_termination_threshold);
+    }
+    
+    // 检查超时的闭包函数 - 减少检查频率
+    let check_timeout = |timeout: Option<f64>, iteration: usize| -> Result<(), TimeoutError> {
+        // 每1000次迭代检查一次超时，进一步降低检查频率
+        if iteration % 1000 == 0 {
+            if let Some(timeout) = timeout {
+                let elapsed = start_time.elapsed().as_secs_f64();
+                if elapsed > timeout {
+                    return Err(TimeoutError {
+                        message: "超级DTW距离计算超时".to_string(),
+                        duration: elapsed,
+                    });
+                }
+            }
+        }
+        Ok(())
+    };
+    
+    // 优化2: 启发式下界剪枝 - 计算曼哈顿距离作为DTW的下界
+    if lower_bound_pruning {
+        // 计算序列间的最小差异（曼哈顿距离）作为DTW的下界
+        let mut lb_kim = (s1[0] - s2[0]).abs() + (s1[len_s1-1] - s2[len_s2-1]).abs();
+        
+        // 如果已知阈值并且下界已超过阈值，提前返回
+        if let Some(threshold) = early_termination_threshold {
+            if lb_kim > threshold {
+                return Ok(f64::INFINITY);
+            }
+        }
+    }
+    
+    // 优化3: 内存预分配 - 只使用两行的一维数组，一次性分配好内存
+    let mut prev_row = vec![f64::INFINITY; len_s2 + 1];
+    let mut curr_row = vec![f64::INFINITY; len_s2 + 1];
+    
+    prev_row[0] = 0.0;
+    
+    // 检查初始化后是否超时
+    check_timeout(timeout_seconds, 0)?;
+    
+    // 优化4: 滑动窗口的高效实现
+    let r = match radius {
+        Some(r) => r,
+        None => len_s2,  // 如果没有指定半径，使用全序列长度
+    };
+    
+    // 总迭代次数计数，用于超时检查
+    let mut iter_count = 0;
+    
+    // 缓存s2的值，减少重复索引查找
+    let s2_vals: Vec<f64> = s2.iter().copied().collect();
+    
+    for i in 1..=len_s1 {
+        // 优化5: 提前将当前序列值缓存
+        let s1_val = s1[i - 1];
+        
+        // 初始化当前行的第一个元素
+        curr_row[0] = f64::INFINITY;
+        
+        // 计算当前行的有效列范围
+        let j_start = 1.max(i.saturating_sub(r));
+        let j_end = (i + r).min(len_s2) + 1;
+        
+        // 设置提前终止阈值的本地变量
+        let mut local_min = f64::INFINITY;
+        let early_abandon = early_termination_threshold.is_some();
+        
+        for j in j_start..j_end {
+            iter_count += 1;
+            
+            // 稀疏超时检查
+            check_timeout(timeout_seconds, iter_count)?;
+            
+            // 优化6: 缓存访问和直接计算cost
+            let cost = (s1_val - s2_vals[j - 1]).abs();
+            
+            let min_prev = prev_row[j].min(curr_row[j - 1]).min(prev_row[j - 1]);
+            let candidate = cost + min_prev;
+            
+            // 优化7: 记录当前行的最小值，用于提前终止检查
+            if early_abandon && candidate < local_min {
+                local_min = candidate;
+            }
+            
+            curr_row[j] = candidate;
+        }
+        
+        // 优化8: 基于提前终止阈值的剪枝
+        if early_abandon {
+            let threshold = early_termination_threshold.unwrap();
+            if local_min > threshold {
+                return Ok(f64::INFINITY); // 已超过阈值，不可能是最优解
+            }
+        }
+        
+        // 交换行，避免额外的内存分配
+        std::mem::swap(&mut prev_row, &mut curr_row);
+    }
+    
+    // 最终检查一次超时
+    check_timeout(timeout_seconds, iter_count + 1)?;
+    
+    // 结果在prev_row的最后一个元素中
+    Ok(prev_row[len_s2])
 }
 
 
@@ -713,15 +1012,33 @@ pub fn find_local_peaks_within_window(times: PyReadonlyArray1<f64>, prices: PyRe
 ///     每一行在其后time_window秒内（包括当前行）具有相同条件的行的volume总和。
 ///     如果filter_frequent_volumes=True，则出现频率超过30%的volume值对应的行会被设为NaN。
 #[pyfunction]
-#[pyo3(signature = (times, prices, volumes, time_window=0.1, check_price=true, filter_ratio=0.0))]
+#[pyo3(signature = (times, prices, volumes, time_window=0.1, check_price=true, filter_ratio=0.0, timeout_seconds=None))]
 pub fn find_follow_volume_sum_same_price(
     times: PyReadonlyArray1<f64>,
     prices: PyReadonlyArray1<f64>,
     volumes: PyReadonlyArray1<f64>,
     time_window: f64,
     check_price: bool,
-    filter_ratio: f64
+    filter_ratio: f64,
+    timeout_seconds: Option<f64>
 ) -> PyResult<Vec<f64>> {
+    // 记录开始时间（用于超时检查）
+    let start_time = std::time::Instant::now();
+    
+    // 检查超时的辅助函数
+    let check_timeout = |timeout: Option<f64>| -> Result<(), TimeoutError> {
+        if let Some(timeout) = timeout {
+            let elapsed = start_time.elapsed().as_secs_f64();
+            if elapsed > timeout {
+                return Err(TimeoutError {
+                    message: "查找相同价格后续成交量计算超时".to_string(),
+                    duration: elapsed,
+                });
+            }
+        }
+        Ok(())
+    };
+    
     // 准备数据
     let times = times.as_array();
     let times: Vec<f64> = times.iter().map(|&x| x / 1.0e9).collect();
@@ -735,6 +1052,13 @@ pub fn find_follow_volume_sum_same_price(
     
     // 第1步：计算每个点在time_window内的volume总和并标记无匹配的点为NaN
     for i in 0..n {
+        // 定期检查超时（每100次计算）
+        if i % 100 == 0 {
+            if let Err(_) = check_timeout(timeout_seconds) {
+                return Ok(vec![f64::NAN; n]); // 如果超时，返回全NaN的数组
+            }
+        }
+        
         let current_time = times[i];
         let current_price = prices[i];
         let current_volume = volumes[i];
@@ -767,6 +1091,11 @@ pub fn find_follow_volume_sum_same_price(
     }
     
     // 第2步：如果需要过滤频繁出现的volume，统计非NaN点的volume出现频率
+    // 检查处理完第一步后是否超时
+    if let Err(_) = check_timeout(timeout_seconds) {
+        return Ok(vec![f64::NAN; n]);
+    }
+    
     if filter_ratio > 0.0 {
         let mut volume_counts: std::collections::BTreeMap<OrderedFloat<f64>, usize> = std::collections::BTreeMap::new();
         
@@ -809,6 +1138,13 @@ pub fn find_follow_volume_sum_same_price(
             // 将这些高频率volume对应的行设为NaN
             if !volume_to_filter.is_empty() {
                 for i in 0..n {
+                    // 定期检查超时（每100次计算）
+                    if i % 100 == 0 {
+                        if let Err(_) = check_timeout(timeout_seconds) {
+                            return Ok(vec![f64::NAN; n]); // 如果超时，返回全NaN的数组
+                        }
+                    }
+                    
                     // 浮点数比较需要小心处理
                     if volume_to_filter.iter().any(|&v| (v - volumes[i]).abs() < 1e-10) {
                         // 使用f64::NAN表示NaN
@@ -1202,13 +1538,31 @@ pub fn mark_follow_groups_with_flag(
 /// print(f"中位达到半程时间: {df['half_extreme_time'].median():.2f} 秒")
 /// ```
 #[pyfunction]
-#[pyo3(signature = (times, prices, time_window=5.0, direction="ignore"))]
+#[pyo3(signature = (times, prices, time_window=5.0, direction="ignore", timeout_seconds=None))]
 pub fn find_half_extreme_time(
     times: PyReadonlyArray1<f64>,
     prices: PyReadonlyArray1<f64>,
     time_window: f64,
-    direction: &str
+    direction: &str,
+    timeout_seconds: Option<f64>
 ) -> PyResult<Vec<f64>> {
+    // 记录开始时间
+    let start_time = Instant::now();
+    
+    // 检查超时的闭包函数
+    let check_timeout = |timeout: Option<f64>| -> Result<(), TimeoutError> {
+        if let Some(timeout) = timeout {
+            let elapsed = start_time.elapsed().as_secs_f64();
+            if elapsed > timeout {
+                return Err(TimeoutError {
+                    message: "半极端时间计算超时".to_string(),
+                    duration: elapsed,
+                });
+            }
+        }
+        Ok(())
+    };
+    
     // 提取数组数据
     let times = times.as_array();
     let times: Vec<f64> = times.iter().map(|&x| x / 1.0e9).collect();
@@ -1218,123 +1572,125 @@ pub fn find_half_extreme_time(
     // 预分配结果向量，初始值为 time_window
     let mut result = vec![time_window; n];
     
-    // 使用 rayon 并行处理，但限制线程数
-    use rayon::prelude::*;
-    use rayon::ThreadPoolBuilder;
+    // 检查初始化后是否超时
+    if let Err(_) = check_timeout(timeout_seconds) {
+        // 如果已经超时，返回全NaN数组
+        return Ok(vec![f64::NAN; n]);
+    }
     
-    // 创建一个线程数受限的线程池，限制为机器核心数的四分之一或4个，取较大值
-    // let num_cpus = num_cpus::get();
-    let max_threads = 10;
+    // 计算每个时间点的半极端时间（使用单线程处理）
+    let chunk_size = 100; // 每处理100个元素检查一次超时
     
-    // 创建自定义线程池
-    let pool = ThreadPoolBuilder::new()
-        .num_threads(max_threads)
-        .build()
-        .unwrap();
-    
-    // 使用自定义线程池执行并行计算
-    pool.install(|| {
-        // 计算每个时间点的半极端时间
-        // 将大数组分成较小的块进行并行处理，而不是对每个元素并行处理
-        result.par_iter_mut().enumerate().for_each(|(i, result_val)| {
-            let current_time = times[i];
-            let current_price = prices[i];
+    for i in 0..n {
+        // 每处理chunk_size个元素检查一次超时
+        if i % chunk_size == 0 {
+            if let Err(_) = check_timeout(timeout_seconds) {
+                // 如果超时，返回全NaN数组
+                return Ok(vec![f64::NAN; n]);
+            }
+        }
+        
+        let current_time = times[i];
+        let current_price = prices[i];
+        
+        // 检查价格是否为NaN或Inf
+        if !current_price.is_finite() {
+            result[i] = f64::NAN;
+            continue;
+        }
+        
+        let mut max_up = 0.0;      // 最大上涨幅度
+        let mut max_down = 0.0;    // 最大下跌幅度
+        
+        // 第一次遍历：找到时间窗口内的最大上涨和下跌幅度
+        for j in i..n {
+            let time_diff = times[j] - current_time;
+            if time_diff > time_window {
+                break;
+            }
             
             // 检查价格是否为NaN或Inf
-            if !current_price.is_finite() {
-                *result_val = f64::NAN;
-                return;
+            if !prices[j].is_finite() {
+                continue; // 跳过无效价格
             }
             
-            let mut max_up = 0.0;      // 最大上涨幅度
-            let mut max_down = 0.0;    // 最大下跌幅度
+            // 计算价格变动比率
+            let price_ratio = (prices[j] - current_price) / current_price;
             
-            // 第一次遍历：找到时间窗口内的最大上涨和下跌幅度
-            for j in i..n {
-                let time_diff = times[j] - current_time;
-                if time_diff > time_window {
-                    break;
-                }
-                
-                // 检查价格是否为NaN或Inf
-                if !prices[j].is_finite() {
-                    continue; // 跳过无效价格
-                }
-                
-                // 计算价格变动比率
-                let price_ratio = (prices[j] - current_price) / current_price;
-                
-                // 更新最大上涨和下跌幅度
-                if price_ratio > max_up {
-                    max_up = price_ratio;
-                } else if price_ratio < -max_down {
-                    max_down = -price_ratio;
-                }
+            // 更新最大上涨和下跌幅度
+            if price_ratio > max_up {
+                max_up = price_ratio;
+            } else if price_ratio < -max_down {
+                max_down = -price_ratio;
             }
-            
-            // 确定主要方向（上涨或下跌），根据方向参数筛选
-            let (target_ratio, dir_value) = match direction {
-                "pos" => {
-                    // 只考虑上涨
-                    if max_up <= 0.0 {
-                        // 没有上涨，设置为 NaN
-                        *result_val = f64::NAN;
-                        return;
-                    }
-                    (max_up, 1.0) // 上涨
-                },
-                "neg" => {
-                    // 只考虑下跌
-                    if max_down <= 0.0 {
-                        // 没有下跌，设置为 NaN
-                        *result_val = f64::NAN;
-                        return;
-                    }
+        }
+        
+        // 确定主要方向（上涨或下跌），根据方向参数筛选
+        let (target_ratio, dir_value) = match direction {
+            "pos" => {
+                // 只考虑上涨
+                if max_up <= 0.0 {
+                    // 没有上涨，设置为 NaN
+                    result[i] = f64::NAN;
+                    continue;
+                }
+                (max_up, 1.0) // 上涨
+            },
+            "neg" => {
+                // 只考虑下跌
+                if max_down <= 0.0 {
+                    // 没有下跌，设置为 NaN
+                    result[i] = f64::NAN;
+                    continue;
+                }
+                 (max_down, -1.0) // 下跌
+            },
+            _ => {
+                // 全部方向，选择变动更大的
+                if max_up > max_down {
+                    (max_up, 1.0)  // 上涨
+                } else {
                     (max_down, -1.0) // 下跌
-                },
-                _ => {
-                    // 全部方向，选择变动更大的
-                    if max_up > max_down {
-                        (max_up, 1.0)  // 上涨
-                    } else {
-                        (max_down, -1.0) // 下跌
-                    }
-                }
-            };
-            
-            // 如果目标变动为0，保持默认值并返回
-            if target_ratio <= 0.0 {
-                return;
-            }
-            
-            let half_ratio = target_ratio / 2.0 * dir_value;
-            
-            // 第二次遍历：找到首次达到一半变动的时间
-            for j in i..n {
-                let time_diff = times[j] - current_time;
-                if time_diff > time_window {
-                    break;
-                }
-                
-                // 检查价格是否为NaN或Inf
-                if !prices[j].is_finite() {
-                    continue; // 跳过无效价格
-                }
-                
-                // 计算当前时刻的价格变动比率
-                let price_ratio = (prices[j] - current_price) / current_price;
-                
-                // 检查是否达到目标变动的一半
-                if (dir_value > 0.0 && price_ratio >= half_ratio) || 
-                   (dir_value < 0.0 && price_ratio <= half_ratio) {
-                    *result_val = time_diff;
-                    return;
                 }
             }
+        };
+        
+        // 如果目标变动为0，保持默认值并继续
+        if target_ratio <= 0.0 {
+            continue;
+        }
+        
+        let half_ratio = target_ratio / 2.0 * dir_value;
+        
+        // 第二次遍历：找到首次达到一半变动的时间
+        for j in i..n {
+            let time_diff = times[j] - current_time;
+            if time_diff > time_window {
+                break;
+            }
             
-            // 如果没有找到达到一半变动的时间，保持默认值
-        });
-    });
+            // 检查价格是否为NaN或Inf
+            if !prices[j].is_finite() {
+                continue; // 跳过无效价格
+            }
+            
+            // 计算当前时刻的价格变动比率
+            let price_ratio = (prices[j] - current_price) / current_price;
+            
+            // 检查是否达到目标变动的一半
+            if (dir_value > 0.0 && price_ratio >= half_ratio) || 
+               (dir_value < 0.0 && price_ratio <= half_ratio) {
+                result[i] = time_diff;
+                break; // 找到后跳出循环
+            }
+        }
+        // 如果没有找到达到一半变动的时间，保持默认值
+    }
+    
+    // 最终检查一次超时
+    if let Err(_) = check_timeout(timeout_seconds) {
+        return Ok(vec![f64::NAN; n]);
+    }
     
     Ok(result)
 }
@@ -1388,13 +1744,31 @@ pub fn find_half_extreme_time(
 /// print(df)
 /// ```
 #[pyfunction]
-#[pyo3(signature = (times, prices, time_window=5.0, direction="ignore"))]
+#[pyo3(signature = (times, prices, time_window=5.0, direction="ignore", timeout_seconds=None))]
 pub fn find_half_energy_time(
     times: PyReadonlyArray1<f64>,
     prices: PyReadonlyArray1<f64>,
     time_window: f64,
-    direction: &str
+    direction: &str,
+    timeout_seconds: Option<f64>
 ) -> PyResult<Vec<f64>> {
+    // 记录开始时间
+    let start_time = Instant::now();
+    
+    // 检查超时的闭包函数
+    let check_timeout = |timeout: Option<f64>| -> Result<(), TimeoutError> {
+        if let Some(timeout) = timeout {
+            let elapsed = start_time.elapsed().as_secs_f64();
+            if elapsed > timeout {
+                return Err(TimeoutError {
+                    message: "半能量时间计算超时".to_string(),
+                    duration: elapsed,
+                });
+            }
+        }
+        Ok(())
+    };
+    
     // 提取数组数据
     let times = times.as_array();
     let times: Vec<f64> = times.iter().map(|&x| x / 1.0e9).collect();
@@ -1404,112 +1778,115 @@ pub fn find_half_energy_time(
     // 预分配结果向量，初始值为 time_window
     let mut result = vec![time_window; n];
     
-    // 使用 rayon 并行处理，但限制线程数
-    use rayon::prelude::*;
-    use rayon::ThreadPoolBuilder;
+    // 检查初始化后是否超时
+    if let Err(_) = check_timeout(timeout_seconds) {
+        // 如果已经超时，返回全NaN数组
+        return Ok(vec![f64::NAN; n]);
+    }
     
-    // 创建一个线程数受限的线程池，限制为4个线程
-    let max_threads = 10;
+    // 计算每个时间点的半能量时间（使用单线程处理）
+    let chunk_size = 100; // 每处理100个元素检查一次超时
     
-    // 创建自定义线程池
-    let pool = ThreadPoolBuilder::new()
-        .num_threads(max_threads)
-        .build()
-        .unwrap();
-    
-    // 使用自定义线程池执行并行计算
-    pool.install(|| {
-        // 计算每个时间点的半能量时间
-        // 直接在结果数组上并行操作，避免创建中间数组
-        result.par_iter_mut().enumerate().for_each(|(i, result_val)| {
-            let current_time = times[i];
-            let current_price = prices[i];
-            
-            // 检查价格是否为NaN或Inf
-            if !current_price.is_finite() {
-                *result_val = f64::NAN;
-                return;
+    for i in 0..n {
+        // 每处理chunk_size个元素检查一次超时
+        if i % chunk_size == 0 {
+            if let Err(_) = check_timeout(timeout_seconds) {
+                // 如果超时，返回全NaN数组
+                return Ok(vec![f64::NAN; n]);
+            }
+        }
+        
+        let current_time = times[i];
+        let current_price = prices[i];
+        
+        // 检查价格是否为NaN或Inf
+        if !current_price.is_finite() {
+            result[i] = f64::NAN;
+            continue;
+        }
+        
+        let mut final_energy = 0.0;
+        
+        // 首先计算time_window秒后的最终能量
+        for j in i..n {
+            // 跳过当前点
+            if j == i {
+                continue;
             }
             
-            let mut final_energy = 0.0;
+            // 检查时间间隔
+            let time_diff = times[j] - current_time;
+            if time_diff < time_window {
+                continue;
+            }
             
-            // 首先计算time_window秒后的最终能量
-            for j in i..n {
-                // 跳过当前点
-                if j == i {
-                    continue;
-                }
-                
-                // 检查时间间隔
-                let time_diff = times[j] - current_time;
-                if time_diff < time_window {
-                    continue;
-                }
-                
-                // 检查价格是否为NaN或Inf
-                if !prices[j].is_finite() {
-                    continue;
-                }
-                
-                // 获取价格变动
-                let price_change = prices[j] - current_price;
-                
-                // 根据方向参数筛选
-                match direction {
-                    "pos" if price_change <= 0.0 => {
-                        *result_val = f64::NAN;
-                        return;
-                    },
-                    "neg" if price_change >= 0.0 => {
-                        *result_val = f64::NAN;
-                        return;
-                    },
-                    _ => {}
-                }
-                
-                // 计算价格变动比率的绝对值
-                final_energy = price_change.abs() / current_price;
+            // 检查价格是否为NaN或Inf
+            if !prices[j].is_finite() {
+                continue;
+            }
+            
+            // 获取价格变动
+            let price_change = prices[j] - current_price;
+            
+            // 根据方向参数筛选
+            match direction {
+                "pos" if price_change <= 0.0 => {
+                    result[i] = f64::NAN;
+                    break;
+                },
+                "neg" if price_change >= 0.0 => {
+                    result[i] = f64::NAN;
+                    break;
+                },
+                _ => {}
+            }
+            
+            // 计算价格变动比率的绝对值
+            final_energy = price_change.abs() / current_price;
+            break;
+        }
+        
+        // 如果最终能量为0，设置为0.0并返回
+        if final_energy <= 0.0 {
+            result[i] = 0.0;
+            continue;
+        }
+        
+        // 计算一半能量的阈值
+        let half_energy = final_energy / 2.0;
+        
+        // 再次遍历，找到第一次达到一半能量的时间
+        for j in i..n {
+            if j == i {
+                continue;
+            }
+            
+            let time_diff = times[j] - current_time;
+            if time_diff > time_window {
                 break;
             }
             
-            // 如果最终能量为0，设置为0.0并返回
-            if final_energy <= 0.0 {
-                *result_val = 0.0;
-                return;
+            // 检查价格是否为NaN或Inf
+            if !prices[j].is_finite() {
+                continue;
             }
             
-            // 计算一半能量的阈值
-            let half_energy = final_energy / 2.0;
+            // 计算当前时刻的能量
+            let price_ratio = (prices[j] - current_price).abs() / current_price;
             
-            // 再次遍历，找到第一次达到一半能量的时间
-            for j in i..n {
-                if j == i {
-                    continue;
-                }
-                
-                let time_diff = times[j] - current_time;
-                if time_diff > time_window {
-                    break;
-                }
-                
-                // 检查价格是否为NaN或Inf
-                if !prices[j].is_finite() {
-                    continue;
-                }
-                
-                // 计算当前时刻的能量
-                let price_ratio = (prices[j] - current_price).abs() / current_price;
-                
-                // 如果达到一半能量
-                if price_ratio >= half_energy {
-                    *result_val = time_diff;
-                    return;
-                }
+            // 如果达到一半能量
+            if price_ratio >= half_energy {
+                result[i] = time_diff;
+                break;
             }
-            
-            // 如果没有找到达到一半能量的时间，保持默认值 time_window
-        });
-    });
+        }
+        // 如果没有找到达到一半能量的时间，保持默认值 time_window
+    }
+    
+    // 最终检查一次超时
+    if let Err(_) = check_timeout(timeout_seconds) {
+        return Ok(vec![f64::NAN; n]);
+    }
     
     Ok(result)
 }
@@ -1577,6 +1954,150 @@ pub fn find_half_energy_time(
 ///     exclude_same_time=True  # 排除时间戳相同的小单
 /// )
 /// ```
+/// 计算滚动DTW距离：计算son中每一行与其前n分钟片段和dragon的DTW距离。
+/// 
+/// 参数说明：
+/// ----------
+/// son : array_like
+///     主要时间序列，将在此序列上滚动计算DTW距离
+/// dragon : array_like
+///     参考时间序列，用于计算DTW距离的模板
+/// exchtime : array_like
+///     时间戳数组，必须与son长度相同
+/// minute_back : int
+///     滚动窗口大小，以分钟为单位，表示每次计算使用的历史数据长度
+/// 
+/// 返回值：
+/// -------
+/// numpy.ndarray
+///     与son等长的数组，包含每个点的DTW距离，其中部分位置可能为NaN
+///     （如果相应位置的历史数据不足以计算DTW距离）
+/// 
+/// Python调用示例：
+/// ```python
+/// import pandas as pd
+/// import numpy as np
+/// from rust_pyfunc import rolling_dtw_distance
+/// 
+/// # 准备数据
+/// times = pd.date_range('2023-01-01', periods=100, freq='T')
+/// son = pd.Series(np.sin(np.linspace(0, 10, 100)), index=times)
+/// dragon = pd.Series([0, 0.5, 1, 0.5, 0, -0.5, -1, -0.5, 0]) # 一个波形模板
+/// 
+/// # 计算滚动DTW距离
+/// # 每个点与其前5分钟数据和dragon的DTW距离
+/// result = rolling_dtw_distance(son.values, dragon.values, times.astype(np.int64).values, 5)
+/// dtw_series = pd.Series(result, index=times)
+/// ```
+#[pyfunction]
+#[pyo3(signature = (son, dragon, exchtime, minute_back))]
+pub fn rolling_dtw_distance(
+    son: PyReadonlyArray1<f64>,
+    dragon: PyReadonlyArray1<f64>,
+    exchtime: PyReadonlyArray1<f64>,
+    minute_back: f64,
+) -> PyResult<Py<PyArray1<f64>>> {
+    // 转换为Rust类型
+    let son_array = son.as_array();
+    let dragon_array = dragon.as_array();
+    let exchtime_array = exchtime.as_array();
+    
+    // 检查输入数据长度是否一致
+    if son_array.len() != exchtime_array.len() {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "son和exchtime长度必须相同"
+        ));
+    }
+    
+    // 对dragon进行标准化
+    let dragon_vec: Vec<f64> = dragon_array.iter().cloned().collect();
+    let dragon_mean = dragon_vec.iter().sum::<f64>() / dragon_vec.len() as f64;
+    let dragon_std = (dragon_vec.iter().map(|&x| (x - dragon_mean).powi(2)).sum::<f64>() / dragon_vec.len() as f64).sqrt();
+    
+    let dragon_normalized: Vec<f64> = dragon_vec.iter()
+                                          .map(|&x| (x - dragon_mean) / dragon_std)
+                                          .collect();
+    
+    // 结果数组，初始化为NaN
+    let mut result = Array1::from_elem(son_array.len(), f64::NAN);
+    
+    // 定义一分钟的纳秒数
+    let one_minute_ns: f64 = 60.0 * 1_000_000_000.0;
+    
+    // 使用 rayon 并行处理
+    use rayon::prelude::*;
+    use rayon::ThreadPoolBuilder;
+    
+    // 创建一个线程数受限的线程池
+    let max_threads = 10;
+    
+    // 创建自定义线程池
+    let pool = ThreadPoolBuilder::new()
+        .num_threads(max_threads)
+        .build()
+        .unwrap();
+    
+    // 使用自定义线程池执行并行计算
+    let results: Vec<_> = pool.install(|| {
+        // 将son和exchtime数据转换为向量，以便在线程间共享
+        let son_vec: Vec<f64> = son_array.iter().cloned().collect();
+        let exchtime_vec: Vec<f64> = exchtime_array.iter().cloned().collect();
+        let dragon_norm = dragon_normalized.clone();
+        
+        // 在指定线程池中并行计算
+        (0..son_array.len())
+            .into_par_iter()
+            .map(|i| {
+                let current_time = exchtime_vec[i];
+                let start_time = current_time - (minute_back * one_minute_ns);
+                
+                // 收集当前时间点前minute_back分钟内的数据
+                let mut segment: Vec<f64> = Vec::new();
+                for j in 0..=i {
+                    if exchtime_vec[j] > start_time && exchtime_vec[j] <= current_time {
+                        segment.push(son_vec[j]);
+                    }
+                }
+                
+                // 如果分段数据和dragon都至少有2个点，则计算DTW距离
+                if segment.len() > 1 && dragon_norm.len() > 1 {
+                    // 对segment进行标准化
+                    let segment_mean = segment.iter().sum::<f64>() / segment.len() as f64;
+                    let segment_std = (segment.iter().map(|&x| (x - segment_mean).powi(2)).sum::<f64>() / segment.len() as f64).sqrt();
+                    
+                    // 确保std不为零，避免除以零的错误
+                    if segment_std > 0.0 {
+                        let segment_normalized: Vec<f64> = segment.iter()
+                                                          .map(|&x| (x - segment_mean) / segment_std)
+                                                          .collect();
+                        
+                        // 计算DTW距离
+                        match fast_dtw_distance(segment_normalized, dragon_norm.clone(), None, Some(1.0)) {
+                            Ok(distance) => {
+                                // 返回计算结果
+                                return (i, distance);
+                            },
+                            Err(_) => {
+                                // 如果计算失败，保持NaN值
+                            }
+                        }
+                    }
+                }
+                // 未计算成功时返回原始值
+                (i, f64::NAN)
+            })
+            .collect()
+    });
+    
+    // 将并行结果填入结果数组
+    for (idx, val) in results {
+        result[idx] = val;
+    }
+    
+    // 将结果转换为NumPy数组返回
+    Ok(result.into_pyarray(son.py()).to_owned())
+}
+
 #[pyfunction]
 #[pyo3(signature = (volumes, exchtimes, large_quantile, small_quantile, near_number, exclude_same_time=false, order_type="small", flags=None, flag_filter="ignore"))]
 pub fn calculate_large_order_nearby_small_order_time_gap(
@@ -1759,3 +2280,4 @@ pub fn calculate_large_order_nearby_small_order_time_gap(
     }
     Ok(result)
 }
+

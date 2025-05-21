@@ -21,6 +21,8 @@ fn sum_as_string(a: usize, b: usize) -> PyResult<String> {
 fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(sum_as_string, m)?)?;
     m.add_function(wrap_pyfunction!(time_series::dtw_distance, m)?)?;
+    m.add_function(wrap_pyfunction!(time_series::fast_dtw_distance, m)?)?;
+    m.add_function(wrap_pyfunction!(time_series::super_dtw_distance, m)?)?;
     m.add_function(wrap_pyfunction!(time_series::transfer_entropy, m)?)?;
     m.add_function(wrap_pyfunction!(statistics::ols, m)?)?;
     m.add_function(wrap_pyfunction!(statistics::ols_predict, m)?)?;
@@ -49,6 +51,8 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(time_series::mark_follow_groups_with_flag, m)?)?;
     m.add_function(wrap_pyfunction!(time_series::find_half_energy_time, m)?)?;
     m.add_function(wrap_pyfunction!(time_series::find_half_extreme_time, m)?)?;
+    m.add_function(wrap_pyfunction!(time_series::fast_extreme::fast_find_half_extreme_time, m)?)?;
+    m.add_function(wrap_pyfunction!(time_series::super_extreme::super_find_half_extreme_time, m)?)?;
     m.add_function(wrap_pyfunction!(time_series::calculate_large_order_nearby_small_order_time_gap, m)?)?;
     m.add_function(wrap_pyfunction!(sequence::calculate_shannon_entropy_change, m)?)?;
     m.add_function(wrap_pyfunction!(sequence::calculate_shannon_entropy_change_at_low, m)?)?;
@@ -56,6 +60,7 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(sequence::calculate_window_entropy, m)?)?;
     m.add_function(wrap_pyfunction!(sequence::brachistochrone_curve, m)?)?;
     m.add_function(wrap_pyfunction!(statistics::dataframe_corrwith, m)?)?;
+    m.add_function(wrap_pyfunction!(time_series::rolling_dtw_distance, m)?)?;
     // m.add_function(wrap_pyfunction!(text::normalized_diff, m)?)?;
     Ok(())
 }

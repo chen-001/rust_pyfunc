@@ -1,6 +1,6 @@
 [package]
 name = "rust_pyfunc"
-version = "0.13.1"
+version = "0.13.2"
 edition = "2021"
 description = "A collection of high-performance Python functions implemented in Rust"
 readme = "README.md"
@@ -15,6 +15,7 @@ name = "rust_pyfunc"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+packed_simd_2 = { version = "0.3.8", features = ["into_bits"], optional = true }
 pyo3 = { version = "0.18.0", features = ["extension-module"] }
 ndarray = "0.15"
 nalgebra = "0.29.0"
@@ -35,9 +36,7 @@ ordered-float = "3.0"
 criterion = "0.5"
 
 
-[[bench]]
-name = "rolling_rank"
-harness = false
+
 
 [profile.release]
 lto = true

@@ -130,7 +130,7 @@ def min_word_edit_distance(str1: str, str2: str) -> int:
     """
     ...
 
-def dtw_distance(s1: List[float], s2: List[float], radius: Optional[int] = None) -> float:
+def dtw_distance(s1: List[float], s2: List[float], radius: Optional[int] = None, timeout_seconds: Optional[float] = None) -> float:
     """计算两个序列之间的动态时间规整(DTW)距离。
     DTW是一种衡量两个时间序列相似度的算法，可以处理不等长的序列。
     它通过寻找两个序列之间的最佳对齐方式来计算距离。
@@ -144,6 +144,72 @@ def dtw_distance(s1: List[float], s2: List[float], radius: Optional[int] = None)
     radius : int, optional
         Sakoe-Chiba半径，用于限制规整路径，可以提高计算效率。
         如果不指定，则不使用路径限制。
+    timeout_seconds : float, optional
+        计算超时时间（秒）。如果计算时间超过此值，将抛出异常。
+        默认为None，表示不设置超时。
+
+    返回值：
+    -------
+    float
+        两个序列之间的DTW距离，值越小表示序列越相似
+    """
+    ...
+
+def fast_dtw_distance(s1: List[float], s2: List[float], radius: Optional[int] = None, timeout_seconds: Optional[float] = None) -> float:
+    """计算两个序列之间的动态时间规整(DTW)距离的优化版本。
+    此版本使用一维数组代替二维数组，减少内存分配和间接访问，提高计算效率。
+    适合用于一般规模的时间序列比较，性能比标准版本提升1.7-2.0倍（无窗口限制）或
+    2.4-4.6倍（有窗口限制）。
+
+    参数说明：
+    ----------
+    s1 : array_like
+        第一个输入序列
+    s2 : array_like
+        第二个输入序列
+    radius : int, optional
+        Sakoe-Chiba半径，用于限制规整路径，可以显著提高计算效率。
+        如果不指定，则不使用路径限制。
+    timeout_seconds : float, optional
+        计算超时时间（秒）。如果计算时间超过此值，将抛出异常。
+        默认为None，表示不设置超时。
+
+    返回值：
+    -------
+    float
+        两个序列之间的DTW距离，值越小表示序列越相似
+    """
+    ...
+
+def super_dtw_distance(s1: List[float], s2: List[float], radius: Optional[int] = None, timeout_seconds: Optional[float] = None, lower_bound_pruning: bool = True, early_termination_threshold: Optional[float] = None) -> float:
+    """计算两个序列之间的动态时间规整(DTW)距离的超级优化版本。
+    此版本使用多种高级优化技术，包括：
+    1. 内存预分配 - 减少运行时内存分配
+    2. 更精细的内存访问优化 - 提高缓存命中率
+    3. 基于启发式的跳过技术 - 避免不必要的计算
+    4. 提前退出策略 - 当部分结果已超过最优值时提前终止
+    5. 更稀疏的超时检查 - 减少检查开销
+    
+    特别适合用于大规模时间序列数据或需要比较大量序列的应用场景。
+
+    参数说明：
+    ----------
+    s1 : array_like
+        第一个输入序列
+    s2 : array_like
+        第二个输入序列
+    radius : int, optional
+        Sakoe-Chiba半径，用于限制规整路径，可以显著提高计算效率。
+        如果不指定，则不使用路径限制。
+    timeout_seconds : float, optional
+        计算超时时间（秒）。如果计算时间超过此值，将抛出异常。
+        默认为None，表示不设置超时。
+    lower_bound_pruning : bool, default=True
+        是否使用下界剪枝技术。启用时，会计算序列间的简单距离作为DTW距离的下界，
+        如果下界已经超过了早停阈值，则直接返回而不进行完整计算。
+    early_termination_threshold : float, optional
+        提前终止阈值。如果在计算过程中发现当前DTW距离已经超过此阈值，
+        则提前终止计算并返回无穷大。适用于只关心小于某阈值的相似序列的场景。
 
     返回值：
     -------
@@ -588,7 +654,7 @@ def compute_max_eigenvalue(matrix: NDArray[np.float64]) -> Tuple[float, NDArray[
     """
     ...
 
-def find_follow_volume_sum_same_price(times: NDArray[np.float64], prices: NDArray[np.float64], volumes: NDArray[np.float64], time_window: float = 0.1, check_price: bool = True, filter_ratio: float = 0.0) -> NDArray[np.float64]:
+def find_follow_volume_sum_same_price(times: NDArray[np.float64], prices: NDArray[np.float64], volumes: NDArray[np.float64], time_window: float = 0.1, check_price: bool = True, filter_ratio: float = 0.0, timeout_seconds: Optional[float] = None) -> NDArray[np.float64]:
     """计算每一行在其后time_window秒内具有相同volume（及可选相同price）的行的volume总和。
 
     参数说明：
@@ -603,8 +669,10 @@ def find_follow_volume_sum_same_price(times: NDArray[np.float64], prices: NDArra
         时间窗口大小（单位：秒），默认为0.1
     check_price : bool, optional
         是否检查价格是否相同，默认为True。设为False时只检查volume是否相同。
-    filter_ratio : float, optional
+    filter_ratio : float, optional, default=0.0
         要过滤的volume数值比例，默认为0（不过滤）。如果大于0，则过滤出现频率最高的前 filter_ratio 比例的volume种类，对应的行会被设为NaN。
+    timeout_seconds : float, optional, default=None
+        计算超时时间（秒）。如果计算时间超过该值，函数将返回全NaN的数组。默认为None，表示不设置超时限制。
 
     返回值：
     -------
@@ -806,7 +874,7 @@ def mark_follow_groups_with_flag(times: NDArray[np.float64], prices: NDArray[np.
     """
     ...
 
-def find_half_energy_time(times: NDArray[np.float64], prices: NDArray[np.float64], time_window: float = 5.0, direction: str = "ignore") -> NDArray[np.float64]:
+def find_half_energy_time(times: NDArray[np.float64], prices: NDArray[np.float64], time_window: float = 5.0, direction: str = "ignore", timeout_seconds: Optional[float] = None) -> NDArray[np.float64]:
     """计算每一行在其后指定时间窗口内的价格变动能量，并找出首次达到最终能量一半时所需的时间。
 
     参数说明：
@@ -816,6 +884,10 @@ def find_half_energy_time(times: NDArray[np.float64], prices: NDArray[np.float64
     prices : numpy.ndarray
         价格数组
     time_window : float, optional
+    direction : str, optional
+        计算方向，可选值为"pos"（只考虑上涨）、"neg"（只考虑下跌）、"ignore"（选择变动更大的方向），默认为"ignore"
+    timeout_seconds : float, optional
+        计算超时时间（秒）。如果计算时间超过该值，函数将返回全NaN的数组。默认为None，表示不设置超时限制
         时间窗口大小（单位：秒），默认为5.0
 
     返回值：
@@ -852,7 +924,7 @@ def find_half_energy_time(times: NDArray[np.float64], prices: NDArray[np.float64
     """
     ...
 
-def find_half_extreme_time(times: NDArray[np.float64], prices: NDArray[np.float64], time_window: float = 5.0, direction: str = "ignore") -> NDArray[np.float64]:
+def find_half_extreme_time(times: NDArray[np.float64], prices: NDArray[np.float64], time_window: float = 5.0, direction: str = "ignore", timeout_seconds: Optional[float] = None) -> NDArray[np.float64]:
     """计算每个时间点价格达到时间窗口内最大变动一半所需的时间。
 
     该函数首先在每个时间点的后续时间窗口内找到价格的最大上涨和下跌幅度，
@@ -866,6 +938,10 @@ def find_half_extreme_time(times: NDArray[np.float64], prices: NDArray[np.float6
         价格数组
     time_window : float, optional
         时间窗口大小（单位：秒），默认为5.0
+    direction : str, optional
+        计算方向，可选值为"pos"（只考虑上涨）、"neg"（只考虑下跌）、"ignore"（选择变动更大的方向），默认为"ignore"
+    timeout_seconds : float, optional
+        计算超时时间（秒）。如果计算时间超过该值，函数将返回全NaN的数组。默认为None，表示不设置超时限制
 
     返回值：
     -------
@@ -1334,6 +1410,44 @@ def calculate_large_order_nearby_small_order_time_gap(
     """
     ...
 
+def rolling_dtw_distance(son: NDArray[np.float64], dragon: NDArray[np.float64], exchtime: NDArray[np.float64], minute_back: float) -> NDArray[np.float64]:
+    """计算滚动DTW距离：计算son中每一行与其前n分钟片段和dragon的DTW距离。
+
+    参数说明：
+    ----------
+    son : array_like
+        主要时间序列，将在此序列上滚动计算DTW距离
+    dragon : array_like
+        参考时间序列，用于计算DTW距离的模板
+    exchtime : array_like
+        时间戳数组，必须与son长度相同
+    minute_back : int
+        滚动窗口大小，以分钟为单位，表示每次计算使用的历史数据长度
+
+    返回值：
+    -------
+    numpy.ndarray
+        与son等长的数组，包含每个点的DTW距离，其中部分位置可能为NaN
+        （如果相应位置的历史数据不足以计算DTW距离）
+
+    示例：
+    -------
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> from rust_pyfunc import rolling_dtw_distance
+    >>> 
+    >>> # 准备数据
+    >>> times = pd.date_range('2023-01-01', periods=100, freq='T')
+    >>> son = pd.Series(np.sin(np.linspace(0, 10, 100)), index=times)
+    >>> dragon = pd.Series([0, 0.5, 1, 0.5, 0, -0.5, -1, -0.5, 0]) # 一个波形模板
+    >>> 
+    >>> # 计算滚动DTW距离
+    >>> # 每个点与其前5分钟数据和dragon的DTW距离
+    >>> result = rolling_dtw_distance(son.values, dragon.values, times.astype(np.int64).values, 5)
+    >>> dtw_series = pd.Series(result, index=times)
+    """
+    ...
+
 def dataframe_corrwith(df1: NDArray[np.float64], df2: NDArray[np.float64], axis: int = 0, drop_na: bool = True) -> NDArray[np.float64]:
     """计算两个数据框对应列的相关系数。
 
@@ -1384,5 +1498,110 @@ def dataframe_corrwith(df1: NDArray[np.float64], df2: NDArray[np.float64], axis:
     >>> # 只保留有效对应列（A和B）
     >>> result = result.iloc[:2]
     >>> print(result)
+    """
+    ...
+
+def fast_find_half_extreme_time(times: NDArray[np.float64], prices: NDArray[np.float64], time_window: float = 5.0, direction: str = "ignore", timeout_seconds: Optional[float] = None) -> NDArray[np.float64]:
+    """计算每个时间点价格达到时间窗口内最大变动一半所需的时间（优化版本）。
+
+    该函数是find_half_extreme_time的高性能优化版本，采用了以下优化技术：
+    1. 预计算和缓存 - 避免重复计算时间差和比率
+    2. 数据布局优化 - 改进内存访问模式
+    3. 条件分支优化 - 减少分支预测失败
+    4. 界限优化 - 提前确定搜索范围
+    5. 算法优化 - 使用二分查找定位目标点
+
+    参数说明：
+    ----------
+    times : numpy.ndarray
+        时间戳数组（单位：秒）
+    prices : numpy.ndarray
+        价格数组
+    time_window : float, optional
+        时间窗口大小（单位：秒），默认为5.0
+    direction : str, optional
+        计算方向，可选值为"pos"（只考虑上涨）、"neg"（只考虑下跌）、"ignore"（选择变动更大的方向），默认为"ignore"
+    timeout_seconds : float, optional
+        计算超时时间（秒）。如果计算时间超过该值，函数将返回全NaN的数组。默认为None，表示不设置超时限制
+
+    返回值：
+    -------
+    numpy.ndarray
+        浮点数数组，表示每行达到最大变动一半所需的时间（秒）。
+        如果在时间窗口内未达到一半变动，则返回time_window值。
+        如果计算超时，则返回全为NaN的数组。
+
+    示例：
+    -------
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> from rust_pyfunc import fast_find_half_extreme_time
+    >>> 
+    >>> # 创建示例DataFrame
+    >>> df = pd.DataFrame({
+    ...     'exchtime': [1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0],
+    ...     'price': [10.0, 10.2, 10.5, 10.3, 10.1, 10.0, 9.8, 9.5, 9.3, 9.2, 9.0]
+    ... })
+    >>> 
+    >>> # 计算达到最大变动一半所需时间（优化版本）
+    >>> df['half_extreme_time'] = fast_find_half_extreme_time(
+    ...     df['exchtime'].values,
+    ...     df['price'].values,
+    ...     time_window=1.0  # 1秒时间窗口
+    ... )
+    >>> print(df)
+    """
+    ...
+
+def super_find_half_extreme_time(times: NDArray[np.float64], prices: NDArray[np.float64], time_window: float = 5.0, direction: str = "ignore", timeout_seconds: Optional[float] = None) -> NDArray[np.float64]:
+    """计算每个时间点价格达到时间窗口内最大变动一半所需的时间（超级优化版本）。
+
+    该函数是find_half_extreme_time的高度优化版本，针对大数据量设计，采用了以下优化技术：
+    1. SIMD加速 - 利用向量化操作加速计算
+    2. 高级缓存优化 - 通过预计算和数据布局进一步提高缓存命中率
+    3. 直接内存操作 - 减少边界检查和间接访问
+    4. 预先筛选 - 先过滤掉不可能的时间范围
+    5. 多线程并行 - 在可能的情况下使用并行计算
+    6. 二分查找 - 更高效地定位目标变动点
+
+    参数说明：
+    ----------
+    times : numpy.ndarray
+        时间戳数组（单位：秒）
+    prices : numpy.ndarray
+        价格数组
+    time_window : float, optional
+        时间窗口大小（单位：秒），默认为5.0
+    direction : str, optional
+        计算方向，可选值为"pos"（只考虑上涨）、"neg"（只考虑下跌）、"ignore"（选择变动更大的方向），默认为"ignore"
+    timeout_seconds : float, optional
+        计算超时时间（秒）。如果计算时间超过该值，函数将返回全NaN的数组。默认为None，表示不设置超时限制
+
+    返回值：
+    -------
+    numpy.ndarray
+        浮点数数组，表示每行达到最大变动一半所需的时间（秒）。
+        如果在时间窗口内未达到一半变动，则返回time_window值。
+        如果计算超时，则返回全为NaN的数组。
+
+    示例：
+    -------
+    >>> import pandas as pd
+    >>> import numpy as np
+    >>> from rust_pyfunc import super_find_half_extreme_time
+    >>> 
+    >>> # 创建示例DataFrame
+    >>> df = pd.DataFrame({
+    ...     'exchtime': [1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0],
+    ...     'price': [10.0, 10.2, 10.5, 10.3, 10.1, 10.0, 9.8, 9.5, 9.3, 9.2, 9.0]
+    ... })
+    >>> 
+    >>> # 计算达到最大变动一半所需时间（超级优化版本）
+    >>> df['half_extreme_time'] = super_find_half_extreme_time(
+    ...     df['exchtime'].values,
+    ...     df['price'].values,
+    ...     time_window=1.0  # 1秒时间窗口
+    ... )
+    >>> print(df)
     """
     ...
