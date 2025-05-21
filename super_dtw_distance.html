@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>calculate_large_order_nearby_small_order_time_gap - Rust PyFunc API文档</title>
+    <title>super_dtw_distance - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
     <script src="static/search.js"></script>
 </head>
@@ -26,16 +26,44 @@
     </div>
     
     <div class="content">
-        <h1>calculate_large_order_nearby_small_order_time_gap</h1>
+        <h1>super_dtw_distance</h1>
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><p>无文档</p></div>
+            <div><p>超级优化版DTW距离函数，使用以下高级技术提升性能：
+1. 内存预分配 - 减少运行时内存分配
+2. 更精细的内存访问优化 - 提高缓存命中率
+3. 基于启发式的跳过技术 - 避免不必要的计算
+4. 提前退出策略 - 当部分结果已超过最优值时提前终止
+5. 更稀疏的超时检查 - 减少检查开销</p>
+<p>```python
+import numpy as np
+from rust_pyfunc import super_dtw_distance, fast_dtw_distance, dtw_distance</p>
+<h1>创建两个时间序列</h1>
+<p>s1 = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+s2 = np.array([1.1, 2.1, 3.1, 4.1, 5.1])</p>
+<h1>比较三种实现的结果和性能</h1>
+<p>import time</p>
+<p>start = time.time()
+result1 = dtw_distance(s1, s2)
+time1 = time.time() - start</p>
+<p>start = time.time()
+result2 = fast_dtw_distance(s1, s2)
+time2 = time.time() - start</p>
+<p>start = time.time()
+result3 = super_dtw_distance(s1, s2)
+time3 = time.time() - start</p>
+<p>print(f"标准DTW距离: {result1:.6f}, 耗时: {time1:.6f}秒")
+print(f"快速DTW距离: {result2:.6f}, 耗时: {time2:.6f}秒")
+print(f"超级DTW距离: {result3:.6f}, 耗时: {time3:.6f}秒")
+print(f"fast加速比: {time1/time2:.2f}倍")
+print(f"super加速比: {time1/time3:.2f}倍")
+```</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>calculate_large_order_nearby_small_order_time_gap(volumes, exchtimes, large_quantile, small_quantile, near_number, exclude_same_time, order_type, flags, flag_filter) -> None</code>
+            <code>super_dtw_distance(s1, s2, radius, timeout_seconds, lower_bound_pruning, early_termination_threshold) -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -59,7 +87,7 @@
             <div class="example-usage-note">
                 <h3>Python使用示例</h3>
                 <pre><code>import numpy as np
-from rust_pyfunc import calculate_large_order_nearby_small_order_time_gap
+from rust_pyfunc import super_dtw_distance
 
 # 使用示例
 

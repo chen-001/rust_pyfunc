@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>rolling_dtw_distance - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>rolling_dtw_distance</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>计算每个大单与其临近小单之间的时间间隔均值。</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>rolling_dtw_distance(son, dragon, exchtime, minute_back) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">volumes</span>
+                    <span class="parameter-type">(numpy.ndarray)</span>
+                    <div><p>交易量数组</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">exchtimes</span>
+                    <span class="parameter-type">(numpy.ndarray)</span>
+                    <div><p>交易时间数组（单位：纳秒）</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">large_quantile</span>
+                    <span class="parameter-type">(float)</span>
+                    <div><p>大单的分位点阈值</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">small_quantile</span>
+                    <span class="parameter-type">(float)</span>
+                    <div><p>小单的分位点阈值</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">near_number</span>
+                    <span class="parameter-type">(int)</span>
+                    <div><p>每个大单要考虑的临近小单数量</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">exclude_same_time</span>
+                    <span class="parameter-type">(bool, optional)</span>
+                    <div><p>是否排除时间戳与大单完全相同的小单，默认为False 当为True时，计算附近小单时不包含时间戳与大单完全相同的小单 当为False时，包含与大单时间戳完全相同的小单</p></div>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div><hr />
+<p>numpy.ndarray
+    浮点数数组，与输入volumes等长。对于大单，返回其与临近小单的时间间隔均值（秒）；
+    对于非大单，返回NaN。</p>
+<p>Python调用示例：
+```python
+import pandas as pd
+import numpy as np
+from rust_pyfunc import calculate_large_order_nearby_small_order_time_gap</p>
+<h1>创建示例DataFrame</h1>
+<p>df = pd.DataFrame({
+    'exchtime': [1.0e9, 1.1e9, 1.2e9, 1.3e9, 1.4e9],  # 纳秒时间戳
+    'volume': [100, 10, 200, 20, 150]
+})</p>
+<h1>计算大单与临近小单的时间间隔</h1>
+<p>df['time_gap'] = calculate_large_order_nearby_small_order_time_gap(
+    df['volume'].values,
+    df['exchtime'].values,
+    large_quantile=0.7,  # 70%分位点以上为大单
+    small_quantile=0.3,  # 30%分位点以下为小单
+    near_number=2        # 每个大单考虑最近的2个小单
+)
+print(df)</p>
+<h1>exchtime  volume    time_gap</h1>
+<h1>0      1.0e9    100        NaN  # 不是大单</h1>
+<h1>1      1.1e9     10        NaN  # 不是大单</h1>
+<h1>2      1.2e9    200       0.15  # 大单，与附近2个小单的时间间隔均值</h1>
+<h1>3      1.3e9     20        NaN  # 不是大单</h1>
+<h1>4      1.4e9    150        NaN  # 不是大单</h1>
+<h1>计算大单与临近小单的时间间隔（排除时间戳相同的小单）</h1>
+<p>df['time_gap_exc'] = calculate_large_order_nearby_small_order_time_gap(
+    df['volume'].values,
+    df['exchtime'].values,
+    large_quantile=0.7,  # 70%分位点以上为大单
+    small_quantile=0.3,  # 30%分位点以下为小单
+    near_number=2,       # 每个大单考虑最近的2个小单
+    exclude_same_time=True  # 排除时间戳相同的小单
+)
+```
+计算滚动DTW距离：计算son中每一行与其前n分钟片段和dragon的DTW距离。</p></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import rolling_dtw_distance
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

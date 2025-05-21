@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>calculate_large_order_nearby_small_order_time_gap - Rust PyFunc API文档</title>
+    <title>fast_find_half_extreme_time - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
     <script src="static/search.js"></script>
 </head>
@@ -26,16 +26,21 @@
     </div>
     
     <div class="content">
-        <h1>calculate_large_order_nearby_small_order_time_gap</h1>
+        <h1>fast_find_half_extreme_time</h1>
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><p>无文档</p></div>
+            <div><p>计算半极端时间的优化版本</p>
+<p>该函数针对find_half_extreme_time进行了多项优化：
+1. 预计算和缓存 - 避免重复计算时间差和比率
+2. 数据布局优化 - 改进内存访问模式
+3. 条件分支优化 - 减少分支预测失败
+4. 界限优化 - 提前确定搜索范围</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>calculate_large_order_nearby_small_order_time_gap(volumes, exchtimes, large_quantile, small_quantile, near_number, exclude_same_time, order_type, flags, flag_filter) -> None</code>
+            <code>fast_find_half_extreme_time(times, prices, time_window, direction, timeout_seconds) -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -59,7 +64,7 @@
             <div class="example-usage-note">
                 <h3>Python使用示例</h3>
                 <pre><code>import numpy as np
-from rust_pyfunc import calculate_large_order_nearby_small_order_time_gap
+from rust_pyfunc import fast_find_half_extreme_time
 
 # 使用示例
 

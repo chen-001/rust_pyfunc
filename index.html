@@ -260,7 +260,7 @@ s.rolling_future('2s').trend_time()  # 计算后面2秒内的趋势</p>
             
             <div class="function-item">
                 <h3 class="function-name"><a href="calculate_large_order_nearby_small_order_time_gap.html">calculate_large_order_nearby_small_order_time_gap</a></h3>
-                <div><p>计算每个大单与其临近小单之间的时间间隔均值。</p></div>
+                <div><p>无文档</p></div>
                 <a href="calculate_large_order_nearby_small_order_time_gap.html">查看详情</a>
             </div>
             
@@ -326,6 +326,45 @@ s.rolling_future('2s').trend_time()  # 计算后面2秒内的趋势</p>
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="fast_dtw_distance.html">fast_dtw_distance</a></h3>
+                <div><p>优化版DTW距离函数，使用以下技术提升性能：
+1. 使用一维数组代替二维数组，减少内存分配和间接访问
+2. 提前计算常用值，减少重复计算
+3. 对于窗口计算进行更高效的实现
+4. 优化内存访问模式，提高缓存命中率</p>
+<p>```python
+import numpy as np
+from rust_pyfunc import fast_dtw_distance, dtw_distance</p>
+<h1>创建两个时间序列</h1>
+<p>s1 = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+s2 = np.array([1.1, 2.1, 3.1, 4.1, 5.1])</p>
+<h1>比较两种实现的结果和性能</h1>
+<p>import time</p>
+<p>start = time.time()
+result1 = dtw_distance(s1, s2)
+time1 = time.time() - start</p>
+<p>start = time.time()
+result2 = fast_dtw_distance(s1, s2)
+time2 = time.time() - start</p>
+<p>print(f"标准DTW距离: {result1:.6f}, 耗时: {time1:.6f}秒")
+print(f"快速DTW距离: {result2:.6f}, 耗时: {time2:.6f}秒")
+print(f"加速比: {time1/time2:.2f}倍")
+```</p></div>
+                <a href="fast_dtw_distance.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="fast_find_half_extreme_time.html">fast_find_half_extreme_time</a></h3>
+                <div><p>计算半极端时间的优化版本</p>
+<p>该函数针对find_half_extreme_time进行了多项优化：
+1. 预计算和缓存 - 避免重复计算时间差和比率
+2. 数据布局优化 - 改进内存访问模式
+3. 条件分支优化 - 减少分支预测失败
+4. 界限优化 - 提前确定搜索范围</p></div>
+                <a href="fast_find_half_extreme_time.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="mark_follow_groups.html">mark_follow_groups</a></h3>
                 <div><p>标记每一行在其后0.1秒内具有相同price和volume的行组。
 对于同一个时间窗口内的相同交易组，标记相同的组号。
@@ -383,6 +422,12 @@ s.rolling_future('2s').trend_time()  # 计算后面2秒内的趋势</p>
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="rolling_dtw_distance.html">rolling_dtw_distance</a></h3>
+                <div><p>计算每个大单与其临近小单之间的时间间隔均值。</p></div>
+                <a href="rolling_dtw_distance.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="rolling_qcv.html">rolling_qcv</a></h3>
                 <div><p>计算价格序列的滚动四分位变异系数(QCV)。</p>
 <p>对于位置i，从数据范围[i-lookback+1, i]中每隔interval个点取样，
@@ -412,6 +457,52 @@ s.rolling_future('2s').trend_time()  # 计算后面2秒内的趋势</p>
                 <h3 class="function-name"><a href="sum_as_string.html">sum_as_string</a></h3>
                 <div><p>Formats the sum of two numbers as string.</p></div>
                 <a href="sum_as_string.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="super_dtw_distance.html">super_dtw_distance</a></h3>
+                <div><p>超级优化版DTW距离函数，使用以下高级技术提升性能：
+1. 内存预分配 - 减少运行时内存分配
+2. 更精细的内存访问优化 - 提高缓存命中率
+3. 基于启发式的跳过技术 - 避免不必要的计算
+4. 提前退出策略 - 当部分结果已超过最优值时提前终止
+5. 更稀疏的超时检查 - 减少检查开销</p>
+<p>```python
+import numpy as np
+from rust_pyfunc import super_dtw_distance, fast_dtw_distance, dtw_distance</p>
+<h1>创建两个时间序列</h1>
+<p>s1 = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+s2 = np.array([1.1, 2.1, 3.1, 4.1, 5.1])</p>
+<h1>比较三种实现的结果和性能</h1>
+<p>import time</p>
+<p>start = time.time()
+result1 = dtw_distance(s1, s2)
+time1 = time.time() - start</p>
+<p>start = time.time()
+result2 = fast_dtw_distance(s1, s2)
+time2 = time.time() - start</p>
+<p>start = time.time()
+result3 = super_dtw_distance(s1, s2)
+time3 = time.time() - start</p>
+<p>print(f"标准DTW距离: {result1:.6f}, 耗时: {time1:.6f}秒")
+print(f"快速DTW距离: {result2:.6f}, 耗时: {time2:.6f}秒")
+print(f"超级DTW距离: {result3:.6f}, 耗时: {time3:.6f}秒")
+print(f"fast加速比: {time1/time2:.2f}倍")
+print(f"super加速比: {time1/time3:.2f}倍")
+```</p></div>
+                <a href="super_dtw_distance.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="super_find_half_extreme_time.html">super_find_half_extreme_time</a></h3>
+                <div><p>计算半极端时间的超级优化版本</p>
+<p>与fast_find_half_extreme_time相比，该函数引入了以下额外优化：
+1. SIMD加速 - 利用向量化操作加速计算
+2. 高级缓存优化 - 通过预计算和数据布局进一步提高缓存命中率
+3. 直接内存操作 - 减少边界检查和间接访问
+4. 预先筛选 - 先过滤掉不可能的时间范围
+5. 多线程并行 - 在可能的情况下使用并行计算</p></div>
+                <a href="super_find_half_extreme_time.html">查看详情</a>
             </div>
             
             <div class="function-item">
