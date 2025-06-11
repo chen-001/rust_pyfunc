@@ -160,6 +160,11 @@ def fast_dtw_distance(s1: List[float], s2: List[float], radius: Optional[int] = 
     此版本使用一维数组代替二维数组，减少内存分配和间接访问，提高计算效率。
     适合用于一般规模的时间序列比较，性能比标准版本提升1.7-2.0倍（无窗口限制）或
     2.4-4.6倍（有窗口限制）。
+    
+    具有以下优化特性：
+    1. 智能初始化窗口内单元格，避免无限值问题
+    2. 自动调整radius大小，当指定radius导致结果为inf时，会自动增大半径重试
+    3. 针对行首和列首位置提供特殊处理，确保正确传播距离值
 
     参数说明：
     ----------
@@ -170,6 +175,7 @@ def fast_dtw_distance(s1: List[float], s2: List[float], radius: Optional[int] = 
     radius : int, optional
         Sakoe-Chiba半径，用于限制规整路径，可以显著提高计算效率。
         如果不指定，则不使用路径限制。
+        当指定radius太小导致结果为inf时，函数会自动增大radius值重试计算。
     timeout_seconds : float, optional
         计算超时时间（秒）。如果计算时间超过此值，将抛出异常。
         默认为None，表示不设置超时。
@@ -177,7 +183,9 @@ def fast_dtw_distance(s1: List[float], s2: List[float], radius: Optional[int] = 
     返回值：
     -------
     float
-        两个序列之间的DTW距离，值越小表示序列越相似
+        两个序列之间的DTW距离，值越小表示序列越相似。
+        即使使用较小的radius值，函数也会尽量返回有效结果而不是inf。
+        当任一输入序列长度为0时，返回NaN。
     """
     ...
 

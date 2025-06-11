@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use numpy::{PyReadonlyArray1, IntoPyArray};
+use numpy::{PyReadonlyArray1};
 use std::time::Instant;
 use crate::time_series::TimeoutError;
 

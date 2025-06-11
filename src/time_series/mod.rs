@@ -151,6 +151,8 @@ pub fn dtw_distance(s1: Vec<f64>, s2: Vec<f64>, radius: Option<usize>, timeout_s
 /// 2. 提前计算常用值，减少重复计算
 /// 3. 对于窗口计算进行更高效的实现
 /// 4. 优化内存访问模式，提高缓存命中率
+/// 5. 智能初始化窗口内单元格，避免无限值问题
+/// 6. 自动调整radius大小，确保计算结果有效
 /// 
 /// ```python
 /// import numpy as np
@@ -198,11 +200,78 @@ pub fn fast_dtw_distance(s1: Vec<f64>, s2: Vec<f64>, radius: Option<usize>, time
     let len_s1 = s1.len();
     let len_s2 = s2.len();
     
-    // 优化1: 只使用两行的一维数组而不是完整的二维矩阵，节省内存
+    // 当任一输入序列长度为0时，返回NaN
+    if len_s1 == 0 || len_s2 == 0 {
+        return Ok(f64::NAN);
+    }
+    
+    // 如果radius为None，直接使用原始算法，保证结果不变
+    if radius.is_none() {
+        return compute_dtw(&s1, &s2, None, &check_timeout, timeout_seconds);
+    }
+    
+    // 尝试使用提供的radius计算，如果结果为inf，则自动增加radius重试
+    let mut current_radius = radius;
+    let mut result = compute_dtw(&s1, &s2, current_radius, &check_timeout, timeout_seconds)?;
+    
+    // 如果结果为inf并且有设置radius，则自动增加radius重试
+    // 最多尝试3次，每次将radius增加为序列长度的1/4, 1/2, 全长
+    let max_attempts = 3;
+    let mut attempt = 0;
+    
+    while result.is_infinite() && attempt < max_attempts && current_radius.is_some() {
+        attempt += 1;
+        
+        // 逐步增加radius：1/4序列长度 -> 1/2序列长度 -> 全长
+        let new_radius = match attempt {
+            1 => len_s1.max(len_s2) / 4,
+            2 => len_s1.max(len_s2) / 2,
+            _ => len_s1.max(len_s2),
+        };
+        
+        // 确保新radius大于当前radius
+        if let Some(r) = current_radius {
+            if new_radius <= r {
+                continue;
+            }
+        }
+        
+        current_radius = Some(new_radius);
+        result = compute_dtw(&s1, &s2, current_radius, &check_timeout, timeout_seconds)?;
+    }
+    
+    Ok(result)
+}
+
+/// 内部DTW计算函数，支持带窗口约束的计算
+fn compute_dtw<F>(s1: &[f64], s2: &[f64], radius: Option<usize>, check_timeout: &F, timeout_seconds: Option<f64>) -> PyResult<f64> 
+where F: Fn(Option<f64>) -> Result<(), TimeoutError> {
+    let len_s1 = s1.len();
+    let len_s2 = s2.len();
+    
+    // 当任一输入序列长度为0时，返回NaN
+    if len_s1 == 0 || len_s2 == 0 {
+        return Ok(f64::NAN);
+    }
+    
+    // 只使用两行的一维数组而不是完整的二维矩阵，节省内存
     let mut prev_row = vec![f64::INFINITY; len_s2 + 1];
     let mut curr_row = vec![f64::INFINITY; len_s2 + 1];
     
+    // 初始化第一个元素为0
     prev_row[0] = 0.0;
+    
+    // 改进的初始化：为第一行提供更好的初始值
+    if let Some(r) = radius {
+        // 只有在使用窗口约束时才需要特殊初始化
+        let init_range = 1..=(r.min(len_s2));
+        let mut cum_cost = 0.0;
+        
+        for j in init_range {
+            cum_cost += (s1[0] - s2[j-1]).abs();
+            prev_row[j] = cum_cost; // 累积第一行的代价
+        }
+    }
     
     // 检查初始化后是否超时
     check_timeout(timeout_seconds)?;
@@ -211,28 +280,42 @@ pub fn fast_dtw_distance(s1: Vec<f64>, s2: Vec<f64>, radius: Option<usize>, time
         // 每行开始时检查一次超时
         check_timeout(timeout_seconds)?;
         
-        // 优化2: 提前将当前序列值缓存，减少每次循环中的索引查找
+        // 提前将当前序列值缓存，减少每次循环中的索引查找
         let s1_val = s1[i - 1];
         
         // 初始化当前行的第一个元素
-        curr_row[0] = f64::INFINITY;
+        // 改进：当使用radius时，为第一列提供更好的初始值
+        if let Some(r) = radius {
+            if i <= r {
+                // 在窗口范围内的第一列，累积代价
+                let mut cum_cost = 0.0;
+                for k in 0..i {
+                    cum_cost += (s1[k] - s2[0]).abs();
+                }
+                curr_row[0] = cum_cost;
+            } else {
+                curr_row[0] = f64::INFINITY;
+            }
+        } else {
+            curr_row[0] = f64::INFINITY;
+        }
         
-        // 优化3: 对于半径限制，直接计算起始和结束范围
+        // 对于半径限制，直接计算起始和结束范围
         let (j_start, j_end) = match radius {
             Some(r) => (1.max(i.saturating_sub(r)), (i + r).min(len_s2) + 1),
             None => (1, len_s2 + 1),
         };
         
         for j in j_start..j_end {
-            // 对于大型序列，每500次计算检查一次超时，相比原来的100次减少了超时检查的频率
+            // 对于大型序列，每500次计算检查一次超时
             if (i * len_s2 + j) % 500 == 0 {
                 check_timeout(timeout_seconds)?;
             }
             
-            // 优化4: 直接计算cost，避免额外的函数调用
+            // 直接计算cost，避免额外的函数调用
             let cost = (s1_val - s2[j - 1]).abs();
             
-            // 优化5: 使用min方法链式比较，避免嵌套min调用
+            // 使用min方法链式比较，避免嵌套min调用
             curr_row[j] = cost + prev_row[j]
                 .min(curr_row[j - 1])
                 .min(prev_row[j - 1]);
@@ -245,7 +328,7 @@ pub fn fast_dtw_distance(s1: Vec<f64>, s2: Vec<f64>, radius: Option<usize>, time
     // 最终检查一次超时
     check_timeout(timeout_seconds)?;
     
-    // 注意：由于我们交换了行，结果在prev_row的最后一个元素中
+    // 由于我们交换了行，结果在prev_row的最后一个元素中
     Ok(prev_row[len_s2])
 }
 
@@ -332,7 +415,7 @@ pub fn super_dtw_distance(
     // 优化2: 启发式下界剪枝 - 计算曼哈顿距离作为DTW的下界
     if lower_bound_pruning {
         // 计算序列间的最小差异（曼哈顿距离）作为DTW的下界
-        let mut lb_kim = (s1[0] - s2[0]).abs() + (s1[len_s1-1] - s2[len_s2-1]).abs();
+        let lb_kim = (s1[0] - s2[0]).abs() + (s1[len_s1-1] - s2[len_s2-1]).abs();
         
         // 如果已知阈值并且下界已超过阈值，提前返回
         if let Some(threshold) = early_termination_threshold {
