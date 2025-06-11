@@ -34,7 +34,9 @@
 1. 使用一维数组代替二维数组，减少内存分配和间接访问
 2. 提前计算常用值，减少重复计算
 3. 对于窗口计算进行更高效的实现
-4. 优化内存访问模式，提高缓存命中率</p>
+4. 优化内存访问模式，提高缓存命中率
+5. 智能初始化窗口内单元格，避免无限值问题
+6. 自动调整radius大小，确保计算结果有效</p>
 <p>```python
 import numpy as np
 from rust_pyfunc import fast_dtw_distance, dtw_distance</p>
