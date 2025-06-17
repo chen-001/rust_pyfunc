@@ -1228,6 +1228,84 @@ def brachistochrone_curve(x1: float, y1: float, x2: float, y2: float, x_series: 
     """
     ...
 
+def brachistochrone_curve_v2(x1: float, y1: float, x2: float, y2: float, x_series: NDArray[np.float64], timeout_seconds: Optional[float] = None) -> NDArray[np.float64]:
+    """计算最速曲线（投掷线）的修正版，确保终点严格一致。
+    
+    这是brachistochrone_curve函数的修正版，解决了原版函数可能存在的终点不一致问题。
+    通过强制约束终点坐标，确保计算结果的数学正确性。最速曲线是指在重力作用下，
+    一个质点从一点到另一点所需时间最短的路径，也被称为投掷线或摆线。
+    其参数方程为：x = R(θ - sin θ), y = -R(1 - cos θ)。
+
+    参数说明：
+    ----------
+    x1 : float
+        起点x坐标
+    y1 : float
+        起点y坐标
+    x2 : float
+        终点x坐标
+    y2 : float
+        终点y坐标
+    x_series : numpy.ndarray
+        需要计算y坐标的x点序列
+    timeout_seconds : float, optional
+        计算超时时间，单位为秒。如果函数执行时间超过此值，将立即中断计算并抛出异常。默认值为None，表示无超时限制。
+
+    返回值：
+    -------
+    numpy.ndarray
+        与x_series相对应的y坐标值数组，确保起点和终点严格一致。
+        对于超出曲线定义域的x值，返回NaN。
+        
+    异常：
+    ------
+    RuntimeError
+        当计算时间超过timeout_seconds指定的秒数时抛出，错误信息包含具体的超时时长。
+
+    特点：
+    ------
+    1. 严格的终点约束 - 确保曲线精确通过指定的起点和终点
+    2. 改进的优化算法 - 使用更稳定的数值求解方法
+    3. 特殊情况处理 - 正确处理垂直线、水平线和重合点等边界情况
+    4. 提高的数值稳定性 - 减少计算误差和发散问题
+
+    示例：
+    -------
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> from rust_pyfunc import brachistochrone_curve_v2
+    >>> 
+    >>> # 创建x序列
+    >>> x_vals = pd.Series(np.linspace(0, 5, 100))
+    >>> # 计算从点(0,0)到点(5,-3)的最速曲线修正版，设置5秒超时
+    >>> try:
+    >>>     y_vals = brachistochrone_curve_v2(0.0, 0.0, 5.0, -3.0, x_vals, 5.0)
+    >>> except RuntimeError as e:
+    >>>     print(f"计算超时: {e}")
+    >>>     
+    >>> # 正常计算示例（不设置超时）
+    >>> y_vals = brachistochrone_curve_v2(0.0, 0.0, 5.0, -3.0, x_vals)
+    >>> 
+    >>> # 验证终点是否精确匹配
+    >>> x_end_index = np.argmin(np.abs(x_vals - 5.0))
+    >>> y_end_computed = y_vals[x_end_index]
+    >>> print(f"期望终点: (5.0, -3.0)")
+    >>> print(f"计算终点: (5.0, {y_end_computed:.10f})")
+    >>> 
+    >>> # 绘制曲线
+    >>> import matplotlib.pyplot as plt
+    >>> plt.figure(figsize=(10, 6))
+    >>> plt.plot(x_vals, y_vals, label='最速曲线修正版')
+    >>> plt.scatter([0, 5], [0, -3], color='red', s=50, label='起点和终点')
+    >>> plt.grid(True)
+    >>> plt.title('最速曲线修正版 (Brachistochrone Curve V2)')
+    >>> plt.xlabel('x')
+    >>> plt.ylabel('y')
+    >>> plt.legend()
+    >>> plt.show()
+    """
+    ...
+
 def rolling_volatility(prices: NDArray[np.float64], lookback: int, interval: int, min_periods: int = 2) -> NDArray[np.float64]:
     """计算价格序列的滚动波动率。
 

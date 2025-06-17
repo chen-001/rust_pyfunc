@@ -20,18 +20,11 @@ A high-performance Python library implementing computationally intensive algorit
 ### Build and Development
 ```bash
 # Primary development command - builds Rust and installs Python package
-maturin develop
-
-# Build release wheels
-maturin build --release --out dist --find-interpreter
-
-# Standard Rust development
-cargo build --release
-cargo test
-cargo check
-cargo fmt
-cargo clippy
+maturin develop --release
 ```
+增加新函数后，要在rust_pyfunc.pyi中添加函数声明
+
+
 
 ### Testing
 ```bash

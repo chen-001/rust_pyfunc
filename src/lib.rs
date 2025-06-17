@@ -59,6 +59,7 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(sequence::calculate_base_entropy, m)?)?;
     m.add_function(wrap_pyfunction!(sequence::calculate_window_entropy, m)?)?;
     m.add_function(wrap_pyfunction!(sequence::brachistochrone_curve, m)?)?;
+    m.add_function(wrap_pyfunction!(sequence::brachistochrone_curve_v2, m)?)?;
     m.add_function(wrap_pyfunction!(statistics::dataframe_corrwith, m)?)?;
     m.add_function(wrap_pyfunction!(time_series::rolling_dtw_distance, m)?)?;
     // m.add_function(wrap_pyfunction!(text::normalized_diff, m)?)?;
