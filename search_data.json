@@ -27,6 +27,18 @@
     ]
   },
   {
+    "name": "brachistochrone_curve_v2",
+    "description": "<p>修正版最速曲线函数，确保终点严格一致  </p>\n<p>此函数解决了原版brachistochrone_curve终点不一致的问题\n通过强制约束终点坐标，确保数学正确性</p>",
+    "params": [
+      "x1",
+      "y1",
+      "x2",
+      "y2",
+      "x_series",
+      "timeout_seconds"
+    ]
+  },
+  {
     "name": "calculate_base_entropy",
     "description": "<p>计算基准熵 - 基于到当前时间点为止的订单分布计算香农熵</p>\n<p>参数:\n* exchtime: 交易时间数组（纳秒时间戳）\n* order: 订单号数组\n* volume: 成交量数组\n* index: 计算熵值的当前索引位置</p>\n<p>返回:\n* 基准熵值</p>",
     "params": []

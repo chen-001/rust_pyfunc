@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>brachistochrone_curve_v2 - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>brachistochrone_curve_v2</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>修正版最速曲线函数，确保终点严格一致  </p>
+<p>此函数解决了原版brachistochrone_curve终点不一致的问题
+通过强制约束终点坐标，确保数学正确性</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>brachistochrone_curve_v2(x1, y1, x2, y2, x_series, timeout_seconds) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">x1</span>
+                    <span class="parameter-type">(float - 起点x坐标)</span>
+                    <div></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">y1</span>
+                    <span class="parameter-type">(float - 起点y坐标)</span>
+                    <div></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">x2</span>
+                    <span class="parameter-type">(float - 终点x坐标)</span>
+                    <div></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">y2</span>
+                    <span class="parameter-type">(float - 终点y坐标)</span>
+                    <div></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">x_series</span>
+                    <span class="parameter-type">(numpy.ndarray - 需要计算y坐标的x点序列)</span>
+                    <div></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">timeout_seconds</span>
+                    <span class="parameter-type">(float, optional - 计算超时时间)</span>
+                    <div></div>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div><hr />
+<p>numpy.ndarray - 与x_series相对应的y坐标值数组，确保起点和终点严格一致</p></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import brachistochrone_curve_v2
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>
