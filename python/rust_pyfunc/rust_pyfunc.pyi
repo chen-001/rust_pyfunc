@@ -1733,3 +1733,171 @@ def segment_and_correlate(
     >>> print(f"b > a段的相关系数: {b_greater_corrs}")
     """
     ...
+
+def analyze_retreat_advance(
+    trade_times: NDArray[np.float64],
+    trade_prices: NDArray[np.float64], 
+    trade_volumes: NDArray[np.float64],
+    trade_flags: NDArray[np.float64],
+    orderbook_times: NDArray[np.float64],
+    orderbook_prices: NDArray[np.float64],
+    orderbook_volumes: NDArray[np.float64],
+    volume_percentile: Optional[float] = 99.0,
+    time_window_minutes: Optional[float] = 1.0
+) -> Tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
+    """分析股票交易中的"以退为进"现象
+    
+    该函数分析当价格触及某个局部高点后回落，然后在该价格的异常大挂单量消失后
+    成功突破该价格的现象。
+    
+    参数说明：
+    ----------
+    trade_times : NDArray[np.float64]
+        逐笔成交数据的时间戳序列（纳秒时间戳）
+    trade_prices : NDArray[np.float64]
+        逐笔成交数据的价格序列
+    trade_volumes : NDArray[np.float64]
+        逐笔成交数据的成交量序列
+    trade_flags : NDArray[np.float64]
+        逐笔成交数据的标志序列（买卖方向，正数表示买入，负数表示卖出）
+    orderbook_times : NDArray[np.float64]
+        盘口快照数据的时间戳序列（纳秒时间戳）
+    orderbook_prices : NDArray[np.float64]
+        盘口快照数据的价格序列
+    orderbook_volumes : NDArray[np.float64]
+        盘口快照数据的挂单量序列
+    volume_percentile : Optional[float], default=99.0
+        异常大挂单量的百分位数阈值，默认为99.0（即前1%）
+    time_window_minutes : Optional[float], default=1.0
+        检查异常大挂单量的时间窗口（分钟），默认为1.0分钟
+    
+    返回值：
+    -------
+    Tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]
+        包含6个数组的元组：
+        - 过程期间的成交量
+        - 过程期间首次观察到的价格x在盘口上的异常大挂单量
+        - 过程开始后指定时间窗口内的成交量
+        - 过程期间的主动买入成交量占比
+        - 过程期间的价格种类数
+        - 过程期间价格相对局部高点的最大下降比例
+    
+    Python调用示例：
+    >>> import numpy as np
+    >>> from rust_pyfunc import analyze_retreat_advance
+    >>> 
+    >>> # 准备逐笔成交数据
+    >>> trade_times = np.array([9.30, 9.31, 9.32, 9.33, 9.34], dtype=np.float64)
+    >>> trade_prices = np.array([10.0, 10.1, 10.2, 10.1, 10.0], dtype=np.float64)
+    >>> trade_volumes = np.array([100, 200, 150, 300, 250], dtype=np.float64)
+    >>> trade_flags = np.array([1, 1, 1, -1, -1], dtype=np.float64)
+    >>> 
+    >>> # 准备盘口快照数据
+    >>> orderbook_times = np.array([9.30, 9.31, 9.32, 9.33, 9.34], dtype=np.float64)
+    >>> orderbook_prices = np.array([10.0, 10.1, 10.2, 10.1, 10.0], dtype=np.float64)
+    >>> orderbook_volumes = np.array([1000, 5000, 8000, 2000, 1500], dtype=np.float64)
+    >>> 
+    >>> # 分析"以退为进"现象
+    >>> results = analyze_retreat_advance(
+    ...     trade_times, trade_prices, trade_volumes, trade_flags,
+    ...     orderbook_times, orderbook_prices, orderbook_volumes
+    ... )
+    >>> 
+    >>> process_volumes, large_volumes, one_min_volumes, buy_ratios, price_counts, max_declines = results
+    >>> print(f"找到 {len(process_volumes)} 个以退为进过程")
+    """
+    ...
+
+def analyze_retreat_advance_v2(
+    trade_times: NDArray[np.float64],
+    trade_prices: NDArray[np.float64], 
+    trade_volumes: NDArray[np.float64],
+    trade_flags: NDArray[np.float64],
+    orderbook_times: NDArray[np.float64],
+    orderbook_prices: NDArray[np.float64],
+    orderbook_volumes: NDArray[np.float64],
+    volume_percentile: Optional[float] = 99.0,
+    time_window_minutes: Optional[float] = 1.0,
+    breakthrough_threshold: Optional[float] = 0.0,
+    dedup_time_seconds: Optional[float] = 30.0
+) -> Tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
+    """分析股票交易中的"以退为进"现象（纳秒版本）
+    
+    该函数分析当价格触及某个局部高点后回落，然后在该价格的异常大挂单量消失后
+    成功突破该价格的现象。这是analyze_retreat_advance函数的改进版本，专门为处理
+    纳秒级时间戳而优化，并包含局部高点去重功能。
+    
+    参数说明：
+    ----------
+    trade_times : NDArray[np.float64]
+        逐笔成交数据的时间戳序列（纳秒时间戳）
+    trade_prices : NDArray[np.float64]
+        逐笔成交数据的价格序列
+    trade_volumes : NDArray[np.float64]
+        逐笔成交数据的成交量序列
+    trade_flags : NDArray[np.float64]
+        逐笔成交数据的标志序列（买卖方向），66表示主动买入，83表示主动卖出
+    orderbook_times : NDArray[np.float64]
+        盘口快照数据的时间戳序列（纳秒时间戳）
+    orderbook_prices : NDArray[np.float64]
+        盘口快照数据的价格序列
+    orderbook_volumes : NDArray[np.float64]
+        盘口快照数据的挂单量序列
+    volume_percentile : Optional[float], default=99.0
+        异常大挂单量的百分位数阈值，默认为99.0（即前1%）
+    time_window_minutes : Optional[float], default=1.0
+        检查异常大挂单量的时间窗口（分钟），默认为1.0分钟
+    breakthrough_threshold : Optional[float], default=0.0
+        突破阈值（百分比），默认为0.0（即只要高于局部高点任何幅度都算突破）
+        例如：0.1表示需要高出局部高点0.1%才算突破
+    dedup_time_seconds : Optional[float], default=30.0
+        去重时间阈值（秒），默认为30.0。相同价格且时间间隔小于此值的局部高点将被视为重复
+    
+    返回值：
+    -------
+    Tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]
+        包含9个数组的元组：
+        - 过程期间的成交量
+        - 局部高点价格在盘口上时间最近的挂单量
+        - 过程开始后指定时间窗口内的成交量
+        - 过程期间的主动买入成交量占比
+        - 过程期间的价格种类数
+        - 过程期间价格相对局部高点的最大下降比例
+        - 过程持续时间（秒）
+        - 过程开始时间（纳秒时间戳）
+        - 局部高点的价格
+    
+    特点：
+    ------
+    1. 纳秒级时间戳处理 - 专门优化处理纳秒级别的高精度时间戳
+    2. 改进的局部高点识别 - 使用更准确的算法识别价格局部高点
+    3. 可配置的局部高点去重功能 - 对相同价格且时间接近的局部高点进行去重，时间阈值可自定义
+    4. 优化的异常挂单量检测 - 增强了对异常大挂单量的识别精度
+    5. 可配置的突破条件 - 通过breakthrough_threshold参数自定义突破阈值
+    6. 时间窗口控制 - 设置4小时最大搜索窗口，避免无限搜索
+    
+    Python调用示例：
+    >>> import numpy as np
+    >>> from rust_pyfunc import analyze_retreat_advance_v2
+    >>> 
+    >>> # 准备数据（纳秒时间戳）
+    >>> trade_times = np.array([1661743800000000000, 1661743860000000000, 1661743920000000000], dtype=np.float64)
+    >>> trade_prices = np.array([10.0, 10.1, 10.2], dtype=np.float64)
+    >>> trade_volumes = np.array([100, 200, 150], dtype=np.float64)
+    >>> trade_flags = np.array([66, 66, 83], dtype=np.float64)
+    >>> 
+    >>> orderbook_times = np.array([1661743800000000000, 1661743860000000000], dtype=np.float64)
+    >>> orderbook_prices = np.array([10.0, 10.1], dtype=np.float64)
+    >>> orderbook_volumes = np.array([1000, 5000], dtype=np.float64)
+    >>> 
+    >>> # 分析"以退为进"现象，使用2分钟时间窗口，0.1%突破阈值，60秒去重时间
+    >>> results = analyze_retreat_advance_v2(
+    ...     trade_times, trade_prices, trade_volumes, trade_flags,
+    ...     orderbook_times, orderbook_prices, orderbook_volumes,
+    ...     volume_percentile=95.0, time_window_minutes=2.0, breakthrough_threshold=0.1, dedup_time_seconds=60.0
+    ... )
+    >>> 
+    >>> process_volumes, large_volumes, time_window_volumes, buy_ratios, price_counts, max_declines, process_durations, process_start_times, peak_prices = results
+    >>> print(f"找到 {len(process_volumes)} 个以退为进过程")
+    """
+    ...
