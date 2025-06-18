@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>analyze_retreat_advance_v2 - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>analyze_retreat_advance_v2</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>分析股票交易中的"以退为进"现象（纳秒版本）</p>
+<p>该函数分析当价格触及某个局部高点后回落，然后在该价格的异常大挂单量消失后
+成功突破该价格的现象。该版本包含局部高点去重功能，避免在同一价格水平的
+连续成交中重复识别相同的"以退为进"过程。</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>analyze_retreat_advance_v2(trade_times, trade_prices, trade_volumes, trade_flags, orderbook_times, orderbook_prices, orderbook_volumes, volume_percentile, time_window_minutes, breakthrough_threshold, dedup_time_seconds) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">trade_times</span>
+                    <span class="parameter-type">(array_like)</span>
+                    <div><p>逐笔成交数据的时间戳序列（纳秒时间戳）</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">trade_prices</span>
+                    <span class="parameter-type">(array_like)</span>
+                    <div><p>逐笔成交数据的价格序列</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">trade_volumes</span>
+                    <span class="parameter-type">(array_like)</span>
+                    <div><p>逐笔成交数据的成交量序列</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">trade_flags</span>
+                    <span class="parameter-type">(array_like)</span>
+                    <div><p>逐笔成交数据的标志序列（买卖方向），66表示主动买入，83表示主动卖出</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">orderbook_times</span>
+                    <span class="parameter-type">(array_like)</span>
+                    <div><p>盘口快照数据的时间戳序列（纳秒时间戳）</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">orderbook_prices</span>
+                    <span class="parameter-type">(array_like)</span>
+                    <div><p>盘口快照数据的价格序列</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">orderbook_volumes</span>
+                    <span class="parameter-type">(array_like)</span>
+                    <div><p>盘口快照数据的挂单量序列</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">volume_percentile</span>
+                    <span class="parameter-type">(float, optional)</span>
+                    <div><p>异常大挂单量的百分位数阈值，默认为99.0（即前1%）</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">time_window_minutes</span>
+                    <span class="parameter-type">(float, optional)</span>
+                    <div><p>检查异常大挂单量的时间窗口（分钟），默认为1.0分钟</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">breakthrough_threshold</span>
+                    <span class="parameter-type">(float, optional)</span>
+                    <div><p>突破阈值（百分比），默认为0.0（即只要高于局部高点任何幅度都算突破） 例如：0.1表示需要高出局部高点0.1%才算突破</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">dedup_time_seconds</span>
+                    <span class="parameter-type">(float, optional)</span>
+                    <div><p>去重时间阈值（秒），默认为30.0。相同价格且时间间隔小于此值的局部高点将被视为重复</p></div>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div><hr />
+<p>tuple
+    包含9个列表的元组：
+    - 过程期间的成交量
+    - 局部高点价格在盘口上时间最近的挂单量
+    - 过程开始后指定时间窗口内的成交量
+    - 过程期间的主动买入成交量占比
+    - 过程期间的价格种类数
+    - 过程期间价格相对局部高点的最大下降比例
+    - 过程持续时间（秒）
+    - 过程开始时间（纳秒时间戳）
+    - 局部高点的价格</p>
+<p>Python调用示例：
+```python
+import numpy as np
+from rust_pyfunc import analyze_retreat_advance_v2</p>
+<h1>准备数据（纳秒时间戳）</h1>
+<p>trade_times = np.array([1661743800000000000, 1661743860000000000, 1661743920000000000], dtype=np.float64)
+trade_prices = np.array([10.0, 10.1, 10.2], dtype=np.float64)
+trade_volumes = np.array([100, 200, 150], dtype=np.float64)
+trade_flags = np.array([66, 66, 83], dtype=np.float64)</p>
+<p>orderbook_times = np.array([1661743800000000000, 1661743860000000000], dtype=np.float64)
+orderbook_prices = np.array([10.0, 10.1], dtype=np.float64)
+orderbook_volumes = np.array([1000, 5000], dtype=np.float64)</p>
+<h1>分析"以退为进"现象，使用2分钟时间窗口，0.1%突破阈值，60秒去重时间</h1>
+<p>results = analyze_retreat_advance_v2(
+    trade_times, trade_prices, trade_volumes, trade_flags,
+    orderbook_times, orderbook_prices, orderbook_volumes,
+    volume_percentile=95.0, time_window_minutes=2.0, breakthrough_threshold=0.1, dedup_time_seconds=60.0
+)</p>
+<p>process_volumes, large_volumes, time_window_volumes, buy_ratios, price_counts, max_declines, process_durations, process_start_times, peak_prices = results
+```</p></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import analyze_retreat_advance_v2
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

@@ -15,6 +15,38 @@
     "params": []
   },
   {
+    "name": "analyze_retreat_advance",
+    "description": "<p>分析股票交易中的\"以退为进\"现象</p>\n<p>该函数分析当价格触及某个局部高点后回落，然后在该价格的异常大挂单量消失后\n成功突破该价格的现象。</p>",
+    "params": [
+      "trade_times",
+      "trade_prices",
+      "trade_volumes",
+      "trade_flags",
+      "orderbook_times",
+      "orderbook_prices",
+      "orderbook_volumes",
+      "volume_percentile",
+      "time_window_minutes"
+    ]
+  },
+  {
+    "name": "analyze_retreat_advance_v2",
+    "description": "<p>分析股票交易中的\"以退为进\"现象（纳秒版本）</p>\n<p>该函数分析当价格触及某个局部高点后回落，然后在该价格的异常大挂单量消失后\n成功突破该价格的现象。该版本包含局部高点去重功能，避免在同一价格水平的\n连续成交中重复识别相同的\"以退为进\"过程。</p>",
+    "params": [
+      "trade_times",
+      "trade_prices",
+      "trade_volumes",
+      "trade_flags",
+      "orderbook_times",
+      "orderbook_prices",
+      "orderbook_volumes",
+      "volume_percentile",
+      "time_window_minutes",
+      "breakthrough_threshold",
+      "dedup_time_seconds"
+    ]
+  },
+  {
     "name": "brachistochrone_curve",
     "description": "<p>计算最速曲线（投掷线）并返回x_series对应的y坐标</p>",
     "params": [
