@@ -62,6 +62,8 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(sequence::brachistochrone_curve_v2, m)?)?;
     m.add_function(wrap_pyfunction!(statistics::dataframe_corrwith, m)?)?;
     m.add_function(wrap_pyfunction!(time_series::rolling_dtw_distance, m)?)?;
+    m.add_function(wrap_pyfunction!(sequence::segment_and_correlate, m)?)?;
+    m.add_function(wrap_pyfunction!(sequence::test_function, m)?)?;
     // m.add_function(wrap_pyfunction!(text::normalized_diff, m)?)?;
     Ok(())
 }

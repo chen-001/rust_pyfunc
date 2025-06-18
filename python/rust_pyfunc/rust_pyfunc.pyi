@@ -1691,3 +1691,45 @@ def super_find_half_extreme_time(times: NDArray[np.float64], prices: NDArray[np.
     >>> print(df)
     """
     ...
+
+def segment_and_correlate(
+    a: NDArray[np.float64],
+    b: NDArray[np.float64],
+    min_length: int = 10
+) -> Tuple[List[float], List[float]]:
+    """序列分段和相关系数计算函数
+    
+    输入两个等长的序列，根据大小关系进行分段，然后计算每段内的相关系数。
+    当a>b和b>a互相反超时会划分出新的段，只有长度大于等于min_length的段才会被计算。
+    
+    参数说明：
+    ----------
+    a : numpy.ndarray
+        第一个序列，类型为float64
+    b : numpy.ndarray  
+        第二个序列，类型为float64，必须与a等长
+    min_length : int, optional
+        最小段长度，默认为10。只有长度大于等于此值的段才会被计算
+        
+    返回值：
+    -------
+    tuple
+        返回一个元组(a_greater_corrs, b_greater_corrs)，其中：
+        - a_greater_corrs: a > b的段中的相关系数列表
+        - b_greater_corrs: b > a的段中的相关系数列表
+        
+    示例：
+    -------
+    >>> import numpy as np
+    >>> from rust_pyfunc import segment_and_correlate
+    >>> 
+    >>> # 创建测试序列
+    >>> a = np.array([1.0, 2.0, 3.0, 2.0, 1.0, 0.5, 1.5, 2.5, 3.5, 4.0, 3.0, 2.0, 1.0], dtype=np.float64)
+    >>> b = np.array([0.5, 1.5, 2.5, 3.0, 2.0, 1.0, 2.0, 3.0, 2.5, 3.5, 4.0, 3.5, 2.5], dtype=np.float64)
+    >>> 
+    >>> # 计算相关系数，最小段长度为5  
+    >>> a_greater_corrs, b_greater_corrs = segment_and_correlate(a, b, 5)
+    >>> print(f"a > b段的相关系数: {a_greater_corrs}")
+    >>> print(f"b > a段的相关系数: {b_greater_corrs}")
+    """
+    ...

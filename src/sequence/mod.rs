@@ -1553,4 +1553,141 @@ fn solve_theta_for_x_constrained(
     Ok(Some((low + high) / 2.0))
 }
 
+/// 序列分段和相关系数计算函数
+/// 
+/// 输入两个等长的序列，根据大小关系进行分段，然后计算每段内的相关系数
+/// 
+/// 参数说明：
+/// ----------
+/// a : numpy.ndarray
+///     第一个序列，类型为float64
+/// b : numpy.ndarray
+///     第二个序列，类型为float64，必须与a等长
+/// min_length : int, optional
+///     最小段长度，默认为10。只有长度大于等于此值的段才会被计算
+///
+/// 返回值：
+/// -------
+/// tuple
+///     返回一个元组(a_greater_corrs, b_greater_corrs)，其中：
+///     - a_greater_corrs: a > b的段中的相关系数列表
+///     - b_greater_corrs: b > a的段中的相关系数列表
+///
+/// Python调用示例：
+/// ```python
+/// import numpy as np
+/// from rust_pyfunc import segment_and_correlate
+///
+/// # 创建测试序列
+/// a = np.array([1.0, 2.0, 3.0, 2.0, 1.0, 0.5, 1.5, 2.5, 3.5, 4.0, 3.0, 2.0, 1.0], dtype=np.float64)
+/// b = np.array([0.5, 1.5, 2.5, 3.0, 2.0, 1.0, 2.0, 3.0, 2.5, 3.5, 4.0, 3.5, 2.5], dtype=np.float64)
+/// 
+/// # 计算相关系数，最小段长度为5
+/// a_greater_corrs, b_greater_corrs = segment_and_correlate(a, b, 5)
+/// print(f"a > b段的相关系数: {a_greater_corrs}")
+/// print(f"b > a段的相关系数: {b_greater_corrs}")
+/// ```
+#[pyfunction]
+#[pyo3(signature = (a, b, min_length=10))]
+pub fn segment_and_correlate(
+    a: PyReadonlyArray1<f64>,
+    b: PyReadonlyArray1<f64>,
+    min_length: usize,
+) -> PyResult<(Vec<f64>, Vec<f64>)> {
+    let a_view = a.as_array();
+    let b_view = b.as_array();
+    let n = a_view.len();
+    
+    if b_view.len() != n {
+        return Err(PyValueError::new_err("输入序列a和b的长度必须相等"));
+    }
+    
+    if n < 2 {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    
+    // 识别分段
+    let mut segments = Vec::new();
+    let mut current_start = 0;
+    let mut current_a_greater = a_view[0] > b_view[0];
+    
+    for i in 1..n {
+        let a_greater = a_view[i] > b_view[i];
+        
+        // 如果状态发生变化，结束当前段
+        if a_greater != current_a_greater {
+            if i - current_start >= min_length {
+                segments.push((current_start, i, current_a_greater));
+            }
+            current_start = i;
+            current_a_greater = a_greater;
+        }
+    }
+    
+    // 添加最后一段
+    if n - current_start >= min_length {
+        segments.push((current_start, n, current_a_greater));
+    }
+    
+    // 计算每段的相关系数
+    let mut a_greater_corrs = Vec::new();
+    let mut b_greater_corrs = Vec::new();
+    
+    for (start, end, a_greater) in segments {
+        // 提取段数据
+        let segment_a: Vec<f64> = a_view.slice(ndarray::s![start..end]).to_vec();
+        let segment_b: Vec<f64> = b_view.slice(ndarray::s![start..end]).to_vec();
+        
+        // 计算相关系数
+        if let Some(corr) = calculate_correlation(&segment_a, &segment_b) {
+            if a_greater {
+                a_greater_corrs.push(corr);
+            } else {
+                b_greater_corrs.push(corr);
+            }
+        }
+    }
+    
+    Ok((a_greater_corrs, b_greater_corrs))
+}
+
+/// 计算两个序列的皮尔逊相关系数
+fn calculate_correlation(x: &[f64], y: &[f64]) -> Option<f64> {
+    let n = x.len();
+    if n != y.len() || n < 2 {
+        return None;
+    }
+    
+    // 计算均值
+    let mean_x: f64 = x.iter().sum::<f64>() / n as f64;
+    let mean_y: f64 = y.iter().sum::<f64>() / n as f64;
+    
+    // 计算协方差和方差
+    let mut cov = 0.0;
+    let mut var_x = 0.0;
+    let mut var_y = 0.0;
+    
+    for i in 0..n {
+        let dx = x[i] - mean_x;
+        let dy = y[i] - mean_y;
+        cov += dx * dy;
+        var_x += dx * dx;
+        var_y += dy * dy;
+    }
+    
+    // 计算相关系数
+    let denominator = (var_x * var_y).sqrt();
+    if denominator == 0.0 {
+        return None;
+    }
+    
+    Some(cov / denominator)
+}
+
+/// 简单测试函数，确保模块导出正常工作
+#[pyfunction]
+pub fn test_function() -> PyResult<String> {
+    Ok("Hello from Rust!".to_string())
+}
+
 

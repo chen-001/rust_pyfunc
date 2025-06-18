@@ -20,20 +20,14 @@ A high-performance Python library implementing computationally intensive algorit
 ### Build and Development
 ```bash
 # Primary development command - builds Rust and installs Python package
-maturin develop --release
+cd /home/chenzongwei/pythoncode/rust_pyfunc && maturin develop --release
 ```
 增加新函数后，要在rust_pyfunc.pyi中添加函数声明
 
 
 
 ### Testing
-```bash
-# Run individual test files (no unified test framework)
-python tests/simple_performance_test.py
-python tests/test_dtw_optimization.py
-python tests/test_corrwith_performance.py
-python tests/full_performance_test.py
-```
+生成测试文件时，不要直接生成在rust_pyfunc文件夹下，而是存储在tests文件夹中。
 
 ### Documentation
 ```bash
