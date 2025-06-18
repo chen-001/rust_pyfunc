@@ -298,6 +298,15 @@
     ]
   },
   {
+    "name": "segment_and_correlate",
+    "description": "<p>序列分段和相关系数计算函数</p>\n<p>输入两个等长的序列，根据大小关系进行分段，然后计算每段内的相关系数</p>",
+    "params": [
+      "a",
+      "b",
+      "min_length"
+    ]
+  },
+  {
     "name": "sum_as_string",
     "description": "<p>Formats the sum of two numbers as string.</p>",
     "params": []
@@ -310,6 +319,11 @@
   {
     "name": "super_find_half_extreme_time",
     "description": "<p>计算半极端时间的超级优化版本</p>\n<p>与fast_find_half_extreme_time相比，该函数引入了以下额外优化：\n1. SIMD加速 - 利用向量化操作加速计算\n2. 高级缓存优化 - 通过预计算和数据布局进一步提高缓存命中率\n3. 直接内存操作 - 减少边界检查和间接访问\n4. 预先筛选 - 先过滤掉不可能的时间范围\n5. 多线程并行 - 在可能的情况下使用并行计算</p>",
+    "params": []
+  },
+  {
+    "name": "test_function",
+    "description": "<p>简单测试函数，确保模块导出正常工作</p>",
     "params": []
   },
   {
