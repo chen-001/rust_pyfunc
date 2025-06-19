@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>jaccard_similarity - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>jaccard_similarity</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>计算两个句子之间的Jaccard相似度。
+Jaccard相似度是两个集合交集大小除以并集大小，用于衡量两个句子的相似程度。
+这里将每个句子视为单词集合，忽略单词出现的顺序和频率。</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>jaccard_similarity(str1, str2) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">sentence1</span>
+                    <span class="parameter-type">(str)</span>
+                    <div><p>第一个输入句子</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">sentence2</span>
+                    <span class="parameter-type">(str)</span>
+                    <div><p>第二个输入句子</p></div>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div><hr />
+<p>float
+    返回两个句子的Jaccard相似度，范围在[0, 1]之间：
+    - 1表示两个句子完全相同（包含相同的单词集合）
+    - 0表示两个句子完全不同（没有共同单词）
+    - 中间值表示部分相似</p>
+<p>Python调用示例：
+```python
+from rust_pyfunc import jaccard_similarity</p>
+<h1>测试完全相同的句子</h1>
+<p>s1 = "The quick brown fox"
+s2 = "The quick brown fox"
+sim1 = jaccard_similarity(s1, s2)
+print(f"完全相同的句子相似度: {sim1}")  # 输出: 1.0</p>
+<h1>测试部分相同的句子</h1>
+<p>s3 = "The lazy brown dog"
+sim2 = jaccard_similarity(s1, s3)
+print(f"部分相同的句子相似度: {sim2}")  # 输出: 0.4 (2个共同词 / 5个不同词)</p>
+<h1>测试完全不同的句子</h1>
+<p>s4 = "Hello world example"
+sim3 = jaccard_similarity(s1, s4)
+print(f"完全不同的句子相似度: {sim3}")  # 输出: 0.0</p>
+<h1>注意：结果会忽略大小写和标点符号</h1>
+<p>s5 = "THE QUICK BROWN FOX!"
+sim4 = jaccard_similarity(s1, s5)
+print(f"大小写不同的相似度: {sim4}")  # 输出: 1.0
+```</p></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                
+                <div class="example">
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>jaccard_similarity(
+                                &#34;机器学习算法&#34;, 
+                            
+                                &#34;深度学习算法&#34;
+                            )</code>
+                    </div>
+                    
+                    
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">0.0</code>
+                    </div>
+                    
+                </div>
+                
+                <div class="example">
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>jaccard_similarity(
+                                &#34;Python编程&#34;, 
+                            
+                                &#34;Python编程语言&#34;
+                            )</code>
+                    </div>
+                    
+                    
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">0.0</code>
+                    </div>
+                    
+                </div>
+                
+                <div class="example">
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>jaccard_similarity(
+                                &#34;完全不同的句子&#34;, 
+                            
+                                &#34;毫无共同点的文本&#34;
+                            )</code>
+                    </div>
+                    
+                    
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">0.0</code>
+                    </div>
+                    
+                </div>
+                
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import jaccard_similarity
+
+# 使用示例
+
+
+result = jaccard_similarity(&#34;机器学习算法&#34;, &#34;深度学习算法&#34;)
+print(f"结果: {result}")
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

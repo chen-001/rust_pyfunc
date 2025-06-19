@@ -1,0 +1,275 @@
+[
+  {
+    "name": "PriceTree",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "PriceTreeViz",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "RollingFutureAccessor",
+    "description": "<p>用于在pandas DataFrame或Series上实现向后滚动窗口计算的访问器。</p>\n<h2>支持的统计量类型：</h2>\n<ul>\n<li>mean: 计算后面窗口内的均值</li>\n<li>sum: 计算后面窗口内的总和</li>\n<li>max: 计算后面窗口内的最大值</li>\n<li>min: 计算后面窗口内的最小值</li>\n<li>std: 计算后面窗口内的标准差</li>\n<li>median: 计算后面窗口内的中位数</li>\n<li>count: 计算后面窗口内的数据点数量</li>\n<li>rank: 计算当前值在后面窗口内的分位数（0到1之间）</li>\n<li>skew: 计算后面窗口的偏度</li>\n<li>trend_time: 计算后面窗口内数据序列与时间序列的相关系数</li>\n<li>trend_oneton: 计算后面窗口内数据序列与1到n序列的相关系数（忽略时间间隔）</li>\n<li>last: 计算后面窗口内的最后一个值</li>\n</ul>\n<p>注意：所有计算都不包括当前时间点的值，只考虑后面窗口内的值</p>\n<h2>使用方法：</h2>\n<blockquote>\n<blockquote>\n<blockquote>\n<p>import pandas as pd\nfrom rust_pyfunc import rolling_future</p>\n<h1>DataFrame示例</h1>\n<p>df = pd.DataFrame({\n...     'time': pd.date_range('2024-01-01', periods=5, freq='s'),\n...     'value': [1, 2, 3, 4, 5]\n... })\ndf.set_index('time', inplace=True)\ndf.rolling_future('2s').mean()  # 计算每个时间点之后2秒内的均值\ndf.rolling_future('2s').rank()  # 计算每个值在后面2秒内的分位数</p>\n<h1>Series示例</h1>\n<p>s = pd.Series([1, 2, 3, 4, 5], \n...               index=pd.date_range('2024-01-01', periods=5, freq='s'))\ns.rolling_future('2s').mean()  # 计算每个时间点之后2秒内的均值\ns.rolling_future('2s').trend_time()  # 计算后面2秒内的趋势</p>\n</blockquote>\n</blockquote>\n</blockquote>",
+    "params": []
+  },
+  {
+    "name": "brachistochrone_curve",
+    "description": "<p>计算最速曲线（投掷线）并返回x_series对应的y坐标</p>",
+    "params": [
+      "x1",
+      "y1",
+      "x2",
+      "y2",
+      "x_series",
+      "timeout_seconds"
+    ]
+  },
+  {
+    "name": "calculate_shannon_entropy_change",
+    "description": "<p>计算价格变化后的香农熵变</p>",
+    "params": [
+      "exchtime",
+      "order",
+      "volume",
+      "price",
+      "window_seconds",
+      "top_k"
+    ]
+  },
+  {
+    "name": "calculate_shannon_entropy_change_at_low",
+    "description": "<p>在价格创新低时计算香农熵变</p>\n<p>参数:\n* exchtime: 交易时间数组\n* order: 订单号数组\n* volume: 成交量数组\n* price: 价格数组\n* window_seconds: 时间窗口大小（秒）\n* bottom_k: 如果提供，则只计算价格最低的k个点的熵变，默认为None（计算所有价格创新低点）</p>\n<p>返回:\n* 香农熵变数组，只在价格创新低时有值，其他位置为NaN</p>",
+    "params": []
+  },
+  {
+    "name": "compute_max_eigenvalue",
+    "description": "<p>计算二维方阵的最大特征值和对应的特征向量\n使用幂迭代法计算，不使用并行计算</p>",
+    "params": [
+      "matrix"
+    ]
+  },
+  {
+    "name": "dtw_distance",
+    "description": "<p>DTW（动态时间规整）是一种测量两个时间序列相似度的方法。\n该算法计算两个可能长度不同、tempo不同的时间序列间的最优匹配。</p>",
+    "params": [
+      "s1",
+      "s2",
+      "radius",
+      "timeout_seconds"
+    ]
+  },
+  {
+    "name": "find_follow_volume_sum_same_price",
+    "description": "<p>计算每一行在其后0.1秒内具有相同price和volume的行的volume总和。</p>",
+    "params": [
+      "times",
+      "prices",
+      "volumes"
+    ]
+  },
+  {
+    "name": "find_follow_volume_sum_same_price_and_flag",
+    "description": "<p>计算每一行在其后time_window秒内具有相同flag、price和volume的行的volume总和。</p>",
+    "params": [
+      "times",
+      "prices",
+      "volumes",
+      "flags",
+      "time_window"
+    ]
+  },
+  {
+    "name": "find_half_energy_time",
+    "description": "<p>计算每一行在其后指定时间窗口内的价格变动能量，并找出首次达到最终能量一半时所需的时间。</p>",
+    "params": [
+      "times",
+      "prices",
+      "time_window"
+    ]
+  },
+  {
+    "name": "find_local_peaks_within_window",
+    "description": "<p>查找时间序列中价格在指定时间窗口内为局部最大值的点。</p>",
+    "params": [
+      "times",
+      "prices",
+      "window"
+    ]
+  },
+  {
+    "name": "find_max_range_product",
+    "description": "<p>在数组中找到一对索引(x, y)，使得min(arr[x], arr[y]) * |x-y|的值最大。\n这个函数可以用来找到数组中距离最远的两个元素，同时考虑它们的最小值。</p>",
+    "params": [
+      "arr"
+    ]
+  },
+  {
+    "name": "identify_segments",
+    "description": "<p>识别数组中的连续相等值段，并为每个段分配唯一标识符。\n每个连续相等的值构成一个段，第一个段标识符为1，第二个为2，以此类推。</p>",
+    "params": [
+      "arr"
+    ]
+  },
+  {
+    "name": "jaccard_similarity",
+    "description": "<p>计算两个句子之间的Jaccard相似度。\nJaccard相似度是两个集合交集大小除以并集大小，用于衡量两个句子的相似程度。\n这里将每个句子视为单词集合，忽略单词出现的顺序和频率。</p>",
+    "params": [
+      "sentence1",
+      "sentence2"
+    ]
+  },
+  {
+    "name": "mark_follow_groups",
+    "description": "<p>标记每一行在其后0.1秒内具有相同price和volume的行组。\n对于同一个时间窗口内的相同交易组，标记相同的组号。\n组号从1开始递增，每遇到一个新的交易组就分配一个新的组号。</p>",
+    "params": [
+      "times",
+      "prices",
+      "volumes",
+      "time_window"
+    ]
+  },
+  {
+    "name": "mark_follow_groups_with_flag",
+    "description": "<p>标记每一行在其后time_window秒内具有相同flag、price和volume的行组。\n对于同一个时间窗口内的相同交易组，标记相同的组号。\n组号从1开始递增，每遇到一个新的交易组就分配一个新的组号。</p>",
+    "params": [
+      "times",
+      "prices",
+      "volumes",
+      "flags",
+      "time_window"
+    ]
+  },
+  {
+    "name": "max_range_loop",
+    "description": "<p>计算序列中每个位置结尾的最长连续子序列长度，其中子序列的最大值在该位置。</p>",
+    "params": [
+      "s",
+      "allow_equal"
+    ]
+  },
+  {
+    "name": "min_range_loop",
+    "description": "<p>计算序列中每个位置结尾的最长连续子序列长度，其中子序列的最小值在该位置。</p>",
+    "params": [
+      "s",
+      "allow_equal"
+    ]
+  },
+  {
+    "name": "min_word_edit_distance",
+    "description": "<p>计算将一个句子转换为另一个句子所需的最少单词操作次数（添加/删除）。</p>\n<h1>参数</h1>\n<ul>\n<li><code>str1</code> - 源句子</li>\n<li><code>str2</code> - 目标句子</li>\n</ul>\n<h1>示例</h1>\n<p>```python\nfrom rust_pyfunc import min_word_edit_distance</p>\n<h1>示例1：添加一个单词</h1>\n<p>da = \"We expect demand to increase\"\ndb = \"We expect worldwide demand to increase\"\nprint(min_word_edit_distance(da, db))  # 输出: 1 (添加 \"worldwide\")</p>\n<h1>示例2：多次修改</h1>\n<p>dc = \"We expect weakness in sales\"\nprint(min_word_edit_distance(da, dc))  # 输出: 6 (删除3个单词，添加3个单词)\n```</p>",
+    "params": []
+  },
+  {
+    "name": "ols",
+    "description": "<p>普通最小二乘(OLS)回归。\n用于拟合线性回归模型 y = Xβ + ε，其中β是要估计的回归系数。</p>",
+    "params": [
+      "x",
+      "y",
+      "calculate_r2"
+    ]
+  },
+  {
+    "name": "ols_predict",
+    "description": "<p>使用已有数据和响应变量，对新的数据点进行OLS线性回归预测。</p>",
+    "params": [
+      "x",
+      "y",
+      "x_pred"
+    ]
+  },
+  {
+    "name": "ols_residuals",
+    "description": "<p>计算普通最小二乘(OLS)回归的残差序列。\n残差表示实际观测值与模型预测值之间的差异: ε = y - Xβ。</p>",
+    "params": [
+      "x",
+      "y"
+    ]
+  },
+  {
+    "name": "rolling_cv",
+    "description": "<p>计算价格序列的滚动变异系数(CV)。</p>\n<p>对于位置i，从数据范围[i-lookback+1, i]中每隔interval个点取样，\n然后计算相邻样本之间的对数收益率（后面的价格除以前面的价格的对数），\n最后计算这些收益率的变异系数（标准差除以均值）。</p>",
+    "params": [
+      "values",
+      "lookback",
+      "interval",
+      "min_periods"
+    ]
+  },
+  {
+    "name": "rolling_qcv",
+    "description": "<p>计算价格序列的滚动四分位变异系数(QCV)。</p>\n<p>对于位置i，从数据范围[i-lookback+1, i]中每隔interval个点取样，\n然后计算相邻样本之间的对数收益率（后面的价格除以前面的价格的对数），\n最后计算这些收益率的四分位变异系数（四分位间距除以中位数的绝对值）。\n这种方法对异常值和均值接近零的情况更加稳健。</p>",
+    "params": [
+      "values",
+      "lookback",
+      "interval",
+      "min_periods"
+    ]
+  },
+  {
+    "name": "rolling_volatility",
+    "description": "<p>计算价格序列的滚动波动率。</p>\n<p>对于位置i，从数据范围[i-lookback+1, i]中每隔interval个点取样，\n然后计算相邻样本之间的对数收益率（后面的价格除以前面的价格的对数），\n最后计算这些收益率的标准差作为波动率。</p>",
+    "params": [
+      "prices",
+      "lookback",
+      "interval",
+      "min_periods"
+    ]
+  },
+  {
+    "name": "rolling_window_stat",
+    "description": "<p>计算时间序列在指定时间窗口内向后滚动的统计量。\n对于每个时间点，计算该点之后指定时间窗口内所有数据的指定统计量。</p>",
+    "params": [
+      "times",
+      "values",
+      "window",
+      "stat_type"
+    ]
+  },
+  {
+    "name": "sum_as_string",
+    "description": "<p>Formats the sum of two numbers as string.</p>",
+    "params": []
+  },
+  {
+    "name": "transfer_entropy",
+    "description": "<p>计算从序列x到序列y的转移熵（Transfer Entropy）。\n转移熵衡量了一个时间序列对另一个时间序列的影响程度，是一种非线性的因果关系度量。\n具体来说，它测量了在已知x的过去k个状态的情况下，对y的当前状态预测能力的提升程度。</p>",
+    "params": [
+      "x_",
+      "y_",
+      "k",
+      "c"
+    ]
+  },
+  {
+    "name": "trend",
+    "description": "<p>计算输入数组与自然数序列(1, 2, ..., n)之间的皮尔逊相关系数。\n这个函数可以用来判断一个序列的趋势性，如果返回值接近1表示强上升趋势，接近-1表示强下降趋势。</p>",
+    "params": [
+      "arr"
+    ]
+  },
+  {
+    "name": "trend_fast",
+    "description": "<p>这是trend函数的高性能版本，专门用于处理numpy.ndarray类型的float64数组。\n使用了显式的SIMD指令和缓存优化处理，比普通版本更快。</p>",
+    "params": [
+      "arr"
+    ]
+  },
+  {
+    "name": "vectorize_sentences",
+    "description": "<p>将两个句子转换为词频向量。\n生成的向量长度相同，等于两个句子中不同单词的总数。\n向量中的每个位置对应一个单词，值表示该单词在句子中出现的次数。</p>",
+    "params": [
+      "sentence1",
+      "sentence2"
+    ]
+  },
+  {
+    "name": "vectorize_sentences_list",
+    "description": "<p>将多个句子转换为词频向量列表。\n生成的所有向量长度相同，等于所有句子中不同单词的总数。\n每个向量中的每个位置对应一个单词，值表示该单词在对应句子中出现的次数。</p>",
+    "params": [
+      "sentences"
+    ]
+  }
+]

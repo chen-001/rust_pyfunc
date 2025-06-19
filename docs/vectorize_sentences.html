@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>vectorize_sentences - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>vectorize_sentences</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>将两个句子转换为词频向量。
+生成的向量长度相同，等于两个句子中不同单词的总数。
+向量中的每个位置对应一个单词，值表示该单词在句子中出现的次数。</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>vectorize_sentences(sentence1, sentence2) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">sentence1</span>
+                    <span class="parameter-type">(str)</span>
+                    <div><p>第一个输入句子</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">sentence2</span>
+                    <span class="parameter-type">(str)</span>
+                    <div><p>第二个输入句子</p></div>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div><hr />
+<p>tuple
+    返回一个元组(vector1, vector2)，其中：
+    - vector1: 第一个句子的词频向量
+    - vector2: 第二个句子的词频向量
+    两个向量长度相同，每个位置对应词表中的一个单词</p>
+<p>Python调用示例：
+```python
+from rust_pyfunc import vectorize_sentences</p>
+<h1>准备两个测试句子</h1>
+<p>s1 = "The quick brown fox"
+s2 = "The lazy brown dog"</p>
+<h1>转换为词频向量</h1>
+<p>v1, v2 = vectorize_sentences(s1, s2)
+print(f"句子1的词频向量: {v1}")  # 例如：[1, 1, 1, 1, 0]
+print(f"句子2的词频向量: {v2}")  # 例如：[1, 0, 1, 0, 1]</p>
+<h1>解释结果：</h1>
+<h1>假设合并的词表为 ["brown", "fox", "quick", "the", "lazy"]</h1>
+<h1>v1 = [1, 1, 1, 1, 0] 表示 brown, fox, quick, the 各出现一次，lazy未出现</h1>
+<h1>v2 = [1, 0, 0, 1, 1] 表示 brown, the, lazy 各出现一次，fox和quick未出现</h1>
+<p>```</p></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                
+                <div class="example">
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>vectorize_sentences(
+                                &#34;这是第一个句子&#34;, 
+                            
+                                &#34;这是第二个句子&#34;
+                            )</code>
+                    </div>
+                    
+                    
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">([0, 1], [1, 0])</code>
+                    </div>
+                    
+                </div>
+                
+                <div class="example">
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>vectorize_sentences(
+                                &#34;机器学习很有趣&#34;, 
+                            
+                                &#34;深度学习也很有趣&#34;
+                            )</code>
+                    </div>
+                    
+                    
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">([1, 0], [0, 1])</code>
+                    </div>
+                    
+                </div>
+                
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import vectorize_sentences
+
+# 使用示例
+
+
+result = vectorize_sentences(&#34;这是第一个句子&#34;, &#34;这是第二个句子&#34;)
+print(f"结果: {result}")
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

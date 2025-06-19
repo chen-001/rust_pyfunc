@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ols_predict - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>ols_predict</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>使用已有数据和响应变量，对新的数据点进行OLS线性回归预测。</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>ols_predict(x, y, x_pred) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">x</span>
+                    <span class="parameter-type">(numpy.ndarray)</span>
+                    <div><p>原始设计矩阵，形状为(n_samples, n_features)</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">y</span>
+                    <span class="parameter-type">(numpy.ndarray)</span>
+                    <div><p>原始响应变量，形状为(n_samples,)</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">x_pred</span>
+                    <span class="parameter-type">(numpy.ndarray)</span>
+                    <div><p>需要预测的新数据点，形状为(m_samples, n_features)</p></div>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div><hr />
+<p>numpy.ndarray
+    预测值，形状为(m_samples,)</p>
+<p>Python调用示例：
+```python
+import numpy as np
+from rust_pyfunc import ols_predict</p>
+<h1>准备训练数据</h1>
+<p>X_train = np.array([[1, 1], [1, 2], [1, 3]], dtype=np.float64)
+y_train = np.array([2, 4, 6], dtype=np.float64)</p>
+<h1>准备预测数据</h1>
+<p>X_pred = np.array([[1, 4], [1, 5]], dtype=np.float64)</p>
+<h1>进行预测</h1>
+<p>predictions = ols_predict(X_train, y_train, X_pred)
+print(f"预测值: {predictions}")  # 预期输出接近[8, 10]
+```</p></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                
+                <div class="example">
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>ols_predict(
+                                np.array([[1.0, 1.0], [1.0, 2.0], [1.0, 3.0]]), 
+                            
+                                np.array([2.0, 3.0, 4.0]), 
+                            
+                                np.array([[1.0, 4.0], [1.0, 5.0]])
+                            )</code>
+                    </div>
+                    
+                    
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">array([nan, nan], dtype=float64)</code>
+                    </div>
+                    
+                </div>
+                
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import ols_predict
+
+# 使用示例
+
+
+result = ols_predict(np.array([[1.0, 1.0], [1.0, 2.0], [1.0, 3.0]]), np.array([2.0, 3.0, 4.0]), np.array([[1.0, 4.0], [1.0, 5.0]]))
+print(f"结果: {result}")
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

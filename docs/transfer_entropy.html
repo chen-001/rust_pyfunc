@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>transfer_entropy - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>transfer_entropy</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>计算从序列x到序列y的转移熵（Transfer Entropy）。
+转移熵衡量了一个时间序列对另一个时间序列的影响程度，是一种非线性的因果关系度量。
+具体来说，它测量了在已知x的过去k个状态的情况下，对y的当前状态预测能力的提升程度。</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>transfer_entropy(x_, y_, k, c) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">x_</span>
+                    <span class="parameter-type">(array_like)</span>
+                    <div><p>源序列，用于预测目标序列</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">y_</span>
+                    <span class="parameter-type">(array_like)</span>
+                    <div><p>目标序列，我们要预测的序列</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">k</span>
+                    <span class="parameter-type">(int)</span>
+                    <div><p>历史长度，考虑过去k个时间步的状态</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">c</span>
+                    <span class="parameter-type">(int)</span>
+                    <div><p>离散化的类别数，将连续值离散化为c个等级</p></div>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div><hr />
+<p>float
+    从x到y的转移熵值。值越大表示x对y的影响越大。</p>
+<p>Python调用示例：
+```python
+import numpy as np
+from rust_pyfunc import transfer_entropy</p>
+<h1>创建两个相关的时间序列</h1>
+<p>x = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0])
+y = np.array([0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0])  # y比x滞后一个时间步</p>
+<h1>计算转移熵</h1>
+<p>k = 2  # 考虑过去2个时间步
+c = 4  # 将数据离散化为4个等级
+te = transfer_entropy(x, y, k, c)
+print(f"从x到y的转移熵: {te}")  # 应该得到一个正值，表示x确实影响y</p>
+<h1>反向计算</h1>
+<p>te_reverse = transfer_entropy(y, x, k, c)
+print(f"从y到x的转移熵: {te_reverse}")  # 应该比te小，因为y不影响x
+```</p></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                
+                <div class="example">
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>transfer_entropy(
+                                [1.0, 2.0, 3.0, 4.0, 5.0], 
+                            
+                                [1.5, 2.5, 3.5, 4.5, 5.5], 
+                            
+                                2, 
+                            
+                                3
+                            )</code>
+                    </div>
+                    
+                    
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">-inf</code>
+                    </div>
+                    
+                </div>
+                
+                <div class="example">
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>transfer_entropy(
+                                [1.0, 2.0, 3.0, 4.0, 5.0], 
+                            
+                                [5.0, 4.0, 3.0, 2.0, 1.0], 
+                            
+                                2, 
+                            
+                                3
+                            )</code>
+                    </div>
+                    
+                    
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">0.0</code>
+                    </div>
+                    
+                </div>
+                
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import transfer_entropy
+
+# 使用示例
+
+
+result = transfer_entropy([1.0, 2.0, 3.0, 4.0, 5.0], [1.5, 2.5, 3.5, 4.5, 5.5], 2, 3)
+print(f"结果: {result}")
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

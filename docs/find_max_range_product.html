@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>find_max_range_product - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>find_max_range_product</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>在数组中找到一对索引(x, y)，使得min(arr[x], arr[y]) * |x-y|的值最大。
+这个函数可以用来找到数组中距离最远的两个元素，同时考虑它们的最小值。</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>find_max_range_product(arr) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">arr</span>
+                    <span class="parameter-type">(numpy.ndarray)</span>
+                    <div><p>输入数组，类型为float64</p></div>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div><hr />
+<p>tuple
+    返回一个元组(x, y, max_product)，其中x和y是使得乘积最大的索引对，max_product是最大乘积</p>
+<p>Python调用示例：
+```python
+import numpy as np
+from rust_pyfunc import find_max_range_product</p>
+<h1>创建测试数组</h1>
+<p>arr = np.array([4.0, 2.0, 1.0, 3.0], dtype=np.float64)
+x, y, max_product = find_max_range_product(arr)</p>
+<p>print(f"最大乘积出现在索引 {x} 和 {y}")
+print(f"对应的值为 {arr[x]} 和 {arr[y]}")
+print(f"最大乘积为: {max_product}")</p>
+<h1>例如，如果x=0, y=3那么：</h1>
+<h1>min(arr[0], arr[3]) * |0-3| = min(4.0, 3.0) * 3 = 3.0 * 3 = 9.0</h1>
+<p>```</p></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                
+                <div class="example">
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>find_max_range_product(
+                                np.array([3.0, 1.0, 6.0, 4.0, 2.0, 8.0])
+                            )</code>
+                    </div>
+                    
+                    
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">(2, 5, 18.0)</code>
+                    </div>
+                    
+                </div>
+                
+                <div class="example">
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>find_max_range_product(
+                                np.array([10.0, 8.0, 6.0, 4.0, 2.0])
+                            )</code>
+                    </div>
+                    
+                    
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">(0, 3, 12.0)</code>
+                    </div>
+                    
+                </div>
+                
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import find_max_range_product
+
+# 使用示例
+
+
+result = find_max_range_product(np.array([3.0, 1.0, 6.0, 4.0, 2.0, 8.0]))
+print(f"结果: {result}")
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>
