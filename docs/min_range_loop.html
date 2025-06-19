@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>min_range_loop - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>min_range_loop</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>计算序列中每个位置结尾的最长连续子序列长度，其中子序列的最小值在该位置。</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>min_range_loop(s, allow_equal) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">s</span>
+                    <span class="parameter-type">(array_like)</span>
+                    <div><p>输入序列，一个数值列表</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">allow_equal</span>
+                    <span class="parameter-type">(bool, 默认为False)</span>
+                    <div><p>是否允许相等。如果为True，则当前位置的值小于前面的值时计入长度； 如果为False，则当前位置的值小于等于前面的值时计入长度。</p></div>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div><hr />
+<p>list
+    与输入序列等长的整数列表，每个元素表示以该位置结尾且最小值在该位置的最长连续子序列长度</p>
+<p>Python调用示例：
+```python
+from rust_pyfunc import min_range_loop</p>
+<h1>测试序列</h1>
+<p>seq = [1.0, 2.0, 3.0, 2.0, 1.0]</p>
+<h1>计算最小值范围（不允许相等）</h1>
+<p>ranges = min_range_loop(seq, allow_equal=False)
+print(f"最小值范围: {ranges}")  # 输出: [1, 2, 3, 1, 5]</p>
+<h1>计算最小值范围（允许相等）</h1>
+<p>ranges = min_range_loop(seq, allow_equal=True)
+print(f"最小值范围: {ranges}")  # 输出可能不同
+```</p></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import min_range_loop
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

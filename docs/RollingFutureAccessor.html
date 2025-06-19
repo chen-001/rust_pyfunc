@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RollingFutureAccessor - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>RollingFutureAccessor</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>用于在pandas DataFrame或Series上实现向后滚动窗口计算的访问器。</p>
+<h2>支持的统计量类型：</h2>
+<ul>
+<li>mean: 计算后面窗口内的均值</li>
+<li>sum: 计算后面窗口内的总和</li>
+<li>max: 计算后面窗口内的最大值</li>
+<li>min: 计算后面窗口内的最小值</li>
+<li>std: 计算后面窗口内的标准差</li>
+<li>median: 计算后面窗口内的中位数</li>
+<li>count: 计算后面窗口内的数据点数量</li>
+<li>rank: 计算当前值在后面窗口内的分位数（0到1之间）</li>
+<li>skew: 计算后面窗口的偏度</li>
+<li>trend_time: 计算后面窗口内数据序列与时间序列的相关系数</li>
+<li>trend_oneton: 计算后面窗口内数据序列与1到n序列的相关系数（忽略时间间隔）</li>
+<li>last: 计算后面窗口内的最后一个值</li>
+</ul>
+<p>注意：所有计算都不包括当前时间点的值，只考虑后面窗口内的值</p>
+<h2>使用方法：</h2>
+<blockquote>
+<blockquote>
+<blockquote>
+<p>import pandas as pd
+from rust_pyfunc import rolling_future</p>
+<h1>DataFrame示例</h1>
+<p>df = pd.DataFrame({
+...     'time': pd.date_range('2024-01-01', periods=5, freq='s'),
+...     'value': [1, 2, 3, 4, 5]
+... })
+df.set_index('time', inplace=True)
+df.rolling_future('2s').mean()  # 计算每个时间点之后2秒内的均值
+df.rolling_future('2s').rank()  # 计算每个值在后面2秒内的分位数</p>
+<h1>Series示例</h1>
+<p>s = pd.Series([1, 2, 3, 4, 5], 
+...               index=pd.date_range('2024-01-01', periods=5, freq='s'))
+s.rolling_future('2s').mean()  # 计算每个时间点之后2秒内的均值
+s.rolling_future('2s').trend_time()  # 计算后面2秒内的趋势</p>
+</blockquote>
+</blockquote>
+</blockquote></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>RollingFutureAccessor(pandas_obj) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                <p>此函数没有参数</p>
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import RollingFutureAccessor
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

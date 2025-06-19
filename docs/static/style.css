@@ -1,0 +1,275 @@
+
+    body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        line-height: 1.6;
+        color: #333;
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+    
+    h1, h2, h3, h4 {
+        color: #0366d6;
+    }
+    
+    .container {
+        display: flex;
+        flex-wrap: wrap;
+    }
+    
+    .sidebar {
+        width: 250px;
+        padding-right: 20px;
+    }
+    
+    .content {
+        flex: 1;
+        min-width: 300px;
+    }
+    
+    .function-list {
+        list-style-type: none;
+        padding: 0;
+    }
+    
+    .function-list li {
+        margin-bottom: 8px;
+    }
+    
+    .function-list a {
+        text-decoration: none;
+        color: #0366d6;
+    }
+    
+    .function-list a:hover {
+        text-decoration: underline;
+    }
+    
+    .function-item {
+        border: 1px solid #e1e4e8;
+        border-radius: 6px;
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+    
+    .function-name {
+        margin-top: 0;
+    }
+    
+    .parameter {
+        margin-bottom: 10px;
+        padding: 10px;
+        background-color: #f8f9fa;
+        border-radius: 4px;
+    }
+    
+    .parameter-name {
+        font-weight: bold;
+        color: #0366d6;
+    }
+    
+    .parameter-type {
+        color: #6a737d;
+        font-style: italic;
+        margin-left: 5px;
+    }
+    
+    .example {
+        background-color: #f6f8fa;
+        padding: 16px;
+        border-radius: 6px;
+        margin-bottom: 16px;
+        border: 1px solid #e1e4e8;
+    }
+    
+    .example-input {
+        margin-bottom: 12px;
+    }
+    
+    .example-output {
+        margin-top: 12px;
+        padding: 8px;
+        background-color: #f0fff4;
+        border-radius: 4px;
+    }
+    
+    .output-value {
+        color: #28a745;
+        word-break: break-all;
+        white-space: pre-wrap;
+    }
+    
+    .error-message {
+        color: #cb2431;
+        padding: 8px;
+        background-color: #fff5f5;
+        border-radius: 4px;
+        word-break: break-all;
+        white-space: pre-wrap;
+    }
+    
+    .category {
+        margin-bottom: 30px;
+    }
+    
+    .category-title {
+        border-bottom: 1px solid #e1e4e8;
+        padding-bottom: 10px;
+    }
+    
+    code {
+        font-family: SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+        background-color: #f6f8fa;
+        padding: 2px 4px;
+        border-radius: 3px;
+        white-space: pre-wrap;
+    }
+    
+    pre code {
+        display: block;
+        padding: 16px;
+        overflow-x: auto;
+        line-height: 1.45;
+    }
+    
+    .navbar {
+        background-color: #24292e;
+        padding: 15px 20px;
+        margin-bottom: 20px;
+        border-radius: 6px;
+        position: relative;
+    }
+    
+    .navbar-title {
+        color: white;
+        font-size: 24px;
+        margin: 0;
+    }
+    
+    .navbar-subtitle {
+        color: #c8c9cb;
+        margin: 0;
+    }
+    
+    .signature {
+        margin-bottom: 20px;
+        padding: 12px;
+        background-color: #f6f8fa;
+        border-radius: 6px;
+        border-left: 4px solid #0366d6;
+    }
+    
+    .returns-section {
+        margin-top: 20px;
+        margin-bottom: 20px;
+        padding: 16px;
+        background-color: #f8f9fa;
+        border-radius: 6px;
+        border-left: 4px solid #28a745;
+    }
+    
+    .function-description {
+        border-left: 4px solid #0366d6;
+        padding-left: 16px;
+        margin-bottom: 24px;
+    }
+    
+    .search-container {
+        margin-bottom: 20px;
+        position: relative;
+    }
+    
+    #search-input {
+        width: 100%;
+        padding: 10px;
+        border: 1px solid #e1e4e8;
+        border-radius: 6px;
+        font-size: 16px;
+    }
+    
+    #search-results {
+        position: absolute;
+        width: 100%;
+        max-height: 300px;
+        overflow-y: auto;
+        background-color: white;
+        border: 1px solid #e1e4e8;
+        border-radius: 0 0 6px 6px;
+        z-index: 1000;
+        display: none;
+    }
+    
+    .search-result-item {
+        padding: 10px;
+        border-bottom: 1px solid #e1e4e8;
+        cursor: pointer;
+    }
+    
+    .search-result-item:hover {
+        background-color: #f6f8fa;
+    }
+    
+    .search-result-item:last-child {
+        border-bottom: none;
+    }
+    
+    .example-usage-note {
+        margin-top: 20px;
+        padding: 16px;
+        background-color: #f6f8fa;
+        border-radius: 6px;
+        border-left: 4px solid #f9c513;
+    }
+    
+    /* 增强markdown渲染样式 */
+    .function-description p, 
+    .function-parameters p, 
+    .function-returns p {
+        margin: 0.5em 0;
+    }
+    
+    .function-description ul, 
+    .function-parameters ul, 
+    .function-returns ul {
+        padding-left: 20px;
+    }
+    
+    .function-description code, 
+    .function-parameters code, 
+    .function-returns code {
+        background-color: #f0f0f0;
+        padding: 2px 4px;
+        border-radius: 3px;
+        font-family: monospace;
+    }
+    
+    .function-description pre, 
+    .function-parameters pre, 
+    .function-returns pre {
+        background-color: #f6f8fa;
+        padding: 10px;
+        border-radius: 4px;
+        overflow-x: auto;
+    }
+    
+    /* 格式化表格 */
+    table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 1em 0;
+    }
+    
+    th, td {
+        border: 1px solid #ddd;
+        padding: 8px;
+    }
+    
+    th {
+        background-color: #f2f2f2;
+        text-align: left;
+    }
+    
+    tr:nth-child(even) {
+        background-color: #f9f9f9;
+    }
+    

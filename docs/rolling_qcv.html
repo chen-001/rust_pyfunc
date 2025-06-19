@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>rolling_qcv - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>rolling_qcv</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>计算价格序列的滚动四分位变异系数(QCV)。</p>
+<p>对于位置i，从数据范围[i-lookback+1, i]中每隔interval个点取样，
+然后计算相邻样本之间的对数收益率（后面的价格除以前面的价格的对数），
+最后计算这些收益率的四分位变异系数（四分位间距除以中位数的绝对值）。
+这种方法对异常值和均值接近零的情况更加稳健。</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>rolling_qcv(values, lookback, interval, min_periods) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">values</span>
+                    <span class="parameter-type">(array_like)</span>
+                    <div><p>数值序列</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">lookback</span>
+                    <span class="parameter-type">(usize)</span>
+                    <div><p>表示回溯的数据范围长度，对于位置i，考虑[i-lookback+1, i]范围内的数据</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">interval</span>
+                    <span class="parameter-type">(usize)</span>
+                    <div><p>取样间隔，每隔interval个点取一个样本</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">min_periods</span>
+                    <span class="parameter-type">(usize, 可选)</span>
+                    <div><p>计算变异系数所需的最小样本数，默认为3（需要至少3个点才能计算有意义的IQR）</p></div>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div><hr />
+<p>array_like
+    与输入序列等长的四分位变异系数序列</p>
+<p>Python调用示例：
+```python
+import numpy as np
+from rust_pyfunc import rolling_qcv</p>
+<h1>创建数值序列</h1>
+<p>values = np.array([a1, a2, a3, a4, a5, a6, a7, a8, a9], dtype=np.float64)</p>
+<h1>计算滚动四分位变异系数，lookback=5, interval=1</h1>
+<p>qcv = rolling_qcv(values, 5, 1)
+```</p></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                
+                <div class="example">
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>rolling_qcv(
+                                np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]), 
+                            
+                                3, 
+                            
+                                1
+                            )</code>
+                    </div>
+                    
+                    
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">array([nan, nan, 0.5237, 0.3399, 0.2527, 0.2014, 0.1674, 0.1433, 0.1253, 0.1113], dtype=float64)</code>
+                    </div>
+                    
+                </div>
+                
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import rolling_qcv
+
+# 使用示例
+
+
+result = rolling_qcv(np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]), 3, 1)
+print(f"结果: {result}")
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

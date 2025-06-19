@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>calculate_shannon_entropy_change - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>calculate_shannon_entropy_change</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>计算价格变化后的香农熵变</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>calculate_shannon_entropy_change(exchtime, order, volume, price, window_seconds, top_k) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">exchtime</span>
+                    <span class="parameter-type">(numpy.ndarray)</span>
+                    <div><p>交易时间数组，纳秒时间戳，类型为float64</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">order</span>
+                    <span class="parameter-type">(numpy.ndarray)</span>
+                    <div><p>订单机构ID数组，类型为int64</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">volume</span>
+                    <span class="parameter-type">(numpy.ndarray)</span>
+                    <div><p>成交量数组，类型为float64</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">price</span>
+                    <span class="parameter-type">(numpy.ndarray)</span>
+                    <div><p>价格数组，类型为float64</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">window_seconds</span>
+                    <span class="parameter-type">(float)</span>
+                    <div><p>计算香农熵变的时间窗口，单位为秒</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">top_k</span>
+                    <span class="parameter-type">(Optional[int])</span>
+                    <div><p>如果提供，则只计算价格最高的k个点的熵变，默认为None（计算所有价格创新高点）</p></div>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div><hr />
+<p>numpy.ndarray
+    香农熵变数组，类型为float64。只在价格创新高时计算熵变，其他时刻为NaN。
+    熵变值表示在价格创新高时，从当前时刻到未来window_seconds时间窗口内，
+    交易分布的变化程度。正值表示分布变得更分散，负值表示分布变得更集中。</p>
+<h2>示例：</h2>
+<blockquote>
+<blockquote>
+<blockquote>
+<p>import numpy as np
+from rust_pyfunc import calculate_shannon_entropy_change</p>
+<h1>创建测试数据</h1>
+<p>exchtime = np.array([1e9, 2e9, 3e9, 4e9], dtype=np.float64)  # 时间戳（纳秒）
+order = np.array([100, 200, 300, 400], dtype=np.int64)  # 机构ID
+volume = np.array([10.0, 20.0, 30.0, 40.0], dtype=np.float64)
+price = np.array([100.0, 102.0, 101.0, 103.0], dtype=np.float64)</p>
+<h1>计算3秒窗口的香农熵变</h1>
+<p>entropy_changes = calculate_shannon_entropy_change(exchtime, order, volume, price, 3.0)
+print(entropy_changes)  # 只有价格为100.0、102.0和103.0的位置有非NaN值</p>
+</blockquote>
+</blockquote>
+</blockquote></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import calculate_shannon_entropy_change
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

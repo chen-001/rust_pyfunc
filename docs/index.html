@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h2>函数分类</h2>
+        <ul class="function-list">
+            <li><a href="#text">文本处理</a></li>
+            <li><a href="#sequence">序列分析</a></li>
+            <li><a href="#statistics">统计分析</a></li>
+            <li><a href="#time_series">时间序列</a></li>
+            <li><a href="#other">其他函数</a></li>
+        </ul>
+    </div>
+    
+    <div class="content">
+        <h1>API 文档</h1>
+        <p>本文档提供了Rust PyFunc库中所有公开函数的详细说明和使用示例。这些示例基于真实的Python运行结果生成。</p>
+        
+        <div id="text" class="category">
+            <h2 class="category-title">文本处理函数</h2>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="jaccard_similarity.html">jaccard_similarity</a></h3>
+                <div><p>计算两个句子之间的Jaccard相似度。
+Jaccard相似度是两个集合交集大小除以并集大小，用于衡量两个句子的相似程度。
+这里将每个句子视为单词集合，忽略单词出现的顺序和频率。</p></div>
+                <a href="jaccard_similarity.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="min_word_edit_distance.html">min_word_edit_distance</a></h3>
+                <div><p>计算将一个句子转换为另一个句子所需的最少单词操作次数（添加/删除）。</p>
+<h1>参数</h1>
+<ul>
+<li><code>str1</code> - 源句子</li>
+<li><code>str2</code> - 目标句子</li>
+</ul>
+<h1>示例</h1>
+<p>```python
+from rust_pyfunc import min_word_edit_distance</p>
+<h1>示例1：添加一个单词</h1>
+<p>da = "We expect demand to increase"
+db = "We expect worldwide demand to increase"
+print(min_word_edit_distance(da, db))  # 输出: 1 (添加 "worldwide")</p>
+<h1>示例2：多次修改</h1>
+<p>dc = "We expect weakness in sales"
+print(min_word_edit_distance(da, dc))  # 输出: 6 (删除3个单词，添加3个单词)
+```</p></div>
+                <a href="min_word_edit_distance.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="vectorize_sentences.html">vectorize_sentences</a></h3>
+                <div><p>将两个句子转换为词频向量。
+生成的向量长度相同，等于两个句子中不同单词的总数。
+向量中的每个位置对应一个单词，值表示该单词在句子中出现的次数。</p></div>
+                <a href="vectorize_sentences.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="vectorize_sentences_list.html">vectorize_sentences_list</a></h3>
+                <div><p>将多个句子转换为词频向量列表。
+生成的所有向量长度相同，等于所有句子中不同单词的总数。
+每个向量中的每个位置对应一个单词，值表示该单词在对应句子中出现的次数。</p></div>
+                <a href="vectorize_sentences_list.html">查看详情</a>
+            </div>
+            
+        </div>
+        
+        <div id="sequence" class="category">
+            <h2 class="category-title">序列分析函数</h2>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="compute_max_eigenvalue.html">compute_max_eigenvalue</a></h3>
+                <div><p>计算二维方阵的最大特征值和对应的特征向量
+使用幂迭代法计算，不使用并行计算</p></div>
+                <a href="compute_max_eigenvalue.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="find_follow_volume_sum_same_price.html">find_follow_volume_sum_same_price</a></h3>
+                <div><p>计算每一行在其后0.1秒内具有相同price和volume的行的volume总和。</p></div>
+                <a href="find_follow_volume_sum_same_price.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="find_follow_volume_sum_same_price_and_flag.html">find_follow_volume_sum_same_price_and_flag</a></h3>
+                <div><p>计算每一行在其后time_window秒内具有相同flag、price和volume的行的volume总和。</p></div>
+                <a href="find_follow_volume_sum_same_price_and_flag.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="find_half_energy_time.html">find_half_energy_time</a></h3>
+                <div><p>计算每一行在其后指定时间窗口内的价格变动能量，并找出首次达到最终能量一半时所需的时间。</p></div>
+                <a href="find_half_energy_time.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="find_local_peaks_within_window.html">find_local_peaks_within_window</a></h3>
+                <div><p>查找时间序列中价格在指定时间窗口内为局部最大值的点。</p></div>
+                <a href="find_local_peaks_within_window.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="find_max_range_product.html">find_max_range_product</a></h3>
+                <div><p>在数组中找到一对索引(x, y)，使得min(arr[x], arr[y]) * |x-y|的值最大。
+这个函数可以用来找到数组中距离最远的两个元素，同时考虑它们的最小值。</p></div>
+                <a href="find_max_range_product.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="identify_segments.html">identify_segments</a></h3>
+                <div><p>识别数组中的连续相等值段，并为每个段分配唯一标识符。
+每个连续相等的值构成一个段，第一个段标识符为1，第二个为2，以此类推。</p></div>
+                <a href="identify_segments.html">查看详情</a>
+            </div>
+            
+        </div>
+        
+        <div id="statistics" class="category">
+            <h2 class="category-title">统计分析函数</h2>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="PriceTree.html">PriceTree</a></h3>
+                <div><p>无文档</p></div>
+                <a href="PriceTree.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="PriceTreeViz.html">PriceTreeViz</a></h3>
+                <div><p>无文档</p></div>
+                <a href="PriceTreeViz.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="RollingFutureAccessor.html">RollingFutureAccessor</a></h3>
+                <div><p>用于在pandas DataFrame或Series上实现向后滚动窗口计算的访问器。</p>
+<h2>支持的统计量类型：</h2>
+<ul>
+<li>mean: 计算后面窗口内的均值</li>
+<li>sum: 计算后面窗口内的总和</li>
+<li>max: 计算后面窗口内的最大值</li>
+<li>min: 计算后面窗口内的最小值</li>
+<li>std: 计算后面窗口内的标准差</li>
+<li>median: 计算后面窗口内的中位数</li>
+<li>count: 计算后面窗口内的数据点数量</li>
+<li>rank: 计算当前值在后面窗口内的分位数（0到1之间）</li>
+<li>skew: 计算后面窗口的偏度</li>
+<li>trend_time: 计算后面窗口内数据序列与时间序列的相关系数</li>
+<li>trend_oneton: 计算后面窗口内数据序列与1到n序列的相关系数（忽略时间间隔）</li>
+<li>last: 计算后面窗口内的最后一个值</li>
+</ul>
+<p>注意：所有计算都不包括当前时间点的值，只考虑后面窗口内的值</p>
+<h2>使用方法：</h2>
+<blockquote>
+<blockquote>
+<blockquote>
+<p>import pandas as pd
+from rust_pyfunc import rolling_future</p>
+<h1>DataFrame示例</h1>
+<p>df = pd.DataFrame({
+...     'time': pd.date_range('2024-01-01', periods=5, freq='s'),
+...     'value': [1, 2, 3, 4, 5]
+... })
+df.set_index('time', inplace=True)
+df.rolling_future('2s').mean()  # 计算每个时间点之后2秒内的均值
+df.rolling_future('2s').rank()  # 计算每个值在后面2秒内的分位数</p>
+<h1>Series示例</h1>
+<p>s = pd.Series([1, 2, 3, 4, 5], 
+...               index=pd.date_range('2024-01-01', periods=5, freq='s'))
+s.rolling_future('2s').mean()  # 计算每个时间点之后2秒内的均值
+s.rolling_future('2s').trend_time()  # 计算后面2秒内的趋势</p>
+</blockquote>
+</blockquote>
+</blockquote></div>
+                <a href="RollingFutureAccessor.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="brachistochrone_curve.html">brachistochrone_curve</a></h3>
+                <div><p>计算最速曲线（投掷线）并返回x_series对应的y坐标</p></div>
+                <a href="brachistochrone_curve.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="calculate_shannon_entropy_change.html">calculate_shannon_entropy_change</a></h3>
+                <div><p>计算价格变化后的香农熵变</p></div>
+                <a href="calculate_shannon_entropy_change.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="calculate_shannon_entropy_change_at_low.html">calculate_shannon_entropy_change_at_low</a></h3>
+                <div><p>在价格创新低时计算香农熵变</p>
+<p>参数:
+* exchtime: 交易时间数组
+* order: 订单号数组
+* volume: 成交量数组
+* price: 价格数组
+* window_seconds: 时间窗口大小（秒）
+* bottom_k: 如果提供，则只计算价格最低的k个点的熵变，默认为None（计算所有价格创新低点）</p>
+<p>返回:
+* 香农熵变数组，只在价格创新低时有值，其他位置为NaN</p></div>
+                <a href="calculate_shannon_entropy_change_at_low.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="dtw_distance.html">dtw_distance</a></h3>
+                <div><p>DTW（动态时间规整）是一种测量两个时间序列相似度的方法。
+该算法计算两个可能长度不同、tempo不同的时间序列间的最优匹配。</p></div>
+                <a href="dtw_distance.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="mark_follow_groups.html">mark_follow_groups</a></h3>
+                <div><p>标记每一行在其后0.1秒内具有相同price和volume的行组。
+对于同一个时间窗口内的相同交易组，标记相同的组号。
+组号从1开始递增，每遇到一个新的交易组就分配一个新的组号。</p></div>
+                <a href="mark_follow_groups.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="mark_follow_groups_with_flag.html">mark_follow_groups_with_flag</a></h3>
+                <div><p>标记每一行在其后time_window秒内具有相同flag、price和volume的行组。
+对于同一个时间窗口内的相同交易组，标记相同的组号。
+组号从1开始递增，每遇到一个新的交易组就分配一个新的组号。</p></div>
+                <a href="mark_follow_groups_with_flag.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="max_range_loop.html">max_range_loop</a></h3>
+                <div><p>计算序列中每个位置结尾的最长连续子序列长度，其中子序列的最大值在该位置。</p></div>
+                <a href="max_range_loop.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="min_range_loop.html">min_range_loop</a></h3>
+                <div><p>计算序列中每个位置结尾的最长连续子序列长度，其中子序列的最小值在该位置。</p></div>
+                <a href="min_range_loop.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="ols.html">ols</a></h3>
+                <div><p>普通最小二乘(OLS)回归。
+用于拟合线性回归模型 y = Xβ + ε，其中β是要估计的回归系数。</p></div>
+                <a href="ols.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="ols_predict.html">ols_predict</a></h3>
+                <div><p>使用已有数据和响应变量，对新的数据点进行OLS线性回归预测。</p></div>
+                <a href="ols_predict.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="ols_residuals.html">ols_residuals</a></h3>
+                <div><p>计算普通最小二乘(OLS)回归的残差序列。
+残差表示实际观测值与模型预测值之间的差异: ε = y - Xβ。</p></div>
+                <a href="ols_residuals.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="rolling_cv.html">rolling_cv</a></h3>
+                <div><p>计算价格序列的滚动变异系数(CV)。</p>
+<p>对于位置i，从数据范围[i-lookback+1, i]中每隔interval个点取样，
+然后计算相邻样本之间的对数收益率（后面的价格除以前面的价格的对数），
+最后计算这些收益率的变异系数（标准差除以均值）。</p></div>
+                <a href="rolling_cv.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="rolling_qcv.html">rolling_qcv</a></h3>
+                <div><p>计算价格序列的滚动四分位变异系数(QCV)。</p>
+<p>对于位置i，从数据范围[i-lookback+1, i]中每隔interval个点取样，
+然后计算相邻样本之间的对数收益率（后面的价格除以前面的价格的对数），
+最后计算这些收益率的四分位变异系数（四分位间距除以中位数的绝对值）。
+这种方法对异常值和均值接近零的情况更加稳健。</p></div>
+                <a href="rolling_qcv.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="rolling_volatility.html">rolling_volatility</a></h3>
+                <div><p>计算价格序列的滚动波动率。</p>
+<p>对于位置i，从数据范围[i-lookback+1, i]中每隔interval个点取样，
+然后计算相邻样本之间的对数收益率（后面的价格除以前面的价格的对数），
+最后计算这些收益率的标准差作为波动率。</p></div>
+                <a href="rolling_volatility.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="rolling_window_stat.html">rolling_window_stat</a></h3>
+                <div><p>计算时间序列在指定时间窗口内向后滚动的统计量。
+对于每个时间点，计算该点之后指定时间窗口内所有数据的指定统计量。</p></div>
+                <a href="rolling_window_stat.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="sum_as_string.html">sum_as_string</a></h3>
+                <div><p>Formats the sum of two numbers as string.</p></div>
+                <a href="sum_as_string.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="transfer_entropy.html">transfer_entropy</a></h3>
+                <div><p>计算从序列x到序列y的转移熵（Transfer Entropy）。
+转移熵衡量了一个时间序列对另一个时间序列的影响程度，是一种非线性的因果关系度量。
+具体来说，它测量了在已知x的过去k个状态的情况下，对y的当前状态预测能力的提升程度。</p></div>
+                <a href="transfer_entropy.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="trend.html">trend</a></h3>
+                <div><p>计算输入数组与自然数序列(1, 2, ..., n)之间的皮尔逊相关系数。
+这个函数可以用来判断一个序列的趋势性，如果返回值接近1表示强上升趋势，接近-1表示强下降趋势。</p></div>
+                <a href="trend.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="trend_fast.html">trend_fast</a></h3>
+                <div><p>这是trend函数的高性能版本，专门用于处理numpy.ndarray类型的float64数组。
+使用了显式的SIMD指令和缓存优化处理，比普通版本更快。</p></div>
+                <a href="trend_fast.html">查看详情</a>
+            </div>
+            
+        </div>
+        
+        <div id="time_series" class="category">
+            <h2 class="category-title">时间序列函数</h2>
+            
+        </div>
+        
+        <div id="other" class="category">
+            <h2 class="category-title">其他函数</h2>
+            
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

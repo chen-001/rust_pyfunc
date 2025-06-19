@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    #vis.vega-embed {
+      width: 100%;
+      display: flex;
+    }
+
+    #vis.vega-embed details,
+    #vis.vega-embed details summary {
+      position: relative;
+    }
+  </style>
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/vega@5"></script>
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/vega-lite@5.20.1"></script>
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/vega-embed@6"></script>
+</head>
+<body>
+  <div id="vis"></div>
+  <script>
+    (function(vegaEmbed) {
+      var spec = {"config": {"view": {"continuousWidth": 300, "continuousHeight": 300}}, "vconcat": [{"data": {"name": "data-334acf284c6e1188e62988e50acd9c75"}, "mark": {"type": "line", "point": true}, "encoding": {"color": {"field": "\u7248\u672c", "title": "\u7248\u672c", "type": "nominal"}, "strokeDash": {"field": "\u7ea6\u675f", "title": "\u7ea6\u675f", "type": "nominal"}, "tooltip": [{"field": "\u5e8f\u5217\u957f\u5ea6", "type": "quantitative"}, {"field": "\u7248\u672c", "type": "nominal"}, {"field": "\u7ea6\u675f", "type": "nominal"}, {"field": "\u6267\u884c\u65f6\u95f4(\u79d2)", "type": "quantitative"}], "x": {"field": "\u5e8f\u5217\u957f\u5ea6", "title": "\u5e8f\u5217\u957f\u5ea6", "type": "quantitative"}, "y": {"field": "\u6267\u884c\u65f6\u95f4(\u79d2)", "title": "\u6267\u884c\u65f6\u95f4(\u79d2)", "type": "quantitative"}}, "height": 400, "name": "view_1", "title": "DTW\u8ddd\u79bb\u8ba1\u7b97\uff1a\u5e76\u884c\u4e0e\u4e32\u884c\u6027\u80fd\u6bd4\u8f83", "width": 600}, {"data": {"name": "data-0a0f5992529c6b573e2c14489fdf90b4"}, "mark": {"type": "line", "point": true}, "encoding": {"color": {"field": "\u7ea6\u675f", "title": "\u7ea6\u675f", "type": "nominal"}, "tooltip": [{"field": "\u5e8f\u5217\u957f\u5ea6", "type": "quantitative"}, {"field": "\u7ea6\u675f", "type": "nominal"}, {"field": "\u52a0\u901f\u6bd4", "type": "quantitative"}], "x": {"field": "\u5e8f\u5217\u957f\u5ea6", "title": "\u5e8f\u5217\u957f\u5ea6", "type": "quantitative"}, "y": {"field": "\u52a0\u901f\u6bd4", "title": "\u52a0\u901f\u6bd4(\u4e32\u884c\u65f6\u95f4/\u5e76\u884c\u65f6\u95f4)", "type": "quantitative"}}, "height": 400, "name": "view_2", "title": "DTW\u8ddd\u79bb\u8ba1\u7b97\uff1a\u5e76\u884c\u52a0\u901f\u6bd4", "width": 600}], "params": [{"name": "param_1", "select": {"type": "interval", "encodings": ["x", "y"]}, "bind": "scales", "views": ["view_1"]}, {"name": "param_2", "select": {"type": "interval", "encodings": ["x", "y"]}, "bind": "scales", "views": ["view_2"]}], "$schema": "https://vega.github.io/schema/vega-lite/v5.20.1.json", "datasets": {"data-334acf284c6e1188e62988e50acd9c75": [{"\u5e8f\u5217\u957f\u5ea6": 100, "\u7248\u672c": "\u5e76\u884c", "\u7ea6\u675f": "\u65e0\u7ea6\u675f", "\u6267\u884c\u65f6\u95f4(\u79d2)": 0.0072116851806640625}, {"\u5e8f\u5217\u957f\u5ea6": 100, "\u7248\u672c": "\u4e32\u884c", "\u7ea6\u675f": "\u65e0\u7ea6\u675f", "\u6267\u884c\u65f6\u95f4(\u79d2)": 0.0001442432403564453}, {"\u5e8f\u5217\u957f\u5ea6": 100, "\u7248\u672c": "\u5e76\u884c", "\u7ea6\u675f": "\u6709\u7ea6\u675f", "\u6267\u884c\u65f6\u95f4(\u79d2)": 0.004918098449707031}, {"\u5e8f\u5217\u957f\u5ea6": 100, "\u7248\u672c": "\u4e32\u884c", "\u7ea6\u675f": "\u6709\u7ea6\u675f", "\u6267\u884c\u65f6\u95f4(\u79d2)": 8.606910705566406e-05}, {"\u5e8f\u5217\u957f\u5ea6": 500, "\u7248\u672c": "\u5e76\u884c", "\u7ea6\u675f": "\u65e0\u7ea6\u675f", "\u6267\u884c\u65f6\u95f4(\u79d2)": 0.09598278999328613}, {"\u5e8f\u5217\u957f\u5ea6": 500, "\u7248\u672c": "\u4e32\u884c", "\u7ea6\u675f": "\u65e0\u7ea6\u675f", "\u6267\u884c\u65f6\u95f4(\u79d2)": 0.0021982192993164062}, {"\u5e8f\u5217\u957f\u5ea6": 500, "\u7248\u672c": "\u5e76\u884c", "\u7ea6\u675f": "\u6709\u7ea6\u675f", "\u6267\u884c\u65f6\u95f4(\u79d2)": 0.05337190628051758}, {"\u5e8f\u5217\u957f\u5ea6": 500, "\u7248\u672c": "\u4e32\u884c", "\u7ea6\u675f": "\u6709\u7ea6\u675f", "\u6267\u884c\u65f6\u95f4(\u79d2)": 0.0011403560638427734}, {"\u5e8f\u5217\u957f\u5ea6": 1000, "\u7248\u672c": "\u5e76\u884c", "\u7ea6\u675f": "\u65e0\u7ea6\u675f", "\u6267\u884c\u65f6\u95f4(\u79d2)": 0.29964327812194824}, {"\u5e8f\u5217\u957f\u5ea6": 1000, "\u7248\u672c": "\u4e32\u884c", "\u7ea6\u675f": "\u65e0\u7ea6\u675f", "\u6267\u884c\u65f6\u95f4(\u79d2)": 0.013281106948852539}, {"\u5e8f\u5217\u957f\u5ea6": 1000, "\u7248\u672c": "\u5e76\u884c", "\u7ea6\u675f": "\u6709\u7ea6\u675f", "\u6267\u884c\u65f6\u95f4(\u79d2)": 0.22678709030151367}, {"\u5e8f\u5217\u957f\u5ea6": 1000, "\u7248\u672c": "\u4e32\u884c", "\u7ea6\u675f": "\u6709\u7ea6\u675f", "\u6267\u884c\u65f6\u95f4(\u79d2)": 0.009498119354248047}, {"\u5e8f\u5217\u957f\u5ea6": 2000, "\u7248\u672c": "\u5e76\u884c", "\u7ea6\u675f": "\u65e0\u7ea6\u675f", "\u6267\u884c\u65f6\u95f4(\u79d2)": 1.2133233547210693}, {"\u5e8f\u5217\u957f\u5ea6": 2000, "\u7248\u672c": "\u4e32\u884c", "\u7ea6\u675f": "\u65e0\u7ea6\u675f", "\u6267\u884c\u65f6\u95f4(\u79d2)": 0.04770612716674805}, {"\u5e8f\u5217\u957f\u5ea6": 2000, "\u7248\u672c": "\u5e76\u884c", "\u7ea6\u675f": "\u6709\u7ea6\u675f", "\u6267\u884c\u65f6\u95f4(\u79d2)": 0.8578739166259766}, {"\u5e8f\u5217\u957f\u5ea6": 2000, "\u7248\u672c": "\u4e32\u884c", "\u7ea6\u675f": "\u6709\u7ea6\u675f", "\u6267\u884c\u65f6\u95f4(\u79d2)": 0.03123164176940918}], "data-0a0f5992529c6b573e2c14489fdf90b4": [{"\u5e8f\u5217\u957f\u5ea6": 100, "\u7ea6\u675f": "\u65e0\u7ea6\u675f", "\u52a0\u901f\u6bd4": 0.02000132240148109}, {"\u5e8f\u5217\u957f\u5ea6": 100, "\u7ea6\u675f": "\u6709\u7ea6\u675f", "\u52a0\u901f\u6bd4": 0.017500484777971687}, {"\u5e8f\u5217\u957f\u5ea6": 500, "\u7ea6\u675f": "\u65e0\u7ea6\u675f", "\u52a0\u901f\u6bd4": 0.022902223403488988}, {"\u5e8f\u5217\u957f\u5ea6": 500, "\u7ea6\u675f": "\u6709\u7ea6\u675f", "\u52a0\u901f\u6bd4": 0.021366223230798096}, {"\u5e8f\u5217\u957f\u5ea6": 1000, "\u7ea6\u675f": "\u65e0\u7ea6\u675f", "\u52a0\u901f\u6bd4": 0.044323059846673486}, {"\u5e8f\u5217\u957f\u5ea6": 1000, "\u7ea6\u675f": "\u6709\u7ea6\u675f", "\u52a0\u901f\u6bd4": 0.04188121705525781}, {"\u5e8f\u5217\u957f\u5ea6": 2000, "\u7ea6\u675f": "\u65e0\u7ea6\u675f", "\u52a0\u901f\u6bd4": 0.039318560036879203}, {"\u5e8f\u5217\u957f\u5ea6": 2000, "\u7ea6\u675f": "\u6709\u7ea6\u675f", "\u52a0\u901f\u6bd4": 0.03640586473621138}]}};
+      var embedOpt = {"mode": "vega-lite"};
+
+      function showError(el, error){
+          el.innerHTML = ('<div style="color:red;">'
+                          + '<p>JavaScript Error: ' + error.message + '</p>'
+                          + "<p>This usually means there's a typo in your chart specification. "
+                          + "See the javascript console for the full traceback.</p>"
+                          + '</div>');
+          throw error;
+      }
+      const el = document.getElementById('vis');
+      vegaEmbed("#vis", spec, embedOpt)
+        .catch(error => showError(el, error));
+    })(vegaEmbed);
+
+  </script>
+</body>
+</html>

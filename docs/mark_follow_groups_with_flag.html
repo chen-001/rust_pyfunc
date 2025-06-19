@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>mark_follow_groups_with_flag - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>mark_follow_groups_with_flag</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>标记每一行在其后time_window秒内具有相同flag、price和volume的行组。
+对于同一个时间窗口内的相同交易组，标记相同的组号。
+组号从1开始递增，每遇到一个新的交易组就分配一个新的组号。</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>mark_follow_groups_with_flag(times, prices, volumes, flags, time_window) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">times</span>
+                    <span class="parameter-type">(array_like)</span>
+                    <div><p>时间戳数组（单位：秒）</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">prices</span>
+                    <span class="parameter-type">(array_like)</span>
+                    <div><p>价格数组</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">volumes</span>
+                    <span class="parameter-type">(array_like)</span>
+                    <div><p>成交量数组</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">flags</span>
+                    <span class="parameter-type">(array_like)</span>
+                    <div><p>主买卖标志数组</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">time_window</span>
+                    <span class="parameter-type">(float, optional)</span>
+                    <div><p>时间窗口大小（单位：秒），默认为0.1</p></div>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div><hr />
+<p>numpy.ndarray
+    整数数组，表示每行所属的组号。0表示不属于任何组。</p>
+<p>Python调用示例：
+```python
+import pandas as pd
+import numpy as np
+from rust_pyfunc import mark_follow_groups_with_flag</p>
+<h1>创建示例DataFrame</h1>
+<p>df = pd.DataFrame({
+    'exchtime': [1.0, 1.05, 1.08, 1.15, 1.2],
+    'price': [10.0, 10.0, 10.0, 11.0, 10.0],
+    'volume': [100, 100, 100, 200, 100],
+    'flag': [66, 66, 66, 83, 66]
+})</p>
+<h1>标记协同交易组</h1>
+<p>df['group'] = mark_follow_groups_with_flag(
+    df['exchtime'].values,
+    df['price'].values,
+    df['volume'].values,
+    df['flag'].values
+)
+print(df)</p>
+<h1>exchtime  price  volume  flag  group</h1>
+<h1>0     1.00   10.0    100    66      1  # 第一组的起始点</h1>
+<h1>1     1.05   10.0    100    66      1  # 属于第一组</h1>
+<h1>2     1.08   10.0    100    66      1  # 属于第一组</h1>
+<h1>3     1.15   11.0    200    83      2  # 第二组的起始点</h1>
+<h1>4     1.20   10.0    100    66      3  # 第三组的起始点</h1>
+<p>```</p></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import mark_follow_groups_with_flag
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

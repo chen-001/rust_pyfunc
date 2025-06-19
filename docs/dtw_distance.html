@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>dtw_distance - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>dtw_distance</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>DTW（动态时间规整）是一种测量两个时间序列相似度的方法。
+该算法计算两个可能长度不同、tempo不同的时间序列间的最优匹配。</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>dtw_distance(s1, s2, radius, timeout_seconds) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">s1</span>
+                    <span class="parameter-type">(array_like)</span>
+                    <div><p>第一个时间序列</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">s2</span>
+                    <span class="parameter-type">(array_like)</span>
+                    <div><p>第二个时间序列</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">radius</span>
+                    <span class="parameter-type">(int, optional)</span>
+                    <div><p>Sakoe-Chiba半径，用于限制规整路径，可以提高计算效率。 如果不指定，则不使用路径限制。</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">timeout_seconds</span>
+                    <span class="parameter-type">(float, optional)</span>
+                    <div><p>计算超时时间，单位为秒。如果函数执行时间超过此值，将抛出TimeoutError异常。 默认为None，表示无超时限制。</p></div>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div><hr />
+<p>float
+    两个序列之间的DTW距离。值越小表示序列越相似。</p>
+<h2>异常：</h2>
+<p>TimeoutError
+    当计算时间超过timeout_seconds指定的秒数时抛出</p>
+<p>Python调用示例：
+```python
+import numpy as np
+from rust_pyfunc import dtw_distance</p>
+<h1>创建两个测试序列</h1>
+<p>s1 = [1.0, 2.0, 3.0, 4.0, 5.0]
+s2 = [1.0, 2.0, 2.5, 3.5, 4.0, 5.0]</p>
+<h1>计算完整DTW距离</h1>
+<p>dist1 = dtw_distance(s1, s2)
+print(f"DTW距离: {dist1}")</p>
+<h1>使用radius=1限制规整路径</h1>
+<p>dist2 = dtw_distance(s1, s2, radius=1)
+print(f"使用radius=1的DTW距离: {dist2}")</p>
+<h1>设置超时时间为1秒</h1>
+<p>try:
+    dist3 = dtw_distance(s1, s2, timeout_seconds=1.0)
+    print(f"DTW距离: {dist3}")
+except RuntimeError as e:
+    print(f"超时错误: {e}")
+```</p></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                
+                <div class="example">
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>dtw_distance(
+                                [1.0, 2.0, 3.0, 4.0], 
+                            
+                                [1.0, 2.0, 2.5, 3.0, 4.0]
+                            )</code>
+                    </div>
+                    
+                    
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">0.5</code>
+                    </div>
+                    
+                </div>
+                
+                <div class="example">
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>dtw_distance(
+                                [1.0, 2.0, 3.0, 4.0], 
+                            
+                                [4.0, 3.0, 2.0, 1.0]
+                            )</code>
+                    </div>
+                    
+                    
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">8.0</code>
+                    </div>
+                    
+                </div>
+                
+                <div class="example">
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>dtw_distance(
+                                [1.0, 2.0, 3.0, 4.0], 
+                            
+                                [1.0, 2.0, 3.0, 4.0], 
+                            
+                                1
+                            )</code>
+                    </div>
+                    
+                    
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">0.0</code>
+                    </div>
+                    
+                </div>
+                
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import dtw_distance
+
+# 使用示例
+
+
+result = dtw_distance([1.0, 2.0, 3.0, 4.0], [1.0, 2.0, 2.5, 3.0, 4.0])
+print(f"结果: {result}")
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

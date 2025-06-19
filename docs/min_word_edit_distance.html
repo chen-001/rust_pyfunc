@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>min_word_edit_distance - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>min_word_edit_distance</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>计算将一个句子转换为另一个句子所需的最少单词操作次数（添加/删除）。</p>
+<h1>参数</h1>
+<ul>
+<li><code>str1</code> - 源句子</li>
+<li><code>str2</code> - 目标句子</li>
+</ul>
+<h1>示例</h1>
+<p>```python
+from rust_pyfunc import min_word_edit_distance</p>
+<h1>示例1：添加一个单词</h1>
+<p>da = "We expect demand to increase"
+db = "We expect worldwide demand to increase"
+print(min_word_edit_distance(da, db))  # 输出: 1 (添加 "worldwide")</p>
+<h1>示例2：多次修改</h1>
+<p>dc = "We expect weakness in sales"
+print(min_word_edit_distance(da, dc))  # 输出: 6 (删除3个单词，添加3个单词)
+```</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>min_word_edit_distance(str1, str2) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                <p>此函数没有参数</p>
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                
+                <div class="example">
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>min_word_edit_distance(
+                                &#34;这是一个测试句子&#34;, 
+                            
+                                &#34;这是另一个测试句子&#34;
+                            )</code>
+                    </div>
+                    
+                    
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">2</code>
+                    </div>
+                    
+                </div>
+                
+                <div class="example">
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>min_word_edit_distance(
+                                &#34;深度学习算法&#34;, 
+                            
+                                &#34;机器学习算法&#34;
+                            )</code>
+                    </div>
+                    
+                    
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">2</code>
+                    </div>
+                    
+                </div>
+                
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import min_word_edit_distance
+
+# 使用示例
+
+
+result = min_word_edit_distance(&#34;这是一个测试句子&#34;, &#34;这是另一个测试句子&#34;)
+print(f"结果: {result}")
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

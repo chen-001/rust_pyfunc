@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ols - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>ols</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>普通最小二乘(OLS)回归。
+用于拟合线性回归模型 y = Xβ + ε，其中β是要估计的回归系数。</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>ols(x, y, calculate_r2) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">x</span>
+                    <span class="parameter-type">(numpy.ndarray)</span>
+                    <div><p>设计矩阵，形状为(n_samples, n_features)</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">y</span>
+                    <span class="parameter-type">(numpy.ndarray)</span>
+                    <div><p>响应变量，形状为(n_samples,)</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">calculate_r2</span>
+                    <span class="parameter-type">(bool, optional)</span>
+                    <div><p>是否计算R²值，默认为True</p></div>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div><hr />
+<p>numpy.ndarray
+    回归系数β</p>
+<p>Python调用示例：
+```python
+import numpy as np
+from rust_pyfunc import ols</p>
+<h1>准备训练数据</h1>
+<p>X = np.array([[1, 1], [1, 2], [1, 3]], dtype=np.float64)  # 包含一个常数项和一个特征
+y = np.array([2, 4, 6], dtype=np.float64)  # 目标变量</p>
+<h1>拟合模型</h1>
+<p>coefficients = ols(X, y)
+print(f"回归系数: {coefficients}")  # 预期输出接近[0, 2]，表示y ≈ 0 + 2x
+```</p></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                
+                <div class="example">
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>ols(
+                                np.array([[1.0, 1.0], [1.0, 2.0], [1.0, 3.0]]), 
+                            
+                                np.array([2.0, 3.0, 4.0])
+                            )</code>
+                    </div>
+                    
+                    
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">array([nan, nan, nan, nan], dtype=float64)</code>
+                    </div>
+                    
+                </div>
+                
+                <div class="example">
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>ols(
+                                np.array([[1.0, 1.0], [1.0, 2.0], [1.0, 3.0]]), 
+                            
+                                np.array([2.0, 3.0, 4.0]), 
+                            
+                                False
+                            )</code>
+                    </div>
+                    
+                    
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">array([nan, nan, nan], dtype=float64)</code>
+                    </div>
+                    
+                </div>
+                
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import ols
+
+# 使用示例
+
+
+result = ols(np.array([[1.0, 1.0], [1.0, 2.0], [1.0, 3.0]]), np.array([2.0, 3.0, 4.0]))
+print(f"结果: {result}")
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

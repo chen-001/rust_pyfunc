@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>trend_fast - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>trend_fast</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>这是trend函数的高性能版本，专门用于处理numpy.ndarray类型的float64数组。
+使用了显式的SIMD指令和缓存优化处理，比普通版本更快。</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>trend_fast(arr) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">arr</span>
+                    <span class="parameter-type">(numpy.ndarray)</span>
+                    <div><p>输入数组，必须是float64类型</p></div>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div><hr />
+<p>float
+    输入数组与自然数序列的皮尔逊相关系数</p>
+<p>Python调用示例：
+```python
+import numpy as np
+from rust_pyfunc import trend_fast</p>
+<h1>创建一个大型数组进行测试</h1>
+<p>arr = np.array([float(i) for i in range(1000000)], dtype=np.float64)
+result = trend_fast(arr)  # 会比trend函数快很多
+print(f"趋势系数: {result}")  # 对于这个例子，应该非常接近1.0
+```</p></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                
+                <div class="example">
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>trend_fast(
+                                np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+                            )</code>
+                    </div>
+                    
+                    
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">2.23606797749979</code>
+                    </div>
+                    
+                </div>
+                
+                <div class="example">
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>trend_fast(
+                                np.array([5.0, 4.0, 3.0, 2.0, 1.0])
+                            )</code>
+                    </div>
+                    
+                    
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">-2.23606797749979</code>
+                    </div>
+                    
+                </div>
+                
+                <div class="example">
+                    <div class="example-input">
+                        <p><strong>输入:</strong></p>
+                        <code>trend_fast(
+                                np.array([1.0, 3.0, 2.0, 5.0, 4.0])
+                            )</code>
+                    </div>
+                    
+                    
+                    <div class="example-output">
+                        <p><strong>输出:</strong></p>
+                        <code class="output-value">1.7888543819998317</code>
+                    </div>
+                    
+                </div>
+                
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import trend_fast
+
+# 使用示例
+
+
+result = trend_fast(np.array([1.0, 2.0, 3.0, 4.0, 5.0]))
+print(f"结果: {result}")
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>
