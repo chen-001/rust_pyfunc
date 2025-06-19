@@ -33,20 +33,23 @@ use ndarray::Array1;
 ///     例如：0.1表示需要高出局部高点0.1%才算突破
 /// dedup_time_seconds : float, optional
 ///     去重时间阈值（秒），默认为30.0。相同价格且时间间隔小于此值的局部高点将被视为重复
+/// find_local_lows : bool, optional
+///     是否查找局部低点，默认为False（查找局部高点）。
+///     当为True时，分析"以进为退"现象：价格跌至局部低点后反弹，在该价格的异常大买单量消失后成功跌破该价格
 /// 
 /// 返回值：
 /// -------
 /// tuple
 ///     包含9个列表的元组：
 ///     - 过程期间的成交量
-///     - 局部高点价格在盘口上时间最近的挂单量
+///     - 局部极值价格在盘口上时间最近的挂单量
 ///     - 过程开始后指定时间窗口内的成交量
 ///     - 过程期间的主动买入成交量占比
 ///     - 过程期间的价格种类数
-///     - 过程期间价格相对局部高点的最大下降比例
+///     - 过程期间价格相对局部极值的最大变化比例（高点为下降，低点为上升）
 ///     - 过程持续时间（秒）
 ///     - 过程开始时间（纳秒时间戳）
-///     - 局部高点的价格
+///     - 局部极值的价格
 /// 
 /// Python调用示例：
 /// ```python
@@ -67,10 +70,17 @@ use ndarray::Array1;
 /// results = analyze_retreat_advance_v2(
 ///     trade_times, trade_prices, trade_volumes, trade_flags,
 ///     orderbook_times, orderbook_prices, orderbook_volumes,
-///     volume_percentile=95.0, time_window_minutes=2.0, breakthrough_threshold=0.1, dedup_time_seconds=60.0
+///     volume_percentile=95.0, time_window_minutes=2.0, breakthrough_threshold=0.1, dedup_time_seconds=60.0, find_local_lows=False
 /// )
 /// 
-/// process_volumes, large_volumes, time_window_volumes, buy_ratios, price_counts, max_declines, process_durations, process_start_times, peak_prices = results
+/// # 分析"以进为退"现象（局部低点版本）
+/// results_lows = analyze_retreat_advance_v2(
+///     trade_times, trade_prices, trade_volumes, trade_flags,
+///     orderbook_times, orderbook_prices, orderbook_volumes,
+///     volume_percentile=95.0, time_window_minutes=2.0, breakthrough_threshold=0.1, dedup_time_seconds=60.0, find_local_lows=True
+/// )
+/// 
+/// process_volumes, large_volumes, time_window_volumes, buy_ratios, price_counts, max_changes, process_durations, process_start_times, extreme_prices = results
 /// ```
 #[pyfunction]
 #[pyo3(signature = (
@@ -79,7 +89,8 @@ use ndarray::Array1;
     volume_percentile=99.0,
     time_window_minutes=1.0,
     breakthrough_threshold=0.0,
-    dedup_time_seconds=30.0
+    dedup_time_seconds=30.0,
+    find_local_lows=false
 ))]
 pub fn analyze_retreat_advance_v2(
     py: Python,
@@ -94,6 +105,7 @@ pub fn analyze_retreat_advance_v2(
     time_window_minutes: Option<f64>,
     breakthrough_threshold: Option<f64>,
     dedup_time_seconds: Option<f64>,
+    find_local_lows: Option<bool>,
 ) -> PyResult<(
     Py<PyArray1<f64>>, // 过程期间的成交量
     Py<PyArray1<f64>>, // 过程期间首次观察到的异常大挂单量
@@ -117,6 +129,7 @@ pub fn analyze_retreat_advance_v2(
     let time_window_minutes = time_window_minutes.unwrap_or(1.0);
     let breakthrough_threshold = breakthrough_threshold.unwrap_or(0.0);
     let dedup_time_seconds = dedup_time_seconds.unwrap_or(30.0);
+    let find_local_lows = find_local_lows.unwrap_or(false);
     
     // 验证输入数据长度一致性
     if trade_times.len() != trade_prices.len() || 
@@ -134,20 +147,20 @@ pub fn analyze_retreat_advance_v2(
         ));
     }
     
-    // 步骤1：找到所有局部高点
-    let local_peaks = find_local_peaks_v2(&trade_prices);
+    // 步骤1：找到所有局部极值点（高点或低点）
+    let local_peaks = find_local_extremes_v2(&trade_prices, find_local_lows);
     
-    // 步骤1.5：去除重复的局部高点（相同价格且时间接近的高点）
+    // 步骤1.5：去除重复的局部极值点（相同价格且时间接近的极值点）
     let deduplicated_peaks = deduplicate_local_peaks_v2(&trade_times, &trade_prices, &local_peaks, dedup_time_seconds);
     
     // 步骤2：计算挂单量的百分位数阈值
     let volume_threshold = calculate_percentile_v2(&orderbook_volumes, volume_percentile);
     
-    // 步骤3：识别"以退为进"过程
+    // 步骤3：识别"以退为进"或"以进为退"过程
     let processes = identify_retreat_advance_processes_v2(
         &trade_times, &trade_prices, &trade_volumes, &trade_flags,
         &orderbook_times, &orderbook_prices, &orderbook_volumes,
-        &deduplicated_peaks, volume_threshold, time_window_minutes, breakthrough_threshold
+        &deduplicated_peaks, volume_threshold, time_window_minutes, breakthrough_threshold, find_local_lows
     );
     
     // 步骤4：计算每个过程的9个指标
@@ -155,7 +168,7 @@ pub fn analyze_retreat_advance_v2(
         calculate_process_metrics_v2(
             &trade_times, &trade_prices, &trade_volumes, &trade_flags,
             &orderbook_times, &orderbook_prices, &orderbook_volumes,
-            &processes, time_window_minutes
+            &processes, time_window_minutes, find_local_lows
         );
     
     Ok((
@@ -171,8 +184,8 @@ pub fn analyze_retreat_advance_v2(
     ))
 }
 
-/// 找到价格序列中的局部高点
-fn find_local_peaks_v2(prices: &ndarray::ArrayView1<f64>) -> Vec<usize> {
+/// 找到价格序列中的局部极值点（高点或低点）
+fn find_local_extremes_v2(prices: &ndarray::ArrayView1<f64>, find_lows: bool) -> Vec<usize> {
     let mut peaks = Vec::new();
     let n = prices.len();
     
@@ -205,9 +218,17 @@ fn find_local_peaks_v2(prices: &ndarray::ArrayView1<f64>) -> Vec<usize> {
             }
         }
         
-        // 如果左右两边的第一个不同价格都比当前价格低，则为局部高点
-        if left_different && right_different && left_lower && right_lower {
-            peaks.push(i);
+        // 根据参数决定是找局部高点还是局部低点
+        if find_lows {
+            // 如果左右两边的第一个不同价格都比当前价格高，则为局部低点
+            if left_different && right_different && !left_lower && !right_lower {
+                peaks.push(i);
+            }
+        } else {
+            // 如果左右两边的第一个不同价格都比当前价格低，则为局部高点
+            if left_different && right_different && left_lower && right_lower {
+                peaks.push(i);
+            }
         }
     }
     
@@ -235,7 +256,7 @@ struct RetreatAdvanceProcessV2 {
     end_index: usize,       // 过程结束的成交索引
 }
 
-/// 识别"以退为进"过程
+/// 识别"以退为进"或"以进为退"过程
 fn identify_retreat_advance_processes_v2(
     trade_times: &ndarray::ArrayView1<f64>,
     trade_prices: &ndarray::ArrayView1<f64>,
@@ -248,6 +269,7 @@ fn identify_retreat_advance_processes_v2(
     volume_threshold: f64,
     time_window_minutes: f64,
     breakthrough_threshold: f64,
+    find_local_lows: bool,
 ) -> Vec<RetreatAdvanceProcessV2> {
     let mut processes = Vec::new();
     
@@ -255,19 +277,19 @@ fn identify_retreat_advance_processes_v2(
         let peak_price = trade_prices[peak_idx];
         let peak_time = trade_times[peak_idx];
         
-        // 检查在局部高点附近指定时间窗口内是否有异常大的挂单量
+        // 检查在局部极值点附近指定时间窗口内是否有异常大的挂单量
         let has_large_volume = check_large_volume_near_peak_v2(
             orderbook_times, orderbook_prices, orderbook_volumes,
-            peak_price, peak_time, volume_threshold, time_window_minutes
+            peak_price, peak_time, volume_threshold, time_window_minutes, find_local_lows
         );
         
         if !has_large_volume {
             continue;
         }
         
-        // 寻找过程的结束点：价格成功突破局部高点
+        // 寻找过程的结束点：价格成功突破局部极值点
         if let Some(end_idx) = find_breakthrough_point_v2(
-            trade_times, trade_prices, peak_idx, peak_price, breakthrough_threshold
+            trade_times, trade_prices, peak_idx, peak_price, breakthrough_threshold, find_local_lows
         ) {
             let process = RetreatAdvanceProcessV2 {
                 peak_price,
@@ -283,7 +305,7 @@ fn identify_retreat_advance_processes_v2(
     processes
 }
 
-/// 检查局部高点附近是否有异常大的挂单量（纳秒版本）
+/// 检查局部极值点附近是否有异常大的挂单量（纳秒版本）
 fn check_large_volume_near_peak_v2(
     orderbook_times: &ndarray::ArrayView1<f64>,
     orderbook_prices: &ndarray::ArrayView1<f64>,
@@ -292,6 +314,7 @@ fn check_large_volume_near_peak_v2(
     peak_time: f64,
     volume_threshold: f64,
     time_window_minutes: f64,
+    find_local_lows: bool,
 ) -> bool {
     let time_window = time_window_minutes * 60.0 * 1_000_000_000.0; // 转换为纳秒
     
@@ -300,7 +323,10 @@ fn check_large_volume_near_peak_v2(
         let price_diff = (orderbook_prices[i] - peak_price).abs();
         
         // 在时间窗口内且价格相近的挂单
-        if time_diff <= time_window && price_diff < 0.001 { // 0.1%的价格容忍度
+        // 对于局部低点模式，我们可以设置稍微更宽松的价格容忍度
+        let price_tolerance = if find_local_lows { 0.0015 } else { 0.001 }; // 0.15% vs 0.1%
+        
+        if time_diff <= time_window && price_diff < price_tolerance {
             if orderbook_volumes[i] >= volume_threshold {
                 return true;
             }
@@ -310,22 +336,35 @@ fn check_large_volume_near_peak_v2(
     false
 }
 
-/// 寻找突破点：价格成功越过局部高点（纳秒版本）
+/// 寻找突破点：价格成功越过局部极值点（纳秒版本）
 fn find_breakthrough_point_v2(
     trade_times: &ndarray::ArrayView1<f64>,
     trade_prices: &ndarray::ArrayView1<f64>,
     peak_idx: usize,
     peak_price: f64,
     breakthrough_threshold: f64,
+    find_local_lows: bool,
 ) -> Option<usize> {
     let n = trade_prices.len();
     
     // 计算突破价格门槛
-    let breakthrough_price = peak_price * (1.0 + breakthrough_threshold / 100.0);
+    let breakthrough_price = if find_local_lows {
+        // 对于局部低点，突破意味着价格跌破低点
+        peak_price * (1.0 - breakthrough_threshold / 100.0)
+    } else {
+        // 对于局部高点，突破意味着价格超过高点
+        peak_price * (1.0 + breakthrough_threshold / 100.0)
+    };
     
-    // 从局部高点之后开始查找
+    // 从局部极值点之后开始查找
     for i in peak_idx + 1..n {
-        if trade_prices[i] > breakthrough_price {
+        let price_breakthrough = if find_local_lows {
+            trade_prices[i] < breakthrough_price
+        } else {
+            trade_prices[i] > breakthrough_price
+        };
+        
+        if price_breakthrough {
             return Some(i);
         }
         
@@ -350,6 +389,7 @@ fn calculate_process_metrics_v2(
     orderbook_volumes: &ndarray::ArrayView1<f64>,
     processes: &[RetreatAdvanceProcessV2],
     time_window_minutes: f64,
+    find_local_lows: bool,
 ) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
     let mut process_volumes = Vec::new();
     let mut large_volumes = Vec::new();
@@ -393,11 +433,13 @@ fn calculate_process_metrics_v2(
         );
         price_counts.push(price_count as f64);
         
-        // 指标6：过程期间价格相对局部高点的最大下降比例
-        let max_decline = calculate_max_decline_v2(
-            trade_prices, process.start_index, process.end_index, process.peak_price
-        );
-        max_declines.push(max_decline);
+        // 指标6：过程期间价格相对局部极值的最大变化比例
+        let max_change = if find_local_lows {
+            calculate_max_incline_v2(trade_prices, process.start_index, process.end_index, process.peak_price)
+        } else {
+            calculate_max_decline_v2(trade_prices, process.start_index, process.end_index, process.peak_price)
+        };
+        max_declines.push(max_change);
         
         // 指标7：过程持续时间（秒）
         let duration_seconds = (process.end_time - process.start_time) / 1_000_000_000.0;
@@ -542,6 +584,25 @@ fn calculate_max_decline_v2(
     }
     
     max_decline
+}
+
+/// 计算过程期间价格相对局部低点的最大上升比例
+fn calculate_max_incline_v2(
+    trade_prices: &ndarray::ArrayView1<f64>,
+    start_idx: usize,
+    end_idx: usize,
+    low_price: f64,
+) -> f64 {
+    let mut max_incline = 0.0;
+    
+    for i in start_idx..=end_idx {
+        let incline = (trade_prices[i] - low_price) / low_price;
+        if incline > max_incline {
+            max_incline = incline;
+        }
+    }
+    
+    max_incline
 }
 
 /// 去除重复的局部高点
