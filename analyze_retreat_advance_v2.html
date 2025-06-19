@@ -38,7 +38,7 @@
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>analyze_retreat_advance_v2(trade_times, trade_prices, trade_volumes, trade_flags, orderbook_times, orderbook_prices, orderbook_volumes, volume_percentile, time_window_minutes, breakthrough_threshold, dedup_time_seconds) -> None</code>
+            <code>analyze_retreat_advance_v2(trade_times, trade_prices, trade_volumes, trade_flags, orderbook_times, orderbook_prices, orderbook_volumes, volume_percentile, time_window_minutes, breakthrough_threshold, dedup_time_seconds, find_local_lows) -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -111,6 +111,12 @@
                     <div><p>去重时间阈值（秒），默认为30.0。相同价格且时间间隔小于此值的局部高点将被视为重复</p></div>
                 </div>
                 
+                <div class="parameter">
+                    <span class="parameter-name">find_local_lows</span>
+                    <span class="parameter-type">(bool, optional)</span>
+                    <div><p>是否查找局部低点，默认为False（查找局部高点）。 当为True时，分析"以进为退"现象：价格跌至局部低点后反弹，在该价格的异常大买单量消失后成功跌破该价格</p></div>
+                </div>
+                
             
         </div>
         
@@ -120,14 +126,14 @@
 <p>tuple
     包含9个列表的元组：
     - 过程期间的成交量
-    - 局部高点价格在盘口上时间最近的挂单量
+    - 局部极值价格在盘口上时间最近的挂单量
     - 过程开始后指定时间窗口内的成交量
     - 过程期间的主动买入成交量占比
     - 过程期间的价格种类数
-    - 过程期间价格相对局部高点的最大下降比例
+    - 过程期间价格相对局部极值的最大变化比例（高点为下降，低点为上升）
     - 过程持续时间（秒）
     - 过程开始时间（纳秒时间戳）
-    - 局部高点的价格</p>
+    - 局部极值的价格</p>
 <p>Python调用示例：
 ```python
 import numpy as np
@@ -144,9 +150,15 @@ orderbook_volumes = np.array([1000, 5000], dtype=np.float64)</p>
 <p>results = analyze_retreat_advance_v2(
     trade_times, trade_prices, trade_volumes, trade_flags,
     orderbook_times, orderbook_prices, orderbook_volumes,
-    volume_percentile=95.0, time_window_minutes=2.0, breakthrough_threshold=0.1, dedup_time_seconds=60.0
+    volume_percentile=95.0, time_window_minutes=2.0, breakthrough_threshold=0.1, dedup_time_seconds=60.0, find_local_lows=False
 )</p>
-<p>process_volumes, large_volumes, time_window_volumes, buy_ratios, price_counts, max_declines, process_durations, process_start_times, peak_prices = results
+<h1>分析"以进为退"现象（局部低点版本）</h1>
+<p>results_lows = analyze_retreat_advance_v2(
+    trade_times, trade_prices, trade_volumes, trade_flags,
+    orderbook_times, orderbook_prices, orderbook_volumes,
+    volume_percentile=95.0, time_window_minutes=2.0, breakthrough_threshold=0.1, dedup_time_seconds=60.0, find_local_lows=True
+)</p>
+<p>process_volumes, large_volumes, time_window_volumes, buy_ratios, price_counts, max_changes, process_durations, process_start_times, extreme_prices = results
 ```</p></div>
         </div>
         

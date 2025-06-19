@@ -43,7 +43,8 @@
       "volume_percentile",
       "time_window_minutes",
       "breakthrough_threshold",
-      "dedup_time_seconds"
+      "dedup_time_seconds",
+      "find_local_lows"
     ]
   },
   {
