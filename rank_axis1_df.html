@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>rank_axis1_df - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>rank_axis1_df</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>高性能的DataFrame rank函数，支持axis=1（沿行方向排名）</p>
+<p>这是rust_pyfunc.rank_axis1的DataFrame封装版本，可以直接传入DataFrame
+并返回保持原有索引和列名的DataFrame结果。</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>rank_axis1_df(df, method, ascending, na_option) -> &lt;class &#39;pandas.core.frame.DataFrame&#39;&gt;</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">df</span>
+                    <span class="parameter-type">(pandas.DataFrame)</span>
+                    <div><p>输入的DataFrame，会自动转换为float64类型</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">method</span>
+                    <span class="parameter-type">(str, optional)</span>
+                    <div><p>排名方法，默认为"average"，支持以下选项： - "average": 并列值取平均排名（默认） - "min": 并列值取最小排名 - "max": 并列值取最大排名 - "first": 按出现顺序排名 - "dense": 密集排名（不跳号）</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">ascending</span>
+                    <span class="parameter-type">(bool, optional)</span>
+                    <div><p>是否升序排名，默认为True - True: 升序排名（较小值排名较低） - False: 降序排名（较大值排名较低）</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">na_option</span>
+                    <span class="parameter-type">(str, optional)</span>
+                    <div><p>NaN值处理方式，默认为"keep"，支持以下选项： - "keep": 保持NaN为NaN（默认） - "top": NaN值排在最前 - "bottom": NaN值排在最后</p></div>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div><hr />
+<p>pandas.DataFrame
+    排名结果DataFrame，保持原有的索引和列名
+    每个元素表示该位置在对应行中的排名</p>
+<h2>性能特点：</h2>
+<ol>
+<li>比pandas原生rank函数快20-30倍</li>
+<li>完全兼容pandas.DataFrame.rank(axis=1)的所有参数</li>
+<li>自动处理数据类型转换</li>
+<li>保持DataFrame的索引和列名</li>
+</ol>
+<h2>示例：</h2>
+<blockquote>
+<blockquote>
+<blockquote>
+<p>import pandas as pd
+import numpy as np
+from rust_pyfunc.pandas_rank import rank_axis1_df</p>
+<h1>创建测试DataFrame</h1>
+<p>df = pd.DataFrame({
+...     'A': [3.0, 2.0, 1.0],
+...     'B': [1.0, 4.0, 2.0], 
+...     'C': [4.0, 1.0, 3.0],
+...     'D': [2.0, 3.0, 4.0]
+... }, index=['row1', 'row2', 'row3'])</p>
+<h1>使用高性能rank函数</h1>
+<p>ranked_df = rank_axis1_df(df)
+print(ranked_df)</p>
+<h1>A    B    C    D</h1>
+<h1>row1  3.0  1.0  4.0  2.0</h1>
+<h1>row2  2.0  4.0  1.0  3.0</h1>
+<h1>row3  1.0  2.0  3.0  4.0</h1>
+<h1>等价于（但更快）：</h1>
+<h1>pandas_ranked = df.rank(axis=1, method='average', ascending=True, na_option='keep')</h1>
+<h1>使用不同参数</h1>
+<p>ranked_desc = rank_axis1_df(df, ascending=False)
+ranked_min = rank_axis1_df(df, method="min")</p>
+</blockquote>
+</blockquote>
+</blockquote>
+<h2>与原生pandas对比：</h2>
+<blockquote>
+<blockquote>
+<blockquote>
+<h1>性能测试示例</h1>
+<p>large_df = pd.DataFrame(np.random.randn(2500, 5500))</p>
+<h1>pandas方式（慢）</h1>
+<p>import time
+start = time.time()
+pandas_result = large_df.rank(axis=1)
+pandas_time = time.time() - start</p>
+<h1>rust_pyfunc方式（快）</h1>
+<p>start = time.time()
+rust_result = rank_axis1_df(large_df)
+rust_time = time.time() - start</p>
+<p>print(f"pandas耗时: {pandas_time:.2f}秒")
+print(f"rust_pyfunc耗时: {rust_time:.2f}秒") 
+print(f"性能提升: {pandas_time/rust_time:.1f}倍")</p>
+</blockquote>
+</blockquote>
+</blockquote></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import rank_axis1_df
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>fast_merge - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>fast_merge</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>高性能merge函数，支持数据表连接操作</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>fast_merge(left_data, right_data, left_keys, right_keys, how) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">left_data</span>
+                    <span class="parameter-type">(PyReadonlyArray2&lt;f64&gt;)</span>
+                    <div><p>左表数据（numpy数组）</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">right_data</span>
+                    <span class="parameter-type">(PyReadonlyArray2&lt;f64&gt;)</span>
+                    <div><p>右表数据（numpy数组）</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">left_keys</span>
+                    <span class="parameter-type">(Vec&lt;usize&gt;)</span>
+                    <div><p>左表连接键的列索引</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">right_keys</span>
+                    <span class="parameter-type">(Vec&lt;usize&gt;)</span>
+                    <div><p>右表连接键的列索引</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">how</span>
+                    <span class="parameter-type">(&amp;str)</span>
+                    <div><p>连接类型，支持："inner", "left", "right", "outer"</p></div>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div><hr />
+<p>PyResult&lt;(Vec<Vec\<usize>>, Vec<Vec\<f64>>)&gt;
+    返回 (行索引对, 合并后的数据)
+    - 第一个Vec是行索引对：[(left_idx, right_idx), ...]
+    - 第二个Vec是合并后的数据行</p></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import fast_merge
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>
