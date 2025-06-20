@@ -2342,3 +2342,115 @@ def fast_merge_mixed(
     9. 日期时间类型的精度和时区信息会被保留
     """
     ...
+
+def factor_grouping(
+    dates: NDArray[np.int64], 
+    factors: NDArray[np.float64], 
+    groups_num: int = 10
+) -> NDArray[np.int32]:
+    """按日期对因子值进行分组
+    
+    对于每个日期，将因子值按大小分为指定数量的组，返回每个观测值的分组号。
+    
+    参数说明：
+    ----------
+    dates : NDArray[np.int64]
+        日期时间戳数组（可从pd.Series.values获得）
+    factors : NDArray[np.float64] 
+        因子值数组，与dates长度相同（可从pd.Series.values获得）
+    groups_num : int, optional
+        分组数量，默认为10
+        
+    返回值：
+    -------
+    NDArray[np.int32]
+        每个观测值对应的分组号（1到groups_num）
+        
+    示例：
+    -------
+    >>> import numpy as np
+    >>> dates = np.array([20220101, 20220101, 20220101, 20220102, 20220102], dtype=np.int64)
+    >>> factors = np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float64)
+    >>> groups = factor_grouping(dates, factors, 3)
+    >>> print(groups)
+    [1 2 3 1 2]
+    
+    注意事项：
+    --------
+    1. 每个日期内的因子值会被单独分组
+    2. 分组基于因子值的排序，值越小分组号越小
+    3. NaN值会被忽略，对应位置返回0
+    4. 当某个日期的观测值不能被groups_num整除时，会尽可能平均分配
+    """
+    ...
+
+def factor_correlation_by_date(
+    dates: NDArray[np.int64], 
+    ret: NDArray[np.float64], 
+    fac: NDArray[np.float64]
+) -> tuple[NDArray[np.int64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
+    """按日期计算ret和fac的分组相关系数
+    
+    对于每个日期，计算三种相关系数：
+    1. 全体数据的ret和fac排序值的相关系数
+    2. fac小于当日中位数部分的ret和fac排序值的相关系数
+    3. fac大于当日中位数部分的ret和fac排序值的相关系数
+    
+    参数：
+    ----
+    dates : NDArray[np.int64]
+        日期时间戳数组，格式为YYYYMMDD
+    ret : NDArray[np.float64]
+        收益率数组
+    fac : NDArray[np.float64]
+        因子值数组
+    
+    返回值：
+    -------
+    tuple[NDArray[np.int64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]
+        返回四个数组的元组：
+        - unique_dates: 唯一日期数组
+        - full_corr: 每日全体数据的ret和fac排序值相关系数
+        - low_corr: 每日fac小于中位数部分的ret和fac排序值相关系数
+        - high_corr: 每日fac大于中位数部分的ret和fac排序值相关系数
+    
+    示例：
+    -------
+    >>> import numpy as np
+    >>> dates = np.array([20220101, 20220101, 20220101, 20220101, 20220102, 20220102], dtype=np.int64)
+    >>> ret = np.array([0.01, 0.02, -0.01, 0.03, 0.01, -0.02], dtype=np.float64)
+    >>> fac = np.array([1.0, 2.0, 3.0, 4.0, 2.0, 1.0], dtype=np.float64)
+    >>> unique_dates, full_corr, low_corr, high_corr = factor_correlation_by_date(dates, ret, fac)
+    >>> print(f"日期: {unique_dates}")
+    >>> print(f"全体相关系数: {full_corr}")
+    >>> print(f"低因子相关系数: {low_corr}")
+    >>> print(f"高因子相关系数: {high_corr}")
+    
+    注意事项：
+    --------
+    1. 三个输入数组必须具有相同的长度
+    2. NaN值会被自动忽略
+    3. 如果某个日期的数据少于2个观测值，对应的相关系数为NaN
+    4. 如果分组后的数据少于2个观测值，对应的相关系数为NaN
+    5. 相关系数基于排序值计算，而非原始值
+    6. 中位数的计算基于当日所有非NaN的因子值
+    """
+    ...
+
+def test_simple_function() -> int:
+    """简单的测试函数，返回固定值42
+    
+    用于验证构建和导出是否正常工作。
+    
+    返回值：
+    -------
+    int
+        固定返回值42
+        
+    示例：
+    -------
+    >>> result = test_simple_function()
+    >>> print(result)
+    42
+    """
+    ...

@@ -18,10 +18,7 @@ A high-performance Python library implementing computationally intensive algorit
 ## Common Development Commands
 
 ### Build and Development
-```bash
-# Primary development command - builds Rust and installs Python package
-cd /home/chenzongwei/pythoncode/rust_pyfunc && maturin develop --release
-```
+使用alter.sh来完成构建（即替代直接的maturin develop）
 增加新函数后，要在rust_pyfunc.pyi中添加函数声明
 
 
