@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>factor_correlation_by_date - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>factor_correlation_by_date</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>按日期计算ret和fac的分组相关系数</p>
+<h1>Arguments</h1>
+<ul>
+<li><code>dates</code> - 日期时间戳数组</li>
+<li><code>ret</code> - 收益率数组</li>
+<li><code>fac</code> - 因子值数组</li>
+</ul>
+<h1>Returns</h1>
+<ul>
+<li>(unique_dates, full_corr, low_corr, high_corr) - 四个数组</li>
+<li>unique_dates: 唯一日期</li>
+<li>full_corr: 每日全体数据的ret和fac排序值相关系数</li>
+<li>low_corr: 每日fac小于中位数部分的ret和fac排序值相关系数</li>
+<li>high_corr: 每日fac大于中位数部分的ret和fac排序值相关系数</li>
+</ul></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>factor_correlation_by_date(dates, ret, fac) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                <p>此函数没有参数</p>
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import factor_correlation_by_date
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

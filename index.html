@@ -351,6 +351,42 @@ s.rolling_future('2s').trend_time()  # 计算后面2秒内的趋势</p>
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="factor_correlation_by_date.html">factor_correlation_by_date</a></h3>
+                <div><p>按日期计算ret和fac的分组相关系数</p>
+<h1>Arguments</h1>
+<ul>
+<li><code>dates</code> - 日期时间戳数组</li>
+<li><code>ret</code> - 收益率数组</li>
+<li><code>fac</code> - 因子值数组</li>
+</ul>
+<h1>Returns</h1>
+<ul>
+<li>(unique_dates, full_corr, low_corr, high_corr) - 四个数组</li>
+<li>unique_dates: 唯一日期</li>
+<li>full_corr: 每日全体数据的ret和fac排序值相关系数</li>
+<li>low_corr: 每日fac小于中位数部分的ret和fac排序值相关系数</li>
+<li>high_corr: 每日fac大于中位数部分的ret和fac排序值相关系数</li>
+</ul></div>
+                <a href="factor_correlation_by_date.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="factor_grouping.html">factor_grouping</a></h3>
+                <div><p>按日期对因子值进行分组</p>
+<h1>Arguments</h1>
+<ul>
+<li><code>dates</code> - 日期时间戳数组</li>
+<li><code>factors</code> - 因子值数组</li>
+<li><code>groups_num</code> - 分组数量，默认为10</li>
+</ul>
+<h1>Returns</h1>
+<ul>
+<li>每个观测值对应的分组号(1到groups_num)</li>
+</ul></div>
+                <a href="factor_grouping.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="fast_dtw_distance.html">fast_dtw_distance</a></h3>
                 <div><p>优化版DTW距离函数，使用以下技术提升性能：
 1. 使用一维数组代替二维数组，减少内存分配和间接访问
