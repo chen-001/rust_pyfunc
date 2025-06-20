@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>rank_axis1 - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>rank_axis1</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>高性能的DataFrame rank函数，支持axis=1（沿行方向排名）
+相比pandas的rank函数能显著提升性能</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>rank_axis1(data, method, ascending, na_option) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">data</span>
+                    <span class="parameter-type">(numpy.ndarray (2D, f64))</span>
+                    <div><p>输入的2D数组</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">method</span>
+                    <span class="parameter-type">(str)</span>
+                    <div><p>排名方法，支持： - "average": 并列值取平均排名（默认） - "min": 并列值取最小排名 - "max": 并列值取最大排名 - "first": 按出现顺序排名 - "dense": 密集排名（不跳号）</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">ascending</span>
+                    <span class="parameter-type">(bool)</span>
+                    <div><p>是否升序排名，True为升序（默认），False为降序</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">na_option</span>
+                    <span class="parameter-type">(str)</span>
+                    <div><p>NaN处理方式： - "keep": 保持NaN为NaN（默认） - "top": NaN值排在最前 - "bottom": NaN值排在最后</p></div>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div><hr />
+<p>numpy.ndarray (2D, f64)
+    排名结果数组，形状与输入相同</p>
+<p>Python调用示例：
+```python
+import numpy as np
+from rust_pyfunc import rank_axis1</p>
+<h1>创建测试数据</h1>
+<p>data = np.array([[3.0, 1.0, 4.0, 2.0],
+                 [2.0, 4.0, 1.0, 3.0]], dtype=np.float64)</p>
+<h1>沿行方向排名</h1>
+<p>ranks = rank_axis1(data, method="average", ascending=True, na_option="keep")
+print(ranks)</p>
+<h1>输出: [[3.0, 1.0, 4.0, 2.0],</h1>
+<h1>[2.0, 4.0, 1.0, 3.0]]</h1>
+<p>```</p></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import rank_axis1
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

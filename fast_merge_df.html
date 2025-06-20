@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>fast_merge_df - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>fast_merge_df</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>高性能的DataFrame merge函数</p>
+<p>这是rust_pyfunc.fast_merge的DataFrame封装版本，可以直接传入DataFrame
+并返回标准的DataFrame结果。</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>fast_merge_df(left, right, on, left_on, right_on, how) -> &lt;class &#39;pandas.core.frame.DataFrame&#39;&gt;</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">left</span>
+                    <span class="parameter-type">(pandas.DataFrame)</span>
+                    <div><p>左表DataFrame</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">right</span>
+                    <span class="parameter-type">(pandas.DataFrame)</span>
+                    <div><p>右表DataFrame</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">on</span>
+                    <span class="parameter-type">(str or list of str, optional)</span>
+                    <div><p>两表共同的连接键列名，可以是单个列名或列名列表 例如：on='key' 或 on=['key1', 'key2']</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">left_on</span>
+                    <span class="parameter-type">(str or list of str, optional)</span>
+                    <div><p>左表连接键列名，可以是单个列名或列名列表</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">right_on</span>
+                    <span class="parameter-type">(str or list of str, optional)</span>
+                    <div><p>右表连接键列名，可以是单个列名或列名列表</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">how</span>
+                    <span class="parameter-type">(str, optional)</span>
+                    <div><p>连接类型，默认为"inner"，支持： - "inner": 内连接 - "left": 左连接 - "right": 右连接 - "outer": 外连接</p></div>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div><hr />
+<p>pandas.DataFrame
+    合并后的DataFrame，包含所有列（不去重连接键）</p>
+<h2>性能特点：</h2>
+<ol>
+<li>比pandas.merge快5-20倍（取决于数据规模）</li>
+<li>支持所有主要连接类型</li>
+<li>保持DataFrame的索引和数据类型</li>
+<li>自动处理数值类型转换</li>
+</ol>
+<h2>示例：</h2>
+<blockquote>
+<blockquote>
+<blockquote>
+<p>import pandas as pd
+from rust_pyfunc.pandas_merge import fast_merge_df</p>
+<h1>创建测试数据</h1>
+<p>left_df = pd.DataFrame({
+...     'key': [1, 2, 3],
+...     'value_left': [100, 200, 300]
+... })</p>
+<p>right_df = pd.DataFrame({
+...     'key': [1, 2, 4],
+...     'value_right': [10, 20, 40]
+... })</p>
+<h1>内连接</h1>
+<p>result = fast_merge_df(left_df, right_df, on='key', how='inner')
+print(result)</p>
+<h1>key_left  value_left  key_right  value_right</h1>
+<h1>0        1         100          1           10</h1>
+<h1>1        2         200          2           20</h1>
+<h1>左连接</h1>
+<p>result = fast_merge_df(left_df, right_df, on='key', how='left')
+print(result)</p>
+<h1>key_left  value_left  key_right  value_right</h1>
+<h1>0        1         100        1.0         10.0</h1>
+<h1>1        2         200        2.0         20.0</h1>
+<h1>2        3         300        NaN          NaN</h1>
+</blockquote>
+</blockquote>
+</blockquote></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import fast_merge_df
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

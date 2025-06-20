@@ -149,6 +149,83 @@
     "params": []
   },
   {
+    "name": "fast_inner_join_dataframes",
+    "description": "<p>高性能DataFrame内连接，专门优化Python DataFrame处理</p>",
+    "params": []
+  },
+  {
+    "name": "fast_inner_join_df",
+    "description": "<p>快速内连接的便捷函数</p>",
+    "params": []
+  },
+  {
+    "name": "fast_left_join_df",
+    "description": "<p>快速左连接的便捷函数</p>",
+    "params": []
+  },
+  {
+    "name": "fast_merge",
+    "description": "<p>高性能merge函数，支持数据表连接操作</p>",
+    "params": [
+      "left_data",
+      "right_data",
+      "left_keys",
+      "right_keys",
+      "how"
+    ]
+  },
+  {
+    "name": "fast_merge_df",
+    "description": "<p>高性能的DataFrame merge函数</p>\n<p>这是rust_pyfunc.fast_merge的DataFrame封装版本，可以直接传入DataFrame\n并返回标准的DataFrame结果。</p>",
+    "params": [
+      "left",
+      "right",
+      "on",
+      "left_on",
+      "right_on",
+      "how"
+    ]
+  },
+  {
+    "name": "fast_merge_df",
+    "description": "<p>高性能的DataFrame merge函数</p>\n<p>这是rust_pyfunc.fast_merge的DataFrame封装版本，可以直接传入DataFrame\n并返回标准的DataFrame结果。</p>",
+    "params": [
+      "left",
+      "right",
+      "on",
+      "left_on",
+      "right_on",
+      "how"
+    ]
+  },
+  {
+    "name": "fast_merge_df",
+    "description": "<p>高性能的DataFrame merge函数</p>\n<p>这是rust_pyfunc.fast_merge的DataFrame封装版本，可以直接传入DataFrame\n并返回标准的DataFrame结果。</p>",
+    "params": [
+      "left",
+      "right",
+      "on",
+      "left_on",
+      "right_on",
+      "how"
+    ]
+  },
+  {
+    "name": "fast_merge_mixed",
+    "description": "<p>高性能merge函数，支持字符串和数值类型的连接键</p>",
+    "params": []
+  },
+  {
+    "name": "fast_outer_join_df",
+    "description": "<p>快速外连接的便捷函数</p>",
+    "params": []
+  },
+  {
+    "name": "fast_right_join_df",
+    "description": "<p>快速右连接的便捷函数</p>",
+    "params": []
+  },
+  {
     "name": "find_follow_volume_sum_same_price",
     "description": "<p>计算每一行在其后time_window秒内具有相同volume（及可选相同price）的行的volume总和。</p>",
     "params": [
@@ -276,6 +353,66 @@
     "params": [
       "x",
       "y"
+    ]
+  },
+  {
+    "name": "rank_axis0_df",
+    "description": "<p>高性能的DataFrame rank函数，支持axis=0（沿列方向排名）</p>\n<p>通过转置实现沿列方向的排名，同样具有高性能优势。</p>",
+    "params": [
+      "df",
+      "method",
+      "ascending",
+      "na_option"
+    ]
+  },
+  {
+    "name": "rank_axis0_df",
+    "description": "<p>高性能的DataFrame rank函数，支持axis=0（沿列方向排名）</p>\n<p>通过转置实现沿列方向的排名，同样具有高性能优势。</p>",
+    "params": [
+      "df",
+      "method",
+      "ascending",
+      "na_option"
+    ]
+  },
+  {
+    "name": "rank_axis1",
+    "description": "<p>高性能的DataFrame rank函数，支持axis=1（沿行方向排名）\n相比pandas的rank函数能显著提升性能</p>",
+    "params": [
+      "data",
+      "method",
+      "ascending",
+      "na_option"
+    ]
+  },
+  {
+    "name": "rank_axis1_df",
+    "description": "<p>高性能的DataFrame rank函数，支持axis=1（沿行方向排名）</p>\n<p>这是rust_pyfunc.rank_axis1的DataFrame封装版本，可以直接传入DataFrame\n并返回保持原有索引和列名的DataFrame结果。</p>",
+    "params": [
+      "df",
+      "method",
+      "ascending",
+      "na_option"
+    ]
+  },
+  {
+    "name": "rank_axis1_df",
+    "description": "<p>高性能的DataFrame rank函数，支持axis=1（沿行方向排名）</p>\n<p>这是rust_pyfunc.rank_axis1的DataFrame封装版本，可以直接传入DataFrame\n并返回保持原有索引和列名的DataFrame结果。</p>",
+    "params": [
+      "df",
+      "method",
+      "ascending",
+      "na_option"
+    ]
+  },
+  {
+    "name": "rank_axis1_df",
+    "description": "<p>高性能的DataFrame rank函数，支持axis=1（沿行方向排名）</p>\n<p>这是rust_pyfunc.rank_axis1的DataFrame封装版本，可以直接传入DataFrame\n并返回保持原有索引和列名的DataFrame结果。</p>",
+    "params": [
+      "df",
+      "method",
+      "ascending",
+      "na_option"
     ]
   },
   {
