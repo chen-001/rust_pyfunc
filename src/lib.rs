@@ -8,6 +8,7 @@ pub mod time_series;
 pub mod pandas_ext;
 pub mod tree;
 pub mod error;
+pub mod grouping;
 
 /// Formats the sum of two numbers as string.
 #[pyfunction]
@@ -70,6 +71,8 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(pandas_ext::fast_merge, m)?)?;
     m.add_function(wrap_pyfunction!(pandas_ext::fast_merge_mixed, m)?)?;
     m.add_function(wrap_pyfunction!(pandas_ext::fast_inner_join_dataframes, m)?)?;
+    m.add_function(wrap_pyfunction!(grouping::factor_grouping, m)?)?;
+    m.add_function(wrap_pyfunction!(grouping::factor_correlation_by_date, m)?)?;
     // m.add_function(wrap_pyfunction!(text::normalized_diff, m)?)?;
     Ok(())
 }
