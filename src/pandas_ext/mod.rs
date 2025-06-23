@@ -3,7 +3,7 @@ use pyo3::prelude::*;
 use numpy::{PyReadonlyArray2, PyArray2};
 use ndarray::{Array2, Axis};
 use std::collections::{HashMap, HashSet, VecDeque};
-use pyo3::types::{PyList, PyString, PyFloat, PyInt};
+use pyo3::types::{PyList, PyString};
 // use std::collections::BTreeMap;
 
 /// 计算时间序列在指定时间窗口内向后滚动的统计量。
@@ -750,7 +750,7 @@ fn rank_1d_array(data: Vec<f64>, method: &str, ascending: bool, na_option: &str)
     }
     
     // 创建索引-值对，用于排序
-    let mut indexed_data: Vec<(usize, f64)> = data.iter()
+    let indexed_data: Vec<(usize, f64)> = data.iter()
         .enumerate()
         .map(|(i, &val)| (i, val))
         .collect();
@@ -1549,16 +1549,15 @@ fn extract_from_numpy_like(py: Python, array: &PyAny) -> PyResult<Vec<Vec<PyObje
 
 /// 提取多个列作为组合键
 fn extract_multi_key(row: &[PyObject], key_indices: &[usize]) -> PyResult<Vec<MergeKey>> {
-    let mut keys = Vec::new();
-    let gil = Python::acquire_gil();
-    let py = gil.python();
-    
-    for &idx in key_indices {
-        let py_obj = &row[idx];
-        let key = MergeKey::from_py_any(py_obj.as_ref(py))?;
-        keys.push(key);
-    }
-    Ok(keys)
+    Python::with_gil(|py| {
+        let mut keys = Vec::new();
+        for &idx in key_indices {
+            let py_obj = &row[idx];
+            let key = MergeKey::from_py_any(py_obj.as_ref(py))?;
+            keys.push(key);
+        }
+        Ok(keys)
+    })
 }
 
 /// 内连接实现（混合类型）
