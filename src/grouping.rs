@@ -143,7 +143,7 @@ pub fn factor_correlation_by_date<'py>(
     // 对每个日期计算相关系数
     let mut results: Vec<(i64, f64, f64, f64)> = date_groups
         .into_iter()
-        .map(|(date, mut data)| {
+        .map(|(date, data)| {
             if data.len() < 2 {
                 return (date, f64::NAN, f64::NAN, f64::NAN);
             }
