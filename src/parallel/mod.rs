@@ -44,7 +44,6 @@ impl ComputeResult {
     storage_format="binary",
     resume_from_backup=false,
     progress_callback=None,
-    chunk_size=None
 ))]
 pub fn run_pools<'py>(
     py: Python<'py>,
@@ -57,7 +56,6 @@ pub fn run_pools<'py>(
     storage_format: &str,
     resume_from_backup: bool,
     progress_callback: Option<&PyAny>,
-    chunk_size: Option<usize>,
 ) -> PyResult<&'py PyArray2<PyObject>> {
     
     // --- 多进程模式 ---
@@ -84,7 +82,7 @@ pub fn run_pools<'py>(
     
     // 执行多进程任务
     let mut multiprocess_executor = MultiProcessExecutor::new(multiprocess_config)?;
-    let multiprocess_results = multiprocess_executor.run_multiprocess(py, func, parsed_args, go_class, progress_callback, chunk_size)?;
+    let multiprocess_results = multiprocess_executor.run_multiprocess(py, func, parsed_args, go_class, progress_callback)?; // chunk_size在异步模式下不使用
 
     // 转换为PyArray
     if multiprocess_results.is_empty() {
