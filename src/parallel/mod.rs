@@ -5,6 +5,13 @@ use numpy::{PyArray2, ToPyArray};
 use ndarray::Array2;
 use crate::multiprocess::{MultiProcessExecutor, MultiProcessConfig};
 
+/// 通过Python print函数打印信息，确保在Jupyter中可见
+fn py_print(py: Python, message: &str) {
+    if let Ok(builtins) = py.import("builtins") {
+        let _ = builtins.call_method1("print", (message,));
+    }
+}
+
 /// 计算结果
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ComputeResult {
@@ -59,7 +66,7 @@ pub fn run_pools<'py>(
 ) -> PyResult<&'py PyArray2<PyObject>> {
     
     // --- 多进程模式 ---
-    println!("调度到Rust原生多进程执行...");
+    py_print(py, "调度到Rust原生多进程执行...");
     
     let parsed_args: Vec<(i32, String)> = args
         .iter()
@@ -83,12 +90,15 @@ pub fn run_pools<'py>(
     // 执行多进程任务
     let mut multiprocess_executor = MultiProcessExecutor::new(multiprocess_config)?;
     let multiprocess_results = multiprocess_executor.run_multiprocess(py, func, parsed_args, go_class, progress_callback)?; // chunk_size在异步模式下不使用
+    
+    // 输出收集的日志到Python
+    crate::multiprocess::flush_logs_to_python(py);
 
     // 转换为PyArray
     if multiprocess_results.is_empty() {
         // 流式处理模式：结果为空说明数据在备份文件中，尝试从备份文件读取
         if let Some(ref backup_file_path) = backup_file {
-            println!("流式处理模式：从备份文件读取结果...");
+            py_print(py, "流式处理模式：从备份文件读取结果...");
             let backup_manager = BackupManager::new(backup_file_path, &storage_format)?;
             let backup_results = backup_manager.query_results(None, None)?;
             

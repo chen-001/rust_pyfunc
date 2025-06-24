@@ -10,6 +10,36 @@ use crossbeam::channel::{unbounded, Receiver as CrossbeamReceiver, Sender as Cro
 use std::time::{SystemTime, UNIX_EPOCH, Instant};
 use serde::{Serialize, Deserialize};
 use crate::backup::BackupManager;
+use std::sync::OnceLock;
+
+/// 全局日志收集器
+static LOG_COLLECTOR: OnceLock<Arc<Mutex<Vec<String>>>> = OnceLock::new();
+
+/// 初始化日志收集器
+fn init_log_collector() -> Arc<Mutex<Vec<String>>> {
+    LOG_COLLECTOR.get_or_init(|| Arc::new(Mutex::new(Vec::new()))).clone()
+}
+
+/// 添加日志消息
+fn log_message(message: String) {
+    let collector = LOG_COLLECTOR.get_or_init(|| Arc::new(Mutex::new(Vec::new())));
+    if let Ok(mut logs) = collector.lock() {
+        logs.push(message);
+    }
+}
+
+/// 通过Python输出并清空所有日志
+pub fn flush_logs_to_python(py: Python) {
+    let collector = LOG_COLLECTOR.get_or_init(|| Arc::new(Mutex::new(Vec::new())));
+    if let Ok(mut logs) = collector.lock() {
+        if let Ok(builtins) = py.import("builtins") {
+            for log in logs.iter() {
+                let _ = builtins.call_method1("print", (log,));
+            }
+        }
+        logs.clear();
+    }
+}
 
 /// 智能检测Python解释器
 fn detect_python_interpreter() -> String {
@@ -311,14 +341,14 @@ impl ProcessPool {
     pub fn new(num_processes: usize, python_path: &str) -> PyResult<Self> {
         let mut workers = Vec::new();
         
-        println!("创建 {} 个工作进程...", num_processes);
+        log_message(format!("创建 {} 个工作进程...", num_processes));
         
         for i in 0..num_processes {
             let worker = WorkerProcess::new(i, python_path)?;
             workers.push(worker);
         }
         
-        println!("进程池创建完成");
+        log_message("进程池创建完成".to_string());
         
         Ok(ProcessPool {
             workers,
@@ -340,7 +370,7 @@ impl ProcessPool {
             return Ok(Vec::new());
         }
 
-        println!("开始异步流水线执行，总任务数: {}", total_tasks);
+        log_message(format!("开始异步流水线执行，总任务数: {}", total_tasks));
         let start_time = Instant::now();
 
         // 创建任务队列和结果收集通道
@@ -411,7 +441,7 @@ impl ProcessPool {
             self.workers.push(new_worker);
         }
 
-        println!("异步流水线执行完成，总耗时: {:.2}秒", start_time.elapsed().as_secs_f64());
+        log_message(format!("异步流水线执行完成，总耗时: {:.2}秒", start_time.elapsed().as_secs_f64()));
         
         // 流式处理：结果已经写入备份文件，返回空结果
         // 调用方应该从备份文件读取结果
@@ -494,7 +524,7 @@ impl ProcessPool {
         
         // 清理工作进程
         let _ = worker.terminate();
-        println!("工作进程 {} 已退出", worker_id);
+        log_message(format!("工作进程 {} 已退出", worker_id));
     }
 
     /// 结果收集循环（流式处理，不在内存中累积）
@@ -595,14 +625,14 @@ impl MultiProcessExecutor {
 
     /// 提取函数代码
     fn extract_function_code(&self, py: Python, func: &PyAny) -> PyResult<String> {
-        println!("正在提取函数代码...");
+        log_message("正在提取函数代码...".to_string());
         
         let inspect = py.import("inspect")?;
         
         match inspect.call_method1("getsource", (func,)) {
             Ok(source) => {
                 let source_str: String = source.extract()?;
-                println!("✅ 成功获取函数源代码，长度: {} 字符", source_str.len());
+                log_message(format!("✅ 成功获取函数源代码，长度: {} 字符", source_str.len()));
                 
                 if source_str.trim().is_empty() {
                     return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
@@ -614,18 +644,18 @@ impl MultiProcessExecutor {
                 let textwrap = py.import("textwrap")?;
                 let dedented_source = textwrap.call_method1("dedent", (source_str,))?;
                 let final_source: String = dedented_source.extract()?;
-                println!("✅ 去除缩进后源代码长度: {} 字符", final_source.len());
+                log_message(format!("✅ 去除缩进后源代码长度: {} 字符", final_source.len()));
                 
                 Ok(final_source)
             }
             Err(e) => {
-                println!("⚠️ 无法获取函数源代码: {}", e);
+                log_message(format!("⚠️ 无法获取函数源代码: {}", e));
                 
                 let func_name = func.getattr("__name__")
                     .and_then(|name| name.extract::<String>())
                     .unwrap_or_else(|_| "user_function".to_string());
                 
-                println!("📝 创建函数包装，函数名: {}", func_name);
+                log_message(format!("📝 创建函数包装，函数名: {}", func_name));
                 
                 match py.import("dill") {
                     Ok(dill) => {
@@ -633,7 +663,7 @@ impl MultiProcessExecutor {
                         let bytes: Vec<u8> = serialized.extract()?;
                         use base64::Engine;
                         let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
-                        println!("✅ 成功使用dill序列化，长度: {} 字符", encoded.len());
+                        log_message(format!("✅ 成功使用dill序列化，长度: {} 字符", encoded.len()));
                         Ok(encoded)
                     }
                     Err(_) => {
@@ -656,7 +686,7 @@ impl MultiProcessExecutor {
         progress_callback: Option<&PyAny>,
     ) -> PyResult<Vec<ReturnResult>> {
         let total_tasks = args.len();
-        println!("开始多进程执行，总任务数: {}", total_tasks);
+        log_message(format!("开始多进程执行，总任务数: {}", total_tasks));
 
         // 保存原始参数用于最后读取
         let original_args = args.clone();
@@ -679,7 +709,7 @@ impl MultiProcessExecutor {
         };
 
         let remaining_count = remaining_tasks.len();
-        println!("需要计算的任务数: {}", remaining_count);
+        log_message(format!("需要计算的任务数: {}", remaining_count));
 
         if remaining_count == 0 {
             return Ok(existing_results.into_iter().map(|r| r.to_return_result()).collect());
@@ -742,12 +772,12 @@ impl MultiProcessExecutor {
 
         // 清理进度监控进程
         if let Some(mut child) = monitor_process {
-            println!("正在停止进度监控进程...");
+            log_message("正在停止进度监控进程...".to_string());
             let _ = child.kill();
             let _ = child.wait();
         }
 
-        println!("多进程执行完成，总任务数: {}", total_tasks);
+        log_message(format!("多进程执行完成，总任务数: {}", total_tasks));
 
         // 流式处理：从备份文件读取所有结果
         if let Some(backup_manager) = &self.backup_manager {
@@ -808,11 +838,11 @@ impl MultiProcessExecutor {
             self.config.python_path.clone()
         } else {
             let detected = detect_python_interpreter();
-            println!("配置的Python路径无效，使用智能检测: {}", detected);
+            log_message(format!("配置的Python路径无效，使用智能检测: {}", detected));
             detected
         };
         
-        println!("使用Python解释器启动进度监控: {}", python_interpreter);
+        log_message(format!("使用Python解释器启动进度监控: {}", python_interpreter));
         let mut cmd = std::process::Command::new(python_interpreter);
         cmd.arg(monitor_script)
             .arg("--backup-file").arg(backup_file)
@@ -826,11 +856,11 @@ impl MultiProcessExecutor {
         // 启动进程
         match cmd.spawn() {
             Ok(child) => {
-                println!("已启动独立进度监控进程 (PID: {})", child.id());
+                log_message(format!("已启动独立进度监控进程 (PID: {})", child.id()));
                 Ok(Some(child))
             }
             Err(e) => {
-                println!("启动进度监控进程失败: {}，将跳过进度监控", e);
+                log_message(format!("启动进度监控进程失败: {}，将跳过进度监控", e));
                 Ok(None)
             }
         }
@@ -913,7 +943,7 @@ impl MultiProcessExecutor {
             if !existing.is_empty() && !remaining.is_empty() {
                 let latest_backup_date = existing.iter().map(|r| r.date).max().unwrap_or(0);
                 let earliest_remaining_date = remaining.iter().map(|t| t.date).min().unwrap_or(0);
-                println!("备份中最晚日期为{}，即将从{}日期开始计算", latest_backup_date, earliest_remaining_date);
+                log_message(format!("备份中最晚日期为{}，即将从{}日期开始计算", latest_backup_date, earliest_remaining_date));
             }
 
             // 转换为ProcessResult
