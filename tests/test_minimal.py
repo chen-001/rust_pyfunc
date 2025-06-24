@@ -1,26 +1,56 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+"""
+最小化测试
+"""
 
+import os
 import sys
 import tempfile
-import os
-sys.path.append('/home/chenzongwei/rust_pyfunc/python')
 
-import rust_pyfunc
+# 添加项目路径
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'python'))
 
-def simple_func(date, code):
-    return [1.0, 2.0]
+def simple_test():
+    """最简单的测试"""
+    
+    def calc(date, code):
+        return [1.0, 2.0, 3.0]
+    
+    test_args = [[20240101, "TEST001"]]
+    
+    with tempfile.NamedTemporaryFile(suffix='.bin', delete=False) as tmp_file:
+        backup_file = tmp_file.name
+    
+    try:
+        import rust_pyfunc
+        
+        results = rust_pyfunc.run_pools(
+            calc,
+            test_args,
+            backup_file=backup_file,
+            num_threads=1,
+            backup_batch_size=1,
+            storage_format="binary"
+        )
+        
+        print(f"Results: {results}")
+        print(f"Backup file size: {os.path.getsize(backup_file)} bytes")
+        
+        # 查询备份
+        backup_results = rust_pyfunc.query_backup(
+            backup_file,
+            storage_format="binary"
+        )
+        print(f"Backup results: {backup_results}")
+        
+    except Exception as e:
+        print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
+        
+    finally:
+        if os.path.exists(backup_file):
+            os.unlink(backup_file)
 
-print("开始最小测试...")
-
-# 不使用备份文件的简单测试
-try:
-    args = [(20220101, "000001")]
-    result = rust_pyfunc.run_pools(simple_func, args, num_threads=1)
-    print(f"✓ 无备份测试成功，结果: {result}")
-except Exception as e:
-    print(f"❌ 无备份测试失败: {e}")
-    import traceback
-    traceback.print_exc()
-
-print("测试完成")
+if __name__ == "__main__":
+    simple_test()

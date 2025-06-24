@@ -299,8 +299,8 @@ class BackupFileMonitor:
             progress_info = [completed, self.total_tasks, remaining, elapsed]
             self.web_tqdm.update(progress_info)
             
-            print(f"进度: {completed}/{self.total_tasks} ({completed/self.total_tasks*100:.1f}%), "
-                  f"已用时: {elapsed:.1f}s, 预计剩余: {remaining:.1f}s")
+            print(f"\r进度: {completed}/{self.total_tasks} ({completed/self.total_tasks*100:.1f}%), "
+                  f"已用时: {elapsed:.1f}s, 预计剩余: {remaining:.1f}s", end='', flush=True)
                   
         except Exception as e:
             print(f"更新进度失败: {e}")
