@@ -339,7 +339,7 @@ class BackupFileMonitor:
                     self.web_tqdm.finish()
                     break
                     
-                time.sleep(30)  # 3秒更新一次进度
+                time.sleep(8)  # 3秒更新一次进度
                 
         except KeyboardInterrupt:
             print("收到中断信号，停止监控...")
