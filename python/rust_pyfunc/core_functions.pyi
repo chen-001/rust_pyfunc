@@ -241,3 +241,15 @@ def sum_as_string(a: int, b: int) -> str:
         相加结果的字符串表示
     """
     ...
+
+def test_simple_function() -> int:
+    """简单的测试函数，返回固定值42
+    
+    用于验证构建和导出是否正常工作。
+    
+    返回值：
+    -------
+    int
+        固定返回值42
+    """
+    ...

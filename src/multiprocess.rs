@@ -1,12 +1,57 @@
 use pyo3::prelude::*;
-use pyo3::types::{PyList, PyDict};
 use std::process::{Command, Stdio, Child};
 use std::io::{Write, BufRead, BufReader};
-use std::sync::mpsc::{channel,Receiver};
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::{Arc, Mutex};
 use std::thread;
+use std::env;
+use std::path::Path;
+use crossbeam::channel::{unbounded, Receiver as CrossbeamReceiver, Sender as CrossbeamSender};
 use std::time::{SystemTime, UNIX_EPOCH, Instant};
 use serde::{Serialize, Deserialize};
 use crate::backup::BackupManager;
+
+/// 智能检测Python解释器
+fn detect_python_interpreter() -> String {
+    // 1. 检查环境变量
+    if let Ok(python_path) = env::var("PYTHON_INTERPRETER") {
+        if Path::new(&python_path).exists() {
+            return python_path;
+        }
+    }
+    
+    // 2. 检查是否在 conda 环境中
+    if let Ok(conda_prefix) = env::var("CONDA_PREFIX") {
+        let conda_python = format!("{}/bin/python", conda_prefix);
+        if Path::new(&conda_python).exists() {
+            return conda_python;
+        }
+    }
+    
+    // 3. 检查虚拟环境
+    if let Ok(virtual_env) = env::var("VIRTUAL_ENV") {
+        let venv_python = format!("{}/bin/python", virtual_env);
+        if Path::new(&venv_python).exists() {
+            return venv_python;
+        }
+    }
+    
+    // 4. 尝试常见的 Python 解释器
+    let candidates = ["python3", "python"];
+    for candidate in &candidates {
+        if Command::new("which")
+            .arg(candidate)
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
+        {
+            return candidate.to_string();
+        }
+    }
+    
+    // 5. 默认值
+    "python".to_string()
+}
 
 /// 任务数据结构
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -83,15 +128,30 @@ pub struct WorkerProcess {
     id: usize,
 }
 
+/// 任务分发器状态
+#[derive(Debug)]
+struct TaskDispatcherState {
+    completed_tasks: usize,
+    dispatched_tasks: usize,
+}
+
+/// 进度更新信息
+#[derive(Debug, Clone)]
+pub struct ProgressInfo {
+    pub completed: usize,
+    pub total: usize,
+    pub elapsed_secs: f64,
+    pub estimated_remaining_secs: f64,
+}
+
 impl WorkerProcess {
     /// 创建新的工作进程
     pub fn new(id: usize, python_path: &str) -> PyResult<Self> {
         // 获取工作脚本路径 - 使用绝对路径避免当前目录问题
-        // let script_path = std::path::PathBuf::from("/home/chenzongwei/rust_pyfunc/python/worker_process.py");
         let mut script_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         script_path.push("python");
         script_path.push("worker_process.py");
-        println!("script_path: {}", script_path.display());
+        // println!("script_path: {}", script_path.display());
         
         // 检查脚本文件是否存在
         if !script_path.exists() {
@@ -175,9 +235,6 @@ impl WorkerProcess {
     /// 从工作进程接收通用响应
     fn receive_response<T: for<'de> serde::Deserialize<'de>>(&mut self) -> PyResult<T> {
         let mut line = String::new();
-        // 设置读取超时
-        // self.stdout_reader.get_mut().set_read_timeout(Some(std::time::Duration::from_secs(60)))
-        //     .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("设置读取超时失败: {}", e)))?;
 
         self.stdout_reader.read_line(&mut line)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(
@@ -271,23 +328,43 @@ impl ProcessPool {
         })
     }
 
-    /// 为一个数据块执行任务
-    pub fn execute_tasks_for_chunk(
+    /// 异步流水线执行所有任务
+    pub fn execute_tasks_async(
         &mut self,
         _py: Python,
         function_code: &str,
         tasks: Vec<Task>,
         go_class_serialized: Option<String>,
+        backup_sender: Option<Sender<ProcessResult>>,
     ) -> PyResult<Vec<ProcessResult>> {
-        let num_tasks = tasks.len();
-        if num_tasks == 0 {
+        let total_tasks = tasks.len();
+        if total_tasks == 0 {
             return Ok(Vec::new());
         }
 
-        // 1. 发送初始化指令 (FunctionCode, GoClass) 和 Ping
+        println!("开始异步流水线执行，总任务数: {}", total_tasks);
+        let start_time = Instant::now();
+
+        // 创建任务队列和结果收集通道
+        let (task_sender, task_receiver): (CrossbeamSender<Task>, CrossbeamReceiver<Task>) = unbounded();
+        let (result_sender, result_receiver) = channel::<(usize, ProcessResult)>();
+        
+        // 将所有任务放入队列
+        for task in tasks {
+            task_sender.send(task).unwrap();
+        }
+        drop(task_sender); // 关闭发送端，表示没有更多任务
+
+        // 共享状态
+        let state = Arc::new(Mutex::new(TaskDispatcherState {
+            completed_tasks: 0,
+            dispatched_tasks: 0,
+        }));
+
+        // 1. 初始化所有工作进程
         for (i, worker) in &mut self.workers.iter_mut().enumerate() {
             if let Err(e) = worker.ping() {
-                 return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
+                return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
                     format!("工作进程 {} 无响应: {}", i, e)
                 ));
             }
@@ -297,82 +374,167 @@ impl ProcessPool {
             }
         }
 
-        // 2. 分发任务
-        let mut all_sent_tasks: Vec<Vec<Task>> = vec![Vec::new(); self.num_processes];
-        for (task_idx, task) in tasks.into_iter().enumerate() {
-            let worker_idx = task_idx % self.num_processes;
-            self.workers[worker_idx].send_command(&WorkerCommand::Task(task.clone()))?;
-            all_sent_tasks[worker_idx].push(task);
-        }
-
-        // 3. 发送执行指令
-        for (i, worker) in &mut self.workers.iter_mut().enumerate() {
-            if !all_sent_tasks[i].is_empty() {
-                worker.send_command(&WorkerCommand::Execute {})?;
-            }
-        }
-        
-        // 4. 并行收集结果
-        let (tx, rx) = channel();
-        let num_workers_with_tasks = all_sent_tasks.iter().filter(|t| !t.is_empty()).count();
+        // 2. 启动工作进程线程
         let workers_drained: Vec<_> = self.workers.drain(..).collect();
+        let mut worker_handles = Vec::new();
 
-        for (i, mut worker) in workers_drained.into_iter().enumerate() {
-            let sent_tasks_for_worker = all_sent_tasks[i].clone();
-            if sent_tasks_for_worker.is_empty() {
-                continue;
-            }
-            let tx = tx.clone();
-
-            thread::spawn(move || {
-                let result = worker.receive_result();
-                tx.send((i, result, sent_tasks_for_worker, worker)).unwrap();
+        for mut worker in workers_drained {
+            let task_receiver = task_receiver.clone();
+            let result_sender = result_sender.clone();
+            let state = Arc::clone(&state);
+            
+            let handle = thread::spawn(move || {
+                Self::worker_loop(worker.id, &mut worker, task_receiver, result_sender, state)
             });
+            worker_handles.push(handle);
         }
+
+        // 3. 启动结果收集和进度更新线程
+        let results = Arc::new(Mutex::new(Vec::new()));
+        let results_clone = Arc::clone(&results);
+        let _state_clone = Arc::clone(&state);
         
-        let mut results = Vec::with_capacity(num_tasks);
-        let mut dead_workers = std::collections::HashSet::new();
+        // 不在单独线程中处理进度回调，而是在主线程中定期检查
+        let _progress_handle: Option<thread::JoinHandle<()>> = None;
 
-        for _ in 0..num_workers_with_tasks {
-            match rx.recv() {
-                Ok((worker_id, Ok(response), sent_tasks, mut worker)) => {
-                    if !response.errors.is_empty() {
-                        for error_msg in response.errors {
-                            eprintln!("工作进程 {} 返回错误: {}", worker_id, error_msg);
-                        }
-                    }
+        let state_for_collection = Arc::clone(&state);
+        let collection_handle = thread::spawn(move || {
+            Self::result_collection_loop(result_receiver, results_clone, backup_sender, state_for_collection, total_tasks)
+        });
 
-                    for (task, facs) in sent_tasks.iter().zip(response.results) {
-                        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
-                        results.push(ProcessResult {
-                            date: task.date,
-                            code: task.code.clone(),
-                            timestamp: now,
-                            facs,
-                        });
-                    }
-                    worker.terminate().ok();
-                }
-                Ok((worker_id, Err(e), _, mut worker)) => {
-                    eprintln!("接收工作进程 {} 结果时发生严重错误: {}", worker_id, e);
-                    dead_workers.insert(worker_id);
-                    worker.terminate().ok();
-                }
-                Err(e) => {
-                    eprintln!("一个工作线程执行失败(channel recv error): {}", e);
-                }
+        // 4. 等待所有工作完成，不再占用主进程处理进度回调
+        loop {
+            // 检查工作线程是否都完成了
+            let workers_finished = worker_handles.iter().all(|h| h.is_finished());
+            
+            if workers_finished {
+                break;
             }
+            
+            thread::sleep(std::time::Duration::from_millis(100));
         }
         
-        // 重建进程池，确保下一块任务使用全新的进程
-        self.workers.clear();
+        // 等待结果收集完成
+        let _ = collection_handle.join();
+
+        // 重建进程池
         for i in 0..self.num_processes {
             let new_worker = WorkerProcess::new(i, &self.python_path)?;
             self.workers.push(new_worker);
         }
 
-        Ok(results)
+        let final_results = Arc::try_unwrap(results).unwrap().into_inner().unwrap();
+        println!("异步流水线执行完成，总耗时: {:.2}秒", start_time.elapsed().as_secs_f64());
+        
+        Ok(final_results)
     }
+
+    /// 工作进程循环：持续从队列获取任务并处理
+    fn worker_loop(
+        worker_id: usize,
+        worker: &mut WorkerProcess,
+        task_receiver: CrossbeamReceiver<Task>,
+        result_sender: Sender<(usize, ProcessResult)>,
+        state: Arc<Mutex<TaskDispatcherState>>,
+    ) {
+        loop {
+            // 从队列获取任务
+            match task_receiver.recv() {
+                Ok(task) => {
+                    // 更新分发计数
+                    {
+                        let mut state = state.lock().unwrap();
+                        state.dispatched_tasks += 1;
+                    }
+
+                    // 发送任务给工作进程
+                    if let Err(e) = worker.send_command(&WorkerCommand::Task(task.clone())) {
+                        eprintln!("工作进程 {} 发送任务失败: {}", worker_id, e);
+                        break;
+                    }
+                    
+                    if let Err(e) = worker.send_command(&WorkerCommand::Execute {}) {
+                        eprintln!("工作进程 {} 发送执行指令失败: {}", worker_id, e);
+                        break;
+                    }
+
+                    // 接收结果
+                    match worker.receive_result() {
+                        Ok(response) => {
+                            if !response.errors.is_empty() {
+                                for error_msg in response.errors {
+                                    eprintln!("工作进程 {} 返回错误: {}", worker_id, error_msg);
+                                }
+                            }
+
+                            // 处理结果（应该只有一个结果，因为我们一次只发送一个任务）
+                            let facs = response.results.into_iter().next().unwrap_or_else(|| Vec::new());
+                            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+                            let result = ProcessResult {
+                                date: task.date,
+                                code: task.code.clone(),
+                                timestamp: now,
+                                facs,
+                            };
+                            
+                            if result_sender.send((worker_id, result)).is_err() {
+                                eprintln!("工作进程 {} 发送结果失败，结果收集器可能已关闭", worker_id);
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("工作进程 {} 接收结果失败: {}", worker_id, e);
+                            break;
+                        }
+                    }
+                }
+                Err(_) => {
+                    // 任务队列已关闭，退出循环
+                    break;
+                }
+            }
+        }
+        
+        // 清理工作进程
+        let _ = worker.terminate();
+        println!("工作进程 {} 已退出", worker_id);
+    }
+
+    /// 结果收集循环
+    fn result_collection_loop(
+        result_receiver: Receiver<(usize, ProcessResult)>,
+        results: Arc<Mutex<Vec<ProcessResult>>>,
+        backup_sender: Option<Sender<ProcessResult>>,
+        state: Arc<Mutex<TaskDispatcherState>>,
+        total_tasks: usize,
+    ) {
+        while let Ok((_worker_id, result)) = result_receiver.recv() {
+            // 发送到备份线程
+            if let Some(ref sender) = backup_sender {
+                let _ = sender.send(result.clone());
+            }
+
+            // 存储结果
+            {
+                let mut results = results.lock().unwrap();
+                results.push(result);
+            }
+
+            // 更新完成计数
+            let completed = {
+                let mut state = state.lock().unwrap();
+                state.completed_tasks += 1;
+                state.completed_tasks
+            };
+
+            // 如果所有任务都完成了，退出
+            if completed >= total_tasks {
+                break;
+            }
+        }
+    }
+
+
 }
 
 impl Drop for ProcessPool {
@@ -483,10 +645,16 @@ impl MultiProcessExecutor {
         args: Vec<(i32, String)>,
         go_class: Option<&PyAny>,
         progress_callback: Option<&PyAny>,
-        chunk_size: Option<usize>,
     ) -> PyResult<Vec<ReturnResult>> {
         let total_tasks = args.len();
         println!("开始多进程执行，总任务数: {}", total_tasks);
+
+        // 启动独立的进度监控进程（如果有进度回调且有备份文件）
+        let monitor_process = if progress_callback.is_some() && self.config.backup_file.is_some() {
+            self.start_progress_monitor(total_tasks, progress_callback)?
+        } else {
+            None
+        };
 
         // 将参数转换为Task结构
         let tasks: Vec<Task> = args.into_iter().map(|(date, code)| Task { date, code }).collect();
@@ -541,98 +709,26 @@ impl MultiProcessExecutor {
             })
         } else { None };
         
-        // 分块执行
-        let start_time = Instant::now();
-        
-        let chunk_size = chunk_size.unwrap_or(50000);
+        // 异步流水线执行
+        let async_results = match process_pool.execute_tasks_async(
+            py,
+            &function_code,
+            remaining_tasks,
+            go_class_serialized,
+            backup_sender.clone(),
+        ) {
+            Ok(res) => res,
+            Err(e) => {
+                if let Some(cb) = progress_callback {
+                    let _ = cb.call_method1("set_error", (e.to_string(),));
+                }
+                return Err(e);
+            }
+        };
+
+        // 合并结果
         let mut all_results = existing_results;
-
-        let chunks: Vec<_> = remaining_tasks.chunks(chunk_size).collect();
-        let total_chunks = chunks.len();
-        let mut completed_chunks = 0;
-
-        // 如果有回调，则在Python端初始化它
-        if let Some(cb) = progress_callback {
-            Python::with_gil(|_py| {
-                if let Err(_e) = cb.call_method1("set_chunk_info", (chunk_size,)) {
-                    // 这是一个可选方法，如果不存在也不算错误
-                    // eprintln!("调用 set_chunk_info 失败: {}", e);
-                }
-            });
-        }
-
-        for task_chunk in chunks {
-            let chunk_results = match process_pool.execute_tasks_for_chunk(
-                py,
-                &function_code,
-                task_chunk.to_vec(),
-                go_class_serialized.clone(),
-            ) {
-                Ok(res) => res,
-                Err(e) => {
-                    if let Some(cb) = progress_callback {
-                        Python::with_gil(|_py| {
-                            let _ = cb.call_method1("set_error", (e.to_string(),));
-                        });
-                    }
-                    return Err(e);
-                }
-            };
-            
-            completed_chunks += 1;
-
-            // 发送到备份线程
-            if let Some(sender) = &backup_sender {
-                for res in &chunk_results {
-                    sender.send(res.clone()).ok();
-                }
-            }
-
-            // 调用Python回调
-            if let Some(cb) = progress_callback {
-                 Python::with_gil(|py| {
-                    // 1. 调用 update
-                    let elapsed = start_time.elapsed().as_secs_f64();
-                    let remaining = if completed_chunks > 0 {
-                        (elapsed / completed_chunks as f64) * (total_chunks - completed_chunks) as f64
-                    } else { 0.0 };
-
-                    let progress_info: Vec<PyObject> = vec![
-                       completed_chunks.to_object(py),
-                       total_chunks.to_object(py),
-                       remaining.to_object(py),
-                       elapsed.to_object(py),
-                   ];
-                   if let Err(e) = cb.call_method1("update", (progress_info,)) {
-                       eprintln!("调用 progress_callback.update 失败: {}", e);
-                   }
-
-                   // 2. 调用 _update_table_data
-                   let py_results = PyList::empty(py);
-                   for res in &chunk_results {
-                       let dict = PyDict::new(py);
-                       dict.set_item("date", res.date).unwrap();
-                       dict.set_item("code", &res.code).unwrap();
-                       dict.set_item("timestamp", res.timestamp).unwrap();
-                       dict.set_item("facs", &res.facs).unwrap();
-                       py_results.append(dict).unwrap();
-                   }
-                   
-                   if let Err(e) = cb.call_method1("_update_table_data", (py_results,)) {
-                       eprintln!("调用 progress_callback._update_table_data 失败: {}", e);
-                   }
-                });
-            }
-
-            all_results.extend(chunk_results);
-        }
-
-        // 标记任务完成
-        if let Some(cb) = progress_callback {
-            Python::with_gil(|_py| {
-                let _ = cb.call_method0("finish");
-            });
-        }
+        all_results.extend(async_results);
 
         // 等待备份完成
         if let Some(sender) = backup_sender {
@@ -642,9 +738,87 @@ impl MultiProcessExecutor {
             let _ = handle.join();
         }
 
-        println!("多进程执行完成，总耗时: {:.2}秒", start_time.elapsed().as_secs_f64());
+        // 清理进度监控进程
+        if let Some(mut child) = monitor_process {
+            println!("正在停止进度监控进程...");
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+
+        println!("多进程执行完成，总任务数: {}", total_tasks);
 
         Ok(all_results.into_iter().map(|r| r.to_return_result()).collect())
+    }
+
+    /// 启动独立的进度监控进程
+    fn start_progress_monitor(
+        &self,
+        total_tasks: usize,
+        progress_callback: Option<&PyAny>,
+    ) -> PyResult<Option<std::process::Child>> {
+        let backup_file = match &self.config.backup_file {
+            Some(file) => file,
+            None => return Ok(None),
+        };
+
+        // 提取任务名称和因子名称
+        let task_name = if let Some(callback) = progress_callback {
+            Python::with_gil(|_py| {
+                callback.getattr("task_name")
+                    .ok()
+                    .and_then(|name| name.extract::<String>().ok())
+                    .unwrap_or_else(|| "多进程计算".to_string())
+            })
+        } else {
+            "多进程计算".to_string()
+        };
+
+        let factor_names = if let Some(callback) = progress_callback {
+            Python::with_gil(|_py| {
+                callback.getattr("fac_names")
+                    .ok()
+                    .and_then(|names| names.extract::<Vec<String>>().ok())
+                    .unwrap_or_default()
+            })
+        } else {
+            Vec::new()
+        };
+
+        // 构建进度监控命令
+        let monitor_script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("progress_monitor.py");
+        
+        // 优先使用配置的python_path，如果无效则智能检测
+        let python_interpreter = if Path::new(&self.config.python_path).exists() {
+            self.config.python_path.clone()
+        } else {
+            let detected = detect_python_interpreter();
+            println!("配置的Python路径无效，使用智能检测: {}", detected);
+            detected
+        };
+        
+        println!("使用Python解释器启动进度监控: {}", python_interpreter);
+        let mut cmd = std::process::Command::new(python_interpreter);
+        cmd.arg(monitor_script)
+            .arg("--backup-file").arg(backup_file)
+            .arg("--total-tasks").arg(total_tasks.to_string())
+            .arg("--task-name").arg(&task_name);
+
+        if !factor_names.is_empty() {
+            cmd.arg("--factor-names").args(&factor_names);
+        }
+
+        // 启动进程
+        match cmd.spawn() {
+            Ok(child) => {
+                println!("已启动独立进度监控进程 (PID: {})", child.id());
+                Ok(Some(child))
+            }
+            Err(e) => {
+                println!("启动进度监控进程失败: {}，将跳过进度监控", e);
+                Ok(None)
+            }
+        }
     }
 
     /// 备份工作线程

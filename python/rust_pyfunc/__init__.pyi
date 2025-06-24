@@ -21,6 +21,8 @@ from .text_analysis import *
 from .parallel_computing import *
 from .pandas_extensions import *
 from .tree_structures import *
+from .trading_analysis import *
+from .statistical_analysis import *
 
 # 版本信息
 __version__ = "0.18.0"
@@ -44,6 +46,7 @@ __all__ = [
     "rolling_qcv",
     "compute_max_eigenvalue",
     "sum_as_string",
+    "test_simple_function",
     
     # 时间序列函数
     "dtw_distance",
@@ -54,6 +57,11 @@ __all__ = [
     "find_local_peaks_within_window",
     "find_half_energy_time",
     "rolling_window_stat",
+    "find_half_extreme_time",
+    "fast_find_half_extreme_time",
+    "super_find_half_extreme_time",
+    "brachistochrone_curve",
+    "brachistochrone_curve_v2",
     
     # 文本分析函数
     "vectorize_sentences",
@@ -78,4 +86,22 @@ __all__ = [
     # 树结构类
     "PriceTree",
     "RollingFutureAccessor",
+    
+    # 交易分析函数
+    "find_follow_volume_sum_same_price",
+    "find_follow_volume_sum_same_price_and_flag",
+    "mark_follow_groups",
+    "mark_follow_groups_with_flag",
+    "analyze_retreat_advance",
+    "analyze_retreat_advance_v2",
+    "calculate_large_order_nearby_small_order_time_gap",
+    
+    # 统计分析函数
+    "calculate_base_entropy",
+    "calculate_shannon_entropy_change",
+    "calculate_shannon_entropy_change_at_low",
+    "calculate_window_entropy",
+    "factor_correlation_by_date",
+    "factor_grouping",
+    "segment_and_correlate",
 ]
