@@ -81,7 +81,7 @@ pub struct WorkerRequest {
 /// 工作进程响应
 #[derive(Serialize, Deserialize, Debug)]
 pub struct WorkerResponse {
-    pub results: Vec<Vec<f64>>,
+    pub results: Vec<Vec<Option<f64>>>,  // 支持null值
     pub errors: Vec<String>,
     pub task_count: usize,
 }
@@ -461,7 +461,11 @@ impl ProcessPool {
                             }
 
                             // 处理结果（应该只有一个结果，因为我们一次只发送一个任务）
-                            let facs = response.results.into_iter().next().unwrap_or_else(|| Vec::new());
+                            let raw_facs = response.results.into_iter().next().unwrap_or_else(|| Vec::new());
+                            // 将Option<f64>转换为f64，None值转换为NaN
+                            let facs: Vec<f64> = raw_facs.into_iter()
+                                .map(|opt_val| opt_val.unwrap_or(f64::NAN))
+                                .collect();
                             let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
                             let result = ProcessResult {
                                 date: task_date,

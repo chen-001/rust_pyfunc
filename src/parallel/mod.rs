@@ -110,7 +110,12 @@ pub fn run_pools<'py>(
                 data.push(result.date.to_object(py));
                 data.push(result.code.to_object(py));
                 for fac in result.facs {
-                    data.push(fac.to_object(py));
+                    // 将NaN转换回None（Python中的null）
+                    if fac.is_nan() {
+                        data.push(py.None());
+                    } else {
+                        data.push(fac.to_object(py));
+                    }
                 }
             }
             
@@ -139,7 +144,12 @@ pub fn run_pools<'py>(
         data.push(result.date.to_object(py));
         data.push(result.code.to_object(py));
         for fac in result.facs {
-            data.push(fac.to_object(py));
+            // 将NaN转换回None（Python中的null）
+            if fac.is_nan() {
+                data.push(py.None());
+            } else {
+                data.push(fac.to_object(py));
+            }
         }
     }
     
@@ -188,7 +198,12 @@ pub fn query_backup<'py>(
         data.push(result.code.to_object(py));
         data.push(result.timestamp.to_object(py));
         for fac in result.facs {
-            data.push(fac.to_object(py));
+            // 将NaN转换回None（Python中的null）
+            if fac.is_nan() {
+                data.push(py.None());
+            } else {
+                data.push(fac.to_object(py));
+            }
         }
     }
     
