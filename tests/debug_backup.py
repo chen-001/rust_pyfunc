@@ -1,66 +1,79 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+"""
+调试备份文件内容
+"""
 
+import os
 import sys
 import tempfile
-import os
-import time
-sys.path.append('/home/chenzongwei/rust_pyfunc/python')
 
-import rust_pyfunc
+# 添加项目路径
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'python'))
 
-def simple_analysis(date, code):
-    print(f"处理 {date} {code}")
-    return [1.0, 2.0, 3.0]
-
-def test_with_debug():
-    print("=== 调试测试开始 ===")
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.bin', delete=False) as f:
-        backup_file = f.name
+def debug_backup_content():
+    """调试备份文件内容"""
+    print("开始调试备份文件内容...")
     
-    print(f"备份文件: {backup_file}")
+    # 测试数据
+    test_args = [[20240101 + i, f"code_{i}"] for i in range(10)]  # 10个测试任务
+    
+    def test_func(date, code):
+        """测试函数"""
+        return [float(date), float(len(code)), 999.0]
+    
+    # 创建临时备份文件
+    with tempfile.NamedTemporaryFile(suffix='.bin', delete=False) as tmp_file:
+        backup_file = tmp_file.name
     
     try:
-        args = [(20220101, "000001")]
-        print(f"参数: {args}")
+        import rust_pyfunc
         
-        print("调用 run_pools...")
-        start_time = time.time()
-        
-        result = rust_pyfunc.run_pools(
-            simple_analysis,
-            args,
+        # 执行计算
+        print(f"执行{len(test_args)}个任务...")
+        results = rust_pyfunc.run_pools(
+            test_func,
+            test_args,
             backup_file=backup_file,
-            storage_format="binary",
-            num_threads=1,
-            backup_batch_size=1
+            num_threads=2,
+            backup_batch_size=5  # 小批次
         )
         
-        end_time = time.time()
-        print(f"run_pools 完成，耗时: {end_time - start_time:.2f}秒")
-        print(f"结果: {result}")
+        print(f"计算完成，结果数量: {len(results)}")
+        print(f"备份文件大小: {os.path.getsize(backup_file)} bytes")
         
-        # 检查文件是否创建
-        if os.path.exists(backup_file):
-            size = os.path.getsize(backup_file)
-            print(f"备份文件大小: {size} 字节")
-        else:
-            print("⚠️ 备份文件未创建")
+        # 使用backup查询功能检查文件内容
+        if hasattr(rust_pyfunc, 'query_backup'):
+            print("\n=== 通过query_backup查询 ===")
+            query_results = rust_pyfunc.query_backup(
+                backup_file=backup_file,
+                storage_format="binary"
+            )
+            print(f"查询到 {len(query_results)} 个结果")
+            for i, result in enumerate(query_results[:3]):
+                print(f"查询结果{i}: {result}")
         
-        print("测试查询备份...")
-        backup_data = rust_pyfunc.query_backup(backup_file, storage_format="binary")
-        print(f"查询结果: {backup_data}")
+        # 直接检查返回的结果
+        print("\n=== 直接返回结果 ===")
+        for i, result in enumerate(results[:3]):
+            print(f"返回结果{i}: {result}")
+            print(f"  类型: {type(result)}")
+            print(f"  内容: {result}")
+            if hasattr(result, 'shape'):
+                print(f"  形状: {result.shape}")
         
-        print("✅ 测试完成")
+        return True
         
     except Exception as e:
-        print(f"❌ 测试失败: {e}")
+        print(f"测试失败: {e}")
         import traceback
         traceback.print_exc()
+        return False
+        
     finally:
+        # 清理临时文件
         if os.path.exists(backup_file):
-            print(f"清理文件: {backup_file}")
             os.unlink(backup_file)
 
+
 if __name__ == "__main__":
-    test_with_debug()
+    debug_backup_content()

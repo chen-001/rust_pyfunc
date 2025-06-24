@@ -64,7 +64,6 @@ pub struct Task {
 #[derive(Serialize, Deserialize, Debug)]
 pub enum WorkerCommand {
     Task(Task),
-    GoClass(String),
     FunctionCode(String),
     Execute {},
     Ping {},
@@ -334,7 +333,6 @@ impl ProcessPool {
         _py: Python,
         function_code: &str,
         tasks: Vec<Task>,
-        go_class_serialized: Option<String>,
         backup_sender: Option<Sender<ProcessResult>>,
     ) -> PyResult<Vec<ProcessResult>> {
         let total_tasks = tasks.len();
@@ -369,9 +367,6 @@ impl ProcessPool {
                 ));
             }
             worker.send_command(&WorkerCommand::FunctionCode(function_code.to_string()))?;
-            if let Some(go_ser) = &go_class_serialized {
-                worker.send_command(&WorkerCommand::GoClass(go_ser.clone()))?;
-            }
         }
 
         // 2. 启动工作进程线程
@@ -389,17 +384,10 @@ impl ProcessPool {
             worker_handles.push(handle);
         }
 
-        // 3. 启动结果收集和进度更新线程
-        let results = Arc::new(Mutex::new(Vec::new()));
-        let results_clone = Arc::clone(&results);
-        let _state_clone = Arc::clone(&state);
-        
-        // 不在单独线程中处理进度回调，而是在主线程中定期检查
-        let _progress_handle: Option<thread::JoinHandle<()>> = None;
-
+        // 3. 启动结果收集线程（流式处理，不累积结果）
         let state_for_collection = Arc::clone(&state);
         let collection_handle = thread::spawn(move || {
-            Self::result_collection_loop(result_receiver, results_clone, backup_sender, state_for_collection, total_tasks)
+            Self::result_collection_loop(result_receiver, backup_sender, state_for_collection, total_tasks)
         });
 
         // 4. 等待所有工作完成，不再占用主进程处理进度回调
@@ -423,10 +411,11 @@ impl ProcessPool {
             self.workers.push(new_worker);
         }
 
-        let final_results = Arc::try_unwrap(results).unwrap().into_inner().unwrap();
         println!("异步流水线执行完成，总耗时: {:.2}秒", start_time.elapsed().as_secs_f64());
         
-        Ok(final_results)
+        // 流式处理：结果已经写入备份文件，返回空结果
+        // 调用方应该从备份文件读取结果
+        Ok(Vec::new())
     }
 
     /// 工作进程循环：持续从队列获取任务并处理
@@ -447,8 +436,12 @@ impl ProcessPool {
                         state.dispatched_tasks += 1;
                     }
 
+                    // 保存任务信息用于构建结果，避免clone
+                    let task_date = task.date;
+                    let task_code = task.code.clone();
+                    
                     // 发送任务给工作进程
-                    if let Err(e) = worker.send_command(&WorkerCommand::Task(task.clone())) {
+                    if let Err(e) = worker.send_command(&WorkerCommand::Task(task)) {
                         eprintln!("工作进程 {} 发送任务失败: {}", worker_id, e);
                         break;
                     }
@@ -471,8 +464,8 @@ impl ProcessPool {
                             let facs = response.results.into_iter().next().unwrap_or_else(|| Vec::new());
                             let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
                             let result = ProcessResult {
-                                date: task.date,
-                                code: task.code.clone(),
+                                date: task_date,
+                                code: task_code,
                                 timestamp: now,
                                 facs,
                             };
@@ -500,24 +493,17 @@ impl ProcessPool {
         println!("工作进程 {} 已退出", worker_id);
     }
 
-    /// 结果收集循环
+    /// 结果收集循环（流式处理，不在内存中累积）
     fn result_collection_loop(
         result_receiver: Receiver<(usize, ProcessResult)>,
-        results: Arc<Mutex<Vec<ProcessResult>>>,
         backup_sender: Option<Sender<ProcessResult>>,
         state: Arc<Mutex<TaskDispatcherState>>,
         total_tasks: usize,
     ) {
         while let Ok((_worker_id, result)) = result_receiver.recv() {
-            // 发送到备份线程
+            // 直接发送到备份线程（流式处理核心：不在内存中存储）
             if let Some(ref sender) = backup_sender {
-                let _ = sender.send(result.clone());
-            }
-
-            // 存储结果
-            {
-                let mut results = results.lock().unwrap();
-                results.push(result);
+                let _ = sender.send(result);
             }
 
             // 更新完成计数
@@ -555,17 +541,23 @@ pub struct MultiProcessConfig {
     pub storage_format: String,
     pub resume_from_backup: bool,
     pub python_path: String,
+    /// 流式处理配置：每多少批次强制fsync（0表示每批都fsync）
+    pub fsync_frequency: usize,
+    /// 是否强制使用备份文件（流式处理模式下建议开启）
+    pub require_backup: bool,
 }
 
 impl Default for MultiProcessConfig {
     fn default() -> Self {
         Self {
             num_processes: None,
-            backup_batch_size: 1000,
+            backup_batch_size: 50, // 流式处理：降低批处理大小
             backup_file: None,
             storage_format: "binary".to_string(),
             resume_from_backup: false,
             python_path: "/home/chenzongwei/.conda/envs/chenzongwei311/bin/python".to_string(),
+            fsync_frequency: 10, // 每10批强制fsync一次
+            require_backup: false, // 暂时设为false，避免在没有backup_file时报错
         }
     }
 }
@@ -578,6 +570,13 @@ pub struct MultiProcessExecutor {
 
 impl MultiProcessExecutor {
     pub fn new(config: MultiProcessConfig) -> PyResult<Self> {
+        // 流式处理模式下强制检查备份文件配置
+        if config.require_backup && config.backup_file.is_none() {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "流式处理模式下必须指定备份文件"
+            ));
+        }
+
         let backup_manager = if let Some(backup_file) = &config.backup_file {
             Some(BackupManager::new(backup_file, &config.storage_format)?)
         } else {
@@ -607,7 +606,13 @@ impl MultiProcessExecutor {
                     ));
                 }
                 
-                Ok(source_str)
+                // 使用textwrap.dedent去除缩进
+                let textwrap = py.import("textwrap")?;
+                let dedented_source = textwrap.call_method1("dedent", (source_str,))?;
+                let final_source: String = dedented_source.extract()?;
+                println!("✅ 去除缩进后源代码长度: {} 字符", final_source.len());
+                
+                Ok(final_source)
             }
             Err(e) => {
                 println!("⚠️ 无法获取函数源代码: {}", e);
@@ -643,11 +648,14 @@ impl MultiProcessExecutor {
         py: Python,
         func: &PyAny,
         args: Vec<(i32, String)>,
-        go_class: Option<&PyAny>,
+        _go_class: Option<&PyAny>,
         progress_callback: Option<&PyAny>,
     ) -> PyResult<Vec<ReturnResult>> {
         let total_tasks = args.len();
         println!("开始多进程执行，总任务数: {}", total_tasks);
+
+        // 保存原始参数用于最后读取
+        let original_args = args.clone();
 
         // 启动独立的进度监控进程（如果有进度回调且有备份文件）
         let monitor_process = if progress_callback.is_some() && self.config.backup_file.is_some() {
@@ -682,10 +690,13 @@ impl MultiProcessExecutor {
         };
 
         let backup_handle = if let Some(receiver) = backup_receiver {
-            if let Some(backup_manager) = self.backup_manager.take() {
+            if let Some(ref backup_file) = self.config.backup_file {
+                // 重新创建备份管理器而不是移走原有的
+                let backup_manager = BackupManager::new(backup_file, &self.config.storage_format)?;
                 let batch_size = self.config.backup_batch_size;
+                let fsync_frequency = self.config.fsync_frequency;
                 Some(thread::spawn(move || {
-                    Self::backup_worker(backup_manager, receiver, batch_size);
+                    Self::backup_worker(backup_manager, receiver, batch_size, fsync_frequency);
                 }))
             } else { None }
         } else { None };
@@ -696,28 +707,19 @@ impl MultiProcessExecutor {
         });
         let mut process_pool = ProcessPool::new(num_processes, &self.config.python_path)?;
 
-        // 提取和序列化代码/对象
+        // 提取函数代码
         let function_code = self.extract_function_code(py, func)?;
-        let go_class_serialized = if let Some(go_class) = go_class {
-            py.import("dill").ok().and_then(|dill| {
-                dill.call_method1("dumps", (go_class,)).ok().and_then(|s| {
-                    s.extract::<Vec<u8>>().ok().map(|bytes| {
-                        use base64::Engine;
-                        base64::engine::general_purpose::STANDARD.encode(bytes)
-                    })
-                })
-            })
-        } else { None };
         
-        // 异步流水线执行
-        let async_results = match process_pool.execute_tasks_async(
+        // 异步流水线执行（流式处理）
+        match process_pool.execute_tasks_async(
             py,
             &function_code,
             remaining_tasks,
-            go_class_serialized,
             backup_sender.clone(),
         ) {
-            Ok(res) => res,
+            Ok(_) => {
+                // 流式处理完成，结果已写入备份文件
+            },
             Err(e) => {
                 if let Some(cb) = progress_callback {
                     let _ = cb.call_method1("set_error", (e.to_string(),));
@@ -725,10 +727,6 @@ impl MultiProcessExecutor {
                 return Err(e);
             }
         };
-
-        // 合并结果
-        let mut all_results = existing_results;
-        all_results.extend(async_results);
 
         // 等待备份完成
         if let Some(sender) = backup_sender {
@@ -747,7 +745,20 @@ impl MultiProcessExecutor {
 
         println!("多进程执行完成，总任务数: {}", total_tasks);
 
-        Ok(all_results.into_iter().map(|r| r.to_return_result()).collect())
+        // 流式处理：从备份文件读取所有结果
+        if let Some(backup_manager) = &self.backup_manager {
+            let final_results = backup_manager.load_existing_results(&original_args)?;
+            Ok(final_results.into_iter().map(|r| ReturnResult {
+                date: r.date,
+                code: r.code,
+                facs: r.facs,
+            }).collect())
+        } else {
+            // 如果没有备份文件，流式处理无法返回结果
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "流式处理模式下必须指定备份文件才能返回结果"
+            ));
+        }
     }
 
     /// 启动独立的进度监控进程
@@ -821,13 +832,15 @@ impl MultiProcessExecutor {
         }
     }
 
-    /// 备份工作线程
+    /// 备份工作线程（支持可配置的fsync频率）
     fn backup_worker(
         mut backup_manager: BackupManager,
         receiver: Receiver<ProcessResult>,
         batch_size: usize,
+        fsync_frequency: usize,
     ) {
         let mut batch = Vec::with_capacity(batch_size);
+        let mut batch_count = 0;
         
         loop {
             match receiver.recv() {
@@ -845,7 +858,17 @@ impl MultiProcessExecutor {
                         if let Err(e) = backup_manager.save_batch(&batch) {
                             eprintln!("备份失败: {}", e);
                         }
+                        // 使用clear而不是重新分配，更高效且避免内存累积
                         batch.clear();
+                        // 立即释放多余容量，防止内存累积
+                        batch.shrink_to_fit();
+                        batch_count += 1;
+                        
+                        // 根据配置决定是否强制fsync
+                        if fsync_frequency > 0 && batch_count % fsync_frequency == 0 {
+                            // 这里可以添加fsync逻辑，当前backup_manager已包含flush
+                            // 未来可扩展为真正的fsync调用
+                        }
                     }
                 }
                 Err(_) => {

@@ -74,7 +74,7 @@ pub fn run_pools<'py>(
     let multiprocess_config = MultiProcessConfig {
         num_processes: num_threads,
         backup_batch_size,
-        backup_file,
+        backup_file: backup_file.clone(),
         storage_format: storage_format.to_string(),
         resume_from_backup,
         ..Default::default()
@@ -86,15 +86,52 @@ pub fn run_pools<'py>(
 
     // 转换为PyArray
     if multiprocess_results.is_empty() {
-        let empty_array = Array2::<PyObject>::from_shape_vec((0, 0), vec![])
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(
-                format!("无法创建空NDArray: {}", e)
-            ))?;
-        return Ok(empty_array.to_pyarray(py));
+        // 流式处理模式：结果为空说明数据在备份文件中，尝试从备份文件读取
+        if let Some(ref backup_file_path) = backup_file {
+            println!("流式处理模式：从备份文件读取结果...");
+            let backup_manager = BackupManager::new(backup_file_path, &storage_format)?;
+            let backup_results = backup_manager.query_results(None, None)?;
+            
+            if backup_results.is_empty() {
+                let empty_array = Array2::<PyObject>::from_shape_vec((0, 0), vec![])
+                    .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                        format!("无法创建空NDArray: {}", e)
+                    ))?;
+                return Ok(empty_array.to_pyarray(py));
+            }
+            
+            // 转换备份结果为返回格式
+            let num_rows = backup_results.len();
+            let num_cols = 2 + backup_results[0].facs.len(); // date, code, timestamp + facs
+            
+            let mut data = Vec::with_capacity(num_rows * num_cols);
+            
+            for result in backup_results {
+                data.push(result.date.to_object(py));
+                data.push(result.code.to_object(py));
+                for fac in result.facs {
+                    data.push(fac.to_object(py));
+                }
+            }
+            
+            let array = Array2::from_shape_vec((num_rows, num_cols), data)
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                    format!("无法创建NDArray: {}", e)
+                ))?;
+            
+            return Ok(array.to_pyarray(py));
+        } else {
+            // 没有备份文件，返回空数组
+            let empty_array = Array2::<PyObject>::from_shape_vec((0, 0), vec![])
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                    format!("无法创建空NDArray: {}", e)
+                ))?;
+            return Ok(empty_array.to_pyarray(py));
+        }
     }
     
     let num_rows = multiprocess_results.len();
-    let num_cols = 2 + multiprocess_results[0].facs.len(); // date, code, + facs
+    let num_cols = 2 + multiprocess_results[0].facs.len(); // date, code+ facs
     
     let mut data = Vec::with_capacity(num_rows * num_cols);
     
@@ -120,7 +157,7 @@ pub fn run_pools<'py>(
     backup_file,
     date_range=None,
     codes=None,
-    storage_format="json"
+    storage_format="binary"
 ))]
 pub fn query_backup<'py>(
     py: Python<'py>,
