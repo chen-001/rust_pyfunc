@@ -37,6 +37,7 @@ impl From<BackupData> for ComputeResult {
 }
 
 /// 备份管理器
+#[derive(Clone)]
 pub struct BackupManager {
     file_path: String,
     storage_format: String,
