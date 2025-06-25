@@ -528,6 +528,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "nix"
+version = "0.27.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2eb04e9c688eff1c89d72b407f168cf79bb9e867a9d3323ed6c01519eb9cc053"
+dependencies = [
+ "bitflags",
+ "cfg-if",
+ "libc",
+]
+
+[[package]]
 name = "num-complex"
 version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -877,7 +888,7 @@ checksum = "2b15c43186be67a4fd63bee50d0303afffcef381492ebe2c5d87f324e1b8815c"
 
 [[package]]
 name = "rust_pyfunc"
-version = "0.19.4"
+version = "0.19.5"
 dependencies = [
  "base64",
  "bincode",
@@ -889,6 +900,7 @@ dependencies = [
  "nalgebra",
  "ndarray",
  "ndarray-rand",
+ "nix",
  "num_cpus",
  "numpy",
  "ordered-float",

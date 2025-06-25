@@ -153,19 +153,19 @@ def analyze_retreat_advance(
     ...
 
 def analyze_retreat_advance_v2(
-    trade_times: NDArray[np.float64],
-    trade_prices: NDArray[np.float64], 
-    trade_volumes: NDArray[np.float64],
-    trade_flags: NDArray[np.float64],
-    orderbook_times: NDArray[np.float64],
-    orderbook_prices: NDArray[np.float64],
-    orderbook_volumes: NDArray[np.float64],
+    trade_times: List[float],
+    trade_prices: List[float], 
+    trade_volumes: List[float],
+    trade_flags: List[float],
+    orderbook_times: List[float],
+    orderbook_prices: List[float],
+    orderbook_volumes: List[float],
     volume_percentile: Optional[float] = 99.0,
     time_window_minutes: Optional[float] = 1.0,
     breakthrough_threshold: Optional[float] = 0.0,
     dedup_time_seconds: Optional[float] = 30.0,
     find_local_lows: Optional[bool] = False
-) -> Tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
+) -> Tuple[List[float], List[float], List[float], List[float], List[float], List[float], List[float], List[float], List[float]]:
     """分析股票交易中的"以退为进"或"以进为退"现象（纳秒版本）
     
     该函数分析两种现象：
@@ -176,19 +176,19 @@ def analyze_retreat_advance_v2(
     
     参数说明：
     ----------
-    trade_times : NDArray[np.float64]
+    trade_times : List[float]
         逐笔成交数据的时间戳序列（纳秒时间戳）
-    trade_prices : NDArray[np.float64]
+    trade_prices : List[float]
         逐笔成交数据的价格序列
-    trade_volumes : NDArray[np.float64]
+    trade_volumes : List[float]
         逐笔成交数据的成交量序列
-    trade_flags : NDArray[np.float64]
+    trade_flags : List[float]
         逐笔成交数据的标志序列（买卖方向），66表示主动买入，83表示主动卖出
-    orderbook_times : NDArray[np.float64]
+    orderbook_times : List[float]
         盘口快照数据的时间戳序列（纳秒时间戳）
-    orderbook_prices : NDArray[np.float64]
+    orderbook_prices : List[float]
         盘口快照数据的价格序列
-    orderbook_volumes : NDArray[np.float64]
+    orderbook_volumes : List[float]
         盘口快照数据的挂单量序列
     volume_percentile : Optional[float], default=99.0
         异常大挂单量的百分位数阈值，默认为99.0（即前1%）
@@ -205,8 +205,8 @@ def analyze_retreat_advance_v2(
     
     返回值：
     -------
-    Tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]
-        包含9个数组的元组：
+    Tuple[List[float], List[float], List[float], List[float], List[float], List[float], List[float], List[float], List[float]]
+        包含9个列表的元组：
         - 过程期间的成交量
         - 局部极值价格在盘口上时间最近的挂单量
         - 过程开始后指定时间窗口内的成交量

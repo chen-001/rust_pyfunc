@@ -9,8 +9,10 @@ use std::path::Path;
 use crossbeam::channel::{unbounded, Receiver as CrossbeamReceiver, Sender as CrossbeamSender};
 use std::time::{SystemTime, UNIX_EPOCH, Instant};
 use serde::{Serialize, Deserialize};
+use serde_json::Value;
 use crate::backup::BackupManager;
 use std::sync::OnceLock;
+
 
 /// 全局日志收集器
 static LOG_COLLECTOR: OnceLock<Arc<Mutex<Vec<String>>>> = OnceLock::new();
@@ -38,6 +40,56 @@ pub fn flush_logs_to_python(py: Python) {
             }
         }
         logs.clear();
+    }
+}
+
+/// 诊断工作进程状态的函数
+fn diagnose_process_status(worker_id: usize, child: &mut std::process::Child) {
+    match child.try_wait() {
+        Ok(Some(status)) => {
+            let status_msg = if status.success() {
+                format!("✅ 工作进程 {} 正常退出，退出码: {:?}", worker_id, status.code())
+            } else {
+                format!("❌ 工作进程 {} 异常退出，退出状态: {:?}", worker_id, status)
+            };
+            log_message(status_msg.clone());
+            eprintln!("{}", status_msg);
+            
+            // 尝试读取stderr获取错误信息
+            if let Some(ref mut stderr) = child.stderr.as_mut() {
+                use std::io::Read;
+                let mut stderr_output = String::new();
+                if let Ok(_) = stderr.read_to_string(&mut stderr_output) {
+                    if !stderr_output.trim().is_empty() {
+                        let stderr_msg = format!("🚨 工作进程 {} 错误输出:\n{}", worker_id, stderr_output.trim());
+                        log_message(stderr_msg.clone());
+                        eprintln!("{}", stderr_msg);
+                    } else {
+                        log_message(format!("📝 工作进程 {} 没有stderr输出", worker_id));
+                    }
+                } else {
+                    log_message(format!("⚠️ 无法读取工作进程 {} 的stderr", worker_id));
+                }
+            } else {
+                log_message(format!("⚠️ 工作进程 {} 没有stderr管道", worker_id));
+            }
+        }
+        Ok(None) => {
+            let running_msg = format!("🔄 工作进程 {} 仍在运行，可能卡住了", worker_id);
+            log_message(running_msg.clone());
+            eprintln!("{}", running_msg);
+            
+            // 尝试获取进程的PID和其他信息
+            let id = child.id();
+            let pid_msg = format!("🆔 工作进程 {} 的PID: {}", worker_id, id);
+            log_message(pid_msg.clone());
+            eprintln!("{}", pid_msg);
+        }
+        Err(e) => {
+            let err_msg = format!("🚫 无法检查工作进程 {} 状态: {}", worker_id, e);
+            log_message(err_msg.clone());
+            eprintln!("{}", err_msg);
+        }
     }
 }
 
@@ -108,10 +160,11 @@ pub struct WorkerRequest {
     pub go_class_serialized: Option<String>,
 }
 
+
 /// 工作进程响应
 #[derive(Serialize, Deserialize, Debug)]
 pub struct WorkerResponse {
-    pub results: Vec<Vec<Option<f64>>>,  // 支持null值
+    pub results: Vec<Vec<Value>>,  // 使用JSON Value来支持混合类型
     pub errors: Vec<String>,
     pub task_count: usize,
 }
@@ -180,7 +233,8 @@ impl WorkerProcess {
         let mut script_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         script_path.push("python");
         script_path.push("worker_process.py");
-        // println!("script_path: {}", script_path.display());
+        
+        log_message(format!("工作进程 {} - 脚本路径: {}", id, script_path.display()));
         
         // 检查脚本文件是否存在
         if !script_path.exists() {
@@ -342,9 +396,12 @@ impl ProcessPool {
         let mut workers = Vec::new();
         
         log_message(format!("创建 {} 个工作进程...", num_processes));
+        log_message(format!("使用Python解释器: {}", python_path));
         
         for i in 0..num_processes {
+            log_message(format!("正在创建工作进程 {}...", i));
             let worker = WorkerProcess::new(i, python_path)?;
+            log_message(format!("工作进程 {} 创建成功", i));
             workers.push(worker);
         }
         
@@ -471,30 +528,39 @@ impl ProcessPool {
                     let task_code = task.code.clone();
                     
                     // 发送任务给工作进程
+                    // log_message(format!("工作进程 {} 发送任务: date={}, code={}", worker_id, task_date, task_code));
                     if let Err(e) = worker.send_command(&WorkerCommand::Task(task)) {
                         eprintln!("工作进程 {} 发送任务失败: {}", worker_id, e);
                         break;
                     }
                     
+                    // log_message(format!("工作进程 {} 发送执行指令", worker_id));
                     if let Err(e) = worker.send_command(&WorkerCommand::Execute {}) {
                         eprintln!("工作进程 {} 发送执行指令失败: {}", worker_id, e);
                         break;
                     }
 
-                    // 接收结果
+                    // 接收结果（添加超时和详细日志）
+                    // log_message(format!("工作进程 {} 开始接收任务结果...", worker_id));
                     match worker.receive_result() {
                         Ok(response) => {
+                            log_message(format!("工作进程 {} 成功接收结果", worker_id));
                             if !response.errors.is_empty() {
-                                for error_msg in response.errors {
-                                    eprintln!("工作进程 {} 返回错误: {}", worker_id, error_msg);
+                                for error_msg in &response.errors {
+                                    log_message(format!("⚠️ 工作进程 {} 返回错误: {}", worker_id, error_msg));
+                                    eprintln!("⚠️ 工作进程 {} 返回错误: {}", worker_id, error_msg);
                                 }
                             }
 
                             // 处理结果（应该只有一个结果，因为我们一次只发送一个任务）
-                            let raw_facs = response.results.into_iter().next().unwrap_or_else(|| Vec::new());
-                            // 将Option<f64>转换为f64，None值转换为NaN
-                            let facs: Vec<f64> = raw_facs.into_iter()
-                                .map(|opt_val| opt_val.unwrap_or(f64::NAN))
+                            let raw_values = response.results.into_iter().next().unwrap_or_else(|| Vec::new());
+                            // 将JSON Value转换为f64，识别特殊的NaN标记
+                            let facs: Vec<f64> = raw_values.into_iter()
+                                .map(|value| match value {
+                                    Value::Number(n) => n.as_f64().unwrap_or(f64::NAN),
+                                    Value::String(s) if s == "__NaN__" => f64::NAN,
+                                    _ => f64::NAN,  // 其他类型都转为NaN
+                                })
                                 .collect();
                             let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
                             let result = ProcessResult {
@@ -510,7 +576,26 @@ impl ProcessPool {
                             }
                         }
                         Err(e) => {
-                            eprintln!("工作进程 {} 接收结果失败: {}", worker_id, e);
+                            let error_msg = format!("❌ 工作进程 {} 接收结果失败: {}", worker_id, e);
+                            eprintln!("{}", error_msg);
+                            log_message(error_msg.clone());
+                            
+                            // 使用诊断函数检查进程状态
+                            log_message(format!("🔍 检查工作进程 {} 的状态...", worker_id));
+                            diagnose_process_status(worker_id, &mut worker.child);
+                            
+                            // 尝试读取进程的stderr以获取更多错误信息
+                            if let Some(ref mut stderr) = worker.child.stderr.as_mut() {
+                                use std::io::Read;
+                                let mut stderr_output = String::new();
+                                if let Ok(_) = stderr.read_to_string(&mut stderr_output) {
+                                    if !stderr_output.trim().is_empty() {
+                                        let stderr_msg = format!("🚨 工作进程 {} stderr输出:\n{}", worker_id, stderr_output.trim());
+                                        eprintln!("{}", stderr_msg);
+                                        log_message(stderr_msg);
+                                    }
+                                }
+                            }
                             break;
                         }
                     }
@@ -676,7 +761,7 @@ impl MultiProcessExecutor {
         }
     }
 
-    /// 主要的多进程执行函数
+    /// 多进程执行
     pub fn run_multiprocess(
         &mut self,
         py: Python,

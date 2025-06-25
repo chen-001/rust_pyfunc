@@ -63,8 +63,8 @@ pub fn identify_segments(arr: PyReadonlyArray1<f64>) -> PyResult<Py<PyArray1<i32
 ///
 /// 参数说明：
 /// ----------
-/// arr : numpy.ndarray
-///     输入数组，类型为float64
+/// arr : Vec<f64>
+///     输入数组
 ///
 /// 返回值：
 /// -------
@@ -73,25 +73,23 @@ pub fn identify_segments(arr: PyReadonlyArray1<f64>) -> PyResult<Py<PyArray1<i32
 ///
 /// Python调用示例：
 /// ```python
-/// import numpy as np
 /// from rust_pyfunc import find_max_range_product
 ///
 /// # 创建测试数组
-/// arr = np.array([4.0, 2.0, 1.0, 3.0], dtype=np.float64)
+/// arr = [4.0, 2.0, 1.0, 3.0]
+/// 
 /// x, y, max_product = find_max_range_product(arr)
 /// 
 /// print(f"最大乘积出现在索引 {x} 和 {y}")
-/// print(f"对应的值为 {arr[x]} 和 {arr[y]}")
 /// print(f"最大乘积为: {max_product}")
-///
-/// # 例如，如果x=0, y=3那么：
-/// # min(arr[0], arr[3]) * |0-3| = min(4.0, 3.0) * 3 = 3.0 * 3 = 9.0
 /// ```
 #[pyfunction]
 #[pyo3(signature = (arr))]
-pub fn find_max_range_product(arr: PyReadonlyArray1<f64>) -> PyResult<(i64, i64, f64)> {
-    let arr_view = arr.as_array();
-    let n = arr_view.len();
+pub fn find_max_range_product(arr: Vec<f64>) -> PyResult<(i64, i64, f64)> {
+    // 直接使用Vec<f64>创建Array1
+    let arr_array = Array1::from_vec(arr);
+    
+    let n = arr_array.len();
     
     if n < 2 {
         return Ok((0, 0, 0.0));
@@ -103,13 +101,13 @@ pub fn find_max_range_product(arr: PyReadonlyArray1<f64>) -> PyResult<(i64, i64,
     let mut right = n - 1;
 
     while left < right {
-        let product = arr_view[left].min(arr_view[right]) * (right - left) as f64;
+        let product = arr_array[left].min(arr_array[right]) * (right - left) as f64;
         if product > max_product {
             max_product = product;
             result = (left as i64, right as i64);
         }
 
-        if arr_view[left] < arr_view[right] {
+        if arr_array[left] < arr_array[right] {
             left += 1;
         } else {
             right -= 1;
@@ -117,7 +115,7 @@ pub fn find_max_range_product(arr: PyReadonlyArray1<f64>) -> PyResult<(i64, i64,
     }
 
     for i in 0..n-1 {
-        let product = arr_view[i].min(arr_view[i+1]) * 1.0;
+        let product = arr_array[i].min(arr_array[i+1]) * 1.0;
         if product > max_product {
             max_product = product;
             result = (i as i64, (i+1) as i64);

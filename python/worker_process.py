@@ -4,28 +4,33 @@ import base64
 import traceback
 import math
 
+
 CALCULATE_FUNCTION = None
 
 def clean_numeric_values(values):
-    """清理数值列表中的NaN/Inf值，转换为None"""
+    """清理数值列表中的NaN/Inf值，转换为特殊字符串以便JSON序列化"""
     cleaned = []
     for value in values:
         try:
             if isinstance(value, (int, float)):
-                if math.isnan(value) or math.isinf(value):
-                    cleaned.append(None)  # 将NaN/Inf转换为None
+                if math.isnan(value):
+                    cleaned.append("__NaN__")  # 特殊标记表示NaN
+                elif math.isinf(value):
+                    cleaned.append("__NaN__")  # 无穷也转为NaN标记
                 else:
                     cleaned.append(float(value))  # 确保是float类型
             else:
                 # 尝试转换为数值
                 num_value = float(value)
-                if math.isnan(num_value) or math.isinf(num_value):
-                    cleaned.append(None)
+                if math.isnan(num_value):
+                    cleaned.append("__NaN__")  # NaN标记
+                elif math.isinf(num_value):
+                    cleaned.append("__NaN__")  # 无穷转为NaN标记
                 else:
                     cleaned.append(num_value)
         except (ValueError, TypeError):
-            # 如果无法转换为数值，保持原值
-            cleaned.append(value)
+            # 如果无法转换为数值，转换为NaN标记
+            cleaned.append("__NaN__")
     return cleaned
 
 def set_function(function_code):

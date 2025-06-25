@@ -1,6 +1,6 @@
 use pyo3::prelude::*;
-use numpy::{PyArray1, PyReadonlyArray1, IntoPyArray};
 use ndarray::Array1;
+
 
 /// 分析股票交易中的"以退为进"现象（纳秒版本）
 /// 
@@ -10,19 +10,19 @@ use ndarray::Array1;
 /// 
 /// 参数说明：
 /// ----------
-/// trade_times : array_like
+/// trade_times : Vec<f64>
 ///     逐笔成交数据的时间戳序列（纳秒时间戳）
-/// trade_prices : array_like
+/// trade_prices : Vec<f64>
 ///     逐笔成交数据的价格序列
-/// trade_volumes : array_like
+/// trade_volumes : Vec<f64>
 ///     逐笔成交数据的成交量序列
-/// trade_flags : array_like
+/// trade_flags : Vec<f64>
 ///     逐笔成交数据的标志序列（买卖方向），66表示主动买入，83表示主动卖出
-/// orderbook_times : array_like
+/// orderbook_times : Vec<f64>
 ///     盘口快照数据的时间戳序列（纳秒时间戳）
-/// orderbook_prices : array_like
+/// orderbook_prices : Vec<f64>
 ///     盘口快照数据的价格序列
-/// orderbook_volumes : array_like
+/// orderbook_volumes : Vec<f64>
 ///     盘口快照数据的挂单量序列
 /// volume_percentile : float, optional
 ///     异常大挂单量的百分位数阈值，默认为99.0（即前1%）
@@ -53,18 +53,17 @@ use ndarray::Array1;
 /// 
 /// Python调用示例：
 /// ```python
-/// import numpy as np
 /// from rust_pyfunc import analyze_retreat_advance_v2
 /// 
 /// # 准备数据（纳秒时间戳）
-/// trade_times = np.array([1661743800000000000, 1661743860000000000, 1661743920000000000], dtype=np.float64)
-/// trade_prices = np.array([10.0, 10.1, 10.2], dtype=np.float64)
-/// trade_volumes = np.array([100, 200, 150], dtype=np.float64)
-/// trade_flags = np.array([66, 66, 83], dtype=np.float64)
+/// trade_times = [1661743800000000000.0, 1661743860000000000.0, 1661743920000000000.0]
+/// trade_prices = [10.0, 10.1, 10.2]
+/// trade_volumes = [100.0, 200.0, 150.0]
+/// trade_flags = [66.0, 66.0, 83.0]
 /// 
-/// orderbook_times = np.array([1661743800000000000, 1661743860000000000], dtype=np.float64)
-/// orderbook_prices = np.array([10.0, 10.1], dtype=np.float64)
-/// orderbook_volumes = np.array([1000, 5000], dtype=np.float64)
+/// orderbook_times = [1661743800000000000.0, 1661743860000000000.0]
+/// orderbook_prices = [10.0, 10.1]
+/// orderbook_volumes = [1000.0, 5000.0]
 /// 
 /// # 分析"以退为进"现象，使用2分钟时间窗口，0.1%突破阈值，60秒去重时间
 /// results = analyze_retreat_advance_v2(
@@ -93,37 +92,37 @@ use ndarray::Array1;
     find_local_lows=false
 ))]
 pub fn analyze_retreat_advance_v2(
-    py: Python,
-    trade_times: PyReadonlyArray1<f64>,
-    trade_prices: PyReadonlyArray1<f64>,
-    trade_volumes: PyReadonlyArray1<f64>,
-    trade_flags: PyReadonlyArray1<f64>,
-    orderbook_times: PyReadonlyArray1<f64>,
-    orderbook_prices: PyReadonlyArray1<f64>,
-    orderbook_volumes: PyReadonlyArray1<f64>,
+    trade_times: Vec<f64>,
+    trade_prices: Vec<f64>,
+    trade_volumes: Vec<f64>,
+    trade_flags: Vec<f64>,
+    orderbook_times: Vec<f64>,
+    orderbook_prices: Vec<f64>,
+    orderbook_volumes: Vec<f64>,
     volume_percentile: Option<f64>,
     time_window_minutes: Option<f64>,
     breakthrough_threshold: Option<f64>,
     dedup_time_seconds: Option<f64>,
     find_local_lows: Option<bool>,
 ) -> PyResult<(
-    Py<PyArray1<f64>>, // 过程期间的成交量
-    Py<PyArray1<f64>>, // 过程期间首次观察到的异常大挂单量
-    Py<PyArray1<f64>>, // 过程开始后指定时间窗口内的成交量
-    Py<PyArray1<f64>>, // 过程期间的主动买入成交量占比
-    Py<PyArray1<f64>>, // 过程期间的价格种类数
-    Py<PyArray1<f64>>, // 过程期间价格相对局部高点的最大下降比例
-    Py<PyArray1<f64>>, // 过程持续时间（秒）
-    Py<PyArray1<f64>>, // 过程开始时间（纳秒时间戳）
-    Py<PyArray1<f64>>, // 局部高点的价格
+    Vec<f64>, // 过程期间的成交量
+    Vec<f64>, // 过程期间首次观察到的异常大挂单量
+    Vec<f64>, // 过程开始后指定时间窗口内的成交量
+    Vec<f64>, // 过程期间的主动买入成交量占比
+    Vec<f64>, // 过程期间的价格种类数
+    Vec<f64>, // 过程期间价格相对局部高点的最大下降比例
+    Vec<f64>, // 过程持续时间（秒）
+    Vec<f64>, // 过程开始时间（纳秒时间戳）
+    Vec<f64>, // 局部高点的价格
 )> {
-    let trade_times = trade_times.as_array();
-    let trade_prices = trade_prices.as_array();
-    let trade_volumes = trade_volumes.as_array();
-    let trade_flags = trade_flags.as_array();
-    let orderbook_times = orderbook_times.as_array();
-    let orderbook_prices = orderbook_prices.as_array();
-    let orderbook_volumes = orderbook_volumes.as_array();
+    // 直接使用Vec<f64>创建Array1
+    let trade_times = Array1::from_vec(trade_times);
+    let trade_prices = Array1::from_vec(trade_prices);
+    let trade_volumes = Array1::from_vec(trade_volumes);
+    let trade_flags = Array1::from_vec(trade_flags);
+    let orderbook_times = Array1::from_vec(orderbook_times);
+    let orderbook_prices = Array1::from_vec(orderbook_prices);
+    let orderbook_volumes = Array1::from_vec(orderbook_volumes);
     
     let volume_percentile = volume_percentile.unwrap_or(99.0);
     let time_window_minutes = time_window_minutes.unwrap_or(1.0);
@@ -148,39 +147,39 @@ pub fn analyze_retreat_advance_v2(
     }
     
     // 步骤1：找到所有局部极值点（高点或低点）
-    let local_peaks = find_local_extremes_v2(&trade_prices, find_local_lows);
+    let local_peaks = find_local_extremes_v2(&trade_prices.view(), find_local_lows);
     
     // 步骤1.5：去除重复的局部极值点（相同价格且时间接近的极值点）
-    let deduplicated_peaks = deduplicate_local_peaks_v2(&trade_times, &trade_prices, &local_peaks, dedup_time_seconds);
+    let deduplicated_peaks = deduplicate_local_peaks_v2(&trade_times.view(), &trade_prices.view(), &local_peaks, dedup_time_seconds);
     
     // 步骤2：计算挂单量的百分位数阈值
-    let volume_threshold = calculate_percentile_v2(&orderbook_volumes, volume_percentile);
+    let volume_threshold = calculate_percentile_v2(&orderbook_volumes.view(), volume_percentile);
     
     // 步骤3：识别"以退为进"或"以进为退"过程
     let processes = identify_retreat_advance_processes_v2(
-        &trade_times, &trade_prices, &trade_volumes, &trade_flags,
-        &orderbook_times, &orderbook_prices, &orderbook_volumes,
+        &trade_times.view(), &trade_prices.view(), &trade_volumes.view(), &trade_flags.view(),
+        &orderbook_times.view(), &orderbook_prices.view(), &orderbook_volumes.view(),
         &deduplicated_peaks, volume_threshold, time_window_minutes, breakthrough_threshold, find_local_lows
     );
     
     // 步骤4：计算每个过程的9个指标
     let (process_volumes, large_volumes, time_window_volumes, buy_ratios, price_counts, max_declines, process_durations, process_start_times, peak_prices) = 
         calculate_process_metrics_v2(
-            &trade_times, &trade_prices, &trade_volumes, &trade_flags,
-            &orderbook_times, &orderbook_prices, &orderbook_volumes,
+            &trade_times.view(), &trade_prices.view(), &trade_volumes.view(), &trade_flags.view(),
+            &orderbook_times.view(), &orderbook_prices.view(), &orderbook_volumes.view(),
             &processes, time_window_minutes, find_local_lows
         );
     
     Ok((
-        Array1::from(process_volumes).into_pyarray(py).to_owned(),
-        Array1::from(large_volumes).into_pyarray(py).to_owned(),
-        Array1::from(time_window_volumes).into_pyarray(py).to_owned(),
-        Array1::from(buy_ratios).into_pyarray(py).to_owned(),
-        Array1::from(price_counts).into_pyarray(py).to_owned(),
-        Array1::from(max_declines).into_pyarray(py).to_owned(),
-        Array1::from(process_durations).into_pyarray(py).to_owned(),
-        Array1::from(process_start_times).into_pyarray(py).to_owned(),
-        Array1::from(peak_prices).into_pyarray(py).to_owned(),
+        process_volumes,
+        large_volumes,
+        time_window_volumes,
+        buy_ratios,
+        price_counts,
+        max_declines,
+        process_durations,
+        process_start_times,
+        peak_prices,
     ))
 }
 

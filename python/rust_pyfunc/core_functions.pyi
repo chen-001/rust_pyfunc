@@ -54,14 +54,14 @@ def identify_segments(arr: NDArray[np.float64]) -> NDArray[np.int32]:
     """
     ...
 
-def find_max_range_product(arr: NDArray[np.float64]) -> tuple[int, int, float]:
+def find_max_range_product(arr: List[float]) -> tuple[int, int, float]:
     """在数组中找到一对索引(x, y)，使得min(arr[x], arr[y]) * |x-y|的值最大。
     这个函数可以用来找到数组中距离最远的两个元素，同时考虑它们的最小值。
 
     参数说明：
     ----------
-    arr : numpy.ndarray
-        输入数组，类型为float64
+    arr : List[float]
+        输入数组
 
     返回值：
     -------
