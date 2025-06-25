@@ -47,43 +47,43 @@
                 
                 <div class="parameter">
                     <span class="parameter-name">trade_times</span>
-                    <span class="parameter-type">(array_like)</span>
+                    <span class="parameter-type">(Vec&lt;f64&gt;)</span>
                     <div><p>逐笔成交数据的时间戳序列（纳秒时间戳）</p></div>
                 </div>
                 
                 <div class="parameter">
                     <span class="parameter-name">trade_prices</span>
-                    <span class="parameter-type">(array_like)</span>
+                    <span class="parameter-type">(Vec&lt;f64&gt;)</span>
                     <div><p>逐笔成交数据的价格序列</p></div>
                 </div>
                 
                 <div class="parameter">
                     <span class="parameter-name">trade_volumes</span>
-                    <span class="parameter-type">(array_like)</span>
+                    <span class="parameter-type">(Vec&lt;f64&gt;)</span>
                     <div><p>逐笔成交数据的成交量序列</p></div>
                 </div>
                 
                 <div class="parameter">
                     <span class="parameter-name">trade_flags</span>
-                    <span class="parameter-type">(array_like)</span>
+                    <span class="parameter-type">(Vec&lt;f64&gt;)</span>
                     <div><p>逐笔成交数据的标志序列（买卖方向），66表示主动买入，83表示主动卖出</p></div>
                 </div>
                 
                 <div class="parameter">
                     <span class="parameter-name">orderbook_times</span>
-                    <span class="parameter-type">(array_like)</span>
+                    <span class="parameter-type">(Vec&lt;f64&gt;)</span>
                     <div><p>盘口快照数据的时间戳序列（纳秒时间戳）</p></div>
                 </div>
                 
                 <div class="parameter">
                     <span class="parameter-name">orderbook_prices</span>
-                    <span class="parameter-type">(array_like)</span>
+                    <span class="parameter-type">(Vec&lt;f64&gt;)</span>
                     <div><p>盘口快照数据的价格序列</p></div>
                 </div>
                 
                 <div class="parameter">
                     <span class="parameter-name">orderbook_volumes</span>
-                    <span class="parameter-type">(array_like)</span>
+                    <span class="parameter-type">(Vec&lt;f64&gt;)</span>
                     <div><p>盘口快照数据的挂单量序列</p></div>
                 </div>
                 
@@ -136,16 +136,15 @@
     - 局部极值的价格</p>
 <p>Python调用示例：
 ```python
-import numpy as np
 from rust_pyfunc import analyze_retreat_advance_v2</p>
 <h1>准备数据（纳秒时间戳）</h1>
-<p>trade_times = np.array([1661743800000000000, 1661743860000000000, 1661743920000000000], dtype=np.float64)
-trade_prices = np.array([10.0, 10.1, 10.2], dtype=np.float64)
-trade_volumes = np.array([100, 200, 150], dtype=np.float64)
-trade_flags = np.array([66, 66, 83], dtype=np.float64)</p>
-<p>orderbook_times = np.array([1661743800000000000, 1661743860000000000], dtype=np.float64)
-orderbook_prices = np.array([10.0, 10.1], dtype=np.float64)
-orderbook_volumes = np.array([1000, 5000], dtype=np.float64)</p>
+<p>trade_times = [1661743800000000000.0, 1661743860000000000.0, 1661743920000000000.0]
+trade_prices = [10.0, 10.1, 10.2]
+trade_volumes = [100.0, 200.0, 150.0]
+trade_flags = [66.0, 66.0, 83.0]</p>
+<p>orderbook_times = [1661743800000000000.0, 1661743860000000000.0]
+orderbook_prices = [10.0, 10.1]
+orderbook_volumes = [1000.0, 5000.0]</p>
 <h1>分析"以退为进"现象，使用2分钟时间窗口，0.1%突破阈值，60秒去重时间</h1>
 <p>results = analyze_retreat_advance_v2(
     trade_times, trade_prices, trade_volumes, trade_flags,
