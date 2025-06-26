@@ -293,6 +293,11 @@
     ]
   },
   {
+    "name": "get_backup_dataset_info",
+    "description": "<p>获取备份文件详细信息（增强版）</p>",
+    "params": []
+  },
+  {
     "name": "get_backup_info",
     "description": "<p>获取备份文件信息</p>",
     "params": []
@@ -382,7 +387,7 @@
   },
   {
     "name": "query_backup",
-    "description": "<p>查询备份数据</p>",
+    "description": "<p>查询备份数据（增强版：支持大文件和分块读取）</p>",
     "params": []
   },
   {
