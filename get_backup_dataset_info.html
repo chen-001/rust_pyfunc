@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>query_backup - Rust PyFunc API文档</title>
+    <title>get_backup_dataset_info - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
     <script src="static/search.js"></script>
 </head>
@@ -26,16 +26,16 @@
     </div>
     
     <div class="content">
-        <h1>query_backup</h1>
+        <h1>get_backup_dataset_info</h1>
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><p>查询备份数据（增强版：支持大文件和分块读取）</p></div>
+            <div><p>获取备份文件详细信息（增强版）</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>query_backup(backup_file, date_range, codes, storage_format, row_range, max_rows, memory_limit_gb) -> None</code>
+            <code>get_backup_dataset_info(backup_file, storage_format) -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -59,7 +59,7 @@
             <div class="example-usage-note">
                 <h3>Python使用示例</h3>
                 <pre><code>import numpy as np
-from rust_pyfunc import query_backup
+from rust_pyfunc import get_backup_dataset_info
 
 # 使用示例
 
