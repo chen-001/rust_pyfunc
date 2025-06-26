@@ -117,11 +117,17 @@ pub fn run_pools<'py>(
                 return Ok(empty_array.to_pyarray(py));
             }
             
-            // 将ComputeResult转换为ReturnResult，去除timestamp字段
-            let backup_results: Vec<ReturnResult> = backup_compute_results
-                .into_iter()
-                .map(|compute_result| compute_result.to_return_result())
-                .collect();
+            // 将ComputeResult转换为ReturnResult，去除timestamp字段，并进行去重
+            let mut dedup_map: std::collections::HashMap<(i32, String), ReturnResult> = std::collections::HashMap::new();
+            
+            for compute_result in backup_compute_results {
+                let return_result = compute_result.to_return_result();
+                let key = (return_result.date, return_result.code.clone());
+                // 插入新记录，如果key已存在会覆盖旧记录，实现保留后出现的记录
+                dedup_map.insert(key, return_result);
+            }
+            
+            let backup_results: Vec<ReturnResult> = dedup_map.into_values().collect();
             
             py_print(py, &format!("备份数据转换完成，记录数: {}", backup_results.len()));
             
@@ -200,6 +206,20 @@ pub fn run_pools<'py>(
     }
     
     py_print(py, "处理非空的multiprocess_results...");
+    
+    // 对multiprocess_results进行去重处理
+    py_print(py, &format!("去重前multiprocess_results数量: {}", multiprocess_results.len()));
+    let mut dedup_map: std::collections::HashMap<(i32, String), crate::multiprocess::ReturnResult> = std::collections::HashMap::new();
+    
+    for result in multiprocess_results {
+        let key = (result.date, result.code.clone());
+        // 插入新记录，如果key已存在会覆盖旧记录，实现保留后出现的记录
+        dedup_map.insert(key, result);
+    }
+    
+    let multiprocess_results: Vec<crate::multiprocess::ReturnResult> = dedup_map.into_values().collect();
+    py_print(py, &format!("去重后multiprocess_results数量: {}", multiprocess_results.len()));
+    
     let num_rows = multiprocess_results.len();
     
     // 计算最大因子数量，处理不一致的数据
@@ -270,7 +290,18 @@ pub fn query_backup<'py>(
     let backup_manager = BackupManager::new(backup_file, storage_format)?;
     
     // 使用增强的查询方法支持分块读取
-    let results = backup_manager.query_results_chunked(date_range, codes, row_range, max_rows)?;
+    let raw_results = backup_manager.query_results_chunked(date_range, codes, row_range, max_rows)?;
+
+    // 对查询结果进行去重处理
+    let mut dedup_map: std::collections::HashMap<(i32, String), ComputeResult> = std::collections::HashMap::new();
+    
+    for result in raw_results {
+        let key = (result.date, result.code.clone());
+        // 插入新记录，如果key已存在会覆盖旧记录，实现保留后出现的记录
+        dedup_map.insert(key, result);
+    }
+    
+    let results: Vec<ComputeResult> = dedup_map.into_values().collect();
 
     // 转换为NDArray
     if results.is_empty() {
