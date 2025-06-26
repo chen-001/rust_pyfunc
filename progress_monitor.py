@@ -229,16 +229,15 @@ class BackupFileMonitor:
     
             
     def estimate_progress_from_backup(self) -> int:
-        """通过读取备份文件中的实际记录数来获取准确进度"""
+        """通过读取备份文件中的实际记录数来获取准确进度（增强版）"""
         if not os.path.exists(self.backup_file):
             return 0
             
         if rust_pyfunc is None:
-            # 如果无法导入rust_pyfunc，回退到文件大小估算
-            return self.estimate_progress_from_file_size()
+            return self.smart_estimate_from_file_size()
             
         try:
-            # 使用rust_pyfunc直接读取备份记录总数
+            # 尝试读取备份记录总数
             backup_array = rust_pyfunc.query_backup(
                 backup_file=self.backup_file,
                 date_range=None,
@@ -247,16 +246,116 @@ class BackupFileMonitor:
             )
             
             if backup_array.size == 0:
+                print("备份文件为空或无法解析")
                 return 0
                 
-            # 返回实际记录数
+            # 验证数据的合理性
             actual_count = backup_array.shape[0]
-            self.last_count = min(actual_count, self.total_tasks)
+            if actual_count > self.total_tasks:
+                print(f"警告: 备份记录数 ({actual_count}) 超过总任务数 ({self.total_tasks})")
+                actual_count = self.total_tasks
+            
+            # 分析数据质量
+            self.analyze_backup_quality(backup_array)
+            
+            self.last_count = actual_count
             return self.last_count
             
         except Exception as e:
-            print(f"读取备份记录数失败，回退到文件大小估算: {e}")
-            return self.estimate_progress_from_file_size()
+            print(f"读取备份记录数失败: {e}")
+            
+            # 尝试更智能的文件大小估算
+            return self.smart_estimate_from_file_size()
+
+    def analyze_backup_quality(self, backup_array):
+        """分析备份数据质量"""
+        try:
+            if backup_array.shape[0] == 0:
+                return
+                
+            # 分析日期范围
+            dates = backup_array[:, 0].astype(int)
+            min_date, max_date = dates.min(), dates.max()
+            
+            print(f"备份数据日期范围: {min_date} - {max_date}")
+            
+            # 检查数据连续性
+            unique_dates = len(np.unique(dates))
+            print(f"包含 {unique_dates} 个不同日期的数据")
+            
+            # 检查最新数据时间
+            if backup_array.shape[1] >= 3:  # 有timestamp列
+                timestamps = backup_array[:, 2].astype(int)
+                latest_timestamp = timestamps.max()
+                if latest_timestamp > 0:
+                    import datetime
+                    latest_time = datetime.datetime.fromtimestamp(latest_timestamp)
+                    print(f"最新数据计算时间: {latest_time}")
+            
+        except Exception as e:
+            print(f"分析备份质量失败: {e}")
+
+    def smart_estimate_from_file_size(self) -> int:
+        """智能的文件大小估算（改进版）"""
+        if not os.path.exists(self.backup_file):
+            return 0
+            
+        try:
+            current_size = os.path.getsize(self.backup_file)
+            
+            if current_size == self.last_size:
+                return self.last_count
+                
+            # 基于文件结构的更准确估算
+            if current_size < 1000:  # 很小的文件
+                estimated_count = 0
+            elif current_size < 10000:  # 小文件
+                estimated_count = current_size // 200  # 更保守的估算
+            else:  # 大文件
+                # 尝试读取文件开头的几个块来估算平均大小
+                try:
+                    with open(self.backup_file, 'rb') as f:
+                        # 读取前几个数据块来估算平均记录大小
+                        sample_records = 0
+                        sample_bytes = 0
+                        
+                        for _ in range(10):  # 最多采样10个块
+                            len_bytes = f.read(4)
+                            if len(len_bytes) < 4:
+                                break
+                                
+                            block_len = struct.unpack('<I', len_bytes)[0]
+                            if block_len > 100000 or block_len == 0:  # 不合理的块大小
+                                break
+                                
+                            block_data = f.read(block_len)
+                            if len(block_data) < block_len:
+                                break
+                                
+                            sample_bytes += 4 + block_len
+                            # 粗略估算这个块包含的记录数（基于块大小）
+                            estimated_records_in_block = max(1, block_len // 100)
+                            sample_records += estimated_records_in_block
+                        
+                        if sample_records > 0:
+                            avg_bytes_per_record = sample_bytes // sample_records
+                            estimated_count = min(current_size // avg_bytes_per_record, self.total_tasks)
+                            print(f"基于采样估算: 平均每记录 {avg_bytes_per_record} 字节, 估算记录数 {estimated_count}")
+                        else:
+                            estimated_count = min(current_size // 150, self.total_tasks)  # 回退到保守估算
+                            
+                except Exception as e:
+                    print(f"智能估算失败，使用保守估算: {e}")
+                    estimated_count = min(current_size // 200, self.total_tasks)  # 更保守的估算
+            
+            self.last_size = current_size
+            self.last_count = estimated_count
+            
+            return estimated_count
+            
+        except Exception as e:
+            print(f"文件大小估算失败: {e}")
+            return self.last_count
     
     def estimate_progress_from_file_size(self) -> int:
         """通过文件大小估算完成的任务数（备用方法）"""
