@@ -7,6 +7,7 @@ use std::time::Instant;
 use std::error::Error;
 use std::fmt;
 use std::collections::HashMap;
+extern crate ordered_float;
 
 // 导入优化版模块
 pub mod fast_extreme;
@@ -1133,7 +1134,7 @@ pub fn find_follow_volume_sum_same_price(
     let mut result = vec![0.0; n];
     
     // 导入OrderedFloat以便使用浮点数作为BTreeMap的键
-    use ::ordered_float::OrderedFloat;
+    use ordered_float::OrderedFloat;
     
     // 第1步：计算每个点在time_window内的volume总和并标记无匹配的点为NaN
     for i in 0..n {
