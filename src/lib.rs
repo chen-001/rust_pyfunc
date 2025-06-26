@@ -84,5 +84,6 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(parallel::delete_backup, m)?)?;
     m.add_function(wrap_pyfunction!(parallel::backup_exists, m)?)?;
     m.add_function(wrap_pyfunction!(parallel::get_backup_info, m)?)?;
+    m.add_function(wrap_pyfunction!(parallel::get_backup_dataset_info, m)?)?;
     Ok(())
 }

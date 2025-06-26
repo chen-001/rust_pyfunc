@@ -12,15 +12,13 @@ use serde::{Serialize, Deserialize};
 use serde_json::Value;
 use crate::backup::BackupManager;
 use std::sync::OnceLock;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 
 /// 全局日志收集器
 static LOG_COLLECTOR: OnceLock<Arc<Mutex<Vec<String>>>> = OnceLock::new();
 
-/// 初始化日志收集器
-fn init_log_collector() -> Arc<Mutex<Vec<String>>> {
-    LOG_COLLECTOR.get_or_init(|| Arc::new(Mutex::new(Vec::new()))).clone()
-}
 
 /// 添加日志消息
 fn log_message(message: String) {
@@ -28,6 +26,13 @@ fn log_message(message: String) {
     if let Ok(mut logs) = collector.lock() {
         logs.push(message);
     }
+}
+
+/// 计算字符串的哈希值
+fn calculate_hash(input: &str) -> String {
+    let mut hasher = DefaultHasher::new();
+    input.hash(&mut hasher);
+    format!("{:x}", hasher.finish())
 }
 
 /// 通过Python输出并清空所有日志
@@ -208,6 +213,7 @@ pub struct WorkerProcess {
     stdin: std::process::ChildStdin,
     stdout_reader: BufReader<std::process::ChildStdout>,
     id: usize,
+    function_code_hash: Option<String>,  // 跟踪已发送的函数代码版本
 }
 
 /// 任务分发器状态
@@ -269,12 +275,34 @@ impl WorkerProcess {
             stdin,
             stdout_reader,
             id,
+            function_code_hash: None,  // 初始化为None，将在发送函数代码时更新
         };
 
         // 给工作进程一些时间启动
         std::thread::sleep(std::time::Duration::from_millis(100));
 
         Ok(worker)
+    }
+
+    /// 发送函数代码并更新哈希值
+    pub fn send_function_code(&mut self, function_code: &str) -> PyResult<()> {
+        let new_hash = calculate_hash(function_code);
+        
+        // 检查是否需要发送（函数代码未改变）
+        if let Some(ref current_hash) = self.function_code_hash {
+            if current_hash == &new_hash {
+                // 函数代码未改变，跳过发送
+                return Ok(());
+            }
+        }
+        
+        // 发送函数代码
+        self.send_command(&WorkerCommand::FunctionCode(function_code.to_string()))?;
+        
+        // 更新哈希值
+        self.function_code_hash = Some(new_hash);
+        
+        Ok(())
     }
 
     /// 向工作进程发送指令
@@ -453,7 +481,7 @@ impl ProcessPool {
                     format!("工作进程 {} 无响应: {}", i, e)
                 ));
             }
-            worker.send_command(&WorkerCommand::FunctionCode(function_code.to_string()))?;
+            worker.send_function_code(function_code)?;
         }
 
         // 2. 启动工作进程线程
