@@ -219,3 +219,6 @@ perf.data*
 *.bin
 *.dat
 
+# Tests directory (development testing files - not part of the library)
+tests/
+
