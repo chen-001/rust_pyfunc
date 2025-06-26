@@ -5,7 +5,6 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::env;
-use std::path::Path;
 use crossbeam::channel::{unbounded, Receiver as CrossbeamReceiver, Sender as CrossbeamSender};
 use std::time::{SystemTime, UNIX_EPOCH, Instant};
 use serde::{Serialize, Deserialize};
@@ -18,6 +17,8 @@ use std::hash::{Hash, Hasher};
 
 /// 全局日志收集器
 static LOG_COLLECTOR: OnceLock<Arc<Mutex<Vec<String>>>> = OnceLock::new();
+
+
 
 
 /// 添加日志消息
@@ -98,47 +99,7 @@ fn diagnose_process_status(worker_id: usize, child: &mut std::process::Child) {
     }
 }
 
-/// 智能检测Python解释器
-fn detect_python_interpreter() -> String {
-    // 1. 检查环境变量
-    if let Ok(python_path) = env::var("PYTHON_INTERPRETER") {
-        if Path::new(&python_path).exists() {
-            return python_path;
-        }
-    }
-    
-    // 2. 检查是否在 conda 环境中
-    if let Ok(conda_prefix) = env::var("CONDA_PREFIX") {
-        let conda_python = format!("{}/bin/python", conda_prefix);
-        if Path::new(&conda_python).exists() {
-            return conda_python;
-        }
-    }
-    
-    // 3. 检查虚拟环境
-    if let Ok(virtual_env) = env::var("VIRTUAL_ENV") {
-        let venv_python = format!("{}/bin/python", virtual_env);
-        if Path::new(&venv_python).exists() {
-            return venv_python;
-        }
-    }
-    
-    // 4. 尝试常见的 Python 解释器
-    let candidates = ["python3", "python"];
-    for candidate in &candidates {
-        if Command::new("which")
-            .arg(candidate)
-            .output()
-            .map(|output| output.status.success())
-            .unwrap_or(false)
-        {
-            return candidate.to_string();
-        }
-    }
-    
-    // 5. 默认值
-    "python".to_string()
-}
+
 
 /// 任务数据结构
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -709,6 +670,8 @@ impl Default for MultiProcessConfig {
     }
 }
 
+
+
 /// 多进程执行器
 pub struct MultiProcessExecutor {
     config: MultiProcessConfig,
@@ -804,12 +767,19 @@ impl MultiProcessExecutor {
         // 保存原始参数用于最后读取
         let original_args = args.clone();
 
-        // 启动独立的进度监控进程（如果有进度回调且有备份文件）
-        let monitor_process = if progress_callback.is_some() && self.config.backup_file.is_some() {
-            self.start_progress_monitor(total_tasks, progress_callback)?
-        } else {
-            None
-        };
+        // 预估备份文件大小（基于820万行*266列=16.6GB的经验数据）
+        if let Some(ref backup_file) = self.config.backup_file {
+            let estimated_size_gb = Self::estimate_backup_size(total_tasks);
+            // 立即输出备份信息，而不是缓存到日志中
+            Python::with_gil(|py| {
+                let _ = py.import("builtins").and_then(|builtins| {
+                    builtins.call_method1("print", (format!("备份文件: {}", backup_file),))
+                });
+                let _ = py.import("builtins").and_then(|builtins| {
+                    builtins.call_method1("print", (format!("预估备份文件大小: {:.2}GB（基于 {} 个任务）", estimated_size_gb, total_tasks),))
+                });
+            });
+        }
 
         // 将参数转换为Task结构
         let tasks: Vec<Task> = args.into_iter().map(|(date, code)| Task { date, code }).collect();
@@ -883,12 +853,7 @@ impl MultiProcessExecutor {
             let _ = handle.join();
         }
 
-        // 清理进度监控进程
-        if let Some(mut child) = monitor_process {
-            log_message("正在停止进度监控进程...".to_string());
-            let _ = child.kill();
-            let _ = child.wait();
-        }
+        // 流式处理完成
 
         log_message(format!("多进程执行完成，总任务数: {}", total_tasks));
 
@@ -908,75 +873,17 @@ impl MultiProcessExecutor {
         }
     }
 
-    /// 启动独立的进度监控进程
-    fn start_progress_monitor(
-        &self,
-        total_tasks: usize,
-        progress_callback: Option<&PyAny>,
-    ) -> PyResult<Option<std::process::Child>> {
-        let backup_file = match &self.config.backup_file {
-            Some(file) => file,
-            None => return Ok(None),
-        };
-
-        // 提取任务名称和因子名称
-        let task_name = if let Some(callback) = progress_callback {
-            Python::with_gil(|_py| {
-                callback.getattr("task_name")
-                    .ok()
-                    .and_then(|name| name.extract::<String>().ok())
-                    .unwrap_or_else(|| "多进程计算".to_string())
-            })
-        } else {
-            "多进程计算".to_string()
-        };
-
-        let factor_names = if let Some(callback) = progress_callback {
-            Python::with_gil(|_py| {
-                callback.getattr("fac_names")
-                    .ok()
-                    .and_then(|names| names.extract::<Vec<String>>().ok())
-                    .unwrap_or_default()
-            })
-        } else {
-            Vec::new()
-        };
-
-        // 构建进度监控命令
-        let monitor_script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("progress_monitor.py");
+    /// 估算备份文件大小（基于820万行*266列=16.6GB的经验数据）
+    fn estimate_backup_size(total_tasks: usize) -> f64 {
+        // 经验数据：820万行 * 266列 = 16.6GB
+        let known_rows = 8_200_000f64;
+        let known_size_gb = 16.6f64;
         
-        // 优先使用配置的python_path，如果无效则智能检测
-        let python_interpreter = if Path::new(&self.config.python_path).exists() {
-            self.config.python_path.clone()
-        } else {
-            let detected = detect_python_interpreter();
-            log_message(format!("配置的Python路径无效，使用智能检测: {}", detected));
-            detected
-        };
+        // 计算每行的平均大小（GB）
+        let gb_per_row = known_size_gb / known_rows;
         
-        log_message(format!("使用Python解释器启动进度监控: {}", python_interpreter));
-        let mut cmd = std::process::Command::new(python_interpreter);
-        cmd.arg(monitor_script)
-            .arg("--backup-file").arg(backup_file)
-            .arg("--total-tasks").arg(total_tasks.to_string())
-            .arg("--task-name").arg(&task_name);
-
-        if !factor_names.is_empty() {
-            cmd.arg("--factor-names").args(&factor_names);
-        }
-
-        // 启动进程
-        match cmd.spawn() {
-            Ok(child) => {
-                log_message(format!("已启动独立进度监控进程 (PID: {})", child.id()));
-                Ok(Some(child))
-            }
-            Err(e) => {
-                log_message(format!("启动进度监控进程失败: {}，将跳过进度监控", e));
-                Ok(None)
-            }
-        }
+        // 估算总大小
+        total_tasks as f64 * gb_per_row
     }
 
     /// 备份工作线程（支持可配置的fsync频率）
