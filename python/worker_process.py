@@ -162,15 +162,20 @@ def set_function(function_code):
     """设置全局计算函数（优化版本：防止重复加载和内存累积）"""
     global CALCULATE_FUNCTION, FUNCTION_CODE_HASH, IMPORTED_MODULES
     
+    print(f"🔄 [set_function] 开始设置函数", file=sys.stderr, flush=True)
+    
     if not function_code:
+        print(f"⚠️ [set_function] 函数代码为空", file=sys.stderr, flush=True)
         return
     
     try:
         # 计算函数代码哈希，避免重复加载
         code_hash = hashlib.md5(function_code.encode('utf-8')).hexdigest()
+        print(f"🔄 [set_function] 函数代码哈希: {code_hash[:10]}...", file=sys.stderr, flush=True)
         
         if FUNCTION_CODE_HASH == code_hash:
             # 函数代码未变化，跳过重新加载
+            print(f"✅ [set_function] 函数代码未变化，跳过重新加载", file=sys.stderr, flush=True)
             return
         
         # 清理之前的导入模块（保留系统模块）
@@ -225,8 +230,11 @@ def execute_tasks(tasks):
     """执行任务列表（优化版本：避免内存累积）"""
     global CALCULATE_FUNCTION
     
+    print(f"🔄 [execute_tasks] 开始执行 {len(tasks)} 个任务", file=sys.stderr, flush=True)
+    
     if not callable(CALCULATE_FUNCTION):
         error_msg = f"CALCULATE_FUNCTION is not valid: {CALCULATE_FUNCTION}"
+        print(f"❌ [execute_tasks] 函数无效: {error_msg}", file=sys.stderr, flush=True)
         # 避免创建大列表，直接返回
         return {
             "results": [[] for _ in range(len(tasks))], 
@@ -234,6 +242,7 @@ def execute_tasks(tasks):
             "task_count": len(tasks)
         }
 
+    print(f"✅ [execute_tasks] 函数有效，开始处理任务", file=sys.stderr, flush=True)
     # 优化：只为结果预分配，错误列表只存储实际错误
     results = [None] * len(tasks)
     errors = []  # 只存储实际的错误消息
@@ -290,25 +299,35 @@ def execute_tasks(tasks):
 
 def main():
     """主工作循环"""
+    print("🔄 [worker_process] 工作进程启动", file=sys.stderr, flush=True)
     current_tasks = []
     task_count = 0  # 添加任务计数器
+    
     for line in sys.stdin:
         try:
             line = line.strip()
             if not line:
                 continue
 
+            print(f"🔄 [worker_process] 收到命令: {line[:100]}{'...' if len(line) > 100 else ''}", file=sys.stderr, flush=True)
             command_data = json.loads(line)
             command_type = list(command_data.keys())[0]
             command_value = list(command_data.values())[0]
+            
+            print(f"🔄 [worker_process] 命令类型: {command_type}", file=sys.stderr, flush=True)
 
             if command_type == "Task":
                 current_tasks.append(command_value)
+                print(f"🔄 [worker_process] 添加任务，当前任务数: {len(current_tasks)}", file=sys.stderr, flush=True)
             elif command_type == "FunctionCode":
+                print(f"🔄 [worker_process] 设置函数代码，长度: {len(command_value)}", file=sys.stderr, flush=True)
                 set_function(command_value)
+                print(f"✅ [worker_process] 函数代码设置完成", file=sys.stderr, flush=True)
             elif command_type == "Execute":
+                print(f"🔄 [worker_process] 执行任务，任务数: {len(current_tasks)}", file=sys.stderr, flush=True)
                 if current_tasks:
                     response = execute_tasks(current_tasks)
+                    print(f"✅ [worker_process] 任务执行完成，返回结果", file=sys.stderr, flush=True)
                     print(json.dumps(response), flush=True)
                     task_count += len(current_tasks)  # 更新任务计数器
                     current_tasks = []  # 强制重新分配而非clear()
@@ -327,13 +346,19 @@ def main():
                             print(f"Progress: {task_count} tasks completed", file=sys.stderr)
                         except Exception:
                             print(f"Progress: {task_count} tasks completed", file=sys.stderr)
+                else:
+                    print(f"⚠️ [worker_process] 执行命令但无任务", file=sys.stderr, flush=True)
             elif command_type == "Ping":
+                print(f"🔄 [worker_process] 处理ping", file=sys.stderr, flush=True)
                 print(json.dumps({"status": "pong"}), flush=True)
             elif command_type == "Exit":
+                print(f"🔄 [worker_process] 收到退出命令", file=sys.stderr, flush=True)
                 break
-        except (json.JSONDecodeError, IndexError):
+        except (json.JSONDecodeError, IndexError) as e:
+            print(f"⚠️ [worker_process] JSON解析错误: {e}", file=sys.stderr, flush=True)
             continue
         except Exception as e:
+            print(f"❌ [worker_process] 主循环错误: {e}", file=sys.stderr, flush=True)
             error_response = {
                 "results": [],
                 "errors": [f"Main loop error: {e}\n{traceback.format_exc()}"],
@@ -341,6 +366,8 @@ def main():
             }
             print(json.dumps(error_response), flush=True)
             current_tasks = []
+    
+    print("✅ [worker_process] 工作进程正常退出", file=sys.stderr, flush=True)
 
 
 if __name__ == "__main__":
