@@ -177,13 +177,6 @@ pub struct WorkerProcess {
     function_code_hash: Option<String>,  // 跟踪已发送的函数代码版本
 }
 
-/// 任务分发器状态
-#[derive(Debug)]
-struct TaskDispatcherState {
-    completed_tasks: usize,
-    dispatched_tasks: usize,
-}
-
 /// 进度更新信息
 #[derive(Debug, Clone)]
 pub struct ProgressInfo {
@@ -419,21 +412,14 @@ impl ProcessPool {
         log_message(format!("开始异步流水线执行，总任务数: {}", total_tasks));
         let start_time = Instant::now();
 
-        // 创建任务队列和结果收集通道
+        // 创建任务队列
         let (task_sender, task_receiver): (CrossbeamSender<Task>, CrossbeamReceiver<Task>) = unbounded();
-        let (result_sender, result_receiver) = channel::<(usize, ProcessResult)>();
         
         // 将所有任务放入队列
         for task in tasks {
             task_sender.send(task).unwrap();
         }
         drop(task_sender); // 关闭发送端，表示没有更多任务
-
-        // 共享状态
-        let state = Arc::new(Mutex::new(TaskDispatcherState {
-            completed_tasks: 0,
-            dispatched_tasks: 0,
-        }));
 
         // 1. 初始化所有工作进程
         for (i, worker) in &mut self.workers.iter_mut().enumerate() {
@@ -451,22 +437,15 @@ impl ProcessPool {
 
         for mut worker in workers_drained {
             let task_receiver = task_receiver.clone();
-            let result_sender = result_sender.clone();
-            let state = Arc::clone(&state);
+            let backup_sender_clone = backup_sender.clone();
             
             let handle = thread::spawn(move || {
-                Self::worker_loop(worker.id, &mut worker, task_receiver, result_sender, state)
+                Self::worker_loop(worker.id, &mut worker, task_receiver, backup_sender_clone)
             });
             worker_handles.push(handle);
         }
 
-        // 3. 启动结果收集线程（流式处理，不累积结果）
-        let state_for_collection = Arc::clone(&state);
-        let collection_handle = thread::spawn(move || {
-            Self::result_collection_loop(result_receiver, backup_sender, state_for_collection, total_tasks)
-        });
-
-        // 4. 等待所有工作完成，不再占用主进程处理进度回调
+        // 3. 等待所有工作完成
         loop {
             // 检查工作线程是否都完成了
             let workers_finished = worker_handles.iter().all(|h| h.is_finished());
@@ -478,9 +457,6 @@ impl ProcessPool {
             thread::sleep(std::time::Duration::from_millis(100));
         }
         
-        // 等待结果收集完成
-        let _ = collection_handle.join();
-
         // 重建进程池
         for i in 0..self.num_processes {
             let new_worker = WorkerProcess::new(i, &self.python_path)?;
@@ -499,19 +475,12 @@ impl ProcessPool {
         worker_id: usize,
         worker: &mut WorkerProcess,
         task_receiver: CrossbeamReceiver<Task>,
-        result_sender: Sender<(usize, ProcessResult)>,
-        state: Arc<Mutex<TaskDispatcherState>>,
+        backup_sender: Option<Sender<ProcessResult>>,
     ) {
         loop {
             // 从队列获取任务
             match task_receiver.recv() {
                 Ok(task) => {
-                    // 更新分发计数
-                    {
-                        let mut state = state.lock().unwrap();
-                        state.dispatched_tasks += 1;
-                    }
-
                     // 保存任务信息用于构建结果，避免clone
                     let task_date = task.date;
                     let task_code = task.code.clone();
@@ -559,9 +528,12 @@ impl ProcessPool {
                                 facs,
                             };
                             
-                            if result_sender.send((worker_id, result)).is_err() {
-                                eprintln!("工作进程 {} 发送结果失败，结果收集器可能已关闭", worker_id);
-                                break;
+                            // 直接发送结果到备份线程（流式处理）
+                            if let Some(ref sender) = backup_sender {
+                                if sender.send(result).is_err() {
+                                    eprintln!("工作进程 {} 发送结果到备份线程失败", worker_id);
+                                    break;
+                                }
                             }
                         }
                         Err(e) => {
@@ -601,32 +573,6 @@ impl ProcessPool {
         log_message(format!("工作进程 {} 已退出", worker_id));
     }
 
-    /// 结果收集循环（流式处理，不在内存中累积）
-    fn result_collection_loop(
-        result_receiver: Receiver<(usize, ProcessResult)>,
-        backup_sender: Option<Sender<ProcessResult>>,
-        state: Arc<Mutex<TaskDispatcherState>>,
-        total_tasks: usize,
-    ) {
-        while let Ok((_worker_id, result)) = result_receiver.recv() {
-            // 直接发送到备份线程（流式处理核心：不在内存中存储）
-            if let Some(ref sender) = backup_sender {
-                let _ = sender.send(result);
-            }
-
-            // 更新完成计数
-            let completed = {
-                let mut state = state.lock().unwrap();
-                state.completed_tasks += 1;
-                state.completed_tasks
-            };
-
-            // 如果所有任务都完成了，退出
-            if completed >= total_tasks {
-                break;
-            }
-        }
-    }
 
 
 }
