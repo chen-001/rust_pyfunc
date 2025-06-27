@@ -7,7 +7,6 @@ use std::time::Instant;
 use std::error::Error;
 use std::fmt;
 use std::collections::HashMap;
-extern crate ordered_float;
 
 // 导入优化版模块
 pub mod fast_extreme;
