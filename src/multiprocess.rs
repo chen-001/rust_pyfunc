@@ -740,8 +740,10 @@ impl MultiProcessExecutor {
         let remaining_count = remaining_tasks.len();
         log_message(format!("需要计算的任务数: {}", remaining_count));
 
+        // 注意：不要在这里提前返回，即使所有任务都完成了
+        // 需要继续执行流式处理模式的备份文件读取逻辑以确保返回完整结果
         if remaining_count == 0 {
-            return Ok(existing_results.into_iter().map(|r| r.to_return_result()).collect());
+            log_message("所有任务已完成，跳过工作进程执行，但继续执行备份读取逻辑".to_string());
         }
 
         // 备份线程设置
@@ -764,32 +766,38 @@ impl MultiProcessExecutor {
             } else { None }
         } else { None };
 
-        // 创建进程池
-        let num_processes = self.config.num_processes.unwrap_or_else(|| {
-            std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4)
-        });
-        let mut process_pool = ProcessPool::new(num_processes, &self.config.python_path)?;
+        // 只有在有剩余任务时才创建进程池和执行
+        if remaining_count > 0 {
+            // 创建进程池
+            let num_processes = self.config.num_processes.unwrap_or_else(|| {
+                std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4)
+            });
+            let mut process_pool = ProcessPool::new(num_processes, &self.config.python_path)?;
 
-        // 提取函数代码
-        let function_code = self.extract_function_code(py, func)?;
-        
-        // 异步流水线执行（流式处理）
-        match process_pool.execute_tasks_async(
-            py,
-            &function_code,
-            remaining_tasks,
-            backup_sender.clone(),
-        ) {
-            Ok(_) => {
-                // 流式处理完成，结果已写入备份文件
-            },
-            Err(e) => {
-                if let Some(cb) = progress_callback {
-                    let _ = cb.call_method1("set_error", (e.to_string(),));
+            // 提取函数代码
+            let function_code = self.extract_function_code(py, func)?;
+            
+            // 异步流水线执行（流式处理）
+            match process_pool.execute_tasks_async(
+                py,
+                &function_code,
+                remaining_tasks,
+                backup_sender.clone(),
+            ) {
+                Ok(_) => {
+                    // 流式处理完成，结果已写入备份文件
+                },
+                Err(e) => {
+                    if let Some(cb) = progress_callback {
+                        let _ = cb.call_method1("set_error", (e.to_string(),));
+                    }
+                    return Err(e);
                 }
-                return Err(e);
-            }
-        };
+            };
+        } else {
+            // 如果没有剩余任务，直接跳过工作进程执行
+            log_message("跳过工作进程执行，所有任务已完成".to_string());
+        }
 
         // 等待备份完成
         if let Some(sender) = backup_sender {
