@@ -234,13 +234,9 @@ def execute_tasks(tasks):
             "task_count": len(tasks)
         }
 
-    # 使用生成器和流式处理，避免累积大量结果
-    results = []
-    errors = []
-    
-    # 预分配准确大小，避免动态扩展
+    # 优化：只为结果预分配，错误列表只存储实际错误
     results = [None] * len(tasks)
-    errors = [None] * len(tasks)
+    errors = []  # 只存储实际的错误消息
     
     for i, task in enumerate(tasks):
         try:
@@ -256,7 +252,6 @@ def execute_tasks(tasks):
             # 清理NaN/Inf值
             cleaned_facs = clean_numeric_values(facs)
             results[i] = cleaned_facs
-            errors[i] = None  # 无错误
             
             # 定期垃圾收集和内存清理（每20个任务）
             if (i + 1) % 20 == 0:
@@ -267,39 +262,31 @@ def execute_tasks(tasks):
                 
         except Exception as e:
             error_message = f"Error processing task {task}: {e}\n{traceback.format_exc()}"
-            errors[i] = error_message
+            errors.append(error_message)
             results[i] = []
     
-    # 过滤None值，创建最终的紧凑列表
-    final_results = []
-    final_errors = []
-    
-    for i in range(len(tasks)):
-        final_results.append(results[i] if results[i] is not None else [])
-        final_errors.append(errors[i] if errors[i] is not None else "")
+    # 创建最终结果，只包含有效数据
+    final_results = [result if result is not None else [] for result in results]
     
     # 立即清理临时数组
     results = None
-    errors = None
     
     # 最终内存清理
     gc.collect()
     
-    # 内存监控（仅对大批次）
-    try:
-        if len(final_results) >= 50:
+    # 内存监控（输出到stderr，不影响返回结果）
+    if len(final_results) >= 50:
+        try:
             import psutil
             import os
             process = psutil.Process(os.getpid())
             memory_mb = process.memory_info().rss / 1024 / 1024
             if memory_mb > 800:  # 降低警告阈值到800MB
-                final_errors.append(f"Warning: Worker process memory usage: {memory_mb:.1f}MB")
-    except ImportError:
-        pass
-    except Exception:
-        pass
+                print(f"Warning: Worker process memory usage: {memory_mb:.1f}MB", file=sys.stderr)
+        except (ImportError, Exception):
+            pass
 
-    return {"results": final_results, "errors": final_errors, "task_count": len(final_results)}
+    return {"results": final_results, "errors": errors, "task_count": len(final_results)}
 
 def main():
     """主工作循环"""
