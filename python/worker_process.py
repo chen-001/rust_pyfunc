@@ -107,6 +107,7 @@ def get_restricted_globals():
             'filter': builtins.filter,
             'any': builtins.any,
             'all': builtins.all,
+            'hash': builtins.hash,  # 添加hash函数
             
             # 异常类 - 这是关键的修复！
             'Exception': builtins.Exception,
@@ -221,18 +222,26 @@ def set_function(function_code):
 
 
 def execute_tasks(tasks):
-    """执行任务列表（增强版本：添加内存管理）"""
+    """执行任务列表（优化版本：避免内存累积）"""
     global CALCULATE_FUNCTION
-    results = []
-    errors = []
     
     if not callable(CALCULATE_FUNCTION):
         error_msg = f"CALCULATE_FUNCTION is not valid: {CALCULATE_FUNCTION}"
-        for _ in tasks:
-            errors.append(error_msg)
-            results.append([])
-        return {"results": results, "errors": errors, "task_count": len(tasks)}
+        # 避免创建大列表，直接返回
+        return {
+            "results": [[] for _ in range(len(tasks))], 
+            "errors": [error_msg for _ in range(len(tasks))], 
+            "task_count": len(tasks)
+        }
 
+    # 使用生成器和流式处理，避免累积大量结果
+    results = []
+    errors = []
+    
+    # 预分配准确大小，避免动态扩展
+    results = [None] * len(tasks)
+    errors = [None] * len(tasks)
+    
     for i, task in enumerate(tasks):
         try:
             date = task['date']
@@ -246,42 +255,56 @@ def execute_tasks(tasks):
             
             # 清理NaN/Inf值
             cleaned_facs = clean_numeric_values(facs)
-            results.append(cleaned_facs)
+            results[i] = cleaned_facs
+            errors[i] = None  # 无错误
             
-            # 定期垃圾收集（每50个任务）
-            if (i + 1) % 50 == 0:
+            # 定期垃圾收集和内存清理（每20个任务）
+            if (i + 1) % 20 == 0:
                 gc.collect()
+                # 清理已处理的中间变量
+                facs = None
+                cleaned_facs = None
                 
         except Exception as e:
             error_message = f"Error processing task {task}: {e}\n{traceback.format_exc()}"
-            errors.append(error_message)
-            results.append([])
-
-    # 任务执行完成后进行最终内存清理
+            errors[i] = error_message
+            results[i] = []
+    
+    # 过滤None值，创建最终的紧凑列表
+    final_results = []
+    final_errors = []
+    
+    for i in range(len(tasks)):
+        final_results.append(results[i] if results[i] is not None else [])
+        final_errors.append(errors[i] if errors[i] is not None else "")
+    
+    # 立即清理临时数组
+    results = None
+    errors = None
+    
+    # 最终内存清理
     gc.collect()
     
-    # 可选的内存监控（每100个任务批次监控一次）
+    # 内存监控（仅对大批次）
     try:
-        if len(results) >= 100:
+        if len(final_results) >= 50:
             import psutil
             import os
             process = psutil.Process(os.getpid())
             memory_mb = process.memory_info().rss / 1024 / 1024
-            if memory_mb > 1000:  # 超过1GB警告
-                error_message = f"Warning: Worker process memory usage: {memory_mb:.1f}MB"
-                errors.append(error_message)
+            if memory_mb > 800:  # 降低警告阈值到800MB
+                final_errors.append(f"Warning: Worker process memory usage: {memory_mb:.1f}MB")
     except ImportError:
-        # psutil未安装，跳过内存监控
         pass
     except Exception:
-        # 其他错误，静默忽略
         pass
 
-    return {"results": results, "errors": errors, "task_count": len(results)}
+    return {"results": final_results, "errors": final_errors, "task_count": len(final_results)}
 
 def main():
     """主工作循环"""
     current_tasks = []
+    task_count = 0  # 添加任务计数器
     for line in sys.stdin:
         try:
             line = line.strip()
@@ -300,7 +323,23 @@ def main():
                 if current_tasks:
                     response = execute_tasks(current_tasks)
                     print(json.dumps(response), flush=True)
-                    current_tasks.clear()  # 明确清空任务列表
+                    task_count += len(current_tasks)  # 更新任务计数器
+                    current_tasks = []  # 强制重新分配而非clear()
+                    
+                    # 每1万任务进行内存清理和进度报告
+                    if task_count % 10000 == 0:
+                        gc.collect()
+                        # 获取内存使用情况
+                        try:
+                            import psutil
+                            import os
+                            process = psutil.Process(os.getpid())
+                            memory_mb = process.memory_info().rss / 1024 / 1024
+                            print(f"Progress: {task_count} tasks completed, memory: {memory_mb:.1f}MB", file=sys.stderr)
+                        except ImportError:
+                            print(f"Progress: {task_count} tasks completed", file=sys.stderr)
+                        except Exception:
+                            print(f"Progress: {task_count} tasks completed", file=sys.stderr)
             elif command_type == "Ping":
                 print(json.dumps({"status": "pong"}), flush=True)
             elif command_type == "Exit":
