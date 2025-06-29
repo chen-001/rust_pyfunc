@@ -48,11 +48,6 @@
     ]
   },
   {
-    "name": "backup_exists",
-    "description": "<p>检查备份文件是否存在</p>",
-    "params": []
-  },
-  {
     "name": "brachistochrone_curve",
     "description": "<p>计算最速曲线（投掷线）并返回x_series对应的y坐标</p>",
     "params": [
@@ -132,11 +127,6 @@
       "df2",
       "axis"
     ]
-  },
-  {
-    "name": "delete_backup",
-    "description": "<p>删除备份文件</p>",
-    "params": []
   },
   {
     "name": "dtw_distance",
@@ -293,16 +283,6 @@
     ]
   },
   {
-    "name": "get_backup_dataset_info",
-    "description": "<p>获取备份文件详细信息（增强版）</p>",
-    "params": []
-  },
-  {
-    "name": "get_backup_info",
-    "description": "<p>获取备份文件信息</p>",
-    "params": []
-  },
-  {
     "name": "identify_segments",
     "description": "<p>识别数组中的连续相等值段，并为每个段分配唯一标识符。\n每个连续相等的值构成一个段，第一个段标识符为1，第二个为2，以此类推。</p>",
     "params": [
@@ -387,7 +367,12 @@
   },
   {
     "name": "query_backup",
-    "description": "<p>查询备份数据（增强版：支持大文件和分块读取）</p>",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "query_backup_fast",
+    "description": "<p>高速并行备份查询函数，专门优化大文件读取</p>",
     "params": []
   },
   {
@@ -503,8 +488,8 @@
     ]
   },
   {
-    "name": "run_pools",
-    "description": "<p>Python接口函数</p>",
+    "name": "run_pools_queue",
+    "description": "<p>无文档</p>",
     "params": []
   },
   {
