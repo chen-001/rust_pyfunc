@@ -9,10 +9,8 @@ pub mod pandas_ext;
 pub mod tree;
 pub mod error;
 pub mod grouping;
-pub mod parallel;
-pub mod multiprocess;
-pub mod backup;
-pub mod progress;
+pub mod parallel_computing;
+
 
 
 /// Formats the sum of two numbers as string.
@@ -78,12 +76,9 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(pandas_ext::fast_inner_join_dataframes, m)?)?;
     m.add_function(wrap_pyfunction!(grouping::factor_grouping, m)?)?;
     m.add_function(wrap_pyfunction!(grouping::factor_correlation_by_date, m)?)?;
+    m.add_function(wrap_pyfunction!(parallel_computing::run_pools_queue, m)?)?;
+    m.add_function(wrap_pyfunction!(parallel_computing::query_backup, m)?)?;
+    m.add_function(wrap_pyfunction!(parallel_computing::query_backup_fast, m)?)?;
     // m.add_function(wrap_pyfunction!(text::normalized_diff, m)?)?;
-    m.add_function(wrap_pyfunction!(parallel::run_pools, m)?)?;
-    m.add_function(wrap_pyfunction!(parallel::query_backup, m)?)?;
-    m.add_function(wrap_pyfunction!(parallel::delete_backup, m)?)?;
-    m.add_function(wrap_pyfunction!(parallel::backup_exists, m)?)?;
-    m.add_function(wrap_pyfunction!(parallel::get_backup_info, m)?)?;
-    m.add_function(wrap_pyfunction!(parallel::get_backup_dataset_info, m)?)?;
     Ok(())
 }
