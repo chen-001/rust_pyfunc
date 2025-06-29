@@ -16,7 +16,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 packed_simd_2 = { version = "0.3.8", features = ["into_bits"], optional = true }
-pyo3 = { version = "0.18", features = ["auto-initialize", "extension-module"] }
+pyo3 = { version = "0.18", features = ["extension-module"] }
 ndarray = "0.15"
 nalgebra = "0.32"
 numpy = "0.18"
