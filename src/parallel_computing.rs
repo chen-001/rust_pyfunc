@@ -628,9 +628,7 @@ user_function = pickle.loads(_func_data)
 
 fn read_backup_results(file_path: &str) -> PyResult<PyObject> {
     if !Path::new(file_path).exists() {
-        return Err(PyErr::new::<pyo3::exceptions::PyFileNotFoundError, _>(
-            "Backup file not found"
-        ));
+        return Python::with_gil(|py| Ok(py.None()));
     }
     
     let file = File::open(file_path)
@@ -946,19 +944,6 @@ pub fn query_backup(backup_file: String) -> PyResult<PyObject> {
 #[pyfunction]
 #[pyo3(signature = (backup_file, num_threads=None))]
 pub fn query_backup_fast(backup_file: String, num_threads: Option<usize>) -> PyResult<PyObject> {
-    // 对于小文件，优先使用单线程版本
-    let file_path = std::path::Path::new(&backup_file);
-    if file_path.exists() {
-        let file_size = file_path.metadata()
-            .map(|m| m.len())
-            .unwrap_or(0);
-        
-        // 小于50MB的文件使用单线程版本
-        if file_size < 50 * 1024 * 1024 {
-            return read_backup_results(&backup_file);
-        }
-    }
-    
     // 使用自定义线程池而不是全局线程池
     if let Some(threads) = num_threads {
         let pool = rayon::ThreadPoolBuilder::new()
@@ -1108,7 +1093,7 @@ fn run_persistent_task_worker(
             println!("🔄 Worker {} 检测到重启信号，正在重启...", worker_id);
         }
 
-        println!("🚀 Persistent Worker {} 启动，创建持久Python进程", worker_id);
+        // println!("🚀 Persistent Worker {} 启动，创建持久Python进程", worker_id);
         
         let script_content = create_persistent_worker_script();
         let script_path = format!("/tmp/persistent_worker_{}.py", worker_id);
@@ -1249,7 +1234,7 @@ fn run_persistent_task_worker(
         
         // 清理临时文件
         let _ = std::fs::remove_file(&script_path);
-        println!("🏁 Persistent Worker {} 结束，共处理 {} 个任务", worker_id, task_count);
+        // println!("🏁 Persistent Worker {} 结束，共处理 {} 个任务", worker_id, task_count);
         
         if !needs_restart {
             // 如果不是因为重启信号而退出，说明所有任务都完成了
@@ -1363,7 +1348,7 @@ pub fn run_pools_queue(
         let mut total_collected = 0;
         let mut batch_count = 0;
         let mut batch_count_this_chunk = 0;
-        let total_batches = (pending_tasks_len + 999) / 1000;
+        let total_batches = (pending_tasks_len + 499) / 500;
         
         println!("🔄 结果收集器启动，等待worker结果...");
         
@@ -1412,8 +1397,8 @@ pub fn run_pools_queue(
                 }
                 batch_results.clear();
 
-                if batch_count_this_chunk >= 1000 {
-                    println!("\n🔄 达到1000次备份，触发 workers 重启...");
+                if batch_count_this_chunk >= 500 {
+                    println!("\n🔄 达到500次备份，触发 workers 重启...");
                     collector_restart_flag.store(true, Ordering::SeqCst);
                     batch_count_this_chunk = 0;
                 }
@@ -1442,7 +1427,7 @@ pub fn run_pools_queue(
     println!("⏳ 等待所有worker完成...");
     for (i, handle) in worker_handles.into_iter().enumerate() {
         match handle.join() {
-            Ok(()) => println!("✅ Worker {} 已完成", i),
+            Ok(()) => {},
             Err(e) => eprintln!("❌ Worker {} 异常: {:?}", i, e),
         }
     }
