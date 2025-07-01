@@ -109,7 +109,8 @@ def run_pools_queue(
     args: List[List],
     n_jobs: int,
     backup_file: str,
-    expected_result_length: int
+    expected_result_length: int,
+    restart_interval: Optional[int] = None
 ) -> NDArray[np.float64]:
     """🚀 革命性持久化进程池 - 极致性能的并行计算函数（v2.0）
     
@@ -141,6 +142,10 @@ def run_pools_queue(
         支持断点续传，自动跳过已完成任务
     expected_result_length : int
         期望结果长度，支持1-100,000个因子的动态长度
+    restart_interval : Optional[int], default=None
+        每隔多少次备份后重启worker进程，默认为500次
+        设置为None使用默认值，必须大于0
+        有助于清理可能的内存泄漏和保持长期稳定性
         
     返回值：
     -------

@@ -1245,14 +1245,23 @@ fn run_persistent_task_worker(
 
 
 #[pyfunction]
-#[pyo3(signature = (python_function, args, n_jobs, backup_file, expected_result_length))]
+#[pyo3(signature = (python_function, args, n_jobs, backup_file, expected_result_length, restart_interval=None))]
 pub fn run_pools_queue(
     python_function: PyObject,
     args: &PyList,
     n_jobs: usize,
     backup_file: String,
     expected_result_length: usize,
+    restart_interval: Option<usize>,
 ) -> PyResult<PyObject> {
+    // 处理 restart_interval 参数
+    let restart_interval_value = restart_interval.unwrap_or(500);
+    if restart_interval_value == 0 {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "restart_interval must be greater than 0"
+        ));
+    }
+    
     // 解析参数
     let mut all_tasks = Vec::new();
     for item in args.iter() {
@@ -1343,6 +1352,7 @@ pub fn run_pools_queue(
     let expected_result_length_clone = expected_result_length;
     let pending_tasks_len = pending_tasks.len();
     let collector_restart_flag = restart_flag.clone();
+    let restart_interval_clone = restart_interval_value;
     let collector_handle = thread::spawn(move || {
         let mut batch_results = Vec::new();
         let mut total_collected = 0;
@@ -1397,8 +1407,8 @@ pub fn run_pools_queue(
                 }
                 batch_results.clear();
 
-                if batch_count_this_chunk >= 500 {
-                    println!("\n🔄 达到500次备份，触发 workers 重启...");
+                if batch_count_this_chunk >= restart_interval_clone {
+                    println!("\n🔄 达到{}次备份，触发 workers 重启...", restart_interval_clone);
                     collector_restart_flag.store(true, Ordering::SeqCst);
                     batch_count_this_chunk = 0;
                 }
