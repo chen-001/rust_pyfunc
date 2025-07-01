@@ -10,6 +10,7 @@ pub mod tree;
 pub mod error;
 pub mod grouping;
 pub mod parallel_computing;
+pub mod order_contamination;
 
 
 
@@ -79,6 +80,8 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(parallel_computing::run_pools_queue, m)?)?;
     m.add_function(wrap_pyfunction!(parallel_computing::query_backup, m)?)?;
     m.add_function(wrap_pyfunction!(parallel_computing::query_backup_fast, m)?)?;
+    m.add_function(wrap_pyfunction!(order_contamination::order_contamination, m)?)?;
+    m.add_function(wrap_pyfunction!(order_contamination::order_contamination_parallel, m)?)?;
     // m.add_function(wrap_pyfunction!(text::normalized_diff, m)?)?;
     Ok(())
 }
