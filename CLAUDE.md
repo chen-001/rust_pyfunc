@@ -21,7 +21,7 @@ A high-performance Python library implementing computationally intensive algorit
 使用alter.sh来完成构建（即替代直接的maturin develop）
 增加新函数后，要在rust_pyfunc.pyi中添加函数声明
 
-
+- 使用./alter.sh 2>&1来构建项目并查看成功或报错信息
 
 ### Testing
 生成测试文件时，不要直接生成在rust_pyfunc文件夹下，而是存储在tests文件夹中。

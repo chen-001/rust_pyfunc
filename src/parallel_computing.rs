@@ -1362,8 +1362,8 @@ pub fn run_pools_queue(
             //          batch_results.len(), 
             //          total_collected);
             
-            // 每1000个结果备份一次
-            if batch_results.len() >= 1000 {
+            // 每500个结果备份一次
+            if batch_results.len() >= 500 {
                 batch_count += 1;
                 batch_count_this_chunk += 1;
                 
