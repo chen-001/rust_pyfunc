@@ -466,6 +466,19 @@ import sys
 import msgpack
 import time
 import struct
+import math
+
+def normalize_value(x):
+    '''将值标准化，将 None、inf、-inf、nan 都转换为 nan'''
+    if x is None:
+        return float('nan')
+    try:
+        val = float(x)
+        if math.isinf(val) or math.isnan(val):
+            return float('nan')
+        return val
+    except (ValueError, TypeError):
+        return float('nan')
 
 def execute_task(func_code, date, code, expected_length):
     '''执行单个任务，返回结果或NaN'''
@@ -485,8 +498,8 @@ def execute_task(func_code, date, code, expected_length):
         result = func(date, code)
         
         if isinstance(result, list):
-            # 确保返回浮点数类型
-            return [float(x) if x is not None else float('nan') for x in result]
+            # 使用 normalize_value 函数处理所有特殊值
+            return [normalize_value(x) for x in result]
         else:
             return [float('nan')] * expected_length
             
@@ -1255,7 +1268,7 @@ pub fn run_pools_queue(
     restart_interval: Option<usize>,
 ) -> PyResult<PyObject> {
     // 处理 restart_interval 参数
-    let restart_interval_value = restart_interval.unwrap_or(500);
+    let restart_interval_value = restart_interval.unwrap_or(200);
     if restart_interval_value == 0 {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
             "restart_interval must be greater than 0"

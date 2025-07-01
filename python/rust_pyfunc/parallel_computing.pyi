@@ -143,7 +143,7 @@ def run_pools_queue(
     expected_result_length : int
         期望结果长度，支持1-100,000个因子的动态长度
     restart_interval : Optional[int], default=None
-        每隔多少次备份后重启worker进程，默认为500次
+        每隔多少次备份后重启worker进程，默认为200次
         设置为None使用默认值，必须大于0
         有助于清理可能的内存泄漏和保持长期稳定性
         
