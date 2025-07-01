@@ -18,14 +18,14 @@ A high-performance Python library implementing computationally intensive algorit
 ## Common Development Commands
 
 ### Build and Development
-使用alter.sh来完成构建（即替代直接的maturin develop）
-增加新函数后，要在rust_pyfunc.pyi中添加函数声明
 
+- 增加新函数后，要在对应的*.pyi中添加函数声明
 - 使用./alter.sh 2>&1来构建项目并查看成功或报错信息
 
 ### Testing
-生成测试文件时，不要直接生成在rust_pyfunc文件夹下，而是存储在tests文件夹中。
-在编写了rust新函数后，请使用python代码实现同样的功能，并比较二者的是否一致，以及速度差异如何。
+
+- 生成测试文件时，不要直接生成在rust_pyfunc文件夹下，而是存储在tests文件夹中。
+- 在编写了rust新函数后，请使用python代码实现同样的功能，并比较二者的是否一致，以及速度差异如何。
 
 ### Documentation
 ```bash
