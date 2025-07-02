@@ -36,8 +36,8 @@
 <li>exchtime: 成交时间数组（纳秒）</li>
 <li>order: 订单编号数组</li>
 <li>volume: 成交量数组  </li>
-<li>top_percentile: 大单百分比阈值 (0.0-1.0)，默认0.1表示前10%</li>
-<li>time_window_ns: 时间窗口（纳秒），默认1秒=1_000_000_000ns</li>
+<li>top_percentile: 大单百分比阈值 (1-100)，表示前x%，默认10表示前10%</li>
+<li>time_window_seconds: 时间窗口（秒），默认1秒</li>
 </ul>
 <h1>返回</h1>
 <p>浸染后的订单编号数组</p></div>
@@ -45,7 +45,7 @@
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>order_contamination(exchtime, order, volume, top_percentile, time_window_ns) -> None</code>
+            <code>order_contamination(exchtime, order, volume, top_percentile, time_window_seconds) -> None</code>
         </div>
         
         <div class="function-parameters">

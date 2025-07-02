@@ -367,7 +367,7 @@
   },
   {
     "name": "order_contamination",
-    "description": "<p>优化版订单浸染函数 - 高性能单线程版本</p>\n<h1>参数</h1>\n<ul>\n<li>exchtime: 成交时间数组（纳秒）</li>\n<li>order: 订单编号数组</li>\n<li>volume: 成交量数组  </li>\n<li>top_percentile: 大单百分比阈值 (0.0-1.0)，默认0.1表示前10%</li>\n<li>time_window_ns: 时间窗口（纳秒），默认1秒=1_000_000_000ns</li>\n</ul>\n<h1>返回</h1>\n<p>浸染后的订单编号数组</p>",
+    "description": "<p>优化版订单浸染函数 - 高性能单线程版本</p>\n<h1>参数</h1>\n<ul>\n<li>exchtime: 成交时间数组（纳秒）</li>\n<li>order: 订单编号数组</li>\n<li>volume: 成交量数组  </li>\n<li>top_percentile: 大单百分比阈值 (1-100)，表示前x%，默认10表示前10%</li>\n<li>time_window_seconds: 时间窗口（秒），默认1秒</li>\n</ul>\n<h1>返回</h1>\n<p>浸染后的订单编号数组</p>",
     "params": []
   },
   {
