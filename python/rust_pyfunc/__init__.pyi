@@ -23,6 +23,7 @@ from .pandas_extensions import *
 from .tree_structures import *
 from .trading_analysis import *
 from .statistical_analysis import *
+from .web_manager import *
 
 # 版本信息
 __version__ = "0.18.0"
@@ -86,6 +87,7 @@ __all__ = [
     # 树结构类
     "PriceTree",
     "RollingFutureAccessor",
+    "PriceTreeViz",
     
     # 交易分析函数
     "find_follow_volume_sum_same_price",
@@ -95,6 +97,8 @@ __all__ = [
     "analyze_retreat_advance",
     "analyze_retreat_advance_v2",
     "calculate_large_order_nearby_small_order_time_gap",
+    "order_contamination",
+    "order_contamination_parallel",
     
     # 统计分析函数
     "calculate_base_entropy",
@@ -104,4 +108,28 @@ __all__ = [
     "factor_correlation_by_date",
     "factor_grouping",
     "segment_and_correlate",
+    
+    # Python定义的pandas扩展函数
+    "corrwith",
+    "rank_axis1_df",
+    "rank_axis0_df",
+    "fast_rank",
+    "fast_rank_axis1", 
+    "fast_rank_axis0",
+    "fast_merge_df",
+    "fast_inner_join_df",
+    "fast_left_join_df",
+    "fast_right_join_df",
+    "fast_outer_join_df",
+    "fast_join",
+    "fast_merge_dataframe",
+    
+    # Web管理器
+    "BackupWebManager",
+    "check_port_available",
+    "find_available_port", 
+    "start_web_manager",
+    
+    # 测试函数
+    "haha",
 ]

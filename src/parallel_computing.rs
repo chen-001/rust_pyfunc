@@ -1103,7 +1103,7 @@ fn run_persistent_task_worker(
 ) {
     loop { // 循环以支持worker重启
         if restart_flag.compare_exchange(true, false, Ordering::SeqCst, Ordering::Relaxed).is_ok() {
-            println!("🔄 Worker {} 检测到重启信号，正在重启...", worker_id);
+            // println!("🔄 Worker {} 检测到重启信号，正在重启...", worker_id);
         }
 
         // println!("🚀 Persistent Worker {} 启动，创建持久Python进程", worker_id);
@@ -1421,7 +1421,7 @@ pub fn run_pools_queue(
                 batch_results.clear();
 
                 if batch_count_this_chunk >= restart_interval_clone {
-                    println!("\n🔄 达到{}次备份，触发 workers 重启...", restart_interval_clone);
+                    // println!("\n🔄 达到{}次备份，触发 workers 重启...", restart_interval_clone);
                     collector_restart_flag.store(true, Ordering::SeqCst);
                     batch_count_this_chunk = 0;
                 }

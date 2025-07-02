@@ -73,71 +73,79 @@ pip install numpy pandas pytest  # 用于测试和验证
 **Fork和克隆项目**:
 ```bash
 # 1. 在GitHub上Fork项目到你的账户
-# 访问 https://github.com/original-repo/rust_pyfunc 点击Fork
+# 访问 https://github.com/chen-001/rust_pyfunc 点击Fork
 
 # 2. 克隆你的Fork
 git clone https://github.com/your-username/rust_pyfunc.git
 cd rust_pyfunc
 
-# 3. 添加原始仓库为upstream
-git remote add upstream https://github.com/original-repo/rust_pyfunc.git
+# 3. 添加原始仓库为upstream（保持与主仓库同步）
+git remote add upstream https://github.com/chen-001/rust_pyfunc.git
 
 # 4. 验证环境
 maturin --version
 ```
 
-### Maturin构建系统使用指南
+### Upstream远程仓库的作用与使用
 
-Maturin是Rust-Python项目的专用构建工具，以下是常用命令：
+**Upstream的好处**：
+- 🔄 **保持同步**: 随时获取主仓库的最新更新
+- 🚀 **清洁的PR**: 基于最新代码创建Pull Request
+- 🔀 **冲突预防**: 及时发现和解决合并冲突
+- 📈 **协作便利**: 与其他贡献者保持代码一致性
 
-**基础构建命令**:
+**常用操作流程**：
+```bash
+# 获取主仓库最新更改
+git fetch upstream
+
+# 切换到本地main分支
+git checkout main
+
+# 将upstream的main分支合并到本地main
+git merge upstream/main
+
+# 推送更新到你的Fork
+git push origin main
+
+# 基于最新代码创建新功能分支
+git checkout -b feature/your-new-feature
+
+# 开发完成后，再次同步（确保没有冲突）
+git fetch upstream
+git rebase upstream/main
+
+# 推送功能分支并创建PR
+git push origin feature/your-new-feature
+```
+
+**最佳实践建议**：
+- 💡 每次开始新功能前先同步：`git pull upstream main`
+- 🔍 定期检查主仓库更新：`git fetch upstream && git log upstream/main --oneline -10`
+- 🎯 保持分支整洁：使用rebase而非merge来整理提交历史
+- ⚡ 快速同步命令：`git fetch upstream && git checkout main && git merge upstream/main && git push origin main`
+
+### 快速构建指南
+
+**推荐的构建方式**:
 ```bash
 # 开发模式构建（推荐用于开发）
 maturin develop
-# 等价于项目中的 ./alter.sh
 
 # 查看详细构建输出
 maturin develop --verbose
 
-# 释放模式构建（用于最终发布）
+# 释放模式构建（用于正式使用，速度更快）
 maturin develop --release
 ```
 
-**构建选项说明**:
+**验证安装**:
 ```bash
-# 仅构建Rust部分，不安装到Python
-maturin build
+# 验证模块导入
+python -c "import rust_pyfunc as rp; print('✅ 导入成功')"
 
-# 构建wheel包
-maturin build --release
-
-# 指定Python解释器
-maturin develop --python /path/to/python
-
-# 构建时显示更多信息
-maturin develop --verbose
-```
-
-**常见问题解决**:
-```bash
-# 如果遇到链接错误，尝试清理后重新构建
-cargo clean
-maturin develop
-
-# 如果Python找不到模块，确认安装成功
-python -c "import rust_pyfunc; print('✅ 导入成功')"
-
-# 查看构建的wheel文件
-maturin build && ls target/wheels/
-```
-
-**性能优化构建**:
-```bash
-# 最高性能的发布构建
-maturin build --release --strip
-
-# 使用项目的优化配置
-maturin develop --release  # 使用Cargo.toml中的[profile.release]设置
+# 查看可用函数
+python -c "import rust_pyfunc as rp; print(dir(rp))"
 ```
 
 ### 添加新函数的步骤
@@ -462,7 +470,7 @@ let result: Vec<f64> = (0..=n-window)
 
 ```bash
 # 1. 在GitHub上Fork项目
-# 访问 https://github.com/original-owner/rust_pyfunc
+# 访问 https://github.com/chen-001/rust_pyfunc
 # 点击右上角的 "Fork" 按钮
 
 # 2. 克隆你的Fork到本地
@@ -470,14 +478,14 @@ git clone https://github.com/your-username/rust_pyfunc.git
 cd rust_pyfunc
 
 # 3. 添加原仓库为upstream（保持同步用）
-git remote add upstream https://github.com/original-owner/rust_pyfunc.git
+git remote add upstream https://github.com/chen-001/rust_pyfunc.git
 
 # 4. 验证远程仓库配置
 git remote -v
 # origin    https://github.com/your-username/rust_pyfunc.git (fetch)
 # origin    https://github.com/your-username/rust_pyfunc.git (push)
-# upstream  https://github.com/original-owner/rust_pyfunc.git (fetch)
-# upstream  https://github.com/original-owner/rust_pyfunc.git (push)
+# upstream  https://github.com/chen-001/rust_pyfunc.git (fetch)
+# upstream  https://github.com/chen-001/rust_pyfunc.git (push)
 ```
 
 #### 第二步：创建功能分支
@@ -611,7 +619,7 @@ git push -u origin feature/your-function-name
 # 1. Fork项目并克隆
 git clone https://github.com/your-username/rust_pyfunc.git
 cd rust_pyfunc
-git remote add upstream https://github.com/original-owner/rust_pyfunc.git
+git remote add upstream https://github.com/chen-001/rust_pyfunc.git
 
 # 2. 创建功能分支
 git checkout main
