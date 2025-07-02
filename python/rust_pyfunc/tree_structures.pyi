@@ -1,6 +1,7 @@
 """树结构相关类型声明"""
 from typing import Dict, Union, Tuple, List
 import numpy as np
+import pandas as pd
 from numpy.typing import NDArray
 
 class PriceTree:
@@ -146,81 +147,199 @@ class PriceTree:
 class RollingFutureAccessor:
     """滚动未来数据访问器。
     
-    用于在滚动窗口中访问未来数据点，支持高效的时间序列前瞻分析。
+    这是一个Pandas accessor类，用于为DataFrame和Series提供滚动未来窗口计算功能。
+    通过.rolling_future属性访问，支持向后查看的滚动窗口统计分析。
     """
     
-    def __init__(self, data: NDArray[np.float64], window_size: int) -> None:
+    def __init__(self, pandas_obj) -> None:
         """初始化滚动未来访问器。
         
         参数说明：
         ----------
-        data : NDArray[np.float64]
-            时间序列数据
-        window_size : int
+        pandas_obj : pandas.DataFrame 或 pandas.Series
+            要进行滚动计算的pandas对象
+        """
+        ...
+    
+    def __call__(self, window: int, include_current: bool = False) -> "RollingFutureAccessor":
+        """设置滚动窗口的大小。
+        
+        参数说明：
+        ----------
+        window : int
             滚动窗口大小
-        """
-        ...
-    
-    def get_future_value(self, current_index: int, future_steps: int) -> float:
-        """获取指定步数后的未来值。
-        
-        参数说明：
-        ----------
-        current_index : int
-            当前索引位置
-        future_steps : int
-            未来步数
+        include_current : bool, 默认False
+            是否包含当前行
             
         返回值：
         -------
-        float
-            未来值，如果超出范围则返回NaN
+        RollingFutureAccessor
+            配置了窗口大小的访问器对象
         """
         ...
     
-    def get_future_window(self, current_index: int, window_length: int) -> NDArray[np.float64]:
-        """获取未来窗口的数据。
+    def mean(self) -> Union[pd.Series, pd.DataFrame]:
+        """计算向后滚动窗口的均值。
         
-        参数说明：
-        ----------
-        current_index : int
-            当前索引位置
-        window_length : int
-            未来窗口长度
-            
         返回值：
         -------
-        NDArray[np.float64]
-            未来窗口数据数组
+        pandas.Series 或 pandas.DataFrame
+            滚动均值结果
         """
         ...
     
-    def rolling_future_mean(self, future_steps: int) -> NDArray[np.float64]:
-        """计算滚动未来均值。
+    def sum(self) -> Union[pd.Series, pd.DataFrame]:
+        """计算向后滚动窗口的总和。
         
-        参数说明：
-        ----------
-        future_steps : int
-            未来步数
-            
         返回值：
         -------
-        NDArray[np.float64]
-            滚动未来均值数组
+        pandas.Series 或 pandas.DataFrame
+            滚动总和结果
         """
         ...
     
-    def rolling_future_std(self, future_steps: int) -> NDArray[np.float64]:
-        """计算滚动未来标准差。
+    def max(self) -> Union[pd.Series, pd.DataFrame]:
+        """计算向后滚动窗口的最大值。
+        
+        返回值：
+        -------
+        pandas.Series 或 pandas.DataFrame
+            滚动最大值结果
+        """
+        ...
+    
+    def min(self) -> Union[pd.Series, pd.DataFrame]:
+        """计算向后滚动窗口的最小值。
+        
+        返回值：
+        -------
+        pandas.Series 或 pandas.DataFrame
+            滚动最小值结果
+        """
+        ...
+    
+    def std(self) -> Union[pd.Series, pd.DataFrame]:
+        """计算向后滚动窗口的标准差。
+        
+        返回值：
+        -------
+        pandas.Series 或 pandas.DataFrame
+            滚动标准差结果
+        """
+        ...
+    
+    def median(self) -> Union[pd.Series, pd.DataFrame]:
+        """计算向后滚动窗口的中位数。
+        
+        返回值：
+        -------
+        pandas.Series 或 pandas.DataFrame
+            滚动中位数结果
+        """
+        ...
+    
+    def count(self) -> Union[pd.Series, pd.DataFrame]:
+        """计算向后滚动窗口内的数据点数量。
+        
+        返回值：
+        -------
+        pandas.Series 或 pandas.DataFrame
+            滚动计数结果
+        """
+        ...
+    
+    def rank(self) -> Union[pd.Series, pd.DataFrame]:
+        """计算当前值在后面窗口内的分位数（0到1之间）。
+        
+        返回值：
+        -------
+        pandas.Series 或 pandas.DataFrame
+            分位数排名结果
+        """
+        ...
+    
+    def skew(self) -> Union[pd.Series, pd.DataFrame]:
+        """计算向后滚动窗口的偏度。
+        
+        返回值：
+        -------
+        pandas.Series 或 pandas.DataFrame
+            滚动偏度结果
+        """
+        ...
+    
+    def trend_time(self) -> Union[pd.Series, pd.DataFrame]:
+        """计算向后滚动窗口内数据序列与时间序列的相关系数。
+        
+        返回值：
+        -------
+        pandas.Series 或 pandas.DataFrame
+            时间趋势相关系数结果
+        """
+        ...
+    
+    def trend_oneton(self) -> Union[pd.Series, pd.DataFrame]:
+        """计算向后滚动窗口内数据序列与1到n序列的相关系数（忽略时间间隔）。
+        
+        返回值：
+        -------
+        pandas.Series 或 pandas.DataFrame
+            1到n趋势相关系数结果
+        """
+        ...
+    
+    def last(self) -> Union[pd.Series, pd.DataFrame]:
+        """计算向后滚动窗口内的最后一个值。
+        
+        返回值：
+        -------
+        pandas.Series 或 pandas.DataFrame
+            滚动窗口最后值结果
+        """
+        ...
+
+class PriceTreeViz:
+    """价格树可视化类。
+    
+    用于构建和可视化价格数据的树结构，支持在Jupyter Notebook中展示。
+    """
+    
+    def __init__(self) -> None:
+        """构造函数，初始化价格树可视化对象。"""
+        ...
+    
+    def build_tree(self, times: List[int], prices: List[float], volumes: List[float]) -> None:
+        """构建价格树。
         
         参数说明：
         ----------
-        future_steps : int
-            未来步数
-            
-        返回值：
-        -------
-        NDArray[np.float64]
-            滚动未来标准差数组
+        times : List[int]
+            时间戳列表
+        prices : List[float]
+            价格列表
+        volumes : List[float]
+            成交量列表
         """
         ...
+    
+    def get_tree_structure(self) -> Dict:
+        """获取树结构。
+        
+        返回值：
+        -------
+        Dict
+            树结构信息字典
+        """
+        ...
+    
+    def visualize(self) -> None:
+        """在Jupyter Notebook中可视化价格树结构。"""
+        ...
+    
+    def display_tree_stats(self) -> None:
+        """显示价格树统计数据。"""
+        ...
+
+def haha() -> str:
+    """测试函数"""
+    ...

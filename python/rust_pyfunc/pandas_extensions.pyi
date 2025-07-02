@@ -132,3 +132,136 @@ def fast_inner_join_dataframes(
         连接后的DataFrame
     """
     ...
+
+# Python定义的函数类型声明
+
+def corrwith(
+    df1: pd.DataFrame,
+    df2: pd.DataFrame,
+    axis: int = 0,
+) -> pd.Series:
+    """计算两个DataFrame对应列或行之间的相关系数。
+    
+    这个函数是pandas的corrwith方法的Rust实现包装，用于计算两个DataFrame中对应列（或行）
+    之间的皮尔逊相关系数。会自动处理两个DataFrame的列名（或行名）匹配情况。
+    
+    参数：
+    -----
+    df1 : pd.DataFrame
+        第一个数据框
+    df2 : pd.DataFrame
+        第二个数据框
+    axis : int, 默认为0
+        计算相关性的轴，0表示按列计算，1表示按行计算
+        
+    返回值：
+    -------
+    pd.Series
+        包含对应列（或行）相关系数的Series，索引为共同的列名（或行名）
+    """
+    ...
+
+def rank_axis1_df(
+    df: pd.DataFrame,
+    method: str = "average",
+    ascending: bool = True,
+    na_option: str = "keep"
+) -> pd.DataFrame:
+    """高性能的DataFrame rank函数，支持axis=1（沿行方向排名）"""
+    ...
+
+def rank_axis0_df(
+    df: pd.DataFrame,
+    method: str = "average", 
+    ascending: bool = True,
+    na_option: str = "keep"
+) -> pd.DataFrame:
+    """高性能的DataFrame rank函数，支持axis=0（沿列方向排名）"""
+    ...
+
+def fast_rank(
+    arr: NDArray[np.float64],
+    method: str = "average",
+    ascending: bool = True
+) -> NDArray[np.float64]:
+    """快速排名函数"""
+    ...
+
+def fast_rank_axis1(
+    arr: NDArray[np.float64],
+    method: str = "average",
+    ascending: bool = True
+) -> NDArray[np.float64]:
+    """沿axis=1快速排名"""
+    ...
+
+def fast_rank_axis0(
+    arr: NDArray[np.float64], 
+    method: str = "average",
+    ascending: bool = True
+) -> NDArray[np.float64]:
+    """沿axis=0快速排名"""
+    ...
+
+def fast_merge_df(
+    left: pd.DataFrame, 
+    right: pd.DataFrame,
+    on: Optional[str] = None,
+    left_on: Optional[str] = None,
+    right_on: Optional[str] = None,
+    how: str = "inner"
+) -> pd.DataFrame:
+    """高性能的DataFrame merge函数"""
+    ...
+
+def fast_inner_join_df(
+    left: pd.DataFrame,
+    right: pd.DataFrame,
+    on: str
+) -> pd.DataFrame:
+    """快速内连接的便捷函数"""
+    ...
+
+def fast_left_join_df(
+    left: pd.DataFrame,
+    right: pd.DataFrame,
+    on: str
+) -> pd.DataFrame:
+    """快速左连接的便捷函数"""
+    ...
+
+def fast_right_join_df(
+    left: pd.DataFrame,
+    right: pd.DataFrame,
+    on: str
+) -> pd.DataFrame:
+    """快速右连接的便捷函数"""
+    ...
+
+def fast_outer_join_df(
+    left: pd.DataFrame,
+    right: pd.DataFrame,
+    on: str
+) -> pd.DataFrame:
+    """快速外连接的便捷函数"""
+    ...
+
+def fast_join(
+    left: pd.DataFrame,
+    right: pd.DataFrame,
+    left_on: List[str],
+    right_on: List[str],
+    how: str = "inner"
+) -> pd.DataFrame:
+    """支持多列连接的快速join函数"""
+    ...
+
+def fast_merge_dataframe(
+    left: pd.DataFrame,
+    right: pd.DataFrame,
+    left_on: List[str],
+    right_on: List[str],
+    how: str = "inner"
+) -> pd.DataFrame:
+    """高性能多列DataFrame合并函数"""
+    ...

@@ -9,25 +9,28 @@ use rayon::prelude::*;
 /// - exchtime: 成交时间数组（纳秒）
 /// - order: 订单编号数组
 /// - volume: 成交量数组  
-/// - top_percentile: 大单百分比阈值 (0.0-1.0)，默认0.1表示前10%
-/// - time_window_ns: 时间窗口（纳秒），默认1秒=1_000_000_000ns
+/// - top_percentile: 大单百分比阈值 (1-100)，表示前x%，默认10表示前10%
+/// - time_window_seconds: 时间窗口（秒），默认1秒
 /// 
 /// # 返回
 /// 浸染后的订单编号数组
 #[pyfunction]
-#[pyo3(signature = (exchtime, order, volume, top_percentile = 0.1, time_window_ns = 1_000_000_000_i64))]
+#[pyo3(signature = (exchtime, order, volume, top_percentile = 10.0, time_window_seconds = 1.0))]
 pub fn order_contamination(
     exchtime: PyReadonlyArray1<i64>,
     order: PyReadonlyArray1<i64>, 
     volume: PyReadonlyArray1<i64>,
     top_percentile: f64,
-    time_window_ns: i64,
+    time_window_seconds: f64,
 ) -> PyResult<Py<PyArray1<i64>>> {
     let py = unsafe { Python::assume_gil_acquired() };
     
     let exchtime = exchtime.as_array();
     let order = order.as_array();
     let volume = volume.as_array();
+    
+    // 将秒转换为纳秒
+    let time_window_ns = (time_window_seconds * 1_000_000_000.0) as i64;
     
     let n = exchtime.len();
     if n != order.len() || n != volume.len() {
@@ -48,7 +51,9 @@ pub fn order_contamination(
     
     // 2. 快速找到大单阈值（避免完整排序）
     let mut volumes: Vec<i64> = order_volumes.values().cloned().collect();
-    let top_count = ((volumes.len() as f64 * top_percentile).ceil() as usize)
+    // 修正：top_percentile是1-100的数值，需要转换为0.01-1.0的比例
+    let percentile_ratio = (top_percentile / 100.0).min(1.0).max(0.01);
+    let top_count = ((volumes.len() as f64 * percentile_ratio).ceil() as usize)
         .max(1)
         .min(volumes.len()); // 确保不超过数组长度
     
@@ -75,32 +80,58 @@ pub fn order_contamination(
         }
     }
     
-    // 4. 创建时间索引用于快速查找
-    let mut time_indices: Vec<usize> = (0..n).collect();
-    time_indices.sort_unstable_by(|&a, &b| exchtime[a].cmp(&exchtime[b]));
-    
     let mut result = order.to_vec();
     
-    // 5. 优化的浸染过程
-    for &pos in &large_order_positions {
-        let center_time = exchtime[pos];
-        let large_order_id = order[pos];
-        let start_time = center_time - time_window_ns;
-        let end_time = center_time + time_window_ns;
+    // 4. 超高效的浸染过程：利用时间排序特性和二分查找
+    // 预先计算大单的时间，用于二分查找
+    let large_times: Vec<i64> = large_order_positions.iter()
+        .map(|&pos| exchtime[pos])
+        .collect();
+    
+    for i in 0..n {
+        // 跳过大单本身
+        if is_large_order[i] {
+            continue;
+        }
         
-        // 使用二分查找找到时间窗口边界
-        let start_idx = time_indices.binary_search_by(|&i| {
-            if exchtime[i] < start_time { std::cmp::Ordering::Less }
-            else { std::cmp::Ordering::Greater }
-        }).unwrap_or_else(|i| i);
+        let current_time = exchtime[i];
+        let window_start = current_time - time_window_ns;
+        let window_end = current_time + time_window_ns;
         
-        let end_idx = time_indices.binary_search_by(|&i| {
-            if exchtime[i] <= end_time { std::cmp::Ordering::Less }
-            else { std::cmp::Ordering::Greater }
-        }).unwrap_or_else(|i| i);
+        // 使用二分查找找到窗口边界
+        let left_idx = large_times.binary_search(&window_start)
+            .unwrap_or_else(|i| i);
+        let right_idx = large_times.binary_search(&window_end)
+            .unwrap_or_else(|i| i);
         
-        // 只处理时间窗口内的交易
-        for &i in &time_indices[start_idx..end_idx] {
+        // 在窗口内找最近的大单
+        let mut closest_large_order = None;
+        let mut min_distance = i64::MAX;
+        
+        // 检查窗口内的大单
+        for j in left_idx..=right_idx.min(large_times.len() - 1) {
+            if j >= large_times.len() {
+                break;
+            }
+            
+            let large_time = large_times[j];
+            if large_time > window_end {
+                break;
+            }
+            if large_time < window_start {
+                continue;
+            }
+            
+            let distance = (current_time - large_time).abs();
+            if distance <= time_window_ns && distance < min_distance {
+                min_distance = distance;
+                let pos = large_order_positions[j];
+                closest_large_order = Some(order[pos]);
+            }
+        }
+        
+        // 如果找到了最近的大单，进行浸染
+        if let Some(large_order_id) = closest_large_order {
             result[i] = large_order_id;
         }
     }
@@ -110,19 +141,22 @@ pub fn order_contamination(
 
 /// 并行版本的订单浸染函数（使用5核心，适用于大数据量）
 #[pyfunction]
-#[pyo3(signature = (exchtime, order, volume, top_percentile = 0.1, time_window_ns = 1_000_000_000_i64))]
+#[pyo3(signature = (exchtime, order, volume, top_percentile = 10.0, time_window_seconds = 1.0))]
 pub fn order_contamination_parallel(
     exchtime: PyReadonlyArray1<i64>,
     order: PyReadonlyArray1<i64>,
     volume: PyReadonlyArray1<i64>, 
     top_percentile: f64,
-    time_window_ns: i64,
+    time_window_seconds: f64,
 ) -> PyResult<Py<PyArray1<i64>>> {
     let py = unsafe { Python::assume_gil_acquired() };
     
     let exchtime = exchtime.as_array();
     let order = order.as_array();
     let volume = volume.as_array();
+    
+    // 将秒转换为纳秒
+    let time_window_ns = (time_window_seconds * 1_000_000_000.0) as i64;
     
     let n = exchtime.len();
     if n != order.len() || n != volume.len() {
@@ -168,7 +202,9 @@ pub fn order_contamination_parallel(
         volumes.par_sort_unstable_by(|a, b| b.cmp(a));
     });
     
-    let top_count = ((volumes.len() as f64 * top_percentile).ceil() as usize).max(1);
+    // 修正：top_percentile是1-100的数值，需要转换为0.01-1.0的比例
+    let percentile_ratio = (top_percentile / 100.0).min(1.0).max(0.01);
+    let top_count = ((volumes.len() as f64 * percentile_ratio).ceil() as usize).max(1);
     let threshold = volumes.get(top_count - 1).cloned().unwrap_or(0);
     
     let large_orders: std::collections::HashSet<i64> = pool.install(|| {
@@ -187,30 +223,59 @@ pub fn order_contamination_parallel(
         .filter(|&i| large_orders.contains(&order[i]))
         .collect();
     
-    // 对每个大单位置进行浸染（使用5核心）
+    // 标记大单位置
+    let mut is_large_order = vec![false; n];
     for &pos in &large_order_positions {
-        let center_time = exchtime[pos];
-        let large_order_id = order[pos];
-        
-        // 并行处理时间窗口内的所有交易
-        let updates: Vec<(usize, i64)> = pool.install(|| {
-            (0..n)
-                .into_par_iter()
-                .filter_map(|i| {
-                    let time_diff = (exchtime[i] - center_time).abs();
-                    if time_diff <= time_window_ns {
-                        Some((i, large_order_id))
-                    } else {
-                        None
+        is_large_order[pos] = true;
+    }
+    
+    // 4. 高效的并行浸染过程：利用时间排序特性（使用5核心）
+    // 预先计算大单的时间和位置，用于快速查找
+    let large_data: Vec<(i64, usize)> = large_order_positions.iter()
+        .map(|&pos| (exchtime[pos], pos))
+        .collect();
+    
+    let updates: Vec<(usize, i64)> = pool.install(|| {
+        (0..n)
+            .into_par_iter()
+            .filter(|&i| !is_large_order[i]) // 只处理非大单
+            .filter_map(|i| {
+                let current_time = exchtime[i];
+                let window_start = current_time - time_window_ns;
+                let window_end = current_time + time_window_ns;
+                
+                // 找到时间窗口内最近的大单
+                let mut closest_large_order = None;
+                let mut min_distance = i64::MAX;
+                
+                // 由于数据按时间排序，我们可以更高效地搜索
+                for &(large_time, pos) in &large_data {
+                    // 如果大单时间超出窗口右边界，由于排序特性，后面的都会超出
+                    if large_time > window_end {
+                        break;
                     }
-                })
-                .collect()
-        });
-        
-        // 应用更新
-        for (i, new_order) in updates {
-            result[i] = new_order;
-        }
+                    
+                    // 如果大单时间在窗口左边界之前，跳过
+                    if large_time < window_start {
+                        continue;
+                    }
+                    
+                    let distance = (current_time - large_time).abs();
+                    if distance < min_distance {
+                        min_distance = distance;
+                        closest_large_order = Some(order[pos]);
+                    }
+                }
+                
+                // 如果找到了最近的大单，返回更新信息
+                closest_large_order.map(|large_order_id| (i, large_order_id))
+            })
+            .collect()
+    });
+    
+    // 应用更新
+    for (i, new_order) in updates {
+        result[i] = new_order;
     }
     
     Ok(PyArray1::from_vec(py, result).to_owned())
