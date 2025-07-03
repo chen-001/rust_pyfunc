@@ -38,6 +38,47 @@ struct SingleTask {
     expected_result_length: usize,
 }
 
+fn detect_python_interpreter() -> String {
+    // 1. 检查环境变量
+    if let Ok(python_path) = env::var("PYTHON_INTERPRETER") {
+        if Path::new(&python_path).exists() {
+            return python_path;
+        }
+    }
+    
+    // 2. 检查是否在 conda 环境中
+    if let Ok(conda_prefix) = env::var("CONDA_PREFIX") {
+        let conda_python = format!("{}/bin/python", conda_prefix);
+        if Path::new(&conda_python).exists() {
+            return conda_python;
+        }
+    }
+    
+    // 3. 检查虚拟环境
+    if let Ok(virtual_env) = env::var("VIRTUAL_ENV") {
+        let venv_python = format!("{}/bin/python", virtual_env);
+        if Path::new(&venv_python).exists() {
+            return venv_python;
+        }
+    }
+    
+    // 4. 尝试常见的 Python 解释器
+    let candidates = ["python3", "python"];
+    for candidate in &candidates {
+        if Command::new("which")
+            .arg(candidate)
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
+        {
+            return candidate.to_string();
+        }
+    }
+    
+    // 5. 默认值
+    "python".to_string()
+}
+
 fn read_existing_backup(file_path: &str) -> Result<HashSet<(i64, String)>, Box<dyn std::error::Error>> {
     let mut existing_tasks = HashSet::new();
     
@@ -1313,8 +1354,7 @@ pub fn run_pools_queue(
     let python_code = extract_python_function_code(&python_function)?;
     
     // 获取Python解释器路径
-    let python_path = env::var("PYTHON_PATH")
-        .unwrap_or_else(|_| "/home/chenzongwei/.conda/envs/chenzongwei311/bin/python".to_string());
+    let python_path = detect_python_interpreter();
     
     // 创建任务队列和结果收集通道
     let (task_sender, task_receiver) = unbounded::<TaskParam>();
