@@ -532,6 +532,20 @@
     "params": []
   },
   {
+    "name": "trade_peak_analysis",
+    "description": "<p>交易高峰模式分析函数</p>\n<p>该函数用于分析交易数据中的高峰模式，包括：\n1. 识别成交量的局部高峰(根据top_tier1百分比)\n2. 在每个高峰的时间窗口内识别小峰(根据top_tier2百分比)\n3. 计算16个统计指标来描述高峰-小峰的模式特征</p>",
+    "params": [
+      "exchtime",
+      "volume",
+      "flag",
+      "top_tier1",
+      "top_tier2",
+      "time_window",
+      "flag_different",
+      "with_forth"
+    ]
+  },
+  {
     "name": "transfer_entropy",
     "description": "<p>计算从序列x到序列y的转移熵（Transfer Entropy）。\n转移熵衡量了一个时间序列对另一个时间序列的影响程度，是一种非线性的因果关系度量。\n具体来说，它测量了在已知x的过去k个状态的情况下，对y的当前状态预测能力的提升程度。</p>",
     "params": [
@@ -546,6 +560,14 @@
     "description": "<p>计算输入数组与自然数序列(1, 2, ..., n)之间的皮尔逊相关系数。\n这个函数可以用来判断一个序列的趋势性，如果返回值接近1表示强上升趋势，接近-1表示强下降趋势。</p>",
     "params": [
       "arr"
+    ]
+  },
+  {
+    "name": "trend_2d",
+    "description": "<p>计算二维数组各行或各列的趋势性</p>",
+    "params": [
+      "arr",
+      "axis"
     ]
   },
   {

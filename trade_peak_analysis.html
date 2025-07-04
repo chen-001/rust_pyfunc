@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>trade_peak_analysis - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>trade_peak_analysis</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>交易高峰模式分析函数</p>
+<p>该函数用于分析交易数据中的高峰模式，包括：
+1. 识别成交量的局部高峰(根据top_tier1百分比)
+2. 在每个高峰的时间窗口内识别小峰(根据top_tier2百分比)
+3. 计算16个统计指标来描述高峰-小峰的模式特征</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>trade_peak_analysis(exchtime, volume, flag, top_tier1, top_tier2, time_window, flag_different, with_forth) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">exchtime</span>
+                    <span class="parameter-type">(array_like)</span>
+                    <div><p>交易时间数组(纳秒时间戳)</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">volume</span>
+                    <span class="parameter-type">(array_like)</span>
+                    <div><p>成交量数组</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">flag</span>
+                    <span class="parameter-type">(array_like)</span>
+                    <div><p>交易标志数组(主动买入/卖出标志)</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">top_tier1</span>
+                    <span class="parameter-type">(float)</span>
+                    <div><p>高峰识别的百分比阈值(例如0.01表示前1%的大成交量)</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">top_tier2</span>
+                    <span class="parameter-type">(float)</span>
+                    <div><p>小峰识别的百分比阈值(例如0.10表示前10%的大成交量)</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">time_window</span>
+                    <span class="parameter-type">(float)</span>
+                    <div><p>时间窗口大小(秒)</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">flag_different</span>
+                    <span class="parameter-type">(bool)</span>
+                    <div><p>是否只考虑与高峰flag不同的小峰</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">with_forth</span>
+                    <span class="parameter-type">(bool)</span>
+                    <div><p>是否同时考虑高峰前后的时间窗口</p></div>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div><hr />
+<p>tuple[numpy.ndarray, list[str]]
+    第一个元素：N行16列的数组，每行对应一个局部高峰的16个统计指标
+    第二个元素：包含16个特征名称的字符串列表</p>
+<p>Python调用示例：
+```python
+import numpy as np
+from rust_pyfunc import trade_peak_analysis</p>
+<h1>模拟交易数据</h1>
+<p>exchtime = np.array([1000000000, 2000000000, 3000000000, ...], dtype=np.int64)
+volume = np.array([100, 200, 500, 150, 300, ...], dtype=np.float64)
+flag = np.array([66, 83, 66, 83, 66, ...], dtype=np.int32)</p>
+<h1>分析高峰模式</h1>
+<p>result_matrix, feature_names = trade_peak_analysis(exchtime, volume, flag, 0.01, 0.10, 30.0, False, True)</p>
+<h1>构建DataFrame</h1>
+<p>import pandas as pd
+df = pd.DataFrame(result_matrix, columns=feature_names)
+```</p></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import trade_peak_analysis
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>
