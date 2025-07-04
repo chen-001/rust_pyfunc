@@ -356,3 +356,71 @@ def order_contamination_parallel(
     串行版本order_contamination可能更快。
     """
     ...
+
+def trade_peak_analysis(
+    exchtime: NDArray[np.int64],
+    volume: NDArray[np.float64],
+    flag: NDArray[np.int32],
+    top_tier1: float,
+    top_tier2: float,
+    time_window: float,
+    flag_different: bool,
+    with_forth: bool
+) -> Tuple[NDArray[np.float64], List[str]]:
+    """交易高峰模式分析函数
+    
+    该函数用于分析交易数据中的高峰模式，包括：
+    1. 识别成交量的局部高峰(根据top_tier1百分比)
+    2. 在每个高峰的时间窗口内识别小峰(根据top_tier2百分比)
+    3. 计算16个统计指标来描述高峰-小峰的模式特征
+    
+    参数说明：
+    ----------
+    exchtime : NDArray[np.int64]
+        交易时间数组(纳秒时间戳)
+    volume : NDArray[np.float64]
+        成交量数组
+    flag : NDArray[np.int32]
+        交易标志数组(主动买入/卖出标志)
+    top_tier1 : float
+        高峰识别的百分比阈值(例如0.01表示前1%的大成交量)
+    top_tier2 : float
+        小峰识别的百分比阈值(例如0.10表示前10%的大成交量)
+    time_window : float
+        时间窗口大小(秒)
+    flag_different : bool
+        是否只考虑与高峰flag不同的小峰
+    with_forth : bool
+        是否同时考虑高峰前后的时间窗口
+        
+    返回值：
+    -------
+    Tuple[NDArray[np.float64], List[str]]
+        第一个元素：N行16列的数组，每行对应一个局部高峰的16个统计指标
+        第二个元素：包含16个特征名称的字符串列表
+        
+        16个特征列分别为：
+        列0: 小峰成交量总和比值
+        列1: 小峰平均成交量比值  
+        列2: 小峰个数
+        列3: 时间间隔均值秒
+        列4: 成交量时间相关系数
+        列5: DTW距离
+        列6: 成交量变异系数
+        列7: 成交量偏度
+        列8: 成交量峰度
+        列9: 成交量趋势
+        列10: 成交量自相关
+        列11: 时间变异系数
+        列12: 时间偏度
+        列13: 时间峰度
+        列14: 时间趋势
+        列15: 时间自相关
+        
+    使用示例：
+    ---------
+    >>> result_matrix, feature_names = trade_peak_analysis(...)
+    >>> import pandas as pd
+    >>> df = pd.DataFrame(result_matrix, columns=feature_names)
+    """
+    ...

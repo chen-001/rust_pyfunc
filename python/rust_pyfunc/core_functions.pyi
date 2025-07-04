@@ -38,6 +38,39 @@ def trend_fast(arr: NDArray[np.float64]) -> float:
     """
     ...
 
+def trend_2d(arr: NDArray[np.float64], axis: int) -> List[float]:
+    """计算二维数组各行或各列的趋势性。
+    
+    参数说明：
+    ----------
+    arr : numpy.ndarray
+        二维数组，必须是float64类型
+    axis : int
+        计算轴，0表示对每列计算趋势，1表示对每行计算趋势
+    
+    返回值：
+    -------
+    List[float]
+        一维列表，包含每行或每列的趋势值
+    
+    示例：
+    -----
+    >>> import numpy as np
+    >>> from rust_pyfunc import trend_2d
+    >>> 
+    >>> # 创建示例数据
+    >>> data = np.array([[1.0, 2.0, 3.0, 4.0],
+    ...                  [4.0, 3.0, 2.0, 1.0],
+    ...                  [1.0, 3.0, 2.0, 4.0]])
+    >>> 
+    >>> # 计算每行的趋势
+    >>> row_trends = trend_2d(data, axis=1)
+    >>> 
+    >>> # 计算每列的趋势
+    >>> col_trends = trend_2d(data, axis=0)
+    """
+    ...
+
 def identify_segments(arr: NDArray[np.float64]) -> NDArray[np.int32]:
     """识别数组中的连续相等值段，并为每个段分配唯一标识符。
     每个连续相等的值构成一个段，第一个段标识符为1，第二个为2，以此类推。

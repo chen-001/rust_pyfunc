@@ -1,6 +1,6 @@
 use pyo3::prelude::*;
 use pyo3::types::PyList;
-use numpy::{PyArray1, PyReadonlyArray1, IntoPyArray};
+use numpy::{PyArray1, PyReadonlyArray1, PyReadonlyArray2, IntoPyArray};
 use ndarray::Array1;
 use pyo3::exceptions::PyValueError;
 use std::time::Instant;
@@ -908,6 +908,110 @@ fn trend_fast_scalar(arr: PyReadonlyArray1<f64>) -> PyResult<f64> {
 
     // 计算相关系数
     Ok(covariance / (var_x.sqrt() * var_y.sqrt()))
+}
+
+/// 计算二维数组各行或各列的趋势性
+/// 
+/// 参数说明：
+/// ----------
+/// arr : numpy.ndarray
+///     二维数组
+/// axis : int
+///     计算轴，0表示对每列计算趋势，1表示对每行计算趋势
+/// 
+/// 返回值：
+/// -------
+/// numpy.ndarray
+///     一维数组，包含每行或每列的趋势值
+/// 
+/// Python调用示例：
+/// ```python
+/// import numpy as np
+/// from rust_pyfunc import trend_2d
+/// 
+/// # 创建示例数据
+/// data = np.array([[1.0, 2.0, 3.0, 4.0],
+///                  [4.0, 3.0, 2.0, 1.0],
+///                  [1.0, 3.0, 2.0, 4.0]])
+/// 
+/// # 计算每行的趋势
+/// row_trends = trend_2d(data, axis=1)
+/// 
+/// # 计算每列的趋势
+/// col_trends = trend_2d(data, axis=0)
+/// ```
+#[pyfunction]
+pub fn trend_2d(arr: PyReadonlyArray2<f64>, axis: i32) -> PyResult<Vec<f64>> {
+    let arr = arr.as_array();
+    let (rows, cols) = arr.dim();
+    
+    let mut results = Vec::new();
+    
+    match axis {
+        0 => {
+            // 对每列计算趋势
+            for col in 0..cols {
+                let col_data: Vec<f64> = (0..rows).map(|row| arr[[row, col]]).collect();
+                let trend_val = calculate_trend_1d(&col_data);
+                results.push(trend_val);
+            }
+        }
+        1 => {
+            // 对每行计算趋势
+            for row in 0..rows {
+                let row_data: Vec<f64> = (0..cols).map(|col| arr[[row, col]]).collect();
+                let trend_val = calculate_trend_1d(&row_data);
+                results.push(trend_val);
+            }
+        }
+        _ => {
+            return Err(PyValueError::new_err("axis must be 0 or 1"));
+        }
+    }
+    
+    Ok(results)
+}
+
+/// 计算一维数组的趋势性（内部辅助函数）
+fn calculate_trend_1d(data: &[f64]) -> f64 {
+    let n = data.len();
+    
+    if n == 0 {
+        return 0.0;
+    }
+    
+    if n == 1 {
+        return 0.0;
+    }
+
+    // 创建自然数序列 1,2,3...n
+    let natural_seq: Vec<f64> = (1..=n).map(|x| x as f64).collect();
+
+    // 计算均值
+    let mean_x: f64 = data.iter().sum::<f64>() / n as f64;
+    let mean_y: f64 = natural_seq.iter().sum::<f64>() / n as f64;
+
+    // 计算协方差和标准差
+    let mut covariance: f64 = 0.0;
+    let mut var_x: f64 = 0.0;
+    let mut var_y: f64 = 0.0;
+
+    for i in 0..n {
+        let diff_x = data[i] - mean_x;
+        let diff_y = natural_seq[i] - mean_y;
+        
+        covariance += diff_x * diff_y;
+        var_x += diff_x * diff_x;
+        var_y += diff_y * diff_y;
+    }
+
+    // 避免除以零
+    if var_x == 0.0 || var_y == 0.0 {
+        return 0.0;
+    }
+
+    // 计算相关系数
+    covariance / (var_x.sqrt() * var_y.sqrt())
 }
 
 
