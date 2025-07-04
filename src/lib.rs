@@ -11,6 +11,7 @@ pub mod error;
 pub mod grouping;
 pub mod parallel_computing;
 pub mod order_contamination;
+pub mod trade_peak_analysis;
 
 
 
@@ -43,6 +44,7 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(sequence::identify_segments, m)?)?;
     m.add_function(wrap_pyfunction!(time_series::trend, m)?)?;
     m.add_function(wrap_pyfunction!(time_series::trend_fast, m)?)?;
+    m.add_function(wrap_pyfunction!(time_series::trend_2d, m)?)?;
     m.add_function(wrap_pyfunction!(sequence::find_max_range_product, m)?)?;
     m.add_function(wrap_pyfunction!(text::min_word_edit_distance, m)?)?;
     m.add_function(wrap_pyfunction!(time_series::find_local_peaks_within_window, m)?)?;
@@ -82,6 +84,7 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(parallel_computing::query_backup_fast, m)?)?;
     m.add_function(wrap_pyfunction!(order_contamination::order_contamination, m)?)?;
     m.add_function(wrap_pyfunction!(order_contamination::order_contamination_parallel, m)?)?;
+    m.add_function(wrap_pyfunction!(trade_peak_analysis::trade_peak_analysis, m)?)?;
     // m.add_function(wrap_pyfunction!(text::normalized_diff, m)?)?;
     Ok(())
 }

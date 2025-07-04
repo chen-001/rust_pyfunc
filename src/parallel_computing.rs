@@ -1199,8 +1199,8 @@ fn run_persistent_task_worker(
             // 序列化任务数据
             let packed_data = match rmp_serde::to_vec_named(&single_task) {
                 Ok(data) => data,
-                Err(e) => {
-                    eprintln!("❌ Worker {} 任务 #{} 序列化失败: {}", worker_id, task_count, e);
+                Err(_e) => {
+                    // eprintln!("❌ Worker {} 任务 #{} 序列化失败: {}", worker_id, task_count, e);
                     continue;
                 }
             };
@@ -1209,28 +1209,28 @@ fn run_persistent_task_worker(
             let length = packed_data.len() as u32;
             let length_bytes = length.to_le_bytes();
             
-            if let Err(e) = stdin.write_all(&length_bytes) {
-                eprintln!("❌ Worker {} 发送长度前缀失败: {}", worker_id, e);
+            if let Err(_e) = stdin.write_all(&length_bytes) {
+                // eprintln!("❌ Worker {} 发送长度前缀失败: {}", worker_id, e);
                 needs_restart = true;
                 break;
             }
             
-            if let Err(e) = stdin.write_all(&packed_data) {
-                eprintln!("❌ Worker {} 发送任务数据失败: {}", worker_id, e);
+            if let Err(_e) = stdin.write_all(&packed_data) {
+                // eprintln!("❌ Worker {} 发送任务数据失败: {}", worker_id, e);
                 needs_restart = true;
                 break;
             }
             
-            if let Err(e) = stdin.flush() {
-                eprintln!("❌ Worker {} flush失败: {}", worker_id, e);
+            if let Err(_e) = stdin.flush() {
+                // eprintln!("❌ Worker {} flush失败: {}", worker_id, e);
                 needs_restart = true;
                 break;
             }
             
             // 读取结果（带长度前缀）
             let mut length_bytes = [0u8; 4];
-            if let Err(e) = stdout.read_exact(&mut length_bytes) {
-                eprintln!("❌ Worker {} 读取结果长度失败: {}", worker_id, e);
+            if let Err(_e) = stdout.read_exact(&mut length_bytes) {
+                // eprintln!("❌ Worker {} 读取结果长度失败: {}", worker_id, e);
                 needs_restart = true;
                 break;
             }
@@ -1238,8 +1238,8 @@ fn run_persistent_task_worker(
             let length = u32::from_le_bytes(length_bytes) as usize;
             let mut result_data = vec![0u8; length];
             
-            if let Err(e) = stdout.read_exact(&mut result_data) {
-                eprintln!("❌ Worker {} 读取结果数据失败: {}", worker_id, e);
+            if let Err(_e) = stdout.read_exact(&mut result_data) {
+                // eprintln!("❌ Worker {} 读取结果数据失败: {}", worker_id, e);
                 needs_restart = true;
                 break;
             }
