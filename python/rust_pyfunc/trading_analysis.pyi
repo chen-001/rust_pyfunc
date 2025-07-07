@@ -424,3 +424,98 @@ def trade_peak_analysis(
     >>> df = pd.DataFrame(result_matrix, columns=feature_names)
     """
     ...
+
+def order_neighborhood_analysis(
+    ask_order: NDArray[np.int64],
+    bid_order: NDArray[np.int64],
+    volume: NDArray[np.float64],
+    exchtime: NDArray[np.int64],
+    neighborhood_type: str = "fixed",
+    fixed_range: int = 1000,
+    percentage_range: float = 10.0
+) -> Tuple[NDArray[np.float64], List[str]]:
+    """订单邻域分析函数
+    
+    分析订单编号的邻域关系，计算每个订单与其邻居订单的成交量、时间差值等统计指标。
+    一个订单编号可能对应多个不同的交易时间，聚合时以最晚的交易时间为准。
+    
+    参数说明：
+    ----------
+    ask_order : NDArray[np.int64]
+        卖单订单编号数组
+    bid_order : NDArray[np.int64]
+        买单订单编号数组
+    volume : NDArray[np.float64]
+        成交量数组
+    exchtime : NDArray[np.int64]
+        交易时间数组（纳秒单位）
+    neighborhood_type : str, default="fixed"
+        邻域类型，可选值：
+        - "fixed": 固定范围模式，查找编号±fixed_range范围内的订单
+        - "percentage": 百分比模式，查找编号±percentage_range%范围内的订单
+    fixed_range : int, default=1000
+        固定范围值，当neighborhood_type="fixed"时使用
+    percentage_range : float, default=10.0
+        百分比范围值，当neighborhood_type="percentage"时使用
+        
+    返回值：
+    -------
+    Tuple[NDArray[np.float64], List[str]]
+        第一个元素：N行18列的分析结果矩阵
+        第二个元素：包含18个特征名称的字符串列表
+        
+        18个特征列分别为：
+        列0: 订单编号 - 订单ID
+        列1: 订单类型 - 订单类型（0=买单，1=卖单）
+        列2: 同向成交量比 - 同方向邻居成交总量与本订单成交量的比值
+        列3: 异向成交量比 - 不同方向邻居成交总量与本订单成交量的比值
+        列4: 同向均量比 - 同方向邻居平均成交量与本订单成交量的比值
+        列5: 异向均量比 - 不同方向邻居平均成交量与本订单成交量的比值
+        列6: 总成交量比 - 所有邻居成交总量与本订单成交量的比值
+        列7: 总均量比 - 所有邻居平均成交量与本订单成交量的比值
+        列8: 同向邻居数 - 同方向邻居数量
+        列9: 异向邻居数 - 不同方向邻居数量
+        列10: 同向时差总和 - 同方向邻居时间差值总和（秒）
+        列11: 异向时差总和 - 不同方向邻居时间差值总和（秒）
+        列12: 同向时差均值 - 同方向邻居时间差值均值（秒）
+        列13: 异向时差均值 - 不同方向邻居时间差值均值（秒）
+        列14: 同向时差量相关 - 同方向邻居时间差值与成交量的相关系数
+        列15: 异向时差量相关 - 不同方向邻居时间差值与成交量的相关系数
+        列16: 同向时间量相关 - 同方向邻居成交时间与成交量的相关系数
+        列17: 异向时间量相关 - 不同方向邻居成交时间与成交量的相关系数
+        
+    算法说明：
+    ----------
+    1. 数据聚合：按订单编号聚合成交量，每个订单取最晚的交易时间
+    2. 邻域定义：根据neighborhood_type参数选择邻域规则
+    3. 指标计算：分别计算同方向和不同方向邻居的各项统计指标
+    4. 相关性分析：计算时间差值与成交量的皮尔逊相关系数
+    
+    使用示例：
+    ---------
+    >>> import numpy as np
+    >>> from rust_pyfunc import order_neighborhood_analysis
+    >>> 
+    >>> # 示例数据
+    >>> ask_order = np.array([1001, 1002, 0, 1003], dtype=np.int64)
+    >>> bid_order = np.array([0, 0, 2001, 0], dtype=np.int64)
+    >>> volume = np.array([100.0, 150.0, 200.0, 120.0])
+    >>> exchtime = np.array([1000000000, 1001000000, 1002000000, 1003000000], dtype=np.int64)
+    >>> 
+    >>> # 固定范围模式
+    >>> result_matrix, feature_names = order_neighborhood_analysis(
+    ...     ask_order, bid_order, volume, exchtime,
+    ...     neighborhood_type="fixed", fixed_range=1000
+    ... )
+    >>> 
+    >>> # 百分比模式
+    >>> result_matrix, feature_names = order_neighborhood_analysis(
+    ...     ask_order, bid_order, volume, exchtime,
+    ...     neighborhood_type="percentage", percentage_range=10.0
+    ... )
+    >>> 
+    >>> # 转换为DataFrame
+    >>> import pandas as pd
+    >>> df = pd.DataFrame(result_matrix, columns=feature_names)
+    """
+    ...

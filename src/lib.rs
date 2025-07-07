@@ -12,6 +12,7 @@ pub mod grouping;
 pub mod parallel_computing;
 pub mod order_contamination;
 pub mod trade_peak_analysis;
+pub mod order_neighborhood;
 
 
 
@@ -85,6 +86,7 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(order_contamination::order_contamination, m)?)?;
     m.add_function(wrap_pyfunction!(order_contamination::order_contamination_parallel, m)?)?;
     m.add_function(wrap_pyfunction!(trade_peak_analysis::trade_peak_analysis, m)?)?;
+    m.add_function(wrap_pyfunction!(order_neighborhood::order_neighborhood_analysis, m)?)?;
     // m.add_function(wrap_pyfunction!(text::normalized_diff, m)?)?;
     Ok(())
 }
