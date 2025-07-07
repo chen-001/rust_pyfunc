@@ -376,6 +376,11 @@
     "params": []
   },
   {
+    "name": "order_neighborhood_analysis",
+    "description": "<p>超级高速订单邻域分析函数 - 为13万数据优化</p>\n<p>激进优化策略：\n1. 预计算邻域索引表\n2. 批量SIMD计算\n3. 内存预分配避免动态分配\n4. 分层并行处理\n5. 零拷贝数据传递</p>",
+    "params": []
+  },
+  {
     "name": "query_backup",
     "description": "<p>无文档</p>",
     "params": []
