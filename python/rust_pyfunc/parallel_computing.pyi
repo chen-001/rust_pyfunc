@@ -110,7 +110,8 @@ def run_pools_queue(
     n_jobs: int,
     backup_file: str,
     expected_result_length: int,
-    restart_interval: Optional[int] = None
+    restart_interval: Optional[int] = None,
+    update_mode: Optional[bool] = None
 ) -> NDArray[np.float64]:
     """🚀 革命性持久化进程池 - 极致性能的并行计算函数（v2.0）
     
@@ -146,6 +147,10 @@ def run_pools_queue(
         每隔多少次备份后重启worker进程，默认为200次
         设置为None使用默认值，必须大于0
         有助于清理可能的内存泄漏和保持长期稳定性
+    update_mode : Optional[bool], default=None
+        更新模式开关，默认为False
+        当为True时，只读取和返回传入参数中涉及的日期和代码的数据
+        可显著提升大备份文件的读取和处理速度
         
     返回值：
     -------
@@ -376,7 +381,9 @@ def query_backup(
 
 def query_backup_fast(
     backup_file: str,
-    num_threads: Optional[int] = None
+    num_threads: Optional[int] = None,
+    dates: Optional[List[int]] = None,
+    codes: Optional[List[str]] = None
 ) -> NDArray[np.float64]:
     """🚀 超高速并行备份数据读取函数（安全增强版）
     
@@ -392,6 +399,12 @@ def query_backup_fast(
     num_threads : Optional[int]
         并行线程数，默认为None（自动检测CPU核心数）
         建议设置为CPU核心数，不建议超过16
+    dates : Optional[List[int]]
+        日期过滤器，仅返回指定日期的数据
+        为None时返回所有日期的数据
+    codes : Optional[List[str]]
+        代码过滤器，仅返回指定代码的数据
+        为None时返回所有代码的数据
         
     返回值：
     -------

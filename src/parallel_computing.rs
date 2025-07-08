@@ -80,6 +80,10 @@ fn detect_python_interpreter() -> String {
 }
 
 fn read_existing_backup(file_path: &str) -> Result<HashSet<(i64, String)>, Box<dyn std::error::Error>> {
+    read_existing_backup_with_filter(file_path, None)
+}
+
+fn read_existing_backup_with_filter(file_path: &str, date_filter: Option<&HashSet<i64>>) -> Result<HashSet<(i64, String)>, Box<dyn std::error::Error>> {
     let mut existing_tasks = HashSet::new();
     
     if !Path::new(file_path).exists() {
@@ -121,6 +125,12 @@ fn read_existing_backup(file_path: &str) -> Result<HashSet<(i64, String)>, Box<d
             
             match DynamicRecord::from_bytes(record_bytes, factor_count) {
                 Ok(record) => {
+                    // 如果有日期过滤器，只有匹配的日期才会被包含
+                    if let Some(filter) = date_filter {
+                        if !filter.contains(&record.date) {
+                            continue;
+                        }
+                    }
                     let code_len = std::cmp::min(record.code_len as usize, 32);
                     let code = String::from_utf8_lossy(&record.code_bytes[..code_len]).to_string();
                     existing_tasks.insert((record.date, code));
@@ -133,13 +143,17 @@ fn read_existing_backup(file_path: &str) -> Result<HashSet<(i64, String)>, Box<d
         }
     } else {
         // 旧格式，回退到legacy处理
-        return read_existing_backup_legacy(file_path);
+        return read_existing_backup_legacy_with_filter(file_path, date_filter);
     }
     
     Ok(existing_tasks)
 }
 
 fn read_existing_backup_legacy(file_path: &str) -> Result<HashSet<(i64, String)>, Box<dyn std::error::Error>> {
+    read_existing_backup_legacy_with_filter(file_path, None)
+}
+
+fn read_existing_backup_legacy_with_filter(file_path: &str, date_filter: Option<&HashSet<i64>>) -> Result<HashSet<(i64, String)>, Box<dyn std::error::Error>> {
     let mut existing_tasks = HashSet::new();
     let mut file = File::open(file_path)?;
     let mut buffer = Vec::new();
@@ -169,6 +183,12 @@ fn read_existing_backup_legacy(file_path: &str) -> Result<HashSet<(i64, String)>
         match bincode::deserialize::<Vec<TaskResult>>(&buffer[cursor..cursor + batch_size]) {
             Ok(batch) => {
                 for result in &batch {
+                    // 如果有日期过滤器，只有匹配的日期才会被包含
+                    if let Some(filter) = date_filter {
+                        if !filter.contains(&result.date) {
+                            continue;
+                        }
+                    }
                     existing_tasks.insert((result.date, result.code.clone()));
                 }
                 cursor += batch_size;
@@ -186,6 +206,12 @@ fn read_existing_backup_legacy(file_path: &str) -> Result<HashSet<(i64, String)>
             match bincode::deserialize::<Vec<TaskResult>>(&buffer[cursor..]) {
                 Ok(batch) => {
                     for result in &batch {
+                        // 如果有日期过滤器，只有匹配的日期才会被包含
+                        if let Some(filter) = date_filter {
+                            if !filter.contains(&result.date) {
+                                continue;
+                            }
+                        }
                         existing_tasks.insert((result.date, result.code.clone()));
                     }
                     let batch_size = bincode::serialized_size(&batch)? as usize;
@@ -681,6 +707,10 @@ user_function = pickle.loads(_func_data)
 
 
 fn read_backup_results(file_path: &str) -> PyResult<PyObject> {
+    read_backup_results_with_filter(file_path, None, None)
+}
+
+fn read_backup_results_with_filter(file_path: &str, date_filter: Option<&HashSet<i64>>, code_filter: Option<&HashSet<String>>) -> PyResult<PyObject> {
     if !Path::new(file_path).exists() {
         return Python::with_gil(|py| Ok(py.None()));
     }
@@ -694,7 +724,7 @@ fn read_backup_results(file_path: &str) -> PyResult<PyObject> {
     
     if file_len < HEADER_SIZE {
         // 尝试旧格式的回退处理
-        return read_legacy_backup_results(file_path);
+        return read_legacy_backup_results_with_filter(file_path, date_filter, code_filter);
     }
     
     // 使用内存映射进行超高速读取
@@ -712,7 +742,7 @@ fn read_backup_results(file_path: &str) -> PyResult<PyObject> {
     // 验证魔数
     if &header.magic != b"RPBACKUP" {
         // 不是新格式，尝试旧格式
-        return read_legacy_backup_results(file_path);
+        return read_legacy_backup_results_with_filter(file_path, date_filter, code_filter);
     }
     
     let record_count = header.record_count as usize;
@@ -760,11 +790,25 @@ fn read_backup_results(file_path: &str) -> PyResult<PyObject> {
                     
                     match DynamicRecord::from_bytes(record_bytes, factor_count) {
                         Ok(record) => {
+                            // 检查日期过滤器
+                            if let Some(date_filter) = date_filter {
+                                if !date_filter.contains(&record.date) {
+                                    continue;
+                                }
+                            }
+                            
+                            // 检查代码过滤器
+                            let code_len = std::cmp::min(record.code_len as usize, 32);
+                            let code_str = String::from_utf8_lossy(&record.code_bytes[..code_len]);
+                            if let Some(code_filter) = code_filter {
+                                if !code_filter.contains(code_str.as_ref()) {
+                                    continue;
+                                }
+                            }
+                            
                             chunk_data.push(record.date as f64);
                             
                             // 安全的code转换
-                            let code_len = std::cmp::min(record.code_len as usize, 32);
-                            let code_str = String::from_utf8_lossy(&record.code_bytes[..code_len]);
                             let code_num = if let Ok(num) = code_str.parse::<f64>() {
                                 num
                             } else {
@@ -813,14 +857,28 @@ fn read_backup_results(file_path: &str) -> PyResult<PyObject> {
                         &*(mmap.as_ptr().add(record_offset) as *const FixedRecord)
                     };
                     
-                    // 直接复制数据到输出数组
-                    chunk_data.push(record.date as f64);
+                    // 检查日期过滤器
+                    if let Some(date_filter) = date_filter {
+                        let date = record.date; // 复制到本地变量避免unaligned reference
+                        if !date_filter.contains(&date) {
+                            continue;
+                        }
+                    }
                     
-                    // 安全的code转换 - 防止越界访问
+                    // 检查代码过滤器
                     let code_len = std::cmp::min(record.code_len as usize, 32);
                     let code_str = unsafe {
                         std::str::from_utf8_unchecked(&record.code_bytes[..code_len])
                     };
+                    if let Some(code_filter) = code_filter {
+                        if !code_filter.contains(code_str) {
+                            continue;
+                        }
+                    }
+                    
+                    // 直接复制数据到输出数组
+                    chunk_data.push(record.date as f64);
+                    
                     // 尝试快速解析数字，失败则使用NaN
                     let code_num = if let Ok(num) = code_str.parse::<f64>() {
                         num
@@ -863,13 +921,16 @@ fn read_backup_results(file_path: &str) -> PyResult<PyObject> {
         flat_data.extend(chunk_data);
     }
     
+    // 计算实际的行数（考虑过滤）
+    let actual_row_count = flat_data.len() / num_cols;
+    
     // 超高速转换：直接从内存映射创建numpy数组
     Python::with_gil(|py| {
         let numpy = py.import("numpy")?;
         
-        // 创建numpy数组并reshape（这是最快的方式）
+        // 创建numpy数组并reshape（使用实际行数）
         let array = numpy.call_method1("array", (flat_data,))?;
-        let reshaped = array.call_method1("reshape", ((record_count, num_cols),))?;
+        let reshaped = array.call_method1("reshape", ((actual_row_count, num_cols),))?;
         
         Ok(reshaped.into())
     })
@@ -877,6 +938,10 @@ fn read_backup_results(file_path: &str) -> PyResult<PyObject> {
 
 // 向后兼容的旧格式读取函数
 fn read_legacy_backup_results(file_path: &str) -> PyResult<PyObject> {
+    read_legacy_backup_results_with_filter(file_path, None, None)
+}
+
+fn read_legacy_backup_results_with_filter(file_path: &str, date_filter: Option<&HashSet<i64>>, code_filter: Option<&HashSet<String>>) -> PyResult<PyObject> {
     let mut file = File::open(file_path)
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("Failed to open backup file: {}", e)))?;
     
@@ -910,7 +975,23 @@ fn read_legacy_backup_results(file_path: &str) -> PyResult<PyObject> {
         
         match bincode::deserialize::<Vec<TaskResult>>(&buffer[cursor..cursor + batch_size]) {
             Ok(batch) => {
-                all_results.extend(batch);
+                for result in batch {
+                    // 检查日期过滤器
+                    if let Some(date_filter) = date_filter {
+                        if !date_filter.contains(&result.date) {
+                            continue;
+                        }
+                    }
+                    
+                    // 检查代码过滤器
+                    if let Some(code_filter) = code_filter {
+                        if !code_filter.contains(&result.code) {
+                            continue;
+                        }
+                    }
+                    
+                    all_results.push(result);
+                }
                 cursor += batch_size;
             }
             Err(_) => {
@@ -927,7 +1008,23 @@ fn read_legacy_backup_results(file_path: &str) -> PyResult<PyObject> {
                 Ok(batch) => {
                     let batch_size = bincode::serialized_size(&batch)
                         .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Serialization error: {}", e)))? as usize;
-                    all_results.extend(batch);
+                    for result in batch {
+                        // 检查日期过滤器
+                        if let Some(date_filter) = date_filter {
+                            if !date_filter.contains(&result.date) {
+                                continue;
+                            }
+                        }
+                        
+                        // 检查代码过滤器
+                        if let Some(code_filter) = code_filter {
+                            if !code_filter.contains(&result.code) {
+                                continue;
+                            }
+                        }
+                        
+                        all_results.push(result);
+                    }
                     cursor += batch_size;
                 }
                 Err(_) => {
@@ -996,8 +1093,12 @@ pub fn query_backup(backup_file: String) -> PyResult<PyObject> {
 
 /// 高速并行备份查询函数，专门优化大文件读取
 #[pyfunction]
-#[pyo3(signature = (backup_file, num_threads=None))]
-pub fn query_backup_fast(backup_file: String, num_threads: Option<usize>) -> PyResult<PyObject> {
+#[pyo3(signature = (backup_file, num_threads=None, dates=None, codes=None))]
+pub fn query_backup_fast(backup_file: String, num_threads: Option<usize>, dates: Option<Vec<i64>>, codes: Option<Vec<String>>) -> PyResult<PyObject> {
+    // 将Vec转换为HashSet以提高查找性能
+    let date_filter: Option<HashSet<i64>> = dates.map(|v| v.into_iter().collect());
+    let code_filter: Option<HashSet<String>> = codes.map(|v| v.into_iter().collect());
+    
     // 使用自定义线程池而不是全局线程池
     if let Some(threads) = num_threads {
         let pool = rayon::ThreadPoolBuilder::new()
@@ -1005,9 +1106,17 @@ pub fn query_backup_fast(backup_file: String, num_threads: Option<usize>) -> PyR
             .build()
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("Failed to create thread pool: {}", e)))?;
         
-        pool.install(|| read_backup_results_ultra_fast_v4(&backup_file))
+        pool.install(|| read_backup_results_ultra_fast_v4_with_filter(
+            &backup_file, 
+            date_filter.as_ref(), 
+            code_filter.as_ref()
+        ))
     } else {
-        read_backup_results_ultra_fast_v4(&backup_file)
+        read_backup_results_ultra_fast_v4_with_filter(
+            &backup_file, 
+            date_filter.as_ref(), 
+            code_filter.as_ref()
+        )
     }
 }
 
@@ -1016,6 +1125,10 @@ pub fn query_backup_fast(backup_file: String, num_threads: Option<usize>) -> PyR
 
 /// 终极版本：线程安全的并行+零分配+缓存优化
 fn read_backup_results_ultra_fast_v4(file_path: &str) -> PyResult<PyObject> {
+    read_backup_results_ultra_fast_v4_with_filter(file_path, None, None)
+}
+
+fn read_backup_results_ultra_fast_v4_with_filter(file_path: &str, date_filter: Option<&HashSet<i64>>, code_filter: Option<&HashSet<String>>) -> PyResult<PyObject> {
     if !Path::new(file_path).exists() {
         return Err(PyErr::new::<pyo3::exceptions::PyFileNotFoundError, _>(
             "Backup file not found"
@@ -1030,7 +1143,7 @@ fn read_backup_results_ultra_fast_v4(file_path: &str) -> PyResult<PyObject> {
         .len() as usize;
     
     if file_len < HEADER_SIZE {
-        return read_legacy_backup_results(file_path);
+        return read_legacy_backup_results_with_filter(file_path, date_filter, code_filter);
     }
     
     // 内存映射
@@ -1046,7 +1159,7 @@ fn read_backup_results_ultra_fast_v4(file_path: &str) -> PyResult<PyObject> {
     };
     
     if &header.magic != b"RPBACKUP" {
-        return read_legacy_backup_results(file_path);
+        return read_legacy_backup_results_with_filter(file_path, date_filter, code_filter);
     }
     
     let record_count = header.record_count as usize;
@@ -1076,19 +1189,34 @@ fn read_backup_results_ultra_fast_v4(file_path: &str) -> PyResult<PyObject> {
     let records_start = HEADER_SIZE;
     let results: Vec<_> = (0..record_count)
         .into_par_iter()
-        .map(|i| {
+        .filter_map(|i| {
             let record_offset = records_start + i * record_size;
             let record_bytes = &mmap[record_offset..record_offset + record_size];
             
             match DynamicRecord::from_bytes(record_bytes, factor_count) {
                 Ok(record) => {
+                    // 检查日期过滤器
+                    if let Some(date_filter) = date_filter {
+                        if !date_filter.contains(&record.date) {
+                            return None;
+                        }
+                    }
+                    
                     let code_len = std::cmp::min(record.code_len as usize, 32);
                     let code = String::from_utf8_lossy(&record.code_bytes[..code_len]).to_string();
-                    (record.date, code, record.timestamp, record.factors)
+                    
+                    // 检查代码过滤器
+                    if let Some(code_filter) = code_filter {
+                        if !code_filter.contains(&code) {
+                            return None;
+                        }
+                    }
+                    
+                    Some((record.date, code, record.timestamp, record.factors))
                 }
                 Err(_) => {
-                    // 记录损坏，返回默认值
-                    (0i64, String::new(), 0i64, vec![f64::NAN; factor_count])
+                    // 记录损坏，返回None而不是默认值
+                    None
                 }
             }
         })
@@ -1299,7 +1427,7 @@ fn run_persistent_task_worker(
 
 
 #[pyfunction]
-#[pyo3(signature = (python_function, args, n_jobs, backup_file, expected_result_length, restart_interval=None))]
+#[pyo3(signature = (python_function, args, n_jobs, backup_file, expected_result_length, restart_interval=None, update_mode=None))]
 pub fn run_pools_queue(
     python_function: PyObject,
     args: &PyList,
@@ -1307,6 +1435,7 @@ pub fn run_pools_queue(
     backup_file: String,
     expected_result_length: usize,
     restart_interval: Option<usize>,
+    update_mode: Option<bool>,
 ) -> PyResult<PyObject> {
     // 处理 restart_interval 参数
     let restart_interval_value = restart_interval.unwrap_or(200);
@@ -1315,6 +1444,9 @@ pub fn run_pools_queue(
             "restart_interval must be greater than 0"
         ));
     }
+    
+    // 处理 update_mode 参数
+    let update_mode_enabled = update_mode.unwrap_or(false);
     
     // 解析参数
     let mut all_tasks = Vec::new();
@@ -1332,9 +1464,20 @@ pub fn run_pools_queue(
         all_tasks.push(TaskParam { date, code });
     }
     
+    // 保存所有任务的副本以便后续使用
+    let all_tasks_clone = all_tasks.clone();
+    
     // 读取现有备份，过滤已完成的任务
-    let existing_tasks = read_existing_backup(&backup_file)
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("Failed to read backup: {}", e)))?;
+    let existing_tasks = if update_mode_enabled {
+        // update_mode开启时，只读取传入参数中涉及的日期
+        let task_dates: HashSet<i64> = all_tasks.iter().map(|t| t.date).collect();
+        read_existing_backup_with_filter(&backup_file, Some(&task_dates))
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("Failed to read backup: {}", e)))?
+    } else {
+        // 正常模式，读取所有备份数据
+        read_existing_backup(&backup_file)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("Failed to read backup: {}", e)))?
+    };
     
     let pending_tasks: Vec<TaskParam> = all_tasks
         .into_iter()
@@ -1343,12 +1486,26 @@ pub fn run_pools_queue(
     
     if pending_tasks.is_empty() {
         // 所有任务都已完成，直接返回结果
-        return read_backup_results(&backup_file);
+        return if update_mode_enabled {
+            // update_mode下，只返回传入参数中涉及的日期和代码
+            let task_dates: HashSet<i64> = all_tasks_clone.iter().map(|t| t.date).collect();
+            let task_codes: HashSet<String> = all_tasks_clone.iter().map(|t| t.code.clone()).collect();
+            read_backup_results_with_filter(&backup_file, Some(&task_dates), Some(&task_codes))
+        } else {
+            read_backup_results(&backup_file)
+        };
     }
     
     let start_time = Instant::now();
-    println!("📋 总任务数: {}, 待处理: {}, 已完成: {}", 
-             pending_tasks.len() + existing_tasks.len(), pending_tasks.len(), existing_tasks.len());
+    if update_mode_enabled {
+        // update_mode下，只显示传入任务的统计信息
+        println!("📋 传入任务数: {}, 待处理: {}, 已完成: {}", 
+                 all_tasks_clone.len(), pending_tasks.len(), existing_tasks.len());
+    } else {
+        // 正常模式，显示总的统计信息
+        println!("📋 总任务数: {}, 待处理: {}, 已完成: {}", 
+                 pending_tasks.len() + existing_tasks.len(), pending_tasks.len(), existing_tasks.len());
+    }
     
     // 提取Python函数代码
     let python_code = extract_python_function_code(&python_function)?;
@@ -1504,5 +1661,12 @@ pub fn run_pools_queue(
     
     // 读取并返回最终结果
     println!("📖 读取最终备份结果...");
-    read_backup_results(&backup_file)
+    if update_mode_enabled {
+        // update_mode下，只返回传入参数中涉及的日期和代码
+        let task_dates: HashSet<i64> = all_tasks_clone.iter().map(|t| t.date).collect();
+        let task_codes: HashSet<String> = all_tasks_clone.iter().map(|t| t.code.clone()).collect();
+        read_backup_results_with_filter(&backup_file, Some(&task_dates), Some(&task_codes))
+    } else {
+        read_backup_results(&backup_file)
+    }
 }
