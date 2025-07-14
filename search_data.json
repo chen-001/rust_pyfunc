@@ -82,6 +82,11 @@
     "params": []
   },
   {
+    "name": "calculate_order_time_gap_and_price_percentile_ultra_sorted",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
     "name": "calculate_shannon_entropy_change",
     "description": "<p>计算价格变化后的香农熵变</p>",
     "params": [
@@ -96,6 +101,11 @@
   {
     "name": "calculate_shannon_entropy_change_at_low",
     "description": "<p>在价格创新低时计算香农熵变</p>\n<p>参数:\n* exchtime: 交易时间数组\n* order: 订单号数组\n* volume: 成交量数组\n* price: 价格数组\n* window_seconds: 时间窗口大小（秒）\n* bottom_k: 如果提供，则只计算价格最低的k个点的熵变，默认为None（计算所有价格创新低点）</p>\n<p>返回:\n* 香农熵变数组，只在价格创新低时有值，其他位置为NaN</p>",
+    "params": []
+  },
+  {
+    "name": "calculate_trade_time_gap_and_price_percentile_ultra_sorted",
+    "description": "<p>无文档</p>",
     "params": []
   },
   {
