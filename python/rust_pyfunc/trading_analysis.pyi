@@ -519,3 +519,359 @@ def order_neighborhood_analysis(
     >>> df = pd.DataFrame(result_matrix, columns=feature_names)
     """
     ...
+
+def analyze_trade_records(
+    volume: NDArray[np.float64],
+    exchtime: NDArray[np.float64],
+    price: NDArray[np.float64],
+    flag: NDArray[np.int32],
+    min_count: int = 100,
+    use_flag: str = "ignore"
+) -> Tuple[NDArray[np.float64], List[str]]:
+    """成交记录分析函数
+    
+    对每条成交记录，找到与其volume相同的其他成交记录，计算时间间隔和价格分位数等统计指标。
+    
+    参数说明：
+    ----------
+    volume : NDArray[np.float64]
+        成交量数组
+    exchtime : NDArray[np.float64]
+        成交时间数组（单位：秒）
+    price : NDArray[np.float64]
+        成交价格数组
+    flag : NDArray[np.int32]
+        主买卖标志数组 (66=主买，83=主卖)
+    min_count : int, default=100
+        最小成交记录数量阈值，低于此值的volume将返回NaN
+    use_flag : str, default="ignore"
+        flag过滤模式：
+        - "same": 只考虑与当前记录flag相同的记录
+        - "diff": 只考虑与当前记录flag不同的记录 
+        - "ignore": 忽略flag，考虑所有记录
+        
+    返回值：
+    -------
+    Tuple[NDArray[np.float64], List[str]]
+        第一个元素：N行22列的分析结果矩阵
+        第二个元素：包含22个特征名称的字符串列表
+        
+        22个特征列分别为：
+        列0-11: 时间间隔相关指标
+        - nearest_time_gap: 最近成交记录的时间间隔（秒）
+        - avg_time_gap_1pct: 最近1%成交记录的平均时间间隔
+        - avg_time_gap_2pct: 最近2%成交记录的平均时间间隔
+        - ...依次类推到50%和所有记录
+        
+        列12-21: 价格分位数指标
+        - price_percentile_10pct: 在最近10%记录中的价格分位数
+        - price_percentile_20pct: 在最近20%记录中的价格分位数
+        - ...依次类推到100%所有记录
+    """
+    ...
+
+def analyze_order_records(
+    volume: NDArray[np.float64],
+    exchtime: NDArray[np.float64],
+    price: NDArray[np.float64],
+    flag: NDArray[np.int32],
+    ask_order: NDArray[np.int64],
+    bid_order: NDArray[np.int64],
+    min_count: int = 100,
+    use_flag: str = "ignore"
+) -> Tuple[NDArray[np.float64], List[str]]:
+    """订单聚合分析函数
+    
+    将成交记录按订单聚合后，对每个订单找到与其成交总量相同的其他订单，
+    计算时间间隔和价格分位数等统计指标。
+    
+    参数说明：
+    ----------
+    volume : NDArray[np.float64]
+        成交量数组
+    exchtime : NDArray[np.float64]
+        成交时间数组（单位：秒）
+    price : NDArray[np.float64]
+        成交价格数组
+    flag : NDArray[np.int32]
+        主买卖标志数组 (66=主买，83=主卖)
+    ask_order : NDArray[np.int64]
+        卖单订单编号数组
+    bid_order : NDArray[np.int64]
+        买单订单编号数组
+    min_count : int, default=100
+        最小订单数量阈值，低于此值的volume将返回NaN
+    use_flag : str, default="ignore"
+        订单类型过滤模式：
+        - "same": 买单只与买单比较，卖单只与卖单比较
+        - "diff": 买单只与卖单比较，卖单只与买单比较
+        - "ignore": 买单卖单混合比较
+        
+    返回值：
+    -------
+    Tuple[NDArray[np.float64], List[str]]
+        第一个元素：N行22列的分析结果矩阵（与成交记录数量相同）
+        第二个元素：包含22个特征名称的字符串列表
+        
+        订单聚合规则：
+        - 时间：取最后一次成交时间作为订单时间
+        - 成交量：各成交记录成交量求和
+        - 价格：成交量加权平均价格
+        
+        22个特征列与analyze_trade_records相同
+    """
+    ...
+
+def analyze_trade_records_fast(
+    volume: NDArray[np.float64],
+    exchtime: NDArray[np.float64],
+    price: NDArray[np.float64],
+    flag: NDArray[np.int32],
+    min_count: int = 100,
+    use_flag: str = "ignore"
+) -> Tuple[NDArray[np.float64], List[str]]:
+    """高性能版本的成交记录分析函数
+    
+    相比analyze_trade_records，该版本进行了大量性能优化：
+    1. 使用u64整数键替代字符串键
+    2. 预过滤和缓存有效的volume组
+    3. 批量计算减少重复操作
+    4. 使用sort_unstable和binary_search优化
+    5. 减少内存分配和复制
+    
+    参数和返回值与analyze_trade_records完全相同。
+    预期性能提升：50-100倍
+    """
+    ...
+
+def analyze_order_records_fast(
+    volume: NDArray[np.float64],
+    exchtime: NDArray[np.float64],
+    price: NDArray[np.float64],
+    flag: NDArray[np.int32],
+    ask_order: NDArray[np.int64],
+    bid_order: NDArray[np.int64],
+    min_count: int = 100,
+    use_flag: str = "ignore"
+) -> Tuple[NDArray[np.float64], List[str]]:
+    """高性能版本的订单聚合分析函数
+    
+    相比analyze_order_records，该版本进行了大量性能优化：
+    1. 优化订单聚合算法
+    2. 使用更高效的数据结构
+    3. 批量处理和预计算
+    4. 减少重复的映射构建
+    
+    参数和返回值与analyze_order_records完全相同。
+    预期性能提升：50-100倍
+    """
+    ...
+
+def analyze_trade_records_turbo(
+    volume: NDArray[np.float64],
+    exchtime: NDArray[np.float64],
+    price: NDArray[np.float64],
+    flag: NDArray[np.int32],
+    min_count: int = 100,
+    use_flag: str = "ignore"
+) -> Tuple[NDArray[np.float64], List[str]]:
+    """终极性能版本的成交记录分析函数
+    
+    使用O(n log n)算法复杂度的革命性优化：
+    1. 时间索引预计算：对每个volume组构建按时间排序的索引
+    2. 二分查找最近邻：使用binary_search快速定位最近记录
+    3. 批量处理：一次性计算所有指标
+    4. 采样限制：限制最大样本数以控制计算量
+    5. 内存局部性优化：减少缓存不命中
+    
+    算法复杂度：从O(n²)降低到O(n log n + k*log n)
+    其中k为每组的平均记录数，通常k << n
+    
+    预期性能提升：100-1000倍，目标1秒内完成全日数据分析
+    
+    参数和返回值与analyze_trade_records完全相同。
+    """
+    ...
+
+def analyze_order_records_turbo(
+    volume: NDArray[np.float64],
+    exchtime: NDArray[np.float64],
+    price: NDArray[np.float64],
+    flag: NDArray[np.int32],
+    ask_order: NDArray[np.int64],
+    bid_order: NDArray[np.int64],
+    min_count: int = 100,
+    use_flag: str = "ignore"
+) -> Tuple[NDArray[np.float64], List[str]]:
+    """终极性能版本的订单聚合分析函数
+    
+    使用O(n log n)算法复杂度的革命性优化：
+    1. 高效订单聚合：优化的HashMap算法
+    2. 时间索引预计算：对每个volume组构建按时间排序的索引
+    3. 二分查找最近邻：使用binary_search快速定位最近记录
+    4. 采样限制：限制最大样本数以控制计算量
+    5. 批量指标计算：一次性计算所有22个指标
+    
+    算法复杂度：从O(n²)降低到O(n log n + k*log n)
+    其中k为每组的平均记录数，通常k << n
+    
+    预期性能提升：100-1000倍，目标1秒内完成全日数据分析
+    
+    参数和返回值与analyze_order_records完全相同。
+    """
+    ...
+
+def calculate_trade_time_gap_and_price_percentile_ultra_sorted(
+    volume: NDArray[np.float64],
+    exchtime: NDArray[np.float64],
+    price: NDArray[np.float64],
+    flag: NDArray[np.int32],
+    min_count: int = 100,
+    use_flag: str = "ignore"
+) -> Tuple[NDArray[np.float64], List[str]]:
+    """计算成交记录的时间间隔和价格分位数指标（Ultra Sorted优化算法）
+    
+    针对相同volume的成交记录，计算22个量化指标：
+    
+    📊 计算指标详细说明：
+    ================
+    🕐 时间间隔指标（12个，单位：秒）：
+    - nearest_time_gap: 最近一笔相同volume交易的时间间隔
+    - avg_time_gap_1pct到avg_time_gap_50pct: 最近1%-50%交易的平均时间间隔
+    - avg_time_gap_all: 所有相同volume交易的平均时间间隔
+    
+    💰 价格分位数指标（10个）：
+    - price_percentile_10pct到price_percentile_all: 当前价格在最近10%-100%交易中的分位数排名
+    
+    ⚡ 算法优化特性：
+    - 彻底消除O(n²)复杂度，达到O(n log n)
+    - 利用预排序数据避免重复排序开销
+    - 批量预计算相同volume组的共享数据
+    - 使用双指针和二分查找加速时间定位
+    
+    📋 数据要求：
+    输入数据必须已按volume和exchtime双重排序：
+    df.sort_values(['volume', 'exchtime'])
+    
+    ⚡ 性能表现：
+    算法复杂度：O(n log n)
+    预期性能：比turbo版本快5-10倍
+    全天数据（13万条）处理时间：约15秒
+    
+    参数：
+    --------
+    volume : NDArray[np.float64]
+        成交量数组（需已按volume,time排序）
+    exchtime : NDArray[np.float64] 
+        交易时间数组（纳秒时间戳，函数内部自动转换为秒，需已排序）
+    price : NDArray[np.float64]
+        成交价格数组
+    flag : NDArray[np.int32]
+        交易标志数组（66=买，83=卖）
+    min_count : int, default=100
+        计算指标所需的最少同volume记录数
+    use_flag : str, default="ignore"
+        标志过滤方式：
+        - "same": 只考虑相同买卖方向的交易
+        - "diff": 只考虑不同买卖方向的交易  
+        - "ignore": 考虑所有方向的交易
+    
+    返回：
+    -------
+    result : NDArray[np.float64]
+        形状为(n, 22)的结果数组，包含上述22个量化指标
+    columns : List[str]  
+        22个指标的中文列名列表
+    """
+    ...
+
+def calculate_order_time_gap_and_price_percentile_ultra_sorted(
+    volume: NDArray[np.float64],
+    exchtime: NDArray[np.float64],
+    price: NDArray[np.float64],
+    flag: NDArray[np.int32],
+    ask_order: NDArray[np.int64],
+    bid_order: NDArray[np.int64],
+    min_count: int = 100,
+    use_flag: str = "ignore"
+) -> Tuple[NDArray[np.float64], List[str]]:
+    """计算订单聚合后的时间间隔和价格分位数指标（Ultra Sorted优化算法）
+    
+    先将逐笔成交按订单号聚合，然后对聚合后的订单计算22个量化指标：
+    
+    📊 计算指标详细说明：
+    ================
+    🕐 时间间隔指标（12个，单位：秒）：
+    - nearest_time_gap: 最近一个相同volume订单的时间间隔
+    - avg_time_gap_1pct到avg_time_gap_50pct: 最近1%-50%订单的平均时间间隔
+    - avg_time_gap_all: 所有相同volume订单的平均时间间隔
+    
+    💰 价格分位数指标（10个）：
+    - price_percentile_10pct到price_percentile_all: 当前订单价格在最近10%-100%订单中的分位数排名
+    
+    🆔 订单标识指标（2个）：
+    - 订单编号: 订单编号（买单使用bid_order，卖单使用ask_order）
+    - 买单标识: 买单标识（1.0=买单，0.0=卖单）
+    
+    📦 订单聚合信息（3个）：
+    - 订单总量: 订单的总volume（所有成交volume累加）
+    - 订单时间: 订单的最后成交时间
+    - 订单价格: 订单的加权平均价格
+    
+    🔄 订单聚合逻辑：
+    - 按订单号和买卖方向(ask_order/bid_order + flag)聚合成交记录
+    - 计算每个订单的总volume（累加）、加权平均价格、最后成交时间
+    - 基于聚合后的订单数据计算上述27个指标（22个量化指标+5个信息列）
+    
+    ⚡ 算法优化特性：
+    - 彻底消除O(n²)复杂度，达到O(n log n)
+    - 高效的订单聚合HashMap算法
+    - 利用预排序数据避免重复排序开销
+    - 批量预计算相同volume组的共享数据
+    - 使用双指针和二分查找加速时间定位
+    
+    📋 数据要求：
+    输入数据必须已按volume和exchtime双重排序：
+    df.sort_values(['volume', 'exchtime'])
+    
+    ⚡ 性能表现：
+    算法复杂度：O(n log n)
+    预期性能：比turbo版本快5-10倍
+    全天数据（13万条）处理时间：约2.7秒
+    
+    参数：
+    --------
+    volume : NDArray[np.float64]
+        成交量数组（需已按volume,time排序）
+    exchtime : NDArray[np.float64]
+        交易时间数组（纳秒时间戳，函数内部自动转换为秒，需已排序）
+    price : NDArray[np.float64]
+        成交价格数组
+    flag : NDArray[np.int32]
+        交易标志数组（66=买，83=卖）
+    ask_order : NDArray[np.int64]
+        卖单订单号数组
+    bid_order : NDArray[np.int64]
+        买单订单号数组
+    min_count : int, default=100
+        计算指标所需的最少同volume订单数
+    use_flag : str, default="ignore"
+        标志过滤方式：
+        - "same": 只考虑相同买卖方向的订单
+        - "diff": 只考虑不同买卖方向的订单
+        - "ignore": 考虑所有方向的订单
+        
+    返回：
+    -------
+    result : NDArray[np.float64]
+        形状为(n, 27)的结果数组，包含上述27个指标（22个量化指标+5个信息列）
+    columns : List[str]
+        27个指标的中文列名列表，包括：
+        - 前22列：时间间隔和价格分位数量化指标（中文列名）
+        - 第23列：订单编号
+        - 第24列：买单标识（1.0=买单，0.0=卖单）
+        - 第25列：订单总量
+        - 第26列：订单时间  
+        - 第27列：订单价格
+    """
+    ...
