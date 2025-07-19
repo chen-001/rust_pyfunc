@@ -296,6 +296,12 @@ s.rolling_future('2s').trend_time()  # 计算后面2秒内的趋势</p>
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="calculate_order_time_gap_and_price_percentile_ultra_sorted_v2.html">calculate_order_time_gap_and_price_percentile_ultra_sorted_v2</a></h3>
+                <div><p>无文档</p></div>
+                <a href="calculate_order_time_gap_and_price_percentile_ultra_sorted_v2.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="calculate_shannon_entropy_change.html">calculate_shannon_entropy_change</a></h3>
                 <div><p>计算价格变化后的香农熵变</p></div>
                 <a href="calculate_shannon_entropy_change.html">查看详情</a>
@@ -594,9 +600,82 @@ print(f"加速比: {time1/time2:.2f}倍")
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="query_backup_columns_range_with_filter.html">query_backup_columns_range_with_filter</a></h3>
+                <div><p>查询备份文件中的指定列范围，支持过滤</p>
+<p>参数:
+- backup_file: 备份文件路径
+- column_start: 开始列索引（包含）
+- column_end: 结束列索引（包含）
+- dates: 可选的日期过滤列表
+- codes: 可选的代码过滤列表</p>
+<p>返回:
+包含numpy数组的字典: {"date": 日期数组, "code": 代码数组, "factors": 指定列范围的因子值数组}</p></div>
+                <a href="query_backup_columns_range_with_filter.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="query_backup_factor_only.html">query_backup_factor_only</a></h3>
+                <div><p>查询备份文件中的指定列因子值（纯因子值数组）</p>
+<p>参数:
+- backup_file: 备份文件路径
+- column_index: 要读取的因子列索引（0表示第一列因子值）</p>
+<p>返回:
+只包含因子值的numpy数组</p></div>
+                <a href="query_backup_factor_only.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="query_backup_factor_only_ultra_fast.html">query_backup_factor_only_ultra_fast</a></h3>
+                <div><p>超高速查询备份文件中的指定列因子值</p>
+<p>参数:
+- backup_file: 备份文件路径
+- column_index: 要读取的因子列索引（0表示第一列因子值）</p>
+<p>返回:
+只包含因子值的numpy数组</p></div>
+                <a href="query_backup_factor_only_ultra_fast.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="query_backup_factor_only_with_filter.html">query_backup_factor_only_with_filter</a></h3>
+                <div><p>查询备份文件中的指定列因子值（纯因子值数组），支持过滤</p>
+<p>参数:
+- backup_file: 备份文件路径
+- column_index: 要读取的因子列索引（0表示第一列因子值）
+- dates: 可选的日期过滤列表
+- codes: 可选的代码过滤列表</p>
+<p>返回:
+只包含因子值的numpy数组</p></div>
+                <a href="query_backup_factor_only_with_filter.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="query_backup_fast.html">query_backup_fast</a></h3>
                 <div><p>高速并行备份查询函数，专门优化大文件读取</p></div>
                 <a href="query_backup_fast.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="query_backup_single_column.html">query_backup_single_column</a></h3>
+                <div><p>查询备份文件中的指定列</p>
+<p>参数:
+- backup_file: 备份文件路径
+- column_index: 要读取的因子列索引（0表示第一列因子值）</p>
+<p>返回:
+包含三个numpy数组的字典: {"date": 日期数组, "code": 代码数组, "factor": 指定列的因子值数组}</p></div>
+                <a href="query_backup_single_column.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="query_backup_single_column_with_filter.html">query_backup_single_column_with_filter</a></h3>
+                <div><p>查询备份文件中的指定列，支持过滤</p>
+<p>参数:
+- backup_file: 备份文件路径
+- column_index: 要读取的因子列索引（0表示第一列因子值）
+- dates: 可选的日期过滤列表
+- codes: 可选的代码过滤列表</p>
+<p>返回:
+包含三个numpy数组的字典: {"date": 日期数组, "code": 代码数组, "factor": 指定列的因子值数组}</p></div>
+                <a href="query_backup_single_column_with_filter.html">查看详情</a>
             </div>
             
             <div class="function-item">
