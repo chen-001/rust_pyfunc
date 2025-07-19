@@ -3,106 +3,6 @@ from typing import List, Callable, Optional
 import numpy as np
 from numpy.typing import NDArray
 
-def run_pools(
-    python_function: Callable,
-    args: List[List],
-    n_jobs: int,
-    backup_file: str,
-    expected_result_length: int
-) -> NDArray[np.float64]:
-    """高性能多进程并行计算函数，支持自动备份和错误处理。
-    
-    ⚡ Rust原生多进程架构 - 真正避免Python GIL限制
-    采用Python子进程执行的并行计算机制，支持大规模任务处理。
-    
-    参数说明：
-    ----------
-    python_function : Callable
-        要并行执行的Python函数，接受(date: int, code: str)参数，返回计算结果列表
-        函数内可使用numpy、math等科学计算库
-    args : List[List]
-        参数列表，每个元素是一个包含[date, code]的列表
-        支持处理百万级至千万级任务
-    n_jobs : int
-        并行进程数，建议设置为CPU核心数的1-2倍
-    backup_file : str
-        备份文件路径(.bin格式)，用于自动保存计算结果
-        支持断点续传，重新运行时自动跳过已完成任务
-    expected_result_length : int
-        期望结果长度，当任务出错时返回此长度的NaN序列
-        
-    返回值：
-    -------
-    NDArray[np.float64]
-        结果数组，每行格式为[date, code_as_float, timestamp, *facs]
-        shape为(任务数, 3 + expected_result_length)
-        注意：code被转换为浮点数，如果转换失败则为NaN
-        
-    🚀 核心特性：
-    ----------
-    - ✅ 真正的多进程并行（避免GIL限制）
-    - ✅ 每10,000个结果自动备份到二进制文件  
-    - ✅ 智能任务分配和负载均衡
-    - ✅ 错误处理：出错任务返回NaN填充结果
-    - ✅ 断点续传：自动跳过已完成的任务
-    - ✅ 支持numpy等科学计算库
-    - ✅ 高性能处理：平均每任务0.5-1毫秒
-    
-    错误处理机制：
-    --------------
-    - 当Python函数执行出错时，返回NaN填充的结果向量
-    - 进程不会因单个任务错误而终止
-    - 写入备份失败时，将任务重新加入队列
-    
-    性能特性：
-    ----------
-    - 适用于大规模数据处理和因子计算任务（支持900万+任务）
-    - 测试性能：200个任务8进程98毫秒完成
-    - 自动管理进程生命周期，防止资源泄漏
-    - 高效的二进制存储格式
-        
-    示例：
-    -------
-    >>> # 基本使用示例
-    >>> def my_calculation(date, code):
-    ...     import numpy as np
-    ...     factor1 = (date % 100) / 10.0
-    ...     factor2 = len(code) * 2.5
-    ...     factor3 = np.sin(date / 10000.0)
-    ...     return [factor1, factor2, factor3]
-    >>> 
-    >>> args = [[20220101, '000001'], [20220102, '000002']]
-    >>> result = run_pools(
-    ...     my_calculation, 
-    ...     args,
-    ...     n_jobs=4,
-    ...     backup_file="my_results.bin",
-    ...     expected_result_length=3
-    ... )
-    >>> print(f"结果shape: {result.shape}")  # (2, 6)
-    >>> print(f"第一行: {result[0]}")  # [date, code_float, timestamp, fac1, fac2, fac3]
-     
-    >>> # 大规模计算示例
-    >>> large_args = [[20220000+i, f"CODE{i:05d}"] for i in range(100000)]
-    >>> result = run_pools(
-    ...     my_calculation,
-    ...     large_args,
-    ...     n_jobs=8,
-    ...     backup_file="large_results.bin", 
-    ...     expected_result_length=3
-    ... )
-    
-    >>> # 错误处理示例
-    >>> def error_prone_calc(date, code):
-    ...     if code == "ERROR":
-    ...         raise ValueError("Intentional error")
-    ...     return [1.0, 2.0, 3.0]
-    >>> 
-    >>> error_args = [[20220101, "OK"], [20220102, "ERROR"], [20220103, "OK"]]
-    >>> result = run_pools(error_prone_calc, error_args, 2, "test.bin", 3)
-    >>> # 第二行（ERROR任务）的facs部分将是[NaN, NaN, NaN]
-    """
-    ...
 
 def run_pools_queue(
     python_function: Callable,
@@ -111,7 +11,8 @@ def run_pools_queue(
     backup_file: str,
     expected_result_length: int,
     restart_interval: Optional[int] = None,
-    update_mode: Optional[bool] = None
+    update_mode: Optional[bool] = None,
+    return_results: Optional[bool] = None
 ) -> NDArray[np.float64]:
     """🚀 革命性持久化进程池 - 极致性能的并行计算函数（v2.0）
     
@@ -151,12 +52,17 @@ def run_pools_queue(
         更新模式开关，默认为False
         当为True时，只读取和返回传入参数中涉及的日期和代码的数据
         可显著提升大备份文件的读取和处理速度
+    return_results : Optional[bool], default=None
+        控制是否返回备份结果，默认为True
+        当为True时，完成计算后会读取备份文件并返回结果
+        当为False时，只执行计算任务，不返回任何结果，可节省内存和时间
         
     返回值：
     -------
     NDArray[np.float64]
         结果数组，每行格式为[date, code_as_float, timestamp, *facs]
         shape为(任务数, 3 + expected_result_length)
+        当return_results为False时，返回None
         
     🚀 性能指标（持久化版本）：
     -------------------------
@@ -497,5 +403,623 @@ def query_backup_fast(
     - 支持v1和v2格式自动识别，旧格式会自动降级到安全模式
     - 结果数组直接存储在内存中，大文件时注意内存使用
     - 已修复所有并发访问的内存安全问题，确保多线程读取100%安全
+    """
+    ...
+
+def query_backup_single_column(
+    backup_file: str,
+    column_index: int
+) -> dict:
+    """🎯 读取备份文件中的指定列
+    
+    高效读取备份文件中的特定因子列，只返回date、code和指定列的因子值。
+    相比读取完整数据后再筛选，这种方式内存占用更少，速度更快。
+    
+    参数说明：
+    ----------
+    backup_file : str
+        备份文件路径(.bin格式)
+        支持新格式（版本2）和旧格式的自动识别
+    column_index : int
+        要读取的因子列索引（0表示第一列因子值）
+        索引从0开始，必须小于备份文件中的因子总数
+        
+    返回值：
+    -------
+    dict
+        包含三个numpy数组的字典：
+        - "date": 日期数组 (NDArray[np.int64])
+        - "code": 代码数组 (NDArray[str])
+        - "factor": 指定列的因子值数组 (NDArray[np.float64])
+        
+    性能特点：
+    ----------
+    - ⚡ 内存优化：只读取需要的列，大幅减少内存占用
+    - ⚡ 速度优化：避免读取不需要的因子数据
+    - ⚡ 并行处理：利用多核CPU并行读取和处理
+    - ⚡ 格式兼容：自动识别v1/v2格式并选择合适的解析方法
+    
+    使用场景：
+    ----------
+    - 只需要特定因子进行分析时
+    - 内存受限环境中的数据读取
+    - 快速查看某个因子的分布情况
+    - 单因子策略的回测和分析
+        
+    示例：
+    -------
+    >>> # 读取第一列因子值
+    >>> data = query_backup_single_column("my_backup.bin", 0)
+    >>> print(f"日期数据: {data['date'][:5]}")
+    >>> print(f"代码数据: {data['code'][:5]}")
+    >>> print(f"因子值: {data['factor'][:5]}")
+    
+    >>> # 读取第三列因子值
+    >>> factor_3 = query_backup_single_column("large_backup.bin", 2)
+    >>> print(f"第三列因子统计: 均值={factor_3['factor'].mean():.4f}")
+    
+    >>> # 内存使用对比
+    >>> import psutil
+    >>> import os
+    >>> 
+    >>> # 方式1: 读取完整数据后提取列
+    >>> process = psutil.Process(os.getpid())
+    >>> mem_before = process.memory_info().rss / 1024 / 1024  # MB
+    >>> full_data = query_backup("large_backup.bin")
+    >>> factor_col = full_data[:, 3]  # 第一列因子
+    >>> mem_after_full = process.memory_info().rss / 1024 / 1024
+    >>> 
+    >>> # 方式2: 直接读取指定列
+    >>> mem_before_single = process.memory_info().rss / 1024 / 1024
+    >>> single_data = query_backup_single_column("large_backup.bin", 0)
+    >>> mem_after_single = process.memory_info().rss / 1024 / 1024
+    >>> 
+    >>> print(f"完整读取内存增加: {mem_after_full - mem_before:.1f}MB")
+    >>> print(f"单列读取内存增加: {mem_after_single - mem_before_single:.1f}MB")
+    >>> print(f"内存节省: {((mem_after_full - mem_before) - (mem_after_single - mem_before_single)):.1f}MB")
+    
+    注意事项：
+    ----------
+    - column_index必须在有效范围内（0 <= column_index < 因子总数）
+    - 备份文件必须是run_pools_queue生成的.bin格式
+    - 返回的code为字符串数组，保持原始格式
+    - 支持任意大小的备份文件，自动处理格式兼容性
+    - 损坏的记录会被跳过，不会导致函数失败
+    """
+    ...
+
+def query_backup_single_column_with_filter(
+    backup_file: str,
+    column_index: int,
+    dates: Optional[List[int]] = None,
+    codes: Optional[List[str]] = None
+) -> dict:
+    """🎯 读取备份文件中的指定列，支持过滤
+    
+    高效读取备份文件中的特定因子列，支持按日期和代码过滤。
+    结合了单列读取的内存优势和数据过滤的灵活性。
+    
+    参数说明：
+    ----------
+    backup_file : str
+        备份文件路径(.bin格式)
+        支持新格式（版本2）和旧格式的自动识别
+    column_index : int
+        要读取的因子列索引（0表示第一列因子值）
+        索引从0开始，必须小于备份文件中的因子总数
+    dates : Optional[List[int]]
+        日期过滤器，仅返回指定日期的数据
+        为None时返回所有日期的数据
+    codes : Optional[List[str]]
+        代码过滤器，仅返回指定代码的数据
+        为None时返回所有代码的数据
+        
+    返回值：
+    -------
+    dict
+        包含三个numpy数组的字典：
+        - "date": 过滤后的日期数组 (NDArray[np.int64])
+        - "code": 过滤后的代码数组 (NDArray[str])
+        - "factor": 过滤后的指定列因子值数组 (NDArray[np.float64])
+        
+    性能优势：
+    ----------
+    - ⚡ 双重优化：单列读取 + 过滤优化
+    - ⚡ 内存节省：只保留需要的行和列
+    - ⚡ 速度提升：在读取阶段就进行过滤
+    - ⚡ 并行处理：利用多核CPU并行过滤
+    
+    使用场景：
+    ----------
+    - 分析特定日期范围内的某个因子
+    - 研究特定股票代码的因子表现
+    - 内存受限环境中的精准数据提取
+    - 实时分析中的快速数据获取
+        
+    示例：
+    -------
+    >>> # 读取指定日期范围内的第一列因子
+    >>> dates_to_analyze = [20240101, 20240102, 20240103]
+    >>> data = query_backup_single_column_with_filter(
+    ...     "my_backup.bin", 
+    ...     column_index=0,
+    ...     dates=dates_to_analyze
+    ... )
+    >>> print(f"筛选后数据量: {len(data['date'])}")
+    
+    >>> # 读取指定股票的第五列因子
+    >>> target_codes = ["000001", "000002", "600000"]
+    >>> factor_data = query_backup_single_column_with_filter(
+    ...     "stock_factors.bin",
+    ...     column_index=4,
+    ...     codes=target_codes
+    ... )
+    >>> print(f"目标股票数据: {len(factor_data['code'])}")
+    
+    >>> # 同时按日期和代码过滤
+    >>> filtered_data = query_backup_single_column_with_filter(
+    ...     "comprehensive_backup.bin",
+    ...     column_index=2,
+    ...     dates=[20240101, 20240102],
+    ...     codes=["000001", "000002"]
+    ... )
+    >>> print(f"双重过滤后的数据量: {len(filtered_data['date'])}")
+    
+    >>> # 性能对比示例
+    >>> import time
+    >>> 
+    >>> # 方式1: 读取全部数据后过滤
+    >>> start_time = time.time()
+    >>> full_data = query_backup("large_backup.bin")
+    >>> # 手动过滤逻辑...
+    >>> time_full = time.time() - start_time
+    >>> 
+    >>> # 方式2: 直接过滤读取
+    >>> start_time = time.time()
+    >>> filtered_data = query_backup_single_column_with_filter(
+    ...     "large_backup.bin", 
+    ...     column_index=0,
+    ...     dates=[20240101, 20240102]
+    ... )
+    >>> time_filtered = time.time() - start_time
+    >>> 
+    >>> print(f"完整读取+过滤: {time_full:.2f}s")
+    >>> print(f"直接过滤读取: {time_filtered:.2f}s")
+    >>> print(f"速度提升: {time_full/time_filtered:.1f}x")
+    
+    >>> # 大规模数据处理示例
+    >>> # 从包含百万条记录的文件中提取特定数据
+    >>> recent_dates = list(range(20240101, 20240201))  # 一个月的数据
+    >>> monthly_data = query_backup_single_column_with_filter(
+    ...     "massive_backup.bin",
+    ...     column_index=0,
+    ...     dates=recent_dates
+    ... )
+    >>> print(f"月度数据提取完成: {len(monthly_data['date']):,} 条记录")
+    
+    注意事项：
+    ----------
+    - 过滤器使用HashSet实现，查找效率为O(1)
+    - 日期过滤器接受int类型的日期值
+    - 代码过滤器接受str类型的股票代码
+    - 同时使用两个过滤器时，结果是交集（AND逻辑）
+    - column_index必须在有效范围内
+    - 空的过滤器（None）表示不过滤该维度
+    - 损坏的记录会被自动跳过
+    """
+    ...
+
+def query_backup_columns_range_with_filter(
+    backup_file: str,
+    column_start: int,
+    column_end: int,
+    dates: Optional[List[int]] = None,
+    codes: Optional[List[str]] = None
+) -> dict:
+    """🎯 读取备份文件中的指定列范围，支持过滤
+    
+    高效读取备份文件中的特定因子列范围，支持按日期和代码过滤。
+    可以一次性读取多个连续的因子列，例如读取第0-99列的因子数据。
+    
+    参数说明：
+    ----------
+    backup_file : str
+        备份文件路径(.bin格式)
+        支持新格式（版本2）和旧格式的自动识别
+    column_start : int
+        开始列索引（包含），从0开始
+        必须小于备份文件中的因子总数
+    column_end : int
+        结束列索引（包含），从0开始
+        必须大于等于column_start且小于备份文件中的因子总数
+    dates : Optional[List[int]]
+        日期过滤器，仅返回指定日期的数据
+        为None时返回所有日期的数据
+    codes : Optional[List[str]]
+        代码过滤器，仅返回指定代码的数据
+        为None时返回所有代码的数据
+        
+    返回值：
+    -------
+    dict
+        包含numpy数组的字典：
+        - "date": 过滤后的日期数组 (NDArray[np.int64])
+        - "code": 过滤后的代码数组 (NDArray[str])
+        - "factors": 过滤后的指定列范围因子值数组 (NDArray[np.float64])
+                    shape为(记录数, 列数)，其中列数 = column_end - column_start + 1
+        
+    性能优势：
+    ----------
+    - ⚡ 批量读取：一次性读取多个连续列，比逐列读取更高效
+    - ⚡ 内存优化：只读取需要的列范围，避免读取所有列
+    - ⚡ 速度提升：在读取阶段就进行过滤，避免后续处理
+    - ⚡ 并行处理：利用多核CPU并行过滤和读取
+    
+    使用场景：
+    ----------
+    - 需要分析多个连续因子的相关性
+    - 批量处理特定范围内的因子数据
+    - 内存受限环境中的精准数据提取
+    - 机器学习特征工程中的批量特征读取
+        
+    示例：
+    -------
+    >>> # 读取第0-99列的因子数据
+    >>> data = query_backup_columns_range_with_filter(
+    ...     "my_backup.bin",
+    ...     column_start=0,
+    ...     column_end=99
+    ... )
+    >>> print(f"读取的因子数据shape: {data['factors'].shape}")
+    >>> print(f"总记录数: {len(data['date'])}")
+    >>> print(f"因子列数: {data['factors'].shape[1]}")
+    
+    >>> # 读取特定日期范围的因子数据
+    >>> dates_to_analyze = [20240101, 20240102, 20240103]
+    >>> data = query_backup_columns_range_with_filter(
+    ...     "large_backup.bin",
+    ...     column_start=10,
+    ...     column_end=19,
+    ...     dates=dates_to_analyze
+    ... )
+    >>> print(f"筛选后数据量: {len(data['date'])}")
+    >>> print(f"因子列数: {data['factors'].shape[1]}")
+    
+    >>> # 读取指定股票的因子数据
+    >>> target_codes = ["000001", "000002", "600000"]
+    >>> factor_data = query_backup_columns_range_with_filter(
+    ...     "stock_factors.bin",
+    ...     column_start=0,
+    ...     column_end=49,
+    ...     codes=target_codes
+    ... )
+    >>> print(f"目标股票数据: {len(factor_data['code'])}")
+    >>> print(f"因子数据shape: {factor_data['factors'].shape}")
+    
+    >>> # 同时按日期和代码过滤
+    >>> filtered_data = query_backup_columns_range_with_filter(
+    ...     "comprehensive_backup.bin",
+    ...     column_start=5,
+    ...     column_end=15,
+    ...     dates=[20240101, 20240102],
+    ...     codes=["000001", "000002"]
+    ... )
+    >>> print(f"双重过滤后的数据量: {len(filtered_data['date'])}")
+    >>> print(f"因子数据shape: {filtered_data['factors'].shape}")
+    
+    >>> # 因子相关性分析
+    >>> import numpy as np
+    >>> factor_range_data = query_backup_columns_range_with_filter(
+    ...     "factor_backup.bin",
+    ...     column_start=0,
+    ...     column_end=19,
+    ...     dates=list(range(20240101, 20240201))
+    ... )
+    >>> # 计算因子间的相关性矩阵
+    >>> correlation_matrix = np.corrcoef(factor_range_data['factors'].T)
+    >>> print(f"相关性矩阵shape: {correlation_matrix.shape}")
+    
+    >>> # 性能对比示例
+    >>> import time
+    >>> 
+    >>> # 方式1: 逐列读取
+    >>> start_time = time.time()
+    >>> individual_factors = []
+    >>> for col in range(0, 100):
+    ...     single_data = query_backup_single_column_with_filter(
+    ...         "large_backup.bin", col, dates=[20240101, 20240102]
+    ...     )
+    ...     individual_factors.append(single_data['factor'])
+    >>> combined_factors = np.column_stack(individual_factors)
+    >>> time_individual = time.time() - start_time
+    >>> 
+    >>> # 方式2: 批量读取
+    >>> start_time = time.time()
+    >>> batch_data = query_backup_columns_range_with_filter(
+    ...     "large_backup.bin",
+    ...     column_start=0,
+    ...     column_end=99,
+    ...     dates=[20240101, 20240102]
+    ... )
+    >>> time_batch = time.time() - start_time
+    >>> 
+    >>> print(f"逐列读取耗时: {time_individual:.2f}s")
+    >>> print(f"批量读取耗时: {time_batch:.2f}s")
+    >>> print(f"速度提升: {time_individual/time_batch:.1f}x")
+    
+    >>> # 机器学习特征工程示例
+    >>> # 读取前50个因子作为特征
+    >>> feature_data = query_backup_columns_range_with_filter(
+    ...     "ml_backup.bin",
+    ...     column_start=0,
+    ...     column_end=49,
+    ...     dates=list(range(20240101, 20240301))
+    ... )
+    >>> 
+    >>> # 准备机器学习数据
+    >>> X = feature_data['factors']  # 特征矩阵
+    >>> dates = feature_data['date']  # 日期信息
+    >>> codes = feature_data['code']  # 股票代码
+    >>> 
+    >>> print(f"特征矩阵shape: {X.shape}")
+    >>> print(f"样本数: {X.shape[0]}")
+    >>> print(f"特征数: {X.shape[1]}")
+    
+    注意事项：
+    ----------
+    - column_start必须小于等于column_end
+    - 列索引必须在有效范围内（0 <= 索引 < 因子总数）
+    - 过滤器使用HashSet实现，查找效率为O(1)
+    - 日期过滤器接受int类型的日期值
+    - 代码过滤器接受str类型的股票代码
+    - 同时使用两个过滤器时，结果是交集（AND逻辑）
+    - 返回的factors数组是二维的，shape为(记录数, 列数)
+    - 空的过滤器（None）表示不过滤该维度
+    - 损坏的记录会被自动跳过
+    """
+    ...
+
+def query_backup_factor_only(
+    backup_file: str,
+    column_index: int
+) -> NDArray[np.float64]:
+    """⚡ 读取备份文件中的指定列因子值（纯因子值数组）
+    
+    极致优化版本，只读取指定列的因子值，返回一维numpy数组。
+    相比完整读取，内存使用和处理速度都有显著提升。
+    
+    参数说明：
+    ----------
+    backup_file : str
+        备份文件路径(.bin格式)
+        支持新格式（版本2）和旧格式的自动识别
+    column_index : int
+        要读取的因子列索引（0表示第一列因子值）
+        索引从0开始，必须小于备份文件中的因子总数
+        
+    返回值：
+    -------
+    NDArray[np.float64]
+        只包含因子值的一维numpy数组
+        数组长度等于备份文件中的记录数量
+        
+    性能优势：
+    ----------
+    - ⚡ 内存最优：只存储因子值，内存使用最少
+    - ⚡ 速度最快：避免读取不需要的date和code数据
+    - ⚡ 并行处理：利用多核CPU并行读取和处理
+    - ⚡ 缓存友好：连续内存布局，CPU缓存命中率高
+    
+    使用场景：
+    ----------
+    - 只需要因子值进行数值计算时
+    - 内存极度受限的环境
+    - 需要最快速度的因子值读取
+    - 因子值的统计分析和可视化
+        
+    示例：
+    -------
+    >>> # 读取第一列因子值
+    >>> factors = query_backup_factor_only("my_backup.bin", 0)
+    >>> print(f"因子值类型: {type(factors)}")
+    >>> print(f"因子值数量: {len(factors)}")
+    >>> print(f"因子值统计: 均值={factors.mean():.4f}, 标准差={factors.std():.4f}")
+    
+    >>> # 数值计算示例
+    >>> import numpy as np
+    >>> factors = query_backup_factor_only("large_backup.bin", 2)
+    >>> # 直接进行各种numpy计算
+    >>> percentiles = np.percentile(factors, [25, 50, 75])
+    >>> print(f"四分位数: {percentiles}")
+    >>> 
+    >>> # 找出异常值
+    >>> outliers = factors[np.abs(factors - factors.mean()) > 3 * factors.std()]
+    >>> print(f"异常值数量: {len(outliers)}")
+    
+    >>> # 内存使用对比
+    >>> import psutil
+    >>> import os
+    >>> 
+    >>> process = psutil.Process(os.getpid())
+    >>> mem_before = process.memory_info().rss / 1024 / 1024  # MB
+    >>> 
+    >>> # 方式1: 完整读取
+    >>> full_data = query_backup("large_backup.bin")
+    >>> mem_after_full = process.memory_info().rss / 1024 / 1024
+    >>> 
+    >>> # 方式2: 单列读取（含date、code）
+    >>> single_data = query_backup_single_column("large_backup.bin", 0)
+    >>> mem_after_single = process.memory_info().rss / 1024 / 1024
+    >>> 
+    >>> # 方式3: 纯因子值读取
+    >>> factor_only = query_backup_factor_only("large_backup.bin", 0)
+    >>> mem_after_factor = process.memory_info().rss / 1024 / 1024
+    >>> 
+    >>> print(f"完整读取内存: {mem_after_full - mem_before:.1f}MB")
+    >>> print(f"单列读取内存: {mem_after_single - mem_before:.1f}MB")
+    >>> print(f"纯因子值内存: {mem_after_factor - mem_before:.1f}MB")
+    >>> print(f"内存节省: {((mem_after_full - mem_before) - (mem_after_factor - mem_before)):.1f}MB")
+    
+    >>> # 性能测试
+    >>> import time
+    >>> 
+    >>> # 测试读取速度
+    >>> start_time = time.time()
+    >>> factors = query_backup_factor_only("huge_backup.bin", 0)
+    >>> read_time = time.time() - start_time
+    >>> 
+    >>> print(f"读取 {len(factors):,} 个因子值")
+    >>> print(f"耗时: {read_time:.2f}秒")
+    >>> print(f"速度: {len(factors)/read_time:.0f} 因子/秒")
+    
+    注意事项：
+    ----------
+    - 返回的是一维numpy数组，不包含date和code信息
+    - column_index必须在有效范围内（0 <= column_index < 因子总数）
+    - 备份文件必须是run_pools_queue生成的.bin格式
+    - 损坏的记录会返回NaN值
+    - 适合需要纯数值计算的场景
+    """
+    ...
+
+def query_backup_factor_only_with_filter(
+    backup_file: str,
+    column_index: int,
+    dates: Optional[List[int]] = None,
+    codes: Optional[List[str]] = None
+) -> NDArray[np.float64]:
+    """⚡ 读取备份文件中的指定列因子值（纯因子值数组），支持过滤
+    
+    极致优化版本，支持按日期和代码过滤，只返回指定列的因子值。
+    结合了过滤功能和最小内存使用的优势。
+    
+    参数说明：
+    ----------
+    backup_file : str
+        备份文件路径(.bin格式)
+        支持新格式（版本2）和旧格式的自动识别
+    column_index : int
+        要读取的因子列索引（0表示第一列因子值）
+        索引从0开始，必须小于备份文件中的因子总数
+    dates : Optional[List[int]]
+        日期过滤器，仅返回指定日期的因子值
+        为None时返回所有日期的因子值
+    codes : Optional[List[str]]
+        代码过滤器，仅返回指定代码的因子值
+        为None时返回所有代码的因子值
+        
+    返回值：
+    -------
+    NDArray[np.float64]
+        过滤后的因子值一维numpy数组
+        数组长度等于过滤后的记录数量
+        
+    性能优势：
+    ----------
+    - ⚡ 三重优化：过滤 + 单列 + 纯因子值
+    - ⚡ 内存极省：只保留需要的因子值
+    - ⚡ 速度极快：在读取阶段就进行过滤
+    - ⚡ 并行处理：利用多核CPU并行过滤和读取
+    
+    使用场景：
+    ----------
+    - 分析特定时间段的因子值分布
+    - 研究特定股票的因子表现
+    - 内存极度受限的环境
+    - 需要最快速度的精准因子值提取
+        
+    示例：
+    -------
+    >>> # 读取指定日期的因子值
+    >>> target_dates = [20240101, 20240102, 20240103]
+    >>> factors = query_backup_factor_only_with_filter(
+    ...     "my_backup.bin",
+    ...     column_index=0,
+    ...     dates=target_dates
+    ... )
+    >>> print(f"过滤后因子值数量: {len(factors)}")
+    >>> print(f"因子值统计: 均值={factors.mean():.4f}")
+    
+    >>> # 读取指定股票的因子值
+    >>> target_codes = ["000001", "000002", "600000"]
+    >>> factors = query_backup_factor_only_with_filter(
+    ...     "stock_backup.bin",
+    ...     column_index=2,
+    ...     codes=target_codes
+    ... )
+    >>> print(f"指定股票因子值: {len(factors)} 个")
+    
+    >>> # 双重过滤
+    >>> filtered_factors = query_backup_factor_only_with_filter(
+    ...     "comprehensive_backup.bin",
+    ...     column_index=1,
+    ...     dates=[20240101, 20240102],
+    ...     codes=["000001", "000002"]
+    ... )
+    >>> print(f"双重过滤后因子值: {len(filtered_factors)} 个")
+    
+    >>> # 时间序列分析
+    >>> import numpy as np
+    >>> dates_range = list(range(20240101, 20240201))  # 一个月
+    >>> monthly_factors = query_backup_factor_only_with_filter(
+    ...     "time_series_backup.bin",
+    ...     column_index=0,
+    ...     dates=dates_range
+    ... )
+    >>> 
+    >>> # 计算移动平均
+    >>> window_size = 5
+    >>> moving_avg = np.convolve(monthly_factors, np.ones(window_size)/window_size, mode='valid')
+    >>> print(f"移动平均计算完成: {len(moving_avg)} 个点")
+    
+    >>> # 性能对比
+    >>> import time
+    >>> 
+    >>> # 方式1: 完整读取后过滤
+    >>> start_time = time.time()
+    >>> full_data = query_backup("large_backup.bin")
+    >>> # 手动过滤和提取列的逻辑...
+    >>> time_full = time.time() - start_time
+    >>> 
+    >>> # 方式2: 直接过滤读取纯因子值
+    >>> start_time = time.time()
+    >>> filtered_factors = query_backup_factor_only_with_filter(
+    ...     "large_backup.bin",
+    ...     column_index=0,
+    ...     dates=[20240101, 20240102]
+    ... )
+    >>> time_filtered = time.time() - start_time
+    >>> 
+    >>> print(f"完整读取+过滤: {time_full:.2f}s")
+    >>> print(f"直接过滤因子值: {time_filtered:.2f}s")
+    >>> print(f"速度提升: {time_full/time_filtered:.1f}x")
+    
+    >>> # 大规模数据处理
+    >>> # 从TB级文件中提取特定因子值
+    >>> huge_dates = list(range(20230101, 20240101))  # 一年的数据
+    >>> yearly_factors = query_backup_factor_only_with_filter(
+    ...     "massive_backup.bin",
+    ...     column_index=0,
+    ...     dates=huge_dates
+    ... )
+    >>> print(f"年度因子值提取: {len(yearly_factors):,} 个")
+    >>> 
+    >>> # 直接进行统计分析
+    >>> print(f"年度因子值统计:")
+    >>> print(f"  均值: {yearly_factors.mean():.6f}")
+    >>> print(f"  标准差: {yearly_factors.std():.6f}")
+    >>> print(f"  最大值: {yearly_factors.max():.6f}")
+    >>> print(f"  最小值: {yearly_factors.min():.6f}")
+    
+    注意事项：
+    ----------
+    - 返回的是一维numpy数组，不包含date和code信息
+    - 过滤器使用HashSet实现，查找效率为O(1)
+    - 日期过滤器接受int类型的日期值
+    - 代码过滤器接受str类型的股票代码
+    - 同时使用两个过滤器时，结果是交集（AND逻辑）
+    - column_index必须在有效范围内
+    - 空的过滤器（None）表示不过滤该维度
+    - 适合纯数值计算和统计分析的场景
     """
     ...

@@ -1123,6 +1123,593 @@ pub fn query_backup_fast(backup_file: String, num_threads: Option<usize>, dates:
 
 
 
+/// 读取备份文件中的指定列
+/// column_index: 要读取的因子列索引（0表示第一列因子值）
+/// 返回三列：date, code, 指定列的因子值
+fn read_backup_results_single_column(file_path: &str, column_index: usize) -> PyResult<PyObject> {
+    read_backup_results_single_column_with_filter(file_path, column_index, None, None)
+}
+
+fn read_backup_results_single_column_with_filter(file_path: &str, column_index: usize, date_filter: Option<&HashSet<i64>>, code_filter: Option<&HashSet<String>>) -> PyResult<PyObject> {
+    if !Path::new(file_path).exists() {
+        return Err(PyErr::new::<pyo3::exceptions::PyFileNotFoundError, _>(
+            "备份文件不存在"
+        ));
+    }
+    
+    let file = File::open(file_path)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("无法打开备份文件: {}", e)))?;
+    
+    let file_len = file.metadata()
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("无法获取文件元数据: {}", e)))?
+        .len() as usize;
+    
+    if file_len < HEADER_SIZE {
+        return read_legacy_backup_results_single_column_with_filter(file_path, column_index, date_filter, code_filter);
+    }
+    
+    // 内存映射
+    let mmap = unsafe { 
+        Mmap::map(&file)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("无法映射文件到内存: {}", e)))?
+    };
+    let mmap = Arc::new(mmap);
+    
+    // 读取文件头
+    let header = unsafe {
+        &*(mmap.as_ptr() as *const FileHeader)
+    };
+    
+    if &header.magic != b"RPBACKUP" {
+        return read_legacy_backup_results_single_column_with_filter(file_path, column_index, date_filter, code_filter);
+    }
+    
+    let record_count = header.record_count as usize;
+    if record_count == 0 {
+        return Python::with_gil(|py| {
+            let numpy = py.import("numpy")?;
+            let dict = pyo3::types::PyDict::new(py);
+            dict.set_item("date", numpy.call_method1("array", (Vec::<i64>::new(),))?)?;
+            dict.set_item("code", numpy.call_method1("array", (Vec::<String>::new(),))?)?;
+            dict.set_item("factor", numpy.call_method1("array", (Vec::<f64>::new(),))?)?;
+            Ok(dict.into())
+        });
+    }
+    
+    let record_size = header.record_size as usize;
+    let factor_count = header.factor_count as usize;
+    
+    // 检查列索引是否有效
+    if column_index >= factor_count {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            format!("列索引 {} 超出范围，因子列数为 {}", column_index, factor_count)
+        ));
+    }
+    
+    let calculated_record_size = calculate_record_size(factor_count);
+    if record_size != calculated_record_size {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+           format!("记录大小不匹配: 文件头显示 {}, 计算得到 {}. 文件可能损坏.", record_size, calculated_record_size)
+       ));
+    }
+
+    let expected_size = HEADER_SIZE + record_count * record_size;
+    if file_len < expected_size {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "备份文件似乎被截断了"
+        ));
+    }
+    
+    // 并行读取指定列
+    let records_start = HEADER_SIZE;
+    let results: Vec<_> = (0..record_count)
+        .into_par_iter()
+        .filter_map(|i| {
+            let record_offset = records_start + i * record_size;
+            let record_bytes = &mmap[record_offset..record_offset + record_size];
+            
+            match DynamicRecord::from_bytes(record_bytes, factor_count) {
+                Ok(record) => {
+                    // 检查日期过滤器
+                    if let Some(date_filter) = date_filter {
+                        if !date_filter.contains(&record.date) {
+                            return None;
+                        }
+                    }
+                    
+                    let code_len = std::cmp::min(record.code_len as usize, 32);
+                    let code = String::from_utf8_lossy(&record.code_bytes[..code_len]).to_string();
+                    
+                    // 检查代码过滤器
+                    if let Some(code_filter) = code_filter {
+                        if !code_filter.contains(&code) {
+                            return None;
+                        }
+                    }
+                    
+                    // 获取指定列的因子值
+                    let factor_value = if column_index < record.factors.len() {
+                        record.factors[column_index]
+                    } else {
+                        f64::NAN
+                    };
+                    
+                    Some((record.date, code, factor_value))
+                }
+                Err(_) => {
+                    // 记录损坏，返回None
+                    None
+                }
+            }
+        })
+        .collect();
+        
+    let num_rows = results.len();
+    let mut dates = Vec::with_capacity(num_rows);
+    let mut codes = Vec::with_capacity(num_rows);
+    let mut factors = Vec::with_capacity(num_rows);
+
+    for (date, code, factor_value) in results {
+        dates.push(date);
+        codes.push(code);
+        factors.push(factor_value);
+    }
+
+    // 创建Python字典
+    Python::with_gil(|py| {
+        let numpy = py.import("numpy")?;
+        let dict = pyo3::types::PyDict::new(py);
+
+        dict.set_item("date", numpy.call_method1("array", (dates,))?)?;
+        dict.set_item("code", numpy.call_method1("array", (codes,))?)?;
+        dict.set_item("factor", numpy.call_method1("array", (factors,))?)?;
+
+        Ok(dict.into())
+    })
+}
+
+fn read_backup_results_columns_range_with_filter(file_path: &str, column_start: usize, column_end: usize, date_filter: Option<&HashSet<i64>>, code_filter: Option<&HashSet<String>>) -> PyResult<PyObject> {
+    if !Path::new(file_path).exists() {
+        return Err(PyErr::new::<pyo3::exceptions::PyFileNotFoundError, _>(
+            "备份文件不存在"
+        ));
+    }
+    
+    let file = File::open(file_path)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("无法打开备份文件: {}", e)))?;
+    
+    let file_len = file.metadata()
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("无法获取文件元数据: {}", e)))?
+        .len() as usize;
+    
+    if file_len < HEADER_SIZE {
+        return read_legacy_backup_results_columns_range_with_filter(file_path, column_start, column_end, date_filter, code_filter);
+    }
+    
+    // 内存映射
+    let mmap = unsafe { 
+        Mmap::map(&file)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("无法映射文件到内存: {}", e)))?
+    };
+    let mmap = Arc::new(mmap);
+    
+    // 读取文件头
+    let header = unsafe {
+        &*(mmap.as_ptr() as *const FileHeader)
+    };
+    
+    if &header.magic != b"RPBACKUP" {
+        return read_legacy_backup_results_columns_range_with_filter(file_path, column_start, column_end, date_filter, code_filter);
+    }
+    
+    let record_count = header.record_count as usize;
+    if record_count == 0 {
+        return Python::with_gil(|py| {
+            let numpy = py.import("numpy")?;
+            let dict = pyo3::types::PyDict::new(py);
+            dict.set_item("date", numpy.call_method1("array", (Vec::<i64>::new(),))?)?;
+            dict.set_item("code", numpy.call_method1("array", (Vec::<String>::new(),))?)?;
+            dict.set_item("factors", numpy.call_method1("array", (Vec::<Vec<f64>>::new(),))?)?;
+            Ok(dict.into())
+        });
+    }
+    
+    let record_size = header.record_size as usize;
+    let factor_count = header.factor_count as usize;
+    
+    // 检查列索引是否有效
+    if column_start >= factor_count {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            format!("起始列索引 {} 超出范围，因子列数为 {}", column_start, factor_count)
+        ));
+    }
+    
+    if column_end >= factor_count {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            format!("结束列索引 {} 超出范围，因子列数为 {}", column_end, factor_count)
+        ));
+    }
+    
+    let calculated_record_size = calculate_record_size(factor_count);
+    if record_size != calculated_record_size {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+           format!("记录大小不匹配: 文件头显示 {}, 计算得到 {}. 文件可能损坏.", record_size, calculated_record_size)
+       ));
+    }
+
+    let expected_size = HEADER_SIZE + record_count * record_size;
+    if file_len < expected_size {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "备份文件似乎被截断了"
+        ));
+    }
+    
+    // 并行读取指定列范围
+    let records_start = HEADER_SIZE;
+    let num_columns = column_end - column_start + 1;
+    let results: Vec<_> = (0..record_count)
+        .into_par_iter()
+        .filter_map(|i| {
+            let record_offset = records_start + i * record_size;
+            let record_bytes = &mmap[record_offset..record_offset + record_size];
+            
+            match DynamicRecord::from_bytes(record_bytes, factor_count) {
+                Ok(record) => {
+                    // 检查日期过滤器
+                    if let Some(date_filter) = date_filter {
+                        if !date_filter.contains(&record.date) {
+                            return None;
+                        }
+                    }
+                    
+                    let code_len = std::cmp::min(record.code_len as usize, 32);
+                    let code = String::from_utf8_lossy(&record.code_bytes[..code_len]).to_string();
+                    
+                    // 检查代码过滤器
+                    if let Some(code_filter) = code_filter {
+                        if !code_filter.contains(&code) {
+                            return None;
+                        }
+                    }
+                    
+                    // 获取指定列范围的因子值
+                    let mut factor_values = Vec::with_capacity(num_columns);
+                    for col_idx in column_start..=column_end {
+                        let factor_value = if col_idx < record.factors.len() {
+                            record.factors[col_idx]
+                        } else {
+                            f64::NAN
+                        };
+                        factor_values.push(factor_value);
+                    }
+                    
+                    Some((record.date, code, factor_values))
+                }
+                Err(_) => {
+                    // 记录损坏，返回None
+                    None
+                }
+            }
+        })
+        .collect();
+        
+    let num_rows = results.len();
+    let mut dates = Vec::with_capacity(num_rows);
+    let mut codes = Vec::with_capacity(num_rows);
+    let mut factors = Vec::with_capacity(num_rows);
+
+    for (date, code, factor_values) in results {
+        dates.push(date);
+        codes.push(code);
+        factors.push(factor_values);
+    }
+
+    // 创建Python字典
+    Python::with_gil(|py| {
+        let numpy = py.import("numpy")?;
+        let dict = pyo3::types::PyDict::new(py);
+
+        dict.set_item("date", numpy.call_method1("array", (dates,))?)?;
+        dict.set_item("code", numpy.call_method1("array", (codes,))?)?;
+        dict.set_item("factors", numpy.call_method1("array", (factors,))?)?;
+
+        Ok(dict.into())
+    })
+}
+
+fn read_legacy_backup_results_columns_range_with_filter(file_path: &str, column_start: usize, column_end: usize, date_filter: Option<&HashSet<i64>>, code_filter: Option<&HashSet<String>>) -> PyResult<PyObject> {
+    let mut file = File::open(file_path)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("无法打开备份文件: {}", e)))?;
+    
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("无法读取备份文件: {}", e)))?;
+    
+    if buffer.is_empty() {
+        return Python::with_gil(|py| {
+            let numpy = py.import("numpy")?;
+            let dict = pyo3::types::PyDict::new(py);
+            dict.set_item("date", numpy.call_method1("array", (Vec::<i64>::new(),))?)?;
+            dict.set_item("code", numpy.call_method1("array", (Vec::<String>::new(),))?)?;
+            dict.set_item("factors", numpy.call_method1("array", (Vec::<Vec<f64>>::new(),))?)?;
+            Ok(dict.into())
+        });
+    }
+    
+    let mut cursor = 0;
+    let mut all_results = Vec::new();
+    
+    // 尝试新的批次格式
+    while cursor + 8 <= buffer.len() {
+        let size_bytes = &buffer[cursor..cursor + 8];
+        let batch_size = u64::from_le_bytes([
+            size_bytes[0], size_bytes[1], size_bytes[2], size_bytes[3],
+            size_bytes[4], size_bytes[5], size_bytes[6], size_bytes[7],
+        ]) as usize;
+        
+        cursor += 8;
+        
+        if cursor + batch_size > buffer.len() {
+            cursor -= 8;
+            break;
+        }
+        
+        match bincode::deserialize::<Vec<TaskResult>>(&buffer[cursor..cursor + batch_size]) {
+            Ok(batch) => {
+                for result in batch {
+                    // 检查日期过滤器
+                    if let Some(date_filter) = date_filter {
+                        if !date_filter.contains(&result.date) {
+                            continue;
+                        }
+                    }
+                    
+                    // 检查代码过滤器
+                    if let Some(code_filter) = code_filter {
+                        if !code_filter.contains(&result.code) {
+                            continue;
+                        }
+                    }
+                    
+                    // 检查列索引是否有效
+                    if column_start >= result.facs.len() {
+                        continue;
+                    }
+                    
+                    let actual_end = std::cmp::min(column_end, result.facs.len() - 1);
+                    if actual_end < column_start {
+                        continue;
+                    }
+                    
+                    let num_columns = actual_end - column_start + 1;
+                    let mut factor_values = Vec::with_capacity(num_columns);
+                    for col_idx in column_start..=actual_end {
+                        factor_values.push(result.facs[col_idx]);
+                    }
+                    
+                    all_results.push((result.date, result.code, factor_values));
+                }
+                cursor += batch_size;
+            }
+            Err(_) => {
+                cursor -= 8;
+                break;
+            }
+        }
+    }
+    
+    // 如果失败，尝试原始格式
+    if cursor < buffer.len() {
+        while cursor < buffer.len() {
+            match bincode::deserialize::<Vec<TaskResult>>(&buffer[cursor..]) {
+                Ok(batch) => {
+                    let batch_size = bincode::serialized_size(&batch).unwrap_or(0) as usize;
+                    
+                    for result in batch {
+                        // 检查日期过滤器
+                        if let Some(date_filter) = date_filter {
+                            if !date_filter.contains(&result.date) {
+                                continue;
+                            }
+                        }
+                        
+                        // 检查代码过滤器
+                        if let Some(code_filter) = code_filter {
+                            if !code_filter.contains(&result.code) {
+                                continue;
+                            }
+                        }
+                        
+                        // 检查列索引是否有效
+                        if column_start >= result.facs.len() {
+                            continue;
+                        }
+                        
+                        let actual_end = std::cmp::min(column_end, result.facs.len() - 1);
+                        if actual_end < column_start {
+                            continue;
+                        }
+                        
+                        let num_columns = actual_end - column_start + 1;
+                        let mut factor_values = Vec::with_capacity(num_columns);
+                        for col_idx in column_start..=actual_end {
+                            factor_values.push(result.facs[col_idx]);
+                        }
+                        
+                        all_results.push((result.date, result.code, factor_values));
+                    }
+                    cursor += batch_size;
+                }
+                Err(_) => {
+                    cursor += std::cmp::min(64, buffer.len() - cursor);
+                }
+            }
+        }
+    }
+    
+    // 整理结果
+    let num_rows = all_results.len();
+    let mut dates = Vec::with_capacity(num_rows);
+    let mut codes = Vec::with_capacity(num_rows);
+    let mut factors = Vec::with_capacity(num_rows);
+    
+    for (date, code, factor_values) in all_results {
+        dates.push(date);
+        codes.push(code);
+        factors.push(factor_values);
+    }
+    
+    // 创建Python字典
+    Python::with_gil(|py| {
+        let numpy = py.import("numpy")?;
+        let dict = pyo3::types::PyDict::new(py);
+
+        dict.set_item("date", numpy.call_method1("array", (dates,))?)?;
+        dict.set_item("code", numpy.call_method1("array", (codes,))?)?;
+        dict.set_item("factors", numpy.call_method1("array", (factors,))?)?;
+
+        Ok(dict.into())
+    })
+}
+
+// 支持旧格式的单列读取
+fn read_legacy_backup_results_single_column_with_filter(file_path: &str, column_index: usize, date_filter: Option<&HashSet<i64>>, code_filter: Option<&HashSet<String>>) -> PyResult<PyObject> {
+    let mut file = File::open(file_path)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("无法打开备份文件: {}", e)))?;
+    
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("无法读取备份文件: {}", e)))?;
+    
+    if buffer.is_empty() {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "备份文件为空"
+        ));
+    }
+    
+    let mut all_results = Vec::new();
+    let mut cursor = 0;
+    
+    // 尝试新的批次格式（带大小头）
+    while cursor + 8 <= buffer.len() {
+        let size_bytes = &buffer[cursor..cursor + 8];
+        let batch_size = u64::from_le_bytes([
+            size_bytes[0], size_bytes[1], size_bytes[2], size_bytes[3],
+            size_bytes[4], size_bytes[5], size_bytes[6], size_bytes[7],
+        ]) as usize;
+        
+        cursor += 8;
+        
+        if cursor + batch_size > buffer.len() {
+            cursor -= 8;
+            break;
+        }
+        
+        match bincode::deserialize::<Vec<TaskResult>>(&buffer[cursor..cursor + batch_size]) {
+            Ok(batch) => {
+                for result in batch {
+                    // 检查日期过滤器
+                    if let Some(date_filter) = date_filter {
+                        if !date_filter.contains(&result.date) {
+                            continue;
+                        }
+                    }
+                    
+                    // 检查代码过滤器
+                    if let Some(code_filter) = code_filter {
+                        if !code_filter.contains(&result.code) {
+                            continue;
+                        }
+                    }
+                    
+                    all_results.push(result);
+                }
+                cursor += batch_size;
+            }
+            Err(_) => {
+                cursor -= 8;
+                break;
+            }
+        }
+    }
+    
+    // 如果失败，尝试原始格式
+    if cursor < buffer.len() {
+        while cursor < buffer.len() {
+            match bincode::deserialize::<Vec<TaskResult>>(&buffer[cursor..]) {
+                Ok(batch) => {
+                    let batch_size = bincode::serialized_size(&batch)
+                        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("序列化错误: {}", e)))? as usize;
+                    for result in batch {
+                        // 检查日期过滤器
+                        if let Some(date_filter) = date_filter {
+                            if !date_filter.contains(&result.date) {
+                                continue;
+                            }
+                        }
+                        
+                        // 检查代码过滤器
+                        if let Some(code_filter) = code_filter {
+                            if !code_filter.contains(&result.code) {
+                                continue;
+                            }
+                        }
+                        
+                        all_results.push(result);
+                    }
+                    cursor += batch_size;
+                }
+                Err(_) => {
+                    cursor += std::cmp::min(64, buffer.len() - cursor);
+                }
+            }
+        }
+    }
+    
+    if all_results.is_empty() {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "备份文件中没有找到有效结果"
+        ));
+    }
+    
+    // 检查列索引是否有效
+    if let Some(first_result) = all_results.first() {
+        if column_index >= first_result.facs.len() {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                format!("列索引 {} 超出范围，因子列数为 {}", column_index, first_result.facs.len())
+            ));
+        }
+    }
+    
+    // 提取指定列的数据
+    let mut dates = Vec::with_capacity(all_results.len());
+    let mut codes = Vec::with_capacity(all_results.len());
+    let mut factors = Vec::with_capacity(all_results.len());
+    
+    for result in all_results {
+        dates.push(result.date);
+        codes.push(result.code);
+        let factor_value = if column_index < result.facs.len() {
+            result.facs[column_index]
+        } else {
+            f64::NAN
+        };
+        factors.push(factor_value);
+    }
+    
+    // 创建Python字典
+    Python::with_gil(|py| {
+        let numpy = py.import("numpy")?;
+        let dict = pyo3::types::PyDict::new(py);
+
+        dict.set_item("date", numpy.call_method1("array", (dates,))?)?;
+        dict.set_item("code", numpy.call_method1("array", (codes,))?)?;
+        dict.set_item("factor", numpy.call_method1("array", (factors,))?)?;
+
+        Ok(dict.into())
+    })
+}
+
 /// 终极版本：线程安全的并行+零分配+缓存优化
 fn read_backup_results_ultra_fast_v4(file_path: &str) -> PyResult<PyObject> {
     read_backup_results_ultra_fast_v4_with_filter(file_path, None, None)
@@ -1427,7 +2014,7 @@ fn run_persistent_task_worker(
 
 
 #[pyfunction]
-#[pyo3(signature = (python_function, args, n_jobs, backup_file, expected_result_length, restart_interval=None, update_mode=None))]
+#[pyo3(signature = (python_function, args, n_jobs, backup_file, expected_result_length, restart_interval=None, update_mode=None, return_results=None))]
 pub fn run_pools_queue(
     python_function: PyObject,
     args: &PyList,
@@ -1436,6 +2023,7 @@ pub fn run_pools_queue(
     expected_result_length: usize,
     restart_interval: Option<usize>,
     update_mode: Option<bool>,
+    return_results: Option<bool>,
 ) -> PyResult<PyObject> {
     // 处理 restart_interval 参数
     let restart_interval_value = restart_interval.unwrap_or(200);
@@ -1447,6 +2035,9 @@ pub fn run_pools_queue(
     
     // 处理 update_mode 参数
     let update_mode_enabled = update_mode.unwrap_or(false);
+    
+    // 处理 return_results 参数
+    let return_results_enabled = return_results.unwrap_or(true);
     
     // 解析参数
     let mut all_tasks = Vec::new();
@@ -1486,13 +2077,18 @@ pub fn run_pools_queue(
     
     if pending_tasks.is_empty() {
         // 所有任务都已完成，直接返回结果
-        return if update_mode_enabled {
-            // update_mode下，只返回传入参数中涉及的日期和代码
-            let task_dates: HashSet<i64> = all_tasks_clone.iter().map(|t| t.date).collect();
-            let task_codes: HashSet<String> = all_tasks_clone.iter().map(|t| t.code.clone()).collect();
-            read_backup_results_with_filter(&backup_file, Some(&task_dates), Some(&task_codes))
+        return if return_results_enabled {
+            if update_mode_enabled {
+                // update_mode下，只返回传入参数中涉及的日期和代码
+                let task_dates: HashSet<i64> = all_tasks_clone.iter().map(|t| t.date).collect();
+                let task_codes: HashSet<String> = all_tasks_clone.iter().map(|t| t.code.clone()).collect();
+                read_backup_results_with_filter(&backup_file, Some(&task_dates), Some(&task_codes))
+            } else {
+                read_backup_results(&backup_file)
+            }
         } else {
-            read_backup_results(&backup_file)
+            println!("✅ 所有任务都已完成，不返回结果");
+            Python::with_gil(|py| Ok(py.None()))
         };
     }
     
@@ -1660,13 +2256,473 @@ pub fn run_pools_queue(
     }
     
     // 读取并返回最终结果
-    println!("📖 读取最终备份结果...");
-    if update_mode_enabled {
-        // update_mode下，只返回传入参数中涉及的日期和代码
-        let task_dates: HashSet<i64> = all_tasks_clone.iter().map(|t| t.date).collect();
-        let task_codes: HashSet<String> = all_tasks_clone.iter().map(|t| t.code.clone()).collect();
-        read_backup_results_with_filter(&backup_file, Some(&task_dates), Some(&task_codes))
+    if return_results_enabled {
+        println!("📖 读取最终备份结果...");
+        if update_mode_enabled {
+            // update_mode下，只返回传入参数中涉及的日期和代码
+            let task_dates: HashSet<i64> = all_tasks_clone.iter().map(|t| t.date).collect();
+            let task_codes: HashSet<String> = all_tasks_clone.iter().map(|t| t.code.clone()).collect();
+            read_backup_results_with_filter(&backup_file, Some(&task_dates), Some(&task_codes))
+        } else {
+            read_backup_results(&backup_file)
+        }
     } else {
-        read_backup_results(&backup_file)
+        println!("✅ 任务完成，不返回结果");
+        Python::with_gil(|py| Ok(py.None()))
     }
+}
+
+/// 查询备份文件中的指定列
+/// 
+/// 参数:
+/// - backup_file: 备份文件路径
+/// - column_index: 要读取的因子列索引（0表示第一列因子值）
+/// 
+/// 返回:
+/// 包含三个numpy数组的字典: {"date": 日期数组, "code": 代码数组, "factor": 指定列的因子值数组}
+#[pyfunction]
+#[pyo3(signature = (backup_file, column_index))]
+pub fn query_backup_single_column(backup_file: String, column_index: usize) -> PyResult<PyObject> {
+    read_backup_results_single_column(&backup_file, column_index)
+}
+
+/// 查询备份文件中的指定列，支持过滤
+/// 
+/// 参数:
+/// - backup_file: 备份文件路径
+/// - column_index: 要读取的因子列索引（0表示第一列因子值）
+/// - dates: 可选的日期过滤列表
+/// - codes: 可选的代码过滤列表
+/// 
+/// 返回:
+/// 包含三个numpy数组的字典: {"date": 日期数组, "code": 代码数组, "factor": 指定列的因子值数组}
+#[pyfunction]
+#[pyo3(signature = (backup_file, column_index, dates=None, codes=None))]
+pub fn query_backup_single_column_with_filter(backup_file: String, column_index: usize, dates: Option<Vec<i64>>, codes: Option<Vec<String>>) -> PyResult<PyObject> {
+    // 将Vec转换为HashSet以提高查找性能
+    let date_filter: Option<HashSet<i64>> = dates.map(|v| v.into_iter().collect());
+    let code_filter: Option<HashSet<String>> = codes.map(|v| v.into_iter().collect());
+    
+    read_backup_results_single_column_with_filter(&backup_file, column_index, date_filter.as_ref(), code_filter.as_ref())
+}
+
+/// 查询备份文件中的指定列范围，支持过滤
+/// 
+/// 参数:
+/// - backup_file: 备份文件路径
+/// - column_start: 开始列索引（包含）
+/// - column_end: 结束列索引（包含）
+/// - dates: 可选的日期过滤列表
+/// - codes: 可选的代码过滤列表
+/// 
+/// 返回:
+/// 包含numpy数组的字典: {"date": 日期数组, "code": 代码数组, "factors": 指定列范围的因子值数组}
+#[pyfunction]
+#[pyo3(signature = (backup_file, column_start, column_end, dates=None, codes=None))]
+pub fn query_backup_columns_range_with_filter(backup_file: String, column_start: usize, column_end: usize, dates: Option<Vec<i64>>, codes: Option<Vec<String>>) -> PyResult<PyObject> {
+    // 检查参数有效性
+    if column_start > column_end {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "column_start must be <= column_end"
+        ));
+    }
+    
+    // 将Vec转换为HashSet以提高查找性能
+    let date_filter: Option<HashSet<i64>> = dates.map(|v| v.into_iter().collect());
+    let code_filter: Option<HashSet<String>> = codes.map(|v| v.into_iter().collect());
+    
+    read_backup_results_columns_range_with_filter(&backup_file, column_start, column_end, date_filter.as_ref(), code_filter.as_ref())
+}
+
+/// 读取备份文件中的指定列因子值（纯因子值数组）
+/// column_index: 要读取的因子列索引（0表示第一列因子值）
+/// 返回: 只包含因子值的numpy数组
+fn read_backup_results_factor_only(file_path: &str, column_index: usize) -> PyResult<PyObject> {
+    read_backup_results_factor_only_with_filter(file_path, column_index, None, None)
+}
+
+fn read_backup_results_factor_only_with_filter(file_path: &str, column_index: usize, date_filter: Option<&HashSet<i64>>, code_filter: Option<&HashSet<String>>) -> PyResult<PyObject> {
+    if !Path::new(file_path).exists() {
+        return Err(PyErr::new::<pyo3::exceptions::PyFileNotFoundError, _>(
+            "备份文件不存在"
+        ));
+    }
+    
+    let file = File::open(file_path)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("无法打开备份文件: {}", e)))?;
+    
+    let file_len = file.metadata()
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("无法获取文件元数据: {}", e)))?
+        .len() as usize;
+    
+    if file_len < HEADER_SIZE {
+        return read_legacy_backup_results_factor_only_with_filter(file_path, column_index, date_filter, code_filter);
+    }
+    
+    // 内存映射
+    let mmap = unsafe { 
+        Mmap::map(&file)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("无法映射文件到内存: {}", e)))?
+    };
+    let mmap = Arc::new(mmap);
+    
+    // 读取文件头
+    let header = unsafe {
+        &*(mmap.as_ptr() as *const FileHeader)
+    };
+    
+    if &header.magic != b"RPBACKUP" {
+        return read_legacy_backup_results_factor_only_with_filter(file_path, column_index, date_filter, code_filter);
+    }
+    
+    let record_count = header.record_count as usize;
+    if record_count == 0 {
+        return Python::with_gil(|py| {
+            let numpy = py.import("numpy")?;
+            Ok(numpy.call_method1("array", (Vec::<f64>::new(),))?.into())
+        });
+    }
+    
+    let record_size = header.record_size as usize;
+    let factor_count = header.factor_count as usize;
+    
+    // 检查列索引是否有效
+    if column_index >= factor_count {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            format!("列索引 {} 超出范围，因子列数为 {}", column_index, factor_count)
+        ));
+    }
+    
+    let calculated_record_size = calculate_record_size(factor_count);
+    if record_size != calculated_record_size {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+           format!("记录大小不匹配: 文件头显示 {}, 计算得到 {}. 文件可能损坏.", record_size, calculated_record_size)
+       ));
+    }
+
+    let expected_size = HEADER_SIZE + record_count * record_size;
+    if file_len < expected_size {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "备份文件似乎被截断了"
+        ));
+    }
+    
+    // 并行读取只获取因子值
+    let records_start = HEADER_SIZE;
+    let factors: Vec<f64> = (0..record_count)
+        .into_par_iter()
+        .filter_map(|i| {
+            let record_offset = records_start + i * record_size;
+            let record_bytes = &mmap[record_offset..record_offset + record_size];
+            
+            match DynamicRecord::from_bytes(record_bytes, factor_count) {
+                Ok(record) => {
+                    // 检查日期过滤器
+                    if let Some(date_filter) = date_filter {
+                        if !date_filter.contains(&record.date) {
+                            return None;
+                        }
+                    }
+                    
+                    // 检查代码过滤器
+                    if let Some(code_filter) = code_filter {
+                        let code_len = std::cmp::min(record.code_len as usize, 32);
+                        let code = String::from_utf8_lossy(&record.code_bytes[..code_len]).to_string();
+                        
+                        if !code_filter.contains(&code) {
+                            return None;
+                        }
+                    }
+                    
+                    // 只返回指定列的因子值
+                    if column_index < record.factors.len() {
+                        Some(record.factors[column_index])
+                    } else {
+                        Some(f64::NAN)
+                    }
+                }
+                Err(_) => {
+                    // 记录损坏，返回NaN
+                    Some(f64::NAN)
+                }
+            }
+        })
+        .collect();
+
+    // 创建numpy数组
+    Python::with_gil(|py| {
+        let numpy = py.import("numpy")?;
+        Ok(numpy.call_method1("array", (factors,))?.into())
+    })
+}
+
+// 支持旧格式的纯因子值读取
+fn read_legacy_backup_results_factor_only_with_filter(file_path: &str, column_index: usize, date_filter: Option<&HashSet<i64>>, code_filter: Option<&HashSet<String>>) -> PyResult<PyObject> {
+    let mut file = File::open(file_path)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("无法打开备份文件: {}", e)))?;
+    
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("无法读取备份文件: {}", e)))?;
+    
+    if buffer.is_empty() {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "备份文件为空"
+        ));
+    }
+    
+    let mut all_results = Vec::new();
+    let mut cursor = 0;
+    
+    // 尝试新的批次格式（带大小头）
+    while cursor + 8 <= buffer.len() {
+        let size_bytes = &buffer[cursor..cursor + 8];
+        let batch_size = u64::from_le_bytes([
+            size_bytes[0], size_bytes[1], size_bytes[2], size_bytes[3],
+            size_bytes[4], size_bytes[5], size_bytes[6], size_bytes[7],
+        ]) as usize;
+        
+        cursor += 8;
+        
+        if cursor + batch_size > buffer.len() {
+            cursor -= 8;
+            break;
+        }
+        
+        match bincode::deserialize::<Vec<TaskResult>>(&buffer[cursor..cursor + batch_size]) {
+            Ok(batch) => {
+                for result in batch {
+                    // 检查日期过滤器
+                    if let Some(date_filter) = date_filter {
+                        if !date_filter.contains(&result.date) {
+                            continue;
+                        }
+                    }
+                    
+                    // 检查代码过滤器
+                    if let Some(code_filter) = code_filter {
+                        if !code_filter.contains(&result.code) {
+                            continue;
+                        }
+                    }
+                    
+                    all_results.push(result);
+                }
+                cursor += batch_size;
+            }
+            Err(_) => {
+                cursor -= 8;
+                break;
+            }
+        }
+    }
+    
+    // 如果失败，尝试原始格式
+    if cursor < buffer.len() {
+        while cursor < buffer.len() {
+            match bincode::deserialize::<Vec<TaskResult>>(&buffer[cursor..]) {
+                Ok(batch) => {
+                    let batch_size = bincode::serialized_size(&batch)
+                        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("序列化错误: {}", e)))? as usize;
+                    for result in batch {
+                        // 检查日期过滤器
+                        if let Some(date_filter) = date_filter {
+                            if !date_filter.contains(&result.date) {
+                                continue;
+                            }
+                        }
+                        
+                        // 检查代码过滤器
+                        if let Some(code_filter) = code_filter {
+                            if !code_filter.contains(&result.code) {
+                                continue;
+                            }
+                        }
+                        
+                        all_results.push(result);
+                    }
+                    cursor += batch_size;
+                }
+                Err(_) => {
+                    cursor += std::cmp::min(64, buffer.len() - cursor);
+                }
+            }
+        }
+    }
+    
+    if all_results.is_empty() {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "备份文件中没有找到有效结果"
+        ));
+    }
+    
+    // 检查列索引是否有效
+    if let Some(first_result) = all_results.first() {
+        if column_index >= first_result.facs.len() {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                format!("列索引 {} 超出范围，因子列数为 {}", column_index, first_result.facs.len())
+            ));
+        }
+    }
+    
+    // 只提取指定列的因子值
+    let factors: Vec<f64> = all_results
+        .into_iter()
+        .map(|result| {
+            if column_index < result.facs.len() {
+                result.facs[column_index]
+            } else {
+                f64::NAN
+            }
+        })
+        .collect();
+    
+    // 创建numpy数组
+    Python::with_gil(|py| {
+        let numpy = py.import("numpy")?;
+        Ok(numpy.call_method1("array", (factors,))?.into())
+    })
+}
+
+/// 查询备份文件中的指定列因子值（纯因子值数组）
+/// 
+/// 参数:
+/// - backup_file: 备份文件路径
+/// - column_index: 要读取的因子列索引（0表示第一列因子值）
+/// 
+/// 返回:
+/// 只包含因子值的numpy数组
+#[pyfunction]
+#[pyo3(signature = (backup_file, column_index))]
+pub fn query_backup_factor_only(backup_file: String, column_index: usize) -> PyResult<PyObject> {
+    read_backup_results_factor_only(&backup_file, column_index)
+}
+
+/// 查询备份文件中的指定列因子值（纯因子值数组），支持过滤
+/// 
+/// 参数:
+/// - backup_file: 备份文件路径
+/// - column_index: 要读取的因子列索引（0表示第一列因子值）
+/// - dates: 可选的日期过滤列表
+/// - codes: 可选的代码过滤列表
+/// 
+/// 返回:
+/// 只包含因子值的numpy数组
+#[pyfunction]
+#[pyo3(signature = (backup_file, column_index, dates=None, codes=None))]
+pub fn query_backup_factor_only_with_filter(backup_file: String, column_index: usize, dates: Option<Vec<i64>>, codes: Option<Vec<String>>) -> PyResult<PyObject> {
+    // 将Vec转换为HashSet以提高查找性能
+    let date_filter: Option<HashSet<i64>> = dates.map(|v| v.into_iter().collect());
+    let code_filter: Option<HashSet<String>> = codes.map(|v| v.into_iter().collect());
+    
+    read_backup_results_factor_only_with_filter(&backup_file, column_index, date_filter.as_ref(), code_filter.as_ref())
+}
+
+/// 超高速因子值读取（直接字节偏移版本）
+fn read_backup_results_factor_only_ultra_fast(file_path: &str, column_index: usize) -> PyResult<PyObject> {
+    if !Path::new(file_path).exists() {
+        return Err(PyErr::new::<pyo3::exceptions::PyFileNotFoundError, _>(
+            "备份文件不存在"
+        ));
+    }
+    
+    let file = File::open(file_path)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("无法打开备份文件: {}", e)))?;
+    
+    let file_len = file.metadata()
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("无法获取文件元数据: {}", e)))?
+        .len() as usize;
+    
+    if file_len < HEADER_SIZE {
+        return read_backup_results_factor_only(&file_path, column_index);
+    }
+    
+    // 内存映射
+    let mmap = unsafe { 
+        Mmap::map(&file)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("无法映射文件到内存: {}", e)))?
+    };
+    
+    // 读取文件头
+    let header = unsafe {
+        &*(mmap.as_ptr() as *const FileHeader)
+    };
+    
+    if &header.magic != b"RPBACKUP" {
+        return read_backup_results_factor_only(&file_path, column_index);
+    }
+    
+    let record_count = header.record_count as usize;
+    if record_count == 0 {
+        return Python::with_gil(|py| {
+            let numpy = py.import("numpy")?;
+            Ok(numpy.call_method1("array", (Vec::<f64>::new(),))?.into())
+        });
+    }
+    
+    let record_size = header.record_size as usize;
+    let factor_count = header.factor_count as usize;
+    
+    // 检查列索引是否有效
+    if column_index >= factor_count {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            format!("列索引 {} 超出范围，因子列数为 {}", column_index, factor_count)
+        ));
+    }
+    
+    let calculated_record_size = calculate_record_size(factor_count);
+    if record_size != calculated_record_size {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+           format!("记录大小不匹配: 文件头显示 {}, 计算得到 {}. 文件可能损坏.", record_size, calculated_record_size)
+       ));
+    }
+
+    let expected_size = HEADER_SIZE + record_count * record_size;
+    if file_len < expected_size {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "备份文件似乎被截断了"
+        ));
+    }
+    
+    // 直接偏移读取因子值
+    let records_start = HEADER_SIZE;
+    
+    // 计算因子值在记录中的偏移量
+    // 记录格式: date(8) + code_hash(8) + timestamp(8) + factor_count(4) + code_len(4) + code_bytes(32) + factors(factor_count * 8)
+    let factor_base_offset = 8 + 8 + 8 + 4 + 4 + 32; // date + code_hash + timestamp + factor_count + code_len + code_bytes
+    let factor_offset = factor_base_offset + column_index * 8;
+    
+    // 并行读取所有因子值
+    let factors: Vec<f64> = (0..record_count)
+        .into_par_iter()
+        .map(|i| {
+            let record_offset = records_start + i * record_size;
+            
+            // 直接读取因子值，完全跳过其他字段的解析
+            unsafe {
+                let factor_ptr = mmap.as_ptr().add(record_offset + factor_offset) as *const f64;
+                *factor_ptr
+            }
+        })
+        .collect();
+    
+    // 创建numpy数组
+    Python::with_gil(|py| {
+        let numpy = py.import("numpy")?;
+        Ok(numpy.call_method1("array", (factors,))?.into())
+    })
+}
+
+/// 超高速查询备份文件中的指定列因子值
+/// 
+/// 参数:
+/// - backup_file: 备份文件路径
+/// - column_index: 要读取的因子列索引（0表示第一列因子值）
+/// 
+/// 返回:
+/// 只包含因子值的numpy数组
+#[pyfunction]
+#[pyo3(signature = (backup_file, column_index))]
+pub fn query_backup_factor_only_ultra_fast(backup_file: String, column_index: usize) -> PyResult<PyObject> {
+    read_backup_results_factor_only_ultra_fast(&backup_file, column_index)
 }

@@ -286,3 +286,13 @@ def test_simple_function() -> int:
         固定返回值42
     """
     ...
+
+def test_function() -> int:
+    """测试函数，用于验证sequence模块的导出。
+    
+    返回值：
+    -------
+    int
+        固定返回值
+    """
+    ...

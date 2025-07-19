@@ -48,6 +48,7 @@ __all__ = [
     "compute_max_eigenvalue",
     "sum_as_string",
     "test_simple_function",
+    "test_function",
     
     # 时间序列函数
     "dtw_distance",
@@ -71,11 +72,9 @@ __all__ = [
     "vectorize_sentences_list",
     
     # 并行计算函数
-    "run_pools",
-    "query_backup", 
-    "delete_backup",
-    "backup_exists",
-    "get_backup_info",
+    "run_pools_queue",
+    "query_backup",
+    "query_backup_fast",
     
     # Pandas扩展函数
     "dataframe_corrwith",
@@ -99,6 +98,10 @@ __all__ = [
     "calculate_large_order_nearby_small_order_time_gap",
     "order_contamination",
     "order_contamination_parallel",
+    "trade_peak_analysis",
+    "order_neighborhood_analysis",
+    "calculate_trade_time_gap_and_price_percentile_ultra_sorted",
+    "calculate_order_time_gap_and_price_percentile_ultra_sorted",
     
     # 统计分析函数
     "calculate_base_entropy",
