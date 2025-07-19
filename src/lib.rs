@@ -85,12 +85,19 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(parallel_computing::run_pools_queue, m)?)?;
     m.add_function(wrap_pyfunction!(parallel_computing::query_backup, m)?)?;
     m.add_function(wrap_pyfunction!(parallel_computing::query_backup_fast, m)?)?;
+    m.add_function(wrap_pyfunction!(parallel_computing::query_backup_single_column, m)?)?;
+    m.add_function(wrap_pyfunction!(parallel_computing::query_backup_single_column_with_filter, m)?)?;
+    m.add_function(wrap_pyfunction!(parallel_computing::query_backup_columns_range_with_filter, m)?)?;
+    m.add_function(wrap_pyfunction!(parallel_computing::query_backup_factor_only, m)?)?;
+    m.add_function(wrap_pyfunction!(parallel_computing::query_backup_factor_only_with_filter, m)?)?;
+    m.add_function(wrap_pyfunction!(parallel_computing::query_backup_factor_only_ultra_fast, m)?)?;
     m.add_function(wrap_pyfunction!(order_contamination::order_contamination, m)?)?;
     m.add_function(wrap_pyfunction!(order_contamination::order_contamination_parallel, m)?)?;
     m.add_function(wrap_pyfunction!(trade_peak_analysis::trade_peak_analysis, m)?)?;
     m.add_function(wrap_pyfunction!(order_neighborhood::order_neighborhood_analysis, m)?)?;
     m.add_function(wrap_pyfunction!(trade_records_ultra_sorted::calculate_trade_time_gap_and_price_percentile_ultra_sorted, m)?)?;
     m.add_function(wrap_pyfunction!(order_records_ultra_sorted::calculate_order_time_gap_and_price_percentile_ultra_sorted, m)?)?;
+    m.add_function(wrap_pyfunction!(order_records_ultra_sorted::calculate_order_time_gap_and_price_percentile_ultra_sorted_v2, m)?)?;
     // m.add_function(wrap_pyfunction!(text::normalized_diff, m)?)?;
     Ok(())
 }
