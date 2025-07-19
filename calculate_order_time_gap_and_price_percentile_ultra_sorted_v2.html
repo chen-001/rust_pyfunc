@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>run_pools_queue - Rust PyFunc API文档</title>
+    <title>calculate_order_time_gap_and_price_percentile_ultra_sorted_v2 - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
     <script src="static/search.js"></script>
 </head>
@@ -26,7 +26,7 @@
     </div>
     
     <div class="content">
-        <h1>run_pools_queue</h1>
+        <h1>calculate_order_time_gap_and_price_percentile_ultra_sorted_v2</h1>
         
         <div class="function-description">
             <h2>描述</h2>
@@ -35,7 +35,7 @@
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>run_pools_queue(python_function, args, n_jobs, backup_file, expected_result_length, restart_interval, update_mode, return_results) -> None</code>
+            <code>calculate_order_time_gap_and_price_percentile_ultra_sorted_v2(volume, exchtime, price, flag, ask_order, bid_order, min_count, use_flag) -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -59,7 +59,7 @@
             <div class="example-usage-note">
                 <h3>Python使用示例</h3>
                 <pre><code>import numpy as np
-from rust_pyfunc import run_pools_queue
+from rust_pyfunc import calculate_order_time_gap_and_price_percentile_ultra_sorted_v2
 
 # 使用示例
 

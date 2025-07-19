@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>run_pools_queue - Rust PyFunc API文档</title>
+    <title>query_backup_columns_range_with_filter - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
     <script src="static/search.js"></script>
 </head>
@@ -26,16 +26,24 @@
     </div>
     
     <div class="content">
-        <h1>run_pools_queue</h1>
+        <h1>query_backup_columns_range_with_filter</h1>
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><p>无文档</p></div>
+            <div><p>查询备份文件中的指定列范围，支持过滤</p>
+<p>参数:
+- backup_file: 备份文件路径
+- column_start: 开始列索引（包含）
+- column_end: 结束列索引（包含）
+- dates: 可选的日期过滤列表
+- codes: 可选的代码过滤列表</p>
+<p>返回:
+包含numpy数组的字典: {"date": 日期数组, "code": 代码数组, "factors": 指定列范围的因子值数组}</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>run_pools_queue(python_function, args, n_jobs, backup_file, expected_result_length, restart_interval, update_mode, return_results) -> None</code>
+            <code>query_backup_columns_range_with_filter(backup_file, column_start, column_end, dates, codes) -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -59,7 +67,7 @@
             <div class="example-usage-note">
                 <h3>Python使用示例</h3>
                 <pre><code>import numpy as np
-from rust_pyfunc import run_pools_queue
+from rust_pyfunc import query_backup_columns_range_with_filter
 
 # 使用示例
 
