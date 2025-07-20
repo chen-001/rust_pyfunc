@@ -1,5 +1,5 @@
 """时间序列分析函数类型声明"""
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict, Any
 import numpy as np
 from numpy.typing import NDArray
 
@@ -363,5 +363,82 @@ def brachistochrone_curve_v2(x1: float, y1: float, x2: float, y2: float, x_serie
     2. 改进的优化算法 - 使用更稳定的数值求解方法
     3. 特殊情况处理 - 正确处理垂直线、水平线和重合点等边界情况
     4. 提高的数值稳定性 - 减少计算误差和发散问题
+    """
+    ...
+
+def calculate_lyapunov_exponent(
+    data: NDArray[np.floating],
+    method: str = "auto",
+    m: Optional[int] = None,
+    tau: Optional[int] = None,
+    max_t: int = 30,
+    max_tau: int = 20,
+    max_m: int = 10,
+    mi_bins: int = 20,
+    fnn_rtol: float = 15.0,
+    fnn_atol: float = 2.0
+) -> Dict[str, Any]:
+    """计算时间序列的最大Lyapunov指数，用于量化系统对初始条件的敏感性。
+    
+    参数说明：
+    ----------
+    data : NDArray[np.floating]
+        输入的时间序列数据（一维numpy数组）
+    method : str, default="auto"
+        参数选择方法：
+        - "auto": 自动综合多种方法确定参数
+        - "manual": 手动指定参数（必须提供m和tau）
+        - "mutual_info": 使用互信息法确定tau
+        - "autocorrelation": 使用自相关法确定tau
+    m : Optional[int]
+        嵌入维度。manual模式下必须指定
+    tau : Optional[int]
+        延迟时间。manual模式下必须指定
+    max_t : int, default=30
+        计算发散率序列的最大时间步长
+    max_tau : int, default=20
+        自动优化时τ的最大搜索范围
+    max_m : int, default=10
+        自动优化时m的最大搜索范围
+    mi_bins : int, default=20
+        互信息计算时的分箱数量
+    fnn_rtol : float, default=15.0
+        假最近邻法的相对容差阈值（百分比）
+    fnn_atol : float, default=2.0
+        假最近邻法的绝对容差阈值
+        
+    返回值：
+    -------
+    Dict[str, Any]
+        包含以下键值的字典：
+        - lyapunov_exponent: float - 最大Lyapunov指数
+        - divergence_sequence: NDArray - 发散率序列
+        - optimal_m: int - 使用的嵌入维度
+        - optimal_tau: int - 使用的延迟时间
+        - method_used: str - 实际使用的参数选择方法
+        - intercept: float - 线性拟合的截距
+        - r_squared: float - 线性拟合的决定系数
+        - phase_space_size: int - 重构相空间的大小
+        - data_length: int - 原始数据长度
+        
+    说明：
+    -----
+    Lyapunov指数的物理意义：
+    - λ > 0: 混沌系统，初始条件敏感，长期不可预测
+    - λ = 0: 临界状态或准周期系统  
+    - λ < 0: 稳定系统，扰动会衰减
+    
+    预测时间范围: τ_pred ≈ 1/|λ|
+    
+    使用示例：
+    --------
+    # 自动模式（推荐）
+    result = calculate_lyapunov_exponent(data)
+    
+    # 手动指定参数
+    result = calculate_lyapunov_exponent(data, method="manual", m=5, tau=3)
+    
+    # 仅使用互信息法
+    result = calculate_lyapunov_exponent(data, method="mutual_info")
     """
     ...
