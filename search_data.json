@@ -82,6 +82,11 @@
     "params": []
   },
   {
+    "name": "calculate_lyapunov_exponent",
+    "description": "<p>统一的Lyapunov指数计算函数</p>",
+    "params": []
+  },
+  {
     "name": "calculate_order_time_gap_and_price_percentile_ultra_sorted",
     "description": "<p>无文档</p>",
     "params": []
