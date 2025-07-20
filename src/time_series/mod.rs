@@ -13,6 +13,7 @@ pub mod fast_extreme;
 pub mod super_extreme;
 pub mod retreat_advance;
 pub mod retreat_advance_v2;
+pub mod lyapunov;
 
 // 定义超时错误结构
 #[derive(Debug)]
