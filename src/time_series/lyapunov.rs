@@ -1,10 +1,91 @@
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
-use numpy::{PyArray1, PyReadonlyArray1, IntoPyArray, PyArray2};
-use ndarray::{Array1, Array2, s, Axis};
+use numpy::{PyReadonlyArray1, IntoPyArray};
+use ndarray::{Array1, Array2, s};
 use pyo3::exceptions::PyValueError;
-use rayon::prelude::*;
-use std::collections::HashMap;
+
+/// 自动调整参数以确保相空间重构的安全性（增强版）
+fn auto_adjust_parameters(data_len: usize, m: usize, tau: usize) -> (usize, usize) {
+    // 设置更严格的限制
+    let min_rows_required = 5; // 最少需要5个相空间点
+    let max_safe_elements = 10_000; // 相空间数组最大元素数
+    
+    // 对于极短数据，直接返回最小参数
+    if data_len < 10 {
+        return (2, 1);
+    }
+    
+    // 安全的初始值
+    let mut safe_m = m.min(10).max(2); // 限制m的范围
+    let mut safe_tau = tau.min(data_len / 5).max(1); // 限制tau的范围
+    
+    // 迭代调整直到找到安全参数
+    for _attempt in 0..20 { // 最多尝试20次
+        let required_length = (safe_m.saturating_sub(1)).saturating_mul(safe_tau);
+        
+        // 检查数据长度是否足够
+        if data_len <= required_length {
+            // 减小参数
+            if safe_tau > 1 {
+                safe_tau = safe_tau.saturating_sub(1);
+            } else if safe_m > 2 {
+                safe_m = safe_m.saturating_sub(1);
+                safe_tau = tau.min(data_len / 5).max(1);
+            } else {
+                // 已经是最小参数，但仍不够
+                return (2, 1);
+            }
+            continue;
+        }
+        
+        let rows = data_len - required_length;
+        
+        // 检查是否满足最小行数要求
+        if rows < min_rows_required {
+            if safe_tau > 1 {
+                safe_tau = safe_tau.saturating_sub(1);
+            } else if safe_m > 2 {
+                safe_m = safe_m.saturating_sub(1);
+                safe_tau = tau.min(data_len / 5).max(1);
+            } else {
+                return (2, 1);
+            }
+            continue;
+        }
+        
+        // 检查数组大小是否安全
+        let array_elements = rows.saturating_mul(safe_m);
+        if array_elements > max_safe_elements {
+            // 数组太大，减小参数
+            if safe_m > 2 {
+                safe_m = safe_m.saturating_sub(1);
+            } else if safe_tau > 1 {
+                safe_tau = safe_tau.saturating_sub(1);
+            } else {
+                return (2, 1);
+            }
+            continue;
+        }
+        
+        // 检查isize溢出
+        if rows > (isize::MAX as usize) || safe_m > (isize::MAX as usize) {
+            if safe_m > 2 {
+                safe_m = safe_m.saturating_sub(1);
+            } else if safe_tau > 1 {
+                safe_tau = safe_tau.saturating_sub(1);
+            } else {
+                return (2, 1);
+            }
+            continue;
+        }
+        
+        // 所有检查都通过，返回安全参数
+        return (safe_m, safe_tau);
+    }
+    
+    // 如果所有尝试都失败，返回最保守的参数
+    (2, 1)
+}
 
 /// 计算互信息以确定最优延迟时间τ
 fn calculate_mutual_information(data: &Array1<f64>, tau: usize, bins: usize) -> f64 {
@@ -89,17 +170,39 @@ fn calculate_autocorrelation(data: &Array1<f64>, tau: usize) -> f64 {
     covariance / variance
 }
 
-/// 使用互信息法确定最优延迟时间τ
+/// 使用互信息法确定最优延迟时间τ（安全版）
 fn find_optimal_tau_mutual_info(data: &Array1<f64>, max_tau: usize, bins: usize) -> usize {
-    let mut mi_values = Vec::with_capacity(max_tau);
+    let data_len = data.len();
     
-    for tau in 1..=max_tau {
+    // 为短序列设置极保守的tau上限
+    let conservative_max_tau = if data_len < 20 {
+        1 // 极短序列只用tau=1
+    } else if data_len < 50 {
+        ((data_len - 10) / 10).min(max_tau).max(1)
+    } else if data_len < 100 {
+        ((data_len - 10) / 5).min(max_tau).max(1)
+    } else {
+        max_tau
+    };
+    
+    let mut mi_values = Vec::with_capacity(conservative_max_tau);
+    
+    for tau in 1..=conservative_max_tau {
+        // 检查这个tau是否安全
+        if tau >= data_len / 2 {
+            break; // tau太大，停止搜索
+        }
+        
         let mi = calculate_mutual_information(data, tau, bins);
         mi_values.push(mi);
     }
     
+    if mi_values.is_empty() {
+        return 1;
+    }
+    
     // 寻找第一个局部最小值
-    for i in 1..mi_values.len()-1 {
+    for i in 1..mi_values.len().saturating_sub(1) {
         if mi_values[i] < mi_values[i-1] && mi_values[i] < mi_values[i+1] {
             return i + 1;
         }
@@ -117,195 +220,244 @@ fn find_optimal_tau_mutual_info(data: &Array1<f64>, max_tau: usize, bins: usize)
         }
     }
     
-    best_tau
+    best_tau.min(conservative_max_tau)
 }
 
-/// 使用自相关函数确定最优延迟时间τ
+/// 使用自相关函数确定最优延迟时间τ（安全版）
 fn find_optimal_tau_autocorr(data: &Array1<f64>, max_tau: usize) -> usize {
+    let data_len = data.len();
     let target = 1.0 / std::f64::consts::E;
     
-    for tau in 1..=max_tau {
+    // 为短序列设置极保守的tau上限
+    let conservative_max_tau = if data_len < 20 {
+        1 // 极短序列只用tau=1
+    } else if data_len < 50 {
+        ((data_len - 10) / 10).min(max_tau).max(1)
+    } else if data_len < 100 {
+        ((data_len - 10) / 5).min(max_tau).max(1)
+    } else {
+        max_tau
+    };
+    
+    for tau in 1..=conservative_max_tau {
+        // 安全检查
+        if tau >= data_len / 2 {
+            break;
+        }
+        
         let autocorr = calculate_autocorrelation(data, tau);
         if autocorr <= target {
             return tau;
         }
     }
     
-    max_tau.min(3) // 默认返回3
+    conservative_max_tau.min(3).max(1) // 确保至少返回1
 }
 
-/// 重构相空间
+/// 重构相空间（带安全检查）
 fn reconstruct_phase_space(data: &Array1<f64>, m: usize, tau: usize) -> Array2<f64> {
     let n = data.len();
-    let rows = n - (m - 1) * tau;
     
-    if rows <= 0 {
-        return Array2::zeros((0, m));
+    // 安全计算，防止下溢
+    let required_length = (m.saturating_sub(1)).saturating_mul(tau);
+    
+    if n <= required_length {
+        // 数据不足，返回空数组
+        return Array2::zeros((0, m.max(1)));
+    }
+    
+    let rows = n - required_length;
+    
+    // 额外的安全检查：防止创建过大的数组
+    const MAX_ELEMENTS: usize = 1_000_000; // 限制数组最大元素数
+    if rows.saturating_mul(m) > MAX_ELEMENTS {
+        // 数组太大，返回空数组
+        return Array2::zeros((0, m.max(1)));
+    }
+    
+    // 检查isize溢出
+    if rows > (isize::MAX as usize) || m > (isize::MAX as usize) {
+        return Array2::zeros((0, m.max(1)));
     }
     
     let mut phase_space = Array2::zeros((rows, m));
     
     for i in 0..rows {
         for j in 0..m {
-            phase_space[[i, j]] = data[i + j * tau];
+            let data_idx = i + j * tau;
+            if data_idx < n {
+                phase_space[[i, j]] = data[data_idx];
+            }
         }
     }
     
     phase_space
 }
 
-/// 计算欧几里得距离
-fn euclidean_distance(x: &Array1<f64>, y: &Array1<f64>) -> f64 {
-    x.iter().zip(y.iter())
-        .map(|(&xi, &yi)| (xi - yi).powi(2))
-        .sum::<f64>()
-        .sqrt()
+
+
+/// 使用简单规则确定最优嵌入维度m（快速版）
+fn find_optimal_m_simple(data_len: usize, tau: usize, max_m: usize) -> usize {
+    // 基于数据长度的简单规则，避免复杂计算
+    let conservative_m = if data_len < 20 {
+        2 // 极短序列
+    } else if data_len < 50 {
+        3 // 短序列
+    } else if data_len < 100 {
+        4 // 中等序列
+    } else if data_len < 200 {
+        5 // 较长序列
+    } else {
+        6 // 长序列
+    };
+    
+    // 确保参数安全性
+    let min_rows_required = 5;
+    let mut safe_m = conservative_m.min(max_m).max(2);
+    
+    // 检查这个m值是否安全
+    loop {
+        let required_length = (safe_m.saturating_sub(1)).saturating_mul(tau);
+        if data_len > required_length {
+            let rows = data_len - required_length;
+            if rows >= min_rows_required && rows.saturating_mul(safe_m) <= 10_000 {
+                break; // 找到安全的m值
+            }
+        }
+        
+        if safe_m <= 2 {
+            break; // 已经是最小值
+        }
+        safe_m -= 1;
+    }
+    
+    safe_m
 }
 
-/// 计算距离矩阵并找到最近邻
-fn find_nearest_neighbors(phase_space: &Array2<f64>) -> Vec<usize> {
+
+/// 超快速最近邻搜索（采样策略）
+fn find_nearest_neighbors_fast(phase_space: &Array2<f64>) -> Vec<usize> {
     let n = phase_space.nrows();
+    let m = phase_space.ncols();
+    
+    // 对于大的相空间，使用采样策略
+    if n > 200 {
+        return find_nearest_neighbors_sampled(phase_space);
+    }
+    
     let mut neighbors = vec![0; n];
     
-    // 使用并行计算加速
-    neighbors.par_iter_mut().enumerate().for_each(|(i, neighbor)| {
-        let mut min_distance = f64::INFINITY;
+    // 直接访问原始数据指针，避免边界检查
+    for i in 0..n {
+        let mut min_distance_sq = f64::INFINITY;
         let mut min_idx = 0;
         
         for j in 0..n {
             if i != j {
-                let row_i = phase_space.row(i).to_owned();
-                let row_j = phase_space.row(j).to_owned();
-                let distance = euclidean_distance(&row_i, &row_j);
+                let mut distance_sq = 0.0;
                 
-                if distance < min_distance {
-                    min_distance = distance;
+                // 展开距离计算，避免迭代器开销
+                for k in 0..m {
+                    let diff = phase_space[[i, k]] - phase_space[[j, k]];
+                    distance_sq += diff * diff;
+                }
+                
+                if distance_sq < min_distance_sq {
+                    min_distance_sq = distance_sq;
                     min_idx = j;
                 }
             }
         }
         
-        *neighbor = min_idx;
-    });
+        neighbors[i] = min_idx;
+    }
     
     neighbors
 }
 
-/// 计算假最近邻比例以确定最优嵌入维度m
-fn calculate_false_nearest_neighbors(
-    data: &Array1<f64>, 
-    m: usize, 
-    tau: usize, 
-    rtol: f64, 
-    atol: f64
-) -> f64 {
-    let phase_space_m = reconstruct_phase_space(data, m, tau);
-    let n = phase_space_m.nrows();
+/// 采样策略的最近邻搜索（用于大数据）
+fn find_nearest_neighbors_sampled(phase_space: &Array2<f64>) -> Vec<usize> {
+    let n = phase_space.nrows();
+    let m = phase_space.ncols();
+    let mut neighbors = vec![0; n];
     
-    if n < 10 {
-        return 100.0; // 数据点太少
-    }
-    
-    // 构造m+1维相空间
-    let phase_space_m_plus = reconstruct_phase_space(data, m + 1, tau);
-    let n_plus = phase_space_m_plus.nrows();
-    
-    if n_plus != n {
-        return 100.0;
-    }
-    
-    let neighbors = find_nearest_neighbors(&phase_space_m);
-    
-    let mut false_neighbors = 0;
-    let mut total_neighbors = 0;
+    // 对于大数据集，只搜索附近的点而不是全部
+    let search_radius = (n / 10).max(20).min(100); // 搜索半径
     
     for i in 0..n {
-        let neighbor_idx = neighbors[i];
+        let mut min_distance_sq = f64::INFINITY;
+        let mut min_idx = if i > 0 { i - 1 } else { 1 };
         
-        if neighbor_idx >= n_plus {
-            continue;
+        // 在i附近搜索，而不是全部搜索
+        let start = i.saturating_sub(search_radius);
+        let end = (i + search_radius).min(n);
+        
+        for j in start..end {
+            if i != j {
+                let mut distance_sq = 0.0;
+                
+                for k in 0..m {
+                    let diff = phase_space[[i, k]] - phase_space[[j, k]];
+                    distance_sq += diff * diff;
+                }
+                
+                if distance_sq < min_distance_sq {
+                    min_distance_sq = distance_sq;
+                    min_idx = j;
+                }
+            }
         }
         
-        // 计算在m维空间中的距离
-        let row_i_m = phase_space_m.row(i).to_owned();
-        let row_neighbor_m = phase_space_m.row(neighbor_idx).to_owned();
-        let dist_m = euclidean_distance(&row_i_m, &row_neighbor_m);
-        
-        if dist_m == 0.0 {
-            continue;
-        }
-        
-        // 计算在m+1维空间中的距离
-        let row_i_m_plus = phase_space_m_plus.row(i).to_owned();
-        let row_neighbor_m_plus = phase_space_m_plus.row(neighbor_idx).to_owned();
-        let dist_m_plus = euclidean_distance(&row_i_m_plus, &row_neighbor_m_plus);
-        
-        // 判断是否为假最近邻
-        let ratio = (dist_m_plus - dist_m).abs() / dist_m;
-        
-        if ratio > rtol / 100.0 || dist_m_plus > atol {
-            false_neighbors += 1;
-        }
-        
-        total_neighbors += 1;
+        neighbors[i] = min_idx;
     }
     
-    if total_neighbors == 0 {
-        100.0
-    } else {
-        (false_neighbors as f64 / total_neighbors as f64) * 100.0
-    }
+    neighbors
 }
 
-/// 使用假最近邻法确定最优嵌入维度m
-fn find_optimal_m_fnn(
-    data: &Array1<f64>, 
-    tau: usize, 
-    max_m: usize, 
-    rtol: f64, 
-    atol: f64
-) -> usize {
-    let threshold = 1.0; // 1%阈值
-    
-    for m in 2..=max_m {
-        let fnn_percentage = calculate_false_nearest_neighbors(data, m, tau, rtol, atol);
-        if fnn_percentage < threshold {
-            return m;
-        }
-    }
-    
-    max_m
-}
-
-/// 计算Lyapunov指数的发散率序列
-fn calculate_lyapunov_divergence(
+/// 优化的发散率计算（减少内存分配和重复计算）
+fn calculate_lyapunov_divergence_optimized(
     phase_space: &Array2<f64>, 
     neighbors: &[usize], 
     max_t: usize
 ) -> Vec<f64> {
     let n = phase_space.nrows();
-    let mut divergence = Vec::new();
+    let m = phase_space.ncols();
+    let mut divergence = Vec::with_capacity(max_t);
     
-    for t in 1..max_t {
-        let mut log_distances = Vec::new();
+    // 预分配缓冲区
+    let mut log_distances = Vec::with_capacity(n);
+    
+    for t in 1..max_t.min(n/2) {
+        log_distances.clear(); // 重用向量，避免重新分配
         
         for i in 0..(n - t) {
+            if i >= neighbors.len() {
+                break;
+            }
+            
             let j = neighbors[i];
             
             if i + t < n && j + t < n {
-                let row_i = phase_space.row(i + t).to_owned();
-                let row_j = phase_space.row(j + t).to_owned();
-                let distance = euclidean_distance(&row_i, &row_j);
+                let mut distance_sq = 0.0;
                 
-                if distance > 0.0 {
-                    log_distances.push(distance.ln());
+                // 内联距离计算，避免函数调用开销
+                for k in 0..m {
+                    let diff = phase_space[[i + t, k]] - phase_space[[j + t, k]];
+                    distance_sq += diff * diff;
+                }
+                
+                if distance_sq > 1e-24 { // 避免log(0)，使用平方距离阈值
+                    log_distances.push(0.5 * distance_sq.ln()); // log(sqrt(x)) = 0.5*log(x)
                 }
             }
         }
         
         if !log_distances.is_empty() {
-            let avg_log_distance: f64 = log_distances.iter().sum::<f64>() / log_distances.len() as f64;
+            let sum: f64 = log_distances.iter().sum();
+            let avg_log_distance = sum / log_distances.len() as f64;
             divergence.push(avg_log_distance);
+        } else {
+            break; // 如果没有有效距离，提前终止
         }
     }
     
@@ -339,6 +491,92 @@ fn linear_fit(x: &[f64], y: &[f64]) -> (f64, f64, f64) {
     (slope, intercept, r_squared)
 }
 
+/// 辅助函数：使用调整后的参数计算结果（优化版）
+fn calculate_with_adjusted_params_optimized(
+    py: Python,
+    normalized_data: &Array1<f64>,
+    m: usize,
+    tau: usize,
+    max_t: usize,
+    method: &str,
+    original_data: &Array1<f64>
+) -> PyResult<PyObject> {
+    // 相空间重构
+    let phase_space = reconstruct_phase_space(normalized_data, m, tau);
+    
+    if phase_space.nrows() < 5 {
+        return create_nan_result_dict(py, m, tau, method, phase_space.nrows(), original_data);
+    }
+    
+    // 使用优化的最近邻搜索
+    let neighbors = find_nearest_neighbors_fast(&phase_space);
+    
+    // 使用优化的发散率计算
+    let divergence = calculate_lyapunov_divergence_optimized(&phase_space, &neighbors, max_t);
+    
+    if divergence.len() < 2 {
+        // 如果发散序列太短，返回NaN结果
+        return create_nan_result_dict(py, m, tau, method, phase_space.nrows(), original_data);
+    }
+    
+    create_result_dict(py, &divergence, m, tau, method, &phase_space, original_data)
+}
+
+/// 辅助函数：创建包含NaN值的结果字典（用于数据不足的情况）
+fn create_nan_result_dict(
+    py: Python,
+    m: usize,
+    tau: usize,
+    method: &str,
+    phase_space_size: usize,
+    original_data: &Array1<f64>
+) -> PyResult<PyObject> {
+    let nan = f64::NAN;
+    let empty_array = Vec::<f64>::new();
+    
+    let result = PyDict::new(py);
+    result.set_item("lyapunov_exponent", nan)?;
+    result.set_item("divergence_sequence", empty_array.into_pyarray(py))?;
+    result.set_item("optimal_m", m)?;
+    result.set_item("optimal_tau", tau)?;
+    result.set_item("method_used", method)?;
+    result.set_item("intercept", nan)?;
+    result.set_item("r_squared", nan)?;
+    result.set_item("phase_space_size", phase_space_size)?;
+    result.set_item("data_length", original_data.len())?;
+    
+    Ok(result.into())
+}
+
+/// 辅助函数：创建返回结果字典
+fn create_result_dict(
+    py: Python,
+    divergence: &[f64],
+    m: usize,
+    tau: usize,
+    method: &str,
+    phase_space: &Array2<f64>,
+    original_data: &Array1<f64>
+) -> PyResult<PyObject> {
+    // 线性拟合计算Lyapunov指数
+    let time_steps: Vec<f64> = (1..=divergence.len()).map(|i| i as f64).collect();
+    let (lyapunov_exponent, intercept, r_squared) = linear_fit(&time_steps, divergence);
+    
+    // 构造返回结果
+    let result = PyDict::new(py);
+    result.set_item("lyapunov_exponent", lyapunov_exponent)?;
+    result.set_item("divergence_sequence", divergence.to_vec().into_pyarray(py))?;
+    result.set_item("optimal_m", m)?;
+    result.set_item("optimal_tau", tau)?;
+    result.set_item("method_used", method)?;
+    result.set_item("intercept", intercept)?;
+    result.set_item("r_squared", r_squared)?;
+    result.set_item("phase_space_size", phase_space.nrows())?;
+    result.set_item("data_length", original_data.len())?;
+    
+    Ok(result.into())
+}
+
 /// 统一的Lyapunov指数计算函数
 #[pyfunction]
 #[pyo3(signature = (
@@ -350,8 +588,8 @@ fn linear_fit(x: &[f64], y: &[f64]) -> (f64, f64, f64) {
     max_tau = 20,
     max_m = 10,
     mi_bins = 20,
-    fnn_rtol = 15.0,
-    fnn_atol = 2.0
+    _fnn_rtol = 15.0,
+    _fnn_atol = 2.0
 ))]
 pub fn calculate_lyapunov_exponent(
     py: Python,
@@ -363,8 +601,8 @@ pub fn calculate_lyapunov_exponent(
     max_tau: usize,
     max_m: usize,
     mi_bins: usize,
-    fnn_rtol: f64,
-    fnn_atol: f64,
+    _fnn_rtol: f64,
+    _fnn_atol: f64,
 ) -> PyResult<PyObject> {
     let data_array = data.as_array().to_owned();
     
@@ -389,16 +627,16 @@ pub fn calculate_lyapunov_exponent(
             (tau.unwrap(), m.unwrap())
         },
         "mutual_info" => {
-            // 仅使用互信息法确定tau，使用假最近邻法确定m
+            // 仅使用互信息法确定tau，使用简单规则确定m
             let tau_mi = find_optimal_tau_mutual_info(&normalized_data, max_tau, mi_bins);
-            let m_fnn = find_optimal_m_fnn(&normalized_data, tau_mi, max_m, fnn_rtol, fnn_atol);
-            (tau_mi, m_fnn)
+            let m_simple = find_optimal_m_simple(normalized_data.len(), tau_mi, max_m);
+            (tau_mi, m_simple)
         },
         "autocorrelation" => {
-            // 仅使用自相关法确定tau，使用假最近邻法确定m
+            // 仅使用自相关法确定tau，使用简单规则确定m
             let tau_ac = find_optimal_tau_autocorr(&normalized_data, max_tau);
-            let m_fnn = find_optimal_m_fnn(&normalized_data, tau_ac, max_m, fnn_rtol, fnn_atol);
-            (tau_ac, m_fnn)
+            let m_simple = find_optimal_m_simple(normalized_data.len(), tau_ac, max_m);
+            (tau_ac, m_simple)
         },
         "auto" | _ => {
             // 自动模式：综合多种方法
@@ -414,46 +652,36 @@ pub fn calculate_lyapunov_exponent(
             let optimal_m = if m.is_some() {
                 m.unwrap()
             } else {
-                find_optimal_m_fnn(&normalized_data, optimal_tau, max_m, fnn_rtol, fnn_atol)
+                find_optimal_m_simple(normalized_data.len(), optimal_tau, max_m)
             };
             
             (optimal_tau, optimal_m)
         }
     };
     
+    // 应用参数安全调整，确保不会出现数组溢出
+    let (final_m, final_tau) = auto_adjust_parameters(normalized_data.len(), optimal_m, optimal_tau);
+    
     // 相空间重构
-    let phase_space = reconstruct_phase_space(&normalized_data, optimal_m, optimal_tau);
+    let phase_space = reconstruct_phase_space(&normalized_data, final_m, final_tau);
     
-    if phase_space.nrows() < 10 {
-        return Err(PyValueError::new_err("数据长度不足以进行相空间重构"));
+    if phase_space.nrows() < 5 {
+        // 对于极短序列，使用最基本的参数重试一次
+        let (retry_m, retry_tau) = (2, 1);
+        let retry_phase_space = reconstruct_phase_space(&normalized_data, retry_m, retry_tau);
+        
+        if retry_phase_space.nrows() < 5 {
+            // 数据长度确实不足，返回NaN结果而不是抛出异常
+            return create_nan_result_dict(py, final_m, final_tau, method, 0, &data_array);
+        }
+        
+        // 使用重试的参数继续计算
+        return calculate_with_adjusted_params_optimized(
+            py, &normalized_data, retry_m, retry_tau, max_t, method, &data_array
+        );
     }
     
-    // 找到最近邻
-    let neighbors = find_nearest_neighbors(&phase_space);
-    
-    // 计算发散率序列
-    let divergence = calculate_lyapunov_divergence(&phase_space, &neighbors, max_t);
-    
-    if divergence.len() < 3 {
-        return Err(PyValueError::new_err("发散率序列长度不足以进行线性拟合"));
-    }
-    
-    // 线性拟合计算Lyapunov指数
-    let time_steps: Vec<f64> = (1..=divergence.len()).map(|i| i as f64).collect();
-    let (lyapunov_exponent, intercept, r_squared) = linear_fit(&time_steps, &divergence);
-    
-    // 构造返回结果
-    let result = PyDict::new(py);
-    result.set_item("lyapunov_exponent", lyapunov_exponent)?;
-    result.set_item("divergence_sequence", divergence.into_pyarray(py))?;
-    result.set_item("optimal_m", optimal_m)?;
-    result.set_item("optimal_tau", optimal_tau)?;
-    result.set_item("method_used", method)?;
-    result.set_item("intercept", intercept)?;
-    result.set_item("r_squared", r_squared)?;
-    result.set_item("phase_space_size", phase_space.nrows())?;
-    result.set_item("data_length", data_array.len())?;
-    
-    Ok(result.into())
+    // 使用调整后的参数继续正常计算
+    calculate_with_adjusted_params_optimized(py, &normalized_data, final_m, final_tau, max_t, method, &data_array)
 }
 

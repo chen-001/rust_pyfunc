@@ -12,6 +12,7 @@ use std::f64;
 
 #[derive(Debug)]
 struct OrderVolumeGroup {
+    #[allow(dead_code)]
     volume: f64,
     indices: Vec<usize>,          // 原始数据索引
     times: Vec<f64>,              // 时间数组（已排序）
@@ -411,6 +412,7 @@ fn get_order_column_names() -> Vec<String> {
 // V2版本的订单volume组，基于订单类型（ask/bid）而非交易标志进行分类
 #[derive(Debug)]
 struct OrderVolumeGroupV2 {
+    #[allow(dead_code)]
     volume: f64,
     indices: Vec<usize>,          // 原始数据索引
     times: Vec<f64>,              // 时间数组（已排序）

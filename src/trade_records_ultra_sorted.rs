@@ -12,6 +12,7 @@ use std::f64;
 
 #[derive(Debug)]
 struct TradeVolumeGroup {
+    #[allow(dead_code)]
     volume: f64,
     indices: Vec<usize>,          // 原始数据索引
     times: Vec<f64>,              // 时间数组（已排序）

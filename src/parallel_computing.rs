@@ -937,6 +937,7 @@ fn read_backup_results_with_filter(file_path: &str, date_filter: Option<&HashSet
 }
 
 // 向后兼容的旧格式读取函数
+#[allow(dead_code)]
 fn read_legacy_backup_results(file_path: &str) -> PyResult<PyObject> {
     read_legacy_backup_results_with_filter(file_path, None, None)
 }
@@ -1711,6 +1712,7 @@ fn read_legacy_backup_results_single_column_with_filter(file_path: &str, column_
 }
 
 /// 终极版本：线程安全的并行+零分配+缓存优化
+#[allow(dead_code)]
 fn read_backup_results_ultra_fast_v4(file_path: &str) -> PyResult<PyObject> {
     read_backup_results_ultra_fast_v4_with_filter(file_path, None, None)
 }

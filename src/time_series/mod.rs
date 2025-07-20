@@ -8,12 +8,13 @@ use std::error::Error;
 use std::fmt;
 use std::collections::HashMap;
 
+pub mod lyapunov;
+
 // 导入优化版模块
 pub mod fast_extreme;
 pub mod super_extreme;
 pub mod retreat_advance;
 pub mod retreat_advance_v2;
-pub mod lyapunov;
 
 // 定义超时错误结构
 #[derive(Debug)]
