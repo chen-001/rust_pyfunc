@@ -318,6 +318,15 @@
     ]
   },
   {
+    "name": "local_correlation",
+    "description": "<p>计算价格序列的局部相关性分析</p>\n<p>对于每个价格点，向前取x个值作为局部序列，然后分别向前和向后搜索，\n找到与当前局部序列相关性最大和最小的位置，并计算间隔行数和volume总和。</p>",
+    "params": [
+      "prices",
+      "volumes",
+      "window_size"
+    ]
+  },
+  {
     "name": "mark_follow_groups",
     "description": "<p>标记每一行在其后0.1秒内具有相同price和volume的行组。\n对于同一个时间窗口内的相同交易组，标记相同的组号。\n组号从1开始递增，每遇到一个新的交易组就分配一个新的组号。</p>",
     "params": [
