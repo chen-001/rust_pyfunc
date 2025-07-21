@@ -99,6 +99,7 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(order_records_ultra_sorted::calculate_order_time_gap_and_price_percentile_ultra_sorted, m)?)?;
     m.add_function(wrap_pyfunction!(order_records_ultra_sorted::calculate_order_time_gap_and_price_percentile_ultra_sorted_v2, m)?)?;
     m.add_function(wrap_pyfunction!(time_series::lyapunov::calculate_lyapunov_exponent, m)?)?;
+    m.add_function(wrap_pyfunction!(statistics::local_correlation::local_correlation, m)?)?;
     // m.add_function(wrap_pyfunction!(text::normalized_diff, m)?)?;
     Ok(())
 }
