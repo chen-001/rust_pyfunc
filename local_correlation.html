@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>local_correlation - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>local_correlation</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>计算价格序列的局部相关性分析</p>
+<p>对于每个价格点，向前取x个值作为局部序列，然后分别向前和向后搜索，
+找到与当前局部序列相关性最大和最小的位置，并计算间隔行数和volume总和。</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>local_correlation(prices, volumes, window_size) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">prices</span>
+                    <span class="parameter-type">(价格序列)</span>
+                    <div></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">volumes</span>
+                    <span class="parameter-type">(成交量序列)</span>
+                    <div></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">window_size</span>
+                    <span class="parameter-type">(局部序列的窗口大小)</span>
+                    <div></div>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div><ul>
+<li>(result_array, column_names): 二维数组和列名列表</li>
+</ul></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import local_correlation
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>
