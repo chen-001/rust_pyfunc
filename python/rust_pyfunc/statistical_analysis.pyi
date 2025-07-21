@@ -192,3 +192,50 @@ def segment_and_correlate(
         - 第二个列表：b>a时段的相关系数
     """
     ...
+
+def local_correlation(
+    prices: NDArray[np.float64],
+    volumes: NDArray[np.float64],
+    window_size: int
+) -> Tuple[NDArray[np.float64], List[str]]:
+    """计算价格序列的局部相关性分析。
+    
+    对于每个价格点，向前取window_size个值作为局部序列，然后分别向前和向后搜索，
+    找到与当前局部序列相关性最大和最小的位置，并计算间隔行数和volume总和。
+
+    参数说明：
+    ----------
+    prices : NDArray[np.float64]
+        价格序列，形状为(n,)
+    volumes : NDArray[np.float64]
+        成交量序列，形状为(n,)，与价格序列对应
+    window_size : int
+        局部序列的窗口大小，表示向前取多少个值
+
+    返回值：
+    -------
+    Tuple[NDArray[np.float64], List[str]]
+        返回二维数组和列名列表的元组：
+        - 二维数组：n行12列，每行对应输入序列的一个位置
+        - 列名列表：包含12个字符串，对应每一列的名称
+        
+        12列分别为：
+        [0] 向后corr最大处间隔行数
+        [1] 向后corr最大处间隔volume总和
+        [2] 向后corr最小处间隔行数
+        [3] 向后corr最小处间隔volume总和
+        [4] 向后与corr最大处之间的corr最小处间隔行数
+        [5] 向后与corr最大处之间的corr最小处间隔volume总和
+        [6] 向前corr最大处间隔行数
+        [7] 向前corr最大处间隔volume总和
+        [8] 向前corr最小处间隔行数
+        [9] 向前corr最小处间隔volume总和
+        [10] 向前与corr最大处之间的corr最小处间隔行数
+        [11] 向前与corr最大处之间的corr最小处间隔volume总和
+
+    注意：
+    -----
+    - 如果corr最大处就是离当前行最近的位置，那么找不到它们之间的corr最小处，对应位置设置为NaN
+    - 如果没有足够的数据计算相关性，对应位置也会设置为NaN
+    """
+    ...

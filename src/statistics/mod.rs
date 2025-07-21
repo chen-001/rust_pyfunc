@@ -5,6 +5,8 @@ use ndarray::{s, Array1, Array2, ArrayView1, ArrayView2};
 use rayon::prelude::*;
 // use std::collections::{HashMap, HashSet};
 
+pub mod local_correlation;
+
 /// 普通最小二乘(OLS)回归。
 /// 用于拟合线性回归模型 y = Xβ + ε，其中β是要估计的回归系数。
 ///
