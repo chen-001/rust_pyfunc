@@ -239,3 +239,37 @@ def local_correlation(
     - 如果没有足够的数据计算相关性，对应位置也会设置为NaN
     """
     ...
+
+def fast_correlation_matrix(
+    data: NDArray[np.float64],
+    method: str = "pearson",
+    min_periods: int = 1,
+    max_workers: int = 10
+) -> NDArray[np.float64]:
+    """快速计算相关性矩阵，类似于pandas的df.corr()功能。
+    使用并行计算和优化算法大幅提升计算性能。
+
+    参数说明：
+    ----------
+    data : NDArray[np.float64]
+        输入数据矩阵，形状为(n_samples, n_features)，每列代表一个变量
+    method : str, default="pearson"
+        相关性计算方法，默认为'pearson'。目前只支持皮尔逊相关系数
+    min_periods : int, default=1
+        计算相关性所需的最小样本数，默认为1
+    max_workers : int, default=10
+        最大并行工作线程数，默认为10，设置为0则使用所有可用核心
+
+    返回值：
+    -------
+    NDArray[np.float64]
+        相关性矩阵，形状为(n_features, n_features)，对角线元素为1.0
+
+    注意：
+    -----
+    - 函数使用并行计算和优化算法，性能比pandas.DataFrame.corr()快数倍
+    - 自动处理NaN值
+    - 相关性矩阵是对称的，对角线元素为1.0
+    - 当样本数少于min_periods时，对应的相关系数为NaN
+    """
+    ...
