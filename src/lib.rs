@@ -105,6 +105,7 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(statistics::eigenvalue_analysis::matrix_eigenvalue_analysis_optimized, m)?)?;
     m.add_function(wrap_pyfunction!(statistics::eigenvalue_analysis_modified::matrix_eigenvalue_analysis_modified, m)?)?;
     m.add_function(wrap_pyfunction!(statistics::eigenvalue_analysis_modified::matrix_eigenvalue_analysis_modified_ultra, m)?)?;
+    m.add_function(wrap_pyfunction!(statistics::fast_correlation::fast_correlation_matrix, m)?)?;
     m.add_function(wrap_pyfunction!(market_correlation::price_volume_orderbook_correlation, m)?)?;
     // m.add_function(wrap_pyfunction!(text::normalized_diff, m)?)?;
     Ok(())
