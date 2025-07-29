@@ -6,6 +6,8 @@ use rayon::prelude::*;
 // use std::collections::{HashMap, HashSet};
 
 pub mod local_correlation;
+pub mod eigenvalue_analysis;
+pub mod eigenvalue_analysis_modified;
 
 /// 普通最小二乘(OLS)回归。
 /// 用于拟合线性回归模型 y = Xβ + ε，其中β是要估计的回归系数。

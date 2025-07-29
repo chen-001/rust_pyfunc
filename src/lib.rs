@@ -15,6 +15,7 @@ pub mod trade_peak_analysis;
 pub mod order_neighborhood;
 pub mod trade_records_ultra_sorted;
 pub mod order_records_ultra_sorted;
+pub mod market_correlation;
 
 
 
@@ -100,6 +101,11 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(order_records_ultra_sorted::calculate_order_time_gap_and_price_percentile_ultra_sorted_v2, m)?)?;
     m.add_function(wrap_pyfunction!(time_series::lyapunov::calculate_lyapunov_exponent, m)?)?;
     m.add_function(wrap_pyfunction!(statistics::local_correlation::local_correlation, m)?)?;
+    m.add_function(wrap_pyfunction!(statistics::eigenvalue_analysis::matrix_eigenvalue_analysis, m)?)?;
+    m.add_function(wrap_pyfunction!(statistics::eigenvalue_analysis::matrix_eigenvalue_analysis_optimized, m)?)?;
+    m.add_function(wrap_pyfunction!(statistics::eigenvalue_analysis_modified::matrix_eigenvalue_analysis_modified, m)?)?;
+    m.add_function(wrap_pyfunction!(statistics::eigenvalue_analysis_modified::matrix_eigenvalue_analysis_modified_ultra, m)?)?;
+    m.add_function(wrap_pyfunction!(market_correlation::price_volume_orderbook_correlation, m)?)?;
     // m.add_function(wrap_pyfunction!(text::normalized_diff, m)?)?;
     Ok(())
 }
