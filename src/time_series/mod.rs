@@ -660,18 +660,30 @@ pub fn trend(arr: &PyAny) -> PyResult<f64> {
         arr.extract::<Vec<f64>>()?
     };
 
-    let n = arr_vec.len();
+    // 过滤掉NaN值，同时保持对应的索引
+    let valid_pairs: Vec<(f64, f64)> = arr_vec.iter()
+        .enumerate()
+        .filter_map(|(i, &val)| {
+            if val.is_finite() {
+                Some((val, (i + 1) as f64))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    let n = valid_pairs.len();
     
-    if n == 0 {
+    if n == 0 || n == 1 {
         return Ok(0.0);
     }
 
-    // 创建自然数序列 1,2,3...n
-    let natural_seq: Vec<f64> = (1..=n).map(|x| x as f64).collect();
+    // 分离有效的值和对应的索引
+    let (values, indices): (Vec<f64>, Vec<f64>) = valid_pairs.into_iter().unzip();
 
     // 计算均值
-    let mean_x: f64 = arr_vec.iter().sum::<f64>() / n as f64;
-    let mean_y: f64 = natural_seq.iter().sum::<f64>() / n as f64;
+    let mean_x: f64 = values.iter().sum::<f64>() / n as f64;
+    let mean_y: f64 = indices.iter().sum::<f64>() / n as f64;
 
     // 计算协方差和标准差
     let mut covariance: f64 = 0.0;
@@ -679,8 +691,8 @@ pub fn trend(arr: &PyAny) -> PyResult<f64> {
     let mut var_y: f64 = 0.0;
 
     for i in 0..n {
-        let diff_x = arr_vec[i] - mean_x;
-        let diff_y = natural_seq[i] - mean_y;
+        let diff_x = values[i] - mean_x;
+        let diff_y = indices[i] - mean_y;
         
         covariance += diff_x * diff_y;
         var_x += diff_x * diff_x;
@@ -976,22 +988,30 @@ pub fn trend_2d(arr: PyReadonlyArray2<f64>, axis: i32) -> PyResult<Vec<f64>> {
 
 /// 计算一维数组的趋势性（内部辅助函数）
 fn calculate_trend_1d(data: &[f64]) -> f64 {
-    let n = data.len();
+    // 过滤掉NaN值，同时保持对应的索引
+    let valid_pairs: Vec<(f64, f64)> = data.iter()
+        .enumerate()
+        .filter_map(|(i, &val)| {
+            if val.is_finite() {
+                Some((val, (i + 1) as f64))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    let n = valid_pairs.len();
     
-    if n == 0 {
-        return 0.0;
-    }
-    
-    if n == 1 {
+    if n == 0 || n == 1 {
         return 0.0;
     }
 
-    // 创建自然数序列 1,2,3...n
-    let natural_seq: Vec<f64> = (1..=n).map(|x| x as f64).collect();
+    // 分离有效的值和对应的索引
+    let (values, indices): (Vec<f64>, Vec<f64>) = valid_pairs.into_iter().unzip();
 
     // 计算均值
-    let mean_x: f64 = data.iter().sum::<f64>() / n as f64;
-    let mean_y: f64 = natural_seq.iter().sum::<f64>() / n as f64;
+    let mean_x: f64 = values.iter().sum::<f64>() / n as f64;
+    let mean_y: f64 = indices.iter().sum::<f64>() / n as f64;
 
     // 计算协方差和标准差
     let mut covariance: f64 = 0.0;
@@ -999,8 +1019,8 @@ fn calculate_trend_1d(data: &[f64]) -> f64 {
     let mut var_y: f64 = 0.0;
 
     for i in 0..n {
-        let diff_x = data[i] - mean_x;
-        let diff_y = natural_seq[i] - mean_y;
+        let diff_x = values[i] - mean_x;
+        let diff_y = indices[i] - mean_y;
         
         covariance += diff_x * diff_y;
         var_x += diff_x * diff_x;

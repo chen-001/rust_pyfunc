@@ -16,6 +16,7 @@ pub mod order_neighborhood;
 pub mod trade_records_ultra_sorted;
 pub mod order_records_ultra_sorted;
 pub mod market_correlation;
+pub mod entropy_analysis;
 
 
 
@@ -106,7 +107,14 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(statistics::eigenvalue_analysis_modified::matrix_eigenvalue_analysis_modified, m)?)?;
     m.add_function(wrap_pyfunction!(statistics::eigenvalue_analysis_modified::matrix_eigenvalue_analysis_modified_ultra, m)?)?;
     m.add_function(wrap_pyfunction!(statistics::fast_correlation::fast_correlation_matrix, m)?)?;
+    m.add_function(wrap_pyfunction!(statistics::fast_correlation_v2::fast_correlation_matrix_v2, m)?)?;
     m.add_function(wrap_pyfunction!(market_correlation::price_volume_orderbook_correlation, m)?)?;
+    m.add_function(wrap_pyfunction!(entropy_analysis::calculate_entropy_1d, m)?)?;
+    m.add_function(wrap_pyfunction!(entropy_analysis::calculate_entropy_2d, m)?)?;
+    m.add_function(wrap_pyfunction!(entropy_analysis::calculate_entropy_discrete_1d, m)?)?;
+    m.add_function(wrap_pyfunction!(entropy_analysis::calculate_entropy_discrete_2d, m)?)?;
+    m.add_function(wrap_pyfunction!(entropy_analysis::calculate_binned_entropy_1d, m)?)?;
+    m.add_function(wrap_pyfunction!(entropy_analysis::calculate_binned_entropy_2d, m)?)?;
     // m.add_function(wrap_pyfunction!(text::normalized_diff, m)?)?;
     Ok(())
 }

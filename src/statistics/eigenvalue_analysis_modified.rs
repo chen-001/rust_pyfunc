@@ -186,21 +186,35 @@ fn compute_modified_eigenvalues(column: &ArrayView1<f64>) -> Result<Vec<f64>, Bo
     // 计算特征值
     let eigenvalues = diff_matrix.complex_eigenvalues();
     
-    // 提取特征值的模长（复数的绝对值），并过滤异常值
+    // 提取特征值，对于实数特征值取实部，对于复数特征值取模长
     let mut real_eigenvalues: Vec<f64> = eigenvalues
         .iter()
         .map(|complex_val| {
-            let norm = complex_val.norm();
-            if norm.is_finite() && norm < 1e15 {
-                norm
+            // 对于实矩阵，特征值要么是实数，要么是共轭复数对
+            let real_part = complex_val.re;
+            let imag_part = complex_val.im;
+            
+            if imag_part.abs() < 1e-10 {
+                // 基本上是实数特征值，直接取实部（可以是正数或负数）
+                if real_part.is_finite() && real_part.abs() < 1e15 {
+                    real_part
+                } else {
+                    0.0
+                }
             } else {
-                0.0
+                // 复数特征值，取模长（正数）
+                let norm = complex_val.norm();
+                if norm.is_finite() && norm < 1e15 {
+                    norm
+                } else {
+                    0.0
+                }
             }
         })
         .collect();
     
-    // 按绝对值从大到小排序
-    real_eigenvalues.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+    // 按绝对值从大到小排序，保持原符号
+    real_eigenvalues.sort_by(|a, b| b.abs().partial_cmp(&a.abs()).unwrap_or(std::cmp::Ordering::Equal));
     
     Ok(real_eigenvalues)
 }
@@ -377,17 +391,32 @@ fn compute_modified_eigenvalues_optimized(column: &ArrayView1<f64>) -> Result<Ve
     let mut real_eigenvalues: Vec<f64> = eigenvalues
         .iter()
         .map(|complex_val| {
-            let norm = complex_val.norm();
-            // 过滤掉异常值
-            if norm.is_finite() && norm < 1e15 {
-                norm
+            // 对于实矩阵，特征值要么是实数，要么是共轭复数对
+            // 如果虚部很小，我们取实部；如果虚部很大，我们取模长
+            let real_part = complex_val.re;
+            let imag_part = complex_val.im;
+            
+            if imag_part.abs() < 1e-10 {
+                // 基本上是实数特征值，直接取实部（可以是正数或负数）
+                if real_part.is_finite() && real_part.abs() < 1e15 {
+                    real_part
+                } else {
+                    0.0
+                }
             } else {
-                0.0  // 将异常值设为0
+                // 复数特征值，取模长（正数）
+                let norm = complex_val.norm();
+                if norm.is_finite() && norm < 1e15 {
+                    norm
+                } else {
+                    0.0
+                }
             }
         })
         .collect();
     
-    real_eigenvalues.sort_unstable_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+    // 按绝对值从大到小排序，保持原符号
+    real_eigenvalues.sort_unstable_by(|a, b| b.abs().partial_cmp(&a.abs()).unwrap_or(std::cmp::Ordering::Equal));
     
     Ok(real_eigenvalues)
 }
@@ -402,8 +431,8 @@ fn compute_eigenvalues_with_timeout(
     // 在单独线程中执行特征值计算
     let handle = thread::spawn(move || {
         let result = matrix.complex_eigenvalues();
-        let eigenvalues: Vec<nalgebra::Complex<f64>> = result.iter().cloned().collect();
-        let _ = tx.send(eigenvalues);
+            let eigenvalues: Vec<nalgebra::Complex<f64>> = result.iter().cloned().collect();
+            let _ = tx.send(eigenvalues);
     });
     
     // 等待结果或超时
@@ -411,8 +440,8 @@ fn compute_eigenvalues_with_timeout(
         Ok(eigenvalues) => Ok(eigenvalues),
         Err(mpsc::RecvTimeoutError::Timeout) => {
             // 超时，尝试终止线程（注意：这在Rust中是受限的）
-            Err("特征值计算超时(>1秒)，数据可能导致数值不稳定".into())
-        }
+                    Err("特征值计算超时(>1秒)，数据可能导致数值不稳定".into())
+                }
         Err(mpsc::RecvTimeoutError::Disconnected) => {
             Err("特征值计算线程异常终止".into())
         }
