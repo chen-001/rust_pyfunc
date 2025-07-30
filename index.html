@@ -284,6 +284,42 @@ s.rolling_future('2s').trend_time()  # 计算后面2秒内的趋势</p>
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="calculate_binned_entropy_1d.html">calculate_binned_entropy_1d</a></h3>
+                <div><p>无文档</p></div>
+                <a href="calculate_binned_entropy_1d.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="calculate_binned_entropy_2d.html">calculate_binned_entropy_2d</a></h3>
+                <div><p>无文档</p></div>
+                <a href="calculate_binned_entropy_2d.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="calculate_entropy_1d.html">calculate_entropy_1d</a></h3>
+                <div><p>无文档</p></div>
+                <a href="calculate_entropy_1d.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="calculate_entropy_2d.html">calculate_entropy_2d</a></h3>
+                <div><p>无文档</p></div>
+                <a href="calculate_entropy_2d.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="calculate_entropy_discrete_1d.html">calculate_entropy_discrete_1d</a></h3>
+                <div><p>无文档</p></div>
+                <a href="calculate_entropy_discrete_1d.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="calculate_entropy_discrete_2d.html">calculate_entropy_discrete_2d</a></h3>
+                <div><p>无文档</p></div>
+                <a href="calculate_entropy_discrete_2d.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="calculate_large_order_nearby_small_order_time_gap.html">calculate_large_order_nearby_small_order_time_gap</a></h3>
                 <div><p>无文档</p></div>
                 <a href="calculate_large_order_nearby_small_order_time_gap.html">查看详情</a>
@@ -408,6 +444,20 @@ s.rolling_future('2s').trend_time()  # 计算后面2秒内的趋势</p>
 <li>每个观测值对应的分组号(1到groups_num)</li>
 </ul></div>
                 <a href="factor_grouping.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="fast_correlation_matrix.html">fast_correlation_matrix</a></h3>
+                <div><p>快速计算相关性矩阵，类似于pandas的df.corr()功能。
+使用并行计算和优化算法大幅提升计算性能。</p></div>
+                <a href="fast_correlation_matrix.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="fast_correlation_matrix_v2.html">fast_correlation_matrix_v2</a></h3>
+                <div><p>超快速计算相关性矩阵，进一步优化版本。
+采用SIMD优化和更好的内存访问模式。</p></div>
+                <a href="fast_correlation_matrix_v2.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -542,6 +592,60 @@ print(f"加速比: {time1/time2:.2f}倍")
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="matrix_eigenvalue_analysis.html">matrix_eigenvalue_analysis</a></h3>
+                <div><p>计算多列数据的差值矩阵特征值</p>
+<p>对输入的237行×n列矩阵，对每一列进行以下操作：
+1. 构建237×237的差值矩阵，其中M[i,j] = col[i] - col[j]
+2. 计算该矩阵的所有特征值
+3. 按特征值绝对值从大到小排序</p>
+<p>此函数针对高性能计算进行了优化：
+- 使用并行处理处理不同列（最多10个核心）
+- 利用差值矩阵的对称性质优化计算
+- 使用高效的线性代数库nalgebra进行特征值分解</p></div>
+                <a href="matrix_eigenvalue_analysis.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="matrix_eigenvalue_analysis_modified.html">matrix_eigenvalue_analysis_modified</a></h3>
+                <div><p>计算多列数据的修改差值矩阵特征值（高性能版本）</p>
+<p>对输入的m行×n列矩阵，对每一列进行以下操作：
+1. 构建m×m的修改差值矩阵：
+   - 上三角: M[i,j] = col[i] - col[j] (i &lt; j)
+   - 对角线: M[i,i] = 0
+   - 下三角: M[i,j] = |col[i] - col[j]| (i &gt; j)
+2. 计算该矩阵的所有特征值
+3. 按特征值绝对值从大到小排序</p>
+<p>优化策略：
+- 高度并行化（最多10个核心）
+- 内存预分配和重用
+- SIMD优化的矩阵运算
+- 缓存友好的数据访问模式</p></div>
+                <a href="matrix_eigenvalue_analysis_modified.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="matrix_eigenvalue_analysis_modified_ultra.html">matrix_eigenvalue_analysis_modified_ultra</a></h3>
+                <div><p>计算多列数据的修改差值矩阵特征值（超级优化版本）</p>
+<p>这个版本包含了所有可能的性能优化：
+- 预分配内存池
+- 批量处理
+- 缓存优化的数据结构
+- 更高效的特征值算法
+- 1秒超时机制，防止卡死</p></div>
+                <a href="matrix_eigenvalue_analysis_modified_ultra.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="matrix_eigenvalue_analysis_optimized.html">matrix_eigenvalue_analysis_optimized</a></h3>
+                <div><p>计算多列数据的差值矩阵特征值（优化版本）</p>
+<p>这是一个针对大规模计算优化的版本，使用了更高效的算法：
+1. 利用差值矩阵的反对称性质减少计算量
+2. 使用更高效的内存布局
+3. 优化的并行策略</p></div>
+                <a href="matrix_eigenvalue_analysis_optimized.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="max_range_loop.html">max_range_loop</a></h3>
                 <div><p>计算序列中每个位置结尾的最长连续子序列长度，其中子序列的最大值在该位置。</p></div>
                 <a href="max_range_loop.html">查看详情</a>
@@ -605,6 +709,12 @@ print(f"加速比: {time1/time2:.2f}倍")
 4. 分层并行处理
 5. 零拷贝数据传递</p></div>
                 <a href="order_neighborhood_analysis.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="price_volume_orderbook_correlation.html">price_volume_orderbook_correlation</a></h3>
+                <div><p>无文档</p></div>
+                <a href="price_volume_orderbook_correlation.html">查看详情</a>
             </div>
             
             <div class="function-item">

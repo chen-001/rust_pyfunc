@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>matrix_eigenvalue_analysis_modified_ultra - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>matrix_eigenvalue_analysis_modified_ultra</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>计算多列数据的修改差值矩阵特征值（超级优化版本）</p>
+<p>这个版本包含了所有可能的性能优化：
+- 预分配内存池
+- 批量处理
+- 缓存优化的数据结构
+- 更高效的特征值算法
+- 1秒超时机制，防止卡死</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>matrix_eigenvalue_analysis_modified_ultra(matrix, print_stats) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">matrix</span>
+                    <span class="parameter-type">(numpy.ndarray)</span>
+                    <div><p>输入矩阵，形状为(m, n)，必须是float64类型，m为任意正整数</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">print_stats</span>
+                    <span class="parameter-type">(bool, 可选)</span>
+                    <div><p>是否打印过滤统计信息，默认为False</p></div>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div><hr />
+<p>numpy.ndarray
+    输出矩阵，形状为(m, n)，每列包含对应输入列的特征值（按绝对值降序排列）</p></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import matrix_eigenvalue_analysis_modified_ultra
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

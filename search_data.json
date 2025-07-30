@@ -77,6 +77,36 @@
     "params": []
   },
   {
+    "name": "calculate_binned_entropy_1d",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "calculate_binned_entropy_2d",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "calculate_entropy_1d",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "calculate_entropy_2d",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "calculate_entropy_discrete_1d",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "calculate_entropy_discrete_2d",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
     "name": "calculate_large_order_nearby_small_order_time_gap",
     "description": "<p>无文档</p>",
     "params": []
@@ -167,6 +197,26 @@
     "name": "factor_grouping",
     "description": "<p>按日期对因子值进行分组</p>\n<h1>Arguments</h1>\n<ul>\n<li><code>dates</code> - 日期时间戳数组</li>\n<li><code>factors</code> - 因子值数组</li>\n<li><code>groups_num</code> - 分组数量，默认为10</li>\n</ul>\n<h1>Returns</h1>\n<ul>\n<li>每个观测值对应的分组号(1到groups_num)</li>\n</ul>",
     "params": []
+  },
+  {
+    "name": "fast_correlation_matrix",
+    "description": "<p>快速计算相关性矩阵，类似于pandas的df.corr()功能。\n使用并行计算和优化算法大幅提升计算性能。</p>",
+    "params": [
+      "data",
+      "method",
+      "min_periods",
+      "max_workers"
+    ]
+  },
+  {
+    "name": "fast_correlation_matrix_v2",
+    "description": "<p>超快速计算相关性矩阵，进一步优化版本。\n采用SIMD优化和更好的内存访问模式。</p>",
+    "params": [
+      "data",
+      "method",
+      "min_periods",
+      "max_workers"
+    ]
   },
   {
     "name": "fast_dtw_distance",
@@ -348,6 +398,35 @@
     ]
   },
   {
+    "name": "matrix_eigenvalue_analysis",
+    "description": "<p>计算多列数据的差值矩阵特征值</p>\n<p>对输入的237行×n列矩阵，对每一列进行以下操作：\n1. 构建237×237的差值矩阵，其中M[i,j] = col[i] - col[j]\n2. 计算该矩阵的所有特征值\n3. 按特征值绝对值从大到小排序</p>\n<p>此函数针对高性能计算进行了优化：\n- 使用并行处理处理不同列（最多10个核心）\n- 利用差值矩阵的对称性质优化计算\n- 使用高效的线性代数库nalgebra进行特征值分解</p>",
+    "params": [
+      "matrix"
+    ]
+  },
+  {
+    "name": "matrix_eigenvalue_analysis_modified",
+    "description": "<p>计算多列数据的修改差值矩阵特征值（高性能版本）</p>\n<p>对输入的m行×n列矩阵，对每一列进行以下操作：\n1. 构建m×m的修改差值矩阵：\n   - 上三角: M[i,j] = col[i] - col[j] (i &lt; j)\n   - 对角线: M[i,i] = 0\n   - 下三角: M[i,j] = |col[i] - col[j]| (i &gt; j)\n2. 计算该矩阵的所有特征值\n3. 按特征值绝对值从大到小排序</p>\n<p>优化策略：\n- 高度并行化（最多10个核心）\n- 内存预分配和重用\n- SIMD优化的矩阵运算\n- 缓存友好的数据访问模式</p>",
+    "params": [
+      "matrix"
+    ]
+  },
+  {
+    "name": "matrix_eigenvalue_analysis_modified_ultra",
+    "description": "<p>计算多列数据的修改差值矩阵特征值（超级优化版本）</p>\n<p>这个版本包含了所有可能的性能优化：\n- 预分配内存池\n- 批量处理\n- 缓存优化的数据结构\n- 更高效的特征值算法\n- 1秒超时机制，防止卡死</p>",
+    "params": [
+      "matrix",
+      "print_stats"
+    ]
+  },
+  {
+    "name": "matrix_eigenvalue_analysis_optimized",
+    "description": "<p>计算多列数据的差值矩阵特征值（优化版本）</p>\n<p>这是一个针对大规模计算优化的版本，使用了更高效的算法：\n1. 利用差值矩阵的反对称性质减少计算量\n2. 使用更高效的内存布局\n3. 优化的并行策略</p>",
+    "params": [
+      "matrix"
+    ]
+  },
+  {
     "name": "max_range_loop",
     "description": "<p>计算序列中每个位置结尾的最长连续子序列长度，其中子序列的最大值在该位置。</p>",
     "params": [
@@ -407,6 +486,11 @@
   {
     "name": "order_neighborhood_analysis",
     "description": "<p>超级高速订单邻域分析函数 - 为13万数据优化</p>\n<p>激进优化策略：\n1. 预计算邻域索引表\n2. 批量SIMD计算\n3. 内存预分配避免动态分配\n4. 分层并行处理\n5. 零拷贝数据传递</p>",
+    "params": []
+  },
+  {
+    "name": "price_volume_orderbook_correlation",
+    "description": "<p>无文档</p>",
     "params": []
   },
   {

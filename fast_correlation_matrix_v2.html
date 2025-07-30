@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>fast_correlation_matrix_v2 - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>fast_correlation_matrix_v2</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>超快速计算相关性矩阵，进一步优化版本。
+采用SIMD优化和更好的内存访问模式。</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>fast_correlation_matrix_v2(data, method, min_periods, max_workers) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">data</span>
+                    <span class="parameter-type">(numpy.ndarray)</span>
+                    <div><p>输入数据矩阵，形状为(n_samples, n_features)，每列代表一个变量</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">method</span>
+                    <span class="parameter-type">(str, 可选)</span>
+                    <div><p>相关性计算方法，默认为'pearson'。目前只支持皮尔逊相关系数</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">min_periods</span>
+                    <span class="parameter-type">(int, 可选)</span>
+                    <div><p>计算相关性所需的最小样本数，默认为1</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">max_workers</span>
+                    <span class="parameter-type">(int, 可选)</span>
+                    <div><p>最大并行工作线程数，默认为10，设置为0则使用所有可用核心</p></div>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div><hr />
+<p>numpy.ndarray
+    相关性矩阵，形状为(n_features, n_features)，对角线元素为1.0</p></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import fast_correlation_matrix_v2
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>
