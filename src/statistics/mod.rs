@@ -9,6 +9,7 @@ pub mod local_correlation;
 pub mod eigenvalue_analysis;
 pub mod eigenvalue_analysis_modified;
 pub mod fast_correlation;
+pub mod fast_correlation_v2;
 
 /// 普通最小二乘(OLS)回归。
 /// 用于拟合线性回归模型 y = Xβ + ε，其中β是要估计的回归系数。
@@ -806,21 +807,29 @@ pub fn dataframe_corrwith(
     // 获取列数并确定结果数组大小
     let n_cols = std::cmp::min(df1.ncols(), df2.ncols());
     
+    // 设置线程池，限制最多10个线程
+    let thread_pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(std::cmp::min(10, num_cpus::get()))
+        .build()
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("线程池创建失败: {}", e)))?;
+    
     // 创建结果数组
     let result = if n_cols > 0 {
-        // 使用并行迭代计算相关系数
+        // 使用线程池并行计算相关系数
         let mut corrs: Vec<f64> = vec![f64::NAN; n_cols];
         
-        // 将计算分块并行处理
-        corrs.par_iter_mut().enumerate().for_each(|(i, corr)| {
-            if i < n_cols {
-                // 提取对应列的数据
-                let col1 = df1.column(i);
-                let col2 = df2.column(i);
-                
-                // 计算相关系数
-                *corr = calculate_correlation_optimized(&col1, &col2, drop_na);
-            }
+        thread_pool.install(|| {
+            // 将计算分块并行处理
+            corrs.par_iter_mut().enumerate().for_each(|(i, corr)| {
+                if i < n_cols {
+                    // 提取对应列的数据
+                    let col1 = df1.column(i);
+                    let col2 = df2.column(i);
+                    
+                    // 计算相关系数
+                    *corr = calculate_correlation_optimized(&col1, &col2, drop_na);
+                }
+            });
         });
         
         Array1::from(corrs)

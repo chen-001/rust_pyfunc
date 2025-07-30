@@ -1,5 +1,5 @@
 """统计分析函数类型声明"""
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
 import numpy as np
 from numpy.typing import NDArray
 
@@ -271,5 +271,249 @@ def fast_correlation_matrix(
     - 自动处理NaN值
     - 相关性矩阵是对称的，对角线元素为1.0
     - 当样本数少于min_periods时，对应的相关系数为NaN
+    """
+    ...
+
+def fast_correlation_matrix_v2(
+    data: NDArray[np.float64],
+    method: str = "pearson",
+    min_periods: int = 1,
+    max_workers: int = 10
+) -> NDArray[np.float64]:
+    """超快速计算相关性矩阵，进一步优化版本。
+    采用SIMD优化、更好的内存访问模式和数值稳定性改进。
+
+    参数说明：
+    ----------
+    data : NDArray[np.float64]
+        输入数据矩阵，形状为(n_samples, n_features)，每列代表一个变量
+    method : str, default="pearson"
+        相关性计算方法，默认为'pearson'。目前只支持皮尔逊相关系数
+    min_periods : int, default=1
+        计算相关性所需的最小样本数，默认为1
+    max_workers : int, default=10
+        最大并行工作线程数，默认为10，设置为0则使用所有可用核心
+
+    返回值：
+    -------
+    NDArray[np.float64]
+        相关性矩阵，形状为(n_features, n_features)，对角线元素为1.0
+
+    注意：
+    -----
+    - V2版本采用了多项优化：数据预处理、Kahan求和、循环展开、向量化计算
+    - 内存访问模式优化，提高缓存命中率
+    - 数值稳定性更好，减少浮点数累加误差
+    - 对于大数据集性能可能进一步提升
+    """
+    ...
+
+def calculate_entropy_1d(data: NDArray[np.float64]) -> float:
+    """计算一维数组的熵。
+    
+    对数组中的值进行频次统计，然后计算香农熵：H = -∑(p * ln(p))，
+    其中p是每个唯一值出现的概率。
+    
+    参数说明：
+    ----------
+    data : NDArray[np.float64]
+        输入的一维数组
+        
+    返回值：
+    -------
+    float
+        计算得到的香农熵值
+        
+    注意：
+    -----
+    - 空数组返回0.0
+    - NaN值被单独计算为一个唯一值
+    - 使用自然对数计算熵值
+    """
+    ...
+
+def calculate_entropy_2d(
+    data: NDArray[np.float64], 
+    axis: Optional[int] = None
+) -> Union[float, NDArray[np.float64]]:
+    """计算二维数组的熵。
+    
+    可以按指定轴计算每行或每列的熵，或者计算整个数组的熵。
+    
+    参数说明：
+    ----------
+    data : NDArray[np.float64]
+        输入的二维数组
+    axis : Optional[int], default=None
+        计算轴向：
+        - None: 计算整个数组的熵，返回标量
+        - 0: 计算每列的熵，返回形状为(n_cols,)的数组
+        - 1: 计算每行的熵，返回形状为(n_rows,)的数组
+        
+    返回值：
+    -------
+    Union[float, NDArray[np.float64]]
+        - axis=None时返回float
+        - axis=0或1时返回一维数组
+        
+    异常：
+    -----
+    ValueError
+        当axis不为None、0、1时抛出
+        
+    注意：
+    -----
+    - 使用并行计算提高性能
+    - NaN值被单独计算为一个唯一值
+    - 使用自然对数计算熵值
+    """
+    ...
+
+def calculate_entropy_discrete_1d(data: NDArray[np.int64]) -> float:
+    """计算一维离散数组的熵。
+    
+    专门为整数类型数据优化的熵计算函数，避免浮点数精度问题。
+    
+    参数说明：
+    ----------
+    data : NDArray[np.int64]
+        输入的一维整数数组
+        
+    返回值：
+    -------
+    float
+        计算得到的香农熵值
+        
+    注意：
+    -----
+    - 空数组返回0.0
+    - 直接使用整数值作为键，避免浮点数格式化
+    - 使用自然对数计算熵值
+    """
+    ...
+
+def calculate_entropy_discrete_2d(
+    data: NDArray[np.int64], 
+    axis: Optional[int] = None
+) -> Union[float, NDArray[np.float64]]:
+    """计算二维离散数组的熵。
+    
+    专门为整数类型数据优化的熵计算函数，可以按指定轴计算每行或每列的熵。
+    
+    参数说明：
+    ----------
+    data : NDArray[np.int64]
+        输入的二维整数数组
+    axis : Optional[int], default=None
+        计算轴向：
+        - None: 计算整个数组的熵，返回标量
+        - 0: 计算每列的熵，返回形状为(n_cols,)的数组
+        - 1: 计算每行的熵，返回形状为(n_rows,)的数组
+        
+    返回值：
+    -------
+    Union[float, NDArray[np.float64]]
+        - axis=None时返回float
+        - axis=0或1时返回一维数组
+        
+    异常：
+    -----
+    ValueError
+        当axis不为None、0、1时抛出
+        
+    注意：
+    -----
+    - 使用并行计算提高性能
+    - 直接使用整数值作为键，避免浮点数格式化问题
+    - 使用自然对数计算熵值
+    """
+    ...
+
+def calculate_binned_entropy_1d(
+    data: NDArray[np.float64], 
+    n_bins: int,
+    bin_method: Optional[str] = "equal_width"
+) -> float:
+    """计算一维数组的分箱熵。
+    
+    先将连续数据分箱，然后计算分箱后的熵值。这对于连续数据的熵计算更有意义。
+    
+    参数说明：
+    ----------
+    data : NDArray[np.float64]
+        输入的一维数组
+    n_bins : int
+        分箱数量，必须大于0
+    bin_method : Optional[str], default="equal_width"
+        分箱方法：
+        - "equal_width": 等宽分箱，每个分箱的区间长度相等
+        - "equal_frequency": 等频分箱，每个分箱包含相近数量的数据点
+        
+    返回值：
+    -------
+    float
+        分箱后的香农熵值
+        
+    异常：
+    -----
+    ValueError
+        当n_bins <= 0或bin_method不支持时抛出
+        
+    注意：
+    -----
+    - 空数组返回0.0
+    - NaN值被分配到单独的分箱（索引为n_bins）
+    - 等宽分箱基于数据的最小值和最大值
+    - 等频分箱尝试让每个分箱包含相近数量的数据点
+    - 使用自然对数计算熵值
+    - 熵值范围：0 到 ln(实际使用的分箱数)
+    """
+    ...
+
+def calculate_binned_entropy_2d(
+    data: NDArray[np.float64], 
+    n_bins: int,
+    bin_method: Optional[str] = "equal_width",
+    axis: Optional[int] = None
+) -> Union[float, NDArray[np.float64]]:
+    """计算二维数组的分箱熵。
+    
+    先将连续数据分箱，然后按指定轴计算分箱后的熵值。
+    
+    参数说明：
+    ----------
+    data : NDArray[np.float64]
+        输入的二维数组
+    n_bins : int
+        分箱数量，必须大于0
+    bin_method : Optional[str], default="equal_width"
+        分箱方法：
+        - "equal_width": 等宽分箱，每个分箱的区间长度相等
+        - "equal_frequency": 等频分箱，每个分箱包含相近数量的数据点
+    axis : Optional[int], default=None
+        计算轴向：
+        - None: 计算整个数组的分箱熵，返回标量
+        - 0: 计算每列的分箱熵，返回形状为(n_cols,)的数组
+        - 1: 计算每行的分箱熵，返回形状为(n_rows,)的数组
+        
+    返回值：
+    -------
+    Union[float, NDArray[np.float64]]
+        - axis=None时返回float
+        - axis=0或1时返回一维数组
+        
+    异常：
+    -----
+    ValueError
+        当n_bins <= 0、bin_method不支持或axis不为None、0、1时抛出
+        
+    注意：
+    -----
+    - 每行/列独立进行分箱和熵计算
+    - NaN值被分配到单独的分箱
+    - 等宽分箱基于每行/列数据的最小值和最大值
+    - 等频分箱基于每行/列数据的排序位置
+    - 使用自然对数计算熵值
+    - 对于连续数据，这比直接计算熵更有意义
     """
     ...
