@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>matrix_eigenvalue_analysis_modified - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>matrix_eigenvalue_analysis_modified</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>计算多列数据的修改差值矩阵特征值（高性能版本）</p>
+<p>对输入的m行×n列矩阵，对每一列进行以下操作：
+1. 构建m×m的修改差值矩阵：
+   - 上三角: M[i,j] = col[i] - col[j] (i &lt; j)
+   - 对角线: M[i,i] = 0
+   - 下三角: M[i,j] = |col[i] - col[j]| (i &gt; j)
+2. 计算该矩阵的所有特征值
+3. 按特征值绝对值从大到小排序</p>
+<p>优化策略：
+- 高度并行化（最多10个核心）
+- 内存预分配和重用
+- SIMD优化的矩阵运算
+- 缓存友好的数据访问模式</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>matrix_eigenvalue_analysis_modified(matrix) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">matrix</span>
+                    <span class="parameter-type">(numpy.ndarray)</span>
+                    <div><p>输入矩阵，形状为(m, n)，必须是float64类型，m为任意正整数</p></div>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div><hr />
+<p>numpy.ndarray
+    输出矩阵，形状为(m, n)，每列包含对应输入列的特征值（按绝对值降序排列）</p>
+<p>Python调用示例：
+```python
+import numpy as np
+import design_whatever as dw
+from rust_pyfunc import matrix_eigenvalue_analysis_modified</p>
+<h1>读取数据</h1>
+<p>df = dw.read_minute_data('volume',20241231,20241231).dropna(how='all').dropna(how='all',axis=1)
+data = df.to_numpy(float)</p>
+<h1>计算特征值</h1>
+<p>result = matrix_eigenvalue_analysis_modified(data)
+print(f"结果形状: {result.shape}")
+```</p></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import matrix_eigenvalue_analysis_modified
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>
