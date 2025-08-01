@@ -36,6 +36,11 @@ use ndarray::Array1;
 /// find_local_lows : bool, optional
 ///     是否查找局部低点，默认为False（查找局部高点）。
 ///     当为True时，分析"以进为退"现象：价格跌至局部低点后反弹，在该价格的异常大买单量消失后成功跌破该价格
+/// interval_mode : str, optional
+///     区间选择模式，默认为"full"。可选值：
+///     - "full": 完整的"高点-低点-高点"过程（默认）
+///     - "retreat": "高点-低点"过程，从局部高点到该段中的最低点
+///     - "advance": "低点-高点"过程，从局部低点到该段中的最高点
 /// 
 /// 返回值：
 /// -------
@@ -65,18 +70,25 @@ use ndarray::Array1;
 /// orderbook_prices = [10.0, 10.1]
 /// orderbook_volumes = [1000.0, 5000.0]
 /// 
-/// # 分析"以退为进"现象，使用2分钟时间窗口，0.1%突破阈值，60秒去重时间
+/// # 分析完整的"以退为进"现象，使用2分钟时间窗口，0.1%突破阈值，60秒去重时间
 /// results = analyze_retreat_advance_v2(
 ///     trade_times, trade_prices, trade_volumes, trade_flags,
 ///     orderbook_times, orderbook_prices, orderbook_volumes,
-///     volume_percentile=95.0, time_window_minutes=2.0, breakthrough_threshold=0.1, dedup_time_seconds=60.0, find_local_lows=False
+///     volume_percentile=95.0, time_window_minutes=2.0, breakthrough_threshold=0.1, dedup_time_seconds=60.0, find_local_lows=False, interval_mode="full"
 /// )
 /// 
-/// # 分析"以进为退"现象（局部低点版本）
-/// results_lows = analyze_retreat_advance_v2(
+/// # 分析"高点-低点"过程
+/// results_retreat = analyze_retreat_advance_v2(
 ///     trade_times, trade_prices, trade_volumes, trade_flags,
 ///     orderbook_times, orderbook_prices, orderbook_volumes,
-///     volume_percentile=95.0, time_window_minutes=2.0, breakthrough_threshold=0.1, dedup_time_seconds=60.0, find_local_lows=True
+///     volume_percentile=95.0, time_window_minutes=2.0, dedup_time_seconds=60.0, find_local_lows=False, interval_mode="retreat"
+/// )
+/// 
+/// # 分析"低点-高点"过程
+/// results_advance = analyze_retreat_advance_v2(
+///     trade_times, trade_prices, trade_volumes, trade_flags,
+///     orderbook_times, orderbook_prices, orderbook_volumes,
+///     volume_percentile=95.0, time_window_minutes=2.0, dedup_time_seconds=60.0, find_local_lows=True, interval_mode="advance"
 /// )
 /// 
 /// process_volumes, large_volumes, time_window_volumes, buy_ratios, price_counts, max_changes, process_durations, process_start_times, extreme_prices = results
@@ -89,7 +101,8 @@ use ndarray::Array1;
     time_window_minutes=1.0,
     breakthrough_threshold=0.0,
     dedup_time_seconds=30.0,
-    find_local_lows=false
+    find_local_lows=false,
+    interval_mode="full"
 ))]
 pub fn analyze_retreat_advance_v2(
     trade_times: Vec<f64>,
@@ -104,6 +117,7 @@ pub fn analyze_retreat_advance_v2(
     breakthrough_threshold: Option<f64>,
     dedup_time_seconds: Option<f64>,
     find_local_lows: Option<bool>,
+    interval_mode: Option<&str>,
 ) -> PyResult<(
     Vec<f64>, // 过程期间的成交量
     Vec<f64>, // 过程期间首次观察到的异常大挂单量
@@ -129,6 +143,15 @@ pub fn analyze_retreat_advance_v2(
     let breakthrough_threshold = breakthrough_threshold.unwrap_or(0.0);
     let dedup_time_seconds = dedup_time_seconds.unwrap_or(30.0);
     let find_local_lows = find_local_lows.unwrap_or(false);
+    let interval_mode = interval_mode.unwrap_or("full");
+    
+    // 验证 interval_mode 参数有效性
+    match interval_mode {
+        "full" | "retreat" | "advance" => {},
+        _ => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "interval_mode 必须是 'full', 'retreat', 或 'advance'"
+        )),
+    }
     
     // 验证输入数据长度一致性
     if trade_times.len() != trade_prices.len() || 
@@ -159,7 +182,7 @@ pub fn analyze_retreat_advance_v2(
     let processes = identify_retreat_advance_processes_v2(
         &trade_times.view(), &trade_prices.view(), &trade_volumes.view(), &trade_flags.view(),
         &orderbook_times.view(), &orderbook_prices.view(), &orderbook_volumes.view(),
-        &deduplicated_peaks, volume_threshold, time_window_minutes, breakthrough_threshold, find_local_lows
+        &deduplicated_peaks, volume_threshold, time_window_minutes, breakthrough_threshold, find_local_lows, interval_mode
     );
     
     // 步骤4：计算每个过程的9个指标
@@ -167,7 +190,7 @@ pub fn analyze_retreat_advance_v2(
         calculate_process_metrics_v2(
             &trade_times.view(), &trade_prices.view(), &trade_volumes.view(), &trade_flags.view(),
             &orderbook_times.view(), &orderbook_prices.view(), &orderbook_volumes.view(),
-            &processes, time_window_minutes, find_local_lows
+            &processes, time_window_minutes, find_local_lows, interval_mode
         );
     
     Ok((
@@ -269,6 +292,7 @@ fn identify_retreat_advance_processes_v2(
     time_window_minutes: f64,
     breakthrough_threshold: f64,
     find_local_lows: bool,
+    interval_mode: &str,
 ) -> Vec<RetreatAdvanceProcessV2> {
     let mut processes = Vec::new();
     
@@ -286,10 +310,34 @@ fn identify_retreat_advance_processes_v2(
             continue;
         }
         
-        // 寻找过程的结束点：价格成功突破局部极值点
-        if let Some(end_idx) = find_breakthrough_point_v2(
-            trade_times, trade_prices, peak_idx, peak_price, breakthrough_threshold, find_local_lows
-        ) {
+        // 根据 interval_mode 寻找不同的结束点
+        let end_idx = match interval_mode {
+            "full" => {
+                // 完整过程：寻找突破点
+                find_breakthrough_point_v2(
+                    trade_times, trade_prices, peak_idx, peak_price, breakthrough_threshold, find_local_lows
+                )
+            },
+            "retreat" => {
+                // 高点到低点：寻找该段中的最低点
+                if !find_local_lows {
+                    find_trough_point_v2(trade_times, trade_prices, peak_idx, peak_price)
+                } else {
+                    None // 如果本身就是寻找低点，退出模式不适用
+                }
+            },
+            "advance" => {
+                // 低点到高点：寻找该段中的最高点
+                if find_local_lows {
+                    find_peak_point_v2(trade_times, trade_prices, peak_idx, peak_price)
+                } else {
+                    None // 如果本身就是寻找高点，前进模式不适用
+                }
+            },
+            _ => None,
+        };
+        
+        if let Some(end_idx) = end_idx {
             let process = RetreatAdvanceProcessV2 {
                 peak_price,
                 start_time: peak_time,
@@ -389,6 +437,7 @@ fn calculate_process_metrics_v2(
     processes: &[RetreatAdvanceProcessV2],
     time_window_minutes: f64,
     find_local_lows: bool,
+    interval_mode: &str,
 ) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
     let mut process_volumes = Vec::new();
     let mut large_volumes = Vec::new();
@@ -433,10 +482,23 @@ fn calculate_process_metrics_v2(
         price_counts.push(price_count as f64);
         
         // 指标6：过程期间价格相对局部极值的最大变化比例
-        let max_change = if find_local_lows {
-            calculate_max_incline_v2(trade_prices, process.start_index, process.end_index, process.peak_price)
-        } else {
-            calculate_max_decline_v2(trade_prices, process.start_index, process.end_index, process.peak_price)
+        let max_change = match interval_mode {
+            "retreat" => {
+                // 高点到低点：计算最大下降幅度
+                calculate_max_decline_v2(trade_prices, process.start_index, process.end_index, process.peak_price)
+            },
+            "advance" => {
+                // 低点到高点：计算最大上升幅度
+                calculate_max_incline_v2(trade_prices, process.start_index, process.end_index, process.peak_price)
+            },
+            "full" | _ => {
+                // 完整过程：根据 find_local_lows 决定
+                if find_local_lows {
+                    calculate_max_incline_v2(trade_prices, process.start_index, process.end_index, process.peak_price)
+                } else {
+                    calculate_max_decline_v2(trade_prices, process.start_index, process.end_index, process.peak_price)
+                }
+            },
         };
         max_declines.push(max_change);
         
@@ -669,4 +731,104 @@ fn deduplicate_local_peaks_v2(
     // 按索引排序结果
     deduplicated_peaks.sort();
     deduplicated_peaks
+}
+
+/// 寻找从局部高点到最低点的过程终点
+fn find_trough_point_v2(
+    trade_times: &ndarray::ArrayView1<f64>,
+    trade_prices: &ndarray::ArrayView1<f64>,
+    peak_idx: usize,
+    _peak_price: f64,
+) -> Option<usize> {
+    let n = trade_prices.len();
+    let peak_price = trade_prices[peak_idx];
+    
+    // 第一步：预先扫描整个过程，找到全局最低价格
+    let mut global_min_price = peak_price;
+    let mut search_end_idx = n;
+    
+    for i in peak_idx + 1..n {
+        // 设置最大搜索时间窗口
+        let time_diff = trade_times[i] - trade_times[peak_idx];
+        if time_diff > 4.0 * 60.0 * 60.0 * 1_000_000_000.0 { // 4小时后停止搜索
+            search_end_idx = i;
+            break;
+        }
+        
+        // 记录全局最低价格
+        if trade_prices[i] < global_min_price {
+            global_min_price = trade_prices[i];
+        }
+        
+        // 如果价格重新回到或超过局部高点，整个过程结束
+        if trade_prices[i] >= peak_price {
+            search_end_idx = i;
+            break;
+        }
+    }
+    
+    // 如果没有找到低于高点的价格，则没有回撤过程
+    if global_min_price >= peak_price {
+        return None;
+    }
+    
+    // 第二步：从高点开始逐步迭代，找到首次出现全局最低价的位置
+    for i in peak_idx + 1..search_end_idx {
+        // 当首次遇到全局最低价时，回撤过程结束
+        if (trade_prices[i] - global_min_price).abs() < f64::EPSILON {
+            return Some(i);
+        }
+    }
+    
+    None
+}
+
+/// 寻找从局部低点到最高点的过程终点
+fn find_peak_point_v2(
+    trade_times: &ndarray::ArrayView1<f64>,
+    trade_prices: &ndarray::ArrayView1<f64>,
+    low_idx: usize,
+    _low_price: f64,
+) -> Option<usize> {
+    let n = trade_prices.len();
+    let low_price = trade_prices[low_idx];
+    
+    // 第一步：预先扫描整个过程，找到全局最高价格
+    let mut global_max_price = low_price;
+    let mut search_end_idx = n;
+    
+    for i in low_idx + 1..n {
+        // 设置最大搜索时间窗口
+        let time_diff = trade_times[i] - trade_times[low_idx];
+        if time_diff > 4.0 * 60.0 * 60.0 * 1_000_000_000.0 { // 4小时后停止搜索
+            search_end_idx = i;
+            break;
+        }
+        
+        // 记录全局最高价格
+        if trade_prices[i] > global_max_price {
+            global_max_price = trade_prices[i];
+        }
+        
+        // 如果价格重新跌到或跌破局部低点，整个过程结束
+        if trade_prices[i] <= low_price {
+            search_end_idx = i;
+            break;
+        }
+    }
+    
+    // 如果没有找到高于低点的价格，则没有上升过程
+    if global_max_price <= low_price {
+        return None;
+    }
+    
+    // 第二步：从低点开始逐步迭代，找到首次出现全局最高价的位置
+    for i in low_idx + 1..search_end_idx {
+        // 当首次遇到全局最高价时，上升过程结束
+        if (trade_prices[i] - global_max_price).abs() < f64::EPSILON {
+            return Some(i);
+        }
+    }
+    
+    None
 }

@@ -164,7 +164,8 @@ def analyze_retreat_advance_v2(
     time_window_minutes: Optional[float] = 1.0,
     breakthrough_threshold: Optional[float] = 0.0,
     dedup_time_seconds: Optional[float] = 30.0,
-    find_local_lows: Optional[bool] = False
+    find_local_lows: Optional[bool] = False,
+    interval_mode: Optional[str] = "full"
 ) -> Tuple[List[float], List[float], List[float], List[float], List[float], List[float], List[float], List[float], List[float]]:
     """分析股票交易中的"以退为进"或"以进为退"现象（纳秒版本）
     
@@ -202,6 +203,11 @@ def analyze_retreat_advance_v2(
     find_local_lows : Optional[bool], default=False
         是否查找局部低点，默认为False（查找局部高点）。
         当为True时，分析"以进为退"现象：价格跌至局部低点后反弹，在该价格的异常大买单量消失后成功跌破该价格
+    interval_mode : Optional[str], default="full"
+        区间选择模式，默认为"full"。可选值：
+        - "full": 完整的"高点-低点-高点"过程（默认）
+        - "retreat": "高点-低点"过程，从局部高点到该段中的最低点
+        - "advance": "低点-高点"过程，从局部低点到该段中的最高点
     
     返回值：
     -------
@@ -378,7 +384,7 @@ def trade_peak_analysis(
     该函数用于分析交易数据中的高峰模式，包括：
     1. 识别成交量的局部高峰(根据top_tier1百分比)
     2. 在每个高峰的时间窗口内识别小峰(根据top_tier2百分比)
-    3. 计算16个统计指标来描述高峰-小峰的模式特征
+    3. 计算17个统计指标来描述高峰-小峰的模式特征
     
     参数说明：
     ----------
@@ -402,10 +408,10 @@ def trade_peak_analysis(
     返回值：
     -------
     Tuple[NDArray[np.float64], List[str]]
-        第一个元素：N行16列的数组，每行对应一个局部高峰的16个统计指标
-        第二个元素：包含16个特征名称的字符串列表
+        第一个元素：N行17列的数组，每行对应一个局部高峰的17个统计指标
+        第二个元素：包含17个特征名称的字符串列表
         
-        16个特征列分别为：
+        17个特征列分别为：
         列0: 小峰成交量总和比值
         列1: 小峰平均成交量比值  
         列2: 小峰个数
@@ -422,6 +428,7 @@ def trade_peak_analysis(
         列13: 时间峰度
         列14: 时间趋势
         列15: 时间自相关
+        列16: 成交量加权时间距离
         
     使用示例：
     ---------

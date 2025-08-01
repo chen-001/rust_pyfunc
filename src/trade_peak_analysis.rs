@@ -8,7 +8,7 @@ use ndarray::{Array2, ArrayView1};
 /// 该函数用于分析交易数据中的高峰模式，包括：
 /// 1. 识别成交量的局部高峰(根据top_tier1百分比)
 /// 2. 在每个高峰的时间窗口内识别小峰(根据top_tier2百分比)
-/// 3. 计算16个统计指标来描述高峰-小峰的模式特征
+/// 3. 计算17个统计指标来描述高峰-小峰的模式特征
 ///
 /// 参数说明：
 /// ----------
@@ -32,8 +32,8 @@ use ndarray::{Array2, ArrayView1};
 /// 返回值：
 /// -------
 /// tuple[numpy.ndarray, list[str]]
-///     第一个元素：N行16列的数组，每行对应一个局部高峰的16个统计指标
-///     第二个元素：包含16个特征名称的字符串列表
+///     第一个元素：N行17列的数组，每行对应一个局部高峰的17个统计指标
+///     第二个元素：包含17个特征名称的字符串列表
 ///
 /// Python调用示例：
 /// ```python
@@ -71,7 +71,7 @@ pub fn trade_peak_analysis(
     
     let n = exchtime.len();
     if n == 0 {
-        let empty_matrix = Array2::zeros((0, 16));
+        let empty_matrix = Array2::zeros((0, 17));
         let feature_names = get_feature_names(py)?;
         return Ok((empty_matrix.into_pyarray(py).to_owned(), feature_names));
     }
@@ -107,12 +107,12 @@ pub fn trade_peak_analysis(
     }
     
     if peaks.is_empty() {
-        let empty_matrix = Array2::zeros((0, 16));
+        let empty_matrix = Array2::zeros((0, 17));
         let feature_names = get_feature_names(py)?;
         return Ok((empty_matrix.into_pyarray(py).to_owned(), feature_names));
     }
     
-    // 第四步：为每个高峰计算16个统计指标
+    // 第四步：为每个高峰计算17个统计指标
     let mut results = Vec::with_capacity(peaks.len());
     
     for &peak_idx in &peaks {
@@ -154,14 +154,14 @@ pub fn trade_peak_analysis(
             }
         }
         
-        // 计算16个统计指标
+        // 计算17个统计指标
         let features = calculate_features(peak_volume, &minor_peaks, &time_diffs);
         results.push(features);
     }
     
-    // 构建结果矩阵 - N行16列（每行是一个高峰的16个特征）
+    // 构建结果矩阵 - N行17列（每行是一个高峰的17个特征）
     let n_peaks = results.len();
-    let mut result_matrix = Array2::zeros((n_peaks, 16));
+    let mut result_matrix = Array2::zeros((n_peaks, 17));
     
     for (row, features) in results.iter().enumerate() {
         for (col, &value) in features.iter().enumerate() {
@@ -175,7 +175,7 @@ pub fn trade_peak_analysis(
     Ok((result_matrix.into_pyarray(py).to_owned(), feature_names))
 }
 
-/// 获取16个特征的名称
+/// 获取17个特征的名称
 fn get_feature_names(py: Python) -> PyResult<Py<PyList>> {
     let names = vec![
         "小峰成交量总和比值",
@@ -193,7 +193,8 @@ fn get_feature_names(py: Python) -> PyResult<Py<PyList>> {
         "时间偏度", 
         "时间峰度",
         "时间趋势",
-        "时间自相关"
+        "时间自相关",
+        "成交量加权时间距离"
     ];
     
     let py_list = PyList::new(py, names);
@@ -220,9 +221,9 @@ fn is_local_peak(idx: usize, exchtime: &ArrayView1<i64>, volume: &ArrayView1<f64
     true
 }
 
-/// 计算16个统计特征
+/// 计算17个统计特征
 fn calculate_features(peak_volume: f64, minor_peaks: &[f64], time_diffs: &[f64]) -> Vec<f64> {
-    let mut features = vec![0.0; 16];
+    let mut features = vec![0.0; 17];
     
     if minor_peaks.is_empty() {
         return features; // 如果没有小峰，返回全0
@@ -290,6 +291,9 @@ fn calculate_features(peak_volume: f64, minor_peaks: &[f64], time_diffs: &[f64])
     
     // 16. 时间间隔的自相关
     features[15] = calculate_autocorr(time_diffs);
+    
+    // 17. 成交量加权时间距离
+    features[16] = calculate_volume_weighted_time_distance(minor_peaks, time_diffs);
     
     features
 }
@@ -438,4 +442,25 @@ fn calculate_autocorr(data: &[f64]) -> f64 {
     let x2 = &data[1..data.len()];
     
     correlation(x1, x2)
+}
+
+/// 计算成交量加权的时间距离
+/// 用各个小峰的成交量作为权重，对时间距离进行加权平均
+fn calculate_volume_weighted_time_distance(minor_peaks: &[f64], time_diffs: &[f64]) -> f64 {
+    if minor_peaks.is_empty() || time_diffs.is_empty() || minor_peaks.len() != time_diffs.len() {
+        return 0.0;
+    }
+    
+    let total_volume: f64 = minor_peaks.iter().sum();
+    if total_volume.abs() < f64::EPSILON {
+        return 0.0; // 避免除零
+    }
+    
+    // 计算加权平均：Σ(volume_i * time_diff_i) / Σ(volume_i)
+    let weighted_sum: f64 = minor_peaks.iter()
+        .zip(time_diffs.iter())
+        .map(|(&volume, &time_diff)| volume * time_diff)
+        .sum();
+    
+    weighted_sum / total_volume
 }
