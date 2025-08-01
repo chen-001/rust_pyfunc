@@ -1201,49 +1201,59 @@ fn read_backup_results_single_column_with_filter(file_path: &str, column_index: 
         ));
     }
     
-    // 并行读取指定列
+    // 使用自定义线程池并直接从mmap读取，避免大量内存复制
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(std::cmp::min(rayon::current_num_threads(), 8))
+        .build()
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("创建线程池失败: {}", e)))?;
+    
     let records_start = HEADER_SIZE;
-    let results: Vec<_> = (0..record_count)
-        .into_par_iter()
-        .filter_map(|i| {
-            let record_offset = records_start + i * record_size;
-            let record_bytes = &mmap[record_offset..record_offset + record_size];
-            
-            match DynamicRecord::from_bytes(record_bytes, factor_count) {
-                Ok(record) => {
-                    // 检查日期过滤器
-                    if let Some(date_filter) = date_filter {
-                        if !date_filter.contains(&record.date) {
-                            return None;
+    let results: Vec<_> = pool.install(|| {
+        (0..record_count)
+            .into_par_iter()
+            .filter_map(|i| {
+                let record_offset = records_start + i * record_size;
+                let record_bytes = &mmap[record_offset..record_offset + record_size];
+                
+                match DynamicRecord::from_bytes(record_bytes, factor_count) {
+                    Ok(record) => {
+                        // 检查日期过滤器
+                        if let Some(date_filter) = date_filter {
+                            if !date_filter.contains(&record.date) {
+                                return None;
+                            }
                         }
-                    }
-                    
-                    let code_len = std::cmp::min(record.code_len as usize, 32);
-                    let code = String::from_utf8_lossy(&record.code_bytes[..code_len]).to_string();
-                    
-                    // 检查代码过滤器
-                    if let Some(code_filter) = code_filter {
-                        if !code_filter.contains(&code) {
-                            return None;
+                        
+                        let code_len = std::cmp::min(record.code_len as usize, 32);
+                        let code = String::from_utf8_lossy(&record.code_bytes[..code_len]).to_string();
+                        
+                        // 检查代码过滤器
+                        if let Some(code_filter) = code_filter {
+                            if !code_filter.contains(&code) {
+                                return None;
+                            }
                         }
+                        
+                        // 获取指定列的因子值
+                        let factor_value = if column_index < record.factors.len() {
+                            record.factors[column_index]
+                        } else {
+                            f64::NAN
+                        };
+                        
+                        Some((record.date, code, factor_value))
                     }
-                    
-                    // 获取指定列的因子值
-                    let factor_value = if column_index < record.factors.len() {
-                        record.factors[column_index]
-                    } else {
-                        f64::NAN
-                    };
-                    
-                    Some((record.date, code, factor_value))
+                    Err(_) => {
+                        // 记录损坏，返回None
+                        None
+                    }
                 }
-                Err(_) => {
-                    // 记录损坏，返回None
-                    None
-                }
-            }
-        })
-        .collect();
+            })
+            .collect::<Vec<_>>()
+    });
+    
+    // 显式释放mmap
+    drop(mmap);
         
     let num_rows = results.len();
     let mut dates = Vec::with_capacity(num_rows);
@@ -2080,14 +2090,22 @@ pub fn run_pools_queue(
     if pending_tasks.is_empty() {
         // 所有任务都已完成，直接返回结果
         return if return_results_enabled {
-            if update_mode_enabled {
-                // update_mode下，只返回传入参数中涉及的日期和代码
-                let task_dates: HashSet<i64> = all_tasks_clone.iter().map(|t| t.date).collect();
-                let task_codes: HashSet<String> = all_tasks_clone.iter().map(|t| t.code.clone()).collect();
-                read_backup_results_with_filter(&backup_file, Some(&task_dates), Some(&task_codes))
-            } else {
-                read_backup_results(&backup_file)
-            }
+            // 使用自定义线程池避免资源竞争
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(std::cmp::min(rayon::current_num_threads(), 4))
+                .build()
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("创建读取线程池失败: {}", e)))?;
+            
+            pool.install(|| {
+                if update_mode_enabled {
+                    // update_mode下，只返回传入参数中涉及的日期和代码
+                    let task_dates: HashSet<i64> = all_tasks_clone.iter().map(|t| t.date).collect();
+                    let task_codes: HashSet<String> = all_tasks_clone.iter().map(|t| t.code.clone()).collect();
+                    read_backup_results_with_filter(&backup_file, Some(&task_dates), Some(&task_codes))
+                } else {
+                    read_backup_results(&backup_file)
+                }
+            })
         } else {
             println!("✅ 所有任务都已完成，不返回结果");
             Python::with_gil(|py| Ok(py.None()))
@@ -2260,14 +2278,23 @@ pub fn run_pools_queue(
     // 读取并返回最终结果
     if return_results_enabled {
         println!("📖 读取最终备份结果...");
-        if update_mode_enabled {
-            // update_mode下，只返回传入参数中涉及的日期和代码
-            let task_dates: HashSet<i64> = all_tasks_clone.iter().map(|t| t.date).collect();
-            let task_codes: HashSet<String> = all_tasks_clone.iter().map(|t| t.code.clone()).collect();
-            read_backup_results_with_filter(&backup_file, Some(&task_dates), Some(&task_codes))
-        } else {
-            read_backup_results(&backup_file)
-        }
+        
+        // 使用自定义线程池避免与全局线程池冲突
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(std::cmp::min(rayon::current_num_threads(), 4))
+            .build()
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("创建读取线程池失败: {}", e)))?;
+        
+        pool.install(|| {
+            if update_mode_enabled {
+                // update_mode下，只返回传入参数中涉及的日期和代码
+                let task_dates: HashSet<i64> = all_tasks_clone.iter().map(|t| t.date).collect();
+                let task_codes: HashSet<String> = all_tasks_clone.iter().map(|t| t.code.clone()).collect();
+                read_backup_results_with_filter(&backup_file, Some(&task_dates), Some(&task_codes))
+            } else {
+                read_backup_results(&backup_file)
+            }
+        })
     } else {
         println!("✅ 任务完成，不返回结果");
         Python::with_gil(|py| Ok(py.None()))
@@ -2285,7 +2312,8 @@ pub fn run_pools_queue(
 #[pyfunction]
 #[pyo3(signature = (backup_file, column_index))]
 pub fn query_backup_single_column(backup_file: String, column_index: usize) -> PyResult<PyObject> {
-    read_backup_results_single_column(&backup_file, column_index)
+    // 优先使用超高速版本
+    read_backup_results_single_column_ultra_fast_v2(&backup_file, column_index)
 }
 
 /// 查询备份文件中的指定列，支持过滤
@@ -2409,47 +2437,58 @@ fn read_backup_results_factor_only_with_filter(file_path: &str, column_index: us
         ));
     }
     
+    // 使用自定义线程池避免资源竞争和泄漏
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(std::cmp::min(rayon::current_num_threads(), 8))
+        .build()
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("创建线程池失败: {}", e)))?;
+    
     // 并行读取只获取因子值
     let records_start = HEADER_SIZE;
-    let factors: Vec<f64> = (0..record_count)
-        .into_par_iter()
-        .filter_map(|i| {
-            let record_offset = records_start + i * record_size;
-            let record_bytes = &mmap[record_offset..record_offset + record_size];
-            
-            match DynamicRecord::from_bytes(record_bytes, factor_count) {
-                Ok(record) => {
-                    // 检查日期过滤器
-                    if let Some(date_filter) = date_filter {
-                        if !date_filter.contains(&record.date) {
-                            return None;
+    let factors: Vec<f64> = pool.install(|| {
+        (0..record_count)
+            .into_par_iter()
+            .filter_map(|i| {
+                let record_offset = records_start + i * record_size;
+                let record_bytes = &mmap[record_offset..record_offset + record_size];
+                
+                match DynamicRecord::from_bytes(record_bytes, factor_count) {
+                    Ok(record) => {
+                        // 检查日期过滤器
+                        if let Some(date_filter) = date_filter {
+                            if !date_filter.contains(&record.date) {
+                                return None;
+                            }
                         }
-                    }
-                    
-                    // 检查代码过滤器
-                    if let Some(code_filter) = code_filter {
-                        let code_len = std::cmp::min(record.code_len as usize, 32);
-                        let code = String::from_utf8_lossy(&record.code_bytes[..code_len]).to_string();
                         
-                        if !code_filter.contains(&code) {
-                            return None;
+                        // 检查代码过滤器
+                        if let Some(code_filter) = code_filter {
+                            let code_len = std::cmp::min(record.code_len as usize, 32);
+                            let code = String::from_utf8_lossy(&record.code_bytes[..code_len]).to_string();
+                            
+                            if !code_filter.contains(&code) {
+                                return None;
+                            }
+                        }
+                        
+                        // 只返回指定列的因子值
+                        if column_index < record.factors.len() {
+                            Some(record.factors[column_index])
+                        } else {
+                            Some(f64::NAN)
                         }
                     }
-                    
-                    // 只返回指定列的因子值
-                    if column_index < record.factors.len() {
-                        Some(record.factors[column_index])
-                    } else {
+                    Err(_) => {
+                        // 记录损坏，返回NaN
                         Some(f64::NAN)
                     }
                 }
-                Err(_) => {
-                    // 记录损坏，返回NaN
-                    Some(f64::NAN)
-                }
-            }
-        })
-        .collect();
+            })
+            .collect()
+    });
+    
+    // 显式释放mmap
+    drop(mmap);
 
     // 创建numpy数组
     Python::with_gil(|py| {
@@ -2694,19 +2733,30 @@ fn read_backup_results_factor_only_ultra_fast(file_path: &str, column_index: usi
     let factor_base_offset = 8 + 8 + 8 + 4 + 4 + 32; // date + code_hash + timestamp + factor_count + code_len + code_bytes
     let factor_offset = factor_base_offset + column_index * 8;
     
+    // 使用自定义线程池避免资源竞争和泄漏
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(std::cmp::min(rayon::current_num_threads(), 16))
+        .build()
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("创建线程池失败: {}", e)))?;
+    
     // 并行读取所有因子值
-    let factors: Vec<f64> = (0..record_count)
-        .into_par_iter()
-        .map(|i| {
-            let record_offset = records_start + i * record_size;
-            
-            // 直接读取因子值，完全跳过其他字段的解析
-            unsafe {
-                let factor_ptr = mmap.as_ptr().add(record_offset + factor_offset) as *const f64;
-                *factor_ptr
-            }
-        })
-        .collect();
+    let factors: Vec<f64> = pool.install(|| {
+        (0..record_count)
+            .into_par_iter()
+            .map(|i| {
+                let record_offset = records_start + i * record_size;
+                
+                // 直接读取因子值，完全跳过其他字段的解析
+                unsafe {
+                    let factor_ptr = mmap.as_ptr().add(record_offset + factor_offset) as *const f64;
+                    *factor_ptr
+                }
+            })
+            .collect()
+    });
+    
+    // 显式释放mmap
+    drop(mmap);
     
     // 创建numpy数组
     Python::with_gil(|py| {
@@ -2727,4 +2777,170 @@ fn read_backup_results_factor_only_ultra_fast(file_path: &str, column_index: usi
 #[pyo3(signature = (backup_file, column_index))]
 pub fn query_backup_factor_only_ultra_fast(backup_file: String, column_index: usize) -> PyResult<PyObject> {
     read_backup_results_factor_only_ultra_fast(&backup_file, column_index)
+}
+
+/// 超高速查询备份文件中的指定列（完整版本v2）
+/// 直接字节偏移读取，避免完整记录解析
+fn read_backup_results_single_column_ultra_fast_v2(file_path: &str, column_index: usize) -> PyResult<PyObject> {
+    if !Path::new(file_path).exists() {
+        return Err(PyErr::new::<pyo3::exceptions::PyFileNotFoundError, _>(
+            "备份文件不存在"
+        ));
+    }
+    
+    let file = File::open(file_path)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("无法打开备份文件: {}", e)))?;
+    
+    let file_len = file.metadata()
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("无法获取文件元数据: {}", e)))?
+        .len() as usize;
+    
+    if file_len < HEADER_SIZE {
+        return read_backup_results_single_column(&file_path, column_index);
+    }
+    
+    // 内存映射
+    let mmap = unsafe { 
+        Mmap::map(&file)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("无法映射文件到内存: {}", e)))?
+    };
+    
+    // 读取文件头
+    let header = unsafe {
+        &*(mmap.as_ptr() as *const FileHeader)
+    };
+    
+    if &header.magic != b"RPBACKUP" {
+        return read_backup_results_single_column(&file_path, column_index);
+    }
+    
+    let record_count = header.record_count as usize;
+    if record_count == 0 {
+        return Python::with_gil(|py| {
+            let numpy = py.import("numpy")?;
+            let dict = pyo3::types::PyDict::new(py);
+            dict.set_item("date", numpy.call_method1("array", (Vec::<i64>::new(),))?)?;
+            dict.set_item("code", numpy.call_method1("array", (Vec::<String>::new(),))?)?;
+            dict.set_item("factor", numpy.call_method1("array", (Vec::<f64>::new(),))?)?;
+            Ok(dict.into())
+        });
+    }
+    
+    let record_size = header.record_size as usize;
+    let factor_count = header.factor_count as usize;
+    
+    // 检查列索引是否有效
+    if column_index >= factor_count {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            format!("列索引 {} 超出范围，因子列数为 {}", column_index, factor_count)
+        ));
+    }
+    
+    let calculated_record_size = calculate_record_size(factor_count);
+    if record_size != calculated_record_size {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+           format!("记录大小不匹配: 文件头显示 {}, 计算得到 {}. 文件可能损坏.", record_size, calculated_record_size)
+       ));
+    }
+
+    let expected_size = HEADER_SIZE + record_count * record_size;
+    if file_len < expected_size {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "备份文件似乎被截断了"
+        ));
+    }
+    
+    // 计算各字段在记录中的偏移量
+    // 记录格式: date(8) + code_hash(8) + timestamp(8) + factor_count(4) + code_len(4) + code_bytes(32) + factors(factor_count * 8)
+    let date_offset = 0;
+    let code_len_offset = 8 + 8 + 8 + 4; // date + code_hash + timestamp + factor_count
+    let code_bytes_offset = code_len_offset + 4; // + code_len
+    let factor_base_offset = 8 + 8 + 8 + 4 + 4 + 32; // date + code_hash + timestamp + factor_count + code_len + code_bytes
+    let factor_offset = factor_base_offset + column_index * 8;
+    
+    let records_start = HEADER_SIZE;
+    
+    // 使用更大的线程池以提高并行度
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(std::cmp::min(rayon::current_num_threads(), 16))
+        .build()
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("创建线程池失败: {}", e)))?;
+    
+    // 预先分配Vec避免多次重新分配
+    let mut dates = Vec::with_capacity(record_count);
+    let mut codes = Vec::with_capacity(record_count);
+    let mut factors = Vec::with_capacity(record_count);
+    
+    // 使用更大的批次来减少同步开销
+    const BATCH_SIZE: usize = 10000;
+    let num_batches = (record_count + BATCH_SIZE - 1) / BATCH_SIZE;
+    
+    pool.install(|| {
+        // 并行处理每个批次
+        let batch_results: Vec<Vec<(i64, String, f64)>> = (0..num_batches)
+            .into_par_iter()
+            .map(|batch_idx| {
+                let start_idx = batch_idx * BATCH_SIZE;
+                let end_idx = std::cmp::min(start_idx + BATCH_SIZE, record_count);
+                let mut batch_data = Vec::with_capacity(end_idx - start_idx);
+                
+                for i in start_idx..end_idx {
+                    let record_offset = records_start + i * record_size;
+                    
+                    // 直接读取日期
+                    let date = unsafe {
+                        let date_ptr = mmap.as_ptr().add(record_offset + date_offset) as *const i64;
+                        *date_ptr
+                    };
+                    
+                    // 直接读取代码长度
+                    let code_len = unsafe {
+                        let code_len_ptr = mmap.as_ptr().add(record_offset + code_len_offset) as *const u32;
+                        std::cmp::min(*code_len_ptr as usize, 32)
+                    };
+                    
+                    // 直接读取代码字节
+                    let code = unsafe {
+                        let code_bytes_ptr = mmap.as_ptr().add(record_offset + code_bytes_offset);
+                        let code_slice = std::slice::from_raw_parts(code_bytes_ptr, code_len);
+                        String::from_utf8_lossy(code_slice).into_owned()
+                    };
+                    
+                    // 直接读取因子值
+                    let factor = unsafe {
+                        let factor_ptr = mmap.as_ptr().add(record_offset + factor_offset) as *const f64;
+                        *factor_ptr
+                    };
+                    
+                    batch_data.push((date, code, factor));
+                }
+                
+                batch_data
+            })
+            .collect();
+        
+        // 合并所有批次结果
+        for batch in batch_results {
+            for (date, code, factor) in batch {
+                dates.push(date);
+                codes.push(code);
+                factors.push(factor);
+            }
+        }
+    });
+    
+    // 显式释放mmap
+    drop(mmap);
+    
+    // 创建Python字典
+    Python::with_gil(|py| {
+        let numpy = py.import("numpy")?;
+        let dict = pyo3::types::PyDict::new(py);
+
+        dict.set_item("date", numpy.call_method1("array", (dates,))?)?;
+        dict.set_item("code", numpy.call_method1("array", (codes,))?)?;
+        dict.set_item("factor", numpy.call_method1("array", (factors,))?)?;
+
+        Ok(dict.into())
+    })
 }
