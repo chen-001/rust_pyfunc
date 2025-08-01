@@ -12,7 +12,7 @@ use rayon::prelude::*;
 /// 4. 分层并行处理
 /// 5. 零拷贝数据传递
 #[pyfunction]
-#[pyo3(signature = (ask_order, bid_order, volume, exchtime, neighborhood_type = "fixed", fixed_range = 1000, percentage_range = 10.0))]
+#[pyo3(signature = (ask_order, bid_order, volume, exchtime, neighborhood_type = "fixed", fixed_range = 1000, percentage_range = 10.0, num_threads = 8))]
 pub fn order_neighborhood_analysis(
     ask_order: PyReadonlyArray1<i64>,
     bid_order: PyReadonlyArray1<i64>,
@@ -21,6 +21,7 @@ pub fn order_neighborhood_analysis(
     neighborhood_type: &str,
     fixed_range: i64,
     percentage_range: f64,
+    num_threads: usize,
 ) -> PyResult<(Py<PyArray2<f64>>, Vec<String>)> {
     let py = unsafe { Python::assume_gil_acquired() };
     
@@ -50,6 +51,7 @@ pub fn order_neighborhood_analysis(
         neighborhood_type,
         fixed_range,
         percentage_range,
+        num_threads,
     );
     
     // 超高效结果转换
@@ -97,28 +99,42 @@ fn hyper_optimized_analysis(
     neighborhood_type: &str,
     fixed_range: i64,
     percentage_range: f64,
+    num_threads: usize,
 ) -> Vec<[f64; 18]> {
     
-    // 8核并行池
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(8)
-        .build()
-        .unwrap_or_else(|_| rayon::ThreadPoolBuilder::new().build().unwrap());
-    
-    pool.install(|| {
-        // Step 1: 超快速聚合 - 并行分块
+    // 根据num_threads参数决定是否使用并行
+    if num_threads <= 1 {
+        // 串行处理
         let orders = ultra_fast_aggregate(ask_order, bid_order, volume, exchtime);
         
         if orders.is_empty() {
             return Vec::new();
         }
         
-        // Step 2: 预计算邻域索引表
-        let neighborhood_index = precompute_neighborhoods(&orders, neighborhood_type, fixed_range, percentage_range);
+        let neighborhood_index = precompute_neighborhoods_serial(&orders, neighborhood_type, fixed_range, percentage_range);
+        vectorized_batch_compute_serial(&orders, &neighborhood_index)
+    } else {
+        // 并行处理
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(num_threads)
+            .build()
+            .unwrap_or_else(|_| rayon::ThreadPoolBuilder::new().build().unwrap());
         
-        // Step 3: 批量向量化计算
-        vectorized_batch_compute(&orders, &neighborhood_index)
-    })
+        pool.install(|| {
+            // Step 1: 超快速聚合 - 并行分块
+            let orders = ultra_fast_aggregate(ask_order, bid_order, volume, exchtime);
+            
+            if orders.is_empty() {
+                return Vec::new();
+            }
+            
+            // Step 2: 预计算邻域索引表
+            let neighborhood_index = precompute_neighborhoods(&orders, neighborhood_type, fixed_range, percentage_range);
+            
+            // Step 3: 批量向量化计算
+            vectorized_batch_compute(&orders, &neighborhood_index)
+        })
+    }
 }
 
 /// 超快速聚合 - 最小化内存分配和Hash计算
@@ -252,6 +268,65 @@ fn precompute_neighborhoods(
     NeighborhoodIndex { same_neighbors, diff_neighbors }
 }
 
+/// 串行版本的邻域索引表预计算
+fn precompute_neighborhoods_serial(
+    orders: &[UltraCompactOrder],
+    neighborhood_type: &str,
+    fixed_range: i64,
+    percentage_range: f64,
+) -> NeighborhoodIndex {
+    
+    let orders_len = orders.len();
+    let mut same_neighbors = vec![Vec::new(); orders_len];
+    let mut diff_neighbors = vec![Vec::new(); orders_len];
+    
+    // 串行处理每个订单的邻域关系
+    for target_idx in 0..orders_len {
+        let target_order = &orders[target_idx];
+        
+        // 动态调整邻域范围
+        let base_range = match neighborhood_type {
+            "fixed" => fixed_range,
+            "percentage" => {
+                ((target_order.id as f64 * percentage_range / 100.0).abs() as i64).max(1)
+            },
+            _ => continue,
+        };
+        
+        let actual_range = base_range;
+        let (min_id, max_id) = (target_order.id - actual_range, target_order.id + actual_range);
+        
+        // 二分查找边界
+        let start_idx = binary_search_ge_ultra(orders, min_id);
+        let end_idx = binary_search_le_ultra(orders, max_id);
+        
+        if start_idx <= end_idx {
+            // 更保守的预分配策略，避免频繁realloc
+            let range_size = (end_idx - start_idx + 1).min(orders_len);
+            // 预分配更多空间，减少realloc次数
+            let estimated_same = range_size / 2;  // 假设一半是同向
+            let estimated_diff = range_size / 2;  // 假设一半是异向
+            
+            same_neighbors[target_idx].reserve(estimated_same);
+            diff_neighbors[target_idx].reserve(estimated_diff);
+            
+            // 收集所有在邻域范围内的邻居
+            for i in start_idx..=end_idx.min(orders_len - 1) {
+                let neighbor = &orders[i];
+                if neighbor.id == target_order.id { continue; }
+                
+                if neighbor.order_type == target_order.order_type {
+                    same_neighbors[target_idx].push(i as u32);
+                } else {
+                    diff_neighbors[target_idx].push(i as u32);
+                }
+            }
+        }
+    }
+    
+    NeighborhoodIndex { same_neighbors, diff_neighbors }
+}
+
 /// 向量化批量计算 - SIMD友好
 fn vectorized_batch_compute(
     orders: &[UltraCompactOrder],
@@ -263,6 +338,26 @@ fn vectorized_batch_compute(
     // 并行处理大块
     (0..orders_len)
         .into_par_iter()
+        .map(|target_idx| {
+            let target_order = &orders[target_idx];
+            let same_neighbors = &neighborhood_index.same_neighbors[target_idx];
+            let diff_neighbors = &neighborhood_index.diff_neighbors[target_idx];
+            
+            ultra_fast_compute_metrics(target_order, orders, same_neighbors, diff_neighbors)
+        })
+        .collect()
+}
+
+/// 串行版本的批量计算
+fn vectorized_batch_compute_serial(
+    orders: &[UltraCompactOrder],
+    neighborhood_index: &NeighborhoodIndex,
+) -> Vec<[f64; 18]> {
+    
+    let orders_len = orders.len();
+    
+    // 串行处理每个订单
+    (0..orders_len)
         .map(|target_idx| {
             let target_order = &orders[target_idx];
             let same_neighbors = &neighborhood_index.same_neighbors[target_idx];
@@ -375,7 +470,7 @@ fn ultra_fast_compute_metrics(
     metrics
 }
 
-/// 快速相关系数计算 - 修复数值溢出问题
+/// 快速相关系数计算 - 优化内存分配
 #[inline(always)]
 fn fast_correlation(
     target_order: &UltraCompactOrder,
@@ -388,7 +483,27 @@ fn fast_correlation(
     
     let target_time = target_order.time;
     
-    // 收集x和y值，避免大数乘法
+    // 使用栈上数组避免堆分配，对于小数组更高效
+    if n <= 128 {
+        let mut x_values = [0.0; 128];
+        let mut y_values = [0.0; 128];
+        
+        for (i, &idx) in neighbor_indices.iter().enumerate() {
+            let neighbor = unsafe { all_orders.get_unchecked(idx as usize) };
+            let x = if use_time_diff {
+                (neighbor.time - target_time).unsigned_abs() as f64
+            } else {
+                (neighbor.time as f64) / 1_000_000_000.0
+            };
+            let y = neighbor.volume as f64;
+            x_values[i] = x;
+            y_values[i] = y;
+        }
+        
+        return calculate_correlation_inline(&x_values[..n], &y_values[..n]);
+    }
+    
+    // 对于大数组，使用Vec但进行优化
     let mut x_values = Vec::with_capacity(n);
     let mut y_values = Vec::with_capacity(n);
     
@@ -397,31 +512,36 @@ fn fast_correlation(
         let x = if use_time_diff {
             (neighbor.time - target_time).unsigned_abs() as f64
         } else {
-            // 对绝对时间进行归一化，避免大数计算
-            (neighbor.time as f64) / 1_000_000_000.0  // 转换为秒
+            (neighbor.time as f64) / 1_000_000_000.0
         };
         let y = neighbor.volume as f64;
         x_values.push(x);
         y_values.push(y);
     }
     
-    // 计算均值
+    calculate_correlation_inline(&x_values, &y_values)
+}
+
+/// 内联相关系数计算，避免重复代码
+#[inline(always)]
+fn calculate_correlation_inline(x_values: &[f64], y_values: &[f64]) -> f64 {
+    let n = x_values.len();
     let n_f = n as f64;
-    let mean_x = x_values.iter().sum::<f64>() / n_f;
-    let mean_y = y_values.iter().sum::<f64>() / n_f;
     
-    // 计算协方差和方差
-    let mut cov = 0.0;
-    let mut var_x = 0.0;
-    let mut var_y = 0.0;
+    // 计算均值 - 使用更高效的方式
+    let (sum_x, sum_y) = x_values.iter().zip(y_values.iter())
+        .fold((0.0, 0.0), |(sx, sy), (&x, &y)| (sx + x, sy + y));
     
-    for i in 0..n {
-        let dx = x_values[i] - mean_x;
-        let dy = y_values[i] - mean_y;
-        cov += dx * dy;
-        var_x += dx * dx;
-        var_y += dy * dy;
-    }
+    let mean_x = sum_x / n_f;
+    let mean_y = sum_y / n_f;
+    
+    // 一次遍历计算协方差和方差
+    let (cov, var_x, var_y) = x_values.iter().zip(y_values.iter())
+        .fold((0.0, 0.0, 0.0), |(cov_acc, var_x_acc, var_y_acc), (&x, &y)| {
+            let dx = x - mean_x;
+            let dy = y - mean_y;
+            (cov_acc + dx * dy, var_x_acc + dx * dx, var_y_acc + dy * dy)
+        });
     
     let std_x = var_x.sqrt();
     let std_y = var_y.sqrt();

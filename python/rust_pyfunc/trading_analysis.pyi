@@ -238,7 +238,9 @@ def calculate_large_order_nearby_small_order_time_gap(
     exclude_same_time: bool = False,
     order_type: str = "small",
     flags: Optional[NDArray[np.int32]] = None,
-    flag_filter: str = "ignore"
+    flag_filter: str = "ignore",
+    only_after: bool = False,
+    large_to_large: bool = False
 ) -> NDArray[np.float64]:
     """计算每个大单与其临近订单之间的时间间隔均值。
 
@@ -268,6 +270,10 @@ def calculate_large_order_nearby_small_order_time_gap(
         - "same"：只计算与大单交易标志相同的订单的时间间隔
         - "diff"：只计算与大单交易标志不同的订单的时间间隔
         - "ignore"：忽略交易标志，计算所有符合条件的订单的时间间隔
+    only_after : bool, default=False
+        是否只计算大单与其之后的目标订单的时间间隔，True时忽略大单之前的订单
+    large_to_large : bool, default=False
+        是否计算大单与大单之间的时间间隔，True时目标订单改为大单而非小单
 
     返回值：
     -------
@@ -432,7 +438,8 @@ def order_neighborhood_analysis(
     exchtime: NDArray[np.int64],
     neighborhood_type: str = "fixed",
     fixed_range: int = 1000,
-    percentage_range: float = 10.0
+    percentage_range: float = 10.0,
+    num_threads: int = 8
 ) -> Tuple[NDArray[np.float64], List[str]]:
     """订单邻域分析函数
     
@@ -457,6 +464,8 @@ def order_neighborhood_analysis(
         固定范围值，当neighborhood_type="fixed"时使用
     percentage_range : float, default=10.0
         百分比范围值，当neighborhood_type="percentage"时使用
+    num_threads : int, default=8
+        并行线程数量，设置为1时使用串行处理，大于1时使用并行处理
         
     返回值：
     -------
