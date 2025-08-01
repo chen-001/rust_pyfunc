@@ -2310,7 +2310,7 @@ pub fn rolling_dtw_distance(
 }
 
 #[pyfunction]
-#[pyo3(signature = (volumes, exchtimes, large_quantile, small_quantile, near_number, exclude_same_time=false, order_type="small", flags=None, flag_filter="ignore"))]
+#[pyo3(signature = (volumes, exchtimes, large_quantile, small_quantile, near_number, exclude_same_time=false, order_type="small", flags=None, flag_filter="ignore", only_after=false, large_to_large=false))]
 pub fn calculate_large_order_nearby_small_order_time_gap(
     volumes: PyReadonlyArray1<f64>,
     exchtimes: PyReadonlyArray1<f64>,
@@ -2320,7 +2320,9 @@ pub fn calculate_large_order_nearby_small_order_time_gap(
     exclude_same_time: bool,
     order_type: &str,
     flags: Option<PyReadonlyArray1<i64>>,
-    flag_filter: &str
+    flag_filter: &str,
+    only_after: bool,
+    large_to_large: bool
 ) -> PyResult<Vec<f64>> {
     // 转换为Rust类型处理
     let volumes = volumes.as_array();
@@ -2380,29 +2382,35 @@ pub fn calculate_large_order_nearby_small_order_time_gap(
             is_large_order[i] = true;
         }
         
-        match order_type {
-            "small" => {
-                // 标记小单
-                if volumes[i] <= small_threshold {
-                    is_target_order[i] = true;
-                }
-            },
-            "mid" => {
-                // 标记中间订单
-                if volumes[i] > small_threshold && volumes[i] < large_threshold {
-                    is_target_order[i] = true;
-                }
-            },
-            "full" => {
-                // 标记所有小于large_threshold的订单
-                if volumes[i] < large_threshold {
-                    is_target_order[i] = true;
-                }
-            },
-            _ => {
-                // 默认为"small"，标记小单
-                if volumes[i] <= small_threshold {
-                    is_target_order[i] = true;
+        if large_to_large {
+            // 当large_to_large=true时，目标订单就是大单
+            is_target_order[i] = is_large_order[i];
+        } else {
+            // 原有逻辑：根据order_type标记目标订单
+            match order_type {
+                "small" => {
+                    // 标记小单
+                    if volumes[i] <= small_threshold {
+                        is_target_order[i] = true;
+                    }
+                },
+                "mid" => {
+                    // 标记中间订单
+                    if volumes[i] > small_threshold && volumes[i] < large_threshold {
+                        is_target_order[i] = true;
+                    }
+                },
+                "full" => {
+                    // 标记所有小于large_threshold的订单
+                    if volumes[i] < large_threshold {
+                        is_target_order[i] = true;
+                    }
+                },
+                _ => {
+                    // 默认为"small"，标记小单
+                    if volumes[i] <= small_threshold {
+                        is_target_order[i] = true;
+                    }
                 }
             }
         }
@@ -2423,27 +2431,29 @@ pub fn calculate_large_order_nearby_small_order_time_gap(
         // 获取当前大单的flag
         let large_flag = flags_vec[i];
         
-        // 查找前面的目标订单
-        let mut before_count = 0;
-        for j in (0..i).rev() {
-            if is_target_order[j] {
-                // 根据flag_filter判断是否满足条件
-                let flag_match = match flag_filter {
-                    "same" => flags_vec[j] == large_flag,
-                    "diff" => flags_vec[j] != large_flag,
-                    _ => true, // "ignore"或其他值，忽略flag判断
-                };
-                
-                if flag_match {
-                    let time_diff = (large_time - times[j]).abs();
-                    // 如果排除相同时间戳的订单，且时间差为0，则跳过
-                    if exclude_same_time && time_diff == 0.0 {
-                        continue;
-                    }
-                    time_gaps.push(time_diff);
-                    before_count += 1;
-                    if before_count >= near_number as i64 {
-                        break;
+        // 查找前面的目标订单（当only_after=true时跳过）
+        if !only_after {
+            let mut before_count = 0;
+            for j in (0..i).rev() {
+                if is_target_order[j] {
+                    // 根据flag_filter判断是否满足条件
+                    let flag_match = match flag_filter {
+                        "same" => flags_vec[j] == large_flag,
+                        "diff" => flags_vec[j] != large_flag,
+                        _ => true, // "ignore"或其他值，忽略flag判断
+                    };
+                    
+                    if flag_match {
+                        let time_diff = (large_time - times[j]).abs();
+                        // 如果排除相同时间戳的订单，且时间差为0，则跳过
+                        if exclude_same_time && time_diff == 0.0 {
+                            continue;
+                        }
+                        time_gaps.push(time_diff);
+                        before_count += 1;
+                        if before_count >= near_number as i64 {
+                            break;
+                        }
                     }
                 }
             }
