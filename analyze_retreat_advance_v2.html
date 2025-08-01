@@ -38,7 +38,7 @@
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>analyze_retreat_advance_v2(trade_times, trade_prices, trade_volumes, trade_flags, orderbook_times, orderbook_prices, orderbook_volumes, volume_percentile, time_window_minutes, breakthrough_threshold, dedup_time_seconds, find_local_lows) -> None</code>
+            <code>analyze_retreat_advance_v2(trade_times, trade_prices, trade_volumes, trade_flags, orderbook_times, orderbook_prices, orderbook_volumes, volume_percentile, time_window_minutes, breakthrough_threshold, dedup_time_seconds, find_local_lows, interval_mode) -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -117,6 +117,12 @@
                     <div><p>是否查找局部低点，默认为False（查找局部高点）。 当为True时，分析"以进为退"现象：价格跌至局部低点后反弹，在该价格的异常大买单量消失后成功跌破该价格</p></div>
                 </div>
                 
+                <div class="parameter">
+                    <span class="parameter-name">interval_mode</span>
+                    <span class="parameter-type">(str, optional)</span>
+                    <div><p>区间选择模式，默认为"full"。可选值： - "full": 完整的"高点-低点-高点"过程（默认） - "retreat": "高点-低点"过程，从局部高点到该段中的最低点 - "advance": "低点-高点"过程，从局部低点到该段中的最高点</p></div>
+                </div>
+                
             
         </div>
         
@@ -145,17 +151,23 @@ trade_flags = [66.0, 66.0, 83.0]</p>
 <p>orderbook_times = [1661743800000000000.0, 1661743860000000000.0]
 orderbook_prices = [10.0, 10.1]
 orderbook_volumes = [1000.0, 5000.0]</p>
-<h1>分析"以退为进"现象，使用2分钟时间窗口，0.1%突破阈值，60秒去重时间</h1>
+<h1>分析完整的"以退为进"现象，使用2分钟时间窗口，0.1%突破阈值，60秒去重时间</h1>
 <p>results = analyze_retreat_advance_v2(
     trade_times, trade_prices, trade_volumes, trade_flags,
     orderbook_times, orderbook_prices, orderbook_volumes,
-    volume_percentile=95.0, time_window_minutes=2.0, breakthrough_threshold=0.1, dedup_time_seconds=60.0, find_local_lows=False
+    volume_percentile=95.0, time_window_minutes=2.0, breakthrough_threshold=0.1, dedup_time_seconds=60.0, find_local_lows=False, interval_mode="full"
 )</p>
-<h1>分析"以进为退"现象（局部低点版本）</h1>
-<p>results_lows = analyze_retreat_advance_v2(
+<h1>分析"高点-低点"过程</h1>
+<p>results_retreat = analyze_retreat_advance_v2(
     trade_times, trade_prices, trade_volumes, trade_flags,
     orderbook_times, orderbook_prices, orderbook_volumes,
-    volume_percentile=95.0, time_window_minutes=2.0, breakthrough_threshold=0.1, dedup_time_seconds=60.0, find_local_lows=True
+    volume_percentile=95.0, time_window_minutes=2.0, dedup_time_seconds=60.0, find_local_lows=False, interval_mode="retreat"
+)</p>
+<h1>分析"低点-高点"过程</h1>
+<p>results_advance = analyze_retreat_advance_v2(
+    trade_times, trade_prices, trade_volumes, trade_flags,
+    orderbook_times, orderbook_prices, orderbook_volumes,
+    volume_percentile=95.0, time_window_minutes=2.0, dedup_time_seconds=60.0, find_local_lows=True, interval_mode="advance"
 )</p>
 <p>process_volumes, large_volumes, time_window_volumes, buy_ratios, price_counts, max_changes, process_durations, process_start_times, extreme_prices = results
 ```</p></div>
