@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>order_contamination_bilateral - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>order_contamination_bilateral</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>双边订单浸染函数 - 分别处理买单和卖单的浸染</p>
+<h1>参数</h1>
+<ul>
+<li>exchtime: 成交时间数组（纳秒）</li>
+<li>bid_order: 买单编号数组</li>
+<li>ask_order: 卖单编号数组  </li>
+<li>volume: 成交量数组</li>
+<li>top_percentile: 大单百分比阈值 (1-100)，表示前x%，默认10表示前10%</li>
+<li>time_window_seconds: 时间窗口（秒），默认1秒</li>
+</ul>
+<h1>返回</h1>
+<p>(浸染后的买单编号数组, 浸染后的卖单编号数组)</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>order_contamination_bilateral(exchtime, bid_order, ask_order, volume, top_percentile, time_window_seconds) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                <p>此函数没有参数</p>
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import order_contamination_bilateral
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>
