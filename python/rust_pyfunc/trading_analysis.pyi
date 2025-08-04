@@ -369,6 +369,71 @@ def order_contamination_parallel(
     """
     ...
 
+def order_contamination_bilateral(
+    exchtime: NDArray[np.int64],
+    bid_order: NDArray[np.int64],
+    ask_order: NDArray[np.int64],
+    volume: NDArray[np.int64],
+    top_percentile: float = 10.0,
+    time_window_seconds: float = 1.0
+) -> Tuple[NDArray[np.int64], NDArray[np.int64]]:
+    """双边订单浸染函数
+    
+    分别处理买单和卖单的浸染过程：
+    - 对于每个大买单，将时间临近的卖单非大单设置为浸染单
+    - 对于每个大卖单，将时间临近的买单非大单设置为浸染单
+    
+    该函数基于原order_contamination函数的核心算法，但同时处理买卖双边订单，
+    实现更精细的订单浸染分析。
+    
+    参数说明：
+    ----------
+    exchtime : NDArray[np.int64]
+        成交时间数组（纳秒）
+    bid_order : NDArray[np.int64]
+        买单编号数组
+    ask_order : NDArray[np.int64]
+        卖单编号数组
+    volume : NDArray[np.int64]
+        成交量数组
+    top_percentile : float, default=10.0
+        大单百分比阈值（1-100），默认10.0表示前10%
+    time_window_seconds : float, default=1.0
+        时间窗口（秒），默认1秒
+        
+    返回值：
+    -------
+    Tuple[NDArray[np.int64], NDArray[np.int64]]
+        返回元组：(浸染后的买单编号数组, 浸染后的卖单编号数组)
+        
+    算法逻辑：
+    ----------
+    1. 分别计算买单和卖单的大单阈值（基于各自的成交量分布）
+    2. 对大买单浸染过程：
+       - 识别所有大买单位置
+       - 对每个卖单非大单，查找时间窗口内最近的大买单
+       - 将该卖单编号替换为最近大买单编号
+    3. 对大卖单浸染过程：
+       - 识别所有大卖单位置  
+       - 对每个买单非大单，查找时间窗口内最近的大卖单
+       - 将该买单编号替换为最近大卖单编号
+    4. 返回浸染后的买单和卖单编号数组
+    
+    使用场景：
+    ----------
+    适用于分析大单对市场的双边影响，特别是：
+    - 大买单对卖方流动性的影响
+    - 大卖单对买方流动性的影响
+    - 买卖双方订单的相互浸染效应
+    
+    性能特点：
+    ----------
+    - 使用二分查找优化时间窗口搜索
+    - 预计算大单位置避免重复判断
+    - 时间复杂度：O(n log n + m * log n)，其中n为总记录数，m为大单数
+    """
+    ...
+
 def trade_peak_analysis(
     exchtime: NDArray[np.int64],
     volume: NDArray[np.float64],

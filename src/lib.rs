@@ -96,6 +96,7 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(parallel_computing::query_backup_factor_only_ultra_fast, m)?)?;
     m.add_function(wrap_pyfunction!(order_contamination::order_contamination, m)?)?;
     m.add_function(wrap_pyfunction!(order_contamination::order_contamination_parallel, m)?)?;
+    m.add_function(wrap_pyfunction!(order_contamination::order_contamination_bilateral, m)?)?;
     m.add_function(wrap_pyfunction!(trade_peak_analysis::trade_peak_analysis, m)?)?;
     m.add_function(wrap_pyfunction!(order_neighborhood::order_neighborhood_analysis, m)?)?;
     m.add_function(wrap_pyfunction!(trade_records_ultra_sorted::calculate_trade_time_gap_and_price_percentile_ultra_sorted, m)?)?;

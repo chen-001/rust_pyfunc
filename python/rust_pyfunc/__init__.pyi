@@ -98,6 +98,7 @@ __all__ = [
     "calculate_large_order_nearby_small_order_time_gap",
     "order_contamination",
     "order_contamination_parallel",
+    "order_contamination_bilateral",
     "trade_peak_analysis",
     "order_neighborhood_analysis",
     "calculate_trade_time_gap_and_price_percentile_ultra_sorted",
