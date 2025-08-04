@@ -739,6 +739,23 @@ print(f"加速比: {time1/time2:.2f}倍")
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="order_contamination_bilateral.html">order_contamination_bilateral</a></h3>
+                <div><p>双边订单浸染函数 - 分别处理买单和卖单的浸染</p>
+<h1>参数</h1>
+<ul>
+<li>exchtime: 成交时间数组（纳秒）</li>
+<li>bid_order: 买单编号数组</li>
+<li>ask_order: 卖单编号数组  </li>
+<li>volume: 成交量数组</li>
+<li>top_percentile: 大单百分比阈值 (1-100)，表示前x%，默认10表示前10%</li>
+<li>time_window_seconds: 时间窗口（秒），默认1秒</li>
+</ul>
+<h1>返回</h1>
+<p>(浸染后的买单编号数组, 浸染后的卖单编号数组)</p></div>
+                <a href="order_contamination_bilateral.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="order_contamination_parallel.html">order_contamination_parallel</a></h3>
                 <div><p>并行版本的订单浸染函数（使用5核心，适用于大数据量）</p></div>
                 <a href="order_contamination_parallel.html">查看详情</a>
