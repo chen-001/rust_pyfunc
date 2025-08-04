@@ -176,7 +176,7 @@ def rolling_window_stat(
     stat_type: str,
     include_current: bool = True
 ) -> NDArray[np.float64]:
-    """计算滚动窗口统计量。
+    """计算向后滚动窗口统计量。
     
     参数说明：
     ----------
@@ -185,9 +185,38 @@ def rolling_window_stat(
     values : NDArray[np.float64]
         数值数组
     window_size : float
-        窗口大小
+        窗口大小（单位：秒）
     stat_type : str
-        统计类型（"mean", "std", "min", "max"等）
+        统计类型（"mean", "sum", "max", "min", "std", "median", "count", "rank", "skew", "trend_time", "trend_oneton", "last"）
+    include_current : bool
+        是否包含当前点
+        
+    返回值：
+    -------
+    NDArray[np.float64]
+        滚动统计量数组
+    """
+    ...
+
+def rolling_window_stat_backward(
+    times: NDArray[np.float64],
+    values: NDArray[np.float64], 
+    window_size: float,
+    stat_type: str,
+    include_current: bool = True
+) -> NDArray[np.float64]:
+    """计算向前滚动窗口统计量。
+    
+    参数说明：
+    ----------
+    times : NDArray[np.float64]
+        时间数组
+    values : NDArray[np.float64]
+        数值数组
+    window_size : float
+        窗口大小（单位：秒）
+    stat_type : str
+        统计类型（"mean", "sum", "max", "min", "std", "median", "count", "rank", "skew", "trend_time", "trend_oneton", "first", "last"）
     include_current : bool
         是否包含当前点
         

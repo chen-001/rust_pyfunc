@@ -1,5 +1,6 @@
 from rust_pyfunc.rust_pyfunc import *
 from .rolling_future import RollingFutureAccessor
+from .rolling_past import RollingPastAccessor
 from .treevisual import PriceTreeViz,haha
 from .pandas_corrwith import corrwith
 from .pandas_rank import rank_axis1_df, rank_axis0_df, fast_rank, fast_rank_axis1, fast_rank_axis0
