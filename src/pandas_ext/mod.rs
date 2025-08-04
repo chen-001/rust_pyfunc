@@ -1441,6 +1441,426 @@ fn fast_inner_join_arrays(
     result
 }
 
+/// 计算时间序列在指定时间窗口内向前滚动的统计量。
+/// 对于每个时间点，计算该点之前指定时间窗口内所有数据的指定统计量。
+///
+/// 参数说明：
+/// ----------
+/// times : array_like
+///     时间戳数组（单位：秒）
+/// values : array_like
+///     数值数组
+/// window : float
+///     时间窗口大小（单位：秒）
+/// stat_type : str
+///     统计量类型，可选值：
+///     - "mean": 均值
+///     - "sum": 总和
+///     - "max": 最大值
+///     - "min": 最小值
+///     - "first": 时间窗口内第一个值
+///     - "last": 时间窗口内最后一个值
+///     - "std": 标准差
+///     - "median": 中位数
+///     - "count": 数据点数量
+///     - "rank": 分位数（0到1之间）
+///     - "skew": 偏度
+///     - "trend_time": 与时间序列的相关系数
+///     - "trend_oneton": 与1到n序列的相关系数（时间间隔）
+/// * `include_current` - 是否包含当前时间点的值
+///
+/// 返回值：
+/// -------
+/// numpy.ndarray
+///     计算得到的向前滚动统计量数组
+///
+/// Python调用示例：
+/// ```python
+/// import numpy as np
+/// from rust_pyfunc import rolling_window_stat_backward
+///
+/// # 创建示例数据
+/// times = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
+/// values = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+/// window = 2.0  # 2秒的时间窗口
+///
+/// # 计算向前滚动均值
+/// mean_result = rolling_window_stat_backward(times, values, window, "mean")
+/// ```
+#[pyfunction]
+pub fn rolling_window_stat_backward(times: Vec<f64>, values: Vec<f64>, window: f64, stat_type: &str, include_current: bool) -> Vec<f64> {
+    let n = times.len();
+    if n == 0 {
+        return vec![];
+    }
+    
+    let window_ns = window;
+    let mut result = vec![f64::NAN; n];
+    
+    match stat_type {
+        "mean" | "sum" => {
+            // O(n) 滑动窗口算法 - 向前滚动版本
+            let mut window_sum = 0.0;
+            let mut window_count = 0;
+            let mut left = 0; // 窗口左边界
+            
+            for i in 0..n {
+                let current_time = times[i];
+                let start_time = current_time - window_ns;
+                
+                // 移除窗口左侧超出时间范围的值
+                while left < i && times[left] < start_time {
+                    window_sum -= values[left];
+                    window_count -= 1;
+                    left += 1;
+                }
+                
+                // 如果 include_current 为 true，添加当前值
+                let mut final_sum = window_sum;
+                let mut final_count = window_count;
+                
+                if include_current && times[i] >= start_time {
+                    final_sum += values[i];
+                    final_count += 1;
+                }
+                
+                // 计算结果
+                if final_count > 0 {
+                    if stat_type == "mean" {
+                        result[i] = final_sum / final_count as f64;
+                    } else {
+                        result[i] = final_sum;
+                    }
+                }
+                
+                // 为下一次迭代准备：如果当前值在窗口内，将其添加到维护的状态中
+                if times[i] >= start_time {
+                    window_sum += values[i];
+                    window_count += 1;
+                }
+            }
+        },
+        "count" => {
+            // O(n) 算法 - 使用滑动窗口技术
+            let mut window_count = 0;
+            let mut left = 0; // 窗口左边界
+            
+            for i in 0..n {
+                let current_time = times[i];
+                let start_time = current_time - window_ns;
+                
+                // 移除窗口左侧超出时间范围的值
+                while left < i && times[left] < start_time {
+                    window_count -= 1;
+                    left += 1;
+                }
+                
+                // 如果 include_current 为 true，添加当前值
+                let mut final_count = window_count;
+                if include_current && times[i] >= start_time {
+                    final_count += 1;
+                }
+                
+                result[i] = final_count as f64;
+                
+                // 为下一次迭代准备：如果当前值在窗口内，将其添加到维护的状态中
+                if times[i] >= start_time {
+                    window_count += 1;
+                }
+            }
+        },
+        "first" => {
+            // O(n) 算法 - 使用双指针技术
+            let mut left = 0; // 窗口左边界
+            
+            for i in 0..n {
+                let current_time = times[i];
+                let start_time = current_time - window_ns;
+                
+                // 移动左边界到窗口内的第一个有效位置
+                while left < i && times[left] < start_time {
+                    left += 1;
+                }
+                
+                // 确定窗口内的第一个值
+                if include_current && times[i] >= start_time {
+                    // 包含当前值时，first是窗口内最早的值或者当前值（如果窗口内没有其他值）
+                    if left < i {
+                        result[i] = values[left];
+                    } else {
+                        result[i] = values[i];
+                    }
+                } else {
+                    // 不包含当前值时，first是窗口内最早的值
+                    if left < i {
+                        result[i] = values[left];
+                    }
+                }
+            }
+        },
+        "last" => {
+            // O(n) 算法 
+            let mut left = 0; // 窗口左边界
+            
+            for i in 0..n {
+                let current_time = times[i];
+                let start_time = current_time - window_ns;
+                
+                // 移动左边界到窗口内的第一个有效位置
+                while left < i && times[left] < start_time {
+                    left += 1;
+                }
+                
+                // 确定窗口内的最后一个值
+                if include_current && times[i] >= start_time {
+                    result[i] = values[i];
+                } else if left < i {
+                    // 不包含当前值时，找到窗口内最后一个值
+                    for j in (left..i).rev() {
+                        if times[j] >= start_time {
+                            result[i] = values[j];
+                            break;
+                        }
+                    }
+                }
+            }
+        },
+        "max" | "min" => {
+            // 对于max/min，暂时保持原有实现，后续可以优化为使用单调队列
+            for i in 0..n {
+                let current_time = times[i];
+                let start_time = current_time - window_ns;
+                let mut extremum = if stat_type == "max" { f64::NEG_INFINITY } else { f64::INFINITY };
+                let mut found = false;
+                
+                for j in 0..=i {
+                    if !include_current && j == i {
+                        continue;
+                    }
+                    if times[j] >= start_time {
+                        found = true;
+                        if stat_type == "max" {
+                            extremum = extremum.max(values[j]);
+                        } else {
+                            extremum = extremum.min(values[j]);
+                        }
+                    }
+                }
+                
+                if found {
+                    result[i] = extremum;
+                }
+            }
+        },
+        "std" => {
+            // O(n) 算法 - 使用滑动窗口维护sum和sum_sq
+            let mut window_sum = 0.0;
+            let mut window_sum_sq = 0.0;
+            let mut window_count = 0;
+            let mut left = 0; // 窗口左边界
+            
+            for i in 0..n {
+                let current_time = times[i];
+                let start_time = current_time - window_ns;
+                
+                // 移除窗口左侧超出时间范围的值
+                while left < i && times[left] < start_time {
+                    let val = values[left];
+                    window_sum -= val;
+                    window_sum_sq -= val * val;
+                    window_count -= 1;
+                    left += 1;
+                }
+                
+                // 如果 include_current 为 true，添加当前值
+                let mut final_sum = window_sum;
+                let mut final_sum_sq = window_sum_sq;
+                let mut final_count = window_count;
+                
+                if include_current && times[i] >= start_time {
+                    let val = values[i];
+                    final_sum += val;
+                    final_sum_sq += val * val;
+                    final_count += 1;
+                }
+                
+                // 计算标准差
+                if final_count > 1 {
+                    let mean = final_sum / final_count as f64;
+                    let variance = (final_sum_sq - final_count as f64 * mean * mean) / (final_count - 1) as f64;
+                    
+                    if variance > 0.0 {
+                        result[i] = variance.sqrt();
+                    }
+                }
+                
+                // 为下一次迭代准备：如果当前值在窗口内，将其添加到维护的状态中
+                if times[i] >= start_time {
+                    let val = values[i];
+                    window_sum += val;
+                    window_sum_sq += val * val;
+                    window_count += 1;
+                }
+            }
+        },
+        "median" => {
+            // median需要排序，保持原有O(n²)实现
+            for i in 0..n {
+                let current_time = times[i];
+                let start_time = current_time - window_ns;
+                let mut window_values = Vec::new();
+                
+                for j in 0..=i {
+                    if !include_current && j == i {
+                        continue;
+                    }
+                    if times[j] >= start_time {
+                        window_values.push(values[j]);
+                    }
+                }
+                
+                if !window_values.is_empty() {
+                    window_values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                    let len = window_values.len();
+                    if len % 2 == 0 {
+                        result[i] = (window_values[len/2 - 1] + window_values[len/2]) / 2.0;
+                    } else {
+                        result[i] = window_values[len/2];
+                    }
+                }
+            }
+        },
+        "rank" => {
+            // rank需要排序，保持原有O(n²)实现
+            for i in 0..n {
+                let current_time = times[i];
+                let start_time = current_time - window_ns;
+                let mut window_values = Vec::new();
+                
+                for j in 0..=i {
+                    if times[j] >= start_time {
+                        window_values.push(values[j]);
+                    }
+                }
+                
+                if window_values.len() > 1 {
+                    let current_value = values[i];
+                    window_values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                    
+                    match window_values.binary_search_by(|x| x.partial_cmp(&current_value).unwrap_or(std::cmp::Ordering::Equal)) {
+                        Ok(pos) => {
+                            result[i] = pos as f64 / (window_values.len() - 1) as f64;
+                        },
+                        Err(pos) => {
+                            result[i] = pos as f64 / (window_values.len() - 1) as f64;
+                        }
+                    }
+                }
+            }
+        },
+        "skew" => {
+            for i in 0..n {
+                let current_time = times[i];
+                let start_time = current_time - window_ns;
+                let mut window_values = Vec::new();
+                
+                for j in 0..=i {
+                    if !include_current && j == i {
+                        continue;
+                    }
+                    if times[j] >= start_time {
+                        window_values.push(values[j]);
+                    }
+                }
+                
+                if window_values.len() > 2 {
+                    let mean = window_values.iter().sum::<f64>() / window_values.len() as f64;
+                    let m2 = window_values.iter().map(|&x| (x - mean).powi(2)).sum::<f64>();
+                    let m3 = window_values.iter().map(|&x| (x - mean).powi(3)).sum::<f64>();
+                    
+                    let variance = m2 / window_values.len() as f64;
+                    if variance > 0.0 {
+                        let std_dev = variance.sqrt();
+                        result[i] = (m3 / window_values.len() as f64) / (std_dev * std_dev * std_dev);
+                    }
+                }
+            }
+        },
+        "trend_time" => {
+            for i in 0..n {
+                let current_time = times[i];
+                let start_time = current_time - window_ns;
+                let mut window_times = Vec::new();
+                let mut window_values = Vec::new();
+                
+                for j in 0..=i {
+                    if !include_current && j == i {
+                        continue;
+                    }
+                    if times[j] >= start_time {
+                        window_times.push(times[j]);
+                        window_values.push(values[j]);
+                    }
+                }
+                
+                if window_values.len() > 1 {
+                    let n = window_values.len() as f64;
+                    let sum_x = window_times.iter().sum::<f64>();
+                    let sum_y = window_values.iter().sum::<f64>();
+                    let sum_xy = window_times.iter().zip(window_values.iter()).map(|(&x, &y)| x * y).sum::<f64>();
+                    let sum_xx = window_times.iter().map(|&x| x * x).sum::<f64>();
+                    let sum_yy = window_values.iter().map(|&y| y * y).sum::<f64>();
+                    
+                    let cov = sum_xy - sum_x * sum_y / n;
+                    let var_x = sum_xx - sum_x * sum_x / n;
+                    let var_y = sum_yy - sum_y * sum_y / n;
+                    
+                    if var_x > 0.0 && var_y > 0.0 {
+                        result[i] = cov / (var_x.sqrt() * var_y.sqrt());
+                    }
+                }
+            }
+        },
+        "trend_oneton" => {
+            for i in 0..n {
+                let current_time = times[i];
+                let start_time = current_time - window_ns;
+                let mut window_values = Vec::new();
+                
+                for j in 0..=i {
+                    if !include_current && j == i {
+                        continue;
+                    }
+                    if times[j] >= start_time {
+                        window_values.push(values[j]);
+                    }
+                }
+                
+                if window_values.len() > 1 {
+                    let n = window_values.len() as f64;
+                    let sum_y = window_values.iter().sum::<f64>();
+                    let sum_yy = window_values.iter().map(|&y| y * y).sum::<f64>();
+                    let sum_xy = window_values.iter().enumerate().map(|(idx, &y)| (idx + 1) as f64 * y).sum::<f64>();
+                    
+                    let mean_y = sum_y / n;
+                    let mean_x = (n + 1.0) / 2.0;
+                    
+                    let cov = sum_xy - n * mean_x * mean_y;
+                    let var_y = sum_yy - n * mean_y * mean_y;
+                    let var_x = (n * n - 1.0) / 12.0;
+                    
+                    if var_x > 0.0 && var_y > 0.0 {
+                        result[i] = cov / (var_x.sqrt() * var_y.sqrt());
+                    }
+                }
+            }
+        },
+        _ => panic!("不支持的统计类型: {}", stat_type),
+    }
+    
+    result
+}
+
 /// 高性能merge函数，支持字符串和数值类型的连接键
 #[pyfunction]
 #[pyo3(signature = (left_data, right_data, left_keys, right_keys, how="inner"))]

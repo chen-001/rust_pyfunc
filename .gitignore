@@ -195,6 +195,7 @@ Thumbs.db
 # AI assistants and tools
 .cursor/
 .windsurf/
+.crush/
 AGENT.md
 
 # Logs
