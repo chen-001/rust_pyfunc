@@ -17,6 +17,7 @@ pub mod trade_records_ultra_sorted;
 pub mod order_records_ultra_sorted;
 pub mod market_correlation;
 pub mod entropy_analysis;
+pub mod factor_neutralization;
 
 
 
@@ -117,6 +118,7 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(entropy_analysis::calculate_entropy_discrete_2d, m)?)?;
     m.add_function(wrap_pyfunction!(entropy_analysis::calculate_binned_entropy_1d, m)?)?;
     m.add_function(wrap_pyfunction!(entropy_analysis::calculate_binned_entropy_2d, m)?)?;
+    m.add_function(wrap_pyfunction!(factor_neutralization::batch_factor_neutralization, m)?)?;
     // m.add_function(wrap_pyfunction!(text::normalized_diff, m)?)?;
     Ok(())
 }
