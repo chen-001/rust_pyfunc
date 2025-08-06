@@ -54,6 +54,11 @@
     ]
   },
   {
+    "name": "batch_factor_neutralization",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
     "name": "brachistochrone_curve",
     "description": "<p>计算最速曲线（投掷线）并返回x_series对应的y坐标</p>",
     "params": [
