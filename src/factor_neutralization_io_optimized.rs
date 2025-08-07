@@ -311,7 +311,7 @@ fn compute_regression_matrix_io_optimized(style_matrix: &DMatrix<f64>) -> PyResu
 }
 
 /// I/O优化的因子文件加载
-fn load_factor_file_io_optimized(file_path: &Path) -> PyResult<IOOptimizedFactorData> {
+fn load_factor_file_io_optimized(file_path: &Path, log_detailed: bool) -> PyResult<IOOptimizedFactorData> {
     let start_time = Instant::now();
     
     // 获取文件元数据
@@ -439,7 +439,12 @@ fn load_factor_file_io_optimized(file_path: &Path) -> PyResult<IOOptimizedFactor
     let load_time = start_time.elapsed();
     let mb_per_sec = (file_size as f64 / 1024.0 / 1024.0) / load_time.as_secs_f64();
     
-    // 文件加载完成 - 详细日志已移除，避免日志过多
+    // 根据log_detailed参数决定是否输出详细日志
+    if log_detailed {
+        println!("✅ I/O优化因子文件加载: {}, {}行x{}列, {:.3}s, {:.1}MB/s", 
+                 file_path.file_name().unwrap().to_string_lossy(),
+                 n_dates, n_stocks, load_time.as_secs_f64(), mb_per_sec);
+    }
 
     Ok(IOOptimizedFactorData {
         dates,
@@ -551,6 +556,7 @@ pub fn batch_factor_neutralization_io_optimized(
     factor_files_dir: &str,
     output_dir: &str,
     num_threads: Option<usize>,
+    log_detailed: Option<bool>,
 ) -> PyResult<()> {
     let start_time = Instant::now();
     println!("🚀 开始I/O优化版批量因子中性化处理...");
@@ -677,9 +683,10 @@ pub fn batch_factor_neutralization_io_optimized(
                 let processed_counter = Arc::clone(&processed_counter);
                 let error_counter = Arc::clone(&error_counter);
 
+                let file_start_time = Instant::now();
                 let result = (|| -> PyResult<()> {
                     // 使用I/O优化版本加载因子数据
-                    let factor_data = load_factor_file_io_optimized(&file_path)?;
+                    let factor_data = load_factor_file_io_optimized(&file_path, log_detailed.unwrap_or(false))?;
 
                     // 执行中性化处理
                     let neutralized_result = neutralize_single_factor_io_optimized(factor_data, &style_data)?;
@@ -694,6 +701,20 @@ pub fn batch_factor_neutralization_io_optimized(
 
                     Ok(())
                 })();
+
+                // 条件化详细日志输出
+                if log_detailed.unwrap_or(false) {
+                    let file_time = file_start_time.elapsed();
+                    if let Err(e) = &result {
+                        eprintln!("❌ I/O优化处理失败: {} ({:.3}s) - {}", 
+                                 file_path.file_name().unwrap().to_string_lossy(),
+                                 file_time.as_secs_f64(), e);
+                    } else {
+                        println!("✅ I/O优化完成: {} ({:.3}s)", 
+                                file_path.file_name().unwrap().to_string_lossy(),
+                                file_time.as_secs_f64());
+                    }
+                }
 
                 // 更新计数器
                 processed_counter.fetch_add(1, Ordering::Relaxed);

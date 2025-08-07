@@ -1522,7 +1522,8 @@ def batch_factor_neutralization_io_optimized(
     style_data_path: str,
     factor_files_dir: str,
     output_dir: str,
-    num_threads: Optional[int] = None
+    num_threads: Optional[int] = None,
+    log_detailed: Optional[bool] = None
 ) -> None:
     """🔄 批量因子中性化函数 - I/O性能优化版本
     
@@ -1564,6 +1565,12 @@ def batch_factor_neutralization_io_optimized(
         - None: 自动选择最优线程数（通常为CPU核心数）
         - 建议范围：2-16，针对I/O密集场景优化
         - 过高的线程数可能导致磁盘I/O竞争
+        
+    log_detailed : Optional[bool], default=None
+        日志详细程度控制
+        - None 或 False: 简洁进度模式（每分钟显示总体进度）
+        - True: 详细日志模式（显示每个文件的处理结果）
+        - 建议：大批量处理时使用简洁模式，调试时使用详细模式
     
     🚀 性能特点：
     -----------
