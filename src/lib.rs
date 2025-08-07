@@ -18,6 +18,12 @@ pub mod order_records_ultra_sorted;
 pub mod market_correlation;
 pub mod entropy_analysis;
 pub mod factor_neutralization;
+pub mod factor_neutralization_optimized;
+pub mod factor_neutralization_io_optimized;
+pub mod factor_neutralization_math_optimized_simple;
+pub mod factor_neutralization_parallel_optimized;
+pub mod factor_neutralization_ultimate_optimized;
+pub mod factor_neutralization_simple_fallback;
 
 
 
@@ -119,6 +125,12 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(entropy_analysis::calculate_binned_entropy_1d, m)?)?;
     m.add_function(wrap_pyfunction!(entropy_analysis::calculate_binned_entropy_2d, m)?)?;
     m.add_function(wrap_pyfunction!(factor_neutralization::batch_factor_neutralization, m)?)?;
+    m.add_function(wrap_pyfunction!(factor_neutralization_optimized::batch_factor_neutralization_optimized, m)?)?;
+    m.add_function(wrap_pyfunction!(factor_neutralization_io_optimized::batch_factor_neutralization_io_optimized, m)?)?;
+    m.add_function(wrap_pyfunction!(factor_neutralization_math_optimized_simple::batch_factor_neutralization_simple_math_optimized, m)?)?;
+    m.add_function(wrap_pyfunction!(factor_neutralization_parallel_optimized::batch_factor_neutralization_parallel_optimized, m)?)?;
+    m.add_function(wrap_pyfunction!(factor_neutralization_ultimate_optimized::batch_factor_neutralization_ultimate_optimized, m)?)?;
+    m.add_function(wrap_pyfunction!(factor_neutralization_simple_fallback::batch_factor_neutralization_simple_fallback, m)?)?;
     // m.add_function(wrap_pyfunction!(text::normalized_diff, m)?)?;
     Ok(())
 }
