@@ -256,7 +256,8 @@ fn execute_io_optimized_strategy(
         style_data_path,
         factor_files_dir,
         output_dir,
-        Some(num_threads)
+        Some(num_threads),
+        None  // 使用默认的日志模式
     )
 }
 
