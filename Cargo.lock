@@ -1507,7 +1507,7 @@ dependencies = [
 
 [[package]]
 name = "rust_pyfunc"
-version = "0.34.0"
+version = "0.34.1"
 dependencies = [
  "arrow",
  "base64 0.21.7",

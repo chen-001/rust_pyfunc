@@ -128,6 +128,15 @@ __all__ = [
     "fast_join",
     "fast_merge_dataframe",
     
+    # 因子中性化函数
+    "batch_factor_neutralization",
+    "batch_factor_neutralization_optimized",
+    "batch_factor_neutralization_io_optimized", 
+    "batch_factor_neutralization_simple_math_optimized",
+    "batch_factor_neutralization_parallel_optimized",
+    "batch_factor_neutralization_ultimate_optimized",
+    "batch_factor_neutralization_simple_fallback",
+    
     # Web管理器
     "BackupWebManager",
     "check_port_available",
