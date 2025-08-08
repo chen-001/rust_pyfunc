@@ -14,6 +14,7 @@ use rayon::prelude::*;
 use std::sync::Arc;
 use std::time::Instant;
 use std::sync::atomic::{AtomicBool, Ordering};
+use chrono::Local;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskParam {
@@ -2216,9 +2217,10 @@ pub fn run_pools_queue(
                 let remaining_h = remaining_secs / 3600;
                 let remaining_m = (remaining_secs % 3600) / 60;
                 let remaining_s = remaining_secs % 60;
-
-                print!("\r💾 第 {}/{} 次备份，存{}个结果。已用{}小时{}分钟{}秒，预余{}小时{}分钟{}秒", 
-                       batch_count, total_batches, batch_results.len(),
+                
+                let current_time = Local::now().format("%Y-%m-%d %H:%M:%S");
+                print!("\r[{}] 💾 第 {}/{} 次备份，存{}个结果。已用{}小时{}分钟{}秒，预余{}小时{}分钟{}秒", 
+                       current_time, batch_count, total_batches, batch_results.len(),
                        elapsed_h, elapsed_m, elapsed_s,
                        remaining_h, remaining_m, remaining_s);
                 io::stdout().flush().unwrap(); // 强制刷新输出缓冲区

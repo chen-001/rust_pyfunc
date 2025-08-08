@@ -8,9 +8,11 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, atomic::{AtomicUsize, Ordering}};
 use std::time::{Instant, Duration};
 use std::thread;
+use chrono::Local;
 use arrow::array::{Array, Float64Array, Int32Array, Int64Array, StringArray};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use std::fs::File;
+use std::io::{self,Read, Write};
 
 /// I/O优化的风格数据结构
 pub struct IOOptimizedStyleData {
@@ -635,9 +637,11 @@ pub fn batch_factor_neutralization_io_optimized(
             
             // 显示进度：有处理进展或者已经运行超过5秒
             if processed > 0 || elapsed.as_secs() >= 5 {
-                println!("📊 处理进度: {}/{} ({:.1}%) - 成功: {}, 失败: {} - 已用时间: {} - 预计剩余: {}", 
-                         processed, total_files, progress_percent, 
+                let current_time = Local::now().format("%Y-%m-%d %H:%M:%S");
+                print!("\r[{}] 📊 处理进度: {}/{} ({:.1}%) - 成功: {}, 失败: {} - 已用时间: {} - 预计剩余: {}", 
+                         current_time, processed, total_files, progress_percent, 
                          success_count, errors, elapsed_time_str, remaining_time_str);
+                io::stdout().flush().unwrap();
             }
         }
     });
