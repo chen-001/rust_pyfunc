@@ -260,7 +260,15 @@ fn find_local_extremes_v2(prices: &ndarray::ArrayView1<f64>, find_lows: bool) ->
 /// 计算数组的百分位数
 fn calculate_percentile_v2(values: &ndarray::ArrayView1<f64>, percentile: f64) -> f64 {
     let mut sorted_values: Vec<f64> = values.iter().copied().collect();
-    sorted_values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    // 使用安全的比较函数处理NaN和Infinity
+    sorted_values.sort_by(|a, b| {
+        match (a.is_finite(), b.is_finite()) {
+            (true, true) => a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal),
+            (true, false) => std::cmp::Ordering::Less,    // 有限值排在无限值前面
+            (false, true) => std::cmp::Ordering::Greater, // 无限值排在有限值后面
+            (false, false) => std::cmp::Ordering::Equal,  // 都是无限值，视为相等
+        }
+    });
     
     let index = (sorted_values.len() as f64 * percentile / 100.0) as usize;
     let index = index.min(sorted_values.len() - 1);
@@ -698,8 +706,19 @@ fn deduplicate_local_peaks_v2(
             deduplicated_peaks.push(indices[0]);
         } else {
             // 如果该价格有多个局部高点，进行时间聚类
-            // 按时间排序
-            indices.sort_by(|&a, &b| trade_times[a].partial_cmp(&trade_times[b]).unwrap());
+            // 按时间排序 - 使用安全的比较函数处理NaN和Infinity
+            indices.sort_by(|&a, &b| {
+                let time_a = trade_times[a];
+                let time_b = trade_times[b];
+                
+                // 处理NaN和Infinity的情况
+                match (time_a.is_finite(), time_b.is_finite()) {
+                    (true, true) => time_a.partial_cmp(&time_b).unwrap_or(std::cmp::Ordering::Equal),
+                    (true, false) => std::cmp::Ordering::Less,    // 有限值排在无限值前面
+                    (false, true) => std::cmp::Ordering::Greater, // 无限值排在有限值后面
+                    (false, false) => std::cmp::Ordering::Equal,  // 都是无限值，视为相等
+                }
+            });
             
             let mut clusters = Vec::new();
             let mut current_cluster = vec![indices[0]];
