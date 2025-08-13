@@ -1,6 +1,7 @@
 use pyo3::prelude::*;
 use numpy::{PyArray2, PyReadonlyArray1};
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
 use rayon::prelude::*;
 
 /// 超级高速订单邻域分析函数 - 为13万数据优化
@@ -12,7 +13,7 @@ use rayon::prelude::*;
 /// 4. 分层并行处理
 /// 5. 零拷贝数据传递
 #[pyfunction]
-#[pyo3(signature = (ask_order, bid_order, volume, exchtime, neighborhood_type = "fixed", fixed_range = 1000, percentage_range = 10.0, num_threads = 8))]
+#[pyo3(signature = (ask_order, bid_order, volume, exchtime, neighborhood_type = "fixed", fixed_range = 1000, percentage_range = 10.0, num_threads = 8, timeout_ms = None))]
 pub fn order_neighborhood_analysis(
     ask_order: PyReadonlyArray1<i64>,
     bid_order: PyReadonlyArray1<i64>,
@@ -22,7 +23,8 @@ pub fn order_neighborhood_analysis(
     fixed_range: i64,
     percentage_range: f64,
     num_threads: usize,
-) -> PyResult<(Py<PyArray2<f64>>, Vec<String>)> {
+    timeout_ms: Option<u64>,
+) -> PyResult<Option<(Py<PyArray2<f64>>, Vec<String>)>> {
     let py = unsafe { Python::assume_gil_acquired() };
     
     let ask_slice = ask_order.as_array();
@@ -39,8 +41,12 @@ pub fn order_neighborhood_analysis(
     
     if n == 0 {
         let empty_result = PyArray2::zeros(py, (0, 18), false);
-        return Ok((empty_result.to_owned(), get_column_names()));
+        return Ok(Some((empty_result.to_owned(), get_column_names())));
     }
+    
+    // 设置超时开始时间
+    let start_time = Instant::now();
+    let timeout_duration = timeout_ms.map(Duration::from_millis);
     
     // 调用超级高速算法
     let results = hyper_optimized_analysis(
@@ -52,7 +58,15 @@ pub fn order_neighborhood_analysis(
         fixed_range,
         percentage_range,
         num_threads,
+        timeout_duration,
+        start_time,
     );
+    
+    // 检查是否返回None（超时）
+    let results = match results {
+        Some(r) => r,
+        None => return Ok(None), // 超时返回None
+    };
     
     // 超高效结果转换
     let num_orders = results.len();
@@ -70,7 +84,7 @@ pub fn order_neighborhood_analysis(
         }
     }
     
-    Ok((result_array.to_owned(), get_column_names()))
+    Ok(Some((result_array.to_owned(), get_column_names())))
 }
 
 /// 超紧凑订单结构 - 32字节对齐
@@ -100,7 +114,9 @@ fn hyper_optimized_analysis(
     fixed_range: i64,
     percentage_range: f64,
     num_threads: usize,
-) -> Vec<[f64; 18]> {
+    timeout_duration: Option<Duration>,
+    start_time: Instant,
+) -> Option<Vec<[f64; 18]>> {
     
     // 根据num_threads参数决定是否使用并行
     if num_threads <= 1 {
@@ -108,11 +124,33 @@ fn hyper_optimized_analysis(
         let orders = ultra_fast_aggregate(ask_order, bid_order, volume, exchtime);
         
         if orders.is_empty() {
-            return Vec::new();
+            return Some(Vec::new());
         }
         
-        let neighborhood_index = precompute_neighborhoods_serial(&orders, neighborhood_type, fixed_range, percentage_range);
-        vectorized_batch_compute_serial(&orders, &neighborhood_index)
+        // 检查超时
+        if let Some(timeout) = timeout_duration {
+            if start_time.elapsed() > timeout {
+                return None;
+            }
+        }
+        
+        let neighborhood_index = precompute_neighborhoods_serial(&orders, neighborhood_type, fixed_range, percentage_range, timeout_duration, start_time);
+        
+        // 检查是否在邻域计算过程中超时
+        let neighborhood_index = match neighborhood_index {
+            Some(idx) => idx,
+            None => return None,
+        };
+        
+        // 检查超时
+        if let Some(timeout) = timeout_duration {
+            if start_time.elapsed() > timeout {
+                return None;
+            }
+        }
+        
+        let results = vectorized_batch_compute_serial(&orders, &neighborhood_index, timeout_duration, start_time);
+        results
     } else {
         // 并行处理
         let pool = rayon::ThreadPoolBuilder::new()
@@ -125,14 +163,35 @@ fn hyper_optimized_analysis(
             let orders = ultra_fast_aggregate(ask_order, bid_order, volume, exchtime);
             
             if orders.is_empty() {
-                return Vec::new();
+                return Some(Vec::new());
+            }
+            
+            // 检查超时
+            if let Some(timeout) = timeout_duration {
+                if start_time.elapsed() > timeout {
+                    return None;
+                }
             }
             
             // Step 2: 预计算邻域索引表
-            let neighborhood_index = precompute_neighborhoods(&orders, neighborhood_type, fixed_range, percentage_range);
+            let neighborhood_index = precompute_neighborhoods(&orders, neighborhood_type, fixed_range, percentage_range, timeout_duration, start_time);
+            
+            // 检查是否在邻域计算过程中超时
+            let neighborhood_index = match neighborhood_index {
+                Some(idx) => idx,
+                None => return None,
+            };
+            
+            // 检查超时
+            if let Some(timeout) = timeout_duration {
+                if start_time.elapsed() > timeout {
+                    return None;
+                }
+            }
             
             // Step 3: 批量向量化计算
-            vectorized_batch_compute(&orders, &neighborhood_index)
+            let results = vectorized_batch_compute(&orders, &neighborhood_index, timeout_duration, start_time);
+            results
         })
     }
 }
@@ -211,7 +270,9 @@ fn precompute_neighborhoods(
     neighborhood_type: &str,
     fixed_range: i64,
     percentage_range: f64,
-) -> NeighborhoodIndex {
+    timeout_duration: Option<Duration>,
+    start_time: Instant,
+) -> Option<NeighborhoodIndex> {
     
     let orders_len = orders.len();
     let mut same_neighbors = vec![Vec::new(); orders_len];
@@ -219,11 +280,33 @@ fn precompute_neighborhoods(
     
     // 移除邻居数量限制，完全按照邻域范围计算所有邻居
     
-    // 并行预计算邻域关系 - 增加智能限制
+    // 使用std的Arc和Mutex来实现带超时检查的并行处理
+    use std::sync::{Arc, Mutex};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    
+    let timeout_exceeded = Arc::new(AtomicBool::new(false));
+    let timeout_check_counter = Arc::new(Mutex::new(0usize));
+    
+    // 并行预计算邻域关系 - 增加超时检查
     same_neighbors.par_iter_mut()
         .zip(diff_neighbors.par_iter_mut())
         .enumerate()
-        .for_each(|(target_idx, (same_vec, diff_vec))| {
+        .try_for_each(|(target_idx, (same_vec, diff_vec))| -> Result<(), ()> {
+            // 每处理100个订单检查一次超时
+            if target_idx % 100 == 0 {
+                if let Some(timeout) = timeout_duration {
+                    if start_time.elapsed() > timeout {
+                        timeout_exceeded.store(true, Ordering::Relaxed);
+                        return Err(()); // 提前退出
+                    }
+                }
+            }
+            
+            // 如果其他线程检测到超时，立即退出
+            if timeout_exceeded.load(Ordering::Relaxed) {
+                return Err(());
+            }
+            
             let target_order = &orders[target_idx];
             
             // 动态调整邻域范围 - 如果订单密度太高则缩小范围
@@ -232,7 +315,7 @@ fn precompute_neighborhoods(
                 "percentage" => {
                     ((target_order.id as f64 * percentage_range / 100.0).abs() as i64).max(1)
                 },
-                _ => return,
+                _ => return Ok(()), // 继续处理下一个
             };
             
             // 移除有问题的动态范围调整，使用原始范围
@@ -263,9 +346,16 @@ fn precompute_neighborhoods(
                     }
                 }
             }
+            
+            Ok(())
         });
     
-    NeighborhoodIndex { same_neighbors, diff_neighbors }
+    // 检查是否因为超时而提前退出
+    if timeout_exceeded.load(Ordering::Relaxed) {
+        return None;
+    }
+    
+    Some(NeighborhoodIndex { same_neighbors, diff_neighbors })
 }
 
 /// 串行版本的邻域索引表预计算
@@ -274,7 +364,9 @@ fn precompute_neighborhoods_serial(
     neighborhood_type: &str,
     fixed_range: i64,
     percentage_range: f64,
-) -> NeighborhoodIndex {
+    timeout_duration: Option<Duration>,
+    start_time: Instant,
+) -> Option<NeighborhoodIndex> {
     
     let orders_len = orders.len();
     let mut same_neighbors = vec![Vec::new(); orders_len];
@@ -282,6 +374,15 @@ fn precompute_neighborhoods_serial(
     
     // 串行处理每个订单的邻域关系
     for target_idx in 0..orders_len {
+        // 每处理100个订单检查一次超时
+        if target_idx % 100 == 0 {
+            if let Some(timeout) = timeout_duration {
+                if start_time.elapsed() > timeout {
+                    return None; // 超时返回None
+                }
+            }
+        }
+        
         let target_order = &orders[target_idx];
         
         // 动态调整邻域范围
@@ -324,48 +425,91 @@ fn precompute_neighborhoods_serial(
         }
     }
     
-    NeighborhoodIndex { same_neighbors, diff_neighbors }
+    Some(NeighborhoodIndex { same_neighbors, diff_neighbors })
 }
 
 /// 向量化批量计算 - SIMD友好
 fn vectorized_batch_compute(
     orders: &[UltraCompactOrder],
     neighborhood_index: &NeighborhoodIndex,
-) -> Vec<[f64; 18]> {
+    timeout_duration: Option<Duration>,
+    start_time: Instant,
+) -> Option<Vec<[f64; 18]>> {
     
     let orders_len = orders.len();
     
-    // 并行处理大块
-    (0..orders_len)
+    // 使用原子变量来实现带超时检查的并行处理
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    
+    let timeout_exceeded = Arc::new(AtomicBool::new(false));
+    
+    // 并行处理大块，每处理100个项目检查一次超时
+    let result: Result<Vec<[f64; 18]>, ()> = (0..orders_len)
         .into_par_iter()
         .map(|target_idx| {
+            // 每处理100个检查一次超时
+            if target_idx % 100 == 0 {
+                if let Some(timeout) = timeout_duration {
+                    if start_time.elapsed() > timeout {
+                        timeout_exceeded.store(true, Ordering::Relaxed);
+                        return Err(());
+                    }
+                }
+            }
+            
+            // 如果其他线程检测到超时，立即退出
+            if timeout_exceeded.load(Ordering::Relaxed) {
+                return Err(());
+            }
+            
             let target_order = &orders[target_idx];
             let same_neighbors = &neighborhood_index.same_neighbors[target_idx];
             let diff_neighbors = &neighborhood_index.diff_neighbors[target_idx];
             
-            ultra_fast_compute_metrics(target_order, orders, same_neighbors, diff_neighbors)
+            let metrics = ultra_fast_compute_metrics(target_order, orders, same_neighbors, diff_neighbors);
+            Ok(metrics)
         })
-        .collect()
+        .collect();
+    
+    match result {
+        Ok(metrics) => Some(metrics),
+        Err(_) => None, // 超时了
+    }
 }
 
 /// 串行版本的批量计算
 fn vectorized_batch_compute_serial(
     orders: &[UltraCompactOrder],
     neighborhood_index: &NeighborhoodIndex,
-) -> Vec<[f64; 18]> {
+    timeout_duration: Option<Duration>,
+    start_time: Instant,
+) -> Option<Vec<[f64; 18]>> {
     
     let orders_len = orders.len();
     
-    // 串行处理每个订单
-    (0..orders_len)
-        .map(|target_idx| {
-            let target_order = &orders[target_idx];
-            let same_neighbors = &neighborhood_index.same_neighbors[target_idx];
-            let diff_neighbors = &neighborhood_index.diff_neighbors[target_idx];
-            
-            ultra_fast_compute_metrics(target_order, orders, same_neighbors, diff_neighbors)
-        })
-        .collect()
+    // 串行处理每个订单，带超时检查
+    let mut results = Vec::with_capacity(orders_len);
+    
+    for target_idx in 0..orders_len {
+        // 每处理100个检查一次超时
+        if target_idx % 100 == 0 {
+            if let Some(timeout) = timeout_duration {
+                if start_time.elapsed() > timeout {
+                    return None; // 超时返回None
+                }
+            }
+        }
+        
+        let target_order = &orders[target_idx];
+        let same_neighbors = &neighborhood_index.same_neighbors[target_idx];
+        let diff_neighbors = &neighborhood_index.diff_neighbors[target_idx];
+        
+        let metrics = ultra_fast_compute_metrics(target_order, orders, same_neighbors, diff_neighbors);
+        results.push(metrics);
+    }
+    
+    Some(results)
 }
 
 /// 超快速指标计算 - 内联所有操作，极致性能优化

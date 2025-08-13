@@ -511,8 +511,9 @@ def order_neighborhood_analysis(
     neighborhood_type: str = "fixed",
     fixed_range: int = 1000,
     percentage_range: float = 10.0,
-    num_threads: int = 8
-) -> Tuple[NDArray[np.float64], List[str]]:
+    num_threads: int = 8,
+    timeout_ms: Optional[int] = None
+) -> Optional[Tuple[NDArray[np.float64], List[str]]]:
     """订单邻域分析函数
     
     分析订单编号的邻域关系，计算每个订单与其邻居订单的成交量、时间差值等统计指标。
@@ -538,12 +539,18 @@ def order_neighborhood_analysis(
         百分比范围值，当neighborhood_type="percentage"时使用
     num_threads : int, default=8
         并行线程数量，设置为1时使用串行处理，大于1时使用并行处理
+    timeout_ms : Optional[int], default=None
+        超时时间（毫秒），当函数运行时间超过此值时，自动返回None。
+        如果为None，则不设置超时限制
         
     返回值：
     -------
-    Tuple[NDArray[np.float64], List[str]]
-        第一个元素：N行18列的分析结果矩阵
-        第二个元素：包含18个特征名称的字符串列表
+    Optional[Tuple[NDArray[np.float64], List[str]]]
+        如果函数成功完成，返回包含两个元素的元组：
+        - 第一个元素：N行18列的分析结果矩阵
+        - 第二个元素：包含18个特征名称的字符串列表
+        
+        如果函数运行超时，返回None
         
         18个特征列分别为：
         列0: 订单编号 - 订单ID
