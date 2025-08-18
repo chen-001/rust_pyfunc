@@ -54,98 +54,13 @@
     ]
   },
   {
-    "name": "analyze_sequence_permutations_numpy",
-    "description": "<p>无文档</p>",
-    "params": []
-  },
-  {
-    "name": "analyze_sequence_permutations_optimized",
-    "description": "<p>无文档</p>",
-    "params": []
-  },
-  {
-    "name": "analyze_sequence_permutations_optimized_final",
-    "description": "<p>无文档</p>",
-    "params": []
-  },
-  {
-    "name": "analyze_sequence_permutations_optimized_ultimate",
-    "description": "<p>无文档</p>",
-    "params": []
-  },
-  {
-    "name": "analyze_sequence_permutations_optimized_v1",
-    "description": "<p>无文档</p>",
-    "params": []
-  },
-  {
-    "name": "analyze_sequence_permutations_optimized_v2",
-    "description": "<p>无文档</p>",
-    "params": []
-  },
-  {
-    "name": "analyze_sequence_permutations_optimized_v3",
-    "description": "<p>无文档</p>",
-    "params": []
-  },
-  {
-    "name": "analyze_sequence_permutations_optimized_v5",
-    "description": "<p>无文档</p>",
-    "params": []
-  },
-  {
-    "name": "analyze_sequence_permutations_v0816",
-    "description": "<p>无文档</p>",
-    "params": []
-  },
-  {
     "name": "analyze_sequence_permutations_v0816_fixed",
-    "description": "<p>无文档</p>",
-    "params": []
-  },
-  {
-    "name": "analyze_sequence_permutations_v0816_optimized",
-    "description": "<p>无文档</p>",
-    "params": []
-  },
-  {
-    "name": "analyze_sequence_permutations_v0816_ultra",
-    "description": "<p>无文档</p>",
-    "params": []
-  },
-  {
-    "name": "batch_factor_neutralization",
     "description": "<p>无文档</p>",
     "params": []
   },
   {
     "name": "batch_factor_neutralization_io_optimized",
     "description": "<p>I/O优化的批量因子中性化函数</p>",
-    "params": []
-  },
-  {
-    "name": "batch_factor_neutralization_optimized",
-    "description": "<p>优化的批量因子中性化函数 - 主入口</p>",
-    "params": []
-  },
-  {
-    "name": "batch_factor_neutralization_parallel_optimized",
-    "description": "<p>主要的并行优化批量因子中性化函数</p>",
-    "params": []
-  },
-  {
-    "name": "batch_factor_neutralization_simple_fallback",
-    "description": "<p>简化回退版本批量因子中性化主函数</p>",
-    "params": []
-  },
-  {
-    "name": "batch_factor_neutralization_simple_math_optimized",
-    "description": "<p>简化数学优化批量因子中性化主函数</p>",
-    "params": []
-  },
-  {
-    "name": "batch_factor_neutralization_ultimate_optimized",
-    "description": "<p>终极优化的批量因子中性化函数\n智能选择最佳优化策略</p>",
     "params": []
   },
   {
