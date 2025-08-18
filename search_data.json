@@ -54,6 +54,66 @@
     ]
   },
   {
+    "name": "analyze_sequence_permutations_numpy",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "analyze_sequence_permutations_optimized",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "analyze_sequence_permutations_optimized_final",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "analyze_sequence_permutations_optimized_ultimate",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "analyze_sequence_permutations_optimized_v1",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "analyze_sequence_permutations_optimized_v2",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "analyze_sequence_permutations_optimized_v3",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "analyze_sequence_permutations_optimized_v5",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "analyze_sequence_permutations_v0816",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "analyze_sequence_permutations_v0816_fixed",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "analyze_sequence_permutations_v0816_optimized",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "analyze_sequence_permutations_v0816_ultra",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
     "name": "batch_factor_neutralization",
     "description": "<p>无文档</p>",
     "params": []
@@ -254,6 +314,36 @@
     "description": "<p>超快速计算相关性矩阵，进一步优化版本。\n采用SIMD优化和更好的内存访问模式。</p>",
     "params": [
       "data",
+      "method",
+      "min_periods",
+      "max_workers"
+    ]
+  },
+  {
+    "name": "fast_correlation_matrix_v2_df",
+    "description": "<p>超快速计算DataFrame的相关性矩阵，进一步优化版本</p>\n<p>这是rust_pyfunc.fast_correlation_matrix_v2的DataFrame封装版本，可以直接传入DataFrame\n并返回保持原有列名作为索引和列名的相关性矩阵DataFrame。</p>",
+    "params": [
+      "df",
+      "method",
+      "min_periods",
+      "max_workers"
+    ]
+  },
+  {
+    "name": "fast_correlation_matrix_v2_df",
+    "description": "<p>超快速计算DataFrame的相关性矩阵，进一步优化版本</p>\n<p>这是rust_pyfunc.fast_correlation_matrix_v2的DataFrame封装版本，可以直接传入DataFrame\n并返回保持原有列名作为索引和列名的相关性矩阵DataFrame。</p>",
+    "params": [
+      "df",
+      "method",
+      "min_periods",
+      "max_workers"
+    ]
+  },
+  {
+    "name": "fast_correlation_matrix_v2_df",
+    "description": "<p>超快速计算DataFrame的相关性矩阵，进一步优化版本</p>\n<p>这是rust_pyfunc.fast_correlation_matrix_v2的DataFrame封装版本，可以直接传入DataFrame\n并返回保持原有列名作为索引和列名的相关性矩阵DataFrame。</p>",
+    "params": [
+      "df",
       "method",
       "min_periods",
       "max_workers"
