@@ -1,6 +1,6 @@
 use pyo3::prelude::*;
 use numpy::{IntoPyArray, PyArray2, PyReadonlyArray2};
-use ndarray::{Array1, Array2, ArrayView2};
+use ndarray::Array2;
 use rayon::prelude::*;
 use std::sync::Arc;
 
@@ -204,7 +204,7 @@ fn compute_correlation_simd_optimized(
     // 否则需要找到共同有效的位置
     let mut valid_pairs = Vec::new();
     
-    for (idx, (&val_i, &val_j)) in col_i.iter().zip(col_j.iter()).enumerate() {
+    for (_idx, (&val_i, &val_j)) in col_i.iter().zip(col_j.iter()).enumerate() {
         if !val_i.is_nan() && !val_j.is_nan() {
             valid_pairs.push((val_i, val_j));
         }

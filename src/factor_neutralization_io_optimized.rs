@@ -12,7 +12,7 @@ use chrono::Local;
 use arrow::array::{Array, Float64Array, Int32Array, Int64Array, StringArray};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use std::fs::File;
-use std::io::{self,Read, Write};
+use std::io::{self, Write};
 
 /// I/O优化的风格数据结构
 pub struct IOOptimizedStyleData {
@@ -265,7 +265,7 @@ impl IOOptimizedStyleData {
     
     /// 优化的单日数据转换
     fn convert_date_data_optimized(
-        date: i64, 
+        _date: i64, 
         stock_data: Vec<(String, Vec<f64>)>
     ) -> PyResult<IOOptimizedStyleDayData> {
         let n_stocks = stock_data.len();

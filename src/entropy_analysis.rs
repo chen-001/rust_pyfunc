@@ -1,9 +1,9 @@
 use pyo3::prelude::*;
-use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
+use numpy::{IntoPyArray, PyReadonlyArray1, PyReadonlyArray2};
 use std::collections::HashMap;
 
 #[pyfunction]
-pub fn calculate_entropy_1d(py: Python, data: PyReadonlyArray1<f64>) -> PyResult<f64> {
+pub fn calculate_entropy_1d(_py: Python, data: PyReadonlyArray1<f64>) -> PyResult<f64> {
     let data = data.as_array();
     
     if data.is_empty() {
@@ -108,7 +108,7 @@ fn calculate_entropy_for_slice(data: &[f64]) -> f64 {
 }
 
 #[pyfunction]
-pub fn calculate_entropy_discrete_1d(py: Python, data: PyReadonlyArray1<i64>) -> PyResult<f64> {
+pub fn calculate_entropy_discrete_1d(_py: Python, data: PyReadonlyArray1<i64>) -> PyResult<f64> {
     let data = data.as_array();
     
     if data.is_empty() {
@@ -204,7 +204,7 @@ fn calculate_entropy_for_discrete_slice(data: &[i64]) -> f64 {
 
 #[pyfunction]
 pub fn calculate_binned_entropy_1d(
-    py: Python, 
+    _py: Python, 
     data: PyReadonlyArray1<f64>,
     n_bins: usize,
     bin_method: Option<&str>

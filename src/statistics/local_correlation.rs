@@ -62,6 +62,7 @@ pub fn local_correlation(
 }
 
 /// 高性能相关性计算引擎
+#[allow(dead_code)]
 struct CorrelationEngine {
     n: usize,
     window_size: usize,
@@ -84,6 +85,7 @@ struct CorrelationEngine {
 }
 
 /// 预分配的内存池，避免运行时分配
+#[allow(dead_code)]
 struct MemoryPool {
     // 窗口数据缓冲区
     window_buffer: Vec<f64>,
@@ -99,6 +101,7 @@ struct MemoryPool {
 }
 
 /// 紧凑的窗口数据存储，优化内存局部性
+#[allow(dead_code)]
 struct CompactWindowStorage {
     // 所有窗口数据的连续存储
     data: Vec<f64>,
@@ -113,6 +116,7 @@ struct CompactWindowStorage {
 }
 
 /// 相关性结果缓存
+#[allow(dead_code)]
 struct CorrelationCache {
     // 相关性矩阵 - 使用紧凑键
     matrix: HashMap<u64, f64>,
@@ -425,6 +429,7 @@ impl CorrelationEngine {
     }
     
     /// 从缓存存储中获取窗口数据
+    #[allow(dead_code)]
     fn get_window_data_cached(&self, idx: usize) -> Option<Vec<f64>> {
         if idx >= self.n || self.window_storage.stats[idx].is_none() {
             return None;
@@ -437,6 +442,7 @@ impl CorrelationEngine {
     
     /// 生成缓存键 - 使用位操作优化
     #[inline]
+    #[allow(dead_code)]
     fn generate_cache_key(&self, idx1: usize, idx2: usize) -> u64 {
         // 使用位操作创建唯一键，假设索引不超过32位
         ((idx1 as u64) << 32) | (idx2 as u64)
@@ -597,6 +603,7 @@ struct CorrelationStats {
 
 /// 优化的窗口统计信息
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct WindowStats {
     mean: f64,
     std_dev: f64,

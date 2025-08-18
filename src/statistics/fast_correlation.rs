@@ -1,6 +1,6 @@
 use pyo3::prelude::*;
 use numpy::{IntoPyArray, PyArray2, PyReadonlyArray2};
-use ndarray::{Array2, ArrayView2};
+use ndarray::Array2;
 use rayon::prelude::*;
 use std::sync::Arc;
 
@@ -151,6 +151,7 @@ pub fn fast_correlation_matrix(
 
 /// 列统计信息结构体，用于缓存计算结果
 #[derive(Clone)]
+#[allow(dead_code)]
 struct ColumnStats {
     mean: f64,
     sum_sq_dev: f64,
