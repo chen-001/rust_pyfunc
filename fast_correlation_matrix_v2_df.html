@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>fast_correlation_matrix_v2_df - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>fast_correlation_matrix_v2_df</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>超快速计算DataFrame的相关性矩阵，进一步优化版本</p>
+<p>这是rust_pyfunc.fast_correlation_matrix_v2的DataFrame封装版本，可以直接传入DataFrame
+并返回保持原有列名作为索引和列名的相关性矩阵DataFrame。</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>fast_correlation_matrix_v2_df(df, method, min_periods, max_workers) -> &lt;class &#39;pandas.core.frame.DataFrame&#39;&gt;</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">df</span>
+                    <span class="parameter-type">(pandas.DataFrame)</span>
+                    <div><p>输入的DataFrame，每一列代表一个变量，会自动转换为float64类型</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">method</span>
+                    <span class="parameter-type">(str, optional)</span>
+                    <div><p>相关性计算方法，默认为"pearson"。目前只支持皮尔逊相关系数</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">min_periods</span>
+                    <span class="parameter-type">(int, optional)</span>
+                    <div><p>计算相关性所需的最小样本数，默认为1</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">max_workers</span>
+                    <span class="parameter-type">(int, optional)</span>
+                    <div><p>最大并行工作线程数，默认为10，设置为0则使用所有可用核心</p></div>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div><hr />
+<p>pandas.DataFrame
+    相关性矩阵DataFrame，行名和列名都是原DataFrame的列名
+    矩阵是对称的，对角线元素为1.0</p>
+<h2>性能特点：</h2>
+<ol>
+<li>采用SIMD优化、更好的内存访问模式和数值稳定性改进</li>
+<li>V2版本使用数据预处理、Kahan求和、循环展开、向量化计算</li>
+<li>内存访问模式优化，提高缓存命中率</li>
+<li>数值稳定性更好，减少浮点数累加误差</li>
+<li>对于大数据集性能比pandas.DataFrame.corr()快数倍</li>
+</ol>
+<h2>示例：</h2>
+<blockquote>
+<blockquote>
+<blockquote>
+<p>import pandas as pd
+import numpy as np
+from rust_pyfunc.pandas_correlation import fast_correlation_matrix_v2_df</p>
+<h1>创建测试DataFrame</h1>
+<p>np.random.seed(42)
+df = pd.DataFrame({
+...     'A': np.random.randn(1000),
+...     'B': np.random.randn(1000),
+...     'C': np.random.randn(1000),
+...     'D': np.random.randn(1000)
+... })</p>
+<h1>使用高性能相关性计算</h1>
+<p>corr_matrix = fast_correlation_matrix_v2_df(df)
+print(corr_matrix)</p>
+<h1>A         B         C         D</h1>
+<h1>A  1.000000  0.012345 -0.023456  0.034567</h1>
+<h1>B  0.012345  1.000000  0.045678 -0.056789</h1>
+<h1>C -0.023456  0.045678  1.000000  0.067890</h1>
+<h1>D  0.034567 -0.056789  0.067890  1.000000</h1>
+<h1>等价于（但更快）：</h1>
+<h1>pandas_corr = df.corr(method='pearson', min_periods=1)</h1>
+<h1>使用不同参数</h1>
+<p>corr_fast = fast_correlation_matrix_v2_df(df, max_workers=16, min_periods=10)</p>
+</blockquote>
+</blockquote>
+</blockquote>
+<h2>与原生pandas对比：</h2>
+<blockquote>
+<blockquote>
+<blockquote>
+<h1>性能测试示例</h1>
+<p>large_df = pd.DataFrame(np.random.randn(5000, 100))</p>
+<h1>pandas方式（慢）</h1>
+<p>import time
+start = time.time()
+pandas_result = large_df.corr()
+pandas_time = time.time() - start</p>
+<h1>rust_pyfunc方式（快）</h1>
+<p>start = time.time()
+rust_result = fast_correlation_matrix_v2_df(large_df)
+rust_time = time.time() - start</p>
+<p>print(f"pandas耗时: {pandas_time:.2f}秒")
+print(f"rust_pyfunc耗时: {rust_time:.2f}秒") 
+print(f"性能提升: {pandas_time/rust_time:.1f}倍")</p>
+<h1>验证结果一致性</h1>
+<p>print(f"结果差异最大值: {np.abs(pandas_result - rust_result).max().max():.10f}")</p>
+</blockquote>
+</blockquote>
+</blockquote>
+<h2>注意事项：</h2>
+<ul>
+<li>函数会自动处理NaN值</li>
+<li>相关性矩阵是对称的，对角线元素为1.0</li>
+<li>当样本数少于min_periods时，对应的相关系数为NaN</li>
+<li>输入DataFrame将被转换为float64类型进行计算</li>
+<li>如果DataFrame包含非数值列，需要事先过滤掉或转换</li>
+</ul></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import fast_correlation_matrix_v2_df
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>
