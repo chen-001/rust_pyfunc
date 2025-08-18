@@ -160,6 +160,7 @@ struct WorkerMonitorManager {
     health_check_interval: Duration,
     debug_monitor: bool,
     stats: Arc<Mutex<DiagnosticStats>>,
+    should_stop: Arc<AtomicBool>,
 }
 
 impl WorkerMonitorManager {
@@ -170,6 +171,7 @@ impl WorkerMonitorManager {
             health_check_interval,
             debug_monitor,
             stats: Arc::new(Mutex::new(DiagnosticStats::new())),
+            should_stop: Arc::new(AtomicBool::new(false)),
         }
     }
     
@@ -232,6 +234,11 @@ impl WorkerMonitorManager {
         
         if let Ok(monitors) = self.monitors.lock() {
             for (worker_id, monitor) in monitors.iter() {
+                // 跳过已经标记为不存活或没有进程ID的worker
+                if !monitor.is_alive || monitor.process_id.is_none() {
+                    continue;
+                }
+                
                 if let Some(stuck_reason) = monitor.is_stuck(self.task_timeout, heartbeat_timeout) {
                     stuck_workers.push((*worker_id, stuck_reason));
                     
@@ -284,6 +291,17 @@ impl WorkerMonitorManager {
         if let Ok(mut monitors) = self.monitors.lock() {
             if let Some(monitor) = monitors.get_mut(&worker_id) {
                 if let Some(pid) = monitor.process_id {
+                    // 首先检查进程是否仍然存在
+                    if !monitor.is_process_alive() {
+                        if self.debug_monitor {
+                            println!("🔍 Worker {} 进程 {} 已不存在，清理监控记录", worker_id, pid);
+                        }
+                        // 直接移除整个监控记录
+                        drop(monitors);  // 释放锁
+                        self.remove_worker(worker_id);
+                        return true;
+                    }
+                    
                     if self.debug_monitor {
                         println!("🔥 强制终止Worker {} 进程 (PID: {})", worker_id, pid);
                     }
@@ -310,7 +328,19 @@ impl WorkerMonitorManager {
                                     
                                     return true;
                                 } else {
-                                    eprintln!("❌ 终止进程失败: {}", String::from_utf8_lossy(&result.stderr));
+                                    let stderr = String::from_utf8_lossy(&result.stderr);
+                                    // 如果是"No such process"错误，说明进程已经不存在了
+                                    if stderr.contains("No such process") {
+                                        if self.debug_monitor {
+                                            println!("🔍 进程 {} 已不存在，清理监控记录", pid);
+                                        }
+                                        // 直接移除整个监控记录
+                                        drop(monitors);  // 释放锁
+                                        self.remove_worker(worker_id);
+                                        return true;
+                                    } else {
+                                        eprintln!("❌ 终止进程失败: {}", stderr);
+                                    }
                                 }
                             }
                             Err(e) => {
@@ -340,6 +370,17 @@ impl WorkerMonitorManager {
                 println!("🔍 监控器: 移除worker {}", worker_id);
             }
         }
+    }
+    
+    fn stop_monitoring(&self) {
+        self.should_stop.store(true, Ordering::SeqCst);
+        if self.debug_monitor {
+            println!("🔍 监控器: 接收到停止信号");
+        }
+    }
+    
+    fn should_stop_monitoring(&self) -> bool {
+        self.should_stop.load(Ordering::Relaxed)
     }
     
     fn print_diagnostic_stats(&self) {
@@ -2362,6 +2403,9 @@ fn run_persistent_task_worker(
             break;
         }
     }
+    
+    // Worker完全结束时，从监控器中移除记录
+    monitor_manager.remove_worker(worker_id);
 }
 
 
@@ -2542,12 +2586,14 @@ pub fn run_pools_queue(
     // 启动监控线程
     let monitor_manager_clone = monitor_manager.clone();
     let monitor_restart_flag = restart_flag.clone();
-    let _monitor_handle = thread::spawn(move || {
+    let monitor_handle = thread::spawn(move || {
         loop {
             // 检查是否应该退出监控循环
-            if monitor_restart_flag.load(Ordering::Relaxed) {
-                // 这里我们不退出，因为监控线程需要一直运行
-                // 直到所有worker都退出
+            if monitor_manager_clone.should_stop_monitoring() {
+                if monitor_manager_clone.debug_monitor {
+                    println!("🔍 监控器: 退出监控循环");
+                }
+                break;
             }
             
             // 检查卡死的worker
@@ -2673,16 +2719,28 @@ pub fn run_pools_queue(
         }
     }
     
+    // 立即停止监控线程，避免检查已死进程
+    if debug_monitor_enabled {
+        println!("🔍 监控器: 所有worker已完成，立即停止监控");
+    }
+    monitor_manager.stop_monitoring();
+    
+    // 等待监控线程结束
+    println!("⏳ 等待监控线程结束...");
+    match monitor_handle.join() {
+        Ok(()) => {
+            if debug_monitor_enabled {
+                println!("✅ 监控线程已安全退出");
+            }
+        },
+        Err(e) => eprintln!("❌ 监控线程异常: {:?}", e),
+    }
+    
     // 等待收集器完成
     println!("⏳ 等待结果收集器完成...");
     match collector_handle.join() {
         Ok(()) => println!("✅ 结果收集器已完成"),
         Err(e) => eprintln!("❌ 结果收集器异常: {:?}", e),
-    }
-    
-    // 停止监控线程（这里暂时让监控线程自然结束，在实际中可以用更优雅的方式）
-    if debug_monitor_enabled {
-        println!("🔍 监控器: 所有worker已完成，停止监控");
     }
     
     // 打印监控诊断统计
