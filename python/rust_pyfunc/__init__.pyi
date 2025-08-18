@@ -20,6 +20,7 @@ from .time_series import *
 from .text_analysis import *
 from .parallel_computing import *
 from .pandas_extensions import *
+from .pandas_correlation import *
 from .tree_structures import *
 from .trading_analysis import *
 from .statistical_analysis import *
@@ -127,6 +128,11 @@ __all__ = [
     "fast_outer_join_df",
     "fast_join",
     "fast_merge_dataframe",
+    
+    # pandas相关性矩阵函数
+    "fast_correlation_matrix_v2_df",
+    "fast_corr_df",
+    "correlation_matrix_df",
     
     # 因子中性化函数
     "batch_factor_neutralization",
