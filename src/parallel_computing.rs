@@ -12,9 +12,11 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use rayon::prelude::*;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use std::sync::atomic::{AtomicBool, Ordering};
 use chrono::Local;
+use std::sync::Mutex;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskParam {
@@ -37,6 +39,324 @@ struct SingleTask {
     python_code: String,
     task: TaskParam,
     expected_result_length: usize,
+}
+
+// 新增：Worker监控信息
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+struct WorkerMonitor {
+    worker_id: usize,
+    last_heartbeat: Instant,
+    current_task: Option<TaskParam>,
+    task_start_time: Option<Instant>,
+    is_alive: bool,
+    consecutive_failures: u32,
+    process_id: Option<u32>,  // 子进程ID，用于进程存活检测
+}
+
+impl WorkerMonitor {
+    fn new(worker_id: usize) -> Self {
+        Self {
+            worker_id,
+            last_heartbeat: Instant::now(),
+            current_task: None,
+            task_start_time: None,
+            is_alive: true,
+            consecutive_failures: 0,
+            process_id: None,
+        }
+    }
+    
+    fn start_task(&mut self, task: TaskParam) {
+        self.current_task = Some(task);
+        self.task_start_time = Some(Instant::now());
+    }
+    
+    fn finish_task(&mut self) {
+        self.current_task = None;
+        self.task_start_time = None;
+        self.consecutive_failures = 0;  // 重置失败计数
+    }
+    
+    fn update_heartbeat(&mut self) {
+        self.last_heartbeat = Instant::now();
+        self.is_alive = true;
+    }
+    
+    fn set_process_id(&mut self, pid: u32) {
+        self.process_id = Some(pid);
+    }
+    
+    fn is_process_alive(&self) -> bool {
+        if let Some(pid) = self.process_id {
+            // 在Linux上，检查/proc/PID目录是否存在
+            #[cfg(target_os = "linux")]
+            {
+                std::path::Path::new(&format!("/proc/{}", pid)).exists()
+            }
+            
+            // 在其他系统上，简化为Linux的方法，因为大多数系统都有/proc
+            #[cfg(not(target_os = "linux"))]
+            {
+                // 简化处理：在非Linux系统也尝试/proc方法，如果失败就假设进程存活
+                std::path::Path::new(&format!("/proc/{}", pid)).exists()
+            }
+        } else {
+            true  // 如果没有进程ID，假设进程存活
+        }
+    }
+    
+    fn is_stuck(&self, task_timeout: Duration, heartbeat_timeout: Duration) -> Option<&'static str> {
+        // 首先检查进程是否还活着
+        if !self.is_process_alive() {
+            return Some("process_death");
+        }
+        
+        // 检查心跳超时
+        if self.last_heartbeat.elapsed() > heartbeat_timeout {
+            return Some("heartbeat_timeout");
+        }
+        
+        // 检查任务执行超时
+        if let Some(start_time) = self.task_start_time {
+            if start_time.elapsed() > task_timeout {
+                return Some("task_timeout");
+            }
+        }
+        
+        None
+    }
+}
+
+// 新增：诊断统计信息
+#[derive(Debug, Clone)]
+struct DiagnosticStats {
+    total_stuck_detections: u32,
+    total_force_kills: u32,
+    total_restarts: u32,
+    stuck_by_timeout: u32,
+    stuck_by_heartbeat: u32,
+    stuck_by_process_death: u32,
+}
+
+impl DiagnosticStats {
+    fn new() -> Self {
+        Self {
+            total_stuck_detections: 0,
+            total_force_kills: 0,
+            total_restarts: 0,
+            stuck_by_timeout: 0,
+            stuck_by_heartbeat: 0,
+            stuck_by_process_death: 0,
+        }
+    }
+}
+
+// 新增：Worker监控管理器
+#[derive(Debug)]
+struct WorkerMonitorManager {
+    monitors: Arc<Mutex<HashMap<usize, WorkerMonitor>>>,
+    task_timeout: Duration,
+    health_check_interval: Duration,
+    debug_monitor: bool,
+    stats: Arc<Mutex<DiagnosticStats>>,
+}
+
+impl WorkerMonitorManager {
+    fn new(task_timeout: Duration, health_check_interval: Duration, debug_monitor: bool) -> Self {
+        Self {
+            monitors: Arc::new(Mutex::new(HashMap::new())),
+            task_timeout,
+            health_check_interval,
+            debug_monitor,
+            stats: Arc::new(Mutex::new(DiagnosticStats::new())),
+        }
+    }
+    
+    fn add_worker(&self, worker_id: usize) {
+        if let Ok(mut monitors) = self.monitors.lock() {
+            monitors.insert(worker_id, WorkerMonitor::new(worker_id));
+            if self.debug_monitor {
+                println!("🔍 监控器: 添加worker {}", worker_id);
+            }
+        }
+    }
+    
+    fn set_worker_process_id(&self, worker_id: usize, pid: u32) {
+        if let Ok(mut monitors) = self.monitors.lock() {
+            if let Some(monitor) = monitors.get_mut(&worker_id) {
+                monitor.set_process_id(pid);
+                if self.debug_monitor {
+                    println!("🔍 监控器: Worker {} 设置进程ID: {}", worker_id, pid);
+                }
+            }
+        }
+    }
+    
+    fn start_task(&self, worker_id: usize, task: TaskParam) {
+        if let Ok(mut monitors) = self.monitors.lock() {
+            if let Some(monitor) = monitors.get_mut(&worker_id) {
+                monitor.start_task(task.clone());
+                if self.debug_monitor {
+                    println!("🔍 监控器: Worker {} 开始任务 date={}, code={}", 
+                             worker_id, task.date, task.code);
+                }
+            }
+        }
+    }
+    
+    fn finish_task(&self, worker_id: usize) {
+        if let Ok(mut monitors) = self.monitors.lock() {
+            if let Some(monitor) = monitors.get_mut(&worker_id) {
+                if self.debug_monitor && monitor.current_task.is_some() {
+                    let task = monitor.current_task.as_ref().unwrap();
+                    println!("🔍 监控器: Worker {} 完成任务 date={}, code={}", 
+                             worker_id, task.date, task.code);
+                }
+                monitor.finish_task();
+            }
+        }
+    }
+    
+    fn update_heartbeat(&self, worker_id: usize) {
+        if let Ok(mut monitors) = self.monitors.lock() {
+            if let Some(monitor) = monitors.get_mut(&worker_id) {
+                monitor.update_heartbeat();
+            }
+        }
+    }
+    
+    fn check_stuck_workers(&self) -> Vec<(usize, &'static str)> {
+        let heartbeat_timeout = self.health_check_interval * 3; // 3个检查周期无响应视为卡死
+        let mut stuck_workers = Vec::new();
+        
+        if let Ok(monitors) = self.monitors.lock() {
+            for (worker_id, monitor) in monitors.iter() {
+                if let Some(stuck_reason) = monitor.is_stuck(self.task_timeout, heartbeat_timeout) {
+                    stuck_workers.push((*worker_id, stuck_reason));
+                    
+                    // 更新统计信息
+                    if let Ok(mut stats) = self.stats.lock() {
+                        stats.total_stuck_detections += 1;
+                        match stuck_reason {
+                            "task_timeout" => stats.stuck_by_timeout += 1,
+                            "heartbeat_timeout" => stats.stuck_by_heartbeat += 1,
+                            "process_death" => stats.stuck_by_process_death += 1,
+                            _ => {}
+                        }
+                    }
+                    
+                    if self.debug_monitor {
+                        println!("⚠️ 监控器: 检测到Worker {} 卡死 (原因: {})", worker_id, stuck_reason);
+                        if let Some(task) = &monitor.current_task {
+                            println!("   正在处理任务: date={}, code={}", task.date, task.code);
+                        }
+                        println!("   最后心跳: {:?}前", monitor.last_heartbeat.elapsed());
+                        if let Some(start_time) = monitor.task_start_time {
+                            println!("   任务运行时间: {:?}", start_time.elapsed());
+                        }
+                    }
+                }
+            }
+        }
+        
+        stuck_workers
+    }
+    
+    fn log_stuck_worker(&self, worker_id: usize) {
+        if let Ok(monitors) = self.monitors.lock() {
+            if let Some(monitor) = monitors.get(&worker_id) {
+                println!("🚨 Worker {} 被标记为卡死并将重启", worker_id);
+                if let Some(task) = &monitor.current_task {
+                    println!("   跳过任务: date={}, code={} (已运行 {:?})", 
+                             task.date, task.code,
+                             monitor.task_start_time.map(|t| t.elapsed()).unwrap_or(Duration::ZERO));
+                }
+                println!("   最后心跳时间: {:?}前", monitor.last_heartbeat.elapsed());
+                if let Some(pid) = monitor.process_id {
+                    println!("   进程ID: {}", pid);
+                }
+            }
+        }
+    }
+    
+    fn force_kill_worker(&self, worker_id: usize) -> bool {
+        if let Ok(mut monitors) = self.monitors.lock() {
+            if let Some(monitor) = monitors.get_mut(&worker_id) {
+                if let Some(pid) = monitor.process_id {
+                    if self.debug_monitor {
+                        println!("🔥 强制终止Worker {} 进程 (PID: {})", worker_id, pid);
+                    }
+                    
+                    // 尝试强制杀死进程
+                    #[cfg(target_os = "linux")]
+                    {
+                        use std::process::Command;
+                        let output = Command::new("kill")
+                            .arg("-9")  // SIGKILL
+                            .arg(pid.to_string())
+                            .output();
+                        
+                        match output {
+                            Ok(result) => {
+                                if result.status.success() {
+                                    println!("✅ 成功终止进程 {}", pid);
+                                    monitor.process_id = None;  // 清除进程ID
+                                    
+                                    // 更新统计信息
+                                    if let Ok(mut stats) = self.stats.lock() {
+                                        stats.total_force_kills += 1;
+                                    }
+                                    
+                                    return true;
+                                } else {
+                                    eprintln!("❌ 终止进程失败: {}", String::from_utf8_lossy(&result.stderr));
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("❌ 执行kill命令失败: {}", e);
+                            }
+                        }
+                    }
+                    
+                    // 非Linux系统的处理（简化）
+                    #[cfg(not(target_os = "linux"))]
+                    {
+                        println!("⚠️ 非Linux系统，无法强制终止进程 {}", pid);
+                        monitor.process_id = None;  // 清除进程ID，假设进程已死
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+    
+    #[allow(dead_code)]
+    fn remove_worker(&self, worker_id: usize) {
+        if let Ok(mut monitors) = self.monitors.lock() {
+            monitors.remove(&worker_id);
+            if self.debug_monitor {
+                println!("🔍 监控器: 移除worker {}", worker_id);
+            }
+        }
+    }
+    
+    fn print_diagnostic_stats(&self) {
+        if let Ok(stats) = self.stats.lock() {
+            if stats.total_stuck_detections > 0 {
+                println!("\n📊 监控器诊断统计:");
+                println!("   总卡死检测次数: {}", stats.total_stuck_detections);
+                println!("   任务超时导致: {}", stats.stuck_by_timeout);
+                println!("   心跳超时导致: {}", stats.stuck_by_heartbeat);
+                println!("   进程死亡导致: {}", stats.stuck_by_process_death);
+                println!("   强制终止次数: {}", stats.total_force_kills);
+                println!("   重启次数: {}", stats.total_restarts);
+            } else {
+                println!("📊 监控器统计: 未检测到任何worker卡死");
+            }
+        }
+    }
 }
 
 fn detect_python_interpreter() -> String {
@@ -1869,7 +2189,11 @@ fn run_persistent_task_worker(
     python_path: String,
     result_sender: Sender<TaskResult>,
     restart_flag: Arc<AtomicBool>,
+    monitor_manager: Arc<WorkerMonitorManager>,
 ) {
+    // 向监控管理器注册worker
+    monitor_manager.add_worker(worker_id);
+    
     loop { // 循环以支持worker重启
         if restart_flag.compare_exchange(true, false, Ordering::SeqCst, Ordering::Relaxed).is_ok() {
             // println!("🔄 Worker {} 检测到重启信号，正在重启...", worker_id);
@@ -1883,7 +2207,7 @@ fn run_persistent_task_worker(
         // 创建worker脚本
         if let Err(e) = std::fs::write(&script_path, script_content) {
             eprintln!("❌ Worker {} 创建脚本失败: {}", worker_id, e);
-            return;
+            continue; // 继续外层循环，尝试重新创建脚本
         }
         
         // 启动持久的Python子进程
@@ -1897,9 +2221,14 @@ fn run_persistent_task_worker(
             Ok(child) => child,
             Err(e) => {
                 eprintln!("❌ Worker {} 启动Python进程失败: {}", worker_id, e);
-                return;
+                continue; // 继续外层循环，尝试重新启动进程
             }
         };
+        
+        // 设置子进程ID到监控管理器
+        let pid = child.id();
+        monitor_manager.set_worker_process_id(worker_id, pid);
+        monitor_manager.update_heartbeat(worker_id);
         
         let mut stdin = child.stdin.take().expect("Failed to get stdin");
         let mut stdout = child.stdout.take().expect("Failed to get stdout");
@@ -1916,6 +2245,10 @@ fn run_persistent_task_worker(
             }
 
             task_count += 1;
+            
+            // 通知监控管理器开始处理任务
+            monitor_manager.start_task(worker_id, task.clone());
+            monitor_manager.update_heartbeat(worker_id);
             
             // 创建单任务数据
             let single_task = SingleTask {
@@ -1983,9 +2316,12 @@ fn run_persistent_task_worker(
                     // 发送结果
                     if let Err(e) = result_sender.send(single_result.result) {
                         eprintln!("❌ Worker {} 任务 #{} 结果发送失败: {}", worker_id, task_count, e);
-                        needs_restart = true;
-                        break;
+                        // 结果发送失败可能是收集器已退出，但不影响其他worker，继续处理下一个任务
+                        // 不设置needs_restart，避免不必要的子进程重启
                     }
+                    // 通知监控管理器任务已完成
+                    monitor_manager.finish_task(worker_id);
+                    monitor_manager.update_heartbeat(worker_id);
                 }
                 Err(e) => {
                     eprintln!("❌ Worker {} 任务 #{} 结果解析失败: {}", worker_id, task_count, e);
@@ -2000,9 +2336,12 @@ fn run_persistent_task_worker(
                     
                     if let Err(e) = result_sender.send(error_result) {
                         eprintln!("❌ Worker {} 错误结果发送失败: {}", worker_id, e);
-                        needs_restart = true;
-                        break;
+                        // 错误结果发送失败也不影响其他worker，继续处理下一个任务
+                        // 不设置needs_restart，避免不必要的子进程重启
                     }
+                    // 通知监控管理器任务已完成（即使失败）
+                    monitor_manager.finish_task(worker_id);
+                    monitor_manager.update_heartbeat(worker_id);
                 }
             }
         }
@@ -2027,7 +2366,7 @@ fn run_persistent_task_worker(
 
 
 #[pyfunction]
-#[pyo3(signature = (python_function, args, n_jobs, backup_file, expected_result_length, restart_interval=None, update_mode=None, return_results=None))]
+#[pyo3(signature = (python_function, args, n_jobs, backup_file, expected_result_length, restart_interval=None, update_mode=None, return_results=None, task_timeout=None, health_check_interval=None, debug_monitor=None))]
 pub fn run_pools_queue(
     python_function: PyObject,
     args: &PyList,
@@ -2037,6 +2376,9 @@ pub fn run_pools_queue(
     restart_interval: Option<usize>,
     update_mode: Option<bool>,
     return_results: Option<bool>,
+    task_timeout: Option<u64>,
+    health_check_interval: Option<u64>,
+    debug_monitor: Option<bool>,
 ) -> PyResult<PyObject> {
     // 处理 restart_interval 参数
     let restart_interval_value = restart_interval.unwrap_or(200);
@@ -2051,6 +2393,19 @@ pub fn run_pools_queue(
     
     // 处理 return_results 参数
     let return_results_enabled = return_results.unwrap_or(true);
+    
+    // 处理新的监控参数
+    let task_timeout_secs = task_timeout.unwrap_or(120);
+    let health_check_interval_secs = health_check_interval.unwrap_or(120);
+    let debug_monitor_enabled = debug_monitor.unwrap_or(false);
+    
+    let task_timeout_duration = Duration::from_secs(task_timeout_secs);
+    let health_check_duration = Duration::from_secs(health_check_interval_secs);
+    
+    if debug_monitor_enabled {
+        println!("🔍 监控配置: 任务超时={}s, 健康检查间隔={}s", 
+                 task_timeout_secs, health_check_interval_secs);
+    }
     
     // 解析参数
     let mut all_tasks = Vec::new();
@@ -2145,6 +2500,14 @@ pub fn run_pools_queue(
     drop(task_sender); // 关闭任务队列，worker会在队列空时退出
     
     let restart_flag = Arc::new(AtomicBool::new(false));
+    
+    // 创建监控管理器
+    let monitor_manager = Arc::new(WorkerMonitorManager::new(
+        task_timeout_duration,
+        health_check_duration,
+        debug_monitor_enabled,
+    ));
+    
     println!("🚀 启动 {} 个worker处理 {} 个任务", n_jobs, pending_tasks.len());
     
     // 启动worker线程
@@ -2155,6 +2518,7 @@ pub fn run_pools_queue(
         let worker_python_path = python_path.clone();
         let worker_result_sender = result_sender.clone();
         let worker_restart_flag = restart_flag.clone();
+        let worker_monitor_manager = monitor_manager.clone();
         
         let handle = thread::spawn(move || {
             run_persistent_task_worker(
@@ -2165,6 +2529,7 @@ pub fn run_pools_queue(
                 worker_python_path,
                 worker_result_sender,
                 worker_restart_flag,
+                worker_monitor_manager,
             );
         });
         
@@ -2173,6 +2538,44 @@ pub fn run_pools_queue(
     
     // 关闭主线程的result_sender
     drop(result_sender);
+    
+    // 启动监控线程
+    let monitor_manager_clone = monitor_manager.clone();
+    let monitor_restart_flag = restart_flag.clone();
+    let _monitor_handle = thread::spawn(move || {
+        loop {
+            // 检查是否应该退出监控循环
+            if monitor_restart_flag.load(Ordering::Relaxed) {
+                // 这里我们不退出，因为监控线程需要一直运行
+                // 直到所有worker都退出
+            }
+            
+            // 检查卡死的worker
+            let stuck_workers = monitor_manager_clone.check_stuck_workers();
+            if !stuck_workers.is_empty() {
+                for (worker_id, reason) in stuck_workers {
+                    monitor_manager_clone.log_stuck_worker(worker_id);
+                    
+                    // 尝试强制终止卡死的worker进程
+                    if monitor_manager_clone.force_kill_worker(worker_id) {
+                        println!("🔄 已强制终止Worker {} (原因: {}), worker将自动重启", worker_id, reason);
+                    }
+                }
+                
+                // 触发重启（通过设置重启标志，worker会检测到并重启）
+                monitor_restart_flag.store(true, Ordering::SeqCst);
+                
+                // 等待一小段时间让worker检测到重启信号
+                thread::sleep(Duration::from_millis(100));
+                
+                // 重置重启标志，为下次监控做准备
+                monitor_restart_flag.store(false, Ordering::SeqCst);
+            }
+            
+            // 等待下一次检查
+            thread::sleep(monitor_manager_clone.health_check_interval);
+        }
+    });
     
     // 启动结果收集器
     let backup_file_clone = backup_file.clone();
@@ -2276,6 +2679,14 @@ pub fn run_pools_queue(
         Ok(()) => println!("✅ 结果收集器已完成"),
         Err(e) => eprintln!("❌ 结果收集器异常: {:?}", e),
     }
+    
+    // 停止监控线程（这里暂时让监控线程自然结束，在实际中可以用更优雅的方式）
+    if debug_monitor_enabled {
+        println!("🔍 监控器: 所有worker已完成，停止监控");
+    }
+    
+    // 打印监控诊断统计
+    monitor_manager.print_diagnostic_stats();
     
     // 读取并返回最终结果
     if return_results_enabled {

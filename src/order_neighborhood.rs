@@ -285,10 +285,10 @@ fn precompute_neighborhoods(
     use std::sync::atomic::{AtomicBool, Ordering};
     
     let timeout_exceeded = Arc::new(AtomicBool::new(false));
-    let timeout_check_counter = Arc::new(Mutex::new(0usize));
+    let _timeout_check_counter = Arc::new(Mutex::new(0usize));
     
     // 并行预计算邻域关系 - 增加超时检查
-    same_neighbors.par_iter_mut()
+    let _ = same_neighbors.par_iter_mut()
         .zip(diff_neighbors.par_iter_mut())
         .enumerate()
         .try_for_each(|(target_idx, (same_vec, diff_vec))| -> Result<(), ()> {

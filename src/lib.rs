@@ -17,19 +17,10 @@ pub mod trade_records_ultra_sorted;
 pub mod order_records_ultra_sorted;
 pub mod market_correlation;
 pub mod entropy_analysis;
-pub mod factor_neutralization;
-pub mod factor_neutralization_optimized;
+
 pub mod factor_neutralization_io_optimized;
-pub mod factor_neutralization_math_optimized_simple;
-pub mod factor_neutralization_parallel_optimized;
-pub mod factor_neutralization_ultimate_optimized;
-pub mod factor_neutralization_simple_fallback;
-pub mod permutation_analysis_optimized;
-pub mod permutation_analysis_numpy;
-pub mod permutation_analysis_super_optimized;
-pub mod permutation_analysis_v0816;
-pub mod permutation_analysis_v0816_optimized;
-pub mod permutation_analysis_v0816_ultra;
+
+
 pub mod permutation_analysis_v0816_fixed;
 
 
@@ -131,24 +122,7 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(entropy_analysis::calculate_entropy_discrete_2d, m)?)?;
     m.add_function(wrap_pyfunction!(entropy_analysis::calculate_binned_entropy_1d, m)?)?;
     m.add_function(wrap_pyfunction!(entropy_analysis::calculate_binned_entropy_2d, m)?)?;
-    m.add_function(wrap_pyfunction!(factor_neutralization::batch_factor_neutralization, m)?)?;
-    m.add_function(wrap_pyfunction!(factor_neutralization_optimized::batch_factor_neutralization_optimized, m)?)?;
     m.add_function(wrap_pyfunction!(factor_neutralization_io_optimized::batch_factor_neutralization_io_optimized, m)?)?;
-    m.add_function(wrap_pyfunction!(factor_neutralization_math_optimized_simple::batch_factor_neutralization_simple_math_optimized, m)?)?;
-    m.add_function(wrap_pyfunction!(factor_neutralization_parallel_optimized::batch_factor_neutralization_parallel_optimized, m)?)?;
-    m.add_function(wrap_pyfunction!(factor_neutralization_ultimate_optimized::batch_factor_neutralization_ultimate_optimized, m)?)?;
-    m.add_function(wrap_pyfunction!(factor_neutralization_simple_fallback::batch_factor_neutralization_simple_fallback, m)?)?;
-    m.add_function(wrap_pyfunction!(permutation_analysis_optimized::analyze_sequence_permutations_optimized, m)?)?;
-    m.add_function(wrap_pyfunction!(permutation_analysis_numpy::analyze_sequence_permutations_numpy, m)?)?;
-    m.add_function(wrap_pyfunction!(permutation_analysis_super_optimized::analyze_sequence_permutations_optimized_v1, m)?)?;
-    m.add_function(wrap_pyfunction!(permutation_analysis_super_optimized::analyze_sequence_permutations_optimized_v2, m)?)?;
-    m.add_function(wrap_pyfunction!(permutation_analysis_super_optimized::analyze_sequence_permutations_optimized_v3, m)?)?;
-    m.add_function(wrap_pyfunction!(permutation_analysis_super_optimized::analyze_sequence_permutations_optimized_v5, m)?)?;
-    m.add_function(wrap_pyfunction!(permutation_analysis_super_optimized::analyze_sequence_permutations_optimized_ultimate, m)?)?;
-    m.add_function(wrap_pyfunction!(permutation_analysis_super_optimized::analyze_sequence_permutations_optimized_final, m)?)?;
-    m.add_function(wrap_pyfunction!(permutation_analysis_v0816::analyze_sequence_permutations_v0816, m)?)?;
-    m.add_function(wrap_pyfunction!(permutation_analysis_v0816_optimized::analyze_sequence_permutations_v0816_optimized, m)?)?;
-    m.add_function(wrap_pyfunction!(permutation_analysis_v0816_ultra::analyze_sequence_permutations_v0816_ultra, m)?)?;
     m.add_function(wrap_pyfunction!(permutation_analysis_v0816_fixed::analyze_sequence_permutations_v0816_fixed, m)?)?;
     // m.add_function(wrap_pyfunction!(text::normalized_diff, m)?)?;
     Ok(())

@@ -201,6 +201,7 @@ fn compute_correlation_matrix_fixed(data: &Array2<f64>) -> Array2<f64> {
     corr_matrix
 }
 
+#[allow(dead_code)]
 fn compute_max_eigenvalue_fixed(matrix: &Array2<f64>) -> f64 {
     let n = matrix.nrows();
     let mut nalgebra_matrix = DMatrix::<f64>::zeros(n, n);
@@ -520,6 +521,7 @@ fn compute_centroid_correlation_mean_fixed(centroids: &Array2<f64>) -> f64 {
     }
 }
 
+#[allow(dead_code)]
 fn compute_std_fixed(values: &[f64]) -> f64 {
     if values.len() < 2 {
         return f64::NAN;
