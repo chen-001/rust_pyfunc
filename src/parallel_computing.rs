@@ -152,6 +152,16 @@ impl DiagnosticStats {
     }
 }
 
+// 卡死任务信息结构体
+#[derive(Debug, Clone)]
+struct StuckTaskInfo {
+    date: i64,
+    code: String,
+    worker_id: usize,
+    runtime: Duration,
+    reason: String,
+}
+
 // 新增：Worker监控管理器
 #[derive(Debug)]
 struct WorkerMonitorManager {
@@ -161,6 +171,7 @@ struct WorkerMonitorManager {
     debug_monitor: bool,
     stats: Arc<Mutex<DiagnosticStats>>,
     should_stop: Arc<AtomicBool>,
+    stuck_tasks: Arc<Mutex<Vec<StuckTaskInfo>>>,
 }
 
 impl WorkerMonitorManager {
@@ -172,6 +183,7 @@ impl WorkerMonitorManager {
             debug_monitor,
             stats: Arc::new(Mutex::new(DiagnosticStats::new())),
             should_stop: Arc::new(AtomicBool::new(false)),
+            stuck_tasks: Arc::new(Mutex::new(Vec::new())),
         }
     }
     
@@ -270,18 +282,36 @@ impl WorkerMonitorManager {
         stuck_workers
     }
     
-    fn log_stuck_worker(&self, worker_id: usize) {
+    fn log_stuck_worker(&self, worker_id: usize, reason: &str) {
         if let Ok(monitors) = self.monitors.lock() {
             if let Some(monitor) = monitors.get(&worker_id) {
-                println!("🚨 Worker {} 被标记为卡死并将重启", worker_id);
-                if let Some(task) = &monitor.current_task {
-                    println!("   跳过任务: date={}, code={} (已运行 {:?})", 
-                             task.date, task.code,
-                             monitor.task_start_time.map(|t| t.elapsed()).unwrap_or(Duration::ZERO));
+                // 只在debug模式下输出详细信息
+                if self.debug_monitor {
+                    println!("🚨 Worker {} 被标记为卡死并将重启", worker_id);
+                    if let Some(task) = &monitor.current_task {
+                        println!("   跳过任务: date={}, code={} (已运行 {:?})", 
+                                 task.date, task.code,
+                                 monitor.task_start_time.map(|t| t.elapsed()).unwrap_or(Duration::ZERO));
+                    }
+                    println!("   最后心跳时间: {:?}前", monitor.last_heartbeat.elapsed());
+                    if let Some(pid) = monitor.process_id {
+                        println!("   进程ID: {}", pid);
+                    }
                 }
-                println!("   最后心跳时间: {:?}前", monitor.last_heartbeat.elapsed());
-                if let Some(pid) = monitor.process_id {
-                    println!("   进程ID: {}", pid);
+                
+                // 记录卡死任务信息
+                if let Some(task) = &monitor.current_task {
+                    let stuck_task = StuckTaskInfo {
+                        date: task.date,
+                        code: task.code.clone(),
+                        worker_id,
+                        runtime: monitor.task_start_time.map(|t| t.elapsed()).unwrap_or(Duration::ZERO),
+                        reason: reason.to_string(),
+                    };
+                    
+                    if let Ok(mut stuck_tasks) = self.stuck_tasks.lock() {
+                        stuck_tasks.push(stuck_task);
+                    }
                 }
             }
         }
@@ -318,7 +348,7 @@ impl WorkerMonitorManager {
                         match output {
                             Ok(result) => {
                                 if result.status.success() {
-                                    println!("✅ 成功终止进程 {}", pid);
+                                    // println!("✅ 成功终止进程 {}", pid);
                                     monitor.process_id = None;  // 清除进程ID
                                     
                                     // 更新统计信息
@@ -384,18 +414,108 @@ impl WorkerMonitorManager {
     }
     
     fn print_diagnostic_stats(&self) {
-        if let Ok(stats) = self.stats.lock() {
-            if stats.total_stuck_detections > 0 {
-                println!("\n📊 监控器诊断统计:");
-                println!("   总卡死检测次数: {}", stats.total_stuck_detections);
-                println!("   任务超时导致: {}", stats.stuck_by_timeout);
-                println!("   心跳超时导致: {}", stats.stuck_by_heartbeat);
-                println!("   进程死亡导致: {}", stats.stuck_by_process_death);
-                println!("   强制终止次数: {}", stats.total_force_kills);
-                println!("   重启次数: {}", stats.total_restarts);
-            } else {
-                println!("📊 监控器统计: 未检测到任何worker卡死");
+        // 使用try_lock避免无限等待
+        match self.stats.try_lock() {
+            Ok(stats) => {
+                if stats.total_stuck_detections > 0 {
+                    println!("\n📊 监控器诊断统计:");
+                    println!("   总卡死检测次数: {}", stats.total_stuck_detections);
+                    println!("   任务超时导致: {}", stats.stuck_by_timeout);
+                    println!("   心跳超时导致: {}", stats.stuck_by_heartbeat);
+                    println!("   进程死亡导致: {}", stats.stuck_by_process_death);
+                    println!("   强制终止次数: {}", stats.total_force_kills);
+                    println!("   重启次数: {}", stats.total_restarts);
+                } else {
+                    println!("[{}] 📊 监控器统计: 未检测到任何worker卡死", Local::now().format("%Y-%m-%d %H:%M:%S"));
+                }
             }
+            Err(_) => {
+                println!("⚠️ 无法获取诊断统计锁，跳过统计输出");
+            }
+        }
+    }
+    
+    fn print_stuck_tasks_table(&self) {
+        // 使用try_lock避免无限等待，并添加错误处理
+        match self.stuck_tasks.try_lock() {
+            Ok(stuck_tasks) => {
+                if stuck_tasks.is_empty() {
+                    println!("\n✅ 没有任务因超时被跳过");
+                } else {
+                    println!("\n📋 卡死任务统计表");
+                    println!("┌──────────┬──────────┬─────────┬──────────────┬──────────────┐");
+                    println!("│   Date   │   Code   │ Worker  │   Runtime    │    Reason    │");
+                    println!("├──────────┼──────────┼─────────┼──────────────┼──────────────┤");
+                    
+                    for task in stuck_tasks.iter() {
+                        let runtime_str = if task.runtime.as_secs() > 0 {
+                            format!("{:.1}s", task.runtime.as_secs_f64())
+                        } else {
+                            format!("{}ms", task.runtime.as_millis())
+                        };
+                        
+                        println!("│ {:8} │ {:8} │ {:7} │ {:12} │ {:12} │",
+                            task.date,
+                            task.code,
+                            task.worker_id,
+                            runtime_str,
+                            match task.reason.as_str() {
+                                "task_timeout" => "任务超时",
+                                "heartbeat_timeout" => "心跳超时", 
+                                "process_death" => "进程死亡",
+                                _ => &task.reason
+                            }
+                        );
+                    }
+                    
+                    println!("└──────────┴──────────┴─────────┴──────────────┴──────────────┘");
+                    println!("共 {} 个任务因超时被跳过", stuck_tasks.len());
+                }
+            }
+            Err(_) => {
+                println!("⚠️ 无法获取卡死任务统计锁，跳过统计表打印");
+            }
+        }
+    }
+    
+    /// 清理监控管理器的所有资源，确保没有遗留引用
+    fn cleanup(&self) {
+        if self.debug_monitor {
+            println!("🧹 监控器: 开始清理资源...");
+        }
+        
+        // 清理所有monitor记录
+        if let Ok(mut monitors) = self.monitors.try_lock() {
+            monitors.clear();
+            if self.debug_monitor {
+                println!("🧹 监控器: 已清理所有worker监控记录");
+            }
+        } else if self.debug_monitor {
+            println!("⚠️ 监控器: 无法获取monitors锁进行清理");
+        }
+        
+        // 清理卡死任务记录
+        if let Ok(mut stuck_tasks) = self.stuck_tasks.try_lock() {
+            stuck_tasks.clear();
+            if self.debug_monitor {
+                println!("🧹 监控器: 已清理所有卡死任务记录");
+            }
+        } else if self.debug_monitor {
+            println!("⚠️ 监控器: 无法获取stuck_tasks锁进行清理");
+        }
+        
+        // 重置统计信息
+        if let Ok(mut stats) = self.stats.try_lock() {
+            *stats = DiagnosticStats::new();
+            if self.debug_monitor {
+                println!("🧹 监控器: 已重置诊断统计信息");
+            }
+        } else if self.debug_monitor {
+            println!("⚠️ 监控器: 无法获取stats锁进行清理");
+        }
+        
+        if self.debug_monitor {
+            println!("✅ 监控器: 资源清理完成");
         }
     }
 }
@@ -2515,11 +2635,13 @@ pub fn run_pools_queue(
     let start_time = Instant::now();
     if update_mode_enabled {
         // update_mode下，只显示传入任务的统计信息
-        println!("📋 传入任务数: {}, 待处理: {}, 已完成: {}", 
+        println!("[{}] 📋 传入任务数: {}, 待处理: {}, 已完成: {}", 
+                 Local::now().format("%Y-%m-%d %H:%M:%S"),
                  all_tasks_clone.len(), pending_tasks.len(), existing_tasks.len());
     } else {
         // 正常模式，显示总的统计信息
-        println!("📋 总任务数: {}, 待处理: {}, 已完成: {}", 
+        println!("[{}] 📋 总任务数: {}, 待处理: {}, 已完成: {}", 
+                 Local::now().format("%Y-%m-%d %H:%M:%S"),
                  pending_tasks.len() + existing_tasks.len(), pending_tasks.len(), existing_tasks.len());
     }
     
@@ -2552,7 +2674,7 @@ pub fn run_pools_queue(
         debug_monitor_enabled,
     ));
     
-    println!("🚀 启动 {} 个worker处理 {} 个任务", n_jobs, pending_tasks.len());
+    println!("[{}] 🚀 启动 {} 个worker处理 {} 个任务", Local::now().format("%Y-%m-%d %H:%M:%S"), n_jobs, pending_tasks.len());
     
     // 启动worker线程
     let mut worker_handles = Vec::new();
@@ -2600,11 +2722,14 @@ pub fn run_pools_queue(
             let stuck_workers = monitor_manager_clone.check_stuck_workers();
             if !stuck_workers.is_empty() {
                 for (worker_id, reason) in stuck_workers {
-                    monitor_manager_clone.log_stuck_worker(worker_id);
+                    monitor_manager_clone.log_stuck_worker(worker_id, reason);
                     
                     // 尝试强制终止卡死的worker进程
                     if monitor_manager_clone.force_kill_worker(worker_id) {
-                        println!("🔄 已强制终止Worker {} (原因: {}), worker将自动重启", worker_id, reason);
+                        // 简化输出，避免频繁打断运行流程
+                        if monitor_manager_clone.debug_monitor {
+                            println!("🔄 已强制终止Worker {} (原因: {}), worker将自动重启", worker_id, reason);
+                        }
                     }
                 }
                 
@@ -2636,7 +2761,7 @@ pub fn run_pools_queue(
         let mut batch_count_this_chunk = 0;
         let total_batches = (pending_tasks_len + 999) / 1000;
         
-        println!("🔄 结果收集器启动，等待worker结果...");
+        println!("[{}] 🔄 结果收集器启动，等待worker结果...", Local::now().format("%Y-%m-%d %H:%M:%S"));
         
         while let Ok(result) = result_receiver.recv() {
             total_collected += 1;
@@ -2695,11 +2820,11 @@ pub fn run_pools_queue(
         // 保存剩余结果
         if !batch_results.is_empty() {
             batch_count += 1;
-            println!("💾 保存最终剩余结果: {} 个", batch_results.len());
+            println!("[{}] 💾 保存最终剩余结果: {} 个", Local::now().format("%Y-%m-%d %H:%M:%S"), batch_results.len());
             
             match save_results_to_backup(&batch_results, &backup_file_clone, expected_result_length_clone) {
                 Ok(()) => {
-                    println!("✅ 最终备份成功！");
+                    println!("[{}] ✅ 最终备份成功！", Local::now().format("%Y-%m-%d %H:%M:%S"));
                 }
                 Err(e) => {
                     eprintln!("❌ 最终备份失败: {}", e);
@@ -2707,11 +2832,12 @@ pub fn run_pools_queue(
             }
         }
         
-        println!("📊 收集器统计: 总收集{}个结果，进行了{}次备份", total_collected, batch_count);
+        println!("[{}] 📊 收集器统计: 总收集{}个结果，进行了{}次备份", Local::now().format("%Y-%m-%d %H:%M:%S"), total_collected, batch_count);
+
     });
     
     // 等待所有worker完成
-    println!("⏳ 等待所有worker完成...");
+    println!("[{}] ⏳ 等待所有worker完成...", Local::now().format("%Y-%m-%d %H:%M:%S"));
     for (i, handle) in worker_handles.into_iter().enumerate() {
         match handle.join() {
             Ok(()) => {},
@@ -2726,7 +2852,7 @@ pub fn run_pools_queue(
     monitor_manager.stop_monitoring();
     
     // 等待监控线程结束
-    println!("⏳ 等待监控线程结束...");
+    println!("[{}] ⏳ 等待监控线程结束...", Local::now().format("%Y-%m-%d %H:%M:%S"));
     match monitor_handle.join() {
         Ok(()) => {
             if debug_monitor_enabled {
@@ -2737,18 +2863,28 @@ pub fn run_pools_queue(
     }
     
     // 等待收集器完成
-    println!("⏳ 等待结果收集器完成...");
+    println!("[{}] ⏳ 等待结果收集器完成...", Local::now().format("%Y-%m-%d %H:%M:%S"));
     match collector_handle.join() {
-        Ok(()) => println!("✅ 结果收集器已完成"),
+        Ok(()) => println!("[{}] ✅ 结果收集器已完成", Local::now().format("%Y-%m-%d %H:%M:%S")),
         Err(e) => eprintln!("❌ 结果收集器异常: {:?}", e),
     }
     
     // 打印监控诊断统计
     monitor_manager.print_diagnostic_stats();
     
+    // 打印卡死任务统计表
+    monitor_manager.print_stuck_tasks_table();
+    
+    // 显式清理监控管理器资源，避免与后续操作冲突
+    println!("[{}] 🧹 清理监控器资源...", Local::now().format("%Y-%m-%d %H:%M:%S"));
+    monitor_manager.cleanup();
+    
+    // 显式释放monitor_manager，确保所有Arc引用被清理
+    drop(monitor_manager);
+    
     // 读取并返回最终结果
     if return_results_enabled {
-        println!("📖 读取最终备份结果...");
+        println!("[{}] 📖 读取最终备份结果...", Local::now().format("%Y-%m-%d %H:%M:%S"));
         
         // 使用自定义线程池避免与全局线程池冲突
         let pool = rayon::ThreadPoolBuilder::new()
@@ -2761,8 +2897,13 @@ pub fn run_pools_queue(
                 // update_mode下，只返回传入参数中涉及的日期和代码
                 let task_dates: HashSet<i64> = all_tasks_clone.iter().map(|t| t.date).collect();
                 let task_codes: HashSet<String> = all_tasks_clone.iter().map(|t| t.code.clone()).collect();
+                println!("[{}] 🔍 使用过滤模式读取 {} 个日期和 {} 个代码", 
+                        Local::now().format("%Y-%m-%d %H:%M:%S"), 
+                        task_dates.len(), 
+                        task_codes.len());
                 read_backup_results_with_filter(&backup_file, Some(&task_dates), Some(&task_codes))
             } else {
+                println!("[{}] 🔍 读取完整备份文件", Local::now().format("%Y-%m-%d %H:%M:%S"));
                 read_backup_results(&backup_file)
             }
         })
