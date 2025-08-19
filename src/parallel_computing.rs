@@ -410,7 +410,7 @@ impl WorkerMonitorManager {
     }
     
     fn should_stop_monitoring(&self) -> bool {
-        self.should_stop.load(Ordering::Relaxed)
+        self.should_stop.load(Ordering::SeqCst)
     }
     
     fn print_diagnostic_stats(&self) {
@@ -2712,9 +2712,8 @@ pub fn run_pools_queue(
         loop {
             // 检查是否应该退出监控循环
             if monitor_manager_clone.should_stop_monitoring() {
-                if monitor_manager_clone.debug_monitor {
-                    println!("🔍 监控器: 退出监控循环");
-                }
+                println!("[{}] 🔍 监控器: 接收到停止信号，正在退出监控循环", 
+                         Local::now().format("%Y-%m-%d %H:%M:%S"));
                 break;
             }
             
@@ -2865,7 +2864,14 @@ pub fn run_pools_queue(
     // 等待收集器完成
     println!("[{}] ⏳ 等待结果收集器完成...", Local::now().format("%Y-%m-%d %H:%M:%S"));
     match collector_handle.join() {
-        Ok(()) => println!("[{}] ✅ 结果收集器已完成", Local::now().format("%Y-%m-%d %H:%M:%S")),
+        Ok(()) => {
+            println!("[{}] ✅ 结果收集器已完成", Local::now().format("%Y-%m-%d %H:%M:%S"));
+            // 确保备份文件的所有写入操作已同步到磁盘
+            println!("[{}] 🔄 同步备份文件到磁盘...", Local::now().format("%Y-%m-%d %H:%M:%S"));
+            if let Ok(file) = std::fs::File::open(&backup_file) {
+                let _ = file.sync_all();
+            }
+        },
         Err(e) => eprintln!("❌ 结果收集器异常: {:?}", e),
     }
     
@@ -2882,31 +2888,36 @@ pub fn run_pools_queue(
     // 显式释放monitor_manager，确保所有Arc引用被清理
     drop(monitor_manager);
     
+    // 等待短暂时间，确保所有资源完全释放，避免文件访问冲突
+    println!("[{}] ⏳ 等待资源完全释放...", Local::now().format("%Y-%m-%d %H:%M:%S"));
+    thread::sleep(Duration::from_millis(100));
+    
     // 读取并返回最终结果
     if return_results_enabled {
         println!("[{}] 📖 读取最终备份结果...", Local::now().format("%Y-%m-%d %H:%M:%S"));
         
-        // 使用自定义线程池避免与全局线程池冲突
-        let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(std::cmp::min(rayon::current_num_threads(), 4))
-            .build()
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("创建读取线程池失败: {}", e)))?;
+        // 直接读取备份文件，避免线程池冲突
+        println!("[{}] 🔍 开始读取备份文件: {}", Local::now().format("%Y-%m-%d %H:%M:%S"), backup_file);
+        let start_read_time = Instant::now();
         
-        pool.install(|| {
-            if update_mode_enabled {
-                // update_mode下，只返回传入参数中涉及的日期和代码
-                let task_dates: HashSet<i64> = all_tasks_clone.iter().map(|t| t.date).collect();
-                let task_codes: HashSet<String> = all_tasks_clone.iter().map(|t| t.code.clone()).collect();
-                println!("[{}] 🔍 使用过滤模式读取 {} 个日期和 {} 个代码", 
-                        Local::now().format("%Y-%m-%d %H:%M:%S"), 
-                        task_dates.len(), 
-                        task_codes.len());
-                read_backup_results_with_filter(&backup_file, Some(&task_dates), Some(&task_codes))
-            } else {
-                println!("[{}] 🔍 读取完整备份文件", Local::now().format("%Y-%m-%d %H:%M:%S"));
-                read_backup_results(&backup_file)
-            }
-        })
+        let result = if update_mode_enabled {
+            // update_mode下，只返回传入参数中涉及的日期和代码
+            let task_dates: HashSet<i64> = all_tasks_clone.iter().map(|t| t.date).collect();
+            let task_codes: HashSet<String> = all_tasks_clone.iter().map(|t| t.code.clone()).collect();
+            println!("[{}] 🔍 使用过滤模式读取 {} 个日期和 {} 个代码", 
+                    Local::now().format("%Y-%m-%d %H:%M:%S"), 
+                    task_dates.len(), 
+                    task_codes.len());
+            read_backup_results_with_filter(&backup_file, Some(&task_dates), Some(&task_codes))
+        } else {
+            println!("[{}] 🔍 读取完整备份文件", Local::now().format("%Y-%m-%d %H:%M:%S"));
+            read_backup_results(&backup_file)
+        };
+        
+        println!("[{}] ✅ 备份文件读取完成，耗时: {:?}", 
+                 Local::now().format("%Y-%m-%d %H:%M:%S"), 
+                 start_read_time.elapsed());
+        result
     } else {
         println!("✅ 任务完成，不返回结果");
         Python::with_gil(|py| Ok(py.None()))
