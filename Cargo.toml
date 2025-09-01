@@ -1,6 +1,6 @@
 [package]
 name = "rust_pyfunc"
-version = "0.35.4"
+version = "0.36.0"
 edition = "2021"
 description = "A collection of high-performance Python functions implemented in Rust"
 readme = "README.md"
@@ -37,6 +37,7 @@ ndarray-rand = "0.14.0"
 ordered-float = "3.0"
 arrow = "51.0"
 parquet = "51.0"
+rustc-hash = "1.1"
 # Unix-specific dependencies for fork mode
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.27", features = ["process", "signal", "fs"] }

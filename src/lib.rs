@@ -57,6 +57,10 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(time_series::trend_2d, m)?)?;
     m.add_function(wrap_pyfunction!(sequence::find_max_range_product, m)?)?;
     m.add_function(wrap_pyfunction!(text::min_word_edit_distance, m)?)?;
+    m.add_function(wrap_pyfunction!(text::check_string_proximity, m)?)?;
+    m.add_function(wrap_pyfunction!(text::check_string_proximity_matrix, m)?)?;
+    m.add_function(wrap_pyfunction!(text::check_string_proximity_with_tolerance, m)?)?;
+    m.add_function(wrap_pyfunction!(text::check_string_proximity_matrix_with_tolerance, m)?)?;
     m.add_function(wrap_pyfunction!(time_series::find_local_peaks_within_window, m)?)?;
     m.add_function(wrap_pyfunction!(pandas_ext::rolling_window_stat, m)?)?;
     m.add_function(wrap_pyfunction!(pandas_ext::rolling_window_stat_backward, m)?)?;
@@ -115,6 +119,12 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(statistics::eigenvalue_analysis_modified::matrix_eigenvalue_analysis_modified_ultra, m)?)?;
     m.add_function(wrap_pyfunction!(statistics::fast_correlation::fast_correlation_matrix, m)?)?;
     m.add_function(wrap_pyfunction!(statistics::fast_correlation_v2::fast_correlation_matrix_v2, m)?)?;
+    m.add_function(wrap_pyfunction!(statistics::rolling_correlation_mean::rolling_correlation_mean, m)?)?;
+    m.add_function(wrap_pyfunction!(statistics::rolling_correlation_mean::rolling_correlation_skew, m)?)?;
+    m.add_function(wrap_pyfunction!(statistics::rolling_window_core_feature::rolling_window_core_feature, m)?)?;
+    m.add_function(wrap_pyfunction!(statistics::rolling_window_core_feature_optimized::rolling_window_core_feature_optimized, m)?)?;
+    m.add_function(wrap_pyfunction!(statistics::rolling_window_core_feature_simd::rolling_window_core_feature_simd, m)?)?;
+    m.add_function(wrap_pyfunction!(statistics::rolling_window_core_feature_ultra::rolling_window_core_feature_ultra, m)?)?;
     m.add_function(wrap_pyfunction!(market_correlation::price_volume_orderbook_correlation, m)?)?;
     m.add_function(wrap_pyfunction!(entropy_analysis::calculate_entropy_1d, m)?)?;
     m.add_function(wrap_pyfunction!(entropy_analysis::calculate_entropy_2d, m)?)?;
@@ -124,6 +134,7 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(entropy_analysis::calculate_binned_entropy_2d, m)?)?;
     m.add_function(wrap_pyfunction!(factor_neutralization_io_optimized::batch_factor_neutralization_io_optimized, m)?)?;
     m.add_function(wrap_pyfunction!(permutation_analysis_v0816_fixed::analyze_sequence_permutations_v0816_fixed, m)?)?;
+    m.add_function(wrap_pyfunction!(statistics::hmm_trend_prediction::hmm_trend_prediction, m)?)?;
     // m.add_function(wrap_pyfunction!(text::normalized_diff, m)?)?;
     Ok(())
 }

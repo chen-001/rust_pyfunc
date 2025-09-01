@@ -1,6 +1,9 @@
 use pyo3::prelude::*;
 use std::collections::{HashMap, HashSet};
 
+pub mod string_proximity;
+pub use string_proximity::*;
+
 /// 将两个句子转换为词频向量。
 /// 生成的向量长度相同，等于两个句子中不同单词的总数。
 /// 向量中的每个位置对应一个单词，值表示该单词在句子中出现的次数。
