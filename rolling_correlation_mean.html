@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>rolling_correlation_mean - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>rolling_correlation_mean</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>滚动窗口计算相关性矩阵均值</p>
+<p>对于输入数据的每一行，计算其过去window_size行的相关性矩阵，
+然后计算该相关性矩阵中所有值的均值。</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>rolling_correlation_mean(data, window_size, min_periods, max_workers) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">data</span>
+                    <span class="parameter-type">(numpy.ndarray)</span>
+                    <div><p>输入数据矩阵，形状为(n_samples, n_features)，每列代表一个变量</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">window_size</span>
+                    <span class="parameter-type">(int)</span>
+                    <div><p>滚动窗口的大小，表示向前取多少行数据计算相关性矩阵</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">min_periods</span>
+                    <span class="parameter-type">(int, 可选)</span>
+                    <div><p>计算相关性所需的最小样本数，默认为window_size</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">max_workers</span>
+                    <span class="parameter-type">(int, 可选)</span>
+                    <div><p>最大并行工作线程数，默认为10，设置为0则使用所有可用核心</p></div>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div><hr />
+<p>numpy.ndarray
+    一维数组，长度等于输入数据的行数，每个值为对应行的相关性矩阵均值</p>
+<p>Python调用示例：
+```python
+import numpy as np
+import pandas as pd
+from rust_pyfunc import rolling_correlation_mean</p>
+<h1>创建测试数据</h1>
+<p>data = np.random.randn(1000, 20).astype(np.float64)
+window_size = 50</p>
+<h1>使用Rust版本计算</h1>
+<p>rust_result = rolling_correlation_mean(data, window_size)</p>
+<h1>与pandas版本对比（纯Python实现）</h1>
+<p>df = pd.DataFrame(data)
+python_result = []
+for i in range(len(df)):
+    start_idx = max(0, i + 1 - window_size)
+    window_df = df.iloc[start_idx:i+1]
+    if len(window_df) &gt;= window_size:
+        corr_matrix = window_df.corr().values
+        mean_corr = np.nanmean(corr_matrix)
+        python_result.append(mean_corr)
+    else:
+        python_result.append(np.nan)</p>
+<h1>验证结果一致性</h1>
+<p>print(f"结果差异最大值: {np.nanmax(np.abs(rust_result - python_result))}")
+```</p></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import rolling_correlation_mean
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

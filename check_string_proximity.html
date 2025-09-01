@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>check_string_proximity - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>check_string_proximity</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>计算两个字符串的接近度（最少操作次数）</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>check_string_proximity(word1, word2) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">word1</span>
+                    <span class="parameter-type">(str)</span>
+                    <div><p>第一个输入字符串</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">word2</span>
+                    <span class="parameter-type">(str)</span>
+                    <div><p>第二个输入字符串</p></div>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div><hr />
+<p>float
+    两个字符串之间的最少操作次数。如果无法通过操作相互转换，返回NaN。</p>
+<p>操作说明：
+1. 操作1：交换任意两个现有字符的位置
+2. 操作2：将一个现有字符的每次出现都转换为另一个现有字符，并对另一个字符执行相同的操作</p>
+<p>Python调用示例：
+```python
+from rust_pyfunc import check_string_proximity</p>
+<h1>示例1</h1>
+<p>result = check_string_proximity("abc", "bca")
+print(f"abc -&gt; bca 需要操作次数: {result}")  # 2</p>
+<h1>示例2</h1>
+<p>result = check_string_proximity("a", "aa")
+print(f"a -&gt; aa 需要操作次数: {result}")    # NaN (无法转换)</p>
+<h1>示例3</h1>
+<p>result = check_string_proximity("cabbba", "abbccc")
+print(f"cabbba -&gt; abbccc 需要操作次数: {result}")  # 3
+```</p></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import check_string_proximity
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>rolling_window_core_feature - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>rolling_window_core_feature</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>滚动窗口核心特征提取</p>
+<p>对输入序列进行滚动窗口分析，识别每个窗口中最重要的特征位置（核心特征）
+和最不重要的特征位置。通过计算窗口间的相关性并分析mask效应来确定特征重要性。</p>
+<p>算法原理：
+1. 对每个滚动窗口，计算其与所有其他窗口的相关系数（基准相关性）
+2. 依次将窗口内每个位置设为NaN，重新计算相关系数
+3. 相关性变化最小的位置为最重要特征（核心代表性）
+4. 相关性变化最大的位置为最不重要特征</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>rolling_window_core_feature(values, window_size) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">values</span>
+                    <span class="parameter-type">(numpy.ndarray)</span>
+                    <div><p>输入的一维数组，必须是float64类型</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">window_size</span>
+                    <span class="parameter-type">(int, 可选)</span>
+                    <div><p>滚动窗口的大小，默认为5。必须&gt;=2且&lt;=序列长度</p></div>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div><hr />
+<p>tuple[numpy.ndarray, numpy.ndarray]
+    返回两个数组：
+    - 第一个数组：核心特征序列，每个位置对应该窗口中最重要的特征值
+    - 第二个数组：次要特征序列，每个位置对应该窗口中最不重要的特征值
+    两个数组的前(window_size-1)个位置均为NaN</p>
+<p>Python调用示例：
+```python
+import numpy as np
+from rust_pyfunc import rolling_window_core_feature</p>
+<h1>创建测试数据</h1>
+<p>data = np.random.randn(1000).astype(np.float64)</p>
+<h1>使用默认窗口大小5</h1>
+<p>core_features, minor_features = rolling_window_core_feature(data)</p>
+<h1>使用自定义窗口大小10</h1>
+<p>core_features, minor_features = rolling_window_core_feature(data, window_size=10)</p>
+<h1>验证结果</h1>
+<p>print(f"核心特征前10个值: {core_features[:10]}")
+print(f"次要特征前10个值: {minor_features[:10]}")
+```</p></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import rolling_window_core_feature
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>
