@@ -10,6 +10,12 @@ pub mod eigenvalue_analysis;
 pub mod eigenvalue_analysis_modified;
 pub mod fast_correlation;
 pub mod fast_correlation_v2;
+pub mod rolling_correlation_mean;
+pub mod rolling_window_core_feature;
+pub mod rolling_window_core_feature_optimized;
+pub mod rolling_window_core_feature_simd;
+pub mod rolling_window_core_feature_ultra;
+pub mod hmm_trend_prediction;
 
 /// 普通最小二乘(OLS)回归。
 /// 用于拟合线性回归模型 y = Xβ + ε，其中β是要估计的回归系数。
