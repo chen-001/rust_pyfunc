@@ -442,6 +442,30 @@ s.rolling_past('2s').trend_time()  # 计算前面2秒内的趋势</p>
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="check_string_proximity.html">check_string_proximity</a></h3>
+                <div><p>计算两个字符串的接近度（最少操作次数）</p></div>
+                <a href="check_string_proximity.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="check_string_proximity_matrix.html">check_string_proximity_matrix</a></h3>
+                <div><p>计算字符串数组中所有字符串对之间的接近度矩阵</p></div>
+                <a href="check_string_proximity_matrix.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="check_string_proximity_matrix_with_tolerance.html">check_string_proximity_matrix_with_tolerance</a></h3>
+                <div><p>计算字符串数组中所有字符串对之间的接近度矩阵，支持宽限参数</p></div>
+                <a href="check_string_proximity_matrix_with_tolerance.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="check_string_proximity_with_tolerance.html">check_string_proximity_with_tolerance</a></h3>
+                <div><p>计算两个字符串的接近度（最少操作次数），支持宽限参数</p></div>
+                <a href="check_string_proximity_with_tolerance.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="corrwith.html">corrwith</a></h3>
                 <div><p>计算两个DataFrame对应列或行之间的相关系数。</p>
 <p>这个函数是pandas的corrwith方法的Rust实现包装，用于计算两个DataFrame中对应列（或行）
@@ -646,6 +670,12 @@ print(f"加速比: {time1/time2:.2f}倍")
                 <h3 class="function-name"><a href="fast_right_join_df.html">fast_right_join_df</a></h3>
                 <div><p>快速右连接的便捷函数</p></div>
                 <a href="fast_right_join_df.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="hmm_trend_prediction.html">hmm_trend_prediction</a></h3>
+                <div><p>主要的HMM趋势预测函数</p></div>
+                <a href="hmm_trend_prediction.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -946,6 +976,26 @@ print(f"加速比: {time1/time2:.2f}倍")
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="rolling_correlation_mean.html">rolling_correlation_mean</a></h3>
+                <div><p>滚动窗口计算相关性矩阵均值</p>
+<p>对于输入数据的每一行，计算其过去window_size行的相关性矩阵，
+然后计算该相关性矩阵中所有值的均值。</p></div>
+                <a href="rolling_correlation_mean.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="rolling_correlation_skew.html">rolling_correlation_skew</a></h3>
+                <div><p>滚动窗口计算相关性矩阵偏度</p>
+<p>对于输入数据的每一行，计算其过去window_size行的相关性矩阵，
+然后计算该相关性矩阵中所有值的偏度（skewness）。
+偏度衡量相关性分布的不对称性：
+- 偏度 &gt; 0：右偏（正偏），大部分相关性值较小，少数值较大
+- 偏度 &lt; 0：左偏（负偏），大部分相关性值较大，少数值较小
+- 偏度 ≈ 0：接近对称分布</p></div>
+                <a href="rolling_correlation_skew.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="rolling_cv.html">rolling_cv</a></h3>
                 <div><p>计算价格序列的滚动变异系数(CV)。</p>
 <p>对于位置i，从数据范围[i-lookback+1, i]中每隔interval个点取样，
@@ -977,6 +1027,53 @@ print(f"加速比: {time1/time2:.2f}倍")
 然后计算相邻样本之间的对数收益率（后面的价格除以前面的价格的对数），
 最后计算这些收益率的标准差作为波动率。</p></div>
                 <a href="rolling_volatility.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="rolling_window_core_feature.html">rolling_window_core_feature</a></h3>
+                <div><p>滚动窗口核心特征提取</p>
+<p>对输入序列进行滚动窗口分析，识别每个窗口中最重要的特征位置（核心特征）
+和最不重要的特征位置。通过计算窗口间的相关性并分析mask效应来确定特征重要性。</p>
+<p>算法原理：
+1. 对每个滚动窗口，计算其与所有其他窗口的相关系数（基准相关性）
+2. 依次将窗口内每个位置设为NaN，重新计算相关系数
+3. 相关性变化最小的位置为最重要特征（核心代表性）
+4. 相关性变化最大的位置为最不重要特征</p></div>
+                <a href="rolling_window_core_feature.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="rolling_window_core_feature_optimized.html">rolling_window_core_feature_optimized</a></h3>
+                <div><p>优化版滚动窗口核心特征提取</p>
+<p>针对性能优化的版本，使用以下优化策略：
+1. 增量相关性计算：避免重复计算统计量
+2. 预计算缓存：缓存窗口间的相关性矩阵
+3. 内存优化：重用缓冲区，减少内存分配
+4. 向量化操作：使用SIMD友好的计算模式</p></div>
+                <a href="rolling_window_core_feature_optimized.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="rolling_window_core_feature_simd.html">rolling_window_core_feature_simd</a></h3>
+                <div><p>SIMD优化版滚动窗口核心特征提取</p>
+<p>使用显式SIMD指令和智能缓存策略优化性能：
+1. SIMD向量化统计量计算
+2. LRU缓存避免重复相关性计算
+3. 批量内存访问优化
+4. 数值计算热点优化</p></div>
+                <a href="rolling_window_core_feature_simd.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="rolling_window_core_feature_ultra.html">rolling_window_core_feature_ultra</a></h3>
+                <div><p>超级轻量级优化版滚动窗口核心特征提取</p>
+<p>基于性能测试结果，专注于最有效的优化：
+1. 极致的内联优化
+2. 最小化内存分配
+3. CPU缓存友好的数据访问模式
+4. 编译器友好的代码结构</p>
+<p>去掉所有复杂缓存机制，专注于算法核心优化</p></div>
+                <a href="rolling_window_core_feature_ultra.html">查看详情</a>
             </div>
             
             <div class="function-item">

@@ -170,6 +170,38 @@
     "params": []
   },
   {
+    "name": "check_string_proximity",
+    "description": "<p>计算两个字符串的接近度（最少操作次数）</p>",
+    "params": [
+      "word1",
+      "word2"
+    ]
+  },
+  {
+    "name": "check_string_proximity_matrix",
+    "description": "<p>计算字符串数组中所有字符串对之间的接近度矩阵</p>",
+    "params": [
+      "words"
+    ]
+  },
+  {
+    "name": "check_string_proximity_matrix_with_tolerance",
+    "description": "<p>计算字符串数组中所有字符串对之间的接近度矩阵，支持宽限参数</p>",
+    "params": [
+      "words",
+      "tolerance"
+    ]
+  },
+  {
+    "name": "check_string_proximity_with_tolerance",
+    "description": "<p>计算两个字符串的接近度（最少操作次数），支持宽限参数</p>",
+    "params": [
+      "word1",
+      "word2",
+      "tolerance"
+    ]
+  },
+  {
     "name": "compute_max_eigenvalue",
     "description": "<p>计算二维方阵的最大特征值和对应的特征向量\n使用幂迭代法计算，不使用并行计算</p>",
     "params": [
@@ -397,6 +429,11 @@
     "params": [
       "arr"
     ]
+  },
+  {
+    "name": "hmm_trend_prediction",
+    "description": "<p>主要的HMM趋势预测函数</p>",
+    "params": []
   },
   {
     "name": "identify_segments",
@@ -645,6 +682,26 @@
     ]
   },
   {
+    "name": "rolling_correlation_mean",
+    "description": "<p>滚动窗口计算相关性矩阵均值</p>\n<p>对于输入数据的每一行，计算其过去window_size行的相关性矩阵，\n然后计算该相关性矩阵中所有值的均值。</p>",
+    "params": [
+      "data",
+      "window_size",
+      "min_periods",
+      "max_workers"
+    ]
+  },
+  {
+    "name": "rolling_correlation_skew",
+    "description": "<p>滚动窗口计算相关性矩阵偏度</p>\n<p>对于输入数据的每一行，计算其过去window_size行的相关性矩阵，\n然后计算该相关性矩阵中所有值的偏度（skewness）。\n偏度衡量相关性分布的不对称性：\n- 偏度 &gt; 0：右偏（正偏），大部分相关性值较小，少数值较大\n- 偏度 &lt; 0：左偏（负偏），大部分相关性值较大，少数值较小\n- 偏度 ≈ 0：接近对称分布</p>",
+    "params": [
+      "data",
+      "window_size",
+      "min_periods",
+      "max_workers"
+    ]
+  },
+  {
     "name": "rolling_cv",
     "description": "<p>计算价格序列的滚动变异系数(CV)。</p>\n<p>对于位置i，从数据范围[i-lookback+1, i]中每隔interval个点取样，\n然后计算相邻样本之间的对数收益率（后面的价格除以前面的价格的对数），\n最后计算这些收益率的变异系数（标准差除以均值）。</p>",
     "params": [
@@ -684,6 +741,38 @@
       "lookback",
       "interval",
       "min_periods"
+    ]
+  },
+  {
+    "name": "rolling_window_core_feature",
+    "description": "<p>滚动窗口核心特征提取</p>\n<p>对输入序列进行滚动窗口分析，识别每个窗口中最重要的特征位置（核心特征）\n和最不重要的特征位置。通过计算窗口间的相关性并分析mask效应来确定特征重要性。</p>\n<p>算法原理：\n1. 对每个滚动窗口，计算其与所有其他窗口的相关系数（基准相关性）\n2. 依次将窗口内每个位置设为NaN，重新计算相关系数\n3. 相关性变化最小的位置为最重要特征（核心代表性）\n4. 相关性变化最大的位置为最不重要特征</p>",
+    "params": [
+      "values",
+      "window_size"
+    ]
+  },
+  {
+    "name": "rolling_window_core_feature_optimized",
+    "description": "<p>优化版滚动窗口核心特征提取</p>\n<p>针对性能优化的版本，使用以下优化策略：\n1. 增量相关性计算：避免重复计算统计量\n2. 预计算缓存：缓存窗口间的相关性矩阵\n3. 内存优化：重用缓冲区，减少内存分配\n4. 向量化操作：使用SIMD友好的计算模式</p>",
+    "params": [
+      "values",
+      "window_size"
+    ]
+  },
+  {
+    "name": "rolling_window_core_feature_simd",
+    "description": "<p>SIMD优化版滚动窗口核心特征提取</p>\n<p>使用显式SIMD指令和智能缓存策略优化性能：\n1. SIMD向量化统计量计算\n2. LRU缓存避免重复相关性计算\n3. 批量内存访问优化\n4. 数值计算热点优化</p>",
+    "params": [
+      "values",
+      "window_size"
+    ]
+  },
+  {
+    "name": "rolling_window_core_feature_ultra",
+    "description": "<p>超级轻量级优化版滚动窗口核心特征提取</p>\n<p>基于性能测试结果，专注于最有效的优化：\n1. 极致的内联优化\n2. 最小化内存分配\n3. CPU缓存友好的数据访问模式\n4. 编译器友好的代码结构</p>\n<p>去掉所有复杂缓存机制，专注于算法核心优化</p>",
+    "params": [
+      "values",
+      "window_size"
     ]
   },
   {
