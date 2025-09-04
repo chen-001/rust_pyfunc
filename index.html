@@ -1180,6 +1180,34 @@ print(f"super加速比: {time1/time3:.2f}倍")
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="transfer_entropy_safe.html">transfer_entropy_safe</a></h3>
+                <div><p>计算从序列 x 到序列 y 的转移熵（安全版本，可处理 NaN 值）</p>
+<p>该函数计算从时间序列 x 到时间序列 y 的转移熵，用于量化 x 对 y 的因果影响。
+与原版 transfer_entropy 不同，此版本能够安全处理包含 NaN 值的数据。</p>
+<h1>Arguments</h1>
+<ul>
+<li><code>x_</code> - 源时间序列，可以包含 NaN 值</li>
+<li><code>y_</code> - 目标时间序列，可以包含 NaN 值  </li>
+<li><code>k</code> - 时间延迟参数</li>
+<li><code>c</code> - 离散化的分箱数量</li>
+</ul>
+<h1>Returns</h1>
+<p>转移熵值，如果数据不足或全为 NaN 则返回 0.0</p>
+<h1>Examples</h1>
+<p>```python
+import numpy as np
+import rust_pyfunc</p>
+<h1>创建包含 NaN 的数据</h1>
+<p>x = [1.0, 2.0, np.nan, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+y = [2.0, 3.0, 4.0, 5.0, np.nan, 7.0, 8.0, 9.0, 10.0, 11.0]</p>
+<h1>安全计算转移熵（不会 panic）</h1>
+<p>te = rust_pyfunc.transfer_entropy_safe(x, y, k=1, c=3)
+print(f"转移熵: {te}")
+```</p></div>
+                <a href="transfer_entropy_safe.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="trend.html">trend</a></h3>
                 <div><p>计算输入数组与自然数序列(1, 2, ..., n)之间的皮尔逊相关系数。
 这个函数可以用来判断一个序列的趋势性，如果返回值接近1表示强上升趋势，接近-1表示强下降趋势。</p></div>

@@ -854,6 +854,11 @@
     ]
   },
   {
+    "name": "transfer_entropy_safe",
+    "description": "<p>计算从序列 x 到序列 y 的转移熵（安全版本，可处理 NaN 值）</p>\n<p>该函数计算从时间序列 x 到时间序列 y 的转移熵，用于量化 x 对 y 的因果影响。\n与原版 transfer_entropy 不同，此版本能够安全处理包含 NaN 值的数据。</p>\n<h1>Arguments</h1>\n<ul>\n<li><code>x_</code> - 源时间序列，可以包含 NaN 值</li>\n<li><code>y_</code> - 目标时间序列，可以包含 NaN 值  </li>\n<li><code>k</code> - 时间延迟参数</li>\n<li><code>c</code> - 离散化的分箱数量</li>\n</ul>\n<h1>Returns</h1>\n<p>转移熵值，如果数据不足或全为 NaN 则返回 0.0</p>\n<h1>Examples</h1>\n<p>```python\nimport numpy as np\nimport rust_pyfunc</p>\n<h1>创建包含 NaN 的数据</h1>\n<p>x = [1.0, 2.0, np.nan, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]\ny = [2.0, 3.0, 4.0, 5.0, np.nan, 7.0, 8.0, 9.0, 10.0, 11.0]</p>\n<h1>安全计算转移熵（不会 panic）</h1>\n<p>te = rust_pyfunc.transfer_entropy_safe(x, y, k=1, c=3)\nprint(f\"转移熵: {te}\")\n```</p>",
+    "params": []
+  },
+  {
     "name": "trend",
     "description": "<p>计算输入数组与自然数序列(1, 2, ..., n)之间的皮尔逊相关系数。\n这个函数可以用来判断一个序列的趋势性，如果返回值接近1表示强上升趋势，接近-1表示强下降趋势。</p>",
     "params": [
