@@ -40,6 +40,7 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(time_series::fast_dtw_distance, m)?)?;
     m.add_function(wrap_pyfunction!(time_series::super_dtw_distance, m)?)?;
     m.add_function(wrap_pyfunction!(time_series::transfer_entropy, m)?)?;
+    m.add_function(wrap_pyfunction!(time_series::transfer_entropy_safe, m)?)?;
     m.add_function(wrap_pyfunction!(statistics::ols, m)?)?;
     m.add_function(wrap_pyfunction!(statistics::ols_predict, m)?)?;
     m.add_function(wrap_pyfunction!(statistics::ols_residuals, m)?)?;

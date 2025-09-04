@@ -91,6 +91,29 @@ def transfer_entropy(x_: List[float], y_: List[float], k: int, c: int) -> float:
     """
     ...
 
+def transfer_entropy_safe(x_: List[float], y_: List[float], k: int, c: int) -> float:
+    """计算两个时间序列之间的传递熵（安全版本，可处理NaN值）。
+    
+    与原版transfer_entropy不同，此版本能够安全处理包含NaN值的数据。
+    
+    参数说明：
+    ----------
+    x_ : List[float]
+        源时间序列，可以包含NaN值
+    y_ : List[float]
+        目标时间序列，可以包含NaN值
+    k : int
+        历史长度
+    c : int
+        分箱数量
+        
+    返回值：
+    -------
+    float
+        传递熵值，如果数据不足或全为NaN则返回0.0
+    """
+    ...
+
 def rolling_dtw_distance(ts1: List[float], ts2: List[float], window_size: int, step_size: int = 1, radius: Optional[int] = None) -> List[float]:
     """计算滚动DTW距离。
     

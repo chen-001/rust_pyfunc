@@ -2502,3 +2502,155 @@ pub fn calculate_large_order_nearby_small_order_time_gap(
     Ok(result)
 }
 
+/// 安全的离散化函数，能够处理 NaN 值
+fn discretize_safe(data_: Vec<f64>, c: usize) -> Array1<f64> {
+    let data = Array1::from_vec(data_);
+    
+    // 过滤出有效（非NaN）值的索引
+    let valid_indices: Vec<usize> = (0..data.len())
+        .filter(|&i| !data[i].is_nan())
+        .collect();
+    
+    if valid_indices.is_empty() {
+        // 如果所有值都是 NaN，返回全零数组
+        return Array1::zeros(data.len());
+    }
+    
+    // 对有效索引按值排序
+    let mut sorted_indices = valid_indices.clone();
+    sorted_indices.sort_by(|&i, &j| 
+        data[i].partial_cmp(&data[j]).unwrap_or(std::cmp::Ordering::Equal)
+    );
+    
+    let mut discretized = Array1::zeros(data.len());
+    let valid_count = sorted_indices.len();
+    let chunk_size = if valid_count >= c { valid_count / c } else { 1 };
+    
+    // 对有效值进行分箱
+    for i in 0..c.min(valid_count) {
+        let start = i * chunk_size;
+        let end = if i == c - 1 || i == valid_count - 1 {
+            valid_count
+        } else {
+            (i + 1) * chunk_size
+        };
+        for j in start..end {
+            if j < sorted_indices.len() {
+                discretized[sorted_indices[j]] = (i + 1) as f64;
+            }
+        }
+    }
+    
+    // NaN 值位置保持为 0
+    for i in 0..data.len() {
+        if data[i].is_nan() {
+            discretized[i] = 0.0;
+        }
+    }
+    
+    discretized
+}
+
+/// 计算从序列 x 到序列 y 的转移熵（安全版本，可处理 NaN 值）
+/// 
+/// 该函数计算从时间序列 x 到时间序列 y 的转移熵，用于量化 x 对 y 的因果影响。
+/// 与原版 transfer_entropy 不同，此版本能够安全处理包含 NaN 值的数据。
+/// 
+/// # Arguments
+/// * `x_` - 源时间序列，可以包含 NaN 值
+/// * `y_` - 目标时间序列，可以包含 NaN 值  
+/// * `k` - 时间延迟参数
+/// * `c` - 离散化的分箱数量
+/// 
+/// # Returns
+/// 转移熵值，如果数据不足或全为 NaN 则返回 0.0
+/// 
+/// # Examples
+/// 
+/// ```python
+/// import numpy as np
+/// import rust_pyfunc
+/// 
+/// # 创建包含 NaN 的数据
+/// x = [1.0, 2.0, np.nan, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+/// y = [2.0, 3.0, 4.0, 5.0, np.nan, 7.0, 8.0, 9.0, 10.0, 11.0]
+/// 
+/// # 安全计算转移熵（不会 panic）
+/// te = rust_pyfunc.transfer_entropy_safe(x, y, k=1, c=3)
+/// print(f"转移熵: {te}")
+/// ```
+#[pyfunction]
+#[pyo3(signature = (x_, y_, k, c))]
+pub fn transfer_entropy_safe(x_: Vec<f64>, y_: Vec<f64>, k: usize, c: usize) -> f64 {
+    use std::collections::HashMap;
+    
+    // 首先同步过滤两个序列中的 NaN 值
+    // 只保留两个序列在相同位置都不是 NaN 的数据点
+    let mut x_filtered = Vec::new();
+    let mut y_filtered = Vec::new();
+    
+    let min_len = x_.len().min(y_.len());
+    for i in 0..min_len {
+        if !x_[i].is_nan() && !y_[i].is_nan() {
+            x_filtered.push(x_[i]);
+            y_filtered.push(y_[i]);
+        }
+    }
+    
+    // 检查数据长度 - 保持与原函数相同的行为
+    if x_filtered.len() <= k || y_filtered.len() <= k {
+        return 0.0;
+    }
+    
+    // 使用安全的离散化函数
+    let x = discretize_safe(x_filtered.clone(), c);
+    let y = discretize_safe(y_filtered.clone(), c);
+    
+    // 修复后的逻辑，正确计算转移熵
+    let n = x.len();
+    let mut joint_prob = HashMap::new();
+    let mut conditional_prob = HashMap::new();
+    let mut y_marginal_prob = HashMap::new();  // y 的边际概率
+    let mut x_marginal_prob = HashMap::new();  // x 的边际概率（用于条件概率计算）
+    
+    // 计算联合概率 p(x_{t-k}, y_t)，y 的边际概率和 x 的边际概率
+    for t in k..n {
+        let key = (format!("{:.6}", x[t - k]), format!("{:.6}", y[t]));
+        *joint_prob.entry(key).or_insert(0) += 1;
+        *y_marginal_prob.entry(format!("{:.6}", y[t])).or_insert(0) += 1;
+        *x_marginal_prob.entry(format!("{:.6}", x[t - k])).or_insert(0) += 1;
+    }
+    
+    // 计算条件概率 p(y_t | x_{t-k}) - 修复后的正确逻辑
+    for t in k..n {
+        let key = (format!("{:.6}", x[t - k]), format!("{:.6}", y[t]));
+        let count = joint_prob.get(&key).unwrap_or(&0);
+        let conditional_key = format!("{:.6}", x[t - k]);
+        
+        // 使用正确的 x 的边际概率作为分母
+        if let Some(total_count) = x_marginal_prob.get(&conditional_key) {
+            let prob = *count as f64 / *total_count as f64;
+            *conditional_prob
+                .entry((conditional_key.clone(), format!("{:.6}", y[t])))
+                .or_insert(0.0) += prob;
+        }
+    }
+    
+    // 计算转移熵 - 修复后的正确逻辑
+    let mut te = 0.0;
+    for (key, &count) in joint_prob.iter() {
+        let (x_state, y_state) = key;
+        let p_xy = count as f64 / (n - k) as f64;
+        let p_y_given_x = conditional_prob
+            .get(&(x_state.clone(), y_state.clone()))
+            .unwrap_or(&0.0);
+        let p_y = y_marginal_prob.get(y_state).unwrap_or(&0);
+        
+        if *p_y > 0 && *p_y_given_x > 0.0 {
+            te += p_xy * (p_y_given_x / (*p_y as f64 / (n - k) as f64)).log2();
+        }
+    }
+    
+    te
+}
+
