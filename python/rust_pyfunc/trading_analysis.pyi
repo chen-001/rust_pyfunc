@@ -1085,3 +1085,45 @@ def calculate_order_time_gap_and_price_percentile_ultra_sorted_v2(
         第27列：订单价格（该订单的加权平均价格）
     """
     ...
+
+def analyze_asks(
+    exchtime: NDArray[np.float64],
+    number: NDArray[np.int32],
+    price: NDArray[np.float64],
+    volume: NDArray[np.int64],
+    volume_percentile: float = 0.9,
+    min_duration: int = 1
+) -> Tuple[NDArray[np.float64], List[str]]:
+    """异常挂单区间特征提取器
+    
+    分析卖盘挂单数据中的异常挂单模式，提取24个维度的量化特征。
+    异常挂单定义为：在当前时刻3-9档位中volume超过全局阈值且为该时刻最大值的挂单。
+    
+    参数说明：
+    ----------
+    exchtime : NDArray[np.float64]
+        交易时间戳数组（纳秒），已按时间升序排列
+    number : NDArray[np.int32]
+        档位编号数组（1-10，1为卖一，10为卖十），相同时间内按档位升序排列
+    price : NDArray[np.float64]
+        挂单价格数组
+    volume : NDArray[np.int64]
+        挂单量数组
+    volume_percentile : float, default=0.9
+        异常阈值分位数，默认0.9表示前10%的大挂单量
+    min_duration : int, default=1
+        异常区间最小持续行数，低于此值的区间将被过滤
+        
+    返回值：
+    -------
+    Tuple[NDArray[np.float64], List[str]]
+        第一个元素：(N, 24)形状的特征矩阵，N为检测到的异常区间数量
+        第二个元素：包含24个特征名称的中文字符串列表
+    
+    使用示例：
+    ---------
+    >>> features, names = analyze_asks(exchtime, number, price, volume)
+    >>> df = pd.DataFrame(features, columns=names)
+    """
+    ...
+
