@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>analyze_asks - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>analyze_asks</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>异常挂单区间特征提取器</p>
+<p>输入</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>analyze_asks(exchtime, number, price, volume, volume_percentile, min_duration) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">exchtime</span>
+                    <span class="parameter-type">(交易时间戳数组(纳秒))</span>
+                    <div></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">number</span>
+                    <span class="parameter-type">(档位编号数组(1-10))</span>
+                    <div></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">price</span>
+                    <span class="parameter-type">(挂单价格数组)</span>
+                    <div></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">volume</span>
+                    <span class="parameter-type">(挂单量数组)</span>
+                    <div></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">volume_percentile</span>
+                    <span class="parameter-type">(异常阈值分位数，默认0.9)</span>
+                    <div></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">min_duration</span>
+                    <span class="parameter-type">(最小持续行数，默认1)</span>
+                    <div></div>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div><ul>
+<li>特征矩阵(N×24)和特征名称列表</li>
+</ul></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import analyze_asks
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>
