@@ -2792,8 +2792,8 @@ pub fn run_pools_queue(
                 let remaining_s = remaining_secs % 60;
                 
                 let current_time = Local::now().format("%Y-%m-%d %H:%M:%S");
-                print!("\r[{}] 💾 第 {}/{} 次备份，存{}个结果。已用{}小时{}分钟{}秒，预余{}小时{}分钟{}秒", 
-                       current_time, batch_count, total_batches, batch_results.len(),
+                print!("\r[{}] 💾 第 {}/{} 次备份。已用{}小时{}分钟{}秒，预余{}小时{}分钟{}秒", 
+                       current_time, batch_count, total_batches, 
                        elapsed_h, elapsed_m, elapsed_s,
                        remaining_h, remaining_m, remaining_s);
                 io::stdout().flush().unwrap(); // 强制刷新输出缓冲区

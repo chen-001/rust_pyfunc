@@ -22,6 +22,7 @@ pub mod factor_neutralization_io_optimized;
 
 
 pub mod permutation_analysis_v0816_fixed;
+pub mod abnormal_asks_analyzer;
 
 
 
@@ -136,6 +137,7 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(factor_neutralization_io_optimized::batch_factor_neutralization_io_optimized, m)?)?;
     m.add_function(wrap_pyfunction!(permutation_analysis_v0816_fixed::analyze_sequence_permutations_v0816_fixed, m)?)?;
     m.add_function(wrap_pyfunction!(statistics::hmm_trend_prediction::hmm_trend_prediction, m)?)?;
+    m.add_function(wrap_pyfunction!(abnormal_asks_analyzer::analyze_asks, m)?)?;
     // m.add_function(wrap_pyfunction!(text::normalized_diff, m)?)?;
     Ok(())
 }
