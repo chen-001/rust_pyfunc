@@ -15,14 +15,15 @@ use std::collections::HashMap;
 /// 返回：
 /// - 特征矩阵(N×24)和特征名称列表
 #[pyfunction]
-#[pyo3(signature = (exchtime, number, price, volume, volume_percentile = 0.9, min_duration = 1))]
+#[pyo3(signature = (exchtime, number, price, volume, volume_percentile = 0.9, min_duration = 1, ratio_mode = false))]
 pub fn analyze_asks(
     exchtime: PyReadonlyArray1<f64>,
     number: PyReadonlyArray1<i32>,
     price: PyReadonlyArray1<f64>,
-    volume: PyReadonlyArray1<i64>,
+    volume: PyReadonlyArray1<f64>,
     volume_percentile: f64,
     min_duration: usize,
+    ratio_mode: bool,
 ) -> PyResult<(Py<PyArray2<f64>>, Vec<String>)> {
     let py = unsafe { Python::assume_gil_acquired() };
     
@@ -39,8 +40,10 @@ pub fn analyze_asks(
     }
     
     if n == 0 {
-        let empty_result = PyArray2::zeros(py, (0, 24), false);
-        return Ok((empty_result.to_owned(), get_feature_names()));
+        let num_features = if ratio_mode { 14 } else { 24 };
+        let empty_result = PyArray2::zeros(py, (0, num_features), false);
+        let feature_names = if ratio_mode { get_ratio_feature_names() } else { get_feature_names() };
+        return Ok((empty_result.to_owned(), feature_names));
     }
     
     // 转换为Rust切片
@@ -59,25 +62,36 @@ pub fn analyze_asks(
         min_duration
     );
     
-    // 计算特征
-    let features = calculate_features(&abnormal_segments, exchtime_data, number_data, price_data, volume_data);
-    
-    // 转换为NumPy数组
-    let num_segments = features.len();
-    let result_array = PyArray2::zeros(py, (num_segments, 24), false);
+    // 计算特征和创建结果矩阵
+    let feature_names = if ratio_mode { get_ratio_feature_names() } else { get_feature_names() };
+    let num_segments = abnormal_segments.len();
+    let num_features = if ratio_mode { 14 } else { 24 };
+    let result_array = PyArray2::zeros(py, (num_segments, num_features), false);
     
     {
         let mut result_slice = unsafe { result_array.as_array_mut() };
-        for (i, row) in features.iter().enumerate() {
-            for (j, &value) in row.iter().enumerate() {
-                unsafe {
-                    *result_slice.uget_mut((i, j)) = value;
+        if ratio_mode {
+            let ratio_features = calculate_ratio_features(&abnormal_segments, exchtime_data, number_data, price_data, volume_data);
+            for (i, row) in ratio_features.iter().enumerate() {
+                for (j, &value) in row.iter().enumerate() {
+                    unsafe {
+                        *result_slice.uget_mut((i, j)) = value;
+                    }
+                }
+            }
+        } else {
+            let features = calculate_features(&abnormal_segments, exchtime_data, number_data, price_data, volume_data);
+            for (i, row) in features.iter().enumerate() {
+                for (j, &value) in row.iter().enumerate() {
+                    unsafe {
+                        *result_slice.uget_mut((i, j)) = value;
+                    }
                 }
             }
         }
     }
     
-    Ok((result_array.to_owned(), get_feature_names()))
+    Ok((result_array.to_owned(), feature_names))
 }
 
 /// 异常挂单区间数据结构
@@ -97,7 +111,7 @@ fn detect_abnormal_segments(
     exchtime: &[f64],
     number: &[i32], 
     price: &[f64],
-    volume: &[i64],
+    volume: &[f64],
     volume_percentile: f64,
     min_duration: usize,
 ) -> Vec<AbnormalSegment> {
@@ -109,13 +123,13 @@ fn detect_abnormal_segments(
     }
     
     // 计算全局volume阈值
-    let mut sorted_volumes: Vec<i64> = volume.to_vec();
-    sorted_volumes.sort_unstable();
+    let mut sorted_volumes: Vec<f64> = volume.to_vec();
+    sorted_volumes.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let threshold_idx = ((sorted_volumes.len() as f64) * volume_percentile) as usize;
     let volume_threshold = if threshold_idx < sorted_volumes.len() {
-        sorted_volumes[threshold_idx] as f64
+        sorted_volumes[threshold_idx]
     } else {
-        sorted_volumes[sorted_volumes.len() - 1] as f64
+        sorted_volumes[sorted_volumes.len() - 1]
     };
     
     // 按时间戳分组数据 - 每个时间戳应该有10行数据(1-10档)
@@ -136,17 +150,17 @@ fn detect_abnormal_segments(
         let rows = time_groups.get(&time).unwrap();
         
         // 检查当前时刻是否有异常挂单
-        let mut current_abnormal: Option<(usize, i32, f64, i64)> = None; // (row_idx, level, price, volume)
+        let mut current_abnormal: Option<(usize, i32, f64, f64)> = None; // (row_idx, level, price, volume)
         
         // 找到当前时刻volume最大的档位（3-9档）
-        let mut max_volume = 0i64;
+        let mut max_volume = 0.0f64;
         let mut max_row = None;
         
         for &row_idx in rows {
             let level = number[row_idx];
             let vol = volume[row_idx];
             
-            if level >= 3 && level <= 9 && vol as f64 >= volume_threshold && vol > max_volume {
+            if level >= 3 && level <= 9 && vol >= volume_threshold && vol > max_volume {
                 max_volume = vol;
                 max_row = Some((row_idx, level, price[row_idx], vol));
             }
@@ -224,7 +238,7 @@ fn calculate_features(
     exchtime: &[f64],
     number: &[i32],
     price: &[f64],
-    volume: &[i64],
+    volume: &[f64],
 ) -> Vec<[f64; 24]> {
     let mut features = Vec::with_capacity(segments.len());
     
@@ -237,7 +251,7 @@ fn calculate_features(
         // 计算各种特征
         calculate_volume_change_features(segment, &segment_data, &mut feat);
         calculate_time_features(segment, &mut feat);
-        calculate_ratio_features(&segment_data, segment.level, &mut feat);
+        calculate_old_ratio_features(&segment_data, segment.level, &mut feat);
         calculate_correlation_features(&segment_data, segment.level, &mut feat);
         calculate_statistical_features(&segment_data, &mut feat);
         calculate_cv_features(&segment_data, segment.level, &mut feat);
@@ -256,7 +270,7 @@ struct SegmentData {
 
 struct TimeGroup {
     time: f64,
-    levels: [i64; 10],    // 1-10档的volume，索引0对应1档
+    levels: [f64; 10],    // 1-10档的volume，索引0对应1档
     prices: [f64; 10],    // 1-10档的price
 }
 
@@ -266,7 +280,7 @@ fn collect_segment_data(
     exchtime: &[f64],
     number: &[i32],
     price: &[f64],
-    volume: &[i64],
+    volume: &[f64],
 ) -> SegmentData {
     let mut time_groups_map: HashMap<i64, TimeGroup> = HashMap::new();
     
@@ -276,7 +290,7 @@ fn collect_segment_data(
             let time_key = exchtime[i] as i64;
             let entry = time_groups_map.entry(time_key).or_insert(TimeGroup {
                 time: exchtime[i],
-                levels: [0; 10],
+                levels: [0.0; 10],
                 prices: [0.0; 10],
             });
             
@@ -317,27 +331,27 @@ fn calculate_volume_change_features(
         
         // x档变化量
         let x_change = curr.levels[x_idx] - prev.levels[x_idx];
-        x_changes.push(x_change as f64);
+        x_changes.push(x_change);
         
         // x-1档变化量
         if x_idx > 0 {
             let x_minus_1_change = curr.levels[x_idx-1] - prev.levels[x_idx-1];
-            x_minus_1_changes.push(x_minus_1_change as f64);
+            x_minus_1_changes.push(x_minus_1_change);
         }
         
         // x+1档变化量  
         if x_idx < 9 {
             let x_plus_1_change = curr.levels[x_idx+1] - prev.levels[x_idx+1];
-            x_plus_1_changes.push(x_plus_1_change as f64);
+            x_plus_1_changes.push(x_plus_1_change);
         }
         
         // 1到x-1档变化量总和
-        let left_sum_change: i64 = (0..x_idx).map(|j| curr.levels[j] - prev.levels[j]).sum();
-        left_changes.push(left_sum_change as f64);
+        let left_sum_change: f64 = (0..x_idx).map(|j| curr.levels[j] - prev.levels[j]).sum();
+        left_changes.push(left_sum_change);
         
         // x+1到10档变化量总和
-        let right_sum_change: i64 = ((x_idx+1)..10).map(|j| curr.levels[j] - prev.levels[j]).sum();
-        right_changes.push(right_sum_change as f64);
+        let right_sum_change: f64 = ((x_idx+1)..10).map(|j| curr.levels[j] - prev.levels[j]).sum();
+        right_changes.push(right_sum_change);
     }
     
     // 0. x档volume变化量的均值
@@ -356,7 +370,7 @@ fn calculate_volume_change_features(
             let mut changes_for_level = Vec::new();
             for i in 1..data.time_groups.len() {
                 let change = data.time_groups[i].levels[j] - data.time_groups[i-1].levels[j];
-                changes_for_level.push(change as f64);
+                changes_for_level.push(change);
             }
             individual_means.push(calculate_mean(&changes_for_level));
         }
@@ -370,7 +384,7 @@ fn calculate_volume_change_features(
             let mut changes_for_level = Vec::new();
             for i in 1..data.time_groups.len() {
                 let change = data.time_groups[i].levels[j] - data.time_groups[i-1].levels[j];
-                changes_for_level.push(change as f64);
+                changes_for_level.push(change);
             }
             individual_means.push(calculate_mean(&changes_for_level));
         }
@@ -394,7 +408,7 @@ fn calculate_time_features(segment: &AbnormalSegment, feat: &mut [f64; 24]) {
 }
 
 /// 计算比例特征 (特征9-10)
-fn calculate_ratio_features(data: &SegmentData, x_level: i32, feat: &mut [f64; 24]) {
+fn calculate_old_ratio_features(data: &SegmentData, x_level: i32, feat: &mut [f64; 24]) {
     if data.time_groups.is_empty() {
         return;
     }
@@ -404,12 +418,12 @@ fn calculate_ratio_features(data: &SegmentData, x_level: i32, feat: &mut [f64; 2
     let mut total_volumes = Vec::new();
     
     for group in &data.time_groups {
-        let total_volume: i64 = group.levels.iter().sum();
-        total_volumes.push(total_volume as f64);
+        let total_volume: f64 = group.levels.iter().sum();
+        total_volumes.push(total_volume);
         
-        if total_volume > 0 && x_idx < 10 {
+        if total_volume > 0.0 && x_idx < 10 {
             // 正确计算异常档位的volume占比
-            let x_ratio = group.levels[x_idx] as f64 / total_volume as f64;
+            let x_ratio = group.levels[x_idx] / total_volume;
             x_ratios.push(x_ratio);
         }
     }
@@ -471,7 +485,7 @@ fn calculate_statistical_features(data: &SegmentData, feat: &mut [f64; 24]) {
     let mut autocorrs = Vec::new();
     
     for group in &data.time_groups {
-        let volumes: Vec<f64> = group.levels.iter().map(|&v| v as f64).collect();
+        let volumes: Vec<f64> = group.levels.to_vec();
         
         // 标准差
         let mean = calculate_mean(&volumes);
@@ -488,7 +502,7 @@ fn calculate_statistical_features(data: &SegmentData, feat: &mut [f64; 24]) {
     // 自相关系数需要用时间序列数据
     if data.time_groups.len() > 1 {
         for i in 0..10 {
-            let time_series: Vec<f64> = data.time_groups.iter().map(|g| g.levels[i] as f64).collect();
+            let time_series: Vec<f64> = data.time_groups.iter().map(|g| g.levels[i]).collect();
             autocorrs.push(calculate_autocorrelation(&time_series));
         }
     }
@@ -518,14 +532,14 @@ fn calculate_cv_features(data: &SegmentData, x_level: i32, feat: &mut [f64; 24])
     
     for group in &data.time_groups {
         // 1~x档volume的cv
-        let volumes_1_x: Vec<f64> = group.levels[0..=x_idx].iter().map(|&v| v as f64).collect();
+        let volumes_1_x: Vec<f64> = group.levels[0..=x_idx].to_vec();
         let mean_1_x = calculate_mean(&volumes_1_x);
         let std_1_x = calculate_std(&volumes_1_x, mean_1_x);
         let cv_1_x = if mean_1_x.abs() > f64::EPSILON { std_1_x / mean_1_x } else { 0.0 };
         cvs_1_x.push(cv_1_x);
         
         // x~10档volume的cv
-        let volumes_x_10: Vec<f64> = group.levels[x_idx..].iter().map(|&v| v as f64).collect();
+        let volumes_x_10: Vec<f64> = group.levels[x_idx..].to_vec();
         let mean_x_10 = calculate_mean(&volumes_x_10);
         let std_x_10 = calculate_std(&volumes_x_10, mean_x_10);
         let cv_x_10 = if mean_x_10.abs() > f64::EPSILON { std_x_10 / mean_x_10 } else { 0.0 };
@@ -541,14 +555,14 @@ fn calculate_cv_features(data: &SegmentData, x_level: i32, feat: &mut [f64; 24])
     // 21-23: x档、x-1档、x+1档volume的cv
     if data.time_groups.len() > 1 {
         // x档volume的时间序列cv
-        let x_time_series: Vec<f64> = data.time_groups.iter().map(|g| g.levels[x_idx] as f64).collect();
+        let x_time_series: Vec<f64> = data.time_groups.iter().map(|g| g.levels[x_idx]).collect();
         let x_mean = calculate_mean(&x_time_series);
         let x_std = calculate_std(&x_time_series, x_mean);
         feat[21] = if x_mean.abs() > f64::EPSILON { x_std / x_mean } else { 0.0 };
         
         // x-1档volume的cv
         if x_idx > 0 {
-            let x_minus_1_series: Vec<f64> = data.time_groups.iter().map(|g| g.levels[x_idx-1] as f64).collect();
+            let x_minus_1_series: Vec<f64> = data.time_groups.iter().map(|g| g.levels[x_idx-1]).collect();
             let x_minus_1_mean = calculate_mean(&x_minus_1_series);
             let x_minus_1_std = calculate_std(&x_minus_1_series, x_minus_1_mean);
             feat[22] = if x_minus_1_mean.abs() > f64::EPSILON { x_minus_1_std / x_minus_1_mean } else { 0.0 };
@@ -556,7 +570,7 @@ fn calculate_cv_features(data: &SegmentData, x_level: i32, feat: &mut [f64; 24])
         
         // x+1档volume的cv
         if x_idx < 9 {
-            let x_plus_1_series: Vec<f64> = data.time_groups.iter().map(|g| g.levels[x_idx+1] as f64).collect();
+            let x_plus_1_series: Vec<f64> = data.time_groups.iter().map(|g| g.levels[x_idx+1]).collect();
             let x_plus_1_mean = calculate_mean(&x_plus_1_series);
             let x_plus_1_std = calculate_std(&x_plus_1_series, x_plus_1_mean);
             feat[23] = if x_plus_1_mean.abs() > f64::EPSILON { x_plus_1_std / x_plus_1_mean } else { 0.0 };
@@ -697,6 +711,220 @@ fn calculate_autocorrelation(data: &[f64]) -> f64 {
     calculate_correlation(x1, x2)
 }
 
+/// 计算比例特征 (14个)
+fn calculate_ratio_features(
+    segments: &[AbnormalSegment],
+    exchtime: &[f64],
+    number: &[i32],
+    price: &[f64],
+    volume: &[f64],
+) -> Vec<[f64; 14]> {
+    let mut features = Vec::with_capacity(segments.len());
+    
+    for segment in segments {
+        let mut feat = [0.0f64; 14];
+        
+        // 收集区间内的数据
+        let segment_data = collect_segment_data(segment, exchtime, number, price, volume);
+        
+        if segment_data.time_groups.len() < 2 {
+            features.push(feat);
+            continue;
+        }
+        
+        let x_idx = (segment.level - 1) as usize;
+        
+        // 计算各档位变化量和比例分母
+        let mut x_changes = Vec::new();
+        let mut x_minus_1_changes = Vec::new();
+        let mut x_plus_1_changes = Vec::new();
+        let mut left_changes = Vec::new();  // 1 to x-1档的变化
+        let mut right_changes = Vec::new(); // x+1 to 10档的变化
+        let mut total_volumes = Vec::new(); // 每时刻1-10档挂单量总和
+        let mut left_volumes = Vec::new();  // 每时刻1~x-1档挂单量总和
+        let mut right_volumes = Vec::new(); // 每时刻x+1~10档挂单量总和
+        
+        // 计算变化率数据
+        let mut x_rates = Vec::new();
+        let mut x_minus_1_rates = Vec::new();
+        let mut x_plus_1_rates = Vec::new();
+        let mut left_rates = Vec::new();
+        let mut right_rates = Vec::new();
+        
+        for i in 0..segment_data.time_groups.len() {
+            let group = &segment_data.time_groups[i];
+            
+            // 当前时刻的总挂单量
+            let total_vol: f64 = group.levels.iter().sum();
+            total_volumes.push(total_vol);
+            
+            // 左侧和右侧挂单量
+            let left_vol: f64 = if x_idx > 0 { group.levels[0..x_idx].iter().sum() } else { 0.0 };
+            let right_vol: f64 = if x_idx < 9 { group.levels[(x_idx+1)..10].iter().sum() } else { 0.0 };
+            left_volumes.push(left_vol);
+            right_volumes.push(right_vol);
+            
+            if i > 0 {
+                let prev_group = &segment_data.time_groups[i-1];
+                
+                // x档变化量
+                let x_change = group.levels[x_idx] - prev_group.levels[x_idx];
+                x_changes.push(x_change);
+                
+                // x档变化率
+                if prev_group.levels[x_idx].abs() > f64::EPSILON {
+                    x_rates.push(x_change / prev_group.levels[x_idx]);
+                }
+                
+                // x-1档变化量和变化率
+                if x_idx > 0 {
+                    let x_minus_1_change = group.levels[x_idx-1] - prev_group.levels[x_idx-1];
+                    x_minus_1_changes.push(x_minus_1_change);
+                    if prev_group.levels[x_idx-1].abs() > f64::EPSILON {
+                        x_minus_1_rates.push(x_minus_1_change / prev_group.levels[x_idx-1]);
+                    }
+                }
+                
+                // x+1档变化量和变化率
+                if x_idx < 9 {
+                    let x_plus_1_change = group.levels[x_idx+1] - prev_group.levels[x_idx+1];
+                    x_plus_1_changes.push(x_plus_1_change);
+                    if prev_group.levels[x_idx+1].abs() > f64::EPSILON {
+                        x_plus_1_rates.push(x_plus_1_change / prev_group.levels[x_idx+1]);
+                    }
+                }
+                
+                // 左侧变化量总和和变化率
+                let left_sum_change: f64 = (0..x_idx).map(|j| group.levels[j] - prev_group.levels[j]).sum();
+                left_changes.push(left_sum_change);
+                let prev_left_vol: f64 = if x_idx > 0 { prev_group.levels[0..x_idx].iter().sum() } else { 0.0 };
+                if prev_left_vol.abs() > f64::EPSILON {
+                    left_rates.push(left_sum_change / prev_left_vol);
+                }
+                
+                // 右侧变化量总和和变化率
+                let right_sum_change: f64 = ((x_idx+1)..10).map(|j| group.levels[j] - prev_group.levels[j]).sum();
+                right_changes.push(right_sum_change);
+                let prev_right_vol: f64 = if x_idx < 9 { prev_group.levels[(x_idx+1)..10].iter().sum() } else { 0.0 };
+                if prev_right_vol.abs() > f64::EPSILON {
+                    right_rates.push(right_sum_change / prev_right_vol);
+                }
+            }
+        }
+        
+        // 计算分母均值
+        let total_vol_mean = calculate_mean(&total_volumes);
+        let left_vol_mean = calculate_mean(&left_volumes);
+        let right_vol_mean = calculate_mean(&right_volumes);
+        
+        // 1. x档volume变化量均值 / 每时刻1-10档挂单量总和均值
+        feat[0] = if total_vol_mean.abs() > f64::EPSILON {
+            calculate_mean(&x_changes) / total_vol_mean
+        } else { 0.0 };
+        
+        // 2. x-1档volume变化量均值 / 每时刻1-10档挂单量总和均值
+        feat[1] = if total_vol_mean.abs() > f64::EPSILON {
+            calculate_mean(&x_minus_1_changes) / total_vol_mean
+        } else { 0.0 };
+        
+        // 3. x+1档volume变化量均值 / 每时刻1-10档挂单量总和均值
+        feat[2] = if total_vol_mean.abs() > f64::EPSILON {
+            calculate_mean(&x_plus_1_changes) / total_vol_mean
+        } else { 0.0 };
+        
+        // 4. 1到x-1档各自变化量均值的均值 / 每时刻1~x-1档挂单量总和均值
+        if x_idx > 0 && left_vol_mean.abs() > f64::EPSILON {
+            let mut individual_means = Vec::new();
+            for j in 0..x_idx {
+                let mut changes_for_level = Vec::new();
+                for i in 1..segment_data.time_groups.len() {
+                    let change = segment_data.time_groups[i].levels[j] - segment_data.time_groups[i-1].levels[j];
+                    changes_for_level.push(change);
+                }
+                individual_means.push(calculate_mean(&changes_for_level));
+            }
+            feat[3] = calculate_mean(&individual_means) / left_vol_mean;
+        }
+        
+        // 5. x+1到10档各自变化量均值的均值 / 每时刻x+1~10档挂单量总和均值
+        if x_idx < 9 && right_vol_mean.abs() > f64::EPSILON {
+            let mut individual_means = Vec::new();
+            for j in (x_idx+1)..10 {
+                let mut changes_for_level = Vec::new();
+                for i in 1..segment_data.time_groups.len() {
+                    let change = segment_data.time_groups[i].levels[j] - segment_data.time_groups[i-1].levels[j];
+                    changes_for_level.push(change);
+                }
+                individual_means.push(calculate_mean(&changes_for_level));
+            }
+            feat[4] = calculate_mean(&individual_means) / right_vol_mean;
+        }
+        
+        // 6. 1到x-1档变化量总和均值 / 每时刻1~x-1档挂单量总和均值
+        feat[5] = if left_vol_mean.abs() > f64::EPSILON {
+            calculate_mean(&left_changes) / left_vol_mean
+        } else { 0.0 };
+        
+        // 7. x+1到10档变化量总和均值 / 每时刻x+1~10档挂单量总和均值
+        feat[6] = if right_vol_mean.abs() > f64::EPSILON {
+            calculate_mean(&right_changes) / right_vol_mean
+        } else { 0.0 };
+        
+        // 8. x档volume变化率均值
+        feat[7] = calculate_mean(&x_rates);
+        
+        // 9. x-1档volume变化率均值
+        feat[8] = calculate_mean(&x_minus_1_rates);
+        
+        // 10. x+1档volume变化率均值
+        feat[9] = calculate_mean(&x_plus_1_rates);
+        
+        // 11. 1到x-1档各自变化率均值的多期均值
+        if x_idx > 0 {
+            let mut individual_rate_means = Vec::new();
+            for j in 0..x_idx {
+                let mut rates_for_level = Vec::new();
+                for i in 1..segment_data.time_groups.len() {
+                    let prev_vol = segment_data.time_groups[i-1].levels[j];
+                    if prev_vol.abs() > f64::EPSILON {
+                        let change = segment_data.time_groups[i].levels[j] - prev_vol;
+                        rates_for_level.push(change / prev_vol);
+                    }
+                }
+                individual_rate_means.push(calculate_mean(&rates_for_level));
+            }
+            feat[10] = calculate_mean(&individual_rate_means);
+        }
+        
+        // 12. x+1到10档各自变化率均值的多期均值
+        if x_idx < 9 {
+            let mut individual_rate_means = Vec::new();
+            for j in (x_idx+1)..10 {
+                let mut rates_for_level = Vec::new();
+                for i in 1..segment_data.time_groups.len() {
+                    let prev_vol = segment_data.time_groups[i-1].levels[j];
+                    if prev_vol.abs() > f64::EPSILON {
+                        let change = segment_data.time_groups[i].levels[j] - prev_vol;
+                        rates_for_level.push(change / prev_vol);
+                    }
+                }
+                individual_rate_means.push(calculate_mean(&rates_for_level));
+            }
+            feat[11] = calculate_mean(&individual_rate_means);
+        }
+        
+        // 13. 1到x-1档各档位变化率总和的多期均值
+        feat[12] = calculate_mean(&left_rates);
+        
+        // 14. x+1到10档各档位变化率总和的多期均值
+        feat[13] = calculate_mean(&right_rates);
+        
+        features.push(feat);
+    }
+    
+    features
+}
+
 /// 获取特征名称列表
 fn get_feature_names() -> Vec<String> {
     vec![
@@ -724,5 +952,25 @@ fn get_feature_names() -> Vec<String> {
         "x档volume变异系数".to_string(),                // 21
         "x-1档volume变异系数".to_string(),              // 22
         "x+1档volume变异系数".to_string(),              // 23
+    ]
+}
+
+/// 获取比例特征名称列表
+fn get_ratio_feature_names() -> Vec<String> {
+    vec![
+        "x档volume变化量均值比例".to_string(),           // 0
+        "x-1档volume变化量均值比例".to_string(),         // 1  
+        "x+1档volume变化量均值比例".to_string(),         // 2
+        "1到x-1档各自变化量均值比例".to_string(),        // 3
+        "x+1到10档各自变化量均值比例".to_string(),       // 4
+        "1到x-1档变化量总和均值比例".to_string(),        // 5
+        "x+1到10档变化量总和均值比例".to_string(),       // 6
+        "x档volume变化率均值".to_string(),              // 7
+        "x-1档volume变化率均值".to_string(),            // 8
+        "x+1档volume变化率均值".to_string(),            // 9
+        "1到x-1档各自变化率均值的多期均值".to_string(),   // 10
+        "x+1到10档各自变化率均值的多期均值".to_string(),  // 11
+        "1到x-1档各档位变化率总和的多期均值".to_string(), // 12
+        "x+1到10档各档位变化率总和的多期均值".to_string() // 13
     ]
 }
