@@ -1090,13 +1090,14 @@ def analyze_asks(
     exchtime: NDArray[np.float64],
     number: NDArray[np.int32],
     price: NDArray[np.float64],
-    volume: NDArray[np.int64],
+    volume: NDArray[np.float64],
     volume_percentile: float = 0.9,
-    min_duration: int = 1
+    min_duration: int = 1,
+    ratio_mode: bool = False
 ) -> Tuple[NDArray[np.float64], List[str]]:
     """异常挂单区间特征提取器
     
-    分析卖盘挂单数据中的异常挂单模式，提取24个维度的量化特征。
+    分析卖盘挂单数据中的异常挂单模式，提取量化特征。
     异常挂单定义为：在当前时刻3-9档位中volume超过全局阈值且为该时刻最大值的挂单。
     
     参数说明：
@@ -1107,18 +1108,20 @@ def analyze_asks(
         档位编号数组（1-10，1为卖一，10为卖十），相同时间内按档位升序排列
     price : NDArray[np.float64]
         挂单价格数组
-    volume : NDArray[np.int64]
-        挂单量数组
+    volume : NDArray[np.float64]
+        挂单量数组（支持浮点数，提供更灵活的数据输入）
     volume_percentile : float, default=0.9
         异常阈值分位数，默认0.9表示前10%的大挂单量
     min_duration : int, default=1
         异常区间最小持续行数，低于此值的区间将被过滤
+    ratio_mode : bool, default=False
+        是否使用比例模式。False时返回24个绝对特征，True时返回14个比例特征
         
     返回值：
     -------
     Tuple[NDArray[np.float64], List[str]]
-        第一个元素：(N, 24)形状的特征矩阵，N为检测到的异常区间数量
-        第二个元素：包含24个特征名称的中文字符串列表
+        第一个元素：特征矩阵，shape为(N, 24)或(N, 14)，N为检测到的异常区间数量
+        第二个元素：包含特征名称的中文字符串列表
     
     使用示例：
     ---------
