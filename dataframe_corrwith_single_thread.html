@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>corrwith - Rust PyFunc API文档</title>
+    <title>dataframe_corrwith_single_thread - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
     <script src="static/search.js"></script>
 </head>
@@ -26,18 +26,18 @@
     </div>
     
     <div class="content">
-        <h1>corrwith</h1>
+        <h1>dataframe_corrwith_single_thread</h1>
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><p>计算两个DataFrame对应列或行之间的相关系数。</p>
-<p>这个函数是pandas的corrwith方法的Rust实现包装，用于计算两个DataFrame中对应列（或行）
-之间的皮尔逊相关系数。会自动处理两个DataFrame的列名（或行名）匹配情况。</p></div>
+            <div><p>计算两个数据框对应列的相关系数（单线程版本）。</p>
+<p>这个函数是 dataframe_corrwith 的单线程版本，在处理小规模数据或内存受限环境时提供更好的性能。
+计算两个数据框中对应列之间的皮尔逊相关系数，不使用多线程并行处理。</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>corrwith(df1, df2, axis, use_single_thread) -> &lt;class &#39;pandas.core.series.Series&#39;&gt;</code>
+            <code>dataframe_corrwith_single_thread(df1, df2, axis, drop_na) -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -46,26 +46,26 @@
                 
                 <div class="parameter">
                     <span class="parameter-name">df1</span>
-                    <span class="parameter-type">(pd.DataFrame)</span>
-                    <div><p>第一个数据框</p></div>
+                    <span class="parameter-type">(numpy.ndarray)</span>
+                    <div><p>第一个数据框，形状为(n_rows, n_cols)，必须是float64类型</p></div>
                 </div>
                 
                 <div class="parameter">
                     <span class="parameter-name">df2</span>
-                    <span class="parameter-type">(pd.DataFrame)</span>
-                    <div><p>第二个数据框</p></div>
+                    <span class="parameter-type">(numpy.ndarray)</span>
+                    <div><p>第二个数据框，形状为(n_rows, m_cols)，必须是float64类型</p></div>
                 </div>
                 
                 <div class="parameter">
                     <span class="parameter-name">axis</span>
-                    <span class="parameter-type">(int, 默认为0)</span>
-                    <div><p>计算相关性的轴，0表示按列计算，1表示按行计算</p></div>
+                    <span class="parameter-type">(int, 可选)</span>
+                    <div><p>计算相关性的轴，默认为0（按列计算）。目前只支持按列计算。</p></div>
                 </div>
                 
                 <div class="parameter">
-                    <span class="parameter-name">use_single_thread</span>
-                    <span class="parameter-type">(bool, 默认为False)</span>
-                    <div><p>是否使用单线程版本。True时使用单线程计算，适合小数据集或内存受限环境； False时使用多线程并行计算，适合大数据集。</p></div>
+                    <span class="parameter-name">drop_na</span>
+                    <span class="parameter-type">(bool, 可选)</span>
+                    <div><p>是否忽略NaN值，默认为true</p></div>
                 </div>
                 
             
@@ -74,29 +74,29 @@
         <div class="function-returns returns-section">
             <h2>返回值</h2>
             <div><hr />
-<p>pd.Series
-    包含对应列（或行）相关系数的Series，索引为共同的列名（或行名）</p>
-<h2>示例：</h2>
-<blockquote>
-<blockquote>
-<blockquote>
+<p>numpy.ndarray
+    一维数组，长度为min(n_cols, m_cols)，包含对应列的相关系数</p>
+<p>Python调用示例：
+```python
+import numpy as np
+import pandas as pd
+from rust_pyfunc import dataframe_corrwith_single_thread</p>
+<h1>创建两个数据框</h1>
 <p>df1 = pd.DataFrame({
-...     'A': [1.0, 2.0, 3.0, 4.0, 5.0],
-...     'B': [5.0, 4.0, 3.0, 2.0, 1.0],
-...     'C': [2.0, 4.0, 6.0, 8.0, 10.0]
-... })
+    'A': [1.0, 2.0, 3.0, 4.0, 5.0],
+    'B': [5.0, 4.0, 3.0, 2.0, 1.0],
+    'C': [2.0, 4.0, 6.0, 8.0, 10.0]
+})
 df2 = pd.DataFrame({
-...     'A': [1.1, 2.2, 2.9, 4.1, 5.2],
-...     'B': [5.2, 4.1, 2.9, 2.1, 0.9],
-...     'D': [1.0, 2.0, 3.0, 4.0, 5.0]
-... })
-corrwith(df1, df2)
-A    0.998867
-B    0.997492
-dtype: float64</p>
-</blockquote>
-</blockquote>
-</blockquote></div>
+    'A': [1.1, 2.2, 2.9, 4.1, 5.2],
+    'B': [5.2, 4.1, 2.9, 2.1, 0.9],
+    'D': [1.0, 2.0, 3.0, 4.0, 5.0]
+})</p>
+<h1>计算相关系数（单线程）</h1>
+<p>corr = dataframe_corrwith_single_thread(df1.values, df2.values)</p>
+<h1>转换为Series以获得与pandas相同的输出格式</h1>
+<p>result = pd.Series(corr, index=['A', 'B', 'C'])
+```</p></div>
         </div>
         
         <div class="function-examples">
@@ -108,7 +108,7 @@ dtype: float64</p>
             <div class="example-usage-note">
                 <h3>Python使用示例</h3>
                 <pre><code>import numpy as np
-from rust_pyfunc import corrwith
+from rust_pyfunc import dataframe_corrwith_single_thread
 
 # 使用示例
 

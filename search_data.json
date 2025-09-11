@@ -226,7 +226,8 @@
     "params": [
       "df1",
       "df2",
-      "axis"
+      "axis",
+      "use_single_thread"
     ]
   },
   {
@@ -236,6 +237,16 @@
       "df1",
       "df2",
       "axis"
+    ]
+  },
+  {
+    "name": "dataframe_corrwith_single_thread",
+    "description": "<p>计算两个数据框对应列的相关系数（单线程版本）。</p>\n<p>这个函数是 dataframe_corrwith 的单线程版本，在处理小规模数据或内存受限环境时提供更好的性能。\n计算两个数据框中对应列之间的皮尔逊相关系数，不使用多线程并行处理。</p>",
+    "params": [
+      "df1",
+      "df2",
+      "axis",
+      "drop_na"
     ]
   },
   {
@@ -586,6 +597,11 @@
   {
     "name": "order_neighborhood_analysis",
     "description": "<p>超级高速订单邻域分析函数 - 为13万数据优化</p>\n<p>激进优化策略：\n1. 预计算邻域索引表\n2. 批量SIMD计算\n3. 内存预分配避免动态分配\n4. 分层并行处理\n5. 零拷贝数据传递</p>",
+    "params": []
+  },
+  {
+    "name": "pandas_series_rank",
+    "description": "<p>计算pandas Series的排名 (单线程版本)</p>\n<h1>Arguments</h1>\n<ul>\n<li><code>data</code> - 输入的一维数组数据</li>\n<li><code>method</code> - 排名方法: \"average\", \"min\", \"max\", \"first\", \"dense\"</li>\n<li><code>ascending</code> - 是否升序排列</li>\n<li><code>na_option</code> - NaN处理方式: \"keep\", \"top\", \"bottom\"</li>\n</ul>\n<h1>Returns</h1>\n<ul>\n<li>排名结果的一维数组</li>\n</ul>",
     "params": []
   },
   {

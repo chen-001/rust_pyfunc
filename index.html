@@ -492,6 +492,14 @@ s.rolling_past('2s').trend_time()  # 计算前面2秒内的趋势</p>
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="dataframe_corrwith_single_thread.html">dataframe_corrwith_single_thread</a></h3>
+                <div><p>计算两个数据框对应列的相关系数（单线程版本）。</p>
+<p>这个函数是 dataframe_corrwith 的单线程版本，在处理小规模数据或内存受限环境时提供更好的性能。
+计算两个数据框中对应列之间的皮尔逊相关系数，不使用多线程并行处理。</p></div>
+                <a href="dataframe_corrwith_single_thread.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="dtw_distance.html">dtw_distance</a></h3>
                 <div><p>DTW（动态时间规整）是一种测量两个时间序列相似度的方法。
 该算法计算两个可能长度不同、tempo不同的时间序列间的最优匹配。</p></div>
@@ -844,6 +852,23 @@ print(f"加速比: {time1/time2:.2f}倍")
 4. 分层并行处理
 5. 零拷贝数据传递</p></div>
                 <a href="order_neighborhood_analysis.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="pandas_series_rank.html">pandas_series_rank</a></h3>
+                <div><p>计算pandas Series的排名 (单线程版本)</p>
+<h1>Arguments</h1>
+<ul>
+<li><code>data</code> - 输入的一维数组数据</li>
+<li><code>method</code> - 排名方法: "average", "min", "max", "first", "dense"</li>
+<li><code>ascending</code> - 是否升序排列</li>
+<li><code>na_option</code> - NaN处理方式: "keep", "top", "bottom"</li>
+</ul>
+<h1>Returns</h1>
+<ul>
+<li>排名结果的一维数组</li>
+</ul></div>
+                <a href="pandas_series_rank.html">查看详情</a>
             </div>
             
             <div class="function-item">
