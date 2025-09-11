@@ -33,6 +33,35 @@ def dataframe_corrwith(
     """
     ...
 
+def dataframe_corrwith_single_thread(
+    df1: pd.DataFrame,
+    df2: pd.DataFrame,
+    axis: int = 0,
+    drop_na: bool = True
+) -> pd.Series:
+    """高性能DataFrame相关性计算（单线程版本）。
+    
+    这个函数是 dataframe_corrwith 的单线程版本，在处理小规模数据或内存受限环境时提供更好的性能。
+    计算两个DataFrame中对应列之间的皮尔逊相关系数，不使用多线程并行处理。
+    
+    参数说明：
+    ----------
+    df1 : pd.DataFrame
+        第一个DataFrame
+    df2 : pd.DataFrame
+        第二个DataFrame
+    axis : int
+        计算轴，0表示按列，1表示按行
+    drop_na : bool
+        是否删除NaN值
+        
+    返回值：
+    -------
+    pd.Series
+        相关性结果
+    """
+    ...
+
 def rank_axis1(df: pd.DataFrame, method: str = "average", ascending: bool = True) -> pd.DataFrame:
     """高性能按行排名函数。
     
@@ -139,6 +168,7 @@ def corrwith(
     df1: pd.DataFrame,
     df2: pd.DataFrame,
     axis: int = 0,
+    use_single_thread: bool = False,
 ) -> pd.Series:
     """计算两个DataFrame对应列或行之间的相关系数。
     
@@ -153,6 +183,9 @@ def corrwith(
         第二个数据框
     axis : int, 默认为0
         计算相关性的轴，0表示按列计算，1表示按行计算
+    use_single_thread : bool, 默认为False
+        是否使用单线程版本。True时使用单线程计算，适合小数据集或内存受限环境；
+        False时使用多线程并行计算，适合大数据集。
         
     返回值：
     -------
@@ -264,4 +297,46 @@ def fast_merge_dataframe(
     how: str = "inner"
 ) -> pd.DataFrame:
     """高性能多列DataFrame合并函数"""
+    ...
+
+def pandas_series_rank(
+    data: NDArray[np.float64],
+    method: Optional[str] = "average",
+    ascending: Optional[bool] = True,
+    na_option: Optional[str] = "keep"
+) -> NDArray[np.float64]:
+    """计算pandas Series的排名 (单线程版本)。
+    
+    参数说明：
+    ----------
+    data : NDArray[np.float64]
+        输入的一维数组数据
+    method : Optional[str], 默认为"average"
+        排名方法，支持: "average", "min", "max", "first", "dense"
+        - "average": 相同值取平均排名
+        - "min": 相同值取最小排名  
+        - "max": 相同值取最大排名
+        - "first": 相同值按出现顺序排名
+        - "dense": 相同值取相同排名，且排名连续
+    ascending : Optional[bool], 默认为True
+        是否升序排列，True为升序，False为降序
+    na_option : Optional[str], 默认为"keep"
+        NaN处理方式，支持: "keep", "top", "bottom"
+        - "keep": NaN保持为NaN
+        - "top": NaN排在最前面
+        - "bottom": NaN排在最后面
+        
+    返回值：
+    -------
+    NDArray[np.float64]
+        排名结果的一维数组，与输入data同样长度
+        
+    示例：
+    -----
+    >>> import numpy as np
+    >>> import rust_pyfunc
+    >>> data = np.array([3.0, 1.0, 2.0, 1.0, np.nan])
+    >>> result = rust_pyfunc.pandas_series_rank(data, method="average", ascending=True, na_option="keep")
+    >>> print(result)  # [4.0, 1.5, 3.0, 1.5, nan]
+    """
     ...

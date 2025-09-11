@@ -79,6 +79,7 @@ __all__ = [
     
     # Pandas扩展函数
     "dataframe_corrwith",
+    "dataframe_corrwith_single_thread",
     "rank_axis1",
     "fast_merge",
     "fast_merge_mixed",
