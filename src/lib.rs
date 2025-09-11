@@ -10,6 +10,7 @@ pub mod tree;
 pub mod error;
 pub mod grouping;
 pub mod parallel_computing;
+pub mod backup_reader;
 pub mod order_contamination;
 pub mod trade_peak_analysis;
 pub mod order_neighborhood;
@@ -23,6 +24,7 @@ pub mod factor_neutralization_io_optimized;
 
 pub mod permutation_analysis_v0816_fixed;
 pub mod abnormal_asks_analyzer;
+pub mod series_rank;
 
 
 
@@ -85,6 +87,7 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(sequence::brachistochrone_curve, m)?)?;
     m.add_function(wrap_pyfunction!(sequence::brachistochrone_curve_v2, m)?)?;
     m.add_function(wrap_pyfunction!(statistics::dataframe_corrwith, m)?)?;
+    m.add_function(wrap_pyfunction!(statistics::dataframe_corrwith_single_thread, m)?)?;
     m.add_function(wrap_pyfunction!(time_series::rolling_dtw_distance, m)?)?;
     m.add_function(wrap_pyfunction!(sequence::segment_and_correlate, m)?)?;
     m.add_function(wrap_pyfunction!(sequence::test_function, m)?)?;
@@ -97,14 +100,14 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(grouping::factor_grouping, m)?)?;
     m.add_function(wrap_pyfunction!(grouping::factor_correlation_by_date, m)?)?;
     m.add_function(wrap_pyfunction!(parallel_computing::run_pools_queue, m)?)?;
-    m.add_function(wrap_pyfunction!(parallel_computing::query_backup, m)?)?;
-    m.add_function(wrap_pyfunction!(parallel_computing::query_backup_fast, m)?)?;
-    m.add_function(wrap_pyfunction!(parallel_computing::query_backup_single_column, m)?)?;
-    m.add_function(wrap_pyfunction!(parallel_computing::query_backup_single_column_with_filter, m)?)?;
-    m.add_function(wrap_pyfunction!(parallel_computing::query_backup_columns_range_with_filter, m)?)?;
-    m.add_function(wrap_pyfunction!(parallel_computing::query_backup_factor_only, m)?)?;
-    m.add_function(wrap_pyfunction!(parallel_computing::query_backup_factor_only_with_filter, m)?)?;
-    m.add_function(wrap_pyfunction!(parallel_computing::query_backup_factor_only_ultra_fast, m)?)?;
+    m.add_function(wrap_pyfunction!(backup_reader::query_backup, m)?)?;
+    m.add_function(wrap_pyfunction!(backup_reader::query_backup_fast, m)?)?;
+    m.add_function(wrap_pyfunction!(backup_reader::query_backup_single_column, m)?)?;
+    m.add_function(wrap_pyfunction!(backup_reader::query_backup_single_column_with_filter, m)?)?;
+    m.add_function(wrap_pyfunction!(backup_reader::query_backup_columns_range_with_filter, m)?)?;
+    m.add_function(wrap_pyfunction!(backup_reader::query_backup_factor_only, m)?)?;
+    m.add_function(wrap_pyfunction!(backup_reader::query_backup_factor_only_with_filter, m)?)?;
+    m.add_function(wrap_pyfunction!(backup_reader::query_backup_factor_only_ultra_fast, m)?)?;
     m.add_function(wrap_pyfunction!(order_contamination::order_contamination, m)?)?;
     m.add_function(wrap_pyfunction!(order_contamination::order_contamination_parallel, m)?)?;
     m.add_function(wrap_pyfunction!(order_contamination::order_contamination_bilateral, m)?)?;
@@ -138,6 +141,7 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(permutation_analysis_v0816_fixed::analyze_sequence_permutations_v0816_fixed, m)?)?;
     m.add_function(wrap_pyfunction!(statistics::hmm_trend_prediction::hmm_trend_prediction, m)?)?;
     m.add_function(wrap_pyfunction!(abnormal_asks_analyzer::analyze_asks, m)?)?;
+    m.add_function(wrap_pyfunction!(series_rank::pandas_series_rank, m)?)?;
     // m.add_function(wrap_pyfunction!(text::normalized_diff, m)?)?;
     Ok(())
 }

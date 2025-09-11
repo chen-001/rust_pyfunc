@@ -923,4 +923,103 @@ fn calculate_correlation_optimized(x: &ArrayView1<f64>, y: &ArrayView1<f64>, dro
     cov_xy / (var_x.sqrt() * var_y.sqrt())
 }
 
+/// 计算两个数据框对应列的相关系数（单线程版本）。
+///
+/// 这个函数是 dataframe_corrwith 的单线程版本，在处理小规模数据或内存受限环境时提供更好的性能。
+/// 计算两个数据框中对应列之间的皮尔逊相关系数，不使用多线程并行处理。
+///
+/// 参数说明：
+/// ----------
+/// df1 : numpy.ndarray
+///     第一个数据框，形状为(n_rows, n_cols)，必须是float64类型
+/// df2 : numpy.ndarray
+///     第二个数据框，形状为(n_rows, m_cols)，必须是float64类型
+/// axis : int, 可选
+///     计算相关性的轴，默认为0（按列计算）。目前只支持按列计算。
+/// drop_na : bool, 可选
+///     是否忽略NaN值，默认为true
+///
+/// 返回值：
+/// -------
+/// numpy.ndarray
+///     一维数组，长度为min(n_cols, m_cols)，包含对应列的相关系数
+///
+/// Python调用示例：
+/// ```python
+/// import numpy as np
+/// import pandas as pd
+/// from rust_pyfunc import dataframe_corrwith_single_thread
+///
+/// # 创建两个数据框
+/// df1 = pd.DataFrame({
+///     'A': [1.0, 2.0, 3.0, 4.0, 5.0],
+///     'B': [5.0, 4.0, 3.0, 2.0, 1.0],
+///     'C': [2.0, 4.0, 6.0, 8.0, 10.0]
+/// })
+/// df2 = pd.DataFrame({
+///     'A': [1.1, 2.2, 2.9, 4.1, 5.2],
+///     'B': [5.2, 4.1, 2.9, 2.1, 0.9],
+///     'D': [1.0, 2.0, 3.0, 4.0, 5.0]
+/// })
+///
+/// # 计算相关系数（单线程）
+/// corr = dataframe_corrwith_single_thread(df1.values, df2.values)
+/// # 转换为Series以获得与pandas相同的输出格式
+/// result = pd.Series(corr, index=['A', 'B', 'C'])
+/// ```
+#[pyfunction]
+#[pyo3(signature = (df1, df2, axis=0, drop_na=true))]
+pub fn dataframe_corrwith_single_thread(
+    py: Python,
+    df1: PyReadonlyArray2<f64>,
+    df2: PyReadonlyArray2<f64>,
+    axis: Option<i32>,
+    drop_na: Option<bool>,
+) -> PyResult<Py<PyArray1<f64>>> {
+    let df1 = df1.as_array();
+    let df2 = df2.as_array();
+    
+    // 目前只支持按列计算相关系数（axis=0）
+    let _axis = axis.unwrap_or(0);
+    if _axis != 0 {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "当前仅支持按列计算相关系数(axis=0)",
+        ));
+    }
+    
+    let drop_na = drop_na.unwrap_or(true);
+    
+    // 判断行数是否相同
+    if df1.nrows() != df2.nrows() {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "两个数据框的行数必须相同",
+        ));
+    }
+    
+    // 获取列数并确定结果数组大小
+    let n_cols = std::cmp::min(df1.ncols(), df2.ncols());
+    
+    // 创建结果数组
+    let result = if n_cols > 0 {
+        // 使用单线程顺序计算相关系数
+        let mut corrs: Vec<f64> = vec![f64::NAN; n_cols];
+        
+        // 单线程逐列计算
+        for (i, corr) in corrs.iter_mut().enumerate().take(n_cols) {
+            // 提取对应列的数据
+            let col1 = df1.column(i);
+            let col2 = df2.column(i);
+            
+            // 计算相关系数
+            *corr = calculate_correlation_optimized(&col1, &col2, drop_na);
+        }
+        
+        Array1::from(corrs)
+    } else {
+        Array1::from_elem(n_cols, f64::NAN)
+    };
+    
+    Ok(result.into_pyarray(py).to_owned())
+}
+
 
