@@ -1147,23 +1147,32 @@ pub fn run_pools_queue(
     
     if pending_tasks.is_empty() {
         // 所有任务都已完成，直接返回结果
+        println!("[{}] ✅ 所有任务都已完成，从备份文件读取结果", Local::now().format("%Y-%m-%d %H:%M:%S"));
+        
         return if return_results_enabled {
-            // 使用自定义线程池避免资源竞争
-            let pool = rayon::ThreadPoolBuilder::new()
-                .num_threads(std::cmp::min(rayon::current_num_threads(), 4))
-                .build()
-                .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("创建读取线程池失败: {}", e)))?;
+            // 直接读取备份文件，避免使用线程池可能导致的死锁问题
+            let read_start_time = Instant::now();
+            println!("[{}] 🔍 开始读取备份文件: {}", Local::now().format("%Y-%m-%d %H:%M:%S"), backup_file);
             
-            pool.install(|| {
-                if update_mode_enabled {
-                    // update_mode下，只返回传入参数中涉及的日期和代码
-                    let task_dates: HashSet<i64> = all_tasks_clone.iter().map(|t| t.date).collect();
-                    let task_codes: HashSet<String> = all_tasks_clone.iter().map(|t| t.code.clone()).collect();
-                    read_backup_results_with_filter(&backup_file, Some(&task_dates), Some(&task_codes))
-                } else {
-                    read_backup_results(&backup_file)
-                }
-            })
+            let result = if update_mode_enabled {
+                // update_mode下，只返回传入参数中涉及的日期和代码
+                let task_dates: HashSet<i64> = all_tasks_clone.iter().map(|t| t.date).collect();
+                let task_codes: HashSet<String> = all_tasks_clone.iter().map(|t| t.code.clone()).collect();
+                println!("[{}] 🔍 使用过滤模式读取 {} 个日期和 {} 个代码", 
+                        Local::now().format("%Y-%m-%d %H:%M:%S"), 
+                        task_dates.len(), 
+                        task_codes.len());
+                read_backup_results_with_filter(&backup_file, Some(&task_dates), Some(&task_codes))
+            } else {
+                println!("[{}] 🔍 读取完整备份文件", Local::now().format("%Y-%m-%d %H:%M:%S"));
+                read_backup_results(&backup_file)
+            };
+            
+            println!("[{}] ✅ 备份文件读取完成，耗时: {:?}", 
+                     Local::now().format("%Y-%m-%d %H:%M:%S"), 
+                     read_start_time.elapsed());
+            
+            result.map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("读取备份文件失败: {}", e)))
         } else {
             println!("✅ 所有任务都已完成，不返回结果");
             Python::with_gil(|py| Ok(py.None()))
