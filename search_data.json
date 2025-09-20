@@ -221,6 +221,11 @@
     ]
   },
   {
+    "name": "compute_non_breakthrough_stats",
+    "description": "<p>计算股票逐笔成交数据中\"价格未突破上一分钟价格范围\"的24个统计指标</p>\n<p>参数:\nexchtime: 成交时间(纳秒)\nvolume: 成交量(支持浮点数)\nprice: 成交价格\nflag: 主动买卖标识(66=主买, 83=主卖)</p>\n<p>返回:\n(n×24的二维数组, 24个中文列名)</p>",
+    "params": []
+  },
+  {
     "name": "corrwith",
     "description": "<p>计算两个DataFrame对应列或行之间的相关系数。</p>\n<p>这个函数是pandas的corrwith方法的Rust实现包装，用于计算两个DataFrame中对应列（或行）\n之间的皮尔逊相关系数。会自动处理两个DataFrame的列名（或行名）匹配情况。</p>",
     "params": [
@@ -750,6 +755,31 @@
       "near_number",
       "exclude_same_time"
     ]
+  },
+  {
+    "name": "rolling_lagged_regression",
+    "description": "<p>滞后自回归分析函数</p>\n<p>参数:\n- series: 一维时间序列数据\n- past_periods: 过去观察期数\n- future_periods: 预测期数，必须 &lt;= past_periods</p>\n<p>返回:\n- 二维数组 (n, 2*x)，其中 x = past_periods - future_periods + 1\n- 每行包含 [r_lag1_past, r_lag2_past, ..., r_lagx_past, r_lag1_future, r_lag2_future, ..., r_lagx_future]</p>",
+    "params": []
+  },
+  {
+    "name": "rolling_lagged_regression_ridge",
+    "description": "<p>Ridge回归版本的滞后自回归分析函数</p>\n<p>参数:\n- series: 一维时间序列数据\n- past_periods: 过去观察期数\n- future_periods: 预测期数，必须 &lt;= past_periods\n- alpha: Ridge正则化参数，默认使用自适应选择</p>\n<p>返回:\n- 二维数组 (n, 2*x)，其中 x = past_periods - future_periods + 1\n- 每行包含 [r_lag1_past, r_lag2_past, ..., r_lagx_past, r_lag1_future, r_lag2_future, ..., r_lagx_future]</p>",
+    "params": []
+  },
+  {
+    "name": "rolling_lagged_regression_ridge_fast",
+    "description": "<p>高性能Ridge回归版本的滞后自回归分析函数</p>\n<p>参数:\n- series: 一维时间序列数据\n- past_periods: 过去观察期数\n- future_periods: 预测期数，必须 &lt;= past_periods\n- alpha: Ridge正则化参数，默认使用自适应选择</p>\n<p>返回:\n- 二维数组 (n, 2*x)，其中 x = past_periods - future_periods + 1\n- 每行包含 [r_lag1_past, r_lag2_past, ..., r_lagx_past, r_lag1_future, r_lag2_future, ..., r_lagx_future]</p>\n<p>优化特性:\n- 使用faer库实现5-17倍矩阵运算性能提升\n- 内存池和缓冲区重用减少分配开销\n- alpha参数缓存机制减少重复计算</p>",
+    "params": []
+  },
+  {
+    "name": "rolling_lagged_regression_ridge_incremental",
+    "description": "<p>增量更新版本的滞后自回归分析</p>\n<p>核心优化：\n1. 维护X'X和X'y矩阵的增量更新，避免重复计算\n2. 利用滑动窗口的重叠特性，每次只计算差量\n3. 预期性能提升30-40%</p>",
+    "params": []
+  },
+  {
+    "name": "rolling_lagged_regression_ridge_simd",
+    "description": "<p>SIMD优化版本的主函数</p>",
+    "params": []
   },
   {
     "name": "rolling_qcv",
