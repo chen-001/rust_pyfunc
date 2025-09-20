@@ -1472,7 +1472,7 @@ pub fn run_pools_queue(
     println!("[{}] 🚀 启动 {} 个worker处理 {} 个任务", Local::now().format("%Y-%m-%d %H:%M:%S"), n_jobs, pending_tasks.len());
     
     // 优化: 创建进程池，减少进程数量（从n_jobs个进程减少到合理数量）
-    let optimal_process_count = std::cmp::min(n_jobs, 64); // 最多64个进程，避免系统过载
+    let optimal_process_count = std::cmp::min(n_jobs, 500); // 最多64个进程，避免系统过载
     let actual_process_count = std::cmp::max(optimal_process_count, 4); // 最少4个进程
     
     // 创建共享脚本文件
