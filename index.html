@@ -97,6 +97,19 @@ print(min_word_edit_distance(da, dc))  # 输出: 6 (删除3个单词，添加3�
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="compute_non_breakthrough_stats.html">compute_non_breakthrough_stats</a></h3>
+                <div><p>计算股票逐笔成交数据中"价格未突破上一分钟价格范围"的24个统计指标</p>
+<p>参数:
+exchtime: 成交时间(纳秒)
+volume: 成交量(支持浮点数)
+price: 成交价格
+flag: 主动买卖标识(66=主买, 83=主卖)</p>
+<p>返回:
+(n×24的二维数组, 24个中文列名)</p></div>
+                <a href="compute_non_breakthrough_stats.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="find_follow_volume_sum_same_price.html">find_follow_volume_sum_same_price</a></h3>
                 <div><p>计算每一行在其后time_window秒内具有相同volume（及可选相同price）的行的volume总和。</p></div>
                 <a href="find_follow_volume_sum_same_price.html">查看详情</a>
@@ -1040,6 +1053,67 @@ print(f"加速比: {time1/time2:.2f}倍")
                 <h3 class="function-name"><a href="rolling_dtw_distance.html">rolling_dtw_distance</a></h3>
                 <div><p>计算每个大单与其临近小单之间的时间间隔均值。</p></div>
                 <a href="rolling_dtw_distance.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="rolling_lagged_regression.html">rolling_lagged_regression</a></h3>
+                <div><p>滞后自回归分析函数</p>
+<p>参数:
+- series: 一维时间序列数据
+- past_periods: 过去观察期数
+- future_periods: 预测期数，必须 &lt;= past_periods</p>
+<p>返回:
+- 二维数组 (n, 2*x)，其中 x = past_periods - future_periods + 1
+- 每行包含 [r_lag1_past, r_lag2_past, ..., r_lagx_past, r_lag1_future, r_lag2_future, ..., r_lagx_future]</p></div>
+                <a href="rolling_lagged_regression.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="rolling_lagged_regression_ridge.html">rolling_lagged_regression_ridge</a></h3>
+                <div><p>Ridge回归版本的滞后自回归分析函数</p>
+<p>参数:
+- series: 一维时间序列数据
+- past_periods: 过去观察期数
+- future_periods: 预测期数，必须 &lt;= past_periods
+- alpha: Ridge正则化参数，默认使用自适应选择</p>
+<p>返回:
+- 二维数组 (n, 2*x)，其中 x = past_periods - future_periods + 1
+- 每行包含 [r_lag1_past, r_lag2_past, ..., r_lagx_past, r_lag1_future, r_lag2_future, ..., r_lagx_future]</p></div>
+                <a href="rolling_lagged_regression_ridge.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="rolling_lagged_regression_ridge_fast.html">rolling_lagged_regression_ridge_fast</a></h3>
+                <div><p>高性能Ridge回归版本的滞后自回归分析函数</p>
+<p>参数:
+- series: 一维时间序列数据
+- past_periods: 过去观察期数
+- future_periods: 预测期数，必须 &lt;= past_periods
+- alpha: Ridge正则化参数，默认使用自适应选择</p>
+<p>返回:
+- 二维数组 (n, 2*x)，其中 x = past_periods - future_periods + 1
+- 每行包含 [r_lag1_past, r_lag2_past, ..., r_lagx_past, r_lag1_future, r_lag2_future, ..., r_lagx_future]</p>
+<p>优化特性:
+- 使用faer库实现5-17倍矩阵运算性能提升
+- 内存池和缓冲区重用减少分配开销
+- alpha参数缓存机制减少重复计算</p></div>
+                <a href="rolling_lagged_regression_ridge_fast.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="rolling_lagged_regression_ridge_incremental.html">rolling_lagged_regression_ridge_incremental</a></h3>
+                <div><p>增量更新版本的滞后自回归分析</p>
+<p>核心优化：
+1. 维护X'X和X'y矩阵的增量更新，避免重复计算
+2. 利用滑动窗口的重叠特性，每次只计算差量
+3. 预期性能提升30-40%</p></div>
+                <a href="rolling_lagged_regression_ridge_incremental.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="rolling_lagged_regression_ridge_simd.html">rolling_lagged_regression_ridge_simd</a></h3>
+                <div><p>SIMD优化版本的主函数</p></div>
+                <a href="rolling_lagged_regression_ridge_simd.html">查看详情</a>
             </div>
             
             <div class="function-item">
