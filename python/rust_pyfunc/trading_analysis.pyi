@@ -1096,10 +1096,10 @@ def analyze_asks(
     ratio_mode: bool = False
 ) -> Tuple[NDArray[np.float64], List[str]]:
     """异常挂单区间特征提取器
-    
+
     分析卖盘挂单数据中的异常挂单模式，提取量化特征。
     异常挂单定义为：在当前时刻3-9档位中volume超过全局阈值且为该时刻最大值的挂单。
-    
+
     参数说明：
     ----------
     exchtime : NDArray[np.float64]
@@ -1116,17 +1116,104 @@ def analyze_asks(
         异常区间最小持续行数，低于此值的区间将被过滤
     ratio_mode : bool, default=False
         是否使用比例模式。False时返回24个绝对特征，True时返回14个比例特征
-        
+
     返回值：
     -------
     Tuple[NDArray[np.float64], List[str]]
         第一个元素：特征矩阵，shape为(N, 24)或(N, 14)，N为检测到的异常区间数量
         第二个元素：包含特征名称的中文字符串列表
-    
+
     使用示例：
     ---------
     >>> features, names = analyze_asks(exchtime, number, price, volume)
     >>> df = pd.DataFrame(features, columns=names)
+    """
+    ...
+
+def compute_non_breakthrough_stats(
+    exchtime: NDArray[np.int64],
+    volume: NDArray[np.float64],
+    price: NDArray[np.float64],
+    flag: NDArray[np.int64]
+) -> Tuple[NDArray[np.float64], List[str]]:
+    """计算股票逐笔成交数据中"价格未突破上一分钟价格范围"的24个统计指标
+
+    该函数接收股票逐笔成交数据，计算每分钟中"价格未突破上一分钟价格范围"的交易行为相关的24个统计指标。
+
+    核心定义：
+    ---------
+    价格未突破：对于第t分钟的某笔交易，若其价格在t-1分钟的任意一笔交易的价格中出现过（即存在相等），
+    则该笔交易视为"价格未突破"。
+
+    参数说明：
+    ----------
+    exchtime : NDArray[np.int64]
+        成交时间数组，单位是纳秒，int64类型
+    volume : NDArray[np.float64]
+        成交量数组，float64类型，支持浮点数成交量
+    price : NDArray[np.float64]
+        成交价格数组，float64类型
+    flag : NDArray[np.int64]
+        主动买卖标识数组，int64类型
+        66 表示主动买入，83 表示主动卖出
+
+    返回值：
+    -------
+    Tuple[NDArray[np.float64], List[str]]
+        第一个元素：n×25的二维数组，每一行对应一分钟（从第1分钟到第n分钟），
+                   每一列是一个指标，共25个
+        第二个元素：长度为25的中文列名列表
+
+        25个统计指标包括：
+        1. t分钟中，价格未突破t-1分钟价格范围的成交量总和
+        2. 列1 / t分钟总成交量
+        3. 列1 / t-1分钟总成交量
+        4. t分钟中，价格未突破t-1分钟价格范围的交易笔数
+        5. 列4 / t分钟总交易笔数
+        6. 列4 / t-1分钟总交易笔数
+        7. t分钟中，价格未突破的最后一笔交易的秒数
+        8. t分钟中，价格未突破的第一笔交易的秒数
+        9. 列7 - 列8 (未突破时间跨度)
+        10. t分钟中，从第一次未突破价格到最后一次未突破价格之间的总成交量
+        11. 列10 / t分钟总成交量
+        12. t分钟中，从第一次未突破价格到最后一次未突破价格之间的总交易笔数
+        13. 列12 / t分钟总交易笔数
+        14. t分钟中，价格未突破且flag=66的交易笔数
+        15. 列14 / 列4
+        16. t分钟中，价格未突破且flag=66的成交量
+        17. 列16 / 列1
+        18. 列9 / 列4 (平均未突破时间跨度)
+        19. t分钟中，价格未突破的交易记录的成交量序列与序列1..k的皮尔逊相关系数
+        20. t分钟中，价格未突破的交易记录的flag序列（66→1，83→0）与序列1..k的皮尔逊相关系数
+        21. t分钟中，价格未突破的交易记录的秒数均值
+        22. t分钟中，价格未突破的交易记录的秒数标准差
+        23. t分钟中，价格未突破的交易记录的秒数偏度
+        24. t分钟中，价格未突破的交易记录的秒数峰度
+        25. 该分钟对应的时间标记（该分钟第0秒的纳秒时间戳）
+
+    注意事项：
+    ---------
+    - 若某一分钟没有任何交易价格未突破上一分钟价格范围，则该行前24个值全部为NaN，第25列仍显示时间标记
+    - 时间分组按自然分钟划分（如 09:30:00.000000000 ～ 09:30:59.999999999）
+    - 纳秒时间戳转秒数时，取模60秒内的秒数部分
+    - 所有统计量会处理空序列情况（返回NaN）
+    - 偏度、峰度使用样本标准定义
+
+    性能要求：
+    ---------
+    在股票全天数据上（约13万条记录），总运行时间必须小于1秒
+
+    使用示例：
+    ---------
+    >>> import pure_ocean_breeze.jason as p
+    >>> df = p.read_trade('000001', 20220819)
+    >>> exchtime = df.exchtime.to_numpy(int)
+    >>> volume = df.volume.to_numpy(int)
+    >>> price = df.price.to_numpy(float)
+    >>> flag = df.flag.to_numpy(int)
+    >>> result_matrix, column_names = compute_non_breakthrough_stats(exchtime, volume, price, flag)
+    >>> import pandas as pd
+    >>> result_df = pd.DataFrame(result_matrix, columns=column_names)
     """
     ...
 

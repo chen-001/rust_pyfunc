@@ -65,6 +65,10 @@ __all__ = [
     "super_find_half_extreme_time",
     "brachistochrone_curve",
     "brachistochrone_curve_v2",
+    "rolling_lagged_regression",
+    "rolling_lagged_regression_ridge_fast",
+    "rolling_lagged_regression_ridge_simd",
+    "rolling_lagged_regression_ridge_incremental",
     
     # 文本分析函数
     "vectorize_sentences",
