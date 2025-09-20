@@ -25,6 +25,11 @@ pub mod factor_neutralization_io_optimized;
 pub mod permutation_analysis_v0816_fixed;
 pub mod abnormal_asks_analyzer;
 pub mod series_rank;
+pub mod price_breakthrough_stats;
+pub mod lagged_regression;
+pub mod lagged_regression_optimized;
+pub mod lagged_regression_simd;
+pub mod lagged_regression_incremental;
 
 
 
@@ -142,6 +147,12 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(statistics::hmm_trend_prediction::hmm_trend_prediction, m)?)?;
     m.add_function(wrap_pyfunction!(abnormal_asks_analyzer::analyze_asks, m)?)?;
     m.add_function(wrap_pyfunction!(series_rank::pandas_series_rank, m)?)?;
+    m.add_function(wrap_pyfunction!(price_breakthrough_stats::compute_non_breakthrough_stats, m)?)?;
+    m.add_function(wrap_pyfunction!(lagged_regression::rolling_lagged_regression, m)?)?;
+    m.add_function(wrap_pyfunction!(lagged_regression::rolling_lagged_regression_ridge, m)?)?;
+    m.add_function(wrap_pyfunction!(lagged_regression_optimized::rolling_lagged_regression_ridge_fast, m)?)?;
+    m.add_function(wrap_pyfunction!(lagged_regression_simd::rolling_lagged_regression_ridge_simd, m)?)?;
+    m.add_function(wrap_pyfunction!(lagged_regression_incremental::rolling_lagged_regression_ridge_incremental, m)?)?;
     // m.add_function(wrap_pyfunction!(text::normalized_diff, m)?)?;
     Ok(())
 }

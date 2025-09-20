@@ -1,6 +1,6 @@
 [package]
 name = "rust_pyfunc"
-version = "0.37.3"
+version = "0.37.4"
 edition = "2021"
 description = "A collection of high-performance Python functions implemented in Rust"
 readme = "README.md"
@@ -19,6 +19,7 @@ packed_simd_2 = { version = "0.3.8", features = ["into_bits"], optional = true }
 pyo3 = { version = "0.18", features = ["extension-module"] }
 ndarray = "0.15"
 nalgebra = "0.32"
+faer = "0.19"
 numpy = "0.18"
 rayon = "1.8"
 rand = { version = "0.8", features = ["std"] }
