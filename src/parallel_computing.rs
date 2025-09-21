@@ -2,7 +2,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyList;
 use std::collections::HashSet;
 use std::fs::{File, OpenOptions};
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::path::Path;
 use memmap2::MmapMut;
 use std::process::{Command, Stdio, Child};
@@ -12,10 +12,10 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use std::sync::atomic::{AtomicBool, Ordering, AtomicUsize, AtomicU32};
+use std::sync::atomic::{AtomicBool, Ordering};
 use chrono::Local;
 use std::sync::Mutex;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 
 // 导入备份相关模块
 use crate::backup_reader::{
@@ -164,305 +164,6 @@ struct StuckTaskInfo {
     reason: String,
 }
 
-// 进程池结构体 - 优化版本
-#[derive(Debug)]
-struct ProcessPool {
-    processes: Vec<ProcessWrapper>,
-    available_processes: Arc<Mutex<VecDeque<usize>>>,
-    next_process: AtomicUsize,
-    pool_size: usize,
-    python_path: String,
-    script_path: String,
-}
-
-#[derive(Debug)]
-struct ProcessWrapper {
-    child: Mutex<Option<Child>>,
-    stdin: Mutex<Option<std::process::ChildStdin>>,
-    stdout: Mutex<Option<std::process::ChildStdout>>,
-    pid: AtomicU32,
-    is_alive: AtomicBool,
-}
-
-impl ProcessWrapper {
-    fn check_alive(&self) -> bool {
-        // 首先检查原子标志
-        if !self.is_alive.load(Ordering::Relaxed) {
-            return false;
-        }
-
-        // 尝试检查子进程状态
-        if let Ok(mut child_opt) = self.child.try_lock() {
-            if let Some(ref mut child) = *child_opt {
-                // 尝试非阻塞地检查进程状态
-                match child.try_wait() {
-                    Ok(Some(_)) => {
-                        // 进程已退出，更新状态
-                        self.is_alive.store(false, Ordering::Relaxed);
-                        false
-                    },
-                    Ok(None) => true,    // 进程仍在运行
-                    Err(_) => {
-                        // 检查失败，假设进程死亡
-                        self.is_alive.store(false, Ordering::Relaxed);
-                        false
-                    }
-                }
-            } else {
-                // 没有子进程，标记为死亡
-                self.is_alive.store(false, Ordering::Relaxed);
-                false
-            }
-        } else {
-            // 无法获取锁，可能在其他地方被使用，暂时认为存活
-            true
-        }
-    }
-
-    fn force_kill(&self) {
-        // 标记为不存活
-        self.is_alive.store(false, Ordering::Relaxed);
-
-        // 尝试强制终止进程
-        if let Ok(mut child_opt) = self.child.try_lock() {
-            if let Some(ref mut child) = *child_opt {
-                let _ = child.kill();
-                let _ = child.wait();
-            }
-        }
-    }
-}
-
-impl ProcessPool {
-    fn new(pool_size: usize, python_path: &str, script_path: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        let mut processes = Vec::with_capacity(pool_size);
-        let mut available = VecDeque::with_capacity(pool_size);
-        
-        println!("🏭 创建进程池: {} 个Python进程", pool_size);
-        
-        for i in 0..pool_size {
-            let mut child = Command::new(python_path)
-                .arg(script_path)
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()?;
-            
-            let pid = child.id();
-            let stdin = child.stdin.take().unwrap();
-            let stdout = child.stdout.take().unwrap();
-
-            let process = ProcessWrapper {
-                child: Mutex::new(Some(child)),
-                stdin: Mutex::new(Some(stdin)),
-                stdout: Mutex::new(Some(stdout)),
-                pid: AtomicU32::new(pid),
-                is_alive: AtomicBool::new(true),
-            };
-            
-            processes.push(process);
-            available.push_back(i);
-            
-            if (i + 1) % 10 == 0 || i + 1 == pool_size {
-                // println!("🔄 已创建 {}/{} 个进程", i + 1, pool_size);
-            }
-        }
-        
-        Ok(ProcessPool {
-            processes,
-            available_processes: Arc::new(Mutex::new(available)),
-            next_process: AtomicUsize::new(0),
-            pool_size,
-            python_path: python_path.to_string(),
-            script_path: script_path.to_string(),
-        })
-    }
-    
-    fn get_next_process(&self) -> usize {
-        // 使用轮询方式选择进程，避免锁竞争
-        self.next_process.fetch_add(1, Ordering::Relaxed) % self.pool_size
-    }
-
-    fn restart_process(&self, process_id: usize) -> Result<(), Box<dyn std::error::Error>> {
-        if process_id >= self.pool_size {
-            return Err("Invalid process ID".into());
-        }
-
-        println!("🔄 重启进程 {}", process_id);
-
-        // 获取要重启的进程
-        let process = &self.processes[process_id];
-
-        // 强制终止旧进程
-        process.force_kill();
-
-        // 启动新进程
-        let mut child = Command::new(&self.python_path)
-            .arg(&self.script_path)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
-
-        let new_pid = child.id();
-        let new_stdin = child.stdin.take().unwrap();
-        let new_stdout = child.stdout.take().unwrap();
-
-        // 更新进程信息
-        {
-            let mut child_opt = process.child.lock().unwrap();
-            *child_opt = Some(child);
-        }
-
-        // 更新stdin和stdout
-        {
-            let mut stdin_opt = process.stdin.lock().unwrap();
-            *stdin_opt = Some(new_stdin);
-        }
-        {
-            let mut stdout_opt = process.stdout.lock().unwrap();
-            *stdout_opt = Some(new_stdout);
-        }
-
-        // 更新PID和状态
-        process.pid.store(new_pid, Ordering::Relaxed);
-        process.is_alive.store(true, Ordering::Relaxed);
-
-        println!("✅ 进程 {} 重启成功 (新PID: {})", process_id, new_pid);
-        Ok(())
-    }
-
-    fn get_healthy_process(&self) -> Option<usize> {
-        // 尝试找到一个健康的进程
-        for i in 0..self.pool_size {
-            let process_id = (self.next_process.load(Ordering::Relaxed) + i) % self.pool_size;
-            let process = &self.processes[process_id];
-
-            if process.check_alive() {
-                self.next_process.store(process_id + 1, Ordering::Relaxed);
-                return Some(process_id);
-            }
-        }
-        None
-    }
-    
-    fn execute_task(&self, process_id: usize, task_data: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-        let process = &self.processes[process_id];
-
-        // 实时检查进程是否存活
-        if !process.check_alive() {
-            return Err("Process is dead".into());
-        }
-
-        // 设置超时时间
-        let io_timeout = Duration::from_secs(30); // 30秒超时
-
-        // 发送任务
-        {
-            let mut stdin_opt = process.stdin.lock().unwrap();
-            let stdin = stdin_opt.as_mut().ok_or("No stdin available")?;
-            let length = task_data.len() as u32;
-
-            // 添加写入超时
-            let write_start = Instant::now();
-            let write_result: Result<(), std::io::Error> = (|| {
-                stdin.write_all(&length.to_le_bytes())?;
-                stdin.write_all(task_data)?;
-                stdin.flush()?;
-                Ok(())
-            })();
-
-            if let Err(e) = write_result {
-                let elapsed = write_start.elapsed();
-
-                // 标记进程为死亡
-                process.is_alive.store(false, Ordering::Relaxed);
-
-                if elapsed > io_timeout {
-                    return Err("写入任务超时".into());
-                } else {
-                    return Err(format!("写入任务失败: {}", e).into());
-                }
-            }
-        }
-
-        // 读取结果
-        {
-            let mut stdout_opt = process.stdout.lock().unwrap();
-            let stdout = stdout_opt.as_mut().ok_or("No stdout available")?;
-            let mut length_bytes = [0u8; 4];
-            use std::io::Read;
-
-            // 添加读取长度超时
-            let read_length_start = Instant::now();
-            let read_length_result = stdout.read_exact(&mut length_bytes);
-
-            if let Err(e) = read_length_result {
-                let elapsed = read_length_start.elapsed();
-
-                // 标记进程为死亡
-                process.is_alive.store(false, Ordering::Relaxed);
-
-                if elapsed > io_timeout {
-                    return Err("读取长度超时".into());
-                } else {
-                    return Err(format!("读取长度失败: {}", e).into());
-                }
-            }
-
-            let length = u32::from_le_bytes(length_bytes) as usize;
-
-            // 验证长度合理性
-            if length > 100 * 1024 * 1024 { // 100MB限制
-                return Err(format!("返回数据过大: {} bytes", length).into());
-            }
-
-            let mut result_data = vec![0u8; length];
-
-            // 添加读取数据超时
-            let read_data_start = Instant::now();
-            let read_data_result = stdout.read_exact(&mut result_data);
-
-            if let Err(e) = read_data_result {
-                let elapsed = read_data_start.elapsed();
-
-                // 标记进程为死亡
-                process.is_alive.store(false, Ordering::Relaxed);
-
-                if elapsed > io_timeout {
-                    return Err("读取数据超时".into());
-                } else {
-                    return Err(format!("读取数据失败: {}", e).into());
-                }
-            }
-
-            Ok(result_data)
-        }
-    }
-    
-    fn shutdown(&self) {
-        println!("🔚 关闭进程池...");
-        for (_i, process) in self.processes.iter().enumerate() {
-            // 发送结束信号
-            if let Ok(mut stdin_opt) = process.stdin.lock() {
-                if let Some(ref mut stdin) = *stdin_opt {
-                    let _ = stdin.write_all(&[0u8; 4]);
-                    let _ = stdin.flush();
-                }
-            }
-
-            // 等待进程结束
-            if let Ok(mut child_opt) = process.child.lock() {
-                if let Some(mut child) = child_opt.take() {
-                    let _ = child.wait();
-                }
-            }
-
-            process.is_alive.store(false, Ordering::Relaxed);
-            // println!("✅ 进程 {} 已关闭", i);
-        }
-    }
-}
 
 // 新增：Worker监控管理器
 #[derive(Debug)]
@@ -1298,138 +999,188 @@ user_function = pickle.loads(_func_data)
     })
 }
 
-// 新的进程池worker函数
-fn run_process_pool_worker(
+fn run_persistent_task_worker(
     worker_id: usize,
     task_queue: Receiver<TaskParam>,
     python_code: String,
     expected_result_length: usize,
+    python_path: String,
     result_sender: Sender<TaskResult>,
-    process_pool: Arc<ProcessPool>,
+    restart_flag: Arc<AtomicBool>,
     monitor_manager: Arc<WorkerMonitorManager>,
 ) {
     // 向监控管理器注册worker
     monitor_manager.add_worker(worker_id);
-    
-    let mut task_count = 0;
-    
-    // 处理任务队列中的任务
-    while let Ok(task) = task_queue.recv() {
-        task_count += 1;
-        
-        // 通知监控管理器开始处理任务
-        monitor_manager.start_task(worker_id, task.clone());
-        monitor_manager.update_heartbeat(worker_id);
-        
-        // 创建单任务数据
-        let single_task = SingleTask {
-            python_code: python_code.clone(),
-            task: task.clone(),
-            expected_result_length,
-        };
 
-        // 序列化任务数据
-        let packed_data = match rmp_serde::to_vec_named(&single_task) {
-            Ok(data) => data,
+    loop { // 循环以支持worker重启
+        if restart_flag.compare_exchange(true, false, Ordering::SeqCst, Ordering::Relaxed).is_ok() {
+            // println!("🔄 Worker {} 检测到重启信号，正在重启...", worker_id);
+        }
+
+        // println!("🚀 Persistent Worker {} 启动，创建持久Python进程", worker_id);
+
+        let script_content = create_persistent_worker_script();
+        let script_path = format!("/tmp/persistent_worker_{}.py", worker_id);
+
+        // 创建worker脚本
+        if let Err(e) = std::fs::write(&script_path, script_content) {
+            eprintln!("❌ Worker {} 创建脚本失败: {}", worker_id, e);
+            continue; // 继续外层循环，尝试重新创建脚本
+        }
+
+        // 启动持久的Python子进程
+        let mut child = match Command::new(&python_path)
+            .arg(&script_path)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+        {
+            Ok(child) => child,
             Err(e) => {
-                eprintln!("❌ Worker {} 任务序列化失败: {}", worker_id, e);
-                continue;
+                eprintln!("❌ Worker {} 启动Python进程失败: {}", worker_id, e);
+                continue; // 继续外层循环，尝试重新启动进程
             }
         };
 
-        // 尝试获取健康的进程执行任务
-        let mut execution_successful = false;
-        for retry_count in 0..3 { // 最多重试3次
-            // 获取一个健康的进程
-            let process_id = match process_pool.get_healthy_process() {
-                Some(id) => id,
-                None => {
-                    eprintln!("⚠️ Worker {} 没有可用的健康进程，尝试重启进程...", worker_id);
+        // 设置子进程ID到监控管理器
+        let pid = child.id();
+        monitor_manager.set_worker_process_id(worker_id, pid);
+        monitor_manager.update_heartbeat(worker_id);
 
-                    // 尝试重启一个进程
-                    let restart_id = process_pool.get_next_process();
-                    if let Err(e) = process_pool.restart_process(restart_id) {
-                        eprintln!("❌ Worker {} 重启进程 {} 失败: {}", worker_id, restart_id, e);
-                    }
+        let mut stdin = child.stdin.take().expect("Failed to get stdin");
+        let mut stdout = child.stdout.take().expect("Failed to get stdout");
 
-                    // 等待一小段时间后重试
-                    thread::sleep(Duration::from_millis(100));
+        let mut task_count = 0;
+        let mut needs_restart = false;
+
+        // 持续从队列中取任务并发送给Python进程
+        while let Ok(task) = task_queue.recv() {
+            // 在处理任务前检查重启标志
+            if restart_flag.load(Ordering::Relaxed) {
+                needs_restart = true;
+                break;
+            }
+
+            task_count += 1;
+
+            // 通知监控管理器开始处理任务
+            monitor_manager.start_task(worker_id, task.clone());
+            monitor_manager.update_heartbeat(worker_id);
+
+            // 创建单任务数据
+            let single_task = SingleTask {
+                python_code: python_code.clone(),
+                task: task.clone(),
+                expected_result_length,
+            };
+
+            // 序列化任务数据
+            let packed_data = match rmp_serde::to_vec_named(&single_task) {
+                Ok(data) => data,
+                Err(_e) => {
+                    // eprintln!("❌ Worker {} 任务 #{} 序列化失败: {}", worker_id, task_count, e);
                     continue;
                 }
             };
 
-            // 使用进程池执行任务
-            match process_pool.execute_task(process_id, &packed_data) {
-                Ok(result_data) => {
-                    // 解析结果
-                    match rmp_serde::from_slice::<SingleResult>(&result_data) {
-                        Ok(single_result) => {
-                            // 发送结果
-                            if let Err(e) = result_sender.send(single_result.result) {
-                                eprintln!("❌ Worker {} 结果发送失败: {}", worker_id, e);
-                            }
-                            // 通知监控管理器任务已完成
-                            monitor_manager.finish_task(worker_id);
-                            monitor_manager.update_heartbeat(worker_id);
-                            execution_successful = true;
-                            break; // 成功执行，跳出重试循环
-                        }
-                        Err(e) => {
-                            eprintln!("❌ Worker {} 结果解析失败: {}", worker_id, e);
+            // 发送任务到Python进程（带长度前缀）
+            let length = packed_data.len() as u32;
+            let length_bytes = length.to_le_bytes();
 
-                            // 发送NaN结果
-                            let error_result = TaskResult {
-                                date: task.date,
-                                code: task.code,
-                                timestamp: chrono::Utc::now().timestamp_millis(),
-                                facs: vec![f64::NAN; expected_result_length],
-                            };
+            if let Err(_e) = stdin.write_all(&length_bytes) {
+                // eprintln!("❌ Worker {} 发送长度前缀失败: {}", worker_id, e);
+                needs_restart = true;
+                break;
+            }
 
-                            if let Err(e) = result_sender.send(error_result) {
-                                eprintln!("❌ Worker {} 错误结果发送失败: {}", worker_id, e);
-                            }
-                            monitor_manager.finish_task(worker_id);
-                            monitor_manager.update_heartbeat(worker_id);
-                            execution_successful = true;
-                            break; // 解析失败但已发送错误结果，跳出重试循环
-                        }
+            if let Err(_e) = stdin.write_all(&packed_data) {
+                // eprintln!("❌ Worker {} 发送任务数据失败: {}", worker_id, e);
+                needs_restart = true;
+                break;
+            }
+
+            if let Err(_e) = stdin.flush() {
+                // eprintln!("❌ Worker {} flush失败: {}", worker_id, e);
+                needs_restart = true;
+                break;
+            }
+
+            // 读取结果（带长度前缀）
+            let mut length_bytes = [0u8; 4];
+            if let Err(_e) = stdout.read_exact(&mut length_bytes) {
+                // eprintln!("❌ Worker {} 读取结果长度失败: {}", worker_id, e);
+                needs_restart = true;
+                break;
+            }
+
+            let length = u32::from_le_bytes(length_bytes) as usize;
+            let mut result_data = vec![0u8; length];
+
+            if let Err(_e) = stdout.read_exact(&mut result_data) {
+                // eprintln!("❌ Worker {} 读取结果数据失败: {}", worker_id, e);
+                needs_restart = true;
+                break;
+            }
+
+            // 解析结果
+            #[derive(Debug, Serialize, Deserialize)]
+            struct SingleResult {
+                result: TaskResult,
+            }
+
+            match rmp_serde::from_slice::<SingleResult>(&result_data) {
+                Ok(single_result) => {
+                    // 发送结果
+                    if let Err(e) = result_sender.send(single_result.result) {
+                        eprintln!("❌ Worker {} 任务 #{} 结果发送失败: {}", worker_id, task_count, e);
+                        // 结果发送失败可能是收集器已退出，但不影响其他worker，继续处理下一个任务
+                        // 不设置needs_restart，避免不必要的子进程重启
                     }
+                    // 通知监控管理器任务已完成
+                    monitor_manager.finish_task(worker_id);
+                    monitor_manager.update_heartbeat(worker_id);
                 }
                 Err(e) => {
-                    eprintln!("❌ Worker {} 进程池执行失败 (重试 {}/3): {}", worker_id, retry_count + 1, e);
+                    eprintln!("❌ Worker {} 任务 #{} 结果解析失败: {}", worker_id, task_count, e);
 
-                    // 标记这个进程可能有问题，下次重试会选择其他进程
-                    // 如果是最后一次重试，发送错误结果
-                    if retry_count == 2 {
-                        let error_result = TaskResult {
-                            date: task.date,
-                            code: task.code,
-                            timestamp: chrono::Utc::now().timestamp_millis(),
-                            facs: vec![f64::NAN; expected_result_length],
-                        };
+                    // 发送NaN结果
+                    let error_result = TaskResult {
+                        date: task.date,
+                        code: task.code,
+                        timestamp: chrono::Utc::now().timestamp_millis(),
+                        facs: vec![f64::NAN; expected_result_length],
+                    };
 
-                        if let Err(e) = result_sender.send(error_result) {
-                            eprintln!("❌ Worker {} 错误结果发送失败: {}", worker_id, e);
-                        }
-                        monitor_manager.finish_task(worker_id);
-                        monitor_manager.update_heartbeat(worker_id);
-                        execution_successful = true;
-                        break;
+                    if let Err(e) = result_sender.send(error_result) {
+                        eprintln!("❌ Worker {} 错误结果发送失败: {}", worker_id, e);
+                        // 错误结果发送失败也不影响其他worker，继续处理下一个任务
+                        // 不设置needs_restart，避免不必要的子进程重启
                     }
-
-                    // 短暂等待后重试
-                    thread::sleep(Duration::from_millis(50));
+                    // 通知监控管理器任务已完成（即使失败）
+                    monitor_manager.finish_task(worker_id);
+                    monitor_manager.update_heartbeat(worker_id);
                 }
             }
         }
 
-        if !execution_successful {
-            eprintln!("❌ Worker {} 任务彻底失败，已重试3次", worker_id);
+        // 发送结束信号（长度为0）
+        let _ = stdin.write_all(&[0u8; 4]);
+        let _ = stdin.flush();
+
+        // 等待子进程结束
+        let _ = child.wait();
+
+        // 清理临时文件
+        let _ = std::fs::remove_file(&script_path);
+        // println!("🏁 Persistent Worker {} 结束，共处理 {} 个任务", worker_id, task_count);
+
+        if !needs_restart {
+            // 如果不是因为重启信号而退出，说明所有任务都完成了
+            break;
         }
     }
-    
-    println!("🏁 Worker {} 结束，共处理 {} 个任务", worker_id, task_count);
-    
+
     // Worker完全结束时，从监控器中移除记录
     monitor_manager.remove_worker(worker_id);
 }
@@ -1594,51 +1345,26 @@ pub fn run_pools_queue(
     ));
     
     println!("[{}] 🚀 启动 {} 个worker处理 {} 个任务", Local::now().format("%Y-%m-%d %H:%M:%S"), n_jobs, pending_tasks.len());
-    
-    // 优化: 创建进程池，减少进程数量（从n_jobs个进程减少到合理数量）
-    let optimal_process_count = std::cmp::min(n_jobs, 500); // 最多64个进程，避免系统过载
-    let actual_process_count = std::cmp::max(optimal_process_count, 4); // 最少4个进程
-    
-    // 创建共享脚本文件
-    let shared_script_path = "/tmp/persistent_worker_shared.py";
-    let script_content = create_persistent_worker_script();
-    if let Err(e) = std::fs::write(shared_script_path, script_content) {
-        return Err(PyErr::new::<pyo3::exceptions::PyIOError, _>(
-            format!("创建共享脚本失败: {}", e)
-        ));
-    }
-    
-    // 创建进程池
-    let process_pool = match ProcessPool::new(actual_process_count, &python_path, shared_script_path) {
-        Ok(pool) => Arc::new(pool),
-        Err(e) => {
-            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
-                format!("创建进程池失败: {}", e)
-            ));
-        }
-    };
-    
-    println!("[{}] ✅ 进程池创建完成: {} 个Python进程服务于 {} 个worker线程", 
-             Local::now().format("%Y-%m-%d %H:%M:%S"), 
-             actual_process_count, n_jobs);
-    
-    // 启动worker线程 (使用进程池)
+
+    // 启动worker线程
     let mut worker_handles = Vec::new();
     for i in 0..n_jobs {
         let worker_task_receiver = task_receiver.clone();
         let worker_python_code = python_code.clone();
+        let worker_python_path = python_path.clone();
         let worker_result_sender = result_sender.clone();
-        let worker_process_pool = process_pool.clone();
+        let worker_restart_flag = restart_flag.clone();
         let worker_monitor_manager = monitor_manager.clone();
-        
+
         let handle = thread::spawn(move || {
-            run_process_pool_worker(
+            run_persistent_task_worker(
                 i,
                 worker_task_receiver,
                 worker_python_code,
                 expected_result_length,
+                worker_python_path,
                 worker_result_sender,
-                worker_process_pool,
+                worker_restart_flag,
                 worker_monitor_manager,
             );
         });
@@ -1806,12 +1532,7 @@ pub fn run_pools_queue(
             Err(e) => eprintln!("❌ Worker {} 异常: {:?}", i, e),
         }
     }
-    
-    // 关闭进程池
-    println!("[{}] 🔚 关闭进程池...", Local::now().format("%Y-%m-%d %H:%M:%S"));
-    process_pool.shutdown();
-    drop(process_pool); // 显式释放进程池
-    
+
     // 立即停止监控线程，避免检查已死进程
     if debug_monitor_enabled {
         println!("🔍 监控器: 所有worker已完成，立即停止监控");
