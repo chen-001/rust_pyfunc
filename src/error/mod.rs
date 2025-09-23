@@ -17,6 +17,9 @@ impl std::error::Error for TimeoutError {}
 
 impl From<TimeoutError> for PyErr {
     fn from(err: TimeoutError) -> PyErr {
-        PyRuntimeError::new_err(format!("计算超时: {} (耗时 {}秒)", err.message, err.duration))
+        PyRuntimeError::new_err(format!(
+            "计算超时: {} (耗时 {}秒)",
+            err.message, err.duration
+        ))
     }
 }

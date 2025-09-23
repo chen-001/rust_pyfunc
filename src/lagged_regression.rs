@@ -25,7 +25,7 @@ pub fn rolling_lagged_regression(
     // 验证参数
     if future_periods > past_periods {
         return Err(pyo3::exceptions::PyValueError::new_err(
-            "future_periods must be <= past_periods"
+            "future_periods must be <= past_periods",
         ));
     }
 
@@ -299,7 +299,7 @@ pub fn rolling_lagged_regression_ridge(
     // 验证参数
     if future_periods > past_periods {
         return Err(pyo3::exceptions::PyValueError::new_err(
-            "future_periods must be <= past_periods"
+            "future_periods must be <= past_periods",
         ));
     }
 
@@ -367,7 +367,12 @@ fn calculate_ridge_ar_r_squared(data: &[f64], lag: usize, alpha: Option<f64>) ->
 }
 
 /// 计算Ridge预测的R²值
-fn calculate_ridge_prediction_r_squared(past_data: &[f64], future_data: &[f64], lag: usize, alpha: Option<f64>) -> f64 {
+fn calculate_ridge_prediction_r_squared(
+    past_data: &[f64],
+    future_data: &[f64],
+    lag: usize,
+    alpha: Option<f64>,
+) -> f64 {
     if past_data.len() <= lag || future_data.is_empty() {
         return f64::NAN;
     }
@@ -425,7 +430,13 @@ fn fit_ridge_ar_model(data: &[f64], lag: usize, alpha: Option<f64>) -> Vec<f64> 
 }
 
 /// Ridge最小二乘法求解
-fn solve_ridge_least_squares(x_data: &[f64], y_data: &[f64], n_rows: usize, n_cols: usize, alpha: Option<f64>) -> Vec<f64> {
+fn solve_ridge_least_squares(
+    x_data: &[f64],
+    y_data: &[f64],
+    n_rows: usize,
+    n_cols: usize,
+    alpha: Option<f64>,
+) -> Vec<f64> {
     // 使用 nalgebra 进行矩阵运算
     let x_matrix = DMatrix::from_row_slice(n_rows, n_cols, x_data);
     let y_vector = DVector::from_column_slice(y_data);
@@ -436,9 +447,8 @@ fn solve_ridge_least_squares(x_data: &[f64], y_data: &[f64], n_rows: usize, n_co
     }
 
     // 自适应选择正则化参数
-    let ridge_alpha = alpha.unwrap_or_else(|| {
-        adaptive_ridge_alpha(n_rows, n_cols, &x_matrix, &y_vector)
-    });
+    let ridge_alpha =
+        alpha.unwrap_or_else(|| adaptive_ridge_alpha(n_rows, n_cols, &x_matrix, &y_vector));
 
     // 计算 X'X
     let xtx = x_matrix.transpose() * &x_matrix;
@@ -467,7 +477,12 @@ fn solve_ridge_least_squares(x_data: &[f64], y_data: &[f64], n_rows: usize, n_co
 }
 
 /// 自适应选择Ridge正则化参数
-fn adaptive_ridge_alpha(n_rows: usize, n_cols: usize, x_matrix: &DMatrix<f64>, y_vector: &DVector<f64>) -> f64 {
+fn adaptive_ridge_alpha(
+    n_rows: usize,
+    n_cols: usize,
+    x_matrix: &DMatrix<f64>,
+    y_vector: &DVector<f64>,
+) -> f64 {
     // 基于数据特征自适应选择alpha
     let base_alpha = 1.0;
 
@@ -493,7 +508,8 @@ fn adaptive_ridge_alpha(n_rows: usize, n_cols: usize, x_matrix: &DMatrix<f64>, y
 fn estimate_noise_level(x_matrix: &DMatrix<f64>, y_vector: &DVector<f64>) -> f64 {
     // 简单估计：基于y的方差
     let y_mean = y_vector.mean();
-    let y_var = y_vector.iter().map(|&y| (y - y_mean).powi(2)).sum::<f64>() / (y_vector.len() as f64 - 1.0);
+    let y_var =
+        y_vector.iter().map(|&y| (y - y_mean).powi(2)).sum::<f64>() / (y_vector.len() as f64 - 1.0);
 
     // 基于方差调整正则化强度
     if y_var > 1e6 {
@@ -506,7 +522,13 @@ fn estimate_noise_level(x_matrix: &DMatrix<f64>, y_vector: &DVector<f64>) -> f64
 }
 
 /// 计算Ridge R²值
-fn calculate_ridge_r_squared(x_data: &[f64], y_data: &[f64], n_rows: usize, n_cols: usize, alpha: Option<f64>) -> f64 {
+fn calculate_ridge_r_squared(
+    x_data: &[f64],
+    y_data: &[f64],
+    n_rows: usize,
+    n_cols: usize,
+    alpha: Option<f64>,
+) -> f64 {
     let coeffs = solve_ridge_least_squares(x_data, y_data, n_rows, n_cols, alpha);
     if coeffs.is_empty() {
         return f64::NAN;

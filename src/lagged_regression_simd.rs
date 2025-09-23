@@ -6,7 +6,6 @@
 /// 2. SIMD加速的点积运算（预测值计算）
 /// 3. 并行的统计量计算（均值、方差等）
 /// 4. 向量化的数据预处理操作
-
 use faer::prelude::*;
 use faer::{Mat, Side};
 use numpy::{PyArray1, PyArray2};
@@ -77,7 +76,14 @@ impl SIMDRidgeBuffer {
         }
 
         // SIMD优化的矩阵构建
-        build_design_matrix_vectorized(data, lag, &mut self.x_matrix, &mut self.y_vector, n_obs, n_features);
+        build_design_matrix_vectorized(
+            data,
+            lag,
+            &mut self.x_matrix,
+            &mut self.y_vector,
+            n_obs,
+            n_features,
+        );
 
         (n_obs, n_features)
     }
@@ -228,7 +234,11 @@ unsafe fn calculate_r_squared_simd(y_pred: &[f64], y_actual: &[f64]) -> f64 {
     let r_squared = 1.0 - rss / tss;
 
     if r_squared.is_finite() && r_squared >= -100.0 && r_squared <= 1.1 {
-        if r_squared > 1.0 { 1.0 } else { r_squared }
+        if r_squared > 1.0 {
+            1.0
+        } else {
+            r_squared
+        }
     } else {
         f64::NAN
     }
@@ -239,7 +249,9 @@ unsafe fn calculate_r_squared_simd(y_pred: &[f64], y_actual: &[f64]) -> f64 {
 #[target_feature(enable = "avx2")]
 unsafe fn simd_mean(data: &[f64]) -> f64 {
     let len = data.len();
-    if len == 0 { return f64::NAN; }
+    if len == 0 {
+        return f64::NAN;
+    }
 
     let sum = if len >= 4 {
         let mut acc = _mm256_setzero_pd();
@@ -323,7 +335,11 @@ fn calculate_r_squared_scalar(y_pred: &[f64], y_actual: &[f64]) -> f64 {
     let r_squared = 1.0 - rss / tss;
 
     if r_squared.is_finite() && r_squared >= -100.0 && r_squared <= 1.1 {
-        if r_squared > 1.0 { 1.0 } else { r_squared }
+        if r_squared > 1.0 {
+            1.0
+        } else {
+            r_squared
+        }
     } else {
         f64::NAN
     }
@@ -334,7 +350,7 @@ fn calculate_predictions_simd(
     buffer: &mut SIMDRidgeBuffer,
     coeffs: &[f64],
     n_obs: usize,
-    n_features: usize
+    n_features: usize,
 ) {
     for i in 0..n_obs {
         let x_row = &buffer.x_matrix[i * n_features..(i + 1) * n_features];
@@ -368,7 +384,7 @@ pub fn rolling_lagged_regression_ridge_simd(
 
     if future_periods > past_periods {
         return Err(pyo3::exceptions::PyValueError::new_err(
-            "future_periods must be <= past_periods"
+            "future_periods must be <= past_periods",
         ));
     }
 
@@ -395,11 +411,16 @@ pub fn rolling_lagged_regression_ridge_simd(
             };
 
             // 使用SIMD优化计算过去期拟合优度
-            let r_past = calculate_ar_r_squared_simd_wrapper(past_data, lag, ridge_alpha, &mut buffer);
+            let r_past =
+                calculate_ar_r_squared_simd_wrapper(past_data, lag, ridge_alpha, &mut buffer);
 
             // 使用SIMD优化计算未来期预测准确度
             let r_future = calculate_prediction_r_squared_simd_wrapper(
-                past_data, future_data, lag, ridge_alpha, &mut buffer
+                past_data,
+                future_data,
+                lag,
+                ridge_alpha,
+                &mut buffer,
             );
 
             let row_idx = i - 1;
@@ -420,7 +441,7 @@ fn calculate_ar_r_squared_simd_wrapper(
     data: &[f64],
     lag: usize,
     alpha: f64,
-    buffer: &mut SIMDRidgeBuffer
+    buffer: &mut SIMDRidgeBuffer,
 ) -> f64 {
     if data.len() <= lag {
         return f64::NAN;
@@ -445,15 +466,16 @@ fn calculate_ar_r_squared_simd_wrapper(
     match xtx_ridge.cholesky(Side::Lower) {
         Ok(chol) => {
             let solution = chol.solve(&xty);
-            let coeffs: Vec<f64> = (0..n_features)
-                .map(|i| solution.read(i, 0))
-                .collect();
+            let coeffs: Vec<f64> = (0..n_features).map(|i| solution.read(i, 0)).collect();
 
             // 使用SIMD计算预测值
             calculate_predictions_simd(buffer, &coeffs, n_obs, n_features);
 
             // 使用SIMD计算R²
-            calculate_prediction_accuracy_adaptive(&buffer.predictions[..n_obs], &buffer.y_vector[..n_obs])
+            calculate_prediction_accuracy_adaptive(
+                &buffer.predictions[..n_obs],
+                &buffer.y_vector[..n_obs],
+            )
         }
         Err(_) => f64::NAN,
     }
@@ -465,7 +487,7 @@ fn calculate_prediction_r_squared_simd_wrapper(
     future_data: &[f64],
     lag: usize,
     alpha: f64,
-    buffer: &mut SIMDRidgeBuffer
+    buffer: &mut SIMDRidgeBuffer,
 ) -> f64 {
     if past_data.len() <= lag || future_data.is_empty() {
         return f64::NAN;
@@ -490,9 +512,7 @@ fn calculate_prediction_r_squared_simd_wrapper(
     match xtx_ridge.cholesky(Side::Lower) {
         Ok(chol) => {
             let solution = chol.solve(&xty);
-            let coeffs: Vec<f64> = (0..n_features)
-                .map(|i| solution.read(i, 0))
-                .collect();
+            let coeffs: Vec<f64> = (0..n_features).map(|i| solution.read(i, 0)).collect();
 
             // 滚动预测
             let mut full_data = past_data.to_vec();
@@ -598,7 +618,8 @@ fn compute_adaptive_alpha_simd(data: &[f64], lag: usize) -> f64 {
 
     // 计算y向量的方差
     let y_mean = y_vector.iter().sum::<f64>() / y_vector.len() as f64;
-    let y_var = y_vector.iter().map(|&y| (y - y_mean).powi(2)).sum::<f64>() / (y_vector.len() as f64 - 1.0);
+    let y_var =
+        y_vector.iter().map(|&y| (y - y_mean).powi(2)).sum::<f64>() / (y_vector.len() as f64 - 1.0);
 
     // 噪声水平因子（与原版本一致）
     let noise_factor = if y_var > 1e6 {

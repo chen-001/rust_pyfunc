@@ -5,7 +5,6 @@
 /// 1. 使用faer库替代nalgebra（5-17倍矩阵运算性能提升）
 /// 2. 内存池和缓冲区重用（减少20-30%内存分配开销）
 /// 3. alpha参数缓存机制（减少15-20%重复计算）
-
 use faer::prelude::*;
 use faer::{Mat, Side};
 use numpy::{PyArray1, PyArray2};
@@ -105,7 +104,13 @@ impl AlphaCache {
     }
 
     /// 获取或计算alpha参数
-    fn get_or_compute(&mut self, n_obs: usize, n_features: usize, variance_hash: u64, alpha_override: Option<f64>) -> f64 {
+    fn get_or_compute(
+        &mut self,
+        n_obs: usize,
+        n_features: usize,
+        variance_hash: u64,
+        alpha_override: Option<f64>,
+    ) -> f64 {
         if let Some(alpha) = alpha_override {
             return alpha;
         }
@@ -184,7 +189,8 @@ fn compute_y_variance_hash(data: &[f64], lag: usize) -> u64 {
 
     // 计算y向量的方差（与原版本estimate_noise_level一致）
     let y_mean = y_vector.iter().sum::<f64>() / y_vector.len() as f64;
-    let y_var = y_vector.iter().map(|&y| (y - y_mean).powi(2)).sum::<f64>() / (y_vector.len() as f64 - 1.0);
+    let y_var =
+        y_vector.iter().map(|&y| (y - y_mean).powi(2)).sum::<f64>() / (y_vector.len() as f64 - 1.0);
 
     // 将方差转换为整数哈希（保留3位小数精度）
     (y_var * 1000.0).round() as u64
@@ -220,9 +226,7 @@ fn solve_ridge_regression_faer(
     match xtx_ridge.cholesky(Side::Lower) {
         Ok(chol) => {
             let solution = chol.solve(&xty);
-            let coeffs: Vec<f64> = (0..n_features)
-                .map(|i| solution.read(i, 0))
-                .collect();
+            let coeffs: Vec<f64> = (0..n_features).map(|i| solution.read(i, 0)).collect();
             Ok(coeffs)
         }
         Err(_) => {
@@ -238,7 +242,7 @@ fn calculate_prediction_r_squared_faer(
     future_data: &[f64],
     lag: usize,
     alpha: f64,
-    buffer: &mut RidgeRegressionBuffer
+    buffer: &mut RidgeRegressionBuffer,
 ) -> f64 {
     if past_data.len() <= lag || future_data.is_empty() {
         return f64::NAN;
@@ -281,7 +285,7 @@ fn calculate_ar_r_squared_faer(
     data: &[f64],
     lag: usize,
     alpha: f64,
-    buffer: &mut RidgeRegressionBuffer
+    buffer: &mut RidgeRegressionBuffer,
 ) -> f64 {
     if data.len() <= lag {
         return f64::NAN;
@@ -392,7 +396,7 @@ pub fn rolling_lagged_regression_ridge_fast(
     // 验证参数
     if future_periods > past_periods {
         return Err(pyo3::exceptions::PyValueError::new_err(
-            "future_periods must be <= past_periods"
+            "future_periods must be <= past_periods",
         ));
     }
 
@@ -419,19 +423,19 @@ pub fn rolling_lagged_regression_ridge_fast(
             // 计算方差哈希用于alpha缓存 (基于y向量，与原版本一致)
             let variance_hash = compute_y_variance_hash(past_data, lag);
             // 获取或计算alpha参数
-            let ridge_alpha = alpha_cache.get_or_compute(
-                past_periods - lag,
-                lag + 1,
-                variance_hash,
-                alpha
-            );
+            let ridge_alpha =
+                alpha_cache.get_or_compute(past_periods - lag, lag + 1, variance_hash, alpha);
 
             // 计算过去期拟合优度
             let r_past = calculate_ar_r_squared_faer(past_data, lag, ridge_alpha, &mut buffer);
 
             // 计算未来期预测准确度
             let r_future = calculate_prediction_r_squared_faer(
-                past_data, future_data, lag, ridge_alpha, &mut buffer
+                past_data,
+                future_data,
+                lag,
+                ridge_alpha,
+                &mut buffer,
             );
 
             // 存储结果

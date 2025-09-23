@@ -1,10 +1,10 @@
-use pyo3::prelude::*;
 use numpy::PyReadonlyArray1;
+use pyo3::prelude::*;
 // use std::ptr;
-use std::cmp;
-use std::collections::VecDeque;
-use std::collections::HashMap;
 use chrono::{TimeZone, Utc};
+use std::cmp;
+use std::collections::HashMap;
+use std::collections::VecDeque;
 
 #[derive(Debug, Clone)]
 pub struct TreeNode {
@@ -54,18 +54,18 @@ pub struct PriceTree {
     earliest_time: i64,
     latest_time: i64,
     // 新增特征
-    degree_one_count: i64,    // 度为1的节点数
-    degree_two_count: i64,    // 度为2的节点数
-    total_depth: i64,         // 所有节点深度之和
-    min_depth: i64,           // 最小深度
-    max_balance_factor: i64,  // 最大平衡因子
-    total_balance_factor: i64,// 总平衡因子
-    total_path_length: i64,   // 总路径长度
-    max_path_length: i64,     // 最长路径长度
-    max_subtree_nodes: i64,   // 最大子树节点数
-    total_subtree_nodes: i64, // 总子树节点数
-    tree_width: i64,          // 树的最大宽度
-    internal_nodes: i64,      // 内部节点数
+    degree_one_count: i64,     // 度为1的节点数
+    degree_two_count: i64,     // 度为2的节点数
+    total_depth: i64,          // 所有节点深度之和
+    min_depth: i64,            // 最小深度
+    max_balance_factor: i64,   // 最大平衡因子
+    total_balance_factor: i64, // 总平衡因子
+    total_path_length: i64,    // 总路径长度
+    max_path_length: i64,      // 最长路径长度
+    max_subtree_nodes: i64,    // 最大子树节点数
+    total_subtree_nodes: i64,  // 总子树节点数
+    tree_width: i64,           // 树的最大宽度
+    internal_nodes: i64,       // 内部节点数
 }
 
 // 实现Send trait，表明可以安全地在线程间传递
@@ -75,7 +75,7 @@ unsafe impl Send for PriceTree {}
 impl PriceTree {
     #[new]
     fn new() -> Self {
-        PriceTree { 
+        PriceTree {
             root: None,
             last_price: None,
             last_node: None,
@@ -103,15 +103,15 @@ impl PriceTree {
     }
 
     fn build_tree(
-        &mut self, 
-        times: PyReadonlyArray1<i64>, 
-        prices: PyReadonlyArray1<f64>, 
-        volumes: PyReadonlyArray1<f64>
+        &mut self,
+        times: PyReadonlyArray1<i64>,
+        prices: PyReadonlyArray1<f64>,
+        volumes: PyReadonlyArray1<f64>,
     ) -> PyResult<()> {
         let times = times.as_array();
         let prices = prices.as_array();
         let volumes = volumes.as_array();
-        
+
         let n = times.len();
         if n == 0 {
             return Ok(());
@@ -132,19 +132,13 @@ impl PriceTree {
 
         // 初始化last_price
         self.last_price = Some(prices[0]);
-        
+
         // 预分配一个缓存数组来存储当前路径上的节点引用
-        let mut path: Vec<*mut TreeNode> = Vec::with_capacity(32);  // 假设树的深度不会超过32
-        
+        let mut path: Vec<*mut TreeNode> = Vec::with_capacity(32); // 假设树的深度不会超过32
+
         // 按时间顺序构建树
         for i in 1..n {
-            self.insert_node_fast(
-                prices[i], 
-                volumes[i], 
-                times[i], 
-                total_volume,
-                &mut path
-            );
+            self.insert_node_fast(prices[i], volumes[i], times[i], total_volume, &mut path);
         }
 
         // 清理最后的状态
@@ -166,11 +160,11 @@ impl PriceTree {
     fn get_visualization_data(&self) -> PyResult<(Vec<(String, String)>, Vec<(String, String)>)> {
         let mut nodes = Vec::new();
         let mut edges = Vec::new();
-        
+
         if let Some(root) = &self.root {
             self.collect_visualization_data(root, &mut nodes, &mut edges, String::from("0"));
         }
-        
+
         Ok((nodes, edges))
     }
 
@@ -209,12 +203,17 @@ impl PriceTree {
                 self.node_count as f64 / max_nodes as f64
             }
         } else {
-            if self.node_count > 0 { 1.0 } else { 0.0 }
+            if self.node_count > 0 {
+                1.0
+            } else {
+                0.0
+            }
         };
 
         let density = if self.node_count > 1 {
             let actual_edges = (self.node_count - 1) as f64;
-            let max_possible_edges = (self.node_count as f64 * (self.node_count as f64 - 1.0)) / 2.0;
+            let max_possible_edges =
+                (self.node_count as f64 * (self.node_count as f64 - 1.0)) / 2.0;
             actual_edges / max_possible_edges
         } else {
             0.0
@@ -231,79 +230,94 @@ impl PriceTree {
 
         Ok(vec![
             // 基本结构统计
-            ("Tree Depth (min/avg/max)".to_string(), 
-             format!("{}/{:.2}/{}", self.min_depth, avg_depth, self.depth)),
-            ("Total Nodes".to_string(), 
-             format!("{}", self.node_count)),
-            ("Leaf Nodes".to_string(), 
-             format!("{}", self.leaf_count)),
-            
+            (
+                "Tree Depth (min/avg/max)".to_string(),
+                format!("{}/{:.2}/{}", self.min_depth, avg_depth, self.depth),
+            ),
+            ("Total Nodes".to_string(), format!("{}", self.node_count)),
+            ("Leaf Nodes".to_string(), format!("{}", self.leaf_count)),
             // 节点分布统计
-            ("Node Distribution (leaf/internal)".to_string(), 
-             format!("{}/{} (ratio: {:.2})", 
-                    self.leaf_count, 
+            (
+                "Node Distribution (leaf/internal)".to_string(),
+                format!(
+                    "{}/{} (ratio: {:.2})",
+                    self.leaf_count,
                     self.internal_nodes,
                     if self.internal_nodes > 0 {
                         self.leaf_count as f64 / self.internal_nodes as f64
                     } else {
                         0.0
-                    })),
-            ("Degree Distribution (1/2)".to_string(), 
-             format!("{}/{} (ratio: {:.2})", 
-                    self.degree_one_count, 
-                    self.degree_two_count, 
+                    }
+                ),
+            ),
+            (
+                "Degree Distribution (1/2)".to_string(),
+                format!(
+                    "{}/{} (ratio: {:.2})",
+                    self.degree_one_count,
+                    self.degree_two_count,
                     if self.degree_two_count > 0 {
                         self.degree_one_count as f64 / self.degree_two_count as f64
                     } else {
                         0.0
-                    })),
-            
+                    }
+                ),
+            ),
             // 平衡性统计
-            ("Balance Factor (avg/max)".to_string(), 
-             format!("{:.2}/{}", avg_balance_factor, self.max_balance_factor)),
-            ("Skewness".to_string(), 
-             format!("{:.4}", skewness)),
-            
+            (
+                "Balance Factor (avg/max)".to_string(),
+                format!("{:.2}/{}", avg_balance_factor, self.max_balance_factor),
+            ),
+            ("Skewness".to_string(), format!("{:.4}", skewness)),
             // 路径和子树统计
-            ("Path Length (avg/max)".to_string(), 
-             format!("{:.2}/{}", avg_path_length, self.max_path_length)),
-            ("Subtree Nodes (avg/max)".to_string(), 
-             format!("{:.2}/{}", avg_subtree_nodes, self.max_subtree_nodes)),
-            
+            (
+                "Path Length (avg/max)".to_string(),
+                format!("{:.2}/{}", avg_path_length, self.max_path_length),
+            ),
+            (
+                "Subtree Nodes (avg/max)".to_string(),
+                format!("{:.2}/{}", avg_subtree_nodes, self.max_subtree_nodes),
+            ),
             // 树的形态统计
-            ("Tree Width (min/avg/max)".to_string(), 
-             format!("{}/{:.2}/{}", min_width, avg_width, max_width)),
-            ("Completeness".to_string(), 
-             format!("{:.4}", completeness)),
-            ("Density".to_string(), 
-             format!("{:.4}", density)),
-            ("Critical Nodes".to_string(), 
-             format!("{}", critical_nodes)),
-            
+            (
+                "Tree Width (min/avg/max)".to_string(),
+                format!("{}/{:.2}/{}", min_width, avg_width, max_width),
+            ),
+            ("Completeness".to_string(), format!("{:.4}", completeness)),
+            ("Density".to_string(), format!("{:.4}", density)),
+            ("Critical Nodes".to_string(), format!("{}", critical_nodes)),
             // 数据统计
-            ("Total Volume".to_string(), 
-             format!("{:.2}", self.total_volume)),
-            ("Avg Volume/Node".to_string(), 
-             format!("{:.2}", 
+            (
+                "Total Volume".to_string(),
+                format!("{:.2}", self.total_volume),
+            ),
+            (
+                "Avg Volume/Node".to_string(),
+                format!(
+                    "{:.2}",
                     if self.node_count > 0 {
                         self.total_volume / self.node_count as f64
                     } else {
                         0.0
-                    })),
-            ("Price Range".to_string(), 
-             format!("[{:.2}, {:.2}]", self.min_price, self.max_price)),
-            ("Time Range".to_string(), 
-             format!("{} → {}", 
+                    }
+                ),
+            ),
+            (
+                "Price Range".to_string(),
+                format!("[{:.2}, {:.2}]", self.min_price, self.max_price),
+            ),
+            (
+                "Time Range".to_string(),
+                format!(
+                    "{} → {}",
                     self.format_timestamp(self.earliest_time),
-                    self.format_timestamp(self.latest_time))),
-            
+                    self.format_timestamp(self.latest_time)
+                ),
+            ),
             // 新增的效率统计
-            ("Average Search Length".to_string(), 
-             format!("{:.2}", asl)),
-            ("Weighted Path Length".to_string(), 
-             format!("{:.2}", wpl)),
-            ("Tree Diameter".to_string(), 
-             format!("{}", diameter))
+            ("Average Search Length".to_string(), format!("{:.2}", asl)),
+            ("Weighted Path Length".to_string(), format!("{:.2}", wpl)),
+            ("Tree Diameter".to_string(), format!("{}", diameter)),
         ])
     }
 
@@ -446,7 +460,11 @@ impl PriceTree {
                 self.node_count as f64 / max_nodes as f64
             }
         } else {
-            if self.node_count > 0 { 1.0 } else { 0.0 }
+            if self.node_count > 0 {
+                1.0
+            } else {
+                0.0
+            }
         }
     }
 
@@ -454,7 +472,8 @@ impl PriceTree {
     fn get_density(&self) -> f64 {
         if self.node_count > 1 {
             let actual_edges = (self.node_count - 1) as f64;
-            let max_possible_edges = (self.node_count as f64 * (self.node_count as f64 - 1.0)) / 2.0;
+            let max_possible_edges =
+                (self.node_count as f64 * (self.node_count as f64 - 1.0)) / 2.0;
             actual_edges / max_possible_edges
         } else {
             0.0
@@ -510,7 +529,7 @@ impl PriceTree {
     fn get_all_features(&self) -> PyResult<HashMap<String, PyObject>> {
         let py = unsafe { Python::assume_gil_acquired() };
         let mut features = HashMap::new();
-        
+
         // 基本结构统计
         let mut structure = HashMap::new();
         structure.insert("min_depth".to_string(), self.min_depth as f64);
@@ -520,30 +539,45 @@ impl PriceTree {
         structure.insert("leaf_nodes".to_string(), self.leaf_count as f64);
         structure.insert("internal_nodes".to_string(), self.internal_nodes as f64);
         features.insert("structure".to_string(), structure.to_object(py));
-        
+
         // 节点分布统计
         let mut distribution = HashMap::new();
-        distribution.insert("leaf_internal_ratio".to_string(), self.get_leaf_internal_ratio());
+        distribution.insert(
+            "leaf_internal_ratio".to_string(),
+            self.get_leaf_internal_ratio(),
+        );
         distribution.insert("degree_one_nodes".to_string(), self.degree_one_count as f64);
         distribution.insert("degree_two_nodes".to_string(), self.degree_two_count as f64);
         distribution.insert("degree_ratio".to_string(), self.get_degree_ratio());
         features.insert("distribution".to_string(), distribution.to_object(py));
-        
+
         // 平衡性统计
         let mut balance = HashMap::new();
-        balance.insert("avg_balance_factor".to_string(), self.get_avg_balance_factor());
-        balance.insert("max_balance_factor".to_string(), self.max_balance_factor as f64);
+        balance.insert(
+            "avg_balance_factor".to_string(),
+            self.get_avg_balance_factor(),
+        );
+        balance.insert(
+            "max_balance_factor".to_string(),
+            self.max_balance_factor as f64,
+        );
         balance.insert("skewness".to_string(), self.calculate_skewness());
         features.insert("balance".to_string(), balance.to_object(py));
-        
+
         // 路径和子树统计
         let mut path_tree = HashMap::new();
         path_tree.insert("avg_path_length".to_string(), self.get_avg_path_length());
         path_tree.insert("max_path_length".to_string(), self.max_path_length as f64);
-        path_tree.insert("avg_subtree_nodes".to_string(), self.get_avg_subtree_nodes());
-        path_tree.insert("max_subtree_nodes".to_string(), self.max_subtree_nodes as f64);
+        path_tree.insert(
+            "avg_subtree_nodes".to_string(),
+            self.get_avg_subtree_nodes(),
+        );
+        path_tree.insert(
+            "max_subtree_nodes".to_string(),
+            self.max_subtree_nodes as f64,
+        );
         features.insert("path_tree".to_string(), path_tree.to_object(py));
-        
+
         // 树的形态统计
         let mut shape = HashMap::new();
         let (min_width, max_width, avg_width) = self.calculate_width_stats();
@@ -552,38 +586,44 @@ impl PriceTree {
         shape.insert("avg_width".to_string(), avg_width);
         shape.insert("completeness".to_string(), self.get_completeness());
         shape.insert("density".to_string(), self.get_density());
-        shape.insert("critical_nodes".to_string(), self.calculate_critical_nodes() as f64);
+        shape.insert(
+            "critical_nodes".to_string(),
+            self.calculate_critical_nodes() as f64,
+        );
         features.insert("shape".to_string(), shape.to_object(py));
-        
+
         // 效率统计
         let mut efficiency = HashMap::new();
         efficiency.insert("asl".to_string(), self.calculate_asl());
         efficiency.insert("wpl".to_string(), self.calculate_wpl());
         efficiency.insert("diameter".to_string(), self.calculate_diameter() as f64);
         features.insert("efficiency".to_string(), efficiency.to_object(py));
-        
+
         // 数据统计
         let mut data = HashMap::new();
         data.insert("total_volume".to_string(), self.total_volume);
-        data.insert("avg_volume_per_node".to_string(), self.get_avg_volume_per_node());
+        data.insert(
+            "avg_volume_per_node".to_string(),
+            self.get_avg_volume_per_node(),
+        );
         data.insert("min_price".to_string(), self.min_price);
         data.insert("max_price".to_string(), self.max_price);
         data.insert("earliest_time".to_string(), self.earliest_time as f64);
         data.insert("latest_time".to_string(), self.latest_time as f64);
         features.insert("data".to_string(), data.to_object(py));
-        
+
         Ok(features)
     }
 }
 
 impl PriceTree {
     fn insert_node_fast(
-        &mut self, 
-        price: f64, 
-        volume: f64, 
-        time: i64, 
+        &mut self,
+        price: f64,
+        volume: f64,
+        time: i64,
         total_volume: f64,
-        path: &mut Vec<*mut TreeNode>
+        path: &mut Vec<*mut TreeNode>,
     ) {
         // 检查是否与上一个价格相同
         if let Some(last_price) = self.last_price {
@@ -611,12 +651,12 @@ impl PriceTree {
             unsafe {
                 let mut current = root as *mut TreeNode;
                 path.clear();
-                
+
                 // 找到插入位置，同时记录路径
                 while !current.is_null() {
                     path.push(current);
                     let node = &mut *current;
-                    
+
                     if price < node.price {
                         match &mut node.left {
                             None => {
@@ -715,7 +755,7 @@ impl PriceTree {
         if let Some(root) = &self.root {
             let root_clone = root.clone();
             self.calculate_features(&root_clone, 0);
-            
+
             // 计算树的宽度
             self.tree_width = self.calculate_width();
         }
@@ -726,7 +766,7 @@ impl PriceTree {
         self.total_depth += current_depth;
         self.min_depth = cmp::min(self.min_depth, current_depth);
         self.depth = cmp::max(self.depth, current_depth);
-        
+
         // 更新节点度数统计
         let children_count = node.left.is_some() as i64 + node.right.is_some() as i64;
         match children_count {
@@ -832,7 +872,7 @@ impl PriceTree {
         } else {
             0.0
         };
-        
+
         let mut count: i64 = 0;
         if let Some(root) = &self.root {
             let mut stack = vec![root];
@@ -841,7 +881,7 @@ impl PriceTree {
                 if children_count == 1 && node.subtree_size() as f64 > avg_subtree_size {
                     count += 1;
                 }
-                
+
                 if let Some(right) = &node.right {
                     stack.push(right);
                 }
@@ -858,13 +898,13 @@ impl PriceTree {
         if let Some(root) = &self.root {
             let mut total_comparisons: i64 = 0;
             let mut total_successful_paths: i64 = 0;
-            
+
             // DFS遍历计算每个节点的查找路径长度
             let mut stack = vec![(root, 1)]; // (node, level)
             while let Some((node, level)) = stack.pop() {
                 total_comparisons += level;
                 total_successful_paths += 1;
-                
+
                 if let Some(right) = &node.right {
                     stack.push((right, level + 1));
                 }
@@ -872,7 +912,7 @@ impl PriceTree {
                     stack.push((left, level + 1));
                 }
             }
-            
+
             total_comparisons as f64 / total_successful_paths as f64
         } else {
             0.0
@@ -884,13 +924,13 @@ impl PriceTree {
         if let Some(root) = &self.root {
             let mut wpl = 0.0;
             let mut stack = vec![(root, 0)]; // (node, depth)
-            
+
             while let Some((node, depth)) = stack.pop() {
                 // 如果是叶子节点，计算其贡献
                 if node.left.is_none() && node.right.is_none() {
                     wpl += node.probability * depth as f64;
                 }
-                
+
                 if let Some(right) = &node.right {
                     stack.push((right, depth + 1));
                 }
@@ -907,19 +947,23 @@ impl PriceTree {
     // 计算树的直径
     fn calculate_diameter(&self) -> i64 {
         fn height_and_diameter(node: &TreeNode) -> (i64, i64) {
-            let left_result = node.left.as_ref()
+            let left_result = node
+                .left
+                .as_ref()
                 .map(|n| height_and_diameter(n))
                 .unwrap_or((0, 0));
-            let right_result = node.right.as_ref()
+            let right_result = node
+                .right
+                .as_ref()
                 .map(|n| height_and_diameter(n))
                 .unwrap_or((0, 0));
-            
+
             let height = 1 + std::cmp::max(left_result.0, right_result.0);
             let diameter = std::cmp::max(
                 left_result.0 + right_result.0,
-                std::cmp::max(left_result.1, right_result.1)
+                std::cmp::max(left_result.1, right_result.1),
             );
-            
+
             (height, diameter)
         }
 
@@ -942,7 +986,7 @@ impl PriceTree {
 
             while !queue.is_empty() {
                 let level_size = queue.len() as i64;
-                
+
                 // 更新统计信息
                 min_width = std::cmp::min(min_width, level_size as i64);
                 max_width = std::cmp::max(max_width, level_size as i64);
@@ -972,5 +1016,4 @@ impl PriceTree {
             (0, 0, 0.0)
         }
     }
-
 }
