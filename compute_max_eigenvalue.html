@@ -64,7 +64,7 @@
 import numpy as np
 from rust_pyfunc import compute_max_eigenvalue</p>
 <h1>创建测试矩阵</h1>
-<p>matrix = np.array([[4.0, -1.0], 
+<p>matrix = np.array([[4.0, -1.0],
                    [-1.0, 3.0]], dtype=np.float64)
 eigenvalue, eigenvector = compute_max_eigenvalue(matrix)
 print(f"最大特征值: {eigenvalue}")
