@@ -2,7 +2,6 @@
 ///
 /// 核心优化：利用滑动窗口的增量特性，避免重复计算X'X和X'y矩阵
 /// 预期性能提升：30-40%
-
 use faer::prelude::*;
 use faer::{Mat, Side};
 use numpy::{PyArray1, PyArray2};
@@ -76,7 +75,8 @@ impl IncrementalRidgeBuffer {
             for row in 0..n_features {
                 for col in 0..n_features {
                     let old_val = self.xtx_matrix.read(row, col);
-                    self.xtx_matrix.write(row, col, old_val + x_vec[row] * x_vec[col]);
+                    self.xtx_matrix
+                        .write(row, col, old_val + x_vec[row] * x_vec[col]);
                 }
             }
 
@@ -105,7 +105,7 @@ impl IncrementalRidgeBuffer {
         let n_obs = self.window_cache.len() - lag;
 
         // 移除最旧的观测（第一个有效观测）
-        let y_old = self.window_cache[lag];  // 第一个y值
+        let y_old = self.window_cache[lag]; // 第一个y值
 
         // 构建要移除的X向量 [1, x_{lag-1}, x_{lag-2}, ..., x_0]
         let mut x_old = vec![1.0];
@@ -117,7 +117,8 @@ impl IncrementalRidgeBuffer {
         for row in 0..n_features {
             for col in 0..n_features {
                 let old_val = self.xtx_matrix.read(row, col);
-                self.xtx_matrix.write(row, col, old_val - x_old[row] * x_old[col]);
+                self.xtx_matrix
+                    .write(row, col, old_val - x_old[row] * x_old[col]);
             }
         }
 
@@ -133,7 +134,7 @@ impl IncrementalRidgeBuffer {
 
         // 新观测的索引（最后一个有效观测）
         let cache_len = self.window_cache.len();
-        let new_y_idx = cache_len - 1;  // 新的y值索引
+        let new_y_idx = cache_len - 1; // 新的y值索引
         let y_new = self.window_cache[new_y_idx];
 
         // 构建新的X向量 [1, x_{new-1}, x_{new-2}, ..., x_{new-lag}]
@@ -151,7 +152,8 @@ impl IncrementalRidgeBuffer {
         for row in 0..n_features {
             for col in 0..n_features {
                 let old_val = self.xtx_matrix.read(row, col);
-                self.xtx_matrix.write(row, col, old_val + x_new[row] * x_new[col]);
+                self.xtx_matrix
+                    .write(row, col, old_val + x_new[row] * x_new[col]);
             }
         }
 
@@ -169,7 +171,10 @@ impl IncrementalRidgeBuffer {
         let n_features = self.current_lag + 1;
 
         // 添加Ridge正则化项：X'X + αI
-        let mut xtx_ridge = self.xtx_matrix.submatrix(0, 0, n_features, n_features).to_owned();
+        let mut xtx_ridge = self
+            .xtx_matrix
+            .submatrix(0, 0, n_features, n_features)
+            .to_owned();
         for i in 0..n_features {
             let old_val = xtx_ridge.read(i, i);
             xtx_ridge.write(i, i, old_val + alpha);
@@ -182,9 +187,7 @@ impl IncrementalRidgeBuffer {
         match xtx_ridge.cholesky(Side::Lower) {
             Ok(chol) => {
                 let solution = chol.solve(&xty_sub);
-                let coeffs: Vec<f64> = (0..n_features)
-                    .map(|i| solution.read(i, 0))
-                    .collect();
+                let coeffs: Vec<f64> = (0..n_features).map(|i| solution.read(i, 0)).collect();
                 Ok(coeffs)
             }
             Err(_) => Err("Matrix is not positive definite".to_string()),
@@ -204,7 +207,13 @@ impl AlphaCache {
         }
     }
 
-    fn get_or_compute(&mut self, n_obs: usize, n_features: usize, variance_hash: u64, alpha_override: Option<f64>) -> f64 {
+    fn get_or_compute(
+        &mut self,
+        n_obs: usize,
+        n_features: usize,
+        variance_hash: u64,
+        alpha_override: Option<f64>,
+    ) -> f64 {
         if let Some(alpha) = alpha_override {
             return alpha;
         }
@@ -259,16 +268,14 @@ fn compute_y_variance_hash(data: &[f64], lag: usize) -> u64 {
     }
 
     let y_mean = y_vector.iter().sum::<f64>() / y_vector.len() as f64;
-    let y_var = y_vector.iter().map(|&y| (y - y_mean).powi(2)).sum::<f64>() / (y_vector.len() as f64 - 1.0);
+    let y_var =
+        y_vector.iter().map(|&y| (y - y_mean).powi(2)).sum::<f64>() / (y_vector.len() as f64 - 1.0);
 
     (y_var * 1000.0).round() as u64
 }
 
 /// 计算AR模型的R²值（使用增量缓冲区）
-fn calculate_ar_r_squared_incremental(
-    buffer: &mut IncrementalRidgeBuffer,
-    alpha: f64,
-) -> f64 {
+fn calculate_ar_r_squared_incremental(buffer: &mut IncrementalRidgeBuffer, alpha: f64) -> f64 {
     let coeffs = match buffer.solve_ridge_regression(alpha) {
         Ok(c) => c,
         Err(_) => return f64::NAN,
@@ -288,9 +295,7 @@ fn calculate_ar_r_squared_incremental(
     }
 
     // 计算R²
-    let actual_values: Vec<f64> = (0..n_obs)
-        .map(|i| buffer.window_cache[i + lag])
-        .collect();
+    let actual_values: Vec<f64> = (0..n_obs).map(|i| buffer.window_cache[i + lag]).collect();
 
     calculate_prediction_accuracy(&predictions, &actual_values)
 }
@@ -362,7 +367,11 @@ fn calculate_prediction_accuracy(y_pred: &[f64], y_actual: &[f64]) -> f64 {
     let r_squared = 1.0 - rss / tss;
 
     if r_squared.is_finite() && r_squared >= -100.0 && r_squared <= 1.1 {
-        if r_squared > 1.0 { 1.0 } else { r_squared }
+        if r_squared > 1.0 {
+            1.0
+        } else {
+            r_squared
+        }
     } else {
         f64::NAN
     }
@@ -370,9 +379,7 @@ fn calculate_prediction_accuracy(y_pred: &[f64], y_actual: &[f64]) -> f64 {
 
 /// 将一维向量转换为二维矩阵
 fn vec_to_matrix(vec: Vec<f64>, rows: usize, cols: usize) -> Vec<Vec<f64>> {
-    vec.chunks(cols)
-        .map(|chunk| chunk.to_vec())
-        .collect()
+    vec.chunks(cols).map(|chunk| chunk.to_vec()).collect()
 }
 
 /// 增量更新版本的滞后自回归分析
@@ -395,7 +402,7 @@ pub fn rolling_lagged_regression_ridge_incremental(
 
     if future_periods > past_periods {
         return Err(pyo3::exceptions::PyValueError::new_err(
-            "future_periods must be <= past_periods"
+            "future_periods must be <= past_periods",
         ));
     }
 
@@ -426,12 +433,8 @@ pub fn rolling_lagged_regression_ridge_incremental(
 
             // 计算alpha参数
             let variance_hash = compute_y_variance_hash(past_data, lag);
-            let ridge_alpha = alpha_cache.get_or_compute(
-                past_periods - lag,
-                lag + 1,
-                variance_hash,
-                alpha
-            );
+            let ridge_alpha =
+                alpha_cache.get_or_compute(past_periods - lag, lag + 1, variance_hash, alpha);
 
             // 第一个窗口：完整初始化
             if window_idx == 0 {
@@ -449,9 +452,8 @@ pub fn rolling_lagged_regression_ridge_incremental(
             let r_past = calculate_ar_r_squared_incremental(buffer, ridge_alpha);
 
             // 计算未来期预测准确度
-            let r_future = calculate_prediction_r_squared_incremental(
-                buffer, future_data, ridge_alpha
-            );
+            let r_future =
+                calculate_prediction_r_squared_incremental(buffer, future_data, ridge_alpha);
 
             // 存储结果
             let row_idx = i - 1;

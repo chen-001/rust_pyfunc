@@ -130,7 +130,6 @@ pub fn vectorize_sentences_list(sentences: Vec<&str>) -> Vec<Vec<usize>> {
     vectors
 }
 
-
 /// 计算两个句子之间的Jaccard相似度。
 /// Jaccard相似度是两个集合交集大小除以并集大小，用于衡量两个句子的相似程度。
 /// 这里将每个句子视为单词集合，忽略单词出现的顺序和频率。
@@ -203,7 +202,8 @@ fn preprocess_text(text: &str) -> String {
     // 转为小写
     let text = text.to_lowercase();
     // 删除标点符号和非字母数字字符
-    let text: String = text.chars()
+    let text: String = text
+        .chars()
         .filter(|c| c.is_alphanumeric() || c.is_whitespace())
         .collect();
     // 去除多余空格（可选，已通过split_whitespace处理）
@@ -267,7 +267,7 @@ pub fn min_word_edit_distance(str1: &str, str2: &str) -> usize {
 
     // 计算需要删除的单词数（在str1中但不在str2中的单词）
     let deletions = set1.difference(&set2).count();
-    
+
     // 计算需要添加的单词数（在str2中但不在str1中的单词）
     let additions = set2.difference(&set1).count();
 

@@ -1,21 +1,21 @@
 use pyo3::prelude::*;
 // use pyo3::types::{PyList, PyModule};
-use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1, PyReadonlyArray2};
 use ndarray::{s, Array1, Array2, ArrayView1, ArrayView2};
+use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1, PyReadonlyArray2};
 use rayon::prelude::*;
 // use std::collections::{HashMap, HashSet};
 
-pub mod local_correlation;
 pub mod eigenvalue_analysis;
 pub mod eigenvalue_analysis_modified;
 pub mod fast_correlation;
 pub mod fast_correlation_v2;
+pub mod hmm_trend_prediction;
+pub mod local_correlation;
 pub mod rolling_correlation_mean;
 pub mod rolling_window_core_feature;
 pub mod rolling_window_core_feature_optimized;
 pub mod rolling_window_core_feature_simd;
 pub mod rolling_window_core_feature_ultra;
-pub mod hmm_trend_prediction;
 
 /// 普通最小二乘(OLS)回归。
 /// 用于拟合线性回归模型 y = Xβ + ε，其中β是要估计的回归系数。
@@ -425,20 +425,20 @@ pub fn rolling_volatility(
     let prices = prices.as_array();
     let n = prices.len();
     let min_periods = min_periods.unwrap_or(2);
-    
+
     // 创建结果数组，初始化为NaN
     let mut result = Array1::from_elem(n, f64::NAN);
-    
+
     // 对每个位置计算波动率
     for i in 0..n {
         // 如果历史数据不足，直接跳过
         if i < lookback - 1 {
             continue;
         }
-        
+
         // 确定数据范围的起始位置
         let start_idx = i - (lookback - 1);
-        
+
         // 在范围[start_idx, i]内按interval间隔收集样本
         let mut samples = Vec::new();
         let mut pos = start_idx;
@@ -449,30 +449,29 @@ pub fn rolling_volatility(
                 break;
             }
         }
-        
+
         // 确保有足够的样本点
         if samples.len() < min_periods {
             continue;
         }
-        
+
         // 计算相邻样本之间的对数收益率
         let mut returns = Vec::new();
         for k in 0..samples.len() - 1 {
             // 后面的价格除以前面的价格的对数
-            let ret = (samples[k+1] / samples[k]).ln();
+            let ret = (samples[k + 1] / samples[k]).ln();
             returns.push(ret);
         }
-        
+
         // 有足够的收益率样本才计算标准差
         if returns.len() >= min_periods - 1 {
             // 计算均值
             let mean = returns.iter().sum::<f64>() / returns.len() as f64;
-            
+
             // 计算方差
-            let variance = returns.iter()
-                .map(|&r| (r - mean).powi(2))
-                .sum::<f64>() / returns.len() as f64;
-            
+            let variance =
+                returns.iter().map(|&r| (r - mean).powi(2)).sum::<f64>() / returns.len() as f64;
+
             // 计算标准差（波动率）
             if variance > 0.0 {
                 result[i] = variance.sqrt();
@@ -482,7 +481,7 @@ pub fn rolling_volatility(
             }
         }
     }
-    
+
     Ok(result.into_pyarray(py).to_owned())
 }
 
@@ -534,20 +533,20 @@ pub fn rolling_cv(
     let values = values.as_array();
     let n = values.len();
     let min_periods = min_periods.unwrap_or(2);
-    
+
     // 创建结果数组，初始化为NaN
     let mut result = Array1::from_elem(n, f64::NAN);
-    
+
     // 对每个位置计算变异系数
     for i in 0..n {
         // 如果历史数据不足，直接跳过
         if i < lookback - 1 {
             continue;
         }
-        
+
         // 确定数据范围的起始位置
         let start_idx = i - (lookback - 1);
-        
+
         // 在范围[start_idx, i]内按interval间隔收集样本
         let mut samples = Vec::new();
         let mut pos = start_idx;
@@ -558,46 +557,45 @@ pub fn rolling_cv(
                 break;
             }
         }
-        
+
         // 确保有足够的样本点
         if samples.len() < min_periods {
             continue;
         }
-        
+
         // 计算相邻样本之间的对数收益率
         let mut returns = Vec::new();
         for k in 0..samples.len() - 1 {
             // 后面的价格除以前面的价格的对数
-            let ret = (samples[k+1] / samples[k]).ln();
+            let ret = (samples[k + 1] / samples[k]).ln();
             returns.push(ret);
         }
-        
+
         // 有足够的收益率样本才计算变异系数
         if returns.len() >= min_periods - 1 {
             // 计算收益率均值
             let mean = returns.iter().sum::<f64>() / returns.len() as f64;
-            
+
             // 避免除以零的情况
             if mean.abs() < f64::EPSILON {
                 continue;
             }
-            
+
             // 计算收益率的方差
-            let variance = returns.iter()
-                .map(|&r| (r - mean).powi(2))
-                .sum::<f64>() / returns.len() as f64;
-            
+            let variance =
+                returns.iter().map(|&r| (r - mean).powi(2)).sum::<f64>() / returns.len() as f64;
+
             if variance > 0.0 {
                 let std_dev = variance.sqrt();
                 // 计算变异系数 (std/mean)
-                result[i] = std_dev / mean.abs();  // 使用绝对值避免负均值导致的符号问题
+                result[i] = std_dev / mean.abs(); // 使用绝对值避免负均值导致的符号问题
             } else {
                 // 如果方差为0，变异系数也为0
                 result[i] = 0.0;
             }
         }
     }
-    
+
     Ok(result.into_pyarray(py).to_owned())
 }
 
@@ -647,20 +645,20 @@ pub fn rolling_qcv(
     let values = values.as_array();
     let n = values.len();
     let min_periods = min_periods.unwrap_or(3);
-    
+
     // 创建结果数组，初始化为NaN
     let mut result = Array1::from_elem(n, f64::NAN);
-    
+
     // 对每个位置计算四分位变异系数
     for i in 0..n {
         // 如果历史数据不足，直接跳过
         if i < lookback - 1 {
             continue;
         }
-        
+
         // 确定数据范围的起始位置
         let start_idx = i - (lookback - 1);
-        
+
         // 在范围[start_idx, i]内按interval间隔收集样本
         let mut samples = Vec::new();
         let mut pos = start_idx;
@@ -671,37 +669,37 @@ pub fn rolling_qcv(
                 break;
             }
         }
-        
+
         // 确保有足够的样本点
         if samples.len() < min_periods {
             continue;
         }
-        
+
         // 计算相邻样本之间的对数收益率
         let mut returns = Vec::new();
         for k in 0..samples.len() - 1 {
             // 后面的价格除以前面的价格的对数
-            let ret = (samples[k+1] / samples[k]).ln();
+            let ret = (samples[k + 1] / samples[k]).ln();
             returns.push(ret);
         }
-        
+
         // 有足够的收益率样本才计算四分位变异系数
         if returns.len() >= min_periods - 1 {
             // 对收益率进行排序（用于计算中位数和四分位数）
             returns.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-            
+
             // 计算中位数
             let median = if returns.len() % 2 == 0 {
                 (returns[returns.len() / 2 - 1] + returns[returns.len() / 2]) / 2.0
             } else {
                 returns[returns.len() / 2]
             };
-            
+
             // 如果中位数接近0，跳过计算
             if median.abs() < f64::EPSILON {
                 continue;
             }
-            
+
             // 计算第一四分位数 (Q1)
             let q1_pos = returns.len() / 4;
             let q1 = if returns.len() % 4 == 0 {
@@ -709,7 +707,7 @@ pub fn rolling_qcv(
             } else {
                 returns[q1_pos]
             };
-            
+
             // 计算第三四分位数 (Q3)
             let q3_pos = returns.len() * 3 / 4;
             let q3 = if returns.len() % 4 == 0 {
@@ -717,10 +715,10 @@ pub fn rolling_qcv(
             } else {
                 returns[q3_pos]
             };
-            
+
             // 计算四分位间距 (IQR)
             let iqr = q3 - q1;
-            
+
             // 计算四分位变异系数 (IQR/|中位数|)
             if iqr >= 0.0 {
                 result[i] = iqr / median.abs();
@@ -730,7 +728,7 @@ pub fn rolling_qcv(
             }
         }
     }
-    
+
     Ok(result.into_pyarray(py).to_owned())
 }
 
@@ -792,7 +790,7 @@ pub fn dataframe_corrwith(
 ) -> PyResult<Py<PyArray1<f64>>> {
     let df1 = df1.as_array();
     let df2 = df2.as_array();
-    
+
     // 目前只支持按列计算相关系数（axis=0）
     let _axis = axis.unwrap_or(0);
     if _axis != 0 {
@@ -800,30 +798,30 @@ pub fn dataframe_corrwith(
             "当前仅支持按列计算相关系数(axis=0)",
         ));
     }
-    
+
     let drop_na = drop_na.unwrap_or(true);
-    
+
     // 判断行数是否相同
     if df1.nrows() != df2.nrows() {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
             "两个数据框的行数必须相同",
         ));
     }
-    
+
     // 获取列数并确定结果数组大小
     let n_cols = std::cmp::min(df1.ncols(), df2.ncols());
-    
+
     // 设置线程池，限制最多10个线程
     let thread_pool = rayon::ThreadPoolBuilder::new()
         .num_threads(std::cmp::min(10, num_cpus::get()))
         .build()
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("线程池创建失败: {}", e)))?;
-    
+
     // 创建结果数组
     let result = if n_cols > 0 {
         // 使用线程池并行计算相关系数
         let mut corrs: Vec<f64> = vec![f64::NAN; n_cols];
-        
+
         thread_pool.install(|| {
             // 将计算分块并行处理
             corrs.par_iter_mut().enumerate().for_each(|(i, corr)| {
@@ -831,44 +829,43 @@ pub fn dataframe_corrwith(
                     // 提取对应列的数据
                     let col1 = df1.column(i);
                     let col2 = df2.column(i);
-                    
+
                     // 计算相关系数
                     *corr = calculate_correlation_optimized(&col1, &col2, drop_na);
                 }
             });
         });
-        
+
         Array1::from(corrs)
     } else {
         Array1::from_elem(n_cols, f64::NAN)
     };
-    
+
     Ok(result.into_pyarray(py).to_owned())
 }
-
 
 // 已优化的辅助函数：计算两个向量的皮尔逊相关系数
 fn calculate_correlation_optimized(x: &ArrayView1<f64>, y: &ArrayView1<f64>, drop_na: bool) -> f64 {
     assert_eq!(x.len(), y.len());
     let n = x.len();
-    
+
     // 如果长度为0，返回NaN
     if n == 0 {
         return f64::NAN;
     }
-    
+
     // 优化的NaN处理：一次遍历计算均值和有效数据点
     // 这种方法减少了多次遍历向量的开销
     let mut count = 0;
     let mut sum_x = 0.0;
     let mut sum_y = 0.0;
     let mut valid_pairs = Vec::with_capacity(n);
-    
+
     // 一次遍历找出有效值对并计算和
     for i in 0..n {
         let xi = x[i];
         let yi = y[i];
-        
+
         if !xi.is_nan() && !yi.is_nan() {
             valid_pairs.push((xi, yi));
             sum_x += xi;
@@ -876,50 +873,50 @@ fn calculate_correlation_optimized(x: &ArrayView1<f64>, y: &ArrayView1<f64>, dro
             count += 1;
         }
     }
-    
+
     // 如果有NaN值且不允许忽略，或有效点太少
     if (valid_pairs.len() < n && !drop_na) || count < 2 {
         return f64::NAN;
     }
-    
+
     let mean_x = sum_x / count as f64;
     let mean_y = sum_y / count as f64;
-    
+
     // 计算协方差和方差 - 向量化计算以提高缓存局部性
     // 使用高效的向量累加，最大化CPU的SIMD指令使用
-    
+
     // 使用预先分配和批处理来提高性能
     const BATCH_SIZE: usize = 32; // 根据CPU缓存行大小选择合适的批次大小
-    
+
     let mut cov_xy = 0.0;
     let mut var_x = 0.0;
     let mut var_y = 0.0;
-    
+
     // 批量处理向量元素以提高缓存命中率
     for chunk in valid_pairs.chunks(BATCH_SIZE) {
         let mut local_cov_xy = 0.0;
         let mut local_var_x = 0.0;
         let mut local_var_y = 0.0;
-        
+
         for &(xi, yi) in chunk {
             let dx = xi - mean_x;
             let dy = yi - mean_y;
-            
+
             local_cov_xy += dx * dy;
             local_var_x += dx * dx;
             local_var_y += dy * dy;
         }
-        
+
         cov_xy += local_cov_xy;
         var_x += local_var_x;
         var_y += local_var_y;
     }
-    
+
     // 计算相关系数
     if var_x.abs() < f64::EPSILON || var_y.abs() < f64::EPSILON {
         return f64::NAN; // 如果任一变量的方差为0，则相关系数未定义
     }
-    
+
     cov_xy / (var_x.sqrt() * var_y.sqrt())
 }
 
@@ -978,7 +975,7 @@ pub fn dataframe_corrwith_single_thread(
 ) -> PyResult<Py<PyArray1<f64>>> {
     let df1 = df1.as_array();
     let df2 = df2.as_array();
-    
+
     // 目前只支持按列计算相关系数（axis=0）
     let _axis = axis.unwrap_or(0);
     if _axis != 0 {
@@ -986,40 +983,38 @@ pub fn dataframe_corrwith_single_thread(
             "当前仅支持按列计算相关系数(axis=0)",
         ));
     }
-    
+
     let drop_na = drop_na.unwrap_or(true);
-    
+
     // 判断行数是否相同
     if df1.nrows() != df2.nrows() {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
             "两个数据框的行数必须相同",
         ));
     }
-    
+
     // 获取列数并确定结果数组大小
     let n_cols = std::cmp::min(df1.ncols(), df2.ncols());
-    
+
     // 创建结果数组
     let result = if n_cols > 0 {
         // 使用单线程顺序计算相关系数
         let mut corrs: Vec<f64> = vec![f64::NAN; n_cols];
-        
+
         // 单线程逐列计算
         for (i, corr) in corrs.iter_mut().enumerate().take(n_cols) {
             // 提取对应列的数据
             let col1 = df1.column(i);
             let col2 = df2.column(i);
-            
+
             // 计算相关系数
             *corr = calculate_correlation_optimized(&col1, &col2, drop_na);
         }
-        
+
         Array1::from(corrs)
     } else {
         Array1::from_elem(n_cols, f64::NAN)
     };
-    
+
     Ok(result.into_pyarray(py).to_owned())
 }
-
-

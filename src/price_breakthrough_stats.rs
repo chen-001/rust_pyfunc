@@ -1,5 +1,5 @@
+use numpy::{IntoPyArray, PyArray2, PyReadonlyArray1};
 use pyo3::prelude::*;
-use numpy::{PyArray2, PyReadonlyArray1, IntoPyArray};
 use std::collections::HashSet;
 
 /// 计算股票逐笔成交数据中"价格未突破上一分钟价格范围"的24个统计指标
@@ -27,7 +27,9 @@ pub fn compute_non_breakthrough_stats(
     let n = exchtime.len();
 
     if n == 0 || volume.len() != n || price.len() != n || flag.len() != n {
-        return Err(pyo3::exceptions::PyValueError::new_err("输入数组长度不一致或为空"));
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "输入数组长度不一致或为空",
+        ));
     }
 
     // 准备列名
@@ -60,11 +62,18 @@ pub fn compute_non_breakthrough_stats(
     ];
 
     // 按分钟分组数据
-    let minute_groups = group_by_minute(exchtime.as_slice().unwrap(), volume.as_slice().unwrap(), price.as_slice().unwrap(), flag.as_slice().unwrap());
+    let minute_groups = group_by_minute(
+        exchtime.as_slice().unwrap(),
+        volume.as_slice().unwrap(),
+        price.as_slice().unwrap(),
+        flag.as_slice().unwrap(),
+    );
     let num_minutes = minute_groups.len();
 
     if num_minutes == 0 {
-        return Err(pyo3::exceptions::PyValueError::new_err("没有有效的分钟数据"));
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "没有有效的分钟数据",
+        ));
     }
 
     // 创建结果矩阵
@@ -80,12 +89,11 @@ pub fn compute_non_breakthrough_stats(
     // 计算每分钟的统计指标（从第1分钟开始，因为第0分钟没有上一分钟数据）
     for i in 1..num_minutes {
         let current_minute = &minute_groups[i];
-        let prev_minute = &minute_groups[i-1];
+        let prev_minute = &minute_groups[i - 1];
 
         // 构建上一分钟的价格集合
-        let prev_prices: HashSet<OrderedFloat> = prev_minute.price.iter()
-            .map(|&p| OrderedFloat(p))
-            .collect();
+        let prev_prices: HashSet<OrderedFloat> =
+            prev_minute.price.iter().map(|&p| OrderedFloat(p)).collect();
 
         if prev_prices.is_empty() {
             continue;
@@ -163,12 +171,14 @@ fn group_by_minute(
         // 将纳秒时间戳转换为分钟
         let minute_timestamp = exchtime[i] / 1_000_000_000 / 60 * 60 * 1_000_000_000;
 
-        let entry = groups.entry(minute_timestamp).or_insert_with(|| MinuteData {
-            exchtime: Vec::new(),
-            volume: Vec::new(),
-            price: Vec::new(),
-            flag: Vec::new(),
-        });
+        let entry = groups
+            .entry(minute_timestamp)
+            .or_insert_with(|| MinuteData {
+                exchtime: Vec::new(),
+                volume: Vec::new(),
+                price: Vec::new(),
+                flag: Vec::new(),
+            });
 
         entry.exchtime.push(exchtime[i]);
         entry.volume.push(volume[i]);
@@ -199,7 +209,8 @@ fn calculate_breakthrough_stats(
     let prev_total_trades = prev.volume.len();
 
     // 未突破的统计
-    let breakthrough_volume: f64 = breakthrough_indices.iter()
+    let breakthrough_volume: f64 = breakthrough_indices
+        .iter()
         .map(|&i| current.volume[i])
         .sum();
     let breakthrough_trades = breakthrough_indices.len();
@@ -231,7 +242,8 @@ fn calculate_breakthrough_stats(
     }
 
     // 获取未突破交易的时间信息
-    let breakthrough_times: Vec<i64> = breakthrough_indices.iter()
+    let breakthrough_times: Vec<i64> = breakthrough_indices
+        .iter()
         .map(|&i| current.exchtime[i])
         .collect();
 
@@ -281,16 +293,17 @@ fn calculate_breakthrough_stats(
 
         stats[6] = second; // 最后一笔
         stats[7] = second; // 第一笔
-        stats[8] = 0.0;    // 时间跨度
+        stats[8] = 0.0; // 时间跨度
 
-        stats[9] = breakthrough_volume;  // 时间段成交量就是这一笔
+        stats[9] = breakthrough_volume; // 时间段成交量就是这一笔
         stats[10] = stats[1]; // 比例相同
-        stats[11] = 1.0;      // 时间段笔数就是1
+        stats[11] = 1.0; // 时间段笔数就是1
         stats[12] = stats[4]; // 比例相同
     }
 
     // 列14: 未突破主买笔数
-    let breakthrough_buy_trades = breakthrough_indices.iter()
+    let breakthrough_buy_trades = breakthrough_indices
+        .iter()
         .filter(|&&i| current.flag[i] == 66)
         .count();
     stats[13] = breakthrough_buy_trades as f64;
@@ -301,7 +314,8 @@ fn calculate_breakthrough_stats(
     }
 
     // 列16: 未突破主买成交量
-    let breakthrough_buy_volume: f64 = breakthrough_indices.iter()
+    let breakthrough_buy_volume: f64 = breakthrough_indices
+        .iter()
         .filter(|&&i| current.flag[i] == 66)
         .map(|&i| current.volume[i])
         .sum();
@@ -319,22 +333,23 @@ fn calculate_breakthrough_stats(
 
     // 列19-20: 相关性计算
     if breakthrough_indices.len() >= 2 {
-        let volumes: Vec<f64> = breakthrough_indices.iter()
+        let volumes: Vec<f64> = breakthrough_indices
+            .iter()
             .map(|&i| current.volume[i])
             .collect();
-        let flags: Vec<f64> = breakthrough_indices.iter()
+        let flags: Vec<f64> = breakthrough_indices
+            .iter()
             .map(|&i| if current.flag[i] == 66 { 1.0 } else { 0.0 })
             .collect();
-        let sequence: Vec<f64> = (1..=breakthrough_indices.len())
-            .map(|i| i as f64)
-            .collect();
+        let sequence: Vec<f64> = (1..=breakthrough_indices.len()).map(|i| i as f64).collect();
 
         stats[18] = pearson_correlation(&volumes, &sequence);
         stats[19] = pearson_correlation(&flags, &sequence);
     }
 
     // 列21-24: 秒数的统计量
-    let seconds: Vec<f64> = breakthrough_indices.iter()
+    let seconds: Vec<f64> = breakthrough_indices
+        .iter()
         .map(|&i| ((current.exchtime[i] % (60 * 1_000_000_000)) / 1_000_000_000) as f64)
         .collect();
 
@@ -398,9 +413,8 @@ fn std_dev(data: &[f64]) -> f64 {
     }
 
     let mean_val = mean(data);
-    let variance = data.iter()
-        .map(|x| (x - mean_val).powi(2))
-        .sum::<f64>() / (data.len() - 1) as f64;
+    let variance =
+        data.iter().map(|x| (x - mean_val).powi(2)).sum::<f64>() / (data.len() - 1) as f64;
 
     variance.sqrt()
 }
@@ -419,9 +433,11 @@ fn skewness(data: &[f64]) -> f64 {
     }
 
     let n = data.len() as f64;
-    let m3 = data.iter()
+    let m3 = data
+        .iter()
         .map(|x| ((x - mean_val) / std_val).powi(3))
-        .sum::<f64>() / n;
+        .sum::<f64>()
+        / n;
 
     m3
 }
@@ -440,9 +456,11 @@ fn kurtosis(data: &[f64]) -> f64 {
     }
 
     let n = data.len() as f64;
-    let m4 = data.iter()
+    let m4 = data
+        .iter()
         .map(|x| ((x - mean_val) / std_val).powi(4))
-        .sum::<f64>() / n;
+        .sum::<f64>()
+        / n;
 
-    m4 - 3.0  // 减去3得到超额峰度
+    m4 - 3.0 // 减去3得到超额峰度
 }
