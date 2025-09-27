@@ -226,6 +226,11 @@
     "params": []
   },
   {
+    "name": "compute_price_cycle_features",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
     "name": "corrwith",
     "description": "<p>计算两个DataFrame对应列或行之间的相关系数。</p>\n<p>这个函数是pandas的corrwith方法的Rust实现包装，用于计算两个DataFrame中对应列（或行）\n之间的皮尔逊相关系数。会自动处理两个DataFrame的列名（或行名）匹配情况。</p>",
     "params": [
