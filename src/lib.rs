@@ -11,6 +11,7 @@ pub mod order_neighborhood;
 pub mod order_records_ultra_sorted;
 pub mod pandas_ext;
 pub mod parallel_computing;
+pub mod price_cycle_features;
 pub mod sequence;
 pub mod statistics;
 pub mod text;
@@ -319,6 +320,10 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?)?;
     m.add_function(wrap_pyfunction!(
         lagged_regression_incremental::rolling_lagged_regression_ridge_incremental,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        price_cycle_features::compute_price_cycle_features,
         m
     )?)?;
     // m.add_function(wrap_pyfunction!(text::normalized_diff, m)?)?;

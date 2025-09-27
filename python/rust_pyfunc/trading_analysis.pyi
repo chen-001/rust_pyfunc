@@ -1215,5 +1215,198 @@ def compute_non_breakthrough_stats(
     >>> import pandas as pd
     >>> result_df = pd.DataFrame(result_matrix, columns=column_names)
     """
+
+def compute_price_cycle_features(
+    exchtime_trade: NDArray[np.int64],
+    price_trade: NDArray[np.float64],
+    volume_trade: NDArray[np.float64],
+    flag_trade: NDArray[np.int32],
+    ask_exchtime: NDArray[np.int64],
+    bid_exchtime: NDArray[np.int64],
+    bid_price: NDArray[np.float64],
+    bid_volume: NDArray[np.float64],
+    bid_number: NDArray[np.int32],
+    ask_price: NDArray[np.float64],
+    ask_volume: NDArray[np.float64],
+    ask_number: NDArray[np.int32],
+    tick: float,
+    drop_threshold: float,
+    rise_threshold: float,
+    window_ms: int,
+    above_min_ms: int,
+    use_trade_prices_as_grid: bool,
+    price_grid_opt: Optional[NDArray[np.float64]] = None
+) -> dict:
+    """高性能逐价位买卖周期识别与标量特征聚合。
+
+    该函数实现了一个复杂的买卖周期检测系统，识别价格水平的支撑和阻力位突破，
+    并计算多维度量化特征。支持买入支撑位突破和卖出阻力位突破两种模式。
+
+    算法原理：
+    ----------
+    1. **买入支撑位突破**（A→B→C→D）：
+       - A: 价格首次触及支撑位X
+       - B: 价格跌破支撑位X至少drop_threshold
+       - C: 价格重新回到支撑位X之上
+       - D: 盘口在X价位重新出现挂单（恢复完成）
+
+    2. **卖出阻力位突破**（A'→B'→C'→D'）：
+       - A': 价格首次触及阻力位Y
+       - B': 价格涨破阻力位Y至少rise_threshold
+       - C': 价格重新回到阻力位Y之下
+       - D': 盘口在Y价位重新出现挂单（恢复完成）
+
+    参数说明：
+    ----------
+    exchtime_trade : numpy.ndarray[int64]
+        逐笔成交时间戳（纳秒）
+    price_trade : numpy.ndarray[float64]
+        逐笔成交价格
+    volume_trade : numpy.ndarray[float64]
+        逐笔成交量
+    flag_trade : numpy.ndarray[int32]
+        逐笔成交标志（66=主买, 83=主卖）
+    ask_exchtime : numpy.ndarray[int64]
+        卖方盘口时间戳
+    bid_exchtime : numpy.ndarray[int64]
+        买方盘口时间戳
+    bid_price : numpy.ndarray[float64]
+        买方盘口价格
+    bid_volume : numpy.ndarray[float64]
+        买方盘口挂单量
+    bid_number : numpy.ndarray[int32]
+        买方盘口档位号（1-10）
+    ask_price : numpy.ndarray[float64]
+        卖方盘口价格
+    ask_volume : numpy.ndarray[float64]
+        卖方盘口挂单量
+    ask_number : numpy.ndarray[int32]
+        卖方盘口档位号（1-10）
+    tick : float
+        最小价格变动单位
+    drop_threshold : float
+        买入支撑位突破的下破阈值（绝对价差）
+    rise_threshold : float
+        卖出阻力位突破的上破阈值（绝对价差）
+    window_ms : int
+        统计分析窗口大小（毫秒），用于后续指标计算
+    above_min_ms : int
+        A/A'事件前"连续在价外"的最小时长（毫秒），用于过滤噪声
+    use_trade_prices_as_grid : bool
+        是否使用成交价作为价格网格，True时使用所有成交价格
+    price_grid_opt : Optional[numpy.ndarray[float64]]
+        可选的价格网格数组，优先级高于use_trade_prices_as_grid
+
+    返回值：
+    -------
+    dict
+        包含以下键的字典：
+        - "prices": 价格数组，分析的目标价格网格
+        - "feature_names": 特征名称列表，共77个特征
+        - "features": 特征矩阵（价格×特征）
+        - "cycles_count_buy": 买方周期计数数组，每个价格位的买入周期数量
+        - "cycles_count_sell": 卖方周期计数数组，每个价格位的卖出周期数量
+
+    特征体系（77个）：
+    -----------------
+    **买入特征（37个）**：
+    1. n_at_touch_buy: 触及时档位位置
+    2. visible_levels_bid_at_touch_buy: 买档可见数量
+    3. depth_x_init_buy: 初始深度
+    4. depth_x_max_buy: 最大深度
+    5. depth_x_min_buy: 最小深度
+    6. depth_x_twap_buy: 时间加权平均深度
+    7. depletion_total_x_buy: 总消耗量
+    8. traded_depletion_x_buy: 交易消耗量
+    9. cancel_depletion_x_buy: 撤单消耗量
+    10. depletion_trade_share_buy: 交易消耗占比
+    11. refill_depth_init_buy: 恢复初始深度
+    12. refill_speed_buy: 恢复速度
+    13. shield_depth_from_best_to_x_buy: 保护深度
+    14. exec_at_x_sell_buy: 卖出成交量
+    15. trade_size_median_at_x_sell_buy: 成交量中位数
+    16. consumption_speed_buy: 消耗速度
+    17. time_to_break_ms_buy: 突破时间
+    18. time_under_x_ms_buy: 低价持续时间
+    19. time_to_refill_ms_buy: 恢复时间
+    20. undershoot_bp_buy: 下冲幅度（基点）
+    21. overshoot_bp_buy: 上冲幅度（基点）
+    22. break_force_bp_per_s_buy: 突破力度
+    23. recovery_return_bp_1s_buy: 1秒恢复收益
+    24. tobi_pre_touch_buy: 触及时买卖失衡
+    25. tobi_trend_pre_buy: 事前趋势
+    26. spread_at_touch_buy: 触及时点差
+    27. spread_change_A_to_B_buy: 点差变化
+    28. quote_rev_rate_pre_buy: 报价修订率
+    29. rv_post_refill_buy: 恢复后已实现波动率
+    30. vpin_like_A_window_buy: VPIN类指标
+    31. adverse_post_fill_bp_buy: 成交后不利偏移
+    32. adverse_post_refill_bp_buy: 恢复后不利偏移
+    33. ofi_post_refill_buy: 恢复后订单流不平衡
+    34. support_survival_ms_buy: 支撑位生存时间
+    35. bounce_success_flag_buy: 反弹成功标志
+    36. next_interarrival_ms_buy: 下次到达间隔
+    37. queue_shape_slope_near_x_buy: 队列形状斜率
+
+    **卖出特征（37个）**：
+    1. n_at_touch_sell: 触及时档位位置
+    2. visible_levels_ask_at_touch_sell: 卖档可见数量
+    3. depth_y_init_sell: 初始深度
+    4. depth_y_max_sell: 最大深度
+    5. depth_y_min_sell: 最小深度
+    6. depth_y_twap_sell: 时间加权平均深度
+    7. depletion_total_y_sell: 总消耗量
+    8. traded_depletion_y_sell: 交易消耗量
+    9. cancel_depletion_y_sell: 撤单消耗量
+    10. depletion_trade_share_sell: 交易消耗占比
+    11. refill_depth_init_sell: 恢复初始深度
+    12. refill_speed_sell: 恢复速度
+    13. shield_depth_from_best_to_y_sell: 保护深度
+    14. exec_at_y_buy_sell: 买入成交量
+    15. trade_size_median_at_y_buy_sell: 成交量中位数
+    16. consumption_speed_sell: 消耗速度
+    17. time_to_break_ms_sell: 突破时间
+    18. time_above_y_ms_sell: 高价持续时间
+    19. time_to_refill_ms_sell: 恢复时间
+    20. overshoot_bp_sell: 上冲幅度（基点）
+    21. undershoot_bp_sell: 下冲幅度（基点）
+    22. break_force_bp_per_s_sell: 突破力度
+    23. recovery_return_bp_1s_sell: 1秒恢复收益
+    24. tobi_pre_touch_sell: 触及时买卖失衡
+    25. tobi_trend_pre_sell: 事前趋势
+    26. spread_at_touch_sell: 触及时点差
+    27. spread_change_A_to_B_sell: 点差变化
+    28. quote_rev_rate_pre_sell: 报价修订率
+    29. rv_post_refill_sell: 恢复后已实现波动率
+    30. vpin_like_A_window_sell: VPIN类指标
+    31. adverse_post_fill_bp_sell: 成交后不利偏移
+    32. adverse_post_refill_bp_sell: 恢复后不利偏移
+    33. ofi_post_refill_sell: 恢复后订单流不平衡
+    34. resistance_survival_ms_sell: 阻力位生存时间
+    35. bounce_success_flag_sell: 反弹成功标志
+    36. next_interarrival_ms_sell: 下次到达间隔
+    37. queue_shape_slope_near_y_sell: 队列形状斜率
+
+    **通用特征（3个）**：
+    1. cycles_count_buy: 买入周期数量
+    2. cycles_count_sell: 卖出周期数量
+    3. round_number_flag: 整数价格标记
+
+    性能特点：
+    ----------
+    1. **高效算法** - 使用二分查找和时间对齐算法，复杂度O(n log n)
+    2. **内存优化** - 预分配数据结构，避免动态内存分配
+    3. **并行计算** - 利用Rust的Rayon库进行并行处理
+    4. **精度控制** - 使用epsilon比较避免浮点误差
+    5. **容错处理** - 对缺失数据进行合理处理，保证数值稳定性
+    6. **批量处理** - 同时处理多个价格位，提高效率
+
+    使用场景：
+    ----------
+    - 支撑位和阻力位的有效性分析
+    - 高频交易中的流动性评估
+    - 市场微观结构研究
+    - 订单簿动力学特征提取
+    """
     ...
 
