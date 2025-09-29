@@ -1410,3 +1410,197 @@ def compute_price_cycle_features(
     """
     ...
 
+
+    ...
+
+def compute_price_cycle_features_b_segments_enhanced(
+    exchtime_trade: NDArray[np.int64],
+    price_trade: NDArray[np.float64],
+    volume_trade: NDArray[np.float64],
+    flag_trade: NDArray[np.int32],
+    ask_exchtime: NDArray[np.int64],
+    bid_exchtime: NDArray[np.int64],
+    bid_price: NDArray[np.float64],
+    bid_volume: NDArray[np.float64],
+    bid_number: NDArray[np.int32],
+    ask_price: NDArray[np.float64],
+    ask_volume: NDArray[np.float64],
+    ask_number: NDArray[np.int32],
+    tick: float,
+    drop_threshold: float,
+    rise_threshold: float,
+    use_trade_prices_as_grid: bool,
+    price_grid_opt: Optional[NDArray[np.float64]] = None,
+    side: Optional[str] = None
+) -> dict:
+    """增强版价格循环B段特征计算函数 - 终极统计合成版。
+
+    该函数是compute_price_cycle_features_b_segments的增强版本，提供完整的21个基础指标
+    和105个增强统计合成指标（每个基础指标5个合成指标），共210维特征（买侧105维+卖侧105维）。
+
+    核心目标：
+    ----------
+    分析订单簿中特定价格水平的支撑/阻力突破行为，通过识别价格循环中的"B点"（突破点）
+    并构建B段（B→B段），计算每个价格水平在买卖两侧的详细特征指标，并提供增强的统计合成指标。
+
+    数据划分逻辑：
+    --------------
+    1. **价格网格构建**：
+       - 可选择使用实际交易价格作为网格
+       - 或基于tick大小生成规则价格网格
+       - 支持自定义价格网格输入
+       - 精度控制：基于tick大小设置epsilon容差，用于价格比较
+
+    2. **B点识别机制**：
+       对每个价格水平，分别识别买卖两侧的突破点：
+       
+       **买侧B点（BuyBreak）**：
+       - 触发条件：价格从上方或等于水平位，向下突破至 price_level - drop_threshold
+       - 含义：支撑水平被突破，触发卖盘压力
+       
+       **卖侧B点（SellBreak）**：
+       - 触发条件：价格从下方或等于水平位，向上突破至 price_level + rise_threshold
+       - 含义：阻力水平被突破，触发买盘推动
+
+    3. **B段构建**：
+       - 定义：相邻两个同类型B点之间的时间段
+       - 买侧B段：BuyBreak→BuyBreak 序列
+       - 卖侧B段：SellBreak→SellBreak 序列
+       - 时间边界：使用B点发生的时间戳精确划分
+
+    特征指标计算清单：
+    ------------------
+    **基础统计特征（21个原始指标）**：
+    1. duration_ms：B段持续时间（毫秒）
+    2. total_volume：段内总成交量
+    3. trade_count：段内交易笔数
+    4. vwap：成交量加权平均价格
+    5. min_price：段内最低价格
+    6. max_price：段内最高价格
+    7. buy_ratio：买方向成交量占比
+    8. sell_ratio：卖方向成交量占比
+    9. start_spread：段开始时的买卖价差
+    10. spread_change：价差变化量
+    11. mid_return_bp：中间价收益率（基点）
+    12. start_distance_to_level：开始时中间价与目标水平的距离
+    13. end_distance_to_level：结束时中间价与目标水平的距离
+    14. avg_bid_depth/max_bid_depth/min_bid_depth（买侧）或 avg_ask_depth/max_ask_depth/min_ask_depth（卖侧）：目标价格水平的深度统计
+    15. vol_at_level：在目标价格水平的成交量
+    16. count_at_level：在目标价格水平上的交易笔数
+    17. time_between_ms：相邻B点时间间隔
+    18. trades_between：相邻B点间交易笔数
+    19. start_price：段开始时的交易价格
+    20. end_price：段结束时的交易价格
+    21. total_return_bp：段内总收益率（基点）
+
+    **增强统计合成指标（每个原始指标对应5个合成指标）**：
+    1. _mean：原始指标的算术平均值
+    2. _cv：变异系数（标准差/平均值），衡量相对离散程度
+    3. _max：原始指标的最大值
+    4. _corr_seq：与序列号[1,2,3,...,n]的皮尔逊相关系数，衡量时间趋势
+    5. _abs_corr_seq：绝对相关系数，衡量趋势强度
+    6. _autocorr：一阶自相关性，衡量序列的自相关程度
+
+    计算流程：
+    ----------
+    1. **数据预处理**：构建统一时间戳的订单簿快照序列
+    2. **价格循环分析**：对每个价格水平独立分析
+    3. **B点检测**：分别识别买卖两侧的突破事件
+    4. **B段构建**：连接相邻同类型B点形成分析段
+    5. **特征提取**：在每个B段内计算21维基础特征指标
+    6. **统计合成**：对每个价格水平的多个B段特征进行增强聚合，生成105维合成特征（21×5）
+    7. **结果对齐**：确保所有价格水平的特征矩阵维度一致，无数据的价格水平用NaN填充
+
+    参数说明：
+    ----------
+    exchtime_trade : numpy.ndarray[int64]
+        逐笔成交时间戳（纳秒）
+    price_trade : numpy.ndarray[float64]
+        逐笔成交价格
+    volume_trade : numpy.ndarray[float64]
+        逐笔成交量
+    flag_trade : numpy.ndarray[int32]
+        逐笔成交标志（66=主买, 83=主卖）
+    ask_exchtime : numpy.ndarray[int64]
+        卖方盘口时间戳
+    bid_exchtime : numpy.ndarray[int64]
+        买方盘口时间戳
+    bid_price : numpy.ndarray[float64]
+        买方盘口价格
+    bid_volume : numpy.ndarray[float64]
+        买方盘口挂单量
+    bid_number : numpy.ndarray[int32]
+        买方盘口档位号（1-10）
+    ask_price : numpy.ndarray[float64]
+        卖方盘口价格
+    ask_volume : numpy.ndarray[float64]
+        卖方盘口挂单量
+    ask_number : numpy.ndarray[int32]
+        卖方盘口档位号（1-10）
+    tick : float
+        最小价格变动单位
+    drop_threshold : float
+        买入支撑位突破的下破阈值（绝对价差）
+    rise_threshold : float
+        卖出阻力位突破的上破阈值（绝对价差）
+    use_trade_prices_as_grid : bool
+        是否使用成交价作为价格网格，True时使用所有成交价格
+    price_grid_opt : Optional[numpy.ndarray[float64]]
+        可选的价格网格数组，优先级高于use_trade_prices_as_grid
+    side : Optional[str], default=None
+        指定分析哪一侧："buy"（仅买入侧）、"sell"（仅卖出侧）、None（双侧，默认）
+
+    返回值：
+    -------
+    dict
+        包含以下键的字典：
+        - "prices": 价格数组，分析的目标价格网格
+        - "buy_features": 买入侧特征矩阵（价格×105个特征）
+        - "sell_features": 卖出侧特征矩阵（价格×105个特征）
+        - "buy_feature_names": 买入侧特征名称列表（105个特征，21×5种统计）
+        - "sell_feature_names": 卖出侧特征名称列表（105个特征，21×5种统计）
+        - "buy_segment_counts": 每个价格的买入侧B分段数量
+        - "sell_segment_counts": 每个价格的卖出侧B分段数量
+
+    最终特征数量：
+    --------------
+    - 基础指标：21个
+    - 统计合成方法：5种（mean, cv, max, corr_seq, abs_corr_seq, autocorr）
+    - 总特征数：21 × 5 = 105个特征/侧
+    - 双侧总计：210个特征（105买侧 + 105卖侧）
+
+    关键技术特点：
+    --------------
+    1. **增强聚合算法**：使用enhanced_aggregate_metrics函数，为每个原始指标计算5种统计量
+    2. **相关性分析**：计算与序列号的相关性，识别时间趋势
+    3. **自相关性分析**：计算一阶自相关性，衡量序列的自相关程度
+    4. **结果对齐保证**：确保输出矩阵维度一致，避免索引错位问题
+    5. **缺失值处理**：对无有效数据的价格水平自动填充NaN
+    6. **DataFrame兼容**：可以直接用于创建pandas DataFrame而不会报错
+
+    使用示例：
+    -------
+    >>> import pure_ocean_breeze.jason as p
+    >>> import rust_pyfunc as rp
+    >>> trade = p.adjust_afternoon(p.read_trade('000001', 20220819))
+    >>> asks, bids = p.read_market_pair('000001', 20220819)
+    >>> asks = p.adjust_afternoon(asks)
+    >>> bids = p.adjust_afternoon(bids)
+    >>> res = rp.compute_price_cycle_features_b_segments_enhanced(
+    ...     trade.exchtime.to_numpy(int), trade.price.to_numpy(float),
+    ...     trade.volume.to_numpy(float), trade.flag.to_numpy(np.int32),
+    ...     asks.exchtime.to_numpy(int), bids.exchtime.to_numpy(int),
+    ...     bids.price.to_numpy(float), bids.vol.to_numpy(float), bids.number.to_numpy(np.int32),
+    ...     asks.price.to_numpy(float), asks.vol.to_numpy(float), asks.number.to_numpy(np.int32),
+    ...     0.01, 0.01, 0.01, 15000, 100, True, None
+    ... )
+    >>> # 创建DataFrame进行分析
+    >>> import pandas as pd
+    >>> buy_df = pd.DataFrame(res['buy_features'], columns=res['buy_feature_names'], index=res['prices'])
+    >>> sell_df = pd.DataFrame(res['sell_features'], columns=res['sell_feature_names'], index=res['prices'])
+    >>> print(f"买侧特征矩阵形状: {res['buy_features'].shape}")
+    >>> print(f"卖侧特征矩阵形状: {res['sell_features'].shape}")
+    >>> print(f"分析的价格水平数量: {len(res['prices'])}")
+    """
+    ...
+

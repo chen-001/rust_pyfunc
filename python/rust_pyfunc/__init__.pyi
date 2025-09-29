@@ -110,6 +110,10 @@ __all__ = [
     "calculate_trade_time_gap_and_price_percentile_ultra_sorted",
     "calculate_order_time_gap_and_price_percentile_ultra_sorted",
     "analyze_asks",
+    "compute_non_breakthrough_stats",
+    "compute_price_cycle_features",
+    "compute_price_cycle_features_b_segments",
+    "compute_price_cycle_features_b_segments_enhanced",
     
     # 统计分析函数
     "calculate_base_entropy",
