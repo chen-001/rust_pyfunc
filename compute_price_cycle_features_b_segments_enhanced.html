@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>compute_price_cycle_features - Rust PyFunc API文档</title>
+    <title>compute_price_cycle_features_b_segments_enhanced - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
     <script src="static/search.js"></script>
 </head>
@@ -26,7 +26,7 @@
     </div>
     
     <div class="content">
-        <h1>compute_price_cycle_features</h1>
+        <h1>compute_price_cycle_features_b_segments_enhanced</h1>
         
         <div class="function-description">
             <h2>描述</h2>
@@ -35,7 +35,7 @@
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>compute_price_cycle_features(exchtime_trade, price_trade, volume_trade, flag_trade, ask_exchtime, bid_exchtime, bid_price, bid_volume, bid_number, ask_price, ask_volume, ask_number, tick, drop_threshold, rise_threshold, window_ms, above_min_ms, use_trade_prices_as_grid, price_grid_opt) -> None</code>
+            <code>compute_price_cycle_features_b_segments_enhanced(exchtime_trade, price_trade, volume_trade, flag_trade, ask_exchtime, bid_exchtime, bid_price, bid_volume, bid_number, ask_price, ask_volume, ask_number, tick, drop_threshold, rise_threshold, use_trade_prices_as_grid, price_grid_opt, side) -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -59,7 +59,7 @@
             <div class="example-usage-note">
                 <h3>Python使用示例</h3>
                 <pre><code>import numpy as np
-from rust_pyfunc import compute_price_cycle_features
+from rust_pyfunc import compute_price_cycle_features_b_segments_enhanced
 
 # 使用示例
 
