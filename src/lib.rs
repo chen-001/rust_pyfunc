@@ -11,7 +11,7 @@ pub mod order_neighborhood;
 pub mod order_records_ultra_sorted;
 pub mod pandas_ext;
 pub mod parallel_computing;
-pub mod price_cycle_features;
+pub mod price_cycle_b_segments_enhanced;
 pub mod sequence;
 pub mod statistics;
 pub mod text;
@@ -323,7 +323,7 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         m
     )?)?;
     m.add_function(wrap_pyfunction!(
-        price_cycle_features::compute_price_cycle_features,
+        price_cycle_b_segments_enhanced::compute_price_cycle_features_b_segments_enhanced,
         m
     )?)?;
     // m.add_function(wrap_pyfunction!(text::normalized_diff, m)?)?;
