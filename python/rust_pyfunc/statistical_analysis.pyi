@@ -3,6 +3,51 @@ from typing import List, Optional, Tuple, Union
 import numpy as np
 from numpy.typing import NDArray
 
+def column_correlation_fast(array1: NDArray[np.float64], array2: NDArray[np.float64]) -> NDArray[np.float64]:
+    """快速计算两个二维数组对应列的相关系数。
+
+    使用高度优化的算法计算两个n×n数组对应列之间的皮尔逊相关系数。
+    采用Welford's online算法确保数值稳定性，优化内存访问模式以提升性能。
+
+    参数说明：
+    ----------
+    array1 : numpy.ndarray
+        第一个输入数组，形状为(n, n)，dtype=float64
+    array2 : numpy.ndarray
+        第二个输入数组，形状为(n, n)，dtype=float64
+
+    返回值：
+    -------
+    numpy.ndarray
+        一维数组，形状为(n,)，包含每列的相关系数
+
+    性能：
+    ----
+    - 时间复杂度: O(n²)
+    - 空间复杂度: O(n)
+    - 当n=5000时，执行时间<0.5秒
+    """
+    ...
+
+def column_correlation_batch(array1: NDArray[np.float64], array2: NDArray[np.float64]) -> NDArray[np.float64]:
+    """批量计算多列相关系数的优化版本。
+
+    为了进一步提升性能，使用批量处理和更好的缓存局部性。
+
+    参数说明：
+    ----------
+    array1 : numpy.ndarray
+        第一个输入数组，形状为(n, n)，dtype=float64
+    array2 : numpy.ndarray
+        第二个输入数组，形状为(n, n)，dtype=float64
+
+    返回值：
+    -------
+    numpy.ndarray
+        一维数组，形状为(n,)，包含每列的相关系数
+    """
+    ...
+
 def calculate_base_entropy(exchtime: NDArray[np.float64], order: NDArray[np.int64], volume: NDArray[np.float64], index: int) -> float:
     """计算基准熵 - 基于到当前时间点为止的订单分布计算香农熵。
 

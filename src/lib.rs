@@ -2,6 +2,7 @@
 use pyo3::prelude::*;
 
 pub mod backup_reader;
+pub mod column_correlation;
 pub mod entropy_analysis;
 pub mod error;
 pub mod grouping;
@@ -331,6 +332,8 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         m
     )?)?;
     m.add_function(wrap_pyfunction!(vector_similarity_optimized::vector_similarity_matrices, m)?);
+    m.add_function(wrap_pyfunction!(column_correlation::column_correlation_fast, m)?);
+    m.add_function(wrap_pyfunction!(column_correlation::column_correlation_batch, m)?);
     // m.add_function(wrap_pyfunction!(text::normalized_diff, m)?)?;
     Ok(())
 }
