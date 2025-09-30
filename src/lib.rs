@@ -13,12 +13,15 @@ pub mod pandas_ext;
 pub mod parallel_computing;
 pub mod price_cycle_b_segments_enhanced;
 pub mod sequence;
+pub mod simple_parallel;
 pub mod statistics;
 pub mod text;
 pub mod time_series;
 pub mod trade_peak_analysis;
 pub mod trade_records_ultra_sorted;
 pub mod tree;
+pub mod vector_similarity;
+pub mod vector_similarity_optimized;
 
 pub mod factor_neutralization_io_optimized;
 
@@ -148,6 +151,7 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(grouping::factor_grouping, m)?)?;
     m.add_function(wrap_pyfunction!(grouping::factor_correlation_by_date, m)?)?;
     m.add_function(wrap_pyfunction!(parallel_computing::run_pools_queue, m)?)?;
+    m.add_function(wrap_pyfunction!(simple_parallel::run_pools_simple, m)?)?;
     m.add_function(wrap_pyfunction!(backup_reader::query_backup, m)?)?;
     m.add_function(wrap_pyfunction!(backup_reader::query_backup_fast, m)?)?;
     m.add_function(wrap_pyfunction!(
@@ -326,6 +330,7 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         price_cycle_b_segments_enhanced::compute_price_cycle_features_b_segments_enhanced,
         m
     )?)?;
+    m.add_function(wrap_pyfunction!(vector_similarity_optimized::vector_similarity_matrices, m)?);
     // m.add_function(wrap_pyfunction!(text::normalized_diff, m)?)?;
     Ok(())
 }
