@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>column_correlation_fast - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>column_correlation_fast</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>快速计算两个二维数组对应列的相关系数</p>
+<p>使用高度优化的算法计算两个n×n数组对应列之间的皮尔逊相关系数。
+采用Welford's online算法确保数值稳定性，优化内存访问模式以提升性能。</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>column_correlation_fast(array1, array2) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">array1</span>
+                    <span class="parameter-type">(numpy.ndarray)</span>
+                    <div><p>第一个输入数组，形状为(n, n)，dtype=float64</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">array2</span>
+                    <span class="parameter-type">(numpy.ndarray)</span>
+                    <div><p>第二个输入数组，形状为(n, n)，dtype=float64</p></div>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div><hr />
+<p>numpy.ndarray
+    一维数组，形状为(n,)，包含每列的相关系数</p>
+<h2>性能：</h2>
+<ul>
+<li>时间复杂度: O(n²)</li>
+<li>空间复杂度: O(n)</li>
+<li>当n=5000时，执行时间&lt;0.5秒</li>
+</ul>
+<p>Python调用示例：
+```python
+import numpy as np
+import rust_pyfunc</p>
+<h1>创建测试数据</h1>
+<p>n = 1000
+array1 = np.random.randn(n, n).astype(np.float64)
+array2 = np.random.randn(n, n).astype(np.float64)</p>
+<h1>计算列相关系数</h1>
+<p>correlations = rust_pyfunc.column_correlation_fast(array1, array2)</p>
+<p>print(f"计算得到 {len(correlations)} 个相关系数")
+print(f"前5个相关系数: {correlations[:5]}")
+```</p></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import column_correlation_fast
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>
