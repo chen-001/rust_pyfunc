@@ -492,6 +492,21 @@ s.rolling_past('2s').trend_time()  # 计算前面2秒内的趋势</p>
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="column_correlation_batch.html">column_correlation_batch</a></h3>
+                <div><p>批量计算多列相关系数的优化版本</p>
+<p>为了进一步提升性能，使用批量处理和更好的缓存局部性</p></div>
+                <a href="column_correlation_batch.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="column_correlation_fast.html">column_correlation_fast</a></h3>
+                <div><p>快速计算两个二维数组对应列的相关系数</p>
+<p>使用高度优化的算法计算两个n×n数组对应列之间的皮尔逊相关系数。
+采用Welford's online算法确保数值稳定性，优化内存访问模式以提升性能。</p></div>
+                <a href="column_correlation_fast.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="corrwith.html">corrwith</a></h3>
                 <div><p>计算两个DataFrame对应列或行之间的相关系数。</p>
 <p>这个函数是pandas的corrwith方法的Rust实现包装，用于计算两个DataFrame中对应列（或行）

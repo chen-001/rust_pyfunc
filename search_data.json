@@ -214,6 +214,19 @@
     ]
   },
   {
+    "name": "column_correlation_batch",
+    "description": "<p>批量计算多列相关系数的优化版本</p>\n<p>为了进一步提升性能，使用批量处理和更好的缓存局部性</p>",
+    "params": []
+  },
+  {
+    "name": "column_correlation_fast",
+    "description": "<p>快速计算两个二维数组对应列的相关系数</p>\n<p>使用高度优化的算法计算两个n×n数组对应列之间的皮尔逊相关系数。\n采用Welford's online算法确保数值稳定性，优化内存访问模式以提升性能。</p>",
+    "params": [
+      "array1",
+      "array2"
+    ]
+  },
+  {
     "name": "compute_max_eigenvalue",
     "description": "<p>计算二维方阵的最大特征值和对应的特征向量\n使用幂迭代法计算，不使用并行计算</p>",
     "params": [
