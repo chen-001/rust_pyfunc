@@ -1209,6 +1209,12 @@ print(f"加速比: {time1/time2:.2f}倍")
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="run_pools_simple.html">run_pools_simple</a></h3>
+                <div><p>极简版并行计算函数 - 只执行不返回</p></div>
+                <a href="run_pools_simple.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="segment_and_correlate.html">segment_and_correlate</a></h3>
                 <div><p>序列分段和相关系数计算函数</p>
 <p>输入两个等长的序列，根据大小关系进行分段，然后计算每段内的相关系数</p></div>
@@ -1337,6 +1343,18 @@ print(f"转移熵: {te}")
                 <div><p>这是trend函数的高性能版本，专门用于处理numpy.ndarray类型的float64数组。
 使用了显式的SIMD指令和缓存优化处理，比普通版本更快。</p></div>
                 <a href="trend_fast.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="vector_similarity_matrices.html">vector_similarity_matrices</a></h3>
+                <div><p>超级优化的向量相似度矩阵计算（零拷贝 + SIMD + 对称性）</p>
+<p>主要优化技术：
+- 零拷贝输入：使用PyReadonlyArray1避免Python到Rust的数据拷贝
+- SIMD向量化：使用AVX2指令集并行计算4个元素
+- 对称性优化：只计算上三角矩阵，减少一半计算量
+- 直接内存操作：直接写入numpy数组内存，避免中间分配
+- 缓存友好：优化内存访问模式，提高缓存命中率</p></div>
+                <a href="vector_similarity_matrices.html">查看详情</a>
             </div>
             
         </div>
