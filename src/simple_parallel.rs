@@ -1,7 +1,6 @@
 ///! 极简版并行计算模块
 ///!
 ///! 只负责并行执行Python函数，不收集结果，不备份数据
-
 use chrono::Local;
 use crossbeam::channel::{unbounded, Receiver, Sender};
 use pyo3::prelude::*;
@@ -202,7 +201,6 @@ fn run_simple_worker(
 
     // 处理所有任务
     while let Ok(task) = task_queue.recv() {
-
         let single_task = SingleTask {
             python_code: python_code.clone(),
             task,
@@ -250,11 +248,7 @@ fn run_simple_worker(
 /// 极简版并行计算函数 - 只执行不返回
 #[pyfunction]
 #[pyo3(signature = (python_function, args, n_jobs))]
-pub fn run_pools_simple(
-    python_function: PyObject,
-    args: &PyList,
-    n_jobs: usize,
-) -> PyResult<()> {
+pub fn run_pools_simple(python_function: PyObject, args: &PyList, n_jobs: usize) -> PyResult<()> {
     // 解析任务列表
     let mut all_tasks = Vec::new();
     for item in args.iter() {

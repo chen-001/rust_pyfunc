@@ -15,7 +15,8 @@ def run_pools_queue(
     return_results: Optional[bool] = None,
     task_timeout: Optional[int] = None,
     health_check_interval: Optional[int] = None,
-    debug_monitor: Optional[bool] = None
+    debug_monitor: Optional[bool] = None,
+    backup_batch_size: Optional[int] = None
 ) -> NDArray[np.float64]:
     """🚀 革命性持久化进程池 - 极致性能的并行计算函数（v2.1）
     
@@ -73,6 +74,10 @@ def run_pools_queue(
         是否开启监控器调试日志，默认为False
         当为True时，会输出详细的监控信息，包括worker状态、任务进度、卡死检测等
         有助于诊断并行计算中的问题
+    backup_batch_size : Optional[int], default=None
+        备份批处理大小，控制每多少个结果备份一次，默认为5000
+        设置为None使用默认值，必须大于0
+        较小的值会增加备份频率但可能降低性能，较大的值会提高性能但增加内存使用
         
     返回值：
     -------

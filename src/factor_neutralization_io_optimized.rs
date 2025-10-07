@@ -1,4 +1,4 @@
-use arrow::array::{Array, Float64Array, Int32Array, Int64Array, StringArray, LargeStringArray};
+use arrow::array::{Array, Float64Array, Int32Array, Int64Array, LargeStringArray, StringArray};
 use chrono::Local;
 use nalgebra::{DMatrix, DVector};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
@@ -253,7 +253,9 @@ impl IOOptimizedStyleData {
         let get_stock_value = |row_idx: usize| -> String {
             if let Some(string_array) = stock_column.as_any().downcast_ref::<StringArray>() {
                 string_array.value(row_idx).to_string()
-            } else if let Some(large_string_array) = stock_column.as_any().downcast_ref::<LargeStringArray>() {
+            } else if let Some(large_string_array) =
+                stock_column.as_any().downcast_ref::<LargeStringArray>()
+            {
                 large_string_array.value(row_idx).to_string()
             } else {
                 panic!("股票代码列类型错误：期望StringArray或LargeStringArray类型");

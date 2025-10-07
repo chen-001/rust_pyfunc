@@ -22,7 +22,10 @@ use std::arch::x86_64::*;
 /// * `PyResult<&PyArray2<f64>>` - 返回的差值矩阵
 #[pyfunction]
 #[pyo3(name = "difference_matrix")]
-pub fn difference_matrix<'a>(py: Python<'a>, data: PyReadonlyArray1<'a, f64>) -> PyResult<&'a PyArray2<f64>> {
+pub fn difference_matrix<'a>(
+    py: Python<'a>,
+    data: PyReadonlyArray1<'a, f64>,
+) -> PyResult<&'a PyArray2<f64>> {
     let input_array = data.as_slice()?;
     let n = input_array.len();
 
@@ -40,9 +43,7 @@ pub fn difference_matrix<'a>(py: Python<'a>, data: PyReadonlyArray1<'a, f64>) ->
 
     // 将结果转换为numpy数组
     let result_array = PyArray::from_vec(py, result);
-    let result_2d = unsafe {
-        result_array.reshape([n, n])?
-    };
+    let result_2d = unsafe { result_array.reshape([n, n])? };
 
     Ok(result_2d)
 }
@@ -144,7 +145,10 @@ fn difference_matrix_scalar(input_ptr: *const f64, result_ptr: *mut f64, n: usiz
 /// 使用分块计算策略提高缓存利用率，减少内存带宽瓶颈
 #[pyfunction]
 #[pyo3(name = "difference_matrix_memory_efficient")]
-pub fn difference_matrix_memory_efficient<'a>(py: Python<'a>, data: PyReadonlyArray1<'a, f64>) -> PyResult<&'a PyArray2<f64>> {
+pub fn difference_matrix_memory_efficient<'a>(
+    py: Python<'a>,
+    data: PyReadonlyArray1<'a, f64>,
+) -> PyResult<&'a PyArray2<f64>> {
     let input_array = data.as_slice()?;
     let n = input_array.len();
 
@@ -180,7 +184,12 @@ pub fn difference_matrix_memory_efficient<'a>(py: Python<'a>, data: PyReadonlyAr
                     let has_avx2 = is_x86_feature_detected!("avx2");
                     if has_avx2 && block_width >= 4 {
                         unsafe {
-                            compute_block_avx2(base_value, input_ptr.add(block_j), row_ptr, block_width);
+                            compute_block_avx2(
+                                base_value,
+                                input_ptr.add(block_j),
+                                row_ptr,
+                                block_width,
+                            );
                         }
                         continue;
                     }
@@ -196,7 +205,6 @@ pub fn difference_matrix_memory_efficient<'a>(py: Python<'a>, data: PyReadonlyAr
 
     Ok(result)
 }
-
 
 /// 使用AVX2计算一个数据块
 #[cfg(target_arch = "x86_64")]
@@ -229,7 +237,12 @@ fn compute_block_avx2(base_value: f64, input_ptr: *const f64, result_ptr: *mut f
 
 /// 使用标量计算一个数据块
 #[inline]
-fn compute_block_scalar(base_value: f64, input_ptr: *const f64, result_ptr: *mut f64, width: usize) {
+fn compute_block_scalar(
+    base_value: f64,
+    input_ptr: *const f64,
+    result_ptr: *mut f64,
+    width: usize,
+) {
     for j in 0..width {
         unsafe {
             let input_val = *input_ptr.add(j);
@@ -253,9 +266,9 @@ mod tests {
             // 验证结果
             let result_slice = result.as_slice().unwrap();
             let expected = vec![
-                0.0, -1.0, -2.0,  // 1.0 - [1.0, 2.0, 3.0]
-                1.0,  0.0, -1.0,  // 2.0 - [1.0, 2.0, 3.0]
-                2.0,  1.0,  0.0   // 3.0 - [1.0, 2.0, 3.0]
+                0.0, -1.0, -2.0, // 1.0 - [1.0, 2.0, 3.0]
+                1.0, 0.0, -1.0, // 2.0 - [1.0, 2.0, 3.0]
+                2.0, 1.0, 0.0, // 3.0 - [1.0, 2.0, 3.0]
             ];
 
             assert_eq!(result_slice, &expected);
