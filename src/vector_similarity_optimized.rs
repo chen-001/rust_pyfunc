@@ -1,5 +1,5 @@
-use pyo3::prelude::*;
 use numpy::{PyArray2, PyReadonlyArray1};
+use pyo3::prelude::*;
 use std::f64::EPSILON;
 
 /// 超级优化的向量相似度矩阵计算（零拷贝 + SIMD + 对称性）
@@ -26,9 +26,12 @@ pub fn vector_similarity_matrices(
 
     // 验证输入长度相等
     if arr2_view.len() != k || arr3_view.len() != k {
-        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-            format!("输入数组长度不相等: arr1={}, arr2={}, arr3={}", k, arr2_view.len(), arr3_view.len())
-        ));
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "输入数组长度不相等: arr1={}, arr2={}, arr3={}",
+            k,
+            arr2_view.len(),
+            arr3_view.len()
+        )));
     }
 
     // 预计算所有向量的模长
@@ -112,9 +115,12 @@ pub fn cosine_similarity_matrix(
 
     // 验证输入长度相等
     if arr2_view.len() != k || arr3_view.len() != k {
-        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-            format!("输入数组长度不相等: arr1={}, arr2={}, arr3={}", k, arr2_view.len(), arr3_view.len())
-        ));
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "输入数组长度不相等: arr1={}, arr2={}, arr3={}",
+            k,
+            arr2_view.len(),
+            arr3_view.len()
+        )));
     }
 
     // 预计算所有向量的模长

@@ -53,20 +53,19 @@ pub fn column_correlation_fast(
 
     // 验证输入形状
     if array1.shape() != array2.shape() {
-        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-            format!(
-                "输入数组形状必须相同，got {:?} and {:?}",
-                array1.shape(),
-                array2.shape()
-            ),
-        ));
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "输入数组形状必须相同，got {:?} and {:?}",
+            array1.shape(),
+            array2.shape()
+        )));
     }
 
     let shape = array1.shape();
     if shape.len() != 2 || shape[0] != shape[1] {
-        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-            format!("输入数组必须是n×n的二维数组，got shape {:?}", shape),
-        ));
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "输入数组必须是n×n的二维数组，got shape {:?}",
+            shape
+        )));
     }
 
     let n = shape[0];
@@ -100,9 +99,9 @@ fn compute_single_column_correlation(
     // Welford's online algorithm variables
     let mut mean1 = 0.0;
     let mut mean2 = 0.0;
-    let mut m2_1 = 0.0;  // sum of squared differences for array1
-    let mut m2_2 = 0.0;  // sum of squared differences for array2
-    let mut cov = 0.0;   // covariance accumulator
+    let mut m2_1 = 0.0; // sum of squared differences for array1
+    let mut m2_2 = 0.0; // sum of squared differences for array2
+    let mut cov = 0.0; // covariance accumulator
     let mut count = 0;
 
     // 单次遍历计算所有统计量
@@ -170,20 +169,19 @@ pub fn column_correlation_batch(
 
     // 验证输入形状（与前面相同）
     if array1.shape() != array2.shape() {
-        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-            format!(
-                "输入数组形状必须相同，got {:?} and {:?}",
-                array1.shape(),
-                array2.shape()
-            ),
-        ));
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "输入数组形状必须相同，got {:?} and {:?}",
+            array1.shape(),
+            array2.shape()
+        )));
     }
 
     let shape = array1.shape();
     if shape.len() != 2 || shape[0] != shape[1] {
-        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-            format!("输入数组必须是n×n的二维数组，got shape {:?}", shape),
-        ));
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "输入数组必须是n×n的二维数组，got shape {:?}",
+            shape
+        )));
     }
 
     let n = shape[0];
@@ -240,13 +238,18 @@ mod tests {
             let pyarray1 = PyArray2::from_owned_array(py, array1);
             let pyarray2 = PyArray2::from_owned_array(py, array2);
 
-            let result = column_correlation_fast(py, pyarray1.readonly(), pyarray2.readonly()).unwrap();
+            let result =
+                column_correlation_fast(py, pyarray1.readonly(), pyarray2.readonly()).unwrap();
             let result_array = result.as_array(py);
 
             // 验证所有相关系数都接近1.0
             for i in 0..n {
-                assert!((result_array[i] - 1.0).abs() < 1e-10,
-                       "Column {} correlation should be ~1.0, got {}", i, result_array[i]);
+                assert!(
+                    (result_array[i] - 1.0).abs() < 1e-10,
+                    "Column {} correlation should be ~1.0, got {}",
+                    i,
+                    result_array[i]
+                );
             }
         });
     }
@@ -274,13 +277,18 @@ mod tests {
             let pyarray1 = PyArray2::from_owned_array(py, array1);
             let pyarray2 = PyArray2::from_owned_array(py, array2);
 
-            let result = column_correlation_fast(py, pyarray1.readonly(), pyarray2.readonly()).unwrap();
+            let result =
+                column_correlation_fast(py, pyarray1.readonly(), pyarray2.readonly()).unwrap();
             let result_array = result.as_array(py);
 
             // 验证所有相关系数都接近-1.0
             for i in 0..n {
-                assert!((result_array[i] + 1.0).abs() < 1e-10,
-                       "Column {} correlation should be ~-1.0, got {}", i, result_array[i]);
+                assert!(
+                    (result_array[i] + 1.0).abs() < 1e-10,
+                    "Column {} correlation should be ~-1.0, got {}",
+                    i,
+                    result_array[i]
+                );
             }
         });
     }

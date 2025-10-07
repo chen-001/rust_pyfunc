@@ -1,9 +1,9 @@
-use std::cmp::Ordering;
-use std::cmp::min;
 use ndarray::Array2;
 use numpy::{IntoPyArray, PyArray1, PyArray2};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
+use std::cmp::min;
+use std::cmp::Ordering;
 
 const LEVEL_CAP: usize = 10;
 
@@ -25,15 +25,23 @@ impl Snapshot {
     fn new(timestamp: i64, mut bids: Vec<BookLevel>, mut asks: Vec<BookLevel>) -> Self {
         bids.sort_by_key(|lvl| lvl.level);
         asks.sort_by_key(|lvl| lvl.level);
-        Self { timestamp, bids, asks }
+        Self {
+            timestamp,
+            bids,
+            asks,
+        }
     }
 
     fn find_bid_by_price(&self, price: f64, eps: f64) -> Option<&BookLevel> {
-        self.bids.iter().find(|lvl| (lvl.price - price).abs() <= eps)
+        self.bids
+            .iter()
+            .find(|lvl| (lvl.price - price).abs() <= eps)
     }
 
     fn find_ask_by_price(&self, price: f64, eps: f64) -> Option<&BookLevel> {
-        self.asks.iter().find(|lvl| (lvl.price - price).abs() <= eps)
+        self.asks
+            .iter()
+            .find(|lvl| (lvl.price - price).abs() <= eps)
     }
 
     fn best_bid(&self) -> Option<&BookLevel> {
@@ -61,8 +69,8 @@ impl Snapshot {
 
 #[derive(Clone, Debug, PartialEq)]
 enum BType {
-    BuyBreak,    // Price breaks below support level (buy side)
-    SellBreak,   // Price breaks above resistance level (sell side)
+    BuyBreak,  // Price breaks below support level (buy side)
+    SellBreak, // Price breaks above resistance level (sell side)
 }
 
 #[derive(Clone, Debug)]
@@ -90,7 +98,7 @@ struct PriceLevelResult {
     sell_segments: Vec<BSegment>,
     buy_segment_count: usize,
     sell_segment_count: usize,
-    buy_metrics: Option<Vec<f64>>,  // Enhanced metrics for buy side (105 dimensions)
+    buy_metrics: Option<Vec<f64>>, // Enhanced metrics for buy side (105 dimensions)
     sell_metrics: Option<Vec<f64>>, // Enhanced metrics for sell side (105 dimensions)
 }
 
@@ -163,12 +171,10 @@ fn detect_b_points_by_side(
     (buy_b_points, sell_b_points)
 }
 
-fn build_segments_for_side(
-    b_points: &[BTimingPoint],
-    side: BType,
-) -> Vec<BSegment> {
+fn build_segments_for_side(b_points: &[BTimingPoint], side: BType) -> Vec<BSegment> {
     // Filter points for this specific side
-    let side_points: Vec<&BTimingPoint> = b_points.iter()
+    let side_points: Vec<&BTimingPoint> = b_points
+        .iter()
         .filter(|point| point.b_type == side)
         .collect();
 
@@ -331,9 +337,8 @@ fn compute_segment_metrics(
         // Side-specific features
         if is_buy_side {
             // Buy side features: look at bid depth and behavior
-            let (avg_depth, max_depth, min_depth) = compute_bid_depth_stats(
-                snapshots, start_time, end_time, price_level, eps
-            );
+            let (avg_depth, max_depth, min_depth) =
+                compute_bid_depth_stats(snapshots, start_time, end_time, price_level, eps);
             // 14. avg_bid_depth: 平均买深度
             metrics.add(avg_depth);
             // 15. max_bid_depth: 最大买深度
@@ -342,9 +347,8 @@ fn compute_segment_metrics(
             metrics.add(min_depth);
         } else {
             // Sell side features: look at ask depth and behavior
-            let (avg_depth, max_depth, min_depth) = compute_ask_depth_stats(
-                snapshots, start_time, end_time, price_level, eps
-            );
+            let (avg_depth, max_depth, min_depth) =
+                compute_ask_depth_stats(snapshots, start_time, end_time, price_level, eps);
             // 14. avg_ask_depth: 平均卖深度
             metrics.add(avg_depth);
             // 15. max_ask_depth: 最大卖深度
@@ -355,8 +359,15 @@ fn compute_segment_metrics(
 
         // Trade activity at the level
         let (vol_at_level, count_at_level) = compute_trade_at_level(
-            start_idx, end_idx, trades_price, trades_volume, trades_time,
-            start_time, end_time, price_level, eps
+            start_idx,
+            end_idx,
+            trades_price,
+            trades_volume,
+            trades_time,
+            start_time,
+            end_time,
+            price_level,
+            eps,
         );
         // 17. vol_at_level: 在目标价格水平的成交量
         metrics.add(vol_at_level);
@@ -404,7 +415,9 @@ fn compute_bid_depth_stats(
     eps: f64,
 ) -> (f64, f64, f64) {
     let start_idx = asof_snapshot_index(snapshots, start_time).unwrap_or(0);
-    let end_idx = snapshots.len().min(asof_snapshot_index(snapshots, end_time).unwrap_or(snapshots.len()) + 1);
+    let end_idx = snapshots
+        .len()
+        .min(asof_snapshot_index(snapshots, end_time).unwrap_or(snapshots.len()) + 1);
 
     let mut depths = Vec::new();
 
@@ -426,7 +439,9 @@ fn compute_bid_depth_stats(
 
     let avg: f64 = depths.iter().sum::<f64>() / depths.len() as f64;
     let max = *depths.iter().fold(&0.0, |a, b| if a > b { a } else { b });
-    let min = *depths.iter().fold(&f64::INFINITY, |a, b| if a < b { a } else { b });
+    let min = *depths
+        .iter()
+        .fold(&f64::INFINITY, |a, b| if a < b { a } else { b });
 
     (avg, max, min)
 }
@@ -439,7 +454,9 @@ fn compute_ask_depth_stats(
     eps: f64,
 ) -> (f64, f64, f64) {
     let start_idx = asof_snapshot_index(snapshots, start_time).unwrap_or(0);
-    let end_idx = snapshots.len().min(asof_snapshot_index(snapshots, end_time).unwrap_or(snapshots.len()) + 1);
+    let end_idx = snapshots
+        .len()
+        .min(asof_snapshot_index(snapshots, end_time).unwrap_or(snapshots.len()) + 1);
 
     let mut depths = Vec::new();
 
@@ -461,7 +478,9 @@ fn compute_ask_depth_stats(
 
     let avg: f64 = depths.iter().sum::<f64>() / depths.len() as f64;
     let max = *depths.iter().fold(&0.0, |a, b| if a > b { a } else { b });
-    let min = *depths.iter().fold(&f64::INFINITY, |a, b| if a < b { a } else { b });
+    let min = *depths
+        .iter()
+        .fold(&f64::INFINITY, |a, b| if a < b { a } else { b });
 
     (avg, max, min)
 }
@@ -567,10 +586,7 @@ fn build_snapshots(
     snapshots
 }
 
-fn build_price_grid(
-    trades: &[f64],
-    tick: f64,
-) -> Vec<f64> {
+fn build_price_grid(trades: &[f64], tick: f64) -> Vec<f64> {
     let mut prices: Vec<f64> = trades.iter().copied().collect();
 
     if tick > 0.0 {
@@ -702,15 +718,20 @@ fn enhanced_aggregate_metrics(metrics_list: &[SegmentMetrics]) -> Option<Vec<f64
         all_results.push(mean);
 
         // 计算标准差和变异系数 (std/mean)
-        let variance: f64 = values.iter()
-            .map(|&x| (x - mean).powi(2))
-            .sum::<f64>() / (values.len() - 1) as f64;
+        let variance: f64 =
+            values.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / (values.len() - 1) as f64;
         let std = variance.sqrt();
-        let cv = if mean.abs() > 1e-10 { std / mean } else { f64::NAN };
+        let cv = if mean.abs() > 1e-10 {
+            std / mean
+        } else {
+            f64::NAN
+        };
         all_results.push(cv);
 
         // 计算最大值
-        let max_val = *values.iter().fold(&values[0], |a, b| if a > b { a } else { b });
+        let max_val = *values
+            .iter()
+            .fold(&values[0], |a, b| if a > b { a } else { b });
         all_results.push(max_val);
 
         // 计算与序列号 [1, 2, 3, ..., n] 的相关系数
@@ -806,7 +827,9 @@ pub fn compute_price_cycle_features_b_segments_enhanced(
     } else {
         // Use a reasonable range of prices around the trading range
         let min_price = trades_price.iter().fold(f64::INFINITY, |a, &b| a.min(b));
-        let max_price = trades_price.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
+        let max_price = trades_price
+            .iter()
+            .fold(f64::NEG_INFINITY, |a, &b| a.max(b));
         let mut prices = vec![];
         let mut current = (min_price / tick).floor() * tick;
         while current <= max_price {
@@ -836,7 +859,12 @@ pub fn compute_price_cycle_features_b_segments_enhanced(
 
     for (idx, &price) in price_grid.iter().enumerate() {
         let (buy_b_points, sell_b_points) = detect_b_points_by_side(
-            price, trades_time, trades_price, drop_threshold, rise_threshold, eps
+            price,
+            trades_time,
+            trades_price,
+            drop_threshold,
+            rise_threshold,
+            eps,
         );
 
         let buy_segments = build_segments_for_side(&buy_b_points, BType::BuyBreak);
@@ -847,8 +875,15 @@ pub fn compute_price_cycle_features_b_segments_enhanced(
         // Compute metrics based on side filter
         let buy_metrics = if side_filter != Some(false) && !buy_segments.is_empty() {
             compute_segment_metrics(
-                &buy_segments, trades_time, trades_price, trades_volume, trades_flag,
-                relevant_snapshots, price, true, eps
+                &buy_segments,
+                trades_time,
+                trades_price,
+                trades_volume,
+                trades_flag,
+                relevant_snapshots,
+                price,
+                true,
+                eps,
             )
         } else {
             Vec::new()
@@ -856,8 +891,15 @@ pub fn compute_price_cycle_features_b_segments_enhanced(
 
         let sell_metrics = if side_filter != Some(true) && !sell_segments.is_empty() {
             compute_segment_metrics(
-                &sell_segments, trades_time, trades_price, trades_volume, trades_flag,
-                relevant_snapshots, price, false, eps
+                &sell_segments,
+                trades_time,
+                trades_price,
+                trades_volume,
+                trades_flag,
+                relevant_snapshots,
+                price,
+                false,
+                eps,
             )
         } else {
             Vec::new()
@@ -977,7 +1019,7 @@ pub fn compute_price_cycle_features_b_segments_enhanced(
 fn generate_enhanced_feature_names(is_buy_side: bool) -> Vec<String> {
     let base_metrics = vec![
         "duration_ms",
-        "total_volume", 
+        "total_volume",
         "trade_count",
         "vwap",
         "min_price",
@@ -989,9 +1031,21 @@ fn generate_enhanced_feature_names(is_buy_side: bool) -> Vec<String> {
         "mid_return_bp",
         "start_distance_to_level",
         "end_distance_to_level",
-        if is_buy_side { "avg_bid_depth" } else { "avg_ask_depth" },
-        if is_buy_side { "max_bid_depth" } else { "max_ask_depth" },
-        if is_buy_side { "min_bid_depth" } else { "min_ask_depth" },
+        if is_buy_side {
+            "avg_bid_depth"
+        } else {
+            "avg_ask_depth"
+        },
+        if is_buy_side {
+            "max_bid_depth"
+        } else {
+            "max_ask_depth"
+        },
+        if is_buy_side {
+            "min_bid_depth"
+        } else {
+            "min_ask_depth"
+        },
         "vol_at_level",
         "count_at_level",
         "time_between_ms",
@@ -1002,7 +1056,7 @@ fn generate_enhanced_feature_names(is_buy_side: bool) -> Vec<String> {
     ];
 
     let mut enhanced_names = Vec::new();
-    
+
     // 为每个基础指标生成5个增强指标
     for base_metric in base_metrics {
         enhanced_names.push(format!("{}_mean", base_metric));

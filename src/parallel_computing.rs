@@ -69,6 +69,56 @@ fn terminate_process(pid: u32, graceful_timeout: Duration) {
     reap_process(pid);
 }
 
+#[cfg(target_family = "unix")]
+fn ensure_fd_limit(desired: u64) {
+    use libc::{getrlimit, rlim_t, setrlimit, RLIMIT_NOFILE, RLIM_INFINITY};
+
+    unsafe {
+        let mut current = libc::rlimit {
+            rlim_cur: 0 as rlim_t,
+            rlim_max: 0 as rlim_t,
+        };
+
+        if getrlimit(RLIMIT_NOFILE, &mut current) != 0 {
+            eprintln!(
+                "⚠️ 无法获取RLIMIT_NOFILE: {}",
+                std::io::Error::last_os_error()
+            );
+            return;
+        }
+
+        let max_available = if current.rlim_max == RLIM_INFINITY {
+            desired as rlim_t
+        } else {
+            std::cmp::min(current.rlim_max, desired as rlim_t)
+        };
+
+        if max_available <= current.rlim_cur {
+            return;
+        }
+
+        let new_limit = libc::rlimit {
+            rlim_cur: max_available,
+            rlim_max: current.rlim_max,
+        };
+
+        if setrlimit(RLIMIT_NOFILE, &new_limit) != 0 {
+            eprintln!(
+                "⚠️ 提升RLIMIT_NOFILE失败: {}",
+                std::io::Error::last_os_error()
+            );
+        } else {
+            println!(
+                "🔧 将RLIMIT_NOFILE从{}提升到{}",
+                current.rlim_cur, max_available
+            );
+        }
+    }
+}
+
+#[cfg(not(target_family = "unix"))]
+fn ensure_fd_limit(_desired: u64) {}
+
 // 通用结果结构体，用于反序列化单个任务结果
 #[derive(Debug, Serialize, Deserialize)]
 struct SingleResult {
@@ -1338,6 +1388,9 @@ pub fn run_pools_queue(
 
     let task_timeout_duration = Duration::from_secs(task_timeout_secs);
     let health_check_duration = Duration::from_secs(health_check_interval_secs);
+
+    let desired_fd_limit = std::cmp::max(65_536_u64, (n_jobs as u64).saturating_mul(16));
+    ensure_fd_limit(desired_fd_limit);
 
     if debug_monitor_enabled {
         println!(
