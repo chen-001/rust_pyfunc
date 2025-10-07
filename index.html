@@ -515,6 +515,19 @@ s.rolling_past('2s').trend_time()  # 计算前面2秒内的趋势</p>
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="cosine_similarity_matrix.html">cosine_similarity_matrix</a></h3>
+                <div><p>精简版余弦相似度矩阵计算（只返回余弦相似度矩阵）</p>
+<p>主要优化技术：
+- 零拷贝输入：使用PyReadonlyArray1避免Python到Rust的数据拷贝
+- SIMD向量化：使用AVX2指令集并行计算4个元素
+- 对称性优化：只计算上三角矩阵，减少一半计算量
+- 直接内存操作：直接写入numpy数组内存，避免中间分配
+- 缓存友好：优化内存访问模式，提高缓存命中率
+- 内存优化：只返回一个矩阵，减少50%内存使用</p></div>
+                <a href="cosine_similarity_matrix.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="dataframe_corrwith.html">dataframe_corrwith</a></h3>
                 <div><p>计算两个数据框对应列的相关系数。</p>
 <p>这个函数类似于pandas中的df.corrwith(df1)，计算两个数据框中对应列之间的皮尔逊相关系数。
@@ -531,6 +544,33 @@ s.rolling_past('2s').trend_time()  # 计算前面2秒内的趋势</p>
 <p>这个函数是 dataframe_corrwith 的单线程版本，在处理小规模数据或内存受限环境时提供更好的性能。
 计算两个数据框中对应列之间的皮尔逊相关系数，不使用多线程并行处理。</p></div>
                 <a href="dataframe_corrwith_single_thread.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="difference_matrix.html">difference_matrix</a></h3>
+                <div><p>高性能计算差值矩阵 (SIMD优化版本)</p>
+<p>输入一个一维数组，返回一个二维数组，其中第i行第j列的元素是输入数组第i个元素和第j个元素的差值</p>
+<p>优化策略:
+1. 使用AVX2 SIMD指令集加速向量化计算 (一次处理4个f64)
+2. 优化内存访问模式提升缓存命中率
+3. 循环展开减少分支预测失败
+4. 内存预分配减少动态分配开销</p>
+<h1>Arguments</h1>
+<ul>
+<li><code>data</code> - 输入的一维数组 (numpy array)</li>
+</ul>
+<h1>Returns</h1>
+<ul>
+<li><code>PyResult&lt;&amp;PyArray2&lt;f64&gt;&gt;</code> - 返回的差值矩阵</li>
+</ul></div>
+                <a href="difference_matrix.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="difference_matrix_memory_efficient.html">difference_matrix_memory_efficient</a></h3>
+                <div><p>内存高效版本的差值矩阵计算 (针对超大矩阵优化)</p>
+<p>使用分块计算策略提高缓存利用率，减少内存带宽瓶颈</p></div>
+                <a href="difference_matrix_memory_efficient.html">查看详情</a>
             </div>
             
             <div class="function-item">
