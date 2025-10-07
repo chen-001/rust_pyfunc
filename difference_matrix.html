@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>difference_matrix - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>difference_matrix</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>高性能计算差值矩阵 (SIMD优化版本)</p>
+<p>输入一个一维数组，返回一个二维数组，其中第i行第j列的元素是输入数组第i个元素和第j个元素的差值</p>
+<p>优化策略:
+1. 使用AVX2 SIMD指令集加速向量化计算 (一次处理4个f64)
+2. 优化内存访问模式提升缓存命中率
+3. 循环展开减少分支预测失败
+4. 内存预分配减少动态分配开销</p>
+<h1>Arguments</h1>
+<ul>
+<li><code>data</code> - 输入的一维数组 (numpy array)</li>
+</ul>
+<h1>Returns</h1>
+<ul>
+<li><code>PyResult&lt;&amp;PyArray2&lt;f64&gt;&gt;</code> - 返回的差值矩阵</li>
+</ul></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>difference_matrix(data) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                <p>此函数没有参数</p>
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import difference_matrix
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

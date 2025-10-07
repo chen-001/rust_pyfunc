@@ -254,6 +254,11 @@
     ]
   },
   {
+    "name": "cosine_similarity_matrix",
+    "description": "<p>精简版余弦相似度矩阵计算（只返回余弦相似度矩阵）</p>\n<p>主要优化技术：\n- 零拷贝输入：使用PyReadonlyArray1避免Python到Rust的数据拷贝\n- SIMD向量化：使用AVX2指令集并行计算4个元素\n- 对称性优化：只计算上三角矩阵，减少一半计算量\n- 直接内存操作：直接写入numpy数组内存，避免中间分配\n- 缓存友好：优化内存访问模式，提高缓存命中率\n- 内存优化：只返回一个矩阵，减少50%内存使用</p>",
+    "params": []
+  },
+  {
     "name": "dataframe_corrwith",
     "description": "<p>计算两个数据框对应列的相关系数。</p>\n<p>这个函数类似于pandas中的df.corrwith(df1)，计算两个数据框中对应列之间的皮尔逊相关系数。\n相关系数范围为[-1, 1]，其中：\n- 1表示完全正相关\n- -1表示完全负相关\n- 0表示无相关性</p>",
     "params": [
@@ -271,6 +276,16 @@
       "axis",
       "drop_na"
     ]
+  },
+  {
+    "name": "difference_matrix",
+    "description": "<p>高性能计算差值矩阵 (SIMD优化版本)</p>\n<p>输入一个一维数组，返回一个二维数组，其中第i行第j列的元素是输入数组第i个元素和第j个元素的差值</p>\n<p>优化策略:\n1. 使用AVX2 SIMD指令集加速向量化计算 (一次处理4个f64)\n2. 优化内存访问模式提升缓存命中率\n3. 循环展开减少分支预测失败\n4. 内存预分配减少动态分配开销</p>\n<h1>Arguments</h1>\n<ul>\n<li><code>data</code> - 输入的一维数组 (numpy array)</li>\n</ul>\n<h1>Returns</h1>\n<ul>\n<li><code>PyResult&lt;&amp;PyArray2&lt;f64&gt;&gt;</code> - 返回的差值矩阵</li>\n</ul>",
+    "params": []
+  },
+  {
+    "name": "difference_matrix_memory_efficient",
+    "description": "<p>内存高效版本的差值矩阵计算 (针对超大矩阵优化)</p>\n<p>使用分块计算策略提高缓存利用率，减少内存带宽瓶颈</p>",
+    "params": []
   },
   {
     "name": "dtw_distance",
