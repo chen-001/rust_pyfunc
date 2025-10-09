@@ -20,36 +20,17 @@ A high-performance Python library implementing computationally intensive algorit
 ### Build and Development
 
 - 增加新函数后，要在对应的*.pyi中添加函数声明
-- 使用./alter.sh 2>&1来构建项目并查看成功或报错信息
+- 使用timeout 600s ./alter.sh 2>&1来构建项目并查看成功或报错信息
 
 ### Testing
 
 - 生成测试文件时，不要直接生成在rust_pyfunc文件夹下，而是存储在tests文件夹中。
 - 在编写了rust新函数后，请使用python代码实现同样的功能，并比较二者的是否一致，以及速度差异如何。
 
-### Documentation
-```bash
-# Generate API documentation (requires jinja2, markdown, numpy, pandas, graphviz, IPython)
-python docs_generator.py
-```
-
-## Architecture
-
-### Core Structure
-- **`src/lib.rs`** - Main PyO3 module definition with all function exports
-- **`src/`** - Rust implementation modules:
-  - `time_series/` - DTW, trend analysis, peak detection, rolling calculations
-  - `statistics/` - OLS regression, rolling statistics, eigenvalue calculations
-  - `sequence/` - Segment identification, range analysis, entropy calculations
-  - `text/` - Text similarity and vectorization functions
-  - `tree/` - Price tree data structure for hierarchical analysis
-  - `pandas_ext/` - Pandas integration utilities
-  - `error/` - Custom error handling
 
 ### Python Integration
 - **`python/rust_pyfunc/__init__.py`** - Python package entry point
 - **`python/rust_pyfunc/*.py`** - Additional Python utilities and pandas extensions
-- **`python/rust_pyfunc/rust_pyfunc.pyi`** - Type stubs for IDE support
 
 ### Key Dependencies
 - **PyO3** - Rust-Python bindings
@@ -97,31 +78,6 @@ opt-level = 3
 ## Stock Data Context
 The project includes utilities for working with Chinese stock market data through the `design_whatever` library, supporting L2 tick data, market snapshots, and minute-level aggregations.
 
-
-### 数据结构说明
-
-**Trade Data字段**：
-- exchtime: 交易时间
-- price: 成交价格
-- volume: 成交量 
-- turnover: 成交金额
-- flag: 交易标志 (66=主买, 83=主卖, 32=撤单)
-- ask_order/bid_order: 订单编号
-
-**Market Data字段**：
-- 基础信息: symbol, exchtime, last_prc, prev_close, open, high, low
-- 限价信息: high_limited, low_limited  
-- 成交统计: volume, turnover, num_trades
-- 十档行情: ask_prc1-10, ask_vol1-10, bid_prc1-10, bid_vol1-10
-- 加权价格: weighted_ask_prc, weighted_bid_prc
-
-### 使用注意事项
-- 日期格式统一使用8位整数：YYYYMMDD (如 20220819)
-- symbols参数为股票代码列表，如 ['000001', '600000']
-- 所有时间字段均为datetime64[ns]格式，便于pandas时间序列分析
-- 分钟数据返回格式：index为时间，columns为股票代码
-```
-
 ## 代码开发指南
 
 ### 代码组织原则
@@ -132,6 +88,6 @@ The project includes utilities for working with Chinese stock market data throug
 
 ### 代码命名规范
 - **写新函数时，函数名字要具体，可以简单概括函数的核心计算内容与逻辑**
-- 使用./alter.sh 2>&1构建项目时,将timeout限制设置为10分钟.
+- 使用timeout 600s ./alter.sh 2>&1构建项目时,将timeout限制设置为10分钟.
 - 优化函数性能时,不要使用并行,除非在提示词中明确指出使用并行.
 - 在写了新函数或优化了函数后,请在回答中直接告知我新函数或优化函数的名字是什么,以及给出一个最简单的调用示例.
