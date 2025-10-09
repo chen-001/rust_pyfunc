@@ -12,6 +12,42 @@ use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1};
 use std::f64::consts::E;
 use std::collections::HashMap;
 
+/// 全局欧几里得距离函数（带优化）
+fn euclidean_distance(a: &[f64], b: &[f64]) -> f64 {
+    if a.len() != b.len() {
+        return f64::INFINITY;
+    }
+
+    // 对于长向量，使用分块计算提高缓存效率
+    const CHUNK_SIZE: usize = 64;
+    let mut sum_squares = 0.0;
+
+    if a.len() > CHUNK_SIZE {
+        // 分块计算大向量
+        for (chunk_a, chunk_b) in a.chunks(CHUNK_SIZE).zip(b.chunks(CHUNK_SIZE)) {
+            let chunk_sum: f64 = chunk_a.iter()
+                .zip(chunk_b.iter())
+                .map(|(x, y)| {
+                    let diff = x - y;
+                    diff * diff
+                })
+                .sum();
+            sum_squares += chunk_sum;
+        }
+    } else {
+        // 小向量直接计算
+        sum_squares = a.iter()
+            .zip(b.iter())
+            .map(|(x, y)| {
+                let diff = x - y;
+                diff * diff
+            })
+            .sum();
+    }
+
+    sum_squares.sqrt()
+}
+
 /// GP 相关维数计算选项（所有参数均有确定默认值）
 #[derive(Debug, Clone)]
 #[pyclass]
@@ -323,14 +359,6 @@ mod fnn {
         Ok(embedding)
     }
 
-    /// 计算欧几里得距离
-    fn euclidean_distance(a: &[f64], b: &[f64]) -> f64 {
-        a.iter().zip(b.iter())
-            .map(|(x, y)| (x - y).powi(2))
-            .sum::<f64>()
-            .sqrt()
-    }
-
     /// 使用简单搜索找到最近邻（确定性）
     fn find_nearest_neighbor_simple(
         query_idx: usize,
@@ -560,15 +588,43 @@ mod correlation_sum {
         distances
     }
 
-    /// 计算欧几里得距离
+    /// 计算欧几里得距离（带SIMD优化）
     fn euclidean_distance(a: &[f64], b: &[f64]) -> f64 {
-        a.iter().zip(b.iter())
-            .map(|(x, y)| (x - y).powi(2))
-            .sum::<f64>()
-            .sqrt()
+        if a.len() != b.len() {
+            return f64::INFINITY;
+        }
+
+        // 对于长向量，使用分块计算提高缓存效率
+        const CHUNK_SIZE: usize = 64;
+        let mut sum_squares = 0.0;
+
+        if a.len() > CHUNK_SIZE {
+            // 分块计算大向量
+            for (chunk_a, chunk_b) in a.chunks(CHUNK_SIZE).zip(b.chunks(CHUNK_SIZE)) {
+                let chunk_sum: f64 = chunk_a.iter()
+                    .zip(chunk_b.iter())
+                    .map(|(x, y)| {
+                        let diff = x - y;
+                        diff * diff
+                    })
+                    .sum();
+                sum_squares += chunk_sum;
+            }
+        } else {
+            // 小向量直接计算
+            sum_squares = a.iter()
+                .zip(b.iter())
+                .map(|(x, y)| {
+                    let diff = x - y;
+                    diff * diff
+                })
+                .sum();
+        }
+
+        sum_squares.sqrt()
     }
 
-    /// 使用简单计算方法计算相关和 C(r)
+    /// 优化版本：使用单次遍历+排序方法计算相关和 C(r)
     fn calculate_correlation_sum_simple(
         embedding: &[Vec<f64>],
         radii: &[f64],
@@ -581,36 +637,48 @@ mod correlation_sum {
             });
         }
 
+        // 步骤1：计算所有有效的点对距离（单次遍历）
+        let mut distances = Vec::new();
+        let mut valid_pairs = 0;
+
+        for i in 0..n {
+            for j in (i + 1)..n {
+                // Theiler窗口过滤
+                if j - i <= theiler {
+                    continue;
+                }
+
+                let distance = euclidean_distance(&embedding[i], &embedding[j]);
+                distances.push(distance);
+                valid_pairs += 1;
+            }
+        }
+
+        if valid_pairs == 0 {
+            return Ok(vec![0.0; radii.len()]);
+        }
+
+        // 步骤2：距离排序（用于快速计数）
+        distances.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+        // 步骤3：对每个半径使用二分查找+累积计数
+        let total_pairs = valid_pairs as f64;
         let mut correlation_sums = Vec::with_capacity(radii.len());
-        let total_pairs = n as f64 * (n - 1) as f64 / 2.0;
 
         for &radius in radii {
-            let mut count_pairs = 0;
-
-            for i in 0..n {
-                for j in (i + 1)..n {
-                    // Theiler窗口过滤
-                    if j - i <= theiler {
-                        continue;
-                    }
-
-                    let distance = euclidean_distance(&embedding[i], &embedding[j]);
-                    if distance <= radius {
-                        count_pairs += 1;
-                    }
-                }
-            }
-
-            let c_r = if total_pairs > 0.0 {
-                (2.0 * count_pairs as f64) / total_pairs
-            } else {
-                0.0
-            };
-
+            let count = binary_search_count_leq(&distances, radius);
+            let c_r = (2.0 * count as f64) / total_pairs;
             correlation_sums.push(c_r);
         }
 
         Ok(correlation_sums)
+    }
+
+    /// 二分查找：返回小于等于target的元素数量
+    fn binary_search_count_leq(sorted_arr: &[f64], target: f64) -> usize {
+        match sorted_arr.binary_search_by(|&x| x.partial_cmp(&target).unwrap_or(std::cmp::Ordering::Greater)) {
+            Ok(idx) | Err(idx) => idx + 1,  // 插入位置+1就是<=target的元素数量
+        }
     }
 
     /// 公共接口：计算相关和
@@ -701,8 +769,68 @@ mod linear_segment {
         Ok((slope, r2, slope_std))
     }
 
-    /// 枚举所有可能的拟合段并选择最佳段
+    /// 枚举所有可能的拟合段并选择最佳段（使用相对标准和回退策略）
     fn find_best_scaling_region(
+        log_r: &[f64],
+        log_c: &[f64],
+        correlation_sums: &[f64],
+        fit_min_len: usize,
+        fit_max_len: usize,
+        c_lo: f64,
+        c_hi: f64,
+        stability_alpha: f64
+    ) -> Result<(usize, usize, f64, f64, f64), GpError> {
+        let n = log_r.len();
+
+        // 计算相关和的统计信息用于动态约束
+        let c_stats = calculate_correlation_sum_stats(correlation_sums);
+
+        // 尝试多个约束级别，从严格到宽松
+        let constraint_levels = vec![
+            (c_lo, c_hi),                              // 原始约束
+            (c_stats.min * 1.1, c_stats.max * 0.9),   // 相对约束（宽松）
+            (c_stats.min * 1.01, c_stats.max * 0.99), // 相对约束（更宽松）
+            (0.0, 1.0),                                // 几乎无约束（最后回退）
+        ];
+
+        for (current_c_lo, current_c_hi) in constraint_levels {
+            if let Ok(result) = try_find_with_constraints(
+                log_r, log_c, correlation_sums,
+                fit_min_len, fit_max_len,
+                current_c_lo, current_c_hi,
+                stability_alpha
+            ) {
+                return Ok(result);
+            }
+        }
+
+        // 如果所有约束都失败，使用最简单的线性拟合
+        find_simple_linear_fit(log_r, log_c, fit_min_len)
+    }
+
+    /// 计算相关和的统计信息
+    fn calculate_correlation_sum_stats(correlation_sums: &[f64]) -> CorrelationSumStats {
+        let min_val = correlation_sums.iter().fold(f64::INFINITY, |a, &b| a.min(b));
+        let max_val = correlation_sums.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
+        let mean_val = correlation_sums.iter().sum::<f64>() / correlation_sums.len() as f64;
+
+        CorrelationSumStats {
+            min: min_val,
+            max: max_val,
+            mean: mean_val,
+        }
+    }
+
+    /// 相关和统计信息结构
+    #[derive(Debug, Clone)]
+    struct CorrelationSumStats {
+        min: f64,
+        max: f64,
+        mean: f64,
+    }
+
+    /// 使用给定约束尝试寻找最佳段
+    fn try_find_with_constraints(
         log_r: &[f64],
         log_c: &[f64],
         correlation_sums: &[f64],
@@ -800,6 +928,57 @@ mod linear_segment {
         } else {
             Err(GpError::NoScalingWindow)
         }
+    }
+
+    /// 简单线性拟合回退策略
+    fn find_simple_linear_fit(
+        log_r: &[f64],
+        log_c: &[f64],
+        min_len: usize
+    ) -> Result<(usize, usize, f64, f64, f64), GpError> {
+        let n = log_r.len();
+
+        if n < min_len {
+            return Err(GpError::NoScalingWindow);
+        }
+
+        // 使用中间50%的数据进行简单拟合
+        let start = n / 4;
+        let end = 3 * n / 4;
+        let window_len = end - start;
+
+        if window_len < min_len {
+            return Err(GpError::NoScalingWindow);
+        }
+
+        // 计算简单线性回归
+        let sum_x: f64 = log_r[start..end].iter().sum();
+        let sum_y: f64 = log_c[start..end].iter().sum();
+        let sum_xy: f64 = log_r[start..end].iter().zip(log_c[start..end].iter())
+            .map(|(x, y)| x * y).sum();
+        let sum_x2: f64 = log_r[start..end].iter().map(|x| x * x).sum();
+
+        let n_f64 = window_len as f64;
+        let slope = (n_f64 * sum_xy - sum_x * sum_y) / (n_f64 * sum_x2 - sum_x * sum_x);
+        let intercept = (sum_y - slope * sum_x) / n_f64;
+
+        // 计算R²
+        let mean_y = sum_y / n_f64;
+        let total_sum_squares: f64 = log_c[start..end].iter()
+            .map(|y| (y - mean_y).powi(2)).sum();
+        let residual_sum_squares: f64 = log_r[start..end].iter().zip(log_c[start..end].iter())
+            .map(|(x, y)| {
+                let predicted = slope * x + intercept;
+                (y - predicted).powi(2)
+            }).sum();
+
+        let r2 = if total_sum_squares > 0.0 {
+            1.0 - residual_sum_squares / total_sum_squares
+        } else {
+            0.0
+        };
+
+        Ok((start, end, slope, intercept, r2))
     }
 
     /// 公共接口：检测线性段并估计 D2
@@ -953,11 +1132,85 @@ mod utils {
     }
 }
 
+/// 智能调整 τ 和 m 的组合以适应数据长度
+fn adjust_tau_m_combination(data_len: usize, mut tau: usize, mut m: usize) -> (usize, usize) {
+    // 确保 (m-1)*τ + 1 ≤ data_len
+    while data_len < (m - 1) * tau + 1 && (m > 2 || tau > 1) {
+        if m > 2 {
+            m -= 1;
+        } else if tau > 1 {
+            tau -= 1;
+        } else {
+            break;  // 无法再调整
+        }
+    }
+
+    // 如果还是不满足，使用最小可行参数
+    if data_len < (m - 1) * tau + 1 {
+        tau = 1;
+        m = (data_len / 2).max(2).min(12);  // 限制在合理范围内
+    }
+
+    (tau, m)
+}
+
 /// GP 相关维数计算的主实现
 impl GpOptions {
     /// 根据序列长度调整默认参数
     pub fn adjust_for_sequence_length(mut self, n: usize) -> Self {
+        // AMI参数调整
         self.ami_max_lag = self.ami_max_lag.min(200.max(n / 10));
+        self.ami_n_bins = self.ami_n_bins.max(8).min(64);
+
+        // FNN参数调整
+        self.fnn_m_max = self.fnn_m_max.min(20.max(n / 50));
+
+        // 半径网格调整 - 对小数据集减少半径数量
+        if n < 200 {
+            self.n_r = self.n_r.max(12).min(n / 5);
+        } else if n < 500 {
+            self.n_r = self.n_r.max(24).min(n / 8);
+        }
+
+        // 拟合窗口自适应调整
+        self.fit_min_len = self.fit_min_len.max(3).min(self.n_r / 10);
+        self.fit_max_len = self.fit_max_len.min(self.n_r / 2).max(self.fit_min_len + 2);
+
+        self
+    }
+
+    /// 根据嵌入维数进一步调整参数
+    pub fn adjust_for_embedding_dimension(mut self, m: usize) -> Self {
+        // 高维嵌入需要更宽松的参数
+        if m > 10 {
+            self.fnn_threshold = self.fnn_threshold * 1.5;
+            self.stability_alpha = self.stability_alpha * 0.8;  // 更宽松的稳定性要求
+        }
+
+        self
+    }
+
+    /// 根据数据特征调整参数
+    pub fn adapt_to_data_characteristics(
+        mut self,
+        data_length: usize,
+        embedding_dim: usize,
+        correlation_sum_range: (f64, f64)
+    ) -> Self {
+        self = self.adjust_for_sequence_length(data_length);
+        self = self.adjust_for_embedding_dimension(embedding_dim);
+
+        // 根据相关和分布调整约束条件
+        let (c_min, c_max) = correlation_sum_range;
+        let c_range = c_max - c_min;
+
+        if c_range < 0.1 {
+            // 相关和分布过于集中，放宽约束
+            self.c_lo = c_min * 0.5;
+            self.c_hi = c_max + (1.0 - c_max) * 0.5;
+            self.stability_alpha *= 0.5;
+        }
+
         self
     }
 }
@@ -994,53 +1247,51 @@ fn internal_gp_correlation_dimension(
     x: &[f64],
     opts: Option<GpOptions>
 ) -> Result<GpResult, GpError> {
-    // 输入验证
-    if x.len() < 100 {
+    // 输入验证 - 降低最小长度要求
+    if x.len() < 30 {
         return Err(GpError::InputTooShort {
-            min_len: 100,
+            min_len: 30,
             actual_len: x.len()
         });
     }
 
-    // 获取选项
-    let options = opts.unwrap_or_default().adjust_for_sequence_length(x.len());
+    // 获取基础选项
+    let base_options = opts.unwrap_or_default().adjust_for_sequence_length(x.len());
 
     // 步骤0：标准化序列
     let x_std = utils::standardize_sequence(x)?;
 
     // 步骤1：AMI 计算与 τ 选择
-    let (tau, ami_lags, ami_values) = if let Some(tau_override) = options.tau_override {
+    let (tau, ami_lags, ami_values) = if let Some(tau_override) = base_options.tau_override {
         (tau_override, Vec::new(), Vec::new())
     } else {
         ami::calculate_ami_and_select_tau(
             &x_std,
-            options.ami_max_lag,
-            options.ami_n_bins,
-            options.ami_quantile_bins
+            base_options.ami_max_lag,
+            base_options.ami_n_bins,
+            base_options.ami_quantile_bins
         )
     };
 
     // 步骤2：FNN 计算与 m 选择
-    let (m, fnn_ms, fnn_ratios) = if let Some(m_override) = options.m_override {
+    let (m, fnn_ms, fnn_ratios) = if let Some(m_override) = base_options.m_override {
         (m_override, Vec::new(), Vec::new())
     } else {
         fnn::calculate_fnn_and_select_m(
             &x_std,
             tau,
-            options.fnn_m_max,
-            options.fnn_rtol,
-            options.fnn_atol,
-            options.fnn_threshold
+            base_options.fnn_m_max,
+            base_options.fnn_rtol,
+            base_options.fnn_atol,
+            base_options.fnn_threshold
         )?
     };
 
-    // 验证 τ 和 m 的组合
-    if x.len() < (m - 1) * tau + 1 {
-        return Err(GpError::InvalidTauOrM);
-    }
+    // 智能调整 τ 和 m 的组合
+    let (tau, m) = adjust_tau_m_combination(x.len(), tau, m);
 
     // 步骤3：Theiler 窗口选择
-    let theiler = if let Some(theiler_override) = options.theiler_override {
+    let theiler = if let Some(theiler_override) = base_options.theiler_override {
         theiler_override
     } else {
         theiler::select_theiler_window(&ami_lags, &ami_values, tau)
@@ -1053,12 +1304,24 @@ fn internal_gp_correlation_dimension(
     let (rs, cs) = correlation_sum::calculate_correlation_sum(
         &embedding,
         theiler,
-        options.n_r,
-        options.r_percentile_lo,
-        options.r_percentile_hi
+        base_options.n_r,
+        base_options.r_percentile_lo,
+        base_options.r_percentile_hi
     )?;
 
-    // 步骤6：线性段检测和 D2 估计
+    // 获取相关和统计信息用于参数自适应
+    let c_min = cs.iter().fold(f64::INFINITY, |a, &b| a.min(b));
+    let c_max = cs.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
+    let correlation_range = (c_min, c_max);
+
+    // 根据数据特征自适应调整参数
+    let options = base_options.adapt_to_data_characteristics(
+        x.len(),
+        m,
+        correlation_range
+    );
+
+    // 步骤6：线性段检测和 D2 估计（使用自适应后的参数）
     let (fit_start, fit_end, d2_est, fit_intercept, fit_r2, log_r, log_c, local_slopes) =
         linear_segment::detect_scaling_region_and_estimate_d2(
             &rs,
