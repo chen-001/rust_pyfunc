@@ -492,6 +492,26 @@
     ]
   },
   {
+    "name": "gp_correlation_dimension",
+    "description": "<p>可选参数入口：可提供自定义选项</p>",
+    "params": []
+  },
+  {
+    "name": "gp_correlation_dimension_auto",
+    "description": "<p>零参数入口：只需传入序列，所有参数自动确定</p>",
+    "params": []
+  },
+  {
+    "name": "gp_create_default_options",
+    "description": "<p>为 Python 导出的辅助函数</p>",
+    "params": []
+  },
+  {
+    "name": "gp_create_options",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
     "name": "hmm_trend_prediction",
     "description": "<p>主要的HMM趋势预测函数</p>",
     "params": []
@@ -519,6 +539,11 @@
       "volumes",
       "window_size"
     ]
+  },
+  {
+    "name": "lz_complexity",
+    "description": "<p>LZ76增量分解复杂度计算</p>\n<p>参数:\n- seq: 输入序列，可以是1D numpy数组\n- quantiles: 分位数列表，用于连续变量离散化，None表示序列已经是离散的\n- normalize: 是否归一化结果</p>\n<p>返回:\n- LZ复杂度值</p>",
+    "params": []
   },
   {
     "name": "mark_follow_groups",
