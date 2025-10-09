@@ -3,6 +3,170 @@ from typing import List, Optional, Union, Tuple
 import numpy as np
 from numpy.typing import NDArray
 
+# GP 相关维数计算相关类型声明
+class GpOptions:
+    """GP 相关维数计算选项"""
+    def __init__(
+        self,
+        ami_max_lag: int = 200,
+        ami_n_bins: int = 32,
+        ami_quantile_bins: bool = True,
+        tau_override: Optional[int] = None,
+        fnn_m_max: int = 12,
+        fnn_rtol: float = 10.0,
+        fnn_atol: float = 2.0,
+        fnn_threshold: float = 0.02,
+        m_override: Optional[int] = None,
+        theiler_override: Optional[int] = None,
+        n_r: int = 48,
+        r_percentile_lo: float = 5.0,
+        r_percentile_hi: float = 90.0,
+        fit_min_len: int = 6,
+        fit_max_len: int = 14,
+        c_lo: float = 1e-4,
+        c_hi: float = 0.999,
+        stability_alpha: float = 0.05,
+    ):
+        ...
+
+class GpResult:
+    """GP 相关维数计算结果"""
+    tau: int
+    m: int
+    theiler: int
+    rs: List[float]
+    cs: List[float]
+    log_r: List[float]
+    log_c: List[float]
+    local_slopes: List[Optional[float]]
+    fit_start: int
+    fit_end: int
+    d2_est: float
+    fit_intercept: float
+    fit_r2: float
+    ami_lags: List[int]
+    ami_values: List[float]
+    fnn_ms: List[int]
+    fnn_ratios: List[float]
+
+def gp_correlation_dimension_auto(x: NDArray[np.float64]) -> GpResult:
+    """零参数入口：只需传入序列，所有参数自动确定
+
+    使用完全确定性的 Grassberger-Procaccia 算法计算时间序列的相关维数 (D₂)。
+    所有中间参数（τ、m、Theiler窗口、半径网格与拟合区间）均由库内部自动确定。
+
+    参数说明：
+    ----------
+    x : numpy.ndarray
+        一维实数序列（函数内部会标准化：减均值/除标准差）
+
+    返回值：
+    -------
+    GpResult
+        包含相关维数估计和详细诊断信息的结果对象
+
+    异常：
+    ------
+    ValueError
+        当输入序列过短、过于恒定或其他数值计算问题时抛出
+    """
+    ...
+
+def gp_correlation_dimension(x: Union[NDArray[np.float64], List[float]], opts: Optional[GpOptions] = None) -> GpResult:
+    """可选参数入口：可提供自定义选项
+
+    参数说明：
+    ----------
+    x : numpy.ndarray 或 list
+        一维实数序列
+    opts : GpOptions, 可选
+        自定义计算选项，如果为 None 则使用默认值
+
+    返回值：
+    -------
+    GpResult
+        包含相关维数估计和详细诊断信息的结果对象
+    """
+    ...
+
+def gp_create_default_options() -> GpOptions:
+    """创建默认的 GP 计算选项
+
+    返回值：
+    -------
+    GpOptions
+        包含所有默认参数的选项对象
+    """
+    ...
+
+def gp_create_options(
+    ami_max_lag: int = 200,
+    ami_n_bins: int = 32,
+    ami_quantile_bins: bool = True,
+    tau_override: Optional[int] = None,
+    fnn_m_max: int = 12,
+    fnn_rtol: float = 10.0,
+    fnn_atol: float = 2.0,
+    fnn_threshold: float = 0.02,
+    m_override: Optional[int] = None,
+    theiler_override: Optional[int] = None,
+    n_r: int = 48,
+    r_percentile_lo: float = 5.0,
+    r_percentile_hi: float = 90.0,
+    fit_min_len: int = 6,
+    fit_max_len: int = 14,
+    c_lo: float = 1e-4,
+    c_hi: float = 0.999,
+    stability_alpha: float = 0.05,
+) -> GpOptions:
+    """创建自定义的 GP 计算选项
+
+    参数说明：
+    ----------
+    ami_max_lag : int, 默认 200
+        AMI 计算的最大 lag
+    ami_n_bins : int, 默认 32
+        AMI 计算的分箱数
+    ami_quantile_bins : bool, 默认 True
+        是否使用分位数分箱（确定性）
+    tau_override : int, 可选
+        强制指定 τ 值，如不指定则自动选择
+    fnn_m_max : int, 默认 12
+        FNN 计算的最大 m 值
+    fnn_rtol : float, 默认 10.0
+        FNN 相对容差
+    fnn_atol : float, 默认 2.0
+        FNN 绝对容差
+    fnn_threshold : float, 默认 0.02
+        FNN 假近邻比例阈值
+    m_override : int, 可选
+        强制指定 m 值，如不指定则自动选择
+    theiler_override : int, 可选
+        强制指定 Theiler 窗口，如不指定则自动选择
+    n_r : int, 默认 48
+        半径网格点数
+    r_percentile_lo : float, 默认 5.0
+        半径范围下限百分位数
+    r_percentile_hi : float, 默认 90.0
+        半径范围上限百分位数
+    fit_min_len : int, 默认 6
+        线性拟合最小长度
+    fit_max_len : int, 默认 14
+        线性拟合最大长度
+    c_lo : float, 默认 1e-4
+        相关和下限（排除极小值）
+    c_hi : float, 默认 0.999
+        相关和上限（排除饱和值）
+    stability_alpha : float, 默认 0.05
+        稳定性评分权重（R² - α*斜率标准差）
+
+    返回值：
+    -------
+    GpOptions
+        自定义配置的选项对象
+    """
+    ...
+
 def trend(arr: Union[NDArray[np.float64], List[Union[float, int]]]) -> float:
     """计算输入数组与自然数序列(1, 2, ..., n)之间的皮尔逊相关系数。
     这个函数可以用来判断一个序列的趋势性，如果返回值接近1表示强上升趋势，接近-1表示强下降趋势。
