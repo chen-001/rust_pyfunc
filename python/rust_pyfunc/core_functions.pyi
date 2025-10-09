@@ -1306,6 +1306,66 @@ def cosine_similarity_matrix(
     """
     ...
 
+def lz_complexity(seq: NDArray[np.float64], quantiles: Optional[List[float]] = None, normalize: bool = True) -> float:
+    """LZ76增量分解复杂度计算，用于衡量序列的复杂程度。
+
+    该算法通过增量分解来计算序列的复杂度，核心思想是找到最短的未被见过的新子串。
+    支持对连续变量进行分位数离散化处理，适用于金融时间序列等复杂度分析。
+
+    参数说明：
+    ----------
+    seq : NDArray[np.float64]
+        输入序列，必须是一维的numpy float64数组
+    quantiles : Optional[List[float]], 默认None
+        分位数列表，用于连续变量离散化，取值范围为0到1之间的数值
+        - None: 表示序列已经是离散的，不需要处理
+        - [0.5]: 以50%分位数为界限离散化为2个值
+        - [0.2, 0.6, 0.9]: 按20%、60%、90%分位点离散化为4个值
+    normalize : bool, 默认True
+        是否对结果进行归一化处理
+
+    返回值：
+    -------
+    float
+        LZ复杂度值，如果normalize=True则为归一化结果
+
+    示例：
+    -------
+    >>> import numpy as np
+    >>> from rust_pyfunc import lz_complexity
+    >>>
+    >>> # 离散序列示例
+    >>> seq_discrete = np.array([0, 1, 0, 0, 1, 1, 1, 0, 0, 1], dtype=np.float64)
+    >>> result = lz_complexity(seq_discrete)
+    >>> print(f"离散序列LZ复杂度: {result:.4f}")
+    >>>
+    >>> # 连续序列示例 - 使用中位数离散化
+    >>> seq_continuous = np.random.randn(1000).astype(np.float64)
+    >>> result = lz_complexity(seq_continuous, quantiles=[0.5])
+    >>> print(f"连续序列LZ复杂度(中位数离散化): {result:.4f}")
+    >>>
+    >>> # 连续序列示例 - 使用多分位数离散化
+    >>> result = lz_complexity(seq_continuous, quantiles=[0.25, 0.75])
+    >>> print(f"连续序列LZ复杂度(四分位数离散化): {result:.4f}")
+    >>>
+    >>> # 性能测试 - 10万长度序列
+    >>> large_seq = np.random.randn(100000).astype(np.float64)
+    >>> import time
+    >>> start = time.time()
+    >>> result = lz_complexity(large_seq, quantiles=[0.5])
+    >>> elapsed = time.time() - start
+    >>> print(f"10万序列计算时间: {elapsed:.3f}秒, LZ复杂度: {result:.4f}")
+
+    注意事项：
+    ---------
+    - 输入序列必须为一维numpy float64数组
+    - 分位数必须在0到1之间，可以指定多个分位点
+    - 对于10万长度序列，计算时间应在0.2秒以内
+    - 归一化结果使用对数缩放，便于不同长度序列间的比较
+    - 离散化时，符号从1开始编号（1, 2, 3, ...）
+    """
+    ...
+
 
 
 
