@@ -762,6 +762,30 @@ print(f"加速比: {time1/time2:.2f}倍")
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="gp_correlation_dimension.html">gp_correlation_dimension</a></h3>
+                <div><p>可选参数入口：可提供自定义选项</p></div>
+                <a href="gp_correlation_dimension.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="gp_correlation_dimension_auto.html">gp_correlation_dimension_auto</a></h3>
+                <div><p>零参数入口：只需传入序列，所有参数自动确定</p></div>
+                <a href="gp_correlation_dimension_auto.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="gp_create_default_options.html">gp_create_default_options</a></h3>
+                <div><p>为 Python 导出的辅助函数</p></div>
+                <a href="gp_create_default_options.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="gp_create_options.html">gp_create_options</a></h3>
+                <div><p>无文档</p></div>
+                <a href="gp_create_options.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="hmm_trend_prediction.html">hmm_trend_prediction</a></h3>
                 <div><p>主要的HMM趋势预测函数</p></div>
                 <a href="hmm_trend_prediction.html">查看详情</a>
@@ -773,6 +797,18 @@ print(f"加速比: {time1/time2:.2f}倍")
 <p>对于每个价格点，向前取x个值作为局部序列，然后分别向前和向后搜索，
 找到与当前局部序列相关性最大和最小的位置，并计算间隔行数和volume总和。</p></div>
                 <a href="local_correlation.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="lz_complexity.html">lz_complexity</a></h3>
+                <div><p>LZ76增量分解复杂度计算</p>
+<p>参数:
+- seq: 输入序列，可以是1D numpy数组
+- quantiles: 分位数列表，用于连续变量离散化，None表示序列已经是离散的
+- normalize: 是否归一化结果</p>
+<p>返回:
+- LZ复杂度值</p></div>
+                <a href="lz_complexity.html">查看详情</a>
             </div>
             
             <div class="function-item">
