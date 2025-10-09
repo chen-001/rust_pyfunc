@@ -40,6 +40,7 @@ ordered-float = "3.0"
 arrow = "51.0"
 parquet = "51.0"
 rustc-hash = "1.1"
+thiserror = "1.0"
 # Unix-specific dependencies for fork mode
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.27", features = ["process", "signal", "fs"] }
