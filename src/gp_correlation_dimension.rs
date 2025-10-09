@@ -12,8 +12,8 @@ use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1};
 use std::f64::consts::E;
 use std::collections::HashMap;
 
-/// 全局欧几里得距离函数（带优化）
-fn euclidean_distance(a: &[f64], b: &[f64]) -> f64 {
+/// 优化的距离函数 - 使用平方距离避免sqrt计算
+fn fast_squared_distance(a: &[f64], b: &[f64]) -> f64 {
     if a.len() != b.len() {
         return f64::INFINITY;
     }
@@ -45,7 +45,12 @@ fn euclidean_distance(a: &[f64], b: &[f64]) -> f64 {
             .sum();
     }
 
-    sum_squares.sqrt()
+    sum_squares  // 注意：这里不再调用sqrt()
+}
+
+/// 保持向后兼容的欧几里得距离函数
+fn euclidean_distance(a: &[f64], b: &[f64]) -> f64 {
+    fast_squared_distance(a, b).sqrt()
 }
 
 /// GP 相关维数计算选项（所有参数均有确定默认值）
@@ -133,6 +138,10 @@ pub struct GpResult {
     #[pyo3(get)]
     pub m: usize,                 // 自动选出的 m
     #[pyo3(get)]
+    pub optimal_tau: usize,       // 兼容性别名
+    #[pyo3(get)]
+    pub optimal_m: usize,         // 兼容性别名
+    #[pyo3(get)]
     pub theiler: usize,           // 自动选出的 Theiler 窗口
 
     #[pyo3(get)]
@@ -179,7 +188,7 @@ pub enum GpError {
     #[error("输入序列过于恒定，标准差为 0")]
     InputTooConstant,
 
-    #[error("无效的 τ 或 m 组合：(m-1)*τ ≥ 序列长度")]
+    #[error("无效的 τ 或 m 组合：序列长度不足，需要 (m-1)*τ+1 ≤ 序列长度")]
     InvalidTauOrM,
 
     #[error("KD-Tree 构建失败")]
@@ -366,7 +375,7 @@ mod fnn {
         theiler: usize
     ) -> Option<(usize, f64)> {
         let query_point = &embedding[query_idx];
-        let mut min_distance = f64::INFINITY;
+        let mut min_squared_distance = f64::INFINITY;
         let mut nearest_idx = None;
 
         for (i, point) in embedding.iter().enumerate() {
@@ -380,15 +389,15 @@ mod fnn {
                 continue;
             }
 
-            // 计算欧几里得距离
-            let distance = euclidean_distance(query_point, point);
-            if distance < min_distance {
-                min_distance = distance;
+            // 使用平方距离避免sqrt计算
+            let squared_distance = fast_squared_distance(query_point, point);
+            if squared_distance < min_squared_distance {
+                min_squared_distance = squared_distance;
                 nearest_idx = Some(i);
             }
         }
 
-        nearest_idx.map(|idx| (idx, min_distance))
+        nearest_idx.map(|idx| (idx, min_squared_distance.sqrt()))
     }
 
     /// 计算单个 m 的假近邻比例
@@ -418,11 +427,12 @@ mod fnn {
             if let Some((nearest_idx, distance_m)) = find_nearest_neighbor_simple(i, &embedding_m, theiler) {
                 // 确保 nearest_idx 也在 embedding_m1 的范围内
                 if nearest_idx < embedding_m1.len() {
-                    // 计算 m+1 维距离
-                    let distance_m1 = euclidean_distance(&embedding_m1[i], &embedding_m1[nearest_idx]);
+                    // 计算 m+1 维距离（使用平方距离）
+                    let squared_distance_m1 = fast_squared_distance(&embedding_m1[i], &embedding_m1[nearest_idx]);
 
-                // Kennedy et al. 假近邻判据
+                // Kennedy et al. 假近邻判据（使用平方距离）
                     let is_false = if distance_m > constants::EPS {
+                        let distance_m1 = squared_distance_m1.sqrt();  // 只在需要时转换回实际距离
                         let ratio_increase = (distance_m1 - distance_m) / distance_m;
                         ratio_increase > rtol
                     } else {
@@ -637,8 +647,8 @@ mod correlation_sum {
             });
         }
 
-        // 步骤1：计算所有有效的点对距离（单次遍历）
-        let mut distances = Vec::new();
+        // 步骤1：计算所有有效的点对平方距离（单次遍历）
+        let mut squared_distances = Vec::with_capacity(n * (n - 1) / 2);
         let mut valid_pairs = 0;
 
         for i in 0..n {
@@ -648,8 +658,8 @@ mod correlation_sum {
                     continue;
                 }
 
-                let distance = euclidean_distance(&embedding[i], &embedding[j]);
-                distances.push(distance);
+                let squared_distance = fast_squared_distance(&embedding[i], &embedding[j]);
+                squared_distances.push(squared_distance);
                 valid_pairs += 1;
             }
         }
@@ -658,15 +668,16 @@ mod correlation_sum {
             return Ok(vec![0.0; radii.len()]);
         }
 
-        // 步骤2：距离排序（用于快速计数）
-        distances.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        // 步骤2：平方距离排序（用于快速计数）
+        squared_distances.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
-        // 步骤3：对每个半径使用二分查找+累积计数
+        // 步骤3：对每个半径使用二分查找+累积计数（使用平方半径）
         let total_pairs = valid_pairs as f64;
         let mut correlation_sums = Vec::with_capacity(radii.len());
 
         for &radius in radii {
-            let count = binary_search_count_leq(&distances, radius);
+            let squared_radius = radius * radius;  // 将半径平方
+            let count = binary_search_count_leq(&squared_distances, squared_radius);
             let c_r = (2.0 * count as f64) / total_pairs;
             correlation_sums.push(c_r);
         }
@@ -1132,9 +1143,43 @@ mod utils {
     }
 }
 
+
 /// 智能调整 τ 和 m 的组合以适应数据长度
 fn adjust_tau_m_combination(data_len: usize, mut tau: usize, mut m: usize) -> (usize, usize) {
-    // 确保 (m-1)*τ + 1 ≤ data_len
+    // 对于小数据集，使用更积极的调整策略
+    if data_len <= 60 {
+        // 小数据集：强制使用保守参数确保成功
+        tau = 1;
+        m = std::cmp::min(
+            std::cmp::max(data_len / 3, 2),  // 至少2维，最多 data_len/3 维
+            10  // 最大10维
+        );
+        return (tau, m);
+    }
+
+    // 对于中等数据集，确保合理参数
+    if data_len <= 100 {
+        // 确保 (m-1)*τ + 1 ≤ data_len，使用更保守的调整
+        while data_len < (m - 1) * tau + 1 && (m > 3 || tau > 1) {
+            if m > 3 {
+                m -= 1;
+            } else if tau > 1 {
+                tau -= 1;
+            } else {
+                break;
+            }
+        }
+
+        // 最后的保险措施
+        if data_len < (m - 1) * tau + 1 {
+            tau = 1;
+            m = std::cmp::min(data_len / 4, 12).max(3);
+        }
+
+        return (tau, m);
+    }
+
+    // 大数据集：使用原有逻辑
     while data_len < (m - 1) * tau + 1 && (m > 2 || tau > 1) {
         if m > 2 {
             m -= 1;
@@ -1165,12 +1210,14 @@ impl GpOptions {
         // FNN参数调整
         self.fnn_m_max = self.fnn_m_max.min(20.max(n / 50));
 
-        // 半径网格调整 - 对小数据集减少半径数量
-        if n < 200 {
-            self.n_r = self.n_r.max(12).min(n / 5);
-        } else if n < 500 {
-            self.n_r = self.n_r.max(24).min(n / 8);
-        }
+        // 激进的半径网格优化 - 针对小数据集大幅减少半径数量
+        self.n_r = match n {
+            30..=60 => 12,    // 你的主要使用场景：最少半径
+            61..=100 => 16,   // 稍大数据集
+            101..=200 => 20,  // 中等数据集
+            201..=500 => 24,  // 较大数据集
+            _ => 32,          // 大数据集仍保持合理数量
+        };
 
         // 拟合窗口自适应调整
         self.fit_min_len = self.fit_min_len.max(3).min(self.n_r / 10);
@@ -1222,6 +1269,16 @@ pub fn gp_correlation_dimension_auto(
     x: PyReadonlyArray1<f64>
 ) -> PyResult<GpResult> {
     let x_slice = x.as_slice()?;
+
+    // 小数据集快速处理路径
+    if x_slice.len() <= 60 {
+        let result = compute_gp_correlation_dimension_small_dataset(x_slice).map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!("GP 相关维数计算失败: {}", e))
+        })?;
+        return Ok(result);
+    }
+
+    // 大数据集使用原始算法
     let result = internal_gp_correlation_dimension(x_slice, None).map_err(|e| {
         pyo3::exceptions::PyValueError::new_err(format!("GP 相关维数计算失败: {}", e))
     })?;
@@ -1336,6 +1393,8 @@ fn internal_gp_correlation_dimension(
     Ok(GpResult {
         tau,
         m,
+        optimal_tau: tau,
+        optimal_m: m,
         theiler,
         rs,
         cs,
@@ -1563,4 +1622,119 @@ mod tests {
         assert_eq!(result1.theiler, result2.theiler, "Theiler 窗口选择应该是确定性的");
         assert!((result1.d2_est - result2.d2_est).abs() < 1e-10, "D₂ 估计应该是确定性的");
     }
+}
+
+/// 小数据集专用GP相关维数计算函数
+/// 专门用于30-60个数据点的快速处理
+fn compute_gp_correlation_dimension_small_dataset(x: &[f64]) -> Result<GpResult, GpError> {
+    let n = x.len();
+
+    // 输入验证
+    if n < 30 {
+        return Err(GpError::InputTooShort {
+            min_len: 30,
+            actual_len: n
+        });
+    }
+
+    // 标准化序列
+    let x_std = utils::standardize_sequence(x)?;
+
+    // 小数据集使用保守的固定参数
+    let tau = 1;  // 最小时间延迟
+    let m = std::cmp::min(n / 3, 10).max(2);  // 2-10维，根据数据长度调整
+    let theiler = tau;  // 简单的Theiler窗口
+
+    // 构建延迟嵌入
+    let embedding = embedding::build_delay_embedding(&x_std, m, tau)?;
+
+    // 小数据集使用较少的半径以提高性能
+    let n_r = 12;  // 固定使用12个半径
+
+    // 计算相关和
+    let (rs, cs) = correlation_sum::calculate_correlation_sum(
+        &embedding,
+        theiler,
+        n_r,
+        0.1,  // r_percentile_lo
+        0.9   // r_percentile_hi
+    )?;
+
+    // 转换到对数空间
+    let log_r: Vec<f64> = rs.iter().map(|&r| r.ln()).collect();
+    let log_c: Vec<f64> = cs.iter().map(|&c| c.ln()).collect();
+
+    // 计算局部斜率
+    let mut local_slopes: Vec<Option<f64>> = vec![None; rs.len()];
+    if rs.len() >= 3 {
+        for i in 1..rs.len() - 1 {
+            if log_c[i] > f64::NEG_INFINITY && rs[i] > 0.0 {
+                // 使用中心差分计算斜率
+                let dx = log_r[i + 1] - log_r[i - 1];
+                let dy = log_c[i + 1] - log_c[i - 1];
+                if dx.abs() > 1e-12 {
+                    local_slopes[i] = Some(dy / dx);
+                }
+            }
+        }
+    }
+
+    // 简单的线性拟合（使用中间50%的数据）
+    let start = rs.len() / 4;
+    let end = 3 * rs.len() / 4;
+
+    let (d2_est, fit_intercept, fit_r2) = if end > start + 2 {
+        // 计算线性回归
+        let sum_x: f64 = log_r[start..end].iter().sum();
+        let sum_y: f64 = log_c[start..end].iter().sum();
+        let sum_xy: f64 = log_r[start..end].iter().zip(log_c[start..end].iter())
+            .map(|(x, y)| x * y).sum();
+        let sum_x2: f64 = log_r[start..end].iter().map(|x| x * x).sum();
+
+        let n_f64 = (end - start) as f64;
+        let slope = (n_f64 * sum_xy - sum_x * sum_y) / (n_f64 * sum_x2 - sum_x * sum_x);
+        let intercept = (sum_y - slope * sum_x) / n_f64;
+
+        // 计算R²
+        let mean_y = sum_y / n_f64;
+        let total_sum_squares: f64 = log_c[start..end].iter()
+            .map(|y| (y - mean_y).powi(2)).sum();
+        let residual_sum_squares: f64 = log_r[start..end].iter().zip(log_c[start..end].iter())
+            .map(|(x, y)| {
+                let predicted = slope * x + intercept;
+                (y - predicted).powi(2)
+            }).sum();
+
+        let r2 = if total_sum_squares > 0.0 {
+            1.0 - residual_sum_squares / total_sum_squares
+        } else {
+            0.0
+        };
+
+        (slope, intercept, r2)
+    } else {
+        (0.0, 0.0, 0.0)  // 默认值
+    };
+
+    Ok(GpResult {
+        tau,
+        m,
+        optimal_tau: tau,
+        optimal_m: m,
+        theiler,
+        rs,
+        cs,
+        log_r,
+        log_c,
+        local_slopes,
+        fit_start: start,
+        fit_end: end,
+        d2_est,
+        fit_intercept,
+        fit_r2,
+        ami_lags: Vec::new(),  // 小数据集不计算AMI
+        ami_values: Vec::new(),
+        fnn_ms: Vec::new(),    // 小数据集不计算FNN
+        fnn_ratios: Vec::new(),
+    })
 }
