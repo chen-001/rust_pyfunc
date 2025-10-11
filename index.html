@@ -574,6 +574,42 @@ s.rolling_past('2s').trend_time()  # 计算前面2秒内的趋势</p>
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="distances_to_frontier.html">distances_to_frontier</a></h3>
+                <div><p>计算收益序列中每个聚合块到马科维茨有效前沿的距离</p>
+<h1>功能说明</h1>
+<ol>
+<li>将输入收益序列按指定大小分块聚合</li>
+<li>计算块间样本协方差矩阵（带岭化保证正定性）</li>
+<li>构造马科维茨无约束有效前沿</li>
+<li>使用KKT-λ四次方程法计算每个资产点到前沿的最短距离</li>
+</ol>
+<h1>参数</h1>
+<ul>
+<li><code>r</code> - 1D float64数组，单日3秒频率收益序列</li>
+<li><code>group_size</code> - 每多少行聚合成一块（x）</li>
+<li><code>drop_last</code> - 尾部不足group_size行时是否丢弃，默认true</li>
+<li><code>ddof</code> - 协方差/方差的自由度调整，默认1（样本协方差）</li>
+<li><code>ridge</code> - 岭化强度系数，默认1e-6</li>
+</ul>
+<h1>返回值</h1>
+<p>shape=(m,)的1D数组，包含每个资产点到有效前沿的距离</p>
+<h1>数值提示</h1>
+<p>当 m &gt;&gt; group_size 时，协方差矩阵可能秩亏，需要通过增大ridge参数保证可逆性</p>
+<h1>示例</h1>
+<p>```python
+import numpy as np
+from rust_pyfunc import distances_to_frontier</p>
+<h1>生成测试数据</h1>
+<p>np.random.seed(0)
+r = 1e-4 * np.random.randn(4800).astype(np.float64)</p>
+<h1>每1分钟聚合（20个3秒间隔）</h1>
+<p>distances = distances_to_frontier(r, group_size=20)
+print(distances.shape)  # (240,)
+```</p></div>
+                <a href="distances_to_frontier.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="dtw_distance.html">dtw_distance</a></h3>
                 <div><p>DTW（动态时间规整）是一种测量两个时间序列相似度的方法。
 该算法计算两个可能长度不同、tempo不同的时间序列间的最优匹配。</p></div>
