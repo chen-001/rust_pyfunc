@@ -10,6 +10,7 @@ use std::env;
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::io::{self,BufRead, BufReader};
 use std::thread;
 use std::time::Instant;
 
@@ -116,6 +117,8 @@ import sys
 import msgpack
 import struct
 import os
+import textwrap
+import traceback
 
 def main():
     while True:
@@ -140,6 +143,7 @@ def main():
             task = task_data['task']
             date = task['date']
             code = task['code']
+            func_code = textwrap.dedent(func_code)
 
             # 执行任务
             try:
@@ -153,9 +157,19 @@ def main():
                 if user_functions:
                     func = namespace[user_functions[0]]
                     func(date, code)  # 执行函数，不收集结果
+
+                # 任务完成后，发送确认信号到 stdout
+                sys.stdout.buffer.write(b'DONE\n')
+                sys.stdout.buffer.flush()
+
             except Exception as e:
-                # 静默失败，不打印错误
-                pass
+                error_msg = traceback.format_exc()
+                print(f"❌ Worker任务失败: {date}, {code} -> {e}", file=sys.stderr, flush=True)
+                print(error_msg, file=sys.stderr, flush=True)
+
+                # 即使出错也发送确认信号，避免阻塞
+                sys.stdout.buffer.write(b'DONE\n')
+                sys.stdout.buffer.flush()
 
         except Exception:
             break
@@ -185,7 +199,7 @@ fn run_simple_worker(
     let mut child = match Command::new(&python_path)
         .arg(&script_path)
         .stdin(Stdio::piped())
-        .stdout(Stdio::null())
+        .stdout(Stdio::piped())  // 需要读取stdout来获取确认信号
         .stderr(Stdio::null())
         .spawn()
     {
@@ -198,6 +212,8 @@ fn run_simple_worker(
     };
 
     let mut stdin = child.stdin.take().expect("Failed to get stdin");
+    let mut stdout = child.stdout.take().expect("Failed to get stdout");
+    let mut reader = BufReader::new(stdout);
 
     // 处理所有任务
     while let Ok(task) = task_queue.recv() {
@@ -226,8 +242,19 @@ fn run_simple_worker(
             break;
         }
 
-        // 通知主线程完成一个任务
-        let _ = completion_sender.send(());
+        // 等待Python子进程完成任务并读取确认信号
+        let mut line = String::new();
+        if reader.read_line(&mut line).is_err() {
+            break;
+        }
+
+        // 只有收到确认信号后才通知主线程完成任务
+        if line.trim() == "DONE" {
+            let _ = completion_sender.send(());
+        } else {
+            // 如果没有收到正确的确认信号，跳过这个任务
+            continue;
+        }
     }
 
     // 发送终止信号
@@ -326,14 +353,13 @@ pub fn run_pools_simple(python_function: PyObject, args: &PyList, n_jobs: usize)
     let mut completed = 0;
     while completion_receiver.recv().is_ok() {
         completed += 1;
-        if completed % 1000 == 0 {
-            println!(
-                "[{}] 📊 已完成 {}/{} 个任务",
-                Local::now().format("%Y-%m-%d %H:%M:%S"),
-                completed,
-                total_tasks
-            );
-        }
+        print!(
+            "[{}] 📊 已完成 {}/{} 个任务",
+            Local::now().format("%Y-%m-%d %H:%M:%S"),
+            completed,
+            total_tasks
+        );
+        io::stdout().flush().unwrap();
     }
 
     // 等待所有workers完成
