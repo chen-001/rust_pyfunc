@@ -1,5 +1,7 @@
 use memmap2::Mmap;
+use numpy::PyArray1;
 use pyo3::prelude::*;
+use rayon::iter::IndexedParallelIterator;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -2138,6 +2140,16 @@ pub fn read_backup_results_factor_only_ultra_fast(
         })?
     };
 
+    #[cfg(target_family = "unix")]
+    unsafe {
+        // 提示内核按顺序访问，增加预读窗口
+        let _ = libc::madvise(
+            mmap.as_ptr() as *mut libc::c_void,
+            file_len,
+            libc::MADV_SEQUENTIAL,
+        );
+    }
+
     // 读取文件头
     let header = unsafe { &*(mmap.as_ptr() as *const FileHeader) };
 
@@ -2147,10 +2159,7 @@ pub fn read_backup_results_factor_only_ultra_fast(
 
     let record_count = header.record_count as usize;
     if record_count == 0 {
-        return Python::with_gil(|py| {
-            let numpy = py.import("numpy")?;
-            Ok(numpy.call_method1("array", (Vec::<f64>::new(),))?.into())
-        });
+        return Python::with_gil(|py| Ok(PyArray1::<f64>::from_vec(py, Vec::new()).into_py(py)));
     }
 
     let record_size = header.record_size as usize;
@@ -2196,29 +2205,28 @@ pub fn read_backup_results_factor_only_ultra_fast(
         })?;
 
     // 并行读取所有因子值
-    let factors: Vec<f64> = pool.install(|| {
-        (0..record_count)
-            .into_par_iter()
-            .map(|i| {
+    let mut factors = vec![0f64; record_count];
+    pool.install(|| {
+        factors
+            .par_iter_mut()
+            .enumerate()
+            .with_min_len(4096)
+            .for_each(|(i, slot)| {
                 let record_offset = records_start + i * record_size;
 
                 // 直接读取因子值，完全跳过其他字段的解析
                 unsafe {
                     let factor_ptr = mmap.as_ptr().add(record_offset + factor_offset) as *const f64;
-                    *factor_ptr
+                    *slot = *factor_ptr;
                 }
-            })
-            .collect()
+            });
     });
 
     // 显式释放mmap
     drop(mmap);
 
     // 创建numpy数组
-    Python::with_gil(|py| {
-        let numpy = py.import("numpy")?;
-        Ok(numpy.call_method1("array", (factors,))?.into())
-    })
+    Python::with_gil(|py| Ok(PyArray1::from_vec(py, factors).into_py(py)))
 }
 
 /// 超高速查询备份文件中的指定列（完整版本v2）

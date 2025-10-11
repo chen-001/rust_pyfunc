@@ -1,3 +1,4 @@
+use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1};
 /// GP 相关维数 (D₂) 计算模块
 ///
 /// 实现完全确定性的 Grassberger-Procaccia 算法
@@ -6,11 +7,9 @@
 ///
 /// 最终输出指标是 **相关维数 (D₂)**
 /// 在 log C(r) = D₂ log r + const 中，线性段斜率即为 D₂
-
 use pyo3::prelude::*;
-use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1};
-use std::f64::consts::E;
 use std::collections::HashMap;
+use std::f64::consts::E;
 
 /// 优化的距离函数 - 使用平方距离避免sqrt计算
 fn fast_squared_distance(a: &[f64], b: &[f64]) -> f64 {
@@ -25,7 +24,8 @@ fn fast_squared_distance(a: &[f64], b: &[f64]) -> f64 {
     if a.len() > CHUNK_SIZE {
         // 分块计算大向量
         for (chunk_a, chunk_b) in a.chunks(CHUNK_SIZE).zip(b.chunks(CHUNK_SIZE)) {
-            let chunk_sum: f64 = chunk_a.iter()
+            let chunk_sum: f64 = chunk_a
+                .iter()
                 .zip(chunk_b.iter())
                 .map(|(x, y)| {
                     let diff = x - y;
@@ -36,7 +36,8 @@ fn fast_squared_distance(a: &[f64], b: &[f64]) -> f64 {
         }
     } else {
         // 小向量直接计算
-        sum_squares = a.iter()
+        sum_squares = a
+            .iter()
             .zip(b.iter())
             .map(|(x, y)| {
                 let diff = x - y;
@@ -45,7 +46,7 @@ fn fast_squared_distance(a: &[f64], b: &[f64]) -> f64 {
             .sum();
     }
 
-    sum_squares  // 注意：这里不再调用sqrt()
+    sum_squares // 注意：这里不再调用sqrt()
 }
 
 /// 保持向后兼容的欧几里得距离函数
@@ -59,25 +60,25 @@ fn euclidean_distance(a: &[f64], b: &[f64]) -> f64 {
 pub struct GpOptions {
     // AMI（平均互信息）与 τ 选择
     #[pyo3(get)]
-    pub ami_max_lag: usize,       // 默认：min(200, len(x)/10)
+    pub ami_max_lag: usize, // 默认：min(200, len(x)/10)
     #[pyo3(get)]
-    pub ami_n_bins: usize,        // 默认：32
+    pub ami_n_bins: usize, // 默认：32
     #[pyo3(get)]
-    pub ami_quantile_bins: bool,  // 默认：true（分位数分箱，确定性）
+    pub ami_quantile_bins: bool, // 默认：true（分位数分箱，确定性）
     #[pyo3(get)]
     pub tau_override: Option<usize>, // 默认 None：走自动选择
 
     // FNN（假近邻）与 m 选择
     #[pyo3(get)]
-    pub fnn_m_max: usize,         // 默认：12
+    pub fnn_m_max: usize, // 默认：12
     #[pyo3(get)]
-    pub fnn_rtol: f64,            // 默认：10.0
+    pub fnn_rtol: f64, // 默认：10.0
     #[pyo3(get)]
-    pub fnn_atol: f64,            // 默认：2.0
+    pub fnn_atol: f64, // 默认：2.0
     #[pyo3(get)]
-    pub fnn_threshold: f64,       // 默认：0.02
+    pub fnn_threshold: f64, // 默认：0.02
     #[pyo3(get)]
-    pub m_override: Option<usize>,// 默认 None：走自动选择
+    pub m_override: Option<usize>, // 默认 None：走自动选择
 
     // Theiler 窗口
     #[pyo3(get)]
@@ -85,23 +86,23 @@ pub struct GpOptions {
 
     // 半径网格 r
     #[pyo3(get)]
-    pub n_r: usize,               // 默认：48（对数均匀取点）
+    pub n_r: usize, // 默认：48（对数均匀取点）
     #[pyo3(get)]
-    pub r_percentile_lo: f64,     // 默认：5.0
+    pub r_percentile_lo: f64, // 默认：5.0
     #[pyo3(get)]
-    pub r_percentile_hi: f64,     // 默认：90.0
+    pub r_percentile_hi: f64, // 默认：90.0
 
     // 线性段选择（在 log C – log r 上）
     #[pyo3(get)]
-    pub fit_min_len: usize,       // 默认：6
+    pub fit_min_len: usize, // 默认：6
     #[pyo3(get)]
-    pub fit_max_len: usize,       // 默认：14
+    pub fit_max_len: usize, // 默认：14
     #[pyo3(get)]
-    pub c_lo: f64,                // 默认：1e-4（排除极小）
+    pub c_lo: f64, // 默认：1e-4（排除极小）
     #[pyo3(get)]
-    pub c_hi: f64,                // 默认：1.0 - 1e-3（排除饱和）
+    pub c_hi: f64, // 默认：1.0 - 1e-3（排除饱和）
     #[pyo3(get)]
-    pub stability_alpha: f64,     // 默认：0.05（评分：R² - alpha*局部斜率std）
+    pub stability_alpha: f64, // 默认：0.05（评分：R² - alpha*局部斜率std）
 }
 
 impl Default for GpOptions {
@@ -134,20 +135,20 @@ impl Default for GpOptions {
 #[pyclass]
 pub struct GpResult {
     #[pyo3(get)]
-    pub tau: usize,               // 自动选出的 τ
+    pub tau: usize, // 自动选出的 τ
     #[pyo3(get)]
-    pub m: usize,                 // 自动选出的 m
+    pub m: usize, // 自动选出的 m
     #[pyo3(get)]
-    pub optimal_tau: usize,       // 兼容性别名
+    pub optimal_tau: usize, // 兼容性别名
     #[pyo3(get)]
-    pub optimal_m: usize,         // 兼容性别名
+    pub optimal_m: usize, // 兼容性别名
     #[pyo3(get)]
-    pub theiler: usize,           // 自动选出的 Theiler 窗口
+    pub theiler: usize, // 自动选出的 Theiler 窗口
 
     #[pyo3(get)]
-    pub rs: Vec<f64>,             // 半径序列
+    pub rs: Vec<f64>, // 半径序列
     #[pyo3(get)]
-    pub cs: Vec<f64>,             // 对应 C(r)
+    pub cs: Vec<f64>, // 对应 C(r)
     #[pyo3(get)]
     pub log_r: Vec<f64>,
     #[pyo3(get)]
@@ -162,7 +163,7 @@ pub struct GpResult {
     #[pyo3(get)]
     pub fit_end: usize,
     #[pyo3(get)]
-    pub d2_est: f64,              // 相关维数估计（斜率）
+    pub d2_est: f64, // 相关维数估计（斜率）
     #[pyo3(get)]
     pub fit_intercept: f64,
     #[pyo3(get)]
@@ -264,12 +265,15 @@ mod ami {
         let mut sorted_data = data.to_vec();
         sorted_data.sort_by(|a, b| a.partial_cmp(b).unwrap());
 
-        data.iter().map(|&val| {
-            let pos = sorted_data.binary_search_by(|&x| x.partial_cmp(&val).unwrap_or(std::cmp::Ordering::Equal))
-                .unwrap_or_else(|idx| idx);
-            let bin = (pos as f64 / data.len() as f64 * n_bins as f64).floor() as usize;
-            bin.min(n_bins - 1)
-        }).collect()
+        data.iter()
+            .map(|&val| {
+                let pos = sorted_data
+                    .binary_search_by(|&x| x.partial_cmp(&val).unwrap_or(std::cmp::Ordering::Equal))
+                    .unwrap_or_else(|idx| idx);
+                let bin = (pos as f64 / data.len() as f64 * n_bins as f64).floor() as usize;
+                bin.min(n_bins - 1)
+            })
+            .collect()
     }
 
     /// 线性等距分箱
@@ -286,10 +290,12 @@ mod ami {
             return vec![0; data.len()];
         }
 
-        data.iter().map(|&val| {
-            let bin = ((val - min_val) / range * n_bins as f64).floor() as usize;
-            bin.min(n_bins - 1)
-        }).collect()
+        data.iter()
+            .map(|&val| {
+                let bin = ((val - min_val) / range * n_bins as f64).floor() as usize;
+                bin.min(n_bins - 1)
+            })
+            .collect()
     }
 
     /// 选择 τ 的确定性规则
@@ -320,7 +326,7 @@ mod ami {
         x: &[f64],
         max_lag: usize,
         n_bins: usize,
-        quantile_bins: bool
+        quantile_bins: bool,
     ) -> (usize, Vec<usize>, Vec<f64>) {
         let mut ami_values = Vec::with_capacity(max_lag);
         let mut lags = Vec::new();
@@ -372,7 +378,7 @@ mod fnn {
     fn find_nearest_neighbor_simple(
         query_idx: usize,
         embedding: &[Vec<f64>],
-        theiler: usize
+        theiler: usize,
     ) -> Option<(usize, f64)> {
         let query_point = &embedding[query_idx];
         let mut min_squared_distance = f64::INFINITY;
@@ -408,7 +414,7 @@ mod fnn {
         rtol: f64,
         atol: f64,
         theiler: usize,
-        x_std: f64
+        x_std: f64,
     ) -> Result<f64, GpError> {
         let embedding_m = build_delay_embedding(x, m, tau)?;
         let embedding_m1 = build_delay_embedding(x, m + 1, tau)?;
@@ -424,15 +430,18 @@ mod fnn {
         let min_len = embedding_m.len().min(embedding_m1.len());
 
         for i in 0..min_len {
-            if let Some((nearest_idx, distance_m)) = find_nearest_neighbor_simple(i, &embedding_m, theiler) {
+            if let Some((nearest_idx, distance_m)) =
+                find_nearest_neighbor_simple(i, &embedding_m, theiler)
+            {
                 // 确保 nearest_idx 也在 embedding_m1 的范围内
                 if nearest_idx < embedding_m1.len() {
                     // 计算 m+1 维距离（使用平方距离）
-                    let squared_distance_m1 = fast_squared_distance(&embedding_m1[i], &embedding_m1[nearest_idx]);
+                    let squared_distance_m1 =
+                        fast_squared_distance(&embedding_m1[i], &embedding_m1[nearest_idx]);
 
-                // Kennedy et al. 假近邻判据（使用平方距离）
+                    // Kennedy et al. 假近邻判据（使用平方距离）
                     let is_false = if distance_m > constants::EPS {
-                        let distance_m1 = squared_distance_m1.sqrt();  // 只在需要时转换回实际距离
+                        let distance_m1 = squared_distance_m1.sqrt(); // 只在需要时转换回实际距离
                         let ratio_increase = (distance_m1 - distance_m) / distance_m;
                         ratio_increase > rtol
                     } else {
@@ -485,7 +494,7 @@ mod fnn {
         m_max: usize,
         rtol: f64,
         atol: f64,
-        threshold: f64
+        threshold: f64,
     ) -> Result<(usize, Vec<usize>, Vec<f64>), GpError> {
         let x_std = {
             let mean = x.iter().sum::<f64>() / x.len() as f64;
@@ -512,11 +521,7 @@ mod theiler {
     use super::*;
 
     /// 确定性 Theiler 窗口选择
-    pub fn select_theiler_window(
-        ami_lags: &[usize],
-        ami_values: &[f64],
-        tau: usize
-    ) -> usize {
+    pub fn select_theiler_window(ami_lags: &[usize], ami_values: &[f64], tau: usize) -> usize {
         // 规则：从 AMI 曲线找首次 AMI ≤ AMI(1)/e 的 lag
         if ami_values.is_empty() {
             return (10 * tau).max(1);
@@ -545,11 +550,11 @@ mod correlation_sum {
         distances: &[f64],
         n_r: usize,
         percentile_lo: f64,
-        percentile_hi: f64
+        percentile_hi: f64,
     ) -> Result<Vec<f64>, GpError> {
         if distances.is_empty() {
             return Err(GpError::NumericalIssue {
-                msg: "距离列表为空".to_string()
+                msg: "距离列表为空".to_string(),
             });
         }
 
@@ -562,7 +567,7 @@ mod correlation_sum {
 
         if r_hi <= r_lo {
             return Err(GpError::NumericalIssue {
-                msg: "半径范围无效".to_string()
+                msg: "半径范围无效".to_string(),
             });
         }
 
@@ -611,7 +616,8 @@ mod correlation_sum {
         if a.len() > CHUNK_SIZE {
             // 分块计算大向量
             for (chunk_a, chunk_b) in a.chunks(CHUNK_SIZE).zip(b.chunks(CHUNK_SIZE)) {
-                let chunk_sum: f64 = chunk_a.iter()
+                let chunk_sum: f64 = chunk_a
+                    .iter()
                     .zip(chunk_b.iter())
                     .map(|(x, y)| {
                         let diff = x - y;
@@ -622,7 +628,8 @@ mod correlation_sum {
             }
         } else {
             // 小向量直接计算
-            sum_squares = a.iter()
+            sum_squares = a
+                .iter()
                 .zip(b.iter())
                 .map(|(x, y)| {
                     let diff = x - y;
@@ -638,12 +645,12 @@ mod correlation_sum {
     fn calculate_correlation_sum_simple(
         embedding: &[Vec<f64>],
         radii: &[f64],
-        theiler: usize
+        theiler: usize,
     ) -> Result<Vec<f64>, GpError> {
         let n = embedding.len();
         if n < 2 {
             return Err(GpError::NumericalIssue {
-                msg: "嵌入向量数量不足".to_string()
+                msg: "嵌入向量数量不足".to_string(),
             });
         }
 
@@ -669,14 +676,15 @@ mod correlation_sum {
         }
 
         // 步骤2：平方距离排序（用于快速计数）
-        squared_distances.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        squared_distances
+            .sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
         // 步骤3：对每个半径使用二分查找+累积计数（使用平方半径）
         let total_pairs = valid_pairs as f64;
         let mut correlation_sums = Vec::with_capacity(radii.len());
 
         for &radius in radii {
-            let squared_radius = radius * radius;  // 将半径平方
+            let squared_radius = radius * radius; // 将半径平方
             let count = binary_search_count_leq(&squared_distances, squared_radius);
             let c_r = (2.0 * count as f64) / total_pairs;
             correlation_sums.push(c_r);
@@ -687,8 +695,11 @@ mod correlation_sum {
 
     /// 二分查找：返回小于等于target的元素数量
     fn binary_search_count_leq(sorted_arr: &[f64], target: f64) -> usize {
-        match sorted_arr.binary_search_by(|&x| x.partial_cmp(&target).unwrap_or(std::cmp::Ordering::Greater)) {
-            Ok(idx) | Err(idx) => idx + 1,  // 插入位置+1就是<=target的元素数量
+        match sorted_arr.binary_search_by(|&x| {
+            x.partial_cmp(&target)
+                .unwrap_or(std::cmp::Ordering::Greater)
+        }) {
+            Ok(idx) | Err(idx) => idx + 1, // 插入位置+1就是<=target的元素数量
         }
     }
 
@@ -698,7 +709,7 @@ mod correlation_sum {
         theiler: usize,
         n_r: usize,
         percentile_lo: f64,
-        percentile_hi: f64
+        percentile_hi: f64,
     ) -> Result<(Vec<f64>, Vec<f64>), GpError> {
         // 计算距离分布
         let distances = calculate_all_pair_distances(embedding);
@@ -721,7 +732,7 @@ mod linear_segment {
     fn calculate_local_slopes(
         log_r: &[f64],
         log_c: &[f64],
-        window_size: usize
+        window_size: usize,
     ) -> Vec<Option<f64>> {
         let n = log_r.len();
         if n < window_size {
@@ -735,7 +746,9 @@ mod linear_segment {
             let start = i - half_window;
             let end = i + half_window + 1;
 
-            if let Ok((slope, _, _)) = utils::linear_regression(&log_r[start..end], &log_c[start..end]) {
+            if let Ok((slope, _, _)) =
+                utils::linear_regression(&log_r[start..end], &log_c[start..end])
+            {
                 slopes[i] = Some(slope);
             }
         }
@@ -749,16 +762,17 @@ mod linear_segment {
         log_c: &[f64],
         start: usize,
         end: usize,
-        short_window: usize
+        short_window: usize,
     ) -> Result<(f64, f64, f64), GpError> {
         if end <= start || start >= log_r.len() || end > log_r.len() {
             return Err(GpError::NumericalIssue {
-                msg: "无效的拟合段范围".to_string()
+                msg: "无效的拟合段范围".to_string(),
             });
         }
 
         // 计算整体线性拟合
-        let (slope, intercept, r2) = utils::linear_regression(&log_r[start..end], &log_c[start..end])?;
+        let (slope, intercept, r2) =
+            utils::linear_regression(&log_r[start..end], &log_c[start..end])?;
 
         // 计算局部斜率的标准差
         let local_slopes = calculate_local_slopes(log_r, log_c, short_window);
@@ -771,9 +785,11 @@ mod linear_segment {
             0.0
         } else {
             let mean = segment_slopes.iter().sum::<f64>() / segment_slopes.len() as f64;
-            let variance = segment_slopes.iter()
+            let variance = segment_slopes
+                .iter()
                 .map(|&s| (s - mean).powi(2))
-                .sum::<f64>() / (segment_slopes.len() - 1) as f64;
+                .sum::<f64>()
+                / (segment_slopes.len() - 1) as f64;
             variance.sqrt()
         };
 
@@ -789,7 +805,7 @@ mod linear_segment {
         fit_max_len: usize,
         c_lo: f64,
         c_hi: f64,
-        stability_alpha: f64
+        stability_alpha: f64,
     ) -> Result<(usize, usize, f64, f64, f64), GpError> {
         let n = log_r.len();
 
@@ -798,18 +814,22 @@ mod linear_segment {
 
         // 尝试多个约束级别，从严格到宽松
         let constraint_levels = vec![
-            (c_lo, c_hi),                              // 原始约束
+            (c_lo, c_hi),                             // 原始约束
             (c_stats.min * 1.1, c_stats.max * 0.9),   // 相对约束（宽松）
             (c_stats.min * 1.01, c_stats.max * 0.99), // 相对约束（更宽松）
-            (0.0, 1.0),                                // 几乎无约束（最后回退）
+            (0.0, 1.0),                               // 几乎无约束（最后回退）
         ];
 
         for (current_c_lo, current_c_hi) in constraint_levels {
             if let Ok(result) = try_find_with_constraints(
-                log_r, log_c, correlation_sums,
-                fit_min_len, fit_max_len,
-                current_c_lo, current_c_hi,
-                stability_alpha
+                log_r,
+                log_c,
+                correlation_sums,
+                fit_min_len,
+                fit_max_len,
+                current_c_lo,
+                current_c_hi,
+                stability_alpha,
             ) {
                 return Ok(result);
             }
@@ -821,8 +841,12 @@ mod linear_segment {
 
     /// 计算相关和的统计信息
     fn calculate_correlation_sum_stats(correlation_sums: &[f64]) -> CorrelationSumStats {
-        let min_val = correlation_sums.iter().fold(f64::INFINITY, |a, &b| a.min(b));
-        let max_val = correlation_sums.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
+        let min_val = correlation_sums
+            .iter()
+            .fold(f64::INFINITY, |a, &b| a.min(b));
+        let max_val = correlation_sums
+            .iter()
+            .fold(f64::NEG_INFINITY, |a, &b| a.max(b));
         let mean_val = correlation_sums.iter().sum::<f64>() / correlation_sums.len() as f64;
 
         CorrelationSumStats {
@@ -849,7 +873,7 @@ mod linear_segment {
         fit_max_len: usize,
         c_lo: f64,
         c_hi: f64,
-        stability_alpha: f64
+        stability_alpha: f64,
     ) -> Result<(usize, usize, f64, f64, f64), GpError> {
         let n = log_r.len();
         let mut best_score = f64::NEG_INFINITY;
@@ -869,7 +893,8 @@ mod linear_segment {
         }
 
         // 枚举所有可能的窗口长度和起点
-        for window_len in (fit_min_len..=fit_max_len).rev() { // 从长到短，优先选择长窗口
+        for window_len in (fit_min_len..=fit_max_len).rev() {
+            // 从长到短，优先选择长窗口
             for &start_idx in &valid_indices {
                 let end_idx = start_idx + window_len;
 
@@ -878,18 +903,17 @@ mod linear_segment {
                 }
 
                 // 检查窗口内所有点是否都有效
-                let window_valid = (start_idx..end_idx).all(|i| {
-                    correlation_sums[i] > c_lo && correlation_sums[i] < c_hi
-                });
+                let window_valid = (start_idx..end_idx)
+                    .all(|i| correlation_sums[i] > c_lo && correlation_sums[i] < c_hi);
 
                 if !window_valid {
                     continue;
                 }
 
                 // 评估该段
-                if let Ok((slope, r2, slope_std)) = evaluate_segment_stability(
-                    log_r, log_c, start_idx, end_idx, 5
-                ) {
+                if let Ok((slope, r2, slope_std)) =
+                    evaluate_segment_stability(log_r, log_c, start_idx, end_idx, 5)
+                {
                     // 计算评分：R² - α * 局部斜率标准差
                     let score = r2 - stability_alpha * slope_std;
 
@@ -900,8 +924,10 @@ mod linear_segment {
                         best_end = end_idx;
                         best_slope = slope;
                         best_intercept = {
-                            let mean_x = log_r[start_idx..end_idx].iter().sum::<f64>() / window_len as f64;
-                            let mean_y = log_c[start_idx..end_idx].iter().sum::<f64>() / window_len as f64;
+                            let mean_x =
+                                log_r[start_idx..end_idx].iter().sum::<f64>() / window_len as f64;
+                            let mean_y =
+                                log_c[start_idx..end_idx].iter().sum::<f64>() / window_len as f64;
                             mean_y - slope * mean_x
                         };
                         best_r2 = r2;
@@ -912,8 +938,10 @@ mod linear_segment {
                             best_end = end_idx;
                             best_slope = slope;
                             best_intercept = {
-                                let mean_x = log_r[start_idx..end_idx].iter().sum::<f64>() / window_len as f64;
-                                let mean_y = log_c[start_idx..end_idx].iter().sum::<f64>() / window_len as f64;
+                                let mean_x = log_r[start_idx..end_idx].iter().sum::<f64>()
+                                    / window_len as f64;
+                                let mean_y = log_c[start_idx..end_idx].iter().sum::<f64>()
+                                    / window_len as f64;
                                 mean_y - slope * mean_x
                             };
                             best_r2 = r2;
@@ -923,8 +951,10 @@ mod linear_segment {
                             best_end = end_idx;
                             best_slope = slope;
                             best_intercept = {
-                                let mean_x = log_r[start_idx..end_idx].iter().sum::<f64>() / window_len as f64;
-                                let mean_y = log_c[start_idx..end_idx].iter().sum::<f64>() / window_len as f64;
+                                let mean_x = log_r[start_idx..end_idx].iter().sum::<f64>()
+                                    / window_len as f64;
+                                let mean_y = log_c[start_idx..end_idx].iter().sum::<f64>()
+                                    / window_len as f64;
                                 mean_y - slope * mean_x
                             };
                             best_r2 = r2;
@@ -945,7 +975,7 @@ mod linear_segment {
     fn find_simple_linear_fit(
         log_r: &[f64],
         log_c: &[f64],
-        min_len: usize
+        min_len: usize,
     ) -> Result<(usize, usize, f64, f64, f64), GpError> {
         let n = log_r.len();
 
@@ -965,8 +995,11 @@ mod linear_segment {
         // 计算简单线性回归
         let sum_x: f64 = log_r[start..end].iter().sum();
         let sum_y: f64 = log_c[start..end].iter().sum();
-        let sum_xy: f64 = log_r[start..end].iter().zip(log_c[start..end].iter())
-            .map(|(x, y)| x * y).sum();
+        let sum_xy: f64 = log_r[start..end]
+            .iter()
+            .zip(log_c[start..end].iter())
+            .map(|(x, y)| x * y)
+            .sum();
         let sum_x2: f64 = log_r[start..end].iter().map(|x| x * x).sum();
 
         let n_f64 = window_len as f64;
@@ -975,13 +1008,15 @@ mod linear_segment {
 
         // 计算R²
         let mean_y = sum_y / n_f64;
-        let total_sum_squares: f64 = log_c[start..end].iter()
-            .map(|y| (y - mean_y).powi(2)).sum();
-        let residual_sum_squares: f64 = log_r[start..end].iter().zip(log_c[start..end].iter())
+        let total_sum_squares: f64 = log_c[start..end].iter().map(|y| (y - mean_y).powi(2)).sum();
+        let residual_sum_squares: f64 = log_r[start..end]
+            .iter()
+            .zip(log_c[start..end].iter())
             .map(|(x, y)| {
                 let predicted = slope * x + intercept;
                 (y - predicted).powi(2)
-            }).sum();
+            })
+            .sum();
 
         let r2 = if total_sum_squares > 0.0 {
             1.0 - residual_sum_squares / total_sum_squares
@@ -1000,17 +1035,30 @@ mod linear_segment {
         fit_max_len: usize,
         c_lo: f64,
         c_hi: f64,
-        stability_alpha: f64
-    ) -> Result<(usize, usize, f64, f64, f64, Vec<f64>, Vec<f64>, Vec<Option<f64>>), GpError> {
+        stability_alpha: f64,
+    ) -> Result<
+        (
+            usize,
+            usize,
+            f64,
+            f64,
+            f64,
+            Vec<f64>,
+            Vec<f64>,
+            Vec<Option<f64>>,
+        ),
+        GpError,
+    > {
         if radii.len() != correlation_sums.len() || radii.is_empty() {
             return Err(GpError::NumericalIssue {
-                msg: "半径和相关和数据不匹配或为空".to_string()
+                msg: "半径和相关和数据不匹配或为空".to_string(),
             });
         }
 
         // 计算 log 值
         let log_r: Vec<f64> = radii.iter().map(|&r| r.ln()).collect();
-        let log_c: Vec<f64> = correlation_sums.iter()
+        let log_c: Vec<f64> = correlation_sums
+            .iter()
             .map(|&c| if c > 0.0 { c.ln() } else { constants::LOG_TINY })
             .collect();
 
@@ -1019,11 +1067,26 @@ mod linear_segment {
 
         // 找到最佳线性段
         let (fit_start, fit_end, d2_est, intercept, r2) = find_best_scaling_region(
-            &log_r, &log_c, correlation_sums,
-            fit_min_len, fit_max_len, c_lo, c_hi, stability_alpha
+            &log_r,
+            &log_c,
+            correlation_sums,
+            fit_min_len,
+            fit_max_len,
+            c_lo,
+            c_hi,
+            stability_alpha,
         )?;
 
-        Ok((fit_start, fit_end, d2_est, intercept, r2, log_r, log_c, local_slopes))
+        Ok((
+            fit_start,
+            fit_end,
+            d2_est,
+            intercept,
+            r2,
+            log_r,
+            log_c,
+            local_slopes,
+        ))
     }
 }
 
@@ -1032,7 +1095,11 @@ mod embedding {
     use super::*;
 
     /// 构建 m 维延迟嵌入
-    pub fn build_delay_embedding(x: &[f64], m: usize, tau: usize) -> Result<Vec<Vec<f64>>, GpError> {
+    pub fn build_delay_embedding(
+        x: &[f64],
+        m: usize,
+        tau: usize,
+    ) -> Result<Vec<Vec<f64>>, GpError> {
         let n = x.len();
         if n < (m - 1) * tau + 1 {
             return Err(GpError::InvalidTauOrM);
@@ -1060,18 +1127,23 @@ mod utils {
     /// 序列标准化：减均值/除标准差（完全确定性）
     pub fn standardize_sequence(x: &[f64]) -> Result<Vec<f64>, GpError> {
         if x.is_empty() {
-            return Err(GpError::InputTooShort { min_len: 1, actual_len: 0 });
+            return Err(GpError::InputTooShort {
+                min_len: 1,
+                actual_len: 0,
+            });
         }
 
         let n = x.len();
         let mean: f64 = x.iter().sum::<f64>() / n as f64;
 
-        let variance: f64 = x.iter()
+        let variance: f64 = x
+            .iter()
             .map(|&val| {
                 let diff = val - mean;
                 diff * diff
             })
-            .sum::<f64>() / n as f64;
+            .sum::<f64>()
+            / n as f64;
 
         let std = variance.sqrt();
 
@@ -1106,7 +1178,7 @@ mod utils {
     pub fn linear_regression(x: &[f64], y: &[f64]) -> Result<(f64, f64, f64), GpError> {
         if x.len() != y.len() || x.len() < 2 {
             return Err(GpError::NumericalIssue {
-                msg: "线性回归需要至少2个等长数据点".to_string()
+                msg: "线性回归需要至少2个等长数据点".to_string(),
             });
         }
 
@@ -1119,7 +1191,7 @@ mod utils {
         let denominator = n * sum_xx - sum_x * sum_x;
         if denominator.abs() < constants::EPS {
             return Err(GpError::NumericalIssue {
-                msg: "线性回归分母过小".to_string()
+                msg: "线性回归分母过小".to_string(),
             });
         }
 
@@ -1129,7 +1201,9 @@ mod utils {
         // 计算 R²
         let mean_y = sum_y / n;
         let ss_tot: f64 = y.iter().map(|&yi| (yi - mean_y).powi(2)).sum();
-        let ss_res: f64 = x.iter().zip(y.iter())
+        let ss_res: f64 = x
+            .iter()
+            .zip(y.iter())
             .map(|(&xi, &yi)| (yi - (slope * xi + intercept)).powi(2))
             .sum();
 
@@ -1143,7 +1217,6 @@ mod utils {
     }
 }
 
-
 /// 智能调整 τ 和 m 的组合以适应数据长度
 fn adjust_tau_m_combination(data_len: usize, mut tau: usize, mut m: usize) -> (usize, usize) {
     // 对于小数据集，使用更积极的调整策略
@@ -1151,8 +1224,8 @@ fn adjust_tau_m_combination(data_len: usize, mut tau: usize, mut m: usize) -> (u
         // 小数据集：强制使用保守参数确保成功
         tau = 1;
         m = std::cmp::min(
-            std::cmp::max(data_len / 3, 2),  // 至少2维，最多 data_len/3 维
-            10  // 最大10维
+            std::cmp::max(data_len / 3, 2), // 至少2维，最多 data_len/3 维
+            10,                             // 最大10维
         );
         return (tau, m);
     }
@@ -1186,14 +1259,14 @@ fn adjust_tau_m_combination(data_len: usize, mut tau: usize, mut m: usize) -> (u
         } else if tau > 1 {
             tau -= 1;
         } else {
-            break;  // 无法再调整
+            break; // 无法再调整
         }
     }
 
     // 如果还是不满足，使用最小可行参数
     if data_len < (m - 1) * tau + 1 {
         tau = 1;
-        m = (data_len / 2).max(2).min(12);  // 限制在合理范围内
+        m = (data_len / 2).max(2).min(12); // 限制在合理范围内
     }
 
     (tau, m)
@@ -1212,11 +1285,11 @@ impl GpOptions {
 
         // 激进的半径网格优化 - 针对小数据集大幅减少半径数量
         self.n_r = match n {
-            30..=60 => 12,    // 你的主要使用场景：最少半径
-            61..=100 => 16,   // 稍大数据集
-            101..=200 => 20,  // 中等数据集
-            201..=500 => 24,  // 较大数据集
-            _ => 32,          // 大数据集仍保持合理数量
+            30..=60 => 12,   // 你的主要使用场景：最少半径
+            61..=100 => 16,  // 稍大数据集
+            101..=200 => 20, // 中等数据集
+            201..=500 => 24, // 较大数据集
+            _ => 32,         // 大数据集仍保持合理数量
         };
 
         // 拟合窗口自适应调整
@@ -1231,7 +1304,7 @@ impl GpOptions {
         // 高维嵌入需要更宽松的参数
         if m > 10 {
             self.fnn_threshold = self.fnn_threshold * 1.5;
-            self.stability_alpha = self.stability_alpha * 0.8;  // 更宽松的稳定性要求
+            self.stability_alpha = self.stability_alpha * 0.8; // 更宽松的稳定性要求
         }
 
         self
@@ -1242,7 +1315,7 @@ impl GpOptions {
         mut self,
         data_length: usize,
         embedding_dim: usize,
-        correlation_sum_range: (f64, f64)
+        correlation_sum_range: (f64, f64),
     ) -> Self {
         self = self.adjust_for_sequence_length(data_length);
         self = self.adjust_for_embedding_dimension(embedding_dim);
@@ -1265,9 +1338,7 @@ impl GpOptions {
 /// 零参数入口：只需传入序列，所有参数自动确定
 #[pyfunction]
 #[pyo3(signature = (x))]
-pub fn gp_correlation_dimension_auto(
-    x: PyReadonlyArray1<f64>
-) -> PyResult<GpResult> {
+pub fn gp_correlation_dimension_auto(x: PyReadonlyArray1<f64>) -> PyResult<GpResult> {
     let x_slice = x.as_slice()?;
 
     // 小数据集快速处理路径
@@ -1290,7 +1361,7 @@ pub fn gp_correlation_dimension_auto(
 #[pyo3(signature = (x, opts=None))]
 pub fn gp_correlation_dimension(
     x: PyReadonlyArray1<f64>,
-    opts: Option<GpOptions>
+    opts: Option<GpOptions>,
 ) -> PyResult<GpResult> {
     let x_slice = x.as_slice()?;
     let result = internal_gp_correlation_dimension(x_slice, opts).map_err(|e| {
@@ -1302,13 +1373,13 @@ pub fn gp_correlation_dimension(
 /// 内部实现函数
 fn internal_gp_correlation_dimension(
     x: &[f64],
-    opts: Option<GpOptions>
+    opts: Option<GpOptions>,
 ) -> Result<GpResult, GpError> {
     // 输入验证 - 降低最小长度要求
     if x.len() < 30 {
         return Err(GpError::InputTooShort {
             min_len: 30,
-            actual_len: x.len()
+            actual_len: x.len(),
         });
     }
 
@@ -1326,7 +1397,7 @@ fn internal_gp_correlation_dimension(
             &x_std,
             base_options.ami_max_lag,
             base_options.ami_n_bins,
-            base_options.ami_quantile_bins
+            base_options.ami_quantile_bins,
         )
     };
 
@@ -1340,7 +1411,7 @@ fn internal_gp_correlation_dimension(
             base_options.fnn_m_max,
             base_options.fnn_rtol,
             base_options.fnn_atol,
-            base_options.fnn_threshold
+            base_options.fnn_threshold,
         )?
     };
 
@@ -1363,7 +1434,7 @@ fn internal_gp_correlation_dimension(
         theiler,
         base_options.n_r,
         base_options.r_percentile_lo,
-        base_options.r_percentile_hi
+        base_options.r_percentile_hi,
     )?;
 
     // 获取相关和统计信息用于参数自适应
@@ -1372,11 +1443,7 @@ fn internal_gp_correlation_dimension(
     let correlation_range = (c_min, c_max);
 
     // 根据数据特征自适应调整参数
-    let options = base_options.adapt_to_data_characteristics(
-        x.len(),
-        m,
-        correlation_range
-    );
+    let options = base_options.adapt_to_data_characteristics(x.len(), m, correlation_range);
 
     // 步骤6：线性段检测和 D2 估计（使用自适应后的参数）
     let (fit_start, fit_end, d2_est, fit_intercept, fit_r2, log_r, log_c, local_slopes) =
@@ -1387,7 +1454,7 @@ fn internal_gp_correlation_dimension(
             options.fit_max_len,
             options.c_lo,
             options.c_hi,
-            options.stability_alpha
+            options.stability_alpha,
         )?;
 
     Ok(GpResult {
@@ -1523,7 +1590,10 @@ mod tests {
         assert!(result.tau >= 1, "τ 应该至少为 1");
         assert!(result.m >= 2, "m 应该至少为 2");
         assert!(result.fit_r2 >= 0.9, "拟合 R² 应该较高");
-        assert!(result.d2_est >= 0.5 && result.d2_est <= 3.0, "D₂ 估计应该在合理范围内");
+        assert!(
+            result.d2_est >= 0.5 && result.d2_est <= 3.0,
+            "D₂ 估计应该在合理范围内"
+        );
         assert!(result.fit_end > result.fit_start, "拟合段应该有效");
 
         // 验证数据长度一致性
@@ -1540,7 +1610,10 @@ mod tests {
         let result = internal_gp_correlation_dimension(&x, None).unwrap();
 
         // 白噪声的 D₂ 应该接近嵌入维数
-        assert!(result.d2_est >= result.m as f64 * 0.7, "白噪声的 D₂ 应该较高");
+        assert!(
+            result.d2_est >= result.m as f64 * 0.7,
+            "白噪声的 D₂ 应该较高"
+        );
         assert!(result.fit_r2 >= 0.8, "拟合质量应该较好");
     }
 
@@ -1586,14 +1659,19 @@ mod tests {
         let (tau, lags, ami_values) = ami::calculate_ami_and_select_tau(&x, 50, 16, true).unwrap();
 
         assert!(tau >= 1, "选择的 τ 应该有效");
-        assert_eq!(lags.len(), ami_values.len(), "lags 和 ami_values 长度应该一致");
+        assert_eq!(
+            lags.len(),
+            ami_values.len(),
+            "lags 和 ami_values 长度应该一致"
+        );
         assert!(lags.len() > 0, "应该计算了 AMI 值");
     }
 
     #[test]
     fn test_fnn_calculation() {
         let x = generate_logistic_map(1000, 3.9, 0.1);
-        let (m, ms, fnn_ratios) = fnn::calculate_fnn_and_select_m(&x, 2, 8, 10.0, 2.0, 0.02).unwrap();
+        let (m, ms, fnn_ratios) =
+            fnn::calculate_fnn_and_select_m(&x, 2, 8, 10.0, 2.0, 0.02).unwrap();
 
         assert!(m >= 2, "选择的 m 应该有效");
         assert_eq!(ms.len(), fnn_ratios.len(), "ms 和 fnn_ratios 长度应该一致");
@@ -1619,8 +1697,14 @@ mod tests {
 
         assert_eq!(result1.tau, result2.tau, "τ 选择应该是确定性的");
         assert_eq!(result1.m, result2.m, "m 选择应该是确定性的");
-        assert_eq!(result1.theiler, result2.theiler, "Theiler 窗口选择应该是确定性的");
-        assert!((result1.d2_est - result2.d2_est).abs() < 1e-10, "D₂ 估计应该是确定性的");
+        assert_eq!(
+            result1.theiler, result2.theiler,
+            "Theiler 窗口选择应该是确定性的"
+        );
+        assert!(
+            (result1.d2_est - result2.d2_est).abs() < 1e-10,
+            "D₂ 估计应该是确定性的"
+        );
     }
 }
 
@@ -1633,7 +1717,7 @@ fn compute_gp_correlation_dimension_small_dataset(x: &[f64]) -> Result<GpResult,
     if n < 30 {
         return Err(GpError::InputTooShort {
             min_len: 30,
-            actual_len: n
+            actual_len: n,
         });
     }
 
@@ -1641,23 +1725,20 @@ fn compute_gp_correlation_dimension_small_dataset(x: &[f64]) -> Result<GpResult,
     let x_std = utils::standardize_sequence(x)?;
 
     // 小数据集使用保守的固定参数
-    let tau = 1;  // 最小时间延迟
-    let m = std::cmp::min(n / 3, 10).max(2);  // 2-10维，根据数据长度调整
-    let theiler = tau;  // 简单的Theiler窗口
+    let tau = 1; // 最小时间延迟
+    let m = std::cmp::min(n / 3, 10).max(2); // 2-10维，根据数据长度调整
+    let theiler = tau; // 简单的Theiler窗口
 
     // 构建延迟嵌入
     let embedding = embedding::build_delay_embedding(&x_std, m, tau)?;
 
     // 小数据集使用较少的半径以提高性能
-    let n_r = 12;  // 固定使用12个半径
+    let n_r = 12; // 固定使用12个半径
 
     // 计算相关和
     let (rs, cs) = correlation_sum::calculate_correlation_sum(
-        &embedding,
-        theiler,
-        n_r,
-        0.1,  // r_percentile_lo
-        0.9   // r_percentile_hi
+        &embedding, theiler, n_r, 0.1, // r_percentile_lo
+        0.9, // r_percentile_hi
     )?;
 
     // 转换到对数空间
@@ -1687,8 +1768,11 @@ fn compute_gp_correlation_dimension_small_dataset(x: &[f64]) -> Result<GpResult,
         // 计算线性回归
         let sum_x: f64 = log_r[start..end].iter().sum();
         let sum_y: f64 = log_c[start..end].iter().sum();
-        let sum_xy: f64 = log_r[start..end].iter().zip(log_c[start..end].iter())
-            .map(|(x, y)| x * y).sum();
+        let sum_xy: f64 = log_r[start..end]
+            .iter()
+            .zip(log_c[start..end].iter())
+            .map(|(x, y)| x * y)
+            .sum();
         let sum_x2: f64 = log_r[start..end].iter().map(|x| x * x).sum();
 
         let n_f64 = (end - start) as f64;
@@ -1697,13 +1781,15 @@ fn compute_gp_correlation_dimension_small_dataset(x: &[f64]) -> Result<GpResult,
 
         // 计算R²
         let mean_y = sum_y / n_f64;
-        let total_sum_squares: f64 = log_c[start..end].iter()
-            .map(|y| (y - mean_y).powi(2)).sum();
-        let residual_sum_squares: f64 = log_r[start..end].iter().zip(log_c[start..end].iter())
+        let total_sum_squares: f64 = log_c[start..end].iter().map(|y| (y - mean_y).powi(2)).sum();
+        let residual_sum_squares: f64 = log_r[start..end]
+            .iter()
+            .zip(log_c[start..end].iter())
             .map(|(x, y)| {
                 let predicted = slope * x + intercept;
                 (y - predicted).powi(2)
-            }).sum();
+            })
+            .sum();
 
         let r2 = if total_sum_squares > 0.0 {
             1.0 - residual_sum_squares / total_sum_squares
@@ -1713,7 +1799,7 @@ fn compute_gp_correlation_dimension_small_dataset(x: &[f64]) -> Result<GpResult,
 
         (slope, intercept, r2)
     } else {
-        (0.0, 0.0, 0.0)  // 默认值
+        (0.0, 0.0, 0.0) // 默认值
     };
 
     Ok(GpResult {
@@ -1732,9 +1818,9 @@ fn compute_gp_correlation_dimension_small_dataset(x: &[f64]) -> Result<GpResult,
         d2_est,
         fit_intercept,
         fit_r2,
-        ami_lags: Vec::new(),  // 小数据集不计算AMI
+        ami_lags: Vec::new(), // 小数据集不计算AMI
         ami_values: Vec::new(),
-        fnn_ms: Vec::new(),    // 小数据集不计算FNN
+        fnn_ms: Vec::new(), // 小数据集不计算FNN
         fnn_ratios: Vec::new(),
     })
 }

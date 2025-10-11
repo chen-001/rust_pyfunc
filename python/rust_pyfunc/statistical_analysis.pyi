@@ -1001,3 +1001,109 @@ def hmm_trend_prediction(
     ... )
     """
     ...
+
+def distances_to_frontier(
+    r: NDArray[np.float64],
+    group_size: int,
+    drop_last: bool = True,
+    ddof: int = 1,
+    ridge: float = 1e-6
+) -> NDArray[np.float64]:
+    """计算收益序列中每个聚合块到马科维茨有效前沿的距离。
+
+    基于马科维茨投资组合理论的有效前沿距离计算功能。给定单日3秒频率收益序列，
+    按指定块大小聚合后计算每个资产点到有效前沿的最短距离。
+
+    算法步骤：
+    1. 数据分块聚合：将收益序列按指定大小分块，计算每块均值
+    2. 协方差矩阵计算：计算块间样本协方差矩阵（带岭化保证正定性）
+    3. 有效前沿构造：使用马科维茨无约束闭式解构造有效前沿
+    4. 距离计算：使用KKT-λ四次方程法计算每个资产点到前沿的最短欧氏距离
+
+    参数说明：
+    ----------
+    r : NDArray[np.float64]
+        1D float64数组，单日3秒频率收益序列
+    group_size : int
+        每多少行聚合成一块（x），必须大于0
+    drop_last : bool, default=True
+        尾部不足group_size行时是否丢弃，True丢弃，False则报错
+    ddof : int, default=1
+        协方差/方差的自由度调整，0或1，默认1（样本协方差）
+    ridge : float, default=1e-6
+        岭化强度系数，用于保证协方差矩阵正定
+
+    返回值：
+    -------
+    NDArray[np.float64]
+        shape=(m,)的1D数组，包含每个资产点到有效前沿的距离
+        其中m = floor(len(r) / group_size)（如果drop_last=True）
+
+    异常：
+    -----
+    ValueError
+        当输入参数无效时抛出：
+        - group_size <= 0
+        - 输入序列为空
+        - drop_last=False且序列长度不能被group_size整除
+        - 块大小 <= 自由度调整
+        - 协方差矩阵不正定（可尝试增大ridge）
+        - 有效前沿参数计算失败（Δ <= 0）
+
+    数值提示：
+    --------
+    - 当 m >> group_size 时，协方差矩阵可能秩亏，需要通过增大ridge参数保证可逆性
+    - 如果出现数值不稳定错误，建议将ridge增大10倍或100倍
+    - 默认使用样本协方差（ddof=1），符合统计学习习惯
+
+    性能特点：
+    --------
+    - 使用Rust实现，计算性能优异
+    - 采用Cholesky分解避免显式矩阵求逆，数值稳定性好
+    - 支持大规模数据处理，内存使用优化
+    - 多项式求根采用高效算法，避免数值迭代
+
+    应用场景：
+    --------
+    - 投资组合绩效评估：评估各时间段表现相对有效前沿的距离
+    - 市场效率分析：通过距离分布判断市场效率变化
+    - 风险管理：识别偏离有效前沿的异常时期
+    - 资产配置优化：为动态调整提供量化依据
+
+    示例：
+    -----
+    >>> import numpy as np
+    >>> from rust_pyfunc import distances_to_frontier
+    >>>
+    >>> # 生成测试数据
+    >>> np.random.seed(0)
+    >>> r = 1e-4 * np.random.randn(4800).astype(np.float64)
+    >>>
+    >>> # 每1分钟聚合（20个3秒间隔）
+    >>> distances = distances_to_frontier(r, group_size=20)
+    >>> print(f"距离数组形状: {distances.shape}")  # (240,)
+    >>> print(f"平均距离: {np.mean(distances):.6e}")
+    >>>
+    >>> # 每2分半聚合（50个3秒间隔）
+    >>> distances2 = distances_to_frontier(r, group_size=50)
+    >>> print(f"距离数组形状: {distances2.shape}")  # (96,)
+    >>>
+    >>> # 增大岭化系数处理病态数据
+    >>> distances3 = distances_to_frontier(r, group_size=100, ridge=1e-4)
+    >>> print(f"距离数组形状: {distances3.shape}")  # (48,)
+    >>>
+    >>> # 分析距离分布
+    >>> import matplotlib.pyplot as plt
+    >>> plt.hist(distances, bins=30, alpha=0.7)
+    >>> plt.xlabel('到有效前沿的距离')
+    >>> plt.ylabel('频次')
+    >>> plt.title('距离分布直方图')
+    >>> plt.show()
+
+    注意：
+    -----
+    - 函数保证返回的距离值非负且有限
+    - 在极少数情况下如果多项式求根失败，对应距离会设为0并发出警告
+    - 所有计算都使用双精度浮点数，确保数值精度
+    """
+    ...
