@@ -28,15 +28,16 @@ pub mod vector_similarity_optimized;
 pub mod factor_neutralization_io_optimized;
 
 pub mod abnormal_asks_analyzer;
+pub mod frontier_dist;
+pub mod gp_correlation_dimension;
 pub mod lagged_regression;
 pub mod lagged_regression_incremental;
 pub mod lagged_regression_optimized;
 pub mod lagged_regression_simd;
+pub mod lz_complexity;
 pub mod permutation_analysis_v0816_fixed;
 pub mod price_breakthrough_stats;
 pub mod series_rank;
-pub mod lz_complexity;
-pub mod gp_correlation_dimension;
 
 /// Formats the sum of two numbers as string.
 #[pyfunction]
@@ -356,10 +357,23 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         m
     )?);
     m.add_function(wrap_pyfunction!(lz_complexity::lz_complexity, m)?);
-    m.add_function(wrap_pyfunction!(gp_correlation_dimension::gp_correlation_dimension_auto, m)?)?;
-    m.add_function(wrap_pyfunction!(gp_correlation_dimension::gp_correlation_dimension, m)?)?;
-    m.add_function(wrap_pyfunction!(gp_correlation_dimension::gp_create_default_options, m)?)?;
-    m.add_function(wrap_pyfunction!(gp_correlation_dimension::gp_create_options, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        gp_correlation_dimension::gp_correlation_dimension_auto,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        gp_correlation_dimension::gp_correlation_dimension,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        gp_correlation_dimension::gp_create_default_options,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        gp_correlation_dimension::gp_create_options,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(frontier_dist::distances_to_frontier, m)?)?;
     // m.add_function(wrap_pyfunction!(text::normalized_diff, m)?)?;
     Ok(())
 }

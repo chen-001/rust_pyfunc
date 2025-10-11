@@ -703,9 +703,7 @@ pub fn batch_factor_neutralization_io_optimized(
             // 显示进度：有处理进展或者已经运行超过5秒
             if processed > 0 || elapsed.as_secs() >= 5 {
                 let current_time = Local::now().format("%Y-%m-%d %H:%M:%S");
-                print!("\r[{}] 📊 处理进度: {}/{} ({:.1}%) - 成功: {}, 失败: {} - 已用时间: {} - 预计剩余: {}", 
-                         current_time, processed, total_files, progress_percent, 
-                         success_count, errors, elapsed_time_str, remaining_time_str);
+                print!("\r[{}] 📊 处理进度: {}/{} ({:.1}%) - 成功: {}, 失败: {} - 已用时间: {} - 预计剩余: {}", current_time, processed, total_files, progress_percent, success_count, errors, elapsed_time_str, remaining_time_str);
                 io::stdout().flush().unwrap();
             }
         }

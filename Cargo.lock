@@ -2017,8 +2017,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "roots"
+version = "0.0.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "082f11ffa03bbef6c2c6ea6bea1acafaade2fd9050ae0234ab44a2153742b058"
+
+[[package]]
 name = "rust_pyfunc"
-version = "0.43.0"
+version = "0.44.0"
 dependencies = [
  "arrow",
  "base64 0.21.7",
@@ -2029,6 +2035,7 @@ dependencies = [
  "faer",
  "lapack",
  "libc",
+ "log",
  "memmap2",
  "nalgebra",
  "ndarray",
@@ -2044,6 +2051,7 @@ dependencies = [
  "rand",
  "rayon",
  "rmp-serde",
+ "roots",
  "rustc-hash",
  "serde",
  "serde_json",

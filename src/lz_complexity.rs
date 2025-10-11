@@ -1,5 +1,5 @@
-use pyo3::prelude::*;
 use numpy::PyReadonlyArray1;
+use pyo3::prelude::*;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::mem;
@@ -99,10 +99,7 @@ pub fn lz_complexity(
 }
 
 /// 使用分位数离散化序列 - 优化版本
-fn discretize_sequence(
-    seq: &ndarray::ArrayView1<f64>,
-    quantiles: &[f64],
-) -> PyResult<Vec<u8>> {
+fn discretize_sequence(seq: &ndarray::ArrayView1<f64>, quantiles: &[f64]) -> PyResult<Vec<u8>> {
     let n = seq.len();
 
     // 优化：避免克隆整个序列，直接对原始数据进行分位数计算
@@ -116,7 +113,7 @@ fn discretize_sequence(
     for &q in quantiles {
         if q < 0.0 || q > 1.0 {
             return Err(pyo3::exceptions::PyValueError::new_err(
-                "分位数必须在0到1之间"
+                "分位数必须在0到1之间",
             ));
         }
         let idx = ((n - 1) as f64 * q) as usize;
@@ -282,13 +279,13 @@ fn calculate_lz_complexity_rolling_hash(seq: &[u8]) -> usize {
     // 预计算幂次
     let mut power = vec![1u64; n + 1];
     for i in 1..=n {
-        power[i] = (power[i-1] * BASE) % MOD;
+        power[i] = (power[i - 1] * BASE) % MOD;
     }
 
     // 预计算所有子串的哈希值
     let mut prefix_hash = vec![0u64; n + 1];
     for i in 0..n {
-        prefix_hash[i+1] = (prefix_hash[i] * BASE + seq[i] as u64) % MOD;
+        prefix_hash[i + 1] = (prefix_hash[i] * BASE + seq[i] as u64) % MOD;
     }
 
     while i < n {
@@ -337,7 +334,7 @@ fn has_hash_match(
     search_end: usize,
     target_hash: u64,
     prefix_hash: &[u64],
-    power: &[u64]
+    power: &[u64],
 ) -> bool {
     let sub_len = end - start;
 
@@ -346,7 +343,7 @@ fn has_hash_match(
         let hash = get_substring_hash(prefix_hash, power, i, i + sub_len);
         if hash == target_hash {
             // 哈希匹配，进行精确比较
-            if &seq[i..i+sub_len] == &seq[start..end] {
+            if &seq[i..i + sub_len] == &seq[start..end] {
                 return true;
             }
         }
@@ -410,9 +407,7 @@ fn calculate_lz_complexity_suffix_optimized(seq: &[u8]) -> usize {
             }
 
             // 检查子串是否在前面出现过
-            found_match = check_substring_exists_optimized(
-                seq, i, j, search_end, &char_positions
-            );
+            found_match = check_substring_exists_optimized(seq, i, j, search_end, &char_positions);
 
             if found_match {
                 j += 1;
@@ -432,7 +427,7 @@ fn check_substring_exists_optimized(
     start: usize,
     end: usize,
     search_end: usize,
-    char_positions: &Vec<Vec<usize>>
+    char_positions: &Vec<Vec<usize>>,
 ) -> bool {
     let sub_len = end - start;
     let first_char = seq[start];
@@ -456,13 +451,17 @@ fn check_full_match(seq: &[u8], pos1: usize, pos2: usize, len: usize) -> bool {
     match len {
         1 => seq[pos1] == seq[pos2],
         2 => seq[pos1] == seq[pos2] && seq[pos1 + 1] == seq[pos2 + 1],
-        3 => seq[pos1] == seq[pos2] &&
-             seq[pos1 + 1] == seq[pos2 + 1] &&
-             seq[pos1 + 2] == seq[pos2 + 2],
-        4 => seq[pos1] == seq[pos2] &&
-             seq[pos1 + 1] == seq[pos2 + 1] &&
-             seq[pos1 + 2] == seq[pos2 + 2] &&
-             seq[pos1 + 3] == seq[pos2 + 3],
+        3 => {
+            seq[pos1] == seq[pos2]
+                && seq[pos1 + 1] == seq[pos2 + 1]
+                && seq[pos1 + 2] == seq[pos2 + 2]
+        }
+        4 => {
+            seq[pos1] == seq[pos2]
+                && seq[pos1 + 1] == seq[pos2 + 1]
+                && seq[pos1 + 2] == seq[pos2 + 2]
+                && seq[pos1 + 3] == seq[pos2 + 3]
+        }
         _ => {
             // 对于长模式使用切片比较
             &seq[pos1..pos1 + len] == &seq[pos2..pos2 + len]
@@ -627,7 +626,12 @@ fn calculate_lz_complexity_exact(seq: &[u8]) -> usize {
 }
 
 /// 检查子串seq[i:j]是否在前面seq[:j-1]中出现过 - 超高性能版本
-fn is_substring_in_prefix_optimized(seq: &[u8], start: usize, end: usize, lookup_table: &mut [usize]) -> bool {
+fn is_substring_in_prefix_optimized(
+    seq: &[u8],
+    start: usize,
+    end: usize,
+    lookup_table: &mut [usize],
+) -> bool {
     let sub_len = end - start;
     let search_end = end - 1; // 对应Python的s[:j-1]
 
@@ -669,7 +673,10 @@ fn is_substring_in_prefix_optimized(seq: &[u8], start: usize, end: usize, lookup
     }
 
     // 对于较长的子串，使用标准库的窗口搜索（已高度优化）
-    if let Some(_pos) = seq[0..search_end].windows(sub_len).position(|window| window == &seq[start..end]) {
+    if let Some(_pos) = seq[0..search_end]
+        .windows(sub_len)
+        .position(|window| window == &seq[start..end])
+    {
         return true;
     }
 
@@ -703,7 +710,10 @@ fn is_substring_in_prefix(seq: &[u8], start: usize, end: usize) -> bool {
         }
     } else {
         // 对于长子串，使用标准库的窗口搜索
-        if let Some(pos) = seq[0..search_end].windows(sub_len).position(|window| window == &seq[start..end]) {
+        if let Some(pos) = seq[0..search_end]
+            .windows(sub_len)
+            .position(|window| window == &seq[start..end])
+        {
             return true;
         }
     }
@@ -778,7 +788,8 @@ mod tests {
             numpy::array![0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 1.0].view(),
             None,
             true,
-        ).unwrap();
+        )
+        .unwrap();
 
         // 应该和Python版本结果相近
         assert!(result > 0.0);
@@ -787,11 +798,7 @@ mod tests {
     #[test]
     fn test_discretization() {
         let seq = numpy::array![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0].view();
-        let result = lz_complexity(
-            seq,
-            Some(vec![0.5]),
-            true,
-        ).unwrap();
+        let result = lz_complexity(seq, Some(vec![0.5]), true).unwrap();
 
         assert!(result > 0.0);
     }
