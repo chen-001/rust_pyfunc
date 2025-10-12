@@ -354,7 +354,7 @@ pub fn run_pools_simple(python_function: PyObject, args: &PyList, n_jobs: usize)
     while completion_receiver.recv().is_ok() {
         completed += 1;
         print!(
-            "[{}] 📊 已完成 {}/{} 个任务",
+            "\r[{}] 📊 已完成 {}/{} 个任务",
             Local::now().format("%Y-%m-%d %H:%M:%S"),
             completed,
             total_tasks
