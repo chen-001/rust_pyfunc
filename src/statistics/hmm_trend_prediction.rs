@@ -1,12 +1,10 @@
-use ndarray::{s, Array1, Array2, ArrayView1};
+use ndarray::{Array1, Array2};
 use pyo3::prelude::*;
-use std::f64::consts::E;
 
 /// 线性回归结果结构体
 #[derive(Debug, Clone)]
 struct LinearRegressionResult {
     slope: f64,
-    intercept: f64,
     r_squared: f64,
 }
 
@@ -46,7 +44,6 @@ fn linear_regression(x: &[f64], y: &[f64]) -> LinearRegressionResult {
     if n < 2.0 {
         return LinearRegressionResult {
             slope: 0.0,
-            intercept: 0.0,
             r_squared: 0.0,
         };
     }
@@ -55,21 +52,20 @@ fn linear_regression(x: &[f64], y: &[f64]) -> LinearRegressionResult {
     let sum_y: f64 = y.iter().sum();
     let sum_xy: f64 = x.iter().zip(y.iter()).map(|(xi, yi)| xi * yi).sum();
     let sum_x2: f64 = x.iter().map(|xi| xi * xi).sum();
-    let sum_y2: f64 = y.iter().map(|yi| yi * yi).sum();
+    let _sum_y2: f64 = y.iter().map(|yi| yi * yi).sum();
 
     let mean_x = sum_x / n;
     let mean_y = sum_y / n;
 
-    // 计算斜率和截距
+    // 计算斜率
     let slope = (sum_xy - n * mean_x * mean_y) / (sum_x2 - n * mean_x * mean_x);
-    let intercept = mean_y - slope * mean_x;
 
     // 计算R²
     let ss_res: f64 = x
         .iter()
         .zip(y.iter())
         .map(|(xi, yi)| {
-            let predicted = slope * xi + intercept;
+            let predicted = slope * xi + mean_y - slope * mean_x;
             (yi - predicted).powi(2)
         })
         .sum();
@@ -84,7 +80,6 @@ fn linear_regression(x: &[f64], y: &[f64]) -> LinearRegressionResult {
 
     LinearRegressionResult {
         slope,
-        intercept,
         r_squared,
     }
 }
@@ -245,15 +240,6 @@ fn state_to_index(state: i32) -> usize {
     }
 }
 
-/// 索引转换为状态值
-fn index_to_state(index: usize) -> i32 {
-    match index {
-        0 => STATE_DOWN,
-        1 => STATE_SIDEWAYS,
-        2 => STATE_UP,
-        _ => STATE_SIDEWAYS,
-    }
-}
 
 /// 计算观测索引
 fn observation_to_index(price_change: f64) -> usize {
@@ -273,7 +259,7 @@ fn observation_to_index(price_change: f64) -> usize {
 /// 执行HMM前向算法预测
 fn hmm_forward_prediction(
     transition_matrix: &Array2<f64>,
-    emission_matrix: &Array2<f64>,
+    _emission_matrix: &Array2<f64>,
     current_state_probs: &Array1<f64>,
 ) -> Array1<f64> {
     // 计算下一时刻的状态概率预测
@@ -352,7 +338,7 @@ fn update_transition_matrix(
         // 对同一行的其他状态稍微减少概率
         for j in 0..3 {
             if j != curr_max_idx {
-                transition_matrix[[prev_max_idx, j]] *= (1.0 - conservative_rate * 0.5);
+                transition_matrix[[prev_max_idx, j]] *= 1.0 - conservative_rate * 0.5;
             }
         }
     }

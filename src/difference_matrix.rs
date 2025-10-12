@@ -43,7 +43,7 @@ pub fn difference_matrix<'a>(
 
     // 将结果转换为numpy数组
     let result_array = PyArray::from_vec(py, result);
-    let result_2d = unsafe { result_array.reshape([n, n])? };
+    let result_2d = result_array.reshape([n, n])?;
 
     Ok(result_2d)
 }
@@ -119,7 +119,7 @@ fn difference_matrix_scalar(input_ptr: *const f64, result_ptr: *mut f64, n: usiz
 
         // 简单的循环展开 (展开4次)
         let unrolled_chunks = n / 4;
-        let remainder = n % 4;
+        let _remainder = n % 4;
 
         for chunk in 0..unrolled_chunks {
             let offset = chunk * 4;
@@ -158,7 +158,7 @@ pub fn difference_matrix_memory_efficient<'a>(
 
     // 直接创建numpy数组，避免中间Vec分配
     let result = unsafe { PyArray::new(py, [n, n], false) };
-    let mut result_slice = unsafe { result.as_slice_mut()? };
+    let result_slice = unsafe { result.as_slice_mut()? };
     let input_ptr = input_array.as_ptr();
     let result_ptr: *mut f64 = result_slice.as_mut_ptr();
 

@@ -1,4 +1,4 @@
-use numpy::{IntoPyArray, PyArray2, PyReadonlyArray1};
+use numpy::{PyArray2, PyReadonlyArray1};
 use pyo3::prelude::*;
 use std::collections::HashSet;
 
@@ -144,6 +144,7 @@ impl std::hash::Hash for OrderedFloat {
 }
 
 impl OrderedFloat {
+    #[allow(dead_code)]
     fn value(self) -> f64 {
         self.0
     }

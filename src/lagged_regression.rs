@@ -505,7 +505,7 @@ fn adaptive_ridge_alpha(
 }
 
 /// 估计数据的噪声水平
-fn estimate_noise_level(x_matrix: &DMatrix<f64>, y_vector: &DVector<f64>) -> f64 {
+fn estimate_noise_level(_x_matrix: &DMatrix<f64>, y_vector: &DVector<f64>) -> f64 {
     // 简单估计：基于y的方差
     let y_mean = y_vector.mean();
     let y_var =

@@ -2,7 +2,6 @@ use ndarray::Array2;
 use numpy::{IntoPyArray, PyArray1, PyArray2};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
-use std::cmp::min;
 use std::cmp::Ordering;
 
 const LEVEL_CAP: usize = 10;
@@ -75,7 +74,6 @@ enum BType {
 
 #[derive(Clone, Debug)]
 struct BTimingPoint {
-    price: f64,
     trade_idx: usize,
     time_ns: i64,
     b_type: BType,
@@ -83,8 +81,6 @@ struct BTimingPoint {
 
 #[derive(Clone, Debug)]
 struct BSegment {
-    start_b: BTimingPoint,
-    end_b: BTimingPoint,
     start_time: i64,
     end_time: i64,
     start_trade_idx: usize,
@@ -94,8 +90,6 @@ struct BSegment {
 #[derive(Clone, Debug)]
 struct PriceLevelResult {
     price: f64,
-    buy_segments: Vec<BSegment>,
-    sell_segments: Vec<BSegment>,
     buy_segment_count: usize,
     sell_segment_count: usize,
     buy_metrics: Option<Vec<f64>>, // Enhanced metrics for buy side (105 dimensions)
@@ -107,10 +101,6 @@ fn ns_to_ms(ns: i64) -> f64 {
     ns as f64 / 1_000_000.0
 }
 
-#[inline]
-fn ns_to_s(ns: i64) -> f64 {
-    ns as f64 / 1_000_000_000.0
-}
 
 fn compare_with_eps(value: f64, target: f64, eps: f64) -> Ordering {
     if value > target + eps {
@@ -143,7 +133,6 @@ fn detect_b_points_by_side(
                 let threshold_price = price_level - drop_threshold;
                 if price <= threshold_price + eps {
                     buy_b_points.push(BTimingPoint {
-                        price: price_level,
                         trade_idx: idx,
                         time_ns: time,
                         b_type: BType::BuyBreak,
@@ -155,7 +144,6 @@ fn detect_b_points_by_side(
                 let threshold_price = price_level + rise_threshold;
                 if price >= threshold_price - eps {
                     sell_b_points.push(BTimingPoint {
-                        price: price_level,
                         trade_idx: idx,
                         time_ns: time,
                         b_type: BType::SellBreak,
@@ -189,8 +177,6 @@ fn build_segments_for_side(b_points: &[BTimingPoint], side: BType) -> Vec<BSegme
         let end_b = side_points[i + 1];
 
         segments.push(BSegment {
-            start_b: start_b.clone(),
-            end_b: end_b.clone(),
             start_time: start_b.time_ns,
             end_time: end_b.time_ns,
             start_trade_idx: start_b.trade_idx,
@@ -857,7 +843,7 @@ pub fn compute_price_cycle_features_b_segments_enhanced(
     // Collect results for each price level - ensure alignment
     let mut all_results: Vec<PriceLevelResult> = Vec::new();
 
-    for (idx, &price) in price_grid.iter().enumerate() {
+    for (_idx, &price) in price_grid.iter().enumerate() {
         let (buy_b_points, sell_b_points) = detect_b_points_by_side(
             price,
             trades_time,
@@ -921,8 +907,6 @@ pub fn compute_price_cycle_features_b_segments_enhanced(
         // Always include this price level - even if no segments, we'll use NaN features
         all_results.push(PriceLevelResult {
             price,
-            buy_segments: buy_segments.clone(),
-            sell_segments: sell_segments.clone(),
             buy_segment_count: buy_segments.len(),
             sell_segment_count: sell_segments.len(),
             buy_metrics: buy_avg,
@@ -938,7 +922,7 @@ pub fn compute_price_cycle_features_b_segments_enhanced(
     let mut buy_features_matrix: Vec<Vec<f64>> = Vec::with_capacity(num_prices);
     let mut sell_features_matrix: Vec<Vec<f64>> = Vec::with_capacity(num_prices);
 
-    for (i, result) in all_results.iter().enumerate() {
+    for (_i, result) in all_results.iter().enumerate() {
         prices_vec.push(result.price);
         buy_counts_vec.push(result.buy_segment_count as f64);
         sell_counts_vec.push(result.sell_segment_count as f64);

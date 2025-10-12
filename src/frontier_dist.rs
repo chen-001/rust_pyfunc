@@ -216,6 +216,7 @@ struct MarkowitzFrontier {
     /// Δ = AC - B^2
     delta: f64,
     /// 逆协方差矩阵的分解（用于求解线性方程）
+    #[allow(dead_code)]
     inv_sigma_decomp: Array2<f64>,
 }
 
@@ -367,9 +368,9 @@ impl PolynomialSolver {
     fn solve_cubic(a3: f64, a2: f64, a1: f64, a0: f64) -> [Complex; 3] {
         // 使用简单的三次方程求解方法
         // 这里简化处理，实际应用中可以使用更精确的算法
-        let discriminant = a2 * a2 - 3.0 * a3 * a1;
-        let p = (3.0 * a3 * a1 - a2 * a2) / (3.0 * a3 * a3);
-        let q =
+        let _discriminant = a2 * a2 - 3.0 * a3 * a1;
+        let _p = (3.0 * a3 * a1 - a2 * a2) / (3.0 * a3 * a3);
+        let _q =
             (2.0 * a2 * a2 * a2 - 9.0 * a3 * a2 * a1 + 27.0 * a3 * a3 * a0) / (27.0 * a3 * a3 * a3);
 
         // 简化返回，实际需要更精确的实现

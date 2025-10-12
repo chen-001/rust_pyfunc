@@ -90,6 +90,7 @@ struct SIMDCorrelationEngine<'a> {
     values: &'a ndarray::ArrayView1<'a, f64>,
     window_size: usize,
     correlation_cache: CorrelationCache,
+    #[allow(dead_code)]
     stats_cache: HashMap<usize, WindowStats>,
 }
 

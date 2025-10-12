@@ -1,4 +1,4 @@
-use numpy::{PyArray2, PyReadonlyArray1};
+use numpy::PyArray2;
 use pyo3::prelude::*;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -338,6 +338,7 @@ fn find_min_operations_for_digits(word1: &str, word2: &str) -> f64 {
     f64::NAN
 }
 
+#[allow(dead_code)]
 fn generate_swap_states(word: &str, steps: usize) -> Vec<(String, usize)> {
     let mut result = Vec::new();
     let chars: Vec<char> = word.chars().collect();
@@ -355,6 +356,7 @@ fn generate_swap_states(word: &str, steps: usize) -> Vec<(String, usize)> {
     result
 }
 
+#[allow(dead_code)]
 fn generate_char_swap_states(word: &str, steps: usize) -> Vec<(String, usize)> {
     let mut result = Vec::new();
     let unique_chars: HashSet<char> = word.chars().collect();
@@ -526,6 +528,7 @@ fn find_min_operations_heuristic(word1: &str, word2: &str) -> f64 {
 // ========== 优化后的辅助函数 ==========
 
 /// 预计算字符位置映射，用于快速定位和优化
+#[allow(dead_code)]
 fn compute_char_positions(state: &[u8]) -> FxHashMap<u8, Vec<usize>> {
     let mut positions = FxHashMap::default();
     for (i, &ch) in state.iter().enumerate() {
@@ -535,6 +538,7 @@ fn compute_char_positions(state: &[u8]) -> FxHashMap<u8, Vec<usize>> {
 }
 
 /// 检查两个字符位置映射是否能够通过操作相互转换
+#[allow(dead_code)]
 fn can_transform_with_char_mapping(
     positions1: &FxHashMap<u8, Vec<usize>>,
     positions2: &FxHashMap<u8, Vec<usize>>,
@@ -551,7 +555,7 @@ fn can_transform_with_char_mapping(
     }
 
     // 检查反向映射
-    for (&ch, pos_list2) in positions2 {
+    for (&ch, _pos_list2) in positions2 {
         if !positions1.contains_key(&ch) {
             return false;
         }
@@ -561,6 +565,7 @@ fn can_transform_with_char_mapping(
 }
 
 /// 优化的位置交换状态生成器
+#[allow(dead_code)]
 fn generate_swap_states_optimized(state: &[u8]) -> Vec<Vec<u8>> {
     let mut result = Vec::new();
     let n = state.len();
@@ -580,6 +585,7 @@ fn generate_swap_states_optimized(state: &[u8]) -> Vec<Vec<u8>> {
 }
 
 /// 优化的字符映射交换状态生成器，利用对称性避免重复计算
+#[allow(dead_code)]
 fn generate_char_swap_states_optimized(
     state: &[u8],
     char_positions: &FxHashMap<u8, Vec<usize>>,
@@ -607,6 +613,7 @@ fn generate_char_swap_states_optimized(
 }
 
 /// 在状态中交换两个字符的所有出现
+#[allow(dead_code)]
 fn swap_characters_in_state(state: &[u8], char1: u8, char2: u8) -> Vec<u8> {
     state
         .iter()

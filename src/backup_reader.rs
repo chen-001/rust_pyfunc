@@ -6,7 +6,7 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs::File;
-use std::io::{self, Read};
+use std::io::Read;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -798,10 +798,6 @@ pub fn read_backup_results_with_filter(
     })
 }
 
-// 向后兼容的旧格式读取函数
-fn read_legacy_backup_results(file_path: &str) -> PyResult<PyObject> {
-    read_legacy_backup_results_with_filter(file_path, None, None)
-}
 
 fn read_legacy_backup_results_with_filter(
     file_path: &str,

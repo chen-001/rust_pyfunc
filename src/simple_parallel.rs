@@ -212,7 +212,7 @@ fn run_simple_worker(
     };
 
     let mut stdin = child.stdin.take().expect("Failed to get stdin");
-    let mut stdout = child.stdout.take().expect("Failed to get stdout");
+    let stdout = child.stdout.take().expect("Failed to get stdout");
     let mut reader = BufReader::new(stdout);
 
     // 处理所有任务

@@ -117,6 +117,7 @@ pub fn analyze_asks(
 /// 异常挂单区间数据结构
 #[derive(Debug, Clone)]
 struct AbnormalSegment {
+    #[allow(dead_code)]
     start_row: usize,
     end_row: usize,
     level: i32,           // 异常档位(3-9)
@@ -747,7 +748,7 @@ fn calculate_correlation(x: &[f64], y: &[f64]) -> f64 {
         return 0.0;
     }
 
-    let n = x.len() as f64;
+    let _n = x.len() as f64;
     let x_mean = calculate_mean(x);
     let y_mean = calculate_mean(y);
 
