@@ -1,4 +1,4 @@
-use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1};
+use numpy::PyReadonlyArray1;
 /// GP 相关维数 (D₂) 计算模块
 ///
 /// 实现完全确定性的 Grassberger-Procaccia 算法
@@ -50,6 +50,7 @@ fn fast_squared_distance(a: &[f64], b: &[f64]) -> f64 {
 }
 
 /// 保持向后兼容的欧几里得距离函数
+#[allow(dead_code)]
 fn euclidean_distance(a: &[f64], b: &[f64]) -> f64 {
     fast_squared_distance(a, b).sqrt()
 }
@@ -205,6 +206,7 @@ pub enum GpError {
 /// 确定性数值常量
 mod constants {
     pub const EPS: f64 = 1e-12;
+    #[allow(dead_code)]
     pub const TINY: f64 = 1e-300;
     pub const LOG_TINY: f64 = -690.7755; // ln(1e-300)
 }
@@ -591,7 +593,7 @@ mod correlation_sum {
         let mut distances = Vec::with_capacity(n * (n - 1) / 2);
 
         // 分块计算，避免同时存储太多距离
-        let chunk_size = 1000.min(n);
+        let _chunk_size = 1000.min(n);
 
         for i in 0..n {
             for j in (i + 1)..n {
@@ -771,7 +773,7 @@ mod linear_segment {
         }
 
         // 计算整体线性拟合
-        let (slope, intercept, r2) =
+        let (slope, _intercept, r2) =
             utils::linear_regression(&log_r[start..end], &log_c[start..end])?;
 
         // 计算局部斜率的标准差
@@ -807,7 +809,7 @@ mod linear_segment {
         c_hi: f64,
         stability_alpha: f64,
     ) -> Result<(usize, usize, f64, f64, f64), GpError> {
-        let n = log_r.len();
+        let _n = log_r.len();
 
         // 计算相关和的统计信息用于动态约束
         let c_stats = calculate_correlation_sum_stats(correlation_sums);
@@ -861,6 +863,7 @@ mod linear_segment {
     struct CorrelationSumStats {
         min: f64,
         max: f64,
+        #[allow(dead_code)]
         mean: f64,
     }
 

@@ -320,6 +320,7 @@ fn compute_masked_correlations_direct(
 }
 
 /// 计算masked窗口的相关性（保留用于兼容）
+#[allow(dead_code)]
 fn compute_masked_correlations(
     masked_window: &ndarray::ArrayView1<f64>,
     all_values: &ndarray::ArrayView1<f64>,

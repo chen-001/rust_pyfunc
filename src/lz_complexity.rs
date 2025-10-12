@@ -2,7 +2,6 @@ use numpy::PyReadonlyArray1;
 use pyo3::prelude::*;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::mem;
 
 // 用于f64的包装器，实现Hash和Eq
 #[derive(Debug, Clone, Copy)]
@@ -298,7 +297,6 @@ fn calculate_lz_complexity_rolling_hash(seq: &[u8]) -> usize {
             let search_end = j - 1;
 
             if current_len > search_end {
-                found_match = false;
                 break;
             }
 
@@ -374,6 +372,7 @@ fn calculate_lz_complexity_chunked(seq: &[u8]) -> usize {
 }
 
 /// 后缀数组优化的LZ复杂度计算
+#[allow(dead_code)]
 fn calculate_lz_complexity_suffix_optimized(seq: &[u8]) -> usize {
     let n = seq.len();
     if n == 0 {
@@ -402,7 +401,6 @@ fn calculate_lz_complexity_suffix_optimized(seq: &[u8]) -> usize {
             let search_end = j - 1;
 
             if current_len > search_end {
-                found_match = false;
                 break;
             }
 
@@ -422,6 +420,7 @@ fn calculate_lz_complexity_suffix_optimized(seq: &[u8]) -> usize {
 }
 
 /// 优化的子串存在性检查
+#[allow(dead_code)]
 fn check_substring_exists_optimized(
     seq: &[u8],
     start: usize,
@@ -446,6 +445,7 @@ fn check_substring_exists_optimized(
 }
 
 /// 检查完整匹配
+#[allow(dead_code)]
 fn check_full_match(seq: &[u8], pos1: usize, pos2: usize, len: usize) -> bool {
     // 对于短模式使用展开比较
     match len {
@@ -470,6 +470,7 @@ fn check_full_match(seq: &[u8], pos1: usize, pos2: usize, len: usize) -> bool {
 }
 
 /// 高性能子串搜索 - 专门为LZ76优化
+#[allow(dead_code)]
 fn contains_substring_optimized(text: &[u8], pattern: &[u8], search_end: usize) -> bool {
     let pat_len = pattern.len();
     if pat_len == 0 || pat_len > search_end {
@@ -516,6 +517,7 @@ fn contains_substring_optimized(text: &[u8], pattern: &[u8], search_end: usize) 
 }
 
 /// 高效的子串搜索函数 - 优化版本
+#[allow(dead_code)]
 fn contains_substring(text: &[u8], pattern: &[u8], search_end: usize) -> bool {
     if pattern.is_empty() || pattern.len() > search_end {
         return false;
@@ -539,6 +541,7 @@ fn contains_substring(text: &[u8], pattern: &[u8], search_end: usize) -> bool {
 }
 
 /// 短模式子串搜索（针对长度<=4的模式优化）
+#[allow(dead_code)]
 fn contains_substring_short(text: &[u8], pattern: &[u8], search_end: usize) -> bool {
     let pat_len = pattern.len();
 
@@ -581,6 +584,7 @@ fn contains_substring_short(text: &[u8], pattern: &[u8], search_end: usize) -> b
 }
 
 /// 精确的LZ复杂度计算（用于小序列）
+#[allow(dead_code)]
 fn calculate_lz_complexity_exact(seq: &[u8]) -> usize {
     let n = seq.len();
     if n == 0 {
@@ -626,6 +630,7 @@ fn calculate_lz_complexity_exact(seq: &[u8]) -> usize {
 }
 
 /// 检查子串seq[i:j]是否在前面seq[:j-1]中出现过 - 超高性能版本
+#[allow(dead_code)]
 fn is_substring_in_prefix_optimized(
     seq: &[u8],
     start: usize,
@@ -685,6 +690,7 @@ fn is_substring_in_prefix_optimized(
 
 /// 检查子串seq[i:j]是否在前面seq[:j-1]中出现过
 /// 优化版本：使用更高效的子串搜索
+#[allow(dead_code)]
 fn is_substring_in_prefix(seq: &[u8], start: usize, end: usize) -> bool {
     let sub_len = end - start;
     let search_end = end - 1; // 对应Python的s[:j-1]
@@ -710,9 +716,9 @@ fn is_substring_in_prefix(seq: &[u8], start: usize, end: usize) -> bool {
         }
     } else {
         // 对于长子串，使用标准库的窗口搜索
-        if let Some(pos) = seq[0..search_end]
+        if seq[0..search_end]
             .windows(sub_len)
-            .position(|window| window == &seq[start..end])
+            .any(|window| window == &seq[start..end])
         {
             return true;
         }

@@ -7,10 +7,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::env;
-use std::fs::{File, OpenOptions};
+use std::fs::OpenOptions;
 use std::io::{self, Read, Write};
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -704,7 +704,7 @@ fn save_results_to_backup(
     backup_file: &str,
     expected_result_length: usize,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use crate::backup_reader::{calculate_hash, calculate_record_size, DynamicRecord, FileHeader};
+    use crate::backup_reader::{calculate_record_size, DynamicRecord, FileHeader};
 
     if results.is_empty() {
         return Ok(());
@@ -1578,9 +1578,9 @@ pub fn run_pools_queue(
     // 启动监控线程
     let monitor_manager_clone = monitor_manager.clone();
     let monitor_restart_flag = restart_flag.clone();
-    let worker_count = n_jobs;
+    let _worker_count = n_jobs;
     let monitor_handle = thread::spawn(move || {
-        let mut workers_completed = 0;
+        let mut _workers_completed = 0;
         loop {
             // 检查是否应该退出监控循环
             if monitor_manager_clone.should_stop_monitoring() {

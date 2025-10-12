@@ -166,6 +166,7 @@ fn compute_adaptive_alpha(n_obs: usize, n_features: usize, variance_hash: u64) -
 }
 
 /// 计算数据方差的哈希值（用于缓存）
+#[allow(dead_code)]
 fn compute_variance_hash(data: &[f64]) -> u64 {
     let mean = data.iter().sum::<f64>() / data.len() as f64;
     let variance = data.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / (data.len() - 1) as f64;

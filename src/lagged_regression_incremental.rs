@@ -17,6 +17,7 @@ struct IncrementalRidgeBuffer {
     /// 滑动窗口的历史数据缓存
     window_cache: Vec<f64>,
     /// 当前窗口在原始数据中的起始位置
+    #[allow(dead_code)]
     current_window_start: usize,
     /// 当前窗口大小
     window_size: usize,
@@ -102,7 +103,7 @@ impl IncrementalRidgeBuffer {
 
         let lag = self.current_lag;
         let n_features = lag + 1;
-        let n_obs = self.window_cache.len() - lag;
+        let _n_obs = self.window_cache.len() - lag;
 
         // 移除最旧的观测（第一个有效观测）
         let y_old = self.window_cache[lag]; // 第一个y值
@@ -378,7 +379,7 @@ fn calculate_prediction_accuracy(y_pred: &[f64], y_actual: &[f64]) -> f64 {
 }
 
 /// 将一维向量转换为二维矩阵
-fn vec_to_matrix(vec: Vec<f64>, rows: usize, cols: usize) -> Vec<Vec<f64>> {
+fn vec_to_matrix(vec: Vec<f64>, _rows: usize, cols: usize) -> Vec<Vec<f64>> {
     vec.chunks(cols).map(|chunk| chunk.to_vec()).collect()
 }
 

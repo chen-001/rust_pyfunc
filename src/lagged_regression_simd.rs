@@ -393,7 +393,7 @@ pub fn rolling_lagged_regression_ridge_simd(
 
     // 使用SIMD优化的缓冲区
     let mut buffer = SIMDRidgeBuffer::new(past_periods, max_lag + 1);
-    let mut alpha_cache: HashMap<(usize, usize, u64), f64> = HashMap::new();
+    let _alpha_cache: HashMap<(usize, usize, u64), f64> = HashMap::new();
     let mut result = vec![f64::NAN; n * 2 * max_lag];
 
     for i in total_periods..=n {

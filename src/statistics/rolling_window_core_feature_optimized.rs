@@ -313,6 +313,7 @@ impl<'a> OptimizedCorrelationEngine<'a> {
 /// 快速窗口统计信息结构
 #[derive(Clone, Debug)]
 struct FastWindowStats {
+    #[allow(dead_code)]
     mean: f64,
     std_dev: f64,
     #[allow(dead_code)]
