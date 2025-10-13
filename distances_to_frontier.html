@@ -45,9 +45,12 @@
 <li><code>drop_last</code> - 尾部不足group_size行时是否丢弃，默认true</li>
 <li><code>ddof</code> - 协方差/方差的自由度调整，默认1（样本协方差）</li>
 <li><code>ridge</code> - 岭化强度系数，默认1e-6</li>
+<li><code>timestamps</code> - 可选的int64时间戳数组（与<code>r</code>等长），用于标记每个聚合块的首个时间点</li>
 </ul>
 <h1>返回值</h1>
-<p>shape=(m,)的1D数组，包含每个资产点到有效前沿的距离</p>
+<p>包含两个1D数组的元组：(block_timestamps, distances)，长度均为m
+- block_timestamps：每个聚合块的首个时间戳（若未提供timestamps，则返回0..m-1的序列）
+- distances：对应资产点到有效前沿的距离</p>
 <h1>数值提示</h1>
 <p>当 m &gt;&gt; group_size 时，协方差矩阵可能秩亏，需要通过增大ridge参数保证可逆性</p>
 <h1>示例</h1>
@@ -58,14 +61,14 @@ from rust_pyfunc import distances_to_frontier</p>
 <p>np.random.seed(0)
 r = 1e-4 * np.random.randn(4800).astype(np.float64)</p>
 <h1>每1分钟聚合（20个3秒间隔）</h1>
-<p>distances = distances_to_frontier(r, group_size=20)
+<p>block_ts, distances = distances_to_frontier(r, group_size=20)
 print(distances.shape)  # (240,)
 ```</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>distances_to_frontier(r, group_size, drop_last, ddof, ridge) -> None</code>
+            <code>distances_to_frontier(r, group_size, drop_last, ddof, ridge, timestamps) -> None</code>
         </div>
         
         <div class="function-parameters">
