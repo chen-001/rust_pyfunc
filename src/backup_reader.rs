@@ -798,7 +798,6 @@ pub fn read_backup_results_with_filter(
     })
 }
 
-
 fn read_legacy_backup_results_with_filter(
     file_path: &str,
     date_filter: Option<&HashSet<i64>>,

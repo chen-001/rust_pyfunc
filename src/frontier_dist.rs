@@ -14,6 +14,7 @@ use log::{info, warn};
 use ndarray::{s, Array1, Array2, ArrayView1, Axis};
 use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1};
 use pyo3::prelude::*;
+use pyo3::types::PyTuple;
 use roots::{find_roots_quartic, Roots};
 use thiserror::Error;
 
@@ -59,6 +60,8 @@ struct DataBlocks {
     means: Array1<f64>,
     /// 每块的原始数据，形状为 (m, x)
     blocks: Array2<f64>,
+    /// 每块的起始时间戳（如果提供）
+    start_timestamps: Option<Array1<i64>>,
 }
 
 impl DataBlocks {
@@ -71,7 +74,12 @@ impl DataBlocks {
     ///
     /// # 返回
     /// 包含均值和原始块数据的结构体
-    fn aggregate(r: ArrayView1<f64>, group_size: usize, drop_last: bool) -> Result<Self> {
+    fn aggregate(
+        r: ArrayView1<f64>,
+        timestamps: Option<Array1<i64>>,
+        group_size: usize,
+        drop_last: bool,
+    ) -> Result<Self> {
         if group_size == 0 {
             return Err(FrontierError::InvalidInput(
                 "group_size必须大于0".to_string(),
@@ -81,6 +89,16 @@ impl DataBlocks {
         let n = r.len();
         if n == 0 {
             return Err(FrontierError::InvalidInput("输入序列不能为空".to_string()));
+        }
+
+        if let Some(ref ts) = timestamps {
+            if ts.len() != n {
+                return Err(FrontierError::InvalidInput(format!(
+                    "时间戳长度{}与输入序列长度{}不一致",
+                    ts.len(),
+                    n
+                )));
+            }
         }
 
         let m = if drop_last {
@@ -110,7 +128,26 @@ impl DataBlocks {
             .into_shape((m, x))
             .map_err(|e| FrontierError::InvalidInput(format!("数据重塑失败: {}", e)))?;
 
+        // 处理时间戳，只保留每个块的首个时间戳
+        let start_timestamps = if let Some(ts) = timestamps {
+            let ts_used = ts.slice(s![..used_len]).to_owned();
+            let ts_blocks = ts_used
+                .into_shape((m, x))
+                .map_err(|e| FrontierError::InvalidInput(format!("时间戳重塑失败: {}", e)))?;
+            Some(ts_blocks.column(0).to_owned())
+        } else {
+            None
+        };
+
         // 计算每块均值
+        let invalid_count = blocks.iter().filter(|v| !v.is_finite()).count();
+        if invalid_count > 0 {
+            return Err(FrontierError::InvalidInput(format!(
+                "聚合数据中包含{}个非有限值(NaN/Inf)，请先清理或填补输入序列",
+                invalid_count
+            )));
+        }
+
         let means = blocks
             .mean_axis(Axis(1))
             .ok_or_else(|| FrontierError::NumericalError("计算均值失败".to_string()))?;
@@ -122,6 +159,7 @@ impl DataBlocks {
             x,
             means,
             blocks,
+            start_timestamps,
         })
     }
 }
@@ -188,20 +226,76 @@ impl CovarianceMatrix {
             }
         }
 
-        // 岭化处理
-        let diag_mean = cov_matrix.diag().mean().unwrap_or(0.0);
-        let lambda = ridge * diag_mean.max(1e-12);
+        // 岭化处理：自适应寻找正定矩阵
+        let base_matrix = cov_matrix;
+        let diag_mean = base_matrix.diag().mean().unwrap_or(0.0);
+        let scale = if diag_mean.is_finite() && diag_mean > 0.0 {
+            diag_mean
+        } else {
+            1.0
+        };
+        let mut lambda = if ridge > 0.0 {
+            (ridge * scale).max(ridge)
+        } else {
+            0.0
+        };
 
-        for i in 0..m {
-            cov_matrix[(i, i)] += lambda;
+        const MAX_RIDGE_ATTEMPTS: usize = 8;
+        let mut adjusted_matrix = base_matrix.clone();
+        let mut attempts = 0usize;
+        loop {
+            adjusted_matrix.assign(&base_matrix);
+            if lambda > 0.0 {
+                for i in 0..m {
+                    adjusted_matrix[(i, i)] += lambda;
+                }
+            }
+
+            if Self::is_positive_definite(&adjusted_matrix) {
+                if lambda > 0.0 {
+                    info!(
+                        "协方差矩阵计算完成: {}x{}矩阵，岭化系数={:.2e}（经过{}次尝试）",
+                        m,
+                        m,
+                        lambda,
+                        attempts + 1
+                    );
+                } else {
+                    info!(
+                        "协方差矩阵计算完成: {}x{}矩阵，无需岭化（尝试{}次）",
+                        m,
+                        m,
+                        attempts + 1
+                    );
+                }
+                return Ok(CovarianceMatrix {
+                    matrix: adjusted_matrix,
+                });
+            }
+
+            if attempts >= MAX_RIDGE_ATTEMPTS {
+                return Err(FrontierError::LinAlgError(format!(
+                    "协方差矩阵不是正定的，即使在岭化系数增大到{:.2e}后仍然失败，建议检查输入数据或增大ridge参数",
+                    lambda
+                )));
+            }
+
+            attempts += 1;
+            lambda = if lambda == 0.0 {
+                ridge.max(1e-12)
+            } else {
+                lambda * 10.0
+            };
         }
+    }
 
-        info!(
-            "协方差矩阵计算完成: {}x{}矩阵，岭化系数={:.2e}",
-            m, m, lambda
-        );
-
-        Ok(CovarianceMatrix { matrix: cov_matrix })
+    fn is_positive_definite(matrix: &Array2<f64>) -> bool {
+        let dim = matrix.nrows();
+        if dim == 0 {
+            return false;
+        }
+        let mat = faer::Mat::from_fn(dim, dim, |i, j| matrix[(i, j)]);
+        mat.cholesky(faer::Side::Lower).is_ok()
     }
 }
 
@@ -518,9 +612,12 @@ impl DistanceCalculator {
 /// * `drop_last` - 尾部不足group_size行时是否丢弃，默认true
 /// * `ddof` - 协方差/方差的自由度调整，默认1（样本协方差）
 /// * `ridge` - 岭化强度系数，默认1e-6
+/// * `timestamps` - 可选的int64时间戳数组（与`r`等长），用于标记每个聚合块的首个时间点
 ///
 /// # 返回值
-/// shape=(m,)的1D数组，包含每个资产点到有效前沿的距离
+/// 包含两个1D数组的元组：(block_timestamps, distances)，长度均为m
+/// - block_timestamps：每个聚合块的首个时间戳（若未提供timestamps，则返回0..m-1的序列）
+/// - distances：对应资产点到有效前沿的距离
 ///
 /// # 数值提示
 /// 当 m >> group_size 时，协方差矩阵可能秩亏，需要通过增大ridge参数保证可逆性
@@ -535,7 +632,7 @@ impl DistanceCalculator {
 /// r = 1e-4 * np.random.randn(4800).astype(np.float64)
 ///
 /// # 每1分钟聚合（20个3秒间隔）
-/// distances = distances_to_frontier(r, group_size=20)
+/// block_ts, distances = distances_to_frontier(r, group_size=20)
 /// print(distances.shape)  # (240,)
 /// ```
 #[pyfunction]
@@ -544,7 +641,8 @@ impl DistanceCalculator {
     group_size,
     drop_last=true,
     ddof=1,
-    ridge=1e-6
+    ridge=1e-6,
+    timestamps=None
 ))]
 pub fn distances_to_frontier(
     r: PyReadonlyArray1<f64>,
@@ -552,13 +650,16 @@ pub fn distances_to_frontier(
     drop_last: bool,
     ddof: usize,
     ridge: f64,
-) -> Result<Py<PyArray1<f64>>> {
+    timestamps: Option<PyReadonlyArray1<i64>>,
+) -> Result<Py<PyTuple>> {
     pyo3::Python::with_gil(|py| {
         // 转换输入为ndarray
         let r_array = r.as_array();
+        let timestamps_owned = timestamps.map(|ts| ts.to_owned_array());
 
         // 1. 数据聚合
-        let data_blocks = DataBlocks::aggregate(r_array.view(), group_size, drop_last)?;
+        let data_blocks =
+            DataBlocks::aggregate(r_array.view(), timestamps_owned, group_size, drop_last)?;
 
         // 2. 计算协方差矩阵
         let cov_matrix = CovarianceMatrix::compute(&data_blocks, ddof, ridge)?;
@@ -572,6 +673,20 @@ pub fn distances_to_frontier(
 
         info!("距离计算完成: {}个资产点的距离", distances.len());
 
-        Ok(distances.into_pyarray(py).into())
+        let timestamps_vec = if let Some(ts) = &data_blocks.start_timestamps {
+            ts.to_vec()
+        } else {
+            (0..distances.len()).map(|idx| idx as i64).collect()
+        };
+
+        let timestamps_py = PyArray1::from_vec(py, timestamps_vec);
+        let distances_py = distances.into_pyarray(py);
+
+        let tuple = PyTuple::new(
+            py,
+            &[timestamps_py.to_object(py), distances_py.to_object(py)],
+        );
+
+        Ok(tuple.into())
     })
 }

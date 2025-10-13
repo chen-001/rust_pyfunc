@@ -78,10 +78,7 @@ fn linear_regression(x: &[f64], y: &[f64]) -> LinearRegressionResult {
         1.0 - ss_res / ss_tot
     };
 
-    LinearRegressionResult {
-        slope,
-        r_squared,
-    }
+    LinearRegressionResult { slope, r_squared }
 }
 
 /// 基于滚动线性回归的趋势判断
@@ -239,7 +236,6 @@ fn state_to_index(state: i32) -> usize {
         _ => 1, // 默认为震荡
     }
 }
-
 
 /// 计算观测索引
 fn observation_to_index(price_change: f64) -> usize {

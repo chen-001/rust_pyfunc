@@ -1007,8 +1007,9 @@ def distances_to_frontier(
     group_size: int,
     drop_last: bool = True,
     ddof: int = 1,
-    ridge: float = 1e-6
-) -> NDArray[np.float64]:
+    ridge: float = 1e-6,
+    timestamps: Optional[NDArray[np.int64]] = None,
+) -> Tuple[NDArray[np.int64], NDArray[np.float64]]:
     """计算收益序列中每个聚合块到马科维茨有效前沿的距离。
 
     基于马科维茨投资组合理论的有效前沿距离计算功能。给定单日3秒频率收益序列，
@@ -1032,11 +1033,15 @@ def distances_to_frontier(
         协方差/方差的自由度调整，0或1，默认1（样本协方差）
     ridge : float, default=1e-6
         岭化强度系数，用于保证协方差矩阵正定
+    timestamps : Optional[NDArray[np.int64]], default=None
+        与输入序列等长的时间戳数组（例如DatetimeIndex.view('int64')），用于标记每个聚合块的首个时间点
 
     返回值：
     -------
-    NDArray[np.float64]
-        shape=(m,)的1D数组，包含每个资产点到有效前沿的距离
+    Tuple[NDArray[np.int64], NDArray[np.float64]]
+        - block_timestamps：shape=(m,)的时间戳数组，表示每个聚合块的首个时间点；
+          若未提供timestamps，则返回0..m-1的顺序索引
+        - distances：shape=(m,)的距离数组
         其中m = floor(len(r) / group_size)（如果drop_last=True）
 
     异常：
@@ -1080,16 +1085,16 @@ def distances_to_frontier(
     >>> r = 1e-4 * np.random.randn(4800).astype(np.float64)
     >>>
     >>> # 每1分钟聚合（20个3秒间隔）
-    >>> distances = distances_to_frontier(r, group_size=20)
+    >>> block_ts, distances = distances_to_frontier(r, group_size=20)
     >>> print(f"距离数组形状: {distances.shape}")  # (240,)
     >>> print(f"平均距离: {np.mean(distances):.6e}")
     >>>
     >>> # 每2分半聚合（50个3秒间隔）
-    >>> distances2 = distances_to_frontier(r, group_size=50)
+    >>> block_ts2, distances2 = distances_to_frontier(r, group_size=50)
     >>> print(f"距离数组形状: {distances2.shape}")  # (96,)
     >>>
     >>> # 增大岭化系数处理病态数据
-    >>> distances3 = distances_to_frontier(r, group_size=100, ridge=1e-4)
+    >>> block_ts3, distances3 = distances_to_frontier(r, group_size=100, ridge=1e-4)
     >>> print(f"距离数组形状: {distances3.shape}")  # (48,)
     >>>
     >>> # 分析距离分布
