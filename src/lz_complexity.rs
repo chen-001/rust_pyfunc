@@ -136,236 +136,152 @@ fn discretize_sequence(seq: &ndarray::ArrayView1<f64>, quantiles: &[f64]) -> PyR
     Ok(discrete_seq)
 }
 
-/// 计算LZ复杂度核心算法 - 高性能版本
+/// 计算LZ复杂度核心算法 - 后缀自动机版本
 fn calculate_lz_complexity(seq: &[u8]) -> usize {
     let n = seq.len();
     if n == 0 {
         return 0;
     }
 
-    // 检查是否为二进制序列（最常见情况）
-    if is_binary_sequence(seq) {
-        return calculate_lz_complexity_binary(seq);
-    }
-
-    // 对于小序列使用简单算法
     if n <= 64 {
         return calculate_lz_complexity_simple(seq);
     }
 
-    // 对于大序列使用优化算法
-    calculate_lz_complexity_optimized(seq)
+    calculate_lz_complexity_suffix_automaton(seq)
 }
 
-/// 检查是否为二进制序列（只有0和1）
-fn is_binary_sequence(seq: &[u8]) -> bool {
-    seq.iter().all(|&x| x <= 1)
+#[derive(Clone)]
+struct SamState {
+    len: usize,
+    link: Option<usize>,
+    transitions: Vec<(u8, usize)>,
 }
 
-/// 二进制序列专用LZ复杂度计算（超高性能）
-fn calculate_lz_complexity_binary(seq: &[u8]) -> usize {
-    let n = seq.len();
-    if n == 0 {
-        return 0;
-    }
-
-    // 将二进制序列转换为位串，每个字节存储8个bit
-    let mut bit_blocks = Vec::with_capacity((n + 7) / 8);
-    let mut current_block = 0u8;
-    let mut bits_in_block = 0;
-
-    for &bit in seq {
-        current_block = (current_block << 1) | bit;
-        bits_in_block += 1;
-
-        if bits_in_block == 8 {
-            bit_blocks.push(current_block);
-            current_block = 0;
-            bits_in_block = 0;
+impl SamState {
+    fn new(len: usize) -> Self {
+        Self {
+            len,
+            link: None,
+            transitions: Vec::with_capacity(2),
         }
     }
 
-    // 处理剩余的bits
-    if bits_in_block > 0 {
-        bit_blocks.push(current_block << (8 - bits_in_block));
+    #[inline]
+    fn get(&self, c: u8) -> Option<usize> {
+        self.transitions
+            .iter()
+            .find_map(|&(ch, state)| if ch == c { Some(state) } else { None })
     }
 
-    // 使用位操作优化的LZ算法
-    calculate_lz_complexity_bitwise(&bit_blocks, n)
-}
-
-/// 位操作优化的LZ复杂度计算
-fn calculate_lz_complexity_bitwise(bit_blocks: &[u8], original_len: usize) -> usize {
-    let block_count = bit_blocks.len();
-    if block_count == 0 {
-        return 0;
-    }
-
-    let mut complexity = 1; // 第一个字符总是新的
-    let mut pos = 1; // 从第二个字符开始
-
-    while pos < original_len {
-        let mut max_match = 0;
-
-        // 寻找最长匹配
-        for start in 0..pos {
-            let mut match_len = 0;
-
-            // 位级别比较
-            while pos + match_len < original_len {
-                let pos_bit = get_bit(bit_blocks, pos + match_len);
-                let start_bit = get_bit(bit_blocks, start + match_len);
-
-                if pos_bit == start_bit {
-                    match_len += 1;
-                } else {
-                    break;
-                }
-            }
-
-            if match_len > max_match {
-                max_match = match_len;
+    #[inline]
+    fn set(&mut self, c: u8, state: usize) {
+        for (ch, target_state) in &mut self.transitions {
+            if *ch == c {
+                *target_state = state;
+                return;
             }
         }
-
-        if max_match > 0 {
-            pos += max_match;
-            complexity += 1;
-        } else {
-            pos += 1;
-            complexity += 1;
-        }
+        self.transitions.push((c, state));
     }
-
-    complexity
 }
 
-/// 从位块中获取指定位的值
-fn get_bit(bit_blocks: &[u8], position: usize) -> u8 {
-    let block_index = position / 8;
-    let bit_index = position % 8;
-    (bit_blocks[block_index] >> (7 - bit_index)) & 1
+struct SuffixAutomaton {
+    states: Vec<SamState>,
+    last: usize,
 }
 
-/// 优化的LZ复杂度计算（超高性能版本）- 使用滚动哈希
-fn calculate_lz_complexity_optimized(seq: &[u8]) -> usize {
-    let n = seq.len();
-    if n == 0 {
-        return 0;
+impl SuffixAutomaton {
+    fn with_capacity(capacity: usize) -> Self {
+        let mut states = Vec::with_capacity(capacity.max(2));
+        states.push(SamState::new(0));
+        Self { states, last: 0 }
     }
 
-    // 对于中等长度序列使用滚动哈希算法
-    if n <= 10000 {
-        return calculate_lz_complexity_rolling_hash(seq);
+    #[inline]
+    fn next_state(&self, state: usize, c: u8) -> Option<usize> {
+        self.states[state].get(c)
     }
 
-    // 对于大序列使用分块处理
-    calculate_lz_complexity_chunked(seq)
-}
+    fn extend(&mut self, c: u8) {
+        let cur_index = self.states.len();
+        let cur_len = self.states[self.last].len + 1;
+        self.states.push(SamState::new(cur_len));
 
-/// 使用滚动哈希的LZ复杂度计算
-fn calculate_lz_complexity_rolling_hash(seq: &[u8]) -> usize {
-    let n = seq.len();
-    if n == 0 {
-        return 0;
-    }
-
-    let mut complexity = 0;
-    let mut i = 0;
-    const BASE: u64 = 257;
-    const MOD: u64 = 1_000_000_007;
-
-    // 预计算幂次
-    let mut power = vec![1u64; n + 1];
-    for i in 1..=n {
-        power[i] = (power[i - 1] * BASE) % MOD;
-    }
-
-    // 预计算所有子串的哈希值
-    let mut prefix_hash = vec![0u64; n + 1];
-    for i in 0..n {
-        prefix_hash[i + 1] = (prefix_hash[i] * BASE + seq[i] as u64) % MOD;
-    }
-
-    while i < n {
-        let mut j = i + 1;
-        let mut found_match = true;
-
-        // 寻找最长的可匹配前缀
-        while j <= n && found_match {
-            let current_len = j - i;
-            let search_end = j - 1;
-
-            if current_len > search_end {
+        let mut p_opt = Some(self.last);
+        while let Some(p_idx) = p_opt {
+            if self.states[p_idx].get(c).is_some() {
                 break;
             }
+            self.states[p_idx].set(c, cur_index);
+            p_opt = self.states[p_idx].link;
+        }
 
-            // 计算当前子串的哈希
-            let current_hash = get_substring_hash(&prefix_hash, &power, i, j);
+        if let Some(p_idx) = p_opt {
+            let q_idx = self.states[p_idx].get(c).expect("transition must exist");
+            if self.states[p_idx].len + 1 == self.states[q_idx].len {
+                self.states[cur_index].link = Some(q_idx);
+            } else {
+                let clone_idx = self.states.len();
+                let mut cloned_state = self.states[q_idx].clone();
+                cloned_state.len = self.states[p_idx].len + 1;
+                self.states.push(cloned_state);
 
-            // 检查是否有相同哈希的子串在前面出现
-            found_match = has_hash_match(seq, i, j, search_end, current_hash, &prefix_hash, &power);
+                self.states[q_idx].link = Some(clone_idx);
+                self.states[cur_index].link = Some(clone_idx);
 
-            if found_match {
-                j += 1;
+                let mut current_opt = Some(p_idx);
+                while let Some(current) = current_opt {
+                    if self.states[current].get(c) == Some(q_idx) {
+                        self.states[current].set(c, clone_idx);
+                        current_opt = self.states[current].link;
+                    } else {
+                        break;
+                    }
+                }
             }
+        } else {
+            self.states[cur_index].link = Some(0);
+        }
+
+        self.last = cur_index;
+    }
+}
+
+/// 使用后缀自动机计算LZ复杂度
+fn calculate_lz_complexity_suffix_automaton(seq: &[u8]) -> usize {
+    let n = seq.len();
+    if n == 0 {
+        return 0;
+    }
+
+    let mut sam = SuffixAutomaton::with_capacity(2 * n);
+    let mut complexity = 0;
+    let mut i = 0;
+
+    while i < n {
+        let mut state = 0;
+        let mut j = i;
+
+        while j < n {
+            if let Some(next_state) = sam.next_state(state, seq[j]) {
+                state = next_state;
+                j += 1;
+            } else {
+                break;
+            }
+        }
+
+        if j == n {
+            complexity += 1;
+            break;
         }
 
         complexity += 1;
-        i = j;
-    }
-
-    complexity
-}
-
-/// 获取子串哈希值
-fn get_substring_hash(prefix_hash: &[u64], power: &[u64], start: usize, end: usize) -> u64 {
-    const MOD: u64 = 1_000_000_007;
-    (prefix_hash[end] + MOD - (prefix_hash[start] * power[end - start]) % MOD) % MOD
-}
-
-/// 检查是否有哈希匹配
-fn has_hash_match(
-    seq: &[u8],
-    start: usize,
-    end: usize,
-    search_end: usize,
-    target_hash: u64,
-    prefix_hash: &[u64],
-    power: &[u64],
-) -> bool {
-    let sub_len = end - start;
-
-    // 遍历所有可能的起始位置
-    for i in 0..=(search_end - sub_len) {
-        let hash = get_substring_hash(prefix_hash, power, i, i + sub_len);
-        if hash == target_hash {
-            // 哈希匹配，进行精确比较
-            if &seq[i..i + sub_len] == &seq[start..end] {
-                return true;
-            }
+        let phrase_end = j + 1;
+        for &symbol in &seq[i..phrase_end] {
+            sam.extend(symbol);
         }
-    }
-
-    false
-}
-
-/// 分块处理的LZ复杂度计算
-fn calculate_lz_complexity_chunked(seq: &[u8]) -> usize {
-    let n = seq.len();
-    if n == 0 {
-        return 0;
-    }
-
-    const CHUNK_SIZE: usize = 10000;
-    let mut complexity = 0;
-    let mut i = 0;
-
-    while i < n {
-        let chunk_end = (i + CHUNK_SIZE).min(n);
-        let chunk_complexity = calculate_lz_complexity_rolling_hash(&seq[i..chunk_end]);
-        complexity += chunk_complexity;
-        i = chunk_end;
+        i = phrase_end;
     }
 
     complexity
