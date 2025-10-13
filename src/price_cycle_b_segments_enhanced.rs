@@ -101,7 +101,6 @@ fn ns_to_ms(ns: i64) -> f64 {
     ns as f64 / 1_000_000.0
 }
 
-
 fn compare_with_eps(value: f64, target: f64, eps: f64) -> Ordering {
     if value > target + eps {
         Ordering::Greater

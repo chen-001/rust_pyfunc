@@ -8,9 +8,9 @@ use pyo3::types::PyList;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::io::Write;
+use std::io::{self, BufRead, BufReader};
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::io::{self,BufRead, BufReader};
 use std::thread;
 use std::time::Instant;
 
@@ -199,7 +199,7 @@ fn run_simple_worker(
     let mut child = match Command::new(&python_path)
         .arg(&script_path)
         .stdin(Stdio::piped())
-        .stdout(Stdio::piped())  // 需要读取stdout来获取确认信号
+        .stdout(Stdio::piped()) // 需要读取stdout来获取确认信号
         .stderr(Stdio::null())
         .spawn()
     {
