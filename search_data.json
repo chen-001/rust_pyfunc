@@ -551,6 +551,11 @@
     "params": []
   },
   {
+    "name": "lz_complexity_detailed",
+    "description": "<p>LZ76增量分解复杂度详细分析计算</p>\n<p>参数:\n- seq: 输入序列，可以是1D numpy数组\n- quantiles: 分位数列表，用于连续变量离散化，None表示序列已经是离散的\n- normalize: 是否归一化结果</p>\n<p>返回:\n- 包含详细统计信息的字典</p>",
+    "params": []
+  },
+  {
     "name": "mark_follow_groups",
     "description": "<p>标记每一行在其后0.1秒内具有相同price和volume的行组。\n对于同一个时间窗口内的相同交易组，标记相同的组号。\n组号从1开始递增，每遇到一个新的交易组就分配一个新的组号。</p>",
     "params": [
