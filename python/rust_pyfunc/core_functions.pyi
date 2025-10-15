@@ -1530,6 +1530,64 @@ def lz_complexity(seq: NDArray[np.float64], quantiles: Optional[List[float]] = N
     """
     ...
 
+def lz_complexity_detailed(seq: NDArray[np.float64], quantiles: Optional[List[float]] = None, normalize: bool = True) -> dict:
+    """LZ76增量分解复杂度详细分析计算，返回统计信息。
+
+    该函数在计算LZ复杂度的同时，收集详细的统计信息，包括子序列长度分布、
+    相关系数等多个维度的分析结果。
+
+    参数说明：
+    ----------
+    seq : NDArray[np.float64]
+        输入序列，必须是一维的numpy float64数组
+    quantiles : Optional[List[float]], 默认None
+        分位数列表，用于连续变量离散化，取值范围为0到1之间的数值
+        - None: 表示序列已经是离散的，不需要处理
+        - [0.5]: 以50%分位数为界限离散化为2个值
+        - [0.2, 0.6, 0.9]: 按20%、60%、90%分位点离散化为4个值
+    normalize : bool, 默认True
+        是否对LZ复杂度结果进行归一化处理
+
+    返回值：
+    -------
+    dict
+        包含以下字段的字典：
+        - lz_complexity: LZ复杂度值（如果normalize=True则为归一化结果）
+        - length_mean: 子序列长度均值
+        - length_std: 子序列长度标准差
+        - length_skew: 子序列长度偏度
+        - length_kurt: 子序列长度峰度
+        - length_max: 子序列长度最大值
+        - length_autocorr: 子序列长度自相关系数
+        - length_index_corr: 子序列长度与索引的相关系数
+
+    示例：
+    -------
+    >>> import numpy as np
+    >>> from rust_pyfunc import lz_complexity_detailed
+    >>>
+    >>> # 离散序列示例
+    >>> seq_discrete = np.array([0, 1, 0, 0, 1, 1, 1, 0, 0, 1], dtype=np.float64)
+    >>> result = lz_complexity_detailed(seq_discrete)
+    >>> print(f"LZ复杂度: {result['lz_complexity']:.4f}")
+    >>> print(f"子序列长度均值: {result['length_mean']:.4f}")
+    >>> print(f"子序列长度标准差: {result['length_std']:.4f}")
+    >>>
+    >>> # 连续序列示例
+    >>> seq_continuous = np.random.randn(1000).astype(np.float64)
+    >>> result = lz_complexity_detailed(seq_continuous, quantiles=[0.5])
+    >>> print(f"详细统计结果: {result}")
+
+    注意事项：
+    ---------
+    - 输入序列必须为一维numpy float64数组
+    - 分位数必须在0到1之间，可以指定多个分位点
+    - 返回的字典包含8个统计量，提供全面的分析视角
+    - 自相关系数使用滞后1期计算
+    - 偏度和峰度使用样本标准化计算
+    """
+    ...
+
 
 
 

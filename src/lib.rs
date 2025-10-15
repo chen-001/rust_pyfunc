@@ -35,6 +35,7 @@ pub mod lagged_regression_incremental;
 pub mod lagged_regression_optimized;
 pub mod lagged_regression_simd;
 pub mod lz_complexity;
+pub mod lz_complexity_detailed;
 pub mod permutation_analysis_v0816_fixed;
 pub mod price_breakthrough_stats;
 pub mod series_rank;
@@ -357,6 +358,7 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         m
     )?);
     let _ = m.add_function(wrap_pyfunction!(lz_complexity::lz_complexity, m)?);
+    let _ = m.add_function(wrap_pyfunction!(lz_complexity_detailed::lz_complexity_detailed, m)?);
     let _ = m.add_function(wrap_pyfunction!(
         gp_correlation_dimension::gp_correlation_dimension_auto,
         m
