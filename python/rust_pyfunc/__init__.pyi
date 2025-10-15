@@ -123,6 +123,8 @@ __all__ = [
     "factor_correlation_by_date",
     "factor_grouping",
     "segment_and_correlate",
+    "lz_complexity",
+    "lz_complexity_detailed",
     
     # Python定义的pandas扩展函数
     "corrwith",
