@@ -114,6 +114,8 @@ __all__ = [
     "compute_price_cycle_features",
     "compute_price_cycle_features_b_segments",
     "compute_price_cycle_features_b_segments_enhanced",
+    "analyze_long_orders",
+    "analyze_long_orders_python",
     
     # 统计分析函数
     "calculate_base_entropy",
@@ -125,6 +127,10 @@ __all__ = [
     "segment_and_correlate",
     "lz_complexity",
     "lz_complexity_detailed",
+    "mutual_information_knn",
+    "mutual_information_knn_chebyshev",
+    "mutual_information_2d_knn",
+    "mutual_information_2d_knn_chebyshev",
     
     # Python定义的pandas扩展函数
     "corrwith",

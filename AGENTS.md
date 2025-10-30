@@ -96,3 +96,6 @@ The project includes utilities for working with Chinese stock market data throug
 
 ## 数据可视化
 - 使用Altair或Plotly进行数据可视化，避免使用Matplotlib
+
+## 代码说明和示例
+- 不要创建markdown文件来做代码说明，而是直接在对话中说明即可

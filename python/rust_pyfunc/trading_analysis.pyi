@@ -1604,3 +1604,104 @@ def compute_price_cycle_features_b_segments_enhanced(
     """
     ...
 
+def analyze_long_orders(
+    exchtime: NDArray[np.int64],
+    order: NDArray[np.int64],
+    volume: NDArray[np.float64],
+    top_ratio: Optional[float] = None
+) -> Tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
+    """分析漫长订单并计算比值
+
+    识别三种类型的漫长订单（时间漫长、次数漫长、两者都漫长），并计算其他订单成交量与漫长订单成交量的比值。
+
+    参数说明：
+    ----------
+    exchtime : NDArray[np.int64]
+        交易时间数组（纳秒时间戳）
+    order : NDArray[np.int64]
+        订单编号数组
+    volume : NDArray[np.float64]
+        成交量数组
+    top_ratio : Optional[float], default=None
+        只计算最漫长的一部分订单的比例(0.0-1.0)：
+        - None 或 1.0：计算所有订单（默认，保持向后兼容）
+        - 0.5：只计算最漫长的一半订单
+        - 0.1：只计算最漫长的前10%订单
+        三种类型的漫长订单分别按各自指标排序：
+        - 时间漫长订单按时间跨度排序
+        - 次数漫长订单按出现次数排序
+        - 两者都漫长订单按时间跨度排序
+
+    返回值：
+    -------
+    Tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]
+        包含六个数组的元组：
+        - 时间漫长订单的比值序列
+        - 次数漫长订单的比值序列
+        - 两者都漫长订单的比值序列
+        - 时间漫长订单的总比值（长度为1的数组）
+        - 次数漫长订单的总比值（长度为1的数组）
+        - 两者都漫长订单的总比值（长度为1的数组）
+
+    漫长订单定义：
+    --------------
+    1. **时间漫长订单**：某个订单号对应的exchtime取值不止一种
+    2. **次数漫长订单**：某个订单号在第一次出现和最后一次出现之间，夹杂着其他的订单号
+    3. **两者都漫长**：同时满足时间漫长和次数漫长的订单
+
+    比值计算：
+    ----------
+    对于每个漫长订单：
+    - 单个比值：其他订单成交量总和 / 该漫长订单成交量总和
+    - 总比值：所有漫长订单的其他订单总成交量 / 所有漫长订单的总成交量
+
+    筛选逻辑：
+    ----------
+    当指定top_ratio时：
+    1. 收集所有符合条件的漫长订单
+    2. 按各自指标排序（时间跨度或出现次数）
+    3. 保留top_ratio比例的最漫长订单
+    4. 只对筛选后的订单计算比值
+
+    算法特点：
+    ----------
+    - 使用HashMap高效存储每个订单的索引范围和时间信息
+    - 分别对三种类型进行独立排序和筛选
+    - 时间复杂度：O(n log n)，其中n为数据长度（排序带来的复杂度）
+    - 空间复杂度：O(m)，其中m为不同订单号的数量
+    - 支持大规模数据处理（10万条数据1秒内完成）
+
+    使用示例：
+    ----------
+    >>> import numpy as np
+    >>> import rust_pyfunc as rp
+    >>>
+    >>> # 示例数据
+    >>> exchtime = np.array([1000, 2000, 2000, 3000, 4000], dtype=np.int64)
+    >>> order = np.array([1, 1, 2, 2, 1], dtype=np.int64)
+    >>> volume = np.array([100.0, 150.0, 200.0, 120.0, 180.0])
+    >>>
+    >>> # 计算所有漫长订单
+    >>> time_ratios, count_ratios, both_ratios, time_total, count_total, both_total = rp.analyze_long_orders(exchtime, order, volume)
+    >>> print(f"时间漫长比值: {time_ratios}")
+    >>>
+    >>> # 只计算最漫长的一半订单
+    >>> time_ratios_half, count_ratios_half, both_ratios_half, time_total_half, count_total_half, both_total_half = rp.analyze_long_orders(exchtime, order, volume, 0.5)
+    >>> print(f"筛选后时间漫长比值: {time_ratios_half}")
+    """
+    ...
+
+def analyze_long_orders_python(
+    exchtime: NDArray[np.int64],
+    order: NDArray[np.int64],
+    volume: NDArray[np.float64],
+    top_ratio: Optional[float] = None
+) -> Tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
+    """Python版本的漫长订单分析函数（用于测试对比）
+
+    功能和参数与analyze_long_orders完全相同，使用Python实现，用于验证Rust版本的正确性。
+
+    参数和返回值详见analyze_long_orders函数。
+    """
+    ...
+
