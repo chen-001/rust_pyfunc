@@ -34,8 +34,13 @@ pub mod lagged_regression;
 pub mod lagged_regression_incremental;
 pub mod lagged_regression_optimized;
 pub mod lagged_regression_simd;
+pub mod long_order_analysis;
 pub mod lz_complexity;
 pub mod lz_complexity_detailed;
+pub mod mutual_information;
+pub mod mutual_information_2d;
+pub mod mutual_information_2d_final;
+pub mod mutual_information_2d_fixed;
 pub mod permutation_analysis_v0816_fixed;
 pub mod price_breakthrough_stats;
 pub mod series_rank;
@@ -358,7 +363,18 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         m
     )?);
     let _ = m.add_function(wrap_pyfunction!(lz_complexity::lz_complexity, m)?);
-    let _ = m.add_function(wrap_pyfunction!(lz_complexity_detailed::lz_complexity_detailed, m)?);
+    let _ = m.add_function(wrap_pyfunction!(
+        lz_complexity_detailed::lz_complexity_detailed,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        long_order_analysis::analyze_long_orders,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        long_order_analysis::analyze_long_orders_python,
+        m
+    )?);
     let _ = m.add_function(wrap_pyfunction!(
         gp_correlation_dimension::gp_correlation_dimension_auto,
         m
@@ -376,6 +392,30 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         m
     )?);
     let _ = m.add_function(wrap_pyfunction!(frontier_dist::distances_to_frontier, m)?);
+    let _ = m.add_function(wrap_pyfunction!(
+        mutual_information::mutual_information_knn,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        mutual_information::mutual_information_knn_chebyshev,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        mutual_information_2d::mutual_information_2d_knn,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        mutual_information_2d::mutual_information_2d_knn_chebyshev,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        mutual_information_2d_fixed::mutual_information_2d_knn_fixed,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        mutual_information_2d_final::mutual_information_2d_knn_final,
+        m
+    )?);
     // m.add_function(wrap_pyfunction!(text::normalized_diff, m)?)?;
     Ok(())
 }

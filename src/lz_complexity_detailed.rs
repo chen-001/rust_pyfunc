@@ -52,7 +52,7 @@ impl LZDetailedStats {
 
         for i in 1..n {
             let x_dev = data[i] - mean;
-            let y_dev = data[i-1] - mean;
+            let y_dev = data[i - 1] - mean;
             numerator += x_dev * y_dev;
         }
 
@@ -100,7 +100,7 @@ impl LZDetailedStats {
         if m2 == 0.0 {
             0.0
         } else {
-            m4 / m2.powi(2) - 3.0  // 减去3得到超额峰度
+            m4 / m2.powi(2) - 3.0 // 减去3得到超额峰度
         }
     }
 
@@ -141,7 +141,11 @@ impl LZDetailedStats {
 
         // 计算长度统计量
         let length_mean = lengths_f64.iter().sum::<f64>() / lengths_f64.len() as f64;
-        let length_var = lengths_f64.iter().map(|&x| (x - length_mean).powi(2)).sum::<f64>() / lengths_f64.len() as f64;
+        let length_var = lengths_f64
+            .iter()
+            .map(|&x| (x - length_mean).powi(2))
+            .sum::<f64>()
+            / lengths_f64.len() as f64;
         let length_std = length_var.sqrt();
         let length_skew = self.calculate_skewness(&lengths_f64);
         let length_kurt = self.calculate_kurtosis(&lengths_f64);
@@ -510,7 +514,8 @@ mod tests {
             numpy::array![0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 1.0].view(),
             None,
             true,
-        ).unwrap();
+        )
+        .unwrap();
 
         // 结果应该是一个字典
         assert!(result.is_instance_of::<pyo3::types::PyDict>());
