@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>mutual_information_2d_knn_final - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>mutual_information_2d_knn_final</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>Calculate mutual information for corresponding rows of two 2D arrays
+using corrected KSG method with negative value truncation.</p>
+<p>此函数是mutual_information_2d_knn的最终修复版本，解决了负数互信息的问题。</p>
+<p>修复原理：
+KSG估计器在弱相关情况下可能产生负值估计，这是已知的有限样本偏差现象。
+根据信息论理论，互信息I(X;Y) ≥ 0永远成立，因此我们将负值截断为0。
+这是处理KSG估计器负值问题的标准做法。</p>
+<p>算法特点：
+- 使用KSG方法1进行互信息估计
+- 采用Chebyshev距离确定k近邻
+- 实施负值截断确保理论一致性
+- 保持高性能的Rust实现</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>mutual_information_2d_knn_final(a, b, k) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                <p>此函数没有参数</p>
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import mutual_information_2d_knn_final
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

@@ -311,6 +311,26 @@ s.rolling_past('2s').trend_time()  # 计算前面2秒内的趋势</p>
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="analyze_long_orders.html">analyze_long_orders</a></h3>
+                <div><p>分析漫长订单并计算比值</p>
+<p>参数:
+- exchtime: 交易时间数组(纳秒)
+- order: 订单编号数组
+- volume: 成交量数组
+- top_ratio: 可选参数，表示只计算最漫长的一部分订单的比例(0.0-1.0)
+             默认为1.0表示计算所有订单，0.5表示只计算最漫长的一半订单</p>
+<p>返回: (时间漫长比值序列, 次数漫长比值序列, 两者都漫长比值序列,
+      时间漫长总比值, 次数漫长总比值, 两者都漫长总比值)</p></div>
+                <a href="analyze_long_orders.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="analyze_long_orders_python.html">analyze_long_orders_python</a></h3>
+                <div><p>Python版本的漫长订单分析(用于测试对比)</p></div>
+                <a href="analyze_long_orders_python.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="analyze_retreat_advance.html">analyze_retreat_advance</a></h3>
                 <div><p>分析股票交易中的"以退为进"现象</p>
 <p>该函数分析当价格触及某个局部高点后回落，然后在该价格的异常大挂单量消失后
@@ -942,6 +962,58 @@ print(f"加速比: {time1/time2:.2f}倍")
                 <h3 class="function-name"><a href="min_range_loop.html">min_range_loop</a></h3>
                 <div><p>计算序列中每个位置结尾的最长连续子序列长度，其中子序列的最小值在该位置。</p></div>
                 <a href="min_range_loop.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="mutual_information_2d_knn.html">mutual_information_2d_knn</a></h3>
+                <div><p>Calculate mutual information for corresponding rows of two 2D arrays
+using KSG (Kraskov-Stögbauer-Grassberger) method 1 with consistent Euclidean distance.
+Both joint and marginal neighbor counting use the same Euclidean distance metric.</p></div>
+                <a href="mutual_information_2d_knn.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="mutual_information_2d_knn_chebyshev.html">mutual_information_2d_knn_chebyshev</a></h3>
+                <div><p>Calculate mutual information for corresponding rows using Chebyshev distance</p></div>
+                <a href="mutual_information_2d_knn_chebyshev.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="mutual_information_2d_knn_final.html">mutual_information_2d_knn_final</a></h3>
+                <div><p>Calculate mutual information for corresponding rows of two 2D arrays
+using corrected KSG method with negative value truncation.</p>
+<p>此函数是mutual_information_2d_knn的最终修复版本，解决了负数互信息的问题。</p>
+<p>修复原理：
+KSG估计器在弱相关情况下可能产生负值估计，这是已知的有限样本偏差现象。
+根据信息论理论，互信息I(X;Y) ≥ 0永远成立，因此我们将负值截断为0。
+这是处理KSG估计器负值问题的标准做法。</p>
+<p>算法特点：
+- 使用KSG方法1进行互信息估计
+- 采用Chebyshev距离确定k近邻
+- 实施负值截断确保理论一致性
+- 保持高性能的Rust实现</p></div>
+                <a href="mutual_information_2d_knn_final.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="mutual_information_2d_knn_fixed.html">mutual_information_2d_knn_fixed</a></h3>
+                <div><p>Calculate mutual information for corresponding rows of two 2D arrays
+using corrected KSG (Kraskov-Stögbauer-Grassberger) method.
+This fixes the negative values issue by using proper 1D counting.</p></div>
+                <a href="mutual_information_2d_knn_fixed.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="mutual_information_knn.html">mutual_information_knn</a></h3>
+                <div><p>Calculate mutual information using KSG (Kraskov-Stögbauer-Grassberger) method 1
+Uses Euclidean distance for k-nearest neighbor search</p></div>
+                <a href="mutual_information_knn.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="mutual_information_knn_chebyshev.html">mutual_information_knn_chebyshev</a></h3>
+                <div><p>Calculate mutual information using KSG method 2 (Chebyshev distance)</p></div>
+                <a href="mutual_information_knn_chebyshev.html">查看详情</a>
             </div>
             
             <div class="function-item">
