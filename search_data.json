@@ -32,6 +32,16 @@
     ]
   },
   {
+    "name": "analyze_long_orders",
+    "description": "<p>分析漫长订单并计算比值</p>\n<p>参数:\n- exchtime: 交易时间数组(纳秒)\n- order: 订单编号数组\n- volume: 成交量数组\n- top_ratio: 可选参数，表示只计算最漫长的一部分订单的比例(0.0-1.0)\n             默认为1.0表示计算所有订单，0.5表示只计算最漫长的一半订单</p>\n<p>返回: (时间漫长比值序列, 次数漫长比值序列, 两者都漫长比值序列,\n      时间漫长总比值, 次数漫长总比值, 两者都漫长总比值)</p>",
+    "params": []
+  },
+  {
+    "name": "analyze_long_orders_python",
+    "description": "<p>Python版本的漫长订单分析(用于测试对比)</p>",
+    "params": []
+  },
+  {
     "name": "analyze_retreat_advance",
     "description": "<p>分析股票交易中的\"以退为进\"现象</p>\n<p>该函数分析当价格触及某个局部高点后回落，然后在该价格的异常大挂单量消失后\n成功突破该价格的现象。</p>",
     "params": [
@@ -624,6 +634,36 @@
   {
     "name": "min_word_edit_distance",
     "description": "<p>计算将一个句子转换为另一个句子所需的最少单词操作次数（添加/删除）。</p>\n<h1>参数</h1>\n<ul>\n<li><code>str1</code> - 源句子</li>\n<li><code>str2</code> - 目标句子</li>\n</ul>\n<h1>示例</h1>\n<p>```python\nfrom rust_pyfunc import min_word_edit_distance</p>\n<h1>示例1：添加一个单词</h1>\n<p>da = \"We expect demand to increase\"\ndb = \"We expect worldwide demand to increase\"\nprint(min_word_edit_distance(da, db))  # 输出: 1 (添加 \"worldwide\")</p>\n<h1>示例2：多次修改</h1>\n<p>dc = \"We expect weakness in sales\"\nprint(min_word_edit_distance(da, dc))  # 输出: 6 (删除3个单词，添加3个单词)\n```</p>",
+    "params": []
+  },
+  {
+    "name": "mutual_information_2d_knn",
+    "description": "<p>Calculate mutual information for corresponding rows of two 2D arrays\nusing KSG (Kraskov-Stögbauer-Grassberger) method 1 with consistent Euclidean distance.\nBoth joint and marginal neighbor counting use the same Euclidean distance metric.</p>",
+    "params": []
+  },
+  {
+    "name": "mutual_information_2d_knn_chebyshev",
+    "description": "<p>Calculate mutual information for corresponding rows using Chebyshev distance</p>",
+    "params": []
+  },
+  {
+    "name": "mutual_information_2d_knn_final",
+    "description": "<p>Calculate mutual information for corresponding rows of two 2D arrays\nusing corrected KSG method with negative value truncation.</p>\n<p>此函数是mutual_information_2d_knn的最终修复版本，解决了负数互信息的问题。</p>\n<p>修复原理：\nKSG估计器在弱相关情况下可能产生负值估计，这是已知的有限样本偏差现象。\n根据信息论理论，互信息I(X;Y) ≥ 0永远成立，因此我们将负值截断为0。\n这是处理KSG估计器负值问题的标准做法。</p>\n<p>算法特点：\n- 使用KSG方法1进行互信息估计\n- 采用Chebyshev距离确定k近邻\n- 实施负值截断确保理论一致性\n- 保持高性能的Rust实现</p>",
+    "params": []
+  },
+  {
+    "name": "mutual_information_2d_knn_fixed",
+    "description": "<p>Calculate mutual information for corresponding rows of two 2D arrays\nusing corrected KSG (Kraskov-Stögbauer-Grassberger) method.\nThis fixes the negative values issue by using proper 1D counting.</p>",
+    "params": []
+  },
+  {
+    "name": "mutual_information_knn",
+    "description": "<p>Calculate mutual information using KSG (Kraskov-Stögbauer-Grassberger) method 1\nUses Euclidean distance for k-nearest neighbor search</p>",
+    "params": []
+  },
+  {
+    "name": "mutual_information_knn_chebyshev",
+    "description": "<p>Calculate mutual information using KSG method 2 (Chebyshev distance)</p>",
     "params": []
   },
   {
