@@ -2,16 +2,54 @@ use numpy::{PyArray1, PyArray2};
 use pyo3::prelude::*;
 use std::f64;
 
-/// 专门用于订单记录分析的Ultra Sorted算法
+/// 体量分桶算法：将体量分成20个区间或者保持原始体量（如果种类≤20）
+fn create_volume_buckets(volumes: &[f64], num_buckets: usize) -> Vec<f64> {
+    if volumes.is_empty() {
+        return Vec::new();
+    }
+
+    // 收集所有唯一的体量值
+    let mut unique_volumes: Vec<f64> = volumes.iter().cloned().collect();
+    unique_volumes.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
+    unique_volumes.dedup();
+
+    // 如果唯一体量种类不超过num_buckets，使用原始体量
+    if unique_volumes.len() <= num_buckets {
+        return volumes.to_vec();
+    }
+
+    // 否则创建分桶
+    let min_vol = unique_volumes[0];
+    let max_vol = unique_volumes[unique_volumes.len() - 1];
+
+    // 避免除零错误
+    if max_vol == min_vol {
+        return volumes.to_vec();
+    }
+
+    let bucket_size = (max_vol - min_vol) / num_buckets as f64;
+    let mut bucketed_volumes = Vec::with_capacity(volumes.len());
+
+    for &volume in volumes.iter() {
+        let bucket_idx = ((volume - min_vol) / bucket_size).floor() as usize;
+        let bucket_idx = bucket_idx.min(num_buckets - 1); // 确保不超出范围
+        let bucket_center = min_vol + (bucket_idx as f64 + 0.5) * bucket_size;
+        bucketed_volumes.push(bucket_center);
+    }
+
+    bucketed_volumes
+}
+
+/// 专门用于订单记录分析的Ultra Sorted算法（分桶版本）
 ///
 /// 核心设计思想：
 /// 1. 彻底消除O(n²)复杂度
 /// 2. 利用时间排序避免排序开销
-/// 3. 批量预计算相同volume组的共享数据
+/// 3. 批量预计算相同volume分桶组的共享数据
 /// 4. 使用二分查找加速时间定位
 
 #[derive(Debug)]
-struct OrderVolumeGroup {
+struct BucketedOrderVolumeGroup {
     #[allow(dead_code)]
     volume: f64,
     indices: Vec<usize>,      // 原始数据索引
@@ -22,7 +60,7 @@ struct OrderVolumeGroup {
     sell_indices: Vec<usize>, // 卖单在组内的位置
 }
 
-impl OrderVolumeGroup {
+impl BucketedOrderVolumeGroup {
     fn new(volume: f64) -> Self {
         Self {
             volume,
@@ -51,7 +89,7 @@ impl OrderVolumeGroup {
         }
     }
 
-    /// 修复的时间距离计算：使用二分查找定位最近记录
+    /// 修复的时间距离计算：使用二分查找定位最近记录（优化版本：预分配内存）
     fn find_nearest_records_ultra_fast(
         &self,
         current_group_idx: usize,
@@ -63,7 +101,7 @@ impl OrderVolumeGroup {
         }
 
         let current_time = self.times[current_group_idx];
-        let mut time_distances: Vec<(f64, f64)> = Vec::new();
+        let mut time_distances: Vec<(f64, f64)> = Vec::with_capacity(target_indices.len());
 
         // 计算当前记录与所有目标记录的时间距离
         for &target_idx in target_indices.iter() {
@@ -85,7 +123,7 @@ impl OrderVolumeGroup {
         time_distances
     }
 
-    /// 批量计算该volume组所有记录的指标
+    /// 批量计算该volume组所有记录的指标（优化版本：简化为单次排序）
     fn compute_all_indicators_ultra_fast(
         &self,
         results: &mut [Vec<f64>],
@@ -138,7 +176,7 @@ impl OrderVolumeGroup {
                 continue;
             }
 
-            // 使用超快速算法收集最近记录
+            // 直接使用超快速算法收集所有最近记录（一次性排序）
             let time_distances = self.find_nearest_records_ultra_fast(
                 current_group_idx,
                 &target_indices,
@@ -200,7 +238,7 @@ fn calculate_order_indicators_ultra_fast(
     result_row[11] = cumulative_sum / total_count as f64;
 
     // 13-22. 优化的价格分位数计算
-    let price_percentages = [0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 1.00];
+    let price_percentiles = [0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 1.00];
 
     // 预分配和重用价格数组
     let max_price_count = total_count;
@@ -211,7 +249,7 @@ fn calculate_order_indicators_ultra_fast(
     all_prices.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
 
     // 批量计算所有分位数
-    for (idx, &pct) in price_percentages.iter().enumerate() {
+    for (idx, &pct) in price_percentiles.iter().enumerate() {
         let count = if pct == 1.0 {
             total_count
         } else {
@@ -233,8 +271,8 @@ fn calculate_order_indicators_ultra_fast(
     }
 }
 
-/// 快速定位volume组范围的优化版本
-fn find_order_volume_ranges_ultra_fast(volumes: &[f64]) -> Vec<(f64, usize, usize)> {
+/// 快速定位volume组范围的优化版本（分桶）
+fn find_bucketed_order_volume_ranges(volumes: &[f64]) -> Vec<(f64, usize, usize)> {
     if volumes.is_empty() {
         return Vec::new();
     }
@@ -244,7 +282,7 @@ fn find_order_volume_ranges_ultra_fast(volumes: &[f64]) -> Vec<(f64, usize, usiz
     let mut start_idx = 0;
 
     for i in 1..volumes.len() {
-        if volumes[i] != current_volume {
+        if (volumes[i] - current_volume).abs() > f64::EPSILON {
             ranges.push((current_volume, start_idx, i));
             current_volume = volumes[i];
             start_idx = i;
@@ -256,8 +294,8 @@ fn find_order_volume_ranges_ultra_fast(volumes: &[f64]) -> Vec<(f64, usize, usiz
 }
 
 #[pyfunction]
-#[pyo3(signature = (volume, exchtime, price, flag, ask_order, bid_order, min_count=100, use_flag="ignore"))]
-pub fn calculate_order_time_gap_and_price_percentile_ultra_sorted(
+#[pyo3(signature = (volume, exchtime, price, flag, ask_order, bid_order, min_count=100, use_flag="ignore", num_buckets=20))]
+pub fn calculate_order_time_gap_and_price_percentile_ultra_sorted_bucketed(
     py: Python,
     volume: &PyArray1<f64>,
     exchtime: &PyArray1<f64>,
@@ -267,6 +305,7 @@ pub fn calculate_order_time_gap_and_price_percentile_ultra_sorted(
     bid_order: &PyArray1<i64>,
     min_count: usize,
     use_flag: &str,
+    num_buckets: usize,
 ) -> PyResult<(Py<PyArray2<f64>>, Vec<String>)> {
     let volume_slice = volume.readonly();
     let exchtime_slice = exchtime.readonly();
@@ -335,38 +374,57 @@ pub fn calculate_order_time_gap_and_price_percentile_ultra_sorted(
         }
     }
 
-    // 2. 按订单volume和时间排序
-    orders.sort_unstable_by(|a, b| {
-        a.2.partial_cmp(&b.2)
+    // 2. 对订单volume进行分桶
+    let order_volumes: Vec<f64> = orders.iter().map(|(_, _, vol, _, _)| *vol).collect();
+    let bucketed_order_volumes = create_volume_buckets(&order_volumes, num_buckets);
+
+    // 3. 直接按分桶后的volume和时间排序orders（避免额外的索引数组）
+    let mut sorted_orders_with_bucket: Vec<(f64, (i64, i32, f64, f64, f64))> = orders
+        .into_iter()
+        .enumerate()
+        .map(|(idx, order)| (bucketed_order_volumes[idx], order))
+        .collect();
+    
+    sorted_orders_with_bucket.sort_unstable_by(|a, b| {
+        a.0.partial_cmp(&b.0)
             .unwrap()
-            .then(a.4.partial_cmp(&b.4).unwrap())
+            .then(a.1.4.partial_cmp(&b.1.4).unwrap())
     });
 
-    // 3. 构建订单volume组
-    let order_volumes: Vec<f64> = orders.iter().map(|(_, _, vol, _, _)| *vol).collect();
-    let order_ranges = find_order_volume_ranges_ultra_fast(&order_volumes);
-
-    let mut order_groups: Vec<OrderVolumeGroup> = Vec::new();
-
-    for (vol, start_idx, end_idx) in order_ranges.iter() {
-        let mut group = OrderVolumeGroup::new(*vol);
-
-        for i in *start_idx..*end_idx {
-            let (_, flag, _, price, time) = orders[i];
-            group.add_record(i, time, price, flag);
+    // 4. 构建分桶后的订单volume组（直接使用排序后的数据）
+    let mut order_groups: Vec<BucketedOrderVolumeGroup> = Vec::new();
+    let mut order_results = vec![vec![f64::NAN; 22]; sorted_orders_with_bucket.len()];
+    
+    if !sorted_orders_with_bucket.is_empty() {
+        let mut current_volume = sorted_orders_with_bucket[0].0;
+        let mut group = BucketedOrderVolumeGroup::new(current_volume);
+        
+        for (idx, (bucket_vol, order)) in sorted_orders_with_bucket.iter().enumerate() {
+            if (*bucket_vol - current_volume).abs() > f64::EPSILON {
+                // 完成当前组
+                if !group.indices.is_empty() {
+                    order_groups.push(group);
+                }
+                // 开始新组
+                current_volume = *bucket_vol;
+                group = BucketedOrderVolumeGroup::new(current_volume);
+            }
+            
+            group.add_record(idx, order.4, order.3, order.1);
         }
-
-        order_groups.push(group);
+        
+        // 添加最后一组
+        if !group.indices.is_empty() {
+            order_groups.push(group);
+        }
     }
 
-    // 4. 计算订单指标
-    let mut order_results = vec![vec![f64::NAN; 22]; orders.len()];
-
-    for group in order_groups.iter_mut() {
+    // 5. 计算订单指标
+    for group in order_groups.iter() {
         group.compute_all_indicators_ultra_fast(&mut order_results, min_count, use_flag);
     }
 
-    // 5. 映射回交易记录，包含订单信息
+    // 6. 映射回交易记录，包含订单信息
     let mut results = vec![vec![f64::NAN; 27]; n]; // 增加到27列
 
     for i in 0..n {
@@ -390,13 +448,13 @@ pub fn calculate_order_time_gap_and_price_percentile_ultra_sorted(
                 results[i][23] = if current_flag == 66 { 1.0 } else { 0.0 };
 
                 // 添加订单聚合信息
-                let (_, _, order_volume, order_price, order_time) = orders[order_idx];
+                let (_, _, order_volume, order_price, order_time) = &sorted_orders_with_bucket[order_idx].1;
                 // 添加订单volume总量（第25列）
-                results[i][24] = order_volume;
+                results[i][24] = *order_volume;
                 // 添加订单最后时间（第26列）
-                results[i][25] = order_time;
+                results[i][25] = *order_time;
                 // 添加订单加权平均价格（第27列）
-                results[i][26] = order_price;
+                results[i][26] = *order_price;
             }
         }
     }
@@ -439,10 +497,9 @@ fn get_order_column_names() -> Vec<String> {
     ]
 }
 
-// V2版本的订单volume组，基于订单类型（ask/bid）而非交易标志进行分类
-// 优化版本：添加预排序索引和内存优化
+// V2版本的订单volume组（分桶版本），基于订单类型（ask/bid）而非交易标志进行分类
 #[derive(Debug)]
-struct OrderVolumeGroupV2 {
+struct BucketedOrderVolumeGroupV2 {
     #[allow(dead_code)]
     volume: f64,
     indices: Vec<usize>,     // 原始数据索引
@@ -451,11 +508,9 @@ struct OrderVolumeGroupV2 {
     order_types: Vec<bool>,  // 对应的订单类型：true=买单，false=卖单
     ask_indices: Vec<usize>, // 卖单在组内的位置
     bid_indices: Vec<usize>, // 买单在组内的位置
-    // 预排序的时间索引，用于快速二分查找
-    time_sorted_indices: Vec<usize>,
 }
 
-impl OrderVolumeGroupV2 {
+impl BucketedOrderVolumeGroupV2 {
     fn new(volume: f64) -> Self {
         Self {
             volume,
@@ -465,7 +520,6 @@ impl OrderVolumeGroupV2 {
             order_types: Vec::new(),
             ask_indices: Vec::new(),
             bid_indices: Vec::new(),
-            time_sorted_indices: Vec::new(),
         }
     }
 
@@ -485,21 +539,7 @@ impl OrderVolumeGroupV2 {
         }
     }
 
-    /// 优化：构建时间索引映射表
-    fn build_time_index(&mut self) {
-        self.time_sorted_indices.clear();
-        self.time_sorted_indices.resize(self.times.len(), 0);
-
-        // 构建索引映射：按时间排序的位置
-        let mut indexed_times: Vec<_> = self.times.iter().enumerate().collect();
-        indexed_times.sort_unstable_by(|a, b| a.1.partial_cmp(b.1).unwrap());
-
-        for (sorted_pos, (original_idx, _)) in indexed_times.into_iter().enumerate() {
-            self.time_sorted_indices[sorted_pos] = original_idx;
-        }
-    }
-
-    /// 基于订单类型的时间距离计算 - 优化版本
+    /// 基于订单类型的时间距离计算（优化版本：预分配内存）
     fn find_nearest_records_ultra_fast_v2(
         &self,
         current_group_idx: usize,
@@ -511,56 +551,31 @@ impl OrderVolumeGroupV2 {
         }
 
         let current_time = self.times[current_group_idx];
+        let mut time_distances: Vec<(f64, f64)> = Vec::with_capacity(target_indices.len());
 
-        let current_sorted_pos = self.time_sorted_indices
-            .binary_search_by(|&idx| self.times[idx].partial_cmp(&current_time).unwrap())
-            .unwrap_or_else(|pos| pos);
-
-        let mut time_distances: Vec<(f64, f64)> = Vec::new();
-        time_distances.reserve(max_records);
-
-        // 从当前位置向两边扩展查找最近的记录
-        let mut left = current_sorted_pos;
-        let mut right = current_sorted_pos + 1;
-
-        while time_distances.len() < max_records && (left > 0 || right < self.time_sorted_indices.len()) {
-            // 选择更近的一边
-            let use_left = left > 0 &&
-                          (right >= self.time_sorted_indices.len() ||
-                           (current_time - self.times[self.time_sorted_indices[left-1]]).abs() <=
-                           (self.times[self.time_sorted_indices[right]] - current_time).abs());
-
-            if use_left {
-                left -= 1;
-                let target_idx = self.time_sorted_indices[left];
-                if target_idx != current_group_idx && target_indices.contains(&target_idx) {
-                    let time_diff = (current_time - self.times[target_idx]).abs();
-                    let price = self.prices[target_idx];
-                    time_distances.push((time_diff, price));
-                }
-            } else if right < self.time_sorted_indices.len() {
-                let target_idx = self.time_sorted_indices[right];
-                if target_idx != current_group_idx && target_indices.contains(&target_idx) {
-                    let time_diff = (current_time - self.times[target_idx]).abs();
-                    let price = self.prices[target_idx];
-                    time_distances.push((time_diff, price));
-                }
-                right += 1;
+        // 计算当前记录与所有目标记录的时间距离
+        for &target_idx in target_indices.iter() {
+            if target_idx != current_group_idx {
+                let time_diff = (current_time - self.times[target_idx]).abs();
+                let price = self.prices[target_idx];
+                time_distances.push((time_diff, price));
             }
         }
 
-        // 如果找到的记录超过max_records，按时间距离排序并截断
+        // 按时间距离排序，获取最近的记录
+        time_distances.sort_unstable_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+
+        // 限制返回记录数量
         if time_distances.len() > max_records {
-            time_distances.sort_unstable_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
             time_distances.truncate(max_records);
         }
 
         time_distances
     }
 
-    /// 基于订单类型的批量计算指标 - 优化版本
-    fn compute_all_indicators_ultra_fast_v2_optimized(
-        &mut self,
+    /// 基于订单类型的批量计算指标（优化版本：简化为单次排序）
+    fn compute_all_indicators_ultra_fast_v2(
+        &self,
         results: &mut [Vec<f64>],
         min_count: usize,
         use_flag: &str,
@@ -568,11 +583,6 @@ impl OrderVolumeGroupV2 {
         let group_size = self.indices.len();
         if group_size < min_count {
             return;
-        }
-
-        // 预构建时间索引（只构建一次）
-        if self.time_sorted_indices.is_empty() {
-            self.build_time_index();
         }
 
         // 根据use_flag确定目标索引集合（基于订单类型）
@@ -616,7 +626,7 @@ impl OrderVolumeGroupV2 {
                 continue;
             }
 
-            // 使用优化的超快速算法收集最近记录
+            // 直接使用超快速算法收集所有最近记录（一次性排序）
             let time_distances = self.find_nearest_records_ultra_fast_v2(
                 current_group_idx,
                 &target_indices,
@@ -637,24 +647,19 @@ impl OrderVolumeGroupV2 {
     }
 }
 
-/// V6版本：大数据优化的订单时间间隔和价格分位数计算
-/// 核心优化：
-/// 1. 使用预排序时间索引进行二分查找
-/// 2. 线性搜索价格分位数避免排序开销
-/// 3. 内存预分配减少动态分配
-/// 4. 算法复杂度从O(n² log n)降低到O(n log n)
 #[pyfunction]
-#[pyo3(signature = (volume, exchtime, price, flag, ask_order, bid_order, min_count=100, use_flag="ignore"))]
-pub fn calculate_order_time_gap_and_price_percentile_ultra_sorted_v6(
+#[pyo3(signature = (volume, exchtime, price, flag, ask_order, bid_order, min_count=100, use_flag="ignore", num_buckets=20))]
+pub fn calculate_order_time_gap_and_price_percentile_ultra_sorted_v2_bucketed(
     py: Python,
     volume: &PyArray1<f64>,
     exchtime: &PyArray1<f64>,
     price: &PyArray1<f64>,
-    flag: &PyArray1<i32>, // 该参数在V6版本中被忽略
+    flag: &PyArray1<i32>, // 该参数在V2版本中被忽略
     ask_order: &PyArray1<i64>,
     bid_order: &PyArray1<i64>,
     min_count: usize,
     use_flag: &str,
+    num_buckets: usize,
 ) -> PyResult<(Py<PyArray2<f64>>, Vec<String>)> {
     let volume_slice = volume.readonly();
     let exchtime_slice = exchtime.readonly();
@@ -680,7 +685,7 @@ pub fn calculate_order_time_gap_and_price_percentile_ultra_sorted_v6(
         ));
     }
 
-    // 1. 基于订单类型的订单聚合（不再使用flag）
+    // 1. 超快速订单聚合（V2版本：基于订单类型而非flag）
     let mut orders: Vec<(i64, bool, f64, f64, f64)> = Vec::new(); // (order_id, is_bid, volume, price, time)
     let mut order_map: std::collections::HashMap<i64, usize> = std::collections::HashMap::new();
 
@@ -745,39 +750,58 @@ pub fn calculate_order_time_gap_and_price_percentile_ultra_sorted_v6(
         }
     }
 
-    // 2. 按订单volume和时间排序
-    orders.sort_unstable_by(|a, b| {
-        a.2.partial_cmp(&b.2)
+    // 2. 对订单volume进行分桶
+    let order_volumes: Vec<f64> = orders.iter().map(|(_, _, vol, _, _)| *vol).collect();
+    let bucketed_order_volumes = create_volume_buckets(&order_volumes, num_buckets);
+
+    // 3. 直接按分桶后的volume和时间排序orders（避免额外的索引数组）
+    let mut sorted_orders_with_bucket: Vec<(f64, (i64, bool, f64, f64, f64))> = orders
+        .into_iter()
+        .enumerate()
+        .map(|(idx, order)| (bucketed_order_volumes[idx], order))
+        .collect();
+    
+    sorted_orders_with_bucket.sort_unstable_by(|a, b| {
+        a.0.partial_cmp(&b.0)
             .unwrap()
-            .then(a.4.partial_cmp(&b.4).unwrap())
+            .then(a.1.4.partial_cmp(&b.1.4).unwrap())
     });
 
-    // 3. 构建订单volume组
-    let order_volumes: Vec<f64> = orders.iter().map(|(_, _, vol, _, _)| *vol).collect();
-    let order_ranges = find_order_volume_ranges_ultra_fast(&order_volumes);
-
-    let mut order_groups: Vec<OrderVolumeGroupV2> = Vec::new();
-
-    for (vol, start_idx, end_idx) in order_ranges.iter() {
-        let mut group = OrderVolumeGroupV2::new(*vol);
-
-        for i in *start_idx..*end_idx {
-            let (_, is_bid, _, price, time) = orders[i];
-            group.add_record(i, time, price, is_bid);
+    // 4. 构建分桶后的订单volume组（直接使用排序后的数据）
+    let mut order_groups: Vec<BucketedOrderVolumeGroupV2> = Vec::new();
+    let mut order_results = vec![vec![f64::NAN; 22]; sorted_orders_with_bucket.len()];
+    
+    if !sorted_orders_with_bucket.is_empty() {
+        let mut current_volume = sorted_orders_with_bucket[0].0;
+        let mut group = BucketedOrderVolumeGroupV2::new(current_volume);
+        
+        for (idx, (bucket_vol, order)) in sorted_orders_with_bucket.iter().enumerate() {
+            if (*bucket_vol - current_volume).abs() > f64::EPSILON {
+                // 完成当前组
+                if !group.indices.is_empty() {
+                    order_groups.push(group);
+                }
+                // 开始新组
+                current_volume = *bucket_vol;
+                group = BucketedOrderVolumeGroupV2::new(current_volume);
+            }
+            
+            group.add_record(idx, order.4, order.3, order.1);
         }
-
-        order_groups.push(group);
+        
+        // 添加最后一组
+        if !group.indices.is_empty() {
+            order_groups.push(group);
+        }
     }
 
-    // 4. 计算订单指标（使用优化的函数）
-    let mut order_results = vec![vec![f64::NAN; 22]; orders.len()];
-
-    for group in order_groups.iter_mut() {
-        group.compute_all_indicators_ultra_fast_v2_optimized(&mut order_results, min_count, use_flag);
+    // 5. 计算订单指标
+    for group in order_groups.iter() {
+        group.compute_all_indicators_ultra_fast_v2(&mut order_results, min_count, use_flag);
     }
 
-    // 5. 映射回交易记录，包含订单信息
-    let mut results = vec![vec![f64::NAN; 27]; n]; // 27列
+    // 6. 映射回交易记录，包含订单信息
+    let mut results = vec![vec![f64::NAN; 27]; n]; // 增加到27列
 
     for i in 0..n {
         // 分别处理买单和卖单
@@ -788,14 +812,19 @@ pub fn calculate_order_time_gap_and_price_percentile_ultra_sorted_v6(
                 for j in 0..22 {
                     results[i][j] = order_results[order_idx][j];
                 }
-                // 添加订单信息
+                // 添加订单编号（第23列）
                 results[i][22] = order_id as f64;
-                results[i][23] = 0.0; // 卖单
+                // 添加买卖标识（第24列）：买单=1.0，卖单=0.0
+                results[i][23] = 0.0; // V2版本中ask订单都是卖单
 
-                let (_, _, order_volume, order_price, order_time) = orders[order_idx];
-                results[i][24] = order_volume;
-                results[i][25] = order_time;
-                results[i][26] = order_price;
+                // 添加订单聚合信息
+                let (_, _is_bid, order_volume, order_price, order_time) = &sorted_orders_with_bucket[order_idx].1;
+                // 添加订单volume总量（第25列）
+                results[i][24] = *order_volume;
+                // 添加订单最后时间（第26列）
+                results[i][25] = *order_time;
+                // 添加订单加权平均价格（第27列）
+                results[i][26] = *order_price;
             }
         }
 
@@ -806,14 +835,19 @@ pub fn calculate_order_time_gap_and_price_percentile_ultra_sorted_v6(
                 for j in 0..22 {
                     results[i][j] = order_results[order_idx][j];
                 }
-                // 添加订单信息
+                // 添加订单编号（第23列）
                 results[i][22] = order_id as f64;
-                results[i][23] = 1.0; // 买单
+                // 添加买卖标识（第24列）：买单=1.0，卖单=0.0
+                results[i][23] = 1.0; // V2版本中bid订单都是买单
 
-                let (_, _, order_volume, order_price, order_time) = orders[order_idx];
-                results[i][24] = order_volume;
-                results[i][25] = order_time;
-                results[i][26] = order_price;
+                // 添加订单聚合信息
+                let (_, _is_bid, order_volume, order_price, order_time) = &sorted_orders_with_bucket[order_idx].1;
+                // 添加订单volume总量（第25列）
+                results[i][24] = *order_volume;
+                // 添加订单最后时间（第26列）
+                results[i][25] = *order_time;
+                // 添加订单加权平均价格（第27列）
+                results[i][26] = *order_price;
             }
         }
     }
