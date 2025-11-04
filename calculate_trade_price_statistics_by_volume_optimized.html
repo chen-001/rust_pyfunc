@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>calculate_trade_price_statistics_by_volume_optimized - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>calculate_trade_price_statistics_by_volume_optimized</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>优化版本的计算同体量同方向成交的价格统计指标</p>
+<p>该函数是 calculate_trade_price_statistics_by_volume 的高性能版本，
+通过预排序索引、二分查找和批量处理等优化技术大幅提升计算速度。</p>
+<h1>🚀 性能优化特点：</h1>
+<ul>
+<li>预排序时间索引，避免重复排序操作</li>
+<li>二分查找快速定位最近成交记录</li>
+<li>批量计算统计量，避免重复数值计算</li>
+<li>内存访问优化，减少分配开销</li>
+<li>算法复杂度从O(n²)优化到O(n log n)</li>
+</ul>
+<h1>💡 适用场景：</h1>
+<ul>
+<li>高频交易数据分析</li>
+<li>大规模历史数据处理</li>
+<li>实时价格统计计算</li>
+<li>性能敏感的量化研究</li>
+</ul></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>calculate_trade_price_statistics_by_volume_optimized(volume, exchtime, price, flag, min_count, use_flag) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                <p>此函数没有参数</p>
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import calculate_trade_price_statistics_by_volume_optimized
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

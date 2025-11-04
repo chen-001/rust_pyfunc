@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>calculate_trade_price_statistics_by_volume_order_level - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>calculate_trade_price_statistics_by_volume_order_level</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>计算订单聚合后的VWAP价格统计指标（订单级别输出版本）</p>
+<p>该函数与 calculate_trade_price_statistics_by_volume_v2 的逻辑相同，
+但返回订单级别的结果，避免同一订单的多笔成交产生重复数据。</p>
+<h1>🎯 核心特点：</h1>
+<ul>
+<li>订单级别输出：每个订单返回一行统计指标</li>
+<li>避免数据重复：同一订单的多笔成交不会产生重复结果</li>
+<li>VWAP计算：使用订单的成交量加权平均价格</li>
+<li>基于订单类型：通过ask_order/bid_order区分买卖方向</li>
+</ul>
+<h1>📊 输出结构：</h1>
+<ul>
+<li>means数组：num_orders行10列，每行对应一个订单的VWAP价格均值</li>
+<li>stds数组：num_orders行10列，每行对应一个订单的VWAP价格标准差</li>
+<li>column_names：20个列名（10个均值+10个标准差）</li>
+</ul>
+<h1>🔄 订单聚合逻辑：</h1>
+<ul>
+<li>卖单（ask_order != 0）：基于ask_order聚合成交记录</li>
+<li>买单（bid_order != 0）：基于bid_order聚合成交记录</li>
+<li>每个订单计算：</li>
+<li>总volume：累加所有成交volume</li>
+<li>VWAP价格：Σ(volume × price) / Σ(volume)</li>
+<li>最后时间：所有成交时间的最大值</li>
+</ul></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>calculate_trade_price_statistics_by_volume_order_level(volume, exchtime, price, flag, ask_order, bid_order, min_count, use_flag) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">volume</span>
+                    <span class="parameter-type">(NDArray[np.float64])</span>
+                    <div><p>成交量数组</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">exchtime</span>
+                    <span class="parameter-type">(NDArray[np.int64])</span>
+                    <div><p>成交时间数组（纳秒时间戳，函数内部自动转换为秒）</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">price</span>
+                    <span class="parameter-type">(NDArray[np.float64])</span>
+                    <div><p>成交价格数组</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">flag</span>
+                    <span class="parameter-type">(NDArray[np.int32])</span>
+                    <div><p>主买卖标志数组（在订单级别版本中被忽略）</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">ask_order</span>
+                    <span class="parameter-type">(NDArray[np.int64])</span>
+                    <div><p>卖单订单号数组</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">bid_order</span>
+                    <span class="parameter-type">(NDArray[np.int64])</span>
+                    <div><p>买单订单号数组</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">min_count</span>
+                    <span class="parameter-type">(int, default=10)</span>
+                    <div><p>计算统计指标所需的最少同类型订单数</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">use_flag</span>
+                    <span class="parameter-type">(str, default=&#34;same&#34;)</span>
+                    <div><p>类型筛选</p></div>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div><p>"same"=同类型，"diff"=反类型，"ignore"=忽略类型</p></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import calculate_trade_price_statistics_by_volume_order_level
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

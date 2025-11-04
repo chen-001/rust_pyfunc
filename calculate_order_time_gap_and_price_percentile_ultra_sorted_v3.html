@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>calculate_order_time_gap_and_price_percentile_ultra_sorted_v3 - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>calculate_order_time_gap_and_price_percentile_ultra_sorted_v3</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>计算订单时间间隔和价格分位数的超高性能版本V3</p>
+<h1>参数</h1>
+<ul>
+<li>volume: 交易volume数组</li>
+<li>exchtime: 交易所时间戳数组（纳秒）</li>
+<li>price: 交易价格数组</li>
+<li>flag: 交易标志数组（V3版本中忽略）</li>
+<li>ask_order: 卖单订单号数组</li>
+<li>bid_order: 买单订单号数组</li>
+<li>min_count: 最小计算记录数</li>
+<li>use_flag: 计算策略 ("same"/"diff"/"ignore")</li>
+</ul>
+<h1>返回值</h1>
+<ul>
+<li>(结果数组, 列名列表)：结果数组形状为(n, 27)</li>
+</ul></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>calculate_order_time_gap_and_price_percentile_ultra_sorted_v3(volume, exchtime, price, flag, ask_order, bid_order, min_count, use_flag) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                <p>此函数没有参数</p>
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import calculate_order_time_gap_and_price_percentile_ultra_sorted_v3
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

@@ -160,8 +160,28 @@
     "params": []
   },
   {
+    "name": "calculate_order_time_gap_and_price_percentile_ultra_sorted_bucketed",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
     "name": "calculate_order_time_gap_and_price_percentile_ultra_sorted_v2",
     "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "calculate_order_time_gap_and_price_percentile_ultra_sorted_v2_bucketed",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "calculate_order_time_gap_and_price_percentile_ultra_sorted_v3",
+    "description": "<p>计算订单时间间隔和价格分位数的超高性能版本V3</p>\n<h1>参数</h1>\n<ul>\n<li>volume: 交易volume数组</li>\n<li>exchtime: 交易所时间戳数组（纳秒）</li>\n<li>price: 交易价格数组</li>\n<li>flag: 交易标志数组（V3版本中忽略）</li>\n<li>ask_order: 卖单订单号数组</li>\n<li>bid_order: 买单订单号数组</li>\n<li>min_count: 最小计算记录数</li>\n<li>use_flag: 计算策略 (\"same\"/\"diff\"/\"ignore\")</li>\n</ul>\n<h1>返回值</h1>\n<ul>\n<li>(结果数组, 列名列表)：结果数组形状为(n, 27)</li>\n</ul>",
+    "params": []
+  },
+  {
+    "name": "calculate_order_time_gap_and_price_percentile_ultra_sorted_v6",
+    "description": "<p>V6版本：大数据优化的订单时间间隔和价格分位数计算\n核心优化：\n1. 使用预排序时间索引进行二分查找\n2. 线性搜索价格分位数避免排序开销\n3. 内存预分配减少动态分配\n4. 算法复杂度从O(n² log n)降低到O(n log n)</p>",
     "params": []
   },
   {
@@ -179,6 +199,60 @@
   {
     "name": "calculate_shannon_entropy_change_at_low",
     "description": "<p>在价格创新低时计算香农熵变</p>\n<p>参数:\n* exchtime: 交易时间数组\n* order: 订单号数组\n* volume: 成交量数组\n* price: 价格数组\n* window_seconds: 时间窗口大小（秒）\n* bottom_k: 如果提供，则只计算价格最低的k个点的熵变，默认为None（计算所有价格创新低点）</p>\n<p>返回:\n* 香农熵变数组，只在价格创新低时有值，其他位置为NaN</p>",
+    "params": []
+  },
+  {
+    "name": "calculate_trade_price_statistics_by_volume",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "calculate_trade_price_statistics_by_volume_bucketed",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "calculate_trade_price_statistics_by_volume_bucketed_v3",
+    "description": "<p>优化版本：极致性能的分桶统计计算函数（V3）</p>\n<p>针对13万数据量快速完成的极致优化版本\n核心思路：预排序 + 批量处理，避免对每个记录单独排序</p>\n<h1>🚀 核心优化：</h1>\n<ul>\n<li>在volume组级别预排序时间索引</li>\n<li>使用二分查找定位邻近记录</li>\n<li>批量计算所有百分比档位</li>\n<li>部分排序（只排序需要的元素）</li>\n</ul>",
+    "params": []
+  },
+  {
+    "name": "calculate_trade_price_statistics_by_volume_optimized",
+    "description": "<p>优化版本的计算同体量同方向成交的价格统计指标</p>\n<p>该函数是 calculate_trade_price_statistics_by_volume 的高性能版本，\n通过预排序索引、二分查找和批量处理等优化技术大幅提升计算速度。</p>\n<h1>🚀 性能优化特点：</h1>\n<ul>\n<li>预排序时间索引，避免重复排序操作</li>\n<li>二分查找快速定位最近成交记录</li>\n<li>批量计算统计量，避免重复数值计算</li>\n<li>内存访问优化，减少分配开销</li>\n<li>算法复杂度从O(n²)优化到O(n log n)</li>\n</ul>\n<h1>💡 适用场景：</h1>\n<ul>\n<li>高频交易数据分析</li>\n<li>大规模历史数据处理</li>\n<li>实时价格统计计算</li>\n<li>性能敏感的量化研究</li>\n</ul>",
+    "params": []
+  },
+  {
+    "name": "calculate_trade_price_statistics_by_volume_order_level",
+    "description": "<p>计算订单聚合后的VWAP价格统计指标（订单级别输出版本）</p>\n<p>该函数与 calculate_trade_price_statistics_by_volume_v2 的逻辑相同，\n但返回订单级别的结果，避免同一订单的多笔成交产生重复数据。</p>\n<h1>🎯 核心特点：</h1>\n<ul>\n<li>订单级别输出：每个订单返回一行统计指标</li>\n<li>避免数据重复：同一订单的多笔成交不会产生重复结果</li>\n<li>VWAP计算：使用订单的成交量加权平均价格</li>\n<li>基于订单类型：通过ask_order/bid_order区分买卖方向</li>\n</ul>\n<h1>📊 输出结构：</h1>\n<ul>\n<li>means数组：num_orders行10列，每行对应一个订单的VWAP价格均值</li>\n<li>stds数组：num_orders行10列，每行对应一个订单的VWAP价格标准差</li>\n<li>column_names：20个列名（10个均值+10个标准差）</li>\n</ul>\n<h1>🔄 订单聚合逻辑：</h1>\n<ul>\n<li>卖单（ask_order != 0）：基于ask_order聚合成交记录</li>\n<li>买单（bid_order != 0）：基于bid_order聚合成交记录</li>\n<li>每个订单计算：</li>\n<li>总volume：累加所有成交volume</li>\n<li>VWAP价格：Σ(volume × price) / Σ(volume)</li>\n<li>最后时间：所有成交时间的最大值</li>\n</ul>",
+    "params": [
+      "volume",
+      "exchtime",
+      "price",
+      "flag",
+      "ask_order",
+      "bid_order",
+      "min_count",
+      "use_flag"
+    ]
+  },
+  {
+    "name": "calculate_trade_price_statistics_by_volume_ultra_fast",
+    "description": "<p>超级优化版本：极致性能的统计计算函数</p>\n<p>这是 calculate_trade_price_statistics_by_volume 的终极优化版本，\n专门为13万数据量1秒内完成的目标而设计。</p>\n<h1>🚀 极致优化技术：</h1>\n<ul>\n<li>零拷贝数据访问模式</li>\n<li>预排序索引，O(1)查找</li>\n<li>批量统计量计算</li>\n<li>内存池复用</li>\n<li>SIMD向量化准备</li>\n<li>缓存友好的数据布局</li>\n</ul>\n<h1>🎯 性能目标：</h1>\n<ul>\n<li>13万数据量：≤ 1秒</li>\n<li>内存使用：最小化</li>\n<li>算法复杂度：O(n log n) → O(n)</li>\n</ul>",
+    "params": []
+  },
+  {
+    "name": "calculate_trade_price_statistics_by_volume_v2",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "calculate_trade_price_statistics_by_volume_v2_bucketed",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "calculate_trade_price_statistics_by_volume_v3",
+    "description": "<p>终极优化版本：极致性能的统计计算函数（V3）</p>\n<p>针对13万数据量1秒内完成的极致优化版本\n核心思路：预排序 + 批量处理，避免对每个记录单独排序</p>\n<h1>🚀 核心优化：</h1>\n<ul>\n<li>在volume组级别预排序时间索引</li>\n<li>使用二分查找定位邻近记录</li>\n<li>批量计算所有百分比档位</li>\n<li>零额外排序开销</li>\n</ul>",
     "params": []
   },
   {
