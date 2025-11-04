@@ -10,7 +10,13 @@ pub mod grouping;
 pub mod market_correlation;
 pub mod order_contamination;
 pub mod order_neighborhood;
+pub mod order_price_statistics;
+pub mod order_price_statistics_bucketed;
+pub mod order_price_statistics_order_level;
 pub mod order_records_ultra_sorted;
+pub mod order_records_ultra_sorted_bucketed;
+pub mod order_records_ultra_sorted_v3;
+pub mod order_records_ultra_sorted_v2_optimized;
 pub mod pandas_ext;
 pub mod parallel_computing;
 pub mod price_cycle_b_segments_enhanced;
@@ -217,8 +223,65 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         order_records_ultra_sorted::calculate_order_time_gap_and_price_percentile_ultra_sorted,
         m
     )?);
+    // V6版本：大数据优化的订单时间间隔和价格分位数计算
+      let _ = m.add_function(wrap_pyfunction!(
+        order_records_ultra_sorted::calculate_order_time_gap_and_price_percentile_ultra_sorted_v6,
+        m
+    )?);
+    //     order_records_ultra_sorted::calculate_order_time_gap_and_price_percentile_ultra_sorted_v4,
+    //     m
+    // )?);
     let _ = m.add_function(wrap_pyfunction!(
-        order_records_ultra_sorted::calculate_order_time_gap_and_price_percentile_ultra_sorted_v2,
+        order_records_ultra_sorted_v3::calculate_order_time_gap_and_price_percentile_ultra_sorted_v3,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        order_records_ultra_sorted_bucketed::calculate_order_time_gap_and_price_percentile_ultra_sorted_bucketed,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        order_records_ultra_sorted_bucketed::calculate_order_time_gap_and_price_percentile_ultra_sorted_v2_bucketed,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        order_records_ultra_sorted_v2_optimized::calculate_order_time_gap_and_price_percentile_ultra_sorted_v2,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        order_price_statistics::calculate_trade_price_statistics_by_volume,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        order_price_statistics::calculate_trade_price_statistics_by_volume_v2,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        order_price_statistics_order_level::calculate_trade_price_statistics_by_volume_order_level,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        order_price_statistics::calculate_trade_price_statistics_by_volume_optimized,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        order_price_statistics::calculate_trade_price_statistics_by_volume_ultra_fast,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        order_price_statistics::calculate_trade_price_statistics_by_volume_v3,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        order_price_statistics_bucketed::calculate_trade_price_statistics_by_volume_bucketed,
+        m
+    )?);
+
+    let _ = m.add_function(wrap_pyfunction!(
+        order_price_statistics_bucketed::calculate_trade_price_statistics_by_volume_v2_bucketed,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        order_price_statistics_bucketed::calculate_trade_price_statistics_by_volume_bucketed_v3,
         m
     )?);
     let _ = m.add_function(wrap_pyfunction!(
