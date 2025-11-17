@@ -91,3 +91,4 @@ The project includes utilities for working with Chinese stock market data throug
 - 使用timeout 600s ./alter.sh 2>&1构建项目时,将timeout限制设置为10分钟.
 - 优化函数性能时,不要使用并行,除非在提示词中明确指出使用并行.
 - 在写了新函数或优化了函数后,请在回答中直接告知我新函数或优化函数的名字是什么,以及给出一个最简单的调用示例.
+- 写git commit 时,版本号与 Cargo.toml中的保持一致
