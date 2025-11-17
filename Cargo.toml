@@ -1,6 +1,6 @@
 [package]
 name = "rust_pyfunc"
-version = "0.45.3"
+version = "0.45.4"
 edition = "2021"
 description = "A collection of high-performance Python functions implemented in Rust"
 readme = "README.md"
