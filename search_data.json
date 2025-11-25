@@ -32,6 +32,11 @@
     ]
   },
   {
+    "name": "analyze_hawkes_indicators",
+    "description": "<p>Analyze Hawkes process indicators and provide trading advice</p>\n<p>This function analyzes Hawkes model output metrics, automatically analyzes\nmarket microstructure features, and provides quantitative trading and strategy suggestions.</p>",
+    "params": []
+  },
+  {
     "name": "analyze_long_orders",
     "description": "<p>分析漫长订单并计算比值</p>\n<p>参数:\n- exchtime: 交易时间数组(纳秒)\n- order: 订单编号数组\n- volume: 成交量数组\n- top_ratio: 可选参数，表示只计算最漫长的一部分订单的比例(0.0-1.0)\n             默认为1.0表示计算所有订单，0.5表示只计算最漫长的一半订单</p>\n<p>返回: (时间漫长比值序列, 次数漫长比值序列, 两者都漫长比值序列,\n      时间漫长总比值, 次数漫长总比值, 两者都漫长总比值)</p>",
     "params": []
@@ -581,6 +586,11 @@
     ]
   },
   {
+    "name": "fit_hawkes_process",
+    "description": "<p>拟合Hawkes自激点过程模型并计算多种指标</p>\n<p>该函数使用指数核函数 φ(u) = α * exp(-β * u) 拟合Hawkes过程,\n计算模型参数和各种金融指标,用于分析逐笔成交数据的自激特性。</p>\n<h2>参数</h2>\n<p>event_times : numpy.ndarray\n    事件时间戳数组(单位:秒),需要是升序排列\nevent_volumes : numpy.ndarray\n    事件对应的成交量数组\ninitial_guess : Optional[Tuple[float, float, float]], optional\n    参数初始猜测值 (mu, alpha, beta)\n    - mu: 外生事件强度(基准强度)\n    - alpha: 自激强度系数\n    - beta: 核函数衰减率\n    默认为None,使用启发式方法自动初始化\nmax_iterations : int, optional\n    EM算法最大迭代次数,默认为1000\ntolerance : float, optional\n    收敛容差,默认为1e-6\ncluster_merge_threshold : float, optional\n    簇合并阈值(0-1),控制事件并入已有簇的宽松程度;\n    数值越大越容易把事件并入已有簇,形成更大的簇;\n    数值越小越严格,更倾向于创建新簇\n    默认0.8,建议范围[0.5, 0.95]</p>\n<pre><code>示例:\n- threshold=0.3: 严格,只合并概率明显更高的事件,产生更多小簇\n- threshold=0.8: 宽松,容易合并事件,允许产生大簇\n</code></pre>\n<h2>返回值</h2>\n<p>dict\n    包含以下字段的字典:\n    - 'mu': 外生事件强度估计值\n    - 'alpha': 自激强度系数估计值\n    - 'beta': 核函数衰减率估计值\n    - 'branching_ratio': 分枝率 n = α/β\n    - 'mean_intensity': 无条件平均强度 Λ = μ/(1-n)\n    - 'exogenous_intensity': 外生强度 = μ\n    - 'endogenous_intensity': 内生强度 = Λ - μ\n    - 'expected_cluster_size': 期望簇大小 = 1/(1-n)\n    - 'half_life': 半衰期 = ln(2)/β\n    - 'mean_parent_child_interval': 父子平均间隔 = 1/β\n    - 'log_likelihood': 对数似然值\n    - 'event_intensities': 每个事件时刻的强度值\n    - 'root_probabilities': 每个事件是根节点(外生事件)的概率\n    - 'expected_children': 每个事件的预期子女数\n    - 'cluster_assignments': 每个事件所属的簇ID\n    - 'cluster_sizes': 每个簇的大小\n    - 'cluster_durations': 每个簇的持续时间\n    - 'cluster_volumes': 每个簇的成交量总和</p>\n<h2>示例</h2>\n<blockquote>\n<blockquote>\n<blockquote>\n<p>import rust_pyfunc as rp\nimport numpy as np</p>\n<h1>模拟逐笔成交数据</h1>\n<p>times = np.cumsum(np.random.exponential(0.1, 1000))\nvolumes = np.random.lognormal(10, 1, 1000)\nresult = rp.fit_hawkes_process(times, volumes)\nprint(f\"分枝率: {result['branching_ratio']:.3f}\")\nprint(f\"期望簇大小: {result['expected_cluster_size']:.2f}\")\nprint(f\"平均强度: {result['mean_intensity']:.3f}\")</p>\n</blockquote>\n</blockquote>\n</blockquote>",
+    "params": []
+  },
+  {
     "name": "gp_correlation_dimension",
     "description": "<p>可选参数入口：可提供自定义选项</p>",
     "params": []
@@ -598,6 +608,11 @@
   {
     "name": "gp_create_options",
     "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "hawkes_event_indicators",
+    "description": "<p>计算Hawkes过程的事件级指标（需要价格数据）</p>\n<p>该函数在fit_hawkes_process的基础上,增加了需要价格数据的指标计算。\n额外计算的指标主要用于分析每个事件对价格的影响。</p>\n<h2>参数</h2>\n<p>event_times : numpy.ndarray\n    事件时间戳数组(单位:秒),需要是升序排列\nevent_volumes : numpy.ndarray\n    事件对应的成交量数组\nevent_prices : numpy.ndarray\n    事件对应的价格数组\ninitial_guess : Optional[Tuple[float, float, float]], optional\n    参数初始猜测值 (mu, alpha, beta),默认为None\nmax_iterations : int, optional\n    EM算法最大迭代次数,默认为1000\ntolerance : float, optional\n    收敛容差,默认为1e-6\ncluster_merge_threshold : float, optional\n    簇合并阈值(0-1),控制事件并入已有簇的宽松程度;\n    数值越大越容易把事件并入已有簇,形成更大的簇;\n    数值越小越严格,更倾向于创建新簇\n    默认0.8,建议范围[0.5, 0.95]</p>\n<h2>返回值</h2>\n<p>dict\n    包含fit_hawkes_process的所有字段,以及：\n    - 'cluster_price_changes': 每个簇的价格变化(簇结束时价格 - 簇开始时价格)\n    - 'time_intervals': 连续事件间的时间间隔</p>\n<h2>新指标解释</h2>\n<ol>\n<li>\n<p>簇价格变化(cluster_price_changes): 每个成交簇从开始到结束的价格变化,\n   反映该簇交易活动对价格的影响方向和幅度。</p>\n</li>\n<li>\n<p>时间间隔(time_intervals): 连续成交事件之间的时间间隔,\n   可用于分析市场活跃度的时间模式。</p>\n</li>\n</ol>\n<h2>示例</h2>\n<blockquote>\n<blockquote>\n<blockquote>\n<p>import rust_pyfunc as rp\nimport numpy as np</p>\n<h1>读取真实逐笔成交数据</h1>\n<p>df = read_trade_data('000001', 20220101)\ndf['time_seconds'] = (df.exchtime - df.exchtime.min()).dt.total_seconds()\nresult = rp.hawkes_event_indicators(\n...     df.time_seconds.to_numpy(),\n...     df.volume.to_numpy(),\n...     df.price.to_numpy()\n... )</p>\n<h1>分析大簇的价格影响</h1>\n<p>large_clusters = np.array(result['cluster_sizes']) &gt; 10\nprice_changes = np.array(result['cluster_price_changes'])[large_clusters]\nprint(f\"大簇平均价格变化: {np.mean(price_changes):.4f}\")</p>\n</blockquote>\n</blockquote>\n</blockquote>",
     "params": []
   },
   {
