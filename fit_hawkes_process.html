@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>fit_hawkes_process - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>fit_hawkes_process</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>拟合Hawkes自激点过程模型并计算多种指标</p>
+<p>该函数使用指数核函数 φ(u) = α * exp(-β * u) 拟合Hawkes过程,
+计算模型参数和各种金融指标,用于分析逐笔成交数据的自激特性。</p>
+<h2>参数</h2>
+<p>event_times : numpy.ndarray
+    事件时间戳数组(单位:秒),需要是升序排列
+event_volumes : numpy.ndarray
+    事件对应的成交量数组
+initial_guess : Optional[Tuple[float, float, float]], optional
+    参数初始猜测值 (mu, alpha, beta)
+    - mu: 外生事件强度(基准强度)
+    - alpha: 自激强度系数
+    - beta: 核函数衰减率
+    默认为None,使用启发式方法自动初始化
+max_iterations : int, optional
+    EM算法最大迭代次数,默认为1000
+tolerance : float, optional
+    收敛容差,默认为1e-6
+cluster_merge_threshold : float, optional
+    簇合并阈值(0-1),控制事件并入已有簇的宽松程度;
+    数值越大越容易把事件并入已有簇,形成更大的簇;
+    数值越小越严格,更倾向于创建新簇
+    默认0.8,建议范围[0.5, 0.95]</p>
+<pre><code>示例:
+- threshold=0.3: 严格,只合并概率明显更高的事件,产生更多小簇
+- threshold=0.8: 宽松,容易合并事件,允许产生大簇
+</code></pre>
+<h2>返回值</h2>
+<p>dict
+    包含以下字段的字典:
+    - 'mu': 外生事件强度估计值
+    - 'alpha': 自激强度系数估计值
+    - 'beta': 核函数衰减率估计值
+    - 'branching_ratio': 分枝率 n = α/β
+    - 'mean_intensity': 无条件平均强度 Λ = μ/(1-n)
+    - 'exogenous_intensity': 外生强度 = μ
+    - 'endogenous_intensity': 内生强度 = Λ - μ
+    - 'expected_cluster_size': 期望簇大小 = 1/(1-n)
+    - 'half_life': 半衰期 = ln(2)/β
+    - 'mean_parent_child_interval': 父子平均间隔 = 1/β
+    - 'log_likelihood': 对数似然值
+    - 'event_intensities': 每个事件时刻的强度值
+    - 'root_probabilities': 每个事件是根节点(外生事件)的概率
+    - 'expected_children': 每个事件的预期子女数
+    - 'cluster_assignments': 每个事件所属的簇ID
+    - 'cluster_sizes': 每个簇的大小
+    - 'cluster_durations': 每个簇的持续时间
+    - 'cluster_volumes': 每个簇的成交量总和</p>
+<h2>示例</h2>
+<blockquote>
+<blockquote>
+<blockquote>
+<p>import rust_pyfunc as rp
+import numpy as np</p>
+<h1>模拟逐笔成交数据</h1>
+<p>times = np.cumsum(np.random.exponential(0.1, 1000))
+volumes = np.random.lognormal(10, 1, 1000)
+result = rp.fit_hawkes_process(times, volumes)
+print(f"分枝率: {result['branching_ratio']:.3f}")
+print(f"期望簇大小: {result['expected_cluster_size']:.2f}")
+print(f"平均强度: {result['mean_intensity']:.3f}")</p>
+</blockquote>
+</blockquote>
+</blockquote></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>fit_hawkes_process(event_times, event_volumes, initial_guess, max_iterations, tolerance, cluster_merge_threshold, max_parent_search_window, parent_time_threshold_factor, merge_search_window, merge_time_threshold_factor, relax_factor_multiplier) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                <p>此函数没有参数</p>
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import fit_hawkes_process
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>
