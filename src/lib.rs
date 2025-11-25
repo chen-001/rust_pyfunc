@@ -13,6 +13,8 @@ pub mod order_neighborhood;
 pub mod order_price_statistics;
 pub mod order_price_statistics_bucketed;
 pub mod order_price_statistics_order_level;
+pub mod hawkes_analysis;
+pub mod hawkes_advisor;
 pub mod order_records_ultra_sorted;
 pub mod order_records_ultra_sorted_bucketed;
 pub mod order_records_ultra_sorted_v3;
@@ -479,6 +481,22 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         mutual_information_2d_final::mutual_information_2d_knn_final,
         m
     )?);
+
+    let _ = m.add_function(wrap_pyfunction!(
+        hawkes_analysis::fit_hawkes_process,
+        m
+    )?);
+
+    let _ = m.add_function(wrap_pyfunction!(
+        hawkes_analysis::hawkes_event_indicators,
+        m
+    )?);
+
+    let _ = m.add_function(wrap_pyfunction!(
+        hawkes_advisor::analyze_hawkes_indicators,
+        m
+    )?);
+
     // m.add_function(wrap_pyfunction!(text::normalized_diff, m)?)?;
     Ok(())
 }

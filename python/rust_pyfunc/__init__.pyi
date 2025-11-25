@@ -116,6 +116,9 @@ __all__ = [
     "compute_price_cycle_features_b_segments_enhanced",
     "analyze_long_orders",
     "analyze_long_orders_python",
+    "fit_hawkes_process",
+    "hawkes_event_indicators",
+    "analyze_hawkes_indicators",
     
     # 统计分析函数
     "calculate_base_entropy",
