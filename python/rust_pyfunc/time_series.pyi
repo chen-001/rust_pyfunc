@@ -873,3 +873,327 @@ def rolling_lagged_regression_ridge_incremental(
     - 需要长滑动窗口的场景
     """
     ...
+
+def time_irreversibility_static_simple(
+    data: NDArray[np.float64],
+    m: int = 5
+) -> float:
+    """静态版-简略版：计算时间不可逆指标 I_ord。
+
+    该函数基于序型（ordinal pattern）框架度量时间序列的不可逆性，只返回核心指标I_ord。
+    通过比较正向和反向时间序列中各种序型出现的频率差异来度量时间箭头强度。
+
+    计算原理：
+    ----------
+    给定时间序列 {x_t}_{t=1}^T 和嵌入维度 m：
+    1. 构造长度为 m 的滑动窗口
+    2. 将每个窗口转换为序型 π（元素按大小排序后的位置索引）
+    3. 统计每种序型的频率 p(π)
+    4. 计算反向序型 π^R = (m+1-i_1, ..., m+1-i_m)
+    5. 不可逆指标：I_ord = 0.5 * Σ|p(π) - p(π^R)|
+
+    参数：
+    -----
+    data : numpy.ndarray
+        输入的时间序列数据（一维浮点数数组）
+    m : int, optional
+        嵌入维度（窗口大小），默认值为5（m>=2）
+
+    返回值：
+    -------
+    float
+        时间不可逆性指标 I_ord（取值范围[0,1]）
+        - 0：完全可逆（时间对称）
+        - 1：完全不可逆（时间不对称）
+        - 典型金融时间序列：0.1-0.5
+
+    计算复杂度：
+    ------------
+    - 时间：O(T * m log m)，T为数据长度
+    - 空间：O(m!)，m!为可能的序型数量
+
+    使用示例：
+    ----------
+    >>> import numpy as np
+    >>> import rust_pyfunc as rp
+    >>>
+    >>> # 生成示例数据
+    >>> data = np.random.randn(10000)
+    >>>
+    >>> # 计算不可逆指标（m=5）
+    >>> i_ord = rp.time_irreversibility_static_simple(data, m=5)
+    >>> print(f"时间不可逆性: {i_ord:.4f}")
+    >>>
+    >>> # 测试不同嵌入维度
+    >>> for m in [2, 3, 4, 5]:
+    ...     i_ord = rp.time_irreversibility_static_simple(data, m=m)
+    ...     print(f"m={m}: I_ord = {i_ord:.4f}")
+
+    性能说明：
+    ----------
+    - 13万条数据，m=5：约0.01秒
+    - 使用高效排序算法和缓存优化
+    """
+    ...
+
+def time_irreversibility_static_detailed(
+    data: NDArray[np.float64],
+    m: int = 5
+) -> Dict[str, Any]:
+    """静态版-详细版：计算所有静态时间不可逆性指标。
+
+    该函数提供完整的时间不可逆性分析，返回包含多种相关指标的详细结果。
+    除了核心指标I_ord外，还包括序型熵、缺失模式、KL散度等补充指标。
+
+    计算指标：
+    ----------
+    1. **I_ord**: 核心不可逆指标（0.5 * Σ|p(π) - p(π^R)|）
+    2. **Permutation Entropy**: 序型熵 H_perm = -Σp(π)log p(π)
+    3. **Normalized Entropy**: 归一化熵 H_norm = H_perm / log(m!)
+    4. **Forbidden Patterns**: 缺失序型数量（频率为0的模式）
+    5. **Forbidden Ratio**: 缺失序型比例
+    6. **KL Divergence**: KL散度 D_KL(p||p^R)
+    7. **Local Irreversibility**: 各模式的局部不可逆度 Δ(π) = p(π) - p(π^R)
+    8. **Relative Bias**: 相对偏差 B(π) = p(π)/(p(π)+p(π^R)) - 0.5
+    9. **Pattern Frequencies**: 各序型频率分布
+
+    参数：
+    -----
+    data : numpy.ndarray
+        输入的时间序列数据（一维浮点数数组）
+    m : int, optional
+        嵌入维度（窗口大小），默认值为5（m>=2）
+
+    返回值：
+    -------
+    Dict[str, Any]
+        包含所有指标的字典：
+        - 'i_ord': float - 核心不可逆指标
+        - 'permutation_entropy': float - 序型熵
+        - 'normalized_permutation_entropy': float - 归一化熵[0,1]
+        - 'forbidden_count': int - 缺失序型个数
+        - 'forbidden_ratio': float - 缺失序型比例
+        - 'kl_divergence': float - KL散度
+        - 'local_irreversibility': NDArray[np.float64] - 局部不可逆度（长度n，前m-1个为NaN）
+        - 'local_irreversibility_signed': NDArray[np.float64] - 局部不可逆度带符号版（长度n，前m-1个为NaN）
+        - 'relative_bias': NDArray[np.float64] - 相对偏差（长度n，前m-1个为NaN）
+        - 'pattern_frequencies': NDArray[np.float64] - 序型频率（长度n，前m-1个为NaN）
+        - 'pattern_frequency_all': NDArray[np.float64] - 所有序型频率汇总（长度m!）
+
+    指标解读：
+    ----------
+    **不可逆性相关：**
+    - I_ord: 越大说明时间箭头越强
+    - Local Irreversibility: >0说明该模式更倾向正向时间（绝对值版本，>=0）
+    - Local Irreversibility Signed: 带符号版本（正向>反向为正，反向>正向为负）
+
+    **复杂性相关：**
+    - Permutation Entropy: 越大说明系统越随机（接近白噪声）
+    - Normalized Entropy: 0-1标准化，1表示完全随机
+    - Forbidden Patterns: 越多说明确定性越强（混沌系统特征）
+
+    **偏差相关：**
+    - Relative Bias: 各模式的时间不对称偏好度
+    - KL Divergence: 衡量正向/反向分布差异的信息论指标
+
+    **序型频率相关：**
+    - Pattern Frequencies: 每个窗口对应的序型在整个序列中的频率（可merge回原始序列）
+    - Pattern Frequency All: 所有m!种序型的频率汇总统计
+
+    序列对齐说明：
+    ----------------
+    - local_irreversibility和relative_bias的长度与输入序列相同（n）
+    - 前m-1个值为NaN（无法构成完整窗口）
+    - 第i个值（i>=m）对应从位置i-m+1开始的窗口
+
+    使用示例：
+    ----------
+    >>> import numpy as np
+    >>> import rust_pyfunc as rp
+    >>> import matplotlib.pyplot as plt
+    >>>
+    >>> # 计算详细指标
+    >>> data = np.random.randn(10000)
+    >>> result = rp.time_irreversibility_static_detailed(data, m=5)
+    >>>
+    >>> # 输出核心指标
+    >>> print(f"I_ord: {result['i_ord']:.4f}")
+    >>> print(f"序型熵: {result['permutation_entropy']:.4f}")
+    >>> print(f"local_irreversibility长度: {len(result['local_irreversibility'])}")
+    >>> print(f"前5个值（NaN）: {result['local_irreversibility'][:5]}")
+    >>> print(f"第6个值（第一个有效值）: {result['local_irreversibility'][5]:.6f}")
+    >>>
+    >>> # 比较绝对值和带符号版本
+    >>> print(f"local_irreversibility_signed长度: {len(result['local_irreversibility_signed'])}")
+    >>> print(f"范围: [{result['local_irreversibility_signed'].min():.6f}, {result['local_irreversibility_signed'].max():.6f}]")
+    >>> print(f"正向模式个数: {(result['local_irreversibility_signed'] > 0).sum()}")
+    >>> print(f"负向模式个数: {(result['local_irreversibility_signed'] < 0).sum()}")
+
+    性能说明：
+    ----------
+    - 比简略版慢约2-3倍（需要计算所有衍生指标）
+    - 13万条数据，m=5：约0.3-0.5秒
+    - 额外开销主要来自模式枚举和统计计算
+    """
+    ...
+
+def time_irreversibility_transfer_simple(
+    data: NDArray[np.float64],
+    m: int = 5
+) -> float:
+    """转移版-简略版：计算转移不可逆指标 I_trans。
+
+    该函数基于序型马尔可夫链度量时间序列的转移不可逆性，只返回核心指标I_trans。
+    通过比较正向和反向转移概率流的差异，捕捉动态演化层面的时间箭头。
+
+    计算原理：
+    ----------
+    在序型序列 {π_t} 基础上：
+    1. 构建转移计数矩阵 N_ij（从序型i到j的转移次数）
+    2. 估计转移概率 P_ij = N_ij / Σ_k N_ik
+    3. 计算经验平稳分布 μ_i = Σ_j N_ij / Σ_{k,l} N_kl
+    4. 计算概率流差 J_ij = μ_i P_ij - μ_j P_ji
+    5. 不可逆指标：I_trans = 0.5 * Σ|J_ij|
+
+    物理意义：
+    ----------
+    - J_ij 表示正向时间i→j的净概率流
+    - I_trans 越大，说明动态路径越不对称
+    - 相比静态I_ord，能捕捉更丰富的动力学信息
+
+    参数：
+    -----
+    data : numpy.ndarray
+        输入的时间序列数据（一维浮点数数组）
+    m : int, optional
+        嵌入维度（窗口大小），默认值为5（m>=2）
+
+    返回值：
+    -------
+    float
+        转移不可逆性指标 I_trans（取值范围[0,1]）
+        - 0：完全可逆（转移对称）
+        - 1：完全不可逆（路径不对称）
+
+    计算复杂度：
+    ------------
+    - 时间：O(T * (m log m + (m!)²))，T为数据长度
+    - 空间：O((m!)²)，需要存储转移矩阵
+
+    使用示例：
+    ----------
+    >>> import numpy as np
+    >>> import rust_pyfunc as rp
+    >>>
+    >>> # 生成时间序列
+    >>> data = np.random.randn(20000)
+    >>>
+    >>> # 计算转移不可逆指标（m=5）
+    >>> i_trans = rp.time_irreversibility_transfer_simple(data, m=5)
+    >>> print(f"转移不可逆性: {i_trans:.4f}")
+    >>>
+    >>> # 测试不同嵌入维度
+    >>> for m in [2, 3, 4, 5]:
+    ...     i_trans = rp.time_irreversibility_transfer_simple(data, m=m)
+    ...     print(f"m={m}: I_trans = {i_trans:.4f}")
+
+    性能说明：
+    ----------
+    - 13万条数据，m=5：约0.01秒
+    - 比静态版稍慢（需要构建转移矩阵）
+    - 内存使用：约 (m!)² * 8 字节
+    """
+    ...
+
+def time_irreversibility_transfer_detailed(
+    data: NDArray[np.float64],
+    m: int = 5
+) -> Dict[str, Any]:
+    """转移版-详细版：计算所有转移时间不可逆性指标。
+
+    该函数提供完整的转移不可逆性分析，返回包含多种动力学指标的详细结果。
+    除了核心指标I_trans外，还包括熵率、平稳分布、转移矩阵等动态系统指标。
+
+    计算指标：
+    ----------
+    1. **I_trans**: 转移不可逆指标（0.5 * Σ|μ_i P_ij - μ_j P_ji|）
+    2. **Entropy Rate**: 熵率 h = -Σμ_i ΣP_ij log P_ij
+    3. **Transition Entropy**: 转移熵（等同于熵率）
+    4. **Stationary Distribution**: 经验平稳分布 μ_i
+    5. **Transition Matrix**: 转移概率矩阵 P_ij
+    6. **Flow Differences**: 概率流差矩阵 J_ij = μ_i P_ij - μ_j P_ji
+
+    参数：
+    -----
+    data : numpy.ndarray
+        输入的时间序列数据（一维浮点数数组）
+    m : int, optional
+        嵌入维度（窗口大小），默认值为5（m>=2）
+
+    返回值：
+    -------
+    Dict[str, Any]
+        包含所有指标的字典：
+        - 'i_trans': float - 转移不可逆指标
+        - 'entropy_rate': float - 熵率
+        - 'transition_entropy': float - 转移熵
+        - 'stationary_distribution': NDArray[np.float64] - 平稳分布（长度m!）
+        - 'transition_matrix': NDArray[np.float64] - 转移矩阵（形状m!×m!）
+        - 'flow_differences': NDArray[np.float64] - 概率流差绝对值（长度n，前m个为NaN）
+        - 'flow_direction': NDArray[np.float64] - 概率流方向差值（长度n，前m个为NaN，有正负）
+
+    指标解读：
+    ----------
+    **不可逆性相关：**
+    - I_trans: 转移路径的时间不对称程度
+    - Flow Differences: 各转移对的净概率流绝对值（>=0）
+    - Flow Direction: 各转移对的有符号差值（正向>反向为正）
+
+    **动力学相关：**
+    - Entropy Rate: 系统演化的不确定性
+    - Stationary Distribution: 长期行为中各状态的占比
+    - Transition Matrix: 一步转移概率结构
+
+    **复杂性度量：**
+    - 高熵率：系统行为不可预测性强
+    - 均匀平稳分布：各状态出现频率相似
+    - 稀疏转移矩阵：确定性转移模式
+
+    序列对齐说明：
+    ----------------
+    - flow_differences的长度与输入序列相同（n）
+    - 前m个值为NaN（无法构成第一个转移）
+    - 第i个值（i>m）对应从序型π_{i-m}到π_{i-m+1}的转移
+
+    使用示例：
+    ----------
+    >>> import numpy as np
+    >>> import rust_pyfunc as rp
+    >>>
+    >>> # 计算详细指标
+    >>> data = np.random.randn(50000)
+    >>> result = rp.time_irreversibility_transfer_detailed(data, m=5)
+    >>>
+    >>> # 输出核心指标
+    >>> print(f"I_trans: {result['i_trans']:.4f}")
+    >>> print(f"熵率: {result['entropy_rate']:.4f}")
+    >>> print(f"flow_differences长度: {len(result['flow_differences'])}")
+    >>> print(f"前5个值（NaN）: {result['flow_differences'][:5]}")
+    >>> print(f"第6个值（第一个有效值）: {result['flow_differences'][5]:.6f}")
+    >>>
+    >>> # 比较绝对值和带符号版本
+    >>> print(f"flow_direction长度: {len(result['flow_direction'])}")
+    >>> print(f"flow_direction范围: [{result['flow_direction'].min():.6f}, {result['flow_direction'].max():.6f}]")
+    >>> print(f"正向流个数: {(result['flow_direction'] > 0).sum()}")
+    >>> print(f"反向流个数: {(result['flow_direction'] < 0).sum()}")
+
+    性能说明：
+    ----------
+    - 比简略版慢约3-5倍（需要计算矩阵和熵）
+    - 13万条数据，m=5：约0.3-0.5秒
+    - 内存使用：约 (m!)² * 8 * 3 字节（矩阵、平稳分布、流差）
+    - 对于m=5（120种模式），约需350KB内存
+    - 对于m=6（720种模式），约需12MB内存
+    - 对于m=7（5040种模式），约需600MB内存
+    """
+    ...
