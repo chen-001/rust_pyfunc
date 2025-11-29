@@ -26,6 +26,7 @@ pub mod sequence;
 pub mod simple_parallel;
 pub mod statistics;
 pub mod text;
+pub mod time_irreversibility;
 pub mod time_series;
 pub mod trade_peak_analysis;
 pub mod trade_records_ultra_sorted;
@@ -380,6 +381,22 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     let _ = m.add_function(wrap_pyfunction!(series_rank::pandas_series_rank, m)?);
     let _ = m.add_function(wrap_pyfunction!(
         price_breakthrough_stats::compute_non_breakthrough_stats,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        time_irreversibility::time_irreversibility_static_simple,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        time_irreversibility::time_irreversibility_static_detailed,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        time_irreversibility::time_irreversibility_transfer_simple,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        time_irreversibility::time_irreversibility_transfer_detailed,
         m
     )?);
     let _ = m.add_function(wrap_pyfunction!(
