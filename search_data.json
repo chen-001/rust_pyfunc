@@ -1090,6 +1090,34 @@
     "params": []
   },
   {
+    "name": "time_irreversibility_static_detailed",
+    "description": "<p>静态版-详细版：计算所有静态不可逆性指标</p>",
+    "params": [
+      "data"
+    ]
+  },
+  {
+    "name": "time_irreversibility_static_simple",
+    "description": "<p>静态版-简略版：只计算时间不可逆指标 I_ord</p>",
+    "params": [
+      "data"
+    ]
+  },
+  {
+    "name": "time_irreversibility_transfer_detailed",
+    "description": "<p>转移版-详细版：计算所有转移不可逆性指标</p>",
+    "params": [
+      "data"
+    ]
+  },
+  {
+    "name": "time_irreversibility_transfer_simple",
+    "description": "<p>转移版-简略版：只计算转移不可逆指标 I_trans</p>",
+    "params": [
+      "data"
+    ]
+  },
+  {
     "name": "trade_peak_analysis",
     "description": "<p>交易高峰模式分析函数</p>\n<p>该函数用于分析交易数据中的高峰模式，包括：\n1. 识别成交量的局部高峰(根据top_tier1百分比)\n2. 在每个高峰的时间窗口内识别小峰(根据top_tier2百分比)\n3. 计算17个统计指标来描述高峰-小峰的模式特征</p>",
     "params": [
