@@ -121,6 +121,7 @@ fn ensure_fd_limit(_desired: u64) {}
 
 // 通用结果结构体，用于反序列化单个任务结果
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 struct SingleResult {
     result: TaskResult,
 }

@@ -271,27 +271,6 @@ fn calculate_order_indicators_ultra_fast(
     }
 }
 
-/// 快速定位volume组范围的优化版本（分桶）
-fn find_bucketed_order_volume_ranges(volumes: &[f64]) -> Vec<(f64, usize, usize)> {
-    if volumes.is_empty() {
-        return Vec::new();
-    }
-
-    let mut ranges = Vec::new();
-    let mut current_volume = volumes[0];
-    let mut start_idx = 0;
-
-    for i in 1..volumes.len() {
-        if (volumes[i] - current_volume).abs() > f64::EPSILON {
-            ranges.push((current_volume, start_idx, i));
-            current_volume = volumes[i];
-            start_idx = i;
-        }
-    }
-
-    ranges.push((current_volume, start_idx, volumes.len()));
-    ranges
-}
 
 #[pyfunction]
 #[pyo3(signature = (volume, exchtime, price, flag, ask_order, bid_order, min_count=100, use_flag="ignore", num_buckets=20))]

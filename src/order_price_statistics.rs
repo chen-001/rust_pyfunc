@@ -11,7 +11,8 @@ use std::f64;
 
 #[derive(Debug)]
 struct TradeVolumeGroup {
-    volume: f64,
+    #[allow(dead_code)]
+    _volume: f64,
     indices: Vec<usize>,      // 原始数据索引
     times: Vec<f64>,          // 时间数组
     prices: Vec<f64>,         // 对应的价格
@@ -23,7 +24,7 @@ struct TradeVolumeGroup {
 impl TradeVolumeGroup {
     fn new(volume: f64) -> Self {
         Self {
-            volume,
+            _volume: volume,
             indices: Vec::new(),
             times: Vec::new(),
             prices: Vec::new(),
@@ -50,40 +51,6 @@ impl TradeVolumeGroup {
     }
 
     /// 快速找到最近的同方向成交记录（优化版本：预排序一次，多次使用）
-    fn find_nearest_same_direction_trades(
-        &self,
-        current_group_idx: usize,
-        target_indices: &[usize],
-        max_count: usize,
-    ) -> Vec<f64> {
-        if target_indices.is_empty() {
-            return Vec::new();
-        }
-
-        let current_time = self.times[current_group_idx];
-        let mut time_distances: Vec<(f64, f64)> = Vec::with_capacity(target_indices.len());
-
-        // 计算时间距离
-        for &target_idx in target_indices.iter() {
-            if target_idx != current_group_idx {
-                let time_diff = (current_time - self.times[target_idx]).abs();
-                let price = self.prices[target_idx];
-                time_distances.push((time_diff, price));
-            }
-        }
-
-        // 按时间距离排序
-        time_distances.sort_unstable_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-
-        // 限制返回数量并提取价格
-        let count = time_distances.len().min(max_count);
-        let mut prices: Vec<f64> = Vec::with_capacity(count);
-        for i in 0..count {
-            prices.push(time_distances[i].1);
-        }
-
-        prices
-    }
 
     /// 批量计算所有百分比档位的价格统计（核心优化：一次排序，多次使用）
     fn find_nearest_same_direction_trades_batch(
@@ -342,7 +309,8 @@ pub fn get_price_statistics_column_names() -> Vec<String> {
 /// 优化版本的TradeVolumeGroup，采用预排序和更高效的数据结构
 #[derive(Debug)]
 struct OptimizedTradeVolumeGroup {
-    volume: f64,
+    #[allow(dead_code)]
+    _volume: f64,
     indices: Vec<usize>,           // 原始数据索引
     times: Vec<f64>,              // 时间数组
     prices: Vec<f64>,             // 对应的价格
@@ -361,7 +329,7 @@ struct OptimizedTradeVolumeGroup {
 impl OptimizedTradeVolumeGroup {
     fn new(volume: f64) -> Self {
         Self {
-            volume,
+            _volume: volume,
             indices: Vec::new(),
             times: Vec::new(),
             prices: Vec::new(),
@@ -412,6 +380,7 @@ impl OptimizedTradeVolumeGroup {
     }
 
     /// 超级优化版本：直接从预排序数组中获取最近的成交（极致优化）
+    #[allow(dead_code)]
     fn find_nearest_same_direction_trades_ultra_fast(
         &self,
         current_group_idx: usize,

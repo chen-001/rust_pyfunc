@@ -55,7 +55,6 @@ impl KDNode {
 #[derive(Debug)]
 struct KDTree {
     root: Option<Box<KDNode>>,
-    points: Vec<Point2D>, // Store all points for distance calculations
 }
 
 impl KDTree {
@@ -70,7 +69,6 @@ impl KDTree {
 
         KDTree {
             root,
-            points: points.to_vec(),
         }
     }
 

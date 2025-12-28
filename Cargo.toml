@@ -1,6 +1,6 @@
 [package]
 name = "rust_pyfunc"
-version = "0.47.0"
+version = "0.48.0"
 edition = "2021"
 description = "A collection of high-performance Python functions implemented in Rust"
 readme = "README.md"
@@ -61,3 +61,7 @@ opt-level = 3
 
 [build-dependencies]
 pkg-config = "0.3"
+
+# Rust toolchain configuration
+# The required Rust version is specified in rust-toolchain.toml file
+# Current version: 1.91.1

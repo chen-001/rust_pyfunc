@@ -8,7 +8,7 @@ use std::collections::HashMap;
 /// 优化的订单volume组结构V3 - 专注于内存局部性和减少分配
 #[derive(Debug)]
 struct OrderVolumeGroupV3 {
-    volume: f64,
+    _volume: f64,
     indices: Vec<usize>,
     times_nanoseconds: Vec<i64>,  // 直接存储纳秒时间戳，避免转换
     prices: Vec<f64>,
@@ -23,7 +23,7 @@ struct OrderVolumeGroupV3 {
 impl OrderVolumeGroupV3 {
     fn new(volume: f64, capacity: usize) -> Self {
         let mut group = Self {
-            volume,
+            _volume: volume,
             indices: Vec::with_capacity(capacity),
             times_nanoseconds: Vec::with_capacity(capacity),
             prices: Vec::with_capacity(capacity),
@@ -383,7 +383,7 @@ pub fn calculate_order_time_gap_and_price_percentile_ultra_sorted_v3(
 
         // 批量添加记录到组
         for i in *start_idx..*end_idx {
-            let (order_id, is_bid, _, price, time_ns) = orders[i];
+            let (_order_id, is_bid, _, price, time_ns) = orders[i];
             group.add_record(i, time_ns, price, is_bid);
         }
 

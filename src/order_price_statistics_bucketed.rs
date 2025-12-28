@@ -64,7 +64,6 @@ fn find_bucketed_volume_ranges(volumes: &[f64]) -> Vec<(f64, usize, usize)> {
 
 #[derive(Debug)]
 struct BucketedTradeVolumeGroup {
-    volume: f64,
     indices: Vec<usize>,      // 原始数据索引
     times: Vec<f64>,          // 时间数组
     prices: Vec<f64>,         // 对应的价格
@@ -74,9 +73,8 @@ struct BucketedTradeVolumeGroup {
 }
 
 impl BucketedTradeVolumeGroup {
-    fn new(volume: f64) -> Self {
+    fn new() -> Self {
         Self {
-            volume,
             indices: Vec::new(),
             times: Vec::new(),
             prices: Vec::new(),
@@ -102,41 +100,6 @@ impl BucketedTradeVolumeGroup {
         }
     }
 
-    /// 快速找到最近的同方向成交记录（优化版本：预排序一次，多次使用）
-    fn find_nearest_same_direction_trades(
-        &self,
-        current_group_idx: usize,
-        target_indices: &[usize],
-        max_count: usize,
-    ) -> Vec<f64> {
-        if target_indices.is_empty() {
-            return Vec::new();
-        }
-
-        let current_time = self.times[current_group_idx];
-        let mut time_distances: Vec<(f64, f64)> = Vec::with_capacity(target_indices.len());
-
-        // 计算时间距离
-        for &target_idx in target_indices.iter() {
-            if target_idx != current_group_idx {
-                let time_diff = (current_time - self.times[target_idx]).abs();
-                let price = self.prices[target_idx];
-                time_distances.push((time_diff, price));
-            }
-        }
-
-        // 按时间距离排序
-        time_distances.sort_unstable_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-
-        // 限制返回数量并提取价格
-        let count = time_distances.len().min(max_count);
-        let mut prices: Vec<f64> = Vec::with_capacity(count);
-        for i in 0..count {
-            prices.push(time_distances[i].1);
-        }
-
-        prices
-    }
 
     /// 批量计算所有百分比档位的价格统计（核心优化：一次排序，多次使用）
     fn find_nearest_same_direction_trades_batch(
@@ -353,8 +316,8 @@ pub fn calculate_trade_price_statistics_by_volume_bucketed(
 
     let mut volume_groups: Vec<BucketedTradeVolumeGroup> = Vec::new();
 
-    for (vol, start_idx, end_idx) in bucketed_ranges.iter() {
-        let mut group = BucketedTradeVolumeGroup::new(*vol);
+    for (_vol, start_idx, end_idx) in bucketed_ranges.iter() {
+        let mut group = BucketedTradeVolumeGroup::new();
 
         for i in *start_idx..*end_idx {
             group.add_record(i, sorted_exchtime[i], sorted_price[i], sorted_flag[i]);
@@ -407,7 +370,6 @@ fn get_price_statistics_column_names() -> Vec<String> {
 // V2版本的订单volume组（分桶版本），基于订单类型而非交易标志
 #[derive(Debug)]
 struct BucketedOrderVolumeGroupV2 {
-    volume: f64,
     indices: Vec<usize>,     // 原始数据索引
     times: Vec<f64>,         // 时间数组（已排序）
     vwap_prices: Vec<f64>,   // 订单的VWAP价格
@@ -417,9 +379,8 @@ struct BucketedOrderVolumeGroupV2 {
 }
 
 impl BucketedOrderVolumeGroupV2 {
-    fn new(volume: f64) -> Self {
+    fn new() -> Self {
         Self {
-            volume,
             indices: Vec::new(),
             times: Vec::new(),
             vwap_prices: Vec::new(),
@@ -711,8 +672,8 @@ pub fn calculate_trade_price_statistics_by_volume_v2_bucketed(
 
     let mut order_groups: Vec<BucketedOrderVolumeGroupV2> = Vec::new();
 
-    for (vol, start_idx, end_idx) in bucketed_order_ranges.iter() {
-        let mut group = BucketedOrderVolumeGroupV2::new(*vol);
+    for (_vol, start_idx, end_idx) in bucketed_order_ranges.iter() {
+        let mut group = BucketedOrderVolumeGroupV2::new();
 
         for i in *start_idx..*end_idx {
             let (_, is_bid, _, vwap_price, time) = sorted_orders[i];

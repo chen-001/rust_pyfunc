@@ -18,8 +18,6 @@ struct LongOrderInfo {
     total_volume: f64,
     time_span: i64,  // 时间跨度（纳秒）
     occurrence_count: usize,  // 出现次数
-    is_time_long: bool,
-    is_count_long: bool,
     ratio: f64,  // 其他订单成交量与该订单成交量的比值
 }
 
@@ -106,8 +104,8 @@ pub fn analyze_long_orders<'py>(
     if n == 0 {
         let empty_array = vec![].into_pyarray(py);
         return Ok((
-            empty_array.clone().into(),
-            empty_array.clone().into(),
+            empty_array.into(),
+            empty_array.into(),
             empty_array.into(),
             empty_array.into(),
             empty_array.into(),
@@ -194,8 +192,6 @@ pub fn analyze_long_orders<'py>(
                 total_volume: order_info.total_volume,
                 time_span,
                 occurrence_count,
-                is_time_long,
-                is_count_long,
                 ratio,
             };
 
@@ -348,8 +344,8 @@ pub fn analyze_long_orders_python<'py>(
     if n == 0 {
         let empty_array = vec![].into_pyarray(py);
         return Ok((
-            empty_array.clone().into(),
-            empty_array.clone().into(),
+            empty_array.into(),
+            empty_array.into(),
             empty_array.into(),
             empty_array.into(),
             empty_array.into(),

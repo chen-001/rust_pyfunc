@@ -25,6 +25,7 @@ impl Point2D {
 
 /// A value with its original index for sorted arrays
 #[derive(Clone, Copy, Debug)]
+#[allow(dead_code)]
 struct SortedValue {
     value: f64,
     original_index: usize,

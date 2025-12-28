@@ -123,7 +123,7 @@ pub fn time_irreversibility_static_detailed(
     let mut i_ord = 0.0;
     let mut h_perm = 0.0; // 序型熵
     let mut kl_divergence = 0.0; // KL距离
-    let mut forbidden_count = 0; // 缺失序型个数
+    let forbidden_count; // 缺失序型个数
 
     // 频率和偏差数组（按模式）
     let mut pattern_frequencies: Vec<f64> = vec![0.0; num_patterns];
@@ -298,7 +298,6 @@ pub fn time_irreversibility_transfer_simple(
 
     let num_patterns = (1..=m).product::<usize>();
     let num_windows = n - m + 1;
-    let total_windows = num_windows as f64;
 
     // 首先生成序型序列
     let mut pattern_sequence: Vec<usize> = Vec::with_capacity(num_windows);
@@ -306,7 +305,7 @@ pub fn time_irreversibility_transfer_simple(
     // 建立模式到索引的映射
     fn generate_permutations(m: usize) -> Vec<Vec<usize>> {
         let mut result = Vec::new();
-        let mut nums: Vec<usize> = (1..=m).collect();
+        let nums: Vec<usize> = (1..=m).collect();
         let mut current = Vec::new();
         let mut used = vec![false; m];
 
@@ -427,7 +426,7 @@ pub fn time_irreversibility_transfer_detailed(
     // 生成所有可能的序型
     fn generate_permutations(m: usize) -> Vec<Vec<usize>> {
         let mut result = Vec::new();
-        let mut nums: Vec<usize> = (1..=m).collect();
+        let nums: Vec<usize> = (1..=m).collect();
         let mut current = Vec::new();
         let mut used = vec![false; m];
 

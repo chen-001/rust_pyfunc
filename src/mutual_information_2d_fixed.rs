@@ -15,12 +15,6 @@ impl Point2D {
         Point2D { x, y }
     }
 
-    /// Calculate Euclidean distance to another point
-    fn distance(&self, other: &Point2D) -> f64 {
-        let dx = self.x - other.x;
-        let dy = self.y - other.y;
-        (dx * dx + dy * dy).sqrt()
-    }
 
     /// Calculate Chebyshev distance (max norm) to another point
     fn chebyshev_distance(&self, other: &Point2D) -> f64 {
@@ -34,14 +28,12 @@ impl Point2D {
 #[derive(Clone, Copy, Debug)]
 struct SortedValue {
     value: f64,
-    original_index: usize,
 }
 
 impl SortedValue {
-    fn new(value: f64, original_index: usize) -> Self {
+    fn new(value: f64) -> Self {
         SortedValue {
             value,
-            original_index,
         }
     }
 }
@@ -133,23 +125,6 @@ impl KDTree {
         node
     }
 
-    fn k_nearest_euclidean(&self, target: &Point2D, k: usize) -> Vec<(usize, f64)> {
-        if k == 0 {
-            return Vec::new();
-        }
-
-        let mut results = BinaryHeap::with_capacity(k);
-        if let Some(ref root) = self.root {
-            Self::search_recursive_euclidean(root, target, k, &mut results);
-        }
-
-        let mut neighbors: Vec<(usize, f64)> = results
-            .into_iter()
-            .map(|neighbor| (neighbor.index, neighbor.distance))
-            .collect();
-        neighbors.sort_by(|a, b| compare_distance(a.1, b.1));
-        neighbors
-    }
 
     fn k_nearest_chebyshev(&self, target: &Point2D, k: usize) -> Vec<(usize, f64)> {
         if k == 0 {
@@ -169,63 +144,6 @@ impl KDTree {
         neighbors
     }
 
-    fn search_recursive_euclidean(
-        node: &KDNode,
-        target: &Point2D,
-        k: usize,
-        results: &mut BinaryHeap<Neighbor>,
-    ) {
-        let dist = node.point.distance(target);
-        if dist > 0.0 {
-            Self::push_neighbor(results, Neighbor::new(node.index, dist), k);
-        }
-
-        let axis = node.axis;
-        let target_coord = if axis == 0 { target.x } else { target.y };
-        let node_coord = if axis == 0 {
-            node.point.x
-        } else {
-            node.point.y
-        };
-
-        let near_subtree = if target_coord < node_coord {
-            &node.left
-        } else {
-            &node.right
-        };
-        let far_subtree = if target_coord < node_coord {
-            &node.right
-        } else {
-            &node.left
-        };
-
-        if let Some(ref child) = near_subtree {
-            Self::search_recursive_euclidean(child, target, k, results);
-        }
-
-        // Find current maximum distance
-        let current_max_dist = if results.len() < k {
-            f64::INFINITY
-        } else {
-            results
-                .peek()
-                .map(|neighbor| {
-                    if neighbor.distance.is_nan() {
-                        f64::INFINITY
-                    } else {
-                        neighbor.distance
-                    }
-                })
-                .unwrap_or(f64::INFINITY)
-        };
-
-        let diff = (target_coord - node_coord).abs();
-        if results.len() < k || diff < current_max_dist {
-            if let Some(ref child) = far_subtree {
-                Self::search_recursive_euclidean(child, target, k, results);
-            }
-        }
-    }
 
     fn search_recursive_chebyshev(
         node: &KDNode,
@@ -304,11 +222,6 @@ impl KDTree {
     }
 }
 
-/// K-nearest neighbors information for a point
-#[derive(Debug)]
-struct KNNInfo {
-    kth_distance: f64, // Distance to k-th nearest neighbor
-}
 
 #[derive(Clone, Copy, Debug)]
 struct Neighbor {
@@ -528,12 +441,12 @@ fn calculate_row_mi_ksg_fixed(
 
     // Pre-sort values for binary search optimization
     let mut a_sorted: Vec<SortedValue> = (0..valid_n)
-        .map(|i| SortedValue::new(a_values[i], i))
+        .map(|i| SortedValue::new(a_values[i]))
         .collect();
     a_sorted.sort_by(|a, b| a.value.partial_cmp(&b.value).unwrap_or(Ordering::Equal));
 
     let mut b_sorted: Vec<SortedValue> = (0..valid_n)
-        .map(|i| SortedValue::new(b_values[i], i))
+        .map(|i| SortedValue::new(b_values[i]))
         .collect();
     b_sorted.sort_by(|a, b| a.value.partial_cmp(&b.value).unwrap_or(Ordering::Equal));
 
