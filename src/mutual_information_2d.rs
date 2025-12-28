@@ -34,14 +34,12 @@ impl Point2D {
 #[derive(Clone, Copy, Debug)]
 struct SortedValue {
     value: f64,
-    original_index: usize,
 }
 
 impl SortedValue {
-    fn new(value: f64, original_index: usize) -> Self {
+    fn new(value: f64, _original_index: usize) -> Self {
         SortedValue {
             value,
-            original_index,
         }
     }
 }
@@ -736,48 +734,7 @@ pub fn mutual_information_2d_knn(
 }
 
 /// Calculate k-nearest neighbor information for a point using KD-Tree
-fn calculate_knn_info_simple(points: &[Point2D], index: usize, k: usize) -> KNNInfo {
-    let target = points[index];
 
-    // Build KD-Tree for all points
-    let kdtree = KDTree::build(points);
-
-    // Find k nearest neighbors
-    let neighbors = kdtree.k_nearest_euclidean(&target, k);
-
-    // Get k-th distance
-    let kth_distance = neighbors
-        .get(k.saturating_sub(1))
-        .map(|(_, dist)| *dist)
-        .or_else(|| neighbors.last().map(|(_, dist)| *dist))
-        .unwrap_or(0.0);
-
-    KNNInfo {
-        kth_distance: kth_distance.max(1e-10),
-    }
-}
-
-/// Calculate k-nearest neighbor information for a point using KD-Tree with Chebyshev distance
-fn calculate_knn_info_chebyshev_kdtree(points: &[Point2D], index: usize, k: usize) -> KNNInfo {
-    let target = points[index];
-
-    // Build KD-Tree for all points
-    let kdtree = KDTree::build(points);
-
-    // Find k nearest neighbors using Chebyshev distance
-    let neighbors = kdtree.k_nearest_chebyshev(&target, k);
-
-    // Get k-th distance
-    let kth_distance = neighbors
-        .get(k.saturating_sub(1))
-        .map(|(_, dist)| *dist)
-        .or_else(|| neighbors.last().map(|(_, dist)| *dist))
-        .unwrap_or(0.0);
-
-    KNNInfo {
-        kth_distance: kth_distance.max(1e-10),
-    }
-}
 
 /// Digamma function (psi) - approximation using asymptotic expansion
 fn digamma(x: f64) -> f64 {
@@ -866,33 +823,3 @@ pub fn mutual_information_2d_knn_chebyshev(
     }))
 }
 
-/// Calculate k-nearest neighbor information for a point using Chebyshev distance
-fn calculate_knn_info_chebyshev(points: &[Point2D], index: usize, k: usize) -> KNNInfo {
-    let n = points.len();
-    let target = points[index];
-
-    // Calculate Chebyshev distances to all other points
-    let mut distances: Vec<(usize, f64)> = Vec::with_capacity(n - 1);
-    for i in 0..n {
-        if i != index {
-            let dx = (target.x - points[i].x).abs();
-            let dy = (target.y - points[i].y).abs();
-            let dist = dx.max(dy); // Chebyshev distance
-            distances.push((i, dist));
-        }
-    }
-
-    // Sort by distance
-    distances.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
-
-    // Get k-th distance, handle edge cases
-    let kth_distance = if distances.len() >= k {
-        distances[k - 1].1
-    } else if !distances.is_empty() {
-        distances.last().unwrap().1
-    } else {
-        0.0
-    };
-
-    KNNInfo { kth_distance }
-}

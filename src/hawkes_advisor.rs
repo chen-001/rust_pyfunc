@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use numpy::{PyReadonlyArray1, IntoPyArray};
+use numpy::PyReadonlyArray1;
 
 /// Analyze Hawkes process indicators and provide trading advice
 ///
@@ -8,10 +8,10 @@ use numpy::{PyReadonlyArray1, IntoPyArray};
 #[pyfunction]
 #[pyo3(signature = (
     mu,
-    alpha,
+    _alpha,
     beta,
     branching_ratio,
-    mean_intensity,
+    _mean_intensity,
     expected_cluster_size,
     half_life,
     cluster_sizes,
@@ -19,10 +19,10 @@ use numpy::{PyReadonlyArray1, IntoPyArray};
 pub fn analyze_hawkes_indicators(
     py: Python,
     mu: f64,
-    alpha: f64,
+    _alpha: f64,
     beta: f64,
     branching_ratio: f64,
-    mean_intensity: f64,
+    _mean_intensity: f64,
     expected_cluster_size: f64,
     half_life: f64,
     cluster_sizes: PyReadonlyArray1<i32>,
