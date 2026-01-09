@@ -7,7 +7,7 @@ rust_pyfunc - 高性能Python函数库
 
 主要模块：
 - core_functions: 核心数学和统计函数
-- time_series: 时间序列分析函数  
+- time_series: 时间序列分析函数
 - text_analysis: 文本处理函数
 - parallel_computing: 并行计算和备份管理
 - pandas_extensions: Pandas扩展函数
@@ -35,7 +35,7 @@ __email__ = "noreply@example.com"
 __all__ = [
     # 核心函数
     "trend",
-    "trend_fast", 
+    "trend_fast",
     "identify_segments",
     "find_max_range_product",
     "ols",
@@ -44,17 +44,16 @@ __all__ = [
     "max_range_loop",
     "min_range_loop",
     "rolling_volatility",
-    "rolling_cv", 
+    "rolling_cv",
     "rolling_qcv",
     "compute_max_eigenvalue",
     "sum_as_string",
     "test_simple_function",
     "test_function",
-    
     # 时间序列函数
     "dtw_distance",
     "fast_dtw_distance",
-    "super_dtw_distance", 
+    "super_dtw_distance",
     "transfer_entropy",
     "rolling_dtw_distance",
     "find_local_peaks_within_window",
@@ -69,18 +68,15 @@ __all__ = [
     "rolling_lagged_regression_ridge_fast",
     "rolling_lagged_regression_ridge_simd",
     "rolling_lagged_regression_ridge_incremental",
-    
     # 文本分析函数
     "vectorize_sentences",
     "jaccard_similarity",
     "min_word_edit_distance",
     "vectorize_sentences_list",
-    
     # 并行计算函数
     "run_pools_queue",
     "query_backup",
     "query_backup_fast",
-    
     # Pandas扩展函数
     "dataframe_corrwith",
     "dataframe_corrwith_single_thread",
@@ -88,12 +84,10 @@ __all__ = [
     "fast_merge",
     "fast_merge_mixed",
     "fast_inner_join_dataframes",
-    
     # 树结构类
     "PriceTree",
     "RollingFutureAccessor",
     "PriceTreeViz",
-    
     # 交易分析函数
     "find_follow_volume_sum_same_price",
     "find_follow_volume_sum_same_price_and_flag",
@@ -116,10 +110,10 @@ __all__ = [
     "compute_price_cycle_features_b_segments_enhanced",
     "analyze_long_orders",
     "analyze_long_orders_python",
+    "calculate_passive_order_features",
     "fit_hawkes_process",
     "hawkes_event_indicators",
     "analyze_hawkes_indicators",
-    
     # 统计分析函数
     "calculate_base_entropy",
     "calculate_shannon_entropy_change",
@@ -134,13 +128,12 @@ __all__ = [
     "mutual_information_knn_chebyshev",
     "mutual_information_2d_knn",
     "mutual_information_2d_knn_chebyshev",
-    
     # Python定义的pandas扩展函数
     "corrwith",
     "rank_axis1_df",
     "rank_axis0_df",
     "fast_rank",
-    "fast_rank_axis1", 
+    "fast_rank_axis1",
     "fast_rank_axis0",
     "fast_merge_df",
     "fast_inner_join_df",
@@ -149,28 +142,23 @@ __all__ = [
     "fast_outer_join_df",
     "fast_join",
     "fast_merge_dataframe",
-    
     # pandas相关性矩阵函数
     "fast_correlation_matrix_v2_df",
     "fast_corr_df",
     "correlation_matrix_df",
-    
     # 因子中性化函数
     "batch_factor_neutralization",
     "batch_factor_neutralization_optimized",
-    "batch_factor_neutralization_io_optimized", 
+    "batch_factor_neutralization_io_optimized",
     "batch_factor_neutralization_simple_math_optimized",
     "batch_factor_neutralization_parallel_optimized",
     "batch_factor_neutralization_ultimate_optimized",
     "batch_factor_neutralization_simple_fallback",
-    
     # Web管理器
     "BackupWebManager",
     "check_port_available",
-    "find_available_port", 
+    "find_available_port",
     "start_web_manager",
-    
     # 测试函数
     "haha",
-    
 ]

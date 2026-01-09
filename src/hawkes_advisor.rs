@@ -1,5 +1,5 @@
-use pyo3::prelude::*;
 use numpy::PyReadonlyArray1;
+use pyo3::prelude::*;
 
 /// Analyze Hawkes process indicators and provide trading advice
 ///
@@ -95,12 +95,18 @@ fn analyze_cluster_sizes(cluster_sizes: &[i32]) -> (f64, String) {
 
     let total_clusters = cluster_sizes.len() as f64;
     let single_event_clusters = cluster_sizes.iter().filter(|&&s| s == 1).count() as f64;
-    let large_clusters: Vec<i32> = cluster_sizes.iter().filter(|&&s| s >= 10).cloned().collect();
+    let large_clusters: Vec<i32> = cluster_sizes
+        .iter()
+        .filter(|&&s| s >= 10)
+        .cloned()
+        .collect();
     let large_clusters_count = large_clusters.len() as f64;
 
     let single_ratio = single_event_clusters / total_clusters;
     let large_ratio = large_clusters_count / total_clusters;
-    let score = (1.0 - single_ratio * 0.7 + large_ratio * 0.3).min(1.0).max(0.0);
+    let score = (1.0 - single_ratio * 0.7 + large_ratio * 0.3)
+        .min(1.0)
+        .max(0.0);
 
     let interpretation = if score >= 0.8 {
         format!(
@@ -125,26 +131,41 @@ fn analyze_cluster_sizes(cluster_sizes: &[i32]) -> (f64, String) {
 
 fn analyze_market_memory(half_life: f64, beta: f64) -> (f64, String) {
     let (score, interpretation) = match half_life {
-        t if t < 0.05 => (0.9, format!(
-            "Ultra-short memory: half-life {:.3}s, extremely fast market response, beta={:.2}",
-            t as f32, beta as f32
-        )),
-        t if t < 0.2 => (0.7, format!(
-            "Short memory: half-life {:.3}s, brief market memory, beta={:.2}",
-            t as f32, beta as f32
-        )),
-        t if t < 1.0 => (0.5, format!(
-            "Medium memory: half-life {:.3}s, moderate market persistence, beta={:.2}",
-            t as f32, beta as f32
-        )),
-        t if t < 5.0 => (0.3, format!(
-            "Long memory: half-life {:.3}s, extended market memory, beta={:.2}",
-            t as f32, beta as f32
-        )),
-        _ => (0.1, format!(
-            "Ultra-long memory: half-life {:.3}s, slow market response, beta={:.2}",
-            half_life as f32, beta as f32
-        )),
+        t if t < 0.05 => (
+            0.9,
+            format!(
+                "Ultra-short memory: half-life {:.3}s, extremely fast market response, beta={:.2}",
+                t as f32, beta as f32
+            ),
+        ),
+        t if t < 0.2 => (
+            0.7,
+            format!(
+                "Short memory: half-life {:.3}s, brief market memory, beta={:.2}",
+                t as f32, beta as f32
+            ),
+        ),
+        t if t < 1.0 => (
+            0.5,
+            format!(
+                "Medium memory: half-life {:.3}s, moderate market persistence, beta={:.2}",
+                t as f32, beta as f32
+            ),
+        ),
+        t if t < 5.0 => (
+            0.3,
+            format!(
+                "Long memory: half-life {:.3}s, extended market memory, beta={:.2}",
+                t as f32, beta as f32
+            ),
+        ),
+        _ => (
+            0.1,
+            format!(
+                "Ultra-long memory: half-life {:.3}s, slow market response, beta={:.2}",
+                half_life as f32, beta as f32
+            ),
+        ),
     };
 
     (score, interpretation)
@@ -186,7 +207,9 @@ fn generate_trading_suggestions(
         }
         r if r >= 0.4 => {
             suggestions.push("Mild trend: Try short-term momentum strategy".to_string());
-            suggestions.push("Watch cluster start: First event of large cluster may be trend start".to_string());
+            suggestions.push(
+                "Watch cluster start: First event of large cluster may be trend start".to_string(),
+            );
         }
         r if r >= 0.2 => {
             suggestions.push("Weak mean-reverting: Avoid chasing trends".to_string());
@@ -204,43 +227,78 @@ fn generate_trading_suggestions(
             suggestions.push(format!("Large cluster opportunities: Average cluster size {:.1}, watch high-volume clusters", s));
         }
         s if s >= 1.5 => {
-            suggestions.push(format!("Medium clusters: Average cluster size {:.1}, many short-term opportunities", s));
+            suggestions.push(format!(
+                "Medium clusters: Average cluster size {:.1}, many short-term opportunities",
+                s
+            ));
         }
         _ => {
-            suggestions.push("Small clusters dominate: Market fragmented, lower profit expectations".to_string());
+            suggestions.push(
+                "Small clusters dominate: Market fragmented, lower profit expectations".to_string(),
+            );
         }
     }
 
     // Based on half-life
     match half_life {
         t if t < 0.1 => {
-            suggestions.push(format!("Ultra-short: half-life {:.3}s, suitable for high-frequency trading", t));
+            suggestions.push(format!(
+                "Ultra-short: half-life {:.3}s, suitable for high-frequency trading",
+                t
+            ));
         }
         t if t < 0.5 => {
-            suggestions.push(format!("Short-term memory: half-life {:.3}s, suitable for intraday scalping", t));
+            suggestions.push(format!(
+                "Short-term memory: half-life {:.3}s, suitable for intraday scalping",
+                t
+            ));
         }
         _ => {
-            suggestions.push(format!("Long-term memory: half-life {:.2}s, reduce trading frequency", half_life));
+            suggestions.push(format!(
+                "Long-term memory: half-life {:.2}s, reduce trading frequency",
+                half_life
+            ));
         }
     }
 
     // Based on cluster size distribution
-    let large_clusters: Vec<i32> = cluster_sizes.iter().filter(|&&s| s >= 10).cloned().collect();
+    let large_clusters: Vec<i32> = cluster_sizes
+        .iter()
+        .filter(|&&s| s >= 10)
+        .cloned()
+        .collect();
     if large_clusters.len() >= 5 {
-        suggestions.push(format!("Multiple large clusters: {} clusters with 10+ events, obvious local clustering", large_clusters.len()));
-        suggestions.push("Watch volume spikes: Large clusters usually accompanied by volume expansion".to_string());
+        suggestions.push(format!(
+            "Multiple large clusters: {} clusters with 10+ events, obvious local clustering",
+            large_clusters.len()
+        ));
+        suggestions.push(
+            "Watch volume spikes: Large clusters usually accompanied by volume expansion"
+                .to_string(),
+        );
     } else if large_clusters.len() >= 1 {
         let max_size = *large_clusters.iter().max().unwrap_or(&0);
-        suggestions.push(format!("Few large clusters: Max cluster {} events, watch abnormal clustering", max_size));
+        suggestions.push(format!(
+            "Few large clusters: Max cluster {} events, watch abnormal clustering",
+            max_size
+        ));
     } else {
-        suggestions.push("No significant large clusters: Market fragmented, volatility may be low".to_string());
+        suggestions.push(
+            "No significant large clusters: Market fragmented, volatility may be low".to_string(),
+        );
     }
 
     // Based on intensity
     if mu > 1.0 {
-        suggestions.push(format!("High activity: Base intensity {:.3} events/sec, many trading opportunities", mu));
+        suggestions.push(format!(
+            "High activity: Base intensity {:.3} events/sec, many trading opportunities",
+            mu
+        ));
     } else if mu < 0.1 {
-        suggestions.push(format!("Low activity: Base intensity {:.3} events/sec, watch liquidity", mu));
+        suggestions.push(format!(
+            "Low activity: Base intensity {:.3} events/sec, watch liquidity",
+            mu
+        ));
     }
 
     suggestions

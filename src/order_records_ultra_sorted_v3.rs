@@ -1,6 +1,5 @@
 /// 订单记录分析的超高性能版本V3
 /// 针对13万+大数据量的专门优化，避免重复排序和不必要的数据转换
-
 use numpy::{PyArray1, PyArray2};
 use pyo3::prelude::*;
 use std::collections::HashMap;
@@ -10,7 +9,7 @@ use std::collections::HashMap;
 struct OrderVolumeGroupV3 {
     _volume: f64,
     indices: Vec<usize>,
-    times_nanoseconds: Vec<i64>,  // 直接存储纳秒时间戳，避免转换
+    times_nanoseconds: Vec<i64>, // 直接存储纳秒时间戳，避免转换
     prices: Vec<f64>,
     order_types: Vec<bool>,
     ask_indices: Vec<usize>,
@@ -80,7 +79,8 @@ impl OrderVolumeGroupV3 {
         let mut result = Vec::with_capacity(target_indices.len().min(max_records));
 
         // V3优化：利用时间已排序的特性，用二分查找快速定位时间位置
-        let current_sorted_pos = self.time_sorted_indices
+        let current_sorted_pos = self
+            .time_sorted_indices
             .binary_search_by(|&idx| self.times_nanoseconds[idx].cmp(&current_time_ns))
             .unwrap_or_else(|pos| pos);
 
@@ -88,7 +88,9 @@ impl OrderVolumeGroupV3 {
         let mut left_pos = current_sorted_pos.saturating_sub(1);
         let mut right_pos = current_sorted_pos;
 
-        while result.len() < max_records && (left_pos > 0 || right_pos < self.time_sorted_indices.len()) {
+        while result.len() < max_records
+            && (left_pos > 0 || right_pos < self.time_sorted_indices.len())
+        {
             // 检查左边
             if left_pos > 0 {
                 let left_idx = self.time_sorted_indices[left_pos];
@@ -113,12 +115,15 @@ impl OrderVolumeGroupV3 {
         // 如果还不够，继续搜索更远的记录
         if result.len() < max_records {
             for &target_idx in target_indices.iter() {
-                if target_idx != current_group_idx &&
-                   !result.iter().any(|(_, _p)| {
-                       // 检查是否已经在结果中（通过价格判断，因为时间差可能重复）
-                       let target_price = self.prices[target_idx];
-                       result.iter().any(|(_, price)| (price - target_price).abs() < f64::EPSILON)
-                   }) {
+                if target_idx != current_group_idx
+                    && !result.iter().any(|(_, _p)| {
+                        // 检查是否已经在结果中（通过价格判断，因为时间差可能重复）
+                        let target_price = self.prices[target_idx];
+                        result
+                            .iter()
+                            .any(|(_, price)| (price - target_price).abs() < f64::EPSILON)
+                    })
+                {
                     let time_diff = (current_time_ns - self.times_nanoseconds[target_idx]).abs();
                     result.push((time_diff, self.prices[target_idx]));
                     if result.len() >= max_records {
@@ -213,7 +218,8 @@ impl OrderVolumeGroupV3 {
                     .max(1)
                     .min(total_count);
 
-                let sum: f64 = time_distances.iter()
+                let sum: f64 = time_distances
+                    .iter()
                     .take(count)
                     .map(|(time_diff, _)| *time_diff as f64 / 1e9) // 转换为秒
                     .sum();
@@ -222,7 +228,8 @@ impl OrderVolumeGroupV3 {
             }
 
             // 12. 全部平均时间间隔
-            let total_sum: f64 = time_distances.iter()
+            let total_sum: f64 = time_distances
+                .iter()
                 .map(|(time_diff, _)| *time_diff as f64 / 1e9)
                 .sum();
             result_row[11] = total_sum / total_count as f64;
@@ -231,9 +238,7 @@ impl OrderVolumeGroupV3 {
             let price_percentages = [0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 1.00];
 
             // 提取价格并排序（只对需要的记录）
-            let mut prices: Vec<f64> = time_distances.iter()
-                .map(|(_, price)| *price)
-                .collect();
+            let mut prices: Vec<f64> = time_distances.iter().map(|(_, price)| *price).collect();
             prices.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
 
             // 批量计算所有分位数
@@ -249,7 +254,9 @@ impl OrderVolumeGroupV3 {
                 let prices_slice = &prices[..count];
 
                 // 优化的二分查找
-                let rank = match prices_slice.binary_search_by(|&p| p.partial_cmp(&current_price).unwrap()) {
+                let rank = match prices_slice
+                    .binary_search_by(|&p| p.partial_cmp(&current_price).unwrap())
+                {
                     Ok(pos) => pos,
                     Err(pos) => pos,
                 };
@@ -327,7 +334,8 @@ pub fn calculate_order_time_gap_and_price_percentile_ultra_sorted_v3(
 
             if let Some(&order_idx) = order_map.get(&order_id) {
                 // 更新现有订单（V3优化：直接操作，避免重复查找）
-                let (existing_order_id, is_bid, old_vol, old_price, old_time_ns) = orders[order_idx];
+                let (existing_order_id, is_bid, old_vol, old_price, old_time_ns) =
+                    orders[order_idx];
                 let new_vol = old_vol + current_volume;
                 let new_price = (old_vol * old_price + current_volume * current_price) / new_vol;
                 let new_time_ns = old_time_ns.max(current_time_ns);
@@ -336,7 +344,13 @@ pub fn calculate_order_time_gap_and_price_percentile_ultra_sorted_v3(
             } else {
                 // 新订单
                 let order_idx = orders.len();
-                orders.push((order_id, false, current_volume, current_price, current_time_ns));
+                orders.push((
+                    order_id,
+                    false,
+                    current_volume,
+                    current_price,
+                    current_time_ns,
+                ));
                 order_map.insert(order_id, order_idx);
             }
         }
@@ -347,7 +361,8 @@ pub fn calculate_order_time_gap_and_price_percentile_ultra_sorted_v3(
 
             if let Some(&order_idx) = order_map.get(&order_id) {
                 // 更新现有订单
-                let (existing_order_id, is_bid, old_vol, old_price, old_time_ns) = orders[order_idx];
+                let (existing_order_id, is_bid, old_vol, old_price, old_time_ns) =
+                    orders[order_idx];
                 let new_vol = old_vol + current_volume;
                 let new_price = (old_vol * old_price + current_volume * current_price) / new_vol;
                 let new_time_ns = old_time_ns.max(current_time_ns);
@@ -356,7 +371,13 @@ pub fn calculate_order_time_gap_and_price_percentile_ultra_sorted_v3(
             } else {
                 // 新订单
                 let order_idx = orders.len();
-                orders.push((order_id, true, current_volume, current_price, current_time_ns));
+                orders.push((
+                    order_id,
+                    true,
+                    current_volume,
+                    current_price,
+                    current_time_ns,
+                ));
                 order_map.insert(order_id, order_idx);
             }
         }
@@ -364,9 +385,7 @@ pub fn calculate_order_time_gap_and_price_percentile_ultra_sorted_v3(
 
     // 2. 按订单volume和时间排序（保持纳秒精度）
     orders.sort_unstable_by(|a, b| {
-        a.2.partial_cmp(&b.2)
-            .unwrap()
-            .then(a.4.cmp(&b.4)) // 直接比较纳秒时间戳
+        a.2.partial_cmp(&b.2).unwrap().then(a.4.cmp(&b.4)) // 直接比较纳秒时间戳
     });
 
     // 3. 构建订单volume组（V3优化：预分组）
@@ -478,7 +497,6 @@ fn get_order_column_names_v3() -> Vec<String> {
         "平均时间间隔_40%".to_string(),
         "平均时间间隔_50%".to_string(),
         "平均时间间隔_全部".to_string(),
-
         // 价格分位数指标 (13-22)
         "价格分位数_10%".to_string(),
         "价格分位数_20%".to_string(),
@@ -490,7 +508,6 @@ fn get_order_column_names_v3() -> Vec<String> {
         "价格分位数_80%".to_string(),
         "价格分位数_90%".to_string(),
         "价格分位数_100%".to_string(),
-
         // 订单信息 (23-27)
         "订单编号".to_string(),
         "买单标识".to_string(),

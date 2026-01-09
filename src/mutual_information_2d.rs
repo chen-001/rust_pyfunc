@@ -38,9 +38,7 @@ struct SortedValue {
 
 impl SortedValue {
     fn new(value: f64, _original_index: usize) -> Self {
-        SortedValue {
-            value,
-        }
+        SortedValue { value }
     }
 }
 
@@ -735,7 +733,6 @@ pub fn mutual_information_2d_knn(
 
 /// Calculate k-nearest neighbor information for a point using KD-Tree
 
-
 /// Digamma function (psi) - approximation using asymptotic expansion
 fn digamma(x: f64) -> f64 {
     if x <= 0.0 {
@@ -822,4 +819,3 @@ pub fn mutual_information_2d_knn_chebyshev(
         mi_results.into_pyarray(py).into()
     }))
 }
-

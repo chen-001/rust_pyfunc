@@ -512,7 +512,8 @@ impl OrderVolumeGroupV2 {
 
         let current_time = self.times[current_group_idx];
 
-        let current_sorted_pos = self.time_sorted_indices
+        let current_sorted_pos = self
+            .time_sorted_indices
             .binary_search_by(|&idx| self.times[idx].partial_cmp(&current_time).unwrap())
             .unwrap_or_else(|pos| pos);
 
@@ -523,12 +524,14 @@ impl OrderVolumeGroupV2 {
         let mut left = current_sorted_pos;
         let mut right = current_sorted_pos + 1;
 
-        while time_distances.len() < max_records && (left > 0 || right < self.time_sorted_indices.len()) {
+        while time_distances.len() < max_records
+            && (left > 0 || right < self.time_sorted_indices.len())
+        {
             // 选择更近的一边
-            let use_left = left > 0 &&
-                          (right >= self.time_sorted_indices.len() ||
-                           (current_time - self.times[self.time_sorted_indices[left-1]]).abs() <=
-                           (self.times[self.time_sorted_indices[right]] - current_time).abs());
+            let use_left = left > 0
+                && (right >= self.time_sorted_indices.len()
+                    || (current_time - self.times[self.time_sorted_indices[left - 1]]).abs()
+                        <= (self.times[self.time_sorted_indices[right]] - current_time).abs());
 
             if use_left {
                 left -= 1;
@@ -773,7 +776,11 @@ pub fn calculate_order_time_gap_and_price_percentile_ultra_sorted_v6(
     let mut order_results = vec![vec![f64::NAN; 22]; orders.len()];
 
     for group in order_groups.iter_mut() {
-        group.compute_all_indicators_ultra_fast_v2_optimized(&mut order_results, min_count, use_flag);
+        group.compute_all_indicators_ultra_fast_v2_optimized(
+            &mut order_results,
+            min_count,
+            use_flag,
+        );
     }
 
     // 5. 映射回交易记录，包含订单信息

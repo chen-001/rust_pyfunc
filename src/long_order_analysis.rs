@@ -16,9 +16,9 @@ struct LongOrderInfo {
     first_idx: usize,
     last_idx: usize,
     total_volume: f64,
-    time_span: i64,  // 时间跨度（纳秒）
-    occurrence_count: usize,  // 出现次数
-    ratio: f64,  // 其他订单成交量与该订单成交量的比值
+    time_span: i64,          // 时间跨度（纳秒）
+    occurrence_count: usize, // 出现次数
+    ratio: f64,              // 其他订单成交量与该订单成交量的比值
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -29,7 +29,11 @@ enum OrderType {
 }
 
 /// 根据top_ratio筛选最漫长的一部分订单
-fn filter_long_orders(orders: &[LongOrderInfo], top_ratio: f64, order_type: OrderType) -> Vec<LongOrderInfo> {
+fn filter_long_orders(
+    orders: &[LongOrderInfo],
+    top_ratio: f64,
+    order_type: OrderType,
+) -> Vec<LongOrderInfo> {
     if orders.is_empty() || top_ratio >= 1.0 {
         return orders.to_vec();
     }
@@ -182,7 +186,7 @@ pub fn analyze_long_orders<'py>(
 
             // 计算时间跨度和出现次数
             let time_span = *order_info.exchtime_values.iter().max().unwrap()
-                          - *order_info.exchtime_values.iter().min().unwrap();
+                - *order_info.exchtime_values.iter().min().unwrap();
             let occurrence_count = order_info.exchtime_values.len();
 
             let long_order_info = LongOrderInfo {
@@ -209,7 +213,8 @@ pub fn analyze_long_orders<'py>(
 
     // 第三步：根据 top_ratio 进行筛选
     let final_time_orders = filter_long_orders(&time_long_orders, top_ratio, OrderType::TimeLong);
-    let final_count_orders = filter_long_orders(&count_long_orders, top_ratio, OrderType::CountLong);
+    let final_count_orders =
+        filter_long_orders(&count_long_orders, top_ratio, OrderType::CountLong);
     let final_both_orders = filter_long_orders(&both_long_orders, top_ratio, OrderType::BothLong);
 
     // 第四步：计算最终的比值序列

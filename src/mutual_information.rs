@@ -67,9 +67,7 @@ impl KDTree {
             None
         };
 
-        KDTree {
-            root,
-        }
+        KDTree { root }
     }
 
     /// Recursive build function

@@ -1,5 +1,5 @@
+use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1};
 use pyo3::prelude::*;
-use numpy::{PyReadonlyArray1, PyArray1, IntoPyArray};
 use std::collections::HashMap;
 
 /// 拟合Hawkes自激点过程模型并计算多种指标
@@ -91,18 +91,19 @@ pub fn fit_hawkes_process(
 
     if times.len() != volumes.len() {
         return Err(pyo3::exceptions::PyValueError::new_err(
-            "event_times和event_volumes长度必须相同"
+            "event_times和event_volumes长度必须相同",
         ));
     }
 
     if times.len() < 10 {
         return Err(pyo3::exceptions::PyValueError::new_err(
-            "数据点数量必须大于等于10"
+            "数据点数量必须大于等于10",
         ));
     }
 
     // 事件时间排序（升序）
-    let mut time_volume_pairs: Vec<(f64, f64)> = times.iter()
+    let mut time_volume_pairs: Vec<(f64, f64)> = times
+        .iter()
         .zip(volumes.iter())
         .map(|(&t, &v)| (t, v))
         .collect();
@@ -131,7 +132,7 @@ pub fn fit_hawkes_process(
         // 典型金融数据：自激效应在几个事件间隔内衰减
         let median_interval = if sorted_times.len() >= 2 {
             let intervals: Vec<f64> = (1..sorted_times.len())
-                .map(|i| sorted_times[i] - sorted_times[i-1])
+                .map(|i| sorted_times[i] - sorted_times[i - 1])
                 .collect();
             let mut sorted_intervals = intervals.clone();
             sorted_intervals.sort_by(|a, b| a.partial_cmp(b).unwrap());
@@ -154,14 +155,8 @@ pub fn fit_hawkes_process(
     };
 
     // 使用EM算法或Nelder-Mead优化进行参数拟合
-    let (mu, alpha, beta) = estimate_parameters_em(
-        &sorted_times,
-        mu0,
-        alpha0,
-        beta0,
-        max_iterations,
-        tolerance,
-    );
+    let (mu, alpha, beta) =
+        estimate_parameters_em(&sorted_times, mu0, alpha0, beta0, max_iterations, tolerance);
 
     // 计算各项指标
     let branching_ratio = alpha / beta;
@@ -184,14 +179,7 @@ pub fn fit_hawkes_process(
     }
 
     // 计算对数似然
-    let log_likelihood = calculate_log_likelihood(
-        &sorted_times,
-        t_start,
-        t_end,
-        mu,
-        alpha,
-        beta,
-    );
+    let log_likelihood = calculate_log_likelihood(&sorted_times, t_start, t_end, mu, alpha, beta);
 
     // 计算簇分配和指标
     let result = calculate_cluster_indicators(
@@ -328,7 +316,8 @@ pub fn hawkes_event_indicators(
     let volumes = event_volumes.as_array();
     let prices = event_prices.as_array();
 
-    let mut time_price_volume: Vec<(f64, f64, f64)> = times.iter()
+    let mut time_price_volume: Vec<(f64, f64, f64)> = times
+        .iter()
         .zip(prices.iter())
         .zip(volumes.iter())
         .map(|((&t, &p), &v)| (t, p, v))
@@ -385,18 +374,32 @@ pub fn hawkes_event_indicators(
         let time = sorted_times[i];
         let price = sorted_prices[i];
 
-        cluster_start_price.entry(cluster_id)
-            .and_modify(|(t, p)| { if time < *t { *t = time; *p = price; } })
+        cluster_start_price
+            .entry(cluster_id)
+            .and_modify(|(t, p)| {
+                if time < *t {
+                    *t = time;
+                    *p = price;
+                }
+            })
             .or_insert((time, price));
 
-        cluster_end_price.entry(cluster_id)
-            .and_modify(|(t, p)| { if time > *t { *t = time; *p = price; } })
+        cluster_end_price
+            .entry(cluster_id)
+            .and_modify(|(t, p)| {
+                if time > *t {
+                    *t = time;
+                    *p = price;
+                }
+            })
             .or_insert((time, price));
     }
 
     for (i, &cluster_id) in cluster_result.cluster_assignments.iter().enumerate() {
-        if let (Some(&(_, start_price)), Some(&(_, end_price))) =
-            (cluster_start_price.get(&cluster_id), cluster_end_price.get(&cluster_id)) {
+        if let (Some(&(_, start_price)), Some(&(_, end_price))) = (
+            cluster_start_price.get(&cluster_id),
+            cluster_end_price.get(&cluster_id),
+        ) {
             cluster_price_changes[i] = end_price - start_price;
         }
     }
@@ -404,7 +407,7 @@ pub fn hawkes_event_indicators(
     // 计算事件间时间间隔
     let mut time_intervals = vec![0.0; sorted_times.len()];
     for i in 1..sorted_times.len() {
-        time_intervals[i] = sorted_times[i] - sorted_times[i-1];
+        time_intervals[i] = sorted_times[i] - sorted_times[i - 1];
     }
 
     // 构建结果字典
@@ -452,7 +455,8 @@ pub fn hawkes_event_indicators(
     let expected_children_array: &PyArray1<f64> = cluster_result.expected_children.into_pyarray(py);
     result_dict.set_item("expected_children", expected_children_array)?;
 
-    let cluster_assignments_array: &PyArray1<i32> = cluster_result.cluster_assignments.into_pyarray(py);
+    let cluster_assignments_array: &PyArray1<i32> =
+        cluster_result.cluster_assignments.into_pyarray(py);
     result_dict.set_item("cluster_assignments", cluster_assignments_array)?;
 
     let cluster_sizes_array: &PyArray1<i32> = cluster_result.cluster_sizes.into_pyarray(py);
@@ -510,7 +514,8 @@ fn estimate_parameters_em(
         alpha = beta * 0.5; // 初始分枝率设为0.5
     }
 
-    let mut prev_log_likelihood = calculate_log_likelihood(event_times, t_start, t_end, mu, alpha, beta);
+    let mut prev_log_likelihood =
+        calculate_log_likelihood(event_times, t_start, t_end, mu, alpha, beta);
 
     for _ in 0..max_iterations {
         let mu_old = mu;
@@ -524,8 +529,8 @@ fn estimate_parameters_em(
         // 计算事件级强度
         let mut intensities = vec![mu + alpha; n];
         for i in 1..n {
-            let delta_t = event_times[i] - event_times[i-1];
-            intensities[i] = mu + (-beta * delta_t).exp() * (intensities[i-1] - mu) + alpha;
+            let delta_t = event_times[i] - event_times[i - 1];
+            intensities[i] = mu + (-beta * delta_t).exp() * (intensities[i - 1] - mu) + alpha;
         }
 
         // 计算背景概率和触发贡献
@@ -535,9 +540,11 @@ fn estimate_parameters_em(
             background_sum += p_background;
 
             // 触发概率：事件i作为父节点对事件j的触发贡献
-            for j in (i+1..n).take(200) { // 限制范围以提高速度
+            for j in (i + 1..n).take(200) {
+                // 限制范围以提高速度
                 let delta_t = event_times[j] - event_times[i];
-                if delta_t > 10.0 / beta { // 超过10倍衰减常数后贡献很小
+                if delta_t > 10.0 / beta {
+                    // 超过10倍衰减常数后贡献很小
                     break;
                 }
                 let contribution = alpha * (-beta * delta_t).exp();
@@ -549,17 +556,21 @@ fn estimate_parameters_em(
         mu = (background_sum / total_time).max(0.001).min(1000.0);
 
         let trigger_sum: f64 = trigger_contributions.iter().sum();
-        let time_weighted_sum: f64 = (0..n).map(|i| {
-            (i+1..n).map(|j| {
-                let delta_t = event_times[j] - event_times[i];
-                if delta_t > 10.0 / beta {
-                    0.0
-                } else {
-                    let exp_term = (-beta * delta_t).exp();
-                    exp_term * delta_t
-                }
-            }).sum::<f64>()
-        }).sum();
+        let time_weighted_sum: f64 = (0..n)
+            .map(|i| {
+                (i + 1..n)
+                    .map(|j| {
+                        let delta_t = event_times[j] - event_times[i];
+                        if delta_t > 10.0 / beta {
+                            0.0
+                        } else {
+                            let exp_term = (-beta * delta_t).exp();
+                            exp_term * delta_t
+                        }
+                    })
+                    .sum::<f64>()
+            })
+            .sum();
 
         if trigger_sum > 0.0 && time_weighted_sum > 0.0 {
             alpha = (trigger_sum / n as f64).max(0.001).min(1000.0);
@@ -574,7 +585,8 @@ fn estimate_parameters_em(
         }
 
         // 计算当前对数似然并检查是否改进
-        let current_log_likelihood = calculate_log_likelihood(event_times, t_start, t_end, mu, alpha, beta);
+        let current_log_likelihood =
+            calculate_log_likelihood(event_times, t_start, t_end, mu, alpha, beta);
 
         // 如果对数似然没有改进，停止迭代
         if current_log_likelihood - prev_log_likelihood < tolerance {
@@ -583,9 +595,10 @@ fn estimate_parameters_em(
         prev_log_likelihood = current_log_likelihood;
 
         // 检查参数收敛
-        if (mu - mu_old).abs() < tolerance &&
-           (alpha - alpha_old).abs() < tolerance &&
-           (beta - beta_old).abs() < tolerance {
+        if (mu - mu_old).abs() < tolerance
+            && (alpha - alpha_old).abs() < tolerance
+            && (beta - beta_old).abs() < tolerance
+        {
             break;
         }
     }
@@ -610,20 +623,20 @@ fn calculate_log_likelihood(
     // 计算事件级强度
     let mut intensities = vec![mu + alpha; n];
     for i in 1..n {
-        let delta_t = event_times[i] - event_times[i-1];
-        intensities[i] = mu + (-beta * delta_t).exp() * (intensities[i-1] - mu) + alpha;
+        let delta_t = event_times[i] - event_times[i - 1];
+        intensities[i] = mu + (-beta * delta_t).exp() * (intensities[i - 1] - mu) + alpha;
     }
 
     // 对数似然的事件部分
-    let log_likelihood_event: f64 = intensities.iter()
-        .map(|&lambda| lambda.ln())
-        .sum();
+    let log_likelihood_event: f64 = intensities.iter().map(|&lambda| lambda.ln()).sum();
 
     // 对数似然的积分部分
-    let integral_part = mu * (t_end - t_start) +
-        (alpha / beta) * (n as f64 - (0..n).map(|i| {
-            (-beta * (t_end - event_times[i])).exp()
-        }).sum::<f64>());
+    let integral_part = mu * (t_end - t_start)
+        + (alpha / beta)
+            * (n as f64
+                - (0..n)
+                    .map(|i| (-beta * (t_end - event_times[i])).exp())
+                    .sum::<f64>());
 
     log_likelihood_event - integral_part
 }
@@ -668,7 +681,8 @@ fn calculate_cluster_indicators(
         root_probabilities[i] = mu / event_intensities[i];
 
         // 计算事件i作为父节点对后续事件的触发概率
-        for j in (i+1..n).take(max_parent_search_window) { // 使用可调参数
+        for j in (i + 1..n).take(max_parent_search_window) {
+            // 使用可调参数
             let delta_t = event_times[j] - event_times[i];
             if delta_t > parent_time_threshold_factor / beta {
                 break;
@@ -688,7 +702,8 @@ fn calculate_cluster_indicators(
         // 限制时间窗口，并随着阈值降低进一步放宽
         let search_window =
             ((merge_search_window as f64 * (1.0 + relax_factor * 2.0)).round() as usize).min(i);
-        let time_threshold = (merge_time_threshold_factor / beta) * (1.0 + relax_factor * relax_factor_multiplier);
+        let time_threshold =
+            (merge_time_threshold_factor / beta) * (1.0 + relax_factor * relax_factor_multiplier);
 
         for j in (0..i).rev().take(search_window) {
             let delta_t = event_times[i] - event_times[j];
@@ -741,10 +756,7 @@ fn calculate_cluster_indicators(
 
     // 将HashMap转换为Vec
     // 首先需要找到最大的cluster_id，确保向量足够大
-    let max_cluster_id = cluster_sizes.keys()
-        .map(|&id| id)
-        .max()
-        .unwrap_or(-1);
+    let max_cluster_id = cluster_sizes.keys().map(|&id| id).max().unwrap_or(-1);
 
     let vec_size = (max_cluster_id + 1) as usize;
     let mut cluster_sizes_vec = vec![0; vec_size];
@@ -756,7 +768,10 @@ fn calculate_cluster_indicators(
         if idx < vec_size {
             cluster_sizes_vec[idx] = size as i32;
 
-            if let (Some(&start), Some(&end)) = (cluster_start_time.get(&cluster_id), cluster_end_time.get(&cluster_id)) {
+            if let (Some(&start), Some(&end)) = (
+                cluster_start_time.get(&cluster_id),
+                cluster_end_time.get(&cluster_id),
+            ) {
                 cluster_durations_vec[idx] = end - start;
             }
 

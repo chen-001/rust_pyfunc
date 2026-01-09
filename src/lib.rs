@@ -7,18 +7,18 @@ pub mod difference_matrix;
 pub mod entropy_analysis;
 pub mod error;
 pub mod grouping;
+pub mod hawkes_advisor;
+pub mod hawkes_analysis;
 pub mod market_correlation;
 pub mod order_contamination;
 pub mod order_neighborhood;
 pub mod order_price_statistics;
 pub mod order_price_statistics_bucketed;
 pub mod order_price_statistics_order_level;
-pub mod hawkes_analysis;
-pub mod hawkes_advisor;
 pub mod order_records_ultra_sorted;
 pub mod order_records_ultra_sorted_bucketed;
-pub mod order_records_ultra_sorted_v3;
 pub mod order_records_ultra_sorted_v2_optimized;
+pub mod order_records_ultra_sorted_v3;
 pub mod pandas_ext;
 pub mod parallel_computing;
 pub mod price_cycle_b_segments_enhanced;
@@ -35,6 +35,7 @@ pub mod vector_similarity;
 pub mod vector_similarity_optimized;
 
 pub mod factor_neutralization_io_optimized;
+pub mod ghost_market_maker;
 
 pub mod abnormal_asks_analyzer;
 pub mod frontier_dist;
@@ -50,6 +51,7 @@ pub mod mutual_information;
 pub mod mutual_information_2d;
 pub mod mutual_information_2d_final;
 pub mod mutual_information_2d_fixed;
+pub mod passive_order_features;
 pub mod permutation_analysis_v0816_fixed;
 pub mod price_breakthrough_stats;
 pub mod series_rank;
@@ -227,7 +229,7 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         m
     )?);
     // V6版本：大数据优化的订单时间间隔和价格分位数计算
-      let _ = m.add_function(wrap_pyfunction!(
+    let _ = m.add_function(wrap_pyfunction!(
         order_records_ultra_sorted::calculate_order_time_gap_and_price_percentile_ultra_sorted_v6,
         m
     )?);
@@ -499,10 +501,7 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         m
     )?);
 
-    let _ = m.add_function(wrap_pyfunction!(
-        hawkes_analysis::fit_hawkes_process,
-        m
-    )?);
+    let _ = m.add_function(wrap_pyfunction!(hawkes_analysis::fit_hawkes_process, m)?);
 
     let _ = m.add_function(wrap_pyfunction!(
         hawkes_analysis::hawkes_event_indicators,
@@ -515,5 +514,16 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?);
 
     // m.add_function(wrap_pyfunction!(text::normalized_diff, m)?)?;
+
+    let _ = m.add_function(wrap_pyfunction!(
+        ghost_market_maker::calculate_ghost_market_maker_factor_py,
+        m
+    )?);
+
+    let _ = m.add_function(wrap_pyfunction!(
+        passive_order_features::calculate_passive_order_features,
+        m
+    )?)?;
+
     Ok(())
 }

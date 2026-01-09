@@ -1,7 +1,7 @@
-use pyo3::prelude::*;
+use ndarray::{s, Array1, Array2};
+use numpy::{IntoPyArray, PyReadonlyArray1};
 use pyo3::exceptions::PyValueError;
-use numpy::{PyReadonlyArray1, IntoPyArray};
-use ndarray::{Array1, Array2, s};
+use pyo3::prelude::*;
 use std::collections::HashMap;
 use std::f64;
 
@@ -29,10 +29,7 @@ fn reverse_permutation(pattern: &[usize], m: usize) -> Vec<usize> {
 ///   I_ord: 时间不可逆性指标（0-1之间），如果数据长度小于m则返回NaN
 #[pyfunction]
 #[pyo3(signature = (data, m=5))]
-pub fn time_irreversibility_static_simple(
-    data: PyReadonlyArray1<f64>,
-    m: usize,
-) -> PyResult<f64> {
+pub fn time_irreversibility_static_simple(data: PyReadonlyArray1<f64>, m: usize) -> PyResult<f64> {
     let data = data.as_array();
     let n = data.len();
 
@@ -98,9 +95,7 @@ pub fn time_irreversibility_static_detailed(
     }
 
     if n < m {
-        return Err(PyValueError::new_err(
-            "数据长度必须大于等于嵌入维度m"
-        ));
+        return Err(PyValueError::new_err("数据长度必须大于等于嵌入维度m"));
     }
 
     let num_patterns = (1..=m).product::<usize>(); // m!
@@ -240,9 +235,9 @@ pub fn time_irreversibility_static_detailed(
     // 计算每个窗口的局部不可逆度和相对偏差（按窗口）
     // 返回与输入等长的序列，前m-1个用NaN填充
     let mut window_local_irreversibility: Vec<f64> = vec![f64::NAN; n];
-    let mut window_local_irreversibility_signed: Vec<f64> = vec![f64::NAN; n];  // 带符号版本
+    let mut window_local_irreversibility_signed: Vec<f64> = vec![f64::NAN; n]; // 带符号版本
     let mut window_relative_bias: Vec<f64> = vec![f64::NAN; n];
-    let mut window_pattern_frequency: Vec<f64> = vec![f64::NAN; n];  // 每个窗口对应序型的频率
+    let mut window_pattern_frequency: Vec<f64> = vec![f64::NAN; n]; // 每个窗口对应序型的频率
 
     for i in 0..num_windows {
         let pattern_idx = pattern_idx_sequence[i];
@@ -250,10 +245,10 @@ pub fn time_irreversibility_static_detailed(
         let q = reversed_frequencies[pattern_idx];
         let diff = p - q;
 
-        window_local_irreversibility[i + m - 1] = diff.abs();  // 绝对值版本
-        window_local_irreversibility_signed[i + m - 1] = diff;  // 带符号版本
+        window_local_irreversibility[i + m - 1] = diff.abs(); // 绝对值版本
+        window_local_irreversibility_signed[i + m - 1] = diff; // 带符号版本
         window_relative_bias[i + m - 1] = relative_bias_per_pattern[pattern_idx];
-        window_pattern_frequency[i + m - 1] = pattern_frequencies[pattern_idx];  // 该窗口对应序型的频率
+        window_pattern_frequency[i + m - 1] = pattern_frequencies[pattern_idx]; // 该窗口对应序型的频率
     }
 
     // 返回Python字典
@@ -264,11 +259,28 @@ pub fn time_irreversibility_static_detailed(
     result.set_item("forbidden_count", forbidden_count)?;
     result.set_item("forbidden_ratio", forbidden_ratio)?;
     result.set_item("kl_divergence", kl_divergence)?;
-    result.set_item("local_irreversibility", window_local_irreversibility.into_pyarray(py).to_object(py))?;
-    result.set_item("local_irreversibility_signed", window_local_irreversibility_signed.into_pyarray(py).to_object(py))?;
-    result.set_item("relative_bias", window_relative_bias.into_pyarray(py).to_object(py))?;
-    result.set_item("pattern_frequencies", window_pattern_frequency.into_pyarray(py).to_object(py))?;
-    result.set_item("pattern_frequency_all", pattern_frequencies.into_pyarray(py).to_object(py))?;
+    result.set_item(
+        "local_irreversibility",
+        window_local_irreversibility.into_pyarray(py).to_object(py),
+    )?;
+    result.set_item(
+        "local_irreversibility_signed",
+        window_local_irreversibility_signed
+            .into_pyarray(py)
+            .to_object(py),
+    )?;
+    result.set_item(
+        "relative_bias",
+        window_relative_bias.into_pyarray(py).to_object(py),
+    )?;
+    result.set_item(
+        "pattern_frequencies",
+        window_pattern_frequency.into_pyarray(py).to_object(py),
+    )?;
+    result.set_item(
+        "pattern_frequency_all",
+        pattern_frequencies.into_pyarray(py).to_object(py),
+    )?;
 
     Ok(result.into())
 }
@@ -377,10 +389,8 @@ pub fn time_irreversibility_transfer_simple(
 
     // 计算转移不可逆指标 I_trans
     // 只遍历实际出现的模式，而不是所有理论上的排列组合
-    let active_patterns: Vec<usize> = (0..num_patterns)
-        .filter(|&i| stationary[i] > 0.0)
-        .collect();
-    
+    let active_patterns: Vec<usize> = (0..num_patterns).filter(|&i| stationary[i] > 0.0).collect();
+
     let mut i_trans = 0.0;
     for &i in &active_patterns {
         for &j in &active_patterns {
@@ -415,9 +425,7 @@ pub fn time_irreversibility_transfer_detailed(
     }
 
     if n < m {
-        return Err(PyValueError::new_err(
-            "数据长度必须大于等于嵌入维度m"
-        ));
+        return Err(PyValueError::new_err("数据长度必须大于等于嵌入维度m"));
     }
 
     let num_patterns = (1..=m).product::<usize>();
@@ -512,7 +520,7 @@ pub fn time_irreversibility_transfer_detailed(
     // 返回与输入等长的序列，前m个用NaN填充（因为前m个点无法构成第一个转移）
     let num_transitions = pattern_sequence.len() - 1;
     let mut window_flow_differences: Vec<f64> = vec![f64::NAN; n];
-    let mut window_flow_direction: Vec<f64> = vec![f64::NAN; n];  // 带符号的净流（正向为正，反向为负）
+    let mut window_flow_direction: Vec<f64> = vec![f64::NAN; n]; // 带符号的净流（正向为正，反向为负）
 
     for i in 0..num_transitions {
         let current = pattern_sequence[i];
@@ -521,8 +529,8 @@ pub fn time_irreversibility_transfer_detailed(
         let reverse_flow = stationary[next] * transition_probs[[next, current]];
         let diff = forward_flow - reverse_flow;
 
-        window_flow_differences[i + m] = diff.abs();  // 绝对值版本
-        window_flow_direction[i + m] = diff;          // 带符号版本（正向>反向为正）
+        window_flow_differences[i + m] = diff.abs(); // 绝对值版本
+        window_flow_direction[i + m] = diff; // 带符号版本（正向>反向为正）
     }
 
     // 计算熵率
@@ -547,10 +555,22 @@ pub fn time_irreversibility_transfer_detailed(
     result.set_item("i_trans", i_trans)?;
     result.set_item("entropy_rate", entropy_rate)?;
     result.set_item("transition_entropy", transition_entropy)?;
-    result.set_item("stationary_distribution", stationary.into_pyarray(py).to_object(py))?;
-    result.set_item("transition_matrix", transition_probs.into_pyarray(py).to_object(py))?;
-    result.set_item("flow_differences", window_flow_differences.into_pyarray(py).to_object(py))?;
-    result.set_item("flow_direction", window_flow_direction.into_pyarray(py).to_object(py))?;
+    result.set_item(
+        "stationary_distribution",
+        stationary.into_pyarray(py).to_object(py),
+    )?;
+    result.set_item(
+        "transition_matrix",
+        transition_probs.into_pyarray(py).to_object(py),
+    )?;
+    result.set_item(
+        "flow_differences",
+        window_flow_differences.into_pyarray(py).to_object(py),
+    )?;
+    result.set_item(
+        "flow_direction",
+        window_flow_direction.into_pyarray(py).to_object(py),
+    )?;
 
     Ok(result.into())
 }
