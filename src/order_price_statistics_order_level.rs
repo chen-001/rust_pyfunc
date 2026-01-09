@@ -1,9 +1,9 @@
-use pyo3::prelude::*;
 use numpy::{PyArray1, PyArray2};
+use pyo3::prelude::*;
 
 // 复用必要的结构体和函数
 use crate::order_price_statistics::{
-    OrderVolumeGroupV2, find_trade_volume_ranges, get_price_statistics_column_names
+    find_trade_volume_ranges, get_price_statistics_column_names, OrderVolumeGroupV2,
 };
 
 /// 计算订单聚合后的VWAP价格统计指标（订单级别输出版本）
@@ -220,7 +220,7 @@ pub fn calculate_trade_price_statistics_by_volume_order_level(
         }
 
         // 构建时间排序的买/卖订单记录（关键优化：一次排序，多次使用）
-        let mut buy_records: Vec<(f64, usize, f64)> = Vec::new();  // (time, group_idx, vwap_price)
+        let mut buy_records: Vec<(f64, usize, f64)> = Vec::new(); // (time, group_idx, vwap_price)
         let mut sell_records: Vec<(f64, usize, f64)> = Vec::new();
 
         for i in 0..group_size {
@@ -252,10 +252,18 @@ pub fn calculate_trade_price_statistics_by_volume_order_level(
             // 选择目标订单集合
             let target_records = match use_flag {
                 "same" => {
-                    if current_is_bid { &buy_records } else { &sell_records }
+                    if current_is_bid {
+                        &buy_records
+                    } else {
+                        &sell_records
+                    }
                 }
                 "diff" => {
-                    if current_is_bid { &sell_records } else { &buy_records }
+                    if current_is_bid {
+                        &sell_records
+                    } else {
+                        &buy_records
+                    }
                 }
                 _ => continue,
             };
@@ -269,7 +277,7 @@ pub fn calculate_trade_price_statistics_by_volume_order_level(
 
             for &(time, group_idx, vwap_price) in target_records.iter() {
                 if use_flag == "same" && group_idx == i {
-                    continue;  // 跳过自己
+                    continue; // 跳过自己
                 }
                 let time_diff = (current_time - time).abs();
                 distances_buffer.push((time_diff, vwap_price));
@@ -284,8 +292,10 @@ pub fn calculate_trade_price_statistics_by_volume_order_level(
             let max_needed = ((available as f64 * 0.50).ceil() as usize).min(available);
 
             if max_needed < available {
-                distances_buffer.select_nth_unstable_by(max_needed, |a, b| a.0.partial_cmp(&b.0).unwrap());
-                distances_buffer[..=max_needed].sort_unstable_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+                distances_buffer
+                    .select_nth_unstable_by(max_needed, |a, b| a.0.partial_cmp(&b.0).unwrap());
+                distances_buffer[..=max_needed]
+                    .sort_unstable_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
             } else {
                 distances_buffer.sort_unstable_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
             }

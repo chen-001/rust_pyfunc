@@ -100,7 +100,6 @@ impl BucketedTradeVolumeGroup {
         }
     }
 
-
     /// 批量计算所有百分比档位的价格统计（核心优化：一次排序，多次使用）
     fn find_nearest_same_direction_trades_batch(
         &self,
@@ -354,7 +353,9 @@ pub fn calculate_trade_price_statistics_by_volume_bucketed(
 }
 
 fn get_price_statistics_column_names() -> Vec<String> {
-    let percentages = ["1%", "2%", "3%", "4%", "5%", "10%", "20%", "30%", "40%", "50%"];
+    let percentages = [
+        "1%", "2%", "3%", "4%", "5%", "10%", "20%", "30%", "40%", "50%",
+    ];
     let mut names = Vec::new();
 
     for &pct in percentages.iter() {
@@ -688,7 +689,12 @@ pub fn calculate_trade_price_statistics_by_volume_v2_bucketed(
     let mut sorted_order_stds = vec![vec![f64::NAN; 10]; orders.len()];
 
     for group in order_groups.iter() {
-        group.compute_vwap_statistics(&mut sorted_order_means, &mut sorted_order_stds, min_count, use_flag);
+        group.compute_vwap_statistics(
+            &mut sorted_order_means,
+            &mut sorted_order_stds,
+            min_count,
+            use_flag,
+        );
     }
 
     // 7. 将结果映射回原始订单顺序
@@ -825,14 +831,14 @@ pub fn calculate_trade_price_statistics_by_volume_bucketed_v3(
         }
 
         // 构建买卖单的时间排序索引（关键优化：一次排序，多次使用）
-        let mut buy_records: Vec<(f64, usize, f64)> = Vec::new();  // (time, group_idx, price)
+        let mut buy_records: Vec<(f64, usize, f64)> = Vec::new(); // (time, group_idx, price)
         let mut sell_records: Vec<(f64, usize, f64)> = Vec::new();
-        
+
         for i in 0..group_size {
             let sorted_idx = start_idx + i;
             let time = sorted_exchtime[sorted_idx];
             let price = sorted_price[sorted_idx];
-            
+
             if sorted_flag[sorted_idx] == 66 {
                 buy_records.push((time, i, price));
             } else if sorted_flag[sorted_idx] == 83 {
@@ -853,29 +859,37 @@ pub fn calculate_trade_price_statistics_by_volume_bucketed_v3(
             let sorted_idx = start_idx + i;
             let current_flag = sorted_flag[sorted_idx];
             let current_time = sorted_exchtime[sorted_idx];
-            
+
             // 选择目标记录集合
             let target_records = match use_flag {
                 "same" => {
-                    if current_flag == 66 { &buy_records } else { &sell_records }
+                    if current_flag == 66 {
+                        &buy_records
+                    } else {
+                        &sell_records
+                    }
                 }
                 "diff" => {
-                    if current_flag == 66 { &sell_records } else { &buy_records }
+                    if current_flag == 66 {
+                        &sell_records
+                    } else {
+                        &buy_records
+                    }
                 }
                 _ => continue,
             };
-            
+
             if target_records.len() < min_count + 1 {
                 continue;
             }
 
             // 清空缓冲区
             distances_buffer.clear();
-            
+
             // 计算时间距离（遍历已排序的记录）
             for &(time, group_idx, price) in target_records.iter() {
                 if use_flag == "same" && group_idx == i {
-                    continue;  // 跳过自己
+                    continue; // 跳过自己
                 }
                 let time_diff = (current_time - time).abs();
                 distances_buffer.push((time_diff, price));
@@ -888,10 +902,12 @@ pub fn calculate_trade_price_statistics_by_volume_bucketed_v3(
 
             // 部分排序优化：只排序需要的部分
             let max_needed = ((available as f64 * 0.50).ceil() as usize).min(available);
-            
+
             if max_needed < available {
-                distances_buffer.select_nth_unstable_by(max_needed, |a, b| a.0.partial_cmp(&b.0).unwrap());
-                distances_buffer[..=max_needed].sort_unstable_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+                distances_buffer
+                    .select_nth_unstable_by(max_needed, |a, b| a.0.partial_cmp(&b.0).unwrap());
+                distances_buffer[..=max_needed]
+                    .sort_unstable_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
             } else {
                 distances_buffer.sort_unstable_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
             }
@@ -900,12 +916,12 @@ pub fn calculate_trade_price_statistics_by_volume_bucketed_v3(
             let mut sum = 0.0;
             let mut sum_sq = 0.0;
             let mut count = 0;
-            
+
             for (pct_idx, &pct) in percentages.iter().enumerate() {
                 let target_count = ((available as f64 * pct).ceil() as usize)
                     .max(1)
                     .min(available);
-                
+
                 if target_count < min_count {
                     continue;
                 }
@@ -922,7 +938,7 @@ pub fn calculate_trade_price_statistics_by_volume_bucketed_v3(
                 let mean = sum / count as f64;
                 let variance = (sum_sq / count as f64) - (mean * mean);
                 let std = variance.max(0.0).sqrt();
-                
+
                 sorted_means[sorted_idx][pct_idx] = mean;
                 sorted_stds[sorted_idx][pct_idx] = std;
             }

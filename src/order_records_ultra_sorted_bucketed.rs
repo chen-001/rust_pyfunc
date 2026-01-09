@@ -271,7 +271,6 @@ fn calculate_order_indicators_ultra_fast(
     }
 }
 
-
 #[pyfunction]
 #[pyo3(signature = (volume, exchtime, price, flag, ask_order, bid_order, min_count=100, use_flag="ignore", num_buckets=20))]
 pub fn calculate_order_time_gap_and_price_percentile_ultra_sorted_bucketed(
@@ -363,21 +362,21 @@ pub fn calculate_order_time_gap_and_price_percentile_ultra_sorted_bucketed(
         .enumerate()
         .map(|(idx, order)| (bucketed_order_volumes[idx], order))
         .collect();
-    
+
     sorted_orders_with_bucket.sort_unstable_by(|a, b| {
         a.0.partial_cmp(&b.0)
             .unwrap()
-            .then(a.1.4.partial_cmp(&b.1.4).unwrap())
+            .then(a.1 .4.partial_cmp(&b.1 .4).unwrap())
     });
 
     // 4. 构建分桶后的订单volume组（直接使用排序后的数据）
     let mut order_groups: Vec<BucketedOrderVolumeGroup> = Vec::new();
     let mut order_results = vec![vec![f64::NAN; 22]; sorted_orders_with_bucket.len()];
-    
+
     if !sorted_orders_with_bucket.is_empty() {
         let mut current_volume = sorted_orders_with_bucket[0].0;
         let mut group = BucketedOrderVolumeGroup::new(current_volume);
-        
+
         for (idx, (bucket_vol, order)) in sorted_orders_with_bucket.iter().enumerate() {
             if (*bucket_vol - current_volume).abs() > f64::EPSILON {
                 // 完成当前组
@@ -388,10 +387,10 @@ pub fn calculate_order_time_gap_and_price_percentile_ultra_sorted_bucketed(
                 current_volume = *bucket_vol;
                 group = BucketedOrderVolumeGroup::new(current_volume);
             }
-            
+
             group.add_record(idx, order.4, order.3, order.1);
         }
-        
+
         // 添加最后一组
         if !group.indices.is_empty() {
             order_groups.push(group);
@@ -427,7 +426,8 @@ pub fn calculate_order_time_gap_and_price_percentile_ultra_sorted_bucketed(
                 results[i][23] = if current_flag == 66 { 1.0 } else { 0.0 };
 
                 // 添加订单聚合信息
-                let (_, _, order_volume, order_price, order_time) = &sorted_orders_with_bucket[order_idx].1;
+                let (_, _, order_volume, order_price, order_time) =
+                    &sorted_orders_with_bucket[order_idx].1;
                 // 添加订单volume总量（第25列）
                 results[i][24] = *order_volume;
                 // 添加订单最后时间（第26列）
@@ -739,21 +739,21 @@ pub fn calculate_order_time_gap_and_price_percentile_ultra_sorted_v2_bucketed(
         .enumerate()
         .map(|(idx, order)| (bucketed_order_volumes[idx], order))
         .collect();
-    
+
     sorted_orders_with_bucket.sort_unstable_by(|a, b| {
         a.0.partial_cmp(&b.0)
             .unwrap()
-            .then(a.1.4.partial_cmp(&b.1.4).unwrap())
+            .then(a.1 .4.partial_cmp(&b.1 .4).unwrap())
     });
 
     // 4. 构建分桶后的订单volume组（直接使用排序后的数据）
     let mut order_groups: Vec<BucketedOrderVolumeGroupV2> = Vec::new();
     let mut order_results = vec![vec![f64::NAN; 22]; sorted_orders_with_bucket.len()];
-    
+
     if !sorted_orders_with_bucket.is_empty() {
         let mut current_volume = sorted_orders_with_bucket[0].0;
         let mut group = BucketedOrderVolumeGroupV2::new(current_volume);
-        
+
         for (idx, (bucket_vol, order)) in sorted_orders_with_bucket.iter().enumerate() {
             if (*bucket_vol - current_volume).abs() > f64::EPSILON {
                 // 完成当前组
@@ -764,10 +764,10 @@ pub fn calculate_order_time_gap_and_price_percentile_ultra_sorted_v2_bucketed(
                 current_volume = *bucket_vol;
                 group = BucketedOrderVolumeGroupV2::new(current_volume);
             }
-            
+
             group.add_record(idx, order.4, order.3, order.1);
         }
-        
+
         // 添加最后一组
         if !group.indices.is_empty() {
             order_groups.push(group);
@@ -797,7 +797,8 @@ pub fn calculate_order_time_gap_and_price_percentile_ultra_sorted_v2_bucketed(
                 results[i][23] = 0.0; // V2版本中ask订单都是卖单
 
                 // 添加订单聚合信息
-                let (_, _is_bid, order_volume, order_price, order_time) = &sorted_orders_with_bucket[order_idx].1;
+                let (_, _is_bid, order_volume, order_price, order_time) =
+                    &sorted_orders_with_bucket[order_idx].1;
                 // 添加订单volume总量（第25列）
                 results[i][24] = *order_volume;
                 // 添加订单最后时间（第26列）
@@ -820,7 +821,8 @@ pub fn calculate_order_time_gap_and_price_percentile_ultra_sorted_v2_bucketed(
                 results[i][23] = 1.0; // V2版本中bid订单都是买单
 
                 // 添加订单聚合信息
-                let (_, _is_bid, order_volume, order_price, order_time) = &sorted_orders_with_bucket[order_idx].1;
+                let (_, _is_bid, order_volume, order_price, order_time) =
+                    &sorted_orders_with_bucket[order_idx].1;
                 // 添加订单volume总量（第25列）
                 results[i][24] = *order_volume;
                 // 添加订单最后时间（第26列）

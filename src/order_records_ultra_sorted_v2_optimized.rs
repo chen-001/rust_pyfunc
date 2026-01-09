@@ -2,7 +2,6 @@ use numpy::{PyArray1, PyArray2};
 use pyo3::prelude::*;
 use std::f64;
 
-
 fn find_order_volume_ranges_ultra_fast(volumes: &[f64]) -> Vec<(f64, usize, usize)> {
     if volumes.is_empty() {
         return Vec::new();

@@ -291,7 +291,9 @@ pub fn calculate_trade_price_statistics_by_volume(
 }
 
 pub fn get_price_statistics_column_names() -> Vec<String> {
-    let percentages = ["1%", "2%", "3%", "4%", "5%", "10%", "20%", "30%", "40%", "50%"];
+    let percentages = [
+        "1%", "2%", "3%", "4%", "5%", "10%", "20%", "30%", "40%", "50%",
+    ];
     let mut names = Vec::new();
 
     for &pct in percentages.iter() {
@@ -311,19 +313,19 @@ pub fn get_price_statistics_column_names() -> Vec<String> {
 struct OptimizedTradeVolumeGroup {
     #[allow(dead_code)]
     _volume: f64,
-    indices: Vec<usize>,           // 原始数据索引
-    times: Vec<f64>,              // 时间数组
-    prices: Vec<f64>,             // 对应的价格
-    flags: Vec<i32>,              // 对应的flag
+    indices: Vec<usize>, // 原始数据索引
+    times: Vec<f64>,     // 时间数组
+    prices: Vec<f64>,    // 对应的价格
+    flags: Vec<i32>,     // 对应的flag
 
     // 优化：预分类的索引，避免重复过滤
-    buy_indices: Vec<usize>,      // 买单在组内的位置
-    sell_indices: Vec<usize>,     // 卖单在组内的位置
+    buy_indices: Vec<usize>,  // 买单在组内的位置
+    sell_indices: Vec<usize>, // 卖单在组内的位置
 
     // 优化：预排序的时间索引，用于快速二分查找
-    buy_time_sorted_indices: Vec<usize>,   // 买单按时间排序的索引
-    sell_time_sorted_indices: Vec<usize>,  // 卖单按时间排序的索引
-    all_time_sorted_indices: Vec<usize>,   // 所有记录按时间排序的索引
+    buy_time_sorted_indices: Vec<usize>,  // 买单按时间排序的索引
+    sell_time_sorted_indices: Vec<usize>, // 卖单按时间排序的索引
+    all_time_sorted_indices: Vec<usize>,  // 所有记录按时间排序的索引
 }
 
 impl OptimizedTradeVolumeGroup {
@@ -362,21 +364,18 @@ impl OptimizedTradeVolumeGroup {
     fn build_sorted_indices(&mut self) {
         // 构建买单时间排序索引
         self.buy_time_sorted_indices = self.buy_indices.clone();
-        self.buy_time_sorted_indices.sort_unstable_by(|&a, &b| {
-            self.times[a].partial_cmp(&self.times[b]).unwrap()
-        });
+        self.buy_time_sorted_indices
+            .sort_unstable_by(|&a, &b| self.times[a].partial_cmp(&self.times[b]).unwrap());
 
         // 构建卖单时间排序索引
         self.sell_time_sorted_indices = self.sell_indices.clone();
-        self.sell_time_sorted_indices.sort_unstable_by(|&a, &b| {
-            self.times[a].partial_cmp(&self.times[b]).unwrap()
-        });
+        self.sell_time_sorted_indices
+            .sort_unstable_by(|&a, &b| self.times[a].partial_cmp(&self.times[b]).unwrap());
 
         // 构建所有记录时间排序索引
         self.all_time_sorted_indices = (0..self.indices.len()).collect();
-        self.all_time_sorted_indices.sort_unstable_by(|&a, &b| {
-            self.times[a].partial_cmp(&self.times[b]).unwrap()
-        });
+        self.all_time_sorted_indices
+            .sort_unstable_by(|&a, &b| self.times[a].partial_cmp(&self.times[b]).unwrap());
     }
 
     /// 超级优化版本：直接从预排序数组中获取最近的成交（极致优化）
@@ -384,7 +383,7 @@ impl OptimizedTradeVolumeGroup {
     fn find_nearest_same_direction_trades_ultra_fast(
         &self,
         current_group_idx: usize,
-        _target_indices: &[usize],  // 不再需要，使用预排序索引
+        _target_indices: &[usize], // 不再需要，使用预排序索引
         max_count: usize,
     ) -> Vec<f64> {
         let current_time = self.times[current_group_idx];
@@ -401,16 +400,20 @@ impl OptimizedTradeVolumeGroup {
         }
 
         // 在排序的索引中找到当前位置
-        let insert_pos = sorted_indices.binary_search_by(|&idx| {
-            self.times[idx].partial_cmp(&current_time).unwrap()
-        }).unwrap_or_else(|pos| pos);
+        let insert_pos = sorted_indices
+            .binary_search_by(|&idx| self.times[idx].partial_cmp(&current_time).unwrap())
+            .unwrap_or_else(|pos| pos);
 
         // 预分配结果数组
         let mut result_prices = Vec::with_capacity(max_count);
 
         // 优化的双指针扩展算法
         let mut left = if insert_pos > 0 { insert_pos - 1 } else { 0 };
-        let mut right = if insert_pos < sorted_indices.len() { insert_pos } else { sorted_indices.len() - 1 };
+        let mut right = if insert_pos < sorted_indices.len() {
+            insert_pos
+        } else {
+            sorted_indices.len() - 1
+        };
         let mut left_done = left == 0 && sorted_indices[left] == current_group_idx;
         let mut right_done = right >= sorted_indices.len();
 
@@ -495,12 +498,14 @@ impl OptimizedTradeVolumeGroup {
             let same_indices = match use_flag {
                 "same" => {
                     if current_flag == 66 {
-                        self.buy_indices.iter()
+                        self.buy_indices
+                            .iter()
                             .filter(|&&idx| idx != current_group_idx)
                             .cloned()
                             .collect()
                     } else {
-                        self.sell_indices.iter()
+                        self.sell_indices
+                            .iter()
                             .filter(|&&idx| idx != current_group_idx)
                             .cloned()
                             .collect()
@@ -572,12 +577,18 @@ impl OptimizedTradeVolumeGroup {
 
                 if count >= min_count && count <= time_distances.len() {
                     // 计算该数量的价格统计
-                    let sum: f64 = time_distances.iter().take(count).map(|(_, price)| *price).sum();
+                    let sum: f64 = time_distances
+                        .iter()
+                        .take(count)
+                        .map(|(_, price)| *price)
+                        .sum();
                     let mean = sum / count as f64;
                     means[orig_idx][pct_idx] = mean;
 
                     // 计算标准差
-                    let variance_sum: f64 = time_distances.iter().take(count)
+                    let variance_sum: f64 = time_distances
+                        .iter()
+                        .take(count)
                         .map(|(_, price)| {
                             let diff = *price - mean;
                             diff * diff
@@ -681,7 +692,13 @@ pub fn calculate_trade_price_statistics_by_volume_v2(
     bid_order: &PyArray1<i64>,
     min_count: usize,
     use_flag: &str,
-) -> PyResult<(Py<PyArray2<f64>>, Py<PyArray2<f64>>, Py<PyArray2<f64>>, Py<PyArray2<f64>>, Vec<String>)> {
+) -> PyResult<(
+    Py<PyArray2<f64>>,
+    Py<PyArray2<f64>>,
+    Py<PyArray2<f64>>,
+    Py<PyArray2<f64>>,
+    Vec<String>,
+)> {
     let volume_slice = volume.readonly();
     let exchtime_slice = exchtime.readonly();
     let price_slice = price.readonly();
@@ -810,7 +827,7 @@ pub fn calculate_trade_price_statistics_by_volume_v2(
         }
 
         // 构建时间排序的买/卖订单记录（关键优化：一次排序，多次使用）
-        let mut buy_records: Vec<(f64, usize, f64)> = Vec::new();  // (time, group_idx, vwap_price)
+        let mut buy_records: Vec<(f64, usize, f64)> = Vec::new(); // (time, group_idx, vwap_price)
         let mut sell_records: Vec<(f64, usize, f64)> = Vec::new();
 
         for i in 0..group_size {
@@ -842,10 +859,18 @@ pub fn calculate_trade_price_statistics_by_volume_v2(
             // 选择目标订单集合
             let target_records = match use_flag {
                 "same" => {
-                    if current_is_bid { &buy_records } else { &sell_records }
+                    if current_is_bid {
+                        &buy_records
+                    } else {
+                        &sell_records
+                    }
                 }
                 "diff" => {
-                    if current_is_bid { &sell_records } else { &buy_records }
+                    if current_is_bid {
+                        &sell_records
+                    } else {
+                        &buy_records
+                    }
                 }
                 _ => continue,
             };
@@ -859,7 +884,7 @@ pub fn calculate_trade_price_statistics_by_volume_v2(
 
             for &(time, group_idx, vwap_price) in target_records.iter() {
                 if use_flag == "same" && group_idx == i {
-                    continue;  // 跳过自己
+                    continue; // 跳过自己
                 }
                 let time_diff = (current_time - time).abs();
                 distances_buffer.push((time_diff, vwap_price));
@@ -874,8 +899,10 @@ pub fn calculate_trade_price_statistics_by_volume_v2(
             let max_needed = ((available as f64 * 0.50).ceil() as usize).min(available);
 
             if max_needed < available {
-                distances_buffer.select_nth_unstable_by(max_needed, |a, b| a.0.partial_cmp(&b.0).unwrap());
-                distances_buffer[..=max_needed].sort_unstable_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+                distances_buffer
+                    .select_nth_unstable_by(max_needed, |a, b| a.0.partial_cmp(&b.0).unwrap());
+                distances_buffer[..=max_needed]
+                    .sort_unstable_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
             } else {
                 distances_buffer.sort_unstable_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
             }
@@ -963,7 +990,7 @@ pub fn calculate_trade_price_statistics_by_volume_v2(
         means_sell_array.to_owned(),
         stds_buy_array.to_owned(),
         stds_sell_array.to_owned(),
-        column_names
+        column_names,
     ))
 }
 
@@ -1179,7 +1206,7 @@ pub fn calculate_trade_price_statistics_by_volume_v3(
 
     // 构建volume组
     let volume_ranges = find_trade_volume_ranges(volume_data);
-    
+
     // 百分比档位
     let percentages = [0.01, 0.02, 0.03, 0.04, 0.05, 0.10, 0.20, 0.30, 0.40, 0.50];
 
@@ -1191,14 +1218,14 @@ pub fn calculate_trade_price_statistics_by_volume_v3(
         }
 
         // 构建买卖单的时间排序索引（关键优化：一次排序，多次使用）
-        let mut buy_records: Vec<(f64, usize, f64)> = Vec::new();  // (time, group_idx, price)
+        let mut buy_records: Vec<(f64, usize, f64)> = Vec::new(); // (time, group_idx, price)
         let mut sell_records: Vec<(f64, usize, f64)> = Vec::new();
-        
+
         for i in 0..group_size {
             let global_idx = start_idx + i;
             let time = exchtime_data[global_idx];
             let price = price_data[global_idx];
-            
+
             if flag_data[global_idx] == 66 {
                 buy_records.push((time, i, price));
             } else if flag_data[global_idx] == 83 {
@@ -1219,29 +1246,37 @@ pub fn calculate_trade_price_statistics_by_volume_v3(
             let global_idx = start_idx + i;
             let current_flag = flag_data[global_idx];
             let current_time = exchtime_data[global_idx];
-            
+
             // 选择目标记录集合
             let target_records = match use_flag {
                 "same" => {
-                    if current_flag == 66 { &buy_records } else { &sell_records }
+                    if current_flag == 66 {
+                        &buy_records
+                    } else {
+                        &sell_records
+                    }
                 }
                 "diff" => {
-                    if current_flag == 66 { &sell_records } else { &buy_records }
+                    if current_flag == 66 {
+                        &sell_records
+                    } else {
+                        &buy_records
+                    }
                 }
                 _ => continue,
             };
-            
+
             if target_records.len() < min_count + 1 {
                 continue;
             }
 
             // 清空缓冲区
             distances_buffer.clear();
-            
+
             // 计算时间距离（遍历已排序的记录）
             for &(time, group_idx, price) in target_records.iter() {
                 if use_flag == "same" && group_idx == i {
-                    continue;  // 跳过自己
+                    continue; // 跳过自己
                 }
                 let time_diff = (current_time - time).abs();
                 distances_buffer.push((time_diff, price));
@@ -1254,10 +1289,12 @@ pub fn calculate_trade_price_statistics_by_volume_v3(
 
             // 部分排序优化：只排序需要的部分
             let max_needed = ((available as f64 * 0.50).ceil() as usize).min(available);
-            
+
             if max_needed < available {
-                distances_buffer.select_nth_unstable_by(max_needed, |a, b| a.0.partial_cmp(&b.0).unwrap());
-                distances_buffer[..=max_needed].sort_unstable_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+                distances_buffer
+                    .select_nth_unstable_by(max_needed, |a, b| a.0.partial_cmp(&b.0).unwrap());
+                distances_buffer[..=max_needed]
+                    .sort_unstable_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
             } else {
                 distances_buffer.sort_unstable_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
             }
@@ -1266,12 +1303,12 @@ pub fn calculate_trade_price_statistics_by_volume_v3(
             let mut sum = 0.0;
             let mut sum_sq = 0.0;
             let mut count = 0;
-            
+
             for (pct_idx, &pct) in percentages.iter().enumerate() {
                 let target_count = ((available as f64 * pct).ceil() as usize)
                     .max(1)
                     .min(available);
-                
+
                 if target_count < min_count {
                     continue;
                 }
@@ -1288,7 +1325,7 @@ pub fn calculate_trade_price_statistics_by_volume_v3(
                 let mean = sum / count as f64;
                 let variance = (sum_sq / count as f64) - (mean * mean);
                 let std = variance.max(0.0).sqrt();
-                
+
                 means[global_idx][pct_idx] = mean;
                 stds[global_idx][pct_idx] = std;
             }

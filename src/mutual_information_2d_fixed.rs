@@ -15,7 +15,6 @@ impl Point2D {
         Point2D { x, y }
     }
 
-
     /// Calculate Chebyshev distance (max norm) to another point
     fn chebyshev_distance(&self, other: &Point2D) -> f64 {
         let dx = (self.x - other.x).abs();
@@ -32,9 +31,7 @@ struct SortedValue {
 
 impl SortedValue {
     fn new(value: f64) -> Self {
-        SortedValue {
-            value,
-        }
+        SortedValue { value }
     }
 }
 
@@ -125,7 +122,6 @@ impl KDTree {
         node
     }
 
-
     fn k_nearest_chebyshev(&self, target: &Point2D, k: usize) -> Vec<(usize, f64)> {
         if k == 0 {
             return Vec::new();
@@ -143,7 +139,6 @@ impl KDTree {
         neighbors.sort_by(|a, b| compare_distance(a.1, b.1));
         neighbors
     }
-
 
     fn search_recursive_chebyshev(
         node: &KDNode,
@@ -221,7 +216,6 @@ impl KDTree {
         }
     }
 }
-
 
 #[derive(Clone, Copy, Debug)]
 struct Neighbor {

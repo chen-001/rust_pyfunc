@@ -1,9 +1,18 @@
 """交易分析函数类型声明"""
+
 from typing import List, Optional, Tuple
 import numpy as np
 from numpy.typing import NDArray
 
-def find_follow_volume_sum_same_price(times: NDArray[np.float64], prices: NDArray[np.float64], volumes: NDArray[np.float64], time_window: float = 0.1, check_price: bool = True, filter_ratio: float = 0.0, timeout_seconds: Optional[float] = None) -> NDArray[np.float64]:
+def find_follow_volume_sum_same_price(
+    times: NDArray[np.float64],
+    prices: NDArray[np.float64],
+    volumes: NDArray[np.float64],
+    time_window: float = 0.1,
+    check_price: bool = True,
+    filter_ratio: float = 0.0,
+    timeout_seconds: Optional[float] = None,
+) -> NDArray[np.float64]:
     """计算每一行在其后time_window秒内具有相同volume（及可选相同price）的行的volume总和。
 
     参数说明：
@@ -31,7 +40,13 @@ def find_follow_volume_sum_same_price(times: NDArray[np.float64], prices: NDArra
     """
     ...
 
-def find_follow_volume_sum_same_price_and_flag(times: NDArray[np.float64], prices: NDArray[np.float64], volumes: NDArray[np.float64], flags: NDArray[np.int32], time_window: float = 0.1) -> NDArray[np.float64]:
+def find_follow_volume_sum_same_price_and_flag(
+    times: NDArray[np.float64],
+    prices: NDArray[np.float64],
+    volumes: NDArray[np.float64],
+    flags: NDArray[np.int32],
+    time_window: float = 0.1,
+) -> NDArray[np.float64]:
     """计算每一行在其后0.1秒内具有相同flag、price和volume的行的volume总和。
 
     参数说明：
@@ -54,7 +69,12 @@ def find_follow_volume_sum_same_price_and_flag(times: NDArray[np.float64], price
     """
     ...
 
-def mark_follow_groups(times: NDArray[np.float64], prices: NDArray[np.float64], volumes: NDArray[np.float64], time_window: float = 0.1) -> NDArray[np.int32]:
+def mark_follow_groups(
+    times: NDArray[np.float64],
+    prices: NDArray[np.float64],
+    volumes: NDArray[np.float64],
+    time_window: float = 0.1,
+) -> NDArray[np.int32]:
     """标记每一行在其后0.1秒内具有相同price和volume的行组。
     对于同一个时间窗口内的相同交易组，标记相同的组号。
     组号从1开始递增，每遇到一个新的交易组就分配一个新的组号。
@@ -77,7 +97,13 @@ def mark_follow_groups(times: NDArray[np.float64], prices: NDArray[np.float64], 
     """
     ...
 
-def mark_follow_groups_with_flag(times: NDArray[np.float64], prices: NDArray[np.float64], volumes: NDArray[np.float64], flags: NDArray[np.int64], time_window: float = 0.1) -> NDArray[np.int32]:
+def mark_follow_groups_with_flag(
+    times: NDArray[np.float64],
+    prices: NDArray[np.float64],
+    volumes: NDArray[np.float64],
+    flags: NDArray[np.int64],
+    time_window: float = 0.1,
+) -> NDArray[np.int32]:
     """标记每一行在其后time_window秒内具有相同flag、price和volume的行组。
     对于同一个时间窗口内的相同交易组，标记相同的组号。
     组号从1开始递增，每遇到一个新的交易组就分配一个新的组号。
@@ -104,20 +130,27 @@ def mark_follow_groups_with_flag(times: NDArray[np.float64], prices: NDArray[np.
 
 def analyze_retreat_advance(
     trade_times: NDArray[np.float64],
-    trade_prices: NDArray[np.float64], 
+    trade_prices: NDArray[np.float64],
     trade_volumes: NDArray[np.float64],
     trade_flags: NDArray[np.float64],
     orderbook_times: NDArray[np.float64],
     orderbook_prices: NDArray[np.float64],
     orderbook_volumes: NDArray[np.float64],
     volume_percentile: Optional[float] = 99.0,
-    time_window_minutes: Optional[float] = 1.0
-) -> Tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
+    time_window_minutes: Optional[float] = 1.0,
+) -> Tuple[
+    NDArray[np.float64],
+    NDArray[np.float64],
+    NDArray[np.float64],
+    NDArray[np.float64],
+    NDArray[np.float64],
+    NDArray[np.float64],
+]:
     """分析股票交易中的"以退为进"现象
-    
+
     该函数分析当价格触及某个局部高点后回落，然后在该价格的异常大挂单量消失后
     成功突破该价格的现象。
-    
+
     参数说明：
     ----------
     trade_times : NDArray[np.float64]
@@ -138,7 +171,7 @@ def analyze_retreat_advance(
         异常大挂单量的百分位数阈值，默认为99.0（即前1%）
     time_window_minutes : Optional[float], default=1.0
         检查异常大挂单量的时间窗口（分钟），默认为1.0分钟
-    
+
     返回值：
     -------
     Tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]
@@ -150,7 +183,19 @@ def analyze_retreat_advance(
         - 过程期间的价格种类数
     """
 
-def fit_hawkes_process(event_times: NDArray[np.float64], event_volumes: NDArray[np.float64], initial_guess: Optional[Tuple[float, float, float]] = None, max_iterations: int = 1000, tolerance: float = 1e-06, cluster_merge_threshold: float = 0.8, max_parent_search_window: int = 200, parent_time_threshold_factor: float = 10.0, merge_search_window: int = 500, merge_time_threshold_factor: float = 20.0, relax_factor_multiplier: float = 3.0) -> dict:
+def fit_hawkes_process(
+    event_times: NDArray[np.float64],
+    event_volumes: NDArray[np.float64],
+    initial_guess: Optional[Tuple[float, float, float]] = None,
+    max_iterations: int = 1000,
+    tolerance: float = 1e-06,
+    cluster_merge_threshold: float = 0.8,
+    max_parent_search_window: int = 200,
+    parent_time_threshold_factor: float = 10.0,
+    merge_search_window: int = 500,
+    merge_time_threshold_factor: float = 20.0,
+    relax_factor_multiplier: float = 3.0,
+) -> dict:
     """拟合Hawkes自激点过程模型并计算多种指标
 
     该函数使用指数核函数 φ(u) = α * exp(-β * u) 拟合Hawkes过程,
@@ -248,7 +293,20 @@ def fit_hawkes_process(event_times: NDArray[np.float64], event_volumes: NDArray[
     """
     ...
 
-def hawkes_event_indicators(event_times: NDArray[np.float64], event_volumes: NDArray[np.float64], event_prices: NDArray[np.float64], initial_guess: Optional[Tuple[float, float, float]] = None, max_iterations: int = 1000, tolerance: float = 1e-06, cluster_merge_threshold: float = 0.8, max_parent_search_window: int = 200, parent_time_threshold_factor: float = 10.0, merge_search_window: int = 500, merge_time_threshold_factor: float = 20.0, relax_factor_multiplier: float = 3.0) -> dict:
+def hawkes_event_indicators(
+    event_times: NDArray[np.float64],
+    event_volumes: NDArray[np.float64],
+    event_prices: NDArray[np.float64],
+    initial_guess: Optional[Tuple[float, float, float]] = None,
+    max_iterations: int = 1000,
+    tolerance: float = 1e-06,
+    cluster_merge_threshold: float = 0.8,
+    max_parent_search_window: int = 200,
+    parent_time_threshold_factor: float = 10.0,
+    merge_search_window: int = 500,
+    merge_time_threshold_factor: float = 20.0,
+    relax_factor_multiplier: float = 3.0,
+) -> dict:
     """计算Hawkes过程的事件级指标
 
     该函数在fit_hawkes_process的基础上,增加了需要价格数据的指标计算。
@@ -394,5 +452,97 @@ def analyze_hawkes_indicators(
     >>> print(analysis['overall_market_state'])
     >>> for suggestion in analysis['trading_suggestions']:
     ...     print(suggestion)
+    """
+    ...
+
+def calculate_passive_order_features(
+    trade_times: NDArray[np.int64],
+    trade_flags: NDArray[np.int32],
+    trade_bid_orders: NDArray[np.int64],
+    trade_ask_orders: NDArray[np.int64],
+    trade_volumes: NDArray[np.int64],
+    market_times: NDArray[np.int64],
+    compute_direction_ratio: bool = True,
+    compute_flag_ratio: bool = True,
+) -> Tuple[NDArray[np.float64], List[str]]:
+    """计算被动订单特征
+
+    对于每两个相邻的盘口快照之间的逐笔成交记录，识别被动方的订单编号，
+    并计算以下统计特征：
+
+    基础特征（42个）：
+    - 全部/买单/卖单的被动订单编号统计特征（7×3）
+    - 全部/买单/卖单的订单体量统计特征（7×3）
+
+    方向比例特征（21个，可选）：
+    - 每个被动订单前后50笔成交中，与自己成交方向相同的比例序列的统计特征
+    - 全部/买单/卖单各计算一组（7×3）
+
+    Flag比例特征（21个，可选）：
+    - 每个被动订单前后50笔成交中，与自己主买主卖标识相同的比例序列的统计特征
+    - 全部/买单/卖单各计算一组（7×3）
+
+    统计特征包括：均值、标准差、偏度、峰度、自相关系数、趋势、LZ复杂度
+
+    参数说明：
+    ----------
+    trade_times : numpy.ndarray[int64]
+        逐笔成交时间戳（纳秒级）
+    trade_flags : numpy.ndarray[int32]
+        交易标志 (66=主买, 83=主卖)
+    trade_bid_orders : numpy.ndarray[int64]
+        买单订单编号
+    trade_ask_orders : numpy.ndarray[int64]
+        卖单订单编号
+    trade_volumes : numpy.ndarray[int64]
+        成交量
+    market_times : numpy.ndarray[int64]
+        盘口快照时间戳（纳秒级）
+    compute_direction_ratio : bool, optional, default=True
+        是否计算方向比例特征
+    compute_flag_ratio : bool, optional, default=True
+        是否计算flag比例特征
+
+    返回值：
+    -------
+    Tuple[numpy.ndarray[float64], List[str]]
+        一个元组，包含：
+        - 特征数组: 形状为 (N-1, features) 的二维数组，其中N是盘口快照数
+        - 列名列表: 包含特征列名的列表
+
+        特征数量取决于参数：
+        - 基础特征: 42个
+        - 如果compute_direction_ratio=True: 额外21个
+        - 如果compute_flag_ratio=True: 额外21个
+        - 最多: 84个
+
+    示例：
+    -------
+    >>> import rust_pyfunc as rp
+    >>> import pure_ocean_breeze.jason as p
+    >>>
+    >>> # 读取数据
+    >>> code = '600000'
+    >>> date = 20220819
+    >>> trade_data = p.adjust_afternoon(p.read_trade(code, date))
+    >>> market_data = p.adjust_afternoon(p.read_market(code, date))
+    >>>
+    >>> # 准备数据
+    >>> trade_times = trade_data['exchtime'].astype(np.int64).values
+    >>> trade_flags = trade_data['flag'].astype(np.int32).values
+    >>> trade_bid_orders = trade_data['bid_order'].values
+    >>> trade_ask_orders = trade_data['ask_order'].values
+    >>> trade_volumes = trade_data['volume'].values
+    >>> market_times = market_data['exchtime'].astype(np.int64).values
+    >>>
+    >>> # 计算被动订单特征
+    >>> features, column_names = rp.calculate_passive_order_features(
+    ...     trade_times, trade_flags, trade_bid_orders,
+    ...     trade_ask_orders, trade_volumes, market_times,
+    ...     compute_direction_ratio=True,
+    ...     compute_flag_ratio=True
+    ... )
+    >>> print(f"特征矩阵形状: {features.shape}")
+    >>> print(f"列名: {column_names}")
     """
     ...
