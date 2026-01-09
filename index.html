@@ -431,6 +431,20 @@ market microstructure features, and provides quantitative trading and strategy s
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="calculate_ghost_market_maker_factor_rust.html">calculate_ghost_market_maker_factor_rust</a></h3>
+                <div><p>计算幽灵做市商因子（Ghost Market Maker's Regret）</p>
+<p>核心逻辑：强制割裂买卖两侧的联动，测量盘口僵硬度
+通过计算买卖盘口之间的"量子纠缠程度"来识别变盘信号</p>
+<p>参数:
+    bid_ask_volumes: 买卖盘量矩阵 (n_samples, 20)
+                     前10列为买方量(bid_vol1-10)，后10列为卖方量(ask_vol1-10)
+    window: 计算协方差的窗口大小</p>
+<p>返回:
+    因子值，衡量买卖盘口的量子纠缠程度</p></div>
+                <a href="calculate_ghost_market_maker_factor_rust.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="calculate_large_order_nearby_small_order_time_gap.html">calculate_large_order_nearby_small_order_time_gap</a></h3>
                 <div><p>无文档</p></div>
                 <a href="calculate_large_order_nearby_small_order_time_gap.html">查看详情</a>
@@ -496,6 +510,12 @@ market microstructure features, and provides quantitative trading and strategy s
 3. 内存预分配减少动态分配
 4. 算法复杂度从O(n² log n)降低到O(n log n)</p></div>
                 <a href="calculate_order_time_gap_and_price_percentile_ultra_sorted_v6.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="calculate_passive_order_features.html">calculate_passive_order_features</a></h3>
+                <div><p>无文档</p></div>
+                <a href="calculate_passive_order_features.html">查看详情</a>
             </div>
             
             <div class="function-item">
