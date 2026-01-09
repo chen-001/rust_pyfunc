@@ -150,6 +150,11 @@
     "params": []
   },
   {
+    "name": "calculate_ghost_market_maker_factor_rust",
+    "description": "<p>计算幽灵做市商因子（Ghost Market Maker's Regret）</p>\n<p>核心逻辑：强制割裂买卖两侧的联动，测量盘口僵硬度\n通过计算买卖盘口之间的\"量子纠缠程度\"来识别变盘信号</p>\n<p>参数:\n    bid_ask_volumes: 买卖盘量矩阵 (n_samples, 20)\n                     前10列为买方量(bid_vol1-10)，后10列为卖方量(ask_vol1-10)\n    window: 计算协方差的窗口大小</p>\n<p>返回:\n    因子值，衡量买卖盘口的量子纠缠程度</p>",
+    "params": []
+  },
+  {
     "name": "calculate_large_order_nearby_small_order_time_gap",
     "description": "<p>无文档</p>",
     "params": []
@@ -187,6 +192,11 @@
   {
     "name": "calculate_order_time_gap_and_price_percentile_ultra_sorted_v6",
     "description": "<p>V6版本：大数据优化的订单时间间隔和价格分位数计算\n核心优化：\n1. 使用预排序时间索引进行二分查找\n2. 线性搜索价格分位数避免排序开销\n3. 内存预分配减少动态分配\n4. 算法复杂度从O(n² log n)降低到O(n log n)</p>",
+    "params": []
+  },
+  {
+    "name": "calculate_passive_order_features",
+    "description": "<p>无文档</p>",
     "params": []
   },
   {
