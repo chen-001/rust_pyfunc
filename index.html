@@ -90,6 +90,20 @@ print(min_word_edit_distance(da, dc))  # 输出: 6 (删除3个单词，添加3�
             <h2 class="category-title">序列分析函数</h2>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="compute_allo_microstructure_features.html">compute_allo_microstructure_features</a></h3>
+                <div><p>计算非对称大挂单微观结构特征</p></div>
+                <a href="compute_allo_microstructure_features.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="compute_allo_microstructure_features_tris_expanded.html">compute_allo_microstructure_features_tris_expanded</a></h3>
+                <div><p>计算非对称大挂单微观结构特征 - tris扩展版本</p>
+<p>此函数专门用于detection_mode="tris"且side_filter="tris"的场景，
+返回9种参数组合的原始事件特征，而非均值</p></div>
+                <a href="compute_allo_microstructure_features_tris_expanded.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="compute_max_eigenvalue.html">compute_max_eigenvalue</a></h3>
                 <div><p>计算二维方阵的最大特征值和对应的特征向量
 使用幂迭代法计算，不使用并行计算</p></div>
@@ -404,6 +418,34 @@ market microstructure features, and provides quantitative trading and strategy s
                 <h3 class="function-name"><a href="calculate_binned_entropy_2d.html">calculate_binned_entropy_2d</a></h3>
                 <div><p>无文档</p></div>
                 <a href="calculate_binned_entropy_2d.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="calculate_effective_memory_length.html">calculate_effective_memory_length</a></h3>
+                <div><p>基于信息论的有效记忆长度(EML)计算 - 针对成交量序列优化</p>
+<h1>参数</h1>
+<ul>
+<li><code>data</code> - 成交量或其他一维数据序列 (numpy array)</li>
+<li><code>window_size</code> - 统计窗口大小</li>
+<li><code>max_lag</code> - 最大回顾长度</li>
+<li><code>threshold_ratio</code> - 满意度阈值比例, 默认0.9 (90%)</li>
+<li><code>quantile</code> - 离散化分位数, 默认0.5 (中位数)</li>
+</ul>
+<h1>返回</h1>
+<ul>
+<li>有效记忆长度 (eml)</li>
+</ul>
+<h1>离散化方法</h1>
+<p>将数据按指定分位数二值化：
+- 大于分位数: 1 (高成交量)
+- 小于等于分位数: 0 (低成交量)</p>
+<h1>分位数说明</h1>
+<ul>
+<li>quantile=0.5: 中位数分割 (默认)</li>
+<li>quantile=0.9: 90%分位数分割，只有前10%最高成交量为1</li>
+<li>quantile=0.1: 10%分位数分割，只有前10%最低成交量为1</li>
+</ul></div>
+                <a href="calculate_effective_memory_length.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -1610,6 +1652,70 @@ Uses Euclidean distance for k-nearest neighbor search</p></div>
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="rolling_effective_memory_length.html">rolling_effective_memory_length</a></h3>
+                <div><p>批量计算有效记忆长度 (滚动窗口) - 带步长优化的版本</p>
+<h1>性能优化技术</h1>
+<ol>
+<li>支持步长参数，减少计算量</li>
+<li>全局离散化，避免重复计算</li>
+<li>lag=1特殊优化路径</li>
+</ol>
+<h1>步长说明</h1>
+<p>step=1: 计算每个窗口（最精确，但最慢）
+step=10: 每隔10个点计算一次（速度提升10倍）</p>
+<h1>分位数说明</h1>
+<p>quantile=0.5: 中位数分割 (默认)
+quantile=0.9: 90%分位数分割，只有前10%最高成交量为1</p></div>
+                <a href="rolling_effective_memory_length.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="rolling_information_gain.html">rolling_information_gain</a></h3>
+                <div><p>计算信息增益序列 - 返回每个lag的信息增益</p>
+<h1>参数</h1>
+<ul>
+<li><code>data</code> - 成交量或其他一维数据序列 (numpy array)</li>
+<li><code>window_size</code> - 统计窗口大小</li>
+<li><code>max_lag</code> - 最大回顾长度</li>
+<li><code>quantile</code> - 离散化分位数, 默认0.5 (中位数)</li>
+</ul>
+<h1>返回</h1>
+<ul>
+<li>二维数组，每一行是一个时间点，每一列是对应lag的信息增益</li>
+</ul>
+<h1>返回值说明</h1>
+<p>返回形状为 (n, max_lag) 的二维数组：
+- 每一行对应一个时间点
+- 每一列对应一个lag（lag=1在第一列，lag=max_lag在最后一列）
+- 前 window_size + max_lag 行全为0（数据不足）</p></div>
+                <a href="rolling_information_gain.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="rolling_information_gain_fast.html">rolling_information_gain_fast</a></h3>
+                <div><p>滚动窗口计算信息增益序列（高性能优化版本）</p>
+<h1>性能优化</h1>
+<ul>
+<li>批量计算所有lag的条件熵，避免重复遍历</li>
+<li>使用固定数组替代HashMap</li>
+<li>预期性能提升：10-30倍</li>
+</ul>
+<h1>参数</h1>
+<ul>
+<li><code>data</code> - 成交量或其他一维数据序列</li>
+<li><code>window_size</code> - 统计窗口大小</li>
+<li><code>max_lag</code> - 最大回顾长度</li>
+<li><code>quantile</code> - 离散化分位数，默认0.5</li>
+<li><code>step</code> - 计算步长，默认1</li>
+</ul>
+<h1>返回</h1>
+<ul>
+<li>扁平化的二维数组，形状为 (n, max_lag)</li>
+</ul></div>
+                <a href="rolling_information_gain_fast.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="rolling_lagged_regression.html">rolling_lagged_regression</a></h3>
                 <div><p>滞后自回归分析函数</p>
 <p>参数:
@@ -1767,6 +1873,15 @@ Uses Euclidean distance for k-nearest neighbor search</p></div>
                 <div><p>序列分段和相关系数计算函数</p>
 <p>输入两个等长的序列，根据大小关系进行分段，然后计算每段内的相关系数</p></div>
                 <a href="segment_and_correlate.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="skew_numba.html">skew_numba</a></h3>
+                <div><p>计算3D数组各(i,j)位置的偏态值</p>
+<p>输入: shape (n, n, r*r) 的3D数组
+输出: shape (n, n) 的2D偏态值矩阵</p>
+<p>偏态公式: skew = E[(X-μ)³] / σ³</p></div>
+                <a href="skew_numba.html">查看详情</a>
             </div>
             
             <div class="function-item">

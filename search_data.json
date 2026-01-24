@@ -130,6 +130,11 @@
     "params": []
   },
   {
+    "name": "calculate_effective_memory_length",
+    "description": "<p>基于信息论的有效记忆长度(EML)计算 - 针对成交量序列优化</p>\n<h1>参数</h1>\n<ul>\n<li><code>data</code> - 成交量或其他一维数据序列 (numpy array)</li>\n<li><code>window_size</code> - 统计窗口大小</li>\n<li><code>max_lag</code> - 最大回顾长度</li>\n<li><code>threshold_ratio</code> - 满意度阈值比例, 默认0.9 (90%)</li>\n<li><code>quantile</code> - 离散化分位数, 默认0.5 (中位数)</li>\n</ul>\n<h1>返回</h1>\n<ul>\n<li>有效记忆长度 (eml)</li>\n</ul>\n<h1>离散化方法</h1>\n<p>将数据按指定分位数二值化：\n- 大于分位数: 1 (高成交量)\n- 小于等于分位数: 0 (低成交量)</p>\n<h1>分位数说明</h1>\n<ul>\n<li>quantile=0.5: 中位数分割 (默认)</li>\n<li>quantile=0.9: 90%分位数分割，只有前10%最高成交量为1</li>\n<li>quantile=0.1: 10%分位数分割，只有前10%最低成交量为1</li>\n</ul>",
+    "params": []
+  },
+  {
     "name": "calculate_entropy_1d",
     "description": "<p>无文档</p>",
     "params": []
@@ -323,6 +328,36 @@
     "params": [
       "array1",
       "array2"
+    ]
+  },
+  {
+    "name": "compute_allo_microstructure_features",
+    "description": "<p>计算非对称大挂单微观结构特征</p>",
+    "params": [
+      "trade_exchtime",
+      "trade_price",
+      "trade_volume",
+      "trade_turnover",
+      "trade_flag",
+      "snap_exchtime",
+      "10",
+      "10",
+      "10",
+      "10",
+      "detection_mode",
+      "side_filter",
+      "k1_horizontal",
+      "k2_vertical",
+      "window_size",
+      "decay_threshold"
+    ]
+  },
+  {
+    "name": "compute_allo_microstructure_features_tris_expanded",
+    "description": "<p>计算非对称大挂单微观结构特征 - tris扩展版本</p>\n<p>此函数专门用于detection_mode=\"tris\"且side_filter=\"tris\"的场景，\n返回9种参数组合的原始事件特征，而非均值</p>",
+    "params": [
+      "feature_arrays",
+      "feature_names_arrays"
     ]
   },
   {
@@ -964,6 +999,21 @@
     ]
   },
   {
+    "name": "rolling_effective_memory_length",
+    "description": "<p>批量计算有效记忆长度 (滚动窗口) - 带步长优化的版本</p>\n<h1>性能优化技术</h1>\n<ol>\n<li>支持步长参数，减少计算量</li>\n<li>全局离散化，避免重复计算</li>\n<li>lag=1特殊优化路径</li>\n</ol>\n<h1>步长说明</h1>\n<p>step=1: 计算每个窗口（最精确，但最慢）\nstep=10: 每隔10个点计算一次（速度提升10倍）</p>\n<h1>分位数说明</h1>\n<p>quantile=0.5: 中位数分割 (默认)\nquantile=0.9: 90%分位数分割，只有前10%最高成交量为1</p>",
+    "params": []
+  },
+  {
+    "name": "rolling_information_gain",
+    "description": "<p>计算信息增益序列 - 返回每个lag的信息增益</p>\n<h1>参数</h1>\n<ul>\n<li><code>data</code> - 成交量或其他一维数据序列 (numpy array)</li>\n<li><code>window_size</code> - 统计窗口大小</li>\n<li><code>max_lag</code> - 最大回顾长度</li>\n<li><code>quantile</code> - 离散化分位数, 默认0.5 (中位数)</li>\n</ul>\n<h1>返回</h1>\n<ul>\n<li>二维数组，每一行是一个时间点，每一列是对应lag的信息增益</li>\n</ul>\n<h1>返回值说明</h1>\n<p>返回形状为 (n, max_lag) 的二维数组：\n- 每一行对应一个时间点\n- 每一列对应一个lag（lag=1在第一列，lag=max_lag在最后一列）\n- 前 window_size + max_lag 行全为0（数据不足）</p>",
+    "params": []
+  },
+  {
+    "name": "rolling_information_gain_fast",
+    "description": "<p>滚动窗口计算信息增益序列（高性能优化版本）</p>\n<h1>性能优化</h1>\n<ul>\n<li>批量计算所有lag的条件熵，避免重复遍历</li>\n<li>使用固定数组替代HashMap</li>\n<li>预期性能提升：10-30倍</li>\n</ul>\n<h1>参数</h1>\n<ul>\n<li><code>data</code> - 成交量或其他一维数据序列</li>\n<li><code>window_size</code> - 统计窗口大小</li>\n<li><code>max_lag</code> - 最大回顾长度</li>\n<li><code>quantile</code> - 离散化分位数，默认0.5</li>\n<li><code>step</code> - 计算步长，默认1</li>\n</ul>\n<h1>返回</h1>\n<ul>\n<li>扁平化的二维数组，形状为 (n, max_lag)</li>\n</ul>",
+    "params": []
+  },
+  {
     "name": "rolling_lagged_regression",
     "description": "<p>滞后自回归分析函数</p>\n<p>参数:\n- series: 一维时间序列数据\n- past_periods: 过去观察期数\n- future_periods: 预测期数，必须 &lt;= past_periods</p>\n<p>返回:\n- 二维数组 (n, 2*x)，其中 x = past_periods - future_periods + 1\n- 每行包含 [r_lag1_past, r_lag2_past, ..., r_lagx_past, r_lag1_future, r_lag2_future, ..., r_lagx_future]</p>",
     "params": []
@@ -1078,6 +1128,11 @@
       "b",
       "min_length"
     ]
+  },
+  {
+    "name": "skew_numba",
+    "description": "<p>计算3D数组各(i,j)位置的偏态值</p>\n<p>输入: shape (n, n, r*r) 的3D数组\n输出: shape (n, n) 的2D偏态值矩阵</p>\n<p>偏态公式: skew = E[(X-μ)³] / σ³</p>",
+    "params": []
   },
   {
     "name": "sum_as_string",
