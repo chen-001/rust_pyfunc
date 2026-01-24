@@ -5,6 +5,7 @@ pub mod backup_reader;
 pub mod column_correlation;
 pub mod difference_matrix;
 pub mod entropy_analysis;
+pub mod effective_memory_length;
 pub mod error;
 pub mod grouping;
 pub mod hawkes_advisor;
@@ -55,6 +56,8 @@ pub mod passive_order_features;
 pub mod permutation_analysis_v0816_fixed;
 pub mod price_breakthrough_stats;
 pub mod series_rank;
+pub mod skewness;
+pub mod allo_microstructure;
 
 /// Formats the sum of two numbers as string.
 #[pyfunction]
@@ -522,6 +525,38 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
 
     let _ = m.add_function(wrap_pyfunction!(
         passive_order_features::calculate_passive_order_features,
+        m
+    )?)?;
+
+    let _ = m.add_function(wrap_pyfunction!(
+        effective_memory_length::calculate_effective_memory_length,
+        m
+    )?)?;
+
+    let _ = m.add_function(wrap_pyfunction!(
+        effective_memory_length::rolling_effective_memory_length,
+        m
+    )?)?;
+
+    let _ = m.add_function(wrap_pyfunction!(
+        effective_memory_length::rolling_information_gain,
+        m
+    )?)?;
+
+    let _ = m.add_function(wrap_pyfunction!(
+        effective_memory_length::rolling_information_gain_fast,
+        m
+    )?)?;
+
+    let _ = m.add_function(wrap_pyfunction!(skewness::skew_numba, m)?)?;
+
+    let _ = m.add_function(wrap_pyfunction!(
+        allo_microstructure::compute_allo_microstructure_features,
+        m
+    )?)?;
+
+    let _ = m.add_function(wrap_pyfunction!(
+        allo_microstructure::compute_allo_microstructure_features_tris_expanded,
         m
     )?)?;
 

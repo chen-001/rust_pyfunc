@@ -1586,8 +1586,349 @@ def lz_complexity_detailed(seq: NDArray[np.float64], quantiles: Optional[List[fl
     - 自相关系数使用滞后1期计算
     - 偏度和峰度使用样本标准化计算
     """
+
+
+def calculate_effective_memory_length(
+    data: NDArray[np.float64],
+    window_size: int,
+    max_lag: int,
+    threshold_ratio: float = 0.9,
+    quantile: float = 0.5
+) -> float:
+    """基于信息论的有效记忆长度(EML)计算 - 针对成交量序列优化
+
+    该函数实现了基于信息论的有效记忆长度(EML)计算算法，通过分析时间序列中历史信息
+    对未来预测的贡献来确定有效记忆长度。
+
+    算法步骤：
+    1. 离散化：将连续数据序列转化为二值符号序列（基于分位数）
+    2. 计算基准熵：无条件香农熵
+    3. 计算条件熵：不同历史长度下的条件熵
+    4. 构建上下文收益曲线：信息增益随历史长度的变化
+    5. 提取有效记忆长度：找到达到90%最大信息增益的最小历史长度
+
+    参数说明：
+    ----------
+    data : NDArray[np.float64]
+        成交量或其他一维数据序列，必须是float64类型的一维数组
+    window_size : int
+        统计窗口大小，用于计算熵和条件熵
+    max_lag : int
+        最大回顾长度（最大历史长度）
+    threshold_ratio : float, 默认=0.9
+        满意度阈值比例，用于确定有效记忆长度
+        - 找到第一个达到最大信息增益×threshold_ratio的历史长度
+    quantile : float, 默认=0.5
+        离散化分位数，取值范围0.0-1.0
+        - 0.5表示中位数分割（默认）
+        - 0.9表示90%分位数，只有前10%最高成交量为1
+        - 0.1表示10%分位数，只有前10%最低成交量为1
+
+    返回值：
+    -------
+    float
+        有效记忆长度(EML)值
+
+    离散化方法：
+    -------------
+    将数据按指定分位数二值化：
+    - 大于分位数: 1 (高成交量)
+    - 小于等于分位数: 0 (低成交量)
+
+    应用场景：
+    ---------
+    - 金融市场：衡量成交量记忆的有效周期
+    - 信号处理：确定系统记忆长度
+    - 时间序列分析：量化历史信息有效性
+
+    示例：
+    -------
+    >>> import numpy as np
+    >>> from rust_pyfunc import calculate_effective_memory_length
+    >>>
+    >>> # 生成示例成交量序列
+    >>> volume = np.random.lognormal(7, 1, 1000).astype(np.float64)
+    >>>
+    >>> # 计算有效记忆长度（使用90%分位数，关注高成交量）
+    >>> eml = calculate_effective_memory_length(
+    ...     volume,
+    ...     window_size=500,
+    ...     max_lag=20,
+    ...     quantile=0.9,
+    ...     threshold_ratio=0.9
+    ... )
+    >>> print(f"有效记忆长度: {eml}")
+
+    注意事项：
+    ---------
+    - 输入序列长度必须大于window_size + max_lag
+    - quantile参数建议在0.1-0.9之间
+    - threshold_ratio通常使用0.9（90%阈值）
+    """
+
+
+def rolling_effective_memory_length(
+    data: NDArray[np.float64],
+    window_size: int,
+    max_lag: int,
+    threshold_ratio: float = 0.9,
+    quantile: float = 0.5,
+    step: int = 1
+) -> NDArray[np.float64]:
+    """滚动窗口计算有效记忆长度(EML)序列 - 针对成交量序列优化
+
+    这是calculate_effective_memory_length的滚动窗口版本，对整个数据序列
+    按指定步长计算有效记忆长度，返回一个EML时间序列。
+
+    参数说明：
+    ----------
+    data : NDArray[np.float64]
+        成交量或其他一维数据序列，必须是float64类型的一维数组
+    window_size : int
+        统计窗口大小，用于计算熵和条件熵
+    max_lag : int
+        最大回顾长度（最大历史长度）
+    threshold_ratio : float, 默认=0.9
+        满意度阈值比例，用于确定有效记忆长度
+    quantile : float, 默认=0.5
+        离散化分位数，取值范围0.0-1.0
+        - 0.5表示中位数分割（默认）
+        - 0.9表示90%分位数，只有前10%最高成交量为1
+        - 0.1表示10%分位数，只有前10%最低成交量为1
+    step : int, 默认=1
+        计算步长，用于减少计算量
+        - step=1: 计算每个窗口（最精确，但最慢）
+        - step=50: 每隔50个点计算一次（速度提升50倍）
+        - step=100: 每隔100个点计算一次（速度提升100倍）
+
+    返回值：
+    -------
+    NDArray[np.float64]
+        有效记忆长度序列，与输入序列长度相同
+        前window_size + max_lag个位置为0（数据不足）
+
+    离散化方法：
+    -------------
+    将数据按指定分位数二值化：
+    - 大于分位数: 1 (高成交量)
+    - 小于等于分位数: 0 (低成交量)
+
+    性能优化：
+    ---------
+    - 支持步长参数，减少计算量
+    - 全局离散化，避免重复计算
+    - lag=1特殊优化路径
+    - 使用位模式压缩存储
+
+    应用场景：
+    ---------
+    - 动态分析市场记忆变化
+    - 检测市场结构转换
+    - 时间序列特征工程
+
+    示例：
+    -------
+    >>> import numpy as np
+    >>> from rust_pyfunc import rolling_effective_memory_length
+    >>>
+    >>> # 生成示例成交量序列
+    >>> volume = np.random.lognormal(7, 1, 10000).astype(np.float64)
+    >>>
+    >>> # 滚动计算有效记忆长度（使用步长100加速）
+    >>> eml_series = rolling_effective_memory_length(
+    ...     volume,
+    ...     window_size=500,
+    ...     max_lag=20,
+    ...     quantile=0.9,
+    ...     threshold_ratio=0.9,
+    ...     step=100
+    ... )
+    >>>
+    >>> print(f"EML序列长度: {len(eml_series)}")
+    >>> print(f"EML非零值数量: {np.sum(eml_series > 0)}")
+    >>> print(f"EML均值: {np.mean(eml_series[eml_series > 0]):.2f}")
+
+    注意事项：
+    ---------
+    - 输入序列长度必须大于window_size + max_lag
+    - 返回序列的前window_size + max_lag个元素为0
+    - step越大计算越快，但结果越稀疏
+    - 对于长数据（>10万点），建议使用step>=50
+    """
     ...
 
 
+def rolling_information_gain(
+    data: NDArray[np.float64],
+    window_size: int,
+    max_lag: int,
+    quantile: float = 0.5,
+    step: int = 1
+) -> NDArray[np.float64]:
+    """滚动窗口计算信息增益序列 - 返回每个lag的信息增益
+
+    该函数计算每个时间点、每个lag的信息增益（熵减），返回一个二维数组。
+    信息增益 = 基准熵 - 条件熵，表示回顾lag步历史能消除多少不确定性。
+
+    参数说明：
+    ----------
+    data : NDArray[np.float64]
+        成交量或其他一维数据序列，必须是float64类型的一维数组
+    window_size : int
+        统计窗口大小，用于计算熵和条件熵
+    max_lag : int
+        最大回顾长度（最大历史长度）
+    quantile : float, 默认=0.5
+        离散化分位数，取值范围0.0-1.0
+        - 0.5表示中位数分割（默认）
+        - 0.9表示90%分位数，只有前10%最高成交量为1
+    step : int, 默认=1
+        计算步长，用于减少计算量
+        - step=1: 计算每个窗口（最精确，但最慢）
+        - step=50: 每隔50个点计算一次（速度提升50倍）
+
+    返回值：
+    -------
+    NDArray[np.float64]
+        扁平化的二维数组，形状为 (n, max_lag)
+        需要reshape成 (n, max_lag) 使用：
+        result = rolling_information_gain(...).reshape(-1, max_lag)
+        
+        - 每一行对应一个时间点
+        - 每一列对应一个lag（第0列是lag=1，第max_lag-1列是lag=max_lag）
+        - 前 window_size + max_lag 行全为0（数据不足）
+
+    物理意义：
+    ---------
+    信息增益越大，说明该lag长度的历史对未来预测越有价值。
+    例如，如果lag=13的信息增益最大，说明回看13笔交易最有预测能力。
+
+    示例：
+    -------
+    >>> import numpy as np
+    >>> from rust_pyfunc import rolling_information_gain
+    >>>
+    >>> # 生成示例成交量序列
+    >>> volume = np.random.lognormal(7, 1, 10000).astype(np.float64)
+    >>>
+    >>> # 计算信息增益序列
+    >>> gains = rolling_information_gain(
+    ...     volume,
+    ...     window_size=1000,
+    ...     max_lag=20,
+    ...     quantile=0.5,
+    ...     step=1
+    ... )
+    >>>
+    >>> # reshape成二维数组
+    >>> gains_2d = gains.reshape(-1, 20)
+    >>>
+    >>> # 查看某个时间点的信息增益曲线
+    >>> import matplotlib.pyplot as plt
+    >>> plt.plot(range(1, 21), gains_2d[5000])  # 第5000个时间点
+    >>> plt.xlabel('Lag')
+    >>> plt.ylabel('Information Gain (bits)')
+    >>> plt.title('Information Gain vs Lag')
+    >>>
+    >>> # 找到信息增益最大的lag
+    >>> best_lag = np.argmax(gains_2d[5000]) + 1
+    >>> print(f"最优回看长度: {best_lag}")
+
+    应用场景：
+    ---------
+    - 可视化信息增益曲线
+    - 分析不同lag的预测能力
+    - 优化回看窗口长度
+    - 理解市场记忆结构
+
+    注意事项：
+    ---------
+    - 输入序列长度必须大于window_size + max_lag
+    - 返回的是扁平化数组，需要reshape
+    - 计算量较大，建议使用step参数加速
+    """
+
+
+def rolling_information_gain_fast(
+    data: NDArray[np.float64],
+    window_size: int,
+    max_lag: int,
+    quantile: float = 0.5,
+    step: int = 1
+) -> NDArray[np.float64]:
+    """滚动窗口计算信息增益序列（高性能优化版本）
+
+    性能优化：
+    - 批量计算所有lag的条件熵，避免重复遍历
+    - 使用固定数组替代HashMap（小lag场景）
+    - 预期性能提升：10-30倍
+
+    参数和返回值与 rolling_information_gain 完全一致。
+    对于大数据集或大max_lag场景，强烈推荐使用此函数。
+
+    示例：
+    -------
+    >>> import numpy as np
+    >>> from rust_pyfunc import rolling_information_gain_fast
+    >>>
+    >>> # 生成示例成交量序列
+    >>> volume = np.random.lognormal(7, 1, 10000).astype(np.float64)
+    >>>
+    >>> # 计算信息增益序列（优化版）
+    >>> gains = rolling_information_gain_fast(
+    ...     volume,
+    ...     window_size=1000,
+    ...     max_lag=20,
+    ...     quantile=0.5,
+    ...     step=1
+    ... )
+    >>>
+    >>> # reshape成二维数组
+    >>> gains_2d = gains.reshape(-1, 20)
+    """
+
+
+def skew_numba(arr: NDArray[np.float64]) -> NDArray[np.float64]:
+    """偏态计算 - 3D数组 (n, n, r*r) -> 2D矩阵 (n, n)
+
+    对输入的3D数组，计算每个(i,j)位置沿第三维的偏态值。
+
+    偏态公式: skew = E[(X-μ)³] / σ³
+
+    参数说明：
+    ----------
+    arr : numpy.ndarray
+        输入3D数组，形状为 (n, n, r*r)，必须是 float64 类型
+
+    返回值：
+    -------
+    numpy.ndarray
+        2D偏态值矩阵，形状为 (n, n)
+
+    示例：
+    ------
+    >>> import numpy as np
+    >>> from rust_pyfunc import skew_numba
+    >>>
+    >>> # 创建测试数据 (3, 3, 4)
+    >>> arr = np.random.randn(3, 3, 4).astype(np.float64)
+    >>>
+    >>> # 计算偏态
+    >>> result = skew_numba(arr)
+    >>> print(f"结果形状: {result.shape}")  # (3, 3)
+    >>> print(f"偏态值:\n{result}")
+
+    >>> # 使用已知分布验证
+    >>> # 正态分布偏态应接近0
+    >>> normal_data = np.random.randn(10, 10, 1000).astype(np.float64)
+    >>> skew_result = skew_numba(normal_data)
+    >>> print(f"正态分布偏态均值: {np.mean(skew_result):.4f}")  # 应接近0
+
+    >>> # 右偏分布（如指数分布）偏态为正
+    >>> exp_data = np.random.exponential(1, (10, 10, 1000)).astype(np.float64)
+    >>> skew_exp = skew_numba(exp_data)
+    >>> print(f"指数分布偏态均值: {np.mean(skew_exp):.4f}")  # 应接近2
+    """
+    ...
 
 
