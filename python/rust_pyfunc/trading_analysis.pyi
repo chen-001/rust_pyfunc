@@ -546,3 +546,191 @@ def calculate_passive_order_features(
     >>> print(f"列名: {column_names}")
     """
     ...
+
+
+def compute_allo_microstructure_features(
+    trade_exchtime: NDArray[np.int64],
+    trade_price: NDArray[np.float64],
+    trade_volume: NDArray[np.float64],
+    trade_turnover: NDArray[np.float64],
+    trade_flag: NDArray[np.int32],
+    snap_exchtime: NDArray[np.int64],
+    bid_prc1: NDArray[np.float64],
+    bid_prc2: NDArray[np.float64],
+    bid_prc3: NDArray[np.float64],
+    bid_prc4: NDArray[np.float64],
+    bid_prc5: NDArray[np.float64],
+    bid_prc6: NDArray[np.float64],
+    bid_prc7: NDArray[np.float64],
+    bid_prc8: NDArray[np.float64],
+    bid_prc9: NDArray[np.float64],
+    bid_prc10: NDArray[np.float64],
+    bid_vol1: NDArray[np.float64],
+    bid_vol2: NDArray[np.float64],
+    bid_vol3: NDArray[np.float64],
+    bid_vol4: NDArray[np.float64],
+    bid_vol5: NDArray[np.float64],
+    bid_vol6: NDArray[np.float64],
+    bid_vol7: NDArray[np.float64],
+    bid_vol8: NDArray[np.float64],
+    bid_vol9: NDArray[np.float64],
+    bid_vol10: NDArray[np.float64],
+    ask_prc1: NDArray[np.float64],
+    ask_prc2: NDArray[np.float64],
+    ask_prc3: NDArray[np.float64],
+    ask_prc4: NDArray[np.float64],
+    ask_prc5: NDArray[np.float64],
+    ask_prc6: NDArray[np.float64],
+    ask_prc7: NDArray[np.float64],
+    ask_prc8: NDArray[np.float64],
+    ask_prc9: NDArray[np.float64],
+    ask_prc10: NDArray[np.float64],
+    ask_vol1: NDArray[np.float64],
+    ask_vol2: NDArray[np.float64],
+    ask_vol3: NDArray[np.float64],
+    ask_vol4: NDArray[np.float64],
+    ask_vol5: NDArray[np.float64],
+    ask_vol6: NDArray[np.float64],
+    ask_vol7: NDArray[np.float64],
+    ask_vol8: NDArray[np.float64],
+    ask_vol9: NDArray[np.float64],
+    ask_vol10: NDArray[np.float64],
+    detection_mode: str = "both",
+    side_filter: str = "both",
+    k1_horizontal: float = 2.0,
+    k2_vertical: float = 5.0,
+    window_size: int = 100,
+    decay_threshold: float = 0.5,
+) -> Tuple[NDArray[np.float64], List[str]]:
+    """
+    计算非对称大挂单（ALLO）微观结构特征
+
+    该函数检测"异常流动性聚集事件"(ALA)，并计算21个微观结构特征指标。
+
+    参数：
+    -----
+    trade_exchtime : NDArray[np.int64]
+        逐笔成交时间戳（纳秒）
+    trade_price : NDArray[np.float64]
+        逐笔成交价格
+    trade_volume : NDArray[np.float64]
+        逐笔成交量
+    trade_turnover : NDArray[np.float64]
+        逐笔成交金额
+    trade_flag : NDArray[np.int32]
+        逐笔成交标志（66=主买, 83=主卖）
+    snap_exchtime : NDArray[np.int64]
+        盘口快照时间戳（纳秒）
+    bid_prc1-10 : NDArray[np.float64]
+        买一到买十价格
+    bid_vol1-10 : NDArray[np.float64]
+        买一到买十挂单量
+    ask_prc1-10 : NDArray[np.float64]
+        卖一到卖十价格
+    ask_vol1-10 : NDArray[np.float64]
+        卖一到卖十挂单量
+    detection_mode : str, optional
+        检测模式："horizontal"、"vertical"、"both" 或 "tris"（默认"both"）
+        - "horizontal": 单档位挂单量 > k1 * 其他档位总和
+        - "vertical": 单档位挂单量 > k2 * 历史移动平均
+        - "both": 同时满足横向或纵向条件之一
+        - "tris": 返回所有三种模式的结果（horizontal/vertical/both），列名带前缀
+    side_filter : str, optional
+        买卖侧过滤："bid"、"ask"、"both" 或 "tris"（默认"both"）
+        - "bid": 只检测买入侧的异常大挂单
+        - "ask": 只检测卖出侧的异常大挂单
+        - "both": 同时检测买卖两侧
+        - "tris": 返回所有三种侧过滤的结果（bid/ask/both），列名带前缀
+    k1_horizontal : float, optional
+        横向阈值（默认2.0）
+    k2_vertical : float, optional
+        纵向阈值（默认5.0）
+    window_size : int, optional
+        纵向移动窗口大小（默认100）
+    decay_threshold : float, optional
+        事件结束的衰减阈值（默认0.5）
+
+    返回：
+    -----
+    Tuple[NDArray[np.float64], List[str]]
+        - 非tris模式: features_array形状为(n_events, 21)的特征矩阵
+        - tris模式: features_array形状为(1, n_combinations*21)的均值特征矩阵
+          当detection_mode="tris"且side_filter="tris"时，返回9组×21个特征=189列
+          列名格式: "{detection_mode}_{side_filter}_{feature_name}"
+        - feature_names: 特征名称列表
+
+    特征说明（21个事件级特征）：
+    -------------------------
+    第一部分：巨石的物理属性
+    - M1_relative_prominence: 相对凸度
+    - M3_flicker_frequency: 闪烁频率
+
+    第二部分：攻城战的流体力学
+    - M7_queue_loitering_duration: 队列滞留时长
+
+    第三部分：友军的生态结构
+    - M8_frontrun_passive: 抢跑强度-挂单版
+    - M9_frontrun_active: 抢跑强度-主买版
+    - M10_ally_retreat_rate: 同侧撤单率
+
+    第四部分：群体行为的时间形态学（对手攻击单）
+    - M11a_attack_skewness_opponent: 攻击偏度-对手盘（正偏=闪电战，负偏=围攻战）
+    - M12a_peak_latency_ratio_opponent: 峰值延迟率-对手盘（接近1=扫尾清场）
+    - M13a_courage_acceleration_opponent: 勇气加速度-对手盘（正=信心增强，负=强弩之末）
+    - M14a_rhythm_entropy_opponent: 节奏熵-对手盘（低熵=拆单算法，高熵=人类博弈）
+
+    第四部分：群体行为的时间形态学（同侧抢跑单）
+    - M11b_attack_skewness_ally: 攻击偏度-同侧
+    - M12b_peak_latency_ratio_ally: 峰值延迟率-同侧
+    - M13b_courage_acceleration_ally: 勇气加速度-同侧
+    - M14b_rhythm_entropy_ally: 节奏熵-同侧
+
+    第五部分：空间场论与距离效应
+    - M15_fox_tiger_index: 狐假虎威指数
+    - M16_shadow_projection_ratio: 阴影投射比
+    - M17_gravitational_redshift: 引力红移速率
+    - M19_shielding_thickness_ratio: 垫单厚度比
+
+    第六部分：命运与结局
+    - M20_oxygen_saturation: 氧气饱和度
+    - M21_suffocation_integral: 窒息深度积分
+    - M22_local_survivor_bias: 幸存者偏差-邻域版
+
+    示例：
+    -----
+    >>> import pure_ocean_breeze.jason as p
+    >>> import rust_pyfunc as rp
+    >>> import numpy as np
+    >>>
+    >>> # 读取数据
+    >>> trade_data = p.adjust_afternoon(p.read_trade('000001', 20220819))
+    >>> market_data = p.adjust_afternoon(p.read_market('000001', 20220819))
+    >>>
+    >>> # 准备逐笔成交数据
+    >>> trade_exchtime = trade_data['exchtime'].astype(np.int64).values
+    >>> trade_price = trade_data['price'].values
+    >>> trade_volume = trade_data['volume'].astype(np.float64).values
+    >>> trade_turnover = trade_data['turnover'].values
+    >>> trade_flag = trade_data['flag'].astype(np.int32).values
+    >>>
+    >>> # 准备盘口快照数据
+    >>> snap_exchtime = market_data['exchtime'].astype(np.int64).values
+    >>> bid_prc = [market_data[f'bid_prc{i}'].values for i in range(1, 11)]
+    >>> bid_vol = [market_data[f'bid_vol{i}'].values for i in range(1, 11)]
+    >>> ask_prc = [market_data[f'ask_prc{i}'].values for i in range(1, 11)]
+    >>> ask_vol = [market_data[f'ask_vol{i}'].values for i in range(1, 11)]
+    >>>
+    >>> # 计算ALLO特征（只检测买入侧）
+    >>> features, feature_names = rp.compute_allo_microstructure_features(
+    ...     trade_exchtime, trade_price, trade_volume, trade_turnover, trade_flag,
+    ...     snap_exchtime,
+    ...     *bid_prc, *bid_vol, *ask_prc, *ask_vol,
+    ...     detection_mode="both",
+    ...     side_filter="bid",
+    ...     k1_horizontal=2.0,
+    ...     k2_vertical=5.0
+    ... )
+    >>> print(f"检测到 {features.shape[0]} 个ALA事件")
+    >>> print(f"特征数: {features.shape[1]}")
+    """
+    ...

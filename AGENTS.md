@@ -1,4 +1,8 @@
+# CLAUDE.md
+
 always respond in Chinese.
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
 
@@ -87,15 +91,4 @@ The project includes utilities for working with Chinese stock market data throug
 - 使用timeout 600s ./alter.sh 2>&1构建项目时,将timeout限制设置为10分钟.
 - 优化函数性能时,不要使用并行,除非在提示词中明确指出使用并行.
 - 在写了新函数或优化了函数后,请在回答中直接告知我新函数或优化函数的名字是什么,以及给出一个最简单的调用示例.
-
-## Bash命令
-- 使用bash命令时，都在结尾加上 2>&1，用来查看运行结果
-- 上传git时,将所有更改都上传
-- 写git commit message时,要详细列出更新的版本号和内容信息
-- 不要主动上传git,除非我在prompt中明确要求上传git
-
-## 数据可视化
-- 使用Altair或Plotly进行数据可视化，避免使用Matplotlib
-
-## 代码说明和示例
-- 不要创建markdown文件来做代码说明，而是直接在对话中说明即可
+- 写git commit 时,版本号与 Cargo.toml中的保持一致
