@@ -545,7 +545,8 @@ def query_backup_fast(
 
 def query_backup_single_column(
     backup_file: str,
-    column_index: int
+    column_index: int,
+    use_single_thread: bool = False
 ) -> dict:
     """🎯 读取备份文件中的指定列
     

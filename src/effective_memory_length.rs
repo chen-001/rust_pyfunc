@@ -390,48 +390,6 @@ pub fn rolling_information_gain(
     Ok(PyArray1::from_vec(py, result).into())
 }
 
-/// 计算单个窗口的信息增益 - 辅助函数
-///
-/// # 返回
-/// * (eml, 基准熵, 信息增益数组)
-fn compute_eml_with_gains(window: &[u8], max_lag: usize, threshold_ratio: f64) -> (f64, f64, Vec<f64>) {
-    if window.is_empty() {
-        return (0.0, 0.0, vec![0.0; max_lag]);
-    }
-
-    // 步骤1: 计算基准熵
-    let base_entropy = compute_entropy(window);
-
-    // 步骤2: 计算每个lag的信息增益
-    let mut max_gain = 0.0f64;
-    let mut gains = vec![0.0f64; max_lag];
-
-    for lag in 1..=max_lag.min(32) {
-        let conditional_entropy = compute_conditional_entropy_fast(window, lag);
-        let gain = base_entropy - conditional_entropy;
-        gains[lag - 1] = gain;
-        if gain > max_gain {
-            max_gain = gain;
-        }
-    }
-
-    // 步骤3: 找到EML
-    if max_gain <= 0.0 {
-        return (max_lag as f64, base_entropy, gains);
-    }
-
-    let threshold = max_gain * threshold_ratio;
-    let mut eml = max_lag as f64;
-
-    for lag in 1..=max_lag.min(32) {
-        if gains[lag - 1] >= threshold {
-            eml = lag as f64;
-            break;
-        }
-    }
-
-    (eml, base_entropy, gains)
-}
 
 // ============================================================
 // 优化版本：批量计算所有lag的条件熵

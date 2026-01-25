@@ -410,14 +410,23 @@ pub fn query_backup_fast(
 /// 参数:
 /// - backup_file: 备份文件路径
 /// - column_index: 要读取的因子列索引（0表示第一列因子值）
+/// - use_single_thread: 是否使用单线程读取
 ///
 /// 返回:
 /// 包含三个numpy数组的字典: {"date": 日期数组, "code": 代码数组, "factor": 指定列的因子值数组}
 #[pyfunction]
-#[pyo3(signature = (backup_file, column_index))]
-pub fn query_backup_single_column(backup_file: String, column_index: usize) -> PyResult<PyObject> {
-    // 优先使用超高速版本
-    read_backup_results_single_column_ultra_fast_v2(&backup_file, column_index)
+#[pyo3(signature = (backup_file, column_index, use_single_thread=false))]
+pub fn query_backup_single_column(
+    backup_file: String,
+    column_index: usize,
+    use_single_thread: bool,
+) -> PyResult<PyObject> {
+    if use_single_thread {
+        read_backup_results_single_column_ultra_fast_v2_single_thread(&backup_file, column_index)
+    } else {
+        // 优先使用超高速版本
+        read_backup_results_single_column_ultra_fast_v2(&backup_file, column_index)
+    }
 }
 
 /// 查询备份文件中的指定列，支持过滤
@@ -2222,6 +2231,140 @@ pub fn read_backup_results_factor_only_ultra_fast(
 
     // 创建numpy数组
     Python::with_gil(|py| Ok(PyArray1::from_vec(py, factors).into_py(py)))
+}
+
+/// 超高速查询备份文件中的指定列（单线程版本v2）
+/// 直接字节偏移读取，避免完整记录解析
+pub fn read_backup_results_single_column_ultra_fast_v2_single_thread(
+    file_path: &str,
+    column_index: usize,
+) -> PyResult<PyObject> {
+    if !Path::new(file_path).exists() {
+        return Err(PyErr::new::<pyo3::exceptions::PyFileNotFoundError, _>(
+            "备份文件不存在",
+        ));
+    }
+
+    let file = File::open(file_path).map_err(|e| {
+        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("无法打开备份文件: {}", e))
+    })?;
+
+    let file_len = file
+        .metadata()
+        .map_err(|e| {
+            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("无法获取文件元数据: {}", e))
+        })?
+        .len() as usize;
+
+    if file_len < HEADER_SIZE {
+        return read_backup_results_single_column(&file_path, column_index);
+    }
+
+    let mmap = unsafe {
+        Mmap::map(&file).map_err(|e| {
+            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("无法映射文件到内存: {}", e))
+        })?
+    };
+
+    let header = unsafe { &*(mmap.as_ptr() as *const FileHeader) };
+
+    if &header.magic != b"RPBACKUP" {
+        return read_backup_results_single_column(&file_path, column_index);
+    }
+
+    let record_count = header.record_count as usize;
+    if record_count == 0 {
+        return Python::with_gil(|py| {
+            let numpy = py.import("numpy")?;
+            let dict = pyo3::types::PyDict::new(py);
+            dict.set_item("date", numpy.call_method1("array", (Vec::<i64>::new(),))?)?;
+            dict.set_item(
+                "code",
+                numpy.call_method1("array", (Vec::<String>::new(),))?,
+            )?;
+            dict.set_item("factor", numpy.call_method1("array", (Vec::<f64>::new(),))?)?;
+            Ok(dict.into())
+        });
+    }
+
+    let record_size = header.record_size as usize;
+    let factor_count = header.factor_count as usize;
+
+    if column_index >= factor_count {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "列索引 {} 超出范围，因子列数为 {}",
+            column_index, factor_count
+        )));
+    }
+
+    let calculated_record_size = calculate_record_size(factor_count);
+    if record_size != calculated_record_size {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "记录大小不匹配: 文件头显示 {}, 计算得到 {}. 文件可能损坏.",
+            record_size, calculated_record_size
+        )));
+    }
+
+    let expected_size = HEADER_SIZE + record_count * record_size;
+    if file_len < expected_size {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "备份文件似乎被截断了",
+        ));
+    }
+
+    let date_offset = 0;
+    let code_len_offset = 8 + 8 + 8 + 4;
+    let code_bytes_offset = code_len_offset + 4;
+    let factor_base_offset = 8 + 8 + 8 + 4 + 4 + 32;
+    let factor_offset = factor_base_offset + column_index * 8;
+
+    let records_start = HEADER_SIZE;
+
+    let mut dates = Vec::with_capacity(record_count);
+    let mut codes = Vec::with_capacity(record_count);
+    let mut factors = Vec::with_capacity(record_count);
+
+    for i in 0..record_count {
+        let record_offset = records_start + i * record_size;
+
+        let date = unsafe {
+            let date_ptr = mmap.as_ptr().add(record_offset + date_offset) as *const i64;
+            *date_ptr
+        };
+
+        let code_len = unsafe {
+            let code_len_ptr = mmap.as_ptr().add(record_offset + code_len_offset) as *const u32;
+            std::cmp::min(*code_len_ptr as usize, 32)
+        };
+
+        let code = unsafe {
+            let code_bytes_ptr = mmap.as_ptr().add(record_offset + code_bytes_offset);
+            let code_slice = std::slice::from_raw_parts(code_bytes_ptr, code_len);
+            String::from_utf8_lossy(code_slice).into_owned()
+        };
+
+        let factor = unsafe {
+            let factor_ptr = mmap.as_ptr().add(record_offset + factor_offset) as *const f64;
+            *factor_ptr
+        };
+
+        dates.push(date);
+        codes.push(code);
+        factors.push(factor);
+    }
+
+    drop(mmap);
+
+    Python::with_gil(|py| {
+        let numpy = py.import("numpy")?;
+        let dict = pyo3::types::PyDict::new(py);
+
+        dict.set_item("date", numpy.call_method1("array", (dates,))?)?;
+        dict.set_item("code", numpy.call_method1("array", (codes,))?)?;
+        dict.set_item("factor", numpy.call_method1("array", (factors,))?)?;
+
+        Ok(dict.into())
+    })
 }
 
 /// 超高速查询备份文件中的指定列（完整版本v2）
