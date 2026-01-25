@@ -76,7 +76,6 @@ struct ALAEvent {
     level: usize,         // 0-9 对应 1-10档
     is_bid: bool,         // true=买单, false=卖单
     price: f64,           // 大单价格
-    initial_volume: f64,  // 初始挂单量
     peak_volume: f64,     // 峰值挂单量
 }
 
@@ -345,7 +344,6 @@ fn detect_ala_events(
                             level,
                             is_bid: true,
                             price: event_price[0][level],
-                            initial_volume: event_initial_vol[0][level],
                             peak_volume: event_peak_vol[0][level],
                         });
                         in_event[0][level] = false;
@@ -396,7 +394,6 @@ fn detect_ala_events(
                             level,
                             is_bid: false,
                             price: event_price[1][level],
-                            initial_volume: event_initial_vol[1][level],
                             peak_volume: event_peak_vol[1][level],
                         });
                         in_event[1][level] = false;
@@ -418,7 +415,6 @@ fn detect_ala_events(
                 level,
                 is_bid: true,
                 price: event_price[0][level],
-                initial_volume: event_initial_vol[0][level],
                 peak_volume: event_peak_vol[0][level],
             });
         }
@@ -431,7 +427,6 @@ fn detect_ala_events(
                 level,
                 is_bid: false,
                 price: event_price[1][level],
-                initial_volume: event_initial_vol[1][level],
                 peak_volume: event_peak_vol[1][level],
             });
         }
@@ -554,7 +549,6 @@ fn detect_labeled_ala_events(
                                         level,
                                         is_bid: true,
                                         price: event_price[0][level],
-                                        initial_volume: event_initial_vol[0][level],
                                         peak_volume: event_peak_vol[0][level],
                                     },
                                     detection_mode_idx: dm_idx,
@@ -598,7 +592,6 @@ fn detect_labeled_ala_events(
                                         level,
                                         is_bid: false,
                                         price: event_price[1][level],
-                                        initial_volume: event_initial_vol[1][level],
                                         peak_volume: event_peak_vol[1][level],
                                     },
                                     detection_mode_idx: dm_idx,
@@ -624,7 +617,6 @@ fn detect_labeled_ala_events(
                             level,
                             is_bid: true,
                             price: event_price[0][level],
-                            initial_volume: event_initial_vol[0][level],
                             peak_volume: event_peak_vol[0][level],
                         },
                         detection_mode_idx: dm_idx,
@@ -641,7 +633,6 @@ fn detect_labeled_ala_events(
                             level,
                             is_bid: false,
                             price: event_price[1][level],
-                            initial_volume: event_initial_vol[1][level],
                             peak_volume: event_peak_vol[1][level],
                         },
                         detection_mode_idx: dm_idx,
