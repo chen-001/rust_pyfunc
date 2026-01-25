@@ -33,14 +33,15 @@
             <div><p>查询备份文件中的指定列</p>
 <p>参数:
 - backup_file: 备份文件路径
-- column_index: 要读取的因子列索引（0表示第一列因子值）</p>
+- column_index: 要读取的因子列索引（0表示第一列因子值）
+- use_single_thread: 是否使用单线程读取</p>
 <p>返回:
 包含三个numpy数组的字典: {"date": 日期数组, "code": 代码数组, "factor": 指定列的因子值数组}</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>query_backup_single_column(backup_file, column_index) -> None</code>
+            <code>query_backup_single_column(backup_file, column_index, use_single_thread) -> None</code>
         </div>
         
         <div class="function-parameters">
