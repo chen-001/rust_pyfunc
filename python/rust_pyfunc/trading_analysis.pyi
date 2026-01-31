@@ -183,6 +183,26 @@ def analyze_retreat_advance(
         - 过程期间的价格种类数
     """
 
+def reconstruct_limit_order_lifecycle(
+    ticks_array: NDArray[np.float64],
+    snaps_array: NDArray[np.float64],
+) -> NDArray[np.float64]:
+    """基于逐笔成交与盘口快照重建限价单生命周期特征。
+
+    参数说明：
+    ----------
+    ticks_array : numpy.ndarray
+        逐笔成交二维数组，列为exchtime, price, volume, turnover, flag, ask_order, bid_order
+    snaps_array : numpy.ndarray
+        盘口快照二维数组，列为exchtime + bid_prc1-10 + bid_vol1-10 + ask_prc1-10 + ask_vol1-10
+
+    返回值：
+    -------
+    numpy.ndarray
+        特征二维数组，每行对应一个(快照, 档位, 买卖方向)
+    """
+
+
 def fit_hawkes_process(
     event_times: NDArray[np.float64],
     event_volumes: NDArray[np.float64],

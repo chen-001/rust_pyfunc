@@ -33,6 +33,7 @@ pub mod trade_peak_analysis;
 pub mod trade_records_ultra_sorted;
 pub mod tree;
 pub mod vector_similarity;
+pub mod limit_order_lifecycle;
 pub mod vector_similarity_optimized;
 
 pub mod factor_neutralization_io_optimized;
@@ -460,6 +461,10 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?);
     let _ = m.add_function(wrap_pyfunction!(
         long_order_analysis::analyze_long_orders_python,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        limit_order_lifecycle::reconstruct_limit_order_lifecycle,
         m
     )?);
     let _ = m.add_function(wrap_pyfunction!(
