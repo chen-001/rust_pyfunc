@@ -223,3 +223,9 @@ perf.data*
 # Tests directory (development testing files - not part of the library)
 tests/
 
+vtcode.toml
+.vtcode/README.md
+.vtcode/tool-policy.json
+.vtcode/mcp/tools/INDEX.md
+.vtcode/skills/INDEX.md
+.vtcode/terminals/INDEX.md
