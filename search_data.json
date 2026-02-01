@@ -962,6 +962,11 @@
     "params": []
   },
   {
+    "name": "reconstruct_limit_order_lifecycle_v2",
+    "description": "<p>限价单生命周期重建 v2</p>\n<p>功能：通过匹配高频逐笔成交数据与盘口快照数据，使用订单ID作为追踪器，\n重建限价单生命周期指标</p>\n<p>输入：\n- ticks_array: 逐笔成交数据 (N_ticks x 7)\n  - 列0: exchtime (时间戳)\n  - 列1: price (成交价格)\n  - 列2: volume (成交量)\n  - 列3: turnover (成交金额)\n  - 列4: flag (交易标志: 66=主买, 83=主卖, 32=撤单)\n  - 列5: ask_order (卖单订单ID)\n  - 列6: bid_order (买单订单ID)</p>\n<ul>\n<li>snaps_array: 盘口快照数据 (N_snaps x 41+)</li>\n<li>列0: exchtime (时间戳)</li>\n<li>列1-10: bid_prc1-10 (买价1-10档)</li>\n<li>列11-20: bid_vol1-10 (买量1-10档)</li>\n<li>列21-30: ask_prc1-10 (卖价1-10档)</li>\n<li>列31-40: ask_vol1-10 (卖量1-10档)</li>\n</ul>\n<p>输出：\n- features_array: 特征数组 (N_snaps * 20 x 15)\n  - 每行代表一个(快照, 档位, 方向)组合\n  - 列0: timestamp (时间戳)\n  - 列1: side_flag (0=Bid, 1=Ask)\n  - 列2: level_index (1-10档)\n  - 列3: vol_sum (成交量总和)\n  - 列4: vol_mean (成交量均值)\n  - 列5: vol_std (成交量标准差)\n  - 列6: vol_skew (成交量偏度)\n  - 列7: vol_autocorr (成交量滞后1阶自相关)\n  - 列8: vol_trend (成交量趋势相关性)\n  - 列9: id_count (匹配订单数)\n  - 列10: id_span (订单ID跨度)\n  - 列11: id_mean_diff (订单ID差值均值)\n  - 列12: id_std_diff (订单ID差值标准差)\n  - 列13: id_skew_diff (订单ID差值偏度)\n  - 列14: id_trend (订单ID趋势相关性)</p>",
+    "params": []
+  },
+  {
     "name": "rolling_correlation_mean",
     "description": "<p>滚动窗口计算相关性矩阵均值</p>\n<p>对于输入数据的每一行，计算其过去window_size行的相关性矩阵，\n然后计算该相关性矩阵中所有值的均值。</p>",
     "params": [
