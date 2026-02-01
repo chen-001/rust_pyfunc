@@ -116,6 +116,7 @@ __all__ = [
     "analyze_hawkes_indicators",
     "compute_allo_microstructure_features",
     "reconstruct_limit_order_lifecycle",
+    "reconstruct_limit_order_lifecycle_v2",
     # 统计分析函数
     "calculate_base_entropy",
     "calculate_shannon_entropy_change",

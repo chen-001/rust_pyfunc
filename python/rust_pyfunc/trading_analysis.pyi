@@ -203,6 +203,115 @@ def reconstruct_limit_order_lifecycle(
     """
 
 
+def reconstruct_limit_order_lifecycle_v2(
+    ticks_array: NDArray[np.float64],
+    snaps_array: NDArray[np.float64],
+) -> NDArray[np.float64]:
+    """基于逐笔成交与盘口快照重建限价单生命周期特征 (v2版本)。
+
+    功能：通过匹配高频逐笔成交数据与盘口快照数据，使用订单ID作为追踪器，
+    重建限价单生命周期指标。
+
+    计算过程：
+    ----------
+    对于每个快照时刻 S_t 和每个档位 L (1-10档) 的买卖双侧：
+
+    Phase A: 锚定 (Anchoring)
+        - 在逐笔成交流中定位 S_t 的时间戳位置
+        - 计算截至 S_t.exchtime 观察到的最大订单ID：
+          MAX_BID_ID_t = 最大 bid_order ≤ S_t.exchtime
+          MAX_ASK_ID_t = 最大 ask_order ≤ S_t.exchtime
+        - 确定目标价格：
+          Bid侧: P_target = BidPrc_L, ID_limit = MAX_BID_ID_t
+          Ask侧: P_target = AskPrc_L, ID_limit = MAX_ASK_ID_t
+
+    Phase B: 窗口扫描 (Window Scanning)
+        - 从 S_t.exchtime 开始向前遍历逐笔成交数据
+        - 直到触发终止条件（档位被突破）：
+          Bid侧: 出现 tick.price < P_target（价格跌破目标档位）
+          Ask侧: 出现 tick.price > P_target（价格涨破目标档位）
+
+    Phase C: 交易匹配 (Trade Matching)
+        在扫描窗口内，收集同时满足以下条件的逐笔成交：
+        1. 价格匹配: tick.price == P_target
+        2. 方向匹配:
+           Bid侧: tick.flag == 83 (主动卖单击中被动买单)
+           Ask侧: tick.flag == 66 (主动买单击中被动卖单)
+        3. ID验证:
+           Bid侧: tick.bid_order ≤ ID_limit (确认为快照前已存在的挂单)
+           Ask侧: tick.ask_order ≤ ID_limit
+
+    Phase D: 特征工程 (Feature Engineering)
+        对收集到的匹配交易计算统计特征：
+
+        Group 1 - 成交量统计 (恢复的流动性):
+        - vol_sum: 成交量总和
+        - vol_mean: 成交量均值
+        - vol_std: 成交量标准差
+        - vol_skew: 成交量偏度
+        - vol_autocorr: 成交量滞后1阶自相关
+        - vol_trend: 成交量与序列[1,2,...,N]的趋势相关性
+
+        Group 2 - 订单ID统计 ("地质"年龄):
+        - 预处理: ΔID = ID_limit - tick.passive_ID
+        - id_count: 匹配交易数量
+        - id_span: max(ΔID) - min(ΔID)
+        - id_mean_diff: ΔID的均值
+        - id_std_diff: ΔID的标准差
+        - id_skew_diff: ΔID的偏度
+        - id_trend: 绝对订单ID与交易序列索引的趋势相关性
+          (正值=先吃老订单，负值=先吃新订单)
+
+    参数说明：
+    ----------
+    ticks_array : numpy.ndarray
+        逐笔成交二维数组 (N_ticks x 7)，列：
+        - 0: exchtime (时间戳)
+        - 1: price (成交价格)
+        - 2: volume (成交量)
+        - 3: turnover (成交金额)
+        - 4: flag (交易标志: 66=主买, 83=主卖, 32=撤单)
+        - 5: ask_order (卖单订单ID)
+        - 6: bid_order (买单订单ID)
+
+    snaps_array : numpy.ndarray
+        盘口快照二维数组 (N_snaps x 41+)，列：
+        - 0: exchtime (时间戳)
+        - 1-10: bid_prc1-10 (买价1-10档)
+        - 11-20: bid_vol1-10 (买量1-10档)
+        - 21-30: ask_prc1-10 (卖价1-10档)
+        - 31-40: ask_vol1-10 (卖量1-10档)
+
+    返回值：
+    -------
+    numpy.ndarray
+        特征二维数组 (N_snaps * 20 x 15)，每行对应一个(快照, 档位, 买卖方向)
+
+        列索引 | 列名           | 说明
+        ------|---------------|-------------------------------------------
+        0     | timestamp     | 快照时间戳
+        1     | side_flag     | 买卖方向 (0=Bid, 1=Ask)
+        2     | level_index   | 档位 (1-10)
+        3     | vol_sum       | 成交量总和
+        4     | vol_mean      | 成交量均值
+        5     | vol_std       | 成交量标准差
+        6     | vol_skew      | 成交量偏度
+        7     | vol_autocorr  | 成交量滞后1阶自相关
+        8     | vol_trend     | 成交量趋势相关性
+        9     | id_count      | 匹配订单数量
+        10    | id_span       | 订单ID跨度
+        11    | id_mean_diff  | 订单ID差值均值 (ID_limit - ID)
+        12    | id_std_diff   | 订单ID差值标准差
+        13    | id_skew_diff  | 订单ID差值偏度
+        14    | id_trend      | 订单ID趋势相关性 (绝对ID vs 序列索引)
+
+    注意：
+    -----
+    - 当某个档位没有匹配到交易时，vol_sum=0, id_count=0，其余统计量为NaN
+    - 近档位(1-3档)通常有较高的匹配率，远档位(8-10档)匹配率较低
+    """
+
+
 def fit_hawkes_process(
     event_times: NDArray[np.float64],
     event_volumes: NDArray[np.float64],
