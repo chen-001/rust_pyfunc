@@ -180,6 +180,11 @@
     "params": []
   },
   {
+    "name": "calculate_microstructure_pattern_features_v2",
+    "description": "<p>主函数：计算微观结构模式差异特征序列 V2</p>",
+    "params": []
+  },
+  {
     "name": "calculate_order_time_gap_and_price_percentile_ultra_sorted",
     "description": "<p>无文档</p>",
     "params": []
