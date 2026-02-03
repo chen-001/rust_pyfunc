@@ -92,6 +92,13 @@ pub fn lz_complexity(
         return Ok(0.0);
     }
 
+    // 如果使用了分位数离散化，检查唯一符号数量是否足够
+    // 分位数列表长度为 m 时，期望至少有 m+1 个类别
+    let min_required_categories = quantiles.as_ref().map(|q| q.len() as f64 + 1.0).unwrap_or(2.0);
+    if k_eff < min_required_categories {
+        return Ok(f64::NAN);
+    }
+
     // 归一化公式: c * log_base(n) / n，其中log_base(n) = ln(n) / ln(base)
     let log_n_base_k = (n as f64).ln() / k_eff.ln();
     Ok(complexity as f64 * log_n_base_k / n as f64)
@@ -105,7 +112,13 @@ fn discretize_sequence(seq: &ndarray::ArrayView1<f64>, quantiles: &[f64]) -> PyR
     let mut values: Vec<f64> = seq.iter().cloned().collect();
 
     // 使用更快的排序算法
-    values.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
+    // 处理 NaN 值：将 NaN 排在最后，避免 partial_cmp 返回 None 导致 panic
+    values.sort_unstable_by(|a, b| match (a.is_nan(), b.is_nan()) {
+        (true, true) => std::cmp::Ordering::Equal,
+        (true, false) => std::cmp::Ordering::Greater,
+        (false, true) => std::cmp::Ordering::Less,
+        (false, false) => a.partial_cmp(b).unwrap(),
+    });
 
     // 计算分位数阈值
     let mut thresholds = Vec::with_capacity(quantiles.len());
