@@ -60,6 +60,8 @@ pub mod price_breakthrough_stats;
 pub mod series_rank;
 pub mod skewness;
 pub mod allo_microstructure;
+pub mod microstructure_pattern_features;
+pub mod microstructure_pattern_features_optimized;
 
 /// Formats the sum of two numbers as string.
 #[pyfunction]
@@ -567,6 +569,16 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
 
     let _ = m.add_function(wrap_pyfunction!(
         allo_microstructure::compute_allo_microstructure_features_tris_expanded,
+        m
+    )?)?;
+
+    let _ = m.add_function(wrap_pyfunction!(
+        microstructure_pattern_features::calculate_microstructure_pattern_features,
+        m
+    )?)?;
+
+    let _ = m.add_function(wrap_pyfunction!(
+        microstructure_pattern_features_optimized::calculate_microstructure_pattern_features_optimized,
         m
     )?)?;
 
