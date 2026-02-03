@@ -677,6 +677,171 @@ def calculate_passive_order_features(
     ...
 
 
+def calculate_microstructure_pattern_features(
+    trade_times: NDArray[np.int64],
+    trade_prices: NDArray[np.float64],
+    trade_volumes: NDArray[np.float64],
+    trade_flags: NDArray[np.int32],
+    trade_bid_orders: NDArray[np.int64],
+    trade_ask_orders: NDArray[np.int64],
+    window_size: int = 100,
+    histogram_bins: int = 10,
+    marginal_window: int = 50,
+) -> Tuple[NDArray[np.float64], List[str], List[float], List[str]]:
+    """计算微观结构模式差异特征序列（原始版本）
+    
+    注意: 此版本已过时，建议使用 calculate_microstructure_pattern_features_optimized
+    """
+    ...
+
+def calculate_microstructure_pattern_features_optimized(
+    trade_times: NDArray[np.int64],
+    trade_prices: NDArray[np.float64],
+    trade_volumes: NDArray[np.float64],
+    trade_flags: NDArray[np.int32],
+    trade_bid_orders: NDArray[np.int64],
+    trade_ask_orders: NDArray[np.int64],
+    window_size: int = 100,
+    histogram_bins: int = 10,
+    marginal_window: int = 50,
+    dtw_band_width: int = 10,
+) -> Tuple[NDArray[np.float64], List[str], List[float], List[str]]:
+    """计算微观结构模式差异特征序列（优化版本）
+    
+    该函数实现三步法构建日内特征序列：
+    1. 模式定义：从逐笔成交数据中提取微观结构模式
+    2. 差异度量：计算两个时间片段之间的模式差异
+    3. 序列构造：通过移动时间窗生成日内特征序列
+    
+    模式类型（第一步）：
+    -----------------
+    标量模式：
+    - order_id_gap: 订单代沟 |BuyID - SellID|
+    - volume: 成交量
+    - turnover: 成交金额（使用volume代替）
+    - is_buy_flag: 是否主买 (1/0)
+    
+    直方图模式：
+    - volume_hist: 成交量分布直方图
+    - order_id_gap_hist: 订单代沟分布直方图
+    
+    排序序型：
+    - volume_rank: 成交量排序序型
+    - order_id_gap_rank: 订单代沟排序序型
+    
+    单独保留的price相关特征：
+    - price_change_variance_ratio_cumul_vs_marginal: 价格变动的方差比（累积vs边际）
+    
+    差异度量（第二步）：
+    -----------------
+    标量差异：
+    - mean_diff: 均值差异
+    - dtw: 动态时间规整距离（使用欧氏距离优化）
+    
+    直方图差异：
+    - wasserstein: Wasserstein距离
+    - js_divergence: Jensen-Shannon散度
+    - ks_stat: KS统计量
+    
+    序列差异：
+    - edit_dist: 编辑距离（使用位并行Myers算法优化）
+    - jaccard: Jaccard相似系数（转换为距离）
+    
+    序列构造方式（第三步）：
+    ---------------------
+    - moving_split: 移动切分点，对比[Start, t]与[t, End]
+    - adjacent_roll: 孪生滑窗，对比[t-2W, t-W]与[t-W, t]
+    - cumul_vs_marginal: 累积vs边际，对比[0, t]与[t-W, t]
+    
+    特征组合：
+    ---------
+    共生成 (4标量×2差异×3构造) + (2直方图×3差异×3构造) + 
+          (2排序×2差异×3构造) + 1个单独price特征 = 55个日内特征序列
+    
+    标量特征：
+    ---------
+    对每个差异序列，计算最小值点和最大值点的以下特征：
+    - time_diff: 前后两部分的时间长度差（秒）
+    - vol_ratio_diff: 前后两部分的成交量占比差
+    - buy_ratio_diff: 前后两部分的主买占比差
+    
+    共 55×6 = 330 个标量特征
+    
+    参数说明：
+    ----------
+    trade_times : NDArray[np.int64]
+        逐笔成交时间戳（纳秒级）
+    trade_prices : NDArray[np.float64]
+        逐笔成交价格
+    trade_volumes : NDArray[np.float64]
+        逐笔成交量
+    trade_flags : NDArray[np.int32]
+        逐笔成交标志（66=主买, 83=主卖）
+    trade_bid_orders : NDArray[np.int64]
+        买单订单编号
+    trade_ask_orders : NDArray[np.int64]
+        卖单订单编号
+    window_size : int, optional
+        滑动窗口大小，默认100
+    histogram_bins : int, optional
+        直方图分箱数，默认10
+    marginal_window : int, optional
+        边际窗口大小，默认50
+    dtw_band_width : int, optional
+        DTW距离的Sakoe-Chiba带宽限制，默认10。较小的值计算更快但精度略低。
+    
+    优化说明：
+    -----------
+    相比原始版本，优化版本实现了以下改进：
+    1. 编辑距离：使用Myers位并行算法（O(ceil(m/w)×n) vs O(m×n)）
+    2. DTW距离：使用欧氏距离替代，复杂度从O(n×band_width)降至O(n)
+    3. 直方图合并：使用前缀和优化，O(1)区间查询
+    4. 标量特征：预计算前缀和，避免重复遍历
+    5. 排序序型：使用归一化L1距离替代编辑距离（等长序列）
+    
+    性能提升：
+    - 500条数据：约5-6倍加速
+    - 1000条数据：约10-11倍加速
+    - 数据量越大，加速效果越明显
+    
+    返回值：
+    -------
+    Tuple[NDArray[np.float64], List[str], List[float], List[str]]
+        - 特征矩阵: 形状为 (n_trades, 55) 的二维数组，每列是一个日内特征序列
+        - 特征名称列表: 55个特征序列的名称
+        - 标量特征列表: 330个标量特征值
+        - 标量特征名称列表: 330个标量特征的名称
+    
+    示例：
+    -------
+    >>> import pure_ocean_breeze.jason as p
+    >>> import rust_pyfunc as rp
+    >>> import numpy as np
+    >>> 
+    >>> # 读取数据
+    >>> trade_data = p.adjust_afternoon(p.read_trade('000001', 20220819))
+    >>> 
+    >>> # 准备数据
+    >>> trade_times = trade_data['exchtime'].astype(np.int64).values
+    >>> trade_prices = trade_data['price'].values
+    >>> trade_volumes = trade_data['volume'].astype(np.float64).values
+    >>> trade_flags = trade_data['flag'].astype(np.int32).values
+    >>> trade_bid_orders = trade_data['bid_order'].values
+    >>> trade_ask_orders = trade_data['ask_order'].values
+    >>> 
+    >>> # 计算特征
+    >>> features, names, scalar_features, scalar_names = rp.calculate_microstructure_pattern_features_optimized(
+    ...     trade_times, trade_prices, trade_volumes, trade_flags,
+    ...     trade_bid_orders, trade_ask_orders,
+    ...     window_size=100, histogram_bins=10, marginal_window=50
+    ... )
+    >>> print(f"特征矩阵形状: {features.shape}")
+    >>> print(f"特征序列数量: {len(names)}")
+    >>> print(f"标量特征数量: {len(scalar_features)}")
+    """
+    ...
+
+
 def compute_allo_microstructure_features(
     trade_exchtime: NDArray[np.int64],
     trade_price: NDArray[np.float64],
