@@ -2,6 +2,7 @@
 use pyo3::prelude::*;
 
 pub mod backup_reader;
+pub mod backup_column_cache;
 pub mod column_correlation;
 pub mod difference_matrix;
 pub mod entropy_analysis;
@@ -63,6 +64,8 @@ pub mod allo_microstructure;
 pub mod microstructure_pattern_features;
 pub mod microstructure_pattern_features_optimized;
 pub mod microstructure_pattern_features_v2;
+pub mod agent_trading_features;
+pub mod agent_simulator;
 
 /// Formats the sum of two numbers as string.
 #[pyfunction]
@@ -206,6 +209,26 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?);
     let _ = m.add_function(wrap_pyfunction!(
         backup_reader::query_backup_factor_only_ultra_fast,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        backup_column_cache::build_backup_column_block_cache_single_thread,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        backup_column_cache::query_backup_single_column_compact_cached,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        backup_column_cache::query_backup_single_column_compact_cached_from_cache_dir,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        backup_column_cache::query_backup_codebook_cached,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        backup_column_cache::query_backup_codebook_cached_from_cache_dir,
         m
     )?);
     let _ = m.add_function(wrap_pyfunction!(
@@ -587,6 +610,12 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         microstructure_pattern_features_v2::calculate_microstructure_pattern_features_v2,
         m
     )?)?;
+
+    // Agent交易特征计算模块
+    agent_trading_features::py_bindings::register_functions(m)?;
+
+    // Agent交易模拟器模块
+    agent_simulator::py_bindings::register_functions(m)?;
 
     Ok(())
 }

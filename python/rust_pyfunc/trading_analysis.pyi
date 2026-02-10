@@ -1028,3 +1028,109 @@ def compute_allo_microstructure_features(
     >>> print(f"特征数: {features.shape[1]}")
     """
     ...
+"""交易分析函数类型声明"""
+
+from typing import List, Optional, Tuple
+import numpy as np
+from numpy.typing import NDArray
+
+def compute_agent_trading_features(
+    market_timestamps: NDArray[np.int64],
+    market_prices: NDArray[np.float64],
+    market_volumes: NDArray[np.float64],
+    market_turnovers: NDArray[np.float64],
+    market_flags: NDArray[np.int32],
+    bid_order_ids: NDArray[np.int64],
+    ask_order_ids: NDArray[np.int64],
+    agent_market_indices: NDArray[np.uint64],
+    agent_directions: NDArray[np.int32],
+    agent_volumes: NDArray[np.float64],
+    window_ms: int = 10000,
+    grid_ms: int = 1000,
+) -> Tuple[
+    NDArray[np.float64], List[str],
+    NDArray[np.float64], List[str],
+    NDArray[np.float64], List[str]
+]:
+    """计算单Agent特征，返回事件级/时间栅格/参数轴三组结果。
+
+    返回顺序：
+    1) event_features, event_feature_names
+    2) time_grid_features, time_grid_feature_names
+    3) param_axis_features, param_axis_feature_names（单Agent版本为空矩阵）
+    """
+    ...
+
+def compute_agent_trading_features_multi(
+    market_timestamps: NDArray[np.int64],
+    market_prices: NDArray[np.float64],
+    market_volumes: NDArray[np.float64],
+    market_turnovers: NDArray[np.float64],
+    market_flags: NDArray[np.int32],
+    bid_order_ids: NDArray[np.int64],
+    ask_order_ids: NDArray[np.int64],
+    all_agent_market_indices: List[NDArray[np.uint64]],
+    all_agent_directions: List[NDArray[np.int32]],
+    all_agent_volumes: List[NDArray[np.float64]],
+    target_agent_idx: int,
+    window_ms: int = 10000,
+    grid_ms: int = 1000,
+    param_window_ms: int = 2000,
+    all_agent_params: Optional[List[float]] = None,
+) -> Tuple[
+    NDArray[np.float64], List[str],
+    NDArray[np.float64], List[str],
+    NDArray[np.float64], List[str]
+]:
+    """计算多Agent特征，返回事件级/时间栅格/参数轴三组结果。"""
+    ...
+
+def get_agent_feature_names() -> List[str]:
+    """获取事件级特征列名（Base + 快速扩展）。"""
+    ...
+
+def get_agent_time_grid_feature_names() -> List[str]:
+    """获取时间栅格特征列名。"""
+    ...
+
+def get_agent_param_axis_feature_names() -> List[str]:
+    """获取参数轴特征列名。"""
+    ...
+
+def find_follow_volume_sum_same_price(
+    times: NDArray[np.float64],
+    prices: NDArray[np.float64],
+    volumes: NDArray[np.float64],
+    time_window: float = 0.1,
+    check_price: bool = True,
+    filter_ratio: float = 0.0,
+    timeout_seconds: Optional[float] = None,
+) -> NDArray[np.float64]:
+    """计算每一行在其后time_window秒内具有相同volume（及可选相同price）的行的volume总和。
+
+    参数说明：
+    ----------
+    times : numpy.ndarray
+        时间戳数组（单位：秒）
+    prices : numpy.ndarray
+        价格数组
+    volumes : numpy.ndarray
+        成交量数组
+    time_window : float, optional
+        时间窗口大小（单位：秒），默认为0.1
+    check_price : bool, optional
+        是否检查价格是否相同，默认为True。设为False时只检查volume是否相同。
+    filter_ratio : float, optional, default=0.0
+        要过滤的volume数值比例，默认为0（不过滤）。如果大于0，则过滤出现频率最高的前 filter_ratio 比例的volume种类，对应的行会被设为NaN。
+    timeout_seconds : float, optional, default=None
+        计算超时时间（秒）。如果计算时间超过该值，函数将返回全NaN的数组。默认为None，表示不设置超时限制。
+
+    返回值：
+    -------
+    numpy.ndarray
+        每一行在其后time_window秒内（包括当前行）具有相同条件的行的volume总和。
+        如果filter_ratio>0，则出现频率最高的前filter_ratio比例的volume值对应的行会被设为NaN。
+    """
+    ...
+
+[... 保留原有的函数声明 ...]

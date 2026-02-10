@@ -8,6 +8,7 @@ use std::collections::HashSet;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
+use std::ptr;
 use std::sync::Arc;
 
 // 从 parallel_computing.rs 迁移的数据结构定义
@@ -2266,6 +2267,16 @@ pub fn read_backup_results_single_column_ultra_fast_v2_single_thread(
         })?
     };
 
+    #[cfg(target_family = "unix")]
+    unsafe {
+        // 单线程顺序读取时提示内核扩大预读窗口，降低缺页开销
+        let _ = libc::madvise(
+            mmap.as_ptr() as *mut libc::c_void,
+            file_len,
+            libc::MADV_SEQUENTIAL,
+        );
+    }
+
     let header = unsafe { &*(mmap.as_ptr() as *const FileHeader) };
 
     if &header.magic != b"RPBACKUP" {
@@ -2329,12 +2340,12 @@ pub fn read_backup_results_single_column_ultra_fast_v2_single_thread(
 
         let date = unsafe {
             let date_ptr = mmap.as_ptr().add(record_offset + date_offset) as *const i64;
-            *date_ptr
+            i64::from_le(ptr::read_unaligned(date_ptr))
         };
 
         let code_len = unsafe {
             let code_len_ptr = mmap.as_ptr().add(record_offset + code_len_offset) as *const u32;
-            std::cmp::min(*code_len_ptr as usize, 32)
+            std::cmp::min(u32::from_le(ptr::read_unaligned(code_len_ptr)) as usize, 32)
         };
 
         let code = unsafe {
@@ -2344,8 +2355,8 @@ pub fn read_backup_results_single_column_ultra_fast_v2_single_thread(
         };
 
         let factor = unsafe {
-            let factor_ptr = mmap.as_ptr().add(record_offset + factor_offset) as *const f64;
-            *factor_ptr
+            let factor_bits_ptr = mmap.as_ptr().add(record_offset + factor_offset) as *const u64;
+            f64::from_bits(u64::from_le(ptr::read_unaligned(factor_bits_ptr)))
         };
 
         dates.push(date);
@@ -2359,9 +2370,9 @@ pub fn read_backup_results_single_column_ultra_fast_v2_single_thread(
         let numpy = py.import("numpy")?;
         let dict = pyo3::types::PyDict::new(py);
 
-        dict.set_item("date", numpy.call_method1("array", (dates,))?)?;
+        dict.set_item("date", PyArray1::from_vec(py, dates))?;
         dict.set_item("code", numpy.call_method1("array", (codes,))?)?;
-        dict.set_item("factor", numpy.call_method1("array", (factors,))?)?;
+        dict.set_item("factor", PyArray1::from_vec(py, factors))?;
 
         Ok(dict.into())
     })
