@@ -1,5 +1,5 @@
 """并行计算和备份管理函数类型声明"""
-from typing import List, Callable, Optional
+from typing import List, Callable, Optional, Dict
 import numpy as np
 from numpy.typing import NDArray
 
@@ -624,6 +624,62 @@ def query_backup_single_column(
     - 支持任意大小的备份文件，自动处理格式兼容性
     - 损坏的记录会被跳过，不会导致函数失败
     """
+    ...
+
+def build_backup_column_block_cache_single_thread(
+    backup_file: str,
+    block_cols: int = 32,
+    force_rebuild: bool = False
+) -> dict:
+    """构建单线程列块缓存（v2备份格式）。
+
+    返回字段：
+    - cache_dir: 缓存目录
+    - record_count: 记录数
+    - factor_count: 因子列数
+    - block_cols: 每个块的列数
+    - code_count: code字典大小
+    - rebuilt: 本次是否执行了重建
+    """
+    ...
+
+def query_backup_single_column_compact_cached(
+    backup_file: str,
+    column_index: int,
+    build_if_missing: bool = True
+) -> dict:
+    """从列块缓存读取紧凑单列数据。
+
+    返回字段：
+    - date: NDArray[np.int64]
+    - code_id: NDArray[np.uint32]
+    - factor: NDArray[np.float64]
+    """
+    ...
+
+def query_backup_single_column_compact_cached_from_cache_dir(
+    cache_dir: str,
+    column_index: int
+) -> dict:
+    """直接从缓存目录读取紧凑单列数据（不依赖原始backup文件）。
+
+    返回字段：
+    - date: NDArray[np.int64]
+    - code_id: NDArray[np.uint32]
+    - factor: NDArray[np.float64]
+    """
+    ...
+
+def query_backup_codebook_cached(
+    backup_file: str
+) -> Dict[int, str]:
+    """读取缓存中的codebook映射（code_id -> code字符串）。"""
+    ...
+
+def query_backup_codebook_cached_from_cache_dir(
+    cache_dir: str
+) -> Dict[int, str]:
+    """直接从缓存目录读取codebook映射（code_id -> code字符串）。"""
     ...
 
 def query_backup_single_column_with_filter(

@@ -23,6 +23,8 @@ from .pandas_extensions import *
 from .pandas_correlation import *
 from .tree_structures import *
 from .trading_analysis import *
+from .agent_trading_daily import *
+from .agent_simulator import *
 from .statistical_analysis import *
 from .web_manager import *
 
@@ -77,6 +79,11 @@ __all__ = [
     "run_pools_queue",
     "query_backup",
     "query_backup_fast",
+    "build_backup_column_block_cache_single_thread",
+    "query_backup_single_column_compact_cached",
+    "query_backup_single_column_compact_cached_from_cache_dir",
+    "query_backup_codebook_cached",
+    "query_backup_codebook_cached_from_cache_dir",
     # Pandas扩展函数
     "dataframe_corrwith",
     "dataframe_corrwith_single_thread",
@@ -117,6 +124,13 @@ __all__ = [
     "compute_allo_microstructure_features",
     "reconstruct_limit_order_lifecycle",
     "reconstruct_limit_order_lifecycle_v2",
+    "aggregate_agent_feature_triplets_to_daily_table",
+    "get_agent_daily_feature_column_groups_for_get_features_factors",
+    "pack_agent_daily_feature_table_for_get_features_factors",
+    "compute_agent_trading_daily_feature_table",
+    "compute_agent_trading_daily_feature_table_multi",
+    "compute_agent_trading_daily_feature_table_for_get_features_factors",
+    "compute_agent_trading_daily_feature_table_multi_for_get_features_factors",
     # 统计分析函数
     "calculate_base_entropy",
     "calculate_shannon_entropy_change",
@@ -164,4 +178,7 @@ __all__ = [
     "start_web_manager",
     # 测试函数
     "haha",
+    # Agent模拟器函数
+    "simulate_momentum_agents_py",
+    "simulate_buy_ratio_agents_py",
 ]
