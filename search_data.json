@@ -20,6 +20,11 @@
     "params": []
   },
   {
+    "name": "aggregate_agent_feature_triplets_to_daily_table",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
     "name": "analyze_asks",
     "description": "<p>异常挂单区间特征提取器</p>\n<p>输入</p>",
     "params": [
@@ -113,6 +118,11 @@
       "x_series",
       "timeout_seconds"
     ]
+  },
+  {
+    "name": "build_backup_column_block_cache_single_thread",
+    "description": "<p>无文档</p>",
+    "params": []
   },
   {
     "name": "calculate_base_entropy",
@@ -344,6 +354,36 @@
       "array1",
       "array2"
     ]
+  },
+  {
+    "name": "compute_agent_trading_daily_feature_table",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "compute_agent_trading_daily_feature_table_for_get_features_factors",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "compute_agent_trading_daily_feature_table_multi",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "compute_agent_trading_daily_feature_table_multi_for_get_features_factors",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "compute_agent_trading_features",
+    "description": "<p>Python可调用的特征计算函数（单Agent版本）</p>",
+    "params": []
+  },
+  {
+    "name": "compute_agent_trading_features_multi",
+    "description": "<p>Python可调用的多Agent特征计算（含同步率、参数轴特征）</p>",
+    "params": []
   },
   {
     "name": "compute_allo_microstructure_features",
@@ -651,6 +691,26 @@
     "params": []
   },
   {
+    "name": "get_agent_daily_feature_column_groups_for_get_features_factors",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "get_agent_feature_names",
+    "description": "<p>获取事件级特征列名（Base + 快速扩展）</p>",
+    "params": []
+  },
+  {
+    "name": "get_agent_param_axis_feature_names",
+    "description": "<p>获取参数轴特征列名</p>",
+    "params": []
+  },
+  {
+    "name": "get_agent_time_grid_feature_names",
+    "description": "<p>获取时间栅格特征列名</p>",
+    "params": []
+  },
+  {
     "name": "gp_correlation_dimension",
     "description": "<p>可选参数入口：可提供自定义选项</p>",
     "params": []
@@ -862,6 +922,11 @@
     "params": []
   },
   {
+    "name": "pack_agent_daily_feature_table_for_get_features_factors",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
     "name": "pandas_series_rank",
     "description": "<p>计算pandas Series的排名 (单线程版本)</p>\n<h1>Arguments</h1>\n<ul>\n<li><code>data</code> - 输入的一维数组数据</li>\n<li><code>method</code> - 排名方法: \"average\", \"min\", \"max\", \"first\", \"dense\"</li>\n<li><code>ascending</code> - 是否升序排列</li>\n<li><code>na_option</code> - NaN处理方式: \"keep\", \"top\", \"bottom\"</li>\n</ul>\n<h1>Returns</h1>\n<ul>\n<li>排名结果的一维数组</li>\n</ul>",
     "params": []
@@ -873,6 +938,16 @@
   },
   {
     "name": "query_backup",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "query_backup_codebook_cached",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "query_backup_codebook_cached_from_cache_dir",
     "description": "<p>无文档</p>",
     "params": []
   },
@@ -904,6 +979,16 @@
   {
     "name": "query_backup_single_column",
     "description": "<p>查询备份文件中的指定列</p>\n<p>参数:\n- backup_file: 备份文件路径\n- column_index: 要读取的因子列索引（0表示第一列因子值）\n- use_single_thread: 是否使用单线程读取</p>\n<p>返回:\n包含三个numpy数组的字典: {\"date\": 日期数组, \"code\": 代码数组, \"factor\": 指定列的因子值数组}</p>",
+    "params": []
+  },
+  {
+    "name": "query_backup_single_column_compact_cached",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "query_backup_single_column_compact_cached_from_cache_dir",
+    "description": "<p>无文档</p>",
     "params": []
   },
   {
@@ -1153,6 +1238,16 @@
       "b",
       "min_length"
     ]
+  },
+  {
+    "name": "simulate_buy_ratio_agents_py",
+    "description": "<p>Python可调用的主买占比型Agent模拟函数</p>",
+    "params": []
+  },
+  {
+    "name": "simulate_momentum_agents_py",
+    "description": "<p>Python可调用的动量型Agent模拟函数</p>",
+    "params": []
   },
   {
     "name": "skew_numba",
