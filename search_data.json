@@ -1240,13 +1240,38 @@
     ]
   },
   {
+    "name": "simulate_acceleration_follow_agents_py",
+    "description": "<p>Python可调用的加速跟随型Agent模拟函数</p>",
+    "params": []
+  },
+  {
+    "name": "simulate_bottom_fishing_agents_py",
+    "description": "<p>Python可调用的抄底型Agent模拟函数</p>",
+    "params": []
+  },
+  {
     "name": "simulate_buy_ratio_agents_py",
     "description": "<p>Python可调用的主买占比型Agent模拟函数</p>",
     "params": []
   },
   {
+    "name": "simulate_exhaustion_reversal_agents_py",
+    "description": "<p>Python可调用的衰竭抄底型Agent模拟函数</p>",
+    "params": []
+  },
+  {
+    "name": "simulate_follow_flow_agents_py",
+    "description": "<p>Python可调用的跟随型Agent模拟函数</p>",
+    "params": []
+  },
+  {
     "name": "simulate_momentum_agents_py",
     "description": "<p>Python可调用的动量型Agent模拟函数</p>",
+    "params": []
+  },
+  {
+    "name": "simulate_thematic_agents_py",
+    "description": "<p>Python可调用的统一主题Agent模拟函数（可在同一批次混合多种agent_type）</p>",
     "params": []
   },
   {
