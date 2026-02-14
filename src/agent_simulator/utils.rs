@@ -2,7 +2,7 @@
 
 use super::types::*;
 
-fn lower_bound_market(trades: &[MarketTrade], target_time: i64) -> usize {
+pub(crate) fn lower_bound_market(trades: &[MarketTrade], target_time: i64) -> usize {
     let mut left = 0usize;
     let mut right = trades.len();
     while left < right {
@@ -142,4 +142,82 @@ pub fn calc_volume_stats(
     }
 
     (buy_volume, sell_volume, total_count as f64)
+}
+
+/// 统计窗口内按方向划分的成交额（主动买/主动卖）
+///
+/// 返回值: (buy_turnover, sell_turnover)
+pub fn calc_directional_turnover(
+    market_trades: &[MarketTrade],
+    current_idx: usize,
+    lookback_ns: i64,
+) -> (f64, f64) {
+    if market_trades.is_empty() || current_idx >= market_trades.len() {
+        return (0.0, 0.0);
+    }
+
+    let current_time = market_trades[current_idx].timestamp;
+    let window_start = current_time.saturating_sub(lookback_ns.max(0));
+    let start_idx = lower_bound_market(market_trades, window_start);
+    let end_idx = current_idx + 1;
+
+    let mut buy_turnover = 0.0;
+    let mut sell_turnover = 0.0;
+    for trade in &market_trades[start_idx..end_idx] {
+        if trade.is_buy() {
+            buy_turnover += trade.turnover;
+        } else if trade.is_sell() {
+            sell_turnover += trade.turnover;
+        }
+    }
+
+    (buy_turnover, sell_turnover)
+}
+
+/// 统计两个连续窗口内按方向划分的成交额
+///
+/// prev 窗口: [t-2w, t-w)
+/// curr 窗口: [t-w, t]
+///
+/// 返回值: (buy_curr, sell_curr, buy_prev, sell_prev)
+pub fn calc_directional_turnover_two_windows(
+    market_trades: &[MarketTrade],
+    current_idx: usize,
+    window_ns: i64,
+) -> (f64, f64, f64, f64) {
+    if market_trades.is_empty() || current_idx >= market_trades.len() || window_ns <= 0 {
+        return (0.0, 0.0, 0.0, 0.0);
+    }
+
+    let current_time = market_trades[current_idx].timestamp;
+    let current_start = current_time.saturating_sub(window_ns);
+    let prev_start = current_time.saturating_sub(window_ns.saturating_mul(2));
+
+    let prev_start_idx = lower_bound_market(market_trades, prev_start);
+    let current_start_idx = lower_bound_market(market_trades, current_start);
+    let end_idx = current_idx + 1;
+
+    let prev_end_idx = current_start_idx.min(end_idx);
+
+    let mut buy_curr = 0.0;
+    let mut sell_curr = 0.0;
+    for trade in &market_trades[current_start_idx..end_idx] {
+        if trade.is_buy() {
+            buy_curr += trade.turnover;
+        } else if trade.is_sell() {
+            sell_curr += trade.turnover;
+        }
+    }
+
+    let mut buy_prev = 0.0;
+    let mut sell_prev = 0.0;
+    for trade in &market_trades[prev_start_idx..prev_end_idx] {
+        if trade.is_buy() {
+            buy_prev += trade.turnover;
+        } else if trade.is_sell() {
+            sell_prev += trade.turnover;
+        }
+    }
+
+    (buy_curr, sell_curr, buy_prev, sell_prev)
 }
