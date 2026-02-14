@@ -183,3 +183,82 @@ def simulate_buy_ratio_agents_py(
     ... )
     """
     ...
+
+
+def simulate_thematic_agents_py(
+    timestamps: NDArray[np.int64],
+    prices: NDArray[np.float64],
+    volumes: NDArray[np.float64],
+    flags: NDArray[np.int32],
+    agent_names: List[str],
+    agent_types: List[str],
+    short_window_ms_list: List[int],
+    trend_window_ms_list: List[int],
+    amount_thresholds: List[float],
+    acceleration_factors: List[float],
+    decay_factors: List[float],
+    cooldown_ms_list: List[int],
+) -> List[Dict[str, Any]]:
+    """统一主题Agent入口：支持在一个列表里混合多种agent_type批量模拟"""
+    ...
+
+
+def simulate_bottom_fishing_agents_py(
+    timestamps: NDArray[np.int64],
+    prices: NDArray[np.float64],
+    volumes: NDArray[np.float64],
+    flags: NDArray[np.int32],
+    agent_names: List[str],
+    short_window_ms_list: List[int],
+    trend_window_ms_list: List[int],
+    cooldown_ms_list: List[int],
+) -> List[Dict[str, Any]]:
+    """模拟抄底型Agent交易行为（固定每次100股，允许卖空）"""
+    ...
+
+
+def simulate_follow_flow_agents_py(
+    timestamps: NDArray[np.int64],
+    prices: NDArray[np.float64],
+    volumes: NDArray[np.float64],
+    flags: NDArray[np.int32],
+    agent_names: List[str],
+    short_window_ms_list: List[int],
+    trend_window_ms_list: List[int],
+    amount_thresholds: List[float],
+    cooldown_ms_list: List[int],
+) -> List[Dict[str, Any]]:
+    """模拟跟随型Agent交易行为（固定每次100股，允许卖空）"""
+    ...
+
+
+def simulate_acceleration_follow_agents_py(
+    timestamps: NDArray[np.int64],
+    prices: NDArray[np.float64],
+    volumes: NDArray[np.float64],
+    flags: NDArray[np.int32],
+    agent_names: List[str],
+    short_window_ms_list: List[int],
+    trend_window_ms_list: List[int],
+    amount_thresholds: List[float],
+    acceleration_factors: List[float],
+    cooldown_ms_list: List[int],
+) -> List[Dict[str, Any]]:
+    """模拟加速跟随型Agent交易行为（固定每次100股，允许卖空）"""
+    ...
+
+
+def simulate_exhaustion_reversal_agents_py(
+    timestamps: NDArray[np.int64],
+    prices: NDArray[np.float64],
+    volumes: NDArray[np.float64],
+    flags: NDArray[np.int32],
+    agent_names: List[str],
+    short_window_ms_list: List[int],
+    trend_window_ms_list: List[int],
+    amount_thresholds: List[float],
+    decay_factors: List[float],
+    cooldown_ms_list: List[int],
+) -> List[Dict[str, Any]]:
+    """模拟衰竭抄底型Agent交易行为（固定每次100股，允许卖空）"""
+    ...

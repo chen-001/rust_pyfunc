@@ -134,3 +134,101 @@ pub fn simulate_buy_ratio_agents(
     
     run_simulation(market_trades, &mut agents)
 }
+
+/// 便捷的批量模拟函数（专用于BottomFishingAgent）
+pub fn simulate_bottom_fishing_agents(
+    market_trades: &[MarketTrade],
+    configs: &[(String, i64, i64, i64)],
+) -> Vec<AgentSimulationResult> {
+    let mut agents: Vec<_> = configs
+        .iter()
+        .map(|(name, short_window_ns, trend_window_ns, cooldown_ns)| {
+            crate::agent_simulator::bottom_fishing_agent::BottomFishingAgent::new(
+                name,
+                *short_window_ns,
+                *trend_window_ns,
+                *cooldown_ns,
+            )
+        })
+        .collect();
+
+    run_simulation(market_trades, &mut agents)
+}
+
+/// 便捷的批量模拟函数（专用于FollowFlowAgent）
+pub fn simulate_follow_flow_agents(
+    market_trades: &[MarketTrade],
+    configs: &[(String, i64, i64, f64, i64)],
+) -> Vec<AgentSimulationResult> {
+    let mut agents: Vec<_> = configs
+        .iter()
+        .map(
+            |(name, short_window_ns, trend_window_ns, amount_threshold, cooldown_ns)| {
+                crate::agent_simulator::follow_flow_agent::FollowFlowAgent::new(
+                    name,
+                    *short_window_ns,
+                    *trend_window_ns,
+                    *amount_threshold,
+                    *cooldown_ns,
+                )
+            },
+        )
+        .collect();
+
+    run_simulation(market_trades, &mut agents)
+}
+
+/// 便捷的批量模拟函数（专用于AccelerationFollowAgent）
+pub fn simulate_acceleration_follow_agents(
+    market_trades: &[MarketTrade],
+    configs: &[(String, i64, i64, f64, f64, i64)],
+) -> Vec<AgentSimulationResult> {
+    let mut agents: Vec<_> = configs
+        .iter()
+        .map(
+            |(
+                name,
+                short_window_ns,
+                trend_window_ns,
+                amount_threshold,
+                acceleration_factor,
+                cooldown_ns,
+            )| {
+                crate::agent_simulator::acceleration_follow_agent::AccelerationFollowAgent::new(
+                    name,
+                    *short_window_ns,
+                    *trend_window_ns,
+                    *amount_threshold,
+                    *acceleration_factor,
+                    *cooldown_ns,
+                )
+            },
+        )
+        .collect();
+
+    run_simulation(market_trades, &mut agents)
+}
+
+/// 便捷的批量模拟函数（专用于ExhaustionReversalAgent）
+pub fn simulate_exhaustion_reversal_agents(
+    market_trades: &[MarketTrade],
+    configs: &[(String, i64, i64, f64, f64, i64)],
+) -> Vec<AgentSimulationResult> {
+    let mut agents: Vec<_> = configs
+        .iter()
+        .map(
+            |(name, short_window_ns, trend_window_ns, amount_threshold, decay_factor, cooldown_ns)| {
+                crate::agent_simulator::exhaustion_reversal_agent::ExhaustionReversalAgent::new(
+                    name,
+                    *short_window_ns,
+                    *trend_window_ns,
+                    *amount_threshold,
+                    *decay_factor,
+                    *cooldown_ns,
+                )
+            },
+        )
+        .collect();
+
+    run_simulation(market_trades, &mut agents)
+}

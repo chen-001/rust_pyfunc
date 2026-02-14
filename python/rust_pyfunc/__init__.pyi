@@ -181,4 +181,9 @@ __all__ = [
     # Agent模拟器函数
     "simulate_momentum_agents_py",
     "simulate_buy_ratio_agents_py",
+    "simulate_thematic_agents_py",
+    "simulate_bottom_fishing_agents_py",
+    "simulate_follow_flow_agents_py",
+    "simulate_acceleration_follow_agents_py",
+    "simulate_exhaustion_reversal_agents_py",
 ]
