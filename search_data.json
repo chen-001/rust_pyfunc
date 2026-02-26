@@ -416,6 +416,16 @@
     ]
   },
   {
+    "name": "compute_allo_microstructure_features_tris_expanded_v2",
+    "description": "<p>计算非对称大挂单微观结构特征 v2 - 价格锚定版本</p>",
+    "params": []
+  },
+  {
+    "name": "compute_allo_microstructure_features_tris_expanded_v3",
+    "description": "<p>计算非对称大挂单微观结构特征 v3 - 性能优化版本</p>",
+    "params": []
+  },
+  {
     "name": "compute_max_eigenvalue",
     "description": "<p>计算二维方阵的最大特征值和对应的特征向量\n使用幂迭代法计算，不使用并行计算</p>",
     "params": [
