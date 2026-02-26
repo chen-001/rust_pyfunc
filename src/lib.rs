@@ -61,6 +61,8 @@ pub mod price_breakthrough_stats;
 pub mod series_rank;
 pub mod skewness;
 pub mod allo_microstructure;
+pub mod allo_microstructure_v2;
+pub mod allo_microstructure_v3;
 pub mod microstructure_pattern_features;
 pub mod microstructure_pattern_features_optimized;
 pub mod microstructure_pattern_features_v2;
@@ -593,6 +595,14 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
 
     let _ = m.add_function(wrap_pyfunction!(
         allo_microstructure::compute_allo_microstructure_features_tris_expanded,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        allo_microstructure_v2::compute_allo_microstructure_features_tris_expanded_v2,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        allo_microstructure_v3::compute_allo_microstructure_features_tris_expanded_v3,
         m
     )?)?;
 
