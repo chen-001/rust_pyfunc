@@ -1028,6 +1028,191 @@ def compute_allo_microstructure_features(
     >>> print(f"特征数: {features.shape[1]}")
     """
     ...
+
+def compute_allo_microstructure_features_tris_expanded(
+    trade_exchtime: NDArray[np.int64],
+    trade_price: NDArray[np.float64],
+    trade_volume: NDArray[np.float64],
+    trade_turnover: NDArray[np.float64],
+    trade_flag: NDArray[np.int32],
+    snap_exchtime: NDArray[np.int64],
+    bid_prc1: NDArray[np.float64],
+    bid_prc2: NDArray[np.float64],
+    bid_prc3: NDArray[np.float64],
+    bid_prc4: NDArray[np.float64],
+    bid_prc5: NDArray[np.float64],
+    bid_prc6: NDArray[np.float64],
+    bid_prc7: NDArray[np.float64],
+    bid_prc8: NDArray[np.float64],
+    bid_prc9: NDArray[np.float64],
+    bid_prc10: NDArray[np.float64],
+    bid_vol1: NDArray[np.float64],
+    bid_vol2: NDArray[np.float64],
+    bid_vol3: NDArray[np.float64],
+    bid_vol4: NDArray[np.float64],
+    bid_vol5: NDArray[np.float64],
+    bid_vol6: NDArray[np.float64],
+    bid_vol7: NDArray[np.float64],
+    bid_vol8: NDArray[np.float64],
+    bid_vol9: NDArray[np.float64],
+    bid_vol10: NDArray[np.float64],
+    ask_prc1: NDArray[np.float64],
+    ask_prc2: NDArray[np.float64],
+    ask_prc3: NDArray[np.float64],
+    ask_prc4: NDArray[np.float64],
+    ask_prc5: NDArray[np.float64],
+    ask_prc6: NDArray[np.float64],
+    ask_prc7: NDArray[np.float64],
+    ask_prc8: NDArray[np.float64],
+    ask_prc9: NDArray[np.float64],
+    ask_prc10: NDArray[np.float64],
+    ask_vol1: NDArray[np.float64],
+    ask_vol2: NDArray[np.float64],
+    ask_vol3: NDArray[np.float64],
+    ask_vol4: NDArray[np.float64],
+    ask_vol5: NDArray[np.float64],
+    ask_vol6: NDArray[np.float64],
+    ask_vol7: NDArray[np.float64],
+    ask_vol8: NDArray[np.float64],
+    ask_vol9: NDArray[np.float64],
+    ask_vol10: NDArray[np.float64],
+    k1_horizontal: float = 2.0,
+    k2_vertical: float = 5.0,
+    window_size: int = 100,
+    decay_threshold: float = 0.5,
+) -> Tuple[List[NDArray[np.float64]], List[List[str]]]:
+    """计算ALA事件微观结构特征 - tris扩展版本（档位锚定）。
+    
+    返回9种(detection_mode, side_filter)组合的特征数组。
+    """
+    ...
+
+def compute_allo_microstructure_features_tris_expanded_v2(
+    trade_exchtime: NDArray[np.int64],
+    trade_price: NDArray[np.float64],
+    trade_volume: NDArray[np.float64],
+    trade_turnover: NDArray[np.float64],
+    trade_flag: NDArray[np.int32],
+    snap_exchtime: NDArray[np.int64],
+    bid_prc1: NDArray[np.float64],
+    bid_prc2: NDArray[np.float64],
+    bid_prc3: NDArray[np.float64],
+    bid_prc4: NDArray[np.float64],
+    bid_prc5: NDArray[np.float64],
+    bid_prc6: NDArray[np.float64],
+    bid_prc7: NDArray[np.float64],
+    bid_prc8: NDArray[np.float64],
+    bid_prc9: NDArray[np.float64],
+    bid_prc10: NDArray[np.float64],
+    bid_vol1: NDArray[np.float64],
+    bid_vol2: NDArray[np.float64],
+    bid_vol3: NDArray[np.float64],
+    bid_vol4: NDArray[np.float64],
+    bid_vol5: NDArray[np.float64],
+    bid_vol6: NDArray[np.float64],
+    bid_vol7: NDArray[np.float64],
+    bid_vol8: NDArray[np.float64],
+    bid_vol9: NDArray[np.float64],
+    bid_vol10: NDArray[np.float64],
+    ask_prc1: NDArray[np.float64],
+    ask_prc2: NDArray[np.float64],
+    ask_prc3: NDArray[np.float64],
+    ask_prc4: NDArray[np.float64],
+    ask_prc5: NDArray[np.float64],
+    ask_prc6: NDArray[np.float64],
+    ask_prc7: NDArray[np.float64],
+    ask_prc8: NDArray[np.float64],
+    ask_prc9: NDArray[np.float64],
+    ask_prc10: NDArray[np.float64],
+    ask_vol1: NDArray[np.float64],
+    ask_vol2: NDArray[np.float64],
+    ask_vol3: NDArray[np.float64],
+    ask_vol4: NDArray[np.float64],
+    ask_vol5: NDArray[np.float64],
+    ask_vol6: NDArray[np.float64],
+    ask_vol7: NDArray[np.float64],
+    ask_vol8: NDArray[np.float64],
+    ask_vol9: NDArray[np.float64],
+    ask_vol10: NDArray[np.float64],
+    k1_horizontal: float = 2.0,
+    k2_vertical: float = 5.0,
+    window_size: int = 100,
+    decay_threshold: float = 0.5,
+) -> Tuple[List[NDArray[np.float64]], List[List[str]]]:
+    """计算ALA事件微观结构特征 v2版本（价格锚定）。
+    
+    v2版本改进：
+    - 纵向触发：计算某价格的近期平均挂单量（而非某档位）
+    - 事件追踪：按价格搜索，而非按档位
+    - 结束条件：价格消失或挂单量衰减
+    
+    返回9种(detection_mode, side_filter)组合的特征数组。
+    """
+    ...
+
+def compute_allo_microstructure_features_tris_expanded_v3(
+    trade_exchtime: NDArray[np.int64],
+    trade_price: NDArray[np.float64],
+    trade_volume: NDArray[np.float64],
+    trade_turnover: NDArray[np.float64],
+    trade_flag: NDArray[np.int32],
+    snap_exchtime: NDArray[np.int64],
+    bid_prc1: NDArray[np.float64],
+    bid_prc2: NDArray[np.float64],
+    bid_prc3: NDArray[np.float64],
+    bid_prc4: NDArray[np.float64],
+    bid_prc5: NDArray[np.float64],
+    bid_prc6: NDArray[np.float64],
+    bid_prc7: NDArray[np.float64],
+    bid_prc8: NDArray[np.float64],
+    bid_prc9: NDArray[np.float64],
+    bid_prc10: NDArray[np.float64],
+    bid_vol1: NDArray[np.float64],
+    bid_vol2: NDArray[np.float64],
+    bid_vol3: NDArray[np.float64],
+    bid_vol4: NDArray[np.float64],
+    bid_vol5: NDArray[np.float64],
+    bid_vol6: NDArray[np.float64],
+    bid_vol7: NDArray[np.float64],
+    bid_vol8: NDArray[np.float64],
+    bid_vol9: NDArray[np.float64],
+    bid_vol10: NDArray[np.float64],
+    ask_prc1: NDArray[np.float64],
+    ask_prc2: NDArray[np.float64],
+    ask_prc3: NDArray[np.float64],
+    ask_prc4: NDArray[np.float64],
+    ask_prc5: NDArray[np.float64],
+    ask_prc6: NDArray[np.float64],
+    ask_prc7: NDArray[np.float64],
+    ask_prc8: NDArray[np.float64],
+    ask_prc9: NDArray[np.float64],
+    ask_prc10: NDArray[np.float64],
+    ask_vol1: NDArray[np.float64],
+    ask_vol2: NDArray[np.float64],
+    ask_vol3: NDArray[np.float64],
+    ask_vol4: NDArray[np.float64],
+    ask_vol5: NDArray[np.float64],
+    ask_vol6: NDArray[np.float64],
+    ask_vol7: NDArray[np.float64],
+    ask_vol8: NDArray[np.float64],
+    ask_vol9: NDArray[np.float64],
+    ask_vol10: NDArray[np.float64],
+    k1_horizontal: float = 2.0,
+    k2_vertical: float = 5.0,
+    window_size: int = 100,
+    decay_threshold: float = 0.5,
+) -> Tuple[List[NDArray[np.float64]], List[List[str]]]:
+    """计算ALA事件微观结构特征 v3版本（性能优化版本）。
+    
+    v3版本改进：
+    - 预计算滑动窗口平均值（O(1)查询）
+    - 二分查找范围查询
+    - 减少HashMap操作开销
+    - 减少内存分配
+    
+    返回9种(detection_mode, side_filter)组合的特征数组。
+    """
+    ...
 """交易分析函数类型声明"""
 
 from typing import List, Optional, Tuple
