@@ -68,6 +68,7 @@ pub mod microstructure_pattern_features_optimized;
 pub mod microstructure_pattern_features_v2;
 pub mod agent_trading_features;
 pub mod agent_simulator;
+pub mod order_pair_metrics;
 
 /// Formats the sum of two numbers as string.
 #[pyfunction]
@@ -626,6 +627,30 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
 
     // Agent交易模拟器模块
     agent_simulator::py_bindings::register_functions(m)?;
+
+    // 订单配对指标计算
+    m.add_function(wrap_pyfunction!(
+        order_pair_metrics::calculate_order_pair_metrics,
+        m
+    )?)?;
+    
+    // 订单配对指标计算（扩展版，包含复杂指标）
+    m.add_function(wrap_pyfunction!(
+        order_pair_metrics::calculate_order_pair_metrics_more,
+        m
+    )?)?;
+    
+    // 订单配对指标计算（V2版本：不区分买卖方向）
+    m.add_function(wrap_pyfunction!(
+        order_pair_metrics::calculate_order_pair_metrics_more_v2,
+        m
+    )?)?;
+    
+    // 订单配对指标计算（V2优化版本）
+    m.add_function(wrap_pyfunction!(
+        order_pair_metrics::calculate_order_pair_metrics_more_v2_faster,
+        m
+    )?)?;
 
     Ok(())
 }

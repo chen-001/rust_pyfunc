@@ -1932,3 +1932,134 @@ def skew_numba(arr: NDArray[np.float64]) -> NDArray[np.float64]:
     ...
 
 
+def calculate_order_pair_metrics(
+    today_trades: NDArray[np.float64],
+    yesterday_trades: NDArray[np.float64],
+    tolerance: float = 0.001,
+) -> Tuple[NDArray[np.float64], List[str]]:
+    """计算订单配对指标
+
+    基于最近配对原则，将今天和昨天的订单编号进行配对，计算16个配对指标。
+
+    参数说明：
+    ----------
+    today_trades : numpy.ndarray
+        今日成交数据，n×7矩阵，列顺序为：
+        - 时间戳(秒)
+        - 价格
+        - 成交量
+        - 成交金额
+        - flag (66=主买, 83=主卖)
+        - bid_order (买单订单编号)
+        - ask_order (卖单订单编号)
+
+    yesterday_trades : numpy.ndarray
+        昨日成交数据，格式同上
+
+    tolerance : float, 默认0.001
+        配对时的容忍比例，0.001表示±0.1%
+
+    返回值：
+    -------
+    Tuple[numpy.ndarray, List[str]]
+        - 结果矩阵：配对数×33的矩阵
+        - 列名列表：33个列名
+
+        列顺序为：
+        - 第1列：today_order_id
+        - 第2-17列：不带绝对值的16个指标
+        - 第18-33列：带绝对值的16个指标
+    """
+    ...
+
+
+def calculate_order_pair_metrics_more(
+    today_trades: NDArray[np.float64],
+    yesterday_trades: NDArray[np.float64],
+    tolerance: float = 0.001,
+) -> Tuple[NDArray[np.float64], List[str]]:
+    """计算订单配对指标（扩展版）
+
+    在calculate_order_pair_metrics基础上，额外计算5个复杂指标。
+    这些指标基于市场全局数据计算，反映订单成交时的市场状态。
+
+    配对策略：买单配买单，卖单配卖单，编号差异在±tolerance内选择最近的。
+
+    参数说明：
+    ----------
+    today_trades : numpy.ndarray
+        今日成交数据，n×7矩阵
+    yesterday_trades : numpy.ndarray
+        昨日成交数据，m×7矩阵
+    tolerance : float, 默认0.001
+        配对时的容忍比例，0.001表示±0.1%
+
+    返回值：
+    -------
+    Tuple[numpy.ndarray, List[str]]
+        - 结果矩阵：配对数×44的矩阵
+        - 列名列表：44个列名
+    """
+    ...
+
+
+def calculate_order_pair_metrics_more_v2(
+    today_trades: NDArray[np.float64],
+    yesterday_trades: NDArray[np.float64],
+    tolerance: float = 0.001,
+) -> Tuple[NDArray[np.float64], List[str]]:
+    """计算订单配对指标（V2版本：不区分买卖方向）
+
+    与calculate_order_pair_metrics_more的区别：
+    1. 保留所有订单编号（bid_order和ask_order都保留）
+    2. 配对时不区分买卖方向，仅根据编号最近配对
+    3. 今天的买单可能配对到昨天的卖单
+
+    配对策略：不区分买卖，编号差异在±tolerance内选择最近的。
+
+    参数说明：
+    ----------
+    today_trades : numpy.ndarray
+        今日成交数据，n×7矩阵
+    yesterday_trades : numpy.ndarray
+        昨日成交数据，m×7矩阵
+    tolerance : float, 默认0.001
+        配对时的容忍比例，0.001表示±0.1%
+
+    返回值：
+    -------
+    Tuple[numpy.ndarray, List[str]]
+        - 结果矩阵：配对数×44的矩阵
+        - 列名列表：44个列名
+    """
+    ...
+
+
+def calculate_order_pair_metrics_more_v2_faster(
+    today_trades: NDArray[np.float64],
+    yesterday_trades: NDArray[np.float64],
+    tolerance: float = 0.001,
+) -> Tuple[NDArray[np.float64], List[str]]:
+    """计算订单配对指标（V2优化版本）
+
+    与calculate_order_pair_metrics_more_v2完全相同，
+    仅通过预计算市场指标来加速。结果完全一致。
+
+    参数说明：
+    ----------
+    today_trades : numpy.ndarray
+        今日成交数据，n×7矩阵
+    yesterday_trades : numpy.ndarray
+        昨日成交数据，m×7矩阵
+    tolerance : float, 默认0.001
+        配对时的容忍比例，0.001表示±0.1%
+
+    返回值：
+    -------
+    Tuple[numpy.ndarray, List[str]]
+        - 结果矩阵：配对数×44的矩阵
+        - 列名列表：44个列名
+    """
+    ...
+
+
