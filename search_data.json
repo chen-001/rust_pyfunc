@@ -195,6 +195,26 @@
     "params": []
   },
   {
+    "name": "calculate_order_pair_metrics",
+    "description": "<p>计算订单配对指标</p>",
+    "params": []
+  },
+  {
+    "name": "calculate_order_pair_metrics_more",
+    "description": "<p>计算更多指标的订单配对函数</p>",
+    "params": []
+  },
+  {
+    "name": "calculate_order_pair_metrics_more_v2",
+    "description": "<p>计算订单配对指标（V2版本：不区分买卖方向）</p>",
+    "params": []
+  },
+  {
+    "name": "calculate_order_pair_metrics_more_v2_faster",
+    "description": "<p>计算订单配对指标（V2优化版本）\n通过预计算市场指标来加速</p>",
+    "params": []
+  },
+  {
     "name": "calculate_order_time_gap_and_price_percentile_ultra_sorted",
     "description": "<p>无文档</p>",
     "params": []
