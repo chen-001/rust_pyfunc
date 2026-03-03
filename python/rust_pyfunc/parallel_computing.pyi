@@ -16,7 +16,8 @@ def run_pools_queue(
     task_timeout: Optional[int] = None,
     health_check_interval: Optional[int] = None,
     debug_monitor: Optional[bool] = None,
-    backup_batch_size: Optional[int] = None
+    backup_batch_size: Optional[int] = None,
+    debug_log: Optional[bool] = None
 ) -> NDArray[np.float64]:
     """🚀 革命性持久化进程池 - 极致性能的并行计算函数（v2.1）
     
@@ -78,6 +79,15 @@ def run_pools_queue(
         备份批处理大小，控制每多少个结果备份一次，默认为5000
         设置为None使用默认值，必须大于0
         较小的值会增加备份频率但可能降低性能，较大的值会提高性能但增加内存使用
+    debug_log : Optional[bool], default=None
+        是否开启调试日志，默认为False
+        当为True时，会在当前目录下创建run_pools_queue.log文件
+        记录所有错误信息，包括：
+        - Worker卡死检测（任务超时、心跳超时、进程死亡）
+        - Python子进程的stderr输出
+        - 任务序列化/通信失败
+        - 结果解析失败
+        有助于诊断并行计算中的问题，定位错误原因
         
     返回值：
     -------
