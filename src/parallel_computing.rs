@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::env;
-use std::fs::OpenOptions;
-use std::io::{self, Read, Write};
+use std::fs::{File, OpenOptions};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -118,6 +118,62 @@ fn ensure_fd_limit(desired: u64) {
 
 #[cfg(not(target_family = "unix"))]
 fn ensure_fd_limit(_desired: u64) {}
+
+// 日志记录器，用于记录debug信息
+#[derive(Debug, Clone)]
+pub struct DebugLogger {
+    file: Arc<Mutex<File>>,
+    enabled: bool,
+}
+
+impl DebugLogger {
+    pub fn new(log_path: &str, enabled: bool) -> Result<Self, Box<dyn std::error::Error>> {
+        if !enabled {
+            return Ok(Self {
+                file: Arc::new(Mutex::new(File::create("/dev/null")?)),
+                enabled: false,
+            });
+        }
+
+        let file = File::create(log_path)?;
+        Ok(Self {
+            file: Arc::new(Mutex::new(file)),
+            enabled: true,
+        })
+    }
+
+    pub fn log(&self, level: &str, worker_id: Option<usize>, category: &str, message: &str) {
+        if !self.enabled {
+            return;
+        }
+
+        let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+        let worker_str = worker_id
+            .map(|id| format!("[Worker {}]", id))
+            .unwrap_or_default();
+        let log_line = format!(
+            "[{}] {} {:5} [{}] {}\n",
+            timestamp, worker_str, level, category, message
+        );
+
+        if let Ok(mut file) = self.file.lock() {
+            let _ = file.write_all(log_line.as_bytes());
+            let _ = file.flush();
+        }
+    }
+
+    pub fn log_error(&self, worker_id: Option<usize>, category: &str, message: &str) {
+        self.log("ERROR", worker_id, category, message);
+    }
+
+    pub fn log_warn(&self, worker_id: Option<usize>, category: &str, message: &str) {
+        self.log("WARN", worker_id, category, message);
+    }
+
+    pub fn log_info(&self, worker_id: Option<usize>, category: &str, message: &str) {
+        self.log("INFO", worker_id, category, message);
+    }
+}
 
 // 通用结果结构体，用于反序列化单个任务结果
 #[derive(Debug, Serialize, Deserialize)]
@@ -1162,6 +1218,7 @@ fn run_persistent_task_worker(
     result_sender: Sender<TaskResult>,
     restart_flag: Arc<AtomicBool>,
     monitor_manager: Arc<WorkerMonitorManager>,
+    debug_logger: DebugLogger,
 ) {
     // 向监控管理器注册worker
     monitor_manager.add_worker(worker_id);
@@ -1172,18 +1229,16 @@ fn run_persistent_task_worker(
             .compare_exchange(true, false, Ordering::SeqCst, Ordering::Relaxed)
             .is_ok()
         {
-            // println!("🔄 Worker {} 检测到重启信号，正在重启...", worker_id);
+            debug_logger.log_info(Some(worker_id), "RESTART", "Worker检测到重启信号，正在重启");
         }
-
-        // println!("🚀 Persistent Worker {} 启动，创建持久Python进程", worker_id);
 
         let script_content = create_persistent_worker_script();
         let script_path = format!("/tmp/persistent_worker_{}.py", worker_id);
 
         // 创建worker脚本
-        if let Err(e) = std::fs::write(&script_path, script_content) {
-            eprintln!("❌ Worker {} 创建脚本失败: {}", worker_id, e);
-            continue; // 继续外层循环，尝试重新创建脚本
+        if let Err(e) = std::fs::write(&script_path, &script_content) {
+            debug_logger.log_error(Some(worker_id), "SCRIPT_CREATE", &format!("创建脚本失败: {}", e));
+            continue;
         }
 
         // 启动持久的Python子进程
@@ -1196,8 +1251,8 @@ fn run_persistent_task_worker(
         {
             Ok(child) => child,
             Err(e) => {
-                eprintln!("❌ Worker {} 启动Python进程失败: {}", worker_id, e);
-                continue; // 继续外层循环，尝试重新启动进程
+                debug_logger.log_error(Some(worker_id), "PROCESS_START", &format!("启动Python进程失败: {}", e));
+                continue;
             }
         };
 
@@ -1206,14 +1261,35 @@ fn run_persistent_task_worker(
         monitor_manager.set_worker_process_id(worker_id, pid);
         monitor_manager.update_heartbeat(worker_id);
 
+        debug_logger.log_info(Some(worker_id), "PROCESS_START", &format!("Python进程启动成功, PID: {}", pid));
+
         let mut stdin = child.stdin.take().expect("Failed to get stdin");
         let mut stdout = child.stdout.take().expect("Failed to get stdout");
+        let stderr = child.stderr.take().expect("Failed to get stderr");
+
+        // 启动stderr读取线程
+        let stderr_logger = debug_logger.clone();
+        let stderr_worker_id = worker_id;
+        let stderr_handle = thread::spawn(move || {
+            let reader = BufReader::new(stderr);
+            for line in reader.lines() {
+                match line {
+                    Ok(text) => {
+                        stderr_logger.log_error(Some(stderr_worker_id), "PYTHON_STDERR", &text);
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
 
         let mut task_count = 0;
         let mut needs_restart = false;
+        let mut current_task: Option<TaskParam> = None;
 
         // 持续从队列中取任务并发送给Python进程
         while let Ok(task) = task_queue.recv() {
+            current_task = Some(task.clone());
+            
             // 在处理任务前检查重启标志
             if restart_flag.load(Ordering::Relaxed) {
                 needs_restart = true;
@@ -1236,8 +1312,9 @@ fn run_persistent_task_worker(
             // 序列化任务数据
             let packed_data = match rmp_serde::to_vec_named(&single_task) {
                 Ok(data) => data,
-                Err(_e) => {
-                    // eprintln!("❌ Worker {} 任务 #{} 序列化失败: {}", worker_id, task_count, e);
+                Err(e) => {
+                    debug_logger.log_error(Some(worker_id), "SERIALIZE", &format!("任务(date={}, code={})序列化失败: {}", task.date, task.code, e));
+                    current_task = None;
                     continue;
                 }
             };
@@ -1246,28 +1323,28 @@ fn run_persistent_task_worker(
             let length = packed_data.len() as u32;
             let length_bytes = length.to_le_bytes();
 
-            if let Err(_e) = stdin.write_all(&length_bytes) {
-                // eprintln!("❌ Worker {} 发送长度前缀失败: {}", worker_id, e);
+            if let Err(e) = stdin.write_all(&length_bytes) {
+                debug_logger.log_error(Some(worker_id), "COMMUNICATION", &format!("发送长度前缀失败: {}", e));
                 needs_restart = true;
                 break;
             }
 
-            if let Err(_e) = stdin.write_all(&packed_data) {
-                // eprintln!("❌ Worker {} 发送任务数据失败: {}", worker_id, e);
+            if let Err(e) = stdin.write_all(&packed_data) {
+                debug_logger.log_error(Some(worker_id), "COMMUNICATION", &format!("发送任务数据失败: {}", e));
                 needs_restart = true;
                 break;
             }
 
-            if let Err(_e) = stdin.flush() {
-                // eprintln!("❌ Worker {} flush失败: {}", worker_id, e);
+            if let Err(e) = stdin.flush() {
+                debug_logger.log_error(Some(worker_id), "COMMUNICATION", &format!("flush失败: {}", e));
                 needs_restart = true;
                 break;
             }
 
             // 读取结果（带长度前缀）
             let mut length_bytes = [0u8; 4];
-            if let Err(_e) = stdout.read_exact(&mut length_bytes) {
-                // eprintln!("❌ Worker {} 读取结果长度失败: {}", worker_id, e);
+            if let Err(e) = stdout.read_exact(&mut length_bytes) {
+                debug_logger.log_error(Some(worker_id), "COMMUNICATION", &format!("读取结果长度失败: {}", e));
                 needs_restart = true;
                 break;
             }
@@ -1275,8 +1352,8 @@ fn run_persistent_task_worker(
             let length = u32::from_le_bytes(length_bytes) as usize;
             let mut result_data = vec![0u8; length];
 
-            if let Err(_e) = stdout.read_exact(&mut result_data) {
-                // eprintln!("❌ Worker {} 读取结果数据失败: {}", worker_id, e);
+            if let Err(e) = stdout.read_exact(&mut result_data) {
+                debug_logger.log_error(Some(worker_id), "COMMUNICATION", &format!("读取结果数据失败: {}", e));
                 needs_restart = true;
                 break;
             }
@@ -1291,22 +1368,15 @@ fn run_persistent_task_worker(
                 Ok(single_result) => {
                     // 发送结果
                     if let Err(e) = result_sender.send(single_result.result) {
-                        eprintln!(
-                            "❌ Worker {} 任务 #{} 结果发送失败: {}",
-                            worker_id, task_count, e
-                        );
-                        // 结果发送失败可能是收集器已退出，但不影响其他worker，继续处理下一个任务
-                        // 不设置needs_restart，避免不必要的子进程重启
+                        debug_logger.log_error(Some(worker_id), "RESULT_SEND", &format!("任务#{} 结果发送失败: {}", task_count, e));
                     }
                     // 通知监控管理器任务已完成
                     monitor_manager.finish_task(worker_id);
                     monitor_manager.update_heartbeat(worker_id);
+                    current_task = None;
                 }
                 Err(e) => {
-                    eprintln!(
-                        "❌ Worker {} 任务 #{} 结果解析失败: {}",
-                        worker_id, task_count, e
-                    );
+                    debug_logger.log_error(Some(worker_id), "DESERIALIZE", &format!("任务(date={}, code={}) 结果解析失败: {}", task.date, task.code, e));
 
                     // 发送NaN结果
                     let error_result = TaskResult {
@@ -1317,13 +1387,12 @@ fn run_persistent_task_worker(
                     };
 
                     if let Err(e) = result_sender.send(error_result) {
-                        eprintln!("❌ Worker {} 错误结果发送失败: {}", worker_id, e);
-                        // 错误结果发送失败也不影响其他worker，继续处理下一个任务
-                        // 不设置needs_restart，避免不必要的子进程重启
+                        debug_logger.log_error(Some(worker_id), "RESULT_SEND", &format!("错误结果发送失败: {}", e));
                     }
                     // 通知监控管理器任务已完成（即使失败）
                     monitor_manager.finish_task(worker_id);
                     monitor_manager.update_heartbeat(worker_id);
+                    current_task = None;
                 }
             }
         }
@@ -1332,12 +1401,20 @@ fn run_persistent_task_worker(
         let _ = stdin.write_all(&[0u8; 4]);
         let _ = stdin.flush();
 
+        // 等待stderr线程结束
+        let _ = stderr_handle.join();
+
         // 等待子进程结束
         let _ = child.wait();
 
         // 清理临时文件
         let _ = std::fs::remove_file(&script_path);
-        // println!("🏁 Persistent Worker {} 结束，共处理 {} 个任务", worker_id, task_count);
+        
+        if let Some(ref task) = current_task {
+            debug_logger.log_warn(Some(worker_id), "INCOMPLETE_TASK", &format!("任务未完成: date={}, code={}", task.date, task.code));
+        }
+
+        debug_logger.log_info(Some(worker_id), "PROCESS_END", &format!("Worker结束，共处理{}个任务", task_count));
 
         if !needs_restart {
             // 如果不是因为重启信号而退出，说明所有任务都完成了
@@ -1350,7 +1427,7 @@ fn run_persistent_task_worker(
 }
 
 #[pyfunction]
-#[pyo3(signature = (python_function, args, n_jobs, backup_file, expected_result_length, restart_interval=None, update_mode=None, return_results=None, task_timeout=None, health_check_interval=None, debug_monitor=None, backup_batch_size=None))]
+#[pyo3(signature = (python_function, args, n_jobs, backup_file, expected_result_length, restart_interval=None, update_mode=None, return_results=None, task_timeout=None, health_check_interval=None, debug_monitor=None, backup_batch_size=None, debug_log=None))]
 pub fn run_pools_queue(
     python_function: PyObject,
     args: &PyList,
@@ -1364,7 +1441,17 @@ pub fn run_pools_queue(
     health_check_interval: Option<u64>,
     debug_monitor: Option<bool>,
     backup_batch_size: Option<usize>,
+    debug_log: Option<bool>,
 ) -> PyResult<PyObject> {
+    // 处理 debug_log 参数，创建日志记录器
+    let debug_log_enabled = debug_log.unwrap_or(false);
+    let debug_logger = DebugLogger::new("run_pools_queue.log", debug_log_enabled)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("创建日志文件失败: {}", e)))?;
+    
+    if debug_log_enabled {
+        debug_logger.log_info(None, "INIT", &format!("启动run_pools_queue, n_jobs={}, debug_log=true", n_jobs));
+    }
+
     // 处理 restart_interval 参数
     let restart_interval_value = restart_interval.unwrap_or(200);
     if restart_interval_value == 0 {
@@ -1556,6 +1643,7 @@ pub fn run_pools_queue(
         let worker_result_sender = result_sender.clone();
         let worker_restart_flag = restart_flag.clone();
         let worker_monitor_manager = monitor_manager.clone();
+        let worker_debug_logger = debug_logger.clone();
 
         let handle = thread::spawn(move || {
             run_persistent_task_worker(
@@ -1567,6 +1655,7 @@ pub fn run_pools_queue(
                 worker_result_sender,
                 worker_restart_flag,
                 worker_monitor_manager,
+                worker_debug_logger,
             );
         });
 
@@ -1579,6 +1668,7 @@ pub fn run_pools_queue(
     // 启动监控线程
     let monitor_manager_clone = monitor_manager.clone();
     let monitor_restart_flag = restart_flag.clone();
+    let monitor_debug_logger = debug_logger.clone();
     let _worker_count = n_jobs;
     let monitor_handle = thread::spawn(move || {
         let mut _workers_completed = 0;
@@ -1619,9 +1709,13 @@ pub fn run_pools_queue(
             if !stuck_workers.is_empty() {
                 for (worker_id, reason) in stuck_workers {
                     monitor_manager_clone.log_stuck_worker(worker_id, reason);
+                    
+                    // 记录卡死检测日志
+                    monitor_debug_logger.log_error(Some(worker_id), "STUCK_DETECTED", &format!("Worker卡死，原因: {}", reason));
 
                     // 尝试强制终止卡死的worker进程
                     if monitor_manager_clone.force_kill_worker(worker_id) {
+                        monitor_debug_logger.log_warn(Some(worker_id), "FORCE_KILL", "强制终止Worker进程");
                         // 简化输出，避免频繁打断运行流程
                         if monitor_manager_clone.debug_monitor {
                             println!(
