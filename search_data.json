@@ -363,6 +363,36 @@
     ]
   },
   {
+    "name": "clayton_copula_cdf_batch",
+    "description": "<p>Clayton Copula 批量CDF计算</p>",
+    "params": []
+  },
+  {
+    "name": "clayton_copula_cdf_py",
+    "description": "<p>Clayton Copula CDF</p>",
+    "params": []
+  },
+  {
+    "name": "clayton_copula_estimate",
+    "description": "<p>Clayton Copula 参数估计</p>",
+    "params": []
+  },
+  {
+    "name": "clayton_copula_pdf_py",
+    "description": "<p>Clayton Copula PDF</p>",
+    "params": []
+  },
+  {
+    "name": "clayton_copula_sample_py",
+    "description": "<p>Clayton Copula 采样</p>",
+    "params": []
+  },
+  {
+    "name": "clayton_lower_tail_dependence_py",
+    "description": "<p>Clayton Copula 下尾依赖系数</p>",
+    "params": []
+  },
+  {
     "name": "column_correlation_batch",
     "description": "<p>批量计算多列相关系数的优化版本</p>\n<p>为了进一步提升性能，使用批量处理和更好的缓存局部性</p>",
     "params": []
@@ -463,6 +493,16 @@
     "params": []
   },
   {
+    "name": "copula_analysis",
+    "description": "<p>Copula综合分析函数（五种模型拟合 + 拟合优度比较 + 尾部依赖分析）</p>\n<p>支持5种Copula模型: Gaussian, t-Copula, Frank, Clayton(或Rotated-90), Gumbel(或Rotated-90)\n当 kendall_tau &lt;= 0 时，Clayton/Gumbel 自动切换为90°旋转版本以适配负相关</p>\n<p>返回三个字典：params(设定参数), estimates(估计结果), evaluation(评价建议)</p>\n<p>【params】参数信息\n  - quantile:         用户指定的分位数阈值，用于经验尾部依赖计算\n  - t_df_auto:        是否自动优化t-Copula自由度 (true/false)\n  - t_df:             t-Copula自由度，取值范围 (0, +∞)，越小尾部越厚\n  - n_samples:        有效样本量</p>\n<p>【estimates】从数据估计的结果</p>\n<p>Gaussian Copula:\n  - gaussian_rho:             由 tau 通过 sin(tau * π/2) 转换得到，取值 [-1, 1]\n                              绝对值越大相关越强，0 = 独立\n  - gaussian_log_likelihood:  对数似然，取值 (-∞, +∞)，越大拟合越好</p>\n<p>t-Copula:\n  - t_rho:                    与 gaussian_rho 相同（同源于 tau 转换），取值 [-1, 1]\n  - t_log_likelihood:         对数似然，取值 (-∞, +∞)，越大拟合越好</p>\n<p>Frank Copula:\n  - frank_theta:              Frank参数，取值 (-∞, +∞)\n                              &gt; 0 正相关，&lt; 0 负相关，绝对值越大相关越强，→0 趋近独立\n                              Frank 无尾部依赖，适合描述\"中间段有相关但极端不联动\"\n  - frank_log_likelihood:     对数似然，取值 (-∞, +∞)，越大拟合越好</p>\n<p>Clayton Copula (正相关时) / Rotated-Clayton-90 (负相关时):\n  - clayton_type:             \"Clayton\"(tau&gt;0) 或 \"Rotated-Clayton-90\"(tau&lt;=0)\n  - clayton_theta:            Clayton参数，取值 (0, +∞)\n                              越大依赖越强，→0 趋近独立\n                              注意：负相关时参数由 |tau| 估计，仍为正值\n  - clayton_log_likelihood:   对数似然，取值 (-∞, +∞)，越大拟合越好\n  - clayton_tail_dependence:  理论尾部依赖系数 = 2^(-1/θ)，取值 [0, 1]\n                              原版Clayton: 衡量同向下尾（X和Y同时极小）的联动概率\n                              Rotated-90: 衡量交叉尾部（X极大时Y极小）的联动概率\n                              越接近1联动越强，越接近0越独立</p>\n<p>Gumbel Copula (正相关时) / Rotated-Gumbel-90 (负相关时):\n  - gumbel_type:              \"Gumbel\"(tau&gt;0) 或 \"Rotated-Gumbel-90\"(tau&lt;=0)\n  - gumbel_theta:             Gumbel参数，取值 [1, +∞)\n                              越大依赖越强，=1 时为独立\n                              注意：负相关时参数由 |tau| 估计，仍 &gt;= 1\n  - gumbel_log_likelihood:    对数似然，取值 (-∞, +∞)，越大拟合越好\n  - gumbel_tail_dependence:   理论尾部依赖系数 = 2 - 2^(1/θ)，取值 [0, 1]\n                              原版Gumbel: 衡量同向上尾（X和Y同时极大）的联动概率\n                              Rotated-90: 衡量交叉尾部（X极小时Y极大）的联动概率\n                              越接近1联动越强，越接近0越独立</p>\n<p>非参数经验尾部依赖:\n  - empirical_lower_tail:       P(Y<q分位 | X\\<q分位)，取值 [0, 1]\n                                衡量两者同时处于极低分位的概率，越大说明同跌联动越强\n  - empirical_upper_tail:       P(Y>1-q分位 | X>1-q分位)，取值 [0, 1]\n                                衡量两者同时处于极高分位的概率，越大说明同涨联动越强\n  - empirical_cross_lower_tail: P(Y<q分位 | X>1-q分位)，取值 [0, 1]\n                                X极大时Y极小的概率，负相关核心指标，越大反向联动越强\n  - empirical_cross_upper_tail: P(X<q分位 | Y>1-q分位)，取值 [0, 1]\n                                X极小时Y极大的概率，负相关核心指标，越大反向联动越强</p>\n<p>【evaluation】模型评价和建议\n  - gaussian_aic / t_aic / frank_aic / clayton_aic / gumbel_aic:\n                              AIC信息准则 = 2k - 2*loglik，取值 (-∞, +∞)\n                              越小（越负）拟合越好，不同模型间可直接比较\n  - best_copula:              AIC最小的模型名称\n  - best_aic:                 最佳AIC值\n  - best_avg_loglik:          最佳模型的每样本平均对数似然，取值 [0, +∞)\n                              = best_loglik / n_samples\n                              独立时 = 0，越大说明依赖越强\n                              跨例子可直接比较：无论最佳模型是哪个族、样本量多少\n                              例如 A=0.015 vs B=0.032 → B的依赖关系更强\n  - tail_asymmetry:           尾部不对称度，取值 (-1, 1)\n                              正相关时 = empirical_lower - empirical_upper，&gt;0 共跌型，&lt;0 共涨型\n                              负相关时 = cross_lower - cross_upper，&gt;0 卖强买弱联动更显著\n  - tail_type:                尾部类型的文字描述\n                              正相关: \"共跌型\" / \"共涨型\" / \"对称尾部依赖\" / \"近独立\"\n                              负相关: \"反向下尾型\" / \"反向上尾型\" / \"对称反向联动\" / \"弱联动\"</p>",
+    "params": []
+  },
+  {
+    "name": "copula_kendall_tau",
+    "description": "<p>计算Kendall's tau</p>",
+    "params": []
+  },
+  {
     "name": "corrwith",
     "description": "<p>计算两个DataFrame对应列或行之间的相关系数。</p>\n<p>这个函数是pandas的corrwith方法的Rust实现包装，用于计算两个DataFrame中对应列（或行）\n之间的皮尔逊相关系数。会自动处理两个DataFrame的列名（或行名）匹配情况。</p>",
     "params": [
@@ -520,6 +560,16 @@
       "radius",
       "timeout_seconds"
     ]
+  },
+  {
+    "name": "empirical_tail_dependence",
+    "description": "<p>非参数估计尾部依赖（Python接口）</p>",
+    "params": []
+  },
+  {
+    "name": "estimate_all_copulas",
+    "description": "<p>批量估计所有Copula参数（增强版：包含非参数尾部依赖）</p>",
+    "params": []
   },
   {
     "name": "factor_correlation_by_date",
@@ -721,6 +771,41 @@
     "params": []
   },
   {
+    "name": "fractal_dimension_boxcount",
+    "description": "<p>独立计算价格序列的分形维度（盒计数法）</p>\n<p>将(时间, 价格)归一化到单位正方形，然后用不同尺度的网格覆盖，\n统计有数据点的格子数，对 ln(1/eps) 和 ln(N_boxes) 做线性拟合，\n斜率即分形维度。</p>",
+    "params": []
+  },
+  {
+    "name": "gaussian_copula_cdf_batch",
+    "description": "<p>Gaussian Copula 批量CDF计算</p>",
+    "params": []
+  },
+  {
+    "name": "gaussian_copula_cdf_py",
+    "description": "<p>Gaussian Copula CDF</p>",
+    "params": []
+  },
+  {
+    "name": "gaussian_copula_estimate",
+    "description": "<p>Gaussian Copula 参数估计</p>",
+    "params": []
+  },
+  {
+    "name": "gaussian_copula_pdf_batch",
+    "description": "<p>Gaussian Copula 批量PDF计算</p>",
+    "params": []
+  },
+  {
+    "name": "gaussian_copula_pdf_py",
+    "description": "<p>Gaussian Copula PDF</p>",
+    "params": []
+  },
+  {
+    "name": "gaussian_copula_sample_py",
+    "description": "<p>Gaussian Copula 采样</p>",
+    "params": []
+  },
+  {
     "name": "get_agent_daily_feature_column_groups_for_get_features_factors",
     "description": "<p>无文档</p>",
     "params": []
@@ -761,6 +846,36 @@
     "params": []
   },
   {
+    "name": "gumbel_copula_cdf_batch",
+    "description": "<p>Gumbel Copula 批量CDF计算</p>",
+    "params": []
+  },
+  {
+    "name": "gumbel_copula_cdf_py",
+    "description": "<p>Gumbel Copula CDF</p>",
+    "params": []
+  },
+  {
+    "name": "gumbel_copula_estimate",
+    "description": "<p>Gumbel Copula 参数估计</p>",
+    "params": []
+  },
+  {
+    "name": "gumbel_copula_pdf_py",
+    "description": "<p>Gumbel Copula PDF</p>",
+    "params": []
+  },
+  {
+    "name": "gumbel_copula_sample_py",
+    "description": "<p>Gumbel Copula 采样</p>",
+    "params": []
+  },
+  {
+    "name": "gumbel_upper_tail_dependence_py",
+    "description": "<p>Gumbel Copula 上尾依赖系数</p>",
+    "params": []
+  },
+  {
     "name": "hawkes_event_indicators",
     "description": "<p>计算Hawkes过程的事件级指标（需要价格数据）</p>\n<p>该函数在fit_hawkes_process的基础上,增加了需要价格数据的指标计算。\n额外计算的指标主要用于分析每个事件对价格的影响。</p>\n<h2>参数</h2>\n<p>event_times : numpy.ndarray\n    事件时间戳数组(单位:秒),需要是升序排列\nevent_volumes : numpy.ndarray\n    事件对应的成交量数组\nevent_prices : numpy.ndarray\n    事件对应的价格数组\ninitial_guess : Optional[Tuple[float, float, float]], optional\n    参数初始猜测值 (mu, alpha, beta),默认为None\nmax_iterations : int, optional\n    EM算法最大迭代次数,默认为1000\ntolerance : float, optional\n    收敛容差,默认为1e-6\ncluster_merge_threshold : float, optional\n    簇合并阈值(0-1),控制事件并入已有簇的宽松程度;\n    数值越大越容易把事件并入已有簇,形成更大的簇;\n    数值越小越严格,更倾向于创建新簇\n    默认0.8,建议范围[0.5, 0.95]</p>\n<h2>返回值</h2>\n<p>dict\n    包含fit_hawkes_process的所有字段,以及：\n    - 'cluster_price_changes': 每个簇的价格变化(簇结束时价格 - 簇开始时价格)\n    - 'time_intervals': 连续事件间的时间间隔</p>\n<h2>新指标解释</h2>\n<ol>\n<li>\n<p>簇价格变化(cluster_price_changes): 每个成交簇从开始到结束的价格变化,\n   反映该簇交易活动对价格的影响方向和幅度。</p>\n</li>\n<li>\n<p>时间间隔(time_intervals): 连续成交事件之间的时间间隔,\n   可用于分析市场活跃度的时间模式。</p>\n</li>\n</ol>\n<h2>示例</h2>\n<blockquote>\n<blockquote>\n<blockquote>\n<p>import rust_pyfunc as rp\nimport numpy as np</p>\n<h1>读取真实逐笔成交数据</h1>\n<p>df = read_trade_data('000001', 20220101)\ndf['time_seconds'] = (df.exchtime - df.exchtime.min()).dt.total_seconds()\nresult = rp.hawkes_event_indicators(\n...     df.time_seconds.to_numpy(),\n...     df.volume.to_numpy(),\n...     df.price.to_numpy()\n... )</p>\n<h1>分析大簇的价格影响</h1>\n<p>large_clusters = np.array(result['cluster_sizes']) &gt; 10\nprice_changes = np.array(result['cluster_price_changes'])[large_clusters]\nprint(f\"大簇平均价格变化: {np.mean(price_changes):.4f}\")</p>\n</blockquote>\n</blockquote>\n</blockquote>",
     "params": []
@@ -768,6 +883,11 @@
   {
     "name": "hmm_trend_prediction",
     "description": "<p>主要的HMM趋势预测函数</p>",
+    "params": []
+  },
+  {
+    "name": "hurst_exponent_rs",
+    "description": "<p>独立计算价格序列的Hurst指数（R/S分析）</p>\n<p>H &lt; 0.5 表示均值回复，H = 0.5 表示随机游走，H &gt; 0.5 表示趋势持续。</p>",
     "params": []
   },
   {
@@ -1325,6 +1445,31 @@
     "params": []
   },
   {
+    "name": "t_copula_cdf_batch",
+    "description": "<p>t-Copula 批量CDF计算</p>",
+    "params": []
+  },
+  {
+    "name": "t_copula_cdf_py",
+    "description": "<p>t-Copula CDF</p>",
+    "params": []
+  },
+  {
+    "name": "t_copula_estimate",
+    "description": "<p>t-Copula 参数估计 (返回rho, 使用固定df)</p>",
+    "params": []
+  },
+  {
+    "name": "t_copula_pdf_py",
+    "description": "<p>t-Copula PDF</p>",
+    "params": []
+  },
+  {
+    "name": "t_copula_sample_py",
+    "description": "<p>t-Copula 采样</p>",
+    "params": []
+  },
+  {
     "name": "test_function",
     "description": "<p>简单测试函数，确保模块导出正常工作</p>",
     "params": []
@@ -1356,6 +1501,11 @@
     "params": [
       "data"
     ]
+  },
+  {
+    "name": "to_uniform",
+    "description": "<p>将数据转换为均匀分布（经验CDF）</p>",
+    "params": []
   },
   {
     "name": "trade_peak_analysis",

@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>copula_analysis - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>copula_analysis</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>Copula综合分析函数（五种模型拟合 + 拟合优度比较 + 尾部依赖分析）</p>
+<p>支持5种Copula模型: Gaussian, t-Copula, Frank, Clayton(或Rotated-90), Gumbel(或Rotated-90)
+当 kendall_tau &lt;= 0 时，Clayton/Gumbel 自动切换为90°旋转版本以适配负相关</p>
+<p>返回三个字典：params(设定参数), estimates(估计结果), evaluation(评价建议)</p>
+<p>【params】参数信息
+  - quantile:         用户指定的分位数阈值，用于经验尾部依赖计算
+  - t_df_auto:        是否自动优化t-Copula自由度 (true/false)
+  - t_df:             t-Copula自由度，取值范围 (0, +∞)，越小尾部越厚
+  - n_samples:        有效样本量</p>
+<p>【estimates】从数据估计的结果</p>
+<p>Gaussian Copula:
+  - gaussian_rho:             由 tau 通过 sin(tau * π/2) 转换得到，取值 [-1, 1]
+                              绝对值越大相关越强，0 = 独立
+  - gaussian_log_likelihood:  对数似然，取值 (-∞, +∞)，越大拟合越好</p>
+<p>t-Copula:
+  - t_rho:                    与 gaussian_rho 相同（同源于 tau 转换），取值 [-1, 1]
+  - t_log_likelihood:         对数似然，取值 (-∞, +∞)，越大拟合越好</p>
+<p>Frank Copula:
+  - frank_theta:              Frank参数，取值 (-∞, +∞)
+                              &gt; 0 正相关，&lt; 0 负相关，绝对值越大相关越强，→0 趋近独立
+                              Frank 无尾部依赖，适合描述"中间段有相关但极端不联动"
+  - frank_log_likelihood:     对数似然，取值 (-∞, +∞)，越大拟合越好</p>
+<p>Clayton Copula (正相关时) / Rotated-Clayton-90 (负相关时):
+  - clayton_type:             "Clayton"(tau&gt;0) 或 "Rotated-Clayton-90"(tau&lt;=0)
+  - clayton_theta:            Clayton参数，取值 (0, +∞)
+                              越大依赖越强，→0 趋近独立
+                              注意：负相关时参数由 |tau| 估计，仍为正值
+  - clayton_log_likelihood:   对数似然，取值 (-∞, +∞)，越大拟合越好
+  - clayton_tail_dependence:  理论尾部依赖系数 = 2^(-1/θ)，取值 [0, 1]
+                              原版Clayton: 衡量同向下尾（X和Y同时极小）的联动概率
+                              Rotated-90: 衡量交叉尾部（X极大时Y极小）的联动概率
+                              越接近1联动越强，越接近0越独立</p>
+<p>Gumbel Copula (正相关时) / Rotated-Gumbel-90 (负相关时):
+  - gumbel_type:              "Gumbel"(tau&gt;0) 或 "Rotated-Gumbel-90"(tau&lt;=0)
+  - gumbel_theta:             Gumbel参数，取值 [1, +∞)
+                              越大依赖越强，=1 时为独立
+                              注意：负相关时参数由 |tau| 估计，仍 &gt;= 1
+  - gumbel_log_likelihood:    对数似然，取值 (-∞, +∞)，越大拟合越好
+  - gumbel_tail_dependence:   理论尾部依赖系数 = 2 - 2^(1/θ)，取值 [0, 1]
+                              原版Gumbel: 衡量同向上尾（X和Y同时极大）的联动概率
+                              Rotated-90: 衡量交叉尾部（X极小时Y极大）的联动概率
+                              越接近1联动越强，越接近0越独立</p>
+<p>非参数经验尾部依赖:
+  - empirical_lower_tail:       P(Y<q分位 | X\<q分位)，取值 [0, 1]
+                                衡量两者同时处于极低分位的概率，越大说明同跌联动越强
+  - empirical_upper_tail:       P(Y>1-q分位 | X>1-q分位)，取值 [0, 1]
+                                衡量两者同时处于极高分位的概率，越大说明同涨联动越强
+  - empirical_cross_lower_tail: P(Y<q分位 | X>1-q分位)，取值 [0, 1]
+                                X极大时Y极小的概率，负相关核心指标，越大反向联动越强
+  - empirical_cross_upper_tail: P(X<q分位 | Y>1-q分位)，取值 [0, 1]
+                                X极小时Y极大的概率，负相关核心指标，越大反向联动越强</p>
+<p>【evaluation】模型评价和建议
+  - gaussian_aic / t_aic / frank_aic / clayton_aic / gumbel_aic:
+                              AIC信息准则 = 2k - 2*loglik，取值 (-∞, +∞)
+                              越小（越负）拟合越好，不同模型间可直接比较
+  - best_copula:              AIC最小的模型名称
+  - best_aic:                 最佳AIC值
+  - best_avg_loglik:          最佳模型的每样本平均对数似然，取值 [0, +∞)
+                              = best_loglik / n_samples
+                              独立时 = 0，越大说明依赖越强
+                              跨例子可直接比较：无论最佳模型是哪个族、样本量多少
+                              例如 A=0.015 vs B=0.032 → B的依赖关系更强
+  - tail_asymmetry:           尾部不对称度，取值 (-1, 1)
+                              正相关时 = empirical_lower - empirical_upper，&gt;0 共跌型，&lt;0 共涨型
+                              负相关时 = cross_lower - cross_upper，&gt;0 卖强买弱联动更显著
+  - tail_type:                尾部类型的文字描述
+                              正相关: "共跌型" / "共涨型" / "对称尾部依赖" / "近独立"
+                              负相关: "反向下尾型" / "反向上尾型" / "对称反向联动" / "弱联动"</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>copula_analysis(x, y, q, df) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                <p>此函数没有参数</p>
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import copula_analysis
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>
