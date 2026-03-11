@@ -2068,7 +2068,7 @@ def fractal_dimension_boxcount(
     prices: NDArray[np.float64],
     times: NDArray[np.float64],
     levels: List[int] = [2, 3, 4, 5, 6, 7, 8],
-) -> float:
+) -> Tuple[float, List[float]]:
     """计算价格序列的分形维度（盒计数法）
 
     将(时间, 价格)归一化到单位正方形，用指定尺度的网格覆盖，
@@ -2085,8 +2085,10 @@ def fractal_dimension_boxcount(
 
     返回值：
     -------
-    float
-        分形维度值，数据不足时返回0.0
+    Tuple[float, List[float]]
+        (分形维度, 覆盖率列表)
+        - 分形维度值，数据不足时返回0.0
+        - 覆盖率列表：每个level对应的覆盖率，= 被占用格子数 / 总格子数
     """
     ...
 

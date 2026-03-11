@@ -1574,12 +1574,15 @@ pub fn calculate_order_pair_metrics_more_v2_faster(
 /// 将(时间, 价格)归一化到单位正方形，然后用不同尺度的网格覆盖，
 /// 统计有数据点的格子数，对 ln(1/eps) 和 ln(N_boxes) 做线性拟合，
 /// 斜率即分形维度。
+///
+/// 返回: (分形维度, 覆盖率列表)
+/// 覆盖率 = n_boxes / (level^2)，表示被占用的格子占总格子的比例
 #[pyfunction(signature = (prices, times, levels=vec![2,3,4,5,6,7,8]))]
 pub fn fractal_dimension_boxcount(
     prices: PyReadonlyArray1<f64>,
     times: PyReadonlyArray1<f64>,
     levels: Vec<usize>,
-) -> PyResult<f64> {
+) -> PyResult<(f64, Vec<f64>)> {
     let prices = prices.as_slice()?;
     let times = times.as_slice()?;
 
@@ -1591,7 +1594,7 @@ pub fn fractal_dimension_boxcount(
 
     let n = prices.len();
     if n < 5 {
-        return Ok(0.0);
+        return Ok((0.0, vec![0.0; levels.len()]));
     }
 
     let t_min = times.iter().fold(f64::INFINITY, |a, &b| a.min(b));
@@ -1609,25 +1612,33 @@ pub fn fractal_dimension_boxcount(
         .collect();
 
     let mut counts: Vec<(f64, f64)> = Vec::new();
+    let mut coverages: Vec<f64> = Vec::with_capacity(levels.len());
 
     for &level in &levels {
         let eps = 1.0 / level as f64;
+        let level_i32 = level as i32;
         let mut boxes: HashSet<(i32, i32)> = HashSet::new();
 
         for (x, y) in &points {
-            let bx = (x / eps).floor() as i32;
-            let by = (y / eps).floor() as i32;
+            // 将边界点clamp到 [0, level-1]，避免 x=1.0 时产生额外格子
+            let bx = ((x / eps).floor() as i32).min(level_i32 - 1).max(0);
+            let by = ((y / eps).floor() as i32).min(level_i32 - 1).max(0);
             boxes.insert((bx, by));
         }
 
         let n_boxes = boxes.len() as f64;
+        // 计算覆盖率: 被占用的格子数 / 总格子数
+        let total_boxes = (level * level) as f64;
+        let coverage = if total_boxes > 0.0 { n_boxes / total_boxes } else { 0.0 };
+        coverages.push(coverage);
+
         if n_boxes > 0.0 {
             counts.push((eps.recip().ln(), n_boxes.ln()));
         }
     }
 
     if counts.len() < 2 {
-        return Ok(0.0);
+        return Ok((0.0, coverages));
     }
 
     let cnt = counts.len() as f64;
@@ -1638,10 +1649,10 @@ pub fn fractal_dimension_boxcount(
 
     let denom = cnt * sum_xx - sum_x * sum_x;
     if denom.abs() < 1e-12 {
-        return Ok(0.0);
+        return Ok((0.0, coverages));
     }
 
-    Ok((cnt * sum_xy - sum_x * sum_y) / denom)
+    Ok(((cnt * sum_xy - sum_x * sum_y) / denom, coverages))
 }
 
 /// 独立计算价格序列的Hurst指数（R/S分析）
