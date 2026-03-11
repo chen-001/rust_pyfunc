@@ -1,5 +1,5 @@
 use ndarray::{Array2, ArrayView2};
-use numpy::{IntoPyArray, PyArray2, PyReadonlyArray2};
+use numpy::{IntoPyArray, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::prelude::*;
 use std::collections::{HashMap, HashSet};
 
@@ -1567,4 +1567,123 @@ pub fn calculate_order_pair_metrics_more_v2_faster(
     ];
     
     Ok((results.into_pyarray(py).to_owned(), column_names))
+}
+
+/// 独立计算价格序列的分形维度（盒计数法）
+///
+/// 将(时间, 价格)归一化到单位正方形，然后用不同尺度的网格覆盖，
+/// 统计有数据点的格子数，对 ln(1/eps) 和 ln(N_boxes) 做线性拟合，
+/// 斜率即分形维度。
+#[pyfunction(signature = (prices, times, levels=vec![2,3,4,5,6,7,8]))]
+pub fn fractal_dimension_boxcount(
+    prices: PyReadonlyArray1<f64>,
+    times: PyReadonlyArray1<f64>,
+    levels: Vec<usize>,
+) -> PyResult<f64> {
+    let prices = prices.as_slice()?;
+    let times = times.as_slice()?;
+
+    if prices.len() != times.len() {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "prices和times长度必须相同",
+        ));
+    }
+
+    let n = prices.len();
+    if n < 5 {
+        return Ok(0.0);
+    }
+
+    let t_min = times.iter().fold(f64::INFINITY, |a, &b| a.min(b));
+    let t_max = times.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
+    let p_min = prices.iter().fold(f64::INFINITY, |a, &b| a.min(b));
+    let p_max = prices.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
+
+    let t_range = (t_max - t_min).max(1e-9);
+    let p_range = (p_max - p_min).max(1e-9);
+
+    let points: Vec<(f64, f64)> = times
+        .iter()
+        .zip(prices.iter())
+        .map(|(&t, &p)| ((t - t_min) / t_range, (p - p_min) / p_range))
+        .collect();
+
+    let mut counts: Vec<(f64, f64)> = Vec::new();
+
+    for &level in &levels {
+        let eps = 1.0 / level as f64;
+        let mut boxes: HashSet<(i32, i32)> = HashSet::new();
+
+        for (x, y) in &points {
+            let bx = (x / eps).floor() as i32;
+            let by = (y / eps).floor() as i32;
+            boxes.insert((bx, by));
+        }
+
+        let n_boxes = boxes.len() as f64;
+        if n_boxes > 0.0 {
+            counts.push((eps.recip().ln(), n_boxes.ln()));
+        }
+    }
+
+    if counts.len() < 2 {
+        return Ok(0.0);
+    }
+
+    let cnt = counts.len() as f64;
+    let sum_x: f64 = counts.iter().map(|(x, _)| x).sum();
+    let sum_y: f64 = counts.iter().map(|(_, y)| y).sum();
+    let sum_xy: f64 = counts.iter().map(|(x, y)| x * y).sum();
+    let sum_xx: f64 = counts.iter().map(|(x, _)| x * x).sum();
+
+    let denom = cnt * sum_xx - sum_x * sum_x;
+    if denom.abs() < 1e-12 {
+        return Ok(0.0);
+    }
+
+    Ok((cnt * sum_xy - sum_x * sum_y) / denom)
+}
+
+/// 独立计算价格序列的Hurst指数（R/S分析）
+///
+/// H < 0.5 表示均值回复，H = 0.5 表示随机游走，H > 0.5 表示趋势持续。
+#[pyfunction]
+pub fn hurst_exponent_rs(prices: PyReadonlyArray1<f64>) -> PyResult<f64> {
+    let prices = prices.as_slice()?;
+    let n = prices.len();
+
+    if n < 11 {
+        return Ok(0.5);
+    }
+
+    let returns: Vec<f64> = (1..n).map(|i| (prices[i] / prices[i - 1]).ln()).collect();
+
+    if returns.is_empty() {
+        return Ok(0.5);
+    }
+
+    let mean_ret: f64 = returns.iter().sum::<f64>() / returns.len() as f64;
+
+    let mut cum_dev: Vec<f64> = Vec::with_capacity(returns.len());
+    let mut cumsum = 0.0;
+    for &r in &returns {
+        cumsum += r - mean_ret;
+        cum_dev.push(cumsum);
+    }
+
+    let r_val = cum_dev.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b))
+        - cum_dev.iter().fold(f64::INFINITY, |a, &b| a.min(b));
+
+    let var: f64 =
+        returns.iter().map(|r| (r - mean_ret).powi(2)).sum::<f64>() / returns.len() as f64;
+    let s_val = var.sqrt();
+
+    if s_val < 1e-12 {
+        return Ok(0.5);
+    }
+
+    let rs = r_val / s_val;
+    let h = rs.ln() / (returns.len() as f64 / 2.0).ln().max(1e-9);
+
+    Ok(h.clamp(0.0, 1.0))
 }
