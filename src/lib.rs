@@ -69,6 +69,7 @@ pub mod microstructure_pattern_features_v2;
 pub mod agent_trading_features;
 pub mod agent_simulator;
 pub mod order_pair_metrics;
+pub mod copula;
 
 /// Formats the sum of two numbers as string.
 #[pyfunction]
@@ -651,6 +652,44 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         order_pair_metrics::calculate_order_pair_metrics_more_v2_faster,
         m
     )?)?;
+
+    // 独立的分形维度和Hurst指数计算
+    m.add_function(wrap_pyfunction!(order_pair_metrics::fractal_dimension_boxcount, m)?)?;
+    m.add_function(wrap_pyfunction!(order_pair_metrics::hurst_exponent_rs, m)?)?;
+
+    // Copula函数模块
+    m.add_function(wrap_pyfunction!(copula::gaussian_copula_cdf_py, m)?)?;
+    m.add_function(wrap_pyfunction!(copula::gaussian_copula_pdf_py, m)?)?;
+    m.add_function(wrap_pyfunction!(copula::gaussian_copula_cdf_batch, m)?)?;
+    m.add_function(wrap_pyfunction!(copula::gaussian_copula_pdf_batch, m)?)?;
+    m.add_function(wrap_pyfunction!(copula::gaussian_copula_sample_py, m)?)?;
+    m.add_function(wrap_pyfunction!(copula::gaussian_copula_estimate, m)?)?;
+
+    m.add_function(wrap_pyfunction!(copula::t_copula_cdf_py, m)?)?;
+    m.add_function(wrap_pyfunction!(copula::t_copula_pdf_py, m)?)?;
+    m.add_function(wrap_pyfunction!(copula::t_copula_cdf_batch, m)?)?;
+    m.add_function(wrap_pyfunction!(copula::t_copula_sample_py, m)?)?;
+    m.add_function(wrap_pyfunction!(copula::t_copula_estimate, m)?)?;
+
+    m.add_function(wrap_pyfunction!(copula::clayton_copula_cdf_py, m)?)?;
+    m.add_function(wrap_pyfunction!(copula::clayton_copula_pdf_py, m)?)?;
+    m.add_function(wrap_pyfunction!(copula::clayton_copula_cdf_batch, m)?)?;
+    m.add_function(wrap_pyfunction!(copula::clayton_copula_sample_py, m)?)?;
+    m.add_function(wrap_pyfunction!(copula::clayton_copula_estimate, m)?)?;
+    m.add_function(wrap_pyfunction!(copula::clayton_lower_tail_dependence_py, m)?)?;
+
+    m.add_function(wrap_pyfunction!(copula::gumbel_copula_cdf_py, m)?)?;
+    m.add_function(wrap_pyfunction!(copula::gumbel_copula_pdf_py, m)?)?;
+    m.add_function(wrap_pyfunction!(copula::gumbel_copula_cdf_batch, m)?)?;
+    m.add_function(wrap_pyfunction!(copula::gumbel_copula_sample_py, m)?)?;
+    m.add_function(wrap_pyfunction!(copula::gumbel_copula_estimate, m)?)?;
+    m.add_function(wrap_pyfunction!(copula::gumbel_upper_tail_dependence_py, m)?)?;
+
+    m.add_function(wrap_pyfunction!(copula::copula_kendall_tau, m)?)?;
+    m.add_function(wrap_pyfunction!(copula::to_uniform, m)?)?;
+    m.add_function(wrap_pyfunction!(copula::estimate_all_copulas, m)?)?;
+    m.add_function(wrap_pyfunction!(copula::empirical_tail_dependence, m)?)?;
+    m.add_function(wrap_pyfunction!(copula::copula_analysis, m)?)?;
 
     Ok(())
 }

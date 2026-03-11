@@ -27,6 +27,7 @@ from .agent_trading_daily import *
 from .agent_simulator import *
 from .statistical_analysis import *
 from .web_manager import *
+from .copula import *
 
 # 版本信息
 __version__ = "0.18.0"

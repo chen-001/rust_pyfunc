@@ -1999,8 +1999,8 @@ def calculate_order_pair_metrics_more(
     Tuple[numpy.ndarray, List[str]]
         - 结果矩阵：配对数×44的矩阵
         - 列名列表：44个列名
-    """
-    ...
+        """
+        ...
 
 
 def calculate_order_pair_metrics_more_v2(
@@ -2063,3 +2063,50 @@ def calculate_order_pair_metrics_more_v2_faster(
     ...
 
 
+
+def fractal_dimension_boxcount(
+    prices: NDArray[np.float64],
+    times: NDArray[np.float64],
+    levels: List[int] = [2, 3, 4, 5, 6, 7, 8],
+) -> float:
+    """计算价格序列的分形维度（盒计数法）
+
+    将(时间, 价格)归一化到单位正方形，用指定尺度的网格覆盖，
+    统计有数据点的格子数，对 ln(1/eps) 和 ln(N_boxes) 做线性拟合，斜率即分形维度。
+
+    参数：
+    ----------
+    prices : numpy.ndarray
+        价格序列，一维float64数组
+    times : numpy.ndarray
+        时间序列，一维float64数组，与prices等长
+    levels : List[int], 默认[2,3,4,5,6,7,8]
+        盒计数法的网格级别列表，每个level对应 eps=1/level 的网格尺度
+
+    返回值：
+    -------
+    float
+        分形维度值，数据不足时返回0.0
+    """
+    ...
+
+
+def hurst_exponent_rs(
+    prices: NDArray[np.float64],
+) -> float:
+    """计算价格序列的Hurst指数（R/S分析）
+
+    基于对数收益率的R/S分析法。
+    H < 0.5 表示均值回复，H = 0.5 表示随机游走，H > 0.5 表示趋势持续。
+
+    参数：
+    ----------
+    prices : numpy.ndarray
+        价格序列，一维float64数组，至少需要11个数据点
+
+    返回值：
+    -------
+    float
+        Hurst指数值，范围[0, 1]，数据不足时返回0.5
+    """
+    ...
