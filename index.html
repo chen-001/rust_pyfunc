@@ -859,6 +859,42 @@ market microstructure features, and provides quantitative trading and strategy s
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="clayton_copula_cdf_batch.html">clayton_copula_cdf_batch</a></h3>
+                <div><p>Clayton Copula 批量CDF计算</p></div>
+                <a href="clayton_copula_cdf_batch.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="clayton_copula_cdf_py.html">clayton_copula_cdf_py</a></h3>
+                <div><p>Clayton Copula CDF</p></div>
+                <a href="clayton_copula_cdf_py.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="clayton_copula_estimate.html">clayton_copula_estimate</a></h3>
+                <div><p>Clayton Copula 参数估计</p></div>
+                <a href="clayton_copula_estimate.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="clayton_copula_pdf_py.html">clayton_copula_pdf_py</a></h3>
+                <div><p>Clayton Copula PDF</p></div>
+                <a href="clayton_copula_pdf_py.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="clayton_copula_sample_py.html">clayton_copula_sample_py</a></h3>
+                <div><p>Clayton Copula 采样</p></div>
+                <a href="clayton_copula_sample_py.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="clayton_lower_tail_dependence_py.html">clayton_lower_tail_dependence_py</a></h3>
+                <div><p>Clayton Copula 下尾依赖系数</p></div>
+                <a href="clayton_lower_tail_dependence_py.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="column_correlation_batch.html">column_correlation_batch</a></h3>
                 <div><p>批量计算多列相关系数的优化版本</p>
 <p>为了进一步提升性能，使用批量处理和更好的缓存局部性</p></div>
@@ -871,6 +907,85 @@ market microstructure features, and provides quantitative trading and strategy s
 <p>使用高度优化的算法计算两个n×n数组对应列之间的皮尔逊相关系数。
 采用Welford's online算法确保数值稳定性，优化内存访问模式以提升性能。</p></div>
                 <a href="column_correlation_fast.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="copula_analysis.html">copula_analysis</a></h3>
+                <div><p>Copula综合分析函数（五种模型拟合 + 拟合优度比较 + 尾部依赖分析）</p>
+<p>支持5种Copula模型: Gaussian, t-Copula, Frank, Clayton(或Rotated-90), Gumbel(或Rotated-90)
+当 kendall_tau &lt;= 0 时，Clayton/Gumbel 自动切换为90°旋转版本以适配负相关</p>
+<p>返回三个字典：params(设定参数), estimates(估计结果), evaluation(评价建议)</p>
+<p>【params】参数信息
+  - quantile:         用户指定的分位数阈值，用于经验尾部依赖计算
+  - t_df_auto:        是否自动优化t-Copula自由度 (true/false)
+  - t_df:             t-Copula自由度，取值范围 (0, +∞)，越小尾部越厚
+  - n_samples:        有效样本量</p>
+<p>【estimates】从数据估计的结果</p>
+<p>Gaussian Copula:
+  - gaussian_rho:             由 tau 通过 sin(tau * π/2) 转换得到，取值 [-1, 1]
+                              绝对值越大相关越强，0 = 独立
+  - gaussian_log_likelihood:  对数似然，取值 (-∞, +∞)，越大拟合越好</p>
+<p>t-Copula:
+  - t_rho:                    与 gaussian_rho 相同（同源于 tau 转换），取值 [-1, 1]
+  - t_log_likelihood:         对数似然，取值 (-∞, +∞)，越大拟合越好</p>
+<p>Frank Copula:
+  - frank_theta:              Frank参数，取值 (-∞, +∞)
+                              &gt; 0 正相关，&lt; 0 负相关，绝对值越大相关越强，→0 趋近独立
+                              Frank 无尾部依赖，适合描述"中间段有相关但极端不联动"
+  - frank_log_likelihood:     对数似然，取值 (-∞, +∞)，越大拟合越好</p>
+<p>Clayton Copula (正相关时) / Rotated-Clayton-90 (负相关时):
+  - clayton_type:             "Clayton"(tau&gt;0) 或 "Rotated-Clayton-90"(tau&lt;=0)
+  - clayton_theta:            Clayton参数，取值 (0, +∞)
+                              越大依赖越强，→0 趋近独立
+                              注意：负相关时参数由 |tau| 估计，仍为正值
+  - clayton_log_likelihood:   对数似然，取值 (-∞, +∞)，越大拟合越好
+  - clayton_tail_dependence:  理论尾部依赖系数 = 2^(-1/θ)，取值 [0, 1]
+                              原版Clayton: 衡量同向下尾（X和Y同时极小）的联动概率
+                              Rotated-90: 衡量交叉尾部（X极大时Y极小）的联动概率
+                              越接近1联动越强，越接近0越独立</p>
+<p>Gumbel Copula (正相关时) / Rotated-Gumbel-90 (负相关时):
+  - gumbel_type:              "Gumbel"(tau&gt;0) 或 "Rotated-Gumbel-90"(tau&lt;=0)
+  - gumbel_theta:             Gumbel参数，取值 [1, +∞)
+                              越大依赖越强，=1 时为独立
+                              注意：负相关时参数由 |tau| 估计，仍 &gt;= 1
+  - gumbel_log_likelihood:    对数似然，取值 (-∞, +∞)，越大拟合越好
+  - gumbel_tail_dependence:   理论尾部依赖系数 = 2 - 2^(1/θ)，取值 [0, 1]
+                              原版Gumbel: 衡量同向上尾（X和Y同时极大）的联动概率
+                              Rotated-90: 衡量交叉尾部（X极小时Y极大）的联动概率
+                              越接近1联动越强，越接近0越独立</p>
+<p>非参数经验尾部依赖:
+  - empirical_lower_tail:       P(Y<q分位 | X\<q分位)，取值 [0, 1]
+                                衡量两者同时处于极低分位的概率，越大说明同跌联动越强
+  - empirical_upper_tail:       P(Y>1-q分位 | X>1-q分位)，取值 [0, 1]
+                                衡量两者同时处于极高分位的概率，越大说明同涨联动越强
+  - empirical_cross_lower_tail: P(Y<q分位 | X>1-q分位)，取值 [0, 1]
+                                X极大时Y极小的概率，负相关核心指标，越大反向联动越强
+  - empirical_cross_upper_tail: P(X<q分位 | Y>1-q分位)，取值 [0, 1]
+                                X极小时Y极大的概率，负相关核心指标，越大反向联动越强</p>
+<p>【evaluation】模型评价和建议
+  - gaussian_aic / t_aic / frank_aic / clayton_aic / gumbel_aic:
+                              AIC信息准则 = 2k - 2*loglik，取值 (-∞, +∞)
+                              越小（越负）拟合越好，不同模型间可直接比较
+  - best_copula:              AIC最小的模型名称
+  - best_aic:                 最佳AIC值
+  - best_avg_loglik:          最佳模型的每样本平均对数似然，取值 [0, +∞)
+                              = best_loglik / n_samples
+                              独立时 = 0，越大说明依赖越强
+                              跨例子可直接比较：无论最佳模型是哪个族、样本量多少
+                              例如 A=0.015 vs B=0.032 → B的依赖关系更强
+  - tail_asymmetry:           尾部不对称度，取值 (-1, 1)
+                              正相关时 = empirical_lower - empirical_upper，&gt;0 共跌型，&lt;0 共涨型
+                              负相关时 = cross_lower - cross_upper，&gt;0 卖强买弱联动更显著
+  - tail_type:                尾部类型的文字描述
+                              正相关: "共跌型" / "共涨型" / "对称尾部依赖" / "近独立"
+                              负相关: "反向下尾型" / "反向上尾型" / "对称反向联动" / "弱联动"</p></div>
+                <a href="copula_analysis.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="copula_kendall_tau.html">copula_kendall_tau</a></h3>
+                <div><p>计算Kendall's tau</p></div>
+                <a href="copula_kendall_tau.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -984,6 +1099,18 @@ print(distances.shape)  # (240,)
                 <div><p>DTW（动态时间规整）是一种测量两个时间序列相似度的方法。
 该算法计算两个可能长度不同、tempo不同的时间序列间的最优匹配。</p></div>
                 <a href="dtw_distance.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="empirical_tail_dependence.html">empirical_tail_dependence</a></h3>
+                <div><p>非参数估计尾部依赖（Python接口）</p></div>
+                <a href="empirical_tail_dependence.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="estimate_all_copulas.html">estimate_all_copulas</a></h3>
+                <div><p>批量估计所有Copula参数（增强版：包含非参数尾部依赖）</p></div>
+                <a href="estimate_all_copulas.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -1237,6 +1364,51 @@ print(f"平均强度: {result['mean_intensity']:.3f}")</p>
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="fractal_dimension_boxcount.html">fractal_dimension_boxcount</a></h3>
+                <div><p>独立计算价格序列的分形维度（盒计数法）</p>
+<p>将(时间, 价格)归一化到单位正方形，然后用不同尺度的网格覆盖，
+统计有数据点的格子数，对 ln(1/eps) 和 ln(N_boxes) 做线性拟合，
+斜率即分形维度。</p></div>
+                <a href="fractal_dimension_boxcount.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="gaussian_copula_cdf_batch.html">gaussian_copula_cdf_batch</a></h3>
+                <div><p>Gaussian Copula 批量CDF计算</p></div>
+                <a href="gaussian_copula_cdf_batch.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="gaussian_copula_cdf_py.html">gaussian_copula_cdf_py</a></h3>
+                <div><p>Gaussian Copula CDF</p></div>
+                <a href="gaussian_copula_cdf_py.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="gaussian_copula_estimate.html">gaussian_copula_estimate</a></h3>
+                <div><p>Gaussian Copula 参数估计</p></div>
+                <a href="gaussian_copula_estimate.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="gaussian_copula_pdf_batch.html">gaussian_copula_pdf_batch</a></h3>
+                <div><p>Gaussian Copula 批量PDF计算</p></div>
+                <a href="gaussian_copula_pdf_batch.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="gaussian_copula_pdf_py.html">gaussian_copula_pdf_py</a></h3>
+                <div><p>Gaussian Copula PDF</p></div>
+                <a href="gaussian_copula_pdf_py.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="gaussian_copula_sample_py.html">gaussian_copula_sample_py</a></h3>
+                <div><p>Gaussian Copula 采样</p></div>
+                <a href="gaussian_copula_sample_py.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="get_agent_daily_feature_column_groups_for_get_features_factors.html">get_agent_daily_feature_column_groups_for_get_features_factors</a></h3>
                 <div><p>无文档</p></div>
                 <a href="get_agent_daily_feature_column_groups_for_get_features_factors.html">查看详情</a>
@@ -1282,6 +1454,42 @@ print(f"平均强度: {result['mean_intensity']:.3f}")</p>
                 <h3 class="function-name"><a href="gp_create_options.html">gp_create_options</a></h3>
                 <div><p>无文档</p></div>
                 <a href="gp_create_options.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="gumbel_copula_cdf_batch.html">gumbel_copula_cdf_batch</a></h3>
+                <div><p>Gumbel Copula 批量CDF计算</p></div>
+                <a href="gumbel_copula_cdf_batch.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="gumbel_copula_cdf_py.html">gumbel_copula_cdf_py</a></h3>
+                <div><p>Gumbel Copula CDF</p></div>
+                <a href="gumbel_copula_cdf_py.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="gumbel_copula_estimate.html">gumbel_copula_estimate</a></h3>
+                <div><p>Gumbel Copula 参数估计</p></div>
+                <a href="gumbel_copula_estimate.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="gumbel_copula_pdf_py.html">gumbel_copula_pdf_py</a></h3>
+                <div><p>Gumbel Copula PDF</p></div>
+                <a href="gumbel_copula_pdf_py.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="gumbel_copula_sample_py.html">gumbel_copula_sample_py</a></h3>
+                <div><p>Gumbel Copula 采样</p></div>
+                <a href="gumbel_copula_sample_py.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="gumbel_upper_tail_dependence_py.html">gumbel_upper_tail_dependence_py</a></h3>
+                <div><p>Gumbel Copula 上尾依赖系数</p></div>
+                <a href="gumbel_upper_tail_dependence_py.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -1351,6 +1559,13 @@ print(f"大簇平均价格变化: {np.mean(price_changes):.4f}")</p>
                 <h3 class="function-name"><a href="hmm_trend_prediction.html">hmm_trend_prediction</a></h3>
                 <div><p>主要的HMM趋势预测函数</p></div>
                 <a href="hmm_trend_prediction.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="hurst_exponent_rs.html">hurst_exponent_rs</a></h3>
+                <div><p>独立计算价格序列的Hurst指数（R/S分析）</p>
+<p>H &lt; 0.5 表示均值回复，H = 0.5 表示随机游走，H &gt; 0.5 表示趋势持续。</p></div>
+                <a href="hurst_exponent_rs.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -2186,6 +2401,36 @@ print(f"super加速比: {time1/time3:.2f}倍")
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="t_copula_cdf_batch.html">t_copula_cdf_batch</a></h3>
+                <div><p>t-Copula 批量CDF计算</p></div>
+                <a href="t_copula_cdf_batch.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="t_copula_cdf_py.html">t_copula_cdf_py</a></h3>
+                <div><p>t-Copula CDF</p></div>
+                <a href="t_copula_cdf_py.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="t_copula_estimate.html">t_copula_estimate</a></h3>
+                <div><p>t-Copula 参数估计 (返回rho, 使用固定df)</p></div>
+                <a href="t_copula_estimate.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="t_copula_pdf_py.html">t_copula_pdf_py</a></h3>
+                <div><p>t-Copula PDF</p></div>
+                <a href="t_copula_pdf_py.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="t_copula_sample_py.html">t_copula_sample_py</a></h3>
+                <div><p>t-Copula 采样</p></div>
+                <a href="t_copula_sample_py.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="test_function.html">test_function</a></h3>
                 <div><p>简单测试函数，确保模块导出正常工作</p></div>
                 <a href="test_function.html">查看详情</a>
@@ -2213,6 +2458,12 @@ print(f"super加速比: {time1/time3:.2f}倍")
                 <h3 class="function-name"><a href="time_irreversibility_transfer_simple.html">time_irreversibility_transfer_simple</a></h3>
                 <div><p>转移版-简略版：只计算转移不可逆指标 I_trans</p></div>
                 <a href="time_irreversibility_transfer_simple.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="to_uniform.html">to_uniform</a></h3>
+                <div><p>将数据转换为均匀分布（经验CDF）</p></div>
+                <a href="to_uniform.html">查看详情</a>
             </div>
             
             <div class="function-item">
