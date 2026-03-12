@@ -1508,6 +1508,18 @@
     "params": []
   },
   {
+    "name": "topk_corr_matrix",
+    "description": "<p>计算每分钟涨幅最大/最小的top_k只股票与所有股票在过去window分钟的相关系数统计量</p>",
+    "params": [
+      "select_matrix",
+      "corr_matrix",
+      "top_k",
+      "window",
+      "top_n",
+      "select_largest"
+    ]
+  },
+  {
     "name": "trade_peak_analysis",
     "description": "<p>交易高峰模式分析函数</p>\n<p>该函数用于分析交易数据中的高峰模式，包括：\n1. 识别成交量的局部高峰(根据top_tier1百分比)\n2. 在每个高峰的时间窗口内识别小峰(根据top_tier2百分比)\n3. 计算17个统计指标来描述高峰-小峰的模式特征</p>",
     "params": [

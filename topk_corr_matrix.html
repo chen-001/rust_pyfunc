@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>topk_corr_matrix - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>topk_corr_matrix</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>计算每分钟涨幅最大/最小的top_k只股票与所有股票在过去window分钟的相关系数统计量</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>topk_corr_matrix(select_matrix, corr_matrix, top_k, window, top_n, select_largest) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">select_matrix</span>
+                    <span class="parameter-type">(numpy.ndarray (n_minutes, n_stocks))</span>
+                    <div><p>用于选择top_k股票的矩阵（如收益率矩阵），第t行第s列是第t分钟第s只股票的值</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">corr_matrix</span>
+                    <span class="parameter-type">(numpy.ndarray (n_minutes, n_stocks))</span>
+                    <div><p>用于计算相关系数的矩阵（如收益率矩阵或成交量矩阵），shape必须与select_matrix相同</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">top_k</span>
+                    <span class="parameter-type">(usize)</span>
+                    <div><p>每分钟选择的股票数量（如100）</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">window</span>
+                    <span class="parameter-type">(usize)</span>
+                    <div><p>计算相关系数时的回看窗口长度（如10）</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">top_n</span>
+                    <span class="parameter-type">(usize)</span>
+                    <div><p>计算最大top_n个相关系数的均值（如10）</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">select_largest</span>
+                    <span class="parameter-type">(bool)</span>
+                    <div><p>true=选择值最大的top_k只; false=选择值最小的top_k只</p></div>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div><hr />
+<p>(numpy.ndarray, numpy.ndarray, numpy.ndarray)
+    三个与输入矩阵相同shape的矩阵:
+    - corr_mean: 相关系数的均值
+    - corr_top_n_mean: 最大top_n个相关系数的均值
+    - corr_skew: 相关系数的偏度</p>
+<p>Python调用示例：
+```python
+import rust_pyfunc
+import numpy as np</p>
+<p>rets = np.random.randn(240, 5000)
+corr_mean, corr_top_mean, corr_skew = rust_pyfunc.topk_corr_matrix(rets, rets, 100, 10, 10, True)
+```</p></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import topk_corr_matrix
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>
