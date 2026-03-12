@@ -2112,3 +2112,39 @@ def hurst_exponent_rs(
         Hurst指数值，范围[0, 1]，数据不足时返回0.5
     """
     ...
+
+
+def topk_corr_matrix(
+    select_matrix: np.ndarray,
+    corr_matrix: np.ndarray,
+    top_k: int,
+    window: int,
+    top_n: int,
+    select_largest: bool,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """计算每分钟涨幅最大/最小的top_k只股票与所有股票在过去window分钟的相关系数统计量
+
+    参数：
+    ----------
+    select_matrix : numpy.ndarray (n_minutes, n_stocks)
+        用于选择top_k股票的矩阵（如收益率矩阵）
+    corr_matrix : numpy.ndarray (n_minutes, n_stocks)
+        用于计算相关系数的矩阵（如收益率矩阵或成交量矩阵），shape必须与select_matrix相同
+    top_k : int
+        每分钟选择的股票数量（如100）
+    window : int
+        计算相关系数时的回看窗口长度（如10）
+    top_n : int
+        计算最大top_n个相关系数的均值（如10）
+    select_largest : bool
+        True=选择值最大的top_k只; False=选择值最小的top_k只
+
+    返回值：
+    -------
+    Tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]
+        三个与输入矩阵相同shape的矩阵:
+        - corr_mean: 相关系数的均值
+        - corr_top_n_mean: 最大top_n个相关系数的均值
+        - corr_skew: 相关系数的偏度
+    """
+    ...

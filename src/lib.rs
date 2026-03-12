@@ -70,6 +70,7 @@ pub mod agent_trading_features;
 pub mod agent_simulator;
 pub mod order_pair_metrics;
 pub mod copula;
+pub mod topk_corr_matrix;
 
 /// Formats the sum of two numbers as string.
 #[pyfunction]
@@ -690,6 +691,9 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(copula::estimate_all_copulas, m)?)?;
     m.add_function(wrap_pyfunction!(copula::empirical_tail_dependence, m)?)?;
     m.add_function(wrap_pyfunction!(copula::copula_analysis, m)?)?;
+
+    // TopK相关系数矩阵计算
+    m.add_function(wrap_pyfunction!(topk_corr_matrix::topk_corr_matrix, m)?)?;
 
     Ok(())
 }
