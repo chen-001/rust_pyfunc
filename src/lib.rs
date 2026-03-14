@@ -23,6 +23,7 @@ pub mod order_records_ultra_sorted_v2_optimized;
 pub mod order_records_ultra_sorted_v3;
 pub mod pandas_ext;
 pub mod parallel_computing;
+pub mod parallel_computing_date_only;
 pub mod price_cycle_b_segments_enhanced;
 pub mod sequence;
 pub mod simple_parallel;
@@ -189,6 +190,7 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     let _ = m.add_function(wrap_pyfunction!(grouping::factor_grouping, m)?);
     let _ = m.add_function(wrap_pyfunction!(grouping::factor_correlation_by_date, m)?);
     let _ = m.add_function(wrap_pyfunction!(parallel_computing::run_pools_queue, m)?);
+    let _ = m.add_function(wrap_pyfunction!(parallel_computing_date_only::run_pools_queue_date_only, m)?);
     let _ = m.add_function(wrap_pyfunction!(simple_parallel::run_pools_simple, m)?);
     let _ = m.add_function(wrap_pyfunction!(backup_reader::query_backup, m)?);
     let _ = m.add_function(wrap_pyfunction!(backup_reader::query_backup_fast, m)?);

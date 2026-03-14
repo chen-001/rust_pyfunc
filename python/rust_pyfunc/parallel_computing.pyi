@@ -241,6 +241,76 @@ def run_pools_queue(
     ...
 
 
+def run_pools_queue_date_only(
+    python_function: Callable,
+    dates: List[int],
+    n_jobs: int,
+    backup_file: str,
+    expected_result_length: int,
+    restart_interval: Optional[int] = None,
+    update_mode: Optional[bool] = None,
+    task_timeout: Optional[int] = None,
+    health_check_interval: Optional[int] = None,
+    debug_monitor: Optional[bool] = None,
+    backup_batch_size: Optional[int] = None,
+    debug_log: Optional[bool] = None
+) -> None:
+    """单日期参数的并行计算框架，备份格式与 run_pools_queue 完全一致
+
+    仿照 run_pools_queue 的并行模式，但只遍历 date 参数（无 code 参数）。
+    Python 函数接受单个 date 参数，返回 list[pd.Series]，
+    每个 Series 的 index 是股票代码，values 是因子值。
+    
+    内部会将 list[pd.Series] 按股票代码展开：对每个 code 生成一条记录，
+    其中 facs[i] = series_list[i][code]，写入与 run_pools_queue 相同的
+    RPBACKUP 格式备份文件，可用 query_backup 等函数读取。
+
+    参数说明：
+    ----------
+    python_function : Callable
+        要并行执行的Python函数，签名为 func(date: int) -> list[pd.Series]
+        每个 Series 的 index 为股票代码（str），values 为因子值（float）
+    dates : List[int]
+        要遍历的日期列表，格式为 YYYYMMDD
+    n_jobs : int
+        并行进程数
+    backup_file : str
+        备份文件路径(.bin格式)，与 run_pools_queue 格式完全相同
+    expected_result_length : int
+        期望的因子数量，即 Python 函数返回的 Series 个数
+    restart_interval : Optional[int], default=200
+        每隔多少次备份后重启worker
+    update_mode : Optional[bool], default=False
+        更新模式，只读取传入日期涉及的已完成任务
+    task_timeout : Optional[int], default=120
+        单个任务最大执行时间（秒）
+    health_check_interval : Optional[int], default=300
+        健康检查间隔（秒）
+    debug_monitor : Optional[bool], default=False
+        是否开启监控调试日志
+    backup_batch_size : Optional[int], default=5000
+        每多少条记录备份一次
+    debug_log : Optional[bool], default=False
+        是否开启调试日志
+
+    示例：
+    -------
+    >>> def calc_factors(date):
+    ...     import pandas as pd
+    ...     s1 = pd.Series([1.0, 2.0], index=["000001", "000002"])
+    ...     s2 = pd.Series([3.0, 4.0], index=["000001", "000002"])
+    ...     return [s1, s2]
+    >>>
+    >>> dates = [20240101, 20240102, 20240103]
+    >>> run_pools_queue_date_only(
+    ...     calc_factors, dates, n_jobs=4,
+    ...     backup_file="factors.bin", expected_result_length=2,
+    ... )
+    >>> # 之后用 query_backup("factors.bin") 读取，格式与 run_pools_queue 一致
+    """
+    ...
+
+
 def run_pools_simple(
     python_function: Callable,
     args: List[List],
