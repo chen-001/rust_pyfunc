@@ -33,7 +33,7 @@ use crate::backup_reader::{
 };
 
 #[cfg(target_family = "unix")]
-fn reap_process(pid: u32) {
+pub fn reap_process(pid: u32) {
     let target = Pid::from_raw(pid as i32);
     for _ in 0..10 {
         match waitpid(target, Some(WaitPidFlag::WNOHANG)) {
@@ -48,7 +48,7 @@ fn reap_process(pid: u32) {
 }
 
 #[cfg(target_family = "unix")]
-fn terminate_process(pid: u32, graceful_timeout: Duration) {
+pub fn terminate_process(pid: u32, graceful_timeout: Duration) {
     let target = Pid::from_raw(pid as i32);
     if kill(target, Signal::SIGTERM).is_ok() {
         let mut waited = Duration::ZERO;
@@ -70,7 +70,7 @@ fn terminate_process(pid: u32, graceful_timeout: Duration) {
 }
 
 #[cfg(target_family = "unix")]
-fn ensure_fd_limit(desired: u64) {
+pub fn ensure_fd_limit(desired: u64) {
     use libc::{getrlimit, rlim_t, setrlimit, RLIMIT_NOFILE, RLIM_INFINITY};
 
     unsafe {
@@ -117,7 +117,7 @@ fn ensure_fd_limit(desired: u64) {
 }
 
 #[cfg(not(target_family = "unix"))]
-fn ensure_fd_limit(_desired: u64) {}
+pub fn ensure_fd_limit(_desired: u64) {}
 
 // 日志记录器，用于记录debug信息
 #[derive(Debug, Clone)]
@@ -714,7 +714,7 @@ impl WorkerMonitorManager {
     }
 }
 
-fn detect_python_interpreter() -> String {
+pub fn detect_python_interpreter() -> String {
     // 1. 检查环境变量
     if let Ok(python_path) = env::var("PYTHON_INTERPRETER") {
         if Path::new(&python_path).exists() {
@@ -1171,7 +1171,7 @@ if __name__ == '__main__':
     )
 }
 
-fn extract_python_function_code(py_func: &PyObject) -> PyResult<String> {
+pub fn extract_python_function_code(py_func: &PyObject) -> PyResult<String> {
     Python::with_gil(|py| {
         // 尝试获取函数的源代码
         let inspect = py.import("inspect")?;

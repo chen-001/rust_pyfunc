@@ -2,22 +2,24 @@ use ndarray::Array2;
 use numpy::{IntoPyArray, PyArray2, PyReadonlyArray2};
 use pyo3::prelude::*;
 
-/// 计算每分钟涨幅最大/最小的top_k只股票与所有股票在过去window分钟的相关系数统计量
+/// 计算每分钟涨幅最大/最小的指定排名范围内股票与所有股票在过去window分钟的相关系数统计量
 ///
 /// 参数说明：
 /// ----------
 /// select_matrix : numpy.ndarray (n_minutes, n_stocks)
-///     用于选择top_k股票的矩阵（如收益率矩阵），第t行第s列是第t分钟第s只股票的值
+///     用于选择股票的矩阵（如收益率矩阵），第t行第s列是第t分钟第s只股票的值
 /// corr_matrix : numpy.ndarray (n_minutes, n_stocks)
 ///     用于计算相关系数的矩阵（如收益率矩阵或成交量矩阵），shape必须与select_matrix相同
-/// top_k : usize
-///     每分钟选择的股票数量（如100）
+/// rank_start : usize
+///     排名起始位置（从0开始，包含），如0表示第1名
+/// rank_end : usize
+///     排名结束位置（不包含），如100表示取第1~100名
 /// window : usize
 ///     计算相关系数时的回看窗口长度（如10）
 /// top_n : usize
 ///     计算最大top_n个相关系数的均值（如10）
 /// select_largest : bool
-///     true=选择值最大的top_k只; false=选择值最小的top_k只
+///     true=选择值最大的; false=选择值最小的
 ///
 /// 返回值：
 /// -------
@@ -33,15 +35,19 @@ use pyo3::prelude::*;
 /// import numpy as np
 ///
 /// rets = np.random.randn(240, 5000)
-/// corr_mean, corr_top_mean, corr_skew = rust_pyfunc.topk_corr_matrix(rets, rets, 100, 10, 10, True)
+/// # 选最大的第1~100名（等同于之前的top_k=100）
+/// corr_mean, corr_top_mean, corr_skew = rust_pyfunc.topk_corr_matrix(rets, rets, 0, 100, 10, 10, True)
+/// # 选最大的第101~200名
+/// corr_mean, corr_top_mean, corr_skew = rust_pyfunc.topk_corr_matrix(rets, rets, 100, 200, 10, 10, True)
 /// ```
 #[pyfunction]
-#[pyo3(signature = (select_matrix, corr_matrix, top_k, window, top_n, select_largest))]
+#[pyo3(signature = (select_matrix, corr_matrix, rank_start, rank_end, window, top_n, select_largest))]
 pub fn topk_corr_matrix(
     py: Python,
     select_matrix: PyReadonlyArray2<f64>,
     corr_matrix: PyReadonlyArray2<f64>,
-    top_k: usize,
+    rank_start: usize,
+    rank_end: usize,
     window: usize,
     top_n: usize,
     select_largest: bool,
@@ -57,13 +63,13 @@ pub fn topk_corr_matrix(
         ));
     }
 
-    if top_k == 0 || window < 2 {
+    if rank_start >= rank_end || window < 2 {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-            "top_k必须>0，window必须>=2",
+            "需要rank_start < rank_end，且window必须>=2",
         ));
     }
 
-    let top_n = top_n.min(top_k);
+    let range_size = rank_end - rank_start;
 
     // 将corr_matrix转为行主序连续存储，提升缓存命中率
     let corr_data: Vec<f64> = if corr.is_standard_layout() {
@@ -97,15 +103,15 @@ pub fn topk_corr_matrix(
 
     // 预分配工作缓冲区（避免每次循环内重新分配）
     let mut indexed_buf: Vec<(usize, f64)> = Vec::with_capacity(n_cols);
-    let mut corrs_buf: Vec<f64> = Vec::with_capacity(top_k);
+    let mut corrs_buf: Vec<f64> = Vec::with_capacity(range_size);
 
     // 预分配selected股票的预计算统计量缓冲区
-    let mut sel_sum: Vec<f64> = vec![0.0; top_k];
-    let mut sel_sum_sq: Vec<f64> = vec![0.0; top_k];
-    let mut sel_valid_count: Vec<u32> = vec![0; top_k];
+    let mut sel_sum: Vec<f64> = vec![0.0; range_size];
+    let mut sel_sum_sq: Vec<f64> = vec![0.0; range_size];
+    let mut sel_valid_count: Vec<u32> = vec![0; range_size];
     // 存储selected股票的窗口数据（列主序：sel_win_data[k * window + w]）
-    let mut sel_win_data: Vec<f64> = vec![0.0; top_k * window];
-    let mut selected_indices: Vec<usize> = Vec::with_capacity(top_k);
+    let mut sel_win_data: Vec<f64> = vec![0.0; range_size * window];
+    let mut selected_indices: Vec<usize> = Vec::with_capacity(range_size);
 
     for t in (window - 1)..n_rows {
         let start = t + 1 - window;
@@ -125,22 +131,43 @@ pub fn topk_corr_matrix(
             continue;
         }
 
-        let actual_k = top_k.min(indexed_buf.len());
-        if actual_k < indexed_buf.len() {
+        let n_valid = indexed_buf.len();
+        // 实际可用的排名范围
+        let actual_start = rank_start.min(n_valid);
+        let actual_end = rank_end.min(n_valid);
+        if actual_start >= actual_end {
+            continue;
+        }
+
+        // 先用select_nth_unstable_by将前rank_end个元素放到前面
+        if actual_end < n_valid {
             if select_largest {
-                indexed_buf.select_nth_unstable_by(actual_k - 1, |a, b| {
+                indexed_buf.select_nth_unstable_by(actual_end - 1, |a, b| {
                     b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
                 });
             } else {
-                indexed_buf.select_nth_unstable_by(actual_k - 1, |a, b| {
+                indexed_buf.select_nth_unstable_by(actual_end - 1, |a, b| {
+                    a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
+                });
+            }
+        }
+        // 再在前actual_end个元素中，将前actual_start个放到最前面
+        if actual_start > 0 && actual_start < actual_end {
+            if select_largest {
+                indexed_buf[..actual_end].select_nth_unstable_by(actual_start - 1, |a, b| {
+                    b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
+                });
+            } else {
+                indexed_buf[..actual_end].select_nth_unstable_by(actual_start - 1, |a, b| {
                     a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
                 });
             }
         }
 
-        // 提取selected索引
+        // 提取selected索引（rank_start..rank_end范围内的元素）
+        let actual_k = actual_end - actual_start;
         selected_indices.clear();
-        for i in 0..actual_k {
+        for i in actual_start..actual_end {
             selected_indices.push(indexed_buf[i].0);
         }
 
