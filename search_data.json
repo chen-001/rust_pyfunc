@@ -1376,6 +1376,11 @@
     "params": []
   },
   {
+    "name": "run_pools_queue_date_only",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
     "name": "run_pools_simple",
     "description": "<p>极简版并行计算函数 - 只执行不返回</p>",
     "params": []
@@ -1509,11 +1514,12 @@
   },
   {
     "name": "topk_corr_matrix",
-    "description": "<p>计算每分钟涨幅最大/最小的top_k只股票与所有股票在过去window分钟的相关系数统计量</p>",
+    "description": "<p>计算每分钟涨幅最大/最小的指定排名范围内股票与所有股票在过去window分钟的相关系数统计量</p>",
     "params": [
       "select_matrix",
       "corr_matrix",
-      "top_k",
+      "rank_start",
+      "rank_end",
       "window",
       "top_n",
       "select_largest"

@@ -30,12 +30,12 @@
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><p>计算每分钟涨幅最大/最小的top_k只股票与所有股票在过去window分钟的相关系数统计量</p></div>
+            <div><p>计算每分钟涨幅最大/最小的指定排名范围内股票与所有股票在过去window分钟的相关系数统计量</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>topk_corr_matrix(select_matrix, corr_matrix, top_k, window, top_n, select_largest) -> None</code>
+            <code>topk_corr_matrix(select_matrix, corr_matrix, rank_start, rank_end, window, top_n, select_largest) -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -45,7 +45,7 @@
                 <div class="parameter">
                     <span class="parameter-name">select_matrix</span>
                     <span class="parameter-type">(numpy.ndarray (n_minutes, n_stocks))</span>
-                    <div><p>用于选择top_k股票的矩阵（如收益率矩阵），第t行第s列是第t分钟第s只股票的值</p></div>
+                    <div><p>用于选择股票的矩阵（如收益率矩阵），第t行第s列是第t分钟第s只股票的值</p></div>
                 </div>
                 
                 <div class="parameter">
@@ -55,9 +55,15 @@
                 </div>
                 
                 <div class="parameter">
-                    <span class="parameter-name">top_k</span>
+                    <span class="parameter-name">rank_start</span>
                     <span class="parameter-type">(usize)</span>
-                    <div><p>每分钟选择的股票数量（如100）</p></div>
+                    <div><p>排名起始位置（从0开始，包含），如0表示第1名</p></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">rank_end</span>
+                    <span class="parameter-type">(usize)</span>
+                    <div><p>排名结束位置（不包含），如100表示取第1~100名</p></div>
                 </div>
                 
                 <div class="parameter">
@@ -75,7 +81,7 @@
                 <div class="parameter">
                     <span class="parameter-name">select_largest</span>
                     <span class="parameter-type">(bool)</span>
-                    <div><p>true=选择值最大的top_k只; false=选择值最小的top_k只</p></div>
+                    <div><p>true=选择值最大的; false=选择值最小的</p></div>
                 </div>
                 
             
@@ -93,8 +99,11 @@
 ```python
 import rust_pyfunc
 import numpy as np</p>
-<p>rets = np.random.randn(240, 5000)
-corr_mean, corr_top_mean, corr_skew = rust_pyfunc.topk_corr_matrix(rets, rets, 100, 10, 10, True)
+<p>rets = np.random.randn(240, 5000)</p>
+<h1>选最大的第1~100名（等同于之前的top_k=100）</h1>
+<p>corr_mean, corr_top_mean, corr_skew = rust_pyfunc.topk_corr_matrix(rets, rets, 0, 100, 10, 10, True)</p>
+<h1>选最大的第101~200名</h1>
+<p>corr_mean, corr_top_mean, corr_skew = rust_pyfunc.topk_corr_matrix(rets, rets, 100, 200, 10, 10, True)
 ```</p></div>
         </div>
         
