@@ -1067,6 +1067,9 @@ pub fn run_pools_queue_date_only(
     let restart_interval_clone = restart_interval_value;
     let backup_batch_clone = backup_batch_size_value;
     let expected_clone = expected_result_length;
+    let total_dates = pending_dates.len();
+    let completed_dates_set = Arc::new(Mutex::new(HashSet::<i64>::new()));
+    let completed_dates_clone = completed_dates_set.clone();
     let collector_handle = thread::spawn(move || {
         let mut batch_results: Vec<TaskResult> = Vec::new();
         let mut total_collected: usize = 0;
@@ -1079,6 +1082,12 @@ pub fn run_pools_queue_date_only(
         );
 
         while let Ok(result) = result_receiver.recv() {
+            // 跟踪已完成的日期
+            {
+                if let Ok(mut dates_set) = completed_dates_clone.lock() {
+                    dates_set.insert(result.date);
+                }
+            }
             total_collected += 1;
             batch_results.push(result);
 
@@ -1092,12 +1101,32 @@ pub fn run_pools_queue_date_only(
                 let elapsed_m = (elapsed_secs % 3600) / 60;
                 let elapsed_s = elapsed_secs % 60;
 
+                // 计算进度和预计剩余时间
+                let (completed_dates, remaining_h, remaining_m, remaining_s, progress_pct) = {
+                    if let Ok(dates_set) = completed_dates_clone.lock() {
+                        let completed = dates_set.len();
+                        let remaining = total_dates.saturating_sub(completed);
+                        let pct = (completed as f64 / total_dates as f64) * 100.0;
+                        
+                        if completed > 0 && remaining > 0 {
+                            let elapsed_per_date = elapsed.as_secs_f64() / completed as f64;
+                            let remaining_secs = (elapsed_per_date * remaining as f64) as u64;
+                            (completed, remaining_secs / 3600, (remaining_secs % 3600) / 60, remaining_secs % 60, pct)
+                        } else {
+                            (completed, 0, 0, 0, pct)
+                        }
+                    } else {
+                        (0, 0, 0, 0, 0.0)
+                    }
+                };
+
                 let current_time = Local::now().format("%Y-%m-%d %H:%M:%S");
                 print!(
-                    "\r[{}] 💾 第 {} 次备份，已收集 {} 条记录。已用{}h{}m{}s",
+                    "\r[{}] 💾 第 {} 次备份，已完成 {}/{} 日期 ({:.1}%), 已收集 {} 条记录, 已用{}h{}m{}s, 预计剩余{}h{}m{}s",
                     current_time,
-                    batch_count, total_collected,
+                    batch_count, completed_dates, total_dates, progress_pct, total_collected,
                     elapsed_h, elapsed_m, elapsed_s,
+                    remaining_h, remaining_m, remaining_s,
                 );
                 io::stdout().flush().unwrap();
 
