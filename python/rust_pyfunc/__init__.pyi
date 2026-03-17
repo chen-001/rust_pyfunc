@@ -28,6 +28,7 @@ from .agent_simulator import *
 from .statistical_analysis import *
 from .web_manager import *
 from .copula import *
+from .theme_cluster_factors import *
 
 # 版本信息
 __version__ = "0.18.0"

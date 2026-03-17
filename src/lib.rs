@@ -71,6 +71,8 @@ pub mod agent_trading_features;
 pub mod agent_simulator;
 pub mod order_pair_metrics;
 pub mod copula;
+pub mod theme_cluster_factors;
+pub mod theme_cluster_factors_batch;
 pub mod topk_corr_matrix;
 
 /// Formats the sum of two numbers as string.
@@ -696,6 +698,15 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
 
     // TopK相关系数矩阵计算
     m.add_function(wrap_pyfunction!(topk_corr_matrix::topk_corr_matrix, m)?)?;
+
+    // 主题聚类因子
+    m.add_function(wrap_pyfunction!(theme_cluster_factors::theme_cluster_factors, m)?)?;
+    // 主题聚类因子批量计算
+    m.add_function(wrap_pyfunction!(theme_cluster_factors_batch::theme_cluster_factors_batch, m)?)?;
+    m.add_function(wrap_pyfunction!(theme_cluster_factors_batch::theme_cluster_factors_batch_multi_segments, m)?)?;
+    m.add_function(wrap_pyfunction!(theme_cluster_factors_batch::theme_cluster_factors_from_minute, m)?)?;
+    m.add_function(wrap_pyfunction!(theme_cluster_factors_batch::get_theme_cluster_factor_names, m)?)?;
+    m.add_function(wrap_pyfunction!(theme_cluster_factors_batch::clear_theme_cluster_cache, m)?)?;
 
     Ok(())
 }
