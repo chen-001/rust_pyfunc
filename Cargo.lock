@@ -2024,7 +2024,7 @@ checksum = "082f11ffa03bbef6c2c6ea6bea1acafaade2fd9050ae0234ab44a2153742b058"
 
 [[package]]
 name = "rust_pyfunc"
-version = "0.65.1"
+version = "0.66.0"
 dependencies = [
  "arrow",
  "base64 0.21.7",
@@ -2043,6 +2043,7 @@ dependencies = [
  "nix",
  "num_cpus",
  "numpy",
+ "once_cell",
  "ordered-float 3.9.2",
  "packed_simd_2",
  "parquet",
