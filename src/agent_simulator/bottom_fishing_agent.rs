@@ -48,7 +48,8 @@ impl TradingAgent for BottomFishingAgent {
         current_idx: usize,
         _current_time: i64,
     ) -> Option<i32> {
-        let trend_change = calc_price_change(market_trades, current_idx, self.trend_window_ns, false)?;
+        let trend_change =
+            calc_price_change(market_trades, current_idx, self.trend_window_ns, false)?;
         let (buy_turnover, sell_turnover) =
             calc_directional_turnover(market_trades, current_idx, self.short_window_ns);
 

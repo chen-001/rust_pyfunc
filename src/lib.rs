@@ -1,16 +1,18 @@
 #[allow(unused_imports)]
 use pyo3::prelude::*;
 
-pub mod backup_reader;
 pub mod backup_column_cache;
+pub mod backup_reader;
 pub mod column_correlation;
 pub mod difference_matrix;
-pub mod entropy_analysis;
 pub mod effective_memory_length;
+pub mod entropy_analysis;
 pub mod error;
 pub mod grouping;
 pub mod hawkes_advisor;
 pub mod hawkes_analysis;
+pub mod limit_order_lifecycle;
+pub mod limit_order_lifecycle_v2;
 pub mod market_correlation;
 pub mod order_contamination;
 pub mod order_neighborhood;
@@ -35,16 +37,21 @@ pub mod trade_peak_analysis;
 pub mod trade_records_ultra_sorted;
 pub mod tree;
 pub mod vector_similarity;
-pub mod limit_order_lifecycle;
-pub mod limit_order_lifecycle_v2;
 pub mod vector_similarity_optimized;
 
 pub mod factor_neutralization_io_optimized;
 pub mod ghost_market_maker;
 
 pub mod abnormal_asks_analyzer;
+pub mod agent_simulator;
+pub mod agent_trading_features;
+pub mod allo_microstructure;
+pub mod allo_microstructure_v2;
+pub mod allo_microstructure_v3;
+pub mod copula;
 pub mod frontier_dist;
 pub mod gp_correlation_dimension;
+pub mod integer_small_peak_features;
 pub mod lagged_regression;
 pub mod lagged_regression_incremental;
 pub mod lagged_regression_optimized;
@@ -52,27 +59,23 @@ pub mod lagged_regression_simd;
 pub mod long_order_analysis;
 pub mod lz_complexity;
 pub mod lz_complexity_detailed;
+pub mod microstructure_pattern_features;
+pub mod microstructure_pattern_features_optimized;
+pub mod microstructure_pattern_features_v2;
 pub mod mutual_information;
 pub mod mutual_information_2d;
 pub mod mutual_information_2d_final;
 pub mod mutual_information_2d_fixed;
+pub mod order_pair_metrics;
 pub mod passive_order_features;
 pub mod permutation_analysis_v0816_fixed;
+pub mod personalized_meeting_features;
 pub mod price_breakthrough_stats;
 pub mod series_rank;
 pub mod skewness;
-pub mod allo_microstructure;
-pub mod allo_microstructure_v2;
-pub mod allo_microstructure_v3;
-pub mod microstructure_pattern_features;
-pub mod microstructure_pattern_features_optimized;
-pub mod microstructure_pattern_features_v2;
-pub mod agent_trading_features;
-pub mod agent_simulator;
-pub mod order_pair_metrics;
-pub mod copula;
 pub mod theme_cluster_factors;
 pub mod theme_cluster_factors_batch;
+pub mod theme_feature_expansion;
 pub mod topk_corr_matrix;
 
 /// Formats the sum of two numbers as string.
@@ -192,7 +195,10 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     let _ = m.add_function(wrap_pyfunction!(grouping::factor_grouping, m)?);
     let _ = m.add_function(wrap_pyfunction!(grouping::factor_correlation_by_date, m)?);
     let _ = m.add_function(wrap_pyfunction!(parallel_computing::run_pools_queue, m)?);
-    let _ = m.add_function(wrap_pyfunction!(parallel_computing_date_only::run_pools_queue_date_only, m)?);
+    let _ = m.add_function(wrap_pyfunction!(
+        parallel_computing_date_only::run_pools_queue_date_only,
+        m
+    )?);
     let _ = m.add_function(wrap_pyfunction!(simple_parallel::run_pools_simple, m)?);
     let _ = m.add_function(wrap_pyfunction!(backup_reader::query_backup, m)?);
     let _ = m.add_function(wrap_pyfunction!(backup_reader::query_backup_fast, m)?);
@@ -624,6 +630,11 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?)?;
 
     m.add_function(wrap_pyfunction!(
+        integer_small_peak_features::compute_integer_small_peak_features,
+        m
+    )?)?;
+
+    m.add_function(wrap_pyfunction!(
         microstructure_pattern_features_v2::calculate_microstructure_pattern_features_v2,
         m
     )?)?;
@@ -639,19 +650,19 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         order_pair_metrics::calculate_order_pair_metrics,
         m
     )?)?;
-    
+
     // 订单配对指标计算（扩展版，包含复杂指标）
     m.add_function(wrap_pyfunction!(
         order_pair_metrics::calculate_order_pair_metrics_more,
         m
     )?)?;
-    
+
     // 订单配对指标计算（V2版本：不区分买卖方向）
     m.add_function(wrap_pyfunction!(
         order_pair_metrics::calculate_order_pair_metrics_more_v2,
         m
     )?)?;
-    
+
     // 订单配对指标计算（V2优化版本）
     m.add_function(wrap_pyfunction!(
         order_pair_metrics::calculate_order_pair_metrics_more_v2_faster,
@@ -659,7 +670,10 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?)?;
 
     // 独立的分形维度和Hurst指数计算
-    m.add_function(wrap_pyfunction!(order_pair_metrics::fractal_dimension_boxcount, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        order_pair_metrics::fractal_dimension_boxcount,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(order_pair_metrics::hurst_exponent_rs, m)?)?;
 
     // Copula函数模块
@@ -681,14 +695,20 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(copula::clayton_copula_cdf_batch, m)?)?;
     m.add_function(wrap_pyfunction!(copula::clayton_copula_sample_py, m)?)?;
     m.add_function(wrap_pyfunction!(copula::clayton_copula_estimate, m)?)?;
-    m.add_function(wrap_pyfunction!(copula::clayton_lower_tail_dependence_py, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        copula::clayton_lower_tail_dependence_py,
+        m
+    )?)?;
 
     m.add_function(wrap_pyfunction!(copula::gumbel_copula_cdf_py, m)?)?;
     m.add_function(wrap_pyfunction!(copula::gumbel_copula_pdf_py, m)?)?;
     m.add_function(wrap_pyfunction!(copula::gumbel_copula_cdf_batch, m)?)?;
     m.add_function(wrap_pyfunction!(copula::gumbel_copula_sample_py, m)?)?;
     m.add_function(wrap_pyfunction!(copula::gumbel_copula_estimate, m)?)?;
-    m.add_function(wrap_pyfunction!(copula::gumbel_upper_tail_dependence_py, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        copula::gumbel_upper_tail_dependence_py,
+        m
+    )?)?;
 
     m.add_function(wrap_pyfunction!(copula::copula_kendall_tau, m)?)?;
     m.add_function(wrap_pyfunction!(copula::to_uniform, m)?)?;
@@ -700,13 +720,43 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(topk_corr_matrix::topk_corr_matrix, m)?)?;
 
     // 主题聚类因子
-    m.add_function(wrap_pyfunction!(theme_cluster_factors::theme_cluster_factors, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        theme_cluster_factors::theme_cluster_factors,
+        m
+    )?)?;
     // 主题聚类因子批量计算
-    m.add_function(wrap_pyfunction!(theme_cluster_factors_batch::theme_cluster_factors_batch, m)?)?;
-    m.add_function(wrap_pyfunction!(theme_cluster_factors_batch::theme_cluster_factors_batch_multi_segments, m)?)?;
-    m.add_function(wrap_pyfunction!(theme_cluster_factors_batch::theme_cluster_factors_from_minute, m)?)?;
-    m.add_function(wrap_pyfunction!(theme_cluster_factors_batch::get_theme_cluster_factor_names, m)?)?;
-    m.add_function(wrap_pyfunction!(theme_cluster_factors_batch::clear_theme_cluster_cache, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        theme_cluster_factors_batch::theme_cluster_factors_batch,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        theme_cluster_factors_batch::theme_cluster_factors_batch_multi_segments,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        theme_cluster_factors_batch::theme_cluster_factors_from_minute,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        theme_cluster_factors_batch::get_theme_cluster_factor_names,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        theme_cluster_factors_batch::clear_theme_cluster_cache,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        theme_feature_expansion::compute_theme_feature_expansion_from_minute,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        personalized_meeting_features::personalized_meeting_feature_names,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        personalized_meeting_features::personalized_meeting_features,
+        m
+    )?)?;
 
     Ok(())
 }

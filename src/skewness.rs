@@ -1,6 +1,6 @@
+use ndarray::Array2;
 use numpy::{PyArray2, PyReadonlyArray3};
 use pyo3::prelude::*;
-use ndarray::Array2;
 
 /// 计算3D数组各(i,j)位置的偏态值
 ///

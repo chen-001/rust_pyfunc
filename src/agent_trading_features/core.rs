@@ -199,7 +199,8 @@ impl<'a> FeatureCalculator<'a> {
             feature.post_trade_price_trend = post_stats.trend;
 
             if self.daily_mean_price.abs() > 1e-12 {
-                feature.price_deviation = (agent_trade.price - self.daily_mean_price) / self.daily_mean_price;
+                feature.price_deviation =
+                    (agent_trade.price - self.daily_mean_price) / self.daily_mean_price;
             }
 
             if first_trade_time.is_none() {
@@ -214,7 +215,9 @@ impl<'a> FeatureCalculator<'a> {
 
             let trade_pnl = match agent_trade.direction {
                 66 => pos_manager.buy(agent_trade.timestamp, agent_trade.price, agent_trade.volume),
-                83 => pos_manager.sell(agent_trade.timestamp, agent_trade.price, agent_trade.volume),
+                83 => {
+                    pos_manager.sell(agent_trade.timestamp, agent_trade.price, agent_trade.volume)
+                }
                 _ => 0.0,
             };
 
@@ -301,7 +304,8 @@ impl<'a> FeatureCalculator<'a> {
 
             if let Some(first_trade) = agent_trades.first() {
                 if first_trade.price.abs() > 1e-12 {
-                    let buy_hold_return = (agent_trade.price - first_trade.price) / first_trade.price;
+                    let buy_hold_return =
+                        (agent_trade.price - first_trade.price) / first_trade.price;
                     feature.excess_return = feature.cumulative_return - buy_hold_return;
                 }
             }

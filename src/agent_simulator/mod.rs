@@ -19,25 +19,25 @@
 //! let results = run_simulation(&market_trades, &mut [agent]);
 //! ```
 
-pub mod types;
-pub mod trait_def;
-pub mod utils;
-pub mod momentum_agent;
-pub mod buy_ratio_agent;
-pub mod bottom_fishing_agent;
-pub mod follow_flow_agent;
 pub mod acceleration_follow_agent;
+pub mod bottom_fishing_agent;
+pub mod buy_ratio_agent;
 pub mod exhaustion_reversal_agent;
-pub mod simulator;
+pub mod follow_flow_agent;
+pub mod momentum_agent;
 pub mod py_bindings;
+pub mod simulator;
+pub mod trait_def;
+pub mod types;
+pub mod utils;
 
-pub use types::*;
-pub use trait_def::*;
-pub use utils::*;
-pub use momentum_agent::*;
-pub use buy_ratio_agent::*;
-pub use bottom_fishing_agent::*;
-pub use follow_flow_agent::*;
 pub use acceleration_follow_agent::*;
+pub use bottom_fishing_agent::*;
+pub use buy_ratio_agent::*;
 pub use exhaustion_reversal_agent::*;
+pub use follow_flow_agent::*;
+pub use momentum_agent::*;
 pub use simulator::*;
+pub use trait_def::*;
+pub use types::*;
+pub use utils::*;

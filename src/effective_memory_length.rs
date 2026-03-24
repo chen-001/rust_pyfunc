@@ -1,5 +1,5 @@
+use numpy::{PyArray1, PyReadonlyArray1};
 use pyo3::prelude::*;
-use numpy::{PyReadonlyArray1, PyArray1};
 use std::collections::HashMap;
 
 /// 基于信息论的有效记忆长度(EML)计算 - 针对成交量序列优化
@@ -390,7 +390,6 @@ pub fn rolling_information_gain(
     Ok(PyArray1::from_vec(py, result).into())
 }
 
-
 // ============================================================
 // 优化版本：批量计算所有lag的条件熵
 // ============================================================
@@ -575,7 +574,8 @@ pub fn rolling_information_gain_fast(
         let base_entropy = compute_entropy(window);
 
         // 批量计算所有lag的条件熵（核心优化）
-        let conditional_entropies = compute_all_conditional_entropies_ultra_fast(window, max_lag_min);
+        let conditional_entropies =
+            compute_all_conditional_entropies_ultra_fast(window, max_lag_min);
 
         // 计算并存储信息增益
         let base_idx = i * row_size;

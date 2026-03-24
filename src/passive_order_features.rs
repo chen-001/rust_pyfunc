@@ -305,15 +305,18 @@ fn compute_interval_features(
 
     if compute_direction_ratio {
         // 特征43-49: 全部订单方向比例
-        let direction_ratios_all = compute_direction_ratios(&all_passive_orders, &order_info, trade_flags);
+        let direction_ratios_all =
+            compute_direction_ratios(&all_passive_orders, &order_info, trade_flags);
         result.extend(compute_statistics(&direction_ratios_all));
 
         // 特征50-56: 买单方向比例
-        let direction_ratios_bid = compute_direction_ratios(&passive_bid_orders, &order_info, trade_flags);
+        let direction_ratios_bid =
+            compute_direction_ratios(&passive_bid_orders, &order_info, trade_flags);
         result.extend(compute_statistics(&direction_ratios_bid));
 
         // 特征57-63: 卖单方向比例
-        let direction_ratios_ask = compute_direction_ratios(&passive_ask_orders, &order_info, trade_flags);
+        let direction_ratios_ask =
+            compute_direction_ratios(&passive_ask_orders, &order_info, trade_flags);
         result.extend(compute_statistics(&direction_ratios_ask));
     }
 

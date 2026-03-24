@@ -29,6 +29,9 @@ from .statistical_analysis import *
 from .web_manager import *
 from .copula import *
 from .theme_cluster_factors import *
+from .theme_feature_expansion import *
+from .theme_feature_expansion_data import *
+from .trading_data_utils import *
 
 # 版本信息
 __version__ = "0.18.0"
@@ -40,6 +43,7 @@ __all__ = [
     # 核心函数
     "trend",
     "trend_fast",
+    "compute_integer_small_peak_features",
     "identify_segments",
     "find_max_range_product",
     "ols",
@@ -188,4 +192,15 @@ __all__ = [
     "simulate_follow_flow_agents_py",
     "simulate_acceleration_follow_agents_py",
     "simulate_exhaustion_reversal_agents_py",
+    "compute_theme_feature_expansion_from_minute",
+    "prepare_minute_data_for_theme_feature_expansion",
+    "compute_theme_feature_expansion_from_minute_raw",
+    "compute_theme_feature_expansion_from_date",
+    "adjust_afternoon",
+    "read_trade",
+    "read_market",
+    "read_market_pair",
+    "get_features_factors_single",
+    "get_features_factors",
+    "get_features_names",
 ]

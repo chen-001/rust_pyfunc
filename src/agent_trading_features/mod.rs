@@ -26,7 +26,7 @@
 //! 使用方式：
 //! ```rust
 //! use rust_pyfunc::agent_trading_features::compute_agent_features;
-//! 
+//!
 //! let features = compute_agent_features(
 //!     &market_trades,
 //!     &agent_trades,
@@ -35,11 +35,11 @@
 //! );
 //! ```
 
-pub mod types;
-pub mod metrics;
 pub mod core;
+pub mod metrics;
 pub mod py_bindings;
+pub mod types;
 
-pub use types::*;
-pub use metrics::*;
 pub use core::*;
+pub use metrics::*;
+pub use types::*;

@@ -147,7 +147,9 @@ fn read_u32_le(buf: &[u8], offset: usize) -> u32 {
 }
 
 fn read_f64_le(buf: &[u8], offset: usize) -> f64 {
-    f64::from_bits(u64::from_le_bytes(buf[offset..offset + 8].try_into().unwrap()))
+    f64::from_bits(u64::from_le_bytes(
+        buf[offset..offset + 8].try_into().unwrap(),
+    ))
 }
 
 fn source_fingerprint(path: &Path) -> PyResult<(u64, u64, u32)> {
@@ -233,7 +235,11 @@ fn validate_cache_files(cache_dir: &Path, manifest: &CacheManifest) -> bool {
     true
 }
 
-fn validate_manifest(cache_dir: &Path, backup_file: &Path, manifest: &CacheManifest) -> PyResult<bool> {
+fn validate_manifest(
+    cache_dir: &Path,
+    backup_file: &Path,
+    manifest: &CacheManifest,
+) -> PyResult<bool> {
     if !validate_cache_files(cache_dir, manifest) {
         return Ok(false);
     }
@@ -264,7 +270,11 @@ fn try_get_valid_manifest(cache_dir: &Path, backup_file: &Path) -> PyResult<Opti
     }
 }
 
-fn build_cache_internal(backup_file: &str, block_cols: usize, force_rebuild: bool) -> PyResult<BuildSummary> {
+fn build_cache_internal(
+    backup_file: &str,
+    block_cols: usize,
+    force_rebuild: bool,
+) -> PyResult<BuildSummary> {
     if block_cols == 0 {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
             "block_cols 必须大于 0",

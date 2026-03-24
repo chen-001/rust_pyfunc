@@ -395,7 +395,15 @@ fn build_event_feature_array(
     base_features: &[AgentFeatures],
     agent_trades: &[AgentTrade],
     market_trades: &[MarketTrade],
-) -> (Array2<f64>, Vec<String>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
+) -> (
+    Array2<f64>,
+    Vec<String>,
+    Vec<f64>,
+    Vec<f64>,
+    Vec<f64>,
+    Vec<f64>,
+    Vec<f64>,
+) {
     let base_names = get_base_feature_names_internal();
     let extra_names = get_fast_event_feature_names_internal();
 
@@ -679,7 +687,11 @@ fn build_param_axis_feature_array(
     };
 
     let mut param_order: Vec<usize> = (0..n_agents).collect();
-    param_order.sort_by(|a, b| params[*a].partial_cmp(&params[*b]).unwrap_or(Ordering::Equal));
+    param_order.sort_by(|a, b| {
+        params[*a]
+            .partial_cmp(&params[*b])
+            .unwrap_or(Ordering::Equal)
+    });
     let sorted_params: Vec<f64> = param_order.iter().map(|&i| params[i]).collect();
 
     let mut left_ptrs = vec![0usize; n_agents];
@@ -1079,7 +1091,13 @@ fn compute_agent_trading_features_multi(
     let all_other_refs: Vec<&[AgentTrade]> = all_agent_trades
         .iter()
         .enumerate()
-        .filter_map(|(i, v)| if i == target_agent_idx { None } else { Some(v.as_slice()) })
+        .filter_map(|(i, v)| {
+            if i == target_agent_idx {
+                None
+            } else {
+                Some(v.as_slice())
+            }
+        })
         .collect();
 
     let base_features = compute_agent_features(

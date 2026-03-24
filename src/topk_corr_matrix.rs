@@ -274,7 +274,15 @@ pub fn topk_corr_matrix(
                     continue;
                 }
 
-                compute_stats(&mut corrs_buf, top_n, t, s, &mut out_mean, &mut out_topn, &mut out_skew);
+                compute_stats(
+                    &mut corrs_buf,
+                    top_n,
+                    t,
+                    s,
+                    &mut out_mean,
+                    &mut out_topn,
+                    &mut out_skew,
+                );
             } else {
                 // 慢速路径：股票s有NaN
                 corrs_buf.clear();
@@ -298,7 +306,15 @@ pub fn topk_corr_matrix(
                     continue;
                 }
 
-                compute_stats(&mut corrs_buf, top_n, t, s, &mut out_mean, &mut out_topn, &mut out_skew);
+                compute_stats(
+                    &mut corrs_buf,
+                    top_n,
+                    t,
+                    s,
+                    &mut out_mean,
+                    &mut out_topn,
+                    &mut out_skew,
+                );
             }
         }
     }
