@@ -7,7 +7,6 @@
 ///
 /// 输入: 多日特征矩阵 (n_stocks x n_features) 和微观指标矩阵
 /// 输出: 因子矩阵 (n_stocks x n_factors)
-
 use ndarray::{s, Array1, Array2, Axis};
 use numpy::{IntoPyArray, PyArray2, PyReadonlyArray2};
 use pyo3::prelude::*;
@@ -328,7 +327,9 @@ fn kmeans_pp_init(data: &Array2<f64>, k: usize, seed: u64) -> Array2<f64> {
 
     // 简单的LCG随机数生成器
     let mut next_rand = || -> f64 {
-        rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        rng_state = rng_state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         (rng_state >> 33) as f64 / (1u64 << 31) as f64
     };
 
@@ -370,7 +371,12 @@ fn kmeans_pp_init(data: &Array2<f64>, k: usize, seed: u64) -> Array2<f64> {
 /// KMeans聚类
 /// 返回 (labels: Vec<usize>, centers: Array2<f64>)
 /// labels中类别从0开始
-fn kmeans(data: &Array2<f64>, k: usize, n_init: usize, max_iter: usize) -> (Vec<usize>, Array2<f64>) {
+fn kmeans(
+    data: &Array2<f64>,
+    k: usize,
+    n_init: usize,
+    max_iter: usize,
+) -> (Vec<usize>, Array2<f64>) {
     let n = data.nrows();
     let d = data.ncols();
 
@@ -457,10 +463,10 @@ fn kmeans(data: &Array2<f64>, k: usize, n_init: usize, max_iter: usize) -> (Vec<
 /// 聚类统计结果
 #[derive(Clone)]
 struct ClusterStats {
-    size: Vec<f64>,            // 每个cluster的股票数
-    mean_return: Vec<f64>,      // 平均收益率
-    std_return: Vec<f64>,       // 收益率标准差
-    total_amt: Vec<f64>,        // 总成交额
+    size: Vec<f64>,               // 每个cluster的股票数
+    mean_return: Vec<f64>,        // 平均收益率
+    std_return: Vec<f64>,         // 收益率标准差
+    total_amt: Vec<f64>,          // 总成交额
     mean_act_buy_ratio: Vec<f64>, // 平均主动买入占比
     mean_intraday_vol: Vec<f64>,  // 平均日内波动率
 }
@@ -535,12 +541,12 @@ fn compute_cluster_stats(features: &Array2<f64>, labels: &[usize], k: usize) -> 
 
 #[derive(Clone)]
 struct DayClusterResult {
-    labels: Vec<usize>,           // 每只股票的聚类标签 (0-based)
-    centers: Array2<f64>,         // 聚类中心 (k x d) (标准化空间)
-    stats: ClusterStats,          // 统计量
+    labels: Vec<usize>,   // 每只股票的聚类标签 (0-based)
+    centers: Array2<f64>, // 聚类中心 (k x d) (标准化空间)
+    stats: ClusterStats,  // 统计量
     k: usize,
-    features_clean: Array2<f64>,  // 清洗后的特征
-    valid_indices: Vec<usize>,    // 有效行索引（相对于输入矩阵）
+    features_clean: Array2<f64>, // 清洗后的特征
+    valid_indices: Vec<usize>,   // 有效行索引（相对于输入矩阵）
 }
 
 /// 单日聚类
@@ -613,9 +619,8 @@ fn overlap_match_fn(
     let mut used_t1 = vec![false; k];
 
     for i in 0..k {
-        let stocks_t: std::collections::HashSet<usize> = (0..n_stocks)
-            .filter(|&s| labels_t[s] == i)
-            .collect();
+        let stocks_t: std::collections::HashSet<usize> =
+            (0..n_stocks).filter(|&s| labels_t[s] == i).collect();
         let mut best_j = None;
         let mut best_jaccard = -1.0f64;
 
@@ -623,9 +628,8 @@ fn overlap_match_fn(
             if used_t1[j] {
                 continue;
             }
-            let stocks_t1: std::collections::HashSet<usize> = (0..n_stocks)
-                .filter(|&s| labels_t1[s] == j)
-                .collect();
+            let stocks_t1: std::collections::HashSet<usize> =
+                (0..n_stocks).filter(|&s| labels_t1[s] == j).collect();
             let intersection = stocks_t.intersection(&stocks_t1).count();
             let union = stocks_t.union(&stocks_t1).count();
             let jaccard = intersection as f64 / (union as f64 + 1e-10);
@@ -691,9 +695,7 @@ fn align_two_days(
         let mut new_id = max_id + 1;
 
         for i in 0..k {
-            let min_dist = (0..prev.k)
-                .map(|j| cost[[i, j]])
-                .fold(f64::MAX, f64::min);
+            let min_dist = (0..prev.k).map(|j| cost[[i, j]]).fold(f64::MAX, f64::min);
             if min_dist > threshold {
                 mapping[i] = new_id;
                 new_id += 1;
@@ -766,8 +768,8 @@ fn linregress_slope(x: &[f64], y: &[f64]) -> f64 {
 /// F4-F6: 主题动量因子
 /// theme_history: (n_stocks, n_days), stats各天的统计量, lookback
 fn factor_theme_momentum(
-    theme_history: &Array2<usize>,     // (n_stocks x n_days)
-    stats_vec: &[ClusterStats],         // 每天的统计量
+    theme_history: &Array2<usize>, // (n_stocks x n_days)
+    stats_vec: &[ClusterStats],    // 每天的统计量
     lookback: usize,
 ) -> Array2<f64> {
     let n_stocks = theme_history.nrows();
@@ -818,7 +820,7 @@ fn factor_theme_momentum(
 
 /// F7-F10: 主题强度因子
 fn factor_theme_strength(
-    theme_labels: &[usize],   // 目标日的主题标签
+    theme_labels: &[usize], // 目标日的主题标签
     stats: &ClusterStats,
 ) -> Array2<f64> {
     let n = theme_labels.len();
@@ -827,9 +829,9 @@ fn factor_theme_strength(
     for s in 0..n {
         let theme = theme_labels[s];
         if theme != usize::MAX && theme < stats.size.len() {
-            result[[s, 0]] = stats.size[theme];           // F7
-            result[[s, 1]] = stats.total_amt[theme];      // F8
-            result[[s, 2]] = stats.mean_return[theme];    // F9
+            result[[s, 0]] = stats.size[theme]; // F7
+            result[[s, 1]] = stats.total_amt[theme]; // F8
+            result[[s, 2]] = stats.mean_return[theme]; // F9
             result[[s, 3]] = stats.mean_act_buy_ratio[theme]; // F10
         }
     }
@@ -839,9 +841,9 @@ fn factor_theme_strength(
 
 /// F11-F12: 主题内部排名因子
 fn factor_theme_rank(
-    features: &Array2<f64>,      // 目标日原始特征
-    theme_labels: &[usize],      // 目标日主题标签
-    centers: &Array2<f64>,       // 目标日聚类中心(标准化空间)
+    features: &Array2<f64>, // 目标日原始特征
+    theme_labels: &[usize], // 目标日主题标签
+    centers: &Array2<f64>,  // 目标日聚类中心(标准化空间)
     k: usize,
 ) -> Array2<f64> {
     let n = features.nrows();
@@ -1092,10 +1094,10 @@ fn autocorr_lag1(data: &[f64]) -> f64 {
 /// micro_metrics: (n_stocks,) 微观指标值
 /// prev_micro_metrics: (n_stocks,) 前日微观指标值（可选）
 fn factor_micro_deviation(
-    micro_metric: &Array1<f64>,       // 当日微观指标
+    micro_metric: &Array1<f64>,              // 当日微观指标
     prev_micro_metric: Option<&Array1<f64>>, // 前日微观指标
-    theme_labels: &[usize],           // 当日主题标签
-    prev_theme_labels: Option<&[usize]>, // 前日主题标签
+    theme_labels: &[usize],                  // 当日主题标签
+    prev_theme_labels: Option<&[usize]>,     // 前日主题标签
     k: usize,
 ) -> Array2<f64> {
     let n = micro_metric.len();
@@ -1117,7 +1119,11 @@ fn factor_micro_deviation(
                 .iter()
                 .filter_map(|&s| {
                     let v = micro_metric[s];
-                    if v.is_finite() { Some(v) } else { None }
+                    if v.is_finite() {
+                        Some(v)
+                    } else {
+                        None
+                    }
                 })
                 .sum();
             let cnt = theme_stocks[c]
@@ -1147,8 +1153,14 @@ fn factor_micro_deviation(
                     .filter_map(|&s| {
                         if s < prev_micro.len() {
                             let v = prev_micro[s];
-                            if v.is_finite() { Some(v) } else { None }
-                        } else { None }
+                            if v.is_finite() {
+                                Some(v)
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
                     })
                     .sum();
                 let cnt = prev_theme_stocks[c]

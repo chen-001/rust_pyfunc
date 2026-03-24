@@ -94,7 +94,10 @@ pub fn lz_complexity(
 
     // 如果使用了分位数离散化，检查唯一符号数量是否足够
     // 分位数列表长度为 m 时，期望至少有 m+1 个类别
-    let min_required_categories = quantiles.as_ref().map(|q| q.len() as f64 + 1.0).unwrap_or(2.0);
+    let min_required_categories = quantiles
+        .as_ref()
+        .map(|q| q.len() as f64 + 1.0)
+        .unwrap_or(2.0);
     if k_eff < min_required_categories {
         return Ok(f64::NAN);
     }

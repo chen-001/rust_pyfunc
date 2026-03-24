@@ -1,7 +1,8 @@
+from importlib import import_module
+
 from rust_pyfunc.rust_pyfunc import *
 from .rolling_future import RollingFutureAccessor
 from .rolling_past import RollingPastAccessor
-from .treevisual import PriceTreeViz,haha
 from .pandas_corrwith import corrwith
 from .pandas_rank import rank_axis1_df, rank_axis0_df, fast_rank, fast_rank_axis1, fast_rank_axis0
 from .pandas_merge import fast_merge_df, fast_inner_join_df, fast_left_join_df, fast_right_join_df, fast_outer_join_df, fast_join, fast_merge_dataframe
@@ -15,11 +16,51 @@ from .agent_trading_daily import (
     compute_agent_trading_daily_feature_table_for_get_features_factors,
     compute_agent_trading_daily_feature_table_multi_for_get_features_factors,
 )
-from .theme_cluster_data import (
-    prepare_features_list,
-    prepare_micro_metrics_list,
-    prepare_all_data,
-    FEATURE_NAMES,
-    MICRO_METRIC_NAMES,
+from .theme_feature_expansion_data import (
+    THEME_FEATURE_EXPANSION_MINUTE_FIELDS,
+    THEME_FEATURE_VECTOR_DIMENSIONS,
+    prepare_minute_data_for_theme_feature_expansion,
+    compute_theme_feature_expansion_from_minute_raw,
+    compute_theme_feature_expansion_from_date,
+)
+from .trading_data_utils import (
+    adjust_afternoon,
+    read_trade,
+    read_market,
+    read_market_pair,
+    get_features_factors_single,
+    get_features_factors,
+    get_features_names,
 )
 from rust_pyfunc import *
+
+_LAZY_THEME_CLUSTER_EXPORTS = {
+    "prepare_features_list",
+    "prepare_micro_metrics_list",
+    "prepare_all_data",
+    "FEATURE_NAMES",
+    "MICRO_METRIC_NAMES",
+}
+_LAZY_TREEVISUAL_EXPORTS = {"PriceTreeViz", "haha", "treevisual"}
+
+
+def __getattr__(name):
+    if name in _LAZY_THEME_CLUSTER_EXPORTS:
+        module = import_module(".theme_cluster_data", __name__)
+        value = getattr(module, name)
+        globals()[name] = value
+        return value
+    if name in _LAZY_TREEVISUAL_EXPORTS:
+        module = import_module(".treevisual", __name__)
+        value = module if name == "treevisual" else getattr(module, name)
+        globals()[name] = value
+        return value
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__():
+    return sorted(
+        set(globals())
+        | _LAZY_THEME_CLUSTER_EXPORTS
+        | _LAZY_TREEVISUAL_EXPORTS
+    )

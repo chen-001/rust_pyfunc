@@ -59,7 +59,8 @@ impl TradingAgent for ExhaustionReversalAgent {
         current_idx: usize,
         _current_time: i64,
     ) -> Option<i32> {
-        let trend_change = calc_price_change(market_trades, current_idx, self.trend_window_ns, false)?;
+        let trend_change =
+            calc_price_change(market_trades, current_idx, self.trend_window_ns, false)?;
         let (buy_curr, sell_curr, buy_prev, sell_prev) =
             calc_directional_turnover_two_windows(market_trades, current_idx, self.short_window_ns);
 

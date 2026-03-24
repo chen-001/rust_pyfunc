@@ -235,6 +235,29 @@ def trend_2d(arr: NDArray[np.float64], axis: int) -> List[float]:
     """
     ...
 
+def compute_integer_small_peak_features(
+    trade_exchtime: NDArray[np.int64],
+    trade_price: NDArray[np.float64],
+    trade_volume: NDArray[np.float64],
+    trade_turnover: NDArray[np.float64],
+    trade_flag: NDArray[np.int32],
+    market_exchtime: NDArray[np.int64],
+    market_last_prc: NDArray[np.float64],
+    ask_prc: NDArray[np.float64],
+    ask_vol: NDArray[np.float64],
+    bid_prc: NDArray[np.float64],
+    bid_vol: NDArray[np.float64],
+) -> Tuple[NDArray[np.float64], List[str]]:
+    """计算“整数小峰”脚本在 `features_df` 之前的全部快照级特征序列。
+
+    说明：
+    ----------
+    - 输入数组需与原脚本一致，已经按 `exchtime` 升序排序。
+    - `ask_prc/ask_vol/bid_prc/bid_vol` 的形状必须是 `(n_snapshots, 10)`。
+    - 返回值第一个元素是 `(n_snapshots, n_features)` 的特征矩阵，第二个元素是列名列表。
+    """
+    ...
+
 def identify_segments(arr: NDArray[np.float64]) -> NDArray[np.int32]:
     """识别数组中的连续相等值段，并为每个段分配唯一标识符。
     每个连续相等的值构成一个段，第一个段标识符为1，第二个为2，以此类推。

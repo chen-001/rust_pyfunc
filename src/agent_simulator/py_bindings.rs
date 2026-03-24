@@ -130,7 +130,10 @@ fn build_market_trades(
     Ok(market_trades)
 }
 
-fn convert_results_to_py(py: Python<'_>, results: Vec<AgentSimulationResult>) -> PyResult<Py<PyList>> {
+fn convert_results_to_py(
+    py: Python<'_>,
+    results: Vec<AgentSimulationResult>,
+) -> PyResult<Py<PyList>> {
     let py_results = PyList::empty(py);
     for result in results {
         let dict = pyo3::types::PyDict::new(py);
@@ -234,7 +237,9 @@ fn simulate_momentum_agents_py(
 
     let n_agents = agent_names.len();
     if n_agents == 0 {
-        return Err(pyo3::exceptions::PyValueError::new_err("agent_names 不能为空"));
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "agent_names 不能为空",
+        ));
     }
 
     if lookback_ms_list.len() != n_agents
@@ -309,7 +314,9 @@ fn simulate_buy_ratio_agents_py(
 
     let n_agents = agent_names.len();
     if n_agents == 0 {
-        return Err(pyo3::exceptions::PyValueError::new_err("agent_names 不能为空"));
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "agent_names 不能为空",
+        ));
     }
 
     if lookback_ms_list.len() != n_agents
@@ -385,7 +392,9 @@ fn simulate_thematic_agents_py(
 
     let n_agents = agent_names.len();
     if n_agents == 0 {
-        return Err(pyo3::exceptions::PyValueError::new_err("agent_names 不能为空"));
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "agent_names 不能为空",
+        ));
     }
     if agent_types.len() != n_agents
         || short_window_ms_list.len() != n_agents
@@ -506,7 +515,9 @@ fn simulate_bottom_fishing_agents_py(
 
     let n_agents = agent_names.len();
     if n_agents == 0 {
-        return Err(pyo3::exceptions::PyValueError::new_err("agent_names 不能为空"));
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "agent_names 不能为空",
+        ));
     }
     if short_window_ms_list.len() != n_agents
         || trend_window_ms_list.len() != n_agents
@@ -568,7 +579,9 @@ fn simulate_follow_flow_agents_py(
 
     let n_agents = agent_names.len();
     if n_agents == 0 {
-        return Err(pyo3::exceptions::PyValueError::new_err("agent_names 不能为空"));
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "agent_names 不能为空",
+        ));
     }
     if short_window_ms_list.len() != n_agents
         || trend_window_ms_list.len() != n_agents
@@ -635,7 +648,9 @@ fn simulate_acceleration_follow_agents_py(
 
     let n_agents = agent_names.len();
     if n_agents == 0 {
-        return Err(pyo3::exceptions::PyValueError::new_err("agent_names 不能为空"));
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "agent_names 不能为空",
+        ));
     }
     if short_window_ms_list.len() != n_agents
         || trend_window_ms_list.len() != n_agents
@@ -705,7 +720,9 @@ fn simulate_exhaustion_reversal_agents_py(
 
     let n_agents = agent_names.len();
     if n_agents == 0 {
-        return Err(pyo3::exceptions::PyValueError::new_err("agent_names 不能为空"));
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "agent_names 不能为空",
+        ));
     }
     if short_window_ms_list.len() != n_agents
         || trend_window_ms_list.len() != n_agents

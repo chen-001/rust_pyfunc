@@ -1237,7 +1237,11 @@ fn run_persistent_task_worker(
 
         // 创建worker脚本
         if let Err(e) = std::fs::write(&script_path, &script_content) {
-            debug_logger.log_error(Some(worker_id), "SCRIPT_CREATE", &format!("创建脚本失败: {}", e));
+            debug_logger.log_error(
+                Some(worker_id),
+                "SCRIPT_CREATE",
+                &format!("创建脚本失败: {}", e),
+            );
             continue;
         }
 
@@ -1251,7 +1255,11 @@ fn run_persistent_task_worker(
         {
             Ok(child) => child,
             Err(e) => {
-                debug_logger.log_error(Some(worker_id), "PROCESS_START", &format!("启动Python进程失败: {}", e));
+                debug_logger.log_error(
+                    Some(worker_id),
+                    "PROCESS_START",
+                    &format!("启动Python进程失败: {}", e),
+                );
                 continue;
             }
         };
@@ -1261,7 +1269,11 @@ fn run_persistent_task_worker(
         monitor_manager.set_worker_process_id(worker_id, pid);
         monitor_manager.update_heartbeat(worker_id);
 
-        debug_logger.log_info(Some(worker_id), "PROCESS_START", &format!("Python进程启动成功, PID: {}", pid));
+        debug_logger.log_info(
+            Some(worker_id),
+            "PROCESS_START",
+            &format!("Python进程启动成功, PID: {}", pid),
+        );
 
         let mut stdin = child.stdin.take().expect("Failed to get stdin");
         let mut stdout = child.stdout.take().expect("Failed to get stdout");
@@ -1289,7 +1301,7 @@ fn run_persistent_task_worker(
         // 持续从队列中取任务并发送给Python进程
         while let Ok(task) = task_queue.recv() {
             current_task = Some(task.clone());
-            
+
             // 在处理任务前检查重启标志
             if restart_flag.load(Ordering::Relaxed) {
                 needs_restart = true;
@@ -1313,7 +1325,14 @@ fn run_persistent_task_worker(
             let packed_data = match rmp_serde::to_vec_named(&single_task) {
                 Ok(data) => data,
                 Err(e) => {
-                    debug_logger.log_error(Some(worker_id), "SERIALIZE", &format!("任务(date={}, code={})序列化失败: {}", task.date, task.code, e));
+                    debug_logger.log_error(
+                        Some(worker_id),
+                        "SERIALIZE",
+                        &format!(
+                            "任务(date={}, code={})序列化失败: {}",
+                            task.date, task.code, e
+                        ),
+                    );
                     current_task = None;
                     continue;
                 }
@@ -1324,19 +1343,31 @@ fn run_persistent_task_worker(
             let length_bytes = length.to_le_bytes();
 
             if let Err(e) = stdin.write_all(&length_bytes) {
-                debug_logger.log_error(Some(worker_id), "COMMUNICATION", &format!("发送长度前缀失败: {}", e));
+                debug_logger.log_error(
+                    Some(worker_id),
+                    "COMMUNICATION",
+                    &format!("发送长度前缀失败: {}", e),
+                );
                 needs_restart = true;
                 break;
             }
 
             if let Err(e) = stdin.write_all(&packed_data) {
-                debug_logger.log_error(Some(worker_id), "COMMUNICATION", &format!("发送任务数据失败: {}", e));
+                debug_logger.log_error(
+                    Some(worker_id),
+                    "COMMUNICATION",
+                    &format!("发送任务数据失败: {}", e),
+                );
                 needs_restart = true;
                 break;
             }
 
             if let Err(e) = stdin.flush() {
-                debug_logger.log_error(Some(worker_id), "COMMUNICATION", &format!("flush失败: {}", e));
+                debug_logger.log_error(
+                    Some(worker_id),
+                    "COMMUNICATION",
+                    &format!("flush失败: {}", e),
+                );
                 needs_restart = true;
                 break;
             }
@@ -1344,7 +1375,11 @@ fn run_persistent_task_worker(
             // 读取结果（带长度前缀）
             let mut length_bytes = [0u8; 4];
             if let Err(e) = stdout.read_exact(&mut length_bytes) {
-                debug_logger.log_error(Some(worker_id), "COMMUNICATION", &format!("读取结果长度失败: {}", e));
+                debug_logger.log_error(
+                    Some(worker_id),
+                    "COMMUNICATION",
+                    &format!("读取结果长度失败: {}", e),
+                );
                 needs_restart = true;
                 break;
             }
@@ -1353,7 +1388,11 @@ fn run_persistent_task_worker(
             let mut result_data = vec![0u8; length];
 
             if let Err(e) = stdout.read_exact(&mut result_data) {
-                debug_logger.log_error(Some(worker_id), "COMMUNICATION", &format!("读取结果数据失败: {}", e));
+                debug_logger.log_error(
+                    Some(worker_id),
+                    "COMMUNICATION",
+                    &format!("读取结果数据失败: {}", e),
+                );
                 needs_restart = true;
                 break;
             }
@@ -1368,7 +1407,11 @@ fn run_persistent_task_worker(
                 Ok(single_result) => {
                     // 发送结果
                     if let Err(e) = result_sender.send(single_result.result) {
-                        debug_logger.log_error(Some(worker_id), "RESULT_SEND", &format!("任务#{} 结果发送失败: {}", task_count, e));
+                        debug_logger.log_error(
+                            Some(worker_id),
+                            "RESULT_SEND",
+                            &format!("任务#{} 结果发送失败: {}", task_count, e),
+                        );
                     }
                     // 通知监控管理器任务已完成
                     monitor_manager.finish_task(worker_id);
@@ -1376,7 +1419,14 @@ fn run_persistent_task_worker(
                     current_task = None;
                 }
                 Err(e) => {
-                    debug_logger.log_error(Some(worker_id), "DESERIALIZE", &format!("任务(date={}, code={}) 结果解析失败: {}", task.date, task.code, e));
+                    debug_logger.log_error(
+                        Some(worker_id),
+                        "DESERIALIZE",
+                        &format!(
+                            "任务(date={}, code={}) 结果解析失败: {}",
+                            task.date, task.code, e
+                        ),
+                    );
 
                     // 发送NaN结果
                     let error_result = TaskResult {
@@ -1387,7 +1437,11 @@ fn run_persistent_task_worker(
                     };
 
                     if let Err(e) = result_sender.send(error_result) {
-                        debug_logger.log_error(Some(worker_id), "RESULT_SEND", &format!("错误结果发送失败: {}", e));
+                        debug_logger.log_error(
+                            Some(worker_id),
+                            "RESULT_SEND",
+                            &format!("错误结果发送失败: {}", e),
+                        );
                     }
                     // 通知监控管理器任务已完成（即使失败）
                     monitor_manager.finish_task(worker_id);
@@ -1409,12 +1463,20 @@ fn run_persistent_task_worker(
 
         // 清理临时文件
         let _ = std::fs::remove_file(&script_path);
-        
+
         if let Some(ref task) = current_task {
-            debug_logger.log_warn(Some(worker_id), "INCOMPLETE_TASK", &format!("任务未完成: date={}, code={}", task.date, task.code));
+            debug_logger.log_warn(
+                Some(worker_id),
+                "INCOMPLETE_TASK",
+                &format!("任务未完成: date={}, code={}", task.date, task.code),
+            );
         }
 
-        debug_logger.log_info(Some(worker_id), "PROCESS_END", &format!("Worker结束，共处理{}个任务", task_count));
+        debug_logger.log_info(
+            Some(worker_id),
+            "PROCESS_END",
+            &format!("Worker结束，共处理{}个任务", task_count),
+        );
 
         if !needs_restart {
             // 如果不是因为重启信号而退出，说明所有任务都完成了
@@ -1445,11 +1507,16 @@ pub fn run_pools_queue(
 ) -> PyResult<PyObject> {
     // 处理 debug_log 参数，创建日志记录器
     let debug_log_enabled = debug_log.unwrap_or(false);
-    let debug_logger = DebugLogger::new("run_pools_queue.log", debug_log_enabled)
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("创建日志文件失败: {}", e)))?;
-    
+    let debug_logger = DebugLogger::new("run_pools_queue.log", debug_log_enabled).map_err(|e| {
+        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("创建日志文件失败: {}", e))
+    })?;
+
     if debug_log_enabled {
-        debug_logger.log_info(None, "INIT", &format!("启动run_pools_queue, n_jobs={}, debug_log=true", n_jobs));
+        debug_logger.log_info(
+            None,
+            "INIT",
+            &format!("启动run_pools_queue, n_jobs={}, debug_log=true", n_jobs),
+        );
     }
 
     // 处理 restart_interval 参数
@@ -1709,13 +1776,21 @@ pub fn run_pools_queue(
             if !stuck_workers.is_empty() {
                 for (worker_id, reason) in stuck_workers {
                     monitor_manager_clone.log_stuck_worker(worker_id, reason);
-                    
+
                     // 记录卡死检测日志
-                    monitor_debug_logger.log_error(Some(worker_id), "STUCK_DETECTED", &format!("Worker卡死，原因: {}", reason));
+                    monitor_debug_logger.log_error(
+                        Some(worker_id),
+                        "STUCK_DETECTED",
+                        &format!("Worker卡死，原因: {}", reason),
+                    );
 
                     // 尝试强制终止卡死的worker进程
                     if monitor_manager_clone.force_kill_worker(worker_id) {
-                        monitor_debug_logger.log_warn(Some(worker_id), "FORCE_KILL", "强制终止Worker进程");
+                        monitor_debug_logger.log_warn(
+                            Some(worker_id),
+                            "FORCE_KILL",
+                            "强制终止Worker进程",
+                        );
                         // 简化输出，避免频繁打断运行流程
                         if monitor_manager_clone.debug_monitor {
                             println!(

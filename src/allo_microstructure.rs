@@ -73,26 +73,26 @@ struct ALAEvent {
     end_idx: usize,
     start_time: i64,
     end_time: i64,
-    level: usize,         // 0-9 对应 1-10档
-    is_bid: bool,         // true=买单, false=卖单
-    price: f64,           // 大单价格
-    peak_volume: f64,     // 峰值挂单量
+    level: usize,     // 0-9 对应 1-10档
+    is_bid: bool,     // true=买单, false=卖单
+    price: f64,       // 大单价格
+    peak_volume: f64, // 峰值挂单量
 }
 
 /// ALA事件特征 - 17个基础特征 + 8个时间形态学特征
 #[derive(Clone, Debug, Default)]
 struct ALAFeatures {
     // 第一部分：巨石的物理属性
-    m1_relative_prominence: f64,     // 相对凸度
-    m3_flicker_frequency: f64,       // 闪烁频率
+    m1_relative_prominence: f64, // 相对凸度
+    m3_flicker_frequency: f64,   // 闪烁频率
 
     // 第二部分：攻城战的流体力学
     m7_queue_loitering_duration: f64, // 队列滞留时长
 
     // 第三部分：友军的生态结构
-    m8_frontrun_passive: f64,        // 抢跑强度-挂单版
-    m9_frontrun_active: f64,         // 抢跑强度-主买版
-    m10_ally_retreat_rate: f64,      // 同侧撤单率
+    m8_frontrun_passive: f64,   // 抢跑强度-挂单版
+    m9_frontrun_active: f64,    // 抢跑强度-主买版
+    m10_ally_retreat_rate: f64, // 同侧撤单率
 
     // 第四部分：群体行为的时间形态学 - 对手攻击单
     m11a_attack_skewness_opponent: f64,      // 攻击偏度-对手盘
@@ -100,21 +100,21 @@ struct ALAFeatures {
     m13a_courage_acceleration_opponent: f64, // 勇气加速度-对手盘
     m14a_rhythm_entropy_opponent: f64,       // 节奏熵-对手盘
     // 第四部分：群体行为的时间形态学 - 同侧抢跑单
-    m11b_attack_skewness_ally: f64,          // 攻击偏度-同侧
-    m12b_peak_latency_ratio_ally: f64,       // 峰值延迟率-同侧
-    m13b_courage_acceleration_ally: f64,     // 勇气加速度-同侧
-    m14b_rhythm_entropy_ally: f64,           // 节奏熵-同侧
+    m11b_attack_skewness_ally: f64,      // 攻击偏度-同侧
+    m12b_peak_latency_ratio_ally: f64,   // 峰值延迟率-同侧
+    m13b_courage_acceleration_ally: f64, // 勇气加速度-同侧
+    m14b_rhythm_entropy_ally: f64,       // 节奏熵-同侧
 
     // 第五部分：空间场论与距离效应
-    m15_fox_tiger_index: f64,        // 狐假虎威指数
-    m16_shadow_projection_ratio: f64, // 阴影投射比
-    m17_gravitational_redshift: f64,  // 引力红移速率
-    m19_shielding_thickness_ratio: f64,   // 垫单厚度比
+    m15_fox_tiger_index: f64,           // 狐假虎威指数
+    m16_shadow_projection_ratio: f64,   // 阴影投射比
+    m17_gravitational_redshift: f64,    // 引力红移速率
+    m19_shielding_thickness_ratio: f64, // 垫单厚度比
 
     // 第六部分：命运与结局
-    m20_oxygen_saturation: f64,      // 氧气饱和度
-    m21_suffocation_integral: f64,   // 窒息深度积分
-    m22_local_survivor_bias: f64,    // 幸存者偏差-邻域版
+    m20_oxygen_saturation: f64,    // 氧气饱和度
+    m21_suffocation_integral: f64, // 窒息深度积分
+    m22_local_survivor_bias: f64,  // 幸存者偏差-邻域版
 }
 
 impl ALAFeatures {
@@ -183,8 +183,14 @@ fn parse_snapshots(
     let mut snapshots = Vec::with_capacity(n);
 
     for i in 0..n {
-        let mut bids = [BookLevel { price: 0.0, volume: 0.0 }; LEVEL_COUNT];
-        let mut asks = [BookLevel { price: 0.0, volume: 0.0 }; LEVEL_COUNT];
+        let mut bids = [BookLevel {
+            price: 0.0,
+            volume: 0.0,
+        }; LEVEL_COUNT];
+        let mut asks = [BookLevel {
+            price: 0.0,
+            volume: 0.0,
+        }; LEVEL_COUNT];
 
         for j in 0..LEVEL_COUNT {
             bids[j] = BookLevel {
@@ -246,9 +252,9 @@ fn detect_ala_events(
     snapshots: &[Snapshot],
     detection_mode: &str,
     side_filter: &str,
-    k1_horizontal: f64, // 横向阈值
-    k2_vertical: f64,   // 纵向阈值
-    window_size: usize, // 纵向移动窗口大小
+    k1_horizontal: f64,   // 横向阈值
+    k2_vertical: f64,     // 纵向阈值
+    window_size: usize,   // 纵向移动窗口大小
     decay_threshold: f64, // 衰减阈值（结束条件）
 ) -> Vec<ALAEvent> {
     let mut events = Vec::new();
@@ -332,7 +338,10 @@ fn detect_ala_events(
                     // 检查结束条件
                     let decayed = bid_vol < decay_threshold * event_initial_vol[0][level];
                     let price_out = (snap.bids[level].price - event_price[0][level]).abs() > EPS
-                        && snap.bids.iter().all(|b| (b.price - event_price[0][level]).abs() > EPS);
+                        && snap
+                            .bids
+                            .iter()
+                            .all(|b| (b.price - event_price[0][level]).abs() > EPS);
 
                     if decayed || price_out {
                         // 事件结束
@@ -383,7 +392,10 @@ fn detect_ala_events(
                     }
                     let decayed = ask_vol < decay_threshold * event_initial_vol[1][level];
                     let price_out = (snap.asks[level].price - event_price[1][level]).abs() > EPS
-                        && snap.asks.iter().all(|a| (a.price - event_price[1][level]).abs() > EPS);
+                        && snap
+                            .asks
+                            .iter()
+                            .all(|a| (a.price - event_price[1][level]).abs() > EPS);
 
                     if decayed || price_out {
                         events.push(ALAEvent {
@@ -439,8 +451,8 @@ fn detect_ala_events(
 /// 一次性计算所有detection_mode和side_filter组合，复用移动平均等中间计算结果
 fn detect_labeled_ala_events(
     snapshots: &[Snapshot],
-    detection_modes: &[&str],  // 要计算的detection_mode列表
-    side_filters: &[&str],     // 要计算的side_filter列表
+    detection_modes: &[&str], // 要计算的detection_mode列表
+    side_filters: &[&str],    // 要计算的side_filter列表
     k1_horizontal: f64,
     k2_vertical: f64,
     window_size: usize,
@@ -487,13 +499,15 @@ fn detect_labeled_ala_events(
         for level in 0..LEVEL_COUNT {
             let bid_vol = snap.bids[level].volume;
             let bid_other_vol = snap.bid_volume_excluding(level);
-            bid_trigger_h[i][level] = bid_other_vol > EPS && bid_vol > k1_horizontal * bid_other_vol;
+            bid_trigger_h[i][level] =
+                bid_other_vol > EPS && bid_vol > k1_horizontal * bid_other_vol;
             let bid_avg = bid_moving_avg[i][level];
             bid_trigger_v[i][level] = bid_avg > EPS && bid_vol > k2_vertical * bid_avg;
 
             let ask_vol = snap.asks[level].volume;
             let ask_other_vol = snap.ask_volume_excluding(level);
-            ask_trigger_h[i][level] = ask_other_vol > EPS && ask_vol > k1_horizontal * ask_other_vol;
+            ask_trigger_h[i][level] =
+                ask_other_vol > EPS && ask_vol > k1_horizontal * ask_other_vol;
             let ask_avg = ask_moving_avg[i][level];
             ask_trigger_v[i][level] = ask_avg > EPS && ask_vol > k2_vertical * ask_avg;
         }
@@ -536,8 +550,12 @@ fn detect_labeled_ala_events(
                                 event_peak_vol[0][level] = bid_vol;
                             }
                             let decayed = bid_vol < decay_threshold * event_initial_vol[0][level];
-                            let price_out = (snap.bids[level].price - event_price[0][level]).abs() > EPS
-                                && snap.bids.iter().all(|b| (b.price - event_price[0][level]).abs() > EPS);
+                            let price_out = (snap.bids[level].price - event_price[0][level]).abs()
+                                > EPS
+                                && snap
+                                    .bids
+                                    .iter()
+                                    .all(|b| (b.price - event_price[0][level]).abs() > EPS);
 
                             if decayed || price_out {
                                 labeled_events.push(LabeledALAEvent {
@@ -579,8 +597,12 @@ fn detect_labeled_ala_events(
                                 event_peak_vol[1][level] = ask_vol;
                             }
                             let decayed = ask_vol < decay_threshold * event_initial_vol[1][level];
-                            let price_out = (snap.asks[level].price - event_price[1][level]).abs() > EPS
-                                && snap.asks.iter().all(|a| (a.price - event_price[1][level]).abs() > EPS);
+                            let price_out = (snap.asks[level].price - event_price[1][level]).abs()
+                                > EPS
+                                && snap
+                                    .asks
+                                    .iter()
+                                    .all(|a| (a.price - event_price[1][level]).abs() > EPS);
 
                             if decayed || price_out {
                                 labeled_events.push(LabeledALAEvent {
@@ -655,7 +677,11 @@ fn get_trades_in_range(trades: &[Trade], start_time: i64, end_time: i64) -> Vec<
 }
 
 /// 获取时间范围内的快照
-fn get_snapshots_in_range(snapshots: &[Snapshot], start_time: i64, end_time: i64) -> Vec<&Snapshot> {
+fn get_snapshots_in_range(
+    snapshots: &[Snapshot],
+    start_time: i64,
+    end_time: i64,
+) -> Vec<&Snapshot> {
     snapshots
         .iter()
         .filter(|s| s.timestamp >= start_time && s.timestamp <= end_time)
@@ -668,7 +694,8 @@ fn std_dev(values: &[f64]) -> f64 {
         return 0.0;
     }
     let mean = values.iter().sum::<f64>() / values.len() as f64;
-    let variance = values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (values.len() - 1) as f64;
+    let variance =
+        values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (values.len() - 1) as f64;
     variance.sqrt()
 }
 
@@ -743,11 +770,15 @@ fn entropy(intervals: &[f64]) -> f64 {
 
 /// 计算时间形态学特征（偏度、峰值延迟率、勇气加速度、节奏熵）
 /// 返回 (skewness, peak_latency_ratio, courage_acceleration, rhythm_entropy)
-fn compute_temporal_morphology(trades: &[&Trade], event_start_time: i64, event_end_time: i64) -> (f64, f64, f64, f64) {
+fn compute_temporal_morphology(
+    trades: &[&Trade],
+    event_start_time: i64,
+    event_end_time: i64,
+) -> (f64, f64, f64, f64) {
     if trades.is_empty() {
         return (0.0, 0.0, 0.0, 0.0);
     }
-    
+
     let duration = (event_end_time - event_start_time) as f64;
     if duration < EPS {
         return (0.0, 0.0, 0.0, 0.0);
@@ -784,7 +815,12 @@ fn compute_temporal_morphology(trades: &[&Trade], event_start_time: i64, event_e
     }
     let rhythm_entropy = entropy(&intervals);
 
-    (attack_skewness, peak_latency_ratio, courage_acceleration, rhythm_entropy)
+    (
+        attack_skewness,
+        peak_latency_ratio,
+        courage_acceleration,
+        rhythm_entropy,
+    )
 }
 
 /// 计算单个ALA事件的特征
@@ -809,13 +845,17 @@ fn compute_ala_features(
 
     // M1: 相对凸度 - 大单量与对侧前5档均值的比值
     let avg_opposite: f64 = if event.is_bid {
-        event_snaps.iter()
+        event_snaps
+            .iter()
             .map(|s| s.asks[0..5].iter().map(|a| a.volume).sum::<f64>() / 5.0)
-            .sum::<f64>() / event_snaps.len() as f64
+            .sum::<f64>()
+            / event_snaps.len() as f64
     } else {
-        event_snaps.iter()
+        event_snaps
+            .iter()
             .map(|s| s.bids[0..5].iter().map(|b| b.volume).sum::<f64>() / 5.0)
-            .sum::<f64>() / event_snaps.len() as f64
+            .sum::<f64>()
+            / event_snaps.len() as f64
     };
     features.m1_relative_prominence = if avg_opposite > EPS {
         event.peak_volume / avg_opposite
@@ -887,7 +927,8 @@ fn compute_ala_features(
                 s.asks[0..event.level].iter().map(|a| a.volume).sum::<f64>()
             }
         })
-        .sum::<f64>() / event_snaps.len().max(1) as f64;
+        .sum::<f64>()
+        / event_snaps.len().max(1) as f64;
     features.m8_frontrun_passive = if event.peak_volume > EPS {
         avg_better_levels / event.peak_volume
     } else {
@@ -958,7 +999,7 @@ fn compute_ala_features(
         .collect();
 
     // 计算对手攻击单的时间形态学特征
-    let (skew_opp, peak_opp, courage_opp, entropy_opp) = 
+    let (skew_opp, peak_opp, courage_opp, entropy_opp) =
         compute_temporal_morphology(&opponent_trades, event.start_time, event.end_time);
     features.m11a_attack_skewness_opponent = skew_opp;
     features.m12a_peak_latency_ratio_opponent = peak_opp;
@@ -966,7 +1007,7 @@ fn compute_ala_features(
     features.m14a_rhythm_entropy_opponent = entropy_opp;
 
     // 计算同侧抢跑单的时间形态学特征
-    let (skew_ally, peak_ally, courage_ally, entropy_ally) = 
+    let (skew_ally, peak_ally, courage_ally, entropy_ally) =
         compute_temporal_morphology(&ally_trades, event.start_time, event.end_time);
     features.m11b_attack_skewness_ally = skew_ally;
     features.m12b_peak_latency_ratio_ally = peak_ally;
@@ -989,7 +1030,8 @@ fn compute_ala_features(
                         / event.level as f64
                 }
             })
-            .sum::<f64>() / event_snaps.len().max(1) as f64;
+            .sum::<f64>()
+            / event_snaps.len().max(1) as f64;
 
         // 计算历史平均（事件开始前的快照）
         let history_start = event.start_idx.saturating_sub(100);
@@ -1006,7 +1048,8 @@ fn compute_ala_features(
                             / event.level as f64
                     }
                 })
-                .sum::<f64>() / history_snaps.len() as f64
+                .sum::<f64>()
+                / history_snaps.len() as f64
         } else {
             during_avg
         };
@@ -1100,7 +1143,8 @@ fn compute_ala_features(
                 s.asks[0..event.level].iter().map(|a| a.volume).sum::<f64>()
             }
         })
-        .sum::<f64>() / event_snaps.len().max(1) as f64;
+        .sum::<f64>()
+        / event_snaps.len().max(1) as f64;
     features.m19_shielding_thickness_ratio = if event.peak_volume > EPS {
         avg_shield / event.peak_volume
     } else {
@@ -1220,8 +1264,6 @@ fn compute_ala_features(
 
     features
 }
-
-
 
 /// 计算非对称大挂单微观结构特征 - tris扩展版本
 ///
@@ -1407,7 +1449,13 @@ pub fn compute_allo_microstructure_features_tris_expanded(
 
     // 解析数据
     let snapshots = parse_snapshots(snap_exchtime, &bid_prc, &bid_vol, &ask_prc, &ask_vol);
-    let trades = parse_trades(trade_exchtime, trade_price, trade_volume, trade_turnover, trade_flag);
+    let trades = parse_trades(
+        trade_exchtime,
+        trade_price,
+        trade_volume,
+        trade_turnover,
+        trade_flag,
+    );
 
     // 计算收盘价（最后一笔成交价格）
     let close_price = trades.last().map(|t| t.price).unwrap_or(0.0);
@@ -1679,7 +1727,13 @@ pub fn compute_allo_microstructure_features(
 
     // 解析数据
     let snapshots = parse_snapshots(snap_exchtime, &bid_prc, &bid_vol, &ask_prc, &ask_vol);
-    let trades = parse_trades(trade_exchtime, trade_price, trade_volume, trade_turnover, trade_flag);
+    let trades = parse_trades(
+        trade_exchtime,
+        trade_price,
+        trade_volume,
+        trade_turnover,
+        trade_flag,
+    );
 
     // 计算收盘价（最后一笔成交价格）
     let close_price = trades.last().map(|t| t.price).unwrap_or(0.0);
@@ -1739,7 +1793,7 @@ pub fn compute_allo_microstructure_features(
                 let dm_name = dm_names[dm_idx];
                 let sf_name = sf_names[sf_idx];
                 for base_name in &base_names {
-                    feature_names.push(format!("{}_{}_{}",dm_name, sf_name, base_name));
+                    feature_names.push(format!("{}_{}_{}", dm_name, sf_name, base_name));
                 }
             }
         }
@@ -1753,7 +1807,11 @@ pub fn compute_allo_microstructure_features(
                     let sum: f64 = group_features.iter().map(|f| f[feat_idx]).sum();
                     let col_idx = group_idx * n_base_features + feat_idx;
                     let val = sum / n_events;
-                    result_row[col_idx] = if val.is_nan() || val.is_infinite() { 0.0 } else { val };
+                    result_row[col_idx] = if val.is_nan() || val.is_infinite() {
+                        0.0
+                    } else {
+                        val
+                    };
                 }
             }
         }
@@ -1761,10 +1819,7 @@ pub fn compute_allo_microstructure_features(
         let result_array = Array2::from_shape_vec((1, total_features), result_row)
             .unwrap_or_else(|_| Array2::<f64>::zeros((1, total_features)));
 
-        Ok((
-            result_array.into_pyarray(py).to_owned(),
-            feature_names,
-        ))
+        Ok((result_array.into_pyarray(py).to_owned(), feature_names))
     } else {
         // 非tris模式：使用原有逻辑
         let events = detect_ala_events(
@@ -1806,9 +1861,6 @@ pub fn compute_allo_microstructure_features(
 
         let feature_names = get_feature_names();
 
-        Ok((
-            result_array.into_pyarray(py).to_owned(),
-            feature_names,
-        ))
+        Ok((result_array.into_pyarray(py).to_owned(), feature_names))
     }
 }

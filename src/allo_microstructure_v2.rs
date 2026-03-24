@@ -63,7 +63,8 @@ impl Snapshot {
 
     /// 获取某价格前方的档位挂单量（对于买侧，前方是价格更高的档位）
     fn bid_volume_before_price(&self, target_price: f64) -> f64 {
-        self.bids.iter()
+        self.bids
+            .iter()
             .filter(|b| b.price > target_price + EPS)
             .map(|b| b.volume)
             .sum()
@@ -71,7 +72,8 @@ impl Snapshot {
 
     /// 获取某价格前方的档位挂单量（对于卖侧，前方是价格更低的档位）
     fn ask_volume_before_price(&self, target_price: f64) -> f64 {
-        self.asks.iter()
+        self.asks
+            .iter()
             .filter(|a| a.price < target_price - EPS)
             .map(|a| a.volume)
             .sum()
@@ -99,7 +101,7 @@ struct ALAEventV2 {
     price: f64,
     peak_volume: f64,
     initial_volume: f64,
-    initial_level: usize,  // 触发时的档位（仅用于记录）
+    initial_level: usize, // 触发时的档位（仅用于记录）
 }
 
 /// ALA事件特征
@@ -194,8 +196,14 @@ fn parse_snapshots(
     let mut snapshots = Vec::with_capacity(n);
 
     for i in 0..n {
-        let mut bids = [BookLevel { price: 0.0, volume: 0.0 }; LEVEL_COUNT];
-        let mut asks = [BookLevel { price: 0.0, volume: 0.0 }; LEVEL_COUNT];
+        let mut bids = [BookLevel {
+            price: 0.0,
+            volume: 0.0,
+        }; LEVEL_COUNT];
+        let mut asks = [BookLevel {
+            price: 0.0,
+            volume: 0.0,
+        }; LEVEL_COUNT];
 
         for j in 0..LEVEL_COUNT {
             bids[j] = BookLevel {
@@ -249,22 +257,23 @@ fn build_price_history_map(
     is_bid: bool,
 ) -> HashMap<i64, Vec<(usize, f64)>> {
     let mut price_history: HashMap<i64, Vec<(usize, f64)>> = HashMap::new();
-    
+
     // 将价格乘以10000转换为整数作为key，避免浮点精度问题
     let price_to_key = |p: f64| -> i64 { (p * 10000.0).round() as i64 };
-    
+
     for (idx, snap) in snapshots.iter().enumerate() {
         let levels = if is_bid { &snap.bids } else { &snap.asks };
         for level in levels.iter() {
             if level.volume > EPS {
                 let key = price_to_key(level.price);
-                price_history.entry(key)
+                price_history
+                    .entry(key)
                     .or_insert_with(Vec::new)
                     .push((idx, level.volume));
             }
         }
     }
-    
+
     price_history
 }
 
@@ -278,7 +287,7 @@ fn get_price_moving_avg(
     if let Some(history) = price_history.get(&price_key) {
         let mut sum = 0.0;
         let mut count = 0;
-        
+
         // 从历史记录中找出在 (current_idx - window_size, current_idx) 范围内的记录
         for &(idx, vol) in history.iter() {
             if idx >= current_idx {
@@ -289,7 +298,7 @@ fn get_price_moving_avg(
                 count += 1;
             }
         }
-        
+
         if count > 0 {
             sum / count as f64
         } else {
@@ -348,17 +357,19 @@ fn detect_ala_events_v2(
                 if check_bid {
                     for (level, bid) in snap.bids.iter().enumerate() {
                         let price_key = price_to_key(bid.price);
-                        
+
                         // 如果已经在事件中，更新追踪
                         if in_event_bid.contains_key(&price_key) {
-                            let (start_idx, initial_vol, peak_vol) = *in_event_bid.get(&price_key).unwrap();
+                            let (start_idx, initial_vol, peak_vol) =
+                                *in_event_bid.get(&price_key).unwrap();
                             let new_peak = peak_vol.max(bid.volume);
                             in_event_bid.insert(price_key, (start_idx, initial_vol, new_peak));
-                            
+
                             // 检查结束条件
                             if bid.volume < decay_threshold * initial_vol {
                                 // 事件结束 - 衰减
-                                let (start_idx, initial_vol, peak_vol) = in_event_bid.remove(&price_key).unwrap();
+                                let (start_idx, initial_vol, peak_vol) =
+                                    in_event_bid.remove(&price_key).unwrap();
                                 labeled_events.push(LabeledALAEventV2 {
                                     event: ALAEventV2 {
                                         start_idx,
@@ -381,7 +392,9 @@ fn detect_ala_events_v2(
                         // 检查是否触发新事件
                         let h_trigger = {
                             // 横向：当前挂单量 > k1 × 同侧其他档位挂单量之和
-                            let other_vol: f64 = snap.bids.iter()
+                            let other_vol: f64 = snap
+                                .bids
+                                .iter()
                                 .enumerate()
                                 .filter(|(l, _)| *l != level)
                                 .map(|(_, b)| b.volume)
@@ -391,7 +404,8 @@ fn detect_ala_events_v2(
 
                         let v_trigger = {
                             // 纵向：当前挂单量 > k2 × 该价格近期平均挂单量
-                            let avg = get_price_moving_avg(price_key, i, window_size, &bid_price_history);
+                            let avg =
+                                get_price_moving_avg(price_key, i, window_size, &bid_price_history);
                             avg > EPS && bid.volume > k2_vertical * avg
                         };
 
@@ -405,7 +419,7 @@ fn detect_ala_events_v2(
                             in_event_bid.insert(price_key, (i, bid.volume, bid.volume));
                         }
                     }
-                    
+
                     // 检查买侧事件是否因价格消失而结束
                     let mut ended_prices = Vec::new();
                     for (&price_key, &(start_idx, initial_vol, peak_vol)) in in_event_bid.iter() {
@@ -438,14 +452,16 @@ fn detect_ala_events_v2(
                 if check_ask {
                     for (level, ask) in snap.asks.iter().enumerate() {
                         let price_key = price_to_key(ask.price);
-                        
+
                         if in_event_ask.contains_key(&price_key) {
-                            let (start_idx, initial_vol, peak_vol) = *in_event_ask.get(&price_key).unwrap();
+                            let (start_idx, initial_vol, peak_vol) =
+                                *in_event_ask.get(&price_key).unwrap();
                             let new_peak = peak_vol.max(ask.volume);
                             in_event_ask.insert(price_key, (start_idx, initial_vol, new_peak));
-                            
+
                             if ask.volume < decay_threshold * initial_vol {
-                                let (start_idx, initial_vol, peak_vol) = in_event_ask.remove(&price_key).unwrap();
+                                let (start_idx, initial_vol, peak_vol) =
+                                    in_event_ask.remove(&price_key).unwrap();
                                 labeled_events.push(LabeledALAEventV2 {
                                     event: ALAEventV2 {
                                         start_idx,
@@ -466,7 +482,9 @@ fn detect_ala_events_v2(
                         }
 
                         let h_trigger = {
-                            let other_vol: f64 = snap.asks.iter()
+                            let other_vol: f64 = snap
+                                .asks
+                                .iter()
                                 .enumerate()
                                 .filter(|(l, _)| *l != level)
                                 .map(|(_, a)| a.volume)
@@ -475,7 +493,8 @@ fn detect_ala_events_v2(
                         };
 
                         let v_trigger = {
-                            let avg = get_price_moving_avg(price_key, i, window_size, &ask_price_history);
+                            let avg =
+                                get_price_moving_avg(price_key, i, window_size, &ask_price_history);
                             avg > EPS && ask.volume > k2_vertical * avg
                         };
 
@@ -489,7 +508,7 @@ fn detect_ala_events_v2(
                             in_event_ask.insert(price_key, (i, ask.volume, ask.volume));
                         }
                     }
-                    
+
                     // 检查卖侧事件是否因价格消失而结束
                     let mut ended_prices = Vec::new();
                     for (&price_key, &(start_idx, initial_vol, peak_vol)) in in_event_ask.iter() {
@@ -567,8 +586,10 @@ fn detect_ala_events_v2(
             .then(a.side_filter_idx.cmp(&b.side_filter_idx))
             .then(a.event.start_idx.cmp(&b.event.start_idx))
             .then(
-                (a.event.price * 10000.0).round().partial_cmp(&(b.event.price * 10000.0).round())
-                    .unwrap_or(std::cmp::Ordering::Equal)
+                (a.event.price * 10000.0)
+                    .round()
+                    .partial_cmp(&(b.event.price * 10000.0).round())
+                    .unwrap_or(std::cmp::Ordering::Equal),
             )
     });
 
@@ -584,7 +605,11 @@ fn get_trades_in_range(trades: &[Trade], start_time: i64, end_time: i64) -> Vec<
 }
 
 /// 获取时间范围内的快照
-fn get_snapshots_in_range(snapshots: &[Snapshot], start_time: i64, end_time: i64) -> Vec<&Snapshot> {
+fn get_snapshots_in_range(
+    snapshots: &[Snapshot],
+    start_time: i64,
+    end_time: i64,
+) -> Vec<&Snapshot> {
     snapshots
         .iter()
         .filter(|s| s.timestamp >= start_time && s.timestamp <= end_time)
@@ -597,7 +622,8 @@ fn std_dev(values: &[f64]) -> f64 {
         return 0.0;
     }
     let mean = values.iter().sum::<f64>() / values.len() as f64;
-    let variance = values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (values.len() - 1) as f64;
+    let variance =
+        values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (values.len() - 1) as f64;
     variance.sqrt()
 }
 
@@ -670,11 +696,15 @@ fn entropy(intervals: &[f64]) -> f64 {
 }
 
 /// 计算时间形态学特征
-fn compute_temporal_morphology(trades: &[&Trade], event_start_time: i64, event_end_time: i64) -> (f64, f64, f64, f64) {
+fn compute_temporal_morphology(
+    trades: &[&Trade],
+    event_start_time: i64,
+    event_end_time: i64,
+) -> (f64, f64, f64, f64) {
     if trades.is_empty() {
         return (0.0, 0.0, 0.0, 0.0);
     }
-    
+
     let duration = (event_end_time - event_start_time) as f64;
     if duration < EPS {
         return (0.0, 0.0, 0.0, 0.0);
@@ -707,7 +737,12 @@ fn compute_temporal_morphology(trades: &[&Trade], event_start_time: i64, event_e
     }
     let rhythm_entropy = entropy(&intervals);
 
-    (attack_skewness, peak_latency_ratio, courage_acceleration, rhythm_entropy)
+    (
+        attack_skewness,
+        peak_latency_ratio,
+        courage_acceleration,
+        rhythm_entropy,
+    )
 }
 
 /// 计算单个ALA事件的特征
@@ -731,13 +766,17 @@ fn compute_ala_features_v2(
 
     // M1: 相对凸度
     let avg_opposite: f64 = if event.is_bid {
-        event_snaps.iter()
+        event_snaps
+            .iter()
             .map(|s| s.asks[0..5].iter().map(|a| a.volume).sum::<f64>() / 5.0)
-            .sum::<f64>() / event_snaps.len() as f64
+            .sum::<f64>()
+            / event_snaps.len() as f64
     } else {
-        event_snaps.iter()
+        event_snaps
+            .iter()
             .map(|s| s.bids[0..5].iter().map(|b| b.volume).sum::<f64>() / 5.0)
-            .sum::<f64>() / event_snaps.len() as f64
+            .sum::<f64>()
+            / event_snaps.len() as f64
     };
     features.m1_relative_prominence = if avg_opposite > EPS {
         event.peak_volume / avg_opposite
@@ -758,7 +797,7 @@ fn compute_ala_features_v2(
             }
         }
     }
-    
+
     let vol_std = std_dev(&volumes);
     let vol_mean = if !volumes.is_empty() {
         volumes.iter().sum::<f64>() / volumes.len() as f64
@@ -813,7 +852,8 @@ fn compute_ala_features_v2(
                 s.ask_volume_before_price(event.price)
             }
         })
-        .sum::<f64>() / event_snaps.len().max(1) as f64;
+        .sum::<f64>()
+        / event_snaps.len().max(1) as f64;
     features.m8_frontrun_passive = if event.peak_volume > EPS {
         avg_better_levels / event.peak_volume
     } else {
@@ -876,14 +916,14 @@ fn compute_ala_features_v2(
         .cloned()
         .collect();
 
-    let (skew_opp, peak_opp, courage_opp, entropy_opp) = 
+    let (skew_opp, peak_opp, courage_opp, entropy_opp) =
         compute_temporal_morphology(&opponent_trades, event.start_time, event.end_time);
     features.m11a_attack_skewness_opponent = skew_opp;
     features.m12a_peak_latency_ratio_opponent = peak_opp;
     features.m13a_courage_acceleration_opponent = courage_opp;
     features.m14a_rhythm_entropy_opponent = entropy_opp;
 
-    let (skew_ally, peak_ally, courage_ally, entropy_ally) = 
+    let (skew_ally, peak_ally, courage_ally, entropy_ally) =
         compute_temporal_morphology(&ally_trades, event.start_time, event.end_time);
     features.m11b_attack_skewness_ally = skew_ally;
     features.m12b_peak_latency_ratio_ally = peak_ally;
@@ -902,7 +942,8 @@ fn compute_ala_features_v2(
                 s.ask_volume_before_price(event.price)
             }
         })
-        .sum::<f64>() / event_snaps.len().max(1) as f64;
+        .sum::<f64>()
+        / event_snaps.len().max(1) as f64;
 
     let history_start = event.start_idx.saturating_sub(100);
     let history_snaps = &snapshots[history_start..event.start_idx];
@@ -916,7 +957,8 @@ fn compute_ala_features_v2(
                     s.ask_volume_before_price(event.price)
                 }
             })
-            .sum::<f64>() / history_snaps.len() as f64
+            .sum::<f64>()
+            / history_snaps.len() as f64
     } else {
         during_avg
     };
@@ -1110,7 +1152,6 @@ fn compute_ala_features_v2(
     features
 }
 
-
 /// 计算非对称大挂单微观结构特征 v2 - 价格锚定版本
 #[pyfunction]
 #[pyo3(signature = (
@@ -1194,35 +1235,61 @@ pub fn compute_allo_microstructure_features_tris_expanded_v2(
     let snap_exchtime = snap_exchtime.as_slice()?;
 
     let bid_prc: [&[f64]; LEVEL_COUNT] = [
-        bid_prc1.as_slice()?, bid_prc2.as_slice()?, bid_prc3.as_slice()?,
-        bid_prc4.as_slice()?, bid_prc5.as_slice()?, bid_prc6.as_slice()?,
-        bid_prc7.as_slice()?, bid_prc8.as_slice()?, bid_prc9.as_slice()?,
+        bid_prc1.as_slice()?,
+        bid_prc2.as_slice()?,
+        bid_prc3.as_slice()?,
+        bid_prc4.as_slice()?,
+        bid_prc5.as_slice()?,
+        bid_prc6.as_slice()?,
+        bid_prc7.as_slice()?,
+        bid_prc8.as_slice()?,
+        bid_prc9.as_slice()?,
         bid_prc10.as_slice()?,
     ];
     let bid_vol: [&[f64]; LEVEL_COUNT] = [
-        bid_vol1.as_slice()?, bid_vol2.as_slice()?, bid_vol3.as_slice()?,
-        bid_vol4.as_slice()?, bid_vol5.as_slice()?, bid_vol6.as_slice()?,
-        bid_vol7.as_slice()?, bid_vol8.as_slice()?, bid_vol9.as_slice()?,
+        bid_vol1.as_slice()?,
+        bid_vol2.as_slice()?,
+        bid_vol3.as_slice()?,
+        bid_vol4.as_slice()?,
+        bid_vol5.as_slice()?,
+        bid_vol6.as_slice()?,
+        bid_vol7.as_slice()?,
+        bid_vol8.as_slice()?,
+        bid_vol9.as_slice()?,
         bid_vol10.as_slice()?,
     ];
     let ask_prc: [&[f64]; LEVEL_COUNT] = [
-        ask_prc1.as_slice()?, ask_prc2.as_slice()?, ask_prc3.as_slice()?,
-        ask_prc4.as_slice()?, ask_prc5.as_slice()?, ask_prc6.as_slice()?,
-        ask_prc7.as_slice()?, ask_prc8.as_slice()?, ask_prc9.as_slice()?,
+        ask_prc1.as_slice()?,
+        ask_prc2.as_slice()?,
+        ask_prc3.as_slice()?,
+        ask_prc4.as_slice()?,
+        ask_prc5.as_slice()?,
+        ask_prc6.as_slice()?,
+        ask_prc7.as_slice()?,
+        ask_prc8.as_slice()?,
+        ask_prc9.as_slice()?,
         ask_prc10.as_slice()?,
     ];
     let ask_vol: [&[f64]; LEVEL_COUNT] = [
-        ask_vol1.as_slice()?, ask_vol2.as_slice()?, ask_vol3.as_slice()?,
-        ask_vol4.as_slice()?, ask_vol5.as_slice()?, ask_vol6.as_slice()?,
-        ask_vol7.as_slice()?, ask_vol8.as_slice()?, ask_vol9.as_slice()?,
+        ask_vol1.as_slice()?,
+        ask_vol2.as_slice()?,
+        ask_vol3.as_slice()?,
+        ask_vol4.as_slice()?,
+        ask_vol5.as_slice()?,
+        ask_vol6.as_slice()?,
+        ask_vol7.as_slice()?,
+        ask_vol8.as_slice()?,
+        ask_vol9.as_slice()?,
         ask_vol10.as_slice()?,
     ];
 
     let n_trades = trade_exchtime.len();
     let n_snaps = snap_exchtime.len();
 
-    if trade_price.len() != n_trades || trade_volume.len() != n_trades
-        || trade_turnover.len() != n_trades || trade_flag.len() != n_trades
+    if trade_price.len() != n_trades
+        || trade_volume.len() != n_trades
+        || trade_turnover.len() != n_trades
+        || trade_flag.len() != n_trades
     {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
             "逐笔成交数据各列长度不一致",
@@ -1230,8 +1297,10 @@ pub fn compute_allo_microstructure_features_tris_expanded_v2(
     }
 
     for i in 0..LEVEL_COUNT {
-        if bid_prc[i].len() != n_snaps || bid_vol[i].len() != n_snaps
-            || ask_prc[i].len() != n_snaps || ask_vol[i].len() != n_snaps
+        if bid_prc[i].len() != n_snaps
+            || bid_vol[i].len() != n_snaps
+            || ask_prc[i].len() != n_snaps
+            || ask_vol[i].len() != n_snaps
         {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
                 "盘口快照数据各列长度不一致",
@@ -1240,7 +1309,13 @@ pub fn compute_allo_microstructure_features_tris_expanded_v2(
     }
 
     let snapshots = parse_snapshots(snap_exchtime, &bid_prc, &bid_vol, &ask_prc, &ask_vol);
-    let trades = parse_trades(trade_exchtime, trade_price, trade_volume, trade_turnover, trade_flag);
+    let trades = parse_trades(
+        trade_exchtime,
+        trade_price,
+        trade_volume,
+        trade_turnover,
+        trade_flag,
+    );
 
     let detection_modes = vec!["horizontal", "vertical", "both"];
     let side_filters = vec!["bid", "ask", "both"];

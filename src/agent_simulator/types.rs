@@ -7,7 +7,7 @@ pub struct MarketTrade {
     pub price: f64,
     pub volume: f64,
     pub turnover: f64,
-    pub flag: i32,  // 66=主买, 83=主卖
+    pub flag: i32, // 66=主买, 83=主卖
 }
 
 impl MarketTrade {
@@ -15,7 +15,7 @@ impl MarketTrade {
     pub fn is_buy(&self) -> bool {
         self.flag == 66
     }
-    
+
     /// 判断是否是主卖
     pub fn is_sell(&self) -> bool {
         self.flag == 83
@@ -25,11 +25,11 @@ impl MarketTrade {
 /// Agent交易记录
 #[derive(Clone, Debug)]
 pub struct AgentTrade {
-    pub timestamp: i64,        // 成交时间
+    pub timestamp: i64,          // 成交时间
     pub market_trade_idx: usize, // 对应MarketTrade的索引
-    pub direction: i32,        // 66=买入, 83=卖出
-    pub volume: f64,           // 成交量
-    pub price: f64,            // 成交价格
+    pub direction: i32,          // 66=买入, 83=卖出
+    pub volume: f64,             // 成交量
+    pub price: f64,              // 成交价格
 }
 
 /// Agent基础配置（所有Agent共有）
@@ -47,9 +47,9 @@ impl Default for AgentBaseConfig {
         Self {
             name: "UnnamedAgent".to_string(),
             lookback_ms: 10_000_000_000, // 默认10秒（纳秒）
-            fixed_trade_size: 100, // 默认100股
-            cooldown_ms: 0,        // 默认无冷却
-            allow_short: true,     // 默认允许做空
+            fixed_trade_size: 100,       // 默认100股
+            cooldown_ms: 0,              // 默认无冷却
+            allow_short: true,           // 默认允许做空
         }
     }
 }
@@ -76,7 +76,7 @@ impl AgentSimulationResult {
             final_position: 0,
         }
     }
-    
+
     pub fn add_trade(&mut self, trade: AgentTrade) {
         if trade.direction == 66 {
             self.total_buy_volume += trade.volume;
@@ -107,14 +107,14 @@ impl From<AgentSimulationResult> for AgentOutput {
         let mut directions = Vec::with_capacity(n);
         let mut volumes = Vec::with_capacity(n);
         let mut prices = Vec::with_capacity(n);
-        
+
         for trade in result.trades {
             market_indices.push(trade.market_trade_idx);
             directions.push(trade.direction);
             volumes.push(trade.volume);
             prices.push(trade.price);
         }
-        
+
         Self {
             name: result.name,
             market_indices,

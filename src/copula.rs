@@ -175,8 +175,12 @@ fn incomplete_gamma(a: f64, x: f64) -> f64 {
 
 /// 正则化不完全Beta函数 I_x(a, b)
 fn regularized_incomplete_beta(x: f64, a: f64, b: f64) -> f64 {
-    if x <= 0.0 { return 0.0; }
-    if x >= 1.0 { return 1.0; }
+    if x <= 0.0 {
+        return 0.0;
+    }
+    if x >= 1.0 {
+        return 1.0;
+    }
 
     let ln_beta = ln_gamma(a) + ln_gamma(b) - ln_gamma(a + b);
     let front = (a * x.ln() + b * (1.0 - x).ln() - ln_beta).exp() / a;
@@ -211,7 +215,8 @@ fn beta_cf(x: f64, a: f64, b: f64) -> f64 {
         h *= d * c;
 
         // Odd step
-        let num = -((a + m_f64) * (a + b + m_f64) * x) / ((a + 2.0 * m_f64) * (a + 2.0 * m_f64 + 1.0));
+        let num =
+            -((a + m_f64) * (a + b + m_f64) * x) / ((a + 2.0 * m_f64) * (a + 2.0 * m_f64 + 1.0));
         d = 1.0 / (1.0 + num * d).max(tiny);
         c = (1.0 + num / c).max(tiny);
         h *= d * c;
@@ -348,7 +353,11 @@ fn t_quantile(p: f64, df: f64) -> f64 {
     // t分位数与不完全Beta函数的关系:
     // 若p < 0.5: x_beta = I^{-1}(2p; df/2, 1/2), t = -sqrt(df*(1/x_beta - 1))
     // 若p > 0.5: x_beta = I^{-1}(2(1-p); df/2, 1/2), t = sqrt(df*(1/x_beta - 1))
-    let (q, sign) = if p < 0.5 { (2.0 * p, -1.0) } else { (2.0 * (1.0 - p), 1.0) };
+    let (q, sign) = if p < 0.5 {
+        (2.0 * p, -1.0)
+    } else {
+        (2.0 * (1.0 - p), 1.0)
+    };
 
     // 反向不完全Beta: 求x使得I_x(a,b) = q，用牛顿迭代
     let a = df / 2.0;
@@ -361,8 +370,12 @@ fn t_quantile(p: f64, df: f64) -> f64 {
 
 /// 反向正则化不完全Beta函数: 求x使得I_x(a,b) = p
 fn inv_regularized_incomplete_beta(p: f64, a: f64, b: f64) -> f64 {
-    if p <= 0.0 { return 0.0; }
-    if p >= 1.0 { return 1.0; }
+    if p <= 0.0 {
+        return 0.0;
+    }
+    if p >= 1.0 {
+        return 1.0;
+    }
 
     // 初始猜测: 使用正态近似
     let ln_a = ln_gamma(a);
@@ -377,8 +390,7 @@ fn inv_regularized_incomplete_beta(p: f64, a: f64, b: f64) -> f64 {
         let lam = (s * s - 3.0) / 6.0;
         let h = 2.0 / (1.0 / (2.0 * a - 1.0) + 1.0 / (2.0 * b - 1.0));
         let w = s * (h + lam).sqrt() / h
-            - (1.0 / (2.0 * b - 1.0) - 1.0 / (2.0 * a - 1.0))
-                * (lam + 5.0 / 6.0 - 2.0 / (3.0 * h));
+            - (1.0 / (2.0 * b - 1.0) - 1.0 / (2.0 * a - 1.0)) * (lam + 5.0 / 6.0 - 2.0 / (3.0 * h));
         a / (a + b * (2.0 * w).exp())
     } else {
         let lna = (a / (a + b)).ln();
@@ -386,7 +398,11 @@ fn inv_regularized_incomplete_beta(p: f64, a: f64, b: f64) -> f64 {
         let t = (a * lna).exp() / a;
         let u = (b * lnb).exp() / b;
         let w = t + u;
-        if p < t / w { (a * w * p).powf(1.0 / a) } else { 1.0 - (b * w * (1.0 - p)).powf(1.0 / b) }
+        if p < t / w {
+            (a * w * p).powf(1.0 / a)
+        } else {
+            1.0 - (b * w * (1.0 - p)).powf(1.0 / b)
+        }
     };
 
     x = x.clamp(1e-15, 1.0 - 1e-15);
@@ -395,9 +411,13 @@ fn inv_regularized_incomplete_beta(p: f64, a: f64, b: f64) -> f64 {
     let afac = -(ln_a + ln_b - ln_ab);
     for _ in 0..20 {
         let err = regularized_incomplete_beta(x, a, b) - p;
-        if err.abs() < 1e-14 { break; }
+        if err.abs() < 1e-14 {
+            break;
+        }
         let t = ((a - 1.0) * x.ln() + (b - 1.0) * (1.0 - x).ln() + afac).exp();
-        if t == 0.0 { break; }
+        if t == 0.0 {
+            break;
+        }
         let u = err / t;
         let corr = u / (1.0 - 0.5 * (u * ((a - 1.0) / x - (b - 1.0) / (1.0 - x))).min(1.0));
         x -= corr;
@@ -472,8 +492,10 @@ fn t_copula_pdf(u1: f64, u2: f64, rho: f64, df: f64) -> f64 {
     }
 
     // 使用对数计算避免溢出
-    let log_coef = ln_gamma((df + 2.0) / 2.0) - ln_gamma(df / 2.0)
-        - (df * PI).ln() - 0.5 * (1.0 - rho * rho).ln();
+    let log_coef = ln_gamma((df + 2.0) / 2.0)
+        - ln_gamma(df / 2.0)
+        - (df * PI).ln()
+        - 0.5 * (1.0 - rho * rho).ln();
     let log_pdf = log_coef - (df + 2.0) / 2.0 * (1.0 + z / df).ln();
 
     let c1 = t_pdf(t1, df);
@@ -581,7 +603,9 @@ fn clayton_copula_cdf(u1: f64, u2: f64, theta: f64) -> f64 {
     if theta <= 0.0 {
         return u1 * u2; // 独立情况
     }
-    (u1.powf(-theta) + u2.powf(-theta) - 1.0).max(0.0).powf(-1.0 / theta)
+    (u1.powf(-theta) + u2.powf(-theta) - 1.0)
+        .max(0.0)
+        .powf(-1.0 / theta)
 }
 
 /// Clayton Copula PDF
@@ -608,7 +632,8 @@ fn clayton_copula_sample(theta: f64, n: usize) -> (Vec<f64>, Vec<f64>) {
         let t: f64 = rng.gen();
 
         let u1_val = s;
-        let u2_val = (1.0 + s.powf(-theta) * (t.powf(-theta / (1.0 + theta)) - 1.0)).powf(-1.0 / theta);
+        let u2_val =
+            (1.0 + s.powf(-theta) * (t.powf(-theta / (1.0 + theta)) - 1.0)).powf(-1.0 / theta);
 
         u1.push(u1_val);
         u2.push(u2_val);
@@ -892,7 +917,11 @@ fn rotated_clayton_90_log_likelihood(u1: &[f64], u2: &[f64], theta: f64) -> f64 
             valid_count += 1;
         }
     }
-    if valid_count == 0 { f64::NEG_INFINITY } else { loglik }
+    if valid_count == 0 {
+        f64::NEG_INFINITY
+    } else {
+        loglik
+    }
 }
 
 /// 90°旋转Gumbel Copula PDF
@@ -915,7 +944,11 @@ fn rotated_gumbel_90_log_likelihood(u1: &[f64], u2: &[f64], theta: f64) -> f64 {
             valid_count += 1;
         }
     }
-    if valid_count == 0 { f64::NEG_INFINITY } else { loglik }
+    if valid_count == 0 {
+        f64::NEG_INFINITY
+    } else {
+        loglik
+    }
 }
 
 // ==================== 参数估计 ====================
@@ -933,9 +966,17 @@ fn kendall_tau(x: &[f64], y: &[f64]) -> f64 {
     }
 
     // 按x排序，相同x时按y排序
-    let mut pairs: Vec<(f64, f64)> = x.iter().zip(y.iter()).take(n).map(|(&a, &b)| (a, b)).collect();
-    pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
-        .then(a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)));
+    let mut pairs: Vec<(f64, f64)> = x
+        .iter()
+        .zip(y.iter())
+        .take(n)
+        .map(|(&a, &b)| (a, b))
+        .collect();
+    pairs.sort_by(|a, b| {
+        a.0.partial_cmp(&b.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+    });
 
     // 统计x相同的对数（tied in x）
     let mut ties_x = 0i64;
@@ -1123,7 +1164,10 @@ pub fn gaussian_copula_sample_py(rho: f64, n: usize) -> PyResult<(Vec<f64>, Vec<
 /// Gaussian Copula 参数估计
 #[pyfunction]
 #[pyo3(signature = (x, y))]
-pub fn gaussian_copula_estimate(x: PyReadonlyArray1<f64>, y: PyReadonlyArray1<f64>) -> PyResult<f64> {
+pub fn gaussian_copula_estimate(
+    x: PyReadonlyArray1<f64>,
+    y: PyReadonlyArray1<f64>,
+) -> PyResult<f64> {
     Ok(estimate_gaussian_copula(x.as_slice()?, y.as_slice()?))
 }
 
@@ -1218,7 +1262,10 @@ pub fn clayton_copula_sample_py(theta: f64, n: usize) -> PyResult<(Vec<f64>, Vec
 /// Clayton Copula 参数估计
 #[pyfunction]
 #[pyo3(signature = (x, y))]
-pub fn clayton_copula_estimate(x: PyReadonlyArray1<f64>, y: PyReadonlyArray1<f64>) -> PyResult<f64> {
+pub fn clayton_copula_estimate(
+    x: PyReadonlyArray1<f64>,
+    y: PyReadonlyArray1<f64>,
+) -> PyResult<f64> {
     Ok(estimate_clayton_copula(x.as_slice()?, y.as_slice()?))
 }
 
@@ -1297,7 +1344,11 @@ pub fn to_uniform(py: Python, data: PyReadonlyArray1<f64>) -> PyResult<Py<PyArra
     let data = data.as_slice()?;
     let n = data.len();
     let mut sorted_indices: Vec<usize> = (0..n).collect();
-    sorted_indices.sort_by(|&i, &j| data[i].partial_cmp(&data[j]).unwrap_or(std::cmp::Ordering::Equal));
+    sorted_indices.sort_by(|&i, &j| {
+        data[i]
+            .partial_cmp(&data[j])
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let mut result = vec![0.0; n];
     for (rank, &idx) in sorted_indices.iter().enumerate() {
@@ -1382,7 +1433,9 @@ fn empirical_upper_tail_dependence(x: &[f64], y: &[f64], q: f64) -> f64 {
 /// 交叉尾部依赖：X处于最好(1-q)分位时，Y处于最差q分位的概率（负相关场景）
 fn empirical_upper_tail_dependence_cross_lower(x: &[f64], y: &[f64], q: f64) -> f64 {
     let n = x.len().min(y.len());
-    if n == 0 { return f64::NAN; }
+    if n == 0 {
+        return f64::NAN;
+    }
     let mut x_sorted: Vec<f64> = x.iter().take(n).cloned().collect();
     let mut y_sorted: Vec<f64> = y.iter().take(n).cloned().collect();
     x_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
@@ -1399,13 +1452,19 @@ fn empirical_upper_tail_dependence_cross_lower(x: &[f64], y: &[f64], q: f64) -> 
             }
         }
     }
-    if x_above == 0 { 0.0 } else { both as f64 / x_above as f64 }
+    if x_above == 0 {
+        0.0
+    } else {
+        both as f64 / x_above as f64
+    }
 }
 
 /// 交叉尾部依赖：X处于最差q分位时，Y处于最好(1-q)分位的概率（负相关场景）
 fn empirical_lower_tail_dependence_cross_upper(x: &[f64], y: &[f64], q: f64) -> f64 {
     let n = x.len().min(y.len());
-    if n == 0 { return f64::NAN; }
+    if n == 0 {
+        return f64::NAN;
+    }
     let mut x_sorted: Vec<f64> = x.iter().take(n).cloned().collect();
     let mut y_sorted: Vec<f64> = y.iter().take(n).cloned().collect();
     x_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
@@ -1422,7 +1481,11 @@ fn empirical_lower_tail_dependence_cross_upper(x: &[f64], y: &[f64], q: f64) -> 
             }
         }
     }
-    if x_below == 0 { 0.0 } else { both as f64 / x_below as f64 }
+    if x_below == 0 {
+        0.0
+    } else {
+        both as f64 / x_below as f64
+    }
 }
 
 /// 非参数估计尾部依赖（Python接口）
@@ -1465,7 +1528,11 @@ pub fn estimate_all_copulas(
 
     // 基于tau直接估计参数（避免重复计算tau）
     let gaussian_rho = kendall_tau_to_rho(tau).clamp(-0.9999, 0.9999);
-    let clayton_theta = if tau <= 0.0 { 0.1 } else { 2.0 * tau / (1.0 - tau) };
+    let clayton_theta = if tau <= 0.0 {
+        0.1
+    } else {
+        2.0 * tau / (1.0 - tau)
+    };
     let gumbel_theta = if tau <= 0.0 { 1.0 } else { 1.0 / (1.0 - tau) };
 
     dict.set_item("kendall_tau", tau)?;
@@ -1473,8 +1540,14 @@ pub fn estimate_all_copulas(
     dict.set_item("t_rho", gaussian_rho)?;
     dict.set_item("clayton_theta", clayton_theta)?;
     dict.set_item("gumbel_theta", gumbel_theta)?;
-    dict.set_item("clayton_lower_tail_param", clayton_lower_tail_dependence(clayton_theta))?;
-    dict.set_item("gumbel_upper_tail_param", gumbel_upper_tail_dependence(gumbel_theta))?;
+    dict.set_item(
+        "clayton_lower_tail_param",
+        clayton_lower_tail_dependence(clayton_theta),
+    )?;
+    dict.set_item(
+        "gumbel_upper_tail_param",
+        gumbel_upper_tail_dependence(gumbel_theta),
+    )?;
 
     // 非参数尾部依赖（直接从数据计算，这是真正有意义的！）
     let empirical_lower = empirical_lower_tail_dependence(x_slice, y_slice, q);
@@ -1623,9 +1696,7 @@ pub fn copula_analysis(
             let aic = 2.0 * 2.0 - 2.0 * loglik;
             (user_df, loglik, aic)
         }
-        None => {
-            optimize_t_copula_df(&u1, &u2, t_rho)
-        }
+        None => optimize_t_copula_df(&u1, &u2, t_rho),
     };
 
     // ==================== Frank Copula (支持正负相关) ====================
@@ -1669,7 +1740,11 @@ pub fn copula_analysis(
     let empirical_cross_upper = empirical_lower_tail_dependence_cross_upper(x_slice, y_slice, q);
 
     // ==================== 模型选择建议 ====================
-    let best_aic = gaussian_aic.min(t_aic).min(clayton_aic).min(gumbel_aic).min(frank_aic);
+    let best_aic = gaussian_aic
+        .min(t_aic)
+        .min(clayton_aic)
+        .min(gumbel_aic)
+        .min(frank_aic);
     let best_copula = if (gaussian_aic - best_aic).abs() < 1e-10 {
         "Gaussian"
     } else if (t_aic - best_aic).abs() < 1e-10 {
@@ -1812,7 +1887,11 @@ fn pearson_correlation(x: &[f64], y: &[f64]) -> f64 {
 fn to_uniform_slice(data: &[f64]) -> Vec<f64> {
     let n = data.len();
     let mut sorted_indices: Vec<usize> = (0..n).collect();
-    sorted_indices.sort_by(|&i, &j| data[i].partial_cmp(&data[j]).unwrap_or(std::cmp::Ordering::Equal));
+    sorted_indices.sort_by(|&i, &j| {
+        data[i]
+            .partial_cmp(&data[j])
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let mut result = vec![0.0; n];
     for (rank, &idx) in sorted_indices.iter().enumerate() {

@@ -6,14 +6,14 @@ use super::types::*;
 pub trait TradingAgent {
     /// Agent名称
     fn name(&self) -> &str;
-    
+
     /// 判断是否触发交易
-    /// 
+    ///
     /// 参数：
     /// - market_trades: 完整的市场成交数据
     /// - current_idx: 当前处理的市场成交索引
     /// - current_time: 当前时间戳
-    /// 
+    ///
     /// 返回：
     /// - Some(66) = 买入触发
     /// - Some(83) = 卖出触发  
@@ -24,25 +24,25 @@ pub trait TradingAgent {
         current_idx: usize,
         current_time: i64,
     ) -> Option<i32>;
-    
+
     /// 获取固定交易数量
     fn trade_size(&self) -> i64;
-    
+
     /// 检查冷却期是否已过
     fn can_trade(&self, current_time: i64) -> bool;
-    
+
     /// 记录交易（更新最后交易时间等）
     fn record_trade(&mut self, time: i64, market_idx: usize, direction: i32, price: f64);
-    
+
     /// 获取交易记录
     fn trades(&self) -> &[AgentTrade];
-    
+
     /// 获取交易记录的可变引用（用于模拟器）
     fn trades_mut(&mut self) -> &mut Vec<AgentTrade>;
-    
+
     /// 获取最后交易时间
     fn last_trade_time(&self) -> i64;
-    
+
     /// 设置最后交易时间
     fn set_last_trade_time(&mut self, time: i64);
 }
@@ -56,7 +56,7 @@ pub trait TradingAgentBase: TradingAgent {
         }
         current_time - self.last_trade_time() >= cooldown_ms
     }
-    
+
     /// 默认的交易记录实现
     fn default_record_trade(
         &mut self,

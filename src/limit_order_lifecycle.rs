@@ -175,11 +175,7 @@ pub fn reconstruct_limit_order_lifecycle(
                         chunk[base + 1] = side as f64;
                         chunk[base + 2] = (level + 1) as f64;
 
-                        let price_col = if side == 0 {
-                            1 + level
-                        } else {
-                            21 + level
-                        };
+                        let price_col = if side == 0 { 1 + level } else { 21 + level };
                         let target_price = snaps_arc[[s_idx, price_col]];
                         let id_limit = if side == 0 { max_bid_id } else { max_ask_id };
 
@@ -264,8 +260,7 @@ pub fn reconstruct_limit_order_lifecycle(
             });
     });
 
-    let result = Array2::from_shape_vec((total_rows, OUTPUT_COLS), output).map_err(|_| {
-        pyo3::exceptions::PyValueError::new_err("输出数组形状构建失败")
-    })?;
+    let result = Array2::from_shape_vec((total_rows, OUTPUT_COLS), output)
+        .map_err(|_| pyo3::exceptions::PyValueError::new_err("输出数组形状构建失败"))?;
     Ok(result.into_pyarray(py).to_owned())
 }

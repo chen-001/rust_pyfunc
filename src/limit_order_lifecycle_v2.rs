@@ -89,10 +89,10 @@ fn trend_corr(values: &[f64]) -> f64 {
 }
 
 /// 限价单生命周期重建 v2
-/// 
+///
 /// 功能：通过匹配高频逐笔成交数据与盘口快照数据，使用订单ID作为追踪器，
 /// 重建限价单生命周期指标
-/// 
+///
 /// 输入：
 /// - ticks_array: 逐笔成交数据 (N_ticks x 7)
 ///   - 列0: exchtime (时间戳)
@@ -102,14 +102,14 @@ fn trend_corr(values: &[f64]) -> f64 {
 ///   - 列4: flag (交易标志: 66=主买, 83=主卖, 32=撤单)
 ///   - 列5: ask_order (卖单订单ID)
 ///   - 列6: bid_order (买单订单ID)
-/// 
+///
 /// - snaps_array: 盘口快照数据 (N_snaps x 41+)
 ///   - 列0: exchtime (时间戳)
 ///   - 列1-10: bid_prc1-10 (买价1-10档)
 ///   - 列11-20: bid_vol1-10 (买量1-10档)
 ///   - 列21-30: ask_prc1-10 (卖价1-10档)
 ///   - 列31-40: ask_vol1-10 (卖量1-10档)
-/// 
+///
 /// 输出：
 /// - features_array: 特征数组 (N_snaps * 20 x 15)
 ///   - 每行代表一个(快照, 档位, 方向)组合
@@ -158,18 +158,18 @@ pub fn reconstruct_limit_order_lifecycle_v2(
     // 对于每个快照，计算：
     // 1. 在快照时间点之前的最大订单ID (MAX_BID_ID_t, MAX_ASK_ID_t)
     // 2. 该快照在tick数组中的起始索引
-    
+
     let mut start_indices = vec![0usize; n_snaps];
     let mut max_bid_ids = vec![0i64; n_snaps];
     let mut max_ask_ids = vec![0i64; n_snaps];
-    
+
     let mut tick_idx = 0usize;
     let mut current_max_bid = 0i64;
     let mut current_max_ask = 0i64;
 
     for s_idx in 0..n_snaps {
         let snap_ts = snaps[[s_idx, 0]];
-        
+
         // 处理时间戳小于当前快照的所有tick
         while tick_idx < n_ticks && ticks[[tick_idx, 0]] < snap_ts {
             let ask_id = ticks[[tick_idx, 5]] as i64;
@@ -234,15 +234,15 @@ pub fn reconstruct_limit_order_lifecycle_v2(
                     for level in 0..LEVELS {
                         let row = side * LEVELS + level;
                         let base = row * OUTPUT_COLS;
-                        
+
                         // 输出基本信息
-                        chunk[base] = snap_ts;                    // timestamp
-                        chunk[base + 1] = side as f64;            // side_flag (0=Bid, 1=Ask)
-                        chunk[base + 2] = (level + 1) as f64;     // level_index (1-10)
+                        chunk[base] = snap_ts; // timestamp
+                        chunk[base + 1] = side as f64; // side_flag (0=Bid, 1=Ask)
+                        chunk[base + 2] = (level + 1) as f64; // level_index (1-10)
 
                         // 确定目标价格和ID限制
                         let price_col = if side == 0 {
-                            1 + level  // Bid: bid_prc1-10 在列1-10
+                            1 + level // Bid: bid_prc1-10 在列1-10
                         } else {
                             21 + level // Ask: ask_prc1-10 在列21-30
                         };
@@ -259,7 +259,7 @@ pub fn reconstruct_limit_order_lifecycle_v2(
                         let mut idx = start_idx;
                         while idx < n_ticks {
                             let tick_price = ticks_arc[[idx, 1]];
-                            
+
                             // 检查是否突破档位（Breakdown Condition）
                             if side == 0 {
                                 // Bid侧：价格低于目标价表示档位被向下突破
@@ -304,12 +304,12 @@ pub fn reconstruct_limit_order_lifecycle_v2(
                         // ============================================
                         // Phase D: Feature Engineering (特征工程)
                         // ============================================
-                        
+
                         // 如果没有匹配到任何交易
                         if volumes.is_empty() {
-                            chunk[base + 3] = 0.0;  // vol_sum = 0
-                            chunk[base + 9] = 0.0;  // id_count = 0
-                            // 其他列保持NaN
+                            chunk[base + 3] = 0.0; // vol_sum = 0
+                            chunk[base + 9] = 0.0; // id_count = 0
+                                                   // 其他列保持NaN
                             continue;
                         }
 
@@ -334,12 +334,12 @@ pub fn reconstruct_limit_order_lifecycle_v2(
                             .iter()
                             .map(|id| (id_limit as f64) - id)
                             .collect();
-                        
+
                         let id_count = deltas.len() as f64;
                         let id_mean = mean(&deltas);
                         let id_std = std_dev(&deltas, id_mean);
                         let id_skew = skewness(&deltas, id_mean, id_std);
-                        
+
                         // ID趋势：使用绝对ID计算与交易序列索引的相关性
                         // 正值表示先吃老订单，负值表示先吃新订单
                         let id_trend = trend_corr(&passive_ids);
@@ -364,9 +364,8 @@ pub fn reconstruct_limit_order_lifecycle_v2(
     });
 
     // 构建输出数组
-    let result = Array2::from_shape_vec((total_rows, OUTPUT_COLS), output).map_err(|_| {
-        pyo3::exceptions::PyValueError::new_err("输出数组形状构建失败")
-    })?;
-    
+    let result = Array2::from_shape_vec((total_rows, OUTPUT_COLS), output)
+        .map_err(|_| pyo3::exceptions::PyValueError::new_err("输出数组形状构建失败"))?;
+
     Ok(result.into_pyarray(py).to_owned())
 }
