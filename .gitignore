@@ -224,6 +224,10 @@ perf.data*
 tests/
 
 vtcode.toml
+
+# Misc untracked files
+2026-03-26-212555-personalizedmeetingfeatures.txt
+docs/theme_feature_expansion_explanation.md
 .vtcode/README.md
 .vtcode/tool-policy.json
 .vtcode/mcp/tools/INDEX.md

@@ -46,18 +46,6 @@ THEME_FEATURE_EXPANSION_MINUTE_FIELDS = [
 
 
 THEME_FEATURE_VECTOR_DIMENSIONS = {
-    "ret_path_8": 8,
-    "cumret_path_8": 8,
-    "rv_path_8": 8,
-    "amt_profile_8": 8,
-    "net_flow_path_8": 8,
-    "buy_ratio_path_8": 8,
-    "trade_size_path_8": 8,
-    "tick_balance_path_8": 8,
-    "depth1_imb_path_8": 8,
-    "depth6_imb_path_8": 8,
-    "queue_path_8": 8,
-    "quote_gap_path_8": 8,
     "ret_vs_theme_path_8": 8,
     "flow_vs_theme_path_8": 8,
     "amt_vs_theme_path_8": 8,
@@ -65,16 +53,9 @@ THEME_FEATURE_VECTOR_DIMENSIONS = {
     "ret_dct_6": 6,
     "flow_dct_6": 6,
     "joint_latent_6": 6,
-    "soft_assign_top3_5": 5,
+    "soft_assign_dists_5": 5,
+    "soft_assign_probs_5": 5,
     "theme_gap_vector_3": 3,
-    "open_close_ret_pair_2": 2,
-    "open_close_flow_pair_2": 2,
-    "open_close_buy_pair_2": 2,
-    "open_close_depth_pair_2": 2,
-    "open_close_amt_pair_2": 2,
-    "open_to_close_delta_4": 4,
-    "open_to_close_ratio_4": 4,
-    "open_to_close_rank_delta_3": 3,
     "open_close_ret_vs_theme_4": 4,
     "open_close_path_vs_theme_6": 6,
     "open_close_center_margin_4": 4,
@@ -106,7 +87,7 @@ def _last_n_trading_date(end_date: int, n_date: int) -> int:
 
 def prepare_minute_data_for_theme_feature_expansion(
     date: int,
-    lookback: int = 5,
+    lookback: int = 2,
 ) -> Tuple[np.ndarray, List[int], np.ndarray]:
     start_date = _last_n_trading_date(date, lookback)
     dates = _get_trading_dates(start_date, date)
@@ -138,7 +119,7 @@ def prepare_minute_data_for_theme_feature_expansion(
 def compute_theme_feature_expansion_from_minute_raw(
     minute_data: np.ndarray,
     k: int = 30,
-    history_lookback: int = 5,
+    summary_dim: int = 17,
     n_threads: int = 8,
 ):
     import rust_pyfunc as rp
@@ -146,27 +127,27 @@ def compute_theme_feature_expansion_from_minute_raw(
     return rp.compute_theme_feature_expansion_from_minute(
         minute_data=minute_data,
         k=k,
-        history_lookback=history_lookback,
+        summary_dim=summary_dim,
         n_threads=n_threads,
     )
 
 
 def compute_theme_feature_expansion_from_date(
     date: int,
-    lookback: int = 5,
+    lookback: int = 2,
     k: int = 30,
-    history_lookback: int = 5,
+    summary_dim: int = 17,
     n_threads: int = 8,
 ):
     minute_data, dates, symbols = prepare_minute_data_for_theme_feature_expansion(
         date=date,
-        lookback=max(lookback, history_lookback),
+        lookback=lookback,
     )
     vector_arrays, scalar_arrays, vector_names, scalar_names = (
         compute_theme_feature_expansion_from_minute_raw(
             minute_data=minute_data,
             k=k,
-            history_lookback=history_lookback,
+            summary_dim=summary_dim,
             n_threads=n_threads,
         )
     )

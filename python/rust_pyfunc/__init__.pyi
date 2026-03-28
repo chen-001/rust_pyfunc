@@ -14,6 +14,8 @@ rust_pyfunc - 高性能Python函数库
 - tree_structures: 树结构相关类
 """
 
+from typing import List, Tuple
+
 # 导入所有类型声明
 from .core_functions import *
 from .time_series import *
@@ -32,6 +34,21 @@ from .theme_cluster_factors import *
 from .theme_feature_expansion import *
 from .theme_feature_expansion_data import *
 from .trading_data_utils import *
+
+
+
+def personalized_meeting_feature_names() -> Tuple[List[str], List[str]]:
+    ...
+
+
+def personalized_meeting_features(
+    date: int,
+    symbol: str,
+    universe_size: int = 100,
+    selection_method: str = "code",
+) -> Tuple[List[float], List[str], List[List[float]], List[str]]:
+    ...
+
 
 # 版本信息
 __version__ = "0.18.0"
@@ -196,6 +213,7 @@ __all__ = [
     "prepare_minute_data_for_theme_feature_expansion",
     "compute_theme_feature_expansion_from_minute_raw",
     "compute_theme_feature_expansion_from_date",
+    "get_theme_cluster_scatter_3d",
     "adjust_afternoon",
     "read_trade",
     "read_market",
@@ -203,4 +221,8 @@ __all__ = [
     "get_features_factors_single",
     "get_features_factors",
     "get_features_names",
+    "dct_1d",
+    "dct_2d",
+    "personalized_meeting_feature_names",
+    "personalized_meeting_features",
 ]

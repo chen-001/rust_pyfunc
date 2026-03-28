@@ -78,6 +78,8 @@ pub mod theme_cluster_factors_batch;
 pub mod theme_feature_expansion;
 pub mod topk_corr_matrix;
 
+pub mod dct_transform;
+
 /// Formats the sum of two numbers as string.
 #[pyfunction]
 #[pyo3(signature = (a, b))]
@@ -755,6 +757,18 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?)?;
     m.add_function(wrap_pyfunction!(
         personalized_meeting_features::personalized_meeting_features,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        dct_transform::dct_1d,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        dct_transform::dct_2d,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        theme_feature_expansion::get_theme_cluster_scatter_3d,
         m
     )?)?;
 
