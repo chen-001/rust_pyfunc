@@ -39,7 +39,6 @@ const FIELD_ASK_VOL2: usize = 31;
 const FIELD_BID_VOL3: usize = 32;
 const FIELD_ASK_VOL3: usize = 33;
 
-const SUMMARY_DIM: usize = 17;
 const ALL_DAY_BINS: usize = 8;
 const SHORT_BINS: usize = 6;
 const EPS: f64 = 1e-12;
@@ -81,6 +80,7 @@ struct SegmentDayFeatures {
     quote_gap_path: Vec<f64>,
     path_bins: usize,
     n_stocks: usize,
+    summary_dim: usize,
 }
 
 #[derive(Clone)]
@@ -457,6 +457,7 @@ fn extract_segment_day(
     start: usize,
     end: usize,
     path_bins: usize,
+    summary_dim: usize,
 ) -> SegmentDayFeatures {
     let mut ret = vec![f64::NAN; n_stocks];
     let mut intraday_vol = vec![f64::NAN; n_stocks];
@@ -478,7 +479,7 @@ fn extract_segment_day(
     let mut flow_eff = vec![f64::NAN; n_stocks];
     let mut big_order_ratio = vec![f64::NAN; n_stocks];
     let mut book_pressure = vec![f64::NAN; n_stocks];
-    let mut summary = vec![f64::NAN; n_stocks * SUMMARY_DIM];
+    let mut summary = vec![f64::NAN; n_stocks * summary_dim];
 
     let mut ret_path = vec![f64::NAN; n_stocks * path_bins];
     let mut cumret_path = vec![f64::NAN; n_stocks * path_bins];
@@ -821,7 +822,11 @@ fn extract_segment_day(
             quote_gap_path[idx] = mean(&bin_quote_vals);
         }
 
-        let row = [
+        // 根据 summary_dim 选择聚类特征:
+        // 3维: ret, log_amt, net_flow
+        // 7维: ret, intraday_vol, log_amt, buy_ratio, range_ratio, close_loc, depth1
+        // 17维: 全部
+        let all_fields = [
             ret[s],
             intraday_vol[s],
             log_amt[s],
@@ -840,8 +845,21 @@ fn extract_segment_day(
             flow_eff[s],
             big_order_ratio[s],
         ];
-        for (j, &v) in row.iter().enumerate() {
-            summary[s * SUMMARY_DIM + j] = v;
+        let selected: Vec<f64> = match summary_dim {
+            3 => vec![ret[s], log_amt[s], net_flow[s]],
+            7 => vec![
+                ret[s],
+                intraday_vol[s],
+                log_amt[s],
+                buy_ratio[s],
+                range_ratio[s],
+                close_loc[s],
+                depth1[s],
+            ],
+            _ => all_fields.to_vec(),
+        };
+        for (j, &v) in selected.iter().enumerate() {
+            summary[s * summary_dim + j] = v;
         }
     }
 
@@ -881,12 +899,13 @@ fn extract_segment_day(
         quote_gap_path,
         path_bins,
         n_stocks,
+        summary_dim,
     }
 }
 
 fn cluster_segment_day(features: &SegmentDayFeatures, k: usize) -> ClusterDayResult {
     let n = features.n_stocks;
-    let d = SUMMARY_DIM;
+    let d = features.summary_dim;
     let mut valid_indices = Vec::with_capacity(n);
     for i in 0..n {
         let mut ok = true;
@@ -1130,14 +1149,13 @@ fn cluster_path_slice(path: &[f64], label: usize, bins: usize) -> &[f64] {
     &path[label * bins..(label + 1) * bins]
 }
 
-fn top3_from_dists(dists: &[f64], k: usize) -> ([usize; 3], [f64; 3], Vec<f64>) {
+/// 返回 (前5距离升序, 前5概率按距离升序排列, 全部k个聚类概率, 第2近聚类label)
+fn top5_from_dists(dists: &[f64], k: usize) -> ([f64; 5], [f64; 5], Vec<f64>, usize) {
     let mut pairs: Vec<(usize, f64)> = (0..k).map(|i| (i, dists[i])).collect();
     pairs.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
-    let mut idxs = [0usize; 3];
-    let mut vals = [f64::INFINITY; 3];
-    for i in 0..3.min(k) {
-        idxs[i] = pairs[i].0;
-        vals[i] = pairs[i].1;
+    let mut top5_dists = [f64::NAN; 5];
+    for i in 0..5.min(k) {
+        top5_dists[i] = pairs[i].1;
     }
     let min_d = pairs.first().map(|x| x.1).unwrap_or(0.0);
     let mut weights = Vec::with_capacity(k);
@@ -1160,7 +1178,17 @@ fn top3_from_dists(dists: &[f64], k: usize) -> ([usize; 3], [f64; 3], Vec<f64>) 
     for ((label, _), prob) in pairs.iter().zip(weights.iter()) {
         probs_by_label[*label] = *prob;
     }
-    (idxs, vals, probs_by_label)
+    // 前5概率，按距离升序排列对应的聚类
+    let mut top5_probs = [f64::NAN; 5];
+    for i in 0..5.min(k) {
+        top5_probs[i] = probs_by_label[pairs[i].0];
+    }
+    let second_label = if pairs.len() > 1 {
+        pairs[1].0
+    } else {
+        0
+    };
+    (top5_dists, top5_probs, probs_by_label, second_label)
 }
 
 fn array2_from_flat(
@@ -1174,12 +1202,12 @@ fn array2_from_flat(
     Ok(arr.into_pyarray(py).to_owned())
 }
 
-#[pyfunction(signature = (minute_data, k=30, history_lookback=5, n_threads=8))]
+#[pyfunction(signature = (minute_data, k=30, summary_dim=17, n_threads=8))]
 pub fn compute_theme_feature_expansion_from_minute(
     py: Python,
     minute_data: PyReadonlyArrayDyn<f64>,
     k: usize,
-    history_lookback: usize,
+    summary_dim: usize,
     n_threads: usize,
 ) -> PyResult<(
     Vec<Py<PyArray2<f64>>>,
@@ -1204,6 +1232,11 @@ pub fn compute_theme_feature_expansion_from_minute(
         ));
     }
     let actual_threads = n_threads.clamp(1, 10);
+    if summary_dim != 3 && summary_dim != 7 && summary_dim != 17 {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "summary_dim必须是3、7或17",
+        ));
+    }
     let data_vec: Vec<f64> = data.iter().cloned().collect();
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(actual_threads)
@@ -1224,6 +1257,7 @@ pub fn compute_theme_feature_expansion_from_minute(
                     0,
                     n_minutes,
                     ALL_DAY_BINS,
+                    summary_dim,
                 )
             })
             .collect()
@@ -1242,6 +1276,7 @@ pub fn compute_theme_feature_expansion_from_minute(
                     0,
                     30.min(n_minutes),
                     SHORT_BINS,
+                    summary_dim,
                 )
             })
             .collect()
@@ -1261,6 +1296,7 @@ pub fn compute_theme_feature_expansion_from_minute(
                     close_start,
                     n_minutes,
                     SHORT_BINS,
+                    summary_dim,
                 )
             })
             .collect()
@@ -1287,8 +1323,6 @@ pub fn compute_theme_feature_expansion_from_minute(
 
     let target_day = n_days - 1;
     let prev_day = target_day.saturating_sub(1);
-    let hist_lb = history_lookback.min(n_days).max(1);
-    let hist_start = n_days - hist_lb;
 
     let all_f = &all_day_features[target_day];
     let all_c = &all_clusters[target_day];
@@ -1298,18 +1332,6 @@ pub fn compute_theme_feature_expansion_from_minute(
     let close_c = &close_clusters[target_day];
 
     let mut vector_names = vec![
-        "ret_path_8".to_string(),
-        "cumret_path_8".to_string(),
-        "rv_path_8".to_string(),
-        "amt_profile_8".to_string(),
-        "net_flow_path_8".to_string(),
-        "buy_ratio_path_8".to_string(),
-        "trade_size_path_8".to_string(),
-        "tick_balance_path_8".to_string(),
-        "depth1_imb_path_8".to_string(),
-        "depth6_imb_path_8".to_string(),
-        "queue_path_8".to_string(),
-        "quote_gap_path_8".to_string(),
         "ret_vs_theme_path_8".to_string(),
         "flow_vs_theme_path_8".to_string(),
         "amt_vs_theme_path_8".to_string(),
@@ -1317,16 +1339,9 @@ pub fn compute_theme_feature_expansion_from_minute(
         "ret_dct_6".to_string(),
         "flow_dct_6".to_string(),
         "joint_latent_6".to_string(),
-        "soft_assign_top3_5".to_string(),
+        "soft_assign_dists_5".to_string(),
+        "soft_assign_probs_5".to_string(),
         "theme_gap_vector_3".to_string(),
-        "open_close_ret_pair_2".to_string(),
-        "open_close_flow_pair_2".to_string(),
-        "open_close_buy_pair_2".to_string(),
-        "open_close_depth_pair_2".to_string(),
-        "open_close_amt_pair_2".to_string(),
-        "open_to_close_delta_4".to_string(),
-        "open_to_close_ratio_4".to_string(),
-        "open_to_close_rank_delta_3".to_string(),
         "open_close_ret_vs_theme_4".to_string(),
         "open_close_path_vs_theme_6".to_string(),
         "open_close_center_margin_4".to_string(),
@@ -1357,18 +1372,11 @@ pub fn compute_theme_feature_expansion_from_minute(
         "path_l2_to_theme",
         "early_late_divergence",
         "trend_noise_ratio",
-        "amt_concentration_hhi",
-        "flow_concentration_hhi",
         "center_margin",
         "relative_center_margin",
         "soft_membership_entropy",
         "second_theme_return_gap",
         "second_theme_buy_gap",
-        "deviation_trend_5",
-        "deviation_spike_5",
-        "theme_ret_sharpe_5",
-        "rank_breakout_5",
-        "path_similarity_trend_5",
         "open_flow_dev_x_close_ret_dev",
         "open_buy_dev_x_close_theme_ret",
         "open_flow_dev_x_close_center_margin",
@@ -1401,8 +1409,7 @@ pub fn compute_theme_feature_expansion_from_minute(
     .collect::<Vec<_>>();
 
     let vector_dims = [
-        8usize, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 6, 6, 6, 5, 3, 2, 2, 2, 2, 2, 4, 4, 3,
-        4, 6, 4, 6, 4, 8,
+        8usize, 8, 8, 8, 6, 6, 6, 5, 5, 3, 4, 6, 4, 6, 4, 8,
     ];
     let mut vector_data: Vec<Vec<f64>> = vector_dims
         .iter()
@@ -1472,89 +1479,31 @@ pub fn compute_theme_feature_expansion_from_minute(
             depth_dct[1],
         ];
 
-        for (arr_idx, path) in [
-            &all_f.ret_path,
-            &all_f.cumret_path,
-            &all_f.rv_path,
-            &all_f.amt_profile,
-            &all_f.net_flow_path,
-            &all_f.buy_ratio_path,
-            &all_f.trade_size_path,
-            &all_f.tick_balance_path,
-            &all_f.depth1_path,
-            &all_f.depth6_path,
-            &all_f.queue_path,
-            &all_f.quote_gap_path,
-        ]
-        .iter()
-        .enumerate()
-        {
-            let src = path_slice(path, s, ALL_DAY_BINS);
-            for b in 0..ALL_DAY_BINS {
-                vector_data[arr_idx][s * ALL_DAY_BINS + b] = src[b];
-            }
-        }
-
         for b in 0..ALL_DAY_BINS {
-            vector_data[12][s * ALL_DAY_BINS + b] = ret_vs_theme[b];
-            vector_data[13][s * ALL_DAY_BINS + b] = flow_vs_theme[b];
-            vector_data[14][s * ALL_DAY_BINS + b] = amt_vs_theme[b];
-            vector_data[15][s * ALL_DAY_BINS + b] = depth_vs_theme[b];
+            vector_data[0][s * ALL_DAY_BINS + b] = ret_vs_theme[b];
+            vector_data[1][s * ALL_DAY_BINS + b] = flow_vs_theme[b];
+            vector_data[2][s * ALL_DAY_BINS + b] = amt_vs_theme[b];
+            vector_data[3][s * ALL_DAY_BINS + b] = depth_vs_theme[b];
         }
         for j in 0..6 {
-            vector_data[16][s * 6 + j] = ret_dct[j];
-            vector_data[17][s * 6 + j] = flow_dct[j];
-            vector_data[18][s * 6 + j] = joint_latent[j];
+            vector_data[4][s * 6 + j] = ret_dct[j];
+            vector_data[5][s * 6 + j] = flow_dct[j];
+            vector_data[6][s * 6 + j] = joint_latent[j];
         }
 
         let dists = &all_c.dists_to_centers[s * all_c.k..(s + 1) * all_c.k];
-        let (top_idx, top_dist, probs_all) = top3_from_dists(dists, all_c.k);
-        vector_data[19][s * 5] = top_dist[0];
-        vector_data[19][s * 5 + 1] = top_dist[1];
-        vector_data[19][s * 5 + 2] = top_dist[2];
-        vector_data[19][s * 5 + 3] = if top_idx[0] < probs_all.len() {
-            probs_all[top_idx[0]]
-        } else {
-            f64::NAN
-        };
-        vector_data[19][s * 5 + 4] = if top_idx[1] < probs_all.len() {
-            probs_all[top_idx[1]]
-        } else {
-            f64::NAN
-        };
-        let second_label = top_idx[1].min(all_c.k.saturating_sub(1));
-        vector_data[20][s * 3] = all_c.mean_ret[all_label] - all_c.mean_ret[second_label];
-        vector_data[20][s * 3 + 1] =
+        let (top5_dists, top5_probs, probs_all, second_label) = top5_from_dists(dists, all_c.k);
+        for i in 0..5 {
+            vector_data[7][s * 5 + i] = top5_dists[i];
+            vector_data[8][s * 5 + i] = top5_probs[i];
+        }
+        let second_label = second_label.min(all_c.k.saturating_sub(1));
+        vector_data[9][s * 3] = all_c.mean_ret[all_label] - all_c.mean_ret[second_label];
+        vector_data[9][s * 3 + 1] =
             all_c.mean_buy_ratio[all_label] - all_c.mean_buy_ratio[second_label];
-        vector_data[20][s * 3 + 2] = all_c.theme_heat[all_label] - all_c.theme_heat[second_label];
+        vector_data[9][s * 3 + 2] = all_c.theme_heat[all_label] - all_c.theme_heat[second_label];
 
         if open_label < open_c.k && close_label < close_c.k {
-            vector_data[21][s * 2] = open_f.ret[s];
-            vector_data[21][s * 2 + 1] = close_f.ret[s];
-            vector_data[22][s * 2] = open_f.net_flow[s];
-            vector_data[22][s * 2 + 1] = close_f.net_flow[s];
-            vector_data[23][s * 2] = open_f.buy_ratio[s];
-            vector_data[23][s * 2 + 1] = close_f.buy_ratio[s];
-            vector_data[24][s * 2] = open_f.depth1[s];
-            vector_data[24][s * 2 + 1] = close_f.depth1[s];
-            vector_data[25][s * 2] = open_f.log_amt[s];
-            vector_data[25][s * 2 + 1] = close_f.log_amt[s];
-
-            vector_data[26][s * 4] = close_f.ret[s] - open_f.ret[s];
-            vector_data[26][s * 4 + 1] = close_f.net_flow[s] - open_f.net_flow[s];
-            vector_data[26][s * 4 + 2] = close_f.buy_ratio[s] - open_f.buy_ratio[s];
-            vector_data[26][s * 4 + 3] = close_f.depth1[s] - open_f.depth1[s];
-
-            vector_data[27][s * 4] = close_f.ret[s] / (open_f.ret[s].abs() + 1e-6);
-            vector_data[27][s * 4 + 1] = close_f.net_flow[s] / (open_f.net_flow[s].abs() + 1e-6);
-            vector_data[27][s * 4 + 2] = close_f.raw_amt[s] / (open_f.raw_amt[s] + 1e-6);
-            vector_data[27][s * 4 + 3] =
-                close_f.intraday_vol[s] / (open_f.intraday_vol[s].abs() + 1e-6);
-
-            vector_data[28][s * 3] = close_c.return_rank_pct[s] - open_c.return_rank_pct[s];
-            vector_data[28][s * 3 + 1] = close_c.flow_rank_pct[s] - open_c.flow_rank_pct[s];
-            vector_data[28][s * 3 + 2] = close_c.buy_rank_pct[s] - open_c.buy_rank_pct[s];
-
             let open_ret_dev =
                 open_f.ret[s] - theme_value_by_label(&open_c.mean_ret, &open_c.labels, s);
             let open_flow_dev =
@@ -1563,10 +1512,10 @@ pub fn compute_theme_feature_expansion_from_minute(
                 close_f.ret[s] - theme_value_by_label(&close_c.mean_ret, &close_c.labels, s);
             let close_flow_dev = close_f.net_flow[s]
                 - theme_value_by_label(&close_c.mean_net_flow, &close_c.labels, s);
-            vector_data[29][s * 4] = open_ret_dev;
-            vector_data[29][s * 4 + 1] = open_flow_dev;
-            vector_data[29][s * 4 + 2] = close_ret_dev;
-            vector_data[29][s * 4 + 3] = close_flow_dev;
+            vector_data[10][s * 4] = open_ret_dev;
+            vector_data[10][s * 4 + 1] = open_flow_dev;
+            vector_data[10][s * 4 + 2] = close_ret_dev;
+            vector_data[10][s * 4 + 3] = close_flow_dev;
 
             let open_path = path_slice(&open_f.ret_path, s, SHORT_BINS);
             let open_theme_path = cluster_path_slice(&open_c.ret_path_mean, open_label, SHORT_BINS);
@@ -1577,17 +1526,17 @@ pub fn compute_theme_feature_expansion_from_minute(
             let close_cos = cosine_similarity(close_path, close_theme_path);
             let open_l2 = l2_distance(open_path, open_theme_path);
             let close_l2 = l2_distance(close_path, close_theme_path);
-            vector_data[30][s * 6] = open_cos;
-            vector_data[30][s * 6 + 1] = open_l2;
-            vector_data[30][s * 6 + 2] = close_cos;
-            vector_data[30][s * 6 + 3] = close_l2;
-            vector_data[30][s * 6 + 4] = close_cos - open_cos;
-            vector_data[30][s * 6 + 5] = close_l2 - open_l2;
+            vector_data[11][s * 6] = open_cos;
+            vector_data[11][s * 6 + 1] = open_l2;
+            vector_data[11][s * 6 + 2] = close_cos;
+            vector_data[11][s * 6 + 3] = close_l2;
+            vector_data[11][s * 6 + 4] = close_cos - open_cos;
+            vector_data[11][s * 6 + 5] = close_l2 - open_l2;
 
             let open_dists = &open_c.dists_to_centers[s * open_c.k..(s + 1) * open_c.k];
-            let (_, open_top_dist, open_probs_all) = top3_from_dists(open_dists, open_c.k);
+            let (open_top5_dists, _, open_probs_all, _) = top5_from_dists(open_dists, open_c.k);
             let close_dists = &close_c.dists_to_centers[s * close_c.k..(s + 1) * close_c.k];
-            let (_, close_top_dist, close_probs_all) = top3_from_dists(close_dists, close_c.k);
+            let (_, close_top5_dists, close_probs_all, _) = top5_from_dists(close_dists, close_c.k);
             let open_entropy: f64 = open_probs_all
                 .iter()
                 .filter(|p| **p > 0.0)
@@ -1598,28 +1547,28 @@ pub fn compute_theme_feature_expansion_from_minute(
                 .filter(|p| **p > 0.0)
                 .map(|p| -p * p.ln())
                 .sum();
-            let open_margin = open_top_dist[1] - open_top_dist[0];
-            let close_margin = close_top_dist[1] - close_top_dist[0];
-            vector_data[31][s * 4] = open_margin;
-            vector_data[31][s * 4 + 1] = close_margin;
-            vector_data[31][s * 4 + 2] = close_margin - open_margin;
-            vector_data[31][s * 4 + 3] = open_entropy - close_entropy;
+            let open_margin = open_top5_dists[1] - open_top5_dists[0];
+            let close_margin = close_top5_dists[1] - close_top5_dists[0];
+            vector_data[12][s * 4] = open_margin;
+            vector_data[12][s * 4 + 1] = close_margin;
+            vector_data[12][s * 4 + 2] = close_margin - open_margin;
+            vector_data[12][s * 4 + 3] = open_entropy - close_entropy;
 
-            vector_data[32][s * 6] = open_flow_dev;
-            vector_data[32][s * 6 + 1] = open_ret_dev;
-            vector_data[32][s * 6 + 2] = close_flow_dev;
-            vector_data[32][s * 6 + 3] = close_ret_dev;
-            vector_data[32][s * 6 + 4] = close_ret_dev - open_flow_dev;
-            vector_data[32][s * 6 + 5] =
+            vector_data[13][s * 6] = open_flow_dev;
+            vector_data[13][s * 6 + 1] = open_ret_dev;
+            vector_data[13][s * 6 + 2] = close_flow_dev;
+            vector_data[13][s * 6 + 3] = close_ret_dev;
+            vector_data[13][s * 6 + 4] = close_ret_dev - open_flow_dev;
+            vector_data[13][s * 6 + 5] =
                 theme_value_by_label(&close_c.mean_ret, &close_c.labels, s) - open_flow_dev;
 
             let open_buy_dev = open_f.buy_ratio[s]
                 - theme_value_by_label(&open_c.mean_buy_ratio, &open_c.labels, s);
-            vector_data[33][s * 4] = open_buy_dev;
-            vector_data[33][s * 4 + 1] =
+            vector_data[14][s * 4] = open_buy_dev;
+            vector_data[14][s * 4 + 1] =
                 theme_value_by_label(&close_c.mean_ret, &close_c.labels, s);
-            vector_data[33][s * 4 + 2] = close_ret_dev;
-            vector_data[33][s * 4 + 3] = open_buy_dev * close_ret_dev;
+            vector_data[14][s * 4 + 2] = close_ret_dev;
+            vector_data[14][s * 4 + 3] = open_buy_dev * close_ret_dev;
 
             let open_depth_dev = open_f.depth1[s]
                 - theme_value_by_label(&open_c.mean_book_pressure, &open_c.labels, s);
@@ -1630,15 +1579,15 @@ pub fn compute_theme_feature_expansion_from_minute(
                 close_margin,
                 close_cos,
             ];
-            vector_data[34][s * 8] = open_flow_dev;
-            vector_data[34][s * 8 + 1] = open_buy_dev;
-            vector_data[34][s * 8 + 2] = open_depth_dev;
-            vector_data[34][s * 8 + 3] = open_margin;
-            vector_data[34][s * 8 + 4] = close_ret_dev;
-            vector_data[34][s * 8 + 5] =
+            vector_data[15][s * 8] = open_flow_dev;
+            vector_data[15][s * 8 + 1] = open_buy_dev;
+            vector_data[15][s * 8 + 2] = open_depth_dev;
+            vector_data[15][s * 8 + 3] = open_margin;
+            vector_data[15][s * 8 + 4] = close_ret_dev;
+            vector_data[15][s * 8 + 5] =
                 theme_value_by_label(&close_c.mean_ret, &close_c.labels, s);
-            vector_data[34][s * 8 + 6] = close_margin;
-            vector_data[34][s * 8 + 7] = cosine_similarity(&expr_vec, &conf_vec);
+            vector_data[15][s * 8 + 6] = close_margin;
+            vector_data[15][s * 8 + 7] = cosine_similarity(&expr_vec, &conf_vec);
         }
 
         scalar_data[0][s] = all_f.ret[s] - all_theme_ret;
@@ -1660,17 +1609,15 @@ pub fn compute_theme_feature_expansion_from_minute(
             let high: f64 = dct[3..].iter().map(|v| v.abs()).sum();
             low / (high + 1e-6)
         };
-        scalar_data[21][s] = hhi_from_abs(all_amt_path);
-        scalar_data[22][s] = hhi_from_abs(all_flow_path);
-        scalar_data[23][s] = top_dist[1] - top_dist[0];
-        scalar_data[24][s] = (top_dist[1] - top_dist[0]) / (top_dist[0] + 1e-6);
-        scalar_data[25][s] = probs_all
+        scalar_data[21][s] = top5_dists[1] - top5_dists[0];
+        scalar_data[22][s] = (top5_dists[1] - top5_dists[0]) / (top5_dists[0] + 1e-6);
+        scalar_data[23][s] = probs_all
             .iter()
             .filter(|p| **p > 0.0)
             .map(|p| -p * p.ln())
             .sum();
-        scalar_data[26][s] = all_c.mean_ret[all_label] - all_c.mean_ret[second_label];
-        scalar_data[27][s] = all_c.mean_buy_ratio[all_label] - all_c.mean_buy_ratio[second_label];
+        scalar_data[24][s] = all_c.mean_ret[all_label] - all_c.mean_ret[second_label];
+        scalar_data[25][s] = all_c.mean_buy_ratio[all_label] - all_c.mean_buy_ratio[second_label];
 
         if prev_day < n_days && prev_day != target_day {
             let prev_close_c = &close_clusters[prev_day];
@@ -1688,47 +1635,6 @@ pub fn compute_theme_feature_expansion_from_minute(
             }
         }
 
-        let mut open_buy_dev_hist = Vec::new();
-        let mut close_theme_ret_hist = Vec::new();
-        let mut close_rank_hist = Vec::new();
-        let mut all_path_cos_hist = Vec::new();
-        for d in hist_start..=target_day {
-            let oc = &open_clusters[d];
-            let of = &open_features[d];
-            let clc = &close_clusters[d];
-            let ac = &all_clusters[d];
-            let af = &all_day_features[d];
-            let ol = oc.labels[s];
-            let cl = clc.labels[s];
-            let al = ac.labels[s];
-            if ol < oc.k {
-                open_buy_dev_hist.push(of.buy_ratio[s] - oc.mean_buy_ratio[ol]);
-            }
-            if cl < clc.k {
-                close_theme_ret_hist.push(clc.mean_ret[cl]);
-                close_rank_hist.push(clc.return_rank_pct[s]);
-            }
-            if al < ac.k {
-                let p = path_slice(&af.ret_path, s, ALL_DAY_BINS);
-                let tp = cluster_path_slice(&ac.ret_path_mean, al, ALL_DAY_BINS);
-                all_path_cos_hist.push(cosine_similarity(p, tp));
-            }
-        }
-        scalar_data[28][s] = slope(&open_buy_dev_hist);
-        scalar_data[29][s] = {
-            let cur = open_buy_dev_hist.last().copied().unwrap_or(f64::NAN);
-            let st = std(&open_buy_dev_hist);
-            cur / (st + 1e-6)
-        };
-        scalar_data[30][s] = {
-            let m = mean(&close_theme_ret_hist);
-            let st = std(&close_theme_ret_hist);
-            m / (st + 1e-6)
-        };
-        scalar_data[31][s] =
-            close_rank_hist.last().copied().unwrap_or(f64::NAN) - mean(&close_rank_hist);
-        scalar_data[32][s] = slope(&all_path_cos_hist);
-
         if open_label < open_c.k && close_label < close_c.k {
             let open_ret_dev = open_f.ret[s] - open_c.mean_ret[open_label];
             let open_flow_dev = open_f.net_flow[s] - open_c.mean_net_flow[open_label];
@@ -1738,10 +1644,10 @@ pub fn compute_theme_feature_expansion_from_minute(
             let close_theme_ret = close_c.mean_ret[close_label];
             let open_dists = &open_c.dists_to_centers[s * open_c.k..(s + 1) * open_c.k];
             let close_dists = &close_c.dists_to_centers[s * close_c.k..(s + 1) * close_c.k];
-            let (_, open_top_dist, open_probs) = top3_from_dists(open_dists, open_c.k);
-            let (_, close_top_dist, close_probs) = top3_from_dists(close_dists, close_c.k);
-            let open_margin = open_top_dist[1] - open_top_dist[0];
-            let close_margin = close_top_dist[1] - close_top_dist[0];
+            let (open_top5_dists, _, open_probs, _) = top5_from_dists(open_dists, open_c.k);
+            let (close_top5_dists, _, close_probs, _) = top5_from_dists(close_dists, close_c.k);
+            let open_margin = open_top5_dists[1] - open_top5_dists[0];
+            let close_margin = close_top5_dists[1] - close_top5_dists[0];
             let open_entropy: f64 = open_probs
                 .iter()
                 .filter(|p| **p > 0.0)
@@ -1771,51 +1677,51 @@ pub fn compute_theme_feature_expansion_from_minute(
                 open_margin,
             ];
             let conf_vec = [close_ret_dev, close_theme_ret, close_margin, close_cos];
-            scalar_data[33][s] = open_flow_dev * close_ret_dev;
-            scalar_data[34][s] = open_buy_dev * close_theme_ret;
-            scalar_data[35][s] = open_flow_dev * close_margin;
-            scalar_data[36][s] = open_ret_dev * close_ret_dev;
-            scalar_data[37][s] = open_flow_rank * close_rank;
-            scalar_data[38][s] = if open_flow_dev > 0.0 && close_ret_dev < 0.0 {
+            scalar_data[26][s] = open_flow_dev * close_ret_dev;
+            scalar_data[27][s] = open_buy_dev * close_theme_ret;
+            scalar_data[28][s] = open_flow_dev * close_margin;
+            scalar_data[29][s] = open_ret_dev * close_ret_dev;
+            scalar_data[30][s] = open_flow_rank * close_rank;
+            scalar_data[31][s] = if open_flow_dev > 0.0 && close_ret_dev < 0.0 {
                 1.0
             } else {
                 0.0
             };
-            scalar_data[39][s] = open_ret_dev - close_ret_dev;
-            scalar_data[40][s] = open_flow_dev - close_ret_dev;
-            scalar_data[41][s] = open_theme_hot - close_theme_hot;
-            scalar_data[42][s] = close_ret_dev - open_ret_dev;
-            scalar_data[43][s] = close_flow_dev - open_flow_dev;
-            scalar_data[44][s] = close_ret_dev * open_flow_dev.signum();
-            scalar_data[45][s] = close_flow_rank - open_flow_rank;
-            scalar_data[46][s] = close_margin - open_margin;
-            scalar_data[47][s] = open_entropy - close_entropy;
-            scalar_data[48][s] = if close_margin > open_margin && close_entropy < open_entropy {
+            scalar_data[32][s] = open_ret_dev - close_ret_dev;
+            scalar_data[33][s] = open_flow_dev - close_ret_dev;
+            scalar_data[34][s] = open_theme_hot - close_theme_hot;
+            scalar_data[35][s] = close_ret_dev - open_ret_dev;
+            scalar_data[36][s] = close_flow_dev - open_flow_dev;
+            scalar_data[37][s] = close_ret_dev * open_flow_dev.signum();
+            scalar_data[38][s] = close_flow_rank - open_flow_rank;
+            scalar_data[39][s] = close_margin - open_margin;
+            scalar_data[40][s] = open_entropy - close_entropy;
+            scalar_data[41][s] = if close_margin > open_margin && close_entropy < open_entropy {
                 1.0
             } else {
                 0.0
             };
-            scalar_data[49][s] = close_theme_ret - open_c.mean_ret[open_label];
-            scalar_data[50][s] = cosine_similarity(&expr_vec, &conf_vec);
-            scalar_data[51][s] = l2_distance(&expr_vec, &conf_vec);
+            scalar_data[42][s] = close_theme_ret - open_c.mean_ret[open_label];
+            scalar_data[43][s] = cosine_similarity(&expr_vec, &conf_vec);
+            scalar_data[44][s] = l2_distance(&expr_vec, &conf_vec);
             let consistency = [
                 (open_flow_dev > 0.0 && close_ret_dev > 0.0) as i32 as f64,
                 (open_buy_dev > 0.0 && close_theme_ret > 0.0) as i32 as f64,
                 (close_margin > open_margin) as i32 as f64,
                 (close_cos > open_cos) as i32 as f64,
             ];
-            scalar_data[52][s] = mean(&consistency);
-            scalar_data[53][s] = 1.0 - (open_flow_rank - close_rank).abs();
+            scalar_data[45][s] = mean(&consistency);
+            scalar_data[46][s] = 1.0 - (open_flow_rank - close_rank).abs();
 
             if prev_day < n_days && prev_day != target_day {
                 let prev_close_c = &close_clusters[prev_day];
                 let prev_label = prev_close_c.labels[s];
                 if prev_label < prev_close_c.k {
-                    scalar_data[54][s] = open_buy_dev * prev_close_c.mean_ret[prev_label];
-                    scalar_data[55][s] = open_flow_dev * prev_close_c.mean_buy_ratio[prev_label];
-                    scalar_data[56][s] = open_margin * prev_close_c.mean_ret[prev_label];
-                    scalar_data[57][s] = open_entropy * prev_close_c.std_ret[prev_label];
-                    scalar_data[58][s] = close_ret_dev * prev_close_c.mean_ret[prev_label];
+                    scalar_data[47][s] = open_buy_dev * prev_close_c.mean_ret[prev_label];
+                    scalar_data[48][s] = open_flow_dev * prev_close_c.mean_buy_ratio[prev_label];
+                    scalar_data[49][s] = open_margin * prev_close_c.mean_ret[prev_label];
+                    scalar_data[50][s] = open_entropy * prev_close_c.std_ret[prev_label];
+                    scalar_data[51][s] = close_ret_dev * prev_close_c.mean_ret[prev_label];
                 }
             }
         }
@@ -1831,4 +1737,106 @@ pub fn compute_theme_feature_expansion_from_minute(
         .collect::<Vec<_>>();
 
     Ok((vector_arrays, scalar_arrays, vector_names, scalar_names))
+}
+
+
+
+/// 提取3维聚类散点数据，用于可视化。
+/// 返回 (coords: n_stocks×3, labels: n_stocks, centers: k×3, n_clusters)
+/// coords 列为 [ret, log_amt, net_flow]，已做 zscore 标准化
+#[pyfunction(signature = (minute_data, k=30, n_threads=8))]
+pub fn get_theme_cluster_scatter_3d(
+    py: Python,
+    minute_data: PyReadonlyArrayDyn<f64>,
+    k: usize,
+    n_threads: usize,
+) -> PyResult<(Py<PyArray2<f64>>, Py<PyArray1<i64>>, Py<PyArray2<f64>>, usize)> {
+    let data = minute_data.as_array();
+    let shape = data.shape();
+    if shape.len() != 4 {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "minute_data必须是4维数组 (n_days, n_minutes, n_stocks, n_fields)",
+        ));
+    }
+    let n_days = shape[0];
+    let n_minutes = shape[1];
+    let n_stocks = shape[2];
+    let n_fields = shape[3];
+    if n_fields < 34 {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "minute_data字段数不足，至少需要34列",
+        ));
+    }
+    if n_days == 0 {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "minute_data至少需要1天数据",
+        ));
+    }
+    let actual_threads = n_threads.clamp(1, 10);
+    let data_vec: Vec<f64> = data.iter().cloned().collect();
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(actual_threads)
+        .build()
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("创建线程池失败: {}", e)))?;
+
+    // 只用最后一天
+    let offset = (n_days - 1) * n_minutes * n_stocks * n_fields;
+    let day_data = &data_vec[offset..offset + n_minutes * n_stocks * n_fields];
+    let features = pool.install(|| {
+        extract_segment_day(day_data, n_minutes, n_stocks, n_fields, 0, n_minutes, ALL_DAY_BINS, 3)
+    });
+    let cluster_result = cluster_segment_day(&features, k);
+
+    // 构建坐标矩阵 (原始值: ret, log_amt, net_flow)
+    let mut coords = vec![f64::NAN; n_stocks * 3];
+    for s in 0..n_stocks {
+        coords[s * 3] = features.ret[s];
+        coords[s * 3 + 1] = features.log_amt[s];
+        coords[s * 3 + 2] = features.net_flow[s];
+    }
+
+    // 标签 (无效标签用 -1)
+    let labels: Vec<i64> = cluster_result
+        .labels
+        .iter()
+        .map(|&l| if l == usize::MAX { -1 } else { l as i64 })
+        .collect();
+
+    // 聚类中心：对 center 在 zscore 空间做反变换得到原始空间的近似中心
+    // 直接用每个聚类内股票的均值作为原始空间中心
+    let actual_k = cluster_result.k;
+    let mut centers_raw = vec![0.0f64; actual_k * 3];
+    let mut counts = vec![0usize; actual_k];
+    for s in 0..n_stocks {
+        let l = cluster_result.labels[s];
+        if l >= actual_k {
+            continue;
+        }
+        for j in 0..3 {
+            let v = coords[s * 3 + j];
+            if v.is_finite() {
+                centers_raw[l * 3 + j] += v;
+            }
+        }
+        counts[l] += 1;
+    }
+    for c in 0..actual_k {
+        if counts[c] > 0 {
+            for j in 0..3 {
+                centers_raw[c * 3 + j] /= counts[c] as f64;
+            }
+        }
+    }
+
+    let coords_arr = Array2::from_shape_vec((n_stocks, 3), coords)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("坐标数组形状错误: {}", e)))?;
+    let centers_arr = Array2::from_shape_vec((actual_k, 3), centers_raw)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("中心数组形状错误: {}", e)))?;
+
+    Ok((
+        coords_arr.into_pyarray(py).to_owned(),
+        PyArray1::from_vec(py, labels).to_owned(),
+        centers_arr.into_pyarray(py).to_owned(),
+        actual_k,
+    ))
 }
