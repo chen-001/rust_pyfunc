@@ -79,6 +79,8 @@ pub mod theme_feature_expansion;
 pub mod topk_corr_matrix;
 
 pub mod dct_transform;
+pub mod illusion_liquidity_distance;
+pub mod orderbook_volume_cov_factors;
 
 /// Formats the sum of two numbers as string.
 #[pyfunction]
@@ -765,6 +767,14 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?)?;
     m.add_function(wrap_pyfunction!(
         dct_transform::dct_2d,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        orderbook_volume_cov_factors::orderbook_volume_cov_factors,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        illusion_liquidity_distance::illusion_liquidity_distance_factors,
         m
     )?)?;
     m.add_function(wrap_pyfunction!(

@@ -1,7 +1,7 @@
 use numpy::PyArray2;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[pyfunction]
 #[pyo3(signature = (
@@ -29,7 +29,7 @@ pub fn calculate_passive_order_features(
     let n_intervals = if n_snapshots == 0 { 0 } else { n_snapshots - 1 };
 
     // 计算特征数
-    let base_features = 42; // 全部/买单/卖单各7个订单编号 + 全部/买单/卖单各7个体量
+    let base_features = 63; // 全部/买单/卖单各7个订单编号 + 全部/买单/卖单各7个体量 + 全部/买单/卖单各7个去重订单编号
     let direction_features = if compute_direction_ratio { 21 } else { 0 }; // 全部/买单/卖单各7个方向比例
     let flag_features = if compute_flag_ratio { 21 } else { 0 }; // 全部/买单/卖单各7个flag比例
     let total_features = base_features + direction_features + flag_features;
@@ -143,6 +143,39 @@ fn get_column_names(compute_direction_ratio: bool, compute_flag_ratio: bool) -> 
         "ask_order_volume_lz_complexity",
     ]);
 
+    // 全部被动订单编号去重特征 (36-42)
+    names.extend(vec![
+        "passive_all_order_dedup_mean",
+        "passive_all_order_dedup_std",
+        "passive_all_order_dedup_skew",
+        "passive_all_order_dedup_kurtosis",
+        "passive_all_order_dedup_autocorr",
+        "passive_all_order_dedup_trend",
+        "passive_all_order_dedup_lz_complexity",
+    ]);
+
+    // 被动买单编号去重特征 (43-49)
+    names.extend(vec![
+        "passive_bid_order_dedup_mean",
+        "passive_bid_order_dedup_std",
+        "passive_bid_order_dedup_skew",
+        "passive_bid_order_dedup_kurtosis",
+        "passive_bid_order_dedup_autocorr",
+        "passive_bid_order_dedup_trend",
+        "passive_bid_order_dedup_lz_complexity",
+    ]);
+
+    // 被动卖单编号去重特征 (50-56)
+    names.extend(vec![
+        "passive_ask_order_dedup_mean",
+        "passive_ask_order_dedup_std",
+        "passive_ask_order_dedup_skew",
+        "passive_ask_order_dedup_kurtosis",
+        "passive_ask_order_dedup_autocorr",
+        "passive_ask_order_dedup_trend",
+        "passive_ask_order_dedup_lz_complexity",
+    ]);
+
     if compute_direction_ratio {
         // 全部订单方向比例特征 (43-49)
         names.extend(vec![
@@ -239,7 +272,7 @@ fn compute_interval_features(
     }
 
     if interval_indices.is_empty() {
-        let n_features = 42
+        let n_features = 63
             + if compute_direction_ratio { 21 } else { 0 }
             + if compute_flag_ratio { 21 } else { 0 };
         return vec![f64::NAN; n_features];
@@ -302,6 +335,21 @@ fn compute_interval_features(
     // 特征36-42: 卖单体量
     let ask_volumes: Vec<f64> = ask_order_volumes.values().map(|&v| v as f64).collect();
     result.extend(compute_statistics(&ask_volumes));
+
+    // 特征43-49: 全部被动订单编号（去重取last）
+    let all_orders_dedup = deduplicate_keep_last(&all_passive_orders);
+    let all_orders_dedup_f64: Vec<f64> = all_orders_dedup.iter().map(|&x| x as f64).collect();
+    result.extend(compute_statistics(&all_orders_dedup_f64));
+
+    // 特征50-56: 被动买单编号（去重取last）
+    let bid_orders_dedup = deduplicate_keep_last(&passive_bid_orders);
+    let bid_orders_dedup_f64: Vec<f64> = bid_orders_dedup.iter().map(|&x| x as f64).collect();
+    result.extend(compute_statistics(&bid_orders_dedup_f64));
+
+    // 特征57-63: 被动卖单编号（去重取last）
+    let ask_orders_dedup = deduplicate_keep_last(&passive_ask_orders);
+    let ask_orders_dedup_f64: Vec<f64> = ask_orders_dedup.iter().map(|&x| x as f64).collect();
+    result.extend(compute_statistics(&ask_orders_dedup_f64));
 
     if compute_direction_ratio {
         // 特征43-49: 全部订单方向比例
@@ -533,4 +581,17 @@ fn calc_lz_complexity(values: &[f64]) -> f64 {
     }
 
     complexity as f64 / n as f64
+}
+
+/// 订单编号去重（取last）：保留每个订单号最后一次出现的位置
+fn deduplicate_keep_last(orders: &[i64]) -> Vec<i64> {
+    let mut seen = HashSet::new();
+    let mut result = Vec::new();
+    for &order in orders.iter().rev() {
+        if seen.insert(order) {
+            result.push(order);
+        }
+    }
+    result.reverse();
+    result
 }
