@@ -50,6 +50,24 @@ def personalized_meeting_features(
     ...
 
 
+def orderbook_volume_cov_factors(
+    bid_volumes: object,  # numpy.ndarray (n, 10)
+    ask_volumes: object,  # numpy.ndarray (n, 10)
+    window_size: int,
+) -> Tuple[List[str], object]:
+    ...
+
+
+def illusion_liquidity_distance_factors(
+    price: object,  # numpy.ndarray (n,)
+    volume: object,  # numpy.ndarray (n,)
+    turnover: object,  # numpy.ndarray (n,)
+    timestamps_ns: object,  # numpy.ndarray (n,) of int64
+    window: int,
+) -> Tuple[List[str], object]:
+    ...
+
+
 # 版本信息
 __version__ = "0.18.0"
 __author__ = "chenzongwei"
@@ -225,4 +243,6 @@ __all__ = [
     "dct_2d",
     "personalized_meeting_feature_names",
     "personalized_meeting_features",
+    "orderbook_volume_cov_factors",
+    "illusion_liquidity_distance_factors",
 ]

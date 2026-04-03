@@ -871,9 +871,10 @@ fn save_results_to_backup(
     }
 
     let current_count = header.record_count;
-    let new_count = current_count + results.len() as u64;
 
-    let new_file_size = header_size as u64 + new_count * record_size as u64;
+    // 扩展文件大小（按最大可能值预分配）
+    let max_new_count = results.len() as u64;
+    let new_file_size = header_size as u64 + (current_count + max_new_count) * record_size as u64;
     file.set_len(new_file_size)?;
 
     drop(file);
@@ -885,29 +886,37 @@ fn save_results_to_backup(
 
     let mut mmap = unsafe { MmapMut::map_mut(&file)? };
 
-    let header = unsafe { &mut *(mmap.as_mut_ptr() as *mut FileHeader) };
-    header.record_count = new_count;
-
+    // 写入新记录，跳过异常记录
     let start_offset = header_size + current_count as usize * record_size;
+    let mut written_count: usize = 0;
 
-    for (i, result) in results.iter().enumerate() {
+    for result in results.iter() {
         let record = DynamicRecord::from_task_result(result);
         let record_bytes = record.to_bytes();
-        let record_offset = start_offset + i * record_size;
 
         if record_bytes.len() != record_size {
-            return Err(format!(
-                "Record size mismatch: got {}, expected {}",
+            eprintln!(
+                "WARNING: Record size mismatch: got {}, expected {}, skipping",
                 record_bytes.len(),
                 record_size
-            )
-            .into());
+            );
+            continue;
         }
 
+        let record_offset = start_offset + written_count * record_size;
         mmap[record_offset..record_offset + record_size].copy_from_slice(&record_bytes);
+        written_count += 1;
     }
 
+    // 更新文件头中的记录数量（使用实际写入数）
+    let header = unsafe { &mut *(mmap.as_mut_ptr() as *mut FileHeader) };
+    header.record_count = current_count + written_count as u64;
+
+    // 截断文件到实际大小
+    let actual_file_size = header_size as u64 + (current_count + written_count as u64) * record_size as u64;
     mmap.flush()?;
+    drop(mmap);
+    file.set_len(actual_file_size)?;
 
     Ok(())
 }
