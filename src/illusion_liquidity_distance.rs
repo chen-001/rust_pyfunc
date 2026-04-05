@@ -4,9 +4,7 @@ use pyo3::prelude::*;
 /// 3x3 矩阵解析求逆（克莱姆法则）
 fn invert3(m: &[[f64; 3]; 3]) -> Option<[[f64; 3]; 3]> {
     let (a, b, c, d, e, f, g, h, i) = (
-        m[0][0], m[0][1], m[0][2],
-        m[1][0], m[1][1], m[1][2],
-        m[2][0], m[2][1], m[2][2],
+        m[0][0], m[0][1], m[0][2], m[1][0], m[1][1], m[1][2], m[2][0], m[2][1], m[2][2],
     );
     let det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
     if det.abs() < 1e-15 {
@@ -14,9 +12,21 @@ fn invert3(m: &[[f64; 3]; 3]) -> Option<[[f64; 3]; 3]> {
     }
     let inv_det = 1.0 / det;
     Some([
-        [(e * i - f * h) * inv_det, (c * h - b * i) * inv_det, (b * f - c * e) * inv_det],
-        [(f * g - d * i) * inv_det, (a * i - c * g) * inv_det, (c * d - a * f) * inv_det],
-        [(d * h - e * g) * inv_det, (b * g - a * h) * inv_det, (a * e - b * d) * inv_det],
+        [
+            (e * i - f * h) * inv_det,
+            (c * h - b * i) * inv_det,
+            (b * f - c * e) * inv_det,
+        ],
+        [
+            (f * g - d * i) * inv_det,
+            (a * i - c * g) * inv_det,
+            (c * d - a * f) * inv_det,
+        ],
+        [
+            (d * h - e * g) * inv_det,
+            (b * g - a * h) * inv_det,
+            (a * e - b * d) * inv_det,
+        ],
     ])
 }
 
@@ -107,7 +117,7 @@ fn compute_combo(
 
     // 滚动均值: means[i] = mean of X[i-w..i] for i in [w..n]
     // cum[i] - cum[i-w] / w
-    let n_windows = n - w; // number of windows starting at w
+    let n_windows = n.saturating_sub(w); // number of windows starting at w
     let mut means = vec![0.0f64; n_windows * 3];
     let mut covs = vec![0.0f64; n_windows * 9];
 
@@ -122,8 +132,7 @@ fn compute_combo(
         for j in 0..3 {
             for k in 0..3 {
                 let mean2 = (cum2[end2 + j * 3 + k] - cum2[start2 + j * 3 + k]) / w as f64;
-                covs[i * 9 + j * 3 + k] = mean2
-                    - means[i * 3 + j] * means[i * 3 + k];
+                covs[i * 9 + j * 3 + k] = mean2 - means[i * 3 + j] * means[i * 3 + k];
             }
         }
     }
@@ -140,7 +149,7 @@ fn compute_combo(
         }
 
         // 2. z-score 标准化 X[w..]
-        let n_std = n - w;
+        let n_std = n.saturating_sub(w);
         let mut x_std = vec![0.0f64; n_std * 3];
         for i in 0..n_std {
             for j in 0..3 {
@@ -163,7 +172,7 @@ fn compute_combo(
             }
         }
 
-        let nw2 = n_std - w;
+        let nw2 = n_std.saturating_sub(w);
         let mut means_s = vec![0.0f64; nw2 * 3];
         let mut covs_s = vec![0.0f64; nw2 * 9];
         for i in 0..nw2 {
@@ -172,10 +181,10 @@ fn compute_combo(
             }
             for j in 0..3 {
                 for k in 0..3 {
-                    let m2 = (cum2_s[(i + w) * 9 + j * 3 + k] - cum2_s[i * 9 + j * 3 + k])
-                        / w as f64;
-                    covs_s[i * 9 + j * 3 + k] =
-                        m2 - means_s[i * 3 + j] * means_s[i * 3 + k] + 1e-8 * if j == k { 1.0 } else { 0.0 };
+                    let m2 =
+                        (cum2_s[(i + w) * 9 + j * 3 + k] - cum2_s[i * 9 + j * 3 + k]) / w as f64;
+                    covs_s[i * 9 + j * 3 + k] = m2 - means_s[i * 3 + j] * means_s[i * 3 + k]
+                        + 1e-8 * if j == k { 1.0 } else { 0.0 };
                 }
             }
         }
@@ -234,7 +243,7 @@ fn compute_combo(
             }
         }
 
-        let nw3 = nw2 - w;
+        let nw3 = nw2.saturating_sub(w);
         let mut factor_m3 = Vec::with_capacity(nw3);
         let mut full_m3 = Vec::with_capacity(nw3);
         let mut log_factor_m3 = Vec::with_capacity(nw3);
@@ -255,7 +264,11 @@ fn compute_combo(
             // skewness_weight = 0.5
             let skew_w = 0.5;
             let base_cov: [[f64; 3]; 3] = [
-                [covs_s[(i + w) * 9], covs_s[(i + w) * 9 + 1], covs_s[(i + w) * 9 + 2]],
+                [
+                    covs_s[(i + w) * 9],
+                    covs_s[(i + w) * 9 + 1],
+                    covs_s[(i + w) * 9 + 2],
+                ],
                 [
                     covs_s[(i + w) * 9 + 3],
                     covs_s[(i + w) * 9 + 4],
@@ -369,7 +382,7 @@ fn compute_combo(
             }
         }
 
-        let nw3 = n_diff - w;
+        let nw3 = n_diff.saturating_sub(w);
         let mut factor_m3 = Vec::with_capacity(nw3);
         let mut full_m3 = Vec::with_capacity(nw3);
         let mut log_factor_m3 = Vec::with_capacity(nw3);
@@ -475,7 +488,13 @@ pub fn illusion_liquidity_distance_factors(
     }
     // shift(1): ref_price[i] = cum_to[i-1] / cum_vo[i-1]
     let ref_cum: Vec<f64> = (0..n)
-        .map(|i| if i > 0 && cum_vo[i - 1] > 0.0 { cum_to[i - 1] / cum_vo[i - 1] } else { f64::NAN })
+        .map(|i| {
+            if i > 0 && cum_vo[i - 1] > 0.0 {
+                cum_to[i - 1] / cum_vo[i - 1]
+            } else {
+                f64::NAN
+            }
+        })
         .collect();
 
     // rolling: ref_price[i] = sum(turnover[i-w+1..=i]) / sum(volume[i-w+1..=i]), shift(1)
@@ -503,18 +522,22 @@ pub fn illusion_liquidity_distance_factors(
 
     // 构造 log_returns for cumulative and rolling
     let log_ret_cum: Vec<f64> = (0..n)
-        .map(|i| if ref_cum[i].is_finite() && ref_cum[i] > 0.0 && price[i] > 0.0 {
-            (price[i] / ref_cum[i]).ln()
-        } else {
-            f64::NAN
+        .map(|i| {
+            if ref_cum[i].is_finite() && ref_cum[i] > 0.0 && price[i] > 0.0 {
+                (price[i] / ref_cum[i]).ln()
+            } else {
+                f64::NAN
+            }
         })
         .collect();
 
     let log_ret_rol: Vec<f64> = (0..n)
-        .map(|i| if ref_rol[i].is_finite() && ref_rol[i] > 0.0 && price[i] > 0.0 {
-            (price[i] / ref_rol[i]).ln()
-        } else {
-            f64::NAN
+        .map(|i| {
+            if ref_rol[i].is_finite() && ref_rol[i] > 0.0 && price[i] > 0.0 {
+                (price[i] / ref_rol[i]).ln()
+            } else {
+                f64::NAN
+            }
         })
         .collect();
 
@@ -525,10 +548,10 @@ pub fn illusion_liquidity_distance_factors(
 
     // 4种组合
     let combos: [(&str, bool); 4] = [
-        ("cum_T", true),   // cumulative + standardize
-        ("cum_F", false),  // cumulative + no standardize
-        ("rol_T", true),   // rolling + standardize
-        ("rol_F", false),  // rolling + no standardize
+        ("cum_T", true),  // cumulative + standardize
+        ("cum_F", false), // cumulative + no standardize
+        ("rol_T", true),  // rolling + standardize
+        ("rol_F", false), // rolling + no standardize
     ];
 
     let mut all_results: Vec<(&str, ComboResult, usize)> = Vec::new(); // (name, result, data_len)
@@ -578,14 +601,38 @@ pub fn illusion_liquidity_distance_factors(
 
     // 列名: 原始16列 + log16列
     let col_names = vec![
-        "factor_cum_T_m2", "full_cum_T_m2", "factor_cum_T_m3", "full_cum_T_m3",
-        "factor_cum_F_m2", "full_cum_F_m2", "factor_cum_F_m3", "full_cum_F_m3",
-        "factor_rol_T_m2", "full_rol_T_m2", "factor_rol_T_m3", "full_rol_T_m3",
-        "factor_rol_F_m2", "full_rol_F_m2", "factor_rol_F_m3", "full_rol_F_m3",
-        "log_factor_cum_T_m2", "log_full_cum_T_m2", "log_factor_cum_T_m3", "log_full_cum_T_m3",
-        "log_factor_cum_F_m2", "log_full_cum_F_m2", "log_factor_cum_F_m3", "log_full_cum_F_m3",
-        "log_factor_rol_T_m2", "log_full_rol_T_m2", "log_factor_rol_T_m3", "log_full_rol_T_m3",
-        "log_factor_rol_F_m2", "log_full_rol_F_m2", "log_factor_rol_F_m3", "log_full_rol_F_m3",
+        "factor_cum_T_m2",
+        "full_cum_T_m2",
+        "factor_cum_T_m3",
+        "full_cum_T_m3",
+        "factor_cum_F_m2",
+        "full_cum_F_m2",
+        "factor_cum_F_m3",
+        "full_cum_F_m3",
+        "factor_rol_T_m2",
+        "full_rol_T_m2",
+        "factor_rol_T_m3",
+        "full_rol_T_m3",
+        "factor_rol_F_m2",
+        "full_rol_F_m2",
+        "factor_rol_F_m3",
+        "full_rol_F_m3",
+        "log_factor_cum_T_m2",
+        "log_full_cum_T_m2",
+        "log_factor_cum_T_m3",
+        "log_full_cum_T_m3",
+        "log_factor_cum_F_m2",
+        "log_full_cum_F_m2",
+        "log_factor_cum_F_m3",
+        "log_full_cum_F_m3",
+        "log_factor_rol_T_m2",
+        "log_full_rol_T_m2",
+        "log_factor_rol_T_m3",
+        "log_full_rol_T_m3",
+        "log_factor_rol_F_m2",
+        "log_full_rol_F_m2",
+        "log_factor_rol_F_m3",
+        "log_full_rol_F_m3",
     ];
     let names: Vec<String> = col_names.iter().map(|s| s.to_string()).collect();
 
@@ -606,10 +653,14 @@ pub fn illusion_liquidity_distance_factors(
             data[i * ncols + base_col + 1] = res.full_m2.get(mi2).copied().unwrap_or(f64::NAN);
             data[i * ncols + base_col + 2] = res.factor_m3.get(mi3).copied().unwrap_or(f64::NAN);
             data[i * ncols + base_col + 3] = res.full_m3.get(mi3).copied().unwrap_or(f64::NAN);
-            data[i * ncols + log_base_col] = res.log_factor_m2.get(mi2).copied().unwrap_or(f64::NAN);
-            data[i * ncols + log_base_col + 1] = res.log_full_m2.get(mi2).copied().unwrap_or(f64::NAN);
-            data[i * ncols + log_base_col + 2] = res.log_factor_m3.get(mi3).copied().unwrap_or(f64::NAN);
-            data[i * ncols + log_base_col + 3] = res.log_full_m3.get(mi3).copied().unwrap_or(f64::NAN);
+            data[i * ncols + log_base_col] =
+                res.log_factor_m2.get(mi2).copied().unwrap_or(f64::NAN);
+            data[i * ncols + log_base_col + 1] =
+                res.log_full_m2.get(mi2).copied().unwrap_or(f64::NAN);
+            data[i * ncols + log_base_col + 2] =
+                res.log_factor_m3.get(mi3).copied().unwrap_or(f64::NAN);
+            data[i * ncols + log_base_col + 3] =
+                res.log_full_m3.get(mi3).copied().unwrap_or(f64::NAN);
         }
     }
 

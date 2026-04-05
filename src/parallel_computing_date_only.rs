@@ -913,7 +913,8 @@ fn save_results_to_backup(
     header.record_count = current_count + written_count as u64;
 
     // 截断文件到实际大小
-    let actual_file_size = header_size as u64 + (current_count + written_count as u64) * record_size as u64;
+    let actual_file_size =
+        header_size as u64 + (current_count + written_count as u64) * record_size as u64;
     mmap.flush()?;
     drop(mmap);
     file.set_len(actual_file_size)?;

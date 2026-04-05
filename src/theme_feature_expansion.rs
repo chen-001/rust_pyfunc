@@ -1183,11 +1183,7 @@ fn top5_from_dists(dists: &[f64], k: usize) -> ([f64; 5], [f64; 5], Vec<f64>, us
     for i in 0..5.min(k) {
         top5_probs[i] = probs_by_label[pairs[i].0];
     }
-    let second_label = if pairs.len() > 1 {
-        pairs[1].0
-    } else {
-        0
-    };
+    let second_label = if pairs.len() > 1 { pairs[1].0 } else { 0 };
     (top5_dists, top5_probs, probs_by_label, second_label)
 }
 
@@ -1408,9 +1404,7 @@ pub fn compute_theme_feature_expansion_from_minute(
     .map(str::to_string)
     .collect::<Vec<_>>();
 
-    let vector_dims = [
-        8usize, 8, 8, 8, 6, 6, 6, 5, 5, 3, 4, 6, 4, 6, 4, 8,
-    ];
+    let vector_dims = [8usize, 8, 8, 8, 6, 6, 6, 5, 5, 3, 4, 6, 4, 6, 4, 8];
     let mut vector_data: Vec<Vec<f64>> = vector_dims
         .iter()
         .map(|&dim| vec![f64::NAN; n_stocks * dim])
@@ -1739,8 +1733,6 @@ pub fn compute_theme_feature_expansion_from_minute(
     Ok((vector_arrays, scalar_arrays, vector_names, scalar_names))
 }
 
-
-
 /// 提取3维聚类散点数据，用于可视化。
 /// 返回 (coords: n_stocks×3, labels: n_stocks, centers: k×3, n_clusters)
 /// coords 列为 [ret, log_amt, net_flow]，已做 zscore 标准化
@@ -1750,7 +1742,12 @@ pub fn get_theme_cluster_scatter_3d(
     minute_data: PyReadonlyArrayDyn<f64>,
     k: usize,
     n_threads: usize,
-) -> PyResult<(Py<PyArray2<f64>>, Py<PyArray1<i64>>, Py<PyArray2<f64>>, usize)> {
+) -> PyResult<(
+    Py<PyArray2<f64>>,
+    Py<PyArray1<i64>>,
+    Py<PyArray2<f64>>,
+    usize,
+)> {
     let data = minute_data.as_array();
     let shape = data.shape();
     if shape.len() != 4 {
@@ -1783,7 +1780,16 @@ pub fn get_theme_cluster_scatter_3d(
     let offset = (n_days - 1) * n_minutes * n_stocks * n_fields;
     let day_data = &data_vec[offset..offset + n_minutes * n_stocks * n_fields];
     let features = pool.install(|| {
-        extract_segment_day(day_data, n_minutes, n_stocks, n_fields, 0, n_minutes, ALL_DAY_BINS, 3)
+        extract_segment_day(
+            day_data,
+            n_minutes,
+            n_stocks,
+            n_fields,
+            0,
+            n_minutes,
+            ALL_DAY_BINS,
+            3,
+        )
     });
     let cluster_result = cluster_segment_day(&features, k);
 

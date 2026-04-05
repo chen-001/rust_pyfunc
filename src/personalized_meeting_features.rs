@@ -289,7 +289,13 @@ fn winsorize(values: &[f64]) -> Vec<f64> {
     let hi = quantile_linear(values, 0.99);
     values
         .iter()
-        .map(|v| if v.is_finite() { v.clamp(lo, hi) } else { 0.5 * (lo + hi) })
+        .map(|v| {
+            if v.is_finite() {
+                v.clamp(lo, hi)
+            } else {
+                0.5 * (lo + hi)
+            }
+        })
         .collect()
 }
 
@@ -401,7 +407,11 @@ fn lagged_correlation(current: &[f64], lagged: &[f64], lag: usize) -> f64 {
 
 fn granger_like_score(a: &[f64], b: &[f64], max_lag: usize) -> f64 {
     (1..=max_lag)
-        .map(|lag| lagged_correlation(a, b, lag).abs().max(lagged_correlation(b, a, lag).abs()))
+        .map(|lag| {
+            lagged_correlation(a, b, lag)
+                .abs()
+                .max(lagged_correlation(b, a, lag).abs())
+        })
         .fold(0.0, f64::max)
 }
 
@@ -422,9 +432,7 @@ fn co_movement_score(a: &[f64], b: &[f64]) -> f64 {
     }
     let same = pairs
         .iter()
-        .filter(|(x, y)| {
-            (*x >= 0.0 && *y >= 0.0) || (*x <= 0.0 && *y <= 0.0)
-        })
+        .filter(|(x, y)| (*x >= 0.0 && *y >= 0.0) || (*x <= 0.0 && *y <= 0.0))
         .count() as f64;
     same / pairs.len() as f64
 }
@@ -683,7 +691,11 @@ fn symbol_bucket(symbol: &str) -> String {
     } else if symbol.starts_with('0') {
         "0".to_string()
     } else {
-        symbol.chars().next().map(|c| c.to_string()).unwrap_or_default()
+        symbol
+            .chars()
+            .next()
+            .map(|c| c.to_string())
+            .unwrap_or_default()
     }
 }
 
@@ -697,7 +709,11 @@ fn same_bucket_symbols(date: i32, anchor_symbol: &str) -> PyResult<Vec<String>> 
     Ok(symbols)
 }
 
-fn select_code_neighbors(symbols: &[String], anchor_symbol: &str, size: usize) -> PyResult<Vec<String>> {
+fn select_code_neighbors(
+    symbols: &[String],
+    anchor_symbol: &str,
+    size: usize,
+) -> PyResult<Vec<String>> {
     if symbols.is_empty() {
         return Err(PyValueError::new_err("同组股票列表为空"));
     }
@@ -705,7 +721,9 @@ fn select_code_neighbors(symbols: &[String], anchor_symbol: &str, size: usize) -
     let anchor_idx = symbols
         .iter()
         .position(|item| item == anchor_symbol)
-        .ok_or_else(|| PyValueError::new_err(format!("未在候选股票中找到锚点股票: {}", anchor_symbol)))?;
+        .ok_or_else(|| {
+            PyValueError::new_err(format!("未在候选股票中找到锚点股票: {}", anchor_symbol))
+        })?;
     let mut start = anchor_idx.saturating_sub((target - 1) / 2);
     let end = usize::min(symbols.len(), start + target);
     if end - start < target {
@@ -762,23 +780,31 @@ fn load_symbol_data(date: i32, symbol: &str) -> PyResult<SymbolData> {
             let Ok(record) = row else {
                 continue;
             };
-            let Some(flag) = parse_row_i64(&record, flag_idx, "flag", row_number, &trade_path) else {
+            let Some(flag) = parse_row_i64(&record, flag_idx, "flag", row_number, &trade_path)
+            else {
                 continue;
             };
             let flag = flag as i32;
             if flag == 32 {
                 continue;
             }
-            let Some(time_value) = parse_row_i64(&record, time_idx, "time", row_number, &trade_path) else {
+            let Some(time_value) =
+                parse_row_i64(&record, time_idx, "time", row_number, &trade_path)
+            else {
                 continue;
             };
-            let Some(price) = parse_row_f64(&record, price_idx, "price", row_number, &trade_path) else {
+            let Some(price) = parse_row_f64(&record, price_idx, "price", row_number, &trade_path)
+            else {
                 continue;
             };
-            let Some(volume) = parse_row_f64(&record, volume_idx, "volume", row_number, &trade_path) else {
+            let Some(volume) =
+                parse_row_f64(&record, volume_idx, "volume", row_number, &trade_path)
+            else {
                 continue;
             };
-            let Some(turnover) = parse_row_f64(&record, turnover_idx, "turnover", row_number, &trade_path) else {
+            let Some(turnover) =
+                parse_row_f64(&record, turnover_idx, "turnover", row_number, &trade_path)
+            else {
                 continue;
             };
 
@@ -847,25 +873,35 @@ fn load_symbol_data(date: i32, symbol: &str) -> PyResult<SymbolData> {
             let Ok(record) = row else {
                 continue;
             };
-            let Some(last_prc) = parse_row_f64(&record, last_prc_idx, "last_prc", row_number, &market_path) else {
+            let Some(last_prc) =
+                parse_row_f64(&record, last_prc_idx, "last_prc", row_number, &market_path)
+            else {
                 continue;
             };
             if last_prc <= 0.0 {
                 continue;
             }
-            let Some(time_value) = parse_row_i64(&record, time_idx, "time", row_number, &market_path) else {
+            let Some(time_value) =
+                parse_row_i64(&record, time_idx, "time", row_number, &market_path)
+            else {
                 continue;
             };
-            let Some(bid1) = parse_row_f64(&record, bid1_idx, "bid_vol1", row_number, &market_path) else {
+            let Some(bid1) = parse_row_f64(&record, bid1_idx, "bid_vol1", row_number, &market_path)
+            else {
                 continue;
             };
-            let Some(ask1) = parse_row_f64(&record, ask1_idx, "ask_vol1", row_number, &market_path) else {
+            let Some(ask1) = parse_row_f64(&record, ask1_idx, "ask_vol1", row_number, &market_path)
+            else {
                 continue;
             };
-            let Some(bid10) = parse_row_f64(&record, bid10_idx, "bid_vol10", row_number, &market_path) else {
+            let Some(bid10) =
+                parse_row_f64(&record, bid10_idx, "bid_vol10", row_number, &market_path)
+            else {
                 continue;
             };
-            let Some(ask10) = parse_row_f64(&record, ask10_idx, "ask_vol10", row_number, &market_path) else {
+            let Some(ask10) =
+                parse_row_f64(&record, ask10_idx, "ask_vol10", row_number, &market_path)
+            else {
                 continue;
             };
 
@@ -1012,9 +1048,7 @@ fn fill_role_data(symbol_data: &SymbolData, minutes: &[i32]) -> FilledRoleData {
 
 fn selection_requirements(method: &str) -> PyResult<(bool, bool)> {
     let flags = match method {
-        "ret_corr" | "co_move" | "granger" | "amplitude_corr" | "book_tilt_corr" => {
-            (false, true)
-        }
+        "ret_corr" | "co_move" | "granger" | "amplitude_corr" | "book_tilt_corr" => (false, true),
         "vol_corr" | "turnover_corr" | "buy_ratio_corr" | "co_burst" => (true, false),
         "multidim" => (true, true),
         _ => {
@@ -1534,7 +1568,10 @@ fn precompute_universe(subset: &[&SymbolData], anchor_symbol: &str) -> Precomput
     let mut book_tilt_1 = vec![vec![0.0; t_len]; n];
     let mut book_tilt_10 = vec![vec![0.0; t_len]; n];
 
-    let mut windows: Vec<usize> = EXPERIMENTS.iter().map(|exp| exp.role.burst_window).collect();
+    let mut windows: Vec<usize> = EXPERIMENTS
+        .iter()
+        .map(|exp| exp.role.burst_window)
+        .collect();
     windows.sort();
     windows.dedup();
     let mut turn_burst_by_window: HashMap<usize, Vec<Vec<f64>>> = HashMap::new();
@@ -1608,8 +1645,14 @@ fn compute_role_features(
     let jump_bias = &precomputed.jump_bias;
     let book_tilt_1 = &precomputed.book_tilt_1;
     let book_tilt_10 = &precomputed.book_tilt_10;
-    let turn_burst = precomputed.turn_burst_by_window.get(&cfg.burst_window).unwrap();
-    let trade_burst = precomputed.trade_burst_by_window.get(&cfg.burst_window).unwrap();
+    let turn_burst = precomputed
+        .turn_burst_by_window
+        .get(&cfg.burst_window)
+        .unwrap();
+    let trade_burst = precomputed
+        .trade_burst_by_window
+        .get(&cfg.burst_window)
+        .unwrap();
 
     let mut score_matrix = vec![vec![0.0; n]; t_len];
     let mut statement_matrix = vec![vec![false; n]; t_len];
@@ -1719,14 +1762,20 @@ fn compute_role_features(
         statement_score_vector[t] = self_heat[t] - threshold_vector[t];
         group_count_vector[t] = current_peers.len() as f64;
         return_gap_vector[t] = r1[anchor_idx][t] - mean_of_selected_at(r1, t, current_peers);
-        let peer_volume_sum: f64 = current_peers.iter().map(|peer| filled[*peer].volume[t]).sum();
+        let peer_volume_sum: f64 = current_peers
+            .iter()
+            .map(|peer| filled[*peer].volume[t])
+            .sum();
         volume_share_vector[t] = filled[anchor_idx].volume[t] / (peer_volume_sum + 1e-6);
-        act_buy_advantage_vector[t] = act_buy_ratio[anchor_idx][t] - mean_of_selected_at(act_buy_ratio, t, current_peers);
-        trade_burst_gap_vector[t] = trade_burst[anchor_idx][t] - mean_of_selected_at(trade_burst, t, current_peers);
+        act_buy_advantage_vector[t] =
+            act_buy_ratio[anchor_idx][t] - mean_of_selected_at(act_buy_ratio, t, current_peers);
+        trade_burst_gap_vector[t] =
+            trade_burst[anchor_idx][t] - mean_of_selected_at(trade_burst, t, current_peers);
         let peer_amp_mean = mean_of_selected_at(amp, t, current_peers);
         amplitude_ratio_vector[t] = amp[anchor_idx][t] / (peer_amp_mean + 1e-6);
         peer_return_std_vector[t] = std_of_selected_at(r1, t, current_peers);
-        book_tilt_diff_vector[t] = book_tilt_10[anchor_idx][t] - mean_of_selected_at(book_tilt_10, t, current_peers);
+        book_tilt_diff_vector[t] =
+            book_tilt_10[anchor_idx][t] - mean_of_selected_at(book_tilt_10, t, current_peers);
         let weighted_sum: f64 = current_peers
             .iter()
             .zip(peer_score_lists[t].iter())
@@ -1834,17 +1883,17 @@ fn compute_role_features(
             echo_lags.push(first_lag_above(&future_peer_step_response, 0.3));
 
             if leader {
-                let future_anchor_returns: Vec<f64> =
-                    ((t + 1)..usize::min(t + 1 + cfg.relay_horizon, t_len))
-                        .map(|tt| r1[anchor_idx][tt])
-                        .collect();
+                let future_anchor_returns: Vec<f64> = ((t + 1)
+                    ..usize::min(t + 1 + cfg.relay_horizon, t_len))
+                    .map(|tt| r1[anchor_idx][tt])
+                    .collect();
                 leader_convictions.push(mean(&future_anchor_returns));
             }
             if follower {
-                let future_anchor_returns: Vec<f64> =
-                    ((t + 1)..usize::min(t + 1 + cfg.relay_horizon, t_len))
-                        .map(|tt| r1[anchor_idx][tt])
-                        .collect();
+                let future_anchor_returns: Vec<f64> = ((t + 1)
+                    ..usize::min(t + 1 + cfg.relay_horizon, t_len))
+                    .map(|tt| r1[anchor_idx][tt])
+                    .collect();
                 follower_remorse.push((mean(&future_anchor_returns) < 0.0) as i32 as f64);
             }
             if false_start {
@@ -1872,20 +1921,37 @@ fn compute_role_features(
     let theme_union = morning_union.union(&afternoon_union).count().max(1) as f64;
     let theme_inter = morning_union.intersection(&afternoon_union).count() as f64;
 
-    let open_set: HashSet<usize> = peer_lists.first().cloned().unwrap_or_default().into_iter().collect();
-    let close_set: HashSet<usize> = peer_lists.last().cloned().unwrap_or_default().into_iter().collect();
+    let open_set: HashSet<usize> = peer_lists
+        .first()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .collect();
+    let close_set: HashSet<usize> = peer_lists
+        .last()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .collect();
     let open_close_union = open_set.union(&close_set).count().max(1) as f64;
     let open_close_inter = open_set.intersection(&close_set).count() as f64;
 
-    let market_heat_tail = mean(&market_heat[market_heat.len().saturating_sub(cfg.relay_horizon)..]);
-    let tail_group_heat = mean(&group_score_vector[group_score_vector.len().saturating_sub(cfg.relay_horizon)..]);
-    let head_group_heat = mean(&group_score_vector[..usize::min(cfg.relay_horizon, group_score_vector.len())]);
+    let market_heat_tail =
+        mean(&market_heat[market_heat.len().saturating_sub(cfg.relay_horizon)..]);
+    let tail_group_heat =
+        mean(&group_score_vector[group_score_vector.len().saturating_sub(cfg.relay_horizon)..]);
+    let head_group_heat =
+        mean(&group_score_vector[..usize::min(cfg.relay_horizon, group_score_vector.len())]);
 
     let scalars = vec![
         mean(&peer_jaccard),
         mean(&peer_strength_vector),
         peer_strength_vector.iter().copied().fold(0.0, f64::max),
-        lonely_flags.iter().map(|flag| *flag as i32 as f64).sum::<f64>() / lonely_flags.len().max(1) as f64,
+        lonely_flags
+            .iter()
+            .map(|flag| *flag as i32 as f64)
+            .sum::<f64>()
+            / lonely_flags.len().max(1) as f64,
         mean(&leader_flags),
         mean(&follower_flags),
         mean(&false_start_flags),

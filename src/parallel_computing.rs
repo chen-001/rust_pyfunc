@@ -888,7 +888,8 @@ fn save_results_to_backup(
     header.record_count = current_count + written_count as u64;
 
     // 截断文件到实际大小
-    let actual_file_size = header_size as u64 + (current_count + written_count as u64) * record_size as u64;
+    let actual_file_size =
+        header_size as u64 + (current_count + written_count as u64) * record_size as u64;
     mmap.flush()?;
     drop(mmap);
     file.set_len(actual_file_size)?;
@@ -896,7 +897,7 @@ fn save_results_to_backup(
     Ok(())
 }
 
-fn create_persistent_worker_script() -> String {
+fn create_persistent_worker_script(task_timeout_secs: u64) -> String {
     format!(
         r#"#!/usr/bin/env python3
 import sys
@@ -993,7 +994,7 @@ def normalize_value(x):
     except (ValueError, TypeError):
         return float('nan')
 
-def execute_task_with_timeout(func_code, date, code, expected_length, timeout=120):
+def execute_task_with_timeout(func_code, date, code, expected_length, timeout={}):
     '''带超时的任务执行'''
     import threading
     import queue
@@ -1034,13 +1035,13 @@ def execute_task_with_timeout(func_code, date, code, expected_length, timeout=12
     try:
         result = result_queue.get(timeout=timeout)
         thread.join(timeout=1)
-        return result
+        return result, False
     except queue.Empty:
         print(f"Task timeout for {{date}}, {{code}} after {{timeout}}s", file=sys.stderr)
-        return [float('nan')] * expected_length
+        return [float('nan')] * expected_length, True
     except Exception as e:
         print(f"Task error for {{date}}, {{code}}: {{e}}", file=sys.stderr)
-        return [float('nan')] * expected_length
+        return [float('nan')] * expected_length, False
 
 def read_message_with_timeout(timeout=30):
     '''带超时的消息读取'''
@@ -1117,10 +1118,14 @@ def main():
             timestamp = int(time.time() * 1000)
             date = task['date']
             code = task['code']
+            timed_out = False
 
             try:
-                facs = execute_task_with_timeout(func_code, date, code, expected_length, timeout=120)
-                health_manager.record_task_success()
+                facs, timed_out = execute_task_with_timeout(func_code, date, code, expected_length, timeout={})
+                if timed_out:
+                    health_manager.record_task_error()
+                else:
+                    health_manager.record_task_success()
             except Exception as e:
                 print(f"Task execution failed for {{date}}, {{code}}: {{e}}", file=sys.stderr)
                 facs = [float('nan')] * expected_length
@@ -1137,6 +1142,10 @@ def main():
             output = {{'result': result}}
             packed_output = msgpack.packb(output, use_bin_type=True)
             write_message(packed_output)
+
+            if timed_out:
+                print(f"Worker restarting after task timeout for {{date}}, {{code}}", file=sys.stderr)
+                sys.exit(1)
 
         except KeyboardInterrupt:
             print("🏁 Worker interrupted by user", file=sys.stderr)
@@ -1172,7 +1181,8 @@ def main():
 
 if __name__ == '__main__':
     main()
-"#
+"#,
+        task_timeout_secs, task_timeout_secs
     )
 }
 
@@ -1195,7 +1205,7 @@ pub fn extract_python_function_code(py_func: &PyObject) -> PyResult<String> {
                         let base64 = py.import("base64")?;
                         let encoded = base64.call_method1("b64encode", (bytes,))?;
                         let encoded_str: String = encoded.call_method0("decode")?.extract()?;
-                        
+
                         Ok(format!(r#"
 import pickle
 import base64
@@ -1219,6 +1229,7 @@ fn run_persistent_task_worker(
     task_queue: Receiver<TaskParam>,
     python_code: String,
     expected_result_length: usize,
+    task_timeout_secs: u64,
     python_path: String,
     result_sender: Sender<TaskResult>,
     restart_flag: Arc<AtomicBool>,
@@ -1237,7 +1248,7 @@ fn run_persistent_task_worker(
             debug_logger.log_info(Some(worker_id), "RESTART", "Worker检测到重启信号，正在重启");
         }
 
-        let script_content = create_persistent_worker_script();
+        let script_content = create_persistent_worker_script(task_timeout_secs);
         let script_path = format!("/tmp/persistent_worker_{}.py", worker_id);
 
         // 创建worker脚本
@@ -1251,13 +1262,22 @@ fn run_persistent_task_worker(
         }
 
         // 启动持久的Python子进程
-        let mut child = match Command::new(&python_path)
+        let mut command = Command::new(&python_path);
+        command
             .arg(&script_path)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .spawn()
-        {
+            .env("OMP_NUM_THREADS", "1")
+            .env("OPENBLAS_NUM_THREADS", "1")
+            .env("MKL_NUM_THREADS", "1")
+            .env("NUMEXPR_NUM_THREADS", "1")
+            .env("VECLIB_MAXIMUM_THREADS", "1")
+            .env("BLIS_NUM_THREADS", "1")
+            .env("POLARS_MAX_THREADS", "1")
+            .env("RAYON_NUM_THREADS", "1");
+
+        let mut child = match command.spawn() {
             Ok(child) => child,
             Err(e) => {
                 debug_logger.log_error(
@@ -1723,6 +1743,7 @@ pub fn run_pools_queue(
                 worker_task_receiver,
                 worker_python_code,
                 expected_result_length,
+                task_timeout_secs,
                 worker_python_path,
                 worker_result_sender,
                 worker_restart_flag,
