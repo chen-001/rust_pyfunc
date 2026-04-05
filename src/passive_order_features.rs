@@ -43,19 +43,30 @@ pub fn calculate_passive_order_features(
     }
 
     let mut result = Vec::with_capacity(n_intervals * total_features);
+    let mut left = 0usize;
+    let mut right = 0usize;
 
     for interval_idx in 0..n_intervals {
         let start_time = market_times[interval_idx];
         let end_time = market_times[interval_idx + 1];
 
+        while left < trade_times.len() && trade_times[left] <= start_time {
+            left += 1;
+        }
+        if right < left {
+            right = left;
+        }
+        while right < trade_times.len() && trade_times[right] <= end_time {
+            right += 1;
+        }
+
         let features = compute_interval_features(
-            &trade_times,
             &trade_flags,
             &trade_bid_orders,
             &trade_ask_orders,
             &trade_volumes,
-            start_time,
-            end_time,
+            left,
+            right,
             compute_direction_ratio,
             compute_flag_ratio,
         );
@@ -250,33 +261,22 @@ fn get_column_names(compute_direction_ratio: bool, compute_flag_ratio: bool) -> 
 }
 
 fn compute_interval_features(
-    trade_times: &[i64],
     trade_flags: &[i32],
     trade_bid_orders: &[i64],
     trade_ask_orders: &[i64],
     trade_volumes: &[i64],
-    start_time: i64,
-    end_time: i64,
+    start_idx: usize,
+    end_idx: usize,
     compute_direction_ratio: bool,
     compute_flag_ratio: bool,
 ) -> Vec<f64> {
-    let mut result = Vec::new();
-
-    // 筛选区间内的交易
-    let mut interval_indices: Vec<usize> = Vec::new();
-    for i in 0..trade_times.len() {
-        let ts = trade_times[i];
-        if ts > start_time && ts <= end_time {
-            interval_indices.push(i);
-        }
-    }
-
-    if interval_indices.is_empty() {
-        let n_features = 63
-            + if compute_direction_ratio { 21 } else { 0 }
-            + if compute_flag_ratio { 21 } else { 0 };
+    let n_features =
+        63 + if compute_direction_ratio { 21 } else { 0 } + if compute_flag_ratio { 21 } else { 0 };
+    if start_idx >= end_idx {
         return vec![f64::NAN; n_features];
     }
+
+    let mut result = Vec::with_capacity(n_features);
 
     // 识别被动订单
     let mut all_passive_orders: Vec<i64> = Vec::new();
@@ -289,7 +289,7 @@ fn compute_interval_features(
     // 建立订单到索引和方向的映射
     let mut order_info: HashMap<i64, (usize, bool)> = HashMap::new();
 
-    for &idx in &interval_indices {
+    for idx in start_idx..end_idx {
         let flag = trade_flags[idx];
         let bid_order = trade_bid_orders[idx];
         let ask_order = trade_ask_orders[idx];

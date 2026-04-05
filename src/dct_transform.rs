@@ -20,7 +20,11 @@ fn dct_first_k(values: &[f64], k: usize) -> Vec<f64> {
 
 /// 一维 DCT: 输入 1D 数组，输出前 k 阶 DCT 系数
 #[pyfunction]
-pub fn dct_1d(py: Python, values: PyReadonlyArrayDyn<f64>, k: usize) -> PyResult<Py<PyArray1<f64>>> {
+pub fn dct_1d(
+    py: Python,
+    values: PyReadonlyArrayDyn<f64>,
+    k: usize,
+) -> PyResult<Py<PyArray1<f64>>> {
     let data = values.as_array();
     let flat: Vec<f64> = data.iter().cloned().collect();
     let result = dct_first_k(&flat, k);

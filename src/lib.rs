@@ -761,14 +761,8 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         personalized_meeting_features::personalized_meeting_features,
         m
     )?)?;
-    m.add_function(wrap_pyfunction!(
-        dct_transform::dct_1d,
-        m
-    )?)?;
-    m.add_function(wrap_pyfunction!(
-        dct_transform::dct_2d,
-        m
-    )?)?;
+    m.add_function(wrap_pyfunction!(dct_transform::dct_1d, m)?)?;
+    m.add_function(wrap_pyfunction!(dct_transform::dct_2d, m)?)?;
     m.add_function(wrap_pyfunction!(
         orderbook_volume_cov_factors::orderbook_volume_cov_factors,
         m

@@ -196,13 +196,22 @@ fn run_simple_worker(
         return;
     }
 
-    let mut child = match Command::new(&python_path)
+    let mut command = Command::new(&python_path);
+    command
         .arg(&script_path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped()) // 需要读取stdout来获取确认信号
         .stderr(Stdio::null())
-        .spawn()
-    {
+        .env("OMP_NUM_THREADS", "1")
+        .env("OPENBLAS_NUM_THREADS", "1")
+        .env("MKL_NUM_THREADS", "1")
+        .env("NUMEXPR_NUM_THREADS", "1")
+        .env("VECLIB_MAXIMUM_THREADS", "1")
+        .env("BLIS_NUM_THREADS", "1")
+        .env("POLARS_MAX_THREADS", "1")
+        .env("RAYON_NUM_THREADS", "1");
+
+    let mut child = match command.spawn() {
         Ok(child) => child,
         Err(e) => {
             eprintln!("❌ Worker {} 启动Python进程失败: {}", worker_id, e);
