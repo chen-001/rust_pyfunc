@@ -314,7 +314,8 @@ def run_pools_queue_date_only(
 def run_pools_simple(
     python_function: Callable,
     args: List[List],
-    n_jobs: int
+    n_jobs: int,
+    log_path: str = "run_pools_simple.log"
 ) -> None:
     """🚀 极简版并行计算函数 - 只执行不返回结果（v2.0）
 
@@ -327,6 +328,7 @@ def run_pools_simple(
     - ✅ 零内存开销，不收集任何结果
     - ✅ 纯粹的并行执行，最高效率
     - ✅ 自动进度监控
+    - ✅ 子进程stderr日志记录
 
     参数说明：
     ----------
@@ -339,6 +341,9 @@ def run_pools_simple(
         date和code可以是任意类型（int、str等）
     n_jobs : int
         并行进程数，建议设置为CPU核心数
+    log_path : str, optional
+        日志文件路径，用于记录子进程的stderr输出
+        默认值: "run_pools_simple.log"
 
     返回值：
     -------

@@ -73,6 +73,10 @@ pub mod personalized_meeting_features;
 pub mod price_breakthrough_stats;
 pub mod series_rank;
 pub mod skewness;
+pub mod tail_v2_backtest_block;
+pub mod tail_v2_block_neutralizer;
+pub mod tail_v2_ic_corr_filter;
+pub mod tail_v2_rank_roll_factor;
 pub mod theme_cluster_factors;
 pub mod theme_cluster_factors_batch;
 pub mod theme_feature_expansion;
@@ -419,6 +423,34 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?);
     let _ = m.add_function(wrap_pyfunction!(
         factor_neutralization_io_optimized::batch_factor_neutralization_io_optimized,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        tail_v2_backtest_block::tail_v2_backtest_block,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        tail_v2_backtest_block::tail_v2_backtest_block_f32,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        tail_v2_block_neutralizer::tail_v2_neutralize_block,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        tail_v2_block_neutralizer::tail_v2_neutralize_block_f32,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        tail_v2_block_neutralizer::tail_v2_neutralize_block_f32_out,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        tail_v2_rank_roll_factor::tail_v2_rank_roll_factor_f32,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        tail_v2_ic_corr_filter::tail_v2_select_by_ic_corr_abs_f32,
         m
     )?);
     let _ = m.add_function(wrap_pyfunction!(
