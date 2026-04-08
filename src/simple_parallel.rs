@@ -7,12 +7,49 @@ use pyo3::prelude::*;
 use pyo3::types::PyList;
 use serde::{Deserialize, Serialize};
 use std::env;
+use std::fs::File;
 use std::io::Write;
 use std::io::{self, BufRead, BufReader};
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Instant;
+
+// ============================================================================
+// 日志记录器
+// ============================================================================
+
+/// 轻量级日志记录器，用于捕获子进程的 stderr 输出
+#[derive(Clone)]
+struct SimpleLogger {
+    file: Arc<Mutex<File>>,
+}
+
+impl SimpleLogger {
+    fn new(log_path: &str) -> PyResult<Self> {
+        let file = File::create(log_path).map_err(|e| {
+            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
+                "创建日志文件失败 {}: {}",
+                log_path, e
+            ))
+        })?;
+        Ok(Self {
+            file: Arc::new(Mutex::new(file)),
+        })
+    }
+
+    fn log_error(&self, worker_id: usize, category: &str, message: &str) {
+        let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S");
+        let log_line = format!(
+            "[{}] [Worker {}] [{}] {}\n",
+            timestamp, worker_id, category, message
+        );
+        if let Ok(mut file) = self.file.lock() {
+            let _ = file.write_all(log_line.as_bytes());
+        }
+    }
+}
 
 // ============================================================================
 // 数据结构定义
@@ -187,12 +224,13 @@ fn run_simple_worker(
     python_code: String,
     python_path: String,
     completion_sender: Sender<()>,
+    logger: SimpleLogger,
 ) {
     let script_content = create_simple_worker_script();
     let script_path = format!("/tmp/simple_worker_{}.py", worker_id);
 
     if let Err(e) = std::fs::write(&script_path, script_content) {
-        eprintln!("❌ Worker {} 创建脚本失败: {}", worker_id, e);
+        logger.log_error(worker_id, "SCRIPT_CREATE", &format!("创建脚本失败: {}", e));
         return;
     }
 
@@ -201,7 +239,7 @@ fn run_simple_worker(
         .arg(&script_path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped()) // 需要读取stdout来获取确认信号
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped()) // 捕获stderr用于日志记录
         .env("OMP_NUM_THREADS", "1")
         .env("OPENBLAS_NUM_THREADS", "1")
         .env("MKL_NUM_THREADS", "1")
@@ -214,7 +252,7 @@ fn run_simple_worker(
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(e) => {
-            eprintln!("❌ Worker {} 启动Python进程失败: {}", worker_id, e);
+            logger.log_error(worker_id, "PROCESS_START", &format!("启动Python进程失败: {}", e));
             let _ = std::fs::remove_file(&script_path);
             return;
         }
@@ -222,19 +260,42 @@ fn run_simple_worker(
 
     let mut stdin = child.stdin.take().expect("Failed to get stdin");
     let stdout = child.stdout.take().expect("Failed to get stdout");
+    let stderr = child.stderr.take().expect("Failed to get stderr");
     let mut reader = BufReader::new(stdout);
+
+    // 启动stderr读取线程，逐行写入日志文件
+    let stderr_logger = logger.clone();
+    let stderr_worker_id = worker_id;
+    let _stderr_handle = thread::spawn(move || {
+        let stderr_reader = BufReader::new(stderr);
+        for line in stderr_reader.lines() {
+            match line {
+                Ok(text) => {
+                    stderr_logger.log_error(stderr_worker_id, "PYTHON_STDERR", &text);
+                }
+                Err(_) => break,
+            }
+        }
+    });
 
     // 处理所有任务
     while let Ok(task) = task_queue.recv() {
         let single_task = SingleTask {
             python_code: python_code.clone(),
-            task,
+            task: task.clone(),
         };
 
         // 序列化任务
         let packed_data = match rmp_serde::to_vec_named(&single_task) {
             Ok(data) => data,
-            Err(_) => continue,
+            Err(e) => {
+                logger.log_error(
+                    worker_id,
+                    "SERIALIZE",
+                    &format!("任务(date={}, code={})序列化失败: {}", task.date, task.code, e),
+                );
+                continue;
+            }
         };
 
         let length = packed_data.len() as u32;
@@ -242,18 +303,22 @@ fn run_simple_worker(
 
         // 发送任务
         if stdin.write_all(&length_bytes).is_err() {
+            logger.log_error(worker_id, "COMMUNICATION", "写入任务长度失败");
             break;
         }
         if stdin.write_all(&packed_data).is_err() {
+            logger.log_error(worker_id, "COMMUNICATION", "写入任务数据失败");
             break;
         }
         if stdin.flush().is_err() {
+            logger.log_error(worker_id, "COMMUNICATION", "flush stdin失败");
             break;
         }
 
         // 等待Python子进程完成任务并读取确认信号
         let mut line = String::new();
         if reader.read_line(&mut line).is_err() {
+            logger.log_error(worker_id, "COMMUNICATION", "读取确认信号失败");
             break;
         }
 
@@ -261,7 +326,11 @@ fn run_simple_worker(
         if line.trim() == "DONE" {
             let _ = completion_sender.send(());
         } else {
-            // 如果没有收到正确的确认信号，跳过这个任务
+            logger.log_error(
+                worker_id,
+                "PROTOCOL",
+                &format!("收到异常确认信号: {:?}", line),
+            );
             continue;
         }
     }
@@ -283,8 +352,13 @@ fn run_simple_worker(
 
 /// 极简版并行计算函数 - 只执行不返回
 #[pyfunction]
-#[pyo3(signature = (python_function, args, n_jobs))]
-pub fn run_pools_simple(python_function: PyObject, args: &PyList, n_jobs: usize) -> PyResult<()> {
+#[pyo3(signature = (python_function, args, n_jobs, log_path="run_pools_simple.log"))]
+pub fn run_pools_simple(
+    python_function: PyObject,
+    args: &PyList,
+    n_jobs: usize,
+    log_path: &str,
+) -> PyResult<()> {
     // 解析任务列表
     let mut all_tasks = Vec::new();
     for item in args.iter() {
@@ -314,6 +388,9 @@ pub fn run_pools_simple(python_function: PyObject, args: &PyList, n_jobs: usize)
     let python_code = extract_python_function_code(&python_function)?;
     let python_path = detect_python_interpreter();
 
+    // 创建日志记录器
+    let logger = SimpleLogger::new(log_path)?;
+
     // 创建任务队列和完成通知channel
     let (task_sender, task_receiver) = unbounded::<TaskParam>();
     let (completion_sender, completion_receiver) = unbounded::<()>();
@@ -342,6 +419,7 @@ pub fn run_pools_simple(python_function: PyObject, args: &PyList, n_jobs: usize)
         let worker_python_code = python_code.clone();
         let worker_python_path = python_path.clone();
         let worker_completion_sender = completion_sender.clone();
+        let worker_logger = logger.clone();
 
         let handle = thread::spawn(move || {
             run_simple_worker(
@@ -350,6 +428,7 @@ pub fn run_pools_simple(python_function: PyObject, args: &PyList, n_jobs: usize)
                 worker_python_code,
                 worker_python_path,
                 worker_completion_sender,
+                worker_logger,
             );
         });
 

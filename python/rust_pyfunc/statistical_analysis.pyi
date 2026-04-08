@@ -3,6 +3,130 @@ from typing import List, Optional, Tuple, Union
 import numpy as np
 from numpy.typing import NDArray
 
+def tail_v2_neutralize_block(
+    style_cube: NDArray[np.float64],
+    factor_block: NDArray[np.float64],
+    rank_before: bool = True,
+    min_valid: int = 12,
+) -> NDArray[np.float64]:
+    """对 Tail V2 的三维因子块做按日截面中性化。
+
+    参数说明：
+    ----------
+    style_cube : numpy.ndarray
+        三维数组，形状为 (n_dates, n_stocks, n_features)，最后一列可包含常数项。
+    factor_block : numpy.ndarray
+        三维数组，形状为 (n_dates, n_stocks, n_factors)。
+    rank_before : bool
+        是否先对单日单因子的有效值做排序再回归，默认 True。
+    min_valid : int
+        单日单因子回归的最小有效股票数，默认 12。
+
+    返回值：
+    -------
+    numpy.ndarray
+        与 factor_block 同形状的残差数组。
+    """
+    ...
+
+def tail_v2_neutralize_block_f32(
+    style_cube: NDArray[np.float32],
+    factor_block: NDArray[np.float32],
+    rank_before: bool = True,
+    min_valid: int = 12,
+) -> NDArray[np.float64]:
+    """`tail_v2_neutralize_block` 的 `float32` 无拷贝版本。"""
+    ...
+
+def tail_v2_neutralize_block_f32_out(
+    style_cube: NDArray[np.float32],
+    factor_block: NDArray[np.float32],
+    rank_before: bool = True,
+    min_valid: int = 12,
+) -> NDArray[np.float32]:
+    """对 `float32` 输入直接返回 `float32` 残差，语义与 `tail_v2_neutralize_block_f32` 一致。"""
+    ...
+
+def tail_v2_backtest_block(
+    factor_block: NDArray[np.float64],
+    ret_array: NDArray[np.float64],
+    ret_sum_array: NDArray[np.float64],
+    restrict_array: NDArray[np.float64],
+    index_ret: NDArray[np.float64],
+    gap: int,
+    portf_num: int = 10,
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """对 Tail V2 的三维因子块做批量 summary-only 回测。
+
+    参数说明：
+    ----------
+    factor_block : numpy.ndarray
+        三维数组，形状为 (n_dates, n_stocks, n_factors)。
+    ret_array : numpy.ndarray
+        当前 gap 的逐日收益率数组，形状为 (n_dates, n_stocks)。
+    ret_sum_array : numpy.ndarray
+        当前 gap 的滚动累计收益数组，形状为 (n_dates, n_stocks)。
+    restrict_array : numpy.ndarray
+        限制交易标记数组，0 表示可交易，形状为 (n_dates, n_stocks)。
+    index_ret : numpy.ndarray
+        指数逐日收益数组，形状为 (n_dates,)。
+    gap : int
+        换仓周期。
+    portf_num : int
+        分组数，默认 10。
+
+    返回值：
+    -------
+    tuple[numpy.ndarray, numpy.ndarray]
+        第一个数组是形状为 (n_factors, 10) 的 summary 矩阵；
+        第二个数组是形状为 (n_dates // gap, n_factors) 的 IC 时间序列矩阵。
+    """
+    ...
+
+def tail_v2_backtest_block_f32(
+    factor_block: NDArray[np.float32],
+    ret_array: NDArray[np.float32],
+    ret_sum_array: NDArray[np.float32],
+    restrict_array: NDArray[np.float32],
+    index_ret: NDArray[np.float32],
+    gap: int,
+    portf_num: int = 10,
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """`tail_v2_backtest_block` 的 `float32` 无拷贝版本。"""
+    ...
+
+def tail_v2_rank_roll_factor_f32(
+    data: NDArray[np.float32],
+    windows: list[int],
+) -> list[NDArray[np.float32]]:
+    """对二维因子矩阵按行做平均名次排序，并按时间轴批量计算 rolling mean/max/min/std。
+
+    返回顺序固定为：
+    `[smooth_1, mean(window1), max(window1), min(window1), std(window1), mean(window2), ...]`
+    """
+    ...
+
+def tail_v2_select_by_ic_corr_abs_f32(
+    ic_by_factor: NDArray[np.float32],
+    threshold: float,
+) -> list[int]:
+    """按候选优先顺序做贪心筛选，若与已选任一因子的 IC 绝对相关性超过阈值则丢弃。
+
+    参数说明：
+    ----------
+    ic_by_factor : numpy.ndarray
+        二维 `float32` 数组，形状为 `(n_factors, n_dates)`，必须是 C contiguous。
+        行顺序就是候选优先顺序。
+    threshold : float
+        绝对相关性阈值。
+
+    返回值：
+    -------
+    list[int]
+        保留下来的行下标，按原候选顺序返回。
+    """
+    ...
+
 def column_correlation_fast(array1: NDArray[np.float64], array2: NDArray[np.float64]) -> NDArray[np.float64]:
     """快速计算两个二维数组对应列的相关系数。
 
