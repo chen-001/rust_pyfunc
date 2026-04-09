@@ -447,6 +447,14 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         m
     )?);
     let _ = m.add_function(wrap_pyfunction!(
+        tail_v2_block_neutralizer::tail_v4_neutralize_block_f32_out_legacy,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        tail_v2_block_neutralizer::tail_v4_neutralize_block_f64_out_legacy,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
         tail_v2_rank_roll_factor::tail_v2_rank_roll_factor_f32,
         m
     )?);
@@ -460,6 +468,10 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?);
     let _ = m.add_function(wrap_pyfunction!(
         tail_v4_pipeline::tail_v4_run_candidates,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        tail_v4_pipeline::tail_v4_neutralize_block_exact,
         m
     )?);
     let _ = m.add_function(wrap_pyfunction!(

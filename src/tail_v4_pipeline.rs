@@ -1,4 +1,5 @@
-use std::collections::{HashMap, HashSet};
+use std::cmp::Ordering;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -12,17 +13,19 @@ use arrow::array::{
 };
 use chrono::{Datelike, NaiveDateTime};
 use crossbeam::channel::{unbounded, Receiver, Sender};
-use ndarray::{Array1, Array2, Array3};
+use ndarray::{Array1, Array2, Array3, ArrayView1, ArrayView2, ArrayView3};
 use ndarray_npy::{read_npy, write_npy};
+use numpy::IntoPyArray;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use serde::{Deserialize, Serialize};
 
-use crate::tail_v2_backtest_block::backtest_block_f32_with_parallel;
-use crate::tail_v2_block_neutralizer::neutralize_block_f32_out_with_parallel;
+use crate::factor_neutralization_io_optimized::IOOptimizedStyleData;
 use crate::tail_v2_rank_roll_factor::rank_roll_block_f32_with_parallel;
+
+const EPS: f64 = 1e-12;
 
 fn format_hms(total_secs: u64) -> (u64, u64, u64) {
     let hours = total_secs / 3600;
@@ -53,7 +56,8 @@ struct SharedInputs {
     windows: Arc<Vec<usize>>,
     fold: bool,
     min_valid: usize,
-    style_cube: Arc<Array3<f32>>,
+    backtest_start: i32,
+    legacy_style_data: Arc<IOOptimizedStyleData>,
     ret_gap1: Arc<Array2<f32>>,
     ret_sum_gap1: Arc<Array2<f32>>,
     ret_gap5: Arc<Array2<f32>>,
@@ -92,6 +96,8 @@ struct SummaryRowRecord {
 #[derive(Serialize, Deserialize, Clone)]
 struct IcRecord {
     factor_name: String,
+    #[serde(default)]
+    dates: Vec<i32>,
     values: Vec<f32>,
 }
 
@@ -115,10 +121,10 @@ struct AggregatedCandidates {
     raw_summary_gap5: Vec<SummaryRowRecord>,
     neu_summary_gap1: Vec<SummaryRowRecord>,
     neu_summary_gap5: Vec<SummaryRowRecord>,
-    raw_ic_gap1: HashMap<String, Vec<f32>>,
-    raw_ic_gap5: HashMap<String, Vec<f32>>,
-    neu_ic_gap1: HashMap<String, Vec<f32>>,
-    neu_ic_gap5: HashMap<String, Vec<f32>>,
+    raw_ic_gap1: HashMap<String, IcRecord>,
+    raw_ic_gap5: HashMap<String, IcRecord>,
+    neu_ic_gap1: HashMap<String, IcRecord>,
+    neu_ic_gap5: HashMap<String, IcRecord>,
 }
 
 impl AggregatedCandidates {
@@ -128,18 +134,423 @@ impl AggregatedCandidates {
         self.neu_summary_gap1.extend(task.neu_summary_gap1);
         self.neu_summary_gap5.extend(task.neu_summary_gap5);
         for record in task.raw_ic_gap1 {
-            self.raw_ic_gap1.insert(record.factor_name, record.values);
+            self.raw_ic_gap1
+                .insert(record.factor_name.clone(), record);
         }
         for record in task.raw_ic_gap5 {
-            self.raw_ic_gap5.insert(record.factor_name, record.values);
+            self.raw_ic_gap5
+                .insert(record.factor_name.clone(), record);
         }
         for record in task.neu_ic_gap1 {
-            self.neu_ic_gap1.insert(record.factor_name, record.values);
+            self.neu_ic_gap1
+                .insert(record.factor_name.clone(), record);
         }
         for record in task.neu_ic_gap5 {
-            self.neu_ic_gap5.insert(record.factor_name, record.values);
+            self.neu_ic_gap5
+                .insert(record.factor_name.clone(), record);
         }
     }
+}
+
+#[derive(Clone)]
+struct LegacyBacktestResult {
+    summary: [f64; 10],
+    ic_dates: Vec<i32>,
+    ic_values: Vec<f32>,
+}
+
+fn nanmean_f64(values: &[f64]) -> f64 {
+    let mut sum = 0.0;
+    let mut count = 0usize;
+    for &value in values {
+        if !value.is_nan() {
+            sum += value;
+            count += 1;
+        }
+    }
+    if count == 0 {
+        f64::NAN
+    } else {
+        sum / count as f64
+    }
+}
+
+fn nanstd_population(values: &[f64]) -> f64 {
+    let mean = nanmean_f64(values);
+    if mean.is_nan() {
+        return f64::NAN;
+    }
+    let mut sq_sum = 0.0;
+    let mut count = 0usize;
+    for &value in values {
+        if !value.is_nan() {
+            let delta = value - mean;
+            sq_sum += delta * delta;
+            count += 1;
+        }
+    }
+    if count == 0 {
+        f64::NAN
+    } else {
+        (sq_sum / count as f64).sqrt()
+    }
+}
+
+fn sample_std(values: &[f64]) -> f64 {
+    let mut count = 0usize;
+    let mut sum = 0.0;
+    for &value in values {
+        if !value.is_nan() {
+            sum += value;
+            count += 1;
+        }
+    }
+    if count < 2 {
+        return f64::NAN;
+    }
+    let mean = sum / count as f64;
+    let mut sq_sum = 0.0;
+    for &value in values {
+        if !value.is_nan() {
+            let delta = value - mean;
+            sq_sum += delta * delta;
+        }
+    }
+    (sq_sum / (count as f64 - 1.0)).sqrt()
+}
+
+fn annualized_sharpe_sample(values: &[f64]) -> f64 {
+    let std = sample_std(values);
+    if std.is_nan() || std <= EPS {
+        return f64::NAN;
+    }
+    nanmean_f64(values) / std * 250.0_f64.sqrt()
+}
+
+fn max_drawdown_from_returns(values: &[f64]) -> f64 {
+    let mut cumulative = 0.0;
+    let mut peak = 0.0;
+    let mut max_drawdown = 0.0;
+    for &value in values {
+        if !value.is_nan() {
+            cumulative += value;
+        }
+        if cumulative > peak {
+            peak = cumulative;
+        }
+        let drawdown = peak - cumulative;
+        if drawdown > max_drawdown {
+            max_drawdown = drawdown;
+        }
+    }
+    max_drawdown
+}
+
+fn average_ranks(values: &[f32]) -> Vec<f64> {
+    let mut indexed = values
+        .iter()
+        .copied()
+        .enumerate()
+        .collect::<Vec<(usize, f32)>>();
+    indexed.sort_by(|lhs, rhs| {
+        lhs.1
+            .partial_cmp(&rhs.1)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| lhs.0.cmp(&rhs.0))
+    });
+
+    let mut ranks = vec![f64::NAN; values.len()];
+    let mut start = 0usize;
+    while start < indexed.len() {
+        let value = indexed[start].1;
+        let mut end = start + 1;
+        while end < indexed.len() && indexed[end].1 == value {
+            end += 1;
+        }
+        let avg_rank = (start + 1 + end) as f64 / 2.0;
+        for item in indexed.iter().take(end).skip(start) {
+            ranks[item.0] = avg_rank;
+        }
+        start = end;
+    }
+    ranks
+}
+
+fn ordinal_ranks(values: &[f32]) -> Vec<i64> {
+    let mut indexed = values
+        .iter()
+        .copied()
+        .enumerate()
+        .collect::<Vec<(usize, f32)>>();
+    indexed.sort_by(|lhs, rhs| {
+        match (lhs.1.is_nan(), rhs.1.is_nan()) {
+            (true, true) => lhs.0.cmp(&rhs.0),
+            (true, false) => Ordering::Greater,
+            (false, true) => Ordering::Less,
+            (false, false) => lhs
+                .1
+                .partial_cmp(&rhs.1)
+                .unwrap_or(Ordering::Equal)
+                .then_with(|| lhs.0.cmp(&rhs.0)),
+        }
+    });
+    let mut ranks = vec![0i64; values.len()];
+    for (rank, (idx, _)) in indexed.iter().enumerate() {
+        ranks[*idx] = rank as i64;
+    }
+    ranks
+}
+
+fn legacy_spearman_correlation(x: &[f32], y: &[f32]) -> f64 {
+    if x.len() != y.len() || x.len() < 2 {
+        return f64::NAN;
+    }
+    let xx = ordinal_ranks(x);
+    let yy = ordinal_ranks(y);
+    let n = x.len() as f64;
+    let mut diff_sq_sum = 0.0;
+    for idx in 0..x.len() {
+        let diff = xx[idx] - yy[idx];
+        diff_sq_sum += (diff * diff) as f64;
+    }
+    1.0 - 6.0 * diff_sq_sum / (n * (n * n - 1.0))
+}
+
+fn count_open_symbols(restrict_row: &[f32]) -> usize {
+    restrict_row
+        .iter()
+        .filter(|&&value| value.is_finite() && value == 0.0)
+        .count()
+}
+
+fn has_enough_unique_values(
+    factor: &ArrayView3<'_, f32>,
+    slot_idx: usize,
+    min_unique: usize,
+) -> bool {
+    let mut seen = HashSet::<u32>::new();
+    for raw_idx in 0..factor.shape()[0].saturating_sub(1) {
+        for stock_idx in 0..factor.shape()[1] {
+            let value = factor[[raw_idx, stock_idx, slot_idx]];
+            if value.is_finite() {
+                seen.insert(value.to_bits());
+                if seen.len() >= min_unique {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+fn legacy_backtest_single_factor(
+    factor: &ArrayView3<'_, f32>,
+    ret: &ArrayView2<'_, f32>,
+    ret_sum: &ArrayView2<'_, f32>,
+    restrict: &ArrayView2<'_, f32>,
+    index: &ArrayView1<'_, f32>,
+    dates: &[i32],
+    backtest_start: i32,
+    slot_idx: usize,
+    gap: usize,
+    portf_num: usize,
+) -> LegacyBacktestResult {
+    let default_result = LegacyBacktestResult {
+        summary: [f64::NAN; 10],
+        ic_dates: Vec::new(),
+        ic_values: Vec::new(),
+    };
+    if factor.shape()[0] < 2 || gap == 0 || portf_num == 0 {
+        return default_result;
+    }
+    if !has_enough_unique_values(factor, slot_idx, 10) {
+        return default_result;
+    }
+
+    let n_dates = factor.shape()[0];
+    let n_stocks = factor.shape()[1];
+    let mut effective_raw_indices = Vec::<usize>::new();
+    for raw_eff_idx in 1..n_dates {
+        if dates[raw_eff_idx] <= backtest_start {
+            continue;
+        }
+        let signal_row_idx = raw_eff_idx - 1;
+        let mut all_nan = true;
+        for stock_idx in 0..n_stocks {
+            if factor[[signal_row_idx, stock_idx, slot_idx]].is_finite() {
+                all_nan = false;
+                break;
+            }
+        }
+        if !all_nan {
+            effective_raw_indices.push(raw_eff_idx);
+        }
+    }
+    if effective_raw_indices.is_empty() {
+        return default_result;
+    }
+
+    let date_size = effective_raw_indices.len();
+    let mut group_returns = vec![vec![0.0_f64; date_size]; portf_num];
+    let mut ratio_values = vec![f64::NAN; date_size];
+    let mut ic_dates = Vec::<i32>::new();
+    let mut ic_values_f64 = Vec::<f64>::new();
+    let mut ic_values_f32 = Vec::<f32>::new();
+    let mut filtered_signal = Vec::<f32>::with_capacity(n_stocks);
+    let mut filtered_ret = Vec::<f32>::with_capacity(n_stocks);
+    let mut filtered_future = Vec::<f32>::with_capacity(n_stocks);
+    let mut group_sums = vec![0.0_f64; portf_num];
+    let mut group_counts = vec![0usize; portf_num];
+    let mut held_signal_row_idx = effective_raw_indices[0] - 1;
+    let mut held_restrict_row_idx = effective_raw_indices[0] - 1;
+
+    for (local_t, &raw_eff_idx) in effective_raw_indices.iter().enumerate() {
+        if local_t % gap == 0 {
+            held_signal_row_idx = raw_eff_idx - 1;
+            held_restrict_row_idx = raw_eff_idx - 1;
+        }
+
+        filtered_signal.clear();
+        filtered_ret.clear();
+        filtered_future.clear();
+        for stock_idx in 0..n_stocks {
+            let signal_value = factor[[held_signal_row_idx, stock_idx, slot_idx]];
+            let ret_value = ret[[raw_eff_idx, stock_idx]];
+            let is_open = restrict[[held_restrict_row_idx, stock_idx]].is_finite()
+                && restrict[[held_restrict_row_idx, stock_idx]] == 0.0;
+            if signal_value.is_finite() && ret_value.is_finite() && is_open {
+                filtered_signal.push(signal_value);
+                filtered_ret.push(ret_value);
+                filtered_future.push(ret_sum[[raw_eff_idx, stock_idx]]);
+            }
+        }
+
+        if (local_t + 1) % gap == 0 {
+            let ic_value = legacy_spearman_correlation(&filtered_future, &filtered_signal);
+            ic_dates.push(dates[raw_eff_idx]);
+            ic_values_f64.push(ic_value);
+            ic_values_f32.push(ic_value as f32);
+        }
+
+        let stocks_num = filtered_signal.len();
+        if stocks_num < portf_num {
+            continue;
+        }
+
+        let valid_symbol_num = count_open_symbols(restrict.row(raw_eff_idx - 1).as_slice().unwrap_or(&[]));
+        if valid_symbol_num > 0 {
+            ratio_values[local_t] = stocks_num as f64 / valid_symbol_num as f64;
+        }
+
+        group_sums.fill(0.0);
+        group_counts.fill(0);
+        let ranks = average_ranks(&filtered_signal);
+        for idx in 0..stocks_num {
+            let pct = ranks[idx] / stocks_num as f64;
+            let mut bucket = (pct * portf_num as f64).floor() as usize;
+            if bucket >= portf_num {
+                bucket = portf_num - 1;
+            }
+            group_sums[bucket] += filtered_ret[idx] as f64;
+            group_counts[bucket] += 1;
+        }
+        for bucket in 0..portf_num {
+            group_returns[bucket][local_t] = if group_counts[bucket] == 0 {
+                0.0
+            } else {
+                group_sums[bucket] / group_counts[bucket] as f64
+            };
+        }
+    }
+
+    let first_leg_cum = group_returns[0].iter().sum::<f64>();
+    let last_leg_cum = group_returns[portf_num - 1].iter().sum::<f64>();
+    let (long_idx, short_idx) = if first_leg_cum > last_leg_cum {
+        (0usize, portf_num - 1)
+    } else {
+        (portf_num - 1, 0usize)
+    };
+
+    let mut ls_returns = vec![0.0_f64; date_size];
+    let mut hedge_returns = vec![0.0_f64; date_size];
+    for (local_t, &raw_eff_idx) in effective_raw_indices.iter().enumerate() {
+        let long_ret = group_returns[long_idx][local_t];
+        let short_ret = group_returns[short_idx][local_t];
+        ls_returns[local_t] = long_ret - short_ret;
+        hedge_returns[local_t] = long_ret - index[raw_eff_idx] as f64;
+    }
+
+    let ic_mean = nanmean_f64(&ic_values_f64);
+    let ic_std = nanstd_population(&ic_values_f64);
+    let ir = if ic_std.is_nan() || ic_std <= EPS {
+        f64::NAN
+    } else {
+        ic_mean.abs() / ic_std * (250.0 / gap as f64).sqrt()
+    };
+    let summary = [
+        ic_mean,
+        ir,
+        nanmean_f64(&ls_returns) * 250.0,
+        annualized_sharpe_sample(&ls_returns),
+        max_drawdown_from_returns(&ls_returns),
+        date_size as f64,
+        nanmean_f64(&ratio_values),
+        nanmean_f64(&hedge_returns) * 250.0,
+        annualized_sharpe_sample(&hedge_returns),
+        max_drawdown_from_returns(&hedge_returns),
+    ];
+    LegacyBacktestResult {
+        summary,
+        ic_dates,
+        ic_values: ic_values_f32,
+    }
+}
+
+fn legacy_backtest_block_f32(
+    factor: ArrayView3<'_, f32>,
+    ret: ArrayView2<'_, f32>,
+    ret_sum: ArrayView2<'_, f32>,
+    restrict: ArrayView2<'_, f32>,
+    index: ArrayView1<'_, f32>,
+    dates: &[i32],
+    backtest_start: i32,
+    gap: usize,
+    portf_num: usize,
+) -> Result<Vec<LegacyBacktestResult>, String> {
+    if gap == 0 {
+        return Err("gap 必须大于 0".to_string());
+    }
+    if portf_num == 0 {
+        return Err("portf_num 必须大于 0".to_string());
+    }
+    let n_dates = factor.shape()[0];
+    let n_stocks = factor.shape()[1];
+    if ret.shape() != [n_dates, n_stocks]
+        || ret_sum.shape() != [n_dates, n_stocks]
+        || restrict.shape() != [n_dates, n_stocks]
+        || index.len() != n_dates
+        || dates.len() != n_dates
+    {
+        return Err("legacy backtest 输入形状不匹配".to_string());
+    }
+
+    let n_factors = factor.shape()[2];
+    let mut results = Vec::with_capacity(n_factors);
+    for slot_idx in 0..n_factors {
+        results.push(legacy_backtest_single_factor(
+            &factor,
+            &ret,
+            &ret_sum,
+            &restrict,
+            &index,
+            dates,
+            backtest_start,
+            slot_idx,
+            gap,
+            portf_num,
+        ));
+    }
+    Ok(results)
 }
 
 fn factor_result_path(task_results_dir: &Path, source_factor: &str) -> PathBuf {
@@ -312,6 +723,123 @@ fn derived_names_for_variant(source_factor: &str, windows: &[usize]) -> Vec<Stri
     names
 }
 
+fn legacy_rank_values(values: &[f64]) -> Vec<f64> {
+    let mut indexed_values = Vec::with_capacity(values.len());
+    for (idx, &value) in values.iter().enumerate() {
+        if !value.is_nan() {
+            indexed_values.push((idx, value));
+        }
+    }
+    indexed_values
+        .sort_unstable_by(|lhs, rhs| lhs.1.partial_cmp(&rhs.1).unwrap_or(Ordering::Equal));
+    let mut ranks = vec![f64::NAN; values.len()];
+    for (rank, &(original_idx, _)) in indexed_values.iter().enumerate() {
+        ranks[original_idx] = (rank + 1) as f64;
+    }
+    ranks
+}
+
+fn neutralize_block_legacy_exact(
+    legacy_style_data: &IOOptimizedStyleData,
+    factor: ArrayView3<'_, f32>,
+    dates: &[i32],
+    stocks: &[String],
+    rank_before: bool,
+    min_valid: usize,
+) -> Result<Array3<f32>, String> {
+    let n_dates = factor.shape()[0];
+    let n_stocks = factor.shape()[1];
+    let n_factors = factor.shape()[2];
+    if dates.len() != n_dates || stocks.len() != n_stocks {
+        return Err("legacy neutralize exact 输入形状不匹配".to_string());
+    }
+    let mut output = Array3::<f32>::from_elem((n_dates, n_stocks, n_factors), f32::NAN);
+    for date_idx in 0..n_dates {
+        let date_key = dates[date_idx] as i64;
+        let Some(day_data) = legacy_style_data.data_by_date.get(&date_key) else {
+            continue;
+        };
+        let Some(regression_matrix) = &day_data.regression_matrix else {
+            continue;
+        };
+        let mut template_style_positions = vec![None; n_stocks];
+        for (stock_idx, stock) in stocks.iter().enumerate() {
+            let stock_code = stock.get(..6).unwrap_or(stock.as_str());
+            if let Some(&style_idx) = day_data.stock_index_map.get(stock_code) {
+                template_style_positions[stock_idx] = Some(style_idx);
+            }
+        }
+
+        let mut daily_factor_values = Vec::<f64>::with_capacity(n_stocks);
+        let mut valid_stock_indices = Vec::<usize>::with_capacity(n_stocks);
+        let mut valid_style_indices = Vec::<usize>::with_capacity(n_stocks);
+        let mut beta_values = vec![0.0_f64; 12];
+
+        for factor_idx in 0..n_factors {
+            daily_factor_values.clear();
+            valid_stock_indices.clear();
+            valid_style_indices.clear();
+            beta_values.fill(0.0);
+
+            for stock_idx in 0..n_stocks {
+                let Some(style_idx) = template_style_positions[stock_idx] else {
+                    continue;
+                };
+                let value = factor[[date_idx, stock_idx, factor_idx]];
+                if value.is_finite() {
+                    daily_factor_values.push(value as f64);
+                    valid_stock_indices.push(stock_idx);
+                    valid_style_indices.push(style_idx);
+                }
+            }
+            if daily_factor_values.len() < min_valid {
+                continue;
+            }
+            let ranked_values = if rank_before {
+                legacy_rank_values(&daily_factor_values)
+            } else {
+                daily_factor_values.clone()
+            };
+
+            for (col_idx, &style_idx) in valid_style_indices.iter().enumerate() {
+                let y_value = ranked_values[col_idx];
+                for feature_idx in 0..12 {
+                    beta_values[feature_idx] += regression_matrix[(feature_idx, style_idx)] * y_value;
+                }
+            }
+
+            for (row_idx, &stock_idx) in valid_stock_indices.iter().enumerate() {
+                let style_idx = valid_style_indices[row_idx];
+                let mut predicted = 0.0_f64;
+                for feature_idx in 0..12 {
+                    predicted += day_data.style_matrix[(style_idx, feature_idx)] * beta_values[feature_idx];
+                }
+                output[[date_idx, stock_idx, factor_idx]] = (ranked_values[row_idx] - predicted) as f32;
+            }
+        }
+    }
+    Ok(output)
+}
+
+#[pyfunction]
+#[pyo3(signature = (style_data_path, dates, stocks, factor_block, rank_before=true, min_valid=12))]
+pub fn tail_v4_neutralize_block_exact<'py>(
+    py: Python<'py>,
+    style_data_path: String,
+    dates: Vec<i32>,
+    stocks: Vec<String>,
+    factor_block: numpy::PyReadonlyArray3<'py, f32>,
+    rank_before: bool,
+    min_valid: usize,
+) -> PyResult<Py<numpy::PyArray3<f32>>> {
+    let factor = factor_block.as_array();
+    let style_data = IOOptimizedStyleData::load_from_parquet_io_optimized(&style_data_path)?;
+    let output = py
+        .allow_threads(|| neutralize_block_legacy_exact(&style_data, factor, &dates, &stocks, rank_before, min_valid))
+        .map_err(PyRuntimeError::new_err)?;
+    Ok(output.into_pyarray(py).to_owned())
+}
+
 fn summary_from_row(
     factor_name: &str,
     stage: &str,
@@ -384,53 +912,58 @@ fn process_task(task: &TailTask, shared: &SharedInputs) -> Result<TailTaskResult
         let derived_names = derived_names_for_variant(&variant_name, shared.windows.as_slice());
         result.derived_factor_count += derived_names.len();
 
-        let (raw_summary_gap1, raw_ic_gap1) = backtest_block_f32_with_parallel(
+        let raw_gap1_results = legacy_backtest_block_f32(
             rolled_block.view(),
             shared.ret_gap1.view(),
             shared.ret_sum_gap1.view(),
             shared.restrict.view(),
             shared.index_ret.view(),
+            shared.dates.as_slice(),
+            shared.backtest_start,
             1,
             10,
-            false,
         )?;
-        let (raw_summary_gap5, raw_ic_gap5) = backtest_block_f32_with_parallel(
+        let raw_gap5_results = legacy_backtest_block_f32(
             rolled_block.view(),
             shared.ret_gap5.view(),
             shared.ret_sum_gap5.view(),
             shared.restrict.view(),
             shared.index_ret.view(),
+            shared.dates.as_slice(),
+            shared.backtest_start,
             5,
             10,
-            false,
         )?;
 
-        let neutralized = neutralize_block_f32_out_with_parallel(
-            shared.style_cube.view(),
+        let neutralized = neutralize_block_legacy_exact(
+            shared.legacy_style_data.as_ref(),
             rolled_block.view(),
+            shared.dates.as_slice(),
+            shared.stocks.as_slice(),
             true,
             shared.min_valid,
-            false,
         )?;
-        let (neu_summary_gap1, neu_ic_gap1) = backtest_block_f32_with_parallel(
+        let neu_gap1_results = legacy_backtest_block_f32(
             neutralized.view(),
             shared.ret_gap1.view(),
             shared.ret_sum_gap1.view(),
             shared.restrict.view(),
             shared.index_ret.view(),
+            shared.dates.as_slice(),
+            shared.backtest_start,
             1,
             10,
-            false,
         )?;
-        let (neu_summary_gap5, neu_ic_gap5) = backtest_block_f32_with_parallel(
+        let neu_gap5_results = legacy_backtest_block_f32(
             neutralized.view(),
             shared.ret_gap5.view(),
             shared.ret_sum_gap5.view(),
             shared.restrict.view(),
             shared.index_ret.view(),
+            shared.dates.as_slice(),
+            shared.backtest_start,
             5,
             10,
-            false,
         )?;
 
         for (slot_idx, derived_name) in derived_names.iter().enumerate() {
@@ -439,28 +972,28 @@ fn process_task(task: &TailTask, shared: &SharedInputs) -> Result<TailTaskResult
                 "rolled",
                 1,
                 &variant_name,
-                raw_summary_gap1.row(slot_idx).as_slice().unwrap(),
+                &raw_gap1_results[slot_idx].summary,
             );
             let raw_gap5_row = summary_from_row(
                 derived_name,
                 "rolled",
                 5,
                 &variant_name,
-                raw_summary_gap5.row(slot_idx).as_slice().unwrap(),
+                &raw_gap5_results[slot_idx].summary,
             );
             let neu_gap1_row = summary_from_row(
                 derived_name,
                 "neu",
                 1,
                 &variant_name,
-                neu_summary_gap1.row(slot_idx).as_slice().unwrap(),
+                &neu_gap1_results[slot_idx].summary,
             );
             let neu_gap5_row = summary_from_row(
                 derived_name,
                 "neu",
                 5,
                 &variant_name,
-                neu_summary_gap5.row(slot_idx).as_slice().unwrap(),
+                &neu_gap5_results[slot_idx].summary,
             );
 
             let raw_gap1_keep = qualify_raw(&raw_gap1_row, 1, &shared.config);
@@ -472,14 +1005,16 @@ fn process_task(task: &TailTask, shared: &SharedInputs) -> Result<TailTaskResult
                 result.raw_summary_gap1.push(raw_gap1_row.clone());
                 result.raw_ic_gap1.push(IcRecord {
                     factor_name: derived_name.clone(),
-                    values: raw_ic_gap1.column(slot_idx).iter().map(|v| *v as f32).collect(),
+                    dates: raw_gap1_results[slot_idx].ic_dates.clone(),
+                    values: raw_gap1_results[slot_idx].ic_values.clone(),
                 });
             }
             if raw_gap5_keep {
                 result.raw_summary_gap5.push(raw_gap5_row.clone());
                 result.raw_ic_gap5.push(IcRecord {
                     factor_name: derived_name.clone(),
-                    values: raw_ic_gap5.column(slot_idx).iter().map(|v| *v as f32).collect(),
+                    dates: raw_gap5_results[slot_idx].ic_dates.clone(),
+                    values: raw_gap5_results[slot_idx].ic_values.clone(),
                 });
             }
             if neu_gap1_keep {
@@ -491,13 +1026,15 @@ fn process_task(task: &TailTask, shared: &SharedInputs) -> Result<TailTaskResult
             if raw_gap1_keep || neu_gap1_keep {
                 result.neu_ic_gap1.push(IcRecord {
                     factor_name: derived_name.clone(),
-                    values: neu_ic_gap1.column(slot_idx).iter().map(|v| *v as f32).collect(),
+                    dates: neu_gap1_results[slot_idx].ic_dates.clone(),
+                    values: neu_gap1_results[slot_idx].ic_values.clone(),
                 });
             }
             if raw_gap5_keep || neu_gap5_keep {
                 result.neu_ic_gap5.push(IcRecord {
                     factor_name: derived_name.clone(),
-                    values: neu_ic_gap5.column(slot_idx).iter().map(|v| *v as f32).collect(),
+                    dates: neu_gap5_results[slot_idx].ic_dates.clone(),
+                    values: neu_gap5_results[slot_idx].ic_values.clone(),
                 });
             }
         }
@@ -518,8 +1055,8 @@ fn write_summary_json(path: &Path, rows: &[SummaryRowRecord]) -> Result<(), Stri
 fn write_ic_outputs(
     matrix_path: &Path,
     names_path: &Path,
-    date_count: usize,
-    store: &HashMap<String, Vec<f32>>,
+    dates_path: &Path,
+    store: &HashMap<String, IcRecord>,
 ) -> Result<(), String> {
     if let Some(parent) = matrix_path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("创建 ic 目录失败: {}", e))?;
@@ -529,34 +1066,50 @@ fn write_ic_outputs(
         names.sort();
         names
     };
-    let matrix = if factor_names.is_empty() {
-        Array2::<f32>::from_shape_vec((date_count, 0), Vec::new())
-            .map_err(|e| format!("构造空 ic 矩阵失败: {}", e))?
-    } else {
-        let mut data = vec![f32::NAN; date_count * factor_names.len()];
-        for (col_idx, name) in factor_names.iter().enumerate() {
-            let values = store
-                .get(name)
-                .ok_or_else(|| format!("缺少候选 IC 数据: {}", name))?;
-            for row_idx in 0..date_count.min(values.len()) {
-                data[row_idx * factor_names.len() + col_idx] = values[row_idx];
+    let all_dates = {
+        let mut date_set = BTreeSet::<i32>::new();
+        for record in store.values() {
+            for &date in &record.dates {
+                date_set.insert(date);
             }
         }
-        Array2::<f32>::from_shape_vec((date_count, factor_names.len()), data)
+        date_set.into_iter().collect::<Vec<_>>()
+    };
+    let date_positions = all_dates
+        .iter()
+        .enumerate()
+        .map(|(idx, date)| (*date, idx))
+        .collect::<HashMap<_, _>>();
+    let matrix = if factor_names.is_empty() {
+        Array2::<f32>::from_shape_vec((all_dates.len(), 0), Vec::new())
+            .map_err(|e| format!("构造空 ic 矩阵失败: {}", e))?
+    } else {
+        let mut data = vec![f32::NAN; all_dates.len() * factor_names.len()];
+        for (col_idx, name) in factor_names.iter().enumerate() {
+            let record = store
+                .get(name)
+                .ok_or_else(|| format!("缺少候选 IC 数据: {}", name))?;
+            for (&date, &value) in record.dates.iter().zip(record.values.iter()) {
+                if let Some(&row_idx) = date_positions.get(&date) {
+                    data[row_idx * factor_names.len() + col_idx] = value;
+                }
+            }
+        }
+        Array2::<f32>::from_shape_vec((all_dates.len(), factor_names.len()), data)
             .map_err(|e| format!("构造 ic 矩阵失败: {}", e))?
     };
     write_npy(matrix_path, &matrix).map_err(|e| format!("写 ic npy 失败: {}", e))?;
     let file = File::create(names_path).map_err(|e| format!("创建 ic names json 失败: {}", e))?;
     serde_json::to_writer(BufWriter::new(file), &factor_names)
         .map_err(|e| format!("写 ic names json 失败: {}", e))?;
+    let dates_array = Array1::<i32>::from_vec(all_dates);
+    write_npy(dates_path, &dates_array).map_err(|e| format!("写 ic dates npy 失败: {}", e))?;
     Ok(())
 }
 
 fn write_aggregated_outputs(
     cache_root: &Path,
     aggregated: &AggregatedCandidates,
-    gap1_ic_dates: usize,
-    gap5_ic_dates: usize,
 ) -> Result<(), String> {
     let metrics_dir = cache_root.join("metrics");
     let ic_dir = cache_root.join("ic_ts");
@@ -579,25 +1132,25 @@ fn write_aggregated_outputs(
     write_ic_outputs(
         &ic_dir.join("ic_rolled_gap1.npy"),
         &ic_dir.join("ic_rolled_gap1_names.json"),
-        gap1_ic_dates,
+        &ic_dir.join("ic_rolled_gap1_dates.npy"),
         &aggregated.raw_ic_gap1,
     )?;
     write_ic_outputs(
         &ic_dir.join("ic_rolled_gap5.npy"),
         &ic_dir.join("ic_rolled_gap5_names.json"),
-        gap5_ic_dates,
+        &ic_dir.join("ic_rolled_gap5_dates.npy"),
         &aggregated.raw_ic_gap5,
     )?;
     write_ic_outputs(
         &ic_dir.join("ic_neu_gap1.npy"),
         &ic_dir.join("ic_neu_gap1_names.json"),
-        gap1_ic_dates,
+        &ic_dir.join("ic_neu_gap1_dates.npy"),
         &aggregated.neu_ic_gap1,
     )?;
     write_ic_outputs(
         &ic_dir.join("ic_neu_gap5.npy"),
         &ic_dir.join("ic_neu_gap5_names.json"),
-        gap5_ic_dates,
+        &ic_dir.join("ic_neu_gap5_dates.npy"),
         &aggregated.neu_ic_gap5,
     )?;
     Ok(())
@@ -614,13 +1167,14 @@ fn write_aggregated_outputs(
     n_jobs,
     min_valid,
     cache_root,
-    style_cube_path,
+    style_data_path,
     ret_gap1_path,
     ret_sum_gap1_path,
     ret_gap5_path,
     ret_sum_gap5_path,
     restrict_path,
     index_ret_path,
+    backtest_start,
     cover_rate=0.97,
     ret_point_neu_gap5=0.055,
     ret_point_neu_gap1=0.08,
@@ -644,13 +1198,14 @@ pub fn tail_v4_run_candidates<'py>(
     n_jobs: usize,
     min_valid: usize,
     cache_root: String,
-    style_cube_path: String,
+    style_data_path: String,
     ret_gap1_path: String,
     ret_sum_gap1_path: String,
     ret_gap5_path: String,
     ret_sum_gap5_path: String,
     restrict_path: String,
     index_ret_path: String,
+    backtest_start: i32,
     cover_rate: f64,
     ret_point_neu_gap5: f64,
     ret_point_neu_gap1: f64,
@@ -690,7 +1245,11 @@ pub fn tail_v4_run_candidates<'py>(
             windows: Arc::new(windows),
             fold,
             min_valid,
-            style_cube: Arc::new(read_npy(&style_cube_path).map_err(|e| format!("读取 style_cube.npy 失败: {}", e))?),
+            backtest_start,
+            legacy_style_data: Arc::new(
+                IOOptimizedStyleData::load_from_parquet_io_optimized(&style_data_path)
+                    .map_err(|e| e.to_string())?
+            ),
             ret_gap1: Arc::new(read_npy(&ret_gap1_path).map_err(|e| format!("读取 ret_gap1.npy 失败: {}", e))?),
             ret_sum_gap1: Arc::new(read_npy(&ret_sum_gap1_path).map_err(|e| format!("读取 ret_sum_gap1.npy 失败: {}", e))?),
             ret_gap5: Arc::new(read_npy(&ret_gap5_path).map_err(|e| format!("读取 ret_gap5.npy 失败: {}", e))?),
@@ -841,8 +1400,6 @@ pub fn tail_v4_run_candidates<'py>(
         write_aggregated_outputs(
             &cache_root_path,
             &aggregated,
-            shared_arc.ret_gap1.nrows(),
-            shared_arc.ret_gap5.nrows() / 5,
         )?;
 
         let mut candidate_counts = HashMap::new();

@@ -184,6 +184,8 @@ __all__ = [
     "tail_v2_neutralize_block",
     "tail_v2_neutralize_block_f32",
     "tail_v2_neutralize_block_f32_out",
+    "tail_v4_neutralize_block_f32_out_legacy",
+    "tail_v4_neutralize_block_exact",
     "tail_v2_rank_roll_factor_f32",
     "tail_v3_rank_roll_block_f32",
     "tail_v2_select_by_ic_corr_abs_f32",
