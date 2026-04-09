@@ -1431,6 +1431,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "ndarray-npy"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f85776816e34becd8bd9540818d7dc77bf28307f3b3dcc51cc82403c6931680c"
+dependencies = [
+ "byteorder",
+ "ndarray",
+ "num-complex",
+ "num-traits",
+ "py_literal",
+ "zip",
+]
+
+[[package]]
 name = "ndarray-rand"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2024,7 +2038,7 @@ checksum = "082f11ffa03bbef6c2c6ea6bea1acafaade2fd9050ae0234ab44a2153742b058"
 
 [[package]]
 name = "rust_pyfunc"
-version = "0.70.0"
+version = "0.71.0"
 dependencies = [
  "arrow",
  "base64 0.21.7",
@@ -2040,6 +2054,7 @@ dependencies = [
  "memmap2",
  "nalgebra",
  "ndarray",
+ "ndarray-npy",
  "ndarray-rand",
  "nix",
  "num_cpus",
@@ -2663,6 +2678,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.87",
+]
+
+[[package]]
+name = "zip"
+version = "0.5.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93ab48844d61251bb3835145c521d88aa4031d7139e8485990f60ca911fa0815"
+dependencies = [
+ "byteorder",
+ "crc32fast",
+ "flate2",
+ "thiserror 1.0.69",
 ]
 
 [[package]]

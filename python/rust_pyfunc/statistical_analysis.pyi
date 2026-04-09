@@ -106,6 +106,17 @@ def tail_v2_rank_roll_factor_f32(
     """
     ...
 
+def tail_v3_rank_roll_block_f32(
+    data: NDArray[np.float32],
+    windows: list[int],
+) -> NDArray[np.float32]:
+    """对二维因子矩阵按行做平均名次排序并返回三维 block。
+
+    返回形状为 `(n_dates, n_stocks, n_slots)`，最后一维顺序与
+    `tail_v2_rank_roll_factor_f32` 完全一致。
+    """
+    ...
+
 def tail_v2_select_by_ic_corr_abs_f32(
     ic_by_factor: NDArray[np.float32],
     threshold: float,
@@ -124,6 +135,47 @@ def tail_v2_select_by_ic_corr_abs_f32(
     -------
     list[int]
         保留下来的行下标，按原候选顺序返回。
+    """
+    ...
+
+def tail_v4_run_candidates(
+    factor_names: list[str],
+    factor_paths: list[str],
+    dates: list[int],
+    stocks: list[str],
+    windows: list[int],
+    fold: bool,
+    n_jobs: int,
+    min_valid: int,
+    cache_root: str,
+    style_cube_path: str,
+    ret_gap1_path: str,
+    ret_sum_gap1_path: str,
+    ret_gap5_path: str,
+    ret_sum_gap5_path: str,
+    restrict_path: str,
+    index_ret_path: str,
+    cover_rate: float = 0.97,
+    ret_point_neu_gap5: float = 0.055,
+    ret_point_neu_gap1: float = 0.08,
+    ic_point_neu_gap5: float = 0.01,
+    ic_point_neu_gap1: float = 0.006,
+    ret_point_gap5: float = 0.1,
+    ret_point_gap1: float = 0.13,
+    ic_point_gap5: float = 0.03,
+    ic_point_gap1: float = 0.02,
+    ic_more_important_gap5: float | None = 0.01,
+    ic_more_important_gap1: float | None = 0.006,
+) -> dict:
+    """Tail V4 主计算入口。
+
+    Rust 侧完成：
+    - 原始因子 parquet 读取与对齐
+    - fold
+    - rolling
+    - raw / neu 回测
+    - 候选结果按源因子落盘与断点恢复
+    - 候选 summary / IC 聚合输出
     """
     ...
 
