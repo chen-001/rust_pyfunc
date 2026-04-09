@@ -47,6 +47,24 @@ def tail_v2_neutralize_block_f32_out(
     """对 `float32` 输入直接返回 `float32` 残差，语义与 `tail_v2_neutralize_block_f32` 一致。"""
     ...
 
+def tail_v4_neutralize_block_f32_out_legacy(
+    style_cube: NDArray[np.float32],
+    factor_block: NDArray[np.float32],
+    rank_before: bool = True,
+    min_valid: int = 12,
+) -> NDArray[np.float32]:
+    """按旧版 `batch_factor_neutralization_io_optimized` 口径做截面中性化。"""
+    ...
+
+def tail_v4_neutralize_block_f64_out_legacy(
+    style_cube: NDArray[np.float64],
+    factor_block: NDArray[np.float64],
+    rank_before: bool = True,
+    min_valid: int = 12,
+) -> NDArray[np.float64]:
+    """按旧版 `batch_factor_neutralization_io_optimized` 口径做截面中性化，保留 `float64` 精度。"""
+    ...
+
 def tail_v2_backtest_block(
     factor_block: NDArray[np.float64],
     ret_array: NDArray[np.float64],
@@ -148,13 +166,14 @@ def tail_v4_run_candidates(
     n_jobs: int,
     min_valid: int,
     cache_root: str,
-    style_cube_path: str,
+    style_data_path: str,
     ret_gap1_path: str,
     ret_sum_gap1_path: str,
     ret_gap5_path: str,
     ret_sum_gap5_path: str,
     restrict_path: str,
     index_ret_path: str,
+    backtest_start: int,
     cover_rate: float = 0.97,
     ret_point_neu_gap5: float = 0.055,
     ret_point_neu_gap1: float = 0.08,
@@ -177,6 +196,16 @@ def tail_v4_run_candidates(
     - 候选结果按源因子落盘与断点恢复
     - 候选 summary / IC 聚合输出
     """
+    ...
+
+def tail_v4_neutralize_block_exact(
+    style_data_path: str,
+    dates: list[int],
+    stocks: list[str],
+    factor_block: NDArray[np.float32],
+    rank_before: bool = True,
+    min_valid: int = 12,
+) -> NDArray[np.float32]:
     ...
 
 def column_correlation_fast(array1: NDArray[np.float64], array2: NDArray[np.float64]) -> NDArray[np.float64]:
