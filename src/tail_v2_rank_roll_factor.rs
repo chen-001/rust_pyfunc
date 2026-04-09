@@ -1,8 +1,8 @@
 use std::cmp::Ordering;
 use std::collections::VecDeque;
 
-use ndarray::Array2;
-use numpy::{IntoPyArray, PyArray2, PyReadonlyArray2};
+use ndarray::{Array2, Array3};
+use numpy::{IntoPyArray, PyArray2, PyArray3, PyReadonlyArray2};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rayon::prelude::*;
@@ -43,6 +43,18 @@ fn rank_axis1_average_f32(data: &Array2<f32>) -> Array2<f32> {
             let ranked = rank_average_row(row.as_slice().unwrap_or(&[]));
             out_row.copy_from_slice(&ranked);
         });
+    Array2::from_shape_vec((n_rows, n_cols), flat).unwrap()
+}
+
+fn rank_axis1_average_f32_serial(data: &Array2<f32>) -> Array2<f32> {
+    let (n_rows, n_cols) = data.dim();
+    let mut flat = vec![f32::NAN; n_rows * n_cols];
+    for row_idx in 0..n_rows {
+        let row = data.row(row_idx);
+        let ranked = rank_average_row(row.as_slice().unwrap_or(&[]));
+        let start = row_idx * n_cols;
+        flat[start..start + n_cols].copy_from_slice(&ranked);
+    }
     Array2::from_shape_vec((n_rows, n_cols), flat).unwrap()
 }
 
@@ -161,6 +173,73 @@ fn rolling_stats_f32(
     (mean, max, min, std)
 }
 
+fn rolling_stats_f32_serial(
+    ranked: &Array2<f32>,
+    window: usize,
+    min_periods: usize,
+) -> (Array2<f32>, Array2<f32>, Array2<f32>, Array2<f32>) {
+    let n_rows = ranked.nrows();
+    let n_cols = ranked.ncols();
+    let mut mean = Array2::<f32>::from_elem((n_rows, n_cols), f32::NAN);
+    let mut max = Array2::<f32>::from_elem((n_rows, n_cols), f32::NAN);
+    let mut min = Array2::<f32>::from_elem((n_rows, n_cols), f32::NAN);
+    let mut std = Array2::<f32>::from_elem((n_rows, n_cols), f32::NAN);
+
+    for col_idx in 0..n_cols {
+        let (mean_col, max_col, min_col, std_col) =
+            rolling_stats_for_column(ranked, col_idx, window, min_periods);
+        for row_idx in 0..n_rows {
+            mean[[row_idx, col_idx]] = mean_col[row_idx];
+            max[[row_idx, col_idx]] = max_col[row_idx];
+            min[[row_idx, col_idx]] = min_col[row_idx];
+            std[[row_idx, col_idx]] = std_col[row_idx];
+        }
+    }
+
+    (mean, max, min, std)
+}
+
+pub(crate) fn rank_roll_block_f32_with_parallel(
+    data: &Array2<f32>,
+    windows: &[usize],
+    parallel: bool,
+) -> Result<Array3<f32>, String> {
+    let ranked = if parallel {
+        rank_axis1_average_f32(data)
+    } else {
+        rank_axis1_average_f32_serial(data)
+    };
+    let mut arrays = vec![ranked.clone()];
+    for &window in windows {
+        if window == 0 {
+            return Err("window 必须大于 0".to_string());
+        }
+        let min_periods = std::cmp::max(1, window / 2);
+        let (mean, max, min, std) = if parallel {
+            rolling_stats_f32(&ranked, window, min_periods)
+        } else {
+            rolling_stats_f32_serial(&ranked, window, min_periods)
+        };
+        arrays.push(mean);
+        arrays.push(max);
+        arrays.push(min);
+        arrays.push(std);
+    }
+
+    let n_rows = ranked.nrows();
+    let n_cols = ranked.ncols();
+    let n_slots = arrays.len();
+    let mut block = Array3::<f32>::from_elem((n_rows, n_cols, n_slots), f32::NAN);
+    for (slot_idx, array) in arrays.into_iter().enumerate() {
+        for row_idx in 0..n_rows {
+            for col_idx in 0..n_cols {
+                block[[row_idx, col_idx, slot_idx]] = array[[row_idx, col_idx]];
+            }
+        }
+    }
+    Ok(block)
+}
+
 #[pyfunction]
 #[pyo3(signature = (data, windows))]
 pub fn tail_v2_rank_roll_factor_f32<'py>(
@@ -193,4 +272,23 @@ pub fn tail_v2_rank_roll_factor_f32<'py>(
         .into_iter()
         .map(|array| array.into_pyarray(py).to_owned())
         .collect())
+}
+
+#[pyfunction]
+#[pyo3(signature = (data, windows))]
+pub fn tail_v3_rank_roll_block_f32<'py>(
+    py: Python<'py>,
+    data: PyReadonlyArray2<f32>,
+    windows: Vec<usize>,
+) -> PyResult<Py<PyArray3<f32>>> {
+    let data_view = data.as_array();
+    let data_owned = Array2::<f32>::from_shape_vec(data_view.dim(), data_view.iter().copied().collect())
+        .map_err(|_| PyValueError::new_err("data 形状无效"))?;
+
+    let output = py.allow_threads(|| {
+        rank_roll_block_f32_with_parallel(&data_owned, &windows, true)
+            .map_err(PyValueError::new_err)
+    })?;
+
+    Ok(output.into_pyarray(py).to_owned())
 }

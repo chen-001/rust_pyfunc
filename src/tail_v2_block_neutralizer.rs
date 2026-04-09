@@ -79,6 +79,7 @@ fn neutralize_impl<T: FloatLike, O: OutputLike>(
     factor: ArrayView3<'_, T>,
     rank_before: bool,
     min_valid: usize,
+    parallel: bool,
 ) -> PyResult<Array3<O>> {
     if style.ndim() != 3 || factor.ndim() != 3 {
         return Err(PyValueError::new_err("style_cube 和 factor_block 都必须是三维数组"));
@@ -95,10 +96,7 @@ fn neutralize_impl<T: FloatLike, O: OutputLike>(
     let n_features = style.shape()[2];
 
     let mut output_flat = vec![O::nan(); n_dates * n_stocks * n_factors];
-    output_flat
-        .par_chunks_mut(n_stocks * n_factors)
-        .enumerate()
-        .for_each(|(date_idx, day_output)| {
+    let worker = |(date_idx, day_output): (usize, &mut [O])| {
             let mut style_valid_stock_indices = Vec::with_capacity(n_stocks);
             let mut style_valid_rows = Vec::with_capacity(n_stocks * n_features);
             for stock_idx in 0..n_stocks {
@@ -188,10 +186,32 @@ fn neutralize_impl<T: FloatLike, O: OutputLike>(
                         O::from_f64(y_ranked[row_idx] - fitted);
                 }
             }
-        });
+        };
+    if parallel {
+        output_flat
+            .par_chunks_mut(n_stocks * n_factors)
+            .enumerate()
+            .for_each(worker);
+    } else {
+        output_flat
+            .chunks_mut(n_stocks * n_factors)
+            .enumerate()
+            .for_each(worker);
+    }
 
     Array3::from_shape_vec((n_dates, n_stocks, n_factors), output_flat)
         .map_err(|_| PyValueError::new_err("neutralize 输出形状构造失败"))
+}
+
+pub(crate) fn neutralize_block_f32_out_with_parallel(
+    style: ArrayView3<'_, f32>,
+    factor: ArrayView3<'_, f32>,
+    rank_before: bool,
+    min_valid: usize,
+    parallel: bool,
+) -> Result<Array3<f32>, String> {
+    neutralize_impl::<f32, f32>(style, factor, rank_before, min_valid, parallel)
+        .map_err(|err| err.to_string())
 }
 
 #[pyfunction]
@@ -205,7 +225,7 @@ pub fn tail_v2_neutralize_block<'py>(
 ) -> PyResult<Py<PyArray3<f64>>> {
     let style = style_cube.as_array();
     let factor = factor_block.as_array();
-    let output = py.allow_threads(|| neutralize_impl::<f64, f64>(style, factor, rank_before, min_valid))?;
+    let output = py.allow_threads(|| neutralize_impl::<f64, f64>(style, factor, rank_before, min_valid, true))?;
     Ok(output.into_pyarray(py).to_owned())
 }
 
@@ -220,7 +240,7 @@ pub fn tail_v2_neutralize_block_f32<'py>(
 ) -> PyResult<Py<PyArray3<f64>>> {
     let style = style_cube.as_array();
     let factor = factor_block.as_array();
-    let output = py.allow_threads(|| neutralize_impl::<f32, f64>(style, factor, rank_before, min_valid))?;
+    let output = py.allow_threads(|| neutralize_impl::<f32, f64>(style, factor, rank_before, min_valid, true))?;
     Ok(output.into_pyarray(py).to_owned())
 }
 
@@ -235,6 +255,6 @@ pub fn tail_v2_neutralize_block_f32_out<'py>(
 ) -> PyResult<Py<PyArray3<f32>>> {
     let style = style_cube.as_array();
     let factor = factor_block.as_array();
-    let output = py.allow_threads(|| neutralize_impl::<f32, f32>(style, factor, rank_before, min_valid))?;
+    let output = py.allow_threads(|| neutralize_impl::<f32, f32>(style, factor, rank_before, min_valid, true))?;
     Ok(output.into_pyarray(py).to_owned())
 }
