@@ -1,9 +1,11 @@
 use std::cmp::Ordering;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::fs::{self, File, OpenOptions};
-use std::io::{BufWriter, Write};
+use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Instant;
 
@@ -157,6 +159,38 @@ struct LegacyBacktestResult {
     summary: [f64; 10],
     ic_dates: Vec<i32>,
     ic_values: Vec<f32>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct TailV4FulltestTask {
+    task_key: String,
+    factor_name: String,
+    stage: String,
+    gap: i32,
+}
+
+#[derive(Serialize, Deserialize)]
+struct TailV4FulltestWorkerConfig {
+    ver: String,
+    temp_root: String,
+    source_dir: String,
+    factor_names: Vec<String>,
+    start_date: String,
+    backtest_start_date: String,
+    end_date: String,
+    style_data_path: String,
+    min_valid: usize,
+    index_name: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct TailV4FulltestWorkerResult {
+    ok: bool,
+    task_key: String,
+    factor_name: String,
+    stage: String,
+    gap: i32,
+    error: Option<String>,
 }
 
 fn nanmean_f64(values: &[f64]) -> f64 {
@@ -583,6 +617,334 @@ fn append_completed_source(completed_log_path: &Path, source_factor: &str) -> Re
     Ok(())
 }
 
+fn sanitize_task_component(value: &str) -> String {
+    value.chars()
+        .map(|ch| match ch {
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '-' => ch,
+            _ => '_',
+        })
+        .collect()
+}
+
+fn fulltest_task_key(stage: &str, gap: i32, factor_name: &str) -> String {
+    format!("{}_gap{}_{}", stage, gap, sanitize_task_component(factor_name))
+}
+
+fn fulltest_done_path(done_dir: &Path, task: &TailV4FulltestTask) -> PathBuf {
+    done_dir.join(format!("{}.json", task.task_key))
+}
+
+fn write_fulltest_done(path: &Path, task: &TailV4FulltestTask) -> Result<(), String> {
+    let tmp_path = path.with_extension("json.tmp");
+    let payload = serde_json::json!({
+        "task_key": task.task_key,
+        "factor_name": task.factor_name,
+        "stage": task.stage,
+        "gap": task.gap,
+    });
+    fs::write(&tmp_path, serde_json::to_vec_pretty(&payload).map_err(|e| format!("序列化 fulltest done 失败: {}", e))?)
+        .map_err(|e| format!("写入 fulltest done 失败: {}", e))?;
+    fs::rename(&tmp_path, path).map_err(|e| format!("原子替换 fulltest done 失败: {}", e))?;
+    Ok(())
+}
+
+fn create_tail_v4_fulltest_worker_script() -> String {
+    r#"#!/usr/bin/env python3
+import os
+import sys
+
+project_root = os.environ.get("TAIL_V4_PROJECT_ROOT", "/home/chenzongwei")
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+from design_whatever.tail_v4 import run_tail_v4_fulltest_worker
+
+if __name__ == "__main__":
+    run_tail_v4_fulltest_worker()
+"#
+    .to_string()
+}
+
+fn build_fulltest_tasks(
+    gap5_selected: &[String],
+    gap1_selected: &[String],
+) -> Vec<TailV4FulltestTask> {
+    let mut ordered_factors = Vec::<String>::new();
+    let mut seen = HashSet::<String>::new();
+    for factor_name in gap5_selected.iter().chain(gap1_selected.iter()) {
+        if seen.insert(factor_name.clone()) {
+            ordered_factors.push(factor_name.clone());
+        }
+    }
+
+    let gap5_set = gap5_selected.iter().cloned().collect::<HashSet<_>>();
+    let gap1_set = gap1_selected.iter().cloned().collect::<HashSet<_>>();
+    let mut tasks = Vec::new();
+    for factor_name in ordered_factors {
+        if gap5_set.contains(&factor_name) {
+            tasks.push(TailV4FulltestTask {
+                task_key: fulltest_task_key("raw", 5, &factor_name),
+                factor_name: factor_name.clone(),
+                stage: "raw".to_string(),
+                gap: 5,
+            });
+            tasks.push(TailV4FulltestTask {
+                task_key: fulltest_task_key("neu", 5, &factor_name),
+                factor_name: factor_name.clone(),
+                stage: "neu".to_string(),
+                gap: 5,
+            });
+        }
+        if gap1_set.contains(&factor_name) {
+            tasks.push(TailV4FulltestTask {
+                task_key: fulltest_task_key("raw", 1, &factor_name),
+                factor_name: factor_name.clone(),
+                stage: "raw".to_string(),
+                gap: 1,
+            });
+            tasks.push(TailV4FulltestTask {
+                task_key: fulltest_task_key("neu", 1, &factor_name),
+                factor_name: factor_name.clone(),
+                stage: "neu".to_string(),
+                gap: 1,
+            });
+        }
+    }
+    tasks
+}
+
+fn increment_fulltest_bucket(bucket_counts: &mut HashMap<String, usize>, stage: &str, gap: i32) {
+    let key = match (stage, gap) {
+        ("raw", 5) => "g5-raw",
+        ("neu", 5) => "g5-neu",
+        ("raw", 1) => "g1-raw",
+        ("neu", 1) => "g1-neu",
+        _ => return,
+    };
+    *bucket_counts.entry(key.to_string()).or_insert(0) += 1;
+}
+
+fn render_fulltest_progress(
+    processed: usize,
+    restored: usize,
+    total: usize,
+    started: Instant,
+    bucket_counts: &HashMap<String, usize>,
+) -> Result<(), String> {
+    let finished = processed + restored;
+    let progress = if total > 0 {
+        finished as f64 / total as f64
+    } else {
+        1.0
+    };
+    let elapsed = started.elapsed();
+    let estimated_total_secs = if progress > 0.0 {
+        elapsed.as_secs_f64() / progress
+    } else {
+        elapsed.as_secs_f64()
+    };
+    let remaining_secs = if estimated_total_secs > elapsed.as_secs_f64() {
+        (estimated_total_secs - elapsed.as_secs_f64()) as u64
+    } else {
+        0
+    };
+    let (elapsed_h, elapsed_m, elapsed_s) = format_hms(elapsed.as_secs());
+    let (remaining_h, remaining_m, remaining_s) = format_hms(remaining_secs);
+    let current_time = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+    let g5_raw = bucket_counts.get("g5-raw").copied().unwrap_or(0);
+    let g5_neu = bucket_counts.get("g5-neu").copied().unwrap_or(0);
+    let g1_raw = bucket_counts.get("g1-raw").copied().unwrap_or(0);
+    let g1_neu = bucket_counts.get("g1-neu").copied().unwrap_or(0);
+    print!(
+        "\r[{}] Fulltest 进度 {}/{} ({:.1}%)，已恢复 {} 个，g5-raw {}，g5-neu {}，g1-raw {}，g1-neu {}，已用{}h{}m{}s，预计剩余{}h{}m{}s",
+        current_time,
+        finished,
+        total,
+        progress * 100.0,
+        restored,
+        g5_raw,
+        g5_neu,
+        g1_raw,
+        g1_neu,
+        elapsed_h,
+        elapsed_m,
+        elapsed_s,
+        remaining_h,
+        remaining_m,
+        remaining_s,
+    );
+    std::io::stdout()
+        .flush()
+        .map_err(|e| format!("刷新 fulltest 进度失败: {}", e))?;
+    Ok(())
+}
+
+fn run_tail_v4_fulltest_worker_process(
+    worker_id: usize,
+    task_queue: Arc<Mutex<VecDeque<TailV4FulltestTask>>>,
+    result_sender: Sender<Result<TailV4FulltestWorkerResult, String>>,
+    stop_flag: Arc<AtomicBool>,
+    python_path: String,
+    worker_config_json: String,
+) {
+    let script_content = create_tail_v4_fulltest_worker_script();
+    let script_path = format!("/tmp/tail_v4_fulltest_worker_{}.py", worker_id);
+    if let Err(err) = fs::write(&script_path, script_content) {
+        let _ = result_sender.send(Err(format!("创建 fulltest worker 脚本失败: {}", err)));
+        return;
+    }
+
+    let mut command = Command::new(&python_path);
+    command
+        .arg(&script_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env("OMP_NUM_THREADS", "1")
+        .env("OPENBLAS_NUM_THREADS", "1")
+        .env("MKL_NUM_THREADS", "1")
+        .env("NUMEXPR_NUM_THREADS", "1")
+        .env("VECLIB_MAXIMUM_THREADS", "1")
+        .env("BLIS_NUM_THREADS", "1")
+        .env("POLARS_MAX_THREADS", "1")
+        .env("RAYON_NUM_THREADS", "1")
+        .env("TAIL_V4_PROJECT_ROOT", "/home/chenzongwei")
+        .env("PYTHONPATH", "/home/chenzongwei")
+        .env("TAIL_V4_FULLTEST_WORKER_CONFIG", worker_config_json);
+
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(err) => {
+            let _ = result_sender.send(Err(format!("启动 fulltest worker 失败: {}", err)));
+            let _ = fs::remove_file(&script_path);
+            return;
+        }
+    };
+
+    let mut stdin = match child.stdin.take() {
+        Some(stdin) => stdin,
+        None => {
+            let _ = result_sender.send(Err("获取 fulltest worker stdin 失败".to_string()));
+            let _ = fs::remove_file(&script_path);
+            return;
+        }
+    };
+    let mut stdout = match child.stdout.take() {
+        Some(stdout) => stdout,
+        None => {
+            let _ = result_sender.send(Err("获取 fulltest worker stdout 失败".to_string()));
+            let _ = fs::remove_file(&script_path);
+            return;
+        }
+    };
+    let stderr = match child.stderr.take() {
+        Some(stderr) => stderr,
+        None => {
+            let _ = result_sender.send(Err("获取 fulltest worker stderr 失败".to_string()));
+            let _ = fs::remove_file(&script_path);
+            return;
+        }
+    };
+
+    let stderr_worker_id = worker_id;
+    let _stderr_handle = thread::spawn(move || {
+        let reader = BufReader::new(stderr);
+        for line in reader.lines() {
+            match line {
+                Ok(text) => eprintln!("[Tail V4 Fulltest][worker {}] {}", stderr_worker_id, text),
+                Err(_) => break,
+            }
+        }
+    });
+
+    loop {
+        if stop_flag.load(AtomicOrdering::Relaxed) {
+            break;
+        }
+        let next_task = {
+            let mut guard = match task_queue.lock() {
+                Ok(guard) => guard,
+                Err(_) => {
+                    let _ = result_sender.send(Err("获取 fulltest 任务队列锁失败".to_string()));
+                    stop_flag.store(true, AtomicOrdering::Relaxed);
+                    break;
+                }
+            };
+            guard.pop_front()
+        };
+        let Some(task) = next_task else {
+            break;
+        };
+
+        let packed_data = match rmp_serde::to_vec_named(&task) {
+            Ok(data) => data,
+            Err(err) => {
+                let _ = result_sender.send(Err(format!("序列化 fulltest 任务失败: {}", err)));
+                stop_flag.store(true, AtomicOrdering::Relaxed);
+                break;
+            }
+        };
+        let length_bytes = (packed_data.len() as u32).to_le_bytes();
+        if stdin.write_all(&length_bytes).is_err()
+            || stdin.write_all(&packed_data).is_err()
+            || stdin.flush().is_err()
+        {
+            let _ = result_sender.send(Err(format!(
+                "发送 fulltest 任务失败: {}",
+                task.task_key
+            )));
+            stop_flag.store(true, AtomicOrdering::Relaxed);
+            break;
+        }
+
+        let mut len_buf = [0u8; 4];
+        if stdout.read_exact(&mut len_buf).is_err() {
+            let _ = result_sender.send(Err(format!(
+                "读取 fulltest worker 结果长度失败: {}",
+                task.task_key
+            )));
+            stop_flag.store(true, AtomicOrdering::Relaxed);
+            break;
+        }
+        let result_len = u32::from_le_bytes(len_buf) as usize;
+        let mut result_data = vec![0u8; result_len];
+        if stdout.read_exact(&mut result_data).is_err() {
+            let _ = result_sender.send(Err(format!(
+                "读取 fulltest worker 结果失败: {}",
+                task.task_key
+            )));
+            stop_flag.store(true, AtomicOrdering::Relaxed);
+            break;
+        }
+        let result = match rmp_serde::from_slice::<TailV4FulltestWorkerResult>(&result_data) {
+            Ok(result) => result,
+            Err(err) => {
+                let _ = result_sender.send(Err(format!("解析 fulltest worker 结果失败: {}", err)));
+                stop_flag.store(true, AtomicOrdering::Relaxed);
+                break;
+            }
+        };
+        if !result.ok {
+            let _ = result_sender.send(Err(format!(
+                "fulltest 任务 {} 失败: {}",
+                result.task_key,
+                result.error.unwrap_or_else(|| "未知错误".to_string())
+            )));
+            stop_flag.store(true, AtomicOrdering::Relaxed);
+            break;
+        }
+        if result_sender.send(Ok(result)).is_err() {
+            stop_flag.store(true, AtomicOrdering::Relaxed);
+            break;
+        }
+    }
+
+    let _ = stdin.write_all(&[0u8; 4]);
+    let _ = stdin.flush();
+    let _ = child.wait();
+    let _ = fs::remove_file(&script_path);
+}
+
 fn timestamp_ns_to_date_key(value: i64) -> Result<i32, String> {
     let secs = value.div_euclid(1_000_000_000);
     let nanos = value.rem_euclid(1_000_000_000) as u32;
@@ -753,6 +1115,28 @@ fn neutralize_block_legacy_exact(
     if dates.len() != n_dates || stocks.len() != n_stocks {
         return Err("legacy neutralize exact 输入形状不匹配".to_string());
     }
+
+    let mut all_style_stocks = std::collections::HashSet::new();
+    for day_data in legacy_style_data.data_by_date.values() {
+        for stock in day_data.stocks.iter() {
+            all_style_stocks.insert(stock.clone());
+        }
+    }
+
+    let mut ordered_factor_stocks: Vec<(usize, String)> = stocks
+        .iter()
+        .enumerate()
+        .filter_map(|(stock_idx, stock)| {
+            let stock_code = stock.get(..6).unwrap_or(stock.as_str()).to_string();
+            if all_style_stocks.contains(&stock_code) {
+                Some((stock_idx, stock_code))
+            } else {
+                None
+            }
+        })
+        .collect();
+    ordered_factor_stocks.sort_unstable_by(|lhs, rhs| lhs.1.cmp(&rhs.1));
+
     let mut output = Array3::<f32>::from_elem((n_dates, n_stocks, n_factors), f32::NAN);
     for date_idx in 0..n_dates {
         let date_key = dates[date_idx] as i64;
@@ -781,7 +1165,7 @@ fn neutralize_block_legacy_exact(
             valid_style_indices.clear();
             beta_values.fill(0.0);
 
-            for stock_idx in 0..n_stocks {
+            for &(stock_idx, _) in ordered_factor_stocks.iter() {
                 let Some(style_idx) = template_style_positions[stock_idx] else {
                     continue;
                 };
@@ -819,6 +1203,48 @@ fn neutralize_block_legacy_exact(
         }
     }
     Ok(output)
+}
+
+#[pyclass]
+pub struct TailV4LegacyStyleData {
+    style_data: Arc<IOOptimizedStyleData>,
+}
+
+#[pymethods]
+impl TailV4LegacyStyleData {
+    #[new]
+    fn new(style_data_path: String) -> PyResult<Self> {
+        let style_data = IOOptimizedStyleData::load_from_parquet_io_optimized(&style_data_path)?;
+        Ok(Self {
+            style_data: Arc::new(style_data),
+        })
+    }
+
+    #[pyo3(signature = (dates, stocks, factor_block, rank_before=true, min_valid=12))]
+    fn neutralize_block_exact<'py>(
+        &self,
+        py: Python<'py>,
+        dates: Vec<i32>,
+        stocks: Vec<String>,
+        factor_block: numpy::PyReadonlyArray3<'py, f32>,
+        rank_before: bool,
+        min_valid: usize,
+    ) -> PyResult<Py<numpy::PyArray3<f32>>> {
+        let factor = factor_block.as_array();
+        let output = py
+            .allow_threads(|| {
+                neutralize_block_legacy_exact(
+                    self.style_data.as_ref(),
+                    factor,
+                    &dates,
+                    &stocks,
+                    rank_before,
+                    min_valid,
+                )
+            })
+            .map_err(PyRuntimeError::new_err)?;
+        Ok(output.into_pyarray(py).to_owned())
+    }
 }
 
 #[pyfunction]
@@ -1418,5 +1844,208 @@ pub fn tail_v4_run_candidates<'py>(
         candidate_counts.set_item(key, value)?;
     }
     info.set_item("candidate_counts", candidate_counts)?;
+    Ok(info.into())
+}
+
+#[pyfunction]
+#[pyo3(signature = (
+    ver,
+    gap5_selected,
+    gap1_selected,
+    cache_root,
+    temp_root,
+    source_dir,
+    style_data_path,
+    min_valid=12,
+    start_date="2016-01-01",
+    backtest_start_date="2016-02-01",
+    end_date="2024-12-31",
+    fulltest_jobs=32,
+    python_path="/home/chenzongwei/.conda/envs/chenzongwei311/bin/python",
+    resume=true,
+    index_name="000905"
+))]
+pub fn tail_v4_run_fulltest_queue<'py>(
+    py: Python<'py>,
+    ver: String,
+    gap5_selected: Vec<String>,
+    gap1_selected: Vec<String>,
+    cache_root: String,
+    temp_root: String,
+    source_dir: String,
+    style_data_path: String,
+    min_valid: usize,
+    start_date: &str,
+    backtest_start_date: &str,
+    end_date: &str,
+    fulltest_jobs: usize,
+    python_path: &str,
+    resume: bool,
+    index_name: &str,
+) -> PyResult<PyObject> {
+    if fulltest_jobs == 0 {
+        return Err(PyValueError::new_err("fulltest_jobs 必须大于 0"));
+    }
+
+    let output = py
+        .allow_threads(|| -> Result<(usize, usize, HashMap<String, usize>), String> {
+            let started = Instant::now();
+            let cache_root_path = PathBuf::from(&cache_root);
+            let postprocess_root = cache_root_path.join("postprocess_fulltest");
+            let done_dir = postprocess_root.join("done");
+            if !resume && postprocess_root.exists() {
+                fs::remove_dir_all(&postprocess_root)
+                    .map_err(|e| format!("删除旧 fulltest 恢复目录失败: {}", e))?;
+            }
+            fs::create_dir_all(&done_dir).map_err(|e| format!("创建 fulltest done 目录失败: {}", e))?;
+
+            let all_tasks = build_fulltest_tasks(&gap5_selected, &gap1_selected);
+            let total_tasks = all_tasks.len();
+
+            let mut bucket_counts = HashMap::<String, usize>::new();
+            let mut pending_tasks = VecDeque::<TailV4FulltestTask>::new();
+            let mut restored_tasks = 0usize;
+            for task in all_tasks {
+                let done_path = fulltest_done_path(&done_dir, &task);
+                if resume && done_path.exists() {
+                    restored_tasks += 1;
+                    increment_fulltest_bucket(&mut bucket_counts, &task.stage, task.gap);
+                } else {
+                    pending_tasks.push_back(task);
+                }
+            }
+
+            let current_time = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+            print!(
+                "\r[{}] Fulltest 启动，待处理 {}/{} 个任务，已恢复 {} 个",
+                current_time,
+                pending_tasks.len(),
+                total_tasks,
+                restored_tasks,
+            );
+            std::io::stdout()
+                .flush()
+                .map_err(|e| format!("刷新 fulltest 启动进度失败: {}", e))?;
+
+            if pending_tasks.is_empty() {
+                render_fulltest_progress(0, restored_tasks, total_tasks, started, &bucket_counts)?;
+                println!();
+                return Ok((0, restored_tasks, bucket_counts));
+            }
+
+            let worker_config = TailV4FulltestWorkerConfig {
+                ver: ver.clone(),
+                temp_root,
+                source_dir,
+                factor_names: {
+                    let mut factor_names = Vec::new();
+                    let mut seen = HashSet::<String>::new();
+                    for factor_name in gap5_selected.iter().chain(gap1_selected.iter()) {
+                        if seen.insert(factor_name.clone()) {
+                            factor_names.push(factor_name.clone());
+                        }
+                    }
+                    factor_names
+                },
+                start_date: start_date.to_string(),
+                backtest_start_date: backtest_start_date.to_string(),
+                end_date: end_date.to_string(),
+                style_data_path,
+                min_valid,
+                index_name: index_name.to_string(),
+            };
+            let worker_config_json =
+                serde_json::to_string(&worker_config).map_err(|e| format!("序列化 worker 配置失败: {}", e))?;
+
+            let task_queue = Arc::new(Mutex::new(pending_tasks));
+            let stop_flag = Arc::new(AtomicBool::new(false));
+            let (result_sender, result_receiver) =
+                unbounded::<Result<TailV4FulltestWorkerResult, String>>();
+            let worker_count = fulltest_jobs.min(total_tasks.max(1));
+            let mut handles = Vec::with_capacity(worker_count);
+            for worker_id in 0..worker_count {
+                let queue_clone = Arc::clone(&task_queue);
+                let sender_clone = result_sender.clone();
+                let stop_clone = Arc::clone(&stop_flag);
+                let python_path_owned = python_path.to_string();
+                let worker_config_json_clone = worker_config_json.clone();
+                handles.push(thread::spawn(move || {
+                    run_tail_v4_fulltest_worker_process(
+                        worker_id,
+                        queue_clone,
+                        sender_clone,
+                        stop_clone,
+                        python_path_owned,
+                        worker_config_json_clone,
+                    );
+                }));
+            }
+            drop(result_sender);
+
+            let pending_total = {
+                let guard = task_queue
+                    .lock()
+                    .map_err(|_| "获取 fulltest 队列长度失败".to_string())?;
+                guard.len()
+            };
+            let mut processed_tasks = 0usize;
+            let mut fatal_error: Option<String> = None;
+            while processed_tasks < pending_total {
+                match result_receiver.recv() {
+                    Ok(Ok(result)) => {
+                        let task = TailV4FulltestTask {
+                            task_key: result.task_key,
+                            factor_name: result.factor_name,
+                            stage: result.stage,
+                            gap: result.gap,
+                        };
+                        let done_path = fulltest_done_path(&done_dir, &task);
+                        write_fulltest_done(&done_path, &task)?;
+                        processed_tasks += 1;
+                        increment_fulltest_bucket(&mut bucket_counts, &task.stage, task.gap);
+                        render_fulltest_progress(
+                            processed_tasks,
+                            restored_tasks,
+                            total_tasks,
+                            started,
+                            &bucket_counts,
+                        )?;
+                    }
+                    Ok(Err(err)) => {
+                        fatal_error = Some(err);
+                        stop_flag.store(true, AtomicOrdering::Relaxed);
+                        break;
+                    }
+                    Err(_) => {
+                        fatal_error = Some("fulltest worker 通道提前关闭".to_string());
+                        stop_flag.store(true, AtomicOrdering::Relaxed);
+                        break;
+                    }
+                }
+            }
+
+            for handle in handles {
+                handle
+                    .join()
+                    .map_err(|_| "fulltest worker 线程 join 失败".to_string())?;
+            }
+            println!();
+
+            if let Some(err) = fatal_error {
+                return Err(err);
+            }
+
+            Ok((processed_tasks, restored_tasks, bucket_counts))
+        })
+        .map_err(PyRuntimeError::new_err)?;
+
+    let info = PyDict::new(py);
+    info.set_item("processed_tasks", output.0)?;
+    info.set_item("restored_tasks", output.1)?;
+    let bucket_counts = PyDict::new(py);
+    for (key, value) in output.2 {
+        bucket_counts.set_item(key, value)?;
+    }
+    info.set_item("bucket_counts", bucket_counts)?;
     Ok(info.into())
 }

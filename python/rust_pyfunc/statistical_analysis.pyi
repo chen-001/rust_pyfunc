@@ -198,6 +198,26 @@ def tail_v4_run_candidates(
     """
     ...
 
+def tail_v4_run_fulltest_queue(
+    ver: str,
+    gap5_selected: list[str],
+    gap1_selected: list[str],
+    cache_root: str,
+    temp_root: str,
+    source_dir: str,
+    style_data_path: str,
+    min_valid: int = 12,
+    start_date: str = "2016-01-01",
+    backtest_start_date: str = "2016-02-01",
+    end_date: str = "2024-12-31",
+    fulltest_jobs: int = 32,
+    python_path: str = "/home/chenzongwei/.conda/envs/chenzongwei311/bin/python",
+    resume: bool = True,
+    index_name: str = "000905",
+) -> dict:
+    """Tail V4 fulltest 混合任务队列。"""
+    ...
+
 def tail_v4_neutralize_block_exact(
     style_data_path: str,
     dates: list[int],
@@ -207,6 +227,18 @@ def tail_v4_neutralize_block_exact(
     min_valid: int = 12,
 ) -> NDArray[np.float32]:
     ...
+
+class TailV4LegacyStyleData:
+    def __init__(self, style_data_path: str) -> None: ...
+
+    def neutralize_block_exact(
+        self,
+        dates: list[int],
+        stocks: list[str],
+        factor_block: NDArray[np.float32],
+        rank_before: bool = True,
+        min_valid: int = 12,
+    ) -> NDArray[np.float32]: ...
 
 def column_correlation_fast(array1: NDArray[np.float64], array2: NDArray[np.float64]) -> NDArray[np.float64]:
     """快速计算两个二维数组对应列的相关系数。
