@@ -529,13 +529,12 @@ impl WorkerMonitorManager {
                     if !monitor.is_process_alive() {
                         if self.debug_monitor {
                             println!(
-                                "🔍 Worker {} 进程 {} 已不存在，清理监控记录",
+                                "🔍 Worker {} 进程 {} 已不存在，保留监控记录等待worker线程收尾",
                                 worker_id, pid
                             );
                         }
-                        // 直接移除整个监控记录
-                        drop(monitors); // 释放锁
-                        self.remove_worker(worker_id);
+                        monitor.process_id = None;
+                        monitor.is_alive = false;
                         return true;
                     }
 
@@ -559,10 +558,13 @@ impl WorkerMonitorManager {
                             Err(err) => {
                                 if err == Errno::ESRCH {
                                     if self.debug_monitor {
-                                        println!("🔍 进程 {} 已不存在，清理监控记录", pid);
+                                        println!(
+                                            "🔍 进程 {} 已不存在，保留监控记录等待worker线程收尾",
+                                            pid
+                                        );
                                     }
-                                    drop(monitors);
-                                    self.remove_worker(worker_id);
+                                    monitor.process_id = None;
+                                    monitor.is_alive = false;
                                     return true;
                                 } else {
                                     eprintln!("❌ 终止进程失败: {}", err);
@@ -1300,9 +1302,36 @@ fn run_persistent_task_worker(
             &format!("Python进程启动成功, PID: {}", pid),
         );
 
-        let mut stdin = child.stdin.take().expect("Failed to get stdin");
-        let mut stdout = child.stdout.take().expect("Failed to get stdout");
-        let stderr = child.stderr.take().expect("Failed to get stderr");
+        let mut stdin = match child.stdin.take() {
+            Some(s) => s,
+            None => {
+                debug_logger.log_error(Some(worker_id), "STDIN", "获取 stdin 失败");
+                let _ = child.kill();
+                let _ = child.wait();
+                continue;
+            }
+        };
+        let mut stdout = match child.stdout.take() {
+            Some(s) => s,
+            None => {
+                debug_logger.log_error(Some(worker_id), "STDOUT", "获取 stdout 失败");
+                drop(stdin);
+                let _ = child.kill();
+                let _ = child.wait();
+                continue;
+            }
+        };
+        let stderr = match child.stderr.take() {
+            Some(s) => s,
+            None => {
+                debug_logger.log_error(Some(worker_id), "STDERR", "获取 stderr 失败");
+                drop(stdin);
+                drop(stdout);
+                let _ = child.kill();
+                let _ = child.wait();
+                continue;
+            }
+        };
 
         // 启动stderr读取线程
         let stderr_logger = debug_logger.clone();
@@ -1480,11 +1509,27 @@ fn run_persistent_task_worker(
         let _ = stdin.write_all(&[0u8; 4]);
         let _ = stdin.flush();
 
-        // 等待stderr线程结束
-        let _ = stderr_handle.join();
-
-        // 等待子进程结束
+        // 先等待子进程退出，超时后强制 kill（必须在 join stderr 之前，否则 stderr 会阻塞）
+        match child.try_wait() {
+            Ok(Some(_)) => {}
+            _ => {
+                let deadline = Instant::now() + Duration::from_secs(5);
+                loop {
+                    if Instant::now() > deadline {
+                        let _ = child.kill();
+                        break;
+                    }
+                    if child.try_wait().ok().flatten().is_some() {
+                        break;
+                    }
+                    thread::sleep(Duration::from_millis(100));
+                }
+            }
+        }
         let _ = child.wait();
+
+        // 子进程退出后 stderr pipe 关闭，stderr 线程会自然退出
+        let _ = stderr_handle.join();
 
         // 清理临时文件
         let _ = std::fs::remove_file(&script_path);

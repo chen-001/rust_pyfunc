@@ -7,14 +7,14 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use arrow::array::{
     Array, Float32Array, Float64Array, Int32Array, Int64Array, TimestampMicrosecondArray,
     TimestampMillisecondArray, TimestampNanosecondArray,
 };
 use chrono::{Datelike, NaiveDateTime};
-use crossbeam::channel::{unbounded, Receiver, Sender};
+use crossbeam::channel::{unbounded, Receiver, RecvTimeoutError, Sender};
 use ndarray::{Array1, Array2, Array3, ArrayView1, ArrayView2, ArrayView3};
 use ndarray_npy::{read_npy, write_npy};
 use numpy::IntoPyArray;
@@ -27,7 +27,41 @@ use serde::{Deserialize, Serialize};
 use crate::factor_neutralization_io_optimized::IOOptimizedStyleData;
 use crate::tail_v2_rank_roll_factor::rank_roll_block_f32_with_parallel;
 
+#[cfg(target_family = "unix")]
+use nix::sys::signal::{kill, Signal};
+#[cfg(target_family = "unix")]
+use nix::unistd::Pid;
+
 const EPS: f64 = 1e-12;
+const DEFAULT_TAIL_V4_FULLTEST_IDLE_TIMEOUT_SECS: u64 = 1800;
+const TAIL_V4_FULLTEST_RESULT_POLL_SECS: u64 = 1;
+
+type TailV4PidRegistry = Arc<Mutex<HashMap<usize, u32>>>;
+
+struct TailV4WorkerPidGuard {
+    registry: TailV4PidRegistry,
+    worker_id: usize,
+}
+
+impl TailV4WorkerPidGuard {
+    fn new(registry: TailV4PidRegistry, worker_id: usize, pid: u32) -> Self {
+        if let Ok(mut guard) = registry.lock() {
+            guard.insert(worker_id, pid);
+        }
+        Self {
+            registry,
+            worker_id,
+        }
+    }
+}
+
+impl Drop for TailV4WorkerPidGuard {
+    fn drop(&mut self) {
+        if let Ok(mut guard) = self.registry.lock() {
+            guard.remove(&self.worker_id);
+        }
+    }
+}
 
 fn format_hms(total_secs: u64) -> (u64, u64, u64) {
     let hours = total_secs / 3600;
@@ -648,6 +682,27 @@ fn write_fulltest_done(path: &Path, task: &TailV4FulltestTask) -> Result<(), Str
     Ok(())
 }
 
+fn tail_v4_fulltest_idle_timeout() -> Duration {
+    std::env::var("TAIL_V4_FULLTEST_IDLE_TIMEOUT_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|secs| *secs > 0)
+        .map(Duration::from_secs)
+        .unwrap_or_else(|| Duration::from_secs(DEFAULT_TAIL_V4_FULLTEST_IDLE_TIMEOUT_SECS))
+}
+
+fn kill_tail_v4_fulltest_workers(pid_registry: &TailV4PidRegistry) {
+    let pids: Vec<u32> = pid_registry
+        .lock()
+        .map(|guard| guard.values().copied().collect())
+        .unwrap_or_default();
+
+    #[cfg(target_family = "unix")]
+    for pid in pids {
+        let _ = kill(Pid::from_raw(pid as i32), Signal::SIGKILL);
+    }
+}
+
 fn create_tail_v4_fulltest_worker_script() -> String {
     r#"#!/usr/bin/env python3
 import os
@@ -784,6 +839,7 @@ fn run_tail_v4_fulltest_worker_process(
     task_queue: Arc<Mutex<VecDeque<TailV4FulltestTask>>>,
     result_sender: Sender<Result<TailV4FulltestWorkerResult, String>>,
     stop_flag: Arc<AtomicBool>,
+    pid_registry: TailV4PidRegistry,
     python_path: String,
     worker_config_json: String,
     verbose: bool,
@@ -821,11 +877,14 @@ fn run_tail_v4_fulltest_worker_process(
             return;
         }
     };
+    let _pid_guard = TailV4WorkerPidGuard::new(Arc::clone(&pid_registry), worker_id, child.id());
 
     let mut stdin = match child.stdin.take() {
         Some(stdin) => stdin,
         None => {
             let _ = result_sender.send(Err("获取 fulltest worker stdin 失败".to_string()));
+            let _ = child.kill();
+            let _ = child.wait();
             let _ = fs::remove_file(&script_path);
             return;
         }
@@ -834,6 +893,9 @@ fn run_tail_v4_fulltest_worker_process(
         Some(stdout) => stdout,
         None => {
             let _ = result_sender.send(Err("获取 fulltest worker stdout 失败".to_string()));
+            drop(stdin);
+            let _ = child.kill();
+            let _ = child.wait();
             let _ = fs::remove_file(&script_path);
             return;
         }
@@ -842,13 +904,17 @@ fn run_tail_v4_fulltest_worker_process(
         Some(stderr) => stderr,
         None => {
             let _ = result_sender.send(Err("获取 fulltest worker stderr 失败".to_string()));
+            drop(stdin);
+            drop(stdout);
+            let _ = child.kill();
+            let _ = child.wait();
             let _ = fs::remove_file(&script_path);
             return;
         }
     };
 
     let stderr_worker_id = worker_id;
-    let _stderr_handle = thread::spawn(move || {
+    let stderr_handle = thread::spawn(move || {
         let reader = BufReader::new(stderr);
         for line in reader.lines() {
             match line {
@@ -942,7 +1008,29 @@ fn run_tail_v4_fulltest_worker_process(
 
     let _ = stdin.write_all(&[0u8; 4]);
     let _ = stdin.flush();
+
+    // 等待子进程退出，超时后强制kill防止僵尸进程
+    match child.try_wait() {
+        Ok(Some(_)) => {}
+        _ => {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            loop {
+                if Instant::now() > deadline {
+                    let _ = child.kill();
+                    break;
+                }
+                if child.try_wait().ok().flatten().is_some() {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(100));
+            }
+        }
+    }
     let _ = child.wait();
+
+    // join stderr 线程确保资源释放
+    let _ = stderr_handle.join();
+
     let _ = fs::remove_file(&script_path);
 }
 
@@ -1960,16 +2048,19 @@ pub fn tail_v4_run_fulltest_queue<'py>(
             let worker_config_json =
                 serde_json::to_string(&worker_config).map_err(|e| format!("序列化 worker 配置失败: {}", e))?;
 
+            let pending_total = pending_tasks.len();
             let task_queue = Arc::new(Mutex::new(pending_tasks));
             let stop_flag = Arc::new(AtomicBool::new(false));
+            let pid_registry: TailV4PidRegistry = Arc::new(Mutex::new(HashMap::new()));
             let (result_sender, result_receiver) =
                 unbounded::<Result<TailV4FulltestWorkerResult, String>>();
-            let worker_count = fulltest_jobs.min(total_tasks.max(1));
+            let worker_count = fulltest_jobs.min(pending_total.max(1));
             let mut handles = Vec::with_capacity(worker_count);
             for worker_id in 0..worker_count {
                 let queue_clone = Arc::clone(&task_queue);
                 let sender_clone = result_sender.clone();
                 let stop_clone = Arc::clone(&stop_flag);
+                let pid_registry_clone = Arc::clone(&pid_registry);
                 let python_path_owned = python_path.to_string();
                 let worker_config_json_clone = worker_config_json.clone();
                 handles.push(thread::spawn(move || {
@@ -1978,6 +2069,7 @@ pub fn tail_v4_run_fulltest_queue<'py>(
                         queue_clone,
                         sender_clone,
                         stop_clone,
+                        pid_registry_clone,
                         python_path_owned,
                         worker_config_json_clone,
                         verbose,
@@ -1986,16 +2078,14 @@ pub fn tail_v4_run_fulltest_queue<'py>(
             }
             drop(result_sender);
 
-            let pending_total = {
-                let guard = task_queue
-                    .lock()
-                    .map_err(|_| "获取 fulltest 队列长度失败".to_string())?;
-                guard.len()
-            };
             let mut processed_tasks = 0usize;
             let mut fatal_error: Option<String> = None;
+            let idle_timeout = tail_v4_fulltest_idle_timeout();
+            let mut last_progress_at = Instant::now();
             while processed_tasks < pending_total {
-                match result_receiver.recv() {
+                match result_receiver.recv_timeout(Duration::from_secs(
+                    TAIL_V4_FULLTEST_RESULT_POLL_SECS,
+                )) {
                     Ok(Ok(result)) => {
                         let task = TailV4FulltestTask {
                             task_key: result.task_key,
@@ -2006,6 +2096,7 @@ pub fn tail_v4_run_fulltest_queue<'py>(
                         let done_path = fulltest_done_path(&done_dir, &task);
                         write_fulltest_done(&done_path, &task)?;
                         processed_tasks += 1;
+                        last_progress_at = Instant::now();
                         increment_fulltest_bucket(&mut bucket_counts, &task.stage, task.gap);
                         render_fulltest_progress(
                             processed_tasks,
@@ -2020,7 +2111,17 @@ pub fn tail_v4_run_fulltest_queue<'py>(
                         stop_flag.store(true, AtomicOrdering::Relaxed);
                         break;
                     }
-                    Err(_) => {
+                    Err(RecvTimeoutError::Timeout) => {
+                        if last_progress_at.elapsed() >= idle_timeout {
+                            fatal_error = Some(format!(
+                                "fulltest 超过 {} 秒无进度，已强制终止 worker",
+                                idle_timeout.as_secs()
+                            ));
+                            stop_flag.store(true, AtomicOrdering::Relaxed);
+                            break;
+                        }
+                    }
+                    Err(RecvTimeoutError::Disconnected) => {
                         fatal_error = Some("fulltest worker 通道提前关闭".to_string());
                         stop_flag.store(true, AtomicOrdering::Relaxed);
                         break;
@@ -2028,10 +2129,13 @@ pub fn tail_v4_run_fulltest_queue<'py>(
                 }
             }
 
+            // 外部 supervisor: 当出现错误或长时间无进度时，强制终止所有活跃 worker 进程。
+            if fatal_error.is_some() {
+                kill_tail_v4_fulltest_workers(&pid_registry);
+            }
+
             for handle in handles {
-                handle
-                    .join()
-                    .map_err(|_| "fulltest worker 线程 join 失败".to_string())?;
+                let _ = handle.join();
             }
             println!();
 
