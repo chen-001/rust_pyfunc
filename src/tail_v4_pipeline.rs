@@ -786,6 +786,7 @@ fn run_tail_v4_fulltest_worker_process(
     stop_flag: Arc<AtomicBool>,
     python_path: String,
     worker_config_json: String,
+    verbose: bool,
 ) {
     let script_content = create_tail_v4_fulltest_worker_script();
     let script_path = format!("/tmp/tail_v4_fulltest_worker_{}.py", worker_id);
@@ -851,7 +852,7 @@ fn run_tail_v4_fulltest_worker_process(
         let reader = BufReader::new(stderr);
         for line in reader.lines() {
             match line {
-                Ok(text) => eprintln!("[Tail V4 Fulltest][worker {}] {}", stderr_worker_id, text),
+                Ok(text) => { if verbose { eprintln!("[Tail V4 Fulltest][worker {}] {}", stderr_worker_id, text); } }
                 Err(_) => break,
             }
         }
@@ -1863,7 +1864,8 @@ pub fn tail_v4_run_candidates<'py>(
     fulltest_jobs=32,
     python_path="/home/chenzongwei/.conda/envs/chenzongwei311/bin/python",
     resume=true,
-    index_name="000905"
+    index_name="000905",
+    verbose=false
 ))]
 pub fn tail_v4_run_fulltest_queue<'py>(
     py: Python<'py>,
@@ -1882,6 +1884,7 @@ pub fn tail_v4_run_fulltest_queue<'py>(
     python_path: &str,
     resume: bool,
     index_name: &str,
+    verbose: bool,
 ) -> PyResult<PyObject> {
     if fulltest_jobs == 0 {
         return Err(PyValueError::new_err("fulltest_jobs 必须大于 0"));
@@ -1977,6 +1980,7 @@ pub fn tail_v4_run_fulltest_queue<'py>(
                         stop_clone,
                         python_path_owned,
                         worker_config_json_clone,
+                        verbose,
                     );
                 }));
             }
