@@ -2,7 +2,7 @@
 ///!
 ///! 只负责并行执行Python函数，不收集结果，不备份数据
 use chrono::Local;
-use crossbeam::channel::{unbounded, Receiver, Sender};
+use crossbeam::channel::{unbounded, Receiver, RecvTimeoutError, Sender};
 use pyo3::prelude::*;
 use pyo3::types::PyList;
 use serde::{Deserialize, Serialize};
@@ -14,7 +14,18 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+
+const DEFAULT_SIMPLE_WORKER_TASK_TIMEOUT_SECS: u64 = 1800;
+
+fn simple_worker_task_timeout() -> Duration {
+    env::var("SIMPLE_WORKER_TASK_TIMEOUT_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|secs| *secs > 0)
+        .map(Duration::from_secs)
+        .unwrap_or_else(|| Duration::from_secs(DEFAULT_SIMPLE_WORKER_TASK_TIMEOUT_SECS))
+}
 
 // ============================================================================
 // 日志记录器
@@ -258,15 +269,64 @@ fn run_simple_worker(
         }
     };
 
-    let mut stdin = child.stdin.take().expect("Failed to get stdin");
-    let stdout = child.stdout.take().expect("Failed to get stdout");
-    let stderr = child.stderr.take().expect("Failed to get stderr");
-    let mut reader = BufReader::new(stdout);
+    let mut stdin = match child.stdin.take() {
+        Some(s) => s,
+        None => {
+            logger.log_error(worker_id, "STDIN", "获取 stdin 失败");
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = std::fs::remove_file(&script_path);
+            return;
+        }
+    };
+    let stdout = match child.stdout.take() {
+        Some(s) => s,
+        None => {
+            logger.log_error(worker_id, "STDOUT", "获取 stdout 失败");
+            drop(stdin);
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = std::fs::remove_file(&script_path);
+            return;
+        }
+    };
+    let stderr = match child.stderr.take() {
+        Some(s) => s,
+        None => {
+            logger.log_error(worker_id, "STDERR", "获取 stderr 失败");
+            drop(stdin);
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = std::fs::remove_file(&script_path);
+            return;
+        }
+    };
+    let task_timeout = simple_worker_task_timeout();
+
+    let (stdout_sender, stdout_receiver) = unbounded::<Result<String, ()>>();
+    let stdout_handle = thread::spawn(move || {
+        let mut stdout_reader = BufReader::new(stdout);
+        loop {
+            let mut line = String::new();
+            match stdout_reader.read_line(&mut line) {
+                Ok(0) => break,
+                Ok(_) => {
+                    if stdout_sender.send(Ok(line)).is_err() {
+                        break;
+                    }
+                }
+                Err(_) => {
+                    let _ = stdout_sender.send(Err(()));
+                    break;
+                }
+            }
+        }
+    });
 
     // 启动stderr读取线程，逐行写入日志文件
     let stderr_logger = logger.clone();
     let stderr_worker_id = worker_id;
-    let _stderr_handle = thread::spawn(move || {
+    let stderr_handle = thread::spawn(move || {
         let stderr_reader = BufReader::new(stderr);
         for line in stderr_reader.lines() {
             match line {
@@ -315,12 +375,27 @@ fn run_simple_worker(
             break;
         }
 
-        // 等待Python子进程完成任务并读取确认信号
-        let mut line = String::new();
-        if reader.read_line(&mut line).is_err() {
-            logger.log_error(worker_id, "COMMUNICATION", "读取确认信号失败");
-            break;
-        }
+        // 等待Python子进程完成任务并读取确认信号，避免无限阻塞在 read_line 上。
+        let line = match stdout_receiver.recv_timeout(task_timeout) {
+            Ok(Ok(line)) => line,
+            Ok(Err(())) => {
+                logger.log_error(worker_id, "COMMUNICATION", "读取确认信号失败");
+                break;
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                logger.log_error(
+                    worker_id,
+                    "TIMEOUT",
+                    &format!("等待确认信号超时: {} 秒", task_timeout.as_secs()),
+                );
+                let _ = child.kill();
+                break;
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                logger.log_error(worker_id, "COMMUNICATION", "stdout 通道提前关闭");
+                break;
+            }
+        };
 
         // 只有收到确认信号后才通知主线程完成任务
         if line.trim() == "DONE" {
@@ -339,8 +414,30 @@ fn run_simple_worker(
     let _ = stdin.write_all(&[0u8; 4]);
     let _ = stdin.flush();
 
-    // 等待进程结束
+    // 等待进程退出，超时后强制kill防止僵尸进程
+    match child.try_wait() {
+        Ok(Some(_)) => {}
+        _ => {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            loop {
+                if Instant::now() > deadline {
+                    let _ = child.kill();
+                    break;
+                }
+                if child.try_wait().ok().flatten().is_some() {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(100));
+            }
+        }
+    }
     let _ = child.wait();
+
+    // stdout/stderr pipe 关闭后，读取线程会自然退出。
+    let _ = stdout_handle.join();
+
+    // join stderr 线程确保资源释放
+    let _ = stderr_handle.join();
 
     // 清理脚本
     let _ = std::fs::remove_file(&script_path);
