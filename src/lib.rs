@@ -471,9 +471,14 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         m
     )?);
     let _ = m.add_function(wrap_pyfunction!(
+        tail_v4_pipeline::tail_v4_run_fulltest_queue,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
         tail_v4_pipeline::tail_v4_neutralize_block_exact,
         m
     )?);
+    let _ = m.add_class::<tail_v4_pipeline::TailV4LegacyStyleData>()?;
     let _ = m.add_function(wrap_pyfunction!(
         permutation_analysis_v0816_fixed::analyze_sequence_permutations_v0816_fixed,
         m
