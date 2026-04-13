@@ -17,7 +17,8 @@ def run_pools_queue(
     health_check_interval: Optional[int] = None,
     debug_monitor: Optional[bool] = None,
     backup_batch_size: Optional[int] = None,
-    debug_log: Optional[bool] = None
+    debug_log: Optional[bool] = None,
+    progress_log: Optional[bool] = None
 ) -> NDArray[np.float64]:
     """🚀 革命性持久化进程池 - 极致性能的并行计算函数（v2.1）
     
@@ -253,7 +254,8 @@ def run_pools_queue_date_only(
     health_check_interval: Optional[int] = None,
     debug_monitor: Optional[bool] = None,
     backup_batch_size: Optional[int] = None,
-    debug_log: Optional[bool] = None
+    debug_log: Optional[bool] = None,
+    progress_log: Optional[bool] = None
 ) -> None:
     """单日期参数的并行计算框架，备份格式与 run_pools_queue 完全一致
 
