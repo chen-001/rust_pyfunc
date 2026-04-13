@@ -1559,7 +1559,7 @@ fn run_persistent_task_worker(
 }
 
 #[pyfunction]
-#[pyo3(signature = (python_function, args, n_jobs, backup_file, expected_result_length, restart_interval=None, update_mode=None, return_results=None, task_timeout=None, health_check_interval=None, debug_monitor=None, backup_batch_size=None, debug_log=None))]
+#[pyo3(signature = (python_function, args, n_jobs, backup_file, expected_result_length, restart_interval=None, update_mode=None, return_results=None, task_timeout=None, health_check_interval=None, debug_monitor=None, backup_batch_size=None, debug_log=None, progress_log=None))]
 pub fn run_pools_queue(
     python_function: PyObject,
     args: &PyList,
@@ -1574,6 +1574,7 @@ pub fn run_pools_queue(
     debug_monitor: Option<bool>,
     backup_batch_size: Option<usize>,
     debug_log: Option<bool>,
+    progress_log: Option<bool>,
 ) -> PyResult<PyObject> {
     // 处理 debug_log 参数，创建日志记录器
     let debug_log_enabled = debug_log.unwrap_or(false);
@@ -1610,6 +1611,9 @@ pub fn run_pools_queue(
 
     // 处理批处理大小参数
     let backup_batch_size_value = backup_batch_size.unwrap_or(5000); // 优化: 从1000增加到5000
+
+    // 处理 progress_log 参数
+    let progress_log_enabled = progress_log.unwrap_or(false);
 
     let task_timeout_duration = Duration::from_secs(task_timeout_secs);
     let health_check_duration = Duration::from_secs(health_check_interval_secs);
@@ -1899,8 +1903,29 @@ pub fn run_pools_queue(
     let pending_tasks_len = pending_tasks.len();
     let collector_restart_flag = restart_flag.clone();
     let restart_interval_clone = restart_interval_value;
+    let progress_log_clone = progress_log_enabled;
     let backup_batch_size_clone = backup_batch_size_value;
     let collector_handle = thread::spawn(move || {
+        // 进度日志相关变量
+        let run_id = Local::now().format("%Y%m%d_%H%M%S").to_string();
+        let progress_log_path = format!("{}.progress.jsonl", backup_file_clone);
+        let mut last_backup_time = Instant::now();
+
+        // 写入启动记录
+        if progress_log_clone {
+            let start_record = serde_json::json!({
+                "run_id": run_id,
+                "ts": Local::now().format("%Y-%m-%dT%H:%M:%S%.3f").to_string(),
+                "status": "started",
+                "total_batches": (pending_tasks_len + backup_batch_size_clone - 1) / backup_batch_size_clone,
+                "total_tasks": pending_tasks_len,
+                "backup_batch_size": backup_batch_size_clone,
+            });
+            if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&progress_log_path) {
+                let _ = writeln!(f, "{}", start_record);
+            }
+        }
+
         let mut batch_results = Vec::new();
         let mut total_collected = 0;
         let mut batch_count = 0;
@@ -1977,6 +2002,25 @@ pub fn run_pools_queue(
                 }
                 batch_results.clear();
 
+                // 写入进度日志
+                if progress_log_clone {
+                    let interval_secs = last_backup_time.elapsed().as_secs_f64();
+                    let record = serde_json::json!({
+                        "run_id": run_id,
+                        "ts": Local::now().format("%Y-%m-%dT%H:%M:%S%.3f").to_string(),
+                        "batch": batch_count,
+                        "total_batches": total_batches,
+                        "collected": total_collected,
+                        "total_tasks": pending_tasks_len,
+                        "elapsed": elapsed.as_secs_f64(),
+                        "interval": interval_secs,
+                    });
+                    if let Ok(mut f) = OpenOptions::new().append(true).open(&progress_log_path) {
+                        let _ = writeln!(f, "{}", record);
+                    }
+                }
+                last_backup_time = Instant::now();
+
                 if batch_count_this_chunk >= restart_interval_clone {
                     // println!("\n🔄 达到{}次备份，触发 workers 重启...", restart_interval_clone);
                     collector_restart_flag.store(true, Ordering::SeqCst);
@@ -2017,6 +2061,20 @@ pub fn run_pools_queue(
             total_collected,
             batch_count
         );
+
+        // 写入完成标记
+        if progress_log_clone {
+            let end_record = serde_json::json!({
+                "run_id": run_id,
+                "ts": Local::now().format("%Y-%m-%dT%H:%M:%S%.3f").to_string(),
+                "status": "completed",
+                "total_collected": total_collected,
+                "total_batches_done": batch_count,
+            });
+            if let Ok(mut f) = OpenOptions::new().append(true).open(&progress_log_path) {
+                let _ = writeln!(f, "{}", end_record);
+            }
+        }
     });
 
     // 等待所有worker完成

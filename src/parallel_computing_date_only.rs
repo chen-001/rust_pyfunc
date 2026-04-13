@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::io::{self, BufRead, BufReader, Write};
+use std::fs::OpenOptions;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -925,7 +926,7 @@ fn save_results_to_backup(
 // ==================== 主函数 ====================
 
 #[pyfunction]
-#[pyo3(signature = (python_function, dates, n_jobs, backup_file, expected_result_length, restart_interval=None, update_mode=None, task_timeout=None, health_check_interval=None, debug_monitor=None, backup_batch_size=None, debug_log=None))]
+#[pyo3(signature = (python_function, dates, n_jobs, backup_file, expected_result_length, restart_interval=None, update_mode=None, task_timeout=None, health_check_interval=None, debug_monitor=None, backup_batch_size=None, debug_log=None, progress_log=None))]
 pub fn run_pools_queue_date_only(
     python_function: PyObject,
     dates: &PyList,
@@ -939,6 +940,7 @@ pub fn run_pools_queue_date_only(
     debug_monitor: Option<bool>,
     backup_batch_size: Option<usize>,
     debug_log: Option<bool>,
+    progress_log: Option<bool>,
 ) -> PyResult<PyObject> {
     let debug_log_enabled = debug_log.unwrap_or(false);
     let debug_logger = DebugLogger::new("run_pools_queue_date_only.log", debug_log_enabled)
@@ -958,6 +960,7 @@ pub fn run_pools_queue_date_only(
     let health_check_interval_secs = health_check_interval.unwrap_or(300);
     let debug_monitor_enabled = debug_monitor.unwrap_or(false);
     let backup_batch_size_value = backup_batch_size.unwrap_or(5000);
+    let progress_log_enabled = progress_log.unwrap_or(false);
 
     let task_timeout_duration = Duration::from_secs(task_timeout_secs);
     let health_check_duration = Duration::from_secs(health_check_interval_secs);
@@ -1117,7 +1120,27 @@ pub fn run_pools_queue_date_only(
     let total_dates = pending_dates.len();
     let completed_dates_set = Arc::new(Mutex::new(HashSet::<i64>::new()));
     let completed_dates_clone = completed_dates_set.clone();
+    let progress_log_clone = progress_log_enabled;
     let collector_handle = thread::spawn(move || {
+        // 进度日志相关变量
+        let run_id = Local::now().format("%Y%m%d_%H%M%S").to_string();
+        let progress_log_path = format!("{}.progress.jsonl", backup_file_clone);
+        let mut last_backup_time = Instant::now();
+
+        // 写入启动记录
+        if progress_log_clone {
+            let start_record = serde_json::json!({
+                "run_id": run_id,
+                "ts": Local::now().format("%Y-%m-%dT%H:%M:%S%.3f").to_string(),
+                "status": "started",
+                "total_dates": total_dates,
+                "backup_batch_size": backup_batch_clone,
+            });
+            if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&progress_log_path) {
+                let _ = writeln!(f, "{}", start_record);
+            }
+        }
+
         let mut batch_results: Vec<TaskResult> = Vec::new();
         let mut total_collected: usize = 0;
         let mut batch_count: usize = 0;
@@ -1191,6 +1214,30 @@ pub fn run_pools_queue_date_only(
                 }
                 batch_results.clear();
 
+                // 写入进度日志
+                if progress_log_clone {
+                    let interval_secs = last_backup_time.elapsed().as_secs_f64();
+                    let completed_dates_count = if let Ok(dates_set) = completed_dates_clone.lock() {
+                        dates_set.len()
+                    } else {
+                        0
+                    };
+                    let record = serde_json::json!({
+                        "run_id": run_id,
+                        "ts": Local::now().format("%Y-%m-%dT%H:%M:%S%.3f").to_string(),
+                        "batch": batch_count,
+                        "collected": total_collected,
+                        "completed_dates": completed_dates_count,
+                        "total_dates": total_dates,
+                        "elapsed": elapsed.as_secs_f64(),
+                        "interval": interval_secs,
+                    });
+                    if let Ok(mut f) = OpenOptions::new().append(true).open(&progress_log_path) {
+                        let _ = writeln!(f, "{}", record);
+                    }
+                }
+                last_backup_time = Instant::now();
+
                 if batch_count_this_chunk >= restart_interval_clone {
                     collector_restart_flag.store(true, Ordering::SeqCst);
                     batch_count_this_chunk = 0;
@@ -1220,6 +1267,20 @@ pub fn run_pools_queue_date_only(
             total_collected,
             batch_count
         );
+
+        // 写入完成标记
+        if progress_log_clone {
+            let end_record = serde_json::json!({
+                "run_id": run_id,
+                "ts": Local::now().format("%Y-%m-%dT%H:%M:%S%.3f").to_string(),
+                "status": "completed",
+                "total_collected": total_collected,
+                "total_batches_done": batch_count,
+            });
+            if let Ok(mut f) = OpenOptions::new().append(true).open(&progress_log_path) {
+                let _ = writeln!(f, "{}", end_record);
+            }
+        }
     });
 
     // 等待所有worker完成
