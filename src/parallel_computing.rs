@@ -1578,7 +1578,12 @@ pub fn run_pools_queue(
 ) -> PyResult<PyObject> {
     // 处理 debug_log 参数，创建日志记录器
     let debug_log_enabled = debug_log.unwrap_or(false);
-    let debug_logger = DebugLogger::new("run_pools_queue.log", debug_log_enabled).map_err(|e| {
+    let log_path = if backup_file.starts_with("backup") {
+        format!("log{}", &backup_file[6..])
+    } else {
+        format!("{}.log", backup_file)
+    };
+    let debug_logger = DebugLogger::new(&log_path, debug_log_enabled).map_err(|e| {
         PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("创建日志文件失败: {}", e))
     })?;
 

@@ -14,7 +14,7 @@ from .rust_pyfunc import (
     trend_2d,
 )
 
-_STOCK_ROOT = "/ssd_data/stock"
+_STOCK_ROOTS = ["/ssd_data/stock", "/nas197/binary/stock/sz_alpha/stock"]
 _TRADE_EPOCH_OFFSET = pd.Timestamp("1970-01-01 08:00:00")
 
 __all__ = [
@@ -26,6 +26,16 @@ __all__ = [
     "get_features_factors",
     "get_features_names",
 ]
+
+
+def _resolve_stock_path(date: int, subdir: str, filename: str) -> str:
+    if env := os.environ.get("RUST_PYFUNC_LEVEL2_PATH"):
+        return os.path.join(env, str(date), subdir, filename)
+    for root in _STOCK_ROOTS:
+        path = os.path.join(root, str(date), subdir, filename)
+        if os.path.exists(path):
+            return path
+    return os.path.join(_STOCK_ROOTS[0], str(date), subdir, filename)
 
 
 def _to_exchange_timestamp(series: pd.Series) -> pd.Series:
@@ -50,7 +60,7 @@ def adjust_afternoon(df: pd.DataFrame, only_inday: int = 1) -> pd.DataFrame:
 
 def read_trade(symbol: str, date: int, with_retreat: int = 0) -> pd.DataFrame:
     file_name = f"{symbol}_{date}_transaction.csv"
-    file_path = os.path.join(_STOCK_ROOT, str(date), "transaction", file_name)
+    file_path = _resolve_stock_path(date, "transaction", file_name)
     df = pd.read_csv(
         file_path,
         dtype={"symbol": str},
@@ -77,7 +87,7 @@ def read_trade(symbol: str, date: int, with_retreat: int = 0) -> pd.DataFrame:
 
 def read_market(symbol: str, date: int, with_high_low_limited: int = 0) -> pd.DataFrame:
     file_name = f"{symbol}_{date}_market_data.csv"
-    file_path = os.path.join(_STOCK_ROOT, str(date), "market_data", file_name)
+    file_path = _resolve_stock_path(date, "market_data", file_name)
     df = pd.read_csv(
         file_path,
         dtype={"symbol": str},
