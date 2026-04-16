@@ -86,6 +86,29 @@ The project includes utilities for working with Chinese stock market data throug
 ### 开发备忘录
 - **写了新函数之后,只要写一些测试文件即可,不需要写演示文件**
 
+### 避免非确定性行为（重要）
+Rust 的 `HashMap` 迭代顺序是非确定性的（每次进程启动时哈希种子随机化），会导致以下问题：
+- 相同输入多次调用函数，结果不一致
+- 不同进程/不同时间计算同一批数据，结果不一致
+- 下游对序列顺序敏感的统计量（`trend`、`autocorr`、`lz_complexity`）受影响最大
+
+**必须遵守的规则：**
+- 需要遍历 `HashMap` 的 `keys()` 或 `values()` 并用于后续计算时，必须先排序（如 `sort_by_key`）
+- 推荐写法：
+  ```rust
+  // 错误：HashMap迭代顺序随机
+  let v: Vec<f64> = my_hashmap.values().map(|&v| v as f64).collect();
+
+  // 正确：先按key排序再取values
+  let mut sorted: Vec<_> = my_hashmap.iter().collect();
+  sorted.sort_by_key(|(&k, _)| k);
+  let v: Vec<f64> = sorted.iter().map(|(_, &v)| v as f64).collect();
+  ```
+- 如果只需要查找（`get`/`contains_key`）而不遍历，`HashMap` 无需排序
+- 替代方案：使用 `BTreeMap`（天然有序），但插入性能略低于 `HashMap`
+- `HashSet` 同理，遍历时也需排序后再使用
+- **新增函数时，凡是涉及 HashMap/HashSet 的遍历结果用于下游计算，都必须验证确定性：相同输入调用多次，结果应完全一致**
+
 ### 代码命名规范
 - **写新函数时，函数名字要具体，可以简单概括函数的核心计算内容与逻辑**
 - 使用timeout 600s ./alter.sh 2>&1构建项目时,将timeout限制设置为10分钟.

@@ -324,16 +324,22 @@ fn compute_interval_features(
     let ask_orders_f64: Vec<f64> = passive_ask_orders.iter().map(|&x| x as f64).collect();
     result.extend(compute_statistics(&ask_orders_f64));
 
-    // 特征22-28: 全部订单体量
-    let volumes: Vec<f64> = order_volumes.values().map(|&v| v as f64).collect();
+    // 特征22-28: 全部订单体量（按order_id排序，确保确定性）
+    let mut sorted_orders: Vec<_> = order_volumes.iter().collect();
+    sorted_orders.sort_by_key(|(&k, _)| k);
+    let volumes: Vec<f64> = sorted_orders.iter().map(|(_, &v)| v as f64).collect();
     result.extend(compute_statistics(&volumes));
 
-    // 特征29-35: 买单体量
-    let bid_volumes: Vec<f64> = bid_order_volumes.values().map(|&v| v as f64).collect();
+    // 特征29-35: 买单体量（按order_id排序，确保确定性）
+    let mut sorted_bid: Vec<_> = bid_order_volumes.iter().collect();
+    sorted_bid.sort_by_key(|(&k, _)| k);
+    let bid_volumes: Vec<f64> = sorted_bid.iter().map(|(_, &v)| v as f64).collect();
     result.extend(compute_statistics(&bid_volumes));
 
-    // 特征36-42: 卖单体量
-    let ask_volumes: Vec<f64> = ask_order_volumes.values().map(|&v| v as f64).collect();
+    // 特征36-42: 卖单体量（按order_id排序，确保确定性）
+    let mut sorted_ask: Vec<_> = ask_order_volumes.iter().collect();
+    sorted_ask.sort_by_key(|(&k, _)| k);
+    let ask_volumes: Vec<f64> = sorted_ask.iter().map(|(_, &v)| v as f64).collect();
     result.extend(compute_statistics(&ask_volumes));
 
     // 特征43-49: 全部被动订单编号（去重取last）
