@@ -24,7 +24,7 @@ jobs:
     runs-on: ${{ matrix.platform.runner }}
     strategy:
       matrix:
-        # python-version: ['3.8', '3.9', '3.10', '3.11']  
+        # python-version: ['3.8', '3.9', '3.10', '3.11']
         platform:
           - runner: ubuntu-latest
             target: x86_64
@@ -36,6 +36,12 @@ jobs:
         with:
           # python-version: ${{ matrix.python-version }}
           python-version: 3.x
+      - name: Build Docker image with cmake
+        run: |
+          docker build -t manylinux-cross-cmake - <<EOF
+          FROM messense/manylinux-cross:${{ matrix.platform.target }}
+          RUN python3 -m pip install cmake
+          EOF
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
@@ -43,6 +49,7 @@ jobs:
           args: --release --out dist --find-interpreter
           sccache: 'true'
           manylinux: auto
+          container: manylinux-cross-cmake
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
