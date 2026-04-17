@@ -68,6 +68,14 @@ def illusion_liquidity_distance_factors(
     ...
 
 
+def compute_corr_diff_features(
+    large_corr: object,  # numpy.ndarray (n*ratio, n*ratio)
+    small_corr: object,  # numpy.ndarray (n, n)
+    ratio: int,
+) -> Tuple[List[float], object]:
+    ...
+
+
 # 版本信息
 __version__ = "0.18.0"
 __author__ = "chenzongwei"
@@ -258,4 +266,5 @@ __all__ = [
     "personalized_meeting_features",
     "orderbook_volume_cov_factors",
     "illusion_liquidity_distance_factors",
+    "compute_corr_diff_features",
 ]

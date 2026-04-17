@@ -82,6 +82,7 @@ pub mod theme_cluster_factors;
 pub mod theme_cluster_factors_batch;
 pub mod theme_feature_expansion;
 pub mod topk_corr_matrix;
+pub mod corr_diff_features;
 
 pub mod dct_transform;
 pub mod illusion_liquidity_distance;
@@ -831,6 +832,10 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?)?;
     m.add_function(wrap_pyfunction!(
         theme_feature_expansion::get_theme_cluster_scatter_3d,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        corr_diff_features::compute_corr_diff_features,
         m
     )?)?;
 
