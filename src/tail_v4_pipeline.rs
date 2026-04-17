@@ -18,6 +18,7 @@ use crossbeam::channel::{unbounded, Receiver, RecvTimeoutError, Sender};
 use ndarray::{Array1, Array2, Array3, ArrayView1, ArrayView2, ArrayView3};
 use ndarray_npy::{read_npy, write_npy};
 use numpy::IntoPyArray;
+use hdf5_metno as hdf5;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -1073,6 +1074,18 @@ fn load_factor_to_template(
     template_dates: &[i32],
     template_stocks: &[String],
 ) -> Result<Array2<f32>, String> {
+    if factor_path.ends_with(".h5") {
+        load_h5_factor_to_template(factor_path, template_dates, template_stocks)
+    } else {
+        load_parquet_factor_to_template(factor_path, template_dates, template_stocks)
+    }
+}
+
+fn load_parquet_factor_to_template(
+    factor_path: &str,
+    template_dates: &[i32],
+    template_stocks: &[String],
+) -> Result<Array2<f32>, String> {
     let file = File::open(factor_path).map_err(|e| format!("打开因子文件失败 {}: {}", factor_path, e))?;
     let builder = ParquetRecordBatchReaderBuilder::try_new(file)
         .map_err(|e| format!("创建 parquet 读取器失败 {}: {}", factor_path, e))?;
@@ -1130,6 +1143,98 @@ fn load_factor_to_template(
                 };
                 output[[date_pos, stock_pos]] = if value.is_finite() { value } else { f32::NAN };
             }
+        }
+    }
+    Ok(output)
+}
+
+/// 解析 calendar_map.csv：header 为 "date_min"，每行一个日期字符串，行号即 row index
+fn parse_calendar_map(path: &Path) -> Result<HashMap<i32, usize>, String> {
+    let file = File::open(path).map_err(|e| format!("打开 calendar_map.csv 失败: {}", e))?;
+    let reader = BufReader::new(file);
+    let mut map = HashMap::new();
+    for (idx, line_result) in reader.lines().enumerate() {
+        if idx == 0 { continue; }
+        let line = line_result.map_err(|e| format!("读取 calendar_map 第 {} 行失败: {}", idx, e))?;
+        let trimmed = line.trim();
+        if trimmed.is_empty() { continue; }
+        let date_int: i32 = trimmed.parse().map_err(|e| format!("无效日期 '{}': {}", trimmed, e))?;
+        map.insert(date_int, idx - 1);
+    }
+    Ok(map)
+}
+
+/// 解析 symbol_map.csv：header 为 "symbol,pos"，每行格式 "000001,0"
+fn parse_symbol_map(path: &Path) -> Result<HashMap<String, usize>, String> {
+    let file = File::open(path).map_err(|e| format!("打开 symbol_map.csv 失败: {}", e))?;
+    let reader = BufReader::new(file);
+    let mut map = HashMap::new();
+    for (idx, line_result) in reader.lines().enumerate() {
+        if idx == 0 { continue; }
+        let line = line_result.map_err(|e| format!("读取 symbol_map 第 {} 行失败: {}", idx, e))?;
+        let trimmed = line.trim();
+        if trimmed.is_empty() { continue; }
+        let parts: Vec<&str> = trimmed.split(',').collect();
+        if parts.len() != 2 {
+            return Err(format!("symbol_map 格式错误: {}", trimmed));
+        }
+        let symbol = parts[0].to_string();
+        let pos: usize = parts[1].parse().map_err(|e| format!("无效位置 '{}': {}", parts[1], e))?;
+        map.insert(symbol, pos);
+    }
+    Ok(map)
+}
+
+/// 去掉股票代码后缀（如 "000060.SZ" → "000060"）
+fn strip_stock_suffix(code: &str) -> &str {
+    code.split('.').next().unwrap_or(code)
+}
+
+/// 从 H5 文件读取因子数据到模板矩阵
+fn load_h5_factor_to_template(
+    factor_path: &str,
+    template_dates: &[i32],
+    template_stocks: &[String],
+) -> Result<Array2<f32>, String> {
+    let h5_dir = Path::new(factor_path)
+        .parent()
+        .ok_or_else(|| format!("无法获取 H5 文件所在目录: {}", factor_path))?;
+
+    let calendar_map_path = h5_dir.join("calendar_map.csv");
+    let symbol_map_path = h5_dir.join("symbol_map.csv");
+
+    let date_to_row = parse_calendar_map(&calendar_map_path)?;
+    let symbol_to_col = parse_symbol_map(&symbol_map_path)?;
+
+    // 构建 stock 查找映射：template_stocks 可能带后缀（如 "000060.SZ"），需去掉后缀
+    let stock_col_indices: Vec<Option<usize>> = template_stocks
+        .iter()
+        .map(|s| {
+            let bare = strip_stock_suffix(s);
+            symbol_to_col.get(bare).copied()
+        })
+        .collect();
+
+    let file = hdf5::File::open(factor_path)
+        .map_err(|e| format!("打开 H5 文件失败 {}: {}", factor_path, e))?;
+    let dataset = file.dataset("data")
+        .map_err(|e| format!("H5 文件缺少 data dataset {}: {}", factor_path, e))?;
+
+    let full_data: Array2<f64> = dataset.read_2d()
+        .map_err(|e| format!("读取 H5 数据失败 {}: {}", factor_path, e))?;
+
+    let n_dates = template_dates.len();
+    let n_stocks = template_stocks.len();
+    let mut output = Array2::<f32>::from_elem((n_dates, n_stocks), f32::NAN);
+
+    for (date_idx, &date_val) in template_dates.iter().enumerate() {
+        let Some(&row_idx) = date_to_row.get(&date_val) else {
+            continue;
+        };
+        for (stock_idx, col_opt) in stock_col_indices.iter().enumerate() {
+            let Some(col_idx) = col_opt else { continue };
+            let val = full_data[[row_idx, *col_idx]];
+            output[[date_idx, stock_idx]] = if val.is_finite() { val as f32 } else { f32::NAN };
         }
     }
     Ok(output)
