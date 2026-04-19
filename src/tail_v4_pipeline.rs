@@ -1230,7 +1230,9 @@ fn parse_calendar_map(path: &Path) -> Result<HashMap<i32, usize>, String> {
     Ok(map)
 }
 
-/// 解析 symbol_map.csv：header 为 "symbol,pos"，每行格式 "000001,0"
+/// 解析 symbol_map.csv：支持两种格式
+/// - 单列：header 为 "symbol"，每行一个股票代码，行号即列位置（与 calendar_map.csv 一致）
+/// - 双列：header 为 "symbol,pos"，每行格式 "000001,0"
 fn parse_symbol_map(path: &Path) -> Result<HashMap<String, usize>, String> {
     let file = File::open(path).map_err(|e| format!("打开 symbol_map.csv 失败: {}", e))?;
     let reader = BufReader::new(file);
@@ -1241,11 +1243,14 @@ fn parse_symbol_map(path: &Path) -> Result<HashMap<String, usize>, String> {
         let trimmed = line.trim();
         if trimmed.is_empty() { continue; }
         let parts: Vec<&str> = trimmed.split(',').collect();
-        if parts.len() != 2 {
+        let (symbol, pos) = if parts.len() == 1 {
+            (parts[0].to_string(), idx - 1)
+        } else if parts.len() == 2 {
+            let pos: usize = parts[1].parse().map_err(|e| format!("无效位置 '{}': {}", parts[1], e))?;
+            (parts[0].to_string(), pos)
+        } else {
             return Err(format!("symbol_map 格式错误: {}", trimmed));
-        }
-        let symbol = parts[0].to_string();
-        let pos: usize = parts[1].parse().map_err(|e| format!("无效位置 '{}': {}", parts[1], e))?;
+        };
         map.insert(symbol, pos);
     }
     Ok(map)
