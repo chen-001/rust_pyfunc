@@ -3,6 +3,7 @@ use pyo3::prelude::*;
 
 pub mod backup_column_cache;
 pub mod backup_reader;
+pub mod backup_writer;
 pub mod column_correlation;
 pub mod difference_matrix;
 pub mod effective_memory_length;
@@ -254,6 +255,14 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?);
     let _ = m.add_function(wrap_pyfunction!(
         backup_column_cache::query_backup_codebook_cached_from_cache_dir,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        backup_reader::convert_backup_v2_to_v3_inplace,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        backup_reader::convert_backup_v3_to_v4,
         m
     )?);
     let _ = m.add_function(wrap_pyfunction!(

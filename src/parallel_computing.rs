@@ -31,6 +31,7 @@ use crate::backup_reader::{
     read_backup_results, read_backup_results_with_filter, read_existing_backup,
     read_existing_backup_with_filter, TaskResult,
 };
+use crate::backup_writer;
 
 #[cfg(target_family = "unix")]
 pub fn reap_process(pid: u32) {
@@ -758,146 +759,6 @@ pub fn detect_python_interpreter() -> String {
 }
 
 // 保留备份保存功能，但使用来自backup_reader的结构体定义
-fn save_results_to_backup(
-    results: &[TaskResult],
-    backup_file: &str,
-    expected_result_length: usize,
-) -> Result<(), Box<dyn std::error::Error>> {
-    use crate::backup_reader::{calculate_record_size, DynamicRecord, FileHeader};
-
-    if results.is_empty() {
-        return Ok(());
-    }
-
-    let factor_count = expected_result_length;
-    let record_size = calculate_record_size(factor_count);
-    let header_size = 64; // HEADER_SIZE from backup_reader
-
-    // 检查文件是否存在且有效
-    let file_path = Path::new(backup_file);
-    let file_exists = file_path.exists();
-    let file_valid = if file_exists {
-        file_path
-            .metadata()
-            .map(|m| m.len() >= header_size as u64)
-            .unwrap_or(false)
-    } else {
-        false
-    };
-
-    if !file_valid {
-        // 创建新文件，写入文件头
-        let mut file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(backup_file)?;
-
-        let header = FileHeader {
-            magic: *b"RPBACKUP",
-            version: 2, // 版本2表示支持动态因子数量
-            record_count: 0,
-            record_size: record_size as u32,
-            factor_count: factor_count as u32,
-            reserved: [0; 36],
-        };
-
-        // 写入文件头
-        let header_bytes = unsafe {
-            std::slice::from_raw_parts(
-                &header as *const FileHeader as *const u8,
-                std::mem::size_of::<FileHeader>(),
-            )
-        };
-
-        file.write_all(header_bytes)?;
-        file.flush()?;
-    }
-
-    // 读取当前记录数
-    let mut file = OpenOptions::new()
-        .create(true)
-        .read(true)
-        .write(true)
-        .open(backup_file)?;
-
-    let file_len = file.metadata()?.len() as usize;
-    if file_len < header_size {
-        return Err(format!(
-            "File is too small to contain valid header: {} < {}",
-            file_len, header_size
-        )
-        .into());
-    }
-
-    let mut header_bytes = [0u8; 64];
-    use std::io::Read;
-    file.read_exact(&mut header_bytes)?;
-
-    let header = unsafe { &mut *(header_bytes.as_mut_ptr() as *mut FileHeader) };
-
-    // 验证因子数量匹配
-    let file_factor_count = header.factor_count;
-    if file_factor_count != factor_count as u32 {
-        return Err(format!(
-            "Factor count mismatch: file has {}, expected {}",
-            file_factor_count, factor_count
-        )
-        .into());
-    }
-
-    let current_count = header.record_count;
-
-    // 扩展文件大小（按最大可能值预分配）
-    let max_new_count = results.len() as u64;
-    let new_file_size = header_size as u64 + (current_count + max_new_count) * record_size as u64;
-    file.set_len(new_file_size)?;
-
-    // 使用内存映射进行高速写入
-    drop(file);
-    let file = OpenOptions::new()
-        .create(true)
-        .read(true)
-        .write(true)
-        .open(backup_file)?;
-
-    let mut mmap = unsafe { MmapMut::map_mut(&file)? };
-
-    // 写入新记录，跳过异常记录
-    let start_offset = header_size + current_count as usize * record_size;
-    let mut written_count: usize = 0;
-
-    for result in results.iter() {
-        let record = DynamicRecord::from_task_result(result);
-        let record_bytes = record.to_bytes();
-
-        if record_bytes.len() != record_size {
-            eprintln!(
-                "WARNING: Record size mismatch: got {}, expected {}, skipping",
-                record_bytes.len(),
-                record_size
-            );
-            continue;
-        }
-
-        let record_offset = start_offset + written_count * record_size;
-        mmap[record_offset..record_offset + record_size].copy_from_slice(&record_bytes);
-        written_count += 1;
-    }
-
-    // 更新文件头中的记录数量（使用实际写入数）
-    let header = unsafe { &mut *(mmap.as_mut_ptr() as *mut FileHeader) };
-    header.record_count = current_count + written_count as u64;
-
-    // 截断文件到实际大小
-    let actual_file_size =
-        header_size as u64 + (current_count + written_count as u64) * record_size as u64;
-    mmap.flush()?;
-    drop(mmap);
-    file.set_len(actual_file_size)?;
-
-    Ok(())
-}
 
 fn create_persistent_worker_script(task_timeout_secs: u64) -> String {
     format!(
@@ -1993,7 +1854,7 @@ pub fn run_pools_queue(
                 );
                 io::stdout().flush().unwrap(); // 强制刷新输出缓冲区
 
-                match save_results_to_backup(
+                match backup_writer::save_results_to_backup(
                     &batch_results,
                     &backup_file_clone,
                     expected_result_length_clone,
@@ -2043,7 +1904,7 @@ pub fn run_pools_queue(
                 batch_results.len()
             );
 
-            match save_results_to_backup(
+            match backup_writer::save_results_to_backup(
                 &batch_results,
                 &backup_file_clone,
                 expected_result_length_clone,

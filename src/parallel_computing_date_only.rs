@@ -23,6 +23,7 @@ use nix::sys::signal::{kill, Signal};
 use nix::unistd::Pid;
 
 use crate::backup_reader::{read_existing_backup, read_existing_backup_with_filter, TaskResult};
+use crate::backup_writer;
 use crate::parallel_computing::{
     detect_python_interpreter, ensure_fd_limit, extract_python_function_code, DebugLogger,
 };
@@ -787,141 +788,8 @@ fn run_date_only_worker(
     monitor_manager.remove_worker(worker_id);
 }
 
-// ==================== 备份写入(复用run_pools_queue的格式) ====================
+// ==================== 备份写入(使用 backup_writer 模块) ====================
 
-fn save_results_to_backup(
-    results: &[TaskResult],
-    backup_file: &str,
-    expected_result_length: usize,
-) -> Result<(), Box<dyn std::error::Error>> {
-    // 直接调用parallel_computing中相同逻辑的备份函数
-    use crate::backup_reader::{calculate_record_size, DynamicRecord, FileHeader};
-    use memmap2::MmapMut;
-    use std::fs::OpenOptions;
-
-    if results.is_empty() {
-        return Ok(());
-    }
-
-    let factor_count = expected_result_length;
-    let record_size = calculate_record_size(factor_count);
-    let header_size = 64;
-
-    let file_path = Path::new(backup_file);
-    let file_exists = file_path.exists();
-    let file_valid = if file_exists {
-        file_path
-            .metadata()
-            .map(|m| m.len() >= header_size as u64)
-            .unwrap_or(false)
-    } else {
-        false
-    };
-
-    if !file_valid {
-        let mut file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(backup_file)?;
-
-        let header = FileHeader {
-            magic: *b"RPBACKUP",
-            version: 2,
-            record_count: 0,
-            record_size: record_size as u32,
-            factor_count: factor_count as u32,
-            reserved: [0; 36],
-        };
-
-        let header_bytes = unsafe {
-            std::slice::from_raw_parts(
-                &header as *const FileHeader as *const u8,
-                std::mem::size_of::<FileHeader>(),
-            )
-        };
-
-        file.write_all(header_bytes)?;
-        file.flush()?;
-    }
-
-    let mut file = OpenOptions::new()
-        .create(true)
-        .read(true)
-        .write(true)
-        .open(backup_file)?;
-
-    let file_len = file.metadata()?.len() as usize;
-    if file_len < header_size {
-        return Err(format!("File too small: {} < {}", file_len, header_size).into());
-    }
-
-    let mut header_bytes = [0u8; 64];
-    use std::io::Read;
-    file.read_exact(&mut header_bytes)?;
-
-    let header = unsafe { &mut *(header_bytes.as_mut_ptr() as *mut FileHeader) };
-
-    let file_factor_count = header.factor_count;
-    if file_factor_count != factor_count as u32 {
-        return Err(format!(
-            "Factor count mismatch: file has {}, expected {}",
-            file_factor_count, factor_count
-        )
-        .into());
-    }
-
-    let current_count = header.record_count;
-
-    // 扩展文件大小（按最大可能值预分配）
-    let max_new_count = results.len() as u64;
-    let new_file_size = header_size as u64 + (current_count + max_new_count) * record_size as u64;
-    file.set_len(new_file_size)?;
-
-    drop(file);
-    let file = OpenOptions::new()
-        .create(true)
-        .read(true)
-        .write(true)
-        .open(backup_file)?;
-
-    let mut mmap = unsafe { MmapMut::map_mut(&file)? };
-
-    // 写入新记录，跳过异常记录
-    let start_offset = header_size + current_count as usize * record_size;
-    let mut written_count: usize = 0;
-
-    for result in results.iter() {
-        let record = DynamicRecord::from_task_result(result);
-        let record_bytes = record.to_bytes();
-
-        if record_bytes.len() != record_size {
-            eprintln!(
-                "WARNING: Record size mismatch: got {}, expected {}, skipping",
-                record_bytes.len(),
-                record_size
-            );
-            continue;
-        }
-
-        let record_offset = start_offset + written_count * record_size;
-        mmap[record_offset..record_offset + record_size].copy_from_slice(&record_bytes);
-        written_count += 1;
-    }
-
-    // 更新文件头中的记录数量（使用实际写入数）
-    let header = unsafe { &mut *(mmap.as_mut_ptr() as *mut FileHeader) };
-    header.record_count = current_count + written_count as u64;
-
-    // 截断文件到实际大小
-    let actual_file_size =
-        header_size as u64 + (current_count + written_count as u64) * record_size as u64;
-    mmap.flush()?;
-    drop(mmap);
-    file.set_len(actual_file_size)?;
-
-    Ok(())
-}
 
 // ==================== 主函数 ====================
 
@@ -1211,7 +1079,7 @@ pub fn run_pools_queue_date_only(
                 );
                 io::stdout().flush().unwrap();
 
-                match save_results_to_backup(&batch_results, &backup_file_clone, expected_clone) {
+                match backup_writer::save_results_to_backup(&batch_results, &backup_file_clone, expected_clone) {
                     Ok(()) => {}
                     Err(e) => {
                         eprintln!("❌ 第{}次备份失败: {}", batch_count, e);
@@ -1257,7 +1125,7 @@ pub fn run_pools_queue_date_only(
                 Local::now().format("%Y-%m-%d %H:%M:%S"),
                 batch_results.len()
             );
-            match save_results_to_backup(&batch_results, &backup_file_clone, expected_clone) {
+            match backup_writer::save_results_to_backup(&batch_results, &backup_file_clone, expected_clone) {
                 Ok(()) => println!(
                     "[{}] ✅ 最终备份成功！",
                     Local::now().format("%Y-%m-%d %H:%M:%S")
@@ -1435,7 +1303,7 @@ pub fn run_pools_queue_date_only(
                     Local::now().format("%Y-%m-%d %H:%M:%S"),
                     batch_results.len()
                 );
-                match save_results_to_backup(&batch_results, &retry_backup, retry_expected) {
+                match backup_writer::save_results_to_backup(&batch_results, &retry_backup, retry_expected) {
                     Ok(()) => println!(
                         "[{}] ✅ 重试结果保存成功！",
                         Local::now().format("%Y-%m-%d %H:%M:%S")

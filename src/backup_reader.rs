@@ -25,6 +25,13 @@ const HEADER_SIZE: usize = 64; // 文件头64字节
 const MAX_FACTORS: usize = 256; // 临时向后兼容常量
 const RECORD_SIZE: usize = 2116; // 临时向后兼容常量（对应256个因子）
 
+// v3 格式常量
+const V3_CODE_OFFSET: usize = 8;
+const V3_CODE_SIZE: usize = 16;
+const V3_TIMESTAMP_OFFSET: usize = 24;
+const V3_FACTOR_BASE_OFFSET: usize = 32;
+const V3_FACTOR_SIZE: usize = 4; // f32
+
 // 动态计算记录大小
 pub fn calculate_record_size(factor_count: usize) -> usize {
     8 +        // date: i64
@@ -197,6 +204,119 @@ pub fn calculate_hash(s: &str) -> u64 {
     hash
 }
 
+// ==================== v4 格式辅助 ====================
+
+/// v4 chunk 索引条目
+#[derive(Debug, Clone)]
+struct ChunkInfo {
+    compressed_size: usize,
+    record_count: usize,
+    data_offset: usize, // chunk 数据在 mmap 中的起始偏移
+}
+
+/// 扫描 v4 文件的数据区，构建 chunk 索引
+fn build_chunk_index(mmap: &[u8], header_version: u32) -> Result<Vec<ChunkInfo>, String> {
+    if header_version != 4 {
+        return Err(format!("build_chunk_index 仅支持 v4, 当前版本 {}", header_version));
+    }
+    let chunk_count = u32::from_le_bytes(mmap[28..32].try_into().unwrap()) as usize;
+    let mut chunks = Vec::with_capacity(chunk_count);
+    let mut offset = HEADER_SIZE;
+
+    for _ in 0..chunk_count {
+        if offset + 8 > mmap.len() {
+            return Err(format!("chunk 头部越界: offset={}, len={}", offset, mmap.len()));
+        }
+        let compressed_size = u32::from_le_bytes(mmap[offset..offset + 4].try_into().unwrap()) as usize;
+        let record_count = u32::from_le_bytes(mmap[offset + 4..offset + 8].try_into().unwrap()) as usize;
+        let data_offset = offset + 8;
+        if data_offset + compressed_size > mmap.len() {
+            return Err(format!(
+                "chunk 数据越界: offset={}, compressed_size={}, len={}",
+                data_offset, compressed_size, mmap.len()
+            ));
+        }
+        chunks.push(ChunkInfo {
+            compressed_size,
+            record_count,
+            data_offset,
+        });
+        offset = data_offset + compressed_size;
+    }
+    Ok(chunks)
+}
+
+/// 将 v4 文件所有 chunk 解压，拼接为连续的 v3 格式记录字节
+/// 返回 (解压后的连续字节, 总记录数, record_size)
+fn decompress_all_chunks_v4(mmap: &[u8]) -> Result<(Vec<u8>, usize, usize), String> {
+    let record_size = u32::from_le_bytes(mmap[20..24].try_into().unwrap()) as usize;
+    let record_count = u64::from_le_bytes(mmap[12..20].try_into().unwrap()) as usize;
+    let chunks = build_chunk_index(mmap, 4)?;
+
+    let mut buf = Vec::with_capacity(record_count * record_size);
+    for chunk in &chunks {
+        let compressed_data = &mmap[chunk.data_offset..chunk.data_offset + chunk.compressed_size];
+        let decompressed = zstd::decode_all(compressed_data)
+            .map_err(|e| format!("zstd 解压失败: {}", e))?;
+        buf.extend_from_slice(&decompressed);
+    }
+
+    // 校验解压后大小
+    if buf.len() != record_count * record_size {
+        return Err(format!(
+            "解压后大小不匹配: 期望 {} ({} * {}), 实际 {}",
+            record_count * record_size, record_count, record_size, buf.len()
+        ));
+    }
+
+    Ok((buf, record_count, record_size))
+}
+
+// ==================== v3 格式辅助函数 ====================
+
+/// 计算 v3 记录大小
+pub fn calculate_v3_record_size(factor_count: usize) -> usize {
+    8 + V3_CODE_SIZE + 8 + factor_count * V3_FACTOR_SIZE + 4
+}
+
+/// 从 v3 记录字节读取 null-terminated code 字符串
+fn read_v3_code(bytes: &[u8]) -> String {
+    let code_end = bytes[V3_CODE_OFFSET..V3_CODE_OFFSET + V3_CODE_SIZE]
+        .iter()
+        .position(|&b| b == 0)
+        .unwrap_or(V3_CODE_SIZE);
+    String::from_utf8_lossy(&bytes[V3_CODE_OFFSET..V3_CODE_OFFSET + code_end]).to_string()
+}
+
+/// 从 v3 记录字节读取单个 f32 因子并转为 f64
+fn read_v3_factor_f64(bytes: &[u8], column_index: usize) -> f64 {
+    let offset = V3_FACTOR_BASE_OFFSET + column_index * V3_FACTOR_SIZE;
+    let bits = u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
+    f32::from_bits(bits) as f64
+}
+
+/// 从 v3 记录字节读取日期
+fn read_v3_date(bytes: &[u8]) -> i64 {
+    i64::from_le_bytes(bytes[0..8].try_into().unwrap())
+}
+
+/// 从 v3 记录字节读取时间戳
+fn read_v3_timestamp(bytes: &[u8]) -> i64 {
+    i64::from_le_bytes(bytes[V3_TIMESTAMP_OFFSET..V3_TIMESTAMP_OFFSET + 8].try_into().unwrap())
+}
+
+/// 从 v3 记录字节读取所有因子（转为 f64）
+fn read_v3_all_factors_f64(bytes: &[u8], factor_count: usize) -> Vec<f64> {
+    (0..factor_count)
+        .map(|i| read_v3_factor_f64(bytes, i))
+        .collect()
+}
+
+/// 从 v3 记录字节读取指定范围的因子（转为 f64）
+fn read_v3_factors_range_f64(bytes: &[u8], start: usize, end: usize) -> Vec<f64> {
+    (start..=end).map(|i| read_v3_factor_f64(bytes, i)).collect()
+}
+
 pub fn read_existing_backup(
     file_path: &str,
 ) -> Result<HashSet<(i64, String)>, Box<dyn std::error::Error>> {
@@ -234,19 +354,55 @@ pub fn read_existing_backup_with_filter(
 
     let record_count = header.record_count as usize;
     let factor_count = header.factor_count as usize;
-    let record_size = calculate_record_size(factor_count);
     let records_start = HEADER_SIZE;
 
     // 检查版本号
-    if header.version == 2 {
-        // 新的动态格式
+    if header.version == 4 {
+        // v4 分块压缩格式
+        let (decompressed, total_count, record_size) = decompress_all_chunks_v4(&mmap)
+            .map_err(|e| Box::<dyn std::error::Error>::from(e))?;
+        for i in 0..total_count {
+            let record_offset = i * record_size;
+            if record_offset + record_size > decompressed.len() {
+                break;
+            }
+            let record_bytes = &decompressed[record_offset..record_offset + record_size];
+            let date = read_v3_date(record_bytes);
+            if let Some(filter) = date_filter {
+                if !filter.contains(&date) {
+                    continue;
+                }
+            }
+            let code = read_v3_code(record_bytes);
+            existing_tasks.insert((date, code));
+        }
+    } else if header.version == 3 {
+        // v3 格式
+        let record_size = calculate_v3_record_size(factor_count);
+        for i in 0..record_count {
+            let record_offset = records_start + i * record_size;
+            if record_offset + record_size > mmap.len() {
+                break;
+            }
+            let record_bytes = &mmap[record_offset..record_offset + record_size];
+            let date = read_v3_date(record_bytes);
+            if let Some(filter) = date_filter {
+                if !filter.contains(&date) {
+                    continue;
+                }
+            }
+            let code = read_v3_code(record_bytes);
+            existing_tasks.insert((date, code));
+        }
+    } else if header.version == 2 {
+        // v2 动态格式
+        let record_size = calculate_record_size(factor_count);
         for i in 0..record_count {
             let record_offset = records_start + i * record_size;
             let record_bytes = &mmap[record_offset..record_offset + record_size];
 
             match DynamicRecord::from_bytes(record_bytes, factor_count) {
                 Ok(record) => {
-                    // 如果有日期过滤器，只有匹配的日期才会被包含
                     if let Some(filter) = date_filter {
                         if !filter.contains(&record.date) {
                             continue;
@@ -256,10 +412,7 @@ pub fn read_existing_backup_with_filter(
                     let code = String::from_utf8_lossy(&record.code_bytes[..code_len]).to_string();
                     existing_tasks.insert((record.date, code));
                 }
-                Err(_) => {
-                    // 记录损坏，跳过
-                    continue;
-                }
+                Err(_) => continue,
             }
         }
     } else {
@@ -622,25 +775,132 @@ pub fn read_backup_results_with_filter(
 
     // 检查版本并计算预期文件大小
     let factor_count = header.factor_count as usize;
-    let record_size = if header.version == 2 {
+    let version = header.version;
+    let record_size = if version == 3 || version == 4 {
+        calculate_v3_record_size(factor_count)
+    } else if version == 2 {
         calculate_record_size(factor_count)
     } else {
         RECORD_SIZE // 旧格式使用固定大小
     };
 
-    let expected_size = HEADER_SIZE + record_count * record_size;
-    if file_len < expected_size {
-        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-            "Backup file appears to be truncated",
-        ));
+    // v4 不做简单的 expected_size 检查（压缩后大小不等于 record_count * record_size）
+    if version != 4 {
+        let expected_size = HEADER_SIZE + record_count * record_size;
+        if file_len < expected_size {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "Backup file appears to be truncated",
+            ));
+        }
     }
 
     // 预计算矩阵维度
-    let factor_count = header.factor_count as usize;
     let num_cols = 3 + factor_count;
 
     // 根据版本选择不同的读取方式
-    let parallel_results: Result<Vec<_>, _> = if header.version == 2 {
+    let parallel_results: Result<Vec<_>, _> = if version == 4 {
+        // v4 分块压缩格式：先解压到连续缓冲区，然后像 v3 一样解析
+        let (decompressed, total_count, rec_size) = decompress_all_chunks_v4(&mmap)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e))?;
+        let decompressed = Arc::new(decompressed);
+
+        (0..total_count)
+            .collect::<Vec<_>>()
+            .chunks(std::cmp::max(64, total_count / rayon::current_num_threads()))
+            .map(|chunk| chunk.to_vec())
+            .collect::<Vec<_>>()
+            .par_iter()
+            .map(|chunk| {
+                let mut chunk_data = Vec::with_capacity(chunk.len() * num_cols);
+                for &i in chunk {
+                    let record_offset = i * rec_size;
+                    let record_bytes = &decompressed[record_offset..record_offset + rec_size];
+
+                    let date = read_v3_date(record_bytes);
+                    if let Some(date_filter) = date_filter {
+                        if !date_filter.contains(&date) {
+                            continue;
+                        }
+                    }
+
+                    let code_str = read_v3_code(record_bytes);
+                    if let Some(code_filter) = code_filter {
+                        if !code_filter.contains(&code_str) {
+                            continue;
+                        }
+                    }
+
+                    let timestamp = read_v3_timestamp(record_bytes);
+
+                    chunk_data.push(date as f64);
+                    let code_num = if let Ok(num) = code_str.parse::<f64>() {
+                        num
+                    } else {
+                        f64::NAN
+                    };
+                    chunk_data.push(code_num);
+                    chunk_data.push(timestamp as f64);
+
+                    for j in 0..factor_count {
+                        chunk_data.push(read_v3_factor_f64(record_bytes, j));
+                    }
+                }
+                Ok(chunk_data)
+            })
+            .collect()
+    } else if header.version == 3 {
+        // v3 格式读取
+        (0..record_count)
+            .collect::<Vec<_>>()
+            .chunks(std::cmp::max(
+                64,
+                record_count / rayon::current_num_threads(),
+            ))
+            .map(|chunk| chunk.to_vec())
+            .collect::<Vec<_>>()
+            .par_iter()
+            .map(|chunk| {
+                let mut chunk_data = Vec::with_capacity(chunk.len() * num_cols);
+                let records_start = HEADER_SIZE;
+
+                for &i in chunk {
+                    let record_offset = records_start + i * record_size;
+                    let record_bytes = &mmap[record_offset..record_offset + record_size];
+
+                    let date = read_v3_date(record_bytes);
+                    if let Some(date_filter) = date_filter {
+                        if !date_filter.contains(&date) {
+                            continue;
+                        }
+                    }
+
+                    let code_str = read_v3_code(record_bytes);
+                    if let Some(code_filter) = code_filter {
+                        if !code_filter.contains(&code_str) {
+                            continue;
+                        }
+                    }
+
+                    let timestamp = read_v3_timestamp(record_bytes);
+
+                    chunk_data.push(date as f64);
+                    let code_num = if let Ok(num) = code_str.parse::<f64>() {
+                        num
+                    } else {
+                        f64::NAN
+                    };
+                    chunk_data.push(code_num);
+                    chunk_data.push(timestamp as f64);
+
+                    for j in 0..factor_count {
+                        chunk_data.push(read_v3_factor_f64(record_bytes, j));
+                    }
+                }
+
+                Ok(chunk_data)
+            })
+            .collect()
+    } else if header.version == 2 {
         // 新的动态格式读取
         (0..record_count)
             .collect::<Vec<_>>()
@@ -1022,11 +1282,17 @@ pub fn read_backup_results_ultra_fast_v4_with_filter(
         return Python::with_gil(|py| Ok(pyo3::types::PyDict::new(py).into()));
     }
 
-    // --- BUG修复：使用文件头中的 record_size ---
+    // --- 使用文件头中的 record_size ---
     let record_size = header.record_size as usize;
     let factor_count = header.factor_count as usize;
+    let version = header.version;
 
-    let calculated_record_size = calculate_record_size(factor_count);
+    // 根据版本校验 record_size
+    let calculated_record_size = if version == 3 || version == 4 {
+        calculate_v3_record_size(factor_count)
+    } else {
+        calculate_record_size(factor_count)
+    };
     if record_size != calculated_record_size {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
             "Record size mismatch: header says {}, calculated {}. File may be corrupt.",
@@ -1034,49 +1300,107 @@ pub fn read_backup_results_ultra_fast_v4_with_filter(
         )));
     }
 
-    let expected_size = HEADER_SIZE + record_count * record_size;
-    if file_len < expected_size {
-        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-            "Backup file appears to be truncated",
-        ));
+    // v4 不做简单的 expected_size 检查
+    if version != 4 {
+        let expected_size = HEADER_SIZE + record_count * record_size;
+        if file_len < expected_size {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "Backup file appears to be truncated",
+            ));
+        }
     }
 
-    // --- 返回类型修改：并行收集为元组，再转换为Python字典 ---
+    // --- 并行收集为元组，再转换为Python字典 ---
     let records_start = HEADER_SIZE;
-    let results: Vec<_> = (0..record_count)
-        .into_par_iter()
-        .filter_map(|i| {
-            let record_offset = records_start + i * record_size;
-            let record_bytes = &mmap[record_offset..record_offset + record_size];
+    let results: Vec<_> = if version == 4 {
+        // v4 分块压缩格式：先解压到连续缓冲区
+        let (decompressed, total_count, rec_size) = decompress_all_chunks_v4(&mmap)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e))?;
 
-            match DynamicRecord::from_bytes(record_bytes, factor_count) {
-                Ok(record) => {
-                    // 检查日期过滤器
-                    if let Some(date_filter) = date_filter {
-                        if !date_filter.contains(&record.date) {
-                            return None;
-                        }
+        (0..total_count)
+            .into_par_iter()
+            .filter_map(|i| {
+                let record_offset = i * rec_size;
+                let record_bytes = &decompressed[record_offset..record_offset + rec_size];
+
+                let date = read_v3_date(record_bytes);
+                if let Some(date_filter) = date_filter {
+                    if !date_filter.contains(&date) {
+                        return None;
                     }
+                }
 
-                    let code_len = std::cmp::min(record.code_len as usize, 32);
-                    let code = String::from_utf8_lossy(&record.code_bytes[..code_len]).to_string();
-
-                    // 检查代码过滤器
-                    if let Some(code_filter) = code_filter {
-                        if !code_filter.contains(&code) {
-                            return None;
-                        }
+                let code = read_v3_code(record_bytes);
+                if let Some(code_filter) = code_filter {
+                    if !code_filter.contains(&code) {
+                        return None;
                     }
+                }
 
-                    Some((record.date, code, record.timestamp, record.factors))
+                let timestamp = read_v3_timestamp(record_bytes);
+                let factors = read_v3_all_factors_f64(record_bytes, factor_count);
+                Some((date, code, timestamp, factors))
+            })
+            .collect()
+    } else if version == 3 {
+        // v3 格式解析
+        (0..record_count)
+            .into_par_iter()
+            .filter_map(|i| {
+                let record_offset = records_start + i * record_size;
+                let record_bytes = &mmap[record_offset..record_offset + record_size];
+
+                let date = read_v3_date(record_bytes);
+                if let Some(date_filter) = date_filter {
+                    if !date_filter.contains(&date) {
+                        return None;
+                    }
                 }
-                Err(_) => {
-                    // 记录损坏，返回None而不是默认值
-                    None
+
+                let code = read_v3_code(record_bytes);
+                if let Some(code_filter) = code_filter {
+                    if !code_filter.contains(&code) {
+                        return None;
+                    }
                 }
-            }
-        })
-        .collect();
+
+                let timestamp = read_v3_timestamp(record_bytes);
+                let factors = read_v3_all_factors_f64(record_bytes, factor_count);
+                Some((date, code, timestamp, factors))
+            })
+            .collect()
+    } else {
+        // v2 格式解析
+        (0..record_count)
+            .into_par_iter()
+            .filter_map(|i| {
+                let record_offset = records_start + i * record_size;
+                let record_bytes = &mmap[record_offset..record_offset + record_size];
+
+                match DynamicRecord::from_bytes(record_bytes, factor_count) {
+                    Ok(record) => {
+                        if let Some(date_filter) = date_filter {
+                            if !date_filter.contains(&record.date) {
+                                return None;
+                            }
+                        }
+
+                        let code_len = std::cmp::min(record.code_len as usize, 32);
+                        let code = String::from_utf8_lossy(&record.code_bytes[..code_len]).to_string();
+
+                        if let Some(code_filter) = code_filter {
+                            if !code_filter.contains(&code) {
+                                return None;
+                            }
+                        }
+
+                        Some((record.date, code, record.timestamp, record.factors))
+                    }
+                    Err(_) => None
+                }
+            })
+            .collect()
+    };
 
     let num_rows = results.len();
     let mut dates = Vec::with_capacity(num_rows);
@@ -1204,7 +1528,11 @@ pub fn read_backup_results_single_column_with_filter(
         )));
     }
 
-    let calculated_record_size = calculate_record_size(factor_count);
+    let calculated_record_size = if header.version == 3 || header.version == 4 {
+        calculate_v3_record_size(factor_count)
+    } else {
+        calculate_record_size(factor_count)
+    };
     if record_size != calculated_record_size {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
             "记录大小不匹配: 文件头显示 {}, 计算得到 {}. 文件可能损坏.",
@@ -1212,66 +1540,123 @@ pub fn read_backup_results_single_column_with_filter(
         )));
     }
 
-    let expected_size = HEADER_SIZE + record_count * record_size;
-    if file_len < expected_size {
-        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-            "备份文件似乎被截断了",
-        ));
+    let version = header.version;
+
+    // v4 不做简单的 expected_size 检查
+    if version != 4 {
+        let expected_size = HEADER_SIZE + record_count * record_size;
+        if file_len < expected_size {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "备份文件似乎被截断了",
+            ));
+        }
     }
 
-    // 使用自定义线程池并直接从mmap读取，避免大量内存复制
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(std::cmp::min(rayon::current_num_threads(), 8))
-        .build()
-        .map_err(|e| {
-            PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("创建线程池失败: {}", e))
-        })?;
-
     let records_start = HEADER_SIZE;
-    let results: Vec<_> = pool.install(|| {
+
+    let results: Vec<_> = if version == 4 {
+        // v4 分块压缩格式
+        let (decompressed, total_count, rec_size) = decompress_all_chunks_v4(&mmap)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e))?;
+
+        (0..total_count)
+            .into_par_iter()
+            .filter_map(|i| {
+                let record_offset = i * rec_size;
+                let record_bytes = &decompressed[record_offset..record_offset + rec_size];
+
+                let date = read_v3_date(record_bytes);
+                if let Some(date_filter) = date_filter {
+                    if !date_filter.contains(&date) {
+                        return None;
+                    }
+                }
+
+                let code = read_v3_code(record_bytes);
+                if let Some(code_filter) = code_filter {
+                    if !code_filter.contains(&code) {
+                        return None;
+                    }
+                }
+
+                let factor_value = read_v3_factor_f64(record_bytes, column_index);
+                Some((date, code, factor_value))
+            })
+            .collect()
+    } else if version == 3 {
+        // v3 格式单列读取
         (0..record_count)
             .into_par_iter()
             .filter_map(|i| {
                 let record_offset = records_start + i * record_size;
                 let record_bytes = &mmap[record_offset..record_offset + record_size];
 
-                match DynamicRecord::from_bytes(record_bytes, factor_count) {
-                    Ok(record) => {
-                        // 检查日期过滤器
-                        if let Some(date_filter) = date_filter {
-                            if !date_filter.contains(&record.date) {
-                                return None;
-                            }
-                        }
-
-                        let code_len = std::cmp::min(record.code_len as usize, 32);
-                        let code =
-                            String::from_utf8_lossy(&record.code_bytes[..code_len]).to_string();
-
-                        // 检查代码过滤器
-                        if let Some(code_filter) = code_filter {
-                            if !code_filter.contains(&code) {
-                                return None;
-                            }
-                        }
-
-                        // 获取指定列的因子值
-                        let factor_value = if column_index < record.factors.len() {
-                            record.factors[column_index]
-                        } else {
-                            f64::NAN
-                        };
-
-                        Some((record.date, code, factor_value))
-                    }
-                    Err(_) => {
-                        // 记录损坏，返回None
-                        None
+                let date = read_v3_date(record_bytes);
+                if let Some(date_filter) = date_filter {
+                    if !date_filter.contains(&date) {
+                        return None;
                     }
                 }
+
+                let code = read_v3_code(record_bytes);
+                if let Some(code_filter) = code_filter {
+                    if !code_filter.contains(&code) {
+                        return None;
+                    }
+                }
+
+                let factor_value = read_v3_factor_f64(record_bytes, column_index);
+                Some((date, code, factor_value))
             })
-            .collect::<Vec<_>>()
-    });
+            .collect()
+    } else {
+        // v2 格式
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(std::cmp::min(rayon::current_num_threads(), 8))
+            .build()
+            .map_err(|e| {
+                PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("创建线程池失败: {}", e))
+            })?;
+
+        pool.install(|| {
+            (0..record_count)
+                .into_par_iter()
+                .filter_map(|i| {
+                    let record_offset = records_start + i * record_size;
+                    let record_bytes = &mmap[record_offset..record_offset + record_size];
+
+                    match DynamicRecord::from_bytes(record_bytes, factor_count) {
+                        Ok(record) => {
+                            if let Some(date_filter) = date_filter {
+                                if !date_filter.contains(&record.date) {
+                                    return None;
+                                }
+                            }
+
+                            let code_len = std::cmp::min(record.code_len as usize, 32);
+                            let code =
+                                String::from_utf8_lossy(&record.code_bytes[..code_len]).to_string();
+
+                            if let Some(code_filter) = code_filter {
+                                if !code_filter.contains(&code) {
+                                    return None;
+                                }
+                            }
+
+                            let factor_value = if column_index < record.factors.len() {
+                                record.factors[column_index]
+                            } else {
+                                f64::NAN
+                            };
+
+                            Some((record.date, code, factor_value))
+                        }
+                        Err(_) => None
+                    }
+                })
+                .collect()
+        })
+    };
 
     // 显式释放mmap
     drop(mmap);
@@ -1391,7 +1776,11 @@ pub fn read_backup_results_columns_range_with_filter(
         )));
     }
 
-    let calculated_record_size = calculate_record_size(factor_count);
+    let calculated_record_size = if header.version == 3 || header.version == 4 {
+        calculate_v3_record_size(factor_count)
+    } else {
+        calculate_record_size(factor_count)
+    };
     if record_size != calculated_record_size {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
             "记录大小不匹配: 文件头显示 {}, 计算得到 {}. 文件可能损坏.",
@@ -1399,61 +1788,119 @@ pub fn read_backup_results_columns_range_with_filter(
         )));
     }
 
-    let expected_size = HEADER_SIZE + record_count * record_size;
-    if file_len < expected_size {
-        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-            "备份文件似乎被截断了",
-        ));
+    let version = header.version;
+
+    // v4 不做简单的 expected_size 检查
+    if version != 4 {
+        let expected_size = HEADER_SIZE + record_count * record_size;
+        if file_len < expected_size {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "备份文件似乎被截断了",
+            ));
+        }
     }
 
     // 并行读取指定列范围
     let records_start = HEADER_SIZE;
     let num_columns = column_end - column_start + 1;
-    let results: Vec<_> = (0..record_count)
-        .into_par_iter()
-        .filter_map(|i| {
-            let record_offset = records_start + i * record_size;
-            let record_bytes = &mmap[record_offset..record_offset + record_size];
 
-            match DynamicRecord::from_bytes(record_bytes, factor_count) {
-                Ok(record) => {
-                    // 检查日期过滤器
-                    if let Some(date_filter) = date_filter {
-                        if !date_filter.contains(&record.date) {
-                            return None;
-                        }
+    let results: Vec<_> = if version == 4 {
+        // v4 分块压缩格式
+        let (decompressed, total_count, rec_size) = decompress_all_chunks_v4(&mmap)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e))?;
+
+        (0..total_count)
+            .into_par_iter()
+            .filter_map(|i| {
+                let record_offset = i * rec_size;
+                let record_bytes = &decompressed[record_offset..record_offset + rec_size];
+
+                let date = read_v3_date(record_bytes);
+                if let Some(date_filter) = date_filter {
+                    if !date_filter.contains(&date) {
+                        return None;
                     }
-
-                    let code_len = std::cmp::min(record.code_len as usize, 32);
-                    let code = String::from_utf8_lossy(&record.code_bytes[..code_len]).to_string();
-
-                    // 检查代码过滤器
-                    if let Some(code_filter) = code_filter {
-                        if !code_filter.contains(&code) {
-                            return None;
-                        }
-                    }
-
-                    // 获取指定列范围的因子值
-                    let mut factor_values = Vec::with_capacity(num_columns);
-                    for col_idx in column_start..=column_end {
-                        let factor_value = if col_idx < record.factors.len() {
-                            record.factors[col_idx]
-                        } else {
-                            f64::NAN
-                        };
-                        factor_values.push(factor_value);
-                    }
-
-                    Some((record.date, code, factor_values))
                 }
-                Err(_) => {
-                    // 记录损坏，返回None
-                    None
+
+                let code = read_v3_code(record_bytes);
+                if let Some(code_filter) = code_filter {
+                    if !code_filter.contains(&code) {
+                        return None;
+                    }
                 }
-            }
-        })
-        .collect();
+
+                let factor_values = read_v3_factors_range_f64(record_bytes, column_start, column_end);
+                Some((date, code, factor_values))
+            })
+            .collect()
+    } else if version == 3 {
+        // v3 格式列范围读取
+        (0..record_count)
+            .into_par_iter()
+            .filter_map(|i| {
+                let record_offset = records_start + i * record_size;
+                let record_bytes = &mmap[record_offset..record_offset + record_size];
+
+                let date = read_v3_date(record_bytes);
+                if let Some(date_filter) = date_filter {
+                    if !date_filter.contains(&date) {
+                        return None;
+                    }
+                }
+
+                let code = read_v3_code(record_bytes);
+                if let Some(code_filter) = code_filter {
+                    if !code_filter.contains(&code) {
+                        return None;
+                    }
+                }
+
+                let factor_values = read_v3_factors_range_f64(record_bytes, column_start, column_end);
+                Some((date, code, factor_values))
+            })
+            .collect()
+    } else {
+        // v2 格式列范围读取
+        (0..record_count)
+            .into_par_iter()
+            .filter_map(|i| {
+                let record_offset = records_start + i * record_size;
+                let record_bytes = &mmap[record_offset..record_offset + record_size];
+
+                match DynamicRecord::from_bytes(record_bytes, factor_count) {
+                    Ok(record) => {
+                        if let Some(date_filter) = date_filter {
+                            if !date_filter.contains(&record.date) {
+                                return None;
+                            }
+                        }
+
+                        let code_len = std::cmp::min(record.code_len as usize, 32);
+                        let code = String::from_utf8_lossy(&record.code_bytes[..code_len]).to_string();
+
+                        if let Some(code_filter) = code_filter {
+                            if !code_filter.contains(&code) {
+                                return None;
+                            }
+                        }
+
+                        let mut factor_values = Vec::with_capacity(num_columns);
+                        for col_idx in column_start..=column_end {
+                            let factor_value = if col_idx < record.factors.len() {
+                                record.factors[col_idx]
+                            } else {
+                                f64::NAN
+                            };
+                            factor_values.push(factor_value);
+                        }
+
+                        Some((record.date, code, factor_values))
+                    }
+                    Err(_) => None
+                }
+            })
+            .collect()
+    };
 
     let num_rows = results.len();
     let mut dates = Vec::with_capacity(num_rows);
@@ -1887,7 +2334,11 @@ pub fn read_backup_results_factor_only_with_filter(
         )));
     }
 
-    let calculated_record_size = calculate_record_size(factor_count);
+    let calculated_record_size = if header.version == 3 || header.version == 4 {
+        calculate_v3_record_size(factor_count)
+    } else {
+        calculate_record_size(factor_count)
+    };
     if record_size != calculated_record_size {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
             "记录大小不匹配: 文件头显示 {}, 计算得到 {}. 文件可能损坏.",
@@ -1895,65 +2346,118 @@ pub fn read_backup_results_factor_only_with_filter(
         )));
     }
 
-    let expected_size = HEADER_SIZE + record_count * record_size;
-    if file_len < expected_size {
-        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-            "备份文件似乎被截断了",
-        ));
+    let version = header.version;
+
+    // v4 不做简单的 expected_size 检查
+    if version != 4 {
+        let expected_size = HEADER_SIZE + record_count * record_size;
+        if file_len < expected_size {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "备份文件似乎被截断了",
+            ));
+        }
     }
 
-    // 使用自定义线程池避免资源竞争和泄漏
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(std::cmp::min(rayon::current_num_threads(), 8))
-        .build()
-        .map_err(|e| {
-            PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("创建线程池失败: {}", e))
-        })?;
-
-    // 并行读取只获取因子值
     let records_start = HEADER_SIZE;
-    let factors: Vec<f64> = pool.install(|| {
+
+    let factors: Vec<f64> = if version == 4 {
+        // v4 分块压缩格式
+        let (decompressed, total_count, rec_size) = decompress_all_chunks_v4(&mmap)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e))?;
+
+        (0..total_count)
+            .into_par_iter()
+            .filter_map(|i| {
+                let record_offset = i * rec_size;
+                let record_bytes = &decompressed[record_offset..record_offset + rec_size];
+
+                let date = read_v3_date(record_bytes);
+                if let Some(date_filter) = date_filter {
+                    if !date_filter.contains(&date) {
+                        return None;
+                    }
+                }
+
+                if let Some(code_filter) = code_filter {
+                    let code = read_v3_code(record_bytes);
+                    if !code_filter.contains(&code) {
+                        return None;
+                    }
+                }
+
+                Some(read_v3_factor_f64(record_bytes, column_index))
+            })
+            .collect()
+    } else if version == 3 {
+        // v3 格式因子读取
         (0..record_count)
             .into_par_iter()
             .filter_map(|i| {
                 let record_offset = records_start + i * record_size;
                 let record_bytes = &mmap[record_offset..record_offset + record_size];
 
-                match DynamicRecord::from_bytes(record_bytes, factor_count) {
-                    Ok(record) => {
-                        // 检查日期过滤器
-                        if let Some(date_filter) = date_filter {
-                            if !date_filter.contains(&record.date) {
-                                return None;
-                            }
-                        }
-
-                        // 检查代码过滤器
-                        if let Some(code_filter) = code_filter {
-                            let code_len = std::cmp::min(record.code_len as usize, 32);
-                            let code =
-                                String::from_utf8_lossy(&record.code_bytes[..code_len]).to_string();
-
-                            if !code_filter.contains(&code) {
-                                return None;
-                            }
-                        }
-
-                        // 只返回指定列的因子值
-                        if column_index < record.factors.len() {
-                            Some(record.factors[column_index])
-                        } else {
-                            Some(f64::NAN)
-                        }
-                    }
-                    Err(_) => {
-                        // 记录损坏，返回NaN
-                        Some(f64::NAN)
+                let date = read_v3_date(record_bytes);
+                if let Some(date_filter) = date_filter {
+                    if !date_filter.contains(&date) {
+                        return None;
                     }
                 }
+
+                if let Some(code_filter) = code_filter {
+                    let code = read_v3_code(record_bytes);
+                    if !code_filter.contains(&code) {
+                        return None;
+                    }
+                }
+
+                Some(read_v3_factor_f64(record_bytes, column_index))
             })
             .collect()
-    });
+    } else {
+        // v2 格式因子读取
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(std::cmp::min(rayon::current_num_threads(), 8))
+            .build()
+            .map_err(|e| {
+                PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("创建线程池失败: {}", e))
+            })?;
+
+        pool.install(|| {
+            (0..record_count)
+                .into_par_iter()
+                .filter_map(|i| {
+                    let record_offset = records_start + i * record_size;
+                    let record_bytes = &mmap[record_offset..record_offset + record_size];
+
+                    match DynamicRecord::from_bytes(record_bytes, factor_count) {
+                        Ok(record) => {
+                            if let Some(date_filter) = date_filter {
+                                if !date_filter.contains(&record.date) {
+                                    return None;
+                                }
+                            }
+
+                            if let Some(code_filter) = code_filter {
+                                let code_len = std::cmp::min(record.code_len as usize, 32);
+                                let code =
+                                    String::from_utf8_lossy(&record.code_bytes[..code_len]).to_string();
+                                if !code_filter.contains(&code) {
+                                    return None;
+                                }
+                            }
+
+                            Some(if column_index < record.factors.len() {
+                                record.factors[column_index]
+                            } else {
+                                f64::NAN
+                            })
+                        }
+                        Err(_) => Some(f64::NAN)
+                    }
+                })
+                .collect()
+        })
+    };
 
     // 显式释放mmap
     drop(mmap);
@@ -2178,7 +2682,11 @@ pub fn read_backup_results_factor_only_ultra_fast(
         )));
     }
 
-    let calculated_record_size = calculate_record_size(factor_count);
+    let calculated_record_size = if header.version == 3 || header.version == 4 {
+        calculate_v3_record_size(factor_count)
+    } else {
+        calculate_record_size(factor_count)
+    };
     if record_size != calculated_record_size {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
             "记录大小不匹配: 文件头显示 {}, 计算得到 {}. 文件可能损坏.",
@@ -2186,22 +2694,88 @@ pub fn read_backup_results_factor_only_ultra_fast(
         )));
     }
 
-    let expected_size = HEADER_SIZE + record_count * record_size;
-    if file_len < expected_size {
-        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-            "备份文件似乎被截断了",
-        ));
+    // v4 不做简单的 expected_size 检查
+    let version = header.version;
+    if version != 4 {
+        let expected_size = HEADER_SIZE + record_count * record_size;
+        if file_len < expected_size {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "备份文件似乎被截断了",
+            ));
+        }
     }
 
     // 直接偏移读取因子值
     let records_start = HEADER_SIZE;
 
-    // 计算因子值在记录中的偏移量
-    // 记录格式: date(8) + code_hash(8) + timestamp(8) + factor_count(4) + code_len(4) + code_bytes(32) + factors(factor_count * 8)
-    let factor_base_offset = 8 + 8 + 8 + 4 + 4 + 32; // date + code_hash + timestamp + factor_count + code_len + code_bytes
+    if version == 4 {
+        // v4 分块压缩格式：解压后直接偏移读取
+        let (decompressed, total_count, rec_size) = decompress_all_chunks_v4(&mmap)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e))?;
+        let factor_offset = V3_FACTOR_BASE_OFFSET + column_index * V3_FACTOR_SIZE;
+
+        let mut factors = vec![0f64; total_count];
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(std::cmp::min(rayon::current_num_threads(), 16))
+            .build()
+            .map_err(|e| {
+                PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("创建线程池失败: {}", e))
+            })?;
+
+        pool.install(|| {
+            factors
+                .par_iter_mut()
+                .enumerate()
+                .with_min_len(4096)
+                .for_each(|(i, slot)| {
+                    let record_offset = i * rec_size;
+                    let ptr = decompressed.as_ptr().wrapping_add(record_offset + factor_offset);
+                    unsafe {
+                        let bits = u32::from_le(ptr::read_unaligned(ptr as *const u32));
+                        *slot = f32::from_bits(bits) as f64;
+                    }
+                });
+        });
+
+        drop(mmap);
+        return Python::with_gil(|py| Ok(PyArray1::from_vec(py, factors).into_py(py)));
+    }
+
+    if version == 3 {
+        // v3: factor_base_offset = 32, factor_size = 4 (f32)
+        let factor_offset = V3_FACTOR_BASE_OFFSET + column_index * V3_FACTOR_SIZE;
+
+        let mut factors = vec![0f64; record_count];
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(std::cmp::min(rayon::current_num_threads(), 16))
+            .build()
+            .map_err(|e| {
+                PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("创建线程池失败: {}", e))
+            })?;
+
+        pool.install(|| {
+            factors
+                .par_iter_mut()
+                .enumerate()
+                .with_min_len(4096)
+                .for_each(|(i, slot)| {
+                    let record_offset = records_start + i * record_size;
+                    unsafe {
+                        let ptr = mmap.as_ptr().add(record_offset + factor_offset);
+                        let bits = u32::from_le(ptr::read_unaligned(ptr as *const u32));
+                        *slot = f32::from_bits(bits) as f64;
+                    }
+                });
+        });
+
+        drop(mmap);
+        return Python::with_gil(|py| Ok(PyArray1::from_vec(py, factors).into_py(py)));
+    }
+
+    // v2: 原有逻辑
+    let factor_base_offset = 8 + 8 + 8 + 4 + 4 + 32;
     let factor_offset = factor_base_offset + column_index * 8;
 
-    // 使用自定义线程池避免资源竞争和泄漏
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(std::cmp::min(rayon::current_num_threads(), 16))
         .build()
@@ -2209,7 +2783,6 @@ pub fn read_backup_results_factor_only_ultra_fast(
             PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("创建线程池失败: {}", e))
         })?;
 
-    // 并行读取所有因子值
     let mut factors = vec![0f64; record_count];
     pool.install(|| {
         factors
@@ -2218,8 +2791,6 @@ pub fn read_backup_results_factor_only_ultra_fast(
             .with_min_len(4096)
             .for_each(|(i, slot)| {
                 let record_offset = records_start + i * record_size;
-
-                // 直接读取因子值，完全跳过其他字段的解析
                 unsafe {
                     let factor_ptr = mmap.as_ptr().add(record_offset + factor_offset) as *const f64;
                     *slot = *factor_ptr;
@@ -2308,7 +2879,11 @@ pub fn read_backup_results_single_column_ultra_fast_v2_single_thread(
         )));
     }
 
-    let calculated_record_size = calculate_record_size(factor_count);
+    let calculated_record_size = if header.version == 3 || header.version == 4 {
+        calculate_v3_record_size(factor_count)
+    } else {
+        calculate_record_size(factor_count)
+    };
     if record_size != calculated_record_size {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
             "记录大小不匹配: 文件头显示 {}, 计算得到 {}. 文件可能损坏.",
@@ -2316,52 +2891,99 @@ pub fn read_backup_results_single_column_ultra_fast_v2_single_thread(
         )));
     }
 
-    let expected_size = HEADER_SIZE + record_count * record_size;
-    if file_len < expected_size {
-        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-            "备份文件似乎被截断了",
-        ));
+    let version = header.version;
+
+    // v4 不做简单的 expected_size 检查
+    if version != 4 {
+        let expected_size = HEADER_SIZE + record_count * record_size;
+        if file_len < expected_size {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "备份文件似乎被截断了",
+            ));
+        }
     }
 
-    let date_offset = 0;
-    let code_len_offset = 8 + 8 + 8 + 4;
-    let code_bytes_offset = code_len_offset + 4;
-    let factor_base_offset = 8 + 8 + 8 + 4 + 4 + 32;
-    let factor_offset = factor_base_offset + column_index * 8;
-
     let records_start = HEADER_SIZE;
-
     let mut dates = Vec::with_capacity(record_count);
     let mut codes = Vec::with_capacity(record_count);
     let mut factors = Vec::with_capacity(record_count);
 
-    for i in 0..record_count {
-        let record_offset = records_start + i * record_size;
+    if version == 4 {
+        // v4 分块压缩格式：解压后顺序读取
+        let (decompressed, total_count, rec_size) = decompress_all_chunks_v4(&mmap)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e))?;
+        let factor_offset = V3_FACTOR_BASE_OFFSET + column_index * V3_FACTOR_SIZE;
+        for i in 0..total_count {
+            let record_offset = i * rec_size;
+            let date = i64::from_le_bytes(decompressed[record_offset..record_offset + 8].try_into().unwrap());
+            let code = {
+                let code_start = record_offset + V3_CODE_OFFSET;
+                let code_end = (0..V3_CODE_SIZE).position(|j| decompressed[code_start + j] == 0).unwrap_or(V3_CODE_SIZE);
+                String::from_utf8_lossy(&decompressed[code_start..code_start + code_end]).into_owned()
+            };
+            let factor = {
+                let off = record_offset + factor_offset;
+                let bits = u32::from_le_bytes(decompressed[off..off + 4].try_into().unwrap());
+                f32::from_bits(bits) as f64
+            };
+            dates.push(date);
+            codes.push(code);
+            factors.push(factor);
+        }
+    } else if header.version == 3 {
+        // v3: date(0) + code(8,16) + timestamp(24) + factors(32) - null-terminated code, f32 factors
+        let factor_offset = V3_FACTOR_BASE_OFFSET + column_index * V3_FACTOR_SIZE;
+        for i in 0..record_count {
+            let record_offset = records_start + i * record_size;
+            let date = unsafe {
+                let ptr = mmap.as_ptr().add(record_offset) as *const i64;
+                i64::from_le(ptr::read_unaligned(ptr))
+            };
+            let code = unsafe {
+                let code_ptr = mmap.as_ptr().add(record_offset + V3_CODE_OFFSET);
+                let code_end = (0..V3_CODE_SIZE).position(|j| *code_ptr.add(j) == 0).unwrap_or(V3_CODE_SIZE);
+                let slice = std::slice::from_raw_parts(code_ptr, code_end);
+                String::from_utf8_lossy(slice).into_owned()
+            };
+            let factor = unsafe {
+                let ptr = mmap.as_ptr().add(record_offset + factor_offset);
+                let bits = u32::from_le(ptr::read_unaligned(ptr as *const u32));
+                f32::from_bits(bits) as f64
+            };
+            dates.push(date);
+            codes.push(code);
+            factors.push(factor);
+        }
+    } else {
+        // v2: 原有逻辑
+        let code_len_offset = 8 + 8 + 8 + 4;
+        let code_bytes_offset = code_len_offset + 4;
+        let factor_base_offset = 8 + 8 + 8 + 4 + 4 + 32;
+        let factor_offset = factor_base_offset + column_index * 8;
 
-        let date = unsafe {
-            let date_ptr = mmap.as_ptr().add(record_offset + date_offset) as *const i64;
-            i64::from_le(ptr::read_unaligned(date_ptr))
-        };
-
-        let code_len = unsafe {
-            let code_len_ptr = mmap.as_ptr().add(record_offset + code_len_offset) as *const u32;
-            std::cmp::min(u32::from_le(ptr::read_unaligned(code_len_ptr)) as usize, 32)
-        };
-
-        let code = unsafe {
-            let code_bytes_ptr = mmap.as_ptr().add(record_offset + code_bytes_offset);
-            let code_slice = std::slice::from_raw_parts(code_bytes_ptr, code_len);
-            String::from_utf8_lossy(code_slice).into_owned()
-        };
-
-        let factor = unsafe {
-            let factor_bits_ptr = mmap.as_ptr().add(record_offset + factor_offset) as *const u64;
-            f64::from_bits(u64::from_le(ptr::read_unaligned(factor_bits_ptr)))
-        };
-
-        dates.push(date);
-        codes.push(code);
-        factors.push(factor);
+        for i in 0..record_count {
+            let record_offset = records_start + i * record_size;
+            let date = unsafe {
+                let date_ptr = mmap.as_ptr().add(record_offset) as *const i64;
+                i64::from_le(ptr::read_unaligned(date_ptr))
+            };
+            let code_len = unsafe {
+                let code_len_ptr = mmap.as_ptr().add(record_offset + code_len_offset) as *const u32;
+                std::cmp::min(u32::from_le(ptr::read_unaligned(code_len_ptr)) as usize, 32)
+            };
+            let code = unsafe {
+                let code_bytes_ptr = mmap.as_ptr().add(record_offset + code_bytes_offset);
+                let code_slice = std::slice::from_raw_parts(code_bytes_ptr, code_len);
+                String::from_utf8_lossy(code_slice).into_owned()
+            };
+            let factor = unsafe {
+                let factor_bits_ptr = mmap.as_ptr().add(record_offset + factor_offset) as *const u64;
+                f64::from_bits(u64::from_le(ptr::read_unaligned(factor_bits_ptr)))
+            };
+            dates.push(date);
+            codes.push(code);
+            factors.push(factor);
+        }
     }
 
     drop(mmap);
@@ -2369,11 +2991,9 @@ pub fn read_backup_results_single_column_ultra_fast_v2_single_thread(
     Python::with_gil(|py| {
         let numpy = py.import("numpy")?;
         let dict = pyo3::types::PyDict::new(py);
-
         dict.set_item("date", PyArray1::from_vec(py, dates))?;
         dict.set_item("code", numpy.call_method1("array", (codes,))?)?;
         dict.set_item("factor", PyArray1::from_vec(py, factors))?;
-
         Ok(dict.into())
     })
 }
@@ -2445,7 +3065,11 @@ pub fn read_backup_results_single_column_ultra_fast_v2(
         )));
     }
 
-    let calculated_record_size = calculate_record_size(factor_count);
+    let calculated_record_size = if header.version == 3 || header.version == 4 {
+        calculate_v3_record_size(factor_count)
+    } else {
+        calculate_record_size(factor_count)
+    };
     if record_size != calculated_record_size {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
             "记录大小不匹配: 文件头显示 {}, 计算得到 {}. 文件可能损坏.",
@@ -2453,24 +3077,20 @@ pub fn read_backup_results_single_column_ultra_fast_v2(
         )));
     }
 
-    let expected_size = HEADER_SIZE + record_count * record_size;
-    if file_len < expected_size {
-        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-            "备份文件似乎被截断了",
-        ));
-    }
+    let version = header.version;
 
-    // 计算各字段在记录中的偏移量
-    // 记录格式: date(8) + code_hash(8) + timestamp(8) + factor_count(4) + code_len(4) + code_bytes(32) + factors(factor_count * 8)
-    let date_offset = 0;
-    let code_len_offset = 8 + 8 + 8 + 4; // date + code_hash + timestamp + factor_count
-    let code_bytes_offset = code_len_offset + 4; // + code_len
-    let factor_base_offset = 8 + 8 + 8 + 4 + 4 + 32; // date + code_hash + timestamp + factor_count + code_len + code_bytes
-    let factor_offset = factor_base_offset + column_index * 8;
+    // v4 不做简单的 expected_size 检查
+    if version != 4 {
+        let expected_size = HEADER_SIZE + record_count * record_size;
+        if file_len < expected_size {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "备份文件似乎被截断了",
+            ));
+        }
+    }
 
     let records_start = HEADER_SIZE;
 
-    // 使用更大的线程池以提高并行度
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(std::cmp::min(rayon::current_num_threads(), 16))
         .build()
@@ -2478,83 +3098,695 @@ pub fn read_backup_results_single_column_ultra_fast_v2(
             PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("创建线程池失败: {}", e))
         })?;
 
-    // 预先分配Vec避免多次重新分配
     let mut dates = Vec::with_capacity(record_count);
     let mut codes = Vec::with_capacity(record_count);
     let mut factors = Vec::with_capacity(record_count);
 
-    // 使用更大的批次来减少同步开销
     const BATCH_SIZE: usize = 10000;
     let num_batches = (record_count + BATCH_SIZE - 1) / BATCH_SIZE;
 
-    pool.install(|| {
-        // 并行处理每个批次
-        let batch_results: Vec<Vec<(i64, String, f64)>> = (0..num_batches)
-            .into_par_iter()
-            .map(|batch_idx| {
-                let start_idx = batch_idx * BATCH_SIZE;
-                let end_idx = std::cmp::min(start_idx + BATCH_SIZE, record_count);
-                let mut batch_data = Vec::with_capacity(end_idx - start_idx);
+    if version == 4 {
+        // v4 分块压缩格式：解压后并行读取
+        let (decompressed, total_count, rec_size) = decompress_all_chunks_v4(&mmap)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e))?;
+        let factor_offset = V3_FACTOR_BASE_OFFSET + column_index * V3_FACTOR_SIZE;
+        let v4_num_batches = (total_count + BATCH_SIZE - 1) / BATCH_SIZE;
 
-                for i in start_idx..end_idx {
-                    let record_offset = records_start + i * record_size;
+        pool.install(|| {
+            let batch_results: Vec<Vec<(i64, String, f64)>> = (0..v4_num_batches)
+                .into_par_iter()
+                .map(|batch_idx| {
+                    let start_idx = batch_idx * BATCH_SIZE;
+                    let end_idx = std::cmp::min(start_idx + BATCH_SIZE, total_count);
+                    let mut batch_data = Vec::with_capacity(end_idx - start_idx);
 
-                    // 直接读取日期
-                    let date = unsafe {
-                        let date_ptr = mmap.as_ptr().add(record_offset + date_offset) as *const i64;
-                        *date_ptr
-                    };
+                    for i in start_idx..end_idx {
+                        let record_offset = i * rec_size;
+                        let date = i64::from_le_bytes(
+                            decompressed[record_offset..record_offset + 8].try_into().unwrap()
+                        );
+                        let code = {
+                            let code_start = record_offset + V3_CODE_OFFSET;
+                            let code_end = (0..V3_CODE_SIZE)
+                                .position(|j| decompressed[code_start + j] == 0)
+                                .unwrap_or(V3_CODE_SIZE);
+                            String::from_utf8_lossy(
+                                &decompressed[code_start..code_start + code_end]
+                            ).into_owned()
+                        };
+                        let factor = {
+                            let off = record_offset + factor_offset;
+                            let bits = u32::from_le_bytes(
+                                decompressed[off..off + 4].try_into().unwrap()
+                            );
+                            f32::from_bits(bits) as f64
+                        };
+                        batch_data.push((date, code, factor));
+                    }
+                    batch_data
+                })
+                .collect();
 
-                    // 直接读取代码长度
-                    let code_len = unsafe {
-                        let code_len_ptr =
-                            mmap.as_ptr().add(record_offset + code_len_offset) as *const u32;
-                        std::cmp::min(*code_len_ptr as usize, 32)
-                    };
-
-                    // 直接读取代码字节
-                    let code = unsafe {
-                        let code_bytes_ptr = mmap.as_ptr().add(record_offset + code_bytes_offset);
-                        let code_slice = std::slice::from_raw_parts(code_bytes_ptr, code_len);
-                        String::from_utf8_lossy(code_slice).into_owned()
-                    };
-
-                    // 直接读取因子值
-                    let factor = unsafe {
-                        let factor_ptr =
-                            mmap.as_ptr().add(record_offset + factor_offset) as *const f64;
-                        *factor_ptr
-                    };
-
-                    batch_data.push((date, code, factor));
+            for batch in batch_results {
+                for (date, code, factor) in batch {
+                    dates.push(date);
+                    codes.push(code);
+                    factors.push(factor);
                 }
-
-                batch_data
-            })
-            .collect();
-
-        // 合并所有批次结果
-        for batch in batch_results {
-            for (date, code, factor) in batch {
-                dates.push(date);
-                codes.push(code);
-                factors.push(factor);
             }
-        }
-    });
+        });
+    } else if version == 3 {
+        // v3 并行读取
+        let factor_offset = V3_FACTOR_BASE_OFFSET + column_index * V3_FACTOR_SIZE;
 
-    // 显式释放mmap
+        pool.install(|| {
+            let batch_results: Vec<Vec<(i64, String, f64)>> = (0..num_batches)
+                .into_par_iter()
+                .map(|batch_idx| {
+                    let start_idx = batch_idx * BATCH_SIZE;
+                    let end_idx = std::cmp::min(start_idx + BATCH_SIZE, record_count);
+                    let mut batch_data = Vec::with_capacity(end_idx - start_idx);
+
+                    for i in start_idx..end_idx {
+                        let record_offset = records_start + i * record_size;
+                        let date = unsafe {
+                            let ptr = mmap.as_ptr().add(record_offset) as *const i64;
+                            i64::from_le(ptr::read_unaligned(ptr))
+                        };
+                        let code = unsafe {
+                            let code_ptr = mmap.as_ptr().add(record_offset + V3_CODE_OFFSET);
+                            let code_end = (0..V3_CODE_SIZE).position(|j| *code_ptr.add(j) == 0).unwrap_or(V3_CODE_SIZE);
+                            let slice = std::slice::from_raw_parts(code_ptr, code_end);
+                            String::from_utf8_lossy(slice).into_owned()
+                        };
+                        let factor = unsafe {
+                            let ptr = mmap.as_ptr().add(record_offset + factor_offset);
+                            let bits = u32::from_le(ptr::read_unaligned(ptr as *const u32));
+                            f32::from_bits(bits) as f64
+                        };
+                        batch_data.push((date, code, factor));
+                    }
+                    batch_data
+                })
+                .collect();
+
+            for batch in batch_results {
+                for (date, code, factor) in batch {
+                    dates.push(date);
+                    codes.push(code);
+                    factors.push(factor);
+                }
+            }
+        });
+    } else {
+        // v2 并行读取
+        let code_len_offset = 8 + 8 + 8 + 4;
+        let code_bytes_offset = code_len_offset + 4;
+        let factor_base_offset = 8 + 8 + 8 + 4 + 4 + 32;
+        let factor_offset = factor_base_offset + column_index * 8;
+
+        pool.install(|| {
+            let batch_results: Vec<Vec<(i64, String, f64)>> = (0..num_batches)
+                .into_par_iter()
+                .map(|batch_idx| {
+                    let start_idx = batch_idx * BATCH_SIZE;
+                    let end_idx = std::cmp::min(start_idx + BATCH_SIZE, record_count);
+                    let mut batch_data = Vec::with_capacity(end_idx - start_idx);
+
+                    for i in start_idx..end_idx {
+                        let record_offset = records_start + i * record_size;
+                        let date = unsafe {
+                            let date_ptr = mmap.as_ptr().add(record_offset) as *const i64;
+                            *date_ptr
+                        };
+                        let code_len = unsafe {
+                            let code_len_ptr = mmap.as_ptr().add(record_offset + code_len_offset) as *const u32;
+                            std::cmp::min(*code_len_ptr as usize, 32)
+                        };
+                        let code = unsafe {
+                            let code_bytes_ptr = mmap.as_ptr().add(record_offset + code_bytes_offset);
+                            let code_slice = std::slice::from_raw_parts(code_bytes_ptr, code_len);
+                            String::from_utf8_lossy(code_slice).into_owned()
+                        };
+                        let factor = unsafe {
+                            let factor_ptr = mmap.as_ptr().add(record_offset + factor_offset) as *const f64;
+                            *factor_ptr
+                        };
+                        batch_data.push((date, code, factor));
+                    }
+                    batch_data
+                })
+                .collect();
+
+            for batch in batch_results {
+                for (date, code, factor) in batch {
+                    dates.push(date);
+                    codes.push(code);
+                    factors.push(factor);
+                }
+            }
+        });
+    }
+
     drop(mmap);
 
-    // 创建Python字典
     Python::with_gil(|py| {
         let numpy = py.import("numpy")?;
         let dict = pyo3::types::PyDict::new(py);
-
         dict.set_item("date", numpy.call_method1("array", (dates,))?)?;
         dict.set_item("code", numpy.call_method1("array", (codes,))?)?;
         dict.set_item("factor", numpy.call_method1("array", (factors,))?)?;
-
         Ok(dict.into())
     })
+}
+
+// ==================== v2 → v3 原地转换 ====================
+
+/// 从原始字节计算 v3 校验和（避免依赖 backup_writer 模块）
+fn calc_v3_checksum_raw(
+    date: i64,
+    code_bytes: &[u8], // 16 bytes
+    timestamp: i64,
+    factor_bytes: &[u8], // F*4 bytes
+    factor_count: usize,
+) -> u32 {
+    let mut sum = 0u32;
+    sum = sum.wrapping_add(date as u32);
+    sum = sum.wrapping_add((date >> 32) as u32);
+    for &b in code_bytes {
+        sum = sum.wrapping_add(b as u32);
+    }
+    sum = sum.wrapping_add(timestamp as u32);
+    sum = sum.wrapping_add((timestamp >> 32) as u32);
+    for i in 0..factor_count {
+        let off = i * 4;
+        let bits = u32::from_le_bytes(factor_bytes[off..off + 4].try_into().unwrap());
+        sum = sum.wrapping_add(bits);
+    }
+    sum
+}
+
+/// 将 v2 格式备份文件原地转换为 v3 格式
+///
+/// v3 记录大小恰好是 v2 的 50%，因此写指针永远落后于读指针，可安全原地覆写。
+///
+/// 参数:
+/// - backup_file: v2 格式备份文件路径
+/// - batch_size: 每批处理的记录数（默认 5000，约 1 GB 内存）
+///
+/// 返回: 成功转换的记录数
+#[pyfunction]
+#[pyo3(signature = (backup_file, batch_size=None))]
+pub fn convert_backup_v2_to_v3_inplace(
+    backup_file: String,
+    batch_size: Option<usize>,
+) -> PyResult<u64> {
+    use std::fs::OpenOptions;
+    use std::io::{Seek, SeekFrom, Write};
+
+    let batch_size = batch_size.unwrap_or(5000);
+    if batch_size == 0 {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "batch_size 必须大于 0",
+        ));
+    }
+
+    // 1. 打开文件（读写模式）
+    let mut file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&backup_file)
+        .map_err(|e| {
+            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("无法打开备份文件: {}", e))
+        })?;
+
+    let file_len = file
+        .metadata()
+        .map_err(|e| {
+            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("无法获取文件元数据: {}", e))
+        })?
+        .len() as usize;
+
+    if file_len < HEADER_SIZE {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "文件太小，不是有效的备份文件",
+        ));
+    }
+
+    // 2. 读取并校验 v2 文件头
+    let mut header_bytes = [0u8; HEADER_SIZE];
+    file.read_exact(&mut header_bytes).map_err(|e| {
+        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("无法读取文件头: {}", e))
+    })?;
+
+    if &header_bytes[0..8] != b"RPBACKUP" {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "无效的备份文件：魔数不匹配",
+        ));
+    }
+
+    let version = u32::from_le_bytes(header_bytes[8..12].try_into().unwrap());
+    if version != 2 {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "备份文件版本为 {}，仅支持版本 2 的原地转换",
+            version
+        )));
+    }
+
+    let record_count = u64::from_le_bytes(header_bytes[12..20].try_into().unwrap()) as usize;
+    let v2_record_size = u32::from_le_bytes(header_bytes[20..24].try_into().unwrap()) as usize;
+    let factor_count = u32::from_le_bytes(header_bytes[24..28].try_into().unwrap()) as usize;
+    let v3_record_size = calculate_v3_record_size(factor_count);
+
+    // 验证 v2 record size
+    let expected_v2_record_size = calculate_record_size(factor_count);
+    if v2_record_size != expected_v2_record_size {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "v2 记录大小不匹配: 文件头 {}, 计算 {}",
+            v2_record_size, expected_v2_record_size
+        )));
+    }
+
+    // 验证文件大小
+    let expected_file_size = HEADER_SIZE + record_count * v2_record_size;
+    if file_len < expected_file_size {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "文件被截断: 期望 {} 字节，实际 {} 字节",
+            expected_file_size, file_len
+        )));
+    }
+
+    let v3_total_size = HEADER_SIZE + record_count * v3_record_size;
+    let gb = |n: usize| n as f64 / (1024.0 * 1024.0 * 1024.0);
+
+    eprintln!("开始 v2 -> v3 原地转换:");
+    eprintln!("  记录数: {}", record_count);
+    eprintln!("  因子数: {}", factor_count);
+    eprintln!("  v2 记录大小: {} 字节", v2_record_size);
+    eprintln!("  v3 记录大小: {} 字节", v3_record_size);
+    eprintln!("  源文件大小: {:.2} GB", gb(file_len));
+    eprintln!("  目标文件大小: {:.2} GB", gb(v3_total_size));
+    eprintln!("  节省空间: {:.2} GB", gb(file_len - v3_total_size));
+
+    // 3. 分配缓冲区
+    let actual_batch = std::cmp::min(batch_size, record_count);
+    let read_buf_size = actual_batch * v2_record_size;
+    let write_buf_size = actual_batch * v3_record_size;
+
+    eprintln!(
+        "  批次大小: {} 条/批 (读缓冲 {:.0} MB, 写缓冲 {:.0} MB)",
+        actual_batch,
+        read_buf_size as f64 / (1024.0 * 1024.0),
+        write_buf_size as f64 / (1024.0 * 1024.0),
+    );
+
+    let mut read_buf = vec![0u8; read_buf_size];
+    let mut write_buf = vec![0u8; write_buf_size];
+
+    let mut converted_count: usize = 0;
+    let mut skipped_count: usize = 0;
+    let start_time = std::time::Instant::now();
+
+    // 4. 循环处理（每次 batch 条记录）
+    let num_batches = (record_count + actual_batch - 1) / actual_batch;
+
+    for batch_idx in 0..num_batches {
+        let batch_start = batch_idx * actual_batch;
+        let batch_end = std::cmp::min(batch_start + actual_batch, record_count);
+        let this_batch = batch_end - batch_start;
+
+        // a. 从文件读取 this_batch 条 v2 记录到 read_buf
+        let read_file_pos = HEADER_SIZE + batch_start * v2_record_size;
+        file.seek(SeekFrom::Start(read_file_pos as u64))
+            .map_err(|e| {
+                PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("定位失败: {}", e))
+            })?;
+        file.read_exact(&mut read_buf[..this_batch * v2_record_size])
+            .map_err(|e| {
+                PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("读取失败: {}", e))
+            })?;
+
+        // b. 逐条解析 v2 记录 → 序列化为 v3 格式到 write_buf
+        let mut write_used = 0usize;
+        let mut batch_skipped = 0usize;
+
+        for i in 0..this_batch {
+            let v2_off = i * v2_record_size;
+            let v2 = &read_buf[v2_off..v2_off + v2_record_size];
+
+            // 解析 v2 关键字段
+            let date = i64::from_le_bytes(v2[0..8].try_into().unwrap());
+            let timestamp = i64::from_le_bytes(v2[16..24].try_into().unwrap());
+            let code_len = std::cmp::min(
+                u32::from_le_bytes(v2[28..32].try_into().unwrap()) as usize,
+                32,
+            );
+
+            // v3 的 code 字段只有 16 字节（15 字节 + null），超过则跳过
+            if code_len > 15 {
+                eprintln!(
+                    "WARNING: 跳过记录 #{} (date={}, code_len={}), code 超过 15 字节限制",
+                    batch_start + i,
+                    date,
+                    code_len
+                );
+                batch_skipped += 1;
+                continue;
+            }
+
+            // c. 序列化为 v3 格式
+            let v3 = &mut write_buf[write_used..write_used + v3_record_size];
+
+            // date (0..8)
+            v3[0..8].copy_from_slice(&date.to_le_bytes());
+
+            // code (8..24), null-terminated, zero-padded
+            v3[8..24].fill(0);
+            v3[8..8 + code_len].copy_from_slice(&v2[32..32 + code_len]);
+
+            // timestamp (24..32)
+            v3[24..32].copy_from_slice(&timestamp.to_le_bytes());
+
+            // factors f64→f32 (32..32+F*4)
+            for j in 0..factor_count {
+                let f64_src = 64 + j * 8;
+                let f64_val = f64::from_le_bytes(v2[f64_src..f64_src + 8].try_into().unwrap());
+                let f32_val = f64_val as f32;
+                let f32_dst = 32 + j * 4;
+                v3[f32_dst..f32_dst + 4].copy_from_slice(&f32_val.to_le_bytes());
+            }
+
+            // checksum (32+F*4..32+F*4+4)
+            let ck_off = 32 + factor_count * 4;
+            let cksum = calc_v3_checksum_raw(
+                date,
+                &v3[8..24],
+                timestamp,
+                &v3[32..32 + factor_count * 4],
+                factor_count,
+            );
+            v3[ck_off..ck_off + 4].copy_from_slice(&cksum.to_le_bytes());
+
+            write_used += v3_record_size;
+        }
+
+        // d. 将 write_buf 写回文件对应位置
+        if write_used > 0 {
+            let write_file_pos = HEADER_SIZE + converted_count * v3_record_size;
+            file.seek(SeekFrom::Start(write_file_pos as u64))
+                .map_err(|e| {
+                    PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("写入定位失败: {}", e))
+                })?;
+            file.write_all(&write_buf[..write_used])
+                .map_err(|e| {
+                    PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("写入失败: {}", e))
+                })?;
+        }
+
+        converted_count += this_batch - batch_skipped;
+        skipped_count += batch_skipped;
+
+        // 进度信息（每 10 个 batch 或最后一个 batch 打印一次）
+        if batch_idx % 10 == 0 || batch_idx == num_batches - 1 {
+            let elapsed = start_time.elapsed().as_secs_f64();
+            let progress = (batch_end as f64 / record_count as f64) * 100.0;
+            let speed = if elapsed > 0.0 {
+                (batch_end as f64 / elapsed).round() as usize
+            } else {
+                0
+            };
+            let remaining_records = record_count - batch_end;
+            let remaining_secs = if speed > 0 {
+                remaining_records as f64 / speed as f64
+            } else {
+                0.0
+            };
+            eprintln!(
+                "  [{:.1}%] 已处理 {}/{} | {} 条/秒 | 剩余 ~{:.0}s",
+                progress, batch_end, record_count, speed, remaining_secs
+            );
+        }
+    }
+
+    // 确保所有数据已刷盘
+    file.flush().map_err(|e| {
+        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("刷盘失败: {}", e))
+    })?;
+
+    // 5. 写入 v3 文件头（覆盖 v2 头部）
+    let mut v3_header = [0u8; HEADER_SIZE];
+    v3_header[0..8].copy_from_slice(b"RPBACKUP");
+    v3_header[8..12].copy_from_slice(&3u32.to_le_bytes());
+    v3_header[12..20].copy_from_slice(&(converted_count as u64).to_le_bytes());
+    v3_header[20..24].copy_from_slice(&(v3_record_size as u32).to_le_bytes());
+    v3_header[24..28].copy_from_slice(&(factor_count as u32).to_le_bytes());
+    v3_header[28..32].copy_from_slice(&16u32.to_le_bytes()); // code_size
+
+    file.seek(SeekFrom::Start(0)).map_err(|e| {
+        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("文件头定位失败: {}", e))
+    })?;
+    file.write_all(&v3_header).map_err(|e| {
+        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("文件头写入失败: {}", e))
+    })?;
+    file.flush().map_err(|e| {
+        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("文件头刷盘失败: {}", e))
+    })?;
+
+    // 6. 截断文件到 v3 大小
+    let final_size = HEADER_SIZE + converted_count * v3_record_size;
+    file.set_len(final_size as u64).map_err(|e| {
+        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("截断文件失败: {}", e))
+    })?;
+
+    let total_elapsed = start_time.elapsed().as_secs_f64();
+    eprintln!("转换完成!");
+    eprintln!("  转换记录数: {} / {}", converted_count, record_count);
+    if skipped_count > 0 {
+        eprintln!("  跳过记录数: {}", skipped_count);
+    }
+    eprintln!(
+        "  总耗时: {:.1}s ({:.1} 分钟)",
+        total_elapsed,
+        total_elapsed / 60.0
+    );
+    eprintln!("  最终文件大小: {:.2} GB", gb(final_size));
+
+    Ok(converted_count as u64)
+}
+
+/// 将 v3 格式备份文件转换为 v4 分块压缩格式（新文件输出）
+///
+/// v3 与 v4 的记录格式完全一致，转换过程无需逐条解析字段，
+/// 直接将 batch_size 条 v3 原始字节整体 zstd 压缩后写入一个 chunk。
+///
+/// 参数:
+/// - backup_file: 源 v3 格式备份文件路径
+/// - output_file: 目标 v4 格式文件路径（新文件）
+/// - batch_size: 每个 chunk 包含的记录数（默认 5000）
+///
+/// 返回: 成功转换的记录数
+#[pyfunction]
+#[pyo3(signature = (backup_file, output_file, batch_size=None))]
+pub fn convert_backup_v3_to_v4(
+    backup_file: String,
+    output_file: String,
+    batch_size: Option<usize>,
+) -> PyResult<u64> {
+    use std::fs::OpenOptions;
+    use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
+
+    let batch_size = batch_size.unwrap_or(5000);
+    if batch_size == 0 {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "batch_size 必须大于 0",
+        ));
+    }
+
+    // 1. 打开 v3 源文件
+    let src_file = File::open(&backup_file).map_err(|e| {
+        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("无法打开源文件: {}", e))
+    })?;
+    let src_len = src_file.metadata().map_err(|e| {
+        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("无法获取源文件元数据: {}", e))
+    })?.len() as usize;
+
+    if src_len < HEADER_SIZE {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "文件太小，不是有效的备份文件",
+        ));
+    }
+
+    // 2. 读取并校验 v3 文件头
+    let mut src = BufReader::new(src_file);
+    let mut header_bytes = [0u8; HEADER_SIZE];
+    src.read_exact(&mut header_bytes).map_err(|e| {
+        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("无法读取文件头: {}", e))
+    })?;
+
+    if &header_bytes[0..8] != b"RPBACKUP" {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "无效的备份文件：魔数不匹配",
+        ));
+    }
+
+    let version = u32::from_le_bytes(header_bytes[8..12].try_into().unwrap());
+    if version != 3 {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "源文件版本为 {}，仅支持 v3 格式转换",
+            version
+        )));
+    }
+
+    let record_count = u64::from_le_bytes(header_bytes[12..20].try_into().unwrap()) as usize;
+    let record_size = u32::from_le_bytes(header_bytes[20..24].try_into().unwrap()) as usize;
+    let factor_count = u32::from_le_bytes(header_bytes[24..28].try_into().unwrap()) as usize;
+
+    // 验证 record_size
+    let expected_record_size = calculate_v3_record_size(factor_count);
+    if record_size != expected_record_size {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "v3 记录大小不匹配: 文件头 {}, 计算 {}",
+            record_size, expected_record_size
+        )));
+    }
+
+    // 验证文件大小
+    let expected_file_size = HEADER_SIZE + record_count * record_size;
+    if src_len < expected_file_size {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "文件被截断: 期望 {} 字节，实际 {} 字节",
+            expected_file_size, src_len
+        )));
+    }
+
+    let gb = |n: usize| n as f64 / (1024.0 * 1024.0 * 1024.0);
+    eprintln!("开始 v3 -> v4 转换:");
+    eprintln!("  记录数: {}", record_count);
+    eprintln!("  因子数: {}", factor_count);
+    eprintln!("  记录大小: {} 字节", record_size);
+    eprintln!("  源文件大小: {:.2} GB", gb(src_len));
+    eprintln!("  batch_size: {} 条/chunk", batch_size);
+
+    // 3. 创建输出文件，写入占位 v4 头部
+    let out_file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&output_file)
+        .map_err(|e| {
+            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("无法创建输出文件: {}", e))
+        })?;
+    let mut out = BufWriter::new(out_file);
+
+    // 写入占位 header（后续回写）
+    let mut v4_header = [0u8; HEADER_SIZE];
+    v4_header[0..8].copy_from_slice(b"RPBACKUP");
+    v4_header[8..12].copy_from_slice(&4u32.to_le_bytes()); // version = 4
+    v4_header[12..20].copy_from_slice(&(record_count as u64).to_le_bytes());
+    v4_header[20..24].copy_from_slice(&(record_size as u32).to_le_bytes());
+    v4_header[24..28].copy_from_slice(&(factor_count as u32).to_le_bytes());
+    // chunk_count 暂时为 0，后续回写
+    out.write_all(&v4_header).map_err(|e| {
+        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("写入头部失败: {}", e))
+    })?;
+
+    // 4. 分批循环：读取 → zstd 压缩 → 写入 chunk
+    let actual_batch = std::cmp::min(batch_size, record_count);
+    let mut read_buf = vec![0u8; actual_batch * record_size];
+    let mut chunk_count: u32 = 0;
+    let mut total_converted: usize = 0;
+    let start_time = std::time::Instant::now();
+    let num_batches = (record_count + actual_batch - 1) / actual_batch;
+
+    for batch_idx in 0..num_batches {
+        let batch_start = batch_idx * actual_batch;
+        let batch_end = std::cmp::min(batch_start + actual_batch, record_count);
+        let this_batch = batch_end - batch_start;
+        let read_size = this_batch * record_size;
+
+        // a. 从源文件读取 this_batch 条 v3 原始记录字节
+        src.read_exact(&mut read_buf[..read_size]).map_err(|e| {
+            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("读取源文件失败: {}", e))
+        })?;
+
+        // b. zstd 压缩（level 9）
+        let compressed = zstd::encode_all(&read_buf[..read_size], 9).map_err(|e| {
+            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("zstd 压缩失败: {}", e))
+        })?;
+
+        // c. 写入 chunk: [u32 compressed_size][u32 record_count][compressed_data]
+        out.write_all(&(compressed.len() as u32).to_le_bytes()).map_err(|e| {
+            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("写入 chunk 头失败: {}", e))
+        })?;
+        out.write_all(&(this_batch as u32).to_le_bytes()).map_err(|e| {
+            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("写入 chunk 记录数失败: {}", e))
+        })?;
+        out.write_all(&compressed).map_err(|e| {
+            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("写入 chunk 数据失败: {}", e))
+        })?;
+
+        chunk_count += 1;
+        total_converted += this_batch;
+
+        // 打印进度
+        if batch_idx % 10 == 0 || batch_idx == num_batches - 1 {
+            let elapsed = start_time.elapsed().as_secs_f64();
+            let progress = (batch_end as f64 / record_count as f64) * 100.0;
+            let speed = if elapsed > 0.0 {
+                (batch_end as f64 / elapsed).round() as usize
+            } else {
+                0
+            };
+            let remaining_records = record_count - batch_end;
+            let remaining_secs = if speed > 0 {
+                remaining_records as f64 / speed as f64
+            } else {
+                0.0
+            };
+            eprintln!(
+                "  [{:.1}%] 已处理 {}/{} | {} 条/秒 | 剩余 ~{:.0}s",
+                progress, batch_end, record_count, speed, remaining_secs
+            );
+        }
+    }
+
+    out.flush().map_err(|e| {
+        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("输出文件刷盘失败: {}", e))
+    })?;
+
+    // 5. 回写 v4 文件头的 chunk_count
+    let out_file = out.into_inner().map_err(|e| {
+        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("BufWriter 刷盘失败: {}", e))
+    })?;
+    let mut out_file = out_file;
+    out_file.seek(SeekFrom::Start(28)).map_err(|e| {
+        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("定位 chunk_count 失败: {}", e))
+    })?;
+    out_file.write_all(&chunk_count.to_le_bytes()).map_err(|e| {
+        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("写入 chunk_count 失败: {}", e))
+    })?;
+    out_file.flush().map_err(|e| {
+        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("文件头刷盘失败: {}", e))
+    })?;
+
+    // 6. 打印完成摘要
+    let out_len = out_file.metadata().map_err(|e| {
+        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("获取输出文件元数据失败: {}", e))
+    })?.len() as usize;
+
+    let total_elapsed = start_time.elapsed().as_secs_f64();
+    let compression_ratio = src_len as f64 / out_len as f64;
+    eprintln!("转换完成!");
+    eprintln!("  转换记录数: {}", total_converted);
+    eprintln!("  chunk 数: {}", chunk_count);
+    eprintln!(
+        "  总耗时: {:.1}s ({:.1} 分钟)",
+        total_elapsed,
+        total_elapsed / 60.0
+    );
+    eprintln!("  源文件大小: {:.2} GB", gb(src_len));
+    eprintln!("  目标文件大小: {:.2} GB", gb(out_len));
+    eprintln!("  压缩率: {:.2}x (节省 {:.1}%)", compression_ratio, (1.0 - out_len as f64 / src_len as f64) * 100.0);
+
+    Ok(total_converted as u64)
 }

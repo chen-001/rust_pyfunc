@@ -718,7 +718,7 @@ def build_backup_column_block_cache_single_thread(
     block_cols: int = 32,
     force_rebuild: bool = False
 ) -> dict:
-    """构建单线程列块缓存（v2备份格式）。
+    """构建单线程列块缓存（v2/v3备份格式 → v2缓存格式）。
 
     返回字段：
     - cache_dir: 缓存目录
@@ -726,7 +726,9 @@ def build_backup_column_block_cache_single_thread(
     - factor_count: 因子列数
     - block_cols: 每个块的列数
     - code_count: code字典大小
+    - date_count: date字典大小
     - rebuilt: 本次是否执行了重建
+    - cache_version: 缓存版本号
     """
     ...
 
@@ -1304,6 +1306,55 @@ def query_backup_factor_only_with_filter(
     - 适合纯数值计算和统计分析的场景
     """
     ...
+
+def convert_backup_v2_to_v3_inplace(
+    backup_file: str,
+    batch_size: Optional[int] = None
+) -> int:
+    """将 v2 格式备份文件原地转换为 v3 格式（节省约 50% 磁盘空间）
+
+    v3 格式通过 f64→f32 因子压缩和紧凑 code 字段（32B→16B），
+    使记录大小恰好是 v2 的 50%，因此可以安全地原地覆写。
+
+    参数:
+        backup_file: v2 格式备份文件路径
+        batch_size: 每批处理的记录数（默认 5000，约 1 GB 内存）
+
+    返回:
+        成功转换的记录数
+
+    示例:
+        >>> count = convert_backup_v2_to_v3_inplace("backup_hm88_1st_son_pri.bin")
+        >>> print(f"转换了 {count} 条记录")
+    """
+    ...
+
+
+def convert_backup_v3_to_v4(
+    backup_file: str,
+    output_file: str,
+    batch_size: Optional[int] = None
+) -> int:
+    """将 v3 格式备份文件转换为 v4 分块压缩格式（新文件输出）
+
+    v3 与 v4 的记录格式完全一致，转换过程无需逐条解析字段，
+    直接将 batch_size 条 v3 原始字节整体 zstd 压缩后写入一个 chunk。
+    预期压缩率 50-70%（取决于因子数据特征）。
+
+    参数:
+        backup_file: 源 v3 格式备份文件路径
+        output_file: 目标 v4 格式文件路径（新文件）
+        batch_size: 每个 chunk 包含的记录数（默认 5000）
+
+    返回:
+        成功转换的记录数
+
+    示例:
+        >>> count = convert_backup_v3_to_v4("backup_v3.bin", "backup_v4.bin")
+        >>> print(f"转换了 {count} 条记录")
+    """
+    ...
+
 
 def query_backup_factor_only_ultra_fast(
     backup_file: str,
