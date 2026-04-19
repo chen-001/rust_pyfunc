@@ -84,6 +84,9 @@ struct TailSelectionConfig {
     ic_point_gap1: f64,
     ic_more_important_gap5: Option<f64>,
     ic_more_important_gap1: Option<f64>,
+    majority_count_threshold: f64,
+    zero_max_threshold: f64,
+    nan_max_threshold: f64,
 }
 
 #[derive(Clone)]
@@ -410,6 +413,69 @@ fn has_enough_unique_values(
         }
     }
     false
+}
+
+fn preflight_quality_check(
+    raw_values: &ArrayView2<f32>,
+    restrict: &ArrayView2<f32>,
+    majority_count_threshold: f64,
+    zero_max_threshold: f64,
+    nan_max_threshold: f64,
+) -> bool {
+    let n_dates = raw_values.shape()[0];
+    let n_stocks = raw_values.shape()[1];
+    let mut majority_sum: f64 = 0.0;
+    let mut max_nan_ratio: f64 = 0.0;
+    let mut max_zero_ratio: f64 = 0.0;
+
+    for t in 0..n_dates {
+        let mut value_counts: HashMap<u32, usize> = HashMap::new();
+        let mut free_count: usize = 0;
+        let mut nan_count: usize = 0;
+        let mut zero_count: usize = 0;
+
+        for s in 0..n_stocks {
+            let val = raw_values[[t, s]];
+            let is_free = restrict[[t, s]].is_finite() && restrict[[t, s]] == 0.0;
+
+            if is_free {
+                free_count += 1;
+                if !val.is_finite() {
+                    nan_count += 1;
+                } else if val == 0.0 {
+                    zero_count += 1;
+                }
+            }
+
+            if val.is_finite() {
+                *value_counts.entry(val.to_bits()).or_insert(0) += 1;
+            }
+        }
+
+        let max_count = value_counts.values().max().copied().unwrap_or(0);
+        majority_sum += max_count as f64;
+
+        if free_count > 0 {
+            let nan_ratio = nan_count as f64 / free_count as f64;
+            let zero_ratio = zero_count as f64 / free_count as f64;
+            if nan_ratio > max_nan_ratio {
+                max_nan_ratio = nan_ratio;
+            }
+            if zero_ratio > max_zero_ratio {
+                max_zero_ratio = zero_ratio;
+            }
+        }
+    }
+
+    let majority_count_mean = if n_dates > 0 {
+        majority_sum / n_dates as f64
+    } else {
+        0.0
+    };
+
+    majority_count_mean <= majority_count_threshold
+        && max_zero_ratio < zero_max_threshold
+        && max_nan_ratio < nan_max_threshold
 }
 
 fn legacy_backtest_single_factor(
@@ -1516,6 +1582,16 @@ fn qualify_neu(summary: &SummaryRowRecord, gap: usize, cfg: &TailSelectionConfig
 
 fn process_task(task: &TailTask, shared: &SharedInputs) -> Result<TailTaskResult, String> {
     let raw_values = load_factor_to_template(&task.factor_path, shared.dates.as_slice(), shared.stocks.as_slice())?;
+    if !preflight_quality_check(
+        &raw_values.view(),
+        &shared.restrict.view(),
+        shared.config.majority_count_threshold,
+        shared.config.zero_max_threshold,
+        shared.config.nan_max_threshold,
+    ) {
+        println!("[preflight] 剔除因子 {}", task.source_factor);
+        return Ok(TailTaskResult { source_factor: task.source_factor.clone(), ..TailTaskResult::default() });
+    }
     let mut variants = vec![(task.source_factor.clone(), raw_values)];
     if shared.fold {
         let folded = build_fold_values(&variants[0].1);
@@ -1806,6 +1882,9 @@ fn write_aggregated_outputs(
     ic_point_gap1=0.02,
     ic_more_important_gap5=0.01,
     ic_more_important_gap1=0.006,
+    majority_count_threshold=200.0,
+    zero_max_threshold=0.01,
+    nan_max_threshold=0.04,
 ))]
 pub fn tail_v4_run_candidates<'py>(
     py: Python<'py>,
@@ -1837,6 +1916,9 @@ pub fn tail_v4_run_candidates<'py>(
     ic_point_gap1: f64,
     ic_more_important_gap5: Option<f64>,
     ic_more_important_gap1: Option<f64>,
+    majority_count_threshold: f64,
+    zero_max_threshold: f64,
+    nan_max_threshold: f64,
 ) -> PyResult<PyObject> {
     if factor_names.len() != factor_paths.len() {
         return Err(PyValueError::new_err("factor_names 和 factor_paths 长度必须一致"));
@@ -1888,6 +1970,9 @@ pub fn tail_v4_run_candidates<'py>(
                 ic_point_gap1,
                 ic_more_important_gap5,
                 ic_more_important_gap1,
+                majority_count_threshold,
+                zero_max_threshold,
+                nan_max_threshold,
             }),
         };
 
