@@ -425,8 +425,9 @@ fn preflight_quality_check(
     let n_dates = raw_values.shape()[0];
     let n_stocks = raw_values.shape()[1];
     let mut majority_sum: f64 = 0.0;
-    let mut max_nan_ratio: f64 = 0.0;
-    let mut max_zero_ratio: f64 = 0.0;
+    let mut nan_ratio_sum: f64 = 0.0;
+    let mut zero_ratio_sum: f64 = 0.0;
+    let mut valid_date_count: usize = 0;
 
     for t in 0..n_dates {
         let mut value_counts: HashMap<u32, usize> = HashMap::new();
@@ -456,14 +457,9 @@ fn preflight_quality_check(
         majority_sum += max_count as f64;
 
         if free_count > 0 {
-            let nan_ratio = nan_count as f64 / free_count as f64;
-            let zero_ratio = zero_count as f64 / free_count as f64;
-            if nan_ratio > max_nan_ratio {
-                max_nan_ratio = nan_ratio;
-            }
-            if zero_ratio > max_zero_ratio {
-                max_zero_ratio = zero_ratio;
-            }
+            nan_ratio_sum += nan_count as f64 / free_count as f64;
+            zero_ratio_sum += zero_count as f64 / free_count as f64;
+            valid_date_count += 1;
         }
     }
 
@@ -472,10 +468,20 @@ fn preflight_quality_check(
     } else {
         0.0
     };
+    let nan_ratio_mean = if valid_date_count > 0 {
+        nan_ratio_sum / valid_date_count as f64
+    } else {
+        0.0
+    };
+    let zero_ratio_mean = if valid_date_count > 0 {
+        zero_ratio_sum / valid_date_count as f64
+    } else {
+        0.0
+    };
 
     majority_count_mean <= majority_count_threshold
-        && max_zero_ratio < zero_max_threshold
-        && max_nan_ratio < nan_max_threshold
+        && zero_ratio_mean < zero_max_threshold
+        && nan_ratio_mean < nan_max_threshold
 }
 
 fn legacy_backtest_single_factor(
