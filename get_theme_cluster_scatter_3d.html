@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>run_pools_queue_date_only - Rust PyFunc API文档</title>
+    <title>get_theme_cluster_scatter_3d - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
     <script src="static/search.js"></script>
 </head>
@@ -26,16 +26,18 @@
     </div>
     
     <div class="content">
-        <h1>run_pools_queue_date_only</h1>
+        <h1>get_theme_cluster_scatter_3d</h1>
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><p>无文档</p></div>
+            <div><p>提取3维聚类散点数据，用于可视化。
+返回 (coords: n_stocks×3, labels: n_stocks, centers: k×3, n_clusters)
+coords 列为 [ret, log_amt, net_flow]，已做 zscore 标准化</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>run_pools_queue_date_only(python_function, dates, n_jobs, backup_file, expected_result_length, restart_interval, update_mode, task_timeout, health_check_interval, debug_monitor, backup_batch_size, debug_log, progress_log) -> None</code>
+            <code>get_theme_cluster_scatter_3d(minute_data, k, n_threads) -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -59,7 +61,7 @@
             <div class="example-usage-note">
                 <h3>Python使用示例</h3>
                 <pre><code>import numpy as np
-from rust_pyfunc import run_pools_queue_date_only
+from rust_pyfunc import get_theme_cluster_scatter_3d
 
 # 使用示例
 

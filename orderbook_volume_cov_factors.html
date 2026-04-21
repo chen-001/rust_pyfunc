@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>run_pools_queue_date_only - Rust PyFunc API文档</title>
+    <title>orderbook_volume_cov_factors - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
     <script src="static/search.js"></script>
 </head>
@@ -26,16 +26,19 @@
     </div>
     
     <div class="content">
-        <h1>run_pools_queue_date_only</h1>
+        <h1>orderbook_volume_cov_factors</h1>
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><p>无文档</p></div>
+            <div><p>盘口量协方差因子计算</p>
+<p>对盘口10档买卖量差分数据，通过滑动窗口计算协方差矩阵，
+然后对协方差矩阵做不同方式的分割/掩码，得到15个基础因子和8个衍生因子。</p>
+<p>使用增量协方差优化，每个窗口的更新仅需 O(D²) 而非 O(T·D²)。</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>run_pools_queue_date_only(python_function, dates, n_jobs, backup_file, expected_result_length, restart_interval, update_mode, task_timeout, health_check_interval, debug_monitor, backup_batch_size, debug_log, progress_log) -> None</code>
+            <code>orderbook_volume_cov_factors(bid_volumes, ask_volumes, window_size) -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -59,7 +62,7 @@
             <div class="example-usage-note">
                 <h3>Python使用示例</h3>
                 <pre><code>import numpy as np
-from rust_pyfunc import run_pools_queue_date_only
+from rust_pyfunc import orderbook_volume_cov_factors
 
 # 使用示例
 

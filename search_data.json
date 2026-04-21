@@ -20,6 +20,31 @@
     "params": []
   },
   {
+    "name": "TailV4LegacyStyleData",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "TradingDay",
+    "description": "<p>交易日历类, 从CSV文件加载交易日并支持各种查询操作</p>\n<h2>Parameters</h2>\n<p>input_file : str\n    交易日历CSV文件路径, 默认 /ssd_data/data/basic_info/calendar.csv\nstart_date : int, optional\n    起始日期, 格式 %Y%m%d, 如 20200101\nend_date : int, optional\n    截止日期, 格式 %Y%m%d, 如 20201231</p>\n<h2>Attributes</h2>\n<p>trading_days : numpy.ndarray[int]\n    有序交易日数组\ndate_map : dict[int, int]\n    日期 -&gt; 在 trading_days 中的索引</p>",
+    "params": []
+  },
+  {
+    "name": "abm_generate_names",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "abm_step_two",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "adjust_afternoon",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
     "name": "aggregate_agent_feature_triplets_to_daily_table",
     "description": "<p>无文档</p>",
     "params": []
@@ -393,6 +418,11 @@
     "params": []
   },
   {
+    "name": "clear_theme_cluster_cache",
+    "description": "<p>清除聚类缓存</p>",
+    "params": []
+  },
+  {
     "name": "column_correlation_batch",
     "description": "<p>批量计算多列相关系数的优化版本</p>\n<p>为了进一步提升性能，使用批量处理和更好的缓存局部性</p>",
     "params": []
@@ -476,6 +506,16 @@
     "params": []
   },
   {
+    "name": "compute_corr_diff_features",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "compute_integer_small_peak_features",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
     "name": "compute_max_eigenvalue",
     "description": "<p>计算二维方阵的最大特征值和对应的特征向量\n使用幂迭代法计算，不使用并行计算</p>",
     "params": [
@@ -490,6 +530,31 @@
   {
     "name": "compute_price_cycle_features_b_segments_enhanced",
     "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "compute_theme_feature_expansion_from_date",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "compute_theme_feature_expansion_from_minute",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "compute_theme_feature_expansion_from_minute_raw",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "convert_backup_v2_to_v3_inplace",
+    "description": "<p>将 v2 格式备份文件原地转换为 v3 格式</p>\n<p>v3 记录大小恰好是 v2 的 50%，因此写指针永远落后于读指针，可安全原地覆写。</p>\n<p>参数:\n- backup_file: v2 格式备份文件路径\n- batch_size: 每批处理的记录数（默认 5000，约 1 GB 内存）</p>\n<p>返回: 成功转换的记录数</p>",
+    "params": []
+  },
+  {
+    "name": "convert_backup_v3_to_v4",
+    "description": "<p>将 v3 格式备份文件转换为 v4 分块压缩格式（新文件输出）</p>\n<p>v3 与 v4 的记录格式完全一致，转换过程无需逐条解析字段，\n直接将 batch_size 条 v3 原始字节整体 zstd 压缩后写入一个 chunk。</p>\n<p>参数:\n- backup_file: 源 v3 格式备份文件路径\n- output_file: 目标 v4 格式文件路径（新文件）\n- batch_size: 每个 chunk 包含的记录数（默认 5000）</p>\n<p>返回: 成功转换的记录数</p>",
     "params": []
   },
   {
@@ -535,6 +600,16 @@
       "axis",
       "drop_na"
     ]
+  },
+  {
+    "name": "dct_1d",
+    "description": "<p>一维 DCT: 输入 1D 数组，输出前 k 阶 DCT 系数</p>",
+    "params": []
+  },
+  {
+    "name": "dct_2d",
+    "description": "<p>二维 DCT: 输入 (n, m) 矩阵，对每列分别计算前 k 阶 DCT，输出 (k, m) 矩阵</p>",
+    "params": []
   },
   {
     "name": "difference_matrix",
@@ -826,6 +901,31 @@
     "params": []
   },
   {
+    "name": "get_features_factors",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "get_features_factors_single",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "get_features_names",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "get_theme_cluster_factor_names",
+    "description": "<p>获取主题聚类因子的列名（不计算因子，仅生成列名）</p>",
+    "params": []
+  },
+  {
+    "name": "get_theme_cluster_scatter_3d",
+    "description": "<p>提取3维聚类散点数据，用于可视化。\n返回 (coords: n_stocks×3, labels: n_stocks, centers: k×3, n_clusters)\ncoords 列为 [ret, log_amt, net_flow]，已做 zscore 标准化</p>",
+    "params": []
+  },
+  {
     "name": "gp_correlation_dimension",
     "description": "<p>可选参数入口：可提供自定义选项</p>",
     "params": []
@@ -898,12 +998,32 @@
     ]
   },
   {
+    "name": "illusion_liquidity_distance_factors",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "import_module",
+    "description": "<p>Import a module.</p>\n<p>The 'package' argument is required when performing a relative import. It\nspecifies the package to use as the anchor point from which to resolve the\nrelative import to an absolute import.</p>",
+    "params": []
+  },
+  {
     "name": "jaccard_similarity",
     "description": "<p>计算两个句子之间的Jaccard相似度。\nJaccard相似度是两个集合交集大小除以并集大小，用于衡量两个句子的相似程度。\n这里将每个句子视为单词集合，忽略单词出现的顺序和频率。</p>",
     "params": [
       "sentence1",
       "sentence2"
     ]
+  },
+  {
+    "name": "last_n_trading_date",
+    "description": "<p>从 end_date 往前数 n_date 个交易日, 返回那个日期</p>",
+    "params": []
+  },
+  {
+    "name": "last_trading_day_tricky",
+    "description": "<p>若 date 非交易日则回退到上一个交易日, 否则原样返回</p>",
+    "params": []
   },
   {
     "name": "local_correlation",
@@ -1026,6 +1146,11 @@
     "params": []
   },
   {
+    "name": "next_trading_day_tricky",
+    "description": "<p>若 date 非交易日则前进到下一个交易日, 否则原样返回</p>",
+    "params": []
+  },
+  {
     "name": "ols",
     "description": "<p>普通最小二乘(OLS)回归。\n用于拟合线性回归模型 y = Xβ + ε，其中β是要估计的回归系数。</p>",
     "params": [
@@ -1072,6 +1197,11 @@
     "params": []
   },
   {
+    "name": "orderbook_volume_cov_factors",
+    "description": "<p>盘口量协方差因子计算</p>\n<p>对盘口10档买卖量差分数据，通过滑动窗口计算协方差矩阵，\n然后对协方差矩阵做不同方式的分割/掩码，得到15个基础因子和8个衍生因子。</p>\n<p>使用增量协方差优化，每个窗口的更新仅需 O(D²) 而非 O(T·D²)。</p>",
+    "params": []
+  },
+  {
     "name": "pack_agent_daily_feature_table_for_get_features_factors",
     "description": "<p>无文档</p>",
     "params": []
@@ -1079,6 +1209,21 @@
   {
     "name": "pandas_series_rank",
     "description": "<p>计算pandas Series的排名 (单线程版本)</p>\n<h1>Arguments</h1>\n<ul>\n<li><code>data</code> - 输入的一维数组数据</li>\n<li><code>method</code> - 排名方法: \"average\", \"min\", \"max\", \"first\", \"dense\"</li>\n<li><code>ascending</code> - 是否升序排列</li>\n<li><code>na_option</code> - NaN处理方式: \"keep\", \"top\", \"bottom\"</li>\n</ul>\n<h1>Returns</h1>\n<ul>\n<li>排名结果的一维数组</li>\n</ul>",
+    "params": []
+  },
+  {
+    "name": "personalized_meeting_feature_names",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "personalized_meeting_features",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "prepare_minute_data_for_theme_feature_expansion",
+    "description": "<p>无文档</p>",
     "params": []
   },
   {
@@ -1205,6 +1350,21 @@
       "ascending",
       "na_option"
     ]
+  },
+  {
+    "name": "read_market",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "read_market_pair",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "read_trade",
+    "description": "<p>无文档</p>",
+    "params": []
   },
   {
     "name": "reconstruct_limit_order_lifecycle",
@@ -1475,8 +1635,93 @@
     "params": []
   },
   {
+    "name": "tail_v2_backtest_block",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "tail_v2_backtest_block_f32",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "tail_v2_neutralize_block",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "tail_v2_neutralize_block_f32",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "tail_v2_neutralize_block_f32_out",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "tail_v2_rank_roll_factor_f32",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "tail_v2_select_by_ic_corr_abs_f32",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "tail_v3_rank_roll_block_f32",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "tail_v4_neutralize_block_exact",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "tail_v4_neutralize_block_f32_out_legacy",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "tail_v4_neutralize_block_f64_out_legacy",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "tail_v4_run_candidates",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "tail_v4_run_fulltest_queue",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
     "name": "test_function",
     "description": "<p>简单测试函数，确保模块导出正常工作</p>",
+    "params": []
+  },
+  {
+    "name": "theme_cluster_factors",
+    "description": "<p>计算所有主题聚类因子</p>\n<p>参数:\n- features_list: Vec&lt;(n_stocks, n_features)&gt; 的特征矩阵列表，按日期升序排列\n  特征列顺序: daily_return(0), intraday_vol(1), log_total_amt(2), act_buy_ratio(3),\n              log_avg_trade_amt(4), min_ret_skew(5), up_tick_ratio(6),\n              bid_size1_mean(7), ask_size1_mean(8), vwap_diff(9),\n              last_bid_vol1(10), last_ask_vol1(11)\n- micro_metrics_list: Vec&lt;(n_stocks, n_micro_metrics)&gt; 微观指标矩阵列表，按日期升序\n  微观指标列顺序: act_buy_ratio(0), bid_ask_imbalance(1), vol_per_trade(2),\n                  spread_ratio(3), depth_imbalance(4), vwap_deviation(5),\n                  act_buy_vol_ratio(6), big_order_ratio(7)\n- k: 聚类数\n- align_method: 对齐方法 (\"hungarian\" / \"overlap\")\n- distance_metric: 距离度量 (\"euclidean\" / \"cosine\")\n- distance_threshold: 距离阈值 (&lt;=0 表示不使用)\n- lookback: 回溯天数</p>\n<p>返回:\n  (n_stocks, n_factors) 的因子矩阵\n  因子顺序: F4, F5, F6, F7, F8, F9, F10, F11, F12, F13, F14, F21,\n            F23, F24, F25, F26, [微观偏离因子 F17_x, F18_x ...]</p>",
+    "params": []
+  },
+  {
+    "name": "theme_cluster_factors_batch",
+    "description": "<p>批量计算主题聚类因子</p>\n<p>参数:\n- features_list: 多日特征矩阵列表, 每个shape=(n_stocks, 12)\n- micro_metrics_list: 多日微观指标矩阵列表, 每个shape=(n_stocks, 8)\n- k_values: 聚类数列表\n- align_methods: 对齐方法列表 (\"hungarian\" / \"overlap\")\n- distance_metrics: 距离度量列表 (\"euclidean\" / \"cosine\" / \"mahalanobis\")\n- distance_thresholds: 距离阈值列表 (None用负数表示)\n- lookback_values: 回溯天数列表\n- n_threads: 并行线程数 (不超过10)</p>\n<p>返回:\n  (因子矩阵, 列名列表)\n  - 因子矩阵: shape=(n_stocks, n_factors * n_param_combos)\n  - 列名列表: 每列的名称，格式为 {factor_name}__k{k}<em>{align}</em>{dist}<em>{thresh}</em>{lookback}</p>",
+    "params": []
+  },
+  {
+    "name": "theme_cluster_factors_batch_multi_segments",
+    "description": "<p>批量计算主题聚类因子 (多时段并行版本)</p>\n<p>参数:\n- segments_data: List[(segment_name, features_list, micro_list)]\n  - segment_name: 时段名称字符串\n  - features_list: List[ndarray], 每个shape=(n_stocks, 12)\n  - micro_list: List[ndarray], 每个shape=(n_stocks, 8)\n- k_values: 聚类数列表\n- align_methods: 对齐方法列表\n- distance_metrics: 距离度量列表\n- distance_thresholds: 距离阈值列表 (None用负数表示)\n- lookback_values: 回溯天数列表\n- n_threads: 并行线程数 (不超过10)</p>\n<p>返回:\n  (因子矩阵, 列名列表)\n  - 因子矩阵: shape=(n_stocks, total_cols)\n  - 列名列表: 格式为 {factor_name}<strong>k{k}<em>{align}</em>{dist}<em>{thresh}</em>{lookback}</strong>{segment}</p>",
+    "params": []
+  },
+  {
+    "name": "theme_cluster_factors_from_minute",
+    "description": "<p>从分钟数据计算主题聚类因子（Rust内部做时段拆分和特征提取）</p>\n<p>优化点：\n1. Python只传入分钟原始数据，减少数据传输\n2. Rust内部做时段切片、特征提取、聚类、因子计算，全流程并行\n3. 各时段独立聚类</p>",
     "params": []
   },
   {

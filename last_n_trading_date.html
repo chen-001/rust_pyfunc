@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>run_pools_queue_date_only - Rust PyFunc API文档</title>
+    <title>last_n_trading_date - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
     <script src="static/search.js"></script>
 </head>
@@ -26,16 +26,16 @@
     </div>
     
     <div class="content">
-        <h1>run_pools_queue_date_only</h1>
+        <h1>last_n_trading_date</h1>
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><p>无文档</p></div>
+            <div><p>从 end_date 往前数 n_date 个交易日, 返回那个日期</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>run_pools_queue_date_only(python_function, dates, n_jobs, backup_file, expected_result_length, restart_interval, update_mode, task_timeout, health_check_interval, debug_monitor, backup_batch_size, debug_log, progress_log) -> None</code>
+            <code>last_n_trading_date(end_date, n_date) -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -59,7 +59,7 @@
             <div class="example-usage-note">
                 <h3>Python使用示例</h3>
                 <pre><code>import numpy as np
-from rust_pyfunc import run_pools_queue_date_only
+from rust_pyfunc import last_n_trading_date
 
 # 使用示例
 

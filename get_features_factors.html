@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>run_pools_queue_date_only - Rust PyFunc API文档</title>
+    <title>get_features_factors - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
     <script src="static/search.js"></script>
 </head>
@@ -26,7 +26,7 @@
     </div>
     
     <div class="content">
-        <h1>run_pools_queue_date_only</h1>
+        <h1>get_features_factors</h1>
         
         <div class="function-description">
             <h2>描述</h2>
@@ -35,7 +35,7 @@
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>run_pools_queue_date_only(python_function, dates, n_jobs, backup_file, expected_result_length, restart_interval, update_mode, task_timeout, health_check_interval, debug_monitor, backup_batch_size, debug_log, progress_log) -> None</code>
+            <code>get_features_factors(df, with_abs, with_max_min, with_corr, with_percentiles, with_lag_autocorr, with_threshold_counts, with_period_compare, with_lyapunov_exponent, with_complexity, append_for_corr) -> tuple[list[float], list[str]]</code>
         </div>
         
         <div class="function-parameters">
@@ -59,7 +59,7 @@
             <div class="example-usage-note">
                 <h3>Python使用示例</h3>
                 <pre><code>import numpy as np
-from rust_pyfunc import run_pools_queue_date_only
+from rust_pyfunc import get_features_factors
 
 # 使用示例
 

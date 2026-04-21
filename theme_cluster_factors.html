@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>run_pools_queue_date_only - Rust PyFunc API文档</title>
+    <title>theme_cluster_factors - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
     <script src="static/search.js"></script>
 </head>
@@ -26,16 +26,35 @@
     </div>
     
     <div class="content">
-        <h1>run_pools_queue_date_only</h1>
+        <h1>theme_cluster_factors</h1>
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><p>无文档</p></div>
+            <div><p>计算所有主题聚类因子</p>
+<p>参数:
+- features_list: Vec&lt;(n_stocks, n_features)&gt; 的特征矩阵列表，按日期升序排列
+  特征列顺序: daily_return(0), intraday_vol(1), log_total_amt(2), act_buy_ratio(3),
+              log_avg_trade_amt(4), min_ret_skew(5), up_tick_ratio(6),
+              bid_size1_mean(7), ask_size1_mean(8), vwap_diff(9),
+              last_bid_vol1(10), last_ask_vol1(11)
+- micro_metrics_list: Vec&lt;(n_stocks, n_micro_metrics)&gt; 微观指标矩阵列表，按日期升序
+  微观指标列顺序: act_buy_ratio(0), bid_ask_imbalance(1), vol_per_trade(2),
+                  spread_ratio(3), depth_imbalance(4), vwap_deviation(5),
+                  act_buy_vol_ratio(6), big_order_ratio(7)
+- k: 聚类数
+- align_method: 对齐方法 ("hungarian" / "overlap")
+- distance_metric: 距离度量 ("euclidean" / "cosine")
+- distance_threshold: 距离阈值 (&lt;=0 表示不使用)
+- lookback: 回溯天数</p>
+<p>返回:
+  (n_stocks, n_factors) 的因子矩阵
+  因子顺序: F4, F5, F6, F7, F8, F9, F10, F11, F12, F13, F14, F21,
+            F23, F24, F25, F26, [微观偏离因子 F17_x, F18_x ...]</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>run_pools_queue_date_only(python_function, dates, n_jobs, backup_file, expected_result_length, restart_interval, update_mode, task_timeout, health_check_interval, debug_monitor, backup_batch_size, debug_log, progress_log) -> None</code>
+            <code>theme_cluster_factors(features_list, micro_metrics_list, k, align_method, distance_metric, distance_threshold, lookback) -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -59,7 +78,7 @@
             <div class="example-usage-note">
                 <h3>Python使用示例</h3>
                 <pre><code>import numpy as np
-from rust_pyfunc import run_pools_queue_date_only
+from rust_pyfunc import theme_cluster_factors
 
 # 使用示例
 

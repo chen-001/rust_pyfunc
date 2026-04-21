@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>run_pools_queue_date_only - Rust PyFunc API文档</title>
+    <title>TradingDay - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
     <script src="static/search.js"></script>
 </head>
@@ -26,16 +26,28 @@
     </div>
     
     <div class="content">
-        <h1>run_pools_queue_date_only</h1>
+        <h1>TradingDay</h1>
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><p>无文档</p></div>
+            <div><p>交易日历类, 从CSV文件加载交易日并支持各种查询操作</p>
+<h2>Parameters</h2>
+<p>input_file : str
+    交易日历CSV文件路径, 默认 /ssd_data/data/basic_info/calendar.csv
+start_date : int, optional
+    起始日期, 格式 %Y%m%d, 如 20200101
+end_date : int, optional
+    截止日期, 格式 %Y%m%d, 如 20201231</p>
+<h2>Attributes</h2>
+<p>trading_days : numpy.ndarray[int]
+    有序交易日数组
+date_map : dict[int, int]
+    日期 -&gt; 在 trading_days 中的索引</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>run_pools_queue_date_only(python_function, dates, n_jobs, backup_file, expected_result_length, restart_interval, update_mode, task_timeout, health_check_interval, debug_monitor, backup_batch_size, debug_log, progress_log) -> None</code>
+            <code>TradingDay(input_file, start_date, end_date) -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -59,7 +71,7 @@
             <div class="example-usage-note">
                 <h3>Python使用示例</h3>
                 <pre><code>import numpy as np
-from rust_pyfunc import run_pools_queue_date_only
+from rust_pyfunc import TradingDay
 
 # 使用示例
 

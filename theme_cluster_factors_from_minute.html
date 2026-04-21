@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>run_pools_queue_date_only - Rust PyFunc API文档</title>
+    <title>theme_cluster_factors_from_minute - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
     <script src="static/search.js"></script>
 </head>
@@ -26,16 +26,20 @@
     </div>
     
     <div class="content">
-        <h1>run_pools_queue_date_only</h1>
+        <h1>theme_cluster_factors_from_minute</h1>
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><p>无文档</p></div>
+            <div><p>从分钟数据计算主题聚类因子（Rust内部做时段拆分和特征提取）</p>
+<p>优化点：
+1. Python只传入分钟原始数据，减少数据传输
+2. Rust内部做时段切片、特征提取、聚类、因子计算，全流程并行
+3. 各时段独立聚类</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>run_pools_queue_date_only(python_function, dates, n_jobs, backup_file, expected_result_length, restart_interval, update_mode, task_timeout, health_check_interval, debug_monitor, backup_batch_size, debug_log, progress_log) -> None</code>
+            <code>theme_cluster_factors_from_minute(minute_data, segments, segment_bounds, k_values, align_methods, distance_metrics, distance_thresholds, lookback_values, n_threads) -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -59,7 +63,7 @@
             <div class="example-usage-note">
                 <h3>Python使用示例</h3>
                 <pre><code>import numpy as np
-from rust_pyfunc import run_pools_queue_date_only
+from rust_pyfunc import theme_cluster_factors_from_minute
 
 # 使用示例
 
