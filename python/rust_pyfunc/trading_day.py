@@ -113,24 +113,37 @@ class TradingDay:
 
 
 # ── 模块级单例 & 包装函数 ──────────────────────────────────────────────
-td = TradingDay()
+_td = None
+
+
+def _get_td():
+    global _td
+    if _td is None:
+        _td = TradingDay()
+    return _td
+
+
+def __getattr__(name):
+    if name == 'td':
+        return _get_td()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def last_trading_day_tricky(date):
     """若 date 非交易日则回退到上一个交易日, 否则原样返回"""
-    if not td.is_trading_day(date):
-        date = td.last_trading_day(date)
+    if not _get_td().is_trading_day(date):
+        date = _get_td().last_trading_day(date)
     return date
 
 
 def next_trading_day_tricky(date):
     """若 date 非交易日则前进到下一个交易日, 否则原样返回"""
-    if not td.is_trading_day(date):
-        date = td.next_trading_day(date)
+    if not _get_td().is_trading_day(date):
+        date = _get_td().next_trading_day(date)
     return date
 
 
 def last_n_trading_date(end_date, n_date):
     """从 end_date 往前数 n_date 个交易日, 返回那个日期"""
-    pos = td.get_loc(end_date) - n_date
-    return td.trading_days[pos]
+    pos = _get_td().get_loc(end_date) - n_date
+    return _get_td().trading_days[pos]

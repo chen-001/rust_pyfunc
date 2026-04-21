@@ -45,7 +45,7 @@ def get_features_factors(
     with_period_compare: bool = True,
     with_lyapunov_exponent: bool = True,
     with_complexity: bool = True,
-    append_for_corr: pd.DataFrame | None = None,
+    append_for_corr,
 ) -> Tuple[List[float], List[str]]: ...
 
 
@@ -60,5 +60,5 @@ def get_features_names(
     with_period_compare: bool = True,
     with_lyapunov_exponent: bool = True,
     with_complexity: bool = True,
-    append_for_corr_cols: List[str] | None = None,
+    append_for_corr_cols,
 ) -> List[str]: ...
