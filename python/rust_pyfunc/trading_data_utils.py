@@ -302,7 +302,7 @@ def get_features_factors(
     with_period_compare: bool = True,
     with_lyapunov_exponent: bool = True,
     with_complexity: bool = True,
-    append_for_corr: pd.DataFrame | None = None,
+    append_for_corr,
 ) -> tuple[list[float], list[str]]:
     means = df.mean()
     medians = df.median()
@@ -464,7 +464,7 @@ def get_features_names(
     with_period_compare: bool = True,
     with_lyapunov_exponent: bool = True,
     with_complexity: bool = True,
-    append_for_corr_cols: list | None = None,
+    append_for_corr_cols,
 ) -> list[str]:
     names: list[str] = []
 

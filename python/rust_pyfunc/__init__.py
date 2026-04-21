@@ -38,7 +38,6 @@ from .abm_analysis import (
 )
 from .trading_day import (
     TradingDay,
-    td,
     last_trading_day_tricky,
     next_trading_day_tricky,
     last_n_trading_date,
@@ -53,6 +52,11 @@ def __getattr__(name):
         module = import_module(".treevisual", __name__)
         value = module if name == "treevisual" else getattr(module, name)
         globals()[name] = value
+        return value
+    if name == "td":
+        from . import trading_day
+        value = getattr(trading_day, "td")
+        globals()["td"] = value
         return value
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
