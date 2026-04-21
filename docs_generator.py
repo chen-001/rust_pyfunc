@@ -322,7 +322,10 @@ def get_all_functions() -> List[Dict[str, Any]]:
     
     # 过滤出函数
     for attr_name in module_attrs:
-        attr = getattr(rust_pyfunc, attr_name)
+        try:
+            attr = getattr(rust_pyfunc, attr_name)
+        except Exception:
+            continue
         
         # 检查是否为函数或方法
         if callable(attr) and not attr_name.startswith("_"):
