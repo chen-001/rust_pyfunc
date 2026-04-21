@@ -167,6 +167,23 @@ jobs:
   #       with:
   #         command: upload
   #         args: --non-interactive --skip-existing wheels-*/*
+  import-test:
+    name: Import Test (Python 3.9)
+    runs-on: ubuntu-latest
+    needs: [linux]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheels-linux-x86_64
+          path: dist
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - name: Install rust_pyfunc
+        run: pip install rust_pyfunc --no-index --find-links dist
+      - name: Test import
+        run: python -c "import rust_pyfunc; print('import OK')"
+
   check-version:
     name: Check Version Change
     runs-on: ubuntu-latest
