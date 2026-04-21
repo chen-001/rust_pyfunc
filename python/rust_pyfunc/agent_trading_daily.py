@@ -186,7 +186,7 @@ def get_agent_daily_feature_column_groups_for_get_features_factors(
 
 def pack_agent_daily_feature_table_for_get_features_factors(
     daily_table: pd.DataFrame,
-    include_levels,
+    include_levels=None,
     include_timestamp_metrics: bool = False,
 ) -> tuple[pd.DataFrame, Dict[str, List[str]]]:
     groups = get_agent_daily_feature_column_groups_for_get_features_factors(
@@ -307,7 +307,7 @@ def compute_agent_trading_daily_feature_table_multi(
     window_ms: int = 10000,
     grid_ms: int = 1000,
     param_window_ms: int = 2000,
-    all_agent_params,
+    all_agent_params=None,
 ) -> pd.DataFrame:
     (
         event_features,
@@ -356,7 +356,7 @@ def compute_agent_trading_daily_feature_table_for_get_features_factors(
     agent_volumes: NDArray[np.float64],
     window_ms: int = 10000,
     grid_ms: int = 1000,
-    include_levels,
+    include_levels=None,
     include_timestamp_metrics: bool = False,
 ) -> tuple[pd.DataFrame, Dict[str, List[str]]]:
     daily_table = compute_agent_trading_daily_feature_table(
@@ -395,8 +395,8 @@ def compute_agent_trading_daily_feature_table_multi_for_get_features_factors(
     window_ms: int = 10000,
     grid_ms: int = 1000,
     param_window_ms: int = 2000,
-    all_agent_params,
-    include_levels,
+    all_agent_params=None,
+    include_levels=None,
     include_timestamp_metrics: bool = False,
 ) -> tuple[pd.DataFrame, Dict[str, List[str]]]:
     daily_table = compute_agent_trading_daily_feature_table_multi(
