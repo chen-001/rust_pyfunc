@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>run_pools_queue_date_only - Rust PyFunc API文档</title>
+    <title>convert_backup_v2_to_v3_inplace - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
     <script src="static/search.js"></script>
 </head>
@@ -26,16 +26,21 @@
     </div>
     
     <div class="content">
-        <h1>run_pools_queue_date_only</h1>
+        <h1>convert_backup_v2_to_v3_inplace</h1>
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><p>无文档</p></div>
+            <div><p>将 v2 格式备份文件原地转换为 v3 格式</p>
+<p>v3 记录大小恰好是 v2 的 50%，因此写指针永远落后于读指针，可安全原地覆写。</p>
+<p>参数:
+- backup_file: v2 格式备份文件路径
+- batch_size: 每批处理的记录数（默认 5000，约 1 GB 内存）</p>
+<p>返回: 成功转换的记录数</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>run_pools_queue_date_only(python_function, dates, n_jobs, backup_file, expected_result_length, restart_interval, update_mode, task_timeout, health_check_interval, debug_monitor, backup_batch_size, debug_log, progress_log) -> None</code>
+            <code>convert_backup_v2_to_v3_inplace(backup_file, batch_size) -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -59,7 +64,7 @@
             <div class="example-usage-note">
                 <h3>Python使用示例</h3>
                 <pre><code>import numpy as np
-from rust_pyfunc import run_pools_queue_date_only
+from rust_pyfunc import convert_backup_v2_to_v3_inplace
 
 # 使用示例
 

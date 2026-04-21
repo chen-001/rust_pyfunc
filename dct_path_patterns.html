@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    #vis.vega-embed {
+      width: 100%;
+      display: flex;
+    }
+
+    #vis.vega-embed details,
+    #vis.vega-embed details summary {
+      position: relative;
+    }
+  </style>
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/vega@5"></script>
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/vega-lite@5.16.3"></script>
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/vega-embed@6"></script>
+</head>
+<body>
+  <div id="vis"></div>
+  <script>
+    (function(vegaEmbed) {
+      var spec = {"config": {"view": {"continuousWidth": 300, "continuousHeight": 300}}, "data": {"name": "data-d410dcf6a945626054ac515b5f89860b"}, "mark": {"type": "line", "point": true}, "encoding": {"color": {"field": "\u6a21\u5f0f", "legend": {"orient": "top"}, "type": "nominal"}, "x": {"field": "\u65f6\u6bb5", "title": "\u65f6\u6bb5 (0=\u5f00\u76d8, 7=\u6536\u76d8)", "type": "ordinal"}, "y": {"field": "\u6536\u76ca\u7387", "title": "\u6536\u76ca\u7387", "type": "quantitative"}}, "height": 200, "title": "\u4e0d\u540c\u6536\u76ca\u8def\u5f84\u6a21\u5f0f", "width": 600, "$schema": "https://vega.github.io/schema/vega-lite/v5.16.3.json", "datasets": {"data-d410dcf6a945626054ac515b5f89860b": [{"\u6a21\u5f0f": "\u5355\u8fb9\u4e0a\u6da8", "\u65f6\u6bb5": 0, "\u6536\u76ca\u7387": 0.01, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u5355\u8fb9\u4e0a\u6da8", "\u65f6\u6bb5": 1, "\u6536\u76ca\u7387": 0.01, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u5355\u8fb9\u4e0a\u6da8", "\u65f6\u6bb5": 2, "\u6536\u76ca\u7387": 0.01, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u5355\u8fb9\u4e0a\u6da8", "\u65f6\u6bb5": 3, "\u6536\u76ca\u7387": 0.01, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u5355\u8fb9\u4e0a\u6da8", "\u65f6\u6bb5": 4, "\u6536\u76ca\u7387": 0.01, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u5355\u8fb9\u4e0a\u6da8", "\u65f6\u6bb5": 5, "\u6536\u76ca\u7387": 0.01, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u5355\u8fb9\u4e0a\u6da8", "\u65f6\u6bb5": 6, "\u6536\u76ca\u7387": 0.01, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u5355\u8fb9\u4e0a\u6da8", "\u65f6\u6bb5": 7, "\u6536\u76ca\u7387": 0.01, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u5148\u6da8\u540e\u8dcc(\u5012V)", "\u65f6\u6bb5": 0, "\u6536\u76ca\u7387": 0.02, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u5148\u6da8\u540e\u8dcc(\u5012V)", "\u65f6\u6bb5": 1, "\u6536\u76ca\u7387": 0.02, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u5148\u6da8\u540e\u8dcc(\u5012V)", "\u65f6\u6bb5": 2, "\u6536\u76ca\u7387": 0.01, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u5148\u6da8\u540e\u8dcc(\u5012V)", "\u65f6\u6bb5": 3, "\u6536\u76ca\u7387": 0.0, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u5148\u6da8\u540e\u8dcc(\u5012V)", "\u65f6\u6bb5": 4, "\u6536\u76ca\u7387": -0.01, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u5148\u6da8\u540e\u8dcc(\u5012V)", "\u65f6\u6bb5": 5, "\u6536\u76ca\u7387": -0.02, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u5148\u6da8\u540e\u8dcc(\u5012V)", "\u65f6\u6bb5": 6, "\u6536\u76ca\u7387": -0.02, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u5148\u6da8\u540e\u8dcc(\u5012V)", "\u65f6\u6bb5": 7, "\u6536\u76ca\u7387": -0.02, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u5148\u8dcc\u540e\u6da8(V\u578b)", "\u65f6\u6bb5": 0, "\u6536\u76ca\u7387": -0.02, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u5148\u8dcc\u540e\u6da8(V\u578b)", "\u65f6\u6bb5": 1, "\u6536\u76ca\u7387": -0.02, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u5148\u8dcc\u540e\u6da8(V\u578b)", "\u65f6\u6bb5": 2, "\u6536\u76ca\u7387": -0.01, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u5148\u8dcc\u540e\u6da8(V\u578b)", "\u65f6\u6bb5": 3, "\u6536\u76ca\u7387": 0.0, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u5148\u8dcc\u540e\u6da8(V\u578b)", "\u65f6\u6bb5": 4, "\u6536\u76ca\u7387": 0.01, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u5148\u8dcc\u540e\u6da8(V\u578b)", "\u65f6\u6bb5": 5, "\u6536\u76ca\u7387": 0.02, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u5148\u8dcc\u540e\u6da8(V\u578b)", "\u65f6\u6bb5": 6, "\u6536\u76ca\u7387": 0.02, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u5148\u8dcc\u540e\u6da8(V\u578b)", "\u65f6\u6bb5": 7, "\u6536\u76ca\u7387": 0.02, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u9707\u8361\u8d70\u52bf", "\u65f6\u6bb5": 0, "\u6536\u76ca\u7387": 0.02, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u9707\u8361\u8d70\u52bf", "\u65f6\u6bb5": 1, "\u6536\u76ca\u7387": -0.02, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u9707\u8361\u8d70\u52bf", "\u65f6\u6bb5": 2, "\u6536\u76ca\u7387": 0.02, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u9707\u8361\u8d70\u52bf", "\u65f6\u6bb5": 3, "\u6536\u76ca\u7387": -0.02, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u9707\u8361\u8d70\u52bf", "\u65f6\u6bb5": 4, "\u6536\u76ca\u7387": 0.02, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u9707\u8361\u8d70\u52bf", "\u65f6\u6bb5": 5, "\u6536\u76ca\u7387": -0.02, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u9707\u8361\u8d70\u52bf", "\u65f6\u6bb5": 6, "\u6536\u76ca\u7387": 0.02, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u9707\u8361\u8d70\u52bf", "\u65f6\u6bb5": 7, "\u6536\u76ca\u7387": -0.02, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u5c3e\u76d8\u62c9\u5347", "\u65f6\u6bb5": 0, "\u6536\u76ca\u7387": 0.0, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u5c3e\u76d8\u62c9\u5347", "\u65f6\u6bb5": 1, "\u6536\u76ca\u7387": 0.0, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u5c3e\u76d8\u62c9\u5347", "\u65f6\u6bb5": 2, "\u6536\u76ca\u7387": 0.0, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u5c3e\u76d8\u62c9\u5347", "\u65f6\u6bb5": 3, "\u6536\u76ca\u7387": 0.0, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u5c3e\u76d8\u62c9\u5347", "\u65f6\u6bb5": 4, "\u6536\u76ca\u7387": 0.0, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u5c3e\u76d8\u62c9\u5347", "\u65f6\u6bb5": 5, "\u6536\u76ca\u7387": 0.0, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u5c3e\u76d8\u62c9\u5347", "\u65f6\u6bb5": 6, "\u6536\u76ca\u7387": 0.01, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}, {"\u6a21\u5f0f": "\u5c3e\u76d8\u62c9\u5347", "\u65f6\u6bb5": 7, "\u6536\u76ca\u7387": 0.03, "\u7c7b\u578b": "\u539f\u59cb\u8def\u5f84"}]}};
+      var embedOpt = {"mode": "vega-lite"};
+
+      function showError(el, error){
+          el.innerHTML = ('<div style="color:red;">'
+                          + '<p>JavaScript Error: ' + error.message + '</p>'
+                          + "<p>This usually means there's a typo in your chart specification. "
+                          + "See the javascript console for the full traceback.</p>"
+                          + '</div>');
+          throw error;
+      }
+      const el = document.getElementById('vis');
+      vegaEmbed("#vis", spec, embedOpt)
+        .catch(error => showError(el, error));
+    })(vegaEmbed);
+
+  </script>
+</body>
+</html>

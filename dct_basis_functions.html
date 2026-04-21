@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    #vis.vega-embed {
+      width: 100%;
+      display: flex;
+    }
+
+    #vis.vega-embed details,
+    #vis.vega-embed details summary {
+      position: relative;
+    }
+  </style>
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/vega@5"></script>
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/vega-lite@5.16.3"></script>
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/vega-embed@6"></script>
+</head>
+<body>
+  <div id="vis"></div>
+  <script>
+    (function(vegaEmbed) {
+      var spec = {"config": {"view": {"continuousWidth": 300, "continuousHeight": 300}}, "data": {"name": "data-662451191adf4849702db5aeb075268d"}, "facet": {"field": "\u9891\u7387", "type": "nominal"}, "spec": {"mark": {"type": "line", "point": true}, "encoding": {"color": {"field": "\u7cfb\u6570k", "legend": {"orient": "right"}, "type": "nominal"}, "x": {"field": "\u65f6\u6bb5", "title": "\u65f6\u6bb5", "type": "ordinal"}, "y": {"field": "\u57fa\u51fd\u6570\u503c", "title": "cos\u503c", "type": "quantitative"}}, "height": 200, "width": 400}, "columns": 3, "resolve": {"scale": {"y": "independent"}}, "title": "DCT\u57fa\u51fd\u6570\uff1a\u6bcf\u4e2a\u7cfb\u6570\u5bf9\u5e94\u7684\u6ce2\u5f62", "$schema": "https://vega.github.io/schema/vega-lite/v5.16.3.json", "datasets": {"data-662451191adf4849702db5aeb075268d": [{"\u7cfb\u6570k": "DCT[0]", "\u65f6\u6bb5": 0, "\u57fa\u51fd\u6570\u503c": 1.0, "\u9891\u7387": "\u76f4\u6d41(\u5747\u503c)"}, {"\u7cfb\u6570k": "DCT[0]", "\u65f6\u6bb5": 1, "\u57fa\u51fd\u6570\u503c": 1.0, "\u9891\u7387": "\u76f4\u6d41(\u5747\u503c)"}, {"\u7cfb\u6570k": "DCT[0]", "\u65f6\u6bb5": 2, "\u57fa\u51fd\u6570\u503c": 1.0, "\u9891\u7387": "\u76f4\u6d41(\u5747\u503c)"}, {"\u7cfb\u6570k": "DCT[0]", "\u65f6\u6bb5": 3, "\u57fa\u51fd\u6570\u503c": 1.0, "\u9891\u7387": "\u76f4\u6d41(\u5747\u503c)"}, {"\u7cfb\u6570k": "DCT[0]", "\u65f6\u6bb5": 4, "\u57fa\u51fd\u6570\u503c": 1.0, "\u9891\u7387": "\u76f4\u6d41(\u5747\u503c)"}, {"\u7cfb\u6570k": "DCT[0]", "\u65f6\u6bb5": 5, "\u57fa\u51fd\u6570\u503c": 1.0, "\u9891\u7387": "\u76f4\u6d41(\u5747\u503c)"}, {"\u7cfb\u6570k": "DCT[0]", "\u65f6\u6bb5": 6, "\u57fa\u51fd\u6570\u503c": 1.0, "\u9891\u7387": "\u76f4\u6d41(\u5747\u503c)"}, {"\u7cfb\u6570k": "DCT[0]", "\u65f6\u6bb5": 7, "\u57fa\u51fd\u6570\u503c": 1.0, "\u9891\u7387": "\u76f4\u6d41(\u5747\u503c)"}, {"\u7cfb\u6570k": "DCT[1]", "\u65f6\u6bb5": 0, "\u57fa\u51fd\u6570\u503c": 0.9807852804032304, "\u9891\u7387": "\u9891\u73871"}, {"\u7cfb\u6570k": "DCT[1]", "\u65f6\u6bb5": 1, "\u57fa\u51fd\u6570\u503c": 0.8314696123025452, "\u9891\u7387": "\u9891\u73871"}, {"\u7cfb\u6570k": "DCT[1]", "\u65f6\u6bb5": 2, "\u57fa\u51fd\u6570\u503c": 0.5555702330196023, "\u9891\u7387": "\u9891\u73871"}, {"\u7cfb\u6570k": "DCT[1]", "\u65f6\u6bb5": 3, "\u57fa\u51fd\u6570\u503c": 0.19509032201612833, "\u9891\u7387": "\u9891\u73871"}, {"\u7cfb\u6570k": "DCT[1]", "\u65f6\u6bb5": 4, "\u57fa\u51fd\u6570\u503c": -0.1950903220161282, "\u9891\u7387": "\u9891\u73871"}, {"\u7cfb\u6570k": "DCT[1]", "\u65f6\u6bb5": 5, "\u57fa\u51fd\u6570\u503c": -0.555570233019602, "\u9891\u7387": "\u9891\u73871"}, {"\u7cfb\u6570k": "DCT[1]", "\u65f6\u6bb5": 6, "\u57fa\u51fd\u6570\u503c": -0.8314696123025453, "\u9891\u7387": "\u9891\u73871"}, {"\u7cfb\u6570k": "DCT[1]", "\u65f6\u6bb5": 7, "\u57fa\u51fd\u6570\u503c": -0.9807852804032304, "\u9891\u7387": "\u9891\u73871"}, {"\u7cfb\u6570k": "DCT[2]", "\u65f6\u6bb5": 0, "\u57fa\u51fd\u6570\u503c": 0.9238795325112867, "\u9891\u7387": "\u9891\u73872"}, {"\u7cfb\u6570k": "DCT[2]", "\u65f6\u6bb5": 1, "\u57fa\u51fd\u6570\u503c": 0.38268343236508984, "\u9891\u7387": "\u9891\u73872"}, {"\u7cfb\u6570k": "DCT[2]", "\u65f6\u6bb5": 2, "\u57fa\u51fd\u6570\u503c": -0.3826834323650897, "\u9891\u7387": "\u9891\u73872"}, {"\u7cfb\u6570k": "DCT[2]", "\u65f6\u6bb5": 3, "\u57fa\u51fd\u6570\u503c": -0.9238795325112867, "\u9891\u7387": "\u9891\u73872"}, {"\u7cfb\u6570k": "DCT[2]", "\u65f6\u6bb5": 4, "\u57fa\u51fd\u6570\u503c": -0.9238795325112868, "\u9891\u7387": "\u9891\u73872"}, {"\u7cfb\u6570k": "DCT[2]", "\u65f6\u6bb5": 5, "\u57fa\u51fd\u6570\u503c": -0.38268343236509034, "\u9891\u7387": "\u9891\u73872"}, {"\u7cfb\u6570k": "DCT[2]", "\u65f6\u6bb5": 6, "\u57fa\u51fd\u6570\u503c": 0.38268343236509, "\u9891\u7387": "\u9891\u73872"}, {"\u7cfb\u6570k": "DCT[2]", "\u65f6\u6bb5": 7, "\u57fa\u51fd\u6570\u503c": 0.9238795325112865, "\u9891\u7387": "\u9891\u73872"}, {"\u7cfb\u6570k": "DCT[3]", "\u65f6\u6bb5": 0, "\u57fa\u51fd\u6570\u503c": 0.8314696123025452, "\u9891\u7387": "\u9891\u73873"}, {"\u7cfb\u6570k": "DCT[3]", "\u65f6\u6bb5": 1, "\u57fa\u51fd\u6570\u503c": -0.1950903220161282, "\u9891\u7387": "\u9891\u73873"}, {"\u7cfb\u6570k": "DCT[3]", "\u65f6\u6bb5": 2, "\u57fa\u51fd\u6570\u503c": -0.9807852804032304, "\u9891\u7387": "\u9891\u73873"}, {"\u7cfb\u6570k": "DCT[3]", "\u65f6\u6bb5": 3, "\u57fa\u51fd\u6570\u503c": -0.5555702330196022, "\u9891\u7387": "\u9891\u73873"}, {"\u7cfb\u6570k": "DCT[3]", "\u65f6\u6bb5": 4, "\u57fa\u51fd\u6570\u503c": 0.5555702330196018, "\u9891\u7387": "\u9891\u73873"}, {"\u7cfb\u6570k": "DCT[3]", "\u65f6\u6bb5": 5, "\u57fa\u51fd\u6570\u503c": 0.9807852804032304, "\u9891\u7387": "\u9891\u73873"}, {"\u7cfb\u6570k": "DCT[3]", "\u65f6\u6bb5": 6, "\u57fa\u51fd\u6570\u503c": 0.19509032201612878, "\u9891\u7387": "\u9891\u73873"}, {"\u7cfb\u6570k": "DCT[3]", "\u65f6\u6bb5": 7, "\u57fa\u51fd\u6570\u503c": -0.8314696123025451, "\u9891\u7387": "\u9891\u73873"}, {"\u7cfb\u6570k": "DCT[4]", "\u65f6\u6bb5": 0, "\u57fa\u51fd\u6570\u503c": 0.7071067811865476, "\u9891\u7387": "\u9891\u73874"}, {"\u7cfb\u6570k": "DCT[4]", "\u65f6\u6bb5": 1, "\u57fa\u51fd\u6570\u503c": -0.7071067811865475, "\u9891\u7387": "\u9891\u73874"}, {"\u7cfb\u6570k": "DCT[4]", "\u65f6\u6bb5": 2, "\u57fa\u51fd\u6570\u503c": -0.7071067811865477, "\u9891\u7387": "\u9891\u73874"}, {"\u7cfb\u6570k": "DCT[4]", "\u65f6\u6bb5": 3, "\u57fa\u51fd\u6570\u503c": 0.7071067811865474, "\u9891\u7387": "\u9891\u73874"}, {"\u7cfb\u6570k": "DCT[4]", "\u65f6\u6bb5": 4, "\u57fa\u51fd\u6570\u503c": 0.7071067811865477, "\u9891\u7387": "\u9891\u73874"}, {"\u7cfb\u6570k": "DCT[4]", "\u65f6\u6bb5": 5, "\u57fa\u51fd\u6570\u503c": -0.7071067811865467, "\u9891\u7387": "\u9891\u73874"}, {"\u7cfb\u6570k": "DCT[4]", "\u65f6\u6bb5": 6, "\u57fa\u51fd\u6570\u503c": -0.7071067811865471, "\u9891\u7387": "\u9891\u73874"}, {"\u7cfb\u6570k": "DCT[4]", "\u65f6\u6bb5": 7, "\u57fa\u51fd\u6570\u503c": 0.7071067811865466, "\u9891\u7387": "\u9891\u73874"}, {"\u7cfb\u6570k": "DCT[5]", "\u65f6\u6bb5": 0, "\u57fa\u51fd\u6570\u503c": 0.5555702330196023, "\u9891\u7387": "\u9891\u73875"}, {"\u7cfb\u6570k": "DCT[5]", "\u65f6\u6bb5": 1, "\u57fa\u51fd\u6570\u503c": -0.9807852804032304, "\u9891\u7387": "\u9891\u73875"}, {"\u7cfb\u6570k": "DCT[5]", "\u65f6\u6bb5": 2, "\u57fa\u51fd\u6570\u503c": 0.1950903220161283, "\u9891\u7387": "\u9891\u73875"}, {"\u7cfb\u6570k": "DCT[5]", "\u65f6\u6bb5": 3, "\u57fa\u51fd\u6570\u503c": 0.8314696123025455, "\u9891\u7387": "\u9891\u73875"}, {"\u7cfb\u6570k": "DCT[5]", "\u65f6\u6bb5": 4, "\u57fa\u51fd\u6570\u503c": -0.8314696123025451, "\u9891\u7387": "\u9891\u73875"}, {"\u7cfb\u6570k": "DCT[5]", "\u65f6\u6bb5": 5, "\u57fa\u51fd\u6570\u503c": -0.19509032201612803, "\u9891\u7387": "\u9891\u73875"}, {"\u7cfb\u6570k": "DCT[5]", "\u65f6\u6bb5": 6, "\u57fa\u51fd\u6570\u503c": 0.9807852804032307, "\u9891\u7387": "\u9891\u73875"}, {"\u7cfb\u6570k": "DCT[5]", "\u65f6\u6bb5": 7, "\u57fa\u51fd\u6570\u503c": -0.5555702330196015, "\u9891\u7387": "\u9891\u73875"}]}};
+      var embedOpt = {"mode": "vega-lite"};
+
+      function showError(el, error){
+          el.innerHTML = ('<div style="color:red;">'
+                          + '<p>JavaScript Error: ' + error.message + '</p>'
+                          + "<p>This usually means there's a typo in your chart specification. "
+                          + "See the javascript console for the full traceback.</p>"
+                          + '</div>');
+          throw error;
+      }
+      const el = document.getElementById('vis');
+      vegaEmbed("#vis", spec, embedOpt)
+        .catch(error => showError(el, error));
+    })(vegaEmbed);
+
+  </script>
+</body>
+</html>

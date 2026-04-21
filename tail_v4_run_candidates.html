@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>run_pools_queue_date_only - Rust PyFunc API文档</title>
+    <title>tail_v4_run_candidates - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
     <script src="static/search.js"></script>
 </head>
@@ -26,7 +26,7 @@
     </div>
     
     <div class="content">
-        <h1>run_pools_queue_date_only</h1>
+        <h1>tail_v4_run_candidates</h1>
         
         <div class="function-description">
             <h2>描述</h2>
@@ -35,7 +35,7 @@
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>run_pools_queue_date_only(python_function, dates, n_jobs, backup_file, expected_result_length, restart_interval, update_mode, task_timeout, health_check_interval, debug_monitor, backup_batch_size, debug_log, progress_log) -> None</code>
+            <code>tail_v4_run_candidates(factor_names, factor_paths, dates, stocks, windows, fold, n_jobs, min_valid, cache_root, style_data_path, ret_gap1_path, ret_sum_gap1_path, ret_gap5_path, ret_sum_gap5_path, restrict_path, index_ret_path, backtest_start, cover_rate, ret_point_neu_gap5, ret_point_neu_gap1, ic_point_neu_gap5, ic_point_neu_gap1, ret_point_gap5, ret_point_gap1, ic_point_gap5, ic_point_gap1, ic_more_important_gap5, ic_more_important_gap1, majority_count_threshold, zero_max_threshold, nan_max_threshold) -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -59,7 +59,7 @@
             <div class="example-usage-note">
                 <h3>Python使用示例</h3>
                 <pre><code>import numpy as np
-from rust_pyfunc import run_pools_queue_date_only
+from rust_pyfunc import tail_v4_run_candidates
 
 # 使用示例
 

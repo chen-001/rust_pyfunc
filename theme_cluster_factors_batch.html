@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>run_pools_queue_date_only - Rust PyFunc API文档</title>
+    <title>theme_cluster_factors_batch - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
     <script src="static/search.js"></script>
 </head>
@@ -26,16 +26,29 @@
     </div>
     
     <div class="content">
-        <h1>run_pools_queue_date_only</h1>
+        <h1>theme_cluster_factors_batch</h1>
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><p>无文档</p></div>
+            <div><p>批量计算主题聚类因子</p>
+<p>参数:
+- features_list: 多日特征矩阵列表, 每个shape=(n_stocks, 12)
+- micro_metrics_list: 多日微观指标矩阵列表, 每个shape=(n_stocks, 8)
+- k_values: 聚类数列表
+- align_methods: 对齐方法列表 ("hungarian" / "overlap")
+- distance_metrics: 距离度量列表 ("euclidean" / "cosine" / "mahalanobis")
+- distance_thresholds: 距离阈值列表 (None用负数表示)
+- lookback_values: 回溯天数列表
+- n_threads: 并行线程数 (不超过10)</p>
+<p>返回:
+  (因子矩阵, 列名列表)
+  - 因子矩阵: shape=(n_stocks, n_factors * n_param_combos)
+  - 列名列表: 每列的名称，格式为 {factor_name}__k{k}<em>{align}</em>{dist}<em>{thresh}</em>{lookback}</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>run_pools_queue_date_only(python_function, dates, n_jobs, backup_file, expected_result_length, restart_interval, update_mode, task_timeout, health_check_interval, debug_monitor, backup_batch_size, debug_log, progress_log) -> None</code>
+            <code>theme_cluster_factors_batch(features_list, micro_metrics_list, k_values, align_methods, distance_metrics, distance_thresholds, lookback_values, n_threads) -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -59,7 +72,7 @@
             <div class="example-usage-note">
                 <h3>Python使用示例</h3>
                 <pre><code>import numpy as np
-from rust_pyfunc import run_pools_queue_date_only
+from rust_pyfunc import theme_cluster_factors_batch
 
 # 使用示例
 
