@@ -64,6 +64,5 @@ def __getattr__(name):
 def __dir__():
     return sorted(
         set(globals())
-        | _LAZY_THEME_CLUSTER_EXPORTS
         | _LAZY_TREEVISUAL_EXPORTS
     )
