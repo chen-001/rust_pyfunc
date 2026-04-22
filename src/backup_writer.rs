@@ -19,7 +19,7 @@ struct FileHeaderV3 {
 }
 
 /// v4 文件头：用 chunk_count 替换 code_size
-#[repr(C)]
+#[repr(C, packed)]
 struct FileHeaderV4 {
     magic: [u8; 8],
     version: u32,
