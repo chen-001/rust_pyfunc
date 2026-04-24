@@ -2,10 +2,10 @@ from importlib import import_module
 
 from rust_pyfunc.rust_pyfunc import *
 from rust_pyfunc import *
+from rust_pyfunc.rolling_future import RollingFutureAccessor
+from rust_pyfunc.rolling_past import RollingPastAccessor
 
 _LAZY_EXPORTS = {
-    "RollingFutureAccessor": (".rolling_future", "RollingFutureAccessor"),
-    "RollingPastAccessor": (".rolling_past", "RollingPastAccessor"),
     "corrwith": (".pandas_corrwith", "corrwith"),
     "rank_axis1_df": (".pandas_rank", "rank_axis1_df"),
     "rank_axis0_df": (".pandas_rank", "rank_axis0_df"),
