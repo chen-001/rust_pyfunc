@@ -7,6 +7,7 @@ use std::cmp::min;
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{BufWriter, Read, Write};
+use sys_info;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
@@ -413,12 +414,99 @@ struct BuildSummary {
     manifest: CacheManifest,
 }
 
+/// 根据内存预算计算 group_size
+fn compute_group_size(
+    record_count: usize,
+    block_cols: usize,
+    block_count: usize,
+    memory_budget_gb: Option<f64>,
+) -> PyResult<usize> {
+    let budget_bytes = if let Some(gb) = memory_budget_gb {
+        (gb * 1024.0 * 1024.0 * 1024.0) as usize
+    } else {
+        // 默认取物理内存的 1/3
+        let total_kb = sys_info::mem_info()
+            .map(|m| m.total)
+            .unwrap_or(128 * 1024 * 1024);
+        (total_kb as usize * 1024) / 3
+    };
+
+    let one_block = record_count * block_cols * size_of::<f32>();
+    let group_size = if one_block == 0 {
+        1
+    } else {
+        (budget_bytes / one_block).max(1)
+    };
+    Ok(group_size.min(block_count))
+}
+
+/// 按块组压缩写入 block 文件，控制峰值内存
+fn write_block_groups<F>(
+    cache_dir: &Path,
+    record_count: usize,
+    factor_count: usize,
+    block_cols: usize,
+    block_count: usize,
+    group_size: usize,
+    position_in_sorted: &[u32],
+    read_factor: F,
+) -> PyResult<()>
+where
+    F: Fn(usize, usize) -> f32,
+{
+    for group_start in (0..block_count).step_by(group_size) {
+        let group_end = min(group_start + group_size, block_count);
+
+        // 为当前组分配 f32 buffer
+        let mut group_buffers: Vec<Vec<f32>> = (group_start..group_end)
+            .map(|blk_idx| {
+                let cols = min(block_cols, factor_count - blk_idx * block_cols);
+                vec![0.0f32; record_count * cols]
+            })
+            .collect();
+
+        // 按原始顺序遍历，通过 position_in_sorted 定位写入位置
+        for row in 0..record_count {
+            let sorted_pos = position_in_sorted[row] as usize;
+            for (local_idx, blk_idx) in (group_start..group_end).enumerate() {
+                let start_col = blk_idx * block_cols;
+                let end_col = min(start_col + block_cols, factor_count);
+                let cols = end_col - start_col;
+                let base = sorted_pos * cols;
+                for (j, col) in (start_col..end_col).enumerate() {
+                    group_buffers[local_idx][base + j] = read_factor(row, col);
+                }
+            }
+        }
+
+        // 逐个 block 压缩写入
+        for (local_idx, blk_idx) in (group_start..group_end).enumerate() {
+            let f32_slice = &group_buffers[local_idx];
+            let raw_bytes = unsafe {
+                std::slice::from_raw_parts(
+                    f32_slice.as_ptr() as *const u8,
+                    f32_slice.len() * 4,
+                )
+            };
+            let compressed = zstd::encode_all(raw_bytes, 9).map_err(|e| {
+                PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("zstd 压缩失败: {e}"))
+            })?;
+            let mut w = BufWriter::with_capacity(16 * 1024 * 1024, File::create(block_path(cache_dir, blk_idx))?);
+            w.write_all(&(raw_bytes.len() as u64).to_le_bytes())?;
+            w.write_all(&compressed)?;
+            w.flush()?;
+        }
+    }
+    Ok(())
+}
+
 /// 从 v2 备份构建 v2 列缓存（排序优化 + zstd level 9）
 fn build_cache_from_v2(
     mmap: &[u8],
     header: &ParsedHeader,
     cache_dir: &Path,
     block_cols: usize,
+    group_size: usize,
 ) -> PyResult<CacheManifest> {
     let record_count = header.record_count;
     let factor_count = header.factor_count;
@@ -492,53 +580,37 @@ fn build_cache_from_v2(
         w.flush()?;
     }
 
+    // 构建逆索引：position_in_sorted[original_row] = sorted_position
+    let mut position_in_sorted: Vec<u32> = vec![0u32; record_count];
+    for (sorted_pos, &original_row) in sort_index.iter().enumerate() {
+        position_in_sorted[original_row] = sorted_pos as u32;
+    }
+
     // 写入 meta.bin: [date_id:u16, code_id:u16] 每行 4 字节（按 sort_index 顺序）
-    // 同时收集每块的 f32 数据
-    let mut meta_writer = BufWriter::with_capacity(16 * 1024 * 1024, File::create(meta_path(cache_dir))?);
-    let mut block_f32_data: Vec<Vec<f32>> = vec![Vec::new(); block_count];
-
-    for &row in &sort_index {
-        let date_id = row_date_ids[row];
-        let code_id = row_code_ids[row];
-
-        meta_writer.write_all(&date_id.to_le_bytes())?;
-        meta_writer.write_all(&code_id.to_le_bytes())?;
-
-        let offset = HEADER_SIZE + row * record_size;
-        let record = &mmap[offset..offset + record_size];
-
-        // 读取 f64 因子并转换为 f32
-        for blk_idx in 0..block_count {
-            let start_col = blk_idx * block_cols;
-            let end_col = min(start_col + block_cols, factor_count);
-            for col in start_col..end_col {
-                let byte_offset = V2_FACTOR_BASE_OFFSET + col * V2_FACTOR_SIZE;
-                let f = read_f64_le(record, byte_offset);
-                block_f32_data[blk_idx].push(f as f32);
-            }
+    {
+        let mut meta_writer = BufWriter::with_capacity(16 * 1024 * 1024, File::create(meta_path(cache_dir))?);
+        for &row in &sort_index {
+            meta_writer.write_all(&row_date_ids[row].to_le_bytes())?;
+            meta_writer.write_all(&row_code_ids[row].to_le_bytes())?;
         }
+        meta_writer.flush()?;
     }
-    meta_writer.flush()?;
 
-    // 写入块文件：[u64 原始大小][zstd 压缩数据]，压缩级别 9
-    for blk_idx in 0..block_count {
-        let f32_slice = &block_f32_data[blk_idx];
-        let raw_bytes = unsafe {
-            std::slice::from_raw_parts(
-                f32_slice.as_ptr() as *const u8,
-                f32_slice.len() * 4,
-            )
-        };
-
-        let compressed = zstd::encode_all(raw_bytes, 9).map_err(|e| {
-            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("zstd 压缩失败: {e}"))
-        })?;
-
-        let mut w = BufWriter::with_capacity(16 * 1024 * 1024, File::create(block_path(cache_dir, blk_idx))?);
-        w.write_all(&(raw_bytes.len() as u64).to_le_bytes())?;
-        w.write_all(&compressed)?;
-        w.flush()?;
-    }
+    // 逐块组处理 f32 数据（只用 position_in_sorted 不需要 sort_index 了）
+    write_block_groups(
+        cache_dir,
+        record_count,
+        factor_count,
+        block_cols,
+        block_count,
+        group_size,
+        &position_in_sorted,
+        |row, col| {
+            let offset = HEADER_SIZE + row * record_size;
+            let byte_offset = V2_FACTOR_BASE_OFFSET + col * V2_FACTOR_SIZE;
+            read_f64_le(&mmap[offset..offset + record_size], byte_offset) as f32
+        },
+    )?;
 
     Ok(CacheManifest {
         magic: V2_MANIFEST_MAGIC,
@@ -561,6 +633,7 @@ fn build_cache_from_v3(
     header: &ParsedHeader,
     cache_dir: &Path,
     block_cols: usize,
+    group_size: usize,
 ) -> PyResult<CacheManifest> {
     let record_count = header.record_count;
     let factor_count = header.factor_count;
@@ -574,6 +647,7 @@ fn build_cache_from_v3(
         factor_count,
         cache_dir,
         block_cols,
+        group_size,
     )
 }
 
@@ -586,6 +660,7 @@ fn build_cache_from_v3_buffer(
     factor_count: usize,
     cache_dir: &Path,
     block_cols: usize,
+    group_size: usize,
 ) -> PyResult<CacheManifest> {
     let block_count = expected_block_count(factor_count, block_cols);
 
@@ -655,50 +730,222 @@ fn build_cache_from_v3_buffer(
         w.flush()?;
     }
 
-    // 写入 meta.bin 并收集 f32 数据（按 sort_index 顺序）
-    let mut meta_writer = BufWriter::with_capacity(16 * 1024 * 1024, File::create(meta_path(cache_dir))?);
-    let mut block_f32_data: Vec<Vec<f32>> = vec![Vec::new(); block_count];
-
-    for &row in &sort_index {
-        let date_id = row_date_ids[row];
-        let code_id = row_code_ids[row];
-
-        meta_writer.write_all(&date_id.to_le_bytes())?;
-        meta_writer.write_all(&code_id.to_le_bytes())?;
-
-        let offset = data_start + row * record_size;
-        let record = &data[offset..offset + record_size];
-
-        for blk_idx in 0..block_count {
-            let start_col = blk_idx * block_cols;
-            let end_col = min(start_col + block_cols, factor_count);
-            for col in start_col..end_col {
-                let byte_offset = V3_FACTOR_BASE_OFFSET + col * V3_FACTOR_SIZE;
-                let bits = u32::from_le_bytes(record[byte_offset..byte_offset + 4].try_into().unwrap());
-                block_f32_data[blk_idx].push(f32::from_bits(bits));
-            }
-        }
+    // 构建逆索引：position_in_sorted[original_row] = sorted_position
+    let mut position_in_sorted: Vec<u32> = vec![0u32; record_count];
+    for (sorted_pos, &original_row) in sort_index.iter().enumerate() {
+        position_in_sorted[original_row] = sorted_pos as u32;
     }
-    meta_writer.flush()?;
 
-    // 写入块文件：[u64 原始大小][zstd 压缩数据]，压缩级别 9
-    for blk_idx in 0..block_count {
-        let f32_slice = &block_f32_data[blk_idx];
-        let raw_bytes = unsafe {
-            std::slice::from_raw_parts(
-                f32_slice.as_ptr() as *const u8,
-                f32_slice.len() * 4,
-            )
-        };
+    // 写入 meta.bin（按 sort_index 顺序，与 f32 数据分离）
+    {
+        let mut meta_writer = BufWriter::with_capacity(16 * 1024 * 1024, File::create(meta_path(cache_dir))?);
+        for &row in &sort_index {
+            meta_writer.write_all(&row_date_ids[row].to_le_bytes())?;
+            meta_writer.write_all(&row_code_ids[row].to_le_bytes())?;
+        }
+        meta_writer.flush()?;
+    }
 
-        let compressed = zstd::encode_all(raw_bytes, 9).map_err(|e| {
-            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("zstd 压缩失败: {e}"))
+    // 逐块组处理 f32 数据
+    write_block_groups(
+        cache_dir,
+        record_count,
+        factor_count,
+        block_cols,
+        block_count,
+        group_size,
+        &position_in_sorted,
+        |row, col| {
+            let offset = data_start + row * record_size;
+            let record = &data[offset..offset + record_size];
+            let byte_offset = V3_FACTOR_BASE_OFFSET + col * V3_FACTOR_SIZE;
+            let bits = u32::from_le_bytes(record[byte_offset..byte_offset + 4].try_into().unwrap());
+            f32::from_bits(bits)
+        },
+    )?;
+
+    Ok(CacheManifest {
+        magic: V2_MANIFEST_MAGIC,
+        version: V2_MANIFEST_VERSION,
+        source_size: 0,
+        source_mtime_sec: 0,
+        source_mtime_nsec: 0,
+        record_count: record_count as u64,
+        factor_count: factor_count as u32,
+        record_size: record_size as u32,
+        block_cols: block_cols as u32,
+        code_count: codebook.len() as u32,
+        date_count: datebook.len() as u32,
+    })
+}
+
+/// 从 v4 分块压缩备份构建 v2 列缓存（两遍式，避免全量解压）
+fn build_cache_from_v4(
+    mmap: &[u8],
+    header: &ParsedHeader,
+    cache_dir: &Path,
+    block_cols: usize,
+    group_size: usize,
+) -> PyResult<CacheManifest> {
+    let factor_count = header.factor_count;
+    let record_size = header.record_size;
+    let record_count = header.record_count;
+    let block_count = expected_block_count(factor_count, block_cols);
+
+    let chunks = build_chunk_index_v4(mmap).map_err(|e| {
+        PyErr::new::<pyo3::exceptions::PyValueError, _>(e)
+    })?;
+
+    // 第一遍：逐 chunk 解压，构建字典 + sort_index（不保留因子数据）
+    let mut date_to_id: HashMap<i64, u16> = HashMap::new();
+    let mut code_to_id: HashMap<String, u16> = HashMap::new();
+    let mut datebook: Vec<i64> = Vec::new();
+    let mut codebook: Vec<String> = Vec::new();
+    let mut row_date_ids: Vec<u16> = Vec::with_capacity(record_count);
+    let mut row_code_ids: Vec<u16> = Vec::with_capacity(record_count);
+
+    for chunk in &chunks {
+        let compressed_data = &mmap[chunk.data_offset..chunk.data_offset + chunk.compressed_size];
+        let decompressed = zstd::decode_all(compressed_data).map_err(|e| {
+            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("zstd 解压失败: {e}"))
         })?;
 
-        let mut w = BufWriter::with_capacity(16 * 1024 * 1024, File::create(block_path(cache_dir, blk_idx))?);
-        w.write_all(&(raw_bytes.len() as u64).to_le_bytes())?;
-        w.write_all(&compressed)?;
+        for local_row in 0..chunk.record_count {
+            let offset = local_row * record_size;
+            let record = &decompressed[offset..offset + record_size];
+
+            let date = read_i64_le(record, 0);
+            let date_id = *date_to_id.entry(date).or_insert_with(|| {
+                let id = datebook.len() as u16;
+                datebook.push(date);
+                id
+            });
+            row_date_ids.push(date_id);
+
+            let code = read_v3_code_from_record(record);
+            let code_id = *code_to_id.entry(code.clone()).or_insert_with(|| {
+                let id = codebook.len() as u16;
+                codebook.push(code);
+                id
+            });
+            row_code_ids.push(code_id);
+        }
+        // decompressed 离开作用域，内存释放
+    }
+
+    if datebook.len() > 65535 {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "日期数量 {} 超过 65535 限制", datebook.len()
+        )));
+    }
+    if codebook.len() > 65535 {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "代码数量 {} 超过 65535 限制", codebook.len()
+        )));
+    }
+
+    // 构建 sort_index：按 (date_id, code_id) 排序
+    let mut sort_index: Vec<usize> = (0..record_count).collect();
+    sort_index.sort_unstable_by_key(|&row| (row_date_ids[row], row_code_ids[row]));
+
+    // 构建逆索引
+    let mut position_in_sorted: Vec<u32> = vec![0u32; record_count];
+    for (sorted_pos, &original_row) in sort_index.iter().enumerate() {
+        position_in_sorted[original_row] = sorted_pos as u32;
+    }
+
+    // 写入 dict_dates.bin
+    {
+        let mut w = BufWriter::with_capacity(4 * 1024 * 1024, File::create(dates_path(cache_dir))?);
+        for &d in &datebook {
+            w.write_all(&d.to_le_bytes())?;
+        }
         w.flush()?;
+    }
+
+    // 写入 dict_codes.bin
+    {
+        let mut w = BufWriter::with_capacity(4 * 1024 * 1024, File::create(dict_codes_path(cache_dir))?);
+        for code in &codebook {
+            let mut buf = [0u8; V3_CODE_SIZE];
+            let bytes = code.as_bytes();
+            let copy_len = min(bytes.len(), 15);
+            buf[..copy_len].copy_from_slice(&bytes[..copy_len]);
+            w.write_all(&buf)?;
+        }
+        w.flush()?;
+    }
+
+    // 写入 meta.bin（按 sort_index 顺序）
+    {
+        let mut meta_writer = BufWriter::with_capacity(16 * 1024 * 1024, File::create(meta_path(cache_dir))?);
+        for &row in &sort_index {
+            meta_writer.write_all(&row_date_ids[row].to_le_bytes())?;
+            meta_writer.write_all(&row_code_ids[row].to_le_bytes())?;
+        }
+        meta_writer.flush()?;
+    }
+
+    // 第二遍：逐块组处理，每遍重新解压所有 chunk
+    for group_start in (0..block_count).step_by(group_size) {
+        let group_end = min(group_start + group_size, block_count);
+
+        // 为当前组分配 f32 buffer
+        let mut group_buffers: Vec<Vec<f32>> = (group_start..group_end)
+            .map(|blk_idx| {
+                let cols = min(block_cols, factor_count - blk_idx * block_cols);
+                vec![0.0f32; record_count * cols]
+            })
+            .collect();
+
+        // 重新解压所有 chunk 填充当前组的 buffer
+        let mut global_row = 0usize;
+        for chunk in &chunks {
+            let compressed_data = &mmap[chunk.data_offset..chunk.data_offset + chunk.compressed_size];
+            let decompressed = zstd::decode_all(compressed_data).map_err(|e| {
+                PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("zstd 解压失败: {e}"))
+            })?;
+
+            for local_row in 0..chunk.record_count {
+                let row = global_row + local_row;
+                let sorted_pos = position_in_sorted[row] as usize;
+                let offset = local_row * record_size;
+                let record = &decompressed[offset..offset + record_size];
+
+                for (local_idx, blk_idx) in (group_start..group_end).enumerate() {
+                    let start_col = blk_idx * block_cols;
+                    let end_col = min(start_col + block_cols, factor_count);
+                    let cols = end_col - start_col;
+                    let base = sorted_pos * cols;
+                    for (j, col) in (start_col..end_col).enumerate() {
+                        let byte_offset = V3_FACTOR_BASE_OFFSET + col * V3_FACTOR_SIZE;
+                        let bits = u32::from_le_bytes(record[byte_offset..byte_offset + 4].try_into().unwrap());
+                        group_buffers[local_idx][base + j] = f32::from_bits(bits);
+                    }
+                }
+            }
+            global_row += chunk.record_count;
+            // decompressed 离开作用域，内存释放
+        }
+
+        // 逐个 block 压缩写入
+        for (local_idx, blk_idx) in (group_start..group_end).enumerate() {
+            let f32_slice = &group_buffers[local_idx];
+            let raw_bytes = unsafe {
+                std::slice::from_raw_parts(
+                    f32_slice.as_ptr() as *const u8,
+                    f32_slice.len() * 4,
+                )
+            };
+            let compressed = zstd::encode_all(raw_bytes, 9).map_err(|e| {
+                PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("zstd 压缩失败: {e}"))
+            })?;
+            let mut w = BufWriter::with_capacity(16 * 1024 * 1024, File::create(block_path(cache_dir, blk_idx))?);
+            w.write_all(&(raw_bytes.len() as u64).to_le_bytes())?;
+            w.write_all(&compressed)?;
+            w.flush()?;
+        }
+        // group_buffers 离开作用域，内存释放
     }
 
     Ok(CacheManifest {
@@ -716,55 +963,11 @@ fn build_cache_from_v3_buffer(
     })
 }
 
-/// 从 v4 分块压缩备份构建 v2 列缓存
-fn build_cache_from_v4(
-    mmap: &[u8],
-    header: &ParsedHeader,
-    cache_dir: &Path,
-    block_cols: usize,
-) -> PyResult<CacheManifest> {
-    let factor_count = header.factor_count;
-    let record_size = header.record_size;
-    let record_count = header.record_count;
-
-    // 解压所有 chunk 到连续缓冲区
-    let chunks = build_chunk_index_v4(mmap).map_err(|e| {
-        PyErr::new::<pyo3::exceptions::PyValueError, _>(e)
-    })?;
-
-    let mut decompressed = Vec::with_capacity(record_count * record_size);
-    for chunk in &chunks {
-        let compressed_data = &mmap[chunk.data_offset..chunk.data_offset + chunk.compressed_size];
-        let decompressed_chunk = zstd::decode_all(compressed_data).map_err(|e| {
-            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("zstd 解压失败: {e}"))
-        })?;
-        decompressed.extend_from_slice(&decompressed_chunk);
-    }
-
-    if decompressed.len() != record_count * record_size {
-        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-            "解压后大小不匹配: 期望 {}, 实际 {}",
-            record_count * record_size,
-            decompressed.len()
-        )));
-    }
-
-    // 复用 v3 缓冲区构建逻辑
-    build_cache_from_v3_buffer(
-        &decompressed,
-        0, // data_start=0，因为 decompressed 是纯数据（没有文件头）
-        record_count,
-        record_size,
-        factor_count,
-        cache_dir,
-        block_cols,
-    )
-}
-
 fn build_cache_internal(
     backup_file: &str,
     block_cols: usize,
     force_rebuild: bool,
+    memory_budget_gb: Option<f64>,
 ) -> PyResult<BuildSummary> {
     if block_cols == 0 {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
@@ -809,13 +1012,15 @@ fn build_cache_internal(
     };
 
     let header = parse_header(&mmap)?;
+    let block_count = expected_block_count(header.factor_count, block_cols);
+    let group_size = compute_group_size(header.record_count, block_cols, block_count, memory_budget_gb)?;
 
     let mut manifest = if header.version == 4 {
-        build_cache_from_v4(&mmap, &header, &cache_dir, block_cols)?
+        build_cache_from_v4(&mmap, &header, &cache_dir, block_cols, group_size)?
     } else if header.version == 3 {
-        build_cache_from_v3(&mmap, &header, &cache_dir, block_cols)?
+        build_cache_from_v3(&mmap, &header, &cache_dir, block_cols, group_size)?
     } else {
-        build_cache_from_v2(&mmap, &header, &cache_dir, block_cols)?
+        build_cache_from_v2(&mmap, &header, &cache_dir, block_cols, group_size)?
     };
 
     let (source_size, source_mtime_sec, source_mtime_nsec) = source_fingerprint(backup_path)?;
@@ -857,7 +1062,7 @@ fn ensure_cache(backup_file: &str, build_if_missing: bool) -> PyResult<(PathBuf,
         ));
     }
 
-    let summary = build_cache_internal(backup_file, 32, false)?;
+    let summary = build_cache_internal(backup_file, 32, false, None)?;
     Ok((summary.cache_dir, summary.manifest))
 }
 
@@ -885,13 +1090,14 @@ fn read_factor_from_v2_block(
 }
 
 #[pyfunction]
-#[pyo3(signature = (backup_file, block_cols=32, force_rebuild=false))]
+#[pyo3(signature = (backup_file, block_cols=32, force_rebuild=false, memory_budget_gb=None))]
 pub fn build_backup_column_block_cache_single_thread(
     backup_file: String,
     block_cols: usize,
     force_rebuild: bool,
+    memory_budget_gb: Option<f64>,
 ) -> PyResult<PyObject> {
-    let summary = build_cache_internal(&backup_file, block_cols, force_rebuild)?;
+    let summary = build_cache_internal(&backup_file, block_cols, force_rebuild, memory_budget_gb)?;
     Python::with_gil(|py| {
         let dict = PyDict::new(py);
         dict.set_item("cache_dir", summary.cache_dir.to_string_lossy().to_string())?;

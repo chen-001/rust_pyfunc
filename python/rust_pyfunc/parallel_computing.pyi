@@ -716,9 +716,14 @@ def query_backup_single_column(
 def build_backup_column_block_cache_single_thread(
     backup_file: str,
     block_cols: int = 32,
-    force_rebuild: bool = False
+    force_rebuild: bool = False,
+    memory_budget_gb: float | None = None
 ) -> dict:
-    """构建单线程列块缓存（v2/v3备份格式 → v2缓存格式）。
+    """构建单线程列块缓存（v2/v3/v4备份格式 → v2缓存格式）。
+
+    参数：
+    - memory_budget_gb: 控制峰值内存的预算（GB）。None=自动使用物理内存的1/3。
+      减小此值可降低内存占用，但会增加处理时间（v4格式下需多次解压）。
 
     返回字段：
     - cache_dir: 缓存目录
