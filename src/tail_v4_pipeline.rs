@@ -415,13 +415,20 @@ fn has_enough_unique_values(
     false
 }
 
+struct PreflightReport {
+    passed: bool,
+    majority_count_mean: f64,
+    zero_ratio_mean: f64,
+    nan_ratio_mean: f64,
+}
+
 fn preflight_quality_check(
     raw_values: &ArrayView2<f32>,
     restrict: &ArrayView2<f32>,
     majority_count_threshold: f64,
     zero_max_threshold: f64,
     nan_max_threshold: f64,
-) -> bool {
+) -> PreflightReport {
     let n_dates = raw_values.shape()[0];
     let n_stocks = raw_values.shape()[1];
     let mut majority_sum: f64 = 0.0;
@@ -479,9 +486,14 @@ fn preflight_quality_check(
         0.0
     };
 
-    majority_count_mean <= majority_count_threshold
-        && zero_ratio_mean < zero_max_threshold
-        && nan_ratio_mean < nan_max_threshold
+    PreflightReport {
+        passed: majority_count_mean <= majority_count_threshold
+            && zero_ratio_mean < zero_max_threshold
+            && nan_ratio_mean < nan_max_threshold,
+        majority_count_mean,
+        zero_ratio_mean,
+        nan_ratio_mean,
+    }
 }
 
 fn legacy_backtest_single_factor(
@@ -1593,14 +1605,38 @@ fn qualify_neu(summary: &SummaryRowRecord, gap: usize, cfg: &TailSelectionConfig
 
 fn process_task(task: &TailTask, shared: &SharedInputs) -> Result<TailTaskResult, String> {
     let raw_values = load_factor_to_template(&task.factor_path, shared.dates.as_slice(), shared.stocks.as_slice())?;
-    if !preflight_quality_check(
+    let pre_report = preflight_quality_check(
         &raw_values.view(),
         &shared.restrict.view(),
         shared.config.majority_count_threshold,
         shared.config.zero_max_threshold,
         shared.config.nan_max_threshold,
-    ) {
-        println!("[preflight] 剔除因子 {}", task.source_factor);
+    );
+    if !pre_report.passed {
+        let mut reasons: Vec<String> = Vec::new();
+        if pre_report.majority_count_mean > shared.config.majority_count_threshold {
+            reasons.push(format!(
+                "majority_count_mean={:.2}, 标准<={:.2}",
+                pre_report.majority_count_mean, shared.config.majority_count_threshold,
+            ));
+        }
+        if pre_report.zero_ratio_mean >= shared.config.zero_max_threshold {
+            reasons.push(format!(
+                "zero_ratio_mean={:.4}, 标准<{:.4}",
+                pre_report.zero_ratio_mean, shared.config.zero_max_threshold,
+            ));
+        }
+        if pre_report.nan_ratio_mean >= shared.config.nan_max_threshold {
+            reasons.push(format!(
+                "nan_ratio_mean={:.4}, 标准<{:.4}",
+                pre_report.nan_ratio_mean, shared.config.nan_max_threshold,
+            ));
+        }
+        println!(
+            "[preflight] 剔除因子 {}，该因子指标不达标: {}",
+            task.source_factor,
+            reasons.join("; "),
+        );
         return Ok(TailTaskResult { source_factor: task.source_factor.clone(), ..TailTaskResult::default() });
     }
     let mut variants = vec![(task.source_factor.clone(), raw_values)];
@@ -1703,10 +1739,34 @@ fn process_task(task: &TailTask, shared: &SharedInputs) -> Result<TailTaskResult
                 &neu_gap5_results[slot_idx].summary,
             );
 
-            let raw_gap1_keep = qualify_raw(&raw_gap1_row, 1, &shared.config);
-            let raw_gap5_keep = qualify_raw(&raw_gap5_row, 5, &shared.config);
-            let neu_gap1_keep = qualify_neu(&neu_gap1_row, 1, &shared.config);
-            let neu_gap5_keep = qualify_neu(&neu_gap5_row, 5, &shared.config);
+            let raw_gap1_keep = if raw_gap1_row.ratio_mean < shared.config.cover_rate {
+                println!("[qualify] 剔除因子 {} (raw_gap1)，覆盖率不达标: ratio_mean={:.4}, 标准>={:.4}",
+                    derived_name, raw_gap1_row.ratio_mean, shared.config.cover_rate);
+                false
+            } else {
+                qualify_raw(&raw_gap1_row, 1, &shared.config)
+            };
+            let raw_gap5_keep = if raw_gap5_row.ratio_mean < shared.config.cover_rate {
+                println!("[qualify] 剔除因子 {} (raw_gap5)，覆盖率不达标: ratio_mean={:.4}, 标准>={:.4}",
+                    derived_name, raw_gap5_row.ratio_mean, shared.config.cover_rate);
+                false
+            } else {
+                qualify_raw(&raw_gap5_row, 5, &shared.config)
+            };
+            let neu_gap1_keep = if neu_gap1_row.ratio_mean < shared.config.cover_rate {
+                println!("[qualify] 剔除因子 {} (neu_gap1)，覆盖率不达标: ratio_mean={:.4}, 标准>={:.4}",
+                    derived_name, neu_gap1_row.ratio_mean, shared.config.cover_rate);
+                false
+            } else {
+                qualify_neu(&neu_gap1_row, 1, &shared.config)
+            };
+            let neu_gap5_keep = if neu_gap5_row.ratio_mean < shared.config.cover_rate {
+                println!("[qualify] 剔除因子 {} (neu_gap5)，覆盖率不达标: ratio_mean={:.4}, 标准>={:.4}",
+                    derived_name, neu_gap5_row.ratio_mean, shared.config.cover_rate);
+                false
+            } else {
+                qualify_neu(&neu_gap5_row, 5, &shared.config)
+            };
 
             if raw_gap1_keep {
                 result.raw_summary_gap1.push(raw_gap1_row.clone());
