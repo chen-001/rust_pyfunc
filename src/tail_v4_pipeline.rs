@@ -15,7 +15,7 @@ use arrow::array::{
 };
 use chrono::{Datelike, NaiveDateTime};
 use crossbeam::channel::{unbounded, Receiver, RecvTimeoutError, Sender};
-use ndarray::{Array1, Array2, Array3, ArrayView1, ArrayView2, ArrayView3};
+use ndarray::{s, Array1, Array2, Array3, ArrayView1, ArrayView2, ArrayView3};
 use ndarray_npy::{read_npy, write_npy};
 use numpy::IntoPyArray;
 use hdf5_metno as hdf5;
@@ -153,6 +153,8 @@ struct TailTaskResult {
     neu_ic_gap1: Vec<IcRecord>,
     neu_ic_gap5: Vec<IcRecord>,
     derived_factor_count: usize,
+    #[serde(default)]
+    passed: bool,
 }
 
 #[derive(Default)]
@@ -493,6 +495,40 @@ fn preflight_quality_check(
         majority_count_mean,
         zero_ratio_mean,
         nan_ratio_mean,
+    }
+}
+
+fn compute_raw_cover_rate(
+    raw_values: &ArrayView2<f32>,
+    restrict: &ArrayView2<f32>,
+    ret: &ArrayView2<f32>,
+    min_stocks: usize,
+) -> f64 {
+    let n_dates = raw_values.shape()[0];
+    let n_stocks = raw_values.shape()[1];
+    let mut ratios: Vec<f64> = Vec::new();
+
+    for t in 0..n_dates {
+        let mut free_count: usize = 0;
+        let mut valid_count: usize = 0;
+        for s in 0..n_stocks {
+            let is_free = restrict[[t, s]].is_finite() && restrict[[t, s]] == 0.0;
+            if is_free {
+                free_count += 1;
+                if !raw_values[[t, s]].is_nan() && ret[[t, s]].is_finite() {
+                    valid_count += 1;
+                }
+            }
+        }
+        if free_count > 0 && valid_count >= min_stocks {
+            ratios.push(valid_count as f64 / free_count as f64);
+        }
+    }
+
+    if ratios.is_empty() {
+        1.0
+    } else {
+        ratios.iter().sum::<f64>() / ratios.len() as f64
     }
 }
 
@@ -1575,9 +1611,6 @@ fn summary_from_row(
 }
 
 fn qualify_raw(summary: &SummaryRowRecord, gap: usize, cfg: &TailSelectionConfig) -> bool {
-    if summary.ratio_mean < cfg.cover_rate {
-        return false;
-    }
     match gap {
         1 => summary.hedge_annualized_return >= cfg.ret_point_gap1 || summary.ic_mean.abs() >= cfg.ic_point_gap1,
         5 => summary.hedge_annualized_return >= cfg.ret_point_gap5 || summary.ic_mean.abs() >= cfg.ic_point_gap5,
@@ -1586,9 +1619,6 @@ fn qualify_raw(summary: &SummaryRowRecord, gap: usize, cfg: &TailSelectionConfig
 }
 
 fn qualify_neu(summary: &SummaryRowRecord, gap: usize, cfg: &TailSelectionConfig) -> bool {
-    if summary.ratio_mean < cfg.cover_rate {
-        return false;
-    }
     let (ret_point, ic_point, ic_more) = match gap {
         1 => (cfg.ret_point_neu_gap1, cfg.ic_point_neu_gap1, cfg.ic_more_important_gap1),
         5 => (cfg.ret_point_neu_gap5, cfg.ic_point_neu_gap5, cfg.ic_more_important_gap5),
@@ -1605,37 +1635,11 @@ fn qualify_neu(summary: &SummaryRowRecord, gap: usize, cfg: &TailSelectionConfig
 
 fn process_task(task: &TailTask, shared: &SharedInputs) -> Result<TailTaskResult, String> {
     let raw_values = load_factor_to_template(&task.factor_path, shared.dates.as_slice(), shared.stocks.as_slice())?;
-    let pre_report = preflight_quality_check(
-        &raw_values.view(),
-        &shared.restrict.view(),
-        shared.config.majority_count_threshold,
-        shared.config.zero_max_threshold,
-        shared.config.nan_max_threshold,
-    );
-    if !pre_report.passed {
-        let mut reasons: Vec<String> = Vec::new();
-        if pre_report.majority_count_mean > shared.config.majority_count_threshold {
-            reasons.push(format!(
-                "majority_count_mean={:.2}, 标准<={:.2}",
-                pre_report.majority_count_mean, shared.config.majority_count_threshold,
-            ));
-        }
-        if pre_report.zero_ratio_mean >= shared.config.zero_max_threshold {
-            reasons.push(format!(
-                "zero_ratio_mean={:.4}, 标准<{:.4}",
-                pre_report.zero_ratio_mean, shared.config.zero_max_threshold,
-            ));
-        }
-        if pre_report.nan_ratio_mean >= shared.config.nan_max_threshold {
-            reasons.push(format!(
-                "nan_ratio_mean={:.4}, 标准<{:.4}",
-                pre_report.nan_ratio_mean, shared.config.nan_max_threshold,
-            ));
-        }
+    let raw_cover_rate = compute_raw_cover_rate(&raw_values.view(), &shared.restrict.view(), &shared.ret_gap1.view(), 10);
+    if raw_cover_rate < shared.config.cover_rate {
         println!(
-            "[preflight] 剔除因子 {}，该因子指标不达标: {}",
-            task.source_factor,
-            reasons.join("; "),
+            "[raw_cover] 剔除因子 {}，原始覆盖率不达标: raw_cover_rate={:.4}, 标准>={:.4}",
+            task.source_factor, raw_cover_rate, shared.config.cover_rate,
         );
         return Ok(TailTaskResult { source_factor: task.source_factor.clone(), ..TailTaskResult::default() });
     }
@@ -1710,6 +1714,41 @@ fn process_task(task: &TailTask, shared: &SharedInputs) -> Result<TailTaskResult
         )?;
 
         for (slot_idx, derived_name) in derived_names.iter().enumerate() {
+            let pre_report = preflight_quality_check(
+                &rolled_block.view().slice(s![.., .., slot_idx]),
+                &shared.restrict.view(),
+                shared.config.majority_count_threshold,
+                shared.config.zero_max_threshold,
+                shared.config.nan_max_threshold,
+            );
+            if !pre_report.passed {
+                let mut reasons: Vec<String> = Vec::new();
+                if pre_report.majority_count_mean > shared.config.majority_count_threshold {
+                    reasons.push(format!(
+                        "majority_count_mean={:.2}, 标准<={:.2}",
+                        pre_report.majority_count_mean, shared.config.majority_count_threshold,
+                    ));
+                }
+                if pre_report.zero_ratio_mean >= shared.config.zero_max_threshold {
+                    reasons.push(format!(
+                        "zero_ratio_mean={:.4}, 标准<{:.4}",
+                        pre_report.zero_ratio_mean, shared.config.zero_max_threshold,
+                    ));
+                }
+                if pre_report.nan_ratio_mean >= shared.config.nan_max_threshold {
+                    reasons.push(format!(
+                        "nan_ratio_mean={:.4}, 标准<{:.4}",
+                        pre_report.nan_ratio_mean, shared.config.nan_max_threshold,
+                    ));
+                }
+                println!(
+                    "[preflight] 剔除因子 {}，该因子指标不达标: {}",
+                    derived_name,
+                    reasons.join("; "),
+                );
+                continue;
+            }
+
             let raw_gap1_row = summary_from_row(
                 derived_name,
                 "rolled",
@@ -1739,34 +1778,14 @@ fn process_task(task: &TailTask, shared: &SharedInputs) -> Result<TailTaskResult
                 &neu_gap5_results[slot_idx].summary,
             );
 
-            let raw_gap1_keep = if raw_gap1_row.ratio_mean < shared.config.cover_rate {
-                println!("[qualify] 剔除因子 {} (raw_gap1)，覆盖率不达标: ratio_mean={:.4}, 标准>={:.4}",
-                    derived_name, raw_gap1_row.ratio_mean, shared.config.cover_rate);
-                false
-            } else {
-                qualify_raw(&raw_gap1_row, 1, &shared.config)
-            };
-            let raw_gap5_keep = if raw_gap5_row.ratio_mean < shared.config.cover_rate {
-                println!("[qualify] 剔除因子 {} (raw_gap5)，覆盖率不达标: ratio_mean={:.4}, 标准>={:.4}",
-                    derived_name, raw_gap5_row.ratio_mean, shared.config.cover_rate);
-                false
-            } else {
-                qualify_raw(&raw_gap5_row, 5, &shared.config)
-            };
-            let neu_gap1_keep = if neu_gap1_row.ratio_mean < shared.config.cover_rate {
-                println!("[qualify] 剔除因子 {} (neu_gap1)，覆盖率不达标: ratio_mean={:.4}, 标准>={:.4}",
-                    derived_name, neu_gap1_row.ratio_mean, shared.config.cover_rate);
-                false
-            } else {
-                qualify_neu(&neu_gap1_row, 1, &shared.config)
-            };
-            let neu_gap5_keep = if neu_gap5_row.ratio_mean < shared.config.cover_rate {
-                println!("[qualify] 剔除因子 {} (neu_gap5)，覆盖率不达标: ratio_mean={:.4}, 标准>={:.4}",
-                    derived_name, neu_gap5_row.ratio_mean, shared.config.cover_rate);
-                false
-            } else {
-                qualify_neu(&neu_gap5_row, 5, &shared.config)
-            };
+            let raw_gap1_keep = qualify_raw(&raw_gap1_row, 1, &shared.config);
+            let raw_gap5_keep = qualify_raw(&raw_gap5_row, 5, &shared.config);
+            let neu_gap1_keep = qualify_neu(&neu_gap1_row, 1, &shared.config);
+            let neu_gap5_keep = qualify_neu(&neu_gap5_row, 5, &shared.config);
+
+            if raw_gap1_keep || raw_gap5_keep || neu_gap1_keep || neu_gap5_keep {
+                result.passed = true;
+            }
 
             if raw_gap1_keep {
                 result.raw_summary_gap1.push(raw_gap1_row.clone());
@@ -2050,10 +2069,22 @@ pub fn tail_v4_run_candidates<'py>(
         let mut aggregated = AggregatedCandidates::default();
         let mut completed_sources = HashSet::<String>::new();
         let mut restored_sources = 0usize;
+        let mut passed_sources = 0usize;
         for (source_factor, factor_path) in factor_names.iter().zip(factor_paths.iter()) {
             let result_path = factor_result_path(&task_results_dir, source_factor);
             if result_path.exists() {
-                if let Ok(task_result) = read_task_result(&result_path) {
+                if let Ok(mut task_result) = read_task_result(&result_path) {
+                    if !task_result.passed
+                        && (!task_result.raw_summary_gap1.is_empty()
+                            || !task_result.raw_summary_gap5.is_empty()
+                            || !task_result.neu_summary_gap1.is_empty()
+                            || !task_result.neu_summary_gap5.is_empty())
+                    {
+                        task_result.passed = true;
+                    }
+                    if task_result.passed {
+                        passed_sources += 1;
+                    }
                     aggregated.merge_task(task_result);
                     completed_sources.insert(source_factor.clone());
                     restored_sources += 1;
@@ -2082,11 +2113,12 @@ pub fn tail_v4_run_candidates<'py>(
         if total_pending > 0 {
             let current_time = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
             print!(
-                "\r[{}] Tail V4 启动，待处理 {}/{} 个原始因子，已恢复 {} 个",
+                "\r[{}] Tail V4 启动，待处理 {}/{} 个原始因子，已恢复 {} 个 (通过 {})",
                 current_time,
                 total_pending,
                 factor_names.len(),
                 restored_sources,
+                passed_sources,
             );
             std::io::stdout().flush().map_err(|e| format!("刷新进度输出失败: {}", e))?;
         }
@@ -2116,14 +2148,19 @@ pub fn tail_v4_run_candidates<'py>(
         drop(result_sender);
 
         let mut processed_sources = 0usize;
+        let mut passed_sources = 0usize;
         while let Ok(task_outcome) = result_receiver.recv() {
             match task_outcome {
                 Ok(task_result) => {
+                    let is_passed = task_result.passed;
                     let result_path = factor_result_path(&task_results_dir, &task_result.source_factor);
                     write_task_result(&result_path, &task_result)?;
                     append_completed_source(&completed_log_path, &task_result.source_factor)?;
                     aggregated.merge_task(task_result);
                     processed_sources += 1;
+                    if is_passed {
+                        passed_sources += 1;
+                    }
                     if total_pending > 0 {
                         let elapsed = started.elapsed();
                         let elapsed_secs = elapsed.as_secs();
@@ -2142,12 +2179,20 @@ pub fn tail_v4_run_candidates<'py>(
                         let (remaining_h, remaining_m, remaining_s) = format_hms(remaining_secs);
                         let progress_pct = progress * 100.0;
                         let current_time = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+                        let pass_pct = if processed_sources > 0 {
+                            passed_sources as f64 / processed_sources as f64 * 100.0
+                        } else {
+                            0.0
+                        };
                         print!(
-                            "\r[{}] Tail V4 进度 {}/{} ({:.1}%)，已恢复 {} 个，已用{}h{}m{}s，预计剩余{}h{}m{}s",
+                            "\r[{}] Tail V4 进度 {}/{} ({:.1}%)，通过 {}/{} ({:.1}%)，已恢复 {} 个，已用{}h{}m{}s，预计剩余{}h{}m{}s",
                             current_time,
                             processed_sources,
                             total_pending,
                             progress_pct,
+                            passed_sources,
+                            processed_sources,
+                            pass_pct,
                             restored_sources,
                             elapsed_h,
                             elapsed_m,
@@ -2417,4 +2462,166 @@ pub fn tail_v4_run_fulltest_queue<'py>(
     }
     info.set_item("bucket_counts", bucket_counts)?;
     Ok(info.into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ndarray::Array2;
+
+    fn make_test_data() -> (Array2<f32>, Array2<f32>, Array2<f32>) {
+        let raw = Array2::from_shape_vec(
+            (3, 5),
+            vec![
+                1.0_f32, 2.0, f32::NAN, 4.0, 5.0,
+                6.0, f32::NAN, f32::NAN, 9.0, 10.0,
+                f32::NAN, 12.0, 13.0, 14.0, f32::NAN,
+            ],
+        )
+        .unwrap();
+        let restrict = Array2::from_shape_vec(
+            (3, 5),
+            vec![
+                0.0_f32, 0.0, 0.0, 0.0, 0.0,
+                0.0, 0.0, 0.0, 1.0, 1.0,
+                0.0, 0.0, 1.0, 0.0, 0.0,
+            ],
+        )
+        .unwrap();
+        let ret = Array2::from_shape_vec(
+            (3, 5),
+            vec![
+                0.01_f32, 0.02, 0.03, 0.04, 0.05,
+                0.01, 0.02, 0.03, 0.04, 0.05,
+                0.01, 0.02, f32::NAN, 0.04, 0.05,
+            ],
+        )
+        .unwrap();
+        (raw, restrict, ret)
+    }
+
+    #[test]
+    fn test_compute_raw_cover_rate_all_dates_low_threshold() {
+        let (raw, restrict, ret) = make_test_data();
+        let result = compute_raw_cover_rate(&raw.view(), &restrict.view(), &ret.view(), 0);
+        // day0: free=5, valid(raw!=NaN & ret.finite & free)=4 (/val0=NaN → exclude)
+        //       ratio=4/5=0.8
+        // day1: free=3 (restrict[1,3]=1, [1,4]=1), valid=1 (/val1=NaN /val2=NaN → exclude)
+        //       ratio=1/3
+        // day2: free=4 (restrict[2,2]=1), valid=3 (/val0=NaN, /val4=NaN, ret[2,2]=NaN)
+        //       ratio=3/4=0.75
+        // result = (0.8 + 1/3 + 0.75) / 3
+        let expected = (0.8_f64 + 1.0/3.0 + 0.75) / 3.0;
+        assert!((result - expected).abs() < 0.0001, "{} vs {}", result, expected);
+    }
+
+    #[test]
+    fn test_compute_raw_cover_rate_min_stocks_2() {
+        let (raw, restrict, ret) = make_test_data();
+        let result = compute_raw_cover_rate(&raw.view(), &restrict.view(), &ret.view(), 2);
+        // day1: valid=1 < 2 → excluded
+        // day0: 4/5=0.8, day2: 3/4=0.75
+        let expected = (0.8_f64 + 0.75) / 2.0;
+        assert!((result - expected).abs() < 0.0001, "{} vs {}", result, expected);
+    }
+
+    #[test]
+    fn test_compute_raw_cover_rate_min_stocks_5() {
+        let (raw, restrict, ret) = make_test_data();
+        let result = compute_raw_cover_rate(&raw.view(), &restrict.view(), &ret.view(), 5);
+        assert_eq!(result, 1.0);
+    }
+
+    #[test]
+    fn test_compute_raw_cover_rate_against_python_small() {
+        // 用Python脚本生成的数据: restrict (22,5419), ret_gap1 (22,5419)
+        // 构造一个确定性的小因子测试
+        let mut raw_data = vec![0.0_f32; 22 * 5419];
+        let n_dates = 22_usize;
+        let n_stocks = 5419_usize;
+        for t in 0..n_dates {
+            for s in 0..n_stocks {
+                if s % 2 == 0 && t % 3 == 0 {
+                    raw_data[t * n_stocks + s] = f32::NAN;
+                } else {
+                    raw_data[t * n_stocks + s] = ((s * t) % 100) as f32;
+                }
+            }
+        }
+        let raw = Array2::from_shape_vec((n_dates, n_stocks), raw_data).unwrap();
+        // 全0的restrict (所有股票可交易)
+        let restrict = Array2::from_elem((n_dates, n_stocks), 0.0_f32);
+        // 全1的ret (所有收益有效)
+        let ret = Array2::from_elem((n_dates, n_stocks), 0.01_f32);
+        let result = compute_raw_cover_rate(&raw.view(), &restrict.view(), &ret.view(), 10);
+        // 每3天有1天 (t%3==0) 偶数股票为NaN, 其他天全部有效
+        // nan股票 = ceil(5419/2) = 2710, 有效股票 = 2709
+        // ratio_some_nan = 2709/5419, ratio_all_valid = 1.0
+        // dates with t%3==0: t=0,3,6,9,12,15,18,21 (8 days)
+        // dates with t%3!=0: 22-8 = 14 days
+        let expected = (8.0 * (2709.0/5419.0) + 14.0 * 1.0) / 22.0;
+        assert!((result - expected).abs() < 0.001, "result={:.6}, expected={:.6}", result, expected);
+    }
+
+    #[test]
+    fn test_ret_nan_filters_correctly() {
+        // 所有signal有效, 但部分ret为NaN
+        let raw = Array2::from_elem((2, 10), 1.0_f32);
+        let restrict = Array2::from_elem((2, 10), 0.0_f32);
+        let ret = Array2::from_shape_vec(
+            (2, 10),
+            vec![
+                0.01_f32, 0.02, f32::NAN, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.10,
+                f32::NAN, f32::NAN, f32::NAN, f32::NAN, f32::NAN, 0.06, 0.07, 0.08, 0.09, 0.10,
+            ],
+        )
+        .unwrap();
+        let result = compute_raw_cover_rate(&raw.view(), &restrict.view(), &ret.view(), 0);
+        // day0: free=10, valid=9 (ret[2]=NaN) → 9/10=0.9
+        // day1: free=10, valid=5 (ret[0..5]=NaN) → 5/10=0.5
+        let expected = (0.9_f64 + 0.5) / 2.0;
+        assert!((result - expected).abs() < 0.0001, "{} vs {}", result, expected);
+    }
+
+    #[test]
+    fn test_restrict_filters_correctly() {
+        let raw = Array2::from_elem((2, 5), 1.0_f32);
+        let restrict = Array2::from_shape_vec(
+            (2, 5),
+            vec![
+                0.0_f32, 1.0, 0.0, 1.0, 0.0,
+                1.0, 1.0, 0.0, 0.0, 0.0,
+            ],
+        )
+        .unwrap();
+        let ret = Array2::from_elem((2, 5), 0.01_f32);
+        let result = compute_raw_cover_rate(&raw.view(), &restrict.view(), &ret.view(), 0);
+        // day0: restrict[0]=free, restrict[1]=1(not free), restrict[2]=free, restrict[3]=1(not free), restrict[4]=free
+        //       free=3, valid=3 → 3/3=1.0
+        // day1: free=3, valid=3 → 1.0
+        assert!((result - 1.0).abs() < 0.0001);
+    }
+
+    #[test]
+    fn test_restrict_nan_not_counted_as_free() {
+        let raw = Array2::from_elem((1, 5), 1.0_f32);
+        let restrict = Array2::from_shape_vec(
+            (1, 5),
+            vec![0.0_f32, 0.0, f32::NAN, 0.0, 0.0],
+        )
+        .unwrap();
+        let ret = Array2::from_elem((1, 5), 0.01_f32);
+        let result = compute_raw_cover_rate(&raw.view(), &restrict.view(), &ret.view(), 0);
+        // day0: free=4 (restrict[2]=NaN → not free), valid=4 → 4/4=1.0
+        assert!((result - 1.0).abs() < 0.0001);
+    }
+
+    #[test]
+    fn test_no_valid_dates_returns_1() {
+        let raw = Array2::from_elem((1, 5), f32::NAN);
+        let restrict = Array2::from_elem((1, 5), 0.0_f32);
+        let ret = Array2::from_elem((1, 5), 0.01_f32);
+        let result = compute_raw_cover_rate(&raw.view(), &restrict.view(), &ret.view(), 10);
+        assert_eq!(result, 1.0);
+    }
 }
