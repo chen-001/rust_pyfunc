@@ -234,3 +234,5 @@ docs/theme_feature_expansion_explanation.md
 .vtcode/skills/INDEX.md
 .vtcode/terminals/INDEX.md
 .mindfs/sessions/session-list.db
+dist_versions/rust_pyfunc_0_76_9-0.76.9-cp39-cp39-manylinux_2_35_x86_64.whl
+dist_versions/rust_pyfunc_0_76_9-0.76.9-cp311-cp311-manylinux_2_35_x86_64.whl
