@@ -1,5 +1,5 @@
 use chrono::Local;
-use crossbeam::channel::{unbounded, Receiver, Sender};
+use crossbeam::channel::{unbounded, Receiver, RecvTimeoutError, Sender};
 use memmap2::MmapMut;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
@@ -1090,6 +1090,8 @@ user_function = pickle.loads(_func_data)
 fn run_persistent_task_worker(
     worker_id: usize,
     task_queue: Receiver<TaskParam>,
+    task_sender: Arc<Sender<TaskParam>>,
+    all_done: Arc<AtomicBool>,
     python_code: String,
     expected_result_length: usize,
     task_timeout_secs: u64,
@@ -1214,7 +1216,15 @@ fn run_persistent_task_worker(
         let mut current_task: Option<TaskParam> = None;
 
         // 持续从队列中取任务并发送给Python进程
-        while let Ok(task) = task_queue.recv() {
+        loop {
+            if all_done.load(Ordering::Relaxed) {
+                break;
+            }
+            let task = match task_queue.recv_timeout(Duration::from_secs(1)) {
+                Ok(task) => task,
+                Err(RecvTimeoutError::Timeout) => continue,
+                Err(RecvTimeoutError::Disconnected) => break,
+            };
             current_task = Some(task.clone());
 
             // 在处理任务前检查重启标志
@@ -1395,12 +1405,13 @@ fn run_persistent_task_worker(
         // 清理临时文件
         let _ = std::fs::remove_file(&script_path);
 
-        if let Some(ref task) = current_task {
+        if let Some(task) = current_task.take() {
             debug_logger.log_warn(
                 Some(worker_id),
                 "INCOMPLETE_TASK",
-                &format!("任务未完成: date={}, code={}", task.date, task.code),
+                &format!("任务重回队列: date={}, code={}", task.date, task.code),
             );
+            let _ = task_sender.send(task);
         }
 
         debug_logger.log_info(
@@ -1614,6 +1625,8 @@ pub fn run_pools_queue(
     let (task_sender, task_receiver) = unbounded::<TaskParam>();
     let (result_sender, result_receiver) = unbounded::<TaskResult>();
 
+    let task_sender = Arc::new(task_sender);
+
     // 将所有待处理任务放入队列
     for task in pending_tasks.clone() {
         if let Err(e) = task_sender.send(task) {
@@ -1623,7 +1636,8 @@ pub fn run_pools_queue(
             )));
         }
     }
-    drop(task_sender); // 关闭任务队列，worker会在队列空时退出
+
+    let all_done = Arc::new(AtomicBool::new(false));
 
     let restart_flag = Arc::new(AtomicBool::new(false));
 
@@ -1645,6 +1659,8 @@ pub fn run_pools_queue(
     let mut worker_handles = Vec::new();
     for i in 0..n_jobs {
         let worker_task_receiver = task_receiver.clone();
+        let worker_task_sender = task_sender.clone();
+        let worker_all_done = all_done.clone();
         let worker_python_code = python_code.clone();
         let worker_python_path = python_path.clone();
         let worker_result_sender = result_sender.clone();
@@ -1656,6 +1672,8 @@ pub fn run_pools_queue(
             run_persistent_task_worker(
                 i,
                 worker_task_receiver,
+                worker_task_sender,
+                worker_all_done,
                 worker_python_code,
                 expected_result_length,
                 task_timeout_secs,
@@ -1771,6 +1789,7 @@ pub fn run_pools_queue(
     let restart_interval_clone = restart_interval_value;
     let progress_log_clone = progress_log_enabled;
     let backup_batch_size_clone = backup_batch_size_value;
+    let all_done_clone = all_done.clone();
     let collector_handle = thread::spawn(move || {
         // 进度日志相关变量
         let run_id = Local::now().format("%Y%m%d_%H%M%S").to_string();
@@ -1806,6 +1825,9 @@ pub fn run_pools_queue(
 
         while let Ok(result) = result_receiver.recv() {
             total_collected += 1;
+            if total_collected >= pending_tasks_len {
+                all_done_clone.store(true, Ordering::SeqCst);
+            }
             batch_results.push(result);
 
             // 根据backup_batch_size动态备份
@@ -1974,6 +1996,9 @@ pub fn run_pools_queue(
         }
         Err(e) => eprintln!("❌ 监控线程异常: {:?}", e),
     }
+
+    // 关闭任务队列（Arc中的所有clone都已随着worker退出而释放）
+    drop(task_sender);
 
     // 等待收集器完成
     println!(

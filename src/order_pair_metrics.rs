@@ -1018,27 +1018,31 @@ pub fn calculate_order_pair_metrics_more(
     let today_orders = aggregate_orders(&today_records);
     let yest_orders = aggregate_orders(&yesterday_records);
 
-    // 分离买单和卖单
-    let today_buy_orders: Vec<i64> = today_orders
+    // 分离买单和卖单（排序确保确定性）
+    let mut today_buy_orders: Vec<i64> = today_orders
         .values()
         .filter(|o| o.is_buy)
         .map(|o| o.order_id)
         .collect();
-    let today_sell_orders: Vec<i64> = today_orders
+    today_buy_orders.sort();
+    let mut today_sell_orders: Vec<i64> = today_orders
         .values()
         .filter(|o| !o.is_buy)
         .map(|o| o.order_id)
         .collect();
-    let yest_buy_orders: Vec<i64> = yest_orders
+    today_sell_orders.sort();
+    let mut yest_buy_orders: Vec<i64> = yest_orders
         .values()
         .filter(|o| o.is_buy)
         .map(|o| o.order_id)
         .collect();
-    let yest_sell_orders: Vec<i64> = yest_orders
+    yest_buy_orders.sort();
+    let mut yest_sell_orders: Vec<i64> = yest_orders
         .values()
         .filter(|o| !o.is_buy)
         .map(|o| o.order_id)
         .collect();
+    yest_sell_orders.sort();
 
     // 配对
     let buy_pairs = find_pairs(&today_buy_orders, &yest_buy_orders, tolerance);
