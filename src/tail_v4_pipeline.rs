@@ -18,6 +18,7 @@ use crossbeam::channel::{unbounded, Receiver, RecvTimeoutError, Sender};
 use ndarray::{s, Array1, Array2, Array3, ArrayView1, ArrayView2, ArrayView3};
 use ndarray_npy::{read_npy, write_npy};
 use numpy::IntoPyArray;
+#[cfg(feature = "hdf5")]
 use hdf5_metno as hdf5;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -155,6 +156,16 @@ struct TailTaskResult {
     derived_factor_count: usize,
     #[serde(default)]
     passed: bool,
+    #[serde(default)]
+    eliminated_by_raw_cover: bool,
+    #[serde(default)]
+    any_window_passed_preflight: bool,
+    #[serde(default)]
+    preflight_maj_failed_windows: usize,
+    #[serde(default)]
+    preflight_zero_failed_windows: usize,
+    #[serde(default)]
+    preflight_nan_failed_windows: usize,
 }
 
 #[derive(Default)]
@@ -1316,6 +1327,7 @@ fn strip_stock_suffix(code: &str) -> &str {
 }
 
 /// 从 H5 文件读取因子数据到模板矩阵
+#[cfg(feature = "hdf5")]
 fn load_h5_factor_to_template(
     factor_path: &str,
     template_dates: &[i32],
@@ -1363,6 +1375,15 @@ fn load_h5_factor_to_template(
         }
     }
     Ok(output)
+}
+
+#[cfg(not(feature = "hdf5"))]
+fn load_h5_factor_to_template(
+    _factor_path: &str,
+    _template_dates: &[i32],
+    _template_stocks: &[String],
+) -> Result<Array2<f32>, String> {
+    Err("HDF5 支持未启用（此 wheel 编译时未包含 hdf5-metno）".to_string())
 }
 
 fn build_fold_values(raw_values: &Array2<f32>) -> Array2<f32> {
@@ -1641,7 +1662,11 @@ fn process_task(task: &TailTask, shared: &SharedInputs) -> Result<TailTaskResult
             "[raw_cover] 剔除因子 {}，原始覆盖率不达标: raw_cover_rate={:.4}, 标准>={:.4}",
             task.source_factor, raw_cover_rate, shared.config.cover_rate,
         );
-        return Ok(TailTaskResult { source_factor: task.source_factor.clone(), ..TailTaskResult::default() });
+        return Ok(TailTaskResult {
+            source_factor: task.source_factor.clone(),
+            eliminated_by_raw_cover: true,
+            ..TailTaskResult::default()
+        });
     }
     let mut variants = vec![(task.source_factor.clone(), raw_values)];
     if shared.fold {
@@ -1722,6 +1747,15 @@ fn process_task(task: &TailTask, shared: &SharedInputs) -> Result<TailTaskResult
                 shared.config.nan_max_threshold,
             );
             if !pre_report.passed {
+                if pre_report.majority_count_mean > shared.config.majority_count_threshold {
+                    result.preflight_maj_failed_windows += 1;
+                }
+                if pre_report.zero_ratio_mean >= shared.config.zero_max_threshold {
+                    result.preflight_zero_failed_windows += 1;
+                }
+                if pre_report.nan_ratio_mean >= shared.config.nan_max_threshold {
+                    result.preflight_nan_failed_windows += 1;
+                }
                 let mut reasons: Vec<String> = Vec::new();
                 if pre_report.majority_count_mean > shared.config.majority_count_threshold {
                     reasons.push(format!(
@@ -1748,6 +1782,7 @@ fn process_task(task: &TailTask, shared: &SharedInputs) -> Result<TailTaskResult
                 );
                 continue;
             }
+            result.any_window_passed_preflight = true;
 
             let raw_gap1_row = summary_from_row(
                 derived_name,
@@ -1942,6 +1977,86 @@ fn write_aggregated_outputs(
     Ok(())
 }
 
+struct ProcessStats {
+    restored_pass: usize,
+    restored_raw_cov: usize,
+    restored_preflight: usize,
+    restored_ret_ic: usize,
+    restored_unknown: usize,
+
+    done: usize,
+    done_pass: usize,
+    done_raw_cov: usize,
+    done_preflight: usize,
+    done_ret_ic: usize,
+    done_unknown: usize,
+
+    preflight_maj_windows: usize,
+    preflight_zero_windows: usize,
+    preflight_nan_windows: usize,
+}
+
+impl Default for ProcessStats {
+    fn default() -> Self {
+        ProcessStats {
+            restored_pass: 0,
+            restored_raw_cov: 0,
+            restored_preflight: 0,
+            restored_ret_ic: 0,
+            restored_unknown: 0,
+            done: 0,
+            done_pass: 0,
+            done_raw_cov: 0,
+            done_preflight: 0,
+            done_ret_ic: 0,
+            done_unknown: 0,
+            preflight_maj_windows: 0,
+            preflight_zero_windows: 0,
+            preflight_nan_windows: 0,
+        }
+    }
+}
+
+fn terminal_height() -> u16 {
+    unsafe {
+        let mut ws: libc::winsize = std::mem::zeroed();
+        if libc::ioctl(1, libc::TIOCGWINSZ, &mut ws) == 0 && ws.ws_row > 0 {
+            ws.ws_row
+        } else {
+            24
+        }
+    }
+}
+
+fn init_status_line() {
+    let h = terminal_height();
+    if h > 4 {
+        print!("\x1B[1;{}r", h - 3);
+    }
+    let _ = std::io::stdout().flush();
+}
+
+fn update_status_line(l1: &str, l2: &str, l3: &str) {
+    let h = terminal_height();
+    if h > 3 {
+        print!("\x1B7");
+        print!("\x1B[{};1H\x1B[K{}", h - 2, l1);
+        print!("\x1B[{};1H\x1B[K{}", h - 1, l2);
+        print!("\x1B[{};1H\x1B[K{}", h, l3);
+        print!("\x1B8");
+    }
+    let _ = std::io::stdout().flush();
+}
+
+fn reset_status_line() {
+    print!("\x1B[r");
+    let h = terminal_height();
+    for i in 0..3 {
+        print!("\x1B[{};1H\x1B[K", h - 2 + i);
+    }
+    let _ = std::io::stdout().flush();
+}
+
 #[pyfunction]
 #[pyo3(signature = (
     factor_names,
@@ -2068,8 +2183,7 @@ pub fn tail_v4_run_candidates<'py>(
 
         let mut aggregated = AggregatedCandidates::default();
         let mut completed_sources = HashSet::<String>::new();
-        let mut restored_sources = 0usize;
-        let mut passed_sources = 0usize;
+        let mut stats = ProcessStats::default();
         for (source_factor, factor_path) in factor_names.iter().zip(factor_paths.iter()) {
             let result_path = factor_result_path(&task_results_dir, source_factor);
             if result_path.exists() {
@@ -2083,16 +2197,46 @@ pub fn tail_v4_run_candidates<'py>(
                         task_result.passed = true;
                     }
                     if task_result.passed {
-                        passed_sources += 1;
+                        stats.restored_pass += 1;
+                    } else if task_result.eliminated_by_raw_cover {
+                        stats.restored_raw_cov += 1;
+                    } else if !task_result.any_window_passed_preflight
+                        && !task_result.raw_summary_gap1.is_empty() == false
+                        && !task_result.raw_summary_gap5.is_empty() == false
+                        && !task_result.neu_summary_gap1.is_empty() == false
+                        && !task_result.neu_summary_gap5.is_empty() == false
+                        && !task_result.passed
+                    {
+                        // 区分 preflight 淘汰 vs 未知:
+                        // 旧缓存没有 any_window_passed_preflight(默认false)
+                        // 也没有 eliminated_by_raw_cover(默认false)
+                        // 如果所有 summary vecs 都为空且 passed=false
+                        // 我们通过是否有 preflight 失败记录来判断
+                        if task_result.preflight_maj_failed_windows > 0
+                            || task_result.preflight_zero_failed_windows > 0
+                            || task_result.preflight_nan_failed_windows > 0
+                        {
+                            stats.restored_preflight += 1;
+                        } else {
+                            stats.restored_unknown += 1;
+                        }
+                    } else {
+                        // any_window_passed_preflight=true, passed=false → ret_ic淘汰
+                        stats.restored_ret_ic += 1;
                     }
+                    stats.preflight_maj_windows += task_result.preflight_maj_failed_windows;
+                    stats.preflight_zero_windows += task_result.preflight_zero_failed_windows;
+                    stats.preflight_nan_windows += task_result.preflight_nan_failed_windows;
                     aggregated.merge_task(task_result);
                     completed_sources.insert(source_factor.clone());
-                    restored_sources += 1;
                     continue;
                 }
             }
             let _ = factor_path;
         }
+        let restored_sources =
+            stats.restored_pass + stats.restored_raw_cov + stats.restored_preflight
+            + stats.restored_ret_ic + stats.restored_unknown;
 
         let pending_tasks = factor_names
             .iter()
@@ -2111,16 +2255,21 @@ pub fn tail_v4_run_candidates<'py>(
 
         let total_pending = pending_tasks.len();
         if total_pending > 0 {
+            init_status_line();
             let current_time = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
-            print!(
-                "\r[{}] Tail V4 启动，待处理 {}/{} 个原始因子，已恢复 {} 个 (通过 {})",
-                current_time,
-                total_pending,
-                factor_names.len(),
-                restored_sources,
-                passed_sources,
-            );
-            std::io::stdout().flush().map_err(|e| format!("刷新进度输出失败: {}", e))?;
+            let total = factor_names.len();
+            let total_elim = restored_sources - stats.restored_pass;
+            let l1 = format!("[{}] Tail V4 启动，待处理 {}/{} 个原始因子", current_time, total_pending, total);
+            let l2 = format!("累计通过 {} ({}%) | 淘汰 raw_cov={} preflight={} ret_ic={} 未知={}",
+                stats.restored_pass,
+                if restored_sources > 0 { stats.restored_pass * 100 / restored_sources } else { 0 },
+                stats.restored_raw_cov, stats.restored_preflight,
+                stats.restored_ret_ic, stats.restored_unknown);
+            let _ = total_elim; // suppress unused warning
+            let l3 = format!("maj={}w zero={}w nan={}w | 恢复 {} 个 | 即将开始处理...",
+                stats.preflight_maj_windows, stats.preflight_zero_windows,
+                stats.preflight_nan_windows, restored_sources);
+            update_status_line(&l1, &l2, &l3);
         }
         let (task_sender, task_receiver): (Sender<TailTask>, Receiver<TailTask>) = unbounded();
         let (result_sender, result_receiver) = unbounded::<Result<TailTaskResult, (String, String)>>();
@@ -2148,19 +2297,35 @@ pub fn tail_v4_run_candidates<'py>(
         drop(result_sender);
 
         let mut processed_sources = 0usize;
-        let mut passed_sources = 0usize;
         while let Ok(task_outcome) = result_receiver.recv() {
             match task_outcome {
                 Ok(task_result) => {
-                    let is_passed = task_result.passed;
                     let result_path = factor_result_path(&task_results_dir, &task_result.source_factor);
+                    let is_passed = task_result.passed;
+                    let is_raw_cov = task_result.eliminated_by_raw_cover;
+                    let any_window = task_result.any_window_passed_preflight;
+                    let preflight_maj = task_result.preflight_maj_failed_windows;
+                    let preflight_zero = task_result.preflight_zero_failed_windows;
+                    let preflight_nan = task_result.preflight_nan_failed_windows;
                     write_task_result(&result_path, &task_result)?;
                     append_completed_source(&completed_log_path, &task_result.source_factor)?;
                     aggregated.merge_task(task_result);
                     processed_sources += 1;
+
                     if is_passed {
-                        passed_sources += 1;
+                        stats.done_pass += 1;
+                    } else if is_raw_cov {
+                        stats.done_raw_cov += 1;
+                    } else if !any_window {
+                        stats.done_preflight += 1;
+                    } else {
+                        stats.done_ret_ic += 1;
                     }
+                    stats.done = processed_sources;
+                    stats.preflight_maj_windows += preflight_maj;
+                    stats.preflight_zero_windows += preflight_zero;
+                    stats.preflight_nan_windows += preflight_nan;
+
                     if total_pending > 0 {
                         let elapsed = started.elapsed();
                         let elapsed_secs = elapsed.as_secs();
@@ -2177,34 +2342,40 @@ pub fn tail_v4_run_candidates<'py>(
                         };
                         let (elapsed_h, elapsed_m, elapsed_s) = format_hms(elapsed_secs);
                         let (remaining_h, remaining_m, remaining_s) = format_hms(remaining_secs);
-                        let progress_pct = progress * 100.0;
                         let current_time = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
-                        let pass_pct = if processed_sources > 0 {
-                            passed_sources as f64 / processed_sources as f64 * 100.0
-                        } else {
-                            0.0
-                        };
-                        print!(
-                            "\r[{}] Tail V4 进度 {}/{} ({:.1}%)，通过 {}/{} ({:.1}%)，已恢复 {} 个，已用{}h{}m{}s，预计剩余{}h{}m{}s",
-                            current_time,
-                            processed_sources,
-                            total_pending,
-                            progress_pct,
-                            passed_sources,
-                            processed_sources,
-                            pass_pct,
-                            restored_sources,
-                            elapsed_h,
-                            elapsed_m,
-                            elapsed_s,
-                            remaining_h,
-                            remaining_m,
-                            remaining_s,
+
+                        let cum_pass = stats.restored_pass + stats.done_pass;
+                        let cum_total = restored_sources + processed_sources;
+                        let cum_raw_cov = stats.restored_raw_cov + stats.done_raw_cov;
+                        let cum_preflight = stats.restored_preflight + stats.done_preflight;
+                        let cum_ret_ic = stats.restored_ret_ic + stats.done_ret_ic;
+                        let cum_unknown = stats.restored_unknown + stats.done_unknown;
+
+                        let l1 = format!(
+                            "[{}] Tail V4 进度 {}/{} ({:.1}%)，已用{}h{}m{}s，预计剩余{}h{}m{}s",
+                            current_time, processed_sources, total_pending,
+                            progress * 100.0,
+                            elapsed_h, elapsed_m, elapsed_s,
+                            remaining_h, remaining_m, remaining_s,
                         );
-                        std::io::stdout().flush().map_err(|e| format!("刷新进度输出失败: {}", e))?;
+                        let l2 = format!(
+                            "累计通过 {} ({:.0}%) | 淘汰 raw_cov={} preflight={} ret_ic={} 未知={}",
+                            cum_pass,
+                            if cum_total > 0 { cum_pass as f64 * 100.0 / cum_total as f64 } else { 0.0 },
+                            cum_raw_cov, cum_preflight, cum_ret_ic, cum_unknown,
+                        );
+                        let l3 = format!(
+                            "maj={}w zero={}w nan={}w | 本次 {}(通过{}) | 恢复 {}(通过{})",
+                            stats.preflight_maj_windows, stats.preflight_zero_windows,
+                            stats.preflight_nan_windows,
+                            stats.done, stats.done_pass,
+                            restored_sources, stats.restored_pass,
+                        );
+                        update_status_line(&l1, &l2, &l3);
                     }
                 }
                 Err((task_name, err)) => {
+                    reset_status_line();
                     return Err(format!("处理因子 {} 失败: {}", task_name, err));
                 }
             }
@@ -2212,6 +2383,7 @@ pub fn tail_v4_run_candidates<'py>(
 
         if total_pending > 0 {
             println!();
+            reset_status_line();
         }
 
         for handle in handles {

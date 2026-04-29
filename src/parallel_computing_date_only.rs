@@ -1,5 +1,5 @@
 use chrono::Local;
-use crossbeam::channel::{unbounded, Receiver, Sender};
+use crossbeam::channel::{unbounded, Receiver, RecvTimeoutError, Sender};
 use pyo3::prelude::*;
 use pyo3::types::PyList;
 use serde::{Deserialize, Serialize};
@@ -117,8 +117,6 @@ struct DateOnlyMonitorManager {
     debug_monitor: bool,
     should_stop: Arc<AtomicBool>,
     stuck_dates: Arc<Mutex<Vec<(i64, usize, Duration, String)>>>,
-    // 新增：发送失败的任务列表
-    failed_dates: Arc<Mutex<Vec<i64>>>,
 }
 
 impl DateOnlyMonitorManager {
@@ -130,7 +128,6 @@ impl DateOnlyMonitorManager {
             debug_monitor,
             should_stop: Arc::new(AtomicBool::new(false)),
             stuck_dates: Arc::new(Mutex::new(Vec::new())),
-            failed_dates: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -327,43 +324,12 @@ impl DateOnlyMonitorManager {
         }
     }
 
-    // 记录发送失败的任务
-    fn record_failed_date(&self, date: i64) {
-        if let Ok(mut failed) = self.failed_dates.lock() {
-            failed.push(date);
-        }
-    }
-
-    // 获取所有失败的任务（包括卡死和发送失败）
-    fn get_all_failed_dates(&self) -> Vec<i64> {
-        let mut all_failed: Vec<i64> = Vec::new();
-
-        // 从 stuck_dates 获取卡死的任务
-        if let Ok(stuck) = self.stuck_dates.lock() {
-            for (date, _, _, _) in stuck.iter() {
-                all_failed.push(*date);
-            }
-        }
-
-        // 从 failed_dates 获取发送失败的任务
-        if let Ok(failed) = self.failed_dates.lock() {
-            for date in failed.iter() {
-                all_failed.push(*date);
-            }
-        }
-
-        all_failed
-    }
-
     fn cleanup(&self) {
         if let Ok(mut monitors) = self.monitors.try_lock() {
             monitors.clear();
         }
         if let Ok(mut stuck) = self.stuck_dates.try_lock() {
             stuck.clear();
-        }
-        if let Ok(mut failed) = self.failed_dates.try_lock() {
-            failed.clear();
         }
     }
 }
@@ -591,6 +557,8 @@ if __name__ == '__main__':
 fn run_date_only_worker(
     worker_id: usize,
     task_queue: Receiver<DateOnlyTaskParam>,
+    task_sender: Arc<Sender<DateOnlyTaskParam>>,
+    all_done: Arc<AtomicBool>,
     python_code: String,
     expected_result_length: usize,
     python_path: String,
@@ -664,8 +632,18 @@ fn run_date_only_worker(
         let mut task_count = 0;
         let mut needs_restart = false;
 
-        while let Ok(task) = task_queue.recv() {
+        loop {
+            if all_done.load(Ordering::Relaxed) {
+                break;
+            }
+            let task = match task_queue.recv_timeout(Duration::from_secs(1)) {
+                Ok(task) => task,
+                Err(RecvTimeoutError::Timeout) => continue,
+                Err(RecvTimeoutError::Disconnected) => break,
+            };
+
             if restart_flag.load(Ordering::Relaxed) {
+                let _ = task_sender.send(task);
                 needs_restart = true;
                 break;
             }
@@ -704,8 +682,7 @@ fn run_date_only_worker(
                     "COMMUNICATION",
                     &format!("发送任务失败, date={}", task.date),
                 );
-                // 记录发送失败的任务，后续会重试
-                monitor_manager.record_failed_date(task.date);
+                let _ = task_sender.send(task);
                 needs_restart = true;
                 break;
             }
@@ -715,6 +692,7 @@ fn run_date_only_worker(
             let mut len_buf = [0u8; 4];
             if stdout.read_exact(&mut len_buf).is_err() {
                 debug_logger.log_error(Some(worker_id), "COMMUNICATION", "读取结果长度失败");
+                let _ = task_sender.send(task);
                 needs_restart = true;
                 break;
             }
@@ -724,6 +702,7 @@ fn run_date_only_worker(
 
             if stdout.read_exact(&mut result_data).is_err() {
                 debug_logger.log_error(Some(worker_id), "COMMUNICATION", "读取结果数据失败");
+                let _ = task_sender.send(task);
                 needs_restart = true;
                 break;
             }
@@ -893,10 +872,12 @@ pub fn run_pools_queue_date_only(
     let (task_sender, task_receiver) = unbounded::<DateOnlyTaskParam>();
     let (result_sender, result_receiver) = unbounded::<TaskResult>();
 
+    let task_sender = Arc::new(task_sender);
     for date in &pending_dates {
         let _ = task_sender.send(DateOnlyTaskParam { date: *date });
     }
-    drop(task_sender);
+
+    let all_done = Arc::new(AtomicBool::new(false));
 
     let restart_flag = Arc::new(AtomicBool::new(false));
 
@@ -917,6 +898,8 @@ pub fn run_pools_queue_date_only(
     let mut worker_handles = Vec::new();
     for i in 0..n_jobs {
         let w_task_receiver = task_receiver.clone();
+        let w_task_sender = task_sender.clone();
+        let w_all_done = all_done.clone();
         let w_python_code = python_code.clone();
         let w_python_path = python_path.clone();
         let w_result_sender = result_sender.clone();
@@ -929,6 +912,8 @@ pub fn run_pools_queue_date_only(
             run_date_only_worker(
                 i,
                 w_task_receiver,
+                w_task_sender,
+                w_all_done,
                 w_python_code,
                 w_expected,
                 w_python_path,
@@ -993,6 +978,7 @@ pub fn run_pools_queue_date_only(
     let total_dates = pending_dates.len();
     let completed_dates_set = Arc::new(Mutex::new(HashSet::<i64>::new()));
     let completed_dates_clone = completed_dates_set.clone();
+    let all_done_clone = all_done.clone();
     let progress_log_clone = progress_log_enabled;
     let collector_handle = thread::spawn(move || {
         // 进度日志相关变量
@@ -1029,6 +1015,9 @@ pub fn run_pools_queue_date_only(
             {
                 if let Ok(mut dates_set) = completed_dates_clone.lock() {
                     dates_set.insert(result.date);
+                    if dates_set.len() >= total_dates {
+                        all_done_clone.store(true, Ordering::SeqCst);
+                    }
                 }
             }
             total_collected += 1;
@@ -1156,21 +1145,7 @@ pub fn run_pools_queue_date_only(
         }
     });
 
-    // 等待所有worker完成
-    for (i, handle) in worker_handles.into_iter().enumerate() {
-        match handle.join() {
-            Ok(()) => {}
-            Err(e) => eprintln!("❌ Worker {} 异常: {:?}", i, e),
-        }
-    }
-
-    monitor_manager.stop_monitoring();
-
-    match monitor_handle.join() {
-        Ok(()) => {}
-        Err(e) => eprintln!("❌ 监控线程异常: {:?}", e),
-    }
-
+    // 先等待收集器结束（它会在所有 worker 退出并关闭 result_sender 后自然结束）
     match collector_handle.join() {
         Ok(()) => {
             println!(
@@ -1184,186 +1159,25 @@ pub fn run_pools_queue_date_only(
         Err(e) => eprintln!("❌ 结果收集器异常: {:?}", e),
     }
 
-    monitor_manager.print_stuck_tasks_table();
-
-    // ==================== 重试失败的任务 ====================
-    let failed_dates = monitor_manager.get_all_failed_dates();
-    if !failed_dates.is_empty() {
-        println!(
-            "\n[{}] 🔄 开始重试 {} 个失败的任务...",
-            Local::now().format("%Y-%m-%d %H:%M:%S"),
-            failed_dates.len()
-        );
-
-        // 清理旧的监控状态
-        monitor_manager.terminate_all_workers(Duration::from_secs(2));
-        monitor_manager.cleanup();
-
-        // 创建新的通道和重启标志
-        let (retry_task_sender, retry_task_receiver) = unbounded::<DateOnlyTaskParam>();
-        let (retry_result_sender, retry_result_receiver) = unbounded::<TaskResult>();
-        let retry_restart_flag = Arc::new(AtomicBool::new(false));
-
-        // 创建新的监控管理器
-        let retry_monitor = Arc::new(DateOnlyMonitorManager::new(
-            task_timeout_duration,
-            health_check_duration,
-            debug_monitor_enabled,
-        ));
-
-        // 发送失败的任务
-        for date in &failed_dates {
-            let _ = retry_task_sender.send(DateOnlyTaskParam { date: *date });
+    // 等待所有worker完成
+    for (i, handle) in worker_handles.into_iter().enumerate() {
+        match handle.join() {
+            Ok(()) => {}
+            Err(e) => eprintln!("❌ Worker {} 异常: {:?}", i, e),
         }
-        drop(retry_task_sender);
+    }
+    drop(task_sender);
 
-        println!(
-            "[{}] 🚀 启动 {} 个worker重试 {} 个任务",
-            Local::now().format("%Y-%m-%d %H:%M:%S"),
-            n_jobs,
-            failed_dates.len()
-        );
-
-        // 启动重试worker
-        let mut retry_worker_handles = Vec::new();
-        for i in 0..n_jobs {
-            let w_task_receiver = retry_task_receiver.clone();
-            let w_python_code = python_code.clone();
-            let w_python_path = python_path.clone();
-            let w_result_sender = retry_result_sender.clone();
-            let w_restart_flag = retry_restart_flag.clone();
-            let w_monitor = retry_monitor.clone();
-            let w_logger = debug_logger.clone();
-            let w_expected = expected_result_length;
-
-            let handle = thread::spawn(move || {
-                run_date_only_worker(
-                    i,
-                    w_task_receiver,
-                    w_python_code,
-                    w_expected,
-                    w_python_path,
-                    w_result_sender,
-                    w_restart_flag,
-                    w_monitor,
-                    w_logger,
-                );
-            });
-            retry_worker_handles.push(handle);
-        }
-        drop(retry_result_sender);
-
-        // 启动重试监控线程
-        let retry_monitor_clone = retry_monitor.clone();
-        let retry_restart_flag_clone = retry_restart_flag.clone();
-        let retry_monitor_handle = thread::spawn(move || loop {
-            if retry_monitor_clone.should_stop_monitoring() {
-                break;
-            }
-            if let Ok(monitors) = retry_monitor_clone.monitors.lock() {
-                if monitors.is_empty() {
-                    break;
-                }
-            }
-            let stuck_workers = retry_monitor_clone.check_stuck_workers();
-            if !stuck_workers.is_empty() {
-                for (worker_id, reason) in stuck_workers {
-                    retry_monitor_clone.log_stuck_worker(worker_id, reason);
-                    if retry_monitor_clone.force_kill_worker(worker_id) {
-                        eprintln!("⚠️ 重试Worker {} 被强制终止 (原因: {})", worker_id, reason);
-                    }
-                }
-                retry_restart_flag_clone.store(true, Ordering::SeqCst);
-                thread::sleep(Duration::from_millis(100));
-                retry_restart_flag_clone.store(false, Ordering::SeqCst);
-            }
-            for _ in 0..10 {
-                if retry_monitor_clone.should_stop_monitoring() {
-                    break;
-                }
-                thread::sleep(retry_monitor_clone.health_check_interval / 10);
-            }
-        });
-
-        // 收集重试结果
-        let retry_backup = backup_file.clone();
-        let retry_expected = expected_result_length;
-        let retry_collector_handle = thread::spawn(move || {
-            let mut batch_results: Vec<TaskResult> = Vec::new();
-            let mut total_collected: usize = 0;
-
-            while let Ok(result) = retry_result_receiver.recv() {
-                total_collected += 1;
-                batch_results.push(result);
-            }
-
-            if !batch_results.is_empty() {
-                println!(
-                    "[{}] 💾 保存重试结果: {} 条",
-                    Local::now().format("%Y-%m-%d %H:%M:%S"),
-                    batch_results.len()
-                );
-                match backup_writer::save_results_to_backup(&batch_results, &retry_backup, retry_expected) {
-                    Ok(()) => println!(
-                        "[{}] ✅ 重试结果保存成功！",
-                        Local::now().format("%Y-%m-%d %H:%M:%S")
-                    ),
-                    Err(e) => eprintln!("❌ 重试结果保存失败: {}", e),
-                }
-            }
-
-            println!(
-                "[{}] 📊 重试收集器: 共收集 {} 条记录",
-                Local::now().format("%Y-%m-%d %H:%M:%S"),
-                total_collected
-            );
-            total_collected
-        });
-
-        // 等待重试worker完成
-        for handle in retry_worker_handles {
-            let _ = handle.join();
-        }
-        retry_monitor.stop_monitoring();
-        let _ = retry_monitor_handle.join();
-        let retry_collected = retry_collector_handle.join().unwrap_or(0);
-
-        retry_monitor.print_stuck_tasks_table();
-
-        // 计算最终统计
-        let still_failed_count: usize = failed_dates.len().saturating_sub(retry_collected);
-
-        println!(
-            "\n📊 重试统计: 原失败 {} 个，成功重试 {} 个，仍有 {} 个失败",
-            failed_dates.len(),
-            retry_collected,
-            still_failed_count
-        );
-
-        if still_failed_count > 0 {
-            eprintln!(
-                "⚠️ 仍有 {} 个任务失败，可通过 update_mode=True 再次运行来重试",
-                still_failed_count
-            );
-        }
-
-        retry_monitor.terminate_all_workers(Duration::from_secs(2));
-
-        // 清理重试worker脚本
-        for i in 0..n_jobs {
-            let script_path = format!("/tmp/date_only_worker_{}.py", i);
-            if Path::new(&script_path).exists() {
-                let _ = std::fs::remove_file(&script_path);
-            }
-        }
-    } else {
-        monitor_manager.terminate_all_workers(Duration::from_secs(2));
-        monitor_manager.cleanup();
+    // 停止监控线程
+    monitor_manager.stop_monitoring();
+    match monitor_handle.join() {
+        Ok(()) => {}
+        Err(e) => eprintln!("❌ 监控线程异常: {:?}", e),
     }
 
+    monitor_manager.terminate_all_workers(Duration::from_secs(2));
+    monitor_manager.cleanup();
     drop(monitor_manager);
-
-    thread::sleep(Duration::from_millis(100));
 
     for i in 0..n_jobs {
         let script_path = format!("/tmp/date_only_worker_{}.py", i);
