@@ -121,39 +121,30 @@ fn detect_python_interpreter() -> String {
     "python".to_string()
 }
 
-/// 提取Python函数代码
+/// 提取Python函数代码 - 使用pickle序列化代替inspect.getsource
+/// 避免因模块热更新或源码解析问题导致提取到错误的函数
 fn extract_python_function_code(py_func: &PyObject) -> PyResult<String> {
     Python::with_gil(|py| {
-        let inspect = py.import("inspect")?;
+        let pickle = py.import("pickle")?;
+        match pickle.call_method1("dumps", (py_func,)) {
+            Ok(pickled) => {
+                let base64 = py.import("base64")?;
+                let encoded = base64.call_method1("b64encode", (pickled,))?;
+                let encoded_str: String = encoded.call_method0("decode")?.extract()?;
 
-        match inspect.call_method1("getsource", (py_func,)) {
-            Ok(source) => {
-                let source_str: String = source.extract()?;
-                Ok(source_str)
-            }
-            Err(_) => {
-                let pickle = py.import("pickle")?;
-                match pickle.call_method1("dumps", (py_func,)) {
-                    Ok(pickled) => {
-                        let base64 = py.import("base64")?;
-                        let encoded = base64.call_method1("b64encode", (pickled,))?;
-                        let encoded_str: String = encoded.call_method0("decode")?.extract()?;
-
-                        Ok(format!(
-                            r#"
+                Ok(format!(
+                    r#"
 import pickle
 import base64
 _func_data = base64.b64decode('{}')
 user_function = pickle.loads(_func_data)
 "#,
-                            encoded_str
-                        ))
-                    }
-                    Err(_) => Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-                        "Cannot serialize the Python function",
-                    )),
-                }
+                    encoded_str
+                ))
             }
+            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                format!("Cannot pickle the Python function: {}", e),
+            )),
         }
     })
 }
@@ -192,18 +183,21 @@ def main():
             date = task['date']
             code = task['code']
             func_code = textwrap.dedent(func_code)
-
             # 执行任务
             try:
                 namespace = {'__builtins__': __builtins__}
                 exec(func_code, namespace)
 
-                # 找到用户定义的函数
-                user_functions = [name for name, obj in namespace.items()
-                                 if callable(obj) and not name.startswith('_')]
+                # 查找用户函数：优先用 user_function（pickle路径），
+                # 其次取第一个非内置可调用对象（getsource路径）
+                if 'user_function' in namespace:
+                    func = namespace['user_function']
+                else:
+                    user_functions = [name for name, obj in namespace.items()
+                                     if callable(obj) and not name.startswith('_')]
+                    func = namespace[user_functions[0]] if user_functions else None
 
-                if user_functions:
-                    func = namespace[user_functions[0]]
+                if func is not None:
                     func(date, code)  # 执行函数，不收集结果
 
                 # 任务完成后，发送确认信号到 stdout
