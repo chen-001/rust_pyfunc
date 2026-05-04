@@ -18,7 +18,8 @@ def run_pools_queue(
     debug_monitor: Optional[bool] = None,
     backup_batch_size: Optional[int] = None,
     debug_log: Optional[bool] = None,
-    progress_log: Optional[bool] = None
+    progress_log: Optional[bool] = None,
+    dynamic_njobs: Optional[bool] = None,
 ) -> NDArray[np.float64]:
     """🚀 革命性持久化进程池 - 极致性能的并行计算函数（v2.1）
     

@@ -11,7 +11,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
@@ -197,6 +197,12 @@ struct SingleTask {
     expected_result_length: usize,
 }
 
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct ControlCmd {
+    n_jobs: usize,
+}
 // 新增：Worker监控信息
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
@@ -1100,6 +1106,7 @@ fn run_persistent_task_worker(
     restart_flag: Arc<AtomicBool>,
     monitor_manager: Arc<WorkerMonitorManager>,
     debug_logger: DebugLogger,
+    target_worker_count: Arc<AtomicUsize>, // 🔥 新增：动态n_jobs控制
 ) {
     // 向监控管理器注册worker
     monitor_manager.add_worker(worker_id);
@@ -1220,6 +1227,15 @@ fn run_persistent_task_worker(
             if all_done.load(Ordering::Relaxed) {
                 break;
             }
+            // 🔥 新增：n_jobs下调时，高ID worker自动退出
+            if worker_id >= target_worker_count.load(Ordering::Relaxed) {
+                debug_logger.log_info(
+                    Some(worker_id), "DECOMMISSION",
+                    &format!("n_jobs下调，Worker #{} 退出", worker_id),
+                );
+                break;
+            }
+
             let task = match task_queue.recv_timeout(Duration::from_secs(1)) {
                 Ok(task) => task,
                 Err(RecvTimeoutError::Timeout) => continue,
@@ -1431,7 +1447,7 @@ fn run_persistent_task_worker(
 }
 
 #[pyfunction]
-#[pyo3(signature = (python_function, args, n_jobs, backup_file, expected_result_length, restart_interval=None, update_mode=None, return_results=None, task_timeout=None, health_check_interval=None, debug_monitor=None, backup_batch_size=None, debug_log=None, progress_log=None))]
+#[pyo3(signature = (python_function, args, n_jobs, backup_file, expected_result_length, restart_interval=None, update_mode=None, return_results=None, task_timeout=None, health_check_interval=None, debug_monitor=None, backup_batch_size=None, debug_log=None, progress_log=None, dynamic_njobs=None))]
 pub fn run_pools_queue(
     python_function: PyObject,
     args: &PyList,
@@ -1447,6 +1463,7 @@ pub fn run_pools_queue(
     backup_batch_size: Option<usize>,
     debug_log: Option<bool>,
     progress_log: Option<bool>,
+    dynamic_njobs: Option<bool>, // 🔥 新增：动态n_jobs控制
 ) -> PyResult<PyObject> {
     // 处理 debug_log 参数，创建日志记录器
     let debug_log_enabled = debug_log.unwrap_or(false);
@@ -1491,6 +1508,11 @@ pub fn run_pools_queue(
 
     // 处理 progress_log 参数
     let progress_log_enabled = progress_log.unwrap_or(false);
+
+    // 🔥 处理 dynamic_njobs 参数
+    let dynamic_njobs_enabled = dynamic_njobs.unwrap_or(false);
+    let control_path = format!("{}.control", backup_file);
+    let initial_n_jobs = n_jobs;
 
     let task_timeout_duration = Duration::from_secs(task_timeout_secs);
     let health_check_duration = Duration::from_secs(health_check_interval_secs);
@@ -1655,22 +1677,31 @@ pub fn run_pools_queue(
         pending_tasks.len()
     );
 
-    // 启动worker线程
-    let mut worker_handles = Vec::new();
-    for i in 0..n_jobs {
+    let target_worker_count = Arc::new(AtomicUsize::new(n_jobs));
+
+    // 🔥 将 result_sender 包装在 Arc 中，让控制线程通过 Weak 引用获取新 sender
+    let result_sender_shared = Arc::new(result_sender);
+    let spawn_worker_result_sender = result_sender_shared.as_ref().clone();
+    // 控制线程使用 Weak 引用（不阻止 channel 关闭）
+    let result_sender_weak = Arc::downgrade(&result_sender_shared);
+    drop(result_sender_shared); // 释放 Arc，仅保留 worker 的 sender 克隆
+
+    // 🔥 提取worker创建闭包
+    let spawn_worker = |worker_id: usize| {
         let worker_task_receiver = task_receiver.clone();
         let worker_task_sender = task_sender.clone();
         let worker_all_done = all_done.clone();
         let worker_python_code = python_code.clone();
         let worker_python_path = python_path.clone();
-        let worker_result_sender = result_sender.clone();
+        let worker_result_sender = spawn_worker_result_sender.clone();
         let worker_restart_flag = restart_flag.clone();
         let worker_monitor_manager = monitor_manager.clone();
         let worker_debug_logger = debug_logger.clone();
+        let worker_target_worker_count = target_worker_count.clone();
 
-        let handle = thread::spawn(move || {
+        thread::spawn(move || {
             run_persistent_task_worker(
-                i,
+                worker_id,
                 worker_task_receiver,
                 worker_task_sender,
                 worker_all_done,
@@ -1682,14 +1713,17 @@ pub fn run_pools_queue(
                 worker_restart_flag,
                 worker_monitor_manager,
                 worker_debug_logger,
+                worker_target_worker_count,
             );
-        });
+        })
+    };
 
-        worker_handles.push(handle);
+    // 启动worker线程
+    let worker_handles = Arc::new(Mutex::new(Vec::new()));
+    for i in 0..n_jobs {
+        let handle = spawn_worker(i);
+        worker_handles.lock().unwrap().push(handle);
     }
-
-    // 关闭主线程的result_sender
-    drop(result_sender);
 
     // 启动监控线程
     let monitor_manager_clone = monitor_manager.clone();
@@ -1780,6 +1814,88 @@ pub fn run_pools_queue(
             }
         }
     });
+
+    // 🔥 新增：控制文件监控线程（动态n_jobs）
+    let control_handle: Option<thread::JoinHandle<()>> = if dynamic_njobs_enabled {
+        let control_all_done = all_done.clone();
+        let control_target_worker_count = target_worker_count.clone();
+        let control_worker_handles = worker_handles.clone();
+        let control_task_receiver = task_receiver.clone();
+        let control_task_sender = task_sender.clone();
+        let control_python_code = python_code.clone();
+        let control_python_path = python_path.clone();
+        let control_sender_weak = result_sender_weak.clone();
+        let control_restart_flag = restart_flag.clone();
+        let control_monitor_manager = monitor_manager.clone();
+        let control_debug_logger = debug_logger.clone();
+        let control_path_local = control_path.clone();
+        Some(thread::spawn(move || {
+            let mut last_n_jobs = initial_n_jobs;
+            loop {
+                if control_all_done.load(Ordering::Relaxed) { break; }
+                match std::fs::read_to_string(&control_path_local) {
+                    Ok(content) => {
+                        if let Ok(cmd) = serde_json::from_str::<ControlCmd>(&content) {
+                            if cmd.n_jobs != last_n_jobs && cmd.n_jobs >= 1 {
+                                control_debug_logger.log_info(
+                                    None, "CONTROL",
+                                    &format!("n_jobs调整: {} -> {}", last_n_jobs, cmd.n_jobs),
+                                );
+                                control_target_worker_count.store(cmd.n_jobs, Ordering::SeqCst);
+                                if cmd.n_jobs > last_n_jobs {
+                                    // 上调n_jobs：创建新worker
+                                    for i in last_n_jobs..cmd.n_jobs {
+                                        let handle = {
+                                            let worker_task_receiver = control_task_receiver.clone();
+                                            let worker_task_sender = control_task_sender.clone();
+                                            let worker_all_done = control_all_done.clone();
+                                            let worker_python_code = control_python_code.clone();
+                                            let worker_python_path = control_python_path.clone();
+                                            let worker_result_sender = if let Some(strong) = control_sender_weak.upgrade() {
+                                                (*strong).clone()
+                                            } else {
+                                                // sender 已全部释放，使用备用 sender（不应发生）
+                                                continue;
+                                            };
+                                            let worker_restart_flag = control_restart_flag.clone();
+                                            let worker_monitor_manager = control_monitor_manager.clone();
+                                            let worker_debug_logger = control_debug_logger.clone();
+                                            let worker_target_worker_count = control_target_worker_count.clone();
+                                            thread::spawn(move || {
+                                                run_persistent_task_worker(
+                                                    i,
+                                                    worker_task_receiver,
+                                                    worker_task_sender,
+                                                    worker_all_done,
+                                                    worker_python_code,
+                                                    expected_result_length,
+                                                    task_timeout_secs,
+                                                    worker_python_path,
+                                                    worker_result_sender,
+                                                    worker_restart_flag,
+                                                    worker_monitor_manager,
+                                                    worker_debug_logger,
+                                                    worker_target_worker_count,
+                                                );
+                                            })
+                                        };
+                                        if let Ok(mut handles) = control_worker_handles.lock() {
+                                            handles.push(handle);
+                                        }
+                                    }
+                                }
+                                last_n_jobs = cmd.n_jobs;
+                            }
+                        }
+                    }
+                    Err(_) => { /* 控制文件不存在或读取失败，忽略 */ }
+                }
+                thread::sleep(Duration::from_secs(2));
+            }
+        }))
+    } else {
+        None
+    };
 
     // 启动结果收集器
     let backup_file_clone = backup_file.clone();
@@ -1970,7 +2086,11 @@ pub fn run_pools_queue(
         "[{}] ⏳ 等待所有worker完成...",
         Local::now().format("%Y-%m-%d %H:%M:%S")
     );
-    for (i, handle) in worker_handles.into_iter().enumerate() {
+    let all_handles = {
+        let mut handles = worker_handles.lock().unwrap();
+        handles.drain(..).collect::<Vec<_>>()
+    };
+    for (i, handle) in all_handles.into_iter().enumerate() {
         match handle.join() {
             Ok(()) => {}
             Err(e) => eprintln!("❌ Worker {} 异常: {:?}", i, e),
@@ -1996,6 +2116,16 @@ pub fn run_pools_queue(
         }
         Err(e) => eprintln!("❌ 监控线程异常: {:?}", e),
     }
+
+    // 🔥 等待控制线程结束
+    if let Some(control_handle) = control_handle {
+        let _ = control_handle.join();
+    }
+
+    // 🔥 释放 spawn_worker 闭包及 result_sender 克隆
+    // 这允许收集器线程收到 Disconnected 信号后退出
+    drop(spawn_worker);
+    drop(spawn_worker_result_sender);
 
     // 关闭任务队列（Arc中的所有clone都已随着worker退出而释放）
     drop(task_sender);
