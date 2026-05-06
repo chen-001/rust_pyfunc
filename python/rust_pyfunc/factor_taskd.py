@@ -75,11 +75,18 @@ def init_db(db_path: str) -> None:
             created_at TEXT,
             started_at TEXT,
             finished_at TEXT,
-            error TEXT
+            error TEXT,
+            progress_snapshot TEXT
         )
     """
     )
     db.commit()
+    # 兼容旧数据库：添加 progress_snapshot 列（若已存在则忽略）
+    try:
+        db.execute("ALTER TABLE tasks ADD COLUMN progress_snapshot TEXT")
+        db.commit()
+    except sqlite3.OperationalError:
+        pass
     db.close()
 
 
@@ -139,9 +146,14 @@ def _run_task(
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
     backup_prefix = _build_backup_prefix(version)
 
+    # 切换到脚本所在目录，确保相对路径（如 ./backup_*.bin）正确解析
+    script_dir = os.path.dirname(os.path.abspath(script_path))
+    os.chdir(script_dir)
+
     cmd = [sys.executable, script_path]
-    # 如果脚本接受参数，可以在这里添加
     env = os.environ.copy()
+    # 通过环境变量传递 n_jobs，脚本读取后覆盖硬编码值
+    env["FACTOR_N_JOBS"] = str(n_jobs)
 
     # 标记为 running
     with _db_lock:
@@ -193,17 +205,19 @@ def _run_task(
                 db.close()
                 return
 
-        # 标记完成
+        # 标记完成，并快照进度
         new_status = "completed" if returncode == 0 else "failed"
         error_msg = None if returncode == 0 else f"进程退出码: {returncode}"
+        progress_snapshot = _read_progress(backup_prefix, task_id)
         with _db_lock:
             db = get_db()
             db.execute(
-                "UPDATE tasks SET status=?, finished_at=?, error=? WHERE id=?",
+                "UPDATE tasks SET status=?, finished_at=?, error=?, progress_snapshot=? WHERE id=?",
                 (
                     new_status,
                     datetime.now(timezone.utc).isoformat(),
                     error_msg,
+                    json.dumps(progress_snapshot) if progress_snapshot else None,
                     task_id,
                 ),
             )
@@ -211,11 +225,17 @@ def _run_task(
             db.close()
 
     except Exception as e:
+        progress_snapshot = _read_progress(backup_prefix, task_id) if backup_prefix else None
         with _db_lock:
             db = get_db()
             db.execute(
-                "UPDATE tasks SET status='failed', finished_at=?, error=? WHERE id=?",
-                (datetime.now(timezone.utc).isoformat(), str(e), task_id),
+                "UPDATE tasks SET status='failed', finished_at=?, error=?, progress_snapshot=? WHERE id=?",
+                (
+                    datetime.now(timezone.utc).isoformat(),
+                    str(e),
+                    json.dumps(progress_snapshot) if progress_snapshot else None,
+                    task_id,
+                ),
             )
             db.commit()
             db.close()
@@ -280,10 +300,12 @@ def list_tasks():
         ).fetchall()
         for row in rows:
             task = dict(row)
-            # 尝试读取进度信息
             if task.get("backup_prefix"):
-                progress = _read_progress(task["backup_prefix"], task["id"])
-                task["progress"] = progress
+                search_dir = os.path.dirname(task["script_path"])
+                if task["status"] in ("cancelled", "completed", "failed") and task.get("progress_snapshot"):
+                    task["progress"] = json.loads(task["progress_snapshot"])
+                else:
+                    task["progress"] = _read_progress(task["backup_prefix"], task["id"], search_dir)
             task["active"] = _is_process_active(task["id"])
             tasks.append(task)
         db.close()
@@ -300,7 +322,11 @@ def get_task(task_id: int):
         raise HTTPException(404, "任务不存在")
     task = dict(row)
     if task.get("backup_prefix"):
-        task["progress"] = _read_progress(task["backup_prefix"], task_id)
+        search_dir = os.path.dirname(task["script_path"])
+        if task["status"] in ("cancelled", "completed", "failed") and task.get("progress_snapshot"):
+            task["progress"] = json.loads(task["progress_snapshot"])
+        else:
+            task["progress"] = _read_progress(task["backup_prefix"], task_id, search_dir)
     task["active"] = _is_process_active(task_id)
     return task
 
@@ -315,21 +341,29 @@ def cancel_task(task_id: int):
             db.close()
             raise HTTPException(404, "任务不存在")
 
+        # 快照当前进度后标记为取消
+        progress = None
+        if row.get("backup_prefix"):
+            progress = _read_progress(row["backup_prefix"], task_id)
         db.execute(
-            "UPDATE tasks SET status='cancelled', finished_at=? WHERE id=?",
-            (datetime.now(timezone.utc).isoformat(), task_id),
+            "UPDATE tasks SET status='cancelled', finished_at=?, progress_snapshot=? WHERE id=?",
+            (
+                datetime.now(timezone.utc).isoformat(),
+                json.dumps(progress) if progress else None,
+                task_id,
+            ),
         )
         db.commit()
         db.close()
 
     # 终止进程
+    pid_from_db = row["pid"] if row and row["pid"] else 0
     with _active_pids_lock:
         proc = _active_processes.get(task_id)
         if proc:
             try:
                 pgid = os.getpgid(proc.pid)
                 os.killpg(pgid, signal.SIGTERM)
-                # 等 3 秒再强制杀
                 for _ in range(30):
                     if proc.poll() is not None:
                         break
@@ -337,6 +371,20 @@ def cancel_task(task_id: int):
                 if proc.poll() is None:
                     os.killpg(pgid, signal.SIGKILL)
             except (ProcessLookupError, PermissionError):
+                pass
+        elif pid_from_db > 0:
+            try:
+                pgid = os.getpgid(pid_from_db)
+                os.killpg(pgid, signal.SIGTERM)
+                for _ in range(30):
+                    try:
+                        os.kill(pid_from_db, 0)
+                    except ProcessLookupError:
+                        break
+                    time.sleep(0.1)
+                else:
+                    os.killpg(pgid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError, OSError):
                 pass
 
     return {"status": "cancelled"}
@@ -360,7 +408,8 @@ def adjust_njobs(task_id: int, body: NjobsAdjust):
     if not backup_prefix:
         raise HTTPException(400, "任务尚未生成 backup 文件前缀")
 
-    control_path = f"./{backup_prefix}.control"
+    script_dir = os.path.dirname(os.path.abspath(row["script_path"]))
+    control_path = os.path.join(script_dir, f"{backup_prefix}.control")
     control_data = {"n_jobs": body.n_jobs}
     try:
         with open(control_path, "w") as f:
@@ -378,26 +427,52 @@ def adjust_njobs(task_id: int, body: NjobsAdjust):
     return {"status": "adjusted", "n_jobs": body.n_jobs}
 
 
+def _read_log_file(file_path: str, offset: int, limit: int) -> dict:
+    """读取日志文件并分页"""
+    if not file_path or not os.path.isfile(file_path):
+        return {"log": "", "total_lines": 0}
+    try:
+        with open(file_path) as f:
+            lines = f.readlines()
+        total = len(lines)
+        end = max(0, total - offset)
+        start = max(0, end - limit)
+        if start >= end:
+            return {"log": "", "total_lines": total}
+        return {"log": "".join(lines[start:end]), "total_lines": total}
+    except OSError:
+        return {"log": "", "total_lines": 0}
+
+
 @app.get("/api/tasks/{task_id}/log")
-def get_task_log(task_id: int):
-    """获取任务日志"""
+def get_task_log(task_id: int, offset: int = 0, limit: int = 1000):
+    """获取任务主日志（factor_taskd 子进程的 stdout/stderr）"""
     with _db_lock:
         db = get_db()
         row = db.execute("SELECT log_path FROM tasks WHERE id=?", (task_id,)).fetchone()
         db.close()
     if not row:
         raise HTTPException(404, "任务不存在")
-    log_path = row["log_path"]
-    if not log_path or not os.path.isfile(log_path):
-        return {"log": ""}
-    try:
-        with open(log_path) as f:
-            # 只读取最后 1000 行
-            lines = f.readlines()
-            tail = lines[-1000:] if len(lines) > 1000 else lines
-            return {"log": "".join(tail)}
-    except OSError:
-        return {"log": ""}
+    return _read_log_file(row["log_path"], offset, limit)
+
+
+@app.get("/api/tasks/{task_id}/subprocess-log")
+def get_subprocess_log(task_id: int, offset: int = 0, limit: int = 1000):
+    """获取子进程日志（Rust 计算引擎的 debug_log）"""
+    with _db_lock:
+        db = get_db()
+        row = db.execute(
+            "SELECT script_path, backup_prefix FROM tasks WHERE id=?", (task_id,)
+        ).fetchone()
+        db.close()
+    if not row:
+        raise HTTPException(404, "任务不存在")
+    if not row["backup_prefix"]:
+        return {"log": "", "total_lines": 0}
+    file_path = os.path.join(
+        os.path.dirname(row["script_path"]), f"{row['backup_prefix']}.log"
+    )
+    return _read_log_file(file_path, offset, limit)
 
 
 @app.delete("/api/tasks/{task_id}")
@@ -414,18 +489,22 @@ def delete_task(task_id: int):
 # ── 辅助 ─────────────────────────────────────────────
 
 
-def _read_progress(backup_prefix: str, task_id: int) -> dict | None:
+def _read_progress(backup_prefix: str, task_id: int, search_dir: str | None = None) -> dict | None:
     """读取 backup_<ver>.bin.progress.jsonl 的进度信息"""
-    progress_path = f"{backup_prefix}.progress.jsonl"
-    if not os.path.isfile(progress_path):
-        # 也检查 ./backup_<ver>.bin.progress.jsonl
-        progress_path = (
-            f"./{backup_prefix}.progress.jsonl"
-            if not backup_prefix.startswith("./")
-            else progress_path
-        )
-        if not os.path.isfile(progress_path):
-            return None
+    # 按优先级搜索：指定目录 > 当前目录 > ./ 前缀
+    candidates = []
+    if search_dir:
+        candidates.append(os.path.join(search_dir, f"{backup_prefix}.progress.jsonl"))
+    candidates.append(f"{backup_prefix}.progress.jsonl")
+    if not backup_prefix.startswith("./"):
+        candidates.append(f"./{backup_prefix}.progress.jsonl")
+    progress_path = None
+    for p in candidates:
+        if os.path.isfile(p):
+            progress_path = p
+            break
+    if progress_path is None:
+        return None
     try:
         with open(progress_path) as f:
             lines = f.readlines()

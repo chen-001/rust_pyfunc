@@ -9,7 +9,7 @@ use std::io::{self, BufRead, BufReader, Write};
 use std::fs::OpenOptions;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
@@ -25,7 +25,7 @@ use nix::unistd::Pid;
 use crate::backup_reader::{read_existing_backup, read_existing_backup_with_filter, TaskResult};
 use crate::backup_writer;
 use crate::parallel_computing::{
-    detect_python_interpreter, ensure_fd_limit, extract_python_function_code, DebugLogger,
+    detect_python_interpreter, ensure_fd_limit, extract_python_function_code, ControlCmd, DebugLogger,
 };
 
 // ==================== 数据结构 ====================
@@ -566,7 +566,20 @@ fn run_date_only_worker(
     restart_flag: Arc<AtomicBool>,
     monitor_manager: Arc<DateOnlyMonitorManager>,
     debug_logger: DebugLogger,
+    target_worker_count: Arc<AtomicUsize>,
 ) {
+    let exit_worker = || -> bool {
+        let max_id = target_worker_count.load(Ordering::Relaxed);
+        if worker_id >= max_id {
+            debug_logger.log_info(
+                Some(worker_id),
+                "CONTROL",
+                &format!("n_jobs下调至{}，Worker退出", max_id),
+            );
+            return true;
+        }
+        false
+    };
     monitor_manager.add_worker(worker_id);
 
     loop {
@@ -575,6 +588,10 @@ fn run_date_only_worker(
             .is_ok()
         {
             debug_logger.log_info(Some(worker_id), "RESTART", "Worker检测到重启信号");
+        }
+
+        if exit_worker() {
+            break;
         }
 
         let script_content = create_date_only_worker_script();
@@ -773,7 +790,7 @@ fn run_date_only_worker(
 // ==================== 主函数 ====================
 
 #[pyfunction]
-#[pyo3(signature = (python_function, dates, n_jobs, backup_file, expected_result_length, restart_interval=None, update_mode=None, task_timeout=None, health_check_interval=None, debug_monitor=None, backup_batch_size=None, debug_log=None, progress_log=None))]
+#[pyo3(signature = (python_function, dates, n_jobs, backup_file, expected_result_length, restart_interval=None, update_mode=None, task_timeout=None, health_check_interval=None, debug_monitor=None, backup_batch_size=None, debug_log=None, progress_log=None, dynamic_njobs=None))]
 pub fn run_pools_queue_date_only(
     python_function: PyObject,
     dates: &PyList,
@@ -788,6 +805,7 @@ pub fn run_pools_queue_date_only(
     backup_batch_size: Option<usize>,
     debug_log: Option<bool>,
     progress_log: Option<bool>,
+    dynamic_njobs: Option<bool>,
 ) -> PyResult<PyObject> {
     let debug_log_enabled = debug_log.unwrap_or(false);
     let log_path = if backup_file.starts_with("backup") {
@@ -813,6 +831,10 @@ pub fn run_pools_queue_date_only(
     let debug_monitor_enabled = debug_monitor.unwrap_or(false);
     let backup_batch_size_value = backup_batch_size.unwrap_or(5000);
     let progress_log_enabled = progress_log.unwrap_or(false);
+
+    let dynamic_njobs_enabled = dynamic_njobs.unwrap_or(false);
+    let control_path = format!("{}.control", backup_file);
+    let initial_n_jobs = n_jobs;
 
     let task_timeout_duration = Duration::from_secs(task_timeout_secs);
     let health_check_duration = Duration::from_secs(health_check_interval_secs);
@@ -878,6 +900,7 @@ pub fn run_pools_queue_date_only(
     }
 
     let all_done = Arc::new(AtomicBool::new(false));
+    let target_worker_count = Arc::new(AtomicUsize::new(n_jobs));
 
     let restart_flag = Arc::new(AtomicBool::new(false));
 
@@ -887,6 +910,12 @@ pub fn run_pools_queue_date_only(
         debug_monitor_enabled,
     ));
 
+    // 使用 Arc<Weak> 模式管理 result_sender，避免控制线程阻塞 channel 关闭
+    let result_sender_shared = Arc::new(result_sender);
+    let spawn_result_sender = result_sender_shared.as_ref().clone();
+    let result_sender_weak = Arc::downgrade(&result_sender_shared);
+    drop(result_sender_shared);
+
     println!(
         "[{}] 🚀 启动 {} 个worker处理 {} 个日期任务",
         Local::now().format("%Y-%m-%d %H:%M:%S"),
@@ -895,18 +924,19 @@ pub fn run_pools_queue_date_only(
     );
 
     // 启动worker线程
-    let mut worker_handles = Vec::new();
+    let worker_handles = Arc::new(Mutex::new(Vec::new()));
     for i in 0..n_jobs {
         let w_task_receiver = task_receiver.clone();
         let w_task_sender = task_sender.clone();
         let w_all_done = all_done.clone();
         let w_python_code = python_code.clone();
         let w_python_path = python_path.clone();
-        let w_result_sender = result_sender.clone();
+        let w_result_sender = spawn_result_sender.clone();
         let w_restart_flag = restart_flag.clone();
         let w_monitor = monitor_manager.clone();
         let w_logger = debug_logger.clone();
         let w_expected = expected_result_length;
+        let w_target_count = target_worker_count.clone();
 
         let handle = thread::spawn(move || {
             run_date_only_worker(
@@ -921,11 +951,13 @@ pub fn run_pools_queue_date_only(
                 w_restart_flag,
                 w_monitor,
                 w_logger,
+                w_target_count,
             );
         });
-        worker_handles.push(handle);
+        if let Ok(mut handles) = worker_handles.lock() {
+            handles.push(handle);
+        }
     }
-    drop(result_sender);
 
     // 启动监控线程
     let monitor_clone = monitor_manager.clone();
@@ -968,6 +1000,86 @@ pub fn run_pools_queue_date_only(
             thread::sleep(monitor_clone.health_check_interval / 10);
         }
     });
+
+    // 控制文件监控线程（动态n_jobs）
+    let control_handle: Option<thread::JoinHandle<()>> = if dynamic_njobs_enabled {
+        let control_all_done = all_done.clone();
+        let control_target_worker_count = target_worker_count.clone();
+        let control_worker_handles = worker_handles.clone();
+        let control_task_receiver = task_receiver.clone();
+        let control_task_sender = task_sender.clone();
+        let control_python_code = python_code.clone();
+        let control_python_path = python_path.clone();
+        let control_restart_flag = restart_flag.clone();
+        let control_monitor_manager = monitor_manager.clone();
+        let control_debug_logger = debug_logger.clone();
+        let control_path_local = control_path.clone();
+        let control_sender_weak = result_sender_weak.clone();
+        Some(thread::spawn(move || {
+            let mut last_n_jobs = initial_n_jobs;
+            loop {
+                if control_all_done.load(Ordering::Relaxed) { break; }
+                match std::fs::read_to_string(&control_path_local) {
+                    Ok(content) => {
+                        if let Ok(cmd) = serde_json::from_str::<ControlCmd>(&content) {
+                            if cmd.n_jobs != last_n_jobs && cmd.n_jobs >= 1 {
+                                control_debug_logger.log_info(
+                                    None, "CONTROL",
+                                    &format!("n_jobs调整: {} -> {}", last_n_jobs, cmd.n_jobs),
+                                );
+                                control_target_worker_count.store(cmd.n_jobs, Ordering::SeqCst);
+                                if cmd.n_jobs > last_n_jobs {
+                                    let worker_result_sender = if let Some(strong) = control_sender_weak.upgrade() {
+                                        (*strong).clone()
+                                    } else {
+                                        break;
+                                    };
+                                    for i in last_n_jobs..cmd.n_jobs {
+                                        let handle = {
+                                            let w_task_receiver = control_task_receiver.clone();
+                                            let w_task_sender = control_task_sender.clone();
+                                            let w_all_done = control_all_done.clone();
+                                            let w_python_code = control_python_code.clone();
+                                            let w_python_path = control_python_path.clone();
+                                            let w_restart_flag = control_restart_flag.clone();
+                                            let w_monitor = control_monitor_manager.clone();
+                                            let w_debug_logger = control_debug_logger.clone();
+                                            let w_target_count = control_target_worker_count.clone();
+                                            let w_result_sender = worker_result_sender.clone();
+                                            thread::spawn(move || {
+                                                run_date_only_worker(
+                                                    i,
+                                                    w_task_receiver,
+                                                    w_task_sender,
+                                                    w_all_done,
+                                                    w_python_code,
+                                                    expected_result_length,
+                                                    w_python_path,
+                                                    w_result_sender,
+                                                    w_restart_flag,
+                                                    w_monitor,
+                                                    w_debug_logger,
+                                                    w_target_count,
+                                                );
+                                            })
+                                        };
+                                        if let Ok(mut handles) = control_worker_handles.lock() {
+                                            handles.push(handle);
+                                        }
+                                    }
+                                }
+                                last_n_jobs = cmd.n_jobs;
+                            }
+                        }
+                    }
+                    Err(_) => { /* 控制文件不存在或读取失败，忽略 */ }
+                }
+                thread::sleep(Duration::from_secs(2));
+            }
+        }))
+    } else {
+        None
+    };
 
     // 启动结果收集器（复用 RPBACKUP 格式写入）
     let backup_file_clone = backup_file.clone();
@@ -1145,6 +1257,9 @@ pub fn run_pools_queue_date_only(
         }
     });
 
+    // 主动释放结果发送者，否则收集器无法感知 channel 关闭而产生死锁
+    drop(spawn_result_sender);
+
     // 先等待收集器结束（它会在所有 worker 退出并关闭 result_sender 后自然结束）
     match collector_handle.join() {
         Ok(()) => {
@@ -1160,7 +1275,11 @@ pub fn run_pools_queue_date_only(
     }
 
     // 等待所有worker完成
-    for (i, handle) in worker_handles.into_iter().enumerate() {
+    let all_handles = Arc::try_unwrap(worker_handles)
+        .unwrap_or_else(|_| Mutex::new(Vec::new()))
+        .into_inner()
+        .unwrap_or_default();
+    for (i, handle) in all_handles.into_iter().enumerate() {
         match handle.join() {
             Ok(()) => {}
             Err(e) => eprintln!("❌ Worker {} 异常: {:?}", i, e),
@@ -1173,6 +1292,14 @@ pub fn run_pools_queue_date_only(
     match monitor_handle.join() {
         Ok(()) => {}
         Err(e) => eprintln!("❌ 监控线程异常: {:?}", e),
+    }
+
+    // 等待控制线程
+    if let Some(handle) = control_handle {
+        match handle.join() {
+            Ok(()) => {}
+            Err(e) => eprintln!("❌ 控制线程异常: {:?}", e),
+        }
     }
 
     monitor_manager.terminate_all_workers(Duration::from_secs(2));
