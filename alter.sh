@@ -22,8 +22,9 @@ conda activate chenzongwei311
 # 3. 切换到你的项目目录 (如果当前目录不是)
 # cd /path/to/your/maturin/project
 
-# 4. 运行 maturin develop
-maturin develop --release
+# 4. 运行 maturin develop (使用 mold 链接器 + sccache 编译缓存加速)
+export PATH="/home/chenzongwei/.local/bin:$PATH"
+/home/chenzongwei/.local/bin/mold -run maturin develop --release
 
 # 如果需要，你也可以在脚本结束时停用环境
 # conda deactivate

@@ -200,8 +200,8 @@ struct SingleTask {
 
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
-struct ControlCmd {
-    n_jobs: usize,
+pub(crate) struct ControlCmd {
+    pub(crate) n_jobs: usize,
 }
 // 新增：Worker监控信息
 #[derive(Debug, Clone)]
@@ -1679,12 +1679,11 @@ pub fn run_pools_queue(
 
     let target_worker_count = Arc::new(AtomicUsize::new(n_jobs));
 
-    // 🔥 将 result_sender 包装在 Arc 中，让控制线程通过 Weak 引用获取新 sender
+    // 🔥 将 result_sender 包装在 Arc 中，让控制线程也持有克隆
     let result_sender_shared = Arc::new(result_sender);
     let spawn_worker_result_sender = result_sender_shared.as_ref().clone();
-    // 控制线程使用 Weak 引用（不阻止 channel 关闭）
-    let result_sender_weak = Arc::downgrade(&result_sender_shared);
-    drop(result_sender_shared); // 释放 Arc，仅保留 worker 的 sender 克隆
+    let result_sender_for_control = result_sender_shared.as_ref().clone();
+    drop(result_sender_shared); // 释放 Arc，worker 和控制线程通过 Sender 克隆持有
 
     // 🔥 提取worker创建闭包
     let spawn_worker = |worker_id: usize| {
@@ -1824,7 +1823,6 @@ pub fn run_pools_queue(
         let control_task_sender = task_sender.clone();
         let control_python_code = python_code.clone();
         let control_python_path = python_path.clone();
-        let control_sender_weak = result_sender_weak.clone();
         let control_restart_flag = restart_flag.clone();
         let control_monitor_manager = monitor_manager.clone();
         let control_debug_logger = debug_logger.clone();
@@ -1851,13 +1849,8 @@ pub fn run_pools_queue(
                                             let worker_all_done = control_all_done.clone();
                                             let worker_python_code = control_python_code.clone();
                                             let worker_python_path = control_python_path.clone();
-                                            let worker_result_sender = if let Some(strong) = control_sender_weak.upgrade() {
-                                                (*strong).clone()
-                                            } else {
-                                                // sender 已全部释放，使用备用 sender（不应发生）
-                                                continue;
-                                            };
-                                            let worker_restart_flag = control_restart_flag.clone();
+                                            let worker_result_sender = result_sender_for_control.clone();
+                                        let worker_restart_flag = control_restart_flag.clone();
                                             let worker_monitor_manager = control_monitor_manager.clone();
                                             let worker_debug_logger = control_debug_logger.clone();
                                             let worker_target_worker_count = control_target_worker_count.clone();

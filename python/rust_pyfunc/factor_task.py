@@ -181,8 +181,8 @@ def main():
         parser.print_help()
         sys.exit(1)
 
-    global DAEMON_URL
-    DAEMON_URL = args.url
+    import factor_task  # noqa: F811
+    factor_task.DAEMON_URL = args.url
 
     args.func(args)
 
