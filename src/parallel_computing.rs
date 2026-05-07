@@ -789,7 +789,7 @@ class WorkerHealthManager:
         self.max_consecutive_errors = 5
         self.max_errors = 100
         self.health_check_interval = 60  # 60秒
-        self.max_memory_mb = 1024  # 1GB内存限制
+        self.max_memory_mb = 3072  # 3GB内存限制
 
     def record_task_success(self):
         """记录任务成功"""
@@ -1932,7 +1932,22 @@ pub fn run_pools_queue(
             Local::now().format("%Y-%m-%d %H:%M:%S")
         );
 
-        while let Ok(result) = result_receiver.recv() {
+        let collector_timeout = Duration::from_secs(180);
+        loop {
+            let result = match result_receiver.recv_timeout(collector_timeout) {
+                Ok(r) => r,
+                Err(RecvTimeoutError::Timeout) => {
+                    println!(
+                        "[{}] ⏰ 收集器: 180秒未收到新结果，自动退出 (已收集 {}/{})",
+                        Local::now().format("%Y-%m-%d %H:%M:%S"),
+                        total_collected,
+                        pending_tasks_len
+                    );
+                    all_done_clone.store(true, Ordering::SeqCst);
+                    break;
+                }
+                Err(RecvTimeoutError::Disconnected) => break,
+            };
             total_collected += 1;
             if total_collected >= pending_tasks_len {
                 all_done_clone.store(true, Ordering::SeqCst);

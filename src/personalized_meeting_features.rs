@@ -6,7 +6,10 @@ use std::collections::{HashMap, HashSet};
 use std::fs::read_dir;
 use std::path::{Path, PathBuf};
 
-const DATA_ROOT: &str = "/ssd_data/stock";
+fn data_root() -> String {
+    std::env::var("RUST_PYFUNC_LEVEL2_PATH").unwrap_or_else(|_| "/ssd_data/stock".to_string())
+}
+
 const SELECTION_BURST_WINDOW: usize = 5;
 const CODE_COARSE_SIZE: usize = 300;
 
@@ -646,10 +649,10 @@ fn parse_row_f64(
 }
 
 fn available_symbols(date: i32) -> PyResult<Vec<String>> {
-    let trade_dir = PathBuf::from(DATA_ROOT)
+    let trade_dir = PathBuf::from(data_root())
         .join(date.to_string())
         .join("transaction");
-    let market_dir = PathBuf::from(DATA_ROOT)
+    let market_dir = PathBuf::from(data_root())
         .join(date.to_string())
         .join("market_data");
     let trade_symbols: HashSet<String> = read_dir(&trade_dir)
@@ -733,11 +736,11 @@ fn select_code_neighbors(
 }
 
 fn load_symbol_data(date: i32, symbol: &str) -> PyResult<SymbolData> {
-    let trade_path = PathBuf::from(DATA_ROOT)
+    let trade_path = PathBuf::from(data_root())
         .join(date.to_string())
         .join("transaction")
         .join(format!("{symbol}_{date}_transaction.csv"));
-    let market_path = PathBuf::from(DATA_ROOT)
+    let market_path = PathBuf::from(data_root())
         .join(date.to_string())
         .join("market_data")
         .join(format!("{symbol}_{date}_market_data.csv"));
@@ -1067,11 +1070,11 @@ fn load_selection_prepared(
     need_trade: bool,
     need_market: bool,
 ) -> PyResult<SelectionPrepared> {
-    let trade_path = PathBuf::from(DATA_ROOT)
+    let trade_path = PathBuf::from(data_root())
         .join(date.to_string())
         .join("transaction")
         .join(format!("{symbol}_{date}_transaction.csv"));
-    let market_path = PathBuf::from(DATA_ROOT)
+    let market_path = PathBuf::from(data_root())
         .join(date.to_string())
         .join("market_data")
         .join(format!("{symbol}_{date}_market_data.csv"));

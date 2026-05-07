@@ -34,6 +34,7 @@ from .theme_cluster_factors import *
 from .theme_feature_expansion import *
 from .theme_feature_expansion_data import *
 from .trading_data_utils import *
+from .minute_data_reader import *
 
 
 
@@ -257,6 +258,7 @@ __all__ = [
     "read_trade",
     "read_market",
     "read_market_pair",
+    "read_minute_data",
     "get_features_factors_single",
     "get_features_factors",
     "get_features_names",

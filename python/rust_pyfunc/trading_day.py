@@ -2,7 +2,7 @@
 交易日(TradingDay)工具模块 - 仅依赖 numpy/pandas
 
 提供交易日历的加载、查询、推算等功能。
-数据源: /ssd_data/data/basic_info/calendar.csv (无表头, 每行一个整数日期, 格式 %Y%m%d)
+数据源: 通过多路径搜索 calendar.csv，由 _CALENDAR_ROOTS + basic_info/ 构成
 
 使用方式:
     import rust_pyfunc as rp
@@ -19,14 +19,27 @@ from datetime import datetime, timedelta
 import numpy
 import pandas
 
+_CALENDAR_ROOTS = ["/ssd_data/data", "/nas197/binary/stock/sz_alpha"]
+
+
+def _resolve_calendar_path(filename: str) -> str:
+    """类似 read_trade 的三层路径搜索: 环境变量 > 多个根目录 > 回退"""
+    if env := os.environ.get("RUST_PYFUNC_CALENDAR_PATH"):
+        return os.path.join(env, "basic_info", filename)
+    for root in _CALENDAR_ROOTS:
+        path = os.path.join(root, "basic_info", filename)
+        if os.path.exists(path):
+            return path
+    return os.path.join(_CALENDAR_ROOTS[0], "basic_info", filename)
+
 
 class TradingDay:
     """交易日历类, 从CSV文件加载交易日并支持各种查询操作
 
     Parameters
     ----------
-    input_file : str
-        交易日历CSV文件路径, 默认 /ssd_data/data/basic_info/calendar.csv
+    input_file : str, optional
+        交易日历CSV文件路径, 默认通过 _resolve_calendar_path 搜索 calendar.csv
     start_date : int, optional
         起始日期, 格式 %Y%m%d, 如 20200101
     end_date : int, optional
@@ -40,8 +53,9 @@ class TradingDay:
         日期 -> 在 trading_days 中的索引
     """
 
-    def __init__(self, input_file='/ssd_data/data/basic_info/calendar.csv',
-                 start_date=None, end_date=None):
+    def __init__(self, input_file=None, start_date=None, end_date=None):
+        if input_file is None:
+            input_file = _resolve_calendar_path("calendar.csv")
         self.trading_days = self._load_trading_days(input_file, start_date, end_date)
         self.date_map = dict(zip(self.trading_days, numpy.arange(self.length)))
 

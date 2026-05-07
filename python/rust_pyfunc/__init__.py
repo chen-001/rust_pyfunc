@@ -50,6 +50,7 @@ _LAZY_EXPORTS = {
     "PriceTreeViz": (".treevisual", "PriceTreeViz"),
     "haha": (".treevisual", "haha"),
     "treevisual": (".treevisual", None),
+    "read_minute_data": (".minute_data_reader", "read_minute_data"),
 }
 
 _LAZY_MODULE_EXPORTS = {
