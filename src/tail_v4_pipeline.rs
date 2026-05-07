@@ -2017,6 +2017,7 @@ impl Default for ProcessStats {
     }
 }
 
+#[cfg(unix)]
 fn terminal_height() -> u16 {
     unsafe {
         let mut ws: libc::winsize = std::mem::zeroed();
@@ -2026,6 +2027,11 @@ fn terminal_height() -> u16 {
             24
         }
     }
+}
+
+#[cfg(windows)]
+fn terminal_height() -> u16 {
+    24
 }
 
 fn init_status_line() {
