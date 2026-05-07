@@ -40,8 +40,9 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.platform.target }}
-          args: --release --out dist --find-interpreter
+          args: --release --out dist --find-interpreter --no-default-features
           sccache: 'true'
+          before-script-windows: choco install cmake
           manylinux: auto
           before-script-linux: ${{ matrix.platform.target == 'aarch64' && 'pip install cmake' || '' }}
       - name: Upload wheels
@@ -179,6 +180,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.9'
+      - name: Install dependencies
+        run: pip install pandas numpy
       - name: Install rust_pyfunc
         run: pip install rust_pyfunc --no-index --find-links dist
       - name: Test import
