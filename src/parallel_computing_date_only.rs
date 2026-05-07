@@ -361,7 +361,7 @@ class WorkerHealthManager:
         self.start_time = time.time()
         self.max_consecutive_errors = 5
         self.max_errors = 100
-        self.max_memory_mb = 1024
+        self.max_memory_mb = 3072
 
     def record_task_success(self):
         self.task_count += 1
@@ -1122,8 +1122,22 @@ pub fn run_pools_queue_date_only(
             Local::now().format("%Y-%m-%d %H:%M:%S")
         );
 
-        while let Ok(result) = result_receiver.recv() {
-            // 跟踪已完成的日期
+        let collector_timeout = Duration::from_secs(180);
+        loop {
+            let result = match result_receiver.recv_timeout(collector_timeout) {
+                Ok(r) => r,
+                Err(RecvTimeoutError::Timeout) => {
+                    println!(
+                        "[{}] ⏰ 收集器: 180秒未收到新结果，自动退出 (已收集 {}/{})",
+                        Local::now().format("%Y-%m-%d %H:%M:%S"),
+                        total_collected,
+                        total_dates
+                    );
+                    all_done_clone.store(true, Ordering::SeqCst);
+                    break;
+                }
+                Err(RecvTimeoutError::Disconnected) => break,
+            };
             {
                 if let Ok(mut dates_set) = completed_dates_clone.lock() {
                     dates_set.insert(result.date);
