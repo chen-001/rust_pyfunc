@@ -26,7 +26,7 @@
   },
   {
     "name": "TradingDay",
-    "description": "<p>交易日历类, 从CSV文件加载交易日并支持各种查询操作</p>\n<h2>Parameters</h2>\n<p>input_file : str\n    交易日历CSV文件路径, 默认 /ssd_data/data/basic_info/calendar.csv\nstart_date : int, optional\n    起始日期, 格式 %Y%m%d, 如 20200101\nend_date : int, optional\n    截止日期, 格式 %Y%m%d, 如 20201231</p>\n<h2>Attributes</h2>\n<p>trading_days : numpy.ndarray[int]\n    有序交易日数组\ndate_map : dict[int, int]\n    日期 -&gt; 在 trading_days 中的索引</p>",
+    "description": "<p>交易日历类, 从CSV文件加载交易日并支持各种查询操作</p>\n<h2>Parameters</h2>\n<p>input_file : str, optional\n    交易日历CSV文件路径, 默认通过 _resolve_calendar_path 搜索 calendar.csv\nstart_date : int, optional\n    起始日期, 格式 %Y%m%d, 如 20200101\nend_date : int, optional\n    截止日期, 格式 %Y%m%d, 如 20201231</p>\n<h2>Attributes</h2>\n<p>trading_days : numpy.ndarray[int]\n    有序交易日数组\ndate_map : dict[int, int]\n    日期 -&gt; 在 trading_days 中的索引</p>",
     "params": []
   },
   {
@@ -1359,6 +1359,11 @@
   {
     "name": "read_market_pair",
     "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "read_minute_data",
+    "description": "<p>读取A股1分钟频率数据。</p>\n<p>数据路径: /ssd_data/data/1min_factor_text/{field}.h5\n交易日240根K线: 09:31-11:30 + 13:01-15:00\n每交易日最后4根K线(index % 240 &gt;= 237)置为NaN</p>\n<p>可用字段:\n  成交: act_buy_amount_sum, act_sell_amount_sum, act_buy_vol_sum, act_sell_vol_sum,\n        act_buy_count_sum, act_sell_count_sum, volume, amount, turnover,\n        up_tick_count, down_tick_count\n  价格: close, high, low, open\n  盘口均值: bid_size_1_mean, ask_size_1_mean, bid_size_6_mean, ask_size_6_mean,\n           bid_size_10_mean, ask_size_10_mean, bid_vwap_mean, ask_vwap_mean,\n           spread_over_tick_size_mean\n  盘口快照: ask_prc1~10, ask_vol1~10, bid_prc1~10, bid_vol1~10\n  加权均价: ask_vwap3, ask_vwap5, ask_vwap10, bid_vwap3, bid_vwap5, bid_vwap10</p>\n<p>Returns:\n    pd.DataFrame: index=0..n-1, columns=股票代码(str,含前导零), values=float64</p>",
     "params": []
   },
   {

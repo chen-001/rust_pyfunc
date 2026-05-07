@@ -405,8 +405,8 @@ s.rolling_past('2s').trend_time()  # 计算前面2秒内的趋势</p>
                 <h3 class="function-name"><a href="TradingDay.html">TradingDay</a></h3>
                 <div><p>交易日历类, 从CSV文件加载交易日并支持各种查询操作</p>
 <h2>Parameters</h2>
-<p>input_file : str
-    交易日历CSV文件路径, 默认 /ssd_data/data/basic_info/calendar.csv
+<p>input_file : str, optional
+    交易日历CSV文件路径, 默认通过 _resolve_calendar_path 搜索 calendar.csv
 start_date : int, optional
     起始日期, 格式 %Y%m%d, 如 20200101
 end_date : int, optional
@@ -2207,6 +2207,27 @@ Uses Euclidean distance for k-nearest neighbor search</p></div>
                 <h3 class="function-name"><a href="read_market_pair.html">read_market_pair</a></h3>
                 <div><p>无文档</p></div>
                 <a href="read_market_pair.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="read_minute_data.html">read_minute_data</a></h3>
+                <div><p>读取A股1分钟频率数据。</p>
+<p>数据路径: /ssd_data/data/1min_factor_text/{field}.h5
+交易日240根K线: 09:31-11:30 + 13:01-15:00
+每交易日最后4根K线(index % 240 &gt;= 237)置为NaN</p>
+<p>可用字段:
+  成交: act_buy_amount_sum, act_sell_amount_sum, act_buy_vol_sum, act_sell_vol_sum,
+        act_buy_count_sum, act_sell_count_sum, volume, amount, turnover,
+        up_tick_count, down_tick_count
+  价格: close, high, low, open
+  盘口均值: bid_size_1_mean, ask_size_1_mean, bid_size_6_mean, ask_size_6_mean,
+           bid_size_10_mean, ask_size_10_mean, bid_vwap_mean, ask_vwap_mean,
+           spread_over_tick_size_mean
+  盘口快照: ask_prc1~10, ask_vol1~10, bid_prc1~10, bid_vol1~10
+  加权均价: ask_vwap3, ask_vwap5, ask_vwap10, bid_vwap3, bid_vwap5, bid_vwap10</p>
+<p>Returns:
+    pd.DataFrame: index=0..n-1, columns=股票代码(str,含前导零), values=float64</p></div>
+                <a href="read_minute_data.html">查看详情</a>
             </div>
             
             <div class="function-item">
