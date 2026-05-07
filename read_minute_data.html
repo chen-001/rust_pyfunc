@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TradingDay - Rust PyFunc API文档</title>
+    <title>read_minute_data - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
     <script src="static/search.js"></script>
 </head>
@@ -26,28 +26,31 @@
     </div>
     
     <div class="content">
-        <h1>TradingDay</h1>
+        <h1>read_minute_data</h1>
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><p>交易日历类, 从CSV文件加载交易日并支持各种查询操作</p>
-<h2>Parameters</h2>
-<p>input_file : str, optional
-    交易日历CSV文件路径, 默认通过 _resolve_calendar_path 搜索 calendar.csv
-start_date : int, optional
-    起始日期, 格式 %Y%m%d, 如 20200101
-end_date : int, optional
-    截止日期, 格式 %Y%m%d, 如 20201231</p>
-<h2>Attributes</h2>
-<p>trading_days : numpy.ndarray[int]
-    有序交易日数组
-date_map : dict[int, int]
-    日期 -&gt; 在 trading_days 中的索引</p></div>
+            <div><p>读取A股1分钟频率数据。</p>
+<p>数据路径: /ssd_data/data/1min_factor_text/{field}.h5
+交易日240根K线: 09:31-11:30 + 13:01-15:00
+每交易日最后4根K线(index % 240 &gt;= 237)置为NaN</p>
+<p>可用字段:
+  成交: act_buy_amount_sum, act_sell_amount_sum, act_buy_vol_sum, act_sell_vol_sum,
+        act_buy_count_sum, act_sell_count_sum, volume, amount, turnover,
+        up_tick_count, down_tick_count
+  价格: close, high, low, open
+  盘口均值: bid_size_1_mean, ask_size_1_mean, bid_size_6_mean, ask_size_6_mean,
+           bid_size_10_mean, ask_size_10_mean, bid_vwap_mean, ask_vwap_mean,
+           spread_over_tick_size_mean
+  盘口快照: ask_prc1~10, ask_vol1~10, bid_prc1~10, bid_vol1~10
+  加权均价: ask_vwap3, ask_vwap5, ask_vwap10, bid_vwap3, bid_vwap5, bid_vwap10</p>
+<p>Returns:
+    pd.DataFrame: index=0..n-1, columns=股票代码(str,含前导零), values=float64</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>TradingDay(input_file, start_date, end_date) -> None</code>
+            <code>read_minute_data(field, start_date, end_date) -> pd.DataFrame</code>
         </div>
         
         <div class="function-parameters">
@@ -71,7 +74,7 @@ date_map : dict[int, int]
             <div class="example-usage-note">
                 <h3>Python使用示例</h3>
                 <pre><code>import numpy as np
-from rust_pyfunc import TradingDay
+from rust_pyfunc import read_minute_data
 
 # 使用示例
 
