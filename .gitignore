@@ -197,6 +197,9 @@ Thumbs.db
 .windsurf/
 .crush/
 AGENT.md
+CLAUDE.md
+AGENTS.md
+CRUSH.md
 
 # Logs
 *.log
