@@ -23,14 +23,24 @@ _CALENDAR_ROOTS = ["/ssd_data/data", "/nas197/binary/stock/sz_alpha"]
 
 
 def _resolve_calendar_path(filename: str) -> str:
-    """类似 read_trade 的三层路径搜索: 环境变量 > 多个根目录 > 回退"""
+    """类似 read_trade 的多路径搜索: 环境变量 > 多个根目录, 全不存在时报所有路径"""
     if env := os.environ.get("RUST_PYFUNC_CALENDAR_PATH"):
-        return os.path.join(env, "basic_info", filename)
-    for root in _CALENDAR_ROOTS:
-        path = os.path.join(root, "basic_info", filename)
+        path = os.path.join(env, "basic_info", filename)
         if os.path.exists(path):
             return path
-    return os.path.join(_CALENDAR_ROOTS[0], "basic_info", filename)
+        raise FileNotFoundError(
+            f"日历数据文件不存在（环境变量 RUST_PYFUNC_CALENDAR_PATH 指定路径）:\n  {path}"
+        )
+    checked: list[str] = []
+    for root in _CALENDAR_ROOTS:
+        path = os.path.join(root, "basic_info", filename)
+        checked.append(path)
+        if os.path.exists(path):
+            return path
+    raise FileNotFoundError(
+        f"日历数据文件在以下 {len(checked)} 个路径中均不存在:\n"
+        + "\n".join(f"  {p}" for p in checked)
+    )
 
 
 class TradingDay:

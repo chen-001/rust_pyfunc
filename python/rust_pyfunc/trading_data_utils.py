@@ -30,12 +30,22 @@ __all__ = [
 
 def _resolve_stock_path(date: int, subdir: str, filename: str) -> str:
     if env := os.environ.get("RUST_PYFUNC_LEVEL2_PATH"):
-        return os.path.join(env, str(date), subdir, filename)
-    for root in _STOCK_ROOTS:
-        path = os.path.join(root, str(date), subdir, filename)
+        path = os.path.join(env, str(date), subdir, filename)
         if os.path.exists(path):
             return path
-    return os.path.join(_STOCK_ROOTS[0], str(date), subdir, filename)
+        raise FileNotFoundError(
+            f"股票数据文件不存在（环境变量 RUST_PYFUNC_LEVEL2_PATH 指定路径）:\n  {path}"
+        )
+    checked: list[str] = []
+    for root in _STOCK_ROOTS:
+        path = os.path.join(root, str(date), subdir, filename)
+        checked.append(path)
+        if os.path.exists(path):
+            return path
+    raise FileNotFoundError(
+        f"股票数据文件在以下 {len(checked)} 个路径中均不存在:\n"
+        + "\n".join(f"  {p}" for p in checked)
+    )
 
 
 def _to_exchange_timestamp(series: pd.Series) -> pd.Series:
