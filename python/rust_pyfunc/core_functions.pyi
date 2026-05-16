@@ -2174,3 +2174,117 @@ def topk_corr_matrix(
         - corr_skew: 相关系数的偏度
     """
     ...
+
+def debug_theta(price: List[float], volume: List[float], space_idx: int, window: int, pct: float, grad_idx: int) -> List[float]:
+    """调试：返回指定空间、窗口、分位数、梯度方向的所有theta角度值。
+
+    对原始price/volume序列做价格变化聚合+异常值过滤后，在指定空间上
+    用滚动窗口计算每个位置的梯度方向与质心方向的夹角(theta)。
+
+    Parameters
+    ----------
+    price : List[float]
+        价格序列
+    volume : List[float]
+        成交量序列，长度与price相同
+    space_idx : int
+        空间类型 (0=dp-lnvol, 1=dp-vol, 2=dp, 3=lnvol, 4=time-dp)
+    window : int
+        滚动窗口大小，不能超过1024
+    pct : float
+        前向投影的分位数阈值 (如10.0表示10%)
+    grad_idx : int
+        梯度方向类型 (0=质心方向, 1=PCA方向, 2=斜率方向)
+
+    Returns
+    -------
+    List[float]
+        每个窗口位置计算出的theta角度值(度数)
+    """
+    ...
+
+def debug_compare_thetas(price: List[float], volume: List[float]) -> List[float]:
+    """调试：对比新旧两种theta计算方法的差异。
+
+    对所有(空间×窗口×分位数×梯度)组合，比较slice_theta_3(新方法)
+    与内联计算(旧方法)的结果差异。
+
+    Parameters
+    ----------
+    price : List[float]
+        价格序列
+    volume : List[float]
+        成交量序列，长度与price相同
+
+    Returns
+    -------
+    List[float]
+        每组对比输出4个值: [新方法theta数, 旧方法theta数, 不同位置数, 最大差值]
+    """
+    ...
+
+def compute_divergence(price: List[float], volume: List[float], windows: List[int], pcts: List[float]) -> List[float]:
+    """计算散度因子：基于滚动窗口内梯度方向的theta角度统计。
+
+    对5种2D空间、多个窗口大小、多个分位数阈值、多种梯度方向，
+    计算theta角度序列的5项统计量(均值/标准差/小于30度比例/大于60度比例/趋势)。
+
+    Parameters
+    ----------
+    price : List[float]
+        价格序列
+    volume : List[float]
+        成交量序列，长度与price相同
+    windows : List[int]
+        滚动窗口大小列表，每个值不能超过1024
+    pcts : List[float]
+        前向投影的分位数阈值列表 (如[10.0, 20.0, 30.0])
+
+    Returns
+    -------
+    List[float]
+        扁平化的因子值，排列顺序: [space][window][pct×gradient][5stats]
+    """
+    ...
+
+def compute_affine_centroid(bid_prices: List[List[float]], bid_vols: List[List[float]], ask_prices: List[List[float]], ask_vols: List[List[float]]) -> List[List[float]]:
+    """计算仿射质心相关特征：从十档盘口快照数据提取18类特征。
+
+    包括全局质心偏移、相对偏移、买卖单侧偏移、各档OI不平衡、
+    spread、depth、以及slice-centroid (1/3/5/10 tick切片内的质心偏移)。
+
+    Parameters
+    ----------
+    bid_prices : List[List[float]]
+        买盘价格，[快照数][10档]
+    bid_vols : List[List[float]]
+        买盘成交量，[快照数][10档]
+    ask_prices : List[List[float]]
+        卖盘价格，[快照数][10档]
+    ask_vols : List[List[float]]
+        卖盘成交量，[快照数][10档]
+
+    Returns
+    -------
+    List[List[float]]
+        18个特征类别的时序数据，[18][快照数]
+    """
+    ...
+
+def compute_ts_stats(series: List[float]) -> List[float]:
+    """从时序数据计算统计因子(简化版get_features_factors)。
+
+    计算均值、标准差、绝对值均值、正值比例、以及前1/3和后1/3时段的均值与标准差。
+
+    Parameters
+    ----------
+    series : List[float]
+        时序数据
+
+    Returns
+    -------
+    List[float]
+        [mean, std, abs_mean, pos_ratio, early_mean, early_std, late_mean, late_std]
+        数据不足5个时返回空列表
+    """
+    ...

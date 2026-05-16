@@ -88,6 +88,8 @@ pub mod corr_diff_features;
 pub mod dct_transform;
 pub mod illusion_liquidity_distance;
 pub mod orderbook_volume_cov_factors;
+pub mod yand_divergence;
+pub mod yand_affine_centroid;
 
 /// Formats the sum of two numbers as string.
 #[pyfunction]
@@ -845,6 +847,27 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?)?;
     m.add_function(wrap_pyfunction!(
         corr_diff_features::compute_corr_diff_features,
+        m
+    )?)?;
+
+    let _ = m.add_function(wrap_pyfunction!(
+        yand_divergence::debug_theta,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        yand_divergence::debug_compare_thetas,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        yand_divergence::compute_divergence,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        yand_affine_centroid::compute_affine_centroid,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        yand_affine_centroid::compute_ts_stats,
         m
     )?)?;
 
