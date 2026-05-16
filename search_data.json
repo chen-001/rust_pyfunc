@@ -436,6 +436,11 @@
     ]
   },
   {
+    "name": "compute_affine_centroid",
+    "description": "<p>计算仿射质心相关特征的时间序列\n输入: 按快照组织的十档盘口数据\nbid_prices, bid_vols, ask_prices, ask_vols: Vec<Vec\\<f64>> — [snapshots][10]</p>\n<p>返回: Vec<Vec\\<Vec\\<f64>>> — [feature_category][snapshot]\n  category 0: centroid_t (全局质心偏移)\n  category 1: centroid_rel (相对偏移)\n  category 2: bid_centroid偏移\n  category 3: ask_centroid偏移\n  category 4: oi1 (1档不平衡)\n  category 5: oi10 (10档不平衡)\n  category 6-11: level1-6各档不平衡\n  category 12: spread\n  category 13: depth\n  category 14-17: sc1, sc3, sc5, sc10 (slice-centroid 1,3,5,10 ticks)</p>",
+    "params": []
+  },
+  {
     "name": "compute_agent_trading_daily_feature_table",
     "description": "<p>无文档</p>",
     "params": []
@@ -511,6 +516,11 @@
     "params": []
   },
   {
+    "name": "compute_divergence",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
     "name": "compute_integer_small_peak_features",
     "description": "<p>无文档</p>",
     "params": []
@@ -545,6 +555,11 @@
   {
     "name": "compute_theme_feature_expansion_from_minute_raw",
     "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "compute_ts_stats",
+    "description": "<p>从时序数据计算统计因子 (替代Python的get_features_factors的简化版)\n输入: 时序数据 Vec<f64>\n返回: [mean, std, abs_mean, pos_ratio, early_mean, early_std, late_mean, late_std]</p>",
     "params": []
   },
   {
@@ -609,6 +624,16 @@
   {
     "name": "dct_2d",
     "description": "<p>二维 DCT: 输入 (n, m) 矩阵，对每列分别计算前 k 阶 DCT，输出 (k, m) 矩阵</p>",
+    "params": []
+  },
+  {
+    "name": "debug_compare_thetas",
+    "description": "<p>调试: 逐个位置比较旧公式和slice_theta_3的theta差值</p>",
+    "params": []
+  },
+  {
+    "name": "debug_theta",
+    "description": "<p>调试: 返回指定(space, window, pct, gradient)的所有theta值</p>",
     "params": []
   },
   {
