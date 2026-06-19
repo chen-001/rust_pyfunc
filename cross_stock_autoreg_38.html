@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>read_market - Rust PyFunc API文档</title>
+    <title>cross_stock_autoreg_38 - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
     <script src="static/search.js"></script>
 </head>
@@ -26,16 +26,20 @@
     </div>
     
     <div class="content">
-        <h1>read_market</h1>
+        <h1>cross_stock_autoreg_38</h1>
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><p>无文档</p></div>
+            <div><p>跨股票自回归因子（用前一日系数在今日数据上做迁移预测）</p>
+<p>data_prev: (T, N) 前一日数据（已标准化，无 NaN 行）
+data_today: (T, N) 今日数据（已标准化，无 NaN 行）
+n_lags: 滞后阶数（5 或 15）</p>
+<p>返回: (38, N) 每只股票的 38 个统计量</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>read_market(symbol, date, with_high_low_limited, no_cache) -> &lt;class &#39;pandas.DataFrame&#39;&gt;</code>
+            <code>cross_stock_autoreg_38(data_prev, data_today, n_lags) -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -59,7 +63,7 @@
             <div class="example-usage-note">
                 <h3>Python使用示例</h3>
                 <pre><code>import numpy as np
-from rust_pyfunc import read_market
+from rust_pyfunc import cross_stock_autoreg_38
 
 # 使用示例
 

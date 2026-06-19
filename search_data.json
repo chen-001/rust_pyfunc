@@ -471,6 +471,11 @@
     "params": []
   },
   {
+    "name": "compute_agent_validation_factors_py",
+    "description": "<p>Python可调用的交互验证因子计算函数</p>\n<p>计算六类交互验证因子：前向验证(FV)、市场确认(MC)、盘口交互(OB)、\n交易后演化(PT)、跨Agent交互(CA)、Agent基础统计(AG)。</p>\n<p>返回值顺序与 Python _build_names() 严格一致。</p>",
+    "params": []
+  },
+  {
     "name": "compute_allo_microstructure_features",
     "description": "<p>计算非对称大挂单微观结构特征</p>",
     "params": [
@@ -595,6 +600,46 @@
   {
     "name": "cosine_similarity_matrix",
     "description": "<p>精简版余弦相似度矩阵计算（只返回余弦相似度矩阵）</p>\n<p>主要优化技术：\n- 零拷贝输入：使用PyReadonlyArray1避免Python到Rust的数据拷贝\n- SIMD向量化：使用AVX2指令集并行计算4个元素\n- 对称性优化：只计算上三角矩阵，减少一半计算量\n- 直接内存操作：直接写入numpy数组内存，避免中间分配\n- 缓存友好：优化内存访问模式，提高缓存命中率\n- 内存优化：只返回一个矩阵，减少50%内存使用</p>",
+    "params": []
+  },
+  {
+    "name": "cross_stock_autoreg_38",
+    "description": "<p>跨股票自回归因子（用前一日系数在今日数据上做迁移预测）</p>\n<p>data_prev: (T, N) 前一日数据（已标准化，无 NaN 行）\ndata_today: (T, N) 今日数据（已标准化，无 NaN 行）\nn_lags: 滞后阶数（5 或 15）</p>\n<p>返回: (38, N) 每只股票的 38 个统计量</p>",
+    "params": []
+  },
+  {
+    "name": "cross_stock_autoreg_38_fast",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "cross_stock_autoreg_38_weighted",
+    "description": "<p>跨股票自回归因子（加权版）\nweights: (N,) 正权重向量，通常为 log(总成交量)</p>",
+    "params": []
+  },
+  {
+    "name": "cross_stock_autoreg_peak_38_fast",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "cross_stock_crossvar_38",
+    "description": "<p>跨股票交叉变量回归因子</p>\n<p>y_prev: (T, N) 前一日因变量\nx_prev: (T, N) 前一日自变量\ny_today: (T, N) 今日因变量\nx_today: (T, N) 今日自变量\nn_lags: 每变量的滞后阶数（通常为 5）</p>\n<p>模型：y ~ y_lag1..n_lags + x_lag1..n_lags</p>\n<p>返回: (38, N)</p>",
+    "params": []
+  },
+  {
+    "name": "cross_stock_crossvar_38_fast",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "cross_stock_crossvar_38_weighted",
+    "description": "<p>跨股票交叉变量回归因子（加权版）</p>",
+    "params": []
+  },
+  {
+    "name": "cross_stock_crossvar_peak_38_fast",
+    "description": "<p>无文档</p>",
     "params": []
   },
   {
@@ -816,6 +861,11 @@
   {
     "name": "fast_right_join_df",
     "description": "<p>快速右连接的便捷函数</p>",
+    "params": []
+  },
+  {
+    "name": "find_density_peaks",
+    "description": "<p>对每只股票计算滚动窗口 trimmed mean 的峰值位置。</p>\n<ul>\n<li>sell_vol: (T, N) 主动卖出原始成交量</li>\n<li>buy_vol:  (T, N) 主动买入原始成交量</li>\n<li>window:   窗口长度（默认60）</li>\n<li>min_len:  最小有效窗口长度（默认10）</li>\n</ul>\n<p>返回: (fit_ends_i64, pred_starts_i64) 两个 i64 数组，长度均为 N</p>",
     "params": []
   },
   {
