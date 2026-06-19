@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>read_market - Rust PyFunc API文档</title>
+    <title>find_density_peaks - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
     <script src="static/search.js"></script>
 </head>
@@ -26,16 +26,23 @@
     </div>
     
     <div class="content">
-        <h1>read_market</h1>
+        <h1>find_density_peaks</h1>
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><p>无文档</p></div>
+            <div><p>对每只股票计算滚动窗口 trimmed mean 的峰值位置。</p>
+<ul>
+<li>sell_vol: (T, N) 主动卖出原始成交量</li>
+<li>buy_vol:  (T, N) 主动买入原始成交量</li>
+<li>window:   窗口长度（默认60）</li>
+<li>min_len:  最小有效窗口长度（默认10）</li>
+</ul>
+<p>返回: (fit_ends_i64, pred_starts_i64) 两个 i64 数组，长度均为 N</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>read_market(symbol, date, with_high_low_limited, no_cache) -> &lt;class &#39;pandas.DataFrame&#39;&gt;</code>
+            <code>find_density_peaks(sell_vol, buy_vol, window, min_len) -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -59,7 +66,7 @@
             <div class="example-usage-note">
                 <h3>Python使用示例</h3>
                 <pre><code>import numpy as np
-from rust_pyfunc import read_market
+from rust_pyfunc import find_density_peaks
 
 # 使用示例
 

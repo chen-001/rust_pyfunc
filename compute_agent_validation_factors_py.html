@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>read_market - Rust PyFunc API文档</title>
+    <title>compute_agent_validation_factors_py - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
     <script src="static/search.js"></script>
 </head>
@@ -26,16 +26,19 @@
     </div>
     
     <div class="content">
-        <h1>read_market</h1>
+        <h1>compute_agent_validation_factors_py</h1>
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><p>无文档</p></div>
+            <div><p>Python可调用的交互验证因子计算函数</p>
+<p>计算六类交互验证因子：前向验证(FV)、市场确认(MC)、盘口交互(OB)、
+交易后演化(PT)、跨Agent交互(CA)、Agent基础统计(AG)。</p>
+<p>返回值顺序与 Python _build_names() 严格一致。</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>read_market(symbol, date, with_high_low_limited, no_cache) -> &lt;class &#39;pandas.DataFrame&#39;&gt;</code>
+            <code>compute_agent_validation_factors_py(market_timestamps, market_prices, market_volumes, market_flags, ob_timestamps, ob_bid_prc1, ob_ask_prc1, ob_bid_vol1, ob_ask_vol1, bid_order_ids, ask_order_ids, per_agent_market_indices, per_agent_directions, per_agent_volumes, fwd_horizons_sec, pt_horizons_sec) -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -59,7 +62,7 @@
             <div class="example-usage-note">
                 <h3>Python使用示例</h3>
                 <pre><code>import numpy as np
-from rust_pyfunc import read_market
+from rust_pyfunc import compute_agent_validation_factors_py
 
 # 使用示例
 

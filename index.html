@@ -145,6 +145,15 @@ bid_prices, bid_vols, ask_prices, ask_vols: Vec<Vec\<f64>> — [snapshots][10]</
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="compute_agent_validation_factors_py.html">compute_agent_validation_factors_py</a></h3>
+                <div><p>Python可调用的交互验证因子计算函数</p>
+<p>计算六类交互验证因子：前向验证(FV)、市场确认(MC)、盘口交互(OB)、
+交易后演化(PT)、跨Agent交互(CA)、Agent基础统计(AG)。</p>
+<p>返回值顺序与 Python _build_names() 严格一致。</p></div>
+                <a href="compute_agent_validation_factors_py.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="compute_allo_microstructure_features.html">compute_allo_microstructure_features</a></h3>
                 <div><p>计算非对称大挂单微观结构特征</p></div>
                 <a href="compute_allo_microstructure_features.html">查看详情</a>
@@ -238,6 +247,19 @@ flag: 主动买卖标识(66=主买, 83=主卖)</p>
 输入: 时序数据 Vec<f64>
 返回: [mean, std, abs_mean, pos_ratio, early_mean, early_std, late_mean, late_std]</p></div>
                 <a href="compute_ts_stats.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="find_density_peaks.html">find_density_peaks</a></h3>
+                <div><p>对每只股票计算滚动窗口 trimmed mean 的峰值位置。</p>
+<ul>
+<li>sell_vol: (T, N) 主动卖出原始成交量</li>
+<li>buy_vol:  (T, N) 主动买入原始成交量</li>
+<li>window:   窗口长度（默认60）</li>
+<li>min_len:  最小有效窗口长度（默认10）</li>
+</ul>
+<p>返回: (fit_ends_i64, pred_starts_i64) 两个 i64 数组，长度均为 N</p></div>
+                <a href="find_density_peaks.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -1142,6 +1164,66 @@ market microstructure features, and provides quantitative trading and strategy s
 - 缓存友好：优化内存访问模式，提高缓存命中率
 - 内存优化：只返回一个矩阵，减少50%内存使用</p></div>
                 <a href="cosine_similarity_matrix.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="cross_stock_autoreg_38.html">cross_stock_autoreg_38</a></h3>
+                <div><p>跨股票自回归因子（用前一日系数在今日数据上做迁移预测）</p>
+<p>data_prev: (T, N) 前一日数据（已标准化，无 NaN 行）
+data_today: (T, N) 今日数据（已标准化，无 NaN 行）
+n_lags: 滞后阶数（5 或 15）</p>
+<p>返回: (38, N) 每只股票的 38 个统计量</p></div>
+                <a href="cross_stock_autoreg_38.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="cross_stock_autoreg_38_fast.html">cross_stock_autoreg_38_fast</a></h3>
+                <div><p>无文档</p></div>
+                <a href="cross_stock_autoreg_38_fast.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="cross_stock_autoreg_38_weighted.html">cross_stock_autoreg_38_weighted</a></h3>
+                <div><p>跨股票自回归因子（加权版）
+weights: (N,) 正权重向量，通常为 log(总成交量)</p></div>
+                <a href="cross_stock_autoreg_38_weighted.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="cross_stock_autoreg_peak_38_fast.html">cross_stock_autoreg_peak_38_fast</a></h3>
+                <div><p>无文档</p></div>
+                <a href="cross_stock_autoreg_peak_38_fast.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="cross_stock_crossvar_38.html">cross_stock_crossvar_38</a></h3>
+                <div><p>跨股票交叉变量回归因子</p>
+<p>y_prev: (T, N) 前一日因变量
+x_prev: (T, N) 前一日自变量
+y_today: (T, N) 今日因变量
+x_today: (T, N) 今日自变量
+n_lags: 每变量的滞后阶数（通常为 5）</p>
+<p>模型：y ~ y_lag1..n_lags + x_lag1..n_lags</p>
+<p>返回: (38, N)</p></div>
+                <a href="cross_stock_crossvar_38.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="cross_stock_crossvar_38_fast.html">cross_stock_crossvar_38_fast</a></h3>
+                <div><p>无文档</p></div>
+                <a href="cross_stock_crossvar_38_fast.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="cross_stock_crossvar_38_weighted.html">cross_stock_crossvar_38_weighted</a></h3>
+                <div><p>跨股票交叉变量回归因子（加权版）</p></div>
+                <a href="cross_stock_crossvar_38_weighted.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="cross_stock_crossvar_peak_38_fast.html">cross_stock_crossvar_peak_38_fast</a></h3>
+                <div><p>无文档</p></div>
+                <a href="cross_stock_crossvar_peak_38_fast.html">查看详情</a>
             </div>
             
             <div class="function-item">
