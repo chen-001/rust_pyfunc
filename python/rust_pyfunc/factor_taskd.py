@@ -343,7 +343,7 @@ def cancel_task(task_id: int):
 
         # 快照当前进度后标记为取消
         progress = None
-        if row.get("backup_prefix"):
+        if row["backup_prefix"]:
             progress = _read_progress(row["backup_prefix"], task_id)
         db.execute(
             "UPDATE tasks SET status='cancelled', finished_at=?, progress_snapshot=? WHERE id=?",

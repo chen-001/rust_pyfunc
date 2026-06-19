@@ -1,3 +1,4 @@
+import mmap
 import os
 
 
@@ -48,6 +49,21 @@ def _resolve_stock_path(date: int, subdir: str, filename: str) -> str:
     )
 
 
+def _read_csv_nocache(file_path: str, **kwargs):
+    """mmap + MADV_SEQUENTIAL：避免一次性读出的 CSV 数据占据页缓存"""
+    fd = os.open(file_path, os.O_RDONLY)
+    mm = None
+    try:
+        mm = mmap.mmap(fd, 0, access=mmap.ACCESS_READ)
+        mm.madvise(mmap.MADV_SEQUENTIAL)
+        df = pd.read_csv(mm, **kwargs)
+        return df
+    finally:
+        if mm is not None:
+            mm.close()
+        os.close(fd)
+
+
 def _to_exchange_timestamp(series: pd.Series) -> pd.Series:
     return pd.to_timedelta(series / 1e6, unit="s") + _TRADE_EPOCH_OFFSET
 
@@ -68,43 +84,38 @@ def adjust_afternoon(df: pd.DataFrame, only_inday: int = 1) -> pd.DataFrame:
     return df
 
 
-def read_trade(symbol: str, date: int, with_retreat: int = 0) -> pd.DataFrame:
+def read_trade(symbol: str, date: int, with_retreat: int = 0, no_cache: bool = False) -> pd.DataFrame:
     file_name = f"{symbol}_{date}_transaction.csv"
     file_path = _resolve_stock_path(date, "transaction", file_name)
-    df = pd.read_csv(
-        file_path,
+    csv_kwargs = dict(
         dtype={"symbol": str},
         usecols=[
-            "exchtime",
-            "price",
-            "volume",
-            "turnover",
-            "flag",
-            "index",
-            "localtime",
-            "ask_order",
-            "bid_order",
+            "exchtime", "price", "volume", "turnover", "flag",
+            "index", "localtime", "ask_order", "bid_order",
         ],
-        memory_map=True,
-        engine="c",
         low_memory=False,
     )
+    if no_cache:
+        df = _read_csv_nocache(file_path, **csv_kwargs)
+    else:
+        df = pd.read_csv(file_path, memory_map=True, engine="c", **csv_kwargs)
     if not with_retreat:
         df = df[df.flag != 32]
     df.exchtime = _to_exchange_timestamp(df.exchtime)
     return df
 
 
-def read_market(symbol: str, date: int, with_high_low_limited: int = 0) -> pd.DataFrame:
+def read_market(symbol: str, date: int, with_high_low_limited: int = 0, no_cache: bool = False) -> pd.DataFrame:
     file_name = f"{symbol}_{date}_market_data.csv"
     file_path = _resolve_stock_path(date, "market_data", file_name)
-    df = pd.read_csv(
-        file_path,
+    csv_kwargs = dict(
         dtype={"symbol": str},
-        memory_map=True,
-        engine="c",
         low_memory=False,
     )
+    if no_cache:
+        df = _read_csv_nocache(file_path, **csv_kwargs)
+    else:
+        df = pd.read_csv(file_path, memory_map=True, engine="c", **csv_kwargs)
     df.exchtime = _to_exchange_timestamp(df.exchtime)
     if not with_high_low_limited:
         df = df[(df.ask_prc1 != 0) & (df.bid_prc1 != 0)]

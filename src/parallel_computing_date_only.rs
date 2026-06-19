@@ -1122,14 +1122,15 @@ pub fn run_pools_queue_date_only(
             Local::now().format("%Y-%m-%d %H:%M:%S")
         );
 
-        let collector_timeout = Duration::from_secs(180);
+        let collector_timeout = Duration::from_secs(std::cmp::max(180u64, task_timeout_secs.saturating_add(60)));
         loop {
             let result = match result_receiver.recv_timeout(collector_timeout) {
                 Ok(r) => r,
                 Err(RecvTimeoutError::Timeout) => {
                     println!(
-                        "[{}] ⏰ 收集器: 180秒未收到新结果，自动退出 (已收集 {}/{})",
+                        "[{}] ⏰ 收集器: {}秒未收到新结果，自动退出 (已收集 {}/{})",
                         Local::now().format("%Y-%m-%d %H:%M:%S"),
+                        collector_timeout.as_secs(),
                         total_collected,
                         total_dates
                     );

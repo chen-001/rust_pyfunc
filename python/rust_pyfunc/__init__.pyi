@@ -76,6 +76,24 @@ def compute_corr_diff_features(
 ) -> Tuple[List[float], object]:
     ...
 
+def compute_agent_validation_factors_py(
+    market_timestamps: object,
+    market_prices: object,
+    market_volumes: object,
+    market_flags: object,
+    ob_timestamps: object,
+    ob_bid_prc1: object,
+    ob_ask_prc1: object,
+    ob_bid_vol1: object,
+    ob_ask_vol1: object,
+    per_agent_market_indices: List[object],
+    per_agent_directions: List[object],
+    per_agent_volumes: List[object],
+    fwd_horizons_sec: List[float],
+    pt_horizons_sec: List[float],
+) -> List[float]:
+    ...
+
 
 # 版本信息
 __version__ = "0.18.0"
@@ -181,6 +199,7 @@ __all__ = [
     "compute_agent_trading_daily_feature_table_multi",
     "compute_agent_trading_daily_feature_table_for_get_features_factors",
     "compute_agent_trading_daily_feature_table_multi_for_get_features_factors",
+    "compute_agent_validation_factors_py",
     # 统计分析函数
     "calculate_base_entropy",
     "calculate_shannon_entropy_change",
