@@ -1797,3 +1797,50 @@ def mutual_information_2d_knn_final(
     >>> # print(f"成交量与金额的平均互信息: {np.mean(mi):.4f}")
     """
     ...
+
+def cross_stock_autoreg_38(
+    data_prev: NDArray[np.float64],
+    data_today: NDArray[np.float64],
+    n_lags: int,
+) -> NDArray[np.float64]:
+    """用前一日数据拟合自回归系数，在今日数据上做跨股票迁移预测，提取38个统计量。
+
+    data_prev: (T, N) 前一日分钟数据（已标准化）
+    data_today: (T, N) 今日分钟数据（已标准化）
+    n_lags: 自回归滞后阶数（5或15）
+
+    返回: (38, N) 每只股票38个统计量
+
+    统计量顺序：
+    0: corr_in_out    1: r2_in_uprate    2: r2_out_uprate    3: trans_out_uprate
+    4: in_mean        5: out_mean        6: in_ab_mean       7: out_ab_mean
+    8: trans_mean     9: in_std         10: out_std         11: in_ab_std
+   12: out_ab_std    13: trans_std      14: in_skew         15: out_skew
+   16: in_ab_skew    17: out_ab_skew    18: trans_skew      19: in_kurt
+   20: out_kurt      21: in_ab_kurt     22: out_ab_kurt     23: trans_kurt
+   24: in_median     25: out_median     26: in_ab_median    27: out_ab_median
+   28: trans_median  29: in_max         30: in_ab_max       31: out_ab_max
+   32: trans_max     33: in_min         34: out_min         35: in_ab_min
+   36: out_ab_min    37: trans_min
+    """
+    ...
+
+
+def cross_stock_crossvar_38(
+    y_prev: NDArray[np.float64],
+    x_prev: NDArray[np.float64],
+    y_today: NDArray[np.float64],
+    x_today: NDArray[np.float64],
+    n_lags: int,
+) -> NDArray[np.float64]:
+    """用前一日数据拟合交叉变量回归系数，在今日数据上做跨股票迁移预测，提取38个统计量。
+
+    模型: y ~ y_lag1..n_lags + x_lag1..n_lags
+
+    y_prev/x_prev: (T, N) 前一日因变量/自变量（已标准化）
+    y_today/x_today: (T, N) 今日因变量/自变量（已标准化）
+    n_lags: 每变量滞后阶数
+
+    返回: (38, N) 统计量矩阵，顺序同 cross_stock_autoreg_38
+    """
+    ...

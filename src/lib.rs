@@ -40,12 +40,17 @@ pub mod tree;
 pub mod vector_similarity;
 pub mod vector_similarity_optimized;
 
+
+pub mod cross_stock_regression;
+pub mod cross_stock_regression_fast;
+pub mod cross_stock_regression_peak;
 pub mod factor_neutralization_io_optimized;
 pub mod ghost_market_maker;
 
 pub mod abnormal_asks_analyzer;
 pub mod agent_simulator;
 pub mod agent_trading_features;
+pub mod agent_validation;
 pub mod allo_microstructure;
 pub mod allo_microstructure_v2;
 pub mod allo_microstructure_v3;
@@ -115,7 +120,43 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     let _ = m.add_function(wrap_pyfunction!(statistics::rolling_volatility, m)?);
     let _ = m.add_function(wrap_pyfunction!(statistics::rolling_cv, m)?);
     let _ = m.add_function(wrap_pyfunction!(statistics::rolling_qcv, m)?);
+    let _ = m.add_function(wrap_pyfunction!(
+        cross_stock_regression::cross_stock_autoreg_38,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        cross_stock_regression::cross_stock_crossvar_38,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        cross_stock_regression_fast::cross_stock_autoreg_38_fast,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        cross_stock_regression_fast::cross_stock_crossvar_38_fast,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        cross_stock_regression_peak::cross_stock_autoreg_peak_38_fast,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        cross_stock_regression_peak::cross_stock_crossvar_peak_38_fast,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        cross_stock_regression_peak::find_density_peaks,
+        m
+    )?);
     let _ = m.add_function(wrap_pyfunction!(text::vectorize_sentences, m)?);
+    let _ = m.add_function(wrap_pyfunction!(
+        cross_stock_regression_fast::cross_stock_autoreg_38_weighted,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        cross_stock_regression_fast::cross_stock_crossvar_38_weighted,
+        m
+    )?);
     let _ = m.add_function(wrap_pyfunction!(text::vectorize_sentences_list, m)?);
     let _ = m.add_function(wrap_pyfunction!(text::jaccard_similarity, m)?);
     let _ = m.add_function(wrap_pyfunction!(sequence::identify_segments, m)?);
@@ -719,7 +760,7 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     // Agent交易模拟器模块
     agent_simulator::py_bindings::register_functions(m)?;
 
-    // 订单配对指标计算
+    agent_validation::py_bindings::register_functions(m)?;
     m.add_function(wrap_pyfunction!(
         order_pair_metrics::calculate_order_pair_metrics,
         m
