@@ -2331,6 +2331,14 @@ Uses Euclidean distance for k-nearest neighbor search</p></div>
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="read_market_fast.html">read_market_fast</a></h3>
+                <div><p>Python 可调用：read_market_fast(code, date, with_high_low_limited=0, with_afternoon_adjust=False)</p>
+<p>返回 Python dict，含 time_sec/last_prc/volume/turnover 数组 + ask_prcs/ask_vols/bid_prcs/bid_vols
+的 (n, 10) 二维数组。供验证和独立调用使用。</p></div>
+                <a href="read_market_fast.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="read_market_pair.html">read_market_pair</a></h3>
                 <div><p>无文档</p></div>
                 <a href="read_market_pair.html">查看详情</a>
@@ -2361,6 +2369,19 @@ Uses Euclidean distance for k-nearest neighbor search</p></div>
                 <h3 class="function-name"><a href="read_trade.html">read_trade</a></h3>
                 <div><p>无文档</p></div>
                 <a href="read_trade.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="read_trade_fast.html">read_trade_fast</a></h3>
+                <div><p>Python 可调用：read_trade_fast(code, date, with_retreat=0, with_afternoon_adjust=False)</p>
+<p>返回 (n, 7) float64 numpy 数组，列顺序：
+  [time_sec, price, volume, turnover, flag, bid_order, ask_order]</p>
+<p>time_sec 为 epoch 秒（与 prepare() 中 exchtime.astype(int64)//1e9 一致）。</p>
+<p>与 read_trade 的差异：
+- flag!=32 过滤默认开启（with_retreat=0）
+- adjust_afternoon 可在读时一步完成（with_afternoon_adjust=True）
+- 不返回 DataFrame，直接返回 numpy 数组（供流水线内部使用或独立验证）</p></div>
+                <a href="read_trade_fast.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -2650,6 +2671,12 @@ quantile=0.9: 90%分位数分割，只有前10%最高成交量为1</p></div>
                 <div><p>计算时间序列在指定时间窗口内向前滚动的统计量。
 对于每个时间点，计算该点之前指定时间窗口内所有数据的指定统计量。</p></div>
                 <a href="rolling_window_stat_backward.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="run_factor_pipeline.html">run_factor_pipeline</a></h3>
+                <div><p>Python 入口：run_factor_pipeline。</p></div>
+                <a href="run_factor_pipeline.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -3081,6 +3108,25 @@ print(f"转移熵: {te}")
 - 直接内存操作：直接写入numpy数组内存，避免中间分配
 - 缓存友好：优化内存访问模式，提高缓存命中率</p></div>
                 <a href="vector_similarity_matrices.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="verify_get_features_factors_rust.html">verify_get_features_factors_rust</a></h3>
+                <div><p>验证用：接收 numpy (n,m) 矩阵 + 列名，调纯 Rust get_features_factors_rust。</p></div>
+                <a href="verify_get_features_factors_rust.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="verify_order_pair_metrics_more.html">verify_order_pair_metrics_more</a></h3>
+                <div><p>验证用：接收 numpy (n,7) 矩阵，转 TradeRecord 后调 _more_inner。
+Python 端用它对比 calculate_order_pair_metrics_more（原 pyfunction）的输出。</p></div>
+                <a href="verify_order_pair_metrics_more.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="verify_order_pair_metrics_more_v2.html">verify_order_pair_metrics_more_v2</a></h3>
+                <div><p>验证用：接收 numpy (n,7) 矩阵，转 TradeRecord 后调 _v2_inner。</p></div>
+                <a href="verify_order_pair_metrics_more_v2.html">查看详情</a>
             </div>
             
         </div>
