@@ -1,4 +1,4 @@
-use arrow::array::{Array, Float64Array, Int32Array, Int64Array, LargeStringArray, StringArray};
+use arrow::array::{Array, Float32Array, Float64Array, Int32Array, Int64Array, LargeStringArray, StringArray};
 use chrono::Local;
 use nalgebra::{DMatrix, DVector};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
@@ -262,17 +262,38 @@ impl IOOptimizedStyleData {
             }
         };
 
-        // 批量提取风格因子列引用
-        let style_columns: Result<Vec<&Float64Array>, _> = (2..13)
+        // 批量提取风格因子列取值闭包: value_0~value_9(Float64) + ind_1~ind_31(Float32) = 41列
+        let style_getters: Vec<Box<dyn Fn(usize) -> f64 + Send + Sync>> = (2..43)
             .map(|i| {
-                batch
-                    .column(i)
-                    .as_any()
-                    .downcast_ref::<Float64Array>()
-                    .ok_or_else(|| PyRuntimeError::new_err(format!("风格因子列{}类型错误", i - 2)))
+                let col = batch.column(i);
+                let as_any = col.as_any();
+                let getter: Box<dyn Fn(usize) -> f64 + Send + Sync> = if let Some(arr) =
+                    as_any.downcast_ref::<Float64Array>()
+                {
+                    Box::new(move |row_idx: usize| {
+                        if arr.is_null(row_idx) {
+                            f64::NAN
+                        } else {
+                            arr.value(row_idx)
+                        }
+                    })
+                } else if let Some(arr) = as_any.downcast_ref::<Float32Array>() {
+                    Box::new(move |row_idx: usize| {
+                        if arr.is_null(row_idx) {
+                            f64::NAN
+                        } else {
+                            arr.value(row_idx) as f64
+                        }
+                    })
+                } else {
+                    return Err(PyRuntimeError::new_err(format!(
+                        "风格因子列{}类型错误：期望Float64或Float32",
+                        i - 2
+                    )));
+                };
+                Ok(getter)
             })
-            .collect();
-        let style_columns = style_columns?;
+            .collect::<PyResult<Vec<_>>>()?;
 
         // 向量化处理每一行
         for row_idx in 0..batch.num_rows() {
@@ -280,16 +301,7 @@ impl IOOptimizedStyleData {
             let stock = get_stock_value(row_idx);
 
             // 使用迭代器和collect优化风格值提取
-            let style_values: Vec<f64> = style_columns
-                .iter()
-                .map(|col| {
-                    if col.is_null(row_idx) {
-                        f64::NAN
-                    } else {
-                        col.value(row_idx)
-                    }
-                })
-                .collect();
+            let style_values: Vec<f64> = style_getters.iter().map(|g| g(row_idx)).collect();
 
             data_by_date
                 .entry(date)
@@ -310,19 +322,18 @@ impl IOOptimizedStyleData {
         // 预分配所有数据结构
         let mut stocks = Vec::with_capacity(n_stocks);
         let mut stock_index_map = HashMap::with_capacity(n_stocks);
-        let mut style_matrix = DMatrix::zeros(n_stocks, 12);
+        let mut style_matrix = DMatrix::zeros(n_stocks, 41);
 
-        // 单次遍历填充所有数据结构
+        // 单次遍历填充所有数据结构（41维风格: 10 barra + 31 行业哑变量, 行业和=1已含截距, 不再加常数项）
         for (i, (stock, style_values)) in stock_data.into_iter().enumerate() {
             stock_index_map.insert(stock.clone(), i);
             stocks.push(stock);
 
             // 直接写入矩阵（避免边界检查）
             unsafe {
-                for j in 0..11 {
+                for j in 0..41 {
                     *style_matrix.get_unchecked_mut((i, j)) = style_values[j];
                 }
-                *style_matrix.get_unchecked_mut((i, 11)) = 1.0;
             }
         }
 
@@ -939,12 +950,13 @@ fn process_single_date_io_optimized(
 
         let beta = &selected_regression_matrix * &aligned_y_vector;
 
+        let n_features = day_data.style_matrix.ncols();
         let mut result_values = Vec::new();
         for (i, &union_idx) in valid_union_indices.iter().enumerate() {
             let style_idx = valid_style_indices[i];
 
             let mut predicted_value = 0.0;
-            for j in 0..12 {
+            for j in 0..n_features {
                 predicted_value += day_data.style_matrix[(style_idx, j)] * beta[j];
             }
 

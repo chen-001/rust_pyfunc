@@ -1,7 +1,38 @@
+//! order_pair_metrics 的流水线专用副本（run_factor_pipeline 优化方案 Phase 2）。
+//!
+//! 完整复制自 src/order_pair_metrics.rs，改造为纯 Rust 入口（不经 pyo3）：
+//! - 接受 crate::fast_csv_reader::TradeRecord（read_trade_fast 的输出），跳过 numpy↔Rust 边界
+//! - 返回 (Array2<f64>, Vec<String>) 纯 Rust 类型，供流水线内部直接使用
+//! - 完全不修改原 src/order_pair_metrics.rs（Python 接口与行为零影响）
+//!
+//! 算法逻辑与原文件 1:1 等价，验证以 Python 端逐元素比对为准。
+//!
+//! 文件末尾的 _verify_* pyo3 函数仅供 Python 端一致性验证使用（接收 numpy 数组，
+//! 内部转 TradeRecord 调用 inner），不在生产流水线中使用。
+use crate::fast_csv_reader;
 use ndarray::{Array2, ArrayView2};
-use numpy::{IntoPyArray, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
+use numpy::{IntoPyArray, PyArray2, PyReadonlyArray2};
 use pyo3::prelude::*;
 use std::collections::{HashMap, HashSet};
+
+/// 把 (n,7) numpy 矩阵转为 fast_csv_reader::TradeRecord 列表（验证桥接用）。
+fn array_to_fast_records(trades: ArrayView2<f64>) -> Vec<fast_csv_reader::TradeRecord> {
+    let n = trades.nrows();
+    let mut out = Vec::with_capacity(n);
+    for i in 0..n {
+        out.push(fast_csv_reader::TradeRecord {
+            time_sec: trades[[i, 0]],
+            price: trades[[i, 1]],
+            volume: trades[[i, 2]],
+            turnover: trades[[i, 3]],
+            flag: trades[[i, 4]] as i32,
+            bid_order: trades[[i, 5]] as i64,
+            ask_order: trades[[i, 6]] as i64,
+        });
+    }
+    out
+}
+
 
 /// 订单信息结构体
 #[derive(Debug, Clone)]
@@ -160,20 +191,15 @@ fn find_pairs(today_orders: &[i64], yesterday_orders: &[i64], tolerance: f64) ->
     pairs
 }
 
-/// 计算订单配对指标
-#[pyfunction(signature = (today_trades, yesterday_trades, tolerance=0.001))]
-pub fn calculate_order_pair_metrics(
-    py: Python,
-    today_trades: PyReadonlyArray2<f64>,
-    yesterday_trades: PyReadonlyArray2<f64>,
+/// 计算订单配对指标（流水线纯 Rust 入口，接受 fast_csv_reader::TradeRecord）。
+pub fn calculate_order_pair_metrics_inner(
+    today_records: &[fast_csv_reader::TradeRecord],
+    yesterday_records: &[fast_csv_reader::TradeRecord],
     tolerance: f64,
-) -> PyResult<(Py<PyArray2<f64>>, Vec<String>)> {
-    let today_trades = today_trades.as_array();
-    let yesterday_trades = yesterday_trades.as_array();
-
+) -> (Array2<f64>, Vec<String>) {
     // 解析成交记录并按时间排序
-    let today_records = parse_trades(today_trades);
-    let yesterday_records = parse_trades(yesterday_trades);
+    let today_records = parse_trades_from_fast(today_records);
+    let yesterday_records = parse_trades_from_fast(yesterday_records);
 
     let today_sorted = SortedTrades::from_records(today_records.clone());
     let yest_sorted = SortedTrades::from_records(yesterday_records.clone());
@@ -247,7 +273,7 @@ pub fn calculate_order_pair_metrics(
         .collect();
 
     // 预计算影子订单（为每个订单找到同时活跃的其他订单）
-    // 预计算影子订单（排序Vec优化，缓存友好）
+    // 预计算影子订单（排序Vec优化）
     let today_shadow = compute_shadow_orders(&today_orders);
     let yest_shadow = compute_shadow_orders(&yest_orders);
 
@@ -328,7 +354,7 @@ pub fn calculate_order_pair_metrics(
         "abs_sell_order_trend_diff".to_string(),
     ];
 
-    Ok((results.into_pyarray(py).to_owned(), column_names))
+    (results, column_names)
 }
 
 /// 解析成交记录
@@ -351,10 +377,29 @@ fn parse_trades(trades: ArrayView2<f64>) -> Vec<TradeRecord> {
     records
 }
 
+/// 从 fast_csv_reader 的 TradeRecord 转为本模块内部 TradeRecord（零拷贝字段拷贝）。
+///
+/// fast_csv_reader::TradeRecord 的 time_sec 字段对应这里的 time，
+/// 其余字段语义一致。这是流水线读取后进入计算的桥梁。
+fn parse_trades_from_fast(records: &[fast_csv_reader::TradeRecord]) -> Vec<TradeRecord> {
+    records
+        .iter()
+        .map(|r| TradeRecord {
+            time: r.time_sec,
+            price: r.price,
+            volume: r.volume,
+            turnover: r.turnover,
+            flag: r.flag,
+            bid_order: r.bid_order,
+            ask_order: r.ask_order,
+        })
+        .collect()
+}
+
 /// 聚合订单信息
 /// 只为主动方创建订单记录（一个订单编号只对应一个 OrderInfo）
 fn aggregate_orders(records: &[TradeRecord]) -> HashMap<i64, OrderInfo> {
-    // 优化：预分配容量，避免多次 rehash（规范6）
+    // 优化：预分配容量，避免多次 rehash
     let mut orders: HashMap<i64, OrderInfo> = HashMap::with_capacity(records.len() / 2);
 
     for trade in records {
@@ -411,26 +456,19 @@ fn aggregate_orders(records: &[TradeRecord]) -> HashMap<i64, OrderInfo> {
     orders
 }
 
-/// 紧凑有序集合，替代 HashSet<i64> 做邻居去重。
-/// 用排序 Vec<i64>：插入时先收集后排序去重，Jaccard 用双指针归并。
-/// 相比 HashSet：①连续内存（缓存友好）②Jaccard 用双指针 O(n+m) 比 HashSet intersection 快。
-/// 相比位集：不受 order_id 空间大小影响（位集在 15 万 ID 时每集 18KB 浪费）。
+/// 紧凑有序集合，替代 HashSet<i64> 做邻居去重（缓存友好）。
+/// 用排序 Vec<i64>：Jaccard 用双指针归并（顺序访问），比 HashSet intersection 快。
 #[derive(Clone)]
 struct ShadowSet {
-    members: Vec<i64>, // 排序去重后的 order_id 列表
+    members: Vec<i64>,
 }
 
 impl ShadowSet {
-    fn new() -> Self {
-        Self { members: Vec::new() }
-    }
-    /// 从未排序的 Vec 构建排序去重的集合
     fn from_unsorted(mut v: Vec<i64>) -> Self {
         v.sort_unstable();
         v.dedup();
         Self { members: v }
     }
-    /// 交集大小（双指针归并，O(n+m)，顺序访问）
     #[inline]
     fn intersection_count(&self, other: &ShadowSet) -> usize {
         let mut i = 0usize;
@@ -445,7 +483,6 @@ impl ShadowSet {
         }
         count
     }
-    /// 并集大小（双指针归并）
     #[inline]
     fn union_count(&self, other: &ShadowSet) -> usize {
         let mut i = 0usize;
@@ -464,31 +501,8 @@ impl ShadowSet {
     }
 }
 
-/// 构建全局 order_id → 连续 idx 映射（today + yesterday 合并）。
-/// 相同 order_id 数值（无论来自 today 还是 yesterday）映射到同一个 idx，
-/// 保证跨天 Jaccard 的数值交集正确。
-#[allow(dead_code)]
-fn build_global_id_index(today_orders: &HashMap<i64, OrderInfo>, yest_orders: &HashMap<i64, OrderInfo>) -> HashMap<i64, usize> {
-    let mut idx_map: HashMap<i64, usize> = HashMap::with_capacity(today_orders.len() + yest_orders.len());
-    let mut next_idx = 0usize;
-    for &id in today_orders.keys() {
-        if !idx_map.contains_key(&id) {
-            idx_map.insert(id, next_idx);
-            next_idx += 1;
-        }
-    }
-    for &id in yest_orders.keys() {
-        if !idx_map.contains_key(&id) {
-            idx_map.insert(id, next_idx);
-            next_idx += 1;
-        }
-    }
-    idx_map
-}
-
 /// 预计算每个订单的影子订单（同时活跃的其他订单）
-/// 优化版：用 ShadowSet（排序 Vec）替代 HashSet<i64>，消除随机哈希访问。
-/// Jaccard 用双指针归并（顺序访问）替代 HashSet 的 intersection/union。
+/// 优化版：用 ShadowSet（排序 Vec）替代 HashSet<i64>。
 fn compute_shadow_orders(orders: &HashMap<i64, OrderInfo>) -> HashMap<i64, ShadowSet> {
     let mut shadows: HashMap<i64, ShadowSet> = HashMap::with_capacity(orders.len());
 
@@ -496,7 +510,6 @@ fn compute_shadow_orders(orders: &HashMap<i64, OrderInfo>) -> HashMap<i64, Shado
         return shadows;
     }
 
-    // 将订单按时间排序（时间相同时按order_id排序，确保顺序确定）
     let mut order_list: Vec<&OrderInfo> = orders.values().collect();
     order_list.sort_by(|a, b| match a.first_time.partial_cmp(&b.first_time) {
         Some(std::cmp::Ordering::Equal) => a.order_id.cmp(&b.order_id),
@@ -506,12 +519,10 @@ fn compute_shadow_orders(orders: &HashMap<i64, OrderInfo>) -> HashMap<i64, Shado
 
     let n = order_list.len();
 
-    // 使用滑动窗口找同时活跃的订单，收集到 Vec 后排序去重（缓存友好）
     for i in 0..n {
         let order = order_list[i];
         let mut shadow_ids: Vec<i64> = Vec::new();
 
-        // 向前查找
         for j in (0..i).rev() {
             let other = order_list[j];
             if other.last_time < order.first_time {
@@ -520,7 +531,6 @@ fn compute_shadow_orders(orders: &HashMap<i64, OrderInfo>) -> HashMap<i64, Shado
             shadow_ids.push(other.order_id);
         }
 
-        // 向后查找
         for j in (i + 1)..n {
             let other = order_list[j];
             if other.first_time > order.last_time {
@@ -721,7 +731,6 @@ fn calculate_buy_ratio_before(order: &OrderInfo, sorted: &SortedTrades) -> f64 {
 }
 
 /// 计算影子订单重叠度（Jaccard相似度）
-/// 优化版：用 ShadowSet 位运算（AND/OR + popcount）替代 HashSet 的 intersection/union。
 fn calculate_shadow_overlap(
     today_id: i64,
     yest_id: i64,
@@ -825,20 +834,15 @@ fn calculate_lz_complexity_market(
 
     // LZ78复杂度计算
     // 优化：用 trie（紧凑转移表）替代 HashSet<Vec<u8>>。
-    // 原 HashSet 方案每个候选短语要 clone 整个前缀（O(L²)字节拷贝）再哈希；
-    // trie 只需沿节点走，插入追加一个转移，无克隆、无变长哈希。
-    // 符号表只有4种(0-3)，trie 节点用 [Option<usize>; 4] 紧凑存储。
-    let mut trie: Vec<[Option<usize>; 4]> = vec![[None; 4]]; // 根节点
-    let mut w_pos: usize = 0; // 当前匹配位置（trie 中的节点 idx）
+    let mut trie: Vec<[Option<usize>; 4]> = vec![[None; 4]];
+    let mut w_pos: usize = 0;
     let mut c = 0usize;
 
     for &s in &symbols {
         let sym = s as usize;
         if let Some(&next) = trie[w_pos].get(sym).unwrap().as_ref() {
-            // 短语在字典中，继续扩展
             w_pos = next;
         } else {
-            // 新短语：插入转移，短语计数+1，重置到根
             let new_node = trie.len();
             trie.push([None; 4]);
             trie[w_pos][sym] = Some(new_node);
@@ -894,16 +898,12 @@ fn calculate_fractal_dimension_market(
         .collect();
 
     // 盒计数法
-    // 优化：用 u64 位掩码替代 HashSet<(i32,i32)>。
-    // 每个 level 最多 level² 个格子（level≤8 即≤64），用位掩码顺序写、popcount 计数。
-    // 原 HashSet 对 ≤64 个元素做哈希查找是纯浪费（规范2）。
     let mut counts: Vec<(f64, f64)> = Vec::new();
 
     for level in 2..=8 {
         let eps = 1.0 / level as f64;
         let level_usize = level as usize;
         let n_cells = level_usize * level_usize;
-        // 用 Vec<u64> 位集（兼容 level=8 时的 64 格；若 n_cells>64 自动扩展为多 u64）
         let n_words = (n_cells + 63) / 64;
         let mut mask = vec![0u64; n_words];
 
@@ -1060,19 +1060,15 @@ fn calculate_interval_cv_market(
 }
 
 /// 计算更多指标的订单配对函数
-#[pyfunction(signature = (today_trades, yesterday_trades, tolerance=0.001))]
-pub fn calculate_order_pair_metrics_more(
-    py: Python,
-    today_trades: PyReadonlyArray2<f64>,
-    yesterday_trades: PyReadonlyArray2<f64>,
+/// 计算更多指标的订单配对函数（流水线纯 Rust 入口）。
+pub fn calculate_order_pair_metrics_more_inner(
+    today_records: &[fast_csv_reader::TradeRecord],
+    yesterday_records: &[fast_csv_reader::TradeRecord],
     tolerance: f64,
-) -> PyResult<(Py<PyArray2<f64>>, Vec<String>)> {
-    let today_trades = today_trades.as_array();
-    let yesterday_trades = yesterday_trades.as_array();
-
+) -> (Array2<f64>, Vec<String>) {
     // 解析成交记录并按时间排序
-    let today_records = parse_trades(today_trades);
-    let yesterday_records = parse_trades(yesterday_trades);
+    let today_records = parse_trades_from_fast(today_records);
+    let yesterday_records = parse_trades_from_fast(yesterday_records);
 
     let today_sorted = SortedTrades::from_records(today_records.clone());
     let yest_sorted = SortedTrades::from_records(yesterday_records.clone());
@@ -1149,7 +1145,8 @@ pub fn calculate_order_pair_metrics_more(
         .chain(sell_pairs.into_iter())
         .collect();
 
-    // 预计算影子订单（排序Vec优化，缓存友好）
+    // 预计算影子订单
+    // 预计算影子订单（排序Vec优化）
     let today_shadow = compute_shadow_orders(&today_orders);
     let yest_shadow = compute_shadow_orders(&yest_orders);
 
@@ -1280,7 +1277,7 @@ pub fn calculate_order_pair_metrics_more(
         "trade_count".to_string(),
     ];
 
-    Ok((results.into_pyarray(py).to_owned(), column_names))
+    (results, column_names)
 }
 
 // ============== V2版本：不区分买卖方向的配对 ==============
@@ -1288,7 +1285,7 @@ pub fn calculate_order_pair_metrics_more(
 /// 聚合订单信息（V2版本）
 /// 保留所有订单编号（bid_order 和 ask_order 都保留）
 fn aggregate_orders_v2(records: &[TradeRecord]) -> HashMap<i64, OrderInfo> {
-    // 优化：预分配容量（v2 每条成交产生2个订单，bid+ask）
+    // 优化：预分配容量（v2 每条成交产生2个订单）
     let mut orders: HashMap<i64, OrderInfo> = HashMap::with_capacity(records.len());
 
     for trade in records {
@@ -1422,20 +1419,15 @@ fn find_pairs_v2(
     pairs
 }
 
-/// 计算订单配对指标（V2版本：不区分买卖方向）
-#[pyfunction(signature = (today_trades, yesterday_trades, tolerance=0.001))]
-pub fn calculate_order_pair_metrics_more_v2(
-    py: Python,
-    today_trades: PyReadonlyArray2<f64>,
-    yesterday_trades: PyReadonlyArray2<f64>,
+/// 计算订单配对指标（V2版本：不区分买卖方向）— 流水线纯 Rust 入口。
+pub fn calculate_order_pair_metrics_more_v2_inner(
+    today_records: &[fast_csv_reader::TradeRecord],
+    yesterday_records: &[fast_csv_reader::TradeRecord],
     tolerance: f64,
-) -> PyResult<(Py<PyArray2<f64>>, Vec<String>)> {
-    let today_trades = today_trades.as_array();
-    let yesterday_trades = yesterday_trades.as_array();
-
+) -> (Array2<f64>, Vec<String>) {
     // 解析成交记录
-    let today_records = parse_trades(today_trades);
-    let yesterday_records = parse_trades(yesterday_trades);
+    let today_records = parse_trades_from_fast(today_records);
+    let yesterday_records = parse_trades_from_fast(yesterday_records);
 
     let today_sorted = SortedTrades::from_records(today_records.clone());
     let yest_sorted = SortedTrades::from_records(yesterday_records.clone());
@@ -1485,7 +1477,8 @@ pub fn calculate_order_pair_metrics_more_v2(
     // 配对（不区分买卖方向）
     let all_pairs = find_pairs_v2(&today_all_orders, &yest_all_orders, tolerance);
 
-    // 预计算影子订单（排序Vec优化，缓存友好）
+    // 预计算影子订单
+    // 预计算影子订单（排序Vec优化）
     let today_shadow = compute_shadow_orders(&today_orders);
     let yest_shadow = compute_shadow_orders(&yest_orders);
 
@@ -1607,24 +1600,19 @@ pub fn calculate_order_pair_metrics_more_v2(
         "trade_count".to_string(),
     ];
 
-    Ok((results.into_pyarray(py).to_owned(), column_names))
+    (results, column_names)
 }
 
-/// 计算订单配对指标（V2优化版本）
-/// 通过预计算市场指标来加速
-#[pyfunction(signature = (today_trades, yesterday_trades, tolerance=0.001))]
-pub fn calculate_order_pair_metrics_more_v2_faster(
-    py: Python,
-    today_trades: PyReadonlyArray2<f64>,
-    yesterday_trades: PyReadonlyArray2<f64>,
+/// 计算订单配对指标（V2优化版本）— 流水线纯 Rust 入口。
+/// 通过预计算市场指标来加速。
+pub fn calculate_order_pair_metrics_more_v2_faster_inner(
+    today_records: &[fast_csv_reader::TradeRecord],
+    yesterday_records: &[fast_csv_reader::TradeRecord],
     tolerance: f64,
-) -> PyResult<(Py<PyArray2<f64>>, Vec<String>)> {
-    let today_trades = today_trades.as_array();
-    let yesterday_trades = yesterday_trades.as_array();
-
+) -> (Array2<f64>, Vec<String>) {
     // 解析成交记录
-    let today_records = parse_trades(today_trades);
-    let yesterday_records = parse_trades(yesterday_trades);
+    let today_records = parse_trades_from_fast(today_records);
+    let yesterday_records = parse_trades_from_fast(yesterday_records);
 
     let today_sorted = SortedTrades::from_records(today_records.clone());
     let yest_sorted = SortedTrades::from_records(yesterday_records.clone());
@@ -1674,14 +1662,14 @@ pub fn calculate_order_pair_metrics_more_v2_faster(
     // 配对（不区分买卖方向）
     let all_pairs = find_pairs_v2(&today_all_orders, &yest_all_orders, tolerance);
 
-    // 预计算影子订单（排序Vec优化，缓存友好）
+    // 预计算影子订单
+    // 预计算影子订单（排序Vec优化）
     let today_shadow = compute_shadow_orders(&today_orders);
     let yest_shadow = compute_shadow_orders(&yest_orders);
 
     // 预计算所有订单的市场指标
     let window_size = 100usize;
 
-    // 优化：预分配容量
     let mut today_market_metrics: HashMap<i64, [f64; 5]> = HashMap::with_capacity(today_orders.len());
     for (&order_id, order) in &today_orders {
         let lz = calculate_lz_complexity_market(&today_sorted, order, window_size);
@@ -1808,10 +1796,10 @@ pub fn calculate_order_pair_metrics_more_v2_faster(
         "trade_count".to_string(),
     ];
 
-    Ok((results.into_pyarray(py).to_owned(), column_names))
+    (results, column_names)
 }
 
-/// 独立计算价格序列的分形维度（盒计数法）
+/// 独立计算价格序列的分形维度（盒计数法）— 流水线纯 Rust 入口。
 ///
 /// 将(时间, 价格)归一化到单位正方形，然后用不同尺度的网格覆盖，
 /// 统计有数据点的格子数，对 ln(1/eps) 和 ln(N_boxes) 做线性拟合，
@@ -1819,24 +1807,18 @@ pub fn calculate_order_pair_metrics_more_v2_faster(
 ///
 /// 返回: (分形维度, 覆盖率列表)
 /// 覆盖率 = n_boxes / (level^2)，表示被占用的格子占总格子的比例
-#[pyfunction(signature = (prices, times, levels=vec![2,3,4,5,6,7,8]))]
-pub fn fractal_dimension_boxcount(
-    prices: PyReadonlyArray1<f64>,
-    times: PyReadonlyArray1<f64>,
-    levels: Vec<usize>,
-) -> PyResult<(f64, Vec<f64>)> {
-    let prices = prices.as_slice()?;
-    let times = times.as_slice()?;
-
+pub fn fractal_dimension_boxcount_inner(
+    prices: &[f64],
+    times: &[f64],
+    levels: &[usize],
+) -> (f64, Vec<f64>) {
     if prices.len() != times.len() {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "prices和times长度必须相同",
-        ));
+        return (0.0, vec![0.0; levels.len()]);
     }
 
     let n = prices.len();
     if n < 5 {
-        return Ok((0.0, vec![0.0; levels.len()]));
+        return (0.0, vec![0.0; levels.len()]);
     }
 
     let t_min = times.iter().fold(f64::INFINITY, |a, &b| a.min(b));
@@ -1856,19 +1838,22 @@ pub fn fractal_dimension_boxcount(
     let mut counts: Vec<(f64, f64)> = Vec::new();
     let mut coverages: Vec<f64> = Vec::with_capacity(levels.len());
 
-    for &level in &levels {
+    for &level in levels {
         let eps = 1.0 / level as f64;
-        let level_i32 = level as i32;
-        let mut boxes: HashSet<(i32, i32)> = HashSet::new();
+        let level_usize = level as usize;
+        let n_cells = level_usize * level_usize;
+        let n_words = (n_cells + 63) / 64;
+        let mut mask = vec![0u64; n_words];
 
         for (x, y) in &points {
             // 将边界点clamp到 [0, level-1]，避免 x=1.0 时产生额外格子
-            let bx = ((x / eps).floor() as i32).min(level_i32 - 1).max(0);
-            let by = ((y / eps).floor() as i32).min(level_i32 - 1).max(0);
-            boxes.insert((bx, by));
+            let bx = ((x / eps).floor() as usize).min(level_usize - 1);
+            let by = ((y / eps).floor() as usize).min(level_usize - 1);
+            let cell_idx = by * level_usize + bx;
+            mask[cell_idx / 64] |= 1u64 << (cell_idx % 64);
         }
 
-        let n_boxes = boxes.len() as f64;
+        let n_boxes = mask.iter().map(|w| w.count_ones() as usize).sum::<usize>() as f64;
         // 计算覆盖率: 被占用的格子数 / 总格子数
         let total_boxes = (level * level) as f64;
         let coverage = if total_boxes > 0.0 {
@@ -1884,7 +1869,7 @@ pub fn fractal_dimension_boxcount(
     }
 
     if counts.len() < 2 {
-        return Ok((0.0, coverages));
+        return (0.0, coverages);
     }
 
     let cnt = counts.len() as f64;
@@ -1895,28 +1880,26 @@ pub fn fractal_dimension_boxcount(
 
     let denom = cnt * sum_xx - sum_x * sum_x;
     if denom.abs() < 1e-12 {
-        return Ok((0.0, coverages));
+        return (0.0, coverages);
     }
 
-    Ok(((cnt * sum_xy - sum_x * sum_y) / denom, coverages))
+    ((cnt * sum_xy - sum_x * sum_y) / denom, coverages)
 }
 
-/// 独立计算价格序列的Hurst指数（R/S分析）
+/// 独立计算价格序列的Hurst指数（R/S分析）— 流水线纯 Rust 入口。
 ///
 /// H < 0.5 表示均值回复，H = 0.5 表示随机游走，H > 0.5 表示趋势持续。
-#[pyfunction]
-pub fn hurst_exponent_rs(prices: PyReadonlyArray1<f64>) -> PyResult<f64> {
-    let prices = prices.as_slice()?;
+pub fn hurst_exponent_rs_inner(prices: &[f64]) -> f64 {
     let n = prices.len();
 
     if n < 11 {
-        return Ok(0.5);
+        return 0.5;
     }
 
     let returns: Vec<f64> = (1..n).map(|i| (prices[i] / prices[i - 1]).ln()).collect();
 
     if returns.is_empty() {
-        return Ok(0.5);
+        return 0.5;
     }
 
     let mean_ret: f64 = returns.iter().sum::<f64>() / returns.len() as f64;
@@ -1936,11 +1919,50 @@ pub fn hurst_exponent_rs(prices: PyReadonlyArray1<f64>) -> PyResult<f64> {
     let s_val = var.sqrt();
 
     if s_val < 1e-12 {
-        return Ok(0.5);
+        return 0.5;
     }
 
     let rs = r_val / s_val;
     let h = rs.ln() / (returns.len() as f64 / 2.0).ln().max(1e-9);
 
-    Ok(h.clamp(0.0, 1.0))
+    h.clamp(0.0, 1.0)
 }
+
+// ============================================================================
+// 验证桥接层：仅供 Python 端一致性验证，接收 numpy 数组，调用纯 Rust inner。
+// 生产流水线（run_factor_pipeline）不经过这些函数。
+// ============================================================================
+
+/// 验证用：接收 numpy (n,7) 矩阵，转 TradeRecord 后调 _more_inner。
+/// Python 端用它对比 calculate_order_pair_metrics_more（原 pyfunction）的输出。
+#[pyfunction]
+#[pyo3(signature = (today_trades, yesterday_trades, tolerance=0.001))]
+pub fn verify_order_pair_metrics_more(
+    py: Python<'_>,
+    today_trades: PyReadonlyArray2<f64>,
+    yesterday_trades: PyReadonlyArray2<f64>,
+    tolerance: f64,
+) -> PyResult<(PyObject, Vec<String>)> {
+    let today = array_to_fast_records(today_trades.as_array());
+    let yest = array_to_fast_records(yesterday_trades.as_array());
+    let (result, names) = calculate_order_pair_metrics_more_inner(&today, &yest, tolerance);
+    let arr = result.into_pyarray(py).to_owned();
+    Ok((arr.into(), names))
+}
+
+/// 验证用：接收 numpy (n,7) 矩阵，转 TradeRecord 后调 _v2_inner。
+#[pyfunction]
+#[pyo3(signature = (today_trades, yesterday_trades, tolerance=0.001))]
+pub fn verify_order_pair_metrics_more_v2(
+    py: Python<'_>,
+    today_trades: PyReadonlyArray2<f64>,
+    yesterday_trades: PyReadonlyArray2<f64>,
+    tolerance: f64,
+) -> PyResult<(PyObject, Vec<String>)> {
+    let today = array_to_fast_records(today_trades.as_array());
+    let yest = array_to_fast_records(yesterday_trades.as_array());
+    let (result, names) = calculate_order_pair_metrics_more_v2_inner(&today, &yest, tolerance);
+    let arr = result.into_pyarray(py).to_owned();
+    Ok((arr.into(), names))
+}
+

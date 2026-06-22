@@ -1497,7 +1497,8 @@ fn neutralize_block_legacy_exact(
         let mut daily_factor_values = Vec::<f64>::with_capacity(n_stocks);
         let mut valid_stock_indices = Vec::<usize>::with_capacity(n_stocks);
         let mut valid_style_indices = Vec::<usize>::with_capacity(n_stocks);
-        let mut beta_values = vec![0.0_f64; 12];
+        let n_features = day_data.style_matrix.ncols();
+        let mut beta_values = vec![0.0_f64; n_features];
 
         for factor_idx in 0..n_factors {
             daily_factor_values.clear();
@@ -1527,7 +1528,7 @@ fn neutralize_block_legacy_exact(
 
             for (col_idx, &style_idx) in valid_style_indices.iter().enumerate() {
                 let y_value = ranked_values[col_idx];
-                for feature_idx in 0..12 {
+                for feature_idx in 0..n_features {
                     beta_values[feature_idx] += regression_matrix[(feature_idx, style_idx)] * y_value;
                 }
             }
@@ -1535,7 +1536,7 @@ fn neutralize_block_legacy_exact(
             for (row_idx, &stock_idx) in valid_stock_indices.iter().enumerate() {
                 let style_idx = valid_style_indices[row_idx];
                 let mut predicted = 0.0_f64;
-                for feature_idx in 0..12 {
+                for feature_idx in 0..n_features {
                     predicted += day_data.style_matrix[(style_idx, feature_idx)] * beta_values[feature_idx];
                 }
                 output[[date_idx, stock_idx, factor_idx]] = (ranked_values[row_idx] - predicted) as f32;

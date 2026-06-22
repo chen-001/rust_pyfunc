@@ -148,7 +148,7 @@ pub fn ols_predict(
     Ok(predictions.into_pyarray(py).to_owned())
 }
 
-fn solve_linear_system3(a: &ArrayView2<f64>, b: &ArrayView1<f64>) -> Array1<f64> {
+pub(crate) fn solve_linear_system3(a: &ArrayView2<f64>, b: &ArrayView1<f64>) -> Array1<f64> {
     let mut l = Array2::<f64>::zeros((a.nrows(), a.ncols()));
     let mut u = Array2::<f64>::zeros((a.nrows(), a.ncols()));
 

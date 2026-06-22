@@ -396,7 +396,7 @@ pub fn trend_2d(arr: PyReadonlyArray2<f64>, axis: i32) -> PyResult<Vec<f64>> {
 }
 
 /// 计算一维数组的趋势性（内部辅助函数）
-fn calculate_trend_1d(data: &[f64]) -> f64 {
+pub(crate) fn calculate_trend_1d(data: &[f64]) -> f64 {
     // 过滤掉NaN值，同时保持对应的索引
     let valid_pairs: Vec<(f64, f64)> = data
         .iter()

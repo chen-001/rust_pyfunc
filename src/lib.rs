@@ -96,6 +96,12 @@ pub mod orderbook_volume_cov_factors;
 pub mod yand_divergence;
 pub mod yand_affine_centroid;
 
+pub mod fast_csv_reader;
+
+pub mod factor_pipeline;
+pub mod features;
+pub mod order_pair_metrics_pipeline;
+
 /// Formats the sum of two numbers as string.
 #[pyfunction]
 #[pyo3(signature = (a, b))]
@@ -790,6 +796,29 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         m
     )?)?;
     m.add_function(wrap_pyfunction!(order_pair_metrics::hurst_exponent_rs, m)?)?;
+
+    // 高速 CSV 读取器（run_factor_pipeline 优化方案 Phase 1）
+    m.add_function(wrap_pyfunction!(fast_csv_reader::read_trade_fast, m)?)?;
+    m.add_function(wrap_pyfunction!(fast_csv_reader::read_market_fast, m)?)?;
+
+    // order_pair_metrics 流水线版本的验证桥接（Phase 2，仅供一致性验证）
+    m.add_function(wrap_pyfunction!(
+        order_pair_metrics_pipeline::verify_order_pair_metrics_more,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        order_pair_metrics_pipeline::verify_order_pair_metrics_more_v2,
+        m
+    )?)?;
+
+    // get_features_factors 纯 Rust 版本的验证桥接（Phase 2，仅供一致性验证）
+    m.add_function(wrap_pyfunction!(
+        features::verify_get_features_factors_rust,
+        m
+    )?)?;
+
+    // 纯 Rust 因子流水线引擎（Phase 3 主入口）
+    m.add_function(wrap_pyfunction!(factor_pipeline::run_factor_pipeline, m)?)?;
 
     // Copula函数模块
     m.add_function(wrap_pyfunction!(copula::gaussian_copula_cdf_py, m)?)?;
