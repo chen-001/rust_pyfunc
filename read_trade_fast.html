@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>read_trade_fast - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>read_trade_fast</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>Python 可调用：read_trade_fast(code, date, with_retreat=0, with_afternoon_adjust=False)</p>
+<p>返回 (n, 7) float64 numpy 数组，列顺序：
+  [time_sec, price, volume, turnover, flag, bid_order, ask_order]</p>
+<p>time_sec 为 epoch 秒（与 prepare() 中 exchtime.astype(int64)//1e9 一致）。</p>
+<p>与 read_trade 的差异：
+- flag!=32 过滤默认开启（with_retreat=0）
+- adjust_afternoon 可在读时一步完成（with_afternoon_adjust=True）
+- 不返回 DataFrame，直接返回 numpy 数组（供流水线内部使用或独立验证）</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>read_trade_fast(code, date, with_retreat, with_afternoon_adjust) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                <p>此函数没有参数</p>
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import read_trade_fast
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

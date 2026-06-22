@@ -1432,6 +1432,11 @@
     "params": []
   },
   {
+    "name": "read_market_fast",
+    "description": "<p>Python 可调用：read_market_fast(code, date, with_high_low_limited=0, with_afternoon_adjust=False)</p>\n<p>返回 Python dict，含 time_sec/last_prc/volume/turnover 数组 + ask_prcs/ask_vols/bid_prcs/bid_vols\n的 (n, 10) 二维数组。供验证和独立调用使用。</p>",
+    "params": []
+  },
+  {
     "name": "read_market_pair",
     "description": "<p>无文档</p>",
     "params": []
@@ -1444,6 +1449,11 @@
   {
     "name": "read_trade",
     "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "read_trade_fast",
+    "description": "<p>Python 可调用：read_trade_fast(code, date, with_retreat=0, with_afternoon_adjust=False)</p>\n<p>返回 (n, 7) float64 numpy 数组，列顺序：\n  [time_sec, price, volume, turnover, flag, bid_order, ask_order]</p>\n<p>time_sec 为 epoch 秒（与 prepare() 中 exchtime.astype(int64)//1e9 一致）。</p>\n<p>与 read_trade 的差异：\n- flag!=32 过滤默认开启（with_retreat=0）\n- adjust_afternoon 可在读时一步完成（with_afternoon_adjust=True）\n- 不返回 DataFrame，直接返回 numpy 数组（供流水线内部使用或独立验证）</p>",
     "params": []
   },
   {
@@ -1608,6 +1618,21 @@
       "values",
       "window",
       "stat_type"
+    ]
+  },
+  {
+    "name": "run_factor_pipeline",
+    "description": "<p>Python 入口：run_factor_pipeline。</p>",
+    "params": [
+      "pipeline",
+      "tasks",
+      "n_jobs",
+      "backup_file",
+      "expected_result_length",
+      "trading_days",
+      "params",
+      "update_mode",
+      "bind_cores"
     ]
   },
   {
@@ -1920,5 +1945,20 @@
     "params": [
       "sentences"
     ]
+  },
+  {
+    "name": "verify_get_features_factors_rust",
+    "description": "<p>验证用：接收 numpy (n,m) 矩阵 + 列名，调纯 Rust get_features_factors_rust。</p>",
+    "params": []
+  },
+  {
+    "name": "verify_order_pair_metrics_more",
+    "description": "<p>验证用：接收 numpy (n,7) 矩阵，转 TradeRecord 后调 _more_inner。\nPython 端用它对比 calculate_order_pair_metrics_more（原 pyfunction）的输出。</p>",
+    "params": []
+  },
+  {
+    "name": "verify_order_pair_metrics_more_v2",
+    "description": "<p>验证用：接收 numpy (n,7) 矩阵，转 TradeRecord 后调 _v2_inner。</p>",
+    "params": []
   }
 ]
