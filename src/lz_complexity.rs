@@ -153,7 +153,7 @@ fn discretize_sequence(seq: &ndarray::ArrayView1<f64>, quantiles: &[f64]) -> PyR
 }
 
 /// 计算LZ复杂度核心算法 - 后缀自动机版本
-fn calculate_lz_complexity(seq: &[u8]) -> usize {
+pub(crate) fn calculate_lz_complexity(seq: &[u8]) -> usize {
     let n = seq.len();
     if n == 0 {
         return 0;
@@ -706,7 +706,7 @@ fn calculate_lz_complexity_simple(seq: &[u8]) -> usize {
 }
 
 /// 获取序列中唯一符号的数量
-fn get_unique_symbol_count(seq: &[u8]) -> usize {
+pub(crate) fn get_unique_symbol_count(seq: &[u8]) -> usize {
     let mut unique_symbols = std::collections::HashSet::new();
     for &symbol in seq {
         unique_symbols.insert(symbol);

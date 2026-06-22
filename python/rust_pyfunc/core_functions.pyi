@@ -2288,3 +2288,104 @@ def compute_ts_stats(series: List[float]) -> List[float]:
         数据不足5个时返回空列表
     """
     ...
+
+
+def read_trade_fast(
+    code: str,
+    date: int,
+    with_retreat: int = 0,
+    with_afternoon_adjust: bool = False,
+) -> NDArray[np.float64]:
+    """高速读取逐笔成交数据（Rust 多线程实现，替代 read_trade 的加速版）。
+
+    用 memmap2 内存映射文件，大文件按字节块切分并行解析（rayon），
+    读取时即完成全部预处理：flag!=32 过滤、exchtime 微秒整数→epoch 秒、
+    可选的下午时段平移（adjust_afternoon）。
+
+    与 read_trade 的差异：
+    - 直接返回 (n, 7) float64 numpy 数组，跳过 DataFrame 构造与 Timestamp 往返转换
+    - with_afternoon_adjust=True 时在读时一步完成下午时段平移并过滤非盘中数据
+    - time_sec 列为 epoch 秒（与 prepare() 中 exchtime.astype(int64)//1e9 一致）
+
+    列顺序（n×7 矩阵）：
+        [0] time_sec    成交时间，epoch 秒
+        [1] price       成交价
+        [2] volume      成交量
+        [3] turnover    成交额
+        [4] flag        成交标志（66=主买, 83=主卖；32=撤单，已被过滤）
+        [5] bid_order   买方订单号
+        [6] ask_order   卖方订单号
+
+    Parameters
+    ----------
+    code : str
+        股票代码，如 "000001"
+    date : int
+        交易日，如 20260605
+    with_retreat : int, 默认 0
+        1 时保留 flag==32 的撤单记录，0 时过滤（与 read_trade 默认一致）
+    with_afternoon_adjust : bool, 默认 False
+        True 时做 adjust_afternoon 平移：保留 [09:30,11:30]，下午 [13:00,14:57]
+        整体前移 90 分钟，过滤集合竞价前/收盘后的数据
+
+    Returns
+    -------
+    numpy.ndarray
+        (n, 7) float64 数组
+    """
+    ...
+
+
+def run_factor_pipeline(
+    pipeline: str,
+    tasks: List,
+    n_jobs: int,
+    backup_file: str,
+    expected_result_length: int,
+    trading_days: List[int],
+    params: object = None,
+    update_mode: bool = False,
+    bind_cores: bool = True,
+    backup_batch_size: int = 2000,
+    progress_log: bool = False,
+) -> None:
+    """纯 Rust 因子流水线引擎（run_factor_pipeline 优化方案 Phase 3）。
+
+    把 go 函数（如 hm90.go）的整条链路在 Rust 内部一气呵成，消除 Python worker、
+    pandas、pyo3 往返、msgpack 等所有流转浪费。并行控制采用自适应嵌套并行 + 核绑定，
+    总线程恒定 = n_jobs。
+
+    backup 格式与现有 run_pools_queue 完全兼容（复用 backup_writer），
+    后续 query_backup / query_backup_factor_only_ultra_fast 无需改动。
+
+    Parameters
+    ----------
+    pipeline : str
+        流水线标识，目前支持 "order_pair_hm90"（hm90.go 的 Rust 翻译）
+    tasks : List[[int, str]]
+        任务列表，每个元素 [date, code]
+    n_jobs : int
+        并行线程数（总 CPU 占用 ≈ n_jobs × 100%，默认生产用 200）
+    backup_file : str
+        备份文件路径（与 run_pools_queue 的 backup_file 格式兼容）
+    expected_result_length : int
+        每个任务的预期结果长度（因子数）
+    trading_days : List[int]
+        交易日历数组（由 rp.td.trading_days.tolist() 提供，用于 last_trading_day 查找）
+    params : dict, 可选
+        流水线参数，如 {"tolerance_v1": 0.001, "tolerance_v2": 0.00001}
+    update_mode : bool, 默认 False
+        断点续算：True 时跳过 backup 中已完成的任务
+    bind_cores : bool, 默认 True
+        核绑定：把 n_jobs 个线程各绑定到一个物理核，CPU 占用精确稳定
+    backup_batch_size : int, 默认 2000
+        每攒满 N 个结果写一次 backup（批量 zstd 压缩）
+    progress_log : bool, 默认 False
+        每 500 个任务打印一次进度
+
+    Notes
+    -----
+    "order_pair_hm90" 流水线关闭了 lyapunov 特征（原 get_features_factors 默认开启，
+    但花 69% 时间只产生 2.3% 特征）。如需 lyapunov，仍可用原 run_pools_queue。
+    """
+    ...

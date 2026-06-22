@@ -26,5 +26,10 @@ conda activate chenzongwei311
 export PATH="/home/chenzongwei/.local/bin:$PATH"
 /home/chenzongwei/.local/bin/mold -run maturin develop --release
 
+# 5. 编译并部署 worker 二进制（多进程因子流水线 mode="multiprocess" 需要）
+/home/chenzongwei/.local/bin/mold -run cargo build --release --bin rust_pyfunc_worker
+cp target/release/rust_pyfunc_worker python/rust_pyfunc/rust_pyfunc_worker
+echo "✅ worker 二进制已部署到 python/rust_pyfunc/rust_pyfunc_worker"
+
 # 如果需要，你也可以在脚本结束时停用环境
 # conda deactivate

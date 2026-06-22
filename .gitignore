@@ -239,3 +239,4 @@ docs/theme_feature_expansion_explanation.md
 .mindfs/sessions/session-list.db
 .maturin_zig/*
 dist_versions/*
+python/rust_pyfunc/rust_pyfunc_worker
