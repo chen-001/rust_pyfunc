@@ -7,9 +7,9 @@ use std::cmp::min;
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{BufWriter, Read, Write};
-use sys_info;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
+use sys_info;
 
 const HEADER_SIZE: usize = 64;
 
@@ -113,7 +113,9 @@ fn read_u16_le(buf: &[u8], offset: usize) -> u16 {
 }
 
 fn read_f64_le(buf: &[u8], offset: usize) -> f64 {
-    f64::from_bits(u64::from_le_bytes(buf[offset..offset + 8].try_into().unwrap()))
+    f64::from_bits(u64::from_le_bytes(
+        buf[offset..offset + 8].try_into().unwrap(),
+    ))
 }
 
 /// 从 v3 备份记录读取 null-terminated code
@@ -146,15 +148,23 @@ fn build_chunk_index_v4(mmap: &[u8]) -> Result<Vec<ChunkInfoV4>, String> {
 
     for _ in 0..chunk_count {
         if offset + 8 > mmap.len() {
-            return Err(format!("chunk 头部越界: offset={}, len={}", offset, mmap.len()));
+            return Err(format!(
+                "chunk 头部越界: offset={}, len={}",
+                offset,
+                mmap.len()
+            ));
         }
-        let compressed_size = u32::from_le_bytes(mmap[offset..offset + 4].try_into().unwrap()) as usize;
-        let record_count = u32::from_le_bytes(mmap[offset + 4..offset + 8].try_into().unwrap()) as usize;
+        let compressed_size =
+            u32::from_le_bytes(mmap[offset..offset + 4].try_into().unwrap()) as usize;
+        let record_count =
+            u32::from_le_bytes(mmap[offset + 4..offset + 8].try_into().unwrap()) as usize;
         let data_offset = offset + 8;
         if data_offset + compressed_size > mmap.len() {
             return Err(format!(
                 "chunk 数据越界: offset={}, compressed_size={}, len={}",
-                data_offset, compressed_size, mmap.len()
+                data_offset,
+                compressed_size,
+                mmap.len()
             ));
         }
         chunks.push(ChunkInfoV4 {
@@ -179,18 +189,26 @@ fn parse_header(mmap: &[u8]) -> PyResult<ParsedHeader> {
         ));
     }
 
-    let version = u32::from_le_bytes(mmap[8..12].try_into().map_err(|_| {
-        PyErr::new::<pyo3::exceptions::PyValueError, _>("无法解析版本号")
-    })?);
-    let record_count = u64::from_le_bytes(mmap[12..20].try_into().map_err(|_| {
-        PyErr::new::<pyo3::exceptions::PyValueError, _>("无法解析记录数")
-    })?) as usize;
-    let record_size = u32::from_le_bytes(mmap[20..24].try_into().map_err(|_| {
-        PyErr::new::<pyo3::exceptions::PyValueError, _>("无法解析记录大小")
-    })?) as usize;
-    let factor_count = u32::from_le_bytes(mmap[24..28].try_into().map_err(|_| {
-        PyErr::new::<pyo3::exceptions::PyValueError, _>("无法解析因子列数")
-    })?) as usize;
+    let version = u32::from_le_bytes(
+        mmap[8..12]
+            .try_into()
+            .map_err(|_| PyErr::new::<pyo3::exceptions::PyValueError, _>("无法解析版本号"))?,
+    );
+    let record_count = u64::from_le_bytes(
+        mmap[12..20]
+            .try_into()
+            .map_err(|_| PyErr::new::<pyo3::exceptions::PyValueError, _>("无法解析记录数"))?,
+    ) as usize;
+    let record_size = u32::from_le_bytes(
+        mmap[20..24]
+            .try_into()
+            .map_err(|_| PyErr::new::<pyo3::exceptions::PyValueError, _>("无法解析记录大小"))?,
+    ) as usize;
+    let factor_count = u32::from_le_bytes(
+        mmap[24..28]
+            .try_into()
+            .map_err(|_| PyErr::new::<pyo3::exceptions::PyValueError, _>("无法解析因子列数"))?,
+    ) as usize;
 
     if version != 2 && version != 3 && version != 4 {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
@@ -483,15 +501,15 @@ where
         for (local_idx, blk_idx) in (group_start..group_end).enumerate() {
             let f32_slice = &group_buffers[local_idx];
             let raw_bytes = unsafe {
-                std::slice::from_raw_parts(
-                    f32_slice.as_ptr() as *const u8,
-                    f32_slice.len() * 4,
-                )
+                std::slice::from_raw_parts(f32_slice.as_ptr() as *const u8, f32_slice.len() * 4)
             };
             let compressed = zstd::encode_all(raw_bytes, 9).map_err(|e| {
                 PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("zstd 压缩失败: {e}"))
             })?;
-            let mut w = BufWriter::with_capacity(16 * 1024 * 1024, File::create(block_path(cache_dir, blk_idx))?);
+            let mut w = BufWriter::with_capacity(
+                16 * 1024 * 1024,
+                File::create(block_path(cache_dir, blk_idx))?,
+            );
             w.write_all(&(raw_bytes.len() as u64).to_le_bytes())?;
             w.write_all(&compressed)?;
             w.flush()?;
@@ -534,7 +552,9 @@ fn build_cache_from_v2(
         row_date_ids.push(date_id);
 
         let code_len = min(read_u32_le(record, V2_CODE_LEN_OFFSET) as usize, 32);
-        let code = String::from_utf8_lossy(&record[V2_CODE_BYTES_OFFSET..V2_CODE_BYTES_OFFSET + code_len]).to_string();
+        let code =
+            String::from_utf8_lossy(&record[V2_CODE_BYTES_OFFSET..V2_CODE_BYTES_OFFSET + code_len])
+                .to_string();
         let code_id = *code_to_id.entry(code.clone()).or_insert_with(|| {
             let id = codebook.len() as u16;
             codebook.push(code);
@@ -545,12 +565,14 @@ fn build_cache_from_v2(
 
     if datebook.len() > 65535 {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-            "日期数量 {} 超过 65535 限制", datebook.len()
+            "日期数量 {} 超过 65535 限制",
+            datebook.len()
         )));
     }
     if codebook.len() > 65535 {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-            "代码数量 {} 超过 65535 限制", codebook.len()
+            "代码数量 {} 超过 65535 限制",
+            codebook.len()
         )));
     }
 
@@ -569,7 +591,8 @@ fn build_cache_from_v2(
 
     // 写入 dict_codes.bin (每个代码 16 字节 null-terminated)
     {
-        let mut w = BufWriter::with_capacity(4 * 1024 * 1024, File::create(dict_codes_path(cache_dir))?);
+        let mut w =
+            BufWriter::with_capacity(4 * 1024 * 1024, File::create(dict_codes_path(cache_dir))?);
         for code in &codebook {
             let mut buf = [0u8; V3_CODE_SIZE];
             let bytes = code.as_bytes();
@@ -588,7 +611,8 @@ fn build_cache_from_v2(
 
     // 写入 meta.bin: [date_id:u16, code_id:u16] 每行 4 字节（按 sort_index 顺序）
     {
-        let mut meta_writer = BufWriter::with_capacity(16 * 1024 * 1024, File::create(meta_path(cache_dir))?);
+        let mut meta_writer =
+            BufWriter::with_capacity(16 * 1024 * 1024, File::create(meta_path(cache_dir))?);
         for &row in &sort_index {
             meta_writer.write_all(&row_date_ids[row].to_le_bytes())?;
             meta_writer.write_all(&row_code_ids[row].to_le_bytes())?;
@@ -695,12 +719,14 @@ fn build_cache_from_v3_buffer(
 
     if datebook.len() > 65535 {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-            "日期数量 {} 超过 65535 限制", datebook.len()
+            "日期数量 {} 超过 65535 限制",
+            datebook.len()
         )));
     }
     if codebook.len() > 65535 {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-            "代码数量 {} 超过 65535 限制", codebook.len()
+            "代码数量 {} 超过 65535 限制",
+            codebook.len()
         )));
     }
 
@@ -719,7 +745,8 @@ fn build_cache_from_v3_buffer(
 
     // 写入 dict_codes.bin
     {
-        let mut w = BufWriter::with_capacity(4 * 1024 * 1024, File::create(dict_codes_path(cache_dir))?);
+        let mut w =
+            BufWriter::with_capacity(4 * 1024 * 1024, File::create(dict_codes_path(cache_dir))?);
         for code in &codebook {
             let mut buf = [0u8; V3_CODE_SIZE];
             let bytes = code.as_bytes();
@@ -738,7 +765,8 @@ fn build_cache_from_v3_buffer(
 
     // 写入 meta.bin（按 sort_index 顺序，与 f32 数据分离）
     {
-        let mut meta_writer = BufWriter::with_capacity(16 * 1024 * 1024, File::create(meta_path(cache_dir))?);
+        let mut meta_writer =
+            BufWriter::with_capacity(16 * 1024 * 1024, File::create(meta_path(cache_dir))?);
         for &row in &sort_index {
             meta_writer.write_all(&row_date_ids[row].to_le_bytes())?;
             meta_writer.write_all(&row_code_ids[row].to_le_bytes())?;
@@ -792,9 +820,8 @@ fn build_cache_from_v4(
     let record_count = header.record_count;
     let block_count = expected_block_count(factor_count, block_cols);
 
-    let chunks = build_chunk_index_v4(mmap).map_err(|e| {
-        PyErr::new::<pyo3::exceptions::PyValueError, _>(e)
-    })?;
+    let chunks = build_chunk_index_v4(mmap)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e))?;
 
     // 第一遍：逐 chunk 解压，构建字典 + sort_index（不保留因子数据）
     let mut date_to_id: HashMap<i64, u16> = HashMap::new();
@@ -835,12 +862,14 @@ fn build_cache_from_v4(
 
     if datebook.len() > 65535 {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-            "日期数量 {} 超过 65535 限制", datebook.len()
+            "日期数量 {} 超过 65535 限制",
+            datebook.len()
         )));
     }
     if codebook.len() > 65535 {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-            "代码数量 {} 超过 65535 限制", codebook.len()
+            "代码数量 {} 超过 65535 限制",
+            codebook.len()
         )));
     }
 
@@ -865,7 +894,8 @@ fn build_cache_from_v4(
 
     // 写入 dict_codes.bin
     {
-        let mut w = BufWriter::with_capacity(4 * 1024 * 1024, File::create(dict_codes_path(cache_dir))?);
+        let mut w =
+            BufWriter::with_capacity(4 * 1024 * 1024, File::create(dict_codes_path(cache_dir))?);
         for code in &codebook {
             let mut buf = [0u8; V3_CODE_SIZE];
             let bytes = code.as_bytes();
@@ -878,7 +908,8 @@ fn build_cache_from_v4(
 
     // 写入 meta.bin（按 sort_index 顺序）
     {
-        let mut meta_writer = BufWriter::with_capacity(16 * 1024 * 1024, File::create(meta_path(cache_dir))?);
+        let mut meta_writer =
+            BufWriter::with_capacity(16 * 1024 * 1024, File::create(meta_path(cache_dir))?);
         for &row in &sort_index {
             meta_writer.write_all(&row_date_ids[row].to_le_bytes())?;
             meta_writer.write_all(&row_code_ids[row].to_le_bytes())?;
@@ -901,7 +932,8 @@ fn build_cache_from_v4(
         // 重新解压所有 chunk 填充当前组的 buffer
         let mut global_row = 0usize;
         for chunk in &chunks {
-            let compressed_data = &mmap[chunk.data_offset..chunk.data_offset + chunk.compressed_size];
+            let compressed_data =
+                &mmap[chunk.data_offset..chunk.data_offset + chunk.compressed_size];
             let decompressed = zstd::decode_all(compressed_data).map_err(|e| {
                 PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("zstd 解压失败: {e}"))
             })?;
@@ -919,7 +951,9 @@ fn build_cache_from_v4(
                     let base = sorted_pos * cols;
                     for (j, col) in (start_col..end_col).enumerate() {
                         let byte_offset = V3_FACTOR_BASE_OFFSET + col * V3_FACTOR_SIZE;
-                        let bits = u32::from_le_bytes(record[byte_offset..byte_offset + 4].try_into().unwrap());
+                        let bits = u32::from_le_bytes(
+                            record[byte_offset..byte_offset + 4].try_into().unwrap(),
+                        );
                         group_buffers[local_idx][base + j] = f32::from_bits(bits);
                     }
                 }
@@ -932,15 +966,15 @@ fn build_cache_from_v4(
         for (local_idx, blk_idx) in (group_start..group_end).enumerate() {
             let f32_slice = &group_buffers[local_idx];
             let raw_bytes = unsafe {
-                std::slice::from_raw_parts(
-                    f32_slice.as_ptr() as *const u8,
-                    f32_slice.len() * 4,
-                )
+                std::slice::from_raw_parts(f32_slice.as_ptr() as *const u8, f32_slice.len() * 4)
             };
             let compressed = zstd::encode_all(raw_bytes, 9).map_err(|e| {
                 PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("zstd 压缩失败: {e}"))
             })?;
-            let mut w = BufWriter::with_capacity(16 * 1024 * 1024, File::create(block_path(cache_dir, blk_idx))?);
+            let mut w = BufWriter::with_capacity(
+                16 * 1024 * 1024,
+                File::create(block_path(cache_dir, blk_idx))?,
+            );
             w.write_all(&(raw_bytes.len() as u64).to_le_bytes())?;
             w.write_all(&compressed)?;
             w.flush()?;
@@ -1013,7 +1047,12 @@ fn build_cache_internal(
 
     let header = parse_header(&mmap)?;
     let block_count = expected_block_count(header.factor_count, block_cols);
-    let group_size = compute_group_size(header.record_count, block_cols, block_count, memory_budget_gb)?;
+    let group_size = compute_group_size(
+        header.record_count,
+        block_cols,
+        block_count,
+        memory_budget_gb,
+    )?;
 
     let mut manifest = if header.version == 4 {
         build_cache_from_v4(&mmap, &header, &cache_dir, block_cols, group_size)?
@@ -1077,9 +1116,8 @@ fn read_factor_from_v2_block(
     let compressed = &blk_mmap[8..];
     let decompressed = zstd::decode_all(compressed).expect("zstd 解压失败");
 
-    let f32_slice = unsafe {
-        std::slice::from_raw_parts(decompressed.as_ptr() as *const f32, raw_size / 4)
-    };
+    let f32_slice =
+        unsafe { std::slice::from_raw_parts(decompressed.as_ptr() as *const f32, raw_size / 4) };
 
     let mut factors = Vec::with_capacity(record_count);
     for row in 0..record_count {
@@ -1435,5 +1473,333 @@ pub fn query_backup_codebook_cached_from_cache_dir(cache_dir: String) -> PyResul
             }
             Ok(dict.into())
         })
+    }
+}
+// ============================================================================
+// 纯 Rust 导出：backup.bin → parquet（每个因子一个文件）
+// ============================================================================
+
+/// 单列数据提取结果（纯 Rust，不走 pyo3）。
+struct ColumnData {
+    dates: Vec<i64>,    // 实际日期（已从 date_id 映射）
+    code_ids: Vec<u16>, // code_id（待映射为 code 字符串）
+    factors: Vec<f64>,
+}
+
+/// 从缓存读取单列数据（纯 Rust inner，复用已有缓存读取逻辑）。
+fn read_column_inner(
+    cache_dir: &Path,
+    manifest: &CacheManifest,
+    column_index: usize,
+) -> Result<ColumnData, String> {
+    let record_count = manifest.record_count as usize;
+    let factor_count = manifest.factor_count as usize;
+    let block_cols = manifest.block_cols as usize;
+
+    if column_index >= factor_count {
+        return Err(format!("列索引 {} 超出范围 {}", column_index, factor_count));
+    }
+
+    let block_idx = column_index / block_cols;
+    let local_col = column_index % block_cols;
+    let block_width = min(block_cols, factor_count - block_idx * block_cols);
+
+    let meta_bytes =
+        fs::read(meta_path(cache_dir)).map_err(|e| format!("读取 meta.bin 失败: {e}"))?;
+
+    // 读 date 字典（v2 格式）
+    let date_dict = if manifest.magic == V2_MANIFEST_MAGIC {
+        let dp = dates_path(cache_dir);
+        if dp.exists() {
+            Some(fs::read(&dp).map_err(|e| format!("读取 dict_dates.bin 失败: {e}"))?)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    if manifest.magic == V2_MANIFEST_MAGIC {
+        let blk_bytes = fs::read(block_path(cache_dir, block_idx))
+            .map_err(|e| format!("读取块文件失败: {e}"))?;
+        let factors = read_factor_from_v2_block(&blk_bytes, record_count, block_width, local_col);
+
+        let mut dates = Vec::with_capacity(record_count);
+        let mut code_ids = Vec::with_capacity(record_count);
+        for row in 0..record_count {
+            let meta_offset = row * V2_META_ROW_SIZE;
+            let date_id = read_u16_le(&meta_bytes, meta_offset) as usize;
+            let code_id = read_u16_le(&meta_bytes, meta_offset + 2);
+            // date_id → 实际日期
+            let actual_date = if let Some(ref dd) = date_dict {
+                read_i64_le(dd, date_id * 8)
+            } else {
+                date_id as i64
+            };
+            dates.push(actual_date);
+            code_ids.push(code_id);
+        }
+        Ok(ColumnData {
+            dates,
+            code_ids,
+            factors,
+        })
+    } else {
+        let blk_file = File::open(block_path(cache_dir, block_idx))
+            .map_err(|e| format!("打开块文件失败: {e}"))?;
+        let blk_mmap =
+            unsafe { Mmap::map(&blk_file).map_err(|e| format!("映射块文件失败: {e}"))? };
+        let block_row_bytes = block_width * 8;
+        let mut dates = Vec::with_capacity(record_count);
+        let mut code_ids = Vec::with_capacity(record_count);
+        let mut factors = Vec::with_capacity(record_count);
+        for row in 0..record_count {
+            let meta_offset = row * V1_META_ROW_SIZE;
+            let date = read_i64_le(&meta_bytes, meta_offset);
+            let code_id = read_u32_le(&meta_bytes, meta_offset + 8) as u16;
+            let factor_offset = row * block_row_bytes + local_col * 8;
+            let factor = read_f64_le(&blk_mmap, factor_offset);
+            dates.push(date);
+            code_ids.push(code_id);
+            factors.push(factor);
+        }
+        Ok(ColumnData {
+            dates,
+            code_ids,
+            factors,
+        })
+    }
+}
+
+/// 读 codebook（纯 Rust，返回 code_id → code 字符串的 HashMap）。
+fn read_codebook_inner(
+    cache_dir: &Path,
+    manifest: &CacheManifest,
+) -> Result<HashMap<u16, String>, String> {
+    let mut map = HashMap::new();
+    if manifest.magic == V2_MANIFEST_MAGIC {
+        let code_bytes = fs::read(dict_codes_path(cache_dir))
+            .map_err(|e| format!("读取 dict_codes.bin 失败: {e}"))?;
+        for idx in 0..manifest.code_count as usize {
+            let offset = idx * V2_CODE_ROW_SIZE;
+            let code = read_code_from_dict16(&code_bytes[offset..offset + V2_CODE_ROW_SIZE]);
+            map.insert(idx as u16, code);
+        }
+    } else {
+        let code_bytes =
+            fs::read(codes_path(cache_dir)).map_err(|e| format!("读取 codes.bin 失败: {e}"))?;
+        for idx in 0..manifest.code_count as usize {
+            let offset = idx * V1_CODE_ROW_SIZE;
+            let code_len = min(read_u32_le(&code_bytes, offset) as usize, 32);
+            let bytes = &code_bytes[offset + 4..offset + 4 + 32];
+            let code = String::from_utf8_lossy(&bytes[..code_len]).into_owned();
+            map.insert(idx as u16, code);
+        }
+    }
+    Ok(map)
+}
+
+/// 纯 Rust：将 backup.bin 导出为 parquet 文件（每个因子一个文件）。
+///
+/// 导出格式与 sing_save_factor 一致：
+///   - 每个因子一个 parquet 文件，文件名为 {name}.parquet
+///   - 行 = 日期，列 = 股票代码（带 .SH/.SZ 后缀）
+///   - pivot：把 (date, code, factor) 三列转为 date×code 矩阵
+///
+/// 使用 rayon 并行导出（此阶段计算已结束，不与 run_factor_pipeline 的线程池冲突）。
+pub fn export_backup_to_parquet_rust(
+    backup_file: &str,
+    names: &[String],
+    output_dir: &str,
+    n_jobs: usize,
+) -> Result<usize, String> {
+    use arrow::array::{Float64Array, Int64Array};
+    use arrow::datatypes::{DataType, Field, Schema};
+    use arrow::record_batch::RecordBatch;
+    use parquet::arrow::arrow_writer::ArrowWriter;
+    use rayon::prelude::*;
+
+    fs::create_dir_all(output_dir).map_err(|e| format!("创建输出目录失败: {e}"))?;
+
+    // 1. 构建列块缓存
+    let summary = build_cache_internal(backup_file, 32, false, None)
+        .map_err(|e| format!("构建缓存失败: {:?}", e))?;
+    let cache_dir = &summary.cache_dir;
+    let manifest = &summary.manifest;
+
+    // 2. 读 codebook
+    let codebook = read_codebook_inner(cache_dir, manifest)?;
+
+    // 3. 收集待导出任务（跳过已存在的文件）
+    let todo: Vec<(usize, &str)> = names
+        .iter()
+        .enumerate()
+        .filter(|(_, name)| !Path::new(&format!("{output_dir}/{name}.parquet")).exists())
+        .map(|(i, n)| (i, n.as_str()))
+        .collect();
+
+    if todo.is_empty() {
+        return Ok(0);
+    }
+
+    println!(
+        "📋 导出 {}/{} 个因子到 {}",
+        todo.len(),
+        names.len(),
+        output_dir
+    );
+
+    // 4. 配置 rayon 线程池
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(n_jobs)
+        .build()
+        .map_err(|e| format!("创建线程池失败: {e}"))?;
+
+    // 5. 并行导出
+    let cache_dir_ref = cache_dir.clone();
+    let manifest_ref = manifest.clone();
+    let failed: Vec<String> = pool.install(|| {
+        todo.par_iter()
+            .filter_map(|&(col_idx, name)| {
+                match export_single_column(
+                    &cache_dir_ref,
+                    &manifest_ref,
+                    &codebook,
+                    col_idx,
+                    name,
+                    output_dir,
+                ) {
+                    Ok(()) => None,
+                    Err(e) => Some(format!("{}: {}", name, e)),
+                }
+            })
+            .collect()
+    });
+
+    if !failed.is_empty() {
+        eprintln!("⚠️ {} 个因子导出失败:", failed.len());
+        for f in failed.iter().take(10) {
+            eprintln!("  {}", f);
+        }
+    }
+
+    println!("✅ 导出完成: {}", output_dir);
+    Ok(todo.len())
+}
+
+/// 导出单个因子列为 parquet 文件。
+fn export_single_column(
+    cache_dir: &Path,
+    manifest: &CacheManifest,
+    codebook: &HashMap<u16, String>,
+    col_idx: usize,
+    name: &str,
+    output_dir: &str,
+) -> Result<(), String> {
+    use arrow::array::{Float64Array, Int64Array};
+    use arrow::datatypes::{DataType, Field, Schema};
+    use arrow::record_batch::RecordBatch;
+    use parquet::arrow::arrow_writer::ArrowWriter;
+
+    // 读取单列数据
+    let data = read_column_inner(cache_dir, manifest, col_idx)?;
+
+    // pivot：把 (date, code_id, factor) 三列转为 date×code 矩阵
+    // 收集所有唯一的 date 和 code
+    let mut sorted_dates: Vec<i64> = data.dates.clone();
+    sorted_dates.sort_unstable();
+    sorted_dates.dedup();
+    let mut sorted_codes: Vec<u16> = data.code_ids.clone();
+    sorted_codes.sort_unstable();
+    sorted_codes.dedup();
+
+    let n_dates = sorted_dates.len();
+    let n_codes = sorted_codes.len();
+
+    // 建立 date → row_idx 和 code → col_idx 的映射
+    let date_to_row: HashMap<i64, usize> = sorted_dates
+        .iter()
+        .enumerate()
+        .map(|(i, &d)| (d, i))
+        .collect();
+    let code_to_col: HashMap<u16, usize> = sorted_codes
+        .iter()
+        .enumerate()
+        .map(|(i, &c)| (c, i))
+        .collect();
+
+    // 填充矩阵（NaN 初始化）
+    let mut matrix = vec![f64::NAN; n_dates * n_codes];
+    for k in 0..data.dates.len() {
+        let row = date_to_row[&data.dates[k]];
+        let col = code_to_col[&data.code_ids[k]];
+        matrix[row * n_codes + col] = data.factors[k];
+    }
+
+    // 构建箭头 RecordBatch：
+    // 第一列 date (Int64)，后续每列是一个 code (Float64)
+    // 列名：date, 600519.SH, 000001.SZ, ...
+    let mut fields: Vec<Field> = Vec::with_capacity(1 + n_codes);
+    fields.push(Field::new("date", DataType::Int64, false));
+
+    // 把 code_id 转为带交易所后缀的代码
+    let code_names: Vec<String> = sorted_codes
+        .iter()
+        .map(|&cid| {
+            let raw = codebook
+                .get(&cid)
+                .cloned()
+                .unwrap_or_else(|| cid.to_string());
+            add_exchange_suffix(&raw)
+        })
+        .collect();
+    for cn in &code_names {
+        fields.push(Field::new(cn, DataType::Float64, true));
+    }
+    let schema = Schema::new(fields);
+
+    // 构建 date 列
+    let date_array = Int64Array::from(sorted_dates);
+
+    // 逐列构建 factor 数组
+    let mut columns: Vec<std::sync::Arc<dyn arrow::array::Array>> = Vec::with_capacity(1 + n_codes);
+    columns.push(std::sync::Arc::new(date_array));
+    for col in 0..n_codes {
+        let col_data: Vec<f64> = (0..n_dates)
+            .map(|row| matrix[row * n_codes + col])
+            .collect();
+        columns.push(std::sync::Arc::new(Float64Array::from(col_data)));
+    }
+
+    let batch = RecordBatch::try_new(std::sync::Arc::new(schema), columns)
+        .map_err(|e| format!("构建 RecordBatch 失败: {e}"))?;
+
+    // 写 parquet
+    let parquet_path = format!("{output_dir}/{name}.parquet");
+    let file = fs::File::create(&parquet_path)
+        .map_err(|e| format!("创建文件 {parquet_path} 失败: {e}"))?;
+    let mut writer = ArrowWriter::try_new(file, batch.schema(), None)
+        .map_err(|e| format!("创建 ArrowWriter 失败: {e}"))?;
+    writer
+        .write(&batch)
+        .map_err(|e| format!("写入 parquet 失败: {e}"))?;
+    writer
+        .close()
+        .map_err(|e| format!("关闭 parquet 失败: {e}"))?;
+
+    Ok(())
+}
+
+/// 给股票代码加交易所后缀（与 jason_to_wind 一致）。
+/// 6/9 开头加 .SH，0/3 开头加 .SZ。
+fn add_exchange_suffix(code: &str) -> String {
+    if code.is_empty() {
+        return code.to_string();
+    }
+    match code.chars().next() {
+        Some('6') | Some('9') => format!("{}.SH", code),
+        Some('0') | Some('3') => format!("{}.SZ", code),
+        Some('8') | Some('4') => format!("{}.BJ", code),
+        _ => code.to_string(),
     }
 }
