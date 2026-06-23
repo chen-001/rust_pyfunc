@@ -40,7 +40,6 @@ pub mod tree;
 pub mod vector_similarity;
 pub mod vector_similarity_optimized;
 
-
 pub mod cross_stock_regression;
 pub mod cross_stock_regression_fast;
 pub mod cross_stock_regression_peak;
@@ -55,6 +54,7 @@ pub mod allo_microstructure;
 pub mod allo_microstructure_v2;
 pub mod allo_microstructure_v3;
 pub mod copula;
+pub mod corr_diff_features;
 pub mod frontier_dist;
 pub mod gp_correlation_dimension;
 pub mod integer_small_peak_features;
@@ -88,18 +88,18 @@ pub mod theme_cluster_factors;
 pub mod theme_cluster_factors_batch;
 pub mod theme_feature_expansion;
 pub mod topk_corr_matrix;
-pub mod corr_diff_features;
 
 pub mod dct_transform;
 pub mod illusion_liquidity_distance;
 pub mod orderbook_volume_cov_factors;
-pub mod yand_divergence;
 pub mod yand_affine_centroid;
+pub mod yand_divergence;
 
 pub mod fast_csv_reader;
 
 pub mod factor_pipeline;
 pub mod features;
+pub mod observable_order_metrics;
 pub mod order_pair_metrics_pipeline;
 
 /// Formats the sum of two numbers as string.
@@ -310,10 +310,7 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         backup_reader::convert_backup_v2_to_v3_inplace,
         m
     )?);
-    let _ = m.add_function(wrap_pyfunction!(
-        backup_reader::convert_backup_v3_to_v4,
-        m
-    )?);
+    let _ = m.add_function(wrap_pyfunction!(backup_reader::convert_backup_v3_to_v4, m)?);
     let _ = m.add_function(wrap_pyfunction!(
         order_contamination::order_contamination,
         m
@@ -920,26 +917,18 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         m
     )?)?;
 
-    let _ = m.add_function(wrap_pyfunction!(
-        yand_divergence::debug_theta,
-        m
-    )?)?;
-    let _ = m.add_function(wrap_pyfunction!(
-        yand_divergence::debug_compare_thetas,
-        m
-    )?)?;
-    let _ = m.add_function(wrap_pyfunction!(
-        yand_divergence::compute_divergence,
-        m
-    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(yand_divergence::debug_theta, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(yand_divergence::debug_compare_thetas, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(yand_divergence::compute_divergence, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(
         yand_affine_centroid::compute_affine_centroid,
         m
     )?)?;
+    let _ = m.add_function(wrap_pyfunction!(yand_affine_centroid::compute_ts_stats, m)?)?;
+
     let _ = m.add_function(wrap_pyfunction!(
-        yand_affine_centroid::compute_ts_stats,
+        observable_order_metrics::py_compute_observable_order_metrics,
         m
     )?)?;
-
     Ok(())
 }

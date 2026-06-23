@@ -10,7 +10,7 @@
 //! - pandas mean/median/std/skew/kurt/quantile（单线程）→ Rust + rayon 列并行
 //! - 132 次 df.apply 的 pyo3 往返 → 一次性批量 Rust
 //! - lyapunov 69% 计算时间 → 关闭
-use ndarray::{ArrayView2};
+use ndarray::ArrayView2;
 use pyo3::prelude::*;
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -23,9 +23,17 @@ use std::collections::HashMap;
 #[inline]
 fn col_mean(col: &[f64]) -> f64 {
     let (sum, n) = col.iter().fold((0.0f64, 0usize), |(s, c), &v| {
-        if v.is_nan() { (s, c) } else { (s + v, c + 1) }
+        if v.is_nan() {
+            (s, c)
+        } else {
+            (s + v, c + 1)
+        }
     });
-    if n == 0 { f64::NAN } else { sum / n as f64 }
+    if n == 0 {
+        f64::NAN
+    } else {
+        sum / n as f64
+    }
 }
 
 /// 单列标准差（样本标准差 ddof=1，对齐 pandas df.std()）。空或单元素返回 NaN。
@@ -33,7 +41,9 @@ fn col_mean(col: &[f64]) -> f64 {
 fn col_std(col: &[f64]) -> f64 {
     let valid: Vec<f64> = col.iter().filter(|&&v| !v.is_nan()).copied().collect();
     let n = valid.len();
-    if n < 2 { return f64::NAN; }
+    if n < 2 {
+        return f64::NAN;
+    }
     let mean = valid.iter().sum::<f64>() / n as f64;
     let var = valid.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / (n - 1) as f64;
     var.sqrt()
@@ -45,7 +55,9 @@ fn col_std(col: &[f64]) -> f64 {
 fn col_skew(col: &[f64]) -> f64 {
     let valid: Vec<f64> = col.iter().filter(|&&v| !v.is_nan()).copied().collect();
     let n = valid.len();
-    if n < 3 { return f64::NAN; }
+    if n < 3 {
+        return f64::NAN;
+    }
     let mean = valid.iter().sum::<f64>() / n as f64;
     let nf = n as f64;
     let mut s2 = 0.0;
@@ -58,7 +70,9 @@ fn col_skew(col: &[f64]) -> f64 {
     let k2 = s2 / (nf - 1.0);
     let k3 = nf * s3 / ((nf - 1.0) * (nf - 2.0));
     // pandas 对零方差列（常量列）返回 0.0 而非 NaN
-    if k2.abs() < 1e-30 { return 0.0; }
+    if k2.abs() < 1e-30 {
+        return 0.0;
+    }
     k3 / k2.powf(1.5)
 }
 
@@ -70,7 +84,9 @@ fn col_skew(col: &[f64]) -> f64 {
 fn col_kurt(col: &[f64]) -> f64 {
     let valid: Vec<f64> = col.iter().filter(|&&v| !v.is_nan()).copied().collect();
     let n = valid.len();
-    if n < 4 { return f64::NAN; }
+    if n < 4 {
+        return f64::NAN;
+    }
     let mean = valid.iter().sum::<f64>() / n as f64;
     let nf = n as f64;
     let mut s2 = 0.0;
@@ -85,7 +101,9 @@ fn col_kurt(col: &[f64]) -> f64 {
     let k4 = nf * ((nf + 1.0) * s4 - 3.0 * (nf - 1.0) * s2 * s2 / nf)
         / ((nf - 1.0) * (nf - 2.0) * (nf - 3.0));
     // pandas 对零方差列（常量列）返回 0.0 而非 NaN
-    if k2.abs() < 1e-30 { return 0.0; }
+    if k2.abs() < 1e-30 {
+        return 0.0;
+    }
     k4 / (k2 * k2)
 }
 
@@ -93,7 +111,9 @@ fn col_kurt(col: &[f64]) -> f64 {
 #[inline]
 fn col_median(col: &[f64]) -> f64 {
     let mut valid: Vec<f64> = col.iter().filter(|&&v| !v.is_nan()).copied().collect();
-    if valid.is_empty() { return f64::NAN; }
+    if valid.is_empty() {
+        return f64::NAN;
+    }
     valid.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let n = valid.len();
     if n % 2 == 0 {
@@ -108,10 +128,14 @@ fn col_median(col: &[f64]) -> f64 {
 #[inline]
 fn col_quantile(col: &[f64], q: f64) -> f64 {
     let mut valid: Vec<f64> = col.iter().filter(|&&v| !v.is_nan()).copied().collect();
-    if valid.is_empty() { return f64::NAN; }
+    if valid.is_empty() {
+        return f64::NAN;
+    }
     valid.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let n = valid.len();
-    if n == 1 { return valid[0]; }
+    if n == 1 {
+        return valid[0];
+    }
     // pandas 线性插值: pos = q*(n-1)
     let pos = q * (n - 1) as f64;
     let lower = pos.floor() as usize;
@@ -136,7 +160,9 @@ fn trend_1d(col: &[f64]) -> f64 {
         .map(|(i, &v)| (i + 1, v))
         .collect();
     let n = pairs.len();
-    if n < 2 { return 0.0; }
+    if n < 2 {
+        return 0.0;
+    }
     let mean_x: f64 = pairs.iter().map(|(x, _)| *x as f64).sum::<f64>() / n as f64;
     let mean_y: f64 = pairs.iter().map(|(_, y)| *y).sum::<f64>() / n as f64;
     let (mut cov, mut var_x, mut var_y) = (0.0, 0.0, 0.0);
@@ -147,7 +173,9 @@ fn trend_1d(col: &[f64]) -> f64 {
         var_x += dx * dx;
         var_y += dy * dy;
     }
-    if var_x == 0.0 || var_y == 0.0 { return 0.0; }
+    if var_x == 0.0 || var_y == 0.0 {
+        return 0.0;
+    }
     cov / (var_x.sqrt() * var_y.sqrt())
 }
 
@@ -161,7 +189,9 @@ fn corr_pair(col_i: &[f64], col_j: &[f64]) -> f64 {
         .map(|(&a, &b)| (a, b))
         .collect();
     let n = pairs.len();
-    if n < 2 { return f64::NAN; }
+    if n < 2 {
+        return f64::NAN;
+    }
     let mean_i: f64 = pairs.iter().map(|(i, _)| i).sum::<f64>() / n as f64;
     let mean_j: f64 = pairs.iter().map(|(_, j)| j).sum::<f64>() / n as f64;
     let (mut cov, mut var_i, mut var_j) = (0.0, 0.0, 0.0);
@@ -172,14 +202,18 @@ fn corr_pair(col_i: &[f64], col_j: &[f64]) -> f64 {
         var_i += di * di;
         var_j += dj * dj;
     }
-    if var_i == 0.0 || var_j == 0.0 { return f64::NAN; }
+    if var_i == 0.0 || var_j == 0.0 {
+        return f64::NAN;
+    }
     cov / (var_i.sqrt() * var_j.sqrt())
 }
 
 /// LZ 复杂度（精确复制自 lz_complexity.rs）。分位数离散化 [0.33, 0.66] + 归一化。
 fn lz_complexity_1d(col: &[f64]) -> f64 {
     let n = col.len();
-    if n == 0 { return 0.0; }
+    if n == 0 {
+        return 0.0;
+    }
 
     // 分位数离散化（quantiles=[0.33, 0.66]），精确复制 discretize_sequence
     let mut sorted: Vec<f64> = col.iter().copied().collect();
@@ -199,7 +233,9 @@ fn lz_complexity_1d(col: &[f64]) -> f64 {
 
     let mut discrete: Vec<u8> = Vec::with_capacity(n);
     for &val in col.iter() {
-        if val.is_nan() { return f64::NAN; }
+        if val.is_nan() {
+            return f64::NAN;
+        }
         let symbol = thresholds
             .iter()
             .enumerate()
@@ -215,11 +251,17 @@ fn lz_complexity_1d(col: &[f64]) -> f64 {
     // 唯一符号数
     let k_eff = {
         let mut s = std::collections::HashSet::new();
-        for &d in &discrete { s.insert(d); }
+        for &d in &discrete {
+            s.insert(d);
+        }
         s.len() as f64
     };
-    if n <= 1 { return 0.0; }
-    if k_eff < (quantiles.len() as f64 + 1.0) { return f64::NAN; }
+    if n <= 1 {
+        return 0.0;
+    }
+    if k_eff < (quantiles.len() as f64 + 1.0) {
+        return f64::NAN;
+    }
 
     let log_n_base_k = (n as f64).ln() / k_eff.ln();
     complexity as f64 * log_n_base_k / n as f64
@@ -228,15 +270,21 @@ fn lz_complexity_1d(col: &[f64]) -> f64 {
 /// LZ 复杂度核心调度（复制自 lz_complexity.rs 的 calculate_lz_complexity）。
 fn lz_calculate_complexity(seq: &[u8]) -> usize {
     let n = seq.len();
-    if n == 0 { return 0; }
-    if n <= 64 { return lz_complexity_simple(seq); }
+    if n == 0 {
+        return 0;
+    }
+    if n <= 64 {
+        return lz_complexity_simple(seq);
+    }
     lz_complexity_suffix_automaton(seq)
 }
 
 /// LZ 复杂度暴力版（精确复制自 lz_complexity.rs:663）。
 fn lz_complexity_simple(seq: &[u8]) -> usize {
     let n = seq.len();
-    if n == 0 { return 0; }
+    if n == 0 {
+        return 0;
+    }
     let mut complexity = 0;
     let mut i = 0;
     while i < n {
@@ -244,7 +292,9 @@ fn lz_complexity_simple(seq: &[u8]) -> usize {
         while j <= n {
             let sub_len = j - i;
             let search_end = j - 1;
-            if search_end < sub_len { break; }
+            if search_end < sub_len {
+                break;
+            }
             let mut found = false;
             for start_pos in 0..=(search_end - sub_len) {
                 if seq[start_pos..start_pos + sub_len] == seq[i..j] {
@@ -274,16 +324,25 @@ struct SamState {
 
 impl SamState {
     fn new(len: usize) -> Self {
-        Self { len, link: None, transitions: Vec::with_capacity(2) }
+        Self {
+            len,
+            link: None,
+            transitions: Vec::with_capacity(2),
+        }
     }
     #[inline]
     fn get(&self, c: u8) -> Option<usize> {
-        self.transitions.iter().find_map(|&(ch, state)| if ch == c { Some(state) } else { None })
+        self.transitions
+            .iter()
+            .find_map(|&(ch, state)| if ch == c { Some(state) } else { None })
     }
     #[inline]
     fn set(&mut self, c: u8, state: usize) {
         for (ch, target) in &mut self.transitions {
-            if *ch == c { *target = state; return; }
+            if *ch == c {
+                *target = state;
+                return;
+            }
         }
         self.transitions.push((c, state));
     }
@@ -310,7 +369,9 @@ impl SuffixAutomaton {
         self.states.push(SamState::new(cur_len));
         let mut p_opt = Some(self.last);
         while let Some(p_idx) = p_opt {
-            if self.states[p_idx].get(c).is_some() { break; }
+            if self.states[p_idx].get(c).is_some() {
+                break;
+            }
             self.states[p_idx].set(c, cur_index);
             p_opt = self.states[p_idx].link;
         }
@@ -345,7 +406,9 @@ impl SuffixAutomaton {
 /// LZ 复杂度后缀自动机版（精确复制自 lz_complexity.rs:267）。
 fn lz_complexity_suffix_automaton(seq: &[u8]) -> usize {
     let n = seq.len();
-    if n == 0 { return 0; }
+    if n == 0 {
+        return 0;
+    }
     let mut sam = SuffixAutomaton::with_capacity(2 * n);
     let mut complexity = 0;
     let mut i = 0;
@@ -377,18 +440,26 @@ fn lz_complexity_suffix_automaton(seq: &[u8]) -> usize {
 /// 分箱熵（复制自 entropy_analysis.rs）。等宽分箱 + Shannon 熵。
 fn binned_entropy_1d(col: &[f64], n_bins: usize) -> f64 {
     let valid: Vec<f64> = col.iter().filter(|&&v| !v.is_nan()).copied().collect();
-    if valid.is_empty() { return 0.0; }
-    if n_bins == 0 { return 0.0; }
+    if valid.is_empty() {
+        return 0.0;
+    }
+    if n_bins == 0 {
+        return 0.0;
+    }
 
     let min_val = valid.iter().fold(f64::INFINITY, |a, &b| a.min(b));
     let max_val = valid.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
-    if (max_val - min_val).abs() < f64::EPSILON { return 0.0; }
+    if (max_val - min_val).abs() < f64::EPSILON {
+        return 0.0;
+    }
 
     let bin_width = (max_val - min_val) / n_bins as f64;
     let mut counts: HashMap<usize, usize> = HashMap::new();
     for &v in &valid {
         let mut idx = ((v - min_val) / bin_width).floor() as usize;
-        if idx >= n_bins { idx = n_bins - 1; }
+        if idx >= n_bins {
+            idx = n_bins - 1;
+        }
         *counts.entry(idx).or_insert(0) += 1;
     }
     let total = valid.len() as f64;
@@ -396,7 +467,11 @@ fn binned_entropy_1d(col: &[f64], n_bins: usize) -> f64 {
         .values()
         .map(|&c| {
             let p = c as f64 / total;
-            if p > 0.0 { -p * p.ln() } else { 0.0 }
+            if p > 0.0 {
+                -p * p.ln()
+            } else {
+                0.0
+            }
         })
         .sum()
 }
@@ -408,7 +483,9 @@ fn max_range_product_strict(col: &[f64]) -> f64 {
     let valid: Vec<f64> = col.iter().filter(|&&v| !v.is_nan()).copied().collect();
     let n_total = col.len(); // Python 用 series.shape[0]（含NaN的原长度）
     let n = valid.len();
-    if n < 2 || n_total == 0 { return 0.0; }
+    if n < 2 || n_total == 0 {
+        return 0.0;
+    }
 
     let mut max_product = f64::NEG_INFINITY;
     let mut result = (0i64, 0i64);
@@ -420,7 +497,11 @@ fn max_range_product_strict(col: &[f64]) -> f64 {
             max_product = product;
             result = (left as i64, right as i64);
         }
-        if valid[left] < valid[right] { left += 1; } else { right -= 1; }
+        if valid[left] < valid[right] {
+            left += 1;
+        } else {
+            right -= 1;
+        }
     }
     for i in 0..n - 1 {
         let product = valid[i].min(valid[i + 1]) * 1.0;
@@ -450,6 +531,15 @@ fn max_range_product_strict(col: &[f64]) -> f64 {
 pub fn get_features_factors_rust(
     data: &ArrayView2<f64>,
     col_names: &[String],
+) -> (Vec<f64>, Vec<String>) {
+    get_features_factors_rust_full(data, col_names, true)
+}
+
+/// 带参数版本：with_threshold_counts 控制 mean_above_p90/mean_below_p10 是否输出。
+pub fn get_features_factors_rust_full(
+    data: &ArrayView2<f64>,
+    col_names: &[String],
+    with_threshold_counts: bool,
 ) -> (Vec<f64>, Vec<String>) {
     let (n_rows, n_cols) = data.dim();
 
@@ -485,20 +575,44 @@ pub fn get_features_factors_rust(
             // mean_above_p90 / mean_below_p10
             let mean_above_p90 = {
                 let (s, n) = c.iter().fold((0.0f64, 0usize), |(s, n), &v| {
-                    if !v.is_nan() && v > p90 { (s + v, n + 1) } else { (s, n) }
+                    if !v.is_nan() && v > p90 {
+                        (s + v, n + 1)
+                    } else {
+                        (s, n)
+                    }
                 });
-                if n == 0 { 0.0 } else { s / n as f64 }
+                if n == 0 {
+                    0.0
+                } else {
+                    s / n as f64
+                }
             };
             let mean_below_p10 = {
                 let (s, n) = c.iter().fold((0.0f64, 0usize), |(s, n), &v| {
-                    if !v.is_nan() && v < p10 { (s + v, n + 1) } else { (s, n) }
+                    if !v.is_nan() && v < p10 {
+                        (s + v, n + 1)
+                    } else {
+                        (s, n)
+                    }
                 });
-                if n == 0 { 0.0 } else { s / n as f64 }
+                if n == 0 {
+                    0.0
+                } else {
+                    s / n as f64
+                }
             };
             // period_compare
             let split = n_rows / 3;
-            let first_mean = if split > 0 { col_mean(&c[..split]) } else { f64::NAN };
-            let last_mean = if split > 0 { col_mean(&c[n_rows - split..]) } else { f64::NAN };
+            let first_mean = if split > 0 {
+                col_mean(&c[..split])
+            } else {
+                f64::NAN
+            };
+            let last_mean = if split > 0 {
+                col_mean(&c[n_rows - split..])
+            } else {
+                f64::NAN
+            };
             let period_diff = last_mean - first_mean;
             let period_ratio = last_mean / (first_mean.abs() + 1e-8);
             // trend
@@ -519,12 +633,26 @@ pub fn get_features_factors_rust(
             let max_range = max_range_product_strict(c);
 
             ColStats {
-                mean, median, std, skew, kurt,
-                p5, p25, p75, p95, iqr, cv,
-                autocorr1, trend,
-                period_diff, period_ratio,
-                mean_above_p90, mean_below_p10,
-                lz, entropy, max_range,
+                mean,
+                median,
+                std,
+                skew,
+                kurt,
+                p5,
+                p25,
+                p75,
+                p95,
+                iqr,
+                cv,
+                autocorr1,
+                trend,
+                period_diff,
+                period_ratio,
+                mean_above_p90,
+                mean_below_p10,
+                lz,
+                entropy,
+                max_range,
             }
         })
         .collect();
@@ -547,29 +675,148 @@ pub fn get_features_factors_rust(
     let mut names: Vec<String> = Vec::new();
 
     // 1. mean/median/std/skew/kurt
-    push_group(&mut res, &mut names, &col_stats.iter().map(|s| s.mean).collect::<Vec<_>>(), "mean", col_names);
-    push_group(&mut res, &mut names, &col_stats.iter().map(|s| s.median).collect::<Vec<_>>(), "median", col_names);
-    push_group(&mut res, &mut names, &col_stats.iter().map(|s| s.std).collect::<Vec<_>>(), "std", col_names);
-    push_group(&mut res, &mut names, &col_stats.iter().map(|s| s.skew).collect::<Vec<_>>(), "skew", col_names);
-    push_group(&mut res, &mut names, &col_stats.iter().map(|s| s.kurt).collect::<Vec<_>>(), "kurt", col_names);
+    push_group(
+        &mut res,
+        &mut names,
+        &col_stats.iter().map(|s| s.mean).collect::<Vec<_>>(),
+        "mean",
+        col_names,
+    );
+    push_group(
+        &mut res,
+        &mut names,
+        &col_stats.iter().map(|s| s.median).collect::<Vec<_>>(),
+        "median",
+        col_names,
+    );
+    push_group(
+        &mut res,
+        &mut names,
+        &col_stats.iter().map(|s| s.std).collect::<Vec<_>>(),
+        "std",
+        col_names,
+    );
+    push_group(
+        &mut res,
+        &mut names,
+        &col_stats.iter().map(|s| s.skew).collect::<Vec<_>>(),
+        "skew",
+        col_names,
+    );
+    push_group(
+        &mut res,
+        &mut names,
+        &col_stats.iter().map(|s| s.kurt).collect::<Vec<_>>(),
+        "kurt",
+        col_names,
+    );
     // 2. p5/p25/p75/p95/iqr/cv
-    push_group(&mut res, &mut names, &col_stats.iter().map(|s| s.p5).collect::<Vec<_>>(), "p5", col_names);
-    push_group(&mut res, &mut names, &col_stats.iter().map(|s| s.p25).collect::<Vec<_>>(), "p25", col_names);
-    push_group(&mut res, &mut names, &col_stats.iter().map(|s| s.p75).collect::<Vec<_>>(), "p75", col_names);
-    push_group(&mut res, &mut names, &col_stats.iter().map(|s| s.p95).collect::<Vec<_>>(), "p95", col_names);
-    push_group(&mut res, &mut names, &col_stats.iter().map(|s| s.iqr).collect::<Vec<_>>(), "iqr", col_names);
-    push_group(&mut res, &mut names, &col_stats.iter().map(|s| s.cv).collect::<Vec<_>>(), "cv", col_names);
+    push_group(
+        &mut res,
+        &mut names,
+        &col_stats.iter().map(|s| s.p5).collect::<Vec<_>>(),
+        "p5",
+        col_names,
+    );
+    push_group(
+        &mut res,
+        &mut names,
+        &col_stats.iter().map(|s| s.p25).collect::<Vec<_>>(),
+        "p25",
+        col_names,
+    );
+    push_group(
+        &mut res,
+        &mut names,
+        &col_stats.iter().map(|s| s.p75).collect::<Vec<_>>(),
+        "p75",
+        col_names,
+    );
+    push_group(
+        &mut res,
+        &mut names,
+        &col_stats.iter().map(|s| s.p95).collect::<Vec<_>>(),
+        "p95",
+        col_names,
+    );
+    push_group(
+        &mut res,
+        &mut names,
+        &col_stats.iter().map(|s| s.iqr).collect::<Vec<_>>(),
+        "iqr",
+        col_names,
+    );
+    push_group(
+        &mut res,
+        &mut names,
+        &col_stats.iter().map(|s| s.cv).collect::<Vec<_>>(),
+        "cv",
+        col_names,
+    );
     // 3. autocorr1 / autocorr1_abs
-    push_group(&mut res, &mut names, &col_stats.iter().map(|s| s.autocorr1).collect::<Vec<_>>(), "autocorr1", col_names);
-    push_group(&mut res, &mut names, &col_stats.iter().map(|s| s.autocorr1.abs()).collect::<Vec<_>>(), "autocorr1_abs", col_names);
+    push_group(
+        &mut res,
+        &mut names,
+        &col_stats.iter().map(|s| s.autocorr1).collect::<Vec<_>>(),
+        "autocorr1",
+        col_names,
+    );
+    push_group(
+        &mut res,
+        &mut names,
+        &col_stats
+            .iter()
+            .map(|s| s.autocorr1.abs())
+            .collect::<Vec<_>>(),
+        "autocorr1_abs",
+        col_names,
+    );
     // 4. trend
-    push_group(&mut res, &mut names, &col_stats.iter().map(|s| s.trend).collect::<Vec<_>>(), "trend", col_names);
+    push_group(
+        &mut res,
+        &mut names,
+        &col_stats.iter().map(|s| s.trend).collect::<Vec<_>>(),
+        "trend",
+        col_names,
+    );
     // 5. period_diff / period_ratio
-    push_group(&mut res, &mut names, &col_stats.iter().map(|s| s.period_diff).collect::<Vec<_>>(), "period_diff", col_names);
-    push_group(&mut res, &mut names, &col_stats.iter().map(|s| s.period_ratio).collect::<Vec<_>>(), "period_ratio", col_names);
-    // 6. mean_above_p90 / mean_below_p10
-    push_group(&mut res, &mut names, &col_stats.iter().map(|s| s.mean_above_p90).collect::<Vec<_>>(), "mean_above_p90", col_names);
-    push_group(&mut res, &mut names, &col_stats.iter().map(|s| s.mean_below_p10).collect::<Vec<_>>(), "mean_below_p10", col_names);
+    push_group(
+        &mut res,
+        &mut names,
+        &col_stats.iter().map(|s| s.period_diff).collect::<Vec<_>>(),
+        "period_diff",
+        col_names,
+    );
+    push_group(
+        &mut res,
+        &mut names,
+        &col_stats.iter().map(|s| s.period_ratio).collect::<Vec<_>>(),
+        "period_ratio",
+        col_names,
+    );
+    // 6. mean_above_p90 / mean_below_p10（可选）
+    if with_threshold_counts {
+        push_group(
+            &mut res,
+            &mut names,
+            &col_stats
+                .iter()
+                .map(|s| s.mean_above_p90)
+                .collect::<Vec<_>>(),
+            "mean_above_p90",
+            col_names,
+        );
+        push_group(
+            &mut res,
+            &mut names,
+            &col_stats
+                .iter()
+                .map(|s| s.mean_below_p10)
+                .collect::<Vec<_>>(),
+            "mean_below_p10",
+            col_names,
+        );
+    }
 
     // 7. corr 矩阵上三角
     if n_cols >= 2 {
@@ -584,9 +831,27 @@ pub fn get_features_factors_rust(
     }
 
     // 8. lz_complexity / entropy_1d / max_range_product（关闭 lyapunov）
-    push_group(&mut res, &mut names, &col_stats.iter().map(|s| s.lz).collect::<Vec<_>>(), "lz_complexity", col_names);
-    push_group(&mut res, &mut names, &col_stats.iter().map(|s| s.entropy).collect::<Vec<_>>(), "entropy_1d", col_names);
-    push_group(&mut res, &mut names, &col_stats.iter().map(|s| s.max_range).collect::<Vec<_>>(), "max_range_product", col_names);
+    push_group(
+        &mut res,
+        &mut names,
+        &col_stats.iter().map(|s| s.lz).collect::<Vec<_>>(),
+        "lz_complexity",
+        col_names,
+    );
+    push_group(
+        &mut res,
+        &mut names,
+        &col_stats.iter().map(|s| s.entropy).collect::<Vec<_>>(),
+        "entropy_1d",
+        col_names,
+    );
+    push_group(
+        &mut res,
+        &mut names,
+        &col_stats.iter().map(|s| s.max_range).collect::<Vec<_>>(),
+        "max_range_product",
+        col_names,
+    );
 
     (res, names)
 }

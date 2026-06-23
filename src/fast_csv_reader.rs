@@ -68,7 +68,10 @@ const COL_BID_ORDER: usize = 14;
 fn resolve_stock_path(date: i64, subdir: &str, filename: &str) -> std::io::Result<String> {
     // 环境变量优先
     if let Ok(env_path) = std::env::var("RUST_PYFUNC_LEVEL2_PATH") {
-        let p = Path::new(&env_path).join(date.to_string()).join(subdir).join(filename);
+        let p = Path::new(&env_path)
+            .join(date.to_string())
+            .join(subdir)
+            .join(filename);
         if p.exists() {
             return Ok(p.to_string_lossy().into_owned());
         }
@@ -79,7 +82,10 @@ fn resolve_stock_path(date: i64, subdir: &str, filename: &str) -> std::io::Resul
     }
     // 默认两路径
     for root in ["/ssd_data/stock", "/nas197/binary/stock/sz_alpha/stock"] {
-        let p = Path::new(root).join(date.to_string()).join(subdir).join(filename);
+        let p = Path::new(root)
+            .join(date.to_string())
+            .join(subdir)
+            .join(filename);
         if p.exists() {
             return Ok(p.to_string_lossy().into_owned());
         }
@@ -116,7 +122,11 @@ fn parse_i64_fast(bytes: &[u8]) -> i64 {
         val = val * 10 + (c - b'0') as i64;
         i += 1;
     }
-    if neg { -val } else { val }
+    if neg {
+        -val
+    } else {
+        val
+    }
 }
 
 /// 手写快速解析 f64。优先尝试整数快速路径，失败再走 std 解析。
@@ -127,8 +137,14 @@ fn parse_f64_fast(bytes: &[u8]) -> f64 {
     let mut has_exp = false;
     let mut all_digits_or_sign = true;
     for (i, &c) in bytes.iter().enumerate() {
-        if c == b'.' { has_dot = true; continue; }
-        if c == b'e' || c == b'E' { has_exp = true; continue; }
+        if c == b'.' {
+            has_dot = true;
+            continue;
+        }
+        if c == b'e' || c == b'E' {
+            has_exp = true;
+            continue;
+        }
         if c == b'-' || c == b'+' {
             // 仅首位或 e 后允许
             if i != 0 && bytes[i - 1] != b'e' && bytes[i - 1] != b'E' {
@@ -151,7 +167,10 @@ fn parse_f64_fast(bytes: &[u8]) -> f64 {
         return parse_decimal_fast(bytes);
     }
     // 退化到 std（处理科学计数、inf、nan、空串等）
-    std::str::from_utf8(bytes).ok().and_then(|s| s.trim().parse::<f64>().ok()).unwrap_or(f64::NAN)
+    std::str::from_utf8(bytes)
+        .ok()
+        .and_then(|s| s.trim().parse::<f64>().ok())
+        .unwrap_or(f64::NAN)
 }
 
 /// 手写小数 f64 解析（如 "12.34"、"-0.00001"）。
@@ -159,8 +178,12 @@ fn parse_f64_fast(bytes: &[u8]) -> f64 {
 fn parse_decimal_fast(bytes: &[u8]) -> f64 {
     let mut i = 0;
     let mut neg = false;
-    if i < bytes.len() && (bytes[i] == b'-') { neg = true; i += 1; }
-    else if i < bytes.len() && bytes[i] == b'+' { i += 1; }
+    if i < bytes.len() && (bytes[i] == b'-') {
+        neg = true;
+        i += 1;
+    } else if i < bytes.len() && bytes[i] == b'+' {
+        i += 1;
+    }
     let mut int_part: f64 = 0.0;
     while i < bytes.len() && bytes[i] >= b'0' && bytes[i] <= b'9' {
         int_part = int_part * 10.0 + (bytes[i] - b'0') as f64;
@@ -177,7 +200,9 @@ fn parse_decimal_fast(bytes: &[u8]) -> f64 {
         }
     }
     let mut result = int_part + frac / frac_scale;
-    if neg { result = -result; }
+    if neg {
+        result = -result;
+    }
     result
 }
 
@@ -186,11 +211,7 @@ fn parse_decimal_fast(bytes: &[u8]) -> f64 {
 /// with_retreat=false 时过滤 flag==32；exchtime 微秒整数转 epoch 秒；
 /// with_afternoon_adjust=true 时做下午时段平移（时间超出 [09:30,11:30]∪[13:00,14:57] 的行被过滤）。
 #[inline]
-fn parse_line(
-    line: &[u8],
-    with_retreat: bool,
-    with_afternoon_adjust: bool,
-) -> Option<TradeRecord> {
+fn parse_line(line: &[u8], with_retreat: bool, with_afternoon_adjust: bool) -> Option<TradeRecord> {
     if line.is_empty() {
         return None;
     }
@@ -201,12 +222,16 @@ fn parse_line(
     let mut col = 0usize;
     for (i, &b) in line.iter().enumerate() {
         if b == b',' {
-            if col < 15 { fields[col] = &line[start..i]; }
+            if col < 15 {
+                fields[col] = &line[start..i];
+            }
             col += 1;
             start = i + 1;
         }
     }
-    if col < 15 { fields[col] = &line[start..]; }
+    if col < 15 {
+        fields[col] = &line[start..];
+    }
 
     // 解析 flag
     let flag_bytes = fields[COL_FLAG];
@@ -215,7 +240,11 @@ fn parse_line(
     if !with_retreat && flag_bytes == b"32" {
         return None;
     }
-    let flag = if flag_bytes.is_empty() { 0 } else { parse_i64_fast(flag_bytes) as i32 };
+    let flag = if flag_bytes.is_empty() {
+        0
+    } else {
+        parse_i64_fast(flag_bytes) as i32
+    };
 
     // exchtime：微秒整数（UTC）→ 带交易所时区偏移的 epoch 整数秒。
     // 与 read_trade + hm90.go 的 prepare() 语义对齐：
@@ -309,7 +338,11 @@ pub fn read_trade_fast_inner(
     let data = &mmap[..];
 
     // 跳过表头行
-    let body_start = data.iter().position(|&b| b == b'\n').map(|p| p + 1).unwrap_or(0);
+    let body_start = data
+        .iter()
+        .position(|&b| b == b'\n')
+        .map(|p| p + 1)
+        .unwrap_or(0);
 
     // 切分块数：基于文件大小和可用 CPU 数决定，避免过度切分
     let n_threads = rayon::current_num_threads().min(32).max(1);
@@ -319,7 +352,11 @@ pub fn read_trade_fast_inner(
         .map(|i| {
             let start = body_start + i * chunk_size;
             let raw_end = start + chunk_size;
-            let start = if i == 0 { start } else { find_line_boundary(data, start) };
+            let start = if i == 0 {
+                start
+            } else {
+                find_line_boundary(data, start)
+            };
             let end = if i == n_threads - 1 {
                 data.len()
             } else {
@@ -355,7 +392,11 @@ fn parse_chunk(data: &[u8], with_retreat: bool, with_afternoon_adjust: bool) -> 
         if data[i] == b'\n' {
             let line = &data[start..i];
             // 去掉行尾 \r
-            let line = if line.last() == Some(&b'\r') { &line[..line.len() - 1] } else { line };
+            let line = if line.last() == Some(&b'\r') {
+                &line[..line.len() - 1]
+            } else {
+                line
+            };
             if let Some(rec) = parse_line(line, with_retreat, with_afternoon_adjust) {
                 out.push(rec);
             }
@@ -365,7 +406,11 @@ fn parse_chunk(data: &[u8], with_retreat: bool, with_afternoon_adjust: bool) -> 
     // 处理最后一段（无结尾换行的情况）
     if start < data.len() {
         let line = &data[start..];
-        let line = if line.last() == Some(&b'\r') { &line[..line.len() - 1] } else { line };
+        let line = if line.last() == Some(&b'\r') {
+            &line[..line.len() - 1]
+        } else {
+            line
+        };
         if let Some(rec) = parse_line(line, with_retreat, with_afternoon_adjust) {
             out.push(rec);
         }
@@ -448,6 +493,8 @@ const MKT_COL_HIGH_LIMITED: usize = 12;
 const MKT_COL_LOW_LIMITED: usize = 13;
 const MKT_COL_VOLUME: usize = 14;
 const MKT_COL_TURNOVER: usize = 15;
+const MKT_COL_TOTAL_ASK_VOL: usize = 19;
+const MKT_COL_TOTAL_BID_VOL: usize = 20;
 const MKT_COL_ASK_PRC_BASE: usize = 21; // ask_prc1=21, ask_vol1=22, bid_prc1=23, bid_vol1=24, ...
 
 /// 单条 market_data 快照记录（已预处理）。
@@ -459,6 +506,10 @@ pub struct MarketRecord {
     pub last_prc: f64,
     pub volume: f64,
     pub turnover: f64,
+    /// 全部档位卖单挂单量（含 10 档之外）
+    pub total_ask_vol: f64,
+    /// 全部档位买单挂单量（含 10 档之外）
+    pub total_bid_vol: f64,
     /// 10 档卖价 [ask_prc1, ..., ask_prc10]
     pub ask_prcs: [f64; 10],
     /// 10 档卖量
@@ -549,6 +600,8 @@ fn parse_market_line(
         last_prc: parse_f64_fast(fields[MKT_COL_LAST_PRC]),
         volume: parse_f64_fast(fields[MKT_COL_VOLUME]),
         turnover: parse_f64_fast(fields[MKT_COL_TURNOVER]),
+        total_ask_vol: parse_f64_fast(fields[MKT_COL_TOTAL_ASK_VOL]),
+        total_bid_vol: parse_f64_fast(fields[MKT_COL_TOTAL_BID_VOL]),
         ask_prcs,
         ask_vols,
         bid_prcs,
@@ -573,7 +626,8 @@ fn parse_market_chunk(
             } else {
                 line
             };
-            if let Some(rec) = parse_market_line(line, with_high_low_limited, with_afternoon_adjust) {
+            if let Some(rec) = parse_market_line(line, with_high_low_limited, with_afternoon_adjust)
+            {
                 out.push(rec);
             }
             start = i + 1;
@@ -636,7 +690,11 @@ pub fn read_market_fast_inner(
         .map(|i| {
             let start = body_start + i * chunk_size;
             let raw_end = start + chunk_size;
-            let start = if i == 0 { start } else { find_line_boundary(data, start) };
+            let start = if i == 0 {
+                start
+            } else {
+                find_line_boundary(data, start)
+            };
             let end = if i == n_threads - 1 {
                 data.len()
             } else {
@@ -649,7 +707,9 @@ pub fn read_market_fast_inner(
 
     let mut partials: Vec<Vec<MarketRecord>> = chunks
         .par_iter()
-        .map(|&(s, e)| parse_market_chunk(&data[s..e], with_high_low_limited, with_afternoon_adjust))
+        .map(|&(s, e)| {
+            parse_market_chunk(&data[s..e], with_high_low_limited, with_afternoon_adjust)
+        })
         .collect();
 
     let total: usize = partials.iter().map(|v| v.len()).sum();
