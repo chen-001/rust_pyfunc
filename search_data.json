@@ -1307,6 +1307,11 @@
     "params": []
   },
   {
+    "name": "py_compute_observable_order_metrics",
+    "description": "<p>Python 可调用：py_compute_observable_order_metrics(code, date, params_dict=None)</p>\n<p>返回 dict:\n  {\n    \"bid_A\": {\"seg_flat\": list[f64], \"seg_rows\": int,\n             \"pre5_flat\": list[f64], \"pre5_rows\": int, \"ncols\": int},\n    ...\n  }\nseg_flat 为 row-major 展平的 (seg_rows × NCOLS)，Python 端 reshape 即可。</p>",
+    "params": []
+  },
+  {
     "name": "query_backup",
     "description": "<p>无文档</p>",
     "params": []
@@ -1622,18 +1627,8 @@
   },
   {
     "name": "run_factor_pipeline",
-    "description": "<p>Python 入口：run_factor_pipeline。</p>",
-    "params": [
-      "pipeline",
-      "tasks",
-      "n_jobs",
-      "backup_file",
-      "expected_result_length",
-      "trading_days",
-      "params",
-      "update_mode",
-      "bind_cores"
-    ]
+    "description": "<ul>\n<li>tasks: [[date, code], ...]</li>\n<li>n_jobs: 并行线程数（默认 200）</li>\n<li>backup_file: 备份文件路径</li>\n<li>expected_result_length: 每个任务的预期结果长度</li>\n<li>trading_days: 交易日历数组（由 rp.td.trading_days 提供）</li>\n<li>params: 可选参数 dict（tolerance_v1, tolerance_v2）</li>\n<li>update_mode: 断点续算（默认 False）</li>\n<li>bind_cores: 是否核绑定（默认 True）</li>\n</ul>",
+    "params": []
   },
   {
     "name": "run_pools_queue",

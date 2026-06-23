@@ -2170,6 +2170,19 @@ Uses Euclidean distance for k-nearest neighbor search</p></div>
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="py_compute_observable_order_metrics.html">py_compute_observable_order_metrics</a></h3>
+                <div><p>Python 可调用：py_compute_observable_order_metrics(code, date, params_dict=None)</p>
+<p>返回 dict:
+  {
+    "bid_A": {"seg_flat": list[f64], "seg_rows": int,
+             "pre5_flat": list[f64], "pre5_rows": int, "ncols": int},
+    ...
+  }
+seg_flat 为 row-major 展平的 (seg_rows × NCOLS)，Python 端 reshape 即可。</p></div>
+                <a href="py_compute_observable_order_metrics.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="query_backup.html">query_backup</a></h3>
                 <div><p>无文档</p></div>
                 <a href="query_backup.html">查看详情</a>
@@ -2675,7 +2688,16 @@ quantile=0.9: 90%分位数分割，只有前10%最高成交量为1</p></div>
             
             <div class="function-item">
                 <h3 class="function-name"><a href="run_factor_pipeline.html">run_factor_pipeline</a></h3>
-                <div><p>Python 入口：run_factor_pipeline。</p></div>
+                <div><ul>
+<li>tasks: [[date, code], ...]</li>
+<li>n_jobs: 并行线程数（默认 200）</li>
+<li>backup_file: 备份文件路径</li>
+<li>expected_result_length: 每个任务的预期结果长度</li>
+<li>trading_days: 交易日历数组（由 rp.td.trading_days 提供）</li>
+<li>params: 可选参数 dict（tolerance_v1, tolerance_v2）</li>
+<li>update_mode: 断点续算（默认 False）</li>
+<li>bind_cores: 是否核绑定（默认 True）</li>
+</ul></div>
                 <a href="run_factor_pipeline.html">查看详情</a>
             </div>
             
