@@ -457,6 +457,12 @@ s.rolling_past('2s').trend_time()  # 计算前面2秒内的趋势</p>
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="TailV5LegacyStyleData.html">TailV5LegacyStyleData</a></h3>
+                <div><p>无文档</p></div>
+                <a href="TailV5LegacyStyleData.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="TradingDay.html">TradingDay</a></h3>
                 <div><p>交易日历类, 从CSV文件加载交易日并支持各种查询操作</p>
 <h2>Parameters</h2>
@@ -1388,6 +1394,55 @@ print(distances.shape)  # (240,)
 <li>每个观测值对应的分组号(1到groups_num)</li>
 </ul></div>
                 <a href="factor_grouping.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="factor_store_v5_decompress_inplace.html">factor_store_v5_decompress_inplace</a></h3>
+                <div><p>把压缩 chunk 的 colblk 转换为不压缩格式（就地转换，原地重写文件）。
+压缩比仅 1.15× 但解压 55min/遍，不压缩后 Reader 可直接 mmap 随机读。
+转换过程：遍历所有压缩 chunk → 解压 → 重新写为 compressed_size=0 的不压缩 chunk。</p></div>
+                <a href="factor_store_v5_decompress_inplace.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="factor_store_v5_export_factors_parquet.html">factor_store_v5_export_factors_parquet</a></h3>
+                <div><p>把 colblk 存储中指定因子（按因子名）批量导出为 parquet 文件。
+每个因子一个 parquet，schema = date(Int64) + 每个股票一列(Float64)，
+与现有 export_backup_to_parquet_rust 输出格式完全一致，保证 postprocess 兼容。</p>
+<p>供 design_whatever tail_v5 在候选筛选后导出入选因子给 fulltest/materialize。</p></div>
+                <a href="factor_store_v5_export_factors_parquet.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="factor_store_v5_info.html">factor_store_v5_info</a></h3>
+                <div><p>查询列式存储的元信息（因子名、记录数、是否已投影）</p></div>
+                <a href="factor_store_v5_info.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="factor_store_v5_open.html">factor_store_v5_open</a></h3>
+                <div><p>创建/打开列式因子存储写入器（Python 侧主要供测试用；正式流程由 run_factor_pipeline 内部调用）</p></div>
+                <a href="factor_store_v5_open.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="factor_store_v5_project_only.html">factor_store_v5_project_only</a></h3>
+                <div><p>对已有 colblk 存储触发投影（不重新计算）。
+用于计算已完成但投影失败/中断的场景。流式投影，内存可控。</p></div>
+                <a href="factor_store_v5_project_only.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="factor_store_v5_read_factor.html">factor_store_v5_read_factor</a></h3>
+                <div><p>读取第 col_idx 个因子为扁平数组（date_id[], code_id[], factor[]），供测试/调试</p></div>
+                <a href="factor_store_v5_read_factor.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="factor_store_v5_template.html">factor_store_v5_template</a></h3>
+                <div><p>从 colblk 存储推断回测模板轴：返回去重排序的 dates（int 数组）和 stocks（带 .SZ/.SH 后缀）。
+供 design_whatever 的 tail_v5 替代 v4 的 pandas 读 parquet 推断模板。</p></div>
+                <a href="factor_store_v5_template.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -2935,6 +2990,24 @@ print(f"super加速比: {time1/time3:.2f}倍")
                 <h3 class="function-name"><a href="tail_v4_run_fulltest_queue.html">tail_v4_run_fulltest_queue</a></h3>
                 <div><p>无文档</p></div>
                 <a href="tail_v4_run_fulltest_queue.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="tail_v5_neutralize_block_exact.html">tail_v5_neutralize_block_exact</a></h3>
+                <div><p>无文档</p></div>
+                <a href="tail_v5_neutralize_block_exact.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="tail_v5_run_candidates.html">tail_v5_run_candidates</a></h3>
+                <div><p>无文档</p></div>
+                <a href="tail_v5_run_candidates.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="tail_v5_run_fulltest_queue.html">tail_v5_run_fulltest_queue</a></h3>
+                <div><p>无文档</p></div>
+                <a href="tail_v5_run_fulltest_queue.html">查看详情</a>
             </div>
             
             <div class="function-item">

@@ -25,6 +25,11 @@
     "params": []
   },
   {
+    "name": "TailV5LegacyStyleData",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
     "name": "TradingDay",
     "description": "<p>交易日历类, 从CSV文件加载交易日并支持各种查询操作</p>\n<h2>Parameters</h2>\n<p>input_file : str, optional\n    交易日历CSV文件路径, 默认通过 _resolve_calendar_path 搜索 calendar.csv\nstart_date : int, optional\n    起始日期, 格式 %Y%m%d, 如 20200101\nend_date : int, optional\n    截止日期, 格式 %Y%m%d, 如 20201231</p>\n<h2>Attributes</h2>\n<p>trading_days : numpy.ndarray[int]\n    有序交易日数组\ndate_map : dict[int, int]\n    日期 -&gt; 在 trading_days 中的索引</p>",
     "params": []
@@ -724,6 +729,41 @@
   {
     "name": "factor_grouping",
     "description": "<p>按日期对因子值进行分组</p>\n<h1>Arguments</h1>\n<ul>\n<li><code>dates</code> - 日期时间戳数组</li>\n<li><code>factors</code> - 因子值数组</li>\n<li><code>groups_num</code> - 分组数量，默认为10</li>\n</ul>\n<h1>Returns</h1>\n<ul>\n<li>每个观测值对应的分组号(1到groups_num)</li>\n</ul>",
+    "params": []
+  },
+  {
+    "name": "factor_store_v5_decompress_inplace",
+    "description": "<p>把压缩 chunk 的 colblk 转换为不压缩格式（就地转换，原地重写文件）。\n压缩比仅 1.15× 但解压 55min/遍，不压缩后 Reader 可直接 mmap 随机读。\n转换过程：遍历所有压缩 chunk → 解压 → 重新写为 compressed_size=0 的不压缩 chunk。</p>",
+    "params": []
+  },
+  {
+    "name": "factor_store_v5_export_factors_parquet",
+    "description": "<p>把 colblk 存储中指定因子（按因子名）批量导出为 parquet 文件。\n每个因子一个 parquet，schema = date(Int64) + 每个股票一列(Float64)，\n与现有 export_backup_to_parquet_rust 输出格式完全一致，保证 postprocess 兼容。</p>\n<p>供 design_whatever tail_v5 在候选筛选后导出入选因子给 fulltest/materialize。</p>",
+    "params": []
+  },
+  {
+    "name": "factor_store_v5_info",
+    "description": "<p>查询列式存储的元信息（因子名、记录数、是否已投影）</p>",
+    "params": []
+  },
+  {
+    "name": "factor_store_v5_open",
+    "description": "<p>创建/打开列式因子存储写入器（Python 侧主要供测试用；正式流程由 run_factor_pipeline 内部调用）</p>",
+    "params": []
+  },
+  {
+    "name": "factor_store_v5_project_only",
+    "description": "<p>对已有 colblk 存储触发投影（不重新计算）。\n用于计算已完成但投影失败/中断的场景。流式投影，内存可控。</p>",
+    "params": []
+  },
+  {
+    "name": "factor_store_v5_read_factor",
+    "description": "<p>读取第 col_idx 个因子为扁平数组（date_id[], code_id[], factor[]），供测试/调试</p>",
+    "params": []
+  },
+  {
+    "name": "factor_store_v5_template",
+    "description": "<p>从 colblk 存储推断回测模板轴：返回去重排序的 dates（int 数组）和 stocks（带 .SZ/.SH 后缀）。\n供 design_whatever 的 tail_v5 替代 v4 的 pandas 读 parquet 推断模板。</p>",
     "params": []
   },
   {
@@ -1796,6 +1836,21 @@
   },
   {
     "name": "tail_v4_run_fulltest_queue",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "tail_v5_neutralize_block_exact",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "tail_v5_run_candidates",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "tail_v5_run_fulltest_queue",
     "description": "<p>无文档</p>",
     "params": []
   },
