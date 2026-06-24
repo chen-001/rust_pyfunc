@@ -77,7 +77,7 @@ pub fn pipeline_order_pair_hm90(
     params: &Hm90Params,
     trading_days: &[i64],
     expected_len: usize,
-) -> Vec<f64> {
+) -> Vec<f32> {
     // 1. 读取今日 + 昨日数据（CSV 解析，含 afternoon 调整）。
     // 注意：parallel_threshold 设为 usize::MAX 禁用内部 rayon 并行，
     // 因为外层 run_factor_pipeline 已用自定义 pool 做任务级并行（n_jobs=200）。
@@ -112,15 +112,17 @@ pub fn pipeline_order_pair_hm90(
     // 3. get_features_factors（纯 Rust，rayon 列级并行，关闭 lyapunov）
     // 空结果矩阵（0 配对）时返回半量 NaN，保证总长度 = expected_len
     let half = expected_len / 2;
-    let (vals1, _) = if result1.nrows() == 0 {
+    let result1_f32 = result1.mapv(|v| v as f32);
+    let result2_f32 = result2.mapv(|v| v as f32);
+    let (vals1, _) = if result1_f32.nrows() == 0 {
         (nan_vec(half), vec![])
     } else {
-        features::get_features_factors_rust(&result1.view(), &cols1)
+        features::get_features_factors_rust(&result1_f32.view(), &cols1)
     };
-    let (vals2, _) = if result2.nrows() == 0 {
+    let (vals2, _) = if result2_f32.nrows() == 0 {
         (nan_vec(half), vec![])
     } else {
-        features::get_features_factors_rust(&result2.view(), &cols2)
+        features::get_features_factors_rust(&result2_f32.view(), &cols2)
     };
 
     // 4. 拼接返回
@@ -167,13 +169,13 @@ pub fn pipeline_observable_order(
     ooparams: &ObservableOrderParams,
     _trading_days: &[i64],
     expected_len: usize,
-) -> Vec<f64> {
+) -> Vec<f32> {
     // 1. 调核心计算（4 套配置）
     let obs_params = observable_order_metrics::ObsOrderParams {
-        q: ooparams.q,
+        q: ooparams.q as f32,
         drop_min: ooparams.drop_min,
-        forward_sec: ooparams.forward_sec,
-        pre_minutes: ooparams.pre_minutes,
+        forward_sec: ooparams.forward_sec as f32,
+        pre_minutes: ooparams.pre_minutes as f32,
         rolling_n: ooparams.rolling_n,
         autocorr_lag: ooparams.autocorr_lag,
     };
@@ -193,7 +195,7 @@ pub fn pipeline_observable_order(
 
     // 3. 对 4 套配置 × 4 种数组(seg/pre5/diff/abs_diff) = 16 组各算 get_features_factors
     let keys = ["bid_A", "bid_B", "ask_A", "ask_B"];
-    let mut all_factors: Vec<f64> = Vec::with_capacity(expected_len);
+    let mut all_factors: Vec<f32> = Vec::with_capacity(expected_len);
 
     for (ci, _key) in keys.iter().enumerate() {
         let (seg_flat, seg_rows, pre5_flat, pre5_rows) = &results[ci];
@@ -234,7 +236,7 @@ pub fn pipeline_observable_order(
 
     // 长度校准：若实际长度与 expected_len 不符，用 NaN 填充或截断
     if all_factors.len() < expected_len {
-        all_factors.resize(expected_len, f64::NAN);
+        all_factors.resize(expected_len, f32::NAN);
     } else if all_factors.len() > expected_len {
         all_factors.truncate(expected_len);
     }
@@ -242,7 +244,7 @@ pub fn pipeline_observable_order(
 }
 
 /// 把展平的 Vec<f64> 转为 ndarray::Array2。
-fn slice_to_array2(data: &[f64], rows: usize, cols: usize) -> ndarray::Array2<f64> {
+fn slice_to_array2(data: &[f32], rows: usize, cols: usize) -> ndarray::Array2<f32> {
     if rows == 0 || cols == 0 {
         return ndarray::Array2::zeros((0, cols));
     }
@@ -251,12 +253,12 @@ fn slice_to_array2(data: &[f64], rows: usize, cols: usize) -> ndarray::Array2<f6
 }
 
 /// 把 (n_rows × NCOLS) 的展平数据按 keep 索引过滤为 (n_rows × keep.len()) 的 Array2。
-fn filter_array2(data: &[f64], n_rows: usize, keep: &[usize]) -> ndarray::Array2<f64> {
+fn filter_array2(data: &[f32], n_rows: usize, keep: &[usize]) -> ndarray::Array2<f32> {
     let ncols = observable_order_metrics::NCOLS;
     if n_rows == 0 || keep.is_empty() {
         return ndarray::Array2::zeros((0, keep.len()));
     }
-    let mut out = vec![0.0f64; n_rows * keep.len()];
+    let mut out = vec![0.0f32; n_rows * keep.len()];
     for r in 0..n_rows {
         for (j, &c) in keep.iter().enumerate() {
             out[r * keep.len() + j] = data[r * ncols + c];
@@ -348,8 +350,8 @@ fn build_col_names() -> Vec<String> {
 }
 
 /// 生成 NaN 填充向量（错误回退）。
-fn nan_vec(len: usize) -> Vec<f64> {
-    vec![f64::NAN; len]
+fn nan_vec(len: usize) -> Vec<f32> {
+    vec![f32::NAN; len]
 }
 
 /// Python 入口：run_factor_pipeline。
@@ -405,7 +407,8 @@ fn parse_observable_order_params(py: Python, params: &PyObject) -> PyResult<Obse
 #[pyo3(signature = (
     pipeline, tasks, n_jobs, backup_file, expected_result_length, trading_days,
     params=None, update_mode=None, bind_cores=true, backup_batch_size=None, progress_log=None, mode=None,
-    export_names=None, export_dir=None, export_n_jobs=80
+    export_names=None, export_dir=None, export_n_jobs=80,
+    store_dir=None, store_factor_names=None
 ))]
 #[allow(clippy::too_many_arguments)]
 pub fn run_factor_pipeline(
@@ -424,6 +427,8 @@ pub fn run_factor_pipeline(
     export_names: Option<Vec<String>>,
     export_dir: Option<String>,
     export_n_jobs: usize,
+    store_dir: Option<String>,
+    store_factor_names: Option<Vec<String>>,
 ) -> PyResult<PyObject> {
     let py = unsafe { Python::assume_gil_acquired() };
 
@@ -438,8 +443,17 @@ pub fn run_factor_pipeline(
 
     let update_mode_enabled = update_mode.unwrap_or(false);
     let progress_log_enabled = progress_log.unwrap_or(false);
-    let batch_size = backup_batch_size.unwrap_or(2000);
+    let batch_size = backup_batch_size.unwrap_or(500);
     let mode = mode.unwrap_or_else(|| "multiprocess".to_string());
+    let n_shards = 8;
+    let sharded_sink: Option<crate::factor_store_v5::ShardedBackupSink> = if let Some(ref sdir) = store_dir {
+        let snames = store_factor_names.clone().unwrap_or_else(|| {
+            (0..expected_result_length).map(|i| format!("factor_{i}")).collect()
+        });
+        Some(crate::factor_store_v5::ShardedBackupSink::new_colblk_sharded(sdir, &snames, n_shards)
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("打开 colblk 存储失败: {}", e)))?)
+    } else { None };
+    let sink: crate::factor_store_v5::BackupSink = crate::factor_store_v5::BackupSink::new_bin(backup_file.clone(), expected_result_length);
 
     // 解析参数（按 pipeline 名选不同 Params）
     let hm90_params = if pipeline_name == "order_pair_hm90" {
@@ -479,8 +493,11 @@ pub fn run_factor_pipeline(
     let pending: Vec<(i64, String)> = if update_mode_enabled {
         let task_dates: std::collections::HashSet<i64> =
             all_tasks.iter().map(|(d, _)| *d).collect();
-        let existing = read_existing_backup_with_filter(&backup_file, Some(&task_dates))
-            .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("读取备份失败: {}", e)))?;
+        let existing = if let Some(ref ss) = sharded_sink {
+            ss.check_completed().map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("读取备份失败: {}", e)))?
+        } else {
+            sink.check_completed().map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("读取备份失败: {}", e)))?
+        };
         all_tasks
             .into_iter()
             .filter(|(d, c)| !existing.contains(&(*d, c.clone())))
@@ -502,7 +519,8 @@ pub fn run_factor_pipeline(
                 py,
                 pending,
                 n_jobs,
-                backup_file.clone(),
+                sink.clone_handle(),
+                sharded_sink.clone(),
                 expected_result_length,
                 trading_days,
                 hm90_params,
@@ -513,8 +531,9 @@ pub fn run_factor_pipeline(
                 progress_log_enabled,
                 &worker_bin,
             )?;
-            // multiprocess 计算完成后，可选导出 parquet
-            if let Some(ref names) = export_names {
+            if let Some(ref ss) = sharded_sink {
+                ss.finish_and_project(export_n_jobs).map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("投影失败: {}", e)))?;
+            } else if let Some(ref names) = export_names {
                 let dir = export_dir.clone().unwrap_or_else(|| {
                     let ver = std::path::Path::new(&backup_file)
                         .file_stem()
@@ -608,7 +627,7 @@ pub fn run_factor_pipeline(
                         date,
                         code,
                         timestamp: 0,
-                        facs: vals,
+                        facs: vals.clone(),
                     };
 
                     // 累积结果，达 batch_size 时批量写 backup
@@ -928,7 +947,8 @@ fn run_multiprocess_v2(
     py: Python<'_>,
     pending: Vec<(i64, String)>,
     n_jobs: usize,
-    backup_file: String,
+    sink: crate::factor_store_v5::BackupSink,
+    sharded_sink: Option<crate::factor_store_v5::ShardedBackupSink>,
     expected_result_length: usize,
     trading_days: Vec<i64>,
     params: Hm90Params,
@@ -946,7 +966,6 @@ fn run_multiprocess_v2(
     let trading_days_arc = std::sync::Arc::new(trading_days);
     let completed = std::sync::Arc::new(AtomicUsize::new(0));
     let start = std::time::Instant::now();
-    let backup_file_arc = std::sync::Arc::new(backup_file.clone());
 
     py.allow_threads(|| -> PyResult<()> {
         // 任务队列（crossbeam MPMC，支持多消费者竞争 recv）
@@ -957,7 +976,7 @@ fn run_multiprocess_v2(
         drop(task_tx);
 
         // 结果 channel（worker 线程 → collector 线程）
-        let (result_tx, result_rx) = std::sync::mpsc::channel::<TaskResult>();
+        let (result_tx, result_rx) = std::sync::mpsc::sync_channel::<TaskResult>(n_jobs * 2);
 
         // 核绑定信息
         let core_ids = if bind_cores {
@@ -1015,8 +1034,8 @@ fn run_multiprocess_v2(
 
         // collector 线程：收集结果，批量写 backup
         let collector_handle = {
-            let backup_file = backup_file_arc.clone();
-            let expected_len = expected_result_length;
+            let sink_c = sink.clone_handle();
+            let sharded_c = sharded_sink.clone();
             let completed_cloned = completed.clone();
             let backup_intervals_cloned = backup_intervals.clone();
             std::thread::spawn(move || {
@@ -1027,7 +1046,7 @@ fn run_multiprocess_v2(
                     let _done = completed_cloned.fetch_add(1, Ordering::Relaxed) + 1;
                     if buf.len() >= batch_size {
                         let batch: Vec<TaskResult> = buf.drain(..).collect();
-                        let _ = save_results_to_backup(&batch, &backup_file, expected_len);
+                        let _ = if let Some(ref ss) = sharded_c { ss.append_batch(&batch) } else { sink_c.append_batch(&batch) };
                         // 记录本次备份间隔
                         let interval = last_flush.elapsed().as_secs_f64();
                         last_flush = std::time::Instant::now();
@@ -1035,7 +1054,7 @@ fn run_multiprocess_v2(
                     }
                 }
                 if !buf.is_empty() {
-                    let _ = save_results_to_backup(&buf, &backup_file, expected_len);
+                    let _ = if let Some(ref ss) = sharded_c { ss.append_batch(&buf) } else { sink_c.append_batch(&buf) };
                 }
             })
         };
@@ -1070,7 +1089,7 @@ fn run_single_worker_manager(
     worker_bin: &str,
     worker_idx: usize,
     task_rx: crossbeam::channel::Receiver<(i64, String)>,
-    result_tx: std::sync::mpsc::Sender<TaskResult>,
+    result_tx: std::sync::mpsc::SyncSender<TaskResult>,
     params: &Hm90Params,
     oo_params: &ObservableOrderParams,
     pipeline_name: &str,
@@ -1108,8 +1127,8 @@ fn run_single_worker_manager(
 
         let stdin = child.stdin.take().unwrap();
         let stdout = child.stdout.take().unwrap();
-        let mut writer = BufWriter::new(stdin);
-        let mut reader = BufReader::new(stdout);
+        let mut writer = BufWriter::with_capacity(1 << 20, stdin);
+        let mut reader = BufReader::with_capacity(1 << 20, stdout);
 
         // 发送 Init 消息
         let init_msg = TaskMessage::Init {
@@ -1157,7 +1176,7 @@ fn run_single_worker_manager(
                     date,
                     code,
                     timestamp: 0,
-                    facs: vec![f64::NAN],
+                    facs: vec![f32::NAN],
                 });
                 let _ = child.kill();
                 continue 'outer;
@@ -1177,7 +1196,7 @@ fn run_single_worker_manager(
                         date,
                         code,
                         timestamp: 0,
-                        facs: vec![f64::NAN],
+                        facs: vec![f32::NAN],
                     });
                 }
                 Ok(ResultMessage::Ready) => {
@@ -1190,7 +1209,7 @@ fn run_single_worker_manager(
                         date,
                         code,
                         timestamp: 0,
-                        facs: vec![f64::NAN],
+                        facs: vec![f32::NAN],
                     });
                     let _ = child.kill();
                     continue 'outer;

@@ -21,10 +21,10 @@ fn array_to_fast_records(trades: ArrayView2<f64>) -> Vec<fast_csv_reader::TradeR
     let mut out = Vec::with_capacity(n);
     for i in 0..n {
         out.push(fast_csv_reader::TradeRecord {
-            time_sec: trades[[i, 0]],
-            price: trades[[i, 1]],
-            volume: trades[[i, 2]],
-            turnover: trades[[i, 3]],
+            time_sec: trades[[i, 0]] as f32,
+            price: trades[[i, 1]] as f32,
+            volume: trades[[i, 2]] as f32,
+            turnover: trades[[i, 3]] as f32,
             flag: trades[[i, 4]] as i32,
             bid_order: trades[[i, 5]] as i64,
             ask_order: trades[[i, 6]] as i64,
@@ -385,10 +385,10 @@ fn parse_trades_from_fast(records: &[fast_csv_reader::TradeRecord]) -> Vec<Trade
     records
         .iter()
         .map(|r| TradeRecord {
-            time: r.time_sec,
-            price: r.price,
-            volume: r.volume,
-            turnover: r.turnover,
+            time: r.time_sec as f64,
+            price: r.price as f64,
+            volume: r.volume as f64,
+            turnover: r.turnover as f64,
             flag: r.flag,
             bid_order: r.bid_order,
             ask_order: r.ask_order,

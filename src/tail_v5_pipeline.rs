@@ -1,0 +1,2938 @@
+use std::cmp::Ordering;
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::fs::{self, File, OpenOptions};
+use std::io::{BufRead, BufReader, BufWriter, Read, Write};
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::{Duration, Instant};
+
+use arrow::array::{
+    Array, Float32Array, Float64Array, Int32Array, Int64Array, TimestampMicrosecondArray,
+    TimestampMillisecondArray, TimestampNanosecondArray,
+};
+use chrono::{Datelike, NaiveDateTime};
+use crossbeam::channel::{unbounded, Receiver, RecvTimeoutError, Sender};
+use ndarray::{s, Array1, Array2, Array3, ArrayView1, ArrayView2, ArrayView3};
+use ndarray_npy::{read_npy, write_npy};
+use numpy::IntoPyArray;
+#[cfg(feature = "hdf5")]
+use hdf5_metno as hdf5;
+use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use pyo3::exceptions::{PyRuntimeError, PyValueError};
+use pyo3::prelude::*;
+use pyo3::types::PyDict;
+use serde::{Deserialize, Serialize};
+
+use crate::factor_neutralization_io_optimized::IOOptimizedStyleData;
+use crate::tail_v2_rank_roll_factor::rank_roll_block_f32_with_parallel;
+
+#[cfg(target_family = "unix")]
+use nix::sys::signal::{kill, Signal};
+#[cfg(target_family = "unix")]
+use nix::unistd::Pid;
+
+const EPS: f64 = 1e-12;
+const DEFAULT_TAIL_V4_FULLTEST_IDLE_TIMEOUT_SECS: u64 = 1800;
+const TAIL_V5_FULLTEST_RESULT_POLL_SECS: u64 = 1;
+
+type TailV4PidRegistry = Arc<Mutex<HashMap<usize, u32>>>;
+
+struct TailV4WorkerPidGuard {
+    registry: TailV4PidRegistry,
+    worker_id: usize,
+}
+
+impl TailV4WorkerPidGuard {
+    fn new(registry: TailV4PidRegistry, worker_id: usize, pid: u32) -> Self {
+        if let Ok(mut guard) = registry.lock() {
+            guard.insert(worker_id, pid);
+        }
+        Self {
+            registry,
+            worker_id,
+        }
+    }
+}
+
+impl Drop for TailV4WorkerPidGuard {
+    fn drop(&mut self) {
+        if let Ok(mut guard) = self.registry.lock() {
+            guard.remove(&self.worker_id);
+        }
+    }
+}
+
+fn format_hms(total_secs: u64) -> (u64, u64, u64) {
+    let hours = total_secs / 3600;
+    let minutes = (total_secs % 3600) / 60;
+    let seconds = total_secs % 60;
+    (hours, minutes, seconds)
+}
+
+#[derive(Clone)]
+struct TailSelectionConfig {
+    cover_rate: f64,
+    ret_point_neu_gap5: f64,
+    ret_point_neu_gap1: f64,
+    ic_point_neu_gap5: f64,
+    ic_point_neu_gap1: f64,
+    ret_point_gap5: f64,
+    ret_point_gap1: f64,
+    ic_point_gap5: f64,
+    ic_point_gap1: f64,
+    ic_more_important_gap5: Option<f64>,
+    ic_more_important_gap1: Option<f64>,
+    majority_count_threshold: f64,
+    zero_max_threshold: f64,
+    nan_max_threshold: f64,
+}
+
+#[derive(Clone)]
+struct SharedInputs {
+    dates: Arc<Vec<i32>>,
+    stocks: Arc<Vec<String>>,
+    windows: Arc<Vec<usize>>,
+    fold: bool,
+    min_valid: usize,
+    backtest_start: i32,
+    legacy_style_data: Arc<IOOptimizedStyleData>,
+    ret_gap1: Arc<Array2<f32>>,
+    ret_sum_gap1: Arc<Array2<f32>>,
+    ret_gap5: Arc<Array2<f32>>,
+    ret_sum_gap5: Arc<Array2<f32>>,
+    restrict: Arc<Array2<f32>>,
+    index_ret: Arc<Array1<f32>>,
+    config: Arc<TailSelectionConfig>,
+}
+
+#[derive(Clone)]
+struct TailTask {
+    source_factor: String,
+    factor_path: String,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct SummaryRowRecord {
+    factor_name: String,
+    stage: String,
+    gap: i32,
+    source_factor: String,
+    #[serde(rename = "IC_mean")]
+    ic_mean: f64,
+    #[serde(rename = "IR")]
+    ir: f64,
+    annualized_return: f64,
+    sharpe_ratio: f64,
+    max_drawdown: f64,
+    date_size: i32,
+    ratio_mean: f64,
+    hedge_annualized_return: f64,
+    hedge_annualized_sharpe_ratio: f64,
+    hedge_max_drawdown: f64,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct IcRecord {
+    factor_name: String,
+    #[serde(default)]
+    dates: Vec<i32>,
+    values: Vec<f32>,
+}
+
+#[derive(Serialize, Deserialize, Default, Clone)]
+struct TailTaskResult {
+    source_factor: String,
+    raw_summary_gap1: Vec<SummaryRowRecord>,
+    raw_summary_gap5: Vec<SummaryRowRecord>,
+    neu_summary_gap1: Vec<SummaryRowRecord>,
+    neu_summary_gap5: Vec<SummaryRowRecord>,
+    raw_ic_gap1: Vec<IcRecord>,
+    raw_ic_gap5: Vec<IcRecord>,
+    neu_ic_gap1: Vec<IcRecord>,
+    neu_ic_gap5: Vec<IcRecord>,
+    derived_factor_count: usize,
+    #[serde(default)]
+    passed: bool,
+    #[serde(default)]
+    eliminated_by_raw_cover: bool,
+    #[serde(default)]
+    any_window_passed_preflight: bool,
+    #[serde(default)]
+    preflight_maj_failed_windows: usize,
+    #[serde(default)]
+    preflight_zero_failed_windows: usize,
+    #[serde(default)]
+    preflight_nan_failed_windows: usize,
+}
+
+#[derive(Default)]
+struct AggregatedCandidates {
+    raw_summary_gap1: Vec<SummaryRowRecord>,
+    raw_summary_gap5: Vec<SummaryRowRecord>,
+    neu_summary_gap1: Vec<SummaryRowRecord>,
+    neu_summary_gap5: Vec<SummaryRowRecord>,
+    raw_ic_gap1: HashMap<String, IcRecord>,
+    raw_ic_gap5: HashMap<String, IcRecord>,
+    neu_ic_gap1: HashMap<String, IcRecord>,
+    neu_ic_gap5: HashMap<String, IcRecord>,
+}
+
+impl AggregatedCandidates {
+    fn merge_task(&mut self, task: TailTaskResult) {
+        self.raw_summary_gap1.extend(task.raw_summary_gap1);
+        self.raw_summary_gap5.extend(task.raw_summary_gap5);
+        self.neu_summary_gap1.extend(task.neu_summary_gap1);
+        self.neu_summary_gap5.extend(task.neu_summary_gap5);
+        for record in task.raw_ic_gap1 {
+            self.raw_ic_gap1
+                .insert(record.factor_name.clone(), record);
+        }
+        for record in task.raw_ic_gap5 {
+            self.raw_ic_gap5
+                .insert(record.factor_name.clone(), record);
+        }
+        for record in task.neu_ic_gap1 {
+            self.neu_ic_gap1
+                .insert(record.factor_name.clone(), record);
+        }
+        for record in task.neu_ic_gap5 {
+            self.neu_ic_gap5
+                .insert(record.factor_name.clone(), record);
+        }
+    }
+}
+
+#[derive(Clone)]
+struct LegacyBacktestResult {
+    summary: [f64; 10],
+    ic_dates: Vec<i32>,
+    ic_values: Vec<f32>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct TailV4FulltestTask {
+    task_key: String,
+    factor_name: String,
+    stage: String,
+    gap: i32,
+}
+
+#[derive(Serialize, Deserialize)]
+struct TailV4FulltestWorkerConfig {
+    ver: String,
+    temp_root: String,
+    source_dir: String,
+    factor_names: Vec<String>,
+    start_date: String,
+    backtest_start_date: String,
+    end_date: String,
+    style_data_path: String,
+    min_valid: usize,
+    index_name: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct TailV4FulltestWorkerResult {
+    ok: bool,
+    task_key: String,
+    factor_name: String,
+    stage: String,
+    gap: i32,
+    error: Option<String>,
+}
+
+fn nanmean_f64(values: &[f64]) -> f64 {
+    let mut sum = 0.0;
+    let mut count = 0usize;
+    for &value in values {
+        if !value.is_nan() {
+            sum += value;
+            count += 1;
+        }
+    }
+    if count == 0 {
+        f64::NAN
+    } else {
+        sum / count as f64
+    }
+}
+
+fn nanstd_population(values: &[f64]) -> f64 {
+    let mean = nanmean_f64(values);
+    if mean.is_nan() {
+        return f64::NAN;
+    }
+    let mut sq_sum = 0.0;
+    let mut count = 0usize;
+    for &value in values {
+        if !value.is_nan() {
+            let delta = value - mean;
+            sq_sum += delta * delta;
+            count += 1;
+        }
+    }
+    if count == 0 {
+        f64::NAN
+    } else {
+        (sq_sum / count as f64).sqrt()
+    }
+}
+
+fn sample_std(values: &[f64]) -> f64 {
+    let mut count = 0usize;
+    let mut sum = 0.0;
+    for &value in values {
+        if !value.is_nan() {
+            sum += value;
+            count += 1;
+        }
+    }
+    if count < 2 {
+        return f64::NAN;
+    }
+    let mean = sum / count as f64;
+    let mut sq_sum = 0.0;
+    for &value in values {
+        if !value.is_nan() {
+            let delta = value - mean;
+            sq_sum += delta * delta;
+        }
+    }
+    (sq_sum / (count as f64 - 1.0)).sqrt()
+}
+
+fn annualized_sharpe_sample(values: &[f64]) -> f64 {
+    let std = sample_std(values);
+    if std.is_nan() || std <= EPS {
+        return f64::NAN;
+    }
+    nanmean_f64(values) / std * 250.0_f64.sqrt()
+}
+
+fn max_drawdown_from_returns(values: &[f64]) -> f64 {
+    let mut cumulative = 0.0;
+    let mut peak = 0.0;
+    let mut max_drawdown = 0.0;
+    for &value in values {
+        if !value.is_nan() {
+            cumulative += value;
+        }
+        if cumulative > peak {
+            peak = cumulative;
+        }
+        let drawdown = peak - cumulative;
+        if drawdown > max_drawdown {
+            max_drawdown = drawdown;
+        }
+    }
+    max_drawdown
+}
+
+fn average_ranks(values: &[f32]) -> Vec<f64> {
+    let mut indexed = values
+        .iter()
+        .copied()
+        .enumerate()
+        .collect::<Vec<(usize, f32)>>();
+    indexed.sort_by(|lhs, rhs| {
+        lhs.1
+            .partial_cmp(&rhs.1)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| lhs.0.cmp(&rhs.0))
+    });
+
+    let mut ranks = vec![f64::NAN; values.len()];
+    let mut start = 0usize;
+    while start < indexed.len() {
+        let value = indexed[start].1;
+        let mut end = start + 1;
+        while end < indexed.len() && indexed[end].1 == value {
+            end += 1;
+        }
+        let avg_rank = (start + 1 + end) as f64 / 2.0;
+        for item in indexed.iter().take(end).skip(start) {
+            ranks[item.0] = avg_rank;
+        }
+        start = end;
+    }
+    ranks
+}
+
+fn ordinal_ranks(values: &[f32]) -> Vec<i64> {
+    let mut indexed = values
+        .iter()
+        .copied()
+        .enumerate()
+        .collect::<Vec<(usize, f32)>>();
+    indexed.sort_by(|lhs, rhs| {
+        match (lhs.1.is_nan(), rhs.1.is_nan()) {
+            (true, true) => lhs.0.cmp(&rhs.0),
+            (true, false) => Ordering::Greater,
+            (false, true) => Ordering::Less,
+            (false, false) => lhs
+                .1
+                .partial_cmp(&rhs.1)
+                .unwrap_or(Ordering::Equal)
+                .then_with(|| lhs.0.cmp(&rhs.0)),
+        }
+    });
+    let mut ranks = vec![0i64; values.len()];
+    for (rank, (idx, _)) in indexed.iter().enumerate() {
+        ranks[*idx] = rank as i64;
+    }
+    ranks
+}
+
+fn legacy_spearman_correlation(x: &[f32], y: &[f32]) -> f64 {
+    if x.len() != y.len() || x.len() < 2 {
+        return f64::NAN;
+    }
+    let xx = ordinal_ranks(x);
+    let yy = ordinal_ranks(y);
+    let n = x.len() as f64;
+    let mut diff_sq_sum = 0.0;
+    for idx in 0..x.len() {
+        let diff = xx[idx] - yy[idx];
+        diff_sq_sum += (diff * diff) as f64;
+    }
+    1.0 - 6.0 * diff_sq_sum / (n * (n * n - 1.0))
+}
+
+fn count_open_symbols(restrict_row: &[f32]) -> usize {
+    restrict_row
+        .iter()
+        .filter(|&&value| value.is_finite() && value == 0.0)
+        .count()
+}
+
+fn has_enough_unique_values(
+    factor: &ArrayView3<'_, f32>,
+    slot_idx: usize,
+    min_unique: usize,
+) -> bool {
+    let mut seen = HashSet::<u32>::new();
+    for raw_idx in 0..factor.shape()[0].saturating_sub(1) {
+        for stock_idx in 0..factor.shape()[1] {
+            let value = factor[[raw_idx, stock_idx, slot_idx]];
+            if value.is_finite() {
+                seen.insert(value.to_bits());
+                if seen.len() >= min_unique {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+struct PreflightReport {
+    passed: bool,
+    majority_count_mean: f64,
+    zero_ratio_mean: f64,
+    nan_ratio_mean: f64,
+}
+
+fn preflight_quality_check(
+    raw_values: &ArrayView2<f32>,
+    restrict: &ArrayView2<f32>,
+    majority_count_threshold: f64,
+    zero_max_threshold: f64,
+    nan_max_threshold: f64,
+) -> PreflightReport {
+    let n_dates = raw_values.shape()[0];
+    let n_stocks = raw_values.shape()[1];
+    let mut majority_sum: f64 = 0.0;
+    let mut nan_ratio_sum: f64 = 0.0;
+    let mut zero_ratio_sum: f64 = 0.0;
+    let mut valid_date_count: usize = 0;
+
+    for t in 0..n_dates {
+        let mut value_counts: HashMap<u32, usize> = HashMap::new();
+        let mut free_count: usize = 0;
+        let mut nan_count: usize = 0;
+        let mut zero_count: usize = 0;
+
+        for s in 0..n_stocks {
+            let val = raw_values[[t, s]];
+            let is_free = restrict[[t, s]].is_finite() && restrict[[t, s]] == 0.0;
+
+            if is_free {
+                free_count += 1;
+                if !val.is_finite() {
+                    nan_count += 1;
+                } else if val == 0.0 {
+                    zero_count += 1;
+                }
+            }
+
+            if val.is_finite() {
+                *value_counts.entry(val.to_bits()).or_insert(0) += 1;
+            }
+        }
+
+        let max_count = value_counts.values().max().copied().unwrap_or(0);
+        majority_sum += max_count as f64;
+
+        if free_count > 0 {
+            nan_ratio_sum += nan_count as f64 / free_count as f64;
+            zero_ratio_sum += zero_count as f64 / free_count as f64;
+            valid_date_count += 1;
+        }
+    }
+
+    let majority_count_mean = if n_dates > 0 {
+        majority_sum / n_dates as f64
+    } else {
+        0.0
+    };
+    let nan_ratio_mean = if valid_date_count > 0 {
+        nan_ratio_sum / valid_date_count as f64
+    } else {
+        0.0
+    };
+    let zero_ratio_mean = if valid_date_count > 0 {
+        zero_ratio_sum / valid_date_count as f64
+    } else {
+        0.0
+    };
+
+    PreflightReport {
+        passed: majority_count_mean <= majority_count_threshold
+            && zero_ratio_mean < zero_max_threshold
+            && nan_ratio_mean < nan_max_threshold,
+        majority_count_mean,
+        zero_ratio_mean,
+        nan_ratio_mean,
+    }
+}
+
+fn compute_raw_cover_rate(
+    raw_values: &ArrayView2<f32>,
+    restrict: &ArrayView2<f32>,
+    ret: &ArrayView2<f32>,
+    min_stocks: usize,
+) -> f64 {
+    let n_dates = raw_values.shape()[0];
+    let n_stocks = raw_values.shape()[1];
+    let mut ratios: Vec<f64> = Vec::new();
+
+    for t in 0..n_dates {
+        let mut free_count: usize = 0;
+        let mut valid_count: usize = 0;
+        for s in 0..n_stocks {
+            let is_free = restrict[[t, s]].is_finite() && restrict[[t, s]] == 0.0;
+            if is_free {
+                free_count += 1;
+                if !raw_values[[t, s]].is_nan() && ret[[t, s]].is_finite() {
+                    valid_count += 1;
+                }
+            }
+        }
+        if free_count > 0 && valid_count >= min_stocks {
+            ratios.push(valid_count as f64 / free_count as f64);
+        }
+    }
+
+    if ratios.is_empty() {
+        1.0
+    } else {
+        ratios.iter().sum::<f64>() / ratios.len() as f64
+    }
+}
+
+fn legacy_backtest_single_factor(
+    factor: &ArrayView3<'_, f32>,
+    ret: &ArrayView2<'_, f32>,
+    ret_sum: &ArrayView2<'_, f32>,
+    restrict: &ArrayView2<'_, f32>,
+    index: &ArrayView1<'_, f32>,
+    dates: &[i32],
+    backtest_start: i32,
+    slot_idx: usize,
+    gap: usize,
+    portf_num: usize,
+) -> LegacyBacktestResult {
+    let default_result = LegacyBacktestResult {
+        summary: [f64::NAN; 10],
+        ic_dates: Vec::new(),
+        ic_values: Vec::new(),
+    };
+    if factor.shape()[0] < 2 || gap == 0 || portf_num == 0 {
+        return default_result;
+    }
+    if !has_enough_unique_values(factor, slot_idx, 10) {
+        return default_result;
+    }
+
+    let n_dates = factor.shape()[0];
+    let n_stocks = factor.shape()[1];
+    let mut effective_raw_indices = Vec::<usize>::new();
+    for raw_eff_idx in 1..n_dates {
+        if dates[raw_eff_idx] <= backtest_start {
+            continue;
+        }
+        let signal_row_idx = raw_eff_idx - 1;
+        let mut all_nan = true;
+        for stock_idx in 0..n_stocks {
+            if factor[[signal_row_idx, stock_idx, slot_idx]].is_finite() {
+                all_nan = false;
+                break;
+            }
+        }
+        if !all_nan {
+            effective_raw_indices.push(raw_eff_idx);
+        }
+    }
+    if effective_raw_indices.is_empty() {
+        return default_result;
+    }
+
+    let date_size = effective_raw_indices.len();
+    let mut group_returns = vec![vec![0.0_f64; date_size]; portf_num];
+    let mut ratio_values = vec![f64::NAN; date_size];
+    let mut ic_dates = Vec::<i32>::new();
+    let mut ic_values_f64 = Vec::<f64>::new();
+    let mut ic_values_f32 = Vec::<f32>::new();
+    let mut filtered_signal = Vec::<f32>::with_capacity(n_stocks);
+    let mut filtered_ret = Vec::<f32>::with_capacity(n_stocks);
+    let mut filtered_future = Vec::<f32>::with_capacity(n_stocks);
+    let mut group_sums = vec![0.0_f64; portf_num];
+    let mut group_counts = vec![0usize; portf_num];
+    let mut held_signal_row_idx = effective_raw_indices[0] - 1;
+    let mut held_restrict_row_idx = effective_raw_indices[0] - 1;
+
+    for (local_t, &raw_eff_idx) in effective_raw_indices.iter().enumerate() {
+        if local_t % gap == 0 {
+            held_signal_row_idx = raw_eff_idx - 1;
+            held_restrict_row_idx = raw_eff_idx - 1;
+        }
+
+        filtered_signal.clear();
+        filtered_ret.clear();
+        filtered_future.clear();
+        for stock_idx in 0..n_stocks {
+            let signal_value = factor[[held_signal_row_idx, stock_idx, slot_idx]];
+            let ret_value = ret[[raw_eff_idx, stock_idx]];
+            let is_open = restrict[[held_restrict_row_idx, stock_idx]].is_finite()
+                && restrict[[held_restrict_row_idx, stock_idx]] == 0.0;
+            if signal_value.is_finite() && ret_value.is_finite() && is_open {
+                filtered_signal.push(signal_value);
+                filtered_ret.push(ret_value);
+                filtered_future.push(ret_sum[[raw_eff_idx, stock_idx]]);
+            }
+        }
+
+        if (local_t + 1) % gap == 0 {
+            let ic_value = legacy_spearman_correlation(&filtered_future, &filtered_signal);
+            ic_dates.push(dates[raw_eff_idx]);
+            ic_values_f64.push(ic_value);
+            ic_values_f32.push(ic_value as f32);
+        }
+
+        let stocks_num = filtered_signal.len();
+        if stocks_num < portf_num {
+            continue;
+        }
+
+        let valid_symbol_num = count_open_symbols(restrict.row(raw_eff_idx - 1).as_slice().unwrap_or(&[]));
+        if valid_symbol_num > 0 {
+            ratio_values[local_t] = stocks_num as f64 / valid_symbol_num as f64;
+        }
+
+        group_sums.fill(0.0);
+        group_counts.fill(0);
+        let ranks = average_ranks(&filtered_signal);
+        for idx in 0..stocks_num {
+            let pct = ranks[idx] / stocks_num as f64;
+            let mut bucket = (pct * portf_num as f64).floor() as usize;
+            if bucket >= portf_num {
+                bucket = portf_num - 1;
+            }
+            group_sums[bucket] += filtered_ret[idx] as f64;
+            group_counts[bucket] += 1;
+        }
+        for bucket in 0..portf_num {
+            group_returns[bucket][local_t] = if group_counts[bucket] == 0 {
+                0.0
+            } else {
+                group_sums[bucket] / group_counts[bucket] as f64
+            };
+        }
+    }
+
+    let first_leg_cum = group_returns[0].iter().sum::<f64>();
+    let last_leg_cum = group_returns[portf_num - 1].iter().sum::<f64>();
+    let (long_idx, short_idx) = if first_leg_cum > last_leg_cum {
+        (0usize, portf_num - 1)
+    } else {
+        (portf_num - 1, 0usize)
+    };
+
+    let mut ls_returns = vec![0.0_f64; date_size];
+    let mut hedge_returns = vec![0.0_f64; date_size];
+    for (local_t, &raw_eff_idx) in effective_raw_indices.iter().enumerate() {
+        let long_ret = group_returns[long_idx][local_t];
+        let short_ret = group_returns[short_idx][local_t];
+        ls_returns[local_t] = long_ret - short_ret;
+        hedge_returns[local_t] = long_ret - index[raw_eff_idx] as f64;
+    }
+
+    let ic_mean = nanmean_f64(&ic_values_f64);
+    let ic_std = nanstd_population(&ic_values_f64);
+    let ir = if ic_std.is_nan() || ic_std <= EPS {
+        f64::NAN
+    } else {
+        ic_mean.abs() / ic_std * (250.0 / gap as f64).sqrt()
+    };
+    let summary = [
+        ic_mean,
+        ir,
+        nanmean_f64(&ls_returns) * 250.0,
+        annualized_sharpe_sample(&ls_returns),
+        max_drawdown_from_returns(&ls_returns),
+        date_size as f64,
+        nanmean_f64(&ratio_values),
+        nanmean_f64(&hedge_returns) * 250.0,
+        annualized_sharpe_sample(&hedge_returns),
+        max_drawdown_from_returns(&hedge_returns),
+    ];
+    LegacyBacktestResult {
+        summary,
+        ic_dates,
+        ic_values: ic_values_f32,
+    }
+}
+
+fn legacy_backtest_block_f32(
+    factor: ArrayView3<'_, f32>,
+    ret: ArrayView2<'_, f32>,
+    ret_sum: ArrayView2<'_, f32>,
+    restrict: ArrayView2<'_, f32>,
+    index: ArrayView1<'_, f32>,
+    dates: &[i32],
+    backtest_start: i32,
+    gap: usize,
+    portf_num: usize,
+) -> Result<Vec<LegacyBacktestResult>, String> {
+    if gap == 0 {
+        return Err("gap 必须大于 0".to_string());
+    }
+    if portf_num == 0 {
+        return Err("portf_num 必须大于 0".to_string());
+    }
+    let n_dates = factor.shape()[0];
+    let n_stocks = factor.shape()[1];
+    if ret.shape() != [n_dates, n_stocks]
+        || ret_sum.shape() != [n_dates, n_stocks]
+        || restrict.shape() != [n_dates, n_stocks]
+        || index.len() != n_dates
+        || dates.len() != n_dates
+    {
+        return Err("legacy backtest 输入形状不匹配".to_string());
+    }
+
+    let n_factors = factor.shape()[2];
+    let mut results = Vec::with_capacity(n_factors);
+    for slot_idx in 0..n_factors {
+        results.push(legacy_backtest_single_factor(
+            &factor,
+            &ret,
+            &ret_sum,
+            &restrict,
+            &index,
+            dates,
+            backtest_start,
+            slot_idx,
+            gap,
+            portf_num,
+        ));
+    }
+    Ok(results)
+}
+
+fn factor_result_path(task_results_dir: &Path, source_factor: &str) -> PathBuf {
+    task_results_dir.join(format!("{}.msgpack", source_factor))
+}
+
+fn write_task_result(path: &Path, result: &TailTaskResult) -> Result<(), String> {
+    let tmp_path = path.with_extension("msgpack.tmp");
+    let bytes = rmp_serde::to_vec_named(result).map_err(|e| format!("序列化任务结果失败: {}", e))?;
+    fs::write(&tmp_path, bytes).map_err(|e| format!("写入任务结果失败: {}", e))?;
+    fs::rename(&tmp_path, path).map_err(|e| format!("原子替换任务结果失败: {}", e))?;
+    Ok(())
+}
+
+fn read_task_result(path: &Path) -> Result<TailTaskResult, String> {
+    let bytes = fs::read(path).map_err(|e| format!("读取任务结果失败: {}", e))?;
+    rmp_serde::from_slice::<TailTaskResult>(&bytes).map_err(|e| format!("解析任务结果失败: {}", e))
+}
+
+fn append_completed_source(completed_log_path: &Path, source_factor: &str) -> Result<(), String> {
+    if let Some(parent) = completed_log_path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("创建日志目录失败: {}", e))?;
+    }
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(completed_log_path)
+        .map_err(|e| format!("打开 completed log 失败: {}", e))?;
+    writeln!(file, "{}", source_factor).map_err(|e| format!("写 completed log 失败: {}", e))?;
+    Ok(())
+}
+
+fn sanitize_task_component(value: &str) -> String {
+    value.chars()
+        .map(|ch| match ch {
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '-' => ch,
+            _ => '_',
+        })
+        .collect()
+}
+
+fn fulltest_task_key(stage: &str, gap: i32, factor_name: &str) -> String {
+    format!("{}_gap{}_{}", stage, gap, sanitize_task_component(factor_name))
+}
+
+fn fulltest_done_path(done_dir: &Path, task: &TailV4FulltestTask) -> PathBuf {
+    done_dir.join(format!("{}.json", task.task_key))
+}
+
+fn write_fulltest_done(path: &Path, task: &TailV4FulltestTask) -> Result<(), String> {
+    let tmp_path = path.with_extension("json.tmp");
+    let payload = serde_json::json!({
+        "task_key": task.task_key,
+        "factor_name": task.factor_name,
+        "stage": task.stage,
+        "gap": task.gap,
+    });
+    fs::write(&tmp_path, serde_json::to_vec_pretty(&payload).map_err(|e| format!("序列化 fulltest done 失败: {}", e))?)
+        .map_err(|e| format!("写入 fulltest done 失败: {}", e))?;
+    fs::rename(&tmp_path, path).map_err(|e| format!("原子替换 fulltest done 失败: {}", e))?;
+    Ok(())
+}
+
+fn tail_v4_fulltest_idle_timeout() -> Duration {
+    std::env::var("TAIL_V4_FULLTEST_IDLE_TIMEOUT_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|secs| *secs > 0)
+        .map(Duration::from_secs)
+        .unwrap_or_else(|| Duration::from_secs(DEFAULT_TAIL_V4_FULLTEST_IDLE_TIMEOUT_SECS))
+}
+
+fn kill_tail_v4_fulltest_workers(pid_registry: &TailV4PidRegistry) {
+    let pids: Vec<u32> = pid_registry
+        .lock()
+        .map(|guard| guard.values().copied().collect())
+        .unwrap_or_default();
+
+    #[cfg(target_family = "unix")]
+    for pid in pids {
+        let _ = kill(Pid::from_raw(pid as i32), Signal::SIGKILL);
+    }
+}
+
+fn create_tail_v4_fulltest_worker_script() -> String {
+    r#"#!/usr/bin/env python3
+import os
+import sys
+
+project_root = os.environ.get("TAIL_V4_PROJECT_ROOT", "/home/chenzongwei")
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+from design_whatever.tail_v4 import run_tail_v4_fulltest_worker
+
+if __name__ == "__main__":
+    run_tail_v4_fulltest_worker()
+"#
+    .to_string()
+}
+
+fn build_fulltest_tasks(
+    gap5_selected: &[String],
+    gap1_selected: &[String],
+) -> Vec<TailV4FulltestTask> {
+    let mut ordered_factors = Vec::<String>::new();
+    let mut seen = HashSet::<String>::new();
+    for factor_name in gap5_selected.iter().chain(gap1_selected.iter()) {
+        if seen.insert(factor_name.clone()) {
+            ordered_factors.push(factor_name.clone());
+        }
+    }
+
+    let gap5_set = gap5_selected.iter().cloned().collect::<HashSet<_>>();
+    let gap1_set = gap1_selected.iter().cloned().collect::<HashSet<_>>();
+    let mut tasks = Vec::new();
+    for factor_name in ordered_factors {
+        if gap5_set.contains(&factor_name) {
+            tasks.push(TailV4FulltestTask {
+                task_key: fulltest_task_key("raw", 5, &factor_name),
+                factor_name: factor_name.clone(),
+                stage: "raw".to_string(),
+                gap: 5,
+            });
+            tasks.push(TailV4FulltestTask {
+                task_key: fulltest_task_key("neu", 5, &factor_name),
+                factor_name: factor_name.clone(),
+                stage: "neu".to_string(),
+                gap: 5,
+            });
+        }
+        if gap1_set.contains(&factor_name) {
+            tasks.push(TailV4FulltestTask {
+                task_key: fulltest_task_key("raw", 1, &factor_name),
+                factor_name: factor_name.clone(),
+                stage: "raw".to_string(),
+                gap: 1,
+            });
+            tasks.push(TailV4FulltestTask {
+                task_key: fulltest_task_key("neu", 1, &factor_name),
+                factor_name: factor_name.clone(),
+                stage: "neu".to_string(),
+                gap: 1,
+            });
+        }
+    }
+    tasks
+}
+
+fn increment_fulltest_bucket(bucket_counts: &mut HashMap<String, usize>, stage: &str, gap: i32) {
+    let key = match (stage, gap) {
+        ("raw", 5) => "g5-raw",
+        ("neu", 5) => "g5-neu",
+        ("raw", 1) => "g1-raw",
+        ("neu", 1) => "g1-neu",
+        _ => return,
+    };
+    *bucket_counts.entry(key.to_string()).or_insert(0) += 1;
+}
+
+fn render_fulltest_progress(
+    processed: usize,
+    restored: usize,
+    total: usize,
+    started: Instant,
+    bucket_counts: &HashMap<String, usize>,
+) -> Result<(), String> {
+    let finished = processed + restored;
+    let progress = if total > 0 {
+        finished as f64 / total as f64
+    } else {
+        1.0
+    };
+    let elapsed = started.elapsed();
+    let estimated_total_secs = if progress > 0.0 {
+        elapsed.as_secs_f64() / progress
+    } else {
+        elapsed.as_secs_f64()
+    };
+    let remaining_secs = if estimated_total_secs > elapsed.as_secs_f64() {
+        (estimated_total_secs - elapsed.as_secs_f64()) as u64
+    } else {
+        0
+    };
+    let (elapsed_h, elapsed_m, elapsed_s) = format_hms(elapsed.as_secs());
+    let (remaining_h, remaining_m, remaining_s) = format_hms(remaining_secs);
+    let current_time = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+    let g5_raw = bucket_counts.get("g5-raw").copied().unwrap_or(0);
+    let g5_neu = bucket_counts.get("g5-neu").copied().unwrap_or(0);
+    let g1_raw = bucket_counts.get("g1-raw").copied().unwrap_or(0);
+    let g1_neu = bucket_counts.get("g1-neu").copied().unwrap_or(0);
+    print!(
+        "\r[{}] Fulltest 进度 {}/{} ({:.1}%)，已恢复 {} 个，g5-raw {}，g5-neu {}，g1-raw {}，g1-neu {}，已用{}h{}m{}s，预计剩余{}h{}m{}s",
+        current_time,
+        finished,
+        total,
+        progress * 100.0,
+        restored,
+        g5_raw,
+        g5_neu,
+        g1_raw,
+        g1_neu,
+        elapsed_h,
+        elapsed_m,
+        elapsed_s,
+        remaining_h,
+        remaining_m,
+        remaining_s,
+    );
+    std::io::stdout()
+        .flush()
+        .map_err(|e| format!("刷新 fulltest 进度失败: {}", e))?;
+    Ok(())
+}
+
+fn run_tail_v4_fulltest_worker_process(
+    worker_id: usize,
+    task_queue: Arc<Mutex<VecDeque<TailV4FulltestTask>>>,
+    result_sender: Sender<Result<TailV4FulltestWorkerResult, String>>,
+    stop_flag: Arc<AtomicBool>,
+    pid_registry: TailV4PidRegistry,
+    python_path: String,
+    worker_config_json: String,
+    verbose: bool,
+) {
+    let script_content = create_tail_v4_fulltest_worker_script();
+    let script_path = format!("/tmp/tail_v4_fulltest_worker_{}.py", worker_id);
+    if let Err(err) = fs::write(&script_path, script_content) {
+        let _ = result_sender.send(Err(format!("创建 fulltest worker 脚本失败: {}", err)));
+        return;
+    }
+
+    let mut command = Command::new(&python_path);
+    command
+        .arg(&script_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env("OMP_NUM_THREADS", "1")
+        .env("OPENBLAS_NUM_THREADS", "1")
+        .env("MKL_NUM_THREADS", "1")
+        .env("NUMEXPR_NUM_THREADS", "1")
+        .env("VECLIB_MAXIMUM_THREADS", "1")
+        .env("BLIS_NUM_THREADS", "1")
+        .env("POLARS_MAX_THREADS", "1")
+        .env("RAYON_NUM_THREADS", "1")
+        .env("TAIL_V4_PROJECT_ROOT", "/home/chenzongwei")
+        .env("PYTHONPATH", "/home/chenzongwei")
+        .env("TAIL_V4_FULLTEST_WORKER_CONFIG", worker_config_json);
+
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(err) => {
+            let _ = result_sender.send(Err(format!("启动 fulltest worker 失败: {}", err)));
+            let _ = fs::remove_file(&script_path);
+            return;
+        }
+    };
+    let _pid_guard = TailV4WorkerPidGuard::new(Arc::clone(&pid_registry), worker_id, child.id());
+
+    let mut stdin = match child.stdin.take() {
+        Some(stdin) => stdin,
+        None => {
+            let _ = result_sender.send(Err("获取 fulltest worker stdin 失败".to_string()));
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = fs::remove_file(&script_path);
+            return;
+        }
+    };
+    let mut stdout = match child.stdout.take() {
+        Some(stdout) => stdout,
+        None => {
+            let _ = result_sender.send(Err("获取 fulltest worker stdout 失败".to_string()));
+            drop(stdin);
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = fs::remove_file(&script_path);
+            return;
+        }
+    };
+    let stderr = match child.stderr.take() {
+        Some(stderr) => stderr,
+        None => {
+            let _ = result_sender.send(Err("获取 fulltest worker stderr 失败".to_string()));
+            drop(stdin);
+            drop(stdout);
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = fs::remove_file(&script_path);
+            return;
+        }
+    };
+
+    let stderr_worker_id = worker_id;
+    let stderr_handle = thread::spawn(move || {
+        let reader = BufReader::new(stderr);
+        for line in reader.lines() {
+            match line {
+                Ok(text) => { if verbose { eprintln!("[Tail V4 Fulltest][worker {}] {}", stderr_worker_id, text); } }
+                Err(_) => break,
+            }
+        }
+    });
+
+    loop {
+        if stop_flag.load(AtomicOrdering::Relaxed) {
+            break;
+        }
+        let next_task = {
+            let mut guard = match task_queue.lock() {
+                Ok(guard) => guard,
+                Err(_) => {
+                    let _ = result_sender.send(Err("获取 fulltest 任务队列锁失败".to_string()));
+                    stop_flag.store(true, AtomicOrdering::Relaxed);
+                    break;
+                }
+            };
+            guard.pop_front()
+        };
+        let Some(task) = next_task else {
+            break;
+        };
+
+        let packed_data = match rmp_serde::to_vec_named(&task) {
+            Ok(data) => data,
+            Err(err) => {
+                let _ = result_sender.send(Err(format!("序列化 fulltest 任务失败: {}", err)));
+                stop_flag.store(true, AtomicOrdering::Relaxed);
+                break;
+            }
+        };
+        let length_bytes = (packed_data.len() as u32).to_le_bytes();
+        if stdin.write_all(&length_bytes).is_err()
+            || stdin.write_all(&packed_data).is_err()
+            || stdin.flush().is_err()
+        {
+            let _ = result_sender.send(Err(format!(
+                "发送 fulltest 任务失败: {}",
+                task.task_key
+            )));
+            stop_flag.store(true, AtomicOrdering::Relaxed);
+            break;
+        }
+
+        let mut len_buf = [0u8; 4];
+        if stdout.read_exact(&mut len_buf).is_err() {
+            let _ = result_sender.send(Err(format!(
+                "读取 fulltest worker 结果长度失败: {}",
+                task.task_key
+            )));
+            stop_flag.store(true, AtomicOrdering::Relaxed);
+            break;
+        }
+        let result_len = u32::from_le_bytes(len_buf) as usize;
+        let mut result_data = vec![0u8; result_len];
+        if stdout.read_exact(&mut result_data).is_err() {
+            let _ = result_sender.send(Err(format!(
+                "读取 fulltest worker 结果失败: {}",
+                task.task_key
+            )));
+            stop_flag.store(true, AtomicOrdering::Relaxed);
+            break;
+        }
+        let result = match rmp_serde::from_slice::<TailV4FulltestWorkerResult>(&result_data) {
+            Ok(result) => result,
+            Err(err) => {
+                let _ = result_sender.send(Err(format!("解析 fulltest worker 结果失败: {}", err)));
+                stop_flag.store(true, AtomicOrdering::Relaxed);
+                break;
+            }
+        };
+        if !result.ok {
+            let _ = result_sender.send(Err(format!(
+                "fulltest 任务 {} 失败: {}",
+                result.task_key,
+                result.error.unwrap_or_else(|| "未知错误".to_string())
+            )));
+            stop_flag.store(true, AtomicOrdering::Relaxed);
+            break;
+        }
+        if result_sender.send(Ok(result)).is_err() {
+            stop_flag.store(true, AtomicOrdering::Relaxed);
+            break;
+        }
+    }
+
+    let _ = stdin.write_all(&[0u8; 4]);
+    let _ = stdin.flush();
+
+    // 等待子进程退出，超时后强制kill防止僵尸进程
+    match child.try_wait() {
+        Ok(Some(_)) => {}
+        _ => {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            loop {
+                if Instant::now() > deadline {
+                    let _ = child.kill();
+                    break;
+                }
+                if child.try_wait().ok().flatten().is_some() {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(100));
+            }
+        }
+    }
+    let _ = child.wait();
+
+    // join stderr 线程确保资源释放
+    let _ = stderr_handle.join();
+
+    let _ = fs::remove_file(&script_path);
+}
+
+fn timestamp_ns_to_date_key(value: i64) -> Result<i32, String> {
+    let secs = value.div_euclid(1_000_000_000);
+    let nanos = value.rem_euclid(1_000_000_000) as u32;
+    let dt = NaiveDateTime::from_timestamp_opt(secs, nanos)
+        .ok_or_else(|| format!("无效 timestamp 纳秒值: {}", value))?;
+    Ok((dt.year() * 10000 + dt.month() as i32 * 100 + dt.day() as i32) as i32)
+}
+
+fn extract_date_keys(batch: &arrow::record_batch::RecordBatch, date_col_idx: usize) -> Result<Vec<i32>, String> {
+    let date_column = batch.column(date_col_idx);
+    if let Some(array) = date_column.as_any().downcast_ref::<Int32Array>() {
+        return Ok((0..array.len()).map(|idx| array.value(idx)).collect());
+    }
+    if let Some(array) = date_column.as_any().downcast_ref::<Int64Array>() {
+        return Ok((0..array.len()).map(|idx| array.value(idx) as i32).collect());
+    }
+    if let Some(array) = date_column.as_any().downcast_ref::<TimestampNanosecondArray>() {
+        return (0..array.len())
+            .map(|idx| timestamp_ns_to_date_key(array.value(idx)))
+            .collect();
+    }
+    if let Some(array) = date_column.as_any().downcast_ref::<TimestampMicrosecondArray>() {
+        return (0..array.len())
+            .map(|idx| timestamp_ns_to_date_key(array.value(idx) * 1_000))
+            .collect();
+    }
+    if let Some(array) = date_column.as_any().downcast_ref::<TimestampMillisecondArray>() {
+        return (0..array.len())
+            .map(|idx| timestamp_ns_to_date_key(array.value(idx) * 1_000_000))
+            .collect();
+    }
+    Err("不支持的 date 列类型".to_string())
+}
+
+fn load_factor_to_template(
+    factor_path: &str,
+    template_dates: &[i32],
+    template_stocks: &[String],
+) -> Result<Array2<f32>, String> {
+    // 新列式存储分支：路径格式 "<store_dir>::<col_idx>"（如 "/hdd/x/factors.colblk::3"）
+    // store_dir 是含 factors.colblk + factors.idx 的目录。
+    if factor_path.contains("::") {
+        let parts: Vec<&str> = factor_path.splitn(2, "::").collect();
+        let store_path = parts[0];
+        let col_idx: usize = parts[1]
+            .parse()
+            .map_err(|e| format!("解析 col_idx 失败 '{}': {}", parts[1], e))?;
+        // store_path 可能是目录或 factors.colblk 文件；取其父目录作为 store_dir
+        let store_dir = if store_path.ends_with(".colblk") {
+            Path::new(store_path)
+                .parent()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|| store_path.to_string())
+        } else {
+            store_path.to_string()
+        };
+        let reader = crate::factor_store_v5::FactorStoreReader::open(&store_dir)?;
+        return reader.read_factor_to_matrix(col_idx, template_dates, template_stocks);
+    }
+    if factor_path.ends_with(".h5") {
+        load_h5_factor_to_template(factor_path, template_dates, template_stocks)
+    } else {
+        load_parquet_factor_to_template(factor_path, template_dates, template_stocks)
+    }
+}
+
+fn load_parquet_factor_to_template(
+    factor_path: &str,
+    template_dates: &[i32],
+    template_stocks: &[String],
+) -> Result<Array2<f32>, String> {
+    let file = File::open(factor_path).map_err(|e| format!("打开因子文件失败 {}: {}", factor_path, e))?;
+    let builder = ParquetRecordBatchReaderBuilder::try_new(file)
+        .map_err(|e| format!("创建 parquet 读取器失败 {}: {}", factor_path, e))?;
+    let schema = builder.schema();
+    let mut date_col_idx = None;
+    let stock_pos_map: HashMap<&str, usize> = template_stocks
+        .iter()
+        .enumerate()
+        .map(|(idx, name)| (name.as_str(), idx))
+        .collect();
+    let mut stock_cols = Vec::<(usize, usize)>::new();
+    for (col_idx, field) in schema.fields().iter().enumerate() {
+        let name = field.name();
+        if name == "date" {
+            date_col_idx = Some(col_idx);
+        } else if let Some(&stock_pos) = stock_pos_map.get(name.as_str()) {
+            stock_cols.push((col_idx, stock_pos));
+        }
+    }
+    let date_col_idx = date_col_idx.ok_or_else(|| format!("因子文件缺少 date 列: {}", factor_path))?;
+    let date_pos_map: HashMap<i32, usize> = template_dates
+        .iter()
+        .enumerate()
+        .map(|(idx, value)| (*value, idx))
+        .collect();
+    let reader = builder
+        .with_batch_size(8192)
+        .build()
+        .map_err(|e| format!("构建 parquet 批读取器失败 {}: {}", factor_path, e))?;
+
+    let mut output = Array2::<f32>::from_elem((template_dates.len(), template_stocks.len()), f32::NAN);
+    for batch_result in reader {
+        let batch = batch_result.map_err(|e| format!("读取 parquet batch 失败 {}: {}", factor_path, e))?;
+        let date_keys = extract_date_keys(&batch, date_col_idx)?;
+        for (row_idx, date_key) in date_keys.iter().enumerate() {
+            let Some(&date_pos) = date_pos_map.get(date_key) else {
+                continue;
+            };
+            for &(col_idx, stock_pos) in &stock_cols {
+                let array = batch.column(col_idx);
+                let value = if let Some(col) = array.as_any().downcast_ref::<Float64Array>() {
+                    if col.is_null(row_idx) {
+                        f32::NAN
+                    } else {
+                        col.value(row_idx) as f32
+                    }
+                } else if let Some(col) = array.as_any().downcast_ref::<Float32Array>() {
+                    if col.is_null(row_idx) {
+                        f32::NAN
+                    } else {
+                        col.value(row_idx)
+                    }
+                } else {
+                    return Err(format!("股票列类型不是 float: {} / col_idx={}", factor_path, col_idx));
+                };
+                output[[date_pos, stock_pos]] = if value.is_finite() { value } else { f32::NAN };
+            }
+        }
+    }
+    Ok(output)
+}
+
+/// 解析 calendar_map.csv：header 为 "date_min"，每行一个日期字符串，行号即 row index
+fn parse_calendar_map(path: &Path) -> Result<HashMap<i32, usize>, String> {
+    let file = File::open(path).map_err(|e| format!("打开 calendar_map.csv 失败: {}", e))?;
+    let reader = BufReader::new(file);
+    let mut map = HashMap::new();
+    for (idx, line_result) in reader.lines().enumerate() {
+        if idx == 0 { continue; }
+        let line = line_result.map_err(|e| format!("读取 calendar_map 第 {} 行失败: {}", idx, e))?;
+        let trimmed = line.trim();
+        if trimmed.is_empty() { continue; }
+        let date_int: i32 = trimmed.parse().map_err(|e| format!("无效日期 '{}': {}", trimmed, e))?;
+        map.insert(date_int, idx - 1);
+    }
+    Ok(map)
+}
+
+/// 解析 symbol_map.csv：支持两种格式
+/// - 单列：header 为 "symbol"，每行一个股票代码，行号即列位置（与 calendar_map.csv 一致）
+/// - 双列：header 为 "symbol,pos"，每行格式 "000001,0"
+fn parse_symbol_map(path: &Path) -> Result<HashMap<String, usize>, String> {
+    let file = File::open(path).map_err(|e| format!("打开 symbol_map.csv 失败: {}", e))?;
+    let reader = BufReader::new(file);
+    let mut map = HashMap::new();
+    for (idx, line_result) in reader.lines().enumerate() {
+        if idx == 0 { continue; }
+        let line = line_result.map_err(|e| format!("读取 symbol_map 第 {} 行失败: {}", idx, e))?;
+        let trimmed = line.trim();
+        if trimmed.is_empty() { continue; }
+        let parts: Vec<&str> = trimmed.split(',').collect();
+        let (symbol, pos) = if parts.len() == 1 {
+            (parts[0].to_string(), idx - 1)
+        } else if parts.len() == 2 {
+            let pos: usize = parts[1].parse().map_err(|e| format!("无效位置 '{}': {}", parts[1], e))?;
+            (parts[0].to_string(), pos)
+        } else {
+            return Err(format!("symbol_map 格式错误: {}", trimmed));
+        };
+        map.insert(symbol, pos);
+    }
+    Ok(map)
+}
+
+/// 去掉股票代码后缀（如 "000060.SZ" → "000060"）
+fn strip_stock_suffix(code: &str) -> &str {
+    code.split('.').next().unwrap_or(code)
+}
+
+/// 从 H5 文件读取因子数据到模板矩阵
+#[cfg(feature = "hdf5")]
+fn load_h5_factor_to_template(
+    factor_path: &str,
+    template_dates: &[i32],
+    template_stocks: &[String],
+) -> Result<Array2<f32>, String> {
+    let h5_dir = Path::new(factor_path)
+        .parent()
+        .ok_or_else(|| format!("无法获取 H5 文件所在目录: {}", factor_path))?;
+
+    let calendar_map_path = h5_dir.join("calendar_map.csv");
+    let symbol_map_path = h5_dir.join("symbol_map.csv");
+
+    let date_to_row = parse_calendar_map(&calendar_map_path)?;
+    let symbol_to_col = parse_symbol_map(&symbol_map_path)?;
+
+    // 构建 stock 查找映射：template_stocks 可能带后缀（如 "000060.SZ"），需去掉后缀
+    let stock_col_indices: Vec<Option<usize>> = template_stocks
+        .iter()
+        .map(|s| {
+            let bare = strip_stock_suffix(s);
+            symbol_to_col.get(bare).copied()
+        })
+        .collect();
+
+    let file = hdf5::File::open(factor_path)
+        .map_err(|e| format!("打开 H5 文件失败 {}: {}", factor_path, e))?;
+    let dataset = file.dataset("data")
+        .map_err(|e| format!("H5 文件缺少 data dataset {}: {}", factor_path, e))?;
+
+    let full_data: Array2<f64> = dataset.read_2d()
+        .map_err(|e| format!("读取 H5 数据失败 {}: {}", factor_path, e))?;
+
+    let n_dates = template_dates.len();
+    let n_stocks = template_stocks.len();
+    let mut output = Array2::<f32>::from_elem((n_dates, n_stocks), f32::NAN);
+
+    for (date_idx, &date_val) in template_dates.iter().enumerate() {
+        let Some(&row_idx) = date_to_row.get(&date_val) else {
+            continue;
+        };
+        for (stock_idx, col_opt) in stock_col_indices.iter().enumerate() {
+            let Some(col_idx) = col_opt else { continue };
+            let val = full_data[[row_idx, *col_idx]];
+            output[[date_idx, stock_idx]] = if val.is_finite() { val as f32 } else { f32::NAN };
+        }
+    }
+    Ok(output)
+}
+
+#[cfg(not(feature = "hdf5"))]
+fn load_h5_factor_to_template(
+    _factor_path: &str,
+    _template_dates: &[i32],
+    _template_stocks: &[String],
+) -> Result<Array2<f32>, String> {
+    Err("HDF5 支持未启用（此 wheel 编译时未包含 hdf5-metno）".to_string())
+}
+
+fn build_fold_values(raw_values: &Array2<f32>) -> Array2<f32> {
+    let n_dates = raw_values.nrows();
+    let n_stocks = raw_values.ncols();
+    let mut folded = Array2::<f32>::from_elem((n_dates, n_stocks), f32::NAN);
+    for date_idx in 0..n_dates {
+        let mut sum = 0.0_f64;
+        let mut count = 0usize;
+        for stock_idx in 0..n_stocks {
+            let value = raw_values[[date_idx, stock_idx]];
+            if value.is_finite() {
+                sum += value as f64;
+                count += 1;
+            }
+        }
+        if count == 0 {
+            continue;
+        }
+        let mean = (sum / count as f64) as f32;
+        for stock_idx in 0..n_stocks {
+            let value = raw_values[[date_idx, stock_idx]];
+            if value.is_finite() {
+                folded[[date_idx, stock_idx]] = (value - mean).abs();
+            }
+        }
+    }
+    folded
+}
+
+fn derived_names_for_variant(source_factor: &str, windows: &[usize]) -> Vec<String> {
+    let mut names = vec![format!("{}_smooth_1", source_factor)];
+    for &window in windows {
+        names.push(format!("{}_mean_smooth_{}", source_factor, window));
+        names.push(format!("{}_max_smooth_{}", source_factor, window));
+        names.push(format!("{}_min_smooth_{}", source_factor, window));
+        names.push(format!("{}_std_smooth_{}", source_factor, window));
+    }
+    names
+}
+
+fn legacy_rank_values(values: &[f64]) -> Vec<f64> {
+    let mut indexed_values = Vec::with_capacity(values.len());
+    for (idx, &value) in values.iter().enumerate() {
+        if !value.is_nan() {
+            indexed_values.push((idx, value));
+        }
+    }
+    indexed_values
+        .sort_unstable_by(|lhs, rhs| lhs.1.partial_cmp(&rhs.1).unwrap_or(Ordering::Equal));
+    let mut ranks = vec![f64::NAN; values.len()];
+    for (rank, &(original_idx, _)) in indexed_values.iter().enumerate() {
+        ranks[original_idx] = (rank + 1) as f64;
+    }
+    ranks
+}
+
+fn neutralize_block_legacy_exact(
+    legacy_style_data: &IOOptimizedStyleData,
+    factor: ArrayView3<'_, f32>,
+    dates: &[i32],
+    stocks: &[String],
+    rank_before: bool,
+    min_valid: usize,
+) -> Result<Array3<f32>, String> {
+    let n_dates = factor.shape()[0];
+    let n_stocks = factor.shape()[1];
+    let n_factors = factor.shape()[2];
+    if dates.len() != n_dates || stocks.len() != n_stocks {
+        return Err("legacy neutralize exact 输入形状不匹配".to_string());
+    }
+
+    let mut all_style_stocks = std::collections::HashSet::new();
+    for day_data in legacy_style_data.data_by_date.values() {
+        for stock in day_data.stocks.iter() {
+            all_style_stocks.insert(stock.clone());
+        }
+    }
+
+    let mut ordered_factor_stocks: Vec<(usize, String)> = stocks
+        .iter()
+        .enumerate()
+        .filter_map(|(stock_idx, stock)| {
+            let stock_code = stock.get(..6).unwrap_or(stock.as_str()).to_string();
+            if all_style_stocks.contains(&stock_code) {
+                Some((stock_idx, stock_code))
+            } else {
+                None
+            }
+        })
+        .collect();
+    ordered_factor_stocks.sort_unstable_by(|lhs, rhs| lhs.1.cmp(&rhs.1));
+
+    let mut output = Array3::<f32>::from_elem((n_dates, n_stocks, n_factors), f32::NAN);
+    for date_idx in 0..n_dates {
+        let date_key = dates[date_idx] as i64;
+        let Some(day_data) = legacy_style_data.data_by_date.get(&date_key) else {
+            continue;
+        };
+        let Some(regression_matrix) = &day_data.regression_matrix else {
+            continue;
+        };
+        let mut template_style_positions = vec![None; n_stocks];
+        for (stock_idx, stock) in stocks.iter().enumerate() {
+            let stock_code = stock.get(..6).unwrap_or(stock.as_str());
+            if let Some(&style_idx) = day_data.stock_index_map.get(stock_code) {
+                template_style_positions[stock_idx] = Some(style_idx);
+            }
+        }
+
+        let mut daily_factor_values = Vec::<f64>::with_capacity(n_stocks);
+        let mut valid_stock_indices = Vec::<usize>::with_capacity(n_stocks);
+        let mut valid_style_indices = Vec::<usize>::with_capacity(n_stocks);
+        let n_features = day_data.style_matrix.ncols();
+        let mut beta_values = vec![0.0_f64; n_features];
+
+        for factor_idx in 0..n_factors {
+            daily_factor_values.clear();
+            valid_stock_indices.clear();
+            valid_style_indices.clear();
+            beta_values.fill(0.0);
+
+            for &(stock_idx, _) in ordered_factor_stocks.iter() {
+                let Some(style_idx) = template_style_positions[stock_idx] else {
+                    continue;
+                };
+                let value = factor[[date_idx, stock_idx, factor_idx]];
+                if value.is_finite() {
+                    daily_factor_values.push(value as f64);
+                    valid_stock_indices.push(stock_idx);
+                    valid_style_indices.push(style_idx);
+                }
+            }
+            if daily_factor_values.len() < min_valid {
+                continue;
+            }
+            let ranked_values = if rank_before {
+                legacy_rank_values(&daily_factor_values)
+            } else {
+                daily_factor_values.clone()
+            };
+
+            for (col_idx, &style_idx) in valid_style_indices.iter().enumerate() {
+                let y_value = ranked_values[col_idx];
+                for feature_idx in 0..n_features {
+                    beta_values[feature_idx] += regression_matrix[(feature_idx, style_idx)] * y_value;
+                }
+            }
+
+            for (row_idx, &stock_idx) in valid_stock_indices.iter().enumerate() {
+                let style_idx = valid_style_indices[row_idx];
+                let mut predicted = 0.0_f64;
+                for feature_idx in 0..n_features {
+                    predicted += day_data.style_matrix[(style_idx, feature_idx)] * beta_values[feature_idx];
+                }
+                output[[date_idx, stock_idx, factor_idx]] = (ranked_values[row_idx] - predicted) as f32;
+            }
+        }
+    }
+    Ok(output)
+}
+
+#[pyclass]
+pub struct TailV5LegacyStyleData {
+    style_data: Arc<IOOptimizedStyleData>,
+}
+
+#[pymethods]
+impl TailV5LegacyStyleData {
+    #[new]
+    fn new(style_data_path: String) -> PyResult<Self> {
+        let style_data = IOOptimizedStyleData::load_from_parquet_io_optimized(&style_data_path)?;
+        Ok(Self {
+            style_data: Arc::new(style_data),
+        })
+    }
+
+    #[pyo3(signature = (dates, stocks, factor_block, rank_before=true, min_valid=12))]
+    fn neutralize_block_exact<'py>(
+        &self,
+        py: Python<'py>,
+        dates: Vec<i32>,
+        stocks: Vec<String>,
+        factor_block: numpy::PyReadonlyArray3<'py, f32>,
+        rank_before: bool,
+        min_valid: usize,
+    ) -> PyResult<Py<numpy::PyArray3<f32>>> {
+        let factor = factor_block.as_array();
+        let output = py
+            .allow_threads(|| {
+                neutralize_block_legacy_exact(
+                    self.style_data.as_ref(),
+                    factor,
+                    &dates,
+                    &stocks,
+                    rank_before,
+                    min_valid,
+                )
+            })
+            .map_err(PyRuntimeError::new_err)?;
+        Ok(output.into_pyarray(py).to_owned())
+    }
+}
+
+#[pyfunction]
+#[pyo3(signature = (style_data_path, dates, stocks, factor_block, rank_before=true, min_valid=12))]
+pub fn tail_v5_neutralize_block_exact<'py>(
+    py: Python<'py>,
+    style_data_path: String,
+    dates: Vec<i32>,
+    stocks: Vec<String>,
+    factor_block: numpy::PyReadonlyArray3<'py, f32>,
+    rank_before: bool,
+    min_valid: usize,
+) -> PyResult<Py<numpy::PyArray3<f32>>> {
+    let factor = factor_block.as_array();
+    let style_data = IOOptimizedStyleData::load_from_parquet_io_optimized(&style_data_path)?;
+    let output = py
+        .allow_threads(|| neutralize_block_legacy_exact(&style_data, factor, &dates, &stocks, rank_before, min_valid))
+        .map_err(PyRuntimeError::new_err)?;
+    Ok(output.into_pyarray(py).to_owned())
+}
+
+fn summary_from_row(
+    factor_name: &str,
+    stage: &str,
+    gap: i32,
+    source_factor: &str,
+    values: &[f64],
+) -> SummaryRowRecord {
+    SummaryRowRecord {
+        factor_name: factor_name.to_string(),
+        stage: stage.to_string(),
+        gap,
+        source_factor: source_factor.to_string(),
+        ic_mean: values[0],
+        ir: values[1],
+        annualized_return: values[2],
+        sharpe_ratio: values[3],
+        max_drawdown: values[4],
+        date_size: values[5] as i32,
+        ratio_mean: values[6],
+        hedge_annualized_return: values[7],
+        hedge_annualized_sharpe_ratio: values[8],
+        hedge_max_drawdown: values[9],
+    }
+}
+
+fn qualify_raw(summary: &SummaryRowRecord, gap: usize, cfg: &TailSelectionConfig) -> bool {
+    match gap {
+        1 => summary.hedge_annualized_return >= cfg.ret_point_gap1 || summary.ic_mean.abs() >= cfg.ic_point_gap1,
+        5 => summary.hedge_annualized_return >= cfg.ret_point_gap5 || summary.ic_mean.abs() >= cfg.ic_point_gap5,
+        _ => false,
+    }
+}
+
+fn qualify_neu(summary: &SummaryRowRecord, gap: usize, cfg: &TailSelectionConfig) -> bool {
+    let (ret_point, ic_point, ic_more) = match gap {
+        1 => (cfg.ret_point_neu_gap1, cfg.ic_point_neu_gap1, cfg.ic_more_important_gap1),
+        5 => (cfg.ret_point_neu_gap5, cfg.ic_point_neu_gap5, cfg.ic_more_important_gap5),
+        _ => return false,
+    };
+    let mut qualifies =
+        summary.hedge_annualized_return >= ret_point || summary.ic_mean.abs() >= ic_point;
+    if let Some(ic_more_value) = ic_more {
+        qualifies = qualifies
+            || (summary.hedge_annualized_return >= ret_point && summary.ic_mean.abs() >= ic_more_value);
+    }
+    qualifies
+}
+
+fn process_task(task: &TailTask, shared: &SharedInputs) -> Result<TailTaskResult, String> {
+    let raw_values = load_factor_to_template(&task.factor_path, shared.dates.as_slice(), shared.stocks.as_slice())?;
+    process_task_with_values(task, raw_values, shared)
+}
+
+/// 用已读好的因子矩阵执行回测（IO/CPU 分离架构：IO 线程预读后调用此函数）。
+fn process_task_with_values(
+    task: &TailTask,
+    raw_values: Array2<f32>,
+    shared: &SharedInputs,
+) -> Result<TailTaskResult, String> {
+    let raw_cover_rate = compute_raw_cover_rate(&raw_values.view(), &shared.restrict.view(), &shared.ret_gap1.view(), 10);
+    if raw_cover_rate < shared.config.cover_rate {
+        println!(
+            "[raw_cover] 剔除因子 {}，原始覆盖率不达标: raw_cover_rate={:.4}, 标准>={:.4}",
+            task.source_factor, raw_cover_rate, shared.config.cover_rate,
+        );
+        return Ok(TailTaskResult {
+            source_factor: task.source_factor.clone(),
+            eliminated_by_raw_cover: true,
+            ..TailTaskResult::default()
+        });
+    }
+    let mut variants = vec![(task.source_factor.clone(), raw_values)];
+    if shared.fold {
+        let folded = build_fold_values(&variants[0].1);
+        variants.push((format!("{}_fold", task.source_factor), folded));
+    }
+
+    let mut result = TailTaskResult {
+        source_factor: task.source_factor.clone(),
+        ..TailTaskResult::default()
+    };
+
+    for (variant_name, variant_values) in variants {
+        let rolled_block = rank_roll_block_f32_with_parallel(&variant_values, shared.windows.as_slice(), false)?;
+        let derived_names = derived_names_for_variant(&variant_name, shared.windows.as_slice());
+        result.derived_factor_count += derived_names.len();
+
+        let raw_gap1_results = legacy_backtest_block_f32(
+            rolled_block.view(),
+            shared.ret_gap1.view(),
+            shared.ret_sum_gap1.view(),
+            shared.restrict.view(),
+            shared.index_ret.view(),
+            shared.dates.as_slice(),
+            shared.backtest_start,
+            1,
+            10,
+        )?;
+        let raw_gap5_results = legacy_backtest_block_f32(
+            rolled_block.view(),
+            shared.ret_gap5.view(),
+            shared.ret_sum_gap5.view(),
+            shared.restrict.view(),
+            shared.index_ret.view(),
+            shared.dates.as_slice(),
+            shared.backtest_start,
+            5,
+            10,
+        )?;
+
+        let neutralized = neutralize_block_legacy_exact(
+            shared.legacy_style_data.as_ref(),
+            rolled_block.view(),
+            shared.dates.as_slice(),
+            shared.stocks.as_slice(),
+            true,
+            shared.min_valid,
+        )?;
+        let neu_gap1_results = legacy_backtest_block_f32(
+            neutralized.view(),
+            shared.ret_gap1.view(),
+            shared.ret_sum_gap1.view(),
+            shared.restrict.view(),
+            shared.index_ret.view(),
+            shared.dates.as_slice(),
+            shared.backtest_start,
+            1,
+            10,
+        )?;
+        let neu_gap5_results = legacy_backtest_block_f32(
+            neutralized.view(),
+            shared.ret_gap5.view(),
+            shared.ret_sum_gap5.view(),
+            shared.restrict.view(),
+            shared.index_ret.view(),
+            shared.dates.as_slice(),
+            shared.backtest_start,
+            5,
+            10,
+        )?;
+
+        for (slot_idx, derived_name) in derived_names.iter().enumerate() {
+            let pre_report = preflight_quality_check(
+                &rolled_block.view().slice(s![.., .., slot_idx]),
+                &shared.restrict.view(),
+                shared.config.majority_count_threshold,
+                shared.config.zero_max_threshold,
+                shared.config.nan_max_threshold,
+            );
+            if !pre_report.passed {
+                if pre_report.majority_count_mean > shared.config.majority_count_threshold {
+                    result.preflight_maj_failed_windows += 1;
+                }
+                if pre_report.zero_ratio_mean >= shared.config.zero_max_threshold {
+                    result.preflight_zero_failed_windows += 1;
+                }
+                if pre_report.nan_ratio_mean >= shared.config.nan_max_threshold {
+                    result.preflight_nan_failed_windows += 1;
+                }
+                let mut reasons: Vec<String> = Vec::new();
+                if pre_report.majority_count_mean > shared.config.majority_count_threshold {
+                    reasons.push(format!(
+                        "majority_count_mean={:.2}, 标准<={:.2}",
+                        pre_report.majority_count_mean, shared.config.majority_count_threshold,
+                    ));
+                }
+                if pre_report.zero_ratio_mean >= shared.config.zero_max_threshold {
+                    reasons.push(format!(
+                        "zero_ratio_mean={:.4}, 标准<{:.4}",
+                        pre_report.zero_ratio_mean, shared.config.zero_max_threshold,
+                    ));
+                }
+                if pre_report.nan_ratio_mean >= shared.config.nan_max_threshold {
+                    reasons.push(format!(
+                        "nan_ratio_mean={:.4}, 标准<{:.4}",
+                        pre_report.nan_ratio_mean, shared.config.nan_max_threshold,
+                    ));
+                }
+                println!(
+                    "[preflight] 剔除因子 {}，该因子指标不达标: {}",
+                    derived_name,
+                    reasons.join("; "),
+                );
+                continue;
+            }
+            result.any_window_passed_preflight = true;
+
+            let raw_gap1_row = summary_from_row(
+                derived_name,
+                "rolled",
+                1,
+                &variant_name,
+                &raw_gap1_results[slot_idx].summary,
+            );
+            let raw_gap5_row = summary_from_row(
+                derived_name,
+                "rolled",
+                5,
+                &variant_name,
+                &raw_gap5_results[slot_idx].summary,
+            );
+            let neu_gap1_row = summary_from_row(
+                derived_name,
+                "neu",
+                1,
+                &variant_name,
+                &neu_gap1_results[slot_idx].summary,
+            );
+            let neu_gap5_row = summary_from_row(
+                derived_name,
+                "neu",
+                5,
+                &variant_name,
+                &neu_gap5_results[slot_idx].summary,
+            );
+
+            let raw_gap1_keep = qualify_raw(&raw_gap1_row, 1, &shared.config);
+            let raw_gap5_keep = qualify_raw(&raw_gap5_row, 5, &shared.config);
+            let neu_gap1_keep = qualify_neu(&neu_gap1_row, 1, &shared.config);
+            let neu_gap5_keep = qualify_neu(&neu_gap5_row, 5, &shared.config);
+
+            if raw_gap1_keep || raw_gap5_keep || neu_gap1_keep || neu_gap5_keep {
+                result.passed = true;
+            }
+
+            if raw_gap1_keep {
+                result.raw_summary_gap1.push(raw_gap1_row.clone());
+                result.raw_ic_gap1.push(IcRecord {
+                    factor_name: derived_name.clone(),
+                    dates: raw_gap1_results[slot_idx].ic_dates.clone(),
+                    values: raw_gap1_results[slot_idx].ic_values.clone(),
+                });
+            }
+            if raw_gap5_keep {
+                result.raw_summary_gap5.push(raw_gap5_row.clone());
+                result.raw_ic_gap5.push(IcRecord {
+                    factor_name: derived_name.clone(),
+                    dates: raw_gap5_results[slot_idx].ic_dates.clone(),
+                    values: raw_gap5_results[slot_idx].ic_values.clone(),
+                });
+            }
+            if neu_gap1_keep {
+                result.neu_summary_gap1.push(neu_gap1_row.clone());
+            }
+            if neu_gap5_keep {
+                result.neu_summary_gap5.push(neu_gap5_row.clone());
+            }
+            if raw_gap1_keep || neu_gap1_keep {
+                result.neu_ic_gap1.push(IcRecord {
+                    factor_name: derived_name.clone(),
+                    dates: neu_gap1_results[slot_idx].ic_dates.clone(),
+                    values: neu_gap1_results[slot_idx].ic_values.clone(),
+                });
+            }
+            if raw_gap5_keep || neu_gap5_keep {
+                result.neu_ic_gap5.push(IcRecord {
+                    factor_name: derived_name.clone(),
+                    dates: neu_gap5_results[slot_idx].ic_dates.clone(),
+                    values: neu_gap5_results[slot_idx].ic_values.clone(),
+                });
+            }
+        }
+    }
+
+    Ok(result)
+}
+
+fn write_summary_json(path: &Path, rows: &[SummaryRowRecord]) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("创建 metrics 目录失败: {}", e))?;
+    }
+    let file = File::create(path).map_err(|e| format!("创建 summary json 失败: {}", e))?;
+    let writer = BufWriter::new(file);
+    serde_json::to_writer(writer, rows).map_err(|e| format!("写 summary json 失败: {}", e))
+}
+
+fn write_ic_outputs(
+    matrix_path: &Path,
+    names_path: &Path,
+    dates_path: &Path,
+    store: &HashMap<String, IcRecord>,
+) -> Result<(), String> {
+    if let Some(parent) = matrix_path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("创建 ic 目录失败: {}", e))?;
+    }
+    let factor_names = {
+        let mut names = store.keys().cloned().collect::<Vec<_>>();
+        names.sort();
+        names
+    };
+    let all_dates = {
+        let mut date_set = BTreeSet::<i32>::new();
+        for record in store.values() {
+            for &date in &record.dates {
+                date_set.insert(date);
+            }
+        }
+        date_set.into_iter().collect::<Vec<_>>()
+    };
+    let date_positions = all_dates
+        .iter()
+        .enumerate()
+        .map(|(idx, date)| (*date, idx))
+        .collect::<HashMap<_, _>>();
+    let matrix = if factor_names.is_empty() {
+        Array2::<f32>::from_shape_vec((all_dates.len(), 0), Vec::new())
+            .map_err(|e| format!("构造空 ic 矩阵失败: {}", e))?
+    } else {
+        let mut data = vec![f32::NAN; all_dates.len() * factor_names.len()];
+        for (col_idx, name) in factor_names.iter().enumerate() {
+            let record = store
+                .get(name)
+                .ok_or_else(|| format!("缺少候选 IC 数据: {}", name))?;
+            for (&date, &value) in record.dates.iter().zip(record.values.iter()) {
+                if let Some(&row_idx) = date_positions.get(&date) {
+                    data[row_idx * factor_names.len() + col_idx] = value;
+                }
+            }
+        }
+        Array2::<f32>::from_shape_vec((all_dates.len(), factor_names.len()), data)
+            .map_err(|e| format!("构造 ic 矩阵失败: {}", e))?
+    };
+    write_npy(matrix_path, &matrix).map_err(|e| format!("写 ic npy 失败: {}", e))?;
+    let file = File::create(names_path).map_err(|e| format!("创建 ic names json 失败: {}", e))?;
+    serde_json::to_writer(BufWriter::new(file), &factor_names)
+        .map_err(|e| format!("写 ic names json 失败: {}", e))?;
+    let dates_array = Array1::<i32>::from_vec(all_dates);
+    write_npy(dates_path, &dates_array).map_err(|e| format!("写 ic dates npy 失败: {}", e))?;
+    Ok(())
+}
+
+fn write_aggregated_outputs(
+    cache_root: &Path,
+    aggregated: &AggregatedCandidates,
+) -> Result<(), String> {
+    let metrics_dir = cache_root.join("metrics");
+    let ic_dir = cache_root.join("ic_ts");
+    write_summary_json(
+        &metrics_dir.join("summary_rolled_gap1_candidates.json"),
+        &aggregated.raw_summary_gap1,
+    )?;
+    write_summary_json(
+        &metrics_dir.join("summary_rolled_gap5_candidates.json"),
+        &aggregated.raw_summary_gap5,
+    )?;
+    write_summary_json(
+        &metrics_dir.join("summary_neu_gap1_candidates.json"),
+        &aggregated.neu_summary_gap1,
+    )?;
+    write_summary_json(
+        &metrics_dir.join("summary_neu_gap5_candidates.json"),
+        &aggregated.neu_summary_gap5,
+    )?;
+    write_ic_outputs(
+        &ic_dir.join("ic_rolled_gap1.npy"),
+        &ic_dir.join("ic_rolled_gap1_names.json"),
+        &ic_dir.join("ic_rolled_gap1_dates.npy"),
+        &aggregated.raw_ic_gap1,
+    )?;
+    write_ic_outputs(
+        &ic_dir.join("ic_rolled_gap5.npy"),
+        &ic_dir.join("ic_rolled_gap5_names.json"),
+        &ic_dir.join("ic_rolled_gap5_dates.npy"),
+        &aggregated.raw_ic_gap5,
+    )?;
+    write_ic_outputs(
+        &ic_dir.join("ic_neu_gap1.npy"),
+        &ic_dir.join("ic_neu_gap1_names.json"),
+        &ic_dir.join("ic_neu_gap1_dates.npy"),
+        &aggregated.neu_ic_gap1,
+    )?;
+    write_ic_outputs(
+        &ic_dir.join("ic_neu_gap5.npy"),
+        &ic_dir.join("ic_neu_gap5_names.json"),
+        &ic_dir.join("ic_neu_gap5_dates.npy"),
+        &aggregated.neu_ic_gap5,
+    )?;
+    Ok(())
+}
+
+struct ProcessStats {
+    restored_pass: usize,
+    restored_raw_cov: usize,
+    restored_preflight: usize,
+    restored_ret_ic: usize,
+    restored_unknown: usize,
+
+    done: usize,
+    done_pass: usize,
+    done_raw_cov: usize,
+    done_preflight: usize,
+    done_ret_ic: usize,
+    done_unknown: usize,
+
+    preflight_maj_windows: usize,
+    preflight_zero_windows: usize,
+    preflight_nan_windows: usize,
+}
+
+impl Default for ProcessStats {
+    fn default() -> Self {
+        ProcessStats {
+            restored_pass: 0,
+            restored_raw_cov: 0,
+            restored_preflight: 0,
+            restored_ret_ic: 0,
+            restored_unknown: 0,
+            done: 0,
+            done_pass: 0,
+            done_raw_cov: 0,
+            done_preflight: 0,
+            done_ret_ic: 0,
+            done_unknown: 0,
+            preflight_maj_windows: 0,
+            preflight_zero_windows: 0,
+            preflight_nan_windows: 0,
+        }
+    }
+}
+
+#[cfg(unix)]
+fn terminal_height() -> u16 {
+    unsafe {
+        let mut ws: libc::winsize = std::mem::zeroed();
+        if libc::ioctl(1, libc::TIOCGWINSZ, &mut ws) == 0 && ws.ws_row > 0 {
+            ws.ws_row
+        } else {
+            24
+        }
+    }
+}
+
+#[cfg(windows)]
+fn terminal_height() -> u16 {
+    24
+}
+
+fn init_status_line() {
+    let h = terminal_height();
+    if h > 4 {
+        print!("\x1B[1;{}r", h - 3);
+    }
+    let _ = std::io::stdout().flush();
+}
+
+fn update_status_line(l1: &str, l2: &str, l3: &str) {
+    let h = terminal_height();
+    if h > 3 {
+        print!("\x1B7");
+        print!("\x1B[{};1H\x1B[K{}", h - 2, l1);
+        print!("\x1B[{};1H\x1B[K{}", h - 1, l2);
+        print!("\x1B[{};1H\x1B[K{}", h, l3);
+        print!("\x1B8");
+    }
+    let _ = std::io::stdout().flush();
+}
+
+fn reset_status_line() {
+    print!("\x1B[r");
+    let h = terminal_height();
+    for i in 0..3 {
+        print!("\x1B[{};1H\x1B[K", h - 2 + i);
+    }
+    let _ = std::io::stdout().flush();
+}
+
+#[pyfunction]
+#[pyo3(signature = (
+    factor_names,
+    factor_paths,
+    dates,
+    stocks,
+    windows,
+    fold,
+    n_jobs,
+    min_valid,
+    cache_root,
+    style_data_path,
+    ret_gap1_path,
+    ret_sum_gap1_path,
+    ret_gap5_path,
+    ret_sum_gap5_path,
+    restrict_path,
+    index_ret_path,
+    backtest_start,
+    cover_rate=0.97,
+    ret_point_neu_gap5=0.055,
+    ret_point_neu_gap1=0.08,
+    ic_point_neu_gap5=0.01,
+    ic_point_neu_gap1=0.006,
+    ret_point_gap5=0.1,
+    ret_point_gap1=0.13,
+    ic_point_gap5=0.03,
+    ic_point_gap1=0.02,
+    ic_more_important_gap5=0.01,
+    ic_more_important_gap1=0.006,
+    majority_count_threshold=200.0,
+    zero_max_threshold=0.01,
+    nan_max_threshold=0.04,
+))]
+pub fn tail_v5_run_candidates<'py>(
+    py: Python<'py>,
+    factor_names: Vec<String>,
+    factor_paths: Vec<String>,
+    dates: Vec<i32>,
+    stocks: Vec<String>,
+    windows: Vec<usize>,
+    fold: bool,
+    n_jobs: usize,
+    min_valid: usize,
+    cache_root: String,
+    style_data_path: String,
+    ret_gap1_path: String,
+    ret_sum_gap1_path: String,
+    ret_gap5_path: String,
+    ret_sum_gap5_path: String,
+    restrict_path: String,
+    index_ret_path: String,
+    backtest_start: i32,
+    cover_rate: f64,
+    ret_point_neu_gap5: f64,
+    ret_point_neu_gap1: f64,
+    ic_point_neu_gap5: f64,
+    ic_point_neu_gap1: f64,
+    ret_point_gap5: f64,
+    ret_point_gap1: f64,
+    ic_point_gap5: f64,
+    ic_point_gap1: f64,
+    ic_more_important_gap5: Option<f64>,
+    ic_more_important_gap1: Option<f64>,
+    majority_count_threshold: f64,
+    zero_max_threshold: f64,
+    nan_max_threshold: f64,
+) -> PyResult<PyObject> {
+    if factor_names.len() != factor_paths.len() {
+        return Err(PyValueError::new_err("factor_names 和 factor_paths 长度必须一致"));
+    }
+    if n_jobs == 0 {
+        return Err(PyValueError::new_err("n_jobs 必须大于 0"));
+    }
+    if (ic_more_important_gap5.is_some()) != (ic_more_important_gap1.is_some()) {
+        return Err(PyValueError::new_err(
+            "ic_more_important_gap5 和 ic_more_important_gap1 必须同时有值或同时为 None",
+        ));
+    }
+
+    let output = py.allow_threads(|| -> Result<(usize, usize, HashMap<String, usize>), String> {
+        let started = Instant::now();
+        let cache_root_path = PathBuf::from(&cache_root);
+        let task_results_dir = cache_root_path.join("task_results");
+        let logs_dir = cache_root_path.join("logs");
+        let completed_log_path = logs_dir.join("completed_sources.txt");
+        fs::create_dir_all(&task_results_dir).map_err(|e| format!("创建 task_results 目录失败: {}", e))?;
+        fs::create_dir_all(&logs_dir).map_err(|e| format!("创建 logs 目录失败: {}", e))?;
+
+        let shared = SharedInputs {
+            dates: Arc::new(dates),
+            stocks: Arc::new(stocks),
+            windows: Arc::new(windows),
+            fold,
+            min_valid,
+            backtest_start,
+            legacy_style_data: Arc::new(
+                IOOptimizedStyleData::load_from_parquet_io_optimized(&style_data_path)
+                    .map_err(|e| e.to_string())?
+            ),
+            ret_gap1: Arc::new(read_npy(&ret_gap1_path).map_err(|e| format!("读取 ret_gap1.npy 失败: {}", e))?),
+            ret_sum_gap1: Arc::new(read_npy(&ret_sum_gap1_path).map_err(|e| format!("读取 ret_sum_gap1.npy 失败: {}", e))?),
+            ret_gap5: Arc::new(read_npy(&ret_gap5_path).map_err(|e| format!("读取 ret_gap5.npy 失败: {}", e))?),
+            ret_sum_gap5: Arc::new(read_npy(&ret_sum_gap5_path).map_err(|e| format!("读取 ret_sum_gap5.npy 失败: {}", e))?),
+            restrict: Arc::new(read_npy(&restrict_path).map_err(|e| format!("读取 restrict.npy 失败: {}", e))?),
+            index_ret: Arc::new(read_npy(&index_ret_path).map_err(|e| format!("读取 index_ret.npy 失败: {}", e))?),
+            config: Arc::new(TailSelectionConfig {
+                cover_rate,
+                ret_point_neu_gap5,
+                ret_point_neu_gap1,
+                ic_point_neu_gap5,
+                ic_point_neu_gap1,
+                ret_point_gap5,
+                ret_point_gap1,
+                ic_point_gap5,
+                ic_point_gap1,
+                ic_more_important_gap5,
+                ic_more_important_gap1,
+                majority_count_threshold,
+                zero_max_threshold,
+                nan_max_threshold,
+            }),
+        };
+
+        let mut aggregated = AggregatedCandidates::default();
+        let mut completed_sources = HashSet::<String>::new();
+        let mut stats = ProcessStats::default();
+        for (source_factor, factor_path) in factor_names.iter().zip(factor_paths.iter()) {
+            let result_path = factor_result_path(&task_results_dir, source_factor);
+            if result_path.exists() {
+                if let Ok(mut task_result) = read_task_result(&result_path) {
+                    if !task_result.passed
+                        && (!task_result.raw_summary_gap1.is_empty()
+                            || !task_result.raw_summary_gap5.is_empty()
+                            || !task_result.neu_summary_gap1.is_empty()
+                            || !task_result.neu_summary_gap5.is_empty())
+                    {
+                        task_result.passed = true;
+                    }
+                    if task_result.passed {
+                        stats.restored_pass += 1;
+                    } else if task_result.eliminated_by_raw_cover {
+                        stats.restored_raw_cov += 1;
+                    } else if !task_result.any_window_passed_preflight
+                        && !task_result.raw_summary_gap1.is_empty() == false
+                        && !task_result.raw_summary_gap5.is_empty() == false
+                        && !task_result.neu_summary_gap1.is_empty() == false
+                        && !task_result.neu_summary_gap5.is_empty() == false
+                        && !task_result.passed
+                    {
+                        // 区分 preflight 淘汰 vs 未知:
+                        // 旧缓存没有 any_window_passed_preflight(默认false)
+                        // 也没有 eliminated_by_raw_cover(默认false)
+                        // 如果所有 summary vecs 都为空且 passed=false
+                        // 我们通过是否有 preflight 失败记录来判断
+                        if task_result.preflight_maj_failed_windows > 0
+                            || task_result.preflight_zero_failed_windows > 0
+                            || task_result.preflight_nan_failed_windows > 0
+                        {
+                            stats.restored_preflight += 1;
+                        } else {
+                            stats.restored_unknown += 1;
+                        }
+                    } else {
+                        // any_window_passed_preflight=true, passed=false → ret_ic淘汰
+                        stats.restored_ret_ic += 1;
+                    }
+                    stats.preflight_maj_windows += task_result.preflight_maj_failed_windows;
+                    stats.preflight_zero_windows += task_result.preflight_zero_failed_windows;
+                    stats.preflight_nan_windows += task_result.preflight_nan_failed_windows;
+                    aggregated.merge_task(task_result);
+                    completed_sources.insert(source_factor.clone());
+                    continue;
+                }
+            }
+            let _ = factor_path;
+        }
+        let restored_sources =
+            stats.restored_pass + stats.restored_raw_cov + stats.restored_preflight
+            + stats.restored_ret_ic + stats.restored_unknown;
+
+        let pending_tasks = factor_names
+            .iter()
+            .zip(factor_paths.iter())
+            .filter_map(|(source_factor, factor_path)| {
+                if completed_sources.contains(source_factor) {
+                    None
+                } else {
+                    Some(TailTask {
+                        source_factor: source_factor.clone(),
+                        factor_path: factor_path.clone(),
+                    })
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let total_pending = pending_tasks.len();
+        if total_pending > 0 {
+            init_status_line();
+            let current_time = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+            let total = factor_names.len();
+            let total_elim = restored_sources - stats.restored_pass;
+            let l1 = format!("[{}] Tail V4 启动，待处理 {}/{} 个原始因子", current_time, total_pending, total);
+            let l2 = format!("累计通过 {} ({}%) | 淘汰 raw_cov={} preflight={} ret_ic={} 未知={}",
+                stats.restored_pass,
+                if restored_sources > 0 { stats.restored_pass * 100 / restored_sources } else { 0 },
+                stats.restored_raw_cov, stats.restored_preflight,
+                stats.restored_ret_ic, stats.restored_unknown);
+            let _ = total_elim; // suppress unused warning
+            let l3 = format!("maj={}w zero={}w nan={}w | 恢复 {} 个 | 即将开始处理...",
+                stats.preflight_maj_windows, stats.preflight_zero_windows,
+                stats.preflight_nan_windows, restored_sources);
+            update_status_line(&l1, &l2, &l3);
+        }
+        let (task_sender, task_receiver): (Sender<TailTask>, Receiver<TailTask>) = unbounded();
+        let (result_sender, result_receiver) = unbounded::<Result<TailTaskResult, (String, String)>>();
+        for task in pending_tasks {
+            task_sender.send(task).map_err(|e| format!("发送任务失败: {}", e))?;
+        }
+        drop(task_sender);
+
+        let shared_arc = Arc::new(shared);
+
+        // 检测是否为列式存储模式（任一 task 路径含 "::"）。
+        // 若是，启用 IO/CPU 分离架构：少量 IO 线程顺序读因子 → 有界内存队列 → n_jobs 计算线程。
+        // 否则保持原逻辑：n_jobs 线程各自读盘 + 计算（兼容 parquet/h5）。
+        let is_colblk_mode = factor_paths.iter().any(|p| p.contains("::"));
+
+        if is_colblk_mode {
+            // ---- IO/CPU 分离架构 ----
+            // IO 线程数：匹配 HDD 物理盘条带并行度，默认 8（8 盘 LVM）。
+            let n_io_threads = if n_jobs > 200 { 8 } else { 4 };
+            // 已读好的 (TailTask, Array2<f32>) 队列，有界实现反压（计算跟不上则 IO 阻塞，不撑爆内存）
+            let (loaded_tx, loaded_rx) =
+                crossbeam::channel::bounded::<(TailTask, Array2<f32>)>(16);
+
+            // 解析唯一的 store_dir（所有 colblk task 共享同一 Reader）
+            let store_dir_for_reader = factor_paths
+                .iter()
+                .find_map(|p| {
+                    if p.contains("::") {
+                        let sp = p.splitn(2, "::").next().unwrap_or("");
+                        if sp.ends_with(".colblk") {
+                            Path::new(sp).parent().map(|x| x.to_string_lossy().to_string())
+                        } else {
+                            Some(sp.to_string())
+                        }
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_default();
+
+            // 启动 IO 读取线程（顺序读，单 Reader 共享）
+            let mut io_handles = Vec::with_capacity(n_io_threads);
+            let task_rx_io = task_receiver.clone();
+            for io_idx in 0..n_io_threads {
+                let task_rx = task_rx_io.clone();
+                let loaded_tx = loaded_tx.clone();
+                let store_dir = store_dir_for_reader.clone();
+                let dates = shared_arc.dates.clone();
+                let stocks = shared_arc.stocks.clone();
+                io_handles.push(thread::spawn(move || {
+                    // 每个 IO 线程独立打开 Reader（mmap，只读，多线程安全）
+                    let reader = match crate::factor_store_v5::FactorStoreReader::open(&store_dir) {
+                        Ok(r) => r,
+                        Err(_) => return,
+                    };
+                    // 线程间按 task 顺序取，天然趋向顺序读投影区
+                    while let Ok(task) = task_rx.recv() {
+                        // 解析 col_idx
+                        let col_idx = match task.factor_path.splitn(2, "::").nth(1) {
+                            Some(s) => match s.parse::<usize>() {
+                                Ok(v) => v,
+                                Err(_) => continue,
+                            },
+                            None => continue,
+                        };
+                        let matrix = match reader.read_factor_to_matrix(
+                            col_idx,
+                            dates.as_slice(),
+                            stocks.as_slice(),
+                        ) {
+                            Ok(m) => m,
+                            Err(_) => continue,
+                        };
+                        if loaded_tx.send((task, matrix)).is_err() {
+                            break;
+                        }
+                    }
+                    let _ = io_idx; // 标识用
+                }));
+            }
+            drop(loaded_tx);
+
+            // 启动 n_jobs 计算线程（纯内存，完全不碰盘）
+            let mut handles = Vec::with_capacity(n_jobs);
+            for _ in 0..n_jobs {
+                let loaded_rx = loaded_rx.clone();
+                let tx = result_sender.clone();
+                let shared_clone = shared_arc.clone();
+                handles.push(thread::spawn(move || {
+                    while let Ok((task, raw_values)) = loaded_rx.recv() {
+                        let task_name = task.source_factor.clone();
+                        let outcome = process_task_with_values(&task, raw_values, &shared_clone)
+                            .map_err(|err| (task_name, err));
+                        if tx.send(outcome).is_err() {
+                            break;
+                        }
+                    }
+                }));
+            }
+            drop(result_sender);
+
+            for h in io_handles {
+                let _ = h.join();
+            }
+            for h in handles {
+                let _ = h.join();
+            }
+        } else {
+            // ---- 原架构：n_jobs 线程各自读盘 + 计算（兼容 parquet/h5）----
+            let mut handles = Vec::with_capacity(n_jobs);
+            for _ in 0..n_jobs {
+                let rx = task_receiver.clone();
+                let tx = result_sender.clone();
+                let shared_clone = shared_arc.clone();
+                handles.push(thread::spawn(move || {
+                    while let Ok(task) = rx.recv() {
+                        let task_name = task.source_factor.clone();
+                        let outcome = process_task(&task, &shared_clone)
+                            .map_err(|err| (task_name, err));
+                        if tx.send(outcome).is_err() {
+                            break;
+                        }
+                    }
+                }));
+            }
+            drop(result_sender);
+            for h in handles {
+                let _ = h.join();
+            }
+        }
+
+        let mut processed_sources = 0usize;
+        while let Ok(task_outcome) = result_receiver.recv() {
+            match task_outcome {
+                Ok(task_result) => {
+                    let result_path = factor_result_path(&task_results_dir, &task_result.source_factor);
+                    let is_passed = task_result.passed;
+                    let is_raw_cov = task_result.eliminated_by_raw_cover;
+                    let any_window = task_result.any_window_passed_preflight;
+                    let preflight_maj = task_result.preflight_maj_failed_windows;
+                    let preflight_zero = task_result.preflight_zero_failed_windows;
+                    let preflight_nan = task_result.preflight_nan_failed_windows;
+                    write_task_result(&result_path, &task_result)?;
+                    append_completed_source(&completed_log_path, &task_result.source_factor)?;
+                    aggregated.merge_task(task_result);
+                    processed_sources += 1;
+
+                    if is_passed {
+                        stats.done_pass += 1;
+                    } else if is_raw_cov {
+                        stats.done_raw_cov += 1;
+                    } else if !any_window {
+                        stats.done_preflight += 1;
+                    } else {
+                        stats.done_ret_ic += 1;
+                    }
+                    stats.done = processed_sources;
+                    stats.preflight_maj_windows += preflight_maj;
+                    stats.preflight_zero_windows += preflight_zero;
+                    stats.preflight_nan_windows += preflight_nan;
+
+                    if total_pending > 0 {
+                        let elapsed = started.elapsed();
+                        let elapsed_secs = elapsed.as_secs();
+                        let progress = processed_sources as f64 / total_pending as f64;
+                        let estimated_total_secs = if progress > 0.0 {
+                            elapsed.as_secs_f64() / progress
+                        } else {
+                            elapsed.as_secs_f64()
+                        };
+                        let remaining_secs = if estimated_total_secs > elapsed.as_secs_f64() {
+                            (estimated_total_secs - elapsed.as_secs_f64()) as u64
+                        } else {
+                            0
+                        };
+                        let (elapsed_h, elapsed_m, elapsed_s) = format_hms(elapsed_secs);
+                        let (remaining_h, remaining_m, remaining_s) = format_hms(remaining_secs);
+                        let current_time = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+
+                        let cum_pass = stats.restored_pass + stats.done_pass;
+                        let cum_total = restored_sources + processed_sources;
+                        let cum_raw_cov = stats.restored_raw_cov + stats.done_raw_cov;
+                        let cum_preflight = stats.restored_preflight + stats.done_preflight;
+                        let cum_ret_ic = stats.restored_ret_ic + stats.done_ret_ic;
+                        let cum_unknown = stats.restored_unknown + stats.done_unknown;
+
+                        let l1 = format!(
+                            "[{}] Tail V4 进度 {}/{} ({:.1}%)，已用{}h{}m{}s，预计剩余{}h{}m{}s",
+                            current_time, processed_sources, total_pending,
+                            progress * 100.0,
+                            elapsed_h, elapsed_m, elapsed_s,
+                            remaining_h, remaining_m, remaining_s,
+                        );
+                        let l2 = format!(
+                            "累计通过 {} ({:.0}%) | 淘汰 raw_cov={} preflight={} ret_ic={} 未知={}",
+                            cum_pass,
+                            if cum_total > 0 { cum_pass as f64 * 100.0 / cum_total as f64 } else { 0.0 },
+                            cum_raw_cov, cum_preflight, cum_ret_ic, cum_unknown,
+                        );
+                        let l3 = format!(
+                            "maj={}w zero={}w nan={}w | 本次 {}(通过{}) | 恢复 {}(通过{})",
+                            stats.preflight_maj_windows, stats.preflight_zero_windows,
+                            stats.preflight_nan_windows,
+                            stats.done, stats.done_pass,
+                            restored_sources, stats.restored_pass,
+                        );
+                        update_status_line(&l1, &l2, &l3);
+                    }
+                }
+                Err((task_name, err)) => {
+                    reset_status_line();
+                    return Err(format!("处理因子 {} 失败: {}", task_name, err));
+                }
+            }
+        }
+
+        if total_pending > 0 {
+            println!();
+            reset_status_line();
+        }
+
+        // 注意：worker 线程在上方 IO/CPU 分离分支或原架构分支内已全部 join 完毕。
+
+        write_aggregated_outputs(
+            &cache_root_path,
+            &aggregated,
+        )?;
+
+        let mut candidate_counts = HashMap::new();
+        candidate_counts.insert("rolled_gap1".to_string(), aggregated.raw_summary_gap1.len());
+        candidate_counts.insert("rolled_gap5".to_string(), aggregated.raw_summary_gap5.len());
+        candidate_counts.insert("neu_gap1".to_string(), aggregated.neu_summary_gap1.len());
+        candidate_counts.insert("neu_gap5".to_string(), aggregated.neu_summary_gap5.len());
+        Ok((processed_sources, restored_sources, candidate_counts))
+    }).map_err(PyRuntimeError::new_err)?;
+
+    let info = PyDict::new(py);
+    info.set_item("processed_sources", output.0)?;
+    info.set_item("restored_sources", output.1)?;
+    let candidate_counts = PyDict::new(py);
+    for (key, value) in output.2 {
+        candidate_counts.set_item(key, value)?;
+    }
+    info.set_item("candidate_counts", candidate_counts)?;
+    Ok(info.into())
+}
+
+#[pyfunction]
+#[pyo3(signature = (
+    ver,
+    gap5_selected,
+    gap1_selected,
+    cache_root,
+    temp_root,
+    source_dir,
+    style_data_path,
+    min_valid=12,
+    start_date="2016-01-01",
+    backtest_start_date="2016-02-01",
+    end_date="2024-12-31",
+    fulltest_jobs=32,
+    python_path="/home/chenzongwei/.conda/envs/chenzongwei311/bin/python",
+    resume=true,
+    index_name="000905",
+    verbose=false
+))]
+pub fn tail_v5_run_fulltest_queue<'py>(
+    py: Python<'py>,
+    ver: String,
+    gap5_selected: Vec<String>,
+    gap1_selected: Vec<String>,
+    cache_root: String,
+    temp_root: String,
+    source_dir: String,
+    style_data_path: String,
+    min_valid: usize,
+    start_date: &str,
+    backtest_start_date: &str,
+    end_date: &str,
+    fulltest_jobs: usize,
+    python_path: &str,
+    resume: bool,
+    index_name: &str,
+    verbose: bool,
+) -> PyResult<PyObject> {
+    if fulltest_jobs == 0 {
+        return Err(PyValueError::new_err("fulltest_jobs 必须大于 0"));
+    }
+
+    let output = py
+        .allow_threads(|| -> Result<(usize, usize, HashMap<String, usize>), String> {
+            let started = Instant::now();
+            let cache_root_path = PathBuf::from(&cache_root);
+            let postprocess_root = cache_root_path.join("postprocess_fulltest");
+            let done_dir = postprocess_root.join("done");
+            if !resume && postprocess_root.exists() {
+                fs::remove_dir_all(&postprocess_root)
+                    .map_err(|e| format!("删除旧 fulltest 恢复目录失败: {}", e))?;
+            }
+            fs::create_dir_all(&done_dir).map_err(|e| format!("创建 fulltest done 目录失败: {}", e))?;
+
+            let all_tasks = build_fulltest_tasks(&gap5_selected, &gap1_selected);
+            let total_tasks = all_tasks.len();
+
+            let mut bucket_counts = HashMap::<String, usize>::new();
+            let mut pending_tasks = VecDeque::<TailV4FulltestTask>::new();
+            let mut restored_tasks = 0usize;
+            for task in all_tasks {
+                let done_path = fulltest_done_path(&done_dir, &task);
+                if resume && done_path.exists() {
+                    restored_tasks += 1;
+                    increment_fulltest_bucket(&mut bucket_counts, &task.stage, task.gap);
+                } else {
+                    pending_tasks.push_back(task);
+                }
+            }
+
+            let current_time = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+            print!(
+                "\r[{}] Fulltest 启动，待处理 {}/{} 个任务，已恢复 {} 个",
+                current_time,
+                pending_tasks.len(),
+                total_tasks,
+                restored_tasks,
+            );
+            std::io::stdout()
+                .flush()
+                .map_err(|e| format!("刷新 fulltest 启动进度失败: {}", e))?;
+
+            if pending_tasks.is_empty() {
+                render_fulltest_progress(0, restored_tasks, total_tasks, started, &bucket_counts)?;
+                println!();
+                return Ok((0, restored_tasks, bucket_counts));
+            }
+
+            let worker_config = TailV4FulltestWorkerConfig {
+                ver: ver.clone(),
+                temp_root,
+                source_dir,
+                factor_names: {
+                    let mut factor_names = Vec::new();
+                    let mut seen = HashSet::<String>::new();
+                    for factor_name in gap5_selected.iter().chain(gap1_selected.iter()) {
+                        if seen.insert(factor_name.clone()) {
+                            factor_names.push(factor_name.clone());
+                        }
+                    }
+                    factor_names
+                },
+                start_date: start_date.to_string(),
+                backtest_start_date: backtest_start_date.to_string(),
+                end_date: end_date.to_string(),
+                style_data_path,
+                min_valid,
+                index_name: index_name.to_string(),
+            };
+            let worker_config_json =
+                serde_json::to_string(&worker_config).map_err(|e| format!("序列化 worker 配置失败: {}", e))?;
+
+            let pending_total = pending_tasks.len();
+            let task_queue = Arc::new(Mutex::new(pending_tasks));
+            let stop_flag = Arc::new(AtomicBool::new(false));
+            let pid_registry: TailV4PidRegistry = Arc::new(Mutex::new(HashMap::new()));
+            let (result_sender, result_receiver) =
+                unbounded::<Result<TailV4FulltestWorkerResult, String>>();
+            let worker_count = fulltest_jobs.min(pending_total.max(1));
+            let mut handles = Vec::with_capacity(worker_count);
+            for worker_id in 0..worker_count {
+                let queue_clone = Arc::clone(&task_queue);
+                let sender_clone = result_sender.clone();
+                let stop_clone = Arc::clone(&stop_flag);
+                let pid_registry_clone = Arc::clone(&pid_registry);
+                let python_path_owned = python_path.to_string();
+                let worker_config_json_clone = worker_config_json.clone();
+                handles.push(thread::spawn(move || {
+                    run_tail_v4_fulltest_worker_process(
+                        worker_id,
+                        queue_clone,
+                        sender_clone,
+                        stop_clone,
+                        pid_registry_clone,
+                        python_path_owned,
+                        worker_config_json_clone,
+                        verbose,
+                    );
+                }));
+            }
+            drop(result_sender);
+
+            let mut processed_tasks = 0usize;
+            let mut fatal_error: Option<String> = None;
+            let idle_timeout = tail_v4_fulltest_idle_timeout();
+            let mut last_progress_at = Instant::now();
+            while processed_tasks < pending_total {
+                match result_receiver.recv_timeout(Duration::from_secs(
+                    TAIL_V5_FULLTEST_RESULT_POLL_SECS,
+                )) {
+                    Ok(Ok(result)) => {
+                        let task = TailV4FulltestTask {
+                            task_key: result.task_key,
+                            factor_name: result.factor_name,
+                            stage: result.stage,
+                            gap: result.gap,
+                        };
+                        let done_path = fulltest_done_path(&done_dir, &task);
+                        write_fulltest_done(&done_path, &task)?;
+                        processed_tasks += 1;
+                        last_progress_at = Instant::now();
+                        increment_fulltest_bucket(&mut bucket_counts, &task.stage, task.gap);
+                        render_fulltest_progress(
+                            processed_tasks,
+                            restored_tasks,
+                            total_tasks,
+                            started,
+                            &bucket_counts,
+                        )?;
+                    }
+                    Ok(Err(err)) => {
+                        fatal_error = Some(err);
+                        stop_flag.store(true, AtomicOrdering::Relaxed);
+                        break;
+                    }
+                    Err(RecvTimeoutError::Timeout) => {
+                        if last_progress_at.elapsed() >= idle_timeout {
+                            fatal_error = Some(format!(
+                                "fulltest 超过 {} 秒无进度，已强制终止 worker",
+                                idle_timeout.as_secs()
+                            ));
+                            stop_flag.store(true, AtomicOrdering::Relaxed);
+                            break;
+                        }
+                    }
+                    Err(RecvTimeoutError::Disconnected) => {
+                        fatal_error = Some("fulltest worker 通道提前关闭".to_string());
+                        stop_flag.store(true, AtomicOrdering::Relaxed);
+                        break;
+                    }
+                }
+            }
+
+            // 外部 supervisor: 当出现错误或长时间无进度时，强制终止所有活跃 worker 进程。
+            if fatal_error.is_some() {
+                kill_tail_v4_fulltest_workers(&pid_registry);
+            }
+
+            for handle in handles {
+                let _ = handle.join();
+            }
+            println!();
+
+            if let Some(err) = fatal_error {
+                return Err(err);
+            }
+
+            Ok((processed_tasks, restored_tasks, bucket_counts))
+        })
+        .map_err(PyRuntimeError::new_err)?;
+
+    let info = PyDict::new(py);
+    info.set_item("processed_tasks", output.0)?;
+    info.set_item("restored_tasks", output.1)?;
+    let bucket_counts = PyDict::new(py);
+    for (key, value) in output.2 {
+        bucket_counts.set_item(key, value)?;
+    }
+    info.set_item("bucket_counts", bucket_counts)?;
+    Ok(info.into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ndarray::Array2;
+
+    fn make_test_data() -> (Array2<f32>, Array2<f32>, Array2<f32>) {
+        let raw = Array2::from_shape_vec(
+            (3, 5),
+            vec![
+                1.0_f32, 2.0, f32::NAN, 4.0, 5.0,
+                6.0, f32::NAN, f32::NAN, 9.0, 10.0,
+                f32::NAN, 12.0, 13.0, 14.0, f32::NAN,
+            ],
+        )
+        .unwrap();
+        let restrict = Array2::from_shape_vec(
+            (3, 5),
+            vec![
+                0.0_f32, 0.0, 0.0, 0.0, 0.0,
+                0.0, 0.0, 0.0, 1.0, 1.0,
+                0.0, 0.0, 1.0, 0.0, 0.0,
+            ],
+        )
+        .unwrap();
+        let ret = Array2::from_shape_vec(
+            (3, 5),
+            vec![
+                0.01_f32, 0.02, 0.03, 0.04, 0.05,
+                0.01, 0.02, 0.03, 0.04, 0.05,
+                0.01, 0.02, f32::NAN, 0.04, 0.05,
+            ],
+        )
+        .unwrap();
+        (raw, restrict, ret)
+    }
+
+    #[test]
+    fn test_compute_raw_cover_rate_all_dates_low_threshold() {
+        let (raw, restrict, ret) = make_test_data();
+        let result = compute_raw_cover_rate(&raw.view(), &restrict.view(), &ret.view(), 0);
+        // day0: free=5, valid(raw!=NaN & ret.finite & free)=4 (/val0=NaN → exclude)
+        //       ratio=4/5=0.8
+        // day1: free=3 (restrict[1,3]=1, [1,4]=1), valid=1 (/val1=NaN /val2=NaN → exclude)
+        //       ratio=1/3
+        // day2: free=4 (restrict[2,2]=1), valid=3 (/val0=NaN, /val4=NaN, ret[2,2]=NaN)
+        //       ratio=3/4=0.75
+        // result = (0.8 + 1/3 + 0.75) / 3
+        let expected = (0.8_f64 + 1.0/3.0 + 0.75) / 3.0;
+        assert!((result - expected).abs() < 0.0001, "{} vs {}", result, expected);
+    }
+
+    #[test]
+    fn test_compute_raw_cover_rate_min_stocks_2() {
+        let (raw, restrict, ret) = make_test_data();
+        let result = compute_raw_cover_rate(&raw.view(), &restrict.view(), &ret.view(), 2);
+        // day1: valid=1 < 2 → excluded
+        // day0: 4/5=0.8, day2: 3/4=0.75
+        let expected = (0.8_f64 + 0.75) / 2.0;
+        assert!((result - expected).abs() < 0.0001, "{} vs {}", result, expected);
+    }
+
+    #[test]
+    fn test_compute_raw_cover_rate_min_stocks_5() {
+        let (raw, restrict, ret) = make_test_data();
+        let result = compute_raw_cover_rate(&raw.view(), &restrict.view(), &ret.view(), 5);
+        assert_eq!(result, 1.0);
+    }
+
+    #[test]
+    fn test_compute_raw_cover_rate_against_python_small() {
+        // 用Python脚本生成的数据: restrict (22,5419), ret_gap1 (22,5419)
+        // 构造一个确定性的小因子测试
+        let mut raw_data = vec![0.0_f32; 22 * 5419];
+        let n_dates = 22_usize;
+        let n_stocks = 5419_usize;
+        for t in 0..n_dates {
+            for s in 0..n_stocks {
+                if s % 2 == 0 && t % 3 == 0 {
+                    raw_data[t * n_stocks + s] = f32::NAN;
+                } else {
+                    raw_data[t * n_stocks + s] = ((s * t) % 100) as f32;
+                }
+            }
+        }
+        let raw = Array2::from_shape_vec((n_dates, n_stocks), raw_data).unwrap();
+        // 全0的restrict (所有股票可交易)
+        let restrict = Array2::from_elem((n_dates, n_stocks), 0.0_f32);
+        // 全1的ret (所有收益有效)
+        let ret = Array2::from_elem((n_dates, n_stocks), 0.01_f32);
+        let result = compute_raw_cover_rate(&raw.view(), &restrict.view(), &ret.view(), 10);
+        // 每3天有1天 (t%3==0) 偶数股票为NaN, 其他天全部有效
+        // nan股票 = ceil(5419/2) = 2710, 有效股票 = 2709
+        // ratio_some_nan = 2709/5419, ratio_all_valid = 1.0
+        // dates with t%3==0: t=0,3,6,9,12,15,18,21 (8 days)
+        // dates with t%3!=0: 22-8 = 14 days
+        let expected = (8.0 * (2709.0/5419.0) + 14.0 * 1.0) / 22.0;
+        assert!((result - expected).abs() < 0.001, "result={:.6}, expected={:.6}", result, expected);
+    }
+
+    #[test]
+    fn test_ret_nan_filters_correctly() {
+        // 所有signal有效, 但部分ret为NaN
+        let raw = Array2::from_elem((2, 10), 1.0_f32);
+        let restrict = Array2::from_elem((2, 10), 0.0_f32);
+        let ret = Array2::from_shape_vec(
+            (2, 10),
+            vec![
+                0.01_f32, 0.02, f32::NAN, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.10,
+                f32::NAN, f32::NAN, f32::NAN, f32::NAN, f32::NAN, 0.06, 0.07, 0.08, 0.09, 0.10,
+            ],
+        )
+        .unwrap();
+        let result = compute_raw_cover_rate(&raw.view(), &restrict.view(), &ret.view(), 0);
+        // day0: free=10, valid=9 (ret[2]=NaN) → 9/10=0.9
+        // day1: free=10, valid=5 (ret[0..5]=NaN) → 5/10=0.5
+        let expected = (0.9_f64 + 0.5) / 2.0;
+        assert!((result - expected).abs() < 0.0001, "{} vs {}", result, expected);
+    }
+
+    #[test]
+    fn test_restrict_filters_correctly() {
+        let raw = Array2::from_elem((2, 5), 1.0_f32);
+        let restrict = Array2::from_shape_vec(
+            (2, 5),
+            vec![
+                0.0_f32, 1.0, 0.0, 1.0, 0.0,
+                1.0, 1.0, 0.0, 0.0, 0.0,
+            ],
+        )
+        .unwrap();
+        let ret = Array2::from_elem((2, 5), 0.01_f32);
+        let result = compute_raw_cover_rate(&raw.view(), &restrict.view(), &ret.view(), 0);
+        // day0: restrict[0]=free, restrict[1]=1(not free), restrict[2]=free, restrict[3]=1(not free), restrict[4]=free
+        //       free=3, valid=3 → 3/3=1.0
+        // day1: free=3, valid=3 → 1.0
+        assert!((result - 1.0).abs() < 0.0001);
+    }
+
+    #[test]
+    fn test_restrict_nan_not_counted_as_free() {
+        let raw = Array2::from_elem((1, 5), 1.0_f32);
+        let restrict = Array2::from_shape_vec(
+            (1, 5),
+            vec![0.0_f32, 0.0, f32::NAN, 0.0, 0.0],
+        )
+        .unwrap();
+        let ret = Array2::from_elem((1, 5), 0.01_f32);
+        let result = compute_raw_cover_rate(&raw.view(), &restrict.view(), &ret.view(), 0);
+        // day0: free=4 (restrict[2]=NaN → not free), valid=4 → 4/4=1.0
+        assert!((result - 1.0).abs() < 0.0001);
+    }
+
+    #[test]
+    fn test_no_valid_dates_returns_1() {
+        let raw = Array2::from_elem((1, 5), f32::NAN);
+        let restrict = Array2::from_elem((1, 5), 0.0_f32);
+        let ret = Array2::from_elem((1, 5), 0.01_f32);
+        let result = compute_raw_cover_rate(&raw.view(), &restrict.view(), &ret.view(), 10);
+        assert_eq!(result, 1.0);
+    }
+}

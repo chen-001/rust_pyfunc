@@ -17,7 +17,7 @@ pub struct TaskResult {
     pub date: i64,
     pub code: String,
     pub timestamp: i64,
-    pub facs: Vec<f64>,
+    pub facs: Vec<f32>,
 }
 
 // 文件格式相关常量
@@ -76,7 +76,7 @@ pub struct DynamicRecord {
     factor_count: u32,
     code_len: u32,
     code_bytes: [u8; 32],
-    factors: Vec<f64>, // 动态大小的因子数组
+    factors: Vec<f32>, // 动态大小的因子数组
     checksum: u32,
 }
 
@@ -116,8 +116,7 @@ impl DynamicRecord {
         sum = sum.wrapping_add(self.code_len);
 
         for &factor in &self.factors {
-            sum = sum.wrapping_add(factor.to_bits() as u32);
-            sum = sum.wrapping_add((factor.to_bits() >> 32) as u32);
+            sum = sum.wrapping_add(factor.to_bits());
         }
 
         sum
@@ -173,10 +172,10 @@ impl DynamicRecord {
         code_bytes.copy_from_slice(&bytes[offset..offset + 32]);
         offset += 32;
 
-        let mut factors = Vec::with_capacity(expected_factor_count);
+        let mut factors: Vec<f32> = Vec::with_capacity(expected_factor_count);
         for _ in 0..expected_factor_count {
             let factor = f64::from_le_bytes(bytes[offset..offset + 8].try_into()?);
-            factors.push(factor);
+            factors.push(factor as f32);
             offset += 8;
         }
 
@@ -289,10 +288,10 @@ fn read_v3_code(bytes: &[u8]) -> String {
 }
 
 /// 从 v3 记录字节读取单个 f32 因子并转为 f64
-fn read_v3_factor_f64(bytes: &[u8], column_index: usize) -> f64 {
+fn read_v3_factor(bytes: &[u8], column_index: usize) -> f32 {
     let offset = V3_FACTOR_BASE_OFFSET + column_index * V3_FACTOR_SIZE;
     let bits = u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
-    f32::from_bits(bits) as f64
+    f32::from_bits(bits)
 }
 
 /// 从 v3 记录字节读取日期
@@ -306,15 +305,15 @@ fn read_v3_timestamp(bytes: &[u8]) -> i64 {
 }
 
 /// 从 v3 记录字节读取所有因子（转为 f64）
-fn read_v3_all_factors_f64(bytes: &[u8], factor_count: usize) -> Vec<f64> {
+fn read_v3_all_factors(bytes: &[u8], factor_count: usize) -> Vec<f32> {
     (0..factor_count)
-        .map(|i| read_v3_factor_f64(bytes, i))
+        .map(|i| read_v3_factor(bytes, i))
         .collect()
 }
 
 /// 从 v3 记录字节读取指定范围的因子（转为 f64）
-fn read_v3_factors_range_f64(bytes: &[u8], start: usize, end: usize) -> Vec<f64> {
-    (start..=end).map(|i| read_v3_factor_f64(bytes, i)).collect()
+fn read_v3_factors_range(bytes: &[u8], start: usize, end: usize) -> Vec<f32> {
+    (start..=end).map(|i| read_v3_factor(bytes, i)).collect()
 }
 
 pub fn read_existing_backup(
@@ -811,7 +810,7 @@ pub fn read_backup_results_with_filter(
             .collect::<Vec<_>>()
             .par_iter()
             .map(|chunk| {
-                let mut chunk_data = Vec::with_capacity(chunk.len() * num_cols);
+                let mut chunk_data: Vec<f64> = Vec::with_capacity(chunk.len() * num_cols);
                 for &i in chunk {
                     let record_offset = i * rec_size;
                     let record_bytes = &decompressed[record_offset..record_offset + rec_size];
@@ -842,7 +841,7 @@ pub fn read_backup_results_with_filter(
                     chunk_data.push(timestamp as f64);
 
                     for j in 0..factor_count {
-                        chunk_data.push(read_v3_factor_f64(record_bytes, j));
+                        chunk_data.push(read_v3_factor(record_bytes, j) as f64);
                     }
                 }
                 Ok(chunk_data)
@@ -860,7 +859,7 @@ pub fn read_backup_results_with_filter(
             .collect::<Vec<_>>()
             .par_iter()
             .map(|chunk| {
-                let mut chunk_data = Vec::with_capacity(chunk.len() * num_cols);
+                let mut chunk_data: Vec<f64> = Vec::with_capacity(chunk.len() * num_cols);
                 let records_start = HEADER_SIZE;
 
                 for &i in chunk {
@@ -893,7 +892,7 @@ pub fn read_backup_results_with_filter(
                     chunk_data.push(timestamp as f64);
 
                     for j in 0..factor_count {
-                        chunk_data.push(read_v3_factor_f64(record_bytes, j));
+                        chunk_data.push(read_v3_factor(record_bytes, j) as f64);
                     }
                 }
 
@@ -912,7 +911,7 @@ pub fn read_backup_results_with_filter(
             .collect::<Vec<_>>()
             .par_iter()
             .map(|chunk| {
-                let mut chunk_data = Vec::with_capacity(chunk.len() * num_cols);
+                let mut chunk_data: Vec<f64> = Vec::with_capacity(chunk.len() * num_cols);
                 let records_start = HEADER_SIZE;
 
                 for &i in chunk {
@@ -952,7 +951,7 @@ pub fn read_backup_results_with_filter(
                             // 复制因子数据
                             for j in 0..factor_count {
                                 if j < record.factors.len() {
-                                    chunk_data.push(record.factors[j]);
+                                    chunk_data.push(record.factors[j] as f64);
                                 } else {
                                     chunk_data.push(f64::NAN);
                                 }
@@ -982,7 +981,7 @@ pub fn read_backup_results_with_filter(
             .collect::<Vec<_>>()
             .par_iter()
             .map(|chunk| {
-                let mut chunk_data = Vec::with_capacity(chunk.len() * num_cols);
+                let mut chunk_data: Vec<f64> = Vec::with_capacity(chunk.len() * num_cols);
                 let records_start = HEADER_SIZE;
 
                 for &i in chunk {
@@ -1030,7 +1029,7 @@ pub fn read_backup_results_with_filter(
 
                     // 直接内存复制因子数据（更快）
                     for j in 0..actual_factor_count {
-                        chunk_data.push(record.factors[j]);
+                        chunk_data.push(record.factors[j] as f64);
                     }
 
                     // 如果因子数量不足，填充NaN
@@ -1338,7 +1337,7 @@ pub fn read_backup_results_ultra_fast_v4_with_filter(
                 }
 
                 let timestamp = read_v3_timestamp(record_bytes);
-                let factors = read_v3_all_factors_f64(record_bytes, factor_count);
+                let factors = read_v3_all_factors(record_bytes, factor_count);
                 Some((date, code, timestamp, factors))
             })
             .collect()
@@ -1365,7 +1364,7 @@ pub fn read_backup_results_ultra_fast_v4_with_filter(
                 }
 
                 let timestamp = read_v3_timestamp(record_bytes);
-                let factors = read_v3_all_factors_f64(record_bytes, factor_count);
+                let factors = read_v3_all_factors(record_bytes, factor_count);
                 Some((date, code, timestamp, factors))
             })
             .collect()
@@ -1415,7 +1414,7 @@ pub fn read_backup_results_ultra_fast_v4_with_filter(
         if facs.len() == factor_count {
             factors_flat.extend_from_slice(&facs);
         } else {
-            factors_flat.resize(factors_flat.len() + factor_count, f64::NAN);
+            factors_flat.resize(factors_flat.len() + factor_count, f32::NAN);
         }
     }
 
@@ -1579,7 +1578,7 @@ pub fn read_backup_results_single_column_with_filter(
                     }
                 }
 
-                let factor_value = read_v3_factor_f64(record_bytes, column_index);
+                let factor_value = read_v3_factor(record_bytes, column_index);
                 Some((date, code, factor_value))
             })
             .collect()
@@ -1605,7 +1604,7 @@ pub fn read_backup_results_single_column_with_filter(
                     }
                 }
 
-                let factor_value = read_v3_factor_f64(record_bytes, column_index);
+                let factor_value = read_v3_factor(record_bytes, column_index);
                 Some((date, code, factor_value))
             })
             .collect()
@@ -1646,7 +1645,7 @@ pub fn read_backup_results_single_column_with_filter(
                             let factor_value = if column_index < record.factors.len() {
                                 record.factors[column_index]
                             } else {
-                                f64::NAN
+                                f32::NAN
                             };
 
                             Some((record.date, code, factor_value))
@@ -1829,7 +1828,7 @@ pub fn read_backup_results_columns_range_with_filter(
                     }
                 }
 
-                let factor_values = read_v3_factors_range_f64(record_bytes, column_start, column_end);
+                let factor_values = read_v3_factors_range(record_bytes, column_start, column_end);
                 Some((date, code, factor_values))
             })
             .collect()
@@ -1855,7 +1854,7 @@ pub fn read_backup_results_columns_range_with_filter(
                     }
                 }
 
-                let factor_values = read_v3_factors_range_f64(record_bytes, column_start, column_end);
+                let factor_values = read_v3_factors_range(record_bytes, column_start, column_end);
                 Some((date, code, factor_values))
             })
             .collect()
@@ -1889,7 +1888,7 @@ pub fn read_backup_results_columns_range_with_filter(
                             let factor_value = if col_idx < record.factors.len() {
                                 record.factors[col_idx]
                             } else {
-                                f64::NAN
+                                f32::NAN
                             };
                             factor_values.push(factor_value);
                         }
@@ -2240,7 +2239,7 @@ fn read_legacy_backup_results_single_column_with_filter(
         let factor_value = if column_index < result.facs.len() {
             result.facs[column_index]
         } else {
-            f64::NAN
+            f32::NAN
         };
         factors.push(factor_value);
     }
@@ -2360,7 +2359,7 @@ pub fn read_backup_results_factor_only_with_filter(
 
     let records_start = HEADER_SIZE;
 
-    let factors: Vec<f64> = if version == 4 {
+    let factors: Vec<f32> = if version == 4 {
         // v4 分块压缩格式
         let (decompressed, total_count, rec_size) = decompress_all_chunks_v4(&mmap)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e))?;
@@ -2385,7 +2384,7 @@ pub fn read_backup_results_factor_only_with_filter(
                     }
                 }
 
-                Some(read_v3_factor_f64(record_bytes, column_index))
+                Some(read_v3_factor(record_bytes, column_index))
             })
             .collect()
     } else if version == 3 {
@@ -2410,7 +2409,7 @@ pub fn read_backup_results_factor_only_with_filter(
                     }
                 }
 
-                Some(read_v3_factor_f64(record_bytes, column_index))
+                Some(read_v3_factor(record_bytes, column_index))
             })
             .collect()
     } else {
@@ -2449,10 +2448,10 @@ pub fn read_backup_results_factor_only_with_filter(
                             Some(if column_index < record.factors.len() {
                                 record.factors[column_index]
                             } else {
-                                f64::NAN
+                                f32::NAN
                             })
                         }
-                        Err(_) => Some(f64::NAN)
+                        Err(_) => Some(f32::NAN)
                     }
                 })
                 .collect()
@@ -2598,13 +2597,13 @@ fn read_legacy_backup_results_factor_only_with_filter(
     }
 
     // 只提取指定列的因子值
-    let factors: Vec<f64> = all_results
+    let factors: Vec<f32> = all_results
         .into_iter()
         .map(|result| {
             if column_index < result.facs.len() {
                 result.facs[column_index]
             } else {
-                f64::NAN
+                f32::NAN
             }
         })
         .collect();

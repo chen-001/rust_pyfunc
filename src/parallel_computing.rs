@@ -1374,7 +1374,7 @@ fn run_persistent_task_worker(
                         date: task.date,
                         code: task.code,
                         timestamp: chrono::Utc::now().timestamp_millis(),
-                        facs: vec![f64::NAN; expected_result_length],
+                        facs: vec![f32::NAN; expected_result_length],
                     };
 
                     if let Err(e) = result_sender.send(error_result) {

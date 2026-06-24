@@ -84,6 +84,7 @@ pub mod tail_v2_block_neutralizer;
 pub mod tail_v2_ic_corr_filter;
 pub mod tail_v2_rank_roll_factor;
 pub mod tail_v4_pipeline;
+pub mod tail_v5_pipeline;
 pub mod theme_cluster_factors;
 pub mod theme_cluster_factors_batch;
 pub mod theme_feature_expansion;
@@ -98,6 +99,7 @@ pub mod yand_divergence;
 pub mod fast_csv_reader;
 
 pub mod factor_pipeline;
+pub mod factor_store_v5;
 pub mod features;
 pub mod observable_order_metrics;
 pub mod order_pair_metrics_pipeline;
@@ -311,6 +313,21 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         m
     )?);
     let _ = m.add_function(wrap_pyfunction!(backup_reader::convert_backup_v3_to_v4, m)?);
+    // 列式因子存储 RPFBINV5（计算备份 + 回测读取统一格式）
+    let _ = m.add_function(wrap_pyfunction!(factor_store_v5::factor_store_v5_open, m)?);
+    let _ = m.add_function(wrap_pyfunction!(factor_store_v5::factor_store_v5_info, m)?);
+    let _ =
+        m.add_function(wrap_pyfunction!(factor_store_v5::factor_store_v5_read_factor, m)?);
+    let _ =
+        m.add_function(wrap_pyfunction!(factor_store_v5::factor_store_v5_template, m)?);
+    let _ = m.add_function(
+        wrap_pyfunction!(factor_store_v5::factor_store_v5_export_factors_parquet, m)?,
+    );
+    let _ =
+        m.add_function(wrap_pyfunction!(factor_store_v5::factor_store_v5_project_only, m)?);
+    let _ = m.add_function(
+        wrap_pyfunction!(factor_store_v5::factor_store_v5_decompress_inplace, m)?,
+    );
     let _ = m.add_function(wrap_pyfunction!(
         order_contamination::order_contamination,
         m
@@ -535,6 +552,20 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         m
     )?);
     let _ = m.add_class::<tail_v4_pipeline::TailV4LegacyStyleData>()?;
+    // Tail V5：列式存储 + IO/CPU 分离（复制自 v4，支持 factor_store_v5）
+    let _ = m.add_function(wrap_pyfunction!(
+        tail_v5_pipeline::tail_v5_run_candidates,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        tail_v5_pipeline::tail_v5_run_fulltest_queue,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        tail_v5_pipeline::tail_v5_neutralize_block_exact,
+        m
+    )?);
+    let _ = m.add_class::<tail_v5_pipeline::TailV5LegacyStyleData>()?;
     let _ = m.add_function(wrap_pyfunction!(
         permutation_analysis_v0816_fixed::analyze_sequence_permutations_v0816_fixed,
         m

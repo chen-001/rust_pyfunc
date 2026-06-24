@@ -777,6 +777,68 @@ def query_backup_codebook_cached_from_cache_dir(
     """直接从缓存目录读取codebook映射（code_id -> code字符串）。"""
     ...
 
+
+# ============================ 列式因子存储 RPFBINV5 ============================
+
+def factor_store_v5_open(
+    store_dir: str,
+    factor_names: List[str],
+) -> None:
+    """创建/打开列式因子存储（RPFBINV5）。正式流程由 run_factor_pipeline(store_dir=...) 内部调用，此函数仅供测试。"""
+    ...
+
+
+def factor_store_v5_info(store_dir: str) -> dict:
+    """查询列式存储元信息。
+
+    返回 dict:
+        record_count: int   已写入记录数
+        factor_count: int   因子数
+        is_projected: bool  是否已投影
+        factor_names: List[str]
+    """
+    ...
+
+
+def factor_store_v5_read_factor(
+    store_dir: str,
+    col_idx: int,
+) -> dict:
+    """读取第 col_idx 个因子为扁平数组（需存储已投影）。仅供测试/调试。
+
+    返回 dict:
+        date_id: NDArray[np.uint32]
+        code_id: NDArray[np.uint32]
+        factor:  NDArray[np.float32]
+    """
+    ...
+
+
+def factor_store_v5_template(store_dir: str) -> dict:
+    """从 colblk 存储推断回测模板轴（替代 v4 的 pandas 读 parquet）。
+
+    返回 dict:
+        dates:  NDArray[np.int32]   去重排序后的日期
+        stocks: List[str]           去重排序后的股票代码（带 .SZ/.SH 后缀）
+    """
+    ...
+
+
+def factor_store_v5_export_factors_parquet(
+    store_dir: str,
+    output_dir: str,
+    factor_names: List[str],
+    n_jobs: int = 0,
+) -> int:
+    """把 colblk 中指定因子批量导出为 parquet（每因子一个文件）。
+
+    输出 schema 与 export_backup_to_parquet_rust 一致（date:Int64 + 每股票列 Float64），
+    保证 postprocess（fulltest/materialize）兼容。供 tail_v5 筛选后导出入选因子。
+
+    返回成功导出的因子数。
+    """
+    ...
+
 def query_backup_single_column_with_filter(
     backup_file: str,
     column_index: int,
