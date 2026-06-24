@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>run_factor_pipeline - Rust PyFunc API文档</title>
+    <title>factor_store_v5_project_only - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
     <script src="static/search.js"></script>
 </head>
@@ -26,25 +26,17 @@
     </div>
     
     <div class="content">
-        <h1>run_factor_pipeline</h1>
+        <h1>factor_store_v5_project_only</h1>
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><ul>
-<li>tasks: [[date, code], ...]</li>
-<li>n_jobs: 并行线程数（默认 200）</li>
-<li>backup_file: 备份文件路径</li>
-<li>expected_result_length: 每个任务的预期结果长度</li>
-<li>trading_days: 交易日历数组（由 rp.td.trading_days 提供）</li>
-<li>params: 可选参数 dict（tolerance_v1, tolerance_v2）</li>
-<li>update_mode: 断点续算（默认 False）</li>
-<li>bind_cores: 是否核绑定（默认 True）</li>
-</ul></div>
+            <div><p>对已有 colblk 存储触发投影（不重新计算）。
+用于计算已完成但投影失败/中断的场景。流式投影，内存可控。</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>run_factor_pipeline(pipeline, tasks, n_jobs, backup_file, expected_result_length, trading_days, params, update_mode, bind_cores, backup_batch_size, progress_log, mode, export_names, export_dir, export_n_jobs, store_dir, store_factor_names) -> None</code>
+            <code>factor_store_v5_project_only(store_dir, n_jobs) -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -68,7 +60,7 @@
             <div class="example-usage-note">
                 <h3>Python使用示例</h3>
                 <pre><code>import numpy as np
-from rust_pyfunc import run_factor_pipeline
+from rust_pyfunc import factor_store_v5_project_only
 
 # 使用示例
 
