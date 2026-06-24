@@ -33,10 +33,10 @@ use std::path::Path;
 #[repr(C)]
 pub struct TradeRecord {
     /// 成交时间，epoch 秒（exchtime 微秒整数 / 1e6）
-    pub time_sec: f64,
-    pub price: f64,
-    pub volume: f64,
-    pub turnover: f64,
+    pub time_sec: f32,
+    pub price: f32,
+    pub volume: f32,
+    pub turnover: f32,
     /// 成交标志（i32）：66=主买, 83=主卖, 32=撤单（已被过滤）
     pub flag: i32,
     pub bid_order: i64,
@@ -279,10 +279,10 @@ fn parse_line(line: &[u8], with_retreat: bool, with_afternoon_adjust: bool) -> O
     let final_time_sec = final_time_sec?;
 
     Some(TradeRecord {
-        time_sec: final_time_sec,
-        price: parse_f64_fast(fields[COL_PRICE]),
-        volume: parse_f64_fast(fields[COL_VOLUME]),
-        turnover: parse_f64_fast(fields[COL_TURNOVER]),
+        time_sec: final_time_sec as f32,
+        price: parse_f64_fast(fields[COL_PRICE]) as f32,
+        volume: parse_f64_fast(fields[COL_VOLUME]) as f32,
+        turnover: parse_f64_fast(fields[COL_TURNOVER]) as f32,
         flag,
         bid_order: parse_i64_fast(fields[COL_BID_ORDER]),
         ask_order: parse_i64_fast(fields[COL_ASK_ORDER]),
@@ -427,10 +427,10 @@ pub fn trade_records_to_array2(records: &[TradeRecord]) -> ndarray::Array2<f64> 
     let n = records.len();
     let mut arr = ndarray::Array2::<f64>::zeros((n, 7));
     for (i, r) in records.iter().enumerate() {
-        arr[(i, 0)] = r.time_sec;
-        arr[(i, 1)] = r.price;
-        arr[(i, 2)] = r.volume;
-        arr[(i, 3)] = r.turnover;
+        arr[(i, 0)] = r.time_sec as f64;
+        arr[(i, 1)] = r.price as f64;
+        arr[(i, 2)] = r.volume as f64;
+        arr[(i, 3)] = r.turnover as f64;
         arr[(i, 4)] = r.flag as f64;
         arr[(i, 5)] = r.bid_order as f64;
         arr[(i, 6)] = r.ask_order as f64;
@@ -502,22 +502,22 @@ const MKT_COL_ASK_PRC_BASE: usize = 21; // ask_prc1=21, ask_vol1=22, bid_prc1=23
 #[derive(Clone, Copy, Debug, Default)]
 pub struct MarketRecord {
     /// 成交时间，epoch 秒（exchtime 微秒 + 8h 偏移，再整除 1e6，与 read_trade_fast 一致）
-    pub time_sec: f64,
-    pub last_prc: f64,
-    pub volume: f64,
-    pub turnover: f64,
+    pub time_sec: f32,
+    pub last_prc: f32,
+    pub volume: f32,
+    pub turnover: f32,
     /// 全部档位卖单挂单量（含 10 档之外）
-    pub total_ask_vol: f64,
+    pub total_ask_vol: f32,
     /// 全部档位买单挂单量（含 10 档之外）
-    pub total_bid_vol: f64,
+    pub total_bid_vol: f32,
     /// 10 档卖价 [ask_prc1, ..., ask_prc10]
-    pub ask_prcs: [f64; 10],
+    pub ask_prcs: [f32; 10],
     /// 10 档卖量
-    pub ask_vols: [f64; 10],
+    pub ask_vols: [f32; 10],
     /// 10 档买价
-    pub bid_prcs: [f64; 10],
+    pub bid_prcs: [f32; 10],
     /// 10 档买量
-    pub bid_vols: [f64; 10],
+    pub bid_vols: [f32; 10],
 }
 
 /// 解析 market_data 的一行。
@@ -583,25 +583,25 @@ fn parse_market_line(
     let time_sec = final_time_sec?;
 
     // 解析 10 档 ask/bid（每档 4 列：ask_prc, ask_vol, bid_prc, bid_vol）
-    let mut ask_prcs = [0.0f64; 10];
-    let mut ask_vols = [0.0f64; 10];
-    let mut bid_prcs = [0.0f64; 10];
-    let mut bid_vols = [0.0f64; 10];
+    let mut ask_prcs = [0.0f32; 10];
+    let mut ask_vols = [0.0f32; 10];
+    let mut bid_prcs = [0.0f32; 10];
+    let mut bid_vols = [0.0f32; 10];
     for i in 0..10 {
         let base = MKT_COL_ASK_PRC_BASE + i * 4;
-        ask_prcs[i] = parse_f64_fast(fields[base]);
-        ask_vols[i] = parse_f64_fast(fields[base + 1]);
-        bid_prcs[i] = parse_f64_fast(fields[base + 2]);
-        bid_vols[i] = parse_f64_fast(fields[base + 3]);
+        ask_prcs[i] = parse_f64_fast(fields[base]) as f32;
+        ask_vols[i] = parse_f64_fast(fields[base + 1]) as f32;
+        bid_prcs[i] = parse_f64_fast(fields[base + 2]) as f32;
+        bid_vols[i] = parse_f64_fast(fields[base + 3]) as f32;
     }
 
     Some(MarketRecord {
-        time_sec,
-        last_prc: parse_f64_fast(fields[MKT_COL_LAST_PRC]),
-        volume: parse_f64_fast(fields[MKT_COL_VOLUME]),
-        turnover: parse_f64_fast(fields[MKT_COL_TURNOVER]),
-        total_ask_vol: parse_f64_fast(fields[MKT_COL_TOTAL_ASK_VOL]),
-        total_bid_vol: parse_f64_fast(fields[MKT_COL_TOTAL_BID_VOL]),
+        time_sec: time_sec as f32,
+        last_prc: parse_f64_fast(fields[MKT_COL_LAST_PRC]) as f32,
+        volume: parse_f64_fast(fields[MKT_COL_VOLUME]) as f32,
+        turnover: parse_f64_fast(fields[MKT_COL_TURNOVER]) as f32,
+        total_ask_vol: parse_f64_fast(fields[MKT_COL_TOTAL_ASK_VOL]) as f32,
+        total_bid_vol: parse_f64_fast(fields[MKT_COL_TOTAL_BID_VOL]) as f32,
         ask_prcs,
         ask_vols,
         bid_prcs,
@@ -748,10 +748,10 @@ pub fn read_market_fast(
     let py_dict = pyo3::types::PyDict::new(py);
 
     // 一维数组
-    let time_sec: Vec<f64> = records.iter().map(|r| r.time_sec).collect();
-    let last_prc: Vec<f64> = records.iter().map(|r| r.last_prc).collect();
-    let volume: Vec<f64> = records.iter().map(|r| r.volume).collect();
-    let turnover: Vec<f64> = records.iter().map(|r| r.turnover).collect();
+    let time_sec: Vec<f64> = records.iter().map(|r| r.time_sec as f64).collect();
+    let last_prc: Vec<f64> = records.iter().map(|r| r.last_prc as f64).collect();
+    let volume: Vec<f64> = records.iter().map(|r| r.volume as f64).collect();
+    let turnover: Vec<f64> = records.iter().map(|r| r.turnover as f64).collect();
 
     py_dict.set_item("time_sec", numpy::PyArray1::from_vec(py, time_sec))?;
     py_dict.set_item("last_prc", numpy::PyArray1::from_vec(py, last_prc))?;

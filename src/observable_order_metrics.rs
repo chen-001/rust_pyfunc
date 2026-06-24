@@ -22,13 +22,13 @@ use crate::fast_csv_reader::{
 #[derive(Clone, Debug)]
 pub struct ObsOrderParams {
     /// 分位点（全天 obs_ratio 序列的分位数阈值），默认 0.10
-    pub q: f64,
+    pub q: f32,
     /// 方法A 段最小快照数（不足则丢弃），默认 10
     pub drop_min: usize,
     /// 方法B 向后秒数，默认 60
-    pub forward_sec: f64,
+    pub forward_sec: f32,
     /// 起点前窗口分钟数，默认 5
-    pub pre_minutes: f64,
+    pub pre_minutes: f32,
     /// 滚动窗口快照数（过去含当前），默认 20
     pub rolling_n: usize,
     /// 自相关滞后阶数，默认 1
@@ -82,9 +82,9 @@ struct Segment {
     /// 段内末快照索引（不含）
     mkt_hi: usize,
     /// 时间范围起点（epoch 秒，含）
-    t0: f64,
+    t0: f32,
     /// 时间范围终点（epoch 秒，含）
-    t1: f64,
+    t1: f32,
 }
 
 // ============================================================================
@@ -99,36 +99,36 @@ struct Segment {
 /// - autocorr: n>=lag+1
 /// - trend: n>=2（与 [1..n] 的 Pearson 相关）
 #[inline]
-fn aggregate5(vals: &[f64], autocorr_lag: usize) -> [f64; 5] {
+fn aggregate5(vals: &[f32], autocorr_lag: usize) -> [f32; 5] {
     let n = vals.len();
-    let mut out = [f64::NAN; 5];
+    let mut out = [f32::NAN; 5];
     if n == 0 {
         return out;
     }
     // mean
-    let sum: f64 = vals.iter().copied().sum();
-    let mean = sum / n as f64;
+    let sum: f32 = vals.iter().copied().sum();
+    let mean = sum / n as f32;
     out[0] = mean;
     // std (ddof=1)
     if n >= 2 {
-        let mut sq = 0.0f64;
+        let mut sq = 0.0f32;
         for &v in vals {
             let d = v - mean;
             sq += d * d;
         }
-        out[1] = (sq / (n - 1) as f64).sqrt();
+        out[1] = (sq / (n - 1) as f32).sqrt();
     }
     // skew (pandas: 偏度 G1，无偏校正)
     if n >= 3 {
         let std1 = out[1];
         if std1 > 0.0 && std1.is_finite() {
-            let m2: f64 = vals.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / n as f64;
-            let m3: f64 = vals.iter().map(|&v| (v - mean).powi(3)).sum::<f64>() / n as f64;
+            let m2: f32 = vals.iter().map(|&v| (v - mean).powi(2)).sum::<f32>() / n as f32;
+            let m3: f32 = vals.iter().map(|&v| (v - mean).powi(3)).sum::<f32>() / n as f32;
             let g1 = m3 / m2.powf(1.5);
             // 无偏校正（pandas scipy skew 校正因子）
-            let nf = n as f64;
+            let nf = n as f32;
             let g1_adj = g1 * ((nf - 1.0).powf(1.5)) / ((nf - 2.0) * nf.sqrt());
-            out[2] = if g1_adj.is_finite() { g1_adj } else { f64::NAN };
+            out[2] = if g1_adj.is_finite() { g1_adj } else { f32::NAN };
         }
     }
     // autocorr(lag)
@@ -136,11 +136,11 @@ fn aggregate5(vals: &[f64], autocorr_lag: usize) -> [f64; 5] {
         let a = &vals[..n - autocorr_lag];
         let b = &vals[autocorr_lag..];
         let na = a.len();
-        let ma = a.iter().sum::<f64>() / na as f64;
-        let mb = b.iter().sum::<f64>() / na as f64;
-        let mut cov = 0.0f64;
-        let mut va = 0.0f64;
-        let mut vb = 0.0f64;
+        let ma = a.iter().sum::<f32>() / na as f32;
+        let mb = b.iter().sum::<f32>() / na as f32;
+        let mut cov = 0.0f32;
+        let mut va = 0.0f32;
+        let mut vb = 0.0f32;
         for k in 0..na {
             let da = a[k] - ma;
             let db = b[k] - mb;
@@ -149,15 +149,15 @@ fn aggregate5(vals: &[f64], autocorr_lag: usize) -> [f64; 5] {
             vb += db * db;
         }
         let denom = (va * vb).sqrt();
-        out[3] = if denom > 0.0 { cov / denom } else { f64::NAN };
+        out[3] = if denom > 0.0 { cov / denom } else { f32::NAN };
     }
     // trend: Pearson(序列, [1..n])
     if n >= 2 {
-        let xs: Vec<f64> = (1..=n).map(|x| x as f64).collect();
-        let mx = xs.iter().sum::<f64>() / n as f64;
-        let mut cov = 0.0f64;
-        let mut vx = 0.0f64;
-        let mut vy = 0.0f64;
+        let xs: Vec<f32> = (1..=n).map(|x| x as f32).collect();
+        let mx = xs.iter().sum::<f32>() / n as f32;
+        let mut cov = 0.0f32;
+        let mut vx = 0.0f32;
+        let mut vy = 0.0f32;
         for k in 0..n {
             let dx = xs[k] - mx;
             let dy = vals[k] - mean;
@@ -166,23 +166,23 @@ fn aggregate5(vals: &[f64], autocorr_lag: usize) -> [f64; 5] {
             vy += dy * dy;
         }
         let denom = (vx * vy).sqrt();
-        out[4] = if denom > 0.0 { cov / denom } else { f64::NAN };
+        out[4] = if denom > 0.0 { cov / denom } else { f32::NAN };
     }
     out
 }
 
 /// 线性相关（Pearson），长度不足返回 NaN。
 #[inline]
-fn corr(a: &[f64], b: &[f64]) -> f64 {
+fn corr(a: &[f32], b: &[f32]) -> f32 {
     let n = a.len().min(b.len());
     if n < 2 {
-        return f64::NAN;
+        return f32::NAN;
     }
-    let ma = a[..n].iter().sum::<f64>() / n as f64;
-    let mb = b[..n].iter().sum::<f64>() / n as f64;
-    let mut cov = 0.0f64;
-    let mut va = 0.0f64;
-    let mut vb = 0.0f64;
+    let ma = a[..n].iter().sum::<f32>() / n as f32;
+    let mb = b[..n].iter().sum::<f32>() / n as f32;
+    let mut cov = 0.0f32;
+    let mut va = 0.0f32;
+    let mut vb = 0.0f32;
     for k in 0..n {
         let da = a[k] - ma;
         let db = b[k] - mb;
@@ -194,7 +194,7 @@ fn corr(a: &[f64], b: &[f64]) -> f64 {
     if denom > 0.0 {
         cov / denom
     } else {
-        f64::NAN
+        f32::NAN
     }
 }
 
@@ -202,12 +202,12 @@ fn corr(a: &[f64], b: &[f64]) -> f64 {
 /// data 按行存储：每行是一个 d 维样本。
 /// 样本数 n <= d 时行列式无法计算，返回 NaN。
 #[inline]
-fn cov_det(data: &[f64], n: usize, d: usize) -> f64 {
+fn cov_det(data: &[f32], n: usize, d: usize) -> f32 {
     if n < d || d == 0 || n == 0 {
-        return f64::NAN;
+        return f32::NAN;
     }
     // 列均值
-    let mut col_mean = vec![0.0f64; d];
+    let mut col_mean = vec![0.0f32; d];
     for i in 0..n {
         let row = &data[i * d..(i + 1) * d];
         for j in 0..d {
@@ -215,10 +215,10 @@ fn cov_det(data: &[f64], n: usize, d: usize) -> f64 {
         }
     }
     for j in 0..d {
-        col_mean[j] /= n as f64;
+        col_mean[j] /= n as f32;
     }
     // 协方差矩阵 (ddof=0，与归一化协方差约定一致)
-    let mut cov = vec![0.0f64; d * d];
+    let mut cov = vec![0.0f32; d * d];
     for i in 0..n {
         let row = &data[i * d..(i + 1) * d];
         for j in 0..d {
@@ -234,7 +234,7 @@ fn cov_det(data: &[f64], n: usize, d: usize) -> f64 {
             if k < j {
                 cov[j * d + k] = cov[k * d + j];
             } else {
-                cov[j * d + k] /= n as f64;
+                cov[j * d + k] /= n as f32;
             }
         }
     }
@@ -244,12 +244,12 @@ fn cov_det(data: &[f64], n: usize, d: usize) -> f64 {
 
 /// LU 分解（不带主元，对正定协方差矩阵足够；非正定则返回 NaN）。
 #[inline]
-fn lu_det(a: &[f64], n: usize) -> f64 {
+fn lu_det(a: &[f32], n: usize) -> f32 {
     let mut m = a.to_vec();
-    let mut det = 1.0f64;
+    let mut det = 1.0f32;
     for k in 0..n {
         let pivot = m[k * n + k];
-        if pivot.abs() < 1e-300 || !pivot.is_finite() {
+        if pivot.abs() < 1e-30 || !pivot.is_finite() {
             return 0.0;
         }
         det *= pivot;
@@ -266,31 +266,31 @@ fn lu_det(a: &[f64], n: usize) -> f64 {
 /// 归一化协方差行列式：每列 z-score（ddof=0）后求协方差行列式。
 /// data 按行存储 n×d。
 #[inline]
-fn norm_cov_det(data: &[f64], n: usize, d: usize) -> f64 {
+fn norm_cov_det(data: &[f32], n: usize, d: usize) -> f32 {
     if n < d || d == 0 || n == 0 {
-        return f64::NAN;
+        return f32::NAN;
     }
     // 列均值
-    let mut col_mean = vec![0.0f64; d];
-    let mut col_std = vec![0.0f64; d];
+    let mut col_mean = vec![0.0f32; d];
+    let mut col_std = vec![0.0f32; d];
     for j in 0..d {
-        let mut s = 0.0f64;
+        let mut s = 0.0f32;
         for i in 0..n {
             s += data[i * d + j];
         }
-        col_mean[j] = s / n as f64;
+        col_mean[j] = s / n as f32;
     }
     for j in 0..d {
-        let mut s = 0.0f64;
+        let mut s = 0.0f32;
         let mj = col_mean[j];
         for i in 0..n {
             let d_ij = data[i * d + j] - mj;
             s += d_ij * d_ij;
         }
-        col_std[j] = (s / n as f64).sqrt();
+        col_std[j] = (s / n as f32).sqrt();
     }
     // z-score（std=0 时该列置 0，避免除零）
-    let mut z = vec![0.0f64; n * d];
+    let mut z = vec![0.0f32; n * d];
     for i in 0..n {
         for j in 0..d {
             let std_j = col_std[j];
@@ -311,7 +311,7 @@ fn norm_cov_det(data: &[f64], n: usize, d: usize) -> f64 {
 
 /// 盘口失衡：(bid_sum - ask_sum) / (bid_sum + ask_sum)，按 4 种档位口径。
 /// 返回 (n, 4) 列序：[1档, 1-5档, 1-10档, 6-10档]
-fn precompute_imbalance(market: &[MarketRecord]) -> Vec<[f64; 4]> {
+fn precompute_imbalance(market: &[MarketRecord]) -> Vec<[f32; 4]> {
     market
         .iter()
         .map(|m| {
@@ -321,31 +321,31 @@ fn precompute_imbalance(market: &[MarketRecord]) -> Vec<[f64; 4]> {
             let imb1 = if a1 + b1 > 0.0 {
                 (b1 - a1) / (a1 + b1)
             } else {
-                f64::NAN
+                f32::NAN
             };
             // 1-5 档
-            let a5: f64 = m.ask_vols[..5].iter().sum();
-            let b5: f64 = m.bid_vols[..5].iter().sum();
+            let a5: f32 = m.ask_vols[..5].iter().sum::<f32>();
+            let b5: f32 = m.bid_vols[..5].iter().sum::<f32>();
             let imb5 = if a5 + b5 > 0.0 {
                 (b5 - a5) / (a5 + b5)
             } else {
-                f64::NAN
+                f32::NAN
             };
             // 1-10 档
-            let a10: f64 = m.ask_vols.iter().sum();
-            let b10: f64 = m.bid_vols.iter().sum();
+            let a10: f32 = m.ask_vols.iter().sum::<f32>();
+            let b10: f32 = m.bid_vols.iter().sum::<f32>();
             let imb10 = if a10 + b10 > 0.0 {
                 (b10 - a10) / (a10 + b10)
             } else {
-                f64::NAN
+                f32::NAN
             };
             // 6-10 档
-            let a610: f64 = m.ask_vols[5..].iter().sum();
-            let b610: f64 = m.bid_vols[5..].iter().sum();
+            let a610: f32 = m.ask_vols[5..].iter().sum::<f32>();
+            let b610: f32 = m.bid_vols[5..].iter().sum::<f32>();
             let imb610 = if a610 + b610 > 0.0 {
                 (b610 - a610) / (a610 + b610)
             } else {
-                f64::NAN
+                f32::NAN
             };
             [imb1, imb5, imb10, imb610]
         })
@@ -355,8 +355,8 @@ fn precompute_imbalance(market: &[MarketRecord]) -> Vec<[f64; 4]> {
 /// 10 档挂单 trend：每快照内 10 档量与 [1..10] 的 corr。
 /// same_side=true 时用该侧 10 档，false 时用对手侧。
 /// 返回长度 n 的序列。
-fn precompute_vol_trend(market: &[MarketRecord], same_side: Side) -> Vec<f64> {
-    let xs: [f64; 10] = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0];
+fn precompute_vol_trend(market: &[MarketRecord], same_side: Side) -> Vec<f32> {
+    let xs: [f32; 10] = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0];
     market
         .iter()
         .map(|m| {
@@ -370,7 +370,7 @@ fn precompute_vol_trend(market: &[MarketRecord], same_side: Side) -> Vec<f64> {
 }
 
 /// 10 档挂单 std：每快照内 10 档量的 std（ddof=1）。
-fn precompute_vol_std(market: &[MarketRecord], same_side: Side) -> Vec<f64> {
+fn precompute_vol_std(market: &[MarketRecord], same_side: Side) -> Vec<f32> {
     market
         .iter()
         .map(|m| {
@@ -379,13 +379,13 @@ fn precompute_vol_std(market: &[MarketRecord], same_side: Side) -> Vec<f64> {
                 Side::Ask => &m.ask_vols,
             };
             let n = 10usize;
-            let mean = vols.iter().sum::<f64>() / n as f64;
-            let mut sq = 0.0f64;
+            let mean = vols.iter().sum::<f32>() / n as f32;
+            let mut sq = 0.0f32;
             for &v in vols {
                 let d = v - mean;
                 sq += d * d;
             }
-            (sq / (n - 1) as f64).sqrt()
+            (sq / (n - 1) as f32).sqrt()
         })
         .collect()
 }
@@ -397,14 +397,14 @@ fn precompute_roll10_det(
     market: &[MarketRecord],
     same_side: Side,
     rolling_n: usize,
-) -> Vec<[f64; 2]> {
+) -> Vec<[f32; 2]> {
     let n = market.len();
-    let mut out = vec![[f64::NAN; 2]; n];
+    let mut out = vec![[f32::NAN; 2]; n];
     if rolling_n == 0 || n < rolling_n {
         return out;
     }
     // 预组织 (rolling_n, 10) 数据
-    let mut buf = vec![0.0f64; rolling_n * 10];
+    let mut buf = vec![0.0f32; rolling_n * 10];
     for end in rolling_n..=n {
         let start = end - rolling_n;
         for (i, idx) in (start..end).enumerate() {
@@ -423,13 +423,13 @@ fn precompute_roll10_det(
 
 /// 滚动 rolling_n 窗内 双方 20 档挂单量（ask1-10 ⊕ bid1-10）协方差行列式（含 |det|）。
 /// 返回 (n, 2)：[det, |det|]
-fn precompute_roll20_det(market: &[MarketRecord], rolling_n: usize) -> Vec<[f64; 2]> {
+fn precompute_roll20_det(market: &[MarketRecord], rolling_n: usize) -> Vec<[f32; 2]> {
     let n = market.len();
-    let mut out = vec![[f64::NAN; 2]; n];
+    let mut out = vec![[f32::NAN; 2]; n];
     if rolling_n == 0 || n < rolling_n {
         return out;
     }
-    let mut buf = vec![0.0f64; rolling_n * 20];
+    let mut buf = vec![0.0f32; rolling_n * 20];
     for end in rolling_n..=n {
         let start = end - rolling_n;
         for (i, idx) in (start..end).enumerate() {
@@ -446,9 +446,9 @@ fn precompute_roll20_det(market: &[MarketRecord], rolling_n: usize) -> Vec<[f64;
 
 /// 价格波动率：std(last_prc[i]/last_prc[i-1] - 1)。
 /// 这是标量，对每段算一次。
-fn price_volatility(market: &[MarketRecord], lo: usize, hi: usize) -> f64 {
+fn price_volatility(market: &[MarketRecord], lo: usize, hi: usize) -> f32 {
     if hi <= lo + 1 {
-        return f64::NAN;
+        return f32::NAN;
     }
     let mut rets = Vec::with_capacity(hi - lo - 1);
     for i in lo + 1..hi {
@@ -459,16 +459,16 @@ fn price_volatility(market: &[MarketRecord], lo: usize, hi: usize) -> f64 {
         }
     }
     if rets.len() < 2 {
-        return f64::NAN;
+        return f32::NAN;
     }
     let n = rets.len();
-    let mean = rets.iter().sum::<f64>() / n as f64;
-    let sq: f64 = rets.iter().map(|&v| (v - mean).powi(2)).sum();
-    (sq / (n - 1) as f64).sqrt()
+    let mean = rets.iter().sum::<f32>() / n as f32;
+    let sq: f32 = rets.iter().map(|&v| (v - mean).powi(2)).sum();
+    (sq / (n - 1) as f32).sqrt()
 }
 
 /// 间隔成交量：volume[i] - volume[i-1]，返回 [lo, hi) 区间内的序列。
-fn interval_volumes(market: &[MarketRecord], lo: usize, hi: usize) -> Vec<f64> {
+fn interval_volumes(market: &[MarketRecord], lo: usize, hi: usize) -> Vec<f32> {
     if hi <= lo + 1 {
         return vec![];
     }
@@ -486,9 +486,9 @@ fn interval_volumes(market: &[MarketRecord], lo: usize, hi: usize) -> Vec<f64> {
 /// trade 已按时间排序。
 fn aggregate_by_second(
     trade: &[TradeRecord],
-    t0: f64,
-    t1: f64,
-) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
+    t0: f32,
+    t1: f32,
+) -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>) {
     // 返回 (secs, buy_vols, sell_vols, counts, amounts, buy_amounts)
     // secs: 该秒的时间戳（向下取整到整数秒）
     // buy_vols/sell_vols: 该秒主买/主卖成交量
@@ -507,14 +507,14 @@ fn aggregate_by_second(
     hi = hi.min(trade.len());
 
     // 按秒聚合
-    let mut secs: Vec<f64> = Vec::new();
-    let mut buy_vols: Vec<f64> = Vec::new();
-    let mut sell_vols: Vec<f64> = Vec::new();
-    let mut counts: Vec<f64> = Vec::new();
-    let mut amounts: Vec<f64> = Vec::new();
-    let mut buy_amounts: Vec<f64> = Vec::new();
+    let mut secs: Vec<f32> = Vec::new();
+    let mut buy_vols: Vec<f32> = Vec::new();
+    let mut sell_vols: Vec<f32> = Vec::new();
+    let mut counts: Vec<f32> = Vec::new();
+    let mut amounts: Vec<f32> = Vec::new();
+    let mut buy_amounts: Vec<f32> = Vec::new();
 
-    let mut cur_sec = f64::NAN;
+    let mut cur_sec = f32::NAN;
     for i in lo..hi {
         let t = &trade[i];
         let sec = t.time_sec.floor();
@@ -559,15 +559,15 @@ fn compute_segment_features(
     trade: &[TradeRecord],
     side: Side,
     p: &ObsOrderParams,
-    imb: &[[f64; 4]],      // 全天盘口失衡
-    vt_same: &[f64],       // 全天 同侧 vol trend
-    vt_opp: &[f64],        // 全天 对手侧 vol trend
-    vs_same: &[f64],       // 全天 同侧 vol std
-    vs_opp: &[f64],        // 全天 对手侧 vol std
-    r10_same: &[[f64; 2]], // 全天 同侧 rolling 10 det
-    r10_opp: &[[f64; 2]],  // 全天 对手侧 rolling 10 det
-    r20: &[[f64; 2]],      // 全天 双方 rolling 20 det
-) -> Vec<f64> {
+    imb: &[[f32; 4]],      // 全天盘口失衡
+    vt_same: &[f32],       // 全天 同侧 vol trend
+    vt_opp: &[f32],        // 全天 对手侧 vol trend
+    vs_same: &[f32],       // 全天 同侧 vol std
+    vs_opp: &[f32],        // 全天 对手侧 vol std
+    r10_same: &[[f32; 2]], // 全天 同侧 rolling 10 det
+    r10_opp: &[[f32; 2]],  // 全天 对手侧 rolling 10 det
+    r20: &[[f32; 2]],      // 全天 双方 rolling 20 det
+) -> Vec<f32> {
     let lo = seg.mkt_lo;
     let hi = seg.mkt_hi;
     let mut out = Vec::with_capacity(NCOLS);
@@ -575,7 +575,7 @@ fn compute_segment_features(
     // ============ 盘口序列类（×5聚合）============
     // P1 盘口失衡 4 档 ×5 = 20
     for dim in 0..4 {
-        let col: Vec<f64> = imb[lo..hi].iter().map(|x| x[dim]).collect();
+        let col: Vec<f32> = imb[lo..hi].iter().map(|x| x[dim]).collect();
         let agg = aggregate5(&col, p.autocorr_lag);
         out.extend_from_slice(&agg);
     }
@@ -591,13 +591,13 @@ fn compute_segment_features(
     }
     // P7 rolling10 同侧 det/|det| ×5 = 10
     for v in [0, 1] {
-        let col: Vec<f64> = r10_same[lo..hi].iter().map(|x| x[v]).collect();
+        let col: Vec<f32> = r10_same[lo..hi].iter().map(|x| x[v]).collect();
         let agg = aggregate5(&col, p.autocorr_lag);
         out.extend_from_slice(&agg);
     }
     // P8 rolling20 双方 det/|det| ×5 = 10
     for v in [0, 1] {
-        let col: Vec<f64> = r20[lo..hi].iter().map(|x| x[v]).collect();
+        let col: Vec<f32> = r20[lo..hi].iter().map(|x| x[v]).collect();
         let agg = aggregate5(&col, p.autocorr_lag);
         out.extend_from_slice(&agg);
     }
@@ -611,17 +611,17 @@ fn compute_segment_features(
         let iv = interval_volumes(market, lo, hi);
         if iv.len() >= 2 {
             let n = iv.len();
-            let mean = iv.iter().sum::<f64>() / n as f64;
-            let sq: f64 = iv.iter().map(|&v| (v - mean).powi(2)).sum();
-            out.push((sq / (n - 1) as f64).sqrt());
+            let mean = iv.iter().sum::<f32>() / n as f32;
+            let sq: f32 = iv.iter().map(|&v| (v - mean).powi(2)).sum();
+            out.push((sq / (n - 1) as f32).sqrt());
         } else {
-            out.push(f64::NAN);
+            out.push(f32::NAN);
         }
     }
     // P6 间隔成交量 trend = 1
     {
         let iv = interval_volumes(market, lo, hi);
-        let xs: Vec<f64> = (1..=iv.len()).map(|x| x as f64).collect();
+        let xs: Vec<f32> = (1..=iv.len()).map(|x| x as f32).collect();
         out.push(corr(&xs, &iv));
     }
     // S1 小段10档协方差行列式 8 版本
@@ -661,7 +661,7 @@ fn compute_segment_features(
         let mut diff_raw = Vec::with_capacity(n_trades.min(3_000_000));
         let mut diff_abs = Vec::with_capacity(n_trades.min(3_000_000));
         for i in t_lo..t_hi {
-            let d = trade[i].ask_order as f64 - trade[i].bid_order as f64;
+            let d = trade[i].ask_order as f32 - trade[i].bid_order as f32;
             diff_raw.push(d);
             diff_abs.push(d.abs());
         }
@@ -670,13 +670,13 @@ fn compute_segment_features(
     }
     // T2 按秒主买占比 ×5 = 5
     {
-        let ratio: Vec<f64> = (0..secs.len())
+        let ratio: Vec<f32> = (0..secs.len())
             .map(|i| {
                 let denom = buy_vols[i] + sell_vols[i];
                 if denom > 0.0 {
                     buy_vols[i] / denom
                 } else {
-                    f64::NAN
+                    f32::NAN
                 }
             })
             .collect();
@@ -686,9 +686,9 @@ fn compute_segment_features(
     {
         // 买笔数：buy_vols>0 的秒算（这里用 buy_amounts>0 或 buy_vols>0 判断有主买）
         // 但按秒聚合时 counts 已是全量笔数。买/卖笔数需重新统计。
-        let mut buy_counts = vec![0.0f64; secs.len()];
-        let mut sell_counts = vec![0.0f64; secs.len()];
-        let mut cur_sec = f64::NAN;
+        let mut buy_counts = vec![0.0f32; secs.len()];
+        let mut sell_counts = vec![0.0f32; secs.len()];
+        let mut cur_sec = f32::NAN;
         let mut cur_idx = 0usize;
         for i in t_lo..t_hi {
             let t = &trade[i];
@@ -711,10 +711,10 @@ fn compute_segment_features(
             }
         }
         // 差/|差|
-        let diff: Vec<f64> = (0..secs.len())
+        let diff: Vec<f32> = (0..secs.len())
             .map(|i| buy_counts[i] - sell_counts[i])
             .collect();
-        let diff_abs: Vec<f64> = diff.iter().map(|&v| v.abs()).collect();
+        let diff_abs: Vec<f32> = diff.iter().map(|&v| v.abs()).collect();
         for src in [
             &buy_counts[..],
             &sell_counts[..],
@@ -728,8 +728,8 @@ fn compute_segment_features(
     // T4 按秒每笔平均成交金额 买/卖/差/|差|/全量 ×5 = 25
     {
         // 买均额 = buy_amounts / buy_counts；卖均额需 sell_amounts/sell_counts
-        let mut sell_amounts = vec![0.0f64; secs.len()];
-        let mut cur_sec = f64::NAN;
+        let mut sell_amounts = vec![0.0f32; secs.len()];
+        let mut cur_sec = f32::NAN;
         let mut cur_idx = 0usize;
         for i in t_lo..t_hi {
             let t = &trade[i];
@@ -749,9 +749,9 @@ fn compute_segment_features(
             }
         }
         // buy_counts/sell_counts 重新算（避免上一块局部变量）
-        let mut bc2 = vec![0.0f64; secs.len()];
-        let mut sc2 = vec![0.0f64; secs.len()];
-        let mut cur_sec = f64::NAN;
+        let mut bc2 = vec![0.0f32; secs.len()];
+        let mut sc2 = vec![0.0f32; secs.len()];
+        let mut cur_sec = f32::NAN;
         let mut cur_idx = 0usize;
         for i in t_lo..t_hi {
             let t = &trade[i];
@@ -772,32 +772,32 @@ fn compute_segment_features(
                 sc2[cur_idx] += 1.0;
             }
         }
-        let buy_avg: Vec<f64> = (0..secs.len())
+        let buy_avg: Vec<f32> = (0..secs.len())
             .map(|i| {
                 if bc2[i] > 0.0 {
                     buy_amounts[i] / bc2[i]
                 } else {
-                    f64::NAN
+                    f32::NAN
                 }
             })
             .collect();
-        let sell_avg: Vec<f64> = (0..secs.len())
+        let sell_avg: Vec<f32> = (0..secs.len())
             .map(|i| {
                 if sc2[i] > 0.0 {
                     sell_amounts[i] / sc2[i]
                 } else {
-                    f64::NAN
+                    f32::NAN
                 }
             })
             .collect();
-        let diff: Vec<f64> = (0..secs.len()).map(|i| buy_avg[i] - sell_avg[i]).collect();
-        let diff_abs: Vec<f64> = diff.iter().map(|&v| v.abs()).collect();
-        let all_avg: Vec<f64> = (0..secs.len())
+        let diff: Vec<f32> = (0..secs.len()).map(|i| buy_avg[i] - sell_avg[i]).collect();
+        let diff_abs: Vec<f32> = diff.iter().map(|&v| v.abs()).collect();
+        let all_avg: Vec<f32> = (0..secs.len())
             .map(|i| {
                 if counts[i] > 0.0 {
                     amounts[i] / counts[i]
                 } else {
-                    f64::NAN
+                    f32::NAN
                 }
             })
             .collect();
@@ -836,15 +836,15 @@ fn compute_segment_features(
         out.push(d_buy - d_sell);
         out.push((d_buy - d_sell).abs());
         // 主买总占比
-        let total_buy: f64 = (t_lo..t_hi)
+        let total_buy: f32 = (t_lo..t_hi)
             .filter(|&i| trade[i].flag == 66)
             .map(|i| trade[i].volume)
             .sum();
-        let total_all: f64 = (t_lo..t_hi).map(|i| trade[i].volume).sum();
+        let total_all: f32 = (t_lo..t_hi).map(|i| trade[i].volume).sum();
         out.push(if total_all > 0.0 {
             total_buy / total_all
         } else {
-            f64::NAN
+            f32::NAN
         });
     }
     // 小计 9
@@ -861,12 +861,12 @@ fn segment_vol_cov_det(
     hi: usize,
     side: Side,
     n_tiers: usize,
-) -> f64 {
+) -> f32 {
     let n = hi - lo;
     if n < n_tiers || n == 0 {
-        return f64::NAN;
+        return f32::NAN;
     }
-    let mut buf = vec![0.0f64; n * n_tiers];
+    let mut buf = vec![0.0f32; n * n_tiers];
     for (i, idx) in (lo..hi).enumerate() {
         let vols = match side {
             Side::Bid => &market[idx].bid_vols,
@@ -878,13 +878,13 @@ fn segment_vol_cov_det(
 }
 
 /// 小段内双方 2*N 档（ask 前 N + bid 前 N）挂单量的协方差行列式。
-fn segment_vol_cov_both_det(market: &[MarketRecord], lo: usize, hi: usize) -> f64 {
+fn segment_vol_cov_both_det(market: &[MarketRecord], lo: usize, hi: usize) -> f32 {
     let n = hi - lo;
     let d = 20;
     if n < d || n == 0 {
-        return f64::NAN;
+        return f32::NAN;
     }
-    let mut buf = vec![0.0f64; n * d];
+    let mut buf = vec![0.0f32; n * d];
     for (i, idx) in (lo..hi).enumerate() {
         let m = &market[idx];
         buf[i * d..(i + 1) * d][..10].copy_from_slice(&m.ask_vols);
@@ -901,10 +901,10 @@ fn norm_cov_det_trade(
     lo: usize,
     hi: usize,
     flag_filter: Option<bool>,
-) -> f64 {
+) -> f32 {
     let d = 3;
     if hi <= lo {
-        return f64::NAN;
+        return f32::NAN;
     }
     // 限制预分配上限，避免极端成交量的股票导致 capacity overflow / OOM
     let cap = ((hi - lo) * d).min(3_000_000);
@@ -939,18 +939,18 @@ fn opp_side(side: Side) -> Side {
 // ============================================================================
 
 /// 计算分位点（与 numpy.quantile 的 linear 插值一致）。
-fn quantile(sorted: &[f64], q: f64) -> f64 {
+fn quantile(sorted: &[f32], q: f32) -> f32 {
     let n = sorted.len();
     if n == 0 {
-        return f64::NAN;
+        return f32::NAN;
     }
     if n == 1 {
         return sorted[0];
     }
-    let pos = q * (n - 1) as f64;
+    let pos = q * (n - 1) as f32;
     let lo = pos.floor() as usize;
     let hi = (lo + 1).min(n - 1);
-    let frac = pos - lo as f64;
+    let frac = pos - lo as f32;
     sorted[lo] * (1.0 - frac) + sorted[hi] * frac
 }
 
@@ -959,8 +959,8 @@ fn quantile(sorted: &[f64], q: f64) -> f64 {
 /// 段内快照数 < drop_min 丢弃。
 fn method_a_segments(
     market: &[MarketRecord],
-    obs_ratio: &[f64],
-    threshold: f64,
+    obs_ratio: &[f32],
+    threshold: f32,
     drop_min: usize,
 ) -> Vec<Segment> {
     let n = market.len();
@@ -1000,9 +1000,9 @@ fn method_a_segments(
 /// 方法B：穿越点（前一次 ≥ 阈值、本次 < 阈值），每点取其后 forward_sec 秒作为一段。
 fn method_b_segments(
     market: &[MarketRecord],
-    obs_ratio: &[f64],
-    threshold: f64,
-    forward_sec: f64,
+    obs_ratio: &[f32],
+    threshold: f32,
+    forward_sec: f32,
 ) -> Vec<Segment> {
     let n = market.len();
     let mut segs = Vec::new();
@@ -1040,7 +1040,7 @@ pub fn compute_observable_order_metrics(
     date: i64,
     params: &ObsOrderParams,
 ) -> std::io::Result<
-    [(Vec<f64>, usize, Vec<f64>, usize); 4], // bid_A, bid_B, ask_A, ask_B
+    [(Vec<f32>, usize, Vec<f32>, usize); 4], // bid_A, bid_B, ask_A, ask_B
 > {
     // 1. 读取数据（撤单已在读取时过滤）
     let trade = read_trade_fast_inner(code, date, false, true, usize::MAX)?;
@@ -1049,37 +1049,37 @@ pub fn compute_observable_order_metrics(
     // 2. 预计算全天盘口序列
     let imb = precompute_imbalance(&market);
     // 可观测挂单比例
-    let obs_bid: Vec<f64> = market
+    let obs_bid: Vec<f32> = market
         .iter()
         .map(|m| {
-            let obs: f64 = m.bid_vols.iter().sum();
+            let obs: f32 = m.bid_vols.iter().sum();
             if m.total_bid_vol > 0.0 {
                 obs / m.total_bid_vol
             } else {
-                f64::NAN
+                f32::NAN
             }
         })
         .collect();
-    let obs_ask: Vec<f64> = market
+    let obs_ask: Vec<f32> = market
         .iter()
         .map(|m| {
-            let obs: f64 = m.ask_vols.iter().sum();
+            let obs: f32 = m.ask_vols.iter().sum();
             if m.total_ask_vol > 0.0 {
                 obs / m.total_ask_vol
             } else {
-                f64::NAN
+                f32::NAN
             }
         })
         .collect();
 
     // 3. 分位点（对非 NaN 值排序后取分位）
     let thr_bid = {
-        let mut s: Vec<f64> = obs_bid.iter().copied().filter(|v| v.is_finite()).collect();
+        let mut s: Vec<f32> = obs_bid.iter().copied().filter(|v| v.is_finite()).collect();
         s.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
         quantile(&s, params.q)
     };
     let thr_ask = {
-        let mut s: Vec<f64> = obs_ask.iter().copied().filter(|v| v.is_finite()).collect();
+        let mut s: Vec<f32> = obs_ask.iter().copied().filter(|v| v.is_finite()).collect();
         s.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
         quantile(&s, params.q)
     };
@@ -1101,7 +1101,7 @@ pub fn compute_observable_order_metrics(
         (Side::Ask, "A"),
         (Side::Ask, "B"),
     ];
-    let mut results: [(Vec<f64>, usize, Vec<f64>, usize); 4] = [
+    let mut results: [(Vec<f32>, usize, Vec<f32>, usize); 4] = [
         (vec![], 0, vec![], 0),
         (vec![], 0, vec![], 0),
         (vec![], 0, vec![], 0),
@@ -1156,7 +1156,7 @@ pub fn compute_observable_order_metrics(
                 pre5_flat.extend_from_slice(&pre_row);
             } else {
                 // pre5 窗口不足，填 NaN
-                pre5_flat.extend_from_slice(&[f64::NAN; NCOLS]);
+                pre5_flat.extend_from_slice(&[f32::NAN; NCOLS]);
             }
         }
         results[ci] = (seg_flat, nrows, pre5_flat, nrows);
@@ -1215,16 +1215,16 @@ pub fn py_compute_observable_order_metrics(
 
 fn parse_params(d: &pyo3::types::PyAny) -> PyResult<ObsOrderParams> {
     let mut p = ObsOrderParams::default();
-    if let Ok(v) = d.get_item("q").and_then(|v| v.extract::<f64>()) {
+    if let Ok(v) = d.get_item("q").and_then(|v| v.extract::<f64>().map(|x| x as f32)) {
         p.q = v;
     }
     if let Ok(v) = d.get_item("drop_min").and_then(|v| v.extract::<usize>()) {
         p.drop_min = v;
     }
-    if let Ok(v) = d.get_item("forward_sec").and_then(|v| v.extract::<f64>()) {
+    if let Ok(v) = d.get_item("forward_sec").and_then(|v| v.extract::<f64>().map(|x| x as f32)) {
         p.forward_sec = v;
     }
-    if let Ok(v) = d.get_item("pre_minutes").and_then(|v| v.extract::<f64>()) {
+    if let Ok(v) = d.get_item("pre_minutes").and_then(|v| v.extract::<f64>().map(|x| x as f32)) {
         p.pre_minutes = v;
     }
     if let Ok(v) = d.get_item("rolling_n").and_then(|v| v.extract::<usize>()) {
@@ -1239,7 +1239,7 @@ fn parse_params(d: &pyo3::types::PyAny) -> PyResult<ObsOrderParams> {
     Ok(p)
 }
 /// 把 (n_rows × NCOLS) 的展平数据，按 keep 索引过滤为 (n_rows × keep.len())。
-fn filter_cols(data: &[f64], n_rows: usize, keep: &[usize]) -> Vec<f64> {
+fn filter_cols(data: &[f32], n_rows: usize, keep: &[usize]) -> Vec<f32> {
     if n_rows == 0 {
         return vec![];
     }

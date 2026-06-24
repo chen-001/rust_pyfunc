@@ -53,7 +53,7 @@ struct DateOnlyWorkerResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CodeFacs {
     code: String,
-    facs: Vec<f64>,
+    facs: Vec<f32>,
 }
 
 // ==================== 简化版监控管理器 ====================

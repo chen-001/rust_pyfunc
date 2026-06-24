@@ -29,8 +29,9 @@ fn main() {
 
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
-    let mut reader = BufReader::new(stdin.lock());
-    let mut writer = BufWriter::new(stdout.lock());
+    // IPC 优化：1MB 缓冲
+    let mut reader = BufReader::with_capacity(1 << 20, stdin.lock());
+    let mut writer = BufWriter::with_capacity(1 << 20, stdout.lock());
 
     // 1. 读 Init 消息
     let (pipeline_name, params, oo_params, trading_days, expected_len) =
@@ -83,7 +84,7 @@ fn main() {
                     date,
                     code,
                     timestamp: 0,
-                    facs: vals,
+                    facs: vals.iter().map(|&v| v as f32).collect(),
                 });
                 if ipc_write_result(&mut writer, &msg).is_err() {
                     break;

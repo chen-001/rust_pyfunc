@@ -152,6 +152,12 @@ __all__ = [
     "query_backup_single_column_compact_cached_from_cache_dir",
     "query_backup_codebook_cached",
     "query_backup_codebook_cached_from_cache_dir",
+    # 列式因子存储 RPFBINV5（计算备份 + 回测读取统一格式）
+    "factor_store_v5_open",
+    "factor_store_v5_info",
+    "factor_store_v5_read_factor",
+    "factor_store_v5_template",
+    "factor_store_v5_export_factors_parquet",
     # Pandas扩展函数
     "dataframe_corrwith",
     "dataframe_corrwith_single_thread",

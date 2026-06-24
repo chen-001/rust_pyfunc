@@ -21,8 +21,8 @@ use std::collections::HashMap;
 
 /// 单列均值（跳过 NaN，空列返回 NaN）。对齐 pandas df.mean()。
 #[inline]
-fn col_mean(col: &[f64]) -> f64 {
-    let (sum, n) = col.iter().fold((0.0f64, 0usize), |(s, c), &v| {
+fn col_mean(col: &[f32]) -> f32 {
+    let (sum, n) = col.iter().fold((0.0f32, 0usize), |(s, c), &v| {
         if v.is_nan() {
             (s, c)
         } else {
@@ -30,36 +30,36 @@ fn col_mean(col: &[f64]) -> f64 {
         }
     });
     if n == 0 {
-        f64::NAN
+        f32::NAN
     } else {
-        sum / n as f64
+        sum / n as f32
     }
 }
 
 /// 单列标准差（样本标准差 ddof=1，对齐 pandas df.std()）。空或单元素返回 NaN。
 #[inline]
-fn col_std(col: &[f64]) -> f64 {
-    let valid: Vec<f64> = col.iter().filter(|&&v| !v.is_nan()).copied().collect();
+fn col_std(col: &[f32]) -> f32 {
+    let valid: Vec<f32> = col.iter().filter(|&&v| !v.is_nan()).copied().collect();
     let n = valid.len();
     if n < 2 {
-        return f64::NAN;
+        return f32::NAN;
     }
-    let mean = valid.iter().sum::<f64>() / n as f64;
-    let var = valid.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / (n - 1) as f64;
+    let mean = valid.iter().sum::<f32>() / n as f32;
+    let var = valid.iter().map(|&x| (x - mean).powi(2)).sum::<f32>() / (n - 1) as f32;
     var.sqrt()
 }
 
 /// 单列偏度（对齐 pandas df.skew()，基于 G1 偏度估计量，用 k-statistic）。
 /// n<3 返回 NaN。公式：g1 = k3/k2^1.5，其中 k2=S2/(n-1)，k3=n*S3/((n-1)(n-2))。
 #[inline]
-fn col_skew(col: &[f64]) -> f64 {
-    let valid: Vec<f64> = col.iter().filter(|&&v| !v.is_nan()).copied().collect();
+fn col_skew(col: &[f32]) -> f32 {
+    let valid: Vec<f32> = col.iter().filter(|&&v| !v.is_nan()).copied().collect();
     let n = valid.len();
     if n < 3 {
-        return f64::NAN;
+        return f32::NAN;
     }
-    let mean = valid.iter().sum::<f64>() / n as f64;
-    let nf = n as f64;
+    let mean = valid.iter().sum::<f32>() / n as f32;
+    let nf = n as f32;
     let mut s2 = 0.0;
     let mut s3 = 0.0;
     for &x in &valid {
@@ -81,14 +81,14 @@ fn col_skew(col: &[f64]) -> f64 {
 ///   k2 = S2/(n-1)
 ///   k4 = n*[(n+1)*S4 - 3*(n-1)*S2^2/n] / [(n-1)*(n-2)*(n-3)]
 #[inline]
-fn col_kurt(col: &[f64]) -> f64 {
-    let valid: Vec<f64> = col.iter().filter(|&&v| !v.is_nan()).copied().collect();
+fn col_kurt(col: &[f32]) -> f32 {
+    let valid: Vec<f32> = col.iter().filter(|&&v| !v.is_nan()).copied().collect();
     let n = valid.len();
     if n < 4 {
-        return f64::NAN;
+        return f32::NAN;
     }
-    let mean = valid.iter().sum::<f64>() / n as f64;
-    let nf = n as f64;
+    let mean = valid.iter().sum::<f32>() / n as f32;
+    let nf = n as f32;
     let mut s2 = 0.0;
     let mut s4 = 0.0;
     for &x in &valid {
@@ -109,10 +109,10 @@ fn col_kurt(col: &[f64]) -> f64 {
 
 /// 单列中位数（跳过 NaN）。
 #[inline]
-fn col_median(col: &[f64]) -> f64 {
-    let mut valid: Vec<f64> = col.iter().filter(|&&v| !v.is_nan()).copied().collect();
+fn col_median(col: &[f32]) -> f32 {
+    let mut valid: Vec<f32> = col.iter().filter(|&&v| !v.is_nan()).copied().collect();
     if valid.is_empty() {
-        return f64::NAN;
+        return f32::NAN;
     }
     valid.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let n = valid.len();
@@ -126,10 +126,10 @@ fn col_median(col: &[f64]) -> f64 {
 /// 单列分位数（线性插值，对齐 pandas df.quantile()）。
 /// q in [0,1]。空列返回 NaN。
 #[inline]
-fn col_quantile(col: &[f64], q: f64) -> f64 {
-    let mut valid: Vec<f64> = col.iter().filter(|&&v| !v.is_nan()).copied().collect();
+fn col_quantile(col: &[f32], q: f32) -> f32 {
+    let mut valid: Vec<f32> = col.iter().filter(|&&v| !v.is_nan()).copied().collect();
     if valid.is_empty() {
-        return f64::NAN;
+        return f32::NAN;
     }
     valid.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let n = valid.len();
@@ -137,10 +137,10 @@ fn col_quantile(col: &[f64], q: f64) -> f64 {
         return valid[0];
     }
     // pandas 线性插值: pos = q*(n-1)
-    let pos = q * (n - 1) as f64;
+    let pos = q * (n - 1) as f32;
     let lower = pos.floor() as usize;
     let upper = (lower + 1).min(n - 1);
-    let frac = pos - lower as f64;
+    let frac = pos - lower as f32;
     valid[lower] * (1.0 - frac) + valid[upper] * frac
 }
 
@@ -151,9 +151,9 @@ fn col_quantile(col: &[f64], q: f64) -> f64 {
 /// 计算一维序列与 [1,2,...,n] 的 Pearson 相关系数（趋势）。
 /// 对齐 time_series/trend_mod.rs 的 calculate_trend_1d（过滤 NaN）。
 #[inline]
-fn trend_1d(col: &[f64]) -> f64 {
+fn trend_1d(col: &[f32]) -> f32 {
     // 过滤 NaN，保留有效值及其原始索引（1-based）
-    let pairs: Vec<(usize, f64)> = col
+    let pairs: Vec<(usize, f32)> = col
         .iter()
         .enumerate()
         .filter(|(_, &v)| !v.is_nan())
@@ -163,11 +163,11 @@ fn trend_1d(col: &[f64]) -> f64 {
     if n < 2 {
         return 0.0;
     }
-    let mean_x: f64 = pairs.iter().map(|(x, _)| *x as f64).sum::<f64>() / n as f64;
-    let mean_y: f64 = pairs.iter().map(|(_, y)| *y).sum::<f64>() / n as f64;
+    let mean_x: f32 = pairs.iter().map(|(x, _)| *x as f32).sum::<f32>() / n as f32;
+    let mean_y: f32 = pairs.iter().map(|(_, y)| *y).sum::<f32>() / n as f32;
     let (mut cov, mut var_x, mut var_y) = (0.0, 0.0, 0.0);
     for (x, y) in &pairs {
-        let dx = *x as f64 - mean_x;
+        let dx = *x as f32 - mean_x;
         let dy = *y - mean_y;
         cov += dx * dy;
         var_x += dx * dx;
@@ -181,8 +181,8 @@ fn trend_1d(col: &[f64]) -> f64 {
 
 /// 两列的 Pearson 相关系数（共同有效位置）。对齐 pandas corr。
 #[inline]
-fn corr_pair(col_i: &[f64], col_j: &[f64]) -> f64 {
-    let pairs: Vec<(f64, f64)> = col_i
+fn corr_pair(col_i: &[f32], col_j: &[f32]) -> f32 {
+    let pairs: Vec<(f32, f32)> = col_i
         .iter()
         .zip(col_j.iter())
         .filter(|(&a, &b)| !a.is_nan() && !b.is_nan())
@@ -190,10 +190,10 @@ fn corr_pair(col_i: &[f64], col_j: &[f64]) -> f64 {
         .collect();
     let n = pairs.len();
     if n < 2 {
-        return f64::NAN;
+        return f32::NAN;
     }
-    let mean_i: f64 = pairs.iter().map(|(i, _)| i).sum::<f64>() / n as f64;
-    let mean_j: f64 = pairs.iter().map(|(_, j)| j).sum::<f64>() / n as f64;
+    let mean_i: f32 = pairs.iter().map(|(i, _)| i).sum::<f32>() / n as f32;
+    let mean_j: f32 = pairs.iter().map(|(_, j)| j).sum::<f32>() / n as f32;
     let (mut cov, mut var_i, mut var_j) = (0.0, 0.0, 0.0);
     for (i, j) in &pairs {
         let di = i - mean_i;
@@ -203,20 +203,20 @@ fn corr_pair(col_i: &[f64], col_j: &[f64]) -> f64 {
         var_j += dj * dj;
     }
     if var_i == 0.0 || var_j == 0.0 {
-        return f64::NAN;
+        return f32::NAN;
     }
     cov / (var_i.sqrt() * var_j.sqrt())
 }
 
 /// LZ 复杂度（精确复制自 lz_complexity.rs）。分位数离散化 [0.33, 0.66] + 归一化。
-fn lz_complexity_1d(col: &[f64]) -> f64 {
+fn lz_complexity_1d(col: &[f32]) -> f32 {
     let n = col.len();
     if n == 0 {
         return 0.0;
     }
 
     // 分位数离散化（quantiles=[0.33, 0.66]），精确复制 discretize_sequence
-    let mut sorted: Vec<f64> = col.iter().copied().collect();
+    let mut sorted: Vec<f32> = col.iter().copied().collect();
     sorted.sort_unstable_by(|a, b| match (a.is_nan(), b.is_nan()) {
         (true, true) => std::cmp::Ordering::Equal,
         (true, false) => std::cmp::Ordering::Greater,
@@ -224,17 +224,17 @@ fn lz_complexity_1d(col: &[f64]) -> f64 {
         (false, false) => a.partial_cmp(b).unwrap(),
     });
     let sn = sorted.len();
-    let quantiles = [0.33f64, 0.66];
+    let quantiles = [0.33f32, 0.66];
     let mut thresholds = Vec::with_capacity(quantiles.len());
     for &q in &quantiles {
-        let idx = ((sn - 1) as f64 * q) as usize;
+        let idx = ((sn - 1) as f32 * q) as usize;
         thresholds.push(sorted[idx]);
     }
 
     let mut discrete: Vec<u8> = Vec::with_capacity(n);
     for &val in col.iter() {
         if val.is_nan() {
-            return f64::NAN;
+            return f32::NAN;
         }
         let symbol = thresholds
             .iter()
@@ -254,17 +254,17 @@ fn lz_complexity_1d(col: &[f64]) -> f64 {
         for &d in &discrete {
             s.insert(d);
         }
-        s.len() as f64
+        s.len() as f32
     };
     if n <= 1 {
         return 0.0;
     }
-    if k_eff < (quantiles.len() as f64 + 1.0) {
-        return f64::NAN;
+    if k_eff < (quantiles.len() as f32 + 1.0) {
+        return f32::NAN;
     }
 
-    let log_n_base_k = (n as f64).ln() / k_eff.ln();
-    complexity as f64 * log_n_base_k / n as f64
+    let log_n_base_k = (n as f32).ln() / k_eff.ln();
+    complexity as f32 * log_n_base_k / n as f32
 }
 
 /// LZ 复杂度核心调度（复制自 lz_complexity.rs 的 calculate_lz_complexity）。
@@ -438,8 +438,8 @@ fn lz_complexity_suffix_automaton(seq: &[u8]) -> usize {
 }
 
 /// 分箱熵（复制自 entropy_analysis.rs）。等宽分箱 + Shannon 熵。
-fn binned_entropy_1d(col: &[f64], n_bins: usize) -> f64 {
-    let valid: Vec<f64> = col.iter().filter(|&&v| !v.is_nan()).copied().collect();
+fn binned_entropy_1d(col: &[f32], n_bins: usize) -> f32 {
+    let valid: Vec<f32> = col.iter().filter(|&&v| !v.is_nan()).copied().collect();
     if valid.is_empty() {
         return 0.0;
     }
@@ -447,13 +447,13 @@ fn binned_entropy_1d(col: &[f64], n_bins: usize) -> f64 {
         return 0.0;
     }
 
-    let min_val = valid.iter().fold(f64::INFINITY, |a, &b| a.min(b));
-    let max_val = valid.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
-    if (max_val - min_val).abs() < f64::EPSILON {
+    let min_val = valid.iter().fold(f32::INFINITY, |a, &b| a.min(b));
+    let max_val = valid.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+    if (max_val - min_val).abs() < f32::EPSILON {
         return 0.0;
     }
 
-    let bin_width = (max_val - min_val) / n_bins as f64;
+    let bin_width = (max_val - min_val) / n_bins as f32;
     let mut counts: HashMap<usize, usize> = HashMap::new();
     for &v in &valid {
         let mut idx = ((v - min_val) / bin_width).floor() as usize;
@@ -462,11 +462,11 @@ fn binned_entropy_1d(col: &[f64], n_bins: usize) -> f64 {
         }
         *counts.entry(idx).or_insert(0) += 1;
     }
-    let total = valid.len() as f64;
+    let total = valid.len() as f32;
     counts
         .values()
         .map(|&c| {
-            let p = c as f64 / total;
+            let p = c as f32 / total;
             if p > 0.0 {
                 -p * p.ln()
             } else {
@@ -479,20 +479,20 @@ fn binned_entropy_1d(col: &[f64], n_bins: usize) -> f64 {
 /// 最大范围积的严格对齐版（复制自 sequence/mod.rs 的双指针逻辑）。
 /// 返回 abs(idx1 - idx2)/n，其中 idx1,idx2 是 find_max_range_product 返回的两个索引。
 /// 注意：Python 的 _calc_max_range_product 取的是 abs(索引1-索引2)/n，不是值差。
-fn max_range_product_strict(col: &[f64]) -> f64 {
-    let valid: Vec<f64> = col.iter().filter(|&&v| !v.is_nan()).copied().collect();
+fn max_range_product_strict(col: &[f32]) -> f32 {
+    let valid: Vec<f32> = col.iter().filter(|&&v| !v.is_nan()).copied().collect();
     let n_total = col.len(); // Python 用 series.shape[0]（含NaN的原长度）
     let n = valid.len();
     if n < 2 || n_total == 0 {
         return 0.0;
     }
 
-    let mut max_product = f64::NEG_INFINITY;
+    let mut max_product = f32::NEG_INFINITY;
     let mut result = (0i64, 0i64);
     let mut left = 0;
     let mut right = n - 1;
     while left < right {
-        let product = valid[left].min(valid[right]) * (right - left) as f64;
+        let product = valid[left].min(valid[right]) * (right - left) as f32;
         if product > max_product {
             max_product = product;
             result = (left as i64, right as i64);
@@ -511,7 +511,7 @@ fn max_range_product_strict(col: &[f64]) -> f64 {
         }
     }
     let (i, j) = result;
-    (i - j).abs() as f64 / n_total as f64
+    (i - j).abs() as f32 / n_total as f32
 }
 
 // ============================================================================
@@ -529,18 +529,18 @@ fn max_range_product_strict(col: &[f64]) -> f64 {
 ///
 /// 输出顺序与 Python get_features_factors(with_lyapunov_exponent=False) 严格一致。
 pub fn get_features_factors_rust(
-    data: &ArrayView2<f64>,
+    data: &ArrayView2<f32>,
     col_names: &[String],
-) -> (Vec<f64>, Vec<String>) {
+) -> (Vec<f32>, Vec<String>) {
     get_features_factors_rust_full(data, col_names, true)
 }
 
 /// 带参数版本：with_threshold_counts 控制 mean_above_p90/mean_below_p10 是否输出。
 pub fn get_features_factors_rust_full(
-    data: &ArrayView2<f64>,
+    data: &ArrayView2<f32>,
     col_names: &[String],
     with_threshold_counts: bool,
-) -> (Vec<f64>, Vec<String>) {
+) -> (Vec<f32>, Vec<String>) {
     let (n_rows, n_cols) = data.dim();
 
     // 空输入防护：0 行或 0 列时返回全 NaN（与 pandas 对空 DataFrame 的行为一致）
@@ -551,7 +551,7 @@ pub fn get_features_factors_rust_full(
         return (res, names);
     }
 
-    let cols: Vec<Vec<f64>> = (0..n_cols).map(|j| data.column(j).to_vec()).collect();
+    let cols: Vec<Vec<f32>> = (0..n_cols).map(|j| data.column(j).to_vec()).collect();
 
     // 按列计算所有单列统计量。
     // 注：用串行 iter 而非 par_iter——避免与外层 run_factor_pipeline 的自定义
@@ -574,7 +574,7 @@ pub fn get_features_factors_rust_full(
             let p10 = col_quantile(c, 0.10);
             // mean_above_p90 / mean_below_p10
             let mean_above_p90 = {
-                let (s, n) = c.iter().fold((0.0f64, 0usize), |(s, n), &v| {
+                let (s, n) = c.iter().fold((0.0f32, 0usize), |(s, n), &v| {
                     if !v.is_nan() && v > p90 {
                         (s + v, n + 1)
                     } else {
@@ -584,11 +584,11 @@ pub fn get_features_factors_rust_full(
                 if n == 0 {
                     0.0
                 } else {
-                    s / n as f64
+                    s / n as f32
                 }
             };
             let mean_below_p10 = {
-                let (s, n) = c.iter().fold((0.0f64, 0usize), |(s, n), &v| {
+                let (s, n) = c.iter().fold((0.0f32, 0usize), |(s, n), &v| {
                     if !v.is_nan() && v < p10 {
                         (s + v, n + 1)
                     } else {
@@ -598,7 +598,7 @@ pub fn get_features_factors_rust_full(
                 if n == 0 {
                     0.0
                 } else {
-                    s / n as f64
+                    s / n as f32
                 }
             };
             // period_compare
@@ -606,12 +606,12 @@ pub fn get_features_factors_rust_full(
             let first_mean = if split > 0 {
                 col_mean(&c[..split])
             } else {
-                f64::NAN
+                f32::NAN
             };
             let last_mean = if split > 0 {
                 col_mean(&c[n_rows - split..])
             } else {
-                f64::NAN
+                f32::NAN
             };
             let period_diff = last_mean - first_mean;
             let period_ratio = last_mean / (first_mean.abs() + 1e-8);
@@ -619,16 +619,16 @@ pub fn get_features_factors_rust_full(
             let trend = trend_1d(c);
             // autocorr1（lag=1）
             let autocorr1 = if n_rows >= 2 {
-                let shifted: Vec<f64> = std::iter::once(f64::NAN)
+                let shifted: Vec<f32> = std::iter::once(f32::NAN)
                     .chain(c[..n_rows - 1].iter().copied())
                     .collect();
                 corr_pair(c, &shifted)
             } else {
-                f64::NAN
+                f32::NAN
             };
             // lz / entropy / max_range
             let lz = lz_complexity_1d(c);
-            let n_bins = (n_rows as f64).log2().ceil() as usize + 1;
+            let n_bins = (n_rows as f32).log2().ceil() as usize + 1;
             let entropy = binned_entropy_1d(c, n_bins);
             let max_range = max_range_product_strict(c);
 
@@ -658,7 +658,7 @@ pub fn get_features_factors_rust_full(
         .collect();
 
     // corr 矩阵上三角（并行计算所有对）
-    let corr_upper: Vec<f64> = if n_cols >= 2 {
+    let corr_upper: Vec<f32> = if n_cols >= 2 {
         let pairs: Vec<(usize, usize)> = (0..n_cols)
             .flat_map(|i| (i + 1..n_cols).map(move |j| (i, j)))
             .collect();
@@ -671,7 +671,7 @@ pub fn get_features_factors_rust_full(
     };
 
     // ============ 按顺序拼接结果（对齐 Python get_features_factors）============
-    let mut res: Vec<f64> = Vec::new();
+    let mut res: Vec<f32> = Vec::new();
     let mut names: Vec<String> = Vec::new();
 
     // 1. mean/median/std/skew/kurt
@@ -858,9 +858,9 @@ pub fn get_features_factors_rust_full(
 
 /// 辅助：把一组列统计量追加到结果向量（vals 与 col_names 等长，逐列生成 name）。
 fn push_group(
-    res: &mut Vec<f64>,
+    res: &mut Vec<f32>,
     names: &mut Vec<String>,
-    vals: &[f64],
+    vals: &[f32],
     suffix: &str,
     col_names: &[String],
 ) {
@@ -873,26 +873,26 @@ fn push_group(
 
 /// 单列所有统计量的预计算结果。
 struct ColStats {
-    mean: f64,
-    median: f64,
-    std: f64,
-    skew: f64,
-    kurt: f64,
-    p5: f64,
-    p25: f64,
-    p75: f64,
-    p95: f64,
-    iqr: f64,
-    cv: f64,
-    autocorr1: f64,
-    trend: f64,
-    period_diff: f64,
-    period_ratio: f64,
-    mean_above_p90: f64,
-    mean_below_p10: f64,
-    lz: f64,
-    entropy: f64,
-    max_range: f64,
+    mean: f32,
+    median: f32,
+    std: f32,
+    skew: f32,
+    kurt: f32,
+    p5: f32,
+    p25: f32,
+    p75: f32,
+    p95: f32,
+    iqr: f32,
+    cv: f32,
+    autocorr1: f32,
+    trend: f32,
+    period_diff: f32,
+    period_ratio: f32,
+    mean_above_p90: f32,
+    mean_below_p10: f32,
+    lz: f32,
+    entropy: f32,
+    max_range: f32,
 }
 
 // ============================================================================
@@ -906,5 +906,8 @@ pub fn verify_get_features_factors_rust(
     col_names: Vec<String>,
 ) -> PyResult<(Vec<f64>, Vec<String>)> {
     let view = data.as_array();
-    Ok(get_features_factors_rust(&view, &col_names))
+    let view_f32 = view.mapv(|x| x as f32);
+    let (vals, names) = get_features_factors_rust(&view_f32.view(), &col_names);
+    let vals_f64: Vec<f64> = vals.iter().map(|&v| v as f64).collect();
+    Ok((vals_f64, names))
 }

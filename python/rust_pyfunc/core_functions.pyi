@@ -2348,6 +2348,12 @@ def run_factor_pipeline(
     bind_cores: bool = True,
     backup_batch_size: int = 2000,
     progress_log: bool = False,
+    mode: str = "multiprocess",
+    export_names: Optional[List[str]] = None,
+    export_dir: Optional[str] = None,
+    export_n_jobs: int = 80,
+    store_dir: Optional[str] = None,
+    store_factor_names: Optional[List[str]] = None,
 ) -> None:
     """纯 Rust 因子流水线引擎（run_factor_pipeline 优化方案 Phase 3）。
 
@@ -2355,37 +2361,57 @@ def run_factor_pipeline(
     pandas、pyo3 往返、msgpack 等所有流转浪费。并行控制采用自适应嵌套并行 + 核绑定，
     总线程恒定 = n_jobs。
 
-    backup 格式与现有 run_pools_queue 完全兼容（复用 backup_writer），
-    后续 query_backup / query_backup_factor_only_ultra_fast 无需改动。
+    存储后端二选一：
+    - 旧 bin（默认）：写 RPBACKUP v4 行式 backup_file，后续可 export_names 导出 parquet。
+    - 新列式 colblk（推荐）：提供 store_dir 后，写 RPFBINV5 列式存储（factors.colblk +
+      factors.idx），计算结束自动投影，tail_pipeline_v5 直接顺序读取，回测零寻道。
+      bin 与 colblk 互斥：提供 store_dir 时忽略 backup_file / export_names。
 
     Parameters
     ----------
     pipeline : str
-        流水线标识，目前支持 "order_pair_hm90"（hm90.go 的 Rust 翻译）
+        流水线标识，支持 "order_pair_hm90" / "observable_order"
     tasks : List[[int, str]]
         任务列表，每个元素 [date, code]
     n_jobs : int
         并行线程数（总 CPU 占用 ≈ n_jobs × 100%，默认生产用 200）
     backup_file : str
-        备份文件路径（与 run_pools_queue 的 backup_file 格式兼容）
+        旧 bin 备份文件路径（与 run_pools_queue 的 backup_file 格式兼容）。
+        提供 store_dir 时此参数被忽略。
     expected_result_length : int
         每个任务的预期结果长度（因子数）
     trading_days : List[int]
-        交易日历数组（由 rp.td.trading_days.tolist() 提供，用于 last_trading_day 查找）
+        交易日历数组（用于 last_trading_day 查找）
     params : dict, 可选
         流水线参数，如 {"tolerance_v1": 0.001, "tolerance_v2": 0.00001}
     update_mode : bool, 默认 False
-        断点续算：True 时跳过 backup 中已完成的任务
+        断点续算：True 时跳过已写入的任务（bin 走 query_backup，colblk 走 chunk 扫描）
     bind_cores : bool, 默认 True
-        核绑定：把 n_jobs 个线程各绑定到一个物理核，CPU 占用精确稳定
+        核绑定：把 n_jobs 个线程各绑定到一个物理核
     backup_batch_size : int, 默认 2000
-        每攒满 N 个结果写一次 backup（批量 zstd 压缩）
+        每攒满 N 个结果写一次（批量 zstd 压缩）
     progress_log : bool, 默认 False
-        每 500 个任务打印一次进度
+        打印进度
+    mode : str, 默认 "multiprocess"
+        "multiprocess"（多进程，L3 缓存隔离）或 "thread"（线程回退）
+    export_names : List[str], 可选
+        旧 bin 模式下，计算完成后把指定因子导出为 parquet。colblk 模式忽略。
+    export_dir : str, 可选
+        parquet 输出目录（默认 /nas197/user_home_unsafe/chenzongwei/factor_data/<ver>）
+    export_n_jobs : int, 默认 80
+        parquet 导出 / colblk 投影的并行线程数
+    store_dir : str, 可选
+        新列式存储目录（推荐）。提供后走 RPFBINV5 colblk 后端，替代 bin + parquet。
+        计算结束自动投影，tail_pipeline_v5 可直接读取。
+    store_factor_names : List[str], 可选
+        colblk 模式下的因子名列表（长度 = expected_result_length）。未提供时用占位名。
 
     Notes
     -----
-    "order_pair_hm90" 流水线关闭了 lyapunov 特征（原 get_features_factors 默认开启，
-    但花 69% 时间只产生 2.3% 特征）。如需 lyapunov，仍可用原 run_pools_queue。
+    新列式存储（store_dir）专为机械硬盘优化：
+    - 计算时增量追加列式 chunk（纯顺序写，断点续算）。
+    - 计算结束后投影一次，让同一因子的所有行连续存放。
+    - tail_pipeline_v5 用少量线程顺序读投影区 + 内存有界队列 + 200 计算线程，
+      彻底消除 HDD 80 路随机寻道瓶颈。
     """
     ...
