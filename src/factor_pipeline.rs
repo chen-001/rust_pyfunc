@@ -14,6 +14,7 @@ use crate::backup_writer::save_results_to_backup;
 use crate::fast_csv_reader;
 use crate::features;
 use crate::order_pair_metrics_pipeline;
+use chrono::Local;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -310,10 +311,24 @@ fn build_col_names() -> Vec<String> {
             names.push(format!("{}_{}", r, a));
         }
     }
-    // 盘口标量 13
+    // 盘口标量 13（与 compute_segment_features 的 push 顺序严格对齐）
+    // P4 价格波动率, P5 间隔成交量std, P6 间隔成交量trend
+    // S1 段内10档归一化协方差det 8版本: 同侧det/|同侧|/对手det/|对手|/差/|差|/|同侧|-|对手|/||差||
+    // S2 段内双方20档归一化协方差det 2版本: 双方det/|双方|
     for s in [
-        "pvol", "ivstd", "ivtrend", "s10sd", "s10sad", "s10od", "s10sad2", "s10dd", "s10dda",
-        "s10addd", "s10adda", "s20d", "s20ad",
+        "pvol",
+        "ivstd",
+        "ivtrend",
+        "sd10_same",
+        "sd10_same_abs",
+        "sd10_opp",
+        "sd10_opp_abs",
+        "sd10_diff",
+        "sd10_diff_abs",
+        "sd10_absdiff",
+        "sd10_absdiff_abs",
+        "sd20_both",
+        "sd20_both_abs",
     ] {
         names.push(s.to_string());
     }
@@ -446,14 +461,25 @@ pub fn run_factor_pipeline(
     let batch_size = backup_batch_size.unwrap_or(500);
     let mode = mode.unwrap_or_else(|| "multiprocess".to_string());
     let n_shards = 8;
-    let sharded_sink: Option<crate::factor_store_v5::ShardedBackupSink> = if let Some(ref sdir) = store_dir {
+    let sharded_sink: Option<crate::factor_store_v5::ShardedBackupSink> = if let Some(ref sdir) =
+        store_dir
+    {
         let snames = store_factor_names.clone().unwrap_or_else(|| {
-            (0..expected_result_length).map(|i| format!("factor_{i}")).collect()
+            (0..expected_result_length)
+                .map(|i| format!("factor_{i}"))
+                .collect()
         });
-        Some(crate::factor_store_v5::ShardedBackupSink::new_colblk_sharded(sdir, &snames, n_shards)
-            .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("打开 colblk 存储失败: {}", e)))?)
-    } else { None };
-    let sink: crate::factor_store_v5::BackupSink = crate::factor_store_v5::BackupSink::new_bin(backup_file.clone(), expected_result_length);
+        Some(
+            crate::factor_store_v5::ShardedBackupSink::new_colblk_sharded(sdir, &snames, n_shards)
+                .map_err(|e| {
+                    pyo3::exceptions::PyIOError::new_err(format!("打开 colblk 存储失败: {}", e))
+                })?,
+        )
+    } else {
+        None
+    };
+    let sink: crate::factor_store_v5::BackupSink =
+        crate::factor_store_v5::BackupSink::new_bin(backup_file.clone(), expected_result_length);
 
     // 解析参数（按 pipeline 名选不同 Params）
     let hm90_params = if pipeline_name == "order_pair_hm90" {
@@ -494,9 +520,11 @@ pub fn run_factor_pipeline(
         let task_dates: std::collections::HashSet<i64> =
             all_tasks.iter().map(|(d, _)| *d).collect();
         let existing = if let Some(ref ss) = sharded_sink {
-            ss.check_completed().map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("读取备份失败: {}", e)))?
+            ss.check_completed()
+                .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("读取备份失败: {}", e)))?
         } else {
-            sink.check_completed().map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("读取备份失败: {}", e)))?
+            sink.check_completed()
+                .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("读取备份失败: {}", e)))?
         };
         all_tasks
             .into_iter()
@@ -509,6 +537,13 @@ pub fn run_factor_pipeline(
     let total = pending.len();
     if total == 0 {
         println!("✅ 所有任务都已完成");
+        // 即使无新任务，投影仍可能未做（断点续算恢复时）。
+        // 只对需要投影的后端（store_dir 模式）执行，且仅当未投影时。
+        if let Some(ref ss) = sharded_sink {
+            println!("🏗️ 检查/执行投影...");
+            ss.finish_and_project(export_n_jobs)
+                .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("投影失败: {}", e)))?;
+        }
         return Ok(Python::with_gil(|py| py.None()));
     }
     println!("📋 待处理任务: {}, n_jobs={}", total, n_jobs);
@@ -532,7 +567,9 @@ pub fn run_factor_pipeline(
                 &worker_bin,
             )?;
             if let Some(ref ss) = sharded_sink {
-                ss.finish_and_project(export_n_jobs).map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("投影失败: {}", e)))?;
+                ss.finish_and_project(export_n_jobs).map_err(|e| {
+                    pyo3::exceptions::PyIOError::new_err(format!("投影失败: {}", e))
+                })?;
             } else if let Some(ref names) = export_names {
                 let dir = export_dir.clone().unwrap_or_else(|| {
                     let ver = std::path::Path::new(&backup_file)
@@ -936,7 +973,8 @@ fn spawn_progress_monitor(
             }
 
             println!(
-                "📊 进度: {}/{} ({:.1}%), 速度: {:.0}/s, 已用: {}, 预估剩余(全局): {}, 预估剩余(近5批): {}",
+                "[{}] 📊 进度: {}/{} ({:.1}%), 速度: {:.0}/s, 已用: {}, 预估剩余(全局): {}, 预估剩余(近5批): {}",
+                Local::now().format("%Y-%m-%d %H:%M:%S"),
                 done, total, pct, global_speed, fmt_eta(elapsed), fmt_eta(global_eta), fmt_eta(recent_eta)
             );
         }
@@ -1046,7 +1084,11 @@ fn run_multiprocess_v2(
                     let _done = completed_cloned.fetch_add(1, Ordering::Relaxed) + 1;
                     if buf.len() >= batch_size {
                         let batch: Vec<TaskResult> = buf.drain(..).collect();
-                        let _ = if let Some(ref ss) = sharded_c { ss.append_batch(&batch) } else { sink_c.append_batch(&batch) };
+                        let _ = if let Some(ref ss) = sharded_c {
+                            ss.append_batch(&batch)
+                        } else {
+                            sink_c.append_batch(&batch)
+                        };
                         // 记录本次备份间隔
                         let interval = last_flush.elapsed().as_secs_f64();
                         last_flush = std::time::Instant::now();
@@ -1054,7 +1096,11 @@ fn run_multiprocess_v2(
                     }
                 }
                 if !buf.is_empty() {
-                    let _ = if let Some(ref ss) = sharded_c { ss.append_batch(&buf) } else { sink_c.append_batch(&buf) };
+                    let _ = if let Some(ref ss) = sharded_c {
+                        ss.append_batch(&buf)
+                    } else {
+                        sink_c.append_batch(&buf)
+                    };
                 }
             })
         };

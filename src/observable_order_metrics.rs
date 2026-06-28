@@ -93,26 +93,32 @@ struct Segment {
 
 /// 对序列做 5 种聚合：mean, std, skew, autocorr(lag), trend。
 /// 返回长度 5 的数组，点数不足时对应位置为 NaN。
-/// - mean: n>=1
-/// - std: n>=2（样本标准差 ddof=1，与 pandas 一致）
-/// - skew: n>=3
-/// - autocorr: n>=lag+1
-/// - trend: n>=2（与 [1..n] 的 Pearson 相关）
+/// 段内聚合：对序列算 5 个统计量 [mean, std, skew, ac1, trend]。
+/// **显式跳过 NaN/inf**（用 is_finite 过滤），与跨段 col_* 行为一致：
+/// 段内序列含 1 个坏值不再污染整段，只用有效值计算，提高覆盖率。
+/// 有效值不足时对应统计量返回 NaN：
+/// - mean: n_valid>=1
+/// - std: n_valid>=2（ddof=1）
+/// - skew: n_valid>=3（G1 偏度，无偏校正）
+/// - ac1: n_valid>lag（对有效序列做 lag 自相关）
+/// - trend: n_valid>=2（与 [1..n_valid] 的 Pearson 相关）
 #[inline]
 fn aggregate5(vals: &[f32], autocorr_lag: usize) -> [f32; 5] {
-    let n = vals.len();
+    // 过滤 NaN/inf，只用有效值（与跨段 col_* 一致）
+    let valid: Vec<f32> = vals.iter().copied().filter(|v| v.is_finite()).collect();
+    let n = valid.len();
     let mut out = [f32::NAN; 5];
     if n == 0 {
         return out;
     }
     // mean
-    let sum: f32 = vals.iter().copied().sum();
+    let sum: f32 = valid.iter().copied().sum();
     let mean = sum / n as f32;
     out[0] = mean;
     // std (ddof=1)
     if n >= 2 {
         let mut sq = 0.0f32;
-        for &v in vals {
+        for &v in &valid {
             let d = v - mean;
             sq += d * d;
         }
@@ -122,8 +128,8 @@ fn aggregate5(vals: &[f32], autocorr_lag: usize) -> [f32; 5] {
     if n >= 3 {
         let std1 = out[1];
         if std1 > 0.0 && std1.is_finite() {
-            let m2: f32 = vals.iter().map(|&v| (v - mean).powi(2)).sum::<f32>() / n as f32;
-            let m3: f32 = vals.iter().map(|&v| (v - mean).powi(3)).sum::<f32>() / n as f32;
+            let m2: f32 = valid.iter().map(|&v| (v - mean).powi(2)).sum::<f32>() / n as f32;
+            let m3: f32 = valid.iter().map(|&v| (v - mean).powi(3)).sum::<f32>() / n as f32;
             let g1 = m3 / m2.powf(1.5);
             // 无偏校正（pandas scipy skew 校正因子）
             let nf = n as f32;
@@ -131,10 +137,10 @@ fn aggregate5(vals: &[f32], autocorr_lag: usize) -> [f32; 5] {
             out[2] = if g1_adj.is_finite() { g1_adj } else { f32::NAN };
         }
     }
-    // autocorr(lag)
+    // autocorr(lag)：对有效序列做 lag 自相关
     if n > autocorr_lag && autocorr_lag >= 1 {
-        let a = &vals[..n - autocorr_lag];
-        let b = &vals[autocorr_lag..];
+        let a = &valid[..n - autocorr_lag];
+        let b = &valid[autocorr_lag..];
         let na = a.len();
         let ma = a.iter().sum::<f32>() / na as f32;
         let mb = b.iter().sum::<f32>() / na as f32;
@@ -151,7 +157,7 @@ fn aggregate5(vals: &[f32], autocorr_lag: usize) -> [f32; 5] {
         let denom = (va * vb).sqrt();
         out[3] = if denom > 0.0 { cov / denom } else { f32::NAN };
     }
-    // trend: Pearson(序列, [1..n])
+    // trend: Pearson(有效序列, [1..n_valid])
     if n >= 2 {
         let xs: Vec<f32> = (1..=n).map(|x| x as f32).collect();
         let mx = xs.iter().sum::<f32>() / n as f32;
@@ -160,7 +166,7 @@ fn aggregate5(vals: &[f32], autocorr_lag: usize) -> [f32; 5] {
         let mut vy = 0.0f32;
         for k in 0..n {
             let dx = xs[k] - mx;
-            let dy = vals[k] - mean;
+            let dy = valid[k] - mean;
             cov += dx * dy;
             vx += dx * dx;
             vy += dy * dy;
@@ -242,17 +248,41 @@ fn cov_det(data: &[f32], n: usize, d: usize) -> f32 {
     lu_det(&cov, d)
 }
 
-/// LU 分解（不带主元，对正定协方差矩阵足够；非正定则返回 NaN）。
+/// 带部分主元选元的 LU 分解求行列式。
+/// 主元选元避免小主元导致数值放大溢出（原始无主元版对大盘股大挂单量协方差矩阵会 inf）。
+/// 正定矩阵行列式 = 主元乘积 × 符号（行交换次数）。近似奇异返回 0。
 #[inline]
 fn lu_det(a: &[f32], n: usize) -> f32 {
     let mut m = a.to_vec();
     let mut det = 1.0f32;
+    let mut sign = 1.0f32;
     for k in 0..n {
-        let pivot = m[k * n + k];
-        if pivot.abs() < 1e-30 || !pivot.is_finite() {
+        // 部分主元：在第 k 列 [k..n) 行中选绝对值最大者作主元
+        let mut pivot_row = k;
+        let mut max_abs = m[k * n + k].abs();
+        for i in (k + 1)..n {
+            let aabs = m[i * n + k].abs();
+            if aabs > max_abs {
+                max_abs = aabs;
+                pivot_row = i;
+            }
+        }
+        if max_abs < 1e-30 || !max_abs.is_finite() {
             return 0.0;
         }
+        if pivot_row != k {
+            for j in 0..n {
+                let tmp = m[k * n + j];
+                m[k * n + j] = m[pivot_row * n + j];
+                m[pivot_row * n + j] = tmp;
+            }
+            sign = -sign;
+        }
+        let pivot = m[k * n + k];
         det *= pivot;
+        if !det.is_finite() {
+            return det;
+        }
         for i in (k + 1)..n {
             let factor = m[i * n + k] / pivot;
             for j in k..n {
@@ -260,7 +290,7 @@ fn lu_det(a: &[f32], n: usize) -> f32 {
             }
         }
     }
-    det
+    det * sign
 }
 
 /// 归一化协方差行列式：每列 z-score（ddof=0）后求协方差行列式。
@@ -390,7 +420,7 @@ fn precompute_vol_std(market: &[MarketRecord], same_side: Side) -> Vec<f32> {
         .collect()
 }
 
-/// 滚动 rolling_n 窗内 同侧 10 档挂单量的协方差行列式（含 |det|）。
+/// 滚动 rolling_n 窗内 同侧 10 档挂单量的归一化协方差行列式（相关矩阵 det，值域 [0,1]）。
 /// 窗口=过去 rolling_n 次快照（含当前），前 rolling_n-1 个为 NaN。
 /// 返回 (n, 2)：[det, |det|]
 fn precompute_roll10_det(
@@ -414,14 +444,14 @@ fn precompute_roll10_det(
             };
             buf[i * 10..(i + 1) * 10].copy_from_slice(vols);
         }
-        let det = cov_det(&buf, rolling_n, 10);
+        let det = norm_cov_det(&buf, rolling_n, 10);
         let row = end - 1;
         out[row] = [det, det.abs()];
     }
     out
 }
 
-/// 滚动 rolling_n 窗内 双方 20 档挂单量（ask1-10 ⊕ bid1-10）协方差行列式（含 |det|）。
+/// 滚动 rolling_n 窗内 双方 20 档挂单量（ask1-10 ⊕ bid1-10）归一化协方差行列式（相关矩阵 det，值域 [0,1]）。
 /// 返回 (n, 2)：[det, |det|]
 fn precompute_roll20_det(market: &[MarketRecord], rolling_n: usize) -> Vec<[f32; 2]> {
     let n = market.len();
@@ -437,7 +467,7 @@ fn precompute_roll20_det(market: &[MarketRecord], rolling_n: usize) -> Vec<[f32;
             buf[i * 20..(i + 1) * 20][..10].copy_from_slice(&m.ask_vols);
             buf[i * 20..(i + 1) * 20][10..].copy_from_slice(&m.bid_vols);
         }
-        let det = cov_det(&buf, rolling_n, 20);
+        let det = norm_cov_det(&buf, rolling_n, 20);
         let row = end - 1;
         out[row] = [det, det.abs()];
     }
@@ -481,20 +511,17 @@ fn interval_volumes(market: &[MarketRecord], lo: usize, hi: usize) -> Vec<f32> {
 // 逐笔成交预计算
 // ============================================================================
 
-/// 按 1 秒聚合小段内的成交，返回 (秒时间戳, 主买量, 主卖量, 笔数, 金额)。
-/// 主买 flag=66，主卖 flag=83，撤单已在读取时过滤。
-/// trade 已按时间排序。
+/// 按 3 秒聚合小段内的成交，返回 (桶时间戳, 主买量, 主卖量, 笔数, 金额, 主买金额)。
+/// 3 秒桶：time_sec 按 3 向下取整分桶（如 0-2s→0, 3-5s→3）。
+/// 主买 flag=66，主卖 flag=83，撤单已在读取时过滤。trade 已按时间排序。
+/// 用 3 秒桶而非 1 秒：单只股票低占比段成交稀疏，1 秒桶常只有 1-2 笔，
+/// skew/ac1/trend 等高阶统计量因样本不足全 NaN；3 秒桶使有效样本量提升约 3 倍。
 fn aggregate_by_second(
     trade: &[TradeRecord],
     t0: f32,
     t1: f32,
 ) -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>) {
     // 返回 (secs, buy_vols, sell_vols, counts, amounts, buy_amounts)
-    // secs: 该秒的时间戳（向下取整到整数秒）
-    // buy_vols/sell_vols: 该秒主买/主卖成交量
-    // counts: 该秒成交笔数（主买+主卖）
-    // amounts: 该秒总成交金额
-    // buy_amounts: 该秒主买成交金额
     if trade.is_empty() {
         return (vec![], vec![], vec![], vec![], vec![], vec![]);
     }
@@ -506,7 +533,7 @@ fn aggregate_by_second(
     }
     hi = hi.min(trade.len());
 
-    // 按秒聚合
+    // 按 3 秒聚合
     let mut secs: Vec<f32> = Vec::new();
     let mut buy_vols: Vec<f32> = Vec::new();
     let mut sell_vols: Vec<f32> = Vec::new();
@@ -517,7 +544,8 @@ fn aggregate_by_second(
     let mut cur_sec = f32::NAN;
     for i in lo..hi {
         let t = &trade[i];
-        let sec = t.time_sec.floor();
+        // 3 秒桶：floor(time/3)*3
+        let sec = (t.time_sec / 3.0).floor() * 3.0;
         if sec != cur_sec {
             secs.push(sec);
             buy_vols.push(0.0);
@@ -692,7 +720,7 @@ fn compute_segment_features(
         let mut cur_idx = 0usize;
         for i in t_lo..t_hi {
             let t = &trade[i];
-            let sec = t.time_sec.floor();
+            let sec = (t.time_sec / 3.0).floor() * 3.0;
             if sec != cur_sec {
                 // 找到对应 idx
                 while cur_idx < secs.len() && secs[cur_idx] < sec {
@@ -733,7 +761,7 @@ fn compute_segment_features(
         let mut cur_idx = 0usize;
         for i in t_lo..t_hi {
             let t = &trade[i];
-            let sec = t.time_sec.floor();
+            let sec = (t.time_sec / 3.0).floor() * 3.0;
             if sec != cur_sec {
                 while cur_idx < secs.len() && secs[cur_idx] < sec {
                     cur_idx += 1;
@@ -755,7 +783,7 @@ fn compute_segment_features(
         let mut cur_idx = 0usize;
         for i in t_lo..t_hi {
             let t = &trade[i];
-            let sec = t.time_sec.floor();
+            let sec = (t.time_sec / 3.0).floor() * 3.0;
             if sec != cur_sec {
                 while cur_idx < secs.len() && secs[cur_idx] < sec {
                     cur_idx += 1;
@@ -853,8 +881,8 @@ fn compute_segment_features(
     out
 }
 
-/// 小段内单侧 N 档挂单量的协方差行列式。
-/// 把段内每个快照的同侧（或对手侧）N 档量作为一行（n×N），算协方差行列式。
+/// 小段内单侧 N 档挂单量的归一化协方差行列式（相关矩阵 det，值域有界不溢出）。
+/// 把段内每个快照的同侧（或对手侧）N 档量作为一行（n×N），z-score 后算相关矩阵行列式。
 fn segment_vol_cov_det(
     market: &[MarketRecord],
     lo: usize,
@@ -874,10 +902,10 @@ fn segment_vol_cov_det(
         };
         buf[i * n_tiers..(i + 1) * n_tiers].copy_from_slice(&vols[..n_tiers]);
     }
-    cov_det(&buf, n, n_tiers)
+    norm_cov_det(&buf, n, n_tiers)
 }
 
-/// 小段内双方 2*N 档（ask 前 N + bid 前 N）挂单量的协方差行列式。
+/// 小段内双方 2*N 档（ask 前 N + bid 前 N）挂单量的归一化协方差行列式（相关矩阵 det）。
 fn segment_vol_cov_both_det(market: &[MarketRecord], lo: usize, hi: usize) -> f32 {
     let n = hi - lo;
     let d = 20;
@@ -890,7 +918,7 @@ fn segment_vol_cov_both_det(market: &[MarketRecord], lo: usize, hi: usize) -> f3
         buf[i * d..(i + 1) * d][..10].copy_from_slice(&m.ask_vols);
         buf[i * d..(i + 1) * d][10..].copy_from_slice(&m.bid_vols);
     }
-    cov_det(&buf, n, d)
+    norm_cov_det(&buf, n, d)
 }
 
 /// 成交记录归一化协方差行列式。
@@ -1215,16 +1243,25 @@ pub fn py_compute_observable_order_metrics(
 
 fn parse_params(d: &pyo3::types::PyAny) -> PyResult<ObsOrderParams> {
     let mut p = ObsOrderParams::default();
-    if let Ok(v) = d.get_item("q").and_then(|v| v.extract::<f64>().map(|x| x as f32)) {
+    if let Ok(v) = d
+        .get_item("q")
+        .and_then(|v| v.extract::<f64>().map(|x| x as f32))
+    {
         p.q = v;
     }
     if let Ok(v) = d.get_item("drop_min").and_then(|v| v.extract::<usize>()) {
         p.drop_min = v;
     }
-    if let Ok(v) = d.get_item("forward_sec").and_then(|v| v.extract::<f64>().map(|x| x as f32)) {
+    if let Ok(v) = d
+        .get_item("forward_sec")
+        .and_then(|v| v.extract::<f64>().map(|x| x as f32))
+    {
         p.forward_sec = v;
     }
-    if let Ok(v) = d.get_item("pre_minutes").and_then(|v| v.extract::<f64>().map(|x| x as f32)) {
+    if let Ok(v) = d
+        .get_item("pre_minutes")
+        .and_then(|v| v.extract::<f64>().map(|x| x as f32))
+    {
         p.pre_minutes = v;
     }
     if let Ok(v) = d.get_item("rolling_n").and_then(|v| v.extract::<usize>()) {
