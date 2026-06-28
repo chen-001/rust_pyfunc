@@ -25,6 +25,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::FileExt;
+use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 
 // ============================ 常量 ============================
@@ -50,6 +51,11 @@ const F32_BYTES: usize = 4;
 /// 投影区格式版本，写在 colblk header reserved[44..48]。
 /// 0 = 追加期未投影；2 = 去冗余新格式（共享行序 + 每因子 value 列）。旧 1.x 格式不兼容。
 const PROJ_FORMAT_VERSION: u32 = 2;
+/// fallocate 每次预留的连续空间大小（2GB）。
+/// 追加写入在预留区内填充，避免 btrfs 在满盘上把 colblk 切成百万级碎片 extent
+/// （实测 2.4M extent → 读回 90MB/s 寻道受限；预留后 extent 数降到 ~150/shard，
+///  再叠加投影前 defrag，读取命中顺序带宽）。值可调大（如 16GB）进一步减少 extent 数。
+const FALLOCATE_RESERVE: u64 = 2 * 1024 * 1024 * 1024;
 
 // ============================ colblk Header ============================
 // 字段布局（小端）：
@@ -348,6 +354,14 @@ pub struct FactorStoreWriter {
     chunk_index: Vec<(u64, u32, u32)>,
     /// 投影区格式版本（0=未投影/旧，PROJ_FORMAT_VERSION=新格式）。投影后置位。
     proj_format_version: u32,
+    /// 实际数据末尾（header + 所有 chunk 的字节偏移）。fallocate 预留后 file size > data_end，
+    /// 故追加必须用 data_end 定位，不能用 seek End（会落到预留尾部）。
+    data_end: u64,
+    /// fallocate 已预留到的偏移（file 在 [0, allocated_end) 已分配物理空间）。
+    /// u64::MAX 表示 fallocate 不可用/已放弃，退化为普通追加。
+    allocated_end: u64,
+    /// fallocate 是否已警告过失败（避免刷屏）。
+    fallocate_warned: bool,
 }
 
 impl FactorStoreWriter {
@@ -384,6 +398,28 @@ impl FactorStoreWriter {
         // 写 idx（空字典）
         dict.write_idx(&idx_path, 0)?;
 
+        // fallocate 预留初始连续空间，避免追加期碎片化（见 FALLOCATE_RESERVE 注释）
+        let mut allocated_end = COLBLK_HEADER_SIZE as u64;
+        let mut fallocate_warned = false;
+        let rc = unsafe {
+            libc::fallocate(
+                colblk_file.as_raw_fd(),
+                0,
+                COLBLK_HEADER_SIZE as libc::off_t,
+                FALLOCATE_RESERVE as libc::off_t,
+            )
+        };
+        if rc == 0 {
+            allocated_end = COLBLK_HEADER_SIZE as u64 + FALLOCATE_RESERVE;
+        } else {
+            fallocate_warned = true;
+            allocated_end = u64::MAX; // fallocate 不可用，退化为普通追加
+            eprintln!(
+                "⚠️ fallocate 初始预留失败 rc={}，退化为普通追加（投影读可能碎片化变慢）",
+                rc
+            );
+        }
+
         Ok(Self {
             store_dir,
             colblk_path,
@@ -396,6 +432,9 @@ impl FactorStoreWriter {
             projected_offset: 0,
             chunk_index: Vec::new(),
             proj_format_version: 0,
+            data_end: COLBLK_HEADER_SIZE as u64,
+            allocated_end,
+            fallocate_warned,
         })
     }
 
@@ -457,6 +496,9 @@ impl FactorStoreWriter {
             }
             let compressed_size = u32::from_le_bytes(chunk_hdr[0..4].try_into().unwrap());
             let n_in_batch = u32::from_le_bytes(chunk_hdr[4..8].try_into().unwrap());
+            if n_in_batch == 0 {
+                break; // 0 = 非法 chunk（fallocate 预留的尾部零区/崩溃残留），停止扫描
+            }
             let data_offset = offset + 8;
             let body_row_size = ID_BYTES * 2 + hdr.factor_count * F32_BYTES;
             // chunk_index 存原始 compressed_size（0=不压缩），offset 计算用实际 data 大小
@@ -471,13 +513,14 @@ impl FactorStoreWriter {
             record_count += n_in_batch as u64;
         }
 
-        // projected_offset 从 header 取（未投影时为 0）；追加期下一写入位置 = 当前 offset（文件末尾）
+        // projected_offset 从 header 取（未投影时为 0）
         let projected_offset = hdr.projected_offset;
-
-        // 定位到当前末尾，准备追加
+        // data_end = 实际数据末尾（最后 chunk 之后）；fallocate 预留的尾部不计入
+        let data_end = offset;
+        // 定位到实际数据末尾准备追加（不能用 seek End：fallocate 使 file size > data_end）
         colblk_file
-            .seek(SeekFrom::End(0))
-            .map_err(|e| format!("seek 末尾失败: {e}"))?;
+            .seek(SeekFrom::Start(data_end))
+            .map_err(|e| format!("seek data_end 失败: {e}"))?;
 
         Ok(Self {
             store_dir: colblk_path.parent().unwrap().to_path_buf(),
@@ -491,6 +534,9 @@ impl FactorStoreWriter {
             projected_offset,
             proj_format_version: hdr.proj_format_version,
             chunk_index,
+            data_end,
+            allocated_end: file_len, // 保留已有预留，后续按需再 fallocate
+            fallocate_warned: false,
         })
     }
 
@@ -542,16 +588,14 @@ impl FactorStoreWriter {
         let compressed_size = 0u32; // 0 = 不压缩标记
         let data_bytes = &body[..];
 
-        // ---- 4. 追加 chunk 到 colblk 末尾 ----
-        // 追加期 projected_offset==0，直接 seek End 追加。
+        // ---- 4. 追加 chunk 到 data_end（在 fallocate 预留区内填充，避免碎片化）----
+        let chunk_total = 8 + data_bytes.len() as u64; // [compressed_size][n_in_batch] + body
+        self.ensure_allocated(self.data_end + chunk_total);
+        let chunk_head_offset = self.data_end;
         self.colblk_file
-            .seek(SeekFrom::End(0))
-            .map_err(|e| format!("seek End 失败: {e}"))?;
-        let chunk_head_offset = self
-            .colblk_file
-            .stream_position()
-            .map_err(|e| format!("获取 chunk 头偏移失败: {e}"))?;
-        // 写 chunk 头 [compressed_size][n_in_batch] + 压缩数据
+            .seek(SeekFrom::Start(chunk_head_offset))
+            .map_err(|e| format!("seek data_end 失败: {e}"))?;
+        // 写 chunk 头 [compressed_size][n_in_batch] + 数据
         self.colblk_file
             .write_all(&compressed_size.to_le_bytes())
             .map_err(|e| format!("写 chunk compressed_size 失败: {e}"))?;
@@ -564,11 +608,10 @@ impl FactorStoreWriter {
         self.colblk_file
             .flush()
             .map_err(|e| format!("flush chunk 失败: {e}"))?;
+        self.data_end += chunk_total;
 
         // ---- 5. 更新内存状态 + header + idx ----
-        // data 偏移 = chunk 头（8 字节）之后
-        // chunk_index 第二元素 = chunk 头存的 compressed_size（0=不压缩标志）
-        // 不压缩时 body 大小 = n × record_size，在 Reader 端按需计算
+        // chunk_index：data_offset = chunk 头之后；第二元素 = compressed_size（0=不压缩标志）
         self.chunk_index
             .push((chunk_head_offset + 8, 0u32, n as u32)); // 0 = 不压缩
         self.chunk_count += 1;
@@ -589,6 +632,68 @@ impl FactorStoreWriter {
         self.dict.write_idx(&self.idx_path, 0)?;
 
         Ok(())
+    }
+
+    /// 确保 colblk 在 [0, needed_end) 已 fallocate 预留连续空间。
+    /// 每 FALLOCATE_RESERVE 一段，把追加写入约束在预留区内，避免 btrfs 在满盘上分配散乱 extent。
+    /// fallocate 失败则退化为普通追加（allocated_end=u64::MAX，不再重试），仅警告一次。
+    fn ensure_allocated(&mut self, needed_end: u64) {
+        if self.allocated_end == u64::MAX || needed_end <= self.allocated_end {
+            return;
+        }
+        let new_end = needed_end + FALLOCATE_RESERVE;
+        let len = new_end - self.allocated_end;
+        let rc = unsafe {
+            libc::fallocate(
+                self.colblk_file.as_raw_fd(),
+                0,
+                self.allocated_end as libc::off_t,
+                len as libc::off_t,
+            )
+        };
+        if rc == 0 {
+            self.allocated_end = new_end;
+        } else {
+            if !self.fallocate_warned {
+                eprintln!(
+                    "⚠️ fallocate 失败 rc={}，退化为普通追加（投影读可能碎片化变慢）",
+                    rc
+                );
+                self.fallocate_warned = true;
+            }
+            self.allocated_end = u64::MAX;
+        }
+    }
+
+    /// 投影前 defrag：先截掉 fallocate 预留的尾部，再 `btrfs filesystem defrag` 合并 extent。
+    /// 让投影（及后续回测）的顺序读命中磁盘顺序带宽，而非碎片寻道。
+    pub fn defrag_colblk(&mut self) -> Result<(), String> {
+        // 截掉预留尾部（投影只读实际数据区 [0, data_end)）
+        if self.data_end < self.allocated_end && self.allocated_end != u64::MAX {
+            self.colblk_file
+                .set_len(self.data_end)
+                .map_err(|e| format!("truncate reserve 失败: {e}"))?;
+            self.colblk_file.flush().ok();
+            self.allocated_end = self.data_end;
+        }
+        let path = self.colblk_path.to_string_lossy().to_string();
+        eprintln!("🔧 defrag {}", path);
+        match std::process::Command::new("btrfs")
+            .arg("filesystem")
+            .arg("defrag")
+            .arg(&path)
+            .output()
+        {
+            Ok(o) if o.status.success() => {
+                eprintln!("✅ defrag 完成 {}", path);
+                Ok(())
+            }
+            Ok(o) => Err(format!(
+                "btrfs defrag 失败: {}",
+                String::from_utf8_lossy(&o.stderr)
+            )),
+            Err(e) => Err(format!("无法执行 btrfs defrag: {e}")),
+        }
     }
 
     /// 返回已写入记录的 (date, code) 集合，用于断点续算过滤。
@@ -1664,6 +1769,10 @@ impl BackupSink {
             BackupSink::Bin { .. } => Ok(()),
             BackupSink::Colblk { writer } => {
                 let mut w = writer.lock().map_err(|e| format!("锁 writer 失败: {e}"))?;
+                // 投影前 defrag：合并追加期产生的碎片 extent，让投影读命中顺序带宽
+                if let Err(e) = w.defrag_colblk() {
+                    eprintln!("⚠️ defrag 跳过（不阻断投影）: {e}");
+                }
                 w.finish_and_project(n_jobs)
             }
         }
