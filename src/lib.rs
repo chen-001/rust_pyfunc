@@ -318,6 +318,11 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     let _ = m.add_function(wrap_pyfunction!(factor_store_v5::factor_store_v5_info, m)?);
     let _ =
         m.add_function(wrap_pyfunction!(factor_store_v5::factor_store_v5_read_factor, m)?);
+        m.add_function(wrap_pyfunction!(factor_store_v5::factor_store_v5_verify_online, m)?);
+    let _ = m.add_function(wrap_pyfunction!(
+        factor_store_v5::factor_store_v5_project_v7,
+        m
+    )?);
     let _ =
         m.add_function(wrap_pyfunction!(factor_store_v5::factor_store_v5_template, m)?);
     let _ = m.add_function(
@@ -555,6 +560,18 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     // Tail V5：列式存储 + IO/CPU 分离（复制自 v4，支持 factor_store_v5）
     let _ = m.add_function(wrap_pyfunction!(
         tail_v5_pipeline::tail_v5_run_candidates,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        tail_v5_pipeline::tail_v5_run_candidates_online,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        tail_v5_pipeline::tail_v5_run_candidates_v7,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        tail_v5_pipeline::tail_v5_run_candidates_v7b,
         m
     )?);
     let _ = m.add_function(wrap_pyfunction!(
@@ -847,6 +864,7 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
 
     // 纯 Rust 因子流水线引擎（Phase 3 主入口）
     m.add_function(wrap_pyfunction!(factor_pipeline::run_factor_pipeline, m)?)?;
+    m.add_function(wrap_pyfunction!(factor_pipeline::run_factor_pipeline_v6, m)?)?;
 
     // Copula函数模块
     m.add_function(wrap_pyfunction!(copula::gaussian_copula_cdf_py, m)?)?;

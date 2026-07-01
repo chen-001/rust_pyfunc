@@ -456,6 +456,44 @@ def get_task_log(task_id: int, offset: int = 0, limit: int = 1000):
     return _read_log_file(row["log_path"], offset, limit)
 
 
+@app.get("/api/tasks/{task_id}/progress")
+def get_task_progress(task_id: int):
+    """解析任务日志最后一行 📊 进度，返回结构化进度数据。"""
+    import re
+    with _db_lock:
+        db = get_db()
+        row = db.execute("SELECT log_path, status FROM tasks WHERE id=?", (task_id,)).fetchone()
+        db.close()
+    if not row:
+        raise HTTPException(404, "任务不存在")
+    try:
+        with open(row["log_path"], encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+    except OSError:
+        return {"status": row["status"], "progress_pct": None}
+    # 从末尾找最后一条 📊 进度行
+    for line in reversed(lines):
+        m = re.search(
+            r"进度:\s*(\d+)/(\d+)\s*\(([0-9.]+)%\).*?速度:\s*(\d+)/s.*?已用:\s*(\S+).*?预估剩余\(全局\):\s*(\S+)",
+            line,
+        )
+        if m:
+            return {
+                "status": row["status"],
+                "completed": int(m.group(1)),
+                "total": int(m.group(2)),
+                "progress_pct": float(m.group(3)),
+                "speed": int(m.group(4)),
+                "elapsed": m.group(5),
+                "eta": m.group(6),
+            }
+    # 找 Step 标记
+    for line in reversed(lines):
+        if "Step" in line and ":" in line:
+            return {"status": row["status"], "step": line.strip()[:80], "progress_pct": None}
+    return {"status": row["status"], "progress_pct": None}
+
+
 @app.get("/api/tasks/{task_id}/subprocess-log")
 def get_subprocess_log(task_id: int, offset: int = 0, limit: int = 1000):
     """获取子进程日志（Rust 计算引擎的 debug_log）"""

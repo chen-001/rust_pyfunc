@@ -32,10 +32,13 @@ use std::path::{Path, PathBuf};
 
 /// 数据文件魔数 "RPFBINV5"
 const COLBLK_MAGIC: [u8; 8] = *b"RPFBINV5";
-/// 索引文件魔数 "RPFBIDX5"
-const IDX_MAGIC: [u8; 8] = *b"RPFBIDX5";
+/// 索引文件魔数 "RPFBIDX6"
+/// V6：dates/codes 改为 append-only 独立文件（dates.bin/codes.bin），factors.idx 只存 header+因子名。
+/// 消除 append_batch 每 batch 全量重写 idx（含 61344 因子名 2.4MB）的写盘瓶颈。
+/// 旧 RPFBIDX5 数据自然报错（parse_idx_header magic 校验），需清空 store_dir 重跑。
+const IDX_MAGIC: [u8; 8] = *b"RPFBIDX6";
 const COLBLK_VERSION: u32 = 5;
-const IDX_VERSION: u32 = 5;
+const IDX_VERSION: u32 = 6;
 /// colblk header 固定 64 字节
 const COLBLK_HEADER_SIZE: usize = 64;
 /// idx header 固定 64 字节
@@ -50,12 +53,15 @@ const CODE_SLOT_BYTES: usize = 16;
 const F32_BYTES: usize = 4;
 /// 投影区格式版本，写在 colblk header reserved[44..48]。
 /// 0 = 追加期未投影；2 = 去冗余新格式（共享行序 + 每因子 value 列）。旧 1.x 格式不兼容。
-const PROJ_FORMAT_VERSION: u32 = 2;
+const PROJ_FORMAT_VERSION: u32 = 3; // V3: 投影 value 段不压缩（raw f32），让 btrfs 单层压缩避免碎片化
 /// fallocate 每次预留的连续空间大小（2GB）。
 /// 追加写入在预留区内填充，避免 btrfs 在满盘上把 colblk 切成百万级碎片 extent
 /// （实测 2.4M extent → 读回 90MB/s 寻道受限；预留后 extent 数降到 ~150/shard，
 ///  再叠加投影前 defrag，读取命中顺序带宽）。值可调大（如 16GB）进一步减少 extent 数。
 const FALLOCATE_RESERVE: u64 = 2 * 1024 * 1024 * 1024;
+/// append_batch 改动 B：colblk header 每 N 个 chunk 才同步一次。
+/// 断点续算靠 chunk 区扫描重建 chunk_index（from_existing 不读 header 的 chunk_count），故降频安全。
+const HEADER_SYNC_EVERY_CHUNKS: u32 = 64;
 
 // ============================ colblk Header ============================
 // 字段布局（小端）：
@@ -157,8 +163,6 @@ fn parse_colblk_header(bytes: &[u8]) -> Result<ColblkHeader, String> {
 
 struct IdxHeader {
     factor_count: usize,
-    date_count: usize,
-    code_count: usize,
     projected_flag: u64,
 }
 
@@ -167,12 +171,13 @@ fn parse_idx_header(bytes: &[u8]) -> Result<IdxHeader, String> {
         return Err("idx header 过短".to_string());
     }
     if &bytes[0..8] != &IDX_MAGIC {
-        return Err(format!("idx 魔数错误: {:?}", &bytes[0..8]));
+        return Err(format!(
+            "idx 魔数错误: {:?}（期望 {:?}）；若是旧格式数据，请清空 store_dir 重跑",
+            &bytes[0..8], &IDX_MAGIC
+        ));
     }
     Ok(IdxHeader {
         factor_count: u32::from_le_bytes(bytes[12..16].try_into().unwrap()) as usize,
-        date_count: u32::from_le_bytes(bytes[16..20].try_into().unwrap()) as usize,
-        code_count: u32::from_le_bytes(bytes[20..24].try_into().unwrap()) as usize,
         projected_flag: u64::from_le_bytes(bytes[24..32].try_into().unwrap()),
     })
 }
@@ -222,41 +227,23 @@ impl FactorDict {
         id
     }
 
-    /// 序列化 idx 文件（整个重写，因为字典会增量增长且文件不大）
-    fn write_idx(&self, path: &Path, projected_flag: u64) -> Result<(), String> {
-        let mut buf: Vec<u8> = Vec::with_capacity(
-            IDX_HEADER_SIZE
-                + self.factor_names.len() * 40
-                + self.dates.len() * 8
-                + self.codes.len() * CODE_SLOT_BYTES,
-        );
-        // header
+    /// 写 idx 骨架（header + 因子名区）。V6：dates/codes 不在此文件，改 append-only 到 dates.bin/codes.bin。
+    /// 仅 create（全新 store）和 finish_and_project（投影结束更新 projected_flag）调用。
+    fn write_idx_skeleton(&self, path: &Path, projected_flag: u64) -> Result<(), String> {
+        let mut buf: Vec<u8> = Vec::with_capacity(IDX_HEADER_SIZE + self.factor_names.len() * 40);
         let mut hdr = [0u8; IDX_HEADER_SIZE];
         hdr[0..8].copy_from_slice(&IDX_MAGIC);
         hdr[8..12].copy_from_slice(&IDX_VERSION.to_le_bytes());
         hdr[12..16].copy_from_slice(&(self.factor_names.len() as u32).to_le_bytes());
-        hdr[16..20].copy_from_slice(&(self.dates.len() as u32).to_le_bytes());
-        hdr[20..24].copy_from_slice(&(self.codes.len() as u32).to_le_bytes());
+        // [16..24] date_count/code_count 已废弃（V6 由 dates.bin/codes.bin 文件大小决定），置 0
         hdr[24..32].copy_from_slice(&projected_flag.to_le_bytes());
         buf.extend_from_slice(&hdr);
-        // 因子名
+        // 因子名区（create 后永不变）
         for name in &self.factor_names {
             let bytes = name.as_bytes();
             let len = bytes.len() as u16;
             buf.extend_from_slice(&len.to_le_bytes());
             buf.extend_from_slice(bytes);
-        }
-        // 日期字典
-        for &d in &self.dates {
-            buf.extend_from_slice(&d.to_le_bytes());
-        }
-        // 股票字典（固定 16 字节槽，null-terminated）
-        for code in &self.codes {
-            let mut slot = [0u8; CODE_SLOT_BYTES];
-            let bytes = code.as_bytes();
-            let copy_len = bytes.len().min(CODE_SLOT_BYTES - 1);
-            slot[..copy_len].copy_from_slice(&bytes[..copy_len]);
-            buf.extend_from_slice(&slot);
         }
         let mut file = OpenOptions::new()
             .create(true)
@@ -270,9 +257,13 @@ impl FactorDict {
         Ok(())
     }
 
-    /// 读取 idx 文件
-    fn read_idx(path: &Path) -> Result<(Self, u64), String> {
-        let bytes = std::fs::read(path).map_err(|e| format!("读取 idx 文件失败 {path:?}: {e}"))?;
+    /// 读取 idx：factors.idx（header + 因子名）+ dates.bin（append-only i64 序列）+ codes.bin（append-only 16字节槽）。
+    /// dates.len() = dates.bin 字节数 / 8；codes.len() = codes.bin 字节数 / CODE_SLOT_BYTES。
+    /// 文件大小即边界，无需 header 的 count 字段，杜绝 off-by-one。
+    fn read_idx(store_dir: &Path) -> Result<(Self, u64), String> {
+        let idx_path = store_dir.join("factors.idx");
+        let bytes =
+            std::fs::read(&idx_path).map_err(|e| format!("读取 idx 文件失败 {idx_path:?}: {e}"))?;
         let hdr = parse_idx_header(&bytes)?;
         let mut pos = IDX_HEADER_SIZE;
         // 因子名
@@ -291,30 +282,43 @@ impl FactorDict {
             factor_names.push(name);
             pos += len;
         }
-        // 日期
-        let mut dates = Vec::with_capacity(hdr.date_count);
-        let mut date_to_id = HashMap::with_capacity(hdr.date_count);
-        for i in 0..hdr.date_count {
-            if pos + 8 > bytes.len() {
-                return Err("idx 日期区截断".to_string());
-            }
-            let d = i64::from_le_bytes(bytes[pos..pos + 8].try_into().unwrap());
-            pos += 8;
+        // 日期字典：dates.bin（纯 i64 序列，append-only）
+        let dates_path = store_dir.join("dates.bin");
+        let dates_bytes = std::fs::read(&dates_path)
+            .map_err(|e| format!("读取 dates.bin 失败 {dates_path:?}: {e}"))?;
+        if dates_bytes.len() % 8 != 0 {
+            return Err(format!(
+                "dates.bin 长度 {} 非 8 字节对齐（崩溃残留），请清空 store_dir 重跑",
+                dates_bytes.len()
+            ));
+        }
+        let n_dates = dates_bytes.len() / 8;
+        let mut dates = Vec::with_capacity(n_dates);
+        let mut date_to_id = HashMap::with_capacity(n_dates);
+        for i in 0..n_dates {
+            let d = i64::from_le_bytes(dates_bytes[i * 8..i * 8 + 8].try_into().unwrap());
             date_to_id.insert(d, i as u32);
             dates.push(d);
         }
-        // 股票
-        let mut codes = Vec::with_capacity(hdr.code_count);
-        let mut code_to_id = HashMap::with_capacity(hdr.code_count);
-        for i in 0..hdr.code_count {
-            if pos + CODE_SLOT_BYTES > bytes.len() {
-                return Err("idx 股票区截断".to_string());
-            }
-            let slot = &bytes[pos..pos + CODE_SLOT_BYTES];
-            pos += CODE_SLOT_BYTES;
+        // 股票字典：codes.bin（纯 16 字节槽，append-only）
+        let codes_path = store_dir.join("codes.bin");
+        let codes_bytes = std::fs::read(&codes_path)
+            .map_err(|e| format!("读取 codes.bin 失败 {codes_path:?}: {e}"))?;
+        if codes_bytes.len() % CODE_SLOT_BYTES != 0 {
+            return Err(format!(
+                "codes.bin 长度 {} 非 {} 字节对齐（崩溃残留），请清空 store_dir 重跑",
+                codes_bytes.len(),
+                CODE_SLOT_BYTES
+            ));
+        }
+        let n_codes = codes_bytes.len() / CODE_SLOT_BYTES;
+        let mut codes = Vec::with_capacity(n_codes);
+        let mut code_to_id = HashMap::with_capacity(n_codes);
+        for i in 0..n_codes {
+            let slot = &codes_bytes[i * CODE_SLOT_BYTES..(i + 1) * CODE_SLOT_BYTES];
             let end = slot.iter().position(|&b| b == 0).unwrap_or(CODE_SLOT_BYTES);
             let code = String::from_utf8(slot[..end].to_vec())
-                .map_err(|e| format!("idx 股票 utf8 失败: {e}"))?;
+                .map_err(|e| format!("codes.bin utf8 失败: {e}"))?;
             code_to_id.insert(code.clone(), i as u32);
             codes.push(code);
         }
@@ -344,10 +348,16 @@ pub struct FactorStoreWriter {
     colblk_path: PathBuf,
     idx_path: PathBuf,
     colblk_file: File,
+    /// dates 字典 append-only 文件句柄（dates.bin，O_APPEND）。intern 新增项时追加。
+    dates_file: File,
+    /// codes 字典 append-only 文件句柄（codes.bin，O_APPEND）。
+    codes_file: File,
     dict: FactorDict,
     factor_count: usize,
     record_count: u64,
     chunk_count: u32,
+    /// 自上次 colblk header 同步以来的 chunk 数（改动 B：降频写 header）。
+    chunks_since_header_sync: u32,
     projected_offset: u64,
     /// chunk 索引：每个 chunk 的 (data_file_offset, compressed_size, n_in_batch)
     /// 用于投影阶段快速定位
@@ -395,8 +405,23 @@ impl FactorStoreWriter {
         colblk_file
             .seek(SeekFrom::Start(COLBLK_HEADER_SIZE as u64))
             .map_err(|e| format!("seek 起始位置失败: {e}"))?;
-        // 写 idx（空字典）
-        dict.write_idx(&idx_path, 0)?;
+        // 写 idx 骨架（V6：header + 因子名，dates/codes 改 append-only 独立文件）
+        dict.write_idx_skeleton(&idx_path, 0)?;
+        // 创建空的 dates.bin / codes.bin（read+write，后续 append_dict_entries 用 seek End 追加）
+        let dates_file = OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .truncate(true)
+            .open(store_dir.join("dates.bin"))
+            .map_err(|e| format!("创建 dates.bin 失败: {e}"))?;
+        let codes_file = OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .truncate(true)
+            .open(store_dir.join("codes.bin"))
+            .map_err(|e| format!("创建 codes.bin 失败: {e}"))?;
 
         // fallocate 预留初始连续空间，避免追加期碎片化（见 FALLOCATE_RESERVE 注释）
         let mut allocated_end = COLBLK_HEADER_SIZE as u64;
@@ -425,10 +450,13 @@ impl FactorStoreWriter {
             colblk_path,
             idx_path,
             colblk_file,
+            dates_file,
+            codes_file,
             dict,
             factor_count,
             record_count: 0,
             chunk_count: 0,
+            chunks_since_header_sync: 0,
             projected_offset: 0,
             chunk_index: Vec::new(),
             proj_format_version: 0,
@@ -444,7 +472,8 @@ impl FactorStoreWriter {
         idx_path: PathBuf,
         expected_factor_names: &[String],
     ) -> Result<Self, String> {
-        let (dict, _projected_flag) = FactorDict::read_idx(&idx_path)?;
+        let store_dir = colblk_path.parent().unwrap().to_path_buf();
+        let (dict, _projected_flag) = FactorDict::read_idx(&store_dir)?;
         if dict.factor_names.len() != expected_factor_names.len() {
             return Err(format!(
                 "断点续算因子数不匹配: idx={}, 期望={}",
@@ -522,15 +551,30 @@ impl FactorStoreWriter {
             .seek(SeekFrom::Start(data_end))
             .map_err(|e| format!("seek data_end 失败: {e}"))?;
 
+        // 打开 dates.bin/codes.bin（read+write，续算时新 intern 项 seek End 追加）
+        let dates_file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(store_dir.join("dates.bin"))
+            .map_err(|e| format!("打开 dates.bin 失败: {e}"))?;
+        let codes_file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(store_dir.join("codes.bin"))
+            .map_err(|e| format!("打开 codes.bin 失败: {e}"))?;
+
         Ok(Self {
-            store_dir: colblk_path.parent().unwrap().to_path_buf(),
+            store_dir,
             colblk_path,
             idx_path,
             colblk_file,
+            dates_file,
+            codes_file,
             dict,
             factor_count,
             record_count,
             chunk_count,
+            chunks_since_header_sync: 0,
             projected_offset,
             proj_format_version: hdr.proj_format_version,
             chunk_index,
@@ -540,8 +584,8 @@ impl FactorStoreWriter {
         })
     }
 
-    /// 追加一批任务结果。collector 线程调用，攒批后写入。
-    /// 内部：按列重排（因子0全部 → 因子1全部…）+ zstd 压缩 + 追加 chunk + 更新 header/idx。
+    /// 追加一批任务结果。writer 线程调用（V6：异步 writer 解耦后），攒批后写入。
+    /// 内部：intern 字典 → append-only 持久化新增字典项（先落盘）→ 列重排 → 追加 chunk → header 降频写。
     pub fn append_batch(&mut self, results: &[TaskResult]) -> Result<(), String> {
         if results.is_empty() {
             return Ok(());
@@ -553,7 +597,10 @@ impl FactorStoreWriter {
         let n = results.len();
         let factor_count = self.factor_count;
 
-        // ---- 1. 分配 date_id / code_id（字典增量更新）----
+        // ---- 1. 分配 date_id / code_id（字典增量更新，内存）----
+        // 记录本 batch 新 intern 的 date/code（intern 只 push 不重复项），稍后 append-only 持久化。
+        let date_base = self.dict.dates.len();
+        let code_base = self.dict.codes.len();
         let mut date_ids = Vec::with_capacity(n);
         let mut code_ids = Vec::with_capacity(n);
         for r in results {
@@ -561,7 +608,18 @@ impl FactorStoreWriter {
             code_ids.push(self.dict.intern_code(&r.code));
         }
 
-        // ---- 2. 列优先布局序列化 ----
+        // ---- 2. 持久化新增字典项（V6 append-only，dict 必须先于 chunk 落盘！）----
+        // 崩溃安全：dict 先落盘 → 若崩在 chunk 写前，dict 多出的 id 对应 chunk 未落盘，
+        //   resume 从 chunk 区扫描重建 chunk_index 时不含该 chunk → check_completed 不处理 →
+        //   重算 intern hit（幂等，返回相同 id）→ 正确，绝不重复 append。
+        // 取出本 batch 新增的 date/code（owned，避免后续 &mut self.append_dict_entries 借用冲突）
+        let new_dates: Vec<i64> = self.dict.dates[date_base..].to_vec();
+        let new_codes: Vec<String> = self.dict.codes[code_base..].to_vec();
+        if !new_dates.is_empty() || !new_codes.is_empty() {
+            self.append_dict_entries(&new_dates, &new_codes)?;
+        }
+
+        // ---- 3. 列优先布局序列化 ----
         // chunk 体 = [n×u32 date_id][n×u32 code_id][n×F×f32 factors(列优先)]
         let body_size = n * ID_BYTES * 2 + n * factor_count * F32_BYTES;
         let mut body: Vec<u8> = Vec::with_capacity(body_size);
@@ -571,7 +629,7 @@ impl FactorStoreWriter {
         for &c in &code_ids {
             body.extend_from_slice(&c.to_le_bytes());
         }
-        // 因子值：列优先（先因子0的 n 个值，再因子1…）。f64→f32 截断（与现有 backup_writer 一致）
+        // 因子值：列优先（先因子0的 n 个值，再因子1…）。
         for f_idx in 0..factor_count {
             for r in results {
                 let v = if r.facs.len() > f_idx {
@@ -583,12 +641,12 @@ impl FactorStoreWriter {
             }
         }
 
-        // ---- 3. 不压缩（浮点数据 zstd-1 压缩比仅 1.15×，但解压 55min/遍太慢）----
+        // ---- 4. 不压缩（浮点数据 zstd 压缩比仅 1.15×，但解压 55min/遍太慢）----
         // chunk 头用 compressed_size=0 标记"不压缩"，data 直接是 body。
         let compressed_size = 0u32; // 0 = 不压缩标记
         let data_bytes = &body[..];
 
-        // ---- 4. 追加 chunk 到 data_end（在 fallocate 预留区内填充，避免碎片化）----
+        // ---- 5. 追加 chunk 到 data_end（dict 已先落盘，现在写 chunk data）----
         let chunk_total = 8 + data_bytes.len() as u64; // [compressed_size][n_in_batch] + body
         self.ensure_allocated(self.data_end + chunk_total);
         let chunk_head_offset = self.data_end;
@@ -610,27 +668,74 @@ impl FactorStoreWriter {
             .map_err(|e| format!("flush chunk 失败: {e}"))?;
         self.data_end += chunk_total;
 
-        // ---- 5. 更新内存状态 + header + idx ----
+        // ---- 6. 更新内存状态 ----
         // chunk_index：data_offset = chunk 头之后；第二元素 = compressed_size（0=不压缩标志）
         self.chunk_index
             .push((chunk_head_offset + 8, 0u32, n as u32)); // 0 = 不压缩
         self.chunk_count += 1;
         self.record_count += n as u64;
 
-        // 追加期 projected_offset 恒为 0
-        write_colblk_header_fields(
-            &mut self.colblk_file,
-            self.record_count,
-            self.factor_count as u32,
-            self.chunk_count,
-            self.dict.dates.len() as u32,
-            self.dict.codes.len() as u32,
-            0,
-            self.proj_format_version,
-        )?;
-        // idx 字典会增长，整文件重写
-        self.dict.write_idx(&self.idx_path, 0)?;
+        // ---- 7. colblk header 降频写（改动 B：每 N chunk 一次；断点续算靠 chunk 区扫描，安全）----
+        self.chunks_since_header_sync += 1;
+        if self.chunks_since_header_sync >= HEADER_SYNC_EVERY_CHUNKS {
+            write_colblk_header_fields(
+                &mut self.colblk_file,
+                self.record_count,
+                self.factor_count as u32,
+                self.chunk_count,
+                self.dict.dates.len() as u32,
+                self.dict.codes.len() as u32,
+                0,
+                self.proj_format_version,
+            )?;
+            self.chunks_since_header_sync = 0;
+        }
+        // V6：不再每 batch 全量重写 idx（dates/codes 已 append-only 到 dates.bin/codes.bin）。
 
+        Ok(())
+    }
+
+    /// 把本 batch 新 intern 的 date/code append-only 追加到 dates.bin/codes.bin。
+    /// seek End(0) 定位文件尾后 write；文件大小即边界（read_idx 不依赖 count）。
+    fn append_dict_entries(
+        &mut self,
+        new_dates: &[i64],
+        new_codes: &[String],
+    ) -> Result<(), String> {
+        if !new_dates.is_empty() {
+            let mut buf = Vec::with_capacity(new_dates.len() * 8);
+            for &d in new_dates {
+                buf.extend_from_slice(&d.to_le_bytes());
+            }
+            self.dates_file
+                .seek(SeekFrom::End(0))
+                .map_err(|e| format!("seek dates.bin 末尾失败: {e}"))?;
+            self.dates_file
+                .write_all(&buf)
+                .map_err(|e| format!("写 dates.bin 失败: {e}"))?;
+            self.dates_file
+                .flush()
+                .map_err(|e| format!("flush dates.bin 失败: {e}"))?;
+        }
+        if !new_codes.is_empty() {
+            let mut buf = Vec::with_capacity(new_codes.len() * CODE_SLOT_BYTES);
+            for code in new_codes {
+                let mut slot = [0u8; CODE_SLOT_BYTES];
+                let bytes = code.as_bytes();
+                let copy_len = bytes.len().min(CODE_SLOT_BYTES - 1);
+                slot[..copy_len].copy_from_slice(&bytes[..copy_len]);
+                buf.extend_from_slice(&slot);
+            }
+            self.codes_file
+                .seek(SeekFrom::End(0))
+                .map_err(|e| format!("seek codes.bin 末尾失败: {e}"))?;
+            self.codes_file
+                .write_all(&buf)
+                .map_err(|e| format!("写 codes.bin 失败: {e}"))?;
+            self.codes_file
+                .flush()
+                .map_err(|e| format!("flush codes.bin 失败: {e}"))?;
+        }
         Ok(())
     }
 
@@ -796,7 +901,7 @@ impl FactorStoreWriter {
                 self.projected_offset,
                 self.proj_format_version,
             )?;
-            self.dict.write_idx(&self.idx_path, 1)?;
+            self.dict.write_idx_skeleton(&self.idx_path, 1)?;
             return Ok(());
         }
         // 已是新格式投影 → 幂等返回（旧格式 version≠2 会落到下方重投影）
@@ -927,26 +1032,30 @@ impl FactorStoreWriter {
         let mut f0 = 0usize;
         while f0 < factor_count {
             let f1 = (f0 + window).min(factor_count);
-            let compressed: Vec<Vec<u8>> = (f0..f1)
+            // V3: 不压缩 value 段（raw f32），让 btrfs compress-force=zstd:3 单层压缩
+            // 避免双重压缩导致碎片化
+            let segments: Vec<Vec<u8>> = (f0..f1)
                 .into_par_iter()
-                .map(|fi| -> Result<Vec<u8>, String> {
+                .map(|fi| -> Vec<u8> {
                     let vals = &fv[fi];
                     let mut seg = Vec::with_capacity(total_rows * F32_BYTES);
                     for &v in vals.iter() {
                         seg.extend_from_slice(&v.to_le_bytes());
                     }
-                    zstd::encode_all(&seg[..], ZSTD_LEVEL)
-                        .map_err(|e| format!("因子 {fi} value 段压缩失败: {e}"))
+                    seg
                 })
-                .collect::<Result<Vec<_>, _>>()?;
-            for c in compressed {
+                .collect();
+            // 缓冲整批 256 因子的 raw 段，一次 write_all 写出（避免 btrfs 逐段碎片化）
+            let mut batch_buf: Vec<u8> = Vec::with_capacity(segments.len() * total_rows * F32_BYTES);
+            for c in &segments {
                 let csz = c.len() as u64;
-                self.colblk_file
-                    .write_all(&c)
-                    .map_err(|e| format!("写 value 段失败: {e}"))?;
                 val_offsets.push((cur, csz));
                 cur += csz;
+                batch_buf.extend_from_slice(c);
             }
+            self.colblk_file
+                .write_all(&batch_buf)
+                .map_err(|e| format!("写 value 段批量失败: {e}"))?;
             f0 = f1;
             if f0 % 5120 == 0 {
                 eprintln!("🏗️ 投影进度: {}/{} 因子", f0, factor_count);
@@ -988,7 +1097,7 @@ impl FactorStoreWriter {
             self.projected_offset,
             self.proj_format_version,
         )?;
-        self.dict.write_idx(&self.idx_path, 1)?;
+        self.dict.write_idx_skeleton(&self.idx_path, 1)?;
         eprintln!("✅ 投影完成（格式 v{}）", PROJ_FORMAT_VERSION);
         Ok(())
     }
@@ -1021,7 +1130,8 @@ struct ProjMeta {
 }
 
 struct SingleStoreReader {
-    mmap: Mmap,
+    file: File,
+    file_len: u64,
     hdr: ColblkHeader,
     dict: FactorDict,
     /// 投影区元信息（若有）
@@ -1031,6 +1141,15 @@ struct SingleStoreReader {
 }
 
 impl SingleStoreReader {
+    /// pread 读取 [offset, offset+len) 到 Vec（不 mmap，无 mm 锁）
+    fn pread(&self, offset: u64, len: usize) -> Option<Vec<u8>> {
+        let mut buf = vec![0u8; len];
+        match self.file.read_at(&mut buf, offset) {
+            Ok(n) if n == len => Some(buf),
+            _ => None,
+        }
+    }
+
     /// 打开单个存储目录（必须含 factors.colblk + factors.idx）。
     fn open_dir(store_dir: &Path) -> Result<Self, String> {
         let colblk_path = store_dir.join("factors.colblk");
@@ -1039,35 +1158,56 @@ impl SingleStoreReader {
             return Err(format!("存储目录不完整: 缺少 colblk 或 idx: {store_dir:?}"));
         }
         let file = File::open(&colblk_path).map_err(|e| format!("打开 colblk 失败: {e}"))?;
-        let mmap = unsafe { Mmap::map(&file).map_err(|e| format!("mmap colblk 失败: {e}"))? };
-        let hdr = parse_colblk_header(&mmap[..COLBLK_HEADER_SIZE])?;
-        let (dict, _flag) = FactorDict::read_idx(&idx_path)?;
+        let file_len = file
+            .metadata()
+            .map_err(|e| format!("读取 colblk 元数据失败: {e}"))?
+            .len();
+        // pread header（不 mmap，避免大文件 mm 锁）
+        let hdr_buf = {
+            use std::io::Read;
+            let mut f = File::open(&colblk_path).map_err(|e| format!("打开 colblk 失败: {e}"))?;
+            let mut buf = [0u8; COLBLK_HEADER_SIZE];
+            f.read_exact(&mut buf)
+                .map_err(|e| format!("读 colblk header 失败: {e}"))?;
+            buf
+        };
+        let hdr = parse_colblk_header(&hdr_buf)?;
+        let (dict, _flag) = FactorDict::read_idx(store_dir)?;
+        let projected_offset = hdr.projected_offset;
+        let proj_format_version = hdr.proj_format_version;
+        let factor_count = hdr.factor_count;
 
-        // 解析投影索引（若 projected_offset > 0）。新格式 proj_format_version=2。
-        let proj_index = if hdr.projected_offset > 0
-            && (hdr.projected_offset as usize) + 32 <= mmap.len()
-        {
-            if hdr.proj_format_version != PROJ_FORMAT_VERSION {
+        // 解析投影索引（若 projected_offset > 0）。用 pread 读投影头（不 mmap）。
+        let proj_index = if projected_offset > 0 && projected_offset + 32 <= file_len {
+            if proj_format_version != PROJ_FORMAT_VERSION {
                 return Err(format!(
                     "投影区为旧格式 proj_format_version={}（期望 {}），请用新代码重新计算/投影此 store",
-                    hdr.proj_format_version, PROJ_FORMAT_VERSION
+                    proj_format_version, PROJ_FORMAT_VERSION
                 ));
             }
-            let base = hdr.projected_offset as usize;
-            let fc = u32::from_le_bytes(mmap[base + 4..base + 8].try_into().unwrap()) as usize;
+            // 用临时 reader 做 pread（file 已 move，用临时 File）
+            let tmp_file = File::open(&colblk_path).map_err(|e| format!("打开 colblk 失败: {e}"))?;
+            let pread_buf = |off: u64, len: usize| -> Option<Vec<u8>> {
+                let mut b = vec![0u8; len];
+                match tmp_file.read_at(&mut b, off) {
+                    Ok(n) if n == len => Some(b),
+                    _ => None,
+                }
+            };
+            let base = projected_offset;
+            let proj_hdr = pread_buf(base, 32).ok_or("pread 投影头失败")?;
+            let fc = u32::from_le_bytes(proj_hdr[4..8].try_into().unwrap()) as usize;
             let row_order_offset =
-                u64::from_le_bytes(mmap[base + 16..base + 24].try_into().unwrap());
+                u64::from_le_bytes(proj_hdr[16..24].try_into().unwrap());
             let row_order_csz =
-                u64::from_le_bytes(mmap[base + 24..base + 32].try_into().unwrap());
+                u64::from_le_bytes(proj_hdr[24..32].try_into().unwrap());
             let idx_start = base + 32;
+            let idx_bytes = pread_buf(idx_start, fc * 16).ok_or("pread 投影索引失败")?;
             let mut val_index = Vec::with_capacity(fc);
             for f in 0..fc {
-                let off_pos = idx_start + f * 16;
-                if off_pos + 16 > mmap.len() {
-                    break;
-                }
-                let off = u64::from_le_bytes(mmap[off_pos..off_pos + 8].try_into().unwrap());
-                let csz = u64::from_le_bytes(mmap[off_pos + 8..off_pos + 16].try_into().unwrap());
+                let off_pos = f * 16;
+                let off = u64::from_le_bytes(idx_bytes[off_pos..off_pos + 8].try_into().unwrap());
+                let csz = u64::from_le_bytes(idx_bytes[off_pos + 8..off_pos + 16].try_into().unwrap());
                 val_index.push((off, csz));
             }
             Some(ProjMeta {
@@ -1080,7 +1220,8 @@ impl SingleStoreReader {
         };
 
         Ok(Self {
-            mmap,
+            file,
+            file_len,
             hdr,
             dict,
             proj_index,
@@ -1093,11 +1234,55 @@ impl SingleStoreReader {
         self.hdr.projected_offset > 0 && self.proj_index.is_some()
     }
 
+    /// V7 批量顺序 pread：一次读取 [col_start, col_end) 连续因子的投影 value 段。
+    /// 投影 value 段在文件内连续存放（val_index offset 单调递增），一次 pread 替代 N 次随机 pread。
+    /// pread 前调用 posix_fadvise 预读。返回每因子的解压后 f32 值向量（按 row_order 对齐）。
+    /// 调用方负责用 (date_ids, code_ids) 映射到模板矩阵。
+    fn read_factors_batch_from_projection_v7(
+        &self,
+        proj: &ProjMeta,
+        col_start: usize,
+        col_end: usize,
+    ) -> Option<Vec<Vec<f32>>> {
+        let n = col_end - col_start;
+        // 算连续区间的总压缩字节
+        let start_off = proj.val_index[col_start].0;
+        let last = proj.val_index[col_end - 1];
+        let total_csz = (last.0 + last.1 - start_off) as usize;
+        // posix_fadvise 预读（告诉内核这段马上要读）
+        unsafe {
+            libc::posix_fadvise(
+                self.file.as_raw_fd(),
+                start_off as libc::off_t,
+                total_csz as libc::off_t,
+                libc::POSIX_FADV_WILLNEED,
+            );
+        }
+        // 一次顺序 pread 读全部 N 个因子的压缩段
+        let raw = self.pread(start_off, total_csz)?;
+        // 逐段切分 + zstd 解压
+        let mut results = Vec::with_capacity(n);
+        let mut cur_off = 0usize;
+        for i in 0..n {
+            let csz = proj.val_index[col_start + i].1 as usize;
+            let segment = &raw[cur_off..cur_off + csz];
+            // V3: raw f32 字节，不 zstd 解压
+            let vals: Vec<f32> = segment
+                .chunks_exact(4)
+                .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
+                .collect();
+            results.push(vals);
+            cur_off += csz;
+        }
+        Some(results)
+    }
+
     /// 解压共享行序段 → (date_ids, code_ids)。由 OnceLock 首次访问时调用，全因子复用。
     fn load_row_order(&self, proj: &ProjMeta) -> (Vec<u32>, Vec<u32>) {
-        let s = proj.row_order_offset as usize;
-        let e = s + proj.row_order_csz as usize;
-        let dec = zstd::decode_all(&self.mmap[s..e]).expect("解压共享行序段失败");
+        let s = proj.row_order_offset;
+        let len = proj.row_order_csz as usize;
+        let raw = self.pread(s, len).expect("pread 共享行序段失败");
+        let dec = zstd::decode_all(&raw[..]).expect("解压共享行序段失败");
         let n = dec.len() / 8;
         let mut d = Vec::with_capacity(n);
         let mut c = Vec::with_capacity(n);
@@ -1118,23 +1303,19 @@ impl SingleStoreReader {
         stock_pos: &HashMap<String, usize>,
         output: &mut ndarray::Array2<f32>,
     ) {
-        // ---- 优先投影区（新格式：缓存行序 + 解压 value 段）----
+        // ---- 优先投影区（pread value 段 → zstd 解压，不 mmap）----
         if let Some(proj) = &self.proj_index {
             if col_idx < proj.val_index.len() {
                 let (date_ids, code_ids) = self
                     .row_order
                     .get_or_init(|| self.load_row_order(proj));
                 let (off, csz) = proj.val_index[col_idx];
-                let start = off as usize;
-                let end = start + csz as usize;
-                if end <= self.mmap.len() {
-                    let vals = match zstd::decode_all(&self.mmap[start..end]) {
-                        Ok(v) => v,
-                        Err(_) => return,
-                    };
-                    let n_rows = vals.len() / F32_BYTES;
+                let len = csz as usize;
+                if let Some(raw) = self.pread(off, len) {
+                    // V3: 不 zstd 解压，raw 直接是 f32 字节
+                    let n_rows = raw.len() / F32_BYTES;
                     for r in 0..n_rows {
-                        let v = f32::from_le_bytes(vals[r * 4..r * 4 + 4].try_into().unwrap());
+                        let v = f32::from_le_bytes(raw[r * 4..r * 4 + 4].try_into().unwrap());
                         let d_id = date_ids[r] as usize;
                         let c_id = code_ids[r] as usize;
                         let date = self.dict.dates.get(d_id).copied();
@@ -1152,34 +1333,41 @@ impl SingleStoreReader {
             }
         }
 
-        // ---- 回退：跨 chunk 扫描（无投影区）----
-        // 扫描所有 chunk，每 chunk 内因子 col_idx 的值在 fac_base + col_idx*n*4 + i*4
+        // ---- 回退：跨 chunk 扫描（pread，无投影区）----
         let mut offset = COLBLK_HEADER_SIZE as u64;
         let scan_end = if self.hdr.projected_offset > 0 {
             self.hdr.projected_offset
         } else {
-            self.mmap.len() as u64
+            self.file_len
         };
         while offset + 8 <= scan_end {
-            let s = offset as usize;
+            let chunk_hdr = match self.pread(offset, 8) {
+                Some(b) => b,
+                None => break,
+            };
             let compressed_size =
-                u32::from_le_bytes(self.mmap[s..s + 4].try_into().unwrap()) as usize;
+                u32::from_le_bytes(chunk_hdr[0..4].try_into().unwrap()) as usize;
             let n_in_batch =
-                u32::from_le_bytes(self.mmap[s + 4..s + 8].try_into().unwrap()) as usize;
-            let data_start = s + 8;
+                u32::from_le_bytes(chunk_hdr[4..8].try_into().unwrap()) as usize;
+            let data_start = offset + 8;
             let body_row_size = ID_BYTES * 2 + self.hdr.factor_count * F32_BYTES;
             let data_end = if compressed_size == 0 {
-                data_start + n_in_batch * body_row_size
+                data_start + (n_in_batch * body_row_size) as u64
             } else {
-                data_start + compressed_size
+                data_start + compressed_size as u64
             };
-            if data_end > self.mmap.len() {
+            if data_end > self.file_len {
                 break;
             }
+            let body_len = (data_end - data_start) as usize;
+            let body_raw = match self.pread(data_start, body_len) {
+                Some(b) => b,
+                None => break,
+            };
             let decompressed = if compressed_size == 0 {
-                self.mmap[data_start..data_end].to_vec()
+                body_raw
             } else {
-                match zstd::decode_all(&self.mmap[data_start..data_end]) {
+                match zstd::decode_all(&body_raw[..]) {
                     Ok(d) => d,
                     Err(_) => break,
                 }
@@ -1211,6 +1399,108 @@ impl SingleStoreReader {
                     }
                 }
             }
+            offset = data_end as u64;
+        }
+    }
+
+    /// v6 在线转置：批量读连续因子 [col_idx_min, col_idx_min+n_factors) 到 outputs。
+    /// 遍历 chunk 一次转置整批因子（避免单因子每因子扫一遍 chunk）。只读 colblk chunk 区，不读投影区。
+    /// 假设 col_idx 连续（调用方按 col_idx 排序分批），因子值在 chunk 内列优先连续。
+    fn read_factors_batch_contiguous(
+        &self,
+        col_idx_min: usize,
+        n_factors: usize,
+        date_pos: &HashMap<i64, usize>,
+        stock_pos: &HashMap<String, usize>,
+        outputs: &mut [ndarray::Array2<f32>],
+    ) {
+        let mut offset = COLBLK_HEADER_SIZE as u64;
+        let scan_end = if self.hdr.projected_offset > 0 {
+            self.hdr.projected_offset
+        } else {
+            self.file_len
+        };
+        while offset + 8 <= scan_end {
+            let chunk_hdr = match self.pread(offset, 8) {
+                Some(b) => b,
+                None => break,
+            };
+            let compressed_size =
+                u32::from_le_bytes(chunk_hdr[0..4].try_into().unwrap()) as usize;
+            let n_in_batch =
+                u32::from_le_bytes(chunk_hdr[4..8].try_into().unwrap()) as usize;
+            let data_start = offset + 8;
+            let body_row_size = ID_BYTES * 2 + self.hdr.factor_count * F32_BYTES;
+            let data_end = if compressed_size == 0 {
+                data_start + (n_in_batch * body_row_size) as u64
+            } else {
+                data_start + compressed_size as u64
+            };
+            if data_end > self.file_len {
+                break;
+            }
+            let n = n_in_batch;
+            let id_w = ID_BYTES;
+            // pread chunk body（不 mmap）
+            let body_len = (data_end - data_start) as usize;
+            let body_raw = match self.pread(data_start, body_len) {
+                Some(b) => b,
+                None => break,
+            };
+            let body_owned;
+            let body: &[u8] = if compressed_size == 0 {
+                &body_raw
+            } else {
+                body_owned = match zstd::decode_all(&body_raw[..]) {
+                    Ok(d) => d,
+                    Err(_) => break,
+                };
+                &body_owned
+            };
+            let date_ids_base = 0usize;
+            let code_ids_base = n * id_w;
+            let fac_base = n * id_w * 2;
+            // 预计算每行 i 的 (dp, sp)，避免每个因子重复查 dict + hashmap
+            let mut row_pos: Vec<(usize, usize)> = Vec::with_capacity(n);
+            for i in 0..n {
+                let d_id = u32::from_le_bytes(
+                    body[date_ids_base + i * id_w..date_ids_base + i * id_w + 4]
+                        .try_into()
+                        .unwrap(),
+                ) as usize;
+                let c_id = u32::from_le_bytes(
+                    body[code_ids_base + i * id_w..code_ids_base + i * id_w + 4]
+                        .try_into()
+                        .unwrap(),
+                ) as usize;
+                let (date_opt, code_opt) = (self.dict.dates.get(d_id), self.dict.codes.get(c_id));
+                match (date_opt, code_opt) {
+                    (Some(&date), Some(code)) => {
+                        match (date_pos.get(&date), stock_pos.get(code)) {
+                            (Some(&dp), Some(&sp)) => row_pos.push((dp, sp)),
+                            _ => row_pos.push((usize::MAX, 0)),
+                        }
+                    }
+                    _ => row_pos.push((usize::MAX, 0)),
+                }
+            }
+            // 转置：bi 维度 rayon 并行（不同因子写不同矩阵 outputs[bi]，无冲突，用满多核）
+            outputs.par_iter_mut().enumerate().for_each(|(bi, output)| {
+                let col_idx = col_idx_min + bi;
+                let seg_start = fac_base + col_idx * n * F32_BYTES;
+                for i in 0..n {
+                    let (dp, sp) = *unsafe { row_pos.get_unchecked(i) };
+                    if dp == usize::MAX {
+                        continue;
+                    }
+                    let off = seg_start + i * F32_BYTES;
+                    if off + F32_BYTES > body.len() {
+                        break;
+                    }
+                    let v = f32::from_le_bytes(body[off..off + F32_BYTES].try_into().unwrap());
+                    output[[dp, sp]] = if v.is_finite() { v } else { f32::NAN };
+                }
+            });
             offset = data_end as u64;
         }
     }
@@ -1325,8 +1615,135 @@ impl FactorStoreReader {
         Ok(output)
     }
 
+    /// v6 在线转置入口：批量读连续因子 col_idx_batch 到一组矩阵（绕过投影区）。
+    /// 调用方需保证 col_idx_batch 连续升序（按 col_idx 排序分批），以高效顺序读 chunk 内因子段。
+    /// 跨分片合并：分片间 date 互斥，同一单元格不会被两个分片写入，可安全累加。
+    pub fn read_factors_batch_to_matrices(
+        &self,
+        col_idx_batch: &[usize],
+        template_dates: &[i32],
+        template_stocks: &[String],
+    ) -> Result<Vec<ndarray::Array2<f32>>, String> {
+        let n_factors = col_idx_batch.len();
+        if n_factors == 0 {
+            return Ok(Vec::new());
+        }
+        let mut outputs: Vec<ndarray::Array2<f32>> = (0..n_factors)
+            .map(|_| {
+                ndarray::Array2::from_elem(
+                    (template_dates.len(), template_stocks.len()),
+                    f32::NAN,
+                )
+            })
+            .collect();
+        let date_pos: HashMap<i64, usize> = template_dates
+            .iter()
+            .enumerate()
+            .map(|(i, &d)| (d as i64, i))
+            .collect();
+        let stock_pos: HashMap<String, usize> = template_stocks
+            .iter()
+            .enumerate()
+            .map(|(i, s)| {
+                let bare = s.split('.').next().unwrap_or(s).to_string();
+                (bare, i)
+            })
+            .collect();
+        let col_idx_min = col_idx_batch[0];
+        for store in &self.stores {
+            store.read_factors_batch_contiguous(
+                col_idx_min,
+                n_factors,
+                &date_pos,
+                &stock_pos,
+                &mut outputs,
+            );
+        }
+        Ok(outputs)
+    }
+
     pub fn store_dir(&self) -> &Path {
         &self.store_dir
+    }
+
+    /// V7 批量顺序 pread：读连续因子 [col_start, col_end) 的投影区 value 段 → 转置到矩阵。
+    /// 一次顺序 pread 替代逐因子随机 pread，消除 HDD 寻道。跨分片合并（date 互斥）。
+    pub fn read_factors_batch_v7(
+        &self,
+        col_start: usize,
+        col_end: usize,
+        template_dates: &[i32],
+        template_stocks: &[String],
+    ) -> Result<Vec<ndarray::Array2<f32>>, String> {
+        let n_factors = col_end - col_start;
+        if n_factors == 0 {
+            return Ok(Vec::new());
+        }
+        let mut outputs: Vec<ndarray::Array2<f32>> = (0..n_factors)
+            .map(|_| {
+                ndarray::Array2::from_elem(
+                    (template_dates.len(), template_stocks.len()),
+                    f32::NAN,
+                )
+            })
+            .collect();
+        let date_pos: HashMap<i64, usize> = template_dates
+            .iter()
+            .enumerate()
+            .map(|(i, &d)| (d as i64, i))
+            .collect();
+        let stock_pos: HashMap<String, usize> = template_stocks
+            .iter()
+            .enumerate()
+            .map(|(i, s)| {
+                let bare = s.split('.').next().unwrap_or(s).to_string();
+                (bare, i)
+            })
+            .collect();
+        for store in &self.stores {
+            if !store.is_projected() {
+                continue;
+            }
+            let proj = store.proj_index.as_ref().unwrap();
+            let (date_ids, code_ids) = store
+                .row_order
+                .get_or_init(|| store.load_row_order(proj));
+            let batches = store
+                .read_factors_batch_from_projection_v7(proj, col_start, col_end)
+                .ok_or_else(|| format!("V7 批量 pread 失败: col[{col_start},{col_end})"))?;
+            outputs
+                .par_iter_mut()
+                .enumerate()
+                .for_each(|(bi, output)| {
+                    let vals = &batches[bi];
+                    for r in 0..vals.len() {
+                        let v = vals[r];
+                        if !v.is_finite() {
+                            continue;
+                        }
+                        let d_id = date_ids[r] as usize;
+                        let c_id = code_ids[r] as usize;
+                        let date = match store.dict.dates.get(d_id) {
+                            Some(&d) => d,
+                            None => continue,
+                        };
+                        let code = match store.dict.codes.get(c_id) {
+                            Some(c) => c.as_str(),
+                            None => continue,
+                        };
+                        let dp = match date_pos.get(&date) {
+                            Some(&p) => p,
+                            None => continue,
+                        };
+                        let sp = match stock_pos.get(code) {
+                            Some(&p) => p,
+                            None => continue,
+                        };
+                        output[[dp, sp]] = v;
+                    }
+                });
+        }
+        Ok(outputs)
     }
 
     /// 返回记录总数（所有分片 record_count 之和）
@@ -1358,8 +1775,11 @@ impl FactorStoreReader {
 #[pyo3(signature = (store_dir, factor_names))]
 pub fn factor_store_v5_open(store_dir: String, factor_names: Vec<String>) -> PyResult<()> {
     let mut writer = FactorStoreWriter::open(&store_dir, &factor_names).map_err(pyerr)?;
-    // 仅打开，不写数据。返回前 flush 确保文件落盘
-    writer.dict.write_idx(&writer.idx_path, 0).map_err(pyerr)?;
+    // 仅打开，不写数据。返回前 flush 确保文件落盘（V6：dates/codes 在 dates.bin/codes.bin，此处仅刷 idx 骨架）
+    writer
+        .dict
+        .write_idx_skeleton(&writer.idx_path, 0)
+        .map_err(pyerr)?;
     Ok(())
 }
 
@@ -1474,14 +1894,41 @@ pub fn factor_store_v5_decompress_inplace(store_dir: String) -> PyResult<()> {
     Ok(())
 }
 
+
+
+/// V7 并行投影（pyfunction 入口，支持 sharded 布局）
+#[pyfunction]
+#[pyo3(signature = (store_dir, n_jobs=80))]
+pub fn factor_store_v5_project_v7(store_dir: String, n_jobs: usize) -> PyResult<()> {
+    let store_path = std::path::Path::new(&store_dir);
+    // 检测 sharded 布局：如果有 shard_0 子目录，从 shard_0 读因子名
+    let factor_names: Vec<String> = if store_path.join("shard_0").join("factors.idx").exists() {
+        // sharded：从 shard_0 读 idx
+        let shard0 = store_path.join("shard_0");
+        let (dict, _) = FactorDict::read_idx(&shard0)
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("读取 shard_0 idx 失败: {}", e)))?;
+        dict.factor_names
+    } else {
+        // 扁平布局：从顶层读 idx
+        let (dict, _) = FactorDict::read_idx(store_path)
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("读取 idx 失败: {}", e)))?;
+        dict.factor_names
+    };
+    let ss = ShardedBackupSink::new_colblk_sharded(&store_dir, &factor_names, 8)
+        .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("打开存储失败: {}", e)))?;
+    ss.finish_and_project_v7(n_jobs)
+        .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("投影失败: {}", e)))?;
+    Ok(())
+}
+
 /// 对已有 colblk 存储触发投影（不重新计算）。
 /// 用于计算已完成但投影失败/中断的场景。流式投影，内存可控。
 #[pyfunction]
 #[pyo3(signature = (store_dir, n_jobs=0))]
 pub fn factor_store_v5_project_only(store_dir: String, n_jobs: usize) -> PyResult<()> {
-    let info_path = std::path::Path::new(&store_dir).join("factors.idx");
+    let store_dir_path = std::path::Path::new(&store_dir);
     // 先读 idx 获取 factor_names（Writer::open 需要校验因子数）
-    let (dict, _) = FactorDict::read_idx(&info_path)
+    let (dict, _) = FactorDict::read_idx(store_dir_path)
         .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("读取 idx 失败: {}", e)))?;
     let mut writer = FactorStoreWriter::open(&store_dir, &dict.factor_names)
         .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("打开存储失败: {}", e)))?;
@@ -1492,6 +1939,42 @@ pub fn factor_store_v5_project_only(store_dir: String, n_jobs: usize) -> PyResul
         .finish_and_project(n_jobs)
         .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("投影失败: {}", e)))?;
     Ok(())
+}
+
+/// 一致性验证：对比 v5 投影区读取（read_factor_to_matrix）与 v6 在线转置（read_factors_batch_to_matrices）。
+/// 对 col_idx_batch 内每个因子逐元素比较，返回最大绝对误差（NaN==NaN 视为相等）。用于验证 v6 转置正确。
+#[pyfunction]
+pub fn factor_store_v5_verify_online(
+    store_dir: String,
+    col_idx_batch: Vec<usize>,
+    dates: Vec<i32>,
+    stocks: Vec<String>,
+) -> PyResult<f64> {
+    let reader = crate::factor_store_v5::FactorStoreReader::open(&store_dir).map_err(pyerr)?;
+    let v6 = reader
+        .read_factors_batch_to_matrices(&col_idx_batch, &dates, &stocks)
+        .map_err(pyerr)?;
+    let mut max_diff: f64 = 0.0;
+    for (bi, &col_idx) in col_idx_batch.iter().enumerate() {
+        let v5 = reader
+            .read_factor_to_matrix(col_idx, &dates, &stocks)
+            .map_err(pyerr)?;
+        let v6m = &v6[bi];
+        for r in 0..v5.nrows() {
+            for c in 0..v5.ncols() {
+                let a = v5[[r, c]];
+                let b = v6m[[r, c]];
+                if a.is_nan() && b.is_nan() {
+                    continue;
+                }
+                let d = (a as f64 - b as f64).abs();
+                if d > max_diff {
+                    max_diff = d;
+                }
+            }
+        }
+    }
+    Ok(max_diff)
 }
 
 /// 读取第 col_idx 个因子为扁平数组（date_id[], code_id[], factor[]），供测试/调试
@@ -1876,6 +2359,36 @@ impl ShardedBackupSink {
         Ok(())
     }
 
+    /// V7 并行投影：rayon par_iter 并行投影多个 shard（每 shard 独立文件，btrfs 不同物理盘）。
+    /// 并行度 = min(shard数, 4)（内存约束：每 shard 转置 ~300GB，4 并行 1.2TB < 1.5TB）。
+    /// 每个 shard 内部已有 rayon 窗口并行压缩（步骤⑤），此处在 shard 间叠加并行。
+    pub fn finish_and_project_v7(&self, n_jobs: usize) -> Result<(), String> {
+        let n_shards = self.shards.len();
+        let parallelism = n_shards.min(4);
+        eprintln!(
+            "🚀 V7 并行投影：{} shard，{} 路并行",
+            n_shards, parallelism
+        );
+        // 用线程池控制并行度（避免 rayon 全局池 512 核全上导致内存爆炸）
+        // clone BackupSink（内含 Arc，clone 廉价）后 move 进线程
+        let shard_clones: Vec<BackupSink> = self.shards.iter().map(|s| s.clone()).collect();
+        for chunk in shard_clones.chunks(parallelism) {
+            let chunk_handles: Vec<std::thread::JoinHandle<Result<(), String>>> = chunk
+                .iter()
+                .map(|shard| {
+                    let shard = shard.clone();
+                    std::thread::spawn(move || shard.finish_and_project(n_jobs))
+                })
+                .collect();
+            for h in chunk_handles {
+                h.join()
+                    .map_err(|_| "投影线程 panic".to_string())??;
+            }
+        }
+        eprintln!("✅ V7 并行投影完成");
+        Ok(())
+    }
+
     pub fn check_completed(&self) -> Result<HashSet<(i64, String)>, String> {
         let mut all = HashSet::new();
         let n_shards = self.shards.len();
@@ -2082,5 +2595,109 @@ mod tests {
         assert!(m[[0, 2]].is_nan()); // (20230101, 000858) 不存在 = NaN
         assert!(m[[1, 0]].is_nan()); // (20230102, 000001) 不存在 = NaN
         println!("✅ test_dictionary_growth_across_batches 通过");
+    }
+
+    #[test]
+    fn test_crash_chunk_truncated() {
+        // V6 崩溃安全：append_batch 内 dict 先于 chunk 落盘。模拟"chunk data 未落盘"的崩溃——
+        // append_batch 完成后手动截断 colblk 去掉最后一个 chunk。
+        // 验证：resume 的 check_completed 不含残缺任务（重算），且重算 intern hit 幂等无重复。
+        let tmp = tempfile::tempdir().unwrap();
+        let store_dir = tmp.path().to_str().unwrap().to_string();
+        let factor_names: Vec<String> = (0..2).map(|i| format!("f{i}")).collect();
+
+        let mut writer = FactorStoreWriter::open(&store_dir, &factor_names).unwrap();
+        let r1 = make_test_results(&[20230101], &["000001", "600519"], 2);
+        let r2 = make_test_results(&[20230102], &["000858"], 2);
+        writer.append_batch(&r1).unwrap();
+        let cut_point = writer.data_end; // r2 的 chunk 将从这里开始
+        writer.append_batch(&r2).unwrap();
+        assert_eq!(writer.record_count(), 4);
+        drop(writer); // 模拟进程退出
+
+        // 截断 colblk 到 cut_point（去掉 r2 的 chunk，模拟 r2 chunk 未落盘）
+        let colblk_path = std::path::Path::new(&store_dir).join("factors.colblk");
+        {
+            let f = std::fs::OpenOptions::new()
+                .write(true)
+                .open(&colblk_path)
+                .unwrap();
+            f.set_len(cut_point).unwrap();
+        }
+
+        // resume：chunk 区扫描只识别第一个 chunk（残缺的 r2 不算）
+        let mut writer2 = FactorStoreWriter::open(&store_dir, &factor_names).unwrap();
+        assert_eq!(writer2.record_count(), 2, "截断后只应有第一个 chunk 的 2 条");
+        // 但 dates.bin/codes.bin 已先于 chunk 落盘，dict 含全部 id（r2 的 20230102/000858 也在）
+        assert_eq!(writer2.dict.dates.len(), 2, "dates.bin 含 r2 的 date（dict 先落盘）");
+        assert_eq!(writer2.dict.codes.len(), 3, "codes.bin 含 r2 的 code（dict 先落盘）");
+        // check_completed 只含第一个 chunk 的 2 条（残缺 chunk 不算完成 → 会重算）
+        let completed = writer2.check_completed().unwrap();
+        assert_eq!(completed.len(), 2);
+        assert!(completed.contains(&(20230101, "000001".to_string())));
+        assert!(completed.contains(&(20230101, "600519".to_string())));
+
+        // 重算 r2：intern hit（dict 已有 20230102/000858），返回相同 id，append 无重复
+        writer2.append_batch(&r2).unwrap();
+        assert_eq!(writer2.record_count(), 4, "重算后应 2+2=4 条，幂等无重复");
+        writer2.finish_and_project(1).unwrap();
+
+        // 读取校验：(20230102, 000858) 重算后有值，(20230101, 000001) 也有值
+        let reader = FactorStoreReader::open(&store_dir).unwrap();
+        let td: Vec<i32> = vec![20230101, 20230102];
+        let ts: Vec<String> = vec!["000001".into(), "600519".into(), "000858".into()];
+        let m = reader.read_factor_to_matrix(0, &td, &ts).unwrap();
+        assert!(!m[[1, 2]].is_nan(), "(20230102,000858) 重算后应有值");
+        assert!(!m[[0, 0]].is_nan(), "(20230101,000001) 应有值");
+        println!("✅ test_crash_chunk_truncated 通过（崩溃安全 + 幂等无重复）");
+    }
+
+    #[test]
+    fn test_dates_bin_codes_bin_append_only() {
+        // V6：验证 dates.bin/codes.bin 是 append-only 物理文件，文件大小 = 元素数 × 单元字节，
+        // 且不再每 batch 全量重写 idx（factors.idx 写一次后大小稳定）。
+        let tmp = tempfile::tempdir().unwrap();
+        let store_dir = tmp.path().to_str().unwrap().to_string();
+        let factor_names: Vec<String> = (0..1).map(|i| format!("f{i}")).collect();
+        let dir = std::path::Path::new(&store_dir);
+
+        let mut writer = FactorStoreWriter::open(&store_dir, &factor_names).unwrap();
+        writer
+            .append_batch(&make_test_results(&[20230101], &["000001"], 1))
+            .unwrap();
+        assert_eq!(std::fs::metadata(dir.join("dates.bin")).unwrap().len(), 8);
+        assert_eq!(
+            std::fs::metadata(dir.join("codes.bin")).unwrap().len(),
+            CODE_SLOT_BYTES as u64
+        );
+        let idx_size_after_batch1 = std::fs::metadata(dir.join("factors.idx")).unwrap().len();
+
+        // 再写一批（新 date + 新 code），dates.bin/codes.bin 应 append-only 增长
+        writer
+            .append_batch(&make_test_results(&[20230102], &["600519"], 1))
+            .unwrap();
+        assert_eq!(
+            std::fs::metadata(dir.join("dates.bin")).unwrap().len(),
+            16,
+            "2 个 date = 16 字节"
+        );
+        assert_eq!(
+            std::fs::metadata(dir.join("codes.bin")).unwrap().len(),
+            2 * CODE_SLOT_BYTES as u64,
+            "2 个 code = 32 字节"
+        );
+        // factors.idx 骨架不随 batch 增长（V6 不再每 batch 全量重写）
+        assert_eq!(
+            std::fs::metadata(dir.join("factors.idx")).unwrap().len(),
+            idx_size_after_batch1,
+            "factors.idx 大小稳定（不再每 batch 重写）"
+        );
+        drop(writer);
+
+        // resume 读回，dict 一致
+        let writer2 = FactorStoreWriter::open(&store_dir, &factor_names).unwrap();
+        assert_eq!(writer2.dict.dates, vec![20230101, 20230102]);
+        assert_eq!(writer2.dict.codes, vec!["000001", "600519"]);
+        println!("✅ test_dates_bin_codes_bin_append_only 通过");
     }
 }

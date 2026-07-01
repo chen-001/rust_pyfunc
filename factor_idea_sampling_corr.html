@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>因子想法整理：采样-拟合-对比 相关性矩阵</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#ffffff; --ink:#1f2733; --muted:#64748b; --line:#e6eaf0;
+    --raw:#94a3b8; --fit:#3b82f6; --spot:#ef4444; --bull:#10b981; --bear:#f43f5e;
+    --accent:#4f46e5; --chip:#eef2ff;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:"PingFang SC","Microsoft YaHei","Hiragino Sans GB","Segoe UI",system-ui,sans-serif;
+    line-height:1.7;
+  }
+  .wrap{max-width:1040px; margin:0 auto; padding:40px 24px 80px;}
+  header{margin-bottom:28px;}
+  h1{font-size:28px; margin:0 0 8px; letter-spacing:.5px;}
+  h2{font-size:21px; margin:36px 0 14px; padding-left:12px; border-left:4px solid var(--accent);}
+  h3{font-size:16px; margin:20px 0 10px; color:var(--accent);}
+  .sub{color:var(--muted); font-size:14px;}
+  .card{
+    background:var(--card); border:1px solid var(--line); border-radius:14px;
+    padding:22px 24px; margin:16px 0; box-shadow:0 1px 2px rgba(20,30,60,.04);
+  }
+  .tlg{font-weight:700;}
+  .one-liner{font-size:17px; line-height:1.9;}
+  .one-liner b{color:var(--accent);}
+  .legend{display:flex; flex-wrap:wrap; gap:14px; font-size:13px; color:var(--muted); margin-top:10px;}
+  .legend span{display:inline-flex; align-items:center; gap:6px;}
+  .swatch{width:18px; height:4px; border-radius:3px; display:inline-block;}
+  .dot{width:9px; height:9px; border-radius:50%; display:inline-block;}
+  .figcap{font-size:13px; color:var(--muted); text-align:center; margin-top:8px;}
+  svg{display:block; margin:0 auto; width:100%; height:auto;}
+  .grid4{display:grid; grid-template-columns:repeat(4,1fr); gap:10px;}
+  .grid3{display:grid; grid-template-columns:repeat(3,1fr); gap:10px;}
+  .mini{background:#fbfcfe; border:1px solid var(--line); border-radius:10px; padding:8px;}
+  .mini .t{font-size:12px; color:var(--muted); text-align:center; margin-bottom:2px;}
+  .knobs{display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px;}
+  .knob{border:1px solid var(--line); border-radius:12px; padding:14px 16px; background:#fbfcfe;}
+  .knob .k-title{font-weight:700; font-size:15px; margin-bottom:6px;}
+  .knob .k-num{
+    display:inline-block; width:22px; height:22px; line-height:22px; text-align:center;
+    background:var(--accent); color:#fff; border-radius:6px; font-size:13px; margin-right:8px;
+  }
+  .opt{display:block; font-size:13.5px; color:#334155; padding:2px 0;}
+  .opt em{color:var(--muted); font-style:normal;}
+  table{border-collapse:collapse; width:100%; font-size:13px;}
+  th,td{border:1px solid var(--line); padding:7px 9px; text-align:center;}
+  th{background:#f1f5f9; color:#334155; font-weight:600;}
+  td.lbl{text-align:left; font-size:12.5px; color:#334155;}
+  code{background:var(--chip); color:var(--accent); padding:1px 6px; border-radius:5px; font-size:13px;}
+  .note{font-size:13px; color:var(--muted); margin-top:10px;}
+  .arrow{color:var(--accent); font-weight:700;}
+  .pill{display:inline-block; background:var(--chip); color:var(--accent); border-radius:20px; padding:2px 12px; font-size:12.5px; margin:2px 4px 2px 0;}
+  .nav{display:flex; flex-wrap:wrap; gap:8px; margin-top:14px;}
+  .nav a{font-size:13px; color:var(--muted); text-decoration:none; padding:4px 10px; border:1px solid var(--line); border-radius:20px;}
+  .nav a:hover{color:var(--accent); border-color:var(--accent);}
+  .matrix-wrap{overflow-x:auto;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="pill">因子想法整理</div>
+    <h1>采样-拟合-对比 相关性矩阵</h1>
+    <p class="sub">把一段口述的想法结构化：从单日序列里挑 K 个关键点 → 拟合成线 → 与原始线比较 corr / 偏差 → 不同参数组合 × 不同 K = 一个 m×n 因子矩阵。</p>
+    <nav class="nav">
+      <a href="#flow">①核心流程</a>
+      <a href="#select">②选点逻辑</a>
+      <a href="#fit">③拟合方式</a>
+      <a href="#dir">④方向拆分</a>
+      <a href="#knobs">⑤七个旋钮</a>
+      <a href="#matrix">⑥输出矩阵</a>
+      <a href="#example">⑦完整例子</a>
+    </nav>
+  </header>
+
+  <div class="card">
+    <div class="one-liner">
+      一句话：<b>挑 K 个点 → 连成线 → 看和原线有多像</b>。<br>
+      遍历不同的「挑法 / 连法 / 量什么 / 看多还是看空」组合（行），<br>
+      再遍历不同的采样数 K = 5,6,7,8,…,x（列），就得到当天该股票的一个 <b>m×n 相关性矩阵</b>。
+    </div>
+    <div class="legend">
+      <span><i class="swatch" style="background:var(--raw)"></i>原始数据线</span>
+      <span><i class="swatch" style="background:var(--fit)"></i>拟合线</span>
+      <span><i class="dot" style="background:var(--spot)"></i>选中的关键点</span>
+      <span><i class="dot" style="background:var(--bull)"></i>买方向</span>
+      <span><i class="dot" style="background:var(--bear)"></i>卖方向</span>
+    </div>
+  </div>
+
+  <!-- ①核心流程 -->
+  <h2 id="flow">① 核心流程：采样 → 拟合 → 对比</h2>
+  <div class="card">
+    <div class="grid4">
+      <div class="mini">
+        <div class="t">A. 原始序列（全天价格）</div>
+        <svg viewBox="0 0 200 120">
+          <line x1="12" y1="110" x2="192" y2="110" stroke="#cbd5e1" stroke-width="1"/>
+          <line x1="12" y1="10" x2="12" y2="110" stroke="#cbd5e1" stroke-width="1"/>
+          <polyline points="15,80 30,62 45,88 60,70 75,98 90,72 105,92 120,55 135,76 150,58 165,84 180,66"
+            fill="none" stroke="var(--raw)" stroke-width="2"/>
+        </svg>
+      </div>
+      <div class="mini">
+        <div class="t">B. 按规则挑 K=5 个关键点</div>
+        <svg viewBox="0 0 200 120">
+          <line x1="12" y1="110" x2="192" y2="110" stroke="#cbd5e1" stroke-width="1"/>
+          <polyline points="15,80 30,62 45,88 60,70 75,98 90,72 105,92 120,55 135,76 150,58 165,84 180,66"
+            fill="none" stroke="var(--raw)" stroke-width="1.5" opacity=".5"/>
+          <g fill="var(--spot)">
+            <circle cx="45" cy="88" r="3.5"/><circle cx="75" cy="98" r="3.5"/>
+            <circle cx="105" cy="92" r="3.5"/><circle cx="150" cy="58" r="3.5"/>
+            <circle cx="165" cy="84" r="3.5"/>
+          </g>
+        </svg>
+      </div>
+      <div class="mini">
+        <div class="t">C. 拟合：5 点 → 一条线</div>
+        <svg viewBox="0 0 200 120">
+          <line x1="12" y1="110" x2="192" y2="110" stroke="#cbd5e1" stroke-width="1"/>
+          <polyline points="45,88 75,98 105,92 150,58 165,84"
+            fill="none" stroke="var(--fit)" stroke-width="2.5"/>
+          <g fill="var(--spot)">
+            <circle cx="45" cy="88" r="3.5"/><circle cx="75" cy="98" r="3.5"/>
+            <circle cx="105" cy="92" r="3.5"/><circle cx="150" cy="58" r="3.5"/>
+            <circle cx="165" cy="84" r="3.5"/>
+          </g>
+        </svg>
+      </div>
+      <div class="mini">
+        <div class="t">D. 对比：拟合线 vs 原始线 → corr</div>
+        <svg viewBox="0 0 200 120">
+          <line x1="12" y1="110" x2="192" y2="110" stroke="#cbd5e1" stroke-width="1"/>
+          <polyline points="15,80 30,62 45,88 60,70 75,98 90,72 105,92 120,55 135,76 150,58 165,84 180,66"
+            fill="none" stroke="var(--raw)" stroke-width="1.5" opacity=".55"/>
+          <polyline points="45,88 75,98 105,92 150,58 165,84"
+            fill="none" stroke="var(--fit)" stroke-width="2.5"/>
+          <text x="100" y="22" text-anchor="middle" font-size="13" fill="var(--accent)" font-weight="700">corr ≈ 0.86</text>
+        </svg>
+      </div>
+    </div>
+    <p class="figcap">原始序列 <span class="arrow">→</span> 选点 <span class="arrow">→</span> 拟合 <span class="arrow">→</span> 与原线对比得到一个 corr。换个 K 再算，就得到一行 corr。</p>
+  </div>
+
+  <!-- ②选点 -->
+  <h2 id="select">② 选点逻辑：挑哪 K 个点</h2>
+  <div class="card">
+    <div class="grid3">
+      <div class="mini">
+        <div class="t">成交量最大的 K 次</div>
+        <svg viewBox="0 0 200 120">
+          <line x1="12" y1="110" x2="192" y2="110" stroke="#cbd5e1"/>
+          <!-- 成交量柱 -->
+          <g fill="#dbe4f0">
+            <rect x="16" y="78" width="10" height="32"/><rect x="32" y="58" width="10" height="52"/>
+            <rect x="48" y="40" width="10" height="70"/><rect x="64" y="70" width="10" height="40"/>
+            <rect x="80" y="30" width="10" height="80"/><rect x="96" y="66" width="10" height="44"/>
+            <rect x="112" y="50" width="10" height="60"/><rect x="128" y="20" width="10" height="90"/>
+            <rect x="144" y="74" width="10" height="36"/><rect x="160" y="46" width="10" height="64"/>
+            <rect x="176" y="60" width="10" height="50"/>
+          </g>
+          <!-- 最大的几根 -->
+          <g fill="var(--spot)">
+            <rect x="48" y="40" width="10" height="70"/><rect x="80" y="30" width="10" height="80"/>
+            <rect x="128" y="20" width="10" height="90"/><rect x="160" y="46" width="10" height="64"/>
+            <rect x="112" y="50" width="10" height="60"/>
+          </g>
+        </svg>
+      </div>
+      <div class="mini">
+        <div class="t">前后几秒总成交最大的 K 个时刻</div>
+        <svg viewBox="0 0 200 120">
+          <line x1="12" y1="110" x2="192" y2="110" stroke="#cbd5e1"/>
+          <g fill="#dbe4f0">
+            <rect x="16" y="74" width="10" height="36"/><rect x="32" y="60" width="10" height="50"/>
+            <rect x="48" y="48" width="10" height="62"/><rect x="64" y="36" width="10" height="74"/>
+            <rect x="80" y="28" width="10" height="82"/><rect x="96" y="50" width="10" height="60"/>
+            <rect x="112" y="62" width="10" height="48"/><rect x="128" y="70" width="10" height="40"/>
+            <rect x="144" y="76" width="10" height="34"/><rect x="160" y="64" width="10" height="46"/>
+            <rect x="176" y="72" width="10" height="38"/>
+          </g>
+          <g fill="var(--spot)">
+            <rect x="48" y="48" width="10" height="62"/><rect x="64" y="36" width="10" height="74"/>
+            <rect x="80" y="28" width="10" height="82"/>
+          </g>
+          <text x="100" y="14" text-anchor="middle" font-size="10" fill="var(--muted)">窗口聚合后找峰值</text>
+        </svg>
+      </div>
+      <div class="mini">
+        <div class="t">买卖订单号差最大的 K 个时刻</div>
+        <svg viewBox="0 0 200 120">
+          <line x1="12" y1="60" x2="192" y2="60" stroke="#cbd5e1"/>
+          <polyline points="15,30 30,80 45,40 60,90 75,35 90,70 105,45 120,95 135,50 150,38 165,88 180,55"
+            fill="none" stroke="var(--fit)" stroke-width="1.8"/>
+          <g fill="var(--spot)">
+            <circle cx="60" cy="90" r="3.5"/><circle cx="120" cy="95" r="3.5"/>
+            <circle cx="165" cy="88" r="3.5"/><circle cx="30" cy="80" r="3.5"/>
+            <circle cx="90" cy="70" r="3.5"/>
+          </g>
+          <text x="100" y="14" text-anchor="middle" font-size="10" fill="var(--muted)">订单号差距的极端点</text>
+        </svg>
+      </div>
+    </div>
+    <p class="figcap">三种选点规则，挑出来的 K 个时刻不同 → 拟合线不同 → corr 不同 → 矩阵的不同行。</p>
+  </div>
+
+  <!-- ③拟合方式 -->
+  <h2 id="fit">③ 拟合方式：把 K 个点连成线</h2>
+  <div class="card">
+    <div class="grid3">
+      <div class="mini">
+        <div class="t">分段直线（折线连接）</div>
+        <svg viewBox="0 0 200 120">
+          <line x1="12" y1="110" x2="192" y2="110" stroke="#cbd5e1"/>
+          <polyline points="15,80 30,62 45,88 60,70 75,98 90,72 105,92 120,55 135,76 150,58 165,84 180,66"
+            fill="none" stroke="var(--raw)" stroke-width="1.5" opacity=".4"/>
+          <polyline points="45,88 75,98 105,92 150,58 165,84"
+            fill="none" stroke="var(--fit)" stroke-width="2.5"/>
+          <g fill="var(--spot)"><circle cx="45" cy="88" r="3"/><circle cx="75" cy="98" r="3"/>
+            <circle cx="105" cy="92" r="3"/><circle cx="150" cy="58" r="3"/><circle cx="165" cy="84" r="3"/></g>
+        </svg>
+      </div>
+      <div class="mini">
+        <div class="t">最速曲线（平滑样条拟合）</div>
+        <svg viewBox="0 0 200 120">
+          <line x1="12" y1="110" x2="192" y2="110" stroke="#cbd5e1"/>
+          <polyline points="15,80 30,62 45,88 60,70 75,98 90,72 105,92 120,55 135,76 150,58 165,84 180,66"
+            fill="none" stroke="var(--raw)" stroke-width="1.5" opacity=".4"/>
+          <path d="M45,88 C55,95 65,100 75,98 C85,96 95,94 105,92 C120,87 138,72 150,58 C156,66 161,78 165,84"
+            fill="none" stroke="var(--fit)" stroke-width="2.5"/>
+          <g fill="var(--spot)"><circle cx="45" cy="88" r="3"/><circle cx="75" cy="98" r="3"/>
+            <circle cx="105" cy="92" r="3"/><circle cx="150" cy="58" r="3"/><circle cx="165" cy="84" r="3"/></g>
+        </svg>
+      </div>
+      <div class="mini">
+        <div class="t">插值补全到原长度</div>
+        <svg viewBox="0 0 200 120">
+          <line x1="12" y1="110" x2="192" y2="110" stroke="#cbd5e1"/>
+          <polyline points="15,80 30,62 45,88 60,70 75,98 90,72 105,92 120,55 135,76 150,58 165,84 180,66"
+            fill="none" stroke="var(--raw)" stroke-width="1.5" opacity=".4"/>
+          <polyline points="45,88 60,93 75,98 90,95 105,92 120,81 135,69 150,58 165,84"
+            fill="none" stroke="var(--fit)" stroke-width="2"/>
+          <g fill="var(--fit)" opacity=".65"><circle cx="60" cy="93" r="2"/><circle cx="90" cy="95" r="2"/>
+            <circle cx="120" cy="81" r="2"/><circle cx="135" cy="69" r="2"/></g>
+          <g fill="var(--spot)"><circle cx="45" cy="88" r="3"/><circle cx="75" cy="98" r="3"/>
+            <circle cx="105" cy="92" r="3"/><circle cx="150" cy="58" r="3"/><circle cx="165" cy="84" r="3"/></g>
+        </svg>
+      </div>
+    </div>
+    <p class="figcap">「补全到原长度」= 把拟合线重采样回原始 x 网格（蓝点），这样两条线点对点对齐，才好逐点算 corr / 偏差。</p>
+  </div>
+
+  <!-- ④方向拆分 -->
+  <h2 id="dir">④ 方向拆分：看多曲线 vs 看空曲线</h2>
+  <div class="card">
+    <svg viewBox="0 0 760 200">
+      <!-- 左：不区分 -->
+      <g transform="translate(10,0)">
+        <text x="120" y="18" text-anchor="middle" font-size="13" fill="var(--muted)">不区分：全部点拟合一条线</text>
+        <line x1="12" y1="150" x2="232" y2="150" stroke="#cbd5e1"/>
+        <polyline points="15,120 40,95 65,128 90,100 115,140 140,108 165,130 190,90 215,118"
+          fill="none" stroke="var(--raw)" stroke-width="1.5" opacity=".4"/>
+        <polyline points="40,95 90,100 140,108 190,90 215,118" fill="none" stroke="var(--fit)" stroke-width="2.5"/>
+        <g fill="var(--spot)"><circle cx="40" cy="95" r="3.5"/><circle cx="90" cy="100" r="3.5"/>
+          <circle cx="140" cy="108" r="3.5"/><circle cx="190" cy="90" r="3.5"/><circle cx="215" cy="118" r="3.5"/></g>
+      </g>
+      <!-- 中：仅买 -->
+      <g transform="translate(270,0)">
+        <text x="120" y="18" text-anchor="middle" font-size="13" fill="var(--bull)">仅买方向：看多的人心中的曲线</text>
+        <line x1="12" y1="150" x2="232" y2="150" stroke="#cbd5e1"/>
+        <polyline points="15,120 40,95 65,128 90,100 115,140 140,108 165,130 190,90 215,118"
+          fill="none" stroke="var(--raw)" stroke-width="1.5" opacity=".35"/>
+        <path d="M40,100 C75,96 110,92 140,86 C170,80 190,78 215,75" fill="none" stroke="var(--bull)" stroke-width="2.5"/>
+        <g fill="var(--bull)"><circle cx="40" cy="100" r="3.5"/><circle cx="90" cy="95" r="3.5"/>
+          <circle cx="140" cy="86" r="3.5"/><circle cx="190" cy="78" r="3.5"/><circle cx="215" cy="75" r="3.5"/></g>
+        <g stroke="var(--bull)" stroke-width="1.2"><path d="M40,150 L40,100" opacity=".4"/><path d="M215,150 L215,75" opacity=".4"/></g>
+      </g>
+      <!-- 右：仅卖 -->
+      <g transform="translate(530,0)">
+        <text x="120" y="18" text-anchor="middle" font-size="13" fill="var(--bear)">仅卖方向：看空的人心中的曲线</text>
+        <line x1="12" y1="150" x2="232" y2="150" stroke="#cbd5e1"/>
+        <polyline points="15,120 40,95 65,128 90,100 115,140 140,108 165,130 190,90 215,118"
+          fill="none" stroke="var(--raw)" stroke-width="1.5" opacity=".35"/>
+        <path d="M40,95 C75,108 110,118 140,124 C170,130 190,134 215,138" fill="none" stroke="var(--bear)" stroke-width="2.5"/>
+        <g fill="var(--bear)"><circle cx="40" cy="95" r="3.5"/><circle cx="90" cy="110" r="3.5"/>
+          <circle cx="140" cy="124" r="3.5"/><circle cx="190" cy="134" r="3.5"/><circle cx="215" cy="138" r="3.5"/></g>
+        <g stroke="var(--bear)" stroke-width="1.2"><path d="M40,150 L40,95" opacity=".4"/><path d="M215,150 L215,138" opacity=".4"/></g>
+      </g>
+    </svg>
+    <p class="figcap">把"买卖订单号差最大"等按方向拆分，分别拟合 → 一条代表多头共识、一条代表空头共识，可对比两者强弱。</p>
+  </div>
+
+  <!-- ⑤七个旋钮 -->
+  <h2 id="knobs">⑤ 七个旋钮（矩阵"行"的来源）</h2>
+  <div class="card">
+    <div class="knobs">
+      <div class="knob"><div class="k-title"><span class="k-num">1</span>数据源</div>
+        <span class="opt">逐笔成交</span><span class="opt">盘口快照</span><span class="opt">分钟数据</span></div>
+      <div class="knob"><div class="k-title"><span class="k-num">2</span>选点规则</div>
+        <span class="opt">成交量最大的 K 次</span><span class="opt">前后几秒总成交最大的时刻</span><span class="opt">买卖订单号差最大的时刻</span></div>
+      <div class="knob"><div class="k-title"><span class="k-num">3</span>采样数 K</div>
+        <span class="opt">5, 6, 7, 8, 9, 10 … x</span><span class="opt"><em>← 矩阵的列</em></span></div>
+      <div class="knob"><div class="k-title"><span class="k-num">4</span>拟合变量</div>
+        <span class="opt">价格</span><span class="opt">挂单失衡</span><span class="opt">滚动窗口主买占比</span></div>
+      <div class="knob"><div class="k-title"><span class="k-num">5</span>拟合方式</div>
+        <span class="opt">分段直线</span><span class="opt">最速(平滑)曲线</span><span class="opt">插值补全到原长度</span></div>
+      <div class="knob"><div class="k-title"><span class="k-num">6</span>方向拆分</div>
+        <span class="opt">不区分</span><span class="opt">仅买（看多曲线）</span><span class="opt">仅卖（看空曲线）</span></div>
+      <div class="knob"><div class="k-title"><span class="k-num">7</span>度量</div>
+        <span class="opt">相关性 corr</span><span class="opt">偏差</span></div>
+      <div class="knob" style="background:var(--chip); border-color:#c7d2fe;">
+        <div class="k-title" style="color:var(--accent)">笛卡尔积 = 矩阵的行</div>
+        <span class="opt" style="color:#475569">实际会筛掉无意义的组合<br>(如"分钟数据 × 订单号差"不适用)</span></div>
+    </div>
+  </div>
+
+  <!-- ⑥输出矩阵 -->
+  <h2 id="matrix">⑥ 输出：当天该股票的 m×n 因子矩阵</h2>
+  <div class="card">
+    <div class="matrix-wrap">
+      <table id="mtable">
+        <thead><tr id="mhead"><th>参数组合（行）＼ K（列）</th></tr></thead>
+        <tbody id="mbody"></tbody>
+      </table>
+    </div>
+    <p class="figcap">单元格颜色越绿 = corr 越高（用越少的点就能还原原始序列）。<b>每只股票每天 = 一个这样的矩阵。</b></p>
+    <p class="note">观察：通常 K 越大 corr 越高（点越密越还原原线）；不同拟合变量 / 选点规则之间的 corr 曲线形状差异，才是真正有区分度的信号。</p>
+  </div>
+
+  <!-- ⑦完整例子 -->
+  <h2 id="example">⑦ 一个完整例子（走读）</h2>
+  <div class="card">
+    <h3>参数组合：逐笔成交 · 价格 · 成交量最大的 K 次 · 分段直线 · 不区分 · corr</h3>
+    <table>
+      <tr><th>步骤</th><th>动作</th></tr>
+      <tr><td>1. 取数</td><td class="lbl">取出该股票全天逐笔成交：时间、价、量、买卖方向</td></tr>
+      <tr><td>2. 选点</td><td class="lbl">对 K = 5：找出成交量最大的 5 笔成交，记录它们发生的时刻 t₁…t₅</td></tr>
+      <tr><td>3. 取值</td><td class="lbl">取这 5 个时刻的<code>价格</code>（旋钮④）→ 得到 5 个 (t, price) 点</td></tr>
+      <tr><td>4. 拟合</td><td class="lbl">用<code>分段直线</code>（旋钮⑤）把这 5 点连成拟合线</td></tr>
+      <tr><td>5. 补全</td><td class="lbl">把拟合线插值到原始时间网格，与原始价格线点对点对齐</td></tr>
+      <tr><td>6. 打分</td><td class="lbl">算两条线的 <code>corr</code>（旋钮⑦）→ 得到 c₅</td></tr>
+      <tr><td>7. 遍历 K</td><td class="lbl">K = 5,6,7,8,10,15,20 各算一次 → 得到一行 <code>[c₅,c₆,c₇,c₈,c₁₀,c₁₅,c₂₀]</code></td></tr>
+      <tr><td>8. 遍历旋钮</td><td class="lbl">换"拟合变量=挂单失衡"再算一行；换"仅买方向"再算一行……</td></tr>
+      <tr><td>9. 堆叠</td><td class="lbl">所有行堆起来 = 当天该股票的 <b>m×n 因子矩阵</b></td></tr>
+    </table>
+    <p class="note">把矩阵的某个单元格（或某行的均值/斜率）当作单值因子，就能跨股票跨日期做横截面排序 → 进入因子回测。</p>
+  </div>
+
+  <div class="card" style="border-left:4px solid var(--accent);">
+    <div class="tlg">小结</div>
+    你的想法本质是一个<b>参数化扫掠的"形状保真度"因子</b>：<br>
+    「用 K 个关键点能不能还原全天走势？还原能力（corr）随 K 怎么变化？」<br>
+    不同数据源 / 选点规则 / 拟合变量 / 方向的"还原能力曲线"不同 ——
+    这条<b>corr 随 K 的变化曲线</b>（或矩阵中的某一行）就是有信息量的因子。
+  </div>
+
+</div>
+
+<script>
+  // 渲染示例矩阵：行=参数组合，列=K，单元格=corr(示例值)，颜色映射
+  const ks = [5,6,7,8,10,12,15,20];
+  const rows = [
+    ['价格 · 成交量最大 · 直线 · 不区分',          [0.42,0.48,0.55,0.61,0.70,0.78,0.86,0.92]],
+    ['价格 · 成交量最大 · 最速曲线 · 不区分',      [0.50,0.56,0.63,0.69,0.77,0.84,0.90,0.95]],
+    ['挂单失衡 · 成交量最大 · 直线 · 不区分',      [0.30,0.35,0.41,0.48,0.58,0.66,0.74,0.83]],
+    ['主买占比 · 秒内成交最大 · 补全 · 不区分',    [0.25,0.31,0.38,0.45,0.55,0.63,0.72,0.81]],
+    ['价格 · 订单号差最大 · 直线 · 仅买',          [0.38,0.44,0.51,0.57,0.66,0.73,0.81,0.88]],
+    ['价格 · 订单号差最大 · 直线 · 仅卖',          [0.35,0.40,0.47,0.53,0.62,0.70,0.78,0.86]],
+    ['价格 · 订单号差最大 · 最速曲线 · 不区分',    [0.46,0.52,0.59,0.65,0.73,0.80,0.87,0.93]],
+  ];
+  // 表头
+  const head = document.getElementById('mhead');
+  ks.forEach(k=>{ const th=document.createElement('th'); th.textContent='K='+k; head.appendChild(th); });
+  // 颜色映射：0->红(0) 1->绿(120)，明度随饱和度调整
+  function corrColor(v){
+    const h = Math.max(0,Math.min(1,v))*120;
+    const l = 88 - v*28; // 越大越深
+    return 'hsl('+h.toFixed(0)+',68%,'+l.toFixed(0)+'%)';
+  }
+  function txtColor(v){ return v>0.6 ? '#fff' : '#1f2733'; }
+  const body = document.getElementById('mbody');
+  rows.forEach(r=>{
+    const tr=document.createElement('tr');
+    const td=document.createElement('td'); td.className='lbl'; td.textContent=r[0]; tr.appendChild(td);
+    r[1].forEach(v=>{
+      const c=document.createElement('td');
+      c.textContent=v.toFixed(2);
+      c.style.background=corrColor(v);
+      c.style.color=txtColor(v);
+      c.style.fontWeight='600';
+      tr.appendChild(c);
+    });
+    body.appendChild(tr);
+  });
+</script>
+</body>
+</html>
