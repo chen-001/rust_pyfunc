@@ -1433,6 +1433,12 @@ print(distances.shape)  # (240,)
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="factor_store_v5_project_v7.html">factor_store_v5_project_v7</a></h3>
+                <div><p>V7 并行投影（pyfunction 入口，支持 sharded 布局）</p></div>
+                <a href="factor_store_v5_project_v7.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="factor_store_v5_read_factor.html">factor_store_v5_read_factor</a></h3>
                 <div><p>读取第 col_idx 个因子为扁平数组（date_id[], code_id[], factor[]），供测试/调试</p></div>
                 <a href="factor_store_v5_read_factor.html">查看详情</a>
@@ -1443,6 +1449,13 @@ print(distances.shape)  # (240,)
                 <div><p>从 colblk 存储推断回测模板轴：返回去重排序的 dates（int 数组）和 stocks（带 .SZ/.SH 后缀）。
 供 design_whatever 的 tail_v5 替代 v4 的 pandas 读 parquet 推断模板。</p></div>
                 <a href="factor_store_v5_template.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="factor_store_v5_verify_online.html">factor_store_v5_verify_online</a></h3>
+                <div><p>一致性验证：对比 v5 投影区读取（read_factor_to_matrix）与 v6 在线转置（read_factors_batch_to_matrices）。
+对 col_idx_batch 内每个因子逐元素比较，返回最大绝对误差（NaN==NaN 视为相等）。用于验证 v6 转置正确。</p></div>
+                <a href="factor_store_v5_verify_online.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -2757,6 +2770,12 @@ quantile=0.9: 90%分位数分割，只有前10%最高成交量为1</p></div>
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="run_factor_pipeline_v6.html">run_factor_pipeline_v6</a></h3>
+                <div><p>无文档</p></div>
+                <a href="run_factor_pipeline_v6.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="run_pools_queue.html">run_pools_queue</a></h3>
                 <div><p>无文档</p></div>
                 <a href="run_pools_queue.html">查看详情</a>
@@ -3002,6 +3021,24 @@ print(f"super加速比: {time1/time3:.2f}倍")
                 <h3 class="function-name"><a href="tail_v5_run_candidates.html">tail_v5_run_candidates</a></h3>
                 <div><p>无文档</p></div>
                 <a href="tail_v5_run_candidates.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="tail_v5_run_candidates_online.html">tail_v5_run_candidates_online</a></h3>
+                <div><p>无文档</p></div>
+                <a href="tail_v5_run_candidates_online.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="tail_v5_run_candidates_v7.html">tail_v5_run_candidates_v7</a></h3>
+                <div><p>无文档</p></div>
+                <a href="tail_v5_run_candidates_v7.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="tail_v5_run_candidates_v7b.html">tail_v5_run_candidates_v7b</a></h3>
+                <div><p>无文档</p></div>
+                <a href="tail_v5_run_candidates_v7b.html">查看详情</a>
             </div>
             
             <div class="function-item">
