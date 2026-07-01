@@ -2336,6 +2336,76 @@ def read_trade_fast(
     ...
 
 
+def run_factor_pipeline_v6(
+    pipeline: str,
+    tasks: List,
+    n_jobs: int,
+    backup_file: str,
+    expected_result_length: int,
+    trading_days: List[int],
+    params: object = None,
+    update_mode: bool = False,
+    bind_cores: bool = True,
+    backup_batch_size: int = 2000,
+    progress_log: bool = False,
+    mode: str = "multiprocess",
+    export_names: Optional[List[str]] = None,
+    export_dir: Optional[str] = None,
+    export_n_jobs: int = 80,
+    store_dir: Optional[str] = None,
+    store_factor_names: Optional[List[str]] = None,
+) -> None:
+    """v6：计算 + 写 colblk，但不执行投影（finish_and_project）。
+    配合 tail_v5_run_candidates_online 从 colblk 在线转置读取，省掉投影写盘。
+    仅支持 mode='multiprocess'。其余参数与 run_factor_pipeline 一致。"""
+
+
+def tail_v5_run_candidates_online(
+    factor_names: List[str],
+    factor_paths: List[str],
+    dates: List[int],
+    stocks: List[str],
+    windows: List[int],
+    fold: bool,
+    n_jobs: int,
+    min_valid: int,
+    cache_root: str,
+    style_data_path: str,
+    ret_gap1_path: str,
+    ret_sum_gap1_path: str,
+    ret_gap5_path: str,
+    ret_sum_gap5_path: str,
+    restrict_path: str,
+    index_ret_path: str,
+    backtest_start: int,
+    cover_rate: float = 0.97,
+    ret_point_neu_gap5: float = 0.055,
+    ret_point_neu_gap1: float = 0.08,
+    ic_point_neu_gap5: float = 0.01,
+    ic_point_neu_gap1: float = 0.006,
+    ret_point_gap5: float = 0.1,
+    ret_point_gap1: float = 0.13,
+    ic_point_gap5: float = 0.03,
+    ic_point_gap1: float = 0.02,
+    ic_more_important_gap5: Optional[float] = 0.01,
+    ic_more_important_gap1: Optional[float] = 0.006,
+    majority_count_threshold: float = 200.0,
+    zero_max_threshold: float = 0.01,
+    nan_max_threshold: float = 0.04,
+) -> dict:
+    """v6 在线转置回测：不读投影区，从 colblk 批量在线转置读取因子（动态分批控制内存≤500GB）。
+    回测核心（IC/收益/筛选）与 tail_v5_run_candidates 完全一致，只换数据来源。"""
+
+
+def factor_store_v5_verify_online(
+    store_dir: str,
+    col_idx_batch: List[int],
+    dates: List[int],
+    stocks: List[str],
+) -> float:
+    """一致性验证：对比 v5 投影区读取 vs v6 在线转置，返回逐元素最大绝对误差（0.0 表示完全一致）。"""
+
+
 def run_factor_pipeline(
     pipeline: str,
     tasks: List,

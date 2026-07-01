@@ -240,6 +240,48 @@ pub(crate) fn rank_roll_block_f32_with_parallel(
     Ok(block)
 }
 
+/// V7 rank_roll：用 ndarray bulk assign 替代三重循环逐元素复制。
+/// 计算逻辑完全一致（serial rank + serial rolling stats），只是组装步骤从
+/// O(N×M×13) 逐元素 3D 索引 → O(13) 次 slice_mut + assign（每行 memcpy）。
+pub(crate) fn rank_roll_block_f32_v7(
+    data: &Array2<f32>,
+    windows: &[usize],
+    parallel: bool,
+) -> Result<Array3<f32>, String> {
+    let ranked = if parallel {
+        rank_axis1_average_f32(data)
+    } else {
+        rank_axis1_average_f32_serial(data)
+    };
+    let mut arrays = vec![ranked.clone()];
+    for &window in windows {
+        if window == 0 {
+            return Err("window 必须大于 0".to_string());
+        }
+        let min_periods = std::cmp::max(1, window / 2);
+        let (mean, max, min, std) = if parallel {
+            rolling_stats_f32(&ranked, window, min_periods)
+        } else {
+            rolling_stats_f32_serial(&ranked, window, min_periods)
+        };
+        arrays.push(mean);
+        arrays.push(max);
+        arrays.push(min);
+        arrays.push(std);
+    }
+
+    let n_rows = ranked.nrows();
+    let n_cols = ranked.ncols();
+    let n_slots = arrays.len();
+    let mut block = Array3::<f32>::from_elem((n_rows, n_cols, n_slots), f32::NAN);
+    // V7：bulk assign 替代三重循环（assign 内部按行 memcpy，cache 友好）
+    for (slot_idx, array) in arrays.into_iter().enumerate() {
+        let mut slot_view = block.slice_mut(ndarray::s![.., .., slot_idx]);
+        slot_view.assign(&array);
+    }
+    Ok(block)
+}
+
 #[pyfunction]
 #[pyo3(signature = (data, windows))]
 pub fn tail_v2_rank_roll_factor_f32<'py>(

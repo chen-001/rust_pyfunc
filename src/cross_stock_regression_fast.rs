@@ -144,10 +144,13 @@ pub fn cross_stock_autoreg_38_fast(
     data_today: PyReadonlyArray2<f64>,
     n_lags: usize,
 ) -> PyResult<Py<PyArray2<f64>>> {
-    let dp = data_prev.as_array();
-    let dt = data_today.as_array();
-    let n_stocks = dp.ncols();
-    let t = dp.nrows();
+    let dp0 = data_prev.as_array();
+    let dt0 = data_today.as_array();
+    let n_stocks = dp0.ncols();
+    // prev/today 经 clean 删除全 NaN 行后行数可能不同，取较小者统一截断，避免切片越界 panic
+    let t = dp0.nrows().min(dt0.nrows());
+    let dp = dp0.slice(s![..t, ..]);
+    let dt = dt0.slice(s![..t, ..]);
     let t_valid = t - n_lags;
 
     if t_valid < 3 || n_stocks == 0 {
@@ -222,13 +225,18 @@ pub fn cross_stock_crossvar_38_fast(
     x_today: PyReadonlyArray2<f64>,
     n_lags: usize,
 ) -> PyResult<Py<PyArray2<f64>>> {
-    let yp = y_prev.as_array();
-    let xp = x_prev.as_array();
-    let yt = y_today.as_array();
-    let xt = x_today.as_array();
-
-    let n_stocks = yp.ncols();
-    let t_valid = yp.nrows() - n_lags;
+    let yp0 = y_prev.as_array();
+    let xp0 = x_prev.as_array();
+    let yt0 = y_today.as_array();
+    let xt0 = x_today.as_array();
+    let n_stocks = yp0.ncols();
+    // 四个矩阵行数可能不同(同上)，取最小行数统一截断
+    let t = yp0.nrows().min(xp0.nrows()).min(yt0.nrows()).min(xt0.nrows());
+    let yp = yp0.slice(s![..t, ..]);
+    let xp = xp0.slice(s![..t, ..]);
+    let yt = yt0.slice(s![..t, ..]);
+    let xt = xt0.slice(s![..t, ..]);
+    let t_valid = t - n_lags;
     let total_lags = 2 * n_lags;
 
     if t_valid < 3 || n_stocks == 0 {

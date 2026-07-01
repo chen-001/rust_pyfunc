@@ -1070,10 +1070,32 @@ fn run_multiprocess_v2(
             backup_intervals.clone(),
         );
 
-        // collector 线程：收集结果，批量写 backup
-        let collector_handle = {
+        // writer 线程 + 写队列：异步解耦，把慢写盘移到后台，让 collector 持续 recv、worker 不等 append_batch。
+        // 改动 C：消除"collector 同步写盘 → sync_channel 背压 → 所有 worker 整齐停顿"的根因。
+        // 队列容量 WRITE_QUEUE_BATCHES 个 batch（每 batch ~batch_size 条结果）。
+        // 写盘平均跟得上生产（进度稳定 + 主进程 RSS 不积压），但 /hdd 机械盘+btrfs 有周期性 writeback stall，
+        // 小缓冲会被填满→背压倒灌→worker 周期性集体停顿（S=200）。内存充足（1.5TB），用大缓冲吸收突发。
+        const WRITE_QUEUE_BATCHES: usize = 50;
+        let (write_tx, write_rx) =
+            crossbeam::channel::bounded::<Vec<TaskResult>>(WRITE_QUEUE_BATCHES);
+
+        // writer 线程：从写队列取 batch 写盘（慢操作在后台，不阻塞 collector/worker）
+        let writer_handle = {
             let sink_c = sink.clone_handle();
             let sharded_c = sharded_sink.clone();
+            std::thread::spawn(move || {
+                while let Ok(batch) = write_rx.recv() {
+                    let _ = if let Some(ref ss) = sharded_c {
+                        ss.append_batch(&batch)
+                    } else {
+                        sink_c.append_batch(&batch)
+                    };
+                }
+            })
+        };
+
+        // collector 线程：持续 recv 结果，攒满 batch 入写队列（快，不等写盘）
+        let collector_handle = {
             let completed_cloned = completed.clone();
             let backup_intervals_cloned = backup_intervals.clone();
             std::thread::spawn(move || {
@@ -1084,32 +1106,30 @@ fn run_multiprocess_v2(
                     let _done = completed_cloned.fetch_add(1, Ordering::Relaxed) + 1;
                     if buf.len() >= batch_size {
                         let batch: Vec<TaskResult> = buf.drain(..).collect();
-                        let _ = if let Some(ref ss) = sharded_c {
-                            ss.append_batch(&batch)
-                        } else {
-                            sink_c.append_batch(&batch)
-                        };
+                        // 入写队列（队列满则背压，但写盘通常跟得上）
+                        if write_tx.send(batch).is_err() {
+                            break; // writer 异常退出，停止接收
+                        }
                         // 记录本次备份间隔
                         let interval = last_flush.elapsed().as_secs_f64();
                         last_flush = std::time::Instant::now();
                         backup_intervals_cloned.lock().unwrap().push(interval);
                     }
                 }
+                // 残余 batch 入队列，然后 drop write_tx 通知 writer 结束
                 if !buf.is_empty() {
-                    let _ = if let Some(ref ss) = sharded_c {
-                        ss.append_batch(&buf)
-                    } else {
-                        sink_c.append_batch(&buf)
-                    };
+                    let _ = write_tx.send(buf);
                 }
+                drop(write_tx);
             })
         };
 
-        // 等待所有 worker 管理线程完成
+        // 等待所有 worker 管理线程完成（所有任务算完 → result_tx 全 drop → collector recv 返回 Err）
         for h in handles {
             let _ = h.join();
         }
-        let _ = collector_handle.join();
+        let _ = collector_handle.join(); // collector 排空 result_rx，残余入队列，drop write_tx
+        let _ = writer_handle.join(); // writer 排空写队列，所有 batch 落盘后才返回（必须 last join）
         // 让监控线程退出（completed 已达 total）
         let _ = monitor_handle.join();
 
@@ -1263,4 +1283,161 @@ fn run_single_worker_manager(
             }
         }
     }
+}
+
+
+// ==================== v6：计算+写colblk，不投影（投影由 tail_v5_run_candidates_online 在线转置替代）====================
+#[pyfunction]
+#[pyo3(signature = (
+    pipeline, tasks, n_jobs, backup_file, expected_result_length, trading_days,
+    params=None, update_mode=None, bind_cores=true, backup_batch_size=None, progress_log=None, mode=None,
+    export_names=None, export_dir=None, export_n_jobs=80,
+    store_dir=None, store_factor_names=None
+))]
+#[allow(clippy::too_many_arguments)]
+pub fn run_factor_pipeline_v6(
+    pipeline: &str,
+    tasks: &PyList,
+    n_jobs: usize,
+    backup_file: String,
+    expected_result_length: usize,
+    trading_days: Vec<i64>,
+    params: Option<PyObject>,
+    update_mode: Option<bool>,
+    bind_cores: bool,
+    backup_batch_size: Option<usize>,
+    progress_log: Option<bool>,
+    mode: Option<String>,
+    export_names: Option<Vec<String>>,
+    export_dir: Option<String>,
+    export_n_jobs: usize,
+    store_dir: Option<String>,
+    store_factor_names: Option<Vec<String>>,
+) -> PyResult<PyObject> {
+    let py = unsafe { Python::assume_gil_acquired() };
+
+    let pipeline_name = pipeline.to_string();
+    let known = ["order_pair_hm90", "observable_order"];
+    if !known.contains(&pipeline_name.as_str()) {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "未知流水线: {}（支持: {:?}）",
+            pipeline, known
+        )));
+    }
+
+    let update_mode_enabled = update_mode.unwrap_or(false);
+    let progress_log_enabled = progress_log.unwrap_or(false);
+    let batch_size = backup_batch_size.unwrap_or(500);
+    let mode = mode.unwrap_or_else(|| "multiprocess".to_string());
+    let n_shards = 8;
+    let sharded_sink: Option<crate::factor_store_v5::ShardedBackupSink> = if let Some(ref sdir) =
+        store_dir
+    {
+        let snames = store_factor_names.clone().unwrap_or_else(|| {
+            (0..expected_result_length)
+                .map(|i| format!("factor_{i}"))
+                .collect()
+        });
+        Some(
+            crate::factor_store_v5::ShardedBackupSink::new_colblk_sharded(sdir, &snames, n_shards)
+                .map_err(|e| {
+                    pyo3::exceptions::PyIOError::new_err(format!("打开 colblk 存储失败: {}", e))
+                })?,
+        )
+    } else {
+        None
+    };
+    let sink: crate::factor_store_v5::BackupSink =
+        crate::factor_store_v5::BackupSink::new_bin(backup_file.clone(), expected_result_length);
+
+    // 解析参数（按 pipeline 名选不同 Params）
+    let hm90_params = if pipeline_name == "order_pair_hm90" {
+        if let Some(p) = &params {
+            parse_hm90_params(py, p)?
+        } else {
+            Hm90Params::default()
+        }
+    } else {
+        Hm90Params::default()
+    };
+    let oo_params = if pipeline_name == "observable_order" {
+        if let Some(p) = &params {
+            parse_observable_order_params(py, p)?
+        } else {
+            ObservableOrderParams::default()
+        }
+    } else {
+        ObservableOrderParams::default()
+    };
+
+    // 解析任务列表
+    let mut all_tasks: Vec<(i64, String)> = Vec::with_capacity(tasks.len());
+    for item in tasks.iter() {
+        let pair: &PyList = item.extract()?;
+        if pair.len() != 2 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "每个任务应为 [date, code]",
+            ));
+        }
+        let date: i64 = pair.get_item(0)?.extract()?;
+        let code: String = pair.get_item(1)?.extract()?;
+        all_tasks.push((date, code));
+    }
+
+    // 断点续算：过滤已完成任务
+    let pending: Vec<(i64, String)> = if update_mode_enabled {
+        let task_dates: std::collections::HashSet<i64> =
+            all_tasks.iter().map(|(d, _)| *d).collect();
+        let existing = if let Some(ref ss) = sharded_sink {
+            ss.check_completed()
+                .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("读取备份失败: {}", e)))?
+        } else {
+            sink.check_completed()
+                .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("读取备份失败: {}", e)))?
+        };
+        all_tasks
+            .into_iter()
+            .filter(|(d, c)| !existing.contains(&(*d, c.clone())))
+            .collect()
+    } else {
+        all_tasks
+    };
+
+    let total = pending.len();
+    if total == 0 {
+        println!("✅ 所有任务都已完成（v6：不投影，由 tail_v5_run_candidates_online 在线转置读取）");
+        return Ok(Python::with_gil(|py| py.None()));
+    }
+    println!("📋 待处理任务: {}, n_jobs={}", total, n_jobs);
+    // mode 路由：多进程（默认，L3缓存隔离）或线程（回退）
+    if mode == "multiprocess" {
+        if let Some(worker_bin) = locate_worker_binary() {
+            run_multiprocess_v2(
+                py,
+                pending,
+                n_jobs,
+                sink.clone_handle(),
+                sharded_sink.clone(),
+                expected_result_length,
+                trading_days,
+                hm90_params,
+                oo_params,
+                pipeline_name,
+                bind_cores,
+                batch_size,
+                progress_log_enabled,
+                &worker_bin,
+            )?;
+
+            // v6：不执行投影（finish_and_project）。后续 tail_v5_run_candidates_online 会从 colblk 在线转置读取。
+            return Ok(Python::with_gil(|py| py.None()));
+        } else {
+            return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                "run_factor_pipeline_v6 找不到 rust_pyfunc_worker 二进制（mode=multiprocess 需要 worker）",
+            ));
+        }
+    }
+    Err(pyo3::exceptions::PyValueError::new_err(
+        "run_factor_pipeline_v6 仅支持 mode=multiprocess（配合 tail_v5_run_candidates_online 在线转置回测）",
+    ))
 }

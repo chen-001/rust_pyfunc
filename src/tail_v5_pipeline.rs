@@ -9,6 +9,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use rayon::prelude::*;
+
 use arrow::array::{
     Array, Float32Array, Float64Array, Int32Array, Int64Array, TimestampMicrosecondArray,
     TimestampMillisecondArray, TimestampNanosecondArray,
@@ -1618,6 +1620,127 @@ fn neutralize_block_legacy_exact(
     Ok(output)
 }
 
+/// V7 neutralize：日期维度 rayon 并行（35945 次回归从串行到多核并行）。
+/// 计算逻辑与原版完全一致，只是把 for date_idx 改为 par_chunks_mut（每天独立写不重叠的内存区域）。
+/// 结果逐元素相同（确定性计算，并行不改变内容）。
+fn neutralize_block_legacy_exact_v7(
+    legacy_style_data: &IOOptimizedStyleData,
+    factor: ArrayView3<'_, f32>,
+    dates: &[i32],
+    stocks: &[String],
+    rank_before: bool,
+    min_valid: usize,
+) -> Result<Array3<f32>, String> {
+    let n_dates = factor.shape()[0];
+    let n_stocks = factor.shape()[1];
+    let n_factors = factor.shape()[2];
+    if dates.len() != n_dates || stocks.len() != n_stocks {
+        return Err("legacy neutralize exact v7 输入形状不匹配".to_string());
+    }
+
+    // 预计算：风格股票集合 + 排序（只算一次）
+    let mut all_style_stocks = std::collections::HashSet::new();
+    for day_data in legacy_style_data.data_by_date.values() {
+        for stock in day_data.stocks.iter() {
+            all_style_stocks.insert(stock.clone());
+        }
+    }
+    let mut ordered_factor_stocks: Vec<(usize, String)> = stocks
+        .iter()
+        .enumerate()
+        .filter_map(|(stock_idx, stock)| {
+            let stock_code = stock.get(..6).unwrap_or(stock.as_str()).to_string();
+            if all_style_stocks.contains(&stock_code) {
+                Some((stock_idx, stock_code))
+            } else {
+                None
+            }
+        })
+        .collect();
+    ordered_factor_stocks.sort_unstable_by(|lhs, rhs| lhs.1.cmp(&rhs.1));
+
+    // V7：flat output，按日期 chunk 并行（每天 n_stocks*n_factors 个元素，非重叠）
+    let day_size = n_stocks * n_factors;
+    let mut output_flat = vec![f32::NAN; n_dates * day_size];
+
+    output_flat
+        .par_chunks_mut(day_size)
+        .enumerate()
+        .for_each(|(date_idx, day_slice)| {
+            let date_key = dates[date_idx] as i64;
+            let Some(day_data) = legacy_style_data.data_by_date.get(&date_key) else {
+                return;
+            };
+            let Some(regression_matrix) = &day_data.regression_matrix else {
+                return;
+            };
+            // 当天的 stock → style 映射
+            let mut template_style_positions = vec![None; n_stocks];
+            for (stock_idx, stock) in stocks.iter().enumerate() {
+                let stock_code = stock.get(..6).unwrap_or(stock.as_str());
+                if let Some(&style_idx) = day_data.stock_index_map.get(stock_code) {
+                    template_style_positions[stock_idx] = Some(style_idx);
+                }
+            }
+
+            let mut daily_factor_values = Vec::<f64>::with_capacity(n_stocks);
+            let mut valid_stock_indices = Vec::<usize>::with_capacity(n_stocks);
+            let mut valid_style_indices = Vec::<usize>::with_capacity(n_stocks);
+            let n_features = day_data.style_matrix.ncols();
+            let mut beta_values = vec![0.0_f64; n_features];
+
+            for factor_idx in 0..n_factors {
+                daily_factor_values.clear();
+                valid_stock_indices.clear();
+                valid_style_indices.clear();
+                beta_values.fill(0.0);
+
+                for &(stock_idx, _) in ordered_factor_stocks.iter() {
+                    let Some(style_idx) = template_style_positions[stock_idx] else {
+                        continue;
+                    };
+                    let value = factor[[date_idx, stock_idx, factor_idx]];
+                    if value.is_finite() {
+                        daily_factor_values.push(value as f64);
+                        valid_stock_indices.push(stock_idx);
+                        valid_style_indices.push(style_idx);
+                    }
+                }
+                if daily_factor_values.len() < min_valid {
+                    continue;
+                }
+                let ranked_values = if rank_before {
+                    legacy_rank_values(&daily_factor_values)
+                } else {
+                    daily_factor_values.clone()
+                };
+
+                for (col_idx, &style_idx) in valid_style_indices.iter().enumerate() {
+                    let y_value = ranked_values[col_idx];
+                    for feature_idx in 0..n_features {
+                        beta_values[feature_idx] +=
+                            regression_matrix[(feature_idx, style_idx)] * y_value;
+                    }
+                }
+
+                for (row_idx, &stock_idx) in valid_stock_indices.iter().enumerate() {
+                    let style_idx = valid_style_indices[row_idx];
+                    let mut predicted = 0.0_f64;
+                    for feature_idx in 0..n_features {
+                        predicted +=
+                            day_data.style_matrix[(style_idx, feature_idx)] * beta_values[feature_idx];
+                    }
+                    // V7: 写 flat slice（day_slice[stock_idx * n_factors + factor_idx]）
+                    day_slice[stock_idx * n_factors + factor_idx] =
+                        (ranked_values[row_idx] - predicted) as f32;
+                }
+            }
+        });
+
+    Ok(Array3::from_shape_vec((n_dates, n_stocks, n_factors), output_flat)
+        .map_err(|e| format!("neutralize v7 输出形状错误: {e}"))?)
+}
+
 #[pyclass]
 pub struct TailV5LegacyStyleData {
     style_data: Arc<IOOptimizedStyleData>,
@@ -3119,3 +3242,1651 @@ mod tests {
         assert_eq!(result, 1.0);
     }
 }
+
+
+// ==================== v6：在线转置回测（不读投影区，从 colblk 批量转置，回测核心零改动）====================
+#[pyfunction]
+#[pyo3(signature = (
+    factor_names,
+    factor_paths,
+    dates,
+    stocks,
+    windows,
+    fold,
+    n_jobs,
+    min_valid,
+    cache_root,
+    style_data_path,
+    ret_gap1_path,
+    ret_sum_gap1_path,
+    ret_gap5_path,
+    ret_sum_gap5_path,
+    restrict_path,
+    index_ret_path,
+    backtest_start,
+    cover_rate=0.97,
+    ret_point_neu_gap5=0.055,
+    ret_point_neu_gap1=0.08,
+    ic_point_neu_gap5=0.01,
+    ic_point_neu_gap1=0.006,
+    ret_point_gap5=0.1,
+    ret_point_gap1=0.13,
+    ic_point_gap5=0.03,
+    ic_point_gap1=0.02,
+    ic_more_important_gap5=0.01,
+    ic_more_important_gap1=0.006,
+    majority_count_threshold=200.0,
+    zero_max_threshold=0.01,
+    nan_max_threshold=0.04,
+))]
+pub fn tail_v5_run_candidates_online<'py>(
+    py: Python<'py>,
+    factor_names: Vec<String>,
+    factor_paths: Vec<String>,
+    dates: Vec<i32>,
+    stocks: Vec<String>,
+    windows: Vec<usize>,
+    fold: bool,
+    n_jobs: usize,
+    min_valid: usize,
+    cache_root: String,
+    style_data_path: String,
+    ret_gap1_path: String,
+    ret_sum_gap1_path: String,
+    ret_gap5_path: String,
+    ret_sum_gap5_path: String,
+    restrict_path: String,
+    index_ret_path: String,
+    backtest_start: i32,
+    cover_rate: f64,
+    ret_point_neu_gap5: f64,
+    ret_point_neu_gap1: f64,
+    ic_point_neu_gap5: f64,
+    ic_point_neu_gap1: f64,
+    ret_point_gap5: f64,
+    ret_point_gap1: f64,
+    ic_point_gap5: f64,
+    ic_point_gap1: f64,
+    ic_more_important_gap5: Option<f64>,
+    ic_more_important_gap1: Option<f64>,
+    majority_count_threshold: f64,
+    zero_max_threshold: f64,
+    nan_max_threshold: f64,
+) -> PyResult<PyObject> {
+    if factor_names.len() != factor_paths.len() {
+        return Err(PyValueError::new_err(
+            "factor_names 和 factor_paths 长度必须一致",
+        ));
+    }
+    if n_jobs == 0 {
+        return Err(PyValueError::new_err("n_jobs 必须大于 0"));
+    }
+    if (ic_more_important_gap5.is_some()) != (ic_more_important_gap1.is_some()) {
+        return Err(PyValueError::new_err(
+            "ic_more_important_gap5 和 ic_more_important_gap1 必须同时有值或同时为 None",
+        ));
+    }
+
+    let output = py.allow_threads(|| -> Result<(usize, usize, HashMap<String, usize>), String> {
+        let started = Instant::now();
+        let cache_root_path = PathBuf::from(&cache_root);
+        let task_results_dir = cache_root_path.join("task_results");
+        let logs_dir = cache_root_path.join("logs");
+        let completed_log_path = logs_dir.join("completed_sources.txt");
+        fs::create_dir_all(&task_results_dir).map_err(|e| format!("创建 task_results 目录失败: {}", e))?;
+        fs::create_dir_all(&logs_dir).map_err(|e| format!("创建 logs 目录失败: {}", e))?;
+
+        let shared = SharedInputs {
+            dates: Arc::new(dates),
+            stocks: Arc::new(stocks),
+            windows: Arc::new(windows),
+            fold,
+            min_valid,
+            backtest_start,
+            legacy_style_data: Arc::new(
+                IOOptimizedStyleData::load_from_parquet_io_optimized(&style_data_path)
+                    .map_err(|e| e.to_string())?
+            ),
+            ret_gap1: Arc::new(read_npy(&ret_gap1_path).map_err(|e| format!("读取 ret_gap1.npy 失败: {}", e))?),
+            ret_sum_gap1: Arc::new(read_npy(&ret_sum_gap1_path).map_err(|e| format!("读取 ret_sum_gap1.npy 失败: {}", e))?),
+            ret_gap5: Arc::new(read_npy(&ret_gap5_path).map_err(|e| format!("读取 ret_gap5.npy 失败: {}", e))?),
+            ret_sum_gap5: Arc::new(read_npy(&ret_sum_gap5_path).map_err(|e| format!("读取 ret_sum_gap5.npy 失败: {}", e))?),
+            restrict: Arc::new(read_npy(&restrict_path).map_err(|e| format!("读取 restrict.npy 失败: {}", e))?),
+            index_ret: Arc::new(read_npy(&index_ret_path).map_err(|e| format!("读取 index_ret.npy 失败: {}", e))?),
+            config: Arc::new(TailSelectionConfig {
+                cover_rate,
+                ret_point_neu_gap5,
+                ret_point_neu_gap1,
+                ic_point_neu_gap5,
+                ic_point_neu_gap1,
+                ret_point_gap5,
+                ret_point_gap1,
+                ic_point_gap5,
+                ic_point_gap1,
+                ic_more_important_gap5,
+                ic_more_important_gap1,
+                majority_count_threshold,
+                zero_max_threshold,
+                nan_max_threshold,
+            }),
+        };
+
+        let mut aggregated = AggregatedCandidates::default();
+        let mut completed_sources = HashSet::<String>::new();
+        let mut stats = ProcessStats::default();
+        for (source_factor, factor_path) in factor_names.iter().zip(factor_paths.iter()) {
+            let result_path = factor_result_path(&task_results_dir, source_factor);
+            if result_path.exists() {
+                if let Ok(mut task_result) = read_task_result(&result_path) {
+                    if !task_result.passed
+                        && (!task_result.raw_summary_gap1.is_empty()
+                            || !task_result.raw_summary_gap5.is_empty()
+                            || !task_result.neu_summary_gap1.is_empty()
+                            || !task_result.neu_summary_gap5.is_empty())
+                    {
+                        task_result.passed = true;
+                    }
+                    if task_result.passed {
+                        stats.restored_pass += 1;
+                    } else if task_result.eliminated_by_raw_cover {
+                        stats.restored_raw_cov += 1;
+                    } else if !task_result.any_window_passed_preflight
+                        && !task_result.raw_summary_gap1.is_empty() == false
+                        && !task_result.raw_summary_gap5.is_empty() == false
+                        && !task_result.neu_summary_gap1.is_empty() == false
+                        && !task_result.neu_summary_gap5.is_empty() == false
+                        && !task_result.passed
+                    {
+                        // 区分 preflight 淘汰 vs 未知:
+                        // 旧缓存没有 any_window_passed_preflight(默认false)
+                        // 也没有 eliminated_by_raw_cover(默认false)
+                        // 如果所有 summary vecs 都为空且 passed=false
+                        // 我们通过是否有 preflight 失败记录来判断
+                        if task_result.preflight_maj_failed_windows > 0
+                            || task_result.preflight_zero_failed_windows > 0
+                            || task_result.preflight_nan_failed_windows > 0
+                        {
+                            stats.restored_preflight += 1;
+                        } else {
+                            stats.restored_unknown += 1;
+                        }
+                    } else {
+                        // any_window_passed_preflight=true, passed=false → ret_ic淘汰
+                        stats.restored_ret_ic += 1;
+                    }
+                    stats.preflight_maj_windows += task_result.preflight_maj_failed_windows;
+                    stats.preflight_zero_windows += task_result.preflight_zero_failed_windows;
+                    stats.preflight_nan_windows += task_result.preflight_nan_failed_windows;
+                    aggregated.merge_task(task_result);
+                    completed_sources.insert(source_factor.clone());
+                    continue;
+                }
+            }
+            let _ = factor_path;
+        }
+        let restored_sources =
+            stats.restored_pass + stats.restored_raw_cov + stats.restored_preflight
+            + stats.restored_ret_ic + stats.restored_unknown;
+
+        let pending_tasks = factor_names
+            .iter()
+            .zip(factor_paths.iter())
+            .filter_map(|(source_factor, factor_path)| {
+                if completed_sources.contains(source_factor) {
+                    None
+                } else {
+                    Some(TailTask {
+                        source_factor: source_factor.clone(),
+                        factor_path: factor_path.clone(),
+                    })
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let total_pending = pending_tasks.len();
+        if total_pending > 0 {
+            init_status_line();
+            let current_time = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+            let total = factor_names.len();
+            let total_elim = restored_sources - stats.restored_pass;
+            let l1 = format!("[{}] Tail V4 启动，待处理 {}/{} 个原始因子", current_time, total_pending, total);
+            let l2 = format!("累计通过 {} ({}%) | 淘汰 raw_cov={} preflight={} ret_ic={} 未知={}",
+                stats.restored_pass,
+                if restored_sources > 0 { stats.restored_pass * 100 / restored_sources } else { 0 },
+                stats.restored_raw_cov, stats.restored_preflight,
+                stats.restored_ret_ic, stats.restored_unknown);
+            let _ = total_elim; // suppress unused warning
+            let l3 = format!("maj={}w zero={}w nan={}w | 恢复 {} 个 | 即将开始处理...",
+                stats.preflight_maj_windows, stats.preflight_zero_windows,
+                stats.preflight_nan_windows, restored_sources);
+            update_status_line(&l1, &l2, &l3);
+        }
+        let (task_sender, task_receiver): (Sender<TailTask>, Receiver<TailTask>) = unbounded();
+        let (result_sender, result_receiver) = unbounded::<Result<TailTaskResult, (String, String)>>();
+        for task in pending_tasks {
+            task_sender.send(task).map_err(|e| format!("发送任务失败: {}", e))?;
+        }
+        drop(task_sender);
+
+        let shared_arc = Arc::new(shared);
+
+        // 检测是否为列式存储模式（任一 task 路径含 "::"）。
+        // 若是，启用 IO/CPU 分离架构：少量 IO 线程顺序读因子 → 有界内存队列 → n_jobs 计算线程。
+        // 否则保持原逻辑：n_jobs 线程各自读盘 + 计算（兼容 parquet/h5）。
+        let is_colblk_mode = factor_paths.iter().any(|p| p.contains("::"));
+
+        // v6 在线转置：单 IO 线程批量转置 colblk（不读投影区）→ 有界 channel → n_jobs 计算线程。
+        // 分批按 col_idx 顺序遍历 chunk，每批因子数由 500GB 内存预算动态决定。
+        if is_colblk_mode {
+            let (loaded_tx, loaded_rx) =
+                crossbeam::channel::bounded::<(TailTask, ndarray::Array2<f32>)>(16);
+
+            // 解析唯一 store_dir（所有 colblk task 共享同一 Reader）
+            let store_dir_for_reader = factor_paths
+                .iter()
+                .find_map(|p| {
+                    if p.contains("::") {
+                        let sp = p.splitn(2, "::").next().unwrap_or("");
+                        if sp.ends_with(".colblk") {
+                            Path::new(sp).parent().map(|x| x.to_string_lossy().to_string())
+                        } else {
+                            Some(sp.to_string())
+                        }
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_default();
+
+            // 解析 col_idx → task 映射；收集全部 col_idx（去重排序，假设连续以高效读 chunk 内因子段）
+            let mut col_idx_to_task: HashMap<usize, TailTask> = HashMap::new();
+            for (source_factor, factor_path) in factor_names.iter().zip(factor_paths.iter()) {
+                if let Some(s) = factor_path.splitn(2, "::").nth(1) {
+                    if let Ok(col_idx) = s.parse::<usize>() {
+                        col_idx_to_task.insert(
+                            col_idx,
+                            TailTask {
+                                source_factor: source_factor.clone(),
+                                factor_path: factor_path.clone(),
+                            },
+                        );
+                    }
+                }
+            }
+            let mut all_col_idx: Vec<usize> = col_idx_to_task.keys().copied().collect();
+            all_col_idx.sort_unstable();
+            let total_factors = all_col_idx.len();
+
+            // 流式转置：逐因子读 colblk（遍历 chunk 一次，每因子立即推 channel）
+            // 内存：channel 缓冲 16 个矩阵 + process 中间量 ≈ 50GB
+            eprintln!(
+                "🔧 v6 流式转置（逐因子）：{} 因子，遍历 colblk 逐因子转置+推channel",
+                total_factors
+            );
+
+            // IO 线程：逐因子读 colblk → 转置 → 推 channel
+            // 复用 read_factor_to_matrix（单因子读 colblk 回退路径，已验证与投影区一致）
+            let io_handle = {
+                let dates = shared_arc.dates.clone();
+                let stocks = shared_arc.stocks.clone();
+                thread::spawn(move || {
+                    let reader = match crate::factor_store_v5::FactorStoreReader::open(
+                        &store_dir_for_reader,
+                    ) {
+                        Ok(r) => r,
+                        Err(_) => return,
+                    };
+                    for &col_idx in all_col_idx.iter() {
+                        let matrix = match reader.read_factor_to_matrix(
+                            col_idx,
+                            dates.as_slice(),
+                            stocks.as_slice(),
+                        ) {
+                            Ok(m) => m,
+                            Err(_) => continue,
+                        };
+                        if let Some(task) = col_idx_to_task.get(&col_idx) {
+                            if loaded_tx.send((task.clone(), matrix)).is_err() {
+                                return;
+                            }
+                        }
+                    }
+                })
+            };
+
+            // n_jobs 计算线程（纯内存，与原版完全一致——零改动复用 process_task_with_values）
+            let mut handles = Vec::with_capacity(n_jobs);
+            for _ in 0..n_jobs {
+                let loaded_rx = loaded_rx.clone();
+                let tx = result_sender.clone();
+                let shared_clone = shared_arc.clone();
+                handles.push(thread::spawn(move || {
+                    while let Ok((task, raw_values)) = loaded_rx.recv() {
+                        let task_name = task.source_factor.clone();
+                        let outcome = process_task_with_values(&task, raw_values, &shared_clone)
+                            .map_err(|err| (task_name, err));
+                        if tx.send(outcome).is_err() {
+                            break;
+                        }
+                    }
+                }));
+            }
+            drop(result_sender);
+
+            let _ = io_handle.join();
+            for h in handles {
+                let _ = h.join();
+            }
+        } else {
+            // ---- 非 colblk 模式：原架构（n_jobs 线程各自读盘 + 计算，兼容 parquet/h5）----
+            let mut handles = Vec::with_capacity(n_jobs);
+            for _ in 0..n_jobs {
+                let rx = task_receiver.clone();
+                let tx = result_sender.clone();
+                let shared_clone = shared_arc.clone();
+                handles.push(thread::spawn(move || {
+                    while let Ok(task) = rx.recv() {
+                        let task_name = task.source_factor.clone();
+                        let outcome = process_task(&task, &shared_clone)
+                            .map_err(|err| (task_name, err));
+                        if tx.send(outcome).is_err() {
+                            break;
+                        }
+                    }
+                }));
+            }
+            drop(result_sender);
+            for h in handles {
+                let _ = h.join();
+            }
+        }
+
+        let mut processed_sources = 0usize;
+        while let Ok(task_outcome) = result_receiver.recv() {
+            match task_outcome {
+                Ok(task_result) => {
+                    let result_path = factor_result_path(&task_results_dir, &task_result.source_factor);
+                    let is_passed = task_result.passed;
+                    let is_raw_cov = task_result.eliminated_by_raw_cover;
+                    let any_window = task_result.any_window_passed_preflight;
+                    let preflight_maj = task_result.preflight_maj_failed_windows;
+                    let preflight_zero = task_result.preflight_zero_failed_windows;
+                    let preflight_nan = task_result.preflight_nan_failed_windows;
+                    write_task_result(&result_path, &task_result)?;
+                    append_completed_source(&completed_log_path, &task_result.source_factor)?;
+                    aggregated.merge_task(task_result);
+                    processed_sources += 1;
+
+                    if is_passed {
+                        stats.done_pass += 1;
+                    } else if is_raw_cov {
+                        stats.done_raw_cov += 1;
+                    } else if !any_window {
+                        stats.done_preflight += 1;
+                    } else {
+                        stats.done_ret_ic += 1;
+                    }
+                    stats.done = processed_sources;
+                    stats.preflight_maj_windows += preflight_maj;
+                    stats.preflight_zero_windows += preflight_zero;
+                    stats.preflight_nan_windows += preflight_nan;
+
+                    if total_pending > 0 {
+                        let elapsed = started.elapsed();
+                        let elapsed_secs = elapsed.as_secs();
+                        let progress = processed_sources as f64 / total_pending as f64;
+                        let estimated_total_secs = if progress > 0.0 {
+                            elapsed.as_secs_f64() / progress
+                        } else {
+                            elapsed.as_secs_f64()
+                        };
+                        let remaining_secs = if estimated_total_secs > elapsed.as_secs_f64() {
+                            (estimated_total_secs - elapsed.as_secs_f64()) as u64
+                        } else {
+                            0
+                        };
+                        let (elapsed_h, elapsed_m, elapsed_s) = format_hms(elapsed_secs);
+                        let (remaining_h, remaining_m, remaining_s) = format_hms(remaining_secs);
+                        let current_time = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+
+                        let cum_pass = stats.restored_pass + stats.done_pass;
+                        let cum_total = restored_sources + processed_sources;
+                        let cum_raw_cov = stats.restored_raw_cov + stats.done_raw_cov;
+                        let cum_preflight = stats.restored_preflight + stats.done_preflight;
+                        let cum_ret_ic = stats.restored_ret_ic + stats.done_ret_ic;
+                        let cum_unknown = stats.restored_unknown + stats.done_unknown;
+
+                        let l1 = format!(
+                            "[{}] Tail V4 进度 {}/{} ({:.1}%)，已用{}h{}m{}s，预计剩余{}h{}m{}s",
+                            current_time, processed_sources, total_pending,
+                            progress * 100.0,
+                            elapsed_h, elapsed_m, elapsed_s,
+                            remaining_h, remaining_m, remaining_s,
+                        );
+                        let l2 = format!(
+                            "累计通过 {} ({:.0}%) | 淘汰 raw_cov={} preflight={} ret_ic={} 未知={}",
+                            cum_pass,
+                            if cum_total > 0 { cum_pass as f64 * 100.0 / cum_total as f64 } else { 0.0 },
+                            cum_raw_cov, cum_preflight, cum_ret_ic, cum_unknown,
+                        );
+                        let l3 = format!(
+                            "maj={}w zero={}w nan={}w | 本次 {}(通过{}) | 恢复 {}(通过{})",
+                            stats.preflight_maj_windows, stats.preflight_zero_windows,
+                            stats.preflight_nan_windows,
+                            stats.done, stats.done_pass,
+                            restored_sources, stats.restored_pass,
+                        );
+                        update_status_line(&l1, &l2, &l3);
+                    }
+                }
+                Err((task_name, err)) => {
+                    reset_status_line();
+                    return Err(format!("处理因子 {} 失败: {}", task_name, err));
+                }
+            }
+        }
+
+        if total_pending > 0 {
+            println!();
+            reset_status_line();
+        }
+
+        // 注意：worker 线程在上方 IO/CPU 分离分支或原架构分支内已全部 join 完毕。
+
+        write_aggregated_outputs(
+            &cache_root_path,
+            &aggregated,
+        )?;
+
+        let mut candidate_counts = HashMap::new();
+        candidate_counts.insert("rolled_gap1".to_string(), aggregated.raw_summary_gap1.len());
+        candidate_counts.insert("rolled_gap5".to_string(), aggregated.raw_summary_gap5.len());
+        candidate_counts.insert("neu_gap1".to_string(), aggregated.neu_summary_gap1.len());
+        candidate_counts.insert("neu_gap5".to_string(), aggregated.neu_summary_gap5.len());
+        Ok((processed_sources, restored_sources, candidate_counts))
+    }).map_err(PyRuntimeError::new_err)?;
+
+    let info = PyDict::new(py);
+    info.set_item("processed_sources", output.0)?;
+    info.set_item("restored_sources", output.1)?;
+    let candidate_counts = PyDict::new(py);
+    for (key, value) in output.2 {
+        candidate_counts.set_item(key, value)?;
+    }
+    info.set_item("candidate_counts", candidate_counts)?;
+    Ok(info.into())
+}
+
+
+// ==================== V7：批量顺序 pread 回测（消除 HDD 寻道，回测核心零改动）====================
+#[pyfunction]
+#[pyo3(signature = (
+    factor_names,
+    factor_paths,
+    dates,
+    stocks,
+    windows,
+    fold,
+    n_jobs,
+    min_valid,
+    cache_root,
+    style_data_path,
+    ret_gap1_path,
+    ret_sum_gap1_path,
+    ret_gap5_path,
+    ret_sum_gap5_path,
+    restrict_path,
+    index_ret_path,
+    backtest_start,
+    cover_rate=0.97,
+    ret_point_neu_gap5=0.055,
+    ret_point_neu_gap1=0.08,
+    ic_point_neu_gap5=0.01,
+    ic_point_neu_gap1=0.006,
+    ret_point_gap5=0.1,
+    ret_point_gap1=0.13,
+    ic_point_gap5=0.03,
+    ic_point_gap1=0.02,
+    ic_more_important_gap5=0.01,
+    ic_more_important_gap1=0.006,
+    majority_count_threshold=200.0,
+    zero_max_threshold=0.01,
+    nan_max_threshold=0.04,
+))]
+pub fn tail_v5_run_candidates_v7<'py>(
+    py: Python<'py>,
+    factor_names: Vec<String>,
+    factor_paths: Vec<String>,
+    dates: Vec<i32>,
+    stocks: Vec<String>,
+    windows: Vec<usize>,
+    fold: bool,
+    n_jobs: usize,
+    min_valid: usize,
+    cache_root: String,
+    style_data_path: String,
+    ret_gap1_path: String,
+    ret_sum_gap1_path: String,
+    ret_gap5_path: String,
+    ret_sum_gap5_path: String,
+    restrict_path: String,
+    index_ret_path: String,
+    backtest_start: i32,
+    cover_rate: f64,
+    ret_point_neu_gap5: f64,
+    ret_point_neu_gap1: f64,
+    ic_point_neu_gap5: f64,
+    ic_point_neu_gap1: f64,
+    ret_point_gap5: f64,
+    ret_point_gap1: f64,
+    ic_point_gap5: f64,
+    ic_point_gap1: f64,
+    ic_more_important_gap5: Option<f64>,
+    ic_more_important_gap1: Option<f64>,
+    majority_count_threshold: f64,
+    zero_max_threshold: f64,
+    nan_max_threshold: f64,
+) -> PyResult<PyObject> {
+    if factor_names.len() != factor_paths.len() {
+        return Err(PyValueError::new_err(
+            "factor_names 和 factor_paths 长度必须一致",
+        ));
+    }
+    if n_jobs == 0 {
+        return Err(PyValueError::new_err("n_jobs 必须大于 0"));
+    }
+    if (ic_more_important_gap5.is_some()) != (ic_more_important_gap1.is_some()) {
+        return Err(PyValueError::new_err(
+            "ic_more_important_gap5 和 ic_more_important_gap1 必须同时有值或同时为 None",
+        ));
+    }
+
+    let output = py.allow_threads(|| -> Result<(usize, usize, HashMap<String, usize>), String> {
+        let started = Instant::now();
+        let cache_root_path = PathBuf::from(&cache_root);
+        let task_results_dir = cache_root_path.join("task_results");
+        let logs_dir = cache_root_path.join("logs");
+        let completed_log_path = logs_dir.join("completed_sources.txt");
+        fs::create_dir_all(&task_results_dir).map_err(|e| format!("创建 task_results 目录失败: {}", e))?;
+        fs::create_dir_all(&logs_dir).map_err(|e| format!("创建 logs 目录失败: {}", e))?;
+
+        let shared = SharedInputs {
+            dates: Arc::new(dates),
+            stocks: Arc::new(stocks),
+            windows: Arc::new(windows),
+            fold,
+            min_valid,
+            backtest_start,
+            legacy_style_data: Arc::new(
+                IOOptimizedStyleData::load_from_parquet_io_optimized(&style_data_path)
+                    .map_err(|e| e.to_string())?
+            ),
+            ret_gap1: Arc::new(read_npy(&ret_gap1_path).map_err(|e| format!("读取 ret_gap1.npy 失败: {}", e))?),
+            ret_sum_gap1: Arc::new(read_npy(&ret_sum_gap1_path).map_err(|e| format!("读取 ret_sum_gap1.npy 失败: {}", e))?),
+            ret_gap5: Arc::new(read_npy(&ret_gap5_path).map_err(|e| format!("读取 ret_gap5.npy 失败: {}", e))?),
+            ret_sum_gap5: Arc::new(read_npy(&ret_sum_gap5_path).map_err(|e| format!("读取 ret_sum_gap5.npy 失败: {}", e))?),
+            restrict: Arc::new(read_npy(&restrict_path).map_err(|e| format!("读取 restrict.npy 失败: {}", e))?),
+            index_ret: Arc::new(read_npy(&index_ret_path).map_err(|e| format!("读取 index_ret.npy 失败: {}", e))?),
+            config: Arc::new(TailSelectionConfig {
+                cover_rate,
+                ret_point_neu_gap5,
+                ret_point_neu_gap1,
+                ic_point_neu_gap5,
+                ic_point_neu_gap1,
+                ret_point_gap5,
+                ret_point_gap1,
+                ic_point_gap5,
+                ic_point_gap1,
+                ic_more_important_gap5,
+                ic_more_important_gap1,
+                majority_count_threshold,
+                zero_max_threshold,
+                nan_max_threshold,
+            }),
+        };
+
+        let mut aggregated = AggregatedCandidates::default();
+        let mut completed_sources = HashSet::<String>::new();
+        let mut stats = ProcessStats::default();
+        for (source_factor, factor_path) in factor_names.iter().zip(factor_paths.iter()) {
+            let result_path = factor_result_path(&task_results_dir, source_factor);
+            if result_path.exists() {
+                if let Ok(mut task_result) = read_task_result(&result_path) {
+                    if !task_result.passed
+                        && (!task_result.raw_summary_gap1.is_empty()
+                            || !task_result.raw_summary_gap5.is_empty()
+                            || !task_result.neu_summary_gap1.is_empty()
+                            || !task_result.neu_summary_gap5.is_empty())
+                    {
+                        task_result.passed = true;
+                    }
+                    if task_result.passed {
+                        stats.restored_pass += 1;
+                    } else if task_result.eliminated_by_raw_cover {
+                        stats.restored_raw_cov += 1;
+                    } else if !task_result.any_window_passed_preflight
+                        && !task_result.raw_summary_gap1.is_empty() == false
+                        && !task_result.raw_summary_gap5.is_empty() == false
+                        && !task_result.neu_summary_gap1.is_empty() == false
+                        && !task_result.neu_summary_gap5.is_empty() == false
+                        && !task_result.passed
+                    {
+                        // 区分 preflight 淘汰 vs 未知:
+                        // 旧缓存没有 any_window_passed_preflight(默认false)
+                        // 也没有 eliminated_by_raw_cover(默认false)
+                        // 如果所有 summary vecs 都为空且 passed=false
+                        // 我们通过是否有 preflight 失败记录来判断
+                        if task_result.preflight_maj_failed_windows > 0
+                            || task_result.preflight_zero_failed_windows > 0
+                            || task_result.preflight_nan_failed_windows > 0
+                        {
+                            stats.restored_preflight += 1;
+                        } else {
+                            stats.restored_unknown += 1;
+                        }
+                    } else {
+                        // any_window_passed_preflight=true, passed=false → ret_ic淘汰
+                        stats.restored_ret_ic += 1;
+                    }
+                    stats.preflight_maj_windows += task_result.preflight_maj_failed_windows;
+                    stats.preflight_zero_windows += task_result.preflight_zero_failed_windows;
+                    stats.preflight_nan_windows += task_result.preflight_nan_failed_windows;
+                    aggregated.merge_task(task_result);
+                    completed_sources.insert(source_factor.clone());
+                    continue;
+                }
+            }
+            let _ = factor_path;
+        }
+        let restored_sources =
+            stats.restored_pass + stats.restored_raw_cov + stats.restored_preflight
+            + stats.restored_ret_ic + stats.restored_unknown;
+
+        let pending_tasks = factor_names
+            .iter()
+            .zip(factor_paths.iter())
+            .filter_map(|(source_factor, factor_path)| {
+                if completed_sources.contains(source_factor) {
+                    None
+                } else {
+                    Some(TailTask {
+                        source_factor: source_factor.clone(),
+                        factor_path: factor_path.clone(),
+                    })
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let total_pending = pending_tasks.len();
+        if total_pending > 0 {
+            init_status_line();
+            let current_time = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+            let total = factor_names.len();
+            let total_elim = restored_sources - stats.restored_pass;
+            let l1 = format!("[{}] Tail V4 启动，待处理 {}/{} 个原始因子", current_time, total_pending, total);
+            let l2 = format!("累计通过 {} ({}%) | 淘汰 raw_cov={} preflight={} ret_ic={} 未知={}",
+                stats.restored_pass,
+                if restored_sources > 0 { stats.restored_pass * 100 / restored_sources } else { 0 },
+                stats.restored_raw_cov, stats.restored_preflight,
+                stats.restored_ret_ic, stats.restored_unknown);
+            let _ = total_elim; // suppress unused warning
+            let l3 = format!("maj={}w zero={}w nan={}w | 恢复 {} 个 | 即将开始处理...",
+                stats.preflight_maj_windows, stats.preflight_zero_windows,
+                stats.preflight_nan_windows, restored_sources);
+            update_status_line(&l1, &l2, &l3);
+        }
+        let (task_sender, task_receiver): (Sender<TailTask>, Receiver<TailTask>) = unbounded();
+        let (result_sender, result_receiver) = unbounded::<Result<TailTaskResult, (String, String)>>();
+        for task in pending_tasks {
+            task_sender.send(task).map_err(|e| format!("发送任务失败: {}", e))?;
+        }
+        drop(task_sender);
+
+        let shared_arc = Arc::new(shared);
+
+        // 检测是否为列式存储模式（任一 task 路径含 "::"）。
+        // 若是，启用 IO/CPU 分离架构：少量 IO 线程顺序读因子 → 有界内存队列 → n_jobs 计算线程。
+        // 否则保持原逻辑：n_jobs 线程各自读盘 + 计算（兼容 parquet/h5）。
+        let is_colblk_mode = factor_paths.iter().any(|p| p.contains("::"));
+
+        // V7 批量顺序 pread：IO 线程一次读 N 个连续因子的投影段（顺序 pread + fadvise）
+        // 消除 HDD 随机寻道。计算线程零改动（复用 process_task_with_values）。
+        if is_colblk_mode {
+            let (loaded_tx, loaded_rx) =
+                crossbeam::channel::bounded::<(TailTask, ndarray::Array2<f32>)>(16);
+
+            let store_dir_for_reader = factor_paths
+                .iter()
+                .find_map(|p| {
+                    if p.contains("::") {
+                        let sp = p.splitn(2, "::").next().unwrap_or("");
+                        if sp.ends_with(".colblk") {
+                            Path::new(sp).parent().map(|x| x.to_string_lossy().to_string())
+                        } else {
+                            Some(sp.to_string())
+                        }
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_default();
+
+            // col_idx → task 映射
+            let mut col_idx_to_task: HashMap<usize, TailTask> = HashMap::new();
+            for (source_factor, factor_path) in factor_names.iter().zip(factor_paths.iter()) {
+                if let Some(s) = factor_path.splitn(2, "::").nth(1) {
+                    if let Ok(col_idx) = s.parse::<usize>() {
+                        col_idx_to_task.insert(
+                            col_idx,
+                            TailTask {
+                                source_factor: source_factor.clone(),
+                                factor_path: factor_path.clone(),
+                            },
+                        );
+                    }
+                }
+            }
+            let mut all_col_idx: Vec<usize> = col_idx_to_task.keys().copied().collect();
+            all_col_idx.sort_unstable();
+            let total_factors = all_col_idx.len();
+
+            // V7 批量大小：一次 pread 读 BATCH 个连续因子（投影段连续）
+            const V7_BATCH: usize = 50;
+            eprintln!(
+                "🚀 V7 批量顺序 pread：{} 因子，每 {} 个一批（顺序 pread + fadvise）",
+                total_factors, V7_BATCH
+            );
+
+            let io_handle = {
+                let dates = shared_arc.dates.clone();
+                let stocks = shared_arc.stocks.clone();
+                thread::spawn(move || {
+                    let reader = match crate::factor_store_v5::FactorStoreReader::open(
+                        &store_dir_for_reader,
+                    ) {
+                        Ok(r) => r,
+                        Err(_) => return,
+                    };
+                    let mut start = 0usize;
+                    while start < total_factors {
+                        let col_start = all_col_idx[start];
+                        let end = (start + V7_BATCH).min(total_factors);
+                        let col_end = all_col_idx[end - 1] + 1; // 连续区间
+                        // V7 批量 pread：一次读 [col_start, col_end) 的投影段
+                        let matrices = match reader.read_factors_batch_v7(
+                            col_start,
+                            col_end,
+                            dates.as_slice(),
+                            stocks.as_slice(),
+                        ) {
+                            Ok(m) => m,
+                            Err(e) => {
+                                eprintln!("⚠️ V7 批量 pread 失败 [{col_start},{col_end}): {e}");
+                                start = end;
+                                continue;
+                            }
+                        };
+                        // 逐因子推 channel
+                        for (bi, matrix) in matrices.into_iter().enumerate() {
+                            let col_idx = col_start + bi;
+                            if let Some(task) = col_idx_to_task.get(&col_idx) {
+                                if loaded_tx.send((task.clone(), matrix)).is_err() {
+                                    return;
+                                }
+                            }
+                        }
+                        start = end;
+                    }
+                })
+            };
+
+            // n_jobs 计算线程（零改动）
+            let mut handles = Vec::with_capacity(n_jobs);
+            for _ in 0..n_jobs {
+                let loaded_rx = loaded_rx.clone();
+                let tx = result_sender.clone();
+                let shared_clone = shared_arc.clone();
+                handles.push(thread::spawn(move || {
+                    while let Ok((task, raw_values)) = loaded_rx.recv() {
+                        let task_name = task.source_factor.clone();
+                        let outcome = process_task_with_values_v7(&task, raw_values, &shared_clone)
+                            .map_err(|err| (task_name, err));
+                        if tx.send(outcome).is_err() {
+                            break;
+                        }
+                    }
+                }));
+            }
+            drop(result_sender);
+
+            let _ = io_handle.join();
+            for h in handles {
+                let _ = h.join();
+            }
+        } else {
+            // ---- 非 colblk 模式：原架构 ----
+            let mut handles = Vec::with_capacity(n_jobs);
+            for _ in 0..n_jobs {
+                let rx = task_receiver.clone();
+                let tx = result_sender.clone();
+                let shared_clone = shared_arc.clone();
+                handles.push(thread::spawn(move || {
+                    while let Ok(task) = rx.recv() {
+                        let task_name = task.source_factor.clone();
+                        let outcome = process_task(&task, &shared_clone)
+                            .map_err(|err| (task_name, err));
+                        if tx.send(outcome).is_err() {
+                            break;
+                        }
+                    }
+                }));
+            }
+            drop(result_sender);
+            for h in handles {
+                let _ = h.join();
+            }
+        }
+
+        let mut processed_sources = 0usize;
+        while let Ok(task_outcome) = result_receiver.recv() {
+            match task_outcome {
+                Ok(task_result) => {
+                    let result_path = factor_result_path(&task_results_dir, &task_result.source_factor);
+                    let is_passed = task_result.passed;
+                    let is_raw_cov = task_result.eliminated_by_raw_cover;
+                    let any_window = task_result.any_window_passed_preflight;
+                    let preflight_maj = task_result.preflight_maj_failed_windows;
+                    let preflight_zero = task_result.preflight_zero_failed_windows;
+                    let preflight_nan = task_result.preflight_nan_failed_windows;
+                    write_task_result(&result_path, &task_result)?;
+                    append_completed_source(&completed_log_path, &task_result.source_factor)?;
+                    aggregated.merge_task(task_result);
+                    processed_sources += 1;
+
+                    if is_passed {
+                        stats.done_pass += 1;
+                    } else if is_raw_cov {
+                        stats.done_raw_cov += 1;
+                    } else if !any_window {
+                        stats.done_preflight += 1;
+                    } else {
+                        stats.done_ret_ic += 1;
+                    }
+                    stats.done = processed_sources;
+                    stats.preflight_maj_windows += preflight_maj;
+                    stats.preflight_zero_windows += preflight_zero;
+                    stats.preflight_nan_windows += preflight_nan;
+
+                    if total_pending > 0 {
+                        let elapsed = started.elapsed();
+                        let elapsed_secs = elapsed.as_secs();
+                        let progress = processed_sources as f64 / total_pending as f64;
+                        let estimated_total_secs = if progress > 0.0 {
+                            elapsed.as_secs_f64() / progress
+                        } else {
+                            elapsed.as_secs_f64()
+                        };
+                        let remaining_secs = if estimated_total_secs > elapsed.as_secs_f64() {
+                            (estimated_total_secs - elapsed.as_secs_f64()) as u64
+                        } else {
+                            0
+                        };
+                        let (elapsed_h, elapsed_m, elapsed_s) = format_hms(elapsed_secs);
+                        let (remaining_h, remaining_m, remaining_s) = format_hms(remaining_secs);
+                        let current_time = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+
+                        let cum_pass = stats.restored_pass + stats.done_pass;
+                        let cum_total = restored_sources + processed_sources;
+                        let cum_raw_cov = stats.restored_raw_cov + stats.done_raw_cov;
+                        let cum_preflight = stats.restored_preflight + stats.done_preflight;
+                        let cum_ret_ic = stats.restored_ret_ic + stats.done_ret_ic;
+                        let cum_unknown = stats.restored_unknown + stats.done_unknown;
+
+                        let l1 = format!(
+                            "[{}] Tail V4 进度 {}/{} ({:.1}%)，已用{}h{}m{}s，预计剩余{}h{}m{}s",
+                            current_time, processed_sources, total_pending,
+                            progress * 100.0,
+                            elapsed_h, elapsed_m, elapsed_s,
+                            remaining_h, remaining_m, remaining_s,
+                        );
+                        let l2 = format!(
+                            "累计通过 {} ({:.0}%) | 淘汰 raw_cov={} preflight={} ret_ic={} 未知={}",
+                            cum_pass,
+                            if cum_total > 0 { cum_pass as f64 * 100.0 / cum_total as f64 } else { 0.0 },
+                            cum_raw_cov, cum_preflight, cum_ret_ic, cum_unknown,
+                        );
+                        let l3 = format!(
+                            "maj={}w zero={}w nan={}w | 本次 {}(通过{}) | 恢复 {}(通过{})",
+                            stats.preflight_maj_windows, stats.preflight_zero_windows,
+                            stats.preflight_nan_windows,
+                            stats.done, stats.done_pass,
+                            restored_sources, stats.restored_pass,
+                        );
+                        update_status_line(&l1, &l2, &l3);
+                    }
+                }
+                Err((task_name, err)) => {
+                    reset_status_line();
+                    return Err(format!("处理因子 {} 失败: {}", task_name, err));
+                }
+            }
+        }
+
+        if total_pending > 0 {
+            println!();
+            reset_status_line();
+        }
+
+        // 注意：worker 线程在上方 IO/CPU 分离分支或原架构分支内已全部 join 完毕。
+
+        write_aggregated_outputs(
+            &cache_root_path,
+            &aggregated,
+        )?;
+
+        let mut candidate_counts = HashMap::new();
+        candidate_counts.insert("rolled_gap1".to_string(), aggregated.raw_summary_gap1.len());
+        candidate_counts.insert("rolled_gap5".to_string(), aggregated.raw_summary_gap5.len());
+        candidate_counts.insert("neu_gap1".to_string(), aggregated.neu_summary_gap1.len());
+        candidate_counts.insert("neu_gap5".to_string(), aggregated.neu_summary_gap5.len());
+        Ok((processed_sources, restored_sources, candidate_counts))
+    }).map_err(PyRuntimeError::new_err)?;
+
+    let info = PyDict::new(py);
+    info.set_item("processed_sources", output.0)?;
+    info.set_item("restored_sources", output.1)?;
+    let candidate_counts = PyDict::new(py);
+    for (key, value) in output.2 {
+        candidate_counts.set_item(key, value)?;
+    }
+    info.set_item("candidate_counts", candidate_counts)?;
+    Ok(info.into())
+}
+
+
+// ==================== V7 process：rank_roll bulk assign + neutralize 日期并行 ====================
+fn process_task_with_values_v7(
+    task: &TailTask,
+    raw_values: Array2<f32>,
+    shared: &SharedInputs,
+) -> Result<TailTaskResult, String> {
+    let raw_cover_rate = compute_raw_cover_rate(
+        &raw_values.view(),
+        &shared.restrict.view(),
+        &shared.ret_gap1.view(),
+        10,
+    );
+    if raw_cover_rate < shared.config.cover_rate {
+        println!(
+            "[raw_cover] 剔除因子 {}，原始覆盖率不达标: raw_cover_rate={:.4}, 标准>={:.4}",
+            task.source_factor, raw_cover_rate, shared.config.cover_rate,
+        );
+        return Ok(TailTaskResult {
+            source_factor: task.source_factor.clone(),
+            eliminated_by_raw_cover: true,
+            ..TailTaskResult::default()
+        });
+    }
+    let mut variants = vec![(task.source_factor.clone(), raw_values)];
+    if shared.fold {
+        let folded = build_fold_values(&variants[0].1);
+        variants.push((format!("{}_fold", task.source_factor), folded));
+    }
+
+    let mut result = TailTaskResult {
+        source_factor: task.source_factor.clone(),
+        ..TailTaskResult::default()
+    };
+
+    for (variant_name, variant_values) in variants {
+        let rolled_block =
+            crate::tail_v2_rank_roll_factor::rank_roll_block_f32_v7(&variant_values, shared.windows.as_slice(), false)?;
+        let derived_names = derived_names_for_variant(&variant_name, shared.windows.as_slice());
+        result.derived_factor_count += derived_names.len();
+
+        let raw_gap1_results = legacy_backtest_block_f32(
+            rolled_block.view(),
+            shared.ret_gap1.view(),
+            shared.ret_sum_gap1.view(),
+            shared.restrict.view(),
+            shared.index_ret.view(),
+            shared.dates.as_slice(),
+            shared.backtest_start,
+            1,
+            10,
+        )?;
+        let raw_gap5_results = legacy_backtest_block_f32(
+            rolled_block.view(),
+            shared.ret_gap5.view(),
+            shared.ret_sum_gap5.view(),
+            shared.restrict.view(),
+            shared.index_ret.view(),
+            shared.dates.as_slice(),
+            shared.backtest_start,
+            5,
+            10,
+        )?;
+
+        let neutralized = neutralize_block_legacy_exact_v7(
+            shared.legacy_style_data.as_ref(),
+            rolled_block.view(),
+            shared.dates.as_slice(),
+            shared.stocks.as_slice(),
+            true,
+            shared.min_valid,
+        )?;
+        let neu_gap1_results = legacy_backtest_block_f32(
+            neutralized.view(),
+            shared.ret_gap1.view(),
+            shared.ret_sum_gap1.view(),
+            shared.restrict.view(),
+            shared.index_ret.view(),
+            shared.dates.as_slice(),
+            shared.backtest_start,
+            1,
+            10,
+        )?;
+        let neu_gap5_results = legacy_backtest_block_f32(
+            neutralized.view(),
+            shared.ret_gap5.view(),
+            shared.ret_sum_gap5.view(),
+            shared.restrict.view(),
+            shared.index_ret.view(),
+            shared.dates.as_slice(),
+            shared.backtest_start,
+            5,
+            10,
+        )?;
+
+        for (slot_idx, derived_name) in derived_names.iter().enumerate() {
+            let pre_report = preflight_quality_check(
+                &rolled_block.view().slice(s![.., .., slot_idx]),
+                &shared.restrict.view(),
+                shared.config.majority_count_threshold,
+                shared.config.zero_max_threshold,
+                shared.config.nan_max_threshold,
+            );
+            if !pre_report.passed {
+                if pre_report.majority_count_mean > shared.config.majority_count_threshold {
+                    result.preflight_maj_failed_windows += 1;
+                }
+                if pre_report.zero_ratio_mean >= shared.config.zero_max_threshold {
+                    result.preflight_zero_failed_windows += 1;
+                }
+                if pre_report.nan_ratio_mean >= shared.config.nan_max_threshold {
+                    result.preflight_nan_failed_windows += 1;
+                }
+                let mut reasons: Vec<String> = Vec::new();
+                if pre_report.majority_count_mean > shared.config.majority_count_threshold {
+                    reasons.push(format!(
+                        "majority_count_mean={:.2}, 标准<={:.2}",
+                        pre_report.majority_count_mean, shared.config.majority_count_threshold,
+                    ));
+                }
+                if pre_report.zero_ratio_mean >= shared.config.zero_max_threshold {
+                    reasons.push(format!(
+                        "zero_ratio_mean={:.4}, 标准<{:.4}",
+                        pre_report.zero_ratio_mean, shared.config.zero_max_threshold,
+                    ));
+                }
+                if pre_report.nan_ratio_mean >= shared.config.nan_max_threshold {
+                    reasons.push(format!(
+                        "nan_ratio_mean={:.4}, 标准<{:.4}",
+                        pre_report.nan_ratio_mean, shared.config.nan_max_threshold,
+                    ));
+                }
+                println!(
+                    "[preflight] 剔除因子 {}，该因子指标不达标: {}",
+                    derived_name,
+                    reasons.join("; "),
+                );
+                continue;
+            }
+            result.any_window_passed_preflight = true;
+
+            let raw_gap1_row = summary_from_row(
+                derived_name,
+                "rolled",
+                1,
+                &variant_name,
+                &raw_gap1_results[slot_idx].summary,
+            );
+            let raw_gap5_row = summary_from_row(
+                derived_name,
+                "rolled",
+                5,
+                &variant_name,
+                &raw_gap5_results[slot_idx].summary,
+            );
+            let neu_gap1_row = summary_from_row(
+                derived_name,
+                "neu",
+                1,
+                &variant_name,
+                &neu_gap1_results[slot_idx].summary,
+            );
+            let neu_gap5_row = summary_from_row(
+                derived_name,
+                "neu",
+                5,
+                &variant_name,
+                &neu_gap5_results[slot_idx].summary,
+            );
+
+            let raw_gap1_keep = qualify_raw(&raw_gap1_row, 1, &shared.config);
+            let raw_gap5_keep = qualify_raw(&raw_gap5_row, 5, &shared.config);
+            let neu_gap1_keep = qualify_neu(&neu_gap1_row, 1, &shared.config);
+            let neu_gap5_keep = qualify_neu(&neu_gap5_row, 5, &shared.config);
+
+            if raw_gap1_keep || raw_gap5_keep || neu_gap1_keep || neu_gap5_keep {
+                result.passed = true;
+            }
+
+            if raw_gap1_keep {
+                result.raw_summary_gap1.push(raw_gap1_row.clone());
+                result.raw_ic_gap1.push(IcRecord {
+                    factor_name: derived_name.clone(),
+                    dates: raw_gap1_results[slot_idx].ic_dates.clone(),
+                    values: raw_gap1_results[slot_idx].ic_values.clone(),
+                });
+            }
+            if raw_gap5_keep {
+                result.raw_summary_gap5.push(raw_gap5_row.clone());
+                result.raw_ic_gap5.push(IcRecord {
+                    factor_name: derived_name.clone(),
+                    dates: raw_gap5_results[slot_idx].ic_dates.clone(),
+                    values: raw_gap5_results[slot_idx].ic_values.clone(),
+                });
+            }
+            if neu_gap1_keep {
+                result.neu_summary_gap1.push(neu_gap1_row.clone());
+            }
+            if neu_gap5_keep {
+                result.neu_summary_gap5.push(neu_gap5_row.clone());
+            }
+            if raw_gap1_keep || neu_gap1_keep {
+                result.neu_ic_gap1.push(IcRecord {
+                    factor_name: derived_name.clone(),
+                    dates: neu_gap1_results[slot_idx].ic_dates.clone(),
+                    values: neu_gap1_results[slot_idx].ic_values.clone(),
+                });
+            }
+            if raw_gap5_keep || neu_gap5_keep {
+                result.neu_ic_gap5.push(IcRecord {
+                    factor_name: derived_name.clone(),
+                    dates: neu_gap5_results[slot_idx].ic_dates.clone(),
+                    values: neu_gap5_results[slot_idx].ic_values.clone(),
+                });
+            }
+        }
+    }
+
+    Ok(result)
+}
+
+
+// ==================== V7b：原版 8 IO 线程 + V7 process 优化 ====================
+// ==================== V7：批量顺序 pread 回测（消除 HDD 寻道，回测核心零改动）====================
+#[pyfunction]
+#[pyo3(signature = (
+    factor_names,
+    factor_paths,
+    dates,
+    stocks,
+    windows,
+    fold,
+    n_jobs,
+    min_valid,
+    cache_root,
+    style_data_path,
+    ret_gap1_path,
+    ret_sum_gap1_path,
+    ret_gap5_path,
+    ret_sum_gap5_path,
+    restrict_path,
+    index_ret_path,
+    backtest_start,
+    cover_rate=0.97,
+    ret_point_neu_gap5=0.055,
+    ret_point_neu_gap1=0.08,
+    ic_point_neu_gap5=0.01,
+    ic_point_neu_gap1=0.006,
+    ret_point_gap5=0.1,
+    ret_point_gap1=0.13,
+    ic_point_gap5=0.03,
+    ic_point_gap1=0.02,
+    ic_more_important_gap5=0.01,
+    ic_more_important_gap1=0.006,
+    majority_count_threshold=200.0,
+    zero_max_threshold=0.01,
+    nan_max_threshold=0.04,
+))]
+pub fn tail_v5_run_candidates_v7b<'py>(
+    py: Python<'py>,
+    factor_names: Vec<String>,
+    factor_paths: Vec<String>,
+    dates: Vec<i32>,
+    stocks: Vec<String>,
+    windows: Vec<usize>,
+    fold: bool,
+    n_jobs: usize,
+    min_valid: usize,
+    cache_root: String,
+    style_data_path: String,
+    ret_gap1_path: String,
+    ret_sum_gap1_path: String,
+    ret_gap5_path: String,
+    ret_sum_gap5_path: String,
+    restrict_path: String,
+    index_ret_path: String,
+    backtest_start: i32,
+    cover_rate: f64,
+    ret_point_neu_gap5: f64,
+    ret_point_neu_gap1: f64,
+    ic_point_neu_gap5: f64,
+    ic_point_neu_gap1: f64,
+    ret_point_gap5: f64,
+    ret_point_gap1: f64,
+    ic_point_gap5: f64,
+    ic_point_gap1: f64,
+    ic_more_important_gap5: Option<f64>,
+    ic_more_important_gap1: Option<f64>,
+    majority_count_threshold: f64,
+    zero_max_threshold: f64,
+    nan_max_threshold: f64,
+) -> PyResult<PyObject> {
+    if factor_names.len() != factor_paths.len() {
+        return Err(PyValueError::new_err(
+            "factor_names 和 factor_paths 长度必须一致",
+        ));
+    }
+    if n_jobs == 0 {
+        return Err(PyValueError::new_err("n_jobs 必须大于 0"));
+    }
+    if (ic_more_important_gap5.is_some()) != (ic_more_important_gap1.is_some()) {
+        return Err(PyValueError::new_err(
+            "ic_more_important_gap5 和 ic_more_important_gap1 必须同时有值或同时为 None",
+        ));
+    }
+
+    let output = py.allow_threads(|| -> Result<(usize, usize, HashMap<String, usize>), String> {
+        let started = Instant::now();
+        let cache_root_path = PathBuf::from(&cache_root);
+        let task_results_dir = cache_root_path.join("task_results");
+        let logs_dir = cache_root_path.join("logs");
+        let completed_log_path = logs_dir.join("completed_sources.txt");
+        fs::create_dir_all(&task_results_dir).map_err(|e| format!("创建 task_results 目录失败: {}", e))?;
+        fs::create_dir_all(&logs_dir).map_err(|e| format!("创建 logs 目录失败: {}", e))?;
+
+        let shared = SharedInputs {
+            dates: Arc::new(dates),
+            stocks: Arc::new(stocks),
+            windows: Arc::new(windows),
+            fold,
+            min_valid,
+            backtest_start,
+            legacy_style_data: Arc::new(
+                IOOptimizedStyleData::load_from_parquet_io_optimized(&style_data_path)
+                    .map_err(|e| e.to_string())?
+            ),
+            ret_gap1: Arc::new(read_npy(&ret_gap1_path).map_err(|e| format!("读取 ret_gap1.npy 失败: {}", e))?),
+            ret_sum_gap1: Arc::new(read_npy(&ret_sum_gap1_path).map_err(|e| format!("读取 ret_sum_gap1.npy 失败: {}", e))?),
+            ret_gap5: Arc::new(read_npy(&ret_gap5_path).map_err(|e| format!("读取 ret_gap5.npy 失败: {}", e))?),
+            ret_sum_gap5: Arc::new(read_npy(&ret_sum_gap5_path).map_err(|e| format!("读取 ret_sum_gap5.npy 失败: {}", e))?),
+            restrict: Arc::new(read_npy(&restrict_path).map_err(|e| format!("读取 restrict.npy 失败: {}", e))?),
+            index_ret: Arc::new(read_npy(&index_ret_path).map_err(|e| format!("读取 index_ret.npy 失败: {}", e))?),
+            config: Arc::new(TailSelectionConfig {
+                cover_rate,
+                ret_point_neu_gap5,
+                ret_point_neu_gap1,
+                ic_point_neu_gap5,
+                ic_point_neu_gap1,
+                ret_point_gap5,
+                ret_point_gap1,
+                ic_point_gap5,
+                ic_point_gap1,
+                ic_more_important_gap5,
+                ic_more_important_gap1,
+                majority_count_threshold,
+                zero_max_threshold,
+                nan_max_threshold,
+            }),
+        };
+
+        let mut aggregated = AggregatedCandidates::default();
+        let mut completed_sources = HashSet::<String>::new();
+        let mut stats = ProcessStats::default();
+        for (source_factor, factor_path) in factor_names.iter().zip(factor_paths.iter()) {
+            let result_path = factor_result_path(&task_results_dir, source_factor);
+            if result_path.exists() {
+                if let Ok(mut task_result) = read_task_result(&result_path) {
+                    if !task_result.passed
+                        && (!task_result.raw_summary_gap1.is_empty()
+                            || !task_result.raw_summary_gap5.is_empty()
+                            || !task_result.neu_summary_gap1.is_empty()
+                            || !task_result.neu_summary_gap5.is_empty())
+                    {
+                        task_result.passed = true;
+                    }
+                    if task_result.passed {
+                        stats.restored_pass += 1;
+                    } else if task_result.eliminated_by_raw_cover {
+                        stats.restored_raw_cov += 1;
+                    } else if !task_result.any_window_passed_preflight
+                        && !task_result.raw_summary_gap1.is_empty() == false
+                        && !task_result.raw_summary_gap5.is_empty() == false
+                        && !task_result.neu_summary_gap1.is_empty() == false
+                        && !task_result.neu_summary_gap5.is_empty() == false
+                        && !task_result.passed
+                    {
+                        // 区分 preflight 淘汰 vs 未知:
+                        // 旧缓存没有 any_window_passed_preflight(默认false)
+                        // 也没有 eliminated_by_raw_cover(默认false)
+                        // 如果所有 summary vecs 都为空且 passed=false
+                        // 我们通过是否有 preflight 失败记录来判断
+                        if task_result.preflight_maj_failed_windows > 0
+                            || task_result.preflight_zero_failed_windows > 0
+                            || task_result.preflight_nan_failed_windows > 0
+                        {
+                            stats.restored_preflight += 1;
+                        } else {
+                            stats.restored_unknown += 1;
+                        }
+                    } else {
+                        // any_window_passed_preflight=true, passed=false → ret_ic淘汰
+                        stats.restored_ret_ic += 1;
+                    }
+                    stats.preflight_maj_windows += task_result.preflight_maj_failed_windows;
+                    stats.preflight_zero_windows += task_result.preflight_zero_failed_windows;
+                    stats.preflight_nan_windows += task_result.preflight_nan_failed_windows;
+                    aggregated.merge_task(task_result);
+                    completed_sources.insert(source_factor.clone());
+                    continue;
+                }
+            }
+            let _ = factor_path;
+        }
+        let restored_sources =
+            stats.restored_pass + stats.restored_raw_cov + stats.restored_preflight
+            + stats.restored_ret_ic + stats.restored_unknown;
+
+        let pending_tasks = factor_names
+            .iter()
+            .zip(factor_paths.iter())
+            .filter_map(|(source_factor, factor_path)| {
+                if completed_sources.contains(source_factor) {
+                    None
+                } else {
+                    Some(TailTask {
+                        source_factor: source_factor.clone(),
+                        factor_path: factor_path.clone(),
+                    })
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let total_pending = pending_tasks.len();
+        if total_pending > 0 {
+            init_status_line();
+            let current_time = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+            let total = factor_names.len();
+            let total_elim = restored_sources - stats.restored_pass;
+            let l1 = format!("[{}] Tail V4 启动，待处理 {}/{} 个原始因子", current_time, total_pending, total);
+            let l2 = format!("累计通过 {} ({}%) | 淘汰 raw_cov={} preflight={} ret_ic={} 未知={}",
+                stats.restored_pass,
+                if restored_sources > 0 { stats.restored_pass * 100 / restored_sources } else { 0 },
+                stats.restored_raw_cov, stats.restored_preflight,
+                stats.restored_ret_ic, stats.restored_unknown);
+            let _ = total_elim; // suppress unused warning
+            let l3 = format!("maj={}w zero={}w nan={}w | 恢复 {} 个 | 即将开始处理...",
+                stats.preflight_maj_windows, stats.preflight_zero_windows,
+                stats.preflight_nan_windows, restored_sources);
+            update_status_line(&l1, &l2, &l3);
+        }
+        let (task_sender, task_receiver): (Sender<TailTask>, Receiver<TailTask>) = unbounded();
+        let (result_sender, result_receiver) = unbounded::<Result<TailTaskResult, (String, String)>>();
+        for task in pending_tasks {
+            task_sender.send(task).map_err(|e| format!("发送任务失败: {}", e))?;
+        }
+        drop(task_sender);
+
+        let shared_arc = Arc::new(shared);
+
+        // 检测是否为列式存储模式（任一 task 路径含 "::"）。
+        // 若是，启用 IO/CPU 分离架构：少量 IO 线程顺序读因子 → 有界内存队列 → n_jobs 计算线程。
+        // 否则保持原逻辑：n_jobs 线程各自读盘 + 计算（兼容 parquet/h5）。
+        let is_colblk_mode = factor_paths.iter().any(|p| p.contains("::"));
+
+        // V7b：原版 8 IO 线程（每线程独立 Reader，pread 读投影区）+ V7 process 优化
+        // 8 IO 线程分布在 8 块 HDD 上并行读，供料给 200 计算线程
+        if is_colblk_mode {
+            let n_io_threads = if n_jobs > 200 { 8 } else { 4 };
+            let (loaded_tx, loaded_rx) =
+                crossbeam::channel::bounded::<(TailTask, ndarray::Array2<f32>)>(16);
+
+            let store_dir_for_reader = factor_paths
+                .iter()
+                .find_map(|p| {
+                    if p.contains("::") {
+                        let sp = p.splitn(2, "::").next().unwrap_or("");
+                        if sp.ends_with(".colblk") {
+                            Path::new(sp).parent().map(|x| x.to_string_lossy().to_string())
+                        } else {
+                            Some(sp.to_string())
+                        }
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_default();
+
+            eprintln!(
+                "🚀 V7b：{} IO 线程 pread 投影区 + 200 计算线程（V7 process 优化）",
+                n_io_threads
+            );
+
+            // 8 IO 线程：每线程独立 Reader，逐因子 pread 读投影区 value 段
+            let mut io_handles = Vec::with_capacity(n_io_threads);
+            let task_rx_io = task_receiver.clone();
+            for io_idx in 0..n_io_threads {
+                let task_rx = task_rx_io.clone();
+                let loaded_tx = loaded_tx.clone();
+                let store_dir = store_dir_for_reader.clone();
+                let dates = shared_arc.dates.clone();
+                let stocks = shared_arc.stocks.clone();
+                io_handles.push(thread::spawn(move || {
+                    let reader = match crate::factor_store_v5::FactorStoreReader::open(
+                        &store_dir,
+                    ) {
+                        Ok(r) => r,
+                        Err(_) => return,
+                    };
+                    while let Ok(task) = task_rx.recv() {
+                        let col_idx = match task.factor_path.splitn(2, "::").nth(1) {
+                            Some(s) => match s.parse::<usize>() {
+                                Ok(v) => v,
+                                Err(_) => continue,
+                            },
+                            None => continue,
+                        };
+                        let matrix = match reader.read_factor_to_matrix(
+                            col_idx,
+                            dates.as_slice(),
+                            stocks.as_slice(),
+                        ) {
+                            Ok(m) => m,
+                            Err(_) => continue,
+                        };
+                        if loaded_tx.send((task, matrix)).is_err() {
+                            break;
+                        }
+                    }
+                }));
+            }
+            drop(loaded_tx);
+
+            // n_jobs 计算线程（零改动）
+            let mut handles = Vec::with_capacity(n_jobs);
+            for _ in 0..n_jobs {
+                let loaded_rx = loaded_rx.clone();
+                let tx = result_sender.clone();
+                let shared_clone = shared_arc.clone();
+                handles.push(thread::spawn(move || {
+                    while let Ok((task, raw_values)) = loaded_rx.recv() {
+                        let task_name = task.source_factor.clone();
+                        let outcome = process_task_with_values_v7(&task, raw_values, &shared_clone)
+                            .map_err(|err| (task_name, err));
+                        if tx.send(outcome).is_err() {
+                            break;
+                        }
+                    }
+                }));
+            }
+            drop(result_sender);
+
+            for h in io_handles { let _ = h.join(); }
+            for h in handles {
+                let _ = h.join();
+            }
+        } else {
+            // ---- 非 colblk 模式：原架构 ----
+            let mut handles = Vec::with_capacity(n_jobs);
+            for _ in 0..n_jobs {
+                let rx = task_receiver.clone();
+                let tx = result_sender.clone();
+                let shared_clone = shared_arc.clone();
+                handles.push(thread::spawn(move || {
+                    while let Ok(task) = rx.recv() {
+                        let task_name = task.source_factor.clone();
+                        let outcome = process_task(&task, &shared_clone)
+                            .map_err(|err| (task_name, err));
+                        if tx.send(outcome).is_err() {
+                            break;
+                        }
+                    }
+                }));
+            }
+            drop(result_sender);
+            for h in handles {
+                let _ = h.join();
+            }
+        }
+
+        let mut processed_sources = 0usize;
+        while let Ok(task_outcome) = result_receiver.recv() {
+            match task_outcome {
+                Ok(task_result) => {
+                    let result_path = factor_result_path(&task_results_dir, &task_result.source_factor);
+                    let is_passed = task_result.passed;
+                    let is_raw_cov = task_result.eliminated_by_raw_cover;
+                    let any_window = task_result.any_window_passed_preflight;
+                    let preflight_maj = task_result.preflight_maj_failed_windows;
+                    let preflight_zero = task_result.preflight_zero_failed_windows;
+                    let preflight_nan = task_result.preflight_nan_failed_windows;
+                    write_task_result(&result_path, &task_result)?;
+                    append_completed_source(&completed_log_path, &task_result.source_factor)?;
+                    aggregated.merge_task(task_result);
+                    processed_sources += 1;
+
+                    if is_passed {
+                        stats.done_pass += 1;
+                    } else if is_raw_cov {
+                        stats.done_raw_cov += 1;
+                    } else if !any_window {
+                        stats.done_preflight += 1;
+                    } else {
+                        stats.done_ret_ic += 1;
+                    }
+                    stats.done = processed_sources;
+                    stats.preflight_maj_windows += preflight_maj;
+                    stats.preflight_zero_windows += preflight_zero;
+                    stats.preflight_nan_windows += preflight_nan;
+
+                    if total_pending > 0 {
+                        let elapsed = started.elapsed();
+                        let elapsed_secs = elapsed.as_secs();
+                        let progress = processed_sources as f64 / total_pending as f64;
+                        let estimated_total_secs = if progress > 0.0 {
+                            elapsed.as_secs_f64() / progress
+                        } else {
+                            elapsed.as_secs_f64()
+                        };
+                        let remaining_secs = if estimated_total_secs > elapsed.as_secs_f64() {
+                            (estimated_total_secs - elapsed.as_secs_f64()) as u64
+                        } else {
+                            0
+                        };
+                        let (elapsed_h, elapsed_m, elapsed_s) = format_hms(elapsed_secs);
+                        let (remaining_h, remaining_m, remaining_s) = format_hms(remaining_secs);
+                        let current_time = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+
+                        let cum_pass = stats.restored_pass + stats.done_pass;
+                        let cum_total = restored_sources + processed_sources;
+                        let cum_raw_cov = stats.restored_raw_cov + stats.done_raw_cov;
+                        let cum_preflight = stats.restored_preflight + stats.done_preflight;
+                        let cum_ret_ic = stats.restored_ret_ic + stats.done_ret_ic;
+                        let cum_unknown = stats.restored_unknown + stats.done_unknown;
+
+                        let l1 = format!(
+                            "[{}] Tail V4 进度 {}/{} ({:.1}%)，已用{}h{}m{}s，预计剩余{}h{}m{}s",
+                            current_time, processed_sources, total_pending,
+                            progress * 100.0,
+                            elapsed_h, elapsed_m, elapsed_s,
+                            remaining_h, remaining_m, remaining_s,
+                        );
+                        let l2 = format!(
+                            "累计通过 {} ({:.0}%) | 淘汰 raw_cov={} preflight={} ret_ic={} 未知={}",
+                            cum_pass,
+                            if cum_total > 0 { cum_pass as f64 * 100.0 / cum_total as f64 } else { 0.0 },
+                            cum_raw_cov, cum_preflight, cum_ret_ic, cum_unknown,
+                        );
+                        let l3 = format!(
+                            "maj={}w zero={}w nan={}w | 本次 {}(通过{}) | 恢复 {}(通过{})",
+                            stats.preflight_maj_windows, stats.preflight_zero_windows,
+                            stats.preflight_nan_windows,
+                            stats.done, stats.done_pass,
+                            restored_sources, stats.restored_pass,
+                        );
+                        update_status_line(&l1, &l2, &l3);
+                    }
+                }
+                Err((task_name, err)) => {
+                    reset_status_line();
+                    return Err(format!("处理因子 {} 失败: {}", task_name, err));
+                }
+            }
+        }
+
+        if total_pending > 0 {
+            println!();
+            reset_status_line();
+        }
+
+        // 注意：worker 线程在上方 IO/CPU 分离分支或原架构分支内已全部 join 完毕。
+
+        write_aggregated_outputs(
+            &cache_root_path,
+            &aggregated,
+        )?;
+
+        let mut candidate_counts = HashMap::new();
+        candidate_counts.insert("rolled_gap1".to_string(), aggregated.raw_summary_gap1.len());
+        candidate_counts.insert("rolled_gap5".to_string(), aggregated.raw_summary_gap5.len());
+        candidate_counts.insert("neu_gap1".to_string(), aggregated.neu_summary_gap1.len());
+        candidate_counts.insert("neu_gap5".to_string(), aggregated.neu_summary_gap5.len());
+        Ok((processed_sources, restored_sources, candidate_counts))
+    }).map_err(PyRuntimeError::new_err)?;
+
+    let info = PyDict::new(py);
+    info.set_item("processed_sources", output.0)?;
+    info.set_item("restored_sources", output.1)?;
+    let candidate_counts = PyDict::new(py);
+    for (key, value) in output.2 {
+        candidate_counts.set_item(key, value)?;
+    }
+    info.set_item("candidate_counts", candidate_counts)?;
+    Ok(info.into())
+}
+
+
+
