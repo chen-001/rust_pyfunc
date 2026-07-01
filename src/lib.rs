@@ -83,6 +83,7 @@ pub mod tail_v2_backtest_block;
 pub mod tail_v2_block_neutralizer;
 pub mod tail_v2_ic_corr_filter;
 pub mod tail_v2_rank_roll_factor;
+pub mod follow2026_backtest;
 pub mod tail_v4_pipeline;
 pub mod tail_v5_pipeline;
 pub mod theme_cluster_factors;
@@ -977,6 +978,10 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
 
     let _ = m.add_function(wrap_pyfunction!(
         observable_order_metrics::py_compute_observable_order_metrics,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        follow2026_backtest::neutralize_and_backtest_gap1,
         m
     )?)?;
     Ok(())
