@@ -757,6 +757,11 @@
     "params": []
   },
   {
+    "name": "factor_store_v5_project_v7",
+    "description": "<p>V7 并行投影（pyfunction 入口，支持 sharded 布局）</p>",
+    "params": []
+  },
+  {
     "name": "factor_store_v5_read_factor",
     "description": "<p>读取第 col_idx 个因子为扁平数组（date_id[], code_id[], factor[]），供测试/调试</p>",
     "params": []
@@ -764,6 +769,11 @@
   {
     "name": "factor_store_v5_template",
     "description": "<p>从 colblk 存储推断回测模板轴：返回去重排序的 dates（int 数组）和 stocks（带 .SZ/.SH 后缀）。\n供 design_whatever 的 tail_v5 替代 v4 的 pandas 读 parquet 推断模板。</p>",
+    "params": []
+  },
+  {
+    "name": "factor_store_v5_verify_online",
+    "description": "<p>一致性验证：对比 v5 投影区读取（read_factor_to_matrix）与 v6 在线转置（read_factors_batch_to_matrices）。\n对 col_idx_batch 内每个因子逐元素比较，返回最大绝对误差（NaN==NaN 视为相等）。用于验证 v6 转置正确。</p>",
     "params": []
   },
   {
@@ -1671,6 +1681,11 @@
     "params": []
   },
   {
+    "name": "run_factor_pipeline_v6",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
     "name": "run_pools_queue",
     "description": "<p>无文档</p>",
     "params": []
@@ -1846,6 +1861,21 @@
   },
   {
     "name": "tail_v5_run_candidates",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "tail_v5_run_candidates_online",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "tail_v5_run_candidates_v7",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "tail_v5_run_candidates_v7b",
     "description": "<p>无文档</p>",
     "params": []
   },
