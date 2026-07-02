@@ -24,9 +24,31 @@ use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::os::unix::fs::FileExt;
-use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
+
+// 跨平台 pread 与 Linux 专属 syscall 的守卫：
+// - pread_at() 统一分派 pread（unix→FileExt::read_at，windows→FileExt::seek_read），
+//   消除对 std::os::unix::fs::FileExt 的直接依赖，让 Windows 也能编译。
+// - fallocate / posix_fadvise / as_raw_fd 仅 Linux 启用（btrfs 抗碎片化专用）；
+//   macOS/Windows 退化为普通追加 / 跳过预读（不影响正确性，仅放弃碎片化优化）。
+#[cfg(target_os = "linux")]
+use std::os::unix::io::AsRawFd;
+
+/// 跨平台 pread：从 offset 处读取 buf.len() 字节到 buf，不移动文件游标。
+/// unix 用 FileExt::read_at；windows 用 FileExt::seek_read。两者签名一致（均返回实际读取字节数）。
+#[allow(dead_code)]
+fn pread_at(file: &File, buf: &mut [u8], offset: u64) -> std::io::Result<usize> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::FileExt;
+        file.read_at(buf, offset)
+    }
+    #[cfg(not(unix))]
+    {
+        use std::os::windows::fs::FileExt;
+        file.seek_read(buf, offset)
+    }
+}
 
 // ============================ 常量 ============================
 
@@ -423,26 +445,34 @@ impl FactorStoreWriter {
             .open(store_dir.join("codes.bin"))
             .map_err(|e| format!("创建 codes.bin 失败: {e}"))?;
 
-        // fallocate 预留初始连续空间，避免追加期碎片化（见 FALLOCATE_RESERVE 注释）
+        // fallocate 预留初始连续空间，避免追加期碎片化（见 FALLOCATE_RESERVE 注释）。
+        // 仅 Linux 启用（btrfs 抗碎片化）；macOS/Windows 无 fallocate，allocated_end=u64::MAX 退化为普通追加。
         let mut allocated_end = COLBLK_HEADER_SIZE as u64;
         let mut fallocate_warned = false;
-        let rc = unsafe {
-            libc::fallocate(
-                colblk_file.as_raw_fd(),
-                0,
-                COLBLK_HEADER_SIZE as libc::off_t,
-                FALLOCATE_RESERVE as libc::off_t,
-            )
-        };
-        if rc == 0 {
-            allocated_end = COLBLK_HEADER_SIZE as u64 + FALLOCATE_RESERVE;
-        } else {
-            fallocate_warned = true;
-            allocated_end = u64::MAX; // fallocate 不可用，退化为普通追加
-            eprintln!(
-                "⚠️ fallocate 初始预留失败 rc={}，退化为普通追加（投影读可能碎片化变慢）",
-                rc
-            );
+        #[cfg(target_os = "linux")]
+        {
+            let rc = unsafe {
+                libc::fallocate(
+                    colblk_file.as_raw_fd(),
+                    0,
+                    COLBLK_HEADER_SIZE as libc::off_t,
+                    FALLOCATE_RESERVE as libc::off_t,
+                )
+            };
+            if rc == 0 {
+                allocated_end = COLBLK_HEADER_SIZE as u64 + FALLOCATE_RESERVE;
+            } else {
+                fallocate_warned = true;
+                allocated_end = u64::MAX; // fallocate 不可用，退化为普通追加
+                eprintln!(
+                    "⚠️ fallocate 初始预留失败 rc={}，退化为普通追加（投影读可能碎片化变慢）",
+                    rc
+                );
+            }
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            allocated_end = u64::MAX; // 非 Linux 无 fallocate，退化为普通追加
         }
 
         Ok(Self {
@@ -743,30 +773,38 @@ impl FactorStoreWriter {
     /// 每 FALLOCATE_RESERVE 一段，把追加写入约束在预留区内，避免 btrfs 在满盘上分配散乱 extent。
     /// fallocate 失败则退化为普通追加（allocated_end=u64::MAX，不再重试），仅警告一次。
     fn ensure_allocated(&mut self, needed_end: u64) {
-        if self.allocated_end == u64::MAX || needed_end <= self.allocated_end {
-            return;
-        }
-        let new_end = needed_end + FALLOCATE_RESERVE;
-        let len = new_end - self.allocated_end;
-        let rc = unsafe {
-            libc::fallocate(
-                self.colblk_file.as_raw_fd(),
-                0,
-                self.allocated_end as libc::off_t,
-                len as libc::off_t,
-            )
-        };
-        if rc == 0 {
-            self.allocated_end = new_end;
-        } else {
-            if !self.fallocate_warned {
-                eprintln!(
-                    "⚠️ fallocate 失败 rc={}，退化为普通追加（投影读可能碎片化变慢）",
-                    rc
-                );
-                self.fallocate_warned = true;
+        // fallocate 仅 Linux 启用；非 Linux 直接 no-op（allocated_end 恒为 u64::MAX）。
+        #[cfg(target_os = "linux")]
+        {
+            if self.allocated_end == u64::MAX || needed_end <= self.allocated_end {
+                return;
             }
-            self.allocated_end = u64::MAX;
+            let new_end = needed_end + FALLOCATE_RESERVE;
+            let len = new_end - self.allocated_end;
+            let rc = unsafe {
+                libc::fallocate(
+                    self.colblk_file.as_raw_fd(),
+                    0,
+                    self.allocated_end as libc::off_t,
+                    len as libc::off_t,
+                )
+            };
+            if rc == 0 {
+                self.allocated_end = new_end;
+            } else {
+                if !self.fallocate_warned {
+                    eprintln!(
+                        "⚠️ fallocate 失败 rc={}，退化为普通追加（投影读可能碎片化变慢）",
+                        rc
+                    );
+                    self.fallocate_warned = true;
+                }
+                self.allocated_end = u64::MAX;
+            }
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = needed_end;
         }
     }
 
@@ -815,8 +853,7 @@ impl FactorStoreWriter {
             let id_bytes: Vec<u8> = if *compressed_size == 0 {
                 let id_size = n * id_w * 2;
                 let mut buf = vec![0u8; id_size];
-                if file
-                    .read_at(&mut buf, *data_offset)
+                if pread_at(&file, &mut buf, *data_offset)
                     .map_err(|e| format!("读 id 区失败: {e}"))?
                     < id_size
                 {
@@ -826,8 +863,7 @@ impl FactorStoreWriter {
             } else {
                 let comp_size = *compressed_size as usize;
                 let mut buf = vec![0u8; comp_size];
-                if file
-                    .read_at(&mut buf, *data_offset)
+                if pread_at(&file, &mut buf, *data_offset)
                     .map_err(|e| format!("读压缩 chunk 失败: {e}"))?
                     < comp_size
                 {
@@ -934,8 +970,7 @@ impl FactorStoreWriter {
                 *compressed_size as usize
             };
             let mut buf = vec![0u8; data_size];
-            if colblk_file_read
-                .read_at(&mut buf, *data_offset)
+            if pread_at(&colblk_file_read, &mut buf, *data_offset)
                 .map_err(|e| format!("读 chunk 失败: {e}"))?
                 < data_size
             {
@@ -1025,9 +1060,13 @@ impl FactorStoreWriter {
 
         // ---- 步骤⑤：rayon 窗口化并行压缩每因子 value 列，顺序追加写 ----
         // 窗口=256 限制同时驻留的压缩段内存（~256 × total_rows×4 压缩后）。
+        // fallocate 预留投影 value 区（与 chunk 区相同机制，避免 btrfs 碎片化）
+        let mut cur = row_order_offset + row_order_csz;
+        let value_area_size = (total_rows * factor_count * F32_BYTES) as u64;
+        let fallocate_end = cur + value_area_size;
+        self.ensure_allocated(fallocate_end);
         let fv = std::sync::Arc::new(factor_values);
         let mut val_offsets: Vec<(u64, u64)> = Vec::with_capacity(factor_count);
-        let mut cur = row_order_offset + row_order_csz;
         let window = 256usize;
         let mut f0 = 0usize;
         while f0 < factor_count {
@@ -1144,7 +1183,7 @@ impl SingleStoreReader {
     /// pread 读取 [offset, offset+len) 到 Vec（不 mmap，无 mm 锁）
     fn pread(&self, offset: u64, len: usize) -> Option<Vec<u8>> {
         let mut buf = vec![0u8; len];
-        match self.file.read_at(&mut buf, offset) {
+        match pread_at(&self.file, &mut buf, offset) {
             Ok(n) if n == len => Some(buf),
             _ => None,
         }
@@ -1189,7 +1228,7 @@ impl SingleStoreReader {
             let tmp_file = File::open(&colblk_path).map_err(|e| format!("打开 colblk 失败: {e}"))?;
             let pread_buf = |off: u64, len: usize| -> Option<Vec<u8>> {
                 let mut b = vec![0u8; len];
-                match tmp_file.read_at(&mut b, off) {
+                match pread_at(&tmp_file, &mut b, off) {
                     Ok(n) if n == len => Some(b),
                     _ => None,
                 }
@@ -1249,7 +1288,9 @@ impl SingleStoreReader {
         let start_off = proj.val_index[col_start].0;
         let last = proj.val_index[col_end - 1];
         let total_csz = (last.0 + last.1 - start_off) as usize;
-        // posix_fadvise 预读（告诉内核这段马上要读）
+        // posix_fadvise 预读（告诉内核这段马上要读）。仅 Linux 启用；
+        // macOS/Windows 跳过（预读建议本就是 best-effort，省略不影响正确性）。
+        #[cfg(target_os = "linux")]
         unsafe {
             libc::posix_fadvise(
                 self.file.as_raw_fd(),
@@ -1926,11 +1967,19 @@ pub fn factor_store_v5_project_v7(store_dir: String, n_jobs: usize) -> PyResult<
 #[pyfunction]
 #[pyo3(signature = (store_dir, n_jobs=0))]
 pub fn factor_store_v5_project_only(store_dir: String, n_jobs: usize) -> PyResult<()> {
-    let store_dir_path = std::path::Path::new(&store_dir);
-    // 先读 idx 获取 factor_names（Writer::open 需要校验因子数）
-    let (dict, _) = FactorDict::read_idx(store_dir_path)
-        .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("读取 idx 失败: {}", e)))?;
-    let mut writer = FactorStoreWriter::open(&store_dir, &dict.factor_names)
+    let store_path = std::path::Path::new(&store_dir);
+    // 检测 sharded 布局：从 shard_0 读因子名
+    let factor_names: Vec<String> = if store_path.join("shard_0").join("factors.idx").exists() {
+        let shard0 = store_path.join("shard_0");
+        let (dict, _) = FactorDict::read_idx(&shard0)
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("读取 shard_0 idx 失败: {}", e)))?;
+        dict.factor_names
+    } else {
+        let (dict, _) = FactorDict::read_idx(store_path)
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("读取 idx 失败: {}", e)))?;
+        dict.factor_names
+    };
+    let mut writer = FactorStoreWriter::open(&store_dir, &factor_names)
         .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("打开存储失败: {}", e)))?;
     if writer.is_projected() {
         return Ok(());
