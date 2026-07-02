@@ -15,7 +15,9 @@ classifiers = [
 dynamic = ["version"]
 
 [tool.maturin]
-features = ["pyo3/extension-module"]
+# abi3-py38：pyo3 编译为 stable ABI，每平台只产 1 个 wheel（兼容 Python 3.8+），
+# 把每版本 wheel 数从 ~19 砍到 ~6，从源头根治 PyPI 项目 10GB 存储限额问题。
+features = ["pyo3/extension-module", "pyo3/abi3-py38"]
 python-source = "python"
 module-name = "rust_pyfunc"
 include = ["python/rust_pyfunc/*.pyi"]
