@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>neutralize_and_backtest_gap1 - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>neutralize_and_backtest_gap1</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>对已 rank+rolling 的因子 block 做 raw + neu gap1 回测。</p>
+<p>输入因子 block 已经过 rank + rolling 处理，本函数 <strong>不做</strong> re-rank。
+<code>rank_before</code> 参数仅控制中性化步骤内部是否对截面因子值做 rank（属于中性化流程，
+与因子预处理阶段的 rank+rolling 无关）。</p>
+<h1>参数</h1>
+<ul>
+<li><code>factor_block</code>: [n_dates, n_stocks, n_factors] f32，已 rank+rolled</li>
+<li><code>style_cube</code>:   [n_dates, n_stocks, n_style] f32，Barra 风格因子（用于中性化）</li>
+<li><code>ret_array</code>:    [n_dates, n_stocks] f32，日收益率</li>
+<li><code>ret_sum_array</code>:[n_dates, n_stocks] f32，累计收益率</li>
+<li><code>restrict_array</code>:[n_dates, n_stocks] f32，可交易掩码（0=可交易）</li>
+<li><code>index_ret</code>:    [n_dates] f32，指数日收益率</li>
+<li><code>gap</code>:          持仓间隔（默认 1）</li>
+<li><code>portf_num</code>:    分组数（默认 10）</li>
+<li><code>rank_before</code>:  中性化前是否对因子做截面 rank（默认 true）</li>
+<li><code>min_valid</code>:    每天最少有效股票数（默认 12）</li>
+</ul>
+<h1>返回</h1>
+<p>(raw_summary, raw_ic, neu_summary, neu_ic)
+- summary: [n_factors, 10]
+  - [0] ic_mean, [1] ir, [2] ann_return, [3] sharpe, [4] max_dd,
+  - [5] date_size, [6] coverage, [7] hedge_annualized_return, [8] hedge_sharpe, [9] hedge_max_dd
+- ic: [n_ic_dates, n_factors]</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>neutralize_and_backtest_gap1(factor_block, style_cube, ret_array, ret_sum_array, restrict_array, index_ret, gap, portf_num, rank_before, min_valid) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                <p>此函数没有参数</p>
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import neutralize_and_backtest_gap1
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>
