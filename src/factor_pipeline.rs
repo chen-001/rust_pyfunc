@@ -11,6 +11,7 @@
 //! backup 格式与现有 run_pools_queue 完全兼容（复用 backup_writer），断点续算可用。
 use crate::backup_reader::{read_existing_backup_with_filter, TaskResult};
 use crate::backup_writer::save_results_to_backup;
+use crate::extreme_point_fit_metrics;
 use crate::fast_csv_reader;
 use crate::features;
 use crate::order_pair_metrics_pipeline;
@@ -118,12 +119,12 @@ pub fn pipeline_order_pair_hm90(
     let (vals1, _) = if result1_f32.nrows() == 0 {
         (nan_vec(half), vec![])
     } else {
-        features::get_features_factors_rust(&result1_f32.view(), &cols1)
+        features::get_features_factors_rust_full(&result1_f32.view(), &cols1, true)
     };
     let (vals2, _) = if result2_f32.nrows() == 0 {
         (nan_vec(half), vec![])
     } else {
-        features::get_features_factors_rust(&result2_f32.view(), &cols2)
+        features::get_features_factors_rust_full(&result2_f32.view(), &cols2, true)
     };
 
     // 4. 拼接返回
@@ -135,7 +136,30 @@ pub fn pipeline_order_pair_hm90(
 // observable_order pipeline
 // ============================================================================
 
+use crate::individual_order_ratio_metrics;
 use crate::observable_order_metrics;
+use crate::orderbook_imb_refactor_metrics;
+
+/// orderbook_imb_refactor 流水线单任务计算（薄包装，复用 ObservableOrderParams）。
+pub fn pipeline_orderbook_imb_refactor(
+    date: i64,
+    code: &str,
+    _params: &ObservableOrderParams,
+    _trading_days: &[i64],
+    expected_len: usize,
+) -> Vec<f32> {
+    let mut vals =
+        match orderbook_imb_refactor_metrics::compute_orderbook_imb_refactor_full(code, date) {
+            Ok(v) => v,
+            Err(_) => return nan_vec(expected_len),
+        };
+    if vals.len() < expected_len {
+        vals.resize(expected_len, f32::NAN);
+    } else if vals.len() > expected_len {
+        vals.truncate(expected_len);
+    }
+    vals
+}
 
 /// observable_order 流水线的参数。
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -242,6 +266,47 @@ pub fn pipeline_observable_order(
         all_factors.truncate(expected_len);
     }
     all_factors
+}
+
+/// individual_order_ratio 流水线的单任务计算。
+/// 复用 ObservableOrderParams（ior 不需要额外参数），内部调 compute_individual_order_ratio_full。
+pub fn pipeline_individual_order_ratio(
+    date: i64,
+    code: &str,
+    _params: &ObservableOrderParams,
+    _trading_days: &[i64],
+    expected_len: usize,
+) -> Vec<f32> {
+    let mut vals =
+        match individual_order_ratio_metrics::compute_individual_order_ratio_full(code, date) {
+            Ok(v) => v,
+            Err(_) => return nan_vec(expected_len),
+        };
+    if vals.len() < expected_len {
+        vals.resize(expected_len, f32::NAN);
+    } else if vals.len() > expected_len {
+        vals.truncate(expected_len);
+    }
+    vals
+}
+/// extreme_point_fit 流水线的单任务计算。
+/// 调用核心 compute_extreme_fit_with_features（原始展平 4992 + 降维 21984 = 26976）。
+pub fn pipeline_extreme_point_fit(
+    date: i64,
+    code: &str,
+    _trading_days: &[i64],
+    expected_len: usize,
+) -> Vec<f32> {
+    let mut vals = match extreme_point_fit_metrics::compute_extreme_fit_with_features(code, date) {
+        Ok(v) => v,
+        Err(_) => return nan_vec(expected_len),
+    };
+    if vals.len() < expected_len {
+        vals.resize(expected_len, f32::NAN);
+    } else if vals.len() > expected_len {
+        vals.truncate(expected_len);
+    }
+    vals
 }
 
 /// 把展平的 Vec<f64> 转为 ndarray::Array2。
@@ -448,7 +513,13 @@ pub fn run_factor_pipeline(
     let py = unsafe { Python::assume_gil_acquired() };
 
     let pipeline_name = pipeline.to_string();
-    let known = ["order_pair_hm90", "observable_order"];
+    let known = [
+        "order_pair_hm90",
+        "observable_order",
+        "individual_order_ratio",
+        "orderbook_imb_refactor",
+        "extreme_point_fit",
+    ];
     if !known.contains(&pipeline_name.as_str()) {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
             "未知流水线: {}（支持: {:?}）",
@@ -491,7 +562,11 @@ pub fn run_factor_pipeline(
     } else {
         Hm90Params::default()
     };
-    let oo_params = if pipeline_name == "observable_order" {
+    let oo_params = if pipeline_name == "observable_order"
+        || pipeline_name == "individual_order_ratio"
+        || pipeline_name == "orderbook_imb_refactor"
+        || pipeline_name == "extreme_point_fit"
+    {
         if let Some(p) = &params {
             parse_observable_order_params(py, p)?
         } else {
@@ -647,6 +722,29 @@ pub fn run_factor_pipeline(
                             date,
                             &code,
                             &oo_params_t,
+                            &trading_days,
+                            expected_result_length,
+                        )
+                    } else if pipeline_name_t == "individual_order_ratio" {
+                        pipeline_individual_order_ratio(
+                            date,
+                            &code,
+                            &oo_params_t,
+                            &trading_days,
+                            expected_result_length,
+                        )
+                    } else if pipeline_name_t == "orderbook_imb_refactor" {
+                        pipeline_orderbook_imb_refactor(
+                            date,
+                            &code,
+                            &oo_params_t,
+                            &trading_days,
+                            expected_result_length,
+                        )
+                    } else if pipeline_name_t == "extreme_point_fit" {
+                        pipeline_extreme_point_fit(
+                            date,
+                            &code,
                             &trading_days,
                             expected_result_length,
                         )
@@ -1130,7 +1228,7 @@ fn run_multiprocess_v2(
         }
         let _ = collector_handle.join(); // collector 排空 result_rx，残余入队列，drop write_tx
         let _ = writer_handle.join(); // writer 排空写队列，所有 batch 落盘后才返回（必须 last join）
-        // 让监控线程退出（completed 已达 total）
+                                      // 让监控线程退出（completed 已达 total）
         let _ = monitor_handle.join();
 
         Ok(())
@@ -1285,7 +1383,6 @@ fn run_single_worker_manager(
     }
 }
 
-
 // ==================== v6：计算+写colblk，不投影（投影由 tail_v5_run_candidates_online 在线转置替代）====================
 #[pyfunction]
 #[pyo3(signature = (
@@ -1317,7 +1414,13 @@ pub fn run_factor_pipeline_v6(
     let py = unsafe { Python::assume_gil_acquired() };
 
     let pipeline_name = pipeline.to_string();
-    let known = ["order_pair_hm90", "observable_order"];
+    let known = [
+        "order_pair_hm90",
+        "observable_order",
+        "individual_order_ratio",
+        "orderbook_imb_refactor",
+        "extreme_point_fit",
+    ];
     if !known.contains(&pipeline_name.as_str()) {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
             "未知流水线: {}（支持: {:?}）",
@@ -1360,7 +1463,11 @@ pub fn run_factor_pipeline_v6(
     } else {
         Hm90Params::default()
     };
-    let oo_params = if pipeline_name == "observable_order" {
+    let oo_params = if pipeline_name == "observable_order"
+        || pipeline_name == "individual_order_ratio"
+        || pipeline_name == "orderbook_imb_refactor"
+        || pipeline_name == "extreme_point_fit"
+    {
         if let Some(p) = &params {
             parse_observable_order_params(py, p)?
         } else {
@@ -1405,7 +1512,9 @@ pub fn run_factor_pipeline_v6(
 
     let total = pending.len();
     if total == 0 {
-        println!("✅ 所有任务都已完成（v6：不投影，由 tail_v5_run_candidates_online 在线转置读取）");
+        println!(
+            "✅ 所有任务都已完成（v6：不投影，由 tail_v5_run_candidates_online 在线转置读取）"
+        );
         return Ok(Python::with_gil(|py| py.None()));
     }
     println!("📋 待处理任务: {}, n_jobs={}", total, n_jobs);

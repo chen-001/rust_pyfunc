@@ -4,27 +4,42 @@
 
 use std::f64;
 
-
 // Local utility functions (mirror mod.rs)
 #[inline]
 fn safe_div(a: f64, b: f64) -> f64 {
-    if b.abs() < 1e-15 || !b.is_finite() { 0.0 } else { a / b }
+    if b.abs() < 1e-15 || !b.is_finite() {
+        0.0
+    } else {
+        a / b
+    }
 }
 #[inline]
 fn cap_val(v: f64, limit: f64) -> f64 {
-    if !v.is_finite() { return 0.0; }
+    if !v.is_finite() {
+        return 0.0;
+    }
     v.max(-limit).min(limit)
 }
 fn safe_mean(x: &[f64]) -> f64 {
-    if x.is_empty() { return 0.0; }
+    if x.is_empty() {
+        return 0.0;
+    }
     let sum: f64 = x.iter().filter(|v| v.is_finite()).sum();
     let count = x.iter().filter(|v| v.is_finite()).count();
-    if count == 0 { 0.0 } else { sum / count as f64 }
+    if count == 0 {
+        0.0
+    } else {
+        sum / count as f64
+    }
 }
 fn safe_std(x: &[f64]) -> f64 {
-    if x.len() < 2 { return 0.0; }
+    if x.len() < 2 {
+        return 0.0;
+    }
     let valid: Vec<f64> = x.iter().filter(|v| v.is_finite()).copied().collect();
-    if valid.len() < 2 { return 0.0; }
+    if valid.len() < 2 {
+        return 0.0;
+    }
     let n = valid.len() as f64;
     let mean = valid.iter().sum::<f64>() / n;
     let var = valid.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n;
@@ -120,7 +135,11 @@ fn hurst_rs(data: &[f64]) -> f64 {
     let sx: f64 = log_scales.iter().sum();
     let sy: f64 = log_rs.iter().sum();
     let sxx: f64 = log_scales.iter().map(|&x| x * x).sum();
-    let sxy: f64 = log_scales.iter().zip(log_rs.iter()).map(|(&x, &y)| x * y).sum();
+    let sxy: f64 = log_scales
+        .iter()
+        .zip(log_rs.iter())
+        .map(|(&x, &y)| x * y)
+        .sum();
     let den = n_pts * sxx - sx * sx;
     if den.abs() < 1e-15 {
         return 0.5;
@@ -139,7 +158,9 @@ fn fractal_dimension(data: &[f64]) -> f64 {
         total_len += (data[i] - data[i - 1]).abs();
     }
     let first = data[0];
-    let max_dist = data.iter().fold(0.0f64, |acc, &v| acc.max((v - first).abs()));
+    let max_dist = data
+        .iter()
+        .fold(0.0f64, |acc, &v| acc.max((v - first).abs()));
     if max_dist < 1e-15 || total_len < 1e-15 {
         return 1.0;
     }
@@ -168,7 +189,10 @@ fn permutation_entropy(data: &[f64], m: usize) -> f64 {
         // sort by value to get rank pattern
         let mut indices: Vec<usize> = (0..m).collect();
         indices.sort_by(|&a, &b| {
-            window[a].0.partial_cmp(&window[b].0).unwrap_or(std::cmp::Ordering::Equal)
+            window[a]
+                .0
+                .partial_cmp(&window[b].0)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
         *counts.entry(indices).or_insert(0) += 1;
     }
@@ -204,7 +228,9 @@ fn quadratic_convexity(data: &[f64]) -> f64 {
     }
     // Normalize to zero mean
     let y: Vec<f64> = data.iter().map(|&v| (v - mean_y) / std_y).collect();
-    let t: Vec<f64> = (0..n).map(|i| (i as f64 - (n - 1) as f64 / 2.0) / ((n - 1) as f64 / 2.0)).collect();
+    let t: Vec<f64> = (0..n)
+        .map(|i| (i as f64 - (n - 1) as f64 / 2.0) / ((n - 1) as f64 / 2.0))
+        .collect();
 
     // Solve for a, b, c in y = a*t² + b*t + c via least squares
     let mut st2 = 0.0f64;
@@ -232,22 +258,28 @@ fn quadratic_convexity(data: &[f64]) -> f64 {
     // [Σt   Σt²  Σt³] [b] = [Σyt]
     // [Σt²  Σt³  Σt⁴] [a]   [Σyt²]
     // Use Cramer's rule or simple Gaussian elimination
-    let a11 = n_f; let a12 = st_sum; let a13 = st2;
-    let a21 = st_sum; let a22 = st2; let a23 = st3;
-    let a31 = st2; let a32 = st3; let a33 = st4;
-    let b1 = sy; let b2 = syt; let b3 = syt2;
+    let a11 = n_f;
+    let a12 = st_sum;
+    let a13 = st2;
+    let a21 = st_sum;
+    let a22 = st2;
+    let a23 = st3;
+    let a31 = st2;
+    let a32 = st3;
+    let a33 = st4;
+    let b1 = sy;
+    let b2 = syt;
+    let b3 = syt2;
 
     // Determinant
-    let det = a11 * (a22 * a33 - a23 * a32)
-        - a12 * (a21 * a33 - a23 * a31)
+    let det = a11 * (a22 * a33 - a23 * a32) - a12 * (a21 * a33 - a23 * a31)
         + a13 * (a21 * a32 - a22 * a31);
     if det.abs() < 1e-15 {
         return 0.0;
     }
     // a = det_a / det
-    let det_a = a11 * (a22 * b3 - b2 * a32)
-        - a12 * (a21 * b3 - b2 * a31)
-        + b1 * (a21 * a32 - a22 * a31);
+    let det_a =
+        a11 * (a22 * b3 - b2 * a32) - a12 * (a21 * b3 - b2 * a31) + b1 * (a21 * a32 - a22 * a31);
     det_a / det
 }
 
@@ -511,7 +543,8 @@ fn event_sync_q(ts_a: &[i64], ts_b: &[i64]) -> f64 {
     }
     // Q relative to random expectation (simplified: Q = 2*(sync_count - E)/n_A)
     // Expected sync count: 2 * tau * n_A * rate_B
-    let rate_b = ts_b.len() as f64 / ((ts_b.last().unwrap_or(&1) - ts_b.first().unwrap_or(&0)).max(1) as f64);
+    let rate_b = ts_b.len() as f64
+        / ((ts_b.last().unwrap_or(&1) - ts_b.first().unwrap_or(&0)).max(1) as f64);
     let expected = 2.0 * tau as f64 * n_a as f64 * rate_b / 1_000_000_000_f64;
     let var_expected = expected.max(1.0);
     (sync_count as f64 - expected) / var_expected.sqrt()
@@ -607,9 +640,21 @@ fn compute_state_arrays(
     for i in 0..n_mkt {
         cum_to += mkt_pr[i] * mkt_vo[i];
         cum_vo += mkt_vo[i];
-        let vwap = if cum_vo > 0.0 { cum_to / cum_vo } else { mkt_pr[i] };
-        sa.price_vs_vwap[i] = if vwap > 0.0 { (mkt_pr[i] - vwap) / vwap } else { 0.0 };
-        sa.daily_range_pos[i] = if day_range > 1e-15 { (mkt_pr[i] - day_min) / day_range } else { 0.5 };
+        let vwap = if cum_vo > 0.0 {
+            cum_to / cum_vo
+        } else {
+            mkt_pr[i]
+        };
+        sa.price_vs_vwap[i] = if vwap > 0.0 {
+            (mkt_pr[i] - vwap) / vwap
+        } else {
+            0.0
+        };
+        sa.daily_range_pos[i] = if day_range > 1e-15 {
+            (mkt_pr[i] - day_min) / day_range
+        } else {
+            0.5
+        };
 
         // Realized vol (past 5min)
         let t = mkt_ts[i];
@@ -618,17 +663,33 @@ fn compute_state_arrays(
             Err(x) => x,
         };
         if i > lo + 5 {
-            let rets: Vec<f64> = (lo + 1..=i).map(|j| {
-                if mkt_pr[j - 1] > 0.0 { (mkt_pr[j] - mkt_pr[j - 1]) / mkt_pr[j - 1] } else { 0.0 }
-            }).collect();
+            let rets: Vec<f64> = (lo + 1..=i)
+                .map(|j| {
+                    if mkt_pr[j - 1] > 0.0 {
+                        (mkt_pr[j] - mkt_pr[j - 1]) / mkt_pr[j - 1]
+                    } else {
+                        0.0
+                    }
+                })
+                .collect();
             if rets.len() >= 5 {
                 let mean_ret = rets.iter().sum::<f64>() / rets.len() as f64;
-                let var = rets.iter().map(|&r| (r - mean_ret).powi(2)).sum::<f64>() / rets.len() as f64;
+                let var =
+                    rets.iter().map(|&r| (r - mean_ret).powi(2)).sum::<f64>() / rets.len() as f64;
                 sa.realized_vol_5min[i] = var.sqrt();
                 // Trend strength
-                let total_ret = if mkt_pr[lo] > 0.0 { (mkt_pr[i] - mkt_pr[lo]) / mkt_pr[lo] } else { 0.0 };
-                let vol_scaled = sa.realized_vol_5min[i].max(1e-15) * ((i - lo) as f64 / 1_000_000_000_f64).sqrt();
-                sa.trend_strength[i] = if vol_scaled > 1e-15 { total_ret.abs() / vol_scaled } else { 0.0 };
+                let total_ret = if mkt_pr[lo] > 0.0 {
+                    (mkt_pr[i] - mkt_pr[lo]) / mkt_pr[lo]
+                } else {
+                    0.0
+                };
+                let vol_scaled = sa.realized_vol_5min[i].max(1e-15)
+                    * ((i - lo) as f64 / 1_000_000_000_f64).sqrt();
+                sa.trend_strength[i] = if vol_scaled > 1e-15 {
+                    total_ret.abs() / vol_scaled
+                } else {
+                    0.0
+                };
             }
         }
 
@@ -638,22 +699,34 @@ fn compute_state_arrays(
             Err(x) => x,
         };
         if i > lo_1s + 4 {
-            let rets_1s: Vec<f64> = (lo_1s + 1..=i).map(|j| {
-                if mkt_pr[j - 1] > 0.0 { (mkt_pr[j] - mkt_pr[j - 1]) / mkt_pr[j - 1] } else { 0.0 }
-            }).collect();
+            let rets_1s: Vec<f64> = (lo_1s + 1..=i)
+                .map(|j| {
+                    if mkt_pr[j - 1] > 0.0 {
+                        (mkt_pr[j] - mkt_pr[j - 1]) / mkt_pr[j - 1]
+                    } else {
+                        0.0
+                    }
+                })
+                .collect();
             if rets_1s.len() >= 5 {
                 let n_r = rets_1s.len();
                 let rets_a = &rets_1s[..n_r - 1];
                 let rets_b = &rets_1s[1..];
                 let m_a = rets_a.iter().sum::<f64>() / rets_a.len() as f64;
                 let m_b = rets_b.iter().sum::<f64>() / rets_b.len() as f64;
-                let mut num = 0.0; let mut den_a = 0.0; let mut den_b = 0.0;
+                let mut num = 0.0;
+                let mut den_a = 0.0;
+                let mut den_b = 0.0;
                 for k in 0..n_r - 1 {
                     num += (rets_a[k] - m_a) * (rets_b[k] - m_b);
                     den_a += (rets_a[k] - m_a).powi(2);
                     den_b += (rets_b[k] - m_b).powi(2);
                 }
-                sa.ret_autocorr_1s[i] = if den_a * den_b > 1e-30 { num / (den_a * den_b).sqrt() } else { 0.0 };
+                sa.ret_autocorr_1s[i] = if den_a * den_b > 1e-30 {
+                    num / (den_a * den_b).sqrt()
+                } else {
+                    0.0
+                };
             }
         }
 
@@ -691,14 +764,19 @@ fn compute_state_arrays(
                 1.0
             };
             sa.visible_order_ratio[i] = if ob_bid_vol1[ob_i] + ob_ask_vol1[ob_i] > 0.0 {
-                (ob_bid_vol1[ob_i] + ob_ask_vol1[ob_i]) / (ob_bid_vol1[ob_i] + ob_ask_vol1[ob_i]).max(1.0)
+                (ob_bid_vol1[ob_i] + ob_ask_vol1[ob_i])
+                    / (ob_bid_vol1[ob_i] + ob_ask_vol1[ob_i]).max(1.0)
             } else {
                 0.0
             };
             // Weighted spread approximation using bid1/ask1
             let w_bid = ob_bid1[ob_i];
             let w_ask = ob_ask1[ob_i];
-            sa.weighted_spread[i] = if w_bid > 0.0 { (w_ask - w_bid) / w_bid } else { 0.0 };
+            sa.weighted_spread[i] = if w_bid > 0.0 {
+                (w_ask - w_bid) / w_bid
+            } else {
+                0.0
+            };
         }
 
         // Buy vol ratio in window
@@ -721,10 +799,12 @@ fn compute_state_arrays(
         let mut vol_rates: Vec<f64> = Vec::new();
         for w in 0..5 {
             let lo = match mkt_ts.binary_search(&(t - (w + 1) as i64 * window_1min)) {
-                Ok(x) => x, Err(x) => x,
+                Ok(x) => x,
+                Err(x) => x,
             };
             let hi = match mkt_ts.binary_search(&(t - w as i64 * window_1min)) {
-                Ok(x) => x, Err(x) => x,
+                Ok(x) => x,
+                Err(x) => x,
             };
             if hi > lo + 1 && lo < i {
                 let vol = mkt_vo[lo..hi].iter().sum::<f64>();
@@ -736,7 +816,8 @@ fn compute_state_arrays(
             let n = vol_rates.len() as f64;
             let mean_v = vol_rates.iter().sum::<f64>() / n;
             let x_mean = (n - 1.0) / 2.0;
-            let mut num = 0.0; let mut den = 0.0;
+            let mut num = 0.0;
+            let mut den = 0.0;
             for (j, v) in vol_rates.iter().enumerate() {
                 let dx = j as f64 - x_mean;
                 num += dx * (v - mean_v);
@@ -747,28 +828,40 @@ fn compute_state_arrays(
 
         // Trade size ratio
         let lo_t = match mkt_ts.binary_search(&(t - window_1min)) {
-            Ok(x) => x, Err(x) => x,
+            Ok(x) => x,
+            Err(x) => x,
         };
         if i > lo_t + 1 {
             let avg_vol = mkt_vo[lo_t..i].iter().sum::<f64>() / (i - lo_t) as f64;
             let lo_30 = match mkt_ts.binary_search(&(t - window_30min)) {
-                Ok(x) => x, Err(x) => x,
+                Ok(x) => x,
+                Err(x) => x,
             };
             if lo_30 < lo_t {
-                let hist_avg = mkt_vo[lo_30..lo_t].iter().sum::<f64>() / (lo_t - lo_30).max(1) as f64;
-                sa.trade_size_ratio[i] = if hist_avg > 0.0 { avg_vol / hist_avg } else { 1.0 };
+                let hist_avg =
+                    mkt_vo[lo_30..lo_t].iter().sum::<f64>() / (lo_t - lo_30).max(1) as f64;
+                sa.trade_size_ratio[i] = if hist_avg > 0.0 {
+                    avg_vol / hist_avg
+                } else {
+                    1.0
+                };
             }
         }
 
         // Depth consumption
         let ob_i = ob_idx_for_trade[i];
         let lo_dc = match mkt_ts.binary_search(&(t - window_1s)) {
-            Ok(x) => x, Err(x) => x,
+            Ok(x) => x,
+            Err(x) => x,
         };
         if i > lo_dc && ob_i < n_ob {
             let total_vol = mkt_vo[lo_dc..i].iter().sum::<f64>();
             let depth1 = ob_bid_vol1[ob_i] + ob_ask_vol1[ob_i];
-            sa.depth_consumption[i] = if depth1 > 0.0 { total_vol / depth1 } else { 0.0 };
+            sa.depth_consumption[i] = if depth1 > 0.0 {
+                total_vol / depth1
+            } else {
+                0.0
+            };
         }
     }
 
@@ -776,14 +869,16 @@ fn compute_state_arrays(
     for i in 0..n_mkt {
         let t = mkt_ts[i];
         let lo = match mkt_ts.binary_search(&(t - window_5min)) {
-            Ok(x) => x, Err(x) => x,
+            Ok(x) => x,
+            Err(x) => x,
         };
         if i > lo + 5 {
             let gaps: Vec<f64> = (lo..i).map(|j| sa.order_id_gap[j]).collect();
             let n = gaps.len() as f64;
             let mean_g = gaps.iter().sum::<f64>() / n;
             let x_mean = (n - 1.0) / 2.0;
-            let mut num = 0.0; let mut den = 0.0;
+            let mut num = 0.0;
+            let mut den = 0.0;
             for (j, &g) in gaps.iter().enumerate() {
                 let dx = j as f64 - x_mean;
                 num += dx * (g - mean_g);
@@ -798,7 +893,11 @@ fn compute_state_arrays(
 
 #[inline]
 fn hi_lo_diff(lo: usize, hi: usize) -> usize {
-    if hi > lo { hi - lo } else { 0 }
+    if hi > lo {
+        hi - lo
+    } else {
+        0
+    }
 }
 
 // ============================================================
@@ -838,9 +937,8 @@ pub fn compute_extra_factors(
     let mut result = vec![0.0f64; total];
 
     // Helper: find horizon index in fwd_horizons_sec
-    let find_h_idx = |h: f64| -> Option<usize> {
-        fwd_horizons_sec.iter().position(|&x| (x - h).abs() < 1e-9)
-    };
+    let find_h_idx =
+        |h: f64| -> Option<usize> { fwd_horizons_sec.iter().position(|&x| (x - h).abs() < 1e-9) };
 
     // ===========================================================
     // PILLAR 7: 择时质量 (TQ)
@@ -877,12 +975,19 @@ pub fn compute_extra_factors(
                     // Pre-trade momentum (normalized by return vol)
                     let t = mkt_ts[i];
                     let lo_pre = match mkt_ts.binary_search(&(t - pre_ns)) {
-                        Ok(x) => x, Err(x) => x,
+                        Ok(x) => x,
+                        Err(x) => x,
                     };
                     if i > lo_pre + 2 && mkt_pr[lo_pre] > 0.0 {
-                        let rets: Vec<f64> = (lo_pre+1..=i).map(|jj| {
-                            if mkt_pr[jj-1] > 0.0 { (mkt_pr[jj] - mkt_pr[jj-1]) / mkt_pr[jj-1] } else { 0.0 }
-                        }).collect();
+                        let rets: Vec<f64> = (lo_pre + 1..=i)
+                            .map(|jj| {
+                                if mkt_pr[jj - 1] > 0.0 {
+                                    (mkt_pr[jj] - mkt_pr[jj - 1]) / mkt_pr[jj - 1]
+                                } else {
+                                    0.0
+                                }
+                            })
+                            .collect();
                         let ret_vol = safe_std(&rets);
                         let raw_ret = (ep - mkt_pr[lo_pre]) / mkt_pr[lo_pre];
                         pre_momentum[k] = if ret_vol > 1e-15 {
@@ -894,15 +999,19 @@ pub fn compute_extra_factors(
 
                     // Entry percentile in [t-pre, t+h] window
                     let lo_all = match mkt_ts.binary_search(&(t - pre_ns)) {
-                        Ok(x) => x, Err(x) => x,
+                        Ok(x) => x,
+                        Err(x) => x,
                     };
                     let hi_all = match mkt_ts.binary_search(&(t + h_ns)) {
-                        Ok(x) => x + 1, Err(x) => x,
+                        Ok(x) => x + 1,
+                        Err(x) => x,
                     };
                     if hi_all > lo_all && hi_all <= n_mkt {
                         let window_prices = &mkt_pr[lo_all..hi_all];
                         let w_min = window_prices.iter().fold(f64::INFINITY, |a, &b| a.min(b));
-                        let w_max = window_prices.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
+                        let w_max = window_prices
+                            .iter()
+                            .fold(f64::NEG_INFINITY, |a, &b| a.max(b));
                         if w_max > w_min {
                             entry_pct[k] = ((ep - w_min) / (w_max - w_min)).max(0.0).min(1.0);
                         }
@@ -911,7 +1020,8 @@ pub fn compute_extra_factors(
                     // Adverse instant (500ms)
                     let adv_ns = 500 * 1_000_000_i64;
                     let j_adv = match mkt_ts.binary_search(&(t + adv_ns)) {
-                        Ok(x) => x, Err(x) => x,
+                        Ok(x) => x,
+                        Err(x) => x,
                     };
                     if j_adv < n_mkt && j_adv > i && mkt_pr[j_adv] > 0.0 {
                         adverse[k] = (mkt_pr[j_adv] - ep) / ep * sign_a[k];
@@ -926,24 +1036,44 @@ pub fn compute_extra_factors(
                         let ar = (fp - ep) / ep * sign_a[k];
                         if ar > 0.0 {
                             let mfe = seg.iter().fold(0.0f64, |a, &b| {
-                                let r = if sign_a[k] > 0.0 { (b - ep) / ep } else { (ep - b) / ep };
+                                let r = if sign_a[k] > 0.0 {
+                                    (b - ep) / ep
+                                } else {
+                                    (ep - b) / ep
+                                };
                                 a.max(r.max(0.0))
                             });
                             capture[k] = if mfe > 1e-15 { ar / mfe } else { 1.0 };
                         }
                         let mfe = seg.iter().fold(0.0f64, |a, &b| {
-                            let r = if sign_a[k] > 0.0 { (b - ep) / ep } else { (ep - b) / ep };
+                            let r = if sign_a[k] > 0.0 {
+                                (b - ep) / ep
+                            } else {
+                                (ep - b) / ep
+                            };
                             a.max(r.max(0.0))
                         });
                         let mae = seg.iter().fold(0.0f64, |a, &b| {
-                            let r = if sign_a[k] > 0.0 { (ep - b) / ep } else { (b - ep) / ep };
+                            let r = if sign_a[k] > 0.0 {
+                                (ep - b) / ep
+                            } else {
+                                (b - ep) / ep
+                            };
                             a.max(r.max(0.0))
                         });
-                        rr_eff[k] = if mfe + mae > 1e-15 { mfe / (mfe + mae) } else { 0.5 };
+                        rr_eff[k] = if mfe + mae > 1e-15 {
+                            mfe / (mfe + mae)
+                        } else {
+                            0.5
+                        };
 
                         // Time to first profit
                         for (jj, &seg_p) in seg.iter().enumerate() {
-                            let r = if sign_a[k] > 0.0 { (seg_p - ep) / ep } else { (ep - seg_p) / ep };
+                            let r = if sign_a[k] > 0.0 {
+                                (seg_p - ep) / ep
+                            } else {
+                                (ep - seg_p) / ep
+                            };
                             if r > 0.0 {
                                 time_profit[k] = jj as f64 / seg.len() as f64;
                                 break;
@@ -995,20 +1125,43 @@ pub fn compute_extra_factors(
                     let seg = &mkt_pr[i..=end_i];
 
                     // Aligned returns (subsample if too many points for heavy ops)
-                    let aligned_full: Vec<f64> = seg.iter().map(|&p| {
-                        if sign_a[k] > 0.0 { (p - ep) / ep } else { (ep - p) / ep }
-                    }).collect();
+                    let aligned_full: Vec<f64> = seg
+                        .iter()
+                        .map(|&p| {
+                            if sign_a[k] > 0.0 {
+                                (p - ep) / ep
+                            } else {
+                                (ep - p) / ep
+                            }
+                        })
+                        .collect();
                     let aligned_subsampled: Vec<f64> = if aligned_full.len() > 200 {
                         let step = aligned_full.len() / 200;
-                        (0..aligned_full.len()).step_by(step.max(1)).take(200).map(|j| aligned_full[j]).collect()
+                        (0..aligned_full.len())
+                            .step_by(step.max(1))
+                            .take(200)
+                            .map(|j| aligned_full[j])
+                            .collect()
                     } else {
                         aligned_full.clone()
                     };
 
-                    hurst_vals[k] = if aligned_subsampled.len() >= 16 { hurst_rs(&aligned_subsampled) } else { 0.5 };
+                    hurst_vals[k] = if aligned_subsampled.len() >= 16 {
+                        hurst_rs(&aligned_subsampled)
+                    } else {
+                        0.5
+                    };
                     fractal_vals[k] = fractal_dimension(&aligned_subsampled);
-                    perm_ent_vals[k] = if aligned_subsampled.len() >= 4 { permutation_entropy(&aligned_subsampled, 3) } else { 1.0 };
-                    convexity_vals[k] = if aligned_subsampled.len() >= 8 { quadratic_convexity(&aligned_subsampled) } else { 0.0 };
+                    perm_ent_vals[k] = if aligned_subsampled.len() >= 4 {
+                        permutation_entropy(&aligned_subsampled, 3)
+                    } else {
+                        1.0
+                    };
+                    convexity_vals[k] = if aligned_subsampled.len() >= 8 {
+                        quadratic_convexity(&aligned_subsampled)
+                    } else {
+                        0.0
+                    };
 
                     // Capture ratio and pain ratio use the full aligned array (cheap ops)
                     let mfe = aligned_full.iter().fold(0.0f64, |a, &b| a.max(b));
@@ -1017,7 +1170,11 @@ pub fn compute_extra_factors(
                     let pain_ticks = aligned_full.iter().filter(|&&x| x < -1e-10).count();
                     pain_vals[k] = pain_ticks as f64 / aligned_full.len().max(1) as f64;
 
-                    capture_vals[k] = if mfe > 1e-15 && final_ret > 0.0 { final_ret / mfe } else { 0.0 };
+                    capture_vals[k] = if mfe > 1e-15 && final_ret > 0.0 {
+                        final_ret / mfe
+                    } else {
+                        0.0
+                    };
                 }
 
                 result[base] = safe_mean(&hurst_vals);
@@ -1044,7 +1201,8 @@ pub fn compute_extra_factors(
 
         // Use 1s forward for win/loss determination
         let h1_idx = match find_h_idx(1.0) {
-            Some(x) => x, None => continue,
+            Some(x) => x,
+            None => continue,
         };
 
         let mut wins: Vec<bool> = Vec::with_capacity(n_trades);
@@ -1073,17 +1231,40 @@ pub fn compute_extra_factors(
         let mut after_2w = 0usize;
 
         for k in 1..n_w {
-            if wins[k - 1] { after_w += 1; if wins[k] { w_after_w += 1; } }
-            else { after_l += 1; if wins[k] { w_after_l += 1; } }
+            if wins[k - 1] {
+                after_w += 1;
+                if wins[k] {
+                    w_after_w += 1;
+                }
+            } else {
+                after_l += 1;
+                if wins[k] {
+                    w_after_l += 1;
+                }
+            }
             if k >= 2 && wins[k - 2] && wins[k - 1] {
                 after_2w += 1;
-                if wins[k] { w_after_2w += 1; }
+                if wins[k] {
+                    w_after_2w += 1;
+                }
             }
         }
 
-        let p_ww = if after_w > 0 { w_after_w as f64 / after_w as f64 } else { 0.0 };
-        let p_lw = if after_l > 0 { w_after_l as f64 / after_l as f64 } else { 0.0 };
-        let p_2ww = if after_2w > 0 { w_after_2w as f64 / after_2w as f64 } else { 0.0 };
+        let p_ww = if after_w > 0 {
+            w_after_w as f64 / after_w as f64
+        } else {
+            0.0
+        };
+        let p_lw = if after_l > 0 {
+            w_after_l as f64 / after_l as f64
+        } else {
+            0.0
+        };
+        let p_2ww = if after_2w > 0 {
+            w_after_2w as f64 / after_2w as f64
+        } else {
+            0.0
+        };
 
         result[base_sa] = p_ww;
         result[base_sa + 1] = p_lw;
@@ -1092,11 +1273,12 @@ pub fn compute_extra_factors(
         result[base_sa + 4] = transition_entropy(&wins);
         result[base_sa + 5] = lz_complexity_bits(&wins);
         result[base_sa + 6] = p_lw - p_ww; // GF score
-        // Ret autocorr
+                                           // Ret autocorr
         if rets.len() >= 4 {
             let n_r = rets.len();
             let m_ret = rets.iter().sum::<f64>() / n_r as f64;
-            let mut num = 0.0; let mut den = 0.0;
+            let mut num = 0.0;
+            let mut den = 0.0;
             for k in 0..n_r - 1 {
                 num += (rets[k] - m_ret) * (rets[k + 1] - m_ret);
                 den += (rets[k] - m_ret).powi(2);
@@ -1104,8 +1286,14 @@ pub fn compute_extra_factors(
             result[base_sa + 7] = if den > 1e-15 { num / den } else { 0.0 };
         }
         // Conditional vol ratio
-        let rets_w: Vec<f64> = (0..n_w-1).filter(|&k| wins[k]).map(|k| rets[k+1]).collect();
-        let rets_l: Vec<f64> = (0..n_w-1).filter(|&k| !wins[k]).map(|k| rets[k+1]).collect();
+        let rets_w: Vec<f64> = (0..n_w - 1)
+            .filter(|&k| wins[k])
+            .map(|k| rets[k + 1])
+            .collect();
+        let rets_l: Vec<f64> = (0..n_w - 1)
+            .filter(|&k| !wins[k])
+            .map(|k| rets[k + 1])
+            .collect();
         let std_w = safe_std(&rets_w);
         let std_l = safe_std(&rets_l);
         result[base_sa + 8] = if std_l > 1e-15 { std_w / std_l } else { 1.0 };
@@ -1122,12 +1310,20 @@ pub fn compute_extra_factors(
     let mut lo_1min_ri = vec![0usize; n_mkt];
     let mut lo_1s_ri = vec![0usize; n_mkt];
     {
-        let mut j5: usize = 0; let mut j1m: usize = 0; let mut j1s: usize = 0;
+        let mut j5: usize = 0;
+        let mut j1m: usize = 0;
+        let mut j1s: usize = 0;
         for i in 0..n_mkt {
             let t = mkt_ts[i];
-            while j5 < i && mkt_ts[j5] < t - window_5min_ri { j5 += 1; }
-            while j1m < i && mkt_ts[j1m] < t - window_1min_ri { j1m += 1; }
-            while j1s < i && mkt_ts[j1s] < t - window_1s_ri { j1s += 1; }
+            while j5 < i && mkt_ts[j5] < t - window_5min_ri {
+                j5 += 1;
+            }
+            while j1m < i && mkt_ts[j1m] < t - window_1min_ri {
+                j1m += 1;
+            }
+            while j1s < i && mkt_ts[j1s] < t - window_1s_ri {
+                j1s += 1;
+            }
             lo_5min_ri[i] = j5;
             lo_1min_ri[i] = j1m;
             lo_1s_ri[i] = j1s;
@@ -1137,7 +1333,9 @@ pub fn compute_extra_factors(
         let min_p = mkt_pr.iter().fold(f64::INFINITY, |a, &b| a.min(b));
         let max_p = mkt_pr.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
         (min_p, max_p)
-    } else { (0.0, 0.0) };
+    } else {
+        (0.0, 0.0)
+    };
     let day_range = day_max - day_min;
 
     // 10 state arrays using online sliding-window O(n_mkt) algorithms
@@ -1167,7 +1365,11 @@ pub fn compute_extra_factors(
 
         // Add new return at position i
         if i > 0 {
-            let r = if mkt_pr[i-1] > 0.0 { (mkt_pr[i] - mkt_pr[i-1]) / mkt_pr[i-1] } else { 0.0 };
+            let r = if mkt_pr[i - 1] > 0.0 {
+                (mkt_pr[i] - mkt_pr[i - 1]) / mkt_pr[i - 1]
+            } else {
+                0.0
+            };
             rets_queue.push_back(r);
             ret_sum += r;
             ret_sum2 += r * r;
@@ -1195,7 +1397,7 @@ pub fn compute_extra_factors(
         // State 0: realized_vol
         if n_ret >= 5 {
             let nf = n_ret as f64;
-            state_arrays_2d[0][i] = ((ret_sum2 - ret_sum*ret_sum/nf) / nf).max(0.0).sqrt();
+            state_arrays_2d[0][i] = ((ret_sum2 - ret_sum * ret_sum / nf) / nf).max(0.0).sqrt();
         }
         // State 1: trend_strength
         if n_ret >= 5 && mkt_pr[lo5] > 0.0 {
@@ -1207,10 +1409,18 @@ pub fn compute_extra_factors(
         // State 2: price_vs_vwap
         if vo_sum > 0.0 {
             let vwap = to_sum / vo_sum;
-            state_arrays_2d[2][i] = if vwap > 0.0 { (mkt_pr[i] - vwap) / vwap } else { 0.0 };
+            state_arrays_2d[2][i] = if vwap > 0.0 {
+                (mkt_pr[i] - vwap) / vwap
+            } else {
+                0.0
+            };
         }
         // State 3: daily_range_pos
-        state_arrays_2d[3][i] = if day_range > 1e-15 { (mkt_pr[i] - day_min) / day_range } else { 0.5 };
+        state_arrays_2d[3][i] = if day_range > 1e-15 {
+            (mkt_pr[i] - day_min) / day_range
+        } else {
+            0.5
+        };
         // State 4: vol_intensity (online)
         // Maintain sliding 1-min volume
         vol_1m_queue.push_back(mkt_vo[i]);
@@ -1219,30 +1429,50 @@ pub fn compute_extra_factors(
             vol_1m_sum -= vol_1m_queue.pop_front().unwrap();
             prev_lo1m += 1;
         }
-        while prev_lo1m < lo1m { prev_lo1m += 1; }
+        while prev_lo1m < lo1m {
+            prev_lo1m += 1;
+        }
         if i > lo1m {
             let vol_1m = vol_1m_sum;
             let dt = (mkt_ts[i] - mkt_ts[lo1m]).max(1) as f64;
             let rate = vol_1m / dt;
-            let vol_30 = if n_ret > 5 { state_arrays_2d[0][i] } else { rate };
+            let vol_30 = if n_ret > 5 {
+                state_arrays_2d[0][i]
+            } else {
+                rate
+            };
             state_arrays_2d[4][i] = if vol_30 > 0.0 { rate / vol_30 } else { 1.0 };
-        } else { state_arrays_2d[4][i] = 1.0; }
+        } else {
+            state_arrays_2d[4][i] = 1.0;
+        }
         // State 5: buy_vol_ratio (online)
         let is_buy = mkt_fl[i] == 66;
         buy_1s_queue.push_back(is_buy);
-        if is_buy { buy_1s_count += 1; }
+        if is_buy {
+            buy_1s_count += 1;
+        }
         while prev_lo1s < lo1s && !buy_1s_queue.is_empty() {
-            if buy_1s_queue.pop_front().unwrap() { buy_1s_count -= 1; }
+            if buy_1s_queue.pop_front().unwrap() {
+                buy_1s_count -= 1;
+            }
             prev_lo1s += 1;
         }
-        while prev_lo1s < lo1s { prev_lo1s += 1; }
+        while prev_lo1s < lo1s {
+            prev_lo1s += 1;
+        }
         if i > lo1s {
             state_arrays_2d[5][i] = (buy_1s_count as f64) / (i - lo1s).max(1) as f64;
-        } else { state_arrays_2d[5][i] = 0.5; }
+        } else {
+            state_arrays_2d[5][i] = 0.5;
+        }
         // States 6-9: order book
         let ob_i = ob_idx_for_trade[i];
         if ob_i < n_ob {
-            state_arrays_2d[6][i] = if ob_bid1[ob_i] > 0.0 { (ob_ask1[ob_i] - ob_bid1[ob_i]) / ob_bid1[ob_i] } else { 0.0 };
+            state_arrays_2d[6][i] = if ob_bid1[ob_i] > 0.0 {
+                (ob_ask1[ob_i] - ob_bid1[ob_i]) / ob_bid1[ob_i]
+            } else {
+                0.0
+            };
             state_arrays_2d[7][i] = ob_imbalance[ob_i];
             if i > lo1s {
                 let vol = mkt_vo[lo1s..i].iter().sum::<f64>();
@@ -1271,9 +1501,15 @@ pub fn compute_extra_factors(
     let mut j1s: usize = 0;
     for i in 0..n_mkt {
         let t = mkt_ts[i];
-        while j5 < i && mkt_ts[j5] < t - window_5min { j5 += 1; }
-        while j1m < i && mkt_ts[j1m] < t - window_1min_i { j1m += 1; }
-        while j1s < i && mkt_ts[j1s] < t - window_1s_i { j1s += 1; }
+        while j5 < i && mkt_ts[j5] < t - window_5min {
+            j5 += 1;
+        }
+        while j1m < i && mkt_ts[j1m] < t - window_1min_i {
+            j1m += 1;
+        }
+        while j1s < i && mkt_ts[j1s] < t - window_1s_i {
+            j1s += 1;
+        }
         lo_5min[i] = j5;
         lo_1min[i] = j1m;
         lo_1s[i] = j1s;
@@ -1284,7 +1520,9 @@ pub fn compute_extra_factors(
         let min_p = mkt_pr.iter().fold(f64::INFINITY, |a, &b| a.min(b));
         let max_p = mkt_pr.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
         (min_p, max_p)
-    } else { (0.0, 0.0) };
+    } else {
+        (0.0, 0.0)
+    };
     let day_range = day_max - day_min;
     let mut cum_to_state: f64 = 0.0;
     let mut cum_vo_state: f64 = 0.0;
@@ -1303,16 +1541,25 @@ pub fn compute_extra_factors(
 
     // Simplified state names (most important ones)
     let ri_simple_states: [&str; 10] = [
-        "realized_vol", "trend_strength", "price_vs_vwap", "daily_range_pos",
-        "vol_intensity", "buy_vol_ratio",
-        "norm_spread", "ob_imb", "depth_consumption", "order_id_gap"
+        "realized_vol",
+        "trend_strength",
+        "price_vs_vwap",
+        "daily_range_pos",
+        "vol_intensity",
+        "buy_vol_ratio",
+        "norm_spread",
+        "ob_imb",
+        "depth_consumption",
+        "order_id_gap",
     ];
 
     for a in 0..n_agents {
         let idxs_a = &per_agent_idx[a];
         let sign_a = &per_agent_sign[a];
         let n_trades = idxs_a.len();
-        if n_trades < 10 { continue; }
+        if n_trades < 10 {
+            continue;
+        }
 
         for (s_idx, &state_name) in ri_simple_states.iter().enumerate() {
             // Look up state values from precomputed array
@@ -1325,7 +1572,9 @@ pub fn compute_extra_factors(
                     trade_states.push((k, val));
                 }
             }
-            if trade_states.len() < 10 { continue; }
+            if trade_states.len() < 10 {
+                continue;
+            }
             trade_states.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
             let n = trade_states.len();
             let mid = n / 2;
@@ -1347,7 +1596,9 @@ pub fn compute_extra_factors(
                         if fp.is_finite() && mkt_pr[i] > 0.0 {
                             let ar = (fp - mkt_pr[i]) / mkt_pr[i] * sign_a[k];
                             low_rets.push(ar);
-                            if ar > 0.0 { low_hits += 1; }
+                            if ar > 0.0 {
+                                low_hits += 1;
+                            }
                         }
                     }
                     let mut high_rets = Vec::with_capacity(n - mid);
@@ -1358,19 +1609,24 @@ pub fn compute_extra_factors(
                         if fp.is_finite() && mkt_pr[i] > 0.0 {
                             let ar = (fp - mkt_pr[i]) / mkt_pr[i] * sign_a[k];
                             high_rets.push(ar);
-                            if ar > 0.0 { high_hits += 1; }
+                            if ar > 0.0 {
+                                high_hits += 1;
+                            }
                         }
                     }
                     result[base] = safe_mean(&high_rets) - safe_mean(&low_rets);
                     result[base + 1] = if !high_rets.is_empty() && !low_rets.is_empty() {
-                        (high_hits as f64 / high_rets.len() as f64) - (low_hits as f64 / low_rets.len() as f64)
-                    } else { 0.0 };
+                        (high_hits as f64 / high_rets.len() as f64)
+                            - (low_hits as f64 / low_rets.len() as f64)
+                    } else {
+                        0.0
+                    };
                 }
             }
         }
-    }    // ===========================================================
-    // PILLAR 11: 极端尾部 (ET)
-    // ===========================================================
+    } // ===========================================================
+      // PILLAR 11: 极端尾部 (ET)
+      // ===========================================================
     for a in 0..n_agents {
         let idxs_a = &per_agent_idx[a];
         let sign_a = &per_agent_sign[a];
@@ -1386,7 +1642,8 @@ pub fn compute_extra_factors(
 
         // Use 1s forward
         let h1_idx = match find_h_idx(1.0) {
-            Some(x) => x, None => continue,
+            Some(x) => x,
+            None => continue,
         };
         let mut rets: Vec<f64> = Vec::with_capacity(n_trades);
         for k in 0..n_trades {
@@ -1404,11 +1661,27 @@ pub fn compute_extra_factors(
         let top10 = (n as f64 * 0.9) as usize;
         let bot10 = (n as f64 * 0.1) as usize;
 
-        let top_mean = if top10 < n { safe_mean(&rets[top10..]) } else { 0.0 };
-        let bot_mean = if bot10 > 0 { safe_mean(&rets[..bot10]) } else { 0.0 };
+        let top_mean = if top10 < n {
+            safe_mean(&rets[top10..])
+        } else {
+            0.0
+        };
+        let bot_mean = if bot10 > 0 {
+            safe_mean(&rets[..bot10])
+        } else {
+            0.0
+        };
 
-        result[base_et] = if bot_mean.abs() > 1e-15 { top_mean / bot_mean.abs() } else { 0.0 };
-        result[base_et + 1] = if bot10 > 0 { safe_mean(&rets[..bot10]) } else { 0.0 }; // Expected shortfall
+        result[base_et] = if bot_mean.abs() > 1e-15 {
+            top_mean / bot_mean.abs()
+        } else {
+            0.0
+        };
+        result[base_et + 1] = if bot10 > 0 {
+            safe_mean(&rets[..bot10])
+        } else {
+            0.0
+        }; // Expected shortfall
         result[base_et + 2] = rets.last().copied().unwrap_or(0.0); // max
         result[base_et + 3] = rets.first().copied().unwrap_or(0.0); // min
     }
@@ -1431,7 +1704,8 @@ pub fn compute_extra_factors(
             + ET_PER_AGENT;
 
         let h1_idx = match find_h_idx(1.0) {
-            Some(x) => x, None => continue,
+            Some(x) => x,
+            None => continue,
         };
 
         let crowd_window = 1_000_000_000_i64; // 1s window
@@ -1449,7 +1723,9 @@ pub fn compute_extra_factors(
             let mut same = 0usize;
             let mut total_other = 0usize;
             for b in 0..n_agents {
-                if b == a { continue; }
+                if b == a {
+                    continue;
+                }
                 let idxs_b = &per_agent_idx[b];
                 for (pos_b, &j) in idxs_b.iter().enumerate() {
                     let t_b = mkt_ts[j as usize];
@@ -1462,45 +1738,83 @@ pub fn compute_extra_factors(
                     }
                 }
             }
-            crowding_ratios[k] = if total_other > 0 { same as f64 / total_other as f64 } else { 0.0 };
+            crowding_ratios[k] = if total_other > 0 {
+                same as f64 / total_other as f64
+            } else {
+                0.0
+            };
         }
 
         let median_cr = {
-            let mut crs: Vec<f64> = crowding_ratios.iter().filter(|v| v.is_finite()).copied().collect();
+            let mut crs: Vec<f64> = crowding_ratios
+                .iter()
+                .filter(|v| v.is_finite())
+                .copied()
+                .collect();
             crs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-            if crs.is_empty() { 0.0 } else { crs[crs.len() / 2] }
+            if crs.is_empty() {
+                0.0
+            } else {
+                crs[crs.len() / 2]
+            }
         };
 
         let crowd_high: Vec<bool> = crowding_ratios.iter().map(|&c| c > median_cr).collect();
         let crowd_low: Vec<bool> = crowding_ratios.iter().map(|&c| c <= median_cr).collect();
 
-        let crow_ret: Vec<f64> = rets_1s.iter().zip(crowd_high.iter()).filter(|(_, &h)| h).map(|(&r, _)| r).collect();
-        let solo_ret: Vec<f64> = rets_1s.iter().zip(crowd_low.iter()).filter(|(_, &h)| h).map(|(&r, _)| r).collect();
+        let crow_ret: Vec<f64> = rets_1s
+            .iter()
+            .zip(crowd_high.iter())
+            .filter(|(_, &h)| h)
+            .map(|(&r, _)| r)
+            .collect();
+        let solo_ret: Vec<f64> = rets_1s
+            .iter()
+            .zip(crowd_low.iter())
+            .filter(|(_, &h)| h)
+            .map(|(&r, _)| r)
+            .collect();
 
         let crow_hit = crow_ret.iter().filter(|&&r| r > 0.0).count();
         let solo_hit = solo_ret.iter().filter(|&&r| r > 0.0).count();
 
         result[base_cd] = safe_mean(&crowding_ratios);
-        result[base_cd + 1] = if !crow_ret.is_empty() { crow_hit as f64 / crow_ret.len() as f64 } else { 0.0 };
-        result[base_cd + 2] = if !solo_ret.is_empty() { solo_hit as f64 / solo_ret.len() as f64 } else { 0.0 };
+        result[base_cd + 1] = if !crow_ret.is_empty() {
+            crow_hit as f64 / crow_ret.len() as f64
+        } else {
+            0.0
+        };
+        result[base_cd + 2] = if !solo_ret.is_empty() {
+            solo_hit as f64 / solo_ret.len() as f64
+        } else {
+            0.0
+        };
         result[base_cd + 3] = result[base_cd + 1] - result[base_cd + 2];
         // Herding corr
-        let herding: Vec<f64> = (0..n_trades).filter_map(|k| {
-            let mut same_count = 0usize;
-            let mut total = 0usize;
-            for b in 0..n_agents {
-                if b == a { continue; }
-                // Check if agent b traded near the same time
-                let t = mkt_ts[idxs_a[k] as usize];
-                for &j in &per_agent_idx[b] {
-                    if (mkt_ts[j as usize] - t).abs() <= crowd_window / 2 {
-                        total += 1;
-                        break;
+        let herding: Vec<f64> = (0..n_trades)
+            .filter_map(|k| {
+                let mut same_count = 0usize;
+                let mut total = 0usize;
+                for b in 0..n_agents {
+                    if b == a {
+                        continue;
+                    }
+                    // Check if agent b traded near the same time
+                    let t = mkt_ts[idxs_a[k] as usize];
+                    for &j in &per_agent_idx[b] {
+                        if (mkt_ts[j as usize] - t).abs() <= crowd_window / 2 {
+                            total += 1;
+                            break;
+                        }
                     }
                 }
-            }
-            if total > 0 { Some(same_count as f64 / total as f64) } else { None }
-        }).collect();
+                if total > 0 {
+                    Some(same_count as f64 / total as f64)
+                } else {
+                    None
+                }
+            })
+            .collect();
         result[base_cd + 4] = safe_mean(&herding);
     }
 
@@ -1530,16 +1844,24 @@ pub fn compute_extra_factors(
             let mut sig_b = vec![0.0f64; n_bins_clipped];
 
             for (pos, &i) in idx_a.iter().enumerate() {
-                let bin = ((mkt_ts[i as usize] - t0) / 1_000_000_000_i64).min(n_bins_clipped as i64 - 1).max(0) as usize;
+                let bin = ((mkt_ts[i as usize] - t0) / 1_000_000_000_i64)
+                    .min(n_bins_clipped as i64 - 1)
+                    .max(0) as usize;
                 sig_a[bin] += sign_a[pos];
             }
             for (pos, &i) in idx_b.iter().enumerate() {
-                let bin = ((mkt_ts[i as usize] - t0) / 1_000_000_000_i64).min(n_bins_clipped as i64 - 1).max(0) as usize;
+                let bin = ((mkt_ts[i as usize] - t0) / 1_000_000_000_i64)
+                    .min(n_bins_clipped as i64 - 1)
+                    .max(0) as usize;
                 sig_b[bin] += sign_b[pos];
             }
             // Clip to [-1, 1]
-            for v in sig_a.iter_mut() { *v = v.max(-1.0).min(1.0); }
-            for v in sig_b.iter_mut() { *v = v.max(-1.0).min(1.0); }
+            for v in sig_a.iter_mut() {
+                *v = v.max(-1.0).min(1.0);
+            }
+            for v in sig_b.iter_mut() {
+                *v = v.max(-1.0).min(1.0);
+            }
 
             // TE
             let te_ab = transfer_entropy_dir(&sig_a, &sig_b);
@@ -1569,14 +1891,18 @@ pub fn compute_extra_factors(
                     }
                 }
                 let avg = if count > 0 { corr / count as f64 } else { 0.0 };
-                if avg > xcorr_max { xcorr_max = avg; best_lag = lag; }
+                if avg > xcorr_max {
+                    xcorr_max = avg;
+                    best_lag = lag;
+                }
             }
             result[base + 2] = xcorr_max; // plv approximation via max xcorr
             result[base + 3] = best_lag as f64 / max_lag as f64; // normalized lead (-1 to 1)
 
             // Feedback lead: A's forward return sign predicts B's subsequent return
             let h1_idx = match find_h_idx(1.0) {
-                Some(x) => x, None => continue,
+                Some(x) => x,
+                None => continue,
             };
             let mut feedback_ret = vec![0.0f64; 0];
             let mut feedback_hit = vec![0.0f64; 0];
@@ -1592,10 +1918,12 @@ pub fn compute_extra_factors(
                 let t_a = mkt_ts[i];
                 let t_end_b = t_a + 5 * 1_000_000_000_i64;
                 let j_start = match mkt_ts.binary_search(&t_a) {
-                    Ok(x) => x, Err(x) => x,
+                    Ok(x) => x,
+                    Err(x) => x,
                 };
                 let j_end = match mkt_ts.binary_search(&t_end_b) {
-                    Ok(x) => x + 1, Err(x) => x,
+                    Ok(x) => x + 1,
+                    Err(x) => x,
                 };
                 // Find B trades in this window
                 for &j in idx_b.iter() {
@@ -1606,7 +1934,13 @@ pub fn compute_extra_factors(
                             if let Some(b_pos) = idx_b.iter().position(|&x| x == j) {
                                 let r_b = (fp_b - mkt_pr[j_u]) / mkt_pr[j_u] * sign_b[b_pos];
                                 feedback_ret.push(sgn * r_b);
-                                feedback_hit.push(if (sgn > 0.0 && r_b > 0.0) || (sgn < 0.0 && r_b < 0.0) { 1.0 } else { 0.0 });
+                                feedback_hit.push(
+                                    if (sgn > 0.0 && r_b > 0.0) || (sgn < 0.0 && r_b < 0.0) {
+                                        1.0
+                                    } else {
+                                        0.0
+                                    },
+                                );
                             }
                         }
                         break; // only first B trade in window

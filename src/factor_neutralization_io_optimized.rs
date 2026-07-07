@@ -1,4 +1,6 @@
-use arrow::array::{Array, Float32Array, Float64Array, Int32Array, Int64Array, LargeStringArray, StringArray};
+use arrow::array::{
+    Array, Float32Array, Float64Array, Int32Array, Int64Array, LargeStringArray, StringArray,
+};
 use chrono::Local;
 use nalgebra::{DMatrix, DVector};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
@@ -267,30 +269,29 @@ impl IOOptimizedStyleData {
             .map(|i| {
                 let col = batch.column(i);
                 let as_any = col.as_any();
-                let getter: Box<dyn Fn(usize) -> f64 + Send + Sync> = if let Some(arr) =
-                    as_any.downcast_ref::<Float64Array>()
-                {
-                    Box::new(move |row_idx: usize| {
-                        if arr.is_null(row_idx) {
-                            f64::NAN
-                        } else {
-                            arr.value(row_idx)
-                        }
-                    })
-                } else if let Some(arr) = as_any.downcast_ref::<Float32Array>() {
-                    Box::new(move |row_idx: usize| {
-                        if arr.is_null(row_idx) {
-                            f64::NAN
-                        } else {
-                            arr.value(row_idx) as f64
-                        }
-                    })
-                } else {
-                    return Err(PyRuntimeError::new_err(format!(
-                        "风格因子列{}类型错误：期望Float64或Float32",
-                        i - 2
-                    )));
-                };
+                let getter: Box<dyn Fn(usize) -> f64 + Send + Sync> =
+                    if let Some(arr) = as_any.downcast_ref::<Float64Array>() {
+                        Box::new(move |row_idx: usize| {
+                            if arr.is_null(row_idx) {
+                                f64::NAN
+                            } else {
+                                arr.value(row_idx)
+                            }
+                        })
+                    } else if let Some(arr) = as_any.downcast_ref::<Float32Array>() {
+                        Box::new(move |row_idx: usize| {
+                            if arr.is_null(row_idx) {
+                                f64::NAN
+                            } else {
+                                arr.value(row_idx) as f64
+                            }
+                        })
+                    } else {
+                        return Err(PyRuntimeError::new_err(format!(
+                            "风格因子列{}类型错误：期望Float64或Float32",
+                            i - 2
+                        )));
+                    };
                 Ok(getter)
             })
             .collect::<PyResult<Vec<_>>>()?;

@@ -422,7 +422,9 @@ struct ShadowSet {
 
 impl ShadowSet {
     fn new() -> Self {
-        Self { members: Vec::new() }
+        Self {
+            members: Vec::new(),
+        }
     }
     /// 从未排序的 Vec 构建排序去重的集合
     fn from_unsorted(mut v: Vec<i64>) -> Self {
@@ -438,7 +440,11 @@ impl ShadowSet {
         let mut count = 0usize;
         while i < self.members.len() && j < other.members.len() {
             match self.members[i].cmp(&other.members[j]) {
-                std::cmp::Ordering::Equal => { count += 1; i += 1; j += 1; }
+                std::cmp::Ordering::Equal => {
+                    count += 1;
+                    i += 1;
+                    j += 1;
+                }
                 std::cmp::Ordering::Less => i += 1,
                 std::cmp::Ordering::Greater => j += 1,
             }
@@ -453,9 +459,19 @@ impl ShadowSet {
         let mut count = 0usize;
         while i < self.members.len() && j < other.members.len() {
             match self.members[i].cmp(&other.members[j]) {
-                std::cmp::Ordering::Equal => { count += 1; i += 1; j += 1; }
-                std::cmp::Ordering::Less => { count += 1; i += 1; }
-                std::cmp::Ordering::Greater => { count += 1; j += 1; }
+                std::cmp::Ordering::Equal => {
+                    count += 1;
+                    i += 1;
+                    j += 1;
+                }
+                std::cmp::Ordering::Less => {
+                    count += 1;
+                    i += 1;
+                }
+                std::cmp::Ordering::Greater => {
+                    count += 1;
+                    j += 1;
+                }
             }
         }
         count += self.members.len() - i;
@@ -468,8 +484,12 @@ impl ShadowSet {
 /// 相同 order_id 数值（无论来自 today 还是 yesterday）映射到同一个 idx，
 /// 保证跨天 Jaccard 的数值交集正确。
 #[allow(dead_code)]
-fn build_global_id_index(today_orders: &HashMap<i64, OrderInfo>, yest_orders: &HashMap<i64, OrderInfo>) -> HashMap<i64, usize> {
-    let mut idx_map: HashMap<i64, usize> = HashMap::with_capacity(today_orders.len() + yest_orders.len());
+fn build_global_id_index(
+    today_orders: &HashMap<i64, OrderInfo>,
+    yest_orders: &HashMap<i64, OrderInfo>,
+) -> HashMap<i64, usize> {
+    let mut idx_map: HashMap<i64, usize> =
+        HashMap::with_capacity(today_orders.len() + yest_orders.len());
     let mut next_idx = 0usize;
     for &id in today_orders.keys() {
         if !idx_map.contains_key(&id) {
@@ -1682,7 +1702,8 @@ pub fn calculate_order_pair_metrics_more_v2_faster(
     let window_size = 100usize;
 
     // 优化：预分配容量
-    let mut today_market_metrics: HashMap<i64, [f64; 5]> = HashMap::with_capacity(today_orders.len());
+    let mut today_market_metrics: HashMap<i64, [f64; 5]> =
+        HashMap::with_capacity(today_orders.len());
     for (&order_id, order) in &today_orders {
         let lz = calculate_lz_complexity_market(&today_sorted, order, window_size);
         let fd = calculate_fractal_dimension_market(&today_sorted, order, window_size);

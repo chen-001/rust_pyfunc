@@ -1,9 +1,7 @@
 use std::cmp::Ordering;
 
 use ndarray::{Array2, ArrayView1, ArrayView2, ArrayView3};
-use numpy::{
-    IntoPyArray, PyArray2, PyReadonlyArray1, PyReadonlyArray2, PyReadonlyArray3,
-};
+use numpy::{IntoPyArray, PyArray2, PyReadonlyArray1, PyReadonlyArray2, PyReadonlyArray3};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rayon::prelude::*;
@@ -391,9 +389,9 @@ fn process_single_factor<T: FloatLike>(
                     }
 
                     if valid_in_group > 0 {
-                        let avg_rank =
-                            ((seen_future_valid + 1 + seen_future_valid + valid_in_group) as f64)
-                                / 2.0;
+                        let avg_rank = ((seen_future_valid + 1 + seen_future_valid + valid_in_group)
+                            as f64)
+                            / 2.0;
                         for order_pos in future_pos..future_end {
                             let member_idx = future_order[order_pos] as usize;
                             if valid_with_future[member_idx] {
@@ -563,8 +561,10 @@ pub(crate) fn backtest_block_f32_with_parallel(
     portf_num: usize,
     parallel: bool,
 ) -> Result<(Array2<f64>, Array2<f64>), String> {
-    backtest_block_impl(factor, ret, ret_sum, restrict, index, gap, portf_num, parallel)
-        .map_err(|err| err.to_string())
+    backtest_block_impl(
+        factor, ret, ret_sum, restrict, index, gap, portf_num, parallel,
+    )
+    .map_err(|err| err.to_string())
 }
 
 #[pyfunction]
@@ -585,18 +585,12 @@ pub fn tail_v2_backtest_block<'py>(
     let restrict = restrict_array.as_array();
     let index = index_ret.as_array();
     let (summary, ic) = py.allow_threads(|| {
-        backtest_block_impl(
-            factor,
-            ret,
-            ret_sum,
-            restrict,
-            index,
-            gap,
-            portf_num,
-            true,
-        )
+        backtest_block_impl(factor, ret, ret_sum, restrict, index, gap, portf_num, true)
     })?;
-    Ok((summary.into_pyarray(py).to_owned(), ic.into_pyarray(py).to_owned()))
+    Ok((
+        summary.into_pyarray(py).to_owned(),
+        ic.into_pyarray(py).to_owned(),
+    ))
 }
 
 #[pyfunction]
@@ -617,16 +611,10 @@ pub fn tail_v2_backtest_block_f32<'py>(
     let restrict = restrict_array.as_array();
     let index = index_ret.as_array();
     let (summary, ic) = py.allow_threads(|| {
-        backtest_block_impl(
-            factor,
-            ret,
-            ret_sum,
-            restrict,
-            index,
-            gap,
-            portf_num,
-            true,
-        )
+        backtest_block_impl(factor, ret, ret_sum, restrict, index, gap, portf_num, true)
     })?;
-    Ok((summary.into_pyarray(py).to_owned(), ic.into_pyarray(py).to_owned()))
+    Ok((
+        summary.into_pyarray(py).to_owned(),
+        ic.into_pyarray(py).to_owned(),
+    ))
 }

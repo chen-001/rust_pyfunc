@@ -38,6 +38,28 @@ from .minute_data_reader import *
 
 
 
+def py_individual_order_ratio_names() -> List[str]:
+    ...
+
+
+def py_individual_order_ratio(code: str, date: int) -> List[float]:
+    ...
+def py_orderbook_imb_refactor_names() -> List[str]:
+    ...
+
+
+def py_compute_orderbook_imb_refactor(code: str, date: int) -> List[float]:
+    ...
+
+
+def py_extreme_point_fit(code: str, date: int) -> List[float]:
+    ...
+
+
+def py_extreme_point_fit_names() -> List[str]:
+    ...
+
+
 def personalized_meeting_feature_names() -> Tuple[List[str], List[str]]:
     ...
 
@@ -158,6 +180,8 @@ __all__ = [
     "factor_store_v5_read_factor",
     "factor_store_v5_template",
     "factor_store_v5_export_factors_parquet",
+    "factor_store_v5_verify_scatter_fast",
+    "tail_backtest_engine",
     # Pandas扩展函数
     "dataframe_corrwith",
     "dataframe_corrwith_single_thread",
@@ -287,6 +311,12 @@ __all__ = [
     "get_features_factors_single",
     "get_features_factors",
     "get_features_names",
+    "py_individual_order_ratio",
+    "py_individual_order_ratio_names",
+    "py_compute_orderbook_imb_refactor",
+    "py_orderbook_imb_refactor_names",
+    "py_extreme_point_fit",
+    "py_extreme_point_fit_names",
     "dct_1d",
     "dct_2d",
     "personalized_meeting_feature_names",

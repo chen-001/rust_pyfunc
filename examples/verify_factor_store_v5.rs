@@ -38,7 +38,11 @@ fn main() {
     writer.append_batch(&results[..mid]).unwrap();
     writer.append_batch(&results[mid..]).unwrap();
     assert_eq!(writer.record_count(), results.len() as u64);
-    println!("    记录数: {}, 因子数: {}", writer.record_count(), factor_count);
+    println!(
+        "    记录数: {}, 因子数: {}",
+        writer.record_count(),
+        factor_count
+    );
 
     // 2. 断点续算验证：重新打开应能识别已写入记录
     drop(writer);
@@ -47,7 +51,10 @@ fn main() {
     assert_eq!(writer2.record_count(), results.len() as u64);
     let completed = writer2.check_completed().unwrap();
     assert_eq!(completed.len(), results.len());
-    println!("    check_completed 识别出 {} 条已完成记录 ✅", completed.len());
+    println!(
+        "    check_completed 识别出 {} 条已完成记录 ✅",
+        completed.len()
+    );
     drop(writer2);
 
     // 3. 投影
@@ -84,9 +91,16 @@ fn main() {
     println!("    4 个因子 × 15 个值全部正确 ✅");
 
     // 5. 容量信息
-    let colblk_size = std::fs::metadata(tmp.path().join("factors.colblk")).unwrap().len();
-    let idx_size = std::fs::metadata(tmp.path().join("factors.idx")).unwrap().len();
-    println!("\n[5] 文件大小: factors.colblk={} 字节, factors.idx={} 字节", colblk_size, idx_size);
+    let colblk_size = std::fs::metadata(tmp.path().join("factors.colblk"))
+        .unwrap()
+        .len();
+    let idx_size = std::fs::metadata(tmp.path().join("factors.idx"))
+        .unwrap()
+        .len();
+    println!(
+        "\n[5] 文件大小: factors.colblk={} 字节, factors.idx={} 字节",
+        colblk_size, idx_size
+    );
 
     println!("\n🎉 全部验证通过！");
 }

@@ -35,13 +35,17 @@ pub fn solve_linear_system_safe(a: &ArrayView2<f64>, b: &ArrayView1<f64>) -> Arr
                 if i == j {
                     l[[i, i]] = 1.0;
                     if u[[i, i]].abs() < MIN_PIVOT {
-                        u[[i, i]] = if u[[i, i]] >= 0.0 { MIN_PIVOT } else { -MIN_PIVOT };
+                        u[[i, i]] = if u[[i, i]] >= 0.0 {
+                            MIN_PIVOT
+                        } else {
+                            -MIN_PIVOT
+                        };
                     }
                 }
             }
             if i > j {
-                l[[i, j]] =
-                    (a_reg[[i, j]] - (0..j).map(|k| l[[i, k]] * u[[k, j]]).sum::<f64>()) / u[[j, j]];
+                l[[i, j]] = (a_reg[[i, j]] - (0..j).map(|k| l[[i, k]] * u[[k, j]]).sum::<f64>())
+                    / u[[j, j]];
                 if !l[[i, j]].is_finite() {
                     l[[i, j]] = 0.0;
                 }
@@ -52,13 +56,17 @@ pub fn solve_linear_system_safe(a: &ArrayView2<f64>, b: &ArrayView1<f64>) -> Arr
     let mut y = Array1::<f64>::zeros(n);
     for i in 0..n {
         y[i] = b[i] - (0..i).map(|j| l[[i, j]] * y[j]).sum::<f64>();
-        if !y[i].is_finite() { y[i] = 0.0; }
+        if !y[i].is_finite() {
+            y[i] = 0.0;
+        }
     }
 
     let mut x = Array1::<f64>::zeros(n);
     for i in (0..n).rev() {
         x[i] = (y[i] - (i + 1..n).map(|j| u[[i, j]] * x[j]).sum::<f64>()) / u[[i, i]];
-        if !x[i].is_finite() { x[i] = 0.0; }
+        if !x[i].is_finite() {
+            x[i] = 0.0;
+        }
     }
     x
 }
@@ -135,7 +143,11 @@ pub fn ols_with_intercept_safe(x: &ArrayView2<f64>, y: &ArrayView1<f64>) -> (Arr
         }
         ss_res += (yi - pred).powi(2);
     }
-    let r2 = if ss_tot > 0.0 { 1.0 - ss_res / ss_tot } else { f64::NAN };
+    let r2 = if ss_tot > 0.0 {
+        1.0 - ss_res / ss_tot
+    } else {
+        f64::NAN
+    };
 
     (coef, r2)
 }
@@ -161,10 +173,7 @@ pub fn build_lagged_design(data: &ArrayView1<f64>, n_lags: usize) -> Array2<f64>
 // data: (T, N) → 对每列 n，构建 (T-n_lags, n_lags) 后纵向堆叠
 // 返回: X_stacked (N*(T-n_lags), n_lags), y_stacked (N*(T-n_lags),)
 // ============================================================
-pub fn build_stacked_design(
-    data: &ArrayView2<f64>,
-    n_lags: usize,
-) -> (Array2<f64>, Array1<f64>) {
+pub fn build_stacked_design(data: &ArrayView2<f64>, n_lags: usize) -> (Array2<f64>, Array1<f64>) {
     let t = data.nrows();
     let n_stocks = data.ncols();
     let t_valid = t - n_lags;
@@ -257,7 +266,11 @@ pub fn extract_38_stats(r2s: &ArrayView2<f64>, r2_pri: &ArrayView1<f64>) -> Arra
         stats[[0, s]] = pearson_corr_pairs(&corr_pairs);
 
         // ---- r2_in_uprate, r2_out_uprate, trans_out_uprate ----
-        let r2p = if r2_pri[s].is_finite() { r2_pri[s] } else { f64::NAN };
+        let r2p = if r2_pri[s].is_finite() {
+            r2_pri[s]
+        } else {
+            f64::NAN
+        };
         let n_valid = valid_vals_row.len().max(1);
         let mut up_in = 0;
         let mut up_out = 0;
@@ -306,7 +319,11 @@ pub fn extract_38_stats(r2s: &ArrayView2<f64>, r2_pri: &ArrayView1<f64>) -> Arra
         for k in 0..n {
             let r = row_s[k];
             let c = col_s[k];
-            let pri_k = if r2_pri[k].is_finite() { r2_pri[k] } else { f64::NAN };
+            let pri_k = if r2_pri[k].is_finite() {
+                r2_pri[k]
+            } else {
+                f64::NAN
+            };
             if r.is_finite() {
                 in_ab_vals.push(r - r2p);
             }
@@ -377,20 +394,28 @@ pub fn extract_38_stats(r2s: &ArrayView2<f64>, r2_pri: &ArrayView1<f64>) -> Arra
 /// weights: (N,) 正权重向量，log(总成交量)
 /// 行统计量（in_*）：以 weights[k] 加权 r2s[s, k]
 /// 列统计量（out_*）：以 weights[k] 加权 r2s[k, s]
-pub fn extract_38_stats_weighted(r2s: &ArrayView2<f64>, r2_pri: &ArrayView1<f64>, weights: &ArrayView1<f64>) -> Array2<f64> {
+pub fn extract_38_stats_weighted(
+    r2s: &ArrayView2<f64>,
+    r2_pri: &ArrayView1<f64>,
+    weights: &ArrayView1<f64>,
+) -> Array2<f64> {
     let n = r2s.nrows();
     let mut stats = Array2::<f64>::zeros((38, n));
 
     // 总权重
     let sum_w: f64 = weights.iter().filter(|v| v.is_finite() && **v > 0.0).sum();
     if sum_w <= 0.0 {
-        return stats;  // all NaN
+        return stats; // all NaN
     }
 
     for s in 0..n {
         let row_s = r2s.row(s);
         let col_s = r2s.column(s);
-        let ws = if weights[s].is_finite() && weights[s] > 0.0 { weights[s] } else { 0.0 };
+        let ws = if weights[s].is_finite() && weights[s] > 0.0 {
+            weights[s]
+        } else {
+            0.0
+        };
 
         // 收集行列有效值及对应权重
         let mut pairs_row: Vec<(f64, f64)> = Vec::with_capacity(n);
@@ -402,7 +427,11 @@ pub fn extract_38_stats_weighted(r2s: &ArrayView2<f64>, r2_pri: &ArrayView1<f64>
         for k in 0..n {
             let r = row_s[k];
             let c = col_s[k];
-            let wk = if weights[k].is_finite() && weights[k] > 0.0 { weights[k] } else { 0.0 };
+            let wk = if weights[k].is_finite() && weights[k] > 0.0 {
+                weights[k]
+            } else {
+                0.0
+            };
             if r.is_finite() && wk > 0.0 {
                 pairs_row.push((r, wk));
             }
@@ -412,8 +441,16 @@ pub fn extract_38_stats_weighted(r2s: &ArrayView2<f64>, r2_pri: &ArrayView1<f64>
             if r.is_finite() && c.is_finite() && wk > 0.0 {
                 trans_pairs.push((r - c, wk));
             }
-            let pri_k = if r2_pri[k].is_finite() { r2_pri[k] } else { f64::NAN };
-            let r2p = if r2_pri[s].is_finite() { r2_pri[s] } else { f64::NAN };
+            let pri_k = if r2_pri[k].is_finite() {
+                r2_pri[k]
+            } else {
+                f64::NAN
+            };
+            let r2p = if r2_pri[s].is_finite() {
+                r2_pri[s]
+            } else {
+                f64::NAN
+            };
             if r.is_finite() && r2p.is_finite() && wk > 0.0 {
                 in_ab_pairs.push((r - r2p, wk));
             }
@@ -425,19 +462,38 @@ pub fn extract_38_stats_weighted(r2s: &ArrayView2<f64>, r2_pri: &ArrayView1<f64>
         // corr_in_out: 仍用未加权 Pearson（因为两列长度相同，等权合理）
         let mut corr_pairs = Vec::with_capacity(n);
         for k in 0..n {
-            let r = row_s[k]; let c = col_s[k];
-            if r.is_finite() && c.is_finite() { corr_pairs.push((r, c)); }
+            let r = row_s[k];
+            let c = col_s[k];
+            if r.is_finite() && c.is_finite() {
+                corr_pairs.push((r, c));
+            }
         }
         stats[[0, s]] = pearson_corr_pairs(&corr_pairs);
 
         // uprate: 仍用未加权比例
-        let r2p = if r2_pri[s].is_finite() { r2_pri[s] } else { f64::NAN };
+        let r2p = if r2_pri[s].is_finite() {
+            r2_pri[s]
+        } else {
+            f64::NAN
+        };
         let n_valid = pairs_row.len().max(1);
-        let mut up_in = 0usize; let mut up_out = 0usize; let mut trans_out = 0usize;
+        let mut up_in = 0usize;
+        let mut up_out = 0usize;
+        let mut trans_out = 0usize;
         for k in 0..n {
-            let r = row_s[k]; let c = col_s[k];
-            if r.is_finite() { if r > 0.0 && r > r2p { up_in += 1; } if c.is_finite() && r > c { trans_out += 1; } }
-            if c.is_finite() && c > 0.0 && c > r2p { up_out += 1; }
+            let r = row_s[k];
+            let c = col_s[k];
+            if r.is_finite() {
+                if r > 0.0 && r > r2p {
+                    up_in += 1;
+                }
+                if c.is_finite() && r > c {
+                    trans_out += 1;
+                }
+            }
+            if c.is_finite() && c > 0.0 && c > r2p {
+                up_out += 1;
+            }
         }
         stats[[1, s]] = up_in as f64 / n_valid as f64;
         stats[[2, s]] = up_out as f64 / n_valid as f64;
@@ -450,14 +506,26 @@ pub fn extract_38_stats_weighted(r2s: &ArrayView2<f64>, r2_pri: &ArrayView1<f64>
         let (iam, iao, iak, iakt) = weighted_moments(&in_ab_pairs);
         let (oam, oao, oak, oakt) = weighted_moments(&out_ab_pairs);
 
-        stats[[4, s]] = im;  stats[[5, s]] = om;
-        stats[[6, s]] = iam; stats[[7, s]] = oam; stats[[8, s]] = tm;
-        stats[[9, s]] = io;  stats[[10, s]] = oo;
-        stats[[11, s]] = iao; stats[[12, s]] = oao; stats[[13, s]] = to;
-        stats[[14, s]] = ik; stats[[15, s]] = ok;
-        stats[[16, s]] = iak; stats[[17, s]] = oak; stats[[18, s]] = tk;
-        stats[[19, s]] = ikt; stats[[20, s]] = okt;
-        stats[[21, s]] = iakt; stats[[22, s]] = oakt; stats[[23, s]] = tkt;
+        stats[[4, s]] = im;
+        stats[[5, s]] = om;
+        stats[[6, s]] = iam;
+        stats[[7, s]] = oam;
+        stats[[8, s]] = tm;
+        stats[[9, s]] = io;
+        stats[[10, s]] = oo;
+        stats[[11, s]] = iao;
+        stats[[12, s]] = oao;
+        stats[[13, s]] = to;
+        stats[[14, s]] = ik;
+        stats[[15, s]] = ok;
+        stats[[16, s]] = iak;
+        stats[[17, s]] = oak;
+        stats[[18, s]] = tk;
+        stats[[19, s]] = ikt;
+        stats[[20, s]] = okt;
+        stats[[21, s]] = iakt;
+        stats[[22, s]] = oakt;
+        stats[[23, s]] = tkt;
 
         // 加权中位数
         stats[[24, s]] = weighted_median(&pairs_row);
@@ -467,17 +535,71 @@ pub fn extract_38_stats_weighted(r2s: &ArrayView2<f64>, r2_pri: &ArrayView1<f64>
         stats[[28, s]] = weighted_median(&trans_pairs);
 
         // 最大值
-        stats[[29, s]] = pairs_row.iter().map(|(v,_)| *v).fold(f64::NAN, |a,v| if v.is_finite() && (a.is_nan() || v>a) {v} else {a});
-        stats[[30, s]] = in_ab_pairs.iter().map(|(v,_)| *v).fold(f64::NAN, |a,v| if v.is_finite() && (a.is_nan() || v>a) {v} else {a});
-        stats[[31, s]] = out_ab_pairs.iter().map(|(v,_)| *v).fold(f64::NAN, |a,v| if v.is_finite() && (a.is_nan() || v>a) {v} else {a});
-        stats[[32, s]] = trans_pairs.iter().map(|(v,_)| *v).fold(f64::NAN, |a,v| if v.is_finite() && (a.is_nan() || v>a) {v} else {a});
+        stats[[29, s]] = pairs_row.iter().map(|(v, _)| *v).fold(f64::NAN, |a, v| {
+            if v.is_finite() && (a.is_nan() || v > a) {
+                v
+            } else {
+                a
+            }
+        });
+        stats[[30, s]] = in_ab_pairs.iter().map(|(v, _)| *v).fold(f64::NAN, |a, v| {
+            if v.is_finite() && (a.is_nan() || v > a) {
+                v
+            } else {
+                a
+            }
+        });
+        stats[[31, s]] = out_ab_pairs.iter().map(|(v, _)| *v).fold(f64::NAN, |a, v| {
+            if v.is_finite() && (a.is_nan() || v > a) {
+                v
+            } else {
+                a
+            }
+        });
+        stats[[32, s]] = trans_pairs.iter().map(|(v, _)| *v).fold(f64::NAN, |a, v| {
+            if v.is_finite() && (a.is_nan() || v > a) {
+                v
+            } else {
+                a
+            }
+        });
 
         // 最小值
-        stats[[33, s]] = pairs_row.iter().map(|(v,_)| *v).fold(f64::NAN, |a,v| if v.is_finite() && (a.is_nan() || v<a) {v} else {a});
-        stats[[34, s]] = pairs_col.iter().map(|(v,_)| *v).fold(f64::NAN, |a,v| if v.is_finite() && (a.is_nan() || v<a) {v} else {a});
-        stats[[35, s]] = in_ab_pairs.iter().map(|(v,_)| *v).fold(f64::NAN, |a,v| if v.is_finite() && (a.is_nan() || v<a) {v} else {a});
-        stats[[36, s]] = out_ab_pairs.iter().map(|(v,_)| *v).fold(f64::NAN, |a,v| if v.is_finite() && (a.is_nan() || v<a) {v} else {a});
-        stats[[37, s]] = trans_pairs.iter().map(|(v,_)| *v).fold(f64::NAN, |a,v| if v.is_finite() && (a.is_nan() || v<a) {v} else {a});
+        stats[[33, s]] = pairs_row.iter().map(|(v, _)| *v).fold(f64::NAN, |a, v| {
+            if v.is_finite() && (a.is_nan() || v < a) {
+                v
+            } else {
+                a
+            }
+        });
+        stats[[34, s]] = pairs_col.iter().map(|(v, _)| *v).fold(f64::NAN, |a, v| {
+            if v.is_finite() && (a.is_nan() || v < a) {
+                v
+            } else {
+                a
+            }
+        });
+        stats[[35, s]] = in_ab_pairs.iter().map(|(v, _)| *v).fold(f64::NAN, |a, v| {
+            if v.is_finite() && (a.is_nan() || v < a) {
+                v
+            } else {
+                a
+            }
+        });
+        stats[[36, s]] = out_ab_pairs.iter().map(|(v, _)| *v).fold(f64::NAN, |a, v| {
+            if v.is_finite() && (a.is_nan() || v < a) {
+                v
+            } else {
+                a
+            }
+        });
+        stats[[37, s]] = trans_pairs.iter().map(|(v, _)| *v).fold(f64::NAN, |a, v| {
+            if v.is_finite() && (a.is_nan() || v < a) {
+                v
+            } else {
+                a
+            }
+        });
     }
     stats
 }
@@ -485,32 +607,64 @@ pub fn extract_38_stats_weighted(r2s: &ArrayView2<f64>, r2_pri: &ArrayView1<f64>
 /// 加权矩：返回 (mean, std, skew, kurt)
 fn weighted_moments(pairs: &[(f64, f64)]) -> (f64, f64, f64, f64) {
     let n = pairs.len();
-    if n < 3 { return (f64::NAN, f64::NAN, f64::NAN, f64::NAN); }
+    if n < 3 {
+        return (f64::NAN, f64::NAN, f64::NAN, f64::NAN);
+    }
     let sum_w: f64 = pairs.iter().map(|(_, w)| w).sum();
-    if sum_w <= 0.0 { return (f64::NAN, f64::NAN, f64::NAN, f64::NAN); }
+    if sum_w <= 0.0 {
+        return (f64::NAN, f64::NAN, f64::NAN, f64::NAN);
+    }
     let mean = pairs.iter().map(|(v, w)| v * w).sum::<f64>() / sum_w;
-    let m2 = pairs.iter().map(|(v, w)| w * (v - mean).powi(2)).sum::<f64>() / sum_w;
-    if m2 <= 0.0 { return (mean, 0.0, f64::NAN, f64::NAN); }
+    let m2 = pairs
+        .iter()
+        .map(|(v, w)| w * (v - mean).powi(2))
+        .sum::<f64>()
+        / sum_w;
+    if m2 <= 0.0 {
+        return (mean, 0.0, f64::NAN, f64::NAN);
+    }
     let std = (m2 * n as f64 / (n as f64 - 1.0)).sqrt();
-    let m3 = pairs.iter().map(|(v, w)| w * (v - mean).powi(3)).sum::<f64>() / sum_w;
-    let m4 = pairs.iter().map(|(v, w)| w * (v - mean).powi(4)).sum::<f64>() / sum_w;
-    let skew = if std > 0.0 { (n as f64).sqrt() * m3 / (std * std * std) * (n as f64 - 1.0).sqrt() / (n as f64).sqrt() } else { f64::NAN };
-    let kurt = if std > 0.0 { n as f64 * m4 / (m2 * m2 * (n as f64 - 1.0)) - 3.0 } else { f64::NAN };
+    let m3 = pairs
+        .iter()
+        .map(|(v, w)| w * (v - mean).powi(3))
+        .sum::<f64>()
+        / sum_w;
+    let m4 = pairs
+        .iter()
+        .map(|(v, w)| w * (v - mean).powi(4))
+        .sum::<f64>()
+        / sum_w;
+    let skew = if std > 0.0 {
+        (n as f64).sqrt() * m3 / (std * std * std) * (n as f64 - 1.0).sqrt() / (n as f64).sqrt()
+    } else {
+        f64::NAN
+    };
+    let kurt = if std > 0.0 {
+        n as f64 * m4 / (m2 * m2 * (n as f64 - 1.0)) - 3.0
+    } else {
+        f64::NAN
+    };
     (mean, std, skew, kurt)
 }
 
 /// 加权中位数
 fn weighted_median(pairs: &[(f64, f64)]) -> f64 {
-    if pairs.is_empty() { return f64::NAN; }
+    if pairs.is_empty() {
+        return f64::NAN;
+    }
     let mut sorted: Vec<(f64, f64)> = pairs.to_vec();
     sorted.sort_unstable_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
     let total_w: f64 = sorted.iter().map(|(_, w)| w).sum();
-    if total_w <= 0.0 { return f64::NAN; }
+    if total_w <= 0.0 {
+        return f64::NAN;
+    }
     let half = total_w / 2.0;
     let mut cum = 0.0;
     for (v, w) in &sorted {
         cum += w;
-        if cum >= half { return *v; }
+        if cum >= half {
+            return *v;
+        }
     }
     sorted.last().unwrap().0
 }
@@ -655,7 +809,12 @@ pub fn cross_stock_autoreg_38(
     let (x_today_stacked, y_today_stacked) = build_stacked_design(&dt, n_lags);
 
     // y 转 f32 预计算 ss_tot（R² 分母）
-    let y_f32: Vec<f32> = y_today_stacked.as_slice().unwrap().iter().map(|&v| v as f32).collect();
+    let y_f32: Vec<f32> = y_today_stacked
+        .as_slice()
+        .unwrap()
+        .iter()
+        .map(|&v| v as f32)
+        .collect();
     let mut y_ss_tot = vec![0.0f32; n_stocks];
     for i in 0..n_stocks {
         let offset = i * t_valid;
@@ -672,7 +831,9 @@ pub fn cross_stock_autoreg_38(
         let intercept = coef_j[0];
         let coef_no_intercept = coef_j.slice(s![1..]);
         // ndarray 的 dot 是优化过的 BLAS 级实现
-        let y_pred_all = x_today_stacked.dot(&coef_no_intercept).mapv(|v| v + intercept);
+        let y_pred_all = x_today_stacked
+            .dot(&coef_no_intercept)
+            .mapv(|v| v + intercept);
         let y_pred_slice = y_pred_all.as_slice().unwrap();
 
         for i in 0..n_stocks {
@@ -781,7 +942,12 @@ pub fn cross_stock_crossvar_38(
             y_stacked[offset + row] = ycol[row + n_lags];
         }
     }
-    let y_f32: Vec<f32> = y_stacked.as_slice().unwrap().iter().map(|&v| v as f32).collect();
+    let y_f32: Vec<f32> = y_stacked
+        .as_slice()
+        .unwrap()
+        .iter()
+        .map(|&v| v as f32)
+        .collect();
     let mut y_ss_tot = vec![0.0f32; n_stocks];
     for i in 0..n_stocks {
         let offset = i * t_valid;
