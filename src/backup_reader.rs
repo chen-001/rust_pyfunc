@@ -216,7 +216,10 @@ struct ChunkInfo {
 /// 扫描 v4 文件的数据区，构建 chunk 索引
 fn build_chunk_index(mmap: &[u8], header_version: u32) -> Result<Vec<ChunkInfo>, String> {
     if header_version != 4 {
-        return Err(format!("build_chunk_index 仅支持 v4, 当前版本 {}", header_version));
+        return Err(format!(
+            "build_chunk_index 仅支持 v4, 当前版本 {}",
+            header_version
+        ));
     }
     let chunk_count = u32::from_le_bytes(mmap[28..32].try_into().unwrap()) as usize;
     let mut chunks = Vec::with_capacity(chunk_count);
@@ -224,15 +227,23 @@ fn build_chunk_index(mmap: &[u8], header_version: u32) -> Result<Vec<ChunkInfo>,
 
     for _ in 0..chunk_count {
         if offset + 8 > mmap.len() {
-            return Err(format!("chunk 头部越界: offset={}, len={}", offset, mmap.len()));
+            return Err(format!(
+                "chunk 头部越界: offset={}, len={}",
+                offset,
+                mmap.len()
+            ));
         }
-        let compressed_size = u32::from_le_bytes(mmap[offset..offset + 4].try_into().unwrap()) as usize;
-        let record_count = u32::from_le_bytes(mmap[offset + 4..offset + 8].try_into().unwrap()) as usize;
+        let compressed_size =
+            u32::from_le_bytes(mmap[offset..offset + 4].try_into().unwrap()) as usize;
+        let record_count =
+            u32::from_le_bytes(mmap[offset + 4..offset + 8].try_into().unwrap()) as usize;
         let data_offset = offset + 8;
         if data_offset + compressed_size > mmap.len() {
             return Err(format!(
                 "chunk 数据越界: offset={}, compressed_size={}, len={}",
-                data_offset, compressed_size, mmap.len()
+                data_offset,
+                compressed_size,
+                mmap.len()
             ));
         }
         chunks.push(ChunkInfo {
@@ -255,8 +266,8 @@ fn decompress_all_chunks_v4(mmap: &[u8]) -> Result<(Vec<u8>, usize, usize), Stri
     let mut buf = Vec::with_capacity(record_count * record_size);
     for chunk in &chunks {
         let compressed_data = &mmap[chunk.data_offset..chunk.data_offset + chunk.compressed_size];
-        let decompressed = zstd::decode_all(compressed_data)
-            .map_err(|e| format!("zstd 解压失败: {}", e))?;
+        let decompressed =
+            zstd::decode_all(compressed_data).map_err(|e| format!("zstd 解压失败: {}", e))?;
         buf.extend_from_slice(&decompressed);
     }
 
@@ -264,7 +275,10 @@ fn decompress_all_chunks_v4(mmap: &[u8]) -> Result<(Vec<u8>, usize, usize), Stri
     if buf.len() != record_count * record_size {
         return Err(format!(
             "解压后大小不匹配: 期望 {} ({} * {}), 实际 {}",
-            record_count * record_size, record_count, record_size, buf.len()
+            record_count * record_size,
+            record_count,
+            record_size,
+            buf.len()
         ));
     }
 
@@ -301,7 +315,11 @@ fn read_v3_date(bytes: &[u8]) -> i64 {
 
 /// 从 v3 记录字节读取时间戳
 fn read_v3_timestamp(bytes: &[u8]) -> i64 {
-    i64::from_le_bytes(bytes[V3_TIMESTAMP_OFFSET..V3_TIMESTAMP_OFFSET + 8].try_into().unwrap())
+    i64::from_le_bytes(
+        bytes[V3_TIMESTAMP_OFFSET..V3_TIMESTAMP_OFFSET + 8]
+            .try_into()
+            .unwrap(),
+    )
 }
 
 /// 从 v3 记录字节读取所有因子（转为 f64）
@@ -358,8 +376,8 @@ pub fn read_existing_backup_with_filter(
     // 检查版本号
     if header.version == 4 {
         // v4 分块压缩格式
-        let (decompressed, total_count, record_size) = decompress_all_chunks_v4(&mmap)
-            .map_err(|e| Box::<dyn std::error::Error>::from(e))?;
+        let (decompressed, total_count, record_size) =
+            decompress_all_chunks_v4(&mmap).map_err(|e| Box::<dyn std::error::Error>::from(e))?;
         for i in 0..total_count {
             let record_offset = i * record_size;
             if record_offset + record_size > decompressed.len() {
@@ -805,7 +823,10 @@ pub fn read_backup_results_with_filter(
 
         (0..total_count)
             .collect::<Vec<_>>()
-            .chunks(std::cmp::max(64, total_count / rayon::current_num_threads()))
+            .chunks(std::cmp::max(
+                64,
+                total_count / rayon::current_num_threads(),
+            ))
             .map(|chunk| chunk.to_vec())
             .collect::<Vec<_>>()
             .par_iter()
@@ -1385,7 +1406,8 @@ pub fn read_backup_results_ultra_fast_v4_with_filter(
                         }
 
                         let code_len = std::cmp::min(record.code_len as usize, 32);
-                        let code = String::from_utf8_lossy(&record.code_bytes[..code_len]).to_string();
+                        let code =
+                            String::from_utf8_lossy(&record.code_bytes[..code_len]).to_string();
 
                         if let Some(code_filter) = code_filter {
                             if !code_filter.contains(&code) {
@@ -1395,7 +1417,7 @@ pub fn read_backup_results_ultra_fast_v4_with_filter(
 
                         Some((record.date, code, record.timestamp, record.factors))
                     }
-                    Err(_) => None
+                    Err(_) => None,
                 }
             })
             .collect()
@@ -1650,7 +1672,7 @@ pub fn read_backup_results_single_column_with_filter(
 
                             Some((record.date, code, factor_value))
                         }
-                        Err(_) => None
+                        Err(_) => None,
                     }
                 })
                 .collect()
@@ -1875,7 +1897,8 @@ pub fn read_backup_results_columns_range_with_filter(
                         }
 
                         let code_len = std::cmp::min(record.code_len as usize, 32);
-                        let code = String::from_utf8_lossy(&record.code_bytes[..code_len]).to_string();
+                        let code =
+                            String::from_utf8_lossy(&record.code_bytes[..code_len]).to_string();
 
                         if let Some(code_filter) = code_filter {
                             if !code_filter.contains(&code) {
@@ -1895,7 +1918,7 @@ pub fn read_backup_results_columns_range_with_filter(
 
                         Some((record.date, code, factor_values))
                     }
-                    Err(_) => None
+                    Err(_) => None,
                 }
             })
             .collect()
@@ -2438,8 +2461,8 @@ pub fn read_backup_results_factor_only_with_filter(
 
                             if let Some(code_filter) = code_filter {
                                 let code_len = std::cmp::min(record.code_len as usize, 32);
-                                let code =
-                                    String::from_utf8_lossy(&record.code_bytes[..code_len]).to_string();
+                                let code = String::from_utf8_lossy(&record.code_bytes[..code_len])
+                                    .to_string();
                                 if !code_filter.contains(&code) {
                                     return None;
                                 }
@@ -2451,7 +2474,7 @@ pub fn read_backup_results_factor_only_with_filter(
                                 f32::NAN
                             })
                         }
-                        Err(_) => Some(f32::NAN)
+                        Err(_) => Some(f32::NAN),
                     }
                 })
                 .collect()
@@ -2728,7 +2751,9 @@ pub fn read_backup_results_factor_only_ultra_fast(
                 .with_min_len(4096)
                 .for_each(|(i, slot)| {
                     let record_offset = i * rec_size;
-                    let ptr = decompressed.as_ptr().wrapping_add(record_offset + factor_offset);
+                    let ptr = decompressed
+                        .as_ptr()
+                        .wrapping_add(record_offset + factor_offset);
                     unsafe {
                         let bits = u32::from_le(ptr::read_unaligned(ptr as *const u32));
                         *slot = f32::from_bits(bits) as f64;
@@ -2914,11 +2939,18 @@ pub fn read_backup_results_single_column_ultra_fast_v2_single_thread(
         let factor_offset = V3_FACTOR_BASE_OFFSET + column_index * V3_FACTOR_SIZE;
         for i in 0..total_count {
             let record_offset = i * rec_size;
-            let date = i64::from_le_bytes(decompressed[record_offset..record_offset + 8].try_into().unwrap());
+            let date = i64::from_le_bytes(
+                decompressed[record_offset..record_offset + 8]
+                    .try_into()
+                    .unwrap(),
+            );
             let code = {
                 let code_start = record_offset + V3_CODE_OFFSET;
-                let code_end = (0..V3_CODE_SIZE).position(|j| decompressed[code_start + j] == 0).unwrap_or(V3_CODE_SIZE);
-                String::from_utf8_lossy(&decompressed[code_start..code_start + code_end]).into_owned()
+                let code_end = (0..V3_CODE_SIZE)
+                    .position(|j| decompressed[code_start + j] == 0)
+                    .unwrap_or(V3_CODE_SIZE);
+                String::from_utf8_lossy(&decompressed[code_start..code_start + code_end])
+                    .into_owned()
             };
             let factor = {
                 let off = record_offset + factor_offset;
@@ -2940,7 +2972,9 @@ pub fn read_backup_results_single_column_ultra_fast_v2_single_thread(
             };
             let code = unsafe {
                 let code_ptr = mmap.as_ptr().add(record_offset + V3_CODE_OFFSET);
-                let code_end = (0..V3_CODE_SIZE).position(|j| *code_ptr.add(j) == 0).unwrap_or(V3_CODE_SIZE);
+                let code_end = (0..V3_CODE_SIZE)
+                    .position(|j| *code_ptr.add(j) == 0)
+                    .unwrap_or(V3_CODE_SIZE);
                 let slice = std::slice::from_raw_parts(code_ptr, code_end);
                 String::from_utf8_lossy(slice).into_owned()
             };
@@ -2976,7 +3010,8 @@ pub fn read_backup_results_single_column_ultra_fast_v2_single_thread(
                 String::from_utf8_lossy(code_slice).into_owned()
             };
             let factor = unsafe {
-                let factor_bits_ptr = mmap.as_ptr().add(record_offset + factor_offset) as *const u64;
+                let factor_bits_ptr =
+                    mmap.as_ptr().add(record_offset + factor_offset) as *const u64;
                 f64::from_bits(u64::from_le(ptr::read_unaligned(factor_bits_ptr)))
             };
             dates.push(date);
@@ -3122,7 +3157,9 @@ pub fn read_backup_results_single_column_ultra_fast_v2(
                     for i in start_idx..end_idx {
                         let record_offset = i * rec_size;
                         let date = i64::from_le_bytes(
-                            decompressed[record_offset..record_offset + 8].try_into().unwrap()
+                            decompressed[record_offset..record_offset + 8]
+                                .try_into()
+                                .unwrap(),
                         );
                         let code = {
                             let code_start = record_offset + V3_CODE_OFFSET;
@@ -3130,14 +3167,14 @@ pub fn read_backup_results_single_column_ultra_fast_v2(
                                 .position(|j| decompressed[code_start + j] == 0)
                                 .unwrap_or(V3_CODE_SIZE);
                             String::from_utf8_lossy(
-                                &decompressed[code_start..code_start + code_end]
-                            ).into_owned()
+                                &decompressed[code_start..code_start + code_end],
+                            )
+                            .into_owned()
                         };
                         let factor = {
                             let off = record_offset + factor_offset;
-                            let bits = u32::from_le_bytes(
-                                decompressed[off..off + 4].try_into().unwrap()
-                            );
+                            let bits =
+                                u32::from_le_bytes(decompressed[off..off + 4].try_into().unwrap());
                             f32::from_bits(bits) as f64
                         };
                         batch_data.push((date, code, factor));
@@ -3174,7 +3211,9 @@ pub fn read_backup_results_single_column_ultra_fast_v2(
                         };
                         let code = unsafe {
                             let code_ptr = mmap.as_ptr().add(record_offset + V3_CODE_OFFSET);
-                            let code_end = (0..V3_CODE_SIZE).position(|j| *code_ptr.add(j) == 0).unwrap_or(V3_CODE_SIZE);
+                            let code_end = (0..V3_CODE_SIZE)
+                                .position(|j| *code_ptr.add(j) == 0)
+                                .unwrap_or(V3_CODE_SIZE);
                             let slice = std::slice::from_raw_parts(code_ptr, code_end);
                             String::from_utf8_lossy(slice).into_owned()
                         };
@@ -3219,16 +3258,19 @@ pub fn read_backup_results_single_column_ultra_fast_v2(
                             *date_ptr
                         };
                         let code_len = unsafe {
-                            let code_len_ptr = mmap.as_ptr().add(record_offset + code_len_offset) as *const u32;
+                            let code_len_ptr =
+                                mmap.as_ptr().add(record_offset + code_len_offset) as *const u32;
                             std::cmp::min(*code_len_ptr as usize, 32)
                         };
                         let code = unsafe {
-                            let code_bytes_ptr = mmap.as_ptr().add(record_offset + code_bytes_offset);
+                            let code_bytes_ptr =
+                                mmap.as_ptr().add(record_offset + code_bytes_offset);
                             let code_slice = std::slice::from_raw_parts(code_bytes_ptr, code_len);
                             String::from_utf8_lossy(code_slice).into_owned()
                         };
                         let factor = unsafe {
-                            let factor_ptr = mmap.as_ptr().add(record_offset + factor_offset) as *const f64;
+                            let factor_ptr =
+                                mmap.as_ptr().add(record_offset + factor_offset) as *const f64;
                             *factor_ptr
                         };
                         batch_data.push((date, code, factor));
@@ -3496,10 +3538,9 @@ pub fn convert_backup_v2_to_v3_inplace(
                 .map_err(|e| {
                     PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("写入定位失败: {}", e))
                 })?;
-            file.write_all(&write_buf[..write_used])
-                .map_err(|e| {
-                    PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("写入失败: {}", e))
-                })?;
+            file.write_all(&write_buf[..write_used]).map_err(|e| {
+                PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("写入失败: {}", e))
+            })?;
         }
 
         converted_count += this_batch - batch_skipped;
@@ -3528,9 +3569,8 @@ pub fn convert_backup_v2_to_v3_inplace(
     }
 
     // 确保所有数据已刷盘
-    file.flush().map_err(|e| {
-        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("刷盘失败: {}", e))
-    })?;
+    file.flush()
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("刷盘失败: {}", e)))?;
 
     // 5. 写入 v3 文件头（覆盖 v2 头部）
     let mut v3_header = [0u8; HEADER_SIZE];
@@ -3605,9 +3645,12 @@ pub fn convert_backup_v3_to_v4(
     let src_file = File::open(&backup_file).map_err(|e| {
         PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("无法打开源文件: {}", e))
     })?;
-    let src_len = src_file.metadata().map_err(|e| {
-        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("无法获取源文件元数据: {}", e))
-    })?.len() as usize;
+    let src_len = src_file
+        .metadata()
+        .map_err(|e| {
+            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("无法获取源文件元数据: {}", e))
+        })?
+        .len() as usize;
 
     if src_len < HEADER_SIZE {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
@@ -3714,12 +3757,17 @@ pub fn convert_backup_v3_to_v4(
         })?;
 
         // c. 写入 chunk: [u32 compressed_size][u32 record_count][compressed_data]
-        out.write_all(&(compressed.len() as u32).to_le_bytes()).map_err(|e| {
-            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("写入 chunk 头失败: {}", e))
-        })?;
-        out.write_all(&(this_batch as u32).to_le_bytes()).map_err(|e| {
-            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("写入 chunk 记录数失败: {}", e))
-        })?;
+        out.write_all(&(compressed.len() as u32).to_le_bytes())
+            .map_err(|e| {
+                PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("写入 chunk 头失败: {}", e))
+            })?;
+        out.write_all(&(this_batch as u32).to_le_bytes())
+            .map_err(|e| {
+                PyErr::new::<pyo3::exceptions::PyIOError, _>(format!(
+                    "写入 chunk 记录数失败: {}",
+                    e
+                ))
+            })?;
         out.write_all(&compressed).map_err(|e| {
             PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("写入 chunk 数据失败: {}", e))
         })?;
@@ -3761,17 +3809,22 @@ pub fn convert_backup_v3_to_v4(
     out_file.seek(SeekFrom::Start(28)).map_err(|e| {
         PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("定位 chunk_count 失败: {}", e))
     })?;
-    out_file.write_all(&chunk_count.to_le_bytes()).map_err(|e| {
-        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("写入 chunk_count 失败: {}", e))
-    })?;
+    out_file
+        .write_all(&chunk_count.to_le_bytes())
+        .map_err(|e| {
+            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("写入 chunk_count 失败: {}", e))
+        })?;
     out_file.flush().map_err(|e| {
         PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("文件头刷盘失败: {}", e))
     })?;
 
     // 6. 打印完成摘要
-    let out_len = out_file.metadata().map_err(|e| {
-        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("获取输出文件元数据失败: {}", e))
-    })?.len() as usize;
+    let out_len = out_file
+        .metadata()
+        .map_err(|e| {
+            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("获取输出文件元数据失败: {}", e))
+        })?
+        .len() as usize;
 
     let total_elapsed = start_time.elapsed().as_secs_f64();
     let compression_ratio = src_len as f64 / out_len as f64;
@@ -3785,7 +3838,11 @@ pub fn convert_backup_v3_to_v4(
     );
     eprintln!("  源文件大小: {:.2} GB", gb(src_len));
     eprintln!("  目标文件大小: {:.2} GB", gb(out_len));
-    eprintln!("  压缩率: {:.2}x (节省 {:.1}%)", compression_ratio, (1.0 - out_len as f64 / src_len as f64) * 100.0);
+    eprintln!(
+        "  压缩率: {:.2}x (节省 {:.1}%)",
+        compression_ratio,
+        (1.0 - out_len as f64 / src_len as f64) * 100.0
+    );
 
     Ok(total_converted as u64)
 }

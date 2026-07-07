@@ -142,9 +142,10 @@ user_function = pickle.loads(_func_data)
                     encoded_str
                 ))
             }
-            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-                format!("Cannot pickle the Python function: {}", e),
-            )),
+            Err(e) => Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                "Cannot pickle the Python function: {}",
+                e
+            ))),
         }
     })
 }
@@ -257,7 +258,11 @@ fn run_simple_worker(
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(e) => {
-            logger.log_error(worker_id, "PROCESS_START", &format!("启动Python进程失败: {}", e));
+            logger.log_error(
+                worker_id,
+                "PROCESS_START",
+                &format!("启动Python进程失败: {}", e),
+            );
             let _ = std::fs::remove_file(&script_path);
             return;
         }
@@ -346,7 +351,10 @@ fn run_simple_worker(
                 logger.log_error(
                     worker_id,
                     "SERIALIZE",
-                    &format!("任务(date={}, code={})序列化失败: {}", task.date, task.code, e),
+                    &format!(
+                        "任务(date={}, code={})序列化失败: {}",
+                        task.date, task.code, e
+                    ),
                 );
                 continue;
             }

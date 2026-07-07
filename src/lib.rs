@@ -83,9 +83,9 @@ pub mod tail_v2_backtest_block;
 pub mod tail_v2_block_neutralizer;
 pub mod tail_v2_ic_corr_filter;
 pub mod tail_v2_rank_roll_factor;
-pub mod follow2026_backtest;
 pub mod tail_v4_pipeline;
 pub mod tail_v5_pipeline;
+pub mod tail_backtest_engine;
 pub mod theme_cluster_factors;
 pub mod theme_cluster_factors_batch;
 pub mod theme_feature_expansion;
@@ -96,14 +96,17 @@ pub mod illusion_liquidity_distance;
 pub mod orderbook_volume_cov_factors;
 pub mod yand_affine_centroid;
 pub mod yand_divergence;
+pub mod extreme_point_fit_metrics;
 
 pub mod fast_csv_reader;
 
 pub mod factor_pipeline;
 pub mod factor_store_v5;
 pub mod features;
+pub mod individual_order_ratio_metrics;
 pub mod observable_order_metrics;
 pub mod order_pair_metrics_pipeline;
+pub mod orderbook_imb_refactor_metrics;
 
 /// Formats the sum of two numbers as string.
 #[pyfunction]
@@ -317,23 +320,42 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     // 列式因子存储 RPFBINV5（计算备份 + 回测读取统一格式）
     let _ = m.add_function(wrap_pyfunction!(factor_store_v5::factor_store_v5_open, m)?);
     let _ = m.add_function(wrap_pyfunction!(factor_store_v5::factor_store_v5_info, m)?);
-    let _ =
-        m.add_function(wrap_pyfunction!(factor_store_v5::factor_store_v5_read_factor, m)?);
-        m.add_function(wrap_pyfunction!(factor_store_v5::factor_store_v5_verify_online, m)?);
+    let _ = m.add_function(wrap_pyfunction!(
+        factor_store_v5::factor_store_v5_read_factor,
+        m
+    )?);
+    m.add_function(wrap_pyfunction!(
+        factor_store_v5::factor_store_v5_verify_online,
+        m
+    )?);
     let _ = m.add_function(wrap_pyfunction!(
         factor_store_v5::factor_store_v5_project_v7,
         m
     )?);
-    let _ =
-        m.add_function(wrap_pyfunction!(factor_store_v5::factor_store_v5_template, m)?);
-    let _ = m.add_function(
-        wrap_pyfunction!(factor_store_v5::factor_store_v5_export_factors_parquet, m)?,
-    );
-    let _ =
-        m.add_function(wrap_pyfunction!(factor_store_v5::factor_store_v5_project_only, m)?);
-    let _ = m.add_function(
-        wrap_pyfunction!(factor_store_v5::factor_store_v5_decompress_inplace, m)?,
-    );
+    let _ = m.add_function(wrap_pyfunction!(
+        factor_store_v5::factor_store_v5_template,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        factor_store_v5::factor_store_v5_export_factors_parquet,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        factor_store_v5::factor_store_v5_verify_scatter_fast,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        factor_store_v5::factor_store_v5_project_only,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        factor_store_v5::factor_store_v5_smoke_proj,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        factor_store_v5::factor_store_v5_decompress_inplace,
+        m
+    )?);
     let _ = m.add_function(wrap_pyfunction!(
         order_contamination::order_contamination,
         m
@@ -573,6 +595,10 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?);
     let _ = m.add_function(wrap_pyfunction!(
         tail_v5_pipeline::tail_v5_run_candidates_v7b,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        tail_backtest_engine::tail_backtest_engine,
         m
     )?);
     let _ = m.add_function(wrap_pyfunction!(
@@ -846,6 +872,7 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     // 高速 CSV 读取器（run_factor_pipeline 优化方案 Phase 1）
     m.add_function(wrap_pyfunction!(fast_csv_reader::read_trade_fast, m)?)?;
     m.add_function(wrap_pyfunction!(fast_csv_reader::read_market_fast, m)?)?;
+    m.add_function(wrap_pyfunction!(fast_csv_reader::read_market_pair_fast, m)?)?;
 
     // order_pair_metrics 流水线版本的验证桥接（Phase 2，仅供一致性验证）
     m.add_function(wrap_pyfunction!(
@@ -865,7 +892,10 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
 
     // 纯 Rust 因子流水线引擎（Phase 3 主入口）
     m.add_function(wrap_pyfunction!(factor_pipeline::run_factor_pipeline, m)?)?;
-    m.add_function(wrap_pyfunction!(factor_pipeline::run_factor_pipeline_v6, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        factor_pipeline::run_factor_pipeline_v6,
+        m
+    )?)?;
 
     // Copula函数模块
     m.add_function(wrap_pyfunction!(copula::gaussian_copula_cdf_py, m)?)?;
@@ -980,8 +1010,29 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         observable_order_metrics::py_compute_observable_order_metrics,
         m
     )?)?;
+
     let _ = m.add_function(wrap_pyfunction!(
-        follow2026_backtest::neutralize_and_backtest_gap1,
+        orderbook_imb_refactor_metrics::py_compute_orderbook_imb_refactor,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        orderbook_imb_refactor_metrics::py_orderbook_imb_refactor_names,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        extreme_point_fit_metrics::py_extreme_point_fit,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        extreme_point_fit_metrics::py_extreme_point_fit_names,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        individual_order_ratio_metrics::py_individual_order_ratio,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        individual_order_ratio_metrics::py_individual_order_ratio_names,
         m
     )?)?;
     Ok(())

@@ -31,7 +31,12 @@ fn main() {
             let ok = rel_diff < 1e-10 || (det_stack == 0.0 && det_heap == 0.0);
             println!(
                 "d={:2} n={:3}: 栈版={:+.6e} 堆版={:+.6e} 相对误差={:.2e} {}",
-                d, n, det_stack, det_heap, rel_diff, if ok { "✅" } else { "❌" }
+                d,
+                n,
+                det_stack,
+                det_heap,
+                rel_diff,
+                if ok { "✅" } else { "❌" }
             );
         }
     }
@@ -45,8 +50,19 @@ fn main() {
         }
         let d1 = lu_det_stack(&a, n);
         let d2 = lu_det_heap(&a, n);
-        let rel = if d2.abs() > 1e-20 { ((d1 - d2) / d2).abs() } else { (d1 - d2).abs() };
-        println!("n={:2}: 栈版={:.6e} 堆版={:.6e} 误差={:.2e} {}", n, d1, d2, rel, if rel < 1e-12 { "✅" } else { "❌" });
+        let rel = if d2.abs() > 1e-20 {
+            ((d1 - d2) / d2).abs()
+        } else {
+            (d1 - d2).abs()
+        };
+        println!(
+            "n={:2}: 栈版={:.6e} 堆版={:.6e} 误差={:.2e} {}",
+            n,
+            d1,
+            d2,
+            rel,
+            if rel < 1e-12 { "✅" } else { "❌" }
+        );
     }
 
     println!("\n验证完成");

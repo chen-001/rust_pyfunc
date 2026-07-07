@@ -2335,6 +2335,33 @@ def read_trade_fast(
     """
     ...
 
+def read_market_pair_fast(code: str, date: int) -> dict:
+    """将 10 档盘口 melt 为长表（Rust 实现，功能等价于 read_market_pair）。
+
+    读 market_data CSV，过滤涨跌停（ask_prc1==0 或 bid_prc1==0）与无成交快照
+    （last_prc==0），把 10 档 ask/bid 量价展开为长表，并过滤 price==0 的空档位。
+
+    与 read_market_pair 的差异：
+    - 返回 dict 而非 (DataFrame, DataFrame)；exchtime 为已加 8h 偏移的微秒整数，
+      pd.to_datetime(arr, unit='us') 即得东八区 Timestamp（与 read_market 一致）
+    - 全程 f64（price/vol），与 pandas 读 CSV 完全一致
+    - 输出按 (exchtime, number) 升序（CSV 时间单调，逐行 number 1→10 展开天然有序）
+
+    Parameters
+    ----------
+    code : str
+        股票代码，如 "000001"
+    date : int
+        交易日，如 20260605
+
+    Returns
+    -------
+    dict
+        {"asks": {"exchtime": i64[], "number": i32[], "price": f64[], "vol": f64[]},
+         "bids": {"exchtime": i64[], "number": i32[], "price": f64[], "vol": f64[]}}
+    """
+    ...
+
 
 def run_factor_pipeline_v6(
     pipeline: str,

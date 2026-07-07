@@ -47,37 +47,62 @@ impl StockPrecomputed {
         self.sum_y = y.iter().filter(|v| v.is_finite()).sum();
         self.sum_y2 = y.iter().filter(|v| v.is_finite()).map(|v| v * v).sum();
         let y_mean = self.sum_y / t as f64;
-        self.ss_tot = y.iter().filter(|v| v.is_finite()).map(|&v| (v - y_mean).powi(2)).sum();
+        self.ss_tot = y
+            .iter()
+            .filter(|v| v.is_finite())
+            .map(|&v| (v - y_mean).powi(2))
+            .sum();
         for a in 0..n_lags {
             self.sx[a] = x.column(a).iter().filter(|v| v.is_finite()).sum();
-            self.sxy[a] = x.column(a).iter().zip(y.iter())
+            self.sxy[a] = x
+                .column(a)
+                .iter()
+                .zip(y.iter())
                 .filter(|(xv, yv)| xv.is_finite() && yv.is_finite())
-                .map(|(xv, yv)| xv * yv).sum();
+                .map(|(xv, yv)| xv * yv)
+                .sum();
             let idx_aa = a * (a + 1) / 2 + a;
-            self.q_upper[idx_aa] = x.column(a).iter().filter(|v| v.is_finite()).map(|v| v * v).sum();
+            self.q_upper[idx_aa] = x
+                .column(a)
+                .iter()
+                .filter(|v| v.is_finite())
+                .map(|v| v * v)
+                .sum();
             for b in a + 1..n_lags {
                 let idx_ab = b * (b + 1) / 2 + a;
-                self.q_upper[idx_ab] = x.column(a).iter().zip(x.column(b).iter())
+                self.q_upper[idx_ab] = x
+                    .column(a)
+                    .iter()
+                    .zip(x.column(b).iter())
                     .filter(|(xa, xb)| xa.is_finite() && xb.is_finite())
-                    .map(|(xa, xb)| xa * xb).sum();
+                    .map(|(xa, xb)| xa * xb)
+                    .sum();
             }
         }
     }
 
     #[inline]
     fn compute_ss_res(&self, beta: &ArrayView1<f64>, t_valid: f64) -> f64 {
-        let b0 = if beta[0].is_finite() { beta[0] } else { return f64::NAN };
+        let b0 = if beta[0].is_finite() {
+            beta[0]
+        } else {
+            return f64::NAN;
+        };
         let n_lags = self.sx.len();
         let t1 = t_valid * b0 * b0 - 2.0 * b0 * self.sum_y + self.sum_y2;
         let mut t2 = 0.0;
         for a in 0..n_lags {
             let ba = beta[a + 1];
-            if !ba.is_finite() { return f64::NAN; }
+            if !ba.is_finite() {
+                return f64::NAN;
+            }
             let idx_aa = a * (a + 1) / 2 + a;
             t2 += self.q_upper[idx_aa] * ba * ba;
             for b in a + 1..n_lags {
                 let bb = beta[b + 1];
-                if !bb.is_finite() { continue; }
+                if !bb.is_finite() {
+                    continue;
+                }
                 let idx_ab = b * (b + 1) / 2 + a;
                 t2 += 2.0 * self.q_upper[idx_ab] * ba * bb;
             }
@@ -85,7 +110,9 @@ impl StockPrecomputed {
         let mut t3 = 0.0;
         for a in 0..n_lags {
             let ba = beta[a + 1];
-            if !ba.is_finite() { continue; }
+            if !ba.is_finite() {
+                continue;
+            }
             t3 += ba * (b0 * self.sx[a] - self.sxy[a]);
         }
         t3 *= 2.0;
@@ -144,14 +171,18 @@ pub fn cross_stock_autoreg_peak_38_fast(
     for j in 0..n_stocks {
         let end = fe[j].max(n_lags as i64 + 1).min(t as i64 - 1) as usize;
         if end <= n_lags {
-            for k in 0..n_lags + 1 { betas[[k, j]] = f64::NAN; }
+            for k in 0..n_lags + 1 {
+                betas[[k, j]] = f64::NAN;
+            }
             r2_pri[j] = f64::NAN;
             continue;
         }
         let col = df.column(j);
         let (x_j, y_j) = build_lagged_window(&col, 0, end, n_lags);
         let (coef, r2) = ols_with_intercept_safe(&x_j.view(), &y_j.view());
-        for k in 0..n_lags + 1 { betas[[k, j]] = coef[k]; }
+        for k in 0..n_lags + 1 {
+            betas[[k, j]] = coef[k];
+        }
         r2_pri[j] = r2;
     }
 
@@ -221,7 +252,9 @@ pub fn cross_stock_crossvar_peak_38_fast(
     for j in 0..n_stocks {
         let end = fe[j].max((n_lags + 1) as i64).min(t as i64 - 1) as usize;
         if end <= n_lags {
-            for k in 0..total_lags + 1 { betas[[k, j]] = f64::NAN; }
+            for k in 0..total_lags + 1 {
+                betas[[k, j]] = f64::NAN;
+            }
             r2_pri[j] = f64::NAN;
             continue;
         }
@@ -240,7 +273,9 @@ pub fn cross_stock_crossvar_peak_38_fast(
             }
         }
         let (coef, r2) = ols_with_intercept_safe(&x_j.view(), &y_j.view());
-        for k in 0..total_lags + 1 { betas[[k, j]] = coef[k]; }
+        for k in 0..total_lags + 1 {
+            betas[[k, j]] = coef[k];
+        }
         r2_pri[j] = r2;
     }
 
@@ -338,10 +373,16 @@ pub fn find_density_peaks(
                 let v = sv[[j, i]];
                 buf[valid_len] = v;
                 valid_len += 1;
-                if v > 0.0 { pos_count += 1; }
+                if v > 0.0 {
+                    pos_count += 1;
+                }
             }
-            if pos_count < min_len { continue; }
-            if valid_len == 0 { continue; }
+            if pos_count < min_len {
+                continue;
+            }
+            if valid_len == 0 {
+                continue;
+            }
 
             let slice = &mut buf[..valid_len];
             slice.sort_unstable_by(|a, b| b.partial_cmp(a).unwrap());
@@ -370,10 +411,16 @@ pub fn find_density_peaks(
                 let v = bv[[j, i]];
                 buf[valid_len] = v;
                 valid_len += 1;
-                if v > 0.0 { pos_count += 1; }
+                if v > 0.0 {
+                    pos_count += 1;
+                }
             }
-            if pos_count < min_len { continue; }
-            if valid_len == 0 { continue; }
+            if pos_count < min_len {
+                continue;
+            }
+            if valid_len == 0 {
+                continue;
+            }
             let slice = &mut buf[..valid_len];
             slice.sort_unstable_by(|a, b| b.partial_cmp(a).unwrap());
 
@@ -386,5 +433,8 @@ pub fn find_density_peaks(
         pred_starts[i] = buy_best;
     }
 
-    Ok((fit_ends.into_pyarray(py).to_owned(), pred_starts.into_pyarray(py).to_owned()))
+    Ok((
+        fit_ends.into_pyarray(py).to_owned(),
+        pred_starts.into_pyarray(py).to_owned(),
+    ))
 }

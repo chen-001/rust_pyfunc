@@ -36,7 +36,12 @@ pub fn calculate_v3_record_size(factor_count: usize) -> usize {
 }
 
 /// 计算 v3 校验和
-fn calculate_v3_checksum(date: i64, code: &[u8; V3_CODE_SIZE], timestamp: i64, factors_f32: &[f32]) -> u32 {
+fn calculate_v3_checksum(
+    date: i64,
+    code: &[u8; V3_CODE_SIZE],
+    timestamp: i64,
+    factors_f32: &[f32],
+) -> u32 {
     let mut sum = 0u32;
     sum = sum.wrapping_add(date as u32);
     sum = sum.wrapping_add((date >> 32) as u32);
@@ -200,11 +205,7 @@ pub fn save_results_to_backup(
 
     let version = u32::from_le_bytes(header_bytes[8..12].try_into()?);
     if version != 4 {
-        return Err(format!(
-            "不支持的备份文件版本 {}，仅支持 v4 格式写入",
-            version
-        )
-        .into());
+        return Err(format!("不支持的备份文件版本 {}，仅支持 v4 格式写入", version).into());
     }
 
     // 检查 factor_count

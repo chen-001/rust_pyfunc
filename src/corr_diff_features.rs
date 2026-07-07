@@ -21,7 +21,9 @@ fn sort_small(arr: &mut [f64]) {
 /// 排序后线性插值 percentile
 fn interp_pct(sorted: &[f64], pct: f64) -> f64 {
     let n = sorted.len() as f64;
-    if n <= 1.0 { return sorted[0]; }
+    if n <= 1.0 {
+        return sorted[0];
+    }
     let idx = pct / 100.0 * (n - 1.0);
     let lo = idx.floor() as usize;
     let hi = (lo + 1).min(sorted.len() - 1);
@@ -39,16 +41,28 @@ fn percentile(data: &[f64], pct: f64) -> f64 {
 /// 两个向量的 pearson 相关系数
 fn pearson_corr(x: &[f64], y: &[f64]) -> f64 {
     let n = x.len();
-    if n == 0 { return 0.0; }
+    if n == 0 {
+        return 0.0;
+    }
     let xm = x.iter().sum::<f64>() / n as f64;
     let ym = y.iter().sum::<f64>() / n as f64;
-    let mut xv = 0.0f64; let mut yv = 0.0f64; let mut cov = 0.0f64;
+    let mut xv = 0.0f64;
+    let mut yv = 0.0f64;
+    let mut cov = 0.0f64;
     for i in 0..n {
-        let dx = x[i] - xm; let dy = y[i] - ym;
-        xv += dx * dx; yv += dy * dy; cov += dx * dy;
+        let dx = x[i] - xm;
+        let dy = y[i] - ym;
+        xv += dx * dx;
+        yv += dy * dy;
+        cov += dx * dy;
     }
-    let xs = xv.sqrt(); let ys = yv.sqrt();
-    if xs > 0.0 && ys > 0.0 { cov / (xs * ys) } else { 0.0 }
+    let xs = xv.sqrt();
+    let ys = yv.sqrt();
+    if xs > 0.0 && ys > 0.0 {
+        cov / (xs * ys)
+    } else {
+        0.0
+    }
 }
 
 /// 逐列相关系数（flat row-major 数组，shape (nrows, ncols)）
@@ -56,16 +70,29 @@ fn col_corr_flat(a: &[f64], b: &[f64], nrows: usize, ncols: usize) -> Vec<f64> {
     let mut res = vec![0.0; ncols];
     let nf = nrows as f64;
     for j in 0..ncols {
-        let mut am = 0.0f64; let mut bm = 0.0f64;
-        for i in 0..nrows { am += a[i * ncols + j]; bm += b[i * ncols + j]; }
-        am /= nf; bm /= nf;
-        let mut av = 0.0f64; let mut bv = 0.0f64; let mut cov = 0.0f64;
+        let mut am = 0.0f64;
+        let mut bm = 0.0f64;
         for i in 0..nrows {
-            let da = a[i * ncols + j] - am; let db = b[i * ncols + j] - bm;
-            av += da * da; bv += db * db; cov += da * db;
+            am += a[i * ncols + j];
+            bm += b[i * ncols + j];
         }
-        let asd = (av / nf).sqrt(); let bsd = (bv / nf).sqrt();
-        if asd > 0.0 && bsd > 0.0 { res[j] = (cov / nf) / (asd * bsd); }
+        am /= nf;
+        bm /= nf;
+        let mut av = 0.0f64;
+        let mut bv = 0.0f64;
+        let mut cov = 0.0f64;
+        for i in 0..nrows {
+            let da = a[i * ncols + j] - am;
+            let db = b[i * ncols + j] - bm;
+            av += da * da;
+            bv += db * db;
+            cov += da * db;
+        }
+        let asd = (av / nf).sqrt();
+        let bsd = (bv / nf).sqrt();
+        if asd > 0.0 && bsd > 0.0 {
+            res[j] = (cov / nf) / (asd * bsd);
+        }
     }
     res
 }
@@ -93,23 +120,25 @@ pub fn compute_corr_diff_features(
 
     // ========== 一次性分配所有 flat buffer ==========
     let mut b_sum = vec![0.0f64; total];
-    let mut b_sq = vec![0.0f64; total];     // sum of squares（用于方差）
-    let mut b_cu = vec![0.0f64; total];     // sum of cubes（用于偏态）
+    let mut b_sq = vec![0.0f64; total]; // sum of squares（用于方差）
+    let mut b_cu = vec![0.0f64; total]; // sum of cubes（用于偏态）
     let mut b_mx = vec![f64::NEG_INFINITY; total];
     let mut b_mn = vec![f64::INFINITY; total];
-    let mut b_amx = vec![0.0f64; total];    // abs max
-    let mut b_sgn = vec![0.0f64; total];    // sign sum
+    let mut b_amx = vec![0.0f64; total]; // abs max
+    let mut b_sgn = vec![0.0f64; total]; // sign sum
     let mut b_dia = vec![0.0f64; total * ratio]; // diags[i*n*ratio + j*ratio + k]
     let mut b_iqr = vec![0.0f64; total];
-    let mut b_peak = vec![0u32; total];     // z-score > 1 计数
+    let mut b_peak = vec![0u32; total]; // z-score > 1 计数
 
     // 按块行处理：只保留当前块行的值，减少内存占用
     let mut row_buf = vec![0.0f64; n * rr]; // 每个 block col 的 rr 个值
-    let mut buf_pos = vec![0usize; n];       // 每个 block col 的写入位置
+    let mut buf_pos = vec![0usize; n]; // 每个 block col 的写入位置
 
     for bi in 0..n {
         // 重置写入位置
-        for bj in 0..n { buf_pos[bj] = 0; }
+        for bj in 0..n {
+            buf_pos[bj] = 0;
+        }
 
         // 遍历块行内的 ratio 行（缓存友好：逐行顺序读取 large 矩阵）
         for a in 0..ratio {
@@ -124,12 +153,21 @@ pub fn compute_corr_diff_features(
                     b_sum[idx] += v;
                     b_sq[idx] += v * v;
                     b_cu[idx] += v * v * v;
-                    if v > b_mx[idx] { b_mx[idx] = v; }
-                    if v < b_mn[idx] { b_mn[idx] = v; }
+                    if v > b_mx[idx] {
+                        b_mx[idx] = v;
+                    }
+                    if v < b_mn[idx] {
+                        b_mn[idx] = v;
+                    }
                     let av = v.abs();
-                    if av > b_amx[idx] { b_amx[idx] = av; }
-                    if v > 0.0 { b_sgn[idx] += 1.0; }
-                    else if v < 0.0 { b_sgn[idx] -= 1.0; }
+                    if av > b_amx[idx] {
+                        b_amx[idx] = av;
+                    }
+                    if v > 0.0 {
+                        b_sgn[idx] += 1.0;
+                    } else if v < 0.0 {
+                        b_sgn[idx] -= 1.0;
+                    }
 
                     if a == b {
                         b_dia[idx * ratio + a] = v;
@@ -244,38 +282,75 @@ pub fn compute_corr_diff_features(
             // 累积标量统计
             diff_sum += dm;
             diff_sq_sum += dm * dm;
-            if dm > diff_max { diff_max = dm; }
-            if dm > 0.1 { diff_high_cnt += 1; }
-            if dm < 0.01 { diff_low_cnt += 1; }
+            if dm > diff_max {
+                diff_max = dm;
+            }
+            if dm > 0.1 {
+                diff_high_cnt += 1;
+            }
+            if dm < 0.01 {
+                diff_low_cnt += 1;
+            }
             std_sum += b_std[idx];
-            if b_std[idx] > std_max { std_max = b_std[idx]; }
+            if b_std[idx] > std_max {
+                std_max = b_std[idx];
+            }
             range_sum += b_range[idx];
-            if b_range[idx] > range_max { range_max = b_range[idx]; }
+            if b_range[idx] > range_max {
+                range_max = b_range[idx];
+            }
             iqr_sum += b_iqr[idx];
-            if b_mx[idx].abs() > 0.5 { pos_ext_cnt += 1; }
-            if b_mn[idx].abs() > 0.5 { neg_ext_cnt += 1; }
-            if b_mx[idx].abs() > b_mn[idx].abs() { ext_asym_cnt += 1; }
+            if b_mx[idx].abs() > 0.5 {
+                pos_ext_cnt += 1;
+            }
+            if b_mn[idx].abs() > 0.5 {
+                neg_ext_cnt += 1;
+            }
+            if b_mx[idx].abs() > b_mn[idx].abs() {
+                ext_asym_cnt += 1;
+            }
             ext_ratio_sum += b_mx[idx].abs() / (b_mn[idx].abs() + 1e-8);
             sgn_maj_sum += sign_maj[idx];
-            if sign_maj[idx] < 0.6 { sgn_conflict_cnt += 1; }
+            if sign_maj[idx] < 0.6 {
+                sgn_conflict_cnt += 1;
+            }
             diff_vol_prod += b_std[idx] * dm;
-            if d > 0.0 { pos_bias_cnt += 1; pos_abs_sum += d; }
-            if d < 0.0 { neg_bias_cnt += 1; neg_abs_sum += d.abs(); }
+            if d > 0.0 {
+                pos_bias_cnt += 1;
+                pos_abs_sum += d;
+            }
+            if d < 0.0 {
+                neg_bias_cnt += 1;
+                neg_abs_sum += d.abs();
+            }
 
             let is_edge = is_edge_i || j < edge_size || j >= n - edge_size;
-            if is_edge { edge_diff += dm; edge_cnt += 1; }
-            else { center_diff += dm; center_cnt += 1; }
+            if is_edge {
+                edge_diff += dm;
+                edge_cnt += 1;
+            } else {
+                center_diff += dm;
+                center_cnt += 1;
+            }
 
             let nd = d / (as_ + 0.1);
             nd_abs_sum += nd.abs();
             nd_sum += nd;
-            if nd.abs() > 0.5 { nd_ext_cnt += 1; }
+            if nd.abs() > 0.5 {
+                nd_ext_cnt += 1;
+            }
         }
     }
 
     // trends
     let x_mean = (ratio - 1) as f64 / 2.0;
-    let x_var: f64 = (0..ratio).map(|k| { let d = k as f64 - x_mean; d * d }).sum::<f64>() / ratio as f64;
+    let x_var: f64 = (0..ratio)
+        .map(|k| {
+            let d = k as f64 - x_mean;
+            d * d
+        })
+        .sum::<f64>()
+        / ratio as f64;
     let x_std = x_var.sqrt();
     let mut trends = vec![0.0f64; total];
     let mut trend_sum = 0.0f64;
@@ -288,10 +363,19 @@ pub fn compute_corr_diff_features(
             let idx = i * n + j;
             let d_off = idx * ratio;
             let dm: f64 = (0..ratio).map(|k| b_dia[d_off + k]).sum::<f64>() / ratio as f64;
-            let dv: f64 = (0..ratio).map(|k| { let d = b_dia[d_off + k] - dm; d * d }).sum::<f64>() / ratio as f64;
+            let dv: f64 = (0..ratio)
+                .map(|k| {
+                    let d = b_dia[d_off + k] - dm;
+                    d * d
+                })
+                .sum::<f64>()
+                / ratio as f64;
             let ds = dv.sqrt();
             if ds > 0.0 && x_std > 0.0 {
-                let cov: f64 = (0..ratio).map(|k| (b_dia[d_off + k] - dm) * (k as f64 - x_mean)).sum::<f64>() / ratio as f64;
+                let cov: f64 = (0..ratio)
+                    .map(|k| (b_dia[d_off + k] - dm) * (k as f64 - x_mean))
+                    .sum::<f64>()
+                    / ratio as f64;
                 trends[idx] = cov / (ds * x_std);
             }
             trend_sum += trends[idx];
@@ -301,8 +385,12 @@ pub fn compute_corr_diff_features(
     for idx in 0..total {
         let d = trends[idx] - trend_mean;
         trend_sq += d * d;
-        if trends[idx] > 0.2 { trend_pos += 1; }
-        if trends[idx] < -0.2 { trend_neg += 1; }
+        if trends[idx] > 0.2 {
+            trend_pos += 1;
+        }
+        if trends[idx] < -0.2 {
+            trend_neg += 1;
+        }
     }
     let trend_std = (trend_sq / total_f).sqrt();
 
@@ -310,8 +398,16 @@ pub fn compute_corr_diff_features(
     let corr_dv = pearson_corr(&diff_map, &b_std);
     let corr_dr = pearson_corr(&diff_map, &b_range);
 
-    let edge_m = if edge_cnt > 0 { edge_diff / edge_cnt as f64 } else { 0.0 };
-    let center_m = if center_cnt > 0 { center_diff / center_cnt as f64 } else { 0.0 };
+    let edge_m = if edge_cnt > 0 {
+        edge_diff / edge_cnt as f64
+    } else {
+        0.0
+    };
+    let center_m = if center_cnt > 0 {
+        center_diff / center_cnt as f64
+    } else {
+        0.0
+    };
     let nd_mean = nd_sum / total_f;
     let mut nd_var = 0.0f64;
     for idx in 0..total {
@@ -321,22 +417,47 @@ pub fn compute_corr_diff_features(
     }
 
     let scalar_features = vec![
-        diff_sum / total_f, (diff_sq_sum / total_f - (diff_sum / total_f).powi(2)).sqrt(), diff_max,
-        diff_high_cnt as f64 / total_f, diff_low_cnt as f64 / total_f,
-        std_sum / total_f, std_max, range_sum / total_f, range_max, iqr_sum / total_f,
-        pos_ext_cnt as f64 / total_f, neg_ext_cnt as f64 / total_f,
-        ext_asym_cnt as f64 / total_f, ext_ratio_sum / total_f,
-        trend_mean, trend_std, trend_pos as f64 / total_f, trend_neg as f64 / total_f,
-        1.0, sgn_maj_sum / total_f, sgn_conflict_cnt as f64 / total_f,
-        corr_dv, corr_dr, diff_vol_prod / total_f,
-        pos_bias_cnt as f64 / total_f, neg_bias_cnt as f64 / total_f,
+        diff_sum / total_f,
+        (diff_sq_sum / total_f - (diff_sum / total_f).powi(2)).sqrt(),
+        diff_max,
+        diff_high_cnt as f64 / total_f,
+        diff_low_cnt as f64 / total_f,
+        std_sum / total_f,
+        std_max,
+        range_sum / total_f,
+        range_max,
+        iqr_sum / total_f,
+        pos_ext_cnt as f64 / total_f,
+        neg_ext_cnt as f64 / total_f,
+        ext_asym_cnt as f64 / total_f,
+        ext_ratio_sum / total_f,
+        trend_mean,
+        trend_std,
+        trend_pos as f64 / total_f,
+        trend_neg as f64 / total_f,
+        1.0,
+        sgn_maj_sum / total_f,
+        sgn_conflict_cnt as f64 / total_f,
+        corr_dv,
+        corr_dr,
+        diff_vol_prod / total_f,
+        pos_bias_cnt as f64 / total_f,
+        neg_bias_cnt as f64 / total_f,
         pos_bias_cnt as f64 / total_f - neg_bias_cnt as f64 / total_f,
         if pos_bias_cnt > 0 && neg_bias_cnt > 0 {
             pos_abs_sum / pos_bias_cnt as f64 - neg_abs_sum / neg_bias_cnt as f64
-        } else { 0.0 },
-        0.0, 0.0, 0.0,
-        edge_m, center_m, edge_m / (center_m + 1e-8),
-        nd_abs_sum / total_f, (nd_var / total_f).sqrt(), nd_ext_cnt as f64 / total_f,
+        } else {
+            0.0
+        },
+        0.0,
+        0.0,
+        0.0,
+        edge_m,
+        center_m,
+        edge_m / (center_m + 1e-8),
+        nd_abs_sum / total_f,
+        (nd_var / total_f).sqrt(),
+        nd_ext_cnt as f64 / total_f,
     ];
 
     // ========== 序列特征 (n, 16) ==========
@@ -349,25 +470,35 @@ pub fn compute_corr_diff_features(
 
     // 0: col_corr(b_mean, small)
     let cc0 = col_corr_flat(&b_mean, small_s, n, n);
-    for j in 0..n { series[j * 16] = cc0[j]; }
+    for j in 0..n {
+        series[j * 16] = cc0[j];
+    }
 
     // 1: abs(b_mean - small).mean(axis=0)
     for j in 0..n {
         let mut s = 0.0f64;
-        for i in 0..n { s += (b_mean[i * n + j] - small_s[i * n + j]).abs(); }
+        for i in 0..n {
+            s += (b_mean[i * n + j] - small_s[i * n + j]).abs();
+        }
         series[j * 16 + 1] = s / n as f64;
     }
 
     // 2: top_skew_block_col_count
     for j in 0..n {
         let mut c = 0.0f64;
-        for i in 0..n { if b_skew[i * n + j].abs() >= thr_skew { c += 1.0; } }
+        for i in 0..n {
+            if b_skew[i * n + j].abs() >= thr_skew {
+                c += 1.0;
+            }
+        }
         series[j * 16 + 2] = c;
     }
 
     // 3: col_corr(b_std, small)
     let cc3 = col_corr_flat(&b_std, small_s, n, n);
-    for j in 0..n { series[j * 16 + 3] = cc3[j]; }
+    for j in 0..n {
+        series[j * 16 + 3] = cc3[j];
+    }
 
     // 4: diag_align_abs_diff
     for i in 0..n {
@@ -407,15 +538,25 @@ pub fn compute_corr_diff_features(
     // 9: block_abs_max_col_std
     for j in 0..n {
         let m: f64 = (0..n).map(|i| b_amx[i * n + j]).sum::<f64>() / n as f64;
-        let v: f64 = (0..n).map(|i| { let d = b_amx[i * n + j] - m; d * d }).sum::<f64>() / n as f64;
+        let v: f64 = (0..n)
+            .map(|i| {
+                let d = b_amx[i * n + j] - m;
+                d * d
+            })
+            .sum::<f64>()
+            / n as f64;
         series[j * 16 + 9] = v.sqrt();
     }
 
     // 10: top_block_absmax_col_mean
     for j in 0..n {
-        let mut s = 0.0f64; let mut c = 0usize;
+        let mut s = 0.0f64;
+        let mut c = 0usize;
         for i in 0..n {
-            if b_amx[i * n + j] >= thr_max { s += small_s[i * n + j]; c += 1; }
+            if b_amx[i * n + j] >= thr_max {
+                s += small_s[i * n + j];
+                c += 1;
+            }
         }
         series[j * 16 + 10] = if c > 0 { s / c as f64 } else { 0.0 };
     }
@@ -428,7 +569,9 @@ pub fn compute_corr_diff_features(
     // 12: col_iqr（排序一次取 p75, p25）
     let mut col_buf = vec![0.0f64; n];
     for j in 0..n {
-        for i in 0..n { col_buf[i] = small_s[i * n + j]; }
+        for i in 0..n {
+            col_buf[i] = small_s[i * n + j];
+        }
         sort_small(&mut col_buf[..n]);
         series[j * 16 + 12] = interp_pct(&col_buf[..n], 75.0) - interp_pct(&col_buf[..n], 25.0);
     }
@@ -439,7 +582,9 @@ pub fn compute_corr_diff_features(
     // 14: block_peak_ratio_col_mean
     for j in 0..n {
         let mut s = 0.0f64;
-        for i in 0..n { s += b_peak[i * n + j] as f64 / rr_f; }
+        for i in 0..n {
+            s += b_peak[i * n + j] as f64 / rr_f;
+        }
         series[j * 16 + 14] = s / n as f64;
     }
 
@@ -451,7 +596,10 @@ pub fn compute_corr_diff_features(
         let im = idx_a.iter().sum::<f64>() / seg as f64;
         let is_ = {
             let mut s = 0.0f64;
-            for &v in &idx_a { let d = v - im; s += d * d; }
+            for &v in &idx_a {
+                let d = v - im;
+                s += d * d;
+            }
             (s / seg as f64).sqrt()
         };
         if is_ > 0.0 {
@@ -459,14 +607,26 @@ pub fn compute_corr_diff_features(
                 let mut parts = vec![0.0f64; seg];
                 for s in 0..seg {
                     let mut sum = 0.0f64;
-                    for r in 0..seg_size { sum += small_s[(s * seg_size + r) * n + j]; }
+                    for r in 0..seg_size {
+                        sum += small_s[(s * seg_size + r) * n + j];
+                    }
                     parts[s] = sum / seg_size as f64;
                 }
                 let pm: f64 = parts.iter().sum::<f64>() / seg as f64;
-                let pv: f64 = parts.iter().map(|&v| { let d = v - pm; d * d }).sum::<f64>() / seg as f64;
+                let pv: f64 = parts
+                    .iter()
+                    .map(|&v| {
+                        let d = v - pm;
+                        d * d
+                    })
+                    .sum::<f64>()
+                    / seg as f64;
                 let ps = pv.sqrt();
                 if ps > 0.0 {
-                    let cov: f64 = (0..seg).map(|s| (parts[s] - pm) * (idx_a[s] - im)).sum::<f64>() / seg as f64;
+                    let cov: f64 = (0..seg)
+                        .map(|s| (parts[s] - pm) * (idx_a[s] - im))
+                        .sum::<f64>()
+                        / seg as f64;
                     series[j * 16 + 15] = cov / (ps * is_);
                 }
             }

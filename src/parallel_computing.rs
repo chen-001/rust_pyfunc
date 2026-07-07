@@ -197,7 +197,6 @@ struct SingleTask {
     expected_result_length: usize,
 }
 
-
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
 pub(crate) struct ControlCmd {
@@ -1230,7 +1229,8 @@ fn run_persistent_task_worker(
             // 🔥 新增：n_jobs下调时，高ID worker自动退出
             if worker_id >= target_worker_count.load(Ordering::Relaxed) {
                 debug_logger.log_info(
-                    Some(worker_id), "DECOMMISSION",
+                    Some(worker_id),
+                    "DECOMMISSION",
                     &format!("n_jobs下调，Worker #{} 退出", worker_id),
                 );
                 break;
@@ -1830,13 +1830,16 @@ pub fn run_pools_queue(
         Some(thread::spawn(move || {
             let mut last_n_jobs = initial_n_jobs;
             loop {
-                if control_all_done.load(Ordering::Relaxed) { break; }
+                if control_all_done.load(Ordering::Relaxed) {
+                    break;
+                }
                 match std::fs::read_to_string(&control_path_local) {
                     Ok(content) => {
                         if let Ok(cmd) = serde_json::from_str::<ControlCmd>(&content) {
                             if cmd.n_jobs != last_n_jobs && cmd.n_jobs >= 1 {
                                 control_debug_logger.log_info(
-                                    None, "CONTROL",
+                                    None,
+                                    "CONTROL",
                                     &format!("n_jobs调整: {} -> {}", last_n_jobs, cmd.n_jobs),
                                 );
                                 control_target_worker_count.store(cmd.n_jobs, Ordering::SeqCst);
@@ -1844,16 +1847,20 @@ pub fn run_pools_queue(
                                     // 上调n_jobs：创建新worker
                                     for i in last_n_jobs..cmd.n_jobs {
                                         let handle = {
-                                            let worker_task_receiver = control_task_receiver.clone();
+                                            let worker_task_receiver =
+                                                control_task_receiver.clone();
                                             let worker_task_sender = control_task_sender.clone();
                                             let worker_all_done = control_all_done.clone();
                                             let worker_python_code = control_python_code.clone();
                                             let worker_python_path = control_python_path.clone();
-                                            let worker_result_sender = result_sender_for_control.clone();
-                                        let worker_restart_flag = control_restart_flag.clone();
-                                            let worker_monitor_manager = control_monitor_manager.clone();
+                                            let worker_result_sender =
+                                                result_sender_for_control.clone();
+                                            let worker_restart_flag = control_restart_flag.clone();
+                                            let worker_monitor_manager =
+                                                control_monitor_manager.clone();
                                             let worker_debug_logger = control_debug_logger.clone();
-                                            let worker_target_worker_count = control_target_worker_count.clone();
+                                            let worker_target_worker_count =
+                                                control_target_worker_count.clone();
                                             thread::spawn(move || {
                                                 run_persistent_task_worker(
                                                     i,
@@ -1915,7 +1922,11 @@ pub fn run_pools_queue(
                 "total_tasks": pending_tasks_len,
                 "backup_batch_size": backup_batch_size_clone,
             });
-            if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&progress_log_path) {
+            if let Ok(mut f) = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&progress_log_path)
+            {
                 let _ = writeln!(f, "{}", start_record);
             }
         }
@@ -1932,7 +1943,8 @@ pub fn run_pools_queue(
             Local::now().format("%Y-%m-%d %H:%M:%S")
         );
 
-        let collector_timeout = Duration::from_secs(std::cmp::max(180u64, task_timeout_secs.saturating_add(60)));
+        let collector_timeout =
+            Duration::from_secs(std::cmp::max(180u64, task_timeout_secs.saturating_add(60)));
         loop {
             let result = match result_receiver.recv_timeout(collector_timeout) {
                 Ok(r) => r,

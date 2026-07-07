@@ -5,8 +5,8 @@ use pyo3::types::PyList;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::io::{self, BufRead, BufReader, Write};
 use std::fs::OpenOptions;
+use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -25,7 +25,8 @@ use nix::unistd::Pid;
 use crate::backup_reader::{read_existing_backup, read_existing_backup_with_filter, TaskResult};
 use crate::backup_writer;
 use crate::parallel_computing::{
-    detect_python_interpreter, ensure_fd_limit, extract_python_function_code, ControlCmd, DebugLogger,
+    detect_python_interpreter, ensure_fd_limit, extract_python_function_code, ControlCmd,
+    DebugLogger,
 };
 
 // ==================== 数据结构 ====================
@@ -786,7 +787,6 @@ fn run_date_only_worker(
 
 // ==================== 备份写入(使用 backup_writer 模块) ====================
 
-
 // ==================== 主函数 ====================
 
 #[pyfunction]
@@ -813,10 +813,9 @@ pub fn run_pools_queue_date_only(
     } else {
         format!("{}.log", backup_file)
     };
-    let debug_logger = DebugLogger::new(&log_path, debug_log_enabled)
-        .map_err(|e| {
-            PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("创建日志文件失败: {}", e))
-        })?;
+    let debug_logger = DebugLogger::new(&log_path, debug_log_enabled).map_err(|e| {
+        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("创建日志文件失败: {}", e))
+    })?;
 
     let restart_interval_value = restart_interval.unwrap_or(200);
     if restart_interval_value == 0 {
@@ -1018,22 +1017,26 @@ pub fn run_pools_queue_date_only(
         Some(thread::spawn(move || {
             let mut last_n_jobs = initial_n_jobs;
             loop {
-                if control_all_done.load(Ordering::Relaxed) { break; }
+                if control_all_done.load(Ordering::Relaxed) {
+                    break;
+                }
                 match std::fs::read_to_string(&control_path_local) {
                     Ok(content) => {
                         if let Ok(cmd) = serde_json::from_str::<ControlCmd>(&content) {
                             if cmd.n_jobs != last_n_jobs && cmd.n_jobs >= 1 {
                                 control_debug_logger.log_info(
-                                    None, "CONTROL",
+                                    None,
+                                    "CONTROL",
                                     &format!("n_jobs调整: {} -> {}", last_n_jobs, cmd.n_jobs),
                                 );
                                 control_target_worker_count.store(cmd.n_jobs, Ordering::SeqCst);
                                 if cmd.n_jobs > last_n_jobs {
-                                    let worker_result_sender = if let Some(strong) = control_sender_weak.upgrade() {
-                                        (*strong).clone()
-                                    } else {
-                                        break;
-                                    };
+                                    let worker_result_sender =
+                                        if let Some(strong) = control_sender_weak.upgrade() {
+                                            (*strong).clone()
+                                        } else {
+                                            break;
+                                        };
                                     for i in last_n_jobs..cmd.n_jobs {
                                         let handle = {
                                             let w_task_receiver = control_task_receiver.clone();
@@ -1044,7 +1047,8 @@ pub fn run_pools_queue_date_only(
                                             let w_restart_flag = control_restart_flag.clone();
                                             let w_monitor = control_monitor_manager.clone();
                                             let w_debug_logger = control_debug_logger.clone();
-                                            let w_target_count = control_target_worker_count.clone();
+                                            let w_target_count =
+                                                control_target_worker_count.clone();
                                             let w_result_sender = worker_result_sender.clone();
                                             thread::spawn(move || {
                                                 run_date_only_worker(
@@ -1107,7 +1111,11 @@ pub fn run_pools_queue_date_only(
                 "total_dates": total_dates,
                 "backup_batch_size": backup_batch_clone,
             });
-            if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&progress_log_path) {
+            if let Ok(mut f) = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&progress_log_path)
+            {
                 let _ = writeln!(f, "{}", start_record);
             }
         }
@@ -1122,7 +1130,8 @@ pub fn run_pools_queue_date_only(
             Local::now().format("%Y-%m-%d %H:%M:%S")
         );
 
-        let collector_timeout = Duration::from_secs(std::cmp::max(180u64, task_timeout_secs.saturating_add(60)));
+        let collector_timeout =
+            Duration::from_secs(std::cmp::max(180u64, task_timeout_secs.saturating_add(60)));
         loop {
             let result = match result_receiver.recv_timeout(collector_timeout) {
                 Ok(r) => r,
@@ -1195,7 +1204,11 @@ pub fn run_pools_queue_date_only(
                 );
                 io::stdout().flush().unwrap();
 
-                match backup_writer::save_results_to_backup(&batch_results, &backup_file_clone, expected_clone) {
+                match backup_writer::save_results_to_backup(
+                    &batch_results,
+                    &backup_file_clone,
+                    expected_clone,
+                ) {
                     Ok(()) => {}
                     Err(e) => {
                         eprintln!("❌ 第{}次备份失败: {}", batch_count, e);
@@ -1206,7 +1219,8 @@ pub fn run_pools_queue_date_only(
                 // 写入进度日志
                 if progress_log_clone {
                     let interval_secs = last_backup_time.elapsed().as_secs_f64();
-                    let completed_dates_count = if let Ok(dates_set) = completed_dates_clone.lock() {
+                    let completed_dates_count = if let Ok(dates_set) = completed_dates_clone.lock()
+                    {
                         dates_set.len()
                     } else {
                         0
@@ -1241,7 +1255,11 @@ pub fn run_pools_queue_date_only(
                 Local::now().format("%Y-%m-%d %H:%M:%S"),
                 batch_results.len()
             );
-            match backup_writer::save_results_to_backup(&batch_results, &backup_file_clone, expected_clone) {
+            match backup_writer::save_results_to_backup(
+                &batch_results,
+                &backup_file_clone,
+                expected_clone,
+            ) {
                 Ok(()) => println!(
                     "[{}] ✅ 最终备份成功！",
                     Local::now().format("%Y-%m-%d %H:%M:%S")

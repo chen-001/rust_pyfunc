@@ -33,7 +33,6 @@ fn array_to_fast_records(trades: ArrayView2<f64>) -> Vec<fast_csv_reader::TradeR
     out
 }
 
-
 /// 订单信息结构体
 #[derive(Debug, Clone)]
 struct OrderInfo {
@@ -476,7 +475,11 @@ impl ShadowSet {
         let mut count = 0usize;
         while i < self.members.len() && j < other.members.len() {
             match self.members[i].cmp(&other.members[j]) {
-                std::cmp::Ordering::Equal => { count += 1; i += 1; j += 1; }
+                std::cmp::Ordering::Equal => {
+                    count += 1;
+                    i += 1;
+                    j += 1;
+                }
                 std::cmp::Ordering::Less => i += 1,
                 std::cmp::Ordering::Greater => j += 1,
             }
@@ -490,9 +493,19 @@ impl ShadowSet {
         let mut count = 0usize;
         while i < self.members.len() && j < other.members.len() {
             match self.members[i].cmp(&other.members[j]) {
-                std::cmp::Ordering::Equal => { count += 1; i += 1; j += 1; }
-                std::cmp::Ordering::Less => { count += 1; i += 1; }
-                std::cmp::Ordering::Greater => { count += 1; j += 1; }
+                std::cmp::Ordering::Equal => {
+                    count += 1;
+                    i += 1;
+                    j += 1;
+                }
+                std::cmp::Ordering::Less => {
+                    count += 1;
+                    i += 1;
+                }
+                std::cmp::Ordering::Greater => {
+                    count += 1;
+                    j += 1;
+                }
             }
         }
         count += self.members.len() - i;
@@ -1670,7 +1683,8 @@ pub fn calculate_order_pair_metrics_more_v2_faster_inner(
     // 预计算所有订单的市场指标
     let window_size = 100usize;
 
-    let mut today_market_metrics: HashMap<i64, [f64; 5]> = HashMap::with_capacity(today_orders.len());
+    let mut today_market_metrics: HashMap<i64, [f64; 5]> =
+        HashMap::with_capacity(today_orders.len());
     for (&order_id, order) in &today_orders {
         let lz = calculate_lz_complexity_market(&today_sorted, order, window_size);
         let fd = calculate_fractal_dimension_market(&today_sorted, order, window_size);
@@ -1965,4 +1979,3 @@ pub fn verify_order_pair_metrics_more_v2(
     let arr = result.into_pyarray(py).to_owned();
     Ok((arr.into(), names))
 }
-

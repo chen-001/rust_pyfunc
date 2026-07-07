@@ -780,6 +780,251 @@ pub fn read_market_fast(
 }
 
 // ============================================================================
+// read_market_pair_fast：将 10 档盘口 melt 为长表（对应 Python read_market_pair）
+// 与 read_market_fast 的区别：保留 exchtime 微秒（无损）+ 全程 f64，用于还原
+// 与 pandas 完全一致的 (exchtime, number, price, vol) 长表。
+// ============================================================================
+
+/// 单条 market_data 快照（仅 pair 展开所需字段）。
+/// exchtime_us 为已加 8h 偏移的微秒时间戳；
+/// Python 侧 pd.to_datetime(arr, unit='us') 即得东八区 Timestamp（与 read_market 一致）。
+#[derive(Clone, Copy, Debug, Default)]
+struct MarketPairRow {
+    exchtime_us: i64,
+    ask_prcs: [f64; 10],
+    ask_vols: [f64; 10],
+    bid_prcs: [f64; 10],
+    bid_vols: [f64; 10],
+}
+
+/// 解析 market_data 一行 → MarketPairRow。
+/// 过滤条件（与 Python read_market_pair 等价）：
+///   ask_prc1==0 或 bid_prc1==0（涨跌停）→ 丢弃
+///   last_prc==0（无成交快照）→ 丢弃
+///   exchtime==0（无效行）→ 丢弃
+#[inline]
+fn parse_market_pair_line(line: &[u8]) -> Option<MarketPairRow> {
+    if line.is_empty() {
+        return None;
+    }
+    // market_data 有 61 列，按逗号切分
+    let mut fields: [&[u8]; 61] = [&[][..]; 61];
+    let mut start = 0usize;
+    let mut col = 0usize;
+    for (i, &b) in line.iter().enumerate() {
+        if b == b',' {
+            if col < 61 {
+                fields[col] = &line[start..i];
+            }
+            col += 1;
+            start = i + 1;
+        }
+    }
+    if col < 61 {
+        fields[col] = &line[start..];
+    }
+
+    // 涨跌停过滤（同 read_market 默认 with_high_low_limited=0）
+    let ask_prc1 = parse_f64_fast(fields[MKT_COL_ASK_PRC_BASE]);
+    let bid_prc1 = parse_f64_fast(fields[MKT_COL_ASK_PRC_BASE + 2]);
+    if ask_prc1 == 0.0 || bid_prc1 == 0.0 {
+        return None;
+    }
+    // 无成交快照过滤（read_market_pair 特有：df = df[df.last_prc != 0]）
+    if parse_f64_fast(fields[MKT_COL_LAST_PRC]) == 0.0 {
+        return None;
+    }
+    // 无效行过滤（集合竞价前空快照 exchtime 可能为 0）
+    let exchtime_us = parse_i64_fast(fields[MKT_COL_EXCHTIME]);
+    if exchtime_us == 0 {
+        return None;
+    }
+
+    // 解析 10 档 ask/bid（每档 4 列：ask_prc, ask_vol, bid_prc, bid_vol）
+    let mut ask_prcs = [0.0f64; 10];
+    let mut ask_vols = [0.0f64; 10];
+    let mut bid_prcs = [0.0f64; 10];
+    let mut bid_vols = [0.0f64; 10];
+    for i in 0..10 {
+        let base = MKT_COL_ASK_PRC_BASE + i * 4;
+        ask_prcs[i] = parse_f64_fast(fields[base]);
+        ask_vols[i] = parse_f64_fast(fields[base + 1]);
+        bid_prcs[i] = parse_f64_fast(fields[base + 2]);
+        bid_vols[i] = parse_f64_fast(fields[base + 3]);
+    }
+
+    Some(MarketPairRow {
+        exchtime_us: exchtime_us + 8 * 3600 * 1_000_000,
+        ask_prcs,
+        ask_vols,
+        bid_prcs,
+        bid_vols,
+    })
+}
+
+/// 解析 market_data 字节块 → Vec<MarketPairRow>。
+fn parse_market_pair_chunk(data: &[u8]) -> Vec<MarketPairRow> {
+    let est_lines = data.len() / 200 + 1;
+    let mut out = Vec::with_capacity(est_lines);
+    let mut start = 0usize;
+    for i in 0..data.len() {
+        if data[i] == b'\n' {
+            let line = &data[start..i];
+            let line = if line.last() == Some(&b'\r') {
+                &line[..line.len() - 1]
+            } else {
+                line
+            };
+            if let Some(rec) = parse_market_pair_line(line) {
+                out.push(rec);
+            }
+            start = i + 1;
+        }
+    }
+    if start < data.len() {
+        let line = &data[start..];
+        let line = if line.last() == Some(&b'\r') {
+            &line[..line.len() - 1]
+        } else {
+            line
+        };
+        if let Some(rec) = parse_market_pair_line(line) {
+            out.push(rec);
+        }
+    }
+    out
+}
+
+/// 读 market_data CSV → Vec<MarketPairRow>（大文件 mmap + rayon 多线程）。
+/// 输出按 exchtime 升序（CSV 时间单调 + 按文件顺序拼接，全局有序）。
+pub fn read_market_pair_inner(
+    code: &str,
+    date: i64,
+    parallel_threshold: usize,
+) -> std::io::Result<Vec<MarketPairRow>> {
+    let filename = format!("{}_{}_market_data.csv", code, date);
+    let path = resolve_stock_path(date, "market_data", &filename)?;
+
+    let file = File::open(&path)?;
+    let meta = file.metadata()?;
+    let file_size = meta.len() as usize;
+
+    if file_size < parallel_threshold {
+        let mut content = String::new();
+        File::open(&path)?.read_to_string(&mut content)?;
+        return Ok(parse_market_pair_chunk(content.as_bytes()));
+    }
+
+    let mmap = unsafe { Mmap::map(&file)? };
+    let data = &mmap[..];
+    let body_start = data
+        .iter()
+        .position(|&b| b == b'\n')
+        .map(|p| p + 1)
+        .unwrap_or(0);
+
+    let n_threads = rayon::current_num_threads().min(16).max(1);
+    let chunk_size = (data.len() - body_start) / n_threads + 1;
+    let chunks: Vec<(usize, usize)> = (0..n_threads)
+        .map(|i| {
+            let start = body_start + i * chunk_size;
+            let raw_end = start + chunk_size;
+            let start = if i == 0 { start } else { find_line_boundary(data, start) };
+            let end = if i == n_threads - 1 {
+                data.len()
+            } else {
+                find_line_boundary(data, raw_end.min(data.len()))
+            };
+            (start.min(end), end)
+        })
+        .filter(|(s, e)| s < e)
+        .collect();
+
+    let mut partials: Vec<Vec<MarketPairRow>> = chunks
+        .par_iter()
+        .map(|&(s, e)| parse_market_pair_chunk(&data[s..e]))
+        .collect();
+
+    let total: usize = partials.iter().map(|v| v.len()).sum();
+    let mut result = Vec::with_capacity(total);
+    for p in partials.drain(..) {
+        result.extend(p);
+    }
+    Ok(result)
+}
+
+/// Python 可调用：read_market_pair_fast(code, date)
+///
+/// 将 10 档盘口 melt 为长表，功能等价于 Python read_market_pair。
+/// 返回 dict：
+///   {"asks": {"exchtime": i64[], "number": i32[], "price": f64[], "vol": f64[]},
+///    "bids": {...同结构}}
+/// - exchtime 为已加 8h 偏移的微秒时间戳，pd.to_datetime(arr, unit='us') 即得东八区 Timestamp
+/// - number 为档位序号 1..10
+/// - price==0 的空档位已被过滤
+/// - 输出按 (exchtime, number) 升序（CSV 时间单调，逐行 number 1→10 展开天然有序）
+#[pyfunction]
+pub fn read_market_pair_fast(py: Python<'_>, code: &str, date: i64) -> PyResult<PyObject> {
+    let records = read_market_pair_inner(code, date, 8 * 1024 * 1024).map_err(|e| {
+        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("read_market_pair_fast 失败: {}", e))
+    })?;
+
+    // 预估容量：每行最多 10 档 ask / 10 档 bid
+    let cap = records.len() * 10;
+    let mut ask_exch = Vec::<i64>::with_capacity(cap);
+    let mut ask_num = Vec::<i32>::with_capacity(cap);
+    let mut ask_prc = Vec::<f64>::with_capacity(cap);
+    let mut ask_vol = Vec::<f64>::with_capacity(cap);
+    let mut bid_exch = Vec::<i64>::with_capacity(cap);
+    let mut bid_num = Vec::<i32>::with_capacity(cap);
+    let mut bid_prc = Vec::<f64>::with_capacity(cap);
+    let mut bid_vol = Vec::<f64>::with_capacity(cap);
+
+    for r in &records {
+        for i in 0..10usize {
+            let ap = r.ask_prcs[i];
+            if ap != 0.0 {
+                ask_exch.push(r.exchtime_us);
+                ask_num.push((i + 1) as i32);
+                ask_prc.push(ap);
+                ask_vol.push(r.ask_vols[i]);
+            }
+        }
+        for i in 0..10usize {
+            let bp = r.bid_prcs[i];
+            if bp != 0.0 {
+                bid_exch.push(r.exchtime_us);
+                bid_num.push((i + 1) as i32);
+                bid_prc.push(bp);
+                bid_vol.push(r.bid_vols[i]);
+            }
+        }
+    }
+
+    let make_side = |py: Python<'_>,
+                     exch: Vec<i64>,
+                     num: Vec<i32>,
+                     prc: Vec<f64>,
+                     vol: Vec<f64>|
+     -> PyResult<PyObject> {
+        let d = pyo3::types::PyDict::new(py);
+        d.set_item("exchtime", numpy::PyArray1::from_vec(py, exch))?;
+        d.set_item("number", numpy::PyArray1::from_vec(py, num))?;
+        d.set_item("price", numpy::PyArray1::from_vec(py, prc))?;
+        d.set_item("vol", numpy::PyArray1::from_vec(py, vol))?;
+        Ok(d.into())
+    };
+
+    let asks = make_side(py, ask_exch, ask_num, ask_prc, ask_vol)?;
+    let bids = make_side(py, bid_exch, bid_num, bid_prc, bid_vol)?;
+
+    let top = pyo3::types::PyDict::new(py);
+    top.set_item("asks", asks)?;
+    top.set_item("bids", bids)?;
+    Ok(top.into())
+}
+
+// ============================================================================
 
 #[cfg(test)]
 mod tests {

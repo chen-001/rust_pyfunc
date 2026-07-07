@@ -145,7 +145,11 @@ fn safe_skew(x: &[f64]) -> f64 {
     if std < 1e-15 {
         return 0.0;
     }
-    valid.iter().map(|v| ((v - mean) / std).powi(3)).sum::<f64>() / n
+    valid
+        .iter()
+        .map(|v| ((v - mean) / std).powi(3))
+        .sum::<f64>()
+        / n
 }
 
 /// 从 start_idx 开始，找第一个时间戳 >= ts[start_idx] + horizon_ns 的索引
@@ -211,7 +215,11 @@ pub fn compute_validation_factors(
         .collect();
 
     // --- 盘口衍生数组 ---
-    let ob_spread: Vec<f64> = ob_ask1.iter().zip(ob_bid1.iter()).map(|(a, b)| a - b).collect();
+    let ob_spread: Vec<f64> = ob_ask1
+        .iter()
+        .zip(ob_bid1.iter())
+        .map(|(a, b)| a - b)
+        .collect();
     let ob_imbalance: Vec<f64> = ob_bid_vol1
         .iter()
         .zip(ob_ask_vol1.iter())
@@ -340,7 +348,10 @@ pub fn compute_validation_factors(
             result[base + 5] = abs_loss;
             result[base + 6] = cap(safe_div(win_mean, abs_loss), 100.0);
             result[base + 7] = if !losses.is_empty() {
-                cap(safe_div(wins.iter().sum(), losses.iter().map(|v| v.abs()).sum()), 100.0)
+                cap(
+                    safe_div(wins.iter().sum(), losses.iter().map(|v| v.abs()).sum()),
+                    100.0,
+                )
             } else {
                 0.0
             };
@@ -373,10 +384,12 @@ pub fn compute_validation_factors(
                     num += d1 * d2;
                     den += d1 * d1;
                 }
-                let den2: f64 = (1..n).map(|k| {
-                    let d = aligned_ret[k] - mean_all;
-                    d * d
-                }).sum();
+                let den2: f64 = (1..n)
+                    .map(|k| {
+                        let d = aligned_ret[k] - mean_all;
+                        d * d
+                    })
+                    .sum();
                 let den_prod = (den * den2).sqrt();
                 if den_prod > 1e-15 {
                     result[base + 12] = num / den_prod;
@@ -547,7 +560,10 @@ pub fn compute_validation_factors(
             continue;
         }
 
-        let ob_i: Vec<usize> = idxs_a.iter().map(|&i| ob_idx_for_trade[i as usize]).collect();
+        let ob_i: Vec<usize> = idxs_a
+            .iter()
+            .map(|&i| ob_idx_for_trade[i as usize])
+            .collect();
         let trade_spread: Vec<f64> = ob_i.iter().map(|&i| ob_spread[i]).collect();
         let trade_imbalance: Vec<f64> = ob_i.iter().map(|&i| ob_imbalance[i]).collect();
         let trade_depth: Vec<f64> = ob_i.iter().map(|&i| ob_depth[i]).collect();
@@ -639,8 +655,7 @@ pub fn compute_validation_factors(
                 // 前向价格变化
                 if let Some(j) = find_future_idx(mkt_ts, i, h_ns) {
                     if j > i {
-                        price_impact[k] =
-                            (mkt_pr[j] - mkt_pr[i]) / mkt_pr[i] * sign_a[k];
+                        price_impact[k] = (mkt_pr[j] - mkt_pr[i]) / mkt_pr[i] * sign_a[k];
                     }
                 }
 

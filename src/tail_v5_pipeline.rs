@@ -67,7 +67,7 @@ impl Drop for TailV4WorkerPidGuard {
     }
 }
 
-fn format_hms(total_secs: u64) -> (u64, u64, u64) {
+pub(crate) fn format_hms(total_secs: u64) -> (u64, u64, u64) {
     let hours = total_secs / 3600;
     let minutes = (total_secs % 3600) / 60;
     let seconds = total_secs % 60;
@@ -75,7 +75,92 @@ fn format_hms(total_secs: u64) -> (u64, u64, u64) {
 }
 
 #[derive(Clone)]
-struct TailSelectionConfig {
+pub(crate) struct TailSelectionConfig {
+    pub(crate) cover_rate: f64,
+    pub(crate) ret_point_neu_gap5: f64,
+    pub(crate) ret_point_neu_gap1: f64,
+    pub(crate) ic_point_neu_gap5: f64,
+    pub(crate) ic_point_neu_gap1: f64,
+    pub(crate) ret_point_gap5: f64,
+    pub(crate) ret_point_gap1: f64,
+    pub(crate) ic_point_gap5: f64,
+    pub(crate) ic_point_gap1: f64,
+    pub(crate) ic_more_important_gap5: Option<f64>,
+    pub(crate) ic_more_important_gap1: Option<f64>,
+    pub(crate) majority_count_threshold: f64,
+    pub(crate) zero_max_threshold: f64,
+    pub(crate) nan_max_threshold: f64,
+}
+
+#[derive(Clone)]
+pub(crate) struct SharedInputs {
+    pub(crate) dates: Arc<Vec<i32>>,
+    pub(crate) stocks: Arc<Vec<String>>,
+    pub(crate) windows: Arc<Vec<usize>>,
+    pub(crate) fold: bool,
+    pub(crate) min_valid: usize,
+    pub(crate) backtest_start: i32,
+    pub(crate) legacy_style_data: Arc<IOOptimizedStyleData>,
+    pub(crate) ret_gap1: Arc<Array2<f32>>,
+    pub(crate) ret_sum_gap1: Arc<Array2<f32>>,
+    pub(crate) ret_gap5: Arc<Array2<f32>>,
+    pub(crate) ret_sum_gap5: Arc<Array2<f32>>,
+    pub(crate) restrict: Arc<Array2<f32>>,
+    pub(crate) index_ret: Arc<Array1<f32>>,
+    pub(crate) config: Arc<TailSelectionConfig>,
+}
+
+#[derive(Clone)]
+pub(crate) struct TailTask {
+    pub(crate) source_factor: String,
+    pub(crate) factor_path: String,
+}
+
+impl TailTask {
+    pub(crate) fn new(source_factor: String, factor_path: String) -> Self {
+        Self { source_factor, factor_path }
+    }
+}
+
+/// 跨模块构造 SharedInputs（供 tail_backtest_engine 调用）
+pub(crate) fn build_shared_inputs(
+    dates: Vec<i32>,
+    stocks: Vec<String>,
+    windows: Vec<usize>,
+    fold: bool,
+    min_valid: usize,
+    backtest_start: i32,
+    style_data_path: &str,
+    ret_gap1_path: &str,
+    ret_sum_gap1_path: &str,
+    ret_gap5_path: &str,
+    ret_sum_gap5_path: &str,
+    restrict_path: &str,
+    index_ret_path: &str,
+    config: TailSelectionConfig,
+) -> Result<SharedInputs, String> {
+    Ok(SharedInputs {
+        dates: Arc::new(dates),
+        stocks: Arc::new(stocks),
+        windows: Arc::new(windows),
+        fold,
+        min_valid,
+        backtest_start,
+        legacy_style_data: Arc::new(
+            IOOptimizedStyleData::load_from_parquet_io_optimized(style_data_path)
+                .map_err(|e| e.to_string())?,
+        ),
+        ret_gap1: Arc::new(read_npy(ret_gap1_path).map_err(|e| format!("读取 ret_gap1.npy 失败: {}", e))?),
+        ret_sum_gap1: Arc::new(read_npy(ret_sum_gap1_path).map_err(|e| format!("读取 ret_sum_gap1.npy 失败: {}", e))?),
+        ret_gap5: Arc::new(read_npy(ret_gap5_path).map_err(|e| format!("读取 ret_gap5.npy 失败: {}", e))?),
+        ret_sum_gap5: Arc::new(read_npy(ret_sum_gap5_path).map_err(|e| format!("读取 ret_sum_gap5.npy 失败: {}", e))?),
+        restrict: Arc::new(read_npy(restrict_path).map_err(|e| format!("读取 restrict.npy 失败: {}", e))?),
+        index_ret: Arc::new(read_npy(index_ret_path).map_err(|e| format!("读取 index_ret.npy 失败: {}", e))?),
+        config: Arc::new(config),
+    })
+}
+
+pub(crate) fn build_selection_config(
     cover_rate: f64,
     ret_point_neu_gap5: f64,
     ret_point_neu_gap1: f64,
@@ -90,100 +175,93 @@ struct TailSelectionConfig {
     majority_count_threshold: f64,
     zero_max_threshold: f64,
     nan_max_threshold: f64,
-}
-
-#[derive(Clone)]
-struct SharedInputs {
-    dates: Arc<Vec<i32>>,
-    stocks: Arc<Vec<String>>,
-    windows: Arc<Vec<usize>>,
-    fold: bool,
-    min_valid: usize,
-    backtest_start: i32,
-    legacy_style_data: Arc<IOOptimizedStyleData>,
-    ret_gap1: Arc<Array2<f32>>,
-    ret_sum_gap1: Arc<Array2<f32>>,
-    ret_gap5: Arc<Array2<f32>>,
-    ret_sum_gap5: Arc<Array2<f32>>,
-    restrict: Arc<Array2<f32>>,
-    index_ret: Arc<Array1<f32>>,
-    config: Arc<TailSelectionConfig>,
-}
-
-#[derive(Clone)]
-struct TailTask {
-    source_factor: String,
-    factor_path: String,
+) -> TailSelectionConfig {
+    TailSelectionConfig {
+        cover_rate,
+        ret_point_neu_gap5,
+        ret_point_neu_gap1,
+        ic_point_neu_gap5,
+        ic_point_neu_gap1,
+        ret_point_gap5,
+        ret_point_gap1,
+        ic_point_gap5,
+        ic_point_gap1,
+        ic_more_important_gap5,
+        ic_more_important_gap1,
+        majority_count_threshold,
+        zero_max_threshold,
+        nan_max_threshold,
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-struct SummaryRowRecord {
-    factor_name: String,
-    stage: String,
-    gap: i32,
-    source_factor: String,
+pub(crate) struct SummaryRowRecord {
+    pub(crate) factor_name: String,
+    pub(crate) stage: String,
+    pub(crate) gap: i32,
+    pub(crate) source_factor: String,
     #[serde(rename = "IC_mean")]
-    ic_mean: f64,
+    pub(crate) ic_mean: f64,
     #[serde(rename = "IR")]
-    ir: f64,
-    annualized_return: f64,
-    sharpe_ratio: f64,
-    max_drawdown: f64,
-    date_size: i32,
-    ratio_mean: f64,
-    hedge_annualized_return: f64,
-    hedge_annualized_sharpe_ratio: f64,
-    hedge_max_drawdown: f64,
+    pub(crate) ir: f64,
+    pub(crate) annualized_return: f64,
+    pub(crate) sharpe_ratio: f64,
+    pub(crate) max_drawdown: f64,
+    pub(crate) date_size: i32,
+    pub(crate) ratio_mean: f64,
+    pub(crate) hedge_annualized_return: f64,
+    pub(crate) hedge_annualized_sharpe_ratio: f64,
+    pub(crate) hedge_max_drawdown: f64,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-struct IcRecord {
-    factor_name: String,
+pub(crate) struct IcRecord {
+    pub(crate) factor_name: String,
     #[serde(default)]
-    dates: Vec<i32>,
-    values: Vec<f32>,
+    pub(crate) dates: Vec<i32>,
+    pub(crate) values: Vec<f32>,
 }
 
 #[derive(Serialize, Deserialize, Default, Clone)]
-struct TailTaskResult {
-    source_factor: String,
-    raw_summary_gap1: Vec<SummaryRowRecord>,
-    raw_summary_gap5: Vec<SummaryRowRecord>,
-    neu_summary_gap1: Vec<SummaryRowRecord>,
-    neu_summary_gap5: Vec<SummaryRowRecord>,
-    raw_ic_gap1: Vec<IcRecord>,
-    raw_ic_gap5: Vec<IcRecord>,
-    neu_ic_gap1: Vec<IcRecord>,
-    neu_ic_gap5: Vec<IcRecord>,
-    derived_factor_count: usize,
+pub(crate) struct TailTaskResult {
+    pub(crate) source_factor: String,
+    pub(crate) raw_summary_gap1: Vec<SummaryRowRecord>,
+    pub(crate) raw_summary_gap5: Vec<SummaryRowRecord>,
+    pub(crate) neu_summary_gap1: Vec<SummaryRowRecord>,
+    pub(crate) neu_summary_gap5: Vec<SummaryRowRecord>,
+    pub(crate) raw_ic_gap1: Vec<IcRecord>,
+    pub(crate) raw_ic_gap5: Vec<IcRecord>,
+    pub(crate) neu_ic_gap1: Vec<IcRecord>,
+    pub(crate) neu_ic_gap5: Vec<IcRecord>,
+    pub(crate) derived_factor_count: usize,
     #[serde(default)]
-    passed: bool,
+    pub(crate) passed: bool,
     #[serde(default)]
-    eliminated_by_raw_cover: bool,
+    pub(crate) eliminated_by_raw_cover: bool,
     #[serde(default)]
-    any_window_passed_preflight: bool,
+    pub(crate) any_window_passed_preflight: bool,
     #[serde(default)]
-    preflight_maj_failed_windows: usize,
+    pub(crate) preflight_maj_failed_windows: usize,
     #[serde(default)]
-    preflight_zero_failed_windows: usize,
+    pub(crate) preflight_zero_failed_windows: usize,
     #[serde(default)]
-    preflight_nan_failed_windows: usize,
+    pub(crate) preflight_nan_failed_windows: usize,
 }
 
 #[derive(Default)]
-struct AggregatedCandidates {
-    raw_summary_gap1: Vec<SummaryRowRecord>,
-    raw_summary_gap5: Vec<SummaryRowRecord>,
-    neu_summary_gap1: Vec<SummaryRowRecord>,
-    neu_summary_gap5: Vec<SummaryRowRecord>,
-    raw_ic_gap1: HashMap<String, IcRecord>,
-    raw_ic_gap5: HashMap<String, IcRecord>,
-    neu_ic_gap1: HashMap<String, IcRecord>,
-    neu_ic_gap5: HashMap<String, IcRecord>,
+pub(crate) struct AggregatedCandidates {
+    pub(crate) raw_summary_gap1: Vec<SummaryRowRecord>,
+    pub(crate) raw_summary_gap5: Vec<SummaryRowRecord>,
+    pub(crate) neu_summary_gap1: Vec<SummaryRowRecord>,
+    pub(crate) neu_summary_gap5: Vec<SummaryRowRecord>,
+    pub(crate) raw_ic_gap1: HashMap<String, IcRecord>,
+    pub(crate) raw_ic_gap5: HashMap<String, IcRecord>,
+    pub(crate) neu_ic_gap1: HashMap<String, IcRecord>,
+    pub(crate) neu_ic_gap5: HashMap<String, IcRecord>,
 }
 
 impl AggregatedCandidates {
-    fn merge_task(&mut self, task: TailTaskResult) {
+    pub(crate) fn merge_task(&mut self, task: TailTaskResult) {
         self.raw_summary_gap1.extend(task.raw_summary_gap1);
         self.raw_summary_gap5.extend(task.raw_summary_gap5);
         self.neu_summary_gap1.extend(task.neu_summary_gap1);
@@ -205,9 +283,9 @@ impl AggregatedCandidates {
 
 #[derive(Clone)]
 struct LegacyBacktestResult {
-    summary: [f64; 10],
-    ic_dates: Vec<i32>,
-    ic_values: Vec<f32>,
+    pub(crate) summary: [f64; 10],
+    pub(crate) ic_dates: Vec<i32>,
+    pub(crate) ic_values: Vec<f32>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -404,6 +482,12 @@ fn count_open_symbols(restrict_row: &[f32]) -> usize {
         .count()
 }
 
+fn precompute_open_symbol_counts(restrict: &ArrayView2<'_, f32>) -> Vec<usize> {
+    (0..restrict.shape()[0])
+        .map(|row_idx| count_open_symbols(restrict.row(row_idx).as_slice().unwrap_or(&[])))
+        .collect()
+}
+
 fn has_enough_unique_values(
     factor: &ArrayView3<'_, f32>,
     slot_idx: usize,
@@ -429,6 +513,42 @@ struct PreflightReport {
     majority_count_mean: f64,
     zero_ratio_mean: f64,
     nan_ratio_mean: f64,
+}
+
+fn default_legacy_backtest_result() -> LegacyBacktestResult {
+    LegacyBacktestResult {
+        summary: [f64::NAN; 10],
+        ic_dates: Vec::new(),
+        ic_values: Vec::new(),
+    }
+}
+
+fn effective_raw_indices_for_slot(
+    factor: &ArrayView3<'_, f32>,
+    dates: &[i32],
+    backtest_start: i32,
+    slot_idx: usize,
+) -> Vec<usize> {
+    let n_dates = factor.shape()[0];
+    let n_stocks = factor.shape()[1];
+    let mut effective_raw_indices = Vec::<usize>::new();
+    for raw_eff_idx in 1..n_dates {
+        if dates[raw_eff_idx] <= backtest_start {
+            continue;
+        }
+        let signal_row_idx = raw_eff_idx - 1;
+        let mut all_nan = true;
+        for stock_idx in 0..n_stocks {
+            if factor[[signal_row_idx, stock_idx, slot_idx]].is_finite() {
+                all_nan = false;
+                break;
+            }
+        }
+        if !all_nan {
+            effective_raw_indices.push(raw_eff_idx);
+        }
+    }
+    effective_raw_indices
 }
 
 fn preflight_quality_check(
@@ -539,52 +659,23 @@ fn compute_raw_cover_rate(
     }
 }
 
-fn legacy_backtest_single_factor(
+fn legacy_backtest_single_factor_with_effective(
     factor: &ArrayView3<'_, f32>,
     ret: &ArrayView2<'_, f32>,
     ret_sum: &ArrayView2<'_, f32>,
     restrict: &ArrayView2<'_, f32>,
     index: &ArrayView1<'_, f32>,
     dates: &[i32],
-    backtest_start: i32,
     slot_idx: usize,
     gap: usize,
     portf_num: usize,
+    effective_raw_indices: &[usize],
+    open_symbol_counts: &[usize],
 ) -> LegacyBacktestResult {
-    let default_result = LegacyBacktestResult {
-        summary: [f64::NAN; 10],
-        ic_dates: Vec::new(),
-        ic_values: Vec::new(),
-    };
-    if factor.shape()[0] < 2 || gap == 0 || portf_num == 0 {
-        return default_result;
-    }
-    if !has_enough_unique_values(factor, slot_idx, 10) {
-        return default_result;
-    }
-
-    let n_dates = factor.shape()[0];
-    let n_stocks = factor.shape()[1];
-    let mut effective_raw_indices = Vec::<usize>::new();
-    for raw_eff_idx in 1..n_dates {
-        if dates[raw_eff_idx] <= backtest_start {
-            continue;
-        }
-        let signal_row_idx = raw_eff_idx - 1;
-        let mut all_nan = true;
-        for stock_idx in 0..n_stocks {
-            if factor[[signal_row_idx, stock_idx, slot_idx]].is_finite() {
-                all_nan = false;
-                break;
-            }
-        }
-        if !all_nan {
-            effective_raw_indices.push(raw_eff_idx);
-        }
-    }
     if effective_raw_indices.is_empty() {
-        return default_result;
+        return default_legacy_backtest_result();
     }
+    let n_stocks = factor.shape()[1];
 
     let date_size = effective_raw_indices.len();
     let mut group_returns = vec![vec![0.0_f64; date_size]; portf_num];
@@ -633,8 +724,10 @@ fn legacy_backtest_single_factor(
             continue;
         }
 
-        let valid_symbol_num =
-            count_open_symbols(restrict.row(raw_eff_idx - 1).as_slice().unwrap_or(&[]));
+        let valid_symbol_num = open_symbol_counts
+            .get(raw_eff_idx - 1)
+            .copied()
+            .unwrap_or(0);
         if valid_symbol_num > 0 {
             ratio_values[local_t] = stocks_num as f64 / valid_symbol_num as f64;
         }
@@ -703,6 +796,44 @@ fn legacy_backtest_single_factor(
     }
 }
 
+#[allow(dead_code)]
+fn legacy_backtest_single_factor(
+    factor: &ArrayView3<'_, f32>,
+    ret: &ArrayView2<'_, f32>,
+    ret_sum: &ArrayView2<'_, f32>,
+    restrict: &ArrayView2<'_, f32>,
+    index: &ArrayView1<'_, f32>,
+    dates: &[i32],
+    backtest_start: i32,
+    slot_idx: usize,
+    gap: usize,
+    portf_num: usize,
+) -> LegacyBacktestResult {
+    if factor.shape()[0] < 2 || gap == 0 || portf_num == 0 {
+        return default_legacy_backtest_result();
+    }
+    if !has_enough_unique_values(factor, slot_idx, 10) {
+        return default_legacy_backtest_result();
+    }
+    let effective_raw_indices =
+        effective_raw_indices_for_slot(factor, dates, backtest_start, slot_idx);
+    let open_symbol_counts = precompute_open_symbol_counts(restrict);
+    legacy_backtest_single_factor_with_effective(
+        factor,
+        ret,
+        ret_sum,
+        restrict,
+        index,
+        dates,
+        slot_idx,
+        gap,
+        portf_num,
+        &effective_raw_indices,
+        &open_symbol_counts,
+    )
+}
+
+#[allow(dead_code)]
 fn legacy_backtest_block_f32(
     factor: ArrayView3<'_, f32>,
     ret: ArrayView2<'_, f32>,
@@ -750,11 +881,163 @@ fn legacy_backtest_block_f32(
     Ok(results)
 }
 
-fn factor_result_path(task_results_dir: &Path, source_factor: &str) -> PathBuf {
+fn legacy_backtest_gap1_gap5_selected_slots_f32(
+    factor: ArrayView3<'_, f32>,
+    ret_gap1: ArrayView2<'_, f32>,
+    ret_sum_gap1: ArrayView2<'_, f32>,
+    ret_gap5: ArrayView2<'_, f32>,
+    ret_sum_gap5: ArrayView2<'_, f32>,
+    restrict: ArrayView2<'_, f32>,
+    index: ArrayView1<'_, f32>,
+    dates: &[i32],
+    backtest_start: i32,
+    selected_slots: &[usize],
+    portf_num: usize,
+) -> Result<(Vec<LegacyBacktestResult>, Vec<LegacyBacktestResult>), String> {
+    if portf_num == 0 {
+        return Err("portf_num 必须大于 0".to_string());
+    }
+    let n_dates = factor.shape()[0];
+    let n_stocks = factor.shape()[1];
+    if ret_gap1.shape() != [n_dates, n_stocks]
+        || ret_sum_gap1.shape() != [n_dates, n_stocks]
+        || ret_gap5.shape() != [n_dates, n_stocks]
+        || ret_sum_gap5.shape() != [n_dates, n_stocks]
+        || restrict.shape() != [n_dates, n_stocks]
+        || index.len() != n_dates
+        || dates.len() != n_dates
+    {
+        return Err("legacy backtest 输入形状不匹配".to_string());
+    }
+
+    let n_factors = factor.shape()[2];
+    let open_symbol_counts = precompute_open_symbol_counts(&restrict);
+    let mut gap1_results = Vec::with_capacity(selected_slots.len());
+    let mut gap5_results = Vec::with_capacity(selected_slots.len());
+    for &slot_idx in selected_slots {
+        if slot_idx >= n_factors {
+            return Err(format!("selected slot 越界: {} >= {}", slot_idx, n_factors));
+        }
+        if n_dates < 2 || !has_enough_unique_values(&factor, slot_idx, 10) {
+            gap1_results.push(default_legacy_backtest_result());
+            gap5_results.push(default_legacy_backtest_result());
+            continue;
+        }
+        let effective_raw_indices =
+            effective_raw_indices_for_slot(&factor, dates, backtest_start, slot_idx);
+        gap1_results.push(legacy_backtest_single_factor_with_effective(
+            &factor,
+            &ret_gap1,
+            &ret_sum_gap1,
+            &restrict,
+            &index,
+            dates,
+            slot_idx,
+            1,
+            portf_num,
+            &effective_raw_indices,
+            &open_symbol_counts,
+        ));
+        gap5_results.push(legacy_backtest_single_factor_with_effective(
+            &factor,
+            &ret_gap5,
+            &ret_sum_gap5,
+            &restrict,
+            &index,
+            dates,
+            slot_idx,
+            5,
+            portf_num,
+            &effective_raw_indices,
+            &open_symbol_counts,
+        ));
+    }
+    Ok((gap1_results, gap5_results))
+}
+
+fn select_factor_slots_block(
+    factor: ArrayView3<'_, f32>,
+    selected_slots: &[usize],
+) -> Result<Array3<f32>, String> {
+    let n_dates = factor.shape()[0];
+    let n_stocks = factor.shape()[1];
+    let n_slots = factor.shape()[2];
+    let mut output = Array3::<f32>::from_elem((n_dates, n_stocks, selected_slots.len()), f32::NAN);
+    for (local_idx, &slot_idx) in selected_slots.iter().enumerate() {
+        if slot_idx >= n_slots {
+            return Err(format!("selected slot 越界: {} >= {}", slot_idx, n_slots));
+        }
+        let src = factor.slice(s![.., .., slot_idx]);
+        let mut dst = output.slice_mut(s![.., .., local_idx]);
+        dst.assign(&src);
+    }
+    Ok(output)
+}
+
+fn collect_preflight_passed_slots(
+    rolled_block: ArrayView3<'_, f32>,
+    restrict: ArrayView2<'_, f32>,
+    derived_names: &[String],
+    config: &TailSelectionConfig,
+    result: &mut TailTaskResult,
+) -> Vec<usize> {
+    let mut selected_slots = Vec::new();
+    for (slot_idx, derived_name) in derived_names.iter().enumerate() {
+        let slot_view = rolled_block.slice(s![.., .., slot_idx]);
+        let pre_report = preflight_quality_check(
+            &slot_view,
+            &restrict,
+            config.majority_count_threshold,
+            config.zero_max_threshold,
+            config.nan_max_threshold,
+        );
+        if !pre_report.passed {
+            if pre_report.majority_count_mean > config.majority_count_threshold {
+                result.preflight_maj_failed_windows += 1;
+            }
+            if pre_report.zero_ratio_mean >= config.zero_max_threshold {
+                result.preflight_zero_failed_windows += 1;
+            }
+            if pre_report.nan_ratio_mean >= config.nan_max_threshold {
+                result.preflight_nan_failed_windows += 1;
+            }
+            let mut reasons: Vec<String> = Vec::new();
+            if pre_report.majority_count_mean > config.majority_count_threshold {
+                reasons.push(format!(
+                    "majority_count_mean={:.2}, 标准<={:.2}",
+                    pre_report.majority_count_mean, config.majority_count_threshold,
+                ));
+            }
+            if pre_report.zero_ratio_mean >= config.zero_max_threshold {
+                reasons.push(format!(
+                    "zero_ratio_mean={:.4}, 标准<{:.4}",
+                    pre_report.zero_ratio_mean, config.zero_max_threshold,
+                ));
+            }
+            if pre_report.nan_ratio_mean >= config.nan_max_threshold {
+                reasons.push(format!(
+                    "nan_ratio_mean={:.4}, 标准<{:.4}",
+                    pre_report.nan_ratio_mean, config.nan_max_threshold,
+                ));
+            }
+            println!(
+                "[preflight] 剔除因子 {}，该因子指标不达标: {}",
+                derived_name,
+                reasons.join("; "),
+            );
+            continue;
+        }
+        result.any_window_passed_preflight = true;
+        selected_slots.push(slot_idx);
+    }
+    selected_slots
+}
+
+pub(crate) fn factor_result_path(task_results_dir: &Path, source_factor: &str) -> PathBuf {
     task_results_dir.join(format!("{}.msgpack", source_factor))
 }
 
-fn write_task_result(path: &Path, result: &TailTaskResult) -> Result<(), String> {
+pub(crate) fn write_task_result(path: &Path, result: &TailTaskResult) -> Result<(), String> {
     let tmp_path = path.with_extension("msgpack.tmp");
     let bytes =
         rmp_serde::to_vec_named(result).map_err(|e| format!("序列化任务结果失败: {}", e))?;
@@ -763,12 +1046,12 @@ fn write_task_result(path: &Path, result: &TailTaskResult) -> Result<(), String>
     Ok(())
 }
 
-fn read_task_result(path: &Path) -> Result<TailTaskResult, String> {
+pub(crate) fn read_task_result(path: &Path) -> Result<TailTaskResult, String> {
     let bytes = fs::read(path).map_err(|e| format!("读取任务结果失败: {}", e))?;
     rmp_serde::from_slice::<TailTaskResult>(&bytes).map_err(|e| format!("解析任务结果失败: {}", e))
 }
 
-fn append_completed_source(completed_log_path: &Path, source_factor: &str) -> Result<(), String> {
+pub(crate) fn append_completed_source(completed_log_path: &Path, source_factor: &str) -> Result<(), String> {
     if let Some(parent) = completed_log_path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("创建日志目录失败: {}", e))?;
     }
@@ -1727,8 +2010,8 @@ fn neutralize_block_legacy_exact_v7(
                     let style_idx = valid_style_indices[row_idx];
                     let mut predicted = 0.0_f64;
                     for feature_idx in 0..n_features {
-                        predicted +=
-                            day_data.style_matrix[(style_idx, feature_idx)] * beta_values[feature_idx];
+                        predicted += day_data.style_matrix[(style_idx, feature_idx)]
+                            * beta_values[feature_idx];
                     }
                     // V7: 写 flat slice（day_slice[stock_idx * n_factors + factor_idx]）
                     day_slice[stock_idx * n_factors + factor_idx] =
@@ -1737,8 +2020,10 @@ fn neutralize_block_legacy_exact_v7(
             }
         });
 
-    Ok(Array3::from_shape_vec((n_dates, n_stocks, n_factors), output_flat)
-        .map_err(|e| format!("neutralize v7 输出形状错误: {e}"))?)
+    Ok(
+        Array3::from_shape_vec((n_dates, n_stocks, n_factors), output_flat)
+            .map_err(|e| format!("neutralize v7 输出形状错误: {e}"))?,
+    )
 }
 
 #[pyclass]
@@ -1883,34 +2168,79 @@ fn process_task(task: &TailTask, shared: &SharedInputs) -> Result<TailTaskResult
     process_task_with_values(task, raw_values, shared)
 }
 
+// ===== 插桩：各步骤耗时累计（AtomicU64 线程安全，热路径开销 ~ns）=====
+use std::sync::atomic::AtomicU64;
+static PROF_RAW_COVER: AtomicU64 = AtomicU64::new(0);
+static PROF_FOLD: AtomicU64 = AtomicU64::new(0);
+static PROF_RANK_ROLL: AtomicU64 = AtomicU64::new(0);
+static PROF_BT_RAW: AtomicU64 = AtomicU64::new(0);
+static PROF_NEU: AtomicU64 = AtomicU64::new(0);
+static PROF_BT_NEU: AtomicU64 = AtomicU64::new(0);
+static PROF_COUNT: AtomicU64 = AtomicU64::new(0);
+
+fn prof_dump(tag: &str) {
+    let rc = PROF_RAW_COVER.load(AtomicOrdering::Relaxed);
+    let fd = PROF_FOLD.load(AtomicOrdering::Relaxed);
+    let rr = PROF_RANK_ROLL.load(AtomicOrdering::Relaxed);
+    let br = PROF_BT_RAW.load(AtomicOrdering::Relaxed);
+    let ne = PROF_NEU.load(AtomicOrdering::Relaxed);
+    let bn = PROF_BT_NEU.load(AtomicOrdering::Relaxed);
+    let n = PROF_COUNT.load(AtomicOrdering::Relaxed);
+    let total = rc + fd + rr + br + ne + bn;
+    let pct = |x: u64| {
+        if total > 0 {
+            x as f64 / total as f64 * 100.0
+        } else {
+            0.0
+        }
+    };
+    let avg = if n > 0 {
+        total as f64 / n as f64 / 1e9
+    } else {
+        0.0
+    };
+    eprintln!(
+        "[PROF {} n={} avg={:.2}s] raw_cover={:.1}% fold={:.1}% rank_roll={:.1}% bt_raw={:.1}% neutralize={:.1}% bt_neu={:.1}% (其余=preflight+汇总)",
+        tag, n, avg, pct(rc), pct(fd), pct(rr), pct(br), pct(ne), pct(bn)
+    );
+}
+
 /// 用已读好的因子矩阵执行回测（IO/CPU 分离架构：IO 线程预读后调用此函数）。
 fn process_task_with_values(
     task: &TailTask,
     raw_values: Array2<f32>,
     shared: &SharedInputs,
 ) -> Result<TailTaskResult, String> {
+    let _t = std::time::Instant::now();
     let raw_cover_rate = compute_raw_cover_rate(
         &raw_values.view(),
         &shared.restrict.view(),
         &shared.ret_gap1.view(),
         10,
     );
+    PROF_RAW_COVER.fetch_add(_t.elapsed().as_nanos() as u64, AtomicOrdering::Relaxed);
     if raw_cover_rate < shared.config.cover_rate {
         println!(
             "[raw_cover] 剔除因子 {}，原始覆盖率不达标: raw_cover_rate={:.4}, 标准>={:.4}",
             task.source_factor, raw_cover_rate, shared.config.cover_rate,
         );
+        let _n = PROF_COUNT.fetch_add(1, AtomicOrdering::Relaxed) + 1;
+        if _n % 20 == 0 {
+            prof_dump("raw_cover剔除");
+        }
         return Ok(TailTaskResult {
             source_factor: task.source_factor.clone(),
             eliminated_by_raw_cover: true,
             ..TailTaskResult::default()
         });
     }
+    let _t = std::time::Instant::now();
     let mut variants = vec![(task.source_factor.clone(), raw_values)];
     if shared.fold {
         let folded = build_fold_values(&variants[0].1);
         variants.push((format!("{}_fold", task.source_factor), folded));
     }
+    PROF_FOLD.fetch_add(_t.elapsed().as_nanos() as u64, AtomicOrdering::Relaxed);
 
     let mut result = TailTaskResult {
         source_factor: task.source_factor.clone(),
@@ -1918,138 +2248,98 @@ fn process_task_with_values(
     };
 
     for (variant_name, variant_values) in variants {
+        let _t = std::time::Instant::now();
         let rolled_block =
             rank_roll_block_f32_with_parallel(&variant_values, shared.windows.as_slice(), false)?;
+        PROF_RANK_ROLL.fetch_add(_t.elapsed().as_nanos() as u64, AtomicOrdering::Relaxed);
         let derived_names = derived_names_for_variant(&variant_name, shared.windows.as_slice());
         result.derived_factor_count += derived_names.len();
 
-        let raw_gap1_results = legacy_backtest_block_f32(
+        let selected_slots = collect_preflight_passed_slots(
+            rolled_block.view(),
+            shared.restrict.view(),
+            &derived_names,
+            &shared.config,
+            &mut result,
+        );
+        if selected_slots.is_empty() {
+            continue;
+        }
+
+        let _t = std::time::Instant::now();
+        let (raw_gap1_results, raw_gap5_results) = legacy_backtest_gap1_gap5_selected_slots_f32(
             rolled_block.view(),
             shared.ret_gap1.view(),
             shared.ret_sum_gap1.view(),
-            shared.restrict.view(),
-            shared.index_ret.view(),
-            shared.dates.as_slice(),
-            shared.backtest_start,
-            1,
-            10,
-        )?;
-        let raw_gap5_results = legacy_backtest_block_f32(
-            rolled_block.view(),
             shared.ret_gap5.view(),
             shared.ret_sum_gap5.view(),
             shared.restrict.view(),
             shared.index_ret.view(),
             shared.dates.as_slice(),
             shared.backtest_start,
-            5,
+            &selected_slots,
             10,
         )?;
+        PROF_BT_RAW.fetch_add(_t.elapsed().as_nanos() as u64, AtomicOrdering::Relaxed);
 
+        let selected_rolled_block =
+            select_factor_slots_block(rolled_block.view(), &selected_slots)?;
+        let _t = std::time::Instant::now();
         let neutralized = neutralize_block_legacy_exact(
             shared.legacy_style_data.as_ref(),
-            rolled_block.view(),
+            selected_rolled_block.view(),
             shared.dates.as_slice(),
             shared.stocks.as_slice(),
             true,
             shared.min_valid,
         )?;
-        let neu_gap1_results = legacy_backtest_block_f32(
+        PROF_NEU.fetch_add(_t.elapsed().as_nanos() as u64, AtomicOrdering::Relaxed);
+        let local_slots = (0..selected_slots.len()).collect::<Vec<_>>();
+        let _t = std::time::Instant::now();
+        let (neu_gap1_results, neu_gap5_results) = legacy_backtest_gap1_gap5_selected_slots_f32(
             neutralized.view(),
             shared.ret_gap1.view(),
             shared.ret_sum_gap1.view(),
-            shared.restrict.view(),
-            shared.index_ret.view(),
-            shared.dates.as_slice(),
-            shared.backtest_start,
-            1,
-            10,
-        )?;
-        let neu_gap5_results = legacy_backtest_block_f32(
-            neutralized.view(),
             shared.ret_gap5.view(),
             shared.ret_sum_gap5.view(),
             shared.restrict.view(),
             shared.index_ret.view(),
             shared.dates.as_slice(),
             shared.backtest_start,
-            5,
+            &local_slots,
             10,
         )?;
+        PROF_BT_NEU.fetch_add(_t.elapsed().as_nanos() as u64, AtomicOrdering::Relaxed);
 
-        for (slot_idx, derived_name) in derived_names.iter().enumerate() {
-            let pre_report = preflight_quality_check(
-                &rolled_block.view().slice(s![.., .., slot_idx]),
-                &shared.restrict.view(),
-                shared.config.majority_count_threshold,
-                shared.config.zero_max_threshold,
-                shared.config.nan_max_threshold,
-            );
-            if !pre_report.passed {
-                if pre_report.majority_count_mean > shared.config.majority_count_threshold {
-                    result.preflight_maj_failed_windows += 1;
-                }
-                if pre_report.zero_ratio_mean >= shared.config.zero_max_threshold {
-                    result.preflight_zero_failed_windows += 1;
-                }
-                if pre_report.nan_ratio_mean >= shared.config.nan_max_threshold {
-                    result.preflight_nan_failed_windows += 1;
-                }
-                let mut reasons: Vec<String> = Vec::new();
-                if pre_report.majority_count_mean > shared.config.majority_count_threshold {
-                    reasons.push(format!(
-                        "majority_count_mean={:.2}, 标准<={:.2}",
-                        pre_report.majority_count_mean, shared.config.majority_count_threshold,
-                    ));
-                }
-                if pre_report.zero_ratio_mean >= shared.config.zero_max_threshold {
-                    reasons.push(format!(
-                        "zero_ratio_mean={:.4}, 标准<{:.4}",
-                        pre_report.zero_ratio_mean, shared.config.zero_max_threshold,
-                    ));
-                }
-                if pre_report.nan_ratio_mean >= shared.config.nan_max_threshold {
-                    reasons.push(format!(
-                        "nan_ratio_mean={:.4}, 标准<{:.4}",
-                        pre_report.nan_ratio_mean, shared.config.nan_max_threshold,
-                    ));
-                }
-                println!(
-                    "[preflight] 剔除因子 {}，该因子指标不达标: {}",
-                    derived_name,
-                    reasons.join("; "),
-                );
-                continue;
-            }
-            result.any_window_passed_preflight = true;
-
+        for (local_idx, &slot_idx) in selected_slots.iter().enumerate() {
+            let derived_name = &derived_names[slot_idx];
             let raw_gap1_row = summary_from_row(
                 derived_name,
                 "rolled",
                 1,
                 &variant_name,
-                &raw_gap1_results[slot_idx].summary,
+                &raw_gap1_results[local_idx].summary,
             );
             let raw_gap5_row = summary_from_row(
                 derived_name,
                 "rolled",
                 5,
                 &variant_name,
-                &raw_gap5_results[slot_idx].summary,
+                &raw_gap5_results[local_idx].summary,
             );
             let neu_gap1_row = summary_from_row(
                 derived_name,
                 "neu",
                 1,
                 &variant_name,
-                &neu_gap1_results[slot_idx].summary,
+                &neu_gap1_results[local_idx].summary,
             );
             let neu_gap5_row = summary_from_row(
                 derived_name,
                 "neu",
                 5,
                 &variant_name,
-                &neu_gap5_results[slot_idx].summary,
+                &neu_gap5_results[local_idx].summary,
             );
 
             let raw_gap1_keep = qualify_raw(&raw_gap1_row, 1, &shared.config);
@@ -2065,16 +2355,16 @@ fn process_task_with_values(
                 result.raw_summary_gap1.push(raw_gap1_row.clone());
                 result.raw_ic_gap1.push(IcRecord {
                     factor_name: derived_name.clone(),
-                    dates: raw_gap1_results[slot_idx].ic_dates.clone(),
-                    values: raw_gap1_results[slot_idx].ic_values.clone(),
+                    dates: raw_gap1_results[local_idx].ic_dates.clone(),
+                    values: raw_gap1_results[local_idx].ic_values.clone(),
                 });
             }
             if raw_gap5_keep {
                 result.raw_summary_gap5.push(raw_gap5_row.clone());
                 result.raw_ic_gap5.push(IcRecord {
                     factor_name: derived_name.clone(),
-                    dates: raw_gap5_results[slot_idx].ic_dates.clone(),
-                    values: raw_gap5_results[slot_idx].ic_values.clone(),
+                    dates: raw_gap5_results[local_idx].ic_dates.clone(),
+                    values: raw_gap5_results[local_idx].ic_values.clone(),
                 });
             }
             if neu_gap1_keep {
@@ -2086,20 +2376,24 @@ fn process_task_with_values(
             if raw_gap1_keep || neu_gap1_keep {
                 result.neu_ic_gap1.push(IcRecord {
                     factor_name: derived_name.clone(),
-                    dates: neu_gap1_results[slot_idx].ic_dates.clone(),
-                    values: neu_gap1_results[slot_idx].ic_values.clone(),
+                    dates: neu_gap1_results[local_idx].ic_dates.clone(),
+                    values: neu_gap1_results[local_idx].ic_values.clone(),
                 });
             }
             if raw_gap5_keep || neu_gap5_keep {
                 result.neu_ic_gap5.push(IcRecord {
                     factor_name: derived_name.clone(),
-                    dates: neu_gap5_results[slot_idx].ic_dates.clone(),
-                    values: neu_gap5_results[slot_idx].ic_values.clone(),
+                    dates: neu_gap5_results[local_idx].ic_dates.clone(),
+                    values: neu_gap5_results[local_idx].ic_values.clone(),
                 });
             }
         }
     }
 
+    let _n = PROF_COUNT.fetch_add(1, AtomicOrdering::Relaxed) + 1;
+    if _n % 20 == 0 {
+        prof_dump("完整回测");
+    }
     Ok(result)
 }
 
@@ -2167,7 +2461,7 @@ fn write_ic_outputs(
     Ok(())
 }
 
-fn write_aggregated_outputs(
+pub(crate) fn write_aggregated_outputs(
     cache_root: &Path,
     aggregated: &AggregatedCandidates,
 ) -> Result<(), String> {
@@ -2216,23 +2510,23 @@ fn write_aggregated_outputs(
     Ok(())
 }
 
-struct ProcessStats {
-    restored_pass: usize,
-    restored_raw_cov: usize,
-    restored_preflight: usize,
-    restored_ret_ic: usize,
-    restored_unknown: usize,
+pub(crate) struct ProcessStats {
+    pub(crate) restored_pass: usize,
+    pub(crate) restored_raw_cov: usize,
+    pub(crate) restored_preflight: usize,
+    pub(crate) restored_ret_ic: usize,
+    pub(crate) restored_unknown: usize,
 
-    done: usize,
-    done_pass: usize,
-    done_raw_cov: usize,
-    done_preflight: usize,
-    done_ret_ic: usize,
-    done_unknown: usize,
+    pub(crate) done: usize,
+    pub(crate) done_pass: usize,
+    pub(crate) done_raw_cov: usize,
+    pub(crate) done_preflight: usize,
+    pub(crate) done_ret_ic: usize,
+    pub(crate) done_unknown: usize,
 
-    preflight_maj_windows: usize,
-    preflight_zero_windows: usize,
-    preflight_nan_windows: usize,
+    pub(crate) preflight_maj_windows: usize,
+    pub(crate) preflight_zero_windows: usize,
+    pub(crate) preflight_nan_windows: usize,
 }
 
 impl Default for ProcessStats {
@@ -2277,17 +2571,17 @@ fn terminal_height() -> u16 {
 /// 此时 ANSI 光标定位/滚动区转义序列全部失效（无法原地刷新），进度必须改用 println! 换行输出，
 /// 否则进度数据被行缓冲吞掉，Web UI 日志弹窗只能看到淘汰日志、看不到进度栏。
 #[cfg(unix)]
-fn is_terminal() -> bool {
+pub(crate) fn is_terminal() -> bool {
     unsafe { libc::isatty(1) != 0 }
 }
 
 #[cfg(windows)]
-fn is_terminal() -> bool {
+pub(crate) fn is_terminal() -> bool {
     // Windows 用 console handle 判断；保守起见统一直接到 print 分支
     unsafe { libc::isatty(1) != 0 }
 }
 
-fn init_status_line() {
+pub(crate) fn init_status_line() {
     if !is_terminal() {
         return;
     }
@@ -2302,7 +2596,7 @@ fn init_status_line() {
 static NON_TTY_STATUS_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 const NON_TTY_STATUS_EVERY: u64 = 50;
 
-fn update_status_line(l1: &str, l2: &str, l3: &str) {
+pub(crate) fn update_status_line(l1: &str, l2: &str, l3: &str) {
     if !is_terminal() {
         let n = NON_TTY_STATUS_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if n % NON_TTY_STATUS_EVERY == 0 {
@@ -2321,7 +2615,7 @@ fn update_status_line(l1: &str, l2: &str, l3: &str) {
     let _ = std::io::stdout().flush();
 }
 
-fn reset_status_line() {
+pub(crate) fn reset_status_line() {
     if !is_terminal() {
         return;
     }
@@ -2566,7 +2860,7 @@ pub fn tail_v5_run_candidates<'py>(
         if is_colblk_mode {
             // ---- IO/CPU 分离架构 ----
             // IO 线程数：匹配 HDD 物理盘条带并行度，默认 8（8 盘 LVM）。
-            let n_io_threads = if n_jobs > 200 { 8 } else { 4 };
+            let n_io_threads = if n_jobs >= 200 { 8 } else { 4 };
             // 已读好的 (TailTask, Array2<f32>) 队列，有界实现反压（计算跟不上则 IO 阻塞，不撑爆内存）
             let (loaded_tx, loaded_rx) =
                 crossbeam::channel::bounded::<(TailTask, Array2<f32>)>(16);
@@ -2598,11 +2892,16 @@ pub fn tail_v5_run_candidates<'py>(
                 let dates = shared_arc.dates.clone();
                 let stocks = shared_arc.stocks.clone();
                 io_handles.push(thread::spawn(move || {
-                    // 每个 IO 线程独立打开 Reader（mmap，只读，多线程安全）
+                    // 每个 IO 线程独立打开 Reader（pread，只读，多线程安全）
                     let reader = match crate::factor_store_v5::FactorStoreReader::open(&store_dir) {
                         Ok(r) => r,
                         Err(_) => return,
                     };
+                    // 预计算 scatter 映射（只算一次，61344 个因子复用）
+                    let scatter_maps = reader.precompute_scatter_maps(
+                        dates.as_slice(),
+                        stocks.as_slice(),
+                    );
                     // 线程间按 task 顺序取，天然趋向顺序读投影区
                     while let Ok(task) = task_rx.recv() {
                         // 解析 col_idx
@@ -2613,10 +2912,11 @@ pub fn tail_v5_run_candidates<'py>(
                             },
                             None => continue,
                         };
-                        let matrix = match reader.read_factor_to_matrix(
+                        let matrix = match reader.read_factor_to_matrix_fast(
                             col_idx,
                             dates.as_slice(),
                             stocks.as_slice(),
+                            &scatter_maps,
                         ) {
                             Ok(m) => m,
                             Err(_) => continue,
@@ -3243,7 +3543,6 @@ mod tests {
     }
 }
 
-
 // ==================== v6：在线转置回测（不读投影区，从 colblk 批量转置，回测核心零改动）====================
 #[pyfunction]
 #[pyo3(signature = (
@@ -3525,7 +3824,7 @@ pub fn tail_v5_run_candidates_online<'py>(
             );
 
             // IO 线程：逐因子读 colblk → 转置 → 推 channel
-            // 复用 read_factor_to_matrix（单因子读 colblk 回退路径，已验证与投影区一致）
+            // 复用 read_factor_to_matrix_fast（预计算 scatter 映射，避免每行 HashMap 查找）
             let io_handle = {
                 let dates = shared_arc.dates.clone();
                 let stocks = shared_arc.stocks.clone();
@@ -3536,11 +3835,16 @@ pub fn tail_v5_run_candidates_online<'py>(
                         Ok(r) => r,
                         Err(_) => return,
                     };
+                    let scatter_maps = reader.precompute_scatter_maps(
+                        dates.as_slice(),
+                        stocks.as_slice(),
+                    );
                     for &col_idx in all_col_idx.iter() {
-                        let matrix = match reader.read_factor_to_matrix(
+                        let matrix = match reader.read_factor_to_matrix_fast(
                             col_idx,
                             dates.as_slice(),
                             stocks.as_slice(),
+                            &scatter_maps,
                         ) {
                             Ok(m) => m,
                             Err(_) => continue,
@@ -3716,7 +4020,6 @@ pub fn tail_v5_run_candidates_online<'py>(
     info.set_item("candidate_counts", candidate_counts)?;
     Ok(info.into())
 }
-
 
 // ==================== V7：批量顺序 pread 回测（消除 HDD 寻道，回测核心零改动）====================
 #[pyfunction]
@@ -4007,17 +4310,22 @@ pub fn tail_v5_run_candidates_v7<'py>(
                         Ok(r) => r,
                         Err(_) => return,
                     };
+                    let scatter_maps = reader.precompute_scatter_maps(
+                        dates.as_slice(),
+                        stocks.as_slice(),
+                    );
                     let mut start = 0usize;
                     while start < total_factors {
                         let col_start = all_col_idx[start];
                         let end = (start + V7_BATCH).min(total_factors);
                         let col_end = all_col_idx[end - 1] + 1; // 连续区间
                         // V7 批量 pread：一次读 [col_start, col_end) 的投影段
-                        let matrices = match reader.read_factors_batch_v7(
+                        let matrices = match reader.read_factors_batch_v7_fast(
                             col_start,
                             col_end,
                             dates.as_slice(),
                             stocks.as_slice(),
+                            &scatter_maps,
                         ) {
                             Ok(m) => m,
                             Err(e) => {
@@ -4203,35 +4511,42 @@ pub fn tail_v5_run_candidates_v7<'py>(
     Ok(info.into())
 }
 
-
 // ==================== V7 process：rank_roll bulk assign + neutralize 日期并行 ====================
-fn process_task_with_values_v7(
+pub(crate) fn process_task_with_values_v7(
     task: &TailTask,
     raw_values: Array2<f32>,
     shared: &SharedInputs,
 ) -> Result<TailTaskResult, String> {
+    let _t = std::time::Instant::now();
     let raw_cover_rate = compute_raw_cover_rate(
         &raw_values.view(),
         &shared.restrict.view(),
         &shared.ret_gap1.view(),
         10,
     );
+    PROF_RAW_COVER.fetch_add(_t.elapsed().as_nanos() as u64, AtomicOrdering::Relaxed);
     if raw_cover_rate < shared.config.cover_rate {
         println!(
             "[raw_cover] 剔除因子 {}，原始覆盖率不达标: raw_cover_rate={:.4}, 标准>={:.4}",
             task.source_factor, raw_cover_rate, shared.config.cover_rate,
         );
+        let _n = PROF_COUNT.fetch_add(1, AtomicOrdering::Relaxed) + 1;
+        if _n % 20 == 0 {
+            prof_dump("raw_cover剔除");
+        }
         return Ok(TailTaskResult {
             source_factor: task.source_factor.clone(),
             eliminated_by_raw_cover: true,
             ..TailTaskResult::default()
         });
     }
+    let _t = std::time::Instant::now();
     let mut variants = vec![(task.source_factor.clone(), raw_values)];
     if shared.fold {
         let folded = build_fold_values(&variants[0].1);
         variants.push((format!("{}_fold", task.source_factor), folded));
     }
+    PROF_FOLD.fetch_add(_t.elapsed().as_nanos() as u64, AtomicOrdering::Relaxed);
 
     let mut result = TailTaskResult {
         source_factor: task.source_factor.clone(),
@@ -4239,138 +4554,103 @@ fn process_task_with_values_v7(
     };
 
     for (variant_name, variant_values) in variants {
-        let rolled_block =
-            crate::tail_v2_rank_roll_factor::rank_roll_block_f32_v7(&variant_values, shared.windows.as_slice(), false)?;
+        let _t = std::time::Instant::now();
+        let rolled_block = crate::tail_v2_rank_roll_factor::rank_roll_block_f32_v7(
+            &variant_values,
+            shared.windows.as_slice(),
+            false,
+        )?;
+        PROF_RANK_ROLL.fetch_add(_t.elapsed().as_nanos() as u64, AtomicOrdering::Relaxed);
         let derived_names = derived_names_for_variant(&variant_name, shared.windows.as_slice());
         result.derived_factor_count += derived_names.len();
 
-        let raw_gap1_results = legacy_backtest_block_f32(
+        let selected_slots = collect_preflight_passed_slots(
+            rolled_block.view(),
+            shared.restrict.view(),
+            &derived_names,
+            &shared.config,
+            &mut result,
+        );
+        if selected_slots.is_empty() {
+            continue;
+        }
+
+        let _t = std::time::Instant::now();
+        let (raw_gap1_results, raw_gap5_results) = legacy_backtest_gap1_gap5_selected_slots_f32(
             rolled_block.view(),
             shared.ret_gap1.view(),
             shared.ret_sum_gap1.view(),
-            shared.restrict.view(),
-            shared.index_ret.view(),
-            shared.dates.as_slice(),
-            shared.backtest_start,
-            1,
-            10,
-        )?;
-        let raw_gap5_results = legacy_backtest_block_f32(
-            rolled_block.view(),
             shared.ret_gap5.view(),
             shared.ret_sum_gap5.view(),
             shared.restrict.view(),
             shared.index_ret.view(),
             shared.dates.as_slice(),
             shared.backtest_start,
-            5,
+            &selected_slots,
             10,
         )?;
+        PROF_BT_RAW.fetch_add(_t.elapsed().as_nanos() as u64, AtomicOrdering::Relaxed);
 
-        let neutralized = neutralize_block_legacy_exact_v7(
+        let selected_rolled_block =
+            select_factor_slots_block(rolled_block.view(), &selected_slots)?;
+        let _t = std::time::Instant::now();
+        // 注意：此处用串行版而非 _v7(rayon版)。
+        // engine 已有 200 线程外层并行，内部再用 rayon 会导致线程池 futex 竞争。
+        let neutralized = neutralize_block_legacy_exact(
             shared.legacy_style_data.as_ref(),
-            rolled_block.view(),
+            selected_rolled_block.view(),
             shared.dates.as_slice(),
             shared.stocks.as_slice(),
             true,
             shared.min_valid,
         )?;
-        let neu_gap1_results = legacy_backtest_block_f32(
+        PROF_NEU.fetch_add(_t.elapsed().as_nanos() as u64, AtomicOrdering::Relaxed);
+        let local_slots = (0..selected_slots.len()).collect::<Vec<_>>();
+        let _t = std::time::Instant::now();
+        let (neu_gap1_results, neu_gap5_results) = legacy_backtest_gap1_gap5_selected_slots_f32(
             neutralized.view(),
             shared.ret_gap1.view(),
             shared.ret_sum_gap1.view(),
-            shared.restrict.view(),
-            shared.index_ret.view(),
-            shared.dates.as_slice(),
-            shared.backtest_start,
-            1,
-            10,
-        )?;
-        let neu_gap5_results = legacy_backtest_block_f32(
-            neutralized.view(),
             shared.ret_gap5.view(),
             shared.ret_sum_gap5.view(),
             shared.restrict.view(),
             shared.index_ret.view(),
             shared.dates.as_slice(),
             shared.backtest_start,
-            5,
+            &local_slots,
             10,
         )?;
+        PROF_BT_NEU.fetch_add(_t.elapsed().as_nanos() as u64, AtomicOrdering::Relaxed);
 
-        for (slot_idx, derived_name) in derived_names.iter().enumerate() {
-            let pre_report = preflight_quality_check(
-                &rolled_block.view().slice(s![.., .., slot_idx]),
-                &shared.restrict.view(),
-                shared.config.majority_count_threshold,
-                shared.config.zero_max_threshold,
-                shared.config.nan_max_threshold,
-            );
-            if !pre_report.passed {
-                if pre_report.majority_count_mean > shared.config.majority_count_threshold {
-                    result.preflight_maj_failed_windows += 1;
-                }
-                if pre_report.zero_ratio_mean >= shared.config.zero_max_threshold {
-                    result.preflight_zero_failed_windows += 1;
-                }
-                if pre_report.nan_ratio_mean >= shared.config.nan_max_threshold {
-                    result.preflight_nan_failed_windows += 1;
-                }
-                let mut reasons: Vec<String> = Vec::new();
-                if pre_report.majority_count_mean > shared.config.majority_count_threshold {
-                    reasons.push(format!(
-                        "majority_count_mean={:.2}, 标准<={:.2}",
-                        pre_report.majority_count_mean, shared.config.majority_count_threshold,
-                    ));
-                }
-                if pre_report.zero_ratio_mean >= shared.config.zero_max_threshold {
-                    reasons.push(format!(
-                        "zero_ratio_mean={:.4}, 标准<{:.4}",
-                        pre_report.zero_ratio_mean, shared.config.zero_max_threshold,
-                    ));
-                }
-                if pre_report.nan_ratio_mean >= shared.config.nan_max_threshold {
-                    reasons.push(format!(
-                        "nan_ratio_mean={:.4}, 标准<{:.4}",
-                        pre_report.nan_ratio_mean, shared.config.nan_max_threshold,
-                    ));
-                }
-                println!(
-                    "[preflight] 剔除因子 {}，该因子指标不达标: {}",
-                    derived_name,
-                    reasons.join("; "),
-                );
-                continue;
-            }
-            result.any_window_passed_preflight = true;
-
+        for (local_idx, &slot_idx) in selected_slots.iter().enumerate() {
+            let derived_name = &derived_names[slot_idx];
             let raw_gap1_row = summary_from_row(
                 derived_name,
                 "rolled",
                 1,
                 &variant_name,
-                &raw_gap1_results[slot_idx].summary,
+                &raw_gap1_results[local_idx].summary,
             );
             let raw_gap5_row = summary_from_row(
                 derived_name,
                 "rolled",
                 5,
                 &variant_name,
-                &raw_gap5_results[slot_idx].summary,
+                &raw_gap5_results[local_idx].summary,
             );
             let neu_gap1_row = summary_from_row(
                 derived_name,
                 "neu",
                 1,
                 &variant_name,
-                &neu_gap1_results[slot_idx].summary,
+                &neu_gap1_results[local_idx].summary,
             );
             let neu_gap5_row = summary_from_row(
                 derived_name,
                 "neu",
                 5,
                 &variant_name,
-                &neu_gap5_results[slot_idx].summary,
+                &neu_gap5_results[local_idx].summary,
             );
 
             let raw_gap1_keep = qualify_raw(&raw_gap1_row, 1, &shared.config);
@@ -4386,16 +4666,16 @@ fn process_task_with_values_v7(
                 result.raw_summary_gap1.push(raw_gap1_row.clone());
                 result.raw_ic_gap1.push(IcRecord {
                     factor_name: derived_name.clone(),
-                    dates: raw_gap1_results[slot_idx].ic_dates.clone(),
-                    values: raw_gap1_results[slot_idx].ic_values.clone(),
+                    dates: raw_gap1_results[local_idx].ic_dates.clone(),
+                    values: raw_gap1_results[local_idx].ic_values.clone(),
                 });
             }
             if raw_gap5_keep {
                 result.raw_summary_gap5.push(raw_gap5_row.clone());
                 result.raw_ic_gap5.push(IcRecord {
                     factor_name: derived_name.clone(),
-                    dates: raw_gap5_results[slot_idx].ic_dates.clone(),
-                    values: raw_gap5_results[slot_idx].ic_values.clone(),
+                    dates: raw_gap5_results[local_idx].ic_dates.clone(),
+                    values: raw_gap5_results[local_idx].ic_values.clone(),
                 });
             }
             if neu_gap1_keep {
@@ -4407,23 +4687,26 @@ fn process_task_with_values_v7(
             if raw_gap1_keep || neu_gap1_keep {
                 result.neu_ic_gap1.push(IcRecord {
                     factor_name: derived_name.clone(),
-                    dates: neu_gap1_results[slot_idx].ic_dates.clone(),
-                    values: neu_gap1_results[slot_idx].ic_values.clone(),
+                    dates: neu_gap1_results[local_idx].ic_dates.clone(),
+                    values: neu_gap1_results[local_idx].ic_values.clone(),
                 });
             }
             if raw_gap5_keep || neu_gap5_keep {
                 result.neu_ic_gap5.push(IcRecord {
                     factor_name: derived_name.clone(),
-                    dates: neu_gap5_results[slot_idx].ic_dates.clone(),
-                    values: neu_gap5_results[slot_idx].ic_values.clone(),
+                    dates: neu_gap5_results[local_idx].ic_dates.clone(),
+                    values: neu_gap5_results[local_idx].ic_values.clone(),
                 });
             }
         }
     }
 
+    let _n = PROF_COUNT.fetch_add(1, AtomicOrdering::Relaxed) + 1;
+    if _n % 20 == 0 {
+        prof_dump("完整回测");
+    }
     Ok(result)
 }
-
 
 // ==================== V7b：原版 8 IO 线程 + V7 process 优化 ====================
 // ==================== V7：批量顺序 pread 回测（消除 HDD 寻道，回测核心零改动）====================
@@ -4659,8 +4942,10 @@ pub fn tail_v5_run_candidates_v7b<'py>(
 
         // V7b：原版 8 IO 线程（每线程独立 Reader，pread 读投影区）+ V7 process 优化
         // 8 IO 线程分布在 8 块 HDD 上并行读，供料给 200 计算线程
+        let mut io_handles_to_join = Vec::new();
+        let worker_handles_to_join;
         if is_colblk_mode {
-            let n_io_threads = if n_jobs > 200 { 8 } else { 4 };
+            let n_io_threads = if n_jobs >= 200 { 8 } else { 4 };
             let (loaded_tx, loaded_rx) =
                 crossbeam::channel::bounded::<(TailTask, ndarray::Array2<f32>)>(16);
 
@@ -4681,14 +4966,14 @@ pub fn tail_v5_run_candidates_v7b<'py>(
                 .unwrap_or_default();
 
             eprintln!(
-                "🚀 V7b：{} IO 线程 pread 投影区 + 200 计算线程（V7 process 优化）",
-                n_io_threads
+                "🚀 V7b：{} IO 线程 pread 投影区 + {} 计算线程（V7 process 优化）",
+                n_io_threads, n_jobs
             );
 
             // 8 IO 线程：每线程独立 Reader，逐因子 pread 读投影区 value 段
             let mut io_handles = Vec::with_capacity(n_io_threads);
             let task_rx_io = task_receiver.clone();
-            for io_idx in 0..n_io_threads {
+            for _io_idx in 0..n_io_threads {
                 let task_rx = task_rx_io.clone();
                 let loaded_tx = loaded_tx.clone();
                 let store_dir = store_dir_for_reader.clone();
@@ -4701,6 +4986,10 @@ pub fn tail_v5_run_candidates_v7b<'py>(
                         Ok(r) => r,
                         Err(_) => return,
                     };
+                    let scatter_maps = reader.precompute_scatter_maps(
+                        dates.as_slice(),
+                        stocks.as_slice(),
+                    );
                     while let Ok(task) = task_rx.recv() {
                         let col_idx = match task.factor_path.splitn(2, "::").nth(1) {
                             Some(s) => match s.parse::<usize>() {
@@ -4709,10 +4998,11 @@ pub fn tail_v5_run_candidates_v7b<'py>(
                             },
                             None => continue,
                         };
-                        let matrix = match reader.read_factor_to_matrix(
+                        let matrix = match reader.read_factor_to_matrix_fast(
                             col_idx,
                             dates.as_slice(),
                             stocks.as_slice(),
+                            &scatter_maps,
                         ) {
                             Ok(m) => m,
                             Err(_) => continue,
@@ -4744,10 +5034,8 @@ pub fn tail_v5_run_candidates_v7b<'py>(
             }
             drop(result_sender);
 
-            for h in io_handles { let _ = h.join(); }
-            for h in handles {
-                let _ = h.join();
-            }
+            io_handles_to_join = io_handles;
+            worker_handles_to_join = handles;
         } else {
             // ---- 非 colblk 模式：原架构 ----
             let mut handles = Vec::with_capacity(n_jobs);
@@ -4767,9 +5055,7 @@ pub fn tail_v5_run_candidates_v7b<'py>(
                 }));
             }
             drop(result_sender);
-            for h in handles {
-                let _ = h.join();
-            }
+            worker_handles_to_join = handles;
         }
 
         let mut processed_sources = 0usize;
@@ -4828,7 +5114,7 @@ pub fn tail_v5_run_candidates_v7b<'py>(
                         let cum_unknown = stats.restored_unknown + stats.done_unknown;
 
                         let l1 = format!(
-                            "[{}] Tail V4 进度 {}/{} ({:.1}%)，已用{}h{}m{}s，预计剩余{}h{}m{}s",
+                            "[{}] Tail V5 V7b 进度 {}/{} ({:.1}%)，已用{}h{}m{}s，预计剩余{}h{}m{}s",
                             current_time, processed_sources, total_pending,
                             progress * 100.0,
                             elapsed_h, elapsed_m, elapsed_s,
@@ -4862,7 +5148,12 @@ pub fn tail_v5_run_candidates_v7b<'py>(
             reset_status_line();
         }
 
-        // 注意：worker 线程在上方 IO/CPU 分离分支或原架构分支内已全部 join 完毕。
+        for h in io_handles_to_join {
+            let _ = h.join();
+        }
+        for h in worker_handles_to_join {
+            let _ = h.join();
+        }
 
         write_aggregated_outputs(
             &cache_root_path,
@@ -4887,6 +5178,3 @@ pub fn tail_v5_run_candidates_v7b<'py>(
     info.set_item("candidate_counts", candidate_counts)?;
     Ok(info.into())
 }
-
-
-

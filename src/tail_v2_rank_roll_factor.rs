@@ -136,7 +136,8 @@ fn rolling_stats_for_column(
             max_out[row_idx] = max_deque.front().map(|item| item.1).unwrap_or(f32::NAN);
             min_out[row_idx] = min_deque.front().map(|item| item.1).unwrap_or(f32::NAN);
             if count > 1 {
-                let variance = ((sumsq - (sum * sum) / count as f64) / (count as f64 - 1.0)).max(0.0);
+                let variance =
+                    ((sumsq - (sum * sum) / count as f64) / (count as f64 - 1.0)).max(0.0);
                 std_out[row_idx] = variance.sqrt() as f32;
             }
         }
@@ -290,8 +291,9 @@ pub fn tail_v2_rank_roll_factor_f32<'py>(
     windows: Vec<usize>,
 ) -> PyResult<Vec<Py<PyArray2<f32>>>> {
     let data_view = data.as_array();
-    let data_owned = Array2::<f32>::from_shape_vec(data_view.dim(), data_view.iter().copied().collect())
-        .map_err(|_| PyValueError::new_err("data 形状无效"))?;
+    let data_owned =
+        Array2::<f32>::from_shape_vec(data_view.dim(), data_view.iter().copied().collect())
+            .map_err(|_| PyValueError::new_err("data 形状无效"))?;
 
     let outputs = py.allow_threads(|| {
         let ranked = rank_axis1_average_f32(&data_owned);
@@ -324,8 +326,9 @@ pub fn tail_v3_rank_roll_block_f32<'py>(
     windows: Vec<usize>,
 ) -> PyResult<Py<PyArray3<f32>>> {
     let data_view = data.as_array();
-    let data_owned = Array2::<f32>::from_shape_vec(data_view.dim(), data_view.iter().copied().collect())
-        .map_err(|_| PyValueError::new_err("data 形状无效"))?;
+    let data_owned =
+        Array2::<f32>::from_shape_vec(data_view.dim(), data_view.iter().copied().collect())
+            .map_err(|_| PyValueError::new_err("data 形状无效"))?;
 
     let output = py.allow_threads(|| {
         rank_roll_block_f32_with_parallel(&data_owned, &windows, true)

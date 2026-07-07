@@ -31,8 +31,8 @@ struct StockPrecomputed {
     ss_tot: f64,
     // Q_i: 对称矩阵的上三角，行优先，长度 = n_lags * (n_lags+1) / 2
     q_upper: Vec<f64>,
-    sx: Vec<f64>,   // n_lags
-    sxy: Vec<f64>,  // n_lags
+    sx: Vec<f64>,  // n_lags
+    sxy: Vec<f64>, // n_lags
 }
 
 impl StockPrecomputed {
@@ -59,7 +59,11 @@ impl StockPrecomputed {
         self.sum_y2 = y.iter().filter(|v| v.is_finite()).map(|v| v * v).sum();
 
         let y_mean = self.sum_y / t as f64;
-        self.ss_tot = y.iter().filter(|v| v.is_finite()).map(|&v| (v - y_mean).powi(2)).sum();
+        self.ss_tot = y
+            .iter()
+            .filter(|v| v.is_finite())
+            .map(|&v| (v - y_mean).powi(2))
+            .sum();
 
         for a in 0..n_lags {
             self.sx[a] = x.column(a).iter().filter(|v| v.is_finite()).sum();
@@ -96,7 +100,11 @@ impl StockPrecomputed {
     /// β: [intercept, β[1], ..., β[n_lags]]
     #[inline]
     fn compute_ss_res(&self, beta: &ArrayView1<f64>, t_valid: f64) -> f64 {
-        let b0 = if beta[0].is_finite() { beta[0] } else { return f64::NAN };
+        let b0 = if beta[0].is_finite() {
+            beta[0]
+        } else {
+            return f64::NAN;
+        };
         let n_lags = self.sx.len();
 
         // t1 = T·b0² - 2·b0·Σy + Σy²
@@ -106,14 +114,18 @@ impl StockPrecomputed {
         let mut t2 = 0.0;
         for a in 0..n_lags {
             let ba = beta[a + 1];
-            if !ba.is_finite() { return f64::NAN; }
+            if !ba.is_finite() {
+                return f64::NAN;
+            }
             // 对角线项: Q_aa * ba²
             let idx_aa = a * (a + 1) / 2 + a;
             t2 += self.q_upper[idx_aa] * ba * ba;
             // 非对角线项: 2 * Q_ab * ba * bb
             for b in a + 1..n_lags {
                 let bb = beta[b + 1];
-                if !bb.is_finite() { continue; }
+                if !bb.is_finite() {
+                    continue;
+                }
                 let idx_ab = b * (b + 1) / 2 + a;
                 t2 += 2.0 * self.q_upper[idx_ab] * ba * bb;
             }
@@ -123,7 +135,9 @@ impl StockPrecomputed {
         let mut t3 = 0.0;
         for a in 0..n_lags {
             let ba = beta[a + 1];
-            if !ba.is_finite() { continue; }
+            if !ba.is_finite() {
+                continue;
+            }
             t3 += ba * (b0 * self.sx[a] - self.sxy[a]);
         }
         t3 *= 2.0;
@@ -231,7 +245,11 @@ pub fn cross_stock_crossvar_38_fast(
     let xt0 = x_today.as_array();
     let n_stocks = yp0.ncols();
     // 四个矩阵行数可能不同(同上)，取最小行数统一截断
-    let t = yp0.nrows().min(xp0.nrows()).min(yt0.nrows()).min(xt0.nrows());
+    let t = yp0
+        .nrows()
+        .min(xp0.nrows())
+        .min(yt0.nrows())
+        .min(xt0.nrows());
     let yp = yp0.slice(s![..t, ..]);
     let xp = xp0.slice(s![..t, ..]);
     let yt = yt0.slice(s![..t, ..]);
@@ -319,7 +337,6 @@ pub fn cross_stock_crossvar_38_fast(
     Ok(stats.into_pyarray(py).to_owned())
 }
 
-
 // ============================================================
 // 加权版本：autoreg + crossvar（用成交量对数做 R² 矩阵统计量加权）
 // ============================================================
@@ -344,7 +361,9 @@ pub fn cross_stock_autoreg_38_weighted(
     let t = df.nrows();
     let t_valid = t - n_lags;
     if t_valid < 3 || n_stocks == 0 {
-        return Ok(Array2::<f64>::from_elem((38, n_stocks), f64::NAN).into_pyarray(py).to_owned());
+        return Ok(Array2::<f64>::from_elem((38, n_stocks), f64::NAN)
+            .into_pyarray(py)
+            .to_owned());
     }
 
     // OLS 拟合
@@ -355,7 +374,9 @@ pub fn cross_stock_autoreg_38_weighted(
         let x_j = build_lagged_design(&col, n_lags);
         let y_j = col.slice(s![n_lags..]);
         let (coef, r2) = ols_with_intercept_safe(&x_j.view(), &y_j);
-        for k in 0..n_lags + 1 { betas[[k, j]] = coef[k]; }
+        for k in 0..n_lags + 1 {
+            betas[[k, j]] = coef[k];
+        }
         r2_pri[j] = r2;
     }
 
@@ -378,16 +399,19 @@ pub fn cross_stock_autoreg_38_weighted(
         let beta_j = betas.column(j);
         for i in 0..n_stocks {
             let pc = &precomputed[i];
-            if pc.ss_tot <= 0.0 { continue; }
+            if pc.ss_tot <= 0.0 {
+                continue;
+            }
             let ss_res = pc.compute_ss_res(&beta_j, t_f64);
-            if ss_res.is_finite() { r2s[[i, j]] = 1.0 - ss_res / pc.ss_tot; }
+            if ss_res.is_finite() {
+                r2s[[i, j]] = 1.0 - ss_res / pc.ss_tot;
+            }
         }
     }
 
     let stats = extract_38_stats_weighted(&r2s.view(), &r2_pri.view(), &w);
     Ok(stats.into_pyarray(py).to_owned())
 }
-
 
 /// 跨股票交叉变量回归因子（加权版）
 #[pyfunction]
@@ -410,14 +434,17 @@ pub fn cross_stock_crossvar_38_weighted(
     let t_valid = yf.nrows() - n_lags;
     let total_lags = 2 * n_lags;
     if t_valid < 3 || n_stocks == 0 {
-        return Ok(Array2::<f64>::from_elem((38, n_stocks), f64::NAN).into_pyarray(py).to_owned());
+        return Ok(Array2::<f64>::from_elem((38, n_stocks), f64::NAN)
+            .into_pyarray(py)
+            .to_owned());
     }
 
     // OLS
     let mut betas = Array2::<f64>::zeros((total_lags + 1, n_stocks));
     let mut r2_pri = Array1::<f64>::zeros(n_stocks);
     for j in 0..n_stocks {
-        let y_col = yf.column(j); let x_col = xf.column(j);
+        let y_col = yf.column(j);
+        let x_col = xf.column(j);
         let mut x_j = Array2::<f64>::zeros((t_valid, total_lags));
         for lag in 0..n_lags {
             for row in 0..t_valid {
@@ -427,7 +454,9 @@ pub fn cross_stock_crossvar_38_weighted(
         }
         let y_j = y_col.slice(s![n_lags..]);
         let (coef, r2) = ols_with_intercept_safe(&x_j.view(), &y_j);
-        for k in 0..total_lags + 1 { betas[[k, j]] = coef[k]; }
+        for k in 0..total_lags + 1 {
+            betas[[k, j]] = coef[k];
+        }
         r2_pri[j] = r2;
     }
 
@@ -436,14 +465,17 @@ pub fn cross_stock_crossvar_38_weighted(
     let mut y_stacked = Array1::<f64>::zeros(n_stocks * t_valid);
     for s in 0..n_stocks {
         let offset = s * t_valid;
-        let ycol = yp.column(s); let xcol = xp.column(s);
+        let ycol = yp.column(s);
+        let xcol = xp.column(s);
         for lag in 0..n_lags {
             for row in 0..t_valid {
                 x_stacked[[offset + row, lag]] = ycol[row + n_lags - 1 - lag];
                 x_stacked[[offset + row, lag + n_lags]] = xcol[row + n_lags - 1 - lag];
             }
         }
-        for row in 0..t_valid { y_stacked[offset + row] = ycol[row + n_lags]; }
+        for row in 0..t_valid {
+            y_stacked[offset + row] = ycol[row + n_lags];
+        }
     }
 
     let t_f64 = t_valid as f64;
@@ -463,9 +495,13 @@ pub fn cross_stock_crossvar_38_weighted(
         let beta_j = betas.column(j);
         for i in 0..n_stocks {
             let pc = &precomputed[i];
-            if pc.ss_tot <= 0.0 { continue; }
+            if pc.ss_tot <= 0.0 {
+                continue;
+            }
             let ss_res = pc.compute_ss_res(&beta_j, t_f64);
-            if ss_res.is_finite() { r2s[[i, j]] = 1.0 - ss_res / pc.ss_tot; }
+            if ss_res.is_finite() {
+                r2s[[i, j]] = 1.0 - ss_res / pc.ss_tot;
+            }
         }
     }
 

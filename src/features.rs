@@ -203,26 +203,23 @@ fn corr_pair(col_i: &[f32], col_j: &[f32]) -> f32 {
         var_j += dj * dj;
     }
     if var_i == 0.0 || var_j == 0.0 {
-        return f32::NAN;
+        return 0.0; // 常数列与其他列无协变，相关系数定义为 0（避免 NaN 污染降维）
     }
     cov / (var_i.sqrt() * var_j.sqrt())
 }
 
 /// LZ 复杂度（精确复制自 lz_complexity.rs）。分位数离散化 [0.33, 0.66] + 归一化。
 fn lz_complexity_1d(col: &[f32]) -> f32 {
-    let n = col.len();
+    // 过滤 NaN/inf，只用有效值（与 col_mean 等一致，避免单点 NaN 污染整列复杂度）
+    let valid: Vec<f32> = col.iter().copied().filter(|v| v.is_finite()).collect();
+    let n = valid.len();
     if n == 0 {
         return 0.0;
     }
 
     // 分位数离散化（quantiles=[0.33, 0.66]），精确复制 discretize_sequence
-    let mut sorted: Vec<f32> = col.iter().copied().collect();
-    sorted.sort_unstable_by(|a, b| match (a.is_nan(), b.is_nan()) {
-        (true, true) => std::cmp::Ordering::Equal,
-        (true, false) => std::cmp::Ordering::Greater,
-        (false, true) => std::cmp::Ordering::Less,
-        (false, false) => a.partial_cmp(b).unwrap(),
-    });
+    let mut sorted = valid.clone();
+    sorted.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
     let sn = sorted.len();
     let quantiles = [0.33f32, 0.66];
     let mut thresholds = Vec::with_capacity(quantiles.len());
@@ -232,10 +229,7 @@ fn lz_complexity_1d(col: &[f32]) -> f32 {
     }
 
     let mut discrete: Vec<u8> = Vec::with_capacity(n);
-    for &val in col.iter() {
-        if val.is_nan() {
-            return f32::NAN;
-        }
+    for &val in &valid {
         let symbol = thresholds
             .iter()
             .enumerate()
@@ -521,8 +515,8 @@ fn max_range_product_strict(col: &[f32]) -> f32 {
 /// get_features_factors 的纯 Rust 实现。
 ///
 /// 与 Python 版的默认参数对齐（with_corr=True, with_percentiles=True,
-/// with_lag_autocorr=1, with_threshold_counts=True, with_period_compare=True,
-/// with_complexity=True），但 **关闭 lyapunov**（with_lyapunov_exponent=False）。
+/// with_lag_autocorr=1, with_threshold_counts=False（便捷版默认；调 _full 可显式开启），
+/// with_period_compare=True, with_complexity=True），但 **关闭 lyapunov**（with_lyapunov_exponent=False）。
 ///
 /// 输入 data: (n_rows, n_cols) 的 f64 矩阵（order_pair_metrics 的输出）。
 /// 输出 (vals, names)，vals 为展平的特征向量，names 与之等长。
@@ -532,7 +526,7 @@ pub fn get_features_factors_rust(
     data: &ArrayView2<f32>,
     col_names: &[String],
 ) -> (Vec<f32>, Vec<String>) {
-    get_features_factors_rust_full(data, col_names, true)
+    get_features_factors_rust_full(data, col_names, false)
 }
 
 /// 带参数版本：with_threshold_counts 控制 mean_above_p90/mean_below_p10 是否输出。
@@ -899,7 +893,7 @@ struct ColStats {
 // PyO3 验证桥接（仅供 Python 端一致性验证）
 // ============================================================================
 
-/// 验证用：接收 numpy (n,m) 矩阵 + 列名，调纯 Rust get_features_factors_rust。
+/// 验证用：接收 numpy (n,m) 矩阵 + 列名，调纯 Rust get_features_factors_rust_full(with_threshold_counts=true)（对齐 Python 默认）。
 #[pyfunction]
 pub fn verify_get_features_factors_rust(
     data: numpy::PyReadonlyArray2<f64>,
@@ -907,7 +901,7 @@ pub fn verify_get_features_factors_rust(
 ) -> PyResult<(Vec<f64>, Vec<String>)> {
     let view = data.as_array();
     let view_f32 = view.mapv(|x| x as f32);
-    let (vals, names) = get_features_factors_rust(&view_f32.view(), &col_names);
+    let (vals, names) = get_features_factors_rust_full(&view_f32.view(), &col_names, true);
     let vals_f64: Vec<f64> = vals.iter().map(|&v| v as f64).collect();
     Ok((vals_f64, names))
 }
