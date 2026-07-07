@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>verify_get_features_factors_rust - Rust PyFunc API文档</title>
+    <title>tail_backtest_engine - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
     <script src="static/search.js"></script>
 </head>
@@ -26,16 +26,16 @@
     </div>
     
     <div class="content">
-        <h1>verify_get_features_factors_rust</h1>
+        <h1>tail_backtest_engine</h1>
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><p>验证用：接收 numpy (n,m) 矩阵 + 列名，调纯 Rust get_features_factors_rust_full(with_threshold_counts=true)（对齐 Python 默认）。</p></div>
+            <div><p>无文档</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>verify_get_features_factors_rust(data, col_names) -> None</code>
+            <code>tail_backtest_engine(colblk_store_dir, factor_names, factor_paths, dates, stocks, windows, fold, n_jobs, min_valid, cache_root, style_data_path, ret_gap1_path, ret_sum_gap1_path, ret_gap5_path, ret_sum_gap5_path, restrict_path, index_ret_path, backtest_start, cover_rate, ret_point_neu_gap5, ret_point_neu_gap1, ic_point_neu_gap5, ic_point_neu_gap1, ret_point_gap5, ret_point_gap1, ic_point_gap5, ic_point_gap1, ic_more_important_gap5, ic_more_important_gap1, majority_count_threshold, zero_max_threshold, nan_max_threshold) -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -59,7 +59,7 @@
             <div class="example-usage-note">
                 <h3>Python使用示例</h3>
                 <pre><code>import numpy as np
-from rust_pyfunc import verify_get_features_factors_rust
+from rust_pyfunc import tail_backtest_engine
 
 # 使用示例
 

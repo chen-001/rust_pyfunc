@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>verify_get_features_factors_rust - Rust PyFunc API文档</title>
+    <title>read_market_pair_fast - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
     <script src="static/search.js"></script>
 </head>
@@ -26,16 +26,24 @@
     </div>
     
     <div class="content">
-        <h1>verify_get_features_factors_rust</h1>
+        <h1>read_market_pair_fast</h1>
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><p>验证用：接收 numpy (n,m) 矩阵 + 列名，调纯 Rust get_features_factors_rust_full(with_threshold_counts=true)（对齐 Python 默认）。</p></div>
+            <div><p>Python 可调用：read_market_pair_fast(code, date)</p>
+<p>将 10 档盘口 melt 为长表，功能等价于 Python read_market_pair。
+返回 dict：
+  {"asks": {"exchtime": i64[], "number": i32[], "price": f64[], "vol": f64[]},
+   "bids": {...同结构}}
+- exchtime 为已加 8h 偏移的微秒时间戳，pd.to_datetime(arr, unit='us') 即得东八区 Timestamp
+- number 为档位序号 1..10
+- price==0 的空档位已被过滤
+- 输出按 (exchtime, number) 升序（CSV 时间单调，逐行 number 1→10 展开天然有序）</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>verify_get_features_factors_rust(data, col_names) -> None</code>
+            <code>read_market_pair_fast(code, date) -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -59,7 +67,7 @@
             <div class="example-usage-note">
                 <h3>Python使用示例</h3>
                 <pre><code>import numpy as np
-from rust_pyfunc import verify_get_features_factors_rust
+from rust_pyfunc import read_market_pair_fast
 
 # 使用示例
 
