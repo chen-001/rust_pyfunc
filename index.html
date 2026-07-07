@@ -1445,6 +1445,14 @@ print(distances.shape)  # (240,)
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="factor_store_v5_smoke_proj.html">factor_store_v5_smoke_proj</a></h3>
+                <div><p>冒烟测试（验证 NOCOW factors.proj 端到端）：在 test_dir 创建小 store，
+写 n_rows×n_cols 数据 → 投影 → 读回校验。返回 (factors.proj 是否存在, 是否已投影, 读回非NaN单元格数)。
+用于 /hdd btrfs 上验证 NOCOW 生效、factors.proj 生成、读回一致；extent 数由外部 filefrag 检查。</p></div>
+                <a href="factor_store_v5_smoke_proj.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="factor_store_v5_template.html">factor_store_v5_template</a></h3>
                 <div><p>从 colblk 存储推断回测模板轴：返回去重排序的 dates（int 数组）和 stocks（带 .SZ/.SH 后缀）。
 供 design_whatever 的 tail_v5 替代 v4 的 pandas 读 parquet 推断模板。</p></div>
@@ -1456,6 +1464,13 @@ print(distances.shape)  # (240,)
                 <div><p>一致性验证：对比 v5 投影区读取（read_factor_to_matrix）与 v6 在线转置（read_factors_batch_to_matrices）。
 对 col_idx_batch 内每个因子逐元素比较，返回最大绝对误差（NaN==NaN 视为相等）。用于验证 v6 转置正确。</p></div>
                 <a href="factor_store_v5_verify_online.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="factor_store_v5_verify_scatter_fast.html">factor_store_v5_verify_scatter_fast</a></h3>
+                <div><p>验证 read_factor_to_matrix_fast 与 read_factor_to_matrix 结果完全一致。
+返回 (最大绝对误差, old 耗时 ns, new 耗时 ns)。</p></div>
+                <a href="factor_store_v5_verify_scatter_fast.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -2105,34 +2120,6 @@ Uses Euclidean distance for k-nearest neighbor search</p></div>
             </div>
             
             <div class="function-item">
-                <h3 class="function-name"><a href="neutralize_and_backtest_gap1.html">neutralize_and_backtest_gap1</a></h3>
-                <div><p>对已 rank+rolling 的因子 block 做 raw + neu gap1 回测。</p>
-<p>输入因子 block 已经过 rank + rolling 处理，本函数 <strong>不做</strong> re-rank。
-<code>rank_before</code> 参数仅控制中性化步骤内部是否对截面因子值做 rank（属于中性化流程，
-与因子预处理阶段的 rank+rolling 无关）。</p>
-<h1>参数</h1>
-<ul>
-<li><code>factor_block</code>: [n_dates, n_stocks, n_factors] f32，已 rank+rolled</li>
-<li><code>style_cube</code>:   [n_dates, n_stocks, n_style] f32，Barra 风格因子（用于中性化）</li>
-<li><code>ret_array</code>:    [n_dates, n_stocks] f32，日收益率</li>
-<li><code>ret_sum_array</code>:[n_dates, n_stocks] f32，累计收益率</li>
-<li><code>restrict_array</code>:[n_dates, n_stocks] f32，可交易掩码（0=可交易）</li>
-<li><code>index_ret</code>:    [n_dates] f32，指数日收益率</li>
-<li><code>gap</code>:          持仓间隔（默认 1）</li>
-<li><code>portf_num</code>:    分组数（默认 10）</li>
-<li><code>rank_before</code>:  中性化前是否对因子做截面 rank（默认 true）</li>
-<li><code>min_valid</code>:    每天最少有效股票数（默认 12）</li>
-</ul>
-<h1>返回</h1>
-<p>(raw_summary, raw_ic, neu_summary, neu_ic)
-- summary: [n_factors, 10]
-  - [0] ic_mean, [1] ir, [2] ann_return, [3] sharpe, [4] max_dd,
-  - [5] date_size, [6] coverage, [7] hedge_annualized_return, [8] hedge_sharpe, [9] hedge_max_dd
-- ic: [n_ic_dates, n_factors]</p></div>
-                <a href="neutralize_and_backtest_gap1.html">查看详情</a>
-            </div>
-            
-            <div class="function-item">
                 <h3 class="function-name"><a href="next_trading_day_tricky.html">next_trading_day_tricky</a></h3>
                 <div><p>若 date 非交易日则前进到下一个交易日, 否则原样返回</p></div>
                 <a href="next_trading_day_tricky.html">查看详情</a>
@@ -2276,6 +2263,43 @@ Uses Euclidean distance for k-nearest neighbor search</p></div>
   }
 seg_flat 为 row-major 展平的 (seg_rows × NCOLS)，Python 端 reshape 即可。</p></div>
                 <a href="py_compute_observable_order_metrics.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_compute_orderbook_imb_refactor.html">py_compute_orderbook_imb_refactor</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_compute_orderbook_imb_refactor.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_extreme_point_fit.html">py_extreme_point_fit</a></h3>
+                <div><p>Python 可调用：单股单日计算，返回完整 26976 个因子值（原始展平 + 降维）。
+与 pipeline 走同一份 build_full_output，输出逐字节相同。</p></div>
+                <a href="py_extreme_point_fit.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_extreme_point_fit_names.html">py_extreme_point_fit_names</a></h3>
+                <div><p>Python 拿完整因子名（原始展平 4992 + 降维 21984 = 26976）。</p></div>
+                <a href="py_extreme_point_fit_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_individual_order_ratio.html">py_individual_order_ratio</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_individual_order_ratio.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_individual_order_ratio_names.html">py_individual_order_ratio_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_individual_order_ratio_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_orderbook_imb_refactor_names.html">py_orderbook_imb_refactor_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_orderbook_imb_refactor_names.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -2451,6 +2475,20 @@ seg_flat 为 row-major 展平的 (seg_rows × NCOLS)，Python 端 reshape 即可
                 <h3 class="function-name"><a href="read_market_pair.html">read_market_pair</a></h3>
                 <div><p>无文档</p></div>
                 <a href="read_market_pair.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="read_market_pair_fast.html">read_market_pair_fast</a></h3>
+                <div><p>Python 可调用：read_market_pair_fast(code, date)</p>
+<p>将 10 档盘口 melt 为长表，功能等价于 Python read_market_pair。
+返回 dict：
+  {"asks": {"exchtime": i64[], "number": i32[], "price": f64[], "vol": f64[]},
+   "bids": {...同结构}}
+- exchtime 为已加 8h 偏移的微秒时间戳，pd.to_datetime(arr, unit='us') 即得东八区 Timestamp
+- number 为档位序号 1..10
+- price==0 的空档位已被过滤
+- 输出按 (exchtime, number) 升序（CSV 时间单调，逐行 number 1→10 展开天然有序）</p></div>
+                <a href="read_market_pair_fast.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -2962,6 +3000,12 @@ print(f"super加速比: {time1/time3:.2f}倍")
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="tail_backtest_engine.html">tail_backtest_engine</a></h3>
+                <div><p>无文档</p></div>
+                <a href="tail_backtest_engine.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="tail_v2_backtest_block.html">tail_v2_backtest_block</a></h3>
                 <div><p>无文档</p></div>
                 <a href="tail_v2_backtest_block.html">查看详情</a>
@@ -3272,7 +3316,7 @@ print(f"转移熵: {te}")
             
             <div class="function-item">
                 <h3 class="function-name"><a href="verify_get_features_factors_rust.html">verify_get_features_factors_rust</a></h3>
-                <div><p>验证用：接收 numpy (n,m) 矩阵 + 列名，调纯 Rust get_features_factors_rust。</p></div>
+                <div><p>验证用：接收 numpy (n,m) 矩阵 + 列名，调纯 Rust get_features_factors_rust_full(with_threshold_counts=true)（对齐 Python 默认）。</p></div>
                 <a href="verify_get_features_factors_rust.html">查看详情</a>
             </div>
             
