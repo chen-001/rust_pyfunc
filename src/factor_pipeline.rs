@@ -11,6 +11,8 @@
 //! backup 格式与现有 run_pools_queue 完全兼容（复用 backup_writer），断点续算可用。
 use crate::backup_reader::{read_existing_backup_with_filter, TaskResult};
 use crate::backup_writer::save_results_to_backup;
+use crate::distill_metrics;
+use crate::distill_tick_metrics;
 use crate::extreme_point_fit_metrics;
 use crate::fast_csv_reader;
 use crate::features;
@@ -309,6 +311,48 @@ pub fn pipeline_extreme_point_fit(
     vals
 }
 
+/// distill 蒸馏因子流水线的单任务计算。
+/// 不引入新 Params，所有参数在 distill_metrics.rs 用 const 写死。
+/// prev_date 从 trading_days 反查，传入 compute_distill_full。
+pub fn pipeline_distill(
+    date: i64,
+    code: &str,
+    trading_days: &[i64],
+    expected_len: usize,
+) -> Vec<f32> {
+    let prev_date = last_trading_day(trading_days, date);
+    let mut vals = match distill_metrics::compute_distill_full(code, date, prev_date) {
+        Ok(v) => v,
+        Err(_) => return nan_vec(expected_len),
+    };
+    if vals.len() < expected_len {
+        vals.resize(expected_len, f32::NAN);
+    } else if vals.len() > expected_len {
+        vals.truncate(expected_len);
+    }
+    vals
+}
+
+/// distill_tick 量化器因子流水线的单任务计算。
+/// 不引入新 Params，所有参数在 distill_tick_metrics.rs 用 const 写死。
+pub fn pipeline_distill_tick(
+    date: i64,
+    code: &str,
+    _trading_days: &[i64],
+    expected_len: usize,
+) -> Vec<f32> {
+    let mut vals = match distill_tick_metrics::compute_distill_tick_full(code, date) {
+        Ok(v) => v,
+        Err(_) => return nan_vec(expected_len),
+    };
+    if vals.len() < expected_len {
+        vals.resize(expected_len, f32::NAN);
+    } else if vals.len() > expected_len {
+        vals.truncate(expected_len);
+    }
+    vals
+}
+
 /// 把展平的 Vec<f64> 转为 ndarray::Array2。
 fn slice_to_array2(data: &[f32], rows: usize, cols: usize) -> ndarray::Array2<f32> {
     if rows == 0 || cols == 0 {
@@ -519,6 +563,8 @@ pub fn run_factor_pipeline(
         "individual_order_ratio",
         "orderbook_imb_refactor",
         "extreme_point_fit",
+        "distill",
+        "distill_tick",
     ];
     if !known.contains(&pipeline_name.as_str()) {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
@@ -748,6 +794,10 @@ pub fn run_factor_pipeline(
                             &trading_days,
                             expected_result_length,
                         )
+                    } else if pipeline_name_t == "distill" {
+                        pipeline_distill(date, &code, &trading_days, expected_result_length)
+                    } else if pipeline_name_t == "distill_tick" {
+                        pipeline_distill_tick(date, &code, &trading_days, expected_result_length)
                     } else {
                         pipeline_order_pair_hm90(
                             date,
@@ -898,6 +948,8 @@ pub enum TaskMessage {
     },
     /// 单个任务
     Task { date: i64, code: String },
+    /// 分钟任务（per-date，一次算全市场）
+    MinuteTask { date: i64 },
     /// 关闭信号（长度0也可，这里用显式 Shutdown 更清晰）
     Shutdown,
 }
@@ -907,6 +959,8 @@ pub enum TaskMessage {
 pub enum ResultMessage {
     /// 计算结果
     Result(TaskResult),
+    /// 分钟批量结果（一天全市场）
+    MinuteBatch(Vec<TaskResult>),
     /// worker 内错误（不 panic，回传错误避免进程崩溃重启）
     Error {
         date: i64,
@@ -1366,6 +1420,9 @@ fn run_single_worker_manager(
                 Ok(ResultMessage::Ready) => {
                     // 忽略意外的 Ready
                 }
+                Ok(ResultMessage::MinuteBatch(_)) => {
+                    // Level2 worker 不应该收到 MinuteBatch，忽略
+                }
                 Err(_) => {
                     // IPC 错误，重启 worker
                     eprintln!("⚠️ worker{} IPC 错误，重启中...", worker_idx);
@@ -1420,6 +1477,8 @@ pub fn run_factor_pipeline_v6(
         "individual_order_ratio",
         "orderbook_imb_refactor",
         "extreme_point_fit",
+        "distill",
+        "distill_tick",
     ];
     if !known.contains(&pipeline_name.as_str()) {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
@@ -1549,4 +1608,354 @@ pub fn run_factor_pipeline_v6(
     Err(pyo3::exceptions::PyValueError::new_err(
         "run_factor_pipeline_v6 仅支持 mode=multiprocess（配合 tail_v5_run_candidates_online 在线转置回测）",
     ))
+}
+
+// ==================== 分钟数据 Pipeline（per-date 任务粒度）====================
+
+/// 读取 _completed_dates 标记文件，返回已完成日期集合。
+fn read_completed_dates(store_dir: &str) -> std::collections::HashSet<i64> {
+    let path = std::path::Path::new(store_dir).join("_completed_dates");
+    let mut set = std::collections::HashSet::new();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        for line in content.lines() {
+            if let Ok(d) = line.trim().parse::<i64>() {
+                set.insert(d);
+            }
+        }
+    }
+    set
+}
+
+/// 追加一个已完成日期到 _completed_dates 标记文件（O_APPEND + sync）。
+fn mark_date_complete(store_dir: &str, date: i64) {
+    let path = std::path::Path::new(store_dir).join("_completed_dates");
+    use std::io::Write;
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(&path)
+    {
+        let _ = writeln!(f, "{date}");
+        let _ = f.sync_all();
+    }
+}
+
+/// 分钟 pipeline 的 Python 入口。
+///
+/// 与 run_factor_pipeline_v6 的区别：
+/// - tasks 是纯日期列表 [date, ...]（非 [[date, code], ...]）
+/// - pipeline 函数签名是 pipeline_minute_xxx(date) → Vec<TaskResult>（fan-out 全市场）
+/// - 断点续算按 date 粒度（用 _completed_dates 标记文件，而非 check_completed 逐 cell）
+/// - collector 不按 batch_size 拆分，整天一次写入
+#[pyfunction]
+#[pyo3(signature = (
+    pipeline, tasks, n_jobs, expected_result_length, trading_days,
+    params=None, update_mode=None, bind_cores=true,
+    store_dir=None, store_factor_names=None
+))]
+#[allow(clippy::too_many_arguments)]
+pub fn run_factor_pipeline_minute(
+    pipeline: &str,
+    tasks: &PyList,
+    n_jobs: usize,
+    expected_result_length: usize,
+    trading_days: Vec<i64>,
+    params: Option<PyObject>,
+    update_mode: Option<bool>,
+    bind_cores: bool,
+    store_dir: Option<String>,
+    store_factor_names: Option<Vec<String>>,
+) -> PyResult<PyObject> {
+    let py = unsafe { Python::assume_gil_acquired() };
+
+    let pipeline_name = pipeline.to_string();
+    let update_mode_enabled = update_mode.unwrap_or(false);
+    let n_shards = 8;
+
+    let store_dir_str = store_dir
+        .clone()
+        .unwrap_or_else(|| "./minute_pipeline_store".to_string());
+    let sharded_sink: crate::factor_store_v5::ShardedBackupSink = {
+        let snames = store_factor_names.clone().unwrap_or_else(|| {
+            (0..expected_result_length)
+                .map(|i| format!("factor_{i}"))
+                .collect()
+        });
+        crate::factor_store_v5::ShardedBackupSink::new_colblk_sharded(
+            &store_dir_str,
+            &snames,
+            n_shards,
+        )
+        .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("打开 colblk 存储失败: {e}")))?
+    };
+
+    // 解析参数（复用 Level2 的 oo_params，分钟 pipeline 暂无自定义 params）
+    let oo_params = if let Some(p) = &params {
+        parse_observable_order_params(py, p)?
+    } else {
+        ObservableOrderParams::default()
+    };
+    let hm90_params = Hm90Params::default();
+
+    // 解析日期列表
+    let mut all_dates: Vec<i64> = Vec::with_capacity(tasks.len());
+    for item in tasks.iter() {
+        let date: i64 = item.extract()?;
+        all_dates.push(date);
+    }
+
+    // 断点续算：按 date 过滤
+    let pending: Vec<i64> = if update_mode_enabled {
+        let completed = read_completed_dates(&store_dir_str);
+        all_dates
+            .into_iter()
+            .filter(|d| !completed.contains(d))
+            .collect()
+    } else {
+        all_dates
+    };
+
+    let total = pending.len();
+    if total == 0 {
+        println!("✅ 所有日期都已完成（minute pipeline）");
+        return Ok(Python::with_gil(|py| py.None()));
+    }
+    println!("📋 分钟 pipeline 待处理: {total} 天, n_jobs={n_jobs}");
+
+    if let Some(worker_bin) = locate_worker_binary() {
+        run_multiprocess_minute(
+            py,
+            pending,
+            n_jobs,
+            sharded_sink,
+            expected_result_length,
+            trading_days,
+            hm90_params,
+            oo_params,
+            pipeline_name,
+            bind_cores,
+            store_dir_str,
+            &worker_bin,
+        )?;
+        return Ok(Python::with_gil(|py| py.None()));
+    }
+    Err(pyo3::exceptions::PyRuntimeError::new_err(
+        "run_factor_pipeline_minute 找不到 rust_pyfunc_worker 二进制",
+    ))
+}
+
+/// 分钟 pipeline 的多进程调度（per-date 任务 → MinuteBatch 结果 → 整天写入 colblk）。
+#[allow(clippy::too_many_arguments)]
+fn run_multiprocess_minute(
+    py: Python<'_>,
+    pending: Vec<i64>,
+    n_jobs: usize,
+    sharded_sink: crate::factor_store_v5::ShardedBackupSink,
+    expected_result_length: usize,
+    trading_days: Vec<i64>,
+    params: Hm90Params,
+    oo_params: ObservableOrderParams,
+    pipeline_name: String,
+    bind_cores: bool,
+    store_dir: String,
+    worker_bin: &str,
+) -> PyResult<()> {
+    use std::io::{BufReader, BufWriter, Write};
+    use std::process::{Command, Stdio};
+
+    let total = pending.len();
+    let trading_days_arc = std::sync::Arc::new(trading_days);
+    let start = std::time::Instant::now();
+
+    py.allow_threads(|| -> PyResult<()> {
+        // 任务队列：date-only
+        let (task_tx, task_rx) = crossbeam::channel::unbounded::<i64>();
+        for date in pending {
+            let _ = task_tx.send(date);
+        }
+        drop(task_tx);
+
+        // 结果 channel：MinuteBatch（整天一批，不拆分）
+        let (batch_tx, batch_rx) =
+            std::sync::mpsc::sync_channel::<(i64, Vec<TaskResult>)>(n_jobs * 2);
+
+        let core_ids = if bind_cores {
+            core_affinity::get_core_ids()
+        } else {
+            None
+        };
+
+        // spawn N 个 worker 管理线程
+        let mut handles = Vec::with_capacity(n_jobs);
+        for worker_idx in 0..n_jobs {
+            let task_rx = task_rx.clone();
+            let batch_tx = batch_tx.clone();
+            let params = params.clone();
+            let oo_params = oo_params.clone();
+            let pipeline_name = pipeline_name.clone();
+            let trading_days = trading_days_arc.clone();
+            let worker_bin = worker_bin.to_string();
+            let core_affinity_idx = if let Some(ref cores) = core_ids {
+                Some(worker_idx % cores.len())
+            } else {
+                None
+            };
+
+            let handle = std::thread::spawn(move || {
+                run_single_minute_worker(
+                    &worker_bin,
+                    worker_idx,
+                    task_rx,
+                    batch_tx,
+                    &params,
+                    &oo_params,
+                    &pipeline_name,
+                    &trading_days,
+                    expected_result_length,
+                    core_affinity_idx,
+                );
+            });
+            handles.push(handle);
+        }
+        drop(batch_tx);
+
+        // writer 线程：从写队列取整天批次 → append_batch → mark_date_complete
+        // 空 batch（worker 错误/IPC 失败）不标记完成，让重启时重试。
+        let writer_handle = {
+            let sharded_c = sharded_sink.clone();
+            let store_dir_c = store_dir.clone();
+            std::thread::spawn(move || {
+                while let Ok((date, batch)) = batch_rx.recv() {
+                    if !batch.is_empty() {
+                        let _ = sharded_c.append_batch(&batch);
+                        mark_date_complete(&store_dir_c, date);
+                    }
+                }
+            })
+        };
+
+        // 等待所有 worker 管理线程完成
+        for h in handles {
+            let _ = h.join();
+        }
+        // batch_rx 排空 → writer recv 返回 Err → writer 退出
+        let _ = writer_handle.join();
+        Ok(())
+    })?;
+
+    let elapsed = start.elapsed().as_secs_f64();
+    println!("✅ [分钟多进程] 完成 {total} 天, 总用时 {elapsed:.1}s");
+
+    Ok(())
+}
+
+/// 单个分钟 worker 进程的管理器。
+#[allow(clippy::too_many_arguments)]
+fn run_single_minute_worker(
+    worker_bin: &str,
+    worker_idx: usize,
+    task_rx: crossbeam::channel::Receiver<i64>,
+    batch_tx: std::sync::mpsc::SyncSender<(i64, Vec<TaskResult>)>,
+    params: &Hm90Params,
+    oo_params: &ObservableOrderParams,
+    pipeline_name: &str,
+    trading_days: &[i64],
+    expected_len: usize,
+    core_affinity_idx: Option<usize>,
+) {
+    use std::io::{BufReader, BufWriter, Write};
+    use std::process::{Command, Stdio};
+
+    'outer: loop {
+        let mut cmd = Command::new(worker_bin);
+        cmd.stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit());
+        cmd.env("RAYON_NUM_THREADS", "1");
+        cmd.env("OMP_NUM_THREADS", "1");
+        cmd.env("OPENBLAS_NUM_THREADS", "1");
+        cmd.env("MKL_NUM_THREADS", "1");
+        if let Some(idx) = core_affinity_idx {
+            cmd.env("RUST_PYFUNC_CORE_AFFINITY_IDX", idx.to_string());
+        }
+
+        let mut child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("⚠️ minute worker{worker_idx} spawn 失败: {e}, 3秒后重试");
+                std::thread::sleep(std::time::Duration::from_secs(3));
+                continue;
+            }
+        };
+
+        let stdin = child.stdin.take().unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let mut writer = BufWriter::with_capacity(1 << 20, stdin);
+        let mut reader = BufReader::with_capacity(1 << 20, stdout);
+
+        // 发 Init
+        let init_msg = TaskMessage::Init {
+            pipeline_name: pipeline_name.to_string(),
+            params: params.clone(),
+            oo_params: oo_params.clone(),
+            trading_days: trading_days.to_vec(),
+            expected_len,
+        };
+        if ipc_write(&mut writer, &init_msg).is_err() {
+            let _ = child.kill();
+            continue;
+        }
+        // 等 Ready
+        match ipc_read_result(&mut reader) {
+            Ok(ResultMessage::Ready) => {}
+            _ => {
+                let _ = child.kill();
+                continue;
+            }
+        }
+
+        // 内层循环：取 date → 发 MinuteTask → 收 MinuteBatch
+        loop {
+            let date = match task_rx.recv() {
+                Ok(d) => d,
+                Err(_) => {
+                    let _ = ipc_write(&mut writer, &TaskMessage::Shutdown);
+                    let _ = writer.write_all(&[0u8; 4]);
+                    let _ = child.wait();
+                    break 'outer;
+                }
+            };
+
+            let task_msg = TaskMessage::MinuteTask { date };
+            if ipc_write(&mut writer, &task_msg).is_err() {
+                let _ = batch_tx.send((date, Vec::new()));
+                let _ = child.kill();
+                continue 'outer;
+            }
+
+            match ipc_read_result(&mut reader) {
+                Ok(ResultMessage::MinuteBatch(batch)) => {
+                    let n_stocks = batch.len();
+                    let _ = batch_tx.send((date, batch));
+                    eprintln!(
+                        "[{}] worker{worker_idx} 完成 {date}: {n_stocks} 股",
+                        Local::now().format("%H:%M:%S")
+                    );
+                }
+                Ok(ResultMessage::Error { date, code, msg }) => {
+                    eprintln!("⚠️ minute worker{worker_idx} 错误 [{date},{code}]: {msg}");
+                    let _ = batch_tx.send((date, Vec::new()));
+                }
+                Ok(_) => {
+                    // 忽略意外的 Ready/Result
+                }
+                Err(_) => {
+                    eprintln!("⚠️ minute worker{worker_idx} IPC 错误，重启中...");
+                    let _ = batch_tx.send((date, Vec::new()));
+                    let _ = child.kill();
+                    continue 'outer;
+                }
+            }
+        }
+    }
 }

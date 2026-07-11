@@ -11,9 +11,10 @@
 //!   5. 计算错误不 panic，回传 Error 消息（避免进程崩溃重启开销）
 use rust_pyfunc::backup_reader::TaskResult;
 use rust_pyfunc::factor_pipeline::{
-    ipc_read_result, ipc_read_task, ipc_write, ipc_write_result, pipeline_extreme_point_fit,
-    pipeline_individual_order_ratio, pipeline_observable_order, pipeline_order_pair_hm90,
-    pipeline_orderbook_imb_refactor, ResultMessage, TaskMessage,
+    ipc_read_result, ipc_read_task, ipc_write, ipc_write_result, pipeline_distill,
+    pipeline_distill_tick, pipeline_extreme_point_fit, pipeline_individual_order_ratio,
+    pipeline_observable_order, pipeline_order_pair_hm90, pipeline_orderbook_imb_refactor,
+    ResultMessage, TaskMessage,
 };
 use std::io::{BufReader, BufWriter};
 
@@ -58,8 +59,99 @@ fn main() {
 
     // 2. 主循环：读任务 → 按 pipeline_name 分发计算 → 写结果
     loop {
-        let (date, code) = match ipc_read_task(&mut reader) {
-            Ok(Some(TaskMessage::Task { date, code })) => (date, code),
+        // 分两种任务类型：Level2 per-(date,code) 和 分钟 per-date
+        match ipc_read_task(&mut reader) {
+            Ok(Some(TaskMessage::Task { date, code })) => {
+                // ---- Level2 单股任务 ----
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    if pipeline_name == "observable_order" {
+                        pipeline_observable_order(
+                            date,
+                            &code,
+                            &oo_params,
+                            &trading_days,
+                            expected_len,
+                        )
+                    } else if pipeline_name == "individual_order_ratio" {
+                        pipeline_individual_order_ratio(
+                            date,
+                            &code,
+                            &oo_params,
+                            &trading_days,
+                            expected_len,
+                        )
+                    } else if pipeline_name == "orderbook_imb_refactor" {
+                        pipeline_orderbook_imb_refactor(
+                            date,
+                            &code,
+                            &oo_params,
+                            &trading_days,
+                            expected_len,
+                        )
+                    } else if pipeline_name == "extreme_point_fit" {
+                        pipeline_extreme_point_fit(date, &code, &trading_days, expected_len)
+                    } else if pipeline_name == "distill" {
+                        pipeline_distill(date, &code, &trading_days, expected_len)
+                    } else if pipeline_name == "distill_tick" {
+                        pipeline_distill_tick(date, &code, &trading_days, expected_len)
+                    } else {
+                        pipeline_order_pair_hm90(date, &code, &params, &trading_days, expected_len)
+                    }
+                }));
+
+                match result {
+                    Ok(vals) => {
+                        let msg = ResultMessage::Result(TaskResult {
+                            date,
+                            code,
+                            timestamp: 0,
+                            facs: vals.iter().map(|&v| v as f32).collect(),
+                        });
+                        if ipc_write_result(&mut writer, &msg).is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => {
+                        let _ = ipc_write_result(
+                            &mut writer,
+                            &ResultMessage::Error {
+                                date,
+                                code,
+                                msg: "panic".to_string(),
+                            },
+                        );
+                    }
+                }
+            }
+            Ok(Some(TaskMessage::MinuteTask { date })) => {
+                // ---- 分钟 per-date 任务：一次算全市场 ----
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    if pipeline_name == "minute_example" {
+                        crate_logic::pipeline_minute_example(date, expected_len)
+                    } else {
+                        Vec::new()
+                    }
+                }));
+
+                match result {
+                    Ok(batch) => {
+                        let msg = ResultMessage::MinuteBatch(batch);
+                        if ipc_write_result(&mut writer, &msg).is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => {
+                        let _ = ipc_write_result(
+                            &mut writer,
+                            &ResultMessage::Error {
+                                date,
+                                code: String::new(),
+                                msg: "minute pipeline panic".to_string(),
+                            },
+                        );
+                    }
+                }
+            }
             Ok(Some(TaskMessage::Shutdown)) | Ok(None) => break,
             Ok(Some(TaskMessage::Init { .. })) => {
                 eprintln!("worker: 意外收到第二个 Init，忽略");
@@ -69,55 +161,34 @@ fn main() {
                 eprintln!("worker: 读取任务失败，退出");
                 break;
             }
-        };
+        }
+    }
+}
 
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            if pipeline_name == "observable_order" {
-                pipeline_observable_order(date, &code, &oo_params, &trading_days, expected_len)
-            } else if pipeline_name == "individual_order_ratio" {
-                pipeline_individual_order_ratio(
-                    date,
-                    &code,
-                    &oo_params,
-                    &trading_days,
-                    expected_len,
-                )
-            } else if pipeline_name == "orderbook_imb_refactor" {
-                pipeline_orderbook_imb_refactor(
-                    date,
-                    &code,
-                    &oo_params,
-                    &trading_days,
-                    expected_len,
-                )
-            } else if pipeline_name == "extreme_point_fit" {
-                pipeline_extreme_point_fit(date, &code, &trading_days, expected_len)
-            } else {
-                pipeline_order_pair_hm90(date, &code, &params, &trading_days, expected_len)
-            }
-        }));
+/// 分钟 pipeline 分发逻辑（内联在 worker 中，避免跨 crate 依赖具体因子模块）。
+mod crate_logic {
+    use rust_pyfunc::backup_reader::TaskResult;
+    use rust_pyfunc::minute_example_metrics;
 
-        match result {
-            Ok(vals) => {
-                let msg = ResultMessage::Result(TaskResult {
-                    date,
-                    code,
-                    timestamp: 0,
-                    facs: vals.iter().map(|&v| v as f32).collect(),
-                });
-                if ipc_write_result(&mut writer, &msg).is_err() {
-                    break;
-                }
-            }
-            Err(_) => {
-                let _ = ipc_write_result(
-                    &mut writer,
-                    &ResultMessage::Error {
+    /// 分钟示例因子：返回整天全市场的 TaskResult 列表。
+    pub fn pipeline_minute_example(date: i64, expected_len: usize) -> Vec<TaskResult> {
+        match minute_example_metrics::compute_minute_example_full(date) {
+            Ok((codes, vals)) => {
+                // fan-out: codes × vals → Vec<TaskResult>
+                let n_factors = expected_len;
+                vals.chunks(n_factors)
+                    .zip(codes.iter())
+                    .map(|(facs, code)| TaskResult {
                         date,
-                        code,
-                        msg: "panic".to_string(),
-                    },
-                );
+                        code: code.clone(),
+                        timestamp: 0,
+                        facs: facs.to_vec(),
+                    })
+                    .collect()
+            }
+            Err(e) => {
+                eprintln!("minute_example error [{date}]: {e:?}");
+                Vec::new()
             }
         }
     }

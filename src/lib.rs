@@ -79,31 +79,36 @@ pub mod personalized_meeting_features;
 pub mod price_breakthrough_stats;
 pub mod series_rank;
 pub mod skewness;
+pub mod tail_backtest_engine;
 pub mod tail_v2_backtest_block;
 pub mod tail_v2_block_neutralizer;
 pub mod tail_v2_ic_corr_filter;
 pub mod tail_v2_rank_roll_factor;
 pub mod tail_v4_pipeline;
 pub mod tail_v5_pipeline;
-pub mod tail_backtest_engine;
 pub mod theme_cluster_factors;
 pub mod theme_cluster_factors_batch;
 pub mod theme_feature_expansion;
 pub mod topk_corr_matrix;
 
+pub mod corr_contribution_factors;
 pub mod dct_transform;
+pub mod extreme_point_fit_metrics;
 pub mod illusion_liquidity_distance;
 pub mod orderbook_volume_cov_factors;
 pub mod yand_affine_centroid;
 pub mod yand_divergence;
-pub mod extreme_point_fit_metrics;
 
+pub mod distill_metrics;
+pub mod distill_tick_metrics;
 pub mod fast_csv_reader;
 
 pub mod factor_pipeline;
 pub mod factor_store_v5;
 pub mod features;
 pub mod individual_order_ratio_metrics;
+pub mod minute_data_reader;
+pub mod minute_example_metrics;
 pub mod observable_order_metrics;
 pub mod order_pair_metrics_pipeline;
 pub mod orderbook_imb_refactor_metrics;
@@ -1033,6 +1038,29 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(
         individual_order_ratio_metrics::py_individual_order_ratio_names,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(distill_metrics::py_distill, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(distill_metrics::py_distill_names, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(distill_tick_metrics::py_distill_tick, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        distill_tick_metrics::py_distill_tick_names,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        minute_data_reader::py_read_minute_data,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        factor_pipeline::run_factor_pipeline_minute,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        minute_example_metrics::py_minute_example,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        minute_example_metrics::py_minute_example_names,
         m
     )?)?;
     Ok(())
