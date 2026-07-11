@@ -1,0 +1,1135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>盘口挂单量指标库 · 相对比例化改造全梳理</title>
+<style>
+  :root{
+    --bg:#f4f6fa; --panel:#ffffff; --panel2:#fbfcfd; --line:#e2e8f0;
+    --txt:#1f2a37; --muted:#64748b; --ask:#dc2626; --bid:#15803d;
+    --accent:#2563eb; --gold:#b45309; --purple:#7c3aed; --teal:#0f766e;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--txt);
+    font-family:-apple-system,"PingFang SC","Microsoft YaHei",Segoe UI,Roboto,sans-serif;
+    line-height:1.65; font-size:15px;
+  }
+  .wrap{padding:22px 26px 50px}
+  .body-cols{display:grid; grid-template-columns:minmax(0,1fr) 360px; gap:22px; align-items:start}
+  .main-col{min-width:0}
+  .rail{
+    position:sticky; top:16px; align-self:start;
+    max-height:calc(100vh - 32px); overflow-y:auto;
+    display:flex; flex-direction:column; gap:14px; padding-right:4px;
+  }
+  .rail::-webkit-scrollbar{width:6px}
+  .rail::-webkit-scrollbar-thumb{background:var(--line); border-radius:3px}
+  .rail::-webkit-scrollbar-track{background:transparent}
+  header.hero{
+    background:linear-gradient(135deg,#eaf1fb 0%,#f4f6fa 100%);
+    border:1px solid var(--line); border-radius:14px; padding:28px 32px; margin-bottom:24px;
+  }
+  header.hero h1{margin:0 0 8px; font-size:25px; letter-spacing:.5px}
+  header.hero .sub{color:var(--muted); font-size:14.5px}
+  .tag-row{margin-top:14px; display:flex; gap:8px; flex-wrap:wrap}
+  .tag{font-size:12px; padding:3px 10px; border-radius:20px; background:rgba(88,166,255,.12); color:var(--accent); border:1px solid rgba(88,166,255,.3)}
+  .tag.gold{background:rgba(210,153,34,.12); color:var(--gold); border-color:rgba(210,153,34,.3)}
+
+  /* 符号约定区 */
+  .legend{
+    background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    padding:18px 22px; margin-bottom:22px;
+  }
+  .legend h3{margin:0 0 12px; font-size:16px; color:var(--accent)}
+  .legend-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:8px 14px; font-size:12.5px}
+  .legend-grid code{background:#eef2f7; padding:2px 7px; border-radius:5px; color:var(--teal); font-size:12.5px}
+  .legend-grid .desc{color:var(--muted)}
+
+  /* 改造适用性速查 */
+  .quickcheck{
+    background:linear-gradient(135deg, rgba(188,140,255,.08), rgba(88,166,255,.05));
+    border:1px solid rgba(188,140,255,.3); border-radius:12px; padding:18px 22px; margin-bottom:24px;
+  }
+  .quickcheck h3{margin:0 0 10px; font-size:16px; color:var(--purple)}
+  .quickcheck table{width:100%; border-collapse:collapse; font-size:12px}
+  .quickcheck th,.quickcheck td{padding:5px 7px; text-align:left; border-bottom:1px solid var(--line); vertical-align:top}
+  .quickcheck td{word-break:break-word; line-height:1.5}
+  .qc-note{font-size:11.5px; color:var(--muted); margin-top:8px; line-height:1.55}
+  .quickcheck th{color:var(--muted); font-weight:600}
+  .yes{color:var(--bid); font-weight:700}
+  .no{color:var(--ask); font-weight:700}
+
+  /* 大类 */
+  section.cat{
+    background:var(--panel); border:1px solid var(--line); border-radius:14px;
+    padding:22px 26px; margin-bottom:22px;
+  }
+  section.cat > h2{
+    font-size:20px; margin:0 0 6px;
+    border-left:4px solid var(--accent); padding-left:12px;
+  }
+  section.cat.cat2 > h2{border-color:var(--gold)}
+  .cat-meta{color:var(--muted); font-size:13px; margin:0 0 18px; padding-left:16px}
+
+  /* 小类 */
+  .subcat{margin-top:22px}
+  .subcat-title{
+    display:flex; align-items:center; gap:10px; margin-bottom:12px;
+    font-size:15.5px; color:var(--txt); font-weight:600;
+  }
+  .subcat-title .num{
+    display:inline-flex; align-items:center; justify-content:center;
+    width:26px; height:26px; border-radius:50%;
+    background:var(--accent); color:#ffffff; font-size:13px; font-weight:700;
+  }
+  .cat2 .subcat-title .num{background:var(--gold)}
+  .subcat-title .pill{
+    font-size:11.5px; padding:2px 9px; border-radius:14px;
+    background:rgba(139,152,169,.15); color:var(--muted); font-weight:400;
+  }
+
+  /* 指标卡片网格 */
+  .cards{display:grid; grid-template-columns:repeat(auto-fill,minmax(360px,1fr)); gap:12px}
+  .card{
+    background:var(--panel2); border:1px solid var(--line); border-radius:10px;
+    padding:14px 16px; transition:border-color .15s, transform .15s;
+  }
+  .card:hover{border-color:var(--accent); transform:translateY(-1px)}
+  .cat2 .card:hover{border-color:var(--gold)}
+  .card .name{font-size:14.5px; font-weight:600; color:var(--txt); margin-bottom:4px}
+  .card .en{font-size:11.5px; color:var(--muted); margin-bottom:8px}
+  .card .formula{
+    background:#eef2f7; border-left:3px solid var(--accent);
+    padding:7px 11px; border-radius:5px; font-family:"JetBrains Mono",Consolas,monospace;
+    font-size:12.5px; color:var(--teal); margin:6px 0; overflow-x:auto; white-space:nowrap;
+  }
+  .card .reform{
+    background:rgba(63,185,80,.07); border-left:3px solid var(--bid);
+    padding:7px 11px; border-radius:5px; font-family:"JetBrains Mono",Consolas,monospace;
+    font-size:12px; color:#15803d; margin:6px 0; overflow-x:auto; white-space:nowrap;
+  }
+  .card .note{font-size:12px; color:var(--muted); margin-top:6px}
+  .badges{margin-top:8px; display:flex; gap:6px; flex-wrap:wrap}
+  .badge{font-size:10.5px; padding:1.5px 7px; border-radius:10px; font-weight:500}
+  .b-reform{background:rgba(63,185,80,.15); color:var(--bid); border:1px solid rgba(63,185,80,.3)}
+  .b-ask{background:rgba(248,81,73,.12); color:var(--ask)}
+  .b-bid{background:rgba(63,185,80,.12); color:var(--bid)}
+  .b-trd{background:rgba(210,153,34,.12); color:var(--gold)}
+  .b-multi{background:rgba(188,140,255,.12); color:var(--purple)}
+
+  summary{cursor:pointer; user-select:none; font-size:13px; color:var(--accent)}
+  .cat2 summary{color:var(--gold)}
+  details{margin-top:8px}
+  details[open] summary{margin-bottom:6px}
+
+  .foot{color:var(--muted); font-size:12.5px; text-align:center; margin-top:30px; padding-top:18px; border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>📊 盘口挂单量指标库 · 相对比例化改造全梳理</h1>
+  <div class="sub">将「绝对挂单量」改造为「相对占比」(rate1 / rate2) 后，经典微观结构指标可剥离股票绝对流动性厚薄，提升横截面可比性。本文按【快照频率 / 日频】两大类 × 八小类系统罗列，并标注每个指标的改造适用性与改造后公式。</div>
+  <div class="tag-row">
+    <span class="tag">Level-2 盘口</span>
+    <span class="tag">微观结构</span>
+    <span class="tag">挂单失衡</span>
+    <span class="tag gold">相对比例改造</span>
+    <span class="tag">OFI / VPIN</span>
+  </div>
+</header>
+
+<div class="body-cols">
+  <main class="main-col">
+
+<!-- ============================ 大类一：快照频率 ============================ -->
+<section class="cat">
+  <h2>大类一 · 快照频率级别指标</h2>
+  <p class="cat-meta">每张 Level-2 快照（约 3 秒/笔）输出一个值。需"多次快照"的指标在本类中对每张快照向前滚动固定窗口（如 20 笔=1 分钟）计算一次，从而转化为快照频率序列。</p>
+
+  <!-- 小类1.1 -->
+  <div class="subcat">
+    <div class="subcat-title"><span class="num">1</span>单次快照 · 买卖两侧 <span class="pill">只看当前一张快照的买盘+卖盘</span></div>
+    <div class="cards">
+
+      <div class="card">
+        <div class="name">1档挂单失衡 OBI_1</div>
+        <div class="en">Order Book Imbalance (Level-1)</div>
+        <div class="formula">(a₁ − b₁) / (a₁ + b₁)</div>
+        <div class="reform">imb1_r1 = ra₁ − rb₁ = a₁/TA − b₁/TB<br>imb1_r2 = Ra₁ − Rb₁ = a₁/SA − b₁/SB</div>
+        <div class="note">最经典的盘口失衡。改造后衡量"挂单结构前倾度"，剥离股票自身流动性规模。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span><span class="badge b-ask">卖</span><span class="badge b-bid">买</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">前 K 档挂单失衡 OBI_K</div>
+        <div class="en">Multi-level Imbalance (K=3/5)</div>
+        <div class="formula">(Σᵢ₌₁ᴷaᵢ − Σᵢ₌₁ᴷbᵢ) / (Σaᵢ + Σbᵢ)</div>
+        <div class="reform">imbK_r1 = Σraᵢ − Σrbᵢ  (i=1..K, K&lt;10)<br>imbK_r2 = ΣRaᵢ − ΣRbᵢ (aᵢ/SA − bᵢ/SB)</div>
+        <div class="note">K 通常取 3 或 5。注意 K=10 时 r1 恒为 0，不可全档。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">距离加权挂单失衡 WOBI</div>
+        <div class="en">Distance-Weighted Imbalance</div>
+        <div class="formula">(Σwᵢaᵢ − Σwᵢbᵢ) / (Σwᵢaᵢ + Σwᵢbᵢ), wᵢ=1/i</div>
+        <div class="reform">wobi_r1 = Σwᵢ·raᵢ − Σwᵢ·rbᵢ<br>wobi_r2 = Σwᵢ·(Raᵢ − Rbᵢ)</div>
+        <div class="note">越靠近盘口权重越大，强调前档。改造后仍是前倾度概念。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">微观价格偏移 Microprice Gap</div>
+        <div class="en">Microprice − Mid</div>
+        <div class="formula">mp − mid, mp=(bp₁·a₁ + ap₁·b₁)/(a₁+b₁)</div>
+        <div class="reform">mp_r1 = (bp₁·ra₁ + ap₁·rb₁) − mid<br>（权重由绝对量改为占比）</div>
+        <div class="note">微观价格的"挂单加权"本质，把权重换成占比即得到结构化微观价格。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">盘口压力差 Pressure Diff</div>
+        <div class="en">Order Book Pressure</div>
+        <div class="formula">Σwᵢaᵢ − Σwᵢbᵢ</div>
+        <div class="reform">press_r1 = Σwᵢ(raᵢ − rbᵢ)<br>press_r2 = Σwᵢ(Raᵢ − Rbᵢ)</div>
+        <div class="note">不做归一，衡量绝对压力；改造后衡量结构压力差。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">报价不对称度 Quoted Asymmetry</div>
+        <div class="en">Ask-Bid Asymmetry</div>
+        <div class="formula">(a₁ − b₁) / mid</div>
+        <div class="reform">asym_r1 = (ra₁ − rb₁), asym_r2 = (Ra₁ − Rbᐩ)</div>
+        <div class="note">用中间价归一，改造后去掉量纲，直接用占比差。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">前档集中度失衡 Front-Weight Imbalance</div>
+        <div class="en">Front-Weight Share Imbalance</div>
+        <div class="formula">a₁/Σaᵢ − b₁/Σbᵢ  （本身已是 rate1 形态）</div>
+        <div class="reform">即 imb1_r1 原生形式；可进一步 imb_f2 = a₁/SA − b₁/SB</div>
+        <div class="note">这正是你定义的 imb1，天然就是比例化指标，无需再改。</div>
+        <div class="badges"><span class="badge b-reform">✅ 天然比例</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">价差-深度乘积 Spread×Depth</div>
+        <div class="en">Spread-Depth Product</div>
+        <div class="formula">(ap₁ − bp₁) · (a₁ + b₁)</div>
+        <div class="reform">sd_r2 = (ap₁ − bp₁) · (Ra₁ + Rb₁) · (SA+SB) → 仍含规模；<br>纯结构版：(ap₁−bp₁)·(ra₁+rb₁)/2</div>
+        <div class="note">流动性综合度量。改造后需保留 SA+SB 否则丢失规模信息。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造(谨慎)</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">加权深度失衡 WDepth-I</div>
+        <div class="en">Weighted Depth Imbalance</div>
+        <div class="formula">(Σaᵢ/(apᵢ−mid) − Σbᵢ/(mid−bpᵢ)) / 和</div>
+        <div class="reform">分子分母的 aᵢ/bᵢ 全部换为 raᵢ/rbᵢ 或 Raᵢ/Rbᵢ</div>
+        <div class="note">用价格距离做权，等价于"单位价格深度"。结构化后更稳定。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 小类1.2 -->
+  <div class="subcat">
+    <div class="subcat-title"><span class="num">2</span>多次快照 · 买卖两侧 <span class="pill">滚动窗口内多张快照 · 双侧</span></div>
+    <div class="cards">
+
+      <div class="card">
+        <div class="name">挂单失衡动量 ΔOBI</div>
+        <div class="en">OBI Momentum (windowed)</div>
+        <div class="formula">OBI_t − OBI_{t−k}</div>
+        <div class="reform">Δimb_r1 = (ra₁−rb₁)_t − (ra₁−rb₁)_{t−k}</div>
+        <div class="note">失衡的变化，比静态失衡更具预测力。结构版更平滑。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span><span class="badge b-multi">多期</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">微观价格动量 ΔMP</div>
+        <div class="en">Microprice Momentum</div>
+        <div class="formula">mp_t − mp_{t−k}</div>
+        <div class="reform">mp 用占比权重构造后再差分</div>
+        <div class="note">短期价格发现方向。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span><span class="badge b-multi">多期</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">失衡滚动 Z-Score</div>
+        <div class="en">Rolling Z of OBI</div>
+        <div class="formula">(OBI_t − μ_window) / σ_window</div>
+        <div class="reform">把 OBI 换成 imb_r1/r2 再标准化</div>
+        <div class="note">捕捉失衡的相对极端，自适应不同股票尺度。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span><span class="badge b-multi">多期</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">失衡均值回归量 MR-OBI</div>
+        <div class="en">Mean-Reversion OBI</div>
+        <div class="formula">OBI_t − mean(OBI_{t−k..t})</div>
+        <div class="reform">同上，OBI→imb_r</div>
+        <div class="note">短期反转信号，失衡偏离窗口均值。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span><span class="badge b-multi">多期</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">买卖深度协变 Cov(a₁,b₁)</div>
+        <div class="en">Bid-Ask Depth Covariance</div>
+        <div class="formula">Cov over window: E[(a₁−ā)(b₁−b̄)]</div>
+        <div class="reform">Cov(ra₁, rb₁) 或 Cov(Ra₁,Rb₁)</div>
+        <div class="note">挂单同增同减=均衡市；此消彼长=方向市。结构版剥离规模。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span><span class="badge b-multi">多期</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">加权失衡加速度</div>
+        <div class="en">Weighted OBI Acceleration</div>
+        <div class="formula">WOBI_t − 2·WOBI_{t−k} + WOBI_{t−2k}</div>
+        <div class="reform">WOBI→wobi_r</div>
+        <div class="note">失衡的二阶变化，捕捉"加速买/卖"。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span><span class="badge b-multi">多期</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">OFI 短窗（盘口侧）</div>
+        <div class="en">Short-window Order Flow (snapshot)</div>
+        <div class="formula">Σ_window [Δb₁·𝟙(bp↑) − Δa₁·𝟙(ap↓)]</div>
+        <div class="reform">Δb₁→Δ(rb₁), Δa₁→Δ(ra₁)（占比边际变化）</div>
+        <div class="note">纯盘口版 OFI，不含成交。占比边际=结构化流入。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span><span class="badge b-multi">多期</span></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 小类1.3 -->
+  <div class="subcat">
+    <div class="subcat-title"><span class="num">3</span>多次快照 · 买卖单侧 <span class="pill">滚动窗口内只用买盘 或 只用卖盘</span></div>
+    <div class="cards">
+
+      <div class="card">
+        <div class="name">买侧前档占比动量</div>
+        <div class="en">Bid-Front Share Momentum</div>
+        <div class="formula">rb₁_t − rb₁_{t−k}</div>
+        <div class="reform">即 rb₁ 的差分（已天然比例化）</div>
+        <div class="note">买盘挂单向前集聚的速度，反映买方积极度结构性上升。</div>
+        <div class="badges"><span class="badge b-reform">✅ 天然比例</span><span class="badge b-bid">买侧</span><span class="badge b-multi">多期</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">买侧深度滚动均值/方差</div>
+        <div class="en">Rolling Depth Stats (bid)</div>
+        <div class="formula">μ, σ of b₁ over window</div>
+        <div class="reform">μ,σ of rb₁ 或 Rb₁</div>
+        <div class="note">买盘流动性的稳定性。结构版跨股可比。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span><span class="badge b-bid">买侧</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">买盘撤单信号</div>
+        <div class="en">Bid Cancellation Signal</div>
+        <div class="formula">(b₁_{t−k} − b₁_t) / b₁_{t−k}</div>
+        <div class="reform">(rb₁_{t−k} − rb₁_t) / rb₁_{t−k}</div>
+        <div class="note">买盘前档骤降=撤单/被吃，常是虚假挂单或主力撤离。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span><span class="badge b-bid">买侧</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">买盘加权深度动量</div>
+        <div class="en">Weighted Bid Depth Momentum</div>
+        <div class="formula">Δ(Σwᵢbᵢ) over window</div>
+        <div class="reform">Δ(Σwᵢrbᵢ)</div>
+        <div class="note">买盘整体厚度的结构变化。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span><span class="badge b-bid">买侧</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">卖侧前档占比动量</div>
+        <div class="en">Ask-Front Share Momentum</div>
+        <div class="formula">ra₁_t − ra₁_{t−k}</div>
+        <div class="reform">天然 ra₁ 差分</div>
+        <div class="note">卖盘挂单前倾度变化，对称于买侧。</div>
+        <div class="badges"><span class="badge b-reform">✅ 天然比例</span><span class="badge b-ask">卖侧</span><span class="badge b-multi">多期</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">买盘斜率变化</div>
+        <div class="en">Bid-Book Slope Change</div>
+        <div class="formula">Δslope_b, slope_b = regress(bᵢ ~ i)</div>
+        <div class="reform">用 rbᵢ 做回归斜率</div>
+        <div class="note">挂单"形状"的变化，结构版更纯粹。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span><span class="badge b-bid">买侧</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">卖盘挂单集中度变化</div>
+        <div class="en">Ask Concentration Δ (HHI)</div>
+        <div class="formula">HHI_a = Σ(aᵢ/Σa)² 的差分</div>
+        <div class="reform">HHI 本身基于占比，跨期差分即结构变化</div>
+        <div class="note">集中度上升=卖盘向某档堆积。</div>
+        <div class="badges"><span class="badge b-reform">✅ 天然比例</span><span class="badge b-ask">卖侧</span></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 小类1.4 -->
+  <div class="subcat">
+    <div class="subcat-title"><span class="num">4</span>单次快照 · 买卖两侧 + 逐笔成交 <span class="pill">当前快照 + 该时刻附近成交</span></div>
+    <div class="cards">
+
+      <div class="card">
+        <div class="name">有效价差 ES</div>
+        <div class="en">Effective Spread</div>
+        <div class="formula">2·|trade_price − mid|</div>
+        <div class="reform">mid 不变；如用微观价可换占比权重 mp_r</div>
+        <div class="note">成交穿透盘口的成本。挂单部分可结构化。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-reform">✅ 部分可改</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">成交方向-挂单失衡背离</div>
+        <div class="en">Trade-Direction vs OBI Divergence</div>
+        <div class="formula">sign(主动买占比) · sign(OBI) 的不一致</div>
+        <div class="reform">OBI→imb_r1，主动方向保持</div>
+        <div class="note">价升但卖盘堆积=诱多；价跌但买盘堆积=诱空。结构版更敏锐。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">单笔吃单深度比</div>
+        <div class="en">Trade-to-Depth Ratio</div>
+        <div class="formula">trade_vol / a₁  （买方主动吃卖一）</div>
+        <div class="reform">trade_vol / (a₁/SA) = trade_vol·SA/a₁ → 保留规模；<br>或结构版：trade_vol / Ra₁</div>
+        <div class="note">一笔吃掉多少比例的前档。结构化需谨慎保留量纲。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-reform">⚠️ 谨慎</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">微观价格-成交价偏离</div>
+        <div class="en">Microprice-Trade Deviation</div>
+        <div class="formula">trade_price − mp</div>
+        <div class="reform">mp→mp_r（占比权重微观价格）</div>
+        <div class="note">成交价相对"公允微观价"的偏移，反映瞬时方向压力。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">成交价盘口位置分</div>
+        <div class="en">Trade Price Position Score</div>
+        <div class="formula">trade_price 在 [bp₁, ap₁] 内的相对位置</div>
+        <div class="reform">不涉及挂单量，无需改造</div>
+        <div class="note">仅在价内时有效，纯价格指标。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-reform">❌ 无挂单量</span></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 小类1.5 -->
+  <div class="subcat">
+    <div class="subcat-title"><span class="num">5</span>多次快照 · 买卖两侧 + 逐笔成交 <span class="pill">滚动窗口 · 盘口+成交 联合</span></div>
+    <div class="cards">
+
+      <div class="card">
+        <div class="name">订单流失衡 OFI</div>
+        <div class="en">Order Flow Imbalance (Cont-Kukanov)</div>
+        <div class="formula">Σ[Δb₁·𝟙(bp↑) + b₁·Δ𝟙(bp↑)] − 对称卖侧</div>
+        <div class="reform">所有 b₁/a₁ → rb₁/ra₁ 或 Rb₁/Ra₁</div>
+        <div class="note">高频领域最经典的价格-盘口联动量。结构版=结构化 OFI。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-reform">✅ 可改造</span><span class="badge b-multi">多期</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">VPIN 短窗</div>
+        <div class="en">Volume-Synchronized PIN</div>
+        <div class="formula">|Σvol_buy − Σvol_sell| / (Σvol) 在成交桶内</div>
+        <div class="reform">成交侧保持；可加权 imb_r 做盘口修正</div>
+        <div class="note">知情交易概率。纯成交量构造，挂单量可作为辅助加权。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-reform">⚠️ 辅助可改</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">已实现价差 RS</div>
+        <div class="en">Realized Spread</div>
+        <div class="formula">trade_price_t − mid_{t+k}</div>
+        <div class="reform">mid 不变；可选 mp_r</div>
+        <div class="note">做市商真实收益，衡量永久性价格冲击。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-reform">⚠️ 辅助</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">主买量 vs 卖盘消耗</div>
+        <div class="en">Buy-Volume vs Ask-Depletion</div>
+        <div class="formula">vol_buy_t / (a₁_{t−k} − a₁_t)</div>
+        <div class="reform">a₁ → ra₁ 或 Ra₁（消耗的结构比例）</div>
+        <div class="note">主动买盘吃掉卖盘的速度。结构化后跨股可比。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">OFI-微观价格背离</div>
+        <div class="en">OFI vs Microprice Divergence</div>
+        <div class="formula">sign(OFI) vs sign(Δmp) 不一致次数</div>
+        <div class="reform">OFI→OFI_r, mp→mp_r</div>
+        <div class="note">盘口流入与微观价格不同步=潜在反转。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">成交冲击 + 挂单恢复</div>
+        <div class="en">Trade Impact & Book Recovery</div>
+        <div class="formula">|Δmid after trade| 与 Δ(b₁+a₁) 的比</div>
+        <div class="reform">Δ(b₁+a₁) → Δ(Rb₁+Ra₁)</div>
+        <div class="note">成交后盘口恢复速度=市场韧性。结构版更稳。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">挂单成交消耗速率</div>
+        <div class="en">Book Consumption Rate</div>
+        <div class="formula">Σtrade_vol / Σ(aᵢ+bᵢ) over window</div>
+        <div class="reform">Σ(aᵢ+bᵢ) → SA+SB 保持，或用占比需保留规模</div>
+        <div class="note">流动性消耗速度。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-reform">⚠️ 需保留规模</span></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 小类1.6 -->
+  <div class="subcat">
+    <div class="subcat-title"><span class="num">6</span>多次快照 · 买卖单侧 + 逐笔成交 <span class="pill">滚动窗口 · 单侧盘口 + 单侧成交</span></div>
+    <div class="cards">
+
+      <div class="card">
+        <div class="name">买盘主动成交 vs 买盘挂单</div>
+        <div class="en">Buy-Trade vs Bid-Book</div>
+        <div class="formula">vol_buy / Σbᵢ over window</div>
+        <div class="reform">vol_buy / (Σrbᵢ) → 需保留 TB；或 vol_buy·TB/Σbᵢ</div>
+        <div class="note">主动买盘相对买盘挂单的强度。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-bid">买侧</span><span class="badge b-reform">⚠️ 谨慎</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">卖盘被吃速率</div>
+        <div class="en">Ask-Consumption Rate</div>
+        <div class="formula">vol_buy / a₁ over window</div>
+        <div class="reform">a₁ → ra₁, 需保留 TA 还原</div>
+        <div class="note">买方主动吃卖一的速度。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-ask">卖侧</span><span class="badge b-reform">⚠️ 谨慎</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">单侧 OFI</div>
+        <div class="en">One-Sided OFI</div>
+        <div class="formula">仅买侧：ΣΔb₁·𝟙(bp↑)</div>
+        <div class="reform">b₁ → rb₁</div>
+        <div class="note">只看买盘流入，结构版剥离规模。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-bid">买侧</span><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">买盘补单 vs 撤单</div>
+        <div class="en">Bid Top-Up vs Cancel</div>
+        <div class="formula">Δb₁(after trade) − vol_consumed_b</div>
+        <div class="reform">Δb₁ → Δ(rb₁)</div>
+        <div class="note">成交后买盘是否补挂=支撑力度。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-bid">买侧</span><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">主动买入占比 vs 买深变化</div>
+        <div class="en">Buy-Trade-Share vs Bid-Depth Δ</div>
+        <div class="formula">vol_buy/(vol_buy+vol_sell) − Δ(Σbᵢ)/Σbᵢ</div>
+        <div class="reform">Δ(Σbᵢ) → Δ(Σrbᵢ)</div>
+        <div class="note">主动买强度与买盘厚度结构变化的对照。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-bid">买侧</span><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============================ 大类二：日频 ============================ -->
+<section class="cat cat2">
+  <h2>大类二 · 日频级别指标</h2>
+  <p class="cat-meta">每只股票每天输出一个值，用于日频选股/截面回测。下方"单次快照"指取开盘/收盘/集合竞价等特定时刻；"全天所有快照"指用当日全部快照联合统计（含时间加权、路径积分等）。</p>
+
+  <!-- 小类2.1 -->
+  <div class="subcat">
+    <div class="subcat-title"><span class="num">1</span>单次快照 · 买卖两侧（特定时刻→日频） <span class="pill">取开盘/收盘/集合竞价快照</span></div>
+    <div class="cards">
+
+      <div class="card">
+        <div class="name">收盘 1 档失衡</div>
+        <div class="en">Close OBI_1</div>
+        <div class="formula">用收盘快照算 (a₁−b₁)/(a₁+b₁)</div>
+        <div class="reform">收盘 imb1_r1 = ra₁ − rb₁（收盘快照）</div>
+        <div class="note">尾盘挂单结构对次日开盘有预测力。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">开盘加权失衡</div>
+        <div class="en">Open WOBI</div>
+        <div class="formula">开盘快照的 WOBI</div>
+        <div class="reform">→ wobi_r1（开盘）</div>
+        <div class="note">集合竞价结果反映隔夜情绪。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">尾盘微观价格偏移</div>
+        <div class="en">Close Microprice Gap</div>
+        <div class="formula">(mp − mid) at close</div>
+        <div class="reform">mp → mp_r（占比权重）</div>
+        <div class="note">尾盘"真实价格"相对报价中点的偏移。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">特定时刻压力差</div>
+        <div class="en">Snapshot Pressure Diff</div>
+        <div class="formula">收盘 Σwᵢaᵢ − Σwᵢbᵢ</div>
+        <div class="reform">→ press_r1/r2</div>
+        <div class="note">尾盘单边压力的截面排序。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">集合竞价失衡</div>
+        <div class="en">Call-Auction Imbalance</div>
+        <div class="formula">开盘/收盘集合竞价盘口的 (a₁−b₁)/(a₁+b₁)</div>
+        <div class="reform">→ imb1_r1/r2</div>
+        <div class="note">集合竞价信息密度高，失衡信号强。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 小类2.2 -->
+  <div class="subcat">
+    <div class="subcat-title"><span class="num">2</span>多次快照 · 买卖两侧 → 日频聚合 <span class="pill">全天多次快照双侧统计</span></div>
+    <div class="cards">
+
+      <div class="card">
+        <div class="name">日内 OBI 均值</div>
+        <div class="en">Intraday Mean OBI</div>
+        <div class="formula">mean_t(OBI_t)</div>
+        <div class="reform">mean_t(imb_r_t)</div>
+        <div class="note">全天失衡的平均方向。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">日内 OBI 波动</div>
+        <div class="en">Intraday OBI Volatility</div>
+        <div class="formula">std_t(OBI_t)</div>
+        <div class="reform">std_t(imb_r_t)</div>
+        <div class="note">失衡的稳定性，高波动=分歧大。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">日内 OBI 偏度/峰度</div>
+        <div class="en">OBI Skew / Kurt</div>
+        <div class="formula">skew, kurt of OBI 序列</div>
+        <div class="reform">基于 imb_r 序列</div>
+        <div class="note">失衡分布形态，捕捉尾部单边时刻。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">成交量加权 OBI</div>
+        <div class="en">Volume-Weighted OBI</div>
+        <div class="formula">Σ(vol_t·OBI_t)/Σvol_t</div>
+        <div class="reform">vol_t·imb_r_t</div>
+        <div class="note">在成交密集时段赋予更高权重。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">OBI 首尾差</div>
+        <div class="en">OBI Open-Close Diff</div>
+        <div class="formula">OBI_close − OBI_open</div>
+        <div class="reform">imb_r_close − imb_r_open</div>
+        <div class="note">日内失衡结构的净变化，方向性强。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">OBI 日内趋势</div>
+        <div class="en">Intraday OBI Trend</div>
+        <div class="formula">regress(OBI_t ~ t) 的斜率</div>
+        <div class="reform">regress(imb_r_t ~ t)</div>
+        <div class="note">失衡是日内单调走强还是走弱。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">微观价格日均偏离</div>
+        <div class="en">Daily Microprice Bias</div>
+        <div class="formula">mean(mp_t − mid_t) / mid</div>
+        <div class="reform">mp → mp_r</div>
+        <div class="note">全天"公允价"相对报价的系统性偏移。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">OBI 极差</div>
+        <div class="en">OBI Range</div>
+        <div class="formula">max(OBI_t) − min(OBI_t)</div>
+        <div class="reform">基于 imb_r 序列</div>
+        <div class="note">日内失衡摆幅，衡量分歧程度。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 小类2.3 -->
+  <div class="subcat">
+    <div class="subcat-title"><span class="num">3</span>多次快照 · 买卖单侧 → 日频聚合 <span class="pill">全天多次快照单侧统计</span></div>
+    <div class="cards">
+
+      <div class="card">
+        <div class="name">买盘前档占比日均</div>
+        <div class="en">Daily Mean Bid-Front Share</div>
+        <div class="formula">mean_t(rb₁_t)</div>
+        <div class="reform">天然 rb₁ 序列均值</div>
+        <div class="note">买盘挂单平均前倾度，跨股可比的"买方结构强度"。</div>
+        <div class="badges"><span class="badge b-reform">✅ 天然比例</span><span class="badge b-bid">买侧</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">买盘深度日均/波动</div>
+        <div class="en">Bid Depth Mean/Std</div>
+        <div class="formula">μ,σ of Σbᵢ</div>
+        <div class="reform">μ,σ of Σrbᵢ</div>
+        <div class="note">买盘流动性的日级稳定性。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span><span class="badge b-bid">买侧</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">买盘结构趋势</div>
+        <div class="en">Bid-Structure Trend</div>
+        <div class="formula">regress(rb₁_t ~ t) 斜率</div>
+        <div class="reform">天然比例序列</div>
+        <div class="note">买盘前倾度日内是增强还是衰减。</div>
+        <div class="badges"><span class="badge b-reform">✅ 天然比例</span><span class="badge b-bid">买侧</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">买盘加权深度日累计</div>
+        <div class="en">Daily Weighted Bid Depth</div>
+        <div class="formula">Σ_t Σᵢwᵢbᵢ</div>
+        <div class="reform">Σ_t Σᵢwᵢrbᵢ</div>
+        <div class="note">买盘"加权厚度"的日总量。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span><span class="badge b-bid">买侧</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">卖盘挂单集中度日均</div>
+        <div class="en">Daily Ask Concentration</div>
+        <div class="formula">mean_t(HHI_a_t)</div>
+        <div class="reform">HHI 天然基于占比</div>
+        <div class="note">卖盘挂单堆积程度。</div>
+        <div class="badges"><span class="badge b-reform">✅ 天然比例</span><span class="badge b-ask">卖侧</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">卖盘撤单率日均</div>
+        <div class="en">Daily Ask Cancel Rate</div>
+        <div class="formula">count(ra₁↓显著) / N</div>
+        <div class="reform">基于 ra₁ 序列</div>
+        <div class="note">卖盘虚假挂单频率。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span><span class="badge b-ask">卖侧</span></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 小类2.4 -->
+  <div class="subcat">
+    <div class="subcat-title"><span class="num">4</span>全天所有快照联合构造 <span class="pill">日频独有 · 用全天快照整体统计</span></div>
+    <div class="cards">
+
+      <div class="card">
+        <div class="name">时间加权 OBI</div>
+        <div class="en">Time-Weighted OBI</div>
+        <div class="formula">Σ(Δt·OBI_t)/ΣΔt</div>
+        <div class="reform">→ 时间加权 imb_r</div>
+        <div class="note">按快照持续时长加权，更接近"真实全天失衡"。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">全天挂单分布熵</div>
+        <div class="en">Daily Book Entropy</div>
+        <div class="formula">−Σ pᵢ log pᵢ, pᵢ=aᵢ/(SA+SB)（含买卖档）</div>
+        <div class="reform">天然基于占比，可直接用</div>
+        <div class="note">挂单在 20 档间分布的均匀度，熵高=流动性均匀。</div>
+        <div class="badges"><span class="badge b-reform">✅ 天然比例</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">全天挂单斜率均值</div>
+        <div class="en">Daily Book Slope</div>
+        <div class="formula">mean_t(regress(volᵢ ~ 档位i))</div>
+        <div class="reform">用 raᵢ/rbᵢ 做回归</div>
+        <div class="note">盘口"形状"的日级特征。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">全天微观价格路径积分</div>
+        <div class="en">Microprice Path Integral</div>
+        <div class="formula">∫ mp_t dt 或 Σ(mp_t·Δt)</div>
+        <div class="reform">mp → mp_r</div>
+        <div class="note">全天"公允价"的时间累积，类似 VWAP 的微观版。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">盘口形态稳定性</div>
+        <div class="en">Book Shape Stability</div>
+        <div class="formula">全天各快照挂单分布向量间的平均相关</div>
+        <div class="reform">用占比向量 (ra,rb) 计算</div>
+        <div class="note">形态稳定=做市充分；形态跳变=单边主导。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">全天前档占比均值</div>
+        <div class="en">Daily Front-Share</div>
+        <div class="formula">mean_t((a₁+b₁)/(SA+SB)_t)</div>
+        <div class="reform">天然占比</div>
+        <div class="note">挂单整体前倾度。</div>
+        <div class="badges"><span class="badge b-reform">✅ 天然比例</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">全天 OBI 自相关</div>
+        <div class="en">OBI Autocorrelation</div>
+        <div class="formula">corr(OBI_t, OBI_{t+k})</div>
+        <div class="reform">基于 imb_r 序列</div>
+        <div class="note">失衡持续性，高自相关=趋势市。</div>
+        <div class="badges"><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">盘口形态聚类特征</div>
+        <div class="en">Book-Shape Cluster Feature</div>
+        <div class="formula">对全天快照占比向量聚类，取主簇占比</div>
+        <div class="reform">基于占比向量天然成立</div>
+        <div class="note">识别"主导盘口形态"及其出现频率。</div>
+        <div class="badges"><span class="badge b-reform">✅ 天然比例</span></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 小类2.5 -->
+  <div class="subcat">
+    <div class="subcat-title"><span class="num">5</span>单次快照 · 买卖两侧 + 逐笔成交（特定时刻→日频）</div>
+    <div class="cards">
+
+      <div class="card">
+        <div class="name">收盘有效价差</div>
+        <div class="en">Close Effective Spread</div>
+        <div class="formula">2|trade − mid| at close</div>
+        <div class="reform">mid 可换 mp_r</div>
+        <div class="note">尾盘成交穿透成本。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-reform">⚠️ 辅助</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">尾盘 OFI 快照</div>
+        <div class="en">Snapshot OFI (close bucket)</div>
+        <div class="formula">收盘前短窗 OFI</div>
+        <div class="reform">OFI→OFI_r</div>
+        <div class="note">尾盘资金流方向。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">特定时刻主动买卖失衡</div>
+        <div class="en">Snapshot Trade Imbalance</div>
+        <div class="formula">(vol_buy−vol_sell)/(vol_buy+vol_sell) at snapshot</div>
+        <div class="reform">纯成交，挂单可加权修正</div>
+        <div class="note">尾盘主动方向强度。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-reform">⚠️ 辅助</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">尾盘吃单深度</div>
+        <div class="en">Close Trade-to-Depth</div>
+        <div class="formula">close_trade_vol / a₁</div>
+        <div class="reform">a₁ → ra₁ 需保留 TA</div>
+        <div class="note">尾盘一笔能吃多深。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-reform">⚠️ 谨慎</span></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 小类2.6 -->
+  <div class="subcat">
+    <div class="subcat-title"><span class="num">6</span>多次快照 · 买卖两侧 + 逐笔成交 → 日频聚合</div>
+    <div class="cards">
+
+      <div class="card">
+        <div class="name">日 OFI 累计</div>
+        <div class="en">Daily Cumulative OFI</div>
+        <div class="formula">Σ_t OFI_t</div>
+        <div class="reform">Σ_t OFI_r_t</div>
+        <div class="note">全天净资金流入，强日频预测因子。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">日有效价差均值</div>
+        <div class="en">Daily Mean Effective Spread</div>
+        <div class="formula">mean_t(ES_t)</div>
+        <div class="reform">mid→mp_r</div>
+        <div class="note">全天交易成本均值，流动性日度量。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-reform">⚠️ 辅助</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">日 VPIN</div>
+        <div class="en">Daily VPIN</div>
+        <div class="formula">mean(桶内|vol_buy−vol_sell|/总)</div>
+        <div class="reform">成交桶保持，可加 imb_r 权</div>
+        <div class="note">知情交易概率日度量。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-reform">⚠️ 辅助</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">主买卖净额日累计</div>
+        <div class="en">Daily Net Buy Volume</div>
+        <div class="formula">Σ(vol_buy − vol_sell)</div>
+        <div class="reform">纯成交；可用 imb_r 做盘口加权版</div>
+        <div class="note">日级资金流方向。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-reform">⚠️ 辅助</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">OFI-微观价格日背离度</div>
+        <div class="en">Daily OFI-MP Divergence</div>
+        <div class="formula">corr(OFI_t, Δmp_t) 或不一致率</div>
+        <div class="reform">OFI→OFI_r, mp→mp_r</div>
+        <div class="note">盘口流入与价格的同步性，低同步=信息泄露。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">成交-挂单协整特征</div>
+        <div class="en">Trade-Book Cointegration</div>
+        <div class="formula">trade_vol 序列与 a₁/b₁ 序列的协整系数</div>
+        <div class="reform">a₁/b₁ → ra₁/rb₁</div>
+        <div class="note">成交与挂单的长期均衡关系。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">大单净买 vs 挂单变化</div>
+        <div class="en">Big-Order Net vs Book Δ</div>
+        <div class="formula">big_order_net − Δ(Σaᵢ−Σbᵢ)</div>
+        <div class="reform">Δ(Σaᵢ−Σbᵢ) → Δ(ΣRaᵢ−ΣRbᵢ)</div>
+        <div class="note">大单与盘口结构变化的对照。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 小类2.7 -->
+  <div class="subcat">
+    <div class="subcat-title"><span class="num">7</span>多次快照 · 买卖单侧 + 逐笔成交 → 日频聚合</div>
+    <div class="cards">
+
+      <div class="card">
+        <div class="name">买盘主动成交占比日累计</div>
+        <div class="en">Daily Buy-Trade Share</div>
+        <div class="formula">Σvol_buy / Σ(vol_buy+vol_sell)</div>
+        <div class="reform">纯成交；可加 rb 加权</div>
+        <div class="note">全天主动买方强度。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-bid">买侧</span><span class="badge b-reform">⚠️ 辅助</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">卖盘被吃单日总量</div>
+        <div class="en">Daily Ask Consumption</div>
+        <div class="formula">Σvol_buy that hits ask</div>
+        <div class="reform">可用 ra₁ 衡量卖盘被吃结构比</div>
+        <div class="note">卖盘日消耗量。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-ask">卖侧</span><span class="badge b-reform">⚠️ 辅助</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">买盘 OFI 日累计</div>
+        <div class="en">Daily Bid-Side OFI</div>
+        <div class="formula">Σ 单侧买 OFI</div>
+        <div class="reform">b₁→rb₁</div>
+        <div class="note">买盘结构流入日总量。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-bid">买侧</span><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">买盘撤单率日均</div>
+        <div class="en">Daily Bid Cancel Rate</div>
+        <div class="formula">count(rb₁↓) / N</div>
+        <div class="reform">基于 rb₁ 序列</div>
+        <div class="note">买盘虚假挂单频率。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-bid">买侧</span><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">大单买盘冲击日累计</div>
+        <div class="en">Daily Big-Buy Impact</div>
+        <div class="formula">Σ(big_buy_vol / b₁)</div>
+        <div class="reform">b₁→rb₁ 需保留 TB</div>
+        <div class="note">大单买入对买盘的冲击。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-bid">买侧</span><span class="badge b-reform">⚠️ 谨慎</span></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 小类2.8 -->
+  <div class="subcat">
+    <div class="subcat-title"><span class="num">8</span>全天所有快照 + 逐笔成交 联合构造 <span class="pill">日频独有 · 全天盘口+成交 路径级特征</span></div>
+    <div class="cards">
+
+      <div class="card">
+        <div class="name">全天 VPIN（时间加权）</div>
+        <div class="en">Full-Day VPIN</div>
+        <div class="formula">全天成交桶失衡的时间加权均值</div>
+        <div class="reform">可叠加 imb_r 做盘口修正</div>
+        <div class="note">信息不对称的日级综合度量。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-reform">⚠️ 辅助</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">价格冲击系数 λ (Kyle)</div>
+        <div class="en">Kyle's Lambda</div>
+        <div class="formula">regress(Δprice_t ~ OFI_t) 斜率</div>
+        <div class="reform">OFI→OFI_r 得"结构冲击系数"</div>
+        <div class="note">单位(结构)订单流对价格的冲击，深度度量。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">微观 Amihud 非流动性</div>
+        <div class="en">Micro-Amihud Illiquidity</div>
+        <div class="formula">mean(|Δmp|/vol_t)</div>
+        <div class="reform">mp→mp_r</div>
+        <div class="note">单位成交引起的微观价格变动。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">信息份额 Hasbrouck</div>
+        <div class="en">Information Share</div>
+        <div class="formula">VAR/VECM 分解 mp 与 trade 的价格贡献</div>
+        <div class="reform">mp→mp_r</div>
+        <div class="note">盘口 vs 成交谁主导价格发现。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-reform">⚠️ 辅助</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">成交-挂单联合路径特征</div>
+        <div class="en">Joint Trade-Book Path Feature</div>
+        <div class="formula">对 (OFI_t, imb_r_t, vol_t) 序列提取主成分</div>
+        <div class="reform">imb_r 天然结构化</div>
+        <div class="note">全天价-量-盘口联合动力学的低维特征。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">全天结构化 OFI 路径积分</div>
+        <div class="en">Full-Day Structured OFI Integral</div>
+        <div class="formula">∫ OFI_r(t)·w(t) dt （带时间衰减权）</div>
+        <div class="reform">OFI_r 已结构化</div>
+        <div class="note">近期权重的全天资金流，对次日收益预测力强。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">成交强度-挂单吸收联合度</div>
+        <div class="en">Trade-Intensity vs Book-Absorption</div>
+        <div class="formula">corr(trade_intensity_t, Δ(Rb₁+Ra₁))</div>
+        <div class="reform">天然基于占比</div>
+        <div class="note">成交密集时盘口是否被有效吸收。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+      <div class="card">
+        <div class="name">微观价格发现比</div>
+        <div class="en">Microprice Discovery Ratio</div>
+        <div class="formula">sign(Δmp_r)=sign(ret) 的频率</div>
+        <div class="reform">mp→mp_r</div>
+        <div class="note">微观价格对真实收益的引导准确率。</div>
+        <div class="badges"><span class="badge b-trd">逐笔</span><span class="badge b-reform">✅ 可改造</span></div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<div class="foot">
+  📈 共收录 <b>90+</b> 个盘口微观结构指标，覆盖 7 大族系：挂单失衡 / 深度价差 / 盘口形态 / 微观价格 / OFI 成交 / VPIN 信息 / 跨期动量。<br>
+  改造原则：rate1 = 档位挂单量 / 该侧全部挂单(total_ask_vol，含10档外)；rate2 = 档位挂单量 / 该侧前10档总和(Σaᵢ)。仅对"前 K 档(K&lt;10)且涉及两侧或多期"的指标改造有效。
+</div>
+  </main>
+
+  <aside class="rail">
+    <div class="legend">
+      <h3>🔢 符号约定（对照）</h3>
+      <div class="legend-grid">
+        <div><code>a_i / b_i</code> <span class="desc">卖/买第 i 档挂单量</span></div>
+        <div><code>ap_i / bp_i</code> <span class="desc">卖/买第 i 档价格</span></div>
+        <div><code>TA</code> <span class="desc">卖侧全部挂单 Σa_i</span></div>
+        <div><code>TB</code> <span class="desc">买侧全部挂单 Σb_i</span></div>
+        <div><code>SA</code> <span class="desc">卖侧前10档和 Σaᵢ</span></div>
+        <div><code>SB</code> <span class="desc">买侧前10档和 Σbᵢ</span></div>
+        <div><code>ra_i</code> <span class="desc">a_i/TA (rate1)</span></div>
+        <div><code>rb_i</code> <span class="desc">b_i/TB (rate1)</span></div>
+        <div><code>Ra_i</code> <span class="desc">a_i/SA (rate2)</span></div>
+        <div><code>Rb_i</code> <span class="desc">b_i/SB (rate2)</span></div>
+        <div><code>mid</code> <span class="desc">中间价</span></div>
+        <div><code>mp</code> <span class="desc">微观价格</span></div>
+        <div><code>w_i</code> <span class="desc">档位权重</span></div>
+        <div><code>vol_buy/sell</code> <span class="desc">主动买/卖成交量</span></div>
+      </div>
+    </div>
+    <div class="quickcheck">
+      <h3>🧭 改造适用性速查</h3>
+      <table>
+        <tr><th>数据使用方式</th><th>能否</th></tr>
+        <tr><td>单次快照 · 两侧</td><td class="yes">✅</td></tr>
+        <tr><td>多次快照 · 两侧</td><td class="yes">✅</td></tr>
+        <tr><td>多次快照 · 单侧</td><td class="yes">✅</td></tr>
+        <tr><td>单次快照 · 单侧</td><td class="no">❌</td></tr>
+        <tr><td>含逐笔 · 两侧/多期</td><td class="yes">✅</td></tr>
+        <tr><td>全 10 档加总失衡</td><td class="no">❌</td></tr>
+      </table>
+      <div class="qc-note">单侧单次 = 无对称基准、无时间维度，占比退化；全 10 档 Σra=Σrb=1，失衡恒 0，仅前 K 档(K&lt;10)可改。</div>
+    </div>
+  </aside>
+</div>
+
+</div>
+</body>
+</html>

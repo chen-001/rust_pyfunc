@@ -1,5 +1,6 @@
 # Rust
 /target/
+/sandbox/target/
 **/*.rs.bk
 # Note: Cargo.lock should be committed for binary crates, ignored for library crates
 # This project appears to be a library, but keeping Cargo.lock for reproducible builds

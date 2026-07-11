@@ -2512,3 +2512,69 @@ def run_factor_pipeline(
       彻底消除 HDD 80 路随机寻道瓶颈。
     """
     ...
+
+
+def compute_corr_contribution_factors(
+    field: NDArray[np.float64],
+    top_k: int = 300,
+    parallel: bool = False,
+) -> dict[str, NDArray[np.float64]]:
+    """计算相邻分钟截面相关系数的逐股贡献度因子。
+
+    对输入的 (T, N) 字段矩阵，计算每相邻两行的截面 Pearson 相关系数，
+    得到 corr 序列（长度 T-1）。再用 4 种方法将每个相关系数分解到每只股票，
+    得到 4 个 (T-1) × N 贡献度矩阵，然后衍生出 793 个因子。
+
+    Parameters
+    ----------
+    field : np.ndarray (T, N)
+        T 个时间点 × N 只股票的字段值矩阵
+    top_k : int, 默认 300
+        选取 corr 最大/最小的行数
+
+    Returns
+    -------
+    dict[str, np.ndarray]
+        793 个因子，每个长度 N。命名规则：
+        - {method}_{type}_{stat}: 列统计 (type=full/prod/top/bot)
+        - {method}_{type}_cm_{stat}: 相关系数矩阵的列统计
+        - {method}_{type}_fcorr: 与原始 field 的逐列相关
+        - {method}_{type}_ha_corr: 硬拼凑贡献度与 field 的相关
+        - {method}_{type}_ha_time_{stat}: 硬拼凑 field 按时间序统计
+        - {method}_{type}_ha_mag_{stat}: 硬拼凑 field 按贡献度绝对值序统计
+        - orth1_{type}_{stat}: field 正交 corr_seq 的残差统计
+        - orth1_{type}_cm_{stat}: 残差相关矩阵统计
+        - {method}_orth2_{type}_{stat}: field 正交 corr×贡献 的残差统计
+
+        method: m1(加性分解) m2(留一影响) m3(影响函数) m4(回归斜率DFBETA)
+        stat: mean std skew kurt p5 p95 trend ac1
+    """
+    ...
+
+
+def compute_corr_contribution_multi(
+    field_stack: NDArray[np.float64],
+    field_names: List[str],
+    top_k: int = 300,
+    parallel: bool = False,
+) -> dict[str, NDArray[np.float64]]:
+    """批量计算多个字段的相邻分钟截面相关系数贡献度因子（逐个顺序计算）。
+
+    与 compute_corr_contribution_factors 逻辑相同，但接受 (T, N, K) 的 3D 矩阵，
+    对 K 个 field 并行计算，返回 flat dict（因子名带 field 前缀）。
+
+    Parameters
+    ----------
+    field_stack : np.ndarray (T, N, K)
+        K 个字段的矩阵堆叠
+    field_names : List[str]
+        每个 field 的名称，用作因子名前缀
+    top_k : int, 默认 300
+        选取 corr 最大/最小的行数
+
+    Returns
+    -------
+    dict[str, np.ndarray]
+        K × 793 个因子，命名: {field_name}_{method}_{type}_{stat} 等
+    """
+    ...

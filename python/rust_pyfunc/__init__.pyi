@@ -14,7 +14,7 @@ rust_pyfunc - 高性能Python函数库
 - tree_structures: 树结构相关类
 """
 
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 # 导入所有类型声明
 from .core_functions import *
@@ -57,6 +57,48 @@ def py_extreme_point_fit(code: str, date: int) -> List[float]:
 
 
 def py_extreme_point_fit_names() -> List[str]:
+    ...
+
+
+def py_distill(code: str, date: int, prev_date: Optional[int] = None) -> List[float]:
+    ...
+
+
+def py_distill_names() -> List[str]:
+    ...
+
+
+def py_distill_tick(code: str, date: int) -> List[float]:
+    ...
+
+
+def py_distill_tick_names() -> List[str]:
+    ...
+
+def py_read_minute_data(field: str, date: int) -> Tuple[List[str], List[float], int, int]:
+    ...
+
+
+def run_factor_pipeline_minute(
+    pipeline: str,
+    tasks: List[int],
+    n_jobs: int,
+    expected_result_length: int,
+    trading_days: List[int],
+    params: Optional[dict] = None,
+    update_mode: Optional[bool] = None,
+    bind_cores: bool = True,
+    store_dir: Optional[str] = None,
+    store_factor_names: Optional[List[str]] = None,
+) -> None:
+    ...
+
+
+def py_minute_example(date: int) -> Tuple[List[str], List[float]]:
+    ...
+
+
+def py_minute_example_names() -> List[str]:
     ...
 
 
@@ -300,15 +342,21 @@ __all__ = [
     "simulate_exhaustion_reversal_agents_py",
     "compute_theme_feature_expansion_from_minute",
     "prepare_minute_data_for_theme_feature_expansion",
-    "compute_theme_feature_expansion_from_minute_raw",
-    "compute_theme_feature_expansion_from_date",
+    "py_read_minute_data",
+    "run_factor_pipeline_minute",
+    "py_minute_example",
+    "py_minute_example_names",
     "get_theme_cluster_scatter_3d",
     "adjust_afternoon",
     "read_trade",
     "read_market",
     "read_market_pair",
     "read_minute_data",
-    "get_features_factors_single",
+    "py_extreme_point_fit_names",
+    "py_distill",
+    "py_distill_names",
+    "py_distill_tick",
+    "py_distill_tick_names",
     "get_features_factors",
     "get_features_names",
     "py_individual_order_ratio",
