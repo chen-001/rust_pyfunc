@@ -18,8 +18,8 @@ use std::collections::HashMap;
 // ============================================================================
 
 pub const N_FACTORS: usize = 25;
-pub const M_MAX_SCALAR: usize = 50_000;
-pub const M_MAX_MINUTE: usize = 5_000;
+pub const M_MAX_SCALAR: usize = 500_000;
+pub const M_MAX_MINUTE: usize = 50_000;
 pub const C1_FRAC: f64 = 1.0;
 pub const SEED: u64 = 0x9E37_79B9_7F4A_7C15;
 pub const N_SCALAR_SEGMENTS: usize = 65;
