@@ -67,8 +67,8 @@ pub const N_COLS: usize = N_TRADE_COLS + N_MARKET_COLS; // 192
 pub const OUT_LEN: usize = N_ROWS * N_COLS; // 4992
 
 /// get_features_factors 降维后的因子数。
-/// 19 个单列统计量 × 192 列 + C(192,2) 配对相关性 = 3648 + 18336 = 21984
-pub const FEAT_LEN: usize = 19 * N_COLS + N_COLS * (N_COLS - 1) / 2;
+/// 21 个单列统计量 × 192 列 + C(192,2) 配对相关性 = 4032 + 18336 = 22368
+pub const FEAT_LEN: usize = 21 * N_COLS + N_COLS * (N_COLS - 1) / 2;
 
 /// 局部放量窗口半径（前后各 3 秒）。
 const LOCAL_VOL_HALF_WINDOW: f32 = 3.0;
@@ -164,6 +164,8 @@ pub fn extreme_fit_feat_names() -> Vec<String> {
         "autocorr1",
         "autocorr1_abs",
         "trend",
+        "curvature",
+        "quad_coef",
         "period_diff",
         "period_ratio",
         "lz_complexity",

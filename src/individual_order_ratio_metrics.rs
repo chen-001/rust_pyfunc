@@ -13,11 +13,11 @@
 //!            intensity, avgsize, mp_dev
 //!
 //! 5 个 2D（各 n×40）：before, after_r1, after_r2, diff_r1(=r1-before), diff_r2(=r2-before)
-//!   各调 get_features_factors_rust_full 降维 → 5 个因子序列，每个 1540 维
-//!   (feat_per_group(40) = 19*40 + C(40,2) = 760+780 = 1540)
+//!   各调 get_features_factors_rust_full 降维 → 5 个因子序列，每个 1620 维
+//!   (feat_per_group(40) = 21*40 + C(40,2) = 840+780 = 1620)
 //! 日频 5 个 1D（各 40）：day_before/after_r1/after_r2/diff_r1/diff_r2（40 指标的全天均值）
 //!
-//! 输出 OUT_LEN = 5*1540 + 5*40 = 7700 + 200 = 7900。
+//! 输出 OUT_LEN = 5*1620 + 5*40 = 8100 + 200 = 8300。
 
 use crate::features;
 use ndarray::Array2;
@@ -27,8 +27,8 @@ pub const SNAP_K: usize = 40;
 pub const DAY_M: usize = 40;
 pub const ROLL_N: usize = 20;
 pub const TRADE_WIN_SEC: f32 = 60.0;
-pub const FEAT_PER_GROUP: usize = 19 * SNAP_K + SNAP_K * (SNAP_K - 1) / 2; // 1540
-pub const OUT_LEN: usize = 5 * FEAT_PER_GROUP + 5 * DAY_M; // 7900
+pub const FEAT_PER_GROUP: usize = 21 * SNAP_K + SNAP_K * (SNAP_K - 1) / 2; // 1620
+pub const OUT_LEN: usize = 5 * FEAT_PER_GROUP + 5 * DAY_M; // 8300
 
 const W: [f32; 10] = [
     1.0,

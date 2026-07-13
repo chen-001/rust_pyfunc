@@ -179,6 +179,132 @@ fn trend_1d(col: &[f32]) -> f32 {
     cov / (var_x.sqrt() * var_y.sqrt())
 }
 
+/// 计算一维序列与二次时间基 (t−t̄)² 的 Pearson 相关系数（二阶趋势/弯曲方向）。
+/// 与 trend_1d 对称：trend 看"一阶线性方向"，curvature 看"二阶抛物线方向"。
+/// 无量纲 [-1,1]：>0 凹(U型，中间低两头高)，<0 凸(倒U型，中间高两头低)，≈0 无二阶弯曲。
+/// 对等距索引，t 与 (t−t̄)² 正交，故 curvature 与 trend 解耦、不冗余。
+#[inline]
+fn curvature_1d(col: &[f32]) -> f32 {
+    let pairs: Vec<(f64, f64)> = col
+        .iter()
+        .enumerate()
+        .filter(|(_, &v)| !v.is_nan())
+        .map(|(i, &v)| ((i + 1) as f64, v as f64))
+        .collect();
+    let n = pairs.len();
+    if n < 3 {
+        return 0.0;
+    }
+    let nf = n as f64;
+    let mean_t: f64 = pairs.iter().map(|(t, _)| t).sum::<f64>() / nf;
+    let mean_y: f64 = pairs.iter().map(|(_, y)| y).sum::<f64>() / nf;
+    // 二次基 q = (t−mean_t)²，先算其均值（Pearson 要求双侧去中心）
+    let mean_q: f64 = pairs.iter().map(|(t, _)| (t - mean_t).powi(2)).sum::<f64>() / nf;
+    let (mut cov, mut var_y, mut var_q) = (0.0f64, 0.0f64, 0.0f64);
+    for (t, y) in &pairs {
+        let q = (t - mean_t).powi(2);
+        let dy = y - mean_y;
+        let dq = q - mean_q;
+        cov += dy * dq;
+        var_y += dy * dy;
+        var_q += dq * dq;
+    }
+    if var_y == 0.0 || var_q == 0.0 {
+        return 0.0;
+    }
+    (cov / (var_y.sqrt() * var_q.sqrt())) as f32
+}
+
+/// 解 3×3 线性方程组（部分主元高斯消元）。增广矩阵 m=[[a0 a1 a2 b];...]，奇异返回 None。
+#[inline]
+fn solve3(mut m: [[f64; 4]; 3]) -> Option<[f64; 3]> {
+    for k in 0..3 {
+        // 部分主元：选第 k 列绝对值最大行
+        let mut piv = k;
+        for i in (k + 1)..3 {
+            if m[i][k].abs() > m[piv][k].abs() {
+                piv = i;
+            }
+        }
+        if m[piv][k].abs() < 1e-30 {
+            return None;
+        }
+        if piv != k {
+            m.swap(piv, k);
+        }
+        // 全消元（消除其它行第 k 列）
+        for i in 0..3 {
+            if i != k {
+                let f = m[i][k] / m[k][k];
+                for j in k..4 {
+                    m[i][j] -= f * m[k][j];
+                }
+            }
+        }
+    }
+    Some([m[0][3] / m[0][0], m[1][3] / m[1][1], m[2][3] / m[2][2]])
+}
+
+/// 计算去趋势后的归一化二次拟合贡献（二阶弯曲强度）。
+/// 对去中心化时间 u=t−t̄ 做线性拟合(R²_lin) 与 二次拟合(R²_quad)，返回
+/// sign(a₂)·(R²_quad − R²_lin)，其中 a₂ 为二次项系数。
+/// 与 curvature 互补：curvature 看"二阶方向一致度"，quad_coef 看"二次项相对线性项的边际解释方差"。
+/// 无量纲 [-1,1]：0=纯线性无弯曲，|·|→1=方差几乎全由二次项解释；正=凹(U型)，负=凸(倒U型)。
+#[inline]
+fn quad_coef_1d(col: &[f32]) -> f32 {
+    let pts: Vec<(f64, f64)> = col
+        .iter()
+        .enumerate()
+        .filter(|(_, &v)| !v.is_nan())
+        .map(|(i, &v)| ((i + 1) as f64, v as f64))
+        .collect();
+    let n = pts.len();
+    if n < 4 {
+        return 0.0;
+    }
+    let nf = n as f64;
+    let mean_t: f64 = pts.iter().map(|(t, _)| t).sum::<f64>() / nf;
+    let mean_y: f64 = pts.iter().map(|(_, y)| y).sum::<f64>() / nf;
+    let (mut s_uu, mut s_uuu, mut s_uuuu, mut s_uy, mut s_uu_y, mut ss_tot) =
+        (0.0f64, 0.0f64, 0.0f64, 0.0f64, 0.0f64, 0.0f64);
+    for (t, y) in &pts {
+        let u = t - mean_t;
+        let dy = y - mean_y;
+        let uu = u * u;
+        s_uu += uu;
+        s_uuu += uu * u;
+        s_uuuu += uu * uu;
+        s_uy += u * y;
+        s_uu_y += uu * y;
+        ss_tot += dy * dy;
+    }
+    if ss_tot <= 0.0 || s_uu <= 0.0 {
+        return 0.0;
+    }
+    // 线性拟合（去中心化时间 Σu=0 → 截距=ȳ）：b1 = Σuy/Σu²
+    let b1 = s_uy / s_uu;
+    let ss_res_lin = ss_tot - b1 * s_uy; // SS_res = SS_tot − b·Σuy
+                                         // 二次拟合正规方程（去中心化 u，Σu=0）：[[nf,0,s_uu],[0,s_uu,s_uuu],[s_uu,s_uuu,s_uuuu]]·[c,b,a]=[Σy,Σuy,Σu²y]
+    let m = [
+        [nf, 0.0, s_uu, nf * mean_y],
+        [0.0, s_uu, s_uuu, s_uy],
+        [s_uu, s_uuu, s_uuuu, s_uu_y],
+    ];
+    let sol = match solve3(m) {
+        Some(s) => s,
+        None => return 0.0,
+    };
+    let (c2, b2, a2) = (sol[0], sol[1], sol[2]);
+    // 回归解释方差：SSR = c·Σy + b·Σuy + a·Σu²y − n·ȳ²（Σy=nf·ȳ）
+    let ssr_quad = c2 * (nf * mean_y) + b2 * s_uy + a2 * s_uu_y - nf * mean_y * mean_y;
+    let ss_res_quad = ss_tot - ssr_quad;
+    let r2_lin = 1.0 - ss_res_lin / ss_tot;
+    let r2_quad = 1.0 - ss_res_quad / ss_tot;
+    let delta = (r2_quad - r2_lin).clamp(0.0, 1.0);
+    let sign = if a2 >= 0.0 { 1.0 } else { -1.0 };
+    (sign * delta) as f32
+}
+
 /// 两列的 Pearson 相关系数（共同有效位置）。对齐 pandas corr。
 #[inline]
 fn corr_pair(col_i: &[f32], col_j: &[f32]) -> f32 {
@@ -611,6 +737,9 @@ pub fn get_features_factors_rust_full(
             let period_ratio = last_mean / (first_mean.abs() + 1e-8);
             // trend
             let trend = trend_1d(c);
+            // curvature / quad_coef（二阶趋势）
+            let curvature = curvature_1d(c);
+            let quad_coef = quad_coef_1d(c);
             // autocorr1（lag=1）
             let autocorr1 = if n_rows >= 2 {
                 let shifted: Vec<f32> = std::iter::once(f32::NAN)
@@ -640,6 +769,8 @@ pub fn get_features_factors_rust_full(
                 cv,
                 autocorr1,
                 trend,
+                curvature,
+                quad_coef,
                 period_diff,
                 period_ratio,
                 mean_above_p90,
@@ -773,6 +904,21 @@ pub fn get_features_factors_rust_full(
         "trend",
         col_names,
     );
+    // 4b. curvature / quad_coef（二阶趋势）
+    push_group(
+        &mut res,
+        &mut names,
+        &col_stats.iter().map(|s| s.curvature).collect::<Vec<_>>(),
+        "curvature",
+        col_names,
+    );
+    push_group(
+        &mut res,
+        &mut names,
+        &col_stats.iter().map(|s| s.quad_coef).collect::<Vec<_>>(),
+        "quad_coef",
+        col_names,
+    );
     // 5. period_diff / period_ratio
     push_group(
         &mut res,
@@ -880,6 +1026,8 @@ struct ColStats {
     cv: f32,
     autocorr1: f32,
     trend: f32,
+    curvature: f32,
+    quad_coef: f32,
     period_diff: f32,
     period_ratio: f32,
     mean_above_p90: f32,

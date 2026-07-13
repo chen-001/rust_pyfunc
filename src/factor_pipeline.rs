@@ -381,9 +381,9 @@ fn filter_array2(data: &[f32], n_rows: usize, keep: &[usize]) -> ndarray::Array2
 /// 计算 get_features_factors_rust_full(with_threshold_counts=false) 在 n_cols 列时的输出长度。
 fn features_per_group(col_names: &[String]) -> usize {
     let n = col_names.len();
-    // mean/median/std/skew/kurt + p5/p25/p75/p95/iqr/cv + autocorr1/abs + trend + period_diff/ratio + lz/entropy/max_range
-    // = (5+6+2+1+2+3)*n + C(n,2)
-    19 * n + n * (n - 1) / 2
+    // mean/median/std/skew/kurt + p5/p25/p75/p95/iqr/cv + autocorr1/abs + trend + curvature/quad_coef + period_diff/ratio + lz/entropy/max_range
+    // = (5+6+2+1+2+2+3)*n + C(n,2) = 21*n + C(n,2)
+    21 * n + n * (n - 1) / 2
 }
 
 /// 生成 147 列的列名（与 go 函数 observable_order_go.py 一致）。
