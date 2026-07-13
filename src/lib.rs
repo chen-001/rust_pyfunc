@@ -103,6 +103,7 @@ pub mod distill_metrics;
 pub mod distill_tick_metrics;
 pub mod fast_csv_reader;
 
+pub mod anneal_volume_metrics;
 pub mod factor_pipeline;
 pub mod factor_store_v5;
 pub mod features;
@@ -1018,6 +1019,14 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
 
     let _ = m.add_function(wrap_pyfunction!(
         orderbook_imb_refactor_metrics::py_compute_orderbook_imb_refactor,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        anneal_volume_metrics::py_anneal_volume,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        anneal_volume_metrics::py_anneal_volume_names,
         m
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(
