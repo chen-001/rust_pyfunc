@@ -574,17 +574,19 @@ fn binned_entropy_1d(col: &[f32], n_bins: usize) -> f32 {
     }
 
     let bin_width = (max_val - min_val) / n_bins as f32;
-    let mut counts: HashMap<usize, usize> = HashMap::new();
+    // 用 Vec 替代 HashMap 保证遍历顺序确定（bin idx ∈ [0, n_bins) 可枚举），
+    // 避免 HashMap 随机迭代序导致浮点求和非结合性 → 确定性 bug。
+    let mut counts: Vec<usize> = vec![0; n_bins];
     for &v in &valid {
         let mut idx = ((v - min_val) / bin_width).floor() as usize;
         if idx >= n_bins {
             idx = n_bins - 1;
         }
-        *counts.entry(idx).or_insert(0) += 1;
+        counts[idx] += 1;
     }
     let total = valid.len() as f32;
     counts
-        .values()
+        .iter()
         .map(|&c| {
             let p = c as f32 / total;
             if p > 0.0 {

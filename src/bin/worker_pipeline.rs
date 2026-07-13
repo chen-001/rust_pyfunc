@@ -11,10 +11,10 @@
 //!   5. 计算错误不 panic，回传 Error 消息（避免进程崩溃重启开销）
 use rust_pyfunc::backup_reader::TaskResult;
 use rust_pyfunc::factor_pipeline::{
-    ipc_read_result, ipc_read_task, ipc_write, ipc_write_result, pipeline_distill,
-    pipeline_distill_tick, pipeline_extreme_point_fit, pipeline_individual_order_ratio,
-    pipeline_observable_order, pipeline_order_pair_hm90, pipeline_orderbook_imb_refactor,
-    ResultMessage, TaskMessage,
+    ipc_read_result, ipc_read_task, ipc_write, ipc_write_result, pipeline_anneal_volume,
+    pipeline_distill, pipeline_distill_tick, pipeline_extreme_point_fit,
+    pipeline_individual_order_ratio, pipeline_observable_order, pipeline_order_pair_hm90,
+    pipeline_orderbook_imb_refactor, ResultMessage, TaskMessage,
 };
 use std::io::{BufReader, BufWriter};
 
@@ -94,6 +94,8 @@ fn main() {
                         pipeline_distill(date, &code, &trading_days, expected_len)
                     } else if pipeline_name == "distill_tick" {
                         pipeline_distill_tick(date, &code, &trading_days, expected_len)
+                    } else if pipeline_name == "anneal_volume" {
+                        pipeline_anneal_volume(date, &code, &trading_days, expected_len)
                     } else {
                         pipeline_order_pair_hm90(date, &code, &params, &trading_days, expected_len)
                     }

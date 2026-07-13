@@ -75,6 +75,13 @@ def py_distill_tick(code: str, date: int) -> List[float]:
 def py_distill_tick_names() -> List[str]:
     ...
 
+def py_anneal_volume(code: str, date: int) -> List[float]:
+    ...
+
+
+def py_anneal_volume_names() -> List[str]:
+    ...
+
 def py_read_minute_data(field: str, date: int) -> Tuple[List[str], List[float], int, int]:
     ...
 
