@@ -11,7 +11,7 @@ use crate::fast_csv_reader::{read_trade_fast_inner, TradeRecord};
 use crate::features;
 use ndarray::Array2;
 use pyo3::prelude::*;
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 // ============================================================================
 // 常量
@@ -30,6 +30,12 @@ pub const N_MINUTE_COLS: usize = N_MINUTE_VERSIONS * N_FACTORS; // 75
 pub const N_REDUCED: usize = 21 * N_MINUTE_COLS + N_MINUTE_COLS * (N_MINUTE_COLS - 1) / 2;
 pub const EXPECTED_LEN: usize = N_SCALAR_SEGMENTS * N_FACTORS + N_REDUCED; // 1625 + 4350 = 5975
 
+/// 自适应步数：M = min(m_max_cap, max(2000, N²×10))。
+/// 小 N 时大幅减少步数（N=10→M=2000），大 N 时跑满上限。
+/// 配合 S=0 提前终止，多数小 N 片段在几百步内收敛。
+fn adaptive_m_max(n: usize, m_max_cap: usize) -> usize {
+    (n * n * 10).max(2000).min(m_max_cap)
+}
 const FACTOR_NAMES: &[&str] = &[
     "A1_half_life",
     "A2_steps_r80",
@@ -100,13 +106,13 @@ impl XorShift64 {
         x
     }
 
-    /// [0, n) 均匀分布。
+    /// [0, n) 均匀分布。用高 32 位乘 n 再右移 32 位，替代昂贵的 % n 整数除法。
     #[inline]
     fn next_index(&mut self, n: usize) -> usize {
         if n == 0 {
             return 0;
         }
-        (self.next_u64() % n as u64) as usize
+        ((self.next_u64() >> 32) as u64).wrapping_mul(n as u64) as usize >> 32
     }
 }
 
@@ -473,9 +479,15 @@ struct AggOrder {
 
 /// 在 trade 切片内按 bid_order / ask_order 聚合。
 /// first_idx = 该订单在切片中的首次出现位置（时间序，确定性关键）。
-fn aggregate_orders(trades: &[TradeRecord]) -> (HashMap<i64, AggOrder>, HashMap<i64, AggOrder>) {
-    let mut bid_map: HashMap<i64, AggOrder> = HashMap::with_capacity(trades.len());
-    let mut ask_map: HashMap<i64, AggOrder> = HashMap::with_capacity(trades.len());
+fn aggregate_orders(trades: &[TradeRecord]) -> (FxHashMap<i64, AggOrder>, FxHashMap<i64, AggOrder>) {
+    let mut bid_map: FxHashMap<i64, AggOrder> = FxHashMap::with_capacity_and_hasher(
+        trades.len(),
+        Default::default(),
+    );
+    let mut ask_map: FxHashMap<i64, AggOrder> = FxHashMap::with_capacity_and_hasher(
+        trades.len(),
+        Default::default(),
+    );
 
     for (i, t) in trades.iter().enumerate() {
         // bid_order: flag=66 → 主动, flag=83 → 被动
@@ -528,6 +540,11 @@ enum Side {
 }
 
 impl Side {
+    #[inline]
+    fn index(self) -> usize {
+        self as usize
+    }
+
     fn as_str(&self) -> &'static str {
         match self {
             Side::Bid => "bid",
@@ -545,7 +562,7 @@ impl Side {
 
 /// 从 bid_map 提取 volume（按 first_idx 时间序），可选过滤。
 fn extract_from_map(
-    map: &HashMap<i64, AggOrder>,
+    map: &FxHashMap<i64, AggOrder>,
     side_tag: u8,
     filter: impl Fn(&AggOrder) -> bool,
 ) -> Vec<(usize, u8, f32)> {
@@ -560,8 +577,8 @@ fn extract_from_map(
 
 /// 按 Side 提取 volume 列表（时间序确定）。
 fn extract_side(
-    bid_map: &HashMap<i64, AggOrder>,
-    ask_map: &HashMap<i64, AggOrder>,
+    bid_map: &FxHashMap<i64, AggOrder>,
+    ask_map: &FxHashMap<i64, AggOrder>,
     side: Side,
 ) -> Vec<f32> {
     let triples = match side {
@@ -657,6 +674,45 @@ fn quantile_filter(volumes: &[f32], q: Quantile) -> Vec<f32> {
         .collect()
 }
 
+/// 使用已按成交量降序排列的索引做分位数过滤，保留原始时间序。
+/// 排序顺序与 `quantile_filter` 完全一致，用于同一 universe 的多个分位数。
+fn quantile_filter_from_sorted(
+    volumes: &[f32],
+    sorted: &[(f32, usize)],
+    q: Quantile,
+) -> Vec<f32> {
+    let n = volumes.len();
+    if n == 0 || q == Quantile::All {
+        return volumes.to_vec();
+    }
+    let (start, end) = match q {
+        Quantile::Top10 => {
+            let k = ((n as f64) * 0.1).ceil() as usize;
+            (0, k.max(1).min(n))
+        }
+        Quantile::Mid50 => {
+            let start = ((n as f64) * 0.1) as usize;
+            let end = ((n as f64) * 0.6) as usize;
+            (start, end.min(n).max(start))
+        }
+        Quantile::Bot40 => {
+            let k = ((n as f64) * 0.4) as usize;
+            (n - k, n)
+        }
+        Quantile::All => unreachable!(),
+    };
+    let mut keep = vec![false; n];
+    for &(_, idx) in &sorted[start..end] {
+        keep[idx] = true;
+    }
+    volumes
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| keep[*i])
+        .map(|(_, &v)| v)
+        .collect()
+}
+
 // ============================================================================
 // 65 个标量片段定义
 // ============================================================================
@@ -716,22 +772,37 @@ fn segment_defs() -> Vec<(usize, Side, Quantile)> {
 }
 
 // ============================================================================
-// 退火引擎
+// 退火引擎（优化版：在线统计 + 采样 r_seq + 缓冲区复用）
 // ============================================================================
 
-/// 对真实成交量序列 true_vol 跑确定性模拟退火，返回 25 个因子。
-///
-/// - true_vol: 时间序排列的真实成交量（ground truth T）
-/// - m_max: 步数预算上限
-///
-/// 全程确定性：固定种子、单线程、增量 ΔS 更新。
-fn anneal(true_vol: &[f32], m_max: usize) -> [f32; N_FACTORS] {
+const R_SAMPLE_MAX: usize = 2000;
+const D_MAX: usize = 5000;
+
+struct AnnealBuf {
+    guess: Vec<f32>,
+    r_sample: Vec<f32>,
+    d_vals: Vec<f32>,
+    d_tau: Vec<f32>,
+    g_below: Vec<u8>,
+}
+
+impl AnnealBuf {
+    fn new() -> Self {
+        Self {
+            guess: Vec::new(),
+            r_sample: Vec::new(),
+            d_vals: Vec::new(),
+            d_tau: Vec::new(),
+            g_below: Vec::new(),
+        }
+    }
+}
+
+fn anneal(true_vol: &[f32], m_max: usize, buf: &mut AnnealBuf) -> [f32; N_FACTORS] {
     let n = true_vol.len();
     if n < 2 {
         return [f32::NAN; N_FACTORS];
     }
-
-    // 总体方差 σ²（除以 N）
     let mean: f64 = true_vol.iter().map(|&v| v as f64).sum::<f64>() / n as f64;
     let sigma2: f64 = true_vol
         .iter()
@@ -744,275 +815,265 @@ fn anneal(true_vol: &[f32], m_max: usize) -> [f32; N_FACTORS] {
     if sigma2 <= 0.0 {
         return [f32::NAN; N_FACTORS];
     }
-
-    // G0 = sorted(T) ascending
-    let mut guess: Vec<f32> = {
-        let mut g = true_vol.to_vec();
-        g.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        g
-    };
-
-    // S0 = Σ (g_k - t_k)²
+    buf.guess.clear();
+    buf.guess.extend_from_slice(true_vol);
+    buf.guess
+        .sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let mut s: f64 = (0..n)
         .map(|k| {
-            let d = guess[k] as f64 - true_vol[k] as f64;
+            let d = buf.guess[k] as f64 - true_vol[k] as f64;
             d * d
         })
         .sum();
-
     let denom = 2.0 * sigma2 * n as f64;
-    let r0 = 1.0 - s / denom;
-
-    // median（用于 F6）
-    let median = {
-        let mut sorted_t = true_vol.to_vec();
-        sorted_t.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        if n % 2 == 0 {
-            (sorted_t[n / 2 - 1] + sorted_t[n / 2]) * 0.5
-        } else {
-            sorted_t[n / 2]
-        }
-    };
-
-    let mut rng = XorShift64::new(SEED);
-
-    let m = m_max;
-    let mut r_seq = vec![0.0f32; m];
-    let mut d_vals: Vec<f32> = Vec::new();
-    let mut d_tau: Vec<usize> = Vec::new();
-    let mut g_below: Vec<bool> = Vec::new();
-
+    let inv_denom = 1.0 / denom;
+    let r0 = 1.0_f64 - s * inv_denom;
+    let median = (if n % 2 == 0 {
+        (buf.guess[n / 2 - 1] + buf.guess[n / 2]) * 0.5
+    } else {
+        buf.guess[n / 2]
+    }) as f32;
+    buf.r_sample.clear();
+    buf.d_vals.clear();
+    buf.d_tau.clear();
     let s_tol = (sigma2 * n as f64 * 1e-10_f64).max(1e-12);
-
-    for t in 0..m {
-        // 取对 (i, j)
+    let ct_base = sigma2 * C1_FRAC;
+    let inv_m = if m_max > 1 {
+        1.0 / (m_max as f64 - 1.0)
+    } else {
+        0.0
+    };
+    let stride = if m_max <= R_SAMPLE_MAX {
+        1
+    } else {
+        (m_max + R_SAMPLE_MAX - 1) / R_SAMPLE_MAX
+    };
+    let mut rng = XorShift64::new(SEED);
+    let mut prev_r = r0;
+    let mut final_r = r0;
+    let hl = (1.0 + r0) * 0.5;
+    let mut a1 = usize::MAX;
+    let mut a2 = usize::MAX;
+    let mut a3 = usize::MAX;
+    let mut inertia = 0.0f64;
+    let mut decl = 0u32;
+    let mut rmr = r0;
+    let mut mdd = 0.0f64;
+    let mut ps = 0usize;
+    let mut mr = 0usize;
+    let mut drn = 0u32;
+    let mut dr_s1 = 0.0f64;
+    let mut dr_s2 = 0.0f64;
+    let mut dr_s3 = 0.0f64;
+    let mut dr_s4 = 0.0f64;
+    let ss = m_max / 3;
+    let s1e = ss;
+    let s2e = 2 * ss;
+    let mut s1n = 0u32;
+    let mut s1s = 0.0f64;
+    let mut s1sq = 0.0f64;
+    let mut s2n = 0u32;
+    let mut s2d = 0u32;
+    let mut s3n = 0u32;
+    let mut s3s = 0.0f64;
+    let mut s3sq = 0.0f64;
+    let mut r_s2 = f64::NAN;
+    let mut d_count = 0usize;
+    let mut t = 0usize;
+    while t < m_max {
         let i = rng.next_index(n);
         let mut j = rng.next_index(n);
         if j == i {
             j = rng.next_index(n);
         }
-
-        let current_r = (1.0 - s / denom) as f32;
-        r_seq[t] = current_r;
-
-        if i == j {
-            continue;
+        // 1. 探测记录（交换前 guess）— 限制总量到 D_MAX，避免大 N 的百万级排序
+        if d_count < D_MAX && i != j && buf.guess[i] != buf.guess[j] {
+            buf.d_vals.push(true_vol[j] - true_vol[i]);
+            buf.d_tau.push(if j > i {
+                (j - i) as f32
+            } else {
+                (i - j) as f32
+            });
+            buf.g_below.push(if buf.guess[i] < median { 1 } else { 0 });
+            d_count += 1;
         }
-
-        // ΔS = 2*(g_i - g_j)*(t_i - t_j)
-        let delta_s =
-            2.0 * (guess[i] as f64 - guess[j] as f64) * (true_vol[i] as f64 - true_vol[j] as f64);
-
-        // 温度
-        let c_t = if m > 1 {
-            sigma2 * C1_FRAC * (1.0 - t as f64 / (m as f64 - 1.0)).max(0.0)
-        } else {
-            0.0
-        };
-
-        // 探测记录（每步，无论是否接受，若 g_i≠g_j）
-        if guess[i] != guess[j] {
-            d_vals.push(true_vol[j] - true_vol[i]);
-            d_tau.push(if j > i { j - i } else { i - j });
-            g_below.push(guess[i] < median);
-        }
-
-        // 接受/拒绝
-        if delta_s < 0.0 || delta_s < c_t {
-            s += delta_s;
-            guess.swap(i, j);
-            r_seq[t] = (1.0 - s / denom) as f32;
-        }
-
-        // 提前终止
-        if s <= s_tol {
-            let final_r = r_seq[t];
-            for k in (t + 1)..m {
-                r_seq[k] = final_r;
+        // 2. 接受/拒绝交换（ΔS 用 f32 计算，省 4 次 f32→f64 转换）
+        if i != j {
+            let gi = buf.guess[i];
+            let gj = buf.guess[j];
+            let ti = true_vol[i];
+            let tj = true_vol[j];
+            let ds_f32 = 2.0f32 * (gi - gj) * (ti - tj);
+            let ct = ct_base * (1.0 - t as f64 * inv_m).max(0.0);
+            if (ds_f32 as f64) < 0.0 || (ds_f32 as f64) < ct {
+                s += ds_f32 as f64;
+                buf.guess.swap(i, j);
             }
+        }
+        let cr = 1.0_f64 - s * inv_denom;
+        final_r = cr;
+        // 3. 采样 + 在线统计
+        if t % stride == 0 {
+            buf.r_sample.push(cr as f32);
+        }
+        if t > 0 {
+            let dv = cr - prev_r;
+            drn += 1;
+            dr_s1 += dv;
+            dr_s2 += dv * dv;
+            dr_s3 += dv * dv * dv;
+            dr_s4 += dv * dv * dv * dv;
+            if (cr as f32) < (prev_r as f32) {
+                decl += 1;
+                if t >= s1e && t < s2e {
+                    s2d += 1;
+                }
+            }
+            if t < s1e {
+                s1n += 1;
+                s1s += dv;
+                s1sq += dv * dv;
+            } else if t < s2e {
+                s2n += 1;
+            } else {
+                s3n += 1;
+                s3s += dv;
+                s3sq += dv * dv;
+            }
+        }
+        if a1 == usize::MAX && cr >= hl {
+            a1 = t;
+        }
+        if a2 == usize::MAX && cr >= 0.80 {
+            a2 = t;
+        }
+        if a3 == usize::MAX && cr >= 0.90 {
+            a3 = t;
+        }
+        inertia += (1.0_f32 - cr as f32) as f64;
+        if cr >= rmr {
+            rmr = cr;
+            ps = t;
+        } else {
+            let uw = t - ps;
+            if uw > mr {
+                mr = uw;
+            }
+        }
+        let dd = rmr - cr;
+        if dd > mdd {
+            mdd = dd;
+        }
+        if t + 1 == s2e || (t + 1 == m_max && r_s2.is_nan()) {
+            r_s2 = cr;
+        }
+        prev_r = final_r;
+        if s <= s_tol {
             break;
         }
+        t += 1;
     }
-
-    compute_factors(&r_seq, &d_vals, &d_tau, &g_below, r0 as f32)
-}
-
-/// 从退火轨迹计算 25 个因子。
-fn compute_factors(
-    r_seq: &[f32],
-    d_vals: &[f32],
-    d_tau: &[usize],
-    g_below: &[bool],
-    r0: f32,
-) -> [f32; N_FACTORS] {
-    let m = r_seq.len();
+    while buf.r_sample.len() < 4 {
+        buf.r_sample.push(final_r as f32);
+    }
+    // 组装因子
     let mut f = [f32::NAN; N_FACTORS];
-
-    // A1: 半衰步数 — 最小 t 使 r_seq[t] ≥ (1+r0)/2
-    let hl_thresh = (1.0 + r0) * 0.5;
-    f[0] = r_seq
-        .iter()
-        .position(|&r| r >= hl_thresh)
-        .map(|t| t as f32)
-        .unwrap_or(m as f32);
-
-    // A2: 达 80% 步数
-    f[1] = r_seq
-        .iter()
-        .position(|&r| r >= 0.80)
-        .map(|t| t as f32)
-        .unwrap_or(m as f32);
-
-    // A3: 达 90% 步数
-    f[2] = r_seq
-        .iter()
-        .position(|&r| r >= 0.90)
-        .map(|t| t as f32)
-        .unwrap_or(m as f32);
-
-    // A4: 最终 r
-    f[3] = r_seq[m - 1];
-
-    // A5: 总惰性面积
-    f[4] = r_seq.iter().map(|&r| 1.0 - r).sum();
-
-    // B1: 下降总次数
-    f[5] = (1..m).filter(|&t| r_seq[t] < r_seq[t - 1]).count() as f32;
-
-    // B2: 最大回撤深度
-    let mut running_max = r_seq[0];
-    let mut max_dd = 0.0f32;
-    for &r in r_seq {
-        if r > running_max {
-            running_max = r;
-        }
-        let dd = running_max - r;
-        if dd > max_dd {
-            max_dd = dd;
-        }
-    }
-    f[6] = max_dd;
-
-    // B3: 最长回撤恢复时间（最长 underwater 连续步数）
-    let mut max_recovery = 0usize;
-    let mut peak_step = 0usize;
-    running_max = r_seq[0];
-    for t in 1..m {
-        if r_seq[t] >= running_max {
-            running_max = r_seq[t];
-            peak_step = t;
-        } else {
-            let underwater = t - peak_step;
-            if underwater > max_recovery {
-                max_recovery = underwater;
-            }
-        }
-    }
-    f[7] = max_recovery as f32;
-
-    // Δr 序列
-    let dr: Vec<f32> = (1..m).map(|t| r_seq[t] - r_seq[t - 1]).collect();
-
-    // B4: Δr 波动率
-    f[8] = std_ddof1(&dr);
-
-    // 三等分
-    let seg_size = m / 3;
-    let seg1_end = seg_size;
-    let seg2_end = 2 * seg_size;
-
-    // C1: 高温段 Δr std
-    let dr_seg1: Vec<f32> = (1..seg1_end.max(1))
-        .map(|t| r_seq[t] - r_seq[t - 1])
-        .collect();
-    f[9] = std_ddof1(&dr_seg1);
-
-    // C2: 中温段劣化接受比
-    if seg2_end > seg1_end && seg1_end > 0 {
-        let mid_count = (seg1_end..seg2_end)
-            .filter(|&t| r_seq[t] < r_seq[t - 1])
-            .count();
-        f[10] = mid_count as f32 / (seg2_end - seg1_end) as f32;
-    }
-
-    // C3: 低温段改善量
-    if seg2_end > 0 && m > seg2_end {
-        f[11] = r_seq[m - 1] - r_seq[seg2_end - 1];
-    }
-
-    // C4: 高/低温波动比
-    let dr_seg3: Vec<f32> = if seg2_end > 0 {
-        (seg2_end..m).map(|t| r_seq[t] - r_seq[t - 1]).collect()
+    f[0] = if a1 != usize::MAX {
+        a1 as f32
     } else {
-        vec![]
+        m_max as f32
     };
-    let std_seg3 = std_ddof1(&dr_seg3);
-    if std_seg3.abs() > 1e-10 {
-        f[12] = f[9] / std_seg3;
+    f[1] = if a2 != usize::MAX {
+        a2 as f32
+    } else {
+        m_max as f32
+    };
+    f[2] = if a3 != usize::MAX {
+        a3 as f32
+    } else {
+        m_max as f32
+    };
+    f[3] = final_r as f32;
+    f[4] = inertia as f32;
+    f[5] = decl as f32;
+    f[6] = mdd as f32;
+    f[7] = mr as f32;
+    if drn >= 2 {
+        let nd = drn as f64;
+        f[8] = ((dr_s2 - dr_s1 * dr_s1 / nd) / (nd - 1.0)).max(0.0).sqrt() as f32;
     }
-
-    // D1: 大跳变游程 z
-    if !dr.is_empty() {
-        let p90 = percentile_abs(&dr, 0.90);
-        let binary: Vec<f32> = dr
-            .iter()
-            .map(|&v| if v.abs() >= p90 { 1.0 } else { 0.0 })
-            .collect();
-        f[13] = runs_test_z(&binary);
+    if s1n >= 2 {
+        let nd = s1n as f64;
+        f[9] = ((s1sq - s1s * s1s / nd) / (nd - 1.0)).max(0.0).sqrt() as f32;
     }
-
-    // D2: Δr 偏度
-    f[14] = skewness(&dr);
-
-    // D3: Δr 超额峰度
-    f[15] = excess_kurtosis(&dr);
-
-    // E1: Hurst (R/S)
-    f[16] = hurst_rs(r_seq);
-
-    // E2: DFA alpha
-    f[17] = dfa_alpha(r_seq);
-
-    // F1-F7: 探测差值
-    let k = d_vals.len();
-    if k > 0 {
-        // F1: |D| 均值
-        f[18] = d_vals.iter().map(|d| d.abs()).sum::<f32>() / k as f32;
-
-        // F2: D 正数比
-        f[19] = d_vals.iter().filter(|d| **d > 0.0).count() as f32 / k as f32;
-
-        // F3: D 标准差
-        f[20] = std_ddof1(d_vals);
-
-        // F4: D 一阶自相关
-        if k >= 2 {
-            f[21] = corr(&d_vals[..k - 1], &d_vals[1..]);
+    if s2n > 0 {
+        f[10] = s2d as f32 / s2n as f32;
+    }
+    if !r_s2.is_nan() {
+        f[11] = (final_r - r_s2) as f32;
+    }
+    if s3n >= 2 {
+        let nd = s3n as f64;
+        let st3 = ((s3sq - s3s * s3s / nd) / (nd - 1.0)).max(0.0).sqrt();
+        if st3 > 1e-10 && s1n >= 2 {
+            let nd1 = s1n as f64;
+            f[12] = (((s1sq - s1s * s1s / nd1) / (nd1 - 1.0)).max(0.0).sqrt() / st3) as f32;
         }
-
-        // F5: 符号反转概率
+    }
+    if buf.r_sample.len() >= 4 {
+        let drs: Vec<f32> = (1..buf.r_sample.len())
+            .map(|t| buf.r_sample[t] - buf.r_sample[t - 1])
+            .collect();
+        if !drs.is_empty() {
+            let p90 = percentile_abs(&drs, 0.90);
+            let bin: Vec<f32> = drs
+                .iter()
+                .map(|&v| if v.abs() >= p90 { 1.0 } else { 0.0 })
+                .collect();
+            f[13] = runs_test_z(&bin);
+        }
+    }
+    if drn >= 4 {
+        let nd = drn as f64;
+        let mean = dr_s1 / nd;
+        let m2 = dr_s2 / nd - mean * mean;
+        let m3 = dr_s3 / nd - 3.0 * mean * (dr_s2 / nd) + 2.0 * mean * mean * mean;
+        let m4 = dr_s4 / nd - 4.0 * mean * (dr_s3 / nd) + 6.0 * mean * mean * (dr_s2 / nd)
+            - 3.0 * mean.powi(4);
+        if m2 > 1e-20 {
+            let g1 = m3 / m2.powf(1.5);
+            f[14] = (g1 * ((nd - 1.0) * nd).sqrt() / (nd - 2.0)) as f32;
+            let g2 = m4 / (m2 * m2);
+            f[15] = (((nd - 1.0) / ((nd - 2.0) * (nd - 3.0)))
+                * ((nd + 1.0) * g2 - 3.0 * (nd - 1.0))) as f32;
+        }
+    }
+    f[16] = hurst_rs(&buf.r_sample);
+    f[17] = dfa_alpha(&buf.r_sample);
+    let k = buf.d_vals.len();
+    if k > 0 {
+        f[18] = buf.d_vals.iter().map(|d| d.abs()).sum::<f32>() / k as f32;
+        f[19] = buf.d_vals.iter().filter(|d| **d > 0.0).count() as f32 / k as f32;
+        f[20] = std_ddof1(&buf.d_vals);
+        if k >= 2 {
+            f[21] = corr(&buf.d_vals[..k - 1], &buf.d_vals[1..]);
+        }
         if k >= 2 {
             let flips = (0..k - 1)
-                .filter(|&i| d_vals[i].signum() != d_vals[i + 1].signum())
+                .filter(|&i| buf.d_vals[i].signum() != buf.d_vals[i + 1].signum())
                 .count();
             f[22] = flips as f32 / (k - 1) as f32;
         }
-
-        // F6: 潜伏大单探测频率
-        let p95 = percentile_abs(d_vals, 0.95);
+        let p95 = percentile_abs(&buf.d_vals, 0.95);
         let hidden = (0..k)
-            .filter(|&i| g_below[i] && d_vals[i].abs() > p95)
+            .filter(|&i| buf.g_below[i] == 1 && buf.d_vals[i].abs() > p95)
             .count();
         f[23] = hidden as f32 / k as f32;
-
-        // F7: |D| 对 τ 的线性回归斜率
         if k >= 3 {
-            let abs_d: Vec<f32> = d_vals.iter().map(|d| d.abs()).collect();
-            let tau_f: Vec<f32> = d_tau.iter().map(|&t| t as f32).collect();
-            f[24] = linear_slope(&tau_f, &abs_d);
+            let ad: Vec<f32> = buf.d_vals.iter().map(|d| d.abs()).collect();
+            f[24] = linear_slope(&buf.d_tau, &ad);
         }
     }
-
     f
 }
 
@@ -1022,7 +1083,14 @@ fn compute_factors(
 
 /// 核心：pipeline 和 Python 的唯一共同调用点。
 pub fn compute_anneal_volume_full(code: &str, date: i64) -> std::io::Result<Vec<f32>> {
+    use std::time::Instant;
+    let t_total = Instant::now();
+
+    let t_read = Instant::now();
     let trades = read_trade_fast_inner(code, date, false, true, usize::MAX)?;
+    let t_read_elapsed = t_read.elapsed();
+    eprintln!("[prof] {} {} read_data: {:?}  n_trades={}", code, date, t_read_elapsed, trades.len());
+
     if trades.is_empty() {
         return Ok(vec![f32::NAN; EXPECTED_LEN]);
     }
@@ -1030,7 +1098,8 @@ pub fn compute_anneal_volume_full(code: &str, date: i64) -> std::io::Result<Vec<
     let t_open = trades.first().unwrap().time_sec;
 
     // 6 个宏观窗口聚合（缓存）
-    let win_aggs: Vec<(HashMap<i64, AggOrder>, HashMap<i64, AggOrder>)> = WINDOW_BOUNDS
+    let t_win = Instant::now();
+    let win_aggs: Vec<(FxHashMap<i64, AggOrder>, FxHashMap<i64, AggOrder>)> = WINDOW_BOUNDS
         .iter()
         .map(|&(sec_lo, sec_hi)| {
             let lo_time = t_open + sec_lo;
@@ -1040,28 +1109,65 @@ pub fn compute_anneal_volume_full(code: &str, date: i64) -> std::io::Result<Vec<
             aggregate_orders(&trades[lo..hi])
         })
         .collect();
+    eprintln!("[prof] {} {} 6_window_agg: {:?}", code, date, t_win.elapsed());
 
     // 65 个标量片段
+    let t_scalar = Instant::now();
     let segs = segment_defs();
+    let mut buf = AnnealBuf::new();
     let mut out: Vec<f32> = Vec::with_capacity(EXPECTED_LEN);
+    let cache_len = WINDOW_BOUNDS.len() * 9;
+    let mut extracted: Vec<Option<Vec<f32>>> = (0..cache_len).map(|_| None).collect();
+    let mut quantile_orders: Vec<Option<Vec<(f32, usize)>>> =
+        (0..cache_len).map(|_| None).collect();
 
     for &(win_idx, side, quantile) in &segs {
-        let (bid_map, ask_map) = &win_aggs[win_idx];
-        let vols = extract_side(bid_map, ask_map, side);
-        let filtered = quantile_filter(&vols, quantile);
-        let factors = anneal(&filtered, M_MAX_SCALAR);
+        let cache_idx = win_idx * 9 + side.index();
+        if extracted[cache_idx].is_none() {
+            let (bid_map, ask_map) = &win_aggs[win_idx];
+            extracted[cache_idx] = Some(extract_side(bid_map, ask_map, side));
+        }
+        let vols = extracted[cache_idx].as_ref().unwrap();
+        let filtered = if quantile == Quantile::All {
+            vols.clone()
+        } else {
+            if quantile_orders[cache_idx].is_none() {
+                let mut order: Vec<(f32, usize)> =
+                    vols.iter().enumerate().map(|(i, &v)| (v, i)).collect();
+                order.sort_by(|a, b| {
+                    b.0.partial_cmp(&a.0)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+                quantile_orders[cache_idx] = Some(order);
+            }
+            quantile_filter_from_sorted(
+                vols,
+                quantile_orders[cache_idx].as_ref().unwrap(),
+                quantile,
+            )
+        };
+        let m_adapt = adaptive_m_max(filtered.len(), M_MAX_SCALAR);
+        let factors = anneal(&filtered, m_adapt, &mut buf);
         out.extend_from_slice(&factors);
     }
+    eprintln!("[prof] {} {} 65_scalar: {:?}", code, date, t_scalar.elapsed());
 
     // 逐分钟矩阵 237 × 75
+    let t_minute = Instant::now();
     let minute_col_names = build_minute_col_names();
     let mut matrix = Array2::zeros((N_MINUTES, N_MINUTE_COLS));
 
+    let mut n_nonempty = 0usize;
     for m_idx in 0..N_MINUTES {
         let lo_time = t_open + (m_idx as f32) * 60.0;
         let hi_time = t_open + ((m_idx + 1) as f32) * 60.0;
         let lo = trades.partition_point(|t| t.time_sec < lo_time);
         let hi = trades.partition_point(|t| t.time_sec < hi_time);
+
+        if lo >= hi {
+            continue;
+        }
+        n_nonempty += 1;
 
         let (bid_map, ask_map) = aggregate_orders(&trades[lo..hi]);
 
@@ -1069,16 +1175,20 @@ pub fn compute_anneal_volume_full(code: &str, date: i64) -> std::io::Result<Vec<
         let versions = [Side::Bid, Side::Ask, Side::Mixed];
         for (vi, &ver) in versions.iter().enumerate() {
             let vols = extract_side(&bid_map, &ask_map, ver);
-            let factors = anneal(&vols, M_MAX_MINUTE);
+            let m_adapt = adaptive_m_max(vols.len(), M_MAX_MINUTE);
+            let factors = anneal(&vols, m_adapt, &mut buf);
             for (fi, &val) in factors.iter().enumerate() {
                 matrix[[m_idx, vi * N_FACTORS + fi]] = val;
             }
         }
     }
+    eprintln!("[prof] {} {} 237_minute: {:?}  n_nonempty={}", code, date, t_minute.elapsed(), n_nonempty);
 
     // 降维
+    let t_reduce = Instant::now();
     let (reduced_vals, _) =
         features::get_features_factors_rust_full(&matrix.view(), &minute_col_names, false);
+    eprintln!("[prof] {} {} dim_reduce: {:?}", code, date, t_reduce.elapsed());
     out.extend_from_slice(&reduced_vals);
 
     // 长度校准
@@ -1087,6 +1197,8 @@ pub fn compute_anneal_volume_full(code: &str, date: i64) -> std::io::Result<Vec<
     } else if out.len() > EXPECTED_LEN {
         out.truncate(EXPECTED_LEN);
     }
+
+    eprintln!("[prof] {} {} TOTAL: {:?}", code, date, t_total.elapsed());
 
     Ok(out)
 }
