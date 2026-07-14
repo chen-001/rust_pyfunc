@@ -22,14 +22,28 @@ conda activate chenzongwei311
 # 3. 切换到你的项目目录 (如果当前目录不是)
 # cd /path/to/your/maturin/project
 
-# 4. 运行 maturin develop (使用 mold 链接器 + sccache 编译缓存加速)
-export PATH="/home/chenzongwei/.local/bin:$PATH"
-/home/chenzongwei/.local/bin/mold -run maturin develop --release
+# 4. 选择构建 profile：
+#      ./alter.sh            → 默认 release-fast（日常开发，编译快 5~10 倍）
+#      ./alter.sh release    → 正式 release（fat LTO + codegen-units=1，极致性能，发布用）
+PROFILE="${1:-release-fast}"
+case "$PROFILE" in
+  release|release-fast) ;;
+  *) echo "❌ 未知 profile: $PROFILE，可选: release | release-fast"; exit 1 ;;
+esac
 
-# 5. 编译并部署 worker 二进制（多进程因子流水线 mode="multiprocess" 需要）
-/home/chenzongwei/.local/bin/mold -run cargo build --release --bin rust_pyfunc_worker
-cp target/release/rust_pyfunc_worker python/rust_pyfunc/rust_pyfunc_worker
-echo "✅ worker 二进制已部署到 python/rust_pyfunc/rust_pyfunc_worker"
+# 5. 运行 maturin develop (使用 mold 链接器 + sccache 编译缓存加速)
+export PATH="/home/chenzongwei/.local/bin:$PATH"
+/home/chenzongwei/.local/bin/mold -run maturin develop --profile "$PROFILE"
+
+# 6. 编译并部署 worker 二进制（多进程因子流水线 mode="multiprocess" 需要）
+/home/chenzongwei/.local/bin/mold -run cargo build --profile "$PROFILE" --bin rust_pyfunc_worker
+# 先 rm 再 cp：避免 "Text file busy"——worker 进程可能正在运行，
+# Linux 允许 unlink 正在执行的二进制（旧进程继续用旧 inode），新文件可正常写入。
+rm -f "python/rust_pyfunc/rust_pyfunc_worker"
+cp "target/$PROFILE/rust_pyfunc_worker" "python/rust_pyfunc/rust_pyfunc_worker" || {
+  echo "❌ worker 部署失败（cp 出错）"; exit 1;
+}
+echo "✅ worker 二进制（$PROFILE）已部署到 python/rust_pyfunc/rust_pyfunc_worker"
 
 # 如果需要，你也可以在脚本结束时停用环境
 # conda deactivate

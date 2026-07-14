@@ -76,6 +76,21 @@ opt-level = 3
 # 注意：不用 panic = "abort"，因为 worker bin 需要 catch_unwind 捕获计算 panic，
 # 避免整个 worker 进程崩溃重启。pyo3 0.18 在 unwind 下正常工作。
 
+# ─────────────────────────────────────────────────────────────
+# 日常开发/测试专用：大幅加速编译，运行时性能接近 release
+#   - codegen-units 1→256：开启 crate 内部并行 codegen，吃满 512 核
+#   - incremental = true：release 默认关闭增量编译，这里打开，改一个函数只重编改动部分
+#   - lto = false：incremental 与 LTO 互斥，关闭 LTO 换最快编译
+# 用法：./alter.sh            （默认走 release-fast）
+#       ./alter.sh release    （切回正式 release，fat LTO + 单 unit，发布/极致性能用）
+# 运行时性能损失通常 < 5%，对回测/调参无感知；需 benchmark 对比时切 release。
+# ─────────────────────────────────────────────────────────────
+[profile.release-fast]
+inherits = "release"
+incremental = true
+codegen-units = 256
+lto = false
+
 [build-dependencies]
 pkg-config = "0.3"
 
