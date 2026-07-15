@@ -14,7 +14,8 @@ use rust_pyfunc::factor_pipeline::{
     ipc_read_result, ipc_read_task, ipc_write, ipc_write_result, pipeline_anneal_volume,
     pipeline_distill, pipeline_distill_tick, pipeline_extreme_point_fit,
     pipeline_individual_order_ratio, pipeline_observable_order, pipeline_order_pair_hm90,
-    pipeline_orderbook_imb_refactor, ResultMessage, TaskMessage,
+    pipeline_cross_section_example, pipeline_orderbook_imb_refactor, ResultMessage,
+    TaskMessage,
 };
 use std::io::{BufReader, BufWriter};
 
@@ -96,6 +97,11 @@ fn main() {
                         pipeline_distill_tick(date, &code, &trading_days, expected_len)
                     } else if pipeline_name == "anneal_volume" {
                         pipeline_anneal_volume(date, &code, &trading_days, expected_len)
+                    } else if pipeline_name == "hidden_arrange" {
+                        match rust_pyfunc::hidden_arrange_metrics::compute_hidden_arrange_full(&code, date) {
+                            Ok((_n, v)) => v,
+                            Err(_) => vec![f32::NAN; expected_len],
+                        }
                     } else {
                         pipeline_order_pair_hm90(date, &code, &params, &trading_days, expected_len)
                     }
@@ -130,6 +136,8 @@ fn main() {
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     if pipeline_name == "minute_example" {
                         crate_logic::pipeline_minute_example(date, expected_len)
+                    } else if pipeline_name == "cross_section_example" {
+                        pipeline_cross_section_example(date, expected_len)
                     } else {
                         Vec::new()
                     }
