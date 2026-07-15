@@ -1204,6 +1204,362 @@ pub fn compute_anneal_volume_full(code: &str, date: i64) -> std::io::Result<Vec<
 }
 
 // ============================================================================
+// GPT 版本：结果口径与 anneal 完全一致，仅复用退火末尾的临时缓冲区。
+// ============================================================================
+
+struct AnnealGptBuf {
+    guess: Vec<f32>,
+    r_sample: Vec<f32>,
+    d_vals: Vec<f32>,
+    d_tau: Vec<f32>,
+    g_below: Vec<u8>,
+    drs: Vec<f32>,
+    binary: Vec<f32>,
+    abs_d: Vec<f32>,
+    pct_scratch: Vec<f32>,
+}
+
+impl AnnealGptBuf {
+    fn new() -> Self {
+        Self {
+            guess: Vec::new(),
+            r_sample: Vec::new(),
+            d_vals: Vec::new(),
+            d_tau: Vec::new(),
+            g_below: Vec::new(),
+            drs: Vec::new(),
+            binary: Vec::new(),
+            abs_d: Vec::new(),
+            pct_scratch: Vec::new(),
+        }
+    }
+}
+
+#[inline]
+fn percentile_abs_reuse(data: &[f32], q: f64, scratch: &mut Vec<f32>) -> f32 {
+    scratch.clear();
+    scratch.extend(data.iter().map(|v| v.abs()));
+    scratch.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let n = scratch.len();
+    if n == 0 {
+        return f32::NAN;
+    }
+    if n == 1 {
+        return scratch[0];
+    }
+    let pos = q * (n as f64 - 1.0);
+    let lo = pos.floor() as usize;
+    let hi = (lo + 1).min(n - 1);
+    let frac = pos - lo as f64;
+    scratch[lo] * (1.0 - frac as f32) + scratch[hi] * frac as f32
+}
+
+fn anneal_gpt(true_vol: &[f32], m_max: usize, buf: &mut AnnealGptBuf) -> [f32; N_FACTORS] {
+    let n = true_vol.len();
+    if n < 2 {
+        return [f32::NAN; N_FACTORS];
+    }
+    let mean = true_vol.iter().map(|&v| v as f64).sum::<f64>() / n as f64;
+    let sigma2 = true_vol
+        .iter()
+        .map(|&v| {
+            let d = v as f64 - mean;
+            d * d
+        })
+        .sum::<f64>()
+        / n as f64;
+    if sigma2 <= 0.0 {
+        return [f32::NAN; N_FACTORS];
+    }
+
+    buf.guess.clear();
+    buf.guess.extend_from_slice(true_vol);
+    buf.guess
+        .sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let mut s = (0..n)
+        .map(|k| {
+            let d = buf.guess[k] as f64 - true_vol[k] as f64;
+            d * d
+        })
+        .sum::<f64>();
+    let denom = 2.0 * sigma2 * n as f64;
+    let inv_denom = 1.0 / denom;
+    let r0 = 1.0 - s * inv_denom;
+    let median = (if n % 2 == 0 {
+        (buf.guess[n / 2 - 1] + buf.guess[n / 2]) * 0.5
+    } else {
+        buf.guess[n / 2]
+    }) as f32;
+
+    buf.r_sample.clear();
+    buf.d_vals.clear();
+    buf.d_tau.clear();
+    buf.drs.clear();
+    buf.binary.clear();
+    buf.abs_d.clear();
+    let s_tol = (sigma2 * n as f64 * 1e-10_f64).max(1e-12);
+    let ct_base = sigma2 * C1_FRAC;
+    let inv_m = if m_max > 1 {
+        1.0 / (m_max as f64 - 1.0)
+    } else {
+        0.0
+    };
+    let stride = if m_max <= R_SAMPLE_MAX {
+        1
+    } else {
+        (m_max + R_SAMPLE_MAX - 1) / R_SAMPLE_MAX
+    };
+    let mut next_sample = 0usize;
+    let mut rng = XorShift64::new(SEED);
+    let mut prev_r = r0;
+    let mut final_r = r0;
+    let half_life = (1.0 + r0) * 0.5;
+    let (mut a1, mut a2, mut a3) = (usize::MAX, usize::MAX, usize::MAX);
+    let mut inertia = 0.0f64;
+    let mut declines = 0u32;
+    let mut running_max = r0;
+    let mut max_dd = 0.0f64;
+    let mut peak_step = 0usize;
+    let mut max_recovery = 0usize;
+    let mut drn = 0u32;
+    let (mut dr_s1, mut dr_s2, mut dr_s3, mut dr_s4) = (0.0, 0.0, 0.0, 0.0);
+    let seg = m_max / 3;
+    let (seg1_end, seg2_end) = (seg, 2 * seg);
+    let (mut s1n, mut s1s, mut s1sq) = (0u32, 0.0, 0.0);
+    let (mut s2n, mut s2d) = (0u32, 0u32);
+    let (mut s3n, mut s3s, mut s3sq) = (0u32, 0.0, 0.0);
+    let mut r_s2 = f64::NAN;
+    let mut d_count = 0usize;
+    let mut t = 0usize;
+    while t < m_max {
+        let i = rng.next_index(n);
+        let mut j = rng.next_index(n);
+        if j == i {
+            j = rng.next_index(n);
+        }
+        if d_count < D_MAX && i != j && buf.guess[i] != buf.guess[j] {
+            buf.d_vals.push(true_vol[j] - true_vol[i]);
+            buf.d_tau.push(if j > i { (j - i) as f32 } else { (i - j) as f32 });
+            buf.g_below.push(if buf.guess[i] < median { 1 } else { 0 });
+            d_count += 1;
+        }
+        if i != j {
+            let gi = buf.guess[i];
+            let gj = buf.guess[j];
+            let ti = true_vol[i];
+            let tj = true_vol[j];
+            let ds_f32 = 2.0f32 * (gi - gj) * (ti - tj);
+            let ct = ct_base * (1.0 - t as f64 * inv_m).max(0.0);
+            if (ds_f32 as f64) < 0.0 || (ds_f32 as f64) < ct {
+                s += ds_f32 as f64;
+                buf.guess.swap(i, j);
+            }
+        }
+        let cr = 1.0 - s * inv_denom;
+        final_r = cr;
+        if t == next_sample {
+            buf.r_sample.push(cr as f32);
+            next_sample = next_sample.saturating_add(stride);
+        }
+        if t > 0 {
+            let dv = cr - prev_r;
+            drn += 1;
+            dr_s1 += dv;
+            dr_s2 += dv * dv;
+            dr_s3 += dv * dv * dv;
+            dr_s4 += dv * dv * dv * dv;
+            if (cr as f32) < (prev_r as f32) {
+                declines += 1;
+                if t >= seg1_end && t < seg2_end {
+                    s2d += 1;
+                }
+            }
+            if t < seg1_end {
+                s1n += 1;
+                s1s += dv;
+                s1sq += dv * dv;
+            } else if t < seg2_end {
+                s2n += 1;
+            } else {
+                s3n += 1;
+                s3s += dv;
+                s3sq += dv * dv;
+            }
+        }
+        if a1 == usize::MAX && cr >= half_life { a1 = t; }
+        if a2 == usize::MAX && cr >= 0.80 { a2 = t; }
+        if a3 == usize::MAX && cr >= 0.90 { a3 = t; }
+        inertia += (1.0_f32 - cr as f32) as f64;
+        if cr >= running_max {
+            running_max = cr;
+            peak_step = t;
+        } else {
+            max_recovery = max_recovery.max(t - peak_step);
+        }
+        max_dd = max_dd.max(running_max - cr);
+        if t + 1 == seg2_end || (t + 1 == m_max && r_s2.is_nan()) { r_s2 = cr; }
+        prev_r = final_r;
+        if s <= s_tol { break; }
+        t += 1;
+    }
+    while buf.r_sample.len() < 4 { buf.r_sample.push(final_r as f32); }
+
+    let mut f = [f32::NAN; N_FACTORS];
+    f[0] = if a1 == usize::MAX { m_max as f32 } else { a1 as f32 };
+    f[1] = if a2 == usize::MAX { m_max as f32 } else { a2 as f32 };
+    f[2] = if a3 == usize::MAX { m_max as f32 } else { a3 as f32 };
+    f[3] = final_r as f32;
+    f[4] = inertia as f32;
+    f[5] = declines as f32;
+    f[6] = max_dd as f32;
+    f[7] = max_recovery as f32;
+    if drn >= 2 {
+        let nd = drn as f64;
+        f[8] = ((dr_s2 - dr_s1 * dr_s1 / nd) / (nd - 1.0)).max(0.0).sqrt() as f32;
+    }
+    if s1n >= 2 {
+        let nd = s1n as f64;
+        f[9] = ((s1sq - s1s * s1s / nd) / (nd - 1.0)).max(0.0).sqrt() as f32;
+    }
+    if s2n > 0 { f[10] = s2d as f32 / s2n as f32; }
+    if !r_s2.is_nan() { f[11] = (final_r - r_s2) as f32; }
+    if s3n >= 2 {
+        let nd = s3n as f64;
+        let st3 = ((s3sq - s3s * s3s / nd) / (nd - 1.0)).max(0.0).sqrt();
+        if st3 > 1e-10 && s1n >= 2 {
+            let nd1 = s1n as f64;
+            f[12] = (((s1sq - s1s * s1s / nd1) / (nd1 - 1.0)).max(0.0).sqrt() / st3) as f32;
+        }
+    }
+    buf.drs.extend(buf.r_sample.windows(2).map(|w| w[1] - w[0]));
+    if !buf.drs.is_empty() {
+        let p90 = percentile_abs_reuse(&buf.drs, 0.90, &mut buf.pct_scratch);
+        buf.binary.extend(buf.drs.iter().map(|&v| if v.abs() >= p90 { 1.0 } else { 0.0 }));
+        f[13] = runs_test_z(&buf.binary);
+    }
+    if drn >= 4 {
+        let nd = drn as f64;
+        let mean = dr_s1 / nd;
+        let m2 = dr_s2 / nd - mean * mean;
+        let m3 = dr_s3 / nd - 3.0 * mean * (dr_s2 / nd) + 2.0 * mean * mean * mean;
+        let m4 = dr_s4 / nd - 4.0 * mean * (dr_s3 / nd) + 6.0 * mean * mean * (dr_s2 / nd) - 3.0 * mean.powi(4);
+        if m2 > 1e-20 {
+            f[14] = (m3 / m2.powf(1.5) * ((nd - 1.0) * nd).sqrt() / (nd - 2.0)) as f32;
+            let g2 = m4 / (m2 * m2);
+            f[15] = (((nd - 1.0) / ((nd - 2.0) * (nd - 3.0))) * ((nd + 1.0) * g2 - 3.0 * (nd - 1.0))) as f32;
+        }
+    }
+    f[16] = hurst_rs(&buf.r_sample);
+    f[17] = dfa_alpha(&buf.r_sample);
+    let k = buf.d_vals.len();
+    if k > 0 {
+        f[18] = buf.d_vals.iter().map(|d| d.abs()).sum::<f32>() / k as f32;
+        f[19] = buf.d_vals.iter().filter(|d| **d > 0.0).count() as f32 / k as f32;
+        f[20] = std_ddof1(&buf.d_vals);
+        if k >= 2 { f[21] = corr(&buf.d_vals[..k - 1], &buf.d_vals[1..]); }
+        if k >= 2 {
+            let flips = (0..k - 1).filter(|&i| buf.d_vals[i].signum() != buf.d_vals[i + 1].signum()).count();
+            f[22] = flips as f32 / (k - 1) as f32;
+        }
+        let p95 = percentile_abs_reuse(&buf.d_vals, 0.95, &mut buf.pct_scratch);
+        let hidden = (0..k).filter(|&i| buf.g_below[i] == 1 && buf.d_vals[i].abs() > p95).count();
+        f[23] = hidden as f32 / k as f32;
+        if k >= 3 {
+            buf.abs_d.extend(buf.d_vals.iter().map(|d| d.abs()));
+            f[24] = linear_slope(&buf.d_tau, &buf.abs_d);
+        }
+    }
+    f
+}
+
+/// GPT 优化版本入口。与 `compute_anneal_volume_full` 使用完全相同的
+/// 读取、分段、降维和退火参数，仅替换退火临时缓冲区实现。
+pub fn compute_anneal_volume_gpt_full(code: &str, date: i64) -> std::io::Result<Vec<f32>> {
+    let trades = read_trade_fast_inner(code, date, false, true, usize::MAX)?;
+    if trades.is_empty() {
+        return Ok(vec![f32::NAN; EXPECTED_LEN]);
+    }
+    let t_open = trades.first().unwrap().time_sec;
+    let win_aggs: Vec<(FxHashMap<i64, AggOrder>, FxHashMap<i64, AggOrder>)> = WINDOW_BOUNDS
+        .iter()
+        .map(|&(sec_lo, sec_hi)| {
+            let lo = trades.partition_point(|t| t.time_sec < t_open + sec_lo);
+            let hi = trades.partition_point(|t| t.time_sec < t_open + sec_hi);
+            aggregate_orders(&trades[lo..hi])
+        })
+        .collect();
+
+    let segs = segment_defs();
+    let mut buf = AnnealGptBuf::new();
+    let mut out = Vec::with_capacity(EXPECTED_LEN);
+    let cache_len = WINDOW_BOUNDS.len() * 9;
+    let mut extracted: Vec<Option<Vec<f32>>> = (0..cache_len).map(|_| None).collect();
+    let mut quantile_orders: Vec<Option<Vec<(f32, usize)>>> =
+        (0..cache_len).map(|_| None).collect();
+    for &(win_idx, side, quantile) in &segs {
+        let cache_idx = win_idx * 9 + side.index();
+        if extracted[cache_idx].is_none() {
+            let (bid, ask) = &win_aggs[win_idx];
+            extracted[cache_idx] = Some(extract_side(bid, ask, side));
+        }
+        let vols = extracted[cache_idx].as_ref().unwrap();
+        let filtered = if quantile == Quantile::All {
+            vols.clone()
+        } else {
+            if quantile_orders[cache_idx].is_none() {
+                let mut order: Vec<(f32, usize)> =
+                    vols.iter().enumerate().map(|(i, &v)| (v, i)).collect();
+                order.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+                quantile_orders[cache_idx] = Some(order);
+            }
+            quantile_filter_from_sorted(
+                vols,
+                quantile_orders[cache_idx].as_ref().unwrap(),
+                quantile,
+            )
+        };
+        let factors = anneal_gpt(&filtered, adaptive_m_max(filtered.len(), M_MAX_SCALAR), &mut buf);
+        out.extend_from_slice(&factors);
+    }
+
+    let minute_col_names = build_minute_col_names();
+    let mut matrix = Array2::zeros((N_MINUTES, N_MINUTE_COLS));
+    for m_idx in 0..N_MINUTES {
+        let lo = trades.partition_point(|t| t.time_sec < t_open + m_idx as f32 * 60.0);
+        let hi = trades.partition_point(|t| t.time_sec < t_open + (m_idx + 1) as f32 * 60.0);
+        if lo >= hi {
+            continue;
+        }
+        let (bid, ask) = aggregate_orders(&trades[lo..hi]);
+        for (vi, &side) in [Side::Bid, Side::Ask, Side::Mixed].iter().enumerate() {
+            let vols = extract_side(&bid, &ask, side);
+            let factors = anneal_gpt(&vols, adaptive_m_max(vols.len(), M_MAX_MINUTE), &mut buf);
+            for (fi, &value) in factors.iter().enumerate() {
+                matrix[[m_idx, vi * N_FACTORS + fi]] = value;
+            }
+        }
+    }
+    let (reduced, _) = features::get_features_factors_rust_full(
+        &matrix.view(),
+        &minute_col_names,
+        false,
+    );
+    out.extend_from_slice(&reduced);
+    if out.len() < EXPECTED_LEN {
+        out.resize(EXPECTED_LEN, f32::NAN);
+    } else if out.len() > EXPECTED_LEN {
+        out.truncate(EXPECTED_LEN);
+    }
+    Ok(out)
+}
+
+#[pyfunction]
+pub fn py_anneal_volume_gpt(code: &str, date: i64) -> PyResult<Vec<f32>> {
+    compute_anneal_volume_gpt_full(code, date)
+        .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("{:?}", e)))
+}
+
+// ============================================================================
 // 因子名
 // ============================================================================
 

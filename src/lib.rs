@@ -100,10 +100,12 @@ pub mod yand_affine_centroid;
 pub mod yand_divergence;
 
 pub mod distill_metrics;
+pub mod hidden_arrange_metrics;
 pub mod distill_tick_metrics;
 pub mod fast_csv_reader;
 
 pub mod anneal_volume_metrics;
+pub mod cross_section_example_metrics;
 pub mod factor_pipeline;
 pub mod factor_store_v5;
 pub mod features;
@@ -1026,6 +1028,10 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         m
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(
+        anneal_volume_metrics::py_anneal_volume_gpt,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
         anneal_volume_metrics::py_anneal_volume_names,
         m
     )?)?;
@@ -1051,6 +1057,8 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(distill_metrics::py_distill, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(distill_metrics::py_distill_names, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(hidden_arrange_metrics::py_hidden_arrange, m)?);
+    let _ = m.add_function(wrap_pyfunction!(hidden_arrange_metrics::py_hidden_arrange_names, m)?);
     let _ = m.add_function(wrap_pyfunction!(distill_tick_metrics::py_distill_tick, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(
         distill_tick_metrics::py_distill_tick_names,
@@ -1062,6 +1070,18 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(
         factor_pipeline::run_factor_pipeline_minute,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        factor_pipeline::run_factor_pipeline_cross_section,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        cross_section_example_metrics::py_cross_section_example,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        cross_section_example_metrics::py_cross_section_example_names,
         m
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(

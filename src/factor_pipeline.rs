@@ -586,6 +586,7 @@ pub fn run_factor_pipeline(
         "distill",
         "distill_tick",
         "anneal_volume",
+        "hidden_arrange",
     ];
     if !known.contains(&pipeline_name.as_str()) {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
@@ -821,6 +822,11 @@ pub fn run_factor_pipeline(
                         pipeline_distill_tick(date, &code, &trading_days, expected_result_length)
                     } else if pipeline_name_t == "anneal_volume" {
                         pipeline_anneal_volume(date, &code, &trading_days, expected_result_length)
+                    } else if pipeline_name_t == "hidden_arrange" {
+                        match crate::hidden_arrange_metrics::compute_hidden_arrange_full(&code, date) {
+                            Ok((_n, v)) => v,
+                            Err(_) => vec![f32::NAN; expected_result_length],
+                        }
                     } else {
                         pipeline_order_pair_hm90(
                             date,
@@ -1975,6 +1981,391 @@ fn run_single_minute_worker(
                 }
                 Err(_) => {
                     eprintln!("⚠️ minute worker{worker_idx} IPC 错误，重启中...");
+                    let _ = batch_tx.send((date, Vec::new()));
+                    let _ = child.kill();
+                    continue 'outer;
+                }
+            }
+        }
+    }
+}
+
+// ============================================================
+// 横截面 pipeline（run_factor_pipeline_cross_section）
+//
+// 与 minute pipeline 的区别：
+// - 数据源是 Level2 CSV（per-stock 文件，worker 内部 rayon 并行读全市场）
+// - worker 进程设 RAYON_NUM_THREADS = n_jobs / n_workers（非 1）
+// - n_jobs 语义 = 总并行线程数（进程数 × 每进程线程数），可配
+// - 计算包含跨股票横截面运算
+// 详见 skill: cross-section-pipeline-pattern
+// ============================================================
+
+/// 横截面示例因子的 worker 包装：调核心，fan-out 成 TaskResult 列表。
+pub fn pipeline_cross_section_example(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    match crate::cross_section_example_metrics::compute_cross_section_example_full(date) {
+        Ok((codes, vals)) => {
+            let n_factors = expected_len;
+            vals.chunks(n_factors)
+                .zip(codes.iter())
+                .map(|(facs, code)| TaskResult {
+                    date,
+                    code: code.clone(),
+                    timestamp: 0,
+                    facs: facs.to_vec(),
+                })
+                .collect()
+        }
+        Err(e) => {
+            eprintln!("cross_section_example error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
+/// 横截面 pipeline 的 Python 入口。
+///
+/// 参数：
+/// - pipeline: 流水线标识（目前支持 "cross_section_example"）
+/// - tasks: 纯日期列表 [date, ...]
+/// - n_jobs: 总并行度 = n_workers × threads_per_worker（默认 200，可配）
+/// - expected_result_length: 每只股票的因子数（= N_FACTORS）
+/// - trading_days: 交易日历
+/// - n_workers: 可选 worker 进程数。不设则自动 = clamp(n_jobs//50, 2, 8)
+/// - store_dir / store_factor_names: colblk 列式存储
+///
+/// 调度：n_workers 个进程，每进程设 RAYON_NUM_THREADS = n_jobs/n_workers，
+/// 异步从日期队列领任务，每个 date 任务内并行读全市场 + 横截面计算。
+#[pyfunction]
+#[pyo3(signature = (
+    pipeline, tasks, n_jobs, expected_result_length, trading_days,
+    params=None, n_workers=None, update_mode=None, bind_cores=true,
+    store_dir=None, store_factor_names=None
+))]
+#[allow(clippy::too_many_arguments)]
+pub fn run_factor_pipeline_cross_section(
+    pipeline: &str,
+    tasks: &PyList,
+    n_jobs: usize,
+    expected_result_length: usize,
+    trading_days: Vec<i64>,
+    params: Option<PyObject>,
+    n_workers: Option<usize>,
+    update_mode: Option<bool>,
+    bind_cores: bool,
+    store_dir: Option<String>,
+    store_factor_names: Option<Vec<String>>,
+) -> PyResult<PyObject> {
+    let py = unsafe { Python::assume_gil_acquired() };
+
+    let pipeline_name = pipeline.to_string();
+    let known = ["cross_section_example"];
+    if !known.contains(&pipeline_name.as_str()) {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "未知横截面流水线: {}（支持: {:?}）",
+            pipeline, known
+        )));
+    }
+
+    // 拆分 n_jobs → n_workers × threads_per_worker
+    let n_workers_resolved = n_workers.unwrap_or_else(|| (n_jobs / 50).clamp(2, 8));
+    let n_workers = if n_workers_resolved == 0 { 1 } else { n_workers_resolved };
+    let threads_per_worker = (n_jobs / n_workers).max(1);
+    println!(
+        "📊 横截面 pipeline: n_jobs={n_jobs} → {n_workers} 进程 × {threads_per_worker} 线程"
+    );
+
+    let update_mode_enabled = update_mode.unwrap_or(false);
+    let n_shards = 8;
+
+    let store_dir_str = store_dir
+        .clone()
+        .unwrap_or_else(|| "./cross_section_store".to_string());
+    let sharded_sink: crate::factor_store_v5::ShardedBackupSink = {
+        let snames = store_factor_names.clone().unwrap_or_else(|| {
+            (0..expected_result_length)
+                .map(|i| format!("factor_{i}"))
+                .collect()
+        });
+        crate::factor_store_v5::ShardedBackupSink::new_colblk_sharded(
+            &store_dir_str,
+            &snames,
+            n_shards,
+        )
+        .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("打开 colblk 存储失败: {e}")))?
+    };
+
+    // 复用 oo_params（横截面 pipeline 暂无自定义 params）
+    let oo_params = if let Some(p) = &params {
+        parse_observable_order_params(py, p)?
+    } else {
+        ObservableOrderParams::default()
+    };
+    let hm90_params = Hm90Params::default();
+
+    // 解析日期列表
+    let mut all_dates: Vec<i64> = Vec::with_capacity(tasks.len());
+    for item in tasks.iter() {
+        let date: i64 = item.extract()?;
+        all_dates.push(date);
+    }
+
+    // 断点续算：按 date 过滤
+    let pending: Vec<i64> = if update_mode_enabled {
+        let completed = read_completed_dates(&store_dir_str);
+        all_dates.into_iter().filter(|d| !completed.contains(d)).collect()
+    } else {
+        all_dates
+    };
+
+    let total = pending.len();
+    if total == 0 {
+        println!("✅ 所有日期都已完成（cross_section pipeline）");
+        return Ok(Python::with_gil(|py| py.None()));
+    }
+    println!("📋 横截面 pipeline 待处理: {total} 天");
+
+    if let Some(worker_bin) = locate_worker_binary() {
+        run_multiprocess_cross_section(
+            py,
+            pending,
+            n_workers,
+            threads_per_worker,
+            sharded_sink,
+            expected_result_length,
+            trading_days,
+            hm90_params,
+            oo_params,
+            pipeline_name,
+            bind_cores,
+            store_dir_str,
+            &worker_bin,
+        )?;
+        return Ok(Python::with_gil(|py| py.None()));
+    }
+    Err(pyo3::exceptions::PyRuntimeError::new_err(
+        "run_factor_pipeline_cross_section 找不到 rust_pyfunc_worker 二进制",
+    ))
+}
+
+/// 横截面 pipeline 的多进程调度（per-date 任务 → MinuteBatch 结果 → 整天写入 colblk）。
+#[allow(clippy::too_many_arguments)]
+fn run_multiprocess_cross_section(
+    py: Python<'_>,
+    pending: Vec<i64>,
+    n_workers: usize,
+    threads_per_worker: usize,
+    sharded_sink: crate::factor_store_v5::ShardedBackupSink,
+    expected_result_length: usize,
+    trading_days: Vec<i64>,
+    params: Hm90Params,
+    oo_params: ObservableOrderParams,
+    pipeline_name: String,
+    bind_cores: bool,
+    store_dir: String,
+    worker_bin: &str,
+) -> PyResult<()> {
+    let total = pending.len();
+    let trading_days_arc = std::sync::Arc::new(trading_days);
+    let start = std::time::Instant::now();
+
+    py.allow_threads(|| -> PyResult<()> {
+        // 任务队列：date-only
+        let (task_tx, task_rx) = crossbeam::channel::unbounded::<i64>();
+        for date in pending {
+            let _ = task_tx.send(date);
+        }
+        drop(task_tx);
+
+        // 结果 channel：MinuteBatch（整天一批）
+        let (batch_tx, batch_rx) =
+            std::sync::mpsc::sync_channel::<(i64, Vec<TaskResult>)>(n_workers * 2);
+
+        let core_ids = if bind_cores {
+            core_affinity::get_core_ids()
+        } else {
+            None
+        };
+
+        // spawn n_workers 个 worker 管理线程
+        let mut handles = Vec::with_capacity(n_workers);
+        for worker_idx in 0..n_workers {
+            let task_rx = task_rx.clone();
+            let batch_tx = batch_tx.clone();
+            let params = params.clone();
+            let oo_params = oo_params.clone();
+            let pipeline_name = pipeline_name.clone();
+            let trading_days = trading_days_arc.clone();
+            let worker_bin = worker_bin.to_string();
+            let core_affinity_idx = if let Some(ref cores) = core_ids {
+                Some(worker_idx % cores.len())
+            } else {
+                None
+            };
+
+            let handle = std::thread::spawn(move || {
+                run_single_cross_section_worker(
+                    &worker_bin,
+                    worker_idx,
+                    threads_per_worker,
+                    task_rx,
+                    batch_tx,
+                    &params,
+                    &oo_params,
+                    &pipeline_name,
+                    &trading_days,
+                    expected_result_length,
+                    core_affinity_idx,
+                );
+            });
+            handles.push(handle);
+        }
+        drop(batch_tx);
+
+        // writer 线程：整天批次 → append_batch → mark_date_complete（带进度日志）
+        let writer_handle = {
+            let sharded_c = sharded_sink.clone();
+            let store_dir_c = store_dir.clone();
+            let mut done = 0usize;
+            std::thread::spawn(move || {
+                while let Ok((date, batch)) = batch_rx.recv() {
+                    if !batch.is_empty() {
+                        let n = batch.len();
+                        let _ = sharded_c.append_batch(&batch);
+                        mark_date_complete(&store_dir_c, date);
+                        done += 1;
+                        let elapsed = start.elapsed().as_secs_f64();
+                        eprintln!(
+                            "[{}] ✅ {date} 完成: {n} 股 ({done}/{total}, {elapsed:.0}s)",
+                            Local::now().format("%H:%M:%S")
+                        );
+                    }
+                }
+            })
+        };
+
+        // 等待所有 worker
+        for h in handles {
+            let _ = h.join();
+        }
+        let _ = writer_handle.join();
+        Ok(())
+    })?;
+
+    let elapsed = start.elapsed().as_secs_f64();
+    println!(
+        "✅ [横截面多进程] 完成 {total} 天, 总用时 {elapsed:.1}s, 配置 {n_workers}进程×{threads_per_worker}线程"
+    );
+
+    Ok(())
+}
+
+/// 单个横截面 worker 进程的管理器。
+///
+/// 与 run_single_minute_worker 的唯一区别：设 RAYON_NUM_THREADS = threads_per_worker（非 1），
+/// 让 worker 进程内部能用多线程并行读全市场 + 计算横截面。
+#[allow(clippy::too_many_arguments)]
+fn run_single_cross_section_worker(
+    worker_bin: &str,
+    worker_idx: usize,
+    threads_per_worker: usize,
+    task_rx: crossbeam::channel::Receiver<i64>,
+    batch_tx: std::sync::mpsc::SyncSender<(i64, Vec<TaskResult>)>,
+    params: &Hm90Params,
+    oo_params: &ObservableOrderParams,
+    pipeline_name: &str,
+    trading_days: &[i64],
+    expected_len: usize,
+    core_affinity_idx: Option<usize>,
+) {
+    use std::io::{BufReader, BufWriter, Write};
+    use std::process::{Command, Stdio};
+
+    'outer: loop {
+        let mut cmd = Command::new(worker_bin);
+        cmd.stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit());
+        // ⭐ 关键区别：横截面 worker 内部要多线程（读全市场+计算），故设为 threads_per_worker
+        cmd.env("RAYON_NUM_THREADS", threads_per_worker.to_string());
+        cmd.env("OMP_NUM_THREADS", threads_per_worker.to_string());
+        cmd.env("OPENBLAS_NUM_THREADS", threads_per_worker.to_string());
+        cmd.env("MKL_NUM_THREADS", threads_per_worker.to_string());
+        if let Some(idx) = core_affinity_idx {
+            cmd.env("RUST_PYFUNC_CORE_AFFINITY_IDX", idx.to_string());
+        }
+
+        let mut child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("⚠️ cross_section worker{worker_idx} spawn 失败: {e}, 3秒后重试");
+                std::thread::sleep(std::time::Duration::from_secs(3));
+                continue;
+            }
+        };
+
+        let stdin = child.stdin.take().unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let mut writer = BufWriter::with_capacity(1 << 20, stdin);
+        let mut reader = BufReader::with_capacity(1 << 20, stdout);
+
+        // 发 Init
+        let init_msg = TaskMessage::Init {
+            pipeline_name: pipeline_name.to_string(),
+            params: params.clone(),
+            oo_params: oo_params.clone(),
+            trading_days: trading_days.to_vec(),
+            expected_len,
+        };
+        if ipc_write(&mut writer, &init_msg).is_err() {
+            let _ = child.kill();
+            continue;
+        }
+        match ipc_read_result(&mut reader) {
+            Ok(ResultMessage::Ready) => {}
+            _ => {
+                let _ = child.kill();
+                continue;
+            }
+        }
+
+        // 内层循环：取 date → 发 MinuteTask → 收 MinuteBatch
+        loop {
+            let date = match task_rx.recv() {
+                Ok(d) => d,
+                Err(_) => {
+                    let _ = ipc_write(&mut writer, &TaskMessage::Shutdown);
+                    let _ = writer.write_all(&[0u8; 4]);
+                    let _ = child.wait();
+                    break 'outer;
+                }
+            };
+
+            let task_msg = TaskMessage::MinuteTask { date };
+            if ipc_write(&mut writer, &task_msg).is_err() {
+                let _ = batch_tx.send((date, Vec::new()));
+                let _ = child.kill();
+                continue 'outer;
+            }
+
+            match ipc_read_result(&mut reader) {
+                Ok(ResultMessage::MinuteBatch(batch)) => {
+                    let n_stocks = batch.len();
+                    let _ = batch_tx.send((date, batch));
+                    eprintln!(
+                        "[{}] worker{worker_idx} 完成 {date}: {n_stocks} 股",
+                        Local::now().format("%H:%M:%S")
+                    );
+                }
+                Ok(ResultMessage::Error { date, code, msg }) => {
+                    eprintln!(
+                        "⚠️ cross_section worker{worker_idx} 错误 [{date},{code}]: {msg}"
+                    );
+                    let _ = batch_tx.send((date, Vec::new()));
+                }
+                Ok(_) => {}
+                Err(_) => {
+                    eprintln!("⚠️ cross_section worker{worker_idx} IPC 错误，重启中...");
                     let _ = batch_tx.send((date, Vec::new()));
                     let _ = child.kill();
                     continue 'outer;

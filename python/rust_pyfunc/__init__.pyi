@@ -68,6 +68,14 @@ def py_distill_names() -> List[str]:
     ...
 
 
+def py_hidden_arrange(code: str, date: int) -> List[float]:
+    ...
+
+
+def py_hidden_arrange_names() -> List[str]:
+    ...
+
+
 def py_distill_tick(code: str, date: int) -> List[float]:
     ...
 
@@ -76,6 +84,9 @@ def py_distill_tick_names() -> List[str]:
     ...
 
 def py_anneal_volume(code: str, date: int) -> List[float]:
+    ...
+
+def py_anneal_volume_gpt(code: str, date: int) -> List[float]:
     ...
 
 
@@ -106,6 +117,30 @@ def py_minute_example(date: int) -> Tuple[List[str], List[float]]:
 
 
 def py_minute_example_names() -> List[str]:
+    ...
+
+
+def run_factor_pipeline_cross_section(
+    pipeline: str,
+    tasks: List[int],
+    n_jobs: int,
+    expected_result_length: int,
+    trading_days: List[int],
+    params: Optional[dict] = None,
+    n_workers: Optional[int] = None,
+    update_mode: Optional[bool] = None,
+    bind_cores: bool = True,
+    store_dir: Optional[str] = None,
+    store_factor_names: Optional[List[str]] = None,
+) -> None:
+    ...
+
+
+def py_cross_section_example(date: int) -> Tuple[List[str], List[float]]:
+    ...
+
+
+def py_cross_section_example_names() -> List[str]:
     ...
 
 
@@ -353,6 +388,9 @@ __all__ = [
     "run_factor_pipeline_minute",
     "py_minute_example",
     "py_minute_example_names",
+    "run_factor_pipeline_cross_section",
+    "py_cross_section_example",
+    "py_cross_section_example_names",
     "get_theme_cluster_scatter_3d",
     "adjust_afternoon",
     "read_trade",
@@ -362,6 +400,8 @@ __all__ = [
     "py_extreme_point_fit_names",
     "py_distill",
     "py_distill_names",
+    "py_hidden_arrange",
+    "py_hidden_arrange_names",
     "py_distill_tick",
     "py_distill_tick_names",
     "get_features_factors",
