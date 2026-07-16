@@ -314,14 +314,13 @@ fn stock_version_factors(
 pub fn compute_urgency_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f32>)> {
     let codes = list_codes(date);
     // ① rayon 并行读全市场（过滤撤单）
-    let per_stock: Vec<(u32, String, Vec<_>)> = codes
+    let per_stock: Vec<(String, Vec<_>)> = codes
         .par_iter()
-        .enumerate()
-        .filter_map(|(i, code)| {
+        .filter_map(|code| {
             let mut trades = read_trade_fast_inner(code, date, false, true, usize::MAX).ok()?;
             trades.retain(|t| t.flag != 32);
             if trades.is_empty() { return None; }
-            Some((i as u32, code.clone(), trades))
+            Some((code.clone(), trades))
         })
         .collect();
     let n_stocks = per_stock.len();
@@ -329,24 +328,24 @@ pub fn compute_urgency_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f32>
         return Ok((Vec::new(), Vec::new()));
     }
     let mut code_of_cid: Vec<String> = Vec::with_capacity(n_stocks);
-    let total: usize = per_stock.iter().map(|(_, _, t)| t.len()).sum();
+    let total: usize = per_stock.iter().map(|(_, t)| t.len()).sum();
     let mut time_us = Vec::with_capacity(total);
     let mut ratio = Vec::with_capacity(total);
     let mut vol = Vec::with_capacity(total);
     let mut price = Vec::with_capacity(total);
     let mut dir = Vec::with_capacity(total);
     let mut cid = Vec::with_capacity(total);
-    for (i, code, trades) in &per_stock {
+    for (c, (code, trades)) in per_stock.iter().enumerate() {
         code_of_cid.push(code.clone());
         for t in trades {
             let sum = (t.ask_order + t.bid_order) as f64;
-            let r = ((t.ask_order - t.bid_order) as f64 / sum) as f32;
+            let r = if sum > 0.0 { ((t.ask_order - t.bid_order) as f64 / sum) as f32 } else { 0.0 };
             time_us.push(t.time_us);
             ratio.push(r);
             vol.push(t.volume);
             price.push(t.price);
             dir.push(if t.flag == 83 { 1i8 } else { -1i8 });
-            cid.push(*i);
+            cid.push(c as u32);
         }
     }
     drop(per_stock);
@@ -355,11 +354,11 @@ pub fn compute_urgency_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f32>
     // ② 全市场分位
     let qidx = |q: f64| ((n as f64 * q) as usize).min(n - 1);
     let mut rs = ratio.clone();
-    rs.par_sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
+    rs.par_sort_unstable_by(|a, b| a.total_cmp(b));
     let q95 = rs[qidx(0.95)];
     let q5 = rs[qidx(0.05)];
     for v in rs.iter_mut() { *v = v.abs(); }
-    rs.par_sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
+    rs.par_sort_unstable_by(|a, b| a.total_cmp(b));
     let q95_abs = rs[qidx(0.95)];
 
     // ③ 时间排序 → 有序 SoA
