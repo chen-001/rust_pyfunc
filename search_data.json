@@ -1367,6 +1367,21 @@
     "params": []
   },
   {
+    "name": "py_anneal_volume",
+    "description": "<p>Python 可调用：py_anneal_volume(code, date)\n单股单日计算，返回 5975 个因子值。错误抛 PyIOError。</p>",
+    "params": []
+  },
+  {
+    "name": "py_anneal_volume_gpt",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_anneal_volume_names",
+    "description": "<p>Python 拿因子名。</p>",
+    "params": []
+  },
+  {
     "name": "py_compute_observable_order_metrics",
     "description": "<p>Python 可调用：py_compute_observable_order_metrics(code, date, params_dict=None)</p>\n<p>返回 dict:\n  {\n    \"bid_A\": {\"seg_flat\": list[f64], \"seg_rows\": int,\n             \"pre5_flat\": list[f64], \"pre5_rows\": int, \"ncols\": int},\n    ...\n  }\nseg_flat 为 row-major 展平的 (seg_rows × NCOLS)，Python 端 reshape 即可。</p>",
     "params": []
@@ -1374,6 +1389,36 @@
   {
     "name": "py_compute_orderbook_imb_refactor",
     "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_cross_section_example",
+    "description": "<p>Python 单日调试：返回 (codes, vals)，可见完整错误栈。</p>",
+    "params": []
+  },
+  {
+    "name": "py_cross_section_example_names",
+    "description": "<p>Python 拿因子名。</p>",
+    "params": []
+  },
+  {
+    "name": "py_distill",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_distill_names",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_distill_tick",
+    "description": "<p>单股单日调试用，错误抛异常（可见完整栈）。</p>",
+    "params": []
+  },
+  {
+    "name": "py_distill_tick_names",
+    "description": "<p>Python 拿因子名。</p>",
     "params": []
   },
   {
@@ -1387,6 +1432,16 @@
     "params": []
   },
   {
+    "name": "py_hidden_arrange",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_hidden_arrange_names",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
     "name": "py_individual_order_ratio",
     "description": "<p>无文档</p>",
     "params": []
@@ -1397,8 +1452,23 @@
     "params": []
   },
   {
+    "name": "py_minute_example",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_minute_example_names",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
     "name": "py_orderbook_imb_refactor_names",
     "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_read_minute_data",
+    "description": "<p>Python 入口：读单字段单日 → (codes, flat_data, n_rows, n_cols)</p>",
     "params": []
   },
   {
@@ -1723,6 +1793,24 @@
   {
     "name": "run_factor_pipeline",
     "description": "<ul>\n<li>tasks: [[date, code], ...]</li>\n<li>n_jobs: 并行线程数（默认 200）</li>\n<li>backup_file: 备份文件路径</li>\n<li>expected_result_length: 每个任务的预期结果长度</li>\n<li>trading_days: 交易日历数组（由 rp.td.trading_days 提供）</li>\n<li>params: 可选参数 dict（tolerance_v1, tolerance_v2）</li>\n<li>update_mode: 断点续算（默认 False）</li>\n<li>bind_cores: 是否核绑定（默认 True）</li>\n</ul>",
+    "params": []
+  },
+  {
+    "name": "run_factor_pipeline_cross_section",
+    "description": "<p>横截面 pipeline 的 Python 入口。</p>",
+    "params": [
+      "pipeline",
+      "tasks",
+      "n_jobs",
+      "expected_result_length",
+      "trading_days",
+      "n_workers",
+      "store_factor_names"
+    ]
+  },
+  {
+    "name": "run_factor_pipeline_minute",
+    "description": "<p>分钟 pipeline 的 Python 入口。</p>\n<p>与 run_factor_pipeline_v6 的区别：\n- tasks 是纯日期列表 [date, ...]（非 [[date, code], ...]）\n- pipeline 函数签名是 pipeline_minute_xxx(date) → Vec<TaskResult>（fan-out 全市场）\n- 断点续算按 date 粒度（用 _completed_dates 标记文件，而非 check_completed 逐 cell）\n- collector 不按 batch_size 拆分，整天一次写入</p>",
     "params": []
   },
   {
