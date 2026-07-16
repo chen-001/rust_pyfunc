@@ -2023,6 +2023,27 @@ pub fn pipeline_cross_section_example(date: i64, expected_len: usize) -> Vec<Tas
     }
 }
 
+/// urgency 横截面 pipeline 包装：调核心，fan-out 成 TaskResult。
+pub fn pipeline_urgency(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    match crate::urgency_metrics::compute_urgency_full(date) {
+        Ok((codes, vals)) => {
+            vals.chunks(expected_len)
+                .zip(codes.iter())
+                .map(|(facs, code)| TaskResult {
+                    date,
+                    code: code.clone(),
+                    timestamp: 0,
+                    facs: facs.to_vec(),
+                })
+                .collect()
+        }
+        Err(e) => {
+            eprintln!("urgency error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
 /// 横截面 pipeline 的 Python 入口。
 ///
 /// 参数：
@@ -2059,7 +2080,7 @@ pub fn run_factor_pipeline_cross_section(
     let py = unsafe { Python::assume_gil_acquired() };
 
     let pipeline_name = pipeline.to_string();
-    let known = ["cross_section_example"];
+    let known = ["cross_section_example", "urgency"];
     if !known.contains(&pipeline_name.as_str()) {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
             "未知横截面流水线: {}（支持: {:?}）",
