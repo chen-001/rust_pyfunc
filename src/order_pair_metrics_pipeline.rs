@@ -22,6 +22,7 @@ fn array_to_fast_records(trades: ArrayView2<f64>) -> Vec<fast_csv_reader::TradeR
     for i in 0..n {
         out.push(fast_csv_reader::TradeRecord {
             time_sec: trades[[i, 0]] as f32,
+            time_us: (trades[[i, 0]] * 1_000_000.0) as i64,
             price: trades[[i, 1]] as f32,
             volume: trades[[i, 2]] as f32,
             turnover: trades[[i, 3]] as f32,

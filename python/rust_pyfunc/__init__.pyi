@@ -144,6 +144,14 @@ def py_cross_section_example_names() -> List[str]:
     ...
 
 
+def py_urgency(date: int) -> Tuple[List[str], List[float]]:
+    ...
+
+
+def py_urgency_names() -> List[str]:
+    ...
+
+
 def personalized_meeting_feature_names() -> Tuple[List[str], List[str]]:
     ...
 
@@ -391,6 +399,8 @@ __all__ = [
     "run_factor_pipeline_cross_section",
     "py_cross_section_example",
     "py_cross_section_example_names",
+    "py_urgency",
+    "py_urgency_names",
     "get_theme_cluster_scatter_3d",
     "adjust_afternoon",
     "read_trade",

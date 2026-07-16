@@ -32,8 +32,12 @@ use std::path::Path;
 #[derive(Clone, Copy, Debug, Default)]
 #[repr(C)]
 pub struct TradeRecord {
-    /// 成交时间，epoch 秒（exchtime 微秒整数 / 1e6）
+    /// 成交时间，epoch 秒（exchtime 微秒整数 / 1e6，整数秒精度）
     pub time_sec: f32,
+    /// 成交时间，epoch 微秒（time_sec 的精确版，含 8h 偏移 + 下午前移）。
+    /// time_sec 在 2025 年 epoch(1.7e9) 附近 f32 精度仅 ±128s，无法做毫秒级窗口对齐；
+    /// 需要精确时间（窗口二分、延迟区间）的因子请用 time_us。
+    pub time_us: i64,
     pub price: f32,
     pub volume: f32,
     pub turnover: f32,
@@ -256,30 +260,30 @@ fn parse_line(line: &[u8], with_retreat: bool, with_afternoon_adjust: bool) -> O
     let exchtime_us = parse_i64_fast(fields[COL_EXCHTIME]);
     const EXCHANGE_OFFSET_US: i64 = 8 * 3600 * 1_000_000;
     let total_us = exchtime_us + EXCHANGE_OFFSET_US;
-    let time_sec = (total_us / 1_000_000) as f64;
 
-    // adjust_afternoon 平移（可选）。day_offset 用真实 UTC 计算（判断东八区时分秒）：
-    //   东八区当天零点起的秒数 = (UTC秒 + 8*3600) % 86400
-    let final_time_sec = if with_afternoon_adjust {
+    // 精确微秒时间（含 afternoon 平移）。final_time_sec 由它派生为整数秒。
+    // time_us 保留微秒精度，供需要毫秒级跨股时间对齐的因子使用。
+    let final_time_us: Option<i64> = if with_afternoon_adjust {
         let day_offset = ((exchtime_us / 1_000_000) + 8 * 3600).rem_euclid(86400);
         if day_offset >= AFTERNOON_START_SEC && day_offset <= AFTERNOON_END_SEC {
             // 下午时段：前移 90 分钟
-            Some(time_sec - AFTERNOON_SHIFT_SEC as f64)
+            Some(total_us - AFTERNOON_SHIFT_SEC * 1_000_000)
         } else if day_offset >= MORNING_START_SEC && day_offset <= MORNING_END_SEC {
             // 上午时段：保留
-            Some(time_sec)
+            Some(total_us)
         } else {
             // 集合竞价前或收盘后：过滤
             None
         }
     } else {
-        Some(time_sec)
+        Some(total_us)
     };
-
-    let final_time_sec = final_time_sec?;
+    let final_time_us = final_time_us?;
+    let final_time_sec = (final_time_us / 1_000_000) as f64;
 
     Some(TradeRecord {
         time_sec: final_time_sec as f32,
+        time_us: final_time_us,
         price: parse_f64_fast(fields[COL_PRICE]) as f32,
         volume: parse_f64_fast(fields[COL_VOLUME]) as f32,
         turnover: parse_f64_fast(fields[COL_TURNOVER]) as f32,
