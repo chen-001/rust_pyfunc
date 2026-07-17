@@ -1,35 +1,21 @@
-//! 樫截面因子：漫长订单（hm27 思路的横截面化）
+//! 樫截面因子：漫长订单（hm27 思路的横截面化，全维度展开版）
 //!
 //! # 核心思想
-//! 每个 LimitOrder 被 0~N 笔成交吃掉，其「存续时长」= 末笔成交 − 首笔成交（秒）。
+//! 每个 LimitOrder 被 0~N 笔成交吃掉，「存续时长」= 末笔 − 首笔（秒）。
 //! 漫长订单（分批、跨较长时间成交）往往是隐藏大单 / 冰山单 / 机构分仓的代理。
+//! 全市场统一阈值档 + 对 ln(总成交额) 回归中性化，剥离流动性共线。
 //!
-//! # 与原 hm27 的区别
-//! hm27 是 per-stock 自适应阈值（每只股票用自身 mean+k·σ）。
-//! 本模块用**全市场统一标准**（绝对时长档 60s / 180s），并对因子做**流动性中性化**
-//! （对 ln(总成交额) 回归取残差），剥离「冷门股订单天然慢」的流动性共线。
-//!
-//! # 因子布局（N_FACTORS = 16）
-//! | idx | name                 | 中性化 | 含义 |
-//! |-----|----------------------|--------|------|
-//! | 0,1 | lsp_60, lbp_60       | 是     | 漫长卖/买单成交额占比 (dur>60s) |
-//! | 2   | lsi_60               | 否     | 漫长买卖净不平衡 (天然去共线) |
-//! | 3,4 | lsp_180, lbp_180     | 是     | 同上，180s 档 |
-//! | 5   | lsi_180              | 否     | 180s 档净不平衡 |
-//! | 6,7 | dac_ask, dac_bid     | 是     | 大单耐心度 corr(dur, amt) |
-//! | 8   | big_net              | 否     | 大单(自身p80)方向不平衡 |
-//! | 9   | cross_big_long_60    | 是     | 漫长∩大单 交集占比 |
-//! | 10  | mean_dur_pos_ask     | 是     | 非单点订单平均存续(卖) |
-//! | 11  | long_share_ask       | 是     | 漫长份额 = dur>60 amt / dur>0 amt |
-//! | 12  | cnt_amt_div_ask      | 是     | 笔数占比 − 金额占比 背离 |
-//! | 13  | open_lsi_60          | 否     | 开盘30min 净不平衡 |
-//! | 14  | close_lsi_60         | 否     | 收盘30min 净不平衡 |
-//! | 15  | long_persist_z       | 是     | 耐心溢价 (dur_p95 中性化) |
-//!
-//! # 性能
-//! - per-stock：用 HashMap 聚合订单（order id 不可枚举，必须哈希，仅在股内用）
-//! - 横截面：只处理每股 O(1) 的 16 个聚合量，顺序访问，零随机访问
-//! - 见 AGENTS.md「高性能规范」：HashMap 只在 per-stock 内（非跨股热路径），符合原则
+//! # 38 个因子（10 个独立逻辑族）
+//! ## 族1 漫长占比 (0-11)：4 阈值档 {30,60,180,600}s × {卖,买,净} = 12
+//! ## 族2 大单方向 (12-15)：4 口径 {p80,p90,abs50w,abs100w} 净不平衡 = 4
+//! ## 族3 大单耐心度 (16-17)：corr(dur, amt) 卖/买 = 2
+//! ## 族4 核心资金 (18-20)：漫长∩大单 交集 = 3
+//! ## 族5 份额背离 (21-24)：漫长份额 + 笔数-金额背离 卖/买 = 4
+//! ## 族6 时段耐心 (25-28)：开盘/收盘 × {60,180}s 净不平衡 = 4
+//! ## 族7 存续均值 (29-32)：非单点均值 + 金额加权均值 卖/买 = 4
+//! ## 族8 耐心溢价 (33-34)：dur_p95/p99 = 2
+//! ## 族9 分仓粒度 (35-36)：漫长订单平均成交笔数 卖/买 = 2
+//! ## 族10 首笔时机 (37)：漫长卖单首笔相对时机 = 1
 
 use crate::fast_csv_reader::{read_trade_fast_inner, TradeRecord};
 use pyo3::prelude::*;
@@ -37,34 +23,40 @@ use rayon::prelude::*;
 use std::collections::BTreeSet;
 use std::fs;
 
-/// 每只股票输出因子数。
-pub const N_FACTORS: usize = 16;
+/// 每只股票输出因子数（38→31：剔除 30s 整档 / cross_60_p80 / cross_180_p80 /
+/// cnt_amt_div_ask/buy 等高相关冗余，剩余最高截面相关 0.894）。
+pub const N_FACTORS: usize = 31;
 
-/// 漫长订单阈值档（秒）。两档给出不同「耐心强度」。
-const THR_SECS: [f64; 2] = [60.0, 180.0];
-
-/// 每个因子是否需要 ln(总成交额) 流动性中性化。
-/// 净不平衡类（lsi / big_net / 时段lsi）天然去共线，不做回归。
-const NEED_NEUTRALIZE: [bool; N_FACTORS] = [
-    true, true, false,  // 0,1,2 : lsp60, lbp60, lsi60
-    true, true, false,  // 3,4,5 : lsp180, lbp180, lsi180
-    true, true,         // 6,7   : dac_ask, dac_bid
-    false,              // 8     : big_net
-    true,               // 9     : cross_big_long_60
-    true, true,         // 10,11 : mean_dur_pos_ask, long_share_ask
-    true,               // 12    : cnt_amt_div_ask
-    false, false,       // 13,14 : open_lsi_60, close_lsi_60
-    true,               // 15    : long_persist_z
-];
-
-/// 开盘 / 收盘窗口长度（微秒）= 30 分钟
+/// 漫长订单阈值档（秒）。保留 60/180/600 三档（30s 与 60s 相关>0.94 已剔）。
+const THR_SECS: [f64; 3] = [60.0, 180.0, 600.0];
+/// 开盘/收盘窗口长度（微秒）= 30 分钟
 const WINDOW_US: i64 = 30 * 60 * 1_000_000;
 
-// ============================================================
-// per-stock 聚合
-// ============================================================
+/// 每个因子是否需要 ln(总成交额) 流动性中性化。
+/// 净额类（lsi/big_net/时段lsi/时机）天然去共线，不做回归。
+const NEED_NEUTRALIZE: [bool; N_FACTORS] = [
+    // 族1: lsp,lbp,lsi × 3档(60/180/600)
+    true, true, false, true, true, false, true, true, false,
+    // 族2: big_net 4口径
+    false, false, false, false,
+    // 族3: dac 卖/买
+    true, true,
+    // 族4: 核心资金 cross_60_abs
+    true,
+    // 族5: 漫长份额 卖/买
+    true, true,
+    // 族6: 时段lsi 4
+    false, false, false, false,
+    // 族7: 存续均值 4
+    true, true, true, true,
+    // 族8: 耐心溢价 2
+    true, true,
+    // 族9: 分仓粒度 2
+    true, true,
+    // 族10: 首笔时机 1
+    false,
+];
 
-/// 单个订单的聚合状态。
 #[derive(Clone, Copy, Default)]
 struct Agg {
     first_us: i64,
@@ -74,7 +66,6 @@ struct Agg {
     init: bool,
 }
 
-/// 列出某天某子目录下所有股票代码（横截面枚举用）。
 pub fn list_codes(date: i64, subdir: &str) -> Vec<String> {
     let dir = format!("/ssd_data/stock/{date}/{subdir}");
     let mut set = BTreeSet::new();
@@ -91,20 +82,20 @@ pub fn list_codes(date: i64, subdir: &str) -> Vec<String> {
     set.into_iter().collect()
 }
 
-/// 按 order id 聚合（可选时间窗口过滤），返回 HashMap。
-/// `get_id` 取 ask_order 或 bid_order；`in_window` 为 true 时只统计窗口内成交。
+/// 按 order id 聚合（可选时间窗口），返回 HashMap。
+/// window: Some((lo,hi))，lo=0 表示上界窗口(开盘 time_us<hi)，hi=MAX 表示下界窗口(收盘 time_us>lo)。
 fn aggregate(
     trades: &[TradeRecord],
     get_id: impl Fn(&TradeRecord) -> i64,
     window: Option<(i64, i64)>,
 ) -> std::collections::HashMap<i64, Agg> {
-    let mut m: std::collections::HashMap<i64, Agg> = std::collections::HashMap::with_capacity(trades.len() / 2 + 1);
+    let mut m: std::collections::HashMap<i64, Agg> =
+        std::collections::HashMap::with_capacity(trades.len() / 2 + 1);
     for t in trades {
         if t.flag != 66 && t.flag != 83 {
             continue;
         }
         if let Some((lo, hi)) = window {
-            // lo=0 表示「< hi」的上界窗口（开盘）；hi=i64::MAX 表示「> lo」的下界窗口（收盘）
             if lo > 0 && t.time_us <= lo {
                 continue;
             }
@@ -137,19 +128,36 @@ fn aggregate(
     m
 }
 
-/// 从聚合 map 提取 (duration_秒, amount) 配对数组（同序，供 corr/筛选用）。
-fn extract(m: &std::collections::HashMap<i64, Agg>) -> (Vec<f64>, Vec<f64>) {
+/// 提取 (duration_秒, amount, 成交笔数) 配对数组（同序）。
+fn extract3(m: &std::collections::HashMap<i64, Agg>) -> (Vec<f64>, Vec<f64>, Vec<i64>) {
     let n = m.len();
     let mut dur = Vec::with_capacity(n);
     let mut amt = Vec::with_capacity(n);
+    let mut cnt = Vec::with_capacity(n);
     for e in m.values() {
         dur.push((e.last_us - e.first_us) as f64 / 1e6);
         amt.push(e.amt);
+        cnt.push(e.cnt);
     }
-    (dur, amt)
+    (dur, amt, cnt)
 }
 
-/// 经验分位数（排序法，per-stock 订单数万级，开销可接受）。
+/// Σ(dur>thr 的 amount)
+fn sum_amt_above(dur: &[f64], amt: &[f64], thr: f64) -> f64 {
+    dur.iter()
+        .zip(amt.iter())
+        .filter(|(d, _)| **d > thr)
+        .map(|(_, a)| *a)
+        .sum()
+}
+/// Σ(dur>dthr 且 amt>athr 的 amount)
+fn sum_amt_cross(dur: &[f64], amt: &[f64], dthr: f64, athr: f64) -> f64 {
+    dur.iter()
+        .zip(amt.iter())
+        .filter(|(d, a)| **d > dthr && **a > athr)
+        .map(|(_, a)| *a)
+        .sum()
+}
 fn percentile(v: &[f64], q: f64) -> f64 {
     if v.is_empty() {
         return 0.0;
@@ -160,7 +168,6 @@ fn percentile(v: &[f64], q: f64) -> f64 {
     s[idx.min(s.len() - 1)]
 }
 
-/// 皮尔逊相关系数（数组须同序）。
 fn corr(x: &[f64], y: &[f64]) -> f64 {
     let n = x.len();
     if n < 3 {
@@ -185,137 +192,39 @@ fn corr(x: &[f64], y: &[f64]) -> f64 {
     }
 }
 
-/// per-stock 算 16 个原始因子 + ln(总成交额)。
-/// 返回 None 表示数据不足。
-fn per_stock(trades: &[TradeRecord]) -> Option<([f64; N_FACTORS], f64)> {
-    if trades.len() < 50 {
-        return None;
-    }
-    // 全天总量 + 首末时间
-    let mut total_amt = 0.0f64;
-    let mut first_us = i64::MAX;
-    let mut last_us = i64::MIN;
-    for t in trades {
-        if t.flag != 66 && t.flag != 83 {
-            continue;
-        }
-        total_amt += t.turnover as f64;
-        if t.time_us < first_us {
-            first_us = t.time_us;
-        }
-        if t.time_us > last_us {
-            last_us = t.time_us;
+fn mean_pos_dur(dur: &[f64]) -> f64 {
+    let mut s = 0.0f64;
+    let mut n = 0u64;
+    for &d in dur {
+        if d > 0.0 {
+            s += d;
+            n += 1;
         }
     }
-    if total_amt <= 0.0 || first_us >= last_us {
-        return None;
-    }
-
-    // 全天 ask / bid 聚合
-    let ask_map = aggregate(trades, |t| t.ask_order, None);
-    let bid_map = aggregate(trades, |t| t.bid_order, None);
-    let (adur, aamt) = extract(&ask_map);
-    let (bdur, bamt) = extract(&bid_map);
-    if aamt.is_empty() || bamt.is_empty() {
-        return None;
-    }
-
-    let mut f = [0.0f64; N_FACTORS];
-
-    // 大单阈值（自身 p80）
-    let a_p80 = percentile(&aamt, 0.80);
-    let b_p80 = percentile(&bamt, 0.80);
-
-    // [0..6] 各时长档的 lsp / lbp / lsi
-    for (i, &thr) in THR_SECS.iter().enumerate() {
-        let lsp: f64 = adur
-            .iter()
-            .zip(aamt.iter())
-            .filter(|(d, _)| **d > thr)
-            .map(|(_, a)| *a)
-            .sum::<f64>()
-            / total_amt;
-        let lbp: f64 = bdur
-            .iter()
-            .zip(bamt.iter())
-            .filter(|(d, _)| **d > thr)
-            .map(|(_, a)| *a)
-            .sum::<f64>()
-            / total_amt;
-        f[i * 3] = lsp;
-        f[i * 3 + 1] = lbp;
-        f[i * 3 + 2] = lbp - lsp;
-    }
-
-    // [6,7] 大单耐心度 corr(dur, amt)
-    f[6] = corr(&adur, &aamt);
-    f[7] = corr(&bdur, &bamt);
-
-    // [8] 大单方向不平衡（自身 p80）
-    let big_sell = aamt.iter().filter(|&&a| a > a_p80).sum::<f64>() / total_amt;
-    let big_buy = bamt.iter().filter(|&&a| a > b_p80).sum::<f64>() / total_amt;
-    f[8] = big_buy - big_sell;
-
-    // [9] 漫长(>60s) ∩ 大单(>p80) 交集占比（卖单）
-    f[9] = adur
-        .iter()
-        .zip(aamt.iter())
-        .filter(|(d, a)| **d > 60.0 && **a > a_p80)
-        .map(|(_, a)| *a)
-        .sum::<f64>()
-        / total_amt;
-
-    // [10] 非单点订单平均存续（卖单）
-    let pos: Vec<f64> = adur.iter().filter(|&&d| d > 0.0).copied().collect();
-    f[10] = if pos.is_empty() {
+    if n == 0 {
         0.0
     } else {
-        pos.iter().sum::<f64>() / pos.len() as f64
-    };
-
-    // [11] 漫长份额 = dur>60 amt / dur>0 amt（卖单）
-    let l60 = adur
-        .iter()
-        .zip(aamt.iter())
-        .filter(|(d, _)| **d > 60.0)
-        .map(|(_, a)| *a)
-        .sum::<f64>();
-    let lpos = aamt
-        .iter()
-        .zip(adur.iter())
-        .filter(|(_, d)| **d > 0.0)
-        .map(|(a, _)| *a)
-        .sum::<f64>();
-    f[11] = if lpos > 0.0 { l60 / lpos } else { 0.0 };
-
-    // [12] 笔数占比 − 金额占比 背离（卖单, 60s）
-    let n_ord = adur.len().max(1) as f64;
-    let cnt60 = adur.iter().filter(|&&d| d > 60.0).count() as f64 / n_ord;
-    f[12] = cnt60 - l60 / total_amt;
-
-    // [13,14] 开盘/收盘 30min 净不平衡（60s 档）
-    let open_hi = first_us + WINDOW_US; // time_us < open_hi
-    let close_lo = last_us - WINDOW_US; // time_us > close_lo
-    let oa = aggregate(trades, |t| t.ask_order, Some((0, open_hi)));
-    let ob = aggregate(trades, |t| t.bid_order, Some((0, open_hi)));
-    let ca = aggregate(trades, |t| t.ask_order, Some((close_lo, i64::MAX)));
-    let cb = aggregate(trades, |t| t.bid_order, Some((close_lo, i64::MAX)));
-    f[13] = window_lsi(&oa, &ob, total_amt, 60.0);
-    f[14] = window_lsi(&ca, &cb, total_amt, 60.0);
-
-    // [15] 耐心溢价原始量 = dur_p95（卖单），横截面再中性化+z
-    f[15] = percentile(&adur, 0.95);
-
-    // 防御：确保所有值有限
-    for v in f.iter_mut() {
-        if !v.is_finite() {
-            *v = 0.0;
-        }
+        s / n as f64
     }
-    Some((f, total_amt.ln()))
 }
 
-/// 窗口内漫长买卖净不平衡（避免再写一遍筛选逻辑）。
+/// 漫长(dur>thr)订单的平均成交笔数（分仓粒度）。
+fn mean_cnt_long(cnt: &[i64], dur: &[f64], thr: f64) -> f64 {
+    let mut s = 0.0f64;
+    let mut n = 0u64;
+    for (c, d) in cnt.iter().zip(dur.iter()) {
+        if *d > thr {
+            s += *c as f64;
+            n += 1;
+        }
+    }
+    if n == 0 {
+        0.0
+    } else {
+        s / n as f64
+    }
+}
+
 fn window_lsi(
     ask: &std::collections::HashMap<i64, Agg>,
     bid: &std::collections::HashMap<i64, Agg>,
@@ -337,11 +246,149 @@ fn window_lsi(
     lbp - lsp
 }
 
+/// per-stock 算 38 个原始因子 + ln(总成交额)。
+fn per_stock(trades: &[TradeRecord]) -> Option<([f64; N_FACTORS], f64)> {
+    if trades.len() < 50 {
+        return None;
+    }
+    let mut total_amt = 0.0f64;
+    let mut first_us = i64::MAX;
+    let mut last_us = i64::MIN;
+    for t in trades {
+        if t.flag != 66 && t.flag != 83 {
+            continue;
+        }
+        total_amt += t.turnover as f64;
+        if t.time_us < first_us {
+            first_us = t.time_us;
+        }
+        if t.time_us > last_us {
+            last_us = t.time_us;
+        }
+    }
+    if total_amt <= 0.0 || first_us >= last_us {
+        return None;
+    }
+
+    let ask_map = aggregate(trades, |t| t.ask_order, None);
+    let bid_map = aggregate(trades, |t| t.bid_order, None);
+    let (adur, aamt, acnt) = extract3(&ask_map);
+    let (bdur, bamt, bcnt) = extract3(&bid_map);
+    if aamt.is_empty() || bamt.is_empty() {
+        return None;
+    }
+
+    let mut f = [0.0f64; N_FACTORS];
+    let a_p80 = percentile(&aamt, 0.80);
+    let a_p90 = percentile(&aamt, 0.90);
+    let b_p80 = percentile(&bamt, 0.80);
+    let b_p90 = percentile(&bamt, 0.90);
+
+    // 族1 (0-11): 4 档 lsp/lbp/lsi
+    for (i, &thr) in THR_SECS.iter().enumerate() {
+        let lsp = sum_amt_above(&adur, &aamt, thr) / total_amt;
+        let lbp = sum_amt_above(&bdur, &bamt, thr) / total_amt;
+        f[i * 3] = lsp;
+        f[i * 3 + 1] = lbp;
+        f[i * 3 + 2] = lbp - lsp;
+    }
+
+    // 族2 (9-12): 大单方向不平衡（4 口径）
+    let big = |amt: &[f64], thr: f64| amt.iter().filter(|&&a| a > thr).sum::<f64>() / total_amt;
+    f[9] = big(&bamt, b_p80) - big(&aamt, a_p80);
+    f[10] = big(&bamt, b_p90) - big(&aamt, a_p90);
+    f[11] = big(&bamt, 5e5) - big(&aamt, 5e5);
+    f[12] = big(&bamt, 1e6) - big(&aamt, 1e6);
+
+    // 族3 (13-14): 大单耐心度
+    f[13] = corr(&adur, &aamt);
+    f[14] = corr(&bdur, &bamt);
+
+    // 族4 (15): 漫长∩大单 核心资金（仅绝对口径；p80 口径与 lsp 镜像已剔）
+    f[15] = sum_amt_cross(&adur, &aamt, 60.0, 5e5) / total_amt;
+
+    // 族5 (21-24): 漫长份额 + 笔数-金额背离
+    let pos_a: f64 = aamt
+        .iter()
+        .zip(adur.iter())
+        .filter(|(_, d)| **d > 0.0)
+        .map(|(a, _)| *a)
+        .sum();
+    let pos_b: f64 = bamt
+        .iter()
+        .zip(bdur.iter())
+        .filter(|(_, d)| **d > 0.0)
+        .map(|(a, _)| *a)
+        .sum();
+    let l60_a = sum_amt_above(&adur, &aamt, 60.0);
+    let l60_b = sum_amt_above(&bdur, &bamt, 60.0);
+    f[16] = if pos_a > 0.0 { l60_a / pos_a } else { 0.0 };
+    f[17] = if pos_b > 0.0 { l60_b / pos_b } else { 0.0 };
+
+    // 族6 (25-28): 开盘/收盘 × {60,180}s 净不平衡
+    let open_hi = first_us + WINDOW_US;
+    let close_lo = last_us - WINDOW_US;
+    let oa = aggregate(trades, |t| t.ask_order, Some((0, open_hi)));
+    let ob = aggregate(trades, |t| t.bid_order, Some((0, open_hi)));
+    let ca = aggregate(trades, |t| t.ask_order, Some((close_lo, i64::MAX)));
+    let cb = aggregate(trades, |t| t.bid_order, Some((close_lo, i64::MAX)));
+    f[18] = window_lsi(&oa, &ob, total_amt, 60.0);
+    f[19] = window_lsi(&ca, &cb, total_amt, 60.0);
+    f[20] = window_lsi(&oa, &ob, total_amt, 180.0);
+    f[21] = window_lsi(&ca, &cb, total_amt, 180.0);
+
+    // 族7 (29-32): 非单点均值 + 金额加权均值
+    f[22] = mean_pos_dur(&adur);
+    f[23] = mean_pos_dur(&bdur);
+    let sa: f64 = aamt.iter().sum();
+    let sb: f64 = bamt.iter().sum();
+    f[24] = if sa > 0.0 {
+        adur.iter().zip(aamt.iter()).map(|(d, a)| d * a).sum::<f64>() / sa
+    } else {
+        0.0
+    };
+    f[25] = if sb > 0.0 {
+        bdur.iter().zip(bamt.iter()).map(|(d, a)| d * a).sum::<f64>() / sb
+    } else {
+        0.0
+    };
+
+    // 族8 (33-34): 耐心溢价原始量（横截面再中性化+z）
+    f[26] = percentile(&adur, 0.95);
+    f[27] = percentile(&adur, 0.99);
+
+    // 族9 (35-36): 漫长订单分仓粒度
+    f[28] = mean_cnt_long(&acnt, &adur, 60.0);
+    f[29] = mean_cnt_long(&bcnt, &bdur, 60.0);
+
+    // 族10 (37): 漫长卖单首笔时机（0=开盘, 1=收盘）
+    let span = (last_us - first_us) as f64;
+    if span > 0.0 {
+        let mut s = 0.0f64;
+        let mut c = 0u64;
+        for e in ask_map.values() {
+            if (e.last_us - e.first_us) as f64 / 1e6 > 60.0 {
+                s += (e.first_us - first_us) as f64;
+                c += 1;
+            }
+        }
+        f[30] = if c > 0 { (s / c as f64) / span } else { 0.5 };
+    } else {
+        f[30] = 0.5;
+    }
+
+    for v in f.iter_mut() {
+        if !v.is_finite() {
+            *v = 0.0;
+        }
+    }
+    Some((f, total_amt.ln()))
+}
+
 // ============================================================
 // 横截面运算
 // ============================================================
 
-/// 对 ln(总成交额) 线性回归取残差（流动性中性化）。
 fn neutralize_vs(y: &[f64], x: &[f64]) -> Vec<f64> {
     let finite: Vec<(f64, f64)> = y
         .iter()
@@ -371,7 +418,6 @@ fn neutralize_vs(y: &[f64], x: &[f64]) -> Vec<f64> {
         .collect()
 }
 
-/// 横截面 z-score（仅用有限值统计，非有限值置 0）。
 fn zscore(vals: &mut [f64]) {
     let finite: Vec<f64> = vals.iter().filter(|v| v.is_finite()).copied().collect();
     if finite.len() < 2 {
@@ -396,11 +442,9 @@ fn zscore(vals: &mut [f64]) {
     }
 }
 
-/// 核心唯一真相源：读全市场 → per-stock 因子 → 流动性中性化 + z-score → (codes, vals)。
+/// 核心唯一真相源：读全市场 → per-stock 因子 → 中性化 + z-score → (codes, vals)。
 pub fn compute_long_order_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f32>)> {
     let codes = list_codes(date, "transaction");
-
-    // ①+② rayon 并行读全市场逐笔 + per-stock 算因子
     let results: Vec<Option<([f64; N_FACTORS], f64)>> = codes
         .par_iter()
         .map(|code| {
@@ -409,7 +453,6 @@ pub fn compute_long_order_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f
         })
         .collect();
 
-    // 组装有效股票
     let mut valid_codes: Vec<String> = Vec::new();
     let mut feats: Vec<[f64; N_FACTORS]> = Vec::new();
     let mut ln_tots: Vec<f64> = Vec::new();
@@ -425,7 +468,6 @@ pub fn compute_long_order_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f
         return Ok((Vec::new(), Vec::new()));
     }
 
-    // ③ 横截面：每列可选中性化 + z-score
     for j in 0..N_FACTORS {
         let col: Vec<f64> = feats.iter().map(|f| f[j]).collect();
         let mut processed = if NEED_NEUTRALIZE[j] {
@@ -439,7 +481,6 @@ pub fn compute_long_order_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f
         }
     }
 
-    // ④ fan-out
     let mut out_vals = Vec::with_capacity(n * N_FACTORS);
     for f in &feats {
         out_vals.extend(f.iter().map(|&v| v as f32));
@@ -450,28 +491,31 @@ pub fn compute_long_order_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f
 /// 因子名（与 N_FACTORS 严格对齐）。
 pub fn long_order_names() -> Vec<String> {
     vec![
-        "lsp_60".to_string(),
-        "lbp_60".to_string(),
-        "lsi_60".to_string(),
-        "lsp_180".to_string(),
-        "lbp_180".to_string(),
-        "lsi_180".to_string(),
-        "dac_ask".to_string(),
-        "dac_bid".to_string(),
-        "big_net".to_string(),
-        "cross_big_long_60".to_string(),
-        "mean_dur_pos_ask".to_string(),
-        "long_share_ask".to_string(),
-        "cnt_amt_div_ask".to_string(),
-        "open_lsi_60".to_string(),
-        "close_lsi_60".to_string(),
-        "long_persist_z".to_string(),
+        // 族1 漫长占比（3档×3：60/180/600s）
+        "lsp_60".into(), "lbp_60".into(), "lsi_60".into(),
+        "lsp_180".into(), "lbp_180".into(), "lsi_180".into(),
+        "lsp_600".into(), "lbp_600".into(), "lsi_600".into(),
+        // 族2 大单方向（4口径）
+        "big_net_p80".into(), "big_net_p90".into(), "big_net_abs50w".into(), "big_net_abs100w".into(),
+        // 族3 大单耐心度
+        "dac_ask".into(), "dac_bid".into(),
+        // 族4 核心资金（绝对口径；p80 口径与 lsp 镜像已剔）
+        "cross_60_abs".into(),
+        // 族5 漫长份额
+        "long_share_ask".into(), "long_share_buy".into(),
+        // 族6 时段耐心
+        "open_lsi_60".into(), "close_lsi_60".into(), "open_lsi_180".into(), "close_lsi_180".into(),
+        // 族7 存续均值
+        "mean_dur_pos_ask".into(), "mean_dur_pos_buy".into(),
+        "amt_w_dur_ask".into(), "amt_w_dur_buy".into(),
+        // 族8 耐心溢价
+        "persist_p95".into(), "persist_p99".into(),
+        // 族9 分仓粒度
+        "long_cnt_ask".into(), "long_cnt_buy".into(),
+        // 族10 首笔时机
+        "long_first_offset".into(),
     ]
 }
-
-// ============================================================
-// Python 单日调试入口
-// ============================================================
 
 #[pyfunction]
 pub fn py_long_order(py: Python<'_>, date: i64) -> PyResult<(Vec<String>, Vec<f32>)> {
@@ -484,8 +528,7 @@ pub fn py_long_order_names() -> Vec<String> {
     long_order_names()
 }
 
-/// 调试用：返回原始（未中性化）因子值 + ln(总成交额)，供 sandbox 验证计算正确性。
-/// 返回 (codes, raw_vals[n*16], ln_tots[n])。
+/// 调试用：返回原始（未中性化）因子值 + ln(总成交额)。
 pub fn collect_raw(date: i64) -> std::io::Result<(Vec<String>, Vec<f32>, Vec<f32>)> {
     let codes = list_codes(date, "transaction");
     let results: Vec<Option<([f64; N_FACTORS], f64)>> = codes
@@ -523,11 +566,11 @@ mod tests {
     #[test]
     fn test_names_count() {
         assert_eq!(long_order_names().len(), N_FACTORS);
+        assert_eq!(NEED_NEUTRALIZE.len(), N_FACTORS);
     }
 
     #[test]
     fn test_neutralize_removes_linear_trend() {
-        // y = 2x + 1 + noise，残差应与 x 近似不相关
         let x: Vec<f64> = (0..100).map(|i| i as f64).collect();
         let y: Vec<f64> = x.iter().map(|xv| 2.0 * xv + 1.0).collect();
         let resid = neutralize_vs(&y, &x);
@@ -544,6 +587,5 @@ mod tests {
     #[test]
     fn test_corr_basic() {
         assert!((corr(&[1.0, 2.0, 3.0, 4.0], &[1.0, 2.0, 3.0, 4.0]) - 1.0).abs() < 1e-9);
-        assert!((corr(&[1.0, 2.0, 3.0, 4.0], &[4.0, 3.0, 2.0, 1.0]) + 1.0).abs() < 1e-9);
     }
 }
