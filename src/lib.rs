@@ -106,6 +106,7 @@ pub mod fast_csv_reader;
 
 pub mod anneal_volume_metrics;
 pub mod cross_section_example_metrics;
+pub mod long_order_cross_section_metrics;
 pub mod urgency_metrics;
 pub mod factor_pipeline;
 pub mod factor_store_v5;
@@ -1083,6 +1084,18 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(
         cross_section_example_metrics::py_cross_section_example_names,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        long_order_cross_section_metrics::py_long_order,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        long_order_cross_section_metrics::py_long_order_names,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        long_order_cross_section_metrics::py_long_order_raw,
         m
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(urgency_metrics::py_urgency, m)?)?;

@@ -144,6 +144,20 @@ def py_cross_section_example_names() -> List[str]:
     ...
 
 
+def py_long_order(date: int) -> Tuple[List[str], List[float]]:
+    ...
+
+
+def py_long_order_names() -> List[str]:
+    ...
+
+
+def py_long_order_raw(
+    date: int,
+) -> Tuple[List[str], List[float], List[float]]:
+    ...
+
+
 def py_urgency(date: int) -> Tuple[List[str], List[float]]:
     ...
 
@@ -399,6 +413,9 @@ __all__ = [
     "run_factor_pipeline_cross_section",
     "py_cross_section_example",
     "py_cross_section_example_names",
+    "py_long_order",
+    "py_long_order_names",
+    "py_long_order_raw",
     "py_urgency",
     "py_urgency_names",
     "get_theme_cluster_scatter_3d",

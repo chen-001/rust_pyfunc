@@ -2044,6 +2044,27 @@ pub fn pipeline_urgency(date: i64, expected_len: usize) -> Vec<TaskResult> {
     }
 }
 
+/// long_order 横截面 pipeline 包装：调核心，fan-out 成 TaskResult。
+pub fn pipeline_long_order(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    match crate::long_order_cross_section_metrics::compute_long_order_full(date) {
+        Ok((codes, vals)) => {
+            vals.chunks(expected_len)
+                .zip(codes.iter())
+                .map(|(facs, code)| TaskResult {
+                    date,
+                    code: code.clone(),
+                    timestamp: 0,
+                    facs: facs.to_vec(),
+                })
+                .collect()
+        }
+        Err(e) => {
+            eprintln!("long_order error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
 /// 横截面 pipeline 的 Python 入口。
 ///
 /// 参数：
@@ -2080,7 +2101,7 @@ pub fn run_factor_pipeline_cross_section(
     let py = unsafe { Python::assume_gil_acquired() };
 
     let pipeline_name = pipeline.to_string();
-    let known = ["cross_section_example", "urgency"];
+    let known = ["cross_section_example", "urgency", "long_order"];
     if !known.contains(&pipeline_name.as_str()) {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
             "未知横截面流水线: {}（支持: {:?}）",
@@ -2142,6 +2163,13 @@ pub fn run_factor_pipeline_cross_section(
     let total = pending.len();
     if total == 0 {
         println!("✅ 所有日期都已完成（cross_section pipeline）");
+        // 即使无新任务也投影（断点续算恢复时，之前只写分片未投影）。
+        // 不投影则 tail_pipeline_engine 走 v6 在线转置（单IO线程逐因子转置）极慢。
+        println!("🏗️ 检查/执行投影...");
+        sharded_sink
+            .finish_and_project(80)
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("投影失败: {}", e)))?;
+        println!("✅ 投影完成，可直接回测");
         return Ok(Python::with_gil(|py| py.None()));
     }
     println!("📋 横截面 pipeline 待处理: {total} 天");
@@ -2152,7 +2180,7 @@ pub fn run_factor_pipeline_cross_section(
             pending,
             n_workers,
             threads_per_worker,
-            sharded_sink,
+            sharded_sink.clone(),
             expected_result_length,
             trading_days,
             hm90_params,
@@ -2162,6 +2190,14 @@ pub fn run_factor_pipeline_cross_section(
             store_dir_str,
             &worker_bin,
         )?;
+        // ⭐ 投影：分片 colblk → 连续列式存储。
+        // 不投影则 tail_pipeline_engine 走 v6 在线转置（单IO线程逐因子转置）极慢；
+        // 投影后直接读连续列，速度提升 ~100x（与 run_factor_pipeline 行为一致）。
+        println!("🏗️ 开始投影（finish_and_project）...");
+        sharded_sink
+            .finish_and_project(80)
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("投影失败: {}", e)))?;
+        println!("✅ 投影完成，可直接回测");
         return Ok(Python::with_gil(|py| py.None()));
     }
     Err(pyo3::exceptions::PyRuntimeError::new_err(

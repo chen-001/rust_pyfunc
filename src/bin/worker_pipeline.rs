@@ -14,7 +14,8 @@ use rust_pyfunc::factor_pipeline::{
     ipc_read_result, ipc_read_task, ipc_write, ipc_write_result, pipeline_anneal_volume,
     pipeline_distill, pipeline_distill_tick, pipeline_extreme_point_fit,
     pipeline_individual_order_ratio, pipeline_observable_order, pipeline_order_pair_hm90,
-    pipeline_cross_section_example, pipeline_orderbook_imb_refactor, pipeline_urgency, ResultMessage,
+    pipeline_cross_section_example, pipeline_long_order, pipeline_orderbook_imb_refactor,
+    pipeline_urgency, ResultMessage,
     TaskMessage,
 };
 use std::io::{BufReader, BufWriter};
@@ -138,6 +139,8 @@ fn main() {
                         crate_logic::pipeline_minute_example(date, expected_len)
                     } else if pipeline_name == "cross_section_example" {
                         pipeline_cross_section_example(date, expected_len)
+                    } else if pipeline_name == "long_order" {
+                        pipeline_long_order(date, expected_len)
                     } else if pipeline_name == "urgency" {
                         pipeline_urgency(date, expected_len)
                     } else {
