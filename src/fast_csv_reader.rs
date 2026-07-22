@@ -258,6 +258,10 @@ fn parse_line(line: &[u8], with_retreat: bool, with_afternoon_adjust: bool) -> O
     //             = (微秒数 + 28800e6) // 1e6         （整除截断小数部分）
     // 故输出 = (exchtime_us + 28800_000_000) / 1_000_000 的整数部分。
     let exchtime_us = parse_i64_fast(fields[COL_EXCHTIME]);
+    // 跳过 CSV 表头及无效时间行；未做 afternoon adjust 时也必须过滤。
+    if exchtime_us == 0 {
+        return None;
+    }
     const EXCHANGE_OFFSET_US: i64 = 8 * 3600 * 1_000_000;
     let total_us = exchtime_us + EXCHANGE_OFFSET_US;
 

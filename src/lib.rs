@@ -112,6 +112,7 @@ pub mod factor_pipeline;
 pub mod factor_store_v5;
 pub mod features;
 pub mod individual_order_ratio_metrics;
+pub mod microstructure_capm_metrics;
 pub mod minute_capm_metrics;
 pub mod minute_data_reader;
 pub mod minute_example_metrics;
@@ -1115,5 +1116,25 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     let _ = m.add_function(wrap_pyfunction!(minute_capm_metrics::py_minute_capm_names, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(minute_capm_metrics::py_minute_capm_all_names, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(minute_capm_metrics::py_minute_capm_at_names, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        microstructure_capm_metrics::py_microstructure_3s_features,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        microstructure_capm_metrics::py_microstructure_3s_feature_names,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        microstructure_capm_metrics::py_microstructure_capm,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        microstructure_capm_metrics::py_microstructure_capm_codes,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        microstructure_capm_metrics::py_microstructure_capm_names,
+        m
+    )?)?;
     Ok(())
 }

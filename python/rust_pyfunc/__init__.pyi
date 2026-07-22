@@ -144,6 +144,26 @@ def py_minute_capm_at_names() -> List[str]:
     ...
 
 
+def py_microstructure_3s_features(code: str, date: int) -> List[float]:
+    ...
+
+
+def py_microstructure_3s_feature_names() -> List[str]:
+    ...
+
+
+def py_microstructure_capm(date: int) -> Tuple[List[str], List[float]]:
+    ...
+
+
+def py_microstructure_capm_codes(date: int, codes: List[str]) -> Tuple[List[str], List[float]]:
+    ...
+
+
+def py_microstructure_capm_names() -> List[str]:
+    ...
+
+
 def run_factor_pipeline_cross_section(
     pipeline: str,
     tasks: List[int],
@@ -440,6 +460,11 @@ __all__ = [
     "py_minute_capm_names",
     "py_minute_capm_all_names",
     "py_minute_capm_at_names",
+    "py_microstructure_3s_features",
+    "py_microstructure_3s_feature_names",
+    "py_microstructure_capm",
+    "py_microstructure_capm_codes",
+    "py_microstructure_capm_names",
     "run_factor_pipeline_cross_section",
     "py_cross_section_example",
     "py_cross_section_example_names",

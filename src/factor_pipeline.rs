@@ -2065,6 +2065,33 @@ pub fn pipeline_long_order(date: i64, expected_len: usize) -> Vec<TaskResult> {
     }
 }
 
+/// 3秒微观结构 CAPM 横截面 pipeline 包装。
+pub fn pipeline_microstructure_capm(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    if expected_len != crate::microstructure_capm_metrics::N_FACTORS {
+        eprintln!(
+            "microstructure_capm expected_len错误 [{date}]: {expected_len} != {}",
+            crate::microstructure_capm_metrics::N_FACTORS
+        );
+        return Vec::new();
+    }
+    match crate::microstructure_capm_metrics::compute_microstructure_capm_full(date) {
+        Ok((codes, vals)) => vals
+            .chunks(expected_len)
+            .zip(codes.iter())
+            .map(|(facs, code)| TaskResult {
+                date,
+                code: code.clone(),
+                timestamp: 0,
+                facs: facs.to_vec(),
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("microstructure_capm error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
 /// 横截面 pipeline 的 Python 入口。
 ///
 /// 参数：
@@ -2101,7 +2128,12 @@ pub fn run_factor_pipeline_cross_section(
     let py = unsafe { Python::assume_gil_acquired() };
 
     let pipeline_name = pipeline.to_string();
-    let known = ["cross_section_example", "urgency", "long_order"];
+    let known = [
+        "cross_section_example",
+        "urgency",
+        "long_order",
+        "microstructure_capm",
+    ];
     if !known.contains(&pipeline_name.as_str()) {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
             "未知横截面流水线: {}（支持: {:?}）",
@@ -2113,6 +2145,12 @@ pub fn run_factor_pipeline_cross_section(
     let n_workers_resolved = n_workers.unwrap_or_else(|| (n_jobs / 50).clamp(2, 8));
     let n_workers = if n_workers_resolved == 0 { 1 } else { n_workers_resolved };
     let threads_per_worker = (n_jobs / n_workers).max(1);
+    // 多线程 worker 若绑定到单个核心，子进程中的 Rayon 线程会继承该 affinity，
+    // 标称 N 线程实际退化为单核。仅单线程 worker 才允许单核绑定。
+    let effective_bind_cores = bind_cores && threads_per_worker == 1;
+    if bind_cores && !effective_bind_cores {
+        println!("🧵 cross-section 多线程 worker 自动关闭单核绑定");
+    }
     println!(
         "📊 横截面 pipeline: n_jobs={n_jobs} → {n_workers} 进程 × {threads_per_worker} 线程"
     );
@@ -2186,7 +2224,7 @@ pub fn run_factor_pipeline_cross_section(
             hm90_params,
             oo_params,
             pipeline_name,
-            bind_cores,
+            effective_bind_cores,
             store_dir_str,
             &worker_bin,
         )?;
