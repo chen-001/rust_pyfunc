@@ -137,6 +137,8 @@ fn main() {
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     if pipeline_name == "minute_example" {
                         crate_logic::pipeline_minute_example(date, expected_len)
+                    } else if pipeline_name == "minute_capm" {
+                        crate_logic::pipeline_minute_capm(date, expected_len)
                     } else if pipeline_name == "cross_section_example" {
                         pipeline_cross_section_example(date, expected_len)
                     } else if pipeline_name == "long_order" {
@@ -183,6 +185,7 @@ fn main() {
 /// 分钟 pipeline 分发逻辑（内联在 worker 中，避免跨 crate 依赖具体因子模块）。
 mod crate_logic {
     use rust_pyfunc::backup_reader::TaskResult;
+    use rust_pyfunc::minute_capm_metrics;
     use rust_pyfunc::minute_example_metrics;
 
     /// 分钟示例因子：返回整天全市场的 TaskResult 列表。
@@ -203,6 +206,33 @@ mod crate_logic {
             }
             Err(e) => {
                 eprintln!("minute_example error [{date}]: {e:?}");
+                Vec::new()
+            }
+        }
+    }
+
+    /// 两阶段分钟 CAPM：返回全市场逐股日内均值。
+    pub fn pipeline_minute_capm(date: i64, expected_len: usize) -> Vec<TaskResult> {
+        if expected_len != minute_capm_metrics::N_FACTORS {
+            eprintln!(
+                "minute_capm expected_len 错误 [{date}]: {expected_len} != {}",
+                minute_capm_metrics::N_FACTORS
+            );
+            return Vec::new();
+        }
+        match minute_capm_metrics::compute_minute_capm_full(date) {
+            Ok((codes, vals)) => vals
+                .chunks(expected_len)
+                .zip(codes.iter())
+                .map(|(facs, code)| TaskResult {
+                    date,
+                    code: code.clone(),
+                    timestamp: 0,
+                    facs: facs.to_vec(),
+                })
+                .collect(),
+            Err(e) => {
+                eprintln!("minute_capm error [{date}]: {e:?}");
                 Vec::new()
             }
         }

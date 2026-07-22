@@ -120,6 +120,30 @@ def py_minute_example_names() -> List[str]:
     ...
 
 
+def py_minute_capm(date: int) -> Tuple[List[str], List[float]]:
+    ...
+
+
+def py_minute_capm_all(date: int) -> Tuple[List[str], List[float]]:
+    ...
+
+
+def py_minute_capm_at(date: int, minute_index: int) -> Tuple[List[str], List[float]]:
+    ...
+
+
+def py_minute_capm_names() -> List[str]:
+    ...
+
+
+def py_minute_capm_all_names() -> List[str]:
+    ...
+
+
+def py_minute_capm_at_names() -> List[str]:
+    ...
+
+
 def run_factor_pipeline_cross_section(
     pipeline: str,
     tasks: List[int],
@@ -410,6 +434,12 @@ __all__ = [
     "run_factor_pipeline_minute",
     "py_minute_example",
     "py_minute_example_names",
+    "py_minute_capm",
+    "py_minute_capm_all",
+    "py_minute_capm_at",
+    "py_minute_capm_names",
+    "py_minute_capm_all_names",
+    "py_minute_capm_at_names",
     "run_factor_pipeline_cross_section",
     "py_cross_section_example",
     "py_cross_section_example_names",

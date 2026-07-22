@@ -112,6 +112,7 @@ pub mod factor_pipeline;
 pub mod factor_store_v5;
 pub mod features;
 pub mod individual_order_ratio_metrics;
+pub mod minute_capm_metrics;
 pub mod minute_data_reader;
 pub mod minute_example_metrics;
 pub mod observable_order_metrics;
@@ -1108,5 +1109,11 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         minute_example_metrics::py_minute_example_names,
         m
     )?)?;
+    let _ = m.add_function(wrap_pyfunction!(minute_capm_metrics::py_minute_capm, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(minute_capm_metrics::py_minute_capm_all, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(minute_capm_metrics::py_minute_capm_at, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(minute_capm_metrics::py_minute_capm_names, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(minute_capm_metrics::py_minute_capm_all_names, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(minute_capm_metrics::py_minute_capm_at_names, m)?)?;
     Ok(())
 }
