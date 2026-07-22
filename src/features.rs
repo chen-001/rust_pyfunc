@@ -657,6 +657,14 @@ pub fn get_features_factors_rust(
     get_features_factors_rust_full(data, col_names, false)
 }
 
+/// 只返回数值的高性能入口。用于同一列结构被大量重复调用的场景，避免反复构造因子名。
+pub fn get_features_factors_rust_values_only(
+    data: &ArrayView2<f32>,
+    with_threshold_counts: bool,
+) -> Vec<f32> {
+    get_features_factors_rust_full(data, &[], with_threshold_counts).0
+}
+
 /// 带参数版本：with_threshold_counts 控制 mean_above_p90/mean_below_p10 是否输出。
 pub fn get_features_factors_rust_full(
     data: &ArrayView2<f32>,
@@ -966,7 +974,9 @@ pub fn get_features_factors_rust_full(
         for i in 0..n_cols {
             for j in (i + 1)..n_cols {
                 res.push(corr_upper[idx]);
-                names.push(format!("{}_corr_{}", col_names[i], col_names[j]));
+                if col_names.len() == n_cols {
+                    names.push(format!("{}_corr_{}", col_names[i], col_names[j]));
+                }
                 idx += 1;
             }
         }
@@ -1006,6 +1016,10 @@ fn push_group(
     suffix: &str,
     col_names: &[String],
 ) {
+    if col_names.len() != vals.len() {
+        res.extend_from_slice(vals);
+        return;
+    }
     for (ci, &v) in vals.iter().enumerate() {
         res.push(v);
         let cn = col_names.get(ci).map(|s| s.as_str()).unwrap_or("");
