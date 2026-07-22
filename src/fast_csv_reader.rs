@@ -507,6 +507,9 @@ const MKT_COL_ASK_PRC_BASE: usize = 21; // ask_prc1=21, ask_vol1=22, bid_prc1=23
 pub struct MarketRecord {
     /// 成交时间，epoch 秒（exchtime 微秒 + 8h 偏移，再整除 1e6，与 read_trade_fast 一致）
     pub time_sec: f32,
+    /// 精确到微秒的快照时间（含 8h 偏移及可选的下午时段平移）。
+    /// 3 秒及更细粒度分桶必须使用本字段，不能使用精度不足的 `time_sec`。
+    pub time_us: i64,
     pub last_prc: f32,
     pub volume: f32,
     pub turnover: f32,
@@ -569,22 +572,21 @@ fn parse_market_line(
         return None;
     }
     let total_us = exchtime_us + 8 * 3600 * 1_000_000;
-    let time_sec = (total_us / 1_000_000) as f64;
-
-    let final_time_sec = if with_afternoon_adjust {
+    let final_time_us = if with_afternoon_adjust {
         let day_offset = ((exchtime_us / 1_000_000) + 8 * 3600).rem_euclid(86400);
         if day_offset >= AFTERNOON_START_SEC && day_offset <= AFTERNOON_END_SEC {
-            Some(time_sec - AFTERNOON_SHIFT_SEC as f64)
+            Some(total_us - AFTERNOON_SHIFT_SEC * 1_000_000)
         } else if day_offset >= MORNING_START_SEC && day_offset <= MORNING_END_SEC {
-            Some(time_sec)
+            Some(total_us)
         } else {
             None
         }
     } else {
-        Some(time_sec)
+        Some(total_us)
     };
 
-    let time_sec = final_time_sec?;
+    let time_us = final_time_us?;
+    let time_sec = (time_us / 1_000_000) as f64;
 
     // 解析 10 档 ask/bid（每档 4 列：ask_prc, ask_vol, bid_prc, bid_vol）
     let mut ask_prcs = [0.0f32; 10];
@@ -601,6 +603,7 @@ fn parse_market_line(
 
     Some(MarketRecord {
         time_sec: time_sec as f32,
+        time_us,
         last_prc: parse_f64_fast(fields[MKT_COL_LAST_PRC]) as f32,
         volume: parse_f64_fast(fields[MKT_COL_VOLUME]) as f32,
         turnover: parse_f64_fast(fields[MKT_COL_TURNOVER]) as f32,
@@ -753,11 +756,13 @@ pub fn read_market_fast(
 
     // 一维数组
     let time_sec: Vec<f64> = records.iter().map(|r| r.time_sec as f64).collect();
+    let time_us: Vec<i64> = records.iter().map(|r| r.time_us).collect();
     let last_prc: Vec<f64> = records.iter().map(|r| r.last_prc as f64).collect();
     let volume: Vec<f64> = records.iter().map(|r| r.volume as f64).collect();
     let turnover: Vec<f64> = records.iter().map(|r| r.turnover as f64).collect();
 
     py_dict.set_item("time_sec", numpy::PyArray1::from_vec(py, time_sec))?;
+    py_dict.set_item("time_us", numpy::PyArray1::from_vec(py, time_us))?;
     py_dict.set_item("last_prc", numpy::PyArray1::from_vec(py, last_prc))?;
     py_dict.set_item("volume", numpy::PyArray1::from_vec(py, volume))?;
     py_dict.set_item("turnover", numpy::PyArray1::from_vec(py, turnover))?;
