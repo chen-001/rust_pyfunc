@@ -395,7 +395,7 @@ fn legacy_spearman_correlation(x: &[f32], y: &[f32]) -> f64 {
     1.0 - 6.0 * diff_sq_sum / (n * (n * n - 1.0))
 }
 
-fn count_open_symbols(restrict_row: &[f32]) -> usize {
+fn count_open_symbols(restrict_row: ArrayView1<'_, f32>) -> usize {
     restrict_row
         .iter()
         .filter(|&&value| value.is_finite() && value == 0.0)
@@ -631,8 +631,7 @@ fn legacy_backtest_single_factor(
             continue;
         }
 
-        let valid_symbol_num =
-            count_open_symbols(restrict.row(raw_eff_idx - 1).as_slice().unwrap_or(&[]));
+        let valid_symbol_num = count_open_symbols(restrict.row(raw_eff_idx - 1));
         if valid_symbol_num > 0 {
             ratio_values[local_t] = stocks_num as f64 / valid_symbol_num as f64;
         }

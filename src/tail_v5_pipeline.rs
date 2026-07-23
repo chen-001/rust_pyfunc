@@ -475,7 +475,7 @@ fn legacy_spearman_correlation(x: &[f32], y: &[f32]) -> f64 {
     1.0 - 6.0 * diff_sq_sum / (n * (n * n - 1.0))
 }
 
-fn count_open_symbols(restrict_row: &[f32]) -> usize {
+fn count_open_symbols(restrict_row: ArrayView1<'_, f32>) -> usize {
     restrict_row
         .iter()
         .filter(|&&value| value.is_finite() && value == 0.0)
@@ -484,7 +484,7 @@ fn count_open_symbols(restrict_row: &[f32]) -> usize {
 
 fn precompute_open_symbol_counts(restrict: &ArrayView2<'_, f32>) -> Vec<usize> {
     (0..restrict.shape()[0])
-        .map(|row_idx| count_open_symbols(restrict.row(row_idx).as_slice().unwrap_or(&[])))
+        .map(|row_idx| count_open_symbols(restrict.row(row_idx)))
         .collect()
 }
 
@@ -3330,7 +3330,17 @@ pub fn tail_v5_run_fulltest_queue<'py>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ndarray::Array2;
+    use ndarray::{Array2, ShapeBuilder};
+
+    #[test]
+    fn open_symbol_counts_support_fortran_order_rows() {
+        let restrict =
+            Array2::from_shape_vec((2, 3).f(), vec![0.0_f32, 1.0, 0.0, 0.0, f32::NAN, 1.0])
+                .unwrap();
+        assert!(!restrict.row(0).is_standard_layout());
+
+        assert_eq!(precompute_open_symbol_counts(&restrict.view()), vec![2, 1]);
+    }
 
     fn make_test_data() -> (Array2<f32>, Array2<f32>, Array2<f32>) {
         let raw = Array2::from_shape_vec(
