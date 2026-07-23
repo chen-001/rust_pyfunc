@@ -100,18 +100,18 @@ pub mod yand_affine_centroid;
 pub mod yand_divergence;
 
 pub mod distill_metrics;
-pub mod hidden_arrange_metrics;
 pub mod distill_tick_metrics;
 pub mod fast_csv_reader;
+pub mod hidden_arrange_metrics;
 
 pub mod anneal_volume_metrics;
 pub mod cross_section_example_metrics;
-pub mod long_order_cross_section_metrics;
-pub mod urgency_metrics;
+pub mod drop_event_metrics;
 pub mod factor_pipeline;
 pub mod factor_store_v5;
 pub mod features;
 pub mod individual_order_ratio_metrics;
+pub mod long_order_cross_section_metrics;
 pub mod microstructure_capm_metrics;
 pub mod minute_capm_metrics;
 pub mod minute_data_reader;
@@ -119,6 +119,7 @@ pub mod minute_example_metrics;
 pub mod observable_order_metrics;
 pub mod order_pair_metrics_pipeline;
 pub mod orderbook_imb_refactor_metrics;
+pub mod urgency_metrics;
 
 /// Formats the sum of two numbers as string.
 #[pyfunction]
@@ -1061,8 +1062,14 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(distill_metrics::py_distill, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(distill_metrics::py_distill_names, m)?)?;
-    let _ = m.add_function(wrap_pyfunction!(hidden_arrange_metrics::py_hidden_arrange, m)?);
-    let _ = m.add_function(wrap_pyfunction!(hidden_arrange_metrics::py_hidden_arrange_names, m)?);
+    let _ = m.add_function(wrap_pyfunction!(
+        hidden_arrange_metrics::py_hidden_arrange,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        hidden_arrange_metrics::py_hidden_arrange_names,
+        m
+    )?);
     let _ = m.add_function(wrap_pyfunction!(distill_tick_metrics::py_distill_tick, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(
         distill_tick_metrics::py_distill_tick_names,
@@ -1100,6 +1107,14 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         long_order_cross_section_metrics::py_long_order_raw,
         m
     )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        drop_event_metrics::py_compute_drop_event_features,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        drop_event_metrics::py_drop_event_feature_names,
+        m
+    )?)?;
     let _ = m.add_function(wrap_pyfunction!(urgency_metrics::py_urgency, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(urgency_metrics::py_urgency_names, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(
@@ -1111,11 +1126,23 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         m
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(minute_capm_metrics::py_minute_capm, m)?)?;
-    let _ = m.add_function(wrap_pyfunction!(minute_capm_metrics::py_minute_capm_all, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        minute_capm_metrics::py_minute_capm_all,
+        m
+    )?)?;
     let _ = m.add_function(wrap_pyfunction!(minute_capm_metrics::py_minute_capm_at, m)?)?;
-    let _ = m.add_function(wrap_pyfunction!(minute_capm_metrics::py_minute_capm_names, m)?)?;
-    let _ = m.add_function(wrap_pyfunction!(minute_capm_metrics::py_minute_capm_all_names, m)?)?;
-    let _ = m.add_function(wrap_pyfunction!(minute_capm_metrics::py_minute_capm_at_names, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        minute_capm_metrics::py_minute_capm_names,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        minute_capm_metrics::py_minute_capm_all_names,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        minute_capm_metrics::py_minute_capm_at_names,
+        m
+    )?)?;
     let _ = m.add_function(wrap_pyfunction!(
         microstructure_capm_metrics::py_microstructure_3s_features,
         m
