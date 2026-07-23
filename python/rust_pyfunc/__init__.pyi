@@ -187,6 +187,29 @@ def py_cross_section_example(date: int) -> Tuple[List[str], List[float]]:
 def py_cross_section_example_names() -> List[str]:
     ...
 
+def py_compute_drop_event_features(date: int) -> dict:
+    """计算可观测挂单骤降事件的截面交互特征。
+
+    参数
+    ----
+    date : int
+        8 位日期，如 20220819
+
+    返回
+    ----
+    dict:
+        codes : List[str]   每事件的 "code_side"（如 "000001_bid"）
+        times : List[float] 每事件的 epoch 秒
+        features : List[float] row-major (n_events × 60)
+        names : List[str]   60 个特征名
+        n_features : int
+    """
+    ...
+
+
+def py_drop_event_feature_names() -> List[str]:
+    ...
+
 
 def py_long_order(date: int) -> Tuple[List[str], List[float]]:
     ...
@@ -468,6 +491,8 @@ __all__ = [
     "run_factor_pipeline_cross_section",
     "py_cross_section_example",
     "py_cross_section_example_names",
+    "py_compute_drop_event_features",
+    "py_drop_event_feature_names",
     "py_long_order",
     "py_long_order_names",
     "py_long_order_raw",
