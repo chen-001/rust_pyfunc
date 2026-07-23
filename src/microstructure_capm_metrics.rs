@@ -8,6 +8,7 @@ use crate::fast_csv_reader::{
     read_market_fast_inner, read_trade_fast_inner, MarketRecord, TradeRecord,
 };
 use crate::features;
+use chrono::NaiveDate;
 use ndarray::Array2;
 use pyo3::prelude::*;
 use rayon::prelude::*;
@@ -15,6 +16,7 @@ use std::fs;
 use std::io;
 
 const BIN_US: i64 = 3_000_000;
+#[cfg(test)]
 const DAY_US: i64 = 86_400_000_000;
 const MARKET_OPEN_US: i64 = (9 * 3600 + 30 * 60) * 1_000_000;
 const MORNING_END_US: i64 = (11 * 3600 + 30 * 60) * 1_000_000;
@@ -78,9 +80,18 @@ struct Exposure {
     residual_std: f64,
 }
 
-#[inline]
-fn grid_start_us(timestamp_us: i64) -> i64 {
-    timestamp_us.div_euclid(DAY_US) * DAY_US + MARKET_OPEN_US
+fn grid_start_us_for_date(date: i64) -> io::Result<i64> {
+    let year = (date / 10_000) as i32;
+    let month = ((date / 100) % 100) as u32;
+    let day = (date % 100) as u32;
+    let midnight_us = NaiveDate::from_ymd_opt(year, month, day)
+        .and_then(|value| value.and_hms_opt(0, 0, 0))
+        .ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, format!("无效交易日期: {date}"))
+        })?
+        .and_utc()
+        .timestamp_micros();
+    Ok(midnight_us + MARKET_OPEN_US)
 }
 
 #[inline]
@@ -105,16 +116,8 @@ fn ratio(num: f64, den: f64) -> f32 {
     }
 }
 
-fn extract_3s_features(trades: &[TradeRecord], market: &[MarketRecord]) -> Vec<f32> {
+fn extract_3s_features(trades: &[TradeRecord], market: &[MarketRecord], start_us: i64) -> Vec<f32> {
     let mut out = vec![f32::NAN; N_BINS * N_BASE];
-    let timestamp = trades
-        .first()
-        .map(|x| x.time_us)
-        .or_else(|| market.first().map(|x| x.time_us));
-    let Some(timestamp) = timestamp else {
-        return out;
-    };
-    let start_us = grid_start_us(timestamp);
 
     let mut buy_volume = vec![0.0f64; N_BINS];
     let mut sell_volume = vec![0.0f64; N_BINS];
@@ -323,7 +326,9 @@ pub fn compute_microstructure_3s_features(code: &str, date: i64) -> io::Result<V
     // 保留原始上午/下午时间后自行映射，避免 11:30 与平移后的 13:00 碰撞到同一桶。
     let trades = read_trade_fast_inner(code, date, false, false, usize::MAX)?;
     let market = read_market_fast_inner(code, date, false, false, usize::MAX)?;
-    Ok(extract_3s_features(&trades, &market))
+    // 网格必须锚定调用方指定的交易日，不能取文件首条记录；少数原始文件会混入前日收盘记录。
+    let start_us = grid_start_us_for_date(date)?;
+    Ok(extract_3s_features(&trades, &market, start_us))
 }
 
 pub fn list_codes(date: i64) -> Vec<String> {
@@ -716,6 +721,30 @@ pub fn py_microstructure_capm_names() -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn target_date_grid_ignores_stale_previous_day_records() {
+        let start_us = grid_start_us_for_date(20181018).unwrap();
+        let day_start_us = start_us - MARKET_OPEN_US;
+        let trades = [
+            TradeRecord {
+                time_us: day_start_us - DAY_US + 15 * 3600 * 1_000_000,
+                volume: 1_000.0,
+                flag: 83,
+                ..TradeRecord::default()
+            },
+            TradeRecord {
+                time_us: start_us,
+                volume: 100.0,
+                flag: 66,
+                ..TradeRecord::default()
+            },
+        ];
+
+        let values = extract_3s_features(&trades, &[], start_us);
+
+        assert_eq!(values[0], 1.0);
+    }
 
     #[test]
     fn factor_names_have_fixed_size() {
