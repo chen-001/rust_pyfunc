@@ -1660,21 +1660,11 @@ pub fn compute_drop_event_features_full(
     Vec<f32>,    // features flat
 )> {
     let codes = list_codes(date);
-    let n = codes.len();
-    eprintln!("[drop_event] date={date}, {n} stocks to read");
 
     // Phase 1-3: 并行读全市场
     let stocks: Vec<Option<StockData>> = codes
         .par_iter()
         .map(|code| prepare_stock(code, date))
-        .collect();
-    let n_valid = stocks.iter().filter(|s| s.is_some()).count();
-    eprintln!("[drop_event] {n_valid}/{n} stocks loaded");
-
-    // 收集有效股票代码列表
-    let valid_codes: Vec<String> = stocks
-        .iter()
-        .filter_map(|s| s.as_ref().map(|s| s.code.clone()))
         .collect();
 
     let mut all_codes_out = Vec::new();
@@ -1687,13 +1677,9 @@ pub fn compute_drop_event_features_full(
 
         // Phase 2: 全市场 obs 统计
         let (mkt_q10, mkt_mean, mkt_std) = compute_market_obs_stats(&stocks, side_is_bid);
-        eprintln!(
-            "[drop_event] {side_str}: mkt_q10={mkt_q10:.4}, mkt_mean={mkt_mean:.4}, mkt_std={mkt_std:.4}"
-        );
 
         // Phase 4: 事件检测
         let events = detect_all_events(&stocks, side_is_bid, mkt_q10, mkt_mean, mkt_std);
-        eprintln!("[drop_event] {side_str}: {} events detected", events.len());
 
         if events.is_empty() {
             continue;
@@ -1726,12 +1712,6 @@ pub fn compute_drop_event_features_full(
             all_feats_out.extend(feats);
         }
     }
-
-    eprintln!(
-        "[drop_event] total {} events (bid+ask), {} features each",
-        all_codes_out.len(),
-        N_FEATURES
-    );
 
     Ok((all_codes_out, all_times_out, all_feats_out))
 }
