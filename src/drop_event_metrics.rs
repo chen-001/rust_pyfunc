@@ -286,16 +286,12 @@ fn prepare_stock(code: &str, date: i64) -> Option<StockData> {
 // Phase 2: 全局截面统计 + per-second-layout 前缀和
 // ============================================================================
 
-fn build_global_state(stocks: &[Option<StockData>], all_events: &[DropEvent]) -> GlobalState {
+fn build_global_state(
+    stocks: &[Option<StockData>],
+    all_events: &[DropEvent],
+    day_start_sec: i64,
+) -> GlobalState {
     let n_stocks = stocks.len();
-    let day_start_sec = compute_day_start_sec(0); // placeholder, overwritten below
-    let day_start_sec = stocks
-        .iter()
-        .filter_map(|s| s.as_ref())
-        .filter_map(|s| s.snap_time_us.first().copied())
-        .map(|t| (t / 1_000_000 / 60) * 60) // round down to minute
-        .min()
-        .unwrap_or(0);
 
     // ── 截面统计累加数组初始化 ──
     let mut cs_imb_sum = vec![0.0f64; DAY_SECS];
@@ -508,8 +504,14 @@ fn detect_all_events(
     mkt_q10: f32,
     mkt_mean: f32,
     mkt_std: f32,
+    day_start_sec: i64,
 ) -> Vec<DropEvent> {
     let mut events = Vec::new();
+    // 当日有效秒范围。跨日的脏 exchtime_us 会产生 time_sec 远超当日的事件，
+    // 其截面窗口落在 per-second 桶外（该处无数据），必须丢弃——否则下游
+    // cs_window_mean/cs_window_std 用 sec 索引长度 DAY_SECS 的数组会越界 panic。
+    let day_lo = day_start_sec as f64;
+    let day_hi = (day_start_sec + DAY_SECS as i64) as f64;
     for (si, stock_opt) in stocks.iter().enumerate() {
         let stock = match stock_opt {
             Some(s) => s,
@@ -557,9 +559,14 @@ fn detect_all_events(
                 mask |= 8;
             }
             if mask != 0 {
+                let time_sec = stock.snap_time_us[i] as f64 / 1e6;
+                // 丢弃跨日脏时间戳事件（time_sec 不在当日交易日内）
+                if time_sec < day_lo || time_sec >= day_hi {
+                    continue;
+                }
                 events.push(DropEvent {
                     stock_idx: si,
-                    time_sec: stock.snap_time_us[i] as f64 / 1e6,
+                    time_sec,
                     snap_idx: i,
                     obs_pre: prev,
                     obs_post: curr,
@@ -1672,6 +1679,7 @@ pub fn compute_drop_event_features_full(
     let mut all_times_out = Vec::new();
     let mut all_feats_out = Vec::new();
 
+    let day_start_sec = compute_day_start_sec(date);
     // 对 bid 和 ask 各跑一遍
     for &side_is_bid in &[true, false] {
         let side_str = if side_is_bid { "bid" } else { "ask" };
@@ -1680,14 +1688,21 @@ pub fn compute_drop_event_features_full(
         let (mkt_q10, mkt_mean, mkt_std) = compute_market_obs_stats(&stocks, side_is_bid);
 
         // Phase 4: 事件检测
-        let events = detect_all_events(&stocks, side_is_bid, mkt_q10, mkt_mean, mkt_std);
+        let events = detect_all_events(
+            &stocks,
+            side_is_bid,
+            mkt_q10,
+            mkt_mean,
+            mkt_std,
+            day_start_sec,
+        );
 
         if events.is_empty() {
             continue;
         }
 
         // Phase 5: 全局结构
-        let gs = build_global_state(&stocks, &events);
+        let gs = build_global_state(&stocks, &events, day_start_sec);
 
         // Phase 6: 并行逐事件计算特征
         let side_flag = side_is_bid;
