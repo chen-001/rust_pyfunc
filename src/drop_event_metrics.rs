@@ -14,8 +14,9 @@
 use crate::fast_csv_reader::{
     read_market_fast_inner, read_trade_fast_inner, MarketRecord, TradeRecord,
 };
+use crate::features::get_features_factors_rust_full;
+use ndarray::Array2;
 use rayon::prelude::*;
-
 // ============================================================================
 // 常量
 // ============================================================================
@@ -1750,4 +1751,126 @@ pub fn py_compute_drop_event_features(py: Python<'_>, date: i64) -> PyResult<PyO
 #[pyfunction]
 pub fn py_drop_event_feature_names() -> Vec<String> {
     drop_event_feature_names()
+}
+
+// ============================================================================
+// Cross-section pipeline 标准入口（per-stock 固定长度输出）
+// ============================================================================
+
+/// 每股每个 side 降维后的因子数：21 统计量 × 60 列 + 60 列两两 corr。
+pub const FEAT_PER_GROUP: usize = 21 * N_FEATURES + N_FEATURES * (N_FEATURES - 1) / 2; // 3030
+/// 总因子数 = bid + ask 两版本。
+pub const N_FACTORS: usize = 2 * FEAT_PER_GROUP; // 6060
+
+/// 核心唯一真相源（cross_section 版）：读全市场 → 检测事件 → 60 维特征
+/// → 按 stock 分组 → 对每股的事件矩阵用 get_features_factors_rust_full 降维
+/// → fan-out 成 (codes, vals)，每股 N_FACTORS 个值。
+///
+/// bid 版本 + ask 版本拼接，每股 N_FACTORS = 6060。
+pub fn compute_drop_event_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f32>)> {
+    // ① 复用已有逻辑：计算全部 per-event 60 维特征
+    let (event_codes, _event_times, event_feats_flat) = compute_drop_event_features_full(date)?;
+
+    let n_events = event_codes.len();
+    if n_events == 0 {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    let event_feats: Vec<[f32; N_FEATURES]> = event_feats_flat
+        .chunks_exact(N_FEATURES)
+        .map(|c| {
+            let mut arr = [0.0f32; N_FEATURES];
+            arr.copy_from_slice(c);
+            arr
+        })
+        .collect();
+
+    // ② 按 (code, side) 分组事件索引
+    use std::collections::BTreeMap;
+    let mut groups: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    for (i, code_side) in event_codes.iter().enumerate() {
+        groups.entry(code_side.clone()).or_default().push(i);
+    }
+
+    // ③ 收集所有 code（去掉 _bid/_ask 后缀），保持有序
+    let mut all_codes: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for cs in groups.keys() {
+        if let Some(code) = cs.rsplit('_').nth(1) {
+            all_codes.insert(code.to_string());
+        }
+    }
+    let col_names = drop_event_feature_names();
+
+    // ④ 逐股降维（rayon 并行 over 股票）
+    let code_list: Vec<String> = all_codes.iter().cloned().collect();
+    let results: Vec<(String, Option<Vec<f32>>)> = code_list
+        .par_iter()
+        .map(|code| {
+            let mut stock_vals = Vec::with_capacity(N_FACTORS);
+            for side in &["bid", "ask"] {
+                let key = format!("{code}_{side}");
+                let feats_opt = groups.get(&key);
+                let chunk = match feats_opt {
+                    Some(idxs) if !idxs.is_empty() => {
+                        // 组装 (n_events_for_this_stock × 60) 矩阵
+                        let nrows = idxs.len();
+                        let mut arr = Array2::zeros((nrows, N_FEATURES));
+                        for (r, &ei) in idxs.iter().enumerate() {
+                            for (c, &v) in event_feats[ei].iter().enumerate() {
+                                arr[(r, c)] = v;
+                            }
+                        }
+                        let (vals, _) =
+                            get_features_factors_rust_full(&arr.view(), &col_names, false);
+                        vals
+                    }
+                    _ => {
+                        // 该股这个 side 没有事件，填全 NaN
+                        vec![f32::NAN; FEAT_PER_GROUP]
+                    }
+                };
+                stock_vals.extend(chunk);
+            }
+            // 有效判定：至少有一个 finite 值
+            let valid = stock_vals.iter().any(|v| v.is_finite());
+            (code.clone(), if valid { Some(stock_vals) } else { None })
+        })
+        .collect();
+
+    // ⑤ 扁平化输出
+    let mut out_codes = Vec::new();
+    let mut out_vals = Vec::with_capacity(results.len() * N_FACTORS);
+    for (code, vals_opt) in results {
+        if let Some(vals) = vals_opt {
+            out_codes.push(code);
+            out_vals.extend(vals);
+        }
+    }
+    Ok((out_codes, out_vals))
+}
+
+/// 因子名（N_FACTORS 个：bid_/ask_ 前缀 × 降维名）。
+pub fn drop_event_names() -> Vec<String> {
+    let col_names = drop_event_feature_names();
+    let dummy = Array2::zeros((2, N_FEATURES));
+    let (_, names) = get_features_factors_rust_full(&dummy.view(), &col_names, false);
+    let mut out = Vec::with_capacity(N_FACTORS);
+    for side in ["bid", "ask"] {
+        for n in &names {
+            out.push(format!("{side}_{n}"));
+        }
+    }
+    out
+}
+
+/// Python 可调用：py_drop_event(date) → (codes, vals)。
+#[pyfunction]
+pub fn py_drop_event(py: Python<'_>, date: i64) -> PyResult<(Vec<String>, Vec<f32>)> {
+    compute_drop_event_full(date)
+        .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("{e:?}")))
+}
+
+/// Python 拿因子名。
+#[pyfunction]
+pub fn py_drop_event_names() -> Vec<String> {
+    drop_event_names()
 }

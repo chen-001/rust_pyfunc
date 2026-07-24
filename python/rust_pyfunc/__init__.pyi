@@ -210,6 +210,13 @@ def py_compute_drop_event_features(date: int) -> dict:
 def py_drop_event_feature_names() -> List[str]:
     ...
 
+def py_drop_event(date: int) -> Tuple[List[str], List[float]]:
+    ...
+
+
+def py_drop_event_names() -> List[str]:
+    ...
+
 
 def py_long_order(date: int) -> Tuple[List[str], List[float]]:
     ...
@@ -493,6 +500,8 @@ __all__ = [
     "py_cross_section_example_names",
     "py_compute_drop_event_features",
     "py_drop_event_feature_names",
+    "py_drop_event",
+    "py_drop_event_names",
     "py_long_order",
     "py_long_order_names",
     "py_long_order_raw",
