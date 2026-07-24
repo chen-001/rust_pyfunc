@@ -145,10 +145,8 @@ def _run_task(
     log_path = os.path.expanduser(f"~/.factor_taskd/logs/{version}.log")
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
     backup_prefix = _build_backup_prefix(version)
-
-    # 切换到脚本所在目录，确保相对路径（如 ./backup_*.bin）正确解析
+    # 用 Popen(cwd=...) 切目录，禁止 os.chdir —— 会污染 daemon 全局 cwd
     script_dir = os.path.dirname(os.path.abspath(script_path))
-    os.chdir(script_dir)
 
     cmd = [sys.executable, script_path]
     env = os.environ.copy()
@@ -172,14 +170,22 @@ def _run_task(
         db.close()
 
     try:
-        with open(log_path, "w") as log_f:
+        # O_APPEND：多进程/多 worker 并发写同一日志时按追加原子写入，
+        # 避免共享 file offset 互相覆盖，导致截断多字节 UTF-8。
+        log_fd = os.open(
+            log_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_APPEND, 0o644
+        )
+        try:
             process = subprocess.Popen(
                 cmd,
-                stdout=log_f,
+                stdout=log_fd,
                 stderr=subprocess.STDOUT,
                 env=env,
+                cwd=script_dir,
                 preexec_fn=os.setsid if hasattr(os, "setsid") else None,
             )
+        finally:
+            os.close(log_fd)
 
         # 注册进程
         with _active_pids_lock:
@@ -208,7 +214,7 @@ def _run_task(
         # 标记完成，并快照进度
         new_status = "completed" if returncode == 0 else "failed"
         error_msg = None if returncode == 0 else f"进程退出码: {returncode}"
-        progress_snapshot = _read_progress(backup_prefix, task_id)
+        progress_snapshot = _read_progress(backup_prefix, task_id, script_dir)
         with _db_lock:
             db = get_db()
             db.execute(
@@ -225,7 +231,11 @@ def _run_task(
             db.close()
 
     except Exception as e:
-        progress_snapshot = _read_progress(backup_prefix, task_id) if backup_prefix else None
+        progress_snapshot = (
+            _read_progress(backup_prefix, task_id, script_dir)
+            if backup_prefix
+            else None
+        )
         with _db_lock:
             db = get_db()
             db.execute(
@@ -291,24 +301,35 @@ def submit_task(body: TaskSubmit):
 
 @app.get("/api/tasks")
 def list_tasks():
-    """列出所有任务，含进度信息"""
-    tasks = []
+    """列出所有任务，含进度信息。
+
+    进度解析(_read_progress)与进程探活(_is_process_active)必须在 _db_lock
+    临界区外执行：_is_process_active 在 _active_processes 未命中时会回退
+    获取 _db_lock，而 _db_lock 是非重入 threading.Lock——在持锁期间再次获取
+    会自死锁，该线程永久持有 _db_lock，所有读请求随之挂死、threadpool worker
+    逐个被耗尽。早期把整个循环放在锁内导致了此故障。
+    """
     with _db_lock:
         db = get_db()
         rows = db.execute(
             "SELECT * FROM tasks ORDER BY created_at DESC LIMIT 100"
         ).fetchall()
-        for row in rows:
-            task = dict(row)
-            if task.get("backup_prefix"):
-                search_dir = os.path.dirname(task["script_path"])
-                if task["status"] in ("cancelled", "completed", "failed") and task.get("progress_snapshot"):
-                    task["progress"] = json.loads(task["progress_snapshot"])
-                else:
-                    task["progress"] = _read_progress(task["backup_prefix"], task["id"], search_dir)
-            task["active"] = _is_process_active(task["id"])
-            tasks.append(task)
         db.close()
+    tasks = []
+    for row in rows:
+        task = dict(row)
+        if task.get("backup_prefix"):
+            search_dir = os.path.dirname(task["script_path"])
+            if task["status"] in ("cancelled", "completed", "failed") and task.get(
+                "progress_snapshot"
+            ):
+                task["progress"] = json.loads(task["progress_snapshot"])
+            else:
+                task["progress"] = _read_progress(
+                    task["backup_prefix"], task["id"], search_dir
+                )
+        task["active"] = _is_process_active(task["id"])
+        tasks.append(task)
     return tasks
 
 
@@ -323,10 +344,14 @@ def get_task(task_id: int):
     task = dict(row)
     if task.get("backup_prefix"):
         search_dir = os.path.dirname(task["script_path"])
-        if task["status"] in ("cancelled", "completed", "failed") and task.get("progress_snapshot"):
+        if task["status"] in ("cancelled", "completed", "failed") and task.get(
+            "progress_snapshot"
+        ):
             task["progress"] = json.loads(task["progress_snapshot"])
         else:
-            task["progress"] = _read_progress(task["backup_prefix"], task_id, search_dir)
+            task["progress"] = _read_progress(
+                task["backup_prefix"], task_id, search_dir
+            )
     task["active"] = _is_process_active(task_id)
     return task
 
@@ -428,11 +453,16 @@ def adjust_njobs(task_id: int, body: NjobsAdjust):
 
 
 def _read_log_file(file_path: str, offset: int, limit: int) -> dict:
-    """读取日志文件并分页"""
+    """读取日志文件并分页。
+
+    多进程并发写日志时可能出现截断的多字节 UTF-8（中间字节裸露），
+    必须 errors='replace'，否则 readlines() 抛 UnicodeDecodeError → API 500，
+    前端代理再误报成「日志服务不可用」。
+    """
     if not file_path or not os.path.isfile(file_path):
         return {"log": "", "total_lines": 0}
     try:
-        with open(file_path) as f:
+        with open(file_path, encoding="utf-8", errors="replace") as f:
             lines = f.readlines()
         total = len(lines)
         end = max(0, total - offset)
@@ -460,9 +490,12 @@ def get_task_log(task_id: int, offset: int = 0, limit: int = 1000):
 def get_task_progress(task_id: int):
     """解析任务日志最后一行 📊 进度，返回结构化进度数据。"""
     import re
+
     with _db_lock:
         db = get_db()
-        row = db.execute("SELECT log_path, status FROM tasks WHERE id=?", (task_id,)).fetchone()
+        row = db.execute(
+            "SELECT log_path, status FROM tasks WHERE id=?", (task_id,)
+        ).fetchone()
         db.close()
     if not row:
         raise HTTPException(404, "任务不存在")
@@ -490,7 +523,11 @@ def get_task_progress(task_id: int):
     # 找 Step 标记
     for line in reversed(lines):
         if "Step" in line and ":" in line:
-            return {"status": row["status"], "step": line.strip()[:80], "progress_pct": None}
+            return {
+                "status": row["status"],
+                "step": line.strip()[:80],
+                "progress_pct": None,
+            }
     return {"status": row["status"], "progress_pct": None}
 
 
@@ -527,7 +564,9 @@ def delete_task(task_id: int):
 # ── 辅助 ─────────────────────────────────────────────
 
 
-def _read_progress(backup_prefix: str, task_id: int, search_dir: str | None = None) -> dict | None:
+def _read_progress(
+    backup_prefix: str, task_id: int, search_dir: str | None = None
+) -> dict | None:
     """读取 backup_<ver>.bin.progress.jsonl 的进度信息"""
     # 按优先级搜索：指定目录 > 当前目录 > ./ 前缀
     candidates = []
@@ -568,9 +607,25 @@ def _read_progress(backup_prefix: str, task_id: int, search_dir: str | None = No
 def _is_process_active(task_id: int) -> bool:
     with _active_pids_lock:
         proc = _active_processes.get(task_id)
-        if proc is None:
-            return False
+    if proc is not None:
         return proc.poll() is None
+    # daemon 重启后内存表为空，回退查 DB pid 是否仍存活
+    with _db_lock:
+        db = get_db()
+        row = db.execute(
+            "SELECT pid, status FROM tasks WHERE id=?", (task_id,)
+        ).fetchone()
+        db.close()
+    if not row or row["status"] != "running":
+        return False
+    pid = row["pid"] or 0
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except (ProcessLookupError, PermissionError, OSError):
+        return False
 
 
 # ── 入口 ─────────────────────────────────────────────
