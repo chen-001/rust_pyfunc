@@ -823,7 +823,9 @@ pub fn run_factor_pipeline(
                     } else if pipeline_name_t == "anneal_volume" {
                         pipeline_anneal_volume(date, &code, &trading_days, expected_result_length)
                     } else if pipeline_name_t == "hidden_arrange" {
-                        match crate::hidden_arrange_metrics::compute_hidden_arrange_full(&code, date) {
+                        match crate::hidden_arrange_metrics::compute_hidden_arrange_full(
+                            &code, date,
+                        ) {
                             Ok((_n, v)) => v,
                             Err(_) => vec![f32::NAN; expected_result_length],
                         }
@@ -2026,19 +2028,38 @@ pub fn pipeline_cross_section_example(date: i64, expected_len: usize) -> Vec<Tas
 /// urgency 横截面 pipeline 包装：调核心，fan-out 成 TaskResult。
 pub fn pipeline_urgency(date: i64, expected_len: usize) -> Vec<TaskResult> {
     match crate::urgency_metrics::compute_urgency_full(date) {
-        Ok((codes, vals)) => {
-            vals.chunks(expected_len)
-                .zip(codes.iter())
-                .map(|(facs, code)| TaskResult {
-                    date,
-                    code: code.clone(),
-                    timestamp: 0,
-                    facs: facs.to_vec(),
-                })
-                .collect()
-        }
+        Ok((codes, vals)) => vals
+            .chunks(expected_len)
+            .zip(codes.iter())
+            .map(|(facs, code)| TaskResult {
+                date,
+                code: code.clone(),
+                timestamp: 0,
+                facs: facs.to_vec(),
+            })
+            .collect(),
         Err(e) => {
             eprintln!("urgency error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
+/// drop_event 横截面 pipeline 包装：调核心，fan-out 成 TaskResult。
+pub fn pipeline_drop_event(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    match crate::drop_event_metrics::compute_drop_event_full(date) {
+        Ok((codes, vals)) => vals
+            .chunks(expected_len)
+            .zip(codes.iter())
+            .map(|(facs, code)| TaskResult {
+                date,
+                code: code.clone(),
+                timestamp: 0,
+                facs: facs.to_vec(),
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("drop_event error [{date}]: {e:?}");
             Vec::new()
         }
     }
@@ -2047,17 +2068,16 @@ pub fn pipeline_urgency(date: i64, expected_len: usize) -> Vec<TaskResult> {
 /// long_order 横截面 pipeline 包装：调核心，fan-out 成 TaskResult。
 pub fn pipeline_long_order(date: i64, expected_len: usize) -> Vec<TaskResult> {
     match crate::long_order_cross_section_metrics::compute_long_order_full(date) {
-        Ok((codes, vals)) => {
-            vals.chunks(expected_len)
-                .zip(codes.iter())
-                .map(|(facs, code)| TaskResult {
-                    date,
-                    code: code.clone(),
-                    timestamp: 0,
-                    facs: facs.to_vec(),
-                })
-                .collect()
-        }
+        Ok((codes, vals)) => vals
+            .chunks(expected_len)
+            .zip(codes.iter())
+            .map(|(facs, code)| TaskResult {
+                date,
+                code: code.clone(),
+                timestamp: 0,
+                facs: facs.to_vec(),
+            })
+            .collect(),
         Err(e) => {
             eprintln!("long_order error [{date}]: {e:?}");
             Vec::new()
@@ -2133,6 +2153,7 @@ pub fn run_factor_pipeline_cross_section(
         "urgency",
         "long_order",
         "microstructure_capm",
+        "drop_event",
     ];
     if !known.contains(&pipeline_name.as_str()) {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
@@ -2143,7 +2164,11 @@ pub fn run_factor_pipeline_cross_section(
 
     // 拆分 n_jobs → n_workers × threads_per_worker
     let n_workers_resolved = n_workers.unwrap_or_else(|| (n_jobs / 50).clamp(2, 8));
-    let n_workers = if n_workers_resolved == 0 { 1 } else { n_workers_resolved };
+    let n_workers = if n_workers_resolved == 0 {
+        1
+    } else {
+        n_workers_resolved
+    };
     let threads_per_worker = (n_jobs / n_workers).max(1);
     // 多线程 worker 若绑定到单个核心，子进程中的 Rayon 线程会继承该 affinity，
     // 标称 N 线程实际退化为单核。仅单线程 worker 才允许单核绑定。
@@ -2151,9 +2176,7 @@ pub fn run_factor_pipeline_cross_section(
     if bind_cores && !effective_bind_cores {
         println!("🧵 cross-section 多线程 worker 自动关闭单核绑定");
     }
-    println!(
-        "📊 横截面 pipeline: n_jobs={n_jobs} → {n_workers} 进程 × {threads_per_worker} 线程"
-    );
+    println!("📊 横截面 pipeline: n_jobs={n_jobs} → {n_workers} 进程 × {threads_per_worker} 线程");
 
     let update_mode_enabled = update_mode.unwrap_or(false);
     let n_shards = 8;
@@ -2193,7 +2216,10 @@ pub fn run_factor_pipeline_cross_section(
     // 断点续算：按 date 过滤
     let pending: Vec<i64> = if update_mode_enabled {
         let completed = read_completed_dates(&store_dir_str);
-        all_dates.into_iter().filter(|d| !completed.contains(d)).collect()
+        all_dates
+            .into_iter()
+            .filter(|d| !completed.contains(d))
+            .collect()
     } else {
         all_dates
     };
@@ -2453,9 +2479,7 @@ fn run_single_cross_section_worker(
                     );
                 }
                 Ok(ResultMessage::Error { date, code, msg }) => {
-                    eprintln!(
-                        "⚠️ cross_section worker{worker_idx} 错误 [{date},{code}]: {msg}"
-                    );
+                    eprintln!("⚠️ cross_section worker{worker_idx} 错误 [{date},{code}]: {msg}");
                     let _ = batch_tx.send((date, Vec::new()));
                 }
                 Ok(_) => {}

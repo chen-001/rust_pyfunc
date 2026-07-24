@@ -1115,6 +1115,11 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         drop_event_metrics::py_drop_event_feature_names,
         m
     )?)?;
+    let _ = m.add_function(wrap_pyfunction!(drop_event_metrics::py_drop_event, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        drop_event_metrics::py_drop_event_names,
+        m
+    )?)?;
     let _ = m.add_function(wrap_pyfunction!(urgency_metrics::py_urgency, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(urgency_metrics::py_urgency_names, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(
