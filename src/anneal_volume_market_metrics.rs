@@ -197,29 +197,8 @@ pub fn compute_anneal_volume_market_from_records(market: &[MarketRecord]) -> Vec
 
 /// v1：读盘外壳。pipeline 和 Python 单股调试的共同入口。
 pub fn compute_anneal_volume_market_full(code: &str, date: i64) -> std::io::Result<Vec<f32>> {
-    use std::time::Instant;
-    let t_total = Instant::now();
-
-    let t_read = Instant::now();
     let market = read_market_fast_inner(code, date, false, true, usize::MAX)?;
-    eprintln!(
-        "[prof] {} {} market_read: {:?}  n_snap={}",
-        code,
-        date,
-        t_read.elapsed(),
-        market.len()
-    );
-
-    let out = compute_anneal_volume_market_from_records(&market);
-
-    eprintln!(
-        "[prof] {} {} TOTAL: {:?}",
-        code,
-        date,
-        t_total.elapsed()
-    );
-
-    Ok(out)
+    Ok(compute_anneal_volume_market_from_records(&market))
 }
 
 #[inline]
