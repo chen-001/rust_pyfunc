@@ -105,6 +105,7 @@ pub mod fast_csv_reader;
 pub mod hidden_arrange_metrics;
 
 pub mod anneal_volume_metrics;
+pub mod anneal_volume_market_metrics;
 pub mod cross_section_example_metrics;
 pub mod drop_event_metrics;
 pub mod factor_pipeline;
@@ -1041,6 +1042,14 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         m
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(
+        anneal_volume_market_metrics::py_anneal_volume_market,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        anneal_volume_market_metrics::py_anneal_volume_market_names,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
         orderbook_imb_refactor_metrics::py_orderbook_imb_refactor_names,
         m
     )?)?;
@@ -1093,6 +1102,10 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(
         cross_section_example_metrics::py_cross_section_example_names,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        cross_section_example_metrics::py_cross_section_example_from_data,
         m
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(

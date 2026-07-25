@@ -93,6 +93,12 @@ def py_anneal_volume_gpt(code: str, date: int) -> List[float]:
 def py_anneal_volume_names() -> List[str]:
     ...
 
+def py_anneal_volume_market(code: str, date: int) -> List[float]:
+    ...
+
+def py_anneal_volume_market_names() -> List[str]:
+    ...
+
 def py_read_minute_data(field: str, date: int) -> Tuple[List[str], List[float], int, int]:
     ...
 
@@ -181,6 +187,27 @@ def run_factor_pipeline_cross_section(
 
 
 def py_cross_section_example(date: int) -> Tuple[List[str], List[float]]:
+    ...
+
+
+def py_cross_section_example_from_data(
+    codes: List[str],
+    trade_arrays: List["numpy.ndarray"],
+) -> Tuple[List[str], List[float]]:
+    """v2 入口：从 Python 传入的 per-stock trade numpy 数组计算横截面因子。
+
+    参数
+    ----
+    codes : List[str]
+        股票代码列表
+    trade_arrays : List[numpy.ndarray]
+        每只股票一个 (n_i, 7) 数组，列序同 read_trade_fast：
+        [time_sec, price, volume, turnover, flag, bid_order, ask_order]
+
+    返回
+    ----
+    (codes, vals) 与 py_cross_section_example 完全一致。
+    """
     ...
 
 

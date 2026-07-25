@@ -77,6 +77,7 @@ fn parse_col_idx(factor_path: &str) -> Option<usize> {
     majority_count_threshold,
     zero_max_threshold,
     nan_max_threshold,
+    industry_neutralize=true,
 ))]
 #[allow(clippy::too_many_arguments)]
 pub fn tail_backtest_engine<'py>(
@@ -113,6 +114,7 @@ pub fn tail_backtest_engine<'py>(
     majority_count_threshold: f64,
     zero_max_threshold: f64,
     nan_max_threshold: f64,
+    industry_neutralize: bool,
 ) -> PyResult<PyObject> {
     if factor_names.len() != factor_paths.len() {
         return Err(PyValueError::new_err("factor_names 和 factor_paths 长度必须一致"));
@@ -141,6 +143,7 @@ pub fn tail_backtest_engine<'py>(
         );
         let shared = build_shared_inputs(
             dates, stocks, windows, fold, min_valid, backtest_start,
+            industry_neutralize,
             &style_data_path,
             &ret_gap1_path, &ret_sum_gap1_path,
             &ret_gap5_path, &ret_sum_gap5_path,

@@ -139,6 +139,7 @@ pub fn pipeline_order_pair_hm90(
 // ============================================================================
 
 use crate::anneal_volume_metrics;
+use crate::anneal_volume_market_metrics;
 use crate::individual_order_ratio_metrics;
 use crate::observable_order_metrics;
 use crate::orderbook_imb_refactor_metrics;
@@ -301,6 +302,26 @@ pub fn pipeline_anneal_volume(
     expected_len: usize,
 ) -> Vec<f32> {
     let mut vals = match anneal_volume_metrics::compute_anneal_volume_full(code, date) {
+        Ok(v) => v,
+        Err(_) => return nan_vec(expected_len),
+    };
+    if vals.len() < expected_len {
+        vals.resize(expected_len, f32::NAN);
+    } else if vals.len() > expected_len {
+        vals.truncate(expected_len);
+    }
+    vals
+}
+/// anneal_volume_market 流水线的单任务计算。
+/// 无参数 pipeline（退火超参为模块 const），调核心 compute_anneal_volume_market_full。
+pub fn pipeline_anneal_volume_market(
+    date: i64,
+    code: &str,
+    _trading_days: &[i64],
+    expected_len: usize,
+) -> Vec<f32> {
+    let mut vals = match anneal_volume_market_metrics::compute_anneal_volume_market_full(code, date)
+    {
         Ok(v) => v,
         Err(_) => return nan_vec(expected_len),
     };
@@ -586,6 +607,7 @@ pub fn run_factor_pipeline(
         "distill",
         "distill_tick",
         "anneal_volume",
+        "anneal_volume_market",
         "hidden_arrange",
     ];
     if !known.contains(&pipeline_name.as_str()) {
@@ -822,6 +844,13 @@ pub fn run_factor_pipeline(
                         pipeline_distill_tick(date, &code, &trading_days, expected_result_length)
                     } else if pipeline_name_t == "anneal_volume" {
                         pipeline_anneal_volume(date, &code, &trading_days, expected_result_length)
+                    } else if pipeline_name_t == "anneal_volume_market" {
+                        pipeline_anneal_volume_market(
+                            date,
+                            &code,
+                            &trading_days,
+                            expected_result_length,
+                        )
                     } else if pipeline_name_t == "hidden_arrange" {
                         match crate::hidden_arrange_metrics::compute_hidden_arrange_full(
                             &code, date,
@@ -1511,6 +1540,7 @@ pub fn run_factor_pipeline_v6(
         "distill",
         "distill_tick",
         "anneal_volume",
+        "anneal_volume_market",
     ];
     if !known.contains(&pipeline_name.as_str()) {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(

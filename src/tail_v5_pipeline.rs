@@ -101,6 +101,7 @@ pub(crate) struct SharedInputs {
     pub(crate) min_valid: usize,
     pub(crate) backtest_start: i32,
     pub(crate) legacy_style_data: Arc<IOOptimizedStyleData>,
+    pub(crate) industry_neutralize: bool,
     pub(crate) ret_gap1: Arc<Array2<f32>>,
     pub(crate) ret_sum_gap1: Arc<Array2<f32>>,
     pub(crate) ret_gap5: Arc<Array2<f32>>,
@@ -130,6 +131,7 @@ pub(crate) fn build_shared_inputs(
     fold: bool,
     min_valid: usize,
     backtest_start: i32,
+    industry_neutralize: bool,
     style_data_path: &str,
     ret_gap1_path: &str,
     ret_sum_gap1_path: &str,
@@ -150,6 +152,7 @@ pub(crate) fn build_shared_inputs(
             IOOptimizedStyleData::load_from_parquet_io_optimized(style_data_path)
                 .map_err(|e| e.to_string())?,
         ),
+        industry_neutralize,
         ret_gap1: Arc::new(read_npy(ret_gap1_path).map_err(|e| format!("读取 ret_gap1.npy 失败: {}", e))?),
         ret_sum_gap1: Arc::new(read_npy(ret_sum_gap1_path).map_err(|e| format!("读取 ret_sum_gap1.npy 失败: {}", e))?),
         ret_gap5: Arc::new(read_npy(ret_gap5_path).map_err(|e| format!("读取 ret_gap5.npy 失败: {}", e))?),
@@ -1802,6 +1805,7 @@ fn neutralize_block_legacy_exact(
     stocks: &[String],
     rank_before: bool,
     min_valid: usize,
+    industry_neutralize: bool,
 ) -> Result<Array3<f32>, String> {
     let n_dates = factor.shape()[0];
     let n_stocks = factor.shape()[1];
@@ -1837,7 +1841,12 @@ fn neutralize_block_legacy_exact(
         let Some(day_data) = legacy_style_data.data_by_date.get(&date_key) else {
             continue;
         };
-        let Some(regression_matrix) = &day_data.regression_matrix else {
+        let regression_matrix = if industry_neutralize {
+            day_data.regression_matrix.as_ref()
+        } else {
+            day_data.regression_matrix_style_only.as_ref()
+        };
+        let Some(regression_matrix) = regression_matrix else {
             continue;
         };
         let mut template_style_positions = vec![None; n_stocks];
@@ -1851,7 +1860,11 @@ fn neutralize_block_legacy_exact(
         let mut daily_factor_values = Vec::<f64>::with_capacity(n_stocks);
         let mut valid_stock_indices = Vec::<usize>::with_capacity(n_stocks);
         let mut valid_style_indices = Vec::<usize>::with_capacity(n_stocks);
-        let n_features = day_data.style_matrix.ncols();
+        let n_features = if industry_neutralize {
+            day_data.style_matrix.ncols()
+        } else {
+            10
+        };
         let mut beta_values = vec![0.0_f64; n_features];
 
         for factor_idx in 0..n_factors {
@@ -1913,6 +1926,7 @@ fn neutralize_block_legacy_exact_v7(
     stocks: &[String],
     rank_before: bool,
     min_valid: usize,
+    industry_neutralize: bool,
 ) -> Result<Array3<f32>, String> {
     let n_dates = factor.shape()[0];
     let n_stocks = factor.shape()[1];
@@ -1954,7 +1968,12 @@ fn neutralize_block_legacy_exact_v7(
             let Some(day_data) = legacy_style_data.data_by_date.get(&date_key) else {
                 return;
             };
-            let Some(regression_matrix) = &day_data.regression_matrix else {
+            let regression_matrix = if industry_neutralize {
+                day_data.regression_matrix.as_ref()
+            } else {
+                day_data.regression_matrix_style_only.as_ref()
+            };
+            let Some(regression_matrix) = regression_matrix else {
                 return;
             };
             // 当天的 stock → style 映射
@@ -1969,7 +1988,11 @@ fn neutralize_block_legacy_exact_v7(
             let mut daily_factor_values = Vec::<f64>::with_capacity(n_stocks);
             let mut valid_stock_indices = Vec::<usize>::with_capacity(n_stocks);
             let mut valid_style_indices = Vec::<usize>::with_capacity(n_stocks);
-            let n_features = day_data.style_matrix.ncols();
+            let n_features = if industry_neutralize {
+                day_data.style_matrix.ncols()
+            } else {
+                10
+            };
             let mut beta_values = vec![0.0_f64; n_features];
 
             for factor_idx in 0..n_factors {
@@ -2041,7 +2064,7 @@ impl TailV5LegacyStyleData {
         })
     }
 
-    #[pyo3(signature = (dates, stocks, factor_block, rank_before=true, min_valid=12))]
+    #[pyo3(signature = (dates, stocks, factor_block, rank_before=true, min_valid=12, industry_neutralize=true))]
     fn neutralize_block_exact<'py>(
         &self,
         py: Python<'py>,
@@ -2050,6 +2073,7 @@ impl TailV5LegacyStyleData {
         factor_block: numpy::PyReadonlyArray3<'py, f32>,
         rank_before: bool,
         min_valid: usize,
+        industry_neutralize: bool,
     ) -> PyResult<Py<numpy::PyArray3<f32>>> {
         let factor = factor_block.as_array();
         let output = py
@@ -2061,6 +2085,7 @@ impl TailV5LegacyStyleData {
                     &stocks,
                     rank_before,
                     min_valid,
+                    industry_neutralize,
                 )
             })
             .map_err(PyRuntimeError::new_err)?;
@@ -2069,7 +2094,7 @@ impl TailV5LegacyStyleData {
 }
 
 #[pyfunction]
-#[pyo3(signature = (style_data_path, dates, stocks, factor_block, rank_before=true, min_valid=12))]
+#[pyo3(signature = (style_data_path, dates, stocks, factor_block, rank_before=true, min_valid=12, industry_neutralize=true))]
 pub fn tail_v5_neutralize_block_exact<'py>(
     py: Python<'py>,
     style_data_path: String,
@@ -2078,6 +2103,7 @@ pub fn tail_v5_neutralize_block_exact<'py>(
     factor_block: numpy::PyReadonlyArray3<'py, f32>,
     rank_before: bool,
     min_valid: usize,
+    industry_neutralize: bool,
 ) -> PyResult<Py<numpy::PyArray3<f32>>> {
     let factor = factor_block.as_array();
     let style_data = IOOptimizedStyleData::load_from_parquet_io_optimized(&style_data_path)?;
@@ -2090,6 +2116,7 @@ pub fn tail_v5_neutralize_block_exact<'py>(
                 &stocks,
                 rank_before,
                 min_valid,
+                industry_neutralize,
             )
         })
         .map_err(PyRuntimeError::new_err)?;
@@ -2292,6 +2319,7 @@ fn process_task_with_values(
             shared.stocks.as_slice(),
             true,
             shared.min_valid,
+            shared.industry_neutralize,
         )?;
         PROF_NEU.fetch_add(_t.elapsed().as_nanos() as u64, AtomicOrdering::Relaxed);
         let local_slots = (0..selected_slots.len()).collect::<Vec<_>>();
@@ -2729,6 +2757,7 @@ pub fn tail_v5_run_candidates<'py>(
                 IOOptimizedStyleData::load_from_parquet_io_optimized(&style_data_path)
                     .map_err(|e| e.to_string())?
             ),
+            industry_neutralize: true,
             ret_gap1: Arc::new(read_npy(&ret_gap1_path).map_err(|e| format!("读取 ret_gap1.npy 失败: {}", e))?),
             ret_sum_gap1: Arc::new(read_npy(&ret_sum_gap1_path).map_err(|e| format!("读取 ret_sum_gap1.npy 失败: {}", e))?),
             ret_gap5: Arc::new(read_npy(&ret_gap5_path).map_err(|e| format!("读取 ret_gap5.npy 失败: {}", e))?),
@@ -3656,6 +3685,7 @@ pub fn tail_v5_run_candidates_online<'py>(
                 IOOptimizedStyleData::load_from_parquet_io_optimized(&style_data_path)
                     .map_err(|e| e.to_string())?
             ),
+            industry_neutralize: true,
             ret_gap1: Arc::new(read_npy(&ret_gap1_path).map_err(|e| format!("读取 ret_gap1.npy 失败: {}", e))?),
             ret_sum_gap1: Arc::new(read_npy(&ret_sum_gap1_path).map_err(|e| format!("读取 ret_sum_gap1.npy 失败: {}", e))?),
             ret_gap5: Arc::new(read_npy(&ret_gap5_path).map_err(|e| format!("读取 ret_gap5.npy 失败: {}", e))?),
@@ -4134,6 +4164,7 @@ pub fn tail_v5_run_candidates_v7<'py>(
                 IOOptimizedStyleData::load_from_parquet_io_optimized(&style_data_path)
                     .map_err(|e| e.to_string())?
             ),
+            industry_neutralize: true,
             ret_gap1: Arc::new(read_npy(&ret_gap1_path).map_err(|e| format!("读取 ret_gap1.npy 失败: {}", e))?),
             ret_sum_gap1: Arc::new(read_npy(&ret_sum_gap1_path).map_err(|e| format!("读取 ret_sum_gap1.npy 失败: {}", e))?),
             ret_gap5: Arc::new(read_npy(&ret_gap5_path).map_err(|e| format!("读取 ret_gap5.npy 失败: {}", e))?),
@@ -4613,6 +4644,7 @@ pub(crate) fn process_task_with_values_v7(
             shared.stocks.as_slice(),
             true,
             shared.min_valid,
+            shared.industry_neutralize,
         )?;
         PROF_NEU.fetch_add(_t.elapsed().as_nanos() as u64, AtomicOrdering::Relaxed);
         let local_slots = (0..selected_slots.len()).collect::<Vec<_>>();
@@ -4822,6 +4854,7 @@ pub fn tail_v5_run_candidates_v7b<'py>(
                 IOOptimizedStyleData::load_from_parquet_io_optimized(&style_data_path)
                     .map_err(|e| e.to_string())?
             ),
+            industry_neutralize: true,
             ret_gap1: Arc::new(read_npy(&ret_gap1_path).map_err(|e| format!("读取 ret_gap1.npy 失败: {}", e))?),
             ret_sum_gap1: Arc::new(read_npy(&ret_sum_gap1_path).map_err(|e| format!("读取 ret_sum_gap1.npy 失败: {}", e))?),
             ret_gap5: Arc::new(read_npy(&ret_gap5_path).map_err(|e| format!("读取 ret_gap5.npy 失败: {}", e))?),

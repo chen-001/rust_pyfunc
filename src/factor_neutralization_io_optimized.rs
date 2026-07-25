@@ -31,6 +31,8 @@ pub struct IOOptimizedStyleDayData {
     pub stocks: Vec<String>,
     pub style_matrix: DMatrix<f64>,
     pub regression_matrix: Option<Arc<DMatrix<f64>>>,
+    /// 仅含前10列风格因子(value_0~9)的回归矩阵，用于关闭行业中性化场景
+    pub regression_matrix_style_only: Option<Arc<DMatrix<f64>>>,
     pub stock_index_map: HashMap<String, usize>,
 }
 
@@ -341,10 +343,16 @@ impl IOOptimizedStyleData {
         // 预计算回归矩阵
         let regression_matrix = compute_regression_matrix_io_optimized(&style_matrix)?;
 
+        // 预计算仅风格因子(前10列 value_0~9)的回归矩阵，用于关闭行业中性化场景
+        let style_only_matrix = style_matrix.columns(0, 10).into_owned();
+        let regression_matrix_style_only =
+            compute_regression_matrix_io_optimized(&style_only_matrix)?;
+
         Ok(IOOptimizedStyleDayData {
             stocks,
             style_matrix,
             regression_matrix: Some(Arc::new(regression_matrix)),
+            regression_matrix_style_only: Some(Arc::new(regression_matrix_style_only)),
             stock_index_map,
         })
     }

@@ -99,6 +99,7 @@ struct SharedInputs {
     min_valid: usize,
     backtest_start: i32,
     legacy_style_data: Arc<IOOptimizedStyleData>,
+    industry_neutralize: bool,
     ret_gap1: Arc<Array2<f32>>,
     ret_sum_gap1: Arc<Array2<f32>>,
     ret_gap5: Arc<Array2<f32>>,
@@ -228,6 +229,7 @@ struct TailV4FulltestWorkerConfig {
     style_data_path: String,
     min_valid: usize,
     index_name: String,
+    industry_neutralize: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -1494,6 +1496,7 @@ fn neutralize_block_legacy_exact(
     stocks: &[String],
     rank_before: bool,
     min_valid: usize,
+    industry_neutralize: bool,
 ) -> Result<Array3<f32>, String> {
     let n_dates = factor.shape()[0];
     let n_stocks = factor.shape()[1];
@@ -1529,7 +1532,12 @@ fn neutralize_block_legacy_exact(
         let Some(day_data) = legacy_style_data.data_by_date.get(&date_key) else {
             continue;
         };
-        let Some(regression_matrix) = &day_data.regression_matrix else {
+        let regression_matrix = if industry_neutralize {
+            day_data.regression_matrix.as_ref()
+        } else {
+            day_data.regression_matrix_style_only.as_ref()
+        };
+        let Some(regression_matrix) = regression_matrix else {
             continue;
         };
         let mut template_style_positions = vec![None; n_stocks];
@@ -1543,7 +1551,11 @@ fn neutralize_block_legacy_exact(
         let mut daily_factor_values = Vec::<f64>::with_capacity(n_stocks);
         let mut valid_stock_indices = Vec::<usize>::with_capacity(n_stocks);
         let mut valid_style_indices = Vec::<usize>::with_capacity(n_stocks);
-        let n_features = day_data.style_matrix.ncols();
+        let n_features = if industry_neutralize {
+            day_data.style_matrix.ncols()
+        } else {
+            10
+        };
         let mut beta_values = vec![0.0_f64; n_features];
 
         for factor_idx in 0..n_factors {
@@ -1610,7 +1622,7 @@ impl TailV4LegacyStyleData {
         })
     }
 
-    #[pyo3(signature = (dates, stocks, factor_block, rank_before=true, min_valid=12))]
+    #[pyo3(signature = (dates, stocks, factor_block, rank_before=true, min_valid=12, industry_neutralize=true))]
     fn neutralize_block_exact<'py>(
         &self,
         py: Python<'py>,
@@ -1619,6 +1631,7 @@ impl TailV4LegacyStyleData {
         factor_block: numpy::PyReadonlyArray3<'py, f32>,
         rank_before: bool,
         min_valid: usize,
+        industry_neutralize: bool,
     ) -> PyResult<Py<numpy::PyArray3<f32>>> {
         let factor = factor_block.as_array();
         let output = py
@@ -1630,6 +1643,7 @@ impl TailV4LegacyStyleData {
                     &stocks,
                     rank_before,
                     min_valid,
+                    industry_neutralize,
                 )
             })
             .map_err(PyRuntimeError::new_err)?;
@@ -1638,7 +1652,7 @@ impl TailV4LegacyStyleData {
 }
 
 #[pyfunction]
-#[pyo3(signature = (style_data_path, dates, stocks, factor_block, rank_before=true, min_valid=12))]
+#[pyo3(signature = (style_data_path, dates, stocks, factor_block, rank_before=true, min_valid=12, industry_neutralize=true))]
 pub fn tail_v4_neutralize_block_exact<'py>(
     py: Python<'py>,
     style_data_path: String,
@@ -1647,6 +1661,7 @@ pub fn tail_v4_neutralize_block_exact<'py>(
     factor_block: numpy::PyReadonlyArray3<'py, f32>,
     rank_before: bool,
     min_valid: usize,
+    industry_neutralize: bool,
 ) -> PyResult<Py<numpy::PyArray3<f32>>> {
     let factor = factor_block.as_array();
     let style_data = IOOptimizedStyleData::load_from_parquet_io_optimized(&style_data_path)?;
@@ -1659,6 +1674,7 @@ pub fn tail_v4_neutralize_block_exact<'py>(
                 &stocks,
                 rank_before,
                 min_valid,
+                industry_neutralize,
             )
         })
         .map_err(PyRuntimeError::new_err)?;
@@ -1798,6 +1814,7 @@ fn process_task(task: &TailTask, shared: &SharedInputs) -> Result<TailTaskResult
             shared.stocks.as_slice(),
             true,
             shared.min_valid,
+            shared.industry_neutralize,
         )?;
         let neu_gap1_results = legacy_backtest_block_f32(
             neutralized.view(),
@@ -2166,6 +2183,7 @@ fn reset_status_line() {
     restrict_path,
     index_ret_path,
     backtest_start,
+    industry_neutralize=true,
     cover_rate=0.97,
     ret_point_neu_gap5=0.055,
     ret_point_neu_gap1=0.08,
@@ -2200,6 +2218,7 @@ pub fn tail_v4_run_candidates<'py>(
     restrict_path: String,
     index_ret_path: String,
     backtest_start: i32,
+    industry_neutralize: bool,
     cover_rate: f64,
     ret_point_neu_gap5: f64,
     ret_point_neu_gap1: f64,
@@ -2249,6 +2268,7 @@ pub fn tail_v4_run_candidates<'py>(
                 IOOptimizedStyleData::load_from_parquet_io_optimized(&style_data_path)
                     .map_err(|e| e.to_string())?
             ),
+            industry_neutralize,
             ret_gap1: Arc::new(read_npy(&ret_gap1_path).map_err(|e| format!("读取 ret_gap1.npy 失败: {}", e))?),
             ret_sum_gap1: Arc::new(read_npy(&ret_sum_gap1_path).map_err(|e| format!("读取 ret_sum_gap1.npy 失败: {}", e))?),
             ret_gap5: Arc::new(read_npy(&ret_gap5_path).map_err(|e| format!("读取 ret_gap5.npy 失败: {}", e))?),
@@ -2523,7 +2543,8 @@ pub fn tail_v4_run_candidates<'py>(
     python_path="/home/chenzongwei/.conda/envs/chenzongwei311/bin/python",
     resume=true,
     index_name="000905",
-    verbose=false
+    verbose=false,
+    industry_neutralize=true
 ))]
 pub fn tail_v4_run_fulltest_queue<'py>(
     py: Python<'py>,
@@ -2543,6 +2564,7 @@ pub fn tail_v4_run_fulltest_queue<'py>(
     resume: bool,
     index_name: &str,
     verbose: bool,
+    industry_neutralize: bool,
 ) -> PyResult<PyObject> {
     if fulltest_jobs == 0 {
         return Err(PyValueError::new_err("fulltest_jobs 必须大于 0"));
@@ -2622,6 +2644,7 @@ pub fn tail_v4_run_fulltest_queue<'py>(
                     style_data_path,
                     min_valid,
                     index_name: index_name.to_string(),
+                    industry_neutralize,
                 };
                 let worker_config_json = serde_json::to_string(&worker_config)
                     .map_err(|e| format!("序列化 worker 配置失败: {}", e))?;
