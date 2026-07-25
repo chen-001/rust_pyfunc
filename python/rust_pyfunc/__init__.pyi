@@ -99,6 +99,13 @@ def py_anneal_volume_market(code: str, date: int) -> List[float]:
 def py_anneal_volume_market_names() -> List[str]:
     ...
 
+def py_anneal_volume_market_from_data(
+    time_sec: npt.NDArray[np.float64],
+    ask_vols: npt.NDArray[np.float32],
+    bid_vols: npt.NDArray[np.float32],
+) -> List[float]:
+    ...
+
 def py_read_minute_data(field: str, date: int) -> Tuple[List[str], List[float], int, int]:
     ...
 
