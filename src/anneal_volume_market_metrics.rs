@@ -201,7 +201,7 @@ pub fn compute_anneal_volume_market_full(code: &str, date: i64) -> std::io::Resu
     let t_total = Instant::now();
 
     let t_read = Instant::now();
-    let market = read_market_fast_inner(code, date, false, false, usize::MAX)?;
+    let market = read_market_fast_inner(code, date, false, true, usize::MAX)?;
     eprintln!(
         "[prof] {} {} market_read: {:?}  n_snap={}",
         code,
