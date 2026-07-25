@@ -15,6 +15,7 @@ use crate::anneal_volume_metrics::{
 use crate::fast_csv_reader::{read_market_fast_inner, MarketRecord};
 use crate::features;
 use ndarray::Array2;
+use numpy::{PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::prelude::*;
 
 // ============================================================================
@@ -100,35 +101,20 @@ fn segment_defs() -> Vec<(ImbType, usize, Quantile)> {
 // 核心计算
 // ============================================================================
 
-/// 核心唯一真相源：pipeline 和 Python 入口的共同调用点。
-/// 读盘口快照 → 4 种失衡 → 窗口/分位/退火 → 逐分钟退火 → 降维。
-pub fn compute_anneal_volume_market_full(code: &str, date: i64) -> std::io::Result<Vec<f32>> {
-    use std::time::Instant;
-    let t_total = Instant::now();
-
-    let t_read = Instant::now();
-    let market = read_market_fast_inner(code, date, false, false, usize::MAX)?;
-    eprintln!(
-        "[prof] {} {} market_read: {:?}  n_snap={}",
-        code,
-        date,
-        t_read.elapsed(),
-        market.len()
-    );
-
+/// 纯计算内核（无 IO，唯一真相源）。
+/// v1（读盘）和 v2（Python 传 numpy）共用此函数。
+pub fn compute_anneal_volume_market_from_records(market: &[MarketRecord]) -> Vec<f32> {
     if market.is_empty() {
-        return Ok(vec![f32::NAN; EXPECTED_LEN]);
+        return vec![f32::NAN; EXPECTED_LEN];
     }
 
     let t_open = market.first().unwrap().time_sec;
 
     // ── 标量片段 ──
-    let t_scalar = Instant::now();
     let segs = segment_defs();
     let mut buf = AnnealBuf::new();
     let mut out: Vec<f32> = Vec::with_capacity(EXPECTED_LEN);
 
-    // 缓存：预提取每个 (imb_type, window) 的失衡序列
     let cache_len = N_IMB_TYPES * N_WINDOWS;
     let mut window_seqs: Vec<Option<Vec<f32>>> = (0..cache_len).map(|_| None).collect();
     let mut quantile_orders: Vec<Option<Vec<(f32, usize)>>> =
@@ -170,18 +156,9 @@ pub fn compute_anneal_volume_market_full(code: &str, date: i64) -> std::io::Resu
         let factors = anneal(&filtered, m_adapt, &mut buf);
         out.extend_from_slice(&factors);
     }
-    eprintln!(
-        "[prof] {} {} {}_scalar: {:?}",
-        code,
-        date,
-        N_SCALAR,
-        t_scalar.elapsed()
-    );
 
     // ── 逐分钟矩阵 237 × 100 ──
-    let t_minute = Instant::now();
     let mut matrix = Array2::zeros((N_MINUTES, N_MINUTE_COLS));
-    let mut n_nonempty = 0usize;
 
     for m_idx in 0..N_MINUTES {
         let lo_time = t_open + (m_idx as f32) * 60.0;
@@ -192,7 +169,6 @@ pub fn compute_anneal_volume_market_full(code: &str, date: i64) -> std::io::Resu
         if lo >= hi {
             continue;
         }
-        n_nonempty += 1;
 
         for (ti, &imb) in ImbType::all().iter().enumerate() {
             let vals: Vec<f32> = market[lo..hi].iter().map(|m| imb.extract(m)).collect();
@@ -203,33 +179,38 @@ pub fn compute_anneal_volume_market_full(code: &str, date: i64) -> std::io::Resu
             }
         }
     }
-    eprintln!(
-        "[prof] {} {} 237_minute: {:?}  n_nonempty={}",
-        code,
-        date,
-        t_minute.elapsed(),
-        n_nonempty
-    );
 
     // ── 降维 ──
-    let t_reduce = Instant::now();
     let minute_col_names = build_minute_col_names();
     let (reduced_vals, _) =
         features::get_features_factors_rust_full(&matrix.view(), &minute_col_names, false);
-    eprintln!(
-        "[prof] {} {} dim_reduce: {:?}",
-        code,
-        date,
-        t_reduce.elapsed()
-    );
     out.extend_from_slice(&reduced_vals);
 
-    // 长度校准
     if out.len() < EXPECTED_LEN {
         out.resize(EXPECTED_LEN, f32::NAN);
     } else if out.len() > EXPECTED_LEN {
         out.truncate(EXPECTED_LEN);
     }
+
+    out
+}
+
+/// v1：读盘外壳。pipeline 和 Python 单股调试的共同入口。
+pub fn compute_anneal_volume_market_full(code: &str, date: i64) -> std::io::Result<Vec<f32>> {
+    use std::time::Instant;
+    let t_total = Instant::now();
+
+    let t_read = Instant::now();
+    let market = read_market_fast_inner(code, date, false, false, usize::MAX)?;
+    eprintln!(
+        "[prof] {} {} market_read: {:?}  n_snap={}",
+        code,
+        date,
+        t_read.elapsed(),
+        market.len()
+    );
+
+    let out = compute_anneal_volume_market_from_records(&market);
 
     eprintln!(
         "[prof] {} {} TOTAL: {:?}",
@@ -349,4 +330,58 @@ pub fn py_anneal_volume_market(code: &str, date: i64) -> PyResult<Vec<f32>> {
 #[pyfunction]
 pub fn py_anneal_volume_market_names() -> Vec<String> {
     anneal_volume_market_names()
+}
+
+/// v2：Python 传 market numpy 数组，计算因子。无磁盘依赖。
+/// time_sec:   (n,)   f64  — 快照时间（epoch 秒）
+/// ask_vols:   (n,10) f32  — 10 档卖量
+/// bid_vols:   (n,10) f32  — 10 档买量
+/// 其余字段（time_us, last_prc, volume, turnover, ask_prcs, bid_prcs）填 0 不影响计算。
+/// total_ask_vol / total_bid_vol 由 ask_vols / bid_vols 各行求和自动算出。
+#[pyfunction]
+pub fn py_anneal_volume_market_from_data(
+    _py: Python<'_>,
+    time_sec: PyReadonlyArray1<f64>,
+    ask_vols: PyReadonlyArray2<f32>,
+    bid_vols: PyReadonlyArray2<f32>,
+) -> PyResult<Vec<f32>> {
+    let ts = time_sec.as_array();
+    let av = ask_vols.as_array();
+    let bv = bid_vols.as_array();
+
+    let n = ts.len();
+    if av.nrows() != n || bv.nrows() != n {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "所有数组的行数必须一致",
+        ));
+    }
+
+    let mut market: Vec<MarketRecord> = Vec::with_capacity(n);
+    for i in 0..n {
+        let mut a_vols = [0.0f32; 10];
+        let mut b_vols = [0.0f32; 10];
+        let mut ta = 0.0f32;
+        let mut tb = 0.0f32;
+        for j in 0..10 {
+            a_vols[j] = av[[i, j]];
+            b_vols[j] = bv[[i, j]];
+            ta += a_vols[j];
+            tb += b_vols[j];
+        }
+        market.push(MarketRecord {
+            time_sec: ts[i] as f32,
+            time_us: 0,
+            last_prc: 0.0,
+            volume: 0.0,
+            turnover: 0.0,
+            total_ask_vol: ta,
+            total_bid_vol: tb,
+            ask_prcs: [0.0f32; 10],
+            ask_vols: a_vols,
+            bid_prcs: [0.0f32; 10],
+            bid_vols: b_vols,
+        });
+    }
+
+    Ok(compute_anneal_volume_market_from_records(&market))
 }
