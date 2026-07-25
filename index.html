@@ -2266,9 +2266,47 @@ Uses Euclidean distance for k-nearest neighbor search</p></div>
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="py_anneal_volume_market.html">py_anneal_volume_market</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_anneal_volume_market.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_anneal_volume_market_from_data.html">py_anneal_volume_market_from_data</a></h3>
+                <div><p>v2：Python 传 market numpy 数组，计算因子。无磁盘依赖。
+time_sec:      (n,)   f64  — 快照时间（epoch 秒）
+ask_vols:      (n,10) f32  — 10 档卖量
+bid_vols:      (n,10) f32  — 10 档买量
+total_ask_vol: (n,)   f64  — 全部档位卖单挂单量（含 10 档之外）
+total_bid_vol: (n,)   f64  — 全部档位买单挂单量（含 10 档之外）
+其余字段（time_us, last_prc, volume, turnover, ask_prcs, bid_prcs）填 0 不影响计算。</p></div>
+                <a href="py_anneal_volume_market_from_data.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_anneal_volume_market_names.html">py_anneal_volume_market_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_anneal_volume_market_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="py_anneal_volume_names.html">py_anneal_volume_names</a></h3>
                 <div><p>Python 拿因子名。</p></div>
                 <a href="py_anneal_volume_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_compute_drop_event_features.html">py_compute_drop_event_features</a></h3>
+                <div><p>Python 可调用：py_compute_drop_event_features(date)</p>
+<p>返回 dict:
+  {
+    "codes": list[str],     # 每事件的 "code_side"
+    "times": list[float],   # 每事件的 epoch 秒
+    "features": list[float], # row-major (n_events × 60)
+    "names": list[str],      # 60 个特征名
+    "n_features": int,
+  }</p></div>
+                <a href="py_compute_drop_event_features.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -2294,6 +2332,12 @@ seg_flat 为 row-major 展平的 (seg_rows × NCOLS)，Python 端 reshape 即可
                 <h3 class="function-name"><a href="py_cross_section_example.html">py_cross_section_example</a></h3>
                 <div><p>Python 单日调试：返回 (codes, vals)，可见完整错误栈。</p></div>
                 <a href="py_cross_section_example.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_cross_section_example_from_data.html">py_cross_section_example_from_data</a></h3>
+                <div><p>v2 入口（Python 传数据）：Python 读样例 parquet 后传 per-stock trade 数组。</p></div>
+                <a href="py_cross_section_example_from_data.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -2324,6 +2368,24 @@ seg_flat 为 row-major 展平的 (seg_rows × NCOLS)，Python 端 reshape 即可
                 <h3 class="function-name"><a href="py_distill_tick_names.html">py_distill_tick_names</a></h3>
                 <div><p>Python 拿因子名。</p></div>
                 <a href="py_distill_tick_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_drop_event.html">py_drop_event</a></h3>
+                <div><p>Python 可调用：py_drop_event(date) → (codes, vals)。</p></div>
+                <a href="py_drop_event.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_drop_event_feature_names.html">py_drop_event_feature_names</a></h3>
+                <div><p>Python 拿特征名。</p></div>
+                <a href="py_drop_event_feature_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_drop_event_names.html">py_drop_event_names</a></h3>
+                <div><p>Python 拿因子名。</p></div>
+                <a href="py_drop_event_names.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -2364,6 +2426,90 @@ seg_flat 为 row-major 展平的 (seg_rows × NCOLS)，Python 端 reshape 即可
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="py_long_order.html">py_long_order</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_long_order.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_long_order_names.html">py_long_order_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_long_order_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_long_order_raw.html">py_long_order_raw</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_long_order_raw.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_microstructure_3s_feature_names.html">py_microstructure_3s_feature_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_microstructure_3s_feature_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_microstructure_3s_features.html">py_microstructure_3s_features</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_microstructure_3s_features.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_microstructure_capm.html">py_microstructure_capm</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_microstructure_capm.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_microstructure_capm_codes.html">py_microstructure_capm_codes</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_microstructure_capm_codes.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_microstructure_capm_names.html">py_microstructure_capm_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_microstructure_capm_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_minute_capm.html">py_minute_capm</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_minute_capm.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_minute_capm_all.html">py_minute_capm_all</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_minute_capm_all.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_minute_capm_all_names.html">py_minute_capm_all_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_minute_capm_all_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_minute_capm_at.html">py_minute_capm_at</a></h3>
+                <div><p>返回指定分钟的逐股原始统计量；minute_index 为 0..239。</p></div>
+                <a href="py_minute_capm_at.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_minute_capm_at_names.html">py_minute_capm_at_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_minute_capm_at_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_minute_capm_names.html">py_minute_capm_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_minute_capm_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="py_minute_example.html">py_minute_example</a></h3>
                 <div><p>无文档</p></div>
                 <a href="py_minute_example.html">查看详情</a>
@@ -2385,6 +2531,18 @@ seg_flat 为 row-major 展平的 (seg_rows × NCOLS)，Python 端 reshape 即可
                 <h3 class="function-name"><a href="py_read_minute_data.html">py_read_minute_data</a></h3>
                 <div><p>Python 入口：读单字段单日 → (codes, flat_data, n_rows, n_cols)</p></div>
                 <a href="py_read_minute_data.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_urgency.html">py_urgency</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_urgency.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_urgency_names.html">py_urgency_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_urgency_names.html">查看详情</a>
             </div>
             
             <div class="function-item">
