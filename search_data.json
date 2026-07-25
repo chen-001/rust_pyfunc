@@ -1377,8 +1377,28 @@
     "params": []
   },
   {
+    "name": "py_anneal_volume_market",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_anneal_volume_market_from_data",
+    "description": "<p>v2：Python 传 market numpy 数组，计算因子。无磁盘依赖。\ntime_sec:      (n,)   f64  — 快照时间（epoch 秒）\nask_vols:      (n,10) f32  — 10 档卖量\nbid_vols:      (n,10) f32  — 10 档买量\ntotal_ask_vol: (n,)   f64  — 全部档位卖单挂单量（含 10 档之外）\ntotal_bid_vol: (n,)   f64  — 全部档位买单挂单量（含 10 档之外）\n其余字段（time_us, last_prc, volume, turnover, ask_prcs, bid_prcs）填 0 不影响计算。</p>",
+    "params": []
+  },
+  {
+    "name": "py_anneal_volume_market_names",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
     "name": "py_anneal_volume_names",
     "description": "<p>Python 拿因子名。</p>",
+    "params": []
+  },
+  {
+    "name": "py_compute_drop_event_features",
+    "description": "<p>Python 可调用：py_compute_drop_event_features(date)</p>\n<p>返回 dict:\n  {\n    \"codes\": list[str],     # 每事件的 \"code_side\"\n    \"times\": list[float],   # 每事件的 epoch 秒\n    \"features\": list[float], # row-major (n_events × 60)\n    \"names\": list[str],      # 60 个特征名\n    \"n_features\": int,\n  }</p>",
     "params": []
   },
   {
@@ -1394,6 +1414,11 @@
   {
     "name": "py_cross_section_example",
     "description": "<p>Python 单日调试：返回 (codes, vals)，可见完整错误栈。</p>",
+    "params": []
+  },
+  {
+    "name": "py_cross_section_example_from_data",
+    "description": "<p>v2 入口（Python 传数据）：Python 读样例 parquet 后传 per-stock trade 数组。</p>",
     "params": []
   },
   {
@@ -1418,6 +1443,21 @@
   },
   {
     "name": "py_distill_tick_names",
+    "description": "<p>Python 拿因子名。</p>",
+    "params": []
+  },
+  {
+    "name": "py_drop_event",
+    "description": "<p>Python 可调用：py_drop_event(date) → (codes, vals)。</p>",
+    "params": []
+  },
+  {
+    "name": "py_drop_event_feature_names",
+    "description": "<p>Python 拿特征名。</p>",
+    "params": []
+  },
+  {
+    "name": "py_drop_event_names",
     "description": "<p>Python 拿因子名。</p>",
     "params": []
   },
@@ -1452,6 +1492,76 @@
     "params": []
   },
   {
+    "name": "py_long_order",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_long_order_names",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_long_order_raw",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_microstructure_3s_feature_names",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_microstructure_3s_features",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_microstructure_capm",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_microstructure_capm_codes",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_microstructure_capm_names",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_minute_capm",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_minute_capm_all",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_minute_capm_all_names",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_minute_capm_at",
+    "description": "<p>返回指定分钟的逐股原始统计量；minute_index 为 0..239。</p>",
+    "params": []
+  },
+  {
+    "name": "py_minute_capm_at_names",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_minute_capm_names",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
     "name": "py_minute_example",
     "description": "<p>无文档</p>",
     "params": []
@@ -1469,6 +1579,16 @@
   {
     "name": "py_read_minute_data",
     "description": "<p>Python 入口：读单字段单日 → (codes, flat_data, n_rows, n_cols)</p>",
+    "params": []
+  },
+  {
+    "name": "py_urgency",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_urgency_names",
+    "description": "<p>无文档</p>",
     "params": []
   },
   {
