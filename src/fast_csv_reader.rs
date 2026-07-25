@@ -771,6 +771,12 @@ pub fn read_market_fast(
     py_dict.set_item("volume", numpy::PyArray1::from_vec(py, volume))?;
     py_dict.set_item("turnover", numpy::PyArray1::from_vec(py, turnover))?;
 
+    // total_ask_vol / total_bid_vol（全部档位挂单量，含 10 档之外）
+    let total_ask_vol: Vec<f64> = records.iter().map(|r| r.total_ask_vol as f64).collect();
+    let total_bid_vol: Vec<f64> = records.iter().map(|r| r.total_bid_vol as f64).collect();
+    py_dict.set_item("total_ask_vol", numpy::PyArray1::from_vec(py, total_ask_vol))?;
+    py_dict.set_item("total_bid_vol", numpy::PyArray1::from_vec(py, total_bid_vol))?;
+
     // 二维数组 (n, 10)
     let mut ask_prcs = ndarray::Array2::zeros((n, 10));
     let mut ask_vols = ndarray::Array2::zeros((n, 10));
