@@ -103,6 +103,8 @@ def py_anneal_volume_market_from_data(
     time_sec: npt.NDArray[np.float64],
     ask_vols: npt.NDArray[np.float32],
     bid_vols: npt.NDArray[np.float32],
+    total_ask_vol: npt.NDArray[np.float64],
+    total_bid_vol: npt.NDArray[np.float64],
 ) -> List[float]:
     ...
 

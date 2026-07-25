@@ -333,24 +333,29 @@ pub fn py_anneal_volume_market_names() -> Vec<String> {
 }
 
 /// v2：Python 传 market numpy 数组，计算因子。无磁盘依赖。
-/// time_sec:   (n,)   f64  — 快照时间（epoch 秒）
-/// ask_vols:   (n,10) f32  — 10 档卖量
-/// bid_vols:   (n,10) f32  — 10 档买量
+/// time_sec:      (n,)   f64  — 快照时间（epoch 秒）
+/// ask_vols:      (n,10) f32  — 10 档卖量
+/// bid_vols:      (n,10) f32  — 10 档买量
+/// total_ask_vol: (n,)   f64  — 全部档位卖单挂单量（含 10 档之外）
+/// total_bid_vol: (n,)   f64  — 全部档位买单挂单量（含 10 档之外）
 /// 其余字段（time_us, last_prc, volume, turnover, ask_prcs, bid_prcs）填 0 不影响计算。
-/// total_ask_vol / total_bid_vol 由 ask_vols / bid_vols 各行求和自动算出。
 #[pyfunction]
 pub fn py_anneal_volume_market_from_data(
     _py: Python<'_>,
     time_sec: PyReadonlyArray1<f64>,
     ask_vols: PyReadonlyArray2<f32>,
     bid_vols: PyReadonlyArray2<f32>,
+    total_ask_vol: PyReadonlyArray1<f64>,
+    total_bid_vol: PyReadonlyArray1<f64>,
 ) -> PyResult<Vec<f32>> {
     let ts = time_sec.as_array();
     let av = ask_vols.as_array();
     let bv = bid_vols.as_array();
+    let tav = total_ask_vol.as_array();
+    let tbv = total_bid_vol.as_array();
 
     let n = ts.len();
-    if av.nrows() != n || bv.nrows() != n {
+    if av.nrows() != n || bv.nrows() != n || tav.len() != n || tbv.len() != n {
         return Err(pyo3::exceptions::PyValueError::new_err(
             "所有数组的行数必须一致",
         ));
@@ -360,13 +365,9 @@ pub fn py_anneal_volume_market_from_data(
     for i in 0..n {
         let mut a_vols = [0.0f32; 10];
         let mut b_vols = [0.0f32; 10];
-        let mut ta = 0.0f32;
-        let mut tb = 0.0f32;
         for j in 0..10 {
             a_vols[j] = av[[i, j]];
             b_vols[j] = bv[[i, j]];
-            ta += a_vols[j];
-            tb += b_vols[j];
         }
         market.push(MarketRecord {
             time_sec: ts[i] as f32,
@@ -374,8 +375,8 @@ pub fn py_anneal_volume_market_from_data(
             last_prc: 0.0,
             volume: 0.0,
             turnover: 0.0,
-            total_ask_vol: ta,
-            total_bid_vol: tb,
+            total_ask_vol: tav[i] as f32,
+            total_bid_vol: tbv[i] as f32,
             ask_prcs: [0.0f32; 10],
             ask_vols: a_vols,
             bid_prcs: [0.0f32; 10],
