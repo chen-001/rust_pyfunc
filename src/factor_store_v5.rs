@@ -372,9 +372,17 @@ impl FactorDict {
         let n_dates = dates_bytes.len() / 8;
         let mut dates = Vec::with_capacity(n_dates);
         let mut date_to_id = HashMap::with_capacity(n_dates);
+        // dates.bin 是 append-only 的 i64 序列，可能因多次续算/崩溃残留出现重复条目。
+        // 写入端 intern_date 用「首次出现顺序」作 id，故读取端必须同样保序去重：
+        // 跳过已见过的 date，仅对首次出现分配 id（= 当前 dates.len()），与写入端语义一致。
+        // 若不去重，位置 i 与去重 id 错位，会把后期数据「藏」在 id 表之外无法读取。
         for i in 0..n_dates {
             let d = i64::from_le_bytes(dates_bytes[i * 8..i * 8 + 8].try_into().unwrap());
-            date_to_id.insert(d, i as u32);
+            if date_to_id.contains_key(&d) {
+                continue;
+            }
+            let id = dates.len() as u32;
+            date_to_id.insert(d, id);
             dates.push(d);
         }
         // 股票字典：codes.bin（纯 16 字节槽，append-only）
@@ -391,12 +399,17 @@ impl FactorDict {
         let n_codes = codes_bytes.len() / CODE_SLOT_BYTES;
         let mut codes = Vec::with_capacity(n_codes);
         let mut code_to_id = HashMap::with_capacity(n_codes);
+        // codes.bin 同 dates.bin，可能含重复条目。保序去重，与写入端 intern_code 语义一致。
         for i in 0..n_codes {
             let slot = &codes_bytes[i * CODE_SLOT_BYTES..(i + 1) * CODE_SLOT_BYTES];
             let end = slot.iter().position(|&b| b == 0).unwrap_or(CODE_SLOT_BYTES);
             let code = String::from_utf8(slot[..end].to_vec())
                 .map_err(|e| format!("codes.bin utf8 失败: {e}"))?;
-            code_to_id.insert(code.clone(), i as u32);
+            if code_to_id.contains_key(&code) {
+                continue;
+            }
+            let id = codes.len() as u32;
+            code_to_id.insert(code.clone(), id);
             codes.push(code);
         }
         Ok((

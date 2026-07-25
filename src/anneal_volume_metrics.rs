@@ -33,10 +33,10 @@ pub const EXPECTED_LEN: usize = N_SCALAR_SEGMENTS * N_FACTORS + N_REDUCED; // 16
 /// 自适应步数：M = min(m_max_cap, max(2000, N²×10))。
 /// 小 N 时大幅减少步数（N=10→M=2000），大 N 时跑满上限。
 /// 配合 S=0 提前终止，多数小 N 片段在几百步内收敛。
-fn adaptive_m_max(n: usize, m_max_cap: usize) -> usize {
+pub fn adaptive_m_max(n: usize, m_max_cap: usize) -> usize {
     (n * n * 10).max(2000).min(m_max_cap)
 }
-const FACTOR_NAMES: &[&str] = &[
+pub const FACTOR_NAMES: &[&str] = &[
     "A1_half_life",
     "A2_steps_r80",
     "A3_steps_r90",
@@ -64,10 +64,10 @@ const FACTOR_NAMES: &[&str] = &[
     "F7_absD_tau_slope",
 ];
 
-const WINDOW_NAMES: &[&str] = &["fullday", "early30", "late30", "mid3h", "morn2h", "aft2h"];
+pub const WINDOW_NAMES: &[&str] = &["fullday", "early30", "late30", "mid3h", "morn2h", "aft2h"];
 
 /// 6 个宏观时间窗口的 [sec_lo, sec_hi)（秒，相对于 t_open）。
-const WINDOW_BOUNDS: [(f32, f32); 6] = [
+pub const WINDOW_BOUNDS: [(f32, f32); 6] = [
     (0.0, 14_220.0),      // fullday: 09:30-14:57
     (0.0, 1_800.0),       // early30: 09:30-10:00
     (12_600.0, 14_220.0), // late30: 14:30-14:57
@@ -617,7 +617,7 @@ fn extract_side(
 // ============================================================================
 
 #[derive(Clone, Copy, PartialEq)]
-enum Quantile {
+pub enum Quantile {
     All,
     Top10,
     Mid50,
@@ -625,7 +625,7 @@ enum Quantile {
 }
 
 impl Quantile {
-    fn as_str(&self) -> &'static str {
+    pub fn as_str(&self) -> &'static str {
         match self {
             Quantile::All => "all",
             Quantile::Top10 => "top10",
@@ -636,7 +636,7 @@ impl Quantile {
 }
 
 /// 按个数分位数过滤 volume 列表，**保留时间序**。
-fn quantile_filter(volumes: &[f32], q: Quantile) -> Vec<f32> {
+pub fn quantile_filter(volumes: &[f32], q: Quantile) -> Vec<f32> {
     let n = volumes.len();
     if n == 0 || q == Quantile::All {
         return volumes.to_vec();
@@ -778,16 +778,16 @@ fn segment_defs() -> Vec<(usize, Side, Quantile)> {
 const R_SAMPLE_MAX: usize = 2000;
 const D_MAX: usize = 5000;
 
-struct AnnealBuf {
-    guess: Vec<f32>,
-    r_sample: Vec<f32>,
-    d_vals: Vec<f32>,
-    d_tau: Vec<f32>,
-    g_below: Vec<u8>,
+pub struct AnnealBuf {
+    pub guess: Vec<f32>,
+    pub r_sample: Vec<f32>,
+    pub d_vals: Vec<f32>,
+    pub d_tau: Vec<f32>,
+    pub g_below: Vec<u8>,
 }
 
 impl AnnealBuf {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             guess: Vec::new(),
             r_sample: Vec::new(),
@@ -798,7 +798,7 @@ impl AnnealBuf {
     }
 }
 
-fn anneal(true_vol: &[f32], m_max: usize, buf: &mut AnnealBuf) -> [f32; N_FACTORS] {
+pub fn anneal(true_vol: &[f32], m_max: usize, buf: &mut AnnealBuf) -> [f32; N_FACTORS] {
     let n = true_vol.len();
     if n < 2 {
         return [f32::NAN; N_FACTORS];
@@ -1563,7 +1563,7 @@ pub fn py_anneal_volume_gpt(code: &str, date: i64) -> PyResult<Vec<f32>> {
 // 因子名
 // ============================================================================
 
-fn build_minute_col_names() -> Vec<String> {
+pub fn build_minute_col_names() -> Vec<String> {
     let versions = ["bid", "ask", "mixed"];
     let mut names = Vec::with_capacity(N_MINUTE_COLS);
     for ver in &versions {

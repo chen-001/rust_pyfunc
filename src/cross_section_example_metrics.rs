@@ -22,6 +22,7 @@ use crate::fast_csv_reader::{read_market_fast_inner, read_trade_fast_inner, Trad
 use pyo3::prelude::*;
 use rayon::prelude::*;
 use std::collections::BTreeSet;
+use numpy::PyReadonlyArray2;
 use std::fs;
 
 /// 每只股票输出的因子数（示例：3 个横截面标准化特征）。
@@ -86,26 +87,14 @@ fn zscore_column(vals: &mut [f64]) {
     }
 }
 
-/// 核心唯一真相源：读全市场 → per-stock 特征 → 横截面标准化 → (codes, vals)。
+/// 纯计算核心（无 IO）：从 per-stock 特征 → 横截面标准化 → (codes, vals)。
 ///
-/// pipeline 和 Python 入口的共同调用点。改因子逻辑只改这里。
-///
-/// 返回：
-/// - `codes`：有效股票代码列表（长度 n_stocks）
-/// - `vals`：扁平化因子值，长度 = n_stocks × N_FACTORS，每 N_FACTORS 个对应一只股票
-pub fn compute_cross_section_example_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f32>)> {
-    let codes = list_codes(date, "transaction");
-
-    // ① rayon 并行读全市场逐笔 + per-stock 算特征（步骤①+②）
-    //    parallel_threshold=usize::MAX：单文件串行解析，靠外层 par_iter 并行（与现有 pipeline 一致）
-    let features: Vec<Option<[f64; N_FACTORS]>> = codes
-        .par_iter()
-        .map(|code| {
-            let trades = read_trade_fast_inner(code, date, false, true, usize::MAX).ok()?;
-            per_stock_features(&trades)
-        })
-        .collect();
-
+/// v1（读盘）和 v2（Python 传数据）的唯一共同计算点。
+/// 输入 codes 与 features 等长；features[i]=None 表示该股无有效数据，跳过。
+fn compute_from_features(
+    codes: &[String],
+    features: Vec<Option<[f64; N_FACTORS]>>,
+) -> (Vec<String>, Vec<f32>) {
     // ② 分离有效股票，组装特征矩阵（n_stocks × N_FACTORS）
     let mut valid_codes: Vec<String> = Vec::new();
     let mut feat_matrix: Vec<[f64; N_FACTORS]> = Vec::new();
@@ -117,7 +106,7 @@ pub fn compute_cross_section_example_full(date: i64) -> std::io::Result<(Vec<Str
     }
     let n = valid_codes.len();
     if n == 0 {
-        return Ok((Vec::new(), Vec::new()));
+        return (Vec::new(), Vec::new());
     }
 
     // ③ 横截面 z-score：每列（每个因子）独立标准化（步骤③）
@@ -135,7 +124,40 @@ pub fn compute_cross_section_example_full(date: i64) -> std::io::Result<(Vec<Str
         out_vals.extend(f.iter().map(|&v| v as f32));
     }
 
-    Ok((valid_codes, out_vals))
+    (valid_codes, out_vals)
+}
+
+/// v1 入口（读盘）：读全市场 → per-stock 特征 → 横截面标准化 → (codes, vals)。
+///
+/// pipeline 和 Python v1 入口的共同调用点。数据从磁盘读取。
+pub fn compute_cross_section_example_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f32>)> {
+    let codes = list_codes(date, "transaction");
+
+    // ① rayon 并行读全市场逐笔 + per-stock 算特征（步骤①+②）
+    let features: Vec<Option<[f64; N_FACTORS]>> = codes
+        .par_iter()
+        .map(|code| {
+            let trades = read_trade_fast_inner(code, date, false, true, usize::MAX).ok()?;
+            per_stock_features(&trades)
+        })
+        .collect();
+
+    Ok(compute_from_features(&codes, features))
+}
+
+/// v2 核心（无 IO）：从预加载的 per-stock 逐笔数据 → 横截面标准化 → (codes, vals)。
+///
+/// Python 通过 py_cross_section_example_from_data 调用此函数。
+/// trades_per_code[i]=None 表示该股无数据（与 v1 读盘失败等价）。
+pub fn compute_cross_section_example_from_trades(
+    codes: &[String],
+    trades_per_code: Vec<Option<Vec<TradeRecord>>>,
+) -> (Vec<String>, Vec<f32>) {
+    let features: Vec<Option<[f64; N_FACTORS]>> = trades_per_code
+        .iter()
+        .map(|t| t.as_ref().and_then(|trades| per_stock_features(trades)))
+        .collect();
+    compute_from_features(codes, features)
 }
 
 /// 因子名（与 N_FACTORS 严格对齐，单一源）。
@@ -162,6 +184,53 @@ pub fn py_cross_section_example(py: Python<'_>, date: i64) -> PyResult<(Vec<Stri
 #[pyfunction]
 pub fn py_cross_section_example_names() -> Vec<String> {
     cross_section_example_names()
+}
+
+/// v2 入口（Python 传数据）：Python 读样例 parquet 后传 per-stock trade 数组。
+///
+/// 参数：
+/// - `codes`：股票代码列表（长度 n_stocks）
+/// - `trade_arrays`：每只股票一个 (n_i, 7) numpy 数组，列序与 read_trade_fast 一致：
+///   [time_sec, price, volume, turnover, flag, bid_order, ask_order]
+///
+/// 返回 (codes, vals)，与 v1 逐字节相同（走同一份 compute_from_features）。
+#[pyfunction]
+pub fn py_cross_section_example_from_data(
+    _py: Python<'_>,
+    codes: Vec<String>,
+    trade_arrays: Vec<PyReadonlyArray2<f64>>,
+) -> PyResult<(Vec<String>, Vec<f32>)> {
+    if codes.len() != trade_arrays.len() {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "codes.len()={} != trade_arrays.len()={}",
+            codes.len(),
+            trade_arrays.len()
+        )));
+    }
+    let trades_per_code: Vec<Option<Vec<TradeRecord>>> = trade_arrays
+        .iter()
+        .map(|arr| {
+            let a = arr.as_array();
+            if a.nrows() == 0 {
+                return None;
+            }
+            let mut recs = Vec::with_capacity(a.nrows());
+            for i in 0..a.nrows() {
+                recs.push(TradeRecord {
+                    time_sec: a[[i, 0]] as f32,
+                    time_us: 0,
+                    price: a[[i, 1]] as f32,
+                    volume: a[[i, 2]] as f32,
+                    turnover: a[[i, 3]] as f32,
+                    flag: a[[i, 4]] as i32,
+                    bid_order: a[[i, 5]] as i64,
+                    ask_order: a[[i, 6]] as i64,
+                });
+            }
+            Some(recs)
+        })
+        .collect();
+    Ok(compute_cross_section_example_from_trades(&codes, trades_per_code))
 }
 
 // ============================================================
