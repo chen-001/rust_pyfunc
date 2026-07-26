@@ -62,7 +62,10 @@ const AFTERNOON_END: i64 = MORNING_END + (14 * 3600 + 57 * 60 - 13 * 3600); // 4
 const ADJUSTED_SECONDS: usize = ((MORNING_END - SEC_OFFSET + 1) + (AFTERNOON_END - AFTERNOON_START + 1)) as usize;
 
 /// 每秒处理的步长：设为 5 表示每 5 秒处理一次，大幅提速
-const SECOND_STEP: usize = 30;
+/// 每秒处理的步长。SECOND_STEP=1 每秒处理（最精细），=15 每 15 秒处理一次（快 15 倍）。
+/// 单进程约 0.3s/步，50 线程并行 4 组合后实际约 (n_steps × 0.3 / 4) 秒。
+/// SECOND_STEP=1: ~525s; =2: ~262s; =5: ~105s; =15: ~35s
+const SECOND_STEP: usize = 5;
 
 /// 参数配置：(x秒, y百分比, 判别指标类型: 0=buy_ratio, 1=bid_ask_diff)
 const PARAM_CONFIGS: [(usize, f64, usize); N_PARAM_COMBOS] = [
@@ -163,13 +166,14 @@ impl RollingCache {
     }
 }
 
-/// 某次入选时该股的特征快照（用于后续步骤3连续性计算）
-#[derive(Clone)]
+/// 某次入选时该股的特征快照（最小化存储，连续性即时计算）
+#[derive(Clone, Copy)]
 struct InclusionInfo {
-    second_idx: usize,    // 秒索引
-    rank_pct: f32,        // 该股在组内的排名百分位
-    pool_size: usize,     // 该组总股票数
-    pool_codes: Vec<String>, // 该组股票代码列表
+    second_idx: usize,
+    rank_pct: f32,
+    pool_size: usize,
+    cont_f01: f32, cont_f02: f32, cont_f03: f32,
+    cont_f04: f32, cont_f05: f32, cont_f06: f32,
 }
 
 // ============================================================
@@ -225,84 +229,6 @@ fn cst_midnight_epoch(date: i64) -> i64 {
     nd.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp()
 }
 
-/// 从 SecStat 数组计算在 second_idx 处、窗口长度 x 的滚动均值
-/// field: 0=buy_ratio, 1=bid_ask_mean, 2=ret_val
-#[inline]
-fn rolling_mean_at(secs: &[SecStat], x: usize, second_idx: usize, field: u8) -> f32 {
-    if second_idx < x - 1 { return f32::NAN; }
-    let start = second_idx + 1 - x;
-    let window = &secs[start..=second_idx];
-    let mut sum: f64 = 0.0;
-    let mut cnt: usize = 0;
-    for s in window.iter() {
-        let v = match field {
-            0 => s.buy_ratio,
-            1 => s.bid_ask_mean,
-            _ => s.ret_val,
-        };
-        if v.is_finite() { sum += v as f64; cnt += 1; }
-    }
-    if cnt > 0 { (sum / cnt as f64) as f32 } else { f32::NAN }
-}
-
-/// 从 SecStat 数组计算在 second_idx 处、窗口长度 x 的滚动成交量总和
-#[inline]
-fn rolling_sum_at(secs: &[SecStat], x: usize, second_idx: usize) -> f32 {
-    if second_idx < x - 1 { return f32::NAN; }
-    let start = second_idx + 1 - x;
-    secs[start..=second_idx].iter().map(|s| s.volume).sum()
-}
-
-/// 填充个股级别的 A08-A10, B08-B10, C03（不含 A13/B13，由调用方单独算）
-fn fill_per_stock_features(
-    feats: &mut [f32],
-    sto_buy: &[f32], sto_ba: &[f32], sto_vol: &[f32],
-    _stock_rank: usize, sb: f32, sba: f32, sv: f32,
-) {
-    // 排序辅助
-    fn sorted_finite(v: &[f32]) -> Vec<f32> {
-        let mut s: Vec<f32> = v.iter().filter(|x| x.is_finite()).copied().collect();
-        s.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        s
-    }
-    let br_sorted = sorted_finite(sto_buy);
-    let ba_sorted = sorted_finite(sto_ba);
-    let vol_sorted = sorted_finite(sto_vol);
-
-    // A08: 买占比排名百分位
-    feats[7] = rank_pct_in(&br_sorted, sb);
-    // A09: z-score
-    let (bm, bs) = mean_std(&br_sorted);
-    feats[8] = if bs > 1e-12 && sb.is_finite() { (sb - bm) / bs } else { f32::NAN };
-    // A10: 与中位数差值
-    feats[9] = if sb.is_finite() && !br_sorted.is_empty() { sb - br_sorted[br_sorted.len() / 2] } else { f32::NAN };
-
-    // B08-B10, B13
-    feats[7 + 13] = rank_pct_in(&ba_sorted, sba);
-    let (bam, bas) = mean_std(&ba_sorted);
-    feats[8 + 13] = if bas > 1e-12 && sba.is_finite() { (sba - bam) / bas } else { f32::NAN };
-    feats[9 + 13] = if sba.is_finite() && !ba_sorted.is_empty() { sba - ba_sorted[ba_sorted.len() / 2] } else { f32::NAN };
-
-    // C03: 成交量排名百分位
-    feats[26 + 2] = rank_pct_in(&vol_sorted, sv);
-}
-
-/// 在已排序数组中计算值的排名百分位
-fn rank_pct_in(sorted: &[f32], val: f32) -> f32 {
-    if sorted.is_empty() || !val.is_finite() { return f32::NAN; }
-    let pos = sorted.partition_point(|&v| v < val);
-    pos as f32 / sorted.len().max(1) as f32
-}
-
-/// 均值 + 标准差
-fn mean_std(v: &[f32]) -> (f32, f32) {
-    let n = v.len();
-    if n < 2 { return (f32::NAN, f32::NAN); }
-    let m = v.iter().sum::<f32>() / n as f32;
-    let var = v.iter().map(|x| (x - m).powi(2)).sum::<f32>() / n as f32;
-    (m, var.sqrt())
-}
-
 // ============================================================
 // Per-stock 数据准备
 // ============================================================
@@ -321,6 +247,22 @@ fn neighbor_mean(values: &[f32], stock_rank: usize, k: usize) -> f32 {
         .collect();
     if neighbors.is_empty() { return f32::NAN; }
     neighbors.iter().sum::<f32>() / neighbors.len() as f32
+}
+
+/// 在已排序数组中计算值的排名百分位
+fn rank_pct_in(sorted: &[f32], val: f32) -> f32 {
+    if sorted.is_empty() || !val.is_finite() { return f32::NAN; }
+    let pos = sorted.partition_point(|&v| v < val);
+    pos as f32 / sorted.len().max(1) as f32
+}
+
+/// 均值 + 标准差（接受已 filter finite 的数组）
+fn mean_std(v: &[f32]) -> (f32, f32) {
+    let n = v.len();
+    if n < 2 { return (f32::NAN, f32::NAN); }
+    let m = v.iter().sum::<f32>() / n as f32;
+    let var = v.iter().map(|x| (x - m).powi(2)).sum::<f32>() / n as f32;
+    (m, var.sqrt())
 }
 
 /// 从逐笔成交构建 per-stock 每秒统计 + 基础特征（优化版，单 pass）
@@ -444,221 +386,133 @@ fn compute_basic_features(secs: &[SecStat]) -> [f32; BASIC_FEAT_N] {
 // 全市场横截面核心计算
 // ============================================================
 
-/// 对某一秒，计算全市场所有股票的滚动窗口判别指标值（从缓存 O(1) 获取）
-fn compute_ranking_values(
+/// 单次遍历全市场，同时选出 top-k/bottom-k 并返回全市场 buy_ratio 和 bid_ask 数组
+fn select_top_bottom_full(
     caches: &[RollingCache],
     x: usize,
-    d_type: usize, // 0=buy_ratio, 1=bid_ask_diff
-    second_idx: usize,
-) -> Vec<(usize, f32)> {
-    let field: u8 = if d_type == 0 { 0 } else { 1 };
-    let mut values: Vec<(usize, f32)> = caches.iter().enumerate()
-        .filter_map(|(si, cache)| {
-            let v = cache.get_by_x(x, field, second_idx);
-            if v.is_finite() { Some((si, v)) } else { None }
-        })
-        .collect();
-    values.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-    values
+    d_type: usize,
+    sec: usize,
+    k: usize,
+) -> (Vec<usize>, Vec<usize>, Vec<f32>, Vec<f32>) {
+    // 返回 (top, bottom, all_d_vals, all_ba_vals)
+    let d_field: u8 = if d_type == 0 { 0 } else { 1 };
+    let n = caches.len();
+    let mut all_d = vec![f32::NAN; n];
+    let mut all_ba = vec![f32::NAN; n];
+    let mut valid: Vec<(usize, f32)> = Vec::with_capacity(n);
+    for (si, cache) in caches.iter().enumerate() {
+        let dv = cache.get_by_x(x, d_field, sec);
+        let bv = cache.get_by_x(x, 1, sec);
+        all_d[si] = dv;
+        all_ba[si] = bv;
+        if dv.is_finite() { valid.push((si, dv)); }
+    }
+    if valid.len() < k * 2 {
+        return (Vec::new(), Vec::new(), all_d, all_ba);
+    }
+    let k_adj = k.min(valid.len().saturating_sub(1));
+    let (top_part, _, bottom_part) = valid.select_nth_unstable_by(k_adj, |a, b| {
+        b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let mut top_sorted: Vec<(usize, f32)> = top_part.to_vec();
+    top_sorted.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    let mut bot = bottom_part.to_vec();
+    let bot_k = k.min(bot.len());
+    let ( _, _, bot_bot) = if bot_k > 0 {
+        bot.select_nth_unstable_by(bot_k - 1, |a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+    } else {
+        return (top_sorted.iter().map(|(i, _)| *i).collect(), Vec::new(), all_d, all_ba);
+    };
+    let mut bot_sorted: Vec<(usize, f32)> = bot_bot.to_vec();
+    bot_sorted.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+    (top_sorted.iter().map(|(i, _)| *i).collect(),
+     bot_sorted.iter().map(|(i, _)| *i).collect(),
+     all_d, all_ba)
 }
 
-/// 全市场滚动均值（从缓存 O(1) 获取）
-fn all_market_rolling_means(caches: &[RollingCache], x: usize, d_type: usize, sec: usize) -> Vec<f32> {
-    let field: u8 = if d_type == 0 { 0 } else { 1 };
-    caches.iter().map(|c| c.get_by_x(x, field, sec)).collect()
+/// 组特征 34 维（预计算 finite 数组传入，避免内部重复 filter/collect）
+#[allow(clippy::too_many_arguments)]
+fn build_group_features(
+    sto_buy: &[f32], sto_ba: &[f32], sto_ret: &[f32], sto_vol: &[f32],
+    br_finite: &[f32], ba_finite: &[f32], ret_finite: &[f32], vol_finite: &[f32],
+    mean_br: f32, mean_ba: f32, mkt_mean_d: f32, mkt_mean_ba: f32,
+) -> Vec<f32> {
+    let mut feats = Vec::with_capacity(34);
+    // A01-A05
+    feats.push(mean_br);
+    feats.push(std(br_finite));
+    feats.push(skew(br_finite));
+    feats.push(kurtosis(br_finite));
+    feats.push(q90_q10_sorted(sto_buy));
+    // A06-A07 占位（调用方填充）
+    feats.push(f32::NAN); feats.push(f32::NAN);
+    // A08-A10 占位
+    feats.push(f32::NAN); feats.push(f32::NAN); feats.push(f32::NAN);
+    // A11: 超额热度
+    feats.push(if mkt_mean_d.is_finite() && mean_br.is_finite() { mean_br - mkt_mean_d } else { f32::NAN });
+    // A12: Spearman
+    feats.push(spearman(sto_buy, sto_ret));
+    // A13 占位
+    feats.push(f32::NAN);
+
+    // B01-B13
+    feats.push(mean_ba);
+    feats.push(std(ba_finite));
+    feats.push(skew(ba_finite));
+    feats.push(kurtosis(ba_finite));
+    feats.push(q90_q10_sorted(sto_ba));
+    feats.push(f32::NAN); feats.push(f32::NAN); // B06-B07
+    feats.push(f32::NAN); feats.push(f32::NAN); feats.push(f32::NAN); // B08-B10
+    feats.push(if mkt_mean_ba.is_finite() && mean_ba.is_finite() { mean_ba - mkt_mean_ba } else { f32::NAN }); // B11
+    feats.push(spearman(sto_ba, sto_ret)); // B12
+    feats.push(f32::NAN); // B13
+
+    // C01-C04
+    feats.push(herfindahl(vol_finite));
+    feats.push(top_k_concentration(vol_finite, 3));
+    feats.push(f32::NAN); // C03 个股
+    feats.push(f32::NAN); // C04 调用方填
+
+    // D01-D03
+    feats.push(mean(ret_finite));
+    feats.push(std(ret_finite));
+    feats.push(skew(ret_finite));
+
+    // E01 占位
+    feats.push(f32::NAN);
+    debug_assert_eq!(feats.len(), 34);
+    feats
+}
+
+/// Q90-Q10（接受未排序输入，内部排序）
+fn q90_q10_sorted(v: &[f32]) -> f32 {
+    let mut s: Vec<f32> = v.iter().filter(|x| x.is_finite()).copied().collect();
+    s.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    if s.len() < 2 { return f32::NAN; }
+    percentile_sorted(&s, 0.90) - percentile_sorted(&s, 0.10)
+}
+
+/// 填充 A08-A10, B08-B10, C03（预计算 sorted 数组和 mean/std 传入）
+#[allow(clippy::too_many_arguments)]
+fn fill_per_stock_full(
+    feats: &mut [f32],
+    br_sorted: &[f32], ba_sorted: &[f32], vol_sorted: &[f32],
+    _stock_rank: usize, sb: f32, sba: f32, sv: f32,
+    br_m: f32, br_s: f32, ba_m: f32, ba_s: f32,
+) {
+    feats[7] = rank_pct_in(br_sorted, sb);
+    feats[8] = if br_s > 1e-12 && sb.is_finite() { (sb - br_m) / br_s } else { f32::NAN };
+    feats[9] = if sb.is_finite() && !br_sorted.is_empty() { sb - br_sorted[br_sorted.len() / 2] } else { f32::NAN };
+    feats[20] = rank_pct_in(ba_sorted, sba);
+    feats[21] = if ba_s > 1e-12 && sba.is_finite() { (sba - ba_m) / ba_s } else { f32::NAN };
+    feats[22] = if sba.is_finite() && !ba_sorted.is_empty() { sba - ba_sorted[ba_sorted.len() / 2] } else { f32::NAN };
+    feats[28] = rank_pct_in(vol_sorted, sv);
 }
 
 // ============================================================
 // 步骤2+3：计算入选特征（40维）
 // ============================================================
 
-/// A13/B13: 组内与该股 x 秒窗口相关性最高的 k 只股票的均值
-/// field: 0=buy_ratio, 1=bid_ask_mean
-fn correlation_top_k_feat(
-    stocks: &[StockData], caches: &[RollingCache], pool_idx: &[usize], stock_i: usize,
-    x: usize, sec: usize, field: u8, k: usize,
-) -> f32 {
-    if pool_idx.len() < 2 || sec < x - 1 { return f32::NAN; }
-    let start = sec + 1 - x;
-    // 提取目标股票的 x 秒窗口
-    let target: Vec<f32> = stocks[stock_i].secs[start..=sec].iter().map(|s| match field {
-        0 => s.buy_ratio, _ => s.bid_ask_mean,
-    }).collect();
-    let target_finite: Vec<(usize, f32)> = target.iter().enumerate()
-        .filter(|(_, &v)| v.is_finite()).map(|(i, &v)| (i, v)).collect();
-    if target_finite.len() < 3 { return f32::NAN; }
-    let t_mean = target_finite.iter().map(|(_, v)| v).sum::<f32>() / target_finite.len() as f32;
-    let t_var: f32 = target_finite.iter().map(|(_, v)| (v - t_mean).powi(2)).sum::<f32>() / target_finite.len() as f32;
-    if t_var < 1e-12 { return f32::NAN; }
-    let t_std = t_var.sqrt();
-
-    // 计算与组内每只股票的 Pearson 相关
-    let mut cors: Vec<(usize, f32)> = Vec::with_capacity(pool_idx.len());
-    for &si in pool_idx.iter() {
-        if si == stock_i { continue; }
-        let other: Vec<f32> = stocks[si].secs[start..=sec].iter().map(|s| match field {
-            0 => s.buy_ratio, _ => s.bid_ask_mean,
-        }).collect();
-        let pairs: Vec<(f32, f32)> = target.iter().zip(other.iter())
-            .filter(|(a, b)| a.is_finite() && b.is_finite()).map(|(&a, &b)| (a, b)).collect();
-        if pairs.len() < 3 { continue; }
-        let o_mean = pairs.iter().map(|(_, v)| v).sum::<f32>() / pairs.len() as f32;
-        let o_var: f32 = pairs.iter().map(|(_, v)| (v - o_mean).powi(2)).sum::<f32>() / pairs.len() as f32;
-        if o_var < 1e-12 { continue; }
-        let o_std = o_var.sqrt();
-        let cov: f32 = pairs.iter().map(|(a, b)| (a - t_mean) * (b - o_mean)).sum::<f32>() / pairs.len() as f32;
-        let corr = cov / (t_std * o_std);
-        if corr.is_finite() { cors.push((si, corr)); }
-    }
-    if cors.len() < k { return f32::NAN; }
-    cors.sort_by(|a, b| b.1.abs().partial_cmp(&a.1.abs()).unwrap_or(std::cmp::Ordering::Equal));
-    let top_k_codes: Vec<usize> = cors.iter().take(k).map(|(si, _)| *si).collect();
-
-    // 取这些股票在当前秒的滚动均值（从缓存 O(1) 获取）
-    let vals: Vec<f32> = top_k_codes.iter().map(|&si| {
-        caches[si].get_by_x(x, field, sec)
-    }).filter(|v| v.is_finite()).collect();
-    if vals.is_empty() { return f32::NAN; }
-    vals.iter().sum::<f32>() / vals.len() as f32
-}
-
-/// 计算一组"同热点/冰点股票"的 34 个截面特征（步骤2）
-fn compute_group_features(
-    pool_indices: &[usize],          // 组内股票的索引
-    _stocks: &[StockData],
-    _x: usize,
-    _d_type: usize,
-    _second_idx: usize,
-    all_market_vals: &[f32],         // 全市场滚动判别均值
-    _prev_group_codes: Option<&Vec<String>>, // 上一秒同参数组的股票代码
-    sto_buy_ratios: &[f32],          // 组内股票的滚动买占比
-    sto_bid_asks: &[f32],            // 组内股票的滚动 bid_ask
-    sto_rets: &[f32],                // 组内股票的滚动收益率
-    sto_vols: &[f32],                // 组内股票的滚动成交量
-) -> Vec<f32> {
-    let n = pool_indices.len();
-    if n == 0 { return vec![f32::NAN; 34]; }
-
-    // 组内各指标：sto_* 已经是组内成员的值，直接使用
-    let buy_ratios = sto_buy_ratios;
-    let bid_asks = sto_bid_asks;
-    let rets = sto_rets;
-    let vols = sto_vols;
-
-    let br_finite: Vec<f32> = buy_ratios.iter().filter(|v| v.is_finite()).copied().collect();
-    let ba_finite: Vec<f32> = bid_asks.iter().filter(|v| v.is_finite()).copied().collect();
-    let ret_finite: Vec<f32> = rets.iter().filter(|v| v.is_finite()).copied().collect();
-    let vol_finite: Vec<f32> = vols.iter().copied().filter(|&v| v.is_finite() && v > 0.0).collect();
-
-    let mut feats = Vec::with_capacity(34);
-
-    // --- A01-A06: 主买占比基本统计 ---
-    feats.push(mean(&br_finite));                          // A01
-    feats.push(std(&br_finite));                           // A02
-    feats.push(skew(&br_finite));                          // A03
-    feats.push(kurtosis(&br_finite));                      // A04
-    feats.push(q90_q10(&buy_ratios));                      // A05
-
-    // --- A06-A07: 主买一阶/二阶差分（组均值）---
-    let mean_br = mean(&br_finite);
-    // 一阶差分需要上一秒的组均值，这里从调用方传入
-    feats.push(f32::NAN);  // A06 占位，调用方填充
-    feats.push(f32::NAN);  // A07 占位
-
-    // --- A08-A10: 个股相对位置（每个入选股票单独算，这里只存组统计）---
-    // 这些是个股级别特征，不在组特征中
-    // 占位
-    feats.push(f32::NAN); feats.push(f32::NAN); feats.push(f32::NAN); // A08-A10 占位
-
-    // --- A11: 超额热度 ---
-    let all_finite: Vec<f32> = all_market_vals.iter().filter(|v| v.is_finite()).copied().collect();
-    let mkt_mean = mean(&all_finite);
-    feats.push(if mkt_mean.is_finite() { mean_br - mkt_mean } else { f32::NAN }); // A11
-
-    // --- A12: 组内买占比与收益率的截面 Spearman 相关 ---
-    feats.push(spearman(&buy_ratios, &rets)); // A12
-
-    // --- A13: 与该股买占比相关性最高的3只股票的买占比均值（个股特征，组特征占位）---
-    feats.push(f32::NAN); // A13 占位
-
-    // --- B01-B13: bid_order - ask_order 版本（同 A01-A13 结构）---
-    feats.push(mean(&ba_finite));    feats.push(std(&ba_finite));
-    feats.push(skew(&ba_finite));    feats.push(kurtosis(&ba_finite));
-    feats.push(q90_q10(&bid_asks));
-    feats.push(f32::NAN); feats.push(f32::NAN); // B06-B07 占位
-    feats.push(f32::NAN); feats.push(f32::NAN); feats.push(f32::NAN); // B08-B10 占位
-    feats.push(f32::NAN); // B11 超额 bid_ask 占位（由调用方填充）
-    feats.push(spearman(&bid_asks, &rets)); // B12
-    feats.push(f32::NAN); // B13 占位（由调用方 fill_per_stock_features 后覆盖）
-
-    // --- C01-C04: 成交量与资金结构 ---
-    feats.push(herfindahl(&vol_finite));                 // C01
-    feats.push(top_k_concentration(&vol_finite, 3));     // C02
-    feats.push(f32::NAN); // C03 个股特征占位
-    feats.push(f32::NAN); // C04 占位（由调用方填充）
-
-    // --- D01-D03: 收益率统计 ---
-    feats.push(mean(&ret_finite));
-    feats.push(std(&ret_finite));
-    feats.push(skew(&ret_finite));
-
-    // --- E01: 连续停留 ≥3秒的股票占比 ---
-    feats.push(f32::NAN); // E01 占位，需要历史状态
-
-    assert_eq!(feats.len(), 34);
-    feats
-}
-
-/// 计算个股入选连续性特征（步骤3，6个）
-fn compute_continuity_features(
-    current_info: &InclusionInfo,
-    prev_info: Option<&InclusionInfo>,
-    prev_N_infos: &[InclusionInfo], // 前 N 次入选信息
-) -> Vec<f32> {
-    let mut feats = Vec::with_capacity(6);
-    if let Some(prev) = prev_info {
-        // F01: 重合数量
-        let overlap: usize = current_info.pool_codes.iter()
-            .filter(|c| prev.pool_codes.contains(c))
-            .count();
-        feats.push(overlap as f32);
-
-        // F02: 重合率
-        let denom = std::cmp::min(current_info.pool_size, prev.pool_size).max(1);
-        feats.push(overlap as f32 / denom as f32);
-
-        // F03: 排名变化
-        feats.push(current_info.rank_pct - prev.rank_pct);
-
-        // F04: 连续入选持续秒数
-        let gap = current_info.second_idx - prev.second_idx;
-        feats.push(if gap == 1 { 2.0_f32 } else { 1.0_f32 }); // 简化：相邻则持续
-
-        // F05: 距离上次入选的时间间隔
-        feats.push(gap as f32);
-
-        // F06: 前N次平均重合率
-        let avg_overlap: f32 = if prev_N_infos.len() >= 2 {
-            let mut total = 0.0f32;
-            let mut cnt = 0;
-            for i in 1..prev_N_infos.len() {
-                let o = prev_N_infos[i].pool_codes.iter()
-                    .filter(|c| prev_N_infos[i-1].pool_codes.contains(c))
-                    .count();
-                total += o as f32 / std::cmp::min(prev_N_infos[i].pool_size, prev_N_infos[i-1].pool_size).max(1) as f32;
-                cnt += 1;
-            }
-            if cnt > 0 { total / cnt as f32 } else { f32::NAN }
-        } else {
-            f32::NAN
-        };
-        feats.push(avg_overlap);
-    } else {
-        feats.extend(&[f32::NAN; 6]);
-    }
-    assert_eq!(feats.len(), 6);
-    feats
-}
 
 // ============================================================
 // 统计工具函数
@@ -799,166 +653,166 @@ pub fn compute_hot_stock_pool_full(date: i64) -> std::io::Result<(Vec<String>, V
         .map(|sd| RollingCache::compute(&sd.secs))
         .collect();
 
-    // ② 主循环：每秒计算分组、特征
-    // 热/冰点分开累积：accum_{hot,cold}[pi][stock_i] = Vec<Vec<f32>>（z 组 40 维特征）
-    type StockAccum = Vec<Vec<Vec<Vec<f32>>>>; // [N_PARAM_COMBOS][n_valid] → Vec<Vec<f32>>
-    type InfoAccum = Vec<Vec<Vec<InclusionInfo>>>;
-    type CoocAccum = Vec<Vec<Vec<u32>>>; // [N_PARAM_COMBOS][n_valid][n_valid]，flat 数组替代 HashMap
+    // ② 主循环：按参数组合并行（4 组合互相独立）
+    // 每个组合独立维护自己的 accum/infos/cooc/历史状态
+    type StockAccumPi = Vec<Vec<Vec<f32>>>;        // [n_valid] → Vec<Vec<f32>>
+    type InfoAccumPi = Vec<Vec<InclusionInfo>>;
+    type CoocAccumPi = Vec<FxHashMap<usize, u32>>;
 
-    let mut accum_hot: StockAccum = (0..N_PARAM_COMBOS).map(|_| vec![Vec::new(); n_valid]).collect();
-    let mut accum_cold: StockAccum = (0..N_PARAM_COMBOS).map(|_| vec![Vec::new(); n_valid]).collect();
-    let mut infos_hot: InfoAccum = (0..N_PARAM_COMBOS).map(|_| vec![Vec::new(); n_valid]).collect();
-    let mut infos_cold: InfoAccum = (0..N_PARAM_COMBOS).map(|_| vec![Vec::new(); n_valid]).collect();
-    let mut cooc_hot: CoocAccum = (0..N_PARAM_COMBOS).map(|_| vec![vec![0u32; n_valid]; n_valid]).collect();
-    let mut cooc_cold: CoocAccum = (0..N_PARAM_COMBOS).map(|_| vec![vec![0u32; n_valid]; n_valid]).collect();
+    // 每个 pi 的结果（infos 保留用于后续共现重建）
+    struct PiResult {
+        accum_hot: StockAccumPi,
+        accum_cold: StockAccumPi,
+        cooc_hot: CoocAccumPi,
+        cooc_cold: CoocAccumPi,
+    }
 
-    // 历史状态：per (pi, group_type) 的上两秒组均值（用于 A06/A07, B06/B07）
-    // [pi][0]=hot, [pi][1]=cold
-    let mut prev_mean_br: [[f32; 2]; N_PARAM_COMBOS] = [[f32::NAN; 2]; N_PARAM_COMBOS];
-    let mut prev2_mean_br: [[f32; 2]; N_PARAM_COMBOS] = [[f32::NAN; 2]; N_PARAM_COMBOS];
-    let mut prev_mean_ba: [[f32; 2]; N_PARAM_COMBOS] = [[f32::NAN; 2]; N_PARAM_COMBOS];
-    let mut prev2_mean_ba: [[f32; 2]; N_PARAM_COMBOS] = [[f32::NAN; 2]; N_PARAM_COMBOS];
-    // 上一秒的组内股票集合（用于 E01 连续性判定 + A06 差分）
-    let mut prev_pool_set: [[HashSet<usize>; 2]; N_PARAM_COMBOS] = Default::default();
-    let mut prev_sec: [[usize; 2]; N_PARAM_COMBOS] = [[usize::MAX; 2]; N_PARAM_COMBOS];
+    let pi_results: Vec<PiResult> = PARAM_CONFIGS.par_iter().map(|&(x, y, d_type)| {
+        let n_top = ((n_valid as f64) * y).ceil() as usize;
+        let mut accum_hot: StockAccumPi = vec![Vec::new(); n_valid];
+        let mut accum_cold: StockAccumPi = vec![Vec::new(); n_valid];
+        let mut infos_hot: InfoAccumPi = vec![Vec::new(); n_valid];
+        let mut infos_cold: InfoAccumPi = vec![Vec::new(); n_valid];
+        let mut cooc_hot: CoocAccumPi = vec![FxHashMap::default(); n_valid];
+        let mut cooc_cold: CoocAccumPi = vec![FxHashMap::default(); n_valid];
+        // 历史状态（per group_type: 0=hot, 1=cold）
+        let mut prev_mean_br = [f32::NAN; 2];
+        let mut prev2_mean_br = [f32::NAN; 2];
+        let mut prev_mean_ba = [f32::NAN; 2];
+        let mut prev2_mean_ba = [f32::NAN; 2];
+        let mut prev_pool_set: [HashSet<usize>; 2] = Default::default();
+        let mut prev_sec = [usize::MAX; 2];
+        let mut stay_seconds = vec![[0u32; 2]; n_valid];
 
-    // 用于 E01：每只股票 per (pi, group_type) 的连续在组内秒数
-    let mut stay_seconds: Vec<[[u32; 2]; N_PARAM_COMBOS]> = vec![[[0u32; 2]; N_PARAM_COMBOS]; n_valid];
-
-    // 每秒处理（按 SECOND_STEP 采样）
-    for sec in (15..ADJUSTED_SECONDS).step_by(SECOND_STEP) {
-        for (pi, &(x, y, d_type)) in PARAM_CONFIGS.iter().enumerate() {
+        for sec in (15..ADJUSTED_SECONDS).step_by(SECOND_STEP) {
             if sec < x - 1 { continue; }
-            let n_top = ((n_valid as f64) * y).ceil() as usize;
             if n_top < 2 { continue; }
 
-            let ranking = compute_ranking_values(&rolling_caches, x, d_type, sec);
-            if ranking.len() < n_top { continue; }
+            let (top_indices, bottom_indices, all_vals_d, all_ba_vals) = select_top_bottom_full(&rolling_caches, x, d_type, sec, n_top);
+            if top_indices.is_empty() || bottom_indices.is_empty() { continue; }
 
-            let top_indices: Vec<usize> = ranking.iter().take(n_top).map(|&(i, _)| i).collect();
-            let bottom_indices: Vec<usize> = ranking.iter().rev().take(n_top).map(|&(i, _)| i).collect();
+            let mkt_total_vol: f32 = (0..n_valid).map(|i| valid_stocks[i].secs[sec].volume).sum();
 
-            for (group_type, pool_idx) in [0usize, 1].iter().zip([&top_indices, &bottom_indices].iter()) {
-                let pool_codes: Vec<String> = pool_idx.iter().map(|&i| valid_stocks[i].code.clone()).collect();
+            for (gt, pool_idx) in [0usize, 1].iter().zip([&top_indices, &bottom_indices].iter()) {
+                let gt = *gt;
                 let n_pool = pool_idx.len();
+                if n_pool == 0 { continue; }
 
-                // 组内滚动均值（从缓存 O(1) 获取，不再扫描窗口）
                 let sto_buy: Vec<f32> = pool_idx.iter().map(|&i| rolling_caches[i].get_by_x(x, 0, sec)).collect();
                 let sto_ba: Vec<f32> = pool_idx.iter().map(|&i| rolling_caches[i].get_by_x(x, 1, sec)).collect();
                 let sto_ret: Vec<f32> = pool_idx.iter().map(|&i| rolling_caches[i].get_by_x(x, 2, sec)).collect();
                 let sto_vol: Vec<f32> = pool_idx.iter().map(|&i| rolling_caches[i].get_by_x(x, 3, sec)).collect();
 
-                let all_market = all_market_rolling_means(&rolling_caches, x, d_type, sec);
-                let all_market_ba = all_market_rolling_means(&rolling_caches, x, 1, sec);
+                let br_finite: Vec<f32> = sto_buy.iter().copied().filter(|v| v.is_finite()).collect();
+                let ba_finite: Vec<f32> = sto_ba.iter().copied().filter(|v| v.is_finite()).collect();
+                let ret_finite: Vec<f32> = sto_ret.iter().copied().filter(|v| v.is_finite()).collect();
+                let vol_finite: Vec<f32> = sto_vol.iter().copied().filter(|v| v.is_finite() && *v > 0.0).collect();
 
-                // 计算组特征
-                let mut group_feats = compute_group_features(
-                    pool_idx, &valid_stocks, x, d_type, sec, &all_market,
-                    None, &sto_buy, &sto_ba, &sto_ret, &sto_vol,
+                let mean_br = mean(&br_finite);
+                let mean_ba = mean(&ba_finite);
+                let pool_total_vol: f32 = sto_vol.iter().sum();
+                let c04_val = if mkt_total_vol > 0.0 { pool_total_vol / mkt_total_vol } else { f32::NAN };
+                let mkt_mean_d = mean(&all_vals_d.iter().copied().filter(|v| v.is_finite()).collect::<Vec<_>>());
+                let mkt_mean_ba = mean(&all_ba_vals.iter().copied().filter(|v| v.is_finite()).collect::<Vec<_>>());
+
+                let mut group_feats = build_group_features(
+                    &sto_buy, &sto_ba, &sto_ret, &sto_vol,
+                    &br_finite, &ba_finite, &ret_finite, &vol_finite,
+                    mean_br, mean_ba, mkt_mean_d, mkt_mean_ba,
                 );
 
-                // A06: 一阶差分（热/冰点独立维护历史状态）
-                let gt = *group_type;
-                let cur_mean_br = mean(&sto_buy.iter().filter(|v| v.is_finite()).copied().collect::<Vec<f32>>());
-                group_feats[5] = if prev_mean_br[pi][gt].is_finite() && cur_mean_br.is_finite() {
-                    cur_mean_br - prev_mean_br[pi][gt]
-                } else { f32::NAN };
-                // A07: 二阶差分
-                group_feats[6] = if prev_mean_br[pi][gt].is_finite() && prev2_mean_br[pi][gt].is_finite() && cur_mean_br.is_finite() {
-                    (cur_mean_br - prev_mean_br[pi][gt]) - (prev_mean_br[pi][gt] - prev2_mean_br[pi][gt])
-                } else { f32::NAN };
+                group_feats[5] = if prev_mean_br[gt].is_finite() && mean_br.is_finite() { mean_br - prev_mean_br[gt] } else { f32::NAN };
+                group_feats[6] = if prev_mean_br[gt].is_finite() && prev2_mean_br[gt].is_finite() && mean_br.is_finite() {
+                    (mean_br - prev_mean_br[gt]) - (prev_mean_br[gt] - prev2_mean_br[gt]) } else { f32::NAN };
+                group_feats[18] = if prev_mean_ba[gt].is_finite() && mean_ba.is_finite() { mean_ba - prev_mean_ba[gt] } else { f32::NAN };
+                group_feats[19] = if prev_mean_ba[gt].is_finite() && prev2_mean_ba[gt].is_finite() && mean_ba.is_finite() {
+                    (mean_ba - prev_mean_ba[gt]) - (prev_mean_ba[gt] - prev2_mean_ba[gt]) } else { f32::NAN };
 
-                let cur_mean_ba = mean(&sto_ba.iter().filter(|v| v.is_finite()).copied().collect::<Vec<f32>>());
-                group_feats[5 + 13] = if prev_mean_ba[pi][gt].is_finite() && cur_mean_ba.is_finite() {
-                    cur_mean_ba - prev_mean_ba[pi][gt]
-                } else { f32::NAN };
-                group_feats[6 + 13] = if prev_mean_ba[pi][gt].is_finite() && prev2_mean_ba[pi][gt].is_finite() && cur_mean_ba.is_finite() {
-                    (cur_mean_ba - prev_mean_ba[pi][gt]) - (prev_mean_ba[pi][gt] - prev2_mean_ba[pi][gt])
-                } else { f32::NAN };
-
-                // B11: 超额 bid_ask
-                let all_ba_mean = mean(&all_market_ba.iter().filter(|v| v.is_finite()).copied().collect::<Vec<f32>>());
-                group_feats[13 + 10] = if all_ba_mean.is_finite() && cur_mean_ba.is_finite() {
-                    cur_mean_ba - all_ba_mean
-                } else { f32::NAN };
-
-                // E01: 连续停留 ≥3秒的股票占比
                 let mut stay_ge3 = 0usize;
-                let prev_set = &prev_pool_set[pi][gt];
+                let pset = &prev_pool_set[gt];
                 for &si in pool_idx.iter() {
-                    if sec > 0 && prev_sec[pi][gt] != usize::MAX && sec == prev_sec[pi][gt] + 1 {
-                        if prev_set.contains(&si) { stay_seconds[si][pi][gt] += 1; } else { stay_seconds[si][pi][gt] = 0; }
-                    } else {
-                        stay_seconds[si][pi][gt] = 1;
-                    }
-                    if stay_seconds[si][pi][gt] >= 3 { stay_ge3 += 1; }
+                    if prev_sec[gt] != usize::MAX && sec == prev_sec[gt] + SECOND_STEP {
+                        if pset.contains(&si) { stay_seconds[si][gt] += 1; } else { stay_seconds[si][gt] = 0; }
+                    } else { stay_seconds[si][gt] = 1; }
+                    if stay_seconds[si][gt] >= 3 { stay_ge3 += 1; }
                 }
                 group_feats[33] = stay_ge3 as f32 / n_pool.max(1) as f32;
 
-                // 选择 accum/cooc
-                let (accum, infos, cooc) = if *group_type == 0 {
+                let (accum, infos, cooc) = if gt == 0 {
                     (&mut accum_hot, &mut infos_hot, &mut cooc_hot)
                 } else {
                     (&mut accum_cold, &mut infos_cold, &mut cooc_cold)
                 };
 
-                // C04 所用的全市场总量（组级别预计算，避免 per-stock 重复）
-                let pool_total_vol: f32 = sto_vol.iter().sum();
-                let mkt_total: f32 = valid_stocks.iter().map(|s| s.secs[sec].volume).sum();
-                let c04_val = if mkt_total > 0.0 { pool_total_vol / mkt_total } else { f32::NAN };
+                let mut br_sorted: Vec<f32> = sto_buy.iter().copied().filter(|v| v.is_finite()).collect();
+                br_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                let mut ba_sorted: Vec<f32> = sto_ba.iter().copied().filter(|v| v.is_finite()).collect();
+                ba_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                let vol_sorted: Vec<f32> = { let mut v = sto_vol.iter().copied().filter(|v| v.is_finite()).collect::<Vec<_>>(); v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)); v };
+                let (br_m, br_s) = mean_std(&br_sorted);
+                let (ba_m, ba_s) = mean_std(&ba_sorted);
 
-                // 为组内每只股票计算个股特征
                 for (rank_i, &stock_i) in pool_idx.iter().enumerate() {
                     let rank_pct = rank_i as f32 / n_pool.max(1) as f32;
                     let mut per_stock = group_feats.clone();
-                    let sb = sto_buy[rank_i];
-                    let sba = sto_ba[rank_i];
-                    let sv = sto_vol[rank_i];
-
-                    // A08-A10, B08-B10, C03（个股相对位置）
-                    fill_per_stock_features(&mut per_stock, &sto_buy, &sto_ba, &sto_vol, rank_i, sb, sba, sv);
-
-                    // A13: 组内排名相邻 3 只股票的买占比均值（快速近似）
+                    fill_per_stock_full(&mut per_stock, &br_sorted, &ba_sorted, &vol_sorted,
+                                        rank_i, sto_buy[rank_i], sto_ba[rank_i], sto_vol[rank_i], br_m, br_s, ba_m, ba_s);
                     per_stock[12] = neighbor_mean(&sto_buy, rank_i, 3);
-                    // B13: 组内排名相邻 3 只股票的 bid_ask 均值
-                    per_stock[12 + 13] = neighbor_mean(&sto_ba, rank_i, 3);
+                    per_stock[25] = neighbor_mean(&sto_ba, rank_i, 3);
+                    per_stock[29] = c04_val;
 
-                    // C04: 组总成交/全市场总成交
-                    per_stock[26 + 3] = c04_val;
+                    // 连续性特征（即时计算，使用组级别的 prev_pool_set）
+                    let prev_info = infos[stock_i].last();
+                    let (cf01, cf02, cf03, cf04, cf05) = if let Some(prev) = prev_info {
+                        let pset = &prev_pool_set[gt];
+                        let overlap = pool_idx.iter().filter(|&&si| pset.contains(&si)).count();
+                        let denom = std::cmp::min(n_pool, prev.pool_size).max(1);
+                        let gap = sec - prev.second_idx;
+                        (overlap as f32, overlap as f32 / denom as f32,
+                         rank_pct - prev.rank_pct,
+                         if gap == SECOND_STEP { 2.0 } else { 1.0 }, gap as f32)
+                    } else {
+                        (f32::NAN, f32::NAN, f32::NAN, f32::NAN, f32::NAN)
+                    };
 
-                    // InclusionInfo
                     let info = InclusionInfo {
                         second_idx: sec, rank_pct, pool_size: n_pool,
-                        pool_codes: pool_codes.clone(),
+                        cont_f01: cf01, cont_f02: cf02, cont_f03: cf03,
+                        cont_f04: cf04, cont_f05: cf05, cont_f06: f32::NAN,
                     };
-                    let prev_info = infos[pi][stock_i].last();
-                    let cont_feats = compute_continuity_features(&info, prev_info, &infos[pi][stock_i]);
 
                     let mut all_feats = Vec::with_capacity(FEAT_PER_INCLUSION);
                     all_feats.extend_from_slice(&per_stock);
-                    all_feats.extend_from_slice(&cont_feats);
+                    // 连续性特征 F01-F06
+                    all_feats.push(info.cont_f01);
+                    all_feats.push(info.cont_f02);
+                    all_feats.push(info.cont_f03);
+                    all_feats.push(info.cont_f04);
+                    all_feats.push(info.cont_f05);
+                    all_feats.push(info.cont_f06);
                     all_feats.resize(FEAT_PER_INCLUSION, f32::NAN);
 
-                    accum[pi][stock_i].push(all_feats);
-                    infos[pi][stock_i].push(info);
-
-                    for &other_i in pool_idx.iter() {
-                        if other_i != stock_i {
-                            cooc[pi][stock_i][other_i] += 1;
-                        }
-                    }
+                    accum[stock_i].push(all_feats);
+                    infos[stock_i].push(info);
+                    // 共现统计（主循环内更新，y=3%时 n_pool~177 可接受）
+                    let cooc_row = &mut cooc[stock_i];
+                    for &other_i in pool_idx.iter() { *cooc_row.entry(other_i).or_insert(0) += 1; }
                 }
 
-                // 更新历史状态（热/冰点独立）
-                prev2_mean_br[pi][gt] = prev_mean_br[pi][gt];
-                prev_mean_br[pi][gt] = cur_mean_br;
-                prev2_mean_ba[pi][gt] = prev_mean_ba[pi][gt];
-                prev_mean_ba[pi][gt] = cur_mean_ba;
-                prev_pool_set[pi][gt] = pool_idx.iter().copied().collect();
-                prev_sec[pi][gt] = sec;
+                prev2_mean_br[gt] = prev_mean_br[gt]; prev_mean_br[gt] = mean_br;
+                prev2_mean_ba[gt] = prev_mean_ba[gt]; prev_mean_ba[gt] = mean_ba;
+                prev_pool_set[gt] = pool_idx.iter().copied().collect::<HashSet<_>>();
+                prev_sec[gt] = sec;
             }
         }
-    }
+
+        PiResult { accum_hot, accum_cold, cooc_hot, cooc_cold }
+    }).collect();
+
+    let all_accum_hot: Vec<StockAccumPi> = pi_results.iter().map(|r| r.accum_hot.clone()).collect();
+    let all_accum_cold: Vec<StockAccumPi> = pi_results.iter().map(|r| r.accum_cold.clone()).collect();
+    let all_cooc_hot: Vec<CoocAccumPi> = pi_results.iter().map(|r| r.cooc_hot.clone()).collect();
+    let all_cooc_cold: Vec<CoocAccumPi> = pi_results.iter().map(|r| r.cooc_cold.clone()).collect();
 
     // ③ 降维 + 共现因子（rayon 并行，per-stock 独立计算）
     let col_names: Vec<String> = (0..FEAT_PER_INCLUSION).map(|i| format!("f{i:02}")).collect();
@@ -968,33 +822,25 @@ pub fn compute_hot_stock_pool_full(date: i64) -> std::io::Result<(Vec<String>, V
         let mut facs = vec![f32::NAN; N_FACTORS];
         let mut offset = 0usize;
 
-        // 辅助：降维一个 z×40 矩阵
         let reduce_one = |facs: &mut [f32], offset: &mut usize, feats: &[Vec<f32>]| {
             let z = feats.len();
-            if z == 0 {
-                *offset += feat_per_mat;
-                return;
-            }
+            if z == 0 { *offset += feat_per_mat; return; }
             let flat: Vec<f32> = feats.iter().flat_map(|v| v.iter().copied()).collect();
             let arr = Array2::from_shape_vec((z, FEAT_PER_INCLUSION), flat)
                 .unwrap_or_else(|_| Array2::zeros((0, FEAT_PER_INCLUSION)));
             let (vals, _) = get_features_factors_rust_full(&arr.view(), &col_names, false);
-            for &v in &vals {
-                if *offset < N_FACTORS { facs[*offset] = v; *offset += 1; }
-            }
+            for &v in &vals { if *offset < N_FACTORS { facs[*offset] = v; *offset += 1; } }
         };
 
-        // 8 矩阵：4 combo × (hot, cold)
         for pi in 0..N_PARAM_COMBOS {
-            reduce_one(&mut facs, &mut offset, &accum_hot[pi][stock_i]);
-            reduce_one(&mut facs, &mut offset, &accum_cold[pi][stock_i]);
+            reduce_one(&mut facs, &mut offset, &all_accum_hot[pi][stock_i]);
+            reduce_one(&mut facs, &mut offset, &all_accum_cold[pi][stock_i]);
         }
         offset = 8 * feat_per_mat;
 
-        // 共现因子（步骤6+7）
         let mut cooc_offset = offset;
         compute_cooccurrence_full(
-            &valid_stocks, stock_i, &cooc_hot, &cooc_cold,
+            &valid_stocks, stock_i, &all_cooc_hot, &all_cooc_cold,
             &mut facs, &mut cooc_offset,
         );
         facs
@@ -1022,8 +868,8 @@ fn features_per_group_n(n: usize) -> usize {
 fn compute_cooccurrence_full(
     stocks: &[StockData],
     stock_i: usize,
-    cooc_hot: &[Vec<Vec<u32>>],
-    cooc_cold: &[Vec<Vec<u32>>],
+    cooc_hot: &[Vec<FxHashMap<usize, u32>>],
+    cooc_cold: &[Vec<FxHashMap<usize, u32>>],
     out: &mut [f32],
     offset: &mut usize,
 ) {
@@ -1056,19 +902,14 @@ fn compute_cooccurrence_full(
 fn top10_basic_stats(
     stocks: &[StockData],
     _stock_i: usize,
-    cooc_row: &[u32],
+    cooc_map: &FxHashMap<usize, u32>,
 ) -> [f32; BASIC_FEAT_N * 2] {
     let mut result = [f32::NAN; BASIC_FEAT_N * 2];
-    let n = cooc_row.len();
-    if n == 0 { return result; }
+    if cooc_map.is_empty() { return result; }
 
-    // 找到共现次数最大的 10 只股票（排除自己）
-    let mut pairs: Vec<(usize, u32)> = cooc_row.iter().enumerate()
-        .filter(|&(si, &cnt)| si != _stock_i && cnt > 0)
-        .map(|(si, &cnt)| (si, cnt))
-        .collect();
-    pairs.sort_by(|a, b| b.1.cmp(&a.1));
-    let top10: Vec<usize> = pairs.iter().take(10).map(|(si, _)| *si).collect();
+    let mut sorted: Vec<(&usize, &u32)> = cooc_map.iter().collect();
+    sorted.sort_by(|a, b| b.1.cmp(a.1));
+    let top10: Vec<usize> = sorted.iter().take(10).map(|(&i, _)| i).collect();
 
     let all_basic: Vec<&[f32; BASIC_FEAT_N]> = top10.iter()
         .filter_map(|&si| if si < stocks.len() { Some(&stocks[si].basic_feats) } else { None })
