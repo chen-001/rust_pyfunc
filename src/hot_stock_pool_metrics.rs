@@ -19,7 +19,7 @@
 //! + 共现 352 = 13312
 
 use crate::fast_csv_reader::read_trade_fast_inner;
-use crate::features::get_features_factors_rust_full;
+use crate::features::{get_features_factors_rust_full, get_features_factors_rust_values_only};
 use chrono::NaiveDate;
 use ndarray::Array2;
 use pyo3::prelude::*;
@@ -61,11 +61,11 @@ const AFTERNOON_END: i64 = MORNING_END + (14 * 3600 + 57 * 60 - 13 * 3600); // 4
 /// 调整后交易秒数：上午 7201 (09:30-11:30 含) + 下午 7020 (11:30:01-13:27 含) = 14221
 const ADJUSTED_SECONDS: usize = ((MORNING_END - SEC_OFFSET + 1) + (AFTERNOON_END - AFTERNOON_START + 1)) as usize;
 
-/// 每秒处理的步长：设为 5 表示每 5 秒处理一次，大幅提速
-/// 每秒处理的步长。SECOND_STEP=1 每秒处理（最精细），=15 每 15 秒处理一次（快 15 倍）。
-/// 单进程约 0.3s/步，50 线程并行 4 组合后实际约 (n_steps × 0.3 / 4) 秒。
-/// SECOND_STEP=1: ~525s; =2: ~262s; =5: ~105s; =15: ~35s
-const SECOND_STEP: usize = 5;
+/// 每秒处理的步长
+const SECOND_STEP: usize = 2;
+
+/// 每次入选特征矩阵的最大行数（z）。超过则均匀采样，降低降维 O(z²) 开销。
+const MAX_Z: usize = 50;
 
 /// 参数配置：(x秒, y百分比, 判别指标类型: 0=buy_ratio, 1=bid_ask_diff)
 const PARAM_CONFIGS: [(usize, f64, usize); N_PARAM_COMBOS] = [
@@ -92,6 +92,39 @@ struct SecStat {
     last_price: f32,     // 该秒末价格
     first_price: f32,    // 该秒初价格
     has_data: bool,      // 该秒是否有成交
+}
+
+/// 简易 bitset：用于 prev_pool_set 的快速构建和查找
+struct PoolBitset {
+    bits: Vec<u64>,
+    n_valid: usize,
+}
+
+impl PoolBitset {
+    fn new(n_valid: usize) -> Self {
+        Self { bits: vec![0u64; (n_valid + 63) / 64], n_valid }
+    }
+    #[inline(always)]
+    fn set(&mut self, idx: usize) {
+        self.bits[idx / 64] |= 1u64 << (idx % 64);
+    }
+    #[inline(always)]
+    fn get(&self, idx: usize) -> bool {
+        (self.bits[idx / 64] & (1u64 << (idx % 64))) != 0
+    }
+    fn clear(&mut self) {
+        for w in self.bits.iter_mut() { *w = 0; }
+    }
+    fn build_from(&mut self, indices: &[usize]) {
+        self.clear();
+        for &i in indices { self.set(i); }
+    }
+    /// 与另一个 bitset 的交集大小
+    fn intersection_count(&self, other: &Self) -> usize {
+        self.bits.iter().zip(other.bits.iter())
+            .map(|(&a, &b)| (a & b).count_ones() as usize)
+            .sum()
+    }
 }
 
 /// 单股预计算数据
@@ -247,6 +280,24 @@ fn neighbor_mean(values: &[f32], stock_rank: usize, k: usize) -> f32 {
         .collect();
     if neighbors.is_empty() { return f32::NAN; }
     neighbors.iter().sum::<f32>() / neighbors.len() as f32
+}
+
+/// neighbor_mean 无堆分配版本（内联到热路径）
+#[inline(always)]
+fn neighbor_mean_inline(values: &[f32], stock_rank: usize, k: usize) -> f32 {
+    let n = values.len();
+    if n < 2 { return f32::NAN; }
+    let start = if stock_rank >= k / 2 { stock_rank - k / 2 } else { 0 };
+    let end = (start + k).min(n);
+    let mut sum = 0.0f32;
+    let mut cnt = 0usize;
+    for i in start..end {
+        if i != stock_rank && values[i].is_finite() {
+            sum += values[i];
+            cnt += 1;
+        }
+    }
+    if cnt == 0 { f32::NAN } else { sum / cnt as f32 }
 }
 
 /// 在已排序数组中计算值的排名百分位
@@ -430,61 +481,85 @@ fn select_top_bottom_full(
      all_d, all_ba)
 }
 
-/// 组特征 34 维（预计算 finite 数组传入，避免内部重复 filter/collect）
+/// 组特征 34 维 — 栈数组版本（无堆分配）
 #[allow(clippy::too_many_arguments)]
-fn build_group_features(
-    sto_buy: &[f32], sto_ba: &[f32], sto_ret: &[f32], sto_vol: &[f32],
+fn build_group_features_arr(
     br_finite: &[f32], ba_finite: &[f32], ret_finite: &[f32], vol_finite: &[f32],
+    sto_buy: &[f32], sto_ba: &[f32], sto_ret: &[f32],
+    br_sorted: &[f32], ba_sorted: &[f32],
     mean_br: f32, mean_ba: f32, mkt_mean_d: f32, mkt_mean_ba: f32,
-) -> Vec<f32> {
-    let mut feats = Vec::with_capacity(34);
+) -> [f32; 34] {
+    let mut f = [f32::NAN; 34];
     // A01-A05
-    feats.push(mean_br);
-    feats.push(std(br_finite));
-    feats.push(skew(br_finite));
-    feats.push(kurtosis(br_finite));
-    feats.push(q90_q10_sorted(sto_buy));
-    // A06-A07 占位（调用方填充）
-    feats.push(f32::NAN); feats.push(f32::NAN);
-    // A08-A10 占位
-    feats.push(f32::NAN); feats.push(f32::NAN); feats.push(f32::NAN);
-    // A11: 超额热度
-    feats.push(if mkt_mean_d.is_finite() && mean_br.is_finite() { mean_br - mkt_mean_d } else { f32::NAN });
-    // A12: Spearman
-    feats.push(spearman(sto_buy, sto_ret));
-    // A13 占位
-    feats.push(f32::NAN);
+    f[0] = mean_br;
+    f[1] = std(br_finite);
+    f[2] = skew(br_finite);
+    f[3] = kurtosis(br_finite);
+    f[4] = if br_sorted.len() >= 2 { percentile_sorted(&br_sorted, 0.90) - percentile_sorted(&br_sorted, 0.10) } else { f32::NAN };
+    // A06-A07 占位 (5,6)
+    // A08-A10 占位 (7,8,9)
+    // A11
+    f[10] = if mkt_mean_d.is_finite() && mean_br.is_finite() { mean_br - mkt_mean_d } else { f32::NAN };
+    // A12: 截面相关（Pearson 近似，无堆分配）
+    f[11] = corr_fast(sto_buy, sto_ret);
+    // A13 占位 (12)
 
-    // B01-B13
-    feats.push(mean_ba);
-    feats.push(std(ba_finite));
-    feats.push(skew(ba_finite));
-    feats.push(kurtosis(ba_finite));
-    feats.push(q90_q10_sorted(sto_ba));
-    feats.push(f32::NAN); feats.push(f32::NAN); // B06-B07
-    feats.push(f32::NAN); feats.push(f32::NAN); feats.push(f32::NAN); // B08-B10
-    feats.push(if mkt_mean_ba.is_finite() && mean_ba.is_finite() { mean_ba - mkt_mean_ba } else { f32::NAN }); // B11
-    feats.push(spearman(sto_ba, sto_ret)); // B12
-    feats.push(f32::NAN); // B13
+    // B01-B05
+    f[13] = mean_ba;
+    f[14] = std(ba_finite);
+    f[15] = skew(ba_finite);
+    f[16] = kurtosis(ba_finite);
+    f[17] = if ba_sorted.len() >= 2 { percentile_sorted(&ba_sorted, 0.90) - percentile_sorted(&ba_sorted, 0.10) } else { f32::NAN };
+    // B06-B07 占位 (18,19)
+    // B08-B10 占位 (20,21,22)
+    // B11
+    f[23] = if mkt_mean_ba.is_finite() && mean_ba.is_finite() { mean_ba - mkt_mean_ba } else { f32::NAN };
+    // B12: 截面相关（Pearson 近似）
+    f[24] = corr_fast(sto_ba, sto_ret);
+    // B13 占位 (25)
 
     // C01-C04
-    feats.push(herfindahl(vol_finite));
-    feats.push(top_k_concentration(vol_finite, 3));
-    feats.push(f32::NAN); // C03 个股
-    feats.push(f32::NAN); // C04 调用方填
+    f[26] = herfindahl(vol_finite);
+    f[27] = top_k_concentration(vol_finite, 3);
+    // C03 占位 (28), C04 占位 (29)
 
     // D01-D03
-    feats.push(mean(ret_finite));
-    feats.push(std(ret_finite));
-    feats.push(skew(ret_finite));
+    f[30] = mean(ret_finite);
+    f[31] = std(ret_finite);
+    f[32] = skew(ret_finite);
 
-    // E01 占位
-    feats.push(f32::NAN);
-    debug_assert_eq!(feats.len(), 34);
-    feats
+    // E01 占位 (33)
+    f
 }
 
-/// Q90-Q10（接受未排序输入，内部排序）
+/// Pearson 相关（无堆分配，单 pass O(n)）。用于 A12/B12 近似替代 Spearman。
+#[inline]
+fn corr_fast(a: &[f32], b: &[f32]) -> f32 {
+    let mut n: i32 = 0;
+    let mut sa = 0.0f64;
+    let mut sb = 0.0f64;
+    let mut saa = 0.0f64;
+    let mut sbb = 0.0f64;
+    let mut sab = 0.0f64;
+    for i in 0..a.len() {
+        let av = a[i];
+        let bv = b[i];
+        if av.is_finite() && bv.is_finite() {
+            n += 1;
+            let avd = av as f64;
+            let bvd = bv as f64;
+            sa += avd; sb += bvd;
+            saa += avd * avd; sbb += bvd * bvd;
+            sab += avd * bvd;
+        }
+    }
+    if n < 3 { return f32::NAN; }
+    let nf = n as f64;
+    let num = sab - sa * sb / nf;
+    let den = ((saa - sa * sa / nf) * (sbb - sb * sb / nf)).sqrt();
+    if den < 1e-15 { return f32::NAN; }
+    (num / den) as f32
+}
 fn q90_q10_sorted(v: &[f32]) -> f32 {
     let mut s: Vec<f32> = v.iter().filter(|x| x.is_finite()).copied().collect();
     s.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
@@ -492,12 +567,12 @@ fn q90_q10_sorted(v: &[f32]) -> f32 {
     percentile_sorted(&s, 0.90) - percentile_sorted(&s, 0.10)
 }
 
-/// 填充 A08-A10, B08-B10, C03（预计算 sorted 数组和 mean/std 传入）
+/// 填充 A08-A10, B08-B10, C03 — 栈数组版本
 #[allow(clippy::too_many_arguments)]
-fn fill_per_stock_full(
-    feats: &mut [f32],
+fn fill_per_stock_arr(
+    feats: &mut [f32; 34],
     br_sorted: &[f32], ba_sorted: &[f32], vol_sorted: &[f32],
-    _stock_rank: usize, sb: f32, sba: f32, sv: f32,
+    sb: f32, sba: f32, sv: f32,
     br_m: f32, br_s: f32, ba_m: f32, ba_s: f32,
 ) {
     feats[7] = rank_pct_in(br_sorted, sb);
@@ -647,51 +722,95 @@ pub fn compute_hot_stock_pool_full(date: i64) -> std::io::Result<(Vec<String>, V
         return Ok((vec![], vec![]));
     }
 
-    // 预计算每只股票的滚动窗口缓存（O(n_stocks × n_seconds)，替代后续 O(x) 重复扫描）
+    // 预计算每只股票的滚动窗口缓存
     let rolling_caches: Vec<RollingCache> = valid_stocks
         .par_iter()
         .map(|sd| RollingCache::compute(&sd.secs))
         .collect();
 
-    // ② 主循环：按参数组合并行（4 组合互相独立）
-    // 每个组合独立维护自己的 accum/infos/cooc/历史状态
-    type StockAccumPi = Vec<Vec<Vec<f32>>>;        // [n_valid] → Vec<Vec<f32>>
-    type InfoAccumPi = Vec<Vec<InclusionInfo>>;
-    type CoocAccumPi = Vec<FxHashMap<usize, u32>>;
 
-    // 每个 pi 的结果（infos 保留用于后续共现重建）
+    // ② 主循环
+    // ② 主循环：按参数组合并行（4 组合互相独立）
+    // 优化：stack arrays + 延迟共现 + 预分配 buffer
+    type Feat40 = [f32; FEAT_PER_INCLUSION];
+    type StockAccumPi = Vec<Vec<Feat40>>;          // [n_valid] → Vec<[f32;40]>
+    // pool_log: 每个 (pi, group_type) 的所有 pool 成员列表
+    type PoolLog = Vec<Vec<usize>>;                // list of pools, each pool is Vec<usize>
+
     struct PiResult {
         accum_hot: StockAccumPi,
         accum_cold: StockAccumPi,
-        cooc_hot: CoocAccumPi,
-        cooc_cold: CoocAccumPi,
+        pool_log_hot: PoolLog,
+        pool_log_cold: PoolLog,
     }
 
     let pi_results: Vec<PiResult> = PARAM_CONFIGS.par_iter().map(|&(x, y, d_type)| {
         let n_top = ((n_valid as f64) * y).ceil() as usize;
         let mut accum_hot: StockAccumPi = vec![Vec::new(); n_valid];
         let mut accum_cold: StockAccumPi = vec![Vec::new(); n_valid];
-        let mut infos_hot: InfoAccumPi = vec![Vec::new(); n_valid];
-        let mut infos_cold: InfoAccumPi = vec![Vec::new(); n_valid];
-        let mut cooc_hot: CoocAccumPi = vec![FxHashMap::default(); n_valid];
-        let mut cooc_cold: CoocAccumPi = vec![FxHashMap::default(); n_valid];
-        // 历史状态（per group_type: 0=hot, 1=cold）
+        let mut pool_log_hot: PoolLog = Vec::with_capacity(ADJUSTED_SECONDS / SECOND_STEP);
+        let mut pool_log_cold: PoolLog = Vec::with_capacity(ADJUSTED_SECONDS / SECOND_STEP);
+        // infos 只需 last（连续性即时计算），用 per-stock Option<InclusionInfo>
+        let mut last_info_hot: Vec<Option<InclusionInfo>> = vec![None; n_valid];
+        let mut last_info_cold: Vec<Option<InclusionInfo>> = vec![None; n_valid];
+
         let mut prev_mean_br = [f32::NAN; 2];
         let mut prev2_mean_br = [f32::NAN; 2];
         let mut prev_mean_ba = [f32::NAN; 2];
         let mut prev2_mean_ba = [f32::NAN; 2];
-        let mut prev_pool_set: [HashSet<usize>; 2] = Default::default();
+        let mut prev_pool_set: [PoolBitset; 2] = [
+            PoolBitset::new(n_valid), PoolBitset::new(n_valid),
+        ];
         let mut prev_sec = [usize::MAX; 2];
         let mut stay_seconds = vec![[0u32; 2]; n_valid];
+
+        // 可复用的 buffer（避免每步 alloc）
+        let mut buf_all_vals_d = vec![f32::NAN; n_valid];
+        let mut buf_all_ba_vals = vec![f32::NAN; n_valid];
 
         for sec in (15..ADJUSTED_SECONDS).step_by(SECOND_STEP) {
             if sec < x - 1 { continue; }
             if n_top < 2 { continue; }
 
-            let (top_indices, bottom_indices, all_vals_d, all_ba_vals) = select_top_bottom_full(&rolling_caches, x, d_type, sec, n_top);
-            if top_indices.is_empty() || bottom_indices.is_empty() { continue; }
+            // 单次遍历全市场，填 buf 并选出 top/bottom
+            let d_field: u8 = if d_type == 0 { 0 } else { 1 };
+            let mut valid_pairs: Vec<(usize, f32)> = Vec::with_capacity(n_valid);
+            for (si, cache) in rolling_caches.iter().enumerate() {
+                let dv = cache.get_by_x(x, d_field, sec);
+                let bv = cache.get_by_x(x, 1, sec);
+                buf_all_vals_d[si] = dv;
+                buf_all_ba_vals[si] = bv;
+                if dv.is_finite() { valid_pairs.push((si, dv)); }
+            }
+            if valid_pairs.len() < n_top * 2 { continue; }
 
+            // select_nth_unstable for top-k
+            let k_adj = n_top.min(valid_pairs.len().saturating_sub(1));
+            let (top_part, _, bottom_part) = valid_pairs.select_nth_unstable_by(k_adj, |a, b| {
+                b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
+            });
+            let mut top_indices: Vec<usize> = top_part.iter().map(|(i, _)| *i).collect();
+            top_indices.sort_by(|a, b| {
+                let va = rolling_caches[*a].get_by_x(x, d_field, sec);
+                let vb = rolling_caches[*b].get_by_x(x, d_field, sec);
+                vb.partial_cmp(&va).unwrap_or(std::cmp::Ordering::Equal)
+            });
+            let mut bot = bottom_part.to_vec();
+            let bot_k = n_top.min(bot.len());
+            let (_, _, bot_bot) = bot.select_nth_unstable_by(bot_k - 1, |a, b| {
+                a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
+            });
+            let mut bottom_indices: Vec<usize> = bot_bot.iter().map(|(i, _)| *i).collect();
+            bottom_indices.sort_by(|a, b| {
+                let va = rolling_caches[*a].get_by_x(x, d_field, sec);
+                let vb = rolling_caches[*b].get_by_x(x, d_field, sec);
+                va.partial_cmp(&vb).unwrap_or(std::cmp::Ordering::Equal)
+            });
+
+            // 全市场总量
             let mkt_total_vol: f32 = (0..n_valid).map(|i| valid_stocks[i].secs[sec].volume).sum();
+            let mkt_mean_d = { let vf: Vec<f32> = buf_all_vals_d.iter().copied().filter(|v| v.is_finite()).collect(); mean(&vf) };
+            let mkt_mean_ba = { let vf: Vec<f32> = buf_all_ba_vals.iter().copied().filter(|v| v.is_finite()).collect(); mean(&vf) };
 
             for (gt, pool_idx) in [0usize, 1].iter().zip([&top_indices, &bottom_indices].iter()) {
                 let gt = *gt;
@@ -712,15 +831,24 @@ pub fn compute_hot_stock_pool_full(date: i64) -> std::io::Result<(Vec<String>, V
                 let mean_ba = mean(&ba_finite);
                 let pool_total_vol: f32 = sto_vol.iter().sum();
                 let c04_val = if mkt_total_vol > 0.0 { pool_total_vol / mkt_total_vol } else { f32::NAN };
-                let mkt_mean_d = mean(&all_vals_d.iter().copied().filter(|v| v.is_finite()).collect::<Vec<_>>());
-                let mkt_mean_ba = mean(&all_ba_vals.iter().copied().filter(|v| v.is_finite()).collect::<Vec<_>>());
 
-                let mut group_feats = build_group_features(
-                    &sto_buy, &sto_ba, &sto_ret, &sto_vol,
+                // Pre-sort for q90_q10 and fill_per_stock (reuse across all stocks in pool)
+                let mut br_sorted: Vec<f32> = br_finite.clone();
+                br_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                let mut ba_sorted: Vec<f32> = ba_finite.clone();
+                ba_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                let vol_sorted: Vec<f32> = { let mut v = vol_finite.clone(); v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)); v };
+                let (br_m, br_s) = mean_std(&br_sorted);
+                let (ba_m, ba_s) = mean_std(&ba_sorted);
+
+                // group_feats: 栈数组 [f32; 34]
+                let mut group_feats: [f32; 34] = build_group_features_arr(
                     &br_finite, &ba_finite, &ret_finite, &vol_finite,
+                    &sto_buy, &sto_ba, &sto_ret, &br_sorted, &ba_sorted,
                     mean_br, mean_ba, mkt_mean_d, mkt_mean_ba,
                 );
 
+                // A06/A07/B06/B07 差分
                 group_feats[5] = if prev_mean_br[gt].is_finite() && mean_br.is_finite() { mean_br - prev_mean_br[gt] } else { f32::NAN };
                 group_feats[6] = if prev_mean_br[gt].is_finite() && prev2_mean_br[gt].is_finite() && mean_br.is_finite() {
                     (mean_br - prev_mean_br[gt]) - (prev_mean_br[gt] - prev2_mean_br[gt]) } else { f32::NAN };
@@ -728,121 +856,191 @@ pub fn compute_hot_stock_pool_full(date: i64) -> std::io::Result<(Vec<String>, V
                 group_feats[19] = if prev_mean_ba[gt].is_finite() && prev2_mean_ba[gt].is_finite() && mean_ba.is_finite() {
                     (mean_ba - prev_mean_ba[gt]) - (prev_mean_ba[gt] - prev2_mean_ba[gt]) } else { f32::NAN };
 
-                let mut stay_ge3 = 0usize;
-                let pset = &prev_pool_set[gt];
-                for &si in pool_idx.iter() {
-                    if prev_sec[gt] != usize::MAX && sec == prev_sec[gt] + SECOND_STEP {
-                        if pset.contains(&si) { stay_seconds[si][gt] += 1; } else { stay_seconds[si][gt] = 0; }
-                    } else { stay_seconds[si][gt] = 1; }
-                    if stay_seconds[si][gt] >= 3 { stay_ge3 += 1; }
-                }
+                // E01 + 连续性 overlap（bitset 交集，O(n_valid/64)）
+                let grp_overlap = if prev_sec[gt] != usize::MAX {
+                    let mut cur_bs = PoolBitset::new(n_valid);
+                    for &si in pool_idx.iter() { cur_bs.set(si); }
+                    let ov = cur_bs.intersection_count(&prev_pool_set[gt]);
+                    // stay_seconds 更新
+                    for &si in pool_idx.iter() {
+                        if sec == prev_sec[gt] + SECOND_STEP {
+                            if prev_pool_set[gt].get(si) { stay_seconds[si][gt] += 1; } else { stay_seconds[si][gt] = 0; }
+                        } else { stay_seconds[si][gt] = 1; }
+                    }
+                    ov
+                } else {
+                    for &si in pool_idx.iter() { stay_seconds[si][gt] = 1; }
+                    0usize
+                };
+                let stay_ge3 = pool_idx.iter().filter(|&&si| stay_seconds[si][gt] >= 3).count();
                 group_feats[33] = stay_ge3 as f32 / n_pool.max(1) as f32;
 
-                let (accum, infos, cooc) = if gt == 0 {
-                    (&mut accum_hot, &mut infos_hot, &mut cooc_hot)
+                let (accum, last_info, pool_log) = if gt == 0 {
+                    (&mut accum_hot, &mut last_info_hot, &mut pool_log_hot)
                 } else {
-                    (&mut accum_cold, &mut infos_cold, &mut cooc_cold)
+                    (&mut accum_cold, &mut last_info_cold, &mut pool_log_cold)
                 };
 
-                let mut br_sorted: Vec<f32> = sto_buy.iter().copied().filter(|v| v.is_finite()).collect();
-                br_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-                let mut ba_sorted: Vec<f32> = sto_ba.iter().copied().filter(|v| v.is_finite()).collect();
-                ba_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-                let vol_sorted: Vec<f32> = { let mut v = sto_vol.iter().copied().filter(|v| v.is_finite()).collect::<Vec<_>>(); v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)); v };
-                let (br_m, br_s) = mean_std(&br_sorted);
-                let (ba_m, ba_s) = mean_std(&ba_sorted);
+                // 记录 pool 到 pool_log（用于后续共现重建）
+                let pool_id = pool_log.len();
+                pool_log.push(pool_idx.to_vec());
+
+                // 连续性：overlap 对全组相同，只算一次
+                let (grp_overlap, grp_gap, grp_prev_rank_avail) = if prev_sec[gt] != usize::MAX {
+                    (grp_overlap, sec - prev_sec[gt], true)
+                } else {
+                    (0usize, 0usize, false)
+                };
 
                 for (rank_i, &stock_i) in pool_idx.iter().enumerate() {
                     let rank_pct = rank_i as f32 / n_pool.max(1) as f32;
-                    let mut per_stock = group_feats.clone();
-                    fill_per_stock_full(&mut per_stock, &br_sorted, &ba_sorted, &vol_sorted,
-                                        rank_i, sto_buy[rank_i], sto_ba[rank_i], sto_vol[rank_i], br_m, br_s, ba_m, ba_s);
-                    per_stock[12] = neighbor_mean(&sto_buy, rank_i, 3);
-                    per_stock[25] = neighbor_mean(&sto_ba, rank_i, 3);
+                    let mut per_stock = group_feats;
+                    fill_per_stock_arr(&mut per_stock, &br_sorted, &ba_sorted, &vol_sorted,
+                                       sto_buy[rank_i], sto_ba[rank_i], sto_vol[rank_i], br_m, br_s, ba_m, ba_s);
+                    per_stock[12] = neighbor_mean_inline(&sto_buy, rank_i, 3);
+                    per_stock[25] = neighbor_mean_inline(&sto_ba, rank_i, 3);
                     per_stock[29] = c04_val;
 
-                    // 连续性特征（即时计算，使用组级别的 prev_pool_set）
-                    let prev_info = infos[stock_i].last();
-                    let (cf01, cf02, cf03, cf04, cf05) = if let Some(prev) = prev_info {
-                        let pset = &prev_pool_set[gt];
-                        let overlap = pool_idx.iter().filter(|&&si| pset.contains(&si)).count();
-                        let denom = std::cmp::min(n_pool, prev.pool_size).max(1);
-                        let gap = sec - prev.second_idx;
-                        (overlap as f32, overlap as f32 / denom as f32,
-                         rank_pct - prev.rank_pct,
-                         if gap == SECOND_STEP { 2.0 } else { 1.0 }, gap as f32)
+                    // 连续性（使用组级别预计算的 overlap）
+                    let (cf01, cf02, cf03, cf04, cf05) = if grp_prev_rank_avail {
+                        if let Some(prev) = &last_info[stock_i] {
+                            let denom = std::cmp::min(n_pool, prev.pool_size).max(1);
+                            (grp_overlap as f32, grp_overlap as f32 / denom as f32,
+                             rank_pct - prev.rank_pct,
+                             if grp_gap == SECOND_STEP { 2.0 } else { 1.0 }, grp_gap as f32)
+                        } else {
+                            (f32::NAN, f32::NAN, f32::NAN, f32::NAN, f32::NAN)
+                        }
                     } else {
                         (f32::NAN, f32::NAN, f32::NAN, f32::NAN, f32::NAN)
                     };
-
                     let info = InclusionInfo {
                         second_idx: sec, rank_pct, pool_size: n_pool,
                         cont_f01: cf01, cont_f02: cf02, cont_f03: cf03,
                         cont_f04: cf04, cont_f05: cf05, cont_f06: f32::NAN,
                     };
 
-                    let mut all_feats = Vec::with_capacity(FEAT_PER_INCLUSION);
-                    all_feats.extend_from_slice(&per_stock);
-                    // 连续性特征 F01-F06
-                    all_feats.push(info.cont_f01);
-                    all_feats.push(info.cont_f02);
-                    all_feats.push(info.cont_f03);
-                    all_feats.push(info.cont_f04);
-                    all_feats.push(info.cont_f05);
-                    all_feats.push(info.cont_f06);
-                    all_feats.resize(FEAT_PER_INCLUSION, f32::NAN);
+                    // 组装 [f32; 40] 栈数组
+                    let mut all_feats: Feat40 = [f32::NAN; FEAT_PER_INCLUSION];
+                    all_feats[..34].copy_from_slice(&per_stock);
+                    all_feats[34] = cf01; all_feats[35] = cf02; all_feats[36] = cf03;
+                    all_feats[37] = cf04; all_feats[38] = cf05; all_feats[39] = f32::NAN;
 
                     accum[stock_i].push(all_feats);
-                    infos[stock_i].push(info);
-                    // 共现统计（主循环内更新，y=3%时 n_pool~177 可接受）
-                    let cooc_row = &mut cooc[stock_i];
-                    for &other_i in pool_idx.iter() { *cooc_row.entry(other_i).or_insert(0) += 1; }
+                    last_info[stock_i] = Some(info);
                 }
 
                 prev2_mean_br[gt] = prev_mean_br[gt]; prev_mean_br[gt] = mean_br;
                 prev2_mean_ba[gt] = prev_mean_ba[gt]; prev_mean_ba[gt] = mean_ba;
-                prev_pool_set[gt] = pool_idx.iter().copied().collect::<HashSet<_>>();
+                prev_pool_set[gt].build_from(pool_idx);
                 prev_sec[gt] = sec;
             }
         }
 
-        PiResult { accum_hot, accum_cold, cooc_hot, cooc_cold }
+        PiResult { accum_hot, accum_cold, pool_log_hot, pool_log_cold }
     }).collect();
 
+    // 提取结果
     let all_accum_hot: Vec<StockAccumPi> = pi_results.iter().map(|r| r.accum_hot.clone()).collect();
     let all_accum_cold: Vec<StockAccumPi> = pi_results.iter().map(|r| r.accum_cold.clone()).collect();
-    let all_cooc_hot: Vec<CoocAccumPi> = pi_results.iter().map(|r| r.cooc_hot.clone()).collect();
-    let all_cooc_cold: Vec<CoocAccumPi> = pi_results.iter().map(|r| r.cooc_cold.clone()).collect();
+    let all_pool_log_hot: Vec<PoolLog> = pi_results.iter().map(|r| r.pool_log_hot.clone()).collect();
+    let all_pool_log_cold: Vec<PoolLog> = pi_results.iter().map(|r| r.pool_log_cold.clone()).collect();
 
     // ③ 降维 + 共现因子（rayon 并行，per-stock 独立计算）
     let col_names: Vec<String> = (0..FEAT_PER_INCLUSION).map(|i| format!("f{i:02}")).collect();
     let feat_per_mat = features_per_group_n(FEAT_PER_INCLUSION);
 
+    // 预构建倒排索引：stock → pool_ids（per pi × hot/cold）
+    // stock_pool_hot[pi][stock_i] = Vec<pool_id>
+    let stock_pool_hot: Vec<Vec<Vec<usize>>> = all_pool_log_hot.iter().map(|pool_log| {
+        let mut idx: Vec<Vec<usize>> = vec![Vec::new(); n_valid];
+        for (pool_id, members) in pool_log.iter().enumerate() {
+            for &si in members { idx[si].push(pool_id); }
+        }
+        idx
+    }).collect();
+    let stock_pool_cold: Vec<Vec<Vec<usize>>> = all_pool_log_cold.iter().map(|pool_log| {
+        let mut idx: Vec<Vec<usize>> = vec![Vec::new(); n_valid];
+        for (pool_id, members) in pool_log.iter().enumerate() {
+            for &si in members { idx[si].push(pool_id); }
+        }
+        idx
+    }).collect();
+
     let all_factors: Vec<Vec<f32>> = (0..n_valid).into_par_iter().map(|stock_i| {
         let mut facs = vec![f32::NAN; N_FACTORS];
         let mut offset = 0usize;
 
-        let reduce_one = |facs: &mut [f32], offset: &mut usize, feats: &[Vec<f32>]| {
-            let z = feats.len();
-            if z == 0 { *offset += feat_per_mat; return; }
-            let flat: Vec<f32> = feats.iter().flat_map(|v| v.iter().copied()).collect();
-            let arr = Array2::from_shape_vec((z, FEAT_PER_INCLUSION), flat)
-                .unwrap_or_else(|_| Array2::zeros((0, FEAT_PER_INCLUSION)));
-            let (vals, _) = get_features_factors_rust_full(&arr.view(), &col_names, false);
-            for &v in &vals { if *offset < N_FACTORS { facs[*offset] = v; *offset += 1; } }
-        };
+        // 可复用的 flat cooc 数组（避免 HashMap 开销）
+        let mut cooc_buf = vec![0u32; n_valid];
 
+        // 降维
         for pi in 0..N_PARAM_COMBOS {
-            reduce_one(&mut facs, &mut offset, &all_accum_hot[pi][stock_i]);
-            reduce_one(&mut facs, &mut offset, &all_accum_cold[pi][stock_i]);
+            for accum in [&all_accum_hot[pi][stock_i], &all_accum_cold[pi][stock_i]] {
+                let z_full = accum.len();
+                if z_full == 0 { offset += feat_per_mat; continue; }
+                let flat: Vec<f32> = if z_full > MAX_Z {
+                    let step = z_full as f64 / MAX_Z as f64;
+                    (0..MAX_Z).flat_map(|i| {
+                        let idx = (i as f64 * step) as usize;
+                        accum[idx].iter().copied()
+                    }).collect()
+                } else {
+                    accum.iter().flat_map(|v| v.iter().copied()).collect()
+                };
+                let nrows = if z_full > MAX_Z { MAX_Z } else { z_full };
+                let arr = Array2::from_shape_vec((nrows, FEAT_PER_INCLUSION), flat)
+                    .unwrap_or_else(|_| Array2::zeros((0, FEAT_PER_INCLUSION)));
+                let vals = get_features_factors_rust_values_only(&arr.view(), false);
+                for &v in &vals { if offset < N_FACTORS { facs[offset] = v; offset += 1; } }
+            }
         }
         offset = 8 * feat_per_mat;
 
+        // 共现因子：flat array 替代 HashMap（消除 hash 开销）
         let mut cooc_offset = offset;
-        compute_cooccurrence_full(
-            &valid_stocks, stock_i, &all_cooc_hot, &all_cooc_cold,
-            &mut facs, &mut cooc_offset,
-        );
+        for pi in 0..N_PARAM_COMBOS {
+            // hot cooc — flat array
+            for &pool_id in &stock_pool_hot[pi][stock_i] {
+                for &other in &all_pool_log_hot[pi][pool_id] {
+                    cooc_buf[other] += 1;
+                }
+            }
+            // 找 top-10
+            let mut pairs_h: Vec<(usize, u32)> = cooc_buf.iter().enumerate()
+                .filter(|&(si, &cnt)| si != stock_i && cnt > 0)
+                .map(|(si, &cnt)| (si, cnt)).collect();
+            pairs_h.sort_by(|a, b| b.1.cmp(&a.1));
+            let top10_h: Vec<usize> = pairs_h.iter().take(10).map(|(si, _)| *si).collect();
+            // clear touched entries
+            for &(si, _) in &pairs_h { cooc_buf[si] = 0; }
+
+            // cold cooc
+            for &pool_id in &stock_pool_cold[pi][stock_i] {
+                for &other in &all_pool_log_cold[pi][pool_id] {
+                    cooc_buf[other] += 1;
+                }
+            }
+            let mut pairs_c: Vec<(usize, u32)> = cooc_buf.iter().enumerate()
+                .filter(|&(si, &cnt)| si != stock_i && cnt > 0)
+                .map(|(si, &cnt)| (si, cnt)).collect();
+            pairs_c.sort_by(|a, b| b.1.cmp(&a.1));
+            let top10_c: Vec<usize> = pairs_c.iter().take(10).map(|(si, _)| *si).collect();
+            for &(si, _) in &pairs_c { cooc_buf[si] = 0; }
+
+            // 计算 hot/cold 的 basic stats
+            let hot_ms = basic_stats_from_top10(&valid_stocks, &top10_h);
+            let cold_ms = basic_stats_from_top10(&valid_stocks, &top10_c);
+            for j in 0..BASIC_FEAT_N {
+                for stat_idx in [j, BASIC_FEAT_N + j] {
+                    let hv = hot_ms[stat_idx]; let cv = cold_ms[stat_idx];
+                    let vals = [hv, cv,
+                        if hv.is_finite() && cv.is_finite() { hv - cv } else { f32::NAN },
+                        if hv.is_finite() && cv.is_finite() { (hv - cv).abs() } else { f32::NAN }];
+                    for v in vals { if cooc_offset < N_FACTORS { facs[cooc_offset] = v; cooc_offset += 1; } }
+                }
+            }
+        }
         facs
     }).collect();
 
@@ -855,6 +1053,25 @@ pub fn compute_hot_stock_pool_full(date: i64) -> std::io::Result<(Vec<String>, V
     }
 
     Ok((out_codes, out_vals))
+}
+
+/// 从 top10 股票索引计算 11 个基础特征的 mean/std
+fn basic_stats_from_top10(stocks: &[StockData], top10: &[usize]) -> [f32; BASIC_FEAT_N * 2] {
+    let mut result = [f32::NAN; BASIC_FEAT_N * 2];
+    let all_basic: Vec<&[f32; BASIC_FEAT_N]> = top10.iter()
+        .filter_map(|&si| if si < stocks.len() { Some(&stocks[si].basic_feats) } else { None })
+        .collect();
+    if all_basic.is_empty() { return result; }
+    for j in 0..BASIC_FEAT_N {
+        let col: Vec<f32> = all_basic.iter().map(|f| f[j]).filter(|v| v.is_finite()).collect();
+        if col.len() >= 2 {
+            let m = col.iter().sum::<f32>() / col.len() as f32;
+            let var = col.iter().map(|v| (v - m).powi(2)).sum::<f32>() / col.len() as f32;
+            result[j] = m;
+            result[BASIC_FEAT_N + j] = var.sqrt();
+        }
+    }
+    result
 }
 
 /// features_per_group 对 n 列的输出长度
