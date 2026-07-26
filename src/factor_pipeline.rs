@@ -2142,6 +2142,33 @@ pub fn pipeline_microstructure_capm(date: i64, expected_len: usize) -> Vec<TaskR
     }
 }
 
+/// 同热点股票池横截面 pipeline 包装。
+pub fn pipeline_hot_stock_pool(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    if expected_len != crate::hot_stock_pool_metrics::N_FACTORS {
+        eprintln!(
+            "hot_stock_pool expected_len错误 [{date}]: {expected_len} != {}",
+            crate::hot_stock_pool_metrics::N_FACTORS
+        );
+        return Vec::new();
+    }
+    match crate::hot_stock_pool_metrics::compute_hot_stock_pool_full(date) {
+        Ok((codes, vals)) => vals
+            .chunks(expected_len)
+            .zip(codes.iter())
+            .map(|(facs, code)| TaskResult {
+                date,
+                code: code.clone(),
+                timestamp: 0,
+                facs: facs.to_vec(),
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("hot_stock_pool error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
 /// 横截面 pipeline 的 Python 入口。
 ///
 /// 参数：
@@ -2184,6 +2211,7 @@ pub fn run_factor_pipeline_cross_section(
         "long_order",
         "microstructure_capm",
         "drop_event",
+        "hot_stock_pool",
     ];
     if !known.contains(&pipeline_name.as_str()) {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(

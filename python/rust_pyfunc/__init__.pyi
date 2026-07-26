@@ -223,6 +223,26 @@ def py_cross_section_example_from_data(
 def py_cross_section_example_names() -> List[str]:
     ...
 
+def py_hot_stock_pool(date: int) -> Tuple[List[str], List[float]]:
+    """计算同热点股票池因子。
+
+    参数
+    ----
+    date : int
+        8 位日期，如 20220819
+
+    返回
+    ----
+    codes : List[str]
+        股票代码列表
+    vals : List[float]
+        row-major 因子值 (len(codes) × 13312)
+    """
+    ...
+
+def py_hot_stock_pool_names() -> List[str]:
+    ...
+
 def py_compute_drop_event_features(date: int) -> dict:
     """计算可观测挂单骤降事件的截面交互特征。
 
@@ -534,6 +554,8 @@ __all__ = [
     "run_factor_pipeline_cross_section",
     "py_cross_section_example",
     "py_cross_section_example_names",
+    "py_hot_stock_pool",
+    "py_hot_stock_pool_names",
     "py_compute_drop_event_features",
     "py_drop_event_feature_names",
     "py_drop_event",

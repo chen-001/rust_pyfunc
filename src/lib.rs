@@ -103,6 +103,7 @@ pub mod distill_metrics;
 pub mod distill_tick_metrics;
 pub mod fast_csv_reader;
 pub mod hidden_arrange_metrics;
+pub mod hot_stock_pool_metrics;
 
 pub mod anneal_volume_metrics;
 pub mod anneal_volume_market_metrics;
@@ -1110,6 +1111,14 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(
         cross_section_example_metrics::py_cross_section_example_from_data,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        hot_stock_pool_metrics::py_hot_stock_pool,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        hot_stock_pool_metrics::py_hot_stock_pool_names,
         m
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(
