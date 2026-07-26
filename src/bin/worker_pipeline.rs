@@ -14,9 +14,10 @@ use rust_pyfunc::factor_pipeline::{
     ipc_read_result, ipc_read_task, ipc_write, ipc_write_result, pipeline_anneal_volume,
     pipeline_anneal_volume_market,
     pipeline_cross_section_example, pipeline_distill, pipeline_distill_tick, pipeline_drop_event,
-    pipeline_extreme_point_fit, pipeline_individual_order_ratio, pipeline_long_order,
-    pipeline_microstructure_capm, pipeline_observable_order, pipeline_order_pair_hm90,
-    pipeline_orderbook_imb_refactor, pipeline_urgency, ResultMessage, TaskMessage,
+    pipeline_extreme_point_fit, pipeline_hot_stock_pool, pipeline_individual_order_ratio,
+    pipeline_long_order, pipeline_microstructure_capm, pipeline_observable_order,
+    pipeline_order_pair_hm90, pipeline_orderbook_imb_refactor, pipeline_urgency, ResultMessage,
+    TaskMessage,
 };
 use std::io::{BufReader, BufWriter};
 
@@ -158,6 +159,8 @@ fn main() {
                         pipeline_urgency(date, expected_len)
                     } else if pipeline_name == "drop_event" {
                         pipeline_drop_event(date, expected_len)
+                    } else if pipeline_name == "hot_stock_pool" {
+                        pipeline_hot_stock_pool(date, expected_len)
                     } else {
                         Vec::new()
                     }
