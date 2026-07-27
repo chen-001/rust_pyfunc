@@ -262,6 +262,26 @@ def py_hot_stock_pool_z_stats(date: int) -> Tuple[List[str], List[int]]:
     """
     ...
 
+def py_hot_stock_pool_v2(date: int) -> Tuple[List[str], List[float]]:
+    """方案一 v2：判别指标从绝对值改为标准化偏离度 D'=(D-μ)/σ。
+
+    与 py_hot_stock_pool 的区别：分组时用标准化偏离度做百分位排序，
+    而非原始 D 值。消除"冷门股永远冰点"问题。
+
+    参数
+    ----
+    date : int
+        8 位日期
+
+    返回
+    ----
+    codes : List[str]
+        股票代码列表
+    vals : List[float]
+        row-major 因子值 (len(codes) × 13312)
+    """
+    ...
+
 def py_compute_drop_event_features(date: int) -> dict:
     """计算可观测挂单骤降事件的截面交互特征。
 
