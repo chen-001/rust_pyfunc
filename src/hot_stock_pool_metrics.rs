@@ -65,7 +65,7 @@ const ADJUSTED_SECONDS: usize = ((MORNING_END - SEC_OFFSET + 1) + (AFTERNOON_END
 const SECOND_STEP: usize = 2;
 
 /// 每次入选特征矩阵的最大行数（z）。超过则均匀采样，降低降维 O(z²) 开销。
-const MAX_Z: usize = 50;
+const MAX_Z: usize = usize::MAX; // 不采样，全量降维
 
 /// 参数配置：(x秒, y百分比, 判别指标类型, 动态阈值z-score绝对值, 最低成交笔数)
 /// 当 d_threshold > 0 时用动态阈值（方向二）；y 仅用于估算预期组大小
