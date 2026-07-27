@@ -1122,6 +1122,10 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         m
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(
+        hot_stock_pool_metrics::py_hot_stock_pool_z_stats,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
         long_order_cross_section_metrics::py_long_order,
         m
     )?)?;

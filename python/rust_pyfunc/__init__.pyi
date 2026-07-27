@@ -243,6 +243,25 @@ def py_hot_stock_pool(date: int) -> Tuple[List[str], List[float]]:
 def py_hot_stock_pool_names() -> List[str]:
     ...
 
+def py_hot_stock_pool_z_stats(date: int) -> Tuple[List[str], List[int]]:
+    """返回每只股票在 8 个 (pi, hot/cold) 下的真实入选次数 z/z'。
+
+    参数
+    ----
+    date : int
+        8 位日期
+
+    返回
+    ----
+    codes : List[str]
+        股票代码列表
+    z_matrix : List[int]
+        row-major (n_codes × 8)，列顺序:
+        [x60_y3_buy_hot, x60_y3_buy_cold, x60_y3_ba_hot, x60_y3_ba_cold,
+         x15_y10_buy_hot, x15_y10_buy_cold, x15_y10_ba_hot, x15_y10_ba_cold]
+    """
+    ...
+
 def py_compute_drop_event_features(date: int) -> dict:
     """计算可观测挂单骤降事件的截面交互特征。
 
