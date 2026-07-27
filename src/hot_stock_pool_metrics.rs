@@ -193,12 +193,10 @@ impl RollingCache {
             }
         }
 
-        // 其余 6 列用通用逻辑（ba/ret 取 mean，vol 取 sum）
-        let configs: [(usize, usize, fn(&SecStat) -> f32, bool); 6] = [
+        // bid_ask / volume 用通用滚动逻辑（ba 取 mean，vol 取 sum）
+        let configs: [(usize, usize, fn(&SecStat) -> f32, bool); 4] = [
             (2, 15, |s: &SecStat| s.bid_ask_mean, false),  // ba_15
             (3, 60, |s: &SecStat| s.bid_ask_mean, false),  // ba_60
-            (4, 15, |s: &SecStat| s.ret_val, false),       // ret_15
-            (5, 60, |s: &SecStat| s.ret_val, false),       // ret_60
             (6, 15, |s: &SecStat| s.volume, true),         // vol_15 (sum)
             (7, 60, |s: &SecStat| s.volume, true),         // vol_60 (sum)
         ];
@@ -215,6 +213,31 @@ impl RollingCache {
                 }
                 if cnt > 0 && sec >= win - 1 {
                     data[base + sec] = if is_sum { sum as f32 } else { (sum / cnt as f64) as f32 };
+                }
+            }
+        }
+
+        // ret_15/ret_60: 窗口首末价格变动率（增量维护，O(n)）
+        // 维护窗口内"第一个有效 first_price"和"最后一个有效 last_price"
+        for &(col, win) in &[(4usize, 15usize), (5, 60)] {
+            let base = col * n;
+            // 用 Vec 当 deque，存储窗口内 (sec, first_price, last_price) 的有效秒
+            let mut dq: std::collections::VecDeque<(usize, f32, f32)> = std::collections::VecDeque::with_capacity(win);
+            for sec in 0..n {
+                let s = &secs[sec];
+                if s.has_data && s.first_price > 0.0 {
+                    dq.push_back((sec, s.first_price, s.last_price));
+                }
+                // 弹出窗口外的
+                while let Some(&(front_sec, _, _)) = dq.front() {
+                    if front_sec + win <= sec { dq.pop_front(); } else { break; }
+                }
+                if sec >= win - 1 {
+                    if let (Some(&( _, fp, _)), Some(&(_, _, lp))) = (dq.front(), dq.back()) {
+                        if fp > 0.0 {
+                            data[base + sec] = (lp - fp) / fp;
+                        }
+                    }
                 }
             }
         }
@@ -859,8 +882,8 @@ pub fn compute_hot_stock_pool_full(date: i64) -> std::io::Result<(Vec<String>, V
                 va.partial_cmp(&vb).unwrap_or(std::cmp::Ordering::Equal)
             });
 
-            // 全市场总量
-            let mkt_total_vol: f32 = (0..n_valid).map(|i| valid_stocks[i].secs[sec].volume).sum();
+            // 全市场窗口内总成交量（C04 分母，与 pool_total_vol 同口径）
+            let mkt_total_vol: f32 = (0..n_valid).map(|i| rolling_caches[i].get_by_x(x, 3, sec)).sum();
             let mkt_mean_d = { let vf: Vec<f32> = buf_all_vals_d.iter().copied().filter(|v| v.is_finite()).collect(); mean(&vf) };
             let mkt_mean_ba = { let vf: Vec<f32> = buf_all_ba_vals.iter().copied().filter(|v| v.is_finite()).collect(); mean(&vf) };
 
