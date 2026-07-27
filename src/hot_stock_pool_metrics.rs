@@ -71,10 +71,10 @@ const MAX_Z: usize = 50;
 /// 当 d_threshold > 0 时用动态阈值（方向二）；y 仅用于估算预期组大小
 /// 当 min_trades > 0 时过滤成交笔数不足的股票（方向三简化版）
 const PARAM_CONFIGS: [(usize, f64, usize, f64, u32); N_PARAM_COMBOS] = [
-    (60, 0.03, 0, 1.5, 5),   // x=60, buy_ratio, z-score>1.5, 至少5笔
-    (60, 0.03, 1, 1.5, 5),   // x=60, bid_ask, z-score>1.5, 至少5笔
-    (15, 0.10, 0, 1.5, 3),   // x=15, buy_ratio, z-score>1.5, 至少3笔
-    (15, 0.10, 1, 1.5, 3),   // x=15, bid_ask, z-score>1.5, 至少3笔
+    (60, 0.03, 0, 1.5, 10),  // x=60, buy_ratio, z-score>1.5, 至少10笔
+    (60, 0.03, 1, 1.5, 10),  // x=60, bid_ask, z-score>1.5, 至少10笔
+    (15, 0.10, 0, 1.5, 10),  // x=15, buy_ratio, z-score>1.5, 至少10笔
+    (15, 0.10, 1, 1.5, 10),  // x=15, bid_ask, z-score>1.5, 至少10笔
 ];
 
 /// 共现基础特征数
