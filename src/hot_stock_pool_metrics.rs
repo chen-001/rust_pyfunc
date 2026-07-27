@@ -67,12 +67,14 @@ const SECOND_STEP: usize = 2;
 /// 每次入选特征矩阵的最大行数（z）。超过则均匀采样，降低降维 O(z²) 开销。
 const MAX_Z: usize = 50;
 
-/// 参数配置：(x秒, y百分比, 判别指标类型: 0=buy_ratio, 1=bid_ask_diff)
-const PARAM_CONFIGS: [(usize, f64, usize); N_PARAM_COMBOS] = [
-    (60, 0.03, 0),  // x=60, y=3%, buy_ratio
-    (60, 0.03, 1),  // x=60, y=3%, bid_ask_diff
-    (15, 0.10, 0),  // x=15, y=10%, buy_ratio
-    (15, 0.10, 1),  // x=15, y=10%, bid_ask_diff
+/// 参数配置：(x秒, y百分比, 判别指标类型, 动态阈值z-score绝对值, 最低成交笔数)
+/// 当 d_threshold > 0 时用动态阈值（方向二）；y 仅用于估算预期组大小
+/// 当 min_trades > 0 时过滤成交笔数不足的股票（方向三简化版）
+const PARAM_CONFIGS: [(usize, f64, usize, f64, u32); N_PARAM_COMBOS] = [
+    (60, 0.03, 0, 1.2, 5),   // x=60, buy_ratio, z-score>1.2, 至少5笔
+    (60, 0.03, 1, 1.2, 5),   // x=60, bid_ask, z-score>1.2, 至少5笔
+    (15, 0.10, 0, 1.2, 3),   // x=15, buy_ratio, z-score>1.2, 至少3笔
+    (15, 0.10, 1, 1.2, 3),   // x=15, bid_ask, z-score>1.2, 至少3笔
 ];
 
 /// 共现基础特征数
@@ -90,6 +92,7 @@ struct SecStat {
     bid_ask_mean: f32,   // 该秒 bid_order - ask_order 均值
     ret_val: f32,        // 该秒收益率
     volume: f32,         // 该秒总成交量
+    trade_cnt: u32,      // 该秒成交笔数
     last_price: f32,     // 该秒末价格
     first_price: f32,    // 该秒初价格
     has_data: bool,      // 该秒是否有成交
@@ -136,11 +139,11 @@ struct StockData {
     basic_feats: [f32; BASIC_FEAT_N],
 }
 
-/// 预计算的滚动窗口缓存：为每只股票预计算 8 组滚动均值（4 字段 × 2 窗口）
-/// 字段顺序: [buy_15, buy_60, ba_15, ba_60, ret_15, ret_60, vol_15, vol_60]
+/// 预计算的滚动窗口缓存：为每只股票预计算 10 组滚动值
+/// 字段顺序: [buy_15, buy_60, ba_15, ba_60, ret_15, ret_60, vol_15, vol_60, cnt_15, cnt_60]
 /// 布局: rolling[field * ADJUSTED_SECONDS + sec]
 struct RollingCache {
-    data: Vec<f32>, // 8 * ADJUSTED_SECONDS 长度
+    data: Vec<f32>, // 10 * ADJUSTED_SECONDS 长度
 }
 
 impl RollingCache {
@@ -149,7 +152,7 @@ impl RollingCache {
         self.data[field * ADJUSTED_SECONDS + sec]
     }
     /// 根据窗口 x 和 field_type 自动选择正确的缓存列
-    /// field_type: 0=buy_ratio, 1=bid_ask, 2=ret, 3=volume
+    /// field_type: 0=buy_ratio, 1=bid_ask, 2=ret, 3=volume, 4=trade_cnt
     #[inline]
     fn get_by_x(&self, x: usize, field_type: u8, sec: usize) -> f32 {
         let base = match (field_type, x) {
@@ -157,16 +160,17 @@ impl RollingCache {
             (1, 15) => 2, (1, 60) => 3,
             (2, 15) => 4, (2, 60) => 5,
             (3, 15) => 6, (3, 60) => 7,
+            (4, 15) => 8, (4, 60) => 9,
             _ => return f32::NAN,
         };
         self.data[base * ADJUSTED_SECONDS + sec]
     }
 
-    /// 增量式计算所有 8 组滚动值（单 pass O(n)）
+    /// 增量式计算所有 10 组滚动值
     /// buy_15/buy_60 特殊处理：窗口内主买总量占比 = sum(buy_vol) / sum(volume)
     fn compute(secs: &[SecStat]) -> Self {
         let n = ADJUSTED_SECONDS;
-        let total = 8 * n;
+        let total = 10 * n;
         let mut data = vec![f32::NAN; total];
 
         // buy_ratio 滚动窗口：sum(buy_vol) / sum(volume)（正确的窗口主买占比）
@@ -214,6 +218,17 @@ impl RollingCache {
                 if cnt > 0 && sec >= win - 1 {
                     data[base + sec] = if is_sum { sum as f32 } else { (sum / cnt as f64) as f32 };
                 }
+            }
+        }
+
+        // trade_cnt_15/trade_cnt_60: 窗口内成交笔数总和
+        for &(col, win) in &[(8usize, 15usize), (9, 60)] {
+            let base = col * n;
+            let mut sum: u32 = 0;
+            for sec in 0..n {
+                sum += secs[sec].trade_cnt;
+                if sec >= win { sum -= secs[sec - win].trade_cnt; }
+                data[base + sec] = sum as f32;
             }
         }
 
@@ -405,6 +420,7 @@ fn build_stock_data(code: &str, date: i64, trades: &[crate::fast_csv_reader::Tra
                 bid_ask_mean: ba,
                 ret_val: ret,
                 volume: tv as f32,
+                trade_cnt: bid_ask_cnt[i],
                 last_price: last_prices[i],
                 first_price: first_prices[i],
                 has_data: true,
@@ -819,13 +835,11 @@ pub fn compute_hot_stock_pool_full(date: i64) -> std::io::Result<(Vec<String>, V
         pool_log_cold: PoolLog,
     }
 
-    let pi_results: Vec<PiResult> = PARAM_CONFIGS.par_iter().map(|&(x, y, d_type)| {
-        let n_top = ((n_valid as f64) * y).ceil() as usize;
+    let pi_results: Vec<PiResult> = PARAM_CONFIGS.par_iter().map(|&(x, _y, d_type, d_threshold, min_trades)| {
         let mut accum_hot: StockAccumPi = vec![Vec::new(); n_valid];
         let mut accum_cold: StockAccumPi = vec![Vec::new(); n_valid];
         let mut pool_log_hot: PoolLog = Vec::with_capacity(ADJUSTED_SECONDS / SECOND_STEP);
         let mut pool_log_cold: PoolLog = Vec::with_capacity(ADJUSTED_SECONDS / SECOND_STEP);
-        // infos 只需 last（连续性即时计算），用 per-stock Option<InclusionInfo>
         let mut last_info_hot: Vec<Option<InclusionInfo>> = vec![None; n_valid];
         let mut last_info_cold: Vec<Option<InclusionInfo>> = vec![None; n_valid];
 
@@ -839,50 +853,73 @@ pub fn compute_hot_stock_pool_full(date: i64) -> std::io::Result<(Vec<String>, V
         let mut prev_sec = [usize::MAX; 2];
         let mut stay_seconds = vec![[0u32; 2]; n_valid];
 
-        // 可复用的 buffer（避免每步 alloc）
+        // 方向二：per-stock D 值的滚动统计（用于算 z-score）
+        // 用 120 秒窗口的滚动均值和标准差作为"自身近期水平"
+        // 这里用增量维护：每个 stock 维护过去 120 秒的 D 值列表
+        let hist_win = 120usize;
+        let mut d_hist: Vec<std::collections::VecDeque<f32>> = (0..n_valid).map(|_| std::collections::VecDeque::with_capacity(hist_win / SECOND_STEP + 1)).collect();
+
         let mut buf_all_vals_d = vec![f32::NAN; n_valid];
         let mut buf_all_ba_vals = vec![f32::NAN; n_valid];
 
+        let d_field: u8 = if d_type == 0 { 0 } else { 1 };
+
         for sec in (15..ADJUSTED_SECONDS).step_by(SECOND_STEP) {
             if sec < x - 1 { continue; }
-            if n_top < 2 { continue; }
 
-            // 单次遍历全市场，填 buf 并选出 top/bottom
-            let d_field: u8 = if d_type == 0 { 0 } else { 1 };
-            let mut valid_pairs: Vec<(usize, f32)> = Vec::with_capacity(n_valid);
+            // 单次遍历全市场：读 D 值 + bid_ask + 成交笔数，更新历史
             for (si, cache) in rolling_caches.iter().enumerate() {
                 let dv = cache.get_by_x(x, d_field, sec);
                 let bv = cache.get_by_x(x, 1, sec);
                 buf_all_vals_d[si] = dv;
                 buf_all_ba_vals[si] = bv;
-                if dv.is_finite() { valid_pairs.push((si, dv)); }
+
+                // 更新 D 值历史（用于算 z-score）
+                if dv.is_finite() {
+                    let h = &mut d_hist[si];
+                    h.push_back(dv);
+                    while h.len() > hist_win / SECOND_STEP { h.pop_front(); }
+                }
             }
-            if valid_pairs.len() < n_top * 2 { continue; }
 
-            // select_nth_unstable for top-k
-            let k_adj = n_top.min(valid_pairs.len().saturating_sub(1));
-            let (top_part, _, bottom_part) = valid_pairs.select_nth_unstable_by(k_adj, |a, b| {
-                b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
-            });
-            let mut top_indices: Vec<usize> = top_part.iter().map(|(i, _)| *i).collect();
-            top_indices.sort_by(|a, b| {
-                let va = rolling_caches[*a].get_by_x(x, d_field, sec);
-                let vb = rolling_caches[*b].get_by_x(x, d_field, sec);
-                vb.partial_cmp(&va).unwrap_or(std::cmp::Ordering::Equal)
-            });
-            let mut bot = bottom_part.to_vec();
-            let bot_k = n_top.min(bot.len());
-            let (_, _, bot_bot) = bot.select_nth_unstable_by(bot_k - 1, |a, b| {
-                a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
-            });
-            let mut bottom_indices: Vec<usize> = bot_bot.iter().map(|(i, _)| *i).collect();
-            bottom_indices.sort_by(|a, b| {
-                let va = rolling_caches[*a].get_by_x(x, d_field, sec);
-                let vb = rolling_caches[*b].get_by_x(x, d_field, sec);
-                va.partial_cmp(&vb).unwrap_or(std::cmp::Ordering::Equal)
-            });
+            // 方向二：对每只股票算 D 值的 z-score，选超阈值的
+            // 方向三：过滤成交笔数不足的股票
+            let mut top_pairs: Vec<(usize, f32)> = Vec::new(); // (stock_idx, D_value)
+            let mut bot_pairs: Vec<(usize, f32)> = Vec::new();
 
-            // 全市场窗口内总成交量（C04 分母，与 pool_total_vol 同口径）
+            for si in 0..n_valid {
+                let dv = buf_all_vals_d[si];
+                if !dv.is_finite() { continue; }
+
+                // 方向三：成交笔数过滤
+                let trades = rolling_caches[si].get_by_x(x, 4, sec);
+                if trades < min_trades as f32 { continue; }
+
+                // 方向二：算 z-score
+                let h = &d_hist[si];
+                if h.len() < 5 { continue; } // 历史不足，跳过
+                let hmean: f64 = h.iter().map(|v| *v as f64).sum::<f64>() / h.len() as f64;
+                let hvar: f64 = h.iter().map(|v| (*v as f64 - hmean).powi(2)).sum::<f64>() / h.len() as f64;
+                let hstd = hvar.sqrt();
+                if hstd < 1e-8 { continue; }
+
+                let zscore = (dv as f64 - hmean) / hstd;
+                if zscore > d_threshold as f64 {
+                    top_pairs.push((si, dv));
+                } else if zscore < -d_threshold as f64 {
+                    bot_pairs.push((si, dv));
+                }
+            }
+
+            if top_pairs.is_empty() && bot_pairs.is_empty() { continue; }
+
+            // 排序（按 D 值降序/升序）
+            top_pairs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            bot_pairs.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+            let top_indices: Vec<usize> = top_pairs.iter().map(|(i, _)| *i).collect();
+            let bottom_indices: Vec<usize> = bot_pairs.iter().map(|(i, _)| *i).collect();
+
+            // 全市场窗口内总成交量（C04 分母）
             let mkt_total_vol: f32 = (0..n_valid).map(|i| rolling_caches[i].get_by_x(x, 3, sec)).sum();
             let mkt_mean_d = { let vf: Vec<f32> = buf_all_vals_d.iter().copied().filter(|v| v.is_finite()).collect(); mean(&vf) };
             let mkt_mean_ba = { let vf: Vec<f32> = buf_all_ba_vals.iter().copied().filter(|v| v.is_finite()).collect(); mean(&vf) };
@@ -1496,35 +1533,35 @@ pub fn compute_hot_stock_pool_z_stats(date: i64) -> std::io::Result<(Vec<String>
     let mut z_stats: Vec<[i32; 8]> = vec![[0; 8]; n_valid];
 
     // 按参数组合串行（与主计算逻辑一致）
-    for (pi, &(x, y, d_type)) in PARAM_CONFIGS.iter().enumerate() {
-        let n_top = ((n_valid as f64) * y).ceil() as usize;
-        if n_top < 2 { continue; }
+    for (pi, &(x, _y, d_type, d_threshold, min_trades)) in PARAM_CONFIGS.iter().enumerate() {
         let d_field: u8 = if d_type == 0 { 0 } else { 1 };
+        let hist_win = 120usize;
+        let mut d_hist: Vec<std::collections::VecDeque<f32>> = (0..n_valid).map(|_| std::collections::VecDeque::with_capacity(hist_win / SECOND_STEP + 1)).collect();
 
         for sec in (15..ADJUSTED_SECONDS).step_by(SECOND_STEP) {
             if sec < x - 1 { continue; }
-            // 收集有效值
-            let mut vals: Vec<(usize, f32)> = Vec::with_capacity(n_valid);
-            for (si, cache) in caches.iter().enumerate() {
-                let v = cache.get_by_x(x, d_field, sec);
-                if v.is_finite() { vals.push((si, v)); }
+            for si in 0..n_valid {
+                let dv = caches[si].get_by_x(x, d_field, sec);
+                if dv.is_finite() {
+                    let h = &mut d_hist[si];
+                    h.push_back(dv);
+                    while h.len() > hist_win / SECOND_STEP { h.pop_front(); }
+                }
             }
-            if vals.len() < n_top * 2 { continue; }
-
-            // select top-k / bottom-k
-            let k_adj = n_top.min(vals.len().saturating_sub(1));
-            let (top_part, _, bottom_part) = vals.select_nth_unstable_by(k_adj, |a, b| {
-                b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
-            });
-            for (si, _) in top_part { z_stats[*si][pi * 2] += 1; }
-
-            let mut bot = bottom_part.to_vec();
-            let bot_k = n_top.min(bot.len());
-            if bot_k > 0 {
-                let (_, _, bot_bot) = bot.select_nth_unstable_by(bot_k - 1, |a, b| {
-                    a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
-                });
-                for (si, _) in bot_bot { z_stats[*si][pi * 2 + 1] += 1; }
+            for si in 0..n_valid {
+                let dv = caches[si].get_by_x(x, d_field, sec);
+                if !dv.is_finite() { continue; }
+                let trades = caches[si].get_by_x(x, 4, sec);
+                if trades < min_trades as f32 { continue; }
+                let h = &d_hist[si];
+                if h.len() < 5 { continue; }
+                let hmean: f64 = h.iter().map(|v| *v as f64).sum::<f64>() / h.len() as f64;
+                let hvar: f64 = h.iter().map(|v| (*v as f64 - hmean).powi(2)).sum::<f64>() / h.len() as f64;
+                let hstd = hvar.sqrt();
+                if hstd < 1e-8 { continue; }
+                let zscore = (dv as f64 - hmean) / hstd;
+                if zscore > d_threshold as f64 { z_stats[si][pi * 2] += 1; }
+                else if zscore < -d_threshold as f64 { z_stats[si][pi * 2 + 1] += 1; }
             }
         }
     }
