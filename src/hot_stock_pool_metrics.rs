@@ -85,7 +85,8 @@ const BASIC_FEAT_N: usize = 11;
 /// 单股每秒的统计指标
 #[derive(Clone, Copy, Default)]
 struct SecStat {
-    buy_ratio: f32,      // 该秒主买成交量占比
+    buy_ratio: f32,      // 该秒主买成交量占比（= buy_vol / volume）
+    buy_vol: f32,        // 该秒主买成交量（绝对值，用于窗口聚合）
     bid_ask_mean: f32,   // 该秒 bid_order - ask_order 均值
     ret_val: f32,        // 该秒收益率
     volume: f32,         // 该秒总成交量
@@ -161,17 +162,39 @@ impl RollingCache {
         self.data[base * ADJUSTED_SECONDS + sec]
     }
 
-    /// 增量式计算所有 8 组滚动均值（单 pass O(n)，替代 O(x) 重复扫描）
+    /// 增量式计算所有 8 组滚动值（单 pass O(n)）
+    /// buy_15/buy_60 特殊处理：窗口内主买总量占比 = sum(buy_vol) / sum(volume)
     fn compute(secs: &[SecStat]) -> Self {
         let n = ADJUSTED_SECONDS;
         let total = 8 * n;
         let mut data = vec![f32::NAN; total];
 
-        // 为每个 field×window 组合计算滚动值
-        // 布局: [buy_15, buy_60, ba_15, ba_60, ret_15, ret_60, vol_15, vol_60]
-        let configs: [(usize, usize, fn(&SecStat) -> f32, bool); 8] = [
-            (0, 15, |s: &SecStat| s.buy_ratio, false),     // buy_15
-            (1, 60, |s: &SecStat| s.buy_ratio, false),     // buy_60
+        // buy_ratio 滚动窗口：sum(buy_vol) / sum(volume)（正确的窗口主买占比）
+        for &(col, win) in &[(0usize, 15usize), (1, 60)] {
+            let base = col * n;
+            let mut sum_buy: f64 = 0.0;
+            let mut sum_vol: f64 = 0.0;
+            for sec in 0..n {
+                let s = &secs[sec];
+                if s.has_data {
+                    sum_buy += s.buy_vol as f64;
+                    sum_vol += s.volume as f64;
+                }
+                if sec >= win {
+                    let old = &secs[sec - win];
+                    if old.has_data {
+                        sum_buy -= old.buy_vol as f64;
+                        sum_vol -= old.volume as f64;
+                    }
+                }
+                if sum_vol > 0.0 && sec >= win - 1 {
+                    data[base + sec] = (sum_buy / sum_vol) as f32;
+                }
+            }
+        }
+
+        // 其余 6 列用通用逻辑（ba/ret 取 mean，vol 取 sum）
+        let configs: [(usize, usize, fn(&SecStat) -> f32, bool); 6] = [
             (2, 15, |s: &SecStat| s.bid_ask_mean, false),  // ba_15
             (3, 60, |s: &SecStat| s.bid_ask_mean, false),  // ba_60
             (4, 15, |s: &SecStat| s.ret_val, false),       // ret_15
@@ -355,6 +378,7 @@ fn build_stock_data(code: &str, date: i64, trades: &[crate::fast_csv_reader::Tra
             let ret = if first_prices[i] > 0.0 { (last_prices[i] - first_prices[i]) / first_prices[i] } else { f32::NAN };
             secs.push(SecStat {
                 buy_ratio: br,
+                buy_vol: buy_vol[i] as f32,
                 bid_ask_mean: ba,
                 ret_val: ret,
                 volume: tv as f32,
@@ -376,13 +400,12 @@ fn build_stock_data(code: &str, date: i64, trades: &[crate::fast_csv_reader::Tra
 fn compute_basic_features(secs: &[SecStat]) -> [f32; BASIC_FEAT_N] {
     let n = secs.len();
     // 提取各序列
-    let buy_ratios: Vec<f32> = secs.iter().map(|s| if s.has_data { s.buy_ratio } else { f32::NAN }).collect();
     let rets: Vec<f32> = secs.iter().map(|s| if s.has_data { s.ret_val } else { f32::NAN }).collect();
     let bid_asks: Vec<f32> = secs.iter().map(|s| if s.has_data { s.bid_ask_mean } else { f32::NAN }).collect();
     let vols: Vec<f32> = secs.iter().map(|s| s.volume).collect();
 
-    // 1. 总体主买占比
-    let total_buy: f64 = secs.iter().map(|s| if s.buy_ratio.is_finite() { s.buy_ratio as f64 * s.volume as f64 } else { 0.0 }).sum();
+    // 1. 总体主买占比 = 全天主买总量 / 全天成交总量
+    let total_buy: f64 = secs.iter().map(|s| s.buy_vol as f64).sum();
     let total_vol: f64 = secs.iter().map(|s| s.volume as f64).sum();
     let g01 = if total_vol > 0.0 { (total_buy / total_vol) as f32 } else { f32::NAN };
 
@@ -410,11 +433,40 @@ fn compute_basic_features(secs: &[SecStat]) -> [f32; BASIC_FEAT_N] {
         }
         out
     }
+    /// 正确的窗口主买占比序列：每个窗口 sum(buy_vol)/sum(total_vol)
+    fn rolling_buy_ratio(buy_vols: &[f32], total_vols: &[f32], len: usize) -> Vec<f32> {
+        let n = buy_vols.len();
+        let mut out = vec![f32::NAN; n];
+        if n < len { return out; }
+        let mut sb: f64 = 0.0;
+        let mut sv: f64 = 0.0;
+        for i in 0..n {
+            if buy_vols[i].is_finite() && total_vols[i].is_finite() {
+                sb += buy_vols[i] as f64;
+                sv += total_vols[i] as f64;
+            }
+            if i >= len {
+                if buy_vols[i-len].is_finite() && total_vols[i-len].is_finite() {
+                    sb -= buy_vols[i-len] as f64;
+                    sv -= total_vols[i-len] as f64;
+                }
+            }
+            if sv > 0.0 && i >= len - 1 {
+                out[i] = (sb / sv) as f32;
+            }
+        }
+        out
+    }
+
+    let buy_vols_arr: Vec<f32> = secs.iter().map(|s| s.buy_vol).collect();
 
     let ret_15s_std = rolling_std_short(&rets, 15);
     let ret_60s_std = rolling_std_short(&rets, 60);
-    let br_15s_std = rolling_std_short(&buy_ratios, 15);
-    let br_60s_std = rolling_std_short(&buy_ratios, 60);
+    // G05/G06: 正确的窗口主买占比的 std
+    let br_15_series = rolling_buy_ratio(&buy_vols_arr, &vols, 15);
+    let br_60_series = rolling_buy_ratio(&buy_vols_arr, &vols, 60);
+    let br_15s_std = rolling_std_short(&br_15_series, 15);
+    let br_60s_std = rolling_std_short(&br_60_series, 15);
     let ba_15s_std = rolling_std_short(&bid_asks, 15);
     let ba_60s_std = rolling_std_short(&bid_asks, 60);
     let vol_15s_std = rolling_std_short(&vols, 15);
@@ -1074,9 +1126,187 @@ fn basic_stats_from_top10(stocks: &[StockData], top10: &[usize]) -> [f32; BASIC_
     result
 }
 
-/// features_per_group 对 n 列的输出长度
+/// features_per_group 对 n 列的输出长度（标准版：21*n + C(n,2)）
 fn features_per_group_n(n: usize) -> usize {
     21 * n + n * (n - 1) / 2
+}
+
+/// 快速降维（跳过 lz_complexity 和 max_range，输出与标准版同长度，对应位置填 NaN）
+/// 这样 N_FACTORS 不变，但消除了两个 O(z²) 统计量的计算开销。
+/// 实际有效输出从 21 降到 19 个统计量/列（lz/max_range 位置为 NaN）。
+fn reduce_matrix_fast(data: &ndarray::ArrayView2<f32>) -> Vec<f32> {
+    let (n_rows, n_cols) = data.dim();
+    if n_rows == 0 || n_cols == 0 { return vec![f32::NAN; features_per_group_n(n_cols)]; }
+
+    // 提取列
+    let cols: Vec<Vec<f32>> = (0..n_cols).map(|j| data.column(j).to_vec()).collect();
+
+    let mut res: Vec<f32> = Vec::with_capacity(features_per_group_n(n_cols));
+
+    // 辅助：push n_cols 个值
+    let push_cols = |res: &mut Vec<f32>, vals: &[f32]| {
+        res.extend_from_slice(vals);
+    };
+
+    // 1. mean
+    let means: Vec<f32> = cols.iter().map(|c| col_mean_local(c)).collect();
+    push_cols(&mut res, &means);
+    // 2. median
+    push_cols(&mut res, &cols.iter().map(|c| col_median_local(c)).collect::<Vec<_>>());
+    // 3. std
+    push_cols(&mut res, &cols.iter().map(|c| col_std_local(c)).collect::<Vec<_>>());
+    // 4. skew
+    push_cols(&mut res, &cols.iter().map(|c| col_skew_local(c)).collect::<Vec<_>>());
+    // 5. kurt
+    push_cols(&mut res, &cols.iter().map(|c| col_kurt_local(c)).collect::<Vec<_>>());
+    // 6-11. p5/p25/p75/p95/iqr/cv
+    push_cols(&mut res, &cols.iter().map(|c| col_quantile_local(c, 0.05)).collect::<Vec<_>>());
+    push_cols(&mut res, &cols.iter().map(|c| col_quantile_local(c, 0.25)).collect::<Vec<_>>());
+    push_cols(&mut res, &cols.iter().map(|c| col_quantile_local(c, 0.75)).collect::<Vec<_>>());
+    push_cols(&mut res, &cols.iter().map(|c| col_quantile_local(c, 0.95)).collect::<Vec<_>>());
+    let iqrs: Vec<f32> = cols.iter().map(|c| {
+        let p25 = col_quantile_local(c, 0.25); let p75 = col_quantile_local(c, 0.75); p75 - p25
+    }).collect();
+    push_cols(&mut res, &iqrs);
+    let cvs: Vec<f32> = cols.iter().enumerate().map(|(i, c)| {
+        let s = col_std_local(c); s / (means[i].abs() + 1e-8)
+    }).collect();
+    push_cols(&mut res, &cvs);
+    // 12-13. autocorr1 / autocorr1_abs
+    let autocorrs: Vec<f32> = cols.iter().map(|c| {
+        if c.len() < 2 { return f32::NAN; }
+        let shifted: Vec<f32> = std::iter::once(f32::NAN).chain(c[..c.len()-1].iter().copied()).collect();
+        corr_pair_local(c, &shifted)
+    }).collect();
+    push_cols(&mut res, &autocorrs);
+    push_cols(&mut res, &autocorrs.iter().map(|v| v.abs()).collect::<Vec<_>>());
+    // 14. trend
+    push_cols(&mut res, &cols.iter().map(|c| trend_local(c)).collect::<Vec<_>>());
+    // 15-16. curvature / quad_coef
+    push_cols(&mut res, &cols.iter().map(|c| curvature_local(c)).collect::<Vec<_>>());
+    push_cols(&mut res, &cols.iter().map(|c| quad_coef_local(c)).collect::<Vec<_>>());
+    // 17-18. period_diff / period_ratio
+    push_cols(&mut res, &cols.iter().map(|c| period_diff_local(c, n_rows)).collect::<Vec<_>>());
+    push_cols(&mut res, &cols.iter().map(|c| period_ratio_local(c, n_rows)).collect::<Vec<_>>());
+    // 19. lz_complexity → NaN（跳过）
+    push_cols(&mut res, &vec![f32::NAN; n_cols]);
+    // 20. entropy → 保留
+    push_cols(&mut res, &cols.iter().map(|c| entropy_local(c, n_rows)).collect::<Vec<_>>());
+    // 21. max_range → NaN（跳过）
+    push_cols(&mut res, &vec![f32::NAN; n_cols]);
+
+    // corr 矩阵上三角
+    for i in 0..n_cols {
+        for j in (i+1)..n_cols {
+            res.push(corr_pair_local(&cols[i], &cols[j]));
+        }
+    }
+
+    res
+}
+
+// ---- 本地统计函数（避免依赖 features.rs 内部函数） ----
+#[inline] fn col_mean_local(c: &[f32]) -> f32 {
+    let vs: Vec<f32> = c.iter().copied().filter(|v| v.is_finite()).collect();
+    if vs.is_empty() { f32::NAN } else { vs.iter().sum::<f32>() / vs.len() as f32 }
+}
+#[inline] fn col_median_local(c: &[f32]) -> f32 {
+    let mut vs: Vec<f32> = c.iter().copied().filter(|v| v.is_finite()).collect();
+    if vs.is_empty() { return f32::NAN; }
+    vs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let n = vs.len(); vs[n/2]
+}
+#[inline] fn col_std_local(c: &[f32]) -> f32 {
+    let vs: Vec<f32> = c.iter().copied().filter(|v| v.is_finite()).collect();
+    if vs.len() < 2 { return f32::NAN; }
+    let m = vs.iter().sum::<f32>() / vs.len() as f32;
+    (vs.iter().map(|v| (v-m).powi(2)).sum::<f32>() / vs.len() as f32).sqrt()
+}
+#[inline] fn col_skew_local(c: &[f32]) -> f32 {
+    let vs: Vec<f32> = c.iter().copied().filter(|v| v.is_finite()).collect();
+    if vs.len() < 3 { return f32::NAN; }
+    let m = vs.iter().sum::<f32>() / vs.len() as f32;
+    let s = col_std_local(c); if s < 1e-12 { return 0.0; }
+    vs.iter().map(|v| (v-m).powi(3)).sum::<f32>() / vs.len() as f32 / s.powi(3)
+}
+#[inline] fn col_kurt_local(c: &[f32]) -> f32 {
+    let vs: Vec<f32> = c.iter().copied().filter(|v| v.is_finite()).collect();
+    if vs.len() < 4 { return f32::NAN; }
+    let m = vs.iter().sum::<f32>() / vs.len() as f32;
+    let s = col_std_local(c); if s < 1e-12 { return 0.0; }
+    vs.iter().map(|v| (v-m).powi(4)).sum::<f32>() / vs.len() as f32 / s.powi(4) - 3.0
+}
+#[inline] fn col_quantile_local(c: &[f32], q: f32) -> f32 {
+    let mut vs: Vec<f32> = c.iter().copied().filter(|v| v.is_finite()).collect();
+    if vs.is_empty() { return f32::NAN; }
+    vs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let n = vs.len(); if n == 1 { return vs[0]; }
+    let pos = q * (n-1) as f32;
+    let lo = pos.floor() as usize; let hi = (lo+1).min(n-1);
+    let frac = pos - lo as f32; vs[lo]*(1.0-frac) + vs[hi]*frac
+}
+#[inline] fn corr_pair_local(a: &[f32], b: &[f32]) -> f32 {
+    let pairs: Vec<(f32,f32)> = a.iter().zip(b.iter()).filter(|(x,y)| x.is_finite() && y.is_finite()).map(|(&x,&y)| (x,y)).collect();
+    if pairs.len() < 3 { return f32::NAN; }
+    let n = pairs.len() as f32;
+    let ma = pairs.iter().map(|(x,_)| x).sum::<f32>() / n;
+    let mb = pairs.iter().map(|(_,y)| y).sum::<f32>() / n;
+    let num = pairs.iter().map(|(x,y)| (x-ma)*(y-mb)).sum::<f32>();
+    let da = pairs.iter().map(|(x,_)| (x-ma).powi(2)).sum::<f32>().sqrt();
+    let db = pairs.iter().map(|(_,y)| (y-mb).powi(2)).sum::<f32>().sqrt();
+    if da < 1e-12 || db < 1e-12 { return f32::NAN; }
+    num / (da * db)
+}
+#[inline] fn trend_local(c: &[f32]) -> f32 {
+    let vs: Vec<f32> = c.iter().copied().filter(|v| v.is_finite()).collect();
+    let n = vs.len(); if n < 2 { return f32::NAN; }
+    // 简单线性回归斜率
+    let xs: Vec<f32> = (0..n).map(|i| i as f32).collect();
+    let mx = xs.iter().sum::<f32>() / n as f32;
+    let my = vs.iter().sum::<f32>() / n as f32;
+    let num = xs.iter().zip(vs.iter()).map(|(x,y)| (x-mx)*(y-my)).sum::<f32>();
+    let den = xs.iter().map(|x| (x-mx).powi(2)).sum::<f32>();
+    if den < 1e-12 { f32::NAN } else { num / den }
+}
+#[inline] fn curvature_local(c: &[f32]) -> f32 {
+    // 二阶差分均值
+    let vs: Vec<f32> = c.iter().copied().filter(|v| v.is_finite()).collect();
+    if vs.len() < 3 { return f32::NAN; }
+    (1..vs.len()-1).map(|i| vs[i+1] - 2.0*vs[i] + vs[i-1]).sum::<f32>() / (vs.len()-2) as f32
+}
+#[inline] fn quad_coef_local(c: &[f32]) -> f32 {
+    curvature_local(c) * 0.5
+}
+#[inline] fn period_diff_local(c: &[f32], n_rows: usize) -> f32 {
+    let split = n_rows / 3; if split == 0 { return f32::NAN; }
+    let first = col_mean_local(&c[..split.min(c.len())]);
+    let last = col_mean_local(&c[c.len().saturating_sub(split)..]);
+    last - first
+}
+#[inline] fn period_ratio_local(c: &[f32], n_rows: usize) -> f32 {
+    let split = n_rows / 3; if split == 0 { return f32::NAN; }
+    let first = col_mean_local(&c[..split.min(c.len())]);
+    let last = col_mean_local(&c[c.len().saturating_sub(split)..]);
+    last / (first.abs() + 1e-8)
+}
+#[inline] fn entropy_local(c: &[f32], n_rows: usize) -> f32 {
+    let vs: Vec<f32> = c.iter().copied().filter(|v| v.is_finite()).collect();
+    let n = vs.len(); if n < 2 { return 0.0; }
+    let n_bins = (n as f32).log2().ceil() as usize + 1;
+    let mut sorted = vs.clone();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let lo = sorted[0]; let hi = sorted[n-1];
+    let range = hi - lo; if range < 1e-12 { return 0.0; }
+    let mut counts = vec![0u32; n_bins];
+    for &v in &vs {
+        let idx = ((v - lo) / range * (n_bins as f32)).floor() as usize;
+        counts[idx.min(n_bins-1)] += 1;
+    }
+    let mut ent = 0.0f32;
+    for &cnt in &counts {
+        if cnt > 0 { let p = cnt as f32 / n as f32; ent -= p * p.log2(); }
+    }
+    ent
 }
 
 /// 计算共现因子（步骤6+7）：热点/冰点 → mean/std + 差 + 绝对值差
@@ -1205,6 +1435,89 @@ pub fn py_hot_stock_pool(_py: Python<'_>, date: i64) -> PyResult<(Vec<String>, V
 #[pyfunction]
 pub fn py_hot_stock_pool_names() -> Vec<String> {
     hot_stock_pool_names()
+}
+
+/// 返回每只股票在 8 个 (pi, hot/cold) 下的真实入选次数 z/z'。
+/// 返回 (codes, z_matrix) 其中 z_matrix 是 row-major [n_codes × 8] 的 Vec<i32>。
+/// 列顺序: [pi0_hot, pi0_cold, pi1_hot, pi1_cold, pi2_hot, pi2_cold, pi3_hot, pi3_cold]
+/// pi0=x60_y3_buy, pi1=x60_y3_ba, pi2=x15_y10_buy, pi3=x15_y10_ba
+pub fn compute_hot_stock_pool_z_stats(date: i64) -> std::io::Result<(Vec<String>, Vec<i32>)> {
+    let codes = list_codes(date, "transaction");
+    if codes.is_empty() { return Ok((vec![], vec![])); }
+
+    let day_mid = cst_midnight_epoch(date);
+    let stocks: Vec<Option<StockData>> = codes
+        .par_iter()
+        .map(|code| {
+            let trades = read_trade_fast_inner(code, date, false, true, usize::MAX).ok()?;
+            build_stock_data(code, date, &trades)
+        })
+        .collect();
+
+    let mut valid: Vec<StockData> = Vec::new();
+    let mut valid_codes: Vec<String> = Vec::new();
+    for (code, s) in codes.iter().zip(stocks.into_iter()) {
+        if let Some(sd) = s {
+            if sd.secs.iter().any(|s| s.has_data) {
+                valid.push(sd);
+                valid_codes.push(code.clone());
+            }
+        }
+    }
+    let n_valid = valid.len();
+    if n_valid == 0 { return Ok((vec![], vec![])); }
+
+    let caches: Vec<RollingCache> = valid.par_iter().map(|sd| RollingCache::compute(&sd.secs)).collect();
+
+    // z_stats[stock_i][pi*2+gt] = 入选次数
+    let mut z_stats: Vec<[i32; 8]> = vec![[0; 8]; n_valid];
+
+    // 按参数组合串行（与主计算逻辑一致）
+    for (pi, &(x, y, d_type)) in PARAM_CONFIGS.iter().enumerate() {
+        let n_top = ((n_valid as f64) * y).ceil() as usize;
+        if n_top < 2 { continue; }
+        let d_field: u8 = if d_type == 0 { 0 } else { 1 };
+
+        for sec in (15..ADJUSTED_SECONDS).step_by(SECOND_STEP) {
+            if sec < x - 1 { continue; }
+            // 收集有效值
+            let mut vals: Vec<(usize, f32)> = Vec::with_capacity(n_valid);
+            for (si, cache) in caches.iter().enumerate() {
+                let v = cache.get_by_x(x, d_field, sec);
+                if v.is_finite() { vals.push((si, v)); }
+            }
+            if vals.len() < n_top * 2 { continue; }
+
+            // select top-k / bottom-k
+            let k_adj = n_top.min(vals.len().saturating_sub(1));
+            let (top_part, _, bottom_part) = vals.select_nth_unstable_by(k_adj, |a, b| {
+                b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
+            });
+            for (si, _) in top_part { z_stats[*si][pi * 2] += 1; }
+
+            let mut bot = bottom_part.to_vec();
+            let bot_k = n_top.min(bot.len());
+            if bot_k > 0 {
+                let (_, _, bot_bot) = bot.select_nth_unstable_by(bot_k - 1, |a, b| {
+                    a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
+                });
+                for (si, _) in bot_bot { z_stats[*si][pi * 2 + 1] += 1; }
+            }
+        }
+    }
+
+    // 扁平化输出
+    let mut flat = Vec::with_capacity(n_valid * 8);
+    for row in &z_stats {
+        flat.extend_from_slice(row);
+    }
+    Ok((valid_codes, flat))
+}
+
+#[pyfunction]
+pub fn py_hot_stock_pool_z_stats(py: Python<'_>, date: i64) -> PyResult<(Vec<String>, Vec<i32>)> {
+    compute_hot_stock_pool_z_stats(date)
+        .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("{e:?}")))
 }
 
 // ============================================================
