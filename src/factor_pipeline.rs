@@ -2095,6 +2095,26 @@ pub fn pipeline_drop_event(date: i64, expected_len: usize) -> Vec<TaskResult> {
     }
 }
 
+/// vsld(成交量分段领衔股) 横截面 pipeline 包装：调核心，fan-out 成 TaskResult。
+pub fn pipeline_vsld(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    match crate::volume_segment_leadstock_metrics::compute_vsld_full(date) {
+        Ok((codes, vals)) => vals
+            .chunks(expected_len)
+            .zip(codes.iter())
+            .map(|(facs, code)| TaskResult {
+                date,
+                code: code.clone(),
+                timestamp: 0,
+                facs: facs.to_vec(),
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("vsld error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
 /// long_order 横截面 pipeline 包装：调核心，fan-out 成 TaskResult。
 pub fn pipeline_long_order(date: i64, expected_len: usize) -> Vec<TaskResult> {
     match crate::long_order_cross_section_metrics::compute_long_order_full(date) {
@@ -2240,6 +2260,7 @@ pub fn run_factor_pipeline_cross_section(
         "drop_event",
         "hot_stock_pool",
         "hot_stock_pool_v2",
+        "vsld",
     ];
     if !known.contains(&pipeline_name.as_str()) {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(

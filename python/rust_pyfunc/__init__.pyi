@@ -223,6 +223,47 @@ def py_cross_section_example_from_data(
 def py_cross_section_example_names() -> List[str]:
     ...
 
+def py_vsld(date: int) -> Tuple[List[str], List[float]]:
+    """计算成交量分段领衔股相关横截面因子（v1 读盘）。
+
+    算法：全市场逐笔混合排序→成交量累计100段→core序列→每段20领衔股
+    →100×20相关矩阵→4套降维。笛卡尔全集 EP1×EP2×EP3×EP4=150 case，
+    每 case 148 因子，共 22200 因子（= py_vsld_names 长度）。
+
+    参数
+    ----
+    date : int
+        8 位日期，如 20220819
+
+    返回
+    ----
+    codes : List[str]
+        股票代码列表
+    vals : List[float]
+        扁平因子值，按 [stock0:22200, stock1:22200, ...] 排布
+    """
+    ...
+
+def py_vsld_names() -> List[str]:
+    """返回 22200 个因子名（EP1_EP2_EP3_EP4_ 前缀 + 降维统计后缀）。"""
+    ...
+
+def py_vsld_from_data(
+    codes: List[str],
+    trade_arrays: List["numpy.ndarray"],
+) -> Tuple[List[str], List[float]]:
+    """v2 入口：Python 传 codes + per-stock 逐笔数组算因子（样例验证用）。
+
+    参数
+    ----
+    codes : List[str]
+        股票代码列表（长度 n_stocks）
+    trade_arrays : List[numpy.ndarray]
+        每股一个 (n_i, 7) 数组，列序与 read_trade_fast 一致：
+        [time_sec, price, volume, turnover, flag, bid_order, ask_order]
+    """
+    ...
+
 def py_hot_stock_pool(date: int) -> Tuple[List[str], List[float]]:
     """计算同热点股票池因子。
 
@@ -593,6 +634,9 @@ __all__ = [
     "run_factor_pipeline_cross_section",
     "py_cross_section_example",
     "py_cross_section_example_names",
+    "py_vsld",
+    "py_vsld_names",
+    "py_vsld_from_data",
     "py_hot_stock_pool",
     "py_hot_stock_pool_names",
     "py_compute_drop_event_features",
