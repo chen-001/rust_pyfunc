@@ -112,7 +112,8 @@ impl XorShift64 {
         if n == 0 {
             return 0;
         }
-        ((self.next_u64() >> 32) as u64).wrapping_mul(n as u64) as usize >> 32
+        // 全程在 u64 上完成乘法与移位，避免 32 位平台 usize 截断后 >> 32 溢出
+        ((self.next_u64() >> 32).wrapping_mul(n as u64) >> 32) as usize
     }
 }
 
