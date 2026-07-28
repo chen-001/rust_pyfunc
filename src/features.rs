@@ -439,32 +439,23 @@ fn lz_complexity_simple(seq: &[u8]) -> usize {
 struct SamState {
     len: usize,
     link: Option<usize>,
-    transitions: Vec<(u8, usize)>,
+    // LZ 复杂度只用 3 个符号(1,2,3)，直接索引数组替代 Vec 堆分配
+    // transitions[sym] = target state，usize::MAX 表示无 transition
+    transitions: [usize; 4],
 }
 
 impl SamState {
     fn new(len: usize) -> Self {
-        Self {
-            len,
-            link: None,
-            transitions: Vec::with_capacity(2),
-        }
+        Self { len, link: None, transitions: [usize::MAX; 4] }
     }
     #[inline]
     fn get(&self, c: u8) -> Option<usize> {
-        self.transitions
-            .iter()
-            .find_map(|&(ch, state)| if ch == c { Some(state) } else { None })
+        let t = self.transitions[c as usize];
+        if t == usize::MAX { None } else { Some(t) }
     }
     #[inline]
     fn set(&mut self, c: u8, state: usize) {
-        for (ch, target) in &mut self.transitions {
-            if *ch == c {
-                *target = state;
-                return;
-            }
-        }
-        self.transitions.push((c, state));
+        self.transitions[c as usize] = state;
     }
 }
 

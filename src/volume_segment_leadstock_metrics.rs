@@ -339,14 +339,23 @@ fn select_segments(consist: &[f64], ep4: &str) -> Vec<usize> {
     s
 }
 
-/// 单 case 全市场因子：core(n×100) + ep4 → n×148 因子向量。
-/// 优化：corr 矩阵用 ndarray dot(matrixmultiply GEMM)，结果直接 as_slice 引用（不 to_vec）。
-fn case_factors(core: &[f64], n: usize, ep4: &str) -> Vec<f32> {
-    let lead = top20_per_col(core, n);
-    let consist = consistency(core, &lead);
-    let sel = select_segments(&consist, ep4);
+/// shared 因子数：方法1(4×23) + 方法2(10) + 步骤7b(23) = 125
+const SHARED_FACS: usize = 4 * N_STATS + 10 + N_STATS;
+/// 步骤7a 因子数：core 降维 23
+const STEP7A_FACS: usize = N_STATS;
+
+/// 共享部分：给定 core(n×100) + lead + consist + ep4，算 corr + 方法1 + 方法2 + 步骤7b。
+/// lead/consist 由调用方预计算（同 core 的 5 个 ep4 共享），省 5x top20+consistency。
+/// 返回 (shared_facs[n×125], sel)。raw/ratio 调用方共用此结果（Pearson 不变性）。
+fn shared_factors_from_precomputed(
+    core: &[f64],
+    n: usize,
+    lead: &[usize],
+    consist: &[f64],
+    ep4: &str,
+) -> (Vec<f32>, Vec<usize>) {
+    let sel = select_segments(consist, ep4);
     let k = sel.len();
-    // core_sel [n×k]：原始值（步骤7a）+ z [n×k] f64：行标准化（用于 Pearson 相关矩阵）
     let mut core_sel = vec![0f64; n * k];
     let mut z = vec![0f64; n * k];
     for i in 0..n {
@@ -363,12 +372,10 @@ fn case_factors(core: &[f64], n: usize, ep4: &str) -> Vec<f32> {
             zi[si] = (ci[si] - m) / denom;
         }
     }
-    // corr = z · zᵀ / k（f64 matrixmultiply GEMM，as_slice 零拷贝引用避免 to_vec）
     let zv = ndarray::ArrayView2::from_shape((n, k), &z).unwrap();
     let corr_arr = zv.dot(&zv.t()) / (k as f64);
     let corr: &[f64] = corr_arr.as_slice().unwrap();
 
-    // 预分配复用 buffer
     let mut mi = vec![0f64; k * 20];
     let mut rmean = vec![0f64; k];
     let mut rstd = vec![0f64; k];
@@ -377,17 +384,17 @@ fn case_factors(core: &[f64], n: usize, ep4: &str) -> Vec<f32> {
     let mut cr = vec![0f64; n];
     let mut f32buf = vec![0f32; n];
 
-    let mut out = vec![0f32; n * FACS_PER_CASE];
+    // shared_facs layout: 方法1(92) + 方法2(10) + 步骤7b(23) = 125
+    let mut out = vec![0f32; n * SHARED_FACS];
     for i in 0..n {
-        let chunk = &mut out[i * FACS_PER_CASE..(i + 1) * FACS_PER_CASE];
-        // 步骤5: mi[s*20+j] = corr[i, lead[j*100+sel[s]]]（查表 O(1)）
+        // 步骤5: mi 拼装
         for s in 0..k {
             for j in 0..20 {
                 mi[s * 20 + j] = corr[i * n + lead[j * 100 + sel[s]]];
             }
         }
         let mut pos = 0usize;
-        // 方法1: 行 mean/std/skew/top5
+        // 方法1: 行 mean/std/skew/top5 (92 因子)
         for s in 0..k {
             let row = &mi[s * 20..s * 20 + 20];
             rmean[s] = row.iter().sum::<f64>() / 20.0;
@@ -398,19 +405,18 @@ fn case_factors(core: &[f64], n: usize, ep4: &str) -> Vec<f32> {
             rs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
             rtop5[s] = rs[15..20].iter().sum::<f64>() / 5.0;
         }
+        let chunk = &mut out[i * SHARED_FACS..(i + 1) * SHARED_FACS];
         for seq in [&rmean, &rstd, &rskew, &rtop5] {
             for x in reduce_single_buf(seq, &mut f32buf) {
                 chunk[pos] = x;
                 pos += 1;
             }
         }
-        // 方法2: 20列协方差(ddof=1)上三角10统计
+        // 方法2: 协方差上三角 10 统计
         let mut colmean = [0f64; 20];
         for j in 0..20 {
             let mut acc = 0f64;
-            for r in 0..k {
-                acc += mi[r * 20 + j];
-            }
+            for r in 0..k { acc += mi[r * 20 + j]; }
             colmean[j] = acc / k as f64;
         }
         let mut cov = [0f64; 400];
@@ -423,72 +429,61 @@ fn case_factors(core: &[f64], n: usize, ep4: &str) -> Vec<f32> {
                 cov[a * 20 + b] = acc / (k - 1) as f64;
             }
         }
-        let mut up_sum = 0f64;
-        let mut up_abs_sum = 0f64;
-        let mut pos_sum = 0f64;
-        let mut pos_cnt = 0usize;
-        let mut up_sq = 0f64;
-        let mut up_abs_sq = 0f64;
-        let mut pos_sq = 0f64;
-        let mut up_cb = 0f64;
-        let mut up_abs_cb = 0f64;
-        let mut pos_cb = 0f64;
+        let (mut up_sum, mut up_abs_sum) = (0f64, 0f64);
+        let (mut pos_sum, mut pos_cnt) = (0f64, 0usize);
+        let (mut up_sq, mut up_abs_sq, mut pos_sq) = (0f64, 0f64, 0f64);
+        let (mut up_cb, mut up_abs_cb, mut pos_cb) = (0f64, 0f64, 0f64);
         for a in 0..20 {
             for b in (a + 1)..20 {
                 let v = cov[a * 20 + b];
                 let av = v.abs();
-                up_sum += v;
-                up_abs_sum += av;
-                up_sq += v * v;
-                up_abs_sq += av * av;
-                up_cb += v * v * v;
-                up_abs_cb += av * av * av;
-                if v > 0.0 {
-                    pos_sum += v;
-                    pos_sq += v * v;
-                    pos_cb += v * v * v;
-                    pos_cnt += 1;
-                }
+                up_sum += v; up_abs_sum += av;
+                up_sq += v * v; up_abs_sq += av * av;
+                up_cb += v * v * v; up_abs_cb += av * av * av;
+                if v > 0.0 { pos_sum += v; pos_sq += v * v; pos_cb += v * v * v; pos_cnt += 1; }
             }
         }
         let n_up = 190f64;
         let pos_mean = if pos_cnt > 0 { pos_sum / pos_cnt as f64 } else { 0.0 };
         let up_std = ((up_sq / n_up) - (up_sum / n_up).powi(2)).max(0.0).sqrt();
         let up_abs_std = ((up_abs_sq / n_up) - (up_abs_sum / n_up).powi(2)).max(0.0).sqrt();
-        let pos_std = if pos_cnt > 0 {
-            ((pos_sq / pos_cnt as f64) - pos_mean.powi(2)).max(0.0).sqrt()
-        } else {
-            0.0
-        };
+        let pos_std = if pos_cnt > 0 { ((pos_sq / pos_cnt as f64) - pos_mean.powi(2)).max(0.0).sqrt() } else { 0.0 };
         let m2 = [
-            up_abs_sum,
-            up_sum,
-            pos_sum,
-            pos_mean,
-            up_std,
-            up_abs_std,
-            pos_std,
+            up_abs_sum, up_sum, pos_sum, pos_mean, up_std, up_abs_std, pos_std,
             skew_from_moments(up_sum, up_sq, up_cb, n_up),
             skew_from_moments(up_abs_sum, up_abs_sq, up_abs_cb, n_up),
             if pos_cnt > 0 { skew_from_moments(pos_sum, pos_sq, pos_cb, pos_cnt as f64) } else { 0.0 },
         ];
-        for x in m2 {
-            chunk[pos] = x as f32;
-            pos += 1;
-        }
-        // 步骤7a: core_sel 行降维
-        for x in reduce_single_buf(&core_sel[i * k..(i + 1) * k], &mut f32buf) {
-            chunk[pos] = x;
-            pos += 1;
-        }
-        // 步骤7b: corr 行(自相关置NaN)降维（长序列优化降维）
+        for x in m2 { chunk[pos] = x as f32; pos += 1; }
+        // 步骤7b: corr 行降维 (23 因子)
         cr.copy_from_slice(&corr[i * n..(i + 1) * n]);
         cr[i] = f64::NAN;
-        for x in reduce_single_long(&cr, &mut f32buf) {
-            chunk[pos] = x;
-            pos += 1;
+        for x in reduce_single_long(&cr, &mut f32buf) { chunk[pos] = x; pos += 1; }
+        debug_assert_eq!(pos, SHARED_FACS);
+    }
+    (out, sel)
+}
+
+/// 步骤7a：给定 core(n×100) + sel + ep3，算每股 core_sel 降维 (23 因子)。
+fn step7a_factors(core: &[f64], n: usize, sel: &[usize], ep3: &str) -> Vec<f32> {
+    let k = sel.len();
+    let mut f32buf = vec![0f32; k];
+    let mut out = vec![0f32; n * STEP7A_FACS];
+    for i in 0..n {
+        let mut ci = vec![0f64; k];
+        for (si, &s) in sel.iter().enumerate() {
+            ci[si] = core[i * 100 + s];
         }
-        debug_assert_eq!(pos, FACS_PER_CASE);
+        if ep3 == "ratio" {
+            let rowsum: f64 = ci.iter().sum();
+            if rowsum > 1e-12 {
+                for v in ci.iter_mut() { *v /= rowsum; }
+            }
+        }
+        let chunk = &mut out[i * STEP7A_FACS..(i + 1) * STEP7A_FACS];
+        for (j, x) in reduce_single_buf(&ci, &mut f32buf).into_iter().enumerate() {
+            chunk[j] = x;
+        }
     }
     out
 }
@@ -563,10 +558,18 @@ fn compute_from_flat(
         s_flag[pos] = flags[i];
     }
 
-    // q40（全局单笔成交体量40%分位）
+    // q40（全局单笔成交体量40%分位）—— quickselect O(n) 替代全排序 O(n log n)
+    // percentile_sorted 做线性插值: rank=0.40*(n-1), 取 sorted[lo] 和 sorted[hi=lo+1] 插值
     let mut all_vols = s_vol.clone();
-    all_vols.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
-    let q40 = percentile_sorted(&all_vols, 40.0);
+    let m = all_vols.len();
+    let rank = 0.40 * (m as f64 - 1.0);
+    let lo = rank.floor() as usize;
+    let frac = rank - lo as f64;
+    // quickselect 到 lo+1 位置：保证 all_vols[lo] 和 all_vols[lo+1] 都正确就位
+    if lo + 1 < m {
+        let _ = all_vols.select_nth_unstable_by(lo + 1, |a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+    }
+    let q40 = all_vols[lo] + frac * (all_vols[(lo + 1).min(m - 1)] - all_vols[lo]);
 
     // build_core × 15（rayon 并行：15 个 (ep1,ep2) 组合独立，每个顺序遍历重排后数据）
     let combos: Vec<(&str, &str)> = EP2S
@@ -580,6 +583,49 @@ fn compute_from_flat(
         })
         .collect();
 
+    // ★ 共享优化：Pearson 相关对 ratio 变换不变 → 方法1+方法2+步骤7b(125因子)
+    //   对 raw/ratio 完全相同，只需算 75 组 (ep1,ep2,ep4)，而非 150 组。
+    //   且 lead(top20) + consist 只依赖 core，同 core 的 5 个 ep4 共享 → 只算 15 次。
+    // 预计算 15 个 core 的 lead + consist
+    let lead_consist: Vec<(Vec<usize>, Vec<f64>)> = cores
+        .par_iter()
+        .map(|(raw, nonempty)| {
+            if !nonempty {
+                return (Vec::new(), Vec::new());
+            }
+            let lead = top20_per_col(raw, n_stocks);
+            let consist = consistency(raw, &lead);
+            (lead, consist)
+        })
+        .collect();
+
+    // shared_groups: (core_idx, ep4)，共 75 组
+    let shared_groups: Vec<(usize, &str)> = (0..3)
+        .flat_map(|e2i| {
+            (0..5).flat_map(move |e1i| {
+                let ci = e2i * 5 + e1i;
+                EP4S.iter().map(move |&ep4| (ci, ep4))
+            })
+        })
+        .collect();
+    // 算 75 组 shared（lead/consist 已预计算）
+    let shared: Vec<(Vec<f32>, Vec<usize>)> = shared_groups
+        .par_iter()
+        .map(|&(ci, ep4)| {
+            let (raw, nonempty) = &cores[ci];
+            if !nonempty {
+                return (vec![f32::NAN; n_stocks * SHARED_FACS], Vec::new());
+            }
+            let (lead, consist) = &lead_consist[ci];
+            shared_factors_from_precomputed(raw, n_stocks, lead, consist, ep4)
+        })
+        .collect();
+    // shared_idx_map: (core_idx, ep4) → shared 数组下标
+    let mut shared_idx_map: std::collections::HashMap<(usize, &str), usize> =
+        std::collections::HashMap::new();
+    for (si, &(ci, ep4)) in shared_groups.iter().enumerate() {
+        shared_idx_map.insert((ci, ep4), si);
+    }
     // 150 个 case 规格: (core_idx, ep3, ep4)，顺序与 vsld_names 一致
     let specs: Vec<(usize, &str, &str)> = (0..3)
         .flat_map(|e2i| {
@@ -591,37 +637,34 @@ fn compute_from_flat(
             })
         })
         .collect();
-    // case 级 rayon 并行（case 间独立），case 内逐股串行（避免嵌套 rayon）
-    let case_facs: Vec<Vec<f32>> = specs
+    // step7a: 每个 case 单独算（raw/ratio 不同），rayon 并行
+    let step7a_all: Vec<Vec<f32>> = specs
         .par_iter()
         .map(|&(ci, ep3, ep4)| {
             let (raw, nonempty) = &cores[ci];
-            if !nonempty {
-                return vec![f32::NAN; n_stocks * FACS_PER_CASE];
+            let si = shared_idx_map[&(ci, ep4)];
+            let sel = &shared[si].1;
+            if !nonempty || sel.is_empty() {
+                return vec![f32::NAN; n_stocks * STEP7A_FACS];
             }
-            let core_t = if ep3 == "ratio" {
-                let mut r = raw.clone();
-                for i in 0..n_stocks {
-                    let rowsum: f64 = r[i * 100..(i + 1) * 100].iter().sum();
-                    if rowsum > 1e-12 {
-                        for j in 0..100 {
-                            r[i * 100 + j] /= rowsum;
-                        }
-                    }
-                }
-                r
-            } else {
-                raw.clone()
-            };
-            case_factors(&core_t, n_stocks, ep4)
+            step7a_factors(raw, n_stocks, sel, ep3)
         })
         .collect();
 
-    // 按 stock-major 输出
+    // 按 stock-major 拼接输出
+    // case 148 因子 = shared[0:102](方法1+方法2) + step7a[0:23](步骤7a) + shared[102:125](步骤7b)
     let mut out = Vec::with_capacity(n_stocks * N_FACTORS);
     for i in 0..n_stocks {
-        for cf in &case_facs {
-            out.extend_from_slice(&cf[i * FACS_PER_CASE..(i + 1) * FACS_PER_CASE]);
+        for (case_idx, &(ci, _ep3, ep4)) in specs.iter().enumerate() {
+            let si = shared_idx_map[&(ci, ep4)];
+            let shared_facs = &shared[si].0;
+            let s7a = &step7a_all[case_idx];
+            // 方法1+方法2 (0:102)
+            out.extend_from_slice(&shared_facs[i * SHARED_FACS..i * SHARED_FACS + 102]);
+            // 步骤7a (102:125)
+            out.extend_from_slice(&s7a[i * STEP7A_FACS..(i + 1) * STEP7A_FACS]);
+            // 步骤7b (125:148)
+            out.extend_from_slice(&shared_facs[i * SHARED_FACS + 102..(i + 1) * SHARED_FACS]);
         }
     }
     (codes.to_vec(), out)
