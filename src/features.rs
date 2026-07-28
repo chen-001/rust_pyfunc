@@ -21,7 +21,7 @@ use std::collections::HashMap;
 
 /// 单列均值（跳过 NaN，空列返回 NaN）。对齐 pandas df.mean()。
 #[inline]
-fn col_mean(col: &[f32]) -> f32 {
+pub(crate) fn col_mean(col: &[f32]) -> f32 {
     let (sum, n) = col.iter().fold((0.0f32, 0usize), |(s, c), &v| {
         if v.is_nan() {
             (s, c)
@@ -38,7 +38,7 @@ fn col_mean(col: &[f32]) -> f32 {
 
 /// 单列标准差（样本标准差 ddof=1，对齐 pandas df.std()）。空或单元素返回 NaN。
 #[inline]
-fn col_std(col: &[f32]) -> f32 {
+pub(crate) fn col_std(col: &[f32]) -> f32 {
     let valid: Vec<f32> = col.iter().filter(|&&v| !v.is_nan()).copied().collect();
     let n = valid.len();
     if n < 2 {
@@ -52,7 +52,7 @@ fn col_std(col: &[f32]) -> f32 {
 /// 单列偏度（对齐 pandas df.skew()，基于 G1 偏度估计量，用 k-statistic）。
 /// n<3 返回 NaN。公式：g1 = k3/k2^1.5，其中 k2=S2/(n-1)，k3=n*S3/((n-1)(n-2))。
 #[inline]
-fn col_skew(col: &[f32]) -> f32 {
+pub(crate) fn col_skew(col: &[f32]) -> f32 {
     let valid: Vec<f32> = col.iter().filter(|&&v| !v.is_nan()).copied().collect();
     let n = valid.len();
     if n < 3 {
@@ -81,7 +81,7 @@ fn col_skew(col: &[f32]) -> f32 {
 ///   k2 = S2/(n-1)
 ///   k4 = n*[(n+1)*S4 - 3*(n-1)*S2^2/n] / [(n-1)*(n-2)*(n-3)]
 #[inline]
-fn col_kurt(col: &[f32]) -> f32 {
+pub(crate) fn col_kurt(col: &[f32]) -> f32 {
     let valid: Vec<f32> = col.iter().filter(|&&v| !v.is_nan()).copied().collect();
     let n = valid.len();
     if n < 4 {
@@ -151,7 +151,7 @@ fn col_quantile(col: &[f32], q: f32) -> f32 {
 /// 计算一维序列与 [1,2,...,n] 的 Pearson 相关系数（趋势）。
 /// 对齐 time_series/trend_mod.rs 的 calculate_trend_1d（过滤 NaN）。
 #[inline]
-fn trend_1d(col: &[f32]) -> f32 {
+pub(crate) fn trend_1d(col: &[f32]) -> f32 {
     // 过滤 NaN，保留有效值及其原始索引（1-based）
     let pairs: Vec<(usize, f32)> = col
         .iter()
@@ -184,7 +184,7 @@ fn trend_1d(col: &[f32]) -> f32 {
 /// 无量纲 [-1,1]：>0 凹(U型，中间低两头高)，<0 凸(倒U型，中间高两头低)，≈0 无二阶弯曲。
 /// 对等距索引，t 与 (t−t̄)² 正交，故 curvature 与 trend 解耦、不冗余。
 #[inline]
-fn curvature_1d(col: &[f32]) -> f32 {
+pub(crate) fn curvature_1d(col: &[f32]) -> f32 {
     let pairs: Vec<(f64, f64)> = col
         .iter()
         .enumerate()
@@ -251,7 +251,7 @@ fn solve3(mut m: [[f64; 4]; 3]) -> Option<[f64; 3]> {
 /// 与 curvature 互补：curvature 看"二阶方向一致度"，quad_coef 看"二次项相对线性项的边际解释方差"。
 /// 无量纲 [-1,1]：0=纯线性无弯曲，|·|→1=方差几乎全由二次项解释；正=凹(U型)，负=凸(倒U型)。
 #[inline]
-fn quad_coef_1d(col: &[f32]) -> f32 {
+pub(crate) fn quad_coef_1d(col: &[f32]) -> f32 {
     let pts: Vec<(f64, f64)> = col
         .iter()
         .enumerate()
@@ -307,7 +307,7 @@ fn quad_coef_1d(col: &[f32]) -> f32 {
 
 /// 两列的 Pearson 相关系数（共同有效位置）。对齐 pandas corr。
 #[inline]
-fn corr_pair(col_i: &[f32], col_j: &[f32]) -> f32 {
+pub(crate) fn corr_pair(col_i: &[f32], col_j: &[f32]) -> f32 {
     let pairs: Vec<(f32, f32)> = col_i
         .iter()
         .zip(col_j.iter())
@@ -335,7 +335,7 @@ fn corr_pair(col_i: &[f32], col_j: &[f32]) -> f32 {
 }
 
 /// LZ 复杂度（精确复制自 lz_complexity.rs）。分位数离散化 [0.33, 0.66] + 归一化。
-fn lz_complexity_1d(col: &[f32]) -> f32 {
+pub(crate) fn lz_complexity_1d(col: &[f32]) -> f32 {
     // 过滤 NaN/inf，只用有效值（与 col_mean 等一致，避免单点 NaN 污染整列复杂度）
     let valid: Vec<f32> = col.iter().copied().filter(|v| v.is_finite()).collect();
     let n = valid.len();
@@ -558,7 +558,7 @@ fn lz_complexity_suffix_automaton(seq: &[u8]) -> usize {
 }
 
 /// 分箱熵（复制自 entropy_analysis.rs）。等宽分箱 + Shannon 熵。
-fn binned_entropy_1d(col: &[f32], n_bins: usize) -> f32 {
+pub(crate) fn binned_entropy_1d(col: &[f32], n_bins: usize) -> f32 {
     let valid: Vec<f32> = col.iter().filter(|&&v| !v.is_nan()).copied().collect();
     if valid.is_empty() {
         return 0.0;
@@ -601,7 +601,7 @@ fn binned_entropy_1d(col: &[f32], n_bins: usize) -> f32 {
 /// 最大范围积的严格对齐版（复制自 sequence/mod.rs 的双指针逻辑）。
 /// 返回 abs(idx1 - idx2)/n，其中 idx1,idx2 是 find_max_range_product 返回的两个索引。
 /// 注意：Python 的 _calc_max_range_product 取的是 abs(索引1-索引2)/n，不是值差。
-fn max_range_product_strict(col: &[f32]) -> f32 {
+pub(crate) fn max_range_product_strict(col: &[f32]) -> f32 {
     let valid: Vec<f32> = col.iter().filter(|&&v| !v.is_nan()).copied().collect();
     let n_total = col.len(); // Python 用 series.shape[0]（含NaN的原长度）
     let n = valid.len();
