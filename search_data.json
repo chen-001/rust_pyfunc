@@ -1482,6 +1482,26 @@
     "params": []
   },
   {
+    "name": "py_hot_stock_pool",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_hot_stock_pool_names",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_hot_stock_pool_v2",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_hot_stock_pool_z_stats",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
     "name": "py_individual_order_ratio",
     "description": "<p>无文档</p>",
     "params": []
@@ -1588,6 +1608,21 @@
   },
   {
     "name": "py_urgency_names",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_vsld",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_vsld_from_data",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_vsld_names",
     "description": "<p>无文档</p>",
     "params": []
   },
