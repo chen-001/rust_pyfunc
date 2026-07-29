@@ -1,7 +1,7 @@
 //! 盘口快照挂单失衡模拟退火恢复因子。
 //!
 //! 读盘口快照 → 构造 4 种失衡序列（一档差/五档差/十档差/总差）→
-//! 每序列按 6 窗口 × 4 分位切 24 段 → 每段跑确定性模拟退火 → 提取 25 因子。
+//! 每序列按 6 窗口 × 4 分位（对称 20/60/20）切 24 段 → 每段跑确定性模拟退火 → 提取 25 因子。
 //! 另有逐分钟（237 分钟）× 4 种失衡 × 25 因子 = 237×100 矩阵，
 //! 经 get_features_factors_rust_full 降维。
 //!
@@ -9,7 +9,7 @@
 //! 同股同日反复运算结果逐比特相同。
 
 use crate::anneal_volume_metrics::{
-    adaptive_m_max, anneal, AnnealBuf, Quantile, FACTOR_NAMES, M_MAX_MINUTE, M_MAX_SCALAR,
+    adaptive_m_max, anneal, AnnealBuf, FACTOR_NAMES, M_MAX_MINUTE, M_MAX_SCALAR,
     N_FACTORS, N_MINUTES, WINDOW_BOUNDS, WINDOW_NAMES,
 };
 use crate::fast_csv_reader::{read_market_fast_inner, MarketRecord};
@@ -17,6 +17,29 @@ use crate::features;
 use ndarray::Array2;
 use numpy::{PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::prelude::*;
+
+// ============================================================================
+// 对称分位枚举（20/60/20，适配挂单失衡的双极对称分布）
+// ============================================================================
+
+#[derive(Clone, Copy, PartialEq)]
+enum Quantile {
+    All,
+    Top20,
+    Mid60,
+    Bot20,
+}
+
+impl Quantile {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Quantile::All => "all",
+            Quantile::Top20 => "top20",
+            Quantile::Mid60 => "mid60",
+            Quantile::Bot20 => "bot20",
+        }
+    }
+}
 
 // ============================================================================
 // 失衡类型定义
@@ -70,7 +93,7 @@ impl ImbType {
 // ============================================================================
 
 pub const N_IMB_TYPES: usize = 4;
-pub const N_QUANTILES: usize = 4; // all, top10, mid50, bot40
+pub const N_QUANTILES: usize = 4; // all, top20, mid60, bot20（对称）
 pub const N_WINDOWS: usize = 6;
 pub const N_SEGMENTS_PER_TYPE: usize = N_WINDOWS * N_QUANTILES; // 24
 pub const N_SCALAR: usize = N_IMB_TYPES * N_SEGMENTS_PER_TYPE * N_FACTORS; // 2400
@@ -84,7 +107,7 @@ pub const EXPECTED_LEN: usize = N_SCALAR + N_REDUCED; // 2400 + 7050 = 9450
 // ============================================================================
 
 fn segment_defs() -> Vec<(ImbType, usize, Quantile)> {
-    let quantiles = [Quantile::All, Quantile::Top10, Quantile::Mid50, Quantile::Bot40];
+    let quantiles = [Quantile::All, Quantile::Top20, Quantile::Mid60, Quantile::Bot20];
     let mut segs = Vec::with_capacity(N_IMB_TYPES * N_WINDOWS * N_QUANTILES);
     for &imb in ImbType::all().iter() {
         for win_idx in 0..N_WINDOWS {
@@ -222,17 +245,17 @@ fn quantile_filter_from_sorted(
         return volumes.to_vec();
     }
     let (start, end) = match q {
-        Quantile::Top10 => {
-            let k = ((n as f64) * 0.1).ceil() as usize;
+        Quantile::Top20 => {
+            let k = ((n as f64) * 0.2).ceil() as usize;
             (0, k.max(1).min(n))
         }
-        Quantile::Mid50 => {
-            let start = ((n as f64) * 0.1) as usize;
-            let end = ((n as f64) * 0.6) as usize;
+        Quantile::Mid60 => {
+            let start = ((n as f64) * 0.2) as usize;
+            let end = ((n as f64) * 0.8) as usize;
             (start, end.min(n).max(start))
         }
-        Quantile::Bot40 => {
-            let k = ((n as f64) * 0.4) as usize;
+        Quantile::Bot20 => {
+            let k = ((n as f64) * 0.2) as usize;
             (n - k, n)
         }
         Quantile::All => unreachable!(),
