@@ -141,3 +141,90 @@ def base_to_final(
             df = read_factor(base_factor_ver, n, start_date0, end_date, 1, base_hdf5_dir).rank(axis=1)
             finals[name] = _autocorr_df(df, days)
     return finals
+
+
+# ───────────────────── _okay.py 工具函数（替代 okay 文件内的下划线辅助函数） ─────────────────────
+
+def get_factor_names(names_function: str) -> list:
+    """调用 Rust 因子名函数（rp.py_xxx_names() 形式），返回全部因子名列表。"""
+    import rust_pyfunc as rp
+
+    return list(getattr(rp, names_function)())
+
+
+def read_factor_from_colblk(
+    store_dir: str, name: str, start_date: int, end_date: int
+) -> pd.DataFrame:
+    """从 colblk 列式存储读取单个因子，返回 DataFrame(date×stock)。
+
+    替代 okay 文件里的 _read_factor_from_colblk：按 name 取子集，无需重算。
+    """
+    import rust_pyfunc as rp
+
+    info = rp.factor_store_v5_info(store_dir)
+    name_to_idx = {n: i for i, n in enumerate(info["factor_names"])}
+    if name not in name_to_idx:
+        raise KeyError(f"因子 {name} 不在 colblk 存储中")
+
+    tmpl = rp.factor_store_v5_template(store_dir)
+    all_dates = np.asarray(tmpl["dates"], dtype=np.int64)
+    all_stocks = list(tmpl["stocks"])
+
+    tri = rp.factor_store_v5_read_factor(store_dir, name_to_idx[name])
+    mat = np.full((len(all_dates), len(all_stocks)), np.nan)
+    mat[tri["date_id"].astype(int), tri["code_id"].astype(int)] = tri["factor"]
+
+    mask = (all_dates >= start_date) & (all_dates <= end_date)
+    return pd.DataFrame(
+        mat[mask],
+        index=pd.to_datetime(all_dates[mask].astype(str)),
+        columns=all_stocks,
+    )
+
+
+def probe_update_window(
+    colblk_store_dir: str, start_date: int, end_date: int
+) -> tuple:
+    """探测增量更新窗口（运行时动态，可移植）。
+
+    start = colblk 存储已有最大日期（无存储则返回 start_date，适配新服务器首次全量算）
+    end   = /ssd_data/stock 最新原始数据日期（无则返回 end_date）
+    """
+    import rust_pyfunc as rp
+
+    start = start_date
+    if os.path.isdir(colblk_store_dir):
+        tmpl = rp.factor_store_v5_template(colblk_store_dir)
+        dates = [int(d) for d in tmpl["dates"]]
+        start = max(dates) if dates else start_date
+    end = end_date
+    stock_dir = "/ssd_data/stock"
+    if os.path.isdir(stock_dir):
+        raw_dates = [int(d) for d in os.listdir(stock_dir) if d.isdigit()]
+        if raw_dates:
+            end = max(raw_dates)
+    return start, end
+
+
+def cleanup_factor_store(colblk_store_dir: str, ver: str, script_dir: str = None) -> None:
+    """清理批量计算产生的备份数据文件与 colblk 存储目录。
+
+    backup_{ver}* 与 colblk 存储目录是批量计算（全量几千几万个因子）的中间产物，
+    names_save 已单独物化到 hdf5 base，其余因子后续用不上，执行完毕删除。
+    script_dir 默认取调用方脚本目录；colblk 存储目录按传入值清理。
+    """
+    import glob
+    import shutil
+
+    if script_dir is None:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+    removed = []
+    for path in glob.glob(os.path.join(script_dir, f"backup_{ver}*")):
+        if os.path.isfile(path):
+            os.remove(path)
+            removed.append(os.path.basename(path))
+    if os.path.isdir(colblk_store_dir):
+        shutil.rmtree(colblk_store_dir)
+        removed.append(os.path.basename(colblk_store_dir.rstrip("/")))
+    if removed:
+        print(f"🧹 已清理计算过程备份: {removed}")
