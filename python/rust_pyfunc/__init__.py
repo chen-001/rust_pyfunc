@@ -51,6 +51,10 @@ _LAZY_EXPORTS = {
     "haha": (".treevisual", "haha"),
     "treevisual": (".treevisual", None),
     "read_minute_data": (".minute_data_reader", "read_minute_data"),
+    "save_factor": (".factor_io_simple", "save_factor"),
+    "read_factor": (".factor_io_simple", "read_factor"),
+    "get_abs": (".factor_io_simple", "get_abs"),
+    "base_to_final": (".factor_io_simple", "base_to_final"),
 }
 
 _LAZY_MODULE_EXPORTS = {
