@@ -2269,21 +2269,7 @@ pub fn run_factor_pipeline_cross_section(
         )));
     }
 
-    // 拆分 n_jobs → n_workers × threads_per_worker
-    let n_workers_resolved = n_workers.unwrap_or_else(|| (n_jobs / 50).clamp(2, 8));
-    let n_workers = if n_workers_resolved == 0 {
-        1
-    } else {
-        n_workers_resolved
-    };
-    let threads_per_worker = (n_jobs / n_workers).max(1);
-    // 多线程 worker 若绑定到单个核心，子进程中的 Rayon 线程会继承该 affinity，
-    // 标称 N 线程实际退化为单核。仅单线程 worker 才允许单核绑定。
-    let effective_bind_cores = bind_cores && threads_per_worker == 1;
-    if bind_cores && !effective_bind_cores {
-        println!("🧵 cross-section 多线程 worker 自动关闭单核绑定");
-    }
-    println!("📊 横截面 pipeline: n_jobs={n_jobs} → {n_workers} 进程 × {threads_per_worker} 线程");
+    // 拆分 n_jobs → n_workers × threads_per_worker（在 pending 计算之后，见下方 total 处）
 
     let update_mode_enabled = update_mode.unwrap_or(false);
     let n_shards = 8;
@@ -2332,6 +2318,25 @@ pub fn run_factor_pipeline_cross_section(
     };
 
     let total = pending.len();
+
+    // 拆分 n_jobs → n_workers × threads_per_worker（用待处理任务数钳制进程数）
+    // 进程数 = min(按 n_jobs/50 的默认拆分数, 待处理天数)：
+    //   单日更新（tasks=1 天）→ 1 进程 × n_jobs 线程全力算这一天，不 spawn 空闲 worker 浪费资源；
+    //   多日任务保持每进程 ≈50 线程的默认拆分（如 200 → 4 进程 × 50 线程）。
+    // 显式传入 n_workers 时尊重用户指定值。
+    let n_workers = n_workers.unwrap_or_else(|| {
+        let by_jobs = (n_jobs / 50).clamp(2, 8);
+        by_jobs.min(total.max(1))
+    });
+    let threads_per_worker = (n_jobs / n_workers).max(1);
+    // 多线程 worker 若绑定到单个核心，子进程中的 Rayon 线程会继承该 affinity，
+    // 标称 N 线程实际退化为单核。仅单线程 worker 才允许单核绑定。
+    let effective_bind_cores = bind_cores && threads_per_worker == 1;
+    if bind_cores && !effective_bind_cores {
+        println!("🧵 cross-section 多线程 worker 自动关闭单核绑定");
+    }
+    println!("📊 横截面 pipeline: n_jobs={n_jobs} → {n_workers} 进程 × {threads_per_worker} 线程（待处理 {total} 天）");
+
     if total == 0 {
         println!("✅ 所有日期都已完成（cross_section pipeline）");
         // 即使无新任务也投影（断点续算恢复时，之前只写分片未投影）。
