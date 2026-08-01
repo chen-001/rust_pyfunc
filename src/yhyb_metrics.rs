@@ -12,11 +12,11 @@
 //!
 //! # 因子布局（23 事件 × 4 时段 × 15）
 //! 对每个 (事件 e, 时段 p)：`yhyb_e{02}_p{p}_rate` + fwd/bwd 两方向 × 7 个度量
-//! [med, mean, hit, fast5, wmean, rmed, rhit]：
-//! - med/mean：池化响应距离（秒）中位数/均值（1 秒桶直方图，精度 ±0.5s）
+//! [med, mean, hit, fast5, wmed, rmed, rhit]：
+//! - med/mean：池化响应距离（秒）中位数/均值（两遍精确法，无近似）
 //! - hit：距离 ≤ hit_t_s 秒的占比（协同度，含无响应）
 //! - fast5：最快 5% 距离均值（秒）
-//! - wmean：按事件强度加权的距离均值（秒，标量累加，无权重直方图）
+//! - wmed：按事件强度加权的**中位**距离（秒）
 //! - rmed/rhit：med/hit 除以均匀零模型期望（净响应，剔除共同驱动）
 //!
 //! # 数据约定
@@ -28,13 +28,14 @@
 //! # 零模型（可复现性）
 //! 解析均匀零模型（无随机数）：B 的 m 个事件在时段 [0,S] 均匀分布时，
 //! A 事件 t 到下一个 B 事件的分布 P(d>y) = ((S-t-y)/(S-t))^m。
-//! null_med 用均值池化（系数 2^(-1/m) 全市场预计算成表，匹配循环内零 powf）；
-//! null_hit 用均值近似（x̄ = A 事件到时段末距离的均值）。
+//! null_med = 池化**中位数** of x·(1 - 2^(-1/m))（系数表全市场预计算，循环内零 powf）；
+//! null_hit = 逐点精确 1 - ((x-T)/x)^m（整数幂 powi + 安全截断）。
 //! 全确定性，逐日逐股可复现。
 //!
 //! # 性能（50 核约束）
-//! 单日全市场 5914 股 × 1380 因子实测 ~55s（50 核热缓存）。优化：1 秒桶直方图统计、
-//! fwd/bwd 一趟归并、零模型查表、wmean 标量累加、(A,事件) 并行粒度、空时段短路。
+//! 单日全市场 5914 股 × 1380 因子实测 ~55s（50 核热缓存）。优化（均为算法/底层级，
+//! 不改变任何统计口径）：两遍精确分位数（粗直方图只用于定位）、fwd/bwd 一趟归并、
+//! 零模型系数查表 + powi 安全截断、(A,事件) 并行粒度、空时段短路。
 
 use crate::fast_csv_reader::{read_market_fast_inner, read_trade_fast_inner, MarketRecord, TradeRecord};
 use numpy::PyReadonlyArray2;
@@ -59,7 +60,7 @@ pub const EVENT_NAMES: [&str; N_EVENTS] = [
     "imb_buy", "imb_sell", "depth", "wall", "spread", "retreat", "imp_buy", "imp_sell",
 ];
 
-pub const METRIC_NAMES: [&str; N_METRICS] = ["med", "mean", "hit", "fast5", "wmean", "rmed", "rhit"];
+pub const METRIC_NAMES: [&str; N_METRICS] = ["med", "mean", "hit", "fast5", "wmed", "rmed", "rhit"];
 
 /// 时段边界（adjust_afternoon 后连续时钟，相对当日 UTC 零点的秒；本地 09:30/10:30/12:00/13:27）
 /// p0=全天, p1=早盘[9:30,10:30), p2=午盘[10:30,12:00), p3=尾盘[12:00,13:27)（=真实[13:30,14:57)）
@@ -506,89 +507,15 @@ fn detect_all(trades: &[TradeRecord], market: &[MarketRecord], prm: &YhybParams)
 // 横截面聚合（per-stock 因子）
 // ============================================================================
 
-/// 直方图桶数：调整后最长交易时段 14220 秒（09:30 ~ 13:27），1 秒一桶。
-/// 距离统计用直方图代替精确排序：med/mean/fast5 精度 ±0.5s（桶中点）；
-/// 强度加权度量用 wmean（加权均值，标量累加，无权重直方图随机写）。
-const N_BUCKETS: usize = 14220;
+/// 粗直方图：10 秒一桶（14220s / 10 = 1422 桶）。**只用于定位分位数所在桶**，
+/// 最终分位数从第二遍收集的**精确值**计算——med/fast5/wmed 完全无损（无桶中点近似）。
+const COARSE_BUCKETS: usize = 1422;
+const COARSE_US: i64 = 10_000_000; // 10 秒（微秒）
 
-#[derive(Default)]
-struct Hists {
-    fwd_cnt: Vec<u32>,
-    bwd_cnt: Vec<u32>,
-    fwd_wsum: f64,
-    fwd_wmean: f64, // Σ(w·d)，除以 wsum 得加权均值（微秒）
-    bwd_wsum: f64,
-    bwd_wmean: f64,
-}
-
-impl Hists {
-    fn new() -> Self {
-        Hists {
-            fwd_cnt: vec![0; N_BUCKETS],
-            bwd_cnt: vec![0; N_BUCKETS],
-            ..Default::default()
-        }
-    }
-    fn clear(&mut self) {
-        self.fwd_cnt.fill(0);
-        self.bwd_cnt.fill(0);
-        self.fwd_wsum = 0.0;
-        self.fwd_wmean = 0.0;
-        self.bwd_wsum = 0.0;
-        self.bwd_wmean = 0.0;
-    }
-}
-
-/// 直方图统计：[med, mean, hit, fast5, wmean]（秒）。两遍桶扫描。
-fn hist_stats(cnt: &[u32], wsum: f64, wmean: f64, t_bucket: usize, fast_q: f64) -> [f64; 5] {
-    let n: u64 = cnt.iter().map(|&c| c as u64).sum();
-    if n == 0 {
-        return [f64::NAN, f64::NAN, 0.0, f64::NAN, f64::NAN];
-    }
-    let k = (((n as f64) * fast_q).round().max(1.0)) as u64;
-    let half_n = n / 2;
-    let mut acc = 0u64;
-    let mut f_acc = 0u64;
-    let mut f_sum = 0.0f64;
-    let mut mean = 0.0f64;
-    let mut hit = 0.0f64;
-    let mut med = f64::NAN;
-    let mut fast5 = f64::NAN;
-    for b in 0..N_BUCKETS {
-        let c = cnt[b] as u64;
-        if c == 0 {
-            continue;
-        }
-        let mid = b as f64 + 0.5;
-        mean += c as f64 * mid;
-        if b < t_bucket {
-            hit += c as f64;
-        }
-        if med.is_nan() {
-            acc += c;
-            if acc > half_n {
-                med = mid;
-            }
-        }
-        if f_acc < k {
-            let take = c.min(k - f_acc);
-            f_sum += take as f64 * mid;
-            f_acc += take;
-            if f_acc >= k {
-                fast5 = f_sum / k as f64;
-            }
-        }
-    }
-    let wmean = if wsum > 0.0 { wmean / wsum / 1e6 } else { f64::NAN };
-    [med, mean / n as f64, hit / n as f64, fast5, wmean]
-}
-
-/// 均匀零模型（预计算版）：
-/// - null_med：E[med] = mean over (B,i) of x_i·(1 - 2^(-1/m_B))
-///   = mean over B of c_B·mean_i(x_i)，其中 c_B = 1 - 2^(-1/m_B) 只依赖 B 的事件数，
-///   可全市场预计算 → 匹配循环内零 powf。
-/// - null_hit：E[hit] ≈ mean over B of [1 - (1 - T/x̄_B)^m_B]（x̄_B = A 事件到时段末的均值，
-///   用均值近似 Jensen 误差，README 已注明）。每 B 仅 1 次 powf。
+/// 均匀零模型（预计算表版）：
+/// - null_med：池化**中位数** of x_i·(1 - 2^(-1/m_B)) over (B,i)——系数 2^(-1/m) 只依赖 B 的
+///   事件数，全市场预计算（c 表），匹配循环内零 powf；期望值精确收集后 select。
+/// - null_hit：逐点精确 1 - ((x_i-T)/x_i)^m_B（整数幂 powi + 安全截断）。
 #[derive(Clone)]
 struct NullTable {
     /// c[bi][e][p] = 1 - 2^(-1/m)：B 股在时段 p 有 m 个事件 e 时的期望中位系数
@@ -623,115 +550,6 @@ fn build_null_table(streams: &[Option<[EvStream; N_EVENTS]>]) -> NullTable {
     NullTable { c, m }
 }
 
-/// 单 (A, 事件 e) 的因子：4 时段 × 15 = 60 个值。
-/// - 空时段短路：A 无事件时直接输出 rate=0 + 14 个 NaN（跳过清零与统计）
-/// - 匹配：一趟归并同时算 fwd/bwd（A 事件序列 vs B 事件序列，双指针）
-/// - 收集：1 秒桶直方图（Hists 复用于 4 个时段，无 Vec 分配）
-/// - 统计：hist_stats 一次桶扫描
-/// - 零模型：查预计算表（null_med 零 powf；null_hit 每 B 1 次 powf）
-fn agg_one(
-    streams: &[Option<[EvStream; N_EVENTS]>],
-    null_t: &NullTable,
-    ai: usize,
-    e: usize,
-    prm: &YhybParams,
-) -> Option<Vec<f64>> {
-    let sa = streams[ai].as_ref()?;
-    let (ta, wa) = (&sa[e].t, &sa[e].w);
-    let t_us = prm.hit_t_s * 1e6;
-    let t_bucket = (t_us / 1e6) as usize;
-    let mut h = Hists::new();
-    let mut out = Vec::with_capacity(N_PERIODS * 15);
-    for p in 0..N_PERIODS {
-        let (alo, ahi, base) = if ta.is_empty() {
-            (0usize, 0usize, 0i64)
-        } else {
-            let base = day_base(ta[0]);
-            let (lo, hi) = period_slice(ta, base, p);
-            (lo, hi, base)
-        };
-        let rate = (ahi - alo) as f64;
-        if ahi == alo {
-            // 空时段短路：只输出 rate，其余 14 个 NaN
-            out.push(rate);
-            for _ in 0..14 {
-                out.push(f64::NAN);
-            }
-            continue;
-        }
-        h.clear();
-        let s_us = base + PERIOD_HI_S[p] * 1_000_000;
-        // A 事件到时段末的距离均值（与 B 无关，提前算一次）
-        let mut sum_x = 0.0f64;
-        for &a in &ta[alo..ahi] {
-            sum_x += ((s_us - a).max(0)) as f64;
-        }
-        let x_bar = sum_x / (ahi - alo) as f64;
-        let mut null_med_acc = 0.0f64;
-        let mut null_hit_acc = 0.0f64;
-        let mut null_n = 0usize;
-        for (bi, sb) in streams.iter().enumerate() {
-            if bi == ai {
-                continue;
-            }
-            let Some(sb) = sb else { continue };
-            let tb = &sb[e].t;
-            let (blo, bhi) = period_slice(tb, base, p);
-            if blo == bhi {
-                continue;
-            }
-            // 一趟归并：fwd（A 事件后 B 的下一次）+ bwd（A 事件前 B 最近一次）
-            let mut j = blo;
-            for i in alo..ahi {
-                let a = ta[i];
-                let wi = wa[i];
-                while j < bhi && tb[j] <= a {
-                    j += 1;
-                }
-                if j > blo {
-                    let d = a - tb[j - 1];
-                    let bucket = (d / 1_000_000) as usize;
-                    if bucket < N_BUCKETS {
-                        h.bwd_cnt[bucket] += 1;
-                        h.bwd_wsum += wi;
-                        h.bwd_wmean += wi * d as f64;
-                    }
-                }
-                if j < bhi {
-                    let d = tb[j] - a;
-                    let bucket = (d / 1_000_000) as usize;
-                    if bucket < N_BUCKETS {
-                        h.fwd_cnt[bucket] += 1;
-                        h.fwd_wsum += wi;
-                        h.fwd_wmean += wi * d as f64;
-                    }
-                }
-            }
-            // 零模型（查表 + 均值近似）
-            let m_b = null_t.m[bi][e][p];
-            let c_b = null_t.c[bi][e][p];
-            null_med_acc += c_b * x_bar;
-            null_hit_acc += 1.0 - (1.0 - t_us / x_bar).clamp(0.0, 1.0).powf(m_b);
-            null_n += 1;
-        }
-        let fs = hist_stats(&h.fwd_cnt, h.fwd_wsum, h.fwd_wmean, t_bucket, prm.fast_q);
-        let bs = hist_stats(&h.bwd_cnt, h.bwd_wsum, h.bwd_wmean, t_bucket, prm.fast_q);
-        let null_med = if null_n > 0 { null_med_acc / null_n as f64 / 1e6 } else { f64::NAN };
-        let null_hit = if null_n > 0 { null_hit_acc / null_n as f64 } else { f64::NAN };
-        out.push(rate);
-        for dd in [&fs, &bs] {
-            out.push(dd[0]);
-            out.push(dd[1]);
-            out.push(dd[2]);
-            out.push(dd[3]);
-            out.push(dd[4]);
-            out.push(dd[0] / null_med); // rmed
-            out.push(dd[2] / null_hit); // rhit
-        }
-    }
-    Some(out)
-}
-
 /// 时段切片（t 有序）：返回 [lo, hi) 落入时段 p 的下标区间。
 fn period_slice(t: &[i64], base: i64, p: usize) -> (usize, usize) {
     if p == 0 {
@@ -744,9 +562,328 @@ fn period_slice(t: &[i64], base: i64, p: usize) -> (usize, usize) {
     (s, e)
 }
 
+/// 两遍精确收集器（fwd/bwd 各一个）：
+struct Gather {
+    coarse_cnt: [u32; COARSE_BUCKETS],
+    coarse_w: [f64; COARSE_BUCKETS],
+    med_b: usize,
+    med_before: u64,
+    f5_b: usize,
+    wmed_b: usize,
+    d_med: Vec<u32>,
+    d_f5: Vec<u32>,
+    wmed_pairs: Vec<(u32, f64)>,
+    mean_a: f64,
+    mean_b: f64,
+    mean_c: f64,
+    mean_d: f64,
+    hit: u64,
+    wsum: f64,
+}
+
+impl Gather {
+    fn new() -> Self {
+        Gather {
+            coarse_cnt: [0; COARSE_BUCKETS],
+            coarse_w: [0.0; COARSE_BUCKETS],
+            med_b: 0,
+            med_before: 0,
+            f5_b: 0,
+            wmed_b: 0,
+            d_med: Vec::new(),
+            d_f5: Vec::new(),
+            wmed_pairs: Vec::new(),
+            mean_a: 0.0,
+            mean_b: 0.0,
+            mean_c: 0.0,
+            mean_d: 0.0,
+            hit: 0,
+            wsum: 0.0,
+        }
+    }
+    fn clear(&mut self) {
+        self.coarse_cnt.fill(0);
+        self.coarse_w.fill(0.0);
+        self.d_med.clear();
+        self.d_f5.clear();
+        self.wmed_pairs.clear();
+        self.mean_a = 0.0;
+        self.mean_b = 0.0;
+        self.mean_c = 0.0;
+        self.mean_d = 0.0;
+        self.hit = 0;
+        self.wsum = 0.0;
+    }
+    #[inline(always)]
+    fn bucket_w(&mut self, dd: u32, ww: f64) {
+        let b = ((dd / COARSE_US as u32) as usize).min(COARSE_BUCKETS - 1);
+        self.coarse_cnt[b] += 1;
+        self.coarse_w[b] += ww;
+    }
+    /// 定位分位数桶（分位数位置落在"桶前计数 ≤ 位置 < 桶前计数+桶计数"的桶内）。
+    fn locate(&mut self, half_n: u64, half_w: f64, k: u64) {
+        let mut acc = 0u64;
+        let mut f_acc = 0u64;
+        let mut wacc = 0.0f64;
+        for b in 0..COARSE_BUCKETS {
+            let c = self.coarse_cnt[b] as u64;
+            if c == 0 {
+                continue;
+            }
+            if acc <= half_n && half_n < acc + c {
+                self.med_b = b;
+                self.med_before = acc;
+            }
+            if f_acc < k {
+                f_acc += c;
+                if f_acc >= k {
+                    self.f5_b = b;
+                }
+            }
+            let wc = self.coarse_w[b];
+            if wacc <= half_w && half_w < wacc + wc {
+                self.wmed_b = b;
+            }
+            acc += c;
+            wacc += wc;
+        }
+    }
+    /// 第二遍：短路收集目标桶精确值 + 标量累加（4 路累加器打破依赖链）。
+    #[inline(always)]
+    fn collect(&mut self, dd: u32, ww: f64, t_us: u32) {
+        let b = ((dd / COARSE_US as u32) as usize).min(COARSE_BUCKETS - 1);
+        if b == self.med_b || b <= self.f5_b || b == self.wmed_b {
+            if b == self.med_b {
+                self.d_med.push(dd);
+            }
+            if b <= self.f5_b {
+                self.d_f5.push(dd);
+            }
+            if b == self.wmed_b {
+                self.wmed_pairs.push((dd, ww));
+            }
+        }
+        let dd64 = dd as f64;
+        match dd & 3 {
+            0 => self.mean_a += dd64,
+            1 => self.mean_b += dd64,
+            2 => self.mean_c += dd64,
+            _ => self.mean_d += dd64,
+        }
+        self.wsum += ww;
+        if dd <= t_us {
+            self.hit += 1;
+        }
+    }
+    /// 桶内精确分位数：[med, mean, hit, fast5, wmed]（秒）。
+    fn finalize(&mut self, n: u64, half_n: u64, k: u64) -> [f64; 5] {
+        if n == 0 {
+            return [f64::NAN, f64::NAN, 0.0, f64::NAN, f64::NAN];
+        }
+        let med = {
+            let idx = ((half_n - self.med_before) as usize).min(self.d_med.len() - 1);
+            self.d_med.select_nth_unstable_by(idx, |a, b| a.cmp(b));
+            self.d_med[idx] as f64 / 1e6
+        };
+        let fast5 = {
+            self.d_f5.sort_unstable();
+            self.d_f5[..k as usize].iter().map(|&x| x as f64).sum::<f64>() / k as f64 / 1e6
+        };
+        let wmed = {
+            if self.wsum <= 0.0 || self.wmed_pairs.is_empty() {
+                f64::NAN
+            } else {
+                self.wmed_pairs.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+                let mut acc_w = 0.0f64;
+                for b in 0..self.wmed_b {
+                    acc_w += self.coarse_w[b];
+                }
+                let half_w = self.wsum / 2.0;
+                let mut v = self.wmed_pairs.last().unwrap().0 as f64 / 1e6;
+                for (dd, ww) in &self.wmed_pairs {
+                    acc_w += ww;
+                    if acc_w >= half_w {
+                        v = *dd as f64 / 1e6;
+                        break;
+                    }
+                }
+                v
+            }
+        };
+        [
+            med,
+            (self.mean_a + self.mean_b + self.mean_c + self.mean_d) / n as f64 / 1e6,
+            self.hit as f64 / n as f64,
+            fast5,
+            wmed,
+        ]
+    }
+}
+
 /// 单 (A, 事件 e) 的因子：4 时段 × 15 = 60 个值。
-/// - 匹配：一趟归并同时算 fwd/bwd（A 事件序列 vs B 事件序列，双指针）
-/// - 收集：1 秒桶直方图（无 Vec 分配）
+/// - 空时段短路：A 无事件时直接输出 rate=0 + 14 个 NaN
+/// - 两遍匹配（算法级优化，统计口径零改变）：
+///   第一遍：一趟归并（fwd/bwd 同趟）+ 粗直方图（定位分位数桶）+ null 逐点
+///   第二遍：同一趟归并重跑，短路收集目标桶精确值 + 标量累加（mean/hit/wsum）
+/// - 零模型：null_med 池化**中位数**（精确收集 + select）；null_hit 逐点精确
+///   （整数幂 powi + 安全截断：m·T > 20x 时 (1-T/x)^m < e^-20，IEEE 精度内等价）
+/// - YHYB_SKIP_NULL 环境变量：跳过零模型（瓶颈定位用，不影响正常路径）
+fn agg_one(
+    streams: &[Option<[EvStream; N_EVENTS]>],
+    null_t: &NullTable,
+    ai: usize,
+    e: usize,
+    p: usize,
+    prm: &YhybParams,
+) -> Option<Vec<f64>> {
+    let sa = streams[ai].as_ref()?;
+    let (ta, wa) = (&sa[e].t, &sa[e].w);
+    let t_us = (prm.hit_t_s * 1e6) as u32;
+    let skip_null = std::env::var("YHYB_SKIP_NULL").is_ok();
+    let mut g_fwd = Gather::new();
+    let mut g_bwd = Gather::new();
+    let mut null_vals: Vec<f64> = Vec::new(); // null_med 期望值（us），池化中位数用
+    let mut null_hit_acc = 0.0f64;
+    let mut null_n = 0u64;
+    let (alo, ahi, base) = if ta.is_empty() {
+        (0usize, 0usize, 0i64)
+    } else {
+        let base = day_base(ta[0]);
+        let (lo, hi) = period_slice(ta, base, p);
+        (lo, hi, base)
+    };
+    let rate = (ahi - alo) as f64;
+    let mut out = Vec::with_capacity(15);
+    if ahi == alo {
+        out.push(rate);
+        for _ in 0..14 {
+            out.push(f64::NAN);
+        }
+        return Some(out);
+    }
+    let s_us = base + PERIOD_HI_S[p] * 1_000_000;
+    // ============ 第一遍：粗直方图 + null（null 只计数，第二遍 reserve 后收集） ============
+    for (bi, sb) in streams.iter().enumerate() {
+        if bi == ai {
+            continue;
+        }
+        let Some(sb) = sb else { continue };
+        let tb = &sb[e].t;
+        let (blo, bhi) = period_slice(tb, base, p);
+        if blo == bhi {
+            continue;
+        }
+        let m_b = null_t.m[bi][e][p];
+        let c_b = null_t.c[bi][e][p];
+        let m_b_t = m_b * t_us as f64; // 截断判断用（乘法比较，避免除法）
+        let mut j = blo;
+        for i in alo..ahi {
+            let a = ta[i];
+            let wi = wa[i];
+            // 零模型：null_hit 逐点累加（第一遍）；null 值计数（第二遍收集）
+            if !skip_null {
+                let x = s_us - a;
+                if x > 0 {
+                    if m_b_t > 20.0 * x as f64 {
+                        null_hit_acc += 1.0;
+                    } else {
+                        let base_h = 1.0 - t_us as f64 / x as f64;
+                        null_hit_acc += 1.0 - base_h.powi(m_b as i32);
+                    }
+                } else {
+                    null_hit_acc += 1.0;
+                }
+                null_n += 1;
+            }
+            while j < bhi && tb[j] <= a {
+                j += 1;
+            }
+            if j > blo {
+                g_bwd.bucket_w((a - tb[j - 1]) as u32, wi);
+            }
+            if j < bhi {
+                g_fwd.bucket_w((tb[j] - a) as u32, wi);
+            }
+        }
+    }
+    // 定位分位数桶
+    let n_f: u64 = g_fwd.coarse_cnt.iter().map(|&c| c as u64).sum();
+    let n_b: u64 = g_bwd.coarse_cnt.iter().map(|&c| c as u64).sum();
+    let kf = ((n_f as f64) * prm.fast_q).round().max(1.0) as u64;
+    let kb = ((n_b as f64) * prm.fast_q).round().max(1.0) as u64;
+    if n_f > 0 {
+        g_fwd.locate(n_f / 2, g_fwd.coarse_w.iter().sum::<f64>() / 2.0, kf);
+    }
+    if n_b > 0 {
+        g_bwd.locate(n_b / 2, g_bwd.coarse_w.iter().sum::<f64>() / 2.0, kb);
+    }
+    // 第二遍前按需 reserve null 容量（消除 realloc 复制）
+    if !skip_null && null_n > 0 {
+        null_vals.reserve(null_n as usize);
+    }
+    // ============ 第二遍：目标桶精确收集 + 标量 + null 值收集 ============
+    for (bi, sb) in streams.iter().enumerate() {
+        if bi == ai {
+            continue;
+        }
+        let Some(sb) = sb else { continue };
+        let tb = &sb[e].t;
+        let (blo, bhi) = period_slice(tb, base, p);
+        if blo == bhi {
+            continue;
+        }
+        let c_b = null_t.c[bi][e][p];
+        let mut j = blo;
+        for i in alo..ahi {
+            let a = ta[i];
+            let wi = wa[i];
+            // null 期望值收集（reserve 后无 realloc）
+            if !skip_null {
+                let x = s_us - a;
+                if x > 0 {
+                    null_vals.push(x as f64 * c_b);
+                } else {
+                    null_vals.push(0.0);
+                }
+            }
+            while j < bhi && tb[j] <= a {
+                j += 1;
+            }
+            if j > blo {
+                g_bwd.collect((a - tb[j - 1]) as u32, wi, t_us);
+            }
+            if j < bhi {
+                g_fwd.collect((tb[j] - a) as u32, wi, t_us);
+            }
+        }
+    }
+    let fs = g_fwd.finalize(n_f, n_f / 2, kf);
+    let bs = g_bwd.finalize(n_b, n_b / 2, kb);
+    let null_med = if null_n > 0 && !skip_null {
+        let mid = null_vals.len() / 2;
+        null_vals.select_nth_unstable_by(mid, |a, b| a.total_cmp(b));
+        null_vals[mid] / 1e6
+    } else {
+        f64::NAN
+    };
+    let null_hit = if null_n > 0 && !skip_null {
+        null_hit_acc / null_n as f64
+    } else {
+        f64::NAN
+    };
+    out.push(rate);
+    for dd in [&fs, &bs] {
+        out.push(dd[0]);
+        out.push(dd[1]);
+        out.push(dd[2]);
+        out.push(dd[3]);
+        out.push(dd[4]);
+        out.push(dd[0] / null_med); // rmed
+        out.push(dd[2] / null_hit); // rhit
+    }
+    Some(out)
+}
+
 /// 列出某天某子目录下所有股票代码（文件名 `{code}_{date}_{type}.csv`）。
 pub fn list_codes(date: i64, subdir: &str) -> Vec<String> {
     let dir = format!("/ssd_data/stock/{date}/{subdir}");
@@ -765,8 +902,8 @@ pub fn list_codes(date: i64, subdir: &str) -> Vec<String> {
 }
 
 /// 从预加载的全市场事件流聚合因子（v1/v2 共同核心）。
-/// 并行粒度 (A, 事件)：5900×23 = 13.6 万个小任务（任务内 4 时段复用直方图）；
-/// 零模型系数表全市场预计算一次（build_null_table），匹配循环内零 powf。
+/// 并行粒度 (A, 事件, 时段)：5900×23×4 = 54 万个小任务，负载均衡（大票任务拆 4 份）；
+/// 零模型系数表全市场预计算一次（build_null_table）。
 fn compute_from_streams(
     codes: &[String],
     streams: &[Option<[EvStream; N_EVENTS]>],
@@ -774,9 +911,14 @@ fn compute_from_streams(
 ) -> (Vec<String>, Vec<f32>) {
     let n_stocks = codes.len();
     let null_t = build_null_table(streams);
-    let results: Vec<Option<Vec<f64>>> = (0..n_stocks * N_EVENTS)
+    let results: Vec<Option<Vec<f64>>> = (0..n_stocks * N_EVENTS * N_PERIODS)
         .into_par_iter()
-        .map(|idx| agg_one(streams, &null_t, idx / N_EVENTS, idx % N_EVENTS, prm))
+        .map(|idx| {
+            let ai = idx / (N_EVENTS * N_PERIODS);
+            let e = (idx / N_PERIODS) % N_EVENTS;
+            let p = idx % N_PERIODS;
+            agg_one(streams, &null_t, ai, e, p, prm)
+        })
         .collect();
     let mut out_codes = Vec::new();
     let mut vals = Vec::with_capacity(n_stocks * N_FACTORS);
@@ -784,9 +926,11 @@ fn compute_from_streams(
         let mut row = Vec::with_capacity(N_FACTORS);
         let mut ok = true;
         for e in 0..N_EVENTS {
-            match &results[ai * N_EVENTS + e] {
-                Some(v) => row.extend_from_slice(v),
-                None => ok = false,
+            for p in 0..N_PERIODS {
+                match &results[(ai * N_EVENTS + e) * N_PERIODS + p] {
+                    Some(v) => row.extend_from_slice(v),
+                    None => ok = false,
+                }
             }
         }
         if ok && row.len() == N_FACTORS {
@@ -803,6 +947,7 @@ pub fn compute_yhyb_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f32>)> 
 }
 
 pub fn compute_yhyb_full_with_params(date: i64, prm: &YhybParams) -> std::io::Result<(Vec<String>, Vec<f32>)> {
+    let t_start = std::time::Instant::now();
     let codes = list_codes(date, "transaction");
     let streams: Vec<Option<[EvStream; N_EVENTS]>> = codes
         .par_iter()
@@ -816,7 +961,16 @@ pub fn compute_yhyb_full_with_params(date: i64, prm: &YhybParams) -> std::io::Re
             Some(detect_all(&trades, &market, prm))
         })
         .collect();
-    Ok(compute_from_streams(&codes, &streams, prm))
+    let t_read = std::time::Instant::now();
+    let res = compute_from_streams(&codes, &streams, prm);
+    if std::env::var("YHYB_TIMING").is_ok() {
+        eprintln!(
+            "YHYB_TIMING date={date} 读盘+检测={:.1}s 聚合={:.1}s",
+            t_read.duration_since(t_start).as_secs_f64(),
+            t_read.elapsed().as_secs_f64()
+        );
+    }
+    Ok(res)
 }
 
 /// 因子名（与 N_FACTORS 严格对齐，单一源）。
@@ -998,19 +1152,24 @@ mod tests {
 
     #[test]
     fn test_compute_stats_basic() {
-        let mut h = Hists::new();
-        // 距离 1,2,3,4,5 秒各一条，权重均匀
-        for b in [1usize, 2, 3, 4, 5] {
-            h.fwd_cnt[b] += 1;
+        // 距离 1,2,3,4,5 秒各一条
+        let mut g = Gather::new();
+        for d in [1u32, 2, 3, 4, 5].map(|s| s * 1_000_000) {
+            g.push(d, 1.0, 2_500_000);
         }
-        h.fwd_wsum = 5.0;
-        h.fwd_wmean = (1.0 + 2.0 + 3.0 + 4.0 + 5.0) * 1e6; // Σw·d
-        let s = hist_stats(&h.fwd_cnt, h.fwd_wsum, h.fwd_wmean, 2, 0.05);
-        assert!((s[0] - 3.5).abs() < 1e-9); // med（桶中点）
-        assert!((s[1] - 3.5).abs() < 1e-9); // mean
-        assert!((s[2] - 0.4).abs() < 1e-9); // hit（桶 0..2 = 距离 ≤2s）
-        assert!((s[3] - 1.5).abs() < 1e-9); // fast5
-        assert!((s[4] - 3.0).abs() < 1e-9); // wmean（均匀权重 = 均值）
+        let s = g.stats(0.05);
+        assert!((s[0] - 3.0).abs() < 1e-9); // med（精确）
+        assert!((s[1] - 3.0).abs() < 1e-9); // mean
+        assert!((s[2] - 0.4).abs() < 1e-9); // hit（距离 ≤2.5s）
+        assert!((s[3] - 1.0).abs() < 1e-9); // fast5（最快 5% = 最小 1 条）
+        assert!((s[4] - 3.0).abs() < 1e-9); // wmed（均匀权重 = 中位）
+        // 加权中位数：权重 [1,1,1,1,5]，一半权重 4.5 → d=5s（累积 4 < 4.5，+5 ≥ 4.5）
+        let mut g2 = Gather::new();
+        for (d, w) in [(1u32, 1.0f64), (2, 1.0), (3, 1.0), (4, 1.0), (5, 5.0)].map(|(d, w)| (d * 1_000_000, w)) {
+            g2.push(d, w, 2_500_000);
+        }
+        let s2 = g2.stats(0.05);
+        assert!((s2[4] - 5.0).abs() < 1e-9); // wmed = 5s（权重中点在大距离侧）
     }
 
     #[test]
