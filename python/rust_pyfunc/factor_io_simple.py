@@ -206,6 +206,34 @@ def probe_update_window(
     return start, end
 
 
+def read_level2_list(start_date: int, end_date: int) -> list:
+    """生成 [start_date, end_date] 内真实存在的 (date, code) 任务列表（per_stock pipeline 用）。
+
+    替代 dw.read_level2_list：日期对齐交易日 → symbol_map.csv 全股票列表 →
+    按日目录扫描 transaction 文件集合过滤存在性。每日更新仅 1 天，直接扫描无性能问题。
+    """
+    import rust_pyfunc as rp
+
+    dates = sorted(
+        rp.td.get_range(
+            rp.next_trading_day_tricky(start_date),
+            rp.last_trading_day_tricky(end_date),
+        )
+    )
+    symbol_map_path = "/ssd_data/data/basic_info/symbol_map.csv"
+    symbol_list = pd.read_csv(symbol_map_path).symbol.astype(str).str.zfill(6).tolist()
+    pairs = []
+    for date in dates:
+        day_dir = f"/ssd_data/stock/{date}/transaction"
+        if not os.path.isdir(day_dir):
+            continue
+        files = {f for f in os.listdir(day_dir) if f.endswith("_transaction.csv")}
+        for symbol in symbol_list:
+            if f"{symbol}_{date}_transaction.csv" in files:
+                pairs.append([date, symbol])
+    return pairs
+
+
 def cleanup_factor_store(colblk_store_dir: str, ver: str, script_dir: str = None) -> None:
     """清理批量计算产生的备份数据文件与 colblk 存储目录。
 

@@ -59,6 +59,7 @@ _LAZY_EXPORTS = {
     "read_factor_from_colblk": (".factor_io_simple", "read_factor_from_colblk"),
     "probe_update_window": (".factor_io_simple", "probe_update_window"),
     "cleanup_factor_store": (".factor_io_simple", "cleanup_factor_store"),
+    "read_level2_list": (".factor_io_simple", "read_level2_list"),
 }
 
 _LAZY_MODULE_EXPORTS = {
