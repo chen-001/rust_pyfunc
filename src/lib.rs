@@ -108,6 +108,7 @@ pub mod hot_stock_pool_metrics;
 pub mod anneal_volume_metrics;
 pub mod anneal_volume_market_metrics;
 pub mod cross_section_example_metrics;
+pub mod yhyb_metrics;
 pub mod volume_segment_leadstock_metrics;
 pub mod drop_event_metrics;
 pub mod factor_pipeline;
@@ -887,6 +888,7 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
 
     // 高速 CSV 读取器（run_factor_pipeline 优化方案 Phase 1）
     m.add_function(wrap_pyfunction!(fast_csv_reader::read_trade_fast, m)?)?;
+    m.add_function(wrap_pyfunction!(fast_csv_reader::read_trade_fast_us, m)?)?;
     m.add_function(wrap_pyfunction!(fast_csv_reader::read_market_fast, m)?)?;
     m.add_function(wrap_pyfunction!(fast_csv_reader::read_market_pair_fast, m)?)?;
 
@@ -1114,6 +1116,11 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         cross_section_example_metrics::py_cross_section_example_from_data,
         m
     )?)?;
+    let _ = m.add_function(wrap_pyfunction!(yhyb_metrics::py_yhyb, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(yhyb_metrics::py_yhyb_params, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(yhyb_metrics::py_yhyb_names, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(yhyb_metrics::py_yhyb_from_data, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(yhyb_metrics::py_yhyb_events, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(
         volume_segment_leadstock_metrics::py_vsld,
         m

@@ -223,6 +223,64 @@ def py_cross_section_example_from_data(
 def py_cross_section_example_names() -> List[str]:
     ...
 
+
+def py_yhyb(date: int) -> Tuple[List[str], List[float]]:
+    """一呼百应（yhyb）：tick 级事件响应网络横截面因子（v1 读盘，默认参数）。
+
+    23 事件 × 4 时段 × 15 = 1380 个因子/股。事件/度量定义见 README.md。
+    """
+    ...
+
+
+def py_yhyb_params(date: int, params: List[float]) -> Tuple[List[str], List[float]]:
+    """同 py_yhyb，但使用自定义 17 个阈值参数（顺序见 src/yhyb_metrics.rs YhybParams）。
+
+    调参流程：tune_thresholds.py 循环调用本函数扫描覆盖率。
+    """
+    ...
+
+
+def py_yhyb_from_data(
+    codes: List[str],
+    trade_arrays: List["numpy.ndarray"],
+    market_arrays: List["numpy.ndarray"],
+    params: Optional[List[float]] = None,
+) -> Tuple[List[str], List[float]]:
+    """v2 入口：Python 传样例数据计算 yhyb 因子（无磁盘环境验证/调参）。
+
+    参数
+    ----
+    codes : List[str]
+        股票代码列表
+    trade_arrays : List[numpy.ndarray]
+        每股一个 (n_i, 8) 数组：列序同 read_trade_fast_us：
+        [time_us, time_sec, price, volume, turnover, flag, bid_order, ask_order]
+    market_arrays : List[numpy.ndarray]
+        每股一个 (m_i, 25) 数组：
+        [time_us, total_ask_vol, total_bid_vol, ask_prc1, bid_prc1,
+         ask_vol1..10, bid_vol1..10]
+    params : Optional[List[float]]
+        可选 17 个阈值参数（默认 YhybParams::default()）
+
+    返回
+    ----
+    (codes, vals) 与 py_yhyb 完全一致（同一份纯计算核心）。
+    """
+    ...
+
+
+def py_yhyb_names() -> List[str]:
+    ...
+
+
+def py_yhyb_events(code: str, date: int) -> List[Tuple[str, Tuple[List[int], List[float]]]]:
+    """单股单日事件时间线（调试/单例用）。
+
+    返回 [(事件名, (时间us数组, 权重数组)), ...] 共 23 个事件类型。
+    """
+    ...
+
+
 def py_vsld(date: int) -> Tuple[List[str], List[float]]:
     """计算成交量分段领衔股相关横截面因子（v1 读盘）。
 
@@ -634,6 +692,11 @@ __all__ = [
     "run_factor_pipeline_cross_section",
     "py_cross_section_example",
     "py_cross_section_example_names",
+    "py_yhyb",
+    "py_yhyb_params",
+    "py_yhyb_from_data",
+    "py_yhyb_names",
+    "py_yhyb_events",
     "py_vsld",
     "py_vsld_names",
     "py_vsld_from_data",

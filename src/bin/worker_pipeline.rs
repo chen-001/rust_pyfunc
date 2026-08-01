@@ -18,6 +18,7 @@ use rust_pyfunc::factor_pipeline::{
     pipeline_individual_order_ratio,
     pipeline_long_order, pipeline_microstructure_capm, pipeline_observable_order,
     pipeline_order_pair_hm90, pipeline_orderbook_imb_refactor, pipeline_urgency, pipeline_vsld,
+    pipeline_yhyb,
     ResultMessage,
     TaskMessage,
 };
@@ -153,6 +154,8 @@ fn main() {
                         crate_logic::pipeline_minute_capm(date, expected_len)
                     } else if pipeline_name == "cross_section_example" {
                         pipeline_cross_section_example(date, expected_len)
+                    } else if pipeline_name == "yhyb" {
+                        pipeline_yhyb(date, expected_len)
                     } else if pipeline_name == "long_order" {
                         pipeline_long_order(date, expected_len)
                     } else if pipeline_name == "microstructure_capm" {

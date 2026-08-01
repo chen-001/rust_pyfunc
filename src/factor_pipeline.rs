@@ -2055,6 +2055,28 @@ pub fn pipeline_cross_section_example(date: i64, expected_len: usize) -> Vec<Tas
     }
 }
 
+/// 一呼百应（yhyb）横截面 pipeline 包装：调核心，fan-out 成 TaskResult。
+pub fn pipeline_yhyb(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    match crate::yhyb_metrics::compute_yhyb_full(date) {
+        Ok((codes, vals)) => {
+            let n_factors = expected_len;
+            vals.chunks(n_factors)
+                .zip(codes.iter())
+                .map(|(facs, code)| TaskResult {
+                    date,
+                    code: code.clone(),
+                    timestamp: 0,
+                    facs: facs.to_vec(),
+                })
+                .collect()
+        }
+        Err(e) => {
+            eprintln!("yhyb error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
 /// urgency 横截面 pipeline 包装：调核心，fan-out 成 TaskResult。
 pub fn pipeline_urgency(date: i64, expected_len: usize) -> Vec<TaskResult> {
     match crate::urgency_metrics::compute_urgency_full(date) {
@@ -2261,6 +2283,7 @@ pub fn run_factor_pipeline_cross_section(
         "hot_stock_pool",
         "hot_stock_pool_v2",
         "vsld",
+        "yhyb",
     ];
     if !known.contains(&pipeline_name.as_str()) {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(

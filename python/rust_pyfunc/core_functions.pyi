@@ -2290,6 +2290,23 @@ def compute_ts_stats(series: List[float]) -> List[float]:
     ...
 
 
+def read_trade_fast_us(
+    code: str,
+    date: int,
+    with_retreat: int = 0,
+    with_afternoon_adjust: bool = False,
+) -> NDArray[np.float64]:
+    """高速读取逐笔成交数据（含精确微秒时间）。
+
+    与 read_trade_fast 完全相同，仅在头部多一列 time_us（epoch 微秒，i64 精度，
+    含 8h 偏移 + 下午前移）。列顺序：
+      [time_us, time_sec, price, volume, turnover, flag, bid_order, ask_order]
+    time_sec 为 f32 截断的 epoch 秒，2025 年附近精度仅 ±128s；
+    做毫秒级事件对齐（如事件响应匹配）务必用 time_us。
+    """
+    ...
+
+
 def read_trade_fast(
     code: str,
     date: int,

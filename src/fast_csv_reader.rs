@@ -426,6 +426,26 @@ fn parse_chunk(data: &[u8], with_retreat: bool, with_afternoon_adjust: bool) -> 
     out
 }
 
+/// 将 Vec<TradeRecord> 转为 (n, 8) 的 f64 二维数组（含精确时间 time_us）。
+///
+/// 列顺序：在 (n,7) 基础上头部追加 time_us（epoch 微秒，含 8h 偏移 + 下午前移）：
+///   [time_us, time_sec, price, volume, turnover, flag, bid_order, ask_order]
+pub fn trade_records_to_array2_us(records: &[TradeRecord]) -> ndarray::Array2<f64> {
+    let n = records.len();
+    let mut arr = ndarray::Array2::<f64>::zeros((n, 8));
+    for (i, r) in records.iter().enumerate() {
+        arr[(i, 0)] = r.time_us as f64;
+        arr[(i, 1)] = r.time_sec as f64;
+        arr[(i, 2)] = r.price as f64;
+        arr[(i, 3)] = r.volume as f64;
+        arr[(i, 4)] = r.turnover as f64;
+        arr[(i, 5)] = r.flag as f64;
+        arr[(i, 6)] = r.bid_order as f64;
+        arr[(i, 7)] = r.ask_order as f64;
+    }
+    arr
+}
+
 /// 将 Vec<TradeRecord> 转为 (n, 7) 的 f64 二维数组。
 ///
 /// 列顺序与 hm90.go 的 prepare() 一致：
@@ -482,6 +502,38 @@ pub fn read_trade_fast(
     })?;
 
     let arr = trade_records_to_array2(&records);
+    let py_array = numpy::PyArray2::from_owned_array(py, arr);
+    Ok(py_array.into())
+}
+
+/// Python 可调用：read_trade_fast_us(code, date, with_retreat=0, with_afternoon_adjust=False)
+///
+/// 返回 (n, 8) float64 numpy 数组，列顺序：
+///   [time_us, time_sec, price, volume, turnover, flag, bid_order, ask_order]
+///
+/// time_us 为 epoch 微秒（i64 精度，含 8h 偏移 + 下午前移），可用于毫秒级事件对齐；
+/// time_sec 为 f32 截断的 epoch 秒，2025 年附近精度仅 ±128s，做窗口匹配务必用 time_us。
+#[pyfunction]
+#[pyo3(signature = (code, date, with_retreat=0, with_afternoon_adjust=false))]
+pub fn read_trade_fast_us(
+    py: Python<'_>,
+    code: &str,
+    date: i64,
+    with_retreat: i32,
+    with_afternoon_adjust: bool,
+) -> PyResult<PyObject> {
+    let records = read_trade_fast_inner(
+        code,
+        date,
+        with_retreat != 0,
+        with_afternoon_adjust,
+        8 * 1024 * 1024, // 8MB 阈值
+    )
+    .map_err(|e| {
+        PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("read_trade_fast_us 失败: {}", e))
+    })?;
+
+    let arr = trade_records_to_array2_us(&records);
     let py_array = numpy::PyArray2::from_owned_array(py, arr);
     Ok(py_array.into())
 }
