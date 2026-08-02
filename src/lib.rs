@@ -109,6 +109,7 @@ pub mod anneal_volume_metrics;
 pub mod anneal_volume_market_metrics;
 pub mod cross_section_example_metrics;
 pub mod yhyb_metrics;
+pub mod yhyb_network;
 pub mod volume_segment_leadstock_metrics;
 pub mod drop_event_metrics;
 pub mod factor_pipeline;
@@ -1121,6 +1122,8 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     let _ = m.add_function(wrap_pyfunction!(yhyb_metrics::py_yhyb_names, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(yhyb_metrics::py_yhyb_from_data, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(yhyb_metrics::py_yhyb_events, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(yhyb_network::py_yhyb4, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(yhyb_network::py_yhyb4_names, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(
         volume_segment_leadstock_metrics::py_vsld,
         m

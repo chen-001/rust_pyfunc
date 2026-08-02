@@ -287,6 +287,22 @@ def py_yhyb_events(code: str, date: int) -> List[Tuple[str, Tuple[List[int], Lis
     ...
 
 
+def py_yhyb4(date: int, backup: Optional[str] = None) -> Tuple[List[str], List[float]]:
+    """一呼百应第 4 层网络因子（纯 Rust，p0 全天）。
+
+    23 事件 × [lead(引领度), hub(辐射), spoke(跟随), pr_fwd, pr_bwd(PageRank), heter(异质性)]
+    + lead_all(跨事件引领度) + pca1(46 列综合指数) = 140 个因子/股。
+    结果直接写入备份文件（backup_writer v4 格式），默认
+    /hdd/user_home_unsafe/chenzongwei/yhyb4_{date}.bin。
+    """
+    ...
+
+
+def py_yhyb4_names() -> List[str]:
+    """第 4 层因子名（140 个）。"""
+    ...
+
+
 def py_vsld(date: int) -> Tuple[List[str], List[float]]:
     """计算成交量分段领衔股相关横截面因子（v1 读盘）。
 
@@ -703,6 +719,8 @@ __all__ = [
     "py_yhyb_from_data",
     "py_yhyb_names",
     "py_yhyb_events",
+    "py_yhyb4",
+    "py_yhyb4_names",
     "py_vsld",
     "py_vsld_names",
     "py_vsld_from_data",

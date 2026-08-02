@@ -78,11 +78,9 @@ const PERIOD_HI_S: [i64; N_PERIODS] = [19620, 17820, 19620, 19800];
 /// 注意：time_us 是"含 8h 偏移的 epoch"（本地时间作为伪 epoch，见 fast_csv_reader），
 /// 因此本地零点 = UTC 零点 + 8h；若按 UTC 零点计算时段边界会整体错位 8 小时，
 /// 导致零模型的时段末 S 早于事件时刻（x=0 → null_med=0 → rmed=inf）。
-fn day_base(t: i64) -> i64 {
+pub fn day_base(t: i64) -> i64 {
     (t / 86_400_000_000) * 86_400_000_000 + 28_800_000_000
-}
-
-// ============================================================================
+}// ============================================================================
 // 参数（样例数据调参结果；from_vec 顺序即调参脚本传参顺序，17 个）
 // ============================================================================
 
@@ -576,7 +574,7 @@ fn build_null_table(streams: &[Option<[EvStream; N_EVENTS]>]) -> NullTable {
 /// 时段切片（t 有序）：返回 [lo, hi) 落入时段 p 的下标区间。
 /// p0 快速路径：生产数据（v1 adjust 过滤 / v2 已 adjust 样例）无 09:30 前事件，
 /// 下界可跳过（只做 1 次二分）；其余时段常规 2 次二分。
-fn period_slice(t: &[i64], base: i64, p: usize) -> (usize, usize) {
+pub fn period_slice(t: &[i64], base: i64, p: usize) -> (usize, usize) {
     let lo = base + PERIOD_LO_S[p] * 1_000_000;
     let hi = base + PERIOD_HI_S[p] * 1_000_000;
     if p == 0 && t.first().map_or(true, |&x| x >= lo) {
@@ -1203,10 +1201,13 @@ pub fn compute_yhyb_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f32>)> 
     compute_yhyb_full_with_params(date, &YhybParams::default())
 }
 
-pub fn compute_yhyb_full_with_params(date: i64, prm: &YhybParams) -> std::io::Result<(Vec<String>, Vec<f32>)> {
-    // 必须在任何 rayon 使用（读盘 par_iter）之前限流：全局池一旦初始化无法再改
+/// 公共读盘：读全市场逐笔+盘口 → 事件流（v1 1380 因子与第 4 层网络因子共用）。
+/// 注意：必须在任何 rayon 使用之前调用 ensure_threads（全局池限流 50 线程）。
+pub fn load_streams(
+    date: i64,
+    prm: &YhybParams,
+) -> std::io::Result<(Vec<String>, Vec<Option<[EvStream; N_EVENTS]>>)> {
     ensure_threads();
-    let t_start = std::time::Instant::now();
     let codes = list_codes(date, "transaction");
     let streams: Vec<Option<[EvStream; N_EVENTS]>> = codes
         .par_iter()
@@ -1220,6 +1221,12 @@ pub fn compute_yhyb_full_with_params(date: i64, prm: &YhybParams) -> std::io::Re
             Some(detect_all(&trades, &market, prm))
         })
         .collect();
+    Ok((codes, streams))
+}
+
+pub fn compute_yhyb_full_with_params(date: i64, prm: &YhybParams) -> std::io::Result<(Vec<String>, Vec<f32>)> {
+    let t_start = std::time::Instant::now();
+    let (codes, streams) = load_streams(date, prm)?;
     let t_read = std::time::Instant::now();
     let res = compute_from_streams(&codes, &streams, prm);
     if std::env::var("YHYB_TIMING").is_ok() {
