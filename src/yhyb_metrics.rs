@@ -651,9 +651,34 @@ struct NullTable {
     m: Vec<Vec<[f64; N_PERIODS]>>,
 }
 
-/// 预计算全市场零模型表（O(全市场事件数)，一次）。
-fn build_null_table(streams: &[Option<[EvStream; N_EVENTS]>]) -> NullTable {
+/// 时段切片表：**全市场预计算一次**（(bi, e, p) → (lo, hi)），聚合任务热循环内零二分搜索。
+/// 布局 sl[e * N_PERIODS + p][bi]：任务 (A, e, p) 按 bi 顺序扫描 → 缓存友好。
+/// 正确性：所有股票同一交易日事件的 day_base 相同（见 day_base），因此基值统一，
+/// 预计算的切片与 agg 内即时 period_slice 逐位一致（纯记忆化）。
+struct SliceTable {
+    sl: Vec<Vec<(usize, usize)>>, // [N_EVENTS * N_PERIODS][n_stocks] = (lo, hi)
+    base: i64,                    // 当日统一 day_base（事件均为同一天）
+}
+
+/// 预计算全市场切片表 + 零模型表（O(全市场事件数)，一次，并行）。
+fn build_slices_and_null(streams: &[Option<[EvStream; N_EVENTS]>]) -> (SliceTable, NullTable) {
     let n = streams.len();
+    let base = streams
+        .iter()
+        .find_map(|s| {
+            s.as_ref()
+                .and_then(|ev| ev.iter().find_map(|e| (!e.t.is_empty()).then(|| day_base(e.t[0]))))
+        })
+        .unwrap_or(0);
+    let mut sl = vec![vec![(0usize, 0usize); n]; N_EVENTS * N_PERIODS];
+    sl.par_iter_mut().enumerate().for_each(|(ep, col)| {
+        let e = ep / N_PERIODS;
+        let p = ep % N_PERIODS;
+        for (bi, sb) in streams.iter().enumerate() {
+            let Some(sb) = sb else { continue };
+            col[bi] = period_slice(&sb[e].t, base, p);
+        }
+    });
     let mut c = vec![vec![[0.0f64; N_PERIODS]; N_EVENTS]; n];
     let mut m = vec![vec![[0.0f64; N_PERIODS]; N_EVENTS]; n];
     for (bi, sb) in streams.iter().enumerate() {
@@ -663,9 +688,8 @@ fn build_null_table(streams: &[Option<[EvStream; N_EVENTS]>]) -> NullTable {
             if t.is_empty() {
                 continue;
             }
-            let base = day_base(t[0]);
             for p in 0..N_PERIODS {
-                let (lo, hi) = period_slice(t, base, p);
+                let (lo, hi) = sl[e * N_PERIODS + p][bi];
                 let cnt = (hi - lo) as f64;
                 if cnt > 0.0 {
                     m[bi][e][p] = cnt;
@@ -674,7 +698,7 @@ fn build_null_table(streams: &[Option<[EvStream; N_EVENTS]>]) -> NullTable {
             }
         }
     }
-    NullTable { c, m }
+    (SliceTable { sl, base }, NullTable { c, m })
 }
 
 /// 时段切片（t 有序）：返回 [lo, hi) 落入时段 p 的下标区间。
@@ -700,6 +724,9 @@ pub fn period_slice(t: &[i64], base: i64, p: usize) -> (usize, usize) {
 ///   污染 med/fast5/wmed——v3 一并修复
 /// 1 秒桶（u32 计数 + f32 权重和，8 字节/桶，同 cache line——桶更新的两次 store
 /// 只触碰一条缓存行，分离数组要两条；19620 × 8B = 157KB）。
+/// **v6 优化**：max_b 只扫最大触碰桶（locate/stats 从全表 19620 桶缩到实际范围）；
+/// touched 列表按触碰桶清零 → 线程本地复用 Gather 缓冲（消除 68.6 万任务 × 314KB
+/// 分配/清零，空任务不再分配）。
 #[derive(Clone, Copy, Default)]
 #[repr(C)]
 struct Bucket {
@@ -707,56 +734,83 @@ struct Bucket {
     w: f32,
 }
 
-/// 单遍收集器（v3 生产默认）：1 秒桶直方图一次遍历完成所有统计（无第二遍）。
-/// - med/fast5/wmed/mean：全部 1 秒桶中点（±0.5s 量化；med/fast5 评估 Spearman
-///   1.0000/0.9996，wmed/mean 为 v3 新增近似，相关性已实测评估）
-/// - hit：精确标量
-/// - 距离一律 u64：i64 差值 as u64 无符号溢出（最大 ~19620s << u64 上限）。
-///   历史 u32 版会在 >4295s 的缺口处静默回绕，把数小时的稀疏缺口伪装成小距离，
-///   污染 med/fast5/wmed——v3 一并修复
 struct Gather {
-    b: Vec<Bucket>, // 1 秒桶（157KB）
-    n: u64,         // 距离条数（免去逐桶求和）
+    b: Vec<Bucket>,  // 1 秒桶（157KB）
+    n: u64,          // 距离条数（免去逐桶求和）
     med_b: usize,
     f5_b: usize,
     wmed_b: usize,
     hit: u64,
     wsum: f64,
+    max_b: usize,       // 已触碰的最大桶（locate/stats 只扫 [0, max_b]）
+    touched: Vec<usize>, // 已触碰桶列表（重置时只清这些桶）
 }
 
 impl Gather {
     fn new() -> Self {
+        Gather::new_sized(N_BUCKETS_1S)
+    }
+    /// 定制桶长（时段最大距离 + 1 的防御余量由调用方保证；v6 生产路径无 clamp）。
+    fn new_sized(nb: usize) -> Self {
         Gather {
-            b: vec![Bucket::default(); N_BUCKETS_1S],
+            b: vec![Bucket::default(); nb],
             n: 0,
             med_b: 0,
             f5_b: 0,
             wmed_b: 0,
             hit: 0,
             wsum: 0.0,
+            max_b: 0,
+            touched: Vec::with_capacity(64),
         }
     }
+    /// 线程本地复用：只清触碰过的桶（touched 去重靠 c==0 判断：首次触碰才记录）。
+    fn reset(&mut self) {
+        for &i in self.touched.iter() {
+            self.b[i] = Bucket::default();
+        }
+        self.touched.clear();
+        self.n = 0;
+        self.med_b = 0;
+        self.f5_b = 0;
+        self.wmed_b = 0;
+        self.hit = 0;
+        self.wsum = 0.0;
+        self.max_b = 0;
+    }
     /// 单遍：1 秒桶更新 + 标量（n/wsum/hit）。无 mean 累加（mean 由桶中点统计）。
+    /// 测试/调试路径：桶索引带 clamp（生产路径 push_b 由调用方保证越界不可能）。
     /// 注意：桶索引必须用 u64 除法——距离最大 ~19620s = 1.96e10 µs 远超 u32 上限
     /// （4.29e9），as u32 会把 >4295s 的大缺口回绕成小距离（u64 修复的教训）。
     #[inline(always)]
     fn push1(&mut self, dd: u64, ww: f64, t_us: u64) {
-        let b = ((dd / 1_000_000) as usize).min(N_BUCKETS_1S - 1);
-        self.b[b].c += 1;
-        self.b[b].w += ww as f32;
+        let b = ((dd / 1_000_000) as usize).min(self.b.len() - 1);
+        self.push_b(b, ww, dd, t_us);
+    }
+    /// 生产热路径：桶索引由调用方计算（时段定制桶长 + 距离恒 < 时段跨度，无 clamp）。
+    #[inline(always)]
+    fn push_b(&mut self, b: usize, ww: f64, dd: u64, t_us: u64) {
+        debug_assert!(b < self.b.len(), "桶越界 b={b} len={}", self.b.len());
+        let bk = &mut self.b[b];
+        if bk.c == 0 {
+            self.touched.push(b);
+        }
+        bk.c += 1;
+        bk.w += ww as f32;
         self.n += 1;
         self.wsum += ww;
-        if dd <= t_us {
-            self.hit += 1;
+        self.hit += (dd <= t_us) as u64;
+        if b > self.max_b {
+            self.max_b = b;
         }
     }
-    /// 定位：med/f5 桶（1 秒计数）+ wmed 桶（1 秒权重）。
+    /// 定位：med/f5 桶（1 秒计数）+ wmed 桶（1 秒权重）。只扫 [0, max_b]（其上全空）。
     /// 分位数位置落在"桶前计数 ≤ 位置 < 桶前计数+桶计数"的桶内。
     fn locate(&mut self, half_n: u64, half_w: f64, k: u64) {
         let mut acc = 0u64;
         let mut f_acc = 0u64;
         let mut wacc = 0.0f64;
-        for i in 0..N_BUCKETS_1S {
+        for i in 0..=self.max_b {
             let c = self.b[i].c as u64;
             if c == 0 {
                 continue;
@@ -778,7 +832,7 @@ impl Gather {
             wacc += wc;
         }
     }
-    /// 统计：[med, mean, hit, fast5, wmed]（秒），全部 1 秒桶中点/精确标量。
+    /// 统计：[med, mean, hit, fast5, wmed]（秒），全部 1 秒桶中点/精确标量。只扫 [0, max_b]。
     fn stats(&mut self, n: u64, k: u64) -> [f64; 5] {
         if n == 0 {
             return [f64::NAN, f64::NAN, 0.0, f64::NAN, f64::NAN];
@@ -788,7 +842,7 @@ impl Gather {
         let mut f_acc = 0u64;
         let mut f_sum = 0.0f64;
         let mut fast5 = f64::NAN;
-        for i in 0..N_BUCKETS_1S {
+        for i in 0..=self.max_b {
             let c = self.b[i].c as u64;
             if c == 0 {
                 continue;
@@ -814,347 +868,475 @@ impl Gather {
     }
 }
 
-/// 单 (A, 事件 e) 的因子：4 时段 × 15 = 60 个值。
-/// - 空时段短路：A 无事件时直接输出 rate=0 + 14 个 NaN
-/// - **单遍**匹配（v3 生产）：一趟归并（fwd/bwd 同趟）+ 1 秒桶直方图（med/fast5/wmed
-///   定位 + mean 桶中点）+ 精确标量（hit）+ 零模型 O(k_A+nB) 可分式，**无第二遍**
-/// - 零模型（v3 近似，评估验证相关性见 README）：
-///   - null_med = (Σ_i x_i)·(Σ_b c_b)/(k_A·nB)——可分式均值池化（rmed Spearman 0.9694），
-///     从 O(对) 物化降到 O(k_A+nB)
-///   - null_hit = (1/nB)·Σ_b[1−(1−T/x̄)^m_b]——x̄ 均值近似（rhit Spearman 0.9632），
-///     每 B 一次 powf，无逐点成本
-/// - YHYB_SKIP_NULL 环境变量：跳过零模型（瓶颈定位用，不影响正常路径）
-fn agg_one(
-    streams: &[Option<[EvStream; N_EVENTS]>],
-    null_t: &NullTable,
-    ai: usize,
-    e: usize,
-    p: usize,
-    prm: &YhybParams,
-) -> Option<Vec<f64>> {
-    let sa = streams[ai].as_ref()?;
-    let (ta, wa) = (&sa[e].t, &sa[e].w);
-    let t_us = (prm.hit_t_s * 1e6) as u64;
-    let skip_null = std::env::var("YHYB_SKIP_NULL").is_ok();
-    let mut g_fwd = Gather::new();
-    let mut g_bwd = Gather::new();
-    let (alo, ahi, base) = if ta.is_empty() {
-        (0usize, 0usize, 0i64)
-    } else {
-        let base = day_base(ta[0]);
-        let (lo, hi) = period_slice(ta, base, p);
-        (lo, hi, base)
-    };
-    let rate = (ahi - alo) as f64;
-    let mut out = Vec::with_capacity(15);
-    if ahi == alo {
-        out.push(rate);
-        for _ in 0..14 {
-            out.push(f64::NAN);
-        }
-        return Some(out);
-    }
-    let s_us = base + PERIOD_HI_S[p] * 1_000_000;
-    // 零模型可分式预计算：Σ x_i（A 事件时段剩余）与 x̄，每任务 O(k_A)
-    // YHYB_NULL_MODE 选择 null_med 近似口径（均为 O(k_A+nB) 可分式）：
-    //   geo（默认）= 几何均值 exp(mean ln x)·exp(mean ln c)，对数域≈中位数，
-    //   全市场实测 rmed Spearman 0.9700/0.9807（最优）；med = median(x)·median(c)；
-    //   mean = 均值池化（rmed 仅 0.74-0.84，弃用）
-    let null_mode = std::env::var("YHYB_NULL_MODE").unwrap_or_else(|_| "geo".into());
-    let geo = null_mode == "geo";
-    let medm = null_mode == "med";
-    let k_a = (ahi - alo) as f64;
-    let sum_x: f64 = if skip_null {
-        0.0
-    } else {
-        ta[alo..ahi].iter().map(|&a| (s_us - a).max(0) as f64).sum()
-    };
-    let sum_ln_x: f64 = if !skip_null && geo {
-        ta[alo..ahi].iter().map(|&a| ((s_us - a).max(1) as f64).ln()).sum()
-    } else {
-        0.0
-    };
-    let x_bar = if skip_null { 0.0 } else { sum_x / k_a };
-    let mut sum_c = 0.0f64; // Σ c_b（null_med 均值池化）
-    let mut sum_ln_c = 0.0f64; // Σ ln c_b（几何均值）
-    let mut c_list: Vec<f64> = Vec::new(); // c_b 列表（中位×中位）
-    let mut null_hit_acc = 0.0f64; // null_hit x̄ 近似（每 B 一次 powf）
-    let mut n_b = 0u64; // 时段内有事件的 B 数
-    // ============ 单遍：1 秒桶 + 标量 + null 可分式 ============
-    for (bi, sb) in streams.iter().enumerate() {
-        if bi == ai {
-            continue;
-        }
-        let Some(sb) = sb else { continue };
-        let tb = &sb[e].t;
-        let (blo, bhi) = period_slice(tb, base, p);
-        if blo == bhi {
-            continue;
-        }
-        if !skip_null {
-            let m_b = null_t.m[bi][e][p];
-            let c_b = null_t.c[bi][e][p];
-            sum_c += c_b;
-            if geo {
-                sum_ln_c += c_b.ln();
-            }
-            if medm {
-                c_list.push(c_b);
-            }
-            n_b += 1;
-            // null_hit x̄ 近似：每 B 一次（clamp 防 x̄ ≤ T 时底数非正）
-            null_hit_acc += 1.0 - (1.0 - t_us as f64 / x_bar).clamp(0.0, 1.0).powf(m_b);
-        }
-        let mut j = blo;
-        for i in alo..ahi {
-            let a = ta[i];
-            let wi = wa[i];
-            while j < bhi && tb[j] <= a {
-                j += 1;
-            }
-            if j > blo {
-                g_bwd.push1((a - tb[j - 1]) as u64, wi, t_us);
-            }
-            if j < bhi {
-                g_fwd.push1((tb[j] - a) as u64, wi, t_us);
-            }
-        }
-    }
-    // 定位分位数桶（n/wsum 由 push1 维护，免去逐桶求和）
-    let n_f = g_fwd.n;
-    let n_bw = g_bwd.n;
-    let kf = ((n_f as f64) * prm.fast_q).round().max(1.0) as u64;
-    let kb = ((n_bw as f64) * prm.fast_q).round().max(1.0) as u64;
-    if n_f > 0 {
-        g_fwd.locate(n_f / 2, g_fwd.wsum / 2.0, kf);
-    }
-    if n_bw > 0 {
-        g_bwd.locate(n_bw / 2, g_bwd.wsum / 2.0, kb);
-    }
-    let fs = g_fwd.stats(n_f, kf);
-    let bs = g_bwd.stats(n_bw, kb);
-    // null_med 可分式（µs → 秒）：mean 均值池化 / geo 几何均值 / med 中位×中位
-    let null_med = if !skip_null && n_b > 0 {
-        if geo {
-            (sum_ln_x / k_a).exp() * (sum_ln_c / n_b as f64).exp() / 1e6
-        } else if medm {
-            // x 降序中位（a 升序 → x 降序，上中位与 select_nth(len/2) 同秩）
-            let mid_x = (s_us - ta[ahi - 1 - (ahi - alo) / 2]).max(0) as f64;
-            let mid_c = {
-                let m = c_list.len() / 2;
-                let (_, &mut v, _) = c_list.select_nth_unstable_by(m, |a, b| a.total_cmp(b));
-                v
-            };
-            mid_x * mid_c / 1e6
-        } else {
-            (sum_x * sum_c) / (k_a * n_b as f64) / 1e6
-        }
-    } else {
-        f64::NAN
-    };
-    let null_hit = if !skip_null && n_b > 0 {
-        null_hit_acc / n_b as f64
-    } else {
-        f64::NAN
-    };
-    out.push(rate);
-    for dd in [&fs, &bs] {
-        out.push(dd[0]);
-        out.push(dd[1]);
-        out.push(dd[2]);
-        out.push(dd[3]);
-        out.push(dd[4]);
-        out.push(dd[0] / null_med); // rmed
-        out.push(dd[2] / null_hit); // rhit
-    }
-    Some(out)
+/// 线程本地 8 个 Gather（4 时段 × fwd/bwd，时段定制桶长），任务间复用（touched 清零）。
+/// rayon 工作线程串行执行任务，borrow 不会嵌套。
+/// 桶长 = 时段最大距离秒数（p0 [5400,19620)→14220、p1 [6000,17820)→11820、
+/// p2 [17820,19620)→1800、p3 [12600,19800)→7200），8 个共 560KB 落 L2。
+thread_local! {
+    static GPOOL: std::cell::RefCell<Vec<Gather>> = std::cell::RefCell::new({
+        let sizes = [14220usize, 11820, 1800, 7200];
+        (0..8).map(|i| Gather::new_sized(sizes[i / 2])).collect()
+    });
 }
 
-/// p0 全天**融合任务**：1380 聚合统计（桶 + 标量 + null，同 agg_one p=0 口径）+
-/// 第 4 层对级累加（fwd/bwd 对级均值/命中率写入矩阵，供 l4_factors 用）。
-/// 消除第 4 层阶段 A 的独立遍历（对级累加每对仅多 ~6 ops）。
-#[allow(clippy::too_many_arguments)]
-fn agg_one_p0_fused(
-    streams: &[Option<[EvStream; N_EVENTS]>],
-    null_t: &NullTable,
-    ai: usize, // 全量索引（streams 访问）
-    row: usize, // 有效索引（矩阵行）
-    e: usize,
-    prm: &YhybParams,
+/// 第 4 层上下文（对级矩阵 + hub/spoke 写入目标 + 有效索引映射）。
+struct L4Ctx<'a> {
     n: usize,
-    valid_pos: &[usize],
+    valid_pos: &'a [usize],
     mf: crate::yhyb_network::SendPtr,
     mb: crate::yhyb_network::SendPtr,
     hp: crate::yhyb_network::SendPtr,
     sp: crate::yhyb_network::SendPtr,
+}
+
+/// 单 (A, 事件 e) 的因子：4 时段 × 15 = 60 个值（v6 融合任务）。
+///
+/// **v6 优化（输出逐位不变）**：
+/// - 预计算切片表：B 时段切片零二分搜索（原每任务 4×5914 次 DRAM 延迟绑定二分）
+/// - **union-walk 单趟归并**：4 时段各自独立归并（Σ_p k_A(p) ≈ 1.9 k_A 的 A 循环 + Σ_p k_B(p)
+///   的 j 游标）压缩为一次全事件归并——时段 p 的 fwd/bwd 距离 = 全事件最近邻距离，
+///   仅有效性过滤（a ∈ p ∧ 最近邻 ∈ p）不同，距离值与逐位顺序完全一致
+///   （证明：a ∈ p 时全事件后继 j* 满足 blo_p ≤ j*（tb[j*] > a ≥ LO_p），
+///   fwd 有效 ⟺ j* < bhi_p；bwd 有效 ⟺ j*-1 ≥ blo_p ⟺ j* > blo_p，与旧分时段双指针逐位等价）
+/// - **5 段固定掩码子循环**：A 事件按 5 个固定时段区间分段（[5400,6000)/[6000,12600)/
+///   [12600,17820)/[17820,19620)/[19620,19800)），每段时段成员掩码恒定 → 内循环零成员分支
+///   （原逐 (a,B) 掩码分支 16 个/对 → 现 ~5 个/对，分支数与旧分时段 4 趟完全一致）
+/// - **时段定制桶数组**：桶长 = 时段最大距离（p0 14220/p1 11820/p2 1800/p3 7200），
+///   8 个 Gather 共 560KB 落 L2（原 8×157KB=1.26MB 溢出 L2 至 L3，桶更新延迟 2-3 倍）
+/// - 同一 (a,B) 的 4 时段推送共享一次 u64 除法（桶索引相同）；距离恒 < 时段跨度，
+///   桶索引无需 clamp（debug_assert 兜底）
+/// - hit 累加无分支（`hit += (dd <= t_us) as u64`）
+/// - 线程本地 Gather 复用（touched 清零）+ locate/stats 只扫 [0, max_b]
+/// - 第 4 层对级累加与 p0 统计同趟（保留 v1 融合语义）
+///
+/// 零模型（v3 近似，评估验证相关性见 README）：
+/// - null_med = exp(mean ln x)·exp(mean ln c)（geo 默认）等可分式，O(k_A+nB)
+/// - null_hit = (1/nB)·Σ_b[1−(1−T/x̄)^m_b]——x̄ 均值近似，每 B 一次 powf
+/// - YHYB_SKIP_NULL 环境变量：跳过零模型（瓶颈定位用，不影响正常路径）
+#[allow(clippy::too_many_arguments)]
+fn agg_fused(
+    streams: &[Option<[EvStream; N_EVENTS]>],
+    null_t: &NullTable,
+    slices: &SliceTable,
+    ai: usize, // 全量索引（streams 访问）
+    row: usize, // 有效索引（矩阵行；l4=None 时忽略）
+    e: usize,
+    prm: &YhybParams,
+    l4: Option<&L4Ctx>,
 ) -> Option<Vec<f64>> {
     let sa = streams[ai].as_ref()?;
     let (ta, wa) = (&sa[e].t, &sa[e].w);
     let t_us = (prm.hit_t_s * 1e6) as u64;
     let skip_null = std::env::var("YHYB_SKIP_NULL").is_ok();
-    let mut g_fwd = Gather::new();
-    let mut g_bwd = Gather::new();
-    let (alo, ahi, base) = if ta.is_empty() {
-        (0usize, 0usize, 0i64)
-    } else {
-        let base = day_base(ta[0]);
-        let (lo, hi) = period_slice(ta, base, 0);
-        (lo, hi, base)
-    };
-    let rate = (ahi - alo) as f64;
-    let mut out = Vec::with_capacity(15);
-    if ahi == alo {
-        out.push(rate);
-        for _ in 0..14 {
-            out.push(f64::NAN);
-        }
-        return Some(out);
-    }
-    let s_us = base + PERIOD_HI_S[0] * 1_000_000;
-    // 零模型可分式（geo 默认，同 agg_one）
     let null_mode = std::env::var("YHYB_NULL_MODE").unwrap_or_else(|_| "geo".into());
     let geo = null_mode == "geo";
     let medm = null_mode == "med";
-    let k_a = (ahi - alo) as f64;
-    let sum_x: f64 = if skip_null {
-        0.0
-    } else {
-        ta[alo..ahi].iter().map(|&a| (s_us - a).max(0) as f64).sum()
-    };
-    let sum_ln_x: f64 = if !skip_null && geo {
-        ta[alo..ahi].iter().map(|&a| ((s_us - a).max(1) as f64).ln()).sum()
-    } else {
-        0.0
-    };
-    let x_bar = if skip_null { 0.0 } else { sum_x / k_a };
-    let mut sum_c = 0.0f64;
-    let mut sum_ln_c = 0.0f64;
-    let mut c_list: Vec<f64> = Vec::new();
-    let mut null_hit_acc = 0.0f64;
-    let mut n_b = 0u64; // 时段内有事件的 B 数（null 分母）
-    let mut f_hit_b = 0u64; // 命中率 > 0 的 B 数（hub）
-    let mut b_hit_b = 0u64; // bwd 命中率 > 0 的 B 数（spoke）
-    let mut n_b_pair = 0u64; // 有响应对的 B 数（hub/spoke 分母）
-    for (bi, sb) in streams.iter().enumerate() {
-        if bi == ai {
-            continue;
+    let base = slices.base;
+    // A 事件 4 时段切片 + union 范围 [min lo, max hi)
+    let alo = [
+        slices.sl[e * N_PERIODS + 0][ai].0,
+        slices.sl[e * N_PERIODS + 1][ai].0,
+        slices.sl[e * N_PERIODS + 2][ai].0,
+        slices.sl[e * N_PERIODS + 3][ai].0,
+    ];
+    let ahi = [
+        slices.sl[e * N_PERIODS + 0][ai].1,
+        slices.sl[e * N_PERIODS + 1][ai].1,
+        slices.sl[e * N_PERIODS + 2][ai].1,
+        slices.sl[e * N_PERIODS + 3][ai].1,
+    ];
+    let rate = [
+        (ahi[0] - alo[0]) as f64,
+        (ahi[1] - alo[1]) as f64,
+        (ahi[2] - alo[2]) as f64,
+        (ahi[3] - alo[3]) as f64,
+    ];
+    let ualo = alo[0].min(alo[1]).min(alo[2]).min(alo[3]);
+    let uahi = ahi[0].max(ahi[1]).max(ahi[2]).max(ahi[3]);
+    let mut out = Vec::with_capacity(60);
+    if ualo == uahi {
+        // 全时段无 A 事件：rate=0 + 14 NaN × 4 时段
+        for p in 0..N_PERIODS {
+            out.push(rate[p]);
+            for _ in 0..14 {
+                out.push(f64::NAN);
+            }
         }
-        let Some(sb) = sb else { continue };
-        let bpos = valid_pos[bi];
-        if bpos == usize::MAX {
-            continue;
-        }
-        let tb = &sb[e].t;
-        let (blo, bhi) = period_slice(tb, base, 0);
-        if blo == bhi {
-            continue;
-        }
+        return Some(out);
+    }
+    debug_assert_eq!(day_base(ta[ualo]), base, "切片表基值与任务基值不一致");
+    // 时段边界（µs）：零模型时段末 us_hi[p]
+    let us_hi = [
+        base + PERIOD_HI_S[0] * 1_000_000,
+        base + PERIOD_HI_S[1] * 1_000_000,
+        base + PERIOD_HI_S[2] * 1_000_000,
+        base + PERIOD_HI_S[3] * 1_000_000,
+    ];
+    // 零模型可分式预计算：Σ x_i（A 事件时段剩余）与 x̄，每任务 O(k_A)
+    let mut sum_x = [0.0f64; N_PERIODS];
+    let mut sum_ln_x = [0.0f64; N_PERIODS];
+    let mut k_a = [0.0f64; N_PERIODS];
+    for p in 0..N_PERIODS {
+        k_a[p] = (ahi[p] - alo[p]) as f64;
         if !skip_null {
-            let m_b = null_t.m[bi][e][0];
-            let c_b = null_t.c[bi][e][0];
-            sum_c += c_b;
+            for &a in &ta[alo[p]..ahi[p]] {
+                sum_x[p] += (us_hi[p] - a).max(0) as f64;
+                if geo {
+                    sum_ln_x[p] += ((us_hi[p] - a).max(1) as f64).ln();
+                }
+            }
+        }
+    }
+    let mut x_bar = [0.0f64; N_PERIODS];
+    for p in 0..N_PERIODS {
+        x_bar[p] = if skip_null { 0.0 } else { sum_x[p] / k_a[p] };
+    }
+    let mut sum_c = [0.0f64; N_PERIODS];
+    let mut sum_ln_c = [0.0f64; N_PERIODS];
+    let mut c_list: [Vec<f64>; N_PERIODS] = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
+    let mut null_hit_acc = [0.0f64; N_PERIODS];
+    let mut n_b = [0u64; N_PERIODS];
+    let mut f_hit_b = 0u64; // 第4层：fwd 命中率 > 0 的 B 数（hub）
+    let mut b_hit_b = 0u64; // 第4层：bwd 命中率 > 0 的 B 数（spoke）
+    let mut n_b_pair = 0u64; // 第4层：p0 有响应对的 B 数（hub/spoke 分母）
+    let with_l4 = l4.is_some();
+    let no_match = std::env::var("YHYB_NO_MATCH").is_ok();
+    // 5 段 A 事件范围（固定时段边界；掩码恒定）：
+    //   S0 [5400,6000) {p0} | S1 [6000,12600) {p0,p1} | S2 [12600,17820) {p0,p1,p3}
+    //   S3 [17820,19620) {p0,p2,p3} | S4 [19620,19800) {p3}
+    let s0 = (ualo, ta.partition_point(|&x| x < base + 6_000_000_000));
+    let s1 = (s0.1, ta.partition_point(|&x| x < base + 12_600_000_000));
+    let s2 = (s1.1, ta.partition_point(|&x| x < base + 17_820_000_000));
+    let s3 = (s2.1, ta.partition_point(|&x| x < base + 19_620_000_000));
+    let s4 = (s3.1, uahi);
+    // ============ 线程本地 Gather（8 个：4 时段 × fwd/bwd，时段定制桶长）+ 单趟归并 ============
+    let stats = GPOOL.with(|pool| {
+        let mut pool = pool.borrow_mut();
+        let g = &mut pool[..];
+        for x in g.iter_mut() {
+            x.reset();
+        }
+        // g[p*2] = fwd, g[p*2+1] = bwd
+        for (bi, sb) in streams.iter().enumerate() {
+            if bi == ai {
+                continue;
+            }
+            let Some(sb) = sb else { continue };
+            let bpos = l4.map_or(usize::MAX, |c| c.valid_pos[bi]);
+            if with_l4 && bpos == usize::MAX {
+                continue;
+            }
+            let tb = &sb[e].t;
+            let tb_len = tb.len();
+            if tb_len == 0 {
+                continue;
+            }
+            let bsl = [
+                slices.sl[e * N_PERIODS + 0][bi],
+                slices.sl[e * N_PERIODS + 1][bi],
+                slices.sl[e * N_PERIODS + 2][bi],
+                slices.sl[e * N_PERIODS + 3][bi],
+            ];
+            // 零模型（每时段：B 有时段事件才贡献）
+            if !skip_null {
+                for p in 0..N_PERIODS {
+                    let (blo, bhi) = bsl[p];
+                    if blo < bhi {
+                        let m_b = null_t.m[bi][e][p];
+                        let c_b = null_t.c[bi][e][p];
+                        sum_c[p] += c_b;
+                        if geo {
+                            sum_ln_c[p] += c_b.ln();
+                        }
+                        if medm {
+                            c_list[p].push(c_b);
+                        }
+                        n_b[p] += 1;
+                        // null_hit x̄ 近似：每 B 一次（clamp 防 x̄ ≤ T 时底数非正）
+                        null_hit_acc[p] += 1.0 - (1.0 - t_us as f64 / x_bar[p]).clamp(0.0, 1.0).powf(m_b);
+                    }
+                }
+            }
+            // 第 4 层 p0 对级累加器（每 B 独立）
+            let mut pfs = 0.0f64;
+            let mut pbs = 0.0f64;
+            let mut pfn = 0u64;
+            let mut pbn = 0u64;
+            let mut pfh = 0u64;
+            let mut pbh = 0u64;
+            // union-walk：全事件归并一趟，5 段子循环共享 j 游标（距离逐位一致）
+            let mut j = 0usize;
+            if no_match {
+                continue; // 探针：只做 B 访问（切片+null），跳过匹配推送
+            }
+            // S0: a ∈ [5400,6000) → p0
+            for i in s0.0..s0.1 {
+                let a = ta[i];
+                let wi = wa[i];
+                while j < tb_len && tb[j] <= a {
+                    j += 1;
+                }
+                if j > 0 {
+                    let d = (a - tb[j - 1]) as u64;
+                    let bb = (d / 1_000_000) as usize;
+                    if j > bsl[0].0 {
+                        g[1].push_b(bb, wi, d, t_us);
+                        if with_l4 {
+                            pbs += d as f64;
+                            pbn += 1;
+                            pbh += (d <= t_us) as u64;
+                        }
+                    }
+                }
+                if j < tb_len {
+                    let d = (tb[j] - a) as u64;
+                    let bb = (d / 1_000_000) as usize;
+                    if j < bsl[0].1 {
+                        g[0].push_b(bb, wi, d, t_us);
+                        if with_l4 {
+                            pfs += d as f64;
+                            pfn += 1;
+                            pfh += (d <= t_us) as u64;
+                        }
+                    }
+                }
+            }
+            // S1: a ∈ [6000,12600) → p0, p1
+            for i in s1.0..s1.1 {
+                let a = ta[i];
+                let wi = wa[i];
+                while j < tb_len && tb[j] <= a {
+                    j += 1;
+                }
+                if j > 0 {
+                    let d = (a - tb[j - 1]) as u64;
+                    let bb = (d / 1_000_000) as usize;
+                    if j > bsl[0].0 {
+                        g[1].push_b(bb, wi, d, t_us);
+                        if with_l4 {
+                            pbs += d as f64;
+                            pbn += 1;
+                            pbh += (d <= t_us) as u64;
+                        }
+                    }
+                    if j > bsl[1].0 {
+                        g[3].push_b(bb, wi, d, t_us);
+                    }
+                }
+                if j < tb_len {
+                    let d = (tb[j] - a) as u64;
+                    let bb = (d / 1_000_000) as usize;
+                    if j < bsl[0].1 {
+                        g[0].push_b(bb, wi, d, t_us);
+                        if with_l4 {
+                            pfs += d as f64;
+                            pfn += 1;
+                            pfh += (d <= t_us) as u64;
+                        }
+                    }
+                    if j < bsl[1].1 {
+                        g[2].push_b(bb, wi, d, t_us);
+                    }
+                }
+            }
+            // S2: a ∈ [12600,17820) → p0, p1, p3
+            for i in s2.0..s2.1 {
+                let a = ta[i];
+                let wi = wa[i];
+                while j < tb_len && tb[j] <= a {
+                    j += 1;
+                }
+                if j > 0 {
+                    let d = (a - tb[j - 1]) as u64;
+                    let bb = (d / 1_000_000) as usize;
+                    if j > bsl[0].0 {
+                        g[1].push_b(bb, wi, d, t_us);
+                        if with_l4 {
+                            pbs += d as f64;
+                            pbn += 1;
+                            pbh += (d <= t_us) as u64;
+                        }
+                    }
+                    if j > bsl[1].0 {
+                        g[3].push_b(bb, wi, d, t_us);
+                    }
+                    if j > bsl[3].0 {
+                        g[7].push_b(bb, wi, d, t_us);
+                    }
+                }
+                if j < tb_len {
+                    let d = (tb[j] - a) as u64;
+                    let bb = (d / 1_000_000) as usize;
+                    if j < bsl[0].1 {
+                        g[0].push_b(bb, wi, d, t_us);
+                        if with_l4 {
+                            pfs += d as f64;
+                            pfn += 1;
+                            pfh += (d <= t_us) as u64;
+                        }
+                    }
+                    if j < bsl[1].1 {
+                        g[2].push_b(bb, wi, d, t_us);
+                    }
+                    if j < bsl[3].1 {
+                        g[6].push_b(bb, wi, d, t_us);
+                    }
+                }
+            }
+            // S3: a ∈ [17820,19620) → p0, p2, p3
+            for i in s3.0..s3.1 {
+                let a = ta[i];
+                let wi = wa[i];
+                while j < tb_len && tb[j] <= a {
+                    j += 1;
+                }
+                if j > 0 {
+                    let d = (a - tb[j - 1]) as u64;
+                    let bb = (d / 1_000_000) as usize;
+                    if j > bsl[0].0 {
+                        g[1].push_b(bb, wi, d, t_us);
+                        if with_l4 {
+                            pbs += d as f64;
+                            pbn += 1;
+                            pbh += (d <= t_us) as u64;
+                        }
+                    }
+                    if j > bsl[2].0 {
+                        g[5].push_b(bb, wi, d, t_us);
+                    }
+                    if j > bsl[3].0 {
+                        g[7].push_b(bb, wi, d, t_us);
+                    }
+                }
+                if j < tb_len {
+                    let d = (tb[j] - a) as u64;
+                    let bb = (d / 1_000_000) as usize;
+                    if j < bsl[0].1 {
+                        g[0].push_b(bb, wi, d, t_us);
+                        if with_l4 {
+                            pfs += d as f64;
+                            pfn += 1;
+                            pfh += (d <= t_us) as u64;
+                        }
+                    }
+                    if j < bsl[2].1 {
+                        g[4].push_b(bb, wi, d, t_us);
+                    }
+                    if j < bsl[3].1 {
+                        g[6].push_b(bb, wi, d, t_us);
+                    }
+                }
+            }
+            // S4: a ∈ [19620,19800) → p3
+            for i in s4.0..s4.1 {
+                let a = ta[i];
+                let wi = wa[i];
+                while j < tb_len && tb[j] <= a {
+                    j += 1;
+                }
+                if j > 0 {
+                    let d = (a - tb[j - 1]) as u64;
+                    let bb = (d / 1_000_000) as usize;
+                    if j > bsl[3].0 {
+                        g[7].push_b(bb, wi, d, t_us);
+                    }
+                }
+                if j < tb_len {
+                    let d = (tb[j] - a) as u64;
+                    let bb = (d / 1_000_000) as usize;
+                    if j < bsl[3].1 {
+                        g[6].push_b(bb, wi, d, t_us);
+                    }
+                }
+            }
+            // 写第 4 层对级矩阵（本任务独占第 (e,row) 行；B 无 p0 事件时保持 NaN）
+            if let Some(c) = l4 {
+                if bsl[0].0 < bsl[0].1 {
+                    let vf = if pfn > 0 { (pfs / pfn as f64) as f32 } else { f32::NAN };
+                    let vb = if pbn > 0 { (pbs / pbn as f64) as f32 } else { f32::NAN };
+                    c.mf.w((e * c.n + row) * c.n + bpos, vf);
+                    c.mb.w((e * c.n + row) * c.n + bpos, vb);
+                    if pfh > 0 {
+                        f_hit_b += 1;
+                    }
+                    if pbh > 0 {
+                        b_hit_b += 1;
+                    }
+                    n_b_pair += 1;
+                }
+            }
+        }
+        // 定位分位数桶（n/wsum 由 push 维护，免去逐桶求和）
+        let mut stats = [[0.0f64; 5]; N_PERIODS * 2];
+        for p in 0..N_PERIODS {
+            let nf = g[p * 2].n;
+            let nb = g[p * 2 + 1].n;
+            let kf = ((nf as f64) * prm.fast_q).round().max(1.0) as u64;
+            let kb = ((nb as f64) * prm.fast_q).round().max(1.0) as u64;
+            if nf > 0 {
+                g[p * 2].locate(nf / 2, g[p * 2].wsum / 2.0, kf);
+            }
+            if nb > 0 {
+                g[p * 2 + 1].locate(nb / 2, g[p * 2 + 1].wsum / 2.0, kb);
+            }
+            stats[p * 2] = g[p * 2].stats(nf, kf);
+            stats[p * 2 + 1] = g[p * 2 + 1].stats(nb, kb);
+        }
+        stats
+    });
+    // hub/spoke（命中 B 占比）：与旧版 p0 任务语义一致——A 无 p0 事件时任务提前返回，
+    // hub/spoke 保持 NaN（若 A 有 p0 事件但无任何 B 响应则写 NaN）
+    if let Some(c) = l4 {
+        if alo[0] < ahi[0] {
+            c.hp.w(e * c.n + row, if n_b_pair > 0 { f_hit_b as f32 / n_b_pair as f32 } else { f32::NAN });
+            c.sp.w(e * c.n + row, if n_b_pair > 0 { b_hit_b as f32 / n_b_pair as f32 } else { f32::NAN });
+        }
+    }
+    // 每时段 null_med/null_hit + 输出 15 值
+    for p in 0..N_PERIODS {
+        // 空时段（A 无事件）：与旧版逐任务语义一致——rate=0 + 14 个 NaN
+        // （注意：hit 也必须为 NaN 而非 0.0，否则 fill_periods 链条回退会拾取 0.0
+        //  而旧版会回退到更近时段的真实值，输出产生系统性差异）
+        if rate[p] == 0.0 {
+            out.push(0.0);
+            for _ in 0..14 {
+                out.push(f64::NAN);
+            }
+            continue;
+        }
+        let null_med = if !skip_null && n_b[p] > 0 {
             if geo {
-                sum_ln_c += c_b.ln();
+                (sum_ln_x[p] / k_a[p]).exp() * (sum_ln_c[p] / n_b[p] as f64).exp() / 1e6
+            } else if medm {
+                // x 降序中位（a 升序 → x 降序，上中位与 select_nth(len/2) 同秩）
+                let mid_x = (us_hi[p] - ta[ahi[p] - 1 - (ahi[p] - alo[p]) / 2]).max(0) as f64;
+                let mid_c = {
+                    let m = c_list[p].len() / 2;
+                    let (_, &mut v, _) = c_list[p].select_nth_unstable_by(m, |a, b| a.total_cmp(b));
+                    v
+                };
+                mid_x * mid_c / 1e6
+            } else {
+                (sum_x[p] * sum_c[p]) / (k_a[p] * n_b[p] as f64) / 1e6
             }
-            if medm {
-                c_list.push(c_b);
-            }
-            n_b += 1;
-            null_hit_acc += 1.0 - (1.0 - t_us as f64 / x_bar).clamp(0.0, 1.0).powf(m_b);
-        }
-        let mut j = blo;
-        // 第 4 层对级累加器（每 B 独立）
-        let mut fs = 0.0f64;
-        let mut bs = 0.0f64;
-        let mut fn_ = 0u64;
-        let mut bn_ = 0u64;
-        let mut fh = 0u64;
-        let mut bh = 0u64;
-        for i in alo..ahi {
-            let a = ta[i];
-            let wi = wa[i];
-            while j < bhi && tb[j] <= a {
-                j += 1;
-            }
-            if j > blo {
-                let d = (a - tb[j - 1]) as u64;
-                g_bwd.push1(d, wi, t_us);
-                bs += d as f64;
-                bn_ += 1;
-                if d <= t_us {
-                    bh += 1;
-                }
-            }
-            if j < bhi {
-                let d = (tb[j] - a) as u64;
-                g_fwd.push1(d, wi, t_us);
-                fs += d as f64;
-                fn_ += 1;
-                if d <= t_us {
-                    fh += 1;
-                }
-            }
-        }
-        // 写对级矩阵（本任务独占第 (e,row) 行）
-        let vf = if fn_ > 0 { (fs / fn_ as f64) as f32 } else { f32::NAN };
-        let vb = if bn_ > 0 { (bs / bn_ as f64) as f32 } else { f32::NAN };
-        mf.w((e * n + row) * n + bpos, vf);
-        mb.w((e * n + row) * n + bpos, vb);
-        if fh > 0 {
-            f_hit_b += 1;
-        }
-        if bh > 0 {
-            b_hit_b += 1;
-        }
-        n_b_pair += 1;
-    }
-    // 定位分位数桶
-    let n_f = g_fwd.n;
-    let n_bw = g_bwd.n;
-    let kf = ((n_f as f64) * prm.fast_q).round().max(1.0) as u64;
-    let kb = ((n_bw as f64) * prm.fast_q).round().max(1.0) as u64;
-    if n_f > 0 {
-        g_fwd.locate(n_f / 2, g_fwd.wsum / 2.0, kf);
-    }
-    if n_bw > 0 {
-        g_bwd.locate(n_bw / 2, g_bwd.wsum / 2.0, kb);
-    }
-    let fs = g_fwd.stats(n_f, kf);
-    let bs = g_bwd.stats(n_bw, kb);
-    let null_med = if !skip_null && n_b > 0 {
-        if geo {
-            (sum_ln_x / k_a).exp() * (sum_ln_c / n_b as f64).exp() / 1e6
-        } else if medm {
-            let mid_x = (s_us - ta[ahi - 1 - (ahi - alo) / 2]).max(0) as f64;
-            let mid_c = {
-                let m = c_list.len() / 2;
-                let (_, &mut v, _) = c_list.select_nth_unstable_by(m, |a, b| a.total_cmp(b));
-                v
-            };
-            mid_x * mid_c / 1e6
         } else {
-            (sum_x * sum_c) / (k_a * n_b as f64) / 1e6
+            f64::NAN
+        };
+        let null_hit = if !skip_null && n_b[p] > 0 {
+            null_hit_acc[p] / n_b[p] as f64
+        } else {
+            f64::NAN
+        };
+        out.push(rate[p]);
+        for dd in [&stats[p * 2], &stats[p * 2 + 1]] {
+            out.push(dd[0]);
+            out.push(dd[1]);
+            out.push(dd[2]);
+            out.push(dd[3]);
+            out.push(dd[4]);
+            out.push(dd[0] / null_med); // rmed
+            out.push(dd[2] / null_hit); // rhit
         }
-    } else {
-        f64::NAN
-    };
-    let null_hit = if !skip_null && n_b > 0 {
-        null_hit_acc / n_b as f64
-    } else {
-        f64::NAN
-    };
-    // hub/spoke（命中 B 占比）
-    hp.w(e * n + row, if n_b_pair > 0 { f_hit_b as f32 / n_b_pair as f32 } else { f32::NAN });
-    sp.w(e * n + row, if n_b_pair > 0 { b_hit_b as f32 / n_b_pair as f32 } else { f32::NAN });
-    out.push(rate);
-    for dd in [&fs, &bs] {
-        out.push(dd[0]);
-        out.push(dd[1]);
-        out.push(dd[2]);
-        out.push(dd[3]);
-        out.push(dd[4]);
-        out.push(dd[0] / null_med); // rmed
-        out.push(dd[2] / null_hit); // rhit
     }
     Some(out)
 }
@@ -1411,45 +1593,117 @@ fn fill_periods(row: &mut [f64]) {
     }
 }
 
+/// 从预加载的全市场事件流聚合因子（v1/v2 共同核心，v6 融合任务）。
+/// 并行粒度 (A, 事件)：5914×29 = 17 万个小任务（v6 每任务一次全事件归并出 4 时段 60 值）；
+/// 切片表 + 零模型系数表全市场预计算一次（build_slices_and_null）。
+/// with_l4=true 时输出 1916 因子（1740 时段聚合 + 176 第 4 层网络因子），
+/// 第 4 层对级累加与 p0 统计同趟（无独立阶段 A 遍历）；false 时输出 1740。
+/// 限流：rayon 全局池固定 **50 线程**（512 核共享机，统一 50 核口径；外部若已设
+/// RAYON_NUM_THREADS 则尊重外部设置）。幂等：全局池只初始化一次。
+fn compute_from_streams_full(
+    codes: &[String],
+    streams: &[Option<[EvStream; N_EVENTS]>],
+    prm: &YhybParams,
+    with_l4: bool,
+) -> (Vec<String>, Vec<f32>) {
+    ensure_threads();
+    let t0 = std::time::Instant::now();
+    let n_all = codes.len();
+    let (slices, null_t) = build_slices_and_null(streams);
+    let t1 = std::time::Instant::now();
+    // 有效股票（有事件流）
+    let valid: Vec<usize> = streams
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| s.is_some())
+        .map(|(i, _)| i)
+        .collect();
+    let n = valid.len();
+    let ne = N_EVENTS;
+    let mut valid_pos = vec![usize::MAX; n_all];
+    for (pos, &i) in valid.iter().enumerate() {
+        valid_pos[i] = pos;
+    }
+    // 第 4 层对级矩阵（29 × n² × 2 f32 ≈ 8.1GB）+ hub/spoke
+    let mut m_fwd = vec![f32::NAN; ne * n * n];
+    let mut m_bwd = vec![f32::NAN; ne * n * n];
+    let mut hub = vec![f32::NAN; ne * n];
+    let mut spoke = vec![f32::NAN; ne * n];
+    let l4ctx = if with_l4 {
+        Some(L4Ctx {
+            n,
+            valid_pos: &valid_pos,
+            mf: crate::yhyb_network::SendPtr::new(m_fwd.as_mut_ptr()),
+            mb: crate::yhyb_network::SendPtr::new(m_bwd.as_mut_ptr()),
+            hp: crate::yhyb_network::SendPtr::new(hub.as_mut_ptr()),
+            sp: crate::yhyb_network::SendPtr::new(spoke.as_mut_ptr()),
+        })
+    } else {
+        None
+    };
+    let results: Vec<Option<Vec<f64>>> = (0..n * ne)
+        .into_par_iter()
+        .map(|idx| {
+            let row = idx / ne;
+            let e = idx % ne;
+            agg_fused(&streams, &null_t, &slices, valid[row], row, e, prm, l4ctx.as_ref())
+        })
+        .collect();
+    let t2 = std::time::Instant::now();
+    // 组装 1740 时段聚合因子（有效股票）
+    let mut out_codes = Vec::with_capacity(n);
+    let mut vals1380 = Vec::with_capacity(n * N_FACTORS);
+    for row in 0..n {
+        let mut r = Vec::with_capacity(N_FACTORS);
+        let mut ok = true;
+        for e in 0..ne {
+            match &results[row * ne + e] {
+                Some(v) => r.extend_from_slice(v),
+                None => ok = false,
+            }
+        }
+        if ok && r.len() == N_FACTORS {
+            if std::env::var("YHYB_NO_FILL").is_err() {
+                fill_periods(&mut r);
+            }
+            out_codes.push(codes[valid[row]].clone());
+            vals1380.extend(r.iter().map(|&x| x as f32));
+        }
+    }
+    if !with_l4 {
+        return (out_codes, vals1380);
+    }
+    // 第 4 层阶段 B：从对级矩阵算 176 因子
+    let (vals140, _) = crate::yhyb_network::l4_factors(&m_fwd, &m_bwd, &hub, &spoke, n, valid);
+    let t3 = std::time::Instant::now();
+    if std::env::var("YHYB_PROBE").is_ok() {
+        eprintln!(
+            "YHYB_PROBE 切片+null表={:.1}s 聚合任务={:.1}s 第4层B={:.1}s 组装={:.1}s",
+            t1.duration_since(t0).as_secs_f64(),
+            t2.duration_since(t1).as_secs_f64(),
+            t3.duration_since(t2).as_secs_f64(),
+            t3.elapsed().as_secs_f64(),
+        );
+    }
+    let nc = out_codes.len();
+    let total = N_FACTORS + crate::yhyb_network::N_L4;
+    let mut vals = Vec::with_capacity(nc * total);
+    for i in 0..nc {
+        vals.extend_from_slice(&vals1380[i * N_FACTORS..(i + 1) * N_FACTORS]);
+        vals.extend_from_slice(
+            &vals140[i * crate::yhyb_network::N_L4..(i + 1) * crate::yhyb_network::N_L4],
+        );
+    }
+    (out_codes, vals)
+}
+
+/// 1740 因子版本（无第 4 层；py_yhyb_params 用，输出布局与旧版一致）。
 fn compute_from_streams(
     codes: &[String],
     streams: &[Option<[EvStream; N_EVENTS]>],
     prm: &YhybParams,
 ) -> (Vec<String>, Vec<f32>) {
-    ensure_threads();
-    let n_stocks = codes.len();
-    let null_t = build_null_table(streams);
-    let results: Vec<Option<Vec<f64>>> = (0..n_stocks * N_EVENTS * N_PERIODS)
-        .into_par_iter()
-        .map(|idx| {
-            let ai = idx / (N_EVENTS * N_PERIODS);
-            let e = (idx / N_PERIODS) % N_EVENTS;
-            let p = idx % N_PERIODS;
-            agg_one(streams, &null_t, ai, e, p, prm)
-        })
-        .collect();
-    let mut out_codes = Vec::new();
-    let mut vals = Vec::with_capacity(n_stocks * N_FACTORS);
-    for ai in 0..n_stocks {
-        let mut row = Vec::with_capacity(N_FACTORS);
-        let mut ok = true;
-        for e in 0..N_EVENTS {
-            for p in 0..N_PERIODS {
-                match &results[(ai * N_EVENTS + e) * N_PERIODS + p] {
-                    Some(v) => row.extend_from_slice(v),
-                    None => ok = false,
-                }
-            }
-        }
-        if ok && row.len() == N_FACTORS {
-            if std::env::var("YHYB_NO_FILL").is_err() {
-                fill_periods(&mut row);
-            }
-            out_codes.push(codes[ai].clone());
-            vals.extend(row.iter().map(|&x| x as f32));
-        }
-    }
-    (out_codes, vals)
+    compute_from_streams_full(codes, streams, prm, false)
 }
 
 /// 近似版聚合（评估用）：并行粒度 (A, 事件, 时段)。
@@ -1460,7 +1714,7 @@ fn compute_from_streams_approx(
 ) -> (Vec<String>, Vec<f32>) {
     ensure_threads();
     let n_stocks = codes.len();
-    let null_t = build_null_table(streams);
+    let (_, null_t) = build_slices_and_null(streams);
     let results: Vec<Option<Vec<f64>>> = (0..n_stocks * N_EVENTS * N_PERIODS)
         .into_par_iter()
         .map(|idx| {
@@ -1500,90 +1754,9 @@ pub fn compute_yhyb_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f32>)> 
     let t_start = std::time::Instant::now();
     let (codes_all, streams) = load_streams(date, &prm)?;
     let t_read = std::time::Instant::now();
-    let null_t = build_null_table(&streams);
-    // 有效股票（有事件流）
-    let valid: Vec<usize> = streams
-        .iter()
-        .enumerate()
-        .filter(|(_, s)| s.is_some())
-        .map(|(i, _)| i)
-        .collect();
-    let n = valid.len();
-    let mut valid_pos = vec![usize::MAX; codes_all.len()];
-    for (pos, &i) in valid.iter().enumerate() {
-        valid_pos[i] = pos;
-    }
-    // 第 4 层对级矩阵（29 × n² × 2 f32 ≈ 8.1GB）+ hub/spoke
-    let ne = N_EVENTS;
-    let mut m_fwd = vec![f32::NAN; ne * n * n];
-    let mut m_bwd = vec![f32::NAN; ne * n * n];
-    let mut hub = vec![f32::NAN; ne * n];
-    let mut spoke = vec![f32::NAN; ne * n];
-    let mf = crate::yhyb_network::SendPtr::new(m_fwd.as_mut_ptr());
-    let mb = crate::yhyb_network::SendPtr::new(m_bwd.as_mut_ptr());
-    let hp = crate::yhyb_network::SendPtr::new(hub.as_mut_ptr());
-    let sp = crate::yhyb_network::SendPtr::new(spoke.as_mut_ptr());
-    // 并行任务 (有效A, 事件, 时段)：p0 用融合任务（1380 统计 + 对级累加），p1-3 常规
-    let results: Vec<Option<Vec<f64>>> = (0..n * ne * N_PERIODS)
-        .into_par_iter()
-        .map(|idx| {
-            let row = idx / (ne * N_PERIODS);
-            let e = (idx / N_PERIODS) % ne;
-            let p = idx % N_PERIODS;
-            if p == 0 {
-                agg_one_p0_fused(
-                    &streams,
-                    &null_t,
-                    valid[row],
-                    row,
-                    e,
-                    &prm,
-                    n,
-                    &valid_pos,
-                    mf,
-                    mb,
-                    hp,
-                    sp,
-                )
-            } else {
-                agg_one(&streams, &null_t, valid[row], e, p, &prm)
-            }
-        })
-        .collect();
-    // 组装 1740 时段聚合因子（有效股票）
-    let mut codes = Vec::with_capacity(n);
-    let mut vals1380 = Vec::with_capacity(n * N_FACTORS);
-    for row in 0..n {
-        let mut r = Vec::with_capacity(N_FACTORS);
-        let mut ok = true;
-        for e in 0..ne {
-            for p in 0..N_PERIODS {
-                match &results[(row * ne + e) * N_PERIODS + p] {
-                    Some(v) => r.extend_from_slice(v),
-                    None => ok = false,
-                }
-            }
-        }
-        if ok && r.len() == N_FACTORS {
-            if std::env::var("YHYB_NO_FILL").is_err() {
-                fill_periods(&mut r);
-            }
-            codes.push(codes_all[valid[row]].clone());
-            vals1380.extend(r.iter().map(|&x| x as f32));
-        }
-    }
-    // 第 4 层阶段 B：从对级矩阵算 176 因子
-    let (vals140, _) = crate::yhyb_network::l4_factors(&m_fwd, &m_bwd, &hub, &spoke, n, valid);
-    let n = codes.len();
-    let total = N_FACTORS + crate::yhyb_network::N_L4;
-    let mut vals = Vec::with_capacity(n * total);
-    for i in 0..n {
-        vals.extend_from_slice(&vals1380[i * N_FACTORS..(i + 1) * N_FACTORS]);
-        vals.extend_from_slice(
-            &vals140[i * crate::yhyb_network::N_L4..(i + 1) * crate::yhyb_network::N_L4],
-        );
-    }
+    let (codes, vals) = compute_from_streams_full(&codes_all, &streams, &prm, true);
     // 写备份文件（v4 格式，与 pipeline 备份兼容；版本化文件名避免与旧版因子数冲突）
+    let total = N_FACTORS + crate::yhyb_network::N_L4;
     let backup = format!("/hdd/user_home_unsafe/chenzongwei/yhyb5_{date}.bin");
     let results: Vec<crate::backup_reader::TaskResult> = codes
         .iter()
@@ -1868,12 +2041,12 @@ pub fn py_yhyb_from_data(
         })
         .collect();
     if approx {
-        // 近似版（评估用）：1380 部分走近似统计，第 4 层照常（布局一致 1520）
+        // 近似版（评估用）：1380 部分走近似统计，第 4 层照常（布局一致 1916）
         let (codes_out, vals1380) = compute_from_streams_approx(&codes, &streams, &prm);
         Ok(merge_l4(&codes, &streams, &codes_out, vals1380))
     } else {
-        let (codes_out, vals1380) = compute_from_streams(&codes, &streams, &prm);
-        Ok(merge_l4(&codes, &streams, &codes_out, vals1380))
+        // 生产版：融合任务一次出 1916 因子（p0 统计 + 第 4 层对级累加同趟）
+        Ok(compute_from_streams_full(&codes, &streams, &prm, true))
     }
 }
 
@@ -2005,7 +2178,7 @@ mod tests {
         let mut evs: [EvStream; N_EVENTS] = Default::default();
         evs[0].t.push(base + 5_400_000_000);
         let streams = vec![Some(evs)];
-        let nt = build_null_table(&streams);
+        let (_, nt) = build_slices_and_null(&streams);
         assert!((nt.m[0][0][0] - 1.0).abs() < 1e-9);
         // c = 1 - 2^(-1/1) = 0.5
         assert!((nt.c[0][0][0] - 0.5).abs() < 1e-9);
