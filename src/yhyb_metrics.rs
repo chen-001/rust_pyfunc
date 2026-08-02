@@ -12,12 +12,12 @@
 //!
 //! # 因子布局（23 事件 × 4 时段 × 15）
 //! 对每个 (事件 e, 时段 p)：`yhyb_e{02}_p{p}_rate` + fwd/bwd 两方向 × 7 个度量
-//! [med, mean, hit, fast5, wmed, rmed, rhit]（**混合统计**，评估验证 ≥0.999 无损）：
-//! - med：池化响应距离（秒）中位数 = 1 秒桶中点（±0.5s；截面 Spearman 1.0000）
-//! - mean/hit：精确标量（4 路累加器；hit = 距离 ≤ hit_t_s 秒占比，含无响应）
-//! - fast5：最快 5% 距离均值 = 1 秒桶中点（截面 Spearman 0.9996）
-//! - wmed：按事件强度加权的**中位**距离（秒）——1 秒桶定位 + 桶内精确值，无损
-//! - rmed/rhit：med/hit 除以均匀零模型期望（净响应，剔除共同驱动；零模型逐点精确）
+//! [med, mean, hit, fast5, wmed, rmed, rhit]（**v3 单遍近似统计**，评估相关性见 README）：
+//! - med/mean/fast5/wmed：全部 1 秒桶中点（±0.5s 量化；med/fast5 Spearman 1.0000/0.9996，
+//!   mean/wmed 桶中点相关性已实测评估）
+//! - hit：精确标量（距离 ≤ hit_t_s 秒占比，含无响应）
+//! - rmed/rhit：med/hit 除以零模型期望（净响应，剔除共同驱动）——零模型近似但 O(k_A+nB)：
+//!   null_med 可分式均值池化（rmed Spearman 0.9694）、null_hit x̄ 均值近似（rhit 0.9632）
 //!
 //! # 数据约定
 //! - 只使用连续竞价：读取时 with_afternoon_adjust=true（过滤集合竞价+收盘后、下午前移90分钟）
@@ -32,13 +32,13 @@
 //! null_hit = 逐点精确 1 - ((x-T)/x)^m（整数幂 powi + 安全截断）。
 //! 全确定性，逐日逐股可复现。
 //!
-//! # 性能（一天全市场 ≤ 60s）
-//! 单日全市场 5914 股 × 1380 因子实测聚合 ~35s（机器默认 rayon 全核并行，512 核共享机；
-//! 限 50 线程 ~150s，受共享内存带宽制约）。优化（均为算法/底层级，不改变统计口径）：
-//! 混合统计（med/fast5 1 秒桶中点 + wmed 精确 + mean/hit 精确 + 零模型逐点精确）、
-//! 两遍匹配（第二遍只收集 wmed 桶）、隐式 null_med（大任务计数二分，不物化期望值集合）、
+//! # 性能（一天全市场 ≤ 60s，限流 50 线程）
+//! 单日全市场 5914 股 × 1380 因子实测聚合 ~50s（rayon 全局池限流 50 线程，代码级
+//! ensure_threads）。优化（均为算法/底层级，近似口径见上）：
+//! **单遍**匹配（无第二遍：wmed/mean 改桶中点）、1 秒桶直方图（u64 距离无回绕、
+//! 无尾部截断）、零模型可分式 O(k_A+nB)（null_med 均值池化 + null_hit x̄ 近似）、
 //! n/wsum 由 push1 维护（免逐桶求和）、locate 只扫到最大非空桶、fwd/bwd 一趟归并、
-//! 零模型系数查表 + powi 安全截断、(A,事件,时段) 并行粒度、空时段短路。
+//! (A,事件,时段) 并行粒度、空时段短路。
 
 use crate::fast_csv_reader::{read_market_fast_inner, read_trade_fast_inner, MarketRecord, TradeRecord};
 use numpy::PyReadonlyArray2;
@@ -582,27 +582,35 @@ fn period_slice(t: &[i64], base: i64, p: usize) -> (usize, usize) {
     (s, e)
 }
 
-/// 混合收集器（生产默认；评估验证 ≥0.999 无损，见 README 评估）：
-/// - med/fast5：1 秒桶中点（±0.5s；全市场截面 Spearman 1.0000 / 0.9996）
-/// - wmed：精确加权中位数（1 秒桶定位 + 第二遍收集桶内精确 (d,w) 排序累积，无损）
-/// - mean/hit：精确标量（4 路累加器打破依赖链）；零模型在 agg_one 内逐点精确
+/// 单遍收集器（v3 生产默认）：1 秒桶直方图一次遍历完成所有统计（无第二遍）。
+/// - med/fast5/wmed/mean：全部 1 秒桶中点（±0.5s 量化；med/fast5 评估 Spearman
+///   1.0000/0.9996，wmed/mean 为 v3 新增近似，相关性已实测评估）
+/// - hit：精确标量
 /// - 距离一律 u64：i64 差值 as u64 无符号溢出（最大 ~19620s << u64 上限）。
 ///   历史 u32 版会在 >4295s 的缺口处静默回绕，把数小时的稀疏缺口伪装成小距离，
-///   污染稀疏股对的 med/fast5/wmed——混合版一并修复
+///   污染 med/fast5/wmed——v3 一并修复
+/// 1 秒桶（u32 计数 + f32 权重和，8 字节/桶，同 cache line——桶更新的两次 store
+/// 只触碰一条缓存行，分离数组要两条；19620 × 8B = 157KB）。
+#[derive(Clone, Copy, Default)]
+#[repr(C)]
+struct Bucket {
+    c: u32,
+    w: f32,
+}
+
+/// 单遍收集器（v3 生产默认）：1 秒桶直方图一次遍历完成所有统计（无第二遍）。
+/// - med/fast5/wmed/mean：全部 1 秒桶中点（±0.5s 量化；med/fast5 评估 Spearman
+///   1.0000/0.9996，wmed/mean 为 v3 新增近似，相关性已实测评估）
+/// - hit：精确标量
+/// - 距离一律 u64：i64 差值 as u64 无符号溢出（最大 ~19620s << u64 上限）。
+///   历史 u32 版会在 >4295s 的缺口处静默回绕，把数小时的稀疏缺口伪装成小距离，
+///   污染 med/fast5/wmed——v3 一并修复
 struct Gather {
-    cnt1: Vec<u32>, // 1 秒桶计数（19620 × 4B = 78KB）
-    w1: Vec<f64>,   // 1 秒桶权重和（wmed 定位用，157KB）
+    b: Vec<Bucket>, // 1 秒桶（157KB）
     n: u64,         // 距离条数（免去逐桶求和）
-    max_b: usize,   // 最后写入的桶（locate 只扫 0..=max_b）
     med_b: usize,
     f5_b: usize,
     wmed_b: usize,
-    wmed_before: f64,     // 定位桶之前的累计权重（stats 直接使用）
-    wmed_pairs: Vec<(u64, f64)>, // 第二遍收集 wmed 桶精确 (d, w)
-    mean_a: f64,
-    mean_b: f64,
-    mean_c: f64,
-    mean_d: f64,
     hit: u64,
     wsum: f64,
 }
@@ -610,41 +618,25 @@ struct Gather {
 impl Gather {
     fn new() -> Self {
         Gather {
-            cnt1: vec![0; N_BUCKETS_1S],
-            w1: vec![0.0; N_BUCKETS_1S],
+            b: vec![Bucket::default(); N_BUCKETS_1S],
             n: 0,
-            max_b: 0,
             med_b: 0,
             f5_b: 0,
             wmed_b: 0,
-            wmed_before: 0.0,
-            wmed_pairs: Vec::new(),
-            mean_a: 0.0,
-            mean_b: 0.0,
-            mean_c: 0.0,
-            mean_d: 0.0,
             hit: 0,
             wsum: 0.0,
         }
     }
-    /// 第一遍：1 秒桶更新 + 标量累加（4 路累加器打破依赖链）。
+    /// 单遍：1 秒桶更新 + 标量（n/wsum/hit）。无 mean 累加（mean 由桶中点统计）。
+    /// 注意：桶索引必须用 u64 除法——距离最大 ~19620s = 1.96e10 µs 远超 u32 上限
+    /// （4.29e9），as u32 会把 >4295s 的大缺口回绕成小距离（u64 修复的教训）。
     #[inline(always)]
     fn push1(&mut self, dd: u64, ww: f64, t_us: u64) {
         let b = ((dd / 1_000_000) as usize).min(N_BUCKETS_1S - 1);
-        self.cnt1[b] += 1;
-        self.w1[b] += ww;
+        self.b[b].c += 1;
+        self.b[b].w += ww as f32;
         self.n += 1;
         self.wsum += ww;
-        if b > self.max_b {
-            self.max_b = b;
-        }
-        let dd64 = dd as f64;
-        match dd & 3 {
-            0 => self.mean_a += dd64,
-            1 => self.mean_b += dd64,
-            2 => self.mean_c += dd64,
-            _ => self.mean_d += dd64,
-        }
         if dd <= t_us {
             self.hit += 1;
         }
@@ -655,146 +647,74 @@ impl Gather {
         let mut acc = 0u64;
         let mut f_acc = 0u64;
         let mut wacc = 0.0f64;
-        for b in 0..=self.max_b {
-            let c = self.cnt1[b] as u64;
+        for i in 0..N_BUCKETS_1S {
+            let c = self.b[i].c as u64;
             if c == 0 {
                 continue;
             }
             if acc <= half_n && half_n < acc + c {
-                self.med_b = b;
+                self.med_b = i;
             }
             if f_acc < k {
                 f_acc += c;
                 if f_acc >= k {
-                    self.f5_b = b;
+                    self.f5_b = i;
                 }
             }
-            let wc = self.w1[b];
+            let wc = self.b[i].w as f64;
             if wacc <= half_w && half_w < wacc + wc {
-                self.wmed_b = b;
-                self.wmed_before = wacc;
+                self.wmed_b = i;
             }
             acc += c;
             wacc += wc;
         }
     }
-    /// 第二遍：只收集 wmed 桶的精确 (d, w)（med/fast5 直接取 1 秒桶中点）。
-    #[inline(always)]
-    fn collect(&mut self, dd: u64, ww: f64) {
-        if (dd / 1_000_000) as usize == self.wmed_b {
-            self.wmed_pairs.push((dd, ww));
-        }
-    }
-    /// 统计：[med, mean, hit, fast5, wmed]（秒）。med/fast5 为 1 秒桶中点，wmed 精确。
-    fn stats(&mut self, n: u64, half_w: f64, k: u64) -> [f64; 5] {
+    /// 统计：[med, mean, hit, fast5, wmed]（秒），全部 1 秒桶中点/精确标量。
+    fn stats(&mut self, n: u64, k: u64) -> [f64; 5] {
         if n == 0 {
             return [f64::NAN, f64::NAN, 0.0, f64::NAN, f64::NAN];
         }
         let med = self.med_b as f64 + 0.5;
-        let fast5 = {
-            let mut f_acc = 0u64;
-            let mut f_sum = 0.0f64;
-            let mut v = f64::NAN;
-            for b in 0..=self.f5_b {
-                let c = self.cnt1[b] as u64;
-                if c == 0 {
-                    continue;
-                }
+        let mut mean_sum = 0.0f64;
+        let mut f_acc = 0u64;
+        let mut f_sum = 0.0f64;
+        let mut fast5 = f64::NAN;
+        for i in 0..N_BUCKETS_1S {
+            let c = self.b[i].c as u64;
+            if c == 0 {
+                continue;
+            }
+            let mid = i as f64 + 0.5;
+            mean_sum += c as f64 * mid;
+            if f_acc < k {
                 let take = c.min(k - f_acc);
-                f_sum += take as f64 * (b as f64 + 0.5);
+                f_sum += take as f64 * mid;
                 f_acc += take;
                 if f_acc >= k {
-                    v = f_sum / k as f64;
-                    break;
+                    fast5 = f_sum / k as f64;
                 }
             }
-            v
-        };
-        let wmed = {
-            if self.wsum <= 0.0 || self.wmed_pairs.is_empty() {
-                f64::NAN
-            } else {
-                self.wmed_pairs.sort_unstable_by(|a, b| a.0.cmp(&b.0));
-                let mut acc_w = self.wmed_before;
-                let mut v = self.wmed_pairs.last().unwrap().0 as f64 / 1e6;
-                for (dd, ww) in &self.wmed_pairs {
-                    acc_w += ww;
-                    if acc_w >= half_w {
-                        v = *dd as f64 / 1e6;
-                        break;
-                    }
-                }
-                v
-            }
-        };
+        }
         [
             med,
-            (self.mean_a + self.mean_b + self.mean_c + self.mean_d) / n as f64 / 1e6,
+            mean_sum / n as f64,
             self.hit as f64 / n as f64,
             fast5,
-            wmed,
+            self.wmed_b as f64 + 0.5,
         ]
     }
 }
 
-/// 隐式精确中位数：{x_i·c_b} 乘积集合的中位数，**不物化集合**。
-/// x 升序、c 任意：按行（b 固定）乘积单调 → 计数二分定位 + 收敛区间内精确收集。
-/// 与物化版（select_nth_unstable）给出**完全相同**的值（同一批 f64 乘积、同一秩），
-/// 但每任务内存流量从 O(nB·k) 降到 O(nB·log k + 区间内乘积数)。
-/// 用途：null_med 期望值池是混合版最大内存开销（全市场 ~1.1TB），此函数消除之。
-fn null_med_implicit(x: &[f64], c: &[f64]) -> f64 {
-    let n = x.len();
-    let nb = c.len();
-    if n == 0 || nb == 0 {
-        return f64::NAN;
-    }
-    let r = (n * nb) / 2 + 1; // 1-based 上中位秩（= 物化版 select_nth(len/2) 的 0-based 下标 + 1）
-    let count = |v: f64| -> u64 {
-        c.iter()
-            .map(|&cb| x.partition_point(|&xi| xi * cb <= v) as u64)
-            .sum()
-    };
-    if count(0.0) >= r as u64 {
-        return 0.0; // 防御：过半乘积为 0（正常数据 x>0，不会走到）
-    }
-    let mut lo = 0.0f64;
-    let mut hi = x[n - 1] * c.iter().cloned().fold(0.0f64, f64::max);
-    for _ in 0..60 {
-        let mid = (lo + hi) / 2.0;
-        if mid == lo || mid == hi {
-            break;
-        }
-        if count(mid) >= r as u64 {
-            hi = mid;
-        } else {
-            lo = mid;
-        }
-    }
-    // 区间已收敛到相邻 f64（通常只含 1~3 个不同乘积）：精确收集 + 取第 (r-cl) 小
-    let cl = count(lo);
-    let mut cand: Vec<f64> = Vec::new();
-    for &cb in c {
-        let i_lo = x.partition_point(|&xi| xi * cb <= lo);
-        let i_hi = x.partition_point(|&xi| xi * cb <= hi);
-        for &xi in &x[i_lo..i_hi] {
-            cand.push(xi * cb);
-        }
-    }
-    cand.sort_unstable_by(|a, b| a.total_cmp(b));
-    cand[(r as u64 - cl - 1) as usize]
-}
-
 /// 单 (A, 事件 e) 的因子：4 时段 × 15 = 60 个值。
 /// - 空时段短路：A 无事件时直接输出 rate=0 + 14 个 NaN
-/// - 两遍匹配（算法级优化，统计口径见 Gather 注释）：
-///   第一遍：一趟归并（fwd/bwd 同趟）+ 1 秒桶直方图（med/fast5/wmed 定位）
-///           + 标量累加（mean/hit/wsum）+ null 逐点（null_hit 累加；null_n 按 B 累计）
-///   第二遍：同一趟归并重跑，只收集 wmed 桶精确值 + null 值收集（med/fast5 取 1 秒桶中点）
-/// - 零模型：null_med 池化**中位数**——小任务（k_A ≤ NULL_IMPLICIT_K）物化收集 + select，
-///   大任务走 null_med_implicit（隐式精确选择，不物化，值逐位一致）；
-///   null_hit 逐点精确（整数幂 powi + 安全截断：m·T > 20x 时 (1-T/x)^m < e^-20）
+/// - **单遍**匹配（v3 生产）：一趟归并（fwd/bwd 同趟）+ 1 秒桶直方图（med/fast5/wmed
+///   定位 + mean 桶中点）+ 精确标量（hit）+ 零模型 O(k_A+nB) 可分式，**无第二遍**
+/// - 零模型（v3 近似，评估验证相关性见 README）：
+///   - null_med = (Σ_i x_i)·(Σ_b c_b)/(k_A·nB)——可分式均值池化（rmed Spearman 0.9694），
+///     从 O(对) 物化降到 O(k_A+nB)
+///   - null_hit = (1/nB)·Σ_b[1−(1−T/x̄)^m_b]——x̄ 均值近似（rhit Spearman 0.9632），
+///     每 B 一次 powf，无逐点成本
 /// - YHYB_SKIP_NULL 环境变量：跳过零模型（瓶颈定位用，不影响正常路径）
-const NULL_IMPLICIT_K: usize = 200; // k_A 超过此值走隐式 null_med（消除大任务物化）
 fn agg_one(
     streams: &[Option<[EvStream; N_EVENTS]>],
     null_t: &NullTable,
@@ -809,10 +729,6 @@ fn agg_one(
     let skip_null = std::env::var("YHYB_SKIP_NULL").is_ok();
     let mut g_fwd = Gather::new();
     let mut g_bwd = Gather::new();
-    let mut null_vals: Vec<f64> = Vec::new(); // null_med 期望值（us），小任务物化收集用
-    let mut c_list: Vec<f64> = Vec::new(); // 隐式路径用：B 的零模型系数（nB ≤ 5914 个）
-    let mut null_hit_acc = 0.0f64;
-    let mut null_n = 0u64;
     let (alo, ahi, base) = if ta.is_empty() {
         (0usize, 0usize, 0i64)
     } else {
@@ -830,8 +746,32 @@ fn agg_one(
         return Some(out);
     }
     let s_us = base + PERIOD_HI_S[p] * 1_000_000;
-    let implicit = (ahi - alo) > NULL_IMPLICIT_K; // 大任务走隐式 null_med（不物化）
-    // ============ 第一遍：1 秒桶 + 标量 + null 逐点（null_n 按 B 累计，c 列表按需收集） ============
+    // 零模型可分式预计算：Σ x_i（A 事件时段剩余）与 x̄，每任务 O(k_A)
+    // YHYB_NULL_MODE 选择 null_med 近似口径（均为 O(k_A+nB) 可分式）：
+    //   geo（默认）= 几何均值 exp(mean ln x)·exp(mean ln c)，对数域≈中位数，
+    //   全市场实测 rmed Spearman 0.9700/0.9807（最优）；med = median(x)·median(c)；
+    //   mean = 均值池化（rmed 仅 0.74-0.84，弃用）
+    let null_mode = std::env::var("YHYB_NULL_MODE").unwrap_or_else(|_| "geo".into());
+    let geo = null_mode == "geo";
+    let medm = null_mode == "med";
+    let k_a = (ahi - alo) as f64;
+    let sum_x: f64 = if skip_null {
+        0.0
+    } else {
+        ta[alo..ahi].iter().map(|&a| (s_us - a).max(0) as f64).sum()
+    };
+    let sum_ln_x: f64 = if !skip_null && geo {
+        ta[alo..ahi].iter().map(|&a| ((s_us - a).max(1) as f64).ln()).sum()
+    } else {
+        0.0
+    };
+    let x_bar = if skip_null { 0.0 } else { sum_x / k_a };
+    let mut sum_c = 0.0f64; // Σ c_b（null_med 均值池化）
+    let mut sum_ln_c = 0.0f64; // Σ ln c_b（几何均值）
+    let mut c_list: Vec<f64> = Vec::new(); // c_b 列表（中位×中位）
+    let mut null_hit_acc = 0.0f64; // null_hit x̄ 近似（每 B 一次 powf）
+    let mut n_b = 0u64; // 时段内有事件的 B 数
+    // ============ 单遍：1 秒桶 + 标量 + null 可分式 ============
     for (bi, sb) in streams.iter().enumerate() {
         if bi == ai {
             continue;
@@ -842,33 +782,24 @@ fn agg_one(
         if blo == bhi {
             continue;
         }
-        let m_b = null_t.m[bi][e][p];
-        let c_b = null_t.c[bi][e][p];
-        let m_b_t = m_b * t_us as f64; // 截断判断用（乘法比较，避免除法）
         if !skip_null {
-            null_n += (ahi - alo) as u64;
-            if implicit {
+            let m_b = null_t.m[bi][e][p];
+            let c_b = null_t.c[bi][e][p];
+            sum_c += c_b;
+            if geo {
+                sum_ln_c += c_b.ln();
+            }
+            if medm {
                 c_list.push(c_b);
             }
+            n_b += 1;
+            // null_hit x̄ 近似：每 B 一次（clamp 防 x̄ ≤ T 时底数非正）
+            null_hit_acc += 1.0 - (1.0 - t_us as f64 / x_bar).clamp(0.0, 1.0).powf(m_b);
         }
         let mut j = blo;
         for i in alo..ahi {
             let a = ta[i];
             let wi = wa[i];
-            // 零模型：null_hit 逐点累加（第一遍）
-            if !skip_null {
-                let x = s_us - a;
-                if x > 0 {
-                    if m_b_t > 20.0 * x as f64 {
-                        null_hit_acc += 1.0;
-                    } else {
-                        let base_h = 1.0 - t_us as f64 / x as f64;
-                        null_hit_acc += 1.0 - base_h.powi(m_b as i32);
-                    }
-                } else {
-                    null_hit_acc += 1.0;
-                }
-            }
             while j < bhi && tb[j] <= a {
                 j += 1;
             }
@@ -882,72 +813,38 @@ fn agg_one(
     }
     // 定位分位数桶（n/wsum 由 push1 维护，免去逐桶求和）
     let n_f = g_fwd.n;
-    let n_b = g_bwd.n;
+    let n_bw = g_bwd.n;
     let kf = ((n_f as f64) * prm.fast_q).round().max(1.0) as u64;
-    let kb = ((n_b as f64) * prm.fast_q).round().max(1.0) as u64;
+    let kb = ((n_bw as f64) * prm.fast_q).round().max(1.0) as u64;
     if n_f > 0 {
         g_fwd.locate(n_f / 2, g_fwd.wsum / 2.0, kf);
     }
-    if n_b > 0 {
-        g_bwd.locate(n_b / 2, g_bwd.wsum / 2.0, kb);
+    if n_bw > 0 {
+        g_bwd.locate(n_bw / 2, g_bwd.wsum / 2.0, kb);
     }
-    // 第二遍前按需 reserve null 容量（消除 realloc 复制；仅物化路径）
-    if !skip_null && !implicit && null_n > 0 {
-        null_vals.reserve(null_n as usize);
-    }
-    // ============ 第二遍：wmed 桶精确收集 + null 值收集（隐式路径跳过 push） ============
-    for (bi, sb) in streams.iter().enumerate() {
-        if bi == ai {
-            continue;
-        }
-        let Some(sb) = sb else { continue };
-        let tb = &sb[e].t;
-        let (blo, bhi) = period_slice(tb, base, p);
-        if blo == bhi {
-            continue;
-        }
-        let c_b = if implicit { 0.0 } else { null_t.c[bi][e][p] };
-        let mut j = blo;
-        for i in alo..ahi {
-            let a = ta[i];
-            let wi = wa[i];
-            // null 期望值收集（物化路径；reserve 后无 realloc）
-            if !skip_null && !implicit {
-                let x = s_us - a;
-                if x > 0 {
-                    null_vals.push(x as f64 * c_b);
-                } else {
-                    null_vals.push(0.0);
-                }
-            }
-            while j < bhi && tb[j] <= a {
-                j += 1;
-            }
-            if j > blo {
-                g_bwd.collect((a - tb[j - 1]) as u64, wi);
-            }
-            if j < bhi {
-                g_fwd.collect((tb[j] - a) as u64, wi);
-            }
-        }
-    }
-    let fs = g_fwd.stats(n_f, g_fwd.wsum / 2.0, kf);
-    let bs = g_bwd.stats(n_b, g_bwd.wsum / 2.0, kb);
-    let null_med = if null_n > 0 && !skip_null {
-        if implicit {
-            // x_i = 时段剩余（s_us - a_i）：a 升序 → x 降序，逆推得升序
-            let x_asc: Vec<f64> = (alo..ahi).rev().map(|i| (s_us - ta[i]).max(0) as f64).collect();
-            null_med_implicit(&x_asc, &c_list) / 1e6
+    let fs = g_fwd.stats(n_f, kf);
+    let bs = g_bwd.stats(n_bw, kb);
+    // null_med 可分式（µs → 秒）：mean 均值池化 / geo 几何均值 / med 中位×中位
+    let null_med = if !skip_null && n_b > 0 {
+        if geo {
+            (sum_ln_x / k_a).exp() * (sum_ln_c / n_b as f64).exp() / 1e6
+        } else if medm {
+            // x 降序中位（a 升序 → x 降序，上中位与 select_nth(len/2) 同秩）
+            let mid_x = (s_us - ta[ahi - 1 - (ahi - alo) / 2]).max(0) as f64;
+            let mid_c = {
+                let m = c_list.len() / 2;
+                let (_, &mut v, _) = c_list.select_nth_unstable_by(m, |a, b| a.total_cmp(b));
+                v
+            };
+            mid_x * mid_c / 1e6
         } else {
-            let mid = null_vals.len() / 2;
-            null_vals.select_nth_unstable_by(mid, |a, b| a.total_cmp(b));
-            null_vals[mid] / 1e6
+            (sum_x * sum_c) / (k_a * n_b as f64) / 1e6
         }
     } else {
         f64::NAN
     };
-    let null_hit = if null_n > 0 && !skip_null {
-        null_hit_acc / null_n as f64
+    let null_hit = if !skip_null && n_b > 0 {
+        null_hit_acc / n_b as f64
     } else {
         f64::NAN
     };
@@ -1176,11 +1073,20 @@ fn agg_one_approx(
 /// 从预加载的全市场事件流聚合因子（v1/v2 共同核心）。
 /// 并行粒度 (A, 事件, 时段)：5900×23×4 = 54 万个小任务，负载均衡（大票任务拆 4 份）；
 /// 零模型系数表全市场预计算一次（build_null_table）。
+/// 限流：rayon 全局池固定 **50 线程**（512 核共享机，统一 50 核口径；外部若已设
+/// RAYON_NUM_THREADS 则尊重外部设置）。幂等：全局池只初始化一次。
+pub fn ensure_threads() {
+    if std::env::var("RAYON_NUM_THREADS").is_err() {
+        let _ = rayon::ThreadPoolBuilder::new().num_threads(50).build_global();
+    }
+}
+
 fn compute_from_streams(
     codes: &[String],
     streams: &[Option<[EvStream; N_EVENTS]>],
     prm: &YhybParams,
 ) -> (Vec<String>, Vec<f32>) {
+    ensure_threads();
     let n_stocks = codes.len();
     let null_t = build_null_table(streams);
     let results: Vec<Option<Vec<f64>>> = (0..n_stocks * N_EVENTS * N_PERIODS)
@@ -1219,6 +1125,7 @@ fn compute_from_streams_approx(
     streams: &[Option<[EvStream; N_EVENTS]>],
     prm: &YhybParams,
 ) -> (Vec<String>, Vec<f32>) {
+    ensure_threads();
     let n_stocks = codes.len();
     let null_t = build_null_table(streams);
     let results: Vec<Option<Vec<f64>>> = (0..n_stocks * N_EVENTS * N_PERIODS)
@@ -1257,6 +1164,8 @@ pub fn compute_yhyb_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f32>)> 
 }
 
 pub fn compute_yhyb_full_with_params(date: i64, prm: &YhybParams) -> std::io::Result<(Vec<String>, Vec<f32>)> {
+    // 必须在任何 rayon 使用（读盘 par_iter）之前限流：全局池一旦初始化无法再改
+    ensure_threads();
     let t_start = std::time::Instant::now();
     let codes = list_codes(date, "transaction");
     let streams: Vec<Option<[EvStream; N_EVENTS]>> = codes
@@ -1309,6 +1218,7 @@ pub fn yhyb_names() -> Vec<String> {
 pub fn py_yhyb(py: Python<'_>, date: i64, approx: bool) -> PyResult<(Vec<String>, Vec<f32>)> {
     if approx {
         // 近似版（评估妥协方案用）：读盘 + 检测相同，聚合走近似统计
+        ensure_threads();
         let codes = list_codes(date, "transaction");
         let prm = YhybParams::default();
         let streams: Vec<Option<[EvStream; N_EVENTS]>> = codes
@@ -1490,43 +1400,36 @@ mod tests {
 
     #[test]
     fn test_compute_stats_basic() {
-        // 距离 1,2,3,4,5 秒各一条（混合统计：med/fast5 为 1 秒桶中点，wmed 精确）
+        // 距离 1,2,3,4,5 秒各一条（v3 单遍统计：med/mean/fast5/wmed 均为 1 秒桶中点）
         let mut g = Gather::new();
         for d in [1u64, 2, 3, 4, 5].map(|s| s * 1_000_000) {
             g.push1(d, 1.0, 2_500_000);
         }
         let n = g.n;
         g.locate(n / 2, g.wsum / 2.0, 1);
-        for d in [1u64, 2, 3, 4, 5].map(|s| s * 1_000_000) {
-            g.collect(d, 1.0);
-        }
-        let s = g.stats(n, g.wsum / 2.0, 1);
+        let s = g.stats(n, 1);
         assert!((s[0] - 3.5).abs() < 1e-9); // med：中位索引 2 落在桶3 → 中点 3.5s
-        assert!((s[1] - 3.0).abs() < 1e-9); // mean（精确）
+        assert!((s[1] - 3.5).abs() < 1e-9); // mean：Σ 桶中点/n = (1.5+...+5.5)/5 = 3.5s
         assert!((s[2] - 0.4).abs() < 1e-9); // hit（距离 ≤2.5s）
         assert!((s[3] - 1.5).abs() < 1e-9); // fast5：k=1 → 桶1 中点 1.5s
-        assert!((s[4] - 3.0).abs() < 1e-9); // wmed（均匀权重 = 精确中位 3s）
-        // 加权中位数：权重 [1,1,1,1,5]，一半权重 4.5 → d=5s（累积 4 < 4.5，+5 ≥ 4.5）
+        assert!((s[4] - 3.5).abs() < 1e-9); // wmed：均匀权重，半权重 2.5 落在桶3 → 中点
+        // 加权中位数：权重 [1,1,1,1,5]，一半权重 4.5 → 桶5（累积 4 < 4.5，+5 ≥ 4.5）→ 中点
         let mut g2 = Gather::new();
         for (d, w) in [(1u64, 1.0f64), (2, 1.0), (3, 1.0), (4, 1.0), (5, 5.0)].map(|(d, w)| (d * 1_000_000, w)) {
             g2.push1(d, w, 2_500_000);
         }
         let n2 = g2.n;
         g2.locate(n2 / 2, g2.wsum / 2.0, 1);
-        for (d, w) in [(1u64, 1.0f64), (2, 1.0), (3, 1.0), (4, 1.0), (5, 5.0)].map(|(d, w)| (d * 1_000_000, w)) {
-            g2.collect(d, w);
-        }
-        let s2 = g2.stats(n2, g2.wsum / 2.0, 1);
-        assert!((s2[4] - 5.0).abs() < 1e-9); // wmed = 5s（权重中点在大距离侧）
+        let s2 = g2.stats(n2, 1);
+        assert!((s2[4] - 5.5).abs() < 1e-9); // wmed = 桶5 中点（权重中点在大距离侧）
         // u64 大距离回归：8000s（远超旧 u32 上限 4295s）必须落在桶 8000，不得回绕
         let mut g3 = Gather::new();
         g3.push1(8_000_000_000, 1.0, 2_500_000);
         let n3 = g3.n;
         g3.locate(n3 / 2, g3.wsum / 2.0, 1);
-        g3.collect(8_000_000_000, 1.0);
-        let s3 = g3.stats(n3, g3.wsum / 2.0, 1);
+        let s3 = g3.stats(n3, 1);
         assert!((s3[0] - 8000.5).abs() < 1e-9); // med = 桶8000 中点
-        assert!((s3[4] - 8000.0).abs() < 1e-9); // wmed 精确
+        assert!((s3[4] - 8000.5).abs() < 1e-9); // wmed = 桶8000 中点
     }
 
     #[test]
