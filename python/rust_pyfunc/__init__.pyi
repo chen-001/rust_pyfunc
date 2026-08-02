@@ -224,10 +224,12 @@ def py_cross_section_example_names() -> List[str]:
     ...
 
 
-def py_yhyb(date: int) -> Tuple[List[str], List[float]]:
+def py_yhyb(date: int, approx: bool = False) -> Tuple[List[str], List[float]]:
     """一呼百应（yhyb）：tick 级事件响应网络横截面因子（v1 读盘，默认参数）。
 
     23 事件 × 4 时段 × 15 = 1380 个因子/股。事件/度量定义见 README.md。
+    approx=True 时用近似统计（1 秒桶中点 + wmean + null 均值池化/x̄ 近似），
+    仅用于评估妥协方案的截面影响，不用于生产。
     """
     ...
 
@@ -245,6 +247,7 @@ def py_yhyb_from_data(
     trade_arrays: List["numpy.ndarray"],
     market_arrays: List["numpy.ndarray"],
     params: Optional[List[float]] = None,
+    approx: bool = False,
 ) -> Tuple[List[str], List[float]]:
     """v2 入口：Python 传样例数据计算 yhyb 因子（无磁盘环境验证/调参）。
 
@@ -261,6 +264,9 @@ def py_yhyb_from_data(
          ask_vol1..10, bid_vol1..10]
     params : Optional[List[float]]
         可选 17 个阈值参数（默认 YhybParams::default()）
+    approx : bool
+        True 时用近似统计（1 秒桶中点 + wmean + null 均值池化/x̄ 近似），
+        仅用于评估妥协方案的截面影响，不用于生产
 
     返回
     ----
