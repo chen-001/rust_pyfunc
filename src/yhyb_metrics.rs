@@ -65,10 +65,12 @@ pub const EVENT_NAMES: [&str; N_EVENTS] = [
 
 pub const METRIC_NAMES: [&str; N_METRICS] = ["med", "mean", "hit", "fast5", "wmed", "rmed", "rhit"];
 
-/// 时段边界（adjust_afternoon 后连续时钟，相对当日 UTC 零点的秒；本地 09:30/10:30/12:00/13:27）
-/// p0=全天, p1=早盘[9:30,10:30), p2=午盘[10:30,12:00), p3=尾盘[12:00,13:27)（=真实[13:30,14:57)）
-const PERIOD_LO_S: [i64; N_PERIODS] = [0, 5400, 9000, 14400];
-const PERIOD_HI_S: [i64; N_PERIODS] = [19620, 9000, 14400, 19620];
+/// 时段边界（**adjust_afternoon 后的连续时钟**，本地 09:30 = 5400s、14:57 = 19620s；
+/// 下午 13:00-15:00 已前移 90 分钟为 11:30-13:30，无午休空洞，跨午盘距离不受污染）
+/// p0=全天 [09:30,14:57)；p1=盘中3小时 [10:00,14:27)（剔除早盘/尾盘各 30 分钟）；
+/// p2=尾盘30分钟 [14:27,14:57)；p3=下午小时 [13:00,14:00)（adjust 后 11:30-12:30）
+const PERIOD_LO_S: [i64; N_PERIODS] = [5400, 6000, 17820, 12600];
+const PERIOD_HI_S: [i64; N_PERIODS] = [19620, 17820, 19620, 16200];
 
 /// 事件时刻 t 所在日的"本地零点"（epoch 微秒）。
 ///
@@ -115,7 +117,7 @@ impl Default for YhybParams {
             jump_q: 0.99,
             jump_win: 100,
             run_r: 2,
-            vwap_dev: 0.002,
+            vwap_dev: 0.001,
             imb_thr: 0.5,
             dep_thr: 0.3,
             wall_k: 2.0,
@@ -571,12 +573,14 @@ fn build_null_table(streams: &[Option<[EvStream; N_EVENTS]>]) -> NullTable {
 }
 
 /// 时段切片（t 有序）：返回 [lo, hi) 落入时段 p 的下标区间。
+/// p0 快速路径：生产数据（v1 adjust 过滤 / v2 已 adjust 样例）无 09:30 前事件，
+/// 下界可跳过（只做 1 次二分）；其余时段常规 2 次二分。
 fn period_slice(t: &[i64], base: i64, p: usize) -> (usize, usize) {
-    if p == 0 {
-        return (0, t.len());
-    }
     let lo = base + PERIOD_LO_S[p] * 1_000_000;
     let hi = base + PERIOD_HI_S[p] * 1_000_000;
+    if p == 0 && t.first().map_or(true, |&x| x >= lo) {
+        return (0, t.partition_point(|&x| x < hi));
+    }
     let s = t.partition_point(|&x| x < lo);
     let e = t.partition_point(|&x| x < hi);
     (s, e)
@@ -1081,6 +1085,38 @@ pub fn ensure_threads() {
     }
 }
 
+/// 时段链条回退填补：分时段指标（rate 除外）缺失（该时段无事件/无响应）时，
+/// 依次用**该股票同一事件更近时段**的真实值回退（p3←p2←p1←p0，最后兜底全天）。
+/// 理由：同一股票相邻时段的行为高度相关（代理性好），且各股票填各自的值——
+/// 截面区分度保留（不填常数/0）；rate=0 是真实值（无事件）不填。
+/// 前视检查：因子为 T 日收盘后构造，p0-p3 均为当日已发生数据，无前视。
+fn fill_periods(row: &mut [f64]) {
+    for e in 0..N_EVENTS {
+        for p in 1..N_PERIODS {
+            for m in 1..15 {
+                let idx = (e * N_PERIODS + p) * 15 + m;
+                if row[idx].is_nan() {
+                    let mut done = false;
+                    for q in (1..p).rev() {
+                        let qv = row[(e * N_PERIODS + q) * 15 + m];
+                        if !qv.is_nan() {
+                            row[idx] = qv;
+                            done = true;
+                            break;
+                        }
+                    }
+                    if !done {
+                        let p0 = row[(e * N_PERIODS) * 15 + m];
+                        if !p0.is_nan() {
+                            row[idx] = p0;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn compute_from_streams(
     codes: &[String],
     streams: &[Option<[EvStream; N_EVENTS]>],
@@ -1112,6 +1148,9 @@ fn compute_from_streams(
             }
         }
         if ok && row.len() == N_FACTORS {
+            if std::env::var("YHYB_NO_FILL").is_err() {
+                fill_periods(&mut row);
+            }
             out_codes.push(codes[ai].clone());
             vals.extend(row.iter().map(|&x| x as f32));
         }
@@ -1387,15 +1426,25 @@ mod tests {
     #[test]
     fn test_period_slice() {
         let base = day_base(1_735_637_400_000_000); // 2024-12-31 某时刻
+        // 09:30 起每 60s 一笔，共 10 笔 → 全在 09:30-09:40（只属于 p0 全天）
         let t: Vec<i64> = (0..10).map(|i| base + (5400 + i * 60) * 1_000_000).collect();
-        // 全部在 p1 [5400,9000)
-        let (lo, hi) = period_slice(&t, base, 1);
-        assert_eq!((lo, hi), (0, 10));
-        // p2 [9000,14400)
-        let (lo, hi) = period_slice(&t, base, 2);
-        assert_eq!((lo, hi), (0, 0));
         let (lo, hi) = period_slice(&t, base, 0);
         assert_eq!((lo, hi), (0, 10));
+        for p in 1..N_PERIODS {
+            let (lo, hi) = period_slice(&t, base, p);
+            assert_eq!((lo, hi), (0, 0), "p{p} 不应包含 09:30-09:40");
+        }
+        // 新时段边界（adjust 后时钟）：p1 盘中3h [10:00,14:27)、p2 尾盘30m [14:27,14:57)、
+        // p3 下午1h [13:00,14:00)
+        let mk = |off: i64| vec![base + off * 1_000_000];
+        assert_eq!(period_slice(&mk(6000), base, 1), (0, 1)); // 10:00 ∈ p1
+        assert_eq!(period_slice(&mk(5999), base, 1), (0, 0)); // 09:59:59 ∉ p1
+        assert_eq!(period_slice(&mk(17820), base, 2), (0, 1)); // 14:27 ∈ p2
+        assert_eq!(period_slice(&mk(17819), base, 2), (0, 0)); // 14:26:59 ∉ p2
+        assert_eq!(period_slice(&mk(19619), base, 2), (0, 1)); // 14:56:59 ∈ p2
+        assert_eq!(period_slice(&mk(12600), base, 3), (0, 1)); // 13:00 ∈ p3
+        assert_eq!(period_slice(&mk(16199), base, 3), (0, 1)); // 13:59:59 ∈ p3
+        assert_eq!(period_slice(&mk(16200), base, 3), (0, 0)); // 14:00 ∉ p3
     }
 
     #[test]
