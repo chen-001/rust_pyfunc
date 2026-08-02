@@ -32,13 +32,23 @@
 //! null_hit = 逐点精确 1 - ((x-T)/x)^m（整数幂 powi + 安全截断）。
 //! 全确定性，逐日逐股可复现。
 //!
-//! # 性能（一天全市场 ≤ 60s，限流 50 线程）
-//! 单日全市场 5914 股 × 1380 因子实测聚合 ~50s（rayon 全局池限流 50 线程，代码级
-//! ensure_threads）。优化（均为算法/底层级，近似口径见上）：
-//! **单遍**匹配（无第二遍：wmed/mean 改桶中点）、1 秒桶直方图（u64 距离无回绕、
-//! 无尾部截断）、零模型可分式 O(k_A+nB)（null_med 均值池化 + null_hit x̄ 近似）、
-//! n/wsum 由 push1 维护（免逐桶求和）、locate 只扫到最大非空桶、fwd/bwd 一趟归并、
-//! (A,事件,时段) 并行粒度、空时段短路。
+//! # 性能（一天全市场，限流 50 线程；机器 AMD EPYC 9754 ×2，512 核共享机）
+//! 单日全市场 5914 股 × 1916 因子实测（2024-12-31，YHYB_TIMING 分段）：
+//! v5（优化前）总墙钟 ~150-155s（读盘+检测 3.5s + 聚合+第4层 ~150s）；
+//! v6（本版）总墙钟 ~110-125s（读盘+检测 3.5s + 聚合+第4层 ~108-120s，
+//! 波动主要来自共享机其他用户的 DRAM 带宽竞争——j-walk 2.2TB 读受其影响）。
+//! 优化（均为算法/底层级，输出逐位不变，见 agg_fused 注释）：
+//! - 预计算切片表：聚合热循环 B 时段切片零二分搜索（原每任务 4×5914 次 DRAM 延迟绑定二分）
+//! - union-walk 单趟归并：4 时段独立归并压缩为一次全事件归并（j-walk 1.9× 减少，
+//!   时段 p 的 fwd/bwd 距离 = 全事件最近邻 + 有效性过滤，逐位等价）
+//! - 5 段固定掩码子循环：A 事件按固定时段区间分段，内循环零成员分支
+//! - 时段定制桶数组：8 个 Gather 共 560KB 落 L2（原 8×157KB=1.26MB 溢出 L2）
+//! - 线程本地 Gather 复用（touched 清零）+ locate/stats 只扫 [0,max_b]
+//! - 同一 (a,B) 4 时段推送共享 u64 除法；hit 无分支累加
+//! - 第 4 层融合（v1/v2 统一）+ WITH_L4 编译期特化（const 泛型，热循环零运行时分支）
+//! - 实测成本构成（探针）：推送 ~50s（1.06e12 次桶更新，近算法下限）、
+//!   j-walk ~37s（2.2TB DRAM 读，带宽绑定）、分支/L4 ~20s、B 访问 ~5s。
+//!   60s 目标的剩余差距来自逐位一致约束下的逐对枚举下限（见 agg_fused 注释）。
 
 use crate::fast_csv_reader::{read_market_fast_inner, read_trade_fast_inner, MarketRecord, TradeRecord};
 use numpy::PyReadonlyArray2;
@@ -908,18 +918,19 @@ struct L4Ctx<'a> {
 /// - hit 累加无分支（`hit += (dd <= t_us) as u64`）
 /// - 线程本地 Gather 复用（touched 清零）+ locate/stats 只扫 [0, max_b]
 /// - 第 4 层对级累加与 p0 统计同趟（保留 v1 融合语义）
+/// - **WITH_L4 编译期特化**：第 4 层融合与否为 const 泛型，热循环内零运行时分支
 ///
 /// 零模型（v3 近似，评估验证相关性见 README）：
 /// - null_med = exp(mean ln x)·exp(mean ln c)（geo 默认）等可分式，O(k_A+nB)
 /// - null_hit = (1/nB)·Σ_b[1−(1−T/x̄)^m_b]——x̄ 均值近似，每 B 一次 powf
 /// - YHYB_SKIP_NULL 环境变量：跳过零模型（瓶颈定位用，不影响正常路径）
 #[allow(clippy::too_many_arguments)]
-fn agg_fused(
+fn agg_fused<const WITH_L4: bool>(
     streams: &[Option<[EvStream; N_EVENTS]>],
     null_t: &NullTable,
     slices: &SliceTable,
     ai: usize, // 全量索引（streams 访问）
-    row: usize, // 有效索引（矩阵行；l4=None 时忽略）
+    row: usize, // 有效索引（矩阵行；WITH_L4=false 时忽略）
     e: usize,
     prm: &YhybParams,
     l4: Option<&L4Ctx>,
@@ -999,8 +1010,9 @@ fn agg_fused(
     let mut f_hit_b = 0u64; // 第4层：fwd 命中率 > 0 的 B 数（hub）
     let mut b_hit_b = 0u64; // 第4层：bwd 命中率 > 0 的 B 数（spoke）
     let mut n_b_pair = 0u64; // 第4层：p0 有响应对的 B 数（hub/spoke 分母）
-    let with_l4 = l4.is_some();
     let no_match = std::env::var("YHYB_NO_MATCH").is_ok();
+    let skip_push = std::env::var("YHYB_SKIP_PUSH").is_ok();
+    let no_jwalk = std::env::var("YHYB_NO_JWALK").is_ok();
     // 5 段 A 事件范围（固定时段边界；掩码恒定）：
     //   S0 [5400,6000) {p0} | S1 [6000,12600) {p0,p1} | S2 [12600,17820) {p0,p1,p3}
     //   S3 [17820,19620) {p0,p2,p3} | S4 [19620,19800) {p3}
@@ -1023,7 +1035,7 @@ fn agg_fused(
             }
             let Some(sb) = sb else { continue };
             let bpos = l4.map_or(usize::MAX, |c| c.valid_pos[bi]);
-            if with_l4 && bpos == usize::MAX {
+            if WITH_L4 && bpos == usize::MAX {
                 continue;
             }
             let tb = &sb[e].t;
@@ -1073,15 +1085,19 @@ fn agg_fused(
             for i in s0.0..s0.1 {
                 let a = ta[i];
                 let wi = wa[i];
-                while j < tb_len && tb[j] <= a {
-                    j += 1;
+                if !no_jwalk {
+                    while j < tb_len && tb[j] <= a {
+                        j += 1;
+                    }
                 }
                 if j > 0 {
                     let d = (a - tb[j - 1]) as u64;
                     let bb = (d / 1_000_000) as usize;
                     if j > bsl[0].0 {
-                        g[1].push_b(bb, wi, d, t_us);
-                        if with_l4 {
+                        if !skip_push {
+                            g[1].push_b(bb, wi, d, t_us);
+                        }
+                        if WITH_L4 {
                             pbs += d as f64;
                             pbn += 1;
                             pbh += (d <= t_us) as u64;
@@ -1092,8 +1108,10 @@ fn agg_fused(
                     let d = (tb[j] - a) as u64;
                     let bb = (d / 1_000_000) as usize;
                     if j < bsl[0].1 {
-                        g[0].push_b(bb, wi, d, t_us);
-                        if with_l4 {
+                        if !skip_push {
+                            g[0].push_b(bb, wi, d, t_us);
+                        }
+                        if WITH_L4 {
                             pfs += d as f64;
                             pfn += 1;
                             pfh += (d <= t_us) as u64;
@@ -1105,21 +1123,25 @@ fn agg_fused(
             for i in s1.0..s1.1 {
                 let a = ta[i];
                 let wi = wa[i];
-                while j < tb_len && tb[j] <= a {
-                    j += 1;
+                if !no_jwalk {
+                    while j < tb_len && tb[j] <= a {
+                        j += 1;
+                    }
                 }
                 if j > 0 {
                     let d = (a - tb[j - 1]) as u64;
                     let bb = (d / 1_000_000) as usize;
                     if j > bsl[0].0 {
-                        g[1].push_b(bb, wi, d, t_us);
-                        if with_l4 {
+                        if !skip_push {
+                            g[1].push_b(bb, wi, d, t_us);
+                        }
+                        if WITH_L4 {
                             pbs += d as f64;
                             pbn += 1;
                             pbh += (d <= t_us) as u64;
                         }
                     }
-                    if j > bsl[1].0 {
+                    if j > bsl[1].0 && !skip_push {
                         g[3].push_b(bb, wi, d, t_us);
                     }
                 }
@@ -1127,14 +1149,16 @@ fn agg_fused(
                     let d = (tb[j] - a) as u64;
                     let bb = (d / 1_000_000) as usize;
                     if j < bsl[0].1 {
-                        g[0].push_b(bb, wi, d, t_us);
-                        if with_l4 {
+                        if !skip_push {
+                            g[0].push_b(bb, wi, d, t_us);
+                        }
+                        if WITH_L4 {
                             pfs += d as f64;
                             pfn += 1;
                             pfh += (d <= t_us) as u64;
                         }
                     }
-                    if j < bsl[1].1 {
+                    if j < bsl[1].1 && !skip_push {
                         g[2].push_b(bb, wi, d, t_us);
                     }
                 }
@@ -1143,24 +1167,28 @@ fn agg_fused(
             for i in s2.0..s2.1 {
                 let a = ta[i];
                 let wi = wa[i];
-                while j < tb_len && tb[j] <= a {
-                    j += 1;
+                if !no_jwalk {
+                    while j < tb_len && tb[j] <= a {
+                        j += 1;
+                    }
                 }
                 if j > 0 {
                     let d = (a - tb[j - 1]) as u64;
                     let bb = (d / 1_000_000) as usize;
                     if j > bsl[0].0 {
-                        g[1].push_b(bb, wi, d, t_us);
-                        if with_l4 {
+                        if !skip_push {
+                            g[1].push_b(bb, wi, d, t_us);
+                        }
+                        if WITH_L4 {
                             pbs += d as f64;
                             pbn += 1;
                             pbh += (d <= t_us) as u64;
                         }
                     }
-                    if j > bsl[1].0 {
+                    if j > bsl[1].0 && !skip_push {
                         g[3].push_b(bb, wi, d, t_us);
                     }
-                    if j > bsl[3].0 {
+                    if j > bsl[3].0 && !skip_push {
                         g[7].push_b(bb, wi, d, t_us);
                     }
                 }
@@ -1168,17 +1196,19 @@ fn agg_fused(
                     let d = (tb[j] - a) as u64;
                     let bb = (d / 1_000_000) as usize;
                     if j < bsl[0].1 {
-                        g[0].push_b(bb, wi, d, t_us);
-                        if with_l4 {
+                        if !skip_push {
+                            g[0].push_b(bb, wi, d, t_us);
+                        }
+                        if WITH_L4 {
                             pfs += d as f64;
                             pfn += 1;
                             pfh += (d <= t_us) as u64;
                         }
                     }
-                    if j < bsl[1].1 {
+                    if j < bsl[1].1 && !skip_push {
                         g[2].push_b(bb, wi, d, t_us);
                     }
-                    if j < bsl[3].1 {
+                    if j < bsl[3].1 && !skip_push {
                         g[6].push_b(bb, wi, d, t_us);
                     }
                 }
@@ -1187,24 +1217,28 @@ fn agg_fused(
             for i in s3.0..s3.1 {
                 let a = ta[i];
                 let wi = wa[i];
-                while j < tb_len && tb[j] <= a {
-                    j += 1;
+                if !no_jwalk {
+                    while j < tb_len && tb[j] <= a {
+                        j += 1;
+                    }
                 }
                 if j > 0 {
                     let d = (a - tb[j - 1]) as u64;
                     let bb = (d / 1_000_000) as usize;
                     if j > bsl[0].0 {
-                        g[1].push_b(bb, wi, d, t_us);
-                        if with_l4 {
+                        if !skip_push {
+                            g[1].push_b(bb, wi, d, t_us);
+                        }
+                        if WITH_L4 {
                             pbs += d as f64;
                             pbn += 1;
                             pbh += (d <= t_us) as u64;
                         }
                     }
-                    if j > bsl[2].0 {
+                    if j > bsl[2].0 && !skip_push {
                         g[5].push_b(bb, wi, d, t_us);
                     }
-                    if j > bsl[3].0 {
+                    if j > bsl[3].0 && !skip_push {
                         g[7].push_b(bb, wi, d, t_us);
                     }
                 }
@@ -1212,17 +1246,19 @@ fn agg_fused(
                     let d = (tb[j] - a) as u64;
                     let bb = (d / 1_000_000) as usize;
                     if j < bsl[0].1 {
-                        g[0].push_b(bb, wi, d, t_us);
-                        if with_l4 {
+                        if !skip_push {
+                            g[0].push_b(bb, wi, d, t_us);
+                        }
+                        if WITH_L4 {
                             pfs += d as f64;
                             pfn += 1;
                             pfh += (d <= t_us) as u64;
                         }
                     }
-                    if j < bsl[2].1 {
+                    if j < bsl[2].1 && !skip_push {
                         g[4].push_b(bb, wi, d, t_us);
                     }
-                    if j < bsl[3].1 {
+                    if j < bsl[3].1 && !skip_push {
                         g[6].push_b(bb, wi, d, t_us);
                     }
                 }
@@ -1231,20 +1267,22 @@ fn agg_fused(
             for i in s4.0..s4.1 {
                 let a = ta[i];
                 let wi = wa[i];
-                while j < tb_len && tb[j] <= a {
-                    j += 1;
+                if !no_jwalk {
+                    while j < tb_len && tb[j] <= a {
+                        j += 1;
+                    }
                 }
                 if j > 0 {
                     let d = (a - tb[j - 1]) as u64;
                     let bb = (d / 1_000_000) as usize;
-                    if j > bsl[3].0 {
+                    if j > bsl[3].0 && !skip_push {
                         g[7].push_b(bb, wi, d, t_us);
                     }
                 }
                 if j < tb_len {
                     let d = (tb[j] - a) as u64;
                     let bb = (d / 1_000_000) as usize;
-                    if j < bsl[3].1 {
+                    if j < bsl[3].1 && !skip_push {
                         g[6].push_b(bb, wi, d, t_us);
                     }
                 }
@@ -1641,12 +1679,22 @@ fn compute_from_streams_full(
     } else {
         None
     };
-    let results: Vec<Option<Vec<f64>>> = (0..n * ne)
+    // YHYB_NSUB：限制 A 任务数（探针，快速迭代用）
+    let n_sub = std::env::var("YHYB_NSUB")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(n)
+        .min(n);
+    let results: Vec<Option<Vec<f64>>> = (0..n_sub * ne)
         .into_par_iter()
         .map(|idx| {
             let row = idx / ne;
             let e = idx % ne;
-            agg_fused(&streams, &null_t, &slices, valid[row], row, e, prm, l4ctx.as_ref())
+            if with_l4 {
+                agg_fused::<true>(&streams, &null_t, &slices, valid[row], row, e, prm, l4ctx.as_ref())
+            } else {
+                agg_fused::<false>(&streams, &null_t, &slices, valid[row], row, e, prm, l4ctx.as_ref())
+            }
         })
         .collect();
     let t2 = std::time::Instant::now();
@@ -1656,10 +1704,16 @@ fn compute_from_streams_full(
     for row in 0..n {
         let mut r = Vec::with_capacity(N_FACTORS);
         let mut ok = true;
-        for e in 0..ne {
-            match &results[row * ne + e] {
-                Some(v) => r.extend_from_slice(v),
-                None => ok = false,
+        if row >= n_sub {
+            // NSUB 探针：未计算的股票直接排除（results 只覆盖前 n_sub 行）
+            ok = false;
+        }
+        if ok {
+            for e in 0..ne {
+                match &results[row * ne + e] {
+                    Some(v) => r.extend_from_slice(v),
+                    None => ok = false,
+                }
             }
         }
         if ok && r.len() == N_FACTORS {
@@ -1773,10 +1827,11 @@ pub fn compute_yhyb_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f32>)> 
     })?;
     if std::env::var("YHYB_TIMING").is_ok() {
         eprintln!(
-            "YHYB_TIMING date={date} 读盘+检测={:.1}s 聚合+第4层(融合)={:.1}s 备份={}",
+            "YHYB_TIMING date={date} 读盘+检测={:.1}s 聚合+第4层(融合)={:.1}s 备份={} rayon线程数={}",
             t_read.duration_since(t_start).as_secs_f64(),
             t_read.elapsed().as_secs_f64(),
-            backup
+            backup,
+            rayon::current_num_threads(),
         );
     }
     Ok((codes, vals))
