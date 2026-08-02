@@ -51,16 +51,22 @@ use std::fs;
 // 常量
 // ============================================================================
 
-pub const N_EVENTS: usize = 23;
+pub const N_EVENTS: usize = 29;
 pub const N_PERIODS: usize = 4;
 pub const N_METRICS: usize = 7;
 /// 每 (事件, 时段)：rate + fwd/bwd × 7 度量
-pub const N_FACTORS: usize = N_EVENTS * N_PERIODS * (1 + 2 * N_METRICS); // 1380
+pub const N_FACTORS: usize = N_EVENTS * N_PERIODS * (1 + 2 * N_METRICS); // 1740
 
+/// 事件 29 个：big 系列按订单体量拆三档（截面百分位 + 空档每股内部补充）：
+/// 大单 = 全市场成交额 top 10%（内部补充 = 每股内部 top 10%）、
+/// 中单 = 10%~60%、小单 = bottom 40%。sweep/ice 的"大单" = 大单档。
 pub const EVENT_NAMES: [&str; N_EVENTS] = [
-    "big", "big_buy", "big_sell", "sweep_buy", "sweep_sell", "ice", "jump", "jump_up",
-    "jump_dn", "run_up", "run_dn", "vwap_up", "vwap_dn", "vwap_dev_up", "vwap_dev_dn",
-    "imb_buy", "imb_sell", "depth", "wall", "spread", "retreat", "imp_buy", "imp_sell",
+    "big_l", "big_m", "big_s", "big_buy_l", "big_buy_m", "big_buy_s",
+    "big_sell_l", "big_sell_m", "big_sell_s",
+    "sweep_buy", "sweep_sell", "ice", "jump", "jump_up", "jump_dn",
+    "run_up", "run_dn", "vwap_up", "vwap_dn", "vwap_dev_up", "vwap_dev_dn",
+    "imb_buy", "imb_sell", "depth", "wall", "spread", "retreat",
+    "imp_buy", "imp_sell",
 ];
 
 pub const METRIC_NAMES: [&str; N_METRICS] = ["med", "mean", "hit", "fast5", "wmed", "rmed", "rhit"];
@@ -86,7 +92,7 @@ pub fn day_base(t: i64) -> i64 {
 
 #[derive(Clone, Copy, Debug)]
 pub struct YhybParams {
-    pub big_amt_wan: f64,  // 大单: 单笔成交额 ≥ big_amt_wan 万元（机构单，跨股可比）
+    pub big_amt_wan: f64,  // 【已废弃】体量判定改用截面百分位（P90/P40）+ 空档内部补充；保留字段仅为兼容 from_vec 17 参数顺序
     pub sweep_w_s: f64,    // 扫单窗口（秒）
     pub sweep_m: usize,    // 扫单: 窗口内同向大单数 ≥ m
     pub ice_w_s: f64,      // 冰山窗口（秒）
@@ -185,59 +191,155 @@ fn sgn(x: f64) -> f64 {
 // 事件检测（per-stock，纯 Rust）
 // ============================================================================
 
-/// 逐笔事件（前 15 个）：big, big_buy, big_sell, sweep_buy, sweep_sell, ice,
-/// jump, jump_up, jump_dn, run_up, run_dn, vwap_up, vwap_dn, vwap_dev_up, vwap_dev_dn
-fn detect_trade_cols(t: &[i64], p: &[f64], v: &[f64], amt: &[f64], f: &[i32], prm: &YhybParams) -> [EvStream; 15] {
-    let mut out: [EvStream; 15] = Default::default();
+/// 体量档事件频率上限：三档拆分后事件量 ≈ 全部成交笔数（中单 = 50% 成交），
+/// 直接全量会让跨股对数量暴增 15-50 倍（聚合数小时不可行）。
+/// 超限时保留**档内金额最大的前 CAP_EV 笔**（每档最强信号，金融语义清晰）。
+/// 500 笔/档/天：体量档总事件量 ≈ v4 水平（对数量可控，med 样本充足）。
+const CAP_EV: usize = 500;
+
+/// 收集候选后统一写入：超限按金额降序取前 CAP_EV，再按时间排序（保持流有序）。
+fn push_capped(out: &mut EvStream, cand: &mut Vec<(i64, f64)>) {
+    if cand.len() > CAP_EV {
+        cand.select_nth_unstable_by(CAP_EV, |a, b| b.1.total_cmp(&a.1));
+        cand.truncate(CAP_EV);
+    }
+    cand.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+    for &(tt, ww) in cand.iter() {
+        push(out, tt, ww);
+    }
+}
+
+/// 逐笔事件（21 个）：big_l/m/s（体量三档，不分方向）、big_buy_l/m/s、big_sell_l/m/s、
+/// sweep_buy, sweep_sell, ice, jump, jump_up, jump_dn, run_up, run_dn,
+/// vwap_up, vwap_dn, vwap_dev_up, vwap_dev_dn
+///
+/// **订单体量拆分（v5）**：截面百分位（全市场所有成交金额放一起）+ 空档每股内部补充。
+/// - thr_l = 截面大单阈值（全市场成交额 P90），thr_m = 截面小单阈值（P40）；
+///   大单 = amt ≥ P90（top 10%）、中单 = [P40, P90)（10%~60%）、小单 = < P40（bottom 40%）
+/// - 空档补充：某只股票在截面口径下某一档为空（如小票全是小额成交、无截面大单），
+///   则用该股票**内部**金额百分位补充该档（内部 top10% / 10%~60% / bottom40%），
+///   保证每只有成交的股票都能识别出三档（覆盖率兜底）
+/// - thr_l/thr_m 传 NaN（单股调试无截面）时三档全部按内部阈值
+fn detect_trade_cols(
+    t: &[i64],
+    p: &[f64],
+    v: &[f64],
+    amt: &[f64],
+    f: &[i32],
+    prm: &YhybParams,
+    thr_l: f64,
+    thr_m: f64,
+) -> [EvStream; 21] {
+    let mut out: [EvStream; 21] = Default::default();
     let n = t.len();
     if n < 2 {
         return out;
     }
-    // 当日中位单笔量（保留给 wall 类参考；大单本身用金额阈值）
+    // 当日中位单笔量（保留给 wall 类参考）
     let mut v_sorted = v.to_vec();
     v_sorted.select_nth_unstable_by(n / 2, |a, b| a.total_cmp(b));
     let _med_v = v_sorted[n / 2];
-    // 大单：单笔成交额 ≥ big_amt_wan 万元（机构单，跨股票可比）
-    let big_thr = prm.big_amt_wan * 1e4;
-    let big: Vec<bool> = amt.iter().map(|&x| x >= big_thr).collect();
+    // ---- 体量档判定：截面阈值 ∪ 空档内部补充 ----
+    // 每股内部阈值（金额升序的 P40/P90）
+    let mut amt_sorted = amt.to_vec();
+    amt_sorted.sort_unstable_by(|a, b| a.total_cmp(b));
+    let inner_m = amt_sorted[((n as f64) * 0.40) as usize];
+    let inner_l = amt_sorted[((n as f64) * 0.90) as usize];
+    // 截面档计数（判断哪些档为空；thr 为 NaN 时计数恒 0 → 全部走内部）
+    let mut c_l = 0usize;
+    let mut c_m = 0usize;
+    let mut c_s = 0usize;
+    for &x in amt {
+        if x >= thr_l {
+            c_l += 1;
+        } else if x >= thr_m {
+            c_m += 1;
+        } else {
+            c_s += 1;
+        }
+    }
+    let use_l = thr_l.is_nan() || c_l == 0;
+    let use_m = thr_m.is_nan() || c_m == 0;
+    let use_s = thr_m.is_nan() || c_s == 0;
+    let is_l: Vec<bool> = amt
+        .iter()
+        .map(|&x| if use_l { x >= inner_l } else { x >= thr_l })
+        .collect();
+    let is_m: Vec<bool> = amt
+        .iter()
+        .map(|&x| {
+            if use_m {
+                x >= inner_m && x < inner_l
+            } else {
+                x >= thr_m && x < thr_l
+            }
+        })
+        .collect();
+    let is_s: Vec<bool> = amt
+        .iter()
+        .map(|&x| if use_s { x < inner_m } else { x < thr_m })
+        .collect();
+    // 大/中/小三档事件（候选收集 + 频率上限，权重 = 成交金额）
+    let mut cand = [Vec::<(i64, f64)>::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new()];
     for i in 0..n {
-        if big[i] {
-            push(&mut out[0], t[i], amt[i]); // big
+        if is_l[i] {
+            cand[0].push((t[i], amt[i])); // big_l
             if f[i] == 66 {
-                push(&mut out[1], t[i], amt[i]); // big_buy
+                cand[3].push((t[i], amt[i])); // big_buy_l
             } else if f[i] == 83 {
-                push(&mut out[2], t[i], amt[i]); // big_sell
+                cand[6].push((t[i], amt[i])); // big_sell_l
+            }
+        }
+        if is_m[i] {
+            cand[1].push((t[i], amt[i])); // big_m
+            if f[i] == 66 {
+                cand[4].push((t[i], amt[i])); // big_buy_m
+            } else if f[i] == 83 {
+                cand[7].push((t[i], amt[i])); // big_sell_m
+            }
+        }
+        if is_s[i] {
+            cand[2].push((t[i], amt[i])); // big_s
+            if f[i] == 66 {
+                cand[5].push((t[i], amt[i])); // big_buy_s
+            } else if f[i] == 83 {
+                cand[8].push((t[i], amt[i])); // big_sell_s
             }
         }
     }
-    // 扫单：窗口内同向大单数 ≥ sweep_m
+    for (i, c) in cand.iter_mut().enumerate() {
+        push_capped(&mut out[i], c);
+    }
+    // 扫单：窗口内同向**大单**数 ≥ sweep_m
     let sw_us = (prm.sweep_w_s * 1e6) as i64;
-    for (eidx, flag) in [(3usize, 66i32), (4, 83)] {
+    for (eidx, flag) in [(9usize, 66i32), (10, 83)] {
         let mut tb: Vec<i64> = Vec::new();
         let mut wb: Vec<f64> = Vec::new();
         for i in 0..n {
-            if big[i] && f[i] == flag {
+            if is_l[i] && f[i] == flag {
                 tb.push(t[i]);
                 wb.push(amt[i]);
             }
         }
         if tb.len() >= prm.sweep_m {
+            let mut cand_sweep: Vec<(i64, f64)> = Vec::new();
             let mut j = 0usize;
             for i in 0..tb.len() {
                 while tb[j] <= tb[i] - sw_us {
                     j += 1;
                 }
                 if i - j + 1 >= prm.sweep_m {
-                    push(&mut out[eidx], tb[i], wb[i]);
+                    cand_sweep.push((tb[i], wb[i]));
                 }
             }
+            push_capped(&mut out[eidx], &mut cand_sweep);
         }
     }
     // 冰山：同价位大单在窗口内 ≥ ice_m
     // 注意：按 (价格, 时间) 分组遍历，事件流天然非时间升序；聚合归并/零模型都依赖
     // 时间有序，检测完必须按时间重排（历史 bug：ice 流乱序 → 匹配与零模型全部失效）
     {
-        let mut idx: Vec<usize> = (0..n).filter(|&i| big[i]).collect();
+        let mut idx: Vec<usize> = (0..n).filter(|&i| is_l[i]).collect();
         idx.sort_unstable_by(|&a, &b| p[a].total_cmp(&p[b]).then(t[a].cmp(&t[b])));
         let ice_us = (prm.ice_w_s * 1e6) as i64;
         let mut ice_ev: Vec<(i64, f64)> = Vec::new();
@@ -260,10 +362,7 @@ fn detect_trade_cols(t: &[i64], p: &[f64], v: &[f64], amt: &[f64], f: &[i32], pr
             }
             s = e;
         }
-        ice_ev.sort_unstable_by(|a, b| a.0.cmp(&b.0));
-        for (tt, ww) in ice_ev {
-            push(&mut out[5], tt, ww);
-        }
+        push_capped(&mut out[11], &mut ice_ev);
     }
     // 跳变：|Δp| > 当日 |Δp| 的 jump_q 分位
     // 分位阈值保证任意波动率的股票（含低价高波动股）都有事件 → 覆盖率可达 90%+；
@@ -278,11 +377,11 @@ fn detect_trade_cols(t: &[i64], p: &[f64], v: &[f64], amt: &[f64], f: &[i32], pr
             let dp = p[i + 1] - p[i];
             if dp.abs() > thr {
                 let wgt = dp.abs();
-                push(&mut out[6], t[i + 1], wgt); // jump
+                push(&mut out[12], t[i + 1], wgt); // jump
                 if dp > 0.0 {
-                    push(&mut out[7], t[i + 1], wgt); // jump_up
+                    push(&mut out[13], t[i + 1], wgt); // jump_up
                 } else {
-                    push(&mut out[8], t[i + 1], wgt); // jump_dn
+                    push(&mut out[14], t[i + 1], wgt); // jump_dn
                 }
             }
         }
@@ -297,9 +396,9 @@ fn detect_trade_cols(t: &[i64], p: &[f64], v: &[f64], amt: &[f64], f: &[i32], pr
                 if (i - s) >= prm.run_r && prev_sign != 0.0 {
                     let wgt = (p[i] - p[s]).abs();
                     if prev_sign > 0.0 {
-                        push(&mut out[9], t[i], wgt); // run_up
+                        push(&mut out[15], t[i], wgt); // run_up
                     } else {
-                        push(&mut out[10], t[i], wgt); // run_dn
+                        push(&mut out[16], t[i], wgt); // run_dn
                     }
                 }
                 s = i;
@@ -310,9 +409,9 @@ fn detect_trade_cols(t: &[i64], p: &[f64], v: &[f64], amt: &[f64], f: &[i32], pr
         if (n - 1 - s) >= prm.run_r && prev_sign != 0.0 {
             let wgt = (p[n - 1] - p[s]).abs();
             if prev_sign > 0.0 {
-                push(&mut out[9], t[n - 1], wgt);
+                push(&mut out[15], t[n - 1], wgt);
             } else {
-                push(&mut out[10], t[n - 1], wgt);
+                push(&mut out[16], t[n - 1], wgt);
             }
         }
     }
@@ -330,17 +429,17 @@ fn detect_trade_cols(t: &[i64], p: &[f64], v: &[f64], amt: &[f64], f: &[i32], pr
     for i in 1..n {
         let dev = p[i] - vwap[i];
         if prev_dev <= 0.0 && dev > 0.0 {
-            push(&mut out[11], t[i], dev.abs()); // vwap_up
+            push(&mut out[17], t[i], dev.abs()); // vwap_up
         } else if prev_dev >= 0.0 && dev < 0.0 {
-            push(&mut out[12], t[i], dev.abs()); // vwap_dn
+            push(&mut out[18], t[i], dev.abs()); // vwap_dn
         }
         let z = dev.abs() > prm.vwap_dev * vwap[i];
         if z && !in_zone {
             let wgt = dev.abs() / vwap[i];
             if dev > 0.0 {
-                push(&mut out[13], t[i], wgt); // vwap_dev_up
+                push(&mut out[19], t[i], wgt); // vwap_dev_up
             } else {
-                push(&mut out[14], t[i], wgt); // vwap_dev_dn
+                push(&mut out[20], t[i], wgt); // vwap_dev_dn
             }
         }
         in_zone = z;
@@ -470,8 +569,15 @@ fn detect_impact(
     out
 }
 
-/// 全事件检测（23 个），输入原始 TradeRecord/MarketRecord（v1 读盘路径共用）。
-fn detect_all(trades: &[TradeRecord], market: &[MarketRecord], prm: &YhybParams) -> [EvStream; N_EVENTS] {
+/// 全事件检测（29 个），输入原始 TradeRecord/MarketRecord（v1 读盘路径共用）。
+/// thr_l/thr_m：截面成交额 P90/P40（体量三档拆分，NaN = 无截面信息走每股内部）。
+fn detect_all(
+    trades: &[TradeRecord],
+    market: &[MarketRecord],
+    prm: &YhybParams,
+    thr_l: f64,
+    thr_m: f64,
+) -> [EvStream; N_EVENTS] {
     let n = trades.len();
     let mut t = Vec::with_capacity(n);
     let mut p = Vec::with_capacity(n);
@@ -498,7 +604,7 @@ fn detect_all(trades: &[TradeRecord], market: &[MarketRecord], prm: &YhybParams)
         ask10.push(mr.ask_vols.map(|x| x as f64));
         bid10.push(mr.bid_vols.map(|x| x as f64));
     }
-    let tev = detect_trade_cols(&t, &p, &v, &amt, &f, prm);
+    let tev = detect_trade_cols(&t, &p, &v, &amt, &f, prm, thr_l, thr_m);
     let mev = detect_market_cols(&mt, &ask1p, &bid1p, &ask10, &bid10, prm);
     let iev = detect_impact(&t, &v, &amt, &f, &mt, &ask10, &bid10, prm);
     let mut out: [EvStream; N_EVENTS] = Default::default();
@@ -506,10 +612,10 @@ fn detect_all(trades: &[TradeRecord], market: &[MarketRecord], prm: &YhybParams)
         out[i] = s;
     }
     for (i, s) in mev.into_iter().enumerate() {
-        out[15 + i] = s;
+        out[21 + i] = s;
     }
     for (i, s) in iev.into_iter().enumerate() {
-        out[21 + i] = s;
+        out[27 + i] = s;
     }
     assert_streams_sorted(&out, "detect_all");
     out
@@ -864,6 +970,195 @@ fn agg_one(
     Some(out)
 }
 
+/// p0 全天**融合任务**：1380 聚合统计（桶 + 标量 + null，同 agg_one p=0 口径）+
+/// 第 4 层对级累加（fwd/bwd 对级均值/命中率写入矩阵，供 l4_factors 用）。
+/// 消除第 4 层阶段 A 的独立遍历（对级累加每对仅多 ~6 ops）。
+#[allow(clippy::too_many_arguments)]
+fn agg_one_p0_fused(
+    streams: &[Option<[EvStream; N_EVENTS]>],
+    null_t: &NullTable,
+    ai: usize, // 全量索引（streams 访问）
+    row: usize, // 有效索引（矩阵行）
+    e: usize,
+    prm: &YhybParams,
+    n: usize,
+    valid_pos: &[usize],
+    mf: crate::yhyb_network::SendPtr,
+    mb: crate::yhyb_network::SendPtr,
+    hp: crate::yhyb_network::SendPtr,
+    sp: crate::yhyb_network::SendPtr,
+) -> Option<Vec<f64>> {
+    let sa = streams[ai].as_ref()?;
+    let (ta, wa) = (&sa[e].t, &sa[e].w);
+    let t_us = (prm.hit_t_s * 1e6) as u64;
+    let skip_null = std::env::var("YHYB_SKIP_NULL").is_ok();
+    let mut g_fwd = Gather::new();
+    let mut g_bwd = Gather::new();
+    let (alo, ahi, base) = if ta.is_empty() {
+        (0usize, 0usize, 0i64)
+    } else {
+        let base = day_base(ta[0]);
+        let (lo, hi) = period_slice(ta, base, 0);
+        (lo, hi, base)
+    };
+    let rate = (ahi - alo) as f64;
+    let mut out = Vec::with_capacity(15);
+    if ahi == alo {
+        out.push(rate);
+        for _ in 0..14 {
+            out.push(f64::NAN);
+        }
+        return Some(out);
+    }
+    let s_us = base + PERIOD_HI_S[0] * 1_000_000;
+    // 零模型可分式（geo 默认，同 agg_one）
+    let null_mode = std::env::var("YHYB_NULL_MODE").unwrap_or_else(|_| "geo".into());
+    let geo = null_mode == "geo";
+    let medm = null_mode == "med";
+    let k_a = (ahi - alo) as f64;
+    let sum_x: f64 = if skip_null {
+        0.0
+    } else {
+        ta[alo..ahi].iter().map(|&a| (s_us - a).max(0) as f64).sum()
+    };
+    let sum_ln_x: f64 = if !skip_null && geo {
+        ta[alo..ahi].iter().map(|&a| ((s_us - a).max(1) as f64).ln()).sum()
+    } else {
+        0.0
+    };
+    let x_bar = if skip_null { 0.0 } else { sum_x / k_a };
+    let mut sum_c = 0.0f64;
+    let mut sum_ln_c = 0.0f64;
+    let mut c_list: Vec<f64> = Vec::new();
+    let mut null_hit_acc = 0.0f64;
+    let mut n_b = 0u64; // 时段内有事件的 B 数（null 分母）
+    let mut f_hit_b = 0u64; // 命中率 > 0 的 B 数（hub）
+    let mut b_hit_b = 0u64; // bwd 命中率 > 0 的 B 数（spoke）
+    let mut n_b_pair = 0u64; // 有响应对的 B 数（hub/spoke 分母）
+    for (bi, sb) in streams.iter().enumerate() {
+        if bi == ai {
+            continue;
+        }
+        let Some(sb) = sb else { continue };
+        let bpos = valid_pos[bi];
+        if bpos == usize::MAX {
+            continue;
+        }
+        let tb = &sb[e].t;
+        let (blo, bhi) = period_slice(tb, base, 0);
+        if blo == bhi {
+            continue;
+        }
+        if !skip_null {
+            let m_b = null_t.m[bi][e][0];
+            let c_b = null_t.c[bi][e][0];
+            sum_c += c_b;
+            if geo {
+                sum_ln_c += c_b.ln();
+            }
+            if medm {
+                c_list.push(c_b);
+            }
+            n_b += 1;
+            null_hit_acc += 1.0 - (1.0 - t_us as f64 / x_bar).clamp(0.0, 1.0).powf(m_b);
+        }
+        let mut j = blo;
+        // 第 4 层对级累加器（每 B 独立）
+        let mut fs = 0.0f64;
+        let mut bs = 0.0f64;
+        let mut fn_ = 0u64;
+        let mut bn_ = 0u64;
+        let mut fh = 0u64;
+        let mut bh = 0u64;
+        for i in alo..ahi {
+            let a = ta[i];
+            let wi = wa[i];
+            while j < bhi && tb[j] <= a {
+                j += 1;
+            }
+            if j > blo {
+                let d = (a - tb[j - 1]) as u64;
+                g_bwd.push1(d, wi, t_us);
+                bs += d as f64;
+                bn_ += 1;
+                if d <= t_us {
+                    bh += 1;
+                }
+            }
+            if j < bhi {
+                let d = (tb[j] - a) as u64;
+                g_fwd.push1(d, wi, t_us);
+                fs += d as f64;
+                fn_ += 1;
+                if d <= t_us {
+                    fh += 1;
+                }
+            }
+        }
+        // 写对级矩阵（本任务独占第 (e,row) 行）
+        let vf = if fn_ > 0 { (fs / fn_ as f64) as f32 } else { f32::NAN };
+        let vb = if bn_ > 0 { (bs / bn_ as f64) as f32 } else { f32::NAN };
+        mf.w((e * n + row) * n + bpos, vf);
+        mb.w((e * n + row) * n + bpos, vb);
+        if fh > 0 {
+            f_hit_b += 1;
+        }
+        if bh > 0 {
+            b_hit_b += 1;
+        }
+        n_b_pair += 1;
+    }
+    // 定位分位数桶
+    let n_f = g_fwd.n;
+    let n_bw = g_bwd.n;
+    let kf = ((n_f as f64) * prm.fast_q).round().max(1.0) as u64;
+    let kb = ((n_bw as f64) * prm.fast_q).round().max(1.0) as u64;
+    if n_f > 0 {
+        g_fwd.locate(n_f / 2, g_fwd.wsum / 2.0, kf);
+    }
+    if n_bw > 0 {
+        g_bwd.locate(n_bw / 2, g_bwd.wsum / 2.0, kb);
+    }
+    let fs = g_fwd.stats(n_f, kf);
+    let bs = g_bwd.stats(n_bw, kb);
+    let null_med = if !skip_null && n_b > 0 {
+        if geo {
+            (sum_ln_x / k_a).exp() * (sum_ln_c / n_b as f64).exp() / 1e6
+        } else if medm {
+            let mid_x = (s_us - ta[ahi - 1 - (ahi - alo) / 2]).max(0) as f64;
+            let mid_c = {
+                let m = c_list.len() / 2;
+                let (_, &mut v, _) = c_list.select_nth_unstable_by(m, |a, b| a.total_cmp(b));
+                v
+            };
+            mid_x * mid_c / 1e6
+        } else {
+            (sum_x * sum_c) / (k_a * n_b as f64) / 1e6
+        }
+    } else {
+        f64::NAN
+    };
+    let null_hit = if !skip_null && n_b > 0 {
+        null_hit_acc / n_b as f64
+    } else {
+        f64::NAN
+    };
+    // hub/spoke（命中 B 占比）
+    hp.w(e * n + row, if n_b_pair > 0 { f_hit_b as f32 / n_b_pair as f32 } else { f32::NAN });
+    sp.w(e * n + row, if n_b_pair > 0 { b_hit_b as f32 / n_b_pair as f32 } else { f32::NAN });
+    out.push(rate);
+    for dd in [&fs, &bs] {
+        out.push(dd[0]);
+        out.push(dd[1]);
+        out.push(dd[2]);
+        out.push(dd[3]);
+        out.push(dd[4]);
+        out.push(dd[0] / null_med); // rmed
+        out.push(dd[2] / null_hit); // rhit
+    }
+    Some(out)
+}
+
 /// 列出某天某子目录下所有股票代码（文件名 `{code}_{date}_{type}.csv`）。
 pub fn list_codes(date: i64, subdir: &str) -> Vec<String> {
     let dir = format!("/ssd_data/stock/{date}/{subdir}");
@@ -1196,17 +1491,89 @@ fn compute_from_streams_approx(
     (out_codes, vals)
 }
 
-/// v1 入口（读盘，默认参数）：返回 (codes, vals) —— **合并输出 1520 因子**
-/// （1380 时段聚合 + 140 第 4 层网络因子），并直接把完整结果写入备份文件
-/// （backup_writer v4 格式，默认 /hdd/user_home_unsafe/chenzongwei/yhyb_{date}.bin）。
+/// v1 入口（读盘，默认参数）：返回 (codes, vals) —— **合并输出 1916 因子**
+/// （1740 时段聚合 + 176 第 4 层网络因子），并直接把完整结果写入备份文件
+/// （backup_writer v4 格式，/hdd/user_home_unsafe/chenzongwei/yhyb5_{date}.bin）。
+/// p0 聚合任务与第 4 层对级累加**融合**（同一趟对级遍历，消除第 4 层阶段 A 独立遍历）。
 pub fn compute_yhyb_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f32>)> {
     let prm = YhybParams::default();
     let t_start = std::time::Instant::now();
     let (codes_all, streams) = load_streams(date, &prm)?;
     let t_read = std::time::Instant::now();
-    // 1380 聚合因子 + 140 第 4 层网络因子（同一批事件流，同一批有效股票）
-    let (codes, vals1380) = compute_from_streams(&codes_all, &streams, &prm);
-    let (vals140, _) = crate::yhyb_network::compute_l4(&codes_all, &streams);
+    let null_t = build_null_table(&streams);
+    // 有效股票（有事件流）
+    let valid: Vec<usize> = streams
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| s.is_some())
+        .map(|(i, _)| i)
+        .collect();
+    let n = valid.len();
+    let mut valid_pos = vec![usize::MAX; codes_all.len()];
+    for (pos, &i) in valid.iter().enumerate() {
+        valid_pos[i] = pos;
+    }
+    // 第 4 层对级矩阵（29 × n² × 2 f32 ≈ 8.1GB）+ hub/spoke
+    let ne = N_EVENTS;
+    let mut m_fwd = vec![f32::NAN; ne * n * n];
+    let mut m_bwd = vec![f32::NAN; ne * n * n];
+    let mut hub = vec![f32::NAN; ne * n];
+    let mut spoke = vec![f32::NAN; ne * n];
+    let mf = crate::yhyb_network::SendPtr::new(m_fwd.as_mut_ptr());
+    let mb = crate::yhyb_network::SendPtr::new(m_bwd.as_mut_ptr());
+    let hp = crate::yhyb_network::SendPtr::new(hub.as_mut_ptr());
+    let sp = crate::yhyb_network::SendPtr::new(spoke.as_mut_ptr());
+    // 并行任务 (有效A, 事件, 时段)：p0 用融合任务（1380 统计 + 对级累加），p1-3 常规
+    let results: Vec<Option<Vec<f64>>> = (0..n * ne * N_PERIODS)
+        .into_par_iter()
+        .map(|idx| {
+            let row = idx / (ne * N_PERIODS);
+            let e = (idx / N_PERIODS) % ne;
+            let p = idx % N_PERIODS;
+            if p == 0 {
+                agg_one_p0_fused(
+                    &streams,
+                    &null_t,
+                    valid[row],
+                    row,
+                    e,
+                    &prm,
+                    n,
+                    &valid_pos,
+                    mf,
+                    mb,
+                    hp,
+                    sp,
+                )
+            } else {
+                agg_one(&streams, &null_t, valid[row], e, p, &prm)
+            }
+        })
+        .collect();
+    // 组装 1740 时段聚合因子（有效股票）
+    let mut codes = Vec::with_capacity(n);
+    let mut vals1380 = Vec::with_capacity(n * N_FACTORS);
+    for row in 0..n {
+        let mut r = Vec::with_capacity(N_FACTORS);
+        let mut ok = true;
+        for e in 0..ne {
+            for p in 0..N_PERIODS {
+                match &results[(row * ne + e) * N_PERIODS + p] {
+                    Some(v) => r.extend_from_slice(v),
+                    None => ok = false,
+                }
+            }
+        }
+        if ok && r.len() == N_FACTORS {
+            if std::env::var("YHYB_NO_FILL").is_err() {
+                fill_periods(&mut r);
+            }
+            codes.push(codes_all[valid[row]].clone());
+            vals1380.extend(r.iter().map(|&x| x as f32));
+        }
+    }
+    // 第 4 层阶段 B：从对级矩阵算 176 因子
+    let (vals140, _) = crate::yhyb_network::l4_factors(&m_fwd, &m_bwd, &hub, &spoke, n, valid);
     let n = codes.len();
     let total = N_FACTORS + crate::yhyb_network::N_L4;
     let mut vals = Vec::with_capacity(n * total);
@@ -1216,8 +1583,8 @@ pub fn compute_yhyb_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f32>)> 
             &vals140[i * crate::yhyb_network::N_L4..(i + 1) * crate::yhyb_network::N_L4],
         );
     }
-    // 写备份文件（v4 格式，与 pipeline 备份兼容）
-    let backup = format!("/hdd/user_home_unsafe/chenzongwei/yhyb_{date}.bin");
+    // 写备份文件（v4 格式，与 pipeline 备份兼容；版本化文件名避免与旧版因子数冲突）
+    let backup = format!("/hdd/user_home_unsafe/chenzongwei/yhyb5_{date}.bin");
     let results: Vec<crate::backup_reader::TaskResult> = codes
         .iter()
         .zip(vals.chunks(total))
@@ -1233,7 +1600,7 @@ pub fn compute_yhyb_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f32>)> 
     })?;
     if std::env::var("YHYB_TIMING").is_ok() {
         eprintln!(
-            "YHYB_TIMING date={date} 读盘+检测={:.1}s 聚合+第4层={:.1}s 备份={}",
+            "YHYB_TIMING date={date} 读盘+检测={:.1}s 聚合+第4层(融合)={:.1}s 备份={}",
             t_read.duration_since(t_start).as_secs_f64(),
             t_read.elapsed().as_secs_f64(),
             backup
@@ -1244,25 +1611,64 @@ pub fn compute_yhyb_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f32>)> 
 
 /// 公共读盘：读全市场逐笔+盘口 → 事件流（v1 1380 因子与第 4 层网络因子共用）。
 /// 注意：必须在任何 rayon 使用之前调用 ensure_threads（全局池限流 50 线程）。
+/// **v5 体量拆分**：读盘后先算全市场成交额截面百分位（P90 = 大单、P40 = 小单），
+/// 再逐股检测（空档每股内部补充）。
 pub fn load_streams(
     date: i64,
     prm: &YhybParams,
 ) -> std::io::Result<(Vec<String>, Vec<Option<[EvStream; N_EVENTS]>>)> {
     ensure_threads();
     let codes = list_codes(date, "transaction");
-    let streams: Vec<Option<[EvStream; N_EVENTS]>> = codes
+    let loaded: Vec<(Vec<TradeRecord>, Vec<MarketRecord>)> = codes
         .par_iter()
         .map(|code| {
-            let trades = read_trade_fast_inner(code, date, false, true, 8 * 1024 * 1024).ok()?;
+            let trades = read_trade_fast_inner(code, date, false, true, 8 * 1024 * 1024).unwrap_or_default();
+            let market =
+                read_market_fast_inner(code, date, false, true, 8 * 1024 * 1024).unwrap_or_default();
+            (trades, market)
+        })
+        .collect();
+    let (thr_l, thr_m) = cross_amount_thresholds(&loaded);
+    let streams: Vec<Option<[EvStream; N_EVENTS]>> = loaded
+        .into_par_iter()
+        .map(|(trades, market)| {
             if trades.is_empty() {
                 return None;
             }
-            let market =
-                read_market_fast_inner(code, date, false, true, 8 * 1024 * 1024).unwrap_or_default();
-            Some(detect_all(&trades, &market, prm))
+            Some(detect_all(&trades, &market, prm, thr_l, thr_m))
         })
         .collect();
     Ok((codes, streams))
+}
+
+/// 全市场成交额截面百分位：所有股票所有连续竞价成交放一起，
+/// 大单阈值 thr_l = P90（top 10%）、小单阈值 thr_m = P40（bottom 40%）。
+/// 用两次 select_nth（O(n)），内存为全市场成交笔数 × f64（~1.6GB，512 核机器可接受）。
+fn cross_amount_thresholds(
+    loaded: &[(Vec<TradeRecord>, Vec<MarketRecord>)],
+) -> (f64, f64) {
+    let total: usize = loaded.iter().map(|(t, _)| t.len()).sum();
+    if total == 0 {
+        return (f64::NAN, f64::NAN);
+    }
+    let mut amts = Vec::with_capacity(total);
+    for (t, _) in loaded {
+        for r in t {
+            amts.push(r.turnover as f64);
+        }
+    }
+    let k40 = (amts.len() as f64 * 0.40) as usize;
+    let k90 = (amts.len() as f64 * 0.90) as usize;
+    let k40 = k40.min(amts.len() - 1);
+    let k90 = k90.min(amts.len() - 1);
+    amts.select_nth_unstable_by(k40, |a, b| a.total_cmp(b));
+    let thr_m = amts[k40];
+    amts.select_nth_unstable_by(k90, |a, b| a.total_cmp(b));
+    let thr_l = amts[k90];
+    if thr_l.is_nan() || thr_m.is_nan() || thr_l < thr_m {
+        return (f64::NAN, f64::NAN);
+    }
+    (thr_l, thr_m)
 }
 
 pub fn compute_yhyb_full_with_params(date: i64, prm: &YhybParams) -> std::io::Result<(Vec<String>, Vec<f32>)> {
@@ -1311,16 +1717,24 @@ pub fn py_yhyb(py: Python<'_>, date: i64, approx: bool) -> PyResult<(Vec<String>
         ensure_threads();
         let codes = list_codes(date, "transaction");
         let prm = YhybParams::default();
-        let streams: Vec<Option<[EvStream; N_EVENTS]>> = codes
+        let loaded: Vec<(Vec<TradeRecord>, Vec<MarketRecord>)> = codes
             .par_iter()
             .map(|code| {
-                let trades = read_trade_fast_inner(code, date, false, true, 8 * 1024 * 1024).ok()?;
+                let trades =
+                    read_trade_fast_inner(code, date, false, true, 8 * 1024 * 1024).unwrap_or_default();
+                let market =
+                    read_market_fast_inner(code, date, false, true, 8 * 1024 * 1024).unwrap_or_default();
+                (trades, market)
+            })
+            .collect();
+        let (thr_l, thr_m) = cross_amount_thresholds(&loaded);
+        let streams: Vec<Option<[EvStream; N_EVENTS]>> = loaded
+            .into_par_iter()
+            .map(|(trades, market)| {
                 if trades.is_empty() {
                     return None;
                 }
-                let market =
-                    read_market_fast_inner(code, date, false, true, 8 * 1024 * 1024).unwrap_or_default();
-                Some(detect_all(&trades, &market, &prm))
+                Some(detect_all(&trades, &market, &prm, thr_l, thr_m))
             })
             .collect();
         return Ok(compute_from_streams_approx(&codes, &streams, &prm));
@@ -1368,6 +1782,32 @@ pub fn py_yhyb_from_data(
         )));
     }
     let prm = params.map(|v| YhybParams::from_vec(&v)).unwrap_or_default();
+    // v5 体量拆分：截面成交额百分位（全市场所有成交放一起，P90/P40）
+    let total_amts: usize = trade_arrays.iter().map(|ta| ta.as_array().nrows()).sum();
+    let mut all_amts = Vec::with_capacity(total_amts);
+    for ta in &trade_arrays {
+        let a = ta.as_array();
+        for i in 0..a.nrows() {
+            all_amts.push(a[[i, 4]]);
+        }
+    }
+    let (thr_l, thr_m) = if all_amts.is_empty() {
+        (f64::NAN, f64::NAN)
+    } else {
+        let k40 = ((all_amts.len() as f64) * 0.40) as usize;
+        let k90 = ((all_amts.len() as f64) * 0.90) as usize;
+        let k40 = k40.min(all_amts.len() - 1);
+        let k90 = k90.min(all_amts.len() - 1);
+        all_amts.select_nth_unstable_by(k40, |a, b| a.total_cmp(b));
+        let thr_m = all_amts[k40];
+        all_amts.select_nth_unstable_by(k90, |a, b| a.total_cmp(b));
+        let thr_l = all_amts[k90];
+        if thr_l.is_nan() || thr_m.is_nan() || thr_l < thr_m {
+            (f64::NAN, f64::NAN)
+        } else {
+            (thr_l, thr_m)
+        }
+    };
     let streams: Vec<Option<[EvStream; N_EVENTS]>> = trade_arrays
         .iter()
         .zip(market_arrays.iter())
@@ -1410,7 +1850,7 @@ pub fn py_yhyb_from_data(
                 ask10.push(aa);
                 bid10.push(bb);
             }
-            let tev = detect_trade_cols(&t, &p, &v, &amt, &f, &prm);
+            let tev = detect_trade_cols(&t, &p, &v, &amt, &f, &prm, thr_l, thr_m);
             let mev = detect_market_cols(&mt, &ask1p, &bid1p, &ask10, &bid10, &prm);
             let iev = detect_impact(&t, &v, &amt, &f, &mt, &ask10, &bid10, &prm);
             let mut out: [EvStream; N_EVENTS] = Default::default();
@@ -1464,7 +1904,7 @@ pub fn py_yhyb_events(py: Python<'_>, code: &str, date: i64) -> PyResult<Vec<(St
     let trades = read_trade_fast_inner(code, date, false, true, usize::MAX)
         .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("{e:?}")))?;
     let market = read_market_fast_inner(code, date, false, true, usize::MAX).unwrap_or_default();
-    let ev = detect_all(&trades, &market, &YhybParams::default());
+    let ev = detect_all(&trades, &market, &YhybParams::default(), f64::NAN, f64::NAN);
     Ok(EVENT_NAMES
         .iter()
         .zip(ev.into_iter())
@@ -1481,8 +1921,9 @@ mod tests {
 
     #[test]
     fn test_names_count() {
-        assert_eq!(yhyb_names().len(), N_FACTORS);
-        assert_eq!(N_FACTORS, 1380);
+        assert_eq!(yhyb_names().len(), N_FACTORS + crate::yhyb_network::N_L4);
+        assert_eq!(N_FACTORS, 1740); // 29 事件 × 4 时段 × 15
+        assert_eq!(crate::yhyb_network::N_L4, 176); // 29 × 6 + 2
     }
 
     #[test]

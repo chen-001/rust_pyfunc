@@ -41,23 +41,27 @@ pub fn l4_names() -> Vec<String> {
 /// 注意：必须通过方法访问字段——Rust 2021 精确捕获会直接捕获 `ptr` 字段（*mut f32 非
 /// Send），方法调用则强制捕获整个 SendPtr（Send+Sync）。
 #[derive(Clone, Copy)]
-struct SendPtr(*mut f32);
+pub struct SendPtr(*mut f32);
 unsafe impl Send for SendPtr {}
 unsafe impl Sync for SendPtr {}
 
 impl SendPtr {
     #[inline(always)]
-    fn w(&self, off: usize, v: f32) {
+    pub fn new(ptr: *mut f32) -> SendPtr {
+        SendPtr(ptr)
+    }
+    #[inline(always)]
+    pub fn w(&self, off: usize, v: f32) {
         unsafe {
             *self.0.add(off) = v;
         }
     }
     #[inline(always)]
-    fn r(&self, off: usize) -> f32 {
+    pub fn r(&self, off: usize) -> f32 {
         unsafe { *self.0.add(off) }
     }
     #[inline(always)]
-    fn s(&self, off: usize, len: usize) -> &'static mut [f32] {
+    pub fn s(&self, off: usize, len: usize) -> &'static mut [f32] {
         unsafe { std::slice::from_raw_parts_mut(self.0.add(off), len) }
     }
 }
@@ -172,13 +176,33 @@ pub fn compute_l4(
         hp.w(e * n + ai, if n_b > 0 { f_hit_b as f32 / n_b as f32 } else { f32::NAN });
         sp.w(e * n + ai, if n_b > 0 { b_hit_b as f32 / n_b as f32 } else { f32::NAN });
     });
-    // 阶段 B：并行 23 事件
+    // 阶段 B：从对级矩阵计算因子（v1 生产路径由 yhyb_metrics 的 p0 融合任务
+    // 直接构建矩阵后调用本函数；v2 路径由 compute_l4 内部调用）
+    l4_factors(&m_fwd, &m_bwd, &hub, &spoke, n, valid_out)
+}
+
+/// 第 4 层阶段 B：从对级矩阵（M[e][A][B] f32，NaN = 无响应）计算全部 140 因子。
+/// - 每事件 6：lead（对级均值方向差）、hub/spoke（命中 B 占比）、pr_fwd/pr_bwd（PageRank）、
+///   heter（对级均值距离的 B 间离散度）
+/// - 全局 2：lead_all（跨事件平均引领度）、pca1（46 列横截面 PCA 第一主成分）
+/// 返回 vals（n × 140）。
+pub fn l4_factors(
+    m_fwd: &[f32],
+    m_bwd: &[f32],
+    hub: &[f32],
+    spoke: &[f32],
+    n: usize,
+    valid: Vec<usize>,
+) -> (Vec<f32>, Vec<usize>) {
+    let ne = N_EVENTS;
     let mut vals = vec![f32::NAN; n * N_L4];
     let mut pca_f = vec![f32::NAN; ne * n]; // mean_B(fwd 对级均值)：PCA 的 46 列输入
     let mut pca_b = vec![f32::NAN; ne * n];
     let pf = SendPtr(pca_f.as_mut_ptr());
     let pb = SendPtr(pca_b.as_mut_ptr());
     let vp = SendPtr(vals.as_mut_ptr());
+    let hp = SendPtr(hub.as_ptr() as *mut f32);
+    let sp = SendPtr(spoke.as_ptr() as *mut f32);
     (0..ne).into_par_iter().for_each(move |e| {
         let row_f = &m_fwd[e * n * n..(e + 1) * n * n];
         let row_b = &m_bwd[e * n * n..(e + 1) * n * n];
@@ -229,7 +253,7 @@ pub fn compute_l4(
     for ai in 0..n {
         vals[ai * N_L4 + ne * 6 + 1] = pca1[ai];
     }
-    (vals, valid_out)
+    (vals, valid)
 }
 
 /// 非 NaN 均值（返回 (均值, 计数)）。
