@@ -68,9 +68,10 @@ pub const METRIC_NAMES: [&str; N_METRICS] = ["med", "mean", "hit", "fast5", "wme
 /// 时段边界（**adjust_afternoon 后的连续时钟**，本地 09:30 = 5400s、14:57 = 19620s；
 /// 下午 13:00-15:00 已前移 90 分钟为 11:30-13:30，无午休空洞，跨午盘距离不受污染）
 /// p0=全天 [09:30,14:57)；p1=盘中3小时 [10:00,14:27)（剔除早盘/尾盘各 30 分钟）；
-/// p2=尾盘30分钟 [14:27,14:57)；p3=下午小时 [13:00,14:00)（adjust 后 11:30-12:30）
+/// p2=尾盘30分钟 [14:27,14:57)；p3=下午2小时 [13:00,15:00)（adjust 后 11:30-13:30；
+/// 连续竞价数据只到 14:57 = adjust 后 13:27，窗口超出部分自然无数据）
 const PERIOD_LO_S: [i64; N_PERIODS] = [5400, 6000, 17820, 12600];
-const PERIOD_HI_S: [i64; N_PERIODS] = [19620, 17820, 19620, 16200];
+const PERIOD_HI_S: [i64; N_PERIODS] = [19620, 17820, 19620, 19800];
 
 /// 事件时刻 t 所在日的"本地零点"（epoch 微秒）。
 ///
@@ -1435,7 +1436,7 @@ mod tests {
             assert_eq!((lo, hi), (0, 0), "p{p} 不应包含 09:30-09:40");
         }
         // 新时段边界（adjust 后时钟）：p1 盘中3h [10:00,14:27)、p2 尾盘30m [14:27,14:57)、
-        // p3 下午1h [13:00,14:00)
+        // p3 下午2h [13:00,15:00)
         let mk = |off: i64| vec![base + off * 1_000_000];
         assert_eq!(period_slice(&mk(6000), base, 1), (0, 1)); // 10:00 ∈ p1
         assert_eq!(period_slice(&mk(5999), base, 1), (0, 0)); // 09:59:59 ∉ p1
@@ -1443,8 +1444,8 @@ mod tests {
         assert_eq!(period_slice(&mk(17819), base, 2), (0, 0)); // 14:26:59 ∉ p2
         assert_eq!(period_slice(&mk(19619), base, 2), (0, 1)); // 14:56:59 ∈ p2
         assert_eq!(period_slice(&mk(12600), base, 3), (0, 1)); // 13:00 ∈ p3
-        assert_eq!(period_slice(&mk(16199), base, 3), (0, 1)); // 13:59:59 ∈ p3
-        assert_eq!(period_slice(&mk(16200), base, 3), (0, 0)); // 14:00 ∉ p3
+        assert_eq!(period_slice(&mk(19799), base, 3), (0, 1)); // 14:59:59 ∈ p3
+        assert_eq!(period_slice(&mk(19800), base, 3), (0, 0)); // 15:00 ∉ p3
     }
 
     #[test]
