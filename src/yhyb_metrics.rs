@@ -1196,9 +1196,50 @@ fn compute_from_streams_approx(
     (out_codes, vals)
 }
 
-/// v1 入口（读盘）：读全市场 → 事件检测 → 横截面池化 → (codes, vals)。
+/// v1 入口（读盘，默认参数）：返回 (codes, vals) —— **合并输出 1520 因子**
+/// （1380 时段聚合 + 140 第 4 层网络因子），并直接把完整结果写入备份文件
+/// （backup_writer v4 格式，默认 /hdd/user_home_unsafe/chenzongwei/yhyb_{date}.bin）。
 pub fn compute_yhyb_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f32>)> {
-    compute_yhyb_full_with_params(date, &YhybParams::default())
+    let prm = YhybParams::default();
+    let t_start = std::time::Instant::now();
+    let (codes_all, streams) = load_streams(date, &prm)?;
+    let t_read = std::time::Instant::now();
+    // 1380 聚合因子 + 140 第 4 层网络因子（同一批事件流，同一批有效股票）
+    let (codes, vals1380) = compute_from_streams(&codes_all, &streams, &prm);
+    let (vals140, _) = crate::yhyb_network::compute_l4(&codes_all, &streams);
+    let n = codes.len();
+    let total = N_FACTORS + crate::yhyb_network::N_L4;
+    let mut vals = Vec::with_capacity(n * total);
+    for i in 0..n {
+        vals.extend_from_slice(&vals1380[i * N_FACTORS..(i + 1) * N_FACTORS]);
+        vals.extend_from_slice(
+            &vals140[i * crate::yhyb_network::N_L4..(i + 1) * crate::yhyb_network::N_L4],
+        );
+    }
+    // 写备份文件（v4 格式，与 pipeline 备份兼容）
+    let backup = format!("/hdd/user_home_unsafe/chenzongwei/yhyb_{date}.bin");
+    let results: Vec<crate::backup_reader::TaskResult> = codes
+        .iter()
+        .zip(vals.chunks(total))
+        .map(|(code, facs)| crate::backup_reader::TaskResult {
+            date,
+            code: code.clone(),
+            timestamp: 0,
+            facs: facs.to_vec(),
+        })
+        .collect();
+    crate::backup_writer::save_results_to_backup(&results, &backup, total).map_err(|e| {
+        std::io::Error::new(std::io::ErrorKind::Other, format!("备份写入失败 {backup}: {e}"))
+    })?;
+    if std::env::var("YHYB_TIMING").is_ok() {
+        eprintln!(
+            "YHYB_TIMING date={date} 读盘+检测={:.1}s 聚合+第4层={:.1}s 备份={}",
+            t_read.duration_since(t_start).as_secs_f64(),
+            t_read.elapsed().as_secs_f64(),
+            backup
+        );
+    }
+    Ok((codes, vals))
 }
 
 /// 公共读盘：读全市场逐笔+盘口 → 事件流（v1 1380 因子与第 4 层网络因子共用）。
@@ -1239,9 +1280,10 @@ pub fn compute_yhyb_full_with_params(date: i64, prm: &YhybParams) -> std::io::Re
     Ok(res)
 }
 
-/// 因子名（与 N_FACTORS 严格对齐，单一源）。
+/// 因子名（与 N_FACTORS 严格对齐，单一源）。合并输出后追加第 4 层 140 个网络因子名，
+/// 共 1520 个（1380 + 140）。
 pub fn yhyb_names() -> Vec<String> {
-    let mut names = Vec::with_capacity(N_FACTORS);
+    let mut names = Vec::with_capacity(N_FACTORS + crate::yhyb_network::N_L4);
     for e in 0..N_EVENTS {
         for p in 0..N_PERIODS {
             names.push(format!("yhyb_e{e:02}_p{p}_rate"));
@@ -1252,6 +1294,7 @@ pub fn yhyb_names() -> Vec<String> {
             }
         }
     }
+    names.extend(crate::yhyb_network::l4_names());
     names
 }
 
@@ -1385,10 +1428,34 @@ pub fn py_yhyb_from_data(
         })
         .collect();
     if approx {
-        Ok(compute_from_streams_approx(&codes, &streams, &prm))
+        // 近似版（评估用）：1380 部分走近似统计，第 4 层照常（布局一致 1520）
+        let (codes_out, vals1380) = compute_from_streams_approx(&codes, &streams, &prm);
+        Ok(merge_l4(&codes, &streams, &codes_out, vals1380))
     } else {
-        Ok(compute_from_streams(&codes, &streams, &prm))
+        let (codes_out, vals1380) = compute_from_streams(&codes, &streams, &prm);
+        Ok(merge_l4(&codes, &streams, &codes_out, vals1380))
     }
+}
+
+/// 拼接第 4 层 140 因子：1380 + 140 = 1520（有效股票按 streams 顺序对齐，
+/// compute_from_streams 与 compute_l4 的过滤规则一致；codes_all 必须为全量代码）。
+fn merge_l4(
+    codes_all: &[String],
+    streams: &[Option<[EvStream; N_EVENTS]>],
+    codes_out: &[String],
+    vals1380: Vec<f32>,
+) -> (Vec<String>, Vec<f32>) {
+    let (vals140, _) = crate::yhyb_network::compute_l4(codes_all, streams);
+    let n = codes_out.len();
+    let total = N_FACTORS + crate::yhyb_network::N_L4;
+    let mut vals = Vec::with_capacity(n * total);
+    for i in 0..n {
+        vals.extend_from_slice(&vals1380[i * N_FACTORS..(i + 1) * N_FACTORS]);
+        vals.extend_from_slice(
+            &vals140[i * crate::yhyb_network::N_L4..(i + 1) * crate::yhyb_network::N_L4],
+        );
+    }
+    (codes_out.to_vec(), vals)
 }
 
 /// Python 调试：单股单日事件时间线（事件名 -> (时间us, 权重)），供单例/验证。

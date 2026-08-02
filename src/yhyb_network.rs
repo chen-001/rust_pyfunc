@@ -10,14 +10,9 @@
 //! - lead_all：23 事件引领度平均；pca1：46 列（23 事件 × fwd/bwd 对级均值）
 //!   横截面 PCA 第一主成分（综合协同指数）
 //!
-//! 输出格式与 1380 因子一致（codes + vals + names），并**直接写入备份文件**
-//! （backup_writer v4 分块格式，与 pipeline 备份兼容；默认路径
-//! /hdd/user_home_unsafe/chenzongwei/yhyb4_{date}.bin）。
+//! 输出由 yhyb_metrics 合并进 1520 因子（1380 + 140）统一返回，不再单独暴露 py 入口。
 
-use crate::backup_reader::TaskResult;
-use crate::backup_writer::save_results_to_backup;
-use crate::yhyb_metrics::{day_base, ensure_threads, load_streams, period_slice, N_EVENTS, YhybParams};
-use pyo3::prelude::*;
+use crate::yhyb_metrics::{day_base, period_slice, N_EVENTS};
 use rayon::prelude::*;
 
 /// 第 4 层因子数：23 事件 × 6 + 2 全局 = 140
@@ -40,47 +35,6 @@ pub fn l4_names() -> Vec<String> {
     names.push("yhyb4_lead_all".into());
     names.push("yhyb4_pca1".into());
     names
-}
-
-/// 全市场第 4 层因子：阶段 A（并行 (A,e) 对级累加 → 对级均值矩阵）+
-/// 阶段 B（并行 23 事件：lead/hub/spoke/pr/heter + 全局 pca1），结果写备份文件。
-pub fn compute_yhyb4(date: i64, backup: &str) -> std::io::Result<(Vec<String>, Vec<f32>)> {
-    ensure_threads();
-    let t_start = std::time::Instant::now();
-    let prm = YhybParams::default();
-    let (codes, streams) = load_streams(date, &prm)?;
-    let t_read = std::time::Instant::now();
-    let (vals, valid) = compute_l4(&codes, &streams);
-    // 只输出有效股票（有事件流），与 1380 因子输出一致
-    let codes_out: Vec<String> = valid.iter().map(|&i| codes[i].clone()).collect();
-    let n = codes_out.len();
-    let t_l4 = std::time::Instant::now();
-    // 写备份文件（v4 格式，与 pipeline 备份兼容）
-    let results: Vec<TaskResult> = codes_out
-        .iter()
-        .zip(vals.chunks(N_L4))
-        .map(|(code, facs)| TaskResult {
-            date,
-            code: code.clone(),
-            timestamp: 0,
-            facs: facs.to_vec(),
-        })
-        .collect();
-    if let Err(e) = save_results_to_backup(&results, backup, N_L4) {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("备份写入失败 {backup}: {e}"),
-        ));
-    }
-    if std::env::var("YHYB_TIMING").is_ok() {
-        eprintln!(
-            "YHYB4_TIMING date={date} 读盘+检测={:.1}s 第4层计算={:.1}s 备份={}",
-            t_read.duration_since(t_start).as_secs_f64(),
-            t_l4.duration_since(t_read).as_secs_f64(),
-            backup
-        );
-    }
-    Ok((codes_out, vals))
 }
 
 /// 裸指针的 Send/Sync 包装（rayon 闭包要求 Send+Sync；行/列独占写入保证无数据竞争）。
@@ -108,8 +62,9 @@ impl SendPtr {
     }
 }
 
-/// 第 4 层计算核心（纯内存，便于测试）。返回 (vals, valid 全量索引)。
-fn compute_l4(
+/// 第 4 层计算核心（纯内存，供 yhyb_metrics 合并输出 1520 因子时调用）。
+/// 返回 (vals140, valid 全量索引)。
+pub fn compute_l4(
     codes: &[String],
     streams: &[Option<[crate::yhyb_metrics::EvStream; N_EVENTS]>],
 ) -> (Vec<f32>, Vec<usize>) {
@@ -436,25 +391,4 @@ fn pca_score(pca_f: &[f32], pca_b: &[f32], n: usize, ne: usize) -> Vec<f32> {
             s as f32
         })
         .collect()
-}
-
-// ============================================================================
-// Python 入口
-// ============================================================================
-
-/// Python 单日第 4 层因子（v1 读盘，默认参数）：返回 (codes, vals140)，
-/// 并直接把结果写入备份文件（backup_writer v4 格式）。
-#[pyfunction]
-#[pyo3(signature = (date, backup=None))]
-pub fn py_yhyb4(py: Python<'_>, date: i64, backup: Option<String>) -> PyResult<(Vec<String>, Vec<f32>)> {
-    let backup = backup.unwrap_or_else(|| format!("/hdd/user_home_unsafe/chenzongwei/yhyb4_{date}.bin"));
-    let (codes, vals) = compute_yhyb4(date, &backup)
-        .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("{e:?}")))?;
-    Ok((codes, vals))
-}
-
-/// Python 拿第 4 层因子名。
-#[pyfunction]
-pub fn py_yhyb4_names() -> Vec<String> {
-    l4_names()
 }
