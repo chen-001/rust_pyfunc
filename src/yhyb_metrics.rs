@@ -36,7 +36,7 @@
 //! 单日全市场 5914 股 × 1916 因子实测（2024-12-31，YHYB_TIMING 分段）：
 //! v5（优化前）总墙钟 ~150-155s（读盘+检测 3.5s + 聚合+第4层 ~150s）；
 //! v6 总墙钟 ~110-125s（读盘+检测 3.5s + 聚合+第4层 ~108-120s）；
-//! v7（本版）总墙钟 ~94s（读盘+检测 3.5s + 聚合+第4层 ~89s，共享机带宽波动 ±3s）。
+//! v7（本版）总墙钟 ~93s（读盘+检测 3.5s + 聚合+第4层 ~88.5s，共享机带宽波动 ±3s）。
 //! 优化（均为算法/底层级，输出逐位不变；v6→v7 增量见 agg_fused_blocked 注释）：
 //! - 预计算切片表：聚合热循环 B 时段切片零二分搜索（原每任务 4×5914 次 DRAM 延迟绑定二分）
 //! - union-walk 单趟归并：4 时段独立归并压缩为一次全事件归并（j-walk 1.9× 减少，
@@ -56,6 +56,8 @@
 //! - **B 侧事件流 u32 增量压缩**（聚合步行专用副本，4B/事件 vs 8B，DRAM 减半；
 //!   转义编码 ≥u32 的跨事件间隔，解码纯整数加法逐位精确）
 //! - 软件预取 B 访问数据（切片/事件数/有效索引，L3 延迟与 a-循环重叠）
+//! - **事件数表按 (事件,时段) 转置**（m[e*4+p][bi]：聚合按 e 扫描时 bi 顺序读，
+//!   硬件预取友好；原 m[bi][e][p] 是 464B 步长散布读）
 //! - 实测成本构成（探针，2024-12-31）：推送 ~55s（1.06e12 次桶更新，x86-64 16 GPR
 //!   限制下累加器栈驻留 ~9.4 周期/推）、j-walk ~32s（事件流读 ~1.1TB，L3 每 CCD 仅
 //!   16MB 无法驻留 23MB/事件的流，K=2 的 L2 复用受 1.12MB 桶数组挤压未生效）、
@@ -679,8 +681,9 @@ const N_BUCKETS_1S: usize = 19_620;
 /// - null_hit：逐点精确 1 - ((x_i-T)/x_i)^m_B（整数幂 powi + 安全截断）。
 #[derive(Clone)]
 struct NullTable {
-    /// m[bi][e][p] = 事件数（u32：表 5.5MB→2.75MB，L3 压力减半；0 表示无事件）
-    m: Vec<Vec<[u32; N_PERIODS]>>,
+    /// m[e*N_PERIODS+p][bi] = 事件数（u32；按 (事件,时段) 转置——聚合按 e 扫描时
+    /// bi 顺序读取，硬件预取友好；原 m[bi][e][p] 是 464B 步长散布读）
+    m: Vec<Vec<u32>>,
 }
 
 /// c(m) = 1 - 2^(-1/m) 记忆化静态缓存（m ≤ 500；与旧 c 表同一公式，逐位一致）。
@@ -738,7 +741,7 @@ fn build_slices_and_null(streams: &[Option<[EvStream; N_EVENTS]>]) -> (SliceTabl
             col[bi] = [lo as u32, hi as u32];
         }
     });
-    let mut m = vec![vec![[0u32; N_PERIODS]; N_EVENTS]; n];
+    let mut m = vec![vec![0u32; n]; N_EVENTS * N_PERIODS];
     for (bi, sb) in streams.iter().enumerate() {
         let Some(sb) = sb else { continue };
         for e in 0..N_EVENTS {
@@ -748,7 +751,7 @@ fn build_slices_and_null(streams: &[Option<[EvStream; N_EVENTS]>]) -> (SliceTabl
             }
             for p in 0..N_PERIODS {
                 let [lo, hi] = sl[e * N_PERIODS + p][bi];
-                m[bi][e][p] = hi - lo;
+                m[e * N_PERIODS + p][bi] = hi - lo;
             }
         }
     }
@@ -1178,7 +1181,7 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
                         core::arch::x86_64::_MM_HINT_T0,
                     );
                     core::arch::x86_64::_mm_prefetch(
-                        &null_t.m[pf][e] as *const _ as *const i8,
+                        &null_t.m[e * N_PERIODS][pf] as *const _ as *const i8,
                         core::arch::x86_64::_MM_HINT_T0,
                     );
                     if !WITH_L4 {
@@ -1215,7 +1218,7 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
                             for p in 0..N_PERIODS {
                                 let (blo, bhi) = bsl[p];
                                 if blo < bhi {
-                                    let m_b = null_t.m[bi][e][p];
+                                    let m_b = null_t.m[e * N_PERIODS + p][bi];
                                     let c_b = c_of_m(m_b);
                                     sum_c[$k][p] += c_b;
                                     if geo {
@@ -1927,7 +1930,7 @@ fn agg_one_approx(
         if blo == bhi {
             continue;
         }
-        let m_b = null_t.m[bi][e][p];
+        let m_b = null_t.m[e * N_PERIODS + p][bi];
         let c_b = c_of_m(m_b);
         // null_hit x̄ 近似：per B 的 A 事件距离均值（每 B 贡献一次）
         let mut sum_x = 0.0f64;
@@ -2769,7 +2772,7 @@ mod tests {
         evs[0].t.push(base + 5_400_000_000);
         let streams = vec![Some(evs)];
         let (_, nt) = build_slices_and_null(&streams);
-        assert_eq!(nt.m[0][0][0], 1);
+        assert_eq!(nt.m[0][0], 1);
         // c = 1 - 2^(-1/1) = 0.5
         assert!((c_of_m(1) - 0.5).abs() < 1e-9);
         let _ = s_us;
