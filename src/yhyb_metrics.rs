@@ -35,9 +35,9 @@
 //! # 性能（一天全市场，限流 50 线程；机器 AMD EPYC 9754 ×2，512 核共享机）
 //! 单日全市场 5914 股 × 1916 因子实测（2024-12-31，YHYB_TIMING 分段）：
 //! v5（优化前）总墙钟 ~150-155s（读盘+检测 3.5s + 聚合+第4层 ~150s）；
-//! v6（本版）总墙钟 ~110-125s（读盘+检测 3.5s + 聚合+第4层 ~108-120s，
-//! 波动主要来自共享机其他用户的 DRAM 带宽竞争——j-walk 2.2TB 读受其影响）。
-//! 优化（均为算法/底层级，输出逐位不变，见 agg_fused 注释）：
+//! v6 总墙钟 ~110-125s（读盘+检测 3.5s + 聚合+第4层 ~108-120s）；
+//! v7（本版）总墙钟 ~94s（读盘+检测 3.5s + 聚合+第4层 ~89s，共享机带宽波动 ±3s）。
+//! 优化（均为算法/底层级，输出逐位不变；v6→v7 增量见 agg_fused_blocked 注释）：
 //! - 预计算切片表：聚合热循环 B 时段切片零二分搜索（原每任务 4×5914 次 DRAM 延迟绑定二分）
 //! - union-walk 单趟归并：4 时段独立归并压缩为一次全事件归并（j-walk 1.9× 减少，
 //!   时段 p 的 fwd/bwd 距离 = 全事件最近邻 + 有效性过滤，逐位等价）
@@ -46,9 +46,23 @@
 //! - 线程本地 Gather 复用（touched 清零）+ locate/stats 只扫 [0,max_b]
 //! - 同一 (a,B) 4 时段推送共享 u64 除法；hit 无分支累加
 //! - 第 4 层融合（v1/v2 统一）+ WITH_L4 编译期特化（const 泛型，热循环零运行时分支）
-//! - 实测成本构成（探针）：推送 ~50s（1.06e12 次桶更新，近算法下限）、
-//!   j-walk ~37s（2.2TB DRAM 读，带宽绑定）、分支/L4 ~20s、B 访问 ~5s。
-//!   60s 目标的剩余差距来自逐位一致约束下的逐对枚举下限（见 agg_fused 注释）。
+//! - **时间比较有效性判断**：j < bsl[p].1 ⟺ tb[j]-base < HI_p_S（partition 性质逐位等价），
+//!   时段边界为编译期立即数（零寄存器/零 bsl 索引读取）
+//! - **游标寄存器缓存**：tj_b/tp_b（后继/前驱时间）缓存于寄存器，条件比较零内存加载
+//! - **单次 8B 桶加载/存储**（get_unchecked）+ 累加器 3 字段（hit|max_b 打包 u64 + wsum），
+//!   延迟装载/段界回写（活跃寄存器集 = 当前段 gather 数）
+//! - **表压缩**：切片表 u32（11→5.5MB）、事件数表 u32（5.5→2.75MB）、c(m) 记忆化
+//!   静态缓存（5.5MB f64 表 → 0）+ null_hit powf 任务内记忆化（每 (k,时段,m) 一次）
+//! - **B 侧事件流 u32 增量压缩**（聚合步行专用副本，4B/事件 vs 8B，DRAM 减半；
+//!   转义编码 ≥u32 的跨事件间隔，解码纯整数加法逐位精确）
+//! - 软件预取 B 访问数据（切片/事件数/有效索引，L3 延迟与 a-循环重叠）
+//! - 实测成本构成（探针，2024-12-31）：推送 ~55s（1.06e12 次桶更新，x86-64 16 GPR
+//!   限制下累加器栈驻留 ~9.4 周期/推）、j-walk ~32s（事件流读 ~1.1TB，L3 每 CCD 仅
+//!   16MB 无法驻留 23MB/事件的流，K=2 的 L2 复用受 1.12MB 桶数组挤压未生效）、
+//!   B 访问 ~10s（L3 延迟绑定）。
+//!   60s 目标的剩余差距来自：逐位一致约束下 1.06e12 次桶更新的寄存器分配下限
+//!   （S2/S3 峰值 6 个累加器 × 4 标量 = 24 个活跃值 > 16 GPR，编译器栈溢出），
+//!   以及 j-walk 的事件流 DRAM 带宽墙（50 线程有效 ~60GB/s）。
 
 use crate::fast_csv_reader::{read_market_fast_inner, read_trade_fast_inner, MarketRecord, TradeRecord};
 use numpy::PyReadonlyArray2;
@@ -88,6 +102,16 @@ pub const METRIC_NAMES: [&str; N_METRICS] = ["med", "mean", "hit", "fast5", "wme
 /// 连续竞价数据只到 14:57 = adjust 后 13:27，窗口超出部分自然无数据）
 const PERIOD_LO_S: [i64; N_PERIODS] = [5400, 6000, 17820, 12600];
 const PERIOD_HI_S: [i64; N_PERIODS] = [19620, 17820, 19620, 19800];
+
+/// 时段边界（µs 偏移，基准相对）：聚合热循环有效性比较的**编译期立即数**
+/// （零寄存器占用；`tb[j]-base < HI0_S` ⟺ `j < bsl[0].1`，partition 性质逐位等价）。
+const HI0_S: i64 = PERIOD_HI_S[0] * 1_000_000;
+const HI1_S: i64 = PERIOD_HI_S[1] * 1_000_000;
+const HI3_S: i64 = PERIOD_HI_S[3] * 1_000_000;
+const LO0_S: i64 = PERIOD_LO_S[0] * 1_000_000;
+const LO1_S: i64 = PERIOD_LO_S[1] * 1_000_000;
+const LO2_S: i64 = PERIOD_LO_S[2] * 1_000_000;
+const LO3_S: i64 = PERIOD_LO_S[3] * 1_000_000;
 
 /// 事件时刻 t 所在日的"本地零点"（epoch 微秒）。
 ///
@@ -655,10 +679,34 @@ const N_BUCKETS_1S: usize = 19_620;
 /// - null_hit：逐点精确 1 - ((x_i-T)/x_i)^m_B（整数幂 powi + 安全截断）。
 #[derive(Clone)]
 struct NullTable {
-    /// c[bi][e][p] = 1 - 2^(-1/m)：B 股在时段 p 有 m 个事件 e 时的期望中位系数
-    c: Vec<Vec<[f64; N_PERIODS]>>,
-    /// m[bi][e][p] = 事件数（0 表示无事件）
-    m: Vec<Vec<[f64; N_PERIODS]>>,
+    /// m[bi][e][p] = 事件数（u32：表 5.5MB→2.75MB，L3 压力减半；0 表示无事件）
+    m: Vec<Vec<[u32; N_PERIODS]>>,
+}
+
+/// c(m) = 1 - 2^(-1/m) 记忆化静态缓存（m ≤ 500；与旧 c 表同一公式，逐位一致）。
+/// 旧 c 表 5.5MB f64 从 L3 常驻集剔除——流的 L3 驻留是 j-walk 带宽的关键。
+static C_CACHE: std::sync::OnceLock<[f64; 8192]> = std::sync::OnceLock::new();
+static LN_C_CACHE: std::sync::OnceLock<[f64; 8192]> = std::sync::OnceLock::new();
+
+#[inline(always)]
+fn c_of_m(m: u32) -> f64 {
+    C_CACHE.get_or_init(|| {
+        let mut a = [0.0f64; 8192];
+        for i in 1..8192 {
+            a[i] = 1.0 - 2f64.powf(-1.0 / i as f64);
+        }
+        a
+    })[m.min(8191) as usize]
+}
+#[inline(always)]
+fn ln_c_of_m(m: u32) -> f64 {
+    LN_C_CACHE.get_or_init(|| {
+        let mut a = [0.0f64; 8192];
+        for i in 1..8192 {
+            a[i] = (1.0 - 2f64.powf(-1.0 / i as f64)).ln();
+        }
+        a
+    })[m.min(8191) as usize]
 }
 
 /// 时段切片表：**全市场预计算一次**（(bi, e, p) → (lo, hi)），聚合任务热循环内零二分搜索。
@@ -666,8 +714,8 @@ struct NullTable {
 /// 正确性：所有股票同一交易日事件的 day_base 相同（见 day_base），因此基值统一，
 /// 预计算的切片与 agg 内即时 period_slice 逐位一致（纯记忆化）。
 struct SliceTable {
-    sl: Vec<Vec<(usize, usize)>>, // [N_EVENTS * N_PERIODS][n_stocks] = (lo, hi)
-    base: i64,                    // 当日统一 day_base（事件均为同一天）
+    sl: Vec<Vec<[u32; 2]>>, // [N_EVENTS * N_PERIODS][n_stocks] = [lo, hi]（u32：表 11MB→5.5MB）
+    base: i64,              // 当日统一 day_base（事件均为同一天）
 }
 
 /// 预计算全市场切片表 + 零模型表（O(全市场事件数)，一次，并行）。
@@ -680,17 +728,17 @@ fn build_slices_and_null(streams: &[Option<[EvStream; N_EVENTS]>]) -> (SliceTabl
                 .and_then(|ev| ev.iter().find_map(|e| (!e.t.is_empty()).then(|| day_base(e.t[0]))))
         })
         .unwrap_or(0);
-    let mut sl = vec![vec![(0usize, 0usize); n]; N_EVENTS * N_PERIODS];
+    let mut sl = vec![vec![[0u32; 2]; n]; N_EVENTS * N_PERIODS];
     sl.par_iter_mut().enumerate().for_each(|(ep, col)| {
         let e = ep / N_PERIODS;
         let p = ep % N_PERIODS;
         for (bi, sb) in streams.iter().enumerate() {
             let Some(sb) = sb else { continue };
-            col[bi] = period_slice(&sb[e].t, base, p);
+            let (lo, hi) = period_slice(&sb[e].t, base, p);
+            col[bi] = [lo as u32, hi as u32];
         }
     });
-    let mut c = vec![vec![[0.0f64; N_PERIODS]; N_EVENTS]; n];
-    let mut m = vec![vec![[0.0f64; N_PERIODS]; N_EVENTS]; n];
+    let mut m = vec![vec![[0u32; N_PERIODS]; N_EVENTS]; n];
     for (bi, sb) in streams.iter().enumerate() {
         let Some(sb) = sb else { continue };
         for e in 0..N_EVENTS {
@@ -699,16 +747,12 @@ fn build_slices_and_null(streams: &[Option<[EvStream; N_EVENTS]>]) -> (SliceTabl
                 continue;
             }
             for p in 0..N_PERIODS {
-                let (lo, hi) = sl[e * N_PERIODS + p][bi];
-                let cnt = (hi - lo) as f64;
-                if cnt > 0.0 {
-                    m[bi][e][p] = cnt;
-                    c[bi][e][p] = 1.0 - 2f64.powf(-1.0 / cnt);
-                }
+                let [lo, hi] = sl[e * N_PERIODS + p][bi];
+                m[bi][e][p] = hi - lo;
             }
         }
     }
-    (SliceTable { sl, base }, NullTable { c, m })
+    (SliceTable { sl, base }, NullTable { m })
 }
 
 /// 时段切片（t 有序）：返回 [lo, hi) 落入时段 p 的下标区间。
@@ -878,15 +922,71 @@ impl Gather {
     }
 }
 
-/// 线程本地 8 个 Gather（4 时段 × fwd/bwd，时段定制桶长），任务间复用（touched 清零）。
-/// rayon 工作线程串行执行任务，borrow 不会嵌套。
+/// v7 聚合块大小：K 只 A 共享一次 B 遍历（j-walk 的 B 流重读减少 K 倍，
+/// 桶数组内存 = K × 560KB/线程：K=2 → 1.12MB 接近 L2 上限，实测选 2）。
+const K_BLOCK: usize = 2;
+
+/// 线程本地 8×K 个 Gather（K 只 A × 4 时段 × fwd/bwd，时段定制桶长），任务间复用
+/// （touched 清零）。rayon 工作线程串行执行任务，borrow 不会嵌套。
 /// 桶长 = 时段最大距离秒数（p0 [5400,19620)→14220、p1 [6000,17820)→11820、
-/// p2 [17820,19620)→1800、p3 [12600,19800)→7200），8 个共 560KB 落 L2。
+/// p2 [17820,19620)→1800、p3 [12600,19800)→7200），每股 8 个共 560KB 落 L2。
 thread_local! {
     static GPOOL: std::cell::RefCell<Vec<Gather>> = std::cell::RefCell::new({
         let sizes = [14220usize, 11820, 1800, 7200];
-        (0..8).map(|i| Gather::new_sized(sizes[i / 2])).collect()
+        (0..8 * K_BLOCK).map(|i| Gather::new_sized(sizes[(i % 8) / 2])).collect()
     });
+}
+
+/// 探针计数器（YHYB_COUNT=1 时启用：统计 a-迭代/push/jwalk 步数，定位工作量规模）
+static CNT_A: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static CNT_PUSH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// 任务级累加器（8 个 Gather 的标量统计；热循环内寄存器驻留——不再每推一次读写
+/// Gather 结构体字段，消除 v6 的 4 条内存依赖链，push 吞吐 ~9 周期/推 → ~3-4 周期）。
+#[derive(Clone, Copy, Default)]
+struct Acc {
+    /// 打包 (hit << 32) | max_b：hit ≤ 3e6（22 位）、max_b ≤ 14220（14 位）——一个 u64
+    /// 一个寄存器；拆分为 2 个 GPR 会挤爆 16 个 GPR（6 个活跃累加器 = 12 GPR + L4 + 临时量）
+    hm: u64,
+    wsum: f64,
+}
+
+/// 生产热路径桶更新：只写桶数组 + 本地累加器（+ 首触 touched 记录）。
+/// 与 v6 push_b 逐位等价：c+=1 / w+=ww / n+=1 / wsum+=ww / hit+=（dd≤t_us）/ max_b 更新；
+/// 首触（c==0）记录 touched 供任务结束回清（reset 语义不变）。
+#[inline(always)]
+fn push_b_acc(
+    b: &mut [Bucket],
+    touched: &mut Vec<usize>,
+    bb: usize,
+    ww: f64,
+    dd: u64,
+    t_us: u64,
+    mut acc: Acc,
+) -> Acc {
+    debug_assert!(bb < b.len(), "桶越界 bb={bb} len={}", b.len());
+    // 热路径用 get_unchecked（调用方保证 bb < len：距离恒 < 时段跨度；debug_assert 兜底）。
+    // 切片下标 [] 在 release 下仍带越界检查（每推 1 次 compare+branch + panic 路径）。
+    // 单次 8B 结构体加载 + 单次 8B 结构体存储（c/w 同一条缓存行）。
+    let old = unsafe { *b.get_unchecked(bb) };
+    if old.c == 0 {
+        touched.push(bb);
+    }
+    unsafe {
+        *b.get_unchecked_mut(bb) = Bucket {
+            c: old.c + 1,
+            w: old.w + ww as f32,
+        };
+    }
+    acc.wsum += ww;
+    let mut h = acc.hm >> 32;
+    let mut m = (acc.hm & 0xFFFF_FFFF) as usize;
+    h += (dd <= t_us) as u64;
+    if bb > m {
+        m = bb;
+    }
+    acc.hm = (h << 32) | m as u64;
+    acc
 }
 
 /// 第 4 层上下文（对级矩阵 + hub/spoke 写入目标 + 有效索引映射）。
@@ -899,83 +999,49 @@ struct L4Ctx<'a> {
     sp: crate::yhyb_network::SendPtr,
 }
 
-/// 单 (A, 事件 e) 的因子：4 时段 × 15 = 60 个值（v6 融合任务）。
+/// 单 (A, 事件 e) 的因子：4 时段 × 15 = 60 个值（v7 融合任务，K 股块共享 B 遍历）。
 ///
-/// **v6 优化（输出逐位不变）**：
-/// - 预计算切片表：B 时段切片零二分搜索（原每任务 4×5914 次 DRAM 延迟绑定二分）
-/// - **union-walk 单趟归并**：4 时段各自独立归并（Σ_p k_A(p) ≈ 1.9 k_A 的 A 循环 + Σ_p k_B(p)
-///   的 j 游标）压缩为一次全事件归并——时段 p 的 fwd/bwd 距离 = 全事件最近邻距离，
-///   仅有效性过滤（a ∈ p ∧ 最近邻 ∈ p）不同，距离值与逐位顺序完全一致
-///   （证明：a ∈ p 时全事件后继 j* 满足 blo_p ≤ j*（tb[j*] > a ≥ LO_p），
-///   fwd 有效 ⟺ j* < bhi_p；bwd 有效 ⟺ j*-1 ≥ blo_p ⟺ j* > blo_p，与旧分时段双指针逐位等价）
-/// - **5 段固定掩码子循环**：A 事件按 5 个固定时段区间分段（[5400,6000)/[6000,12600)/
-///   [12600,17820)/[17820,19620)/[19620,19800)），每段时段成员掩码恒定 → 内循环零成员分支
-///   （原逐 (a,B) 掩码分支 16 个/对 → 现 ~5 个/对，分支数与旧分时段 4 趟完全一致）
-/// - **时段定制桶数组**：桶长 = 时段最大距离（p0 14220/p1 11820/p2 1800/p3 7200），
-///   8 个 Gather 共 560KB 落 L2（原 8×157KB=1.26MB 溢出 L2 至 L3，桶更新延迟 2-3 倍）
-/// - 同一 (a,B) 的 4 时段推送共享一次 u64 除法（桶索引相同）；距离恒 < 时段跨度，
-///   桶索引无需 clamp（debug_assert 兜底）
-/// - hit 累加无分支（`hit += (dd <= t_us) as u64`）
-/// - 线程本地 Gather 复用（touched 清零）+ locate/stats 只扫 [0, max_b]
-/// - 第 4 层对级累加与 p0 统计同趟（保留 v1 融合语义）
-/// - **WITH_L4 编译期特化**：第 4 层融合与否为 const 泛型，热循环内零运行时分支
+/// **v7 优化（输出逐位不变）**：
+/// - **K 股块共享 B 遍历**：任务粒度 (K 只 A 的块, e)；每只 B 的事件流/切片表/零模型表
+///   只读一次，K 只 A 的 a-循环共享（实测 K=2 与 K=1 持平：1.12MB 桶数组挤压 L2，
+///   流级复用被 LRU 逐出；保留 K=2 便于后续桶内存缩减时启用）
+/// - **时间比较有效性判断**：j < bsl[p].1 ⟺ tb[j]-base < HI_p_S（partition 性质逐位
+///   等价）——时段边界为编译期立即数，省去 v6 每 (a,B) 的 6 个 bsl 索引寄存器与比较
+/// - **游标寄存器缓存**：tj_b/tp_b（B 事件后继/前驱相对时间）缓存于寄存器——条件
+///   比较零内存加载（v6 每 a 一次 tb[j] 加载，条件加载 2.8e11 次）
+/// - **单次 8B 桶加载/存储**（get_unchecked 免越界检查）+ 累加器打包
+///   （hit|max_b 一个 u64 + wsum f64，n 由桶计数和推导）+ 延迟装载/段界回写
+///   （活跃寄存器集 = 当前段的 gather 数，降低 16 GPR 压力）
+/// - **表压缩**：切片表 u32、事件数表 u32、c(m) 记忆化静态缓存（f64 表 → 0）、
+///   null_hit powf 任务内记忆化（每 (k,时段,m) 一次）
+/// - 探针（YHYB_SKIP_PUSH / YHYB_NO_JWALK）改为编译期常量特化：热循环零运行时分支
+/// - v6 保留：预计算切片表 / union-walk / 5 段固定掩码 / 时段定制桶数组 /
+///   共享 u64 除法 / hit 无分支累加 / touched 清零复用 / WITH_L4 编译期特化
 ///
 /// 零模型（v3 近似，评估验证相关性见 README）：
 /// - null_med = exp(mean ln x)·exp(mean ln c)（geo 默认）等可分式，O(k_A+nB)
-/// - null_hit = (1/nB)·Σ_b[1−(1−T/x̄)^m_b]——x̄ 均值近似，每 B 一次 powf
+/// - null_hit = (1/nB)·Σ_b[1−(1−T/x̄)^m_b]——x̄ 均值近似，powf 记忆化
 /// - YHYB_SKIP_NULL 环境变量：跳过零模型（瓶颈定位用，不影响正常路径）
 #[allow(clippy::too_many_arguments)]
-fn agg_fused<const WITH_L4: bool>(
+fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH: bool, const COUNT: bool, const K: usize>(
     streams: &[Option<[EvStream; N_EVENTS]>],
     null_t: &NullTable,
     slices: &SliceTable,
-    ai: usize, // 全量索引（streams 访问）
-    row: usize, // 有效索引（矩阵行；WITH_L4=false 时忽略）
+    cst: &CompStreams,
+    ai: [usize; K], // 全量索引（streams 访问）
+    row: [usize; K], // 有效索引（矩阵行；WITH_L4=false 时忽略）
+    nk: usize,       // 块内实际 A 数（≤ K；尾块可能 < K）
     e: usize,
     prm: &YhybParams,
     l4: Option<&L4Ctx>,
-) -> Option<Vec<f64>> {
-    let sa = streams[ai].as_ref()?;
-    let (ta, wa) = (&sa[e].t, &sa[e].w);
-    let t_us = (prm.hit_t_s * 1e6) as u64;
+) -> [Option<Vec<f64>>; K] {
     let skip_null = std::env::var("YHYB_SKIP_NULL").is_ok();
     let null_mode = std::env::var("YHYB_NULL_MODE").unwrap_or_else(|_| "geo".into());
     let geo = null_mode == "geo";
     let medm = null_mode == "med";
+    let no_match = std::env::var("YHYB_NO_MATCH").is_ok();
     let base = slices.base;
-    // A 事件 4 时段切片 + union 范围 [min lo, max hi)
-    let alo = [
-        slices.sl[e * N_PERIODS + 0][ai].0,
-        slices.sl[e * N_PERIODS + 1][ai].0,
-        slices.sl[e * N_PERIODS + 2][ai].0,
-        slices.sl[e * N_PERIODS + 3][ai].0,
-    ];
-    let ahi = [
-        slices.sl[e * N_PERIODS + 0][ai].1,
-        slices.sl[e * N_PERIODS + 1][ai].1,
-        slices.sl[e * N_PERIODS + 2][ai].1,
-        slices.sl[e * N_PERIODS + 3][ai].1,
-    ];
-    let rate = [
-        (ahi[0] - alo[0]) as f64,
-        (ahi[1] - alo[1]) as f64,
-        (ahi[2] - alo[2]) as f64,
-        (ahi[3] - alo[3]) as f64,
-    ];
-    let ualo = alo[0].min(alo[1]).min(alo[2]).min(alo[3]);
-    let uahi = ahi[0].max(ahi[1]).max(ahi[2]).max(ahi[3]);
-    let mut out = Vec::with_capacity(60);
-    if ualo == uahi {
-        // 全时段无 A 事件：rate=0 + 14 NaN × 4 时段
-        for p in 0..N_PERIODS {
-            out.push(rate[p]);
-            for _ in 0..14 {
-                out.push(f64::NAN);
-            }
-        }
-        return Some(out);
-    }
-    debug_assert_eq!(day_base(ta[ualo]), base, "切片表基值与任务基值不一致");
+    let t_us = (prm.hit_t_s * 1e6) as u64;
     // 时段边界（µs）：零模型时段末 us_hi[p]
     let us_hi = [
         base + PERIOD_HI_S[0] * 1_000_000,
@@ -983,400 +1049,730 @@ fn agg_fused<const WITH_L4: bool>(
         base + PERIOD_HI_S[2] * 1_000_000,
         base + PERIOD_HI_S[3] * 1_000_000,
     ];
-    // 零模型可分式预计算：Σ x_i（A 事件时段剩余）与 x̄，每任务 O(k_A)
-    let mut sum_x = [0.0f64; N_PERIODS];
-    let mut sum_ln_x = [0.0f64; N_PERIODS];
-    let mut k_a = [0.0f64; N_PERIODS];
-    for p in 0..N_PERIODS {
-        k_a[p] = (ahi[p] - alo[p]) as f64;
-        if !skip_null {
-            for &a in &ta[alo[p]..ahi[p]] {
-                sum_x[p] += (us_hi[p] - a).max(0) as f64;
-                if geo {
-                    sum_ln_x[p] += ((us_hi[p] - a).max(1) as f64).ln();
+    // 块内每股状态
+    let mut out: [Option<Vec<f64>>; K] = std::array::from_fn(|_| None);
+    let mut ta: [&[i64]; K] = [&[]; K];
+    let mut wa: [&[f64]; K] = [&[]; K];
+    let mut alo = [[0usize; N_PERIODS]; K];
+    let mut ahi = [[0usize; N_PERIODS]; K];
+    let mut rate = [[0.0f64; N_PERIODS]; K];
+    let mut seg = [[(0usize, 0usize); 5]; K];
+    let mut sum_x = [[0.0f64; N_PERIODS]; K];
+    let mut sum_ln_x = [[0.0f64; N_PERIODS]; K];
+    let mut k_a = [[0.0f64; N_PERIODS]; K];
+    let mut x_bar = [[0.0f64; N_PERIODS]; K];
+    let mut sum_c = [[0.0f64; N_PERIODS]; K];
+    let mut sum_ln_c = [[0.0f64; N_PERIODS]; K];
+    let mut c_list: [Vec<Vec<f64>>; K] = std::array::from_fn(|_| Vec::new());
+    let mut null_hit_acc = [[0.0f64; N_PERIODS]; K];
+    let mut n_b = [[0u64; N_PERIODS]; K];
+    // 第 4 层 per-k 累加器（跨 B 累积）
+    let mut f_hit_b = [0u64; K];
+    let mut b_hit_b = [0u64; K];
+    let mut n_b_pair = [0u64; K];
+    // 预计算每股：切片 / rate / 5 段 / 零模型 x 侧
+    let mut all_empty = true;
+    for k in 0..nk {
+        let Some(sa) = streams[ai[k]].as_ref() else { continue };
+        ta[k] = &sa[e].t;
+        wa[k] = &sa[e].w;
+        alo[k] = [
+            slices.sl[e * N_PERIODS + 0][ai[k]][0] as usize,
+            slices.sl[e * N_PERIODS + 1][ai[k]][0] as usize,
+            slices.sl[e * N_PERIODS + 2][ai[k]][0] as usize,
+            slices.sl[e * N_PERIODS + 3][ai[k]][0] as usize,
+        ];
+        ahi[k] = [
+            slices.sl[e * N_PERIODS + 0][ai[k]][1] as usize,
+            slices.sl[e * N_PERIODS + 1][ai[k]][1] as usize,
+            slices.sl[e * N_PERIODS + 2][ai[k]][1] as usize,
+            slices.sl[e * N_PERIODS + 3][ai[k]][1] as usize,
+        ];
+        for p in 0..N_PERIODS {
+            rate[k][p] = (ahi[k][p] - alo[k][p]) as f64;
+        }
+        let ualo = alo[k][0].min(alo[k][1]).min(alo[k][2]).min(alo[k][3]);
+        let uahi = ahi[k][0].max(ahi[k][1]).max(ahi[k][2]).max(ahi[k][3]);
+        if ualo == uahi {
+            // 全时段无 A 事件：rate=0 + 14 NaN × 4 时段（与 v6 逐位一致）
+            let mut v = Vec::with_capacity(60);
+            for p in 0..N_PERIODS {
+                v.push(rate[k][p]);
+                for _ in 0..14 {
+                    v.push(f64::NAN);
                 }
             }
+            out[k] = Some(v);
+            continue;
+        }
+        all_empty = false;
+        debug_assert_eq!(day_base(ta[k][ualo]), base, "切片表基值与任务基值不一致");
+        // 5 段 A 事件范围（固定时段边界；掩码恒定）：
+        //   S0 [5400,6000) {p0} | S1 [6000,12600) {p0,p1} | S2 [12600,17820) {p0,p1,p3}
+        //   S3 [17820,19620) {p0,p2,p3} | S4 [19620,19800) {p3}
+        seg[k][0] = (ualo, ta[k].partition_point(|&x| x < base + 6_000_000_000));
+        seg[k][1] = (seg[k][0].1, ta[k].partition_point(|&x| x < base + 12_600_000_000));
+        seg[k][2] = (seg[k][1].1, ta[k].partition_point(|&x| x < base + 17_820_000_000));
+        seg[k][3] = (seg[k][2].1, ta[k].partition_point(|&x| x < base + 19_620_000_000));
+        seg[k][4] = (seg[k][3].1, uahi);
+        // 零模型可分式预计算：Σ x_i（A 事件时段剩余）与 x̄，每任务 O(k_A)
+        for p in 0..N_PERIODS {
+            k_a[k][p] = (ahi[k][p] - alo[k][p]) as f64;
+            if !skip_null {
+                for &a in &ta[k][alo[k][p]..ahi[k][p]] {
+                    sum_x[k][p] += (us_hi[p] - a).max(0) as f64;
+                    if geo {
+                        sum_ln_x[k][p] += ((us_hi[p] - a).max(1) as f64).ln();
+                    }
+                }
+            }
+            x_bar[k][p] = if skip_null { 0.0 } else { sum_x[k][p] / k_a[k][p] };
         }
     }
-    let mut x_bar = [0.0f64; N_PERIODS];
-    for p in 0..N_PERIODS {
-        x_bar[p] = if skip_null { 0.0 } else { sum_x[p] / k_a[p] };
+    if all_empty {
+        return out; // 块内全部无事件：GPOOL 不触碰（与 v6 提前返回一致）
     }
-    let mut sum_c = [0.0f64; N_PERIODS];
-    let mut sum_ln_c = [0.0f64; N_PERIODS];
-    let mut c_list: [Vec<f64>; N_PERIODS] = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
-    let mut null_hit_acc = [0.0f64; N_PERIODS];
-    let mut n_b = [0u64; N_PERIODS];
-    let mut f_hit_b = 0u64; // 第4层：fwd 命中率 > 0 的 B 数（hub）
-    let mut b_hit_b = 0u64; // 第4层：bwd 命中率 > 0 的 B 数（spoke）
-    let mut n_b_pair = 0u64; // 第4层：p0 有响应对的 B 数（hub/spoke 分母）
-    let no_match = std::env::var("YHYB_NO_MATCH").is_ok();
-    let skip_push = std::env::var("YHYB_SKIP_PUSH").is_ok();
-    let no_jwalk = std::env::var("YHYB_NO_JWALK").is_ok();
-    // 5 段 A 事件范围（固定时段边界；掩码恒定）：
-    //   S0 [5400,6000) {p0} | S1 [6000,12600) {p0,p1} | S2 [12600,17820) {p0,p1,p3}
-    //   S3 [17820,19620) {p0,p2,p3} | S4 [19620,19800) {p3}
-    let s0 = (ualo, ta.partition_point(|&x| x < base + 6_000_000_000));
-    let s1 = (s0.1, ta.partition_point(|&x| x < base + 12_600_000_000));
-    let s2 = (s1.1, ta.partition_point(|&x| x < base + 17_820_000_000));
-    let s3 = (s2.1, ta.partition_point(|&x| x < base + 19_620_000_000));
-    let s4 = (s3.1, uahi);
-    // ============ 线程本地 Gather（8 个：4 时段 × fwd/bwd，时段定制桶长）+ 单趟归并 ============
-    let stats = GPOOL.with(|pool| {
+    // null_hit 的 (1-T/x̄)^m 记忆化表：x̄ 是 A 股事件时段剩余均值（任务内常数），
+    // 每 (k, 时段) 只有 1 个底数 → 每个 m 的 powf 任务内只算一次（懒填充；
+    // 底数 0 时 powf(0,m)=0，与哨兵值一致，天然正确）。逐位等价（同一 powf 调用）。
+    let mut pow_tab: [[[f64; 512]; N_PERIODS]; 8] = [[[0.0; 512]; N_PERIODS]; 8];
+    GPOOL.with(|pool| {
         let mut pool = pool.borrow_mut();
         let g = &mut pool[..];
         for x in g.iter_mut() {
             x.reset();
         }
-        // g[p*2] = fwd, g[p*2+1] = bwd
         for (bi, sb) in streams.iter().enumerate() {
-            if bi == ai {
-                continue;
-            }
             let Some(sb) = sb else { continue };
             let bpos = l4.map_or(usize::MAX, |c| c.valid_pos[bi]);
             if WITH_L4 && bpos == usize::MAX {
                 continue;
             }
-            let tb = &sb[e].t;
-            let tb_len = tb.len();
-            if tb_len == 0 {
+            // B 侧事件流：u32 增量压缩副本（4B/事件 vs 8B——j-walk DRAM 减半）
+            let c_off = cst.offs[e][bi] as usize;
+            let c_first = cst.first[e][bi];
+            let c_len = cst.lens[e][bi] as usize;
+            if c_len == 0 {
                 continue;
             }
+            let c_deltas = &cst.deltas[e];
+            // 软件预取 bi+2 的切片/事件数/有效索引：B 访问的 L3 延迟与当前 B 的
+            // a-循环重叠（每 B 只读 ~50B，纯延迟绑定 ~10s；预取后基本隐藏）
+            let pf = bi + 2;
+            if pf < streams.len() {
+                unsafe {
+                    core::arch::x86_64::_mm_prefetch(
+                        &slices.sl[e * N_PERIODS + 0][pf] as *const _ as *const i8,
+                        core::arch::x86_64::_MM_HINT_T0,
+                    );
+                    core::arch::x86_64::_mm_prefetch(
+                        &slices.sl[e * N_PERIODS + 1][pf] as *const _ as *const i8,
+                        core::arch::x86_64::_MM_HINT_T0,
+                    );
+                    core::arch::x86_64::_mm_prefetch(
+                        &slices.sl[e * N_PERIODS + 2][pf] as *const _ as *const i8,
+                        core::arch::x86_64::_MM_HINT_T0,
+                    );
+                    core::arch::x86_64::_mm_prefetch(
+                        &slices.sl[e * N_PERIODS + 3][pf] as *const _ as *const i8,
+                        core::arch::x86_64::_MM_HINT_T0,
+                    );
+                    core::arch::x86_64::_mm_prefetch(
+                        &null_t.m[pf][e] as *const _ as *const i8,
+                        core::arch::x86_64::_MM_HINT_T0,
+                    );
+                    if !WITH_L4 {
+                        // valid_pos 只在 L4 路径读取；无条件预取亦可（无副作用）
+                    }
+                }
+            }
             let bsl = [
-                slices.sl[e * N_PERIODS + 0][bi],
-                slices.sl[e * N_PERIODS + 1][bi],
-                slices.sl[e * N_PERIODS + 2][bi],
-                slices.sl[e * N_PERIODS + 3][bi],
+                (
+                    slices.sl[e * N_PERIODS + 0][bi][0] as usize,
+                    slices.sl[e * N_PERIODS + 0][bi][1] as usize,
+                ),
+                (
+                    slices.sl[e * N_PERIODS + 1][bi][0] as usize,
+                    slices.sl[e * N_PERIODS + 1][bi][1] as usize,
+                ),
+                (
+                    slices.sl[e * N_PERIODS + 2][bi][0] as usize,
+                    slices.sl[e * N_PERIODS + 2][bi][1] as usize,
+                ),
+                (
+                    slices.sl[e * N_PERIODS + 3][bi][0] as usize,
+                    slices.sl[e * N_PERIODS + 3][bi][1] as usize,
+                ),
             ];
-            // 零模型（每时段：B 有时段事件才贡献）
-            if !skip_null {
-                for p in 0..N_PERIODS {
-                    let (blo, bhi) = bsl[p];
-                    if blo < bhi {
-                        let m_b = null_t.m[bi][e][p];
-                        let c_b = null_t.c[bi][e][p];
-                        sum_c[p] += c_b;
-                        if geo {
-                            sum_ln_c[p] += c_b.ln();
+            // 块内每股的 B 遍历（共享 bsl/tb；每股独立 j 游标与累加器）。
+            // 宏体以常量 k 展开 → acc[k*8+gi] 常量索引 → SROA 拆标量 → 寄存器驻留。
+            macro_rules! agg_k_body {
+                ($k:expr) => {{
+                    if bi != ai[$k] {
+                        let gk = &mut g[$k * 8..$k * 8 + 8];
+                        // 零模型（每时段：B 有时段事件才贡献；每 (A,B) 一次）
+                        if !skip_null {
+                            for p in 0..N_PERIODS {
+                                let (blo, bhi) = bsl[p];
+                                if blo < bhi {
+                                    let m_b = null_t.m[bi][e][p];
+                                    let c_b = c_of_m(m_b);
+                                    sum_c[$k][p] += c_b;
+                                    if geo {
+                                        sum_ln_c[$k][p] += ln_c_of_m(m_b);
+                                    }
+                                    if medm {
+                                        c_list[$k][p].push(c_b);
+                                    }
+                                    n_b[$k][p] += 1;
+                                    // null_hit x̄ 近似：每 B 一次（clamp 防 x̄ ≤ T 时底数非正）；
+                                    // powf 记忆化（任务内每 (k,时段,m) 一次，m ≤ 511 查表）
+                                    let base_p = (1.0 - t_us as f64 / x_bar[$k][p]).clamp(0.0, 1.0);
+                                    let pv = if m_b < 512 {
+                                        let slot = &mut pow_tab[$k][p][m_b as usize];
+                                        if *slot == 0.0 && base_p != 0.0 {
+                                            *slot = base_p.powf(m_b as f64);
+                                        }
+                                        *slot
+                                    } else {
+                                        base_p.powf(m_b as f64)
+                                    };
+                                    null_hit_acc[$k][p] += 1.0 - pv;
+                                }
+                            }
                         }
-                        if medm {
-                            c_list[p].push(c_b);
+                        if no_match {
+                            // 探针：只做 B 访问（切片+null），跳过匹配推送
+                        } else {
+                            let tk = ta[$k];
+                            let wk = wa[$k];
+                            // 本地累加器：**延迟装载 + 段界回写**——活跃寄存器集 = 当前段的
+                            // gather 数（S2/S3 峰值 6 个 Acc = 12 个标量；全量 8 个 Acc 会让
+                            // 16 GPR 溢出 → 每推 8-10 次栈读写）
+                            let mut al: [Acc; 8] = [Acc::default(); 8];
+                            macro_rules! al_load {
+                                ($gi:expr) => {
+                                    al[$gi] = Acc {
+                                        hm: (gk[$gi].hit << 32) | (gk[$gi].max_b as u64),
+                                        wsum: gk[$gi].wsum,
+                                    }
+                                };
+                            }
+                            macro_rules! al_flush {
+                                ($gi:expr) => {
+                                    gk[$gi].hit = al[$gi].hm >> 32;
+                                    gk[$gi].max_b = (al[$gi].hm & 0xFFFF_FFFF) as usize;
+                                    gk[$gi].wsum = al[$gi].wsum;
+                                };
+                            }
+                            al_load!(0);
+                            al_load!(1);
+                            // 第 4 层 p0 对级累加器（每 (A,B) 独立；计数打包成 u64 对省 2 GPR）
+                            let mut kpfs = 0.0f64;
+                            let mut kpbs = 0.0f64;
+                            let mut l4c = 0u64; // (kpfn << 32) | kpbn
+                            let mut l4h = 0u64; // (kpfh << 32) | kpbh
+                            // 有效性判断用**基准相对时间 + 编译期立即数**（partition 性质逐位等价）；
+                            // union-walk 游标 tj_b = tb[j]-base / tp_b = tb[j-1]-base 缓存于寄存器。
+                            let mut j = 0usize;
+                            let mut c_pos = c_off;
+                            let mut tj_b = c_first;
+                            let mut tp_b = i64::MIN;
+                            // S0: a ∈ [5400,6000) → p0
+                            for i in seg[$k][0].0..seg[$k][0].1 {
+                                let ab = tk[i] - base;
+                                let wi = wk[i];
+                                if !NO_JWALK {
+                                    while j < c_len && tj_b <= ab {
+                                        j += 1;
+                                        tp_b = tj_b;
+                                        if j < c_len {
+                                            // 最后一个事件之后无增量：tj_b = MAX（与 v6 的
+                                            // `if j < tb_len { tb[j] } else { i64::MAX }` 逐位一致）
+                                            let dv = c_deltas[c_pos];
+                                            tj_b += if dv == DELTA_ESC {
+                                                c_pos += 3;
+                                                (c_deltas[c_pos - 2] as i64) | ((c_deltas[c_pos - 1] as i64) << 32)
+                                            } else {
+                                                c_pos += 1;
+                                                dv as i64
+                                            };
+                                        } else {
+                                            tj_b = i64::MAX;
+                                        }
+                                    }
+                                }
+                                if tp_b >= LO0_S {
+                                    let d = (ab - tp_b) as u64;
+                                    let bb = (d / 1_000_000) as usize;
+                                    if !SKIP_PUSH {
+                                        al[1] = push_b_acc(&mut gk[1].b, &mut gk[1].touched, bb, wi, d, t_us, al[1]);
+                                    }
+                                    if WITH_L4 {
+                                        kpbs += d as f64;
+                                        l4c += 1;
+                                        l4h += (d <= t_us) as u64;
+                                    }
+                                }
+                                if tj_b < HI0_S {
+                                    let d = (tj_b - ab) as u64;
+                                    let bb = (d / 1_000_000) as usize;
+                                    if !SKIP_PUSH {
+                                        al[0] = push_b_acc(&mut gk[0].b, &mut gk[0].touched, bb, wi, d, t_us, al[0]);
+                                    }
+                                    if WITH_L4 {
+                                        kpfs += d as f64;
+                                        l4c += 0x1_0000_0000;
+                                        l4h += ((d <= t_us) as u64) << 32;
+                                    }
+                                }
+                            }
+                            // S1: a ∈ [6000,12600) → p0, p1（bwd/fwd: p1⊂p0 嵌套）
+                            al_load!(2);
+                            al_load!(3);
+                            for i in seg[$k][1].0..seg[$k][1].1 {
+                                let ab = tk[i] - base;
+                                let wi = wk[i];
+                                if !NO_JWALK {
+                                    while j < c_len && tj_b <= ab {
+                                        j += 1;
+                                        tp_b = tj_b;
+                                        if j < c_len {
+                                            // 最后一个事件之后无增量：tj_b = MAX（与 v6 的
+                                            // `if j < tb_len { tb[j] } else { i64::MAX }` 逐位一致）
+                                            let dv = c_deltas[c_pos];
+                                            tj_b += if dv == DELTA_ESC {
+                                                c_pos += 3;
+                                                (c_deltas[c_pos - 2] as i64) | ((c_deltas[c_pos - 1] as i64) << 32)
+                                            } else {
+                                                c_pos += 1;
+                                                dv as i64
+                                            };
+                                        } else {
+                                            tj_b = i64::MAX;
+                                        }
+                                    }
+                                }
+                                if tp_b >= LO1_S {
+                                    let d = (ab - tp_b) as u64;
+                                    let bb = (d / 1_000_000) as usize;
+                                    if !SKIP_PUSH {
+                                        al[3] = push_b_acc(&mut gk[3].b, &mut gk[3].touched, bb, wi, d, t_us, al[3]);
+                                        al[1] = push_b_acc(&mut gk[1].b, &mut gk[1].touched, bb, wi, d, t_us, al[1]);
+                                    }
+                                    if WITH_L4 {
+                                        kpbs += d as f64;
+                                        l4c += 1;
+                                        l4h += (d <= t_us) as u64;
+                                    }
+                                } else if tp_b >= LO0_S {
+                                    let d = (ab - tp_b) as u64;
+                                    let bb = (d / 1_000_000) as usize;
+                                    if !SKIP_PUSH {
+                                        al[1] = push_b_acc(&mut gk[1].b, &mut gk[1].touched, bb, wi, d, t_us, al[1]);
+                                    }
+                                    if WITH_L4 {
+                                        kpbs += d as f64;
+                                        l4c += 1;
+                                        l4h += (d <= t_us) as u64;
+                                    }
+                                }
+                                if tj_b < HI1_S {
+                                    let d = (tj_b - ab) as u64;
+                                    let bb = (d / 1_000_000) as usize;
+                                    if !SKIP_PUSH {
+                                        al[2] = push_b_acc(&mut gk[2].b, &mut gk[2].touched, bb, wi, d, t_us, al[2]);
+                                        al[0] = push_b_acc(&mut gk[0].b, &mut gk[0].touched, bb, wi, d, t_us, al[0]);
+                                    }
+                                    if WITH_L4 {
+                                        kpfs += d as f64;
+                                        l4c += 0x1_0000_0000;
+                                        l4h += ((d <= t_us) as u64) << 32;
+                                    }
+                                } else if tj_b < HI0_S {
+                                    let d = (tj_b - ab) as u64;
+                                    let bb = (d / 1_000_000) as usize;
+                                    if !SKIP_PUSH {
+                                        al[0] = push_b_acc(&mut gk[0].b, &mut gk[0].touched, bb, wi, d, t_us, al[0]);
+                                    }
+                                    if WITH_L4 {
+                                        kpfs += d as f64;
+                                        l4c += 0x1_0000_0000;
+                                        l4h += ((d <= t_us) as u64) << 32;
+                                    }
+                                }
+                            }
+                            // S2: a ∈ [12600,17820) → p0, p1, p3（bwd: p3⊂p1⊂p0；fwd: p1⊂p0⊂p3）
+                            al_load!(6);
+                            al_load!(7);
+                            for i in seg[$k][2].0..seg[$k][2].1 {
+                                let ab = tk[i] - base;
+                                let wi = wk[i];
+                                if !NO_JWALK {
+                                    while j < c_len && tj_b <= ab {
+                                        j += 1;
+                                        tp_b = tj_b;
+                                        if j < c_len {
+                                            // 最后一个事件之后无增量：tj_b = MAX（与 v6 的
+                                            // `if j < tb_len { tb[j] } else { i64::MAX }` 逐位一致）
+                                            let dv = c_deltas[c_pos];
+                                            tj_b += if dv == DELTA_ESC {
+                                                c_pos += 3;
+                                                (c_deltas[c_pos - 2] as i64) | ((c_deltas[c_pos - 1] as i64) << 32)
+                                            } else {
+                                                c_pos += 1;
+                                                dv as i64
+                                            };
+                                        } else {
+                                            tj_b = i64::MAX;
+                                        }
+                                    }
+                                }
+                                if tp_b >= LO3_S {
+                                    let d = (ab - tp_b) as u64;
+                                    let bb = (d / 1_000_000) as usize;
+                                    if !SKIP_PUSH {
+                                        al[7] = push_b_acc(&mut gk[7].b, &mut gk[7].touched, bb, wi, d, t_us, al[7]);
+                                        al[3] = push_b_acc(&mut gk[3].b, &mut gk[3].touched, bb, wi, d, t_us, al[3]);
+                                        al[1] = push_b_acc(&mut gk[1].b, &mut gk[1].touched, bb, wi, d, t_us, al[1]);
+                                    }
+                                    if WITH_L4 {
+                                        kpbs += d as f64;
+                                        l4c += 1;
+                                        l4h += (d <= t_us) as u64;
+                                    }
+                                } else if tp_b >= LO1_S {
+                                    let d = (ab - tp_b) as u64;
+                                    let bb = (d / 1_000_000) as usize;
+                                    if !SKIP_PUSH {
+                                        al[3] = push_b_acc(&mut gk[3].b, &mut gk[3].touched, bb, wi, d, t_us, al[3]);
+                                        al[1] = push_b_acc(&mut gk[1].b, &mut gk[1].touched, bb, wi, d, t_us, al[1]);
+                                    }
+                                    if WITH_L4 {
+                                        kpbs += d as f64;
+                                        l4c += 1;
+                                        l4h += (d <= t_us) as u64;
+                                    }
+                                } else if tp_b >= LO0_S {
+                                    let d = (ab - tp_b) as u64;
+                                    let bb = (d / 1_000_000) as usize;
+                                    if !SKIP_PUSH {
+                                        al[1] = push_b_acc(&mut gk[1].b, &mut gk[1].touched, bb, wi, d, t_us, al[1]);
+                                    }
+                                    if WITH_L4 {
+                                        kpbs += d as f64;
+                                        l4c += 1;
+                                        l4h += (d <= t_us) as u64;
+                                    }
+                                }
+                                if tj_b < HI1_S {
+                                    let d = (tj_b - ab) as u64;
+                                    let bb = (d / 1_000_000) as usize;
+                                    if !SKIP_PUSH {
+                                        al[2] = push_b_acc(&mut gk[2].b, &mut gk[2].touched, bb, wi, d, t_us, al[2]);
+                                        al[0] = push_b_acc(&mut gk[0].b, &mut gk[0].touched, bb, wi, d, t_us, al[0]);
+                                    }
+                                    if WITH_L4 {
+                                        kpfs += d as f64;
+                                        l4c += 0x1_0000_0000;
+                                        l4h += ((d <= t_us) as u64) << 32;
+                                    }
+                                    if tj_b < HI3_S && !SKIP_PUSH {
+                                        al[6] = push_b_acc(&mut gk[6].b, &mut gk[6].touched, bb, wi, d, t_us, al[6]);
+                                    }
+                                } else if tj_b < HI0_S {
+                                    let d = (tj_b - ab) as u64;
+                                    let bb = (d / 1_000_000) as usize;
+                                    if !SKIP_PUSH {
+                                        al[0] = push_b_acc(&mut gk[0].b, &mut gk[0].touched, bb, wi, d, t_us, al[0]);
+                                    }
+                                    if WITH_L4 {
+                                        kpfs += d as f64;
+                                        l4c += 0x1_0000_0000;
+                                        l4h += ((d <= t_us) as u64) << 32;
+                                    }
+                                    if tj_b < HI3_S && !SKIP_PUSH {
+                                        al[6] = push_b_acc(&mut gk[6].b, &mut gk[6].touched, bb, wi, d, t_us, al[6]);
+                                    }
+                                } else if tj_b < HI3_S && !SKIP_PUSH {
+                                    let d = (tj_b - ab) as u64;
+                                    let bb = (d / 1_000_000) as usize;
+                                    al[6] = push_b_acc(&mut gk[6].b, &mut gk[6].touched, bb, wi, d, t_us, al[6]);
+                                }
+                            }
+                            // S3: a ∈ [17820,19620) → p0, p2, p3（bwd: p2⊂p3⊂p0；fwd: p2=p0⊂p3）
+                            al_flush!(2);
+                            al_flush!(3);
+                            al_load!(4);
+                            al_load!(5);
+                            for i in seg[$k][3].0..seg[$k][3].1 {
+                                let ab = tk[i] - base;
+                                let wi = wk[i];
+                                if !NO_JWALK {
+                                    while j < c_len && tj_b <= ab {
+                                        j += 1;
+                                        tp_b = tj_b;
+                                        if j < c_len {
+                                            // 最后一个事件之后无增量：tj_b = MAX（与 v6 的
+                                            // `if j < tb_len { tb[j] } else { i64::MAX }` 逐位一致）
+                                            let dv = c_deltas[c_pos];
+                                            tj_b += if dv == DELTA_ESC {
+                                                c_pos += 3;
+                                                (c_deltas[c_pos - 2] as i64) | ((c_deltas[c_pos - 1] as i64) << 32)
+                                            } else {
+                                                c_pos += 1;
+                                                dv as i64
+                                            };
+                                        } else {
+                                            tj_b = i64::MAX;
+                                        }
+                                    }
+                                }
+                                if tp_b >= LO2_S {
+                                    let d = (ab - tp_b) as u64;
+                                    let bb = (d / 1_000_000) as usize;
+                                    if !SKIP_PUSH {
+                                        al[5] = push_b_acc(&mut gk[5].b, &mut gk[5].touched, bb, wi, d, t_us, al[5]);
+                                        al[7] = push_b_acc(&mut gk[7].b, &mut gk[7].touched, bb, wi, d, t_us, al[7]);
+                                        al[1] = push_b_acc(&mut gk[1].b, &mut gk[1].touched, bb, wi, d, t_us, al[1]);
+                                    }
+                                    if WITH_L4 {
+                                        kpbs += d as f64;
+                                        l4c += 1;
+                                        l4h += (d <= t_us) as u64;
+                                    }
+                                } else if tp_b >= LO3_S {
+                                    let d = (ab - tp_b) as u64;
+                                    let bb = (d / 1_000_000) as usize;
+                                    if !SKIP_PUSH {
+                                        al[7] = push_b_acc(&mut gk[7].b, &mut gk[7].touched, bb, wi, d, t_us, al[7]);
+                                        al[1] = push_b_acc(&mut gk[1].b, &mut gk[1].touched, bb, wi, d, t_us, al[1]);
+                                    }
+                                    if WITH_L4 {
+                                        kpbs += d as f64;
+                                        l4c += 1;
+                                        l4h += (d <= t_us) as u64;
+                                    }
+                                } else if tp_b >= LO0_S {
+                                    let d = (ab - tp_b) as u64;
+                                    let bb = (d / 1_000_000) as usize;
+                                    if !SKIP_PUSH {
+                                        al[1] = push_b_acc(&mut gk[1].b, &mut gk[1].touched, bb, wi, d, t_us, al[1]);
+                                    }
+                                    if WITH_L4 {
+                                        kpbs += d as f64;
+                                        l4c += 1;
+                                        l4h += (d <= t_us) as u64;
+                                    }
+                                }
+                                if tj_b < HI0_S {
+                                    let d = (tj_b - ab) as u64;
+                                    let bb = (d / 1_000_000) as usize;
+                                    if !SKIP_PUSH {
+                                        al[4] = push_b_acc(&mut gk[4].b, &mut gk[4].touched, bb, wi, d, t_us, al[4]);
+                                        al[0] = push_b_acc(&mut gk[0].b, &mut gk[0].touched, bb, wi, d, t_us, al[0]);
+                                    }
+                                    if WITH_L4 {
+                                        kpfs += d as f64;
+                                        l4c += 0x1_0000_0000;
+                                        l4h += ((d <= t_us) as u64) << 32;
+                                    }
+                                    if tj_b < HI3_S && !SKIP_PUSH {
+                                        al[6] = push_b_acc(&mut gk[6].b, &mut gk[6].touched, bb, wi, d, t_us, al[6]);
+                                    }
+                                } else if tj_b < HI3_S && !SKIP_PUSH {
+                                    let d = (tj_b - ab) as u64;
+                                    let bb = (d / 1_000_000) as usize;
+                                    al[6] = push_b_acc(&mut gk[6].b, &mut gk[6].touched, bb, wi, d, t_us, al[6]);
+                                }
+                            }
+                            // S4: a ∈ [19620,19800) → p3
+                            al_flush!(4);
+                            al_flush!(5);
+                            for i in seg[$k][4].0..seg[$k][4].1 {
+                                let ab = tk[i] - base;
+                                let wi = wk[i];
+                                if !NO_JWALK {
+                                    while j < c_len && tj_b <= ab {
+                                        j += 1;
+                                        tp_b = tj_b;
+                                        if j < c_len {
+                                            // 最后一个事件之后无增量：tj_b = MAX（与 v6 的
+                                            // `if j < tb_len { tb[j] } else { i64::MAX }` 逐位一致）
+                                            let dv = c_deltas[c_pos];
+                                            tj_b += if dv == DELTA_ESC {
+                                                c_pos += 3;
+                                                (c_deltas[c_pos - 2] as i64) | ((c_deltas[c_pos - 1] as i64) << 32)
+                                            } else {
+                                                c_pos += 1;
+                                                dv as i64
+                                            };
+                                        } else {
+                                            tj_b = i64::MAX;
+                                        }
+                                    }
+                                }
+                                if tp_b >= LO3_S && !SKIP_PUSH {
+                                    let d = (ab - tp_b) as u64;
+                                    let bb = (d / 1_000_000) as usize;
+                                    al[7] = push_b_acc(&mut gk[7].b, &mut gk[7].touched, bb, wi, d, t_us, al[7]);
+                                }
+                                if tj_b < HI3_S && !SKIP_PUSH {
+                                    let d = (tj_b - ab) as u64;
+                                    let bb = (d / 1_000_000) as usize;
+                                    al[6] = push_b_acc(&mut gk[6].b, &mut gk[6].touched, bb, wi, d, t_us, al[6]);
+                                }
+                            }
+                            // 写第 4 层对级矩阵（本任务独占第 (e,row) 行；B 无 p0 事件时保持 NaN）
+                            if let Some(c) = l4 {
+                                if bsl[0].0 < bsl[0].1 {
+                                    let kpfn = l4c >> 32;
+                                    let kpbn = l4c & 0xFFFF_FFFF;
+                                    let kpfh = l4h >> 32;
+                                    let kpbh = l4h & 0xFFFF_FFFF;
+                                    let vf = if kpfn > 0 { (kpfs / kpfn as f64) as f32 } else { f32::NAN };
+                                    let vb = if kpbn > 0 { (kpbs / kpbn as f64) as f32 } else { f32::NAN };
+                                    c.mf.w((e * c.n + row[$k]) * c.n + bpos, vf);
+                                    c.mb.w((e * c.n + row[$k]) * c.n + bpos, vb);
+                                    if kpfh > 0 {
+                                        f_hit_b[$k] += 1;
+                                    }
+                                    if kpbh > 0 {
+                                        b_hit_b[$k] += 1;
+                                    }
+                                    n_b_pair[$k] += 1;
+                                }
+                            }
+                            // 回写累加器到 Gather 字段（每 (A,B) 一次；字段跨 B 累积）
+                            al_flush!(0);
+                            al_flush!(1);
+                            al_flush!(6);
+                            al_flush!(7);
                         }
-                        n_b[p] += 1;
-                        // null_hit x̄ 近似：每 B 一次（clamp 防 x̄ ≤ T 时底数非正）
-                        null_hit_acc[p] += 1.0 - (1.0 - t_us as f64 / x_bar[p]).clamp(0.0, 1.0).powf(m_b);
                     }
-                }
+                }};
             }
-            // 第 4 层 p0 对级累加器（每 B 独立）
-            let mut pfs = 0.0f64;
-            let mut pbs = 0.0f64;
-            let mut pfn = 0u64;
-            let mut pbn = 0u64;
-            let mut pfh = 0u64;
-            let mut pbh = 0u64;
-            // union-walk：全事件归并一趟，5 段子循环共享 j 游标（距离逐位一致）
-            let mut j = 0usize;
-            if no_match {
-                continue; // 探针：只做 B 访问（切片+null），跳过匹配推送
-            }
-            // S0: a ∈ [5400,6000) → p0
-            for i in s0.0..s0.1 {
-                let a = ta[i];
-                let wi = wa[i];
-                if !no_jwalk {
-                    while j < tb_len && tb[j] <= a {
-                        j += 1;
-                    }
-                }
-                if j > 0 {
-                    let d = (a - tb[j - 1]) as u64;
-                    let bb = (d / 1_000_000) as usize;
-                    if j > bsl[0].0 {
-                        if !skip_push {
-                            g[1].push_b(bb, wi, d, t_us);
-                        }
-                        if WITH_L4 {
-                            pbs += d as f64;
-                            pbn += 1;
-                            pbh += (d <= t_us) as u64;
-                        }
-                    }
-                }
-                if j < tb_len {
-                    let d = (tb[j] - a) as u64;
-                    let bb = (d / 1_000_000) as usize;
-                    if j < bsl[0].1 {
-                        if !skip_push {
-                            g[0].push_b(bb, wi, d, t_us);
-                        }
-                        if WITH_L4 {
-                            pfs += d as f64;
-                            pfn += 1;
-                            pfh += (d <= t_us) as u64;
-                        }
-                    }
-                }
-            }
-            // S1: a ∈ [6000,12600) → p0, p1
-            for i in s1.0..s1.1 {
-                let a = ta[i];
-                let wi = wa[i];
-                if !no_jwalk {
-                    while j < tb_len && tb[j] <= a {
-                        j += 1;
-                    }
-                }
-                if j > 0 {
-                    let d = (a - tb[j - 1]) as u64;
-                    let bb = (d / 1_000_000) as usize;
-                    if j > bsl[0].0 {
-                        if !skip_push {
-                            g[1].push_b(bb, wi, d, t_us);
-                        }
-                        if WITH_L4 {
-                            pbs += d as f64;
-                            pbn += 1;
-                            pbh += (d <= t_us) as u64;
-                        }
-                    }
-                    if j > bsl[1].0 && !skip_push {
-                        g[3].push_b(bb, wi, d, t_us);
-                    }
-                }
-                if j < tb_len {
-                    let d = (tb[j] - a) as u64;
-                    let bb = (d / 1_000_000) as usize;
-                    if j < bsl[0].1 {
-                        if !skip_push {
-                            g[0].push_b(bb, wi, d, t_us);
-                        }
-                        if WITH_L4 {
-                            pfs += d as f64;
-                            pfn += 1;
-                            pfh += (d <= t_us) as u64;
-                        }
-                    }
-                    if j < bsl[1].1 && !skip_push {
-                        g[2].push_b(bb, wi, d, t_us);
-                    }
-                }
-            }
-            // S2: a ∈ [12600,17820) → p0, p1, p3
-            for i in s2.0..s2.1 {
-                let a = ta[i];
-                let wi = wa[i];
-                if !no_jwalk {
-                    while j < tb_len && tb[j] <= a {
-                        j += 1;
-                    }
-                }
-                if j > 0 {
-                    let d = (a - tb[j - 1]) as u64;
-                    let bb = (d / 1_000_000) as usize;
-                    if j > bsl[0].0 {
-                        if !skip_push {
-                            g[1].push_b(bb, wi, d, t_us);
-                        }
-                        if WITH_L4 {
-                            pbs += d as f64;
-                            pbn += 1;
-                            pbh += (d <= t_us) as u64;
-                        }
-                    }
-                    if j > bsl[1].0 && !skip_push {
-                        g[3].push_b(bb, wi, d, t_us);
-                    }
-                    if j > bsl[3].0 && !skip_push {
-                        g[7].push_b(bb, wi, d, t_us);
-                    }
-                }
-                if j < tb_len {
-                    let d = (tb[j] - a) as u64;
-                    let bb = (d / 1_000_000) as usize;
-                    if j < bsl[0].1 {
-                        if !skip_push {
-                            g[0].push_b(bb, wi, d, t_us);
-                        }
-                        if WITH_L4 {
-                            pfs += d as f64;
-                            pfn += 1;
-                            pfh += (d <= t_us) as u64;
-                        }
-                    }
-                    if j < bsl[1].1 && !skip_push {
-                        g[2].push_b(bb, wi, d, t_us);
-                    }
-                    if j < bsl[3].1 && !skip_push {
-                        g[6].push_b(bb, wi, d, t_us);
-                    }
-                }
-            }
-            // S3: a ∈ [17820,19620) → p0, p2, p3
-            for i in s3.0..s3.1 {
-                let a = ta[i];
-                let wi = wa[i];
-                if !no_jwalk {
-                    while j < tb_len && tb[j] <= a {
-                        j += 1;
-                    }
-                }
-                if j > 0 {
-                    let d = (a - tb[j - 1]) as u64;
-                    let bb = (d / 1_000_000) as usize;
-                    if j > bsl[0].0 {
-                        if !skip_push {
-                            g[1].push_b(bb, wi, d, t_us);
-                        }
-                        if WITH_L4 {
-                            pbs += d as f64;
-                            pbn += 1;
-                            pbh += (d <= t_us) as u64;
-                        }
-                    }
-                    if j > bsl[2].0 && !skip_push {
-                        g[5].push_b(bb, wi, d, t_us);
-                    }
-                    if j > bsl[3].0 && !skip_push {
-                        g[7].push_b(bb, wi, d, t_us);
-                    }
-                }
-                if j < tb_len {
-                    let d = (tb[j] - a) as u64;
-                    let bb = (d / 1_000_000) as usize;
-                    if j < bsl[0].1 {
-                        if !skip_push {
-                            g[0].push_b(bb, wi, d, t_us);
-                        }
-                        if WITH_L4 {
-                            pfs += d as f64;
-                            pfn += 1;
-                            pfh += (d <= t_us) as u64;
-                        }
-                    }
-                    if j < bsl[2].1 && !skip_push {
-                        g[4].push_b(bb, wi, d, t_us);
-                    }
-                    if j < bsl[3].1 && !skip_push {
-                        g[6].push_b(bb, wi, d, t_us);
-                    }
-                }
-            }
-            // S4: a ∈ [19620,19800) → p3
-            for i in s4.0..s4.1 {
-                let a = ta[i];
-                let wi = wa[i];
-                if !no_jwalk {
-                    while j < tb_len && tb[j] <= a {
-                        j += 1;
-                    }
-                }
-                if j > 0 {
-                    let d = (a - tb[j - 1]) as u64;
-                    let bb = (d / 1_000_000) as usize;
-                    if j > bsl[3].0 && !skip_push {
-                        g[7].push_b(bb, wi, d, t_us);
-                    }
-                }
-                if j < tb_len {
-                    let d = (tb[j] - a) as u64;
-                    let bb = (d / 1_000_000) as usize;
-                    if j < bsl[3].1 && !skip_push {
-                        g[6].push_b(bb, wi, d, t_us);
-                    }
-                }
-            }
-            // 写第 4 层对级矩阵（本任务独占第 (e,row) 行；B 无 p0 事件时保持 NaN）
-            if let Some(c) = l4 {
-                if bsl[0].0 < bsl[0].1 {
-                    let vf = if pfn > 0 { (pfs / pfn as f64) as f32 } else { f32::NAN };
-                    let vb = if pbn > 0 { (pbs / pbn as f64) as f32 } else { f32::NAN };
-                    c.mf.w((e * c.n + row) * c.n + bpos, vf);
-                    c.mb.w((e * c.n + row) * c.n + bpos, vb);
-                    if pfh > 0 {
-                        f_hit_b += 1;
-                    }
-                    if pbh > 0 {
-                        b_hit_b += 1;
-                    }
-                    n_b_pair += 1;
-                }
-            }
-        }
-        // 定位分位数桶（n/wsum 由 push 维护，免去逐桶求和）
-        let mut stats = [[0.0f64; 5]; N_PERIODS * 2];
-        for p in 0..N_PERIODS {
-            let nf = g[p * 2].n;
-            let nb = g[p * 2 + 1].n;
-            let kf = ((nf as f64) * prm.fast_q).round().max(1.0) as u64;
-            let kb = ((nb as f64) * prm.fast_q).round().max(1.0) as u64;
-            if nf > 0 {
-                g[p * 2].locate(nf / 2, g[p * 2].wsum / 2.0, kf);
-            }
-            if nb > 0 {
-                g[p * 2 + 1].locate(nb / 2, g[p * 2 + 1].wsum / 2.0, kb);
-            }
-            stats[p * 2] = g[p * 2].stats(nf, kf);
-            stats[p * 2 + 1] = g[p * 2 + 1].stats(nb, kb);
-        }
-        stats
-    });
-    // hub/spoke（命中 B 占比）：与旧版 p0 任务语义一致——A 无 p0 事件时任务提前返回，
-    // hub/spoke 保持 NaN（若 A 有 p0 事件但无任何 B 响应则写 NaN）
-    if let Some(c) = l4 {
-        if alo[0] < ahi[0] {
-            c.hp.w(e * c.n + row, if n_b_pair > 0 { f_hit_b as f32 / n_b_pair as f32 } else { f32::NAN });
-            c.sp.w(e * c.n + row, if n_b_pair > 0 { b_hit_b as f32 / n_b_pair as f32 } else { f32::NAN });
-        }
-    }
-    // 每时段 null_med/null_hit + 输出 15 值
-    for p in 0..N_PERIODS {
-        // 空时段（A 无事件）：与旧版逐任务语义一致——rate=0 + 14 个 NaN
-        // （注意：hit 也必须为 NaN 而非 0.0，否则 fill_periods 链条回退会拾取 0.0
-        //  而旧版会回退到更近时段的真实值，输出产生系统性差异）
-        if rate[p] == 0.0 {
-            out.push(0.0);
-            for _ in 0..14 {
-                out.push(f64::NAN);
-            }
-            continue;
-        }
-        let null_med = if !skip_null && n_b[p] > 0 {
-            if geo {
-                (sum_ln_x[p] / k_a[p]).exp() * (sum_ln_c[p] / n_b[p] as f64).exp() / 1e6
-            } else if medm {
-                // x 降序中位（a 升序 → x 降序，上中位与 select_nth(len/2) 同秩）
-                let mid_x = (us_hi[p] - ta[ahi[p] - 1 - (ahi[p] - alo[p]) / 2]).max(0) as f64;
-                let mid_c = {
-                    let m = c_list[p].len() / 2;
-                    let (_, &mut v, _) = c_list[p].select_nth_unstable_by(m, |a, b| a.total_cmp(b));
-                    v
-                };
-                mid_x * mid_c / 1e6
+            if nk > 1 {
+                agg_k_body!(0);
+                agg_k_body!(1);
             } else {
-                (sum_x[p] * sum_c[p]) / (k_a[p] * n_b[p] as f64) / 1e6
+                agg_k_body!(0);
             }
-        } else {
-            f64::NAN
-        };
-        let null_hit = if !skip_null && n_b[p] > 0 {
-            null_hit_acc[p] / n_b[p] as f64
-        } else {
-            f64::NAN
-        };
-        out.push(rate[p]);
-        for dd in [&stats[p * 2], &stats[p * 2 + 1]] {
-            out.push(dd[0]);
-            out.push(dd[1]);
-            out.push(dd[2]);
-            out.push(dd[3]);
-            out.push(dd[4]);
-            out.push(dd[0] / null_med); // rmed
-            out.push(dd[2] / null_hit); // rhit
         }
-    }
-    Some(out)
+        if COUNT {
+            // 每任务一次原子累加（探针）：pushes = 8 个 Gather 的 n 之和；
+            // a-iterations = 各段长度之和（每 A）
+            for k in 0..nk {
+                if out[k].is_some() {
+                    continue;
+                }
+                let mut ps = 0u64;
+                for gi in 0..8 {
+                    let gk = &g[k * 8 + gi];
+                    let mut ns = 0u64;
+                    for i in 0..=gk.max_b {
+                        ns += gk.b[i].c as u64;
+                    }
+                    ps += ns;
+                }
+                let mut ai_cnt = 0usize;
+                for s in seg[k].iter() {
+                    ai_cnt += s.1 - s.0;
+                }
+                CNT_PUSH.fetch_add(ps, std::sync::atomic::Ordering::Relaxed);
+                CNT_A.fetch_add(ai_cnt as u64, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+        // 写回累加器 + 定位/统计 + hub/spoke + 输出（每 k）
+        for k in 0..nk {
+            if out[k].is_some() {
+                continue; // 空行已填
+            }
+            let gk = &mut g[k * 8..k * 8 + 8];
+            // n 由桶计数和推导（整数和，与逐推累加逐位一致）：省去热循环内 n 累加
+            // （寄存器压力：Acc 从 4 字段降到 3 字段，8 个 Acc 共 24 个值可驻留寄存器）
+            for gi in 0..8 {
+                let mut nsum = 0u64;
+                for i in 0..=gk[gi].max_b {
+                    nsum += gk[gi].b[i].c as u64;
+                }
+                gk[gi].n = nsum;
+            }
+            // 定位分位数桶（wsum 由 push 维护；n 已推导）
+            let mut st = [[0.0f64; 5]; N_PERIODS * 2];
+            for p in 0..N_PERIODS {
+                let nf = gk[p * 2].n;
+                let nb = gk[p * 2 + 1].n;
+                let kf = ((nf as f64) * prm.fast_q).round().max(1.0) as u64;
+                let kb = ((nb as f64) * prm.fast_q).round().max(1.0) as u64;
+                if nf > 0 {
+                    gk[p * 2].locate(nf / 2, gk[p * 2].wsum / 2.0, kf);
+                }
+                if nb > 0 {
+                    gk[p * 2 + 1].locate(nb / 2, gk[p * 2 + 1].wsum / 2.0, kb);
+                }
+                st[p * 2] = gk[p * 2].stats(nf, kf);
+                st[p * 2 + 1] = gk[p * 2 + 1].stats(nb, kb);
+            }
+            // hub/spoke（命中 B 占比）：与旧版 p0 任务语义一致——A 无 p0 事件时任务提前返回，
+            // hub/spoke 保持 NaN（若 A 有 p0 事件但无任何 B 响应则写 NaN）
+            if let Some(c) = l4 {
+                if alo[k][0] < ahi[k][0] {
+                    c.hp.w(e * c.n + row[k], if n_b_pair[k] > 0 { f_hit_b[k] as f32 / n_b_pair[k] as f32 } else { f32::NAN });
+                    c.sp.w(e * c.n + row[k], if n_b_pair[k] > 0 { b_hit_b[k] as f32 / n_b_pair[k] as f32 } else { f32::NAN });
+                }
+            }
+            // 每时段 null_med/null_hit + 输出 15 值
+            let mut v = Vec::with_capacity(60);
+            for p in 0..N_PERIODS {
+                // 空时段（A 无事件）：与旧版逐任务语义一致——rate=0 + 14 个 NaN
+                // （注意：hit 也必须为 NaN 而非 0.0，否则 fill_periods 链条回退会拾取 0.0
+                //  而旧版会回退到更近时段的真实值，输出产生系统性差异）
+                if rate[k][p] == 0.0 {
+                    v.push(0.0);
+                    for _ in 0..14 {
+                        v.push(f64::NAN);
+                    }
+                    continue;
+                }
+                let null_med = if !skip_null && n_b[k][p] > 0 {
+                    if geo {
+                        (sum_ln_x[k][p] / k_a[k][p]).exp() * (sum_ln_c[k][p] / n_b[k][p] as f64).exp() / 1e6
+                    } else if medm {
+                        // x 降序中位（a 升序 → x 降序，上中位与 select_nth(len/2) 同秩）
+                        let mid_x = (us_hi[p] - ta[k][ahi[k][p] - 1 - (ahi[k][p] - alo[k][p]) / 2]).max(0) as f64;
+                        let mid_c = {
+                            let m = c_list[k][p].len() / 2;
+                            let (_, &mut v2, _) = c_list[k][p].select_nth_unstable_by(m, |a, b| a.total_cmp(b));
+                            v2
+                        };
+                        mid_x * mid_c / 1e6
+                    } else {
+                        (sum_x[k][p] * sum_c[k][p]) / (k_a[k][p] * n_b[k][p] as f64) / 1e6
+                    }
+                } else {
+                    f64::NAN
+                };
+                let null_hit = if !skip_null && n_b[k][p] > 0 {
+                    null_hit_acc[k][p] / n_b[k][p] as f64
+                } else {
+                    f64::NAN
+                };
+                v.push(rate[k][p]);
+                for dd in [&st[p * 2], &st[p * 2 + 1]] {
+                    v.push(dd[0]);
+                    v.push(dd[1]);
+                    v.push(dd[2]);
+                    v.push(dd[3]);
+                    v.push(dd[4]);
+                    v.push(dd[0] / null_med); // rmed
+                    v.push(dd[2] / null_hit); // rhit
+                }
+            }
+            out[k] = Some(v);
+        }
+    });
+    out
 }
 
 /// 列出某天某子目录下所有股票代码（文件名 `{code}_{date}_{type}.csv`）。
@@ -1532,14 +1928,14 @@ fn agg_one_approx(
             continue;
         }
         let m_b = null_t.m[bi][e][p];
-        let c_b = null_t.c[bi][e][p];
+        let c_b = c_of_m(m_b);
         // null_hit x̄ 近似：per B 的 A 事件距离均值（每 B 贡献一次）
         let mut sum_x = 0.0f64;
         for &a in &ta[alo..ahi] {
             sum_x += ((s_us - a).max(0)) as f64;
         }
         let x_bar = sum_x / k_a;
-        null_hit_acc += 1.0 - (1.0 - t_us as f64 / x_bar).clamp(0.0, 1.0).powf(m_b);
+        null_hit_acc += 1.0 - (1.0 - t_us as f64 / x_bar).clamp(0.0, 1.0).powf(m_b as f64);
         null_n_b += 1;
         let mut j = blo;
         for i in alo..ahi {
@@ -1631,6 +2027,55 @@ fn fill_periods(row: &mut [f64]) {
     }
 }
 
+/// B 侧事件流 **u32 增量压缩**（聚合步行专用副本，输出逐位不变）：
+/// - 时间 i64 绝对 epoch → 首事件相对 base 的 i64 偏移 + 相邻增量 u32（< 2^32 µs 直接编码；
+///   ≥ 0xFFFF_FFFF 转义为标记字 + 2×u32 的 u64 全量增量）
+/// - 步行只读 4B/事件：j-walk 的 2.2TB DRAM 读减半（事件间隔 ~30-60s，增量远小于 u32 上限）
+/// - 解码逐位精确（纯整数加法）；时段有效性/切片/零模型仍用原始绝对时间（本副本只服务
+///   union-walk 游标 tj_b/tp_b 的推进）
+struct CompStreams {
+    first: Vec<Vec<i64>>, // [e][bi] 首事件相对 base 偏移
+    deltas: Vec<Vec<u32>>, // [e] 拼接增量流（含转义）
+    offs: Vec<Vec<u32>>,  // [e][bi] 增量流起始位置
+    lens: Vec<Vec<u32>>,  // [e][bi] 事件数（编码前）
+}
+
+const DELTA_ESC: u32 = u32::MAX;
+
+fn build_comp_streams(streams: &[Option<[EvStream; N_EVENTS]>], base: i64) -> CompStreams {
+    let n = streams.len();
+    let mut first = vec![vec![0i64; n]; N_EVENTS];
+    let mut offs = vec![vec![0u32; n]; N_EVENTS];
+    let mut lens = vec![vec![0u32; n]; N_EVENTS];
+    let mut deltas: Vec<Vec<u32>> = vec![Vec::new(); N_EVENTS];
+    for (bi, sb) in streams.iter().enumerate() {
+        let Some(sb) = sb else { continue };
+        for e in 0..N_EVENTS {
+            let t = &sb[e].t;
+            let m = t.len();
+            if m == 0 {
+                continue;
+            }
+            first[e][bi] = t[0] - base;
+            lens[e][bi] = m as u32;
+            offs[e][bi] = deltas[e].len() as u32;
+            let d = deltas[e].reserve(m * 2);
+            let _ = d;
+            for i in 1..m {
+                let dv = t[i] - t[i - 1];
+                if dv >= DELTA_ESC as i64 {
+                    deltas[e].push(DELTA_ESC);
+                    deltas[e].push((dv as u64 & 0xFFFF_FFFF) as u32);
+                    deltas[e].push((dv as u64 >> 32) as u32);
+                } else {
+                    deltas[e].push(dv as u32);
+                }
+            }
+        }
+    }
+    CompStreams { first, deltas, offs, lens }
+}
+
 /// 从预加载的全市场事件流聚合因子（v1/v2 共同核心，v6 融合任务）。
 /// 并行粒度 (A, 事件)：5914×29 = 17 万个小任务（v6 每任务一次全事件归并出 4 时段 60 值）；
 /// 切片表 + 零模型系数表全市场预计算一次（build_slices_and_null）。
@@ -1685,19 +2130,107 @@ fn compute_from_streams_full(
         .and_then(|v| v.parse::<usize>().ok())
         .unwrap_or(n)
         .min(n);
-    let results: Vec<Option<Vec<f64>>> = (0..n_sub * ne)
+    // v7：任务粒度 = (K 只 A 的块, 事件 e)；块内共享 B 遍历（j-walk DRAM 重读减少 K 倍）。
+    // **e-major 任务序**：idx = e * n_blocks + b（事件类型外层、块内层）——同一时刻各线程
+    // 处理的都是同一个 e 的任务，该 e 的全市场 B 事件流（~23MB）在 L3 中保持热驻留，
+    // j-walk 重读由 DRAM 命中变为 L3 命中（v6 b-major 序下线程工作集横跨全部 29 个 e 的
+    // 流 ≈816MB > L3 384MB，重读全部落 DRAM——2.2TB 带宽墙的来源）。
+    // 探针（YHYB_SKIP_PUSH / YHYB_NO_JWALK）编译期特化，热循环零运行时分支。
+    // YHYB_K：块大小（1 或 2，默认 2）；YHYB_BMAJOR：旧版 b-major 任务序（A/B 对比用）。
+    let k_blk = std::env::var("YHYB_K").ok().and_then(|v| v.parse::<usize>().ok()).unwrap_or(K_BLOCK).min(2).max(1);
+    let b_major = std::env::var("YHYB_BMAJOR").is_ok();
+    let no_jwalk = std::env::var("YHYB_NO_JWALK").is_ok();
+    let skip_push = std::env::var("YHYB_SKIP_PUSH").is_ok();
+    let count = std::env::var("YHYB_COUNT").is_ok();
+    if count {
+        CNT_A.store(0, std::sync::atomic::Ordering::Relaxed);
+        CNT_PUSH.store(0, std::sync::atomic::Ordering::Relaxed);
+    }
+    let n_blocks = (n_sub + k_blk - 1) / k_blk;
+    // B 侧事件流 u32 增量压缩（j-walk DRAM 减半；~1s 一次性构建）
+    let cst = build_comp_streams(streams, slices.base);
+    let results: Vec<[Option<Vec<f64>>; 2]> = (0..ne * n_blocks)
         .into_par_iter()
         .map(|idx| {
-            let row = idx / ne;
-            let e = idx % ne;
-            if with_l4 {
-                agg_fused::<true>(&streams, &null_t, &slices, valid[row], row, e, prm, l4ctx.as_ref())
+            let (e, b) = if b_major {
+                (idx % n_blocks, idx / n_blocks)
             } else {
-                agg_fused::<false>(&streams, &null_t, &slices, valid[row], row, e, prm, l4ctx.as_ref())
+                (idx / n_blocks, idx % n_blocks)
+            };
+            let start = b * k_blk;
+            let nk = (n_sub - start).min(k_blk);
+            macro_rules! dispatch_agg {
+                ($ct:expr) => {
+                    match k_blk {
+                1 => {
+                    let ai = [valid[start]];
+                    let row = [start];
+                    let r = match (with_l4, no_jwalk, skip_push) {
+                        (true, false, false) => agg_fused_blocked::<true, false, false, $ct, 1>(
+                            &streams, &null_t, &slices, &cst, ai, row, 1, e, prm, l4ctx.as_ref()),
+                        (true, true, false) => agg_fused_blocked::<true, true, false, $ct, 1>(
+                            &streams, &null_t, &slices, &cst, ai, row, 1, e, prm, l4ctx.as_ref()),
+                        (true, false, true) => agg_fused_blocked::<true, false, true, $ct, 1>(
+                            &streams, &null_t, &slices, &cst, ai, row, 1, e, prm, l4ctx.as_ref()),
+                        (true, true, true) => agg_fused_blocked::<true, true, true, $ct, 1>(
+                            &streams, &null_t, &slices, &cst, ai, row, 1, e, prm, l4ctx.as_ref()),
+                        (false, false, false) => agg_fused_blocked::<false, false, false, $ct, 1>(
+                            &streams, &null_t, &slices, &cst, ai, row, 1, e, prm, l4ctx.as_ref()),
+                        (false, true, false) => agg_fused_blocked::<false, true, false, $ct, 1>(
+                            &streams, &null_t, &slices, &cst, ai, row, 1, e, prm, l4ctx.as_ref()),
+                        (false, false, true) => agg_fused_blocked::<false, false, true, $ct, 1>(
+                            &streams, &null_t, &slices, &cst, ai, row, 1, e, prm, l4ctx.as_ref()),
+                        (false, true, true) => agg_fused_blocked::<false, true, true, $ct, 1>(
+                            &streams, &null_t, &slices, &cst, ai, row, 1, e, prm, l4ctx.as_ref()),
+                    };
+                    let mut out2: [Option<Vec<f64>>; 2] = [None, None];
+                    out2[0] = r.into_iter().next().unwrap();
+                    out2
+                    }
+                _ => {
+                    let mut ai = [0usize; 2];
+                    let mut row = [0usize; 2];
+                    for k in 0..nk {
+                        ai[k] = valid[start + k];
+                        row[k] = start + k;
+                    }
+                    match (with_l4, no_jwalk, skip_push) {
+                        (true, false, false) => agg_fused_blocked::<true, false, false, $ct, 2>(
+                            &streams, &null_t, &slices, &cst, ai, row, nk, e, prm, l4ctx.as_ref()),
+                        (true, true, false) => agg_fused_blocked::<true, true, false, $ct, 2>(
+                            &streams, &null_t, &slices, &cst, ai, row, nk, e, prm, l4ctx.as_ref()),
+                        (true, false, true) => agg_fused_blocked::<true, false, true, $ct, 2>(
+                            &streams, &null_t, &slices, &cst, ai, row, nk, e, prm, l4ctx.as_ref()),
+                        (true, true, true) => agg_fused_blocked::<true, true, true, $ct, 2>(
+                            &streams, &null_t, &slices, &cst, ai, row, nk, e, prm, l4ctx.as_ref()),
+                        (false, false, false) => agg_fused_blocked::<false, false, false, $ct, 2>(
+                            &streams, &null_t, &slices, &cst, ai, row, nk, e, prm, l4ctx.as_ref()),
+                        (false, true, false) => agg_fused_blocked::<false, true, false, $ct, 2>(
+                            &streams, &null_t, &slices, &cst, ai, row, nk, e, prm, l4ctx.as_ref()),
+                        (false, false, true) => agg_fused_blocked::<false, false, true, $ct, 2>(
+                            &streams, &null_t, &slices, &cst, ai, row, nk, e, prm, l4ctx.as_ref()),
+                        (false, true, true) => agg_fused_blocked::<false, true, true, $ct, 2>(
+                            &streams, &null_t, &slices, &cst, ai, row, nk, e, prm, l4ctx.as_ref()),
+                    }
+                    }
+            }
+                }
+            };
+            if count {
+                dispatch_agg!(true)
+            } else {
+                dispatch_agg!(false)
             }
         })
         .collect();
     let t2 = std::time::Instant::now();
+    if count {
+        eprintln!(
+            "YHYB_COUNT a_iters={} pushes={}",
+            CNT_A.load(std::sync::atomic::Ordering::Relaxed),
+            CNT_PUSH.load(std::sync::atomic::Ordering::Relaxed),
+        );
+    }
     // 组装 1740 时段聚合因子（有效股票）
     let mut out_codes = Vec::with_capacity(n);
     let mut vals1380 = Vec::with_capacity(n * N_FACTORS);
@@ -1709,8 +2242,10 @@ fn compute_from_streams_full(
             ok = false;
         }
         if ok {
+            let b = row / k_blk;
+            let k = row % k_blk;
             for e in 0..ne {
-                match &results[row * ne + e] {
+                match &results[e * n_blocks + b][k] {
                     Some(v) => r.extend_from_slice(v),
                     None => ok = false,
                 }
@@ -2234,9 +2769,9 @@ mod tests {
         evs[0].t.push(base + 5_400_000_000);
         let streams = vec![Some(evs)];
         let (_, nt) = build_slices_and_null(&streams);
-        assert!((nt.m[0][0][0] - 1.0).abs() < 1e-9);
+        assert_eq!(nt.m[0][0][0], 1);
         // c = 1 - 2^(-1/1) = 0.5
-        assert!((nt.c[0][0][0] - 0.5).abs() < 1e-9);
+        assert!((c_of_m(1) - 0.5).abs() < 1e-9);
         let _ = s_us;
     }
 }
