@@ -36,10 +36,13 @@
 //! 单日全市场 5914 股 × 1916 因子实测（2024-12-31，YHYB_TIMING 分段）：
 //! v5（优化前）总墙钟 ~150-155s（读盘+检测 3.5s + 聚合+第4层 ~150s）；
 //! v6 总墙钟 ~110-125s（读盘+检测 3.5s + 聚合+第4层 ~108-120s）；
-//! v7.4（本版）总墙钟 ~89-91s（读盘+检测 3.5s + 聚合+第4层 ~87-89s，共享机波动 ±3s）；
+//! v7.5（本版）总墙钟 ~83-84s（读盘+检测 3.5s + 聚合+第4层 ~79.5s，共享机波动 ±3s）；
 //! v7.4 新增：**方向打包桶**——bwd/fwd 各 4 时段共用同一桶号，合并为 32B 宽桶，
 //! 一次 RMW 更新多时段（load/store 与 touched 次数 /3~4、热循环寄存器大降），
 //! 位级不变，受控 A/B 聚合 -2.4s（89.3 → 87.0）。
+//! v7.5 新增：**SIMD 宽桶更新**——PackB 分段 c 块(4×u32)/w 块(4×f32)布局，
+//! _mm_add_epi32（srlv 归一化 mask）+ _mm_add_ps/blendv 一次更新 4 lane，
+//! 位级不变，聚合 87.0 → 79.5（-7.5s）。
 //! 优化（均为算法/底层级，输出逐位不变；v6→v7 增量见 agg_fused_blocked 注释）：
 //! - 预计算切片表：聚合热循环 B 时段切片零二分搜索（原每任务 4×5914 次 DRAM 延迟绑定二分）
 //! - union-walk 单趟归并：4 时段独立归并压缩为一次全事件归并（j-walk 1.9× 减少，
@@ -937,13 +940,15 @@ impl Gather {
 #[derive(Clone, Copy, Default)]
 #[repr(C)]
 struct PackB {
+    // v7.5：c 块（4×u32）+ w 块（4×f32）分段布局——push 热路径用
+    // _mm_add_epi32/_mm_add_ps 一次更新 4 个 lane（位数与标量逐位一致）
     c0: u32,
-    w0: f32,
     c1: u32,
-    w1: f32,
     c2: u32,
-    w2: f32,
     c3: u32,
+    w0: f32,
+    w1: f32,
+    w2: f32,
     w3: f32,
 }
 
@@ -1116,16 +1121,26 @@ fn push_pack_acc(
         touched.push(bb as u32);
     }
     unsafe {
-        *b.get_unchecked_mut(bb) = PackB {
-            c0: old.c0 + ((mask >> 0) & 1),
-            w0: if mask & 1 != 0 { old.w0 + ww as f32 } else { old.w0 },
-            c1: old.c1 + ((mask >> 1) & 1),
-            w1: if mask & 2 != 0 { old.w1 + ww as f32 } else { old.w1 },
-            c2: old.c2 + ((mask >> 2) & 1),
-            w2: if mask & 4 != 0 { old.w2 + ww as f32 } else { old.w2 },
-            c3: old.c3 + ((mask >> 3) & 1),
-            w3: if mask & 8 != 0 { old.w3 + ww as f32 } else { old.w3 },
+        // v7.5 SIMD 宽桶更新：c 块 4×u32 加 (mask>>lane)&1；w 块 4×f32 加 ww
+        // （blendv 按符号位选，未选 lane 保留原值——与标量逐位一致，无 -0.0 风险）
+        use core::arch::x86_64::{
+            _mm_add_epi32, _mm_add_ps, _mm_and_si128, _mm_blendv_ps, _mm_castsi128_ps,
+            _mm_loadu_ps, _mm_loadu_si128, _mm_set1_epi32, _mm_set1_ps, _mm_setr_epi32,
+            _mm_slli_epi32, _mm_srlv_epi32, _mm_storeu_ps, _mm_storeu_si128,
         };
+        let base = b.as_mut_ptr().add(bb) as *mut u8;
+        let cv = _mm_loadu_si128(base as *const _);
+        let wv = _mm_loadu_ps(base.add(16) as *const f32);
+        // (mask>>lane)&1：位值归一化为 1（srlv 按 lane 右移），选中 lane 计数 +1
+        let cadd = _mm_srlv_epi32(
+            _mm_and_si128(_mm_set1_epi32(mask as i32), _mm_setr_epi32(1, 2, 4, 8)),
+            _mm_setr_epi32(0, 1, 2, 3),
+        );
+        let nc = _mm_add_epi32(cv, cadd);
+        let sel = _mm_castsi128_ps(_mm_slli_epi32(cadd, 31));
+        let nw = _mm_blendv_ps(wv, _mm_add_ps(wv, _mm_set1_ps(ww as f32)), sel);
+        _mm_storeu_si128(base as *mut _, nc);
+        _mm_storeu_ps(base.add(16) as *mut f32, nw);
     }
     let mut a = [a0, a1, a2, a3];
     for l in 0..4 {
