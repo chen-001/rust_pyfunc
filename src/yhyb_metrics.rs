@@ -36,13 +36,17 @@
 //! 单日全市场 5914 股 × 1916 因子实测（2024-12-31，YHYB_TIMING 分段）：
 //! v5（优化前）总墙钟 ~150-155s（读盘+检测 3.5s + 聚合+第4层 ~150s）；
 //! v6 总墙钟 ~110-125s（读盘+检测 3.5s + 聚合+第4层 ~108-120s）；
-//! v7.5（本版）总墙钟 ~83-84s（读盘+检测 3.5s + 聚合+第4层 ~79.5s，共享机波动 ±3s）；
+//! v7.6（本版）总墙钟 ~81-82s（读盘+检测 3.5s + 聚合+第4层 ~77.5s，共享机波动 ±3s）；
 //! v7.4 新增：**方向打包桶**——bwd/fwd 各 4 时段共用同一桶号，合并为 32B 宽桶，
 //! 一次 RMW 更新多时段（load/store 与 touched 次数 /3~4、热循环寄存器大降），
 //! 位级不变，受控 A/B 聚合 -2.4s（89.3 → 87.0）。
 //! v7.5 新增：**SIMD 宽桶更新**——PackB 分段 c 块(4×u32)/w 块(4×f32)布局，
 //! _mm_add_epi32（srlv 归一化 mask）+ _mm_add_ps/blendv 一次更新 4 lane，
 //! 位级不变，聚合 87.0 → 79.5（-7.5s）。
+//! v7.6 新增：**累加器 SIMD**——4 个 lane 的 hm（u64 hit<<32|max_b）与 wsum（f64）
+//! 各装入 256 位寄存器，vpsrlq/vpaddq/vpmaxuq/vaddpd 一次更新全部 lane
+//! （cmpeq 全 1 掩码解决 blendv_epi8 字节级混选；SOA 输出缓冲防宽写跨结构），
+//! 位级不变，聚合 79.5 → 77.5（-2.0s）。
 //! 优化（均为算法/底层级，输出逐位不变；v6→v7 增量见 agg_fused_blocked 注释）：
 //! - 预计算切片表：聚合热循环 B 时段切片零二分搜索（原每任务 4×5914 次 DRAM 延迟绑定二分）
 //! - union-walk 单趟归并：4 时段独立归并压缩为一次全事件归并（j-walk 1.9× 减少，
@@ -1142,21 +1146,68 @@ fn push_pack_acc(
         _mm_storeu_si128(base as *mut _, nc);
         _mm_storeu_ps(base.add(16) as *mut f32, nw);
     }
-    let mut a = [a0, a1, a2, a3];
-    for l in 0..4 {
-        if mask >> l & 1 != 0 {
-            let x = &mut a[l];
-            x.wsum += ww;
-            let mut h = x.hm >> 32;
-            let mut m = (x.hm & 0xFFFF_FFFF) as usize;
-            h += (dd <= t_us) as u64;
-            if bb > m {
-                m = bb;
-            }
-            x.hm = (h << 32) | m as u64;
-        }
+    // v7.6：4 个 lane 的 hm/wsum 打包进 ymm 一次更新（mask 编译期常量 → 常量折叠）
+    unsafe {
+    use core::arch::x86_64::{
+        _mm256_add_epi64, _mm256_add_pd, _mm256_and_si256, _mm256_blendv_epi8,
+        _mm256_blendv_pd, _mm256_castsi256_pd, _mm256_cmpeq_epi64, _mm256_max_epu64, _mm256_or_si256,
+        _mm256_set1_epi64x, _mm256_set1_pd, _mm256_setr_epi64x, _mm256_setr_pd,
+        _mm256_slli_epi64, _mm256_srli_epi64, _mm256_srlv_epi64, _mm256_storeu_pd,
+        _mm256_storeu_si256,
+    };
+    let hm = _mm256_setr_epi64x(a0.hm as i64, a1.hm as i64, a2.hm as i64, a3.hm as i64);
+    let ws = _mm256_setr_pd(a0.wsum, a1.wsum, a2.wsum, a3.wsum);
+    // 选中 lane 的 0/1 掩码（(mask>>lane)&1，srlv 归一化）
+    let sel = _mm256_srlv_epi64(
+        _mm256_and_si256(_mm256_set1_epi64x(mask as i64), _mm256_setr_epi64x(1, 2, 4, 8)),
+        _mm256_setr_epi64x(0, 1, 2, 3),
+    );
+    let h = _mm256_srli_epi64(hm, 32);
+    let m = _mm256_and_si256(hm, _mm256_set1_epi64x(0xFFFF_FFFF));
+    // 选中 lane：hit += (dd<=t_us)（与标量一致，无 +1——计数 = 命中数而非推送数）
+    let hit_inc = _mm256_and_si256(_mm256_set1_epi64x((dd <= t_us) as i64), sel);
+    let h2 = _mm256_add_epi64(h, hit_inc);
+    let m2 = _mm256_max_epu64(m, _mm256_set1_epi64x(bb as i64));
+    let new_hm = _mm256_or_si256(_mm256_slli_epi64(h2, 32), m2);
+    // 未选中 lane 保留原 hm：cmpeq 生成全 1 掩码（blendv_epi8 是字节级选择，
+    // 单符号位会把 64 位 hm 混成"旧字节+新字节"——必须逐字节全选/全不选）
+    let sel_all = _mm256_cmpeq_epi64(sel, _mm256_set1_epi64x(1));
+    let hm = _mm256_blendv_epi8(hm, new_hm, sel_all);
+    // wsum：选中 lane += ww（blendv_pd 为 64 位元素级，符号位即可）
+    let sel_s = _mm256_slli_epi64(sel, 63);
+    let ws = _mm256_blendv_pd(
+        ws,
+        _mm256_add_pd(ws, _mm256_set1_pd(ww)),
+        _mm256_castsi256_pd(sel_s),
+    );
+    // SOA 输出缓冲：hm[4] 与 ws[4] 各自连续（AoS 会被 32B 宽写跨结构破坏）
+    let mut oh = [a0.hm, a1.hm, a2.hm, a3.hm];
+    let mut ow = [a0.wsum, a1.wsum, a2.wsum, a3.wsum];
+    _mm256_storeu_pd(ow.as_mut_ptr(), ws);
+    _mm256_storeu_si256(oh.as_mut_ptr() as *mut _, hm);
+    (
+        Acc { hm: oh[0], wsum: ow[0] },
+        Acc { hm: oh[1], wsum: ow[1] },
+        Acc { hm: oh[2], wsum: ow[2] },
+        Acc { hm: oh[3], wsum: ow[3] },
+    )
     }
-    (a[0], a[1], a[2], a[3])
+}
+
+/// v7.6 打包累加器：4 个时段 lane 的 hm（u64 hit<<32|max_b）与 wsum（f64）各装入
+/// 一个 256 位寄存器，推送热路径用 vpsrlq/vpaddq/vpmaxuq/vaddpd 一次更新全部 lane
+/// （整数运算逐位精确；f64 加逐 lane 同序——与标量逐位一致）。
+#[derive(Clone, Copy)]
+struct Acc4 {
+    hm: core::arch::x86_64::__m256i,
+    ws: core::arch::x86_64::__m256d,
+}
+
+impl Acc4 {
+    fn zero() -> Self {
+        use core::arch::x86_64::{_mm256_set1_epi64x, _mm256_setzero_pd};
+        unsafe { Acc4 { hm: _mm256_set1_epi64x(0), ws: _mm256_setzero_pd() } }
+    }
 }
 
 /// 第 4 层上下文（对级矩阵 + hub/spoke 写入目标 + 有效索引映射）。
