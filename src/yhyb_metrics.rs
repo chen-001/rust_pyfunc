@@ -36,7 +36,7 @@
 //! 单日全市场 5914 股 × 1916 因子实测（2024-12-31，YHYB_TIMING 分段）：
 //! v5（优化前）总墙钟 ~150-155s（读盘+检测 3.5s + 聚合+第4层 ~150s）；
 //! v6 总墙钟 ~110-125s（读盘+检测 3.5s + 聚合+第4层 ~108-120s）；
-//! v7.6（本版）总墙钟 ~81-82s（读盘+检测 3.5s + 聚合+第4层 ~77.5s，共享机波动 ±3s）；
+//! v7.9（本版）总墙钟 ~81-82s（读盘+检测 3.5s + 聚合+第4层 ~77.5s，共享机波动 ±3s）；
 //! v7.4 新增：**方向打包桶**——bwd/fwd 各 4 时段共用同一桶号，合并为 32B 宽桶，
 //! 一次 RMW 更新多时段（load/store 与 touched 次数 /3~4、热循环寄存器大降），
 //! 位级不变，受控 A/B 聚合 -2.4s（89.3 → 87.0）。
@@ -47,6 +47,8 @@
 //! 各装入 256 位寄存器，vpsrlq/vpaddq/vpmaxuq/vaddpd 一次更新全部 lane
 //! （cmpeq 全 1 掩码解决 blendv_epi8 字节级混选；SOA 输出缓冲防宽写跨结构），
 //! 位级不变，聚合 79.5 → 77.5（-2.0s）。
+//! v7.9 新增：**B 访问记录打包**——每股每事件 bsl/m/cst/valid 合成 88B 连续记录
+//! （B 访问 ~12 条缓存行 → 2 条），位级不变（实测中性，代码更整洁）。
 //! 优化（均为算法/底层级，输出逐位不变；v6→v7 增量见 agg_fused_blocked 注释）：
 //! - 预计算切片表：聚合热循环 B 时段切片零二分搜索（原每任务 4×5914 次 DRAM 延迟绑定二分）
 //! - union-walk 单趟归并：4 时段独立归并压缩为一次全事件归并（j-walk 1.9× 减少，
@@ -1249,6 +1251,7 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
     null_t: &NullTable,
     slices: &SliceTable,
     cst: &CompStreams,
+    brecs: &[Vec<BRec>],
     ai: [usize; K], // 全量索引（streams 访问）
     row: [usize; K], // 有效索引（矩阵行；WITH_L4=false 时忽略）
     nk: usize,       // 块内实际 A 数（≤ K；尾块可能 < K）
@@ -1365,14 +1368,16 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
         }
         for (bi, sb) in streams.iter().enumerate() {
             let Some(sb) = sb else { continue };
-            let bpos = l4.map_or(usize::MAX, |c| c.valid_pos[bi]);
+            // v7.9：B 访问记录（88B 连续，2 条缓存行）
+            let rec = &brecs[e][bi];
+            let bpos = if rec.valid == u32::MAX { usize::MAX } else { rec.valid as usize };
             if WITH_L4 && bpos == usize::MAX {
                 continue;
             }
             // B 侧事件流：u32 增量压缩副本（4B/事件 vs 8B——j-walk DRAM 减半）
-            let c_off = cst.offs[e][bi] as usize;
-            let c_first = cst.first[e][bi];
-            let c_len = cst.lens[e][bi] as usize;
+            let c_off = rec.offs as usize;
+            let c_first = rec.first;
+            let c_len = rec.lens as usize;
             if c_len == 0 {
                 continue;
             }
@@ -1381,49 +1386,21 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
             // a-循环重叠（每 B 只读 ~50B，纯延迟绑定 ~10s；预取后基本隐藏）
             let pf = bi + 2;
             if pf < streams.len() {
+                // v7.9：记录整块预取（88B = 2 条缓存行）
                 unsafe {
+                    let rp = &brecs[e][pf] as *const BRec as *const i8;
+                    core::arch::x86_64::_mm_prefetch(rp, core::arch::x86_64::_MM_HINT_T0);
                     core::arch::x86_64::_mm_prefetch(
-                        &slices.sl[e * N_PERIODS + 0][pf] as *const _ as *const i8,
+                        rp.add(64),
                         core::arch::x86_64::_MM_HINT_T0,
                     );
-                    core::arch::x86_64::_mm_prefetch(
-                        &slices.sl[e * N_PERIODS + 1][pf] as *const _ as *const i8,
-                        core::arch::x86_64::_MM_HINT_T0,
-                    );
-                    core::arch::x86_64::_mm_prefetch(
-                        &slices.sl[e * N_PERIODS + 2][pf] as *const _ as *const i8,
-                        core::arch::x86_64::_MM_HINT_T0,
-                    );
-                    core::arch::x86_64::_mm_prefetch(
-                        &slices.sl[e * N_PERIODS + 3][pf] as *const _ as *const i8,
-                        core::arch::x86_64::_MM_HINT_T0,
-                    );
-                    core::arch::x86_64::_mm_prefetch(
-                        &null_t.m[e * N_PERIODS][pf] as *const _ as *const i8,
-                        core::arch::x86_64::_MM_HINT_T0,
-                    );
-                    if !WITH_L4 {
-                        // valid_pos 只在 L4 路径读取；无条件预取亦可（无副作用）
-                    }
                 }
             }
             let bsl = [
-                (
-                    slices.sl[e * N_PERIODS + 0][bi][0] as usize,
-                    slices.sl[e * N_PERIODS + 0][bi][1] as usize,
-                ),
-                (
-                    slices.sl[e * N_PERIODS + 1][bi][0] as usize,
-                    slices.sl[e * N_PERIODS + 1][bi][1] as usize,
-                ),
-                (
-                    slices.sl[e * N_PERIODS + 2][bi][0] as usize,
-                    slices.sl[e * N_PERIODS + 2][bi][1] as usize,
-                ),
-                (
-                    slices.sl[e * N_PERIODS + 3][bi][0] as usize,
-                    slices.sl[e * N_PERIODS + 3][bi][1] as usize,
-                ),
+                (rec.bsl[0][0] as usize, rec.bsl[0][1] as usize),
+                (rec.bsl[1][0] as usize, rec.bsl[1][1] as usize),
+                (rec.bsl[2][0] as usize, rec.bsl[2][1] as usize),
+                (rec.bsl[3][0] as usize, rec.bsl[3][1] as usize),
             ];
             // 块内每股的 B 遍历（共享 bsl/tb；每股独立 j 游标与累加器）。
             // 宏体以常量 k 展开 → acc[k*8+gi] 常量索引 → SROA 拆标量 → 寄存器驻留。
@@ -1437,7 +1414,7 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
                             for p in 0..N_PERIODS {
                                 let (blo, bhi) = bsl[p];
                                 if blo < bhi {
-                                    let m_b = null_t.m[e * N_PERIODS + p][bi];
+                                    let m_b = brecs[e][bi].m[p];
                                     let c_b = c_of_m(m_b);
                                     sum_c[$k][p] += c_b;
                                     if geo {
@@ -2305,6 +2282,55 @@ struct CompStreams {
 
 const DELTA_ESC: u32 = u32::MAX;
 
+/// **B 访问记录**（v7.9）：每股每事件的 bsl/m/cst/valid 打包为 88B 连续记录——
+/// B 访问从 ~12 条随机缓存行降到 2 条（L3 延迟 /6），位级等价（同一份数据）。
+#[derive(Clone, Copy)]
+#[repr(C)]
+struct BRec {
+    bsl: [[u32; 2]; 4],
+    m: [u32; 4],
+    offs: u32,
+    first: i64,
+    lens: u32,
+    valid: u32,
+}
+
+fn build_brecs(
+    slices: &SliceTable,
+    null_t: &NullTable,
+    cst: &CompStreams,
+    valid_pos: &[usize],
+    n_all: usize,
+) -> Vec<Vec<BRec>> {
+    (0..N_EVENTS)
+        .into_par_iter()
+        .map(|e| {
+            let mut v = Vec::with_capacity(n_all);
+            for bi in 0..n_all {
+                v.push(BRec {
+                    bsl: [
+                        [slices.sl[e * N_PERIODS + 0][bi][0], slices.sl[e * N_PERIODS + 0][bi][1]],
+                        [slices.sl[e * N_PERIODS + 1][bi][0], slices.sl[e * N_PERIODS + 1][bi][1]],
+                        [slices.sl[e * N_PERIODS + 2][bi][0], slices.sl[e * N_PERIODS + 2][bi][1]],
+                        [slices.sl[e * N_PERIODS + 3][bi][0], slices.sl[e * N_PERIODS + 3][bi][1]],
+                    ],
+                    m: [
+                        null_t.m[e * N_PERIODS + 0][bi],
+                        null_t.m[e * N_PERIODS + 1][bi],
+                        null_t.m[e * N_PERIODS + 2][bi],
+                        null_t.m[e * N_PERIODS + 3][bi],
+                    ],
+                    offs: cst.offs[e][bi],
+                    first: cst.first[e][bi],
+                    lens: cst.lens[e][bi],
+                    valid: valid_pos[bi] as u32,
+                });
+            }
+            v
+        })
+        .collect()
+}
+
 fn build_comp_streams(streams: &[Option<[EvStream; N_EVENTS]>], base: i64) -> CompStreams {
     let n = streams.len();
     let mut first = vec![vec![0i64; n]; N_EVENTS];
@@ -2412,6 +2438,7 @@ fn compute_from_streams_full(
     let n_blocks = (n_sub + k_blk - 1) / k_blk;
     // B 侧事件流 u32 增量压缩（j-walk DRAM 减半；~1s 一次性构建）
     let cst = build_comp_streams(streams, slices.base);
+    let brecs = build_brecs(&slices, &null_t, &cst, &valid_pos, n_all);
     let results: Vec<[Option<Vec<f64>>; 2]> = (0..ne * n_blocks)
         .into_par_iter()
         .map(|idx| {
@@ -2430,21 +2457,21 @@ fn compute_from_streams_full(
                     let row = [start];
                     let r = match (with_l4, no_jwalk, skip_push) {
                         (true, false, false) => agg_fused_blocked::<true, false, false, $ct, 1>(
-                            &streams, &null_t, &slices, &cst, ai, row, 1, e, prm, l4ctx.as_ref()),
+                            &streams, &null_t, &slices, &cst, &brecs, ai, row, 1, e, prm, l4ctx.as_ref()),
                         (true, true, false) => agg_fused_blocked::<true, true, false, $ct, 1>(
-                            &streams, &null_t, &slices, &cst, ai, row, 1, e, prm, l4ctx.as_ref()),
+                            &streams, &null_t, &slices, &cst, &brecs, ai, row, 1, e, prm, l4ctx.as_ref()),
                         (true, false, true) => agg_fused_blocked::<true, false, true, $ct, 1>(
-                            &streams, &null_t, &slices, &cst, ai, row, 1, e, prm, l4ctx.as_ref()),
+                            &streams, &null_t, &slices, &cst, &brecs, ai, row, 1, e, prm, l4ctx.as_ref()),
                         (true, true, true) => agg_fused_blocked::<true, true, true, $ct, 1>(
-                            &streams, &null_t, &slices, &cst, ai, row, 1, e, prm, l4ctx.as_ref()),
+                            &streams, &null_t, &slices, &cst, &brecs, ai, row, 1, e, prm, l4ctx.as_ref()),
                         (false, false, false) => agg_fused_blocked::<false, false, false, $ct, 1>(
-                            &streams, &null_t, &slices, &cst, ai, row, 1, e, prm, l4ctx.as_ref()),
+                            &streams, &null_t, &slices, &cst, &brecs, ai, row, 1, e, prm, l4ctx.as_ref()),
                         (false, true, false) => agg_fused_blocked::<false, true, false, $ct, 1>(
-                            &streams, &null_t, &slices, &cst, ai, row, 1, e, prm, l4ctx.as_ref()),
+                            &streams, &null_t, &slices, &cst, &brecs, ai, row, 1, e, prm, l4ctx.as_ref()),
                         (false, false, true) => agg_fused_blocked::<false, false, true, $ct, 1>(
-                            &streams, &null_t, &slices, &cst, ai, row, 1, e, prm, l4ctx.as_ref()),
+                            &streams, &null_t, &slices, &cst, &brecs, ai, row, 1, e, prm, l4ctx.as_ref()),
                         (false, true, true) => agg_fused_blocked::<false, true, true, $ct, 1>(
-                            &streams, &null_t, &slices, &cst, ai, row, 1, e, prm, l4ctx.as_ref()),
+                            &streams, &null_t, &slices, &cst, &brecs, ai, row, 1, e, prm, l4ctx.as_ref()),
                     };
                     let mut out2: [Option<Vec<f64>>; 2] = [None, None];
                     out2[0] = r.into_iter().next().unwrap();
@@ -2459,21 +2486,21 @@ fn compute_from_streams_full(
                     }
                     match (with_l4, no_jwalk, skip_push) {
                         (true, false, false) => agg_fused_blocked::<true, false, false, $ct, 2>(
-                            &streams, &null_t, &slices, &cst, ai, row, nk, e, prm, l4ctx.as_ref()),
+                            &streams, &null_t, &slices, &cst, &brecs, ai, row, nk, e, prm, l4ctx.as_ref()),
                         (true, true, false) => agg_fused_blocked::<true, true, false, $ct, 2>(
-                            &streams, &null_t, &slices, &cst, ai, row, nk, e, prm, l4ctx.as_ref()),
+                            &streams, &null_t, &slices, &cst, &brecs, ai, row, nk, e, prm, l4ctx.as_ref()),
                         (true, false, true) => agg_fused_blocked::<true, false, true, $ct, 2>(
-                            &streams, &null_t, &slices, &cst, ai, row, nk, e, prm, l4ctx.as_ref()),
+                            &streams, &null_t, &slices, &cst, &brecs, ai, row, nk, e, prm, l4ctx.as_ref()),
                         (true, true, true) => agg_fused_blocked::<true, true, true, $ct, 2>(
-                            &streams, &null_t, &slices, &cst, ai, row, nk, e, prm, l4ctx.as_ref()),
+                            &streams, &null_t, &slices, &cst, &brecs, ai, row, nk, e, prm, l4ctx.as_ref()),
                         (false, false, false) => agg_fused_blocked::<false, false, false, $ct, 2>(
-                            &streams, &null_t, &slices, &cst, ai, row, nk, e, prm, l4ctx.as_ref()),
+                            &streams, &null_t, &slices, &cst, &brecs, ai, row, nk, e, prm, l4ctx.as_ref()),
                         (false, true, false) => agg_fused_blocked::<false, true, false, $ct, 2>(
-                            &streams, &null_t, &slices, &cst, ai, row, nk, e, prm, l4ctx.as_ref()),
+                            &streams, &null_t, &slices, &cst, &brecs, ai, row, nk, e, prm, l4ctx.as_ref()),
                         (false, false, true) => agg_fused_blocked::<false, false, true, $ct, 2>(
-                            &streams, &null_t, &slices, &cst, ai, row, nk, e, prm, l4ctx.as_ref()),
+                            &streams, &null_t, &slices, &cst, &brecs, ai, row, nk, e, prm, l4ctx.as_ref()),
                         (false, true, true) => agg_fused_blocked::<false, true, true, $ct, 2>(
-                            &streams, &null_t, &slices, &cst, ai, row, nk, e, prm, l4ctx.as_ref()),
+                            &streams, &null_t, &slices, &cst, &brecs, ai, row, nk, e, prm, l4ctx.as_ref()),
                     }
                     }
             }
