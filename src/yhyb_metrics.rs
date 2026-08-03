@@ -36,7 +36,8 @@
 //! 单日全市场 5914 股 × 1916 因子实测（2024-12-31，YHYB_TIMING 分段）：
 //! v5（优化前）总墙钟 ~150-155s（读盘+检测 3.5s + 聚合+第4层 ~150s）；
 //! v6 总墙钟 ~110-125s（读盘+检测 3.5s + 聚合+第4层 ~108-120s）；
-//! v7（本版）总墙钟 ~93s（读盘+检测 3.5s + 聚合+第4层 ~88.5s，共享机带宽波动 ±3s）。
+//! v7.3（本版）总墙钟 ~91s（读盘+检测 3.5s + 聚合+第4层 ~87s，共享机带宽波动 ±3s）；
+//! v7.3 新增：j-walk 增量流软件预取（每 a 提前 128B，位级不变，聚合 -1~2s）。
 //! 优化（均为算法/底层级，输出逐位不变；v6→v7 增量见 agg_fused_blocked 注释）：
 //! - 预计算切片表：聚合热循环 B 时段切片零二分搜索（原每任务 4×5914 次 DRAM 延迟绑定二分）
 //! - union-walk 单趟归并：4 时段独立归并压缩为一次全事件归并（j-walk 1.9× 减少，
@@ -1281,10 +1282,24 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
                             let mut c_pos = c_off;
                             let mut tj_b = c_first;
                             let mut tp_b = i64::MIN;
+                            // 软件预取宏：步行增量流提前 ~128B（每 a 一次，隐藏 L2/L3 延迟
+                            // 串行链——jwalk 每步 ~21 cyc 中大部分是等待增量加载；PREFETCH
+                            // 对任意地址无副作用，越界安全，无需边界检查）
+                            macro_rules! pf_delta {
+                                () => {
+                                    unsafe {
+                                        core::arch::x86_64::_mm_prefetch(
+                                            c_deltas.as_ptr().wrapping_add(c_pos + 32) as *const i8,
+                                            core::arch::x86_64::_MM_HINT_T0,
+                                        )
+                                    }
+                                };
+                            }
                             // S0: a ∈ [5400,6000) → p0
                             for i in seg[$k][0].0..seg[$k][0].1 {
                                 let ab = tk[i] - base;
                                 let wi = wk[i];
+                                pf_delta!();
                                 if !NO_JWALK {
                                     while j < c_len && tj_b <= ab {
                                         j += 1;
@@ -1336,6 +1351,7 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
                             for i in seg[$k][1].0..seg[$k][1].1 {
                                 let ab = tk[i] - base;
                                 let wi = wk[i];
+                                pf_delta!();
                                 if !NO_JWALK {
                                     while j < c_len && tj_b <= ab {
                                         j += 1;
@@ -1411,6 +1427,7 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
                             for i in seg[$k][2].0..seg[$k][2].1 {
                                 let ab = tk[i] - base;
                                 let wi = wk[i];
+                                pf_delta!();
                                 if !NO_JWALK {
                                     while j < c_len && tj_b <= ab {
                                         j += 1;
@@ -1511,6 +1528,7 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
                             for i in seg[$k][3].0..seg[$k][3].1 {
                                 let ab = tk[i] - base;
                                 let wi = wk[i];
+                                pf_delta!();
                                 if !NO_JWALK {
                                     while j < c_len && tj_b <= ab {
                                         j += 1;
@@ -1595,6 +1613,7 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
                             for i in seg[$k][4].0..seg[$k][4].1 {
                                 let ab = tk[i] - base;
                                 let wi = wk[i];
+                                pf_delta!();
                                 if !NO_JWALK {
                                     while j < c_len && tj_b <= ab {
                                         j += 1;
