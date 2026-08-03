@@ -36,8 +36,10 @@
 //! 单日全市场 5914 股 × 1916 因子实测（2024-12-31，YHYB_TIMING 分段）：
 //! v5（优化前）总墙钟 ~150-155s（读盘+检测 3.5s + 聚合+第4层 ~150s）；
 //! v6 总墙钟 ~110-125s（读盘+检测 3.5s + 聚合+第4层 ~108-120s）；
-//! v7.3（本版）总墙钟 ~91s（读盘+检测 3.5s + 聚合+第4层 ~87s，共享机带宽波动 ±3s）；
-//! v7.3 新增：j-walk 增量流软件预取（每 a 提前 128B，位级不变，聚合 -1~2s）。
+//! v7.4（本版）总墙钟 ~89-91s（读盘+检测 3.5s + 聚合+第4层 ~87-89s，共享机波动 ±3s）；
+//! v7.4 新增：**方向打包桶**——bwd/fwd 各 4 时段共用同一桶号，合并为 32B 宽桶，
+//! 一次 RMW 更新多时段（load/store 与 touched 次数 /3~4、热循环寄存器大降），
+//! 位级不变，受控 A/B 聚合 -2.4s（89.3 → 87.0）。
 //! 优化（均为算法/底层级，输出逐位不变；v6→v7 增量见 agg_fused_blocked 注释）：
 //! - 预计算切片表：聚合热循环 B 时段切片零二分搜索（原每任务 4×5914 次 DRAM 延迟绑定二分）
 //! - union-walk 单趟归并：4 时段独立归并压缩为一次全事件归并（j-walk 1.9× 减少，
@@ -890,6 +892,7 @@ impl Gather {
             wacc += wc;
         }
     }
+
     /// 统计：[med, mean, hit, fast5, wmed]（秒），全部 1 秒桶中点/精确标量。只扫 [0, max_b]。
     fn stats(&mut self, n: u64, k: u64) -> [f64; 5] {
         if n == 0 {
@@ -925,6 +928,139 @@ impl Gather {
         ]
     }
 }
+/// **方向打包桶**（v7.4 生产路径）：bwd/fwd 各 4 个时段共用同一桶号 bb（同方向
+/// 各组距离 d 相同）→ 合并为 1 个 32B 宽结构，一次 RMW 更新多个时段：
+/// - 桶 load/store 次数 /3~4、touched 记录 /3~4（L1 事务大减）
+/// - 热循环寄存器：2 个打包数组指针（原 8 个 gather 指针），峰值压力大降
+/// - 位级等价：各时段 (c,w) 更新序列、wsum/hit/max_b 逐位一致；时段定制桶长由
+///   距离范围保证（各时段 bb 恒 < 自身长度），越界不可能
+#[derive(Clone, Copy, Default)]
+#[repr(C)]
+struct PackB {
+    c0: u32,
+    w0: f32,
+    c1: u32,
+    w1: f32,
+    c2: u32,
+    w2: f32,
+    c3: u32,
+    w3: f32,
+}
+
+/// 打包桶的时段统计字段（对应原 Gather 的 n/med/f5/wmed/hit/wsum/max_b）。
+#[derive(Clone, Copy, Default)]
+struct PackFields {
+    n: u64,
+    med_b: usize,
+    f5_b: usize,
+    wmed_b: usize,
+    hit: u64,
+    wsum: f64,
+    max_b: usize,
+}
+
+/// 方向打包桶：b 为 4 时段 (c,w) 宽桶数组（定长 14220 = p0 最长），per[4] 为时段字段。
+/// touched 为共享触碰列表（u32 打包桶号；重置时清整条宽桶）。
+struct PackGather {
+    b: Vec<PackB>,
+    per: [PackFields; 4],
+    touched: Vec<u32>,
+}
+
+impl PackGather {
+    fn new_sized(nb: usize) -> Self {
+        PackGather {
+            b: vec![PackB::default(); nb],
+            per: [PackFields::default(); 4],
+            touched: Vec::with_capacity(64),
+        }
+    }
+    /// 线程本地复用：按触碰列表清宽桶；字段清零。
+    fn reset(&mut self) {
+        for &t in self.touched.iter() {
+            self.b[t as usize] = PackB::default();
+        }
+        self.touched.clear();
+        self.per = [PackFields::default(); 4];
+    }
+    /// 取第 p 时段的桶计数（finalize 用）。
+    #[inline(always)]
+    fn lane_c(&self, p: usize, i: usize) -> u32 {
+        let b = &self.b[i];
+        match p {
+            0 => b.c0,
+            1 => b.c1,
+            2 => b.c2,
+            _ => b.c3,
+        }
+    }
+    #[inline(always)]
+    fn lane_w(&self, p: usize, i: usize) -> f32 {
+        let b = &self.b[i];
+        match p {
+            0 => b.w0,
+            1 => b.w1,
+            2 => b.w2,
+            _ => b.w3,
+        }
+    }
+    /// 定位：med/f5/wmed 桶（第 p 时段 lane）。只扫 [0, per[p].max_b]。
+    fn locate_p(&mut self, p: usize, half_n: u64, half_w: f64, k: u64) {
+        let mut acc = 0u64;
+        let mut f_acc = 0u64;
+        let mut wacc = 0.0f64;
+        for i in 0..=self.per[p].max_b {
+            let c = self.lane_c(p, i) as u64;
+            if c == 0 {
+                continue;
+            }
+            if acc <= half_n && half_n < acc + c {
+                self.per[p].med_b = i;
+            }
+            if f_acc < k {
+                f_acc += c;
+                if f_acc >= k {
+                    self.per[p].f5_b = i;
+                }
+            }
+            let wc = self.lane_w(p, i) as f64;
+            if wacc <= half_w && half_w < wacc + wc {
+                self.per[p].wmed_b = i;
+            }
+            acc += c;
+            wacc += wc;
+        }
+    }
+    /// 统计：[med, mean, hit, fast5, wmed]（秒），第 p 时段 lane。
+    fn stats_p(&mut self, p: usize, n: u64, k: u64) -> [f64; 5] {
+        if n == 0 {
+            return [f64::NAN, f64::NAN, 0.0, f64::NAN, f64::NAN];
+        }
+        let med = self.per[p].med_b as f64 + 0.5;
+        let mut mean_sum = 0.0f64;
+        let mut f_acc = 0u64;
+        let mut f_sum = 0.0f64;
+        let mut fast5 = f64::NAN;
+        for i in 0..=self.per[p].max_b {
+            let c = self.lane_c(p, i) as u64;
+            if c == 0 {
+                continue;
+            }
+            let mid = i as f64 + 0.5;
+            mean_sum += c as f64 * mid;
+            if f_acc < k {
+                // fast5 只计前 k 条：跨桶时只取该桶前 (k - f_acc) 条（与 Gather::stats 逐位一致）
+                let take = c.min(k - f_acc);
+                f_sum += take as f64 * mid;
+                f_acc += take;
+                if f_acc >= k {
+                    fast5 = f_sum / k as f64;
+                }
+            }
+        }
+        [med, mean_sum / n as f64, self.per[p].hit as f64 / n as f64, fast5, self.per[p].wmed_b as f64 + 0.5]
+    }
+}
 
 /// v7 聚合块大小：K 只 A 共享一次 B 遍历（j-walk 的 B 流重读减少 K 倍，
 /// 桶数组内存 = K × 560KB/线程：K=2 → 1.12MB 接近 L2 上限，实测选 2）。
@@ -935,9 +1071,11 @@ const K_BLOCK: usize = 2;
 /// 桶长 = 时段最大距离秒数（p0 [5400,19620)→14220、p1 [6000,17820)→11820、
 /// p2 [17820,19620)→1800、p3 [12600,19800)→7200），每股 8 个共 560KB 落 L2。
 thread_local! {
-    static GPOOL: std::cell::RefCell<Vec<Gather>> = std::cell::RefCell::new({
-        let sizes = [14220usize, 11820, 1800, 7200];
-        (0..8 * K_BLOCK).map(|i| Gather::new_sized(sizes[(i % 8) / 2])).collect()
+    /// v7.4：线程本地 2×K 个**方向打包桶**（K 只 A × bwd/fwd，定长 14220 宽桶 × 32B =
+    /// 455KB/个），任务间复用（touched 清零）。宽桶内各时段 lane 的 bb 恒小于自身
+    /// 时段长度（距离范围保证），高段位 lane 恒 0——与旧 8×Gather 布局逐位等价。
+    static GPOOL: std::cell::RefCell<Vec<PackGather>> = std::cell::RefCell::new({
+        (0..2 * K_BLOCK).map(|_| PackGather::new_sized(14220)).collect()
     });
 }
 
@@ -955,42 +1093,55 @@ struct Acc {
     wsum: f64,
 }
 
-/// 生产热路径桶更新：只写桶数组 + 本地累加器（+ 首触 touched 记录）。
-/// 与 v6 push_b 逐位等价：c+=1 / w+=ww / n+=1 / wsum+=ww / hit+=（dd≤t_us）/ max_b 更新；
-/// 首触（c==0）记录 touched 供任务结束回清（reset 语义不变）。
+/// v7.4 生产热路径宽桶更新：mask 编译期常量（调用点特化）→ 未选 lane 的代码消除。
+/// 逐位等价于同组多次 push_b_acc：(c,w) 各 lane 更新序列一致、wsum/hit/max_b 一致、
+/// 首触（整桶全 0）记录 touched（重置时清整条宽桶，语义不变）。
 #[inline(always)]
-fn push_b_acc(
-    b: &mut [Bucket],
-    touched: &mut Vec<usize>,
+#[allow(clippy::too_many_arguments)]
+fn push_pack_acc(
+    b: &mut [PackB],
+    touched: &mut Vec<u32>,
+    mask: u32,
     bb: usize,
     ww: f64,
     dd: u64,
     t_us: u64,
-    mut acc: Acc,
-) -> Acc {
-    debug_assert!(bb < b.len(), "桶越界 bb={bb} len={}", b.len());
-    // 热路径用 get_unchecked（调用方保证 bb < len：距离恒 < 时段跨度；debug_assert 兜底）。
-    // 切片下标 [] 在 release 下仍带越界检查（每推 1 次 compare+branch + panic 路径）。
-    // 单次 8B 结构体加载 + 单次 8B 结构体存储（c/w 同一条缓存行）。
+    a0: Acc,
+    a1: Acc,
+    a2: Acc,
+    a3: Acc,
+) -> (Acc, Acc, Acc, Acc) {
     let old = unsafe { *b.get_unchecked(bb) };
-    if old.c == 0 {
-        touched.push(bb);
+    if (old.c0 | old.c1 | old.c2 | old.c3) == 0 {
+        touched.push(bb as u32);
     }
     unsafe {
-        *b.get_unchecked_mut(bb) = Bucket {
-            c: old.c + 1,
-            w: old.w + ww as f32,
+        *b.get_unchecked_mut(bb) = PackB {
+            c0: old.c0 + ((mask >> 0) & 1),
+            w0: if mask & 1 != 0 { old.w0 + ww as f32 } else { old.w0 },
+            c1: old.c1 + ((mask >> 1) & 1),
+            w1: if mask & 2 != 0 { old.w1 + ww as f32 } else { old.w1 },
+            c2: old.c2 + ((mask >> 2) & 1),
+            w2: if mask & 4 != 0 { old.w2 + ww as f32 } else { old.w2 },
+            c3: old.c3 + ((mask >> 3) & 1),
+            w3: if mask & 8 != 0 { old.w3 + ww as f32 } else { old.w3 },
         };
     }
-    acc.wsum += ww;
-    let mut h = acc.hm >> 32;
-    let mut m = (acc.hm & 0xFFFF_FFFF) as usize;
-    h += (dd <= t_us) as u64;
-    if bb > m {
-        m = bb;
+    let mut a = [a0, a1, a2, a3];
+    for l in 0..4 {
+        if mask >> l & 1 != 0 {
+            let x = &mut a[l];
+            x.wsum += ww;
+            let mut h = x.hm >> 32;
+            let mut m = (x.hm & 0xFFFF_FFFF) as usize;
+            h += (dd <= t_us) as u64;
+            if bb > m {
+                m = bb;
+            }
+            x.hm = (h << 32) | m as u64;
+        }
     }
-    acc.hm = (h << 32) | m as u64;
-    acc
+    (a[0], a[1], a[2], a[3])
 }
 
 /// 第 4 层上下文（对级矩阵 + hub/spoke 写入目标 + 有效索引映射）。
@@ -1213,7 +1364,8 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
             macro_rules! agg_k_body {
                 ($k:expr) => {{
                     if bi != ai[$k] {
-                        let gk = &mut g[$k * 8..$k * 8 + 8];
+                        let g2 = &mut g[$k * 2..$k * 2 + 2];
+                        let [bp, fp] = g2 else { unreachable!() };
                         // 零模型（每时段：B 有时段事件才贡献；每 (A,B) 一次）
                         if !skip_null {
                             for p in 0..N_PERIODS {
@@ -1250,27 +1402,42 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
                         } else {
                             let tk = ta[$k];
                             let wk = wa[$k];
-                            // 本地累加器：**延迟装载 + 段界回写**——活跃寄存器集 = 当前段的
-                            // gather 数（S2/S3 峰值 6 个 Acc = 12 个标量；全量 8 个 Acc 会让
-                            // 16 GPR 溢出 → 每推 8-10 次栈读写）
-                            let mut al: [Acc; 8] = [Acc::default(); 8];
-                            macro_rules! al_load {
-                                ($gi:expr) => {
-                                    al[$gi] = Acc {
-                                        hm: (gk[$gi].hit << 32) | (gk[$gi].max_b as u64),
-                                        wsum: gk[$gi].wsum,
+                            // v7.4 方向打包累加器：ab/af 各 4 时段（bwd: p0..p3 ↔ 原
+                            // al[1,3,5,7]；fwd: p0..p3 ↔ al[0,2,4,6]）。延迟装载 + 段界回写。
+                            let mut ab: [Acc; 4] = [Acc::default(); 4];
+                            let mut af: [Acc; 4] = [Acc::default(); 4];
+                            macro_rules! al_load_b {
+                                ($p:expr) => {
+                                    ab[$p] = Acc {
+                                        hm: (bp.per[$p].hit << 32) | (bp.per[$p].max_b as u64),
+                                        wsum: bp.per[$p].wsum,
                                     }
                                 };
                             }
-                            macro_rules! al_flush {
-                                ($gi:expr) => {
-                                    gk[$gi].hit = al[$gi].hm >> 32;
-                                    gk[$gi].max_b = (al[$gi].hm & 0xFFFF_FFFF) as usize;
-                                    gk[$gi].wsum = al[$gi].wsum;
+                            macro_rules! al_flush_b {
+                                ($p:expr) => {
+                                    bp.per[$p].hit = ab[$p].hm >> 32;
+                                    bp.per[$p].max_b = (ab[$p].hm & 0xFFFF_FFFF) as usize;
+                                    bp.per[$p].wsum = ab[$p].wsum;
                                 };
                             }
-                            al_load!(0);
-                            al_load!(1);
+                            macro_rules! al_load_f {
+                                ($p:expr) => {
+                                    af[$p] = Acc {
+                                        hm: (fp.per[$p].hit << 32) | (fp.per[$p].max_b as u64),
+                                        wsum: fp.per[$p].wsum,
+                                    }
+                                };
+                            }
+                            macro_rules! al_flush_f {
+                                ($p:expr) => {
+                                    fp.per[$p].hit = af[$p].hm >> 32;
+                                    fp.per[$p].max_b = (af[$p].hm & 0xFFFF_FFFF) as usize;
+                                    fp.per[$p].wsum = af[$p].wsum;
+                                };
+                            }
+                            al_load_f!(0);
+                            al_load_b!(0);
                             // 第 4 层 p0 对级累加器（每 (A,B) 独立；计数打包成 u64 对省 2 GPR）
                             let mut kpfs = 0.0f64;
                             let mut kpbs = 0.0f64;
@@ -1294,6 +1461,54 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
                                         )
                                     }
                                 };
+                            }
+                            // 宽桶推送宏：mask 为编译期常量（位 0..3 = p0..p3；调用点特化，
+                            // 未选 lane 的代码消除）；SKIP_PUSH 探针在宏内剔除
+                            macro_rules! push_bw {
+                                ($mask:expr, $bb:expr, $wi:expr, $d:expr) => {{
+                                    if !SKIP_PUSH {
+                                        let (t0, t1, t2, t3) = push_pack_acc(
+                                            &mut bp.b,
+                                            &mut bp.touched,
+                                            $mask,
+                                            $bb,
+                                            $wi,
+                                            $d,
+                                            t_us,
+                                            ab[0],
+                                            ab[1],
+                                            ab[2],
+                                            ab[3],
+                                        );
+                                        ab[0] = t0;
+                                        ab[1] = t1;
+                                        ab[2] = t2;
+                                        ab[3] = t3;
+                                    }
+                                }};
+                            }
+                            macro_rules! push_fw {
+                                ($mask:expr, $bb:expr, $wi:expr, $d:expr) => {{
+                                    if !SKIP_PUSH {
+                                        let (t0, t1, t2, t3) = push_pack_acc(
+                                            &mut fp.b,
+                                            &mut fp.touched,
+                                            $mask,
+                                            $bb,
+                                            $wi,
+                                            $d,
+                                            t_us,
+                                            af[0],
+                                            af[1],
+                                            af[2],
+                                            af[3],
+                                        );
+                                        af[0] = t0;
+                                        af[1] = t1;
+                                        af[2] = t2;
+                                        af[3] = t3;
+                                    }
+                                }};
                             }
                             // S0: a ∈ [5400,6000) → p0
                             for i in seg[$k][0].0..seg[$k][0].1 {
@@ -1323,9 +1538,7 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
                                 if tp_b >= LO0_S {
                                     let d = (ab - tp_b) as u64;
                                     let bb = (d / 1_000_000) as usize;
-                                    if !SKIP_PUSH {
-                                        al[1] = push_b_acc(&mut gk[1].b, &mut gk[1].touched, bb, wi, d, t_us, al[1]);
-                                    }
+                                    push_bw!(0b0001, bb, wi, d);
                                     if WITH_L4 {
                                         kpbs += d as f64;
                                         l4c += 1;
@@ -1335,9 +1548,7 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
                                 if tj_b < HI0_S {
                                     let d = (tj_b - ab) as u64;
                                     let bb = (d / 1_000_000) as usize;
-                                    if !SKIP_PUSH {
-                                        al[0] = push_b_acc(&mut gk[0].b, &mut gk[0].touched, bb, wi, d, t_us, al[0]);
-                                    }
+                                    push_fw!(0b0001, bb, wi, d);
                                     if WITH_L4 {
                                         kpfs += d as f64;
                                         l4c += 0x1_0000_0000;
@@ -1346,8 +1557,8 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
                                 }
                             }
                             // S1: a ∈ [6000,12600) → p0, p1（bwd/fwd: p1⊂p0 嵌套）
-                            al_load!(2);
-                            al_load!(3);
+                            al_load_f!(1);
+                            al_load_b!(1);
                             for i in seg[$k][1].0..seg[$k][1].1 {
                                 let ab = tk[i] - base;
                                 let wi = wk[i];
@@ -1375,10 +1586,7 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
                                 if tp_b >= LO1_S {
                                     let d = (ab - tp_b) as u64;
                                     let bb = (d / 1_000_000) as usize;
-                                    if !SKIP_PUSH {
-                                        al[3] = push_b_acc(&mut gk[3].b, &mut gk[3].touched, bb, wi, d, t_us, al[3]);
-                                        al[1] = push_b_acc(&mut gk[1].b, &mut gk[1].touched, bb, wi, d, t_us, al[1]);
-                                    }
+                                    push_bw!(0b0011, bb, wi, d);
                                     if WITH_L4 {
                                         kpbs += d as f64;
                                         l4c += 1;
@@ -1387,9 +1595,7 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
                                 } else if tp_b >= LO0_S {
                                     let d = (ab - tp_b) as u64;
                                     let bb = (d / 1_000_000) as usize;
-                                    if !SKIP_PUSH {
-                                        al[1] = push_b_acc(&mut gk[1].b, &mut gk[1].touched, bb, wi, d, t_us, al[1]);
-                                    }
+                                    push_bw!(0b0001, bb, wi, d);
                                     if WITH_L4 {
                                         kpbs += d as f64;
                                         l4c += 1;
@@ -1399,10 +1605,7 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
                                 if tj_b < HI1_S {
                                     let d = (tj_b - ab) as u64;
                                     let bb = (d / 1_000_000) as usize;
-                                    if !SKIP_PUSH {
-                                        al[2] = push_b_acc(&mut gk[2].b, &mut gk[2].touched, bb, wi, d, t_us, al[2]);
-                                        al[0] = push_b_acc(&mut gk[0].b, &mut gk[0].touched, bb, wi, d, t_us, al[0]);
-                                    }
+                                    push_fw!(0b0011, bb, wi, d);
                                     if WITH_L4 {
                                         kpfs += d as f64;
                                         l4c += 0x1_0000_0000;
@@ -1411,9 +1614,7 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
                                 } else if tj_b < HI0_S {
                                     let d = (tj_b - ab) as u64;
                                     let bb = (d / 1_000_000) as usize;
-                                    if !SKIP_PUSH {
-                                        al[0] = push_b_acc(&mut gk[0].b, &mut gk[0].touched, bb, wi, d, t_us, al[0]);
-                                    }
+                                    push_fw!(0b0001, bb, wi, d);
                                     if WITH_L4 {
                                         kpfs += d as f64;
                                         l4c += 0x1_0000_0000;
@@ -1422,8 +1623,8 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
                                 }
                             }
                             // S2: a ∈ [12600,17820) → p0, p1, p3（bwd: p3⊂p1⊂p0；fwd: p1⊂p0⊂p3）
-                            al_load!(6);
-                            al_load!(7);
+                            al_load_f!(3);
+                            al_load_b!(3);
                             for i in seg[$k][2].0..seg[$k][2].1 {
                                 let ab = tk[i] - base;
                                 let wi = wk[i];
@@ -1451,11 +1652,7 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
                                 if tp_b >= LO3_S {
                                     let d = (ab - tp_b) as u64;
                                     let bb = (d / 1_000_000) as usize;
-                                    if !SKIP_PUSH {
-                                        al[7] = push_b_acc(&mut gk[7].b, &mut gk[7].touched, bb, wi, d, t_us, al[7]);
-                                        al[3] = push_b_acc(&mut gk[3].b, &mut gk[3].touched, bb, wi, d, t_us, al[3]);
-                                        al[1] = push_b_acc(&mut gk[1].b, &mut gk[1].touched, bb, wi, d, t_us, al[1]);
-                                    }
+                                    push_bw!(0b1011, bb, wi, d);
                                     if WITH_L4 {
                                         kpbs += d as f64;
                                         l4c += 1;
@@ -1464,10 +1661,7 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
                                 } else if tp_b >= LO1_S {
                                     let d = (ab - tp_b) as u64;
                                     let bb = (d / 1_000_000) as usize;
-                                    if !SKIP_PUSH {
-                                        al[3] = push_b_acc(&mut gk[3].b, &mut gk[3].touched, bb, wi, d, t_us, al[3]);
-                                        al[1] = push_b_acc(&mut gk[1].b, &mut gk[1].touched, bb, wi, d, t_us, al[1]);
-                                    }
+                                    push_bw!(0b0011, bb, wi, d);
                                     if WITH_L4 {
                                         kpbs += d as f64;
                                         l4c += 1;
@@ -1476,9 +1670,7 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
                                 } else if tp_b >= LO0_S {
                                     let d = (ab - tp_b) as u64;
                                     let bb = (d / 1_000_000) as usize;
-                                    if !SKIP_PUSH {
-                                        al[1] = push_b_acc(&mut gk[1].b, &mut gk[1].touched, bb, wi, d, t_us, al[1]);
-                                    }
+                                    push_bw!(0b0001, bb, wi, d);
                                     if WITH_L4 {
                                         kpbs += d as f64;
                                         l4c += 1;
@@ -1488,43 +1680,34 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
                                 if tj_b < HI1_S {
                                     let d = (tj_b - ab) as u64;
                                     let bb = (d / 1_000_000) as usize;
-                                    if !SKIP_PUSH {
-                                        al[2] = push_b_acc(&mut gk[2].b, &mut gk[2].touched, bb, wi, d, t_us, al[2]);
-                                        al[0] = push_b_acc(&mut gk[0].b, &mut gk[0].touched, bb, wi, d, t_us, al[0]);
-                                    }
+                                    // HI1_S=19620e6 < HI3_S=19800e6 → HI1 蕴含 HI3，原 `if
+                                    // tj_b < HI3_S { al[6] }` 恒真，并入 mask 0b1011（位级等价）
+                                    push_fw!(0b1011, bb, wi, d);
                                     if WITH_L4 {
                                         kpfs += d as f64;
                                         l4c += 0x1_0000_0000;
                                         l4h += ((d <= t_us) as u64) << 32;
-                                    }
-                                    if tj_b < HI3_S && !SKIP_PUSH {
-                                        al[6] = push_b_acc(&mut gk[6].b, &mut gk[6].touched, bb, wi, d, t_us, al[6]);
                                     }
                                 } else if tj_b < HI0_S {
                                     let d = (tj_b - ab) as u64;
                                     let bb = (d / 1_000_000) as usize;
-                                    if !SKIP_PUSH {
-                                        al[0] = push_b_acc(&mut gk[0].b, &mut gk[0].touched, bb, wi, d, t_us, al[0]);
-                                    }
+                                    push_fw!(0b1001, bb, wi, d);
                                     if WITH_L4 {
                                         kpfs += d as f64;
                                         l4c += 0x1_0000_0000;
                                         l4h += ((d <= t_us) as u64) << 32;
                                     }
-                                    if tj_b < HI3_S && !SKIP_PUSH {
-                                        al[6] = push_b_acc(&mut gk[6].b, &mut gk[6].touched, bb, wi, d, t_us, al[6]);
-                                    }
                                 } else if tj_b < HI3_S && !SKIP_PUSH {
                                     let d = (tj_b - ab) as u64;
                                     let bb = (d / 1_000_000) as usize;
-                                    al[6] = push_b_acc(&mut gk[6].b, &mut gk[6].touched, bb, wi, d, t_us, al[6]);
+                                    push_fw!(0b1000, bb, wi, d);
                                 }
                             }
                             // S3: a ∈ [17820,19620) → p0, p2, p3（bwd: p2⊂p3⊂p0；fwd: p2=p0⊂p3）
-                            al_flush!(2);
-                            al_flush!(3);
-                            al_load!(4);
-                            al_load!(5);
+                            al_flush_b!(1);
+                            al_flush_f!(1);
+                            al_load_b!(2);
+                            al_load_f!(2);
                             for i in seg[$k][3].0..seg[$k][3].1 {
                                 let ab = tk[i] - base;
                                 let wi = wk[i];
@@ -1552,11 +1735,7 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
                                 if tp_b >= LO2_S {
                                     let d = (ab - tp_b) as u64;
                                     let bb = (d / 1_000_000) as usize;
-                                    if !SKIP_PUSH {
-                                        al[5] = push_b_acc(&mut gk[5].b, &mut gk[5].touched, bb, wi, d, t_us, al[5]);
-                                        al[7] = push_b_acc(&mut gk[7].b, &mut gk[7].touched, bb, wi, d, t_us, al[7]);
-                                        al[1] = push_b_acc(&mut gk[1].b, &mut gk[1].touched, bb, wi, d, t_us, al[1]);
-                                    }
+                                    push_bw!(0b1101, bb, wi, d);
                                     if WITH_L4 {
                                         kpbs += d as f64;
                                         l4c += 1;
@@ -1565,10 +1744,7 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
                                 } else if tp_b >= LO3_S {
                                     let d = (ab - tp_b) as u64;
                                     let bb = (d / 1_000_000) as usize;
-                                    if !SKIP_PUSH {
-                                        al[7] = push_b_acc(&mut gk[7].b, &mut gk[7].touched, bb, wi, d, t_us, al[7]);
-                                        al[1] = push_b_acc(&mut gk[1].b, &mut gk[1].touched, bb, wi, d, t_us, al[1]);
-                                    }
+                                    push_bw!(0b1001, bb, wi, d);
                                     if WITH_L4 {
                                         kpbs += d as f64;
                                         l4c += 1;
@@ -1577,9 +1753,7 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
                                 } else if tp_b >= LO0_S {
                                     let d = (ab - tp_b) as u64;
                                     let bb = (d / 1_000_000) as usize;
-                                    if !SKIP_PUSH {
-                                        al[1] = push_b_acc(&mut gk[1].b, &mut gk[1].touched, bb, wi, d, t_us, al[1]);
-                                    }
+                                    push_bw!(0b0001, bb, wi, d);
                                     if WITH_L4 {
                                         kpbs += d as f64;
                                         l4c += 1;
@@ -1589,27 +1763,21 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
                                 if tj_b < HI0_S {
                                     let d = (tj_b - ab) as u64;
                                     let bb = (d / 1_000_000) as usize;
-                                    if !SKIP_PUSH {
-                                        al[4] = push_b_acc(&mut gk[4].b, &mut gk[4].touched, bb, wi, d, t_us, al[4]);
-                                        al[0] = push_b_acc(&mut gk[0].b, &mut gk[0].touched, bb, wi, d, t_us, al[0]);
-                                    }
+                                    push_fw!(0b1101, bb, wi, d);
                                     if WITH_L4 {
                                         kpfs += d as f64;
                                         l4c += 0x1_0000_0000;
                                         l4h += ((d <= t_us) as u64) << 32;
                                     }
-                                    if tj_b < HI3_S && !SKIP_PUSH {
-                                        al[6] = push_b_acc(&mut gk[6].b, &mut gk[6].touched, bb, wi, d, t_us, al[6]);
-                                    }
                                 } else if tj_b < HI3_S && !SKIP_PUSH {
                                     let d = (tj_b - ab) as u64;
                                     let bb = (d / 1_000_000) as usize;
-                                    al[6] = push_b_acc(&mut gk[6].b, &mut gk[6].touched, bb, wi, d, t_us, al[6]);
+                                    push_fw!(0b1000, bb, wi, d);
                                 }
                             }
                             // S4: a ∈ [19620,19800) → p3
-                            al_flush!(4);
-                            al_flush!(5);
+                            al_flush_b!(2);
+                            al_flush_f!(2);
                             for i in seg[$k][4].0..seg[$k][4].1 {
                                 let ab = tk[i] - base;
                                 let wi = wk[i];
@@ -1637,12 +1805,12 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
                                 if tp_b >= LO3_S && !SKIP_PUSH {
                                     let d = (ab - tp_b) as u64;
                                     let bb = (d / 1_000_000) as usize;
-                                    al[7] = push_b_acc(&mut gk[7].b, &mut gk[7].touched, bb, wi, d, t_us, al[7]);
+                                    push_bw!(0b1000, bb, wi, d);
                                 }
                                 if tj_b < HI3_S && !SKIP_PUSH {
                                     let d = (tj_b - ab) as u64;
                                     let bb = (d / 1_000_000) as usize;
-                                    al[6] = push_b_acc(&mut gk[6].b, &mut gk[6].touched, bb, wi, d, t_us, al[6]);
+                                    push_fw!(0b1000, bb, wi, d);
                                 }
                             }
                             // 写第 4 层对级矩阵（本任务独占第 (e,row) 行；B 无 p0 事件时保持 NaN）
@@ -1665,11 +1833,11 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
                                     n_b_pair[$k] += 1;
                                 }
                             }
-                            // 回写累加器到 Gather 字段（每 (A,B) 一次；字段跨 B 累积）
-                            al_flush!(0);
-                            al_flush!(1);
-                            al_flush!(6);
-                            al_flush!(7);
+                            // 回写累加器到打包桶字段（每 (A,B) 一次；字段跨 B 累积）
+                            al_flush_f!(0);
+                            al_flush_b!(0);
+                            al_flush_f!(3);
+                            al_flush_b!(3);
                         }
                     }
                 }};
@@ -1689,13 +1857,15 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
                     continue;
                 }
                 let mut ps = 0u64;
-                for gi in 0..8 {
-                    let gk = &g[k * 8 + gi];
-                    let mut ns = 0u64;
-                    for i in 0..=gk.max_b {
-                        ns += gk.b[i].c as u64;
+                for pi in 0..2 {
+                    let pk = &g[k * 2 + pi];
+                    for p in 0..4 {
+                        let mut ns = 0u64;
+                        for i in 0..=pk.per[p].max_b {
+                            ns += pk.lane_c(p, i) as u64;
+                        }
+                        ps += ns;
                     }
-                    ps += ns;
                 }
                 let mut ai_cnt = 0usize;
                 for s in seg[k].iter() {
@@ -1710,31 +1880,36 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
             if out[k].is_some() {
                 continue; // 空行已填
             }
-            let gk = &mut g[k * 8..k * 8 + 8];
+            let g2 = &mut g[k * 2..k * 2 + 2];
+            let [bp, fp] = g2 else { unreachable!() };
             // n 由桶计数和推导（整数和，与逐推累加逐位一致）：省去热循环内 n 累加
-            // （寄存器压力：Acc 从 4 字段降到 3 字段，8 个 Acc 共 24 个值可驻留寄存器）
-            for gi in 0..8 {
-                let mut nsum = 0u64;
-                for i in 0..=gk[gi].max_b {
-                    nsum += gk[gi].b[i].c as u64;
+            for p in 0..N_PERIODS {
+                let mut nfb = 0u64;
+                for i in 0..=fp.per[p].max_b {
+                    nfb += fp.lane_c(p, i) as u64;
                 }
-                gk[gi].n = nsum;
+                fp.per[p].n = nfb;
+                let mut nbb = 0u64;
+                for i in 0..=bp.per[p].max_b {
+                    nbb += bp.lane_c(p, i) as u64;
+                }
+                bp.per[p].n = nbb;
             }
             // 定位分位数桶（wsum 由 push 维护；n 已推导）
             let mut st = [[0.0f64; 5]; N_PERIODS * 2];
             for p in 0..N_PERIODS {
-                let nf = gk[p * 2].n;
-                let nb = gk[p * 2 + 1].n;
+                let nf = fp.per[p].n;
+                let nb = bp.per[p].n;
                 let kf = ((nf as f64) * prm.fast_q).round().max(1.0) as u64;
                 let kb = ((nb as f64) * prm.fast_q).round().max(1.0) as u64;
                 if nf > 0 {
-                    gk[p * 2].locate(nf / 2, gk[p * 2].wsum / 2.0, kf);
+                    fp.locate_p(p, nf / 2, fp.per[p].wsum / 2.0, kf);
                 }
                 if nb > 0 {
-                    gk[p * 2 + 1].locate(nb / 2, gk[p * 2 + 1].wsum / 2.0, kb);
+                    bp.locate_p(p, nb / 2, bp.per[p].wsum / 2.0, kb);
                 }
-                st[p * 2] = gk[p * 2].stats(nf, kf);
-                st[p * 2 + 1] = gk[p * 2 + 1].stats(nb, kb);
+                st[p * 2] = fp.stats_p(p, nf, kf);
+                st[p * 2 + 1] = bp.stats_p(p, nb, kb);
             }
             // hub/spoke（命中 B 占比）：与旧版 p0 任务语义一致——A 无 p0 事件时任务提前返回，
             // hub/spoke 保持 NaN（若 A 有 p0 事件但无任何 B 响应则写 NaN）
