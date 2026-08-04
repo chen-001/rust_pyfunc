@@ -652,6 +652,33 @@ fn detect_all(
         ask10.push(mr.ask_vols.map(|x| x as f64));
         bid10.push(mr.bid_vols.map(|x| x as f64));
     }
+    // 防御：2015 年早期部分逐笔/盘口文件时间戳乱序（数据质量问题）。乱序会破坏
+    // 下游检测/跨股匹配/零模型的时序假设——release 下 debug_assert 关闭，乱序流入
+    // 压缩增量编码会产生负差（巨大桶索引，段错误）。此处检测乱序并**稳定**重排
+    // （同时间戳保持原相对顺序）：有序数据仅 O(n) is_sorted 检查零开销，结果与
+    // 有序数据逐位一致。
+    if !t.windows(2).all(|w| w[0] <= w[1]) {
+        let mut order: Vec<usize> = (0..n).collect();
+        order.sort_by(|&a, &b| t[a].cmp(&t[b])); // stable：同时间戳保持原序
+        t = order.iter().map(|&i| t[i]).collect();
+        p = order.iter().map(|&i| p[i]).collect();
+        v = order.iter().map(|&i| v[i]).collect();
+        amt = order.iter().map(|&i| amt[i]).collect();
+        f = order.iter().map(|&i| f[i]).collect();
+        eprintln!(
+            "yhyb detect_all: 逐笔时间戳乱序 {n} 行已稳定重排（date 数据质量）"
+        );
+    }
+    if m > 1 && !mt.windows(2).all(|w| w[0] <= w[1]) {
+        let mut order: Vec<usize> = (0..m).collect();
+        order.sort_by(|&a, &b| mt[a].cmp(&mt[b])); // stable：同时间戳保持原序
+        mt = order.iter().map(|&i| mt[i]).collect();
+        ask1p = order.iter().map(|&i| ask1p[i]).collect();
+        bid1p = order.iter().map(|&i| bid1p[i]).collect();
+        ask10 = order.iter().map(|&i| ask10[i]).collect();
+        bid10 = order.iter().map(|&i| bid10[i]).collect();
+        eprintln!("yhyb detect_all: 盘口时间戳乱序 {m} 行已稳定重排（date 数据质量）");
+    }
     let tev = detect_trade_cols(&t, &p, &v, &amt, &f, prm, thr_l, thr_m);
     let mev = detect_market_cols(&mt, &ask1p, &bid1p, &ask10, &bid10, prm);
     let iev = detect_impact(&t, &v, &amt, &f, &mt, &ask10, &bid10, prm);
@@ -1510,6 +1537,9 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
                             macro_rules! push_bw {
                                 ($mask:expr, $bb:expr, $wi:expr, $d:expr) => {{
                                     if !SKIP_PUSH {
+                                        // 防御断言：乱序数据修复后不应触发；dev 构建检查，release 零开销
+                                        debug_assert!($bb < bp.b.len(), "push_bw bb 越界: bb={} len={}", $bb, bp.b.len());
+                                        let bb = $bb;
                                         let (t0, t1, t2, t3) = push_pack_acc(
                                             &mut bp.b,
                                             &mut bp.touched,
@@ -1533,6 +1563,9 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
                             macro_rules! push_fw {
                                 ($mask:expr, $bb:expr, $wi:expr, $d:expr) => {{
                                     if !SKIP_PUSH {
+                                        // 防御断言：乱序数据修复后不应触发；dev 构建检查，release 零开销
+                                        debug_assert!($bb < fp.b.len(), "push_fw bb 越界: bb={} len={}", $bb, fp.b.len());
+                                        let bb = $bb;
                                         let (t0, t1, t2, t3) = push_pack_acc(
                                             &mut fp.b,
                                             &mut fp.touched,
