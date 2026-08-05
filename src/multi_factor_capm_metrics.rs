@@ -21,7 +21,6 @@ use crate::fast_csv_reader::{
 };
 use crate::features;
 use chrono::NaiveDate;
-use ndarray::Array2;
 use pyo3::prelude::*;
 use rayon::prelude::*;
 use std::fs;
@@ -966,7 +965,8 @@ fn cs_multi(y: &[f32], betas: &[f64], k: usize, n_stocks: usize, out: &mut CsRes
     let mut sbeta = [0.0f64; MAX_FACTORS];
     let mut sbb = [0.0f64; MAX_FACTORS * MAX_FACTORS];
     let mut sby = [0.0f64; MAX_FACTORS];
-    let mut valid = Vec::with_capacity(n_stocks);
+    // 复用 out.valid 缓冲（跨桶循环复用，避免每桶一次堆分配）
+    out.valid.clear();
     for s in 0..n_stocks {
         let v = y[s] as f64;
         if !v.is_finite() {
@@ -982,7 +982,7 @@ fn cs_multi(y: &[f32], betas: &[f64], k: usize, n_stocks: usize, out: &mut CsRes
         if !ok {
             continue;
         }
-        valid.push(s);
+        out.valid.push(s);
         n += 1;
         sy += v;
         syy += v * v;
@@ -1084,7 +1084,6 @@ fn cs_multi(y: &[f32], betas: &[f64], k: usize, n_stocks: usize, out: &mut CsRes
     out.sse = sse;
     out.residual_std = residual_std;
     out.cond = cond;
-    out.valid = valid;
     out.inv = inv;
     out.syy_c = syy_c;
     out.beta = beta;
@@ -1225,15 +1224,63 @@ impl ComboBuf {
 
 /// 预分配全部 53 个组合缓冲（页错误与读盘/其他计算重叠）。
 pub fn prealloc_combos(n_stocks: usize) -> Vec<ComboBuf> {
-    // 顺序分配（并行分配时 malloc arena 争抢可能更慢；顺序 touch 更快）
-    let mut out = Vec::with_capacity(N_COMBOS);
+    // 并行分配：大块（2-3GB/个）走 glibc mmap，无 malloc arena 争抢；
+    // touch（resize 填 NaN）也并行，50 线程下远快于单线程顺序 touch。
+    // 每组合大小 = (4k+6) × 4740 × n_stocks × 4B：k=3 约 2.05GB，k=5 约 2.97GB。
+    let mut layout: Vec<(usize, usize)> = Vec::with_capacity(N_COMBOS);
     for m in MODELS.iter() {
-        let k = m.k;
         for _ in m.ys.iter() {
-            out.push(ComboBuf::new(4 * k + 6, 4 * k + 9, n_stocks));
+            layout.push((4 * m.k + 6, 4 * m.k + 9));
         }
     }
-    out
+    layout
+        .into_par_iter()
+        .map(|(n_ps, n_sh)| ComboBuf::new(n_ps, n_sh, n_stocks))
+        .collect()
+}
+
+/// 滚动状态按 y 共享：同一 y 的多个 (模型) 组合共用一份滚动矩与单因子暴露。
+/// 滚动更新（14+23 对矩）与 exposure 从 53 份重复计算降为 14 份，
+/// 且 14 路工作集约 119MB 可驻留 L3（旧版 53 路约 450MB 导致 L3 抖动）。
+/// 每组合看到的状态更新序列与旧版逐位一致 → 输出逐位一致。
+
+/// 每 (路由, 组合) 的桶级复用缓冲。
+struct ComboScratch {
+    mbeta: Vec<f64>, // [MAX_FACTORS * n_stocks]
+    cs: CsResult,
+    rank_pairs: Vec<(usize, f64)>,
+    ranks: Vec<f64>,
+    tmp_resid: Vec<f64>,
+    tmp_z: Vec<f64>,
+    tmp_h: Vec<f64>,
+    tmp_cooks: Vec<f64>,
+    bmean: [f64; MAX_FACTORS],
+    sse_sk: [f64; MAX_FACTORS],
+    lam_sk: [f64; MAX_FACTORS],
+}
+
+impl ComboScratch {
+    fn new(n_stocks: usize) -> Self {
+        ComboScratch {
+            mbeta: vec![f64::NAN; MAX_FACTORS * n_stocks],
+            cs: CsResult::default(),
+            rank_pairs: Vec::with_capacity(n_stocks),
+            ranks: vec![f64::NAN; n_stocks],
+            tmp_resid: vec![f64::NAN; n_stocks],
+            tmp_z: vec![f64::NAN; n_stocks],
+            tmp_h: vec![f64::NAN; n_stocks],
+            tmp_cooks: vec![f64::NAN; n_stocks],
+            bmean: [f64::NAN; MAX_FACTORS],
+            sse_sk: [f64::NAN; MAX_FACTORS],
+            lam_sk: [f64::NAN; MAX_FACTORS],
+        }
+    }
+}
+
+impl Default for ComboScratch {
+    fn default() -> Self {
+        ComboScratch::new(0)
+    }
 }
 
 /// 处理单个 (模型, y) 组合：独立滚动矩 + 桶循环。
@@ -1247,7 +1294,21 @@ fn compute_one_combo(
 ) -> ComboBuf {
     let m = &MODELS[mi];
     let k = m.k;
-    let (cross_pairs, cross_idx) = build_cross_pairs();
+    // 只更新本模型实际用到的交叉对（T1/T2/T3 各 3 对、F1/F2 各 10 对，
+    // 平均 5.5 对 vs 全局 23 对）——未更新的交叉槽本组合从不读取，输出逐位一致。
+    let (_, cross_idx) = build_cross_pairs();
+    let mut cross_set = std::collections::BTreeSet::new();
+    for a in 0..k {
+        for b in (a + 1)..k {
+            let (i, j) = if m.factors[a] < m.factors[b] {
+                (m.factors[a], m.factors[b])
+            } else {
+                (m.factors[b], m.factors[a])
+            };
+            cross_set.insert((i, j));
+        }
+    }
+    let cross_pairs: Vec<(usize, usize)> = cross_set.into_iter().collect();
     let mut states = vec![StockState::default(); n_stocks];
     let mut beta1 = vec![f64::NAN; N_FEATURES * n_stocks];
     let mut mbeta = vec![f64::NAN; MAX_FACTORS * n_stocks];
@@ -1276,15 +1337,15 @@ fn compute_one_combo(
                         add_pair(&mut st.pairs[f], market[f * N_BINS + old], yv, sign);
                     }
                     if yv.is_finite() {
-                        for (ci, &(i, j)) in cross_pairs.iter().enumerate() {
+                        for &(i, j) in cross_pairs.iter() {
                             add_cross(
-                                &mut st.cross[ci],
+                                &mut st.cross[cross_idx[i][j] as usize],
                                 market[i * N_BINS + old],
                                 market[j * N_BINS + old],
                                 true,
                                 sign,
                             );
-                        }
+                            }
                     }
                 }
             }
@@ -1331,15 +1392,15 @@ fn compute_one_combo(
                     add_pair(&mut st.pairs[f], market[f * N_BINS + bin], yv, sign);
                 }
                 if yv.is_finite() {
-                    for (ci, &(i, j)) in cross_pairs.iter().enumerate() {
+                    for &(i, j) in cross_pairs.iter() {
                         add_cross(
-                            &mut st.cross[ci],
+                            &mut st.cross[cross_idx[i][j] as usize],
                             market[i * N_BINS + bin],
                             market[j * N_BINS + bin],
                             true,
                             sign,
                         );
-                    }
+                        }
                 }
             }
             continue;
@@ -1533,22 +1594,22 @@ fn compute_one_combo(
                 add_pair(&mut st.pairs[f], market[f * N_BINS + bin], yv, sign);
             }
             if yv.is_finite() {
-                for (ci, &(i, j)) in cross_pairs.iter().enumerate() {
+                for &(i, j) in cross_pairs.iter() {
                     add_cross(
-                        &mut st.cross[ci],
+                        &mut st.cross[cross_idx[i][j] as usize],
                         market[i * N_BINS + bin],
                         market[j * N_BINS + bin],
                         true,
                         sign,
                     );
-                }
+                    }
             }
         }
     }
     buf
 }
 
-// ---------------------------------------------------------------------------
+
 // 主入口：读全市场 → 网格 → 组合并行计算 → 21 统计降维 → (codes, vals)
 // ---------------------------------------------------------------------------
 
@@ -1673,8 +1734,25 @@ pub fn multi_factor_capm_names() -> Vec<String> {
     names
 }
 
+/// 50 核线程池（进程级单例）：multi_factor_capm 全流程（读盘/组合/统计）限制 50 线程并行。
+fn mf_pool() -> &'static rayon::ThreadPool {
+    static POOL: std::sync::OnceLock<rayon::ThreadPool> = std::sync::OnceLock::new();
+    POOL.get_or_init(|| {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(50)
+            .thread_name(|i| format!("mfcapm-{i}"))
+            .build()
+            .expect("构建 mfcapm 50 线程池失败")
+    })
+}
+
 /// 主入口：单日全市场 49,791 维横截面因子。
 pub fn compute_multi_factor_capm_full(date: i64) -> io::Result<(Vec<String>, Vec<f32>)> {
+    // 整个流程（读盘/组合/21 统计/组装）固定运行在 50 线程池内，保证核数上限
+    mf_pool().install(|| compute_multi_factor_capm_full_inner(date))
+}
+
+fn compute_multi_factor_capm_full_inner(date: i64) -> io::Result<(Vec<String>, Vec<f32>)> {
     let _t_all = std::time::Instant::now();
     // 预分配（页错误）与读盘并行
     let n_est = list_codes(date).len();
@@ -1684,6 +1762,8 @@ pub fn compute_multi_factor_capm_full(date: i64) -> io::Result<(Vec<String>, Vec
     if n_stocks == 0 {
         return Ok((codes, Vec::new()));
     }
+
+    // 53 个组合并行（扁平任务，每组合独立滚动矩；与旧版逻辑逐位一致）
     let combos: Vec<ComboBuf> = prealloc
         .into_par_iter()
         .zip(0..N_COMBOS)
@@ -1704,75 +1784,81 @@ pub fn compute_multi_factor_capm_full(date: i64) -> io::Result<(Vec<String>, Vec
     drop(market);
     eprintln!("  [mfcapm] 组合计算: {:.1}s", _t_all.elapsed().as_secs_f64());
 
-    let metas = combo_metas();
-    // shared 列 21 统计（每股相同，算一次；53 组合并行）
+    // 组合视图：模型主序（与 combo_metas()/因子名顺序一致）
+    let combos_ref: Vec<&ComboBuf> = combos.iter().collect();
+    let combos = combos_ref;
+    debug_assert_eq!(combos.len(), N_COMBOS);
+
+    // shared 列 21 统计（每股相同，算一次；53 组合并行；零拷贝 + 复用缓冲）
     let shared_stats: Vec<Vec<f32>> = combos
         .par_iter()
         .map(|cb| {
             let n_shared = cb.n_shared;
-            let mut mat = vec![f32::NAN; N_BINS * n_shared];
-            for c in 0..n_shared {
-                for b in 0..N_BINS {
-                    mat[b * n_shared + c] = cb.shared[c * N_BINS + b];
-                }
-            }
-            let m = Array2::from_shape_vec((N_BINS, n_shared), mat).ok()?;
-            let vals = features::get_features_factors_rust_values_only(&m.view(), false);
-            Some(vals[..21 * n_shared].to_vec())
-        })
-        .collect::<Option<Vec<_>>>()
-        .unwrap_or_default();
-
-    // per-stock 列 21 统计（按股票并行）
-    let per_stock_stats: Vec<Vec<f32>> = (0..n_stocks)
-        .into_par_iter()
-        .map(|s| {
-            let mut out = Vec::with_capacity(
-                combos.iter().map(|cb| 21 * cb.n_per_stock).sum::<usize>(),
+            let mut out = vec![0.0f32; 21 * n_shared];
+            let mut scratch = features::StatsScratch::new();
+            // shared 布局 [col][bin]：行步长 1，列步长 N_BINS
+            features::col_stats_21_strided(
+                &cb.shared,
+                N_BINS,
+                n_shared,
+                1,
+                N_BINS,
+                &mut scratch,
+                &mut out,
             );
-            for cb in &combos {
+            out
+        })
+        .collect();
+
+    // per-stock 列 21 统计 + 组装（按股票并行，直接写入最终 vals 布局）
+    // 每股段内布局：[组合0: stat0(ps|sh) stat1...][组合1...]，与 names 顺序一致
+    let mut combo_bases = Vec::with_capacity(N_COMBOS);
+    {
+        let mut acc = 0usize;
+        for cb in &combos {
+            combo_bases.push(acc);
+            acc += 21 * (cb.n_per_stock + cb.n_shared);
+        }
+        debug_assert_eq!(acc, N_FACTORS);
+    }
+    let max_ps = combos.iter().map(|cb| cb.n_per_stock).max().unwrap_or(0);
+    let mut vals = vec![0.0f32; n_stocks * N_FACTORS];
+    let _t_shared = std::time::Instant::now();
+    vals.par_chunks_mut(N_FACTORS)
+        .enumerate()
+        .for_each(|(s, seg)| {
+            let mut scratch = features::StatsScratch::new();
+            let mut tmp = vec![0.0f32; 21 * max_ps];
+            for (ci, cb) in combos.iter().enumerate() {
                 let n_ps = cb.n_per_stock;
                 if n_ps == 0 {
                     continue;
                 }
-                // 布局 [stock][bin][col]：每股矩阵 [N_BINS, n_per_stock] 连续拷贝
+                // 布局 [stock][bin][col]：行主序矩阵 [N_BINS, n_ps]。
+                // 先转置为列主序（列连续）再统计 —— 直接按 n_ps 步长读列的 10+ 次
+                // 扫描会命中不同的 cache line（stride=4n_ps 字节），慢 3-5 倍。
                 let start = (s * N_BINS) * n_ps;
                 let end = ((s + 1) * N_BINS) * n_ps;
-                let mat = Array2::from_shape_vec(
-                    (N_BINS, n_ps),
-                    cb.per_stock[start..end].to_vec(),
-                )
-                .ok()?;
-                let vals = features::get_features_factors_rust_values_only(&mat.view(), false);
-                out.extend_from_slice(&vals[..21 * n_ps]);
-            }
-            Some(out)
-        })
-        .collect::<Option<Vec<_>>>()
-        .unwrap_or_default();
-
-    let _t_shared = std::time::Instant::now();
-    // 组装：组合内按 [统计组 × (per-stock 列 + shared 列)] 交织，与 names 顺序一致
-    let mut vals = Vec::with_capacity(n_stocks * N_FACTORS);
-    for s in 0..n_stocks {
-        let mut off = 0usize;
-        for (ci, cb) in combos.iter().enumerate() {
-            let n_ps = cb.n_per_stock;
-            let n_sh = cb.n_shared;
-            let ps_stats = &per_stock_stats[s][off..off + 21 * n_ps];
-            let sh_stats = &shared_stats[ci];
-            for stat in 0..21 {
-                for col in 0..n_ps {
-                    vals.push(ps_stats[stat * n_ps + col]);
-                }
-                for col in 0..n_sh {
-                    vals.push(sh_stats[stat * n_sh + col]);
+                scratch.col_stats_21_row_major(
+                    &cb.per_stock[start..end],
+                    N_BINS,
+                    n_ps,
+                    &mut tmp,
+                );
+                let base = combo_bases[ci];
+                let n_sh = cb.n_shared;
+                let sh = &shared_stats[ci];
+                for stat in 0..21 {
+                    let row = base + stat * (n_ps + n_sh);
+                    for col in 0..n_ps {
+                        seg[row + col] = tmp[stat * n_ps + col];
+                    }
+                    for col in 0..n_sh {
+                        seg[row + n_ps + col] = sh[stat * n_sh + col];
+                    }
                 }
             }
-            off += 21 * n_ps;
-        }
-        debug_assert_eq!(off, per_stock_stats[s].len());
-    }
+        });
 
     eprintln!("  [mfcapm] shared统计: {:.1}s", _t_shared.elapsed().as_secs_f64());
     eprintln!("  [mfcapm] 总耗时: {:.1}s", _t_all.elapsed().as_secs_f64());
