@@ -179,6 +179,14 @@ def py_microstructure_capm_names() -> List[str]:
     ...
 
 
+def py_multi_factor_capm(date: int) -> Tuple[List[str], List[float]]:
+    ...
+
+
+def py_multi_factor_capm_names() -> List[str]:
+    ...
+
+
 def run_factor_pipeline_cross_section(
     pipeline: str,
     tasks: List[int],
@@ -696,6 +704,8 @@ __all__ = [
     "py_microstructure_capm",
     "py_microstructure_capm_codes",
     "py_microstructure_capm_names",
+    "py_multi_factor_capm",
+    "py_multi_factor_capm_names",
     "run_factor_pipeline_cross_section",
     "py_cross_section_example",
     "py_cross_section_example_names",

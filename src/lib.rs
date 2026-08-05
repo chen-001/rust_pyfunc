@@ -118,6 +118,7 @@ pub mod features;
 pub mod individual_order_ratio_metrics;
 pub mod long_order_cross_section_metrics;
 pub mod microstructure_capm_metrics;
+pub mod multi_factor_capm_metrics;
 pub mod minute_capm_metrics;
 pub mod minute_data_reader;
 pub mod minute_example_metrics;
@@ -1221,6 +1222,14 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(
         microstructure_capm_metrics::py_microstructure_capm_names,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        multi_factor_capm_metrics::py_multi_factor_capm,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        multi_factor_capm_metrics::py_multi_factor_capm_names,
         m
     )?)?;
     Ok(())

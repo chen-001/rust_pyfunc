@@ -2238,6 +2238,33 @@ pub fn pipeline_hot_stock_pool_v2(date: i64, expected_len: usize) -> Vec<TaskRes
     }
 }
 
+/// 多因子 CAPM 横截面 pipeline 包装。
+pub fn pipeline_multi_factor_capm(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    if expected_len != crate::multi_factor_capm_metrics::N_FACTORS {
+        eprintln!(
+            "multi_factor_capm expected_len错误 [{date}]: {expected_len} != {}",
+            crate::multi_factor_capm_metrics::N_FACTORS
+        );
+        return Vec::new();
+    }
+    match crate::multi_factor_capm_metrics::compute_multi_factor_capm_full(date) {
+        Ok((codes, vals)) => vals
+            .chunks(expected_len)
+            .zip(codes.iter())
+            .map(|(facs, code)| TaskResult {
+                date,
+                code: code.clone(),
+                timestamp: 0,
+                facs: facs.to_vec(),
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("multi_factor_capm error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
 /// 横截面 pipeline 的 Python 入口。
 ///
 /// 参数：
@@ -2279,6 +2306,7 @@ pub fn run_factor_pipeline_cross_section(
         "urgency",
         "long_order",
         "microstructure_capm",
+        "multi_factor_capm",
         "drop_event",
         "hot_stock_pool",
         "hot_stock_pool_v2",
