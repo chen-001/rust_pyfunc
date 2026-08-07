@@ -2034,6 +2034,27 @@ fn run_single_minute_worker(
 // ============================================================
 
 /// 横截面示例因子的 worker 包装：调核心，fan-out 成 TaskResult 列表。
+
+/// 跨股票互动因子的 worker 包装: 调核心, fan-out 成 TaskResult 列表.
+pub fn pipeline_pair_interaction(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    match crate::pair_interaction_metrics::compute_pair_interaction_full(date) {
+        Ok((codes, vals)) => {
+            vals.chunks(expected_len)
+                .zip(codes.iter())
+                .map(|(facs, code)| TaskResult {
+                    date,
+                    code: code.clone(),
+                    timestamp: 0,
+                    facs: facs.to_vec(),
+                })
+                .collect()
+        }
+        Err(e) => {
+            eprintln!("pair_interaction error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
 pub fn pipeline_cross_section_example(date: i64, expected_len: usize) -> Vec<TaskResult> {
     match crate::cross_section_example_metrics::compute_cross_section_example_full(date) {
         Ok((codes, vals)) => {
@@ -2303,6 +2324,7 @@ pub fn run_factor_pipeline_cross_section(
     let pipeline_name = pipeline.to_string();
     let known = [
         "cross_section_example",
+        "pair_interaction",
         "urgency",
         "long_order",
         "microstructure_capm",

@@ -207,6 +207,26 @@ def py_cross_section_example(date: int) -> Tuple[List[str], List[float]]:
     ...
 
 
+def py_pair_interaction(date: int) -> Tuple[List[str], List[float]]:
+    """跨股票互动因子: 读一天全市场逐笔 -> 两两互动矩阵 -> 每股 6694 个因子.
+
+    参数
+    ----
+    date : int
+        交易日, 形如 20241231
+
+    返回
+    ----
+    (codes, vals) : codes 为股票代码列表, vals 为每股 N_FACTORS 个因子值
+    """
+    ...
+
+
+def py_pair_interaction_names() -> List[str]:
+    """跨股票互动因子的因子名列表 (与 py_pair_interaction 列序一致)."""
+    ...
+
+
 def py_cross_section_example_from_data(
     codes: List[str],
     trade_arrays: List["numpy.ndarray"],
@@ -709,6 +729,8 @@ __all__ = [
     "run_factor_pipeline_cross_section",
     "py_cross_section_example",
     "py_cross_section_example_names",
+    "py_pair_interaction",
+    "py_pair_interaction_names",
     "py_yhyb",
     "py_yhyb_params",
     "py_yhyb_from_data",

@@ -108,6 +108,7 @@ pub mod hot_stock_pool_metrics;
 pub mod anneal_volume_metrics;
 pub mod anneal_volume_market_metrics;
 pub mod cross_section_example_metrics;
+pub mod pair_interaction_metrics;
 pub mod yhyb_metrics;
 pub mod yhyb_network;
 pub mod volume_segment_leadstock_metrics;
@@ -1114,6 +1115,8 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         cross_section_example_metrics::py_cross_section_example_names,
         m
     )?)?;
+    let _ = m.add_function(wrap_pyfunction!(pair_interaction_metrics::py_pair_interaction, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(pair_interaction_metrics::py_pair_interaction_names, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(
         cross_section_example_metrics::py_cross_section_example_from_data,
         m
