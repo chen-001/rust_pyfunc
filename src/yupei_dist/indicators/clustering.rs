@@ -86,7 +86,7 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             .map(|i| topk_minheap(&sym[i * n..(i + 1) * n], k))
             .collect();
         // 全矩阵最大边权（归一化用）
-        let max_w = sym.iter().cloned().fold(0.0f32, f32::max).max(1e-9);
+        let max_w = sym.par_iter().cloned().fold(|| 0.0f32, f32::max).reduce(|| 0.0f32, f32::max).max(1e-9);
         let col: Vec<f32> = (0..n)
             .map(|i| {
                 let nbr = &nbrs[i];
