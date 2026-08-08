@@ -17,19 +17,6 @@ pub fn desc() -> &'static str {
     "跨日动态: 边持久性/保留率/新伙伴/边变化/冲击/换手 (cnt_t1 vs prev)"
 }
 
-/// 每行 top-k 索引（值降序, 同值索引升序）
-fn topk(row: &[f32], k: usize) -> Vec<u32> {
-    let mut idx: Vec<u32> = (0..row.len() as u32).collect();
-    idx.sort_unstable_by(|&a, &b| {
-        row[a as usize]
-            .partial_cmp(&row[b as usize])
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| a.cmp(&b))
-    });
-    idx.truncate(k);
-    idx
-}
-
 pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let n = ctx.n();
     let mut out = Vec::new();
@@ -88,7 +75,7 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     // 当日每行 top-10（并行预计算）
     let top_now: Vec<Vec<u32>> = (0..n)
         .into_par_iter()
-        .map(|i| topk(&sym[i * n..(i + 1) * n], k))
+        .map(|i| crate::topk_util::topk_indices(&sym[i * n..(i + 1) * n], k))
         .collect();
 
     let rows: Vec<[f32; 9]> = (0..n)
@@ -155,7 +142,7 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
         }
         // top-10 重叠
         let t_now = &top_now[i];
-        let t_prev = topk(prow, k);
+        let t_prev = crate::yupei_dist::topk_util::topk_indices(prow, k);
         let mut inter = 0usize;
         for &x in t_now.iter() {
             // 仅当 x 在 prev 中且是 prev top-10
