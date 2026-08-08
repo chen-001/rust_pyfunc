@@ -65,7 +65,16 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
         // prev 对称矩阵（手动 S+S^T, 有向备份）
         let pd = match prev.set.mats.get(mat) {
             Some(m) => m.as_slice(),
-            None => continue,
+            None => {
+                // prev 缺该矩阵（如 signed 族未备份）: NaN 列保长度
+                let nan = vec![f32::NAN; n];
+                for sfx in ["edge_persistence","retention","new_partner","edge_change",
+                            "pos_edge_change","neg_edge_change","network_shock_max",
+                            "top_shock_mean","turnover"] {
+                    out.push(IndicatorResult::new(format!("dyn_{mat}_{sfx}"), nan.clone()));
+                }
+                continue;
+            }
         };
         let mut psym = vec![0.0f32; pn * pn];
         for i in 0..pn {
