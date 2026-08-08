@@ -75,7 +75,7 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     // 当日每行 top-10（并行预计算）
     let top_now: Vec<Vec<u32>> = (0..n)
         .into_par_iter()
-        .map(|i| crate::topk_util::topk_indices(&sym[i * n..(i + 1) * n], k))
+        .map(|i| crate::yupei_dist::topk_util::topk_indices(&sym[i * n..(i + 1) * n], k))
         .collect();
 
     let rows: Vec<[f32; 9]> = (0..n)
