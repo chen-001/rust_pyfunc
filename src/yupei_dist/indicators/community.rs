@@ -17,12 +17,26 @@ pub fn desc() -> &'static str {
 
 pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let n = ctx.n();
+    // 串行收集矩阵（symmetric 缓存顺序不变）
+    let syms: Vec<Option<std::sync::Arc<Vec<f32>>>> = crate::yupei_dist::indicator_ctx::MATRIX_LIST
+        .iter()
+        .map(|m| ctx.symmetric(m))
+        .collect();
+    // 矩阵级并行（每矩阵内部 Louvain 串行; 确定性: 结果按矩阵索引收集）
+    let per_mat: Vec<Vec<IndicatorResult>> = syms
+        .into_par_iter()
+        .enumerate()
+        .map(|(mi, sym)| match sym {
+            Some(s) => compute_one(n, crate::yupei_dist::indicator_ctx::MATRIX_LIST[mi], &s),
+            None => Vec::new(),
+        })
+        .collect();
+    per_mat.into_iter().flatten().collect()
+}
+
+/// 单矩阵社群计算（top-50 邻接 + Louvain + 指标; 确定性）
+fn compute_one(n: usize, mat: &str, sym: &[f32]) -> Vec<IndicatorResult> {
     let mut out = Vec::new();
-    for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
-    let sym = match ctx.symmetric(mat) {
-        Some(s) => s,
-        None => continue,
-    };
     // ---- 构建无向加权邻接表（每行 top-50; 边保留当 i∈top50(j) 或 j∈top50(i), 权重=(S_ij+S_ji)/2）
     let k = 50usize;
     let top: Vec<Vec<u32>> = (0..n)
@@ -167,6 +181,5 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     out.push(IndicatorResult::new(format!("comm_{mat}_outside"), outside));
     out.push(IndicatorResult::new(format!("comm_{mat}_purity"), purity));
     out.push(IndicatorResult::new(format!("comm_{mat}_participation"), part));
-    }
     out
 }
