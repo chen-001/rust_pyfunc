@@ -7,14 +7,13 @@ use rust_pyfunc::yupei_dist::matrix_stage::{compute_matrices, prep_stock, MATRIX
 fn mk_rec(t: f64, v: f64, flag: i32, day_start_us: i64) -> TradeRecord {
     TradeRecord {
         time_us: day_start_us + (t * 1e6) as i64,
-        time_sec: t,
+        time_sec: t as f32,
         price: 10.0,
-        volume: v,
-        turnover: v * 10.0,
+        volume: v as f32,
+        turnover: (v * 10.0) as f32,
         flag,
         bid_order: 100,
         ask_order: 90,
-        index: 0,
     }
 }
 
