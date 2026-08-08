@@ -60,11 +60,14 @@ pub fn compute_yupei_dist_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f
     }
 
     // ---- 4. 行业（可选; 缺失 → None → 行业模块输出 NaN）----
-    let industry = super::industry::load_industry_bin(
+    // industry.bin 按 symbol_map 全市场顺序存储: 读入后按 codes 重排（缺失 -1）
+    let industry = super::industry::load_industry_all(
         &Path::new(BACKUP_DIR).join(date.to_string()).join("industry.bin"),
-        &codes_out,
     )
-    .ok();
+    .ok()
+    .map(|all: std::collections::HashMap<String, i16>| {
+        codes_out.iter().map(|c| all.get(c).copied().unwrap_or(-1)).collect()
+    });
 
     let set = MatrixSet {
         n,
