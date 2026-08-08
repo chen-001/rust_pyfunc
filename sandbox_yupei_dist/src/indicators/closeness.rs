@@ -29,8 +29,8 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             let row = &sym[i * n..(i + 1) * n];
             let mut idx: Vec<u32> = (0..n as u32).collect();
             idx.sort_unstable_by(|&a, &b| {
-                row[a as usize]
-                    .partial_cmp(&row[b as usize])
+                row[b as usize]
+                    .partial_cmp(&row[a as usize])
                     .unwrap_or(std::cmp::Ordering::Equal)
                     .then_with(|| a.cmp(&b))
             });

@@ -17,8 +17,8 @@ pub fn desc() -> &'static str {
 fn topk(row: &[f32], k: usize) -> Vec<u32> {
     let mut idx: Vec<u32> = (0..row.len() as u32).collect();
     idx.sort_unstable_by(|&a, &b| {
-        row[a as usize]
-            .partial_cmp(&row[b as usize])
+        row[b as usize]
+            .partial_cmp(&row[a as usize])
             .unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| a.cmp(&b))
     });
