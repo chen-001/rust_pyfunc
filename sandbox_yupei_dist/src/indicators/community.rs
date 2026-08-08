@@ -92,14 +92,22 @@ fn compute_one(n: usize, mat: &str, sym: &[f32]) -> Vec<IndicatorResult> {
         let mut moved = false;
         for i in 0..n {
             let c0 = comm[i];
-            // 邻居社群及到它们的边权和
-            let mut inc: std::collections::BTreeMap<usize, f64> = std::collections::BTreeMap::new();
+            // 邻居社群及到它们的边权和（Vec+排序替代 BTreeMap, 键升序同 → 结果逐位一致）
+            let mut inc: Vec<(usize, f64)> = Vec::with_capacity(16);
             for &(j, w) in adj[i].iter() {
-                *inc.entry(comm[j as usize]).or_insert(0.0) += w as f64;
+                inc.push((comm[j as usize], w as f64));
             }
+            inc.sort_unstable_by_key(|&(c, _)| c);
             let mut best_c = c0;
             let mut best_gain = 0.0f64;
-            for (&c, &k_in) in inc.iter() {
+            let mut idx = 0usize;
+            while idx < inc.len() {
+                let c = inc[idx].0;
+                let mut k_in = 0.0f64;
+                while idx < inc.len() && inc[idx].0 == c {
+                    k_in += inc[idx].1;
+                    idx += 1;
+                }
                 if c == c0 {
                     continue;
                 }
@@ -146,7 +154,7 @@ fn compute_one(n: usize, mat: &str, sym: &[f32]) -> Vec<IndicatorResult> {
             let row = &sym[i * n..(i + 1) * n];
             let mut w = 0.0f64;
             let mut total = 0.0f64;
-            let mut by_comm: std::collections::BTreeMap<usize, f64> = std::collections::BTreeMap::new();
+            let mut by_comm: Vec<(usize, f64)> = Vec::with_capacity(16);
             for (j, &v) in row.iter().enumerate() {
                 if v <= 0.0 || j == i {
                     continue;
@@ -155,11 +163,19 @@ fn compute_one(n: usize, mat: &str, sym: &[f32]) -> Vec<IndicatorResult> {
                 if comm_c[j] == ci {
                     w += v as f64;
                 }
-                *by_comm.entry(comm_c[j]).or_insert(0.0) += v as f64;
+                by_comm.push((comm_c[j], v as f64));
             }
+            by_comm.sort_unstable_by_key(|&(c, _)| c);
             let mut p = 0.0f64;
             if total > 0.0 {
-                for &kc in by_comm.values() {
+                let mut idx = 0usize;
+                while idx < by_comm.len() {
+                    let mut kc = 0.0f64;
+                    let c = by_comm[idx].0;
+                    while idx < by_comm.len() && by_comm[idx].0 == c {
+                        kc += by_comm[idx].1;
+                        idx += 1;
+                    }
                     let r = kc / total;
                     p += r * r;
                 }
