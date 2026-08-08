@@ -3,6 +3,7 @@
 //! 其中 ŵ_ij = S_ij / max(S) 归一化边权, N(i) = 每行 top-50 邻居。cnt_t1 与 vol_t1。
 
 use crate::indicator_ctx::{IndicatorCtx, IndicatorResult};
+use rayon::prelude::*;
 
 pub fn name() -> &'static str {
     "clustering"
@@ -79,8 +80,9 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             Some(s) => s,
             None => continue,
         };
-        // 每行 top-50 邻居（二叉堆部分选择, 确定性: 同值按索引升序）
+        // 每行 top-50 邻居（二叉堆部分选择, 确定性: 同值按索引升序; 行并行）
         let nbrs: Vec<Vec<u32>> = (0..n)
+            .into_par_iter()
             .map(|i| topk_minheap(&sym[i * n..(i + 1) * n], k))
             .collect();
         // 全矩阵最大边权（归一化用）

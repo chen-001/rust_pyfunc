@@ -77,13 +77,13 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             }
         };
         let mut psym = vec![0.0f32; pn * pn];
-        for i in 0..pn {
+        psym.par_chunks_mut(pn).enumerate().for_each(|(i, row)| {
             for j in 0..pn {
                 if i != j {
-                    psym[i * pn + j] = pd[i * pn + j] + pd[j * pn + i];
+                    row[j] = pd[i * pn + j] + pd[j * pn + i];
                 }
             }
-        }
+        });
 
     // 当日每行 top-10（并行预计算）
     let top_now: Vec<Vec<u32>> = (0..n)
