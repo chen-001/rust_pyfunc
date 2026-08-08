@@ -402,8 +402,12 @@ pub fn compute_matrices(stocks: &[StockPrep]) -> (Vec<Vec<f32>>, Vec<StockStats>
             _ => 48 + (m - 33),
         }
     }
+    // gp 槽布局（GP_STRIDE=56, 每块 8 槽对齐, 未用槽恒 0）: 
+    //   0..9 cnt(9τ), 9..16 空闲(块1), 16..24 vol(6τ), 24..32 logvol(4τ),
+    //   32..40 flow±(4τ), 40..48 urg±(3τ), 48..56 ext±(2τ)
+    const GP_STRIDE: usize = 56;
     let packs: Vec<std::sync::Mutex<Vec<f32>>> = (0..ntiles)
-        .map(|_| std::sync::Mutex::new(vec![0.0f32; n * PACK_W + BLOCK_BUCKETS * (nm + 4) + nm]))
+        .map(|_| std::sync::Mutex::new(vec![0.0f32; n * PACK_W + BLOCK_BUCKETS * GP_STRIDE + nm]))
         .collect();
 
     for block in 0..N_BLOCKS {
@@ -438,12 +442,14 @@ pub fn compute_matrices(stocks: &[StockPrep]) -> (Vec<Vec<f32>>, Vec<StockStats>
         (0..ntiles).into_par_iter().for_each(|b| {
             let mut g = packs[b].lock().unwrap();
             let (pack, rest) = g.split_at_mut(n * PACK_W);
-            let (gp, acc) = rest.split_at_mut(BLOCK_BUCKETS * (nm + 4));
+            let (gp, acc) = rest.split_at_mut(BLOCK_BUCKETS * GP_STRIDE);
+            // 未用槽一次性清零（跨块不复用; 已用槽每桶重写）
+            unsafe { std::ptr::write_bytes(gp.as_mut_ptr(), 0, gp.len()); }
             // B 块内单元游标（块局部）
             let mut b_curs = 0usize;
             // B 的桶内 u
             let mut ub = [0.0f32; N_U];
-            // ---- phase 1: 扫桶推进 g 场（gp[k][m], m 连续）----
+            // ---- phase 1: 扫桶推进 g 场（gp[k][slot(m)], slot=field_channel(m) 块内 8 槽对齐）----
             let bcnt = counts_ref[b];
             let boff = offs_ref[b];
             for k in 0..BLOCK_BUCKETS {
@@ -453,20 +459,21 @@ pub fn compute_matrices(stocks: &[StockPrep]) -> (Vec<Vec<f32>>, Vec<StockStats>
                     for f in 0..N_U { ub[f] += c.1[f]; }
                     b_curs += 1;
                 }
-                let gpk = &mut gp[k * (nm + 4)..(k + 1) * (nm + 4)];
+                let gpk = &mut gp[k * GP_STRIDE..(k + 1) * GP_STRIDE];
                 for m in 0..nm {
                     let gfm = &gfields[m];
                     let u = ub[gfm.uf];
-                    gpk[m] = acc[m] + 0.5 * u;
+                    gpk[field_channel(m)] = acc[m] + 0.5 * u;
                     acc[m] = (acc[m] + u) * gfm.dec;
                 }
-                for i in nm..nm + 4 { gpk[i] = 0.0; }
             }
-            // ---- phase 2: A-major 块向量累积（每股每块 7 个 ymm, AVX2; SUB=2 提升 gp L1 驻留）----
+            // ---- phase 2: A-major 显式 AVX2（7 块 × 9 FMA + 3 permute 实现 same/opp; SUB=2 提升 gp L1 驻留）----
             let pack_ptr = pack.as_mut_ptr();
             let gpk0 = gp.as_ptr();
             const SUB: usize = 2;
             let sub_buckets = BLOCK_BUCKETS / SUB;
+            // ± 通道交换索引（flow/urg/ext 组内相邻通道互换）
+            let idx_x = unsafe { _mm256_setr_epi32(1, 0, 3, 2, 5, 4, 7, 6) };
             for sub in 0..SUB {
                 let k_lo = sub * sub_buckets;
                 let k_hi = k_lo + sub_buckets;
@@ -475,13 +482,13 @@ pub fn compute_matrices(stocks: &[StockPrep]) -> (Vec<Vec<f32>>, Vec<StockStats>
                     if ca == 0 { continue; }
                     let base = a * PACK_W;
                     unsafe {
-                        let mut p0: [f32; 8] = unsafe { std::mem::transmute(_mm256_loadu_ps(pack_ptr.add(base))) };
-                        let mut p1: [f32; 8] = unsafe { std::mem::transmute(_mm256_loadu_ps(pack_ptr.add(base + 8))) };
-                        let mut p2: [f32; 8] = unsafe { std::mem::transmute(_mm256_loadu_ps(pack_ptr.add(base + 16))) };
-                        let mut p3: [f32; 8] = unsafe { std::mem::transmute(_mm256_loadu_ps(pack_ptr.add(base + 24))) };
-                        let mut p4: [f32; 8] = unsafe { std::mem::transmute(_mm256_loadu_ps(pack_ptr.add(base + 32))) };
-                        let mut p5: [f32; 8] = unsafe { std::mem::transmute(_mm256_loadu_ps(pack_ptr.add(base + 40))) };
-                        let mut p6: [f32; 8] = unsafe { std::mem::transmute(_mm256_loadu_ps(pack_ptr.add(base + 48))) };
+                        let mut p0 = _mm256_loadu_ps(pack_ptr.add(base));
+                        let mut p1 = _mm256_loadu_ps(pack_ptr.add(base + 8));
+                        let mut p2 = _mm256_loadu_ps(pack_ptr.add(base + 16));
+                        let mut p3 = _mm256_loadu_ps(pack_ptr.add(base + 24));
+                        let mut p4 = _mm256_loadu_ps(pack_ptr.add(base + 32));
+                        let mut p5 = _mm256_loadu_ps(pack_ptr.add(base + 40));
+                        let mut p6 = _mm256_loadu_ps(pack_ptr.add(base + 48));
                         let ca0 = offs_ref[a];
                         let mut j0 = 0usize;
                         while j0 < ca && ((block_buf_ref[ca0 + j0].0 - k0 as u32) as usize) < k_lo { j0 += 1; }
@@ -491,47 +498,45 @@ pub fn compute_matrices(stocks: &[StockPrep]) -> (Vec<Vec<f32>>, Vec<StockStats>
                             let kl = (cell.0 - k0 as u32) as usize;
                             if kl >= k_hi { break; }
                             let ua = &cell.1;
-                            let (uc, uv, ul) = (ua[U_CNT], ua[U_VOL], ua[U_LOGVOL]);
-                            let (fp, fm) = (ua[U_FLOW_P], ua[U_FLOW_M]);
-                            let (up, um) = (ua[U_URG_P], ua[U_URG_M]);
-                            let (xp, xm) = (ua[U_EXT_P], ua[U_EXT_M]);
-                            let gpk = std::slice::from_raw_parts(gpk0.add(kl * (nm + 4)), nm + 4);
-                            // 37 场分组 FMA（7 块; signed 块用 (i^1) 交换实现 same/opp）
-                            // 先拷到栈数组（消除裸指针 aliasing, 保证编译器向量化）
-                            let mut g = [0.0f32; 37];
-                            for i in 0..37 { g[i] = gpk[i]; }
-                            let gc = &g;
-                            // cnt 块 0/1
-                            for i in 0..8 { p0[i] = f32::mul_add(uc, gc[i], p0[i]); }
-                            p1[0] = f32::mul_add(uc, gc[8], p1[0]);
-                            // vol
-                            for i in 0..6 { p2[i] = f32::mul_add(uv, gc[9 + i], p2[i]); }
-                            // logvol
-                            for i in 0..4 { p3[i] = f32::mul_add(ul, gc[15 + i], p3[i]); }
-                            // flow ±（same: +g[i], opp: +g[i^1]）
-                            for i in 0..8 {
-                                p4[i] = f32::mul_add(fp, gc[19 + i], p4[i]);
-                                p4[i] = f32::mul_add(fm, gc[19 + (i ^ 1)], p4[i]);
-                            }
-                            // urg ±
-                            for i in 0..6 {
-                                p5[i] = f32::mul_add(up, gc[27 + i], p5[i]);
-                                p5[i] = f32::mul_add(um, gc[27 + (i ^ 1)], p5[i]);
-                            }
-                            // ext ±
-                            for i in 0..4 {
-                                p6[i] = f32::mul_add(xp, gc[33 + i], p6[i]);
-                                p6[i] = f32::mul_add(xm, gc[33 + (i ^ 1)], p6[i]);
-                            }
+                            // 8 个权重标量广播（每单元一次）
+                            let uc = _mm256_set1_ps(ua[U_CNT]);
+                            let uv = _mm256_set1_ps(ua[U_VOL]);
+                            let ul = _mm256_set1_ps(ua[U_LOGVOL]);
+                            let fp = _mm256_set1_ps(ua[U_FLOW_P]);
+                            let fm = _mm256_set1_ps(ua[U_FLOW_M]);
+                            let up = _mm256_set1_ps(ua[U_URG_P]);
+                            let um = _mm256_set1_ps(ua[U_URG_M]);
+                            let xp = _mm256_set1_ps(ua[U_EXT_P]);
+                            let xm = _mm256_set1_ps(ua[U_EXT_M]);
+                            let gpk = gpk0.add(kl * GP_STRIDE);
+                            // 7 个 ymm 加载（56 槽, 块对齐; 未用槽恒 0 → 乘积恒 0）
+                            let g0 = _mm256_loadu_ps(gpk);          // cnt 8τ
+                            let g1 = _mm256_loadu_ps(gpk.add(8));   // cnt_t30 + 0×7
+                            let g2 = _mm256_loadu_ps(gpk.add(16));  // vol 6τ + 0×2
+                            let g3 = _mm256_loadu_ps(gpk.add(24));  // logvol 4τ + 0×4
+                            let g4 = _mm256_loadu_ps(gpk.add(32));  // flow ±
+                            let g5 = _mm256_loadu_ps(gpk.add(40));  // urg ±
+                            let g6 = _mm256_loadu_ps(gpk.add(48));  // ext ±
+                            p0 = _mm256_fmadd_ps(uc, g0, p0);
+                            p1 = _mm256_fmadd_ps(uc, g1, p1);
+                            p2 = _mm256_fmadd_ps(uv, g2, p2);
+                            p3 = _mm256_fmadd_ps(ul, g3, p3);
+                            // signed 块: same = A+×B+ + A−×B−; opp = A+×B− + A−×B+（通道交换）
+                            let g4x = _mm256_permutevar8x32_ps(g4, idx_x);
+                            p4 = _mm256_fmadd_ps(fp, g4, _mm256_fmadd_ps(fm, g4x, p4));
+                            let g5x = _mm256_permutevar8x32_ps(g5, idx_x);
+                            p5 = _mm256_fmadd_ps(up, g5, _mm256_fmadd_ps(um, g5x, p5));
+                            let g6x = _mm256_permutevar8x32_ps(g6, idx_x);
+                            p6 = _mm256_fmadd_ps(xp, g6, _mm256_fmadd_ps(xm, g6x, p6));
                             j += 1;
                         }
-                        _mm256_storeu_ps(pack_ptr.add(base), unsafe { std::mem::transmute(p0) });
-                        _mm256_storeu_ps(pack_ptr.add(base + 8), unsafe { std::mem::transmute(p1) });
-                        _mm256_storeu_ps(pack_ptr.add(base + 16), unsafe { std::mem::transmute(p2) });
-                        _mm256_storeu_ps(pack_ptr.add(base + 24), unsafe { std::mem::transmute(p3) });
-                        _mm256_storeu_ps(pack_ptr.add(base + 32), unsafe { std::mem::transmute(p4) });
-                        _mm256_storeu_ps(pack_ptr.add(base + 40), unsafe { std::mem::transmute(p5) });
-                        _mm256_storeu_ps(pack_ptr.add(base + 48), unsafe { std::mem::transmute(p6) });
+                        _mm256_storeu_ps(pack_ptr.add(base), p0);
+                        _mm256_storeu_ps(pack_ptr.add(base + 8), p1);
+                        _mm256_storeu_ps(pack_ptr.add(base + 16), p2);
+                        _mm256_storeu_ps(pack_ptr.add(base + 24), p3);
+                        _mm256_storeu_ps(pack_ptr.add(base + 32), p4);
+                        _mm256_storeu_ps(pack_ptr.add(base + 40), p5);
+                        _mm256_storeu_ps(pack_ptr.add(base + 48), p6);
                     }
                 }
             }
