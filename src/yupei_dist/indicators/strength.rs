@@ -3,7 +3,7 @@
 //! MedianStrength = 行中位数; Q90 = 行 90 分位。
 //! 对称矩阵 = 有向矩阵 + 转置（S_dir + S_dirᵀ），用 ctx.symmetric() 缓存。
 
-use crate::indicator_ctx::{IndicatorCtx, IndicatorResult};
+use crate::yupei_dist::indicator_ctx::{IndicatorCtx, IndicatorResult};
 use rayon::prelude::*;
 
 pub fn name() -> &'static str {
@@ -18,7 +18,7 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let n = ctx.n();
     let mut out = Vec::new();
     // 强度谱系矩阵: 6 种权重设计 × 多 τ（含 signed 族的 same 对称分量）
-    for mat in crate::indicator_ctx::MATRIX_LIST {
+    for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
         let sym = match ctx.symmetric(mat) {
             Some(s) => s,
             None => continue,

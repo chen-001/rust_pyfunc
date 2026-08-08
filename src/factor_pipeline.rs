@@ -2076,6 +2076,28 @@ pub fn pipeline_cross_section_example(date: i64, expected_len: usize) -> Vec<Tas
     }
 }
 
+/// 寻找玉佩-成交距离横截面 pipeline 包装：调核心，fan-out 成 TaskResult。
+pub fn pipeline_yupei_dist(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    match crate::yupei_dist::compute::compute_yupei_dist_full(date) {
+        Ok((codes, vals)) => {
+            let n_factors = expected_len;
+            vals.chunks(n_factors)
+                .zip(codes.iter())
+                .map(|(facs, code)| TaskResult {
+                    date,
+                    code: code.clone(),
+                    timestamp: 0,
+                    facs: facs.to_vec(),
+                })
+                .collect()
+        }
+        Err(e) => {
+            eprintln!("yupei_dist error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
 /// 一呼百应（yhyb）横截面 pipeline 包装：调核心，fan-out 成 TaskResult。
 pub fn pipeline_yhyb(date: i64, expected_len: usize) -> Vec<TaskResult> {
     match crate::yhyb_metrics::compute_yhyb_full(date) {
@@ -2324,6 +2346,7 @@ pub fn run_factor_pipeline_cross_section(
     let pipeline_name = pipeline.to_string();
     let known = [
         "cross_section_example",
+        "yupei_dist",
         "pair_interaction",
         "urgency",
         "long_order",

@@ -1,12 +1,11 @@
-//! 指标上下文: 矩阵（mmap）、统计量、行业、前一日数据, 以及常用辅助（对称化等）。
-//! 每个降维指标模块的入口: compute(&IndicatorCtx) -> Vec<IndicatorResult>。
+//! 指标上下文（正式库内存版）: 21 张矩阵 + 每股统计量 + 行业 + 前一交易日矩阵。
+//! 与 sandbox 版 API 保持一致（indicators/*.rs 无需改动即可编译）。
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::Arc;
 
-use crate::matrix_stage::{StockStats, MATRIX_SPECS};
+use super::matrix_stage::{StockStats, MATRIX_SPECS};
 
 /// 37 矩阵全集（与 matrix_stage.rs MATRIX_SPECS 顺序一致; 指标模块遍历用）。
 /// 布局: cnt×9τ, vol×6τ, logvol×4τ, flow same/opp×4τ, urg same/opp×3τ, ext same/opp×2τ。
@@ -36,77 +35,42 @@ pub fn matrix_tau(name: &str) -> f64 {
     if s.len() > 1 && s.starts_with('0') { v / 100.0 } else { v }
 }
 
-/// 单只矩阵文件的 mmap 视图
-pub struct MmapMatrix {
-    pub n: usize,
-    pub mmap: memmap2::Mmap,
-}
-
-impl MmapMatrix {
-    pub fn data(&self) -> &[f32] {
-        unsafe {
-            std::slice::from_raw_parts(self.mmap.as_ptr() as *const f32, self.n * self.n)
-        }
-    }
-}
-
-/// 一个日期的完整备份集（矩阵 + 代码 + 统计量）
-pub struct BackupSet {
-    pub date: i64,
+/// 当日备份集（内存）
+pub struct MatrixSet {
     pub n: usize,
     pub codes: Vec<String>,
     pub stats: Vec<StockStats>,
-    pub mats: HashMap<String, MmapMatrix>,
+    pub mats: HashMap<String, Vec<f32>>,
     pub industry: Option<Vec<i16>>,
 }
 
-impl BackupSet {
-    /// 从备份目录加载（date 目录）
-    pub fn load(dir: &Path, date: i64, load_mats: bool) -> std::io::Result<BackupSet> {
-        let d = dir.join(date.to_string());
-        let codes = crate::matrix_store::read_codes(&d)?;
-        let stats = crate::matrix_store::read_stats(&d)?;
-        let mut mats = HashMap::new();
-        if load_mats {
-            for spec in MATRIX_SPECS.iter() {
-                let p = d.join("mats").join(format!("{}.bin", spec.name));
-                if p.exists() {
-                    let f = std::fs::File::open(&p)?;
-                    let mmap = unsafe { memmap2::Mmap::map(&f)? };
-                    mats.insert(spec.name.to_string(), MmapMatrix { n: codes.len(), mmap });
-                }
-            }
-        }
-        let n = codes.len();
-        // industry.bin 按全市场 symbol_map 顺序存储: 读入后按 codes 重排（缺失 -1）
-        let industry: Option<Vec<i16>> = crate::industry::load_industry_all(&d.join("industry.bin"))
-            .ok()
-            .map(|all: std::collections::HashMap<String, i16>| {
-                codes.iter().map(|c| all.get(c).copied().unwrap_or(-1)).collect()
-            })
-            .filter(|v: &Vec<i16>| v.len() == n);
-        Ok(BackupSet { date, n, codes, stats, mats, industry })
-    }
+/// 前一交易日矩阵（只存需要的有向矩阵）
+pub struct PrevMats {
+    pub n: usize,
+    pub codes: Vec<String>,
+    pub mats: HashMap<String, Vec<f32>>,
 }
 
-/// 前一日备份（时间动态类指标用; 按代码对齐）
 pub struct PrevDay<'a> {
-    pub set: &'a BackupSet,
+    pub set: &'a PrevMats,
     pub code_to_idx: HashMap<&'a str, usize>,
 }
 
 impl<'a> PrevDay<'a> {
-    pub fn new(set: &'a BackupSet) -> Self {
-        let code_to_idx = set.codes.iter().enumerate().map(|(i, c)| (c.as_str(), i)).collect();
+    pub fn new(set: &'a PrevMats) -> Self {
+        let code_to_idx = set
+            .codes
+            .iter()
+            .enumerate()
+            .map(|(i, c)| (c.as_str(), i))
+            .collect();
         PrevDay { set, code_to_idx }
     }
-    /// 当前指标代码在 prev 集中的索引
     pub fn prev_idx(&self, code: &str) -> Option<usize> {
         self.code_to_idx.get(code).copied()
     }
 }
 
-/// 指标输出
 #[derive(Clone, Debug)]
 pub struct IndicatorResult {
     pub name: String,
@@ -119,16 +83,15 @@ impl IndicatorResult {
     }
 }
 
-/// 指标上下文（借用备份集; prev 可空）
 pub struct IndicatorCtx<'a> {
-    pub set: &'a BackupSet,
+    pub set: &'a MatrixSet,
     pub prev: Option<PrevDay<'a>>,
     sym_cache: RefCell<HashMap<String, Arc<Vec<f32>>>>,
     rowsum_cache: RefCell<HashMap<String, Arc<Vec<f64>>>>,
 }
 
 impl<'a> IndicatorCtx<'a> {
-    pub fn new(set: &'a BackupSet, prev: Option<PrevDay<'a>>) -> Self {
+    pub fn new(set: &'a MatrixSet, prev: Option<PrevDay<'a>>) -> Self {
         IndicatorCtx {
             set,
             prev,
@@ -150,12 +113,11 @@ impl<'a> IndicatorCtx<'a> {
         self.set.industry.as_deref()
     }
     pub fn date(&self) -> i64 {
-        self.set.date
+        0
     }
 
-    /// 有向矩阵（S_dir[i][j] = i 领先 j）; 无则 None
     pub fn matrix(&self, name: &str) -> Option<&[f32]> {
-        self.set.mats.get(name).map(|m| m.data())
+        self.set.mats.get(name).map(|m| m.as_slice())
     }
 
     pub fn has_matrix(&self, name: &str) -> bool {
@@ -187,7 +149,6 @@ impl<'a> IndicatorCtx<'a> {
         Some(arc)
     }
 
-    /// 对称矩阵的行和（缓存）
     pub fn row_sum_sym(&self, name: &str) -> Option<Arc<Vec<f64>>> {
         if let Some(v) = self.rowsum_cache.borrow().get(name) {
             return Some(v.clone());
@@ -202,6 +163,16 @@ impl<'a> IndicatorCtx<'a> {
         let arc = Arc::new(out);
         self.rowsum_cache.borrow_mut().insert(name.to_string(), arc.clone());
         Some(arc)
+    }
+
+    pub fn row_sum_dir(&self, name: &str) -> Option<Vec<f64>> {
+        let d = self.matrix(name)?;
+        let n = self.n();
+        Some(
+            (0..n)
+                .map(|i| d[i * n..(i + 1) * n].iter().map(|&v| v as f64).sum())
+                .collect(),
+        )
     }
 
     /// 有向净矩阵（signed 族）: net = same - opp。名称形如 "{family}_t{tau}"
@@ -224,14 +195,6 @@ impl<'a> IndicatorCtx<'a> {
         Some(arc)
     }
 
-    /// 有向矩阵行和（OutStrength 方向: Σ_j S[i][j]）
-    pub fn row_sum_dir(&self, name: &str) -> Option<Vec<f64>> {
-        let d = self.matrix(name)?;
-        let n = self.n();
-        Some((0..n).map(|i| d[i * n..(i + 1) * n].iter().map(|&v| v as f64).sum()).collect())
-    }
-
-    /// 有向矩阵列和（InStrength 方向: Σ_i S[i][j]）
     pub fn col_sum_dir(&self, name: &str) -> Option<Vec<f64>> {
         let d = self.matrix(name)?;
         let n = self.n();
@@ -243,9 +206,4 @@ impl<'a> IndicatorCtx<'a> {
         }
         Some(out)
     }
-}
-
-/// 加载日期备份集（供二进制入口用）
-pub fn load_backup(outdir: &str, date: i64, load_mats: bool) -> std::io::Result<BackupSet> {
-    BackupSet::load(Path::new(outdir), date, load_mats)
 }

@@ -90,7 +90,7 @@ fn cmd_matrices(args: &[String]) {
     let t0 = std::time::Instant::now();
     let (mats, stats) = yupei_dist::matrix_stage::compute_matrices(&stocks);
     let secs = t0.elapsed().as_secs_f32();
-    eprintln!("[m3] matrices 21×{n}×{n} {secs:.1}s");
+    eprintln!("[m3] matrices {}×{n}×{n} {secs:.1}s", yupei_dist::matrix_stage::N_MATRICES);
 
     // ---- 写备份 ----
     let t0 = std::time::Instant::now();

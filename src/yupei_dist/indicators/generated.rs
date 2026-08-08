@@ -27,7 +27,7 @@
 #[path = "strength.rs"] pub mod strength;
 #[path = "surplus.rs"] pub mod surplus;
 #[path = "topk.rs"] pub mod topk;
-use crate::indicator_ctx::{IndicatorCtx, IndicatorResult};
+use crate::yupei_dist::indicator_ctx::{IndicatorCtx, IndicatorResult};
 pub struct IndicatorDef {
     pub name: &'static str,
     pub compute: fn(&IndicatorCtx) -> Vec<IndicatorResult>,

@@ -203,6 +203,16 @@ def run_factor_pipeline_cross_section(
     ...
 
 
+def py_yupei_dist(date: int) -> Tuple[List[str], List[float]]:
+    """单日全市场横截面因子（寻找玉佩-成交距离）: 37 张关联-差异矩阵 × 28 指标模块 = 2761 因子。
+
+    返回 (codes, vals): codes 为当日 universe 股票代码列表,
+    vals 为行主序 N×2761 的因子值（顺序与 py_yupei_dist_names 一致）。
+    """
+
+def py_yupei_dist_names() -> List[str]:
+    """2761 个因子名（与 py_yupei_dist 输出列顺序一致）。"""
+
 def py_cross_section_example(date: int) -> Tuple[List[str], List[float]]:
     ...
 

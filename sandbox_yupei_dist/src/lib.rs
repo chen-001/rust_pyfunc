@@ -7,6 +7,7 @@ pub mod indicators;
 pub mod industry;
 pub mod matrix_stage;
 pub mod matrix_store;
+pub mod topk_util;
 
 /// 从备份目录加载上下文（矩阵 + 统计 + 前一日）
 pub fn load_ctx(outdir: &str, date: i64, prev_date: Option<i64>) -> std::io::Result<indicator_ctx::IndicatorCtx<'static>> {

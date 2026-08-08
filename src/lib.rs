@@ -1,6 +1,7 @@
 #[allow(unused_imports)]
 use pyo3::prelude::*;
 
+pub mod yupei_dist;
 pub mod backup_column_cache;
 pub mod backup_reader;
 pub mod backup_writer;
@@ -1107,6 +1108,8 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         factor_pipeline::run_factor_pipeline_cross_section,
         m
     )?)?;
+    let _ = m.add_function(wrap_pyfunction!(yupei_dist::compute::py_yupei_dist, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(yupei_dist::compute::py_yupei_dist_names, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(
         cross_section_example_metrics::py_cross_section_example,
         m
