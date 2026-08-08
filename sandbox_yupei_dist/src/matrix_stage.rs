@@ -1,0 +1,580 @@
+//! 关联-差异矩阵（关联与差异指标.md 的衰减事件场交互能量）—— 纯 Rust 高性能实现。
+//!
+//! 数学定义（见 关联与差异指标.md 第 11 节）:
+//!   S_AB = Σ_{i∈A} Σ_{j∈B} w_i·w_j·e^{-|t_i−t_j|/τ}
+//! 等价逐笔实现: 每笔成交权重 w_i（6 种设计），按 10ms 时间桶聚合为 u 场，
+//! 用"带衰减的滚动累加器"（z 场）做 B-固定流式扫描:
+//!   S_{A→B} = Σ_k u_A[k]·g_B[k],  g_B[k] = Σ_{l<k} u_B[l]·e^{-(k−l)Δ/τ}   (A 领先 B)
+//! 一次扫描同时算全部 (权重设计 × τ) 组合（21 个 g 场，AVX2 8-lane 对 A 批处理）。
+//!
+//! 存储语义: 所有矩阵存"有向" S_dir[i][j] = "i 领先 j 的交互能量"（行主序 N×N f32,
+//! 对角 0）。对称交互 = S_dir + S_dirᵀ；同一 10ms 桶内的成交对按 50/50 折半计入
+//! 两个方向（S_dir[i][j] 含 +0.5·Σ_k u_i[k]u_j[k]）。
+//!
+//! 权重设计 w_i（6 族）:
+//!   cnt    : w = 1                        （成交同步）
+//!   vol    : w = √v                       （大单同步）
+//!   logvol : w = ln(1+v)                  （大单同步，对数版）
+//!   flow   : w = s·√v, s = 主动方向(66买/83卖) （方向性资金流同步）
+//!   urg    : w = s·u, u = 订单编号差异常度（每股 z 标准化） （迫切订单同步）
+//!   ext    : w = 1(|u|>q95)·s·√v          （极端迫切订单同步，桶级近似）
+//! signed 族（flow/urg/ext）拆同向/反向: same（同买同卖）, opp（对手盘）。
+//!
+//! τ 集合（秒）: cnt {0.05,0.2,1,5,30}, vol {0.2,1,5,30}, logvol {1,30},
+//!              flow {1,5}, urg {1,30}, ext {1} → 共 21 张 N×N 矩阵。
+//!
+//! 性能设计（内存友好原则）:
+//!   - Δ=10ms 桶, 全天 1,422,000 桶; 每股票稀疏 (桶, u[9]) 单元（同桶合并）
+//!   - 4096 桶分块: 块内建 (k_local, stock, u[9]) 倒排（k 排序）
+//!   - B 并行（rayon 50 线程）; 每 B 流式扫桶: 21 个衰减累加器每桶 21 乘+21 加（无 exp）
+//!   - 单元循环按 8 个 A 批处理（AVX2）: 31 次 FMA/单元, 结果向量化刷入 m-major 分级缓冲,
+//!     块末一次性写回 21 张矩阵（写流量降 ~40 倍, 无逐单元随机 RMW）
+
+use rayon::prelude::*;
+#[cfg(target_arch = "x86_64")]
+use std::arch::x86_64::*;
+
+pub const BUCKET_US: i64 = 10_000;          // 10ms
+pub const N_BUCKETS: usize = 1_422_000;     // 14220s × 100
+pub const BLOCK_BUCKETS: usize = 4096;      // 块内桶数 (40.96s)
+pub const N_BLOCKS: usize = N_BUCKETS / BLOCK_BUCKETS; // 348
+
+/// 每单元 9 个 u 场: [cnt, vol, logvol, flow+, flow−, urg+, urg−, ext+, ext−]
+pub const U_CNT: usize = 0;
+pub const U_VOL: usize = 1;
+pub const U_LOGVOL: usize = 2;
+pub const U_FLOW_P: usize = 3;
+pub const U_FLOW_M: usize = 4;
+pub const U_URG_P: usize = 5;
+pub const U_URG_M: usize = 6;
+pub const U_EXT_P: usize = 7;
+pub const U_EXT_M: usize = 8;
+pub const N_U: usize = 9;
+
+/// 矩阵规格（与 MATRIX_NAMES 一一对应）
+#[derive(Clone, Copy, Debug)]
+pub struct MatrixSpec {
+    pub name: &'static str,
+    pub family: u8,   // 0=cnt 1=vol 2=logvol 3=flow 4=urg 5=ext
+    pub tau: f32,     // 秒
+    pub signed: bool,
+    pub same: bool,   // signed 时: true=同向 false=反向
+}
+
+pub const MATRIX_SPECS: [MatrixSpec; 21] = [
+    MatrixSpec { name: "cnt_t005", family: 0, tau: 0.05, signed: false, same: true },
+    MatrixSpec { name: "cnt_t02", family: 0, tau: 0.2, signed: false, same: true },
+    MatrixSpec { name: "cnt_t1", family: 0, tau: 1.0, signed: false, same: true },
+    MatrixSpec { name: "cnt_t5", family: 0, tau: 5.0, signed: false, same: true },
+    MatrixSpec { name: "cnt_t30", family: 0, tau: 30.0, signed: false, same: true },
+    MatrixSpec { name: "vol_t02", family: 1, tau: 0.2, signed: false, same: true },
+    MatrixSpec { name: "vol_t1", family: 1, tau: 1.0, signed: false, same: true },
+    MatrixSpec { name: "vol_t5", family: 1, tau: 5.0, signed: false, same: true },
+    MatrixSpec { name: "vol_t30", family: 1, tau: 30.0, signed: false, same: true },
+    MatrixSpec { name: "logvol_t1", family: 2, tau: 1.0, signed: false, same: true },
+    MatrixSpec { name: "logvol_t30", family: 2, tau: 30.0, signed: false, same: true },
+    MatrixSpec { name: "flow_same_t1", family: 3, tau: 1.0, signed: true, same: true },
+    MatrixSpec { name: "flow_opp_t1", family: 3, tau: 1.0, signed: true, same: false },
+    MatrixSpec { name: "flow_same_t5", family: 3, tau: 5.0, signed: true, same: true },
+    MatrixSpec { name: "flow_opp_t5", family: 3, tau: 5.0, signed: true, same: false },
+    MatrixSpec { name: "urg_same_t1", family: 4, tau: 1.0, signed: true, same: true },
+    MatrixSpec { name: "urg_opp_t1", family: 4, tau: 1.0, signed: true, same: false },
+    MatrixSpec { name: "urg_same_t30", family: 4, tau: 30.0, signed: true, same: true },
+    MatrixSpec { name: "urg_opp_t30", family: 4, tau: 30.0, signed: true, same: false },
+    MatrixSpec { name: "ext_same_t1", family: 5, tau: 1.0, signed: true, same: true },
+    MatrixSpec { name: "ext_opp_t1", family: 5, tau: 1.0, signed: true, same: false },
+];
+
+pub const N_MATRICES: usize = MATRIX_SPECS.len();
+
+/// 每股预处理结果: 稀疏桶单元 + 统计量
+#[derive(Clone, Debug)]
+pub struct StockPrep {
+    pub code: String,
+    /// (桶idx, u[9])，按桶升序，同桶已合并
+    pub cells: Vec<(u32, [f32; N_U])>,
+    pub n_trades: usize,
+    pub amount: f64,
+    pub total_vol: f64,
+    pub imb: f64,
+    pub ret: f64,
+    pub vol30: f64,
+    pub vwap: f64,
+    pub q95u: f64,
+    /// 每族权重绝对值总和（供零模型/盈余归一化用），序同 family
+    pub sum_w: [f64; 6],
+}
+
+/// 每股统计量汇总（供降维指标用，也写盘备份）
+#[derive(Clone, Copy, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct StockStats {
+    pub n_trades: f64,
+    pub amount: f64,
+    pub total_vol: f64,
+    pub imb: f64,
+    pub ret: f64,
+    pub vol30: f64,
+    pub vwap: f64,
+    pub q95u: f64,
+    pub sum_w_cnt: f64,
+    pub sum_w_vol: f64,
+    pub sum_w_logvol: f64,
+    pub sum_w_flow: f64,
+    pub sum_w_urg: f64,
+    pub sum_w_ext: f64,
+}
+
+/// 每股预处理（并行调用）: 读逐笔 → 权重 → 稀疏桶单元 + 统计量
+pub fn prep_stock(code: &str, recs: &[crate::fast_csv_reader::TradeRecord], day_start_us: i64,
+                  min_trades: usize) -> Option<StockPrep> {
+    let n = recs.len();
+    if n < min_trades {
+        return None;
+    }
+    // ---- pass 1: 订单编号差异 r=(bid−ask)/(|bid|+|ask|) 的均值/标准差 ----
+    let mut rs = Vec::with_capacity(n);
+    let (mut sum_r, mut sum_r2) = (0.0f64, 0.0f64);
+    for r in recs {
+        let denom = (r.bid_order.abs() + r.ask_order.abs()) as f64;
+        let rr = if denom > 0.0 { (r.bid_order - r.ask_order) as f64 / denom } else { 0.0 };
+        rs.push(rr);
+        sum_r += rr;
+        sum_r2 += rr * rr;
+    }
+    let mean_r = sum_r / n as f64;
+    let var_r = (sum_r2 - sum_r * sum_r / n as f64) / n as f64;
+    let std_r = if var_r > 0.0 { var_r.sqrt() } else { 0.0 };
+
+    // ---- pass 2: 每笔临时权重（桶idx, u, sv, s）----
+    struct Tmp { bidx: u32, u: f32, sv: f32, lv: f32, s: f32 }
+    let mut tmp: Vec<Tmp> = Vec::with_capacity(n);
+    let mut absus: Vec<f32> = Vec::with_capacity(n);
+    let (mut sum_w_cnt, mut sum_w_vol, mut sum_w_logvol, mut sum_w_flow, mut sum_w_urg) = (0.0f64, 0.0f64, 0.0f64, 0.0f64, 0.0f64);
+    let (mut first_p, mut last_p) = (0.0f64, 0.0f64);
+    let (mut total_vol, mut amount, mut sgn_vol) = (0.0f64, 0.0f64, 0.0f64);
+    for (i, r) in recs.iter().enumerate() {
+        let off = r.time_us - day_start_us;
+        if off < 0 || off >= N_BUCKETS as i64 * BUCKET_US {
+            continue;
+        }
+        let bidx = (off / BUCKET_US) as u32;
+        let v = r.volume.max(0.0);
+        let sv = v.sqrt() as f32;
+        let lv = (1.0 + v).ln() as f32;
+        let s: f32 = match r.flag { 66 => 1.0, 83 => -1.0, _ => 0.0 };
+        let u = if std_r > 0.0 { ((rs[i] - mean_r) / std_r) as f32 } else { 0.0 };
+        tmp.push(Tmp { bidx, u, sv, lv, s });
+        absus.push(u.abs());
+        sum_w_cnt += 1.0;
+        sum_w_vol += sv as f64;
+        sum_w_logvol += lv as f64;
+        sum_w_flow += sv as f64;
+        sum_w_urg += (s * u).abs() as f64;
+        if first_p == 0.0 { first_p = r.price; }
+        last_p = r.price;
+        total_vol += v;
+        amount += r.turnover.max(0.0);
+        sgn_vol += (s as f64) * v;
+    }
+    if tmp.is_empty() {
+        return None;
+    }
+    // ---- pass 3: q95(|u|) → 组装稀疏桶单元（含 ext 阈值判定）----
+    absus.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let q95u = absus[(((absus.len() as f64) * 0.95) as usize).min(absus.len() - 1)] as f64;
+    let mut cells: Vec<(u32, [f32; N_U])> = Vec::with_capacity(tmp.len());
+    let mut sum_w_ext = 0.0f64;
+    for t in tmp {
+        let mut u9 = [0.0f32; N_U];
+        u9[U_CNT] = 1.0;
+        u9[U_VOL] = t.sv;
+        u9[U_LOGVOL] = t.lv;
+        let w_urg = t.s * t.u;
+        if t.s > 0.0 {
+            u9[U_FLOW_P] = t.sv;
+            u9[U_URG_P] = w_urg;
+            if t.u.abs() as f64 > q95u { u9[U_EXT_P] = t.sv; }
+        } else if t.s < 0.0 {
+            u9[U_FLOW_M] = t.sv;
+            u9[U_URG_M] = -w_urg;
+            if t.u.abs() as f64 > q95u { u9[U_EXT_M] = t.sv; }
+        }
+        sum_w_ext += (u9[U_EXT_P] + u9[U_EXT_M]) as f64;
+        if let Some((bk, ua)) = cells.last_mut() {
+            if *bk == t.bidx {
+                for k in 0..N_U { ua[k] += u9[k]; }
+                continue;
+            }
+        }
+        cells.push((t.bidx, u9));
+    }
+    let n_kept = cells.iter().map(|(_, ua)| ua[U_CNT] as usize).sum::<usize>();
+    let vol30 = bucket_vol30(recs, day_start_us);
+    Some(StockPrep {
+        code: code.to_string(),
+        cells,
+        n_trades: n_kept,
+        amount,
+        total_vol,
+        imb: if total_vol > 0.0 { sgn_vol / total_vol } else { 0.0 },
+        ret: if first_p > 0.0 { last_p / first_p - 1.0 } else { 0.0 },
+        vol30,
+        vwap: if total_vol > 0.0 { amount / total_vol } else { 0.0 },
+        q95u,
+        sum_w: [sum_w_cnt, sum_w_vol, sum_w_logvol, sum_w_flow, sum_w_urg, sum_w_ext],
+    })
+}
+
+/// 30s 桶收益标准差（last price per 30s 桶）
+fn bucket_vol30(recs: &[crate::fast_csv_reader::TradeRecord], day_start_us: i64) -> f64 {
+    const S30: usize = 474;
+    let mut last_p = vec![0.0f64; S30];
+    for r in recs {
+        let off = r.time_us - day_start_us;
+        if off < 0 { continue; }
+        let i = (off / 30_000_000) as usize;
+        if i < S30 { last_p[i] = r.price; }
+    }
+    let mut rets = Vec::with_capacity(S30);
+    let mut prev = 0.0f64;
+    for &p in last_p.iter() {
+        if p > 0.0 {
+            if prev > 0.0 { rets.push(p / prev - 1.0); }
+            prev = p;
+        }
+    }
+    if rets.len() < 2 { return 0.0; }
+    let m = rets.iter().sum::<f64>() / rets.len() as f64;
+    let v = rets.iter().map(|x| (x - m) * (x - m)).sum::<f64>() / rets.len() as f64;
+    v.sqrt()
+}
+
+#[inline]
+fn decay(tau: f32) -> f32 {
+    (-(BUCKET_US as f32) / (tau * 1e6)).exp()
+}
+
+/// g 场元数据: 每矩阵的 (u+ 场, u− 场, g+ 场, g− 场, 是否 signed)
+/// g 场布局（21）: 0..5 cnt(τ序), 5..9 vol, 9..11 logvol,
+///                11..15 flow(±, τ1,τ5), 15..19 urg(±, τ1,τ30), 19..21 ext(±, τ1)
+struct GInfo { up: usize, um: usize, gp: usize, gm: usize }
+
+fn g_info() -> Vec<GInfo> {
+    let u_field: [usize; 6] = [U_CNT, U_VOL, U_LOGVOL, U_FLOW_P, U_URG_P, U_EXT_P];
+    let tau_list: [f32; 5] = [0.05, 0.2, 1.0, 5.0, 30.0];
+    let fam_g_start: [usize; 3] = [0, 5, 9];
+    let mut out = Vec::with_capacity(N_MATRICES);
+    for spec in MATRIX_SPECS.iter() {
+        let fam = spec.family as usize;
+        let up = u_field[fam];
+        if !spec.signed {
+            let ti = tau_list.iter().position(|&t| (t - spec.tau).abs() < 1e-6).unwrap();
+            let gi = fam_g_start[fam] + ti;
+            out.push(GInfo { up, um: up, gp: gi, gm: gi });
+        } else {
+            let base = match fam { 3 => 11usize, 4 => 15, 5 => 19, _ => unreachable!() };
+            let off = match (fam, spec.tau as i32) {
+                (3, 1) => 0, (3, 5) => 2,
+                (4, 1) => 0, (4, 30) => 2,
+                (5, 1) => 0,
+                _ => 0,
+            };
+            let (gp, gm) = if spec.same { (base + off, base + off + 1) } else { (base + off + 1, base + off) };
+            out.push(GInfo { up, um: up + 1, gp, gm });
+        }
+    }
+    out
+}
+
+/// 21 个 g 场的衰减系数与 u 场映射（每场: u 场 idx, decay）
+struct GField { uf: usize, dec: f32 }
+
+fn g_fields() -> [GField; 21] {
+    // 无符号: cnt τ=0.05,0.2,1,5,30; vol τ=0.2,1,5,30; logvol τ=1,30
+    // 带符号: flow +τ1,−τ1,+τ5,−τ5; urg +τ1,−τ1,+τ30,−τ30; ext +τ1,−τ1
+    let d = decay;
+    [
+        GField { uf: U_CNT, dec: d(0.05) }, GField { uf: U_CNT, dec: d(0.2) },
+        GField { uf: U_CNT, dec: d(1.0) }, GField { uf: U_CNT, dec: d(5.0) },
+        GField { uf: U_CNT, dec: d(30.0) },
+        GField { uf: U_VOL, dec: d(0.2) }, GField { uf: U_VOL, dec: d(1.0) },
+        GField { uf: U_VOL, dec: d(5.0) }, GField { uf: U_VOL, dec: d(30.0) },
+        GField { uf: U_LOGVOL, dec: d(1.0) }, GField { uf: U_LOGVOL, dec: d(30.0) },
+        GField { uf: U_FLOW_P, dec: d(1.0) }, GField { uf: U_FLOW_M, dec: d(1.0) },
+        GField { uf: U_FLOW_P, dec: d(5.0) }, GField { uf: U_FLOW_M, dec: d(5.0) },
+        GField { uf: U_URG_P, dec: d(1.0) }, GField { uf: U_URG_M, dec: d(1.0) },
+        GField { uf: U_URG_P, dec: d(30.0) }, GField { uf: U_URG_M, dec: d(30.0) },
+        GField { uf: U_EXT_P, dec: d(1.0) }, GField { uf: U_EXT_M, dec: d(1.0) },
+    ]
+}
+
+/// 全市场矩阵计算（B-tile 并行 + 块内 gp 场物化 + A-major 寄存器累积）。
+///
+/// 结构（每块）:
+///   phase 1: 对 tile 内 64 只 B 流式扫桶, 把 21 个衰减 g 场物化为 gp[4096][21][64]
+///            （L3 驻留, 每块每 tile ~22MB）
+///   phase 2: A-major 循环: 每只 A 把 S[A][tile] 列段读入 accA[64][21]（L1）,
+///            遍历 A 块内单元做 31 FMA/单元, 块末一次性写回 —— S 写流量降 ~300 倍
+/// 并行: 块串行（348）× tile 并行（87 个, rayon）
+/// 返回 21 张 N×N f32 有向矩阵（行主序, 对角 0）与每股统计量。
+pub fn compute_matrices(stocks: &[StockPrep]) -> (Vec<Vec<f32>>, Vec<StockStats>) {
+    let n = stocks.len();
+    let nm = N_MATRICES;
+    let gfields = g_fields();
+    let mut mats: Vec<Vec<f32>> = vec![vec![0.0f32; n * n]; nm];
+    let stats: Vec<StockStats> = stocks.iter().map(|s| StockStats {
+        n_trades: s.n_trades as f64,
+        amount: s.amount,
+        total_vol: s.total_vol,
+        imb: s.imb,
+        ret: s.ret,
+        vol30: s.vol30,
+        vwap: s.vwap,
+        q95u: s.q95u,
+        sum_w_cnt: s.sum_w[0], sum_w_vol: s.sum_w[1], sum_w_logvol: s.sum_w[2],
+        sum_w_flow: s.sum_w[3], sum_w_urg: s.sum_w[4], sum_w_ext: s.sum_w[5],
+    }).collect();
+
+    // 每股全局 cells 游标（块间推进）
+    let mut cursors: Vec<usize> = vec![0; n];
+
+    // 持久 pack 池（每 tile 一个; 块串行 → 无锁竞争; 整日累积后日末刷入 S）
+    // TILE=1; pack 组对齐 [a][48]: 6 组×8 通道（cnt/vol/logvol/flow/urg/ext）,
+    // 组内通道 0..len-1 对应矩阵 m; gp 场 [k][21+3pad] 按 m 连续（组内非对齐 ymm 加载）。
+    let ntiles = n;
+    const PACK_G: usize = 6;          // 组数
+    const PACK_W: usize = 48;         // 6×8 通道
+    // 组 → (m 起始, 长度, u+ 场, u− 场, signed)
+    const GROUPS: [(usize, usize, usize, usize, bool); 6] = [
+        (0, 5, U_CNT, U_CNT, false),
+        (5, 4, U_VOL, U_VOL, false),
+        (9, 2, U_LOGVOL, U_LOGVOL, false),
+        (11, 4, U_FLOW_P, U_FLOW_M, true),
+        (15, 4, U_URG_P, U_URG_M, true),
+        (19, 2, U_EXT_P, U_EXT_M, true),
+    ];
+    let packs: Vec<std::sync::Mutex<Vec<f32>>> = (0..ntiles)
+        .map(|_| std::sync::Mutex::new(vec![0.0f32; n * PACK_W + BLOCK_BUCKETS * (nm + 4) + nm]))
+        .collect();
+
+    for block in 0..N_BLOCKS {
+        let k0 = block * BLOCK_BUCKETS;
+        let k1 = k0 + BLOCK_BUCKETS;
+        // ---- 1. 每股块内单元（游标推进, 并行）----
+        let counts: Vec<usize> = stocks.par_iter().enumerate()
+            .map(|(i, st)| {
+                let mut c = cursors[i];
+                while c < st.cells.len() && (st.cells[c].0 as usize) < k1 { c += 1; }
+                c - cursors[i]
+            })
+            .collect();
+        let total_cells: usize = counts.iter().sum();
+        let mut offs: Vec<usize> = Vec::with_capacity(n + 1);
+        let mut acc_off = 0usize;
+        for &c in counts.iter() { offs.push(acc_off); acc_off += c; }
+        offs.push(acc_off);
+        let mut block_buf: Vec<(u32, [f32; N_U])> = vec![(0, [0.0f32; N_U]); total_cells];
+        for i in 0..n {
+            let src = &stocks[i].cells[cursors[i]..cursors[i] + counts[i]];
+            let dst = &mut block_buf[offs[i]..offs[i] + counts[i]];
+            for (d, s) in dst.iter_mut().zip(src.iter()) { *d = s.clone(); }
+        }
+        for i in 0..n { cursors[i] += counts[i]; }
+
+        // ---- 2. tile 并行（TILE=1: 每 tile = 一只 B; A-major 组向量寄存器累积）----
+        let block_buf_ref = &block_buf;
+        let offs_ref = &offs;
+        let counts_ref = &counts;
+        let gfields = &gfields;
+        (0..ntiles).into_par_iter().for_each(|b| {
+            let mut g = packs[b].lock().unwrap();
+            let (pack, rest) = g.split_at_mut(n * PACK_W);
+            let (gp, acc) = rest.split_at_mut(BLOCK_BUCKETS * (nm + 4));
+            // B 块内单元游标（块局部）
+            let mut b_curs = 0usize;
+            // B 的桶内 u
+            let mut ub = [0.0f32; N_U];
+            // ---- phase 1: 扫桶推进 g 场（gp[k][m], m 连续）----
+            let bcnt = counts_ref[b];
+            let boff = offs_ref[b];
+            for k in 0..BLOCK_BUCKETS {
+                for f in 0..N_U { ub[f] = 0.0; }
+                while b_curs < bcnt && (block_buf_ref[boff + b_curs].0 - k0 as u32) as usize == k {
+                    let c = &block_buf_ref[boff + b_curs];
+                    for f in 0..N_U { ub[f] += c.1[f]; }
+                    b_curs += 1;
+                }
+                let gpk = &mut gp[k * (nm + 4)..(k + 1) * (nm + 4)];
+                for m in 0..nm {
+                    let gfm = &gfields[m];
+                    let u = ub[gfm.uf];
+                    gpk[m] = acc[m] + 0.5 * u;
+                    acc[m] = (acc[m] + u) * gfm.dec;
+                }
+                gpk[21] = 0.0; gpk[22] = 0.0; gpk[23] = 0.0;
+            }
+            // ---- phase 2: A-major 组向量累积（每股每亚块 6 个 ymm, AVX2; SUB=2 提升 gp L1 驻留）----
+            let pack_ptr = pack.as_mut_ptr();
+            let gpk0 = gp.as_ptr();
+            const SUB: usize = 2;
+            let sub_buckets = BLOCK_BUCKETS / SUB;
+            // 组内相邻通道互换的 permute 索引（flow/urg/ext 每组 4/4/2 通道）
+            let idx4 = unsafe { _mm256_setr_epi32(1, 0, 3, 2, 4, 5, 6, 7) };
+            let idx2 = unsafe { _mm256_setr_epi32(1, 0, 2, 3, 4, 5, 6, 7) };
+            let idx5 = unsafe { _mm256_setr_epi32(5, 6, 7, 8, 9, 10, 11, 12) };
+            let idx9 = unsafe { _mm256_setr_epi32(1, 2, 3, 4, 5, 6, 7, 8) };
+            let idx11 = unsafe { _mm256_setr_epi32(3, 4, 5, 6, 7, 8, 9, 10) };
+            let idx15 = unsafe { _mm256_setr_epi32(7, 8, 9, 10, 11, 12, 13, 14) };
+            let idx19 = unsafe { _mm256_setr_epi32(3, 4, 5, 6, 7, 7, 7, 7) };
+            for sub in 0..SUB {
+                let k_lo = sub * sub_buckets;
+                let k_hi = k_lo + sub_buckets;
+                for a in 0..n {
+                    let ca = counts_ref[a];
+                    if ca == 0 { continue; }
+                    let base = a * PACK_W;
+                    unsafe {
+                        let mut p0 = _mm256_loadu_ps(pack_ptr.add(base));
+                        let mut p1 = _mm256_loadu_ps(pack_ptr.add(base + 8));
+                        let mut p2 = _mm256_loadu_ps(pack_ptr.add(base + 16));
+                        let mut p3 = _mm256_loadu_ps(pack_ptr.add(base + 24));
+                        let mut p4 = _mm256_loadu_ps(pack_ptr.add(base + 32));
+                        let mut p5 = _mm256_loadu_ps(pack_ptr.add(base + 40));
+                        let ca0 = offs_ref[a];
+                        // 跳过亚块范围外的单元
+                        let mut j0 = 0usize;
+                        while j0 < ca && ((block_buf_ref[ca0 + j0].0 - k0 as u32) as usize) < k_lo { j0 += 1; }
+                        let mut j = j0;
+                        while j < ca {
+                            let cell = &block_buf_ref[ca0 + j];
+                            let kl = (cell.0 - k0 as u32) as usize;
+                            if kl >= k_hi { break; }
+                            let ua = &cell.1;
+                            let (uc, uv, ul) = (ua[U_CNT], ua[U_VOL], ua[U_LOGVOL]);
+                            let (fp, fm) = (ua[U_FLOW_P], ua[U_FLOW_M]);
+                            let (up, um) = (ua[U_URG_P], ua[U_URG_M]);
+                            let (xp, xm) = (ua[U_EXT_P], ua[U_EXT_M]);
+                            let gpk = gpk0.add(kl * (nm + 4));
+                            let g0 = _mm256_loadu_ps(gpk);                 // m0..7
+                            let g1 = _mm256_loadu_ps(gpk.add(8));          // m8..15
+                            let g2 = _mm256_loadu_ps(gpk.add(16));         // m16..23
+                            // 组向量由 3 个基础向量洗牌派生（3×32B 替代 9×32B 加载）
+                            let g01 = _mm256_permute2f128_ps(g0, g1, 0x20); // m0..15
+                            let g12 = _mm256_permute2f128_ps(g1, g2, 0x20); // m8..23
+                            let gv = _mm256_permutevar8x32_ps(g01, idx5);   // m5..12
+                            let gl = _mm256_permutevar8x32_ps(g12, idx9);   // m9..16
+                            let gf = _mm256_permutevar8x32_ps(g12, idx11);  // m11..18
+                            let gu = _mm256_permutevar8x32_ps(g12, idx15);  // m15..22
+                            let gx = _mm256_permutevar8x32_ps(g2, idx19);   // m19..26
+                            let gfs = _mm256_permutevar8x32_ps(gf, idx4);
+                            let gus = _mm256_permutevar8x32_ps(gu, idx4);
+                            let gxs = _mm256_permutevar8x32_ps(gx, idx2);
+                            p0 = _mm256_fmadd_ps(_mm256_set1_ps(uc), g0, p0);
+                            p1 = _mm256_fmadd_ps(_mm256_set1_ps(uv), gv, p1);
+                            p2 = _mm256_fmadd_ps(_mm256_set1_ps(ul), gl, p2);
+                            p3 = _mm256_fmadd_ps(_mm256_set1_ps(fp), gf, p3);
+                            p3 = _mm256_fmadd_ps(_mm256_set1_ps(fm), gfs, p3);
+                            p4 = _mm256_fmadd_ps(_mm256_set1_ps(up), gu, p4);
+                            p4 = _mm256_fmadd_ps(_mm256_set1_ps(um), gus, p4);
+                            p5 = _mm256_fmadd_ps(_mm256_set1_ps(xp), gx, p5);
+                            p5 = _mm256_fmadd_ps(_mm256_set1_ps(xm), gxs, p5);
+                            j += 1;
+                        }
+                        _mm256_storeu_ps(pack_ptr.add(base), p0);
+                        _mm256_storeu_ps(pack_ptr.add(base + 8), p1);
+                        _mm256_storeu_ps(pack_ptr.add(base + 16), p2);
+                        _mm256_storeu_ps(pack_ptr.add(base + 24), p3);
+                        _mm256_storeu_ps(pack_ptr.add(base + 32), p4);
+                        _mm256_storeu_ps(pack_ptr.add(base + 40), p5);
+                    }
+                }
+            }
+        });
+    }
+    // ---- 日末刷入 S[m][a][b]（并行; 每 tile 只写第 b 列, 列互不相交）----
+    let flush_start = std::time::Instant::now();
+    struct MatPtr(*mut f32);
+    unsafe impl Send for MatPtr {}
+    unsafe impl Sync for MatPtr {}
+    let mats_raw: Vec<MatPtr> = mats.iter_mut().map(|v| MatPtr(v.as_mut_ptr())).collect();
+    (0..ntiles).into_par_iter().for_each(|b| {
+        let g = packs[b].lock().unwrap();
+        let pack = &g[..n * PACK_W];
+        for gidx in 0..PACK_G {
+            let (m0, len, _, _, _) = GROUPS[gidx];
+            for l in 0..len {
+                let m = m0 + l;
+                let ptr = mats_raw[m].0;
+                for a in 0..n {
+                    unsafe { *ptr.add(a * n + b) = pack[a * PACK_W + gidx * 8 + l]; }
+                }
+            }
+        }
+    });
+    (mats, stats)
+}
+
+/// 对角置 0（有向矩阵对角本就无贡献，防御性清零）
+pub fn zero_diag(mats: &mut [Vec<f32>], n: usize) {
+    for mat in mats.iter_mut() {
+        for i in 0..n {
+            mat[i * n + i] = 0.0;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 构造合成股票: 指定 (秒, 量, flag)
+    fn mk_stock(code: &str, trades: &[(f64, f64, i32)], day_start_us: i64) -> Option<StockPrep> {
+        let recs: Vec<crate::fast_csv_reader::TradeRecord> = trades.iter().map(|&(t, v, flag)| {
+            crate::fast_csv_reader::TradeRecord {
+                time_us: day_start_us + (t * 1e6) as i64,
+                time_sec: t, price: 10.0, volume: v, turnover: v * 10.0,
+                flag, bid_order: 100, ask_order: 90, index: 0,
+            }
+        }).collect();
+        prep_stock(code, &recs, day_start_us, 1)
+    }
+
+    /// 朴素参考: S_sym = Σ_{i∈A}Σ_{j∈B} w_i w_j e^{-|t_i-t_j|/τ}
+    fn naive_sym(a: &StockPrep, b: &StockPrep, tau: f64) -> f64 {
+        // 用原始 trades 重建权重: cells 已聚合桶 —— 直接对 recs 重算
+        // 这里用 cells 的 u 场按桶近似（与实现同粒度, 检验累加逻辑而非桶化误差）
+        let mut tot = 0.0f64;
+        for (ka, ua) in a.cells.iter() {
+            for (kb, ub) in b.cells.iter() {
+                let dt = ((*ka as i64 - *kb as i64) as f64) * (BUCKET_US as f64) / 1e6;
+                tot += (ua[U_CNT] as f64) * (ub[U_CNT] as f64) * (-dt.abs() / tau).exp();
+            }
+        }
+        tot
+    }
+
+    #[test]
+    fn test_cnt_matrix_vs_naive() {
+        let day = 1735637400000000i64; // 任意
+        // A: 每秒一笔; B: 0.5s 偏移
+        let mut ta = Vec::new();
+        let mut tb = Vec::new();
+        for k in 0..20 {
+            ta.push((k as f64 * 1.0, 100.0, 66));
+            tb.push((k as f64 * 1.0 + 0.3, 100.0, 83));
+        }
+        let a = mk_stock("A", &ta, day).unwrap();
+        let b = mk_stock("B", &tb, day).unwrap();
+        let stocks = vec![a.clone(), b.clone()];
+        let (mats, _) = compute_matrices(&stocks);
+        let n = 2;
+        let tau = 1.0;
+        // cnt_t1 = MATRIX_SPECS[2]
+        let mi = MATRIX_SPECS.iter().position(|s| s.name == "cnt_t1").unwrap();
+        let m = &mats[mi];
+        let rust_sym = (m[0 * n + 1] + m[1 * n + 0]) as f64;
+        let naive = naive_sym(&a, &b, tau);
+        eprintln!("rust_sym={rust_sym:.6} naive={naive:.6} ratio={:.4}", rust_sym / naive);
+        assert!((rust_sym - naive).abs() / naive < 1e-4, "cnt_t1 mismatch: {rust_sym} vs {naive}");
+    }
+}

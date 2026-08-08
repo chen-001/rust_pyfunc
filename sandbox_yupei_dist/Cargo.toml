@@ -1,0 +1,39 @@
+[package]
+name = "yupei_dist"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "yupei_dist"
+path = "src/lib.rs"
+
+[[bin]]
+name = "yupei_dist"
+path = "src/main.rs"
+
+[[bin]]
+name = "bench_one"
+path = "src/bin/bench_one.rs"
+
+# 行业数据提取器（纯 Rust 读 HDF5）；默认不编译（静态 HDF5 编译很慢），
+# 需要时: cargo build --release --features hdf5 --bin industry_dump
+[[bin]]
+name = "industry_dump"
+path = "src/bin/industry_dump.rs"
+required-features = ["hdf5"]
+
+[dependencies]
+rayon = "1.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1.0"
+memmap2 = "0.9"
+hdf5-metno = { version = "=0.12.4", features = ["static", "zlib"], optional = true }
+ndarray = "0.15"
+
+[features]
+default = []
+hdf5 = ["hdf5-metno"]
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
