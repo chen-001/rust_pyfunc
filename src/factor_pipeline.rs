@@ -2373,6 +2373,13 @@ pub fn run_factor_pipeline_cross_section(
     let store_dir_str = store_dir
         .clone()
         .unwrap_or_else(|| "./cross_section_store".to_string());
+    // 全量重跑（update_mode=False）: 清空已有 store 重建。
+    // 已投影的 store 禁止追加（append_batch 返回 Err），若不清空则所有写入静默失败。
+    if !update_mode_enabled {
+        let _ = std::fs::remove_dir_all(&store_dir_str);
+        let _ = std::fs::create_dir_all(&store_dir_str);
+        println!("🗑️ update_mode=False 全量重跑: 已清空 store {store_dir_str}");
+    }
     let sharded_sink: crate::factor_store_v5::ShardedBackupSink = {
         let snames = store_factor_names.clone().unwrap_or_else(|| {
             (0..expected_result_length)
@@ -2560,14 +2567,24 @@ fn run_multiprocess_cross_section(
                 while let Ok((date, batch)) = batch_rx.recv() {
                     if !batch.is_empty() {
                         let n = batch.len();
-                        let _ = sharded_c.append_batch(&batch);
-                        mark_date_complete(&store_dir_c, date);
-                        done += 1;
                         let elapsed = start.elapsed().as_secs_f64();
-                        eprintln!(
-                            "[{}] ✅ {date} 完成: {n} 股 ({done}/{total}, {elapsed:.0}s)",
-                            Local::now().format("%H:%M:%S")
-                        );
+                        match sharded_c.append_batch(&batch) {
+                            Ok(()) => {
+                                mark_date_complete(&store_dir_c, date);
+                                done += 1;
+                                eprintln!(
+                                    "[{}] ✅ {date} 完成: {n} 股 ({done}/{total}, {elapsed:.0}s)",
+                                    Local::now().format("%H:%M:%S")
+                                );
+                            }
+                            Err(e) => {
+                                // 写入失败: 不标记完成（续算会重试），显式报警不吞错误
+                                eprintln!(
+                                    "[{}] ❌ {date} 写入失败({n}股): {e} — 该日期未标记完成, 续算将重试",
+                                    Local::now().format("%H:%M:%S")
+                                );
+                            }
+                        }
                     }
                 }
             })
