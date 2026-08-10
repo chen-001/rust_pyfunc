@@ -2055,6 +2055,33 @@ pub fn pipeline_pair_interaction(date: i64, expected_len: usize) -> Vec<TaskResu
         }
     }
 }
+/// 高峰-小峰截面（方案 1）pipeline 包装：调核心，fan-out 成 TaskResult 列表。
+pub fn pipeline_peaks(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    if expected_len != crate::peaks_metrics::N_FACTORS {
+        eprintln!(
+            "peaks expected_len 错误 [{date}]: {expected_len} != {}",
+            crate::peaks_metrics::N_FACTORS
+        );
+        return Vec::new();
+    }
+    match crate::peaks_metrics::compute_peaks_full(date) {
+        Ok((codes, vals)) => vals
+            .chunks(expected_len)
+            .zip(codes.iter())
+            .map(|(facs, code)| TaskResult {
+                date,
+                code: code.clone(),
+                timestamp: 0,
+                facs: facs.to_vec(),
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("peaks error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
 pub fn pipeline_cross_section_example(date: i64, expected_len: usize) -> Vec<TaskResult> {
     match crate::cross_section_example_metrics::compute_cross_section_example_full(date) {
         Ok((codes, vals)) => {
@@ -2308,6 +2335,216 @@ pub fn pipeline_multi_factor_capm(date: i64, expected_len: usize) -> Vec<TaskRes
     }
 }
 
+/// 方案 2 顺序流水线：run_factor_pipeline_regime（状态进计算过程）。
+///
+/// 与 run_factor_pipeline_cross_section（per-date 独立并行）的本质区别：
+/// - **严格按日期顺序执行**：每个日期先读自己的标量表存储 [t−W, t−1]，
+///   聚类判定当日市场状态 → 状态化参数计算当天因子 → 写 colblk + 写当日标量（为 t+1 备料）。
+/// - 预热期（窗口不足 W 天）：只计算并存储标量，**不输出因子**（用户定案：前 59 天不算因子）。
+/// - 不能跨日期并行（顺序依赖），速度优化靠：单遍读内存复用 + 预读流水线 + rayon 日内并行。
+///
+/// 参数：
+/// - pipeline: 目前支持 "peaks_regime"
+/// - tasks: 纯日期列表 [date, ...]（升序，顺序执行）
+/// - n_jobs: rayon 日内并行度 + 投影线程数
+/// - expected_result_length: 每股因子数（= N_FACTORS）
+/// - trading_days: 交易日历（窗口取最近 W 个交易日）
+/// - state_store_dir: 标量表存储目录（每日一个 {date}.bin，14×f64）
+/// - window: 滚动窗口 W（默认 59，即 [t−59, t−1]）
+/// - store_dir / store_factor_names: colblk 列式存储（同 cross_section）
+///
+/// 断点续算：已完成日期写入 _completed_dates；重跑时跳过。
+#[pyfunction]
+#[pyo3(signature = (
+    pipeline, tasks, n_jobs, expected_result_length, trading_days,
+    state_store_dir, window=59, store_dir=None, store_factor_names=None
+))]
+#[allow(clippy::too_many_arguments)]
+pub fn run_factor_pipeline_regime(
+    pipeline: &str,
+    tasks: &PyList,
+    n_jobs: usize,
+    expected_result_length: usize,
+    trading_days: Vec<i64>,
+    state_store_dir: String,
+    window: usize,
+    store_dir: Option<String>,
+    store_factor_names: Option<Vec<String>>,
+) -> PyResult<PyObject> {
+    let py = unsafe { Python::assume_gil_acquired() };
+    let pipeline_name = pipeline.to_string();
+    let known = ["peaks_regime"];
+    if !known.contains(&pipeline_name.as_str()) {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "未知方案2流水线: {}（支持: {:?}）",
+            pipeline, known
+        )));
+    }
+
+    let store_dir_str = store_dir.unwrap_or_else(|| "./regime_store".to_string());
+    let _ = std::fs::create_dir_all(&store_dir_str);
+
+    let sharded_sink: crate::factor_store_v5::ShardedBackupSink = {
+        let snames = store_factor_names.clone().unwrap_or_else(|| {
+            (0..expected_result_length)
+                .map(|i| format!("factor_{i}"))
+                .collect()
+        });
+        crate::factor_store_v5::ShardedBackupSink::new_colblk_sharded(
+            &store_dir_str,
+            &snames,
+            8,
+        )
+        .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("打开 colblk 存储失败: {e}")))?
+    };
+
+    // 解析日期列表（升序）
+    let mut all_dates: Vec<i64> = Vec::with_capacity(tasks.len());
+    for item in tasks.iter() {
+        all_dates.push(item.extract()?);
+    }
+
+    // 断点续算：过滤已完成日期
+    let completed = read_completed_dates(&store_dir_str);
+    let pending: Vec<i64> = all_dates
+        .into_iter()
+        .filter(|d| !completed.contains(d))
+        .collect();
+    let total = pending.len();
+    if total == 0 {
+        println!("✅ 方案2: 所有日期都已完成，仅执行投影");
+        sharded_sink
+            .finish_and_project(n_jobs)
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("投影失败: {e}")))?;
+        return Ok(Python::with_gil(|py| py.None()));
+    }
+    println!(
+        "🧭 方案2 顺序流水线: 待处理 {total} 天（窗口 W={window}，标量存储 {state_store_dir}）"
+    );
+
+    let start = std::time::Instant::now();
+    let mut n_warmup = 0usize;
+    let mut n_factor_days = 0usize;
+    let mut n_skip = 0usize;
+
+    // ---- 预读流水线：读盘线程（与状态无关，可提前执行）与主线程计算重叠 ----
+    // bounded(2) 控制内存（队列最多 2 天数据 ≈ 12GB）；读线程按 pending 顺序发送
+    let (reader_tx, reader_rx) =
+        crossbeam::channel::bounded::<(i64, Vec<String>, Vec<Option<Vec<crate::fast_csv_reader::TradeRecord>>>)>(2);
+    let pending_clone = pending.clone();
+    let reader_thread = std::thread::spawn(move || {
+        for &d in &pending_clone {
+            let (codes, trades) = crate::peaks_regime::read_all_market(d);
+            if reader_tx.send((d, codes, trades)).is_err() {
+                break;
+            }
+        }
+    });
+
+    for (i, &date) in pending.iter().enumerate() {
+        let t0 = std::time::Instant::now();
+
+        // ① 读自己的标量表 [t−W, t−1]
+        let (w_dates, rows) = crate::peaks_regime::state_read_window(
+            &state_store_dir,
+            date,
+            window,
+            &trading_days,
+        );
+
+        // ② 聚类 → 当日 params（窗口不足 → 基线/预热）
+        let min_rows = (window as f64 * 0.8).max(5.0) as usize;
+        let params = crate::peaks_regime::fit_regime(&rows, min_rows);
+        let is_warmup = params.is_baseline || w_dates.len() < window;
+        if is_warmup {
+            n_warmup += 1;
+        }
+
+        // ③ 取预读数据 → 内存计算（单遍读）
+        let (d, codes, trades) = match reader_rx.recv() {
+            Ok(v) => v,
+            Err(_) => {
+                eprintln!("⚠️ 方案2 预读通道关闭，终止");
+                break;
+            }
+        };
+        debug_assert_eq!(d, date, "预读顺序必须与 pending 一致");
+        let (codes, vals) = crate::peaks_regime::compute_from_memory(&codes, trades, &params);
+
+        // ④ 写当日标量到 state_store（为 t+1 备料；无股票则跳过）
+        if let Some(scalars) =
+            crate::peaks_regime::extract_state_from_vals(&vals, expected_result_length)
+        {
+            if let Err(e) = crate::peaks_regime::state_write_row(&state_store_dir, date, &scalars) {
+                eprintln!("⚠️ 方案2 {date} 标量写入失败: {e:?}");
+            }
+        }
+
+        // ⑤ 窗口充足（非预热）→ 写因子 colblk
+        if !is_warmup && !codes.is_empty() {
+            let batch: Vec<crate::backup_reader::TaskResult> = vals
+                .chunks(expected_result_length)
+                .zip(codes.iter())
+                .map(|(facs, code)| crate::backup_reader::TaskResult {
+                    date,
+                    code: code.clone(),
+                    timestamp: 0,
+                    facs: facs.to_vec(),
+                })
+                .collect();
+            match sharded_sink.append_batch(&batch) {
+                Ok(()) => {
+                    mark_date_complete(&store_dir_str, date);
+                    n_factor_days += 1;
+                }
+                Err(e) => {
+                    eprintln!("❌ 方案2 {date} 写入失败: {e} — 未标记完成，续算重试");
+                }
+            }
+        } else if is_warmup && !codes.is_empty() {
+            // 预热期：不写因子，但日期也算"已处理"（标量已存）
+            // 注意：预热期不 mark complete，避免"窗口充足后"重算判断混乱——
+            // 但这样断点续算会重算预热期。预热期重算成本 = 一天 compute，可接受。
+        }
+
+        let elapsed = t0.elapsed().as_secs_f64();
+        if (i + 1) % 20 == 0 || i + 1 == total {
+            let total_elapsed = start.elapsed().as_secs_f64();
+            let per_day = total_elapsed / (i + 1) as f64;
+            println!(
+                "[{:02}:{:02}:{:02}] 方案2 进度 {}/{} ({:.1}%) 日均 {:.1}s 预热 {} 因子日 {} 跳过 {}",
+                (total_elapsed / 3600.0) as u32,
+                ((total_elapsed % 3600.0) / 60.0) as u32,
+                (total_elapsed % 60.0) as u32,
+                i + 1,
+                total,
+                (i + 1) as f64 * 100.0 / total as f64,
+                per_day,
+                n_warmup,
+                n_factor_days,
+                n_skip
+            );
+        }
+    }
+
+    // ⑤b 读线程结束
+    let _ = reader_thread.join();
+
+    // ⑥ 投影
+    println!("🏗️ 方案2 开始投影（finish_and_project）...");
+    sharded_sink
+        .finish_and_project(n_jobs)
+        .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("投影失败: {e}")))?;
+
+    let total_elapsed = start.elapsed().as_secs_f64();
+    println!(
+        "✅ 方案2 完成: {total} 天, 预热 {n_warmup}, 因子日 {n_factor_days}, 跳过 {n_skip}, 总用时 {:.0}s ({:.1}s/天)",
+        total_elapsed,
+        total_elapsed / total.max(1) as f64
+    );
+    Ok(Python::with_gil(|py| py.None()))
+}
+
 /// 横截面 pipeline 的 Python 入口。
 ///
 /// 参数：
@@ -2346,6 +2583,7 @@ pub fn run_factor_pipeline_cross_section(
     let pipeline_name = pipeline.to_string();
     let known = [
         "cross_section_example",
+        "peaks",
         "yupei_dist",
         "pair_interaction",
         "urgency",

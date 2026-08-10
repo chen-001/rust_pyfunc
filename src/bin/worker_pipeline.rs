@@ -13,7 +13,7 @@ use rust_pyfunc::backup_reader::TaskResult;
 use rust_pyfunc::factor_pipeline::{
     ipc_read_result, ipc_read_task, ipc_write, ipc_write_result, pipeline_anneal_volume,
     pipeline_anneal_volume_market,
-    pipeline_cross_section_example, pipeline_pair_interaction, pipeline_distill, pipeline_distill_tick, pipeline_drop_event,
+    pipeline_cross_section_example, pipeline_peaks, pipeline_pair_interaction, pipeline_distill, pipeline_distill_tick, pipeline_drop_event,
     pipeline_yupei_dist,
     pipeline_extreme_point_fit, pipeline_hot_stock_pool, pipeline_hot_stock_pool_v2,
     pipeline_individual_order_ratio,
@@ -155,6 +155,8 @@ fn main() {
                         crate_logic::pipeline_minute_capm(date, expected_len)
                     } else if pipeline_name == "cross_section_example" {
                         pipeline_cross_section_example(date, expected_len)
+                    } else if pipeline_name == "peaks" {
+                        pipeline_peaks(date, expected_len)
                     } else if pipeline_name == "pair_interaction" {
                         pipeline_pair_interaction(date, expected_len)
                     } else if pipeline_name == "yupei_dist" {

@@ -217,6 +217,99 @@ def py_cross_section_example(date: int) -> Tuple[List[str], List[float]]:
     ...
 
 
+def py_peaks(date: int) -> Tuple[List[str], List[float]]:
+    """高峰-小峰截面因子（方案1）：读一天全市场逐笔 -> 983 因子 + 14 状态标量.
+
+    参数
+    ----
+    date : int
+        交易日, 形如 20241231
+
+    返回
+    ----
+    (codes, vals) : codes 为股票代码列表, vals 为每股 997 个值
+        （983 因子 + 14 状态标量，顺序与 py_peaks_names 一致）。
+        缺失值已按「代理变量截面秩 -> 分位映射」补全。
+    """
+    ...
+
+
+def py_peaks_from_data(
+    codes: List[str],
+    trade_arrays: List["numpy.ndarray"],
+) -> Tuple[List[str], List[float]]:
+    """v2 入口：从 Python 传入的 per-stock trade numpy 数组计算高峰-小峰截面因子。
+
+    参数
+    ----
+    codes : List[str]
+        股票代码列表
+    trade_arrays : List[numpy.ndarray]
+        每只股票一个 (n_i, 7) 数组，列序同 read_trade_fast：
+        [time_sec, price, volume, turnover, flag, bid_order, ask_order]
+
+    返回
+    ----
+    (codes, vals) 与 py_peaks 走同一计算核心；横截面基于传入子集，
+    数值与 v1 全市场口径不同是预期的。
+    """
+    ...
+
+
+def py_peaks_names() -> List[str]:
+    """997 个名字：983 因子 + 14 状态标量（__st_ 前缀，回测时排除）。"""
+    ...
+
+
+def py_peaks_regime_fit(
+    state_store_dir: str,
+    date: int,
+    window: int,
+    trading_days: List[int],
+) -> dict:
+    """方案2 调试：用 state_store 窗口 [t−W, t−1] 拟合当日状态参数。"""
+
+
+def py_state_read_row(state_store_dir: str, date: int) -> Optional[List[float]]:
+    """方案2 调试：读某日标量行（14 个 f64）。"""
+
+
+def run_factor_pipeline_regime(
+    pipeline: str,
+    tasks: List[int],
+    n_jobs: int,
+    expected_result_length: int,
+    trading_days: List[int],
+    state_store_dir: str,
+    window: int = 59,
+    store_dir: Optional[str] = None,
+    store_factor_names: Optional[List[str]] = None,
+) -> None:
+    """方案2 顺序流水线：状态进计算过程（按日期顺序推进，预热期只存标量不输出因子）。
+
+    参数
+    ----
+    pipeline : str
+        流水线标识（"peaks_regime"）
+    tasks : List[int]
+        交易日列表（升序，顺序执行）
+    n_jobs : int
+        rayon 日内并行度 + 投影线程数
+    expected_result_length : int
+        每股因子数（= 997）
+    trading_days : List[int]
+        交易日历（窗口取最近 W 个交易日）
+    state_store_dir : str
+        标量表存储目录（每日 {date}.bin，14×f64，为 t+1 备料）
+    window : int
+        滚动窗口 W（默认 59，即 [t−59, t−1]）
+    store_dir : Optional[str]
+        colblk 列式存储目录
+    store_factor_names : Optional[List[str]]
+        因子名列表
+    """
+
+
 def py_pair_interaction(date: int) -> Tuple[List[str], List[float]]:
     """跨股票互动因子: 读一天全市场逐笔 -> 两两互动矩阵 -> 每股 6694 个因子.
 
@@ -739,6 +832,12 @@ __all__ = [
     "run_factor_pipeline_cross_section",
     "py_cross_section_example",
     "py_cross_section_example_names",
+    "py_peaks",
+    "py_peaks_from_data",
+    "py_peaks_names",
+    "py_peaks_regime_fit",
+    "py_state_read_row",
+    "run_factor_pipeline_regime",
     "py_pair_interaction",
     "py_pair_interaction_names",
     "py_yhyb",

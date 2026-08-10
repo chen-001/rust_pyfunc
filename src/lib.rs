@@ -109,6 +109,8 @@ pub mod hot_stock_pool_metrics;
 pub mod anneal_volume_metrics;
 pub mod anneal_volume_market_metrics;
 pub mod cross_section_example_metrics;
+pub mod peaks_metrics;
+pub mod peaks_regime;
 pub mod pair_interaction_metrics;
 pub mod yhyb_metrics;
 pub mod yhyb_network;
@@ -1124,6 +1126,12 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         cross_section_example_metrics::py_cross_section_example_from_data,
         m
     )?)?;
+    let _ = m.add_function(wrap_pyfunction!(peaks_metrics::py_peaks, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(peaks_metrics::py_peaks_names, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(peaks_metrics::py_peaks_from_data, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(peaks_regime::py_peaks_regime_fit, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(peaks_regime::py_state_read_row, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(factor_pipeline::run_factor_pipeline_regime, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(yhyb_metrics::py_yhyb, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(yhyb_metrics::py_yhyb_params, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(yhyb_metrics::py_yhyb_names, m)?)?;
