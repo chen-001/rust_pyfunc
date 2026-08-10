@@ -414,14 +414,48 @@ pub fn read_all_market(date: i64) -> (Vec<String>, Vec<Option<Vec<TradeRecord>>>
     (codes, trades)
 }
 
-/// 从内存计算（单遍读核心）：直方图 → 阈值 → per-stock 并行 → 归约/补全/状态列。
-/// 与 v1 逐值一致（同一计算路径），仅数据来源不同。
+/// 从状态参数派生当日计算参数（窗口 + 阈值缩放）。
+///
+/// v1 启发性规则（软过渡，参数可调；后续以敏感性实验收敛）：
+/// - 极端尾部：聚焦更极端事件（volume 阈值上调 30%）、窗口缩短到 20s
+/// - 低迷（cov_c1 < 0.80）：阈值下调捕获更多事件（补足稀疏跟随）、窗口拉长到 50s
+/// - 活跃（cov_c1 > 0.95）：阈值上调聚焦大单、窗口缩短到 20s
+/// - 常态/预热：基线（30s、不缩放）——方案 1 行为
+pub fn derive_compute_params(p: &RegimeParams) -> (i64, [f64; 4], [f64; 4]) {
+    let mut window = 30i64;
+    let mut peak = [1.0f64; 4]; // [c1, c2, c3, c4] 高峰线缩放
+    let mut valley = [1.0f64; 4]; // [c1, c2, c3, c4] 小峰线缩放
+    if p.is_baseline {
+        return (window, peak, valley);
+    }
+    let cov = p.cov_c1;
+    if p.extreme {
+        peak = [1.3, 1.0, 1.5, 1.3];
+        valley = [1.0, 1.0, 1.1, 1.0];
+        window = 20;
+    } else if cov < 0.80 {
+        let w = ((0.80 - cov) / 0.20).clamp(0.0, 1.0);
+        peak = [1.0 - 0.40 * w, 1.0 - 0.20 * w, 1.0 - 0.30 * w, 1.0 - 0.35 * w];
+        valley = [1.0 - 0.30 * w, 1.0 - 0.10 * w, 1.0 - 0.20 * w, 1.0 - 0.25 * w];
+        window = 30 + (20.0 * w) as i64;
+    } else if cov > 0.95 {
+        let w = ((cov - 0.95) / 0.05).clamp(0.0, 1.0);
+        peak = [1.0 + 0.20 * w, 1.0, 1.0 + 0.30 * w, 1.0 + 0.25 * w];
+        valley = [1.0, 1.0, 1.0, 1.0];
+        window = 30 - (10.0 * w) as i64;
+    }
+    (window, peak, valley)
+}
+
+/// 从内存计算（状态化）：直方图 → 状态化阈值 → per-stock 并行 → 归约/补全/状态列。
+/// 窗口与阈值缩放由 params 派生（方案 2 计算代码的核心生效点）。
 pub fn compute_from_memory(
     codes: &[String],
     trades: Vec<Option<Vec<TradeRecord>>>,
-    _params: &RegimeParams,
+    params: &RegimeParams,
 ) -> (Vec<String>, Vec<f32>) {
-    peaks_metrics::compute_peaks_from_trades(codes, trades)
+    let (window, peak, valley) = derive_compute_params(params);
+    peaks_metrics::compute_peaks_state_from_trades(codes, trades, window, &peak, &valley)
 }
 
 // ============================================================

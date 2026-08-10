@@ -276,6 +276,23 @@ fn per_stock(
     t10_t: f64,
     code: &str,
 ) -> StockOut {
+    per_stock_window(trades, t01_v, t05_v, t1_v, t5_v, t10_v, t1_t, t10_t, code, SEC_US)
+}
+
+/// 带窗口参数的高峰识别（方案 2 状态化窗口生效点）。
+#[allow(clippy::too_many_arguments)]
+fn per_stock_window(
+    trades: &[TradeRecord],
+    t01_v: f64,
+    t05_v: f64,
+    t1_v: f64,
+    t5_v: f64,
+    t10_v: f64,
+    t1_t: f64,
+    t10_t: f64,
+    code: &str,
+    window_us: i64,
+) -> StockOut {
     let n = trades.len();
 
     let mut tot_vol = 0.0f64;
@@ -315,9 +332,9 @@ fn per_stock(
     vols.select_nth_unstable_by(idx2, |a, b| a.total_cmp(b));
     let ps_tier2 = vols[idx2];
 
-    // 局部极大值（volume 尺度与 turnover 尺度各一套，互不干扰）
-    let (vl, vr) = local_max_flags(trades, vol_key);
-    let (tl, tr) = local_max_flags(trades, turn_key);
+    // 局部极大值（volume 尺度与 turnover 尺度各一套，互不干扰；窗口随状态）
+    let (vl, vr) = local_max_flags_window(trades, vol_key, window_us);
+    let (tl, tr) = local_max_flags_window(trades, turn_key, window_us);
 
     let mut s0 = SetAcc::new();
     let mut c1 = SetAcc::new();
@@ -344,12 +361,12 @@ fn per_stock(
             continue;
         }
 
-        // 一次扫描收集窗口内所有点 (vol, turn, dt_sec)
+        // 一次扫描收集窗口内所有点 (vol, turn, dt_sec)（窗口随状态）
         let t_i = trades[i].time_us;
         let mut ws: Vec<(f64, f64, f64)> = Vec::new();
         for j in (i + 1)..n {
             let dt = trades[j].time_us - t_i;
-            if dt > SEC_US {
+            if dt > window_us {
                 break;
             }
             ws.push((trades[j].volume as f64, trades[j].turnover as f64, dt as f64 / 1_000_000.0));
@@ -455,8 +472,16 @@ fn per_stock(
     }
 }
 
-/// 单调队列求 ±30s 窗口局部极大值（返回 left/right 两侧存在更大量的标记）。
+/// 单调队列求 ±窗口 局部极大值（返回 left/right 两侧存在更大量的标记）。
 fn local_max_flags(trades: &[TradeRecord], key: fn(&TradeRecord) -> f64) -> (Vec<bool>, Vec<bool>) {
+    local_max_flags_window(trades, key, SEC_US)
+}
+
+fn local_max_flags_window(
+    trades: &[TradeRecord],
+    key: fn(&TradeRecord) -> f64,
+    window_us: i64,
+) -> (Vec<bool>, Vec<bool>) {
     let n = trades.len();
     let mut left = vec![false; n];
     let mut right = vec![false; n];
@@ -464,7 +489,7 @@ fn local_max_flags(trades: &[TradeRecord], key: fn(&TradeRecord) -> f64) -> (Vec
     for i in 0..n {
         let t_i = trades[i].time_us;
         while let Some(&f) = dq.first() {
-            if t_i - trades[f].time_us > SEC_US {
+            if t_i - trades[f].time_us > window_us {
                 dq.remove(0);
             } else {
                 break;
@@ -971,6 +996,25 @@ pub fn compute_peaks_from_trades(
     codes: &[String],
     trades_per_code: Vec<Option<Vec<TradeRecord>>>,
 ) -> (Vec<String>, Vec<f32>) {
+    // 基线参数（与 sandbox v3 逐值一致）：30s 窗口、阈值不缩放
+    compute_peaks_state_from_trades(codes, trades_per_code, SECONDS, &[1.0; 4], &[1.0; 4])
+}
+
+/// 状态化计算入口（方案 2 生效点）：阈值缩放 + 窗口随当日状态调整。
+///
+/// - `window_sec`：高峰/小峰识别窗口（秒），基线 30
+/// - `peak_scales`：4 套截面定义（c1,c2,c3,c4）高峰线缩放系数
+/// - `valley_scales`：4 套小峰线缩放系数
+/// s0（每股内部阈值）不缩放——它天然是"个股相对"视角。
+/// 缩放改变高峰事件集合 → 事件身份/交互量全部重算（方案 2 的核心价值）。
+pub fn compute_peaks_state_from_trades(
+    codes: &[String],
+    trades_per_code: Vec<Option<Vec<TradeRecord>>>,
+    window_sec: i64,
+    peak_scales: &[f64; 4],
+    valley_scales: &[f64; 4],
+) -> (Vec<String>, Vec<f32>) {
+    let window_us = window_sec * 1_000_000;
     // 第一遍等价物：从 trades 直接构建直方图（与 fill_histograms 同口径，并行）
     let hv: Vec<AtomicU64> = (0..MAX_BUCKETS).map(|_| AtomicU64::new(0)).collect();
     let ht: Vec<AtomicU64> = (0..MAX_BUCKETS).map(|_| AtomicU64::new(0)).collect();
@@ -1011,7 +1055,16 @@ pub fn compute_peaks_from_trades(
         .map(|&q| quantile(&ht, n_total, q, TURN_BUCKET))
         .collect();
 
-    let (t01_v, t05_v, t1_v, t5_v, t10_v) = (qv[0], qv[1], qv[2], qv[3], qv[4]);
+    // 状态化阈值：c1/c2/c3/c4 的高峰线与小峰线按当日状态缩放
+    // 布局：peak_scales/valley_scales = [c1, c2, c3, c4]
+    let t1_v = qv[2] * peak_scales[0]; // c1 高峰线（全市场量 top1%）
+    let t10_v = qv[4] * valley_scales[0]; // c1 小峰线
+    let t1_t = qt[0] * peak_scales[1]; // c2 高峰线（全市场额 top1%）
+    let t10_t = qt[1] * valley_scales[1]; // c2 小峰线
+    let t01_v = qv[0] * peak_scales[2]; // c3 高峰线（top0.1%）
+    let t5_v = qv[3] * valley_scales[2]; // c3 小峰线 = 基线 top1% 量
+    let t05_v = qv[1] * peak_scales[3]; // c4 高峰线（top0.5%）
+    let t10_c4 = qv[4] * valley_scales[3]; // c4 小峰线（基线 top5%）
     let (t1_t, t10_t) = (qt[0], qt[1]);
 
     // per-stock 计算（并行，单遍读内存版的核心）
@@ -1020,7 +1073,7 @@ pub fn compute_peaks_from_trades(
         .zip(trades_per_code.par_iter())
         .map(|(code, t_opt)| {
             let trades = t_opt.as_ref()?;
-            Some((code.clone(), per_stock(trades, t01_v, t05_v, t1_v, t5_v, t10_v, t1_t, t10_t, code)))
+            Some((code.clone(), per_stock_window(trades, t01_v, t05_v, t1_v, t10_c4, t10_v, t1_t, t10_t, code, window_us)))
         })
         .collect();
 
