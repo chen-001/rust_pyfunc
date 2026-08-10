@@ -688,9 +688,33 @@ impl FactorStoreWriter {
         if results.is_empty() {
             return Ok(());
         }
-        // 已投影后不允许再追加（会破坏投影区布局）
+        // 已投影后允许追加：自动降级为未投影（删 factors.proj + 重置投影标志 + 回写 header）。
+        // 投影数据在独立 factors.proj（colblk 已被 truncate 到 chunk 区末尾），删除即恢复可追加；
+        // 追加完成后调用方需重新 finish_and_project 全量重投影。
+        // 背景：每日增量更新（update_mode=True 对已投影 store 追加新日期）依赖此行为；
+        // 若调用方忘记重投影，is_projected()=false 会迫使回测走在线转置（慢），不会静默错读。
         if self.projected_offset > 0 {
-            return Err("存储已投影，不能再追加数据".to_string());
+            let proj_path = self.store_dir.join("factors.proj");
+            if proj_path.exists() {
+                std::fs::remove_file(&proj_path)
+                    .map_err(|e| format!("删除旧投影失败（append 降级）: {e}"))?;
+            }
+            self.projected_offset = 0;
+            self.proj_format_version = 0;
+            write_colblk_header_fields(
+                &mut self.colblk_file,
+                self.record_count,
+                self.factor_count as u32,
+                self.chunk_count,
+                self.dict.dates.len() as u32,
+                self.dict.codes.len() as u32,
+                0,
+                0,
+            )?;
+            eprintln!(
+                "⚠️ store 已投影，自动降级为未投影以便追加（追加完成后需重新投影）: {}",
+                self.store_dir.display()
+            );
         }
         let n = results.len();
         let factor_count = self.factor_count;
