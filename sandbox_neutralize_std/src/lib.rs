@@ -458,24 +458,54 @@ fn fill_by_group_median(
     }
 }
 
-/// get_residual: 逐日对基准因子(已 rank pct)做含截距 OLS 取残差。
+/// get_residual: 逐日对基准因子(已 rank pct)做 OLS 取残差。
+///
+/// industry=None (标准口径): X = [1, 10风格], 含截距。
+/// industry=Some(ind1码):    X = [10风格, 一级行业 one-hot], 无显式截距
+///                           (行业 one-hot 行和=1 隐含截距, 与 tail_pipeline_engine
+///                           旧实现 industry_neutralize=True 口径一致; 行业码 NaN
+///                           的股票哑变量全 0)。
 /// 样本数 >10 才回归; y 截面 unique==1 时残差整体置 0.5。
-fn get_residual(fv: &Array2<f64>, bench: &[Array2<f64>]) -> Array2<f64> {
+fn get_residual(
+    fv: &Array2<f64>,
+    bench: &[Array2<f64>],
+    industry: Option<&Array2<f64>>,
+) -> Array2<f64> {
     let (t, n) = fv.dim();
     let mut resid = Array2::<f64>::from_elem((t, n), f64::NAN);
     let k = bench.len();
-    let p = k + 1;
     let mut valid: Vec<bool> = Vec::with_capacity(n);
     // 行存储: 每只有效股票一行 [y, b0..b9], 定长数组免分配, 顺序访问利于 cache
     let mut rows: Vec<[f64; 11]> = Vec::with_capacity(n);
     let mut cur = [0.0_f64; 11];
+    // 行业列索引 (有行业模式): -1 = 无行业 (哑变量全 0)
+    let mut ind_cols: Vec<i32> = Vec::with_capacity(n);
+    // 当日 unique 行业码 (排序)
+    let mut ind_codes: Vec<f64> = Vec::with_capacity(40);
+    let mut xtx: Vec<f64> = Vec::with_capacity(42 * 42);
+    let mut xty: Vec<f64> = Vec::with_capacity(42);
     for idx in 0..t {
         let row = fv.row(idx);
         if !row.iter().any(|v| !v.is_nan()) {
             continue; // dropna(how="all")
         }
+        // 当日 unique 一级行业码 (行业模式)
+        if let Some(ind) = industry {
+            ind_codes.clear();
+            for j in 0..n {
+                let c = ind[[idx, j]];
+                if !c.is_nan() && !ind_codes.contains(&c) {
+                    ind_codes.push(c);
+                }
+            }
+            ind_codes.sort_by(cmp_f64);
+        }
+        let n_ind = if industry.is_some() { ind_codes.len() } else { 0 };
+        // 特征列数: 无行业 = 截距 + 10 风格; 有行业 = 10 风格 + 行业 one-hot
+        let p = if industry.is_some() { k + n_ind } else { k + 1 };
         valid.clear();
         rows.clear();
+        ind_cols.clear();
         for j in 0..n {
             let ok = row[j].is_finite() && bench.iter().all(|b| b[[idx, j]].is_finite());
             valid.push(ok);
@@ -485,6 +515,20 @@ fn get_residual(fv: &Array2<f64>, bench: &[Array2<f64>]) -> Array2<f64> {
                     cur[c + 1] = bench[c][[idx, j]];
                 }
                 rows.push(cur);
+                if let Some(ind) = industry {
+                    let c = ind[[idx, j]];
+                    let col = if c.is_nan() {
+                        -1
+                    } else {
+                        match ind_codes.binary_search_by(|x| cmp_f64(x, &c)) {
+                            Ok(pos) => pos as i32,
+                            Err(_) => -1,
+                        }
+                    };
+                    ind_cols.push(col);
+                } else {
+                    ind_cols.push(-1);
+                }
             }
         }
         let n_valid = rows.len();
@@ -502,26 +546,55 @@ fn get_residual(fv: &Array2<f64>, bench: &[Array2<f64>]) -> Array2<f64> {
                 }
             }
         } else {
-            // X'X (11×11) 与 X'y 行存储顺序累积
-            let mut xtx = vec![0.0_f64; p * p];
-            let mut xty = vec![0.0_f64; p];
-            for r in rows.iter() {
+            // X'X 与 X'y 行存储顺序累积
+            xtx.clear();
+            xtx.resize(p * p, 0.0);
+            xty.clear();
+            xty.resize(p, 0.0);
+            for (i, r) in rows.iter().enumerate() {
                 let yv = r[0];
-                xty[0] += yv;
-                xtx[0 * p + 0] += 1.0;
-                for c in 0..k {
-                    let b = r[c + 1];
-                    xty[c + 1] += b * yv;
-                    xtx[0 * p + c + 1] += b;
-                    xtx[(c + 1) * p + 0] += b;
-                }
-                for c1 in 0..k {
-                    let b1 = r[c1 + 1];
-                    xtx[(c1 + 1) * p + (c1 + 1)] += b1 * b1;
-                    for c2 in (c1 + 1)..k {
-                        let v = b1 * r[c2 + 1];
-                        xtx[(c1 + 1) * p + (c2 + 1)] += v;
-                        xtx[(c2 + 1) * p + (c1 + 1)] += v;
+                if industry.is_none() {
+                    // 显式截距列 0
+                    xty[0] += yv;
+                    xtx[0] += 1.0;
+                    for c in 0..k {
+                        let b = r[c + 1];
+                        xty[c + 1] += b * yv;
+                        xtx[c + 1] += b;
+                        xtx[(c + 1) * p] += b;
+                    }
+                    for c1 in 0..k {
+                        let b1 = r[c1 + 1];
+                        xtx[(c1 + 1) * p + (c1 + 1)] += b1 * b1;
+                        for c2 in (c1 + 1)..k {
+                            let v = b1 * r[c2 + 1];
+                            xtx[(c1 + 1) * p + (c2 + 1)] += v;
+                            xtx[(c2 + 1) * p + (c1 + 1)] += v;
+                        }
+                    }
+                } else {
+                    // 风格列 0..k
+                    for c in 0..k {
+                        let b = r[c + 1];
+                        xty[c] += b * yv;
+                        xtx[c * p + c] += b * b;
+                        for c2 in (c + 1)..k {
+                            let v = b * r[c2 + 1];
+                            xtx[c * p + c2] += v;
+                            xtx[c2 * p + c] += v;
+                        }
+                    }
+                    // 行业 one-hot 列 k + ic (ic >= 0; 无行业股票该行全 0)
+                    let ic = ind_cols[i];
+                    if ic >= 0 {
+                        let col = (k as i32 + ic) as usize;
+                        xty[col] += yv;
+                        xtx[col * p + col] += 1.0;
+                        for c in 0..k {
+                            let b = r[c + 1];
+                            xtx[c * p + col] += b;
+                            xtx[col * p + c] += b;
+                        }
                     }
                 }
             }
@@ -537,11 +610,22 @@ fn get_residual(fv: &Array2<f64>, bench: &[Array2<f64>]) -> Array2<f64> {
             } else {
                 // SVD 伪逆 (等价 numpy lstsq rcond 截断)
                 let n_r = rows.len();
-                let xm = DMatrix::from_fn(n_r, p, |r, c| {
-                    if c == 0 {
-                        1.0
+                let xm = DMatrix::from_fn(n_r, p, |r_i, c| {
+                    if industry.is_none() {
+                        if c == 0 {
+                            1.0
+                        } else {
+                            rows[r_i][c]
+                        }
                     } else {
-                        rows[r][c]
+                        let ic = ind_cols[r_i];
+                        if c < k {
+                            rows[r_i][c + 1]
+                        } else if ic >= 0 && c == k as usize + ic as usize {
+                            1.0
+                        } else {
+                            0.0
+                        }
                     }
                 });
                 let svd = xm.clone().svd(true, true);
@@ -550,7 +634,7 @@ fn get_residual(fv: &Array2<f64>, bench: &[Array2<f64>]) -> Array2<f64> {
                 let s = svd.singular_values;
                 let s_max = s.iter().cloned().fold(0.0_f64, f64::max);
                 let rcond = s_max * (n_r.max(p) as f64) * 2.22e-16;
-                let ym = DMatrix::from_fn(n_r, 1, |r, _| rows[r][0]);
+                let ym = DMatrix::from_fn(n_r, 1, |r_i, _| rows[r_i][0]);
                 let uty = u.transpose() * ym;
                 let mut coef = DMatrix::zeros(p, 1);
                 for i in 0..p {
@@ -560,14 +644,24 @@ fn get_residual(fv: &Array2<f64>, bench: &[Array2<f64>]) -> Array2<f64> {
                 }
                 (vt.transpose() * coef).column(0).iter().copied().collect()
             };
-            // resid = y - [1, x] @ coef (直接用行存储)
+            // resid = y - x @ coef (行存储顺序写回)
             let mut vi = 0;
-            for r in rows.iter() {
-                let mut pred = coef[0];
-                for c in 0..k {
-                    pred += coef[c + 1] * r[c + 1];
+            for (i, r) in rows.iter().enumerate() {
+                let mut pred = 0.0;
+                if industry.is_none() {
+                    pred = coef[0];
+                    for c in 0..k {
+                        pred += coef[c + 1] * r[c + 1];
+                    }
+                } else {
+                    for c in 0..k {
+                        pred += coef[c] * r[c + 1];
+                    }
+                    let ic = ind_cols[i];
+                    if ic >= 0 {
+                        pred += coef[k + ic as usize];
+                    }
                 }
-                // 按 valid 顺序写回
                 while !valid[vi] {
                     vi += 1;
                 }
@@ -586,8 +680,12 @@ fn get_residual(fv: &Array2<f64>, bench: &[Array2<f64>]) -> Array2<f64> {
 ///
 /// rank_barra=True (默认): barra/ind_base 传原始值, 内部自动 rank pct (独立调用安全)。
 /// rank_barra=False: barra/ind_base 须已 rank pct, 跳过内部 rank (批量场景预 rank 一次, 省 10 次全矩阵 rank)。
+///
+/// industry_neutralize=False (默认, 生产标准口径): 中性化回归 X = [1, 10风格], 含截距。
+/// industry_neutralize=True: 中性化回归 X = [10风格, 一级行业 one-hot], 无显式截距
+/// (行业 one-hot 行和=1 隐含截距, 与 tail_pipeline_engine 旧实现 industry_neutralize=True 口径一致)。
 #[pyfunction]
-#[pyo3(signature = (factor, industry, restrict, barra_list, ind_base_list, rank_barra=true))]
+#[pyo3(signature = (factor, industry, restrict, barra_list, ind_base_list, rank_barra=true, industry_neutralize=false))]
 fn neutralize_std_pipeline<'py>(
     py: Python<'py>,
     factor: PyReadonlyArray2<'py, f64>,
@@ -596,6 +694,7 @@ fn neutralize_std_pipeline<'py>(
     barra_list: Vec<PyReadonlyArray2<'py, f64>>,
     ind_base_list: Vec<PyReadonlyArray2<'py, f64>>,
     rank_barra: bool,
+    industry_neutralize: bool,
 ) -> PyResult<Py<PyArray2<f64>>> {
     let (t, n) = factor.as_array().dim();
     for (name, arr) in [
@@ -684,8 +783,12 @@ fn neutralize_std_pipeline<'py>(
         // 5. rank pct
         rank_pct_all(&mut fv_restricted);
         
-        // 6. 残差 (含截距, 10 风格 rank pct)
-        let resid = get_residual(&fv_restricted, &barra_ranked);
+        // 6. 残差 (默认含截距 10 风格; industry_neutralize=True 时加一级行业 one-hot 无截距)
+        let resid = if industry_neutralize {
+            get_residual(&fv_restricted, &barra_ranked, Some(&ind1))
+        } else {
+            get_residual(&fv_restricted, &barra_ranked, None)
+        };
         
         // 7. 残差 rank pct
         let mut resid_rank = resid.clone();
