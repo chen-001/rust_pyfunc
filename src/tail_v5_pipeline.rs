@@ -102,6 +102,8 @@ pub(crate) struct SharedInputs {
     pub(crate) backtest_start: i32,
     pub(crate) legacy_style_data: Arc<IOOptimizedStyleData>,
     pub(crate) industry_neutralize: bool,
+    /// 生产标准中性化所需的行业码矩阵 (T,N, 模板轴); None=使用旧 neutralize 路径
+    pub(crate) industry: Option<Arc<Array2<f64>>>,
     pub(crate) ret_gap1: Arc<Array2<f32>>,
     pub(crate) ret_sum_gap1: Arc<Array2<f32>>,
     pub(crate) ret_gap5: Arc<Array2<f32>>,
@@ -132,6 +134,7 @@ pub(crate) fn build_shared_inputs(
     min_valid: usize,
     backtest_start: i32,
     industry_neutralize: bool,
+    industry: Option<Array2<f64>>,
     style_data_path: &str,
     ret_gap1_path: &str,
     ret_sum_gap1_path: &str,
@@ -153,6 +156,7 @@ pub(crate) fn build_shared_inputs(
                 .map_err(|e| e.to_string())?,
         ),
         industry_neutralize,
+        industry: industry.map(Arc::new),
         ret_gap1: Arc::new(read_npy(ret_gap1_path).map_err(|e| format!("读取 ret_gap1.npy 失败: {}", e))?),
         ret_sum_gap1: Arc::new(read_npy(ret_sum_gap1_path).map_err(|e| format!("读取 ret_sum_gap1.npy 失败: {}", e))?),
         ret_gap5: Arc::new(read_npy(ret_gap5_path).map_err(|e| format!("读取 ret_gap5.npy 失败: {}", e))?),
@@ -2758,6 +2762,7 @@ pub fn tail_v5_run_candidates<'py>(
                     .map_err(|e| e.to_string())?
             ),
             industry_neutralize: true,
+            industry: None,
             ret_gap1: Arc::new(read_npy(&ret_gap1_path).map_err(|e| format!("读取 ret_gap1.npy 失败: {}", e))?),
             ret_sum_gap1: Arc::new(read_npy(&ret_sum_gap1_path).map_err(|e| format!("读取 ret_sum_gap1.npy 失败: {}", e))?),
             ret_gap5: Arc::new(read_npy(&ret_gap5_path).map_err(|e| format!("读取 ret_gap5.npy 失败: {}", e))?),
@@ -3686,6 +3691,7 @@ pub fn tail_v5_run_candidates_online<'py>(
                     .map_err(|e| e.to_string())?
             ),
             industry_neutralize: true,
+            industry: None,
             ret_gap1: Arc::new(read_npy(&ret_gap1_path).map_err(|e| format!("读取 ret_gap1.npy 失败: {}", e))?),
             ret_sum_gap1: Arc::new(read_npy(&ret_sum_gap1_path).map_err(|e| format!("读取 ret_sum_gap1.npy 失败: {}", e))?),
             ret_gap5: Arc::new(read_npy(&ret_gap5_path).map_err(|e| format!("读取 ret_gap5.npy 失败: {}", e))?),
@@ -4165,6 +4171,7 @@ pub fn tail_v5_run_candidates_v7<'py>(
                     .map_err(|e| e.to_string())?
             ),
             industry_neutralize: true,
+            industry: None,
             ret_gap1: Arc::new(read_npy(&ret_gap1_path).map_err(|e| format!("读取 ret_gap1.npy 失败: {}", e))?),
             ret_sum_gap1: Arc::new(read_npy(&ret_sum_gap1_path).map_err(|e| format!("读取 ret_sum_gap1.npy 失败: {}", e))?),
             ret_gap5: Arc::new(read_npy(&ret_gap5_path).map_err(|e| format!("读取 ret_gap5.npy 失败: {}", e))?),
@@ -4635,15 +4642,21 @@ pub(crate) fn process_task_with_values_v7(
         let selected_rolled_block =
             select_factor_slots_block(rolled_block.view(), &selected_slots)?;
         let _t = std::time::Instant::now();
-        // 注意：此处用串行版而非 _v7(rayon版)。
-        // engine 已有 200 线程外层并行，内部再用 rayon 会导致线程池 futex 竞争。
-        let neutralized = neutralize_block_legacy_exact(
-            shared.legacy_style_data.as_ref(),
+        // 生产标准管线中性化 (对齐 preprocess_factor_standalone.fill_and_rank_factors):
+        // rank pct -> 行业OLS填充(size) -> 行业2级中位填充 -> 限制股置空 -> rank pct
+        // -> 含截距10风格残差(industry_neutralize=True 时加一级行业 one-hot) -> 残差 rank pct。
+        // 每个 slot 独立跑完整管线; barra/size 从 style data 按模板轴映射。
+        let industry = shared
+            .industry
+            .as_ref()
+            .expect("tail_backtest_engine 中性化需要 industry 矩阵 (模板轴)");
+        let neutralized = crate::factor_neutralize_std::neutralize_std_block(
             selected_rolled_block.view(),
+            industry,
+            &shared.restrict,
+            shared.legacy_style_data.as_ref(),
             shared.dates.as_slice(),
             shared.stocks.as_slice(),
-            true,
-            shared.min_valid,
             shared.industry_neutralize,
         )?;
         PROF_NEU.fetch_add(_t.elapsed().as_nanos() as u64, AtomicOrdering::Relaxed);
@@ -4855,6 +4868,7 @@ pub fn tail_v5_run_candidates_v7b<'py>(
                     .map_err(|e| e.to_string())?
             ),
             industry_neutralize: true,
+            industry: None,
             ret_gap1: Arc::new(read_npy(&ret_gap1_path).map_err(|e| format!("读取 ret_gap1.npy 失败: {}", e))?),
             ret_sum_gap1: Arc::new(read_npy(&ret_sum_gap1_path).map_err(|e| format!("读取 ret_sum_gap1.npy 失败: {}", e))?),
             ret_gap5: Arc::new(read_npy(&ret_gap5_path).map_err(|e| format!("读取 ret_gap5.npy 失败: {}", e))?),

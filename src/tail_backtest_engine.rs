@@ -78,6 +78,7 @@ fn parse_col_idx(factor_path: &str) -> Option<usize> {
     zero_max_threshold,
     nan_max_threshold,
     industry_neutralize=true,
+    industry_matrix=None,
 ))]
 #[allow(clippy::too_many_arguments)]
 pub fn tail_backtest_engine<'py>(
@@ -115,6 +116,7 @@ pub fn tail_backtest_engine<'py>(
     zero_max_threshold: f64,
     nan_max_threshold: f64,
     industry_neutralize: bool,
+    industry_matrix: Option<numpy::PyReadonlyArray2<'py, f64>>,
 ) -> PyResult<PyObject> {
     if factor_names.len() != factor_paths.len() {
         return Err(PyValueError::new_err("factor_names 和 factor_paths 长度必须一致"));
@@ -122,6 +124,11 @@ pub fn tail_backtest_engine<'py>(
     if n_jobs == 0 {
         return Err(PyValueError::new_err("n_jobs 必须大于 0"));
     }
+
+    let industry = industry_matrix
+        .ok_or_else(|| PyValueError::new_err("tail_backtest_engine 需要 industry_matrix (模板轴行业码)"))?
+        .as_array()
+        .to_owned();
 
     let output = py.allow_threads(|| -> Result<(usize, usize, HashMap<String, usize>), String> {
         let started = Instant::now();
@@ -144,6 +151,7 @@ pub fn tail_backtest_engine<'py>(
         let shared = build_shared_inputs(
             dates, stocks, windows, fold, min_valid, backtest_start,
             industry_neutralize,
+            Some(industry),
             &style_data_path,
             &ret_gap1_path, &ret_sum_gap1_path,
             &ret_gap5_path, &ret_sum_gap5_path,

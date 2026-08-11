@@ -45,6 +45,7 @@ pub mod cross_stock_regression;
 pub mod cross_stock_regression_fast;
 pub mod cross_stock_regression_peak;
 pub mod factor_neutralization_io_optimized;
+pub mod factor_neutralize_std;
 pub mod ghost_market_maker;
 
 pub mod abnormal_asks_analyzer;
@@ -600,6 +601,10 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?);
     let _ = m.add_function(wrap_pyfunction!(
         tail_v4_pipeline::tail_v4_neutralize_block_exact,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        factor_neutralize_std::neutralize_std_block_py,
         m
     )?);
     let _ = m.add_class::<tail_v4_pipeline::TailV4LegacyStyleData>()?;
