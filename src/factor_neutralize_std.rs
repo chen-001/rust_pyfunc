@@ -612,95 +612,39 @@ fn get_residual(
 }
 
 
-/// 生产标准预处理主入口 (纯计算版, 对应 sandbox neutralize_std_pipeline 的
-/// rank_barra=True 语义): barra/ind_base 传原始值, 内部自动 rank pct。
-pub fn neutralize_std_section(
-    factor: &Array2<f64>,
-    industry: &Array2<f64>,
-    restrict: &Array2<f64>,
-    barra: &[Array2<f64>],
-    ind_base: &[Array2<f64>],
-    industry_neutralize: bool,
-) -> Array2<f64> {
-    let (t, n) = factor.dim();
-    // 1. factor / barra / ind_base 均 rank pct
-    let mut fv_ranked = factor.clone();
-    rank_pct_all(&mut fv_ranked);
-    let mut barra_ranked: Vec<Array2<f64>> = barra.to_vec();
-    for b in barra_ranked.iter_mut() {
-        rank_pct_all(b);
-    }
-    let mut ind_base_ranked: Vec<Array2<f64>> = ind_base.to_vec();
-    for b in ind_base_ranked.iter_mut() {
-        rank_pct_all(b);
-    }
-
-    // 2. 行业 OLS 回归填充
-    fill_ind_reg(&mut fv_ranked, &ind_base_ranked, industry);
-
-    // 3. 行业 2 级中位填充
-    let mut fv_filled = fv_ranked.clone();
-    let ind1 = industry.map(|&v| (v / 10000.0).floor());
-    for i in 0..(t * n) {
-        if ind1.as_slice().unwrap()[i].is_nan() {
-            fv_filled.as_slice_mut().unwrap()[i] = f64::NAN;
-        }
-    }
-    let median_source = fv_filled.clone();
-    let ind2 = industry.map(|&v| (v / 100.0).floor());
-    fill_by_group_median(&mut fv_filled, &ind2, None, &median_source);
-    fill_by_group_median(&mut fv_filled, &ind1, None, &median_source);
-    let zeros = Array2::<f64>::zeros((t, n));
-    let ind1_mask = ind1.map(|&v| if v.is_nan() { 0.0 } else { 1.0 });
-    fill_by_group_median(&mut fv_filled, &zeros, Some(&ind1_mask), &median_source);
-
-    // 4. 限制股置空: restrict==0 保留
-    let mut fv_restricted = Array2::<f64>::from_elem((t, n), f64::NAN);
-    for i in 0..(t * n) {
-        if restrict.as_slice().unwrap()[i] == 0.0 {
-            fv_restricted.as_slice_mut().unwrap()[i] = fv_filled.as_slice().unwrap()[i];
-        }
-    }
-
-    // 5. rank pct
-    rank_pct_all(&mut fv_restricted);
-
-    // 6. 残差 (默认含截距 10 风格; industry_neutralize=True 时加一级行业 one-hot 无截距)
-    let resid = if industry_neutralize {
-        get_residual(&fv_restricted, &barra_ranked, Some(&ind1))
-    } else {
-        get_residual(&fv_restricted, &barra_ranked, None)
-    };
-
-    // 7. 残差 rank pct
-    let mut resid_rank = resid.clone();
-    rank_pct_all(&mut resid_rank);
-    resid_rank
+/// 标准中性化管线中「不随因子变化」的预计算量。
+///
+/// 在 build_shared_inputs 一次性展开并 Arc 共享，供 983 个因子复用，
+/// 避免每个 worker 线程、每个因子、每个 slot 都重建 barra(10×T×N f64)
+/// 与 template_style_positions(T×N Option<usize>)。
+pub struct NeutralizeStdShared {
+    pub(crate) industry: Array2<f64>,
+    pub(crate) restrict_f64: Array2<f64>,
+    /// 行业分级码 (纯 industry 派生，不随因子变化)
+    pub(crate) ind1: Array2<f64>,
+    pub(crate) ind2: Array2<f64>,
+    pub(crate) zeros: Array2<f64>,
+    pub(crate) ind1_mask: Array2<f64>,
+    /// 10 风格 rank pct 后的模板轴矩阵 (纯 barra 派生)
+    pub(crate) barra_ranked: Vec<Array2<f64>>,
+    /// size(value_2) rank pct 后的模板轴矩阵 (行业填充 base，纯 size 派生)
+    pub(crate) size_ranked: Array2<f64>,
 }
 
-/// block 级标准中性化: 对 rolled_block 的每个 slot 跑 neutralize_std_section。
+/// 从 style data + industry + restrict 预计算所有不随因子变化的量。
 ///
-/// - barra(10风格) 与 size(value_2) 从 style data 按模板轴映射 (模板股票 6 位码
-///   匹配当日 barra 集合; 不在集合内 -> NaN, 与生产 SzBa reindex 语义一致)
-/// - industry / restrict 为模板轴矩阵 (restrict: 0=可交易)
-/// - industry_neutralize=True 时中性化回归加入一级行业 one-hot (无显式截距)
-///
-/// 输出: (T,N,F) 残差 rank pct (f32), 与生产标准 fill_and_rank_factors 输出一致。
-pub fn neutralize_std_block(
-    block: ArrayView3<'_, f32>,
+/// 模板轴 = (dates.len(), stocks.len())，与 neutralize_std_block 的输出轴一致。
+pub fn neutralize_std_precompute(
     industry: &Array2<f64>,
     restrict: &Array2<f32>,
     style_data: &IOOptimizedStyleData,
     dates: &[i32],
     stocks: &[String],
-    industry_neutralize: bool,
-) -> Result<Array3<f32>, String> {
-    let (n_dates, n_stocks, n_factors) = block.dim();
-    if dates.len() != n_dates || stocks.len() != n_stocks {
-        return Err("neutralize_std_block 输入形状不匹配".to_string());
-    }
+) -> Result<NeutralizeStdShared, String> {
+    let n_dates = dates.len();
+    let n_stocks = stocks.len();
     if industry.dim() != (n_dates, n_stocks) || restrict.dim() != (n_dates, n_stocks) {
-        return Err("neutralize_std_block industry/restrict 形状不匹配".to_string());
+        return Err("neutralize_std_precompute industry/restrict 形状不匹配".to_string());
     }
 
     // 每日: 模板股票 -> style 当日集合行索引 (6 位码)
@@ -736,19 +680,120 @@ pub fn neutralize_std_block(
     }
     // size = value_2 (与生产 SzBa size.csv 同源, 已验证)
     let size_cube = barra_list[2].clone();
+
+    // barra 10 风格与 size 的 rank pct (纯输入派生，与因子无关)
+    let mut barra_ranked = barra_list;
+    for b in barra_ranked.iter_mut() {
+        rank_pct_all(b);
+    }
+    let mut size_ranked = size_cube;
+    rank_pct_all(&mut size_ranked);
+
+    // 行业分级码与 restrict (纯输入派生)
     let restrict_f64 = restrict.map(|&v| v as f64);
+    let ind1 = industry.map(|&v| (v / 10000.0).floor());
+    let ind2 = industry.map(|&v| (v / 100.0).floor());
+    let zeros = Array2::<f64>::zeros((n_dates, n_stocks));
+    let ind1_mask = ind1.map(|&v| if v.is_nan() { 0.0 } else { 1.0 });
+
+    Ok(NeutralizeStdShared {
+        industry: industry.clone(),
+        restrict_f64,
+        ind1,
+        ind2,
+        zeros,
+        ind1_mask,
+        barra_ranked,
+        size_ranked,
+    })
+}
+
+
+/// 生产标准预处理主入口 (纯计算版)。factor 为 (T,N) 原始值 (内部 rank pct)。
+///
+/// 所有不随因子变化的量 (barra rank / size rank / 行业分级码 / restrict) 已
+/// 预计算进 shared，此处只做 factor 自身的 rank→行业填充→中位填充→限制置空
+/// →rank→残差→残差 rank，不做 barra 展开与重复 map。
+pub fn neutralize_std_section(
+    factor: &Array2<f64>,
+    shared: &NeutralizeStdShared,
+    industry_neutralize: bool,
+) -> Array2<f64> {
+    let (t, n) = factor.dim();
+    let industry = &shared.industry;
+    let restrict = &shared.restrict_f64;
+    let barra_ranked = &shared.barra_ranked;
+    let ind_base_ranked = &shared.size_ranked;
+    let ind1 = &shared.ind1;
+    let ind2 = &shared.ind2;
+    let zeros = &shared.zeros;
+    let ind1_mask = &shared.ind1_mask;
+
+    // 1. factor rank pct (barra/size 已预计算)
+    let mut fv_ranked = factor.clone();
+    rank_pct_all(&mut fv_ranked);
+
+    // 2. 行业 OLS 回归填充
+    fill_ind_reg(&mut fv_ranked, std::slice::from_ref(ind_base_ranked), industry);
+
+    // 3. 行业 2 级中位填充
+    let mut fv_filled = fv_ranked.clone();
+    for i in 0..(t * n) {
+        if ind1.as_slice().unwrap()[i].is_nan() {
+            fv_filled.as_slice_mut().unwrap()[i] = f64::NAN;
+        }
+    }
+    let median_source = fv_filled.clone();
+    fill_by_group_median(&mut fv_filled, ind2, None, &median_source);
+    fill_by_group_median(&mut fv_filled, ind1, None, &median_source);
+    fill_by_group_median(&mut fv_filled, zeros, Some(ind1_mask), &median_source);
+
+    // 4. 限制股置空: restrict==0 保留
+    let mut fv_restricted = Array2::<f64>::from_elem((t, n), f64::NAN);
+    for i in 0..(t * n) {
+        if restrict.as_slice().unwrap()[i] == 0.0 {
+            fv_restricted.as_slice_mut().unwrap()[i] = fv_filled.as_slice().unwrap()[i];
+        }
+    }
+
+    // 5. rank pct
+    rank_pct_all(&mut fv_restricted);
+
+    // 6. 残差 (默认含截距 10 风格; industry_neutralize=True 时加一级行业 one-hot 无截距)
+    let resid = if industry_neutralize {
+        get_residual(&fv_restricted, barra_ranked, Some(ind1))
+    } else {
+        get_residual(&fv_restricted, barra_ranked, None)
+    };
+
+    // 7. 残差 rank pct
+    let mut resid_rank = resid;
+    rank_pct_all(&mut resid_rank);
+    resid_rank
+}
+
+/// block 级标准中性化: 对 rolled_block 的每个 slot 跑 neutralize_std_section。
+///
+/// 所有不随因子变化的量 (barra/size 的 rank、行业分级码、restrict、模板轴映射)
+/// 已预计算进 shared，此函数只做每个 slot 的因子侧计算，不再逐因子展开 barra。
+///
+/// 输出: (T,N,F) 残差 rank pct (f32), 与生产标准 fill_and_rank_factors 输出一致。
+pub fn neutralize_std_block(
+    block: ArrayView3<'_, f32>,
+    shared: &NeutralizeStdShared,
+    industry_neutralize: bool,
+) -> Result<Array3<f32>, String> {
+    let (n_dates, n_stocks, n_factors) = block.dim();
+    if shared.industry.dim() != (n_dates, n_stocks)
+        || shared.restrict_f64.dim() != (n_dates, n_stocks)
+    {
+        return Err("neutralize_std_block industry/restrict 形状不匹配".to_string());
+    }
 
     let mut output = Array3::<f32>::from_elem((n_dates, n_stocks, n_factors), f32::NAN);
     for factor_idx in 0..n_factors {
         let factor_f64 = block.slice(s![.., .., factor_idx]).map(|&v| v as f64);
-        let resid_rank = neutralize_std_section(
-            &factor_f64,
-            industry,
-            &restrict_f64,
-            &barra_list,
-            &[size_cube.clone()],
-            industry_neutralize,
-        );
+        let resid_rank = neutralize_std_section(&factor_f64, shared, industry_neutralize);
         let out_slice = output.as_slice_mut().unwrap();
         let rr = resid_rank.as_slice().unwrap();
         for i in 0..(n_dates * n_stocks) {
@@ -781,15 +826,14 @@ pub fn neutralize_std_block_py<'py>(
         let style_data =
             IOOptimizedStyleData::load_from_parquet_io_optimized(&style_data_path)
                 .map_err(|e| e.to_string())?;
-        neutralize_std_block(
-            block.view(),
+        let shared = neutralize_std_precompute(
             &industry_owned,
             &restrict_owned,
             &style_data,
             &dates,
             &stocks,
-            industry_neutralize,
-        )
+        )?;
+        neutralize_std_block(block.view(), &shared, industry_neutralize)
     });
     Ok(output.map_err(PyValueError::new_err)?.into_pyarray(py).to_owned())
 }
