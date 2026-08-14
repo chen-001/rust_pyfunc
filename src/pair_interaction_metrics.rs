@@ -100,9 +100,7 @@ mod gemm {
 
 use gemm::{gemm_abt, transpose};
 
-/// 因子宇宙：按逐笔文件大小（成交活跃度代理）取前 N 只
-pub const UNIVERSE: usize = 2500;
-
+/// 因子宇宙：全市场（不设股票数上限；MIN_TRADES=200 过滤低活跃股）
 const MIN_TRADES: usize = 200;
 const BUCKET_1S: usize = 14220;
 const SCALE_30: usize = 474;
@@ -139,7 +137,7 @@ pub fn list_codes(date: i64) -> Vec<String> {
         }
     }
     v.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
-    v.truncate(UNIVERSE);
+    // 全市场：不截断（覆盖所有有逐笔文件的股票，代码序确定性）
     let mut codes: Vec<String> = v.into_iter().map(|(_, c)| c).collect();
     codes.sort();
     codes

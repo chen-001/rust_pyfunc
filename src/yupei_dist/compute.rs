@@ -21,8 +21,7 @@ use super::indicator_ctx::{IndicatorCtx, MatrixSet};
 use super::matrix_stage::{compute_matrices, prep_stock, StockPrep, MATRIX_SPECS};
 use super::names::YUPEI_DIST_NAMES;
 
-/// universe: 按文件大小（成交活跃度代理）取前 N 只
-pub const UNIVERSE: usize = 4000;
+/// 因子宇宙：全市场（不设股票数上限；MIN_TRADES=200 过滤低活跃股）
 /// 最少成交笔数（低于此剔除）
 pub const MIN_TRADES: usize = 200;
 /// 行业备份目录（python 一次性预提取全部交易日）
@@ -41,9 +40,8 @@ pub fn compute_yupei_dist_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f
 pub fn compute_yupei_dist_partial(
     date: i64,
 ) -> std::io::Result<(Vec<String>, usize, Vec<crate::yupei_dist::matrix_stage::StockStats>, HashMap<String, Vec<f32>>, Option<Vec<i16>>)> {
-    // ---- 1. 代码枚举（按文件大小降序 → universe 截断 → 代码序）----
+    // ---- 1. 代码枚举（按文件大小降序 → 全市场不截断 → 代码序）----
     let mut codes = list_codes_by_size(date);
-    codes.truncate(UNIVERSE);
     codes.sort();
     let day_start_us = day_start_us_of(date);
 
