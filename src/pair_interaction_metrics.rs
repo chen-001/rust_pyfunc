@@ -175,6 +175,14 @@ fn pack_time(t_us: i64, day_start_us: i64) -> u32 {
 }
 
 fn per_stock_prep(code: &str, recs: &[TradeRecord], day_start_us: i64) -> Option<StockData> {
+    // 过滤掉时间戳早于当日 9:30 的异常行：历史数据文件会混入前几日成交
+    // （如 20160405 文件中混入 20160401 的 exchtime），导致 off<0、
+    // i30/i60/i300 转 usize 溢出 panic（pair_interaction_metrics.rs:229）。
+    // 集合竞价(9:15-9:25)与隔夜/错乱数据一并剔除，与 with_afternoon_adjust 同口径。
+    let recs: Vec<&TradeRecord> = recs
+        .iter()
+        .filter(|r| r.time_us >= day_start_us)
+        .collect();
     let n = recs.len();
     if n < MIN_TRADES {
         return None;
@@ -182,7 +190,7 @@ fn per_stock_prep(code: &str, recs: &[TradeRecord], day_start_us: i64) -> Option
     let mut times = Vec::with_capacity(n);
     let mut vols = Vec::with_capacity(n);
     let mut turnover = 0.0f64;
-    for r in recs {
+    for r in &recs {
         times.push(r.time_us);
         vols.push(r.volume as f32);
         turnover += r.turnover as f64;
@@ -252,7 +260,7 @@ fn per_stock_prep(code: &str, recs: &[TradeRecord], day_start_us: i64) -> Option
 
     // 大订单 → 带符号 10s/30s 桶
     let mut fills: Vec<(i64, i64, f32, f32)> = Vec::with_capacity(n);
-    for r in recs {
+    for r in &recs {
         let (oid, sign) = match r.flag {
             66 => (r.bid_order, 1.0f32),
             83 => (r.ask_order, -1.0f32),
