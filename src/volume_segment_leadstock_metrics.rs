@@ -37,9 +37,28 @@ pub const EP4S: &[&str] = &["all100", "hi50", "hi30", "lo50", "lo30"];
 
 /// 单列降维统计量名(23个, 顺序对齐 get_features_factors_rust_full with_threshold_counts=true)。
 const STAT_SUFFIXES: &[&str] = &[
-    "mean", "median", "std", "skew", "kurt", "p5", "p25", "p75", "p95", "iqr", "cv",
-    "autocorr1", "autocorr1_abs", "trend", "curvature", "quad_coef", "period_diff",
-    "period_ratio", "mean_above_p90", "mean_below_p10", "lz_complexity", "entropy_1d",
+    "mean",
+    "median",
+    "std",
+    "skew",
+    "kurt",
+    "p5",
+    "p25",
+    "p75",
+    "p95",
+    "iqr",
+    "cv",
+    "autocorr1",
+    "autocorr1_abs",
+    "trend",
+    "curvature",
+    "quad_coef",
+    "period_diff",
+    "period_ratio",
+    "mean_above_p90",
+    "mean_below_p10",
+    "lz_complexity",
+    "entropy_1d",
     "max_range_product",
 ];
 const N_STATS: usize = 23;
@@ -48,8 +67,16 @@ pub const FACS_PER_CASE: usize = 4 * N_STATS + 10 + N_STATS + N_STATS;
 pub const N_FACTORS: usize = 5 * 3 * 2 * 5 * FACS_PER_CASE; // 22200
 
 const M2_NAMES: &[&str] = &[
-    "cov_abs_sum", "cov_raw_sum", "cov_pos_sum", "cov_pos_mean", "cov_std", "cov_abs_std",
-    "cov_pos_std", "cov_skew", "cov_abs_skew", "cov_pos_skew",
+    "cov_abs_sum",
+    "cov_raw_sum",
+    "cov_pos_sum",
+    "cov_pos_mean",
+    "cov_std",
+    "cov_abs_std",
+    "cov_pos_std",
+    "cov_skew",
+    "cov_abs_skew",
+    "cov_pos_skew",
 ];
 
 // ============================ 通用工具 ============================
@@ -153,8 +180,8 @@ fn reduce_single_buf(seq: &[f64], f32buf: &mut Vec<f32>) -> Vec<f32> {
 /// 输出顺序严格对齐 get_features_factors_rust_full(with_threshold_counts=true, 单列)。
 fn reduce_single_long(seq: &[f64], f32buf: &mut Vec<f32>) -> Vec<f32> {
     use crate::features::{
-        binned_entropy_1d, col_kurt, col_mean, col_skew, col_std, corr_pair,
-        curvature_1d, lz_complexity_1d, max_range_product_strict, quad_coef_1d, trend_1d,
+        binned_entropy_1d, col_kurt, col_mean, col_skew, col_std, corr_pair, curvature_1d,
+        lz_complexity_1d, max_range_product_strict, quad_coef_1d, trend_1d,
     };
     let n = seq.len();
     if f32buf.len() < n {
@@ -222,22 +249,41 @@ fn reduce_single_long(seq: &[f64], f32buf: &mut Vec<f32>) -> Vec<f32> {
     let (period_diff, period_ratio) = if split > 0 {
         let first_mean = col_mean(&col[..split]);
         let last_mean = col_mean(&col[n - split..]);
-        (last_mean - first_mean, last_mean / (first_mean.abs() + 1e-8))
+        (
+            last_mean - first_mean,
+            last_mean / (first_mean.abs() + 1e-8),
+        )
     } else {
         (f32::NAN, f32::NAN)
     };
     // mean_above_p90 / mean_below_p10
     let mean_above_p90 = {
         let (s, cnt) = valid.iter().fold((0.0f32, 0usize), |(s, c), &v| {
-            if v > p90 { (s + v, c + 1) } else { (s, c) }
+            if v > p90 {
+                (s + v, c + 1)
+            } else {
+                (s, c)
+            }
         });
-        if cnt == 0 { 0.0 } else { s / cnt as f32 }
+        if cnt == 0 {
+            0.0
+        } else {
+            s / cnt as f32
+        }
     };
     let mean_below_p10 = {
         let (s, cnt) = valid.iter().fold((0.0f32, 0usize), |(s, c), &v| {
-            if v < p10 { (s + v, c + 1) } else { (s, c) }
+            if v < p10 {
+                (s + v, c + 1)
+            } else {
+                (s, c)
+            }
         });
-        if cnt == 0 { 0.0 } else { s / cnt as f32 }
+        if cnt == 0 {
+            0.0
+        } else {
+            s / cnt as f32
+        }
     };
     // lz / entropy / max_range（调 features 函数，lz 内部有 1 次排序，其余不排序）
     let lz = lz_complexity_1d(col);
@@ -247,11 +293,29 @@ fn reduce_single_long(seq: &[f64], f32buf: &mut Vec<f32>) -> Vec<f32> {
 
     // 按序输出 23 个统计量（严格对齐 get_features_factors_rust_full 单列输出序）
     vec![
-        mean, median, std, skew, kurt,
-        p5, p25, p75, p95, iqr, cv,
-        autocorr1, autocorr1.abs(), trend, curvature, quad_coef,
-        period_diff, period_ratio, mean_above_p90, mean_below_p10,
-        lz, entropy, max_range,
+        mean,
+        median,
+        std,
+        skew,
+        kurt,
+        p5,
+        p25,
+        p75,
+        p95,
+        iqr,
+        cv,
+        autocorr1,
+        autocorr1.abs(),
+        trend,
+        curvature,
+        quad_coef,
+        period_diff,
+        period_ratio,
+        mean_above_p90,
+        mean_below_p10,
+        lz,
+        entropy,
+        max_range,
     ]
 }
 
@@ -326,7 +390,11 @@ fn consistency(core: &[f64], lead: &[usize]) -> Vec<f64> {
 /// 按热点一致度选段（返回升序段索引）。
 fn select_segments(consist: &[f64], ep4: &str) -> Vec<usize> {
     let mut idx: Vec<usize> = (0..100).collect();
-    idx.sort_by(|&a, &b| consist[b].partial_cmp(&consist[a]).unwrap_or(Ordering::Equal));
+    idx.sort_by(|&a, &b| {
+        consist[b]
+            .partial_cmp(&consist[a])
+            .unwrap_or(Ordering::Equal)
+    });
     let sel: Vec<usize> = match ep4 {
         "hi50" => idx[0..50].to_vec(),
         "hi30" => idx[0..30].to_vec(),
@@ -416,7 +484,9 @@ fn shared_factors_from_precomputed(
         let mut colmean = [0f64; 20];
         for j in 0..20 {
             let mut acc = 0f64;
-            for r in 0..k { acc += mi[r * 20 + j]; }
+            for r in 0..k {
+                acc += mi[r * 20 + j];
+            }
             colmean[j] = acc / k as f64;
         }
         let mut cov = [0f64; 400];
@@ -437,28 +507,64 @@ fn shared_factors_from_precomputed(
             for b in (a + 1)..20 {
                 let v = cov[a * 20 + b];
                 let av = v.abs();
-                up_sum += v; up_abs_sum += av;
-                up_sq += v * v; up_abs_sq += av * av;
-                up_cb += v * v * v; up_abs_cb += av * av * av;
-                if v > 0.0 { pos_sum += v; pos_sq += v * v; pos_cb += v * v * v; pos_cnt += 1; }
+                up_sum += v;
+                up_abs_sum += av;
+                up_sq += v * v;
+                up_abs_sq += av * av;
+                up_cb += v * v * v;
+                up_abs_cb += av * av * av;
+                if v > 0.0 {
+                    pos_sum += v;
+                    pos_sq += v * v;
+                    pos_cb += v * v * v;
+                    pos_cnt += 1;
+                }
             }
         }
         let n_up = 190f64;
-        let pos_mean = if pos_cnt > 0 { pos_sum / pos_cnt as f64 } else { 0.0 };
+        let pos_mean = if pos_cnt > 0 {
+            pos_sum / pos_cnt as f64
+        } else {
+            0.0
+        };
         let up_std = ((up_sq / n_up) - (up_sum / n_up).powi(2)).max(0.0).sqrt();
-        let up_abs_std = ((up_abs_sq / n_up) - (up_abs_sum / n_up).powi(2)).max(0.0).sqrt();
-        let pos_std = if pos_cnt > 0 { ((pos_sq / pos_cnt as f64) - pos_mean.powi(2)).max(0.0).sqrt() } else { 0.0 };
+        let up_abs_std = ((up_abs_sq / n_up) - (up_abs_sum / n_up).powi(2))
+            .max(0.0)
+            .sqrt();
+        let pos_std = if pos_cnt > 0 {
+            ((pos_sq / pos_cnt as f64) - pos_mean.powi(2))
+                .max(0.0)
+                .sqrt()
+        } else {
+            0.0
+        };
         let m2 = [
-            up_abs_sum, up_sum, pos_sum, pos_mean, up_std, up_abs_std, pos_std,
+            up_abs_sum,
+            up_sum,
+            pos_sum,
+            pos_mean,
+            up_std,
+            up_abs_std,
+            pos_std,
             skew_from_moments(up_sum, up_sq, up_cb, n_up),
             skew_from_moments(up_abs_sum, up_abs_sq, up_abs_cb, n_up),
-            if pos_cnt > 0 { skew_from_moments(pos_sum, pos_sq, pos_cb, pos_cnt as f64) } else { 0.0 },
+            if pos_cnt > 0 {
+                skew_from_moments(pos_sum, pos_sq, pos_cb, pos_cnt as f64)
+            } else {
+                0.0
+            },
         ];
-        for x in m2 { chunk[pos] = x as f32; pos += 1; }
+        for x in m2 {
+            chunk[pos] = x as f32;
+            pos += 1;
+        }
         // 步骤7b: corr 行降维 (23 因子)
         cr.copy_from_slice(&corr[i * n..(i + 1) * n]);
         cr[i] = f64::NAN;
-        for x in reduce_single_long(&cr, &mut f32buf) { chunk[pos] = x; pos += 1; }
+        for x in reduce_single_long(&cr, &mut f32buf) {
+            chunk[pos] = x;
+            pos += 1;
+        }
         debug_assert_eq!(pos, SHARED_FACS);
     }
     (out, sel)
@@ -477,7 +583,9 @@ fn step7a_factors(core: &[f64], n: usize, sel: &[usize], ep3: &str) -> Vec<f32> 
         if ep3 == "ratio" {
             let rowsum: f64 = ci.iter().sum();
             if rowsum > 1e-12 {
-                for v in ci.iter_mut() { *v /= rowsum; }
+                for v in ci.iter_mut() {
+                    *v /= rowsum;
+                }
             }
         }
         let chunk = &mut out[i * STEP7A_FACS..(i + 1) * STEP7A_FACS];
@@ -567,7 +675,8 @@ fn compute_from_flat(
     let frac = rank - lo as f64;
     // quickselect 到 lo+1 位置：保证 all_vols[lo] 和 all_vols[lo+1] 都正确就位
     if lo + 1 < m {
-        let _ = all_vols.select_nth_unstable_by(lo + 1, |a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+        let _ = all_vols
+            .select_nth_unstable_by(lo + 1, |a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
     }
     let q40 = all_vols[lo] + frac * (all_vols[(lo + 1).min(m - 1)] - all_vols[lo]);
 
@@ -631,9 +740,8 @@ fn compute_from_flat(
         .flat_map(|e2i| {
             (0..5).flat_map(move |e1i| {
                 let ci = e2i * 5 + e1i;
-                EP3S.iter().flat_map(move |&ep3| {
-                    EP4S.iter().map(move |&ep4| (ci, ep3, ep4))
-                })
+                EP3S.iter()
+                    .flat_map(move |&ep3| EP4S.iter().map(move |&ep4| (ci, ep3, ep4)))
             })
         })
         .collect();
@@ -708,7 +816,14 @@ pub fn compute_vsld_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f32>)> 
             }
         }
     }
-    Ok(compute_from_flat(&times, &cidx, &vols, &flags, codes.len(), &codes))
+    Ok(compute_from_flat(
+        &times,
+        &cidx,
+        &vols,
+        &flags,
+        codes.len(),
+        &codes,
+    ))
 }
 
 /// v2 传数据入口：预加载 per-stock 逐笔 → 核心（用于样例验证/无磁盘环境）。

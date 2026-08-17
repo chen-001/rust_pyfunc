@@ -52,11 +52,15 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                     if best.len() < 10 {
                         best.push((p, j as u32));
                         if best.len() == 10 {
-                            best.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap().then_with(|| a.1.cmp(&b.1)));
+                            best.sort_by(|a, b| {
+                                b.0.partial_cmp(&a.0).unwrap().then_with(|| a.1.cmp(&b.1))
+                            });
                         }
                     } else if p > best[9].0 {
                         best[9] = (p, j as u32);
-                        best.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap().then_with(|| a.1.cmp(&b.1)));
+                        best.sort_by(|a, b| {
+                            b.0.partial_cmp(&a.0).unwrap().then_with(|| a.1.cmp(&b.1))
+                        });
                     }
                 }
                 for (p, _) in best.iter().take(10) {

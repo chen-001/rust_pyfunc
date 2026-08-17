@@ -37,7 +37,9 @@ fn busy_compute(sec: f64) {
     let mut x: u64 = 12345;
     while start.elapsed() < target {
         // 伪随机乘法，防止编译器优化掉
-        x = x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        x = x
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
     }
     std::hint::black_box(x);
 }
@@ -64,7 +66,10 @@ fn main() {
         .unwrap();
 
     let pid = std::process::id();
-    eprintln!("[pid{pid}] 线程={n_threads} compute={compute_sec}s 日期数={}", dates.len());
+    eprintln!(
+        "[pid{pid}] 线程={n_threads} compute={compute_sec}s 日期数={}",
+        dates.len()
+    );
 
     let total_start = std::time::Instant::now();
     let mut sum_read = 0.0f64;

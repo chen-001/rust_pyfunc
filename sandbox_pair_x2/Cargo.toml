@@ -1,0 +1,19 @@
+[package]
+name = "pair_x2_sandbox"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "pair_x2_sandbox"
+path = "src/main.rs"
+
+[dependencies]
+rayon = "1"
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+
+[[bin]]
+name = "x8test"
+path = "src/bin_x8test.rs"

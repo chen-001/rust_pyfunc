@@ -19,10 +19,10 @@
 //! - 计算重因子（≥30s/天）配合 4 进程×50 线程异步，磁盘不争抢、CPU 满载
 
 use crate::fast_csv_reader::{read_market_fast_inner, read_trade_fast_inner, TradeRecord};
+use numpy::PyReadonlyArray2;
 use pyo3::prelude::*;
 use rayon::prelude::*;
 use std::collections::BTreeSet;
-use numpy::PyReadonlyArray2;
 use std::fs;
 
 /// 每只股票输出的因子数（示例：3 个横截面标准化特征）。
@@ -230,7 +230,10 @@ pub fn py_cross_section_example_from_data(
             Some(recs)
         })
         .collect();
-    Ok(compute_cross_section_example_from_trades(&codes, trades_per_code))
+    Ok(compute_cross_section_example_from_trades(
+        &codes,
+        trades_per_code,
+    ))
 }
 
 // ============================================================

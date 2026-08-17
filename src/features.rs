@@ -458,12 +458,20 @@ struct SamState {
 
 impl SamState {
     fn new(len: usize) -> Self {
-        Self { len, link: None, transitions: [usize::MAX; 4] }
+        Self {
+            len,
+            link: None,
+            transitions: [usize::MAX; 4],
+        }
     }
     #[inline]
     fn get(&self, c: u8) -> Option<usize> {
         let t = self.transitions[c as usize];
-        if t == usize::MAX { None } else { Some(t) }
+        if t == usize::MAX {
+            None
+        } else {
+            Some(t)
+        }
     }
     #[inline]
     fn set(&mut self, c: u8, state: usize) {
@@ -1086,11 +1094,11 @@ struct ColStats {
 /// 线程级复用缓冲：跨列 / 跨矩阵复用，消除每列堆分配。
 #[derive(Default)]
 pub struct StatsScratch {
-    valid: Vec<f32>,     // 非 NaN 值（按列序）
-    sorted: Vec<f32>,    // valid 的排序副本（median/分位共用）
+    valid: Vec<f32>,        // 非 NaN 值（按列序）
+    sorted: Vec<f32>,       // valid 的排序副本（median/分位共用）
     ent_counts: Vec<usize>, // 熵分箱计数（保留：旧入口仍使用）
-    tbuf: Vec<f32>,      // 行主序 → 列主序转置缓冲（multi_factor per-stock 用）
-    radix: Vec<f32>,     // 基数排序临时缓冲
+    tbuf: Vec<f32>,         // 行主序 → 列主序转置缓冲（multi_factor per-stock 用）
+    radix: Vec<f32>,        // 基数排序临时缓冲
 }
 
 /// f32 → 可排序 u32 键（非 NaN）：正数（含 +inf）映射到 [0x80000000, 0xFFFFFFFF]，
@@ -1287,8 +1295,16 @@ pub fn col_stats_21_strided(
         } else {
             mean_sum / mean_n as f32
         };
-        let first_mean = if f_n == 0 { f32::NAN } else { f_sum / f_n as f32 };
-        let last_mean = if l_n == 0 { f32::NAN } else { l_sum / l_n as f32 };
+        let first_mean = if f_n == 0 {
+            f32::NAN
+        } else {
+            f_sum / f_n as f32
+        };
+        let last_mean = if l_n == 0 {
+            f32::NAN
+        } else {
+            l_sum / l_n as f32
+        };
         o[0 * o_stride] = mean;
         o[16 * o_stride] = last_mean - first_mean;
         o[17 * o_stride] = last_mean / (first_mean.abs() + 1e-8);
@@ -1299,12 +1315,7 @@ pub fn col_stats_21_strided(
             o[2 * o_stride] = f32::NAN;
         } else {
             let m = scratch.valid.iter().sum::<f32>() / n as f32;
-            let var = scratch
-                .valid
-                .iter()
-                .map(|&x| (x - m).powi(2))
-                .sum::<f32>()
-                / (n - 1) as f32;
+            let var = scratch.valid.iter().map(|&x| (x - m).powi(2)).sum::<f32>() / (n - 1) as f32;
             o[2 * o_stride] = var.sqrt();
         }
         if n < 3 {

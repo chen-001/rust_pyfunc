@@ -36,24 +36,15 @@ const WINDOW_US: i64 = 30 * 60 * 1_000_000;
 /// 净额类（lsi/big_net/时段lsi/时机）天然去共线，不做回归。
 const NEED_NEUTRALIZE: [bool; N_FACTORS] = [
     // 族1: lsp,lbp,lsi × 3档(60/180/600)
-    true, true, false, true, true, false, true, true, false,
-    // 族2: big_net 4口径
-    false, false, false, false,
-    // 族3: dac 卖/买
-    true, true,
-    // 族4: 核心资金 cross_60_abs
-    true,
-    // 族5: 漫长份额 卖/买
-    true, true,
-    // 族6: 时段lsi 4
-    false, false, false, false,
-    // 族7: 存续均值 4
-    true, true, true, true,
-    // 族8: 耐心溢价 2
-    true, true,
-    // 族9: 分仓粒度 2
-    true, true,
-    // 族10: 首笔时机 1
+    true, true, false, true, true, false, true, true, false, // 族2: big_net 4口径
+    false, false, false, false, // 族3: dac 卖/买
+    true, true, // 族4: 核心资金 cross_60_abs
+    true, // 族5: 漫长份额 卖/买
+    true, true, // 族6: 时段lsi 4
+    false, false, false, false, // 族7: 存续均值 4
+    true, true, true, true, // 族8: 耐心溢价 2
+    true, true, // 族9: 分仓粒度 2
+    true, true, // 族10: 首笔时机 1
     false,
 ];
 
@@ -343,12 +334,20 @@ fn per_stock(trades: &[TradeRecord]) -> Option<([f64; N_FACTORS], f64)> {
     let sa: f64 = aamt.iter().sum();
     let sb: f64 = bamt.iter().sum();
     f[24] = if sa > 0.0 {
-        adur.iter().zip(aamt.iter()).map(|(d, a)| d * a).sum::<f64>() / sa
+        adur.iter()
+            .zip(aamt.iter())
+            .map(|(d, a)| d * a)
+            .sum::<f64>()
+            / sa
     } else {
         0.0
     };
     f[25] = if sb > 0.0 {
-        bdur.iter().zip(bamt.iter()).map(|(d, a)| d * a).sum::<f64>() / sb
+        bdur.iter()
+            .zip(bamt.iter())
+            .map(|(d, a)| d * a)
+            .sum::<f64>()
+            / sb
     } else {
         0.0
     };
@@ -438,7 +437,11 @@ fn zscore(vals: &mut [f64]) {
         return;
     }
     for v in vals.iter_mut() {
-        *v = if v.is_finite() { (*v - mean) / std } else { 0.0 };
+        *v = if v.is_finite() {
+            (*v - mean) / std
+        } else {
+            0.0
+        };
     }
 }
 
@@ -492,26 +495,44 @@ pub fn compute_long_order_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f
 pub fn long_order_names() -> Vec<String> {
     vec![
         // 族1 漫长占比（3档×3：60/180/600s）
-        "lsp_60".into(), "lbp_60".into(), "lsi_60".into(),
-        "lsp_180".into(), "lbp_180".into(), "lsi_180".into(),
-        "lsp_600".into(), "lbp_600".into(), "lsi_600".into(),
+        "lsp_60".into(),
+        "lbp_60".into(),
+        "lsi_60".into(),
+        "lsp_180".into(),
+        "lbp_180".into(),
+        "lsi_180".into(),
+        "lsp_600".into(),
+        "lbp_600".into(),
+        "lsi_600".into(),
         // 族2 大单方向（4口径）
-        "big_net_p80".into(), "big_net_p90".into(), "big_net_abs50w".into(), "big_net_abs100w".into(),
+        "big_net_p80".into(),
+        "big_net_p90".into(),
+        "big_net_abs50w".into(),
+        "big_net_abs100w".into(),
         // 族3 大单耐心度
-        "dac_ask".into(), "dac_bid".into(),
+        "dac_ask".into(),
+        "dac_bid".into(),
         // 族4 核心资金（绝对口径；p80 口径与 lsp 镜像已剔）
         "cross_60_abs".into(),
         // 族5 漫长份额
-        "long_share_ask".into(), "long_share_buy".into(),
+        "long_share_ask".into(),
+        "long_share_buy".into(),
         // 族6 时段耐心
-        "open_lsi_60".into(), "close_lsi_60".into(), "open_lsi_180".into(), "close_lsi_180".into(),
+        "open_lsi_60".into(),
+        "close_lsi_60".into(),
+        "open_lsi_180".into(),
+        "close_lsi_180".into(),
         // 族7 存续均值
-        "mean_dur_pos_ask".into(), "mean_dur_pos_buy".into(),
-        "amt_w_dur_ask".into(), "amt_w_dur_buy".into(),
+        "mean_dur_pos_ask".into(),
+        "mean_dur_pos_buy".into(),
+        "amt_w_dur_ask".into(),
+        "amt_w_dur_buy".into(),
         // 族8 耐心溢价
-        "persist_p95".into(), "persist_p99".into(),
+        "persist_p95".into(),
+        "persist_p99".into(),
         // 族9 分仓粒度
-        "long_cnt_ask".into(), "long_cnt_buy".into(),
+        "long_cnt_ask".into(),
+        "long_cnt_buy".into(),
         // 族10 首笔时机
         "long_first_offset".into(),
     ]
@@ -552,10 +573,7 @@ pub fn collect_raw(date: i64) -> std::io::Result<(Vec<String>, Vec<f32>, Vec<f32
 }
 
 #[pyfunction]
-pub fn py_long_order_raw(
-    py: Python<'_>,
-    date: i64,
-) -> PyResult<(Vec<String>, Vec<f32>, Vec<f32>)> {
+pub fn py_long_order_raw(py: Python<'_>, date: i64) -> PyResult<(Vec<String>, Vec<f32>, Vec<f32>)> {
     collect_raw(date).map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("{e:?}")))
 }
 

@@ -45,20 +45,20 @@ const MAX_FFILL_BINS: usize = 5;
 // ---------------------------------------------------------------------------
 
 pub const BASE_NAMES: [&str; N_FEATURES] = [
-    "active_buy_volume_ratio",   // 0  主买占比（方向）
-    "order_gap_signed_vw",       // 1  带符号订单编号差（方向）
-    "observable_ratio_level",    // 2  可观测挂单占比水平（结构）
-    "book_imbalance10_level",    // 3  10档不平衡水平（方向）
+    "active_buy_volume_ratio",     // 0  主买占比（方向）
+    "order_gap_signed_vw",         // 1  带符号订单编号差（方向）
+    "observable_ratio_level",      // 2  可观测挂单占比水平（结构）
+    "book_imbalance10_level",      // 3  10档不平衡水平（方向）
     "observable_ratio_innovation", // 4 可观测占比差分（结构变化）
     "book_imbalance10_innovation", // 5 不平衡差分（结构变化）
-    "spread_bps",                // 6  价差（成本）
-    "near3_depth_share",         // 7  近3档深度占比（结构）
-    "microprice_pressure_bps",   // 8  微价压力（压力）
-    "order_gap_magnitude",       // 9  订单编号差幅度（强度）
-    "large_trade_direction_v2",  // 10 大单方向（方向）
-    "price_log_return_3s",       // 11 3秒对数收益（价格）
-    "log_volume_3s",             // 12 桶内成交量 log1p（量，新增）
-    "trade_arrival_clustering",  // 13 桶内逐笔间隔CV（聚集度，新增）
+    "spread_bps",                  // 6  价差（成本）
+    "near3_depth_share",           // 7  近3档深度占比（结构）
+    "microprice_pressure_bps",     // 8  微价压力（压力）
+    "order_gap_magnitude",         // 9  订单编号差幅度（强度）
+    "large_trade_direction_v2",    // 10 大单方向（方向）
+    "price_log_return_3s",         // 11 3秒对数收益（价格）
+    "log_volume_3s",               // 12 桶内成交量 log1p（量，新增）
+    "trade_arrival_clustering",    // 13 桶内逐笔间隔CV（聚集度，新增）
 ];
 
 // ---------------------------------------------------------------------------
@@ -871,8 +871,7 @@ fn cs_single(
     n_stocks: usize,
     force_valid: Option<&[usize]>,
 ) -> Option<(f64, f64, f64, f64, usize)> {
-    let (mut n, mut sx, mut sy, mut sxx, mut syy, mut sxy) =
-        (0usize, 0.0f64, 0.0, 0.0, 0.0, 0.0);
+    let (mut n, mut sx, mut sy, mut sxx, mut syy, mut sxy) = (0usize, 0.0f64, 0.0, 0.0, 0.0, 0.0);
     match force_valid {
         Some(valid) => {
             for &s in valid {
@@ -1110,8 +1109,7 @@ fn f_pvalue(f: f64, d1: f64, _d2: f64) -> f64 {
     let b5 = 1.330_274_429;
     let u = 1.0 / (1.0 + p * zz);
     let phi = (-0.5 * zz * zz).exp() / (2.0 * std::f64::consts::PI).sqrt();
-    let upper =
-        phi * (b1 * u + b2 * u.powi(2) + b3 * u.powi(3) + b4 * u.powi(4) + b5 * u.powi(5));
+    let upper = phi * (b1 * u + b2 * u.powi(2) + b3 * u.powi(3) + b4 * u.powi(4) + b5 * u.powi(5));
     upper.clamp(0.0, 1.0)
 }
 
@@ -1182,7 +1180,7 @@ fn madvise_huge(buf: &mut Vec<f32>) {
 }
 
 impl ComboBuf {
-    fn new(n_per_stock: usize, n_shared: usize, n_stocks: usize) -> Self {
+    pub(crate) fn new(n_per_stock: usize, n_shared: usize, n_stocks: usize) -> Self {
         let mut per_stock = Vec::with_capacity(n_per_stock * N_BINS * n_stocks);
         madvise_huge(&mut per_stock);
         per_stock.resize(n_per_stock * N_BINS * n_stocks, f32::NAN);
@@ -1284,7 +1282,7 @@ impl Default for ComboScratch {
 }
 
 /// 处理单个 (模型, y) 组合：独立滚动矩 + 桶循环。
-fn compute_one_combo(
+pub(crate) fn compute_one_combo(
     signals: &[f32],
     market: &[f64],
     n_stocks: usize,
@@ -1345,7 +1343,7 @@ fn compute_one_combo(
                                 true,
                                 sign,
                             );
-                            }
+                        }
                     }
                 }
             }
@@ -1400,7 +1398,7 @@ fn compute_one_combo(
                             true,
                             sign,
                         );
-                        }
+                    }
                 }
             }
             continue;
@@ -1602,13 +1600,12 @@ fn compute_one_combo(
                         true,
                         sign,
                     );
-                    }
+                }
             }
         }
     }
     buf
 }
-
 
 // 主入口：读全市场 → 网格 → 组合并行计算 → 21 统计降维 → (codes, vals)
 // ---------------------------------------------------------------------------
@@ -1758,7 +1755,10 @@ fn compute_multi_factor_capm_full_inner(date: i64) -> io::Result<(Vec<String>, V
     let n_est = list_codes(date).len();
     let (prealloc, grid) = rayon::join(|| prealloc_combos(n_est), || load_market_grid(date));
     let (codes, signals, market, n_stocks) = grid?;
-    eprintln!("  [mfcapm] 读盘+网格: {:.1}s", _t_all.elapsed().as_secs_f64());
+    eprintln!(
+        "  [mfcapm] 读盘+网格: {:.1}s",
+        _t_all.elapsed().as_secs_f64()
+    );
     if n_stocks == 0 {
         return Ok((codes, Vec::new()));
     }
@@ -1782,7 +1782,10 @@ fn compute_multi_factor_capm_full_inner(date: i64) -> io::Result<(Vec<String>, V
         .collect();
     drop(signals);
     drop(market);
-    eprintln!("  [mfcapm] 组合计算: {:.1}s", _t_all.elapsed().as_secs_f64());
+    eprintln!(
+        "  [mfcapm] 组合计算: {:.1}s",
+        _t_all.elapsed().as_secs_f64()
+    );
 
     // 组合视图：模型主序（与 combo_metas()/因子名顺序一致）
     let combos_ref: Vec<&ComboBuf> = combos.iter().collect();
@@ -1839,12 +1842,7 @@ fn compute_multi_factor_capm_full_inner(date: i64) -> io::Result<(Vec<String>, V
                 // 扫描会命中不同的 cache line（stride=4n_ps 字节），慢 3-5 倍。
                 let start = (s * N_BINS) * n_ps;
                 let end = ((s + 1) * N_BINS) * n_ps;
-                scratch.col_stats_21_row_major(
-                    &cb.per_stock[start..end],
-                    N_BINS,
-                    n_ps,
-                    &mut tmp,
-                );
+                scratch.col_stats_21_row_major(&cb.per_stock[start..end], N_BINS, n_ps, &mut tmp);
                 let base = combo_bases[ci];
                 let n_sh = cb.n_shared;
                 let sh = &shared_stats[ci];
@@ -1860,7 +1858,10 @@ fn compute_multi_factor_capm_full_inner(date: i64) -> io::Result<(Vec<String>, V
             }
         });
 
-    eprintln!("  [mfcapm] shared统计: {:.1}s", _t_shared.elapsed().as_secs_f64());
+    eprintln!(
+        "  [mfcapm] shared统计: {:.1}s",
+        _t_shared.elapsed().as_secs_f64()
+    );
     eprintln!("  [mfcapm] 总耗时: {:.1}s", _t_all.elapsed().as_secs_f64());
     Ok((codes, vals))
 }
@@ -1909,8 +1910,8 @@ mod tests {
     #[test]
     fn cholesky_roundtrip() {
         let a = [
-            4.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+            4.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
         ];
         let _ = a;
         // 2×2 正定矩阵（MAX_FACTORS 步长布局）

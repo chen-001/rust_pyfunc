@@ -47,48 +47,48 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                 col_sum[j] += v;
             }
         }
-    let ret_col: Vec<f32> = (0..n)
-        .into_par_iter()
-        .map(|i| {
-            let denom = col_sum[i];
-            if denom <= 0.0 {
-                return 0.0f32;
-            }
-            let mut acc = 0.0f64;
-            for j in 0..n {
-                if j == i {
-                    continue;
+        let ret_col: Vec<f32> = (0..n)
+            .into_par_iter()
+            .map(|i| {
+                let denom = col_sum[i];
+                if denom <= 0.0 {
+                    return 0.0f32;
                 }
-                let sji = d[j * n + i] as f64; // j 领先 i
-                if sji > 0.0 {
-                    acc += (sji / denom) * r[j];
+                let mut acc = 0.0f64;
+                for j in 0..n {
+                    if j == i {
+                        continue;
+                    }
+                    let sji = d[j * n + i] as f64; // j 领先 i
+                    if sji > 0.0 {
+                        acc += (sji / denom) * r[j];
+                    }
                 }
-            }
-            acc as f32
-        })
-        .collect();
-    let shock_col: Vec<f32> = (0..n)
-        .into_par_iter()
-        .map(|i| {
-            let denom = col_sum[i];
-            if denom <= 0.0 {
-                return 0.0f32;
-            }
-            let mut acc = 0.0f64;
-            for j in 0..n {
-                if j == i {
-                    continue;
+                acc as f32
+            })
+            .collect();
+        let shock_col: Vec<f32> = (0..n)
+            .into_par_iter()
+            .map(|i| {
+                let denom = col_sum[i];
+                if denom <= 0.0 {
+                    return 0.0f32;
                 }
-                let sji = d[j * n + i] as f64;
-                if sji > 0.0 {
-                    acc += (sji / denom) * shock[j];
+                let mut acc = 0.0f64;
+                for j in 0..n {
+                    if j == i {
+                        continue;
+                    }
+                    let sji = d[j * n + i] as f64;
+                    if sji > 0.0 {
+                        acc += (sji / denom) * shock[j];
+                    }
                 }
-            }
-            acc as f32
-        })
-        .collect();
-    out.push(IndicatorResult::new(format!("ldr_{mat}_return"), ret_col));
-    out.push(IndicatorResult::new(format!("ldr_{mat}_shock"), shock_col));
+                acc as f32
+            })
+            .collect();
+        out.push(IndicatorResult::new(format!("ldr_{mat}_return"), ret_col));
+        out.push(IndicatorResult::new(format!("ldr_{mat}_shock"), shock_col));
     }
     out
 }

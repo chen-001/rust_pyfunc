@@ -52,7 +52,10 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                 var.sqrt() as f32
             })
             .collect();
-        out.push(IndicatorResult::new(format!("nbz_{mat}_return_dispersion"), col));
+        out.push(IndicatorResult::new(
+            format!("nbz_{mat}_return_dispersion"),
+            col,
+        ));
     }
     out
 }

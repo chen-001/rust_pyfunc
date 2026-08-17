@@ -135,7 +135,12 @@ pub fn state_read_row(dir: &str, date: i64) -> Option<Vec<f64>> {
 
 /// 读取 [t−W, t−1] 窗口内的标量表（按日期升序；缺失日期跳过）。
 /// 返回 (dates, rows)，rows 每行 14 列。
-pub fn state_read_window(dir: &str, t: i64, w: usize, trading_days: &[i64]) -> (Vec<i64>, Vec<Vec<f64>>) {
+pub fn state_read_window(
+    dir: &str,
+    t: i64,
+    w: usize,
+    trading_days: &[i64],
+) -> (Vec<i64>, Vec<Vec<f64>>) {
     // 从 trading_days 中取 t 之前最近的 W 个交易日
     let mut dates: Vec<i64> = Vec::new();
     for &d in trading_days.iter().rev() {
@@ -312,7 +317,10 @@ pub fn fit_regime(window: &[Vec<f64>], min_rows: usize) -> RegimeParams {
     let mut stds = [0.0f64; N_STATE];
     for j in 0..N_STATE {
         let log_col = matches!(j, 1..=11); // qvol 6 + qturn 2 + n_trades + tot_vol + tot_turnover
-        let col: Vec<f64> = window.iter().map(|r| if log_col { r[j].ln_1p() } else { r[j] }).collect();
+        let col: Vec<f64> = window
+            .iter()
+            .map(|r| if log_col { r[j].ln_1p() } else { r[j] })
+            .collect();
         let m = col.iter().sum::<f64>() / n as f64;
         let v = col.iter().map(|x| (x - m).powi(2)).sum::<f64>() / n as f64;
         means[j] = m;
@@ -329,7 +337,10 @@ pub fn fit_regime(window: &[Vec<f64>], min_rows: usize) -> RegimeParams {
     }
     let (_vals, vecs) = jacobi_eigen(&cov);
     let pc1_load = vecs[0]; // 第一主成分载荷
-    let pc1_scores: Vec<f64> = z.iter().map(|row| row.iter().zip(pc1_load.iter()).map(|(a, b)| a * b).sum()).collect();
+    let pc1_scores: Vec<f64> = z
+        .iter()
+        .map(|row| row.iter().zip(pc1_load.iter()).map(|(a, b)| a * b).sum())
+        .collect();
 
     // ---- 2. k=4 聚类（PC1 上 1D k-means，确定性） ----
     let labels = kmeans_1d(&pc1_scores, 4);
@@ -435,8 +446,18 @@ pub fn derive_compute_params(p: &RegimeParams) -> (i64, [f64; 4], [f64; 4]) {
         window = 20;
     } else if cov < 0.80 {
         let w = ((0.80 - cov) / 0.20).clamp(0.0, 1.0);
-        peak = [1.0 - 0.40 * w, 1.0 - 0.20 * w, 1.0 - 0.30 * w, 1.0 - 0.35 * w];
-        valley = [1.0 - 0.30 * w, 1.0 - 0.10 * w, 1.0 - 0.20 * w, 1.0 - 0.25 * w];
+        peak = [
+            1.0 - 0.40 * w,
+            1.0 - 0.20 * w,
+            1.0 - 0.30 * w,
+            1.0 - 0.35 * w,
+        ];
+        valley = [
+            1.0 - 0.30 * w,
+            1.0 - 0.10 * w,
+            1.0 - 0.20 * w,
+            1.0 - 0.25 * w,
+        ];
         window = 30 + (20.0 * w) as i64;
     } else if cov > 0.95 {
         let w = ((cov - 0.95) / 0.05).clamp(0.0, 1.0);

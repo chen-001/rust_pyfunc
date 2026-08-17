@@ -28,7 +28,11 @@ fn main() {
             uniq.insert(t.time_us);
             prev = t.time_us;
         }
-        println!("  相邻正差 min={}us  unique times={}/{}",
-                 mindiff, uniq.len(), trades.len());
+        println!(
+            "  相邻正差 min={}us  unique times={}/{}",
+            mindiff,
+            uniq.len(),
+            trades.len()
+        );
     }
 }

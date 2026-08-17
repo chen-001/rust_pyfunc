@@ -10,20 +10,48 @@ use super::matrix_stage::{StockStats, MATRIX_SPECS};
 /// 37 矩阵全集（与 matrix_stage.rs MATRIX_SPECS 顺序一致; 指标模块遍历用）。
 /// 布局: cnt×9τ, vol×6τ, logvol×4τ, flow same/opp×4τ, urg same/opp×3τ, ext same/opp×2τ。
 pub const MATRIX_LIST: [&str; 37] = [
-    "cnt_t005", "cnt_t01", "cnt_t02", "cnt_t05", "cnt_t1", "cnt_t3", "cnt_t5", "cnt_t10", "cnt_t30",
-    "vol_t02", "vol_t05", "vol_t1", "vol_t3", "vol_t5", "vol_t30",
-    "logvol_t05", "logvol_t1", "logvol_t3", "logvol_t30",
-    "flow_same_t02", "flow_opp_t02", "flow_same_t05", "flow_opp_t05",
-    "flow_same_t1", "flow_opp_t1", "flow_same_t5", "flow_opp_t5",
-    "urg_same_t1", "urg_opp_t1", "urg_same_t5", "urg_opp_t5", "urg_same_t30", "urg_opp_t30",
-    "ext_same_t1", "ext_opp_t1", "ext_same_t5", "ext_opp_t5",
+    "cnt_t005",
+    "cnt_t01",
+    "cnt_t02",
+    "cnt_t05",
+    "cnt_t1",
+    "cnt_t3",
+    "cnt_t5",
+    "cnt_t10",
+    "cnt_t30",
+    "vol_t02",
+    "vol_t05",
+    "vol_t1",
+    "vol_t3",
+    "vol_t5",
+    "vol_t30",
+    "logvol_t05",
+    "logvol_t1",
+    "logvol_t3",
+    "logvol_t30",
+    "flow_same_t02",
+    "flow_opp_t02",
+    "flow_same_t05",
+    "flow_opp_t05",
+    "flow_same_t1",
+    "flow_opp_t1",
+    "flow_same_t5",
+    "flow_opp_t5",
+    "urg_same_t1",
+    "urg_opp_t1",
+    "urg_same_t5",
+    "urg_opp_t5",
+    "urg_same_t30",
+    "urg_opp_t30",
+    "ext_same_t1",
+    "ext_opp_t1",
+    "ext_same_t5",
+    "ext_opp_t5",
 ];
 
 /// signed 族净矩阵清单（same − opp; 供 directionality/leadership 等有向净指标用）。
 pub const NET_LIST: [&str; 9] = [
-    "flow_t02", "flow_t05", "flow_t1", "flow_t5",
-    "urg_t1", "urg_t5", "urg_t30",
-    "ext_t1", "ext_t5",
+    "flow_t02", "flow_t05", "flow_t1", "flow_t5", "urg_t1", "urg_t5", "urg_t30", "ext_t1", "ext_t5",
 ];
 
 /// 矩阵 τ（秒）: "cnt_t005" → 0.05; "flow_same_t5" → 5.0; "cnt_t1" → 1.0（与 MATRIX_SPECS 一致）。
@@ -32,7 +60,11 @@ pub fn matrix_tau(name: &str) -> f64 {
     let t = name.rsplit('_').next().unwrap_or("t1");
     let s = t.trim_start_matches('t');
     let v: f64 = s.parse().unwrap_or(1.0);
-    if s.len() > 1 && s.starts_with('0') { v / 100.0 } else { v }
+    if s.len() > 1 && s.starts_with('0') {
+        v / 100.0
+    } else {
+        v
+    }
 }
 
 /// 当日备份集（内存）
@@ -79,7 +111,10 @@ pub struct IndicatorResult {
 
 impl IndicatorResult {
     pub fn new(name: impl Into<String>, values: Vec<f32>) -> Self {
-        IndicatorResult { name: name.into(), values }
+        IndicatorResult {
+            name: name.into(),
+            values,
+        }
     }
 }
 
@@ -145,7 +180,9 @@ impl<'a> IndicatorCtx<'a> {
             }
         }
         let arc = Arc::new(out);
-        self.sym_cache.borrow_mut().insert(name.to_string(), arc.clone());
+        self.sym_cache
+            .borrow_mut()
+            .insert(name.to_string(), arc.clone());
         Some(arc)
     }
 
@@ -161,7 +198,9 @@ impl<'a> IndicatorCtx<'a> {
             out.push(row.iter().map(|&v| v as f64).sum());
         }
         let arc = Arc::new(out);
-        self.rowsum_cache.borrow_mut().insert(name.to_string(), arc.clone());
+        self.rowsum_cache
+            .borrow_mut()
+            .insert(name.to_string(), arc.clone());
         Some(arc)
     }
 

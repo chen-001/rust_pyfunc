@@ -78,7 +78,9 @@
 //!   （S2/S3 峰值 6 个累加器 × 4 标量 = 24 个活跃值 > 16 GPR，编译器栈溢出），
 //!   以及 j-walk 的事件流 DRAM 带宽墙（50 线程有效 ~60GB/s）。
 
-use crate::fast_csv_reader::{read_market_fast_inner, read_trade_fast_inner, MarketRecord, TradeRecord};
+use crate::fast_csv_reader::{
+    read_market_fast_inner, read_trade_fast_inner, MarketRecord, TradeRecord,
+};
 use numpy::PyReadonlyArray2;
 use pyo3::prelude::*;
 use rayon::prelude::*;
@@ -100,12 +102,35 @@ pub const N_FACTORS: usize = N_EVENTS * N_PERIODS * (1 + 2 * N_METRICS); // 1740
 /// 大单 = 全市场成交额 top 10%（内部补充 = 每股内部 top 10%）、
 /// 中单 = 10%~60%、小单 = bottom 40%。sweep/ice 的"大单" = 大单档。
 pub const EVENT_NAMES: [&str; N_EVENTS] = [
-    "big_l", "big_m", "big_s", "big_buy_l", "big_buy_m", "big_buy_s",
-    "big_sell_l", "big_sell_m", "big_sell_s",
-    "sweep_buy", "sweep_sell", "ice", "jump", "jump_up", "jump_dn",
-    "run_up", "run_dn", "vwap_up", "vwap_dn", "vwap_dev_up", "vwap_dev_dn",
-    "imb_buy", "imb_sell", "depth", "wall", "spread", "retreat",
-    "imp_buy", "imp_sell",
+    "big_l",
+    "big_m",
+    "big_s",
+    "big_buy_l",
+    "big_buy_m",
+    "big_buy_s",
+    "big_sell_l",
+    "big_sell_m",
+    "big_sell_s",
+    "sweep_buy",
+    "sweep_sell",
+    "ice",
+    "jump",
+    "jump_up",
+    "jump_dn",
+    "run_up",
+    "run_dn",
+    "vwap_up",
+    "vwap_dn",
+    "vwap_dev_up",
+    "vwap_dev_dn",
+    "imb_buy",
+    "imb_sell",
+    "depth",
+    "wall",
+    "spread",
+    "retreat",
+    "imp_buy",
+    "imp_sell",
 ];
 
 pub const METRIC_NAMES: [&str; N_METRICS] = ["med", "mean", "hit", "fast5", "wmed", "rmed", "rhit"];
@@ -135,29 +160,29 @@ const LO3_S: i64 = PERIOD_LO_S[3] * 1_000_000;
 /// 导致零模型的时段末 S 早于事件时刻（x=0 → null_med=0 → rmed=inf）。
 pub fn day_base(t: i64) -> i64 {
     (t / 86_400_000_000) * 86_400_000_000 + 28_800_000_000
-}// ============================================================================
-// 参数（样例数据调参结果；from_vec 顺序即调参脚本传参顺序，17 个）
-// ============================================================================
+} // ============================================================================
+  // 参数（样例数据调参结果；from_vec 顺序即调参脚本传参顺序，17 个）
+  // ============================================================================
 
 #[derive(Clone, Copy, Debug)]
 pub struct YhybParams {
-    pub big_amt_wan: f64,  // 【已废弃】体量判定改用截面百分位（P90/P40）+ 空档内部补充；保留字段仅为兼容 from_vec 17 参数顺序
-    pub sweep_w_s: f64,    // 扫单窗口（秒）
-    pub sweep_m: usize,    // 扫单: 窗口内同向大单数 ≥ m
-    pub ice_w_s: f64,      // 冰山窗口（秒）
-    pub ice_m: usize,      // 冰山: 窗口内同价大单数 ≥ m
-    pub jump_q: f64,       // 跳变: |Δp| > max(当日 |Δp| 的 jump_q 分位, 2×tick)
-    pub jump_win: usize,   // 跳变滚动σ窗口（笔数，保留备用）
-    pub run_r: usize,      // 连涨/连跌: 连续同向 ≥ r 笔
-    pub vwap_dev: f64,     // 偏离VWAP: |p-vwap|/vwap > θ（进入语义）
-    pub imb_thr: f64,      // 失衡极值: |IOB| > θ（进入语义），IOB 用全档总量
-    pub dep_thr: f64,      // 深度突变: |Δdepth|/depth > θ（10档可见量）
-    pub wall_k: f64,       // 厚墙: max(买一,卖一) > wall_k × 当日中位一档量（进入语义）
+    pub big_amt_wan: f64, // 【已废弃】体量判定改用截面百分位（P90/P40）+ 空档内部补充；保留字段仅为兼容 from_vec 17 参数顺序
+    pub sweep_w_s: f64,   // 扫单窗口（秒）
+    pub sweep_m: usize,   // 扫单: 窗口内同向大单数 ≥ m
+    pub ice_w_s: f64,     // 冰山窗口（秒）
+    pub ice_m: usize,     // 冰山: 窗口内同价大单数 ≥ m
+    pub jump_q: f64,      // 跳变: |Δp| > max(当日 |Δp| 的 jump_q 分位, 2×tick)
+    pub jump_win: usize,  // 跳变滚动σ窗口（笔数，保留备用）
+    pub run_r: usize,     // 连涨/连跌: 连续同向 ≥ r 笔
+    pub vwap_dev: f64,    // 偏离VWAP: |p-vwap|/vwap > θ（进入语义）
+    pub imb_thr: f64,     // 失衡极值: |IOB| > θ（进入语义），IOB 用全档总量
+    pub dep_thr: f64,     // 深度突变: |Δdepth|/depth > θ（10档可见量）
+    pub wall_k: f64,      // 厚墙: max(买一,卖一) > wall_k × 当日中位一档量（进入语义）
     pub spread_ticks: f64, // 价差扩张: spread > θ×0.01（进入语义）
-    pub ret_thr: f64,      // 撤单潮: 相邻快照消失量/前快照可见量 > θ
-    pub imp_thr: f64,      // 冲击单: 单笔量 > imp_thr × 当时前5档总量
-    pub hit_t_s: f64,      // 命中窗口（秒）
-    pub fast_q: f64,       // 最快 5% 分位
+    pub ret_thr: f64,     // 撤单潮: 相邻快照消失量/前快照可见量 > θ
+    pub imp_thr: f64,     // 冲击单: 单笔量 > imp_thr × 当时前5档总量
+    pub hit_t_s: f64,     // 命中窗口（秒）
+    pub fast_q: f64,      // 最快 5% 分位
 }
 
 impl Default for YhybParams {
@@ -329,7 +354,17 @@ fn detect_trade_cols(
         .map(|&x| if use_s { x < inner_m } else { x < thr_m })
         .collect();
     // 大/中/小三档事件（候选收集 + 频率上限，权重 = 成交金额）
-    let mut cand = [Vec::<(i64, f64)>::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new()];
+    let mut cand = [
+        Vec::<(i64, f64)>::new(),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+    ];
     for i in 0..n {
         if is_l[i] {
             cand[0].push((t[i], amt[i])); // big_l
@@ -514,7 +549,9 @@ fn detect_market_cols(
     if m < 2 {
         return out;
     }
-    let depth10: Vec<f64> = (0..m).map(|i| ask10[i].iter().sum::<f64>() + bid10[i].iter().sum::<f64>()).collect();
+    let depth10: Vec<f64> = (0..m)
+        .map(|i| ask10[i].iter().sum::<f64>() + bid10[i].iter().sum::<f64>())
+        .collect();
     // IOB（全档）：进入语义
     let mut in_buy = false;
     let mut in_sell = false;
@@ -611,7 +648,13 @@ fn detect_impact(
             d5 += ask10[j][k] + bid10[j][k];
         }
         if v[i] > prm.imp_thr * d5 {
-            let eidx = if f[i] == 66 { 0usize } else if f[i] == 83 { 1 } else { continue };
+            let eidx = if f[i] == 66 {
+                0usize
+            } else if f[i] == 83 {
+                1
+            } else {
+                continue;
+            };
             push(&mut out[eidx], t[i], amt[i]);
         }
     }
@@ -781,8 +824,10 @@ fn build_slices_and_null(streams: &[Option<[EvStream; N_EVENTS]>]) -> (SliceTabl
     let base = streams
         .iter()
         .find_map(|s| {
-            s.as_ref()
-                .and_then(|ev| ev.iter().find_map(|e| (!e.t.is_empty()).then(|| day_base(e.t[0]))))
+            s.as_ref().and_then(|ev| {
+                ev.iter()
+                    .find_map(|e| (!e.t.is_empty()).then(|| day_base(e.t[0])))
+            })
         })
         .unwrap_or(0);
     let mut sl = vec![vec![[0u32; 2]; n]; N_EVENTS * N_PERIODS];
@@ -846,14 +891,14 @@ struct Bucket {
 }
 
 struct Gather {
-    b: Vec<Bucket>,  // 1 秒桶（157KB）
-    n: u64,          // 距离条数（免去逐桶求和）
+    b: Vec<Bucket>, // 1 秒桶（157KB）
+    n: u64,         // 距离条数（免去逐桶求和）
     med_b: usize,
     f5_b: usize,
     wmed_b: usize,
     hit: u64,
     wsum: f64,
-    max_b: usize,       // 已触碰的最大桶（locate/stats 只扫 [0, max_b]）
+    max_b: usize,        // 已触碰的最大桶（locate/stats 只扫 [0, max_b]）
     touched: Vec<usize>, // 已触碰桶列表（重置时只清这些桶）
 }
 
@@ -1111,7 +1156,13 @@ impl PackGather {
                 }
             }
         }
-        [med, mean_sum / n as f64, self.per[p].hit as f64 / n as f64, fast5, self.per[p].wmed_b as f64 + 0.5]
+        [
+            med,
+            mean_sum / n as f64,
+            self.per[p].hit as f64 / n as f64,
+            fast5,
+            self.per[p].wmed_b as f64 + 0.5,
+        ]
     }
 }
 
@@ -1192,49 +1243,64 @@ fn push_pack_acc(
     }
     // v7.6：4 个 lane 的 hm/wsum 打包进 ymm 一次更新（mask 编译期常量 → 常量折叠）
     unsafe {
-    use core::arch::x86_64::{
-        _mm256_add_epi64, _mm256_add_pd, _mm256_and_si256, _mm256_blendv_epi8,
-        _mm256_blendv_pd, _mm256_castsi256_pd, _mm256_cmpeq_epi64, _mm256_max_epu64, _mm256_or_si256,
-        _mm256_set1_epi64x, _mm256_set1_pd, _mm256_setr_epi64x, _mm256_setr_pd,
-        _mm256_slli_epi64, _mm256_srli_epi64, _mm256_srlv_epi64, _mm256_storeu_pd,
-        _mm256_storeu_si256,
-    };
-    let hm = _mm256_setr_epi64x(a0.hm as i64, a1.hm as i64, a2.hm as i64, a3.hm as i64);
-    let ws = _mm256_setr_pd(a0.wsum, a1.wsum, a2.wsum, a3.wsum);
-    // 选中 lane 的 0/1 掩码（(mask>>lane)&1，srlv 归一化）
-    let sel = _mm256_srlv_epi64(
-        _mm256_and_si256(_mm256_set1_epi64x(mask as i64), _mm256_setr_epi64x(1, 2, 4, 8)),
-        _mm256_setr_epi64x(0, 1, 2, 3),
-    );
-    let h = _mm256_srli_epi64(hm, 32);
-    let m = _mm256_and_si256(hm, _mm256_set1_epi64x(0xFFFF_FFFF));
-    // 选中 lane：hit += (dd<=t_us)（与标量一致，无 +1——计数 = 命中数而非推送数）
-    let hit_inc = _mm256_and_si256(_mm256_set1_epi64x((dd <= t_us) as i64), sel);
-    let h2 = _mm256_add_epi64(h, hit_inc);
-    let m2 = _mm256_max_epu64(m, _mm256_set1_epi64x(bb as i64));
-    let new_hm = _mm256_or_si256(_mm256_slli_epi64(h2, 32), m2);
-    // 未选中 lane 保留原 hm：cmpeq 生成全 1 掩码（blendv_epi8 是字节级选择，
-    // 单符号位会把 64 位 hm 混成"旧字节+新字节"——必须逐字节全选/全不选）
-    let sel_all = _mm256_cmpeq_epi64(sel, _mm256_set1_epi64x(1));
-    let hm = _mm256_blendv_epi8(hm, new_hm, sel_all);
-    // wsum：选中 lane += ww（blendv_pd 为 64 位元素级，符号位即可）
-    let sel_s = _mm256_slli_epi64(sel, 63);
-    let ws = _mm256_blendv_pd(
-        ws,
-        _mm256_add_pd(ws, _mm256_set1_pd(ww)),
-        _mm256_castsi256_pd(sel_s),
-    );
-    // SOA 输出缓冲：hm[4] 与 ws[4] 各自连续（AoS 会被 32B 宽写跨结构破坏）
-    let mut oh = [a0.hm, a1.hm, a2.hm, a3.hm];
-    let mut ow = [a0.wsum, a1.wsum, a2.wsum, a3.wsum];
-    _mm256_storeu_pd(ow.as_mut_ptr(), ws);
-    _mm256_storeu_si256(oh.as_mut_ptr() as *mut _, hm);
-    (
-        Acc { hm: oh[0], wsum: ow[0] },
-        Acc { hm: oh[1], wsum: ow[1] },
-        Acc { hm: oh[2], wsum: ow[2] },
-        Acc { hm: oh[3], wsum: ow[3] },
-    )
+        use core::arch::x86_64::{
+            _mm256_add_epi64, _mm256_add_pd, _mm256_and_si256, _mm256_blendv_epi8,
+            _mm256_blendv_pd, _mm256_castsi256_pd, _mm256_cmpeq_epi64, _mm256_max_epu64,
+            _mm256_or_si256, _mm256_set1_epi64x, _mm256_set1_pd, _mm256_setr_epi64x,
+            _mm256_setr_pd, _mm256_slli_epi64, _mm256_srli_epi64, _mm256_srlv_epi64,
+            _mm256_storeu_pd, _mm256_storeu_si256,
+        };
+        let hm = _mm256_setr_epi64x(a0.hm as i64, a1.hm as i64, a2.hm as i64, a3.hm as i64);
+        let ws = _mm256_setr_pd(a0.wsum, a1.wsum, a2.wsum, a3.wsum);
+        // 选中 lane 的 0/1 掩码（(mask>>lane)&1，srlv 归一化）
+        let sel = _mm256_srlv_epi64(
+            _mm256_and_si256(
+                _mm256_set1_epi64x(mask as i64),
+                _mm256_setr_epi64x(1, 2, 4, 8),
+            ),
+            _mm256_setr_epi64x(0, 1, 2, 3),
+        );
+        let h = _mm256_srli_epi64(hm, 32);
+        let m = _mm256_and_si256(hm, _mm256_set1_epi64x(0xFFFF_FFFF));
+        // 选中 lane：hit += (dd<=t_us)（与标量一致，无 +1——计数 = 命中数而非推送数）
+        let hit_inc = _mm256_and_si256(_mm256_set1_epi64x((dd <= t_us) as i64), sel);
+        let h2 = _mm256_add_epi64(h, hit_inc);
+        let m2 = _mm256_max_epu64(m, _mm256_set1_epi64x(bb as i64));
+        let new_hm = _mm256_or_si256(_mm256_slli_epi64(h2, 32), m2);
+        // 未选中 lane 保留原 hm：cmpeq 生成全 1 掩码（blendv_epi8 是字节级选择，
+        // 单符号位会把 64 位 hm 混成"旧字节+新字节"——必须逐字节全选/全不选）
+        let sel_all = _mm256_cmpeq_epi64(sel, _mm256_set1_epi64x(1));
+        let hm = _mm256_blendv_epi8(hm, new_hm, sel_all);
+        // wsum：选中 lane += ww（blendv_pd 为 64 位元素级，符号位即可）
+        let sel_s = _mm256_slli_epi64(sel, 63);
+        let ws = _mm256_blendv_pd(
+            ws,
+            _mm256_add_pd(ws, _mm256_set1_pd(ww)),
+            _mm256_castsi256_pd(sel_s),
+        );
+        // SOA 输出缓冲：hm[4] 与 ws[4] 各自连续（AoS 会被 32B 宽写跨结构破坏）
+        let mut oh = [a0.hm, a1.hm, a2.hm, a3.hm];
+        let mut ow = [a0.wsum, a1.wsum, a2.wsum, a3.wsum];
+        _mm256_storeu_pd(ow.as_mut_ptr(), ws);
+        _mm256_storeu_si256(oh.as_mut_ptr() as *mut _, hm);
+        (
+            Acc {
+                hm: oh[0],
+                wsum: ow[0],
+            },
+            Acc {
+                hm: oh[1],
+                wsum: ow[1],
+            },
+            Acc {
+                hm: oh[2],
+                wsum: ow[2],
+            },
+            Acc {
+                hm: oh[3],
+                wsum: ow[3],
+            },
+        )
     }
 }
 
@@ -1250,7 +1316,12 @@ struct Acc4 {
 impl Acc4 {
     fn zero() -> Self {
         use core::arch::x86_64::{_mm256_set1_epi64x, _mm256_setzero_pd};
-        unsafe { Acc4 { hm: _mm256_set1_epi64x(0), ws: _mm256_setzero_pd() } }
+        unsafe {
+            Acc4 {
+                hm: _mm256_set1_epi64x(0),
+                ws: _mm256_setzero_pd(),
+            }
+        }
     }
 }
 
@@ -1288,13 +1359,19 @@ struct L4Ctx<'a> {
 /// - null_hit = (1/nB)·Σ_b[1−(1−T/x̄)^m_b]——x̄ 均值近似，powf 记忆化
 /// - YHYB_SKIP_NULL 环境变量：跳过零模型（瓶颈定位用，不影响正常路径）
 #[allow(clippy::too_many_arguments)]
-fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH: bool, const COUNT: bool, const K: usize>(
+fn agg_fused_blocked<
+    const WITH_L4: bool,
+    const NO_JWALK: bool,
+    const SKIP_PUSH: bool,
+    const COUNT: bool,
+    const K: usize,
+>(
     streams: &[Option<[EvStream; N_EVENTS]>],
     null_t: &NullTable,
     slices: &SliceTable,
     cst: &CompStreams,
     brecs: &[Vec<BRec>],
-    ai: [usize; K], // 全量索引（streams 访问）
+    ai: [usize; K],  // 全量索引（streams 访问）
     row: [usize; K], // 有效索引（矩阵行；WITH_L4=false 时忽略）
     nk: usize,       // 块内实际 A 数（≤ K；尾块可能 < K）
     e: usize,
@@ -1339,7 +1416,9 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
     // 预计算每股：切片 / rate / 5 段 / 零模型 x 侧
     let mut all_empty = true;
     for k in 0..nk {
-        let Some(sa) = streams[ai[k]].as_ref() else { continue };
+        let Some(sa) = streams[ai[k]].as_ref() else {
+            continue;
+        };
         ta[k] = &sa[e].t;
         wa[k] = &sa[e].w;
         alo[k] = [
@@ -1377,9 +1456,18 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
         //   S0 [5400,6000) {p0} | S1 [6000,12600) {p0,p1} | S2 [12600,17820) {p0,p1,p3}
         //   S3 [17820,19620) {p0,p2,p3} | S4 [19620,19800) {p3}
         seg[k][0] = (ualo, ta[k].partition_point(|&x| x < base + 6_000_000_000));
-        seg[k][1] = (seg[k][0].1, ta[k].partition_point(|&x| x < base + 12_600_000_000));
-        seg[k][2] = (seg[k][1].1, ta[k].partition_point(|&x| x < base + 17_820_000_000));
-        seg[k][3] = (seg[k][2].1, ta[k].partition_point(|&x| x < base + 19_620_000_000));
+        seg[k][1] = (
+            seg[k][0].1,
+            ta[k].partition_point(|&x| x < base + 12_600_000_000),
+        );
+        seg[k][2] = (
+            seg[k][1].1,
+            ta[k].partition_point(|&x| x < base + 17_820_000_000),
+        );
+        seg[k][3] = (
+            seg[k][2].1,
+            ta[k].partition_point(|&x| x < base + 19_620_000_000),
+        );
         seg[k][4] = (seg[k][3].1, uahi);
         // 零模型可分式预计算：Σ x_i（A 事件时段剩余）与 x̄，每任务 O(k_A)
         for p in 0..N_PERIODS {
@@ -1392,7 +1480,11 @@ fn agg_fused_blocked<const WITH_L4: bool, const NO_JWALK: bool, const SKIP_PUSH:
                     }
                 }
             }
-            x_bar[k][p] = if skip_null { 0.0 } else { sum_x[k][p] / k_a[k][p] };
+            x_bar[k][p] = if skip_null {
+                0.0
+            } else {
+                sum_x[k][p] / k_a[k][p]
+            };
         }
     }
     if all_empty {
@@ -2279,7 +2371,9 @@ fn agg_one_approx(
 /// RAYON_NUM_THREADS 则尊重外部设置）。幂等：全局池只初始化一次。
 pub fn ensure_threads() {
     if std::env::var("RAYON_NUM_THREADS").is_err() {
-        let _ = rayon::ThreadPoolBuilder::new().num_threads(50).build_global();
+        let _ = rayon::ThreadPoolBuilder::new()
+            .num_threads(50)
+            .build_global();
     }
 }
 
@@ -2322,10 +2416,10 @@ fn fill_periods(row: &mut [f64]) {
 /// - 解码逐位精确（纯整数加法）；时段有效性/切片/零模型仍用原始绝对时间（本副本只服务
 ///   union-walk 游标 tj_b/tp_b 的推进）
 struct CompStreams {
-    first: Vec<Vec<i64>>, // [e][bi] 首事件相对 base 偏移
+    first: Vec<Vec<i64>>,  // [e][bi] 首事件相对 base 偏移
     deltas: Vec<Vec<u32>>, // [e] 拼接增量流（含转义）
-    offs: Vec<Vec<u32>>,  // [e][bi] 增量流起始位置
-    lens: Vec<Vec<u32>>,  // [e][bi] 事件数（编码前）
+    offs: Vec<Vec<u32>>,   // [e][bi] 增量流起始位置
+    lens: Vec<Vec<u32>>,   // [e][bi] 事件数（编码前）
 }
 
 const DELTA_ESC: u32 = u32::MAX;
@@ -2357,10 +2451,22 @@ fn build_brecs(
             for bi in 0..n_all {
                 v.push(BRec {
                     bsl: [
-                        [slices.sl[e * N_PERIODS + 0][bi][0], slices.sl[e * N_PERIODS + 0][bi][1]],
-                        [slices.sl[e * N_PERIODS + 1][bi][0], slices.sl[e * N_PERIODS + 1][bi][1]],
-                        [slices.sl[e * N_PERIODS + 2][bi][0], slices.sl[e * N_PERIODS + 2][bi][1]],
-                        [slices.sl[e * N_PERIODS + 3][bi][0], slices.sl[e * N_PERIODS + 3][bi][1]],
+                        [
+                            slices.sl[e * N_PERIODS + 0][bi][0],
+                            slices.sl[e * N_PERIODS + 0][bi][1],
+                        ],
+                        [
+                            slices.sl[e * N_PERIODS + 1][bi][0],
+                            slices.sl[e * N_PERIODS + 1][bi][1],
+                        ],
+                        [
+                            slices.sl[e * N_PERIODS + 2][bi][0],
+                            slices.sl[e * N_PERIODS + 2][bi][1],
+                        ],
+                        [
+                            slices.sl[e * N_PERIODS + 3][bi][0],
+                            slices.sl[e * N_PERIODS + 3][bi][1],
+                        ],
                     ],
                     m: [
                         null_t.m[e * N_PERIODS + 0][bi],
@@ -2410,7 +2516,12 @@ fn build_comp_streams(streams: &[Option<[EvStream; N_EVENTS]>], base: i64) -> Co
             }
         }
     }
-    CompStreams { first, deltas, offs, lens }
+    CompStreams {
+        first,
+        deltas,
+        offs,
+        lens,
+    }
 }
 
 /// 从预加载的全市场事件流聚合因子（v1/v2 共同核心，v6 融合任务）。
@@ -2474,7 +2585,12 @@ fn compute_from_streams_full(
     // 流 ≈816MB > L3 384MB，重读全部落 DRAM——2.2TB 带宽墙的来源）。
     // 探针（YHYB_SKIP_PUSH / YHYB_NO_JWALK）编译期特化，热循环零运行时分支。
     // YHYB_K：块大小（1 或 2，默认 2）；YHYB_BMAJOR：旧版 b-major 任务序（A/B 对比用）。
-    let k_blk = std::env::var("YHYB_K").ok().and_then(|v| v.parse::<usize>().ok()).unwrap_or(K_BLOCK).min(2).max(1);
+    let k_blk = std::env::var("YHYB_K")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(K_BLOCK)
+        .min(2)
+        .max(1);
     let b_major = std::env::var("YHYB_BMAJOR").is_ok();
     let no_jwalk = std::env::var("YHYB_NO_JWALK").is_ok();
     let skip_push = std::env::var("YHYB_SKIP_PUSH").is_ok();
@@ -2500,59 +2616,267 @@ fn compute_from_streams_full(
             macro_rules! dispatch_agg {
                 ($ct:expr) => {
                     match k_blk {
-                1 => {
-                    let ai = [valid[start]];
-                    let row = [start];
-                    let r = match (with_l4, no_jwalk, skip_push) {
-                        (true, false, false) => agg_fused_blocked::<true, false, false, $ct, 1>(
-                            &streams, &null_t, &slices, &cst, &brecs, ai, row, 1, e, prm, l4ctx.as_ref()),
-                        (true, true, false) => agg_fused_blocked::<true, true, false, $ct, 1>(
-                            &streams, &null_t, &slices, &cst, &brecs, ai, row, 1, e, prm, l4ctx.as_ref()),
-                        (true, false, true) => agg_fused_blocked::<true, false, true, $ct, 1>(
-                            &streams, &null_t, &slices, &cst, &brecs, ai, row, 1, e, prm, l4ctx.as_ref()),
-                        (true, true, true) => agg_fused_blocked::<true, true, true, $ct, 1>(
-                            &streams, &null_t, &slices, &cst, &brecs, ai, row, 1, e, prm, l4ctx.as_ref()),
-                        (false, false, false) => agg_fused_blocked::<false, false, false, $ct, 1>(
-                            &streams, &null_t, &slices, &cst, &brecs, ai, row, 1, e, prm, l4ctx.as_ref()),
-                        (false, true, false) => agg_fused_blocked::<false, true, false, $ct, 1>(
-                            &streams, &null_t, &slices, &cst, &brecs, ai, row, 1, e, prm, l4ctx.as_ref()),
-                        (false, false, true) => agg_fused_blocked::<false, false, true, $ct, 1>(
-                            &streams, &null_t, &slices, &cst, &brecs, ai, row, 1, e, prm, l4ctx.as_ref()),
-                        (false, true, true) => agg_fused_blocked::<false, true, true, $ct, 1>(
-                            &streams, &null_t, &slices, &cst, &brecs, ai, row, 1, e, prm, l4ctx.as_ref()),
-                    };
-                    let mut out2: [Option<Vec<f64>>; 2] = [None, None];
-                    out2[0] = r.into_iter().next().unwrap();
-                    out2
+                        1 => {
+                            let ai = [valid[start]];
+                            let row = [start];
+                            let r = match (with_l4, no_jwalk, skip_push) {
+                                (true, false, false) => {
+                                    agg_fused_blocked::<true, false, false, $ct, 1>(
+                                        &streams,
+                                        &null_t,
+                                        &slices,
+                                        &cst,
+                                        &brecs,
+                                        ai,
+                                        row,
+                                        1,
+                                        e,
+                                        prm,
+                                        l4ctx.as_ref(),
+                                    )
+                                }
+                                (true, true, false) => {
+                                    agg_fused_blocked::<true, true, false, $ct, 1>(
+                                        &streams,
+                                        &null_t,
+                                        &slices,
+                                        &cst,
+                                        &brecs,
+                                        ai,
+                                        row,
+                                        1,
+                                        e,
+                                        prm,
+                                        l4ctx.as_ref(),
+                                    )
+                                }
+                                (true, false, true) => {
+                                    agg_fused_blocked::<true, false, true, $ct, 1>(
+                                        &streams,
+                                        &null_t,
+                                        &slices,
+                                        &cst,
+                                        &brecs,
+                                        ai,
+                                        row,
+                                        1,
+                                        e,
+                                        prm,
+                                        l4ctx.as_ref(),
+                                    )
+                                }
+                                (true, true, true) => {
+                                    agg_fused_blocked::<true, true, true, $ct, 1>(
+                                        &streams,
+                                        &null_t,
+                                        &slices,
+                                        &cst,
+                                        &brecs,
+                                        ai,
+                                        row,
+                                        1,
+                                        e,
+                                        prm,
+                                        l4ctx.as_ref(),
+                                    )
+                                }
+                                (false, false, false) => {
+                                    agg_fused_blocked::<false, false, false, $ct, 1>(
+                                        &streams,
+                                        &null_t,
+                                        &slices,
+                                        &cst,
+                                        &brecs,
+                                        ai,
+                                        row,
+                                        1,
+                                        e,
+                                        prm,
+                                        l4ctx.as_ref(),
+                                    )
+                                }
+                                (false, true, false) => {
+                                    agg_fused_blocked::<false, true, false, $ct, 1>(
+                                        &streams,
+                                        &null_t,
+                                        &slices,
+                                        &cst,
+                                        &brecs,
+                                        ai,
+                                        row,
+                                        1,
+                                        e,
+                                        prm,
+                                        l4ctx.as_ref(),
+                                    )
+                                }
+                                (false, false, true) => {
+                                    agg_fused_blocked::<false, false, true, $ct, 1>(
+                                        &streams,
+                                        &null_t,
+                                        &slices,
+                                        &cst,
+                                        &brecs,
+                                        ai,
+                                        row,
+                                        1,
+                                        e,
+                                        prm,
+                                        l4ctx.as_ref(),
+                                    )
+                                }
+                                (false, true, true) => {
+                                    agg_fused_blocked::<false, true, true, $ct, 1>(
+                                        &streams,
+                                        &null_t,
+                                        &slices,
+                                        &cst,
+                                        &brecs,
+                                        ai,
+                                        row,
+                                        1,
+                                        e,
+                                        prm,
+                                        l4ctx.as_ref(),
+                                    )
+                                }
+                            };
+                            let mut out2: [Option<Vec<f64>>; 2] = [None, None];
+                            out2[0] = r.into_iter().next().unwrap();
+                            out2
+                        }
+                        _ => {
+                            let mut ai = [0usize; 2];
+                            let mut row = [0usize; 2];
+                            for k in 0..nk {
+                                ai[k] = valid[start + k];
+                                row[k] = start + k;
+                            }
+                            match (with_l4, no_jwalk, skip_push) {
+                                (true, false, false) => {
+                                    agg_fused_blocked::<true, false, false, $ct, 2>(
+                                        &streams,
+                                        &null_t,
+                                        &slices,
+                                        &cst,
+                                        &brecs,
+                                        ai,
+                                        row,
+                                        nk,
+                                        e,
+                                        prm,
+                                        l4ctx.as_ref(),
+                                    )
+                                }
+                                (true, true, false) => {
+                                    agg_fused_blocked::<true, true, false, $ct, 2>(
+                                        &streams,
+                                        &null_t,
+                                        &slices,
+                                        &cst,
+                                        &brecs,
+                                        ai,
+                                        row,
+                                        nk,
+                                        e,
+                                        prm,
+                                        l4ctx.as_ref(),
+                                    )
+                                }
+                                (true, false, true) => {
+                                    agg_fused_blocked::<true, false, true, $ct, 2>(
+                                        &streams,
+                                        &null_t,
+                                        &slices,
+                                        &cst,
+                                        &brecs,
+                                        ai,
+                                        row,
+                                        nk,
+                                        e,
+                                        prm,
+                                        l4ctx.as_ref(),
+                                    )
+                                }
+                                (true, true, true) => {
+                                    agg_fused_blocked::<true, true, true, $ct, 2>(
+                                        &streams,
+                                        &null_t,
+                                        &slices,
+                                        &cst,
+                                        &brecs,
+                                        ai,
+                                        row,
+                                        nk,
+                                        e,
+                                        prm,
+                                        l4ctx.as_ref(),
+                                    )
+                                }
+                                (false, false, false) => {
+                                    agg_fused_blocked::<false, false, false, $ct, 2>(
+                                        &streams,
+                                        &null_t,
+                                        &slices,
+                                        &cst,
+                                        &brecs,
+                                        ai,
+                                        row,
+                                        nk,
+                                        e,
+                                        prm,
+                                        l4ctx.as_ref(),
+                                    )
+                                }
+                                (false, true, false) => {
+                                    agg_fused_blocked::<false, true, false, $ct, 2>(
+                                        &streams,
+                                        &null_t,
+                                        &slices,
+                                        &cst,
+                                        &brecs,
+                                        ai,
+                                        row,
+                                        nk,
+                                        e,
+                                        prm,
+                                        l4ctx.as_ref(),
+                                    )
+                                }
+                                (false, false, true) => {
+                                    agg_fused_blocked::<false, false, true, $ct, 2>(
+                                        &streams,
+                                        &null_t,
+                                        &slices,
+                                        &cst,
+                                        &brecs,
+                                        ai,
+                                        row,
+                                        nk,
+                                        e,
+                                        prm,
+                                        l4ctx.as_ref(),
+                                    )
+                                }
+                                (false, true, true) => {
+                                    agg_fused_blocked::<false, true, true, $ct, 2>(
+                                        &streams,
+                                        &null_t,
+                                        &slices,
+                                        &cst,
+                                        &brecs,
+                                        ai,
+                                        row,
+                                        nk,
+                                        e,
+                                        prm,
+                                        l4ctx.as_ref(),
+                                    )
+                                }
+                            }
+                        }
                     }
-                _ => {
-                    let mut ai = [0usize; 2];
-                    let mut row = [0usize; 2];
-                    for k in 0..nk {
-                        ai[k] = valid[start + k];
-                        row[k] = start + k;
-                    }
-                    match (with_l4, no_jwalk, skip_push) {
-                        (true, false, false) => agg_fused_blocked::<true, false, false, $ct, 2>(
-                            &streams, &null_t, &slices, &cst, &brecs, ai, row, nk, e, prm, l4ctx.as_ref()),
-                        (true, true, false) => agg_fused_blocked::<true, true, false, $ct, 2>(
-                            &streams, &null_t, &slices, &cst, &brecs, ai, row, nk, e, prm, l4ctx.as_ref()),
-                        (true, false, true) => agg_fused_blocked::<true, false, true, $ct, 2>(
-                            &streams, &null_t, &slices, &cst, &brecs, ai, row, nk, e, prm, l4ctx.as_ref()),
-                        (true, true, true) => agg_fused_blocked::<true, true, true, $ct, 2>(
-                            &streams, &null_t, &slices, &cst, &brecs, ai, row, nk, e, prm, l4ctx.as_ref()),
-                        (false, false, false) => agg_fused_blocked::<false, false, false, $ct, 2>(
-                            &streams, &null_t, &slices, &cst, &brecs, ai, row, nk, e, prm, l4ctx.as_ref()),
-                        (false, true, false) => agg_fused_blocked::<false, true, false, $ct, 2>(
-                            &streams, &null_t, &slices, &cst, &brecs, ai, row, nk, e, prm, l4ctx.as_ref()),
-                        (false, false, true) => agg_fused_blocked::<false, false, true, $ct, 2>(
-                            &streams, &null_t, &slices, &cst, &brecs, ai, row, nk, e, prm, l4ctx.as_ref()),
-                        (false, true, true) => agg_fused_blocked::<false, true, true, $ct, 2>(
-                            &streams, &null_t, &slices, &cst, &brecs, ai, row, nk, e, prm, l4ctx.as_ref()),
-                    }
-                    }
-            }
-                }
+                };
             };
             if count {
                 dispatch_agg!(true)
@@ -2696,7 +3020,10 @@ pub fn compute_yhyb_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f32>)> 
         })
         .collect();
     crate::backup_writer::save_results_to_backup(&results, &backup, total).map_err(|e| {
-        std::io::Error::new(std::io::ErrorKind::Other, format!("备份写入失败 {backup}: {e}"))
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("备份写入失败 {backup}: {e}"),
+        )
     })?;
     if std::env::var("YHYB_TIMING").is_ok() {
         eprintln!(
@@ -2723,9 +3050,10 @@ pub fn load_streams(
     let loaded: Vec<(Vec<TradeRecord>, Vec<MarketRecord>)> = codes
         .par_iter()
         .map(|code| {
-            let trades = read_trade_fast_inner(code, date, false, true, 8 * 1024 * 1024).unwrap_or_default();
-            let market =
-                read_market_fast_inner(code, date, false, true, 8 * 1024 * 1024).unwrap_or_default();
+            let trades =
+                read_trade_fast_inner(code, date, false, true, 8 * 1024 * 1024).unwrap_or_default();
+            let market = read_market_fast_inner(code, date, false, true, 8 * 1024 * 1024)
+                .unwrap_or_default();
             (trades, market)
         })
         .collect();
@@ -2745,9 +3073,7 @@ pub fn load_streams(
 /// 全市场成交额截面百分位：所有股票所有连续竞价成交放一起，
 /// 大单阈值 thr_l = P90（top 10%）、小单阈值 thr_m = P40（bottom 40%）。
 /// 用两次 select_nth（O(n)），内存为全市场成交笔数 × f64（~1.6GB，512 核机器可接受）。
-fn cross_amount_thresholds(
-    loaded: &[(Vec<TradeRecord>, Vec<MarketRecord>)],
-) -> (f64, f64) {
+fn cross_amount_thresholds(loaded: &[(Vec<TradeRecord>, Vec<MarketRecord>)]) -> (f64, f64) {
     let total: usize = loaded.iter().map(|(t, _)| t.len()).sum();
     if total == 0 {
         return (f64::NAN, f64::NAN);
@@ -2772,7 +3098,10 @@ fn cross_amount_thresholds(
     (thr_l, thr_m)
 }
 
-pub fn compute_yhyb_full_with_params(date: i64, prm: &YhybParams) -> std::io::Result<(Vec<String>, Vec<f32>)> {
+pub fn compute_yhyb_full_with_params(
+    date: i64,
+    prm: &YhybParams,
+) -> std::io::Result<(Vec<String>, Vec<f32>)> {
     let t_start = std::time::Instant::now();
     let (codes, streams) = load_streams(date, prm)?;
     let t_read = std::time::Instant::now();
@@ -2821,10 +3150,10 @@ pub fn py_yhyb(py: Python<'_>, date: i64, approx: bool) -> PyResult<(Vec<String>
         let loaded: Vec<(Vec<TradeRecord>, Vec<MarketRecord>)> = codes
             .par_iter()
             .map(|code| {
-                let trades =
-                    read_trade_fast_inner(code, date, false, true, 8 * 1024 * 1024).unwrap_or_default();
-                let market =
-                    read_market_fast_inner(code, date, false, true, 8 * 1024 * 1024).unwrap_or_default();
+                let trades = read_trade_fast_inner(code, date, false, true, 8 * 1024 * 1024)
+                    .unwrap_or_default();
+                let market = read_market_fast_inner(code, date, false, true, 8 * 1024 * 1024)
+                    .unwrap_or_default();
                 (trades, market)
             })
             .collect();
@@ -2845,7 +3174,11 @@ pub fn py_yhyb(py: Python<'_>, date: i64, approx: bool) -> PyResult<(Vec<String>
 
 /// Python 单日调试（v1，自定义参数，17 个按 YhybParams 顺序）。
 #[pyfunction]
-pub fn py_yhyb_params(py: Python<'_>, date: i64, params: Vec<f64>) -> PyResult<(Vec<String>, Vec<f32>)> {
+pub fn py_yhyb_params(
+    py: Python<'_>,
+    date: i64,
+    params: Vec<f64>,
+) -> PyResult<(Vec<String>, Vec<f32>)> {
     let prm = YhybParams::from_vec(&params);
     compute_yhyb_full_with_params(date, &prm)
         .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("{e:?}")))
@@ -3001,7 +3334,11 @@ fn merge_l4(
 
 /// Python 调试：单股单日事件时间线（事件名 -> (时间us, 权重)），供单例/验证。
 #[pyfunction]
-pub fn py_yhyb_events(py: Python<'_>, code: &str, date: i64) -> PyResult<Vec<(String, (Vec<i64>, Vec<f64>))>> {
+pub fn py_yhyb_events(
+    py: Python<'_>,
+    code: &str,
+    date: i64,
+) -> PyResult<Vec<(String, (Vec<i64>, Vec<f64>))>> {
     let trades = read_trade_fast_inner(code, date, false, true, usize::MAX)
         .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("{e:?}")))?;
     let market = read_market_fast_inner(code, date, false, true, usize::MAX).unwrap_or_default();
@@ -3031,9 +3368,23 @@ mod tests {
     fn test_params_vec_roundtrip() {
         let p = YhybParams::default();
         let v = [
-            p.big_amt_wan, p.sweep_w_s, p.sweep_m as f64, p.ice_w_s, p.ice_m as f64, p.jump_q,
-            p.jump_win as f64, p.run_r as f64, p.vwap_dev, p.imb_thr, p.dep_thr, p.wall_k,
-            p.spread_ticks, p.ret_thr, p.imp_thr, p.hit_t_s, p.fast_q,
+            p.big_amt_wan,
+            p.sweep_w_s,
+            p.sweep_m as f64,
+            p.ice_w_s,
+            p.ice_m as f64,
+            p.jump_q,
+            p.jump_win as f64,
+            p.run_r as f64,
+            p.vwap_dev,
+            p.imb_thr,
+            p.dep_thr,
+            p.wall_k,
+            p.spread_ticks,
+            p.ret_thr,
+            p.imp_thr,
+            p.hit_t_s,
+            p.fast_q,
         ];
         let p2 = YhybParams::from_vec(&v);
         assert_eq!(p2.big_amt_wan, p.big_amt_wan);
@@ -3043,8 +3394,10 @@ mod tests {
     #[test]
     fn test_period_slice() {
         let base = day_base(1_735_637_400_000_000); // 2024-12-31 某时刻
-        // 09:30 起每 60s 一笔，共 10 笔 → 全在 09:30-09:40（只属于 p0 全天）
-        let t: Vec<i64> = (0..10).map(|i| base + (5400 + i * 60) * 1_000_000).collect();
+                                                    // 09:30 起每 60s 一笔，共 10 笔 → 全在 09:30-09:40（只属于 p0 全天）
+        let t: Vec<i64> = (0..10)
+            .map(|i| base + (5400 + i * 60) * 1_000_000)
+            .collect();
         let (lo, hi) = period_slice(&t, base, 0);
         assert_eq!((lo, hi), (0, 10));
         for p in 1..N_PERIODS {
@@ -3079,16 +3432,18 @@ mod tests {
         assert!((s[2] - 0.4).abs() < 1e-9); // hit（距离 ≤2.5s）
         assert!((s[3] - 1.5).abs() < 1e-9); // fast5：k=1 → 桶1 中点 1.5s
         assert!((s[4] - 3.5).abs() < 1e-9); // wmed：均匀权重，半权重 2.5 落在桶3 → 中点
-        // 加权中位数：权重 [1,1,1,1,5]，一半权重 4.5 → 桶5（累积 4 < 4.5，+5 ≥ 4.5）→ 中点
+                                            // 加权中位数：权重 [1,1,1,1,5]，一半权重 4.5 → 桶5（累积 4 < 4.5，+5 ≥ 4.5）→ 中点
         let mut g2 = Gather::new();
-        for (d, w) in [(1u64, 1.0f64), (2, 1.0), (3, 1.0), (4, 1.0), (5, 5.0)].map(|(d, w)| (d * 1_000_000, w)) {
+        for (d, w) in [(1u64, 1.0f64), (2, 1.0), (3, 1.0), (4, 1.0), (5, 5.0)]
+            .map(|(d, w)| (d * 1_000_000, w))
+        {
             g2.push1(d, w, 2_500_000);
         }
         let n2 = g2.n;
         g2.locate(n2 / 2, g2.wsum / 2.0, 1);
         let s2 = g2.stats(n2, 1);
         assert!((s2[4] - 5.5).abs() < 1e-9); // wmed = 桶5 中点（权重中点在大距离侧）
-        // u64 大距离回归：8000s（远超旧 u32 上限 4295s）必须落在桶 8000，不得回绕
+                                             // u64 大距离回归：8000s（远超旧 u32 上限 4295s）必须落在桶 8000，不得回绕
         let mut g3 = Gather::new();
         g3.push1(8_000_000_000, 1.0, 2_500_000);
         let n3 = g3.n;

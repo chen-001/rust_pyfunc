@@ -138,8 +138,8 @@ pub fn pipeline_order_pair_hm90(
 // observable_order pipeline
 // ============================================================================
 
-use crate::anneal_volume_metrics;
 use crate::anneal_volume_market_metrics;
+use crate::anneal_volume_metrics;
 use crate::individual_order_ratio_metrics;
 use crate::observable_order_metrics;
 use crate::orderbook_imb_refactor_metrics;
@@ -2038,17 +2038,16 @@ fn run_single_minute_worker(
 /// 跨股票互动因子的 worker 包装: 调核心, fan-out 成 TaskResult 列表.
 pub fn pipeline_pair_interaction(date: i64, expected_len: usize) -> Vec<TaskResult> {
     match crate::pair_interaction_metrics::compute_pair_interaction_full(date) {
-        Ok((codes, vals)) => {
-            vals.chunks(expected_len)
-                .zip(codes.iter())
-                .map(|(facs, code)| TaskResult {
-                    date,
-                    code: code.clone(),
-                    timestamp: 0,
-                    facs: facs.to_vec(),
-                })
-                .collect()
-        }
+        Ok((codes, vals)) => vals
+            .chunks(expected_len)
+            .zip(codes.iter())
+            .map(|(facs, code)| TaskResult {
+                date,
+                code: code.clone(),
+                timestamp: 0,
+                facs: facs.to_vec(),
+            })
+            .collect(),
         Err(e) => {
             eprintln!("pair_interaction error [{date}]: {e:?}");
             Vec::new()
@@ -2390,12 +2389,10 @@ pub fn run_factor_pipeline_regime(
                 .map(|i| format!("factor_{i}"))
                 .collect()
         });
-        crate::factor_store_v5::ShardedBackupSink::new_colblk_sharded(
-            &store_dir_str,
-            &snames,
-            8,
-        )
-        .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("打开 colblk 存储失败: {e}")))?
+        crate::factor_store_v5::ShardedBackupSink::new_colblk_sharded(&store_dir_str, &snames, 8)
+            .map_err(|e| {
+                pyo3::exceptions::PyIOError::new_err(format!("打开 colblk 存储失败: {e}"))
+            })?
     };
 
     // 解析日期列表（升序）
@@ -2429,8 +2426,11 @@ pub fn run_factor_pipeline_regime(
 
     // ---- 预读流水线：读盘线程（与状态无关，可提前执行）与主线程计算重叠 ----
     // bounded(2) 控制内存（队列最多 2 天数据 ≈ 12GB）；读线程按 pending 顺序发送
-    let (reader_tx, reader_rx) =
-        crossbeam::channel::bounded::<(i64, Vec<String>, Vec<Option<Vec<crate::fast_csv_reader::TradeRecord>>>)>(2);
+    let (reader_tx, reader_rx) = crossbeam::channel::bounded::<(
+        i64,
+        Vec<String>,
+        Vec<Option<Vec<crate::fast_csv_reader::TradeRecord>>>,
+    )>(2);
     let pending_clone = pending.clone();
     let reader_thread = std::thread::spawn(move || {
         for &d in &pending_clone {
@@ -2445,12 +2445,8 @@ pub fn run_factor_pipeline_regime(
         let t0 = std::time::Instant::now();
 
         // ① 读自己的标量表 [t−W, t−1]
-        let (w_dates, rows) = crate::peaks_regime::state_read_window(
-            &state_store_dir,
-            date,
-            window,
-            &trading_days,
-        );
+        let (w_dates, rows) =
+            crate::peaks_regime::state_read_window(&state_store_dir, date, window, &trading_days);
 
         // ② 聚类 → 当日 params（窗口不足 → 基线/预热）
         let min_rows = (window as f64 * 0.8).max(5.0) as usize;

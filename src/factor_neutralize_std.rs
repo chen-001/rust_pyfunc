@@ -24,8 +24,8 @@
 
 use crate::factor_neutralization_io_optimized::IOOptimizedStyleData;
 use nalgebra::{Cholesky, DMatrix};
-use ndarray::{Array2, Array3, ArrayView3, s};
-use numpy::{IntoPyArray, PyReadonlyArray2, PyReadonlyArray3, PyArray3};
+use ndarray::{s, Array2, Array3, ArrayView2, ArrayView3};
+use numpy::{IntoPyArray, PyArray3, PyReadonlyArray2, PyReadonlyArray3};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
@@ -107,8 +107,13 @@ fn ols2(ys: &[f64], bs: &[f64]) -> (f64, f64) {
 
 /// pandas `rank(axis=1, pct=True)` 语义: 行内非NaN平均秩, pct = rank / n_non_nan。
 /// radix sort (u64 单调位序 key) + 原值 == 判等值组 (含 -0.0/+0.0 合并, 同 pandas)。
-fn rank_pct_row_into(vals: &[f64], ranks: &mut Vec<f64>, idxs: &mut Vec<usize>,
-                     tmp: &mut Vec<usize>, keys: &mut Vec<u64>) {
+fn rank_pct_row_into(
+    vals: &[f64],
+    ranks: &mut Vec<f64>,
+    idxs: &mut Vec<usize>,
+    tmp: &mut Vec<usize>,
+    keys: &mut Vec<u64>,
+) {
     let n = vals.len();
     ranks.clear();
     ranks.resize(n, f64::NAN);
@@ -147,7 +152,13 @@ fn rank_pct_all(values: &mut Array2<f64>) {
     let mut tmp: Vec<usize> = Vec::with_capacity(values.ncols());
     let mut keys: Vec<u64> = Vec::with_capacity(values.ncols());
     for mut row in values.rows_mut() {
-        rank_pct_row_into(row.as_slice().unwrap(), &mut ranks, &mut idxs, &mut tmp, &mut keys);
+        rank_pct_row_into(
+            row.as_slice().unwrap(),
+            &mut ranks,
+            &mut idxs,
+            &mut tmp,
+            &mut keys,
+        );
         for (j, &r) in ranks.iter().enumerate() {
             row[j] = r;
         }
@@ -393,6 +404,79 @@ fn fill_by_group_median(
     }
 }
 
+/// 内存优化版 fill_by_group_median：median_source 就是 values 当前行自身。
+///
+/// 与 fill_by_group_median 完全相同的分组/排序/中位数/回填逻辑，但逐行把 source 先拷到
+/// 一个长度 = N 的复用缓冲里（几十 KB），避免为 median_source 额外保留一整张 T×N f64。
+/// 正确性依据：同一行内各组按 codes 分段互不重叠，先填的组不会影响后续组的 source 取值。
+fn fill_by_group_median_inplace(
+    values: &mut Array2<f64>,
+    codes: &Array2<f64>,
+    valid_mask: Option<&Array2<f64>>,
+) {
+    let (t, n) = values.dim();
+    let mut order: Vec<usize> = Vec::with_capacity(n);
+    let mut order_tmp: Vec<usize> = Vec::with_capacity(n);
+    let mut order_keys: Vec<u64> = Vec::with_capacity(n);
+    let mut sv: Vec<f64> = Vec::with_capacity(n);
+    let mut nan_mask: Vec<bool> = Vec::with_capacity(n);
+    let mut source_row: Vec<f64> = Vec::with_capacity(n);
+    let is_market_level = valid_mask.is_some(); // 全市场级: codes 全 0
+    for idx in 0..t {
+        let mut row = values.row_mut(idx);
+        source_row.clear();
+        source_row.extend(row.iter().copied());
+        nan_mask.clear();
+        nan_mask.extend(row.iter().map(|v| v.is_nan()));
+        if !nan_mask.iter().any(|&b| b) {
+            continue;
+        }
+        let codes_row = codes.row(idx);
+        let valid_row = valid_mask.map(|vm| vm.row(idx));
+        if is_market_level {
+            // 全市场级特化: 单段, 免排序
+            order.clear();
+            order.extend(0..n);
+        } else {
+            // 按分组码排序 (NaN 段在末尾, 跳过; radix sort)
+            order.clear();
+            order_keys.clear();
+            for j in 0..n {
+                order.push(j);
+                order_keys.push(mono_key(codes_row[j]));
+            }
+            radix_sort_order(&order_keys, &mut order, &mut order_tmp);
+        }
+        let mut seg_start = 0usize;
+        while seg_start < n {
+            let code = codes_row[order[seg_start]];
+            if code.is_nan() {
+                break;
+            }
+            let mut seg_end = seg_start + 1;
+            while seg_end < n && codes_row[order[seg_end]] == code {
+                seg_end += 1;
+            }
+            // m = (code 段) & valid_mask
+            sv.clear();
+            for &ci in &order[seg_start..seg_end] {
+                if valid_row.map_or(true, |vr| vr[ci] == 1.0) && !source_row[ci].is_nan() {
+                    sv.push(source_row[ci]);
+                }
+            }
+            if !sv.is_empty() {
+                let med = median_inplace(&mut sv);
+                for &ci in &order[seg_start..seg_end] {
+                    if nan_mask[ci] && valid_row.map_or(true, |vr| vr[ci] == 1.0) {
+                        row[ci] = med;
+                    }
+                }
+            }
+            seg_start = seg_end;
+        }
+    }
+}
+
 /// get_residual: 逐日对基准因子(已 rank pct)做 OLS 取残差。
 ///
 /// industry=None (标准口径): X = [1, 10风格], 含截距。
@@ -435,7 +519,11 @@ fn get_residual(
             }
             ind_codes.sort_by(cmp_f64);
         }
-        let n_ind = if industry.is_some() { ind_codes.len() } else { 0 };
+        let n_ind = if industry.is_some() {
+            ind_codes.len()
+        } else {
+            0
+        };
         // 特征列数: 无行业 = 截距 + 10 风格; 有行业 = 10 风格 + 行业 one-hot
         let p = if industry.is_some() { k + n_ind } else { k + 1 };
         valid.clear();
@@ -611,7 +699,6 @@ fn get_residual(
     resid
 }
 
-
 /// 标准中性化管线中「不随因子变化」的预计算量。
 ///
 /// 在 build_shared_inputs 一次性展开并 Arc 共享，供 983 个因子复用，
@@ -663,8 +750,9 @@ pub fn neutralize_std_precompute(
     }
 
     // barra 10 风格模板轴矩阵 (T,N) f64 (当日集合外 -> NaN)
-    let mut barra_list: Vec<Array2<f64>> =
-        (0..10).map(|_| Array2::from_elem((n_dates, n_stocks), f64::NAN)).collect();
+    let mut barra_list: Vec<Array2<f64>> = (0..10)
+        .map(|_| Array2::from_elem((n_dates, n_stocks), f64::NAN))
+        .collect();
     for date_idx in 0..n_dates {
         let Some(day_data) = style_data.data_by_date.get(&(dates[date_idx] as i64)) else {
             continue;
@@ -708,12 +796,9 @@ pub fn neutralize_std_precompute(
     })
 }
 
-
-/// 生产标准预处理主入口 (纯计算版)。factor 为 (T,N) 原始值 (内部 rank pct)。
+/// 生产标准预处理主入口 (纯计算版, legacy 语义)。
 ///
-/// 所有不随因子变化的量 (barra rank / size rank / 行业分级码 / restrict) 已
-/// 预计算进 shared，此处只做 factor 自身的 rank→行业填充→中位填充→限制置空
-/// →rank→残差→残差 rank，不做 barra 展开与重复 map。
+/// 保留原 clone-heavy 实现作为「金标准」，用于与内存优化版做逐位一致性校验。
 pub fn neutralize_std_section(
     factor: &Array2<f64>,
     shared: &NeutralizeStdShared,
@@ -734,7 +819,11 @@ pub fn neutralize_std_section(
     rank_pct_all(&mut fv_ranked);
 
     // 2. 行业 OLS 回归填充
-    fill_ind_reg(&mut fv_ranked, std::slice::from_ref(ind_base_ranked), industry);
+    fill_ind_reg(
+        &mut fv_ranked,
+        std::slice::from_ref(ind_base_ranked),
+        industry,
+    );
 
     // 3. 行业 2 级中位填充
     let mut fv_filled = fv_ranked.clone();
@@ -772,6 +861,73 @@ pub fn neutralize_std_section(
     resid_rank
 }
 
+/// 内存优化版标准中性化：输入 f64 矩阵直接原地复用为 fv_ranked。
+///
+/// 相对 legacy 的三处省内存改造（数值步骤与顺序完全不变）：
+/// 1. 不再 clone factor → fv_ranked（调用方把 slot 转成 f64 后直接传入并接管）；
+/// 2. 行业中位填充不再 clone 整张 median_source，改为逐行复用 N 长 source 缓冲；
+/// 3. restrict 置空直接原地改写 fv_filled，不再新建 fv_restricted。
+pub(crate) fn neutralize_std_section_owned(
+    mut fv_ranked: Array2<f64>,
+    shared: &NeutralizeStdShared,
+    industry_neutralize: bool,
+) -> Array2<f64> {
+    let (t, n) = fv_ranked.dim();
+    let industry = &shared.industry;
+    let restrict = &shared.restrict_f64;
+    let barra_ranked = &shared.barra_ranked;
+    let ind_base_ranked = &shared.size_ranked;
+    let ind1 = &shared.ind1;
+    let ind2 = &shared.ind2;
+    let zeros = &shared.zeros;
+    let ind1_mask = &shared.ind1_mask;
+
+    // 1. factor rank pct（原地）
+    rank_pct_all(&mut fv_ranked);
+
+    // 2. 行业 OLS 回归填充（原地）
+    fill_ind_reg(
+        &mut fv_ranked,
+        std::slice::from_ref(ind_base_ranked),
+        industry,
+    );
+
+    // 3. 行业 2 级中位填充。fv_ranked 同时充当 median_source：
+    //    先按 ind1 NaN 置空（与 legacy 的 median_source 完全一致），再 clone 出待填矩阵。
+    for i in 0..(t * n) {
+        if ind1.as_slice().unwrap()[i].is_nan() {
+            fv_ranked.as_slice_mut().unwrap()[i] = f64::NAN;
+        }
+    }
+    let mut fv_filled = fv_ranked.clone();
+    fill_by_group_median_inplace(&mut fv_filled, ind2, None);
+    fill_by_group_median_inplace(&mut fv_filled, ind1, None);
+    fill_by_group_median_inplace(&mut fv_filled, zeros, Some(ind1_mask));
+    drop(fv_ranked); // median_source 用完即释放，进入残差阶段只需 1 张工作矩阵
+
+    // 4. 限制股置空: restrict==0 保留，其余置 NaN（原地）
+    for i in 0..(t * n) {
+        if restrict.as_slice().unwrap()[i] != 0.0 {
+            fv_filled.as_slice_mut().unwrap()[i] = f64::NAN;
+        }
+    }
+
+    // 5. rank pct
+    rank_pct_all(&mut fv_filled);
+
+    // 6. 残差
+    let resid = if industry_neutralize {
+        get_residual(&fv_filled, barra_ranked, Some(ind1))
+    } else {
+        get_residual(&fv_filled, barra_ranked, None)
+    };
+
+    // 7. 残差 rank pct
+    let mut resid_rank = resid;
+    rank_pct_all(&mut resid_rank);
+    resid_rank
+}
+
 /// block 级标准中性化: 对 rolled_block 的每个 slot 跑 neutralize_std_section。
 ///
 /// 所有不随因子变化的量 (barra/size 的 rank、行业分级码、restrict、模板轴映射)
@@ -792,14 +948,45 @@ pub fn neutralize_std_block(
 
     let mut output = Array3::<f32>::from_elem((n_dates, n_stocks, n_factors), f32::NAN);
     for factor_idx in 0..n_factors {
-        let factor_f64 = block.slice(s![.., .., factor_idx]).map(|&v| v as f64);
-        let resid_rank = neutralize_std_section(&factor_f64, shared, industry_neutralize);
+        let slot = neutralize_std_slot_f32(
+            block.slice(s![.., .., factor_idx]),
+            shared,
+            industry_neutralize,
+        )?;
         let out_slice = output.as_slice_mut().unwrap();
-        let rr = resid_rank.as_slice().unwrap();
+        let slot_slice = slot.as_slice().unwrap();
         for i in 0..(n_dates * n_stocks) {
-            let v = rr[i];
-            out_slice[i * n_factors + factor_idx] = if v.is_nan() { f32::NAN } else { v as f32 };
+            out_slice[i * n_factors + factor_idx] = slot_slice[i];
         }
+    }
+    Ok(output)
+}
+
+/// 单 slot 标准中性化：输入 (T,N) f32 → 输出 (T,N) f32。
+///
+/// 数值上与 neutralize_std_block 对应 slot 完全一致：
+/// f32→f64 转换、legacy/owned 中性化步骤、f64→f32 回写规则均相同。
+/// 供流式回测逐 slot 调用，避免同时物化整个 selected/neutralized block。
+pub(crate) fn neutralize_std_slot_f32(
+    slot: ArrayView2<'_, f32>,
+    shared: &NeutralizeStdShared,
+    industry_neutralize: bool,
+) -> Result<Array2<f32>, String> {
+    let (n_dates, n_stocks) = slot.dim();
+    if shared.industry.dim() != (n_dates, n_stocks)
+        || shared.restrict_f64.dim() != (n_dates, n_stocks)
+    {
+        return Err("neutralize_std_block industry/restrict 形状不匹配".to_string());
+    }
+
+    let factor_f64 = slot.map(|&v| v as f64);
+    let resid_rank = neutralize_std_section_owned(factor_f64, shared, industry_neutralize);
+    let mut output = Array2::<f32>::from_elem((n_dates, n_stocks), f32::NAN);
+    let out_slice = output.as_slice_mut().unwrap();
+    let rr = resid_rank.as_slice().unwrap();
+    for i in 0..(n_dates * n_stocks) {
+        let v = rr[i];
+        out_slice[i] = if v.is_nan() { f32::NAN } else { v as f32 };
     }
     Ok(output)
 }
@@ -823,9 +1010,8 @@ pub fn neutralize_std_block_py<'py>(
     let industry_owned = industry.as_array().to_owned();
     let restrict_owned = restrict.as_array().to_owned();
     let output = py.allow_threads(move || -> Result<Array3<f32>, String> {
-        let style_data =
-            IOOptimizedStyleData::load_from_parquet_io_optimized(&style_data_path)
-                .map_err(|e| e.to_string())?;
+        let style_data = IOOptimizedStyleData::load_from_parquet_io_optimized(&style_data_path)
+            .map_err(|e| e.to_string())?;
         let shared = neutralize_std_precompute(
             &industry_owned,
             &restrict_owned,
@@ -835,5 +1021,143 @@ pub fn neutralize_std_block_py<'py>(
         )?;
         neutralize_std_block(block.view(), &shared, industry_neutralize)
     });
-    Ok(output.map_err(PyValueError::new_err)?.into_pyarray(py).to_owned())
+    Ok(output
+        .map_err(PyValueError::new_err)?
+        .into_pyarray(py)
+        .to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn next(seed: &mut u64) -> f64 {
+        *seed = seed
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        ((*seed >> 11) as f64) / ((1u64 << 53) as f64) - 0.5
+    }
+
+    fn assert_f64_eq(a: &Array2<f64>, b: &Array2<f64>) {
+        assert_eq!(a.dim(), b.dim());
+        for (x, y) in a.iter().zip(b.iter()) {
+            if x.is_nan() {
+                assert!(y.is_nan(), "expected NaN");
+            } else {
+                assert!(y.is_finite(), "unexpected NaN");
+                assert_eq!(x.to_bits(), y.to_bits());
+            }
+        }
+    }
+
+    fn assert_f32_eq(a: &Array2<f32>, b: &Array2<f32>) {
+        assert_eq!(a.dim(), b.dim());
+        for (x, y) in a.iter().zip(b.iter()) {
+            if x.is_nan() {
+                assert!(y.is_nan(), "expected NaN");
+            } else {
+                assert!(y.is_finite(), "unexpected NaN");
+                assert_eq!(x.to_bits(), y.to_bits());
+            }
+        }
+    }
+
+    fn make_shared(t: usize, n: usize, seed: u64) -> (NeutralizeStdShared, Array2<f64>) {
+        let mut s = seed;
+        let mut mat = |nan_every: usize| -> Array2<f64> {
+            let mut a = Array2::<f64>::from_elem((t, n), f64::NAN);
+            for i in 0..t {
+                for j in 0..n {
+                    if (i * n + j) % nan_every != 0 {
+                        a[[i, j]] = next(&mut s);
+                    }
+                }
+            }
+            a
+        };
+        // 行业码: 少量 NaN + 多级分组，覆盖 ind1/ind2 中位填充路径
+        let mut industry = Array2::<f64>::from_elem((t, n), f64::NAN);
+        for i in 0..t {
+            for j in 0..n {
+                industry[[i, j]] = if (i * n + j) % 11 == 0 {
+                    f64::NAN
+                } else {
+                    ((j % 6 + 1) * 10000 + (j % 13 + 1) * 100 + (i % 3 + 1)) as f64
+                };
+            }
+        }
+        let mut restrict = Array2::<f64>::from_elem((t, n), 0.0);
+        for i in 0..t {
+            for j in 0..n {
+                if (i * n + j) % 9 == 0 {
+                    restrict[[i, j]] = 1.0;
+                }
+            }
+        }
+        let ind1 = industry.map(|&v| (v / 10000.0).floor());
+        let ind2 = industry.map(|&v| (v / 100.0).floor());
+        let zeros = Array2::<f64>::zeros((t, n));
+        let ind1_mask = ind1.map(|&v| if v.is_nan() { 0.0 } else { 1.0 });
+        let barra_ranked: Vec<Array2<f64>> = (0..10).map(|_| mat(13)).collect();
+        let size_ranked = mat(17);
+        let factor = mat(19);
+        let shared = NeutralizeStdShared {
+            industry,
+            restrict_f64: restrict,
+            ind1,
+            ind2,
+            zeros,
+            ind1_mask,
+            barra_ranked,
+            size_ranked,
+        };
+        (shared, factor)
+    }
+
+    #[test]
+    fn owned_section_matches_legacy_section_exact() {
+        let (shared, factor) = make_shared(24, 60, 0x1111_2222_3333_4444);
+        for industry_neutralize in [false, true] {
+            let expected = neutralize_std_section(&factor, &shared, industry_neutralize);
+            let actual = neutralize_std_section_owned(factor.clone(), &shared, industry_neutralize);
+            assert_f64_eq(&expected, &actual);
+        }
+    }
+
+    #[test]
+    fn slot_f32_matches_legacy_block_cast_exact() {
+        let (shared, _factor) = make_shared(24, 60, 0xaaaa_bbbb_cccc_dddd);
+        let (t, n) = shared.industry.dim();
+        let mut block = Array3::<f32>::from_elem((t, n, 5), f32::NAN);
+        let mut seed = 0xdead_beef_cafe_f00d;
+        for f in 0..5 {
+            for i in 0..t {
+                for j in 0..n {
+                    if (i * n + j + f) % 5 != 0 {
+                        block[[i, j, f]] = next(&mut seed) as f32;
+                    }
+                }
+            }
+        }
+        for industry_neutralize in [false, true] {
+            for f in 0..5 {
+                let factor_f64 = block.slice(s![.., .., f]).map(|&v| v as f64);
+                let expected_f64 =
+                    neutralize_std_section(&factor_f64, &shared, industry_neutralize);
+                let mut expected = Array2::<f32>::from_elem((t, n), f32::NAN);
+                for i in 0..(t * n) {
+                    let v = expected_f64.as_slice().unwrap()[i];
+                    expected.as_slice_mut().unwrap()[i] =
+                        if v.is_nan() { f32::NAN } else { v as f32 };
+                }
+                let actual = neutralize_std_slot_f32(
+                    block.slice(s![.., .., f]),
+                    &shared,
+                    industry_neutralize,
+                )
+                .unwrap();
+                assert_f32_eq(&expected, &actual);
+            }
+        }
+    }
 }

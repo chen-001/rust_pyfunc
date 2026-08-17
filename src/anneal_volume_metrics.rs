@@ -480,15 +480,13 @@ struct AggOrder {
 
 /// 在 trade 切片内按 bid_order / ask_order 聚合。
 /// first_idx = 该订单在切片中的首次出现位置（时间序，确定性关键）。
-fn aggregate_orders(trades: &[TradeRecord]) -> (FxHashMap<i64, AggOrder>, FxHashMap<i64, AggOrder>) {
-    let mut bid_map: FxHashMap<i64, AggOrder> = FxHashMap::with_capacity_and_hasher(
-        trades.len(),
-        Default::default(),
-    );
-    let mut ask_map: FxHashMap<i64, AggOrder> = FxHashMap::with_capacity_and_hasher(
-        trades.len(),
-        Default::default(),
-    );
+fn aggregate_orders(
+    trades: &[TradeRecord],
+) -> (FxHashMap<i64, AggOrder>, FxHashMap<i64, AggOrder>) {
+    let mut bid_map: FxHashMap<i64, AggOrder> =
+        FxHashMap::with_capacity_and_hasher(trades.len(), Default::default());
+    let mut ask_map: FxHashMap<i64, AggOrder> =
+        FxHashMap::with_capacity_and_hasher(trades.len(), Default::default());
 
     for (i, t) in trades.iter().enumerate() {
         // bid_order: flag=66 → 主动, flag=83 → 被动
@@ -677,11 +675,7 @@ pub fn quantile_filter(volumes: &[f32], q: Quantile) -> Vec<f32> {
 
 /// 使用已按成交量降序排列的索引做分位数过滤，保留原始时间序。
 /// 排序顺序与 `quantile_filter` 完全一致，用于同一 universe 的多个分位数。
-fn quantile_filter_from_sorted(
-    volumes: &[f32],
-    sorted: &[(f32, usize)],
-    q: Quantile,
-) -> Vec<f32> {
+fn quantile_filter_from_sorted(volumes: &[f32], sorted: &[(f32, usize)], q: Quantile) -> Vec<f32> {
     let n = volumes.len();
     if n == 0 || q == Quantile::All {
         return volumes.to_vec();
@@ -1090,7 +1084,13 @@ pub fn compute_anneal_volume_full(code: &str, date: i64) -> std::io::Result<Vec<
     let t_read = Instant::now();
     let trades = read_trade_fast_inner(code, date, false, true, usize::MAX)?;
     let t_read_elapsed = t_read.elapsed();
-    eprintln!("[prof] {} {} read_data: {:?}  n_trades={}", code, date, t_read_elapsed, trades.len());
+    eprintln!(
+        "[prof] {} {} read_data: {:?}  n_trades={}",
+        code,
+        date,
+        t_read_elapsed,
+        trades.len()
+    );
 
     if trades.is_empty() {
         return Ok(vec![f32::NAN; EXPECTED_LEN]);
@@ -1110,7 +1110,12 @@ pub fn compute_anneal_volume_full(code: &str, date: i64) -> std::io::Result<Vec<
             aggregate_orders(&trades[lo..hi])
         })
         .collect();
-    eprintln!("[prof] {} {} 6_window_agg: {:?}", code, date, t_win.elapsed());
+    eprintln!(
+        "[prof] {} {} 6_window_agg: {:?}",
+        code,
+        date,
+        t_win.elapsed()
+    );
 
     // 65 个标量片段
     let t_scalar = Instant::now();
@@ -1135,10 +1140,7 @@ pub fn compute_anneal_volume_full(code: &str, date: i64) -> std::io::Result<Vec<
             if quantile_orders[cache_idx].is_none() {
                 let mut order: Vec<(f32, usize)> =
                     vols.iter().enumerate().map(|(i, &v)| (v, i)).collect();
-                order.sort_by(|a, b| {
-                    b.0.partial_cmp(&a.0)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                });
+                order.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
                 quantile_orders[cache_idx] = Some(order);
             }
             quantile_filter_from_sorted(
@@ -1151,7 +1153,12 @@ pub fn compute_anneal_volume_full(code: &str, date: i64) -> std::io::Result<Vec<
         let factors = anneal(&filtered, m_adapt, &mut buf);
         out.extend_from_slice(&factors);
     }
-    eprintln!("[prof] {} {} 65_scalar: {:?}", code, date, t_scalar.elapsed());
+    eprintln!(
+        "[prof] {} {} 65_scalar: {:?}",
+        code,
+        date,
+        t_scalar.elapsed()
+    );
 
     // 逐分钟矩阵 237 × 75
     let t_minute = Instant::now();
@@ -1183,13 +1190,24 @@ pub fn compute_anneal_volume_full(code: &str, date: i64) -> std::io::Result<Vec<
             }
         }
     }
-    eprintln!("[prof] {} {} 237_minute: {:?}  n_nonempty={}", code, date, t_minute.elapsed(), n_nonempty);
+    eprintln!(
+        "[prof] {} {} 237_minute: {:?}  n_nonempty={}",
+        code,
+        date,
+        t_minute.elapsed(),
+        n_nonempty
+    );
 
     // 降维
     let t_reduce = Instant::now();
     let (reduced_vals, _) =
         features::get_features_factors_rust_full(&matrix.view(), &minute_col_names, false);
-    eprintln!("[prof] {} {} dim_reduce: {:?}", code, date, t_reduce.elapsed());
+    eprintln!(
+        "[prof] {} {} dim_reduce: {:?}",
+        code,
+        date,
+        t_reduce.elapsed()
+    );
     out.extend_from_slice(&reduced_vals);
 
     // 长度校准
@@ -1340,7 +1358,11 @@ fn anneal_gpt(true_vol: &[f32], m_max: usize, buf: &mut AnnealGptBuf) -> [f32; N
         }
         if d_count < D_MAX && i != j && buf.guess[i] != buf.guess[j] {
             buf.d_vals.push(true_vol[j] - true_vol[i]);
-            buf.d_tau.push(if j > i { (j - i) as f32 } else { (i - j) as f32 });
+            buf.d_tau.push(if j > i {
+                (j - i) as f32
+            } else {
+                (i - j) as f32
+            });
             buf.g_below.push(if buf.guess[i] < median { 1 } else { 0 });
             d_count += 1;
         }
@@ -1387,9 +1409,15 @@ fn anneal_gpt(true_vol: &[f32], m_max: usize, buf: &mut AnnealGptBuf) -> [f32; N
                 s3sq += dv * dv;
             }
         }
-        if a1 == usize::MAX && cr >= half_life { a1 = t; }
-        if a2 == usize::MAX && cr >= 0.80 { a2 = t; }
-        if a3 == usize::MAX && cr >= 0.90 { a3 = t; }
+        if a1 == usize::MAX && cr >= half_life {
+            a1 = t;
+        }
+        if a2 == usize::MAX && cr >= 0.80 {
+            a2 = t;
+        }
+        if a3 == usize::MAX && cr >= 0.90 {
+            a3 = t;
+        }
         inertia += (1.0_f32 - cr as f32) as f64;
         if cr >= running_max {
             running_max = cr;
@@ -1398,17 +1426,35 @@ fn anneal_gpt(true_vol: &[f32], m_max: usize, buf: &mut AnnealGptBuf) -> [f32; N
             max_recovery = max_recovery.max(t - peak_step);
         }
         max_dd = max_dd.max(running_max - cr);
-        if t + 1 == seg2_end || (t + 1 == m_max && r_s2.is_nan()) { r_s2 = cr; }
+        if t + 1 == seg2_end || (t + 1 == m_max && r_s2.is_nan()) {
+            r_s2 = cr;
+        }
         prev_r = final_r;
-        if s <= s_tol { break; }
+        if s <= s_tol {
+            break;
+        }
         t += 1;
     }
-    while buf.r_sample.len() < 4 { buf.r_sample.push(final_r as f32); }
+    while buf.r_sample.len() < 4 {
+        buf.r_sample.push(final_r as f32);
+    }
 
     let mut f = [f32::NAN; N_FACTORS];
-    f[0] = if a1 == usize::MAX { m_max as f32 } else { a1 as f32 };
-    f[1] = if a2 == usize::MAX { m_max as f32 } else { a2 as f32 };
-    f[2] = if a3 == usize::MAX { m_max as f32 } else { a3 as f32 };
+    f[0] = if a1 == usize::MAX {
+        m_max as f32
+    } else {
+        a1 as f32
+    };
+    f[1] = if a2 == usize::MAX {
+        m_max as f32
+    } else {
+        a2 as f32
+    };
+    f[2] = if a3 == usize::MAX {
+        m_max as f32
+    } else {
+        a3 as f32
+    };
     f[3] = final_r as f32;
     f[4] = inertia as f32;
     f[5] = declines as f32;
@@ -1422,8 +1468,12 @@ fn anneal_gpt(true_vol: &[f32], m_max: usize, buf: &mut AnnealGptBuf) -> [f32; N
         let nd = s1n as f64;
         f[9] = ((s1sq - s1s * s1s / nd) / (nd - 1.0)).max(0.0).sqrt() as f32;
     }
-    if s2n > 0 { f[10] = s2d as f32 / s2n as f32; }
-    if !r_s2.is_nan() { f[11] = (final_r - r_s2) as f32; }
+    if s2n > 0 {
+        f[10] = s2d as f32 / s2n as f32;
+    }
+    if !r_s2.is_nan() {
+        f[11] = (final_r - r_s2) as f32;
+    }
     if s3n >= 2 {
         let nd = s3n as f64;
         let st3 = ((s3sq - s3s * s3s / nd) / (nd - 1.0)).max(0.0).sqrt();
@@ -1435,7 +1485,11 @@ fn anneal_gpt(true_vol: &[f32], m_max: usize, buf: &mut AnnealGptBuf) -> [f32; N
     buf.drs.extend(buf.r_sample.windows(2).map(|w| w[1] - w[0]));
     if !buf.drs.is_empty() {
         let p90 = percentile_abs_reuse(&buf.drs, 0.90, &mut buf.pct_scratch);
-        buf.binary.extend(buf.drs.iter().map(|&v| if v.abs() >= p90 { 1.0 } else { 0.0 }));
+        buf.binary.extend(
+            buf.drs
+                .iter()
+                .map(|&v| if v.abs() >= p90 { 1.0 } else { 0.0 }),
+        );
         f[13] = runs_test_z(&buf.binary);
     }
     if drn >= 4 {
@@ -1443,11 +1497,13 @@ fn anneal_gpt(true_vol: &[f32], m_max: usize, buf: &mut AnnealGptBuf) -> [f32; N
         let mean = dr_s1 / nd;
         let m2 = dr_s2 / nd - mean * mean;
         let m3 = dr_s3 / nd - 3.0 * mean * (dr_s2 / nd) + 2.0 * mean * mean * mean;
-        let m4 = dr_s4 / nd - 4.0 * mean * (dr_s3 / nd) + 6.0 * mean * mean * (dr_s2 / nd) - 3.0 * mean.powi(4);
+        let m4 = dr_s4 / nd - 4.0 * mean * (dr_s3 / nd) + 6.0 * mean * mean * (dr_s2 / nd)
+            - 3.0 * mean.powi(4);
         if m2 > 1e-20 {
             f[14] = (m3 / m2.powf(1.5) * ((nd - 1.0) * nd).sqrt() / (nd - 2.0)) as f32;
             let g2 = m4 / (m2 * m2);
-            f[15] = (((nd - 1.0) / ((nd - 2.0) * (nd - 3.0))) * ((nd + 1.0) * g2 - 3.0 * (nd - 1.0))) as f32;
+            f[15] = (((nd - 1.0) / ((nd - 2.0) * (nd - 3.0)))
+                * ((nd + 1.0) * g2 - 3.0 * (nd - 1.0))) as f32;
         }
     }
     f[16] = hurst_rs(&buf.r_sample);
@@ -1457,13 +1513,19 @@ fn anneal_gpt(true_vol: &[f32], m_max: usize, buf: &mut AnnealGptBuf) -> [f32; N
         f[18] = buf.d_vals.iter().map(|d| d.abs()).sum::<f32>() / k as f32;
         f[19] = buf.d_vals.iter().filter(|d| **d > 0.0).count() as f32 / k as f32;
         f[20] = std_ddof1(&buf.d_vals);
-        if k >= 2 { f[21] = corr(&buf.d_vals[..k - 1], &buf.d_vals[1..]); }
         if k >= 2 {
-            let flips = (0..k - 1).filter(|&i| buf.d_vals[i].signum() != buf.d_vals[i + 1].signum()).count();
+            f[21] = corr(&buf.d_vals[..k - 1], &buf.d_vals[1..]);
+        }
+        if k >= 2 {
+            let flips = (0..k - 1)
+                .filter(|&i| buf.d_vals[i].signum() != buf.d_vals[i + 1].signum())
+                .count();
             f[22] = flips as f32 / (k - 1) as f32;
         }
         let p95 = percentile_abs_reuse(&buf.d_vals, 0.95, &mut buf.pct_scratch);
-        let hidden = (0..k).filter(|&i| buf.g_below[i] == 1 && buf.d_vals[i].abs() > p95).count();
+        let hidden = (0..k)
+            .filter(|&i| buf.g_below[i] == 1 && buf.d_vals[i].abs() > p95)
+            .count();
         f[23] = hidden as f32 / k as f32;
         if k >= 3 {
             buf.abs_d.extend(buf.d_vals.iter().map(|d| d.abs()));
@@ -1519,7 +1581,11 @@ pub fn compute_anneal_volume_gpt_full(code: &str, date: i64) -> std::io::Result<
                 quantile,
             )
         };
-        let factors = anneal_gpt(&filtered, adaptive_m_max(filtered.len(), M_MAX_SCALAR), &mut buf);
+        let factors = anneal_gpt(
+            &filtered,
+            adaptive_m_max(filtered.len(), M_MAX_SCALAR),
+            &mut buf,
+        );
         out.extend_from_slice(&factors);
     }
 
@@ -1540,11 +1606,8 @@ pub fn compute_anneal_volume_gpt_full(code: &str, date: i64) -> std::io::Result<
             }
         }
     }
-    let (reduced, _) = features::get_features_factors_rust_full(
-        &matrix.view(),
-        &minute_col_names,
-        false,
-    );
+    let (reduced, _) =
+        features::get_features_factors_rust_full(&matrix.view(), &minute_col_names, false);
     out.extend_from_slice(&reduced);
     if out.len() < EXPECTED_LEN {
         out.resize(EXPECTED_LEN, f32::NAN);

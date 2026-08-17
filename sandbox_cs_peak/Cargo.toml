@@ -1,0 +1,17 @@
+[package]
+name = "cs_peak_sandbox"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "cs_peak_sandbox"
+path = "src/main.rs"
+
+[dependencies]
+rayon = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
+codegen-units = 1

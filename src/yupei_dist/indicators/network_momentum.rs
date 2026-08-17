@@ -44,7 +44,10 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                 acc as f32
             })
             .collect();
-        out.push(IndicatorResult::new(format!("mom_{mat}_network_momentum"), col));
+        out.push(IndicatorResult::new(
+            format!("mom_{mat}_network_momentum"),
+            col,
+        ));
     }
     out
 }

@@ -22,9 +22,18 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             // 无行业数据（批量日期未提取）: 输出 NaN 列保持因子长度
             for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
                 let nan = vec![f32::NAN; n];
-                out.push(IndicatorResult::new(format!("ind_{mat}_within"), nan.clone()));
-                out.push(IndicatorResult::new(format!("ind_{mat}_cross_ratio"), nan.clone()));
-                out.push(IndicatorResult::new(format!("ind_{mat}_mismatch"), nan.clone()));
+                out.push(IndicatorResult::new(
+                    format!("ind_{mat}_within"),
+                    nan.clone(),
+                ));
+                out.push(IndicatorResult::new(
+                    format!("ind_{mat}_cross_ratio"),
+                    nan.clone(),
+                ));
+                out.push(IndicatorResult::new(
+                    format!("ind_{mat}_mismatch"),
+                    nan.clone(),
+                ));
             }
             return out;
         }
@@ -74,7 +83,10 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
         let cross: Vec<f32> = rows.iter().map(|&(_, b)| b).collect();
         let mism: Vec<f32> = rows.iter().map(|&(_, b)| b).collect();
         out.push(IndicatorResult::new(format!("ind_{mat}_within"), within));
-        out.push(IndicatorResult::new(format!("ind_{mat}_cross_ratio"), cross));
+        out.push(IndicatorResult::new(
+            format!("ind_{mat}_cross_ratio"),
+            cross,
+        ));
         out.push(IndicatorResult::new(format!("ind_{mat}_mismatch"), mism));
     }
     out

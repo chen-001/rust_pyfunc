@@ -21,9 +21,15 @@ fn mk_rec(t: f64, v: f64, flag: i32, day_start_us: i64) -> TradeRecord {
 fn end_to_end_synthetic() {
     let day_start_us = 1735637400000000i64; // 20241231 09:30 CST
     let stocks: Vec<_> = [
-        (0.0, 100.0, 66), (0.5, 200.0, 83), (1.0, 150.0, 66),
-        (2.0, 300.0, 83), (5.0, 250.0, 66), (10.0, 400.0, 83),
-        (20.0, 350.0, 66), (30.0, 120.0, 83), (60.0, 500.0, 66),
+        (0.0, 100.0, 66),
+        (0.5, 200.0, 83),
+        (1.0, 150.0, 66),
+        (2.0, 300.0, 83),
+        (5.0, 250.0, 66),
+        (10.0, 400.0, 83),
+        (20.0, 350.0, 66),
+        (30.0, 120.0, 83),
+        (60.0, 500.0, 66),
     ]
     .iter()
     .enumerate()
@@ -63,5 +69,8 @@ fn end_to_end_synthetic() {
         }
     }
     // 无行业/无 prev → ind/dyn 输出 NaN 列; 因子总数保持注册数
-    assert_eq!(total, rust_pyfunc::yupei_dist::names::YUPEI_DIST_NAMES.len());
+    assert_eq!(
+        total,
+        rust_pyfunc::yupei_dist::names::YUPEI_DIST_NAMES.len()
+    );
 }

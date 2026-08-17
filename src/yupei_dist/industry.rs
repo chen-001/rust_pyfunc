@@ -10,16 +10,23 @@ pub fn load_industry_from_csv(path: &Path, codes: &[String]) -> std::io::Result<
     let s = std::fs::read_to_string(path)?;
     let mut map: std::collections::HashMap<String, i16> = std::collections::HashMap::new();
     for line in s.lines() {
-        if line.is_empty() { continue; }
+        if line.is_empty() {
+            continue;
+        }
         let mut it = line.split(',');
         let code = it.next().unwrap_or("").trim();
         let ind = it.next().unwrap_or("").trim();
-        if code.is_empty() || ind.is_empty() { continue; }
+        if code.is_empty() || ind.is_empty() {
+            continue;
+        }
         if let Ok(v) = ind.parse::<i16>() {
             map.insert(code.to_string(), v);
         }
     }
-    Ok(codes.iter().map(|c| map.get(c).copied().unwrap_or(-1)).collect())
+    Ok(codes
+        .iter()
+        .map(|c| map.get(c).copied().unwrap_or(-1))
+        .collect())
 }
 
 /// 读 industry.bin（与 codes 对齐）

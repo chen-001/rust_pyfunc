@@ -36,5 +36,6 @@ pub mod indicator_ctx;
 pub mod indicators;
 pub mod industry;
 pub mod matrix_stage;
+pub mod matrix_store;
 pub mod names;
 pub mod topk_util;

@@ -45,7 +45,11 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                 in_s[j] += v;
             }
         }
-        let net: Vec<f32> = out_s.iter().zip(in_s.iter()).map(|(o, x)| (o - x) as f32).collect();
+        let net: Vec<f32> = out_s
+            .iter()
+            .zip(in_s.iter())
+            .map(|(o, x)| (o - x) as f32)
+            .collect();
         let ratio: Vec<f32> = out_s
             .iter()
             .zip(in_s.iter())
@@ -56,7 +60,10 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             .collect();
         let out32: Vec<f32> = out_s.iter().map(|&v| v as f32).collect();
         let in32: Vec<f32> = in_s.iter().map(|&v| v as f32).collect();
-        out.push(IndicatorResult::new(format!("dir_{mat}_out_strength"), out32));
+        out.push(IndicatorResult::new(
+            format!("dir_{mat}_out_strength"),
+            out32,
+        ));
         out.push(IndicatorResult::new(format!("dir_{mat}_in_strength"), in32));
         out.push(IndicatorResult::new(format!("dir_{mat}_net_lead"), net));
         out.push(IndicatorResult::new(format!("dir_{mat}_lead_ratio"), ratio));
@@ -66,7 +73,10 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
 
 /// 有向矩阵: name 为 "{family}_t{tau}"（如 "flow_t5"）→ ctx.matrix_net（same−opp）;
 /// 否则为普通有向矩阵（S_dir）。
-fn dir_matrix<'a>(ctx: &'a crate::yupei_dist::indicator_ctx::IndicatorCtx, name: &str) -> Option<std::borrow::Cow<'a, [f32]>> {
+fn dir_matrix<'a>(
+    ctx: &'a crate::yupei_dist::indicator_ctx::IndicatorCtx,
+    name: &str,
+) -> Option<std::borrow::Cow<'a, [f32]>> {
     use std::borrow::Cow;
     if (name.starts_with("flow_") || name.starts_with("urg_") || name.starts_with("ext_"))
         && !name.contains("same")

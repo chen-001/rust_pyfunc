@@ -276,7 +276,9 @@ fn per_stock(
     t10_t: f64,
     code: &str,
 ) -> StockOut {
-    per_stock_window(trades, t01_v, t05_v, t1_v, t5_v, t10_v, t1_t, t10_t, code, SEC_US)
+    per_stock_window(
+        trades, t01_v, t05_v, t1_v, t5_v, t10_v, t1_t, t10_t, code, SEC_US,
+    )
 }
 
 /// 带窗口参数的高峰识别（方案 2 状态化窗口生效点）。
@@ -308,11 +310,26 @@ fn per_stock_window(
             n_trades: n,
             tot_vol,
             tot_turnover: tot_turn,
-            s0: SetOut { n_peaks: 0, s: vec![f64::NAN; 110] },
-            c1: SetOut { n_peaks: 0, s: vec![f64::NAN; 110] },
-            c2: SetOut { n_peaks: 0, s: vec![f64::NAN; 110] },
-            c3: SetOut { n_peaks: 0, s: vec![f64::NAN; 110] },
-            c4: SetOut { n_peaks: 0, s: vec![f64::NAN; 110] },
+            s0: SetOut {
+                n_peaks: 0,
+                s: vec![f64::NAN; 110],
+            },
+            c1: SetOut {
+                n_peaks: 0,
+                s: vec![f64::NAN; 110],
+            },
+            c2: SetOut {
+                n_peaks: 0,
+                s: vec![f64::NAN; 110],
+            },
+            c3: SetOut {
+                n_peaks: 0,
+                s: vec![f64::NAN; 110],
+            },
+            c4: SetOut {
+                n_peaks: 0,
+                s: vec![f64::NAN; 110],
+            },
             n_both: 0,
             diff_stats: vec![f64::NAN; 51],
             rel_strength: vec![f64::NAN; 3],
@@ -369,7 +386,11 @@ fn per_stock_window(
             if dt > window_us {
                 break;
             }
-            ws.push((trades[j].volume as f64, trades[j].turnover as f64, dt as f64 / 1_000_000.0));
+            ws.push((
+                trades[j].volume as f64,
+                trades[j].turnover as f64,
+                dt as f64 / 1_000_000.0,
+            ));
         }
 
         // 各套按自己的阈值过滤小峰
@@ -467,8 +488,16 @@ fn per_stock_window(
         n_both,
         diff_stats: col_stats_3(&diff_rows), // 51
         rel_strength: stats3(&rel_vals),     // 3
-        imp_vol_ratio: if tot_vol > 0.0 { c1_vol_sum / tot_vol } else { 0.0 },
-        imp_turn_ratio: if tot_turn > 0.0 { c1_turn_sum / tot_turn } else { 0.0 },
+        imp_vol_ratio: if tot_vol > 0.0 {
+            c1_vol_sum / tot_vol
+        } else {
+            0.0
+        },
+        imp_turn_ratio: if tot_turn > 0.0 {
+            c1_turn_sum / tot_turn
+        } else {
+            0.0
+        },
     }
 }
 
@@ -695,7 +724,8 @@ fn calculate_std(data: &[f64], mean: f64) -> f64 {
     if data.len() < 2 {
         return 0.0;
     }
-    let variance: f64 = data.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / (data.len() - 1) as f64;
+    let variance: f64 =
+        data.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / (data.len() - 1) as f64;
     variance.sqrt()
 }
 
@@ -704,7 +734,11 @@ fn calculate_skewness(data: &[f64], mean: f64, std: f64) -> f64 {
         return 0.0;
     }
     let n = data.len() as f64;
-    let skew: f64 = data.iter().map(|&x| ((x - mean) / std).powi(3)).sum::<f64>() / n;
+    let skew: f64 = data
+        .iter()
+        .map(|&x| ((x - mean) / std).powi(3))
+        .sum::<f64>()
+        / n;
     if data.len() > 2 {
         let adj_factor = (n * (n - 1.0)).sqrt() / (n - 2.0);
         skew * adj_factor
@@ -718,7 +752,11 @@ fn calculate_kurtosis(data: &[f64], mean: f64, std: f64) -> f64 {
         return 0.0;
     }
     let n = data.len() as f64;
-    let kurt: f64 = data.iter().map(|&x| ((x - mean) / std).powi(4)).sum::<f64>() / n;
+    let kurt: f64 = data
+        .iter()
+        .map(|&x| ((x - mean) / std).powi(4))
+        .sum::<f64>()
+        / n;
     if data.len() > 3 {
         ((n - 1.0) / ((n - 2.0) * (n - 3.0))) * ((n + 1.0) * kurt - 3.0 * (n - 1.0))
     } else {
@@ -934,7 +972,7 @@ pub fn compute_peaks_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f32>)>
         row.extend(c3s.iter().zip(c1s.iter()).map(|(a, b)| a - b)); // d31
         row.extend(c4s.iter().zip(c1s.iter()).map(|(a, b)| a - b)); // d41
         row.extend(c3s.iter().zip(c4s.iter()).map(|(a, b)| a - b)); // d34
-        // 事件身份
+                                                                    // 事件身份
         let n0i = r.s0.n_peaks;
         let n1i = r.c1.n_peaks;
         row.push(r.n_both as f64);
@@ -1027,7 +1065,8 @@ pub fn compute_peaks_state_from_trades(
                 let v = t.volume as f64;
                 let bv = (v.round() as u64).min(MAX_BUCKETS - 1);
                 hv[bv as usize].fetch_add(1, Ordering::Relaxed);
-                let bt = ((t.turnover as f64 / TURN_BUCKET as f64).floor() as u64).min(MAX_BUCKETS - 1);
+                let bt =
+                    ((t.turnover as f64 / TURN_BUCKET as f64).floor() as u64).min(MAX_BUCKETS - 1);
                 ht[bt as usize].fetch_add(1, Ordering::Relaxed);
                 n_total.fetch_add(1, Ordering::Relaxed);
                 match t.flag {
@@ -1073,7 +1112,12 @@ pub fn compute_peaks_state_from_trades(
         .zip(trades_per_code.par_iter())
         .map(|(code, t_opt)| {
             let trades = t_opt.as_ref()?;
-            Some((code.clone(), per_stock_window(trades, t01_v, t05_v, t1_v, t10_c4, t10_v, t1_t, t10_t, code, window_us)))
+            Some((
+                code.clone(),
+                per_stock_window(
+                    trades, t01_v, t05_v, t1_v, t10_c4, t10_v, t1_t, t10_t, code, window_us,
+                ),
+            ))
         })
         .collect();
 
@@ -1212,7 +1256,11 @@ fn finalize_rows(
     let n_valid_f = rows.len().max(1) as f64;
     let cov_c1 = c1_peak_hits as f64 / n_valid_f;
     let upgrade_med = median_skip_nan(upgrade_vals);
-    let buy_sell_ratio = if sell_vol > 0.0 { buy_vol / sell_vol } else { 0.0 };
+    let buy_sell_ratio = if sell_vol > 0.0 {
+        buy_vol / sell_vol
+    } else {
+        0.0
+    };
     let state_vals: Vec<f64> = vec![
         cov_c1,
         qv[0],
@@ -1318,14 +1366,40 @@ mod tests {
     #[test]
     fn test_reader_paths_consistent() {
         // 对比 read_to_string 路径（usize::MAX）与 mmap 路径（8MB）——必须逐笔一致
-        let a = crate::fast_csv_reader::read_trade_fast_inner("000001", 20260618, false, true, usize::MAX).unwrap();
-        let b = crate::fast_csv_reader::read_trade_fast_inner("000001", 20260618, false, true, 8 * 1024 * 1024).unwrap();
-        println!("usize::MAX path: n={} vol_sum={}", a.len(), a.iter().map(|t| t.volume as f64).sum::<f64>());
-        println!("8MB path:       n={} vol_sum={}", b.len(), b.iter().map(|t| t.volume as f64).sum::<f64>());
+        let a = crate::fast_csv_reader::read_trade_fast_inner(
+            "000001",
+            20260618,
+            false,
+            true,
+            usize::MAX,
+        )
+        .unwrap();
+        let b = crate::fast_csv_reader::read_trade_fast_inner(
+            "000001",
+            20260618,
+            false,
+            true,
+            8 * 1024 * 1024,
+        )
+        .unwrap();
+        println!(
+            "usize::MAX path: n={} vol_sum={}",
+            a.len(),
+            a.iter().map(|t| t.volume as f64).sum::<f64>()
+        );
+        println!(
+            "8MB path:       n={} vol_sum={}",
+            b.len(),
+            b.iter().map(|t| t.volume as f64).sum::<f64>()
+        );
         assert_eq!(a.len(), b.len());
         for (i, (x, y)) in a.iter().zip(b.iter()).enumerate() {
             if x.volume != y.volume || x.time_us != y.time_us || x.turnover != y.turnover {
-                println!("first diff at {i}: a={:?} b={:?}", (x.volume, x.time_us, x.turnover), (y.volume, y.time_us, y.turnover));
+                println!(
+                    "first diff at {i}: a={:?} b={:?}",
+                    (x.volume, x.time_us, x.turnover),
+                    (y.volume, y.time_us, y.turnover)
+                );
                 return;
             }
         }

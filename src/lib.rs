@@ -1,7 +1,6 @@
 #[allow(unused_imports)]
 use pyo3::prelude::*;
 
-pub mod yupei_dist;
 pub mod backup_column_cache;
 pub mod backup_reader;
 pub mod backup_writer;
@@ -40,6 +39,7 @@ pub mod trade_records_ultra_sorted;
 pub mod tree;
 pub mod vector_similarity;
 pub mod vector_similarity_optimized;
+pub mod yupei_dist;
 
 pub mod cross_stock_regression;
 pub mod cross_stock_regression_fast;
@@ -107,15 +107,9 @@ pub mod fast_csv_reader;
 pub mod hidden_arrange_metrics;
 pub mod hot_stock_pool_metrics;
 
-pub mod anneal_volume_metrics;
 pub mod anneal_volume_market_metrics;
+pub mod anneal_volume_metrics;
 pub mod cross_section_example_metrics;
-pub mod peaks_metrics;
-pub mod peaks_regime;
-pub mod pair_interaction_metrics;
-pub mod yhyb_metrics;
-pub mod yhyb_network;
-pub mod volume_segment_leadstock_metrics;
 pub mod drop_event_metrics;
 pub mod factor_pipeline;
 pub mod factor_store_v5;
@@ -123,14 +117,22 @@ pub mod features;
 pub mod individual_order_ratio_metrics;
 pub mod long_order_cross_section_metrics;
 pub mod microstructure_capm_metrics;
-pub mod multi_factor_capm_metrics;
 pub mod minute_capm_metrics;
 pub mod minute_data_reader;
 pub mod minute_example_metrics;
+pub mod multi_factor_capm_metrics;
+pub mod multi_factor_route_timeseries;
 pub mod observable_order_metrics;
 pub mod order_pair_metrics_pipeline;
 pub mod orderbook_imb_refactor_metrics;
+pub mod pair_interaction_metrics;
+pub mod pairwise_merge_metrics;
+pub mod peaks_metrics;
+pub mod peaks_regime;
 pub mod urgency_metrics;
+pub mod volume_segment_leadstock_metrics;
+pub mod yhyb_metrics;
+pub mod yhyb_network;
 
 /// Formats the sum of two numbers as string.
 #[pyfunction]
@@ -1116,7 +1118,42 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         m
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(yupei_dist::compute::py_yupei_dist, m)?)?;
-    let _ = m.add_function(wrap_pyfunction!(yupei_dist::compute::py_yupei_dist_names, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        yupei_dist::compute::py_yupei_dist_names,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        yupei_dist::matrix_store::yupei_dist_backup_matrices,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        yupei_dist::matrix_store::yupei_dist_backup_factors,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        yupei_dist::matrix_store::yupei_dist_backup_read_matrix,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        yupei_dist::matrix_store::yupei_dist_backup_read_stats,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        yupei_dist::matrix_store::yupei_dist_backup_read_factors,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        yupei_dist::matrix_store::yupei_dist_backup_verify,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        yupei_dist::matrix_store::yupei_dist_backup_matrix_names,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        pairwise_merge_metrics::py_pairwise_merge_metrics,
+        m
+    )?)?;
     let _ = m.add_function(wrap_pyfunction!(
         cross_section_example_metrics::py_cross_section_example,
         m
@@ -1125,8 +1162,14 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         cross_section_example_metrics::py_cross_section_example_names,
         m
     )?)?;
-    let _ = m.add_function(wrap_pyfunction!(pair_interaction_metrics::py_pair_interaction, m)?)?;
-    let _ = m.add_function(wrap_pyfunction!(pair_interaction_metrics::py_pair_interaction_names, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        pair_interaction_metrics::py_pair_interaction,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        pair_interaction_metrics::py_pair_interaction_names,
+        m
+    )?)?;
     let _ = m.add_function(wrap_pyfunction!(
         cross_section_example_metrics::py_cross_section_example_from_data,
         m
@@ -1136,7 +1179,10 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     let _ = m.add_function(wrap_pyfunction!(peaks_metrics::py_peaks_from_data, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(peaks_regime::py_peaks_regime_fit, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(peaks_regime::py_state_read_row, m)?)?;
-    let _ = m.add_function(wrap_pyfunction!(factor_pipeline::run_factor_pipeline_regime, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        factor_pipeline::run_factor_pipeline_regime,
+        m
+    )?)?;
     let _ = m.add_function(wrap_pyfunction!(yhyb_metrics::py_yhyb, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(yhyb_metrics::py_yhyb_params, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(yhyb_metrics::py_yhyb_names, m)?)?;

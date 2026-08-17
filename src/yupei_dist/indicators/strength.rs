@@ -30,20 +30,33 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             sums.push(s);
         }
         // 中位数 / q90: 每行排序（行内并行）
-        let (medians, q90s): (Vec<f32>, Vec<f32>) = (0..n).into_par_iter().map(|i| {
-            let row = &sym[i * n..(i + 1) * n];
-            let mut sorted: Vec<f32> = row.to_vec();
-            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            let nz = sorted.len();
-            let med = if nz > 0 { sorted[nz / 2] } else { 0.0 };
-            let q90 = if nz > 0 { sorted[(nz as f64 * 0.9) as usize] } else { 0.0 };
-            (med, q90)
-        }).unzip();
-        let means: Vec<f32> = sums.iter().map(|&s| (s / (n as f64 - 1.0).max(1.0)) as f32).collect();
+        let (medians, q90s): (Vec<f32>, Vec<f32>) = (0..n)
+            .into_par_iter()
+            .map(|i| {
+                let row = &sym[i * n..(i + 1) * n];
+                let mut sorted: Vec<f32> = row.to_vec();
+                sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                let nz = sorted.len();
+                let med = if nz > 0 { sorted[nz / 2] } else { 0.0 };
+                let q90 = if nz > 0 {
+                    sorted[(nz as f64 * 0.9) as usize]
+                } else {
+                    0.0
+                };
+                (med, q90)
+            })
+            .unzip();
+        let means: Vec<f32> = sums
+            .iter()
+            .map(|&s| (s / (n as f64 - 1.0).max(1.0)) as f32)
+            .collect();
         let sums32: Vec<f32> = sums.iter().map(|&s| s as f32).collect();
         out.push(IndicatorResult::new(format!("strength_{mat}_sum"), sums32));
         out.push(IndicatorResult::new(format!("strength_{mat}_mean"), means));
-        out.push(IndicatorResult::new(format!("strength_{mat}_median"), medians));
+        out.push(IndicatorResult::new(
+            format!("strength_{mat}_median"),
+            medians,
+        ));
         out.push(IndicatorResult::new(format!("strength_{mat}_q90"), q90s));
     }
     out

@@ -38,8 +38,14 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                 -(s / 5.0)
             })
             .collect();
-        out.push(IndicatorResult::new(format!("iso_{mat}_inv_strength"), inv_s));
-        out.push(IndicatorResult::new(format!("iso_{mat}_neg_top5"), neg_top5));
+        out.push(IndicatorResult::new(
+            format!("iso_{mat}_inv_strength"),
+            inv_s,
+        ));
+        out.push(IndicatorResult::new(
+            format!("iso_{mat}_neg_top5"),
+            neg_top5,
+        ));
     }
     out
 }

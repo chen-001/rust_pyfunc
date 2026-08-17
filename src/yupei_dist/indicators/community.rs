@@ -58,7 +58,11 @@ fn compute_one(n: usize, mat: &str, sym: &[f32]) -> Vec<IndicatorResult> {
     let mut edges: std::collections::BTreeSet<(u32, u32)> = std::collections::BTreeSet::new();
     for i in 0..n {
         for &j in top[i].iter() {
-            let (a, b) = if i < j as usize { (i as u32, j) } else { (j, i as u32) };
+            let (a, b) = if i < j as usize {
+                (i as u32, j)
+            } else {
+                (j, i as u32)
+            };
             if a != b {
                 edges.insert((a, b));
             }
@@ -196,6 +200,9 @@ fn compute_one(n: usize, mat: &str, sym: &[f32]) -> Vec<IndicatorResult> {
     out.push(IndicatorResult::new(format!("comm_{mat}_within"), within));
     out.push(IndicatorResult::new(format!("comm_{mat}_outside"), outside));
     out.push(IndicatorResult::new(format!("comm_{mat}_purity"), purity));
-    out.push(IndicatorResult::new(format!("comm_{mat}_participation"), part));
+    out.push(IndicatorResult::new(
+        format!("comm_{mat}_participation"),
+        part,
+    ));
     out
 }

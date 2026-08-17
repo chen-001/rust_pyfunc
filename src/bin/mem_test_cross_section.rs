@@ -85,20 +85,25 @@ fn main() {
         codes.insert(c);
     }
     let codes: Vec<String> = codes.into_iter().collect();
-    println!("日期 {date}，线程数 {n_threads}，股票代码并集 {} 只", codes.len());
+    println!(
+        "日期 {date}，线程数 {n_threads}，股票代码并集 {} 只",
+        codes.len()
+    );
 
     let base_rss = vm_field("VmRSS:");
     let base_hwm = vm_field("VmHWM:");
-    println!("baseline VmRSS = {:.2} GiB, VmHWM = {:.2} GiB\n", base_rss as f64 / GB_KB, base_hwm as f64 / GB_KB);
+    println!(
+        "baseline VmRSS = {:.2} GiB, VmHWM = {:.2} GiB\n",
+        base_rss as f64 / GB_KB,
+        base_hwm as f64 / GB_KB
+    );
 
     // ============ 阶段 1：并行读全部逐笔成交 ============
     let t0 = std::time::Instant::now();
     let cpu0 = cpu_time_secs();
     let all_trades: Vec<Vec<_>> = codes
         .par_iter()
-        .map(|code| {
-            read_trade_fast_inner(code, date, false, true, usize::MAX).unwrap_or_default()
-        })
+        .map(|code| read_trade_fast_inner(code, date, false, true, usize::MAX).unwrap_or_default())
         .collect();
     let n_trades: usize = all_trades.iter().map(|v| v.len()).sum();
     let ok_trades = all_trades.iter().filter(|v| !v.is_empty()).count();
@@ -108,21 +113,34 @@ fn main() {
     let hwm1 = vm_field("VmHWM:");
     let net_trades_gib = n_trades as f64 * 40.0 / (KB * KB * KB);
     println!("【阶段1 逐笔 transaction】");
-    println!("  记录数: {n_trades} 条 ({ok_trades}/{}) 只有效)", codes.len());
-    println!("  wall: {:.2}s  |  CPU(user+sys, {n_threads}核): {:.1}s  |  CPU利用率: {:.0}%",
-        wall_trades, cpu_trades, cpu_trades / wall_trades / n_threads as f64 * 100.0);
+    println!(
+        "  记录数: {n_trades} 条 ({ok_trades}/{}) 只有效)",
+        codes.len()
+    );
+    println!(
+        "  wall: {:.2}s  |  CPU(user+sys, {n_threads}核): {:.1}s  |  CPU利用率: {:.0}%",
+        wall_trades,
+        cpu_trades,
+        cpu_trades / wall_trades / n_threads as f64 * 100.0
+    );
     println!("  结构体净内存: {net_trades_gib:.2} GiB ({n_trades} × 40B)");
-    println!("  VmRSS: {:.2} GiB (较 baseline +{:.2} GiB)", rss1 as f64 / GB_KB, (rss1 - base_rss) as f64 / GB_KB);
-    println!("  VmHWM: {:.2} GiB (较 baseline +{:.2} GiB)\n", hwm1 as f64 / GB_KB, (hwm1 - base_hwm) as f64 / GB_KB);
+    println!(
+        "  VmRSS: {:.2} GiB (较 baseline +{:.2} GiB)",
+        rss1 as f64 / GB_KB,
+        (rss1 - base_rss) as f64 / GB_KB
+    );
+    println!(
+        "  VmHWM: {:.2} GiB (较 baseline +{:.2} GiB)\n",
+        hwm1 as f64 / GB_KB,
+        (hwm1 - base_hwm) as f64 / GB_KB
+    );
 
     // ============ 阶段 2：逐笔仍持有，再并行读全部盘口 ============
     let t1 = std::time::Instant::now();
     let cpu1 = cpu_time_secs();
     let all_md: Vec<Vec<_>> = codes
         .par_iter()
-        .map(|code| {
-            read_market_fast_inner(code, date, false, true, usize::MAX).unwrap_or_default()
-        })
+        .map(|code| read_market_fast_inner(code, date, false, true, usize::MAX).unwrap_or_default())
         .collect();
     let n_md: usize = all_md.iter().map(|v| v.len()).sum();
     let ok_md = all_md.iter().filter(|v| !v.is_empty()).count();
@@ -133,16 +151,31 @@ fn main() {
     let net_md_gib = n_md as f64 * 184.0 / (KB * KB * KB);
     println!("【阶段2 盘口 market_data（逐笔仍持有）】");
     println!("  记录数: {n_md} 条 ({ok_md} 只有效)");
-    println!("  wall: {:.2}s  |  CPU(user+sys, {n_threads}核): {:.1}s  |  CPU利用率: {:.0}%",
-        wall_md, cpu_md, cpu_md / wall_md / n_threads as f64 * 100.0);
+    println!(
+        "  wall: {:.2}s  |  CPU(user+sys, {n_threads}核): {:.1}s  |  CPU利用率: {:.0}%",
+        wall_md,
+        cpu_md,
+        cpu_md / wall_md / n_threads as f64 * 100.0
+    );
     println!("  结构体净内存: {net_md_gib:.2} GiB ({n_md} × 184B)");
-    println!("  VmRSS: {:.2} GiB (较 baseline +{:.2} GiB)", rss2 as f64 / GB_KB, (rss2 - base_rss) as f64 / GB_KB);
-    println!("  VmHWM: {:.2} GiB (较 baseline +{:.2} GiB)\n", hwm2 as f64 / GB_KB, (hwm2 - base_hwm) as f64 / GB_KB);
+    println!(
+        "  VmRSS: {:.2} GiB (较 baseline +{:.2} GiB)",
+        rss2 as f64 / GB_KB,
+        (rss2 - base_rss) as f64 / GB_KB
+    );
+    println!(
+        "  VmHWM: {:.2} GiB (较 baseline +{:.2} GiB)\n",
+        hwm2 as f64 / GB_KB,
+        (hwm2 - base_hwm) as f64 / GB_KB
+    );
 
     // ============ 汇总 ============
     let net_total = (n_trades * 40 + n_md * 184) as f64 / (KB * KB * KB);
     println!("================= 汇总（逐笔 + 盘口全量驻留）=================");
-    println!("总记录: 逐笔 {n_trades} + 盘口 {n_md} = {} 条", n_trades + n_md);
+    println!(
+        "总记录: 逐笔 {n_trades} + 盘口 {n_md} = {} 条",
+        n_trades + n_md
+    );
     println!("结构体净内存合计: {net_total:.2} GiB");
     println!("实测 VmRSS: {:.2} GiB", rss2 as f64 / GB_KB);
     println!("实测峰值 VmHWM: {:.2} GiB", hwm2 as f64 / GB_KB);

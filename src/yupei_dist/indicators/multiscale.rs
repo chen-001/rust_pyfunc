@@ -31,11 +31,17 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let mut out = Vec::new();
     // 快/慢 τ 配对: (快矩阵, 慢矩阵)
     for (fast_n, slow_n) in [
-        ("cnt_t005", "cnt_t1"), ("cnt_t02", "cnt_t5"), ("cnt_t1", "cnt_t30"),
-        ("vol_t02", "vol_t5"), ("vol_t1", "vol_t30"),
-        ("logvol_t05", "logvol_t3"), ("logvol_t1", "logvol_t30"),
-        ("flow_same_t02", "flow_same_t1"), ("flow_same_t05", "flow_same_t5"),
-        ("urg_same_t1", "urg_same_t30"), ("ext_same_t1", "ext_same_t5"),
+        ("cnt_t005", "cnt_t1"),
+        ("cnt_t02", "cnt_t5"),
+        ("cnt_t1", "cnt_t30"),
+        ("vol_t02", "vol_t5"),
+        ("vol_t1", "vol_t30"),
+        ("logvol_t05", "logvol_t3"),
+        ("logvol_t1", "logvol_t30"),
+        ("flow_same_t02", "flow_same_t1"),
+        ("flow_same_t05", "flow_same_t5"),
+        ("urg_same_t1", "urg_same_t30"),
+        ("ext_same_t1", "ext_same_t5"),
     ] {
         let fast = match ctx.symmetric(fast_n) {
             Some(s) => s,
@@ -90,8 +96,14 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
         let tag = format!("ms_{fast_n}_{slow_n}");
         out.push(IndicatorResult::new(format!("{tag}_fast_strength"), fast_s));
         out.push(IndicatorResult::new(format!("{tag}_slow_strength"), slow_s));
-        out.push(IndicatorResult::new(format!("{tag}_fast_slow_ratio"), ratio));
-        out.push(IndicatorResult::new(format!("{tag}_scale_consistency"), jaccard));
+        out.push(IndicatorResult::new(
+            format!("{tag}_fast_slow_ratio"),
+            ratio,
+        ));
+        out.push(IndicatorResult::new(
+            format!("{tag}_scale_consistency"),
+            jaccard,
+        ));
     }
     out
 }

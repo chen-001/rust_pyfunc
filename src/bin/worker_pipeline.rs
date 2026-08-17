@@ -12,16 +12,13 @@
 use rust_pyfunc::backup_reader::TaskResult;
 use rust_pyfunc::factor_pipeline::{
     ipc_read_result, ipc_read_task, ipc_write, ipc_write_result, pipeline_anneal_volume,
-    pipeline_anneal_volume_market,
-    pipeline_cross_section_example, pipeline_peaks, pipeline_pair_interaction, pipeline_distill, pipeline_distill_tick, pipeline_drop_event,
-    pipeline_yupei_dist,
-    pipeline_extreme_point_fit, pipeline_hot_stock_pool, pipeline_hot_stock_pool_v2,
-    pipeline_individual_order_ratio,
-    pipeline_long_order, pipeline_microstructure_capm, pipeline_multi_factor_capm, pipeline_observable_order,
-    pipeline_order_pair_hm90, pipeline_orderbook_imb_refactor, pipeline_urgency, pipeline_vsld,
-    pipeline_yhyb,
-    ResultMessage,
-    TaskMessage,
+    pipeline_anneal_volume_market, pipeline_cross_section_example, pipeline_distill,
+    pipeline_distill_tick, pipeline_drop_event, pipeline_extreme_point_fit,
+    pipeline_hot_stock_pool, pipeline_hot_stock_pool_v2, pipeline_individual_order_ratio,
+    pipeline_long_order, pipeline_microstructure_capm, pipeline_multi_factor_capm,
+    pipeline_observable_order, pipeline_order_pair_hm90, pipeline_orderbook_imb_refactor,
+    pipeline_pair_interaction, pipeline_peaks, pipeline_urgency, pipeline_vsld, pipeline_yhyb,
+    pipeline_yupei_dist, ResultMessage, TaskMessage,
 };
 use std::io::{BufReader, BufWriter};
 
@@ -104,12 +101,7 @@ fn main() {
                     } else if pipeline_name == "anneal_volume" {
                         pipeline_anneal_volume(date, &code, &trading_days, expected_len)
                     } else if pipeline_name == "anneal_volume_market" {
-                        pipeline_anneal_volume_market(
-                            date,
-                            &code,
-                            &trading_days,
-                            expected_len,
-                        )
+                        pipeline_anneal_volume_market(date, &code, &trading_days, expected_len)
                     } else if pipeline_name == "hidden_arrange" {
                         match rust_pyfunc::hidden_arrange_metrics::compute_hidden_arrange_full(
                             &code, date,

@@ -55,7 +55,11 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                     if t.len() < kk {
                         return 0.0f32;
                     }
-                    let s: f64 = t.iter().take(kk).map(|&j| sym[i * n + j as usize] as f64).sum();
+                    let s: f64 = t
+                        .iter()
+                        .take(kk)
+                        .map(|&j| sym[i * n + j as usize] as f64)
+                        .sum();
                     (s / kk as f64) as f32
                 })
                 .collect();
@@ -92,7 +96,10 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                 sym[i * n + t[0] as usize] - sym[i * n + t[1] as usize]
             })
             .collect();
-        out.push(IndicatorResult::new(format!("topk_{mat}_bestpartnergap"), col));
+        out.push(IndicatorResult::new(
+            format!("topk_{mat}_bestpartnergap"),
+            col,
+        ));
     }
     out
 }

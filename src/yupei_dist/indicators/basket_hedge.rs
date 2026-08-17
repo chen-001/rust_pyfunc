@@ -18,9 +18,15 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let mut out = Vec::new();
     // signed 族 same/opp 配对: flow×4τ, urg×3τ, ext×2τ
     for (fam, tau) in [
-        ("flow", "t02"), ("flow", "t05"), ("flow", "t1"), ("flow", "t5"),
-        ("urg", "t1"), ("urg", "t5"), ("urg", "t30"),
-        ("ext", "t1"), ("ext", "t5"),
+        ("flow", "t02"),
+        ("flow", "t05"),
+        ("flow", "t1"),
+        ("flow", "t5"),
+        ("urg", "t1"),
+        ("urg", "t5"),
+        ("urg", "t30"),
+        ("ext", "t1"),
+        ("ext", "t5"),
     ] {
         let same = match ctx.symmetric(&format!("{fam}_same_{tau}")) {
             Some(s) => s,

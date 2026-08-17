@@ -2,7 +2,7 @@
 //!
 //! 核心设计：回归 v4 的 thread-per-factor 模型（N 线程各自独立处理整个流水线），
 //! 消灭 v5 的 IO/CPU 分离 + bounded(16) 瓶颈。直接读 colblk 列式存储（scatter_map 优化），
-//! 每个线程自带 Reader + scatter_maps，从 unbounded channel 取因子独立处理。
+//! 所有 worker 共享一个 Reader + scatter_maps，从 unbounded channel 取因子独立处理。
 //!
 //! 与 v4 的区别：直接读 colblk（不走 parquet 中间格式）。
 //! 与 v5 的区别：无 IO/CPU 分离，unbounded channel 不限制并行度。
@@ -10,8 +10,8 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+use std::sync::Arc;
 use std::thread;
 use std::time::Instant;
 
@@ -22,14 +22,14 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 use crate::tail_v5_pipeline::{
-    self, build_shared_inputs, build_selection_config, factor_result_path,
-    append_completed_source, read_task_result, write_task_result, write_aggregated_outputs,
-    format_hms, init_status_line, update_status_line, reset_status_line, is_terminal,
-    AggregatedCandidates, ProcessStats, SharedInputs, TailTask, TailTaskResult,
+    self, append_completed_source, build_selection_config, build_shared_inputs, factor_result_path,
+    format_hms, init_status_line, is_terminal, read_task_result, reset_status_line,
+    update_status_line, write_aggregated_outputs, write_task_result, AggregatedCandidates,
+    ProcessStats, SharedInputs, TailTask, TailTaskResult,
 };
 
 /// 单个因子的完整处理（IO + 计算 + 写结果），在一个线程内串行执行。
-/// 复用 v5 的 process_task_with_values_v7（含 selected_slots + gap1/gap5 合并优化）。
+/// 复用 v5 的 process_task_with_values_v7（流式 rank_roll + 单 slot 中性化/回测）。
 fn process_single_factor(
     task: &TailTask,
     raw_values: Array2<f32>,
@@ -119,14 +119,18 @@ pub fn tail_backtest_engine<'py>(
     industry_matrix: Option<numpy::PyReadonlyArray2<'py, f64>>,
 ) -> PyResult<PyObject> {
     if factor_names.len() != factor_paths.len() {
-        return Err(PyValueError::new_err("factor_names 和 factor_paths 长度必须一致"));
+        return Err(PyValueError::new_err(
+            "factor_names 和 factor_paths 长度必须一致",
+        ));
     }
     if n_jobs == 0 {
         return Err(PyValueError::new_err("n_jobs 必须大于 0"));
     }
 
     let industry = industry_matrix
-        .ok_or_else(|| PyValueError::new_err("tail_backtest_engine 需要 industry_matrix (模板轴行业码)"))?
+        .ok_or_else(|| {
+            PyValueError::new_err("tail_backtest_engine 需要 industry_matrix (模板轴行业码)")
+        })?
         .as_array()
         .to_owned();
 
@@ -215,6 +219,11 @@ pub fn tail_backtest_engine<'py>(
             .collect();
 
         let total_pending = pending_tasks.len();
+
+        // n_jobs 仍然保持 thread-per-factor 语义，但每个 factor 的内存足迹已通过流式
+        // rank_roll / 单 slot 中性化大幅降低（见 process_task_with_values_v7）。
+        let n_workers = n_jobs.min(total_pending);
+
         if total_pending > 0 {
             init_status_line();
             let current_time = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
@@ -225,8 +234,10 @@ pub fn tail_backtest_engine<'py>(
                 stats.restored_pass,
                 stats.restored_raw_cov, stats.restored_preflight,
                 stats.restored_ret_ic, stats.restored_unknown);
-            let l3 = format!("恢复 {} 个 | 即将开始处理（{} 线程，thread-per-factor）...",
-                restored_sources, n_jobs);
+            let l3 = format!(
+                "恢复 {} 个 | 即将开始处理（n_jobs={}，实际 {} 线程）...",
+                restored_sources, n_jobs, n_workers,
+            );
             update_status_line(&l1, &l2, &l3);
         }
 
@@ -243,55 +254,64 @@ pub fn tail_backtest_engine<'py>(
         let shared_arc = Arc::new(shared);
         let processed_count = Arc::new(AtomicUsize::new(0));
 
-        // 启动 N 个 worker 线程（thread-per-factor，无 IO/CPU 分离）
-        let mut handles = Vec::with_capacity(n_jobs);
-        for _ in 0..n_jobs {
-            let rx = task_receiver.clone();
-            let tx = result_sender.clone();
-            let shared_clone = shared_arc.clone();
-            let store_dir = colblk_store_dir.clone();
-            let dates_arc = shared_clone.dates.clone();
-            let stocks_arc = shared_clone.stocks.clone();
-            handles.push(thread::spawn(move || {
-                // 每个线程独立打开 Reader（pread 线程安全）
-                let reader = match crate::factor_store_v5::FactorStoreReader::open(&store_dir) {
-                    Ok(r) => r,
-                    Err(_) => return,
-                };
-                // 预计算 scatter_maps（1 次，所有因子复用）
-                let scatter_maps = reader.precompute_scatter_maps(
-                    dates_arc.as_slice(),
-                    stocks_arc.as_slice(),
-                );
+        // 所有 worker 共享同一个 Reader 和同一份 scatter_maps。
+        // 旧实现每个线程各开一个 Reader，会复制 8 个分片的全部 factor_names/dates/codes 字典；
+        // n_jobs 很大时仅是这些字典就会吃掉几十 GB。pread 本身线程安全，共享无副作用。
+        let shared_reader = if n_workers > 0 {
+            let reader = Arc::new(
+                crate::factor_store_v5::FactorStoreReader::open(&colblk_store_dir)
+                    .map_err(|e| format!("打开 colblk 存储失败: {e}"))?,
+            );
+            let scatter_maps = Arc::new(reader.precompute_scatter_maps(
+                shared_arc.dates.as_slice(),
+                shared_arc.stocks.as_slice(),
+            ));
+            Some((reader, scatter_maps))
+        } else {
+            None
+        };
 
-                while let Ok(task) = rx.recv() {
-                    // 1. 解析 col_idx
-                    let col_idx = match parse_col_idx(&task.factor_path) {
-                        Some(v) => v,
-                        None => continue,
-                    };
+        // 启动 n_workers 个 worker 线程（thread-per-factor，但并发数已被内存上限约束）
+        let mut handles = Vec::with_capacity(n_workers);
+        if let Some((reader, scatter_maps)) = shared_reader.as_ref() {
+            for _ in 0..n_workers {
+                let rx = task_receiver.clone();
+                let tx = result_sender.clone();
+                let shared_clone = shared_arc.clone();
+                let reader = reader.clone();
+                let scatter_maps = scatter_maps.clone();
+                let dates_arc = shared_clone.dates.clone();
+                let stocks_arc = shared_clone.stocks.clone();
+                handles.push(thread::spawn(move || {
+                    while let Ok(task) = rx.recv() {
+                        // 1. 解析 col_idx
+                        let col_idx = match parse_col_idx(&task.factor_path) {
+                            Some(v) => v,
+                            None => continue,
+                        };
 
-                    // 2. 快速读因子（scatter_map 优化）
-                    let raw_values = match reader.read_factor_to_matrix_fast(
-                        col_idx,
-                        dates_arc.as_slice(),
-                        stocks_arc.as_slice(),
-                        &scatter_maps,
-                    ) {
-                        Ok(m) => m,
-                        Err(_) => continue,
-                    };
+                        // 2. 快速读因子（scatter_map 优化，共享 Reader）
+                        let raw_values = match reader.read_factor_to_matrix_fast(
+                            col_idx,
+                            dates_arc.as_slice(),
+                            stocks_arc.as_slice(),
+                            &scatter_maps,
+                        ) {
+                            Ok(m) => m,
+                            Err(_) => continue,
+                        };
 
-                    // 3. 完整计算流水线（rank_roll → preflight → backtest → neutralize → backtest）
-                    let task_name = task.source_factor.clone();
-                    let outcome = process_single_factor(&task, raw_values, &shared_clone)
-                        .map_err(|err| (task_name, err));
+                        // 3. 完整计算流水线（rank_roll → preflight → backtest → neutralize → backtest）
+                        let task_name = task.source_factor.clone();
+                        let outcome = process_single_factor(&task, raw_values, &shared_clone)
+                            .map_err(|err| (task_name, err));
 
-                    if tx.send(outcome).is_err() {
-                        break;
+                        if tx.send(outcome).is_err() {
+                            break;
+                        }
                     }
-                }
-            }));
+                }));
+            }
         }
         drop(result_sender);
 

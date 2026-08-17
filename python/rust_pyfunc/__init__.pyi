@@ -15,6 +15,7 @@ rust_pyfunc - 高性能Python函数库
 """
 
 from typing import List, Optional, Tuple
+import numpy as np
 
 # 导入所有类型声明
 from .core_functions import *
@@ -212,6 +213,54 @@ def py_yupei_dist(date: int) -> Tuple[List[str], List[float]]:
 
 def py_yupei_dist_names() -> List[str]:
     """2761 个因子名（与 py_yupei_dist 输出列顺序一致）。"""
+
+def yupei_dist_backup_matrices(outdir: str, date: int) -> Tuple[int, int]:
+    """读全市场逐笔 → 37 矩阵 + 统计量 → 写入 <outdir>/<date>/（codes/stats/mats）。
+
+    返回 (n_stocks, n_matrices)。参数口径与生产一致（全市场, MIN_TRADES=200）。
+    """
+
+def yupei_dist_backup_factors(
+    outdir: str, date: int, prev_date: Optional[int] = None
+) -> Tuple[int, int]:
+    """读备份 → 运行 28 个指标模块（2761 因子）→ 写 factors.bin/names.txt/meta.json。
+
+    prev_date 给定时从同备份目录加载前一日矩阵（dyn_* 跨日因子有值）。
+    返回 (n_stocks, n_factors)。
+    """
+
+def yupei_dist_backup_read_matrix(
+    outdir: str, date: int, name: str
+) -> np.ndarray:
+    """读单个矩阵为 (N, N) f32 数组（name 见 yupei_dist_backup_matrix_names）。"""
+
+def yupei_dist_backup_read_stats(
+    outdir: str, date: int
+) -> Tuple[List[str], np.ndarray]:
+    """读每股统计量: (codes, N×14 f64)。
+
+    列序: n_trades, amount, total_vol, imb, ret, vol30, vwap, q95u,
+    sum_w_cnt, sum_w_vol, sum_w_logvol, sum_w_flow, sum_w_urg, sum_w_ext。
+    """
+
+def yupei_dist_backup_read_factors(
+    outdir: str, date: int
+) -> Tuple[List[str], List[str], np.ndarray]:
+    """读因子备份: (codes, names, N×F f32 数组)。"""
+
+def yupei_dist_backup_verify(outdir: str, date: int) -> List[str]:
+    """校验备份完整性: 返回缺失矩阵名清单（空 = 完整）。"""
+
+def yupei_dist_backup_matrix_names() -> List[str]:
+    """37 个矩阵名（与备份 mats/ 目录文件一致）。"""
+
+def py_pairwise_merge_metrics(
+    times_a: List[int], big_a: List[int], times_b: List[int], big_b: List[int]
+) -> Tuple[float, float, float, float]:
+    """两股成交流双指针合并的 4 个配对指标 (X1 交替频率, X3 转移互信息, X8 大单聚集, X9 间隔CV)。
+
+    times 升序（微秒）; big 非零 = 大单。
+    """
 
 def py_cross_section_example(date: int) -> Tuple[List[str], List[float]]:
     ...

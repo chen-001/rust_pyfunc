@@ -104,7 +104,9 @@ pub fn compute_l4(
     (0..n * ne).into_par_iter().for_each(move |idx| {
         let ai = idx / ne;
         let e = idx % ne;
-        let Some(sa) = streams[valid[ai]].as_ref() else { return };
+        let Some(sa) = streams[valid[ai]].as_ref() else {
+            return;
+        };
         let ta = &sa[e].t;
         if ta.is_empty() {
             return;
@@ -161,8 +163,16 @@ pub fn compute_l4(
                 }
             }
             // 本任务独占第 (e,ai) 行：写入 B 列（bpos = 有效索引）
-            let vf = if fn_ > 0 { (fs / fn_ as f64) as f32 } else { f32::NAN };
-            let vb = if bn_ > 0 { (bs / bn_ as f64) as f32 } else { f32::NAN };
+            let vf = if fn_ > 0 {
+                (fs / fn_ as f64) as f32
+            } else {
+                f32::NAN
+            };
+            let vb = if bn_ > 0 {
+                (bs / bn_ as f64) as f32
+            } else {
+                f32::NAN
+            };
             mf.w((e * n + ai) * n + bpos, vf);
             mb.w((e * n + ai) * n + bpos, vb);
             if fh > 0 {
@@ -173,8 +183,22 @@ pub fn compute_l4(
             }
             n_b += 1;
         }
-        hp.w(e * n + ai, if n_b > 0 { f_hit_b as f32 / n_b as f32 } else { f32::NAN });
-        sp.w(e * n + ai, if n_b > 0 { b_hit_b as f32 / n_b as f32 } else { f32::NAN });
+        hp.w(
+            e * n + ai,
+            if n_b > 0 {
+                f_hit_b as f32 / n_b as f32
+            } else {
+                f32::NAN
+            },
+        );
+        sp.w(
+            e * n + ai,
+            if n_b > 0 {
+                b_hit_b as f32 / n_b as f32
+            } else {
+                f32::NAN
+            },
+        );
     });
     // 阶段 B：从对级矩阵计算因子（v1 生产路径由 yhyb_metrics 的 p0 融合任务
     // 直接构建矩阵后调用本函数；v2 路径由 compute_l4 内部调用）
@@ -337,18 +361,26 @@ fn pagerank(row_block: &[f32], n: usize) -> Vec<f32> {
 /// NaN 列用全市场列均值填充（保证全体股票有值）。
 fn pca_score(pca_f: &[f32], pca_b: &[f32], n: usize, ne: usize) -> Vec<f32> {
     let nc = 2 * ne; // 46 列
-    // 列均值/标准差（跳过 NaN）
+                     // 列均值/标准差（跳过 NaN）
     let mut col_mean = vec![0.0f64; nc];
     let mut col_cnt = vec![0usize; nc];
     for c in 0..nc {
-        let src = if c < ne { &pca_f[c * n..(c + 1) * n] } else { &pca_b[(c - ne) * n..(c - ne + 1) * n] };
+        let src = if c < ne {
+            &pca_f[c * n..(c + 1) * n]
+        } else {
+            &pca_b[(c - ne) * n..(c - ne + 1) * n]
+        };
         let (m, cnt) = mean_nonnan(src);
         col_mean[c] = m as f64;
         col_cnt[c] = cnt;
     }
     let mut col_std = vec![0.0f64; nc];
     for c in 0..nc {
-        let src = if c < ne { &pca_f[c * n..(c + 1) * n] } else { &pca_b[(c - ne) * n..(c - ne + 1) * n] };
+        let src = if c < ne {
+            &pca_f[c * n..(c + 1) * n]
+        } else {
+            &pca_b[(c - ne) * n..(c - ne + 1) * n]
+        };
         let mut s = 0.0f64;
         let m = col_mean[c];
         for &v in src {
@@ -357,12 +389,20 @@ fn pca_score(pca_f: &[f32], pca_b: &[f32], n: usize, ne: usize) -> Vec<f32> {
                 s += d * d;
             }
         }
-        col_std[c] = if col_cnt[c] > 1 { (s / (col_cnt[c] - 1) as f64).sqrt() } else { 1.0 };
+        col_std[c] = if col_cnt[c] > 1 {
+            (s / (col_cnt[c] - 1) as f64).sqrt()
+        } else {
+            1.0
+        };
     }
     // 标准化矩阵 X[n][46]（NaN → 0，即列均值填充后的中心化值）
     let mut x = vec![0.0f64; n * nc];
     for c in 0..nc {
-        let src = if c < ne { &pca_f[c * n..(c + 1) * n] } else { &pca_b[(c - ne) * n..(c - ne + 1) * n] };
+        let src = if c < ne {
+            &pca_f[c * n..(c + 1) * n]
+        } else {
+            &pca_b[(c - ne) * n..(c - ne + 1) * n]
+        };
         for a in 0..n {
             let v = src[a];
             x[a * nc + c] = if v.is_nan() {

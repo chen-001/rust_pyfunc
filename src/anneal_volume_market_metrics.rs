@@ -9,8 +9,8 @@
 //! 同股同日反复运算结果逐比特相同。
 
 use crate::anneal_volume_metrics::{
-    adaptive_m_max, anneal, AnnealBuf, FACTOR_NAMES, M_MAX_MINUTE, M_MAX_SCALAR,
-    N_FACTORS, N_MINUTES, WINDOW_BOUNDS, WINDOW_NAMES,
+    adaptive_m_max, anneal, AnnealBuf, FACTOR_NAMES, M_MAX_MINUTE, M_MAX_SCALAR, N_FACTORS,
+    N_MINUTES, WINDOW_BOUNDS, WINDOW_NAMES,
 };
 use crate::fast_csv_reader::{read_market_fast_inner, MarketRecord};
 use crate::features;
@@ -80,9 +80,7 @@ impl ImbType {
             ImbType::Level5 => {
                 m.bid_vols[..5].iter().sum::<f32>() - m.ask_vols[..5].iter().sum::<f32>()
             }
-            ImbType::Level10 => {
-                m.bid_vols.iter().sum::<f32>() - m.ask_vols.iter().sum::<f32>()
-            }
+            ImbType::Level10 => m.bid_vols.iter().sum::<f32>() - m.ask_vols.iter().sum::<f32>(),
             ImbType::Total => m.total_bid_vol - m.total_ask_vol,
         }
     }
@@ -107,7 +105,12 @@ pub const EXPECTED_LEN: usize = N_SCALAR + N_REDUCED; // 2400 + 7050 = 9450
 // ============================================================================
 
 fn segment_defs() -> Vec<(ImbType, usize, Quantile)> {
-    let quantiles = [Quantile::All, Quantile::Top20, Quantile::Mid60, Quantile::Bot20];
+    let quantiles = [
+        Quantile::All,
+        Quantile::Top20,
+        Quantile::Mid60,
+        Quantile::Bot20,
+    ];
     let mut segs = Vec::with_capacity(N_IMB_TYPES * N_WINDOWS * N_QUANTILES);
     for &imb in ImbType::all().iter() {
         for win_idx in 0..N_WINDOWS {
@@ -162,10 +165,7 @@ pub fn compute_anneal_volume_market_from_records(market: &[MarketRecord]) -> Vec
             if quantile_orders[cache_idx].is_none() {
                 let mut order: Vec<(f32, usize)> =
                     vals.iter().enumerate().map(|(i, &v)| (v, i)).collect();
-                order.sort_by(|a, b| {
-                    b.0.partial_cmp(&a.0)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                });
+                order.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
                 quantile_orders[cache_idx] = Some(order);
             }
             quantile_filter_from_sorted(
@@ -235,11 +235,7 @@ fn imb_type_index(imb: ImbType) -> usize {
 }
 
 /// 使用已按值降序排列的索引做分位数过滤，保留原始时间序。
-fn quantile_filter_from_sorted(
-    volumes: &[f32],
-    sorted: &[(f32, usize)],
-    q: Quantile,
-) -> Vec<f32> {
+fn quantile_filter_from_sorted(volumes: &[f32], sorted: &[(f32, usize)], q: Quantile) -> Vec<f32> {
     let n = volumes.len();
     if n == 0 || q == Quantile::All {
         return volumes.to_vec();

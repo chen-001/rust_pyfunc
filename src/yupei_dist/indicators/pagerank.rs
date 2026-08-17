@@ -23,47 +23,47 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             None => continue,
         };
         let damping = 0.85f64;
-    let init = 1.0 / n as f64;
-    let mut rank = vec![init; n];
-    let mut next = vec![0.0f64; n];
-    // 出度
-    let outdeg: Vec<f64> = (0..n)
-        .into_par_iter()
-        .map(|i| d[i * n..(i + 1) * n].iter().map(|&v| v as f64).sum())
-        .collect();
-    // 列主序转置（便于按列并行）
-    let dt: Vec<f32> = (0..n)
-        .into_par_iter()
-        .flat_map_iter(|j| (0..n).map(move |i| d[i * n + j]))
-        .collect();
-    for _ in 0..100 {
-        let base = (1.0 - damping) * init;
-        let dangling: f64 = (0..n).filter(|&i| outdeg[i] <= 0.0).map(|i| rank[i]).sum();
-        let add = dangling * damping / n as f64;
-        // next[j] = base + add + damping·Σ_i rank_i·S_ij/outdeg_i
-        next.par_chunks_mut(64).enumerate().for_each(|(ci, chunk)| {
-            let j0 = ci * 64;
-            for (jj, o) in chunk.iter_mut().enumerate() {
-                let j = j0 + jj;
-                let col = &dt[j * n..(j + 1) * n];
-                let mut acc = 0.0f64;
-                for i in 0..n {
-                    let w = col[i] as f64;
-                    if w > 0.0 && outdeg[i] > 0.0 {
-                        acc += rank[i] * w / outdeg[i];
+        let init = 1.0 / n as f64;
+        let mut rank = vec![init; n];
+        let mut next = vec![0.0f64; n];
+        // 出度
+        let outdeg: Vec<f64> = (0..n)
+            .into_par_iter()
+            .map(|i| d[i * n..(i + 1) * n].iter().map(|&v| v as f64).sum())
+            .collect();
+        // 列主序转置（便于按列并行）
+        let dt: Vec<f32> = (0..n)
+            .into_par_iter()
+            .flat_map_iter(|j| (0..n).map(move |i| d[i * n + j]))
+            .collect();
+        for _ in 0..100 {
+            let base = (1.0 - damping) * init;
+            let dangling: f64 = (0..n).filter(|&i| outdeg[i] <= 0.0).map(|i| rank[i]).sum();
+            let add = dangling * damping / n as f64;
+            // next[j] = base + add + damping·Σ_i rank_i·S_ij/outdeg_i
+            next.par_chunks_mut(64).enumerate().for_each(|(ci, chunk)| {
+                let j0 = ci * 64;
+                for (jj, o) in chunk.iter_mut().enumerate() {
+                    let j = j0 + jj;
+                    let col = &dt[j * n..(j + 1) * n];
+                    let mut acc = 0.0f64;
+                    for i in 0..n {
+                        let w = col[i] as f64;
+                        if w > 0.0 && outdeg[i] > 0.0 {
+                            acc += rank[i] * w / outdeg[i];
+                        }
                     }
+                    *o = base + add + damping * acc;
                 }
-                *o = base + add + damping * acc;
+            });
+            let l1: f64 = (0..n).map(|i| (next[i] - rank[i]).abs()).sum();
+            std::mem::swap(&mut rank, &mut next);
+            if l1 < 1e-9 {
+                break;
             }
-        });
-        let l1: f64 = (0..n).map(|i| (next[i] - rank[i]).abs()).sum();
-        std::mem::swap(&mut rank, &mut next);
-        if l1 < 1e-9 {
-            break;
         }
-    }
-    let col: Vec<f32> = rank.iter().map(|&x| x as f32).collect();
-    out.push(IndicatorResult::new(format!("pr_{mat}_pagerank"), col));
+        let col: Vec<f32> = rank.iter().map(|&x| x as f32).collect();
+        out.push(IndicatorResult::new(format!("pr_{mat}_pagerank"), col));
     }
     out
 }

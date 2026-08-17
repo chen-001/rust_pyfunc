@@ -32,7 +32,9 @@ fn power_iteration(m: &[f32], n: usize) -> Vec<f32> {
     let mut seed: u64 = 0x9E3779B97F4A7C15;
     let mut v: Vec<f64> = (0..n)
         .map(|_| {
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             ((seed >> 33) as f64 / u32::MAX as f64) * 2.0 - 1.0
         })
         .collect();

@@ -42,7 +42,10 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                 acc as f32
             })
             .collect();
-        out.push(IndicatorResult::new(format!("nbs_{mat}_neighbor_strength"), col));
+        out.push(IndicatorResult::new(
+            format!("nbs_{mat}_neighbor_strength"),
+            col,
+        ));
     }
     out
 }

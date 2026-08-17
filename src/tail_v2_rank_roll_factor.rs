@@ -46,7 +46,7 @@ fn rank_axis1_average_f32(data: &Array2<f32>) -> Array2<f32> {
     Array2::from_shape_vec((n_rows, n_cols), flat).unwrap()
 }
 
-fn rank_axis1_average_f32_serial(data: &Array2<f32>) -> Array2<f32> {
+pub(crate) fn rank_axis1_average_f32_serial(data: &Array2<f32>) -> Array2<f32> {
     let (n_rows, n_cols) = data.dim();
     let mut flat = vec![f32::NAN; n_rows * n_cols];
     for row_idx in 0..n_rows {
@@ -174,7 +174,7 @@ fn rolling_stats_f32(
     (mean, max, min, std)
 }
 
-fn rolling_stats_f32_serial(
+pub(crate) fn rolling_stats_f32_serial(
     ranked: &Array2<f32>,
     window: usize,
     min_periods: usize,
@@ -336,4 +336,56 @@ pub fn tail_v3_rank_roll_block_f32<'py>(
     })?;
 
     Ok(output.into_pyarray(py).to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_f32_plane_eq(a: &Array2<f32>, b: &Array2<f32>) {
+        assert_eq!(a.dim(), b.dim());
+        for (x, y) in a.iter().zip(b.iter()) {
+            if x.is_nan() {
+                assert!(y.is_nan());
+            } else {
+                assert_eq!(x.to_bits(), y.to_bits());
+            }
+        }
+    }
+
+    #[test]
+    fn streaming_rank_roll_equals_block_exact() {
+        // 确定性伪随机数据
+        let (t, n) = (16usize, 11usize);
+        let mut seed = 0x1234_5678_9abc_def0u64;
+        let mut next = || {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            ((seed >> 33) as u32 as f32) / 1000.0 - 1000.0
+        };
+        let mut data = Array2::<f32>::from_elem((t, n), f32::NAN);
+        for i in 0..t {
+            for j in 0..n {
+                if (i * n + j) % 7 != 3 {
+                    data[[i, j]] = next();
+                }
+            }
+        }
+        let windows = [2usize, 4, 6];
+        let block = rank_roll_block_f32_v7(&data, &windows, false).unwrap();
+        let ranked = rank_axis1_average_f32_serial(&data);
+
+        assert_f32_plane_eq(&ranked, &block.slice(ndarray::s![.., .., 0]).to_owned());
+        let mut slot_idx = 1usize;
+        for &window in &windows {
+            let min_periods = std::cmp::max(1, window / 2);
+            let (mean, max, min, std) = rolling_stats_f32_serial(&ranked, window, min_periods);
+            for arr in [&mean, &max, &min, &std] {
+                assert_f32_plane_eq(arr, &block.slice(ndarray::s![.., .., slot_idx]).to_owned());
+                slot_idx += 1;
+            }
+        }
+        assert_eq!(slot_idx, 1 + windows.len() * 4);
+    }
 }

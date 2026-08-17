@@ -30,7 +30,13 @@ pub const BACKUP_DIR: &str = "/hdd/user_home_unsafe/chenzongwei/yupei_dist_backu
 /// 单日全市场横截面因子: (codes, vals) — vals 行主序 N×F（F=2761）。
 pub fn compute_yupei_dist_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f32>)> {
     let (codes_out, n, stats, hm, industry) = compute_yupei_dist_partial(date)?;
-    let set = MatrixSet { n, codes: codes_out.clone(), stats, mats: hm, industry };
+    let set = MatrixSet {
+        n,
+        codes: codes_out.clone(),
+        stats,
+        mats: hm,
+        industry,
+    };
     let ctx = IndicatorCtx::new(&set, None);
     let vals = run_indicators(&ctx, n, &codes_out)?;
     Ok((codes_out, vals))
@@ -39,7 +45,13 @@ pub fn compute_yupei_dist_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f
 /// 单日前半段（读数据 + 矩阵 + 行业）: 返回组装 MatrixSet 所需的部件。
 pub fn compute_yupei_dist_partial(
     date: i64,
-) -> std::io::Result<(Vec<String>, usize, Vec<crate::yupei_dist::matrix_stage::StockStats>, HashMap<String, Vec<f32>>, Option<Vec<i16>>)> {
+) -> std::io::Result<(
+    Vec<String>,
+    usize,
+    Vec<crate::yupei_dist::matrix_stage::StockStats>,
+    HashMap<String, Vec<f32>>,
+    Option<Vec<i16>>,
+)> {
     // ---- 1. 代码枚举（按文件大小降序 → 全市场不截断 → 代码序）----
     let mut codes = list_codes_by_size(date);
     codes.sort();
@@ -71,18 +83,27 @@ pub fn compute_yupei_dist_partial(
     // ---- 4. 行业（可选; 缺失 → None → 行业模块输出 NaN）----
     // industry.bin 按 symbol_map 全市场顺序存储: 读入后按 codes 重排（缺失 -1）
     let industry = super::industry::load_industry_all(
-        &Path::new(BACKUP_DIR).join(date.to_string()).join("industry.bin"),
+        &Path::new(BACKUP_DIR)
+            .join(date.to_string())
+            .join("industry.bin"),
     )
     .ok()
     .map(|all: std::collections::HashMap<String, i16>| {
-        codes_out.iter().map(|c| all.get(c).copied().unwrap_or(-1)).collect()
+        codes_out
+            .iter()
+            .map(|c| all.get(c).copied().unwrap_or(-1))
+            .collect()
     });
 
     Ok((codes_out, n, stats, hm, industry))
 }
 
 /// 后半段: 跑全部指标模块 + 组装 N×F（行主序）+ 长度/顺序校验。
-pub fn run_indicators(ctx: &IndicatorCtx, n: usize, codes_out: &[String]) -> std::io::Result<Vec<f32>> {
+pub fn run_indicators(
+    ctx: &IndicatorCtx,
+    n: usize,
+    codes_out: &[String],
+) -> std::io::Result<Vec<f32>> {
     let mut cols: Vec<Vec<f32>> = Vec::new();
     for def in super::indicators::all() {
         for r in (def.compute)(ctx) {
@@ -94,7 +115,10 @@ pub fn run_indicators(ctx: &IndicatorCtx, n: usize, codes_out: &[String]) -> std
     if nf != YUPEI_DIST_NAMES.len() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::Other,
-            format!("因子数不匹配: 计算 {nf} != 注册 {}. 检查指标模块与 names.rs 一致性", YUPEI_DIST_NAMES.len()),
+            format!(
+                "因子数不匹配: 计算 {nf} != 注册 {}. 检查指标模块与 names.rs 一致性",
+                YUPEI_DIST_NAMES.len()
+            ),
         ));
     }
     let mut vals = vec![0.0f32; n * nf];
@@ -108,7 +132,10 @@ pub fn run_indicators(ctx: &IndicatorCtx, n: usize, codes_out: &[String]) -> std
 
 /// 单日全市场横截面因子（带前一日矩阵）: dyn_* 跨日因子有值。
 /// prev_date 的 37 张矩阵从备份目录 {BACKUP_DIR}/{prev_date}/mats/*.bin 读取（f32 行主序）。
-pub fn compute_yupei_dist_full_with_prev(date: i64, prev_date: Option<i64>) -> std::io::Result<(Vec<String>, Vec<f32>)> {
+pub fn compute_yupei_dist_full_with_prev(
+    date: i64,
+    prev_date: Option<i64>,
+) -> std::io::Result<(Vec<String>, Vec<f32>)> {
     let (codes_out, n, stats, hm, industry) = compute_yupei_dist_partial(date)?;
     // 加载前一日矩阵
     let prev = match prev_date {
@@ -125,7 +152,8 @@ pub fn compute_yupei_dist_full_with_prev(date: i64, prev_date: Option<i64>) -> s
                 if p.exists() {
                     let raw = std::fs::read(&p)?;
                     let data: Vec<f32> = unsafe {
-                        std::slice::from_raw_parts(raw.as_ptr() as *const f32, raw.len() / 4).to_vec()
+                        std::slice::from_raw_parts(raw.as_ptr() as *const f32, raw.len() / 4)
+                            .to_vec()
                     };
                     pmats.insert(spec.name.to_string(), data);
                 }
@@ -135,11 +163,19 @@ pub fn compute_yupei_dist_full_with_prev(date: i64, prev_date: Option<i64>) -> s
                 codes: pcodes,
                 mats: pmats,
             };
-            Some(super::indicator_ctx::PrevDay::new(Box::leak(Box::new(pset))))
+            Some(super::indicator_ctx::PrevDay::new(Box::leak(Box::new(
+                pset,
+            ))))
         }
         None => None,
     };
-    let set = MatrixSet { n, codes: codes_out.clone(), stats, mats: hm, industry };
+    let set = MatrixSet {
+        n,
+        codes: codes_out.clone(),
+        stats,
+        mats: hm,
+        industry,
+    };
     let ctx = super::indicator_ctx::IndicatorCtx::new(&set, prev);
     let vals = run_indicators(&ctx, n, &codes_out)?;
     Ok((codes_out, vals))

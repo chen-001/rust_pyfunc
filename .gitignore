@@ -241,3 +241,6 @@ docs/theme_feature_expansion_explanation.md
 .maturin_zig/*
 dist_versions/*
 python/rust_pyfunc/rust_pyfunc_worker
+
+# Sandbox build artifacts
+sandbox_*/target/

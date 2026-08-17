@@ -826,8 +826,14 @@ pub fn read_market_fast(
     // total_ask_vol / total_bid_vol（全部档位挂单量，含 10 档之外）
     let total_ask_vol: Vec<f64> = records.iter().map(|r| r.total_ask_vol as f64).collect();
     let total_bid_vol: Vec<f64> = records.iter().map(|r| r.total_bid_vol as f64).collect();
-    py_dict.set_item("total_ask_vol", numpy::PyArray1::from_vec(py, total_ask_vol))?;
-    py_dict.set_item("total_bid_vol", numpy::PyArray1::from_vec(py, total_bid_vol))?;
+    py_dict.set_item(
+        "total_ask_vol",
+        numpy::PyArray1::from_vec(py, total_ask_vol),
+    )?;
+    py_dict.set_item(
+        "total_bid_vol",
+        numpy::PyArray1::from_vec(py, total_bid_vol),
+    )?;
 
     // 二维数组 (n, 10)
     let mut ask_prcs = ndarray::Array2::zeros((n, 10));
@@ -1000,7 +1006,11 @@ pub fn read_market_pair_inner(
         .map(|i| {
             let start = body_start + i * chunk_size;
             let raw_end = start + chunk_size;
-            let start = if i == 0 { start } else { find_line_boundary(data, start) };
+            let start = if i == 0 {
+                start
+            } else {
+                find_line_boundary(data, start)
+            };
             let end = if i == n_threads - 1 {
                 data.len()
             } else {

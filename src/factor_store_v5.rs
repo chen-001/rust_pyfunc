@@ -1590,8 +1590,7 @@ impl SingleStoreReader {
         // ---- 投影区路径 ----
         if let Some(proj) = &self.proj_index {
             if col_idx < proj.val_index.len() {
-                let (date_ids, code_ids) =
-                    self.row_order.get_or_init(|| self.load_row_order(proj));
+                let (date_ids, code_ids) = self.row_order.get_or_init(|| self.load_row_order(proj));
                 let (off, csz) = proj.val_index[col_idx];
                 let len = csz as usize;
                 if let Some(raw) = self.pread_proj(off, len) {
@@ -1634,10 +1633,8 @@ impl SingleStoreReader {
                 Some(b) => b,
                 None => break,
             };
-            let compressed_size =
-                u32::from_le_bytes(chunk_hdr[0..4].try_into().unwrap()) as usize;
-            let n_in_batch =
-                u32::from_le_bytes(chunk_hdr[4..8].try_into().unwrap()) as usize;
+            let compressed_size = u32::from_le_bytes(chunk_hdr[0..4].try_into().unwrap()) as usize;
+            let n_in_batch = u32::from_le_bytes(chunk_hdr[4..8].try_into().unwrap()) as usize;
             let data_start = offset + 8;
             let body_row_size = ID_BYTES * 2 + self.hdr.factor_count * F32_BYTES;
             let data_end = if compressed_size == 0 {
@@ -1961,15 +1958,9 @@ impl FactorStoreReader {
             (template_dates.len(), template_stocks.len()),
             f32::NAN,
         );
-        for (store, (date_id_to_row, code_id_to_col)) in
-            self.stores.iter().zip(scatter_maps.iter())
+        for (store, (date_id_to_row, code_id_to_col)) in self.stores.iter().zip(scatter_maps.iter())
         {
-            store.read_factor_into_fast(
-                col_idx,
-                date_id_to_row,
-                code_id_to_col,
-                &mut output,
-            );
+            store.read_factor_into_fast(col_idx, date_id_to_row, code_id_to_col, &mut output);
         }
         Ok(output)
     }
@@ -2112,8 +2103,7 @@ impl FactorStoreReader {
                 ndarray::Array2::from_elem((template_dates.len(), template_stocks.len()), f32::NAN)
             })
             .collect();
-        for (store, (date_id_to_row, code_id_to_col)) in
-            self.stores.iter().zip(scatter_maps.iter())
+        for (store, (date_id_to_row, code_id_to_col)) in self.stores.iter().zip(scatter_maps.iter())
         {
             if !store.is_projected() {
                 continue;
@@ -2529,13 +2519,17 @@ pub fn factor_store_v5_export_factors_parquet(
     use std::sync::Arc as ArrowArc;
 
     // 控制 rayon 线程数
+    let t_entry = std::time::Instant::now();
     if n_jobs > 0 {
         let _ = rayon::ThreadPoolBuilder::new()
             .num_threads(n_jobs)
             .build_global();
     }
+    eprintln!("[EXPORT-DBG] build_global 完成 {:?}", t_entry.elapsed());
 
+    let t_open = std::time::Instant::now();
     let reader = FactorStoreReader::open(&store_dir).map_err(pyerr)?;
+    eprintln!("[EXPORT-DBG] open 完成 {:?}", t_open.elapsed());
 
     // 建立因子名 → col_idx 映射
     let name_to_idx: std::collections::HashMap<&str, usize> = reader
@@ -2559,6 +2553,10 @@ pub fn factor_store_v5_export_factors_parquet(
     let reader_data: Vec<u8> = Vec::new(); // 占位，实际通过 mmap 读
     let _ = reader_data;
 
+    // 预计算 scatter maps（一次，所有因子复用）——消除 read_factor_into 的逐行 HashMap 查找
+    let dates_i32: Vec<i32> = dates.iter().map(|&d| d as i32).collect();
+    let scatter_maps = reader.precompute_scatter_maps(&dates_i32, &stocks_bare);
+
     // 收集 (name, col_idx) 对
     let targets: Vec<(String, usize)> = names_arc
         .iter()
@@ -2570,12 +2568,15 @@ pub fn factor_store_v5_export_factors_parquet(
         .collect();
 
     let exported = targets
-        .par_iter()
+        .iter()
         .map(|(name, col_idx)| -> Result<bool, String> {
             // 读因子矩阵（投影区顺序读）
+            let t_read = std::time::Instant::now();
             let matrix =
                 read_factor_matrix_for_export(&store_dir, *col_idx, &dates_i64, &stocks_bare)?;
+            let t_read = t_read.elapsed().as_secs_f64();
             // 构造 arrow schema + RecordBatch
+            let t_schema = std::time::Instant::now();
             // date 列用 Date64（毫秒时间戳），pandas 读后可直接 pd.to_datetime 得到 DatetimeIndex
             // 日期 int → epoch 天数 → 毫秒时间戳
             let n_rows = dates_i64.len();
@@ -2614,18 +2615,22 @@ pub fn factor_store_v5_export_factors_parquet(
             }
             let batch = RecordBatch::try_new(schema.clone(), columns)
                 .map_err(|e| format!("构造 RecordBatch 失败: {e}"))?;
+            let t_schema = t_schema.elapsed().as_secs_f64();
             // 写 parquet
             let out_path = std::path::Path::new(&output_dir).join(format!("{name}.parquet"));
             let file = std::fs::File::create(&out_path)
                 .map_err(|e| format!("创建 parquet 失败 {out_path:?}: {e}"))?;
             let mut writer = ArrowWriter::try_new(file, schema.clone(), None)
                 .map_err(|e| format!("创建 ArrowWriter 失败: {e}"))?;
+            let t_write = std::time::Instant::now();
             writer
                 .write(&batch)
                 .map_err(|e| format!("写 parquet 失败: {e}"))?;
             writer
                 .close()
                 .map_err(|e| format!("关闭 parquet 失败: {e}"))?;
+            let t_write = t_write.elapsed().as_secs_f64();
+            eprintln!("[EXPORT] {name}: 读 {t_read:.1}s 构 {t_schema:.1}s 写 {t_write:.1}s");
             Ok(true)
         })
         .collect::<Result<Vec<_>, _>>()
@@ -2644,6 +2649,18 @@ fn read_factor_matrix_for_export(
     let reader = FactorStoreReader::open(store_dir)?;
     let dates_i32: Vec<i32> = dates.iter().map(|&d| d as i32).collect();
     reader.read_factor_to_matrix(col_idx, &dates_i32, stocks_bare)
+}
+
+/// 导出用的 fast 路径矩阵读取：scatter maps 预计算（数组索引，无逐行 HashMap 查找）。
+fn read_factor_matrix_for_export_fast(
+    store_dir: &str,
+    col_idx: usize,
+    dates_i32: &[i32],
+    stocks_bare: &[String],
+    scatter_maps: &[(Vec<usize>, Vec<usize>)],
+) -> Result<ndarray::Array2<f32>, String> {
+    let reader = FactorStoreReader::open(store_dir)?;
+    reader.read_factor_to_matrix_fast(col_idx, dates_i32, stocks_bare, scatter_maps)
 }
 
 // ============================ BackupSink：统一写入封装 ============================

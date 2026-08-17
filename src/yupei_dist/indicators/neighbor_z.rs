@@ -53,11 +53,26 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                 })
                 .collect()
         };
-        out.push(IndicatorResult::new(format!("nbz_{mat}_return"), neighbor(&z_ret)));
-        out.push(IndicatorResult::new(format!("nbz_{mat}_turnover"), neighbor(&z_turn)));
-        out.push(IndicatorResult::new(format!("nbz_{mat}_volatility"), neighbor(&z_vol)));
-        out.push(IndicatorResult::new(format!("nbz_{mat}_imbalance"), neighbor(&z_imb)));
-        out.push(IndicatorResult::new(format!("nbz_{mat}_size"), neighbor(&z_size)));
+        out.push(IndicatorResult::new(
+            format!("nbz_{mat}_return"),
+            neighbor(&z_ret),
+        ));
+        out.push(IndicatorResult::new(
+            format!("nbz_{mat}_turnover"),
+            neighbor(&z_turn),
+        ));
+        out.push(IndicatorResult::new(
+            format!("nbz_{mat}_volatility"),
+            neighbor(&z_vol),
+        ));
+        out.push(IndicatorResult::new(
+            format!("nbz_{mat}_imbalance"),
+            neighbor(&z_imb),
+        ));
+        out.push(IndicatorResult::new(
+            format!("nbz_{mat}_size"),
+            neighbor(&z_size),
+        ));
     }
     out
 }
