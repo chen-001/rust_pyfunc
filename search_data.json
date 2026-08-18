@@ -121,6 +121,11 @@
     "params": []
   },
   {
+    "name": "base_to_final",
+    "description": "<p>base 因子 → final 因子（与 dwo.base_to_final 行为一致）。</p>\n<p>{base}<em>{action}_smooth</em>{days} 命名解析：\n  smooth_1            → rank(axis=1) 直接输出\n  mean/min/max/std    → rank 后 rolling(days, min_periods=days//2).{action}()\n  autocorr            → rank 后滚动窗口内 1 阶自相关\n回看 start_date 前 60 个交易日（max(..., 20150105)），从 base parquet 读取。</p>",
+    "params": []
+  },
+  {
     "name": "batch_factor_neutralization_io_optimized",
     "description": "<p>I/O优化的批量因子中性化函数</p>",
     "params": []
@@ -420,6 +425,11 @@
   {
     "name": "clayton_lower_tail_dependence_py",
     "description": "<p>Clayton Copula 下尾依赖系数</p>",
+    "params": []
+  },
+  {
+    "name": "cleanup_factor_store",
+    "description": "<p>清理批量计算产生的备份数据文件与 colblk 存储目录。</p>\n<p>backup_{ver}* 与 colblk 存储目录是批量计算（全量几千几万个因子）的中间产物，\nnames_save 已单独物化到 hdf5 base，其余因子后续用不上，执行完毕删除。\nscript_dir 默认取调用方脚本目录；colblk 存储目录按传入值清理。</p>",
     "params": []
   },
   {
@@ -1016,6 +1026,11 @@
     "params": []
   },
   {
+    "name": "get_abs",
+    "description": "<p>均值距离化：每行（截面）减去行均值后取绝对值；square=1 取平方，quantile 改算到分位点距离。</p>\n<p>与 dwo.get_abs 表达式逐位一致。</p>",
+    "params": []
+  },
+  {
     "name": "get_agent_daily_feature_column_groups_for_get_features_factors",
     "description": "<p>无文档</p>",
     "params": []
@@ -1033,6 +1048,11 @@
   {
     "name": "get_agent_time_grid_feature_names",
     "description": "<p>获取时间栅格特征列名</p>",
+    "params": []
+  },
+  {
+    "name": "get_factor_names",
+    "description": "<p>调用 Rust 因子名函数（rp.py_xxx_names() 形式），返回全部因子名列表。</p>",
     "params": []
   },
   {
@@ -1281,6 +1301,11 @@
     "params": []
   },
   {
+    "name": "neutralize_std_block_py",
+    "description": "<p>pyo3 包装: block 级标准中性化 (验证/独立调用用)。\n输入: factor_block (T,N,F) f32, industry (T,N) f64, restrict (T,N) f32,\n      style_data_path, dates, stocks, industry_neutralize。</p>",
+    "params": []
+  },
+  {
     "name": "next_trading_day_tricky",
     "description": "<p>若 date 非交易日则前进到下一个交易日, 否则原样返回</p>",
     "params": []
@@ -1364,6 +1389,11 @@
   {
     "name": "price_volume_orderbook_correlation",
     "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "probe_update_window",
+    "description": "<p>探测增量更新窗口（运行时动态，可移植）。</p>\n<p>start = colblk 存储已有最大日期（无存储则返回 start_date，适配新服务器首次全量算）\nend   = /ssd_data/stock 最新原始数据日期（无则返回 end_date）</p>",
     "params": []
   },
   {
@@ -1592,13 +1622,63 @@
     "params": []
   },
   {
+    "name": "py_multi_factor_capm",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_multi_factor_capm_names",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
     "name": "py_orderbook_imb_refactor_names",
     "description": "<p>无文档</p>",
     "params": []
   },
   {
+    "name": "py_pair_interaction",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_pair_interaction_names",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_pairwise_merge_metrics",
+    "description": "<p>Python 入口: 输入两股 (times, big) 序列 → (x1, x3, x8, x9)。</p>",
+    "params": []
+  },
+  {
+    "name": "py_peaks",
+    "description": "<p>Python 单日调试：v1 读盘入口，返回 (codes, vals[997])。</p>",
+    "params": []
+  },
+  {
+    "name": "py_peaks_from_data",
+    "description": "<p>v2 入口（Python 传数据）：codes + per-stock trade 数组 → (codes, vals)。</p>\n<p>trade_arrays 列序与 read_trade_fast 一致：[time_sec, price, volume, turnover, flag, bid_order, ask_order]；\ntime_us 由 time_sec（epoch 秒）× 1e6 构造（v2 演示场景秒级精度足够）。</p>",
+    "params": []
+  },
+  {
+    "name": "py_peaks_names",
+    "description": "<p>Python 拿 997 个因子名（983 因子 + 14 状态标量）。</p>",
+    "params": []
+  },
+  {
+    "name": "py_peaks_regime_fit",
+    "description": "<p>调试：给定 state_store_dir 与 date，拟合当日状态参数（返回可读 dict）。</p>",
+    "params": []
+  },
+  {
     "name": "py_read_minute_data",
     "description": "<p>Python 入口：读单字段单日 → (codes, flat_data, n_rows, n_cols)</p>",
+    "params": []
+  },
+  {
+    "name": "py_state_read_row",
+    "description": "<p>调试：读某日标量行。</p>",
     "params": []
   },
   {
@@ -1624,6 +1704,41 @@
   {
     "name": "py_vsld_names",
     "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_yhyb",
+    "description": "<p>Python 单日调试（v1，默认参数）：返回 (codes, vals)。</p>",
+    "params": []
+  },
+  {
+    "name": "py_yhyb_events",
+    "description": "<p>Python 调试：单股单日事件时间线（事件名 -&gt; (时间us, 权重)），供单例/验证。</p>",
+    "params": []
+  },
+  {
+    "name": "py_yhyb_from_data",
+    "description": "<p>v2 入口（Python 传数据，样例验证/调参）：\n- trade_arrays：每股 (n_i, 8) [time_us, time_sec, price, volume, turnover, flag, bid_order, ask_order]\n- market_arrays：每股 (m_i, 25) [time_us, total_ask_vol, total_bid_vol, ask_prc1, bid_prc1,\n  ask_vol1..10, bid_vol1..10]\n- params：可选 17 个参数（默认 YhybParams::default()）\n- approx：true 时用近似统计（1 秒桶中点 + wmean + null 均值池化/x̄ 近似），\n  仅用于评估妥协方案的截面影响，不用于生产</p>",
+    "params": []
+  },
+  {
+    "name": "py_yhyb_names",
+    "description": "<p>Python 拿因子名。</p>",
+    "params": []
+  },
+  {
+    "name": "py_yhyb_params",
+    "description": "<p>Python 单日调试（v1，自定义参数，17 个按 YhybParams 顺序）。</p>",
+    "params": []
+  },
+  {
+    "name": "py_yupei_dist",
+    "description": "<p>Python 入口: 单日全市场 2761 个横截面因子 (codes, vals)。</p>",
+    "params": []
+  },
+  {
+    "name": "py_yupei_dist_names",
+    "description": "<p>Python 拿因子名（2761 个, 顺序与 py_yupei_dist 输出一致）。</p>",
     "params": []
   },
   {
@@ -1747,6 +1862,21 @@
     ]
   },
   {
+    "name": "read_factor",
+    "description": "<p>读因子 parquet，返回 index=date(int) / columns=股票 的 DataFrame，按日期窗口过滤。</p>\n<p>与 szalpha FactorReader.read_date_data 的 parquet 分支逐行等价。</p>",
+    "params": []
+  },
+  {
+    "name": "read_factor_from_colblk",
+    "description": "<p>从 colblk 列式存储读取单个因子，返回 DataFrame(date×stock)。</p>\n<p>替代 okay 文件里的 _read_factor_from_colblk：按 name 取子集，无需重算。</p>",
+    "params": []
+  },
+  {
+    "name": "read_level2_list",
+    "description": "<p>生成 [start_date, end_date] 内真实存在的 (date, code) 任务列表（per_stock pipeline 用）。</p>\n<p>替代 dw.read_level2_list：日期对齐交易日 → symbol_map.csv 全股票列表 →\n按日目录扫描 transaction 文件集合过滤存在性。每日更新仅 1 天，直接扫描无性能问题。</p>",
+    "params": []
+  },
+  {
     "name": "read_market",
     "description": "<p>无文档</p>",
     "params": []
@@ -1779,6 +1909,11 @@
   {
     "name": "read_trade_fast",
     "description": "<p>Python 可调用：read_trade_fast(code, date, with_retreat=0, with_afternoon_adjust=False)</p>\n<p>返回 (n, 7) float64 numpy 数组，列顺序：\n  [time_sec, price, volume, turnover, flag, bid_order, ask_order]</p>\n<p>time_sec 为 epoch 秒（与 prepare() 中 exchtime.astype(int64)//1e9 一致）。</p>\n<p>与 read_trade 的差异：\n- flag!=32 过滤默认开启（with_retreat=0）\n- adjust_afternoon 可在读时一步完成（with_afternoon_adjust=True）\n- 不返回 DataFrame，直接返回 numpy 数组（供流水线内部使用或独立验证）</p>",
+    "params": []
+  },
+  {
+    "name": "read_trade_fast_us",
+    "description": "<p>Python 可调用：read_trade_fast_us(code, date, with_retreat=0, with_afternoon_adjust=False)</p>\n<p>返回 (n, 8) float64 numpy 数组，列顺序：\n  [time_us, time_sec, price, volume, turnover, flag, bid_order, ask_order]</p>\n<p>time_us 为 epoch 微秒（i64 精度，含 8h 偏移 + 下午前移），可用于毫秒级事件对齐；\ntime_sec 为 f32 截断的 epoch 秒，2025 年附近精度仅 ±128s，做窗口匹配务必用 time_us。</p>",
     "params": []
   },
   {
@@ -1969,6 +2104,20 @@
     "params": []
   },
   {
+    "name": "run_factor_pipeline_regime",
+    "description": "<p>方案 2 顺序流水线：run_factor_pipeline_regime（状态进计算过程）。</p>\n<p>与 run_factor_pipeline_cross_section（per-date 独立并行）的本质区别：\n- <strong>严格按日期顺序执行</strong>：每个日期先读自己的标量表存储 [t−W, t−1]，\n  聚类判定当日市场状态 → 状态化参数计算当天因子 → 写 colblk + 写当日标量（为 t+1 备料）。\n- 预热期（窗口不足 W 天）：只计算并存储标量，<strong>不输出因子</strong>（用户定案：前 59 天不算因子）。\n- 不能跨日期并行（顺序依赖），速度优化靠：单遍读内存复用 + 预读流水线 + rayon 日内并行。</p>",
+    "params": [
+      "pipeline",
+      "tasks",
+      "n_jobs",
+      "expected_result_length",
+      "trading_days",
+      "state_store_dir",
+      "window",
+      "store_factor_names"
+    ]
+  },
+  {
     "name": "run_factor_pipeline_v6",
     "description": "<p>无文档</p>",
     "params": []
@@ -1986,6 +2135,11 @@
   {
     "name": "run_pools_simple",
     "description": "<p>极简版并行计算函数 - 只执行不返回</p>",
+    "params": []
+  },
+  {
+    "name": "save_factor",
+    "description": "<p>写因子 parquet：date 列（int YYYYMMDD）+ 股票列，仅保留 [start_date, end_date] 窗口。</p>\n<p>等价于 dwo.save_factor 的窗口过滤 + 落盘；目录 {hdf5_dir_here}/{factor_version}/ 自动创建。</p>",
     "params": []
   },
   {
@@ -2332,6 +2486,41 @@
   {
     "name": "verify_order_pair_metrics_more_v2",
     "description": "<p>验证用：接收 numpy (n,7) 矩阵，转 TradeRecord 后调 _v2_inner。</p>",
+    "params": []
+  },
+  {
+    "name": "yupei_dist_backup_factors",
+    "description": "<p>读备份 → 运行全部 28 个指标模块（2761 因子）→ 写 factors.bin/names.txt/meta.json/report.txt。\nprev_date 给定时从同备份目录加载前一日矩阵（dyn_* 跨日因子有值）。\n返回 (n_stocks, n_factors)。</p>",
+    "params": []
+  },
+  {
+    "name": "yupei_dist_backup_matrices",
+    "description": "<p>读全市场逐笔 → 37 矩阵 + 统计量 → 写入 <outdir>/<date>/（codes/stats/mats）。\n参数口径与生产一致（全市场 universe, MIN_TRADES=200）。\n返回 (n_stocks, n_matrices)。</p>",
+    "params": []
+  },
+  {
+    "name": "yupei_dist_backup_matrix_names",
+    "description": "<p>37 个矩阵名（与 MATRIX_SPECS 顺序一致）。</p>",
+    "params": []
+  },
+  {
+    "name": "yupei_dist_backup_read_factors",
+    "description": "<p>读因子备份: (codes, names, N×F f32)。</p>",
+    "params": []
+  },
+  {
+    "name": "yupei_dist_backup_read_matrix",
+    "description": "<p>读单个矩阵为 (N,N) f32 numpy 数组。</p>",
+    "params": []
+  },
+  {
+    "name": "yupei_dist_backup_read_stats",
+    "description": "<p>读每股统计量: (codes, N×14 f64)。列序同 StockStats 声明序\n（n_trades, amount, total_vol, imb, ret, vol30, vwap, q95u,\n  sum_w_cnt, sum_w_vol, sum_w_logvol, sum_w_flow, sum_w_urg, sum_w_ext）。</p>",
+    "params": []
+  },
+  {
+    "name": "yupei_dist_backup_verify",
+    "description": "<p>校验备份完整性: 返回缺失的矩阵名清单（空 = 完整）。</p>",
     "params": []
   }
 ]

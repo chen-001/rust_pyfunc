@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>run_factor_pipeline_regime - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>run_factor_pipeline_regime</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>方案 2 顺序流水线：run_factor_pipeline_regime（状态进计算过程）。</p>
+<p>与 run_factor_pipeline_cross_section（per-date 独立并行）的本质区别：
+- <strong>严格按日期顺序执行</strong>：每个日期先读自己的标量表存储 [t−W, t−1]，
+  聚类判定当日市场状态 → 状态化参数计算当天因子 → 写 colblk + 写当日标量（为 t+1 备料）。
+- 预热期（窗口不足 W 天）：只计算并存储标量，<strong>不输出因子</strong>（用户定案：前 59 天不算因子）。
+- 不能跨日期并行（顺序依赖），速度优化靠：单遍读内存复用 + 预读流水线 + rayon 日内并行。</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>run_factor_pipeline_regime(pipeline, tasks, n_jobs, expected_result_length, trading_days, state_store_dir, window, store_dir, store_factor_names) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                
+                <div class="parameter">
+                    <span class="parameter-name">pipeline</span>
+                    <span class="parameter-type">(目前支持 &#34;peaks_regime&#34;)</span>
+                    <div></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">tasks</span>
+                    <span class="parameter-type">(纯日期列表 [date, ...]（升序，顺序执行）)</span>
+                    <div></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">n_jobs</span>
+                    <span class="parameter-type">(rayon 日内并行度 + 投影线程数)</span>
+                    <div></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">expected_result_length</span>
+                    <span class="parameter-type">(每股因子数（= N_FACTORS）)</span>
+                    <div></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">trading_days</span>
+                    <span class="parameter-type">(交易日历（窗口取最近 W 个交易日）)</span>
+                    <div></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">state_store_dir</span>
+                    <span class="parameter-type">(标量表存储目录（每日一个 {date}.bin，14×f64）)</span>
+                    <div></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">window</span>
+                    <span class="parameter-type">(滚动窗口 W（默认 59，即 [t−59, t−1]）)</span>
+                    <div></div>
+                </div>
+                
+                <div class="parameter">
+                    <span class="parameter-name">store_factor_names</span>
+                    <span class="parameter-type">(colblk 列式存储（同 cross_section）)</span>
+                    <div><p>断点续算：已完成日期写入 _completed_dates；重跑时跳过。</p></div>
+                </div>
+                
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import run_factor_pipeline_regime
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

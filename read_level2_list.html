@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>tail_backtest_engine - Rust PyFunc API文档</title>
+    <title>read_level2_list - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
     <script src="static/search.js"></script>
 </head>
@@ -26,16 +26,18 @@
     </div>
     
     <div class="content">
-        <h1>tail_backtest_engine</h1>
+        <h1>read_level2_list</h1>
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><p>无文档</p></div>
+            <div><p>生成 [start_date, end_date] 内真实存在的 (date, code) 任务列表（per_stock pipeline 用）。</p>
+<p>替代 dw.read_level2_list：日期对齐交易日 → symbol_map.csv 全股票列表 →
+按日目录扫描 transaction 文件集合过滤存在性。每日更新仅 1 天，直接扫描无性能问题。</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>tail_backtest_engine(colblk_store_dir, factor_names, factor_paths, dates, stocks, windows, fold, n_jobs, min_valid, cache_root, style_data_path, ret_gap1_path, ret_sum_gap1_path, ret_gap5_path, ret_sum_gap5_path, restrict_path, index_ret_path, backtest_start, cover_rate, ret_point_neu_gap5, ret_point_neu_gap1, ic_point_neu_gap5, ic_point_neu_gap1, ret_point_gap5, ret_point_gap1, ic_point_gap5, ic_point_gap1, ic_more_important_gap5, ic_more_important_gap1, majority_count_threshold, zero_max_threshold, nan_max_threshold, industry_neutralize, industry_matrix) -> None</code>
+            <code>read_level2_list(start_date, end_date) -> &lt;class &#39;list&#39;&gt;</code>
         </div>
         
         <div class="function-parameters">
@@ -59,7 +61,7 @@
             <div class="example-usage-note">
                 <h3>Python使用示例</h3>
                 <pre><code>import numpy as np
-from rust_pyfunc import tail_backtest_engine
+from rust_pyfunc import read_level2_list
 
 # 使用示例
 
