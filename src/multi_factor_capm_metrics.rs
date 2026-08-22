@@ -1161,9 +1161,12 @@ impl Default for ComboBuf {
 }
 
 fn madvise_huge(buf: &mut Vec<f32>) {
+    // MADV_HUGEPAGE 仅 Unix（Linux）提供；Windows 无此 API，直接 no-op。
+    // 纯性能提示（大页透明化），不影响正确性。
     if buf.is_empty() {
         return;
     }
+    #[cfg(target_family = "unix")]
     unsafe {
         let raw = buf.as_mut_ptr() as usize;
         let page = 4096usize;

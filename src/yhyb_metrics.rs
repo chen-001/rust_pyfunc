@@ -1202,6 +1202,7 @@ struct Acc {
 /// 首触（整桶全 0）记录 touched（重置时清整条宽桶，语义不变）。
 #[inline(always)]
 #[allow(clippy::too_many_arguments)]
+#[cfg(target_arch = "x86_64")]
 fn push_pack_acc(
     b: &mut [PackB],
     touched: &mut Vec<u32>,
@@ -1304,25 +1305,57 @@ fn push_pack_acc(
     }
 }
 
-/// v7.6 打包累加器：4 个时段 lane 的 hm（u64 hit<<32|max_b）与 wsum（f64）各装入
-/// 一个 256 位寄存器，推送热路径用 vpsrlq/vpaddq/vpmaxuq/vaddpd 一次更新全部 lane
-/// （整数运算逐位精确；f64 加逐 lane 同序——与标量逐位一致）。
-#[derive(Clone, Copy)]
-struct Acc4 {
-    hm: core::arch::x86_64::__m256i,
-    ws: core::arch::x86_64::__m256d,
-}
-
-impl Acc4 {
-    fn zero() -> Self {
-        use core::arch::x86_64::{_mm256_set1_epi64x, _mm256_setzero_pd};
-        unsafe {
-            Acc4 {
-                hm: _mm256_set1_epi64x(0),
-                ws: _mm256_setzero_pd(),
-            }
-        }
+/// v7.4 宽桶更新的**标量回退版**（非 x86_64 架构，如 aarch64/arm64 macOS/Linux、
+/// 以及 Windows x86 32 位）：语义与 x86_64 SIMD 版逐位一致——(c,w) 各 lane 更新
+/// 序列相同、wsum/hit/max_b 相同、首触 touched 记录相同；仅用普通整数/浮点运算，
+/// 无架构专有指令（CI 多平台构建要求）。
+#[inline(always)]
+#[allow(clippy::too_many_arguments)]
+#[cfg(not(target_arch = "x86_64"))]
+fn push_pack_acc(
+    b: &mut [PackB],
+    touched: &mut Vec<u32>,
+    mask: u32,
+    bb: usize,
+    ww: f64,
+    dd: u64,
+    t_us: u64,
+    mut a0: Acc,
+    mut a1: Acc,
+    mut a2: Acc,
+    mut a3: Acc,
+) -> (Acc, Acc, Acc, Acc) {
+    let old = unsafe { *b.get_unchecked(bb) };
+    if (old.c0 | old.c1 | old.c2 | old.c3) == 0 {
+        touched.push(bb as u32);
     }
+    let pk = unsafe { b.get_unchecked_mut(bb) };
+    // (c,w) 逐 lane 更新：与 SIMD 版同一 mask 语义（bit i = 时段 i 选中）
+    if mask & 1 != 0 {
+        pk.c0 += 1;
+        pk.w0 += ww as f32;
+        a0.hm = ((a0.hm >> 32) + (dd <= t_us) as u64) << 32 | (a0.hm & 0xFFFF_FFFF).max(bb as u64);
+        a0.wsum += ww;
+    }
+    if mask & 2 != 0 {
+        pk.c1 += 1;
+        pk.w1 += ww as f32;
+        a1.hm = ((a1.hm >> 32) + (dd <= t_us) as u64) << 32 | (a1.hm & 0xFFFF_FFFF).max(bb as u64);
+        a1.wsum += ww;
+    }
+    if mask & 4 != 0 {
+        pk.c2 += 1;
+        pk.w2 += ww as f32;
+        a2.hm = ((a2.hm >> 32) + (dd <= t_us) as u64) << 32 | (a2.hm & 0xFFFF_FFFF).max(bb as u64);
+        a2.wsum += ww;
+    }
+    if mask & 8 != 0 {
+        pk.c3 += 1;
+        pk.w3 += ww as f32;
+        a3.hm = ((a3.hm >> 32) + (dd <= t_us) as u64) << 32 | (a3.hm & 0xFFFF_FFFF).max(bb as u64);
+        a3.wsum += ww;
+    }
+    (a0, a1, a2, a3)
 }
 
 /// 第 4 层上下文（对级矩阵 + hub/spoke 写入目标 + 有效索引映射）。
@@ -1520,7 +1553,9 @@ fn agg_fused_blocked<
             // a-循环重叠（每 B 只读 ~50B，纯延迟绑定 ~10s；预取后基本隐藏）
             let pf = bi + 2;
             if pf < streams.len() {
-                // v7.9：记录整块预取（88B = 2 条缓存行）
+                // v7.9：记录整块预取（88B = 2 条缓存行）；仅 x86_64 提供该指令，
+                // 其他架构（aarch64 等）跳过（纯性能优化，不影响正确性）
+                #[cfg(target_arch = "x86_64")]
                 unsafe {
                     let rp = &brecs[e][pf] as *const BRec as *const i8;
                     core::arch::x86_64::_mm_prefetch(rp, core::arch::x86_64::_MM_HINT_T0);
@@ -1631,6 +1666,9 @@ fn agg_fused_blocked<
                             // 对任意地址无副作用，越界安全，无需边界检查）
                             macro_rules! pf_delta {
                                 () => {
+                                    // 仅 x86_64 提供 _mm_prefetch；其他架构展开为空
+                                    // （纯性能优化，不影响正确性）
+                                    #[cfg(target_arch = "x86_64")]
                                     unsafe {
                                         core::arch::x86_64::_mm_prefetch(
                                             c_deltas.as_ptr().wrapping_add(c_pos + 32) as *const i8,
