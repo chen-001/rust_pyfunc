@@ -798,6 +798,589 @@ fn g_fields() -> [GField; 37] {
 ///            遍历 A 块内单元做 31 FMA/单元, 块末一次性写回 —— S 写流量降 ~300 倍
 /// 并行: 块串行（348）× tile 并行（87 个, rayon）
 /// 返回 21 张 N×N f32 有向矩阵（行主序, 对角 0）与每股统计量。
+
+/// pack 宽度（A-major [a][64]）
+const PACK_W: usize = 64;
+/// gp 槽步长（每桶 56 槽）
+const GP_STRIDE: usize = 56;
+
+#[cfg(target_arch = "x86_64")]
+#[allow(clippy::too_many_arguments)]
+fn phase1_simd(
+    gp: &mut [f32],
+    acc_mem: &mut [f32],
+    block_buf: &[(u32, [f32; N_U])],
+    bcnt: usize,
+    boff: usize,
+    k0: u32
+) {
+    unsafe {
+        // B 块内单元游标（块局部）
+        let mut b_curs = 0usize;
+        // B 的桶内 u
+        let mut ub = [0.0f32; N_U];
+        let zero = _mm256_setzero_ps();
+        let half = _mm256_set1_ps(0.5);
+        // 衰减系数按 56 槽打包（未用槽 0 → acc 恒 0）
+        let d0 = _mm256_setr_ps(
+            decay(0.05),
+            decay(0.1),
+            decay(0.2),
+            decay(0.5),
+            decay(1.0),
+            decay(3.0),
+            decay(5.0),
+            decay(10.0),
+        );
+        let d1s = decay(30.0);
+        let d2 = _mm256_setr_ps(
+            decay(0.2),
+            decay(0.5),
+            decay(1.0),
+            decay(3.0),
+            decay(5.0),
+            decay(30.0),
+            0.0,
+            0.0,
+        );
+        let d3 = _mm256_setr_ps(
+            decay(0.5),
+            decay(1.0),
+            decay(3.0),
+            decay(30.0),
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        );
+        let d4 = _mm256_setr_ps(
+            decay(0.2),
+            decay(0.2),
+            decay(0.5),
+            decay(0.5),
+            decay(1.0),
+            decay(1.0),
+            decay(5.0),
+            decay(5.0),
+        );
+        let d5 = _mm256_setr_ps(
+            decay(1.0),
+            decay(1.0),
+            decay(5.0),
+            decay(5.0),
+            decay(30.0),
+            decay(30.0),
+            0.0,
+            0.0,
+        );
+        let d6 = _mm256_setr_ps(
+            decay(1.0),
+            decay(1.0),
+            decay(5.0),
+            decay(5.0),
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        );
+        // acc 跨块持久（packs 内存段; 块开始 load, 块末 store 回）
+        let aptr = acc_mem.as_ptr();
+        let mut a0 = _mm256_loadu_ps(aptr);
+        let mut a1s = *aptr.add(8);
+        let mut a2 = _mm256_loadu_ps(aptr.add(16));
+        let mut a3 = _mm256_loadu_ps(aptr.add(24));
+        let mut a4 = _mm256_loadu_ps(aptr.add(32));
+        let mut a5 = _mm256_loadu_ps(aptr.add(40));
+        let mut a6 = _mm256_loadu_ps(aptr.add(48));
+        for k in 0..BLOCK_BUCKETS {
+            for f in 0..N_U {
+                ub[f] = 0.0;
+            }
+            while b_curs < bcnt
+                && (block_buf[boff + b_curs].0 - k0) as usize == k
+            {
+                let c = &block_buf[boff + b_curs];
+                for f in 0..N_U {
+                    ub[f] += c.1[f];
+                }
+                b_curs += 1;
+            }
+            let gpk = gp.as_mut_ptr().add(k * GP_STRIDE);
+            let uc = _mm256_set1_ps(ub[U_CNT]);
+            let uv = _mm256_blend_ps(_mm256_set1_ps(ub[U_VOL]), zero, 0b11000000);
+            let ul = _mm256_blend_ps(_mm256_set1_ps(ub[U_LOGVOL]), zero, 0b11110000);
+            let u4 = _mm256_unpacklo_ps(
+                _mm256_set1_ps(ub[U_FLOW_P]),
+                _mm256_set1_ps(ub[U_FLOW_M]),
+            );
+            let u5 = _mm256_blend_ps(
+                _mm256_unpacklo_ps(
+                    _mm256_set1_ps(ub[U_URG_P]),
+                    _mm256_set1_ps(ub[U_URG_M]),
+                ),
+                zero,
+                0b11000000,
+            );
+            let u6 = _mm256_blend_ps(
+                _mm256_unpacklo_ps(
+                    _mm256_set1_ps(ub[U_EXT_P]),
+                    _mm256_set1_ps(ub[U_EXT_M]),
+                ),
+                zero,
+                0b11110000,
+            );
+            // cnt 块0（槽 0..8）: gpk = acc + 0.5u; acc = (acc+u)·dec
+            let g0 = _mm256_add_ps(a0, _mm256_mul_ps(half, uc));
+            _mm256_storeu_ps(gpk, g0);
+            a0 = _mm256_mul_ps(_mm256_add_ps(a0, uc), d0);
+            // cnt_t30（槽 8, 标量）
+            let ucs = ub[U_CNT];
+            *gpk.add(8) = a1s + 0.5 * ucs;
+            a1s = (a1s + ucs) * d1s;
+            // vol（槽 16..24）
+            let g2 = _mm256_add_ps(a2, _mm256_mul_ps(half, uv));
+            _mm256_storeu_ps(gpk.add(16), g2);
+            a2 = _mm256_mul_ps(_mm256_add_ps(a2, uv), d2);
+            // logvol（槽 24..32）
+            let g3 = _mm256_add_ps(a3, _mm256_mul_ps(half, ul));
+            _mm256_storeu_ps(gpk.add(24), g3);
+            a3 = _mm256_mul_ps(_mm256_add_ps(a3, ul), d3);
+            // flow ±（槽 32..40, unpacklo 交错 P+/P−）
+            let g4 = _mm256_add_ps(a4, _mm256_mul_ps(half, u4));
+            _mm256_storeu_ps(gpk.add(32), g4);
+            a4 = _mm256_mul_ps(_mm256_add_ps(a4, u4), d4);
+            // urg ±（槽 40..48）
+            let g5 = _mm256_add_ps(a5, _mm256_mul_ps(half, u5));
+            _mm256_storeu_ps(gpk.add(40), g5);
+            a5 = _mm256_mul_ps(_mm256_add_ps(a5, u5), d5);
+            // ext ±（槽 48..56）
+            let g6 = _mm256_add_ps(a6, _mm256_mul_ps(half, u6));
+            _mm256_storeu_ps(gpk.add(48), g6);
+            a6 = _mm256_mul_ps(_mm256_add_ps(a6, u6), d6);
+        }
+        // 块末 store 回 acc（跨块持久）
+        let amut = acc_mem.as_mut_ptr();
+        _mm256_storeu_ps(amut, a0);
+        *amut.add(8) = a1s;
+        _mm256_storeu_ps(amut.add(16), a2);
+        _mm256_storeu_ps(amut.add(24), a3);
+        _mm256_storeu_ps(amut.add(32), a4);
+        _mm256_storeu_ps(amut.add(40), a5);
+        _mm256_storeu_ps(amut.add(48), a6);
+    }
+}
+#[cfg(any(not(target_arch = "x86_64"), test))]
+#[allow(clippy::too_many_arguments, dead_code)]
+fn phase1_scalar(
+    gp: &mut [f32],
+    acc_mem: &mut [f32],
+    block_buf: &[(u32, [f32; N_U])],
+    bcnt: usize,
+    boff: usize,
+    k0: u32
+) {
+    {
+        // 标量回退：f32 运算与 x86_64 SIMD 版逐槽同序（slot 序固定、无并行折叠），
+        // 结果逐位一致；仅速度较慢（本文件仅被 yupei_dist 全市场场景调用）。
+        // acc 跨块持久（packs 内存段; 块开始 load, 块末 store 回）
+        let amut = acc_mem.as_mut_ptr();
+        // 每槽独立 acc（7 块 × 8 槽；槽 8..16 仅用槽 8 标量）
+        let mut a0: [f32; 8] = [0.0; 8];
+        let mut a1s: f32 = 0.0;
+        let mut a2: [f32; 8] = [0.0; 8];
+        let mut a3: [f32; 8] = [0.0; 8];
+        let mut a4: [f32; 8] = [0.0; 8];
+        let mut a5: [f32; 8] = [0.0; 8];
+        let mut a6: [f32; 8] = [0.0; 8];
+        for s in 0..8 {
+            a0[s] = unsafe { *amut.add(s) };
+            a2[s] = unsafe { *amut.add(16 + s) };
+            a3[s] = unsafe { *amut.add(24 + s) };
+            a4[s] = unsafe { *amut.add(32 + s) };
+            a5[s] = unsafe { *amut.add(40 + s) };
+            a6[s] = unsafe { *amut.add(48 + s) };
+        }
+        a1s = unsafe { *amut.add(8) };
+        // 衰减系数（与 SIMD 版同源）
+        let d0: [f32; 8] = [
+            decay(0.05),
+            decay(0.1),
+            decay(0.2),
+            decay(0.5),
+            decay(1.0),
+            decay(3.0),
+            decay(5.0),
+            decay(10.0),
+        ];
+        let d1s = decay(30.0);
+        let d2: [f32; 8] = [
+            decay(0.2),
+            decay(0.5),
+            decay(1.0),
+            decay(3.0),
+            decay(5.0),
+            decay(30.0),
+            0.0,
+            0.0,
+        ];
+        let d3: [f32; 8] = [
+            decay(0.5),
+            decay(1.0),
+            decay(3.0),
+            decay(30.0),
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        ];
+        let d4: [f32; 8] = [
+            decay(0.2),
+            decay(0.2),
+            decay(0.5),
+            decay(0.5),
+            decay(1.0),
+            decay(1.0),
+            decay(5.0),
+            decay(5.0),
+        ];
+        let d5: [f32; 8] = [
+            decay(1.0),
+            decay(1.0),
+            decay(5.0),
+            decay(5.0),
+            decay(30.0),
+            decay(30.0),
+            0.0,
+            0.0,
+        ];
+        let d6: [f32; 8] = [
+            decay(1.0),
+            decay(1.0),
+            decay(5.0),
+            decay(5.0),
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        ];
+        let mut b_curs = 0usize;
+        let mut ub = [0.0f32; N_U];
+        for k in 0..BLOCK_BUCKETS {
+            for f in 0..N_U {
+                ub[f] = 0.0;
+            }
+            while b_curs < bcnt
+                && (block_buf[boff + b_curs].0 - k0) as usize == k
+            {
+                let c = &block_buf[boff + b_curs];
+                for f in 0..N_U {
+                    ub[f] += c.1[f];
+                }
+                b_curs += 1;
+            }
+            let gpk = unsafe { gp.as_mut_ptr().add(k * GP_STRIDE) };
+            // cnt 块 0（槽 0..8）: gpk = acc + 0.5u; acc = (acc+u)·dec
+            // 注意: SIMD 版 uc 是 set1 广播——8 个槽全部用 ub[U_CNT]（不同 τ）
+            for s in 0..8 {
+                let u = ub[U_CNT];
+                unsafe {
+                    *gpk.add(s) = a0[s] + 0.5 * u;
+                }
+                a0[s] = (a0[s] + u) * d0[s];
+            }
+            // cnt_t30（槽 8, 标量）
+            let ucs = ub[U_CNT];
+            unsafe {
+                *gpk.add(8) = a1s + 0.5 * ucs;
+            }
+            a1s = (a1s + ucs) * d1s;
+            // vol（槽 16..24）
+            for s in 0..8 {
+                let u = if s < 6 { ub[U_VOL] } else { 0.0 };
+                unsafe {
+                    *gpk.add(16 + s) = a2[s] + 0.5 * u;
+                }
+                a2[s] = (a2[s] + u) * d2[s];
+            }
+            // logvol（槽 24..32）
+            for s in 0..8 {
+                let u = if s < 4 { ub[U_LOGVOL] } else { 0.0 };
+                unsafe {
+                    *gpk.add(24 + s) = a3[s] + 0.5 * u;
+                }
+                a3[s] = (a3[s] + u) * d3[s];
+            }
+            // flow ±（槽 32..40: 偶数槽 P、奇数槽 M, 各 4 槽）
+            for s in 0..8 {
+                let u = match s {
+                    0 | 2 | 4 | 6 => ub[U_FLOW_P],
+                    1 | 3 | 5 | 7 => ub[U_FLOW_M],
+                    _ => 0.0,
+                };
+                unsafe {
+                    *gpk.add(32 + s) = a4[s] + 0.5 * u;
+                }
+                a4[s] = (a4[s] + u) * d4[s];
+            }
+            // urg ±（槽 40..48）
+            for s in 0..8 {
+                let u = if s < 6 {
+                    if s % 2 == 0 {
+                        ub[U_URG_P]
+                    } else {
+                        ub[U_URG_M]
+                    }
+                } else {
+                    0.0
+                };
+                unsafe {
+                    *gpk.add(40 + s) = a5[s] + 0.5 * u;
+                }
+                a5[s] = (a5[s] + u) * d5[s];
+            }
+            // ext ±（槽 48..52）
+            for s in 0..8 {
+                let u = if s < 4 {
+                    if s % 2 == 0 {
+                        ub[U_EXT_P]
+                    } else {
+                        ub[U_EXT_M]
+                    }
+                } else {
+                    0.0
+                };
+                unsafe {
+                    *gpk.add(48 + s) = a6[s] + 0.5 * u;
+                }
+                a6[s] = (a6[s] + u) * d6[s];
+            }
+        }
+        // 块末 store 回 acc（跨块持久）
+        for s in 0..8 {
+            unsafe {
+                *amut.add(s) = a0[s];
+                *amut.add(8) = a1s;
+                *amut.add(16 + s) = a2[s];
+                *amut.add(24 + s) = a3[s];
+                *amut.add(32 + s) = a4[s];
+                *amut.add(40 + s) = a5[s];
+                *amut.add(48 + s) = a6[s];
+            }
+        }
+    }
+}
+#[cfg(target_arch = "x86_64")]
+#[allow(clippy::too_many_arguments)]
+fn phase2_simd(
+    pack: &mut [f32],
+    gp: &[f32],
+    block_buf: &[(u32, [f32; N_U])],
+    counts: &[usize],
+    offs: &[usize],
+    n: usize,
+    k0: u32
+) {
+        let pack_ptr = pack.as_mut_ptr();
+        let gpk0 = gp.as_ptr();
+        const SUB: usize = 2;
+        let sub_buckets = BLOCK_BUCKETS / SUB;
+    {
+    // ± 通道交换索引（flow/urg/ext 组内相邻通道互换）
+    let idx_x = unsafe { _mm256_setr_epi32(1, 0, 3, 2, 5, 4, 7, 6) };
+    for sub in 0..SUB {
+        let k_lo = sub * sub_buckets;
+        let k_hi = k_lo + sub_buckets;
+        for a in 0..n {
+            let ca = counts[a];
+            if ca == 0 {
+                continue;
+            }
+            let base = a * PACK_W;
+            unsafe {
+                let mut p0 = _mm256_loadu_ps(pack_ptr.add(base));
+                let mut p1 = _mm256_loadu_ps(pack_ptr.add(base + 8));
+                let mut p2 = _mm256_loadu_ps(pack_ptr.add(base + 16));
+                let mut p3 = _mm256_loadu_ps(pack_ptr.add(base + 24));
+                let mut p4 = _mm256_loadu_ps(pack_ptr.add(base + 32));
+                let mut p5 = _mm256_loadu_ps(pack_ptr.add(base + 40));
+                let mut p6 = _mm256_loadu_ps(pack_ptr.add(base + 48));
+                let ca0 = offs[a];
+                let mut j0 = 0usize;
+                while j0 < ca && ((block_buf[ca0 + j0].0 - k0) as usize) < k_lo {
+                    j0 += 1;
+                }
+                let mut j = j0;
+                while j < ca {
+                    let cell = &block_buf[ca0 + j];
+                    let kl = (cell.0 - k0) as usize;
+                    if kl >= k_hi {
+                        break;
+                    }
+                    let ua = &cell.1;
+                    // 8 个权重标量广播（每单元一次）
+                    let uc = _mm256_set1_ps(ua[U_CNT]);
+                    let uv = _mm256_set1_ps(ua[U_VOL]);
+                    let ul = _mm256_set1_ps(ua[U_LOGVOL]);
+                    let fp = _mm256_set1_ps(ua[U_FLOW_P]);
+                    let fm = _mm256_set1_ps(ua[U_FLOW_M]);
+                    let up = _mm256_set1_ps(ua[U_URG_P]);
+                    let um = _mm256_set1_ps(ua[U_URG_M]);
+                    let xp = _mm256_set1_ps(ua[U_EXT_P]);
+                    let xm = _mm256_set1_ps(ua[U_EXT_M]);
+                    let gpk = gpk0.add(kl * GP_STRIDE);
+                    // 7 个 ymm 加载（56 槽, 块对齐; 未用槽恒 0 → 乘积恒 0）
+                    let g0 = _mm256_loadu_ps(gpk); // cnt 8τ
+                    let g1 = _mm256_loadu_ps(gpk.add(8)); // cnt_t30 + 0×7
+                    let g2 = _mm256_loadu_ps(gpk.add(16)); // vol 6τ + 0×2
+                    let g3 = _mm256_loadu_ps(gpk.add(24)); // logvol 4τ + 0×4
+                    let g4 = _mm256_loadu_ps(gpk.add(32)); // flow ±
+                    let g5 = _mm256_loadu_ps(gpk.add(40)); // urg ±
+                    let g6 = _mm256_loadu_ps(gpk.add(48)); // ext ±
+                    p0 = _mm256_fmadd_ps(uc, g0, p0);
+                    p1 = _mm256_fmadd_ps(uc, g1, p1);
+                    p2 = _mm256_fmadd_ps(uv, g2, p2);
+                    p3 = _mm256_fmadd_ps(ul, g3, p3);
+                    // signed 块: same = A+×B+ + A−×B−; opp = A+×B− + A−×B+（通道交换）
+                    let g4x = _mm256_permutevar8x32_ps(g4, idx_x);
+                    p4 = _mm256_fmadd_ps(fp, g4, _mm256_fmadd_ps(fm, g4x, p4));
+                    let g5x = _mm256_permutevar8x32_ps(g5, idx_x);
+                    p5 = _mm256_fmadd_ps(up, g5, _mm256_fmadd_ps(um, g5x, p5));
+                    let g6x = _mm256_permutevar8x32_ps(g6, idx_x);
+                    p6 = _mm256_fmadd_ps(xp, g6, _mm256_fmadd_ps(xm, g6x, p6));
+                    j += 1;
+                }
+                _mm256_storeu_ps(pack_ptr.add(base), p0);
+                _mm256_storeu_ps(pack_ptr.add(base + 8), p1);
+                _mm256_storeu_ps(pack_ptr.add(base + 16), p2);
+                _mm256_storeu_ps(pack_ptr.add(base + 24), p3);
+                _mm256_storeu_ps(pack_ptr.add(base + 32), p4);
+                _mm256_storeu_ps(pack_ptr.add(base + 40), p5);
+                _mm256_storeu_ps(pack_ptr.add(base + 48), p6);
+            }
+        }
+    }
+    }
+}
+#[cfg(any(not(target_arch = "x86_64"), test))]
+#[allow(clippy::too_many_arguments, dead_code)]
+fn phase2_scalar(
+    pack: &mut [f32],
+    gp: &[f32],
+    block_buf: &[(u32, [f32; N_U])],
+    counts: &[usize],
+    offs: &[usize],
+    n: usize,
+    k0: u32
+) {
+        let pack_ptr = pack.as_mut_ptr();
+        let gpk0 = gp.as_ptr();
+        const SUB: usize = 2;
+        let sub_buckets = BLOCK_BUCKETS / SUB;
+    {
+        // 标量回退：与 SIMD 版逐位一致（mul_add 单次舍入、slot 序固定）
+        for sub in 0..SUB {
+            let k_lo = sub * sub_buckets;
+            let k_hi = k_lo + sub_buckets;
+            for a in 0..n {
+                let ca = counts[a];
+                if ca == 0 {
+                    continue;
+                }
+                let base = a * PACK_W;
+                unsafe {
+                    let mut p0: [f32; 8] = [0.0; 8];
+                    let mut p1: [f32; 8] = [0.0; 8];
+                    let mut p2: [f32; 8] = [0.0; 8];
+                    let mut p3: [f32; 8] = [0.0; 8];
+                    let mut p4: [f32; 8] = [0.0; 8];
+                    let mut p5: [f32; 8] = [0.0; 8];
+                    let mut p6: [f32; 8] = [0.0; 8];
+                    for s in 0..8 {
+                        p0[s] = *pack_ptr.add(base + s);
+                        p1[s] = *pack_ptr.add(base + 8 + s);
+                        p2[s] = *pack_ptr.add(base + 16 + s);
+                        p3[s] = *pack_ptr.add(base + 24 + s);
+                        p4[s] = *pack_ptr.add(base + 32 + s);
+                        p5[s] = *pack_ptr.add(base + 40 + s);
+                        p6[s] = *pack_ptr.add(base + 48 + s);
+                    }
+                    let ca0 = offs[a];
+                    let mut j0 = 0usize;
+                    while j0 < ca
+                        && ((block_buf[ca0 + j0].0 - k0) as usize) < k_lo
+                    {
+                        j0 += 1;
+                    }
+                    let mut j = j0;
+                    while j < ca {
+                        let cell = &block_buf[ca0 + j];
+                        let kl = (cell.0 - k0) as usize;
+                        if kl >= k_hi {
+                            break;
+                        }
+                        let ua = &cell.1;
+                        let gpk = gpk0.add(kl * GP_STRIDE);
+                        // 7 块 × 8 槽全量 mul_add（未用槽 g 值恒 0 → 结果保留原值；
+                        // 与 _mm256_fmadd_ps 对全部 lane 同构，逐位一致）
+                        let uc = ua[U_CNT];
+                        for s in 0..8 {
+                            p0[s] = uc.mul_add(*gpk.add(s), p0[s]);
+                            p1[s] = uc.mul_add(*gpk.add(8 + s), p1[s]);
+                        }
+                        let uv = ua[U_VOL];
+                        for s in 0..8 {
+                            p2[s] = uv.mul_add(*gpk.add(16 + s), p2[s]);
+                        }
+                        let ul = ua[U_LOGVOL];
+                        for s in 0..8 {
+                            p3[s] = ul.mul_add(*gpk.add(24 + s), p3[s]);
+                        }
+                        // signed 块: SIMD 版 p4 = fma(fp,g4, fma(fm,g4x,p4))，
+                        // g4x 为相邻通道交换 → 嵌套 FMA 同序
+                        let fp = ua[U_FLOW_P];
+                        let fm = ua[U_FLOW_M];
+                        for s in 0..8 {
+                            let gp_ = *gpk.add(32 + s);
+                            let gm_ = *gpk.add(32 + (s ^ 1));
+                            p4[s] = fp.mul_add(gp_, fm.mul_add(gm_, p4[s]));
+                        }
+                        let up = ua[U_URG_P];
+                        let um = ua[U_URG_M];
+                        for s in 0..8 {
+                            let gp_ = *gpk.add(40 + s);
+                            let gm_ = *gpk.add(40 + (s ^ 1));
+                            p5[s] = up.mul_add(gp_, um.mul_add(gm_, p5[s]));
+                        }
+                        let xp = ua[U_EXT_P];
+                        let xm = ua[U_EXT_M];
+                        for s in 0..8 {
+                            let gp_ = *gpk.add(48 + s);
+                            let gm_ = *gpk.add(48 + (s ^ 1));
+                            p6[s] = xp.mul_add(gp_, xm.mul_add(gm_, p6[s]));
+                        }
+                        j += 1;
+                    }
+                    for s in 0..8 {
+                        *pack_ptr.add(base + s) = p0[s];
+                        *pack_ptr.add(base + 8 + s) = p1[s];
+                        *pack_ptr.add(base + 16 + s) = p2[s];
+                        *pack_ptr.add(base + 24 + s) = p3[s];
+                        *pack_ptr.add(base + 32 + s) = p4[s];
+                        *pack_ptr.add(base + 40 + s) = p5[s];
+                        *pack_ptr.add(base + 48 + s) = p6[s];
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+/// pack 宽度（A-major [a][64]）
+
+/// gp 槽步长（每桶 56 槽）
+
+
 pub fn compute_matrices(stocks: &[StockPrep]) -> (Vec<Vec<f32>>, Vec<StockStats>) {
     let n = stocks.len();
     let nm = N_MATRICES;
@@ -830,7 +1413,6 @@ pub fn compute_matrices(stocks: &[StockPrep]) -> (Vec<Vec<f32>>, Vec<StockStats>
     // TILE=1; pack 块对齐 [a][64]: 7 块 × 8 通道（cnt×2, vol, logvol, flow, urg, ext）,
     // 块内通道 0..len-1 对应矩阵场; gp 场 [k][37] 按场索引连续（块内非对齐 ymm 加载）。
     let ntiles = n;
-    const PACK_W: usize = 64;
     // 块配置: (场起始, 长度, u+ 场, u− 场, signed)
     // 场索引: cnt 0..9, vol 9..15, logvol 15..19, flow 19..27(±交替), urg 27..33, ext 33..37
     const BLOCKS: [(usize, usize, usize, usize, bool); 7] = [
@@ -856,7 +1438,6 @@ pub fn compute_matrices(stocks: &[StockPrep]) -> (Vec<Vec<f32>>, Vec<StockStats>
     // gp 槽布局（GP_STRIDE=56, 每块 8 槽对齐, 未用槽恒 0）:
     //   0..9 cnt(9τ), 9..16 空闲(块1), 16..24 vol(6τ), 24..32 logvol(4τ),
     //   32..40 flow±(4τ), 40..48 urg±(3τ), 48..56 ext±(2τ)
-    const GP_STRIDE: usize = 56;
     let packs: Vec<std::sync::Mutex<Vec<f32>>> = (0..ntiles)
         .map(|_| std::sync::Mutex::new(vec![0.0f32; n * PACK_W + BLOCK_BUCKETS * GP_STRIDE + 56]))
         .collect();
@@ -909,242 +1490,18 @@ pub fn compute_matrices(stocks: &[StockPrep]) -> (Vec<Vec<f32>>, Vec<StockStats>
             unsafe {
                 std::ptr::write_bytes(gp.as_mut_ptr(), 0, gp.len());
             }
-            // B 块内单元游标（块局部）
-            let mut b_curs = 0usize;
-            // B 的桶内 u
-            let mut ub = [0.0f32; N_U];
-            // ---- phase 1: 扫桶推进 g 场（SIMD: 7×ymm acc, 每桶 ~30 向量操作; 56 槽布局）----
+            // ---- phase 1: 扫桶推进 g 场（x86_64 AVX2 SIMD；其他架构标量回退，逐位一致）----
             let bcnt = counts_ref[b];
             let boff = offs_ref[b];
-            unsafe {
-                let zero = _mm256_setzero_ps();
-                let half = _mm256_set1_ps(0.5);
-                // 衰减系数按 56 槽打包（未用槽 0 → acc 恒 0）
-                let d0 = _mm256_setr_ps(
-                    decay(0.05),
-                    decay(0.1),
-                    decay(0.2),
-                    decay(0.5),
-                    decay(1.0),
-                    decay(3.0),
-                    decay(5.0),
-                    decay(10.0),
-                );
-                let d1s = decay(30.0);
-                let d2 = _mm256_setr_ps(
-                    decay(0.2),
-                    decay(0.5),
-                    decay(1.0),
-                    decay(3.0),
-                    decay(5.0),
-                    decay(30.0),
-                    0.0,
-                    0.0,
-                );
-                let d3 = _mm256_setr_ps(
-                    decay(0.5),
-                    decay(1.0),
-                    decay(3.0),
-                    decay(30.0),
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                );
-                let d4 = _mm256_setr_ps(
-                    decay(0.2),
-                    decay(0.2),
-                    decay(0.5),
-                    decay(0.5),
-                    decay(1.0),
-                    decay(1.0),
-                    decay(5.0),
-                    decay(5.0),
-                );
-                let d5 = _mm256_setr_ps(
-                    decay(1.0),
-                    decay(1.0),
-                    decay(5.0),
-                    decay(5.0),
-                    decay(30.0),
-                    decay(30.0),
-                    0.0,
-                    0.0,
-                );
-                let d6 = _mm256_setr_ps(
-                    decay(1.0),
-                    decay(1.0),
-                    decay(5.0),
-                    decay(5.0),
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                );
-                // acc 跨块持久（packs 内存段; 块开始 load, 块末 store 回）
-                let aptr = acc_mem.as_ptr();
-                let mut a0 = _mm256_loadu_ps(aptr);
-                let mut a1s = *aptr.add(8);
-                let mut a2 = _mm256_loadu_ps(aptr.add(16));
-                let mut a3 = _mm256_loadu_ps(aptr.add(24));
-                let mut a4 = _mm256_loadu_ps(aptr.add(32));
-                let mut a5 = _mm256_loadu_ps(aptr.add(40));
-                let mut a6 = _mm256_loadu_ps(aptr.add(48));
-                for k in 0..BLOCK_BUCKETS {
-                    for f in 0..N_U {
-                        ub[f] = 0.0;
-                    }
-                    while b_curs < bcnt
-                        && (block_buf_ref[boff + b_curs].0 - k0 as u32) as usize == k
-                    {
-                        let c = &block_buf_ref[boff + b_curs];
-                        for f in 0..N_U {
-                            ub[f] += c.1[f];
-                        }
-                        b_curs += 1;
-                    }
-                    let gpk = gp.as_mut_ptr().add(k * GP_STRIDE);
-                    let uc = _mm256_set1_ps(ub[U_CNT]);
-                    let uv = _mm256_blend_ps(_mm256_set1_ps(ub[U_VOL]), zero, 0b11000000);
-                    let ul = _mm256_blend_ps(_mm256_set1_ps(ub[U_LOGVOL]), zero, 0b11110000);
-                    let u4 = _mm256_unpacklo_ps(
-                        _mm256_set1_ps(ub[U_FLOW_P]),
-                        _mm256_set1_ps(ub[U_FLOW_M]),
-                    );
-                    let u5 = _mm256_blend_ps(
-                        _mm256_unpacklo_ps(
-                            _mm256_set1_ps(ub[U_URG_P]),
-                            _mm256_set1_ps(ub[U_URG_M]),
-                        ),
-                        zero,
-                        0b11000000,
-                    );
-                    let u6 = _mm256_blend_ps(
-                        _mm256_unpacklo_ps(
-                            _mm256_set1_ps(ub[U_EXT_P]),
-                            _mm256_set1_ps(ub[U_EXT_M]),
-                        ),
-                        zero,
-                        0b11110000,
-                    );
-                    // cnt 块0（槽 0..8）: gpk = acc + 0.5u; acc = (acc+u)·dec
-                    let g0 = _mm256_add_ps(a0, _mm256_mul_ps(half, uc));
-                    _mm256_storeu_ps(gpk, g0);
-                    a0 = _mm256_mul_ps(_mm256_add_ps(a0, uc), d0);
-                    // cnt_t30（槽 8, 标量）
-                    let ucs = ub[U_CNT];
-                    *gpk.add(8) = a1s + 0.5 * ucs;
-                    a1s = (a1s + ucs) * d1s;
-                    // vol（槽 16..24）
-                    let g2 = _mm256_add_ps(a2, _mm256_mul_ps(half, uv));
-                    _mm256_storeu_ps(gpk.add(16), g2);
-                    a2 = _mm256_mul_ps(_mm256_add_ps(a2, uv), d2);
-                    // logvol（槽 24..32）
-                    let g3 = _mm256_add_ps(a3, _mm256_mul_ps(half, ul));
-                    _mm256_storeu_ps(gpk.add(24), g3);
-                    a3 = _mm256_mul_ps(_mm256_add_ps(a3, ul), d3);
-                    // flow ±（槽 32..40, unpacklo 交错 P+/P−）
-                    let g4 = _mm256_add_ps(a4, _mm256_mul_ps(half, u4));
-                    _mm256_storeu_ps(gpk.add(32), g4);
-                    a4 = _mm256_mul_ps(_mm256_add_ps(a4, u4), d4);
-                    // urg ±（槽 40..48）
-                    let g5 = _mm256_add_ps(a5, _mm256_mul_ps(half, u5));
-                    _mm256_storeu_ps(gpk.add(40), g5);
-                    a5 = _mm256_mul_ps(_mm256_add_ps(a5, u5), d5);
-                    // ext ±（槽 48..56）
-                    let g6 = _mm256_add_ps(a6, _mm256_mul_ps(half, u6));
-                    _mm256_storeu_ps(gpk.add(48), g6);
-                    a6 = _mm256_mul_ps(_mm256_add_ps(a6, u6), d6);
-                }
-                // 块末 store 回 acc（跨块持久）
-                let amut = acc_mem.as_mut_ptr();
-                _mm256_storeu_ps(amut, a0);
-                *amut.add(8) = a1s;
-                _mm256_storeu_ps(amut.add(16), a2);
-                _mm256_storeu_ps(amut.add(24), a3);
-                _mm256_storeu_ps(amut.add(32), a4);
-                _mm256_storeu_ps(amut.add(40), a5);
-                _mm256_storeu_ps(amut.add(48), a6);
-            }
-            // ---- phase 2: A-major 显式 AVX2（7 块 × 9 FMA + 3 permute 实现 same/opp; SUB=2 提升 gp L1 驻留）----
-            let pack_ptr = pack.as_mut_ptr();
-            let gpk0 = gp.as_ptr();
-            const SUB: usize = 2;
-            let sub_buckets = BLOCK_BUCKETS / SUB;
-            // ± 通道交换索引（flow/urg/ext 组内相邻通道互换）
-            let idx_x = unsafe { _mm256_setr_epi32(1, 0, 3, 2, 5, 4, 7, 6) };
-            for sub in 0..SUB {
-                let k_lo = sub * sub_buckets;
-                let k_hi = k_lo + sub_buckets;
-                for a in 0..n {
-                    let ca = counts_ref[a];
-                    if ca == 0 {
-                        continue;
-                    }
-                    let base = a * PACK_W;
-                    unsafe {
-                        let mut p0 = _mm256_loadu_ps(pack_ptr.add(base));
-                        let mut p1 = _mm256_loadu_ps(pack_ptr.add(base + 8));
-                        let mut p2 = _mm256_loadu_ps(pack_ptr.add(base + 16));
-                        let mut p3 = _mm256_loadu_ps(pack_ptr.add(base + 24));
-                        let mut p4 = _mm256_loadu_ps(pack_ptr.add(base + 32));
-                        let mut p5 = _mm256_loadu_ps(pack_ptr.add(base + 40));
-                        let mut p6 = _mm256_loadu_ps(pack_ptr.add(base + 48));
-                        let ca0 = offs_ref[a];
-                        let mut j0 = 0usize;
-                        while j0 < ca && ((block_buf_ref[ca0 + j0].0 - k0 as u32) as usize) < k_lo {
-                            j0 += 1;
-                        }
-                        let mut j = j0;
-                        while j < ca {
-                            let cell = &block_buf_ref[ca0 + j];
-                            let kl = (cell.0 - k0 as u32) as usize;
-                            if kl >= k_hi {
-                                break;
-                            }
-                            let ua = &cell.1;
-                            // 8 个权重标量广播（每单元一次）
-                            let uc = _mm256_set1_ps(ua[U_CNT]);
-                            let uv = _mm256_set1_ps(ua[U_VOL]);
-                            let ul = _mm256_set1_ps(ua[U_LOGVOL]);
-                            let fp = _mm256_set1_ps(ua[U_FLOW_P]);
-                            let fm = _mm256_set1_ps(ua[U_FLOW_M]);
-                            let up = _mm256_set1_ps(ua[U_URG_P]);
-                            let um = _mm256_set1_ps(ua[U_URG_M]);
-                            let xp = _mm256_set1_ps(ua[U_EXT_P]);
-                            let xm = _mm256_set1_ps(ua[U_EXT_M]);
-                            let gpk = gpk0.add(kl * GP_STRIDE);
-                            // 7 个 ymm 加载（56 槽, 块对齐; 未用槽恒 0 → 乘积恒 0）
-                            let g0 = _mm256_loadu_ps(gpk); // cnt 8τ
-                            let g1 = _mm256_loadu_ps(gpk.add(8)); // cnt_t30 + 0×7
-                            let g2 = _mm256_loadu_ps(gpk.add(16)); // vol 6τ + 0×2
-                            let g3 = _mm256_loadu_ps(gpk.add(24)); // logvol 4τ + 0×4
-                            let g4 = _mm256_loadu_ps(gpk.add(32)); // flow ±
-                            let g5 = _mm256_loadu_ps(gpk.add(40)); // urg ±
-                            let g6 = _mm256_loadu_ps(gpk.add(48)); // ext ±
-                            p0 = _mm256_fmadd_ps(uc, g0, p0);
-                            p1 = _mm256_fmadd_ps(uc, g1, p1);
-                            p2 = _mm256_fmadd_ps(uv, g2, p2);
-                            p3 = _mm256_fmadd_ps(ul, g3, p3);
-                            // signed 块: same = A+×B+ + A−×B−; opp = A+×B− + A−×B+（通道交换）
-                            let g4x = _mm256_permutevar8x32_ps(g4, idx_x);
-                            p4 = _mm256_fmadd_ps(fp, g4, _mm256_fmadd_ps(fm, g4x, p4));
-                            let g5x = _mm256_permutevar8x32_ps(g5, idx_x);
-                            p5 = _mm256_fmadd_ps(up, g5, _mm256_fmadd_ps(um, g5x, p5));
-                            let g6x = _mm256_permutevar8x32_ps(g6, idx_x);
-                            p6 = _mm256_fmadd_ps(xp, g6, _mm256_fmadd_ps(xm, g6x, p6));
-                            j += 1;
-                        }
-                        _mm256_storeu_ps(pack_ptr.add(base), p0);
-                        _mm256_storeu_ps(pack_ptr.add(base + 8), p1);
-                        _mm256_storeu_ps(pack_ptr.add(base + 16), p2);
-                        _mm256_storeu_ps(pack_ptr.add(base + 24), p3);
-                        _mm256_storeu_ps(pack_ptr.add(base + 32), p4);
-                        _mm256_storeu_ps(pack_ptr.add(base + 40), p5);
-                        _mm256_storeu_ps(pack_ptr.add(base + 48), p6);
-                    }
-                }
-            }
+            #[cfg(target_arch = "x86_64")]
+            phase1_simd(gp, acc_mem, block_buf_ref, bcnt, boff, k0 as u32);
+            #[cfg(not(target_arch = "x86_64"))]
+            phase1_scalar(gp, acc_mem, block_buf_ref, bcnt, boff, k0 as u32);
+            // ---- 2. A-major 累积（SUB=2 提升 gp L1 驻留）----
+            #[cfg(target_arch = "x86_64")]
+            phase2_simd(pack, gp, block_buf_ref, counts_ref, offs_ref, n, k0 as u32);
+            #[cfg(not(target_arch = "x86_64"))]
+            phase2_scalar(pack, gp, block_buf_ref, counts_ref, offs_ref, n, k0 as u32);
         });
     }
     // ---- 日末刷入 S[m][a][b]（并行; 每 tile 只写第 b 列, 列互不相交）----
@@ -1166,4 +1523,80 @@ pub fn compute_matrices(stocks: &[StockPrep]) -> (Vec<Vec<f32>>, Vec<StockStats>
         }
     });
     (mats, stats)
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 逐位一致性验证：phase1/phase2 的 SIMD 版与标量回退版必须产生完全相同的位模式。
+    /// （x86_64 上同时编译两版对比；其他架构标量版即生产路径）
+    #[test]
+    fn scalar_fallback_bitwise_identical() {
+        // 合成数据：3 只股票 × 每只 50 个桶单元（覆盖 9 个 u 场、± 通道、稀疏/密集桶）
+        let mut rng_state: u64 = 0x9E3779B97F4A7C15;
+        let mut next = move || {
+            rng_state ^= rng_state << 13;
+            rng_state ^= rng_state >> 7;
+            rng_state ^= rng_state << 17;
+            ((rng_state >> 32) as f64 / u32::MAX as f64) as f32
+        };
+        let n_stocks = 3usize;
+        let mut block_buf: Vec<(u32, [f32; N_U])> = Vec::new();
+        let mut counts = vec![0usize; n_stocks];
+        let mut offs = vec![0usize; n_stocks + 1];
+        let mut c = 0usize;
+        for s in 0..n_stocks {
+            offs[s] = c;
+            for j in 0..50usize {
+                let mut u9 = [0.0f32; N_U];
+                for f in 0..N_U {
+                    u9[f] = next() * 100.0;
+                }
+                // 桶号递增有序（块内跨 2000 桶，覆盖空桶跳过路径）
+                block_buf.push((2000 + s as u32 * 500 + j as u32, u9));
+                c += 1;
+            }
+            counts[s] = 50;
+        }
+        offs[n_stocks] = c;
+
+        for _round in 0..5 {
+            let k0r = (next() * 1500.0) as u32; // k0 < 全部桶号 → 无下溢
+            // 随机预热 acc / pack / gp（模拟跨块持久状态）
+            let mut g1: Vec<f32> = (0..BLOCK_BUCKETS * GP_STRIDE).map(|_| next() * 10.0).collect();
+            let mut a1: Vec<f32> = (0..56).map(|_| next() * 10.0).collect();
+            let mut p1: Vec<f32> = (0..n_stocks * PACK_W).map(|_| next() * 10.0).collect();
+            let (g2, a2, p2) = (g1.clone(), a1.clone(), p1.clone());
+
+            #[cfg(target_arch = "x86_64")]
+            {
+                phase1_simd(&mut g1, &mut a1, &block_buf, counts[0], offs[0], k0r);
+                phase2_simd(&mut p1, &g1, &block_buf, &counts, &offs, n_stocks, k0r);
+            }
+            let mut g2m = g2;
+            let mut a2m = a2;
+            let mut p2m = p2;
+            phase1_scalar(&mut g2m, &mut a2m, &block_buf, counts[0], offs[0], k0r);
+            phase2_scalar(&mut p2m, &g2m, &block_buf, &counts, &offs, n_stocks, k0r);
+
+            #[cfg(target_arch = "x86_64")]
+            {
+                assert_eq!(a1, a2m, "phase1 acc 不一致 round={} k0={}", _round, k0r);
+                assert_eq!(g1, g2m, "phase1 gp 不一致 round={} k0={}", _round, k0r);
+                assert_eq!(p1, p2m, "phase2 pack 不一致 round={} k0={}", _round, k0r);
+            }
+            // 非 x86_64：无 SIMD 对照，仅验证标量版自身可重复（确定性）
+            #[cfg(not(target_arch = "x86_64"))]
+            {
+                let mut g3 = g2m.clone();
+                let mut a3 = a2m.clone();
+                let mut p3 = p2m.clone();
+                phase1_scalar(&mut g3, &mut a3, &block_buf, counts[0], offs[0], k0r);
+                phase2_scalar(&mut p3, &g3, &block_buf, &counts, &offs, n_stocks, k0r);
+                assert_eq!(a2m, a3, "标量版不确定 round={} k0={}", _round, k0r);
+                assert_eq!(g2m, g3, "标量版不确定 round={} k0={}", _round, k0r);
+                assert_eq!(p2m, p3, "标量版不确定 round={} k0={}", _round, k0r);
+            }
+        }
+    }
 }
