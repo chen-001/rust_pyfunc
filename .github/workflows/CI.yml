@@ -100,7 +100,7 @@ jobs:
             rustflags: -C target-cpu=x86-64-v3
           - runner: windows-latest
             target: x86
-            rustflags: -C target-cpu=i686
+            rustflags: -C target-cpu=pentium4
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
