@@ -28,8 +28,10 @@ jobs:
         platform:
           - runner: ubuntu-latest
             target: x86_64
+            rustflags: -C target-cpu=x86-64-v3
           - runner: ubuntu-latest
             target: aarch64
+            rustflags: -C target-cpu=generic
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -38,6 +40,11 @@ jobs:
           python-version: 3.x
       - name: Build wheels
         uses: PyO3/maturin-action@v1
+        env:
+          # 覆盖 .cargo/config.toml 的 target-cpu=native：wheel 必须用可移植指令集
+          # 基线（构建机与 import-test 机 CPU 可能不同；native 会引入 AVX-512 等
+          # 专属指令，在低配 runner 上导入时 Illegal instruction 崩溃）
+          RUSTFLAGS: ${{ matrix.platform.rustflags }}
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --find-interpreter --no-default-features
@@ -90,8 +97,10 @@ jobs:
         platform:
           - runner: windows-latest
             target: x64
+            rustflags: -C target-cpu=x86-64-v3
           - runner: windows-latest
             target: x86
+            rustflags: -C target-cpu=i686
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -101,6 +110,9 @@ jobs:
           architecture: ${{ matrix.platform.target }}
       - name: Build wheels
         uses: PyO3/maturin-action@v1
+        env:
+          # 覆盖 .cargo/config.toml 的 target-cpu=native（同上：可移植指令集基线）
+          RUSTFLAGS: ${{ matrix.platform.rustflags }}
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --find-interpreter
@@ -119,8 +131,10 @@ jobs:
         platform:
           - runner: macos-15
             target: x86_64
+            rustflags: -C target-cpu=x86-64-v3
           - runner: macos-14
             target: aarch64
+            rustflags: -C target-cpu=generic
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -129,6 +143,9 @@ jobs:
           python-version: 3.x
       - name: Build wheels
         uses: PyO3/maturin-action@v1
+        env:
+          # 覆盖 .cargo/config.toml 的 target-cpu=native（可移植指令集基线）
+          RUSTFLAGS: ${{ matrix.platform.rustflags }}
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --find-interpreter
