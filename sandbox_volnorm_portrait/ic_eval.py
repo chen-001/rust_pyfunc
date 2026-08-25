@@ -1,7 +1,12 @@
-"""想法B 沙箱因子 IC 评估:5 日全市场 Spearman rank-IC + 基线对照 + 正交残差 IC。
+"""想法B 沙箱因子 IC 评估:4 日全市场 Spearman rank-IC + 基线对照 + 正交残差 IC。
+
+收益口径(重要):close=read_daily(close=1) 复权收盘;gap1=close.shift(-1)/close-1(第D行=D→D+1 前瞻1日收益),
+gap5=close.shift(-5)/close-1;因子日 D 与 gap1/gap5 的 D 行对齐。
+注意:read_daily(ret=1) 的第 D 行是当日收益(D-1→D),不是前瞻,禁止用于预测力评估。
+20260717 的 gap1/gap5 为 NaN(无次日数据),该日自动剔除 → 4 个可评估日。
 
 输入:sandbox_volnorm_portrait/data/out_{date}.json(Rust 产物,120 列)
-      read_daily(ret=1) 次日收益;amounts.parquet 日成交额;day_/hm20_ CSV 算放量比
+      amounts.parquet 日成交额;day_/hm20_ CSV 算放量比
 输出:控制台汇总表 + data/ic_summary.json
 """
 import json
