@@ -1,4 +1,10 @@
-"""方向D逐股退火特征 + 方向C/B时刻级特征的 IC 评估(switch_anneal 探索)"""
+"""方向D逐股退火特征 + 方向C/B时刻级特征的 IC 评估(switch_anneal 探索)
+
+【口径警告】本文件的收益对齐用的是 read_daily(ret=1) 按行对齐 —— 该函数
+第 D 行是"当日收益"(D-1收→D收), 不是前瞻收益! 本文件的 IC 数字含前视偏差,
+仅用于结构/面板分析, 收益 IC 一律以 analyze_switch_anneal3.py(close.shift(-k))
+的正口径为准。成交额相关与特征面板相关不受影响。
+"""
 import json
 import numpy as np
 import pandas as pd
