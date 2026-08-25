@@ -15,7 +15,9 @@ DATES = [20240104, 20240603, 20241008, 20260105, 20260717]
 MIN_N = 100
 
 from pure_ocean_breeze.jason.data.read_data import read_daily
-r1 = read_daily(ret=1)
+close = read_daily(close=1)  # 复权收盘价,行=交易日
+gap1 = close.shift(-1) / close - 1  # 第 D 行 = D→D+1 前瞻1日收益(正确口径)
+gap5 = close.shift(-5) / close - 1  # 第 D 行 = D→D+5 前瞻5日收益
 amt = pd.read_parquet("/home/chenzongwei/database/daily_data/amounts.parquet")
 
 def to_ts(d):
@@ -35,7 +37,8 @@ for d in DATES:
     vr = np.nansum(day.values[:, :237], axis=1) / np.nansum(hm.values[:, :237], axis=1)
     f["_volratio"] = pd.Series(vr, index=day.index).reindex(f.index)
     ts = to_ts(d)
-    f["_ret"] = r1.loc[ts].reindex([c + ".SZ" for c in f.index]).values
+    f["_ret"] = gap1.loc[ts].reindex([c + ".SZ" for c in f.index]).values
+    f["_ret5"] = gap5.loc[ts].reindex([c + ".SZ" for c in f.index]).values
     f["_logamt"] = np.log(amt.loc[ts].reindex([c + ".SZ" for c in f.index]).values + 1.0)
     frames[d] = f
 

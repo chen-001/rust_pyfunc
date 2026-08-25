@@ -8,7 +8,9 @@ BASE = "/home/chenzongwei/rust_pyfunc/sandbox_volnorm_portrait/data"
 DATES = [20240104, 20240603, 20241008, 20260105, 20260717]
 MIN_N = 100
 from pure_ocean_breeze.jason.data.read_data import read_daily
-r1 = read_daily(ret=1)
+close = read_daily(close=1)  # 复权收盘价,行=交易日
+gap1 = close.shift(-1) / close - 1  # 第 D 行 = D→D+1 前瞻1日收益(正确口径)
+gap5 = close.shift(-5) / close - 1  # 第 D 行 = D→D+5 前瞻5日收益
 amt = pd.read_parquet("/home/chenzongwei/database/daily_data/amounts.parquet")
 
 def to_ts(d):
@@ -24,7 +26,8 @@ for d in DATES:
     vr = np.nansum(day.values[:, :237], axis=1) / np.nansum(hm.values[:, :237], axis=1)
     f["_volratio"] = pd.Series(vr, index=day.index).reindex(f.index)
     ts = to_ts(d)
-    f["_ret"] = r1.loc[ts].reindex([c + ".SZ" for c in f.index]).values
+    f["_ret"] = gap1.loc[ts].reindex([c + ".SZ" for c in f.index]).values
+    f["_ret5"] = gap5.loc[ts].reindex([c + ".SZ" for c in f.index]).values
     f["_logamt"] = np.log(amt.loc[ts].reindex([c + ".SZ" for c in f.index]).values + 1.0)
     frames[d] = f
 
@@ -134,3 +137,33 @@ for fac in KEYS[:7]:
     sd = np.mean([s[1] for s in stats])
     md = np.mean([s[2] for s in stats])
     print(f"{fac:26s} n={n:.0f} std={sd:.4f} median={md:.4f}")
+
+print("\n=== 口径对照:同日收益(旧,错误) vs 前瞻1日(gap1) vs 前瞻5日(gap5) ===")
+same_day = close / close.shift(1) - 1  # read_daily(ret=1) 的实现:第D行=D日收益
+for fac in ["1m-DevA-N20-int-cor", "1m-DevV-N20-int-cor", "1m-DevA-N10-int-cor",
+            "sm-DevA-N20-int-cor", "10s-DevA-N20-int-cor", "1m-V-N20-int-cor",
+            "price-V-N20-lin-cor", "price-V-N20-int-cor", "1m-V-N20-int-dev",
+            "_volratio", "_logamt"]:
+    rows = []
+    for port in ["_same", "_ret", "_ret5"]:
+        ics = []
+        for d in DATES:
+            f = frames[d]
+            if port == "_same":
+                pv = same_day.loc[to_ts(d)].reindex([c + ".SZ" for c in f.index]).values
+            else:
+                pv = f[port]
+            m = np.isfinite(f[fac]) & np.isfinite(pv)
+            if m.sum() >= MIN_N:
+                # f 和 pv 需要同 index:直接用 frames 里的股票序列
+                pv_ser = pd.Series(pv, index=f.index)
+                rho, _ = spearmanr(f.loc[m, fac], pv_ser.loc[m])
+                if np.isfinite(rho):
+                    ics.append(rho)
+        if ics:
+            a = np.array(ics)
+            icir = a.mean() / (a.std(ddof=1) if len(a) > 1 and a.std(ddof=1) > 0 else np.nan)
+            rows.append(f"{a.mean():+.4f}({icir:+.2f}) pos={int((a>0).sum())}/{len(a)}")
+        else:
+            rows.append("n/a")
+    print(f"{fac:26s} 同日:{rows[0]:>22s} | 前瞻1日:{rows[1]:>22s} | 前瞻5日:{rows[2]:>22s}")
