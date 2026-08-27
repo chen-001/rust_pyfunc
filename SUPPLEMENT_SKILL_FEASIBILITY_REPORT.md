@@ -1,5 +1,8 @@
 # 补充因子流程（Multica 建议 → 补充计算/回测 → 回复/合并）可行性分析报告
 
+> ⚠️ 本报告已滞后（写于当日早期）：文中“注册整批补充”“样本不足返回 blocker”“POST 脚本编译通过”等描述与当前代码不一致。
+> 最新状态与待办以 `SUPPLEMENT_SKILL_HANDOFF.md` 为准（同目录）。
+
 日期：2026-08-27
 范围：`rust-pipeline-*` / `cross-section-pipeline` / `multica` skills、`rust_pyfunc` colblk 存储、`design_whatever.tail_pipeline_engine`、Multica API、`research_ext_ideas` 与 `sandbox_yhyb_topcap` 实际案例。
 

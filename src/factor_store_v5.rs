@@ -2968,36 +2968,26 @@ pub fn factor_store_v5_copy_subset(
         }
     }
 
-    let reader = FactorStoreReader::open(&src_dir).map_err(pyerr)?;
-    let name_to_idx: HashMap<&str, usize> = reader
-        .factor_names()
-        .iter()
-        .enumerate()
-        .map(|(i, n)| (n.as_str(), i))
-        .collect();
-    let missing: Vec<&String> = factor_names
-        .iter()
-        .filter(|n| !name_to_idx.contains_key(n.as_str()))
-        .collect();
-    if !missing.is_empty() {
-        return Err(pyo3::exceptions::PyValueError::new_err(format!(
-            "factor_store_v5_copy_subset: {} 个请求因子不在 src store 中，前 20 个: {:?}",
-            missing.len(),
-            missing.iter().take(20).collect::<Vec<_>>()
-        )));
-    }
-    let (dates, stocks_bare) = reader.template_axes();
-
-    // 逐因子读稠密矩阵（NaN = 缺失）
-    let mut matrices: Vec<ndarray::Array2<f32>> = Vec::with_capacity(factor_names.len());
-    for name in &factor_names {
-        let idx = name_to_idx[name.as_str()];
-        matrices.push(
-            reader
-                .read_factor_to_matrix(idx, &dates, &stocks_bare)
-                .map_err(|e| format!("读取因子 {name} 失败: {e}"))
-                .map_err(pyerr)?,
-        );
+    // 名字校验（保持 ValueError 语义供 Python 侧断言）
+    {
+        let reader = FactorStoreReader::open(&src_dir).map_err(pyerr)?;
+        let name_to_idx: HashMap<&str, usize> = reader
+            .factor_names()
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (n.as_str(), i))
+            .collect();
+        let missing: Vec<&String> = factor_names
+            .iter()
+            .filter(|n| !name_to_idx.contains_key(n.as_str()))
+            .collect();
+        if !missing.is_empty() {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "factor_store_v5_copy_subset: {} 个请求因子不在 src store 中，前 20 个: {:?}",
+                missing.len(),
+                missing.iter().take(20).collect::<Vec<_>>()
+            )));
+        }
     }
 
     // 原子交付：写临时目录，成功后 rename。中途失败清理临时目录，dst 不留残片。
@@ -3007,37 +2997,7 @@ pub fn factor_store_v5_copy_subset(
         std::fs::remove_dir_all(&tmp_path)
             .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("清理旧临时目录失败: {e}")))?;
     }
-    let write_result: Result<(), String> = (|| {
-        let mut writer = FactorStoreWriter::open(&tmp_dir, &factor_names)?;
-        // 稀疏写入：只写至少一个因子有限值的 (date, code) 格点。
-        for (di, &d) in dates.iter().enumerate() {
-            let mut batch: Vec<TaskResult> = Vec::with_capacity(stocks_bare.len());
-            for (si, code) in stocks_bare.iter().enumerate() {
-                let mut facs: Vec<f32> = Vec::with_capacity(factor_names.len());
-                let mut any_finite = false;
-                for m in &matrices {
-                    let v = m[[di, si]];
-                    any_finite |= v.is_finite();
-                    facs.push(v);
-                }
-                if !any_finite {
-                    continue;
-                }
-                batch.push(TaskResult {
-                    date: d as i64,
-                    code: code.clone(),
-                    timestamp: 0,
-                    facs,
-                });
-            }
-            if !batch.is_empty() {
-                writer.append_batch(&batch)?;
-            }
-        }
-        writer.finish_and_project(0)?;
-        Ok(())
-    })();
-    if let Err(e) = write_result {
+    if let Err(e) = copy_subset_write(&src_dir, &tmp_dir, &factor_names) {
         let _ = std::fs::remove_dir_all(&tmp_path);
         return Err(pyerr(format!(
             "factor_store_v5_copy_subset 写入失败（临时目录已清理）: {e}"
@@ -3056,6 +3016,118 @@ pub fn factor_store_v5_copy_subset(
         dict.set_item("factor_names", reader2.factor_names().to_vec())?;
         Ok(dict.into())
     })
+}
+
+/// copy_subset 的写盘核心（供 pyfunction 包装与单元测试复用）。
+/// 前提（调用方已校验）：factor_names 非空且全部存在于 src；dst 目录可安全重建。
+/// 写入语义：
+/// - 稀疏写入：只写至少一个因子有限值的 (date, code) 格点；
+/// - 模板轴继承：src 中全 NaN 的日期/股票补全 NaN 占位行（读矩阵语义不变），
+///   保证 dst 的 dates/codes 字典与 src 完全一致（register_group 的轴校验依赖它）。
+pub fn copy_subset_write(
+    src_dir: &str,
+    dst_dir: &str,
+    factor_names: &[String],
+) -> Result<(), String> {
+    let reader = FactorStoreReader::open(src_dir)?;
+    let name_to_idx: HashMap<&str, usize> = reader
+        .factor_names()
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (n.as_str(), i))
+        .collect();
+    let mut col_indices: Vec<usize> = Vec::with_capacity(factor_names.len());
+    for name in factor_names {
+        let idx = *name_to_idx
+            .get(name.as_str())
+            .ok_or_else(|| format!("因子 {name} 不在 src store 中"))?;
+        col_indices.push(idx);
+    }
+    let (dates, stocks_bare) = reader.template_axes();
+    if dates.is_empty() || stocks_bare.is_empty() {
+        return Err("src 模板轴为空，无法复制".to_string());
+    }
+
+    // 逐因子读稠密矩阵（NaN = 缺失）
+    let mut matrices: Vec<ndarray::Array2<f32>> = Vec::with_capacity(factor_names.len());
+    for (name, idx) in factor_names.iter().zip(col_indices.iter()) {
+        matrices.push(
+            reader
+                .read_factor_to_matrix(*idx, &dates, &stocks_bare)
+                .map_err(|e| format!("读取因子 {name} 失败: {e}"))?,
+        );
+    }
+
+    let mut writer = FactorStoreWriter::open(dst_dir, factor_names)?;
+    let nan_facs = vec![f32::NAN; factor_names.len()];
+    let mut written_dates: HashSet<i32> = HashSet::new();
+    let mut written_codes: HashSet<String> = HashSet::new();
+    // 稀疏写入：只写至少一个因子有限值的格点。
+    for (di, &d) in dates.iter().enumerate() {
+        let mut batch: Vec<TaskResult> = Vec::with_capacity(stocks_bare.len());
+        for (si, code) in stocks_bare.iter().enumerate() {
+            let mut facs: Vec<f32> = Vec::with_capacity(factor_names.len());
+            let mut any_finite = false;
+            for m in &matrices {
+                let v = m[[di, si]];
+                any_finite |= v.is_finite();
+                facs.push(v);
+            }
+            if !any_finite {
+                continue;
+            }
+            written_dates.insert(d);
+            written_codes.insert(code.clone());
+            batch.push(TaskResult {
+                date: d as i64,
+                code: code.clone(),
+                timestamp: 0,
+                facs,
+            });
+        }
+        if !batch.is_empty() {
+            writer.append_batch(&batch)?;
+        }
+    }
+    // 模板轴继承：全 NaN 的股票/日期补占位行。
+    // 1) 缺失股票：挂在任一已有日期上（anchor 日期随之进入字典）。
+    let anchor_date: i32 = *written_dates
+        .iter()
+        .next()
+        .or_else(|| dates.first())
+        .ok_or("src 模板日期为空，无法复制")?;
+    let mut missing_codes: Vec<TaskResult> = Vec::new();
+    for code in &stocks_bare {
+        if !written_codes.contains(code) {
+            missing_codes.push(TaskResult {
+                date: anchor_date as i64,
+                code: code.clone(),
+                timestamp: 0,
+                facs: nan_facs.clone(),
+            });
+        }
+    }
+    if !missing_codes.is_empty() {
+        written_dates.insert(anchor_date);
+        writer.append_batch(&missing_codes)?;
+    }
+    // 2) 缺失日期：挂在任一已有股票上（stocks_bare[0] 经上一步必已在字典中）。
+    let mut missing_dates: Vec<TaskResult> = Vec::new();
+    for &d in &dates {
+        if !written_dates.contains(&d) {
+            missing_dates.push(TaskResult {
+                date: d as i64,
+                code: stocks_bare[0].clone(),
+                timestamp: 0,
+                facs: nan_facs.clone(),
+            });
+        }
+    }
+    if !missing_dates.is_empty() {
+        writer.append_batch(&missing_dates)?;
+    }
+    writer.finish_and_project(0)?;
+    Ok(())
 }
 
 /// 从 colblk 存储推断回测模板轴：返回去重排序的 dates（int 数组）和 stocks（带 .SZ/.SH 后缀）。
@@ -3946,3 +4018,68 @@ pub fn factor_store_v5_verify_scatter_fast(
     }
     Ok((max_diff, t_old, t_new))
 }
+
+    /// 模板轴继承：src 中某股票/某日期在全部被复制因子上都是 NaN 时，
+    /// 稀疏写入会跳过它们——copy_subset_write 必须补 NaN 占位行，
+    /// 否则 dst 字典缺轴、register_group 的严格轴校验会拒绝 accepted group。
+    #[test]
+    fn copy_subset_inherits_template_axes() {
+        let dir = std::env::temp_dir().join(format!(
+            "copy_subset_axes_test_{}",
+            std::process::id()
+        ));
+        let src = dir.join("src");
+        let dst_stock = dir.join("dst_stock");
+        let dst_date = dir.join("dst_date");
+        let _ = std::fs::remove_dir_all(&dir);
+        let names: Vec<String> = vec!["f0".to_string(), "f1".to_string(), "f2".to_string()];
+        let dates = [20230103i64, 20230104];
+        let codes = ["000001", "000002", "000003"];
+        let mut results: Vec<TaskResult> = Vec::new();
+        for &d in &dates {
+            for (ci, &c) in codes.iter().enumerate() {
+                let base = ci as f32 * 10.0 + if d == 20230103 { 0.0 } else { 1.0 };
+                let f0 = base;
+                let f1 = if c == "000002" { f32::NAN } else { base + 2.0 }; // 股票 000002 全程 NaN
+                let f2 = if d == 20230104 { f32::NAN } else { base + 4.0 }; // 日期 20230104 全程 NaN
+                results.push(TaskResult {
+                    date: d,
+                    code: c.to_string(),
+                    timestamp: 0,
+                    facs: vec![f0, f1, f2],
+                });
+            }
+        }
+        let mut w = FactorStoreWriter::open(src.to_str().unwrap(), &names).unwrap();
+        w.append_batch(&results).unwrap();
+        w.finish_and_project(0).unwrap();
+        let src_axes = FactorStoreReader::open(src.to_str().unwrap())
+            .unwrap()
+            .template_axes();
+
+        // 只复制 f1：股票 000002 全 NaN → 必须靠占位行继承股票轴
+        copy_subset_write(
+            src.to_str().unwrap(),
+            dst_stock.to_str().unwrap(),
+            &["f1".to_string()],
+        )
+        .unwrap();
+        let dst_stock_axes = FactorStoreReader::open(dst_stock.to_str().unwrap())
+            .unwrap()
+            .template_axes();
+        assert_eq!(src_axes, dst_stock_axes, "全 NaN 股票的轴必须继承");
+
+        // 只复制 f2：日期 20230104 全 NaN → 必须靠占位行继承日期轴
+        copy_subset_write(
+            src.to_str().unwrap(),
+            dst_date.to_str().unwrap(),
+            &["f2".to_string()],
+        )
+        .unwrap();
+        let dst_date_axes = FactorStoreReader::open(dst_date.to_str().unwrap())
+            .unwrap()
+            .template_axes();
+        assert_eq!(src_axes, dst_date_axes, "全 NaN 日期的轴必须继承");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }

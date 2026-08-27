@@ -2948,6 +2948,17 @@ fn run_multiprocess_cross_section(
                         }
                     }
                 }
+                // 收尾闭环：每个 pending 日期都必须有一个非空成功结果。
+                // 空 batch（worker Error/IPC 错误/空 universe）不写不标记，此前会静默变成
+                // "完成全部日期"——现在统一报错，绝不把缺日期当成成功。
+                // 因子作者若想表达"该日无数据"，应输出全 universe 的 NaN 行而不是空 batch。
+                if done < total {
+                    let _ = writer_err_tx.send(format!(
+                        "横截面计算收尾失败: 成功写入 {done}/{total} 个日期，                         其余 {}/{} 个日期为空结果或 worker 失败（未标记完成）",
+                        total - done,
+                        total
+                    ));
+                }
             })
         };
 

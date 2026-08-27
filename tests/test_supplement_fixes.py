@@ -234,61 +234,81 @@ def test_pairwise_corr_n_obs():
     supp = root / "supp"
     rng = np.random.default_rng(3)
 
-    # ---- 初版：3 个入选因子，B3 是唯一"纯 neu_IC 入选"（下限 = 0.02） ----
+    # ---- 初版：5 个入选因子 ----
+    # B1/B2/B5 全程有效（neu_ret 通道）；B4 只有 50 个有效日（稀疏初版因子）；
+    # B3 是唯一"纯 neu_IC 入选"（下限 = abs(b3.mean()) ≈ 0.02）。
     _write_synthetic_cache(base, metrics_only=False)
     dates = np.load(base / "meta" / "dates.npy")
-    b1 = 0.08 + rng.normal(0, 0.01, 100)          # abs_IC 0.08
+    u = rng.normal(0, 1, 100)
+    w = rng.normal(0, 1, 100)
+    b1 = 0.08 + 0.01 * u / u.std()                          # abs_IC 0.08
     b2 = 0.03 + rng.normal(0, 0.005, 100)
     b3 = 0.02 + rng.normal(0, 0.003, 100)
-    np.save(base / "ic_ts" / "ic_neu_gap5.npy", np.stack([b1, b2, b3], axis=1))
+    b4 = np.full(100, np.nan)                               # 稀疏：仅前 50 天
+    b4[:50] = 0.09 + rng.normal(0, 0.01, 50)
+    b5 = 0.085 + 0.01 * w / w.std()                         # abs_IC 0.085
+    np.save(base / "ic_ts" / "ic_neu_gap5.npy", np.stack([b1, b2, b3, b4, b5], axis=1))
     np.save(base / "ic_ts" / "ic_neu_gap5_dates.npy", dates)
     (base / "ic_ts" / "ic_neu_gap5_names.json").write_text(
-        json.dumps(["B1", "B2", "B3"]), encoding="utf-8"
+        json.dumps(["B1", "B2", "B3", "B4", "B5"]), encoding="utf-8"
     )
     base_summary = [
         {"factor_name": n, "stage": "neu", "IC_mean": float(v), "ratio_mean": 0.99,
          "hedge_annualized_return": 0.3, "source_factor": n}
-        for n, v in (("B1", b1.mean()), ("B2", b2.mean()), ("B3", b3.mean()))
+        for n, v in (("B1", b1.mean()), ("B2", b2.mean()), ("B3", b3.mean()),
+                     ("B4", 0.09), ("B5", b5.mean()))
     ]
     (base / "metrics" / "summary_neu_gap5_candidates.json").write_text(
         json.dumps(base_summary), encoding="utf-8"
     )
-    audit = pd.DataFrame(
-        [
-            {"factor_name": "B1", "gap": 5, "channel": "neu_ret", "also_neu_ret": True,
-             "is_pure_neu_ic": False, "abs_IC_mean": abs(b1.mean()),
-             "IC_mean": b1.mean(), "hedge_annualized_return": 0.3, "ratio_mean": 0.99},
-            {"factor_name": "B2", "gap": 5, "channel": "neu_ret_ic_more", "also_neu_ret": True,
-             "is_pure_neu_ic": False, "abs_IC_mean": abs(b2.mean()),
-             "IC_mean": b2.mean(), "hedge_annualized_return": 0.3, "ratio_mean": 0.99},
-            {"factor_name": "B3", "gap": 5, "channel": "neu_ic", "also_neu_ret": False,
-             "is_pure_neu_ic": True, "abs_IC_mean": abs(b3.mean()),
-             "IC_mean": b3.mean(), "hedge_annualized_return": 0.3, "ratio_mean": 0.99},
-        ]
+    audit_rows = []
+    for n, ic in (("B1", b1.mean()), ("B2", b2.mean()), ("B4", 0.09), ("B5", b5.mean())):
+        audit_rows.append(
+            {"factor_name": n, "gap": 5, "channel": "neu_ret", "also_neu_ret": True,
+             "is_pure_neu_ic": False, "abs_IC_mean": abs(ic),
+             "IC_mean": ic, "hedge_annualized_return": 0.3, "ratio_mean": 0.99}
+        )
+    audit_rows.append(
+        {"factor_name": "B3", "gap": 5, "channel": "neu_ic", "also_neu_ret": False,
+         "is_pure_neu_ic": True, "abs_IC_mean": abs(b3.mean()),
+         "IC_mean": b3.mean(), "hedge_annualized_return": 0.3, "ratio_mean": 0.99}
     )
-    audit.to_parquet(base / "selected" / "selection_audit.parquet", index=False)
-    pd.DataFrame({"factor_name": ["B1", "B2", "B3"]}).to_parquet(
+    pd.DataFrame(audit_rows).to_parquet(
+        base / "selected" / "selection_audit.parquet", index=False
+    )
+    pd.DataFrame({"factor_name": ["B1", "B2", "B3", "B4", "B5"]}).to_parquet(
         base / "selected" / "gap5_selected.parquet", index=False
     )
 
-    # ---- 补充：S1 只有 40 个有效样本（不足 60 不得阻挡）、S2/S3 各 100/80 个样本 ----
+    # ---- 补充：6 个场景 ----
+    # S1: 自身 100 天有效，仅与稀疏 B4 共享 50 天（pair 样本不足不阻挡 → 通过）
+    # S2: 与 B1 完全相同 → 被 B1 阻挡（n=100）
+    # S3: 与 B1 高相关且 80 个有效日 → 被 B1 阻挡（n=80）
+    # S4: 低于 IC 下限 → 不过第一关
+    # S5: 自身只有 40 个有效日 → insufficient_ic_history
+    # S6: 同时与 B1(corr≈0.6) 和 B5(corr≈0.8) 高相关 → 阻挡因子应为 B5（更高相关）
     _write_synthetic_cache(supp, metrics_only=True)
     s1 = np.full(100, np.nan)
-    s1[:40] = b1[:40] + rng.normal(0, 0.002, 40)   # 高相关但样本不足
-    s2 = b1.copy()                                  # 与 B1 完全相同
+    s1[:50] = b4[:50] + rng.normal(0, 0.001, 50)   # 与 B4 仅共享 50 天
+    s1[50:] = rng.normal(0, 0.01, 50)              # 后半段独立噪声（自身样本充足）
+    s2 = b1.copy()
     s3 = np.full(100, np.nan)
-    s3[:80] = b1[:80] + rng.normal(0, 0.001, 80)    # 高相关且样本足
-    s4 = 0.01 + rng.normal(0, 0.001, 100)           # 低于下限
-    supp_mat = np.stack([s1, s2, s3, s4], axis=1)
+    s3[:80] = b1[:80] + rng.normal(0, 0.001, 80)
+    s4 = 0.01 + rng.normal(0, 0.001, 100)
+    s5 = np.full(100, np.nan)
+    s5[:40] = 0.05 + rng.normal(0, 0.002, 40)      # 自身仅 40 个有效日
+    s6 = 0.6 * u / u.std() + 0.8 * w / w.std() + rng.normal(0, 0.02, 100)
+    supp_mat = np.stack([s1, s2, s3, s4, s5, s6], axis=1)
     np.save(supp / "ic_ts" / "ic_neu_gap5_all.npy", supp_mat)
     np.save(supp / "ic_ts" / "ic_neu_gap5_all_dates.npy", dates)
     (supp / "ic_ts" / "ic_neu_gap5_all_names.json").write_text(
-        json.dumps(["S1", "S2", "S3", "S4"]), encoding="utf-8"
+        json.dumps(["S1", "S2", "S3", "S4", "S5", "S6"]), encoding="utf-8"
     )
     supp_summary = [
         {"factor_name": n, "stage": "neu", "source_factor": n, "IC_mean": float(v),
          "ratio_mean": 0.99, "preflight_passed": True}
-        for n, v in (("S1", 0.05), ("S2", 0.05), ("S3", 0.05), ("S4", 0.01))
+        for n, v in (("S1", 0.05), ("S2", 0.05), ("S3", 0.05),
+                     ("S4", 0.01), ("S5", 0.05), ("S6", 0.05))
     ]
     (supp / "metrics" / "summary_neu_gap5_all.json").write_text(
         json.dumps(supp_summary), encoding="utf-8"
@@ -299,19 +319,33 @@ def test_pairwise_corr_n_obs():
         base_temp_root=str(base), supplement_temp_root=str(supp),
         selection_kwargs=None,
         min_corr_obs=60,
-        expected_supplement_names=["S1", "S2", "S3", "S4"],
+        min_ic_obs=60,
+        expected_supplement_names=["S1", "S2", "S3", "S4", "S5", "S6"],
     )
     by = {r.source_factor: r for r in result.itertuples(index=False)}
     assert meta["ic_floor"] == pytest.approx(abs(b3.mean()), abs=1e-9)
-    assert by["S1"].worth_supplementing is True, "样本不足 60 不得产生阻挡结论"
+    # S1：自身样本充足、与 B4 的 pair 样本只有 50 < 60 → 不阻挡 → 通过
+    assert by["S1"].worth_supplementing is True, "pair 样本不足 60 不得产生阻挡结论"
+    assert by["S1"].ic_n_obs == 100
+    # S2：被 B1 阻挡，阻挡对样本数 100
     assert by["S2"].worth_supplementing is False
     assert by["S2"].blocker == "high_corr_higher_ic"
     assert by["S2"].blocker_factor == "B1"
     assert by["S2"].corr_n_obs == 100, "阻挡对的 corr_n_obs 必须是 pairwise 有效点数"
+    # S3：80 个样本
     assert by["S3"].corr_n_obs == 80
     assert by["S3"].worth_supplementing is False
+    # S4：不过 IC 下限
     assert by["S4"].passes_ic_floor is False
     assert by["S4"].worth_supplementing is False
+    # S5：自身 IC 历史不足 60 → insufficient_ic_history
+    assert by["S5"].blocker == "insufficient_ic_history"
+    assert by["S5"].ic_n_obs == 40
+    assert by["S5"].worth_supplementing is False
+    # S6：两个阻挡因子（B1 corr≈0.6、B5 corr≈0.8）→ 必须取相关性更高的 B5
+    assert by["S6"].blocker == "high_corr_higher_ic"
+    assert by["S6"].blocker_factor == "B5", "必须选相关性更高的阻挡因子"
+    assert by["S6"].worth_supplementing is False
 
     # 外部 selection_kwargs 与基线 config 不一致 → 直接报错
     with pytest.raises(ValueError, match="不一致"):
