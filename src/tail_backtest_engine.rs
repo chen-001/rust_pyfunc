@@ -77,6 +77,7 @@ fn parse_col_idx(factor_path: &str) -> Option<usize> {
     majority_count_threshold,
     zero_max_threshold,
     nan_max_threshold,
+    save_all_metrics=false,
     industry_neutralize=true,
     industry_matrix=None,
 ))]
@@ -115,6 +116,7 @@ pub fn tail_backtest_engine<'py>(
     majority_count_threshold: f64,
     zero_max_threshold: f64,
     nan_max_threshold: f64,
+    save_all_metrics: bool,
     industry_neutralize: bool,
     industry_matrix: Option<numpy::PyReadonlyArray2<'py, f64>>,
 ) -> PyResult<PyObject> {
@@ -134,7 +136,8 @@ pub fn tail_backtest_engine<'py>(
         .as_array()
         .to_owned();
 
-    let output = py.allow_threads(|| -> Result<(usize, usize, HashMap<String, usize>), String> {
+    let output = py.allow_threads(
+        || -> Result<(usize, usize, HashMap<String, usize>, HashMap<String, (f64, f64)>), String> {
         let started = Instant::now();
         let cache_root_path = PathBuf::from(&cache_root);
         let task_results_dir = cache_root_path.join("task_results");
@@ -151,6 +154,7 @@ pub fn tail_backtest_engine<'py>(
             ic_point_gap5, ic_point_gap1,
             ic_more_important_gap5, ic_more_important_gap1,
             majority_count_threshold, zero_max_threshold, nan_max_threshold,
+            save_all_metrics,
         );
         let shared = build_shared_inputs(
             dates, stocks, windows, fold, min_valid, backtest_start,
@@ -166,6 +170,7 @@ pub fn tail_backtest_engine<'py>(
         // ---- 断点续算：恢复已完成因子 ----
         let mut aggregated = AggregatedCandidates::default();
         let mut completed_sources = HashSet::<String>::new();
+        let mut prefill_coverage = HashMap::<String, (f64, f64)>::new();
         let mut stats = ProcessStats::default();
         for (source_factor, _factor_path) in factor_names.iter().zip(factor_paths.iter()) {
             let result_path = factor_result_path(&task_results_dir, source_factor);
@@ -197,6 +202,13 @@ pub fn tail_backtest_engine<'py>(
                     stats.preflight_maj_windows += task_result.preflight_maj_failed_windows;
                     stats.preflight_zero_windows += task_result.preflight_zero_failed_windows;
                     stats.preflight_nan_windows += task_result.preflight_nan_failed_windows;
+                    prefill_coverage.insert(
+                        source_factor.clone(),
+                        (
+                            task_result.raw_cover_before_fill,
+                            task_result.raw_cover_after_fill,
+                        ),
+                    );
                     aggregated.merge_task(task_result);
                     completed_sources.insert(source_factor.clone());
                 }
@@ -284,13 +296,20 @@ pub fn tail_backtest_engine<'py>(
                 let stocks_arc = shared_clone.stocks.clone();
                 handles.push(thread::spawn(move || {
                     while let Ok(task) = rx.recv() {
-                        // 1. 解析 col_idx
+                        // 1. 解析 col_idx（失败 = 硬错误：带因子名返回，绝不静默跳过）
                         let col_idx = match parse_col_idx(&task.factor_path) {
                             Some(v) => v,
-                            None => continue,
+                            None => {
+                                let _ = tx.send(Err((
+                                    task.source_factor.clone(),
+                                    format!("解析 col_idx 失败（factor_path 缺少 ::col_idx）: {}", task.factor_path),
+                                )));
+                                break;
+                            }
                         };
 
                         // 2. 快速读因子（scatter_map 优化，共享 Reader）
+                        // 读取失败 = 硬错误：带因子名返回，绝不静默遗漏（否则 processed+restored < requested）。
                         let raw_values = match reader.read_factor_to_matrix_fast(
                             col_idx,
                             dates_arc.as_slice(),
@@ -298,7 +317,13 @@ pub fn tail_backtest_engine<'py>(
                             &scatter_maps,
                         ) {
                             Ok(m) => m,
-                            Err(_) => continue,
+                            Err(e) => {
+                                let _ = tx.send(Err((
+                                    task.source_factor.clone(),
+                                    format!("读取因子失败（col_idx={col_idx}）: {e}"),
+                                )));
+                                break;
+                            }
                         };
 
                         // 3. 完整计算流水线（rank_roll → preflight → backtest → neutralize → backtest）
@@ -329,6 +354,13 @@ pub fn tail_backtest_engine<'py>(
                     let preflight_nan = task_result.preflight_nan_failed_windows;
                     write_task_result(&result_path, &task_result)?;
                     append_completed_source(&completed_log_path, &task_result.source_factor)?;
+                    prefill_coverage.insert(
+                        task_result.source_factor.clone(),
+                        (
+                            task_result.raw_cover_before_fill,
+                            task_result.raw_cover_after_fill,
+                        ),
+                    );
                     aggregated.merge_task(task_result);
                     processed_sources += 1;
                     processed_count.store(processed_sources, AtomicOrdering::Relaxed);
@@ -405,6 +437,16 @@ pub fn tail_backtest_engine<'py>(
             let _ = handle.join();
         }
 
+        // P0-1 读取闭环断言：走到这里时（没有收到过 Err 结果），每个因子要么被恢复、
+        // 要么被成功处理。两者之和必须等于请求总数，否则说明存在静默遗漏
+        // （例如 worker panic / 结果 channel 提前关闭），必须报错而不是产出残缺结果。
+        let requested = factor_names.len();
+        if processed_sources + restored_sources != requested {
+            return Err(format!(
+                "读取/处理闭环不完整: requested={requested}, processed={processed_sources}, restored={restored_sources}"
+            ));
+        }
+
         write_aggregated_outputs(&cache_root_path, &aggregated)?;
 
         let mut candidate_counts = HashMap::new();
@@ -412,8 +454,14 @@ pub fn tail_backtest_engine<'py>(
         candidate_counts.insert("rolled_gap5".to_string(), aggregated.raw_summary_gap5.len());
         candidate_counts.insert("neu_gap1".to_string(), aggregated.neu_summary_gap1.len());
         candidate_counts.insert("neu_gap5".to_string(), aggregated.neu_summary_gap5.len());
-        Ok((processed_sources, restored_sources, candidate_counts))
-    }).map_err(PyRuntimeError::new_err)?;
+        Ok((
+            processed_sources,
+            restored_sources,
+            candidate_counts,
+            prefill_coverage,
+        ))
+    })
+    .map_err(PyRuntimeError::new_err)?;
 
     let info = PyDict::new(py);
     info.set_item("processed_sources", output.0)?;
@@ -423,5 +471,13 @@ pub fn tail_backtest_engine<'py>(
         candidate_counts.set_item(key, value)?;
     }
     info.set_item("candidate_counts", candidate_counts)?;
+    let prefill_dict = PyDict::new(py);
+    for (source, (before, after)) in &output.3 {
+        let pair = PyDict::new(py);
+        pair.set_item("raw_cover_before_fill", before)?;
+        pair.set_item("raw_cover_after_fill", after)?;
+        prefill_dict.set_item(source, pair)?;
+    }
+    info.set_item("prefill_coverage", prefill_dict)?;
     Ok(info.into())
 }

@@ -796,6 +796,20 @@ def factor_store_v5_info(store_dir: str) -> dict:
         factor_count: int   因子数
         is_projected: bool  是否已投影
         factor_names: List[str]
+        groups: dict        group_name -> {dir, factor_offset, factor_count}
+    """
+    ...
+
+
+def factor_store_v5_register_group(
+    store_dir: str,
+    group_name: str,
+    group_dir: str,
+) -> dict:
+    """把已投影的独立 group 注册进组合 store。
+
+    校验 group 可读、已投影、因子名无重复、dates/stocks 模板轴与已有组合一致；
+    失败自动回滚 factor_groups.json。
     """
     ...
 
@@ -820,6 +834,20 @@ def factor_store_v5_template(store_dir: str) -> dict:
     返回 dict:
         dates:  NDArray[np.int32]   去重排序后的日期
         stocks: List[str]           去重排序后的股票代码（带 .SZ/.SH 后缀）
+    """
+    ...
+
+
+def factor_store_v5_copy_subset(
+    src_dir: str,
+    dst_dir: str,
+    factor_names: List[str],
+) -> dict:
+    """把 src store 中指定因子子集复制成新的独立 store（含投影）。
+
+    用途：补充因子判定后把"值得补充"的因子整理成 accepted group。
+    src 必须是 group 子目录；请求因子名必须全部存在；dst 必须不存在或为空目录。
+    返回 dst 的 info dict（factor_count / is_projected / factor_names）。
     """
     ...
 

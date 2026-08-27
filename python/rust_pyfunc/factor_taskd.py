@@ -383,6 +383,7 @@ def cancel_task(task_id: int):
 
     # 终止进程
     pid_from_db = row["pid"] if row and row["pid"] else 0
+    script_path = row["script_path"] if row else ""
     with _active_pids_lock:
         proc = _active_processes.get(task_id)
         if proc:
@@ -398,6 +399,11 @@ def cancel_task(task_id: int):
             except (ProcessLookupError, PermissionError):
                 pass
         elif pid_from_db > 0:
+            # 防 PID 复用误杀：daemon 重启过之后 DB 里的 pid 可能已被系统上其他进程复用，
+            # 此时 killpg 会误杀无辜进程（本类服务历史上被信号杀掉的潜在元凶之一）。
+            # kill 前先核对 /proc/<pid>/cmdline 确实是本任务的脚本；不是则不动它。
+            if script_path and not _pid_belongs_to_script(pid_from_db, script_path):
+                return {"status": "cancelled", "warn": "taskd 重启后 pid 已被复用，未发送信号"}
             try:
                 pgid = os.getpgid(pid_from_db)
                 os.killpg(pgid, signal.SIGTERM)
@@ -602,6 +608,21 @@ def _read_progress(
         }
     except OSError:
         return None
+
+
+def _pid_belongs_to_script(pid: int, script_path: str) -> bool:
+    """核对 pid 对应的进程命令行中确实包含任务脚本路径。
+
+    用于 cancel_task 的 DB pid 回退分支：daemon 重启后内存表为空，
+    只能凭 DB 里持久化的 pid 找进程；若该 pid 已被操作系统复用于
+    其他进程，直接 killpg 会误杀无辜进程。核验不通过即视为不可信。
+    """
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            cmdline = f.read().replace(b"\x00", b" ").decode(errors="replace")
+        return script_path in cmdline
+    except OSError:
+        return False
 
 
 def _is_process_active(task_id: int) -> bool:

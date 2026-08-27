@@ -347,6 +347,10 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     let _ = m.add_function(wrap_pyfunction!(factor_store_v5::factor_store_v5_open, m)?);
     let _ = m.add_function(wrap_pyfunction!(factor_store_v5::factor_store_v5_info, m)?);
     let _ = m.add_function(wrap_pyfunction!(
+        factor_store_v5::factor_store_v5_register_group,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
         factor_store_v5::factor_store_v5_read_factor,
         m
     )?);
@@ -380,6 +384,10 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?);
     let _ = m.add_function(wrap_pyfunction!(
         factor_store_v5::factor_store_v5_decompress_inplace,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        factor_store_v5::factor_store_v5_copy_subset,
         m
     )?);
     let _ = m.add_function(wrap_pyfunction!(

@@ -572,11 +572,13 @@ impl FactorStoreWriter {
     ) -> Result<Self, String> {
         let store_dir = colblk_path.parent().unwrap().to_path_buf();
         let (dict, _projected_flag) = FactorDict::read_idx(&store_dir)?;
-        if dict.factor_names.len() != expected_factor_names.len() {
+        if dict.factor_names != *expected_factor_names {
             return Err(format!(
-                "断点续算因子数不匹配: idx={}, 期望={}",
+                "断点续算因子名不匹配: idx 有 {} 个因子，期望 {} 个因子。\n                 现有前 5 个: {:?}\n                 期望前 5 个: {:?}\n                 补充因子必须写入新的 group 子目录，不能直接追加到已有初版 store。",
                 dict.factor_names.len(),
-                expected_factor_names.len()
+                expected_factor_names.len(),
+                &dict.factor_names.iter().take(5).collect::<Vec<_>>(),
+                &expected_factor_names.iter().take(5).collect::<Vec<_>>(),
             ));
         }
         let factor_count = dict.factor_names.len();
@@ -688,6 +690,20 @@ impl FactorStoreWriter {
         if results.is_empty() {
             return Ok(());
         }
+
+        // 严格长度校验：每条结果的因子数必须恰好等于注册因子数。
+        // 必须在删除旧投影之前执行：输入非法时不能破坏已有投影。
+        let factor_count_early = self.factor_count;
+        for (idx, r) in results.iter().enumerate() {
+            if r.facs.len() != factor_count_early {
+                return Err(format!(
+                    "append_batch 第 {idx} 条任务结果因子数不匹配: got={}, expected={}",
+                    r.facs.len(),
+                    factor_count_early
+                ));
+            }
+        }
+
         // 已投影后允许追加：自动降级为未投影（删 factors.proj + 重置投影标志 + 回写 header）。
         // 投影数据在独立 factors.proj（colblk 已被 truncate 到 chunk 区末尾），删除即恢复可追加；
         // 追加完成后调用方需重新 finish_and_project 全量重投影。
@@ -754,11 +770,7 @@ impl FactorStoreWriter {
         // 因子值：列优先（先因子0的 n 个值，再因子1…）。
         for f_idx in 0..factor_count {
             for r in results {
-                let v = if r.facs.len() > f_idx {
-                    r.facs[f_idx] // 已是 f32
-                } else {
-                    f32::NAN
-                };
+                let v = r.facs[f_idx]; // 长度已严格校验
                 body.extend_from_slice(&v.to_le_bytes());
             }
         }
@@ -1796,31 +1808,62 @@ impl SingleStoreReader {
 
 /// 列式因子存储读取器（回测侧）。
 ///
-/// 支持两种布局：
+/// 支持三种布局：
 /// - **扁平**：`store_dir/{factors.colblk, factors.idx}`
 /// - **分片**：`store_dir/shard_*/{factors.colblk, factors.idx}`。
 ///   `run_factor_pipeline` 默认按 `n_shards=8` 写分片，对应 8 盘 LVM 条带并行，
 ///   按 `date % n_shards` 路由——分片间 date 互斥，同一单元格不会落在两个分片。
+/// - **组合 store**：`store_dir/factor_groups.json` 声明多个 factor group。
+///   每个 group 是一个独立的扁平/分片 store（初版因子和补充因子各是一个 group），
+///   Reader 按 manifest 顺序把它们拼成一个全局因子名空间。
 ///
 /// 回测侧统一入口：先 `open`，再对每个原始因子调 `read_factor_to_matrix`，
 /// 得到 `Array2<f32>`（n_dates × n_stocks）喂给 tail 的 process_task。
-/// 分片模式下自动跨分片合并：所有分片共享相同的 factor_names / col_idx 语义。
-pub struct FactorStoreReader {
-    store_dir: PathBuf,
-    /// 所有分片（扁平存储就是单个分片）
+/// 分片模式下自动跨分片合并：同一 group 内所有分片共享相同的 factor_names / col_idx 语义。
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+struct FactorStoreGroupManifest {
+    #[serde(default = "default_factor_group_manifest_version")]
+    version: u32,
+    groups: Vec<FactorStoreGroupEntry>,
+}
+
+fn default_factor_group_manifest_version() -> u32 {
+    1
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+struct FactorStoreGroupEntry {
+    name: String,
+    /// 相对 store_dir 的子目录；`"."` 表示 store_dir 自身（兼容已有初版 store）。
+    dir: String,
+}
+
+struct FactorStoreGroup {
+    name: String,
+    dir: String,
+    /// 全局因子名空间中的起始列号（含）。
+    factor_offset: usize,
+    factor_count: usize,
+    /// group 内的分片（扁平 store 就是单个分片）。
     stores: Vec<SingleStoreReader>,
 }
 
+pub struct FactorStoreReader {
+    store_dir: PathBuf,
+    groups: Vec<FactorStoreGroup>,
+    /// 全局因子名 = 各 group 因子名按 manifest 顺序拼接。
+    factor_names: Vec<String>,
+}
+
 impl FactorStoreReader {
-    /// 打开存储。自动识别扁平 vs 分片布局：
-    /// - 存在 `shard_0/factors.idx` → 分片模式，收集全部 `shard_i`
-    /// - 否则 → 扁平模式，整目录当单分片读
-    pub fn open(store_dir: &str) -> Result<Self, String> {
-        let root = PathBuf::from(store_dir);
-        // 分片布局：检测 shard_0 子目录（写入端固定从 shard_0 起）
-        if root.join("shard_0").join("factors.idx").exists() {
+    /// 打开一个 group 目录，自动识别扁平 vs 分片布局。
+    /// 返回该 group 的所有分片，并校验所有分片因子名完全一致。
+    fn open_group_stores(group_dir: &Path) -> Result<Vec<SingleStoreReader>, String> {
+        let mut stores = Vec::new();
+        if group_dir.join("shard_0").join("factors.idx").exists() {
             let mut shard_dirs: Vec<(usize, PathBuf)> = Vec::new();
-            let entries = std::fs::read_dir(&root).map_err(|e| format!("读取存储目录失败: {e}"))?;
+            let entries =
+                std::fs::read_dir(group_dir).map_err(|e| format!("读取存储目录失败: {e}"))?;
             for entry in entries {
                 let entry = entry.map_err(|e| format!("遍历目录项失败: {e}"))?;
                 let name = entry.file_name();
@@ -1835,41 +1878,152 @@ impl FactorStoreReader {
                 }
             }
             if shard_dirs.is_empty() {
-                return Err(format!("存储目录无有效分片: {store_dir:?}"));
+                return Err(format!("存储目录无有效分片: {group_dir:?}"));
             }
-            // 按 shard 编号升序，保证跨分片读取顺序稳定
             shard_dirs.sort_by_key(|(i, _)| *i);
-            let mut stores = Vec::with_capacity(shard_dirs.len());
             for (_, p) in shard_dirs {
                 stores.push(SingleStoreReader::open_dir(&p)?);
             }
-            return Ok(Self {
-                store_dir: root,
+        } else {
+            stores.push(SingleStoreReader::open_dir(group_dir)?);
+        }
+
+        if stores.is_empty() {
+            return Err(format!("存储目录无有效分片: {group_dir:?}"));
+        }
+        let first_names = stores[0].dict.factor_names.clone();
+        for store in &stores {
+            if store.dict.factor_names != first_names {
+                return Err(format!(
+                    "同一 group 内分片因子名不一致: {group_dir:?}"
+                ));
+            }
+        }
+        Ok(stores)
+    }
+
+    /// 打开存储。识别 manifest 组合布局；无 manifest 时保持旧的单 group 行为。
+    pub fn open(store_dir: &str) -> Result<Self, String> {
+        let root = PathBuf::from(store_dir);
+        let manifest_path = root.join("factor_groups.json");
+
+        let manifest_entries: Vec<FactorStoreGroupEntry> = if manifest_path.exists() {
+            let text = std::fs::read_to_string(&manifest_path)
+                .map_err(|e| format!("读取 factor_groups.json 失败: {e}"))?;
+            let manifest: FactorStoreGroupManifest = serde_json::from_str(&text)
+                .map_err(|e| format!("解析 factor_groups.json 失败: {e}"))?;
+            if manifest.version != default_factor_group_manifest_version() {
+                return Err(format!(
+                    "factor_groups.json 版本 {} 不受支持（期望 {}）",
+                    manifest.version,
+                    default_factor_group_manifest_version()
+                ));
+            }
+            if manifest.groups.is_empty() {
+                return Err("factor_groups.json 的 groups 不能为空".to_string());
+            }
+            manifest.groups
+        } else {
+            vec![FactorStoreGroupEntry {
+                name: "base".to_string(),
+                dir: ".".to_string(),
+            }]
+        };
+
+        let mut groups: Vec<FactorStoreGroup> = Vec::with_capacity(manifest_entries.len());
+        let mut factor_names: Vec<String> = Vec::new();
+        let mut seen = std::collections::HashSet::<String>::new();
+        let mut offset = 0usize;
+
+        for entry in manifest_entries {
+            if entry.name.trim().is_empty() {
+                return Err("factor_groups.json 存在空 group name".to_string());
+            }
+            let group_dir = if entry.dir == "." {
+                root.clone()
+            } else {
+                if entry.dir.is_empty() {
+                    return Err(format!("group {} 的 dir 不能为空", entry.name));
+                }
+                root.join(&entry.dir)
+            };
+            let stores = Self::open_group_stores(&group_dir)?;
+            let names = stores[0].dict.factor_names.clone();
+            for name in &names {
+                if !seen.insert(name.clone()) {
+                    return Err(format!(
+                        "组合 store 因子名重复: {name}（group {} 与已有 group 冲突）",
+                        entry.name
+                    ));
+                }
+            }
+            factor_names.extend(names.iter().cloned());
+            groups.push(FactorStoreGroup {
+                name: entry.name,
+                dir: entry.dir,
+                factor_offset: offset,
+                factor_count: names.len(),
                 stores,
             });
+            offset += names.len();
         }
-        // 扁平布局
-        let store = SingleStoreReader::open_dir(&root)?;
+
+        if factor_names.is_empty() {
+            return Err("组合 store 没有任何因子".to_string());
+        }
+
         Ok(Self {
             store_dir: root,
-            stores: vec![store],
+            groups,
+            factor_names,
         })
     }
 
-    /// 返回因子名列表（所有分片一致，取第 0 个）
+    /// 全局因子列号 → (group index, group 内列号)。
+    fn resolve_factor(&self, col_idx: usize) -> Result<(usize, usize), String> {
+        for (group_idx, group) in self.groups.iter().enumerate() {
+            if col_idx >= group.factor_offset
+                && col_idx < group.factor_offset + group.factor_count
+            {
+                return Ok((group_idx, col_idx - group.factor_offset));
+            }
+        }
+        Err(format!(
+            "col_idx {col_idx} 超出范围（共 {} 个因子）",
+            self.factor_names.len()
+        ))
+    }
+
+    /// 返回全局因子名列表（各 group 按 manifest 顺序拼接）。
     pub fn factor_names(&self) -> &[String] {
-        &self.stores[0].dict.factor_names
+        &self.factor_names
     }
 
-    /// 返回已投影状态（所有分片都已投影才算完成）
+    /// 返回 manifest 中的 group 名列表（无 manifest 时为 ["base"]）。
+    pub fn group_names(&self) -> Vec<String> {
+        self.groups.iter().map(|g| g.name.clone()).collect()
+    }
+
+    /// 返回所有 group 的 (name, dir, factor_offset, factor_count)。
+    pub fn group_layout(&self) -> Vec<(String, String, usize, usize)> {
+        self.groups
+            .iter()
+            .map(|g| (g.name.clone(), g.dir.clone(), g.factor_offset, g.factor_count))
+            .collect()
+    }
+
+    /// 返回已投影状态（所有 group 的所有分片都已投影才算完成）。
     pub fn is_projected(&self) -> bool {
-        !self.stores.is_empty() && self.stores.iter().all(|s| s.is_projected())
+        !self.groups.is_empty()
+            && self
+                .groups
+                .iter()
+                .all(|g| g.stores.iter().all(|s| s.is_projected()))
     }
 
-    /// 读取第 col_idx 个因子，pivot 成 (n_dates × n_stocks) 矩阵。
+    /// 读取第 col_idx 个因子（全局列号），pivot 成 (n_dates × n_stocks) 矩阵。
     /// template_dates / template_stocks 决定输出矩阵的行列轴。
-    /// 分片模式下跨分片合并：初始化为 NaN，逐分片填有效单元格
-    /// （分片间 date 互斥，同一单元格不会被两个分片写入）。
+    /// 组合 store 下，其他 group 没有该因子，其单元格保持 NaN。
     pub fn read_factor_to_matrix(
         &self,
         col_idx: usize,
@@ -1880,6 +2034,7 @@ impl FactorStoreReader {
             (template_dates.len(), template_stocks.len()),
             f32::NAN,
         );
+        let (group_idx, local_col_idx) = self.resolve_factor(col_idx)?;
 
         // 构建 date / code → 模板位置映射
         let date_pos: HashMap<i64, usize> = template_dates
@@ -1897,15 +2052,15 @@ impl FactorStoreReader {
             })
             .collect();
 
-        for store in &self.stores {
-            store.read_factor_into(col_idx, &date_pos, &stock_pos, &mut output);
+        for store in &self.groups[group_idx].stores {
+            store.read_factor_into(local_col_idx, &date_pos, &stock_pos, &mut output);
         }
         Ok(output)
     }
 
-    /// 预计算 scatter 映射：对每个分片的 dict，建立 date_id→output_row 和 code_id→output_col
-    /// 的直接索引数组。调用方在 IO 线程循环外调用一次，之后所有因子复用。
-    /// 消除 read_factor_into 中每行的 4 次随机内存访问（2 dict Vec + 2 HashMap）。
+    /// 预计算 scatter 映射：对每个 group 的每个分片，建立 date_id→output_row 和
+    /// code_id→output_col 的直接索引数组。返回顺序与 groups → stores 的遍历顺序一致，
+    /// read_factor_to_matrix_fast 按相同顺序切片使用。
     pub fn precompute_scatter_maps(
         &self,
         template_dates: &[i32],
@@ -1925,9 +2080,9 @@ impl FactorStoreReader {
             })
             .collect();
 
-        self.stores
-            .iter()
-            .map(|store| {
+        let mut maps = Vec::new();
+        for group in &self.groups {
+            for store in &group.stores {
                 let date_id_to_row: Vec<usize> = (0..store.dict.dates.len())
                     .map(|d_id| {
                         let date = store.dict.dates[d_id];
@@ -1940,9 +2095,10 @@ impl FactorStoreReader {
                         stock_pos.get(code).copied().unwrap_or(usize::MAX)
                     })
                     .collect();
-                (date_id_to_row, code_id_to_col)
-            })
-            .collect()
+                maps.push((date_id_to_row, code_id_to_col));
+            }
+        }
+        maps
     }
 
     /// 使用预计算 scatter 映射快速读因子。与 read_factor_to_matrix 逻辑完全一致，
@@ -1958,16 +2114,35 @@ impl FactorStoreReader {
             (template_dates.len(), template_stocks.len()),
             f32::NAN,
         );
-        for (store, (date_id_to_row, code_id_to_col)) in self.stores.iter().zip(scatter_maps.iter())
-        {
-            store.read_factor_into_fast(col_idx, date_id_to_row, code_id_to_col, &mut output);
+        let (group_idx, local_col_idx) = self.resolve_factor(col_idx)?;
+        let mut map_offset = 0usize;
+        for (idx, group) in self.groups.iter().enumerate() {
+            if idx == group_idx {
+                let end = map_offset + group.stores.len();
+                if end > scatter_maps.len() {
+                    return Err("scatter_maps 数量与 store 分片数不一致".to_string());
+                }
+                for (store, (date_id_to_row, code_id_to_col)) in group
+                    .stores
+                    .iter()
+                    .zip(scatter_maps[map_offset..end].iter())
+                {
+                    store.read_factor_into_fast(
+                        local_col_idx,
+                        date_id_to_row,
+                        code_id_to_col,
+                        &mut output,
+                    );
+                }
+                return Ok(output);
+            }
+            map_offset += group.stores.len();
         }
-        Ok(output)
+        Err(format!("col_idx {col_idx} 超出范围"))
     }
 
     /// v6 在线转置入口：批量读连续因子 col_idx_batch 到一组矩阵（绕过投影区）。
-    /// 调用方需保证 col_idx_batch 连续升序（按 col_idx 排序分批），以高效顺序读 chunk 内因子段。
-    /// 跨分片合并：分片间 date 互斥，同一单元格不会被两个分片写入，可安全累加。
+    /// 单 group 时保留原有连续顺序读优化；组合 store 逐因子读（投影路径）。
     pub fn read_factors_batch_to_matrices(
         &self,
         col_idx_batch: &[usize],
@@ -1978,6 +2153,15 @@ impl FactorStoreReader {
         if n_factors == 0 {
             return Ok(Vec::new());
         }
+        if self.groups.len() > 1 {
+            let mut outputs = Vec::with_capacity(n_factors);
+            for &col_idx in col_idx_batch {
+                outputs.push(self.read_factor_to_matrix(col_idx, template_dates, template_stocks)?);
+            }
+            return Ok(outputs);
+        }
+
+        let stores = &self.groups[0].stores;
         let mut outputs: Vec<ndarray::Array2<f32>> = (0..n_factors)
             .map(|_| {
                 ndarray::Array2::from_elem((template_dates.len(), template_stocks.len()), f32::NAN)
@@ -1997,7 +2181,7 @@ impl FactorStoreReader {
             })
             .collect();
         let col_idx_min = col_idx_batch[0];
-        for store in &self.stores {
+        for store in stores {
             store.read_factors_batch_contiguous(
                 col_idx_min,
                 n_factors,
@@ -2014,7 +2198,7 @@ impl FactorStoreReader {
     }
 
     /// V7 批量顺序 pread：读连续因子 [col_start, col_end) 的投影区 value 段 → 转置到矩阵。
-    /// 一次顺序 pread 替代逐因子随机 pread，消除 HDD 寻道。跨分片合并（date 互斥）。
+    /// 单 group 时保留一次顺序 pread；组合 store 逐因子读（正确性优先）。
     pub fn read_factors_batch_v7(
         &self,
         col_start: usize,
@@ -2026,6 +2210,15 @@ impl FactorStoreReader {
         if n_factors == 0 {
             return Ok(Vec::new());
         }
+        if self.groups.len() > 1 {
+            let mut outputs = Vec::with_capacity(n_factors);
+            for col_idx in col_start..col_end {
+                outputs.push(self.read_factor_to_matrix(col_idx, template_dates, template_stocks)?);
+            }
+            return Ok(outputs);
+        }
+
+        let stores = &self.groups[0].stores;
         let mut outputs: Vec<ndarray::Array2<f32>> = (0..n_factors)
             .map(|_| {
                 ndarray::Array2::from_elem((template_dates.len(), template_stocks.len()), f32::NAN)
@@ -2044,7 +2237,7 @@ impl FactorStoreReader {
                 (bare, i)
             })
             .collect();
-        for store in &self.stores {
+        for store in stores {
             if !store.is_projected() {
                 continue;
             }
@@ -2086,6 +2279,7 @@ impl FactorStoreReader {
     }
 
     /// V7 批量顺序 pread 的快速版：用预计算 scatter 映射替代每行 HashMap 查找。
+    /// 单 group 时保留原批量逻辑；组合 store 逐因子读（正确性优先）。
     pub fn read_factors_batch_v7_fast(
         &self,
         col_start: usize,
@@ -2098,13 +2292,26 @@ impl FactorStoreReader {
         if n_factors == 0 {
             return Ok(Vec::new());
         }
+        if self.groups.len() > 1 {
+            let mut outputs = Vec::with_capacity(n_factors);
+            for col_idx in col_start..col_end {
+                outputs.push(self.read_factor_to_matrix_fast(
+                    col_idx,
+                    template_dates,
+                    template_stocks,
+                    scatter_maps,
+                )?);
+            }
+            return Ok(outputs);
+        }
+
+        let stores = &self.groups[0].stores;
         let mut outputs: Vec<ndarray::Array2<f32>> = (0..n_factors)
             .map(|_| {
                 ndarray::Array2::from_elem((template_dates.len(), template_stocks.len()), f32::NAN)
             })
             .collect();
-        for (store, (date_id_to_row, code_id_to_col)) in self.stores.iter().zip(scatter_maps.iter())
-        {
+        for (store, (date_id_to_row, code_id_to_col)) in stores.iter().zip(scatter_maps.iter()) {
             if !store.is_projected() {
                 continue;
             }
@@ -2143,19 +2350,25 @@ impl FactorStoreReader {
         Ok(outputs)
     }
 
-    /// 返回记录总数（所有分片 record_count 之和）
+    /// 返回记录总数（所有 group 所有分片 record_count 之和）
     pub fn record_count(&self) -> u64 {
-        self.stores.iter().map(|s| s.hdr.record_count).sum()
+        self.groups
+            .iter()
+            .flat_map(|g| g.stores.iter())
+            .map(|s| s.hdr.record_count)
+            .sum()
     }
 
-    /// 返回模板轴：跨分片去重排序后的 dates（i32）和 stocks（裸代码，无交易所后缀）。
+    /// 返回模板轴：跨 group 跨分片去重排序后的 dates（i32）和 stocks（裸代码，无交易所后缀）。
     /// 供 Python 侧推断回测模板，替代 v4 的 pandas 读 parquet。
     pub fn template_axes(&self) -> (Vec<i32>, Vec<String>) {
         let mut dates: Vec<i32> = Vec::new();
         let mut stocks: Vec<String> = Vec::new();
-        for store in &self.stores {
-            dates.extend(store.dict.dates.iter().map(|&d| d as i32));
-            stocks.extend(store.dict.codes.iter().cloned());
+        for group in &self.groups {
+            for store in &group.stores {
+                dates.extend(store.dict.dates.iter().map(|&d| d as i32));
+                stocks.extend(store.dict.codes.iter().cloned());
+            }
         }
         dates.sort_unstable();
         dates.dedup();
@@ -2180,7 +2393,7 @@ pub fn factor_store_v5_open(store_dir: String, factor_names: Vec<String>) -> PyR
     Ok(())
 }
 
-/// 查询列式存储的元信息（因子名、记录数、是否已投影）
+/// 查询列式存储的元信息（因子名、记录数、是否已投影、group 布局）
 #[pyfunction]
 pub fn factor_store_v5_info(store_dir: String) -> PyResult<PyObject> {
     use pyo3::types::PyDict;
@@ -2191,6 +2404,210 @@ pub fn factor_store_v5_info(store_dir: String) -> PyResult<PyObject> {
         dict.set_item("factor_count", reader.factor_names().len())?;
         dict.set_item("is_projected", reader.is_projected())?;
         dict.set_item("factor_names", reader.factor_names().to_vec())?;
+        let groups = PyDict::new(py);
+        for (name, dir, offset, count) in reader.group_layout() {
+            let g = PyDict::new(py);
+            g.set_item("dir", dir)?;
+            g.set_item("factor_offset", offset)?;
+            g.set_item("factor_count", count)?;
+            groups.set_item(name, g)?;
+        }
+        dict.set_item("groups", groups)?;
+        Ok(dict.into())
+    })
+}
+
+/// 把一个已完成投影的独立 store 注册为组合 store 的一个 group。
+///
+/// 用于把补充因子与初版因子放进同一个系列目录：
+///   factor_store_<series>/                      # 系列根目录（初版 store 可能就在这里或 base group）
+///   ├── factor_groups.json                      # 本函数写入的组合清单
+///   ├── shard_0..7/...                          # group "." 初版因子
+///   └── supplement_<comment_id>/shard_0..7/...  # group 补充因子
+///
+/// 写入 manifest 后立刻用 FactorStoreReader::open 做全量校验：
+/// 任一 group 打不开、因子名重复、投影缺失都会报错，不会产生静默坏清单。
+#[pyfunction]
+#[pyo3(signature = (store_dir, group_name, group_dir))]
+pub fn factor_store_v5_register_group(
+    store_dir: String,
+    group_name: String,
+    group_dir: String,
+) -> PyResult<PyObject> {
+    use pyo3::types::PyDict;
+
+    let root = PathBuf::from(&store_dir);
+    std::fs::create_dir_all(&root)
+        .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("创建 store_dir 失败: {e}")))?;
+
+    let name = group_name.trim();
+    if name.is_empty() {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "group_name 不能为空",
+        ));
+    }
+    let rel = Path::new(&group_dir);
+    if rel.as_os_str().is_empty()
+        || rel.is_absolute()
+        || rel.components().any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "group_dir 必须是 store_dir 下的相对路径（不能为空/绝对路径/含 ..）: {group_dir}"
+        )));
+    }
+    let full_group_dir = root.join(rel);
+    if !full_group_dir.exists() {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "group_dir 不存在: {}",
+            full_group_dir.display()
+        )));
+    }
+    // 先打开 group 自身（校验 factor names / 分片一致），再写 manifest。
+    let group_stores = FactorStoreReader::open_group_stores(&full_group_dir).map_err(pyerr)?;
+    if !group_stores.iter().all(|s| s.is_projected()) {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "group {} 尚未投影，禁止注册进组合 store（先 finish_and_project）",
+            group_dir
+        )));
+    }
+
+    let manifest_path = root.join("factor_groups.json");
+
+    // 模板轴一致性：补充 group 的 dates/stocks 必须与已有组合完全一致，
+    // 防止日期漏算、股票模板漂移后“全量重跑看似成功但模板悄悄变化”。
+    let existing_axes = if manifest_path.exists() || root.join("shard_0").join("factors.idx").exists() || root.join("factors.idx").exists() {
+        Some(FactorStoreReader::open(&store_dir).map_err(pyerr)?.template_axes())
+    } else {
+        None
+    };
+    if let Some((existing_dates, existing_stocks)) = existing_axes {
+        let mut group_dates: Vec<i32> = group_stores
+            .iter()
+            .flat_map(|s| s.dict.dates.iter().map(|&d| d as i32))
+            .collect();
+        let mut group_stocks: Vec<String> = group_stores
+            .iter()
+            .flat_map(|s| s.dict.codes.iter().cloned())
+            .collect();
+        group_dates.sort_unstable();
+        group_dates.dedup();
+        group_stocks.sort();
+        group_stocks.dedup();
+        if group_dates != existing_dates || group_stocks != existing_stocks {
+            let missing_dates = existing_dates
+                .iter()
+                .filter(|d| !group_dates.contains(d))
+                .take(10)
+                .copied()
+                .collect::<Vec<_>>();
+            let extra_dates = group_dates
+                .iter()
+                .filter(|d| !existing_dates.contains(d))
+                .take(10)
+                .copied()
+                .collect::<Vec<_>>();
+            let missing_stocks = existing_stocks
+                .iter()
+                .filter(|s| !group_stocks.contains(s))
+                .take(10)
+                .cloned()
+                .collect::<Vec<_>>();
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "补充 group 模板轴与已有组合不一致: 已有 dates={} stocks={}, group dates={} stocks={}; 缺日期示例 {:?}, 多日期示例 {:?}, 缺股票示例 {:?}",
+                existing_dates.len(),
+                existing_stocks.len(),
+                group_dates.len(),
+                group_stocks.len(),
+                missing_dates,
+                extra_dates,
+                missing_stocks,
+            )));
+        }
+    }
+    let old_manifest: Option<String> = if manifest_path.exists() {
+        Some(
+            std::fs::read_to_string(&manifest_path)
+                .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?,
+        )
+    } else {
+        None
+    };
+
+    let mut entries: Vec<FactorStoreGroupEntry> = if let Some(ref old) = old_manifest {
+        let manifest: FactorStoreGroupManifest = serde_json::from_str(old).map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!("解析旧 factor_groups.json 失败: {e}"))
+        })?;
+        if manifest.version != default_factor_group_manifest_version() {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "旧 factor_groups.json 版本 {} 不受支持",
+                manifest.version
+            )));
+        }
+        manifest.groups
+    } else if root.join("shard_0").join("factors.idx").exists()
+        || root.join("factors.idx").exists()
+    {
+        vec![FactorStoreGroupEntry {
+            name: "base".to_string(),
+            dir: ".".to_string(),
+        }]
+    } else {
+        Vec::new()
+    };
+
+    // 同一 dir 重复注册 → 更新 name；同一 name 但不同 dir → 报错（避免信息漂移）。
+    let mut found = false;
+    for entry in &mut entries {
+        if entry.dir == group_dir {
+            entry.name = name.to_string();
+            found = true;
+        } else if entry.name == name {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "group_name {name} 已被 group_dir {} 使用",
+                entry.dir
+            )));
+        }
+    }
+    if !found {
+        entries.push(FactorStoreGroupEntry {
+            name: name.to_string(),
+            dir: group_dir.clone(),
+        });
+    }
+
+    let manifest = FactorStoreGroupManifest {
+        version: default_factor_group_manifest_version(),
+        groups: entries,
+    };
+    let new_text = serde_json::to_string_pretty(&manifest)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    let tmp_path = manifest_path.with_extension("json.tmp");
+    std::fs::write(&tmp_path, new_text.as_bytes())
+        .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+
+    if let Err(e) = (|| -> Result<(), String> {
+        std::fs::rename(&tmp_path, &manifest_path).map_err(|e| e.to_string())?;
+        FactorStoreReader::open(&store_dir).map(|_| ())
+    })() {
+        // 回滚：优先恢复旧 manifest，否则删除失败写入的 manifest。
+        let _ = std::fs::remove_file(&tmp_path);
+        if let Some(ref old) = old_manifest {
+            let _ = std::fs::write(&manifest_path, old.as_bytes());
+        } else {
+            let _ = std::fs::remove_file(&manifest_path);
+        }
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "注册 group 后组合 store 校验失败: {e}"
+        )));
+    }
+
+    let reader = FactorStoreReader::open(&store_dir).map_err(pyerr)?;
+    Python::with_gil(|py| {
+        let dict = PyDict::new(py);
+        dict.set_item("factor_count", reader.factor_names().len())?;
+        dict.set_item("is_projected", reader.is_projected())?;
+        dict.set_item("factor_names", reader.factor_names().to_vec())?;
+        dict.set_item("group_names", reader.group_names())?;
         Ok(dict.into())
     })
 }
@@ -2201,6 +2618,11 @@ pub fn factor_store_v5_info(store_dir: String) -> PyResult<PyObject> {
 #[pyfunction]
 pub fn factor_store_v5_decompress_inplace(store_dir: String) -> PyResult<()> {
     use std::io::{Read, Seek, SeekFrom, Write};
+    if std::path::Path::new(&store_dir).join("factor_groups.json").exists() {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "组合 store 根目录不支持 decompress_inplace；请对每个 group 子目录单独执行",
+        ));
+    }
     let colblk_path = std::path::Path::new(&store_dir).join("factors.colblk");
     let tmp_path = std::path::Path::new(&store_dir).join("factors.colblk.new");
 
@@ -2296,6 +2718,11 @@ pub fn factor_store_v5_decompress_inplace(store_dir: String) -> PyResult<()> {
 #[pyo3(signature = (store_dir, n_jobs=80))]
 pub fn factor_store_v5_project_v7(store_dir: String, n_jobs: usize) -> PyResult<()> {
     let store_path = std::path::Path::new(&store_dir);
+    if store_path.join("factor_groups.json").exists() {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "组合 store 根目录不支持直接 project_v7；补充 group 计算完成后已自动投影，             如需重投影请对每个 group 子目录单独执行 factor_store_v5_project_v7",
+        ));
+    }
     // 检测 sharded 布局：如果有 shard_0 子目录，从 shard_0 读因子名
     let factor_names: Vec<String> = if store_path.join("shard_0").join("factors.idx").exists() {
         // sharded：从 shard_0 读 idx
@@ -2323,6 +2750,11 @@ pub fn factor_store_v5_project_v7(store_dir: String, n_jobs: usize) -> PyResult<
 #[pyo3(signature = (store_dir, n_jobs=0))]
 pub fn factor_store_v5_project_only(store_dir: String, n_jobs: usize) -> PyResult<()> {
     let store_path = std::path::Path::new(&store_dir);
+    if store_path.join("factor_groups.json").exists() {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "组合 store 根目录不支持直接 project_only；请对每个 group 子目录单独执行",
+        ));
+    }
     // 检测 sharded 布局：从 shard_0 读因子名
     let factor_names: Vec<String> = if store_path.join("shard_0").join("factors.idx").exists() {
         let shard0 = store_path.join("shard_0");
@@ -2467,6 +2899,237 @@ pub fn factor_store_v5_read_factor(store_dir: String, col_idx: usize) -> PyResul
     })
 }
 
+/// 把 src store 中的指定因子子集复制成新的独立 store（含投影）。
+///
+/// 用途（补充因子 accepted group）：评估 store 保留整批因子，判定结束后把
+/// "值得补充"的因子复制进 accepted 目录，该目录因子名单与正式代码产出完全一致，
+/// 之后可作为正式 group 注册进组合 store 并支持增量更新。
+///
+/// 校验：src 必须是 group 子目录（不能是组合 store 根）；请求的因子名必须全部存在
+/// （缺失直接报错，不静默漏复制）；dst 必须不存在或为空目录（拒绝覆盖）；
+/// dst 不得已被所在组合 manifest 引用（防止与已注册 group 冲突）。
+///
+/// 写入语义：
+/// - 原子交付：先写 {dst_dir}.tmp_copy 临时目录，成功后 rename 到 dst_dir，
+///   中途失败自动清理临时目录，dst 不会留下残片（重试无需手动清理）。
+/// - 稀疏写入：只写 src 中"至少一个因子有限值"的 (date, code) 格点，
+///   dst 记录数 = src 有效格点集，不会按模板轴全叉积膨胀；
+///   全部因子都缺失的格点不产生记录（读取矩阵语义与 src 完全一致：NaN = 缺失）。
+/// 内存：一次性读入全部子集因子的稠密矩阵（dates×stocks×N×4B），
+/// 适合 N ≤ 数十个因子；N 大时内存占用高。
+#[pyfunction]
+#[pyo3(signature = (src_dir, dst_dir, factor_names))]
+pub fn factor_store_v5_copy_subset(
+    src_dir: String,
+    dst_dir: String,
+    factor_names: Vec<String>,
+) -> PyResult<PyObject> {
+    if std::path::Path::new(&src_dir)
+        .join("factor_groups.json")
+        .exists()
+    {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "factor_store_v5_copy_subset 不支持组合 store 根目录（存在 factor_groups.json），请指向 group 子目录",
+        ));
+    }
+    if factor_names.is_empty() {
+        return Err(pyo3::exceptions::PyValueError::new_err("factor_names 不能为空"));
+    }
+    let dst_path = PathBuf::from(&dst_dir);
+    if dst_path.exists()
+        && dst_path
+            .read_dir()
+            .map(|mut it| it.next().is_some())
+            .unwrap_or(true)
+    {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "dst_dir 已存在且非空，拒绝覆盖: {dst_dir}"
+        )));
+    }
+    // dst 不得已被所在组合 manifest 引用（防止覆盖已注册 group 的布局约定）。
+    if let (Some(parent), Some(dst_name)) = (dst_path.parent(), dst_path.file_name()) {
+        let manifest = parent.join("factor_groups.json");
+        if manifest.exists() {
+            let text = std::fs::read_to_string(&manifest)
+                .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+            let parsed: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
+                pyo3::exceptions::PyValueError::new_err(format!("解析组合 manifest 失败: {e}"))
+            })?;
+            if let Some(groups) = parsed.get("groups").and_then(|g| g.as_array()) {
+                let dst_name = dst_name.to_string_lossy();
+                for g in groups {
+                    if g.get("dir").and_then(|d| d.as_str()) == Some(dst_name.as_ref()) {
+                        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                            "dst_dir {dst_dir} 已被组合 manifest 注册，拒绝覆盖"
+                        )));
+                    }
+                }
+            }
+        }
+    }
+
+    // 名字校验（保持 ValueError 语义供 Python 侧断言）
+    {
+        let reader = FactorStoreReader::open(&src_dir).map_err(pyerr)?;
+        let name_to_idx: HashMap<&str, usize> = reader
+            .factor_names()
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (n.as_str(), i))
+            .collect();
+        let missing: Vec<&String> = factor_names
+            .iter()
+            .filter(|n| !name_to_idx.contains_key(n.as_str()))
+            .collect();
+        if !missing.is_empty() {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "factor_store_v5_copy_subset: {} 个请求因子不在 src store 中，前 20 个: {:?}",
+                missing.len(),
+                missing.iter().take(20).collect::<Vec<_>>()
+            )));
+        }
+    }
+
+    // 原子交付：写临时目录，成功后 rename。中途失败清理临时目录，dst 不留残片。
+    let tmp_dir = format!("{dst_dir}.tmp_copy");
+    let tmp_path = PathBuf::from(&tmp_dir);
+    if tmp_path.exists() {
+        std::fs::remove_dir_all(&tmp_path)
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("清理旧临时目录失败: {e}")))?;
+    }
+    if let Err(e) = copy_subset_write(&src_dir, &tmp_dir, &factor_names) {
+        let _ = std::fs::remove_dir_all(&tmp_path);
+        return Err(pyerr(format!(
+            "factor_store_v5_copy_subset 写入失败（临时目录已清理）: {e}"
+        )));
+    }
+    std::fs::rename(&tmp_path, &dst_path).map_err(|e| {
+        let _ = std::fs::remove_dir_all(&tmp_path);
+        pyo3::exceptions::PyIOError::new_err(format!("rename 临时目录失败: {e}"))
+    })?;
+
+    let reader2 = FactorStoreReader::open(&dst_dir).map_err(pyerr)?;
+    Python::with_gil(|py| {
+        let dict = pyo3::types::PyDict::new(py);
+        dict.set_item("factor_count", reader2.factor_names().len())?;
+        dict.set_item("is_projected", reader2.is_projected())?;
+        dict.set_item("factor_names", reader2.factor_names().to_vec())?;
+        Ok(dict.into())
+    })
+}
+
+/// copy_subset 的写盘核心（供 pyfunction 包装与单元测试复用）。
+/// 前提（调用方已校验）：factor_names 非空且全部存在于 src；dst 目录可安全重建。
+/// 写入语义：
+/// - 稀疏写入：只写至少一个因子有限值的 (date, code) 格点；
+/// - 模板轴继承：src 中全 NaN 的日期/股票补全 NaN 占位行（读矩阵语义不变），
+///   保证 dst 的 dates/codes 字典与 src 完全一致（register_group 的轴校验依赖它）。
+pub fn copy_subset_write(
+    src_dir: &str,
+    dst_dir: &str,
+    factor_names: &[String],
+) -> Result<(), String> {
+    let reader = FactorStoreReader::open(src_dir)?;
+    let name_to_idx: HashMap<&str, usize> = reader
+        .factor_names()
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (n.as_str(), i))
+        .collect();
+    let mut col_indices: Vec<usize> = Vec::with_capacity(factor_names.len());
+    for name in factor_names {
+        let idx = *name_to_idx
+            .get(name.as_str())
+            .ok_or_else(|| format!("因子 {name} 不在 src store 中"))?;
+        col_indices.push(idx);
+    }
+    let (dates, stocks_bare) = reader.template_axes();
+    if dates.is_empty() || stocks_bare.is_empty() {
+        return Err("src 模板轴为空，无法复制".to_string());
+    }
+
+    // 逐因子读稠密矩阵（NaN = 缺失）
+    let mut matrices: Vec<ndarray::Array2<f32>> = Vec::with_capacity(factor_names.len());
+    for (name, idx) in factor_names.iter().zip(col_indices.iter()) {
+        matrices.push(
+            reader
+                .read_factor_to_matrix(*idx, &dates, &stocks_bare)
+                .map_err(|e| format!("读取因子 {name} 失败: {e}"))?,
+        );
+    }
+
+    let mut writer = FactorStoreWriter::open(dst_dir, factor_names)?;
+    let nan_facs = vec![f32::NAN; factor_names.len()];
+    let mut written_dates: HashSet<i32> = HashSet::new();
+    let mut written_codes: HashSet<String> = HashSet::new();
+    // 稀疏写入：只写至少一个因子有限值的格点。
+    for (di, &d) in dates.iter().enumerate() {
+        let mut batch: Vec<TaskResult> = Vec::with_capacity(stocks_bare.len());
+        for (si, code) in stocks_bare.iter().enumerate() {
+            let mut facs: Vec<f32> = Vec::with_capacity(factor_names.len());
+            let mut any_finite = false;
+            for m in &matrices {
+                let v = m[[di, si]];
+                any_finite |= v.is_finite();
+                facs.push(v);
+            }
+            if !any_finite {
+                continue;
+            }
+            written_dates.insert(d);
+            written_codes.insert(code.clone());
+            batch.push(TaskResult {
+                date: d as i64,
+                code: code.clone(),
+                timestamp: 0,
+                facs,
+            });
+        }
+        if !batch.is_empty() {
+            writer.append_batch(&batch)?;
+        }
+    }
+    // 模板轴继承：全 NaN 的股票/日期补占位行。
+    // 1) 缺失股票：挂在任一已有日期上（anchor 日期随之进入字典）。
+    let anchor_date: i32 = *written_dates
+        .iter()
+        .next()
+        .or_else(|| dates.first())
+        .ok_or("src 模板日期为空，无法复制")?;
+    let mut missing_codes: Vec<TaskResult> = Vec::new();
+    for code in &stocks_bare {
+        if !written_codes.contains(code) {
+            missing_codes.push(TaskResult {
+                date: anchor_date as i64,
+                code: code.clone(),
+                timestamp: 0,
+                facs: nan_facs.clone(),
+            });
+        }
+    }
+    if !missing_codes.is_empty() {
+        written_dates.insert(anchor_date);
+        writer.append_batch(&missing_codes)?;
+    }
+    // 2) 缺失日期：挂在任一已有股票上（stocks_bare[0] 经上一步必已在字典中）。
+    let mut missing_dates: Vec<TaskResult> = Vec::new();
+    for &d in &dates {
+        if !written_dates.contains(&d) {
+            missing_dates.push(TaskResult {
+                date: d as i64,
+                code: stocks_bare[0].clone(),
+                timestamp: 0,
+                facs: nan_facs.clone(),
+            });
+        }
+    }
+    if !missing_dates.is_empty() {
+        writer.append_batch(&missing_dates)?;
+    }
+    writer.finish_and_project(0)?;
+    Ok(())
+}
+
 /// 从 colblk 存储推断回测模板轴：返回去重排序的 dates（int 数组）和 stocks（带 .SZ/.SH 后缀）。
 /// 供 design_whatever 的 tail_v5 替代 v4 的 pandas 读 parquet 推断模板。
 #[pyfunction]
@@ -2557,13 +3220,23 @@ pub fn factor_store_v5_export_factors_parquet(
     let dates_i32: Vec<i32> = dates.iter().map(|&d| d as i32).collect();
     let scatter_maps = reader.precompute_scatter_maps(&dates_i32, &stocks_bare);
 
-    // 收集 (name, col_idx) 对
+    // 收集 (name, col_idx) 对。缺失名直接报错，不静默漏导出。
+    let missing: Vec<&String> = names_arc
+        .iter()
+        .filter(|name| !name_to_idx.contains_key(name.as_str()))
+        .collect();
+    if !missing.is_empty() {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "factor_store_v5_export_factors_parquet: {} 个请求因子不在 store 中，前 20 个: {:?}",
+            missing.len(),
+            missing.iter().take(20).collect::<Vec<_>>(),
+        )));
+    }
     let targets: Vec<(String, usize)> = names_arc
         .iter()
-        .filter_map(|name| {
-            name_to_idx
-                .get(name.as_str())
-                .map(|&idx| (name.clone(), idx))
+        .map(|name| {
+            let idx = name_to_idx[name.as_str()];
+            (name.clone(), idx)
         })
         .collect();
 
@@ -2715,6 +3388,19 @@ impl BackupSink {
         }
     }
 
+    /// 当前注册的因子数（Colblk 分支取 writer 的 factor_count；Bin 分支返回 expected_len）。
+    /// 供 ShardedBackupSink 在分发 shard 前做整批长度预校验。
+    /// 锁中毒统一用 Err 传播（与 append_batch 一致），不做 panic。
+    pub fn factor_count(&self) -> Result<usize, String> {
+        match self {
+            BackupSink::Bin { expected_len, .. } => Ok(*expected_len),
+            BackupSink::Colblk { writer } => writer
+                .lock()
+                .map(|w| w.factor_count)
+                .map_err(|_| "writer mutex poisoned".to_string()),
+        }
+    }
+
     /// 克隆（仅 Colblk 分支增加 Arc 引用计数，开销极低；Bin 分支 clone 字符串）
     pub fn clone_handle(&self) -> Self {
         match self {
@@ -2811,6 +3497,27 @@ impl ShardedBackupSink {
 
     /// 按 date % n_shards 路由 + rayon 并行写各 shard（不同 shard 的 Mutex 不竞争）。
     pub fn append_batch(&self, results: &[TaskResult]) -> Result<(), String> {
+        if results.is_empty() {
+            return Ok(());
+        }
+        // 整批统一预校验：分发 shard 前先验证全部结果因子数一致。
+        // 这只拦截"因子数不匹配"这一类输入错误（最常见、最容易造成污染）。
+        // 注意：写盘过程中的 IO 级失败（磁盘满/路径错误等）仍可能出现
+        // "部分 shard 已落盘、部分失败"的半成功状态；该状态由断点续算兜底
+        // （date 粒度 mark_complete，失败日期下次重算，计算是确定性的）。
+        let Some(first_shard) = self.shards.first() else {
+            return Err("ShardedBackupSink 没有分片，无法写入".to_string());
+        };
+        let expected = first_shard.factor_count()?;
+        for (idx, r) in results.iter().enumerate() {
+            if r.facs.len() != expected {
+                return Err(format!(
+                    "ShardedBackupSink.append_batch 第 {idx} 条任务结果因子数不匹配: got={}, expected={}",
+                    r.facs.len(),
+                    expected
+                ));
+            }
+        }
         let mut buckets: Vec<Vec<TaskResult>> = (0..self.n_shards).map(|_| Vec::new()).collect();
         for r in results {
             let idx = (r.date as usize) % self.n_shards;
@@ -3058,8 +3765,8 @@ mod tests {
 
         let reader = FactorStoreReader::open(&store_dir).unwrap();
         // 字典应有 2 日期 + 3 股票
-        assert_eq!(reader.stores[0].dict.dates.len(), 2);
-        assert_eq!(reader.stores[0].dict.codes.len(), 3);
+        assert_eq!(reader.groups[0].stores[0].dict.dates.len(), 2);
+        assert_eq!(reader.groups[0].stores[0].dict.codes.len(), 3);
 
         // 读取唯一因子，校验 3 个值都正确
         let template_dates: Vec<i32> = vec![20230101, 20230102];
@@ -3194,6 +3901,76 @@ mod tests {
         assert_eq!(writer2.dict.codes, vec!["000001", "600519"]);
         println!("✅ test_dates_bin_codes_bin_append_only 通过");
     }
+
+    #[test]
+    fn test_combined_store_groups() {
+        // 组合 store：base group 两个因子 + supplement group 一个因子，放在同一根目录。
+        // 验证 factor_groups.json 后 Reader 拼接因子名并正确读全局 col_idx。
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().to_str().unwrap().to_string();
+        let base_dir = format!("{root}/base");
+        let supp_dir = format!("{root}/supp");
+
+        let base_names = vec!["base_a".to_string(), "base_b".to_string()];
+        let supp_names = vec!["supp_x".to_string()];
+        let mut w = FactorStoreWriter::open(&base_dir, &base_names).unwrap();
+        w.append_batch(&make_test_results(&[20230101], &["000001", "600519"], 2))
+            .unwrap();
+        w.finish_and_project(1).unwrap();
+        let mut w = FactorStoreWriter::open(&supp_dir, &supp_names).unwrap();
+        w.append_batch(&make_test_results(&[20230102], &["000001", "000858"], 1))
+            .unwrap();
+        w.finish_and_project(1).unwrap();
+
+        std::fs::write(
+            std::path::Path::new(&root).join("factor_groups.json"),
+            serde_json::json!({
+                "version": 1,
+                "groups": [
+                    {"name": "base", "dir": "base"},
+                    {"name": "supp", "dir": "supp"}
+                ]
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let reader = FactorStoreReader::open(&root).unwrap();
+        assert_eq!(
+            reader.factor_names(),
+            &["base_a".to_string(), "base_b".to_string(), "supp_x".to_string()]
+        );
+        let (dates, stocks) = reader.template_axes();
+        assert_eq!(dates, vec![20230101, 20230102]);
+        assert_eq!(stocks, vec!["000001", "000858", "600519"]);
+
+        // base_a 在 base group col 0
+        let m0 = reader.read_factor_to_matrix(0, &dates, &stocks).unwrap();
+        assert!(!m0[[0, 0]].is_nan());
+        assert!(!m0[[0, 2]].is_nan());
+        assert!(m0[[1, 0]].is_nan(), "base group 无 20230102");
+        // supp_x 在全局 col 2
+        let m2 = reader.read_factor_to_matrix(2, &dates, &stocks).unwrap();
+        assert!(!m2[[1, 0]].is_nan());
+        assert!(!m2[[1, 1]].is_nan());
+        assert!(m2[[0, 0]].is_nan(), "supp group 无 20230101");
+
+        // scatter fast 与普通读一致
+        let maps = reader.precompute_scatter_maps(&dates, &stocks);
+        let m2_fast = reader
+            .read_factor_to_matrix_fast(2, &dates, &stocks, &maps)
+            .unwrap();
+        for r in 0..2 {
+            for c in 0..3 {
+                assert!(m2[[r, c]].is_nan() == m2_fast[[r, c]].is_nan());
+                if !m2[[r, c]].is_nan() {
+                    assert!((m2[[r, c]] - m2_fast[[r, c]]).abs() < 0.01);
+                }
+            }
+        }
+        assert!(reader.is_projected());
+        println!("✅ test_combined_store_groups 通过");
+    }
 }
 
 /// 验证 read_factor_to_matrix_fast 与 read_factor_to_matrix 结果完全一致。
@@ -3241,3 +4018,68 @@ pub fn factor_store_v5_verify_scatter_fast(
     }
     Ok((max_diff, t_old, t_new))
 }
+
+    /// 模板轴继承：src 中某股票/某日期在全部被复制因子上都是 NaN 时，
+    /// 稀疏写入会跳过它们——copy_subset_write 必须补 NaN 占位行，
+    /// 否则 dst 字典缺轴、register_group 的严格轴校验会拒绝 accepted group。
+    #[test]
+    fn copy_subset_inherits_template_axes() {
+        let dir = std::env::temp_dir().join(format!(
+            "copy_subset_axes_test_{}",
+            std::process::id()
+        ));
+        let src = dir.join("src");
+        let dst_stock = dir.join("dst_stock");
+        let dst_date = dir.join("dst_date");
+        let _ = std::fs::remove_dir_all(&dir);
+        let names: Vec<String> = vec!["f0".to_string(), "f1".to_string(), "f2".to_string()];
+        let dates = [20230103i64, 20230104];
+        let codes = ["000001", "000002", "000003"];
+        let mut results: Vec<TaskResult> = Vec::new();
+        for &d in &dates {
+            for (ci, &c) in codes.iter().enumerate() {
+                let base = ci as f32 * 10.0 + if d == 20230103 { 0.0 } else { 1.0 };
+                let f0 = base;
+                let f1 = if c == "000002" { f32::NAN } else { base + 2.0 }; // 股票 000002 全程 NaN
+                let f2 = if d == 20230104 { f32::NAN } else { base + 4.0 }; // 日期 20230104 全程 NaN
+                results.push(TaskResult {
+                    date: d,
+                    code: c.to_string(),
+                    timestamp: 0,
+                    facs: vec![f0, f1, f2],
+                });
+            }
+        }
+        let mut w = FactorStoreWriter::open(src.to_str().unwrap(), &names).unwrap();
+        w.append_batch(&results).unwrap();
+        w.finish_and_project(0).unwrap();
+        let src_axes = FactorStoreReader::open(src.to_str().unwrap())
+            .unwrap()
+            .template_axes();
+
+        // 只复制 f1：股票 000002 全 NaN → 必须靠占位行继承股票轴
+        copy_subset_write(
+            src.to_str().unwrap(),
+            dst_stock.to_str().unwrap(),
+            &["f1".to_string()],
+        )
+        .unwrap();
+        let dst_stock_axes = FactorStoreReader::open(dst_stock.to_str().unwrap())
+            .unwrap()
+            .template_axes();
+        assert_eq!(src_axes, dst_stock_axes, "全 NaN 股票的轴必须继承");
+
+        // 只复制 f2：日期 20230104 全 NaN → 必须靠占位行继承日期轴
+        copy_subset_write(
+            src.to_str().unwrap(),
+            dst_date.to_str().unwrap(),
+            &["f2".to_string()],
+        )
+        .unwrap();
+        let dst_date_axes = FactorStoreReader::open(dst_date.to_str().unwrap())
+            .unwrap()
+            .template_axes();
+        assert_eq!(src_axes, dst_date_axes, "全 NaN 日期的轴必须继承");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
