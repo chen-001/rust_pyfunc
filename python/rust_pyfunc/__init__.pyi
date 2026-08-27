@@ -679,6 +679,52 @@ def compute_agent_validation_factors_py(
     ...
 
 
+def tail_backtest_engine(
+    colblk_store_dir: str,
+    factor_names: List[str],
+    factor_paths: List[str],
+    dates: List[int],
+    stocks: List[str],
+    windows: List[int],
+    fold: bool,
+    n_jobs: int,
+    min_valid: int,
+    cache_root: str,
+    style_data_path: str,
+    ret_gap1_path: str,
+    ret_sum_gap1_path: str,
+    ret_gap5_path: str,
+    ret_sum_gap5_path: str,
+    restrict_path: str,
+    index_ret_path: str,
+    backtest_start: int,
+    cover_rate: float = 0.97,
+    ret_point_neu_gap5: float = 0.055,
+    ret_point_neu_gap1: float = 0.08,
+    ic_point_neu_gap5: float = 0.01,
+    ic_point_neu_gap1: float = 0.006,
+    ret_point_gap5: float = 0.1,
+    ret_point_gap1: float = 0.13,
+    ic_point_gap5: float = 0.03,
+    ic_point_gap1: float = 0.02,
+    ic_more_important_gap5: Optional[float] = 0.01,
+    ic_more_important_gap1: Optional[float] = 0.006,
+    majority_count_threshold: float = 200.0,
+    zero_max_threshold: float = 0.01,
+    nan_max_threshold: float = 0.04,
+    save_all_metrics: bool = False,
+    industry_neutralize: bool = True,
+    industry_matrix: Optional[object] = None,
+    ic_only: bool = False,
+) -> dict:
+    """批量回测引擎。
+
+    ic_only=True 时跳过收益回测（十分组/多空组合），只计算中性化 IC 序列与
+    IC 汇总（summary 中收益字段为 0.0），用于“只按中性化 IC 选因子”的快速筛选。
+    """
+    ...
+
+
 # 版本信息
 __version__ = "0.18.0"
 __author__ = "chenzongwei"

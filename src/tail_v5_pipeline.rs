@@ -99,6 +99,10 @@ pub(crate) struct TailSelectionConfig {
     pub(crate) zero_max_threshold: f64,
     pub(crate) nan_max_threshold: f64,
     pub(crate) save_all_metrics: bool,
+    /// ic_only 模式：跳过收益回测（十分组/多空组合），只计算 IC 序列与 IC 汇总。
+    /// 收益相关 summary 字段填 0.0（无意义值，避免 serde_json 拒绝 NaN）；
+    /// 筛选时仅按中性化 IC 通道选取，Python 侧由 cut1_rate=None 等触发。
+    pub(crate) ic_only: bool,
 }
 
 #[derive(Clone)]
@@ -230,6 +234,7 @@ pub(crate) fn build_selection_config(
     zero_max_threshold: f64,
     nan_max_threshold: f64,
     save_all_metrics: bool,
+    ic_only: bool,
 ) -> TailSelectionConfig {
     TailSelectionConfig {
         cover_rate,
@@ -247,6 +252,7 @@ pub(crate) fn build_selection_config(
         zero_max_threshold,
         nan_max_threshold,
         save_all_metrics,
+        ic_only,
     }
 }
 
@@ -765,6 +771,7 @@ fn legacy_backtest_single_factor_with_effective(
     portf_num: usize,
     effective_raw_indices: &[usize],
     open_symbol_counts: &[usize],
+    ic_only: bool,
 ) -> LegacyBacktestResult {
     if effective_raw_indices.is_empty() {
         return default_legacy_backtest_result();
@@ -772,7 +779,11 @@ fn legacy_backtest_single_factor_with_effective(
     let n_stocks = factor.shape()[1];
 
     let date_size = effective_raw_indices.len();
-    let mut group_returns = vec![vec![0.0_f64; date_size]; portf_num];
+    let mut group_returns = if ic_only {
+        Vec::new()
+    } else {
+        vec![vec![0.0_f64; date_size]; portf_num]
+    };
     let mut ratio_values = vec![f64::NAN; date_size];
     let mut ic_dates = Vec::<i32>::new();
     let mut ic_values_f64 = Vec::<f64>::new();
@@ -826,6 +837,10 @@ fn legacy_backtest_single_factor_with_effective(
             ratio_values[local_t] = stocks_num as f64 / valid_symbol_num as f64;
         }
 
+        if ic_only {
+            continue;
+        }
+
         group_sums.fill(0.0);
         group_counts.fill(0);
         let ranks = average_ranks(&filtered_signal);
@@ -847,23 +862,6 @@ fn legacy_backtest_single_factor_with_effective(
         }
     }
 
-    let first_leg_cum = group_returns[0].iter().sum::<f64>();
-    let last_leg_cum = group_returns[portf_num - 1].iter().sum::<f64>();
-    let (long_idx, short_idx) = if first_leg_cum > last_leg_cum {
-        (0usize, portf_num - 1)
-    } else {
-        (portf_num - 1, 0usize)
-    };
-
-    let mut ls_returns = vec![0.0_f64; date_size];
-    let mut hedge_returns = vec![0.0_f64; date_size];
-    for (local_t, &raw_eff_idx) in effective_raw_indices.iter().enumerate() {
-        let long_ret = group_returns[long_idx][local_t];
-        let short_ret = group_returns[short_idx][local_t];
-        ls_returns[local_t] = long_ret - short_ret;
-        hedge_returns[local_t] = long_ret - index[raw_eff_idx] as f64;
-    }
-
     let ic_mean = nanmean_f64(&ic_values_f64);
     let ic_std = nanstd_population(&ic_values_f64);
     let ir = if ic_std.is_nan() || ic_std <= EPS {
@@ -871,18 +869,52 @@ fn legacy_backtest_single_factor_with_effective(
     } else {
         ic_mean.abs() / ic_std * (250.0 / gap as f64).sqrt()
     };
-    let summary = [
-        ic_mean,
-        ir,
-        nanmean_f64(&ls_returns) * 250.0,
-        annualized_sharpe_sample(&ls_returns),
-        max_drawdown_from_returns(&ls_returns),
-        date_size as f64,
-        nanmean_f64(&ratio_values),
-        nanmean_f64(&hedge_returns) * 250.0,
-        annualized_sharpe_sample(&hedge_returns),
-        max_drawdown_from_returns(&hedge_returns),
-    ];
+    let summary = if ic_only {
+        // ic_only 模式：跳过收益回测（十分组/多空组合），收益字段填 0.0
+        // （该模式下无意义；serde_json 拒绝 NaN，故不用 NaN 占位）。
+        [
+            ic_mean,
+            ir,
+            0.0,
+            0.0,
+            0.0,
+            date_size as f64,
+            nanmean_f64(&ratio_values),
+            0.0,
+            0.0,
+            0.0,
+        ]
+    } else {
+        let first_leg_cum = group_returns[0].iter().sum::<f64>();
+        let last_leg_cum = group_returns[portf_num - 1].iter().sum::<f64>();
+        let (long_idx, short_idx) = if first_leg_cum > last_leg_cum {
+            (0usize, portf_num - 1)
+        } else {
+            (portf_num - 1, 0usize)
+        };
+
+        let mut ls_returns = vec![0.0_f64; date_size];
+        let mut hedge_returns = vec![0.0_f64; date_size];
+        for (local_t, &raw_eff_idx) in effective_raw_indices.iter().enumerate() {
+            let long_ret = group_returns[long_idx][local_t];
+            let short_ret = group_returns[short_idx][local_t];
+            ls_returns[local_t] = long_ret - short_ret;
+            hedge_returns[local_t] = long_ret - index[raw_eff_idx] as f64;
+        }
+
+        [
+            ic_mean,
+            ir,
+            nanmean_f64(&ls_returns) * 250.0,
+            annualized_sharpe_sample(&ls_returns),
+            max_drawdown_from_returns(&ls_returns),
+            date_size as f64,
+            nanmean_f64(&ratio_values),
+            nanmean_f64(&hedge_returns) * 250.0,
+            annualized_sharpe_sample(&hedge_returns),
+            max_drawdown_from_returns(&hedge_returns),
+        ]
+    };
     LegacyBacktestResult {
         summary,
         ic_dates,
@@ -902,6 +934,7 @@ fn legacy_backtest_single_factor(
     slot_idx: usize,
     gap: usize,
     portf_num: usize,
+    ic_only: bool,
 ) -> LegacyBacktestResult {
     if factor.shape()[0] < 2 || gap == 0 || portf_num == 0 {
         return default_legacy_backtest_result();
@@ -924,6 +957,7 @@ fn legacy_backtest_single_factor(
         portf_num,
         &effective_raw_indices,
         &open_symbol_counts,
+        ic_only,
     )
 }
 
@@ -938,6 +972,7 @@ fn legacy_backtest_block_f32(
     backtest_start: i32,
     gap: usize,
     portf_num: usize,
+    ic_only: bool,
 ) -> Result<Vec<LegacyBacktestResult>, String> {
     if gap == 0 {
         return Err("gap 必须大于 0".to_string());
@@ -970,6 +1005,7 @@ fn legacy_backtest_block_f32(
             slot_idx,
             gap,
             portf_num,
+            ic_only,
         ));
     }
     Ok(results)
@@ -987,6 +1023,7 @@ fn legacy_backtest_gap1_gap5_selected_slots_f32(
     backtest_start: i32,
     selected_slots: &[usize],
     portf_num: usize,
+    ic_only: bool,
 ) -> Result<(Vec<LegacyBacktestResult>, Vec<LegacyBacktestResult>), String> {
     if portf_num == 0 {
         return Err("portf_num 必须大于 0".to_string());
@@ -1031,6 +1068,7 @@ fn legacy_backtest_gap1_gap5_selected_slots_f32(
             portf_num,
             &effective_raw_indices,
             &open_symbol_counts,
+            ic_only,
         ));
         gap5_results.push(legacy_backtest_single_factor_with_effective(
             &factor,
@@ -1044,6 +1082,7 @@ fn legacy_backtest_gap1_gap5_selected_slots_f32(
             portf_num,
             &effective_raw_indices,
             &open_symbol_counts,
+            ic_only,
         ));
     }
     Ok((gap1_results, gap5_results))
@@ -2401,6 +2440,7 @@ fn process_task_with_values(
             shared.backtest_start,
             &selected_slots,
             10,
+            false,
         )?;
         PROF_BT_RAW.fetch_add(_t.elapsed().as_nanos() as u64, AtomicOrdering::Relaxed);
 
@@ -2431,6 +2471,7 @@ fn process_task_with_values(
             shared.backtest_start,
             &local_slots,
             10,
+            false,
         )?;
         PROF_BT_NEU.fetch_add(_t.elapsed().as_nanos() as u64, AtomicOrdering::Relaxed);
 
@@ -2922,6 +2963,7 @@ pub fn tail_v5_run_candidates<'py>(
                 zero_max_threshold,
                 nan_max_threshold,
                 save_all_metrics: false,
+                ic_only: false,
             }),
         };
 
@@ -3641,6 +3683,7 @@ mod tests {
             dates[2],
             &selected_slots,
             10,
+            false,
         )
         .unwrap();
         let open_symbol_counts = precompute_open_symbol_counts(&restrict.view());
@@ -3657,9 +3700,112 @@ mod tests {
                 dates[2],
                 10,
                 &open_symbol_counts,
+                false,
             );
             assert_backtest_result_eq(&batch_g1[local], &g1);
             assert_backtest_result_eq(&batch_g5[local], &g5);
+        }
+    }
+
+    #[test]
+    fn iconly_single_slot_keeps_ic_exact() {
+        // ic_only 模式必须与正常模式产出完全一致的 IC 序列 / IC_mean / IR / ratio_mean，
+        // 收益字段（十分组/多空组合）应为 0.0。
+        let (t, n) = (30usize, 40usize);
+        let mut seed = 0xfeed_beef_cafe_1234u64;
+        let mut next = || {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            ((seed >> 33) as u32 as f32) / 300.0 - 200.0
+        };
+        let mut block3 = Array3::<f32>::from_elem((t, n, 1), f32::NAN);
+        for i in 0..t {
+            for j in 0..n {
+                if (i * n + j) % 5 != 0 {
+                    block3[[i, j, 0]] = next();
+                }
+            }
+        }
+        let mut restrict = Array2::<f32>::from_elem((t, n), 0.0);
+        for i in 0..t {
+            for j in 0..n {
+                if (i * n + j) % 7 == 0 {
+                    restrict[[i, j]] = 1.0;
+                }
+            }
+        }
+        let mut ret_gap1 = Array2::<f32>::from_elem((t, n), f32::NAN);
+        let mut ret_sum_gap1 = Array2::<f32>::from_elem((t, n), f32::NAN);
+        let mut ret_gap5 = Array2::<f32>::from_elem((t, n), f32::NAN);
+        let mut ret_sum_gap5 = Array2::<f32>::from_elem((t, n), f32::NAN);
+        for i in 0..t {
+            for j in 0..n {
+                ret_gap1[[i, j]] = next();
+                ret_sum_gap1[[i, j]] = next();
+                ret_gap5[[i, j]] = next();
+                ret_sum_gap5[[i, j]] = next();
+            }
+        }
+        let index = Array1::<f32>::from_shape_fn(n, |_| next());
+        let dates: Vec<i32> = (0..t as i32).map(|d| 20200101 + d).collect();
+        let open_symbol_counts = precompute_open_symbol_counts(&restrict.view());
+        let (full_g1, full_g5) = legacy_backtest_gap1_gap5_single_slot(
+            block3.slice(s![.., .., 0]),
+            ret_gap1.view(),
+            ret_sum_gap1.view(),
+            ret_gap5.view(),
+            ret_sum_gap5.view(),
+            restrict.view(),
+            index.view(),
+            &dates,
+            dates[2],
+            10,
+            &open_symbol_counts,
+            false,
+        );
+        let (ic_g1, ic_g5) = legacy_backtest_gap1_gap5_single_slot(
+            block3.slice(s![.., .., 0]),
+            ret_gap1.view(),
+            ret_sum_gap1.view(),
+            ret_gap5.view(),
+            ret_sum_gap5.view(),
+            restrict.view(),
+            index.view(),
+            &dates,
+            dates[2],
+            10,
+            &open_symbol_counts,
+            true,
+        );
+        // IC 序列完全一致
+        assert_eq!(full_g1.ic_dates, ic_g1.ic_dates);
+        assert_eq!(full_g5.ic_dates, ic_g5.ic_dates);
+        for (x, y) in full_g1.ic_values.iter().zip(ic_g1.ic_values.iter()) {
+            assert_eq!(x.to_bits(), y.to_bits());
+        }
+        for (x, y) in full_g5.ic_values.iter().zip(ic_g5.ic_values.iter()) {
+            assert_eq!(x.to_bits(), y.to_bits());
+        }
+        // IC_mean / IR / date_size / ratio_mean 一致
+        for idx in [0usize, 1, 5, 6] {
+            assert_eq!(
+                full_g1.summary[idx].to_bits(),
+                ic_g1.summary[idx].to_bits(),
+                "gap1 summary[{}]",
+                idx
+            );
+            assert_eq!(
+                full_g5.summary[idx].to_bits(),
+                ic_g5.summary[idx].to_bits(),
+                "gap5 summary[{}]",
+                idx
+            );
+        }
+        // 收益相关字段 ic_only 为 0.0
+        for idx in [2usize, 3, 4, 7, 8, 9] {
+            assert_eq!(ic_g1.summary[idx], 0.0);
+            assert_eq!(ic_g5.summary[idx], 0.0);
         }
     }
 
@@ -3949,6 +4095,7 @@ pub fn tail_v5_run_candidates_online<'py>(
                 zero_max_threshold,
                 nan_max_threshold,
                 save_all_metrics: false,
+                ic_only: false,
             }),
         };
 
@@ -4431,6 +4578,7 @@ pub fn tail_v5_run_candidates_v7<'py>(
                 zero_max_threshold,
                 nan_max_threshold,
                 save_all_metrics: false,
+                ic_only: false,
             }),
         };
 
@@ -4813,6 +4961,7 @@ fn legacy_backtest_gap1_gap5_single_slot(
     backtest_start: i32,
     portf_num: usize,
     open_symbol_counts: &[usize],
+    ic_only: bool,
 ) -> (LegacyBacktestResult, LegacyBacktestResult) {
     let n_dates = slot.nrows();
     let slot_block = slot.insert_axis(ndarray::Axis(2));
@@ -4837,6 +4986,7 @@ fn legacy_backtest_gap1_gap5_single_slot(
             portf_num,
             &effective_raw_indices,
             open_symbol_counts,
+            ic_only,
         ),
         legacy_backtest_single_factor_with_effective(
             &slot_block,
@@ -4850,6 +5000,7 @@ fn legacy_backtest_gap1_gap5_single_slot(
             portf_num,
             &effective_raw_indices,
             open_symbol_counts,
+            ic_only,
         ),
     )
 }
@@ -4919,21 +5070,29 @@ fn process_v7_slot(
         result.any_window_passed_preflight = true;
     }
 
-    // ---- raw gap1/gap5 回测 ----
+    // ---- raw gap1/gap5 回测（ic_only 模式跳过：只保留中性化 IC 路径） ----
     let _t = Instant::now();
-    let (raw_gap1_result, raw_gap5_result) = legacy_backtest_gap1_gap5_single_slot(
-        slot_values,
-        shared.ret_gap1.view(),
-        shared.ret_sum_gap1.view(),
-        shared.ret_gap5.view(),
-        shared.ret_sum_gap5.view(),
-        shared.restrict.view(),
-        shared.index_ret.view(),
-        shared.dates.as_slice(),
-        shared.backtest_start,
-        10,
-        open_symbol_counts,
-    );
+    let (raw_gap1_result, raw_gap5_result) = if shared.config.ic_only {
+        (
+            default_legacy_backtest_result(),
+            default_legacy_backtest_result(),
+        )
+    } else {
+        legacy_backtest_gap1_gap5_single_slot(
+            slot_values,
+            shared.ret_gap1.view(),
+            shared.ret_sum_gap1.view(),
+            shared.ret_gap5.view(),
+            shared.ret_sum_gap5.view(),
+            shared.restrict.view(),
+            shared.index_ret.view(),
+            shared.dates.as_slice(),
+            shared.backtest_start,
+            10,
+            open_symbol_counts,
+            false,
+        )
+    };
     PROF_BT_RAW.fetch_add(_t.elapsed().as_nanos() as u64, AtomicOrdering::Relaxed);
 
     // ---- 标准中性化：只物化当前 slot 的 (T,N) ----
@@ -4962,6 +5121,7 @@ fn process_v7_slot(
         shared.backtest_start,
         10,
         open_symbol_counts,
+        shared.config.ic_only,
     );
     PROF_BT_NEU.fetch_add(_t.elapsed().as_nanos() as u64, AtomicOrdering::Relaxed);
 
@@ -5009,21 +5169,24 @@ fn process_v7_slot(
     }
 
     // metrics-only：无论是否达到候选阈值，都保存该 derived slot 的全部指标。
+    // ic_only 模式 raw 未回测（summary 为 NaN），跳过 raw all 产物，避免写含 NaN 的 JSON。
     if shared.config.save_all_metrics {
-        result.all_raw_summary_gap1.push(raw_gap1_row.clone());
-        result.all_raw_summary_gap5.push(raw_gap5_row.clone());
+        if !shared.config.ic_only {
+            result.all_raw_summary_gap1.push(raw_gap1_row.clone());
+            result.all_raw_summary_gap5.push(raw_gap5_row.clone());
+            result.all_raw_ic_gap1.push(IcRecord {
+                factor_name: derived_name.clone(),
+                dates: raw_gap1_result.ic_dates.clone(),
+                values: raw_gap1_result.ic_values.clone(),
+            });
+            result.all_raw_ic_gap5.push(IcRecord {
+                factor_name: derived_name.clone(),
+                dates: raw_gap5_result.ic_dates.clone(),
+                values: raw_gap5_result.ic_values.clone(),
+            });
+        }
         result.all_neu_summary_gap1.push(neu_gap1_row.clone());
         result.all_neu_summary_gap5.push(neu_gap5_row.clone());
-        result.all_raw_ic_gap1.push(IcRecord {
-            factor_name: derived_name.clone(),
-            dates: raw_gap1_result.ic_dates.clone(),
-            values: raw_gap1_result.ic_values.clone(),
-        });
-        result.all_raw_ic_gap5.push(IcRecord {
-            factor_name: derived_name.clone(),
-            dates: raw_gap5_result.ic_dates.clone(),
-            values: raw_gap5_result.ic_values.clone(),
-        });
         result.all_neu_ic_gap1.push(IcRecord {
             factor_name: derived_name.clone(),
             dates: neu_gap1_result.ic_dates.clone(),
@@ -5426,6 +5589,7 @@ pub fn tail_v5_run_candidates_v7b<'py>(
                 zero_max_threshold,
                 nan_max_threshold,
                 save_all_metrics: false,
+                ic_only: false,
             }),
         };
 

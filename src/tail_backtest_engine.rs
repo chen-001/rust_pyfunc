@@ -80,6 +80,7 @@ fn parse_col_idx(factor_path: &str) -> Option<usize> {
     save_all_metrics=false,
     industry_neutralize=true,
     industry_matrix=None,
+    ic_only=false,
 ))]
 #[allow(clippy::too_many_arguments)]
 pub fn tail_backtest_engine<'py>(
@@ -119,6 +120,7 @@ pub fn tail_backtest_engine<'py>(
     save_all_metrics: bool,
     industry_neutralize: bool,
     industry_matrix: Option<numpy::PyReadonlyArray2<'py, f64>>,
+    ic_only: bool,
 ) -> PyResult<PyObject> {
     if factor_names.len() != factor_paths.len() {
         return Err(PyValueError::new_err(
@@ -155,6 +157,7 @@ pub fn tail_backtest_engine<'py>(
             ic_more_important_gap5, ic_more_important_gap1,
             majority_count_threshold, zero_max_threshold, nan_max_threshold,
             save_all_metrics,
+            ic_only,
         );
         let shared = build_shared_inputs(
             dates, stocks, windows, fold, min_valid, backtest_start,
