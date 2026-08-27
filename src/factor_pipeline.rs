@@ -625,6 +625,11 @@ pub fn run_factor_pipeline(
     let sharded_sink: Option<crate::factor_store_v5::ShardedBackupSink> = if let Some(ref sdir) =
         store_dir
     {
+        if std::path::Path::new(sdir).join("factor_groups.json").exists() {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "store_dir {sdir} 是组合 store 根目录（存在 factor_groups.json）。\n                 计算必须指向某个 group 子目录；把补充因子写入新 group 后，                 用 factor_store_v5_register_group 注册进根目录。"
+            )));
+        }
         let snames = store_factor_names.clone().unwrap_or_else(|| {
             (0..expected_result_length)
                 .map(|i| format!("factor_{i}"))
@@ -1292,16 +1297,21 @@ fn run_multiprocess_v2(
             crossbeam::channel::bounded::<Vec<TaskResult>>(WRITE_QUEUE_BATCHES);
 
         // writer 线程：从写队列取 batch 写盘（慢操作在后台，不阻塞 collector/worker）
+        let (writer_err_tx, writer_err_rx) = std::sync::mpsc::channel::<String>();
         let writer_handle = {
             let sink_c = sink.clone_handle();
             let sharded_c = sharded_sink.clone();
             std::thread::spawn(move || {
                 while let Ok(batch) = write_rx.recv() {
-                    let _ = if let Some(ref ss) = sharded_c {
+                    let write_result = if let Some(ref ss) = sharded_c {
                         ss.append_batch(&batch)
                     } else {
                         sink_c.append_batch(&batch)
                     };
+                    if let Err(e) = write_result {
+                        let _ = writer_err_tx.send(e);
+                        break;
+                    }
                 }
             })
         };
@@ -1344,6 +1354,11 @@ fn run_multiprocess_v2(
         let _ = writer_handle.join(); // writer 排空写队列，所有 batch 落盘后才返回（必须 last join）
                                       // 让监控线程退出（completed 已达 total）
         let _ = monitor_handle.join();
+        if let Ok(e) = writer_err_rx.try_recv() {
+            return Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
+                "colblk 批量写入失败: {e}"
+            )));
+        }
 
         Ok(())
     })?;
@@ -1881,17 +1896,22 @@ fn run_multiprocess_minute(
         }
         drop(batch_tx);
 
-        // writer 线程：从写队列取整天批次 → append_batch → mark_date_complete
-        // 空 batch（worker 错误/IPC 失败）不标记完成，让重启时重试。
+        // writer 线程：从写队列取整天批次 → append_batch → 成功后才 mark_date_complete。
+        // 写入失败会把错误传回主线程并停止标记完成，禁止“数据未写入但日期已完成”。
+        let (writer_err_tx, writer_err_rx) = std::sync::mpsc::channel::<String>();
         let writer_handle = {
             let sharded_c = sharded_sink.clone();
             let store_dir_c = store_dir.clone();
             std::thread::spawn(move || {
                 while let Ok((date, batch)) = batch_rx.recv() {
-                    if !batch.is_empty() {
-                        let _ = sharded_c.append_batch(&batch);
-                        mark_date_complete(&store_dir_c, date);
+                    if batch.is_empty() {
+                        continue;
                     }
+                    if let Err(e) = sharded_c.append_batch(&batch) {
+                        let _ = writer_err_tx.send(e);
+                        break;
+                    }
+                    mark_date_complete(&store_dir_c, date);
                 }
             })
         };
@@ -1902,6 +1922,11 @@ fn run_multiprocess_minute(
         }
         // batch_rx 排空 → writer recv 返回 Err → writer 退出
         let _ = writer_handle.join();
+        if let Ok(e) = writer_err_rx.try_recv() {
+            return Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
+                "分钟 colblk 批量写入失败: {e}"
+            )));
+        }
         Ok(())
     })?;
 
@@ -2607,6 +2632,14 @@ pub fn run_factor_pipeline_cross_section(
     let store_dir_str = store_dir
         .clone()
         .unwrap_or_else(|| "./cross_section_store".to_string());
+    if std::path::Path::new(&store_dir_str)
+        .join("factor_groups.json")
+        .exists()
+    {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "store_dir {store_dir_str} 是组合 store 根目录（存在 factor_groups.json）。\n             计算必须指向某个 group 子目录；禁止 update_mode=False 清空组合根目录。"
+        )));
+    }
     // 全量重跑（update_mode=False）: 清空已有 store 重建。
     // 已投影的 store 禁止追加（append_batch 返回 Err），若不清空则所有写入静默失败。
     if !update_mode_enabled {
@@ -2792,7 +2825,8 @@ fn run_multiprocess_cross_section(
         }
         drop(batch_tx);
 
-        // writer 线程：整天批次 → append_batch → mark_date_complete（带进度日志）
+        // writer 线程：整天批次 → append_batch → 成功后才 mark_date_complete（带进度日志）
+        let (writer_err_tx, writer_err_rx) = std::sync::mpsc::channel::<String>();
         let writer_handle = {
             let sharded_c = sharded_sink.clone();
             let store_dir_c = store_dir.clone();
@@ -2812,11 +2846,13 @@ fn run_multiprocess_cross_section(
                                 );
                             }
                             Err(e) => {
-                                // 写入失败: 不标记完成（续算会重试），显式报警不吞错误
+                                // 写入失败: 不标记完成，错误传回主线程，整次任务失败。
                                 eprintln!(
-                                    "[{}] ❌ {date} 写入失败({n}股): {e} — 该日期未标记完成, 续算将重试",
+                                    "[{}] ❌ {date} 写入失败({n}股): {e} — 未标记完成，任务将以失败结束",
                                     Local::now().format("%H:%M:%S")
                                 );
+                                let _ = writer_err_tx.send(e);
+                                break;
                             }
                         }
                     }
@@ -2829,6 +2865,11 @@ fn run_multiprocess_cross_section(
             let _ = h.join();
         }
         let _ = writer_handle.join();
+        if let Ok(e) = writer_err_rx.try_recv() {
+            return Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
+                "横截面 colblk 批量写入失败: {e}"
+            )));
+        }
         Ok(())
     })?;
 

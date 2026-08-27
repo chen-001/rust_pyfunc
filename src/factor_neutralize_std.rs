@@ -777,8 +777,13 @@ pub fn neutralize_std_precompute(
     let mut size_ranked = size_cube;
     rank_pct_all(&mut size_ranked);
 
-    // 行业分级码与 restrict (纯输入派生)
-    let restrict_f64 = restrict.map(|&v| v as f64);
+    // 行业分级码与 restrict (纯输入派生)。
+    // 显式重排成标准行主序，避免上游 npy/view 非标准布局导致 as_slice() 为 None。
+    let restrict_f64 = Array2::<f64>::from_shape_vec(
+        restrict.dim(),
+        restrict.iter().map(|&v| v as f64).collect(),
+    )
+    .expect("restrict 重排为标准行主序失败");
     let ind1 = industry.map(|&v| (v / 10000.0).floor());
     let ind2 = industry.map(|&v| (v / 100.0).floor());
     let zeros = Array2::<f64>::zeros((n_dates, n_stocks));

@@ -796,6 +796,20 @@ def factor_store_v5_info(store_dir: str) -> dict:
         factor_count: int   因子数
         is_projected: bool  是否已投影
         factor_names: List[str]
+        groups: dict        group_name -> {dir, factor_offset, factor_count}
+    """
+    ...
+
+
+def factor_store_v5_register_group(
+    store_dir: str,
+    group_name: str,
+    group_dir: str,
+) -> dict:
+    """把已投影的独立 group 注册进组合 store。
+
+    校验 group 可读、已投影、因子名无重复、dates/stocks 模板轴与已有组合一致；
+    失败自动回滚 factor_groups.json。
     """
     ...
 

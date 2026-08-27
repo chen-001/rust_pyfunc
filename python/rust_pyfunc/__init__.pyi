@@ -738,6 +738,7 @@ __all__ = [
     # 列式因子存储 RPFBINV5（计算备份 + 回测读取统一格式）
     "factor_store_v5_open",
     "factor_store_v5_info",
+    "factor_store_v5_register_group",
     "factor_store_v5_read_factor",
     "factor_store_v5_template",
     "factor_store_v5_export_factors_parquet",

@@ -37,6 +37,14 @@ use nix::sys::signal::{kill, Signal};
 use nix::unistd::Pid;
 
 const EPS: f64 = 1e-12;
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_nan_f64() -> f64 {
+    f64::NAN
+}
 const DEFAULT_TAIL_V4_FULLTEST_IDLE_TIMEOUT_SECS: u64 = 1800;
 const TAIL_V5_FULLTEST_RESULT_POLL_SECS: u64 = 1;
 
@@ -90,6 +98,7 @@ pub(crate) struct TailSelectionConfig {
     pub(crate) majority_count_threshold: f64,
     pub(crate) zero_max_threshold: f64,
     pub(crate) nan_max_threshold: f64,
+    pub(crate) save_all_metrics: bool,
 }
 
 #[derive(Clone)]
@@ -220,6 +229,7 @@ pub(crate) fn build_selection_config(
     majority_count_threshold: f64,
     zero_max_threshold: f64,
     nan_max_threshold: f64,
+    save_all_metrics: bool,
 ) -> TailSelectionConfig {
     TailSelectionConfig {
         cover_rate,
@@ -236,6 +246,7 @@ pub(crate) fn build_selection_config(
         majority_count_threshold,
         zero_max_threshold,
         nan_max_threshold,
+        save_all_metrics,
     }
 }
 
@@ -245,6 +256,8 @@ pub(crate) struct SummaryRowRecord {
     pub(crate) stage: String,
     pub(crate) gap: i32,
     pub(crate) source_factor: String,
+    #[serde(default = "default_true")]
+    pub(crate) preflight_passed: bool,
     #[serde(rename = "IC_mean")]
     pub(crate) ic_mean: f64,
     #[serde(rename = "IR")]
@@ -278,6 +291,18 @@ pub(crate) struct TailTaskResult {
     pub(crate) raw_ic_gap5: Vec<IcRecord>,
     pub(crate) neu_ic_gap1: Vec<IcRecord>,
     pub(crate) neu_ic_gap5: Vec<IcRecord>,
+    pub(crate) all_raw_summary_gap1: Vec<SummaryRowRecord>,
+    pub(crate) all_raw_summary_gap5: Vec<SummaryRowRecord>,
+    pub(crate) all_neu_summary_gap1: Vec<SummaryRowRecord>,
+    pub(crate) all_neu_summary_gap5: Vec<SummaryRowRecord>,
+    pub(crate) all_raw_ic_gap1: Vec<IcRecord>,
+    pub(crate) all_raw_ic_gap5: Vec<IcRecord>,
+    pub(crate) all_neu_ic_gap1: Vec<IcRecord>,
+    pub(crate) all_neu_ic_gap5: Vec<IcRecord>,
+    #[serde(default = "default_nan_f64")]
+    pub(crate) raw_cover_before_fill: f64,
+    #[serde(default = "default_nan_f64")]
+    pub(crate) raw_cover_after_fill: f64,
     pub(crate) derived_factor_count: usize,
     #[serde(default)]
     pub(crate) passed: bool,
@@ -303,6 +328,14 @@ pub(crate) struct AggregatedCandidates {
     pub(crate) raw_ic_gap5: HashMap<String, IcRecord>,
     pub(crate) neu_ic_gap1: HashMap<String, IcRecord>,
     pub(crate) neu_ic_gap5: HashMap<String, IcRecord>,
+    pub(crate) all_raw_summary_gap1: Vec<SummaryRowRecord>,
+    pub(crate) all_raw_summary_gap5: Vec<SummaryRowRecord>,
+    pub(crate) all_neu_summary_gap1: Vec<SummaryRowRecord>,
+    pub(crate) all_neu_summary_gap5: Vec<SummaryRowRecord>,
+    pub(crate) all_raw_ic_gap1: HashMap<String, IcRecord>,
+    pub(crate) all_raw_ic_gap5: HashMap<String, IcRecord>,
+    pub(crate) all_neu_ic_gap1: HashMap<String, IcRecord>,
+    pub(crate) all_neu_ic_gap5: HashMap<String, IcRecord>,
 }
 
 impl AggregatedCandidates {
@@ -322,6 +355,22 @@ impl AggregatedCandidates {
         }
         for record in task.neu_ic_gap5 {
             self.neu_ic_gap5.insert(record.factor_name.clone(), record);
+        }
+        self.all_raw_summary_gap1.extend(task.all_raw_summary_gap1);
+        self.all_raw_summary_gap5.extend(task.all_raw_summary_gap5);
+        self.all_neu_summary_gap1.extend(task.all_neu_summary_gap1);
+        self.all_neu_summary_gap5.extend(task.all_neu_summary_gap5);
+        for record in task.all_raw_ic_gap1 {
+            self.all_raw_ic_gap1.insert(record.factor_name.clone(), record);
+        }
+        for record in task.all_raw_ic_gap5 {
+            self.all_raw_ic_gap5.insert(record.factor_name.clone(), record);
+        }
+        for record in task.all_neu_ic_gap1 {
+            self.all_neu_ic_gap1.insert(record.factor_name.clone(), record);
+        }
+        for record in task.all_neu_ic_gap5 {
+            self.all_neu_ic_gap5.insert(record.factor_name.clone(), record);
         }
     }
 }
@@ -2180,6 +2229,7 @@ fn summary_from_row(
         stage: stage.to_string(),
         gap,
         source_factor: source_factor.to_string(),
+        preflight_passed: true,
         ic_mean: values[0],
         ir: values[1],
         annualized_return: values[2],
@@ -2580,6 +2630,51 @@ pub(crate) fn write_aggregated_outputs(
         &ic_dir.join("ic_neu_gap5_dates.npy"),
         &aggregated.neu_ic_gap5,
     )?;
+
+    // metrics-only 全量产物：任何通过 raw_cover 的 derived slot 都会出现在这里，
+    // 即使 preflight 不过、收益/IC 不达候选阈值。文件名以 _all 区分 candidates。
+    // 注意：即使整批全部 raw_cover 失败、聚合为空，也强制写出空文件，
+    // 这样 skill B 才能完整闭环“每个 expected source factor 都有结论”。
+    write_summary_json(
+        &metrics_dir.join("summary_rolled_gap1_all.json"),
+        &aggregated.all_raw_summary_gap1,
+    )?;
+    write_summary_json(
+        &metrics_dir.join("summary_rolled_gap5_all.json"),
+        &aggregated.all_raw_summary_gap5,
+    )?;
+    write_summary_json(
+        &metrics_dir.join("summary_neu_gap1_all.json"),
+        &aggregated.all_neu_summary_gap1,
+    )?;
+    write_summary_json(
+        &metrics_dir.join("summary_neu_gap5_all.json"),
+        &aggregated.all_neu_summary_gap5,
+    )?;
+    write_ic_outputs(
+        &ic_dir.join("ic_rolled_gap1_all.npy"),
+        &ic_dir.join("ic_rolled_gap1_all_names.json"),
+        &ic_dir.join("ic_rolled_gap1_all_dates.npy"),
+        &aggregated.all_raw_ic_gap1,
+    )?;
+    write_ic_outputs(
+        &ic_dir.join("ic_rolled_gap5_all.npy"),
+        &ic_dir.join("ic_rolled_gap5_all_names.json"),
+        &ic_dir.join("ic_rolled_gap5_all_dates.npy"),
+        &aggregated.all_raw_ic_gap5,
+    )?;
+    write_ic_outputs(
+        &ic_dir.join("ic_neu_gap1_all.npy"),
+        &ic_dir.join("ic_neu_gap1_all_names.json"),
+        &ic_dir.join("ic_neu_gap1_all_dates.npy"),
+        &aggregated.all_neu_ic_gap1,
+    )?;
+    write_ic_outputs(
+        &ic_dir.join("ic_neu_gap5_all.npy"),
+        &ic_dir.join("ic_neu_gap5_all_names.json"),
+        &ic_dir.join("ic_neu_gap5_all_dates.npy"),
+        &aggregated.all_neu_ic_gap5,
+    )?;
     Ok(())
 }
 
@@ -2826,6 +2921,7 @@ pub fn tail_v5_run_candidates<'py>(
                 majority_count_threshold,
                 zero_max_threshold,
                 nan_max_threshold,
+                save_all_metrics: false,
             }),
         };
 
@@ -3852,6 +3948,7 @@ pub fn tail_v5_run_candidates_online<'py>(
                 majority_count_threshold,
                 zero_max_threshold,
                 nan_max_threshold,
+                save_all_metrics: false,
             }),
         };
 
@@ -4333,6 +4430,7 @@ pub fn tail_v5_run_candidates_v7<'py>(
                 majority_count_threshold,
                 zero_max_threshold,
                 nan_max_threshold,
+                save_all_metrics: false,
             }),
         };
 
@@ -4812,9 +4910,14 @@ fn process_v7_slot(
             derived_name,
             reasons.join("; "),
         );
-        return Ok(());
+        if !shared.config.save_all_metrics {
+            return Ok(());
+        }
+        // metrics-only 模式继续跑 raw/neu 回测，但 summary 中 preflight_passed=false，
+        // 判定器会把这些 derived 因子视为不可入选。
+    } else {
+        result.any_window_passed_preflight = true;
     }
-    result.any_window_passed_preflight = true;
 
     // ---- raw gap1/gap5 回测 ----
     let _t = Instant::now();
@@ -4863,42 +4966,74 @@ fn process_v7_slot(
     PROF_BT_NEU.fetch_add(_t.elapsed().as_nanos() as u64, AtomicOrdering::Relaxed);
 
     // ---- 汇总（顺序/条件与旧实现完全一致） ----
-    let raw_gap1_row = summary_from_row(
+    let mut raw_gap1_row = summary_from_row(
         derived_name,
         "rolled",
         1,
         variant_name,
         &raw_gap1_result.summary,
     );
-    let raw_gap5_row = summary_from_row(
+    let mut raw_gap5_row = summary_from_row(
         derived_name,
         "rolled",
         5,
         variant_name,
         &raw_gap5_result.summary,
     );
-    let neu_gap1_row = summary_from_row(
+    let mut neu_gap1_row = summary_from_row(
         derived_name,
         "neu",
         1,
         variant_name,
         &neu_gap1_result.summary,
     );
-    let neu_gap5_row = summary_from_row(
+    let mut neu_gap5_row = summary_from_row(
         derived_name,
         "neu",
         5,
         variant_name,
         &neu_gap5_result.summary,
     );
+    raw_gap1_row.preflight_passed = pre_report.passed;
+    raw_gap5_row.preflight_passed = pre_report.passed;
+    neu_gap1_row.preflight_passed = pre_report.passed;
+    neu_gap5_row.preflight_passed = pre_report.passed;
 
-    let raw_gap1_keep = qualify_raw(&raw_gap1_row, 1, &shared.config);
-    let raw_gap5_keep = qualify_raw(&raw_gap5_row, 5, &shared.config);
-    let neu_gap1_keep = qualify_neu(&neu_gap1_row, 1, &shared.config);
-    let neu_gap5_keep = qualify_neu(&neu_gap5_row, 5, &shared.config);
+    let raw_gap1_keep = pre_report.passed && qualify_raw(&raw_gap1_row, 1, &shared.config);
+    let raw_gap5_keep = pre_report.passed && qualify_raw(&raw_gap5_row, 5, &shared.config);
+    let neu_gap1_keep = pre_report.passed && qualify_neu(&neu_gap1_row, 1, &shared.config);
+    let neu_gap5_keep = pre_report.passed && qualify_neu(&neu_gap5_row, 5, &shared.config);
 
     if raw_gap1_keep || raw_gap5_keep || neu_gap1_keep || neu_gap5_keep {
         result.passed = true;
+    }
+
+    // metrics-only：无论是否达到候选阈值，都保存该 derived slot 的全部指标。
+    if shared.config.save_all_metrics {
+        result.all_raw_summary_gap1.push(raw_gap1_row.clone());
+        result.all_raw_summary_gap5.push(raw_gap5_row.clone());
+        result.all_neu_summary_gap1.push(neu_gap1_row.clone());
+        result.all_neu_summary_gap5.push(neu_gap5_row.clone());
+        result.all_raw_ic_gap1.push(IcRecord {
+            factor_name: derived_name.clone(),
+            dates: raw_gap1_result.ic_dates.clone(),
+            values: raw_gap1_result.ic_values.clone(),
+        });
+        result.all_raw_ic_gap5.push(IcRecord {
+            factor_name: derived_name.clone(),
+            dates: raw_gap5_result.ic_dates.clone(),
+            values: raw_gap5_result.ic_values.clone(),
+        });
+        result.all_neu_ic_gap1.push(IcRecord {
+            factor_name: derived_name.clone(),
+            dates: neu_gap1_result.ic_dates.clone(),
+            values: neu_gap1_result.ic_values.clone(),
+        });
+        result.all_neu_ic_gap5.push(IcRecord {
+            factor_name: derived_name.clone(),
+            dates: neu_gap5_result.ic_dates.clone(),
+            values: neu_gap5_result.ic_values.clone(),
+        });
     }
 
     if raw_gap1_keep {
@@ -4940,16 +5075,54 @@ fn process_v7_slot(
     Ok(())
 }
 
+/// 把 rank 后的缺失值用当日横截面中位 rank 填充。
+/// 平均 rank 的取值是 1..=n_valid，因此中位数就是 (n_valid+1)/2；
+/// 这里不引入额外排序，保证与先填 raw 中位数再 rank 的相对顺序一致，
+/// 并让 nan_ratio preflight 真正只作为兜底筛选。
+fn fill_missing_rank_with_cross_sectional_median(ranked: &mut Array2<f32>) {
+    let n_dates = ranked.nrows();
+    let n_stocks = ranked.ncols();
+    for date_idx in 0..n_dates {
+        let mut valid_count = 0usize;
+        for stock_idx in 0..n_stocks {
+            if ranked[[date_idx, stock_idx]].is_finite() {
+                valid_count += 1;
+            }
+        }
+        if valid_count == 0 {
+            continue;
+        }
+        let median_rank = ((valid_count + 1) as f32) / 2.0;
+        for stock_idx in 0..n_stocks {
+            if !ranked[[date_idx, stock_idx]].is_finite() {
+                ranked[[date_idx, stock_idx]] = median_rank;
+            }
+        }
+    }
+}
+
+/// rank + 缺失值填充（回测预处理第二层保障）。
+/// 顺序约定：先横截面 rank，再填充缺失 rank；随后才做 raw_cover / preflight / 回测。
+fn rank_and_fill_missing_cross_sectional_median(
+    variant_values: &Array2<f32>,
+) -> Array2<f32> {
+    let mut ranked =
+        crate::tail_v2_rank_roll_factor::rank_axis1_average_f32_serial(variant_values);
+    fill_missing_rank_with_cross_sectional_median(&mut ranked);
+    ranked
+}
+
 /// 流式处理一个 variant（raw 或 _fold）。
 /// 不再先 rank_roll 成 13 面大 block，而是逐 slot 生成、处理、释放。
+/// `ranked` 已由调用方完成 rank + 缺失填充。
 fn process_v7_variant(
     variant_name: &str,
-    variant_values: &Array2<f32>,
+    ranked: Array2<f32>,
     shared: &SharedInputs,
     open_symbol_counts: &[usize],
     result: &mut TailTaskResult,
 ) -> Result<(), String> {
-    let (n_dates, n_stocks) = variant_values.dim();
+    let (n_dates, n_stocks) = ranked.dim();
     if shared.ret_gap1.dim() != (n_dates, n_stocks)
         || shared.ret_sum_gap1.dim() != (n_dates, n_stocks)
         || shared.ret_gap5.dim() != (n_dates, n_stocks)
@@ -4964,7 +5137,6 @@ fn process_v7_variant(
     let derived_names = derived_names_for_variant(variant_name, shared.windows.as_slice());
     result.derived_factor_count += derived_names.len();
 
-    let ranked = crate::tail_v2_rank_roll_factor::rank_axis1_average_f32_serial(variant_values);
     let mut slot_idx = 0usize;
 
     // slot 0: _smooth_1 = ranked 本身
@@ -5042,8 +5214,23 @@ pub(crate) fn process_task_with_values_v7(
     shared: &SharedInputs,
 ) -> Result<TailTaskResult, String> {
     let _t = Instant::now();
-    let raw_cover_rate = compute_raw_cover_rate(
+
+    // 填充前覆盖率：用于识别“局部宇宙因子伪装成全市场因子”。
+    let raw_cover_before_fill = compute_raw_cover_rate(
         &raw_values.view(),
+        &shared.restrict.view(),
+        &shared.ret_gap1.view(),
+        10,
+    );
+
+    // 回测前预处理（第二层覆盖率保障）：先横截面 rank + 填充缺失 rank，
+    // 再做 raw_cover / preflight。因子设计应面向全市场（第一层保障），
+    // nan_ratio=0.04 只作为最后兜底；极端稀疏因子会因 majority_count
+    // 出现巨量中位 rank tie 而被 preflight 剔除。
+    let ranked_raw = rank_and_fill_missing_cross_sectional_median(&raw_values);
+
+    let raw_cover_rate = compute_raw_cover_rate(
+        &ranked_raw.view(),
         &shared.restrict.view(),
         &shared.ret_gap1.view(),
         10,
@@ -5051,7 +5238,7 @@ pub(crate) fn process_task_with_values_v7(
     PROF_RAW_COVER.fetch_add(_t.elapsed().as_nanos() as u64, AtomicOrdering::Relaxed);
     if raw_cover_rate < shared.config.cover_rate {
         println!(
-            "[raw_cover] 剔除因子 {}，原始覆盖率不达标: raw_cover_rate={:.4}, 标准>={:.4}",
+            "[raw_cover] 剔除因子 {}，填充后覆盖率仍不达标: raw_cover_rate={:.4}, 标准>={:.4}",
             task.source_factor, raw_cover_rate, shared.config.cover_rate,
         );
         let _n = PROF_COUNT.fetch_add(1, AtomicOrdering::Relaxed) + 1;
@@ -5061,12 +5248,16 @@ pub(crate) fn process_task_with_values_v7(
         return Ok(TailTaskResult {
             source_factor: task.source_factor.clone(),
             eliminated_by_raw_cover: true,
+            raw_cover_before_fill,
+            raw_cover_after_fill: raw_cover_rate,
             ..TailTaskResult::default()
         });
     }
 
     let mut result = TailTaskResult {
         source_factor: task.source_factor.clone(),
+        raw_cover_before_fill,
+        raw_cover_after_fill: raw_cover_rate,
         ..TailTaskResult::default()
     };
 
@@ -5076,7 +5267,7 @@ pub(crate) fn process_task_with_values_v7(
     // raw variant
     process_v7_variant(
         task.source_factor.as_str(),
-        &raw_values,
+        ranked_raw,
         shared,
         &open_symbol_counts,
         &mut result,
@@ -5086,11 +5277,13 @@ pub(crate) fn process_task_with_values_v7(
     if shared.fold {
         let _t = Instant::now();
         let folded = build_fold_values(&raw_values);
+        let ranked_fold = rank_and_fill_missing_cross_sectional_median(&folded);
         PROF_FOLD.fetch_add(_t.elapsed().as_nanos() as u64, AtomicOrdering::Relaxed);
         drop(raw_values);
+        drop(folded);
         process_v7_variant(
             &format!("{}_fold", task.source_factor),
-            &folded,
+            ranked_fold,
             shared,
             &open_symbol_counts,
             &mut result,
@@ -5232,6 +5425,7 @@ pub fn tail_v5_run_candidates_v7b<'py>(
                 majority_count_threshold,
                 zero_max_threshold,
                 nan_max_threshold,
+                save_all_metrics: false,
             }),
         };
 
