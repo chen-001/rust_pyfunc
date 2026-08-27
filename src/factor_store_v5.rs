@@ -2906,7 +2906,15 @@ pub fn factor_store_v5_read_factor(store_dir: String, col_idx: usize) -> PyResul
 /// 之后可作为正式 group 注册进组合 store 并支持增量更新。
 ///
 /// 校验：src 必须是 group 子目录（不能是组合 store 根）；请求的因子名必须全部存在
-/// （缺失直接报错，不静默漏复制）；dst 必须不存在或为空目录（拒绝覆盖）。
+/// （缺失直接报错，不静默漏复制）；dst 必须不存在或为空目录（拒绝覆盖）；
+/// dst 不得已被所在组合 manifest 引用（防止与已注册 group 冲突）。
+///
+/// 写入语义：
+/// - 原子交付：先写 {dst_dir}.tmp_copy 临时目录，成功后 rename 到 dst_dir，
+///   中途失败自动清理临时目录，dst 不会留下残片（重试无需手动清理）。
+/// - 稀疏写入：只写 src 中"至少一个因子有限值"的 (date, code) 格点，
+///   dst 记录数 = src 有效格点集，不会按模板轴全叉积膨胀；
+///   全部因子都缺失的格点不产生记录（读取矩阵语义与 src 完全一致：NaN = 缺失）。
 /// 内存：一次性读入全部子集因子的稠密矩阵（dates×stocks×N×4B），
 /// 适合 N ≤ 数十个因子；N 大时内存占用高。
 #[pyfunction]
@@ -2937,6 +2945,27 @@ pub fn factor_store_v5_copy_subset(
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
             "dst_dir 已存在且非空，拒绝覆盖: {dst_dir}"
         )));
+    }
+    // dst 不得已被所在组合 manifest 引用（防止覆盖已注册 group 的布局约定）。
+    if let (Some(parent), Some(dst_name)) = (dst_path.parent(), dst_path.file_name()) {
+        let manifest = parent.join("factor_groups.json");
+        if manifest.exists() {
+            let text = std::fs::read_to_string(&manifest)
+                .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+            let parsed: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
+                pyo3::exceptions::PyValueError::new_err(format!("解析组合 manifest 失败: {e}"))
+            })?;
+            if let Some(groups) = parsed.get("groups").and_then(|g| g.as_array()) {
+                let dst_name = dst_name.to_string_lossy();
+                for g in groups {
+                    if g.get("dir").and_then(|d| d.as_str()) == Some(dst_name.as_ref()) {
+                        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                            "dst_dir {dst_dir} 已被组合 manifest 注册，拒绝覆盖"
+                        )));
+                    }
+                }
+            }
+        }
     }
 
     let reader = FactorStoreReader::open(&src_dir).map_err(pyerr)?;
@@ -2971,22 +3000,53 @@ pub fn factor_store_v5_copy_subset(
         );
     }
 
-    // 写入新 store（按天分批，控制单批内存）
-    let mut writer = FactorStoreWriter::open(&dst_dir, &factor_names).map_err(pyerr)?;
-    for (di, &d) in dates.iter().enumerate() {
-        let mut batch: Vec<TaskResult> = Vec::with_capacity(stocks_bare.len());
-        for (si, code) in stocks_bare.iter().enumerate() {
-            let facs: Vec<f32> = matrices.iter().map(|m| m[[di, si]]).collect();
-            batch.push(TaskResult {
-                date: d as i64,
-                code: code.clone(),
-                timestamp: 0,
-                facs,
-            });
-        }
-        writer.append_batch(&batch).map_err(pyerr)?;
+    // 原子交付：写临时目录，成功后 rename。中途失败清理临时目录，dst 不留残片。
+    let tmp_dir = format!("{dst_dir}.tmp_copy");
+    let tmp_path = PathBuf::from(&tmp_dir);
+    if tmp_path.exists() {
+        std::fs::remove_dir_all(&tmp_path)
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("清理旧临时目录失败: {e}")))?;
     }
-    writer.finish_and_project(0).map_err(pyerr)?;
+    let write_result: Result<(), String> = (|| {
+        let mut writer = FactorStoreWriter::open(&tmp_dir, &factor_names)?;
+        // 稀疏写入：只写至少一个因子有限值的 (date, code) 格点。
+        for (di, &d) in dates.iter().enumerate() {
+            let mut batch: Vec<TaskResult> = Vec::with_capacity(stocks_bare.len());
+            for (si, code) in stocks_bare.iter().enumerate() {
+                let mut facs: Vec<f32> = Vec::with_capacity(factor_names.len());
+                let mut any_finite = false;
+                for m in &matrices {
+                    let v = m[[di, si]];
+                    any_finite |= v.is_finite();
+                    facs.push(v);
+                }
+                if !any_finite {
+                    continue;
+                }
+                batch.push(TaskResult {
+                    date: d as i64,
+                    code: code.clone(),
+                    timestamp: 0,
+                    facs,
+                });
+            }
+            if !batch.is_empty() {
+                writer.append_batch(&batch)?;
+            }
+        }
+        writer.finish_and_project(0)?;
+        Ok(())
+    })();
+    if let Err(e) = write_result {
+        let _ = std::fs::remove_dir_all(&tmp_path);
+        return Err(pyerr(format!(
+            "factor_store_v5_copy_subset 写入失败（临时目录已清理）: {e}"
+        )));
+    }
+    std::fs::rename(&tmp_path, &dst_path).map_err(|e| {
+        let _ = std::fs::remove_dir_all(&tmp_path);
+        pyo3::exceptions::PyIOError::new_err(format!("rename 临时目录失败: {e}"))
+    })?;
 
     let reader2 = FactorStoreReader::open(&dst_dir).map_err(pyerr)?;
     Python::with_gil(|py| {
@@ -3258,13 +3318,14 @@ impl BackupSink {
 
     /// 当前注册的因子数（Colblk 分支取 writer 的 factor_count；Bin 分支返回 expected_len）。
     /// 供 ShardedBackupSink 在分发 shard 前做整批长度预校验。
-    pub fn factor_count(&self) -> usize {
+    /// 锁中毒统一用 Err 传播（与 append_batch 一致），不做 panic。
+    pub fn factor_count(&self) -> Result<usize, String> {
         match self {
-            BackupSink::Bin { expected_len, .. } => *expected_len,
+            BackupSink::Bin { expected_len, .. } => Ok(*expected_len),
             BackupSink::Colblk { writer } => writer
                 .lock()
-                .expect("writer mutex poisoned")
-                .factor_count,
+                .map(|w| w.factor_count)
+                .map_err(|_| "writer mutex poisoned".to_string()),
         }
     }
 
@@ -3367,12 +3428,15 @@ impl ShardedBackupSink {
         if results.is_empty() {
             return Ok(());
         }
-        // 整批统一预校验：分发 shard 前先验证全部结果因子数一致，
-        // 避免 A shard 已写盘、B shard 校验失败的半成功状态。
+        // 整批统一预校验：分发 shard 前先验证全部结果因子数一致。
+        // 这只拦截"因子数不匹配"这一类输入错误（最常见、最容易造成污染）。
+        // 注意：写盘过程中的 IO 级失败（磁盘满/路径错误等）仍可能出现
+        // "部分 shard 已落盘、部分失败"的半成功状态；该状态由断点续算兜底
+        // （date 粒度 mark_complete，失败日期下次重算，计算是确定性的）。
         let Some(first_shard) = self.shards.first() else {
             return Err("ShardedBackupSink 没有分片，无法写入".to_string());
         };
-        let expected = first_shard.factor_count();
+        let expected = first_shard.factor_count()?;
         for (idx, r) in results.iter().enumerate() {
             if r.facs.len() != expected {
                 return Err(format!(

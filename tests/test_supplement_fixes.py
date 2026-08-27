@@ -71,6 +71,15 @@ def test_copy_subset_and_guards():
     with pytest.raises(ValueError, match="组合 store 根目录"):
         rp.factor_store_v5_copy_subset(str(combo), str(root / "dst4"), ["f0"])
 
+    # dst 已被组合 manifest 引用 → 拒绝（防覆盖已注册 group 布局）
+    combo2 = root / "combo2"
+    (combo2 / "taken_dir").mkdir(parents=True)
+    (combo2 / "factor_groups.json").write_text(
+        '{"version": 1, "groups": [{"name": "base", "dir": "."}, {"name": "taken", "dir": "taken_dir"}]}'
+    )
+    with pytest.raises(ValueError, match="已被组合 manifest 注册"):
+        rp.factor_store_v5_copy_subset(str(src), str(combo2 / "taken_dir"), ["f0"])
+
 
 # ---------- P1-9: update_mode=False 的 force_clear 安全闸门 ----------
 

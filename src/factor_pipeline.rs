@@ -905,13 +905,14 @@ pub fn run_factor_pipeline(
             handles.push(handle);
         }
         // 启动独立进度监控线程（不影响计算）
+        let monitor_cancel = std::sync::Arc::new(AtomicBool::new(false));
         let monitor_handle = spawn_progress_monitor(
             completed.clone(),
             total,
             start,
             batch_size,
             backup_intervals.clone(),
-            std::sync::Arc::new(AtomicBool::new(false)),
+            monitor_cancel.clone(),
         );
 
         // 分发所有任务到队列
@@ -923,6 +924,17 @@ pub fn run_factor_pipeline(
         // 等待所有 worker 完成
         for h in handles {
             let _ = h.join();
+        }
+        // 任务丢失检测：worker panic 时 completed 到不了 total，monitor 会永久空转；
+        // 先置位取消标志让 monitor 在 1s 内退出，再显式报错。
+        if completed.load(Ordering::Relaxed) < total {
+            monitor_cancel.store(true, Ordering::Relaxed);
+            let _ = monitor_handle.join();
+            return Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
+                "任务丢失: completed={} < total={}（worker 可能 panic 或提前退出）",
+                completed.load(Ordering::Relaxed),
+                total
+            )));
         }
         let _ = monitor_handle.join();
 
@@ -1125,6 +1137,12 @@ fn locate_worker_binary() -> Option<String> {
     }
     None
 }
+/// kill 子进程并立即回收（wait），避免错误路径每次泄漏一个僵尸进程表项。
+fn kill_and_reap(child: &mut std::process::Child) {
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
 /// 独立进度监控线程：每 10 秒打印进度 + 两种剩余时长预估。
 /// 通过 Arc<AtomicUsize> 读 completed，不干扰计算线程。
 fn spawn_progress_monitor(
@@ -1330,10 +1348,16 @@ fn run_multiprocess_v2(
         let collector_handle = {
             let completed_cloned = completed.clone();
             let backup_intervals_cloned = backup_intervals.clone();
+            let write_failed_c = write_failed.clone();
             std::thread::spawn(move || {
                 let mut buf: Vec<TaskResult> = Vec::with_capacity(batch_size);
                 let mut last_flush = std::time::Instant::now();
                 while let Ok(result) = result_rx.recv() {
+                    // writer 已失败 → 立即停止收集：result_rx 随之关闭，
+                    // worker 的 send 立刻失败退出，不再白算攒批。
+                    if write_failed_c.load(Ordering::Relaxed) {
+                        break;
+                    }
                     buf.push(result);
                     let _done = completed_cloned.fetch_add(1, Ordering::Relaxed) + 1;
                     if buf.len() >= batch_size {
@@ -1365,9 +1389,21 @@ fn run_multiprocess_v2(
         // 先检查 writer 错误，再 join monitor：writer 失败时 completed 永远到不了 total，
         // monitor 靠 write_failed 标志在 1s 内退出，join 不会挂死。
         if let Ok(e) = writer_err_rx.try_recv() {
+            write_failed.store(true, Ordering::Relaxed);
             let _ = monitor_handle.join();
             return Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
                 "colblk 批量写入失败: {e}"
+            )));
+        }
+        // 任务丢失检测（worker panic 等）：completed 到不了 total 且没有 writer 错误时，
+        // 靠 write_failed 标志让 monitor 退出，并显式报错而不是静默返回。
+        if completed.load(Ordering::Relaxed) < total {
+            write_failed.store(true, Ordering::Relaxed);
+            let _ = monitor_handle.join();
+            return Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
+                "任务丢失: completed={} < total={}（worker 可能 panic 或提前退出）",
+                completed.load(Ordering::Relaxed),
+                total
             )));
         }
         // 正常路径：completed 已达 total，monitor 自行退出。
@@ -1445,14 +1481,14 @@ fn run_single_worker_manager(
             expected_len,
         };
         if ipc_write(&mut writer, &init_msg).is_err() {
-            let _ = child.kill();
+            kill_and_reap(&mut child);
             continue;
         }
         // 等待 Ready 确认
         match ipc_read_result(&mut reader) {
             Ok(ResultMessage::Ready) => {}
             _ => {
-                let _ = child.kill();
+                kill_and_reap(&mut child);
                 continue;
             }
         }
@@ -1489,10 +1525,10 @@ fn run_single_worker_manager(
                     })
                     .is_err()
                 {
-                    let _ = child.kill();
+                    kill_and_reap(&mut child);
                     break 'outer;
                 }
-                let _ = child.kill();
+                kill_and_reap(&mut child);
                 continue 'outer;
             }
 
@@ -1501,7 +1537,7 @@ fn run_single_worker_manager(
                 Ok(ResultMessage::Result(r)) => {
                     // result channel 已死 → 不再消费任务，立即退出。
                     if result_tx.send(r).is_err() {
-                        let _ = child.kill();
+                        kill_and_reap(&mut child);
                         break 'outer;
                     }
                 }
@@ -1519,7 +1555,7 @@ fn run_single_worker_manager(
                         })
                         .is_err()
                     {
-                        let _ = child.kill();
+                        kill_and_reap(&mut child);
                         break 'outer;
                     }
                 }
@@ -1541,10 +1577,10 @@ fn run_single_worker_manager(
                         })
                         .is_err()
                     {
-                        let _ = child.kill();
+                        kill_and_reap(&mut child);
                         break 'outer;
                     }
-                    let _ = child.kill();
+                    kill_and_reap(&mut child);
                     continue 'outer;
                 }
             }
@@ -2026,14 +2062,14 @@ fn run_single_minute_worker(
             expected_len,
         };
         if ipc_write(&mut writer, &init_msg).is_err() {
-            let _ = child.kill();
+            kill_and_reap(&mut child);
             continue;
         }
         // 等 Ready
         match ipc_read_result(&mut reader) {
             Ok(ResultMessage::Ready) => {}
             _ => {
-                let _ = child.kill();
+                kill_and_reap(&mut child);
                 continue;
             }
         }
@@ -2053,7 +2089,7 @@ fn run_single_minute_worker(
             let task_msg = TaskMessage::MinuteTask { date };
             if ipc_write(&mut writer, &task_msg).is_err() {
                 let _ = batch_tx.send((date, Vec::new()));
-                let _ = child.kill();
+                kill_and_reap(&mut child);
                 continue 'outer;
             }
 
@@ -2076,7 +2112,7 @@ fn run_single_minute_worker(
                 Err(_) => {
                     eprintln!("⚠️ minute worker{worker_idx} IPC 错误，重启中...");
                     let _ = batch_tx.send((date, Vec::new()));
-                    let _ = child.kill();
+                    kill_and_reap(&mut child);
                     continue 'outer;
                 }
             }
@@ -2994,13 +3030,13 @@ fn run_single_cross_section_worker(
             expected_len,
         };
         if ipc_write(&mut writer, &init_msg).is_err() {
-            let _ = child.kill();
+            kill_and_reap(&mut child);
             continue;
         }
         match ipc_read_result(&mut reader) {
             Ok(ResultMessage::Ready) => {}
             _ => {
-                let _ = child.kill();
+                kill_and_reap(&mut child);
                 continue;
             }
         }
@@ -3021,10 +3057,10 @@ fn run_single_cross_section_worker(
             if ipc_write(&mut writer, &task_msg).is_err() {
                 // batch channel 已死（writer 失败已退出）→ 本管理器立即退出。
                 if batch_tx.send((date, Vec::new())).is_err() {
-                    let _ = child.kill();
+                    kill_and_reap(&mut child);
                     break 'outer;
                 }
-                let _ = child.kill();
+                kill_and_reap(&mut child);
                 continue 'outer;
             }
 
@@ -3032,7 +3068,7 @@ fn run_single_cross_section_worker(
                 Ok(ResultMessage::MinuteBatch(batch)) => {
                     let n_stocks = batch.len();
                     if batch_tx.send((date, batch)).is_err() {
-                        let _ = child.kill();
+                        kill_and_reap(&mut child);
                         break 'outer;
                     }
                     eprintln!(
@@ -3043,7 +3079,7 @@ fn run_single_cross_section_worker(
                 Ok(ResultMessage::Error { date, code, msg }) => {
                     eprintln!("⚠️ cross_section worker{worker_idx} 错误 [{date},{code}]: {msg}");
                     if batch_tx.send((date, Vec::new())).is_err() {
-                        let _ = child.kill();
+                        kill_and_reap(&mut child);
                         break 'outer;
                     }
                 }
@@ -3051,10 +3087,10 @@ fn run_single_cross_section_worker(
                 Err(_) => {
                     eprintln!("⚠️ cross_section worker{worker_idx} IPC 错误，重启中...");
                     if batch_tx.send((date, Vec::new())).is_err() {
-                        let _ = child.kill();
+                        kill_and_reap(&mut child);
                         break 'outer;
                     }
-                    let _ = child.kill();
+                    kill_and_reap(&mut child);
                     continue 'outer;
                 }
             }
