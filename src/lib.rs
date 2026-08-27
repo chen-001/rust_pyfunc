@@ -387,6 +387,10 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         m
     )?);
     let _ = m.add_function(wrap_pyfunction!(
+        factor_store_v5::factor_store_v5_copy_subset,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
         order_contamination::order_contamination,
         m
     )?);

@@ -200,6 +200,7 @@ def run_factor_pipeline_cross_section(
     bind_cores: bool = True,
     store_dir: Optional[str] = None,
     store_factor_names: Optional[List[str]] = None,
+    force_clear: Optional[bool] = None,
 ) -> None:
     ...
 

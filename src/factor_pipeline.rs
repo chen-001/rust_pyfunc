@@ -20,7 +20,7 @@ use crate::order_pair_metrics_pipeline;
 use chrono::Local;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 /// hm90 流水线的参数。
@@ -911,6 +911,7 @@ pub fn run_factor_pipeline(
             start,
             batch_size,
             backup_intervals.clone(),
+            std::sync::Arc::new(AtomicBool::new(false)),
         );
 
         // 分发所有任务到队列
@@ -1132,6 +1133,7 @@ fn spawn_progress_monitor(
     start: std::time::Instant,
     batch_size: usize,
     backup_intervals: std::sync::Arc<Mutex<Vec<f64>>>,
+    cancel: std::sync::Arc<AtomicBool>,
 ) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         let mut tick = 0u32;
@@ -1140,7 +1142,8 @@ fn spawn_progress_monitor(
             std::thread::sleep(std::time::Duration::from_secs(1));
             tick += 1;
             let done = completed.load(Ordering::Relaxed);
-            if done >= total {
+            // cancel（writer 失败等）时立刻退出，避免 completed 永远到不了 total 的挂死。
+            if done >= total || cancel.load(Ordering::Relaxed) {
                 break;
             }
             if tick % 10 != 0 {
@@ -1278,6 +1281,9 @@ fn run_multiprocess_v2(
         let backup_intervals: std::sync::Arc<Mutex<Vec<f64>>> =
             std::sync::Arc::new(Mutex::new(Vec::new()));
 
+        // writer 失败共享标志：collector/monitor 据此提前退出，避免 join 挂死。
+        let write_failed = std::sync::Arc::new(AtomicBool::new(false));
+
         // 启动独立进度监控线程（不影响计算）
         let monitor_handle = spawn_progress_monitor(
             completed.clone(),
@@ -1285,6 +1291,7 @@ fn run_multiprocess_v2(
             start,
             batch_size,
             backup_intervals.clone(),
+            write_failed.clone(),
         );
 
         // writer 线程 + 写队列：异步解耦，把慢写盘移到后台，让 collector 持续 recv、worker 不等 append_batch。
@@ -1301,6 +1308,7 @@ fn run_multiprocess_v2(
         let writer_handle = {
             let sink_c = sink.clone_handle();
             let sharded_c = sharded_sink.clone();
+            let write_failed_c = write_failed.clone();
             std::thread::spawn(move || {
                 while let Ok(batch) = write_rx.recv() {
                     let write_result = if let Some(ref ss) = sharded_c {
@@ -1309,6 +1317,8 @@ fn run_multiprocess_v2(
                         sink_c.append_batch(&batch)
                     };
                     if let Err(e) = write_result {
+                        // 先置失败标志（让 monitor 退出），再传错误，最后 break 让 collector 的 send 失败。
+                        write_failed_c.store(true, Ordering::Relaxed);
                         let _ = writer_err_tx.send(e);
                         break;
                     }
@@ -1352,13 +1362,16 @@ fn run_multiprocess_v2(
         }
         let _ = collector_handle.join(); // collector 排空 result_rx，残余入队列，drop write_tx
         let _ = writer_handle.join(); // writer 排空写队列，所有 batch 落盘后才返回（必须 last join）
-                                      // 让监控线程退出（completed 已达 total）
-        let _ = monitor_handle.join();
+        // 先检查 writer 错误，再 join monitor：writer 失败时 completed 永远到不了 total，
+        // monitor 靠 write_failed 标志在 1s 内退出，join 不会挂死。
         if let Ok(e) = writer_err_rx.try_recv() {
+            let _ = monitor_handle.join();
             return Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
                 "colblk 批量写入失败: {e}"
             )));
         }
+        // 正常路径：completed 已达 total，monitor 自行退出。
+        let _ = monitor_handle.join();
 
         Ok(())
     })?;
@@ -1464,13 +1477,21 @@ fn run_single_worker_manager(
                 code: code.clone(),
             };
             if ipc_write(&mut writer, &task_msg).is_err() {
-                // IPC 错误：该任务记 NaN，重启 worker
-                let _ = result_tx.send(TaskResult {
-                    date,
-                    code,
-                    timestamp: 0,
-                    facs: vec![f32::NAN],
-                });
+                // IPC 错误：该任务记 NaN，重启 worker。
+                // NaN 占位长度必须与 expected_len 一致，否则 append_batch 严格校验会整批失败。
+                // result channel 已死（collector/writer 已退出）→ 本管理器立即退出。
+                if result_tx
+                    .send(TaskResult {
+                        date,
+                        code,
+                        timestamp: 0,
+                        facs: vec![f32::NAN; expected_len],
+                    })
+                    .is_err()
+                {
+                    let _ = child.kill();
+                    break 'outer;
+                }
                 let _ = child.kill();
                 continue 'outer;
             }
@@ -1478,19 +1499,29 @@ fn run_single_worker_manager(
             // 收结果
             match ipc_read_result(&mut reader) {
                 Ok(ResultMessage::Result(r)) => {
-                    let _ = result_tx.send(r);
+                    // result channel 已死 → 不再消费任务，立即退出。
+                    if result_tx.send(r).is_err() {
+                        let _ = child.kill();
+                        break 'outer;
+                    }
                 }
                 Ok(ResultMessage::Error { date, code, msg }) => {
                     eprintln!(
                         "⚠️ worker{} 计算错误 [{},{}]: {}",
                         worker_idx, date, code, msg
                     );
-                    let _ = result_tx.send(TaskResult {
-                        date,
-                        code,
-                        timestamp: 0,
-                        facs: vec![f32::NAN],
-                    });
+                    if result_tx
+                        .send(TaskResult {
+                            date,
+                            code,
+                            timestamp: 0,
+                            facs: vec![f32::NAN; expected_len],
+                        })
+                        .is_err()
+                    {
+                        let _ = child.kill();
+                        break 'outer;
+                    }
                 }
                 Ok(ResultMessage::Ready) => {
                     // 忽略意外的 Ready
@@ -1501,12 +1532,18 @@ fn run_single_worker_manager(
                 Err(_) => {
                     // IPC 错误，重启 worker
                     eprintln!("⚠️ worker{} IPC 错误，重启中...", worker_idx);
-                    let _ = result_tx.send(TaskResult {
-                        date,
-                        code,
-                        timestamp: 0,
-                        facs: vec![f32::NAN],
-                    });
+                    if result_tx
+                        .send(TaskResult {
+                            date,
+                            code,
+                            timestamp: 0,
+                            facs: vec![f32::NAN; expected_len],
+                        })
+                        .is_err()
+                    {
+                        let _ = child.kill();
+                        break 'outer;
+                    }
                     let _ = child.kill();
                     continue 'outer;
                 }
@@ -2583,7 +2620,7 @@ pub fn run_factor_pipeline_regime(
 #[pyo3(signature = (
     pipeline, tasks, n_jobs, expected_result_length, trading_days,
     params=None, n_workers=None, update_mode=None, bind_cores=true,
-    store_dir=None, store_factor_names=None
+    store_dir=None, store_factor_names=None, force_clear=None
 ))]
 #[allow(clippy::too_many_arguments)]
 pub fn run_factor_pipeline_cross_section(
@@ -2598,6 +2635,7 @@ pub fn run_factor_pipeline_cross_section(
     bind_cores: bool,
     store_dir: Option<String>,
     store_factor_names: Option<Vec<String>>,
+    force_clear: Option<bool>,
 ) -> PyResult<PyObject> {
     let py = unsafe { Python::assume_gil_acquired() };
 
@@ -2627,6 +2665,7 @@ pub fn run_factor_pipeline_cross_section(
     // 拆分 n_jobs → n_workers × threads_per_worker（在 pending 计算之后，见下方 total 处）
 
     let update_mode_enabled = update_mode.unwrap_or(false);
+    let force_clear_enabled = force_clear.unwrap_or(false);
     let n_shards = 8;
 
     let store_dir_str = store_dir
@@ -2640,11 +2679,27 @@ pub fn run_factor_pipeline_cross_section(
             "store_dir {store_dir_str} 是组合 store 根目录（存在 factor_groups.json）。\n             计算必须指向某个 group 子目录；禁止 update_mode=False 清空组合根目录。"
         )));
     }
-    // 全量重跑（update_mode=False）: 清空已有 store 重建。
+    // 全量重跑（update_mode=False）：清空已有 store 重建。
     // 已投影的 store 禁止追加（append_batch 返回 Err），若不清空则所有写入静默失败。
+    // 安全闸门：默认拒绝删除非空目录（防止误删还没有 manifest 的初版目录）；
+    // 只有显式 force_clear=True 才允许清空重建（Skill A 永远不传）。
     if !update_mode_enabled {
-        let _ = std::fs::remove_dir_all(&store_dir_str);
-        let _ = std::fs::create_dir_all(&store_dir_str);
+        let dir = std::path::Path::new(&store_dir_str);
+        let non_empty = dir
+            .read_dir()
+            .map(|mut it| it.next().is_some())
+            .unwrap_or(false);
+        if non_empty && !force_clear_enabled {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "store_dir {store_dir_str} 非空且未传 force_clear=True，拒绝清空重建。                 若目录是初版/既有 store，请勿用 update_mode=False 指向它；                 确认要丢弃其中数据时再显式传 force_clear=True。"
+            )));
+        }
+        if non_empty {
+            std::fs::remove_dir_all(&store_dir_str)
+                .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("清空 store 失败: {e}")))?;
+        }
+        std::fs::create_dir_all(&store_dir_str)
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("创建 store 失败: {e}")))?;
         println!("🗑️ update_mode=False 全量重跑: 已清空 store {store_dir_str}");
     }
     let sharded_sink: crate::factor_store_v5::ShardedBackupSink = {
@@ -2964,7 +3019,11 @@ fn run_single_cross_section_worker(
 
             let task_msg = TaskMessage::MinuteTask { date };
             if ipc_write(&mut writer, &task_msg).is_err() {
-                let _ = batch_tx.send((date, Vec::new()));
+                // batch channel 已死（writer 失败已退出）→ 本管理器立即退出。
+                if batch_tx.send((date, Vec::new())).is_err() {
+                    let _ = child.kill();
+                    break 'outer;
+                }
                 let _ = child.kill();
                 continue 'outer;
             }
@@ -2972,7 +3031,10 @@ fn run_single_cross_section_worker(
             match ipc_read_result(&mut reader) {
                 Ok(ResultMessage::MinuteBatch(batch)) => {
                     let n_stocks = batch.len();
-                    let _ = batch_tx.send((date, batch));
+                    if batch_tx.send((date, batch)).is_err() {
+                        let _ = child.kill();
+                        break 'outer;
+                    }
                     eprintln!(
                         "[{}] worker{worker_idx} 完成 {date}: {n_stocks} 股",
                         Local::now().format("%H:%M:%S")
@@ -2980,12 +3042,18 @@ fn run_single_cross_section_worker(
                 }
                 Ok(ResultMessage::Error { date, code, msg }) => {
                     eprintln!("⚠️ cross_section worker{worker_idx} 错误 [{date},{code}]: {msg}");
-                    let _ = batch_tx.send((date, Vec::new()));
+                    if batch_tx.send((date, Vec::new())).is_err() {
+                        let _ = child.kill();
+                        break 'outer;
+                    }
                 }
                 Ok(_) => {}
                 Err(_) => {
                     eprintln!("⚠️ cross_section worker{worker_idx} IPC 错误，重启中...");
-                    let _ = batch_tx.send((date, Vec::new()));
+                    if batch_tx.send((date, Vec::new())).is_err() {
+                        let _ = child.kill();
+                        break 'outer;
+                    }
                     let _ = child.kill();
                     continue 'outer;
                 }

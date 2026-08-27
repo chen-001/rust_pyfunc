@@ -838,6 +838,20 @@ def factor_store_v5_template(store_dir: str) -> dict:
     ...
 
 
+def factor_store_v5_copy_subset(
+    src_dir: str,
+    dst_dir: str,
+    factor_names: List[str],
+) -> dict:
+    """把 src store 中指定因子子集复制成新的独立 store（含投影）。
+
+    用途：补充因子判定后把"值得补充"的因子整理成 accepted group。
+    src 必须是 group 子目录；请求因子名必须全部存在；dst 必须不存在或为空目录。
+    返回 dst 的 info dict（factor_count / is_projected / factor_names）。
+    """
+    ...
+
+
 def factor_store_v5_export_factors_parquet(
     store_dir: str,
     output_dir: str,

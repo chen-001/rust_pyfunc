@@ -296,13 +296,20 @@ pub fn tail_backtest_engine<'py>(
                 let stocks_arc = shared_clone.stocks.clone();
                 handles.push(thread::spawn(move || {
                     while let Ok(task) = rx.recv() {
-                        // 1. 解析 col_idx
+                        // 1. 解析 col_idx（失败 = 硬错误：带因子名返回，绝不静默跳过）
                         let col_idx = match parse_col_idx(&task.factor_path) {
                             Some(v) => v,
-                            None => continue,
+                            None => {
+                                let _ = tx.send(Err((
+                                    task.source_factor.clone(),
+                                    format!("解析 col_idx 失败（factor_path 缺少 ::col_idx）: {}", task.factor_path),
+                                )));
+                                break;
+                            }
                         };
 
                         // 2. 快速读因子（scatter_map 优化，共享 Reader）
+                        // 读取失败 = 硬错误：带因子名返回，绝不静默遗漏（否则 processed+restored < requested）。
                         let raw_values = match reader.read_factor_to_matrix_fast(
                             col_idx,
                             dates_arc.as_slice(),
@@ -310,7 +317,13 @@ pub fn tail_backtest_engine<'py>(
                             &scatter_maps,
                         ) {
                             Ok(m) => m,
-                            Err(_) => continue,
+                            Err(e) => {
+                                let _ = tx.send(Err((
+                                    task.source_factor.clone(),
+                                    format!("读取因子失败（col_idx={col_idx}）: {e}"),
+                                )));
+                                break;
+                            }
                         };
 
                         // 3. 完整计算流水线（rank_roll → preflight → backtest → neutralize → backtest）
@@ -422,6 +435,16 @@ pub fn tail_backtest_engine<'py>(
 
         for handle in handles {
             let _ = handle.join();
+        }
+
+        // P0-1 读取闭环断言：走到这里时（没有收到过 Err 结果），每个因子要么被恢复、
+        // 要么被成功处理。两者之和必须等于请求总数，否则说明存在静默遗漏
+        // （例如 worker panic / 结果 channel 提前关闭），必须报错而不是产出残缺结果。
+        let requested = factor_names.len();
+        if processed_sources + restored_sources != requested {
+            return Err(format!(
+                "读取/处理闭环不完整: requested={requested}, processed={processed_sources}, restored={restored_sources}"
+            ));
         }
 
         write_aggregated_outputs(&cache_root_path, &aggregated)?;

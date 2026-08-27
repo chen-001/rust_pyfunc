@@ -2899,6 +2899,105 @@ pub fn factor_store_v5_read_factor(store_dir: String, col_idx: usize) -> PyResul
     })
 }
 
+/// 把 src store 中的指定因子子集复制成新的独立 store（含投影）。
+///
+/// 用途（补充因子 accepted group）：评估 store 保留整批因子，判定结束后把
+/// "值得补充"的因子复制进 accepted 目录，该目录因子名单与正式代码产出完全一致，
+/// 之后可作为正式 group 注册进组合 store 并支持增量更新。
+///
+/// 校验：src 必须是 group 子目录（不能是组合 store 根）；请求的因子名必须全部存在
+/// （缺失直接报错，不静默漏复制）；dst 必须不存在或为空目录（拒绝覆盖）。
+/// 内存：一次性读入全部子集因子的稠密矩阵（dates×stocks×N×4B），
+/// 适合 N ≤ 数十个因子；N 大时内存占用高。
+#[pyfunction]
+#[pyo3(signature = (src_dir, dst_dir, factor_names))]
+pub fn factor_store_v5_copy_subset(
+    src_dir: String,
+    dst_dir: String,
+    factor_names: Vec<String>,
+) -> PyResult<PyObject> {
+    if std::path::Path::new(&src_dir)
+        .join("factor_groups.json")
+        .exists()
+    {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "factor_store_v5_copy_subset 不支持组合 store 根目录（存在 factor_groups.json），请指向 group 子目录",
+        ));
+    }
+    if factor_names.is_empty() {
+        return Err(pyo3::exceptions::PyValueError::new_err("factor_names 不能为空"));
+    }
+    let dst_path = PathBuf::from(&dst_dir);
+    if dst_path.exists()
+        && dst_path
+            .read_dir()
+            .map(|mut it| it.next().is_some())
+            .unwrap_or(true)
+    {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "dst_dir 已存在且非空，拒绝覆盖: {dst_dir}"
+        )));
+    }
+
+    let reader = FactorStoreReader::open(&src_dir).map_err(pyerr)?;
+    let name_to_idx: HashMap<&str, usize> = reader
+        .factor_names()
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (n.as_str(), i))
+        .collect();
+    let missing: Vec<&String> = factor_names
+        .iter()
+        .filter(|n| !name_to_idx.contains_key(n.as_str()))
+        .collect();
+    if !missing.is_empty() {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "factor_store_v5_copy_subset: {} 个请求因子不在 src store 中，前 20 个: {:?}",
+            missing.len(),
+            missing.iter().take(20).collect::<Vec<_>>()
+        )));
+    }
+    let (dates, stocks_bare) = reader.template_axes();
+
+    // 逐因子读稠密矩阵（NaN = 缺失）
+    let mut matrices: Vec<ndarray::Array2<f32>> = Vec::with_capacity(factor_names.len());
+    for name in &factor_names {
+        let idx = name_to_idx[name.as_str()];
+        matrices.push(
+            reader
+                .read_factor_to_matrix(idx, &dates, &stocks_bare)
+                .map_err(|e| format!("读取因子 {name} 失败: {e}"))
+                .map_err(pyerr)?,
+        );
+    }
+
+    // 写入新 store（按天分批，控制单批内存）
+    let mut writer = FactorStoreWriter::open(&dst_dir, &factor_names).map_err(pyerr)?;
+    for (di, &d) in dates.iter().enumerate() {
+        let mut batch: Vec<TaskResult> = Vec::with_capacity(stocks_bare.len());
+        for (si, code) in stocks_bare.iter().enumerate() {
+            let facs: Vec<f32> = matrices.iter().map(|m| m[[di, si]]).collect();
+            batch.push(TaskResult {
+                date: d as i64,
+                code: code.clone(),
+                timestamp: 0,
+                facs,
+            });
+        }
+        writer.append_batch(&batch).map_err(pyerr)?;
+    }
+    writer.finish_and_project(0).map_err(pyerr)?;
+
+    let reader2 = FactorStoreReader::open(&dst_dir).map_err(pyerr)?;
+    Python::with_gil(|py| {
+        let dict = pyo3::types::PyDict::new(py);
+        dict.set_item("factor_count", reader2.factor_names().len())?;
+        dict.set_item("is_projected", reader2.is_projected())?;
+        dict.set_item("factor_names", reader2.factor_names().to_vec())?;
+        Ok(dict.into())
+    })
+}
+
 /// 从 colblk 存储推断回测模板轴：返回去重排序的 dates（int 数组）和 stocks（带 .SZ/.SH 后缀）。
 /// 供 design_whatever 的 tail_v5 替代 v4 的 pandas 读 parquet 推断模板。
 #[pyfunction]
@@ -3157,6 +3256,18 @@ impl BackupSink {
         }
     }
 
+    /// 当前注册的因子数（Colblk 分支取 writer 的 factor_count；Bin 分支返回 expected_len）。
+    /// 供 ShardedBackupSink 在分发 shard 前做整批长度预校验。
+    pub fn factor_count(&self) -> usize {
+        match self {
+            BackupSink::Bin { expected_len, .. } => *expected_len,
+            BackupSink::Colblk { writer } => writer
+                .lock()
+                .expect("writer mutex poisoned")
+                .factor_count,
+        }
+    }
+
     /// 克隆（仅 Colblk 分支增加 Arc 引用计数，开销极低；Bin 分支 clone 字符串）
     pub fn clone_handle(&self) -> Self {
         match self {
@@ -3253,6 +3364,24 @@ impl ShardedBackupSink {
 
     /// 按 date % n_shards 路由 + rayon 并行写各 shard（不同 shard 的 Mutex 不竞争）。
     pub fn append_batch(&self, results: &[TaskResult]) -> Result<(), String> {
+        if results.is_empty() {
+            return Ok(());
+        }
+        // 整批统一预校验：分发 shard 前先验证全部结果因子数一致，
+        // 避免 A shard 已写盘、B shard 校验失败的半成功状态。
+        let Some(first_shard) = self.shards.first() else {
+            return Err("ShardedBackupSink 没有分片，无法写入".to_string());
+        };
+        let expected = first_shard.factor_count();
+        for (idx, r) in results.iter().enumerate() {
+            if r.facs.len() != expected {
+                return Err(format!(
+                    "ShardedBackupSink.append_batch 第 {idx} 条任务结果因子数不匹配: got={}, expected={}",
+                    r.facs.len(),
+                    expected
+                ));
+            }
+        }
         let mut buckets: Vec<Vec<TaskResult>> = (0..self.n_shards).map(|_| Vec::new()).collect();
         for r in results {
             let idx = (r.date as usize) % self.n_shards;
