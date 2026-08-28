@@ -1,0 +1,20 @@
+[package]
+name = "dev_sandbox_rankic"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "dev_sandbox_rankic"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.18", features = ["extension-module"] }
+numpy = "0.18"
+ndarray = "0.15"
+nalgebra = "0.32"
+
+[profile.dev]
+opt-level = 1
+
+[profile.release]
+opt-level = 3
