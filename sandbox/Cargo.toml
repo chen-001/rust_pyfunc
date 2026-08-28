@@ -1,0 +1,21 @@
+[package]
+name = "dev_sandbox"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "dev_sandbox"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.18", features = ["extension-module"] }
+numpy = "0.18"
+ndarray = "0.15"
+nalgebra = "0.32"
+
+# dev 模式也开启基础优化，避免无优化下排序/矩阵操作失真影响测速对比
+[profile.dev]
+opt-level = 1
+
+[profile.release]
+opt-level = 3
