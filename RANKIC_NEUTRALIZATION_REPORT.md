@@ -106,7 +106,7 @@
 - 因子预处理与生产一致：横截面平均秩 + 缺失填当日中位秩（_smooth_1 slot，无 NaN）。
 - 基线 = 生产 `rp.neutralize_std_block_py` + 复刻 `legacy_spearman_correlation` 的回测对齐（held 信号、gap 持有、截面过滤逐一复刻）。
 - sandbox 独立实现 `sandbox_rankic_neu/src/lib.rs`（pyo3 0.18 / numpy 0.18 / ndarray 0.15 / nalgebra 0.32，`bash build.sh` 安装为 `dev_sandbox_rankic`）。
-- 复刻基线自证：sandbox 完整链路输出与生产 `neutralize_std_block_py` 输出 **逐位一致**（NaN 模式一致、有值处 max|diff| = 0，f32 bits 级）。
+- 复刻基线自证：sandbox 完整链路输出与生产 `neutralize_std_block_py` 输出 **逐位一致**（60 天样本 f32 bits 级；并全量 2276 天抽查 2 个真实因子，NaN 模式一致、有值处 max|diff| = 0）。
 
 ### 3.2 各方案与现状（A）的对照（30 因子 × 2276 天）
 
@@ -122,6 +122,20 @@
 - C' 与 C3 的逐位一致率差异来自 f32 cast 伪 tie 与"挤秩"效应（见引理 1 注与引理 5）。
 - B 的 IC 均值差无偏（mean(B−A) ≈ 0，std 0.004~0.012，个别因子 ±0.028）。
 - **跨因子排序**：ρ(A, C3) = 1.0000（top10 重合 10/10）；ρ(A, B) = 0.98（gap1）/ 0.93（gap5），top10 重合 9/10。
+
+### 3.2b 滚动 slot（含 NaN，覆盖填充路径）全量对照（30 因子 × 2276 天）
+
+slot = 时间维滚动均值（window=20, min_periods=10，作用在秩填充后的因子上，前 9 天 NaN，
+与生产派生 slot 形态一致，中性化走行业 OLS 填充 + 中位填充路径）：
+
+| 方案 | gap | max\|Δ\| | 逐位一致率 | 时间序列 corr | 符号一致率 |
+|---|---|---|---|---|---|
+| C'（精确等价） | 1 / 5 | **0** | **100%** | **1.000000** | **100%** |
+| C''（精确等价） | 1 / 5 | **0** | **100%** | **1.000000** | **100%** |
+| C3-exact（快路径） | 1 / 5 | ~5e-5 | 85.5% | 1.000000 | ~100% |
+| B（备选思路） | 1 / 5 | 0.09~0.12 | 0% | 0.977 / 0.967 | 93.5% / 87.3% |
+
+结论：**C' 与 C'' 的逐位一致性在填充路径（有 NaN slot）同样成立**；C3-exact 对有 NaN 因子不再精确（快路径条件"因子无 NaN"不满足，差异 ~5e-5）；B 的不等价结论在两类 slot 上一致。
 
 ### 3.3 差异归因（A / B / 双边 F / raw，240 天 × 4 因子）
 
@@ -180,6 +194,18 @@ corr(A,B1) = 0.978~0.996，corr(A,B2) = 0.971~0.994，corr(B1,B2) = 0.995~0.999�
 端到端（ic_only）估算：严格一致路线（C''+C3-exact）≈ 现状总时长的 0.85×（省 ~15%，
 且零迁移成本）；B 预筛路线 ≈ 现状的 0.25× + 幸存者精确复核（预筛比例 10% 时总 ≈ 0.35×）。
 
+### 4.4 两个额外探索的结论（如实记录）
+
+1. **OLS valid 集合与因子无关（重要事实）**：对 15 个真实因子（缺失率 ~22%）全量 2276 天
+   统计，每日 OLS 有效股票集合与"理想集合"（restrict==0 且 10 风格全部非 NaN）**100% 重合**，
+   跨因子每日 distinct 集合数恒为 1。含义：设计矩阵 X、X'X 与 Cholesky 分解完全与因子无关，
+   可在预计算阶段一次算好全局共享——这为 C3-exact 的快路径与生产 `neutralize_std_precompute`
+   的进一步共享提供了事实基础。
+2. **C⁗（Cholesky 分解缓存）探索：无提速，放弃**。基于上述事实实现"预计算每日 X'X 的
+   Cholesky 因子 L、per-slot 仅做 X'y 累积 + L 回代"，与 C'' 逐位一致（验证通过），但实测
+   per-slot 核心成本不降反升（+4%，X'X 累积并非瓶颈，且命中判定/矩阵组装引入固定开销）。
+   结论：该方向不进入推荐方案，仅保留"valid 集合恒等"这一事实性发现。
+
 ---
 
 ## 5. 金融含义
@@ -198,19 +224,19 @@ corr(A,B1) = 0.978~0.996，corr(A,B2) = 0.971~0.994，corr(B1,B2) = 0.995~0.999�
 | 方案 | 与现状一致性 | 单 slot 中性化成本 | 迁移影响 | 适用 |
 |---|---|---|---|---|
 | 现状 A | 基准 | 1.00× | — | — |
-| **C'** | **逐位一致（max\|Δ\|=0）** | 0.87× | 零 | 全 slot |
-| **C''** | **逐位一致** | 0.82× | 零 | 全 slot |
-| **C3-exact** | **逐位一致（无 NaN 因子）** | 0.69× | 零 | _smooth_1 slot |
+| **C'** | **逐位一致（max\|Δ\|=0）** | 0.93× | 零 | 全 slot |
+| **C''** | **逐位一致** | 0.84× | 零 | 全 slot |
+| **C3-exact** | **逐位一致（无 NaN 因子）** | 0.63× | 零 | _smooth_1 slot |
 | C3（跳过填充） | 近似（max\|Δ\|~1e-4，corr 1.0000） | ~0.7× | 近似零 | 可接受近似时 |
 | B（收益侧一次） | 不等价（corr 0.97~0.99） | 0（端到端 ~4×） | 阈值需重校准 | 预筛 |
 
 ### 6.2 推荐：严格一致路线（C'' + C3-exact），B 作为可选预筛
 
-**第一步（零风险，必做）**：落地 C' —— 在 `neutralize_std_slot_f32` 链路中删除"残差 rank_pct + f32 cast"，回测的 `legacy_spearman` 对 f64 resid 求 ordinal 秩（收益侧 `ord(r)` 一次共享）。收益：省 ~13% 中性化成本，**结果与现状逐位一致，所有阈值、历史结论零迁移**。
+**第一步（零风险，必做）**：落地 C' —— 在 `neutralize_std_slot_f32` 链路中删除"残差 rank_pct + f32 cast"，回测的 `legacy_spearman` 对 f64 resid 求 ordinal 秩（收益侧 `ord(r)` 一次共享）。收益：省 ~7~11% 中性化成本（实测 7%、理论 11%），**结果与现状逐位一致，所有阈值、历史结论零迁移**。
 
-**第二步（低风险，逐位一致）**：落地 C'' —— 把 `fill_ind_reg`/`fill_by_group_median` 的行业码排序移入 `neutralize_std_precompute`（与因子无关，一次性生成），fill 段内逻辑不变。收益：再省 ~5%。
+**第二步（低风险，逐位一致）**：落地 C'' —— 把 `fill_ind_reg`/`fill_by_group_median` 的行业码排序移入 `neutralize_std_precompute`（与因子无关，一次性生成），fill 段内逻辑不变。收益：累计省 ~16%。
 
-**第三步（低风险，逐位一致）**：落地 C3-exact —— 对无 NaN slot（_smooth_1，每因子 1 个）走快路径（抹 size-NaN + 组中位填充 + restrict + rank + OLS）。收益：该 slot 省 ~31%。
+**第三步（低风险，逐位一致）**：落地 C3-exact —— 对无 NaN slot（_smooth_1，每因子 1 个）走快路径（抹 size-NaN + 组中位填充 + restrict + rank + OLS）。收益：该 slot 省 ~37%。
 
 **第四步（可选，近似路线）**：B 预筛——收益侧中性化一次（r_neu 全因子共享），全因子快速 IC_B 排序，取 top-K（建议 K 保守放宽，如取并集口径 top 20~30%）的因子再走严格 C'' 复核。风险：B 与 A 的跨因子秩相关 0.93~0.98，存在漏选（top10 错位 1/10）；缓解 = 放宽预筛阈值 + 终筛仍用现状阈值与现状口径。适合因子量极大（万级）的场景。
 
@@ -231,10 +257,13 @@ corr(A,B1) = 0.978~0.996，corr(A,B2) = 0.971~0.994，corr(B1,B2) = 0.995~0.999�
 
 - 全部实验脚本与独立 Rust 实现位于 `sandbox_rankic_neu/`：
   `prototype.py`（数据准备 + Python 复刻基线）、`experiment1.py`（小样本方案对照）、
-  `full_experiment.py`（全量 30 因子）、`attribution.py`（差异归因）、
-  `propositions.py`（数学命题数值验证）、`perf_test*.py`（提速基准）、
-  `prod_engine_prof.py`（生产引擎耗时实测）、`src/lib.rs`（sandbox 实现）。
+  `full_experiment.py`（全量 30 因子 × _smooth_1 slot）、
+  `full_experiment_rolling.py`（全量 30 因子 × 滚动 slot，含 NaN 填充路径）、
+  `attribution.py`（差异归因）、`propositions.py`（数学命题数值验证）、
+  `perf_test*.py`（提速基准）、`prod_engine_prof.py`（生产引擎耗时实测）、
+  `src/lib.rs`（sandbox 实现，含 C'/C''/C3/C3-exact/C⁗/收益侧中性化/回测复刻）。
 - 构建：`cd sandbox_rankic_neu && bash build.sh`（release：`maturin develop --release`）。
-- 全量实验结论文件：`sandbox_rankic_neu/ic_compare_rows.npy`。
+- 全量实验结论文件：`sandbox_rankic_neu/ic_compare_rows.npy`（_smooth_1）、
+  `ic_compare_rows_rolling.npy`（滚动 slot）；生产全量抽查：`prod_fullspot.log`。
 - 提速测量条件：release 构建（opt-level 3，无 LTO）、单线程、2276×5438 f32 输入、
   每方案 5 次计时取 min/mean；生产引擎实测为 8 线程 ic_only 模式。

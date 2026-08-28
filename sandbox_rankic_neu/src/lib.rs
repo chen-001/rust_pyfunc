@@ -1232,6 +1232,475 @@ fn barra_slice_py<'py>(
     Ok(br.into_iter().map(|m| m.into_pyarray(py).to_owned()).collect())
 }
 
+
+/// 提取每日 OLS valid 掩码 (与 get_residual 的 valid 判定完全一致):
+/// valid = 当日 y(fv_filled rank 后) 非 NaN 且 10 风格非 NaN, 且 n_valid>10。
+/// 返回 (T,N) u8 (1=valid)。用于分析跨因子 X'X 缓存命中率。
+#[pyfunction]
+#[pyo3(signature = (factor, ind, restrict, barra_ranked, industry=true))]
+fn valid_mask_py<'py>(
+    py: Python<'py>,
+    factor: PyReadonlyArray2<'py, f32>,
+    ind: PyReadonlyArray2<'py, f64>,
+    restrict: PyReadonlyArray2<'py, f32>,
+    barra_ranked: PyReadonlyArray3<'py, f64>,
+    industry: bool,
+) -> PyResult<Py<PyArray2<u8>>> {
+    let f = factor.as_array().to_owned().map(|&v| v as f64);
+    let i = ind.as_array().to_owned();
+    let r = restrict.as_array().to_owned().map(|&v| v as f64);
+    let b = barra_ranked.as_array().to_owned();
+    let br = barra_slice(&b);
+    let (_, _, fv_filled) = neutralize_core_s(&f, &i, &r, &br, industry);
+    let (t, n) = fv_filled.dim();
+    let mut out = ndarray::Array2::<u8>::zeros((t, n));
+    for idx in 0..t {
+        let mut nv = 0usize;
+        for j in 0..n {
+            if fv_filled[[idx, j]].is_finite() && br.iter().all(|bb| bb[[idx, j]].is_finite()) {
+                nv += 1;
+            }
+        }
+        if nv > 10 {
+            for j in 0..n {
+                if fv_filled[[idx, j]].is_finite() && br.iter().all(|bb| bb[[idx, j]].is_finite()) {
+                    out[[idx, j]] = 1;
+                }
+            }
+        }
+    }
+    Ok(out.into_pyarray(py).to_owned())
+}
+
+
+// ---------- 方案 C⁗: X'X/Cholesky 预计算缓存 (valid 集合与因子无关时逐位一致) ----------
+
+/// 预计算每日理想 valid 集合 (= restrict==0 且 10 风格非 NaN, n_v>10) 的
+/// X'X Cholesky 下三角因子 L。返回 (L_cache(T,41,41), p_arr(T,) i64)。
+/// 不可用 (n_v<=10 / 分解失败) 的行全 NaN, p=-1。
+fn precompute_chol_core(
+    ind: &Array2<f64>,
+    restrict: &Array2<f64>,
+    barra_ranked: &[Array2<f64>],
+    industry: bool,
+) -> (Array3<f64>, Vec<i64>) {
+    let (t, n) = ind.dim();
+    let k = barra_ranked.len();
+    let max_p = if industry { k + 31 } else { k + 1 };
+    let ind1 = ind.map(|&v| (v / 10000.0).floor());
+    let mut l_cache = Array3::<f64>::from_elem((t, max_p, max_p), f64::NAN);
+    let mut p_arr = vec![-1i64; t];
+    for idx in 0..t {
+        let mut ind_codes: Vec<f64> = Vec::new();
+        if industry {
+            for j in 0..n {
+                let c = ind1[[idx, j]];
+                if !c.is_nan() && !ind_codes.contains(&c) {
+                    ind_codes.push(c);
+                }
+            }
+            ind_codes.sort_by(cmp_f64);
+        }
+        let n_ind = if industry { ind_codes.len() } else { 0 };
+        let p = if industry { k + n_ind } else { k + 1 };
+        // 理想 valid
+        let mut rows: Vec<[f64; 11]> = Vec::with_capacity(n);
+        let mut ind_cols: Vec<i32> = Vec::with_capacity(n);
+        for j in 0..n {
+            let ok = restrict[[idx, j]] == 0.0
+                && barra_ranked.iter().all(|b| b[[idx, j]].is_finite());
+            if ok {
+                let mut cur = [0.0_f64; 11];
+                cur[0] = 1.0; // y 占位 (仅用于列结构, 不影响 X'X)
+                for c in 0..k {
+                    cur[c + 1] = barra_ranked[c][[idx, j]];
+                }
+                rows.push(cur);
+                if industry {
+                    let c = ind1[[idx, j]];
+                    ind_cols.push(if c.is_nan() {
+                        -1
+                    } else {
+                        match ind_codes.binary_search_by(|x| cmp_f64(x, &c)) {
+                            Ok(pos) => pos as i32,
+                            Err(_) => -1,
+                        }
+                    });
+                } else {
+                    ind_cols.push(-1);
+                }
+            }
+        }
+        let n_valid = rows.len();
+        if n_valid <= 10 {
+            continue;
+        }
+        // X'X 累积 (与 get_residual 同序; y 列不影响风格/行业块)
+        let mut xtx = vec![0.0_f64; p * p];
+        for (i, r) in rows.iter().enumerate() {
+            if !industry {
+                xtx[0] += 1.0;
+                for c in 0..k {
+                    let b = r[c + 1];
+                    xtx[c + 1] += b;
+                    xtx[(c + 1) * p] += b;
+                }
+                for c1 in 0..k {
+                    let b1 = r[c1 + 1];
+                    xtx[(c1 + 1) * p + (c1 + 1)] += b1 * b1;
+                    for c2 in (c1 + 1)..k {
+                        let v = b1 * r[c2 + 1];
+                        xtx[(c1 + 1) * p + (c2 + 1)] += v;
+                        xtx[(c2 + 1) * p + (c1 + 1)] += v;
+                    }
+                }
+            } else {
+                for c in 0..k {
+                    let b = r[c + 1];
+                    xtx[c * p + c] += b * b;
+                    for c2 in (c + 1)..k {
+                        let v = b * r[c2 + 1];
+                        xtx[c * p + c2] += v;
+                        xtx[c2 * p + c] += v;
+                    }
+                }
+                let ic = ind_cols[i];
+                if ic >= 0 {
+                    let col = (k as i32 + ic) as usize;
+                    xtx[col * p + col] += 1.0;
+                    for c in 0..k {
+                        let b = r[c + 1];
+                        xtx[c * p + col] += b;
+                        xtx[col * p + c] += b;
+                    }
+                }
+            }
+        }
+        let m = DMatrix::from_row_slice(p, p, &xtx);
+        if let Some(chol) = Cholesky::new(m) {
+            let l = chol.unpack();
+            for i2 in 0..p {
+                for j2 in 0..p {
+                    l_cache[[idx, i2, j2]] = l[(i2, j2)];
+                }
+            }
+            p_arr[idx] = p as i64;
+        }
+    }
+    (l_cache, p_arr)
+}
+
+/// 带 Cholesky 缓存的 get_residual: valid == 理想集合且缓存可用时用缓存 L 回代,
+/// 否则走原 X'X+Cholesky 路径。与 get_residual 逐位一致。
+#[allow(clippy::too_many_arguments)]
+fn get_residual_cached(
+    fv: &Array2<f64>,
+    barra_ranked: &[Array2<f64>],
+    ind: &Array2<f64>,
+    industry: bool,
+    l_cache: &Array3<f64>,
+    p_arr: &[i64],
+) -> Array2<f64> {
+    let (t, n) = fv.dim();
+    let k = barra_ranked.len();
+    let ind1 = ind.map(|&v| (v / 10000.0).floor());
+    let mut resid = Array2::<f64>::from_elem((t, n), f64::NAN);
+    let mut valid: Vec<bool> = Vec::with_capacity(n);
+    let mut rows: Vec<[f64; 11]> = Vec::with_capacity(n);
+    let mut ind_cols: Vec<i32> = Vec::with_capacity(n);
+    for idx in 0..t {
+        let row = fv.row(idx);
+        if !row.iter().any(|v| !v.is_nan()) {
+            continue;
+        }
+        let mut ind_codes: Vec<f64> = Vec::new();
+        if industry {
+            for j in 0..n {
+                let c = ind1[[idx, j]];
+                if !c.is_nan() && !ind_codes.contains(&c) {
+                    ind_codes.push(c);
+                }
+            }
+            ind_codes.sort_by(cmp_f64);
+        }
+        let n_ind = if industry { ind_codes.len() } else { 0 };
+        let p = if industry { k + n_ind } else { k + 1 };
+        valid.clear();
+        rows.clear();
+        ind_cols.clear();
+        let mut matches_ideal = true;
+        for j in 0..n {
+            let ok = row[j].is_finite()
+                && barra_ranked.iter().all(|b| b[[idx, j]].is_finite());
+            let ideal = barra_ranked.iter().all(|b| b[[idx, j]].is_finite());
+            // 理想 valid 的定义: restrict==0 隐含在 row 有限里 (fv 已经 restrict 置空)
+            // 比较: valid 与 {barra 全有限} 是否一致
+            if ok != ideal {
+                matches_ideal = false;
+            }
+            valid.push(ok);
+            if ok {
+                let mut cur = [0.0_f64; 11];
+                cur[0] = row[j];
+                for c in 0..k {
+                    cur[c + 1] = barra_ranked[c][[idx, j]];
+                }
+                rows.push(cur);
+                if industry {
+                    let c = ind1[[idx, j]];
+                    ind_cols.push(if c.is_nan() {
+                        -1
+                    } else {
+                        match ind_codes.binary_search_by(|x| cmp_f64(x, &c)) {
+                            Ok(pos) => pos as i32,
+                            Err(_) => -1,
+                        }
+                    });
+                } else {
+                    ind_cols.push(-1);
+                }
+            }
+        }
+        let n_valid = rows.len();
+        if n_valid <= 10 {
+            continue;
+        }
+        let mut resid_row = vec![f64::NAN; n];
+        let mut uniq: Vec<f64> = rows.iter().map(|r| r[0]).collect();
+        uniq.sort_by(cmp_f64);
+        uniq.dedup_by(|a, b| (a.is_nan() && b.is_nan()) || a == b);
+        if uniq.len() == 1 {
+            for j in 0..n {
+                if valid[j] {
+                    resid_row[j] = 0.5;
+                }
+            }
+        } else {
+            let mut xty = vec![0.0_f64; p];
+            let mut xtx: Vec<f64> = Vec::new();
+            let use_cache = matches_ideal
+                && (p_arr[idx] as usize) == p
+                && l_cache[[idx, 0, 0]].is_finite();
+            if !use_cache {
+                xtx.resize(p * p, 0.0);
+            }
+            for (i, r) in rows.iter().enumerate() {
+                let yv = r[0];
+                if !industry {
+                    xty[0] += yv;
+                    if !use_cache {
+                        xtx[0] += 1.0;
+                    }
+                    for c in 0..k {
+                        let b = r[c + 1];
+                        xty[c + 1] += b * yv;
+                        if !use_cache {
+                            xtx[c + 1] += b;
+                            xtx[(c + 1) * p] += b;
+                        }
+                    }
+                    if !use_cache {
+                        for c1 in 0..k {
+                            let b1 = r[c1 + 1];
+                            xtx[(c1 + 1) * p + (c1 + 1)] += b1 * b1;
+                            for c2 in (c1 + 1)..k {
+                                let v = b1 * r[c2 + 1];
+                                xtx[(c1 + 1) * p + (c2 + 1)] += v;
+                                xtx[(c2 + 1) * p + (c1 + 1)] += v;
+                            }
+                        }
+                    }
+                } else {
+                    for c in 0..k {
+                        let b = r[c + 1];
+                        xty[c] += b * yv;
+                        if !use_cache {
+                            xtx[c * p + c] += b * b;
+                            for c2 in (c + 1)..k {
+                                let v = b * r[c2 + 1];
+                                xtx[c * p + c2] += v;
+                                xtx[c2 * p + c] += v;
+                            }
+                        }
+                    }
+                    let ic = ind_cols[i];
+                    if ic >= 0 {
+                        let col = (k as i32 + ic) as usize;
+                        xty[col] += yv;
+                        if !use_cache {
+                            xtx[col * p + col] += 1.0;
+                            for c in 0..k {
+                                let b = r[c + 1];
+                                xtx[c * p + col] += b;
+                                xtx[col * p + c] += b;
+                            }
+                        }
+                    }
+                }
+            }
+            let rhs = DMatrix::from_column_slice(p, 1, &xty);
+            let coef: Vec<f64> = if use_cache {
+                // 用缓存 L 回代 (与原 Cholesky::new(m).solve 同数值路径)
+                let mut l = DMatrix::<f64>::zeros(p, p);
+                for i2 in 0..p {
+                    for j2 in 0..p {
+                        l[(i2, j2)] = l_cache[[idx, i2, j2]];
+                    }
+                }
+                Cholesky::new_unchecked(l).solve(&rhs).column(0).iter().copied().collect()
+            } else {
+                let m = DMatrix::from_row_slice(p, p, &xtx);
+                let use_svd = n_valid <= 40 || Cholesky::new(m.clone()).is_none();
+                if !use_svd {
+                    let chol = Cholesky::new(m).expect("chol");
+                    chol.solve(&rhs).column(0).iter().copied().collect()
+                } else {
+                    let xm = DMatrix::from_fn(n_valid, p, |r_i, c| {
+                        if !industry {
+                            if c == 0 {
+                                1.0
+                            } else {
+                                rows[r_i][c]
+                            }
+                        } else {
+                            let ic = ind_cols[r_i];
+                            if c < k {
+                                rows[r_i][c + 1]
+                            } else if ic >= 0 && c == k as usize + ic as usize {
+                                1.0
+                            } else {
+                                0.0
+                            }
+                        }
+                    });
+                    let svd = xm.clone().svd(true, true);
+                    let u = svd.u.expect("svd u");
+                    let vt = svd.v_t.expect("svd vt");
+                    let s = svd.singular_values;
+                    let s_max = s.iter().cloned().fold(0.0_f64, f64::max);
+                    let rcond = s_max * (n_valid.max(p) as f64) * 2.22e-16;
+                    let ym = DMatrix::from_fn(n_valid, 1, |r_i, _| rows[r_i][0]);
+                    let uty = u.transpose() * ym;
+                    let mut coef = DMatrix::zeros(p, 1);
+                    for i in 0..p {
+                        if s[i] > rcond {
+                            coef[(i, 0)] = uty[(i, 0)] / s[i];
+                        }
+                    }
+                    (vt.transpose() * coef).column(0).iter().copied().collect()
+                }
+            };
+            let mut vi = 0;
+            for (i, r) in rows.iter().enumerate() {
+                let mut pred = 0.0;
+                if !industry {
+                    pred = coef[0];
+                    for c in 0..k {
+                        pred += coef[c + 1] * r[c + 1];
+                    }
+                } else {
+                    for c in 0..k {
+                        pred += coef[c] * r[c + 1];
+                    }
+                    let ic = ind_cols[i];
+                    if ic >= 0 {
+                        pred += coef[k + ic as usize];
+                    }
+                }
+                while !valid[vi] {
+                    vi += 1;
+                }
+                resid_row[vi] = r[0] - pred;
+                vi += 1;
+            }
+        }
+        for j in 0..n {
+            resid[[idx, j]] = resid_row[j];
+        }
+    }
+    resid
+}
+
+/// 方案 C⁗: 完整链路 + 预计算行业排序 + Cholesky 缓存 + 省残差 rank。
+#[allow(clippy::too_many_arguments)]
+fn neutralize_c4_core(
+    factor: &Array2<f64>,
+    ind: &Array2<f64>,
+    restrict: &Array2<f64>,
+    barra_ranked: &[Array2<f64>],
+    industry: bool,
+    orders: &[Array2<usize>],
+    l_cache: &Array3<f64>,
+    p_arr: &[i64],
+) -> Array2<f64> {
+    let (t, n) = factor.dim();
+    let size_ranked = barra_ranked[2].clone();
+    let mut fv_ranked = factor.clone();
+    rank_pct_all(&mut fv_ranked);
+    fill_ind_reg_pre(&mut fv_ranked, ind, &size_ranked, &orders[..3]);
+    let ind1 = ind.map(|&v| (v / 10000.0).floor());
+    let ind2 = ind.map(|&v| (v / 100.0).floor());
+    let zeros = Array2::<f64>::zeros((t, n));
+    let ind1_mask = ind1.map(|&v| if v.is_nan() { 0.0 } else { 1.0 });
+    let mut fv_filled = fv_ranked.clone();
+    for i in 0..(t * n) {
+        if ind1.as_slice().unwrap()[i].is_nan() {
+            fv_filled.as_slice_mut().unwrap()[i] = f64::NAN;
+        }
+    }
+    let median_source = fv_filled.clone();
+    group_median_fill_pre(&mut fv_filled, &ind2, None, &median_source, &orders[3]);
+    group_median_fill_pre(&mut fv_filled, &ind1, None, &median_source, &orders[4]);
+    group_median_fill(&mut fv_filled, &zeros, Some(&ind1_mask), &median_source);
+    for i in 0..(t * n) {
+        if restrict.as_slice().unwrap()[i] != 0.0 {
+            fv_filled.as_slice_mut().unwrap()[i] = f64::NAN;
+        }
+    }
+    rank_pct_all(&mut fv_filled);
+    get_residual_cached(&fv_filled, barra_ranked, ind, industry, l_cache, p_arr)
+}
+
+#[pyfunction]
+fn precompute_chol_py<'py>(
+    py: Python<'py>,
+    ind: PyReadonlyArray2<'py, f64>,
+    restrict: PyReadonlyArray2<'py, f32>,
+    barra_ranked: PyReadonlyArray3<'py, f64>,
+    industry: bool,
+) -> PyResult<(Py<PyArray3<f64>>, Vec<i64>)> {
+    let i = ind.as_array().to_owned();
+    let r = restrict.as_array().to_owned().map(|&v| v as f64);
+    let b = barra_ranked.as_array().to_owned();
+    let br = barra_slice(&b);
+    let (l_cache, p_arr) = precompute_chol_core(&i, &r, &br, industry);
+    Ok((l_cache.into_pyarray(py).to_owned(), p_arr))
+}
+
+#[pyfunction]
+#[pyo3(signature = (factor, ind, restrict, barra_ranked, orders, l_cache, p_arr, industry=true))]
+fn neutralize_c4<'py>(
+    py: Python<'py>,
+    factor: PyReadonlyArray2<'py, f32>,
+    ind: PyReadonlyArray2<'py, f64>,
+    restrict: PyReadonlyArray2<'py, f32>,
+    barra_ranked: PyReadonlyArray3<'py, f64>,
+    orders: Vec<PyReadonlyArray2<'py, usize>>,
+    l_cache: PyReadonlyArray3<'py, f64>,
+    p_arr: Vec<i64>,
+    industry: bool,
+) -> PyResult<Py<PyArray2<f64>>> {
+    let f = factor.as_array().to_owned().map(|&v| v as f64);
+    let i = ind.as_array().to_owned();
+    let r = restrict.as_array().to_owned().map(|&v| v as f64);
+    let b = barra_ranked.as_array().to_owned();
+    let br = barra_slice(&b);
+    let ords: Vec<Array2<usize>> = orders.iter().map(|o| o.as_array().to_owned()).collect();
+    let lc = l_cache.as_array().to_owned();
+    let resid = neutralize_c4_core(&f, &i, &r, &br, industry, &ords, &lc, &p_arr);
+    Ok(resid.into_pyarray(py).to_owned())
+}
+
 /// 阶段计时版: 返回 (resid, [barra_rank, rank1, fill_ind, fill_med, restrict_rank, ols, resid_rank])。
 #[pyfunction]
 #[pyo3(signature = (factor, ind, restrict, barra_raw, industry=true))]
@@ -1327,5 +1796,8 @@ fn dev_sandbox_rankic(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(precompute_barra, m)?)?;
     m.add_function(wrap_pyfunction!(neutralize_c_s, m)?)?;
     m.add_function(wrap_pyfunction!(barra_slice_py, m)?)?;
+    m.add_function(wrap_pyfunction!(valid_mask_py, m)?)?;
+    m.add_function(wrap_pyfunction!(precompute_chol_py, m)?)?;
+    m.add_function(wrap_pyfunction!(neutralize_c4, m)?)?;
     Ok(())
 }
