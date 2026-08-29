@@ -18,6 +18,7 @@ use rust_pyfunc::factor_pipeline::{
     pipeline_long_order, pipeline_microstructure_capm, pipeline_multi_factor_capm,
     pipeline_observable_order, pipeline_order_pair_hm90, pipeline_orderbook_imb_refactor,
     pipeline_pair_interaction, pipeline_peaks, pipeline_urgency, pipeline_vsld, pipeline_yhyb,
+    pipeline_yhyb_indtop,
     pipeline_yupei_dist, ResultMessage, TaskMessage,
 };
 use std::io::{BufReader, BufWriter};
@@ -155,6 +156,8 @@ fn main() {
                         pipeline_yupei_dist(date, expected_len)
                     } else if pipeline_name == "yhyb" {
                         pipeline_yhyb(date, expected_len)
+                    } else if pipeline_name == "yhyb_indtop" {
+                        pipeline_yhyb_indtop(date, expected_len)
                     } else if pipeline_name == "long_order" {
                         pipeline_long_order(date, expected_len)
                     } else if pipeline_name == "microstructure_capm" {
