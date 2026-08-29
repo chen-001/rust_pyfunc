@@ -197,6 +197,7 @@ Thumbs.db
 .cursor/
 .windsurf/
 .crush/
+.factory/
 AGENT.md
 CLAUDE.md
 AGENTS.md
@@ -224,7 +225,8 @@ perf.data*
 *.bin
 *.dat
 
-# Tests directory (development testing files - not part of the library)
+# Tests directory: 一次性调试/性能脚本数量庞大，整体忽略；
+# 需要版本化的正式测试用 `git add -f tests/xxx` 强制加入（与现有已跟踪测试一致）
 tests/
 
 vtcode.toml
@@ -244,3 +246,33 @@ python/rust_pyfunc/rust_pyfunc_worker
 
 # Sandbox build artifacts
 sandbox_*/target/
+
+# ===== 数据与计算产物（体积大、可再生，勿上传）=====
+# 沙箱探索产出的数据文件（只上传代码：src/、Cargo.toml、build.sh、*.py）
+sandbox_*/**/*.json
+sandbox_*/**/*.csv
+sandbox_*/**/*.txt
+sandbox_*/**/*.npy
+sandbox_*/**/*.npz
+sandbox_*/**/*.parquet
+sandbox_*/**/*.log
+
+# 因子研究中间产物
+research_ext_ideas/*.json
+research_ext_ideas/*.csv
+research_ext_ideas/*.log
+research_ext_ideas/posts/
+research_ext_ideas/__pycache__/
+
+# 数值数据文件（numpy / pandas 落盘产物）
+*.npy
+*.npz
+*.parquet
+
+# 生成的可视化 html（用 html-host 展示台分享即可，不入库）
+viz/
+/factor_idea_sampling_corr.html
+/orderbook_imbalance_indicators.html
+
+# 误操作产生的垃圾目录（cp 目标路径写错，如 ":/home/..."）
+/:
