@@ -257,12 +257,8 @@ sandbox_*/**/*.npz
 sandbox_*/**/*.parquet
 sandbox_*/**/*.log
 
-# 因子研究中间产物
-research_ext_ideas/*.json
-research_ext_ideas/*.csv
-research_ext_ideas/*.log
-research_ext_ideas/posts/
-research_ext_ideas/__pycache__/
+# 因子研究目录（内容私密，整体不上传）
+research_ext_ideas/
 
 # 数值数据文件（numpy / pandas 落盘产物）
 *.npy
