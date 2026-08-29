@@ -198,10 +198,8 @@ Thumbs.db
 .windsurf/
 .crush/
 .factory/
-AGENT.md
 CLAUDE.md
 AGENTS.md
-CRUSH.md
 
 # Logs
 *.log
