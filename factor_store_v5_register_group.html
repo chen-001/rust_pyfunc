@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>factor_store_v5_info - Rust PyFunc API文档</title>
+    <title>factor_store_v5_register_group - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
     <script src="static/search.js"></script>
 </head>
@@ -26,16 +26,23 @@
     </div>
     
     <div class="content">
-        <h1>factor_store_v5_info</h1>
+        <h1>factor_store_v5_register_group</h1>
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><p>查询列式存储的元信息（因子名、记录数、是否已投影、group 布局）</p></div>
+            <div><p>把一个已完成投影的独立 store 注册为组合 store 的一个 group。</p>
+<p>用于把补充因子与初版因子放进同一个系列目录：
+  factor_store_<series>/                      # 系列根目录（初版 store 可能就在这里或 base group）
+  ├── factor_groups.json                      # 本函数写入的组合清单
+  ├── shard_0..7/...                          # group "." 初版因子
+  └── supplement_<comment_id>/shard_0..7/...  # group 补充因子</p>
+<p>写入 manifest 后立刻用 FactorStoreReader::open 做全量校验：
+任一 group 打不开、因子名重复、投影缺失都会报错，不会产生静默坏清单。</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>factor_store_v5_info(store_dir) -> None</code>
+            <code>factor_store_v5_register_group(store_dir, group_name, group_dir) -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -59,7 +66,7 @@
             <div class="example-usage-note">
                 <h3>Python使用示例</h3>
                 <pre><code>import numpy as np
-from rust_pyfunc import factor_store_v5_info
+from rust_pyfunc import factor_store_v5_register_group
 
 # 使用示例
 

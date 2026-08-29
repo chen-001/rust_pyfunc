@@ -1417,6 +1417,26 @@ print(distances.shape)  # (240,)
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="factor_store_v5_copy_subset.html">factor_store_v5_copy_subset</a></h3>
+                <div><p>把 src store 中的指定因子子集复制成新的独立 store（含投影）。</p>
+<p>用途（补充因子 accepted group）：评估 store 保留整批因子，判定结束后把
+"值得补充"的因子复制进 accepted 目录，该目录因子名单与正式代码产出完全一致，
+之后可作为正式 group 注册进组合 store 并支持增量更新。</p>
+<p>校验：src 必须是 group 子目录（不能是组合 store 根）；请求的因子名必须全部存在
+（缺失直接报错，不静默漏复制）；dst 必须不存在或为空目录（拒绝覆盖）；
+dst 不得已被所在组合 manifest 引用（防止与已注册 group 冲突）。</p>
+<p>写入语义：
+- 原子交付：先写 {dst_dir}.tmp_copy 临时目录，成功后 rename 到 dst_dir，
+  中途失败自动清理临时目录，dst 不会留下残片（重试无需手动清理）。
+- 稀疏写入：只写 src 中"至少一个因子有限值"的 (date, code) 格点，
+  dst 记录数 = src 有效格点集，不会按模板轴全叉积膨胀；
+  全部因子都缺失的格点不产生记录（读取矩阵语义与 src 完全一致：NaN = 缺失）。
+内存：一次性读入全部子集因子的稠密矩阵（dates×stocks×N×4B），
+适合 N ≤ 数十个因子；N 大时内存占用高。</p></div>
+                <a href="factor_store_v5_copy_subset.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="factor_store_v5_decompress_inplace.html">factor_store_v5_decompress_inplace</a></h3>
                 <div><p>把压缩 chunk 的 colblk 转换为不压缩格式（就地转换，原地重写文件）。
 压缩比仅 1.15× 但解压 55min/遍，不压缩后 Reader 可直接 mmap 随机读。
@@ -1435,7 +1455,7 @@ print(distances.shape)  # (240,)
             
             <div class="function-item">
                 <h3 class="function-name"><a href="factor_store_v5_info.html">factor_store_v5_info</a></h3>
-                <div><p>查询列式存储的元信息（因子名、记录数、是否已投影）</p></div>
+                <div><p>查询列式存储的元信息（因子名、记录数、是否已投影、group 布局）</p></div>
                 <a href="factor_store_v5_info.html">查看详情</a>
             </div>
             
@@ -1462,6 +1482,19 @@ print(distances.shape)  # (240,)
                 <h3 class="function-name"><a href="factor_store_v5_read_factor.html">factor_store_v5_read_factor</a></h3>
                 <div><p>读取第 col_idx 个因子为扁平数组（date_id[], code_id[], factor[]），供测试/调试</p></div>
                 <a href="factor_store_v5_read_factor.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="factor_store_v5_register_group.html">factor_store_v5_register_group</a></h3>
+                <div><p>把一个已完成投影的独立 store 注册为组合 store 的一个 group。</p>
+<p>用于把补充因子与初版因子放进同一个系列目录：
+  factor_store_<series>/                      # 系列根目录（初版 store 可能就在这里或 base group）
+  ├── factor_groups.json                      # 本函数写入的组合清单
+  ├── shard_0..7/...                          # group "." 初版因子
+  └── supplement_<comment_id>/shard_0..7/...  # group 补充因子</p>
+<p>写入 manifest 后立刻用 FactorStoreReader::open 做全量校验：
+任一 group 打不开、因子名重复、投影缺失都会报错，不会产生静默坏清单。</p></div>
+                <a href="factor_store_v5_register_group.html">查看详情</a>
             </div>
             
             <div class="function-item">

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>factor_store_v5_info - Rust PyFunc API文档</title>
+    <title>factor_store_v5_copy_subset - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
     <script src="static/search.js"></script>
 </head>
@@ -26,16 +26,30 @@
     </div>
     
     <div class="content">
-        <h1>factor_store_v5_info</h1>
+        <h1>factor_store_v5_copy_subset</h1>
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><p>查询列式存储的元信息（因子名、记录数、是否已投影、group 布局）</p></div>
+            <div><p>把 src store 中的指定因子子集复制成新的独立 store（含投影）。</p>
+<p>用途（补充因子 accepted group）：评估 store 保留整批因子，判定结束后把
+"值得补充"的因子复制进 accepted 目录，该目录因子名单与正式代码产出完全一致，
+之后可作为正式 group 注册进组合 store 并支持增量更新。</p>
+<p>校验：src 必须是 group 子目录（不能是组合 store 根）；请求的因子名必须全部存在
+（缺失直接报错，不静默漏复制）；dst 必须不存在或为空目录（拒绝覆盖）；
+dst 不得已被所在组合 manifest 引用（防止与已注册 group 冲突）。</p>
+<p>写入语义：
+- 原子交付：先写 {dst_dir}.tmp_copy 临时目录，成功后 rename 到 dst_dir，
+  中途失败自动清理临时目录，dst 不会留下残片（重试无需手动清理）。
+- 稀疏写入：只写 src 中"至少一个因子有限值"的 (date, code) 格点，
+  dst 记录数 = src 有效格点集，不会按模板轴全叉积膨胀；
+  全部因子都缺失的格点不产生记录（读取矩阵语义与 src 完全一致：NaN = 缺失）。
+内存：一次性读入全部子集因子的稠密矩阵（dates×stocks×N×4B），
+适合 N ≤ 数十个因子；N 大时内存占用高。</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>factor_store_v5_info(store_dir) -> None</code>
+            <code>factor_store_v5_copy_subset(src_dir, dst_dir, factor_names) -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -59,7 +73,7 @@
             <div class="example-usage-note">
                 <h3>Python使用示例</h3>
                 <pre><code>import numpy as np
-from rust_pyfunc import factor_store_v5_info
+from rust_pyfunc import factor_store_v5_copy_subset
 
 # 使用示例
 
