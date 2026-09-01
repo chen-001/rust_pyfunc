@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import signal
 import sqlite3
 import subprocess
@@ -105,6 +106,29 @@ class NjobsAdjust(BaseModel):
 # ── 子进程管理 ───────────────────────────────────────
 _active_processes: dict[int, subprocess.Popen] = {}
 _active_pids_lock = threading.Lock()
+
+
+# ── 任务名中文化校验 ─────────────────────────────────
+# 任务名 = 脚本文件名去掉扩展名。规范：主体必须为中文（可带英文/数字后缀）。
+# 规则：中文字符数 >= 1，且 >= 英文/数字字符数的一半（即中文至少占文字内容 1/3），
+# 如「挂单猫0701」「交友软件_v2」合规；「run_urgency_v2_baseline」不含中文，拒绝。
+# 下划线/连字符/空格/括号等分隔符不计数（允许但不算主体）。
+_CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
+_ASCII_WORD_RE = re.compile(r"[A-Za-z0-9]")
+
+
+def validate_chinese_name(name: str) -> str | None:
+    """校验任务名以中文为主体。返回 None=合规，否则返回不合规原因。"""
+    cjk = len(_CJK_RE.findall(name))
+    ascii_word = len(_ASCII_WORD_RE.findall(name))
+    if cjk < 1:
+        return f"名称「{name}」不含任何中文字符"
+    if cjk * 2 < ascii_word:
+        return (
+            f"名称「{name}」中文 {cjk} 个 < 英文/数字 {ascii_word} 个的一半，"
+            "主体不是中文"
+        )
+    return None
 
 
 def _extract_version(script_path: str) -> str:
@@ -265,6 +289,27 @@ def submit_task(body: TaskSubmit):
         raise HTTPException(400, f"脚本文件不存在: {script_path}")
 
     version = _extract_version(script_path)
+
+    # 强制检查：任务名（= 脚本文件名）主体必须为中文（可含数字/英文）。
+    # 这是任务管理系统的硬性规范，CLI/Web 前端只是友好提示，此处才是权威拦截。
+    name_err = validate_chinese_name(version)
+    if name_err:
+        raise HTTPException(
+            400,
+            f"任务名称不合规：{name_err}。任务名称必须以中文为主体"
+            "（可含数字/英文），请将脚本改名为如「交友软件_v2.py」"
+            "「网络社交因子.py」后再提交",
+        )
+
+    # 提交前语法预检：语法错误在任务系统里只会让任务秒失败并污染历史记录，
+    # 先用 compile() 内存编译拦截（不写 __pycache__，无文件系统权限问题），
+    # 错误立即反馈给提交者。
+    try:
+        with open(script_path, encoding="utf-8", errors="replace") as f:
+            compile(f.read(), script_path, "exec")
+    except (SyntaxError, ValueError) as e:
+        raise HTTPException(400, f"脚本语法错误，拒绝提交：\n{e}")
+
     now = datetime.now(timezone.utc).isoformat()
 
     with _db_lock:
@@ -329,6 +374,8 @@ def list_tasks():
                     task["backup_prefix"], task["id"], search_dir
                 )
         task["active"] = _is_process_active(task["id"])
+        # 历史任务名是否合规（列表页面据此给不合规名称打 ⚠️ 徽标）
+        task["name_valid"] = validate_chinese_name(task.get("name", "")) is None
         tasks.append(task)
     return tasks
 
@@ -354,6 +401,46 @@ def get_task(task_id: int):
             )
     task["active"] = _is_process_active(task_id)
     return task
+
+
+# 代码接口上限：脚本一般 <1MB；超大文件截断返回并标记 truncated
+MAX_CODE_BYTES = 5 * 1024 * 1024
+
+
+@app.get("/api/tasks/{task_id}/code")
+def get_task_code(task_id: int):
+    """获取任务脚本的完整代码（供前端「点击任务名 → 代码弹窗」使用）"""
+    with _db_lock:
+        db = get_db()
+        row = db.execute(
+            "SELECT name, script_path FROM tasks WHERE id=?", (task_id,)
+        ).fetchone()
+        db.close()
+    if not row:
+        raise HTTPException(404, "任务不存在")
+    path = row["script_path"]
+    if not path or not os.path.isfile(path):
+        return {
+            "name": row["name"],
+            "script_path": path or "",
+            "content": "",
+            "error": "脚本文件不存在或已被删除",
+        }
+    size = os.path.getsize(path)
+    truncated = size > MAX_CODE_BYTES
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        content = f.read(MAX_CODE_BYTES)
+    return {
+        "name": row["name"],
+        "script_path": path,
+        "content": content,
+        "size": size,
+        "lines": content.count("\n") + 1,
+        "mtime": datetime.fromtimestamp(os.path.getmtime(path))
+        .astimezone()
+        .isoformat(),
+        "truncated": truncated,
+    }
 
 
 @app.post("/api/tasks/{task_id}/cancel")

@@ -16,12 +16,31 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
 
 DAEMON_URL = os.environ.get("FACTOR_TASK_URL", "http://127.0.0.1:9099")
 TIMEOUT = 10
+
+# ── 任务名中文化校验（与 factor_taskd 规则一致；daemon 端为权威拦截） ──
+_CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
+_ASCII_WORD_RE = re.compile(r"[A-Za-z0-9]")
+
+
+def _validate_chinese_name(name: str) -> str | None:
+    """校验任务名以中文为主体。返回 None=合规，否则返回不合规原因。"""
+    cjk = len(_CJK_RE.findall(name))
+    ascii_word = len(_ASCII_WORD_RE.findall(name))
+    if cjk < 1:
+        return f"名称「{name}」不含任何中文字符"
+    if cjk * 2 < ascii_word:
+        return (
+            f"名称「{name}」中文 {cjk} 个 < 英文/数字 {ascii_word} 个的一半，"
+            "主体不是中文"
+        )
+    return None
 
 
 def _request(method: str, path: str, body: dict | None = None) -> dict:
@@ -42,8 +61,24 @@ def _request(method: str, path: str, body: dict | None = None) -> dict:
 
 
 def cmd_submit(args):
+    script = os.path.abspath(args.script)
+    if not os.path.isfile(script):
+        print(f"❌ 脚本文件不存在: {script}", file=sys.stderr)
+        sys.exit(1)
+    # 提交前预检中文名（daemon 端还有权威拦截，这里提前给出友好报错）
+    name = os.path.splitext(os.path.basename(script))[0]
+    name_err = _validate_chinese_name(name)
+    if name_err:
+        print(f"❌ 任务名称不合规（名称 = 脚本文件名「{name}」）：{name_err}", file=sys.stderr)
+        print(
+            "   任务名称必须以中文为主体（可含数字/英文），"
+            "请改名为如「交友软件_v2.py」「网络社交因子.py」后再提交",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     body = {
-        "script_path": os.path.abspath(args.script),
+        "script_path": script,
         "n_jobs": args.n_jobs or 50,
     }
     if args.start_date:
@@ -142,6 +177,17 @@ def cmd_log(args):
         print("📭 日志为空")
 
 
+def cmd_code(args):
+    resp = _request("GET", f"/api/tasks/{args.id}/code")
+    if resp.get("error"):
+        print(f"❌ {resp['error']}", file=sys.stderr)
+        sys.exit(1)
+    if resp.get("content", "").strip():
+        print(resp["content"])
+    else:
+        print("📭 脚本内容为空")
+
+
 def main():
     parser = argparse.ArgumentParser(description="因子计算任务 CLI 工具")
     parser.add_argument(
@@ -175,6 +221,10 @@ def main():
     p_log = sub.add_parser("log", help="查看任务日志")
     p_log.add_argument("id", type=int, help="任务 ID")
     p_log.set_defaults(func=cmd_log)
+
+    p_code = sub.add_parser("code", help="查看任务脚本的完整代码")
+    p_code.add_argument("id", type=int, help="任务 ID")
+    p_code.set_defaults(func=cmd_code)
 
     args = parser.parse_args()
     if not args.command:
