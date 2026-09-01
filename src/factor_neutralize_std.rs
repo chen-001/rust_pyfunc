@@ -716,6 +716,15 @@ pub struct NeutralizeStdShared {
     pub(crate) barra_ranked: Vec<Array2<f64>>,
     /// size(value_2) rank pct 后的模板轴矩阵 (行业填充 base，纯 size 派生)
     pub(crate) size_ranked: Array2<f64>,
+    /// O2 优化 (2026-09): 5 个 (T,N) 行业分组排序。
+    /// 0=ind2 1=ind1 2=ind0 供 fill_ind_reg; 3=ind2 4=ind1 供两级中位填充。
+    /// 一次性预计算，v2 中性化按此顺序扫描连续段，替代每 slot 重新排序。
+    pub(crate) orders: Vec<Array2<usize>>,
+    /// O2 优化: 逐日 (p, 有效股票索引, 每股行业列号, X'X)。
+    /// X'X 与 Cholesky 只依赖"有效集合"（restrict==0 且 10 风格全有限，经实测
+    /// 与因子无关），一次性预计算；v2 的 OLS 每 slot 只做 y 侧累计 + 回代 + 残差。
+    /// p=0 表示该日有效数 <=10（生产路径会跳过该日）。
+    pub(crate) per_date: Vec<(usize, Vec<u32>, Vec<i32>, Vec<f64>)>,
 }
 
 /// 从 style data + industry + restrict 预计算所有不随因子变化的量。
@@ -789,6 +798,90 @@ pub fn neutralize_std_precompute(
     let zeros = Array2::<f64>::zeros((n_dates, n_stocks));
     let ind1_mask = ind1.map(|&v| if v.is_nan() { 0.0 } else { 1.0 });
 
+    // ---- O2 优化: 预计算行业分组排序 (5 张) 与逐日 X'X ----
+    let ind0 = ind1.map(|&v| if v.is_nan() { 0.0 } else { 1.0 });
+    let levels = [&ind2, &ind1, &ind0, &ind2, &ind1];
+    let mut orders = Vec::with_capacity(5);
+    for codes in levels {
+        let mut ord = Array2::<usize>::zeros((n_dates, n_stocks));
+        for date_idx in 0..n_dates {
+            let mut order: Vec<usize> = (0..n_stocks).collect();
+            let mut keys: Vec<u64> = codes.row(date_idx).iter().map(|&v| mono_key(v)).collect();
+            let mut tmp: Vec<usize> = Vec::new();
+            radix_sort_order(&keys, &mut order, &mut tmp);
+            for j in 0..n_stocks {
+                ord[[date_idx, j]] = order[j];
+            }
+        }
+        orders.push(ord);
+    }
+    // 逐日 X'X: 有效集合 = restrict==0 且 10 风格全有限。
+    // 说明: 生产 get_residual 的 valid 还要求"因子值有限", 实测有效集合与理想集合
+    // 100% 重合 (见 RANKIC_NEUTRALIZATION_REPORT 4.4); v2 若某日因子侧有 NaN 会
+    // 回退该日为生产原路径, 保证结果与 v1 逐位一致。
+    let mut per_date = Vec::with_capacity(n_dates);
+    for date_idx in 0..n_dates {
+        let mut ind_codes: Vec<f64> = Vec::new();
+        for j in 0..n_stocks {
+            let c = ind1[[date_idx, j]];
+            if !c.is_nan() && !ind_codes.contains(&c) {
+                ind_codes.push(c);
+            }
+        }
+        ind_codes.sort_by(cmp_f64);
+        let p = 10 + ind_codes.len();
+        let mut valid_idx: Vec<u32> = Vec::new();
+        let mut valid_cols: Vec<i32> = Vec::new();
+        for j in 0..n_stocks {
+            let ok = restrict[[date_idx, j]].is_finite()
+                && restrict[[date_idx, j]] == 0.0
+                && barra_ranked.iter().all(|b| b[[date_idx, j]].is_finite());
+            if ok {
+                valid_idx.push(j as u32);
+                let c_ind = ind1[[date_idx, j]];
+                let col = if c_ind.is_nan() {
+                    -1
+                } else {
+                    match ind_codes.binary_search_by(|x| cmp_f64(x, &c_ind)) {
+                        Ok(pos) => pos as i32,
+                        Err(_) => -1,
+                    }
+                };
+                valid_cols.push(col);
+            }
+        }
+        let n_valid = valid_idx.len();
+        if n_valid <= 10 {
+            per_date.push((0, valid_idx, valid_cols, Vec::new()));
+            continue;
+        }
+        let mut xtx = vec![0.0f64; p * p];
+        let k = 10usize;
+        for (pos, &j) in valid_idx.iter().enumerate() {
+            let ji = j as usize;
+            for c in 0..k {
+                let b = barra_ranked[c][[date_idx, ji]];
+                xtx[c * p + c] += b * b;
+                for c2 in (c + 1)..k {
+                    let v = b * barra_ranked[c2][[date_idx, ji]];
+                    xtx[c * p + c2] += v;
+                    xtx[c2 * p + c] += v;
+                }
+            }
+            let ic = valid_cols[pos];
+            if ic >= 0 {
+                let col = 10 + ic as usize;
+                xtx[col * p + col] += 1.0;
+                for c in 0..k {
+                    let b = barra_ranked[c][[date_idx, ji]];
+                    xtx[c * p + col] += b;
+                    xtx[col * p + c] += b;
+                }
+            }
+        }
+        per_date.push((p, valid_idx, valid_cols, xtx));
+    }
+
     Ok(NeutralizeStdShared {
         industry: industry.clone(),
         restrict_f64,
@@ -798,6 +891,8 @@ pub fn neutralize_std_precompute(
         ind1_mask,
         barra_ranked,
         size_ranked,
+        orders,
+        per_date,
     })
 }
 
@@ -1165,4 +1260,342 @@ mod tests {
             }
         }
     }
+}
+
+// ============================================================================
+// O2 优化 (2026-09): 标准中性化 v2 —— 预计算行业排序 + 逐日 X'X。
+//
+// 与 v1 (neutralize_std_section_owned) 数值逐位一致:
+//  - 行业 OLS 填充/两级中位填充: 排序由 shared.orders 预计算 (同一 radix 排序,
+//    同一分段顺序), 段内计算与 v1 完全一致;
+//  - 残差 OLS: X'X 由 shared.per_date 预计算 (累积顺序与 v1 完全相同), 每日只做
+//    y 侧 xty 累计 + Cholesky/回退求解 + 残差写回;
+//  - 若某日"理想有效集合"中存在因子侧 NaN (有效集合与因子理论上可能相关, 实测
+//    100% 重合), 该日整体回退到 v1 生产原路径, 保证逐位一致;
+//  - 最终残差 rank_pct 与 v1 相同 (回测对保序变换不变的另一优化未启用, 见
+//    RANKIC_NEUTRALIZATION_REPORT 方案 C')。
+// ============================================================================
+
+/// 填充分段: 按预计算排序顺序扫描连续段 (与 fill_ind_reg 的 radix 排序等价)。
+fn fill_ind_reg_pre(
+    fv: &mut Array2<f64>,
+    ind2: &Array2<f64>,
+    ind1: &Array2<f64>,
+    size_ranked: &Array2<f64>,
+    orders: &[Array2<usize>],
+) {
+    let (t, n) = fv.dim();
+    let ind0 = ind1.map(|&v| if v.is_nan() { 0.0 } else { 1.0 });
+    let levels = [ind2, ind1, &ind0];
+    let mut ys: Vec<f64> = Vec::with_capacity(n);
+    let mut bs: Vec<f64> = Vec::with_capacity(n);
+    for (li, level) in levels.iter().enumerate() {
+        for idx in 0..t {
+            let mut row = fv.row(idx).to_vec();
+            if !has_ge_n_unique(&row, 10) {
+                continue;
+            }
+            let order_arr = orders[li].row(idx);
+            let order = order_arr.as_slice().unwrap();
+            let mut seg_start = 0usize;
+            while seg_start < n {
+                let code = level[[idx, order[seg_start]]];
+                if code.is_nan() {
+                    break;
+                }
+                let mut seg_end = seg_start + 1;
+                while seg_end < n && level[[idx, order[seg_end]]] == code {
+                    seg_end += 1;
+                }
+                ys.clear();
+                bs.clear();
+                let mut obs: Vec<bool> = Vec::with_capacity(seg_end - seg_start);
+                for &ci in &order[seg_start..seg_end] {
+                    let ok = !row[ci].is_nan() && !size_ranked[[idx, ci]].is_nan();
+                    obs.push(ok);
+                    if ok {
+                        ys.push(row[ci]);
+                        bs.push(size_ranked[[idx, ci]]);
+                    }
+                }
+                if ys.len() >= 10 {
+                    let (c0, c1) = ols2(&ys, &bs);
+                    for (mi, &ci) in order[seg_start..seg_end].iter().enumerate() {
+                        if !obs[mi] {
+                            row[ci] = c0 + c1 * size_ranked[[idx, ci]];
+                        }
+                    }
+                }
+                seg_start = seg_end;
+            }
+            for j in 0..n {
+                fv[[idx, j]] = row[j];
+            }
+        }
+    }
+}
+
+/// 分组中位填充 (预计算排序版, 语义与 fill_by_group_median_inplace 一致)。
+fn group_median_fill_pre(
+    values: &mut Array2<f64>,
+    codes: &Array2<f64>,
+    valid_mask: Option<&Array2<f64>>,
+    orders: &Array2<usize>,
+) {
+    let (t, n) = values.dim();
+    let mut sv: Vec<f64> = Vec::with_capacity(n);
+    for idx in 0..t {
+        let mut row = values.row(idx).to_vec();
+        let mut nan_mask: Vec<bool> = Vec::with_capacity(n);
+        let mut has_nan = false;
+        for j in 0..n {
+            let nn = row[j].is_nan();
+            nan_mask.push(nn);
+            if nn {
+                has_nan = true;
+            }
+        }
+        if !has_nan {
+            continue;
+        }
+        let order_arr = orders.row(idx);
+        let order = order_arr.as_slice().unwrap();
+        let mut seg_start = 0usize;
+        while seg_start < n {
+            let code = codes[[idx, order[seg_start]]];
+            if code.is_nan() {
+                break;
+            }
+            let mut seg_end = seg_start + 1;
+            while seg_end < n && codes[[idx, order[seg_end]]] == code {
+                seg_end += 1;
+            }
+            sv.clear();
+            for &ci in &order[seg_start..seg_end] {
+                let valid = valid_mask.map_or(true, |vm| vm[[idx, ci]] == 1.0);
+                if valid && !row[ci].is_nan() {
+                    sv.push(row[ci]);
+                }
+            }
+            if !sv.is_empty() {
+                let med = median_inplace(&mut sv);
+                for &ci in &order[seg_start..seg_end] {
+                    let valid = valid_mask.map_or(true, |vm| vm[[idx, ci]] == 1.0);
+                    if nan_mask[ci] && valid {
+                        row[ci] = med;
+                    }
+                }
+            }
+            seg_start = seg_end;
+        }
+        for j in 0..n {
+            values[[idx, j]] = row[j];
+        }
+    }
+}
+
+/// v2 残差回归: 预计算 X'X; 因子侧 NaN 触发该日回退到 get_residual 原路径。
+fn get_residual_v2(
+    fv_filled: &Array2<f64>,
+    barra_ranked: &[Array2<f64>],
+    ind1: &Array2<f64>,
+    per_date: &[(usize, Vec<u32>, Vec<i32>, Vec<f64>)],
+) -> Array2<f64> {
+    let (t, n) = fv_filled.dim();
+    let mut resid = Array2::<f64>::from_elem((t, n), f64::NAN);
+    let k = 10usize;
+    for idx in 0..t {
+        let (p, valid_idx, valid_cols, xtx_pre) = &per_date[idx];
+        if *p == 0 {
+            continue;
+        }
+        // y unique 检查 + 因子 NaN 检查 (触发回退)
+        let mut uniq: Vec<f64> = Vec::with_capacity(valid_idx.len());
+        let mut any_nan = false;
+        for &j in valid_idx {
+            let y = fv_filled[[idx, j as usize]];
+            if !y.is_finite() {
+                any_nan = true;
+                break;
+            }
+            uniq.push(y);
+        }
+        if any_nan {
+            // 回退: 生产原路径 (单日切片)
+            let mut fv1 = Array2::<f64>::from_elem((1, n), f64::NAN);
+            for j in 0..n {
+                fv1[[0, j]] = fv_filled[[idx, j]];
+            }
+            let mut bench1: Vec<Array2<f64>> = Vec::with_capacity(k);
+            for b in barra_ranked {
+                let mut b1 = Array2::<f64>::from_elem((1, n), f64::NAN);
+                for j in 0..n {
+                    b1[[0, j]] = b[[idx, j]];
+                }
+                bench1.push(b1);
+            }
+            let mut ind1_1 = Array2::<f64>::from_elem((1, n), f64::NAN);
+            for j in 0..n {
+                ind1_1[[0, j]] = ind1[[idx, j]];
+            }
+            let r = get_residual(&fv1, &bench1, Some(&ind1_1));
+            for j in 0..n {
+                resid[[idx, j]] = r[[0, j]];
+            }
+            continue;
+        }
+        uniq.sort_by(cmp_f64);
+        uniq.dedup_by(|a, b| (a.is_nan() && b.is_nan()) || a == b);
+        if uniq.len() == 1 {
+            for &j in valid_idx {
+                resid[[idx, j as usize]] = 0.5;
+            }
+            continue;
+        }
+        let mut xty = vec![0.0f64; *p];
+        for (pos, &j) in valid_idx.iter().enumerate() {
+            let ji = j as usize;
+            let yv = fv_filled[[idx, ji]];
+            for c in 0..k {
+                xty[c] += barra_ranked[c][[idx, ji]] * yv;
+            }
+            let ic = valid_cols[pos];
+            if ic >= 0 {
+                xty[k + ic as usize] += yv;
+            }
+        }
+        let m = DMatrix::from_row_slice(*p, *p, xtx_pre);
+        let rhs = DMatrix::from_column_slice(*p, 1, &xty);
+        let use_svd = valid_idx.len() <= 40 || Cholesky::new(m.clone()).is_none();
+        let coef: Vec<f64> = if !use_svd {
+            let chol = Cholesky::new(m).expect("chol");
+            chol.solve(&rhs).column(0).iter().copied().collect()
+        } else {
+            // 回退生产 SVD 路径 (n_valid 极小/近奇异时; 与 get_residual 相同)
+            let n_r = valid_idx.len();
+            let rows: Vec<[f64; 11]> = valid_idx
+                .iter()
+                .map(|&j| {
+                    let ji = j as usize;
+                    let mut cur = [0.0_f64; 11];
+                    cur[0] = fv_filled[[idx, ji]];
+                    for c in 0..k {
+                        cur[c + 1] = barra_ranked[c][[idx, ji]];
+                    }
+                    cur
+                })
+                .collect();
+            let xm = DMatrix::from_fn(n_r, *p, |r_i, c| {
+                let ic = valid_cols[r_i];
+                if c < k {
+                    rows[r_i][c + 1]
+                } else if ic >= 0 && c == k + ic as usize {
+                    1.0
+                } else {
+                    0.0
+                }
+            });
+            let svd = xm.clone().svd(true, true);
+            let u = svd.u.expect("svd u");
+            let vt = svd.v_t.expect("svd vt");
+            let sv = svd.singular_values;
+            let s_max = sv.iter().cloned().fold(0.0_f64, f64::max);
+            let rcond = s_max * (n_r.max(*p) as f64) * 2.22e-16;
+            let ym = DMatrix::from_fn(n_r, 1, |r_i, _| rows[r_i][0]);
+            let uty = u.transpose() * ym;
+            let mut coef = DMatrix::zeros(*p, 1);
+            for i in 0..*p {
+                if sv[i] > rcond {
+                    coef[(i, 0)] = uty[(i, 0)] / sv[i];
+                }
+            }
+            (vt.transpose() * coef).column(0).iter().copied().collect()
+        };
+        let mut vi = 0usize;
+        for (pos, &j) in valid_idx.iter().enumerate() {
+            let ji = j as usize;
+            while vi < ji {
+                vi += 1;
+            }
+            let yv = fv_filled[[idx, ji]];
+            let mut pred = 0.0;
+            for c in 0..k {
+                pred += coef[c] * barra_ranked[c][[idx, ji]];
+            }
+            let ic = valid_cols[pos];
+            if ic >= 0 {
+                pred += coef[k + ic as usize];
+            }
+            resid[[idx, ji]] = yv - pred;
+        }
+    }
+    resid
+}
+
+/// v2 标准中性化核心 (与 neutralize_std_section_owned 数值逐位一致)。
+pub(crate) fn neutralize_std_section_owned_v2(
+    mut fv_ranked: Array2<f64>,
+    shared: &NeutralizeStdShared,
+    industry_neutralize: bool,
+) -> Array2<f64> {
+    let (t, n) = fv_ranked.dim();
+    let ind = &shared.industry;
+    let restrict = &shared.restrict_f64;
+    let barra_ranked = &shared.barra_ranked;
+    let size_ranked = &shared.size_ranked;
+    let ind1 = &shared.ind1;
+    let ind2 = &shared.ind2;
+    let zeros = &shared.zeros;
+    let ind1_mask = &shared.ind1_mask;
+
+    rank_pct_all(&mut fv_ranked);
+    fill_ind_reg_pre(&mut fv_ranked, ind2, ind1, size_ranked, &shared.orders[0..3]);
+    for i in 0..(t * n) {
+        if ind1.as_slice().unwrap()[i].is_nan() {
+            fv_ranked.as_slice_mut().unwrap()[i] = f64::NAN;
+        }
+    }
+    let mut fv_filled = fv_ranked.clone();
+    group_median_fill_pre(&mut fv_filled, ind2, None, &shared.orders[3]);
+    group_median_fill_pre(&mut fv_filled, ind1, None, &shared.orders[4]);
+    group_median_fill_pre(&mut fv_filled, zeros, Some(ind1_mask), &shared.orders[0]);
+    drop(fv_ranked);
+    for i in 0..(t * n) {
+        if restrict.as_slice().unwrap()[i] != 0.0 {
+            fv_filled.as_slice_mut().unwrap()[i] = f64::NAN;
+        }
+    }
+    rank_pct_all(&mut fv_filled);
+    let resid = if industry_neutralize {
+        get_residual_v2(&fv_filled, barra_ranked, ind1, &shared.per_date)
+    } else {
+        get_residual(&fv_filled, barra_ranked, None)
+    };
+    let mut resid_rank = resid;
+    rank_pct_all(&mut resid_rank);
+    resid_rank
+}
+
+/// v2 单 slot 标准中性化: 输入 (T,N) f32 → 输出 (T,N) f32。
+pub(crate) fn neutralize_std_slot_f32_v2(
+    slot: ArrayView2<'_, f32>,
+    shared: &NeutralizeStdShared,
+    industry_neutralize: bool,
+) -> Result<Array2<f32>, String> {
+    let (n_dates, n_stocks) = slot.dim();
+    if shared.industry.dim() != (n_dates, n_stocks)
+        || shared.restrict_f64.dim() != (n_dates, n_stocks)
+    {
+        return Err("neutralize_std_block industry/restrict 形状不匹配".to_string());
+    }
+    let factor_f64 = slot.map(|&v| v as f64);
+    let resid_rank = neutralize_std_section_owned_v2(factor_f64, shared, industry_neutralize);
+    let mut output = Array2::<f32>::from_elem((n_dates, n_stocks), f32::NAN);
+    let out_slice = output.as_slice_mut().unwrap();
+    let rr = resid_rank.as_slice().unwrap();
+    for i in 0..(n_dates * n_stocks) {
+        let v = rr[i];
+        out_slice[i] = if v.is_nan() { f32::NAN } else { v as f32 };
+    }
+    Ok(output)
 }

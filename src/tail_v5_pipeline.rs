@@ -129,6 +129,17 @@ pub(crate) struct SharedInputs {
     pub(crate) restrict: Arc<Array2<f32>>,
     pub(crate) index_ret: Arc<Array1<f32>>,
     pub(crate) config: Arc<TailSelectionConfig>,
+    /// O1 优化 (2026-09): 收益秩预计算。orders[g][date] = ret_sum 全行按 (值, index)
+    /// 排序的股票索引; 回测时对当日有效子集 walk 出子集内 ordinal 秩, 替代每个
+    /// slot 重新对收益子集排序 (与 legacy_spearman_correlation 的排序语义一致)。
+    pub(crate) bt_pre: Option<Arc<BtPrecomputed>>,
+}
+
+/// O1 收益秩预计算 (因子无关, 全 run 一次)。
+#[derive(Clone, Default)]
+pub(crate) struct BtPrecomputed {
+    pub(crate) orders_g1: Vec<Vec<u32>>,
+    pub(crate) orders_g5: Vec<Vec<u32>>,
 }
 
 #[derive(Clone)]
@@ -169,6 +180,16 @@ pub(crate) fn build_shared_inputs(
         .map_err(|e| e.to_string())?;
     let restrict: Array2<f32> =
         read_npy(restrict_path).map_err(|e| format!("读取 restrict.npy 失败: {}", e))?;
+    let ret_g1: Array2<f32> =
+        read_npy(ret_gap1_path).map_err(|e| format!("读取 ret_gap1.npy 失败: {}", e))?;
+    let ret_s1: Array2<f32> =
+        read_npy(ret_sum_gap1_path).map_err(|e| format!("读取 ret_sum_gap1.npy 失败: {}", e))?;
+    let ret_g5: Array2<f32> =
+        read_npy(ret_gap5_path).map_err(|e| format!("读取 ret_gap5.npy 失败: {}", e))?;
+    let ret_s5: Array2<f32> =
+        read_npy(ret_sum_gap5_path).map_err(|e| format!("读取 ret_sum_gap5.npy 失败: {}", e))?;
+    let index_v: Array1<f32> =
+        read_npy(index_ret_path).map_err(|e| format!("读取 index_ret.npy 失败: {}", e))?;
 
     // 标准中性化预计算：一次性展开 barra/size/行业分级码 (模板轴)，Arc 共享。
     // 仅在启用标准中性化 (industry 非 None) 时预计算；旧路径 (industry=None) 不触发。
@@ -185,6 +206,11 @@ pub(crate) fn build_shared_inputs(
         None => None,
     };
 
+    // O1 收益秩预计算 (因子无关): 每日期对 ret_sum_gap1/ret_sum_gap5 全行按
+    // (值, index) 排序。按 (mono_key32(v), index) 的 radix 稳定排序, 与
+    // ordinal_ranks 的 sort_by 语义一致 (-0/+0 合并、NaN 置末)。
+    let bt_pre = Some(Arc::new(build_bt_precomputed(&ret_s1, &ret_s5)?));
+
     Ok(SharedInputs {
         dates: Arc::new(dates),
         stocks: Arc::new(stocks),
@@ -196,25 +222,14 @@ pub(crate) fn build_shared_inputs(
         industry_neutralize,
         industry: industry.map(Arc::new),
         neutralize_std_shared,
-        ret_gap1: Arc::new(
-            read_npy(ret_gap1_path).map_err(|e| format!("读取 ret_gap1.npy 失败: {}", e))?,
-        ),
-        ret_sum_gap1: Arc::new(
-            read_npy(ret_sum_gap1_path)
-                .map_err(|e| format!("读取 ret_sum_gap1.npy 失败: {}", e))?,
-        ),
-        ret_gap5: Arc::new(
-            read_npy(ret_gap5_path).map_err(|e| format!("读取 ret_gap5.npy 失败: {}", e))?,
-        ),
-        ret_sum_gap5: Arc::new(
-            read_npy(ret_sum_gap5_path)
-                .map_err(|e| format!("读取 ret_sum_gap5.npy 失败: {}", e))?,
-        ),
+        ret_gap1: Arc::new(ret_g1),
+        ret_sum_gap1: Arc::new(ret_s1),
+        ret_gap5: Arc::new(ret_g5),
+        ret_sum_gap5: Arc::new(ret_s5),
         restrict: Arc::new(restrict),
-        index_ret: Arc::new(
-            read_npy(index_ret_path).map_err(|e| format!("读取 index_ret.npy 失败: {}", e))?,
-        ),
+        index_ret: Arc::new(index_v),
         config: Arc::new(config),
+        bt_pre,
     })
 }
 
@@ -575,6 +590,129 @@ fn legacy_spearman_correlation(x: &[f32], y: &[f32]) -> f64 {
     1.0 - 6.0 * diff_sq_sum / (n * (n * n - 1.0))
 }
 
+// ============================================================================
+// O1 优化 (2026-09): f32 radix 秩 + 收益秩预排序。
+// 语义与 ordinal_ranks / average_ranks / legacy_spearman_correlation 完全一致:
+//   - 排序键 = (mono_key32(v), index), 稳定 radix;
+//   - -0.0 规范化为 +0.0 (与 f32 == 判等语义一致);
+//   - 调用方保证输入无 NaN (filtered 集合已过滤信号/收益有限)。
+// ============================================================================
+
+#[inline]
+fn mono_key32(v: f32) -> u32 {
+    let v = if v == 0.0 { 0.0 } else { v };
+    let bits = v.to_bits();
+    if bits >> 31 == 0 {
+        bits ^ 0x8000_0000
+    } else {
+        !bits
+    }
+}
+
+/// 按 u64 键 (已含单调位序 key 与 index) 的 8-bit LSD 稳定 radix 排序。
+fn radix_sort_keys64(keys: &[u64], order: &mut Vec<usize>, tmp: &mut Vec<usize>) {
+    let n = order.len();
+    if n < 2 {
+        return;
+    }
+    tmp.clear();
+    tmp.resize(n, 0);
+    let mut count = [0usize; 256];
+    for shift in (0..64).step_by(8) {
+        count.fill(0);
+        for &i in order.iter() {
+            count[((keys[i] >> shift) & 0xff) as usize] += 1;
+        }
+        let mut acc = 0usize;
+        for c in count.iter_mut() {
+            let t = *c;
+            *c = acc;
+            acc += t;
+        }
+        for &i in order.iter() {
+            let b = ((keys[i] >> shift) & 0xff) as usize;
+            tmp[count[b]] = i;
+            count[b] += 1;
+        }
+        std::mem::swap(order, tmp);
+    }
+}
+
+/// ordinal 秩 (与 ordinal_ranks 一致: 等值按 index 稳定序, 无 NaN)。
+fn ordinal_ranks_radix(values: &[f32]) -> Vec<i64> {
+    let n = values.len();
+    let mut keys = vec![0u64; n];
+    for (i, &v) in values.iter().enumerate() {
+        keys[i] = (mono_key32(v) as u64) << 32 | i as u64;
+    }
+    let mut order: Vec<usize> = (0..n).collect();
+    let mut tmp: Vec<usize> = Vec::new();
+    radix_sort_keys64(&mut keys, &mut order, &mut tmp);
+    let mut ranks = vec![0i64; n];
+    for (rank, &idx) in order.iter().enumerate() {
+        ranks[idx] = rank as i64;
+    }
+    ranks
+}
+
+/// 平均秩 (与 average_ranks 一致: 等值组取平均, f32 == 判等)。
+fn average_ranks_radix(values: &[f32]) -> Vec<f64> {
+    let n = values.len();
+    let mut keys = vec![0u64; n];
+    for (i, &v) in values.iter().enumerate() {
+        keys[i] = (mono_key32(v) as u64) << 32 | i as u64;
+    }
+    let mut order: Vec<usize> = (0..n).collect();
+    let mut tmp: Vec<usize> = Vec::new();
+    radix_sort_keys64(&mut keys, &mut order, &mut tmp);
+    let mut ranks = vec![f64::NAN; n];
+    let mut start = 0usize;
+    while start < n {
+        let value = values[order[start]];
+        let mut end = start + 1;
+        while end < n && values[order[end]] == value {
+            end += 1;
+        }
+        let avg_rank = (start + 1 + end) as f64 / 2.0;
+        for &idx in order.iter().take(end).skip(start) {
+            ranks[idx] = avg_rank;
+        }
+        start = end;
+    }
+    ranks
+}
+
+/// BtPrecomputed 构建: 每日期 ret_sum 全行按 (值, index) 排序 (NaN 置末)。
+fn build_bt_precomputed(
+    ret_sum_g1: &Array2<f32>,
+    ret_sum_g5: &Array2<f32>,
+) -> Result<BtPrecomputed, String> {
+    let n_dates = ret_sum_g1.nrows();
+    let n_stocks = ret_sum_g1.ncols();
+    if ret_sum_g5.dim() != (n_dates, n_stocks) {
+        return Err("O1 预计算: ret_sum_gap1/ret_sum_gap5 形状不一致".to_string());
+    }
+    let mut build = |ret_sum: &Array2<f32>| -> Result<Vec<Vec<u32>>, String> {
+        let mut orders = Vec::with_capacity(n_dates);
+        for d in 0..n_dates {
+            let mut keys: Vec<u64> = Vec::with_capacity(n_stocks);
+            for (j, &v) in ret_sum.row(d).iter().enumerate() {
+                let k = if v.is_nan() { u32::MAX } else { mono_key32(v) };
+                keys.push((k as u64) << 32 | j as u64);
+            }
+            let mut order: Vec<usize> = (0..n_stocks).collect();
+            let mut tmp: Vec<usize> = Vec::new();
+            radix_sort_keys64(&keys, &mut order, &mut tmp);
+            orders.push(order.into_iter().map(|x| x as u32).collect());
+        }
+        Ok(orders)
+    };
+    Ok(BtPrecomputed {
+        orders_g1: build(ret_sum_g1)?,
+        orders_g5: build(ret_sum_g5)?,
+    })
+}
+
 fn count_open_symbols(restrict_row: ArrayView1<'_, f32>) -> usize {
     restrict_row
         .iter()
@@ -920,6 +1058,265 @@ fn legacy_backtest_single_factor_with_effective(
         ic_dates,
         ic_values: ic_values_f32,
     }
+}
+
+
+/// O1 优化回测 (2026-09): 与 legacy_backtest_single_factor_with_effective 数值逐位一致,
+/// 仅两处实现替换:
+///   1. IC 的收益秩: 由"每个 slot 对收益子集重新排序" → "按预计算的全行序 walk 出
+///      子集 ordinal 秩" (pre.orders_g1/g5), 与 ordinal_ranks 的 (值, index) 稳定序一致;
+///   2. 信号秩: ordinal_ranks / average_ranks → radix 版本 (同排序语义)。
+/// 过滤条件、ratio 计算、十分组、summary 完全同原实现。
+#[allow(clippy::too_many_arguments)]
+fn legacy_backtest_single_factor_with_effective_opt(
+    factor: &ArrayView3<'_, f32>,
+    ret: ArrayView2<'_, f32>,
+    ret_sum: ArrayView2<'_, f32>,
+    restrict: ArrayView2<'_, f32>,
+    index: ArrayView1<'_, f32>,
+    dates: &[i32],
+    slot_idx: usize,
+    gap: usize,
+    portf_num: usize,
+    effective_raw_indices: &[usize],
+    open_symbol_counts: &[usize],
+    ic_only: bool,
+    pre: &BtPrecomputed,
+) -> LegacyBacktestResult {
+    if effective_raw_indices.is_empty() {
+        return default_legacy_backtest_result();
+    }
+    let n_stocks = factor.shape()[1];
+    let date_size = effective_raw_indices.len();
+    let mut group_returns = if ic_only {
+        Vec::new()
+    } else {
+        vec![vec![0.0_f64; date_size]; portf_num]
+    };
+    let mut ratio_values = vec![f64::NAN; date_size];
+    let mut ic_dates = Vec::<i32>::new();
+    let mut ic_values_f64 = Vec::<f64>::new();
+    let mut ic_values_f32 = Vec::<f32>::new();
+    let mut filtered_signal = Vec::<f32>::with_capacity(n_stocks);
+    let mut filtered_ret = Vec::<f32>::with_capacity(n_stocks);
+    let mut filtered_stock_idx = Vec::<u32>::with_capacity(n_stocks);
+    let mut group_sums = vec![0.0_f64; portf_num];
+    let mut group_counts = vec![0usize; portf_num];
+    let mut held_signal_row_idx = effective_raw_indices[0] - 1;
+    let mut held_restrict_row_idx = effective_raw_indices[0] - 1;
+    let mut gen = vec![0u32; n_stocks];
+    let mut stamp = vec![0u32; n_stocks];
+    let mut walk_buf = Vec::<i64>::with_capacity(n_stocks);
+    let mut gen_id: u32 = 0;
+    let orders = if gap == 1 {
+        &pre.orders_g1
+    } else {
+        &pre.orders_g5
+    };
+
+    for (local_t, &raw_eff_idx) in effective_raw_indices.iter().enumerate() {
+        if local_t % gap == 0 {
+            held_signal_row_idx = raw_eff_idx - 1;
+            held_restrict_row_idx = raw_eff_idx - 1;
+        }
+        filtered_signal.clear();
+        filtered_ret.clear();
+        filtered_stock_idx.clear();
+        // 过滤与生产原实现完全一致 (全扫描; restrict[held] 与 ret[当前行] 判定)
+        for stock_idx in 0..n_stocks {
+            let signal_value = factor[[held_signal_row_idx, stock_idx, slot_idx]];
+            let ret_value = ret[[raw_eff_idx, stock_idx]];
+            let is_open = restrict[[held_restrict_row_idx, stock_idx]].is_finite()
+                && restrict[[held_restrict_row_idx, stock_idx]] == 0.0;
+            if signal_value.is_finite() && ret_value.is_finite() && is_open {
+                filtered_signal.push(signal_value);
+                filtered_ret.push(ret_value);
+                filtered_stock_idx.push(stock_idx as u32);
+            }
+        }
+        if (local_t + 1) % gap == 0 {
+            // 收益秩: 预排序全行 walk 出子集 ordinal 秩 (gen 代标记防跨日串扰)
+            gen_id += 1;
+            let order = &orders[raw_eff_idx];
+            for (pos, &stk) in filtered_stock_idx.iter().enumerate() {
+                gen[stk as usize] = gen_id;
+                stamp[stk as usize] = (pos + 1) as u32;
+            }
+            walk_buf.clear();
+            walk_buf.resize(filtered_stock_idx.len(), 0);
+            let mut counter = 0usize;
+            for &stk in order {
+                if gen[stk as usize] == gen_id {
+                    walk_buf[stamp[stk as usize] as usize - 1] = counter as i64;
+                    counter += 1;
+                }
+            }
+            let xx = ordinal_ranks_radix(&filtered_signal);
+            let n = filtered_signal.len() as f64;
+            let mut diff_sq_sum = 0.0;
+            for idx in 0..filtered_signal.len() {
+                let diff = walk_buf[idx] - xx[idx];
+                diff_sq_sum += (diff * diff) as f64;
+            }
+            let ic_value = if n < 2.0 {
+                f64::NAN
+            } else {
+                1.0 - 6.0 * diff_sq_sum / (n * (n * n - 1.0))
+            };
+            ic_dates.push(dates[raw_eff_idx]);
+            ic_values_f64.push(ic_value);
+            ic_values_f32.push(ic_value as f32);
+        }
+        let stocks_num = filtered_signal.len();
+        if stocks_num < portf_num {
+            continue;
+        }
+        let valid_symbol_num = open_symbol_counts
+            .get(raw_eff_idx - 1)
+            .copied()
+            .unwrap_or(0);
+        if valid_symbol_num > 0 {
+            ratio_values[local_t] = stocks_num as f64 / valid_symbol_num as f64;
+        }
+        if ic_only {
+            continue;
+        }
+        group_sums.fill(0.0);
+        group_counts.fill(0);
+        let ranks = average_ranks_radix(&filtered_signal);
+        for idx in 0..stocks_num {
+            let pct = ranks[idx] / stocks_num as f64;
+            let mut bucket = (pct * portf_num as f64).floor() as usize;
+            if bucket >= portf_num {
+                bucket = portf_num - 1;
+            }
+            group_sums[bucket] += filtered_ret[idx] as f64;
+            group_counts[bucket] += 1;
+        }
+        for bucket in 0..portf_num {
+            group_returns[bucket][local_t] = if group_counts[bucket] == 0 {
+                0.0
+            } else {
+                group_sums[bucket] / group_counts[bucket] as f64
+            };
+        }
+    }
+
+    let ic_mean = nanmean_f64(&ic_values_f64);
+    let ic_std = nanstd_population(&ic_values_f64);
+    let ir = if ic_std.is_nan() || ic_std <= EPS {
+        f64::NAN
+    } else {
+        ic_mean.abs() / ic_std * (250.0 / gap as f64).sqrt()
+    };
+    let summary = if ic_only {
+        [
+            ic_mean,
+            ir,
+            0.0,
+            0.0,
+            0.0,
+            date_size as f64,
+            nanmean_f64(&ratio_values),
+            0.0,
+            0.0,
+            0.0,
+        ]
+    } else {
+        let first_leg_cum = group_returns[0].iter().sum::<f64>();
+        let last_leg_cum = group_returns[portf_num - 1].iter().sum::<f64>();
+        let (long_idx, short_idx) = if first_leg_cum > last_leg_cum {
+            (0usize, portf_num - 1)
+        } else {
+            (portf_num - 1, 0usize)
+        };
+        let mut ls_returns = vec![0.0_f64; date_size];
+        let mut hedge_returns = vec![0.0_f64; date_size];
+        for (local_t, &raw_eff_idx) in effective_raw_indices.iter().enumerate() {
+            let long_ret = group_returns[long_idx][local_t];
+            let short_ret = group_returns[short_idx][local_t];
+            ls_returns[local_t] = long_ret - short_ret;
+            hedge_returns[local_t] = long_ret - index[raw_eff_idx] as f64;
+        }
+        [
+            ic_mean,
+            ir,
+            nanmean_f64(&ls_returns) * 250.0,
+            annualized_sharpe_sample(&ls_returns),
+            max_drawdown_from_returns(&ls_returns),
+            date_size as f64,
+            nanmean_f64(&ratio_values),
+            nanmean_f64(&hedge_returns) * 250.0,
+            annualized_sharpe_sample(&hedge_returns),
+            max_drawdown_from_returns(&hedge_returns),
+        ]
+    };
+    LegacyBacktestResult {
+        summary,
+        ic_dates,
+        ic_values: ic_values_f32,
+    }
+}
+
+/// O1 优化的单 slot gap1/gap5 回测包装 (与 legacy_backtest_gap1_gap5_single_slot 对应)。
+#[allow(clippy::too_many_arguments)]
+fn legacy_backtest_gap1_gap5_single_slot_opt(
+    slot: ArrayView2<'_, f32>,
+    ret_gap1: ArrayView2<'_, f32>,
+    ret_sum_gap1: ArrayView2<'_, f32>,
+    ret_gap5: ArrayView2<'_, f32>,
+    ret_sum_gap5: ArrayView2<'_, f32>,
+    restrict: ArrayView2<'_, f32>,
+    index: ArrayView1<'_, f32>,
+    dates: &[i32],
+    backtest_start: i32,
+    portf_num: usize,
+    open_symbol_counts: &[usize],
+    ic_only: bool,
+    pre: &BtPrecomputed,
+) -> (LegacyBacktestResult, LegacyBacktestResult) {
+    let n_dates = slot.nrows();
+    let slot_block = slot.insert_axis(ndarray::Axis(2));
+    if n_dates < 2 || !has_enough_unique_values(&slot_block, 0, 10) {
+        return (
+            default_legacy_backtest_result(),
+            default_legacy_backtest_result(),
+        );
+    }
+    let effective_raw_indices =
+        effective_raw_indices_for_slot(&slot_block, dates, backtest_start, 0);
+    (
+        legacy_backtest_single_factor_with_effective_opt(
+            &slot_block,
+            ret_gap1,
+            ret_sum_gap1,
+            restrict,
+            index,
+            dates,
+            0,
+            1,
+            portf_num,
+            &effective_raw_indices,
+            open_symbol_counts,
+            ic_only,
+            pre,
+        ),
+        legacy_backtest_single_factor_with_effective_opt(
+            &slot_block,
+            ret_gap5,
+            ret_sum_gap5,
+            restrict,
+            index,
+            dates,
+            0,
+            5,
+            portf_num,
+            &effective_raw_indices,
+            open_symbol_counts,
+            ic_only,
+            pre,
+        ),
+    )
 }
 
 #[allow(dead_code)]
@@ -2965,6 +3362,7 @@ pub fn tail_v5_run_candidates<'py>(
                 save_all_metrics: false,
                 ic_only: false,
             }),
+            bt_pre: None,
         };
 
         let mut aggregated = AggregatedCandidates::default();
@@ -4147,6 +4545,7 @@ pub fn tail_v5_run_candidates_online<'py>(
                 save_all_metrics: false,
                 ic_only: false,
             }),
+            bt_pre: None,
         };
 
         let mut aggregated = AggregatedCandidates::default();
@@ -4630,6 +5029,7 @@ pub fn tail_v5_run_candidates_v7<'py>(
                 save_all_metrics: false,
                 ic_only: false,
             }),
+            bt_pre: None,
         };
 
         let mut aggregated = AggregatedCandidates::default();
@@ -5121,6 +5521,8 @@ fn process_v7_slot(
     }
 
     // ---- raw gap1/gap5 回测（ic_only 模式跳过：只保留中性化 IC 路径） ----
+    // O1 (2026-09): 有 bt_pre 时用 _opt 版 (收益秩预排序 walk + radix 秩, 数值逐位一致);
+    // 旧入口 (tail_v5_run_candidates 等) 未构建 bt_pre 时回退原实现, 行为不变。
     let _t = Instant::now();
     let (raw_gap1_result, raw_gap5_result) = if shared.config.ic_only {
         (
@@ -5128,8 +5530,69 @@ fn process_v7_slot(
             default_legacy_backtest_result(),
         )
     } else {
-        legacy_backtest_gap1_gap5_single_slot(
-            slot_values,
+        match &shared.bt_pre {
+            Some(pre) => legacy_backtest_gap1_gap5_single_slot_opt(
+                slot_values,
+                shared.ret_gap1.view(),
+                shared.ret_sum_gap1.view(),
+                shared.ret_gap5.view(),
+                shared.ret_sum_gap5.view(),
+                shared.restrict.view(),
+                shared.index_ret.view(),
+                shared.dates.as_slice(),
+                shared.backtest_start,
+                10,
+                open_symbol_counts,
+                false,
+                pre,
+            ),
+            None => legacy_backtest_gap1_gap5_single_slot(
+                slot_values,
+                shared.ret_gap1.view(),
+                shared.ret_sum_gap1.view(),
+                shared.ret_gap5.view(),
+                shared.ret_sum_gap5.view(),
+                shared.restrict.view(),
+                shared.index_ret.view(),
+                shared.dates.as_slice(),
+                shared.backtest_start,
+                10,
+                open_symbol_counts,
+                false,
+            ),
+        }
+    };
+    PROF_BT_RAW.fetch_add(_t.elapsed().as_nanos() as u64, AtomicOrdering::Relaxed);
+
+    // ---- 标准中性化：只物化当前 slot 的 (T,N) ----
+    // O2 (2026-09): precompute 已带 orders/per_date, v2 用预计算排序与逐日 X'X
+    // (数值逐位一致; 因子侧 NaN 日自动回退生产原路径)。
+    let _t = Instant::now();
+    let neutralized_slot = {
+        let ns = shared
+            .neutralize_std_shared
+            .as_ref()
+            .expect("tail_backtest_engine 中性化需要预计算的 neutralize_std_shared");
+        match &shared.bt_pre {
+            Some(_) => crate::factor_neutralize_std::neutralize_std_slot_f32_v2(
+                slot_values,
+                ns,
+                shared.industry_neutralize,
+            )?,
+            None => crate::factor_neutralize_std::neutralize_std_slot_f32(
+                slot_values,
+                ns,
+                shared.industry_neutralize,
+            )?,
+        }
+    };
+    PROF_NEU.fetch_add(_t.elapsed().as_nanos() as u64, AtomicOrdering::Relaxed);
+
+    // ---- neu gap1/gap5 回测 ----
+    let _t = Instant::now();
+    let (neu_gap1_result, neu_gap5_result) = match &shared.bt_pre {
+        Some(pre) => legacy_backtest_gap1_gap5_single_slot_opt(
+            neutralized_slot.view(),
             shared.ret_gap1.view(),
             shared.ret_sum_gap1.view(),
             shared.ret_gap5.view(),
@@ -5140,39 +5603,24 @@ fn process_v7_slot(
             shared.backtest_start,
             10,
             open_symbol_counts,
-            false,
-        )
+            shared.config.ic_only,
+            pre,
+        ),
+        None => legacy_backtest_gap1_gap5_single_slot(
+            neutralized_slot.view(),
+            shared.ret_gap1.view(),
+            shared.ret_sum_gap1.view(),
+            shared.ret_gap5.view(),
+            shared.ret_sum_gap5.view(),
+            shared.restrict.view(),
+            shared.index_ret.view(),
+            shared.dates.as_slice(),
+            shared.backtest_start,
+            10,
+            open_symbol_counts,
+            shared.config.ic_only,
+        ),
     };
-    PROF_BT_RAW.fetch_add(_t.elapsed().as_nanos() as u64, AtomicOrdering::Relaxed);
-
-    // ---- 标准中性化：只物化当前 slot 的 (T,N) ----
-    let _t = Instant::now();
-    let neutralized_slot = crate::factor_neutralize_std::neutralize_std_slot_f32(
-        slot_values,
-        shared
-            .neutralize_std_shared
-            .as_ref()
-            .expect("tail_backtest_engine 中性化需要预计算的 neutralize_std_shared"),
-        shared.industry_neutralize,
-    )?;
-    PROF_NEU.fetch_add(_t.elapsed().as_nanos() as u64, AtomicOrdering::Relaxed);
-
-    // ---- neu gap1/gap5 回测 ----
-    let _t = Instant::now();
-    let (neu_gap1_result, neu_gap5_result) = legacy_backtest_gap1_gap5_single_slot(
-        neutralized_slot.view(),
-        shared.ret_gap1.view(),
-        shared.ret_sum_gap1.view(),
-        shared.ret_gap5.view(),
-        shared.ret_sum_gap5.view(),
-        shared.restrict.view(),
-        shared.index_ret.view(),
-        shared.dates.as_slice(),
-        shared.backtest_start,
-        10,
-        open_symbol_counts,
-        shared.config.ic_only,
-    );
     PROF_BT_NEU.fetch_add(_t.elapsed().as_nanos() as u64, AtomicOrdering::Relaxed);
 
     // ---- 汇总（顺序/条件与旧实现完全一致） ----
@@ -5658,6 +6106,7 @@ pub fn tail_v5_run_candidates_v7b<'py>(
                 save_all_metrics: false,
                 ic_only: false,
             }),
+            bt_pre: None,
         };
 
         let mut aggregated = AggregatedCandidates::default();
