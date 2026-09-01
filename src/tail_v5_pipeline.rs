@@ -5977,6 +5977,12 @@ fn process_v7_slots_batch(
     Ok(())
 }
 
+/// P3 批大小 (进程级缓存; env TAIL_BATCH_B, 缺省 4)。
+fn batch_size_b() -> usize {
+    static B: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *B.get_or_init(|| std::env::var("TAIL_BATCH_B").ok().and_then(|s| s.parse::<usize>().ok()).unwrap_or(4))
+}
+
 /// 缺失填充的活跃窗口（交易日）。股票 s 在日期 t 的缺口，只有当 s 在 t 之前的
 /// 最近 UNIVERSE_LOOKBACK 天内至少一天有值时才算"缺失"并填充；超过窗口的长期
 /// 无值（退市/新股/长期停牌/因子从未覆盖）属于"不适用"，保持 NaN 绝不编造。
@@ -6071,8 +6077,11 @@ fn process_v7_variant(
     )?;
     slot_idx += 1;
 
-    // window 派生 slot：P3 小批量多面 —— 每窗 4 个 stat 面一组做批处理中性化
-    // (B=4; 组内 raw 段 → 批中性化 → neu 段; 与逐面处理逐位一致)。
+    // window 派生 slot：P3 小批量多面 —— 按 TAIL_BATCH_B 分组的流水线
+    // (rolling 面按序入缓冲, 满 B 个即 batch 处理; 组内 raw → 批中性化 → neu;
+    //  与逐面处理逐位一致)。
+    let b = batch_size_b().max(1);
+    let mut buffer: Vec<(usize, Array2<f32>)> = Vec::with_capacity(b);
     for &window in shared.windows.as_slice() {
         if window == 0 {
             return Err("window 必须大于 0".to_string());
@@ -6080,21 +6089,31 @@ fn process_v7_variant(
         let min_periods = std::cmp::max(1, window / 2);
         let (mean, max, min, std) =
             crate::tail_v2_rank_roll_factor::rolling_stats_f32_serial(&ranked, window, min_periods);
-        let group = vec![
-            (slot_idx, mean),
-            (slot_idx + 1, max),
-            (slot_idx + 2, min),
-            (slot_idx + 3, std),
-        ];
+        for (slot_mat, stat_idx) in [(mean, 0usize), (max, 1), (min, 2), (std, 3)].into_iter() {
+            buffer.push((slot_idx + stat_idx, slot_mat));
+            if buffer.len() >= b {
+                process_v7_slots_batch(
+                    &buffer,
+                    variant_name,
+                    &derived_names,
+                    shared,
+                    open_symbol_counts,
+                    result,
+                )?;
+                buffer.clear();
+            }
+        }
+        slot_idx += 4;
+    }
+    if !buffer.is_empty() {
         process_v7_slots_batch(
-            &group,
+            &buffer,
             variant_name,
             &derived_names,
             shared,
             open_symbol_counts,
             result,
         )?;
-        slot_idx += group.len();
     }
     drop(ranked);
     Ok(())
