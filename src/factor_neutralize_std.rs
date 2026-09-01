@@ -165,6 +165,87 @@ fn rank_pct_all(values: &mut Array2<f64>) {
     }
 }
 
+/// f32 单调位序 key (与 mono_key 同构: 正数置符号位, 负数全翻转; ±0 合并)。
+#[inline]
+fn mono_key32(v: f32) -> u32 {
+    let v = if v == 0.0 { 0.0 } else { v };
+    let bits = v.to_bits();
+    if bits >> 31 == 0 {
+        bits ^ 0x8000_0000
+    } else {
+        !bits
+    }
+}
+
+/// u32 key 的 8-bit LSD radix (4 趟)。初始 order 按 index 升序时稳定等价
+/// (key, index) 总序 —— 与生产 radix_sort_order(64bit key) 的排序结果一致。
+fn radix_sort_order32(keys: &[u32], order: &mut Vec<usize>, tmp: &mut Vec<usize>) {
+    let n = order.len();
+    if n < 2 {
+        return;
+    }
+    tmp.clear();
+    tmp.resize(n, 0);
+    let mut count = [0usize; 256];
+    for shift in (0..32).step_by(8) {
+        count.fill(0);
+        for &i in order.iter() {
+            count[((keys[i] >> shift) & 0xff) as usize] += 1;
+        }
+        let mut acc = 0usize;
+        for c in count.iter_mut() {
+            let t = *c;
+            *c = acc;
+            acc += t;
+        }
+        for &i in order.iter() {
+            let b = ((keys[i] >> shift) & 0xff) as usize;
+            tmp[count[b]] = i;
+            count[b] += 1;
+        }
+        std::mem::swap(order, tmp);
+    }
+}
+
+/// O3e: 第一次 rank pct 直接在 f32 源上做 (u32 key 4-pass radix)。
+/// f32→f64 是保序单射, 排序/并列组完全一致 ⇒ 输出 pct 值与 f64 版逐位一致。
+fn rank_pct_all_from_f32(slot: &ArrayView2<f32>, out: &mut Array2<f64>) {
+    let (t, n) = slot.dim();
+    let mut idxs: Vec<usize> = Vec::with_capacity(n);
+    let mut tmp: Vec<usize> = Vec::with_capacity(n);
+    let mut keys: Vec<u32> = vec![0; n];
+    for ti in 0..t {
+        let mut out_row = out.row_mut(ti);
+        let in_row = slot.row(ti);
+        idxs.clear();
+        for (i, &v) in in_row.iter().enumerate() {
+            out_row[i] = f64::NAN;
+            if !v.is_nan() {
+                idxs.push(i);
+                keys[i] = mono_key32(v);
+            }
+        }
+        let n_valid = idxs.len();
+        if n_valid == 0 {
+            continue;
+        }
+        radix_sort_order32(&keys, &mut idxs, &mut tmp);
+        let mut i = 0;
+        while i < n_valid {
+            let mut j = i;
+            while j + 1 < n_valid && in_row[idxs[j + 1]] == in_row[idxs[i]] {
+                j += 1;
+            }
+            let avg_rank = ((i + 1) + (j + 1)) as f64 / 2.0;
+            let pct = avg_rank / n_valid as f64;
+            for item in &idxs[i..=j] {
+                out_row[*item] = pct;
+            }
+            i = j + 1;
+        }
+    }
+}
+
 /// 快速选择: 就地部分排序, 返回第 k 小 (0-based)。Lomuto 分区, 无越界风险。
 fn quickselect(v: &mut [f64], k: usize) -> f64 {
     let mut lo = 0usize;
@@ -725,6 +806,12 @@ pub struct NeutralizeStdShared {
     /// 与因子无关），一次性预计算；v2 的 OLS 每 slot 只做 y 侧累计 + 回代 + 残差。
     /// p=0 表示该日有效数 <=10（生产路径会跳过该日）。
     pub(crate) per_date: Vec<(usize, Vec<u32>, Vec<i32>, Vec<f64>)>,
+    /// O3c 优化: 每日预分解 Cholesky (None = 分解失败, 该日回退生产 SVD 路径)。
+    /// 与生产"每日两次 Cholesky::new"的解算逐位一致, 且跨 slot 共享为 0 摊销。
+    pub(crate) chols: Vec<Option<Cholesky<f64, nalgebra::Dyn>>>,
+    /// O3d 优化: 每日有效集 × 10 风格连续内存 (valid 顺序行主序)。
+    /// 替代每 slot 从 10 张 (T,N) 大矩阵跳跃取数, 数值逐位一致。
+    pub(crate) xdays: Vec<Vec<f64>>,
 }
 
 /// 从 style data + industry + restrict 预计算所有不随因子变化的量。
@@ -820,6 +907,9 @@ pub fn neutralize_std_precompute(
     // 100% 重合 (见 RANKIC_NEUTRALIZATION_REPORT 4.4); v2 若某日因子侧有 NaN 会
     // 回退该日为生产原路径, 保证结果与 v1 逐位一致。
     let mut per_date = Vec::with_capacity(n_dates);
+    // O3c/O3d: 与 per_date 同构的每日预分解 Cholesky 与连续 X
+    let mut chols = Vec::with_capacity(n_dates);
+    let mut xdays = Vec::with_capacity(n_dates);
     for date_idx in 0..n_dates {
         let mut ind_codes: Vec<f64> = Vec::new();
         for j in 0..n_stocks {
@@ -853,14 +943,19 @@ pub fn neutralize_std_precompute(
         let n_valid = valid_idx.len();
         if n_valid <= 10 {
             per_date.push((0, valid_idx, valid_cols, Vec::new()));
+            chols.push(None);
+            xdays.push(Vec::new());
             continue;
         }
         let mut xtx = vec![0.0f64; p * p];
         let k = 10usize;
+        // 连续 X: valid 顺序 × 10 风格 (行主序), 与生产 barra_ranked 取值逐位相同
+        let mut xd = vec![0.0f64; n_valid * k];
         for (pos, &j) in valid_idx.iter().enumerate() {
             let ji = j as usize;
             for c in 0..k {
                 let b = barra_ranked[c][[date_idx, ji]];
+                xd[pos * k + c] = b;
                 xtx[c * p + c] += b * b;
                 for c2 in (c + 1)..k {
                     let v = b * barra_ranked[c2][[date_idx, ji]];
@@ -879,7 +974,9 @@ pub fn neutralize_std_precompute(
                 }
             }
         }
+        chols.push(Cholesky::new(DMatrix::from_row_slice(p, p, &xtx)));
         per_date.push((p, valid_idx, valid_cols, xtx));
+        xdays.push(xd);
     }
 
     Ok(NeutralizeStdShared {
@@ -893,6 +990,8 @@ pub fn neutralize_std_precompute(
         size_ranked,
         orders,
         per_date,
+        chols,
+        xdays,
     })
 }
 
@@ -1284,52 +1383,74 @@ fn fill_ind_reg_pre(
     size_ranked: &Array2<f64>,
     orders: &[Array2<usize>],
 ) {
+    // O3g (2026-09): 无整行拷贝 + 缓冲复用 + O3f 干净段跳过。与旧实现逐位一致:
+    // 分组分段互不重叠, 行内直接读写与"先拷贝后回写"等价; 段内无填充目标时
+    // 回归结果不会被使用, 跳过收集与回归。
     let (t, n) = fv.dim();
     let ind0 = ind1.map(|&v| if v.is_nan() { 0.0 } else { 1.0 });
     let levels = [ind2, ind1, &ind0];
     let mut ys: Vec<f64> = Vec::with_capacity(n);
     let mut bs: Vec<f64> = Vec::with_capacity(n);
+    let mut obs: Vec<bool> = Vec::with_capacity(n);
     for (li, level) in levels.iter().enumerate() {
         for idx in 0..t {
-            let mut row = fv.row(idx).to_vec();
-            if !has_ge_n_unique(&row, 10) {
-                continue;
+            {
+                let row_view = fv.row(idx);
+                let row_slice = row_view.as_slice().unwrap();
+                if !has_ge_n_unique(row_slice, 10) {
+                    continue;
+                }
             }
             let order_arr = orders[li].row(idx);
             let order = order_arr.as_slice().unwrap();
+            let size_row = size_ranked.row(idx);
+            let size_row = size_row.as_slice().unwrap();
+            let level_row = level.row(idx);
+            let level_row = level_row.as_slice().unwrap();
+            let mut row_view = fv.row_mut(idx);
+            let row = row_view.as_slice_mut().unwrap();
             let mut seg_start = 0usize;
             while seg_start < n {
-                let code = level[[idx, order[seg_start]]];
+                let code = level_row[order[seg_start]];
                 if code.is_nan() {
                     break;
                 }
                 let mut seg_end = seg_start + 1;
-                while seg_end < n && level[[idx, order[seg_end]]] == code {
+                while seg_end < n && level_row[order[seg_end]] == code {
                     seg_end += 1;
+                }
+                // O3f: 无填充目标（所有位置 row 与 size 都有限）→ 跳过
+                let mut has_target = false;
+                for &ci in &order[seg_start..seg_end] {
+                    if row[ci].is_nan() || size_row[ci].is_nan() {
+                        has_target = true;
+                        break;
+                    }
+                }
+                if !has_target {
+                    seg_start = seg_end;
+                    continue;
                 }
                 ys.clear();
                 bs.clear();
-                let mut obs: Vec<bool> = Vec::with_capacity(seg_end - seg_start);
+                obs.clear();
                 for &ci in &order[seg_start..seg_end] {
-                    let ok = !row[ci].is_nan() && !size_ranked[[idx, ci]].is_nan();
+                    let ok = !row[ci].is_nan() && !size_row[ci].is_nan();
                     obs.push(ok);
                     if ok {
                         ys.push(row[ci]);
-                        bs.push(size_ranked[[idx, ci]]);
+                        bs.push(size_row[ci]);
                     }
                 }
                 if ys.len() >= 10 {
                     let (c0, c1) = ols2(&ys, &bs);
                     for (mi, &ci) in order[seg_start..seg_end].iter().enumerate() {
                         if !obs[mi] {
-                            row[ci] = c0 + c1 * size_ranked[[idx, ci]];
+                            row[ci] = c0 + c1 * size_row[ci];
                         }
                     }
                 }
                 seg_start = seg_end;
-            }
-            for j in 0..n {
-                fv[[idx, j]] = row[j];
             }
         }
     }
@@ -1342,11 +1463,15 @@ fn group_median_fill_pre(
     valid_mask: Option<&Array2<f64>>,
     orders: &Array2<usize>,
 ) {
+    // O3g (2026-09): 无整行拷贝 + O3f 干净段跳过。与旧实现逐位一致:
+    // 段内没有 (NaN 且 valid) 的填充目标时, 中位数不会被使用。
     let (t, n) = values.dim();
     let mut sv: Vec<f64> = Vec::with_capacity(n);
+    let mut nan_mask: Vec<bool> = Vec::with_capacity(n);
     for idx in 0..t {
-        let mut row = values.row(idx).to_vec();
-        let mut nan_mask: Vec<bool> = Vec::with_capacity(n);
+        let mut row_view = values.row_mut(idx);
+        let row = row_view.as_slice_mut().unwrap();
+        nan_mask.clear();
         let mut has_nan = false;
         for j in 0..n {
             let nn = row[j].is_nan();
@@ -1360,19 +1485,35 @@ fn group_median_fill_pre(
         }
         let order_arr = orders.row(idx);
         let order = order_arr.as_slice().unwrap();
+        let codes_row = codes.row(idx);
+        let codes_row = codes_row.as_slice().unwrap();
+        let valid_row = valid_mask.map(|vm| vm.row(idx));
         let mut seg_start = 0usize;
         while seg_start < n {
-            let code = codes[[idx, order[seg_start]]];
+            let code = codes_row[order[seg_start]];
             if code.is_nan() {
                 break;
             }
             let mut seg_end = seg_start + 1;
-            while seg_end < n && codes[[idx, order[seg_end]]] == code {
+            while seg_end < n && codes_row[order[seg_end]] == code {
                 seg_end += 1;
+            }
+            // O3f: 无填充目标 → 跳过收集与 quickselect
+            let mut has_target = false;
+            for &ci in &order[seg_start..seg_end] {
+                let valid = valid_row.as_ref().map_or(true, |vr| vr[ci] == 1.0);
+                if nan_mask[ci] && valid {
+                    has_target = true;
+                    break;
+                }
+            }
+            if !has_target {
+                seg_start = seg_end;
+                continue;
             }
             sv.clear();
             for &ci in &order[seg_start..seg_end] {
-                let valid = valid_mask.map_or(true, |vm| vm[[idx, ci]] == 1.0);
+                let valid = valid_row.as_ref().map_or(true, |vr| vr[ci] == 1.0);
                 if valid && !row[ci].is_nan() {
                     sv.push(row[ci]);
                 }
@@ -1380,16 +1521,13 @@ fn group_median_fill_pre(
             if !sv.is_empty() {
                 let med = median_inplace(&mut sv);
                 for &ci in &order[seg_start..seg_end] {
-                    let valid = valid_mask.map_or(true, |vm| vm[[idx, ci]] == 1.0);
+                    let valid = valid_row.as_ref().map_or(true, |vr| vr[ci] == 1.0);
                     if nan_mask[ci] && valid {
                         row[ci] = med;
                     }
                 }
             }
             seg_start = seg_end;
-        }
-        for j in 0..n {
-            values[[idx, j]] = row[j];
         }
     }
 }
@@ -1536,30 +1674,42 @@ fn ols_day_inline(
     resid_row
 }
 
-fn get_residual_v2(
-    fv_filled: &Array2<f64>,
-    barra_ranked: &[Array2<f64>],
-    ind1: &Array2<f64>,
-    per_date: &[(usize, Vec<u32>, Vec<i32>, Vec<f64>)],
-) -> Array2<f64> {
+fn get_residual_v2(fv_filled: &Array2<f64>, shared: &NeutralizeStdShared) -> Array2<f64> {
+    // O3 优化 (2026-09): O3a uniq 检查线性 min==max 扫描 (替代完整排序+去重);
+    // O3c 每日 Cholesky 预分解共享 (替代每 slot 每日两次分解);
+    // O3d 每日连续 X 内存 (10 风格列连续, 替代跨 10 张 (T,N) 矩阵跳跃取数)。
+    // any_nan / n_valid<=40 / Cholesky 失败日回退生产路径 (ols_day_inline / SVD), 逐位一致。
     let (t, n) = fv_filled.dim();
+    let barra_ranked = &shared.barra_ranked;
+    let ind1 = &shared.ind1;
+    let per_date = &shared.per_date;
     let mut resid = Array2::<f64>::from_elem((t, n), f64::NAN);
     let k = 10usize;
+    let mut y_buf: Vec<f64> = Vec::with_capacity(n);
+    let mut xty: Vec<f64> = Vec::with_capacity(64);
     for idx in 0..t {
-        let (p, valid_idx, valid_cols, xtx_pre) = &per_date[idx];
+        let (p, valid_idx, valid_cols, _xtx_pre) = &per_date[idx];
         if *p == 0 {
             continue;
         }
-        // y unique 检查 + 因子 NaN 检查 (触发回退)
-        let mut uniq: Vec<f64> = Vec::with_capacity(valid_idx.len());
+        // O3a: y unique 检查 (min==max 线性扫描) + 因子 NaN 检查 (触发回退)
+        y_buf.clear();
         let mut any_nan = false;
+        let mut mn = f64::INFINITY;
+        let mut mx = f64::NEG_INFINITY;
         for &j in valid_idx {
             let y = fv_filled[[idx, j as usize]];
             if !y.is_finite() {
                 any_nan = true;
                 break;
             }
-            uniq.push(y);
+            if y < mn {
+                mn = y;
+            }
+            if y > mx {
+                mx = y;
+            }
+            y_buf.push(y);
         }
         if any_nan {
             // 回退: 生产语义单日 OLS (无切片, 与 get_residual 逐位一致)。
@@ -1571,31 +1721,31 @@ fn get_residual_v2(
             }
             continue;
         }
-        uniq.sort_by(cmp_f64);
-        uniq.dedup_by(|a, b| (a.is_nan() && b.is_nan()) || a == b);
-        if uniq.len() == 1 {
+        if mn == mx {
             for &j in valid_idx {
                 resid[[idx, j as usize]] = 0.5;
             }
             continue;
         }
-        let mut xty = vec![0.0f64; *p];
-        for (pos, &j) in valid_idx.iter().enumerate() {
-            let ji = j as usize;
-            let yv = fv_filled[[idx, ji]];
+        // O3d: xty 用每日连续 X
+        xty.clear();
+        xty.resize(*p, 0.0);
+        let xd = &shared.xdays[idx];
+        for (pos, &yv) in y_buf.iter().enumerate() {
+            let xrow = &xd[pos * k..pos * k + k];
             for c in 0..k {
-                xty[c] += barra_ranked[c][[idx, ji]] * yv;
+                xty[c] += xrow[c] * yv;
             }
             let ic = valid_cols[pos];
             if ic >= 0 {
                 xty[k + ic as usize] += yv;
             }
         }
-        let m = DMatrix::from_row_slice(*p, *p, xtx_pre);
-        let rhs = DMatrix::from_column_slice(*p, 1, &xty);
-        let use_svd = valid_idx.len() <= 40 || Cholesky::new(m.clone()).is_none();
+        // O3c: 预分解 Cholesky; 失败/小样本回退生产 SVD 路径
+        let use_svd = valid_idx.len() <= 40 || shared.chols[idx].is_none();
         let coef: Vec<f64> = if !use_svd {
-            let chol = Cholesky::new(m).expect("chol");
+            let chol = shared.chols[idx].as_ref().unwrap();
+            let rhs = DMatrix::from_column_slice(*p, 1, &xty);
             chol.solve(&rhs).column(0).iter().copied().collect()
         } else {
             // 回退生产 SVD 路径 (n_valid 极小/近奇异时; 与 get_residual 相同)
@@ -1638,16 +1788,13 @@ fn get_residual_v2(
             }
             (vt.transpose() * coef).column(0).iter().copied().collect()
         };
-        let mut vi = 0usize;
         for (pos, &j) in valid_idx.iter().enumerate() {
             let ji = j as usize;
-            while vi < ji {
-                vi += 1;
-            }
-            let yv = fv_filled[[idx, ji]];
+            let yv = y_buf[pos];
+            let xrow = &xd[pos * k..pos * k + k];
             let mut pred = 0.0;
             for c in 0..k {
-                pred += coef[c] * barra_ranked[c][[idx, ji]];
+                pred += coef[c] * xrow[c];
             }
             let ic = valid_cols[pos];
             if ic >= 0 {
@@ -1694,7 +1841,7 @@ pub(crate) fn neutralize_std_section_owned_v2(
     }
     rank_pct_all(&mut fv_filled);
     let resid = if industry_neutralize {
-        get_residual_v2(&fv_filled, barra_ranked, ind1, &shared.per_date)
+        get_residual_v2(&fv_filled, shared)
     } else {
         get_residual(&fv_filled, barra_ranked, None)
     };
@@ -1711,6 +1858,16 @@ pub(crate) fn neutralize_std_section_owned_v2_resid(
     shared: &NeutralizeStdShared,
     industry_neutralize: bool,
 ) -> Array2<f64> {
+    rank_pct_all(&mut fv_ranked);
+    neutralize_std_section_owned_v2_resid_pre(fv_ranked, shared, industry_neutralize)
+}
+
+/// C' 变体 (rank 已完成): 填充 → 清理 → 中位填充 → restrict → rank → OLS 残差 (无最终 rank)。
+fn neutralize_std_section_owned_v2_resid_pre(
+    mut fv_ranked: Array2<f64>,
+    shared: &NeutralizeStdShared,
+    industry_neutralize: bool,
+) -> Array2<f64> {
     let (t, n) = fv_ranked.dim();
     let ind = &shared.industry;
     let restrict = &shared.restrict_f64;
@@ -1721,7 +1878,6 @@ pub(crate) fn neutralize_std_section_owned_v2_resid(
     let zeros = &shared.zeros;
     let ind1_mask = &shared.ind1_mask;
 
-    rank_pct_all(&mut fv_ranked);
     fill_ind_reg_pre(&mut fv_ranked, ind2, ind1, size_ranked, &shared.orders[0..3]);
     for i in 0..(t * n) {
         if ind1.as_slice().unwrap()[i].is_nan() {
@@ -1740,7 +1896,7 @@ pub(crate) fn neutralize_std_section_owned_v2_resid(
     }
     rank_pct_all(&mut fv_filled);
     if industry_neutralize {
-        get_residual_v2(&fv_filled, barra_ranked, ind1, &shared.per_date)
+        get_residual_v2(&fv_filled, shared)
     } else {
         get_residual(&fv_filled, barra_ranked, None)
     }
@@ -1758,8 +1914,14 @@ pub(crate) fn neutralize_std_slot_f32_v2_resid(
     {
         return Err("neutralize_std_block industry/restrict 形状不匹配".to_string());
     }
-    let factor_f64 = slot.map(|&v| v as f64);
-    let resid = neutralize_std_section_owned_v2_resid(factor_f64, shared, industry_neutralize);
+    // O3e: 第一次 rank 直接在 f32 源做 (u32 4-pass radix, 与 f64 版逐位一致)
+    let mut fv_ranked = Array2::<f64>::zeros((n_dates, n_stocks));
+    rank_pct_all_from_f32(&slot, &mut fv_ranked);
+    let resid = neutralize_std_section_owned_v2_resid_pre(
+        fv_ranked,
+        shared,
+        industry_neutralize,
+    );
     let mut output = Array2::<f32>::from_elem((n_dates, n_stocks), f32::NAN);
     let out_slice = output.as_slice_mut().unwrap();
     let rr = resid.as_slice().unwrap();

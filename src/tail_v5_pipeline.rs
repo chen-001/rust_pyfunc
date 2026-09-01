@@ -609,8 +609,10 @@ fn mono_key32(v: f32) -> u32 {
     }
 }
 
-/// 按 u64 键 (已含单调位序 key 与 index) 的 8-bit LSD 稳定 radix 排序。
-fn radix_sort_keys64(keys: &[u64], order: &mut Vec<usize>, tmp: &mut Vec<usize>) {
+/// 按 u32 单调位序 key 的 8-bit LSD 稳定 radix 排序 (4 趟)。
+/// 初始 order 按 index 升序时等价 (key, index) 总序 —— 与 radix_sort_keys64 (8 趟)
+/// 的排序结果逐位一致, 排序开销减半。
+fn radix_sort_u32_keys(keys: &[u32], order: &mut Vec<usize>, tmp: &mut Vec<usize>) {
     let n = order.len();
     if n < 2 {
         return;
@@ -618,7 +620,7 @@ fn radix_sort_keys64(keys: &[u64], order: &mut Vec<usize>, tmp: &mut Vec<usize>)
     tmp.clear();
     tmp.resize(n, 0);
     let mut count = [0usize; 256];
-    for shift in (0..64).step_by(8) {
+    for shift in (0..32).step_by(8) {
         count.fill(0);
         for &i in order.iter() {
             count[((keys[i] >> shift) & 0xff) as usize] += 1;
@@ -638,17 +640,24 @@ fn radix_sort_keys64(keys: &[u64], order: &mut Vec<usize>, tmp: &mut Vec<usize>)
     }
 }
 
-/// ordinal 秩 (与 ordinal_ranks 一致: 等值按 index 稳定序, 无 NaN)。
-fn ordinal_ranks_radix(values: &[f32]) -> Vec<i64> {
+/// u32 key 版本: 构建 (mono_key32(v)) 键数组并稳定排序 → 返回排序后的索引序。
+fn keyed_order_u32(values: &[f32]) -> Vec<usize> {
     let n = values.len();
-    let mut keys = vec![0u64; n];
+    let mut keys: Vec<u32> = vec![0u32; n];
     for (i, &v) in values.iter().enumerate() {
-        keys[i] = (mono_key32(v) as u64) << 32 | i as u64;
+        keys[i] = mono_key32(v);
     }
     let mut order: Vec<usize> = (0..n).collect();
     let mut tmp: Vec<usize> = Vec::new();
-    radix_sort_keys64(&mut keys, &mut order, &mut tmp);
-    let mut ranks = vec![0i64; n];
+    radix_sort_u32_keys(&keys, &mut order, &mut tmp);
+    order
+}
+
+/// ordinal 秩 (与 ordinal_ranks 一致: 等值按 index 稳定序, 无 NaN)。
+/// O1b (2026-09): u32 4-pass radix, 与旧 (key,index) 8-pass 总序逐位一致。
+fn ordinal_ranks_radix(values: &[f32]) -> Vec<i64> {
+    let order = keyed_order_u32(values);
+    let mut ranks = vec![0i64; values.len()];
     for (rank, &idx) in order.iter().enumerate() {
         ranks[idx] = rank as i64;
     }
@@ -656,15 +665,10 @@ fn ordinal_ranks_radix(values: &[f32]) -> Vec<i64> {
 }
 
 /// 平均秩 (与 average_ranks 一致: 等值组取平均, f32 == 判等)。
+/// O1b (2026-09): u32 4-pass radix, 与旧 (key,index) 8-pass 总序逐位一致。
 fn average_ranks_radix(values: &[f32]) -> Vec<f64> {
     let n = values.len();
-    let mut keys = vec![0u64; n];
-    for (i, &v) in values.iter().enumerate() {
-        keys[i] = (mono_key32(v) as u64) << 32 | i as u64;
-    }
-    let mut order: Vec<usize> = (0..n).collect();
-    let mut tmp: Vec<usize> = Vec::new();
-    radix_sort_keys64(&mut keys, &mut order, &mut tmp);
+    let order = keyed_order_u32(values);
     let mut ranks = vec![f64::NAN; n];
     let mut start = 0usize;
     while start < n {
@@ -682,7 +686,33 @@ fn average_ranks_radix(values: &[f32]) -> Vec<f64> {
     ranks
 }
 
+/// O1b: 一次排序同时产出 ordinal 秩与平均秩 (与分别调用上述两个函数逐位一致)。
+fn rank_both_radix(values: &[f32]) -> (Vec<i64>, Vec<f64>) {
+    let n = values.len();
+    let order = keyed_order_u32(values);
+    let mut ordinal = vec![0i64; n];
+    let mut avg = vec![f64::NAN; n];
+    for (rank, &idx) in order.iter().enumerate() {
+        ordinal[idx] = rank as i64;
+    }
+    let mut start = 0usize;
+    while start < n {
+        let value = values[order[start]];
+        let mut end = start + 1;
+        while end < n && values[order[end]] == value {
+            end += 1;
+        }
+        let avg_rank = (start + 1 + end) as f64 / 2.0;
+        for &idx in order[start..end].iter() {
+            avg[idx] = avg_rank;
+        }
+        start = end;
+    }
+    (ordinal, avg)
+}
+
 /// BtPrecomputed 构建: 每日期 ret_sum 全行按 (值, index) 排序 (NaN 置末)。
+/// O1b (2026-09): u32 4-pass (稳定 + 初始 index 升序 ≡ (key, index) 总序)。
 fn build_bt_precomputed(
     ret_sum_g1: &Array2<f32>,
     ret_sum_g5: &Array2<f32>,
@@ -695,14 +725,14 @@ fn build_bt_precomputed(
     let mut build = |ret_sum: &Array2<f32>| -> Result<Vec<Vec<u32>>, String> {
         let mut orders = Vec::with_capacity(n_dates);
         for d in 0..n_dates {
-            let mut keys: Vec<u64> = Vec::with_capacity(n_stocks);
+            let mut keys: Vec<u32> = Vec::with_capacity(n_stocks);
             for (j, &v) in ret_sum.row(d).iter().enumerate() {
                 let k = if v.is_nan() { u32::MAX } else { mono_key32(v) };
-                keys.push((k as u64) << 32 | j as u64);
+                keys.push(k);
             }
             let mut order: Vec<usize> = (0..n_stocks).collect();
             let mut tmp: Vec<usize> = Vec::new();
-            radix_sort_keys64(&keys, &mut order, &mut tmp);
+            radix_sort_u32_keys(&keys, &mut order, &mut tmp);
             orders.push(order.into_iter().map(|x| x as u32).collect());
         }
         Ok(orders)
@@ -803,16 +833,67 @@ fn preflight_quality_check(
     let mut zero_ratio_sum: f64 = 0.0;
     let mut valid_date_count: usize = 0;
 
+    // O1b 优化: majority 检查只关心"最多重复值个数"。
+    // (a) 阈值 >= 股票数时判定恒真 (max 计数 <= n_stocks), 跳过全部计数;
+    // (b) 否则用 u32 bits 稳定归并计数 (radix 4-pass) 替代逐日 HashMap。
+    // 分组按 value.to_bits() 等价, 结果与旧 HashMap 完全一致。
+    let count_majority = majority_count_threshold < n_stocks as f64;
+
+    if !count_majority {
+        // 快路径: 只统计 zero/nan
+        for t in 0..n_dates {
+            let mut free_count: usize = 0;
+            let mut nan_count: usize = 0;
+            let mut zero_count: usize = 0;
+            for s in 0..n_stocks {
+                let val = raw_values[[t, s]];
+                let is_free = restrict[[t, s]].is_finite() && restrict[[t, s]] == 0.0;
+                if is_free {
+                    free_count += 1;
+                    if !val.is_finite() {
+                        nan_count += 1;
+                    } else if val == 0.0 {
+                        zero_count += 1;
+                    }
+                }
+            }
+            if free_count > 0 {
+                nan_ratio_sum += nan_count as f64 / free_count as f64;
+                zero_ratio_sum += zero_count as f64 / free_count as f64;
+                valid_date_count += 1;
+            }
+        }
+        let nan_ratio_mean = if valid_date_count > 0 {
+            nan_ratio_sum / valid_date_count as f64
+        } else {
+            0.0
+        };
+        let zero_ratio_mean = if valid_date_count > 0 {
+            zero_ratio_sum / valid_date_count as f64
+        } else {
+            0.0
+        };
+        return PreflightReport {
+            // majority 恒真 (threshold >= n_stocks); majority_count_mean 不参与任何
+            // 可观测输出 (仅用于判定与计数), 返回 n_stocks 占位。
+            passed: zero_ratio_mean < zero_max_threshold && nan_ratio_mean < nan_max_threshold,
+            majority_count_mean: n_stocks as f64,
+            zero_ratio_mean,
+            nan_ratio_mean,
+        };
+    }
+
+    let mut keys: Vec<u32> = Vec::with_capacity(n_stocks);
+    let mut order: Vec<usize> = Vec::with_capacity(n_stocks);
+    let mut tmp: Vec<usize> = Vec::with_capacity(n_stocks);
     for t in 0..n_dates {
-        let mut value_counts: HashMap<u32, usize> = HashMap::new();
+        keys.clear();
         let mut free_count: usize = 0;
         let mut nan_count: usize = 0;
         let mut zero_count: usize = 0;
-
         for s in 0..n_stocks {
             let val = raw_values[[t, s]];
             let is_free = restrict[[t, s]].is_finite() && restrict[[t, s]] == 0.0;
-
             if is_free {
                 free_count += 1;
                 if !val.is_finite() {
@@ -821,15 +902,32 @@ fn preflight_quality_check(
                     zero_count += 1;
                 }
             }
-
             if val.is_finite() {
-                *value_counts.entry(val.to_bits()).or_insert(0) += 1;
+                keys.push(val.to_bits());
             }
         }
-
-        let max_count = value_counts.values().max().copied().unwrap_or(0);
+        // 按 bits 分组计数 (与 HashMap 的 to_bits 分组一致); 顺序无关, 只需相邻相等
+        let n = keys.len();
+        order.clear();
+        order.extend(0..n);
+        if n >= 2 {
+            radix_sort_u32_keys(&keys, &mut order, &mut tmp);
+        }
+        let mut max_count = 0usize;
+        let mut start = 0usize;
+        while start < n {
+            let key = keys[order[start]];
+            let mut end = start + 1;
+            while end < n && keys[order[end]] == key {
+                end += 1;
+            }
+            let c = end - start;
+            if c > max_count {
+                max_count = c;
+            }
+            start = end;
+        }
         majority_sum += max_count as f64;
-
         if free_count > 0 {
             nan_ratio_sum += nan_count as f64 / free_count as f64;
             zero_ratio_sum += zero_count as f64 / free_count as f64;
@@ -1134,6 +1232,10 @@ fn legacy_backtest_single_factor_with_effective_opt(
                 filtered_stock_idx.push(stock_idx as u32);
             }
         }
+        // O1b: 每日一次排序同时产出 ordinal 秩与平均秩。
+        // gap 日的排序结果供 IC 与十分组复用; 非 gap 日只排一次用于十分组。
+        let mut ord_signal: Option<Vec<i64>> = None;
+        let mut avg_signal: Option<Vec<f64>> = None;
         if (local_t + 1) % gap == 0 {
             // 收益秩: 预排序全行 walk 出子集 ordinal 秩 (gen 代标记防跨日串扰)
             gen_id += 1;
@@ -1151,7 +1253,10 @@ fn legacy_backtest_single_factor_with_effective_opt(
                     counter += 1;
                 }
             }
-            let xx = ordinal_ranks_radix(&filtered_signal);
+            let (xx, avg_now) = rank_both_radix(&filtered_signal);
+            ord_signal = Some(xx);
+            avg_signal = Some(avg_now);
+            let xx = ord_signal.as_ref().unwrap();
             let n = filtered_signal.len() as f64;
             let mut diff_sq_sum = 0.0;
             for idx in 0..filtered_signal.len() {
@@ -1183,7 +1288,10 @@ fn legacy_backtest_single_factor_with_effective_opt(
         }
         group_sums.fill(0.0);
         group_counts.fill(0);
-        let ranks = average_ranks_radix(&filtered_signal);
+        let (_, ranks) = match avg_signal {
+            Some(a) => (ord_signal.take().unwrap(), a),
+            None => rank_both_radix(&filtered_signal),
+        };
         for idx in 0..stocks_num {
             let pct = ranks[idx] / stocks_num as f64;
             let mut bucket = (pct * portf_num as f64).floor() as usize;
