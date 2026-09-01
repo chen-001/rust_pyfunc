@@ -69,6 +69,19 @@ tempfile = "3.10"
 
 
 
+[profile.dev]
+# ─────────────────────────────────────────────────────────────
+# 防事故容错层：maturin develop 默认走 dev profile。
+# Cargo 默认 dev = opt-level 0，数值内核会慢 10~50 倍（曾导致 513MB debug
+# 构建覆盖 release 安装、回测整体变慢 40 倍的事故）。
+# 此处把 dev 提升为 opt-level 3 + 关闭 debug 信息：即使有人/agent 裸跑
+# `maturin develop`，产物性能也接近 release（编译稍慢，可接受）。
+# 正式构建请始终走：bash dev.sh（默认 release-fast）或 ./alter.sh。
+# ─────────────────────────────────────────────────────────────
+opt-level = 3
+debug = false
+incremental = true
+
 [profile.release]
 lto = true
 codegen-units = 1

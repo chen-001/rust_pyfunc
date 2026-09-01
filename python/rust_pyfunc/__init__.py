@@ -85,3 +85,42 @@ def __getattr__(name):
 
 def __dir__():
     return sorted(set(globals()) | set(_LAZY_EXPORTS) | set(_LAZY_MODULE_EXPORTS))
+
+
+# ── 构建产物自检（防"无优化构建覆盖"事故，2026-09-01 加）──────────────
+# 背景：裸跑 `maturin develop`（不带 --release/--profile）会安装 opt-level 0
+# 的 dev 构建，数值内核比 release 慢 10~50 倍（曾导致 513MB debug .so 覆盖
+# release 安装、回测整体变慢 40 倍的事故）。正常优化构建（release / release-fast
+# / 加固后的 dev）都 <50MB；只有无优化 + debug 信息的构建会 >150MB。
+import os as _os
+import sys as _sys
+
+
+def _check_build_artifact():
+    try:
+        pkg_dir = _os.path.dirname(_os.path.abspath(__file__))
+        so_files = [
+            _os.path.join(pkg_dir, f)
+            for f in _os.listdir(pkg_dir)
+            if f.startswith("rust_pyfunc") and f.endswith(".so")
+        ]
+        if not so_files:
+            return
+        biggest = max(so_files, key=_os.path.getsize)
+        size_mb = _os.path.getsize(biggest) / 1024.0 / 1024.0
+        if size_mb > 150:
+            _sys.stderr.write(
+                "\n⚠️  [rust_pyfunc] 检测到无优化/debug 构建（{name}: {size:.0f}MB，"
+                "正常优化构建 <50MB）。\n"
+                "    回测与因子计算性能将慢 10~50 倍！请重新构建：\n"
+                "      cd /home/chenzongwei/rust_pyfunc && bash dev.sh\n"
+                "      （默认 release-fast，约 1 分钟；发布用 ./alter.sh）\n"
+                "    原因：裸跑 `maturin develop` 会安装 dev 构建；maturin 守卫应已阻止。\n\n"
+                .format(name=_os.path.basename(biggest), size=size_mb)
+            )
+    except Exception:
+        pass
+
+
+_check_build_artifact()
+del _check_build_artifact
