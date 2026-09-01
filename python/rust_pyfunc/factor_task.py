@@ -80,6 +80,7 @@ def cmd_submit(args):
     body = {
         "script_path": script,
         "n_jobs": args.n_jobs or 50,
+        "priority": args.priority if args.priority is not None else 2,
     }
     if args.start_date:
         body["start_date"] = args.start_date
@@ -91,6 +92,7 @@ def cmd_submit(args):
     print(f"   任务 ID: {resp['id']}")
     print(f"   名称:    {resp['name']}")
     print(f"   状态:    {resp['status']}")
+    print(f"   优先级:  P{resp.get('priority', 2)}")
     print(f"   查看:    factor-task show {resp['id']}")
 
 
@@ -198,6 +200,7 @@ def main():
     p_submit = sub.add_parser("submit", help="提交新任务")
     p_submit.add_argument("script", help="Python 脚本路径")
     p_submit.add_argument("--n-jobs", type=int, default=None, help="并行数")
+    p_submit.add_argument("--priority", type=int, default=None, choices=[0, 1, 2], help="优先级（0=最高，默认2）")
     p_submit.add_argument("--start-date", type=int, help="起始日期 (YYYYMMDD)")
     p_submit.add_argument("--end-date", type=int, help="结束日期 (YYYYMMDD)")
     p_submit.set_defaults(func=cmd_submit)

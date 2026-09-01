@@ -88,6 +88,12 @@ def init_db(db_path: str) -> None:
         db.commit()
     except sqlite3.OperationalError:
         pass
+    # 兼容旧数据库：添加 priority 列（0=最高，默认2；调度器按 优先级+id 排队）
+    try:
+        db.execute("ALTER TABLE tasks ADD COLUMN priority INTEGER DEFAULT 2")
+        db.commit()
+    except sqlite3.OperationalError:
+        pass
     db.close()
 
 
@@ -97,6 +103,7 @@ class TaskSubmit(BaseModel):
     n_jobs: int = DEFAULT_NJOBS
     start_date: int | None = None
     end_date: int | None = None
+    priority: int = 2  # 0=最高；调度器按 priority ASC, id ASC 排队
 
 
 class NjobsAdjust(BaseModel):
@@ -278,6 +285,104 @@ def _run_task(
             _active_processes.pop(task_id, None)
 
 
+# ── 任务队列与并发调度 ─────────────────────────────────
+# _max_concurrent：全局同时运行的【任务】数上限（每个任务内部还有自己的 n_jobs 并行度）。
+# None/<=0 = 不限制（默认，行为与旧版一致：提交即运行）。
+# 持久化在 ~/.factor_taskd/config.json，daemon 重启后依然生效。
+CONFIG_PATH = os.path.expanduser("~/.factor_taskd/config.json")
+_max_concurrent: int | None = None
+
+
+def _load_config() -> None:
+    global _max_concurrent
+    try:
+        with open(CONFIG_PATH, encoding="utf-8") as f:
+            cfg = json.load(f)
+        _max_concurrent = cfg.get("max_concurrent") or None
+    except OSError:
+        _max_concurrent = None
+
+
+def _save_config() -> None:
+    try:
+        os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
+        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump({"max_concurrent": _max_concurrent}, f)
+    except OSError:
+        pass
+
+
+def _queue_state() -> dict:
+    """当前队列状态：运行中/排队中数量 + 全局并发上限。"""
+    with _db_lock:
+        db = get_db()
+        running = db.execute(
+            "SELECT COUNT(*) FROM tasks WHERE status='running'"
+        ).fetchone()[0]
+        pending = db.execute(
+            "SELECT COUNT(*) FROM tasks WHERE status='pending'"
+        ).fetchone()[0]
+        db.close()
+    return {
+        "max_concurrent": _max_concurrent,
+        "running": running,
+        "pending": pending,
+    }
+
+
+def _scheduler_tick() -> None:
+    """调度一轮：空闲配额内，按 优先级(高→低) + 提交先后 启动排队任务。
+
+    启动前先原子占用（UPDATE ... WHERE status='pending' 且 rowcount==1 才启动），
+    避免 tick 重入/并发时同一任务被重复启动；取消竞态也由该条件挡住。
+    """
+    with _db_lock:
+        db = get_db()
+        pending = db.execute(
+            "SELECT id, script_path, n_jobs, start_date, end_date"
+            " FROM tasks WHERE status='pending' ORDER BY priority ASC, id ASC"
+        ).fetchall()
+        running_n = db.execute(
+            "SELECT COUNT(*) FROM tasks WHERE status='running'"
+        ).fetchone()[0]
+        db.close()
+    limit = _max_concurrent
+    slots = len(pending) if (limit is None or limit <= 0) else max(0, limit - running_n)
+    for row in pending[:slots]:
+        with _db_lock:
+            db = get_db()
+            cur = db.execute(
+                "UPDATE tasks SET status='running' WHERE id=? AND status='pending'",
+                (row["id"],),
+            )
+            db.commit()
+            db.close()
+        if cur.rowcount != 1:
+            continue  # 已被取消/他人占用，跳过
+        threading.Thread(
+            target=_run_task,
+            args=(
+                row["id"],
+                row["script_path"],
+                row["n_jobs"],
+                row["start_date"],
+                row["end_date"],
+            ),
+            daemon=True,
+        ).start()
+
+
+def _scheduler_loop() -> None:
+    """常驻调度线程：每 1 秒补一轮，覆盖 daemon 重启后的 pending 恢复
+    与运行中任务退出后的补位（运行中的任务退出 → 下一 tick 空出配额 → 排队任务顶上）。"""
+    while True:
+        try:
+            _scheduler_tick()
+        except Exception:
+            pass
+        time.sleep(1)
+
+
 # ── API 端点 ─────────────────────────────────────────
 
 
@@ -317,14 +422,15 @@ def submit_task(body: TaskSubmit):
         cursor = db.execute(
             """INSERT INTO tasks
                (name, script_path, n_jobs, start_date, end_date,
-                status, version, created_at)
-               VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)""",
+                status, priority, version, created_at)
+               VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)""",
             (
                 version,
                 script_path,
                 body.n_jobs,
                 body.start_date,
                 body.end_date,
+                body.priority,
                 version,
                 now,
             ),
@@ -333,15 +439,16 @@ def submit_task(body: TaskSubmit):
         db.commit()
         db.close()
 
-    # 启动后台线程执行
-    t = threading.Thread(
-        target=_run_task,
-        args=(task_id, script_path, body.n_jobs, body.start_date, body.end_date),
-        daemon=True,
-    )
-    t.start()
+    # 不自行启动线程：入队后交给调度器（遵守全局并发上限与优先级）。
+    # 无上限时调度器会立即启动，行为与旧版一致。
+    _scheduler_tick()
 
-    return {"id": task_id, "status": "pending", "name": version}
+    return {
+        "id": task_id,
+        "status": "pending",
+        "name": version,
+        "priority": body.priority,
+    }
 
 
 @app.get("/api/tasks")
@@ -455,6 +562,15 @@ def cancel_task(task_id: int):
 
         # 快照当前进度后标记为取消
         progress = None
+        if row["status"] == "pending":
+            # 排队中（尚未启动子进程）：直接改状态即可，无进程可杀
+            db.execute(
+                "UPDATE tasks SET status='cancelled', finished_at=? WHERE id=?",
+                (datetime.now(timezone.utc).isoformat(), task_id),
+            )
+            db.commit()
+            db.close()
+            return {"status": "cancelled"}
         if row["backup_prefix"]:
             progress = _read_progress(row["backup_prefix"], task_id)
         db.execute(
@@ -523,6 +639,14 @@ def adjust_njobs(task_id: int, body: NjobsAdjust):
         raise HTTPException(404, "任务不存在")
 
     backup_prefix = row["backup_prefix"]
+    if row["status"] == "pending":
+        # 排队中尚未启动：只更新 DB 值，调度器启动时自然生效
+        with _db_lock:
+            db = get_db()
+            db.execute("UPDATE tasks SET n_jobs=? WHERE id=?", (body.n_jobs, task_id))
+            db.commit()
+            db.close()
+        return {"status": "adjusted", "n_jobs": body.n_jobs, "queued": True}
     if not backup_prefix:
         raise HTTPException(400, "任务尚未生成 backup 文件前缀")
 
@@ -543,6 +667,50 @@ def adjust_njobs(task_id: int, body: NjobsAdjust):
         db.close()
 
     return {"status": "adjusted", "n_jobs": body.n_jobs}
+
+
+class ConfigUpdate(BaseModel):
+    max_concurrent: int | None = None
+
+
+@app.get("/api/config")
+def get_config():
+    """队列与并发配置：全局任务并发上限 + 运行/排队计数"""
+    return _queue_state()
+
+
+@app.post("/api/config")
+def set_config(body: ConfigUpdate):
+    """运行时调整全局并发任务上限（None/<=0 = 不限制）。持久化，重启后生效。"""
+    global _max_concurrent
+    _max_concurrent = (
+        int(body.max_concurrent) if body.max_concurrent and body.max_concurrent > 0 else None
+    )
+    _save_config()
+    _scheduler_tick()  # 提高/取消上限后立刻补位
+    return _queue_state()
+
+
+class PriorityAdjust(BaseModel):
+    priority: int = 2
+
+
+@app.post("/api/tasks/{task_id}/priority")
+def adjust_task_priority(task_id: int, body: PriorityAdjust):
+    """调整任务优先级（0=最高）；对排队任务立即重新排序，调度器下一轮补位。"""
+    if body.priority not in (0, 1, 2):
+        raise HTTPException(400, "priority 必须为 0/1/2（0=最高）")
+    with _db_lock:
+        db = get_db()
+        cur = db.execute(
+            "UPDATE tasks SET priority=? WHERE id=?", (body.priority, task_id)
+        )
+        db.commit()
+        db.close()
+    if cur.rowcount == 0:
+        raise HTTPException(404, "任务不存在")
+    _scheduler_tick()
+    return {"status": "ok", "priority": body.priority}
 
 
 def _read_log_file(file_path: str, offset: int, limit: int) -> dict:
@@ -740,6 +908,7 @@ def _is_process_active(task_id: int) -> bool:
 
 
 def main():
+    global _max_concurrent
     parser = argparse.ArgumentParser(description="factor_taskd — 因子计算任务守护进程")
     parser.add_argument(
         "--host", default=DEFAULT_HOST, help=f"监听地址 (默认: {DEFAULT_HOST})"
@@ -750,10 +919,23 @@ def main():
     parser.add_argument(
         "--db", default=DEFAULT_DB_PATH, help=f"SQLite 数据库路径 (默认: {DEFAULT_DB_PATH})"
     )
+    parser.add_argument(
+        "--max-concurrent",
+        type=int,
+        default=None,
+        help="全局同时运行的任务数上限（0/缺省=不限制；也可用 /api/config 运行时调整并持久化）",
+    )
     parser.add_argument("--reload", action="store_true", help="启用热重载（开发用）")
     args = parser.parse_args()
 
+    _load_config()
+    if args.max_concurrent is not None:
+        _max_concurrent = args.max_concurrent if args.max_concurrent > 0 else None
+        _save_config()
+
     init_db(args.db)
+    # 启动队列调度线程：重启后 pending 任务自动恢复调度
+    threading.Thread(target=_scheduler_loop, daemon=True).start()
     uvicorn.run(app, host=args.host, port=args.port, reload=args.reload)
 
 
