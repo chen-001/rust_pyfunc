@@ -1395,6 +1395,147 @@ fn group_median_fill_pre(
 }
 
 /// v2 残差回归: 预计算 X'X; 因子侧 NaN 触发该日回退到 get_residual 原路径。
+
+/// 生产语义的单日 OLS 残差 (因子侧有效集 = y有限 ∩ 风格有限, X'X 逐日实时累积)。
+/// 与 get_residual 的单日逻辑完全一致, 但直接在全矩阵行上工作, 无临时切片。
+fn ols_day_inline(
+    fv_filled: &Array2<f64>,
+    barra_ranked: &[Array2<f64>],
+    ind1: &Array2<f64>,
+    idx: usize,
+) -> Vec<f64> {
+    let n = fv_filled.ncols();
+    let k = barra_ranked.len();
+    let mut resid_row = vec![f64::NAN; n];
+    let mut ind_codes: Vec<f64> = Vec::with_capacity(40);
+    for j in 0..n {
+        let c = ind1[[idx, j]];
+        if !c.is_nan() && !ind_codes.contains(&c) {
+            ind_codes.push(c);
+        }
+    }
+    ind_codes.sort_by(cmp_f64);
+    let n_ind = ind_codes.len();
+    let p = k + n_ind;
+    let mut valid: Vec<bool> = Vec::with_capacity(n);
+    let mut rows: Vec<[f64; 11]> = Vec::with_capacity(n);
+    let mut ind_cols: Vec<i32> = Vec::with_capacity(n);
+    for j in 0..n {
+        let ok = fv_filled[[idx, j]].is_finite()
+            && barra_ranked.iter().all(|b| b[[idx, j]].is_finite());
+        valid.push(ok);
+        if ok {
+            let mut cur = [0.0_f64; 11];
+            cur[0] = fv_filled[[idx, j]];
+            for c in 0..k {
+                cur[c + 1] = barra_ranked[c][[idx, j]];
+            }
+            rows.push(cur);
+            let c = ind1[[idx, j]];
+            ind_cols.push(if c.is_nan() {
+                -1
+            } else {
+                match ind_codes.binary_search_by(|x| cmp_f64(x, &c)) {
+                    Ok(pos) => pos as i32,
+                    Err(_) => -1,
+                }
+            });
+        }
+    }
+    let n_valid = rows.len();
+    if n_valid <= 10 {
+        return resid_row;
+    }
+    let mut uniq: Vec<f64> = rows.iter().map(|r| r[0]).collect();
+    uniq.sort_by(cmp_f64);
+    uniq.dedup_by(|a, b| (a.is_nan() && b.is_nan()) || a == b);
+    if uniq.len() == 1 {
+        for j in 0..n {
+            if valid[j] {
+                resid_row[j] = 0.5;
+            }
+        }
+        return resid_row;
+    }
+    let mut xtx: Vec<f64> = vec![0.0f64; p * p];
+    let mut xty: Vec<f64> = vec![0.0f64; p];
+    for (i, r) in rows.iter().enumerate() {
+        let yv = r[0];
+        for c in 0..k {
+            let b = r[c + 1];
+            xty[c] += b * yv;
+            xtx[c * p + c] += b * b;
+            for c2 in (c + 1)..k {
+                let v = b * r[c2 + 1];
+                xtx[c * p + c2] += v;
+                xtx[c2 * p + c] += v;
+            }
+        }
+        let ic = ind_cols[i];
+        if ic >= 0 {
+            let col = (k as i32 + ic) as usize;
+            xty[col] += yv;
+            xtx[col * p + col] += 1.0;
+            for c in 0..k {
+                let b = r[c + 1];
+                xtx[c * p + col] += b;
+                xtx[col * p + c] += b;
+            }
+        }
+    }
+    let m = DMatrix::from_row_slice(p, p, &xtx);
+    let rhs = DMatrix::from_column_slice(p, 1, &xty);
+    let use_svd = n_valid <= 40 || Cholesky::new(m.clone()).is_none();
+    let coef: Vec<f64> = if !use_svd {
+        let chol = Cholesky::new(m).expect("chol");
+        chol.solve(&rhs).column(0).iter().copied().collect()
+    } else {
+        let n_r = rows.len();
+        let xm = DMatrix::from_fn(n_r, p, |r_i, c| {
+            let ic = ind_cols[r_i];
+            if c < k {
+                rows[r_i][c + 1]
+            } else if ic >= 0 && c == k as usize + ic as usize {
+                1.0
+            } else {
+                0.0
+            }
+        });
+        let svd = xm.clone().svd(true, true);
+        let u = svd.u.expect("svd u");
+        let vt = svd.v_t.expect("svd vt");
+        let sv = svd.singular_values;
+        let s_max = sv.iter().cloned().fold(0.0_f64, f64::max);
+        let rcond = s_max * (n_r.max(p) as f64) * 2.22e-16;
+        let ym = DMatrix::from_fn(n_r, 1, |r_i, _| rows[r_i][0]);
+        let uty = u.transpose() * ym;
+        let mut coef = DMatrix::zeros(p, 1);
+        for i in 0..p {
+            if sv[i] > rcond {
+                coef[(i, 0)] = uty[(i, 0)] / sv[i];
+            }
+        }
+        (vt.transpose() * coef).column(0).iter().copied().collect()
+    };
+    let mut vi = 0;
+    for (i, r) in rows.iter().enumerate() {
+        let mut pred = 0.0;
+        for c in 0..k {
+            pred += coef[c] * r[c + 1];
+        }
+        let ic = ind_cols[i];
+        if ic >= 0 {
+            pred += coef[k + ic as usize];
+        }
+        while !valid[vi] {
+            vi += 1;
+        }
+        resid_row[vi] = r[0] - pred;
+        vi += 1;
+    }
+    resid_row
+}
+
 fn get_residual_v2(
     fv_filled: &Array2<f64>,
     barra_ranked: &[Array2<f64>],
@@ -1421,26 +1562,12 @@ fn get_residual_v2(
             uniq.push(y);
         }
         if any_nan {
-            // 回退: 生产原路径 (单日切片)
-            let mut fv1 = Array2::<f64>::from_elem((1, n), f64::NAN);
+            // 回退: 生产语义单日 OLS (无切片, 与 get_residual 逐位一致)。
+            // 触发场景: "理想集"内存在因子侧 NaN (稀疏覆盖/早期年份数据),
+            // 此时生产 valid 集 = 理想集 ∩ y有限, X'X 与因子相关, 预计算不可用。
+            let row = ols_day_inline(fv_filled, barra_ranked, ind1, idx);
             for j in 0..n {
-                fv1[[0, j]] = fv_filled[[idx, j]];
-            }
-            let mut bench1: Vec<Array2<f64>> = Vec::with_capacity(k);
-            for b in barra_ranked {
-                let mut b1 = Array2::<f64>::from_elem((1, n), f64::NAN);
-                for j in 0..n {
-                    b1[[0, j]] = b[[idx, j]];
-                }
-                bench1.push(b1);
-            }
-            let mut ind1_1 = Array2::<f64>::from_elem((1, n), f64::NAN);
-            for j in 0..n {
-                ind1_1[[0, j]] = ind1[[idx, j]];
-            }
-            let r = get_residual(&fv1, &bench1, Some(&ind1_1));
-            for j in 0..n {
-                resid[[idx, j]] = r[[0, j]];
+                resid[[idx, j]] = row[j];
             }
             continue;
         }
@@ -1574,6 +1701,73 @@ pub(crate) fn neutralize_std_section_owned_v2(
     let mut resid_rank = resid;
     rank_pct_all(&mut resid_rank);
     resid_rank
+}
+
+/// C' 变体: 同 neutralize_std_section_owned_v2, 但不做最终残差 rank_pct
+/// (Spearman/十分组对保序变换不变, 回测结果逐位一致, 见 RANKIC_NEUTRALIZATION_REPORT 方案 C')。
+/// 引擎回测路径使用 (省 ~12% 中性化时间)。
+pub(crate) fn neutralize_std_section_owned_v2_resid(
+    mut fv_ranked: Array2<f64>,
+    shared: &NeutralizeStdShared,
+    industry_neutralize: bool,
+) -> Array2<f64> {
+    let (t, n) = fv_ranked.dim();
+    let ind = &shared.industry;
+    let restrict = &shared.restrict_f64;
+    let barra_ranked = &shared.barra_ranked;
+    let size_ranked = &shared.size_ranked;
+    let ind1 = &shared.ind1;
+    let ind2 = &shared.ind2;
+    let zeros = &shared.zeros;
+    let ind1_mask = &shared.ind1_mask;
+
+    rank_pct_all(&mut fv_ranked);
+    fill_ind_reg_pre(&mut fv_ranked, ind2, ind1, size_ranked, &shared.orders[0..3]);
+    for i in 0..(t * n) {
+        if ind1.as_slice().unwrap()[i].is_nan() {
+            fv_ranked.as_slice_mut().unwrap()[i] = f64::NAN;
+        }
+    }
+    let mut fv_filled = fv_ranked.clone();
+    group_median_fill_pre(&mut fv_filled, ind2, None, &shared.orders[3]);
+    group_median_fill_pre(&mut fv_filled, ind1, None, &shared.orders[4]);
+    group_median_fill_pre(&mut fv_filled, zeros, Some(ind1_mask), &shared.orders[0]);
+    drop(fv_ranked);
+    for i in 0..(t * n) {
+        if restrict.as_slice().unwrap()[i] != 0.0 {
+            fv_filled.as_slice_mut().unwrap()[i] = f64::NAN;
+        }
+    }
+    rank_pct_all(&mut fv_filled);
+    if industry_neutralize {
+        get_residual_v2(&fv_filled, barra_ranked, ind1, &shared.per_date)
+    } else {
+        get_residual(&fv_filled, barra_ranked, None)
+    }
+}
+
+/// C' 单 slot 变体: 输出残差 (f32, 不做最终 rank_pct)。
+pub(crate) fn neutralize_std_slot_f32_v2_resid(
+    slot: ArrayView2<'_, f32>,
+    shared: &NeutralizeStdShared,
+    industry_neutralize: bool,
+) -> Result<Array2<f32>, String> {
+    let (n_dates, n_stocks) = slot.dim();
+    if shared.industry.dim() != (n_dates, n_stocks)
+        || shared.restrict_f64.dim() != (n_dates, n_stocks)
+    {
+        return Err("neutralize_std_block industry/restrict 形状不匹配".to_string());
+    }
+    let factor_f64 = slot.map(|&v| v as f64);
+    let resid = neutralize_std_section_owned_v2_resid(factor_f64, shared, industry_neutralize);
+    let mut output = Array2::<f32>::from_elem((n_dates, n_stocks), f32::NAN);
+    let out_slice = output.as_slice_mut().unwrap();
+    let rr = resid.as_slice().unwrap();
+    for i in 0..(n_dates * n_stocks) {
+        let v = rr[i];
+        out_slice[i] = if v.is_nan() { f32::NAN } else { v as f32 };
+    }
+    Ok(output)
 }
 
 /// v2 单 slot 标准中性化: 输入 (T,N) f32 → 输出 (T,N) f32。

@@ -5574,7 +5574,7 @@ fn process_v7_slot(
             .as_ref()
             .expect("tail_backtest_engine 中性化需要预计算的 neutralize_std_shared");
         match &shared.bt_pre {
-            Some(_) => crate::factor_neutralize_std::neutralize_std_slot_f32_v2(
+            Some(_) => crate::factor_neutralize_std::neutralize_std_slot_f32_v2_resid(
                 slot_values,
                 ns,
                 shared.industry_neutralize,
