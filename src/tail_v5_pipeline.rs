@@ -5566,7 +5566,14 @@ fn legacy_backtest_gap1_gap5_single_slot(
 /// 流式处理单个 derived slot：preflight → raw 回测 → 标准中性化 → neu 回测 → 汇总。
 /// 每个 slot 处理完立即释放，不再同时持有 selected block 和 neutralized block。
 #[allow(clippy::too_many_arguments)]
-fn process_v7_slot(
+/// raw 段 (preflight + 原始回测): 返回 None 表示 preflight 未过且非 metrics-only (提前退出)。
+struct SlotRawOut {
+    pre_report: PreflightReport,
+    raw_gap1: LegacyBacktestResult,
+    raw_gap5: LegacyBacktestResult,
+}
+
+fn process_v7_slot_raw(
     slot_idx: usize,
     slot_values: ArrayView2<'_, f32>,
     variant_name: &str,
@@ -5574,7 +5581,7 @@ fn process_v7_slot(
     shared: &SharedInputs,
     open_symbol_counts: &[usize],
     result: &mut TailTaskResult,
-) -> Result<(), String> {
+) -> Result<Option<SlotRawOut>, String> {
     let derived_name = &derived_names[slot_idx];
 
     // ---- preflight（与 collect_preflight_passed_slots 完全一致） ----
@@ -5620,7 +5627,7 @@ fn process_v7_slot(
             reasons.join("; "),
         );
         if !shared.config.save_all_metrics {
-            return Ok(());
+            return Ok(None);
         }
         // metrics-only 模式继续跑 raw/neu 回测，但 summary 中 preflight_passed=false，
         // 判定器会把这些 derived 因子视为不可入选。
@@ -5671,30 +5678,29 @@ fn process_v7_slot(
         }
     };
     PROF_BT_RAW.fetch_add(_t.elapsed().as_nanos() as u64, AtomicOrdering::Relaxed);
+    Ok(Some(SlotRawOut {
+        pre_report,
+        raw_gap1: raw_gap1_result,
+        raw_gap5: raw_gap5_result,
+    }))
+}
 
-    // ---- 标准中性化：只物化当前 slot 的 (T,N) ----
-    // O2 (2026-09): precompute 已带 orders/per_date, v2 用预计算排序与逐日 X'X
-    // (数值逐位一致; 因子侧 NaN 日自动回退生产原路径)。
-    let _t = Instant::now();
-    let neutralized_slot = {
-        let ns = shared
-            .neutralize_std_shared
-            .as_ref()
-            .expect("tail_backtest_engine 中性化需要预计算的 neutralize_std_shared");
-        match &shared.bt_pre {
-            Some(_) => crate::factor_neutralize_std::neutralize_std_slot_f32_v2_resid(
-                slot_values,
-                ns,
-                shared.industry_neutralize,
-            )?,
-            None => crate::factor_neutralize_std::neutralize_std_slot_f32(
-                slot_values,
-                ns,
-                shared.industry_neutralize,
-            )?,
-        }
-    };
-    PROF_NEU.fetch_add(_t.elapsed().as_nanos() as u64, AtomicOrdering::Relaxed);
+/// neu 段 (中性化后回测 + 汇总 + 入结果)。
+#[allow(clippy::too_many_arguments)]
+fn process_v7_slot_neu(
+    slot_idx: usize,
+    neutralized_slot: &Array2<f32>,
+    raw_out: SlotRawOut,
+    variant_name: &str,
+    derived_names: &[String],
+    shared: &SharedInputs,
+    open_symbol_counts: &[usize],
+    result: &mut TailTaskResult,
+) -> Result<(), String> {
+    let derived_name = &derived_names[slot_idx];
+    let pre_report = raw_out.pre_report;
+    let raw_gap1_result = raw_out.raw_gap1;
+    let raw_gap5_result = raw_out.raw_gap5;
 
     // ---- neu gap1/gap5 回测 ----
     let _t = Instant::now();
@@ -5844,6 +5850,133 @@ fn process_v7_slot(
     Ok(())
 }
 
+/// B=1 单面流程 (slot 0 等): raw → 中性化 → neu。行为与旧 process_v7_slot 完全一致。
+fn process_v7_slot(
+    slot_idx: usize,
+    slot_values: ArrayView2<'_, f32>,
+    variant_name: &str,
+    derived_names: &[String],
+    shared: &SharedInputs,
+    open_symbol_counts: &[usize],
+    result: &mut TailTaskResult,
+) -> Result<(), String> {
+    let raw_out = match process_v7_slot_raw(
+        slot_idx,
+        slot_values,
+        variant_name,
+        derived_names,
+        shared,
+        open_symbol_counts,
+        result,
+    )? {
+        Some(o) => o,
+        None => return Ok(()), // preflight 未过且非 metrics-only
+    };
+    // ---- 标准中性化：只物化当前 slot 的 (T,N) ----
+    // O2 (2026-09): precompute 已带 orders/per_date, v2 用预计算排序与逐日 X'X
+    // (数值逐位一致; 因子侧 NaN 日自动回退生产原路径)。
+    let _t = Instant::now();
+    let neutralized_slot = {
+        let ns = shared
+            .neutralize_std_shared
+            .as_ref()
+            .expect("tail_backtest_engine 中性化需要预计算的 neutralize_std_shared");
+        match &shared.bt_pre {
+            Some(_) => crate::factor_neutralize_std::neutralize_std_slot_f32_v2_resid(
+                slot_values,
+                ns,
+                shared.industry_neutralize,
+            )?,
+            None => crate::factor_neutralize_std::neutralize_std_slot_f32(
+                slot_values,
+                ns,
+                shared.industry_neutralize,
+            )?,
+        }
+    };
+    PROF_NEU.fetch_add(_t.elapsed().as_nanos() as u64, AtomicOrdering::Relaxed);
+    process_v7_slot_neu(
+        slot_idx,
+        &neutralized_slot,
+        raw_out,
+        variant_name,
+        derived_names,
+        shared,
+        open_symbol_counts,
+        result,
+    )
+}
+
+/// P3: B 个面按日期批量中性化 (组内 raw 段先行, 中性化一次批处理, neu 段后行)。
+fn process_v7_slots_batch(
+    group: &[(usize, Array2<f32>)],
+    variant_name: &str,
+    derived_names: &[String],
+    shared: &SharedInputs,
+    open_symbol_counts: &[usize],
+    result: &mut TailTaskResult,
+) -> Result<(), String> {
+    // Phase A: preflight + raw bt (保持 slot 矩阵存活)
+    let mut raw_outs: Vec<Option<SlotRawOut>> = Vec::with_capacity(group.len());
+    for (slot_idx, matrix) in group.iter() {
+        let raw = process_v7_slot_raw(
+            *slot_idx,
+            matrix.view(),
+            variant_name,
+            derived_names,
+            shared,
+            open_symbol_counts,
+            result,
+        )?;
+        raw_outs.push(raw);
+    }
+    // Phase B: 对需要中性化的面做批处理 (preflight 未过且非 metrics-only 的不需要)
+    let need: Vec<usize> = (0..group.len())
+        .filter(|&i| raw_outs[i].is_some())
+        .collect();
+    if !need.is_empty() {
+        let ns = shared
+            .neutralize_std_shared
+            .as_ref()
+            .expect("tail_backtest_engine 中性化需要预计算的 neutralize_std_shared");
+        let _t = Instant::now();
+        let views: Vec<ArrayView2<f32>> = need.iter().map(|&i| group[i].1.view()).collect();
+        let neutrals = match &shared.bt_pre {
+            Some(_) => crate::factor_neutralize_std::neutralize_std_slots_f32_v2_resid_batch(
+                &views,
+                ns,
+                shared.industry_neutralize,
+            )?,
+            None => views
+                .iter()
+                .map(|v| {
+                    crate::factor_neutralize_std::neutralize_std_slot_f32(
+                        v.clone(),
+                        ns,
+                        shared.industry_neutralize,
+                    )
+                })
+                .collect::<Result<Vec<_>, String>>()?,
+        };
+        PROF_NEU.fetch_add(_t.elapsed().as_nanos() as u64, AtomicOrdering::Relaxed);
+        // Phase C: neu 段
+        for (k, &i) in need.iter().enumerate() {
+            let raw_out = raw_outs[i].take().expect("need 已过滤 Some");
+            process_v7_slot_neu(
+                group[i].0,
+                &neutrals[k],
+                raw_out,
+                variant_name,
+                derived_names,
+                shared,
+                open_symbol_counts,
+                result,
+            )?;
+        }
+    }
+    Ok(())
+}
+
 /// 缺失填充的活跃窗口（交易日）。股票 s 在日期 t 的缺口，只有当 s 在 t 之前的
 /// 最近 UNIVERSE_LOOKBACK 天内至少一天有值时才算"缺失"并填充；超过窗口的长期
 /// 无值（退市/新股/长期停牌/因子从未覆盖）属于"不适用"，保持 NaN 绝不编造。
@@ -5938,7 +6071,8 @@ fn process_v7_variant(
     )?;
     slot_idx += 1;
 
-    // window 派生 slot：每算完一个 stat 面立即处理并释放
+    // window 派生 slot：P3 小批量多面 —— 每窗 4 个 stat 面一组做批处理中性化
+    // (B=4; 组内 raw 段 → 批中性化 → neu 段; 与逐面处理逐位一致)。
     for &window in shared.windows.as_slice() {
         if window == 0 {
             return Err("window 必须大于 0".to_string());
@@ -5946,50 +6080,21 @@ fn process_v7_variant(
         let min_periods = std::cmp::max(1, window / 2);
         let (mean, max, min, std) =
             crate::tail_v2_rank_roll_factor::rolling_stats_f32_serial(&ranked, window, min_periods);
-        process_v7_slot(
-            slot_idx,
-            mean.view(),
+        let group = vec![
+            (slot_idx, mean),
+            (slot_idx + 1, max),
+            (slot_idx + 2, min),
+            (slot_idx + 3, std),
+        ];
+        process_v7_slots_batch(
+            &group,
             variant_name,
             &derived_names,
             shared,
             open_symbol_counts,
             result,
         )?;
-        slot_idx += 1;
-        drop(mean);
-        process_v7_slot(
-            slot_idx,
-            max.view(),
-            variant_name,
-            &derived_names,
-            shared,
-            open_symbol_counts,
-            result,
-        )?;
-        slot_idx += 1;
-        drop(max);
-        process_v7_slot(
-            slot_idx,
-            min.view(),
-            variant_name,
-            &derived_names,
-            shared,
-            open_symbol_counts,
-            result,
-        )?;
-        slot_idx += 1;
-        drop(min);
-        process_v7_slot(
-            slot_idx,
-            std.view(),
-            variant_name,
-            &derived_names,
-            shared,
-            open_symbol_counts,
-            result,
-        )?;
-        slot_idx += 1;
-        drop(std);
+        slot_idx += group.len();
     }
     drop(ranked);
     Ok(())
