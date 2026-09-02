@@ -1,2 +1,4 @@
 [build]
-rustflags = ["-C", "target-cpu=native"]
+# relocation-model=pic: rustc 1.91+ 下 cdylib 链接（mold）要求显式 PIC，
+# 否则报 "recompile with -fPIC"（2026-09-02 实测修复）。
+rustflags = ["-C", "target-cpu=native", "-C", "relocation-model=pic"]

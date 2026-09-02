@@ -4394,39 +4394,37 @@ mod tests {
     }
 
     #[test]
-    fn test_fill_missing_rank_only_fills_recent_gaps() {
-        // 25 天 x 4 股，lookback=20：
-        // 股0: 每天有值 → 全程有限
-        // 股1: 第0天有值, 之后全 NaN → 第1..20天填(缺口≤20天), 第21天起不填
-        // 股2: 全 NaN(从未有值, 不适用) → 永不填
-        // 股3: 第10天起有值 → 之前不填(新股), 之后有限
+    fn test_fill_missing_rank_only_fills_normal_restrict() {
+        // 25 天 x 4 股，restrict==0(可交易) 才填：
+        // 股0: restrict 全 0, 每天有值 → 全程有限
+        // 股1: restrict 全 0, 第0天有值之后全 NaN → 缺口全填（可交易日缺数据=缺失）
+        // 股2: restrict 全 1(停牌/涨跌停), 全 NaN → 永不填（不适用）
+        // 股3: restrict 前10天全 NaN(未上市)、第10天起 0 → 之前不填(不适用), 之后有限
         let n_dates = 25usize;
         let n_stocks = 4usize;
         let mut raw = Array2::<f32>::from_elem((n_dates, n_stocks), f32::NAN);
+        let mut restrict = Array2::<f32>::from_elem((n_dates, n_stocks), f32::NAN);
         for t in 0..n_dates {
             raw[[t, 0]] = 1.0; // 股0 恒有值
+            restrict[[t, 0]] = 0.0;
+            restrict[[t, 1]] = 0.0; // 股1 恒可交易
+            restrict[[t, 2]] = 1.0; // 股2 恒不可交易（停牌/涨跌停）
+            restrict[[t, 3]] = if t >= 10 { 0.0 } else { f32::NAN }; // 股3 第10天上市
         }
-        raw[[0, 1]] = 2.0; // 股1 仅第0天有值
+        raw[[0, 1]] = 2.0; // 股1 仅第0天有值, 之后缺口但可交易 → 应填
         for t in 10..n_dates {
             raw[[t, 3]] = 3.0; // 股3 第10天起有值
         }
-        let ranked = rank_and_fill_missing_cross_sectional_median(&raw);
-        // 股0 全程有限
+        let ranked = rank_and_fill_missing_cross_sectional_median(&raw, &restrict);
+        // 股0 全程有限；股1 可交易日缺口全填（不再有"20天窗口"限制）
         for t in 0..n_dates {
             assert!(ranked[[t, 0]].is_finite());
+            assert!(ranked[[t, 1]].is_finite(), "可交易日缺口应填充");
+            assert!(ranked[[t, 2]].is_nan(), "不可交易(restrict=1)不应填充");
         }
-        // 股1: 缺口≤20天填, >20天不填
-        assert!(ranked[[1, 1]].is_finite(), "缺口1天应填充");
-        assert!(ranked[[20, 1]].is_finite(), "缺口20天应填充");
-        assert!(ranked[[21, 1]].is_nan(), "缺口21天不应填充");
-        assert!(ranked[[24, 1]].is_nan());
-        // 股2 (不适用) 永不填
-        for t in 0..n_dates {
-            assert!(ranked[[t, 2]].is_nan());
-        }
-        // 股3: 第10天前不填, 之后有限
+        // 股3: 未上市期(restrict NaN)不填, 上市后(restrict=0)有限
         for t in 0..10 {
-            assert!(ranked[[t, 3]].is_nan(), "新股上市前不应填充");
+            assert!(ranked[[t, 3]].is_nan(), "未上市期间不应填充");
         }
         for t in 10..n_dates {
             assert!(ranked[[t, 3]].is_finite());
@@ -4437,9 +4435,14 @@ mod tests {
 
     #[test]
     fn test_fill_missing_rank_all_outside_universe() {
-        // 全 NaN 矩阵：从未有值(不适用) → 填充后必须仍全 NaN
+        // 全 NaN 矩阵（从未有值/未上市）：restrict 全 1（不可交易）与全 NaN（未上市）
+        // 两种口径，填充后必须仍全 NaN
         let raw = Array2::<f32>::from_elem((2, 3), f32::NAN);
-        let ranked = rank_and_fill_missing_cross_sectional_median(&raw);
+        let restrict_all_one = Array2::<f32>::from_elem((2, 3), 1.0_f32);
+        let ranked = rank_and_fill_missing_cross_sectional_median(&raw, &restrict_all_one);
+        assert!(ranked.iter().all(|v| v.is_nan()));
+        let restrict_all_nan = Array2::<f32>::from_elem((2, 3), f32::NAN);
+        let ranked = rank_and_fill_missing_cross_sectional_median(&raw, &restrict_all_nan);
         assert!(ranked.iter().all(|v| v.is_nan()));
     }
 
@@ -5983,30 +5986,22 @@ fn batch_size_b() -> usize {
     *B.get_or_init(|| std::env::var("TAIL_BATCH_B").ok().and_then(|s| s.parse::<usize>().ok()).unwrap_or(4))
 }
 
-/// 缺失填充的活跃窗口（交易日）。股票 s 在日期 t 的缺口，只有当 s 在 t 之前的
-/// 最近 UNIVERSE_LOOKBACK 天内至少一天有值时才算"缺失"并填充；超过窗口的长期
-/// 无值（退市/新股/长期停牌/因子从未覆盖）属于"不适用"，保持 NaN 绝不编造。
-const UNIVERSE_LOOKBACK: usize = 20;
-
 /// 把 rank 后的缺失值用当日横截面中位 rank 填充。
-/// 只填"缺失"（前 UNIVERSE_LOOKBACK 天内有过值的股票当天的缺口）；"不适用"保持 NaN。
-/// 修复语义：宇宙外（长期无值）的位置不是"缺失"，填充必须跳过——否则每天会给
-/// 宇宙外股票凭空编造中位 rank（全模板 9000+ 只"有值"），打爆 preflight 众数统计
-/// 并污染覆盖率诊断。平均 rank 的取值是 1..=n_valid，中位数就是 (n_valid+1)/2。
-/// `active` 是与 ranked 同形状的源矩阵（raw 或 folded），用于判断每只股票的活跃度。
-fn fill_missing_rank_with_cross_sectional_median(ranked: &mut Array2<f32>, active: &Array2<f32>) {
+/// 只填"缺失"（当日 Restrict 显示可交易的股票当天的缺口）；"不适用"保持 NaN。
+/// Restrict 语义：0=可交易（正常，当日缺口视为"缺失"应填充）；1=不可交易
+/// （停牌∪涨跌停，当日无数据是合理的"不适用"）；NaN=未上市/数据不存在（不适用）。
+/// 不可用位置不是"缺失"，填充必须跳过——否则每天会给宇宙外股票凭空编造中位 rank
+/// （全模板 9000+ 只"有值"），打爆 preflight 众数统计并污染覆盖率诊断。
+/// 平均 rank 的取值是 1..=n_valid，中位数就是 (n_valid+1)/2。
+/// `restrict` 是与 ranked 同形状的限制状态矩阵（来自 S_RESTRICT）。
+fn fill_missing_rank_with_cross_sectional_median(ranked: &mut Array2<f32>, restrict: &Array2<f32>) {
     let n_dates = ranked.nrows();
     let n_stocks = ranked.ncols();
-    // last_valid[s] = 股票 s 最近一次有值的日期索引（None = 从未有值）
-    let mut last_valid: Vec<Option<usize>> = vec![None; n_stocks];
     for date_idx in 0..n_dates {
         let mut valid_count = 0usize;
         for stock_idx in 0..n_stocks {
             if ranked[[date_idx, stock_idx]].is_finite() {
                 valid_count += 1;
-            }
-            if active[[date_idx, stock_idx]].is_finite() {
-                last_valid[stock_idx] = Some(date_idx);
             }
         }
         if valid_count == 0 {
@@ -6015,10 +6010,8 @@ fn fill_missing_rank_with_cross_sectional_median(ranked: &mut Array2<f32>, activ
         let median_rank = ((valid_count + 1) as f32) / 2.0;
         for stock_idx in 0..n_stocks {
             if !ranked[[date_idx, stock_idx]].is_finite() {
-                let is_missing = last_valid[stock_idx]
-                    .map(|last| date_idx - last <= UNIVERSE_LOOKBACK)
-                    .unwrap_or(false);
-                if is_missing {
+                let is_normal = restrict[[date_idx, stock_idx]] == 0.0;
+                if is_normal {
                     ranked[[date_idx, stock_idx]] = median_rank;
                 }
             }
@@ -6027,14 +6020,15 @@ fn fill_missing_rank_with_cross_sectional_median(ranked: &mut Array2<f32>, activ
 }
 
 /// rank + 缺失值填充（回测预处理第二层保障）。
-/// 顺序约定：先横截面 rank，再填充"缺失"的 rank（近期活跃股票当天的缺口）；
-/// 长期无值（不适用）保持 NaN。随后才做 raw_cover / preflight / 回测。
+/// 顺序约定：先横截面 rank，再填充"缺失"的 rank（Restrict 可交易股票当天的缺口）；
+/// 不可交易（停牌/涨跌停）与未上市（不适用）保持 NaN。随后才做 raw_cover / preflight / 回测。
 fn rank_and_fill_missing_cross_sectional_median(
     variant_values: &Array2<f32>,
+    restrict: &Array2<f32>,
 ) -> Array2<f32> {
     let mut ranked =
         crate::tail_v2_rank_roll_factor::rank_axis1_average_f32_serial(variant_values);
-    fill_missing_rank_with_cross_sectional_median(&mut ranked, variant_values);
+    fill_missing_rank_with_cross_sectional_median(&mut ranked, restrict);
     ranked
 }
 
@@ -6135,9 +6129,9 @@ pub(crate) fn process_task_with_values_v7(
     );
 
     // 回测前预处理（第二层覆盖率保障）：先横截面 rank + 填充缺失 rank，
-    // 再做 raw_cover / preflight。填充只针对"缺失"（该股票前 20 个交易日内
-    // 有过值、仅当天缺值）；长期无值（不适用）保持 NaN，绝不编造。
-    let ranked_raw = rank_and_fill_missing_cross_sectional_median(&raw_values);
+    // 再做 raw_cover / preflight。填充只针对"缺失"（当日 Restrict=0 可交易、
+    // 仅当天缺值）；不可交易（停牌/涨跌停）与未上市（不适用）保持 NaN，绝不编造。
+    let ranked_raw = rank_and_fill_missing_cross_sectional_median(&raw_values, &shared.restrict);
 
     let raw_cover_rate = compute_raw_cover_rate(
         &ranked_raw.view(),
@@ -6187,7 +6181,7 @@ pub(crate) fn process_task_with_values_v7(
     if shared.fold {
         let _t = Instant::now();
         let folded = build_fold_values(&raw_values);
-        let ranked_fold = rank_and_fill_missing_cross_sectional_median(&folded);
+        let ranked_fold = rank_and_fill_missing_cross_sectional_median(&folded, &shared.restrict);
         PROF_FOLD.fetch_add(_t.elapsed().as_nanos() as u64, AtomicOrdering::Relaxed);
         drop(raw_values);
         drop(folded);
