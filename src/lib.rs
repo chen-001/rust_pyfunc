@@ -133,6 +133,7 @@ pub mod urgency_metrics;
 pub mod volume_segment_leadstock_metrics;
 pub mod yhyb_metrics;
 pub mod yhyb_network;
+pub mod yhyb_indtop_metrics;
 
 /// Formats the sum of two numbers as string.
 #[pyfunction]
@@ -1196,6 +1197,8 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     let _ = m.add_function(wrap_pyfunction!(yhyb_metrics::py_yhyb_names, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(yhyb_metrics::py_yhyb_from_data, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(yhyb_metrics::py_yhyb_events, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(yhyb_indtop_metrics::py_yhyb_indtop, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(yhyb_indtop_metrics::py_yhyb_indtop_names, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(
         volume_segment_leadstock_metrics::py_vsld,
         m

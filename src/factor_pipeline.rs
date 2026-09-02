@@ -2244,9 +2244,32 @@ pub fn pipeline_yhyb(date: i64, expected_len: usize) -> Vec<TaskResult> {
     }
 }
 
+/// 一呼百应补充因子（行业头部配对池，COR-39 拓展）横截面 pipeline 包装。
+/// 输出 4176 因子（G1a 1740 + G1b 1740 + G3 696），方案 A：pipeline 内重算初版
+/// 全市场基线（compute_from_streams），总耗时 ~77s/天（达标口径：不慢于初版 82s）。
+pub fn pipeline_yhyb_indtop(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    match crate::yhyb_indtop_metrics::compute_yhyb_ext(date, &crate::yhyb_metrics::YhybParams::default(), 0) {
+        Ok((codes, vals)) => {
+            let n_factors = expected_len;
+            vals.chunks(n_factors)
+                .zip(codes.iter())
+                .map(|(facs, code)| TaskResult {
+                    date,
+                    code: code.clone(),
+                    timestamp: 0,
+                    facs: facs.to_vec(),
+                })
+                .collect()
+        }
+        Err(e) => {
+            eprintln!("yhyb_indtop error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
 /// urgency 横截面 pipeline 包装：调核心，fan-out 成 TaskResult。
-pub fn pipeline_urgency(date: i64, expected_len: usize) -> Vec<TaskResult> {
-    match crate::urgency_metrics::compute_urgency_full(date) {
+pub fn pipeline_urgency(date: i64, expected_len: usize) -> Vec<TaskResult> {    match crate::urgency_metrics::compute_urgency_full(date) {
         Ok((codes, vals)) => vals
             .chunks(expected_len)
             .zip(codes.iter())
@@ -2690,6 +2713,7 @@ pub fn run_factor_pipeline_cross_section(
         "hot_stock_pool_v2",
         "vsld",
         "yhyb",
+        "yhyb_indtop",
     ];
     if !known.contains(&pipeline_name.as_str()) {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(

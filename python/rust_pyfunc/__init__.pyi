@@ -469,6 +469,25 @@ def py_yhyb_events(code: str, date: int) -> List[Tuple[str, Tuple[List[int], Lis
     ...
 
 
+def py_yhyb_indtop(date: int, mode: int = 0) -> Tuple[List[str], List[float]]:
+    """一呼百应补充因子（COR-39 行业头部配对池拓展，单日全市场）。
+
+    mode 0（生产）：4176 因子 = G1a yhyb_ext_indtop10_*（1740，同伴池=同申万一级
+    行业市值前 10）+ G1b yhyb_ext_mkttop310_*（1740，同伴池=全市场每行业市值前 10
+    并集 ≈310）+ G3 yhyb_ext_mkttop310_spec_*（696 = G1b − 初版全市场，hit/rmed/rhit
+    × fwd/bwd）。行业从 /ssd_data/data/vars/SzBa/industry.h5 直读，市值从
+    daily_data/total_caps.parquet 直读。G3 基线在 pipeline 内重算初版无 L4 聚合，
+    总耗时 ~77s/天（不慢于初版 82s）。
+    mode 1（验证）：池=全市场，输出 1740，与初版 py_yhyb_params 逐位一致。
+    """
+    ...
+
+
+def py_yhyb_indtop_names() -> List[str]:
+    """补充因子名：4176 个（G1a 1740 + G1b 1740 + G3 696）。"""
+    ...
+
+
 def py_vsld(date: int) -> Tuple[List[str], List[float]]:
     """计算成交量分段领衔股相关横截面因子（v1 读盘）。
 
@@ -942,6 +961,8 @@ __all__ = [
     "py_yhyb_from_data",
     "py_yhyb_names",
     "py_yhyb_events",
+    "py_yhyb_indtop",
+    "py_yhyb_indtop_names",
     "py_vsld",
     "py_vsld_names",
     "py_vsld_from_data",

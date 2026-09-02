@@ -777,7 +777,7 @@ const N_BUCKETS_1S: usize = 19_620;
 ///   事件数，全市场预计算（c 表），匹配循环内零 powf；期望值精确收集后 select。
 /// - null_hit：逐点精确 1 - ((x_i-T)/x_i)^m_B（整数幂 powi + 安全截断）。
 #[derive(Clone)]
-struct NullTable {
+pub struct NullTable {
     /// m[e*N_PERIODS+p][bi] = 事件数（u32；按 (事件,时段) 转置——聚合按 e 扫描时
     /// bi 顺序读取，硬件预取友好；原 m[bi][e][p] 是 464B 步长散布读）
     m: Vec<Vec<u32>>,
@@ -789,7 +789,7 @@ static C_CACHE: std::sync::OnceLock<[f64; 8192]> = std::sync::OnceLock::new();
 static LN_C_CACHE: std::sync::OnceLock<[f64; 8192]> = std::sync::OnceLock::new();
 
 #[inline(always)]
-fn c_of_m(m: u32) -> f64 {
+pub fn c_of_m(m: u32) -> f64 {
     C_CACHE.get_or_init(|| {
         let mut a = [0.0f64; 8192];
         for i in 1..8192 {
@@ -799,7 +799,7 @@ fn c_of_m(m: u32) -> f64 {
     })[m.min(8191) as usize]
 }
 #[inline(always)]
-fn ln_c_of_m(m: u32) -> f64 {
+pub fn ln_c_of_m(m: u32) -> f64 {
     LN_C_CACHE.get_or_init(|| {
         let mut a = [0.0f64; 8192];
         for i in 1..8192 {
@@ -813,13 +813,13 @@ fn ln_c_of_m(m: u32) -> f64 {
 /// 布局 sl[e * N_PERIODS + p][bi]：任务 (A, e, p) 按 bi 顺序扫描 → 缓存友好。
 /// 正确性：所有股票同一交易日事件的 day_base 相同（见 day_base），因此基值统一，
 /// 预计算的切片与 agg 内即时 period_slice 逐位一致（纯记忆化）。
-struct SliceTable {
+pub struct SliceTable {
     sl: Vec<Vec<[u32; 2]>>, // [N_EVENTS * N_PERIODS][n_stocks] = [lo, hi]（u32：表 11MB→5.5MB）
-    base: i64,              // 当日统一 day_base（事件均为同一天）
+    pub base: i64,          // 当日统一 day_base（事件均为同一天）
 }
 
 /// 预计算全市场切片表 + 零模型表（O(全市场事件数)，一次，并行）。
-fn build_slices_and_null(streams: &[Option<[EvStream; N_EVENTS]>]) -> (SliceTable, NullTable) {
+pub fn build_slices_and_null(streams: &[Option<[EvStream; N_EVENTS]>]) -> (SliceTable, NullTable) {
     let n = streams.len();
     let base = streams
         .iter()
@@ -2987,7 +2987,7 @@ fn compute_from_streams_full(
 }
 
 /// 1740 因子版本（无第 4 层；py_yhyb_params 用，输出布局与旧版一致）。
-fn compute_from_streams(
+pub fn compute_from_streams(
     codes: &[String],
     streams: &[Option<[EvStream; N_EVENTS]>],
     prm: &YhybParams,
