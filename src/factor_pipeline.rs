@@ -2268,6 +2268,26 @@ pub fn pipeline_yhyb_indtop(date: i64, expected_len: usize) -> Vec<TaskResult> {
     }
 }
 
+/// COR-22 补充因子（迫切交易笔数，Multica 41f8cb1b，路径 1 仅入选因子）横截面 pipeline 包装。
+pub fn pipeline_urgency_ext_cluster(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    match crate::urgency_ext_cluster_metrics::compute_urgency_ext_full(date) {
+        Ok((codes, vals)) => vals
+            .chunks(expected_len)
+            .zip(codes.iter())
+            .map(|(facs, code)| TaskResult {
+                date,
+                code: code.clone(),
+                timestamp: 0,
+                facs: facs.to_vec(),
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("urgency_ext_cluster error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
 /// urgency 横截面 pipeline 包装：调核心，fan-out 成 TaskResult。
 pub fn pipeline_urgency(date: i64, expected_len: usize) -> Vec<TaskResult> {    match crate::urgency_metrics::compute_urgency_full(date) {
         Ok((codes, vals)) => vals
@@ -2705,6 +2725,7 @@ pub fn run_factor_pipeline_cross_section(
         "yupei_dist",
         "pair_interaction",
         "urgency",
+        "urgency_ext_cluster",
         "long_order",
         "microstructure_capm",
         "multi_factor_capm",
