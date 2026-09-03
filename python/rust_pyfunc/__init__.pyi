@@ -650,6 +650,14 @@ def py_urgency(date: int) -> Tuple[List[str], List[float]]:
     ...
 
 
+def py_urgency_ext(date: int) -> Tuple[List[str], List[float]]:
+    ...
+
+
+def py_urgency_ext_names() -> List[str]:
+    ...
+
+
 def py_urgency_names() -> List[str]:
     ...
 
@@ -992,6 +1000,8 @@ __all__ = [
     "py_long_order_raw",
     "py_urgency",
     "py_urgency_names",
+    "py_urgency_ext",
+    "py_urgency_ext_names",
     "get_theme_cluster_scatter_3d",
     "adjust_afternoon",
     "read_trade",
