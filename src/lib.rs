@@ -106,6 +106,7 @@ pub mod distill_tick_metrics;
 pub mod fast_csv_reader;
 pub mod hidden_arrange_metrics;
 pub mod hot_stock_pool_metrics;
+pub mod hot_pool_ind_metrics;
 
 pub mod anneal_volume_market_metrics;
 pub mod anneal_volume_metrics;
@@ -1226,6 +1227,14 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(
         hot_stock_pool_metrics::py_hot_stock_pool_v2,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        hot_pool_ind_metrics::py_hot_pool_ind,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        hot_pool_ind_metrics::py_hot_pool_ind_names,
         m
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(

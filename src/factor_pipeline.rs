@@ -2421,6 +2421,33 @@ pub fn pipeline_hot_stock_pool(date: i64, expected_len: usize) -> Vec<TaskResult
     }
 }
 
+/// 同热点股票池「行业维度拓展」横截面 pipeline 包装（Multica COR-36 补充因子）。
+pub fn pipeline_hot_pool_ind(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    if expected_len != crate::hot_pool_ind_metrics::N_FACTORS {
+        eprintln!(
+            "hot_pool_ind expected_len错误 [{date}]: {expected_len} != {}",
+            crate::hot_pool_ind_metrics::N_FACTORS
+        );
+        return Vec::new();
+    }
+    match crate::hot_pool_ind_metrics::compute_hot_pool_ind_full(date) {
+        Ok((codes, vals)) => vals
+            .chunks(expected_len)
+            .zip(codes.iter())
+            .map(|(facs, code)| TaskResult {
+                date,
+                code: code.clone(),
+                timestamp: 0,
+                facs: facs.to_vec(),
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("hot_pool_ind error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
 /// 同热点股票池 v2（标准化偏离度）横截面 pipeline 包装。
 pub fn pipeline_hot_stock_pool_v2(date: i64, expected_len: usize) -> Vec<TaskResult> {
     if expected_len != crate::hot_stock_pool_metrics::N_FACTORS {
@@ -2732,6 +2759,7 @@ pub fn run_factor_pipeline_cross_section(
         "drop_event",
         "hot_stock_pool",
         "hot_stock_pool_v2",
+        "hot_pool_ind",
         "vsld",
         "yhyb",
         "yhyb_indtop",

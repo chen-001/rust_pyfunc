@@ -568,6 +568,19 @@ def py_hot_stock_pool_z_stats(date: int) -> Tuple[List[str], List[int]]:
     """
     ...
 
+def py_hot_pool_ind(date: int) -> Tuple[List[str], List[float]]:
+    """计算同热点股票池「行业维度拓展」补充因子（8656 个）。
+
+    组 1 hotpool_ext_ind_rel_* (840)：全市场识别 + 行业内相对量回填 + 降维；
+    组 2 hotpool_ext_ind_cooc_* (720)：共现 top-10 同行/跨行拆分；
+    组 3 hotpool_ext_ind_heat_* (24)：行业热度聚合；
+    组 4 hotpool_ext_indpool_* (7072)：行业内识别版（组=当秒同行入选者）。
+    """
+    ...
+
+def py_hot_pool_ind_names() -> List[str]:
+    ...
+
 def py_hot_stock_pool_v2(date: int) -> Tuple[List[str], List[float]]:
     """方案一 v2：判别指标从绝对值改为标准化偏离度 D'=(D-μ)/σ。
 
@@ -975,6 +988,8 @@ __all__ = [
     "py_vsld_names",
     "py_vsld_from_data",
     "py_hot_stock_pool",
+    "py_hot_pool_ind",
+    "py_hot_pool_ind_names",
     "py_hot_stock_pool_names",
     "py_compute_drop_event_features",
     "py_drop_event_feature_names",

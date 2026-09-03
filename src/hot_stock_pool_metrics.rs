@@ -34,10 +34,10 @@ use std::fs;
 // ============================================================
 
 /// 每只股票每次入选时计算的特征数（步骤2: 34 + 步骤3: 6 = 40）
-const FEAT_PER_INCLUSION: usize = 40;
+pub const FEAT_PER_INCLUSION: usize = 40;
 
 /// 参数组合数：2 x × 2 D = 4
-const N_PARAM_COMBOS: usize = 4;
+pub const N_PARAM_COMBOS: usize = 4;
 
 /// 每参数组合的降维特征数：features_per_group(40) = 21*40 + C(40,2) = 840 + 780 = 1620
 const REDUCED_PER_COMBO: usize =
@@ -60,11 +60,11 @@ const AFTERNOON_START: i64 = MORNING_END + 1; // 41401
 /// 下午结束 epoch（调整后，原14:57前移90分）
 const AFTERNOON_END: i64 = MORNING_END + (14 * 3600 + 57 * 60 - 13 * 3600); // 48420
 /// 调整后交易秒数：上午 7201 (09:30-11:30 含) + 下午 7020 (11:30:01-13:27 含) = 14221
-const ADJUSTED_SECONDS: usize =
+pub const ADJUSTED_SECONDS: usize =
     ((MORNING_END - SEC_OFFSET + 1) + (AFTERNOON_END - AFTERNOON_START + 1)) as usize;
 
 /// 每秒处理的步长
-const SECOND_STEP: usize = 2;
+pub const SECOND_STEP: usize = 2;
 
 /// 每次入选特征矩阵的最大行数（z）。超过则均匀采样，降低降维 O(z²) 开销。
 const MAX_Z: usize = usize::MAX; // 不采样，全量降维
@@ -72,7 +72,7 @@ const MAX_Z: usize = usize::MAX; // 不采样，全量降维
 /// 参数配置：(x秒, y百分比, 判别指标类型, 动态阈值z-score绝对值, 最低成交笔数)
 /// 当 d_threshold > 0 时用动态阈值（方向二）；y 仅用于估算预期组大小
 /// 当 min_trades > 0 时过滤成交笔数不足的股票（方向三简化版）
-const PARAM_CONFIGS: [(usize, f64, usize, f64, u32); N_PARAM_COMBOS] = [
+pub const PARAM_CONFIGS: [(usize, f64, usize, f64, u32); N_PARAM_COMBOS] = [
     (60, 0.03, 0, 1.5, 10), // x=60, buy_ratio, z-score>1.5, 至少10笔
     (60, 0.03, 1, 1.5, 10), // x=60, bid_ask, z-score>1.5, 至少10笔
     (15, 0.10, 0, 1.5, 10), // x=15, buy_ratio, z-score>1.5, 至少10笔
@@ -80,7 +80,7 @@ const PARAM_CONFIGS: [(usize, f64, usize, f64, u32); N_PARAM_COMBOS] = [
 ];
 
 /// 共现基础特征数
-const BASIC_FEAT_N: usize = 11;
+pub const BASIC_FEAT_N: usize = 11;
 
 // ============================================================
 // 数据结构
@@ -88,16 +88,16 @@ const BASIC_FEAT_N: usize = 11;
 
 /// 单股每秒的统计指标
 #[derive(Clone, Copy, Default)]
-struct SecStat {
-    buy_ratio: f32,    // 该秒主买成交量占比（= buy_vol / volume）
-    buy_vol: f32,      // 该秒主买成交量（绝对值，用于窗口聚合）
-    bid_ask_mean: f32, // 该秒 bid_order - ask_order 均值
-    ret_val: f32,      // 该秒收益率
-    volume: f32,       // 该秒总成交量
-    trade_cnt: u32,    // 该秒成交笔数
-    last_price: f32,   // 该秒末价格
-    first_price: f32,  // 该秒初价格
-    has_data: bool,    // 该秒是否有成交
+pub struct SecStat {
+    pub buy_ratio: f32,    // 该秒主买成交量占比（= buy_vol / volume）
+    pub buy_vol: f32,      // 该秒主买成交量（绝对值，用于窗口聚合）
+    pub bid_ask_mean: f32, // 该秒 bid_order - ask_order 均值
+    pub ret_val: f32,      // 该秒收益率
+    pub volume: f32,       // 该秒总成交量
+    pub trade_cnt: u32,    // 该秒成交笔数
+    pub last_price: f32,   // 该秒末价格
+    pub first_price: f32,  // 该秒初价格
+    pub has_data: bool,    // 该秒是否有成交
 }
 
 /// 简易 bitset：用于 prev_pool_set 的快速构建和查找
@@ -143,17 +143,18 @@ impl PoolBitset {
 }
 
 /// 单股预计算数据
-struct StockData {
-    code: String,
-    secs: Vec<SecStat>,
+pub struct StockData {
+    pub code: String,
+    pub ind: u8,
+    pub secs: Vec<SecStat>,
     // 共现用的 11 个基础特征
-    basic_feats: [f32; BASIC_FEAT_N],
+    pub basic_feats: [f32; BASIC_FEAT_N],
 }
 
 /// 预计算的滚动窗口缓存：为每只股票预计算 10 组滚动值
 /// 字段顺序: [buy_15, buy_60, ba_15, ba_60, ret_15, ret_60, vol_15, vol_60, cnt_15, cnt_60]
 /// 布局: rolling[field * ADJUSTED_SECONDS + sec]
-struct RollingCache {
+pub struct RollingCache {
     data: Vec<f32>, // 10 * ADJUSTED_SECONDS 长度
 }
 
@@ -165,7 +166,7 @@ impl RollingCache {
     /// 根据窗口 x 和 field_type 自动选择正确的缓存列
     /// field_type: 0=buy_ratio, 1=bid_ask, 2=ret, 3=volume, 4=trade_cnt
     #[inline]
-    fn get_by_x(&self, x: usize, field_type: u8, sec: usize) -> f32 {
+    pub fn get_by_x(&self, x: usize, field_type: u8, sec: usize) -> f32 {
         let base = match (field_type, x) {
             (0, 15) => 0,
             (0, 60) => 1,
@@ -184,7 +185,7 @@ impl RollingCache {
 
     /// 增量式计算所有 10 组滚动值
     /// buy_15/buy_60 特殊处理：窗口内主买总量占比 = sum(buy_vol) / sum(volume)
-    fn compute(secs: &[SecStat]) -> Self {
+    pub fn compute(secs: &[SecStat]) -> Self {
         let n = ADJUSTED_SECONDS;
         let total = 10 * n;
         let mut data = vec![f32::NAN; total];
@@ -332,7 +333,7 @@ pub fn list_codes(date: i64, subdir: &str) -> Vec<String> {
 /// day_midnight_cst 通过 cst_midnight_epoch(date) 获得。
 /// 相减得到日内绝对秒（09:30 = 34200），再映射到连续数组索引。
 #[inline]
-fn sec_to_idx(epoch: f32, day_midnight_cst: i64) -> Option<usize> {
+pub fn sec_to_idx(epoch: f32, day_midnight_cst: i64) -> Option<usize> {
     let e = (epoch as i64) - day_midnight_cst;
     if e < SEC_OFFSET || e > AFTERNOON_END {
         return None;
@@ -348,7 +349,7 @@ fn sec_to_idx(epoch: f32, day_midnight_cst: i64) -> Option<usize> {
 /// 计算 date (YYYYMMDD) 对应的 CST 零点在 time_sec 中的值。
 /// read_trade_fast_inner 输出的 time_sec = UTC_epoch + 28800。
 /// CST 00:00:00 = UTC 前一日 16:00:00, time_sec = (days_since_epoch - 1)*86400 + 16*3600 + 28800 = days_since_epoch * 86400
-fn cst_midnight_epoch(date: i64) -> i64 {
+pub fn cst_midnight_epoch(date: i64) -> i64 {
     let year = (date / 10000) as i32;
     let month = ((date / 100) % 100) as u32;
     let day = (date % 100) as u32;
@@ -391,7 +392,7 @@ fn neighbor_mean(values: &[f32], stock_rank: usize, k: usize) -> f32 {
 
 /// neighbor_mean 无堆分配版本（内联到热路径）
 #[inline(always)]
-fn neighbor_mean_inline(values: &[f32], stock_rank: usize, k: usize) -> f32 {
+pub fn neighbor_mean_inline(values: &[f32], stock_rank: usize, k: usize) -> f32 {
     let n = values.len();
     if n < 2 {
         return f32::NAN;
@@ -418,7 +419,7 @@ fn neighbor_mean_inline(values: &[f32], stock_rank: usize, k: usize) -> f32 {
 }
 
 /// 在已排序数组中计算值的排名百分位
-fn rank_pct_in(sorted: &[f32], val: f32) -> f32 {
+pub fn rank_pct_in(sorted: &[f32], val: f32) -> f32 {
     if sorted.is_empty() || !val.is_finite() {
         return f32::NAN;
     }
@@ -427,7 +428,7 @@ fn rank_pct_in(sorted: &[f32], val: f32) -> f32 {
 }
 
 /// 均值 + 标准差（接受已 filter finite 的数组）
-fn mean_std(v: &[f32]) -> (f32, f32) {
+pub fn mean_std(v: &[f32]) -> (f32, f32) {
     let n = v.len();
     if n < 2 {
         return (f32::NAN, f32::NAN);
@@ -438,9 +439,10 @@ fn mean_std(v: &[f32]) -> (f32, f32) {
 }
 
 /// 从逐笔成交构建 per-stock 每秒统计 + 基础特征（优化版，单 pass）
-fn build_stock_data(
+pub fn build_stock_data(
     code: &str,
     date: i64,
+    ind: u8,
     trades: &[crate::fast_csv_reader::TradeRecord],
 ) -> Option<StockData> {
     let n_secs = ADJUSTED_SECONDS;
@@ -512,13 +514,14 @@ fn build_stock_data(
     let basic = compute_basic_features(&secs);
     Some(StockData {
         code: code.to_string(),
+        ind,
         secs,
         basic_feats: basic,
     })
 }
 
 /// 计算单股的 11 个共现基础特征
-fn compute_basic_features(secs: &[SecStat]) -> [f32; BASIC_FEAT_N] {
+pub fn compute_basic_features(secs: &[SecStat]) -> [f32; BASIC_FEAT_N] {
     let n = secs.len();
     // 提取各序列
     let rets: Vec<f32> = secs
@@ -690,7 +693,7 @@ fn select_top_bottom_full(
 
 /// 组特征 34 维 — 栈数组版本（无堆分配）
 #[allow(clippy::too_many_arguments)]
-fn build_group_features_arr(
+pub fn build_group_features_arr(
     br_finite: &[f32],
     ba_finite: &[f32],
     ret_finite: &[f32],
@@ -766,7 +769,7 @@ fn build_group_features_arr(
 
 /// Pearson 相关（无堆分配，单 pass O(n)）。用于 A12/B12 近似替代 Spearman。
 #[inline]
-fn corr_fast(a: &[f32], b: &[f32]) -> f32 {
+pub fn corr_fast(a: &[f32], b: &[f32]) -> f32 {
     let mut n: i32 = 0;
     let mut sa = 0.0f64;
     let mut sb = 0.0f64;
@@ -809,7 +812,7 @@ fn q90_q10_sorted(v: &[f32]) -> f32 {
 
 /// 填充 A08-A10, B08-B10, C03 — 栈数组版本
 #[allow(clippy::too_many_arguments)]
-fn fill_per_stock_arr(
+pub fn fill_per_stock_arr(
     feats: &mut [f32; 34],
     br_sorted: &[f32],
     ba_sorted: &[f32],
@@ -855,7 +858,7 @@ fn fill_per_stock_arr(
 // 统计工具函数
 // ============================================================
 
-fn mean(v: &[f32]) -> f32 {
+pub fn mean(v: &[f32]) -> f32 {
     let n = v.len();
     if n == 0 {
         return f32::NAN;
@@ -863,7 +866,7 @@ fn mean(v: &[f32]) -> f32 {
     v.iter().sum::<f32>() / n as f32
 }
 
-fn std(v: &[f32]) -> f32 {
+pub fn std(v: &[f32]) -> f32 {
     let n = v.len();
     if n < 2 {
         return f32::NAN;
@@ -872,7 +875,7 @@ fn std(v: &[f32]) -> f32 {
     (v.iter().map(|x| (x - m).powi(2)).sum::<f32>() / n as f32).sqrt()
 }
 
-fn skew(v: &[f32]) -> f32 {
+pub fn skew(v: &[f32]) -> f32 {
     let n = v.len();
     if n < 3 {
         return f32::NAN;
@@ -886,7 +889,7 @@ fn skew(v: &[f32]) -> f32 {
     m3 / s.powi(3)
 }
 
-fn kurtosis(v: &[f32]) -> f32 {
+pub fn kurtosis(v: &[f32]) -> f32 {
     let n = v.len();
     if n < 4 {
         return f32::NAN;
@@ -900,7 +903,7 @@ fn kurtosis(v: &[f32]) -> f32 {
     m4 / s.powi(4) - 3.0
 }
 
-fn percentile_sorted(sorted: &[f32], p: f32) -> f32 {
+pub fn percentile_sorted(sorted: &[f32], p: f32) -> f32 {
     let n = sorted.len();
     if n == 0 {
         return f32::NAN;
@@ -918,7 +921,7 @@ fn q90_q10(v: &[f32]) -> f32 {
     percentile_sorted(&sorted, 0.90) - percentile_sorted(&sorted, 0.10)
 }
 
-fn herfindahl(v: &[f32]) -> f32 {
+pub fn herfindahl(v: &[f32]) -> f32 {
     let total: f32 = v.iter().sum();
     if total <= 0.0 {
         return f32::NAN;
@@ -926,7 +929,7 @@ fn herfindahl(v: &[f32]) -> f32 {
     v.iter().map(|x| (x / total).powi(2)).sum()
 }
 
-fn top_k_concentration(v: &[f32], k: usize) -> f32 {
+pub fn top_k_concentration(v: &[f32], k: usize) -> f32 {
     let total: f32 = v.iter().sum();
     if total <= 0.0 {
         return f32::NAN;
@@ -997,7 +1000,7 @@ pub fn compute_hot_stock_pool_full(date: i64) -> std::io::Result<(Vec<String>, V
         .par_iter()
         .map(|code| {
             let trades = read_trade_fast_inner(code, date, false, true, usize::MAX).ok()?;
-            build_stock_data(code, date, &trades)
+            build_stock_data(code, date, 0, &trades)
         })
         .collect();
 
@@ -2142,7 +2145,7 @@ pub fn compute_hot_stock_pool_z_stats(date: i64) -> std::io::Result<(Vec<String>
         .par_iter()
         .map(|code| {
             let trades = read_trade_fast_inner(code, date, false, true, usize::MAX).ok()?;
-            build_stock_data(code, date, &trades)
+            build_stock_data(code, date, 0, &trades)
         })
         .collect();
 
@@ -2264,7 +2267,7 @@ pub fn compute_hot_stock_pool_v2_full(date: i64) -> std::io::Result<(Vec<String>
         .par_iter()
         .map(|code| {
             let trades = read_trade_fast_inner(code, date, false, true, usize::MAX).ok()?;
-            build_stock_data(code, date, &trades)
+            build_stock_data(code, date, 0, &trades)
         })
         .collect();
 
