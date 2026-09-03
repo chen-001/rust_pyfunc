@@ -349,6 +349,31 @@ pub fn read_minute_field_multi_day(
     ))
 }
 
+/// 返回以 date 为最后一天、向前共 n 个交易日（升序）。日历来自 calendar_map。
+/// date 越早返回天数越少（不足 n 天时只返回可用的）。
+#[cfg(feature = "hdf5")]
+pub fn last_n_trading_dates(date: i64, n: usize) -> io::Result<Vec<i64>> {
+    let meta = get_meta()?;
+    let idx = *meta.date_to_dayidx.get(&date).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("日期 {date} 不在 calendar_map 中"),
+        )
+    })?;
+    if n == 0 {
+        return Ok(Vec::new());
+    }
+    let start = idx.saturating_sub(n - 1);
+    let mut out: Vec<(usize, i64)> = meta
+        .date_to_dayidx
+        .iter()
+        .filter(|(_, &i)| i >= start && i <= idx)
+        .map(|(&d, &i)| (i, d))
+        .collect();
+    out.sort_unstable();
+    Ok(out.into_iter().map(|(_, d)| d).collect())
+}
+
 /// 获取当天有效的股票代码列表（去掉 NaN 列）。
 /// 适用于需要知道有哪些股票活跃的场景。
 pub fn get_active_codes(date: i64) -> io::Result<Vec<String>> {

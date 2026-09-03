@@ -2268,6 +2268,33 @@ pub fn pipeline_yhyb_indtop(date: i64, expected_len: usize) -> Vec<TaskResult> {
     }
 }
 
+/// qhsk_anneal 分钟 pipeline 包装（COR-15 退火补充因子正式版，2 个 s80 因子）。
+pub fn pipeline_qhsk_anneal(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    if expected_len != crate::minute_qhsk_anneal_metrics::N_FACTORS {
+        eprintln!(
+            "qhsk_anneal expected_len 错误 [{date}]: {expected_len} != {}",
+            crate::minute_qhsk_anneal_metrics::N_FACTORS
+        );
+        return Vec::new();
+    }
+    match crate::minute_qhsk_anneal_metrics::compute_qhsk_anneal_full(date) {
+        Ok((codes, vals)) => vals
+            .chunks(expected_len)
+            .zip(codes.iter())
+            .map(|(facs, code)| TaskResult {
+                date,
+                code: code.clone(),
+                timestamp: 0,
+                facs: facs.to_vec(),
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("qhsk_anneal error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
 /// COR-22 补充因子（迫切交易笔数，Multica 41f8cb1b，路径 1 仅入选因子）横截面 pipeline 包装。
 pub fn pipeline_urgency_ext_cluster(date: i64, expected_len: usize) -> Vec<TaskResult> {
     match crate::urgency_ext_cluster_metrics::compute_urgency_ext_full(date) {

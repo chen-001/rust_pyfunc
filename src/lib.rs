@@ -121,6 +121,7 @@ pub mod microstructure_capm_metrics;
 pub mod minute_capm_metrics;
 pub mod minute_data_reader;
 pub mod minute_example_metrics;
+pub mod minute_qhsk_anneal_metrics;
 pub mod multi_factor_capm_metrics;
 pub mod multi_factor_route_timeseries;
 pub mod observable_order_metrics;
@@ -1278,6 +1279,14 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(
         minute_example_metrics::py_minute_example_names,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        minute_qhsk_anneal_metrics::py_qhsk_anneal,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        minute_qhsk_anneal_metrics::py_qhsk_anneal_names,
         m
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(minute_capm_metrics::py_minute_capm, m)?)?;

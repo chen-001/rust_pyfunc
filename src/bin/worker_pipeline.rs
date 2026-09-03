@@ -18,7 +18,7 @@ use rust_pyfunc::factor_pipeline::{
     pipeline_individual_order_ratio,
     pipeline_long_order, pipeline_microstructure_capm, pipeline_multi_factor_capm,
     pipeline_observable_order, pipeline_order_pair_hm90, pipeline_orderbook_imb_refactor,
-    pipeline_pair_interaction, pipeline_peaks, pipeline_urgency,
+    pipeline_pair_interaction, pipeline_peaks, pipeline_qhsk_anneal, pipeline_urgency,
     pipeline_urgency_ext_cluster, pipeline_vsld, pipeline_yhyb,
     pipeline_yhyb_indtop,
     pipeline_yupei_dist, ResultMessage, TaskMessage,
@@ -170,6 +170,8 @@ fn main() {
                         pipeline_urgency(date, expected_len)
                     } else if pipeline_name == "urgency_ext_cluster" {
                         pipeline_urgency_ext_cluster(date, expected_len)
+                    } else if pipeline_name == "qhsk_anneal" {
+                        pipeline_qhsk_anneal(date, expected_len)
                     } else if pipeline_name == "drop_event" {
                         pipeline_drop_event(date, expected_len)
                     } else if pipeline_name == "hot_stock_pool" {

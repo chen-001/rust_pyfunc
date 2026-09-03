@@ -136,6 +136,14 @@ def py_minute_example_names() -> List[str]:
     ...
 
 
+def py_qhsk_anneal(date: int) -> Tuple[List[str], List[float]]:
+    ...
+
+
+def py_qhsk_anneal_names() -> List[str]:
+    ...
+
+
 def py_minute_capm(date: int) -> Tuple[List[str], List[float]]:
     ...
 
@@ -953,6 +961,8 @@ __all__ = [
     "run_factor_pipeline_minute",
     "py_minute_example",
     "py_minute_example_names",
+    "py_qhsk_anneal",
+    "py_qhsk_anneal_names",
     "py_minute_capm",
     "py_minute_capm_all",
     "py_minute_capm_at",
