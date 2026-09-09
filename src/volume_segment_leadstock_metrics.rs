@@ -780,7 +780,7 @@ fn compute_from_flat(
 
 // ============================ v1 / v2 入口 ============================
 fn list_codes(date: i64) -> Vec<String> {
-    let dir = format!("/ssd_data/stock/{date}/transaction");
+    let dir = crate::data_paths::level2_dir(date, "transaction");
     let mut set = BTreeSet::new();
     if let Ok(entries) = fs::read_dir(&dir) {
         for e in entries.flatten() {

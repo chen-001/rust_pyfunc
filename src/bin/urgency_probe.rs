@@ -16,7 +16,7 @@ const NMETRICS: usize = 37;
 const NCOLS: usize = NMETRICS * 3;
 
 fn list_codes(date: i64) -> Vec<String> {
-    let dir = format!("/ssd_data/stock/{date}/transaction");
+    let dir = rust_pyfunc::data_paths::level2_dir(date, "transaction");
     let mut set = std::collections::BTreeSet::new();
     if let Ok(entries) = fs::read_dir(&dir) {
         for e in entries.flatten() {

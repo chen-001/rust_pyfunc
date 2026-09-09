@@ -332,7 +332,7 @@ pub fn compute_microstructure_3s_features(code: &str, date: i64) -> io::Result<V
 }
 
 pub fn list_codes(date: i64) -> Vec<String> {
-    let dir = format!("/ssd_data/stock/{date}/transaction");
+    let dir = crate::data_paths::level2_dir(date, "transaction");
     let mut codes = std::collections::BTreeSet::new();
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {

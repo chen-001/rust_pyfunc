@@ -5,6 +5,7 @@ pub mod backup_column_cache;
 pub mod backup_reader;
 pub mod backup_writer;
 pub mod column_correlation;
+pub mod data_paths;
 pub mod difference_matrix;
 pub mod effective_memory_length;
 pub mod entropy_analysis;

@@ -29,21 +29,25 @@ const NB_BUCKET: usize = 14220; // 与 PackGather 相同
 static IND_MAT: OnceLock<(Vec<i64>, Vec<String>, Vec<f64>, usize)> = OnceLock::new();
 
 /// 读 industry.h5 全矩阵一次（日历、symbol_map、行主序数据、列数）。行业编号 1~31，NaN=未知。
+/// 注意：OnceLock 只按首次调用时的数据根缓存；worker 进程一进程一 pipeline，不会跨根复用。
 fn ind_mat() -> &'static (Vec<i64>, Vec<String>, Vec<f64>, usize) {
     IND_MAT.get_or_init(|| {
-        let cal = std::fs::read_to_string("/ssd_data/data/vars/SzBa/calendar_map.csv").unwrap();
+        let cal =
+            std::fs::read_to_string(crate::data_paths::vars_path("SzBa/calendar_map.csv")).unwrap();
         let dates: Vec<i64> = cal
             .lines()
             .skip(1)
             .filter_map(|l| l.trim().parse().ok())
             .collect();
-        let sym = std::fs::read_to_string("/ssd_data/data/basic_info/symbol_map.csv").unwrap();
+        let sym =
+            std::fs::read_to_string(crate::data_paths::basic_info_path("symbol_map.csv")).unwrap();
         let sym_codes: Vec<String> = sym
             .lines()
             .skip(1)
             .map(|l| l.split(',').next().unwrap_or("").trim().to_string())
             .collect();
-        let f = hdf5_metno::File::open("/ssd_data/data/vars/SzBa/industry.h5").unwrap();
+        let f =
+            hdf5_metno::File::open(crate::data_paths::vars_path("SzBa/industry.h5")).unwrap();
         let ds = f.dataset("data").unwrap();
         let arr = ds.read_2d().unwrap();
         let ncols = arr.ncols();

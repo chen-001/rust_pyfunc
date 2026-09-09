@@ -15,7 +15,7 @@ use std::collections::BTreeSet;
 use std::fs;
 
 fn list_codes(date: i64, subdir: &str) -> Vec<String> {
-    let dir = format!("/ssd_data/stock/{date}/{subdir}");
+    let dir = rust_pyfunc::data_paths::level2_dir(date, subdir);
     let mut set = BTreeSet::new();
     if let Ok(entries) = fs::read_dir(&dir) {
         for e in entries.flatten() {

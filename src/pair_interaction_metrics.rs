@@ -126,7 +126,7 @@ fn days_from_civil(y: i64, m: u64, d: u64) -> i64 {
 
 /// 枚举某日全市场股票代码，并按逐笔文件大小降序（成交活跃度代理）
 pub fn list_codes(date: i64) -> Vec<String> {
-    let dir = format!("/ssd_data/stock/{date}/transaction");
+    let dir = crate::data_paths::level2_dir(date, "transaction");
     let mut v: Vec<(u64, String)> = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&dir) {
         for e in entries.flatten() {

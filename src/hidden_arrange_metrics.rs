@@ -3,7 +3,6 @@ use pyo3::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::Read;
-use std::path::Path;
 
 // 精简版数据读取（单线程，无 pyo3/rayon），从 fast_csv_reader.rs 移植。
 // 读取 transaction / market_data CSV，做 adjust_afternoon 平移。
@@ -62,31 +61,22 @@ pub struct MarketRecord {
 }
 
 fn resolve_stock_path(date: i64, subdir: &str, filename: &str) -> std::io::Result<String> {
-    if let Ok(env_path) = std::env::var("RUST_PYFUNC_LEVEL2_PATH") {
-        let p = Path::new(&env_path)
-            .join(date.to_string())
-            .join(subdir)
-            .join(filename);
-        if p.exists() {
-            return Ok(p.to_string_lossy().into_owned());
-        }
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            format!("env path: {}", p.display()),
-        ));
-    }
-    for root in ["/ssd_data/stock", "/nas197/binary/stock/sz_alpha/stock"] {
-        let p = Path::new(root)
-            .join(date.to_string())
-            .join(subdir)
-            .join(filename);
+    let roots = crate::data_paths::level2_roots();
+    for root in &roots {
+        let p = root.join(date.to_string()).join(subdir).join(filename);
         if p.exists() {
             return Ok(p.to_string_lossy().into_owned());
         }
     }
     Err(std::io::Error::new(
         std::io::ErrorKind::NotFound,
-        format!("not found: {}/{}/{}/{}", "{root}", date, subdir, filename),
+        format!(
+            "not found: date={date}, subdir={subdir}, file={filename}, 查找根目录={:?}",
+            roots
+                .iter()
+                .map(|r| r.display().to_string())
+                .collect::<Vec<_>>()
+        ),
     ))
 }
 

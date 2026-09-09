@@ -201,8 +201,8 @@ pub fn py_yupei_dist_names() -> Vec<String> {
 
 /// 枚举当日全市场代码（按文件大小降序; 同大小按代码序）
 pub fn list_codes_by_size(date: i64) -> Vec<String> {
-    for root in ["/ssd_data/stock", "/nas197/binary/stock/sz_alpha/stock"] {
-        let dir = format!("{root}/{date}/transaction");
+    for root in crate::data_paths::level2_roots() {
+        let dir = root.join(date.to_string()).join("transaction");
         if let Ok(entries) = std::fs::read_dir(&dir) {
             let mut v: Vec<(u64, String)> = Vec::new();
             for e in entries.flatten() {

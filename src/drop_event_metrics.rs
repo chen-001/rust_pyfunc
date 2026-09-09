@@ -183,7 +183,7 @@ fn erf_approx(x: f32) -> f32 {
 
 /// 从目录列出某天全市场股票代码。
 fn list_codes(date: i64) -> Vec<String> {
-    let dir = format!("/ssd_data/stock/{date}/transaction");
+    let dir = crate::data_paths::level2_dir(date, "transaction");
     let mut set = std::collections::BTreeSet::new();
     if let Ok(entries) = std::fs::read_dir(&dir) {
         for e in entries.flatten() {

@@ -35,7 +35,7 @@ pub const N_FACTORS: usize = 3 * FEAT_PER_GROUP; // 25308
 
 /// 列出某天全市场股票代码（横截面枚举）。
 pub fn list_codes(date: i64) -> Vec<String> {
-    let dir = format!("/ssd_data/stock/{date}/transaction");
+    let dir = crate::data_paths::level2_dir(date, "transaction");
     let mut set = std::collections::BTreeSet::new();
     if let Ok(entries) = fs::read_dir(&dir) {
         for e in entries.flatten() {

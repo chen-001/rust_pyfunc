@@ -71,7 +71,8 @@ pub fn load_industry_all(path: &Path) -> std::io::Result<std::collections::HashM
         })
         .collect();
     // symbol_map.csv: pos → code
-    let sym = std::fs::read_to_string("/ssd_data/data/basic_info/symbol_map.csv")?;
+    let sym =
+        std::fs::read_to_string(crate::data_paths::basic_info_path("symbol_map.csv"))?;
     let mut map = std::collections::HashMap::new();
     for (pos, line) in sym.lines().skip(1).enumerate() {
         let code = line.split(',').next().unwrap_or("").trim();

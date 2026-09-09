@@ -113,6 +113,35 @@ def py_read_minute_data(field: str, date: int) -> Tuple[List[str], List[float], 
     ...
 
 
+def run_factor_pipeline(
+    pipeline: str,
+    tasks: List[Tuple[int, str]],
+    n_jobs: int,
+    backup_file: str,
+    expected_result_length: int,
+    trading_days: List[int],
+    params: Optional[dict] = None,
+    update_mode: Optional[bool] = None,
+    bind_cores: bool = True,
+    backup_batch_size: Optional[int] = None,
+    progress_log: Optional[bool] = None,
+    mode: Optional[str] = None,
+    export_names: Optional[List[str]] = None,
+    export_dir: Optional[str] = None,
+    export_n_jobs: int = 80,
+    store_dir: Optional[str] = None,
+    store_factor_names: Optional[List[str]] = None,
+    data_root: Optional[str] = None,
+) -> None:
+    """Level2 per-(date, code) 因子批量计算入口。
+
+    data_root: 原始数据根目录（默认 "/ssd_data"）。Level2 文件按
+      {data_root}/stock/{date}/{subdir}/{code}_{date}_*.csv 读取；
+      显式指定后只查该根，不再回退 /nas197/binary/stock/sz_alpha/stock。
+    """
+    ...
+
+
 def run_factor_pipeline_minute(
     pipeline: str,
     tasks: List[int],
@@ -124,7 +153,13 @@ def run_factor_pipeline_minute(
     bind_cores: bool = True,
     store_dir: Optional[str] = None,
     store_factor_names: Optional[List[str]] = None,
+    data_root: Optional[str] = None,
 ) -> None:
+    """分钟数据 per-date 因子批量计算入口。
+
+    data_root: 原始数据根目录（默认 "/ssd_data"）。分钟数据按
+      {data_root}/data/1min_factor_text/{field}.h5 读取（含 calendar_map.csv / symbol_map.csv）。
+    """
     ...
 
 
@@ -209,7 +244,14 @@ def run_factor_pipeline_cross_section(
     store_dir: Optional[str] = None,
     store_factor_names: Optional[List[str]] = None,
     force_clear: Optional[bool] = None,
+    data_root: Optional[str] = None,
 ) -> None:
+    """横截面（一天全市场）因子批量计算入口。
+
+    data_root: 原始数据根目录（默认 "/ssd_data"）。全市场 Level2 数据按
+      {data_root}/stock/{date}/{subdir}/ 枚举与读取；行业/基础信息按
+      {data_root}/data/vars/、{data_root}/data/basic_info/ 读取。
+    """
     ...
 
 
@@ -958,6 +1000,7 @@ __all__ = [
     "compute_theme_feature_expansion_from_minute",
     "prepare_minute_data_for_theme_feature_expansion",
     "py_read_minute_data",
+    "run_factor_pipeline",
     "run_factor_pipeline_minute",
     "py_minute_example",
     "py_minute_example_names",

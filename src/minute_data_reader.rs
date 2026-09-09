@@ -17,14 +17,13 @@ use pyo3::prelude::*;
 use std::collections::HashMap;
 use std::fs;
 use std::io;
-use std::path::Path;
-use std::sync::LazyLock;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, LazyLock, Mutex};
 
 #[cfg(feature = "hdf5")]
 use hdf5_metno as hdf5;
 
 const MIN_PER_DAY: usize = 240;
-const DATA_DIR: &str = "/ssd_data/data/1min_factor_text";
 
 // ============================================================
 // 元数据（全局懒加载，线程安全）
@@ -41,16 +40,28 @@ struct MinuteMeta {
     total_rows: usize,
 }
 
-static META: LazyLock<io::Result<MinuteMeta>> = LazyLock::new(load_meta);
+/// 元数据缓存：按数据根目录键控（pipeline 参数 data_root 可切换根目录，
+/// 同一进程内不同根各自缓存，互不污染）。
+static META_CACHE: LazyLock<Mutex<HashMap<PathBuf, Arc<MinuteMeta>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
-fn get_meta() -> io::Result<&'static MinuteMeta> {
-    META.as_ref()
-        .map_err(|e| io::Error::new(e.kind(), format!("加载分钟数据元数据失败: {e}")))
+fn get_meta() -> io::Result<Arc<MinuteMeta>> {
+    let dir = crate::data_paths::minute_dir();
+    let mut cache = META_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(m) = cache.get(&dir) {
+        return Ok(m.clone());
+    }
+    let meta = Arc::new(load_meta(&dir).map_err(|e| {
+        io::Error::new(
+            e.kind(),
+            format!("加载分钟数据元数据失败（{}）: {e}", dir.display()),
+        )
+    })?);
+    cache.insert(dir, meta.clone());
+    Ok(meta)
 }
 
-fn load_meta() -> io::Result<MinuteMeta> {
-    let dir = Path::new(DATA_DIR);
-
+fn load_meta(dir: &Path) -> io::Result<MinuteMeta> {
     // calendar_map.csv：单列 date_min，行号 = day_idx
     let cal_path = dir.join("calendar_map.csv");
     let cal_content = fs::read_to_string(&cal_path).map_err(|e| {
@@ -112,7 +123,7 @@ fn load_meta() -> io::Result<MinuteMeta> {
     }
 
     // 读总行数：打开任意一个 .h5 文件拿 shape
-    let total_rows = get_total_rows().unwrap_or(0);
+    let total_rows = get_total_rows(dir).unwrap_or(0);
 
     Ok(MinuteMeta {
         date_to_dayidx,
@@ -123,8 +134,8 @@ fn load_meta() -> io::Result<MinuteMeta> {
 }
 
 #[cfg(feature = "hdf5")]
-fn get_total_rows() -> Option<usize> {
-    let path = format!("{DATA_DIR}/close.h5");
+fn get_total_rows(dir: &Path) -> Option<usize> {
+    let path = dir.join("close.h5");
     let file = hdf5::File::open(&path).ok()?;
     let ds = file.dataset("data").ok()?;
     let shape = ds.shape();
@@ -132,7 +143,7 @@ fn get_total_rows() -> Option<usize> {
 }
 
 #[cfg(not(feature = "hdf5"))]
-fn get_total_rows() -> Option<usize> {
+fn get_total_rows(_dir: &Path) -> Option<usize> {
     None
 }
 
@@ -187,11 +198,12 @@ pub fn read_minute_field(
         row_start + MIN_PER_DAY
     };
 
-    let h5_path = format!("{DATA_DIR}/{field}.h5");
+    let h5_path = crate::data_paths::minute_file(&format!("{field}.h5"));
+    let h5_path = h5_path.to_string_lossy().into_owned();
 
     let data = H5_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
-        let file = cache.entry(field.to_string()).or_insert_with(|| {
+        let file = cache.entry(h5_path.clone()).or_insert_with(|| {
             hdf5::File::open(&h5_path).unwrap_or_else(|e| panic!("打开 {h5_path} 失败: {e}"))
         });
         let dataset = file.dataset("data").map_err(|e| {
@@ -286,14 +298,15 @@ pub fn read_minute_field_multi_day(
         day_indices.push(day_idx);
     }
 
-    let h5_path = format!("{DATA_DIR}/{field}.h5");
+    let h5_path = crate::data_paths::minute_file(&format!("{field}.h5"));
+    let h5_path = h5_path.to_string_lossy().into_owned();
     let n_stocks = meta.col_to_code.len();
 
     let mut out = ndarray::Array3::<f64>::from_elem((dates.len(), MIN_PER_DAY, n_stocks), f64::NAN);
 
     H5_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
-        let file = cache.entry(field.to_string()).or_insert_with(|| {
+        let file = cache.entry(h5_path.clone()).or_insert_with(|| {
             hdf5::File::open(&h5_path).unwrap_or_else(|e| panic!("打开 {h5_path} 失败: {e}"))
         });
         let dataset = file.dataset("data").map_err(|e| {

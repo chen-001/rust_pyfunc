@@ -13,7 +13,6 @@ use pyo3::prelude::*;
 use std::fs;
 use std::io;
 
-const DATA_DIR: &str = "/ssd_data/data/1min_factor_text";
 const MINUTES_PER_DAY: usize = 240;
 const LOOKBACK_DAYS: usize = 20;
 const ROLLING_WINDOW: usize = LOOKBACK_DAYS * MINUTES_PER_DAY;
@@ -124,7 +123,7 @@ struct CrossSectionFit {
 }
 
 fn load_window_dates(date: i64) -> io::Result<Vec<i64>> {
-    let path = format!("{DATA_DIR}/calendar_map.csv");
+    let path = crate::data_paths::minute_file("calendar_map.csv");
     let content = fs::read_to_string(&path)?;
     let dates: Vec<i64> = content
         .lines()

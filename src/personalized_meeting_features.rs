@@ -7,7 +7,10 @@ use std::fs::read_dir;
 use std::path::{Path, PathBuf};
 
 fn data_root() -> String {
-    std::env::var("RUST_PYFUNC_LEVEL2_PATH").unwrap_or_else(|_| "/ssd_data/stock".to_string())
+    // Level2 数据根（受 pipeline 参数 data_root / 环境变量覆盖，见 crate::data_paths）。
+    crate::data_paths::level2_roots()[0]
+        .to_string_lossy()
+        .into_owned()
 }
 
 const SELECTION_BURST_WINDOW: usize = 5;

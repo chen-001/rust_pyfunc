@@ -22,7 +22,6 @@ use pyo3::prelude::*;
 use rayon::prelude::*;
 use std::fs::File;
 use std::io::Read;
-use std::path::Path;
 
 /// 单条逐笔成交记录（已预处理）。
 ///
@@ -68,28 +67,13 @@ const COL_BID_ORDER: usize = 14;
 
 /// resolve 股票数据路径，复用 read_trade 的多路径搜索逻辑。
 ///
-/// 优先级：环境变量 RUST_PYFUNC_LEVEL2_PATH > /ssd_data/stock > /nas197/binary/stock/sz_alpha/stock
+/// 优先级（见 crate::data_paths）：pipeline 参数 data_root > RUST_PYFUNC_DATA_ROOT
+/// > 旧变量 RUST_PYFUNC_LEVEL2_PATH > /ssd_data/stock > /nas197/binary/stock/sz_alpha/stock。
+/// 显式指定数据根时只查该根，不回退。
 fn resolve_stock_path(date: i64, subdir: &str, filename: &str) -> std::io::Result<String> {
-    // 环境变量优先
-    if let Ok(env_path) = std::env::var("RUST_PYFUNC_LEVEL2_PATH") {
-        let p = Path::new(&env_path)
-            .join(date.to_string())
-            .join(subdir)
-            .join(filename);
-        if p.exists() {
-            return Ok(p.to_string_lossy().into_owned());
-        }
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            format!("RUST_PYFUNC_LEVEL2_PATH 指定路径不存在: {}", p.display()),
-        ));
-    }
-    // 默认两路径
-    for root in ["/ssd_data/stock", "/nas197/binary/stock/sz_alpha/stock"] {
-        let p = Path::new(root)
-            .join(date.to_string())
-            .join(subdir)
-            .join(filename);
+    let roots = crate::data_paths::level2_roots();
+    for root in &roots {
+        let p = root.join(date.to_string()).join(subdir).join(filename);
         if p.exists() {
             return Ok(p.to_string_lossy().into_owned());
         }
@@ -97,8 +81,11 @@ fn resolve_stock_path(date: i64, subdir: &str, filename: &str) -> std::io::Resul
     Err(std::io::Error::new(
         std::io::ErrorKind::NotFound,
         format!(
-            "股票数据文件未找到: {}/{}/{}/{}",
-            "{root}", date, subdir, filename
+            "股票数据文件未找到: date={date}, subdir={subdir}, file={filename}, 查找根目录={:?}",
+            roots
+                .iter()
+                .map(|r| r.display().to_string())
+                .collect::<Vec<_>>()
         ),
     ))
 }

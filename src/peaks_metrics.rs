@@ -882,7 +882,7 @@ fn proxy_ranks(tot_vols: &[f64], n_trades: &[usize]) -> Vec<f64> {
 
 /// 列出某天 transaction 目录下所有股票代码。
 pub fn list_codes(date: i64) -> Vec<String> {
-    let dir = format!("/ssd_data/stock/{date}/transaction");
+    let dir = crate::data_paths::level2_dir(date, "transaction");
     let mut set = BTreeSet::new();
     if let Ok(entries) = fs::read_dir(&dir) {
         for e in entries.flatten() {

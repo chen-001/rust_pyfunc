@@ -41,7 +41,7 @@ fn axis_allowlist() -> Option<&'static std::collections::HashSet<String>> {
 
 /// 列出某天全市场股票代码（横截面枚举，有序去重）。
 pub fn list_codes(date: i64) -> Vec<String> {
-    let dir = format!("/ssd_data/stock/{date}/transaction");
+    let dir = crate::data_paths::level2_dir(date, "transaction");
     let mut set = std::collections::BTreeSet::new();
     if let Ok(entries) = fs::read_dir(&dir) {
         for e in entries.flatten() {
