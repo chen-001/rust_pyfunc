@@ -1,272 +1,188 @@
-# Rust
-/target/
-/sandbox/target/
-**/*.rs.bk
-# Note: Cargo.lock should be committed for binary crates, ignored for library crates
-# This project appears to be a library, but keeping Cargo.lock for reproducible builds
+# ============================================================================
+# rust_pyfunc — .gitignore
+# ----------------------------------------------------------------------------
+# 组织顺序：Rust 构建 → Python → 数据/计算产物 → 日志/临时 → 编辑器/工具
+# 原则：只忽略「可再生 / 体积大 / 本地私有」的内容，源码一律入库。
+# 注意：本文件不影响已跟踪文件——新增规则只对未跟踪文件生效。
+# ============================================================================
 
-# Python
+# ============================================================================
+# 1. Rust 构建产物
+# ============================================================================
+# 任意层级的 Cargo target/（含 sandbox/xxx/target、sandbox_xxx/xxx/target 等嵌套沙箱）
+target/
+**/*.rs.bk
+
+# 原生扩展 / 调试符号（PyO3、maturin 产物）
+*.so
+*.pyd
+*.dylib
+*.dll
+*.lib
+*.o
+*.exp
+*.pdb
+*.dSYM/
+
+# Cargo.lock 对本项目需要保留（可复现构建），因此不忽略
+
+# ============================================================================
+# 2. Python
+# ============================================================================
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
 .Python
+
+# 打包 / 分发产物
 build/
-develop-eggs/
 dist/
-downloads/
+dist_versions/*
+develop-eggs/
 eggs/
 .eggs/
-lib/
-lib64/
-parts/
 sdist/
-var/
 wheels/
-share/python-wheels/
 *.egg-info/
-.installed.cfg
 *.egg
-MANIFEST
+.installed.cfg
 
-# PyInstaller
-#  Usually these files are written by a python script from a template
-#  before PyInstaller builds the exe, so as to inject date/other infos into it.
-*.manifest
-*.spec
+# 虚拟环境与本地配置
+.venv/
+venv/
+env/
+ENV/
+.env
 
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Unit test / coverage reports
-htmlcov/
+# 测试 / 覆盖率 / 类型检查缓存
+.pytest_cache/
+.hypothesis/
 .tox/
 .nox/
 .coverage
 .coverage.*
-.cache
-nosetests.xml
 coverage.xml
+htmlcov/
 *.cover
 *.py,cover
-.hypothesis/
-.pytest_cache/
-cover/
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# IPython
-profile_default/
-ipython_config.py
-
-# pyenv
-#   For a library or package, you might want to ignore these files since the code is
-#   intended to run in multiple environments; otherwise, check them in:
-# .python-version
-
-# pipenv
-#   According to pypa/pipenv#598, it is recommended to include Pipfile.lock in version control.
-#   However, in case of collaboration, if having platform-specific dependencies or dependencies
-#   having no cross-platform support, pipenv may install dependencies that don't work, or not
-#   install all needed dependencies.
-#Pipfile.lock
-
-# poetry
-#   Similar to Pipfile.lock, it is generally recommended to include poetry.lock in version control.
-#   This is especially recommended for binary packages to ensure reproducibility, and is more
-#   commonly ignored for libraries.
-#   https://python-poetry.org/docs/basic-usage/#commit-your-poetrylock-file-to-version-control
-#poetry.lock
-
-# pdm
-#   Similar to Pipfile.lock, it is generally recommended to include pdm.lock in version control.
-#pdm.lock
-#   pdm stores project-wide configurations in .pdm.toml, but it is recommended to not include it
-#   in version control.
-#   https://pdm.fming.dev/#use-with-ide
-.pdm.toml
-
-# PEP 582; used by e.g. github.com/David-OConnor/pyflow and github.com/pdm-project/pdm
-__pypackages__/
-
-# Celery stuff
-celerybeat-schedule
-celerybeat.pid
-
-# SageMath parsed files
-*.sage.py
-
-# Environment variables
-.env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
-# Spyder project settings
-.spyderproject
-.spyproject
-
-# Rope project settings
-.ropeproject
-
-# mkdocs documentation
-/site
-
-# mypy
+nosetests.xml
 .mypy_cache/
 .dmypy.json
 dmypy.json
-
-# Pyre type checker
 .pyre/
-
-# pytype static type analyzer
 .pytype/
+.ruff_cache/
 
-# Cython debug symbols
+# Jupyter
+.ipynb_checkpoints/
+
+# Cython 调试符号
 cython_debug/
 
-# IDE and Editors
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
-.DS_Store
-
-# Vim
-*.swp
-*.swo
-*~
-
-# Emacs
-*~
-\#*\#
-/.emacs.desktop
-/.emacs.desktop.lock
-*.elc
-auto-save-list
-tramp
-.\#*
-
-# Sublime Text
-*.tmlanguage.cache
-*.tmPreferences.cache
-*.stTheme.cache
-*.sublime-workspace
-*.sublime-project
-
-# Maturin specific
-# Note: Cargo.lock is already handled in Rust section above
-
-# Debug files
-*.pdb
-*.dSYM/
-
-# Documentation build artifacts
-/doc/
-/docs/_build/
-/site/
-
-# Benchmarking
-/benches/target/
-criterion/
-
-# Local development
-.checkpoints/
-*.local
-*.tmp
-temp/
-tmp/
-
-# OS generated files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-
-# AI assistants and tools
-.cursor/
-.windsurf/
-.crush/
-.factory/
-CLAUDE.md
-AGENTS.md
-
-# Logs
-*.log
-logs/
-
-# Temporary files
-*.bak
-*.backup
-*.orig
-
-# Test outputs and artifacts
-test_output/
-test_results/
-*.test
-
-# Profiling data
-*.prof
-perf.data*
-
-# Binary files that might be generated
-*.bin
-*.dat
-
-# Tests directory: 一次性调试/性能脚本数量庞大，整体忽略；
-# 需要版本化的正式测试用 `git add -f tests/xxx` 强制加入（与现有已跟踪测试一致）
-tests/
-
-vtcode.toml
-
-# Misc untracked files
-2026-03-26-212555-personalizedmeetingfeatures.txt
-docs/theme_feature_expansion_explanation.md
-.vtcode/README.md
-.vtcode/tool-policy.json
-.vtcode/mcp/tools/INDEX.md
-.vtcode/skills/INDEX.md
-.vtcode/terminals/INDEX.md
-.mindfs/sessions/session-list.db
-.maturin_zig/*
-dist_versions/*
-python/rust_pyfunc/rust_pyfunc_worker
-
-# Sandbox build artifacts
-sandbox_*/target/
-
-# ===== 数据与计算产物（体积大、可再生，勿上传）=====
-# 沙箱探索产出的数据文件（只上传代码：src/、Cargo.toml、build.sh、*.py）
-sandbox_*/**/*.json
-sandbox_*/**/*.csv
-sandbox_*/**/*.txt
-sandbox_*/**/*.npy
-sandbox_*/**/*.npz
-sandbox_*/**/*.parquet
-sandbox_*/**/*.log
-
-# 因子研究目录（内容私密，整体不上传）
-research_ext_ideas/
-
-# 数值数据文件（numpy / pandas 落盘产物）
+# ============================================================================
+# 3. 数据与计算产物（体积大、可再生，勿上传）
+# ============================================================================
+# 数值 / 二进制数据
 *.npy
 *.npz
 *.parquet
+*.bin
+*.dat
+
+# 沙箱内只入库代码（src/、Cargo.toml、build.sh、*.py），数据产物一律忽略
+sandbox*/**/*.json
+sandbox*/**/*.csv
+sandbox*/**/*.txt
+sandbox*/**/*.npy
+sandbox*/**/*.npz
+sandbox*/**/*.parquet
+
+# 回测 / 因子筛选输出（根目录 *_tail_v*_selected.json，如 ab_*、nbs_*、perfprof_*）
+/*_selected.json
+
+# 因子研究目录（内容私密，整体不上传）
+research_ext_ideas/
 
 # 生成的可视化 html（用 html-host 展示台分享即可，不入库）
 viz/
 /factor_idea_sampling_corr.html
 /orderbook_imbalance_indicators.html
 
+# 文档构建产物
+/doc/
+/docs/_build/
+/site/
+
+# 基准测试
+criterion/
+
 # 误操作产生的垃圾目录（cp 目标路径写错，如 ":/home/..."）
 /:
+
+# ============================================================================
+# 4. 日志、临时与备份文件
+# ============================================================================
+*.log
+logs/
+*.tmp
+temp/
+tmp/
+*.bak
+*.backup
+*.orig
+.checkpoints/
+
+# 性能剖析数据
+*.prof
+*.profraw
+*.profdata
+perf.data*
+
+# 测试产物
+test_output/
+test_results/
+*.test
+
+# ============================================================================
+# 5. 编辑器 / IDE
+# ============================================================================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+
+# ============================================================================
+# 6. AI 助手 / 本地工具（含会话、上下文、日志等私有数据，整体不入库）
+# ============================================================================
+.cursor/
+.windsurf/
+.crush/
+.factory/
+.local/
+.mindfs/
+.vtcode/
+vtcode.toml
+.maturin_zig/
+CLAUDE.md
+AGENTS.md
+
+# ============================================================================
+# 7. 测试目录策略
+# ============================================================================
+# tests/ 内一次性调试/性能脚本数量庞大，整体忽略；
+# 需要版本化的正式测试用 `git add -f tests/xxx` 强制加入（与现有已跟踪测试一致）
+tests/
+
+# ============================================================================
+# 8. 历史遗留的零星未跟踪文件（保持原状）
+# ============================================================================
+2026-03-26-212555-personalizedmeetingfeatures.txt
+docs/theme_feature_expansion_explanation.md
+python/rust_pyfunc/rust_pyfunc_worker
