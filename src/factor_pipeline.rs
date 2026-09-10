@@ -598,9 +598,9 @@ pub fn run_factor_pipeline(
 ) -> PyResult<PyObject> {
     let py = unsafe { Python::assume_gil_acquired() };
 
-    // 原始数据根目录覆盖：进程内生效到本函数结束；worker 子进程通过环境变量透传。
-    let _data_root_guard = crate::data_paths::set_data_root(data_root.as_deref());
-    println!("📂 原始数据根: {}", crate::data_paths::describe());
+    // Level2 数据目录覆盖：进程内生效到本函数结束；worker 子进程通过环境变量透传。
+    let _data_root_guard = crate::data_paths::set_level2_root(data_root.as_deref());
+    println!("📂 Level2 数据目录: {}", crate::data_paths::describe_level2());
 
     let pipeline_name = pipeline.to_string();
     let known = [
@@ -1459,9 +1459,9 @@ fn run_single_worker_manager(
         cmd.env("OMP_NUM_THREADS", "1");
         cmd.env("OPENBLAS_NUM_THREADS", "1");
         cmd.env("MKL_NUM_THREADS", "1");
-        // 原始数据根透传：worker 子进程按同一根目录读取原始数据。
-        if let Some(root) = crate::data_paths::override_root() {
-            cmd.env(crate::data_paths::ENV_DATA_ROOT, root);
+        // Level2 数据目录透传：worker 子进程按同一目录读取原始数据。
+        if let Some(root) = crate::data_paths::override_level2() {
+            cmd.env(crate::data_paths::ENV_LEVEL2_ROOT, root);
         }
         if let Some(idx) = core_affinity_idx {
             cmd.env("RUST_PYFUNC_CORE_AFFINITY_IDX", idx.to_string());
@@ -1828,9 +1828,9 @@ pub fn run_factor_pipeline_minute(
 ) -> PyResult<PyObject> {
     let py = unsafe { Python::assume_gil_acquired() };
 
-    // 原始数据根目录覆盖：进程内生效到本函数结束；worker 子进程通过环境变量透传。
-    let _data_root_guard = crate::data_paths::set_data_root(data_root.as_deref());
-    println!("📂 原始数据根: {}", crate::data_paths::describe());
+    // 分钟数据目录覆盖：进程内生效到本函数结束；worker 子进程通过环境变量透传。
+    let _data_root_guard = crate::data_paths::set_minute_root(data_root.as_deref());
+    println!("📂 分钟数据目录: {}", crate::data_paths::describe_minute());
 
     let pipeline_name = pipeline.to_string();
     let update_mode_enabled = update_mode.unwrap_or(false);
@@ -2049,9 +2049,9 @@ fn run_single_minute_worker(
         cmd.env("OMP_NUM_THREADS", "1");
         cmd.env("OPENBLAS_NUM_THREADS", "1");
         cmd.env("MKL_NUM_THREADS", "1");
-        // 原始数据根透传（pipeline 参数 data_root）
-        if let Some(root) = crate::data_paths::override_root() {
-            cmd.env(crate::data_paths::ENV_DATA_ROOT, root);
+        // 分钟数据目录透传（pipeline 参数 data_root）
+        if let Some(root) = crate::data_paths::override_minute() {
+            cmd.env(crate::data_paths::ENV_MINUTE_ROOT, root);
         }
         if let Some(idx) = core_affinity_idx {
             cmd.env("RUST_PYFUNC_CORE_AFFINITY_IDX", idx.to_string());
@@ -2791,9 +2791,9 @@ pub fn run_factor_pipeline_cross_section(
 ) -> PyResult<PyObject> {
     let py = unsafe { Python::assume_gil_acquired() };
 
-    // 原始数据根目录覆盖：进程内生效到本函数结束；worker 子进程通过环境变量透传。
-    let _data_root_guard = crate::data_paths::set_data_root(data_root.as_deref());
-    println!("📂 原始数据根: {}", crate::data_paths::describe());
+    // Level2 数据目录覆盖：进程内生效到本函数结束；worker 子进程通过环境变量透传。
+    let _data_root_guard = crate::data_paths::set_level2_root(data_root.as_deref());
+    println!("📂 Level2 数据目录: {}", crate::data_paths::describe_level2());
 
     let pipeline_name = pipeline.to_string();
     let known = [
@@ -3137,9 +3137,9 @@ fn run_single_cross_section_worker(
         cmd.env("OMP_NUM_THREADS", threads_per_worker.to_string());
         cmd.env("OPENBLAS_NUM_THREADS", threads_per_worker.to_string());
         cmd.env("MKL_NUM_THREADS", threads_per_worker.to_string());
-        // 原始数据根透传（pipeline 参数 data_root）
-        if let Some(root) = crate::data_paths::override_root() {
-            cmd.env(crate::data_paths::ENV_DATA_ROOT, root);
+        // Level2 数据目录透传（pipeline 参数 data_root）
+        if let Some(root) = crate::data_paths::override_level2() {
+            cmd.env(crate::data_paths::ENV_LEVEL2_ROOT, root);
         }
         if let Some(idx) = core_affinity_idx {
             cmd.env("RUST_PYFUNC_CORE_AFFINITY_IDX", idx.to_string());

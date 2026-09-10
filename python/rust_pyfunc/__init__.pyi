@@ -135,9 +135,9 @@ def run_factor_pipeline(
 ) -> None:
     """Level2 per-(date, code) 因子批量计算入口。
 
-    data_root: 原始数据根目录（默认 "/ssd_data"）。Level2 文件按
-      {data_root}/stock/{date}/{subdir}/{code}_{date}_*.csv 读取；
-      显式指定后只查该根，不再回退 /nas197/binary/stock/sz_alpha/stock。
+    data_root: Level2 数据目录（默认 "/ssd_data/stock"），即直接包含各日期文件夹的目录：
+      文件按 {data_root}/{date}/{subdir}/{code}_{date}_*.csv 读取（transaction / market_data）。
+      显式指定后只查该目录，不再回退 /nas197/binary/stock/sz_alpha/stock。
     """
     ...
 
@@ -157,8 +157,8 @@ def run_factor_pipeline_minute(
 ) -> None:
     """分钟数据 per-date 因子批量计算入口。
 
-    data_root: 原始数据根目录（默认 "/ssd_data"）。分钟数据按
-      {data_root}/data/1min_factor_text/{field}.h5 读取（含 calendar_map.csv / symbol_map.csv）。
+    data_root: 分钟数据目录（默认 "/ssd_data/data/1min_factor_text"），
+      即直接包含 {field}.h5 与 calendar_map.csv / symbol_map.csv 的目录。
     """
     ...
 
@@ -248,9 +248,11 @@ def run_factor_pipeline_cross_section(
 ) -> None:
     """横截面（一天全市场）因子批量计算入口。
 
-    data_root: 原始数据根目录（默认 "/ssd_data"）。全市场 Level2 数据按
-      {data_root}/stock/{date}/{subdir}/ 枚举与读取；行业/基础信息按
-      {data_root}/data/vars/、{data_root}/data/basic_info/ 读取。
+    data_root: Level2 数据目录（默认 "/ssd_data/stock"），即直接包含各日期文件夹的目录：
+      按 {data_root}/{date}/{subdir}/ 枚举与读取全市场数据。
+      少数因子额外读取的行业/基础信息不在该目录下，用环境变量指定：
+      RUST_PYFUNC_VARS_DIR（默认 /ssd_data/data/vars）、
+      RUST_PYFUNC_BASIC_INFO_DIR（默认 /ssd_data/data/basic_info）。
     """
     ...
 
