@@ -67,9 +67,9 @@ const COL_BID_ORDER: usize = 14;
 
 /// resolve 股票数据路径，复用 read_trade 的多路径搜索逻辑。
 ///
-/// 优先级（见 crate::data_paths）：pipeline 参数 data_root > RUST_PYFUNC_DATA_ROOT
+/// 优先级（见 crate::data_paths）：pipeline 参数 data_root > RUST_PYFUNC_LEVEL2_ROOT
 /// > 旧变量 RUST_PYFUNC_LEVEL2_PATH > /ssd_data/stock > /nas197/binary/stock/sz_alpha/stock。
-/// 显式指定数据根时只查该根，不回退。
+/// 显式指定数据目录时只查该目录，不回退。
 fn resolve_stock_path(date: i64, subdir: &str, filename: &str) -> std::io::Result<String> {
     let roots = crate::data_paths::level2_roots();
     for root in &roots {
