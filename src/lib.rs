@@ -89,6 +89,11 @@ pub mod tail_v2_ic_corr_filter;
 pub mod tail_v2_rank_roll_factor;
 pub mod tail_v4_pipeline;
 pub mod tail_v5_pipeline;
+pub mod tail_v8_backtest;
+pub mod tail_v8_pipeline;
+pub mod tail_v8_preflight;
+pub mod tail_v8_roll;
+pub mod tail_v8_selfcheck;
 pub mod theme_cluster_factors;
 pub mod theme_cluster_factors_batch;
 pub mod theme_feature_expansion;
@@ -650,6 +655,10 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?);
     let _ = m.add_function(wrap_pyfunction!(
         tail_v5_pipeline::tail_v5_neutralize_block_exact,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        tail_v8_selfcheck::tail_v8_selfcheck,
         m
     )?);
     let _ = m.add_class::<tail_v5_pipeline::TailV5LegacyStyleData>()?;

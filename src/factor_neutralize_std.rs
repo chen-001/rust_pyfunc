@@ -2416,7 +2416,25 @@ pub(crate) fn neutralize_std_slots_f32_v2_resid_batch(
     if shared.industry.dim() != (t, n) || shared.restrict_f64.dim() != (t, n) {
         return Err("neutralize_std_block industry/restrict 形状不匹配".to_string());
     }
-    let mut outs: Vec<Array2<f32>> = (0..b).map(|_| Array2::from_elem((t, n), f32::NAN)).collect();
+    neutralize_std_slots_f32_v2_resid_batch_impl(slots, shared, 0, t)
+}
+
+/// `neutralize_std_slots_f32_v2_resid_batch` 的**行区间实现**：
+/// batch 调 (0, t)，`..._batch_range` 调 (t0, t1)；两份入口共用同一份循环体，避免漂移。
+///
+/// `slots[k]` 是第 [t0,t1) 行的块视图（行数 = t1-t0），输出 (t1-t0, n)；
+/// `shared` 侧（ind2/ind1/size_ranked/zeros/ind1_mask/restrict_f64/orders/per_date/chols/xdays）
+/// 一律按**绝对日期 idx** 索引。形状与区间由调用方校验。
+fn neutralize_std_slots_f32_v2_resid_batch_impl(
+    slots: &[ArrayView2<f32>],
+    shared: &NeutralizeStdShared,
+    t0: usize,
+    t1: usize,
+) -> Result<Vec<Array2<f32>>, String> {
+    let b = slots.len();
+    let n = slots[0].ncols();
+    let rows = t1 - t0;
+    let mut outs: Vec<Array2<f32>> = (0..b).map(|_| Array2::from_elem((rows, n), f32::NAN)).collect();
     let mut pct: Vec<Vec<f64>> = vec![vec![0.0; n]; b];
     let mut filled: Vec<Vec<f64>> = vec![vec![0.0; n]; b];
     let mut keys32 = vec![0u32; n];
@@ -2433,7 +2451,7 @@ pub(crate) fn neutralize_std_slots_f32_v2_resid_batch(
     let mut xty: Vec<f64> = Vec::with_capacity(64);
     let base = &shared;
     let mut ind0_row = Vec::<f64>::with_capacity(n);
-    for idx in 0..t {
+    for idx in t0..t1 {
         let (ind2_v, ind1_v, size_v) = (base.ind2.row(idx), base.ind1.row(idx), base.size_ranked.row(idx));
         let (zeros_v, mask_v, restrict_v) = (base.zeros.row(idx), base.ind1_mask.row(idx), base.restrict_f64.row(idx));
         let (o0_v, o1_v, o2_v) = (base.orders[0].row(idx), base.orders[1].row(idx), base.orders[2].row(idx));
@@ -2452,7 +2470,7 @@ pub(crate) fn neutralize_std_slots_f32_v2_resid_batch(
         ind0_row.clear();
         ind0_row.extend(ind1_r.iter().map(|&v| if v.is_nan() { 0.0 } else { 1.0 }));
         for (f, slot) in slots.iter().enumerate() {
-            let slot_row = slot.row(idx);
+            let slot_row = slot.row(idx - t0);
             rank_pct_row_from_f32_in(
                 slot_row.as_slice().unwrap(),
                 &mut pct[f],
@@ -2504,7 +2522,7 @@ pub(crate) fn neutralize_std_slots_f32_v2_resid_batch(
                 }
             }
             rank_pct_row_f64_in_place(&mut filled[f], &mut ranks64, &mut idxs, &mut tmp, &mut keys64);
-            let mut out_row = outs[f].row_mut(idx);
+            let mut out_row = outs[f].row_mut(idx - t0);
             let _ = ols_day_row_fast(
                 &filled[f],
                 shared,
@@ -2516,4 +2534,43 @@ pub(crate) fn neutralize_std_slots_f32_v2_resid_batch(
         }
     }
     Ok(outs)
+}
+
+/// v8 二档：按日期块中性化（只处理第 [t0,t1) 行，**不物化任何 (T,N) 中间量**）。
+///
+/// `slots[k]` 是第 [t0,t1) 行的块视图（行数 = t1-t0），返回同样高度的块；
+/// `shared` 侧一律按**绝对日期** idx 索引（内部用 `idx - t0` 取块内行号）。
+///
+/// 与 `neutralize_std_slots_f32_v2_resid_batch` 逐位一致：把整批调用按 [t0,t1) 分块
+/// 拼回来，必须与一次性全量调用完全相同（含 NaN 位置）——两者共用 `_batch_impl` 循环体。
+pub(crate) fn neutralize_std_slots_f32_v2_resid_batch_range(
+    slots: &[ArrayView2<f32>],
+    shared: &NeutralizeStdShared,
+    industry_neutralize: bool,
+    t0: usize,
+    t1: usize,
+) -> Result<Vec<Array2<f32>>, String> {
+    if slots.is_empty() {
+        return Ok(Vec::new());
+    }
+    if !industry_neutralize {
+        // 引擎恒为 true（见上）。旧路径的收尾 `get_residual(fv, barra_ranked, None)`
+        // 是整张矩阵级实现，其单面入口要求 slot 与 shared 同形——块视图喂进去必然
+        // 形状不匹配。这里显式报错，而不是静默给出错误结果；需要 false 请走整张 batch 入口。
+        return Err(
+            "neutralize_std_slots_f32_v2_resid_batch_range 仅支持 industry_neutralize=true"
+                .to_string(),
+        );
+    }
+    let (rows, n) = slots[0].dim();
+    let (t, sn) = shared.industry.dim();
+    if sn != n || shared.restrict_f64.dim() != (t, sn) {
+        return Err("neutralize_std_block industry/restrict 形状不匹配".to_string());
+    }
+    if t0 > t1 || t1 > t || t1 - t0 != rows {
+        return Err(format!(
+            "neutralize_std_block range 越界: t0={t0} t1={t1} t={t} rows={rows}"
+        ));
+    }
+    neutralize_std_slots_f32_v2_resid_batch_impl(slots, shared, t0, t1)
 }

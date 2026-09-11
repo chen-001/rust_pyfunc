@@ -29,13 +29,28 @@ use crate::tail_v5_pipeline::{
 };
 
 /// 单个因子的完整处理（IO + 计算 + 写结果），在一个线程内串行执行。
-/// 复用 v5 的 process_task_with_values_v7（流式 rank_roll + 单 slot 中性化/回测）。
+///
+/// v8 三档融合路径（2026-09）：按日期块融合 rolling → preflight → 中性化 → 回测，
+/// 不物化 12 张 (T,N) 派生面。需要 `industry_neutralize=true` + `neutralize_std_shared`
+/// + `bt_pre`（O1 回测路径）三者齐备；任一不满足则回落到 v7 原路径。
+/// 环境变量 `TAIL_ENGINE_V7=1` 可强制走旧路径（A/B 对账用）。
 fn process_single_factor(
     task: &TailTask,
     raw_values: Array2<f32>,
     shared: &SharedInputs,
+    sc: &mut crate::tail_v8_pipeline::V8Scratch,
 ) -> Result<TailTaskResult, String> {
-    tail_v5_pipeline::process_task_with_values_v7(task, raw_values, shared)
+    let force_v7 = std::env::var("TAIL_ENGINE_V7").is_ok();
+    let v8_ok = !force_v7
+        && shared.industry_neutralize
+        && shared.neutralize_std_shared.is_some()
+        && shared.bt_pre.is_some()
+        && shared.free_mask.is_some();
+    if v8_ok {
+        crate::tail_v8_pipeline::process_task_with_values_v8(task, raw_values, shared, sc)
+    } else {
+        tail_v5_pipeline::process_task_with_values_v7(task, raw_values, shared)
+    }
 }
 
 /// 解析 col_idx（从 "store_dir::col_idx" 格式的 factor_path 中提取）
@@ -298,6 +313,12 @@ pub fn tail_backtest_engine<'py>(
                 let dates_arc = shared_clone.dates.clone();
                 let stocks_arc = shared_clone.stocks.clone();
                 handles.push(thread::spawn(move || {
+                    let n_stocks = shared_clone.restrict.ncols();
+                    let mut v8sc = crate::tail_v8_pipeline::V8Scratch::new(
+                        n_stocks,
+                        shared_clone.windows.as_slice(),
+                        crate::tail_v8_pipeline::BLOCK_ROWS,
+                    );
                     while let Ok(task) = rx.recv() {
                         // 1. 解析 col_idx（失败 = 硬错误：带因子名返回，绝不静默跳过）
                         let col_idx = match parse_col_idx(&task.factor_path) {
@@ -331,7 +352,7 @@ pub fn tail_backtest_engine<'py>(
 
                         // 3. 完整计算流水线（rank_roll → preflight → backtest → neutralize → backtest）
                         let task_name = task.source_factor.clone();
-                        let outcome = process_single_factor(&task, raw_values, &shared_clone)
+                        let outcome = process_single_factor(&task, raw_values, &shared_clone, &mut v8sc)
                             .map_err(|err| (task_name, err));
 
                         if tx.send(outcome).is_err() {

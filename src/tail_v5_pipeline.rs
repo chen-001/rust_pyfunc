@@ -36,7 +36,7 @@ use nix::sys::signal::{kill, Signal};
 #[cfg(target_family = "unix")]
 use nix::unistd::Pid;
 
-const EPS: f64 = 1e-12;
+pub(crate) const EPS: f64 = 1e-12;
 
 fn default_true() -> bool {
     true
@@ -133,11 +133,13 @@ pub(crate) struct SharedInputs {
     /// 排序的股票索引; 回测时对当日有效子集 walk 出子集内 ordinal 秩, 替代每个
     /// slot 重新对收益子集排序 (与 legacy_spearman_correlation 的排序语义一致)。
     pub(crate) bt_pre: Option<Arc<BtPrecomputed>>,
+    /// v8 一档：restrict → 1 字节/格可交易掩码（全 run 一次，所有面复用）
+    pub(crate) free_mask: Option<Arc<crate::tail_v8_preflight::FreeMask>>,
 }
 
 /// O1 收益秩预计算 (因子无关, 全 run 一次)。
 #[derive(Clone, Default)]
-pub(crate) struct BtPrecomputed {
+pub struct BtPrecomputed {
     pub(crate) orders_g1: Vec<Vec<u32>>,
     pub(crate) orders_g5: Vec<Vec<u32>>,
 }
@@ -180,6 +182,10 @@ pub(crate) fn build_shared_inputs(
         .map_err(|e| e.to_string())?;
     let restrict: Array2<f32> =
         read_npy(restrict_path).map_err(|e| format!("读取 restrict.npy 失败: {}", e))?;
+    // v8 一档：restrict → 1 字节/格可交易掩码，全 run 建一次
+    let free_mask = Some(Arc::new(crate::tail_v8_preflight::build_free_mask(
+        &restrict.view(),
+    )));
     let ret_g1: Array2<f32> =
         read_npy(ret_gap1_path).map_err(|e| format!("读取 ret_gap1.npy 失败: {}", e))?;
     let ret_s1: Array2<f32> =
@@ -230,6 +236,7 @@ pub(crate) fn build_shared_inputs(
         index_ret: Arc::new(index_v),
         config: Arc::new(config),
         bt_pre,
+        free_mask,
     })
 }
 
@@ -397,7 +404,7 @@ impl AggregatedCandidates {
 }
 
 #[derive(Clone)]
-struct LegacyBacktestResult {
+pub(crate) struct LegacyBacktestResult {
     pub(crate) summary: [f64; 10],
     pub(crate) ic_dates: Vec<i32>,
     pub(crate) ic_values: Vec<f32>,
@@ -435,7 +442,7 @@ struct TailV4FulltestWorkerResult {
     error: Option<String>,
 }
 
-fn nanmean_f64(values: &[f64]) -> f64 {
+pub(crate) fn nanmean_f64(values: &[f64]) -> f64 {
     let mut sum = 0.0;
     let mut count = 0usize;
     for &value in values {
@@ -451,7 +458,7 @@ fn nanmean_f64(values: &[f64]) -> f64 {
     }
 }
 
-fn nanstd_population(values: &[f64]) -> f64 {
+pub(crate) fn nanstd_population(values: &[f64]) -> f64 {
     let mean = nanmean_f64(values);
     if mean.is_nan() {
         return f64::NAN;
@@ -472,7 +479,7 @@ fn nanstd_population(values: &[f64]) -> f64 {
     }
 }
 
-fn sample_std(values: &[f64]) -> f64 {
+pub(crate) fn sample_std(values: &[f64]) -> f64 {
     let mut count = 0usize;
     let mut sum = 0.0;
     for &value in values {
@@ -495,7 +502,7 @@ fn sample_std(values: &[f64]) -> f64 {
     (sq_sum / (count as f64 - 1.0)).sqrt()
 }
 
-fn annualized_sharpe_sample(values: &[f64]) -> f64 {
+pub(crate) fn annualized_sharpe_sample(values: &[f64]) -> f64 {
     let std = sample_std(values);
     if std.is_nan() || std <= EPS {
         return f64::NAN;
@@ -503,7 +510,7 @@ fn annualized_sharpe_sample(values: &[f64]) -> f64 {
     nanmean_f64(values) / std * 250.0_f64.sqrt()
 }
 
-fn max_drawdown_from_returns(values: &[f64]) -> f64 {
+pub(crate) fn max_drawdown_from_returns(values: &[f64]) -> f64 {
     let mut cumulative = 0.0;
     let mut peak = 0.0;
     let mut max_drawdown = 0.0;
@@ -666,7 +673,7 @@ fn ordinal_ranks_radix(values: &[f32]) -> Vec<i64> {
 
 /// 平均秩 (与 average_ranks 一致: 等值组取平均, f32 == 判等)。
 /// O1b (2026-09): u32 4-pass radix, 与旧 (key,index) 8-pass 总序逐位一致。
-fn average_ranks_radix(values: &[f32]) -> Vec<f64> {
+pub(crate) fn average_ranks_radix(values: &[f32]) -> Vec<f64> {
     let n = values.len();
     let order = keyed_order_u32(values);
     let mut ranks = vec![f64::NAN; n];
@@ -687,7 +694,7 @@ fn average_ranks_radix(values: &[f32]) -> Vec<f64> {
 }
 
 /// O1b: 一次排序同时产出 ordinal 秩与平均秩 (与分别调用上述两个函数逐位一致)。
-fn rank_both_radix(values: &[f32]) -> (Vec<i64>, Vec<f64>) {
+pub(crate) fn rank_both_radix(values: &[f32]) -> (Vec<i64>, Vec<f64>) {
     let n = values.len();
     let order = keyed_order_u32(values);
     let mut ordinal = vec![0i64; n];
@@ -713,7 +720,7 @@ fn rank_both_radix(values: &[f32]) -> (Vec<i64>, Vec<f64>) {
 
 /// BtPrecomputed 构建: 每日期 ret_sum 全行按 (值, index) 排序 (NaN 置末)。
 /// O1b (2026-09): u32 4-pass (稳定 + 初始 index 升序 ≡ (key, index) 总序)。
-fn build_bt_precomputed(
+pub fn build_bt_precomputed(
     ret_sum_g1: &Array2<f32>,
     ret_sum_g5: &Array2<f32>,
 ) -> Result<BtPrecomputed, String> {
@@ -750,7 +757,7 @@ fn count_open_symbols(restrict_row: ArrayView1<'_, f32>) -> usize {
         .count()
 }
 
-fn precompute_open_symbol_counts(restrict: &ArrayView2<'_, f32>) -> Vec<usize> {
+pub(crate) fn precompute_open_symbol_counts(restrict: &ArrayView2<'_, f32>) -> Vec<usize> {
     (0..restrict.shape()[0])
         .map(|row_idx| count_open_symbols(restrict.row(row_idx)))
         .collect()
@@ -776,14 +783,15 @@ fn has_enough_unique_values(
     false
 }
 
-struct PreflightReport {
-    passed: bool,
-    majority_count_mean: f64,
-    zero_ratio_mean: f64,
-    nan_ratio_mean: f64,
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PreflightReport {
+    pub(crate) passed: bool,
+    pub(crate) majority_count_mean: f64,
+    pub(crate) zero_ratio_mean: f64,
+    pub(crate) nan_ratio_mean: f64,
 }
 
-fn default_legacy_backtest_result() -> LegacyBacktestResult {
+pub(crate) fn default_legacy_backtest_result() -> LegacyBacktestResult {
     LegacyBacktestResult {
         summary: [f64::NAN; 10],
         ic_dates: Vec::new(),
@@ -819,7 +827,7 @@ fn effective_raw_indices_for_slot(
     effective_raw_indices
 }
 
-fn preflight_quality_check(
+pub(crate) fn preflight_quality_check(
     raw_values: &ArrayView2<f32>,
     restrict: &ArrayView2<f32>,
     majority_count_threshold: f64,
@@ -961,7 +969,7 @@ fn preflight_quality_check(
     }
 }
 
-fn compute_raw_cover_rate(
+pub(crate) fn compute_raw_cover_rate(
     raw_values: &ArrayView2<f32>,
     restrict: &ArrayView2<f32>,
     ret: &ArrayView2<f32>,
@@ -1368,7 +1376,7 @@ fn legacy_backtest_single_factor_with_effective_opt(
 
 /// O1 优化的单 slot gap1/gap5 回测包装 (与 legacy_backtest_gap1_gap5_single_slot 对应)。
 #[allow(clippy::too_many_arguments)]
-fn legacy_backtest_gap1_gap5_single_slot_opt(
+pub(crate) fn legacy_backtest_gap1_gap5_single_slot_opt(
     slot: ArrayView2<'_, f32>,
     ret_gap1: ArrayView2<'_, f32>,
     ret_sum_gap1: ArrayView2<'_, f32>,
@@ -2381,7 +2389,7 @@ fn load_h5_factor_to_template(
     Err("HDF5 支持未启用（此 wheel 编译时未包含 hdf5-metno）".to_string())
 }
 
-fn build_fold_values(raw_values: &Array2<f32>) -> Array2<f32> {
+pub(crate) fn build_fold_values(raw_values: &Array2<f32>) -> Array2<f32> {
     let n_dates = raw_values.nrows();
     let n_stocks = raw_values.ncols();
     let mut folded = Array2::<f32>::from_elem((n_dates, n_stocks), f32::NAN);
@@ -2409,7 +2417,7 @@ fn build_fold_values(raw_values: &Array2<f32>) -> Array2<f32> {
     folded
 }
 
-fn derived_names_for_variant(source_factor: &str, windows: &[usize]) -> Vec<String> {
+pub(crate) fn derived_names_for_variant(source_factor: &str, windows: &[usize]) -> Vec<String> {
     let mut names = vec![format!("{}_smooth_1", source_factor)];
     for &window in windows {
         names.push(format!("{}_mean_smooth_{}", source_factor, window));
@@ -2761,7 +2769,7 @@ pub fn tail_v5_neutralize_block_exact<'py>(
     Ok(output.into_pyarray(py).to_owned())
 }
 
-fn summary_from_row(
+pub(crate) fn summary_from_row(
     factor_name: &str,
     stage: &str,
     gap: i32,
@@ -2787,7 +2795,7 @@ fn summary_from_row(
     }
 }
 
-fn qualify_raw(summary: &SummaryRowRecord, gap: usize, cfg: &TailSelectionConfig) -> bool {
+pub(crate) fn qualify_raw(summary: &SummaryRowRecord, gap: usize, cfg: &TailSelectionConfig) -> bool {
     match gap {
         1 => {
             summary.hedge_annualized_return >= cfg.ret_point_gap1
@@ -2801,7 +2809,7 @@ fn qualify_raw(summary: &SummaryRowRecord, gap: usize, cfg: &TailSelectionConfig
     }
 }
 
-fn qualify_neu(summary: &SummaryRowRecord, gap: usize, cfg: &TailSelectionConfig) -> bool {
+pub(crate) fn qualify_neu(summary: &SummaryRowRecord, gap: usize, cfg: &TailSelectionConfig) -> bool {
     let (ret_point, ic_point, ic_more) = match gap {
         1 => (
             cfg.ret_point_neu_gap1,
@@ -3471,6 +3479,7 @@ pub fn tail_v5_run_candidates<'py>(
                 ic_only: false,
             }),
             bt_pre: None,
+        free_mask: None,
         };
 
         let mut aggregated = AggregatedCandidates::default();
@@ -4657,6 +4666,7 @@ pub fn tail_v5_run_candidates_online<'py>(
                 ic_only: false,
             }),
             bt_pre: None,
+        free_mask: None,
         };
 
         let mut aggregated = AggregatedCandidates::default();
@@ -5141,6 +5151,7 @@ pub fn tail_v5_run_candidates_v7<'py>(
                 ic_only: false,
             }),
             bt_pre: None,
+        free_mask: None,
         };
 
         let mut aggregated = AggregatedCandidates::default();
@@ -6022,7 +6033,7 @@ fn fill_missing_rank_with_cross_sectional_median(ranked: &mut Array2<f32>, restr
 /// rank + 缺失值填充（回测预处理第二层保障）。
 /// 顺序约定：先横截面 rank，再填充"缺失"的 rank（Restrict 可交易股票当天的缺口）；
 /// 不可交易（停牌/涨跌停）与未上市（不适用）保持 NaN。随后才做 raw_cover / preflight / 回测。
-fn rank_and_fill_missing_cross_sectional_median(
+pub(crate) fn rank_and_fill_missing_cross_sectional_median(
     variant_values: &Array2<f32>,
     restrict: &Array2<f32>,
 ) -> Array2<f32> {
@@ -6333,6 +6344,7 @@ pub fn tail_v5_run_candidates_v7b<'py>(
                 ic_only: false,
             }),
             bt_pre: None,
+        free_mask: None,
         };
 
         let mut aggregated = AggregatedCandidates::default();
