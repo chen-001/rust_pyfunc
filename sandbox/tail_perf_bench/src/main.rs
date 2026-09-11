@@ -5,13 +5,7 @@
 //!   tail_perf_bench prerank [--fold]            预计算收益秩近似版（偏差 + 测速）
 //!   tail_perf_bench rolling                     列主序 vs 行主序 rolling 对比
 //!   tail_perf_bench hat                         中性化 hat 矩阵预计算原型（合成数据）
-mod engine;
-mod neu;
-mod npy;
-mod opt;
-mod v2;
-mod btopt;
-mod preflightopt;
+use tail_perf_bench::{bt8, btopt, drive8, engine, neu, neu8, npy, opt, pf8, preflightopt, roll8, t8, v2, v3, v8};
 
 use std::time::Instant;
 
@@ -20,21 +14,27 @@ use nalgebra::{Cholesky, DMatrix};
 
 const DATA: &str = "/home/chenzongwei/pythoncode/tail_perf_lab/data";
 const DATA_URGENCY: &str = "/home/chenzongwei/pythoncode/tail_perf_lab/data_urgency";
+/// 玉佩-成交距离 (yupei_dist) 夹具: 2818 日 × 7857 股, 2761 因子
+const DATA_YUPEI: &str = "/home/chenzongwei/neu_lab/data_yupei";
 
 fn load_shared(fold: bool) -> engine::Shared {
-    let dates = npy::as_i32_vec1(npy::load(&format!("{DATA}/dates.npy")));
+    let data: &'static str = match std::env::var("V3_DATA") {
+        Ok(d) => Box::leak(d.into_boxed_str()),
+        Err(_) => DATA,
+    };
+    let dates = npy::as_i32_vec1(npy::load(&format!("{data}/dates.npy")));
     engine::Shared {
         cover_rate: 0.5,
         dates,
         windows: vec![5, 10, 20],
         fold,
         backtest_start: 20170201,
-        ret_gap1: npy::as_f32_mat(npy::load(&format!("{DATA}/ret_gap1.npy"))),
-        ret_sum_gap1: npy::as_f32_mat(npy::load(&format!("{DATA}/ret_sum_gap1.npy"))),
-        ret_gap5: npy::as_f32_mat(npy::load(&format!("{DATA}/ret_gap5.npy"))),
-        ret_sum_gap5: npy::as_f32_mat(npy::load(&format!("{DATA}/ret_sum_gap5.npy"))),
-        restrict: npy::as_f32_mat(npy::load(&format!("{DATA}/restrict.npy"))),
-        index_ret: npy::as_f32_vec1(npy::load(&format!("{DATA}/index_ret.npy"))).into(),
+        ret_gap1: npy::as_f32_mat(npy::load(&format!("{data}/ret_gap1.npy"))),
+        ret_sum_gap1: npy::as_f32_mat(npy::load(&format!("{data}/ret_sum_gap1.npy"))),
+        ret_gap5: npy::as_f32_mat(npy::load(&format!("{data}/ret_gap5.npy"))),
+        ret_sum_gap5: npy::as_f32_mat(npy::load(&format!("{data}/ret_sum_gap5.npy"))),
+        restrict: npy::as_f32_mat(npy::load(&format!("{data}/restrict.npy"))),
+        index_ret: npy::as_f32_vec1(npy::load(&format!("{data}/index_ret.npy"))).into(),
         majority_count_threshold: 200.0,
         zero_max_threshold: 0.1,
         nan_max_threshold: 0.04,
@@ -42,11 +42,15 @@ fn load_shared(fold: bool) -> engine::Shared {
 }
 
 fn load_factors() -> Vec<(String, Array2<f32>)> {
-    let names = std::fs::read_to_string(format!("{DATA}/sample_names.txt")).unwrap();
+    let data: &'static str = match std::env::var("V3_DATA") {
+        Ok(d) => Box::leak(d.into_boxed_str()),
+        Err(_) => DATA,
+    };
+    let names = std::fs::read_to_string(format!("{data}/sample_names.txt")).unwrap();
     names
         .lines()
         .map(|nm| {
-            let mat = npy::as_f32_mat(npy::load(&format!("{DATA}/factor_{nm}.npy")));
+            let mat = npy::as_f32_mat(npy::load(&format!("{data}/factor_{nm}.npy")));
             (nm.to_string(), mat)
         })
         .collect()
@@ -99,6 +103,7 @@ fn preflight_pass(
 
 // ---- 融合排序版 variant 流水线：结构与 run_variant 一致，raw 回测换成 fused ----
 fn run_variant_fused(
+    restrict_m: &Array2<f32>,
     variant_name: &str,
     ranked: Array2<f32>,
     shared: &engine::Shared,
@@ -171,6 +176,7 @@ fn run_variant_fused(
 
 // ---- prerank 版 variant 流水线：结构与 fused 一致，IC 用预计算秩 ----
 fn run_variant_prerank(
+    restrict_m: &Array2<f32>,
     variant_name: &str,
     ranked: Array2<f32>,
     shared: &engine::Shared,
@@ -348,11 +354,12 @@ fn main() {
         let bitmap = preflightopt::build_restrict_bitmap(&shared.restrict.view());
         println!("restrict bitmap build: {:.2}s", t.elapsed().as_secs_f64());
         let factors = load_factors();
+        let restrict_m = shared.restrict.clone();
         let (maj_thr, zero_thr, nan_thr) = (200.0_f64, 0.1_f64, 0.04_f64);
         for (name, raw) in &factors {
-            let ranked = engine::rank_and_fill_missing_cross_sectional_median(raw);
+            let ranked = engine::rank_and_fill_missing_cross_sectional_median(raw, &restrict_m);
             let folded = engine::build_fold_values(raw);
-            let ranked_fold = engine::rank_and_fill_missing_cross_sectional_median(&folded);
+            let ranked_fold = engine::rank_and_fill_missing_cross_sectional_median(&folded, &restrict_m);
             // 13+13 slots
             let mut slots: Vec<Array2<f32>> = vec![ranked.clone()];
             let mut slots_f: Vec<Array2<f32>> = vec![ranked_fold.clone()];
@@ -426,8 +433,9 @@ fn main() {
         );
         let v2shared = v2::build_shared(DATA);
         let factors = load_factors();
+        let restrict_m = shared.restrict.clone();
         for (name, raw) in &factors {
-            let ranked = engine::rank_and_fill_missing_cross_sectional_median(raw);
+            let ranked = engine::rank_and_fill_missing_cross_sectional_median(raw, &restrict_m);
             let (m5, _x5, _n5, s5) = engine::rolling_stats_f32_serial(&ranked, 5, 2);
             let slots: Vec<(&str, &Array2<f32>)> =
                 vec![("smooth_1", &ranked), ("mean_5", &m5), ("std_5", &s5)];
@@ -492,8 +500,9 @@ fn main() {
         println!("bt_precomputed: {:.2}s", t.elapsed().as_secs_f64());
         let open_counts = engine_precompute_open(&shared.restrict.view());
         let factors = load_factors();
+        let restrict_m = shared.restrict.clone();
         for (name, raw) in &factors {
-            let ranked = engine::rank_and_fill_missing_cross_sectional_median(raw);
+            let ranked = engine::rank_and_fill_missing_cross_sectional_median(raw, &restrict_m);
             let mut slots: Vec<Array2<f32>> = vec![ranked.clone()];
             for &w in &[5usize, 10, 20] {
                 let (m, x, n2, s) = engine::rolling_stats_f32_serial(&ranked, w, w / 2);
@@ -554,12 +563,104 @@ fn main() {
         v2::run_v2_batch_bench(DATA_URGENCY);
         return;
     }
+    if mode == "v2y" {
+        v2::run_v2_bench(DATA_YUPEI);
+        return;
+    }
+    if mode == "v3" {
+        let dir = match std::env::var("V3_DATA") {
+            Ok(d) => Box::leak(d.into_boxed_str()) as &'static str,
+            Err(_) => {
+                if args.iter().any(|a| a == "--yupei") {
+                    DATA_YUPEI
+                } else {
+                    DATA
+                }
+            }
+        };
+        run_v3_bench(dir);
+        return;
+    }
+    if mode == "icfused" {
+        let nf: usize = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(2);
+        let dir = if args.iter().any(|a| a == "--yupei") { DATA_YUPEI } else { DATA };
+        v3::run_ic_fused(dir, nf);
+        return;
+    }
+    if mode == "icerr" {
+        let nf: usize = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(2);
+        let dir = if args.iter().any(|a| a == "--yupei") { DATA_YUPEI } else { DATA };
+        v3::run_ic_err(dir, nf);
+        return;
+    }
+    if mode == "bsweep" {
+        let dir = if args.iter().any(|a| a == "--yupei") { DATA_YUPEI } else { DATA };
+        v3::run_b_sweep(dir);
+        return;
+    }
+    if mode == "e2e" {
+        // 用法: tail_perf_bench e2e <线程数> <任务数> [块行数]
+        let nt: usize = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(192);
+        let nk: usize = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(192);
+        let br: usize = args.get(4).and_then(|s| s.parse().ok()).unwrap_or(64);
+        drive8::run_e2e(DATA_YUPEI, nt, nk, br);
+        return;
+    }
+    if mode == "agg" {
+        let ns: usize = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(70000);
+        let nd: usize = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(2700);
+        drive8::bench_aggregate(ns, nd);
+        return;
+    }
+    if mode == "mtcmp" {
+        let workers: usize = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(64);
+        let rounds: usize = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(3);
+        let batch: usize = args.get(4).and_then(|s| s.parse().ok()).unwrap_or(4);
+        let dir = if args.iter().any(|a| a == "--yupei") { DATA_YUPEI } else { DATA };
+        v3::run_mt_compare(dir, workers, rounds, batch);
+        return;
+    }
+    if mode == "v3mt" {
+        // 用法: tail_perf_bench v3mt <workers> <batch> [--yupei]
+        let workers: usize = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(32);
+        let batch: usize = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(1);
+        let dir = if args.iter().any(|a| a == "--yupei") { DATA_YUPEI } else { DATA };
+        run_v3_mt(dir, workers, batch);
+        return;
+    }
+    if mode == "v2ybmt" {
+        let workers: Vec<usize> = args[2].split(',').map(|a| a.parse::<usize>().unwrap()).collect();
+        let rounds: usize = args.get(3).map(|a| a.parse().unwrap()).unwrap_or(1);
+        let batch: usize = args.get(4).map(|a| a.parse().unwrap()).unwrap_or(4);
+        v2::run_v2_batch_mt(DATA_YUPEI, &workers, rounds, batch);
+        return;
+    }
+    if mode == "v2yb" {
+        v2::run_v2_batch_bench(DATA_YUPEI);
+        return;
+    }
     if mode == "v2bmt" {
         // 用法: tail_perf_bench v2bmt <workers逗号列表> <rounds> <batch>
         let workers: Vec<usize> = args[2].split(',').map(|a| a.parse::<usize>().unwrap()).collect();
         let rounds: usize = args.get(3).map(|a| a.parse().unwrap()).unwrap_or(3);
         let batch: usize = args.get(4).map(|a| a.parse().unwrap()).unwrap_or(4);
         v2::run_v2_batch_mt(DATA_URGENCY, &workers, rounds, batch);
+        return;
+    }
+    if mode == "v2mmt" {
+        // 用法: tail_perf_bench v2mmt <workers逗号列表> <rounds> <batch>
+        let workers: Vec<usize> = args
+            .get(2)
+            .map(|s| s.split(',').filter_map(|x| x.parse().ok()).collect())
+            .unwrap_or_else(|| vec![1, 32, 96, 200]);
+        let rounds: usize = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(2);
+        let batch: usize = args.get(4).and_then(|s| s.parse().ok()).unwrap_or(4);
+        v2::run_v2_merge_mt(DATA, &workers, rounds, batch);
+        return;
+    }
+    if mode == "v2m" {
+        // opt3 归并式 rank2 对账 + 计时
+        v2::run_v2_merge_bench(DATA);
         return;
     }
     if mode == "v2mt" {
@@ -576,6 +677,7 @@ fn main() {
     // replica / fused / prerank
     let shared = load_shared(fold);
     let factors = load_factors();
+    let restrict_m = shared.restrict.clone();
 
     for (name, raw) in &factors {
         match mode {
@@ -602,9 +704,10 @@ fn main() {
                 let mut summaries = Vec::new();
                 let mut time_bt = 0.0;
                 let t0 = Instant::now();
-                let ranked_raw = engine::rank_and_fill_missing_cross_sectional_median(raw);
+                let ranked_raw = engine::rank_and_fill_missing_cross_sectional_median(raw, &restrict_m);
                 let open_counts = engine_precompute_open(&shared.restrict.view());
                 run_variant_fused(
+                    &restrict_m,
                     name,
                     ranked_raw,
                     &shared,
@@ -615,8 +718,9 @@ fn main() {
                 if fold {
                     let folded = engine::build_fold_values(raw);
                     let ranked_fold =
-                        engine::rank_and_fill_missing_cross_sectional_median(&folded);
+                        engine::rank_and_fill_missing_cross_sectional_median(&folded, &restrict_m);
                     run_variant_fused(
+                        &restrict_m,
                         &format!("{name}_fold"),
                         ranked_fold,
                         &shared,
@@ -646,9 +750,10 @@ fn main() {
                 );
                 let pre_s = t_pre.elapsed().as_secs_f64();
                 let t0 = Instant::now();
-                let ranked_raw = engine::rank_and_fill_missing_cross_sectional_median(raw);
+                let ranked_raw = engine::rank_and_fill_missing_cross_sectional_median(raw, &restrict_m);
                 let open_counts = engine_precompute_open(&shared.restrict.view());
                 run_variant_prerank(
+                    &restrict_m,
                     name,
                     ranked_raw,
                     &shared,
@@ -661,8 +766,9 @@ fn main() {
                 if fold {
                     let folded = engine::build_fold_values(raw);
                     let ranked_fold =
-                        engine::rank_and_fill_missing_cross_sectional_median(&folded);
+                        engine::rank_and_fill_missing_cross_sectional_median(&folded, &restrict_m);
                     run_variant_prerank(
+                        &restrict_m,
                         &format!("{name}_fold"),
                         ranked_fold,
                         &shared,
@@ -787,10 +893,97 @@ fn bench_hat() {
 }
 
 
+/// V3 中性化对账 + 测速：与生产 v2 opt2 逐位比对。
+fn run_v3_bench(data_dir: &str) {
+    let t = Instant::now();
+    let v2s = v2::build_shared(data_dir);
+    println!("v2 precompute: {:.2}s", t.elapsed().as_secs_f64());
+    let t = Instant::now();
+    let v3s = v3::v3_build(v2s);
+    println!(
+        "v3 build: {:.2}s  非快路径日={} (|V|<=10: {}, V⊄S: {}) / {}  S==V 日={}",
+        t.elapsed().as_secs_f64(),
+        v3s.fast_ok.iter().filter(|x| !**x).count(),
+        v3s.small_days,
+        v3s.v_notin_s_days,
+        v3s.fast_ok.len(),
+        v3s.identity_days
+    );
+    let names = std::fs::read_to_string(format!("{data_dir}/sample_names.txt")).unwrap();
+    let restrict_m = npy::as_f32_mat(npy::load(&format!("{data_dir}/restrict.npy")));
+    for nm in names.lines() {
+        let raw = npy::as_f32_mat(npy::load(&format!("{data_dir}/factor_{nm}.npy")));
+        let ranked = engine::rank_and_fill_missing_cross_sectional_median(&raw, &restrict_m);
+        // 生产每 variant 13 个面：smooth_1 + 3 窗口 × {mean,max,min,std}
+        let mut slots: Vec<(String, Array2<f32>)> = vec![("smooth_1".to_string(), ranked.clone())];
+        for &w in &[5usize, 10, 20] {
+            let (m, x, n2, s) = engine::rolling_stats_f32_rowmajor(&ranked, w, w / 2);
+            slots.push((format!("mean_{w}"), m));
+            slots.push((format!("max_{w}"), x));
+            slots.push((format!("min_{w}"), n2));
+            slots.push((format!("std_{w}"), s));
+        }
+        let mut sum_prod = 0.0f64;
+        let mut sum_v3 = 0.0f64;
+        for (tag, slot) in &slots {
+            let t0 = Instant::now();
+            let (out_prod, _tp) = v2::v2_slot(slot.view(), &v3s.v2, "opt2");
+            let t_prod = t0.elapsed().as_secs_f64();
+            let t0 = Instant::now();
+            let (out_v3, tv) = v3::v3_slot(slot.view(), &v3s);
+            let t_v3 = t0.elapsed().as_secs_f64();
+            let (eq, mm) = v3::bitwise_equal(&out_prod, &out_v3);
+            println!(
+                "V3 {nm}::{tag} prod={t_prod:.3}s v3={t_v3:.3}s speedup={:.2}x bitwise={eq}({mm})",
+                t_prod / t_v3
+            );
+            println!("     {}", v3::fmt_v3(&tv));
+            sum_prod += t_prod;
+            sum_v3 += t_v3;
+            if !eq && std::env::var("V3DBG").is_ok() {
+                v3::debug_mismatch(&out_prod, &out_v3, &v3s, tag, slot);
+            }
+        }
+        println!(
+            "V3 汇总 {nm}: 13 面 prod={sum_prod:.3}s v3={sum_v3:.3}s 合计加速={:.2}x",
+            sum_prod / sum_v3
+        );
+    }
+}
+
+fn run_v3_mt(data_dir: &str, workers: usize, batch: usize) {
+    let v2s = v2::build_shared(data_dir);
+    let v3s = v3::v3_build(v2s);
+    let names = std::fs::read_to_string(format!("{data_dir}/sample_names.txt")).unwrap();
+    let restrict_m = npy::as_f32_mat(npy::load(&format!("{data_dir}/restrict.npy")));
+    let mut slots: Vec<Array2<f32>> = Vec::new();
+    let nf = names.lines().count();
+    let reps = ((workers * batch * 3) / (nf * 4)).max(1);
+    for _ in 0..reps {
+        for nm in names.lines() {
+            let raw = npy::as_f32_mat(npy::load(&format!("{data_dir}/factor_{nm}.npy")));
+            let ranked = engine::rank_and_fill_missing_cross_sectional_median(&raw, &restrict_m);
+            slots.push(ranked.clone());
+            for &w in &[5usize, 10, 20] {
+                let (m, _x, _n, _s) = engine::rolling_stats_f32_serial(&ranked, w, w / 2);
+                slots.push(m);
+            }
+        }
+    }
+    let n = slots.len();
+    let dt = v3::v3_mt(&v3s, &slots, workers, batch);
+    println!(
+        "V3MT workers={workers} batch={batch} slots={n} total={dt:.2}s per_slot={:.4}s throughput={:.1} slot/s",
+        dt / n as f64,
+        n as f64 / dt
+    );
+}
+
 fn bench_neu() {
     let barra_raw = npy::as_f64_3d(npy::load(&format!("{DATA}/barra_raw.npy")));
     let industry = npy::as_f64_mat(npy::load(&format!("{DATA}/industry.npy")));
     let restrict = npy::as_f32_mat(npy::load(&format!("{DATA}/restrict.npy")));
+    let restrict_m = restrict.clone();
     let factors = load_factors();
 
     let t = Instant::now();
@@ -806,7 +999,7 @@ fn bench_neu() {
 
     // 用真实 ranked+filled slot（与生产回测中进入中性化的 slot 形态一致）
     for (name, raw) in &factors {
-        let ranked = engine::rank_and_fill_missing_cross_sectional_median(raw);
+        let ranked = engine::rank_and_fill_missing_cross_sectional_median(raw, &restrict_m);
         let t = Instant::now();
         let (out_p, st) = neu::neutralize_slot_prod(ranked.view(), &shared_prod);
         let t_p = t.elapsed().as_secs_f64();

@@ -17,8 +17,9 @@ use ndarray::{Array1, Array2, Array3, ArrayView1, ArrayView2, ArrayView3, Axis};
 
 use crate::engine::{
     self, annualized_sharpe_sample, max_drawdown_from_returns, nanmean_f64,
-    nanstd_population, LegacyBacktestResult, EPS,
+    nanstd_population, EPS,
 };
+pub(crate) use crate::engine::LegacyBacktestResult;
 
 // ==================== 基础原语（照抄生产） ====================
 
@@ -73,7 +74,7 @@ fn keyed_order_u32(values: &[f32]) -> Vec<usize> {
     order
 }
 
-fn rank_both_radix(values: &[f32]) -> (Vec<i64>, Vec<f64>) {
+pub(crate) fn rank_both_radix(values: &[f32]) -> (Vec<i64>, Vec<f64>) {
     let n = values.len();
     let order = keyed_order_u32(values);
     let mut ordinal = vec![0i64; n];
@@ -181,7 +182,7 @@ fn effective_raw_indices_for_slot(
     effective_raw_indices
 }
 
-fn default_result() -> LegacyBacktestResult {
+pub(crate) fn default_result() -> LegacyBacktestResult {
     LegacyBacktestResult {
         summary: [f64::NAN; 10],
         ic_dates: Vec::new(),
@@ -346,7 +347,7 @@ pub fn bt_single_gap(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn finish_result(
+pub(crate) fn finish_result(
     group_returns: Vec<Vec<f64>>,
     ratio_values: Vec<f64>,
     ic_dates: Vec<i32>,
@@ -1026,4 +1027,28 @@ pub fn result_bitwise_eq(a: &LegacyBacktestResult, b: &LegacyBacktestResult) -> 
             .iter()
             .zip(b.ic_values.iter())
             .all(|(u, v)| (u.is_nan() && v.is_nan()) || u.to_bits() == v.to_bits())
+}
+
+pub(crate) fn rank_both_radix_pub(values: &[f32]) -> (Vec<i64>, Vec<f64>) { rank_both_radix(values) }
+pub(crate) fn default_result_pub() -> LegacyBacktestResult { default_result() }
+pub(crate) fn finish_result_pub(
+    ratio_values: Vec<f64>,
+    ic_dates: Vec<i32>,
+    ic_values_f64: Vec<f64>,
+    ic_values_f32: Vec<f32>,
+    effective_raw_indices: &[usize],
+    gap: usize,
+) -> LegacyBacktestResult {
+    finish_result(
+        Vec::new(),
+        ratio_values,
+        ic_dates,
+        ic_values_f64,
+        ic_values_f32,
+        effective_raw_indices,
+        ndarray::ArrayView1::from(&[0.0f32][..]),
+        10,
+        gap,
+        true,
+    )
 }
