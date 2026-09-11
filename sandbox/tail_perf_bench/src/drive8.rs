@@ -218,12 +218,27 @@ pub enum Mode {
     V8,
 }
 
+/// 因子来源：内存夹具（小规模对账）或真实 colblk 库（全量）。
+pub enum TaskSource {
+    Mem(Arc<Vec<Array2<f32>>>),
+    Store(Arc<crate::store8::Store8>),
+}
+
+impl TaskSource {
+    pub fn get(&self, k: usize) -> Result<Array2<f32>, String> {
+        match self {
+            TaskSource::Mem(v) => Ok(v[k].clone()),
+            TaskSource::Store(s) => s.read_factor(k),
+        }
+    }
+}
+
 /// 多线程跑 N 个任务，返回 (墙钟秒, 每个任务的结果)。
 /// 三档：worker 自己完成结果整理，主线程只做收集（不做逐条串行处理）。
 pub fn run_mt(
     mode: Mode,
     tasks: &[(String, usize)],
-    fixtures: &Arc<Vec<Array2<f32>>>,
+    src: &TaskSource,
     base: &Arc<BaseCtx>,
     v8ctx: &Arc<V8Ctx>,
     n_threads: usize,
@@ -249,7 +264,15 @@ pub fn run_mt(
                         break;
                     }
                     let (name, k) = &tasks[i];
-                    let raw = fixtures[*k].clone();
+                    let tr = Instant::now();
+                    let raw = match src.get(*k) {
+                        Ok(m) => m,
+                        Err(e) => {
+                            eprintln!("[worker] 读因子 {name} 失败: {e}");
+                            continue;
+                        }
+                    };
+                    t8::tick(&t8::T_READ, tr);
                     let tw = Instant::now();
                     let res = match mode {
                         Mode::Base => run_factor_v7_real(name, raw, base, &mut v3sc),
@@ -370,12 +393,15 @@ pub fn compare_results(base: &T8Result, v8r: &T8Result) -> Vec<String> {
 /// 从夹具目录加载 engine::Shared（与 main.rs::load_shared 同构，但目录可传）。
 pub fn load_shared_dir(data_dir: &str, fold: bool) -> engine::Shared {
     let dates = crate::npy::as_i32_vec1(crate::npy::load(&format!("{data_dir}/dates.npy")));
+    // 与生产脚本对齐：majority_count_threshold 默认 2000（脚本值），可用 E2E_MAJ 覆盖
+    let maj = std::env::var("E2E_MAJ").ok().and_then(|s| s.parse().ok()).unwrap_or(200.0);
+    let bstart = std::env::var("E2E_BSTART").ok().and_then(|s| s.parse().ok()).unwrap_or(20170201);
     engine::Shared {
         cover_rate: 0.5,
         dates,
         windows: vec![5, 10, 20],
         fold,
-        backtest_start: 20170201,
+        backtest_start: bstart,
         ret_gap1: crate::npy::as_f32_mat(crate::npy::load(&format!("{data_dir}/ret_gap1.npy"))),
         ret_sum_gap1: crate::npy::as_f32_mat(crate::npy::load(&format!(
             "{data_dir}/ret_sum_gap1.npy"
@@ -387,7 +413,7 @@ pub fn load_shared_dir(data_dir: &str, fold: bool) -> engine::Shared {
         restrict: crate::npy::as_f32_mat(crate::npy::load(&format!("{data_dir}/restrict.npy"))),
         index_ret: crate::npy::as_f32_vec1(crate::npy::load(&format!("{data_dir}/index_ret.npy")))
             .into(),
-        majority_count_threshold: 200.0,
+        majority_count_threshold: maj,
         zero_max_threshold: 0.1,
         nan_max_threshold: 0.04,
     }
@@ -413,24 +439,42 @@ pub fn run_e2e(data_dir: &str, n_threads: usize, n_tasks: usize, block_rows: usi
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect();
+    // ---- 任务表：store 模式（全量）或内存夹具模式 ----
+    let use_store = std::env::var("E2E_STORE").is_ok();
     let mut fixtures = Vec::new();
-    for nm in &base_names {
-        fixtures.push(crate::npy::as_f32_mat(crate::npy::load(&format!(
-            "{data_dir}/factor_{nm}.npy"
-        ))));
+    if !use_store {
+        for nm in &base_names {
+            fixtures.push(crate::npy::as_f32_mat(crate::npy::load(&format!(
+                "{data_dir}/factor_{nm}.npy"
+            ))));
+        }
     }
-    let fixtures = Arc::new(fixtures);
-    let tasks: Vec<(String, usize)> = (0..n_tasks)
-        .map(|i| {
-            let k = i % fixtures.len();
-            (format!("{}#{}", base_names[k], i), k)
-        })
-        .collect();
+    let (src, tasks): (TaskSource, Vec<(String, usize)>) = if use_store {
+        let meta = std::env::var("STORE_META").unwrap_or("/home/chenzongwei/neu_lab/store_meta".into());
+        let sdir = std::env::var("STORE_DIR")
+            .unwrap_or("/hdd/user_home_unsafe/chenzongwei/factor_store_yupei_dist".into());
+        let st = Arc::new(crate::store8::Store8::open(&meta, &sdir).expect("打开 store8"));
+        let nf = st.n_factors();
+        let take = if n_tasks == 0 { nf } else { n_tasks.min(nf) };
+        let t: Vec<(String, usize)> =
+            (0..take).map(|c| (st.factor_names[c].clone(), c)).collect();
+        println!("[e2e] 来源=真实 colblk 库（{sdir}），库内 {nf} 个因子，本次跑 {take} 个");
+        (TaskSource::Store(st), t)
+    } else {
+        let n_fx = fixtures.len();
+        let fixtures = Arc::new(fixtures);
+        let t: Vec<(String, usize)> = (0..n_tasks)
+            .map(|i| {
+                let k = i % n_fx;
+                (format!("{}#{}", base_names[k], i), k)
+            })
+            .collect();
+        (TaskSource::Mem(fixtures), t)
+    };
     println!(
-        "[e2e] 任务数={} 线程数={} 夹具={} 个 块行数={}",
+        "[e2e] 任务数={} 线程数={} 块行数={}",
         tasks.len(),
         n_threads,
-        fixtures.len(),
         block_rows
     );
 
@@ -443,13 +487,13 @@ pub fn run_e2e(data_dir: &str, n_threads: usize, n_tasks: usize, block_rows: usi
 
     // 每种模式跑两轮：第一轮冷（缺页/缓存未热），第二轮热。对比用热轮。
     if std::env::var("E2E_SKIP_COLD").is_err() {
-        let (cold_base, _) = run_mt(Mode::Base, &tasks, &fixtures, &base, &v8ctx, n_threads);
-        let (cold_v8, _) = run_mt(Mode::V8, &tasks, &fixtures, &base, &v8ctx, n_threads);
+        let (cold_base, _) = run_mt(Mode::Base, &tasks, &src, &base, &v8ctx, n_threads);
+        let (cold_v8, _) = run_mt(Mode::V8, &tasks, &src, &base, &v8ctx, n_threads);
         println!("[e2e] 冷启动轮: 基线 {:.1}s / v8 {:.1}s", cold_base, cold_v8);
     }
 
     t8::reset_timers();
-    let (wall_base, res_base) = run_mt(Mode::Base, &tasks, &fixtures, &base, &v8ctx, n_threads);
+    let (wall_base, res_base) = run_mt(Mode::Base, &tasks, &src, &base, &v8ctx, n_threads);
     t8::dump_timers("基线", tasks.len(), wall_base);
     println!(
         "[e2e] 基线(v7形态) 墙钟 {:.1}s  每因子 {:.2}s  吞吐 {:.3} 因子/s",
@@ -459,7 +503,7 @@ pub fn run_e2e(data_dir: &str, n_threads: usize, n_tasks: usize, block_rows: usi
     );
 
     t8::reset_timers();
-    let (wall_v8, res_v8) = run_mt(Mode::V8, &tasks, &fixtures, &base, &v8ctx, n_threads);
+    let (wall_v8, res_v8) = run_mt(Mode::V8, &tasks, &src, &base, &v8ctx, n_threads);
     t8::dump_timers("v8", tasks.len(), wall_v8);
     println!(
         "[e2e] v8(三档融合) 墙钟 {:.1}s  每因子 {:.2}s  吞吐 {:.3} 因子/s",

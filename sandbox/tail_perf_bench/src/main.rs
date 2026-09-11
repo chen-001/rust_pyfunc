@@ -603,7 +603,11 @@ fn main() {
         let nt: usize = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(192);
         let nk: usize = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(192);
         let br: usize = args.get(4).and_then(|s| s.parse().ok()).unwrap_or(64);
-        drive8::run_e2e(DATA_YUPEI, nt, nk, br);
+        let dir: &'static str = match std::env::var("E2E_DATA") {
+            Ok(d) => Box::leak(d.into_boxed_str()),
+            Err(_) => DATA_YUPEI,
+        };
+        drive8::run_e2e(dir, nt, nk, br);
         return;
     }
     if mode == "agg" {

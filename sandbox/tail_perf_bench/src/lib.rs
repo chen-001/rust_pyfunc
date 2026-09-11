@@ -17,5 +17,6 @@ pub mod drive8;
 pub mod neu8;
 pub mod pf8;
 pub mod roll8;
+pub mod store8;
 pub mod t8;
 pub mod v8;

@@ -79,6 +79,8 @@ pub static T_PF: AtomicU64 = AtomicU64::new(0);
 pub static T_NEU: AtomicU64 = AtomicU64::new(0);
 /// 回测（raw + neu 合计）
 pub static T_BT: AtomicU64 = AtomicU64::new(0);
+/// 从 colblk 库读因子
+pub static T_READ: AtomicU64 = AtomicU64::new(0);
 /// worker 全时长
 pub static T_WORK: AtomicU64 = AtomicU64::new(0);
 
@@ -88,7 +90,7 @@ pub fn tick(c: &AtomicU64, t0: Instant) {
 }
 
 pub fn reset_timers() {
-    for c in [&T_PREP, &T_ROLL, &T_PF, &T_NEU, &T_BT, &T_WORK] {
+    for c in [&T_PREP, &T_ROLL, &T_PF, &T_NEU, &T_BT, &T_READ, &T_WORK] {
         c.store(0, Ordering::Relaxed);
     }
 }
@@ -97,8 +99,9 @@ pub fn reset_timers() {
 pub fn dump_timers(tag: &str, n_factors: usize, wall: f64) {
     let per = |c: &AtomicU64| c.load(Ordering::Relaxed) as f64 / 1e9 / n_factors.max(1) as f64;
     println!(
-        "[TIMER {tag}] 每因子线程秒: work={:.1} prep={:.1} roll={:.1} preflight={:.1} neutralize={:.1} backtest={:.1} | 墙钟/因子 {:.2}s",
+        "[TIMER {tag}] 每因子线程秒: work={:.1} read={:.1} prep={:.1} roll={:.1} preflight={:.1} neutralize={:.1} backtest={:.1} | 墙钟/因子 {:.2}s",
         per(&T_WORK),
+        per(&T_READ),
         per(&T_PREP),
         per(&T_ROLL),
         per(&T_PF),
