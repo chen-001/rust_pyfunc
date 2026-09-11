@@ -141,6 +141,9 @@ def run_factor_pipeline(
       显式指定后只查该目录，不再回退 /nas197/binary/stock/sz_alpha/stock。
 
     update_mode: True = 断点续算（按 (date, code) 粒度跳过已写入的任务）。
+    params: pipeline 参数字典。observable_order 额外支持 `with_curvature`（默认 True）：
+      False = 不输出 curvature / quad_coef 两个二阶趋势指标，退回 19 统计量口径
+      （每组 19*n+C(n,2) 而非 21*n+C(n,2)），用于在 curvature 改动之前创建的旧 store 上续算。
     incremental_projection: True = 增量投影（仅 store_dir 模式）。追加新任务时保留已有
       factors.proj 不动，新行写成 factors.proj.delta.<end>，读取端自动拼接 base + delta；
       默认 False = 追加即删投影、收尾整片重投影（I/O ≈ 2× store 体积）。

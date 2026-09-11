@@ -694,6 +694,21 @@ pub fn get_features_factors_rust_full(
     col_names: &[String],
     with_threshold_counts: bool,
 ) -> (Vec<f32>, Vec<String>) {
+    get_features_factors_rust_full_opts(data, col_names, with_threshold_counts, true)
+}
+
+/// 与 `get_features_factors_rust_full` 相同，但可选择**不输出 curvature / quad_coef**
+/// （`with_curvature=false` 时退回 2026-07-13 commit f3c0cc0 之前的 19 统计量口径）。
+///
+/// 用途：`observable_order` 系列因子在 0701c 版本（50400 列）之后才加入这两个二阶趋势指标；
+/// 需要在**旧 store 上续算**（追加新日期）时，必须产出与旧列定义完全一致的值，
+/// 否则列名/列序对不上，写入会被拒绝或整体错位。
+pub fn get_features_factors_rust_full_opts(
+    data: &ArrayView2<f32>,
+    col_names: &[String],
+    with_threshold_counts: bool,
+    with_curvature: bool,
+) -> (Vec<f32>, Vec<String>) {
     let (n_rows, n_cols) = data.dim();
 
     // 空输入防护：0 行或 0 列时返回全 NaN（与 pandas 对空 DataFrame 的行为一致）
@@ -937,21 +952,23 @@ pub fn get_features_factors_rust_full(
         "trend",
         col_names,
     );
-    // 4b. curvature / quad_coef（二阶趋势）
-    push_group(
-        &mut res,
-        &mut names,
-        &col_stats.iter().map(|s| s.curvature).collect::<Vec<_>>(),
-        "curvature",
-        col_names,
-    );
-    push_group(
-        &mut res,
-        &mut names,
-        &col_stats.iter().map(|s| s.quad_coef).collect::<Vec<_>>(),
-        "quad_coef",
-        col_names,
-    );
+    // 4b. curvature / quad_coef（二阶趋势）——with_curvature=false 时跳过（旧 19 统计量口径）
+    if with_curvature {
+        push_group(
+            &mut res,
+            &mut names,
+            &col_stats.iter().map(|s| s.curvature).collect::<Vec<_>>(),
+            "curvature",
+            col_names,
+        );
+        push_group(
+            &mut res,
+            &mut names,
+            &col_stats.iter().map(|s| s.quad_coef).collect::<Vec<_>>(),
+            "quad_coef",
+            col_names,
+        );
+    }
     // 5. period_diff / period_ratio
     push_group(
         &mut res,

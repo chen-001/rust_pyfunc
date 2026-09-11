@@ -174,6 +174,9 @@ pub struct ObservableOrderParams {
     pub pre_minutes: f64,
     pub rolling_n: usize,
     pub autocorr_lag: usize,
+    /// 是否输出 curvature / quad_coef 两个二阶趋势指标（默认 true）。
+    /// false = 退回 19 统计量口径（50400 列），用于在旧 store 上续算。
+    pub with_curvature: bool,
 }
 
 impl Default for ObservableOrderParams {
@@ -185,6 +188,7 @@ impl Default for ObservableOrderParams {
             pre_minutes: 5.0,
             rolling_n: 20,
             autocorr_lag: 1,
+            with_curvature: true,
         }
     }
 }
@@ -213,6 +217,8 @@ pub fn pipeline_observable_order(
             Ok(r) => r,
             Err(_) => return nan_vec(expected_len),
         };
+    // 旧 store（0701c，50400 列）续算时需要退回 19 统计量口径
+    let with_curvature = ooparams.with_curvature;
 
     // 2. 生成列名（过滤后 114 列，与 go 函数一致）
     let keep = observable_order_metrics::keep_cols();
@@ -255,9 +261,14 @@ pub fn pipeline_observable_order(
 
         for arr in [seg.view(), pre5.view(), diff.view(), abs_diff.view()] {
             let (vals, _) = if arr.nrows() == 0 {
-                (nan_vec(features_per_group(&col_names)), vec![])
+                (nan_vec(features_per_group(&col_names, with_curvature)), vec![])
             } else {
-                features::get_features_factors_rust_full(&arr, &col_names, false)
+                features::get_features_factors_rust_full_opts(
+                    &arr,
+                    &col_names,
+                    false,
+                    with_curvature,
+                )
             };
             all_factors.extend_from_slice(&vals);
         }
@@ -420,11 +431,14 @@ fn filter_array2(data: &[f32], n_rows: usize, keep: &[usize]) -> ndarray::Array2
 }
 
 /// 计算 get_features_factors_rust_full(with_threshold_counts=false) 在 n_cols 列时的输出长度。
-fn features_per_group(col_names: &[String]) -> usize {
+fn features_per_group(col_names: &[String], with_curvature: bool) -> usize {
     let n = col_names.len();
-    // mean/median/std/skew/kurt + p5/p25/p75/p95/iqr/cv + autocorr1/abs + trend + curvature/quad_coef + period_diff/ratio + lz/entropy/max_range
-    // = (5+6+2+1+2+2+3)*n + C(n,2) = 21*n + C(n,2)
-    21 * n + n * (n - 1) / 2
+    // mean/median/std/skew/kurt + p5/p25/p75/p95/iqr/cv + autocorr1/abs + trend
+    //   [+ curvature/quad_coef（with_curvature=true 时）]
+    //   + period_diff/ratio + lz/entropy/max_range
+    // = (5+6+2+1 + 2[可选] + 2+3)*n + C(n,2) = 21*n + C(n,2) 或 19*n + C(n,2)
+    let per_col = if with_curvature { 21 } else { 19 };
+    per_col * n + n * (n - 1) / 2
 }
 
 /// 生成 147 列的列名（与 go 函数 observable_order_go.py 一致）。
@@ -555,6 +569,11 @@ fn parse_observable_order_params(py: Python, params: &PyObject) -> PyResult<Obse
         if let Some(v) = dict.get_item("autocorr_lag") {
             if !v.is_none() {
                 p.autocorr_lag = v.extract()?;
+            }
+        }
+        if let Some(v) = dict.get_item("with_curvature") {
+            if !v.is_none() {
+                p.with_curvature = v.extract()?;
             }
         }
     }
