@@ -641,7 +641,7 @@ pub fn run_factor_pipeline(
                 .collect()
         });
         Some(
-            crate::factor_store_v5::ShardedBackupSink::new_colblk_sharded(sdir, &snames, n_shards)
+            crate::factor_store_v5::ShardedBackupSink::new_colblk_sharded(sdir, &snames, n_shards, false)
                 .map_err(|e| {
                     pyo3::exceptions::PyIOError::new_err(format!("打开 colblk 存储失败: {}", e))
                 })?,
@@ -1660,7 +1660,7 @@ pub fn run_factor_pipeline_v6(
                 .collect()
         });
         Some(
-            crate::factor_store_v5::ShardedBackupSink::new_colblk_sharded(sdir, &snames, n_shards)
+            crate::factor_store_v5::ShardedBackupSink::new_colblk_sharded(sdir, &snames, n_shards, false)
                 .map_err(|e| {
                     pyo3::exceptions::PyIOError::new_err(format!("打开 colblk 存储失败: {}", e))
                 })?,
@@ -1849,6 +1849,7 @@ pub fn run_factor_pipeline_minute(
             &store_dir_str,
             &snames,
             n_shards,
+            false,
         )
         .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("打开 colblk 存储失败: {e}")))?
     };
@@ -2602,10 +2603,13 @@ pub fn run_factor_pipeline_regime(
                 .map(|i| format!("factor_{i}"))
                 .collect()
         });
-        crate::factor_store_v5::ShardedBackupSink::new_colblk_sharded(&store_dir_str, &snames, 8)
-            .map_err(|e| {
-                pyo3::exceptions::PyIOError::new_err(format!("打开 colblk 存储失败: {e}"))
-            })?
+        crate::factor_store_v5::ShardedBackupSink::new_colblk_sharded(
+            &store_dir_str,
+            &snames,
+            8,
+            false,
+        )
+        .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("打开 colblk 存储失败: {e}")))?
     };
 
     // 解析日期列表（升序）
@@ -2764,6 +2768,8 @@ pub fn run_factor_pipeline_regime(
 /// - trading_days: 交易日历
 /// - n_workers: 可选 worker 进程数。不设则自动 = clamp(n_jobs//50, 2, 8)
 /// - store_dir / store_factor_names: colblk 列式存储
+/// - incremental_projection: true = 增量投影（追加新日期时 base 投影不动，只把新行写成
+///   factors.proj.delta.<end>，读取端自动拼接 base + delta）；默认 false = 整片重投影。
 ///
 /// 调度：n_workers 个进程，每进程设 RAYON_NUM_THREADS = n_jobs/n_workers，
 /// 异步从日期队列领任务，每个 date 任务内并行读全市场 + 横截面计算。
@@ -2771,7 +2777,8 @@ pub fn run_factor_pipeline_regime(
 #[pyo3(signature = (
     pipeline, tasks, n_jobs, expected_result_length, trading_days,
     params=None, n_workers=None, update_mode=None, bind_cores=true,
-    store_dir=None, store_factor_names=None, force_clear=None, data_root=None
+    store_dir=None, store_factor_names=None, force_clear=None, data_root=None,
+    incremental_projection=None
 ))]
 #[allow(clippy::too_many_arguments)]
 pub fn run_factor_pipeline_cross_section(
@@ -2788,6 +2795,7 @@ pub fn run_factor_pipeline_cross_section(
     store_factor_names: Option<Vec<String>>,
     force_clear: Option<bool>,
     data_root: Option<String>,
+    incremental_projection: Option<bool>,
 ) -> PyResult<PyObject> {
     let py = unsafe { Python::assume_gil_acquired() };
 
@@ -2825,6 +2833,7 @@ pub fn run_factor_pipeline_cross_section(
 
     let update_mode_enabled = update_mode.unwrap_or(false);
     let force_clear_enabled = force_clear.unwrap_or(false);
+    let incremental_projection_enabled = incremental_projection.unwrap_or(false);
     let n_shards = 8;
 
     let store_dir_str = store_dir
@@ -2871,9 +2880,13 @@ pub fn run_factor_pipeline_cross_section(
             &store_dir_str,
             &snames,
             n_shards,
+            incremental_projection_enabled,
         )
         .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("打开 colblk 存储失败: {e}")))?
     };
+    if incremental_projection_enabled {
+        println!("📎 增量投影已启用：追加新日期时 base 投影不动，只投影新行（factors.proj.delta.*）");
+    }
 
     // 复用 oo_params（横截面 pipeline 暂无自定义 params）
     let oo_params = if let Some(p) = &params {

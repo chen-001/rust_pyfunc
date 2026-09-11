@@ -90,6 +90,7 @@ pub mod tail_v2_rank_roll_factor;
 pub mod tail_v4_pipeline;
 pub mod tail_v5_pipeline;
 pub mod tail_v8_backtest;
+pub mod tail_v8_neu_v3;
 pub mod tail_v8_pipeline;
 pub mod tail_v8_preflight;
 pub mod tail_v8_roll;
@@ -386,6 +387,10 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?);
     let _ = m.add_function(wrap_pyfunction!(
         factor_store_v5::factor_store_v5_project_only,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        factor_store_v5::factor_store_v5_project_incremental,
         m
     )?);
     let _ = m.add_function(wrap_pyfunction!(

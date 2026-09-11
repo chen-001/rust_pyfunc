@@ -794,9 +794,20 @@ def factor_store_v5_info(store_dir: str) -> dict:
     返回 dict:
         record_count: int   已写入记录数
         factor_count: int   因子数
-        is_projected: bool  是否已投影
+        is_projected: bool  是否已投影（base+delta 覆盖全部 chunk 才算 True）
+        proj_deltas: int    增量投影 delta 段数量（0 = 纯 base；>0 = base + delta）
         factor_names: List[str]
         groups: dict        group_name -> {dir, factor_offset, factor_count}
+    """
+    ...
+
+
+def factor_store_v5_project_incremental(store_dir: str, n_jobs: int = 0) -> None:
+    """对已有 store 做增量投影：只把"尚未投影的新 chunk 行"写成 factors.proj.delta.<end>，
+    base 的 factors.proj 一个字节都不动。无新行时是幂等的空操作。
+
+    用于「已有若干年因子、只补算新日期」的场景：全量重投影的 I/O ≈ 2× store 体积，
+    增量投影只读写新增行。读取端（回测/导出/read_factor）自动拼接 base + delta。
     """
     ...
 

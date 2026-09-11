@@ -245,6 +245,7 @@ def run_factor_pipeline_cross_section(
     store_factor_names: Optional[List[str]] = None,
     force_clear: Optional[bool] = None,
     data_root: Optional[str] = None,
+    incremental_projection: Optional[bool] = None,
 ) -> None:
     """横截面（一天全市场）因子批量计算入口。
 
@@ -253,6 +254,14 @@ def run_factor_pipeline_cross_section(
       少数因子额外读取的行业/基础信息不在该目录下，用环境变量指定：
       RUST_PYFUNC_VARS_DIR（默认 /ssd_data/data/vars）、
       RUST_PYFUNC_BASIC_INFO_DIR（默认 /ssd_data/data/basic_info）。
+
+    update_mode: True = 断点续算（跳过 _completed_dates 里已完成的日期，只算缺失日期）。
+      None/False = 全量重跑：store 非空且未传 force_clear=True 会直接报错（拒绝误删）。
+
+    incremental_projection: True = 增量投影。追加新日期时保留已有投影（base 不动），
+      收尾只把新行写成 factors.proj.delta.<end>；读取端自动拼接 base + delta。
+      False/None = 旧行为：追加即删投影，收尾整片重投影（I/O ≈ 2× store 体积）。
+      已有多年数据、只补算新日期时开这个开关可省掉整库重投影。
     """
     ...
 
