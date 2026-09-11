@@ -714,6 +714,93 @@ fn ols_day_core(
     }
 }
 
+/// OLS 末步分派：行业路径用 `ols_day_core`；纯风格路径用 `ols_day_core_style`。
+/// 返回 false = 该行需要生产行级回退（纯风格 SVD / Cholesky 失败；行业路径恒 true）。
+#[inline]
+fn ols_dispatch(
+    y_v: &[f64],
+    ns: &NeutralizeStdShared,
+    idx: usize,
+    out_f32_row: &mut [f32],
+    industry_neutralize: bool,
+) -> bool {
+    if industry_neutralize {
+        ols_day_core(y_v, ns, idx, out_f32_row);
+        true
+    } else {
+        ols_day_core_style(y_v, ns, idx, out_f32_row)
+    }
+}
+
+/// 纯风格残差快路径：模型 = `[1, b0..b9]`（显式截距列 0, p=11），与生产
+/// `get_residual(fv, barra_ranked, None)` **逐位一致**。
+///
+/// - 有效集 = `per_date[idx].valid_idx`（= V），y 由调用方按 V 顺序备好（`y_v`）。
+/// - X'X 用每日预分解 `chols_style[idx]`（在 valid 集上同序累积，与逐行累积同 bit）。
+/// - `n_valid <= 10`（`p == 0`）→ 生产整行跳过 → out 保持 NaN；y 全等 → 0.5。
+/// - 返回 false 表示 `n_valid <= 40` 或 Cholesky 失败 → 交回生产行级 SVD 回退。
+fn ols_day_core_style(
+    y_v: &[f64],
+    ns: &NeutralizeStdShared,
+    idx: usize,
+    out_f32_row: &mut [f32],
+) -> bool {
+    let k = 10usize;
+    let p = k + 1;
+    let (pn, valid_idx, _valid_cols, _xtx) = &ns.per_date[idx];
+    if *pn == 0 {
+        return true; // 有效数 <= 10：生产该日整行 NaN（out 已是 NaN）
+    }
+    let mut mn = f64::INFINITY;
+    let mut mx = f64::NEG_INFINITY;
+    for &y in y_v {
+        if y < mn {
+            mn = y;
+        }
+        if y > mx {
+            mx = y;
+        }
+    }
+    if mn == mx {
+        // 与生产 `get_residual` 的 uniq.len()==1 同判据
+        for &j in valid_idx {
+            out_f32_row[j as usize] = 0.5;
+        }
+        return true;
+    }
+    if valid_idx.len() <= 40 {
+        return false; // 生产走 SVD 伪逆
+    }
+    let chol = match ns.chols_style[idx].as_ref() {
+        Some(c) => c,
+        None => return false, // 生产 Cholesky 失败 → SVD
+    };
+    // X'y：与 `get_residual(.., None)` 同序累积（截距列 0 + 10 风格列）
+    let mut xty = [0.0f64; 11];
+    let xd = &ns.xdays[idx];
+    for (pos, &yv) in y_v.iter().enumerate() {
+        xty[0] += yv;
+        let xrow = &xd[pos * k..pos * k + k];
+        for c in 0..k {
+            xty[c + 1] += xrow[c] * yv;
+        }
+    }
+    let rhs = DMatrix::from_column_slice(p, 1, &xty);
+    let coef: Vec<f64> = chol.solve(&rhs).column(0).iter().copied().collect();
+    for (pos, &j) in valid_idx.iter().enumerate() {
+        let ji = j as usize;
+        let xrow = &xd[pos * k..pos * k + k];
+        let mut pred = coef[0];
+        for c in 0..k {
+            pred += coef[c + 1] * xrow[c];
+        }
+        // 与生产 style 路径同一步：resid 为 NaN 时统一写 f32::NAN（NaN 位置一致）
+        let r = y_v[pos] - pred;
+        out_f32_row[ji] = if r.is_nan() { f32::NAN } else { r as f32 };
+    }
+    true
+}
+
 /// 行级 f64 rank (就地写回), 与 rank_pct_all 的逐行语义一致。
 fn rank_pct_row_f64_in_place(
     row: &mut [f64],
@@ -759,6 +846,8 @@ pub struct V3Scratch {
     ybuf: Vec<f64>,
     y_v: Vec<f64>,
     xty: Vec<f64>,
+    /// 纯风格行级回退：`get_residual_row_style` 的输出缓冲
+    style_resid: Vec<f64>,
     // 回退路径缓冲
     pct: Vec<f64>,
     filled: Vec<f64>,
@@ -796,6 +885,7 @@ impl V3Scratch {
             ybuf: Vec::with_capacity(n),
             y_v: Vec::with_capacity(n),
             xty: Vec::with_capacity(64),
+            style_resid: Vec::with_capacity(n),
             pct: Vec::with_capacity(n),
             filled: Vec::with_capacity(n),
             idxs: Vec::with_capacity(n),
@@ -1039,14 +1129,10 @@ impl V3Shared {
 
 // ==================== 行级中性化（快路径 / 特殊位置路径 / 生产回退） ====================
 
-/// 生产行级回退：与 neutralize_std_slots_f32_v2_resid_batch 的单行完全一致。
-fn v3_row_prod(
-    row: &[f32],
-    idx: usize,
-    shared: &V3Shared,
-    out_row: &mut [f32],
-    sc: &mut V3Scratch,
-) {
+/// 生产行级填充链（行业/纯风格共用）：rank1 → fill_ind_reg → ind1 NaN → 三级中位填充
+/// → restrict 掩码 → rank2。结果留在 `sc.filled`，供两个末步（行业 OLS / 纯风格残差）复用。
+/// 与 `neutralize_std_slots_f32_v2_resid_batch` 的单行完全一致。
+fn v3_row_prod_fill(row: &[f32], idx: usize, shared: &V3Shared, sc: &mut V3Scratch) {
     let n = row.len();
     let base: &NeutralizeStdShared = &shared.ns;
     let ind2_v = base.ind2.row(idx);
@@ -1139,6 +1225,11 @@ fn v3_row_prod(
         &mut sc.tmp,
         &mut sc.keys64,
     );
+}
+
+/// 生产行级回退（行业路径）：填充链 → 行业 OLS。
+fn v3_row_prod(row: &[f32], idx: usize, shared: &V3Shared, out_row: &mut [f32], sc: &mut V3Scratch) {
+    v3_row_prod_fill(row, idx, shared, sc);
     ols_day_row_fast(
         &sc.filled,
         &shared.ns,
@@ -1147,6 +1238,38 @@ fn v3_row_prod(
         &mut sc.xty,
         out_row,
     );
+}
+
+/// 生产行级回退（纯风格路径）：同一填充链 → `get_residual(.., None)` 的行级移植
+/// （`factor_neutralize_std::get_residual_row_style`，task-10 产物，逐位验证过）。
+fn v3_row_prod_style(
+    row: &[f32],
+    idx: usize,
+    shared: &V3Shared,
+    out_row: &mut [f32],
+    sc: &mut V3Scratch,
+) {
+    v3_row_prod_fill(row, idx, shared, sc);
+    style_residual_row(&sc.filled, &shared.ns, idx, out_row, &mut sc.style_resid);
+}
+
+/// 纯风格残差的生产行级实现：把整行交给 `get_residual_row_style`，再转 f32 写回。
+fn style_residual_row(
+    fv_row: &[f64],
+    ns: &NeutralizeStdShared,
+    idx: usize,
+    out_row: &mut [f32],
+    resid: &mut Vec<f64>,
+) {
+    let n = fv_row.len();
+    let views: Vec<_> = (0..10).map(|c| ns.barra_ranked[c].row(idx)).collect();
+    let bench_rows: Vec<&[f64]> = views.iter().map(|r| r.as_slice().unwrap()).collect();
+    resid.clear();
+    resid.resize(n, f64::NAN);
+    crate::factor_neutralize_std::get_residual_row_style(fv_row, &bench_rows, resid);
+    for (j, &v) in resid.iter().enumerate() {
+        out_row[j] = if v.is_nan() { f32::NAN } else { v as f32 };
+    }
 }
 
 /// 含"特殊位置"行的精确路径。
@@ -1168,6 +1291,7 @@ fn v3_row_x(
     out_row: &mut [f32],
     sc: &mut V3Scratch,
     t: &mut V3Times,
+    industry_neutralize: bool,
 ) -> bool {
     let n = row.len();
     let ns = shared.s_lens[idx] as usize;
@@ -1418,9 +1542,9 @@ fn v3_row_x(
     for &p in v_from_s {
         sc.y_v.push(sc.ybuf[p as usize]);
     }
-    ols_day_core(&sc.y_v, &shared.ns, idx, out_row);
+    let ok = ols_dispatch(&sc.y_v, &shared.ns, idx, out_row, industry_neutralize);
     t.ols += st.elapsed().as_secs_f64();
-    true
+    ok
 }
 
 #[inline]
@@ -1431,6 +1555,7 @@ fn v3_row_fast(
     out_row: &mut [f32],
     sc: &mut V3Scratch,
     t: &mut V3Times,
+    industry_neutralize: bool,
 ) -> bool {
     let n = row.len();
     let ns = shared.s_lens[idx] as usize;
@@ -1485,8 +1610,8 @@ fn v3_row_fast(
 
     // ---- ④ OLS：把 y 排到 V 顺序（S==V 时直接复用） ----
     let s = Instant::now();
-    if shared.identity[idx] {
-        ols_day_core(&sc.ybuf, &shared.ns, idx, out_row);
+    let ok = if shared.identity[idx] {
+        ols_dispatch(&sc.ybuf, &shared.ns, idx, out_row, industry_neutralize)
     } else {
         let off = shared.v_offsets[idx] as usize;
         let nv = shared.v_lens[idx] as usize;
@@ -1495,16 +1620,17 @@ fn v3_row_fast(
         for &p in v_from_s {
             sc.y_v.push(sc.ybuf[p as usize]);
         }
-        ols_day_core(&sc.y_v, &shared.ns, idx, out_row);
-    }
+        ols_dispatch(&sc.y_v, &shared.ns, idx, out_row, industry_neutralize)
+    };
     t.ols += s.elapsed().as_secs_f64();
-    true
+    ok
 }
 
 // ==================== 对外接口 ====================
 
 /// 单行调度：快路径 → 特殊位置路径 → 生产行级回退。
 /// `row` 是绝对日期 `idx` 的 slot 行；`shared` 侧按绝对 idx 索引。
+/// `industry_neutralize=false` 时末步走纯风格残差（快路径失败则回退生产风格行路径）。
 #[inline]
 fn v3_row_dispatch(
     row: &[f32],
@@ -1513,24 +1639,33 @@ fn v3_row_dispatch(
     out_row: &mut [f32],
     sc: &mut V3Scratch,
     times: &mut V3Times,
+    industry_neutralize: bool,
 ) {
     if !shared.fast_ok[idx] {
         let s = Instant::now();
-        v3_row_prod(row, idx, shared, out_row, sc);
+        if industry_neutralize {
+            v3_row_prod(row, idx, shared, out_row, sc);
+        } else {
+            v3_row_prod_style(row, idx, shared, out_row, sc);
+        }
         times.fallback += s.elapsed().as_secs_f64();
         times.slow_rows += 1;
         return;
     }
     let s = Instant::now();
     let ok = if shared.d_lens[idx] == 0 {
-        v3_row_fast(row, idx, shared, out_row, sc, times)
-            || v3_row_x(row, idx, shared, out_row, sc, times)
+        v3_row_fast(row, idx, shared, out_row, sc, times, industry_neutralize)
+            || v3_row_x(row, idx, shared, out_row, sc, times, industry_neutralize)
     } else {
-        v3_row_x(row, idx, shared, out_row, sc, times)
+        v3_row_x(row, idx, shared, out_row, sc, times, industry_neutralize)
     };
     if !ok {
         times.fallback += s.elapsed().as_secs_f64();
-        v3_row_prod(row, idx, shared, out_row, sc);
+        if industry_neutralize {
+            v3_row_prod(row, idx, shared, out_row, sc);
+        } else {
+            v3_row_prod_style(row, idx, shared, out_row, sc);
+        }
         times.slow_rows += 1;
     } else {
         times.fast_rows += 1;
@@ -1546,6 +1681,7 @@ fn v3_rows(
     sc: &mut V3Scratch,
     out: &mut Array2<f32>,
     times: &mut V3Times,
+    industry_neutralize: bool,
 ) {
     let rows = t1 - t0;
     for r in 0..rows {
@@ -1553,24 +1689,28 @@ fn v3_rows(
         let row = row_v.as_slice().unwrap();
         let mut out_v = out.row_mut(r);
         let out_row = out_v.as_slice_mut().unwrap();
-        v3_row_dispatch(row, t0 + r, shared, out_row, sc, times);
+        v3_row_dispatch(row, t0 + r, shared, out_row, sc, times, industry_neutralize);
     }
 }
 
 /// 整张版（对账 / 回落用）：输入 (T,N) f32 → 输出 (T,N) f32。
-/// 与生产 `neutralize_std_slots_f32_v2_resid_batch(slots, ns, true)` 逐位一致。
+///
+/// `industry_neutralize=true` 与生产 `neutralize_std_slots_f32_v2_resid_batch(slots, ns, true)`
+/// 逐位一致；`false` 与 `(slots, ns, false)` 逐位一致（残差走 11 列 `[1, b0..b9]` 风格路径）。
 pub fn v3_slot(
     slot: ArrayView2<'_, f32>,
     shared: &V3Shared,
+    industry_neutralize: bool,
     sc: &mut V3Scratch,
 ) -> Result<Array2<f32>, String> {
-    Ok(v3_slot_timed(slot, shared, sc)?.0)
+    Ok(v3_slot_timed(slot, shared, industry_neutralize, sc)?.0)
 }
 
 /// 同 `v3_slot`，额外返回分段计时与快/慢路径行数（诊断用）。
 pub fn v3_slot_timed(
     slot: ArrayView2<'_, f32>,
     shared: &V3Shared,
+    industry_neutralize: bool,
     sc: &mut V3Scratch,
 ) -> Result<(Array2<f32>, V3Times), String> {
     let (t, n) = slot.dim();
@@ -1579,7 +1719,7 @@ pub fn v3_slot_timed(
     }
     let mut out = Array2::<f32>::from_elem((t, n), f32::NAN);
     let mut times = V3Times::default();
-    v3_rows(&slot, shared, 0, t, sc, &mut out, &mut times);
+    v3_rows(&slot, shared, 0, t, sc, &mut out, &mut times, industry_neutralize);
     Ok((out, times))
 }
 
@@ -1588,6 +1728,7 @@ pub fn v3_slot_timed(
 pub fn v3_slot_range(
     slot_block: ArrayView2<'_, f32>,
     shared: &V3Shared,
+    industry_neutralize: bool,
     t0: usize,
     t1: usize,
     sc: &mut V3Scratch,
@@ -1604,7 +1745,16 @@ pub fn v3_slot_range(
     }
     let mut out = Array2::<f32>::from_elem((rows, n), f32::NAN);
     let mut times = V3Times::default();
-    v3_rows(&slot_block, shared, t0, t1, sc, &mut out, &mut times);
+    v3_rows(
+        &slot_block,
+        shared,
+        t0,
+        t1,
+        sc,
+        &mut out,
+        &mut times,
+        industry_neutralize,
+    );
     Ok(out)
 }
 
@@ -1612,9 +1762,12 @@ pub fn v3_slot_range(
 ///
 /// 行外层 / 面内层（与沙箱 `v3_slots_batch` 同结构）：同一行的共享索引/排序数据在
 /// L1/L2 里被 B 个面复用，避免逐面各走一遍 T 行的冷读。数值路径与单面版完全一致。
+/// `industry_neutralize` 只影响残差末步（行业 one-hot vs 显式截距 + 10 风格），
+/// 索引 / 压缩 / fast_ok / 填充链两边完全共用。
 pub fn v3_slots_range(
     slots: &[ArrayView2<f32>],
     shared: &V3Shared,
+    industry_neutralize: bool,
     t0: usize,
     t1: usize,
     sc: &mut V3Scratch,
@@ -1649,7 +1802,7 @@ pub fn v3_slots_range(
             let row = row_v.as_slice().unwrap();
             let mut out_v = outs[f].row_mut(r);
             let out_row = out_v.as_slice_mut().unwrap();
-            v3_row_dispatch(row, idx, shared, out_row, sc, &mut times);
+            v3_row_dispatch(row, idx, shared, out_row, sc, &mut times, industry_neutralize);
         }
     }
     Ok(outs)
@@ -1739,9 +1892,13 @@ pub fn selfcheck(data_dir: &str) -> String {
     let mut n_cmp = 0usize;
     let mut mm_total = 0usize;
     let mut sc = V3Scratch::new(n);
-    let mut t_v2 = 0.0f64;
-    let mut t_v3 = [0.0f64; 3];
+    // 计时（仅第一个因子，单线程）：[0]=行业 [1]=纯风格
+    let mut t_v2 = [0.0f64; 2];
+    let mut t_v3 = [[0.0f64; 3]; 2];
+    let mut t_v3_style_full = 0.0f64;
+    let mut t_v2_range_style = 0.0f64;
     let blocks = [64usize, 997, 2818];
+    let flags = [true, false];
 
     for (fi, nm) in names.iter().take(2).enumerate() {
         let raw: Array2<f32> = match read_npy(format!("{data_dir}/factor_{nm}.npy")) {
@@ -1761,93 +1918,152 @@ pub fn selfcheck(data_dir: &str) -> String {
             slots.push(sd);
         }
         let ns_views: Vec<ArrayView2<f32>> = slots.iter().map(|s| s.view()).collect();
-        let tmr = Instant::now();
-        let v2_full =
-            match crate::factor_neutralize_std::neutralize_std_slots_f32_v2_resid_batch(
-                &ns_views, &ns, true,
-            ) {
-                Ok(v) => v,
-                Err(e) => return format!("[neu3] 生产 v2 batch 失败: {e}"),
-            };
-        if fi == 0 {
-            t_v2 = tmr.elapsed().as_secs_f64();
-        }
 
-        for (bi, &bs) in blocks.iter().enumerate() {
-            let mut cat: Vec<Array2<f32>> = (0..slots.len())
-                .map(|_| Array2::<f32>::from_elem((t, n), f32::NAN))
-                .collect();
+        for (fi_flag, &flag) in flags.iter().enumerate() {
+            let fname = if flag { "行业" } else { "纯风格" };
             let tmr = Instant::now();
-            let mut a = 0usize;
-            while a < t {
-                let b1 = (a + bs).min(t);
-                let blk: Vec<ArrayView2<f32>> =
-                    slots.iter().map(|s| s.slice(ndarray::s![a..b1, ..])).collect();
-                let outs = match v3_slots_range(&blk, &shared, a, b1, &mut sc) {
+            let v2_full =
+                match crate::factor_neutralize_std::neutralize_std_slots_f32_v2_resid_batch(
+                    &ns_views, &ns, flag,
+                ) {
                     Ok(v) => v,
-                    Err(e) => return format!("[neu3] v3_slots_range 失败: {e}"),
+                    Err(e) => return format!("[neu3] 生产 v2 batch({fname}) 失败: {e}"),
                 };
-                for k in 0..slots.len() {
-                    cat[k].slice_mut(ndarray::s![a..b1, ..]).assign(&outs[k]);
-                }
-                a = b1;
-            }
             if fi == 0 {
-                t_v3[bi] = tmr.elapsed().as_secs_f64();
+                t_v2[fi_flag] = tmr.elapsed().as_secs_f64();
             }
-            let mut mm = 0usize;
+
+            for (bi, &bs) in blocks.iter().enumerate() {
+                let mut cat: Vec<Array2<f32>> = (0..slots.len())
+                    .map(|_| Array2::<f32>::from_elem((t, n), f32::NAN))
+                    .collect();
+                let tmr = Instant::now();
+                let mut a = 0usize;
+                while a < t {
+                    let b1 = (a + bs).min(t);
+                    let blk: Vec<ArrayView2<f32>> =
+                        slots.iter().map(|s| s.slice(ndarray::s![a..b1, ..])).collect();
+                    let outs = match v3_slots_range(&blk, &shared, flag, a, b1, &mut sc) {
+                        Ok(v) => v,
+                        Err(e) => return format!("[neu3] v3_slots_range({fname}) 失败: {e}"),
+                    };
+                    for k in 0..slots.len() {
+                        cat[k].slice_mut(ndarray::s![a..b1, ..]).assign(&outs[k]);
+                    }
+                    a = b1;
+                }
+                if fi == 0 {
+                    t_v3[fi_flag][bi] = tmr.elapsed().as_secs_f64();
+                }
+                let mut mm = 0usize;
+                for k in 0..slots.len() {
+                    mm += bitwise_equal(&v2_full[k], &cat[k]).1;
+                }
+                mm_total += mm;
+                if mm > 0 {
+                    all_pass = false;
+                }
+                n_cmp += 1;
+                lines.push(format!("  {nm} 13 面 [{fname}] block={bs}: 不一致 {mm} 格"));
+            }
+
+            // 整张版 v3_slot 对账 + 快/慢路径统计
+            let mut mm_full = 0usize;
+            let mut fast_rows = 0u64;
+            let mut slow_rows = 0u64;
+            let tmr = Instant::now();
             for k in 0..slots.len() {
-                mm += bitwise_equal(&v2_full[k], &cat[k]).1;
+                let (out, tt) = match v3_slot_timed(slots[k].view(), &shared, flag, &mut sc) {
+                    Ok(v) => v,
+                    Err(e) => return format!("[neu3] v3_slot({fname}) 失败: {e}"),
+                };
+                mm_full += bitwise_equal(&v2_full[k], &out).1;
+                fast_rows += tt.fast_rows;
+                slow_rows += tt.slow_rows;
             }
-            mm_total += mm;
-            if mm > 0 {
+            let t_full_v3 = tmr.elapsed().as_secs_f64();
+            if fi == 0 && !flag {
+                t_v3_style_full = t_full_v3;
+            }
+            mm_total += mm_full;
+            if mm_full > 0 {
                 all_pass = false;
             }
             n_cmp += 1;
-            lines.push(format!("  {nm} 13 面 block={bs}: 不一致 {mm} 格"));
-        }
+            lines.push(format!(
+                "  {nm} 13 面 [{fname}] 整张 v3_slot: 不一致 {mm_full} 格 ({t_full_v3:.3}s, 快路径行={fast_rows} 慢路径行={slow_rows})"
+            ));
 
-        // 整张版 v3_slot 对账 + 快/慢路径统计
-        let mut mm_full = 0usize;
-        let mut fast_rows = 0u64;
-        let mut slow_rows = 0u64;
-        let tmr = Instant::now();
-        for k in 0..slots.len() {
-            let (out, tt) = match v3_slot_timed(slots[k].view(), &shared, &mut sc) {
-                Ok(v) => v,
-                Err(e) => return format!("[neu3] v3_slot 失败: {e}"),
-            };
-            mm_full += bitwise_equal(&v2_full[k], &out).1;
-            fast_rows += tt.fast_rows;
-            slow_rows += tt.slow_rows;
+            // 纯风格：与 roll-dev 的行级 range 对照（对账 + 计时，bs=64）
+            if !flag && fi == 0 {
+                let bs = blocks[0];
+                let mut cat: Vec<Array2<f32>> = (0..slots.len())
+                    .map(|_| Array2::<f32>::from_elem((t, n), f32::NAN))
+                    .collect();
+                let tmr = Instant::now();
+                let mut a = 0usize;
+                while a < t {
+                    let b1 = (a + bs).min(t);
+                    let blk: Vec<ArrayView2<f32>> =
+                        slots.iter().map(|s| s.slice(ndarray::s![a..b1, ..])).collect();
+                    let outs = match crate::factor_neutralize_std::
+                        neutralize_std_slots_f32_v2_resid_batch_range(&blk, &ns, false, a, b1)
+                    {
+                        Ok(v) => v,
+                        Err(e) => return format!("[neu3] v2 range(false) 失败: {e}"),
+                    };
+                    for k in 0..slots.len() {
+                        cat[k].slice_mut(ndarray::s![a..b1, ..]).assign(&outs[k]);
+                    }
+                    a = b1;
+                }
+                t_v2_range_style = tmr.elapsed().as_secs_f64();
+                let mut mm = 0usize;
+                for k in 0..slots.len() {
+                    mm += bitwise_equal(&v2_full[k], &cat[k]).1;
+                }
+                mm_total += mm;
+                if mm > 0 {
+                    all_pass = false;
+                }
+                n_cmp += 1;
+                lines.push(format!(
+                    "  {nm} 13 面 [纯风格] v2 行级 range bs={bs}: 不一致 {mm} 格 ({t_v2_range_style:.3}s)"
+                ));
+            }
         }
-        let t_full_v3 = tmr.elapsed().as_secs_f64();
-        mm_total += mm_full;
-        if mm_full > 0 {
-            all_pass = false;
-        }
-        n_cmp += 1;
-        lines.push(format!(
-            "  {nm} 13 面 整张 v3_slot: 不一致 {mm_full} 格 ({t_full_v3:.3}s, 快路径行={fast_rows} 慢路径行={slow_rows})"
-        ));
     }
     lines.insert(
         0,
         format!(
-            "[neu3] 逐位一致: {}  ({n_cmp} 组比较，2 因子 × 13 面 × 3 块，不一致合计 {mm_total} 格)",
+            "[neu3] 逐位一致: {}  ({n_cmp} 组比较：2 因子 × 13 面 × 3 块 × [行业/纯风格] + 整张 + v2 range，不一致合计 {mm_total} 格)",
             if all_pass { "PASS" } else { "FAIL" }
         ),
     );
+    lines.push(format!("  [计时] 13 面 生产 v2 整张 batch [行业]: {:.3}s", t_v2[0]));
     lines.push(format!(
-        "  [计时] 13 面 生产 v2 整张 batch: {t_v2:.3}s"
+        "  [计时] 13 面 生产 v2 整张 batch [纯风格]: {:.3}s",
+        t_v2[1]
     ));
     for (bi, &bs) in blocks.iter().enumerate() {
         lines.push(format!(
-            "  [计时] 13 面 v3 按块 bs={bs}: {:.3}s  (加速 {:.2}x)",
-            t_v3[bi],
-            t_v2 / t_v3[bi]
+            "  [计时] 13 面 v3 按块 [行业] bs={bs}: {:.3}s  (加速 {:.2}x)",
+            t_v3[0][bi],
+            t_v2[0] / t_v3[0][bi]
+        ));
+        lines.push(format!(
+            "  [计时] 13 面 v3 按块 [纯风格] bs={bs}: {:.3}s  (加速 {:.2}x)",
+            t_v3[1][bi],
+            t_v2[1] / t_v3[1][bi]
         ));
     }
+    lines.push(format!(
+        "  [计时] 13 面 v3 整张 [纯风格]: {t_v3_style_full:.3}s"
+    ));
+    lines.push(format!(
+        "  [计时] 13 面 v2 行级 range [纯风格] bs=64: {t_v2_range_style:.3}s  → v3 按块/它 = {:.2}x",
+        t_v2_range_style / t_v3[1][0]
+    ));
     lines.join("\n")
 }
 

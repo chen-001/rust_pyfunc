@@ -812,6 +812,11 @@ pub struct NeutralizeStdShared {
     /// O3d 优化: 每日有效集 × 10 风格连续内存 (valid 顺序行主序)。
     /// 替代每 slot 从 10 张 (T,N) 大矩阵跳跃取数, 数值逐位一致。
     pub(crate) xdays: Vec<Vec<f64>>,
+    /// 纯风格 (`industry_neutralize=false`) 的每日预分解 Cholesky。
+    /// 模型 = `[1, b0..b9]`（显式截距列 0, p=11），与生产 `get_residual(.., None)`
+    /// 在 valid 集上**同序累积** X'X 后分解；None = 该日 n_valid<=10 或分解失败
+    /// （生产相应走「跳过」/ SVD 伪逆）。供 v3 纯风格路径复用。
+    pub(crate) chols_style: Vec<Option<Cholesky<f64, nalgebra::Dyn>>>,
 }
 
 /// 从 style data + industry + restrict 预计算所有不随因子变化的量。
@@ -909,6 +914,7 @@ pub fn neutralize_std_precompute(
     let mut per_date = Vec::with_capacity(n_dates);
     // O3c/O3d: 与 per_date 同构的每日预分解 Cholesky 与连续 X
     let mut chols = Vec::with_capacity(n_dates);
+    let mut chols_style = Vec::with_capacity(n_dates);
     let mut xdays = Vec::with_capacity(n_dates);
     for date_idx in 0..n_dates {
         let mut ind_codes: Vec<f64> = Vec::new();
@@ -944,6 +950,7 @@ pub fn neutralize_std_precompute(
         if n_valid <= 10 {
             per_date.push((0, valid_idx, valid_cols, Vec::new()));
             chols.push(None);
+            chols_style.push(None);
             xdays.push(Vec::new());
             continue;
         }
@@ -974,6 +981,28 @@ pub fn neutralize_std_precompute(
                 }
             }
         }
+        // 纯风格 `[1, b0..b9]` (p=11) 的 X'X：与生产 `get_residual(.., None)` 在 valid 集上
+        // **同序累积**（valid 升序；每个元素每日只被加一次 → 与逐行累积逐位相同）。
+        let mut xtx_s = vec![0.0f64; 11 * 11];
+        for &j in valid_idx.iter() {
+            let ji = j as usize;
+            xtx_s[0] += 1.0;
+            for c in 0..k {
+                let b = barra_ranked[c][[date_idx, ji]];
+                xtx_s[c + 1] += b;
+                xtx_s[(c + 1) * 11] += b;
+            }
+            for c1 in 0..k {
+                let b1 = barra_ranked[c1][[date_idx, ji]];
+                xtx_s[(c1 + 1) * 11 + (c1 + 1)] += b1 * b1;
+                for c2 in (c1 + 1)..k {
+                    let v = b1 * barra_ranked[c2][[date_idx, ji]];
+                    xtx_s[(c1 + 1) * 11 + (c2 + 1)] += v;
+                    xtx_s[(c2 + 1) * 11 + (c1 + 1)] += v;
+                }
+            }
+        }
+        chols_style.push(Cholesky::new(DMatrix::from_row_slice(11, 11, &xtx_s)));
         chols.push(Cholesky::new(DMatrix::from_row_slice(p, p, &xtx)));
         per_date.push((p, valid_idx, valid_cols, xtx));
         xdays.push(xd);
@@ -992,6 +1021,7 @@ pub fn neutralize_std_precompute(
         per_date,
         chols,
         xdays,
+        chols_style,
     })
 }
 
@@ -2712,7 +2742,7 @@ fn neutralize_std_slots_f32_v2_resid_batch_impl_style(
 /// 与整张版逐行等价：全 NaN 行 / 有效数 <= 10 的行整行 NaN（对应整张版的 `continue`）；
 /// 单值行填 0.5；否则截距 + k 风格列正规方程 → Cholesky（小样本或分解失败走 SVD 伪逆）→ 残差。
 /// `bench_rows[c]` 是第 c 个风格矩阵**该行**的切片（绝对行由调用方取好）。
-fn get_residual_row_style(fv_row: &[f64], bench_rows: &[&[f64]], resid_row: &mut [f64]) {
+pub(crate) fn get_residual_row_style(fv_row: &[f64], bench_rows: &[&[f64]], resid_row: &mut [f64]) {
     let n = fv_row.len();
     let k = bench_rows.len();
     for v in resid_row.iter_mut() {

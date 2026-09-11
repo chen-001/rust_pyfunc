@@ -231,15 +231,21 @@ fn run_variant_v8(
             let views: Vec<ArrayView2<f32>> =
                 need.iter().map(|&i| sc.block_bufs[i].slice(s![0..rows, ..])).collect();
             // v3（默认，比 v2 快 2.6~2.8×，数值逐位一致）；TAIL_NEU_V2=1 切回 v2 做诊断。
-            // 注意：v3 目前只实现了行业路径，纯风格（industry_neutralize=false）走 v2 range。
-            let use_v2 =
-                std::env::var("TAIL_NEU_V2").is_ok() || !shared.industry_neutralize;
+            // 行业与纯风格共用同一套逐日结构，只有残差那一步差一列行业 one-hot。
+            let use_v2 = std::env::var("TAIL_NEU_V2").is_ok();
             let neutrals = if !use_v2 {
                 let v3s = shared
                     .v3_shared
                     .as_ref()
                     .expect("v8 融合路径需要 v3_shared（可用 TAIL_NEU_V2=1 切回 v2）");
-                crate::tail_v8_neu_v3::v3_slots_range(&views, v3s, t0, t1, &mut sc.v3sc)?
+                crate::tail_v8_neu_v3::v3_slots_range(
+                    &views,
+                    v3s,
+                    shared.industry_neutralize,
+                    t0,
+                    t1,
+                    &mut sc.v3sc,
+                )?
             } else {
                 crate::factor_neutralize_std::neutralize_std_slots_f32_v2_resid_batch_range(
                     &views,
