@@ -132,12 +132,18 @@ def run_factor_pipeline(
     store_dir: Optional[str] = None,
     store_factor_names: Optional[List[str]] = None,
     data_root: Optional[str] = None,
+    incremental_projection: Optional[bool] = None,
 ) -> None:
     """Level2 per-(date, code) 因子批量计算入口。
 
     data_root: Level2 数据目录（默认 "/ssd_data/stock"），即直接包含各日期文件夹的目录：
       文件按 {data_root}/{date}/{subdir}/{code}_{date}_*.csv 读取（transaction / market_data）。
       显式指定后只查该目录，不再回退 /nas197/binary/stock/sz_alpha/stock。
+
+    update_mode: True = 断点续算（按 (date, code) 粒度跳过已写入的任务）。
+    incremental_projection: True = 增量投影（仅 store_dir 模式）。追加新任务时保留已有
+      factors.proj 不动，新行写成 factors.proj.delta.<end>，读取端自动拼接 base + delta；
+      默认 False = 追加即删投影、收尾整片重投影（I/O ≈ 2× store 体积）。
     """
     ...
 
@@ -154,11 +160,16 @@ def run_factor_pipeline_minute(
     store_dir: Optional[str] = None,
     store_factor_names: Optional[List[str]] = None,
     data_root: Optional[str] = None,
+    incremental_projection: Optional[bool] = None,
 ) -> None:
     """分钟数据 per-date 因子批量计算入口。
 
     data_root: 分钟数据目录（默认 "/ssd_data/data/1min_factor_text"），
       即直接包含 {field}.h5 与 calendar_map.csv / symbol_map.csv 的目录。
+    update_mode: True = 断点续算（按 _completed_dates 跳过已完成日期）。
+    incremental_projection: True = 增量投影。收尾执行投影：store 已有 base 时只把新日期写成
+      factors.proj.delta.<end>（base 不动，读取端自动拼接）；store 尚无 base 时先建立 base
+      （一次全量投影）。默认 False = 原行为（不投影，回测走在线转置）。
     """
     ...
 

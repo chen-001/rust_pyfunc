@@ -568,12 +568,16 @@ fn parse_observable_order_params(py: Python, params: &PyObject) -> PyResult<Obse
 /// - params: 可选参数 dict（tolerance_v1, tolerance_v2）
 /// - update_mode: 断点续算（默认 False）
 /// - bind_cores: 是否核绑定（默认 True）
+/// - incremental_projection: true = 增量投影（store_dir 模式生效）。追加新任务时 base 投影
+///   不动，只把新行写成 factors.proj.delta.<end>，读取端自动拼接 base + delta；
+///   默认 false = 追加即删投影、收尾整片重投影（I/O ≈ 2× store 体积）。
 #[pyfunction]
 #[pyo3(signature = (
     pipeline, tasks, n_jobs, backup_file, expected_result_length, trading_days,
     params=None, update_mode=None, bind_cores=true, backup_batch_size=None, progress_log=None, mode=None,
     export_names=None, export_dir=None, export_n_jobs=80,
-    store_dir=None, store_factor_names=None, data_root=None
+    store_dir=None, store_factor_names=None, data_root=None,
+    incremental_projection=None
 ))]
 #[allow(clippy::too_many_arguments)]
 pub fn run_factor_pipeline(
@@ -595,6 +599,7 @@ pub fn run_factor_pipeline(
     store_dir: Option<String>,
     store_factor_names: Option<Vec<String>>,
     data_root: Option<String>,
+    incremental_projection: Option<bool>,
 ) -> PyResult<PyObject> {
     let py = unsafe { Python::assume_gil_acquired() };
 
@@ -623,6 +628,7 @@ pub fn run_factor_pipeline(
     }
 
     let update_mode_enabled = update_mode.unwrap_or(false);
+    let incremental_projection_enabled = incremental_projection.unwrap_or(false);
     let progress_log_enabled = progress_log.unwrap_or(false);
     let batch_size = backup_batch_size.unwrap_or(500);
     let mode = mode.unwrap_or_else(|| "multiprocess".to_string());
@@ -641,14 +647,22 @@ pub fn run_factor_pipeline(
                 .collect()
         });
         Some(
-            crate::factor_store_v5::ShardedBackupSink::new_colblk_sharded(sdir, &snames, n_shards, false)
-                .map_err(|e| {
-                    pyo3::exceptions::PyIOError::new_err(format!("打开 colblk 存储失败: {}", e))
-                })?,
+            crate::factor_store_v5::ShardedBackupSink::new_colblk_sharded(
+                sdir,
+                &snames,
+                n_shards,
+                incremental_projection_enabled,
+            )
+            .map_err(|e| {
+                pyo3::exceptions::PyIOError::new_err(format!("打开 colblk 存储失败: {}", e))
+            })?,
         )
     } else {
         None
     };
+    if incremental_projection_enabled {
+        println!("📎 增量投影已启用：追加新任务时 base 投影不动，只投影新行（factors.proj.delta.*）");
+    }
     let sink: crate::factor_store_v5::BackupSink =
         crate::factor_store_v5::BackupSink::new_bin(backup_file.clone(), expected_result_length);
 
@@ -1806,11 +1820,15 @@ fn mark_date_complete(store_dir: &str, date: i64) {
 /// - pipeline 函数签名是 pipeline_minute_xxx(date) → Vec<TaskResult>（fan-out 全市场）
 /// - 断点续算按 date 粒度（用 _completed_dates 标记文件，而非 check_completed 逐 cell）
 /// - collector 不按 batch_size 拆分，整天一次写入
+/// - incremental_projection: true = 增量投影。收尾执行投影：store 已有 base 时只把新日期写成
+///   factors.proj.delta.<end>（base 不动）；store 尚无 base 时先建立 base（一次全量投影）。
+///   默认 false = 原行为（不投影，回测走在线转置）。
 #[pyfunction]
 #[pyo3(signature = (
     pipeline, tasks, n_jobs, expected_result_length, trading_days,
     params=None, update_mode=None, bind_cores=true,
-    store_dir=None, store_factor_names=None, data_root=None
+    store_dir=None, store_factor_names=None, data_root=None,
+    incremental_projection=None
 ))]
 #[allow(clippy::too_many_arguments)]
 pub fn run_factor_pipeline_minute(
@@ -1825,6 +1843,7 @@ pub fn run_factor_pipeline_minute(
     store_dir: Option<String>,
     store_factor_names: Option<Vec<String>>,
     data_root: Option<String>,
+    incremental_projection: Option<bool>,
 ) -> PyResult<PyObject> {
     let py = unsafe { Python::assume_gil_acquired() };
 
@@ -1834,6 +1853,7 @@ pub fn run_factor_pipeline_minute(
 
     let pipeline_name = pipeline.to_string();
     let update_mode_enabled = update_mode.unwrap_or(false);
+    let incremental_projection_enabled = incremental_projection.unwrap_or(false);
     let n_shards = 8;
 
     let store_dir_str = store_dir
@@ -1849,10 +1869,13 @@ pub fn run_factor_pipeline_minute(
             &store_dir_str,
             &snames,
             n_shards,
-            false,
+            incremental_projection_enabled,
         )
         .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("打开 colblk 存储失败: {e}")))?
     };
+    if incremental_projection_enabled {
+        println!("📎 增量投影已启用：追加新日期时 base 投影不动，只投影新行（factors.proj.delta.*）");
+    }
 
     // 解析参数（复用 Level2 的 oo_params，分钟 pipeline 暂无自定义 params）
     let oo_params = if let Some(p) = &params {
@@ -1883,6 +1906,12 @@ pub fn run_factor_pipeline_minute(
     let total = pending.len();
     if total == 0 {
         println!("✅ 所有日期都已完成（minute pipeline）");
+        // 增量投影模式下即使无新日期也补一次投影（断点续算恢复/上次投影中断）
+        if incremental_projection_enabled {
+            sharded_sink
+                .finish_and_project(n_jobs)
+                .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("投影失败: {e}")))?;
+        }
         return Ok(Python::with_gil(|py| py.None()));
     }
     println!("📋 分钟 pipeline 待处理: {total} 天, n_jobs={n_jobs}");
@@ -1892,7 +1921,7 @@ pub fn run_factor_pipeline_minute(
             py,
             pending,
             n_jobs,
-            sharded_sink,
+            sharded_sink.clone(),
             expected_result_length,
             trading_days,
             hm90_params,
@@ -1902,6 +1931,14 @@ pub fn run_factor_pipeline_minute(
             store_dir_str,
             &worker_bin,
         )?;
+        // 增量投影模式：收尾执行投影（base 已存在 → 只投新行；无 base → 建立 base）。
+        // 不开开关时保持原行为（不投影，回测走在线转置）。
+        if incremental_projection_enabled {
+            println!("🏗️ 分钟 pipeline 投影（incremental_projection=True）...");
+            sharded_sink
+                .finish_and_project(n_jobs)
+                .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("投影失败: {e}")))?;
+        }
         return Ok(Python::with_gil(|py| py.None()));
     }
     Err(pyo3::exceptions::PyRuntimeError::new_err(
