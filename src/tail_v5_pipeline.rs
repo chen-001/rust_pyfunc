@@ -135,6 +135,8 @@ pub(crate) struct SharedInputs {
     pub(crate) bt_pre: Option<Arc<BtPrecomputed>>,
     /// v8 一档：restrict → 1 字节/格可交易掩码（全 run 一次，所有面复用）
     pub(crate) free_mask: Option<Arc<crate::tail_v8_preflight::FreeMask>>,
+    /// v8 二档：v3 中性化（比 v2 快 2.7~4.2×，数值逐位一致）的派生索引，全 run 建一次
+    pub(crate) v3_shared: Option<Arc<crate::tail_v8_neu_v3::V3Shared>>,
 }
 
 /// O1 收益秩预计算 (因子无关, 全 run 一次)。
@@ -212,6 +214,12 @@ pub(crate) fn build_shared_inputs(
         None => None,
     };
 
+    // v8 二档：v3 中性化派生索引（依赖 neutralize_std_shared，全 run 建一次）
+    let v3_shared = match &neutralize_std_shared {
+        Some(ns) => Some(Arc::new(crate::tail_v8_neu_v3::V3Shared::build(ns.clone())?)),
+        None => None,
+    };
+
     // O1 收益秩预计算 (因子无关): 每日期对 ret_sum_gap1/ret_sum_gap5 全行按
     // (值, index) 排序。按 (mono_key32(v), index) 的 radix 稳定排序, 与
     // ordinal_ranks 的 sort_by 语义一致 (-0/+0 合并、NaN 置末)。
@@ -237,6 +245,7 @@ pub(crate) fn build_shared_inputs(
         config: Arc::new(config),
         bt_pre,
         free_mask,
+        v3_shared,
     })
 }
 
@@ -3480,6 +3489,7 @@ pub fn tail_v5_run_candidates<'py>(
             }),
             bt_pre: None,
         free_mask: None,
+        v3_shared: None,
         };
 
         let mut aggregated = AggregatedCandidates::default();
@@ -4667,6 +4677,7 @@ pub fn tail_v5_run_candidates_online<'py>(
             }),
             bt_pre: None,
         free_mask: None,
+        v3_shared: None,
         };
 
         let mut aggregated = AggregatedCandidates::default();
@@ -5152,6 +5163,7 @@ pub fn tail_v5_run_candidates_v7<'py>(
             }),
             bt_pre: None,
         free_mask: None,
+        v3_shared: None,
         };
 
         let mut aggregated = AggregatedCandidates::default();
@@ -6345,6 +6357,7 @@ pub fn tail_v5_run_candidates_v7b<'py>(
             }),
             bt_pre: None,
         free_mask: None,
+        v3_shared: None,
         };
 
         let mut aggregated = AggregatedCandidates::default();

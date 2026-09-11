@@ -2542,7 +2542,11 @@ fn neutralize_std_slots_f32_v2_resid_batch_impl(
 /// `shared` 侧一律按**绝对日期** idx 索引（内部用 `idx - t0` 取块内行号）。
 ///
 /// 与 `neutralize_std_slots_f32_v2_resid_batch` 逐位一致：把整批调用按 [t0,t1) 分块
-/// 拼回来，必须与一次性全量调用完全相同（含 NaN 位置）——两者共用 `_batch_impl` 循环体。
+/// 拼回来，必须与一次性全量调用完全相同（含 NaN 位置）。
+/// - `industry_neutralize=true`：与 batch 共用 `_batch_impl` 循环体；
+/// - `industry_neutralize=false`：batch 侧是「逐面整张」的 `neutralize_std_slot_f32_v2_resid`，
+///   这里用 `_batch_impl_style` 逐行复刻同一条流水线（填充/中位/restrict/rank 复用同一套行级
+///   helper，收尾 `get_residual_row_style` = 整张 `get_residual(.., None)` 的单行移植）。
 pub(crate) fn neutralize_std_slots_f32_v2_resid_batch_range(
     slots: &[ArrayView2<f32>],
     shared: &NeutralizeStdShared,
@@ -2552,15 +2556,6 @@ pub(crate) fn neutralize_std_slots_f32_v2_resid_batch_range(
 ) -> Result<Vec<Array2<f32>>, String> {
     if slots.is_empty() {
         return Ok(Vec::new());
-    }
-    if !industry_neutralize {
-        // 引擎恒为 true（见上）。旧路径的收尾 `get_residual(fv, barra_ranked, None)`
-        // 是整张矩阵级实现，其单面入口要求 slot 与 shared 同形——块视图喂进去必然
-        // 形状不匹配。这里显式报错，而不是静默给出错误结果；需要 false 请走整张 batch 入口。
-        return Err(
-            "neutralize_std_slots_f32_v2_resid_batch_range 仅支持 industry_neutralize=true"
-                .to_string(),
-        );
     }
     let (rows, n) = slots[0].dim();
     let (t, sn) = shared.industry.dim();
@@ -2572,5 +2567,523 @@ pub(crate) fn neutralize_std_slots_f32_v2_resid_batch_range(
             "neutralize_std_block range 越界: t0={t0} t1={t1} t={t} rows={rows}"
         ));
     }
+    if !industry_neutralize {
+        return neutralize_std_slots_f32_v2_resid_batch_impl_style(slots, shared, t0, t1);
+    }
     neutralize_std_slots_f32_v2_resid_batch_impl(slots, shared, t0, t1)
+}
+
+/// style-only (`industry_neutralize=false`) 的**按行区间**实现：与整张逐面
+/// `neutralize_std_slot_f32_v2_resid(slot, shared, false)` 逐位一致。
+///
+/// 逐行复刻整张 false 路径的流水线：
+/// 1. rank_pct(f32 源) → 2. fill_ind_reg(ind2/ind1/ind0) → 3. ind1 为 NaN 处置 NaN
+/// → 4. 三级中位填充(ind2/ind1/zeros+mask) → 5. restrict!=0 置 NaN → 6. rank_pct(f64)
+/// → 7. 风格残差 `get_residual(.., None)`。
+/// 其中 2/4 与行业路径共用行级 helper（`fill_ind_reg_row` / `median_fill_level_row`），
+/// 只有第 7 步是 style-only 的行级移植。全程只物化 (rows, n) 的块缓冲。
+fn neutralize_std_slots_f32_v2_resid_batch_impl_style(
+    slots: &[ArrayView2<f32>],
+    shared: &NeutralizeStdShared,
+    t0: usize,
+    t1: usize,
+) -> Result<Vec<Array2<f32>>, String> {
+    let b = slots.len();
+    let n = slots[0].ncols();
+    let rows = t1 - t0;
+    let k = shared.barra_ranked.len();
+    let mut outs: Vec<Array2<f32>> =
+        (0..b).map(|_| Array2::from_elem((rows, n), f32::NAN)).collect();
+    let mut pct: Vec<Vec<f64>> = vec![vec![0.0; n]; b];
+    let mut filled: Vec<Vec<f64>> = vec![vec![0.0; n]; b];
+    let mut resid: Vec<f64> = vec![f64::NAN; n];
+    let mut keys32 = vec![0u32; n];
+    let mut idxs: Vec<usize> = Vec::with_capacity(n);
+    let mut tmp: Vec<usize> = Vec::with_capacity(n);
+    let mut ranks64: Vec<f64> = Vec::with_capacity(n);
+    let mut keys64: Vec<u64> = vec![0u64; n];
+    let mut ys: Vec<f64> = Vec::with_capacity(n);
+    let mut bs: Vec<f64> = Vec::with_capacity(n);
+    let mut obs: Vec<bool> = Vec::with_capacity(n);
+    let mut sv: Vec<f64> = Vec::with_capacity(n);
+    let mut nan_mask: Vec<bool> = Vec::with_capacity(n);
+    let mut ind0_row: Vec<f64> = Vec::with_capacity(n);
+    let mut bench_rows: Vec<&[f64]> = Vec::with_capacity(k);
+    let base = shared;
+    for idx in t0..t1 {
+        let (ind2_v, ind1_v, size_v) =
+            (base.ind2.row(idx), base.ind1.row(idx), base.size_ranked.row(idx));
+        let (zeros_v, mask_v, restrict_v) =
+            (base.zeros.row(idx), base.ind1_mask.row(idx), base.restrict_f64.row(idx));
+        let (o0_v, o1_v, o2_v) = (
+            base.orders[0].row(idx),
+            base.orders[1].row(idx),
+            base.orders[2].row(idx),
+        );
+        let (o3_v, o4_v) = (base.orders[3].row(idx), base.orders[4].row(idx));
+        let ind2_r = ind2_v.as_slice().unwrap();
+        let ind1_r = ind1_v.as_slice().unwrap();
+        let size_r = size_v.as_slice().unwrap();
+        let zeros_r = zeros_v.as_slice().unwrap();
+        let mask_r = mask_v.as_slice().unwrap();
+        let restrict_r = restrict_v.as_slice().unwrap();
+        let o0 = o0_v.as_slice().unwrap();
+        let o1 = o1_v.as_slice().unwrap();
+        let o2 = o2_v.as_slice().unwrap();
+        let o3 = o3_v.as_slice().unwrap();
+        let o4 = o4_v.as_slice().unwrap();
+        ind0_row.clear();
+        ind0_row.extend(ind1_r.iter().map(|&v| if v.is_nan() { 0.0 } else { 1.0 }));
+        for (f, slot) in slots.iter().enumerate() {
+            let slot_row = slot.row(idx - t0);
+            rank_pct_row_from_f32_in(
+                slot_row.as_slice().unwrap(),
+                &mut pct[f],
+                &mut idxs,
+                &mut tmp,
+                &mut keys32,
+            );
+            fill_ind_reg_row(
+                &mut pct[f],
+                [ind2_r, ind1_r, &ind0_row],
+                size_r,
+                [o0, o1, o2],
+                &mut ys,
+                &mut bs,
+                &mut obs,
+            );
+            for (j, &v) in ind1_r.iter().enumerate() {
+                if v.is_nan() {
+                    pct[f][j] = f64::NAN;
+                }
+            }
+            filled[f].copy_from_slice(&pct[f]);
+        }
+        for f in 0..b {
+            nan_mask.clear();
+            for &v in filled[f].iter() {
+                nan_mask.push(v.is_nan());
+            }
+            if nan_mask.iter().any(|&x| x) {
+                median_fill_level_row(&mut filled[f], ind2_r, None, o3, &nan_mask, &mut sv);
+            }
+            nan_mask.clear();
+            for &v in filled[f].iter() {
+                nan_mask.push(v.is_nan());
+            }
+            if nan_mask.iter().any(|&x| x) {
+                median_fill_level_row(&mut filled[f], ind1_r, None, o4, &nan_mask, &mut sv);
+            }
+            nan_mask.clear();
+            for &v in filled[f].iter() {
+                nan_mask.push(v.is_nan());
+            }
+            if nan_mask.iter().any(|&x| x) {
+                median_fill_level_row(&mut filled[f], zeros_r, Some(mask_r), o0, &nan_mask, &mut sv);
+            }
+            for (j, &v) in restrict_r.iter().enumerate() {
+                if v != 0.0 {
+                    filled[f][j] = f64::NAN;
+                }
+            }
+            rank_pct_row_f64_in_place(&mut filled[f], &mut ranks64, &mut idxs, &mut tmp, &mut keys64);
+            bench_rows.clear();
+            for c in 0..k {
+                // 风格矩阵是 C 序：直接取该行（绝对行 idx）的连续切片。
+                let sl = base.barra_ranked[c]
+                    .as_slice()
+                    .expect("barra_ranked 需为 C 序连续内存");
+                bench_rows.push(&sl[idx * n..(idx + 1) * n]);
+            }
+            get_residual_row_style(&filled[f], &bench_rows, &mut resid);
+            let mut out_row = outs[f].row_mut(idx - t0);
+            let out_sl = out_row.as_slice_mut().unwrap();
+            for j in 0..n {
+                let v = resid[j];
+                out_sl[j] = if v.is_nan() { f32::NAN } else { v as f32 };
+            }
+        }
+    }
+    Ok(outs)
+}
+
+/// `get_residual(fv, bench, None)` 的**单行移植**（industry=None 分支），逐位一致。
+///
+/// 与整张版逐行等价：全 NaN 行 / 有效数 <= 10 的行整行 NaN（对应整张版的 `continue`）；
+/// 单值行填 0.5；否则截距 + k 风格列正规方程 → Cholesky（小样本或分解失败走 SVD 伪逆）→ 残差。
+/// `bench_rows[c]` 是第 c 个风格矩阵**该行**的切片（绝对行由调用方取好）。
+fn get_residual_row_style(fv_row: &[f64], bench_rows: &[&[f64]], resid_row: &mut [f64]) {
+    let n = fv_row.len();
+    let k = bench_rows.len();
+    for v in resid_row.iter_mut() {
+        *v = f64::NAN;
+    }
+    if !fv_row.iter().any(|v| !v.is_nan()) {
+        return; // dropna(how="all")
+    }
+    let p = k + 1;
+    let mut valid: Vec<bool> = Vec::with_capacity(n);
+    let mut rows: Vec<[f64; 11]> = Vec::with_capacity(n);
+    let mut cur = [0.0_f64; 11];
+    for j in 0..n {
+        let ok = fv_row[j].is_finite() && bench_rows.iter().all(|b| b[j].is_finite());
+        valid.push(ok);
+        if ok {
+            cur[0] = fv_row[j];
+            for c in 0..k {
+                cur[c + 1] = bench_rows[c][j];
+            }
+            rows.push(cur);
+        }
+    }
+    let n_valid = rows.len();
+    if n_valid <= 10 {
+        return;
+    }
+    let mut uniq: Vec<f64> = rows.iter().map(|r| r[0]).collect();
+    uniq.sort_by(cmp_f64);
+    uniq.dedup_by(|a, b| (a.is_nan() && b.is_nan()) || a == b);
+    if uniq.len() == 1 {
+        for j in 0..n {
+            if valid[j] {
+                resid_row[j] = 0.5;
+            }
+        }
+        return;
+    }
+    // X'X 与 X'y (显式截距列 0, 与整张版同序累积)
+    let mut xtx: Vec<f64> = vec![0.0; p * p];
+    let mut xty: Vec<f64> = vec![0.0; p];
+    for r in rows.iter() {
+        let yv = r[0];
+        xty[0] += yv;
+        xtx[0] += 1.0;
+        for c in 0..k {
+            let b = r[c + 1];
+            xty[c + 1] += b * yv;
+            xtx[c + 1] += b;
+            xtx[(c + 1) * p] += b;
+        }
+        for c1 in 0..k {
+            let b1 = r[c1 + 1];
+            xtx[(c1 + 1) * p + (c1 + 1)] += b1 * b1;
+            for c2 in (c1 + 1)..k {
+                let v = b1 * r[c2 + 1];
+                xtx[(c1 + 1) * p + (c2 + 1)] += v;
+                xtx[(c2 + 1) * p + (c1 + 1)] += v;
+            }
+        }
+    }
+    let m = DMatrix::from_row_slice(p, p, &xtx);
+    let rhs = DMatrix::from_column_slice(p, 1, &xty);
+    // 小样本 (n_valid <= 40) 或 Cholesky 失败时走 SVD 伪逆（与整张版同一判据）
+    let use_svd = n_valid <= 40 || Cholesky::new(m.clone()).is_none();
+    let coef: Vec<f64> = if !use_svd {
+        let chol = Cholesky::new(m).expect("chol");
+        chol.solve(&rhs).column(0).iter().copied().collect()
+    } else {
+        let n_r = rows.len();
+        let xm = DMatrix::from_fn(n_r, p, |r_i, c| {
+            if c == 0 {
+                1.0
+            } else {
+                rows[r_i][c]
+            }
+        });
+        let svd = xm.clone().svd(true, true);
+        let u = svd.u.expect("svd u");
+        let vt = svd.v_t.expect("svd vt");
+        let s = svd.singular_values;
+        let s_max = s.iter().cloned().fold(0.0_f64, f64::max);
+        let rcond = s_max * (n_r.max(p) as f64) * 2.22e-16;
+        let ym = DMatrix::from_fn(n_r, 1, |r_i, _| rows[r_i][0]);
+        let uty = u.transpose() * ym;
+        let mut coef = DMatrix::zeros(p, 1);
+        for i in 0..p {
+            if s[i] > rcond {
+                coef[(i, 0)] = uty[(i, 0)] / s[i];
+            }
+        }
+        (vt.transpose() * coef).column(0).iter().copied().collect()
+    };
+    // resid = y - x @ coef
+    let mut vi = 0usize;
+    for r in rows.iter() {
+        let mut pred = coef[0];
+        for c in 0..k {
+            pred += coef[c + 1] * r[c + 1];
+        }
+        while !valid[vi] {
+            vi += 1;
+        }
+        resid_row[vi] = r[0] - pred;
+        vi += 1;
+    }
+}
+
+// ---------------- style-only 区间入口自测 ----------------
+
+/// 自测（`industry_neutralize=false` 的按行区间入口）：
+/// 1. 2 因子 × 13 面 × 块 64/997/2818：range(false) 按块拼接 vs batch(false) 整张，逐位一致（含 NaN 位置）；
+/// 2. 复核 range(true) 现有行为未变；
+/// 3. 两组单线程计时：13 面「整张 batch」vs「按块 range」（false / true 各一组）。
+///
+/// 调用：`rp.tail_v8_selfcheck("neu_style", data_dir)`（dispatcher 加一行）或临时 bin。
+pub fn selfcheck_style_only(data_dir: &str) -> String {
+    use ndarray_npy::read_npy;
+    use std::time::Instant;
+
+    let dates: Vec<i32> =
+        match read_npy::<_, ndarray::Array1<i32>>(format!("{data_dir}/dates.npy")) {
+            Ok(v) => v.to_vec(),
+            Err(e) => return format!("[neu_style] 读 dates 失败: {e}"),
+        };
+    let stocks: Vec<String> = match std::fs::read_to_string(format!("{data_dir}/stocks.txt")) {
+        Ok(t) => t
+            .lines()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect(),
+        Err(e) => return format!("[neu_style] 读 stocks.txt 失败: {e}"),
+    };
+    let restrict: Array2<f32> = match read_npy(format!("{data_dir}/restrict.npy")) {
+        Ok(m) => m,
+        Err(e) => return format!("[neu_style] 读 restrict 失败: {e}"),
+    };
+    let industry: Array2<f64> = match read_npy(format!("{data_dir}/industry.npy")) {
+        Ok(m) => m,
+        Err(e) => return format!("[neu_style] 读 industry 失败: {e}"),
+    };
+    let style_path = std::env::var("V8_STYLE_PATH").unwrap_or_else(|_| {
+        "/home/chenzongwei/database/barra/barra_daily_together_jason.parquet".to_string()
+    });
+    let style = match IOOptimizedStyleData::load_from_parquet_io_optimized(&style_path) {
+        Ok(s) => s,
+        Err(e) => return format!("[neu_style] 加载风格数据失败: {e}"),
+    };
+    let shared = match neutralize_std_precompute(&industry, &restrict, &style, &dates, &stocks) {
+        Ok(s) => s,
+        Err(e) => return format!("[neu_style] 预计算失败: {e}"),
+    };
+    let names: Vec<String> = std::fs::read_to_string(format!("{data_dir}/sample_names.txt"))
+        .unwrap_or_default()
+        .split_whitespace()
+        .map(|s| s.to_string())
+        .collect();
+    let (t, n) = restrict.dim();
+    let mut lines = Vec::new();
+    let mut all_pass = true;
+    let mut n_cmp = 0usize;
+
+    // 13 面 = smooth_1 + w=5/10/20 × {mean,max,min,std}（与生产 variant 面集合一致）
+    let mk_slots = |ranked: &Array2<f32>| -> Vec<Array2<f32>> {
+        let mut slots: Vec<Array2<f32>> = vec![ranked.clone()];
+        for &w in &[5usize, 10, 20] {
+            let (m, x, mn, sd) = crate::tail_v2_rank_roll_factor::rolling_stats_f32_serial(
+                ranked,
+                w,
+                std::cmp::max(1, w / 2),
+            );
+            slots.push(m);
+            slots.push(x);
+            slots.push(mn);
+            slots.push(sd);
+        }
+        slots
+    };
+
+    // ---- 1) 对账 ----
+    for (fi, nm) in names.iter().take(2).enumerate() {
+        let raw: Array2<f32> = match read_npy(format!("{data_dir}/factor_{nm}.npy")) {
+            Ok(m) => m,
+            Err(e) => {
+                lines.push(format!("  [对账] {nm}: 读取失败 {e}"));
+                all_pass = false;
+                continue;
+            }
+        };
+        let ranked =
+            crate::tail_v5_pipeline::rank_and_fill_missing_cross_sectional_median(&raw, &restrict);
+        let slots = mk_slots(&ranked);
+        let ns = slots.len();
+        let views: Vec<ArrayView2<f32>> = slots.iter().map(|s| s.view()).collect();
+        // false 走全部 2 因子；true 只在第一个因子上复核现有行为
+        let flags: &[bool] = if fi == 0 { &[false, true] } else { &[false] };
+        for &flag in flags {
+            let full = match neutralize_std_slots_f32_v2_resid_batch(&views, &shared, flag) {
+                Ok(v) => v,
+                Err(e) => {
+                    lines.push(format!("  [对账] {nm} flag={flag} batch 失败: {e}"));
+                    all_pass = false;
+                    continue;
+                }
+            };
+            for &bs in &[64usize, 997, 2818] {
+                let mut cat: Vec<Array2<f32>> =
+                    (0..ns).map(|_| Array2::<f32>::from_elem((t, n), f32::NAN)).collect();
+                let mut a = 0usize;
+                let mut err: Option<String> = None;
+                while a < t {
+                    let b1 = (a + bs).min(t);
+                    let blk: Vec<ArrayView2<f32>> =
+                        slots.iter().map(|s| s.slice(s![a..b1, ..])).collect();
+                    match neutralize_std_slots_f32_v2_resid_batch_range(&blk, &shared, flag, a, b1) {
+                        Ok(outs) => {
+                            for k in 0..ns {
+                                cat[k].slice_mut(s![a..b1, ..]).assign(&outs[k]);
+                            }
+                        }
+                        Err(e) => {
+                            err = Some(e);
+                            break;
+                        }
+                    }
+                    a = b1;
+                }
+                if let Some(e) = err {
+                    lines.push(format!("  [对账] {nm} flag={flag} block={bs}: range 报错 {e}"));
+                    all_pass = false;
+                    continue;
+                }
+                let mut mm = 0usize;
+                for k in 0..ns {
+                    for (x, y) in cat[k].iter().zip(full[k].iter()) {
+                        if !((x.is_nan() && y.is_nan()) || x.to_bits() == y.to_bits()) {
+                            mm += 1;
+                        }
+                    }
+                }
+                n_cmp += 1;
+                if mm > 0 {
+                    all_pass = false;
+                }
+                lines.push(format!(
+                    "  [对账] {nm} industry_neutralize={flag} block={bs}: 不一致 {mm} 格"
+                ));
+            }
+        }
+    }
+
+    // ---- 1b) 残差行级移植的分支覆盖：整张 `get_residual(.., None)` vs 行级版 ----
+    // 真实数据每日有效 4000+ 只走 Cholesky 快路径；这里用合成小矩阵覆盖
+    // SVD 伪逆(有效数<=40)、Cholesky、单值行(0.5)、全 NaN 行、有效数<=10 五个分支。
+    {
+        let mut seed = 0x243f_6a88_85a3_08d3u64;
+        let mut rnd = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        let (tt, nn, k) = (6usize, 64usize, 10usize);
+        let mut bench: Vec<Array2<f64>> = Vec::new();
+        for _ in 0..k {
+            let mut m = Array2::<f64>::from_elem((tt, nn), f64::NAN);
+            for i in 0..tt {
+                let dens = if i == 0 || i == 5 { 80 } else { 35 };
+                for j in 0..nn {
+                    if (rnd() % 100) < dens {
+                        m[[i, j]] = (rnd() % 1000) as f64 / 1000.0 - 0.5;
+                    }
+                }
+            }
+            bench.push(m);
+        }
+        let mut fv = Array2::<f64>::from_elem((tt, nn), f64::NAN);
+        for i in 0..tt {
+            let dens = if i == 0 || i == 5 { 80 } else { 35 };
+            for j in 0..nn {
+                if (rnd() % 100) < dens {
+                    fv[[i, j]] = (rnd() % 1000) as f64 / 1000.0 - 0.5;
+                }
+            }
+        }
+        for j in 0..nn {
+            fv[[1, j]] = f64::NAN; // 全 NaN 行
+            fv[[2, j]] = 0.7; // 单值行 → 0.5
+            fv[[3, j]] = 5.0; // 常量行（风格有效时 y 全同 → 0.5；否则 NaN）
+        }
+        for j in 0..5 {
+            fv[[4, j]] = 1.0; // 有效数 <= 10
+        }
+        let want = get_residual(&fv, &bench, None);
+        let mut got = Array2::<f64>::from_elem((tt, nn), f64::NAN);
+        let mut resid_row = vec![f64::NAN; nn];
+        let mut bench_rows: Vec<&[f64]> = Vec::with_capacity(k);
+        let fv_sl = fv.as_slice().unwrap();
+        for i in 0..tt {
+            bench_rows.clear();
+            for c in 0..k {
+                let sl = bench[c].as_slice().unwrap();
+                bench_rows.push(&sl[i * nn..(i + 1) * nn]);
+            }
+            get_residual_row_style(&fv_sl[i * nn..(i + 1) * nn], &bench_rows, &mut resid_row);
+            got.row_mut(i).assign(&ndarray::ArrayView1::from(&resid_row));
+        }
+        let mut mm = 0usize;
+        for (x, y) in want.iter().zip(got.iter()) {
+            if !((x.is_nan() && y.is_nan()) || x.to_bits() == y.to_bits()) {
+                mm += 1;
+            }
+        }
+        n_cmp += 1;
+        if mm > 0 {
+            all_pass = false;
+        }
+        lines.push(format!(
+            "  [对账] 残差行级移植分支覆盖(Cholesky/SVD/单值/全NaN/<=10): 不一致 {mm} 格"
+        ));
+    }
+
+    // ---- 2) 计时：13 面「整张 batch」vs「按块 range」----
+    if let Some(nm) = names.first() {
+        let raw: Array2<f32> = read_npy(format!("{data_dir}/factor_{nm}.npy")).unwrap();
+        let ranked =
+            crate::tail_v5_pipeline::rank_and_fill_missing_cross_sectional_median(&raw, &restrict);
+        let slots = mk_slots(&ranked);
+        let ns = slots.len();
+        let views: Vec<ArrayView2<f32>> = slots.iter().map(|s| s.view()).collect();
+        for &flag in &[false, true] {
+            let tmr = Instant::now();
+            let full = neutralize_std_slots_f32_v2_resid_batch(&views, &shared, flag).unwrap();
+            let t_full = tmr.elapsed().as_secs_f64();
+            std::hint::black_box(&full);
+            lines.push(format!(
+                "  [计时] industry_neutralize={flag} {ns} 面整张 batch: {t_full:.3}s"
+            ));
+            for &bs in &[64usize, 997, 2818] {
+                let mut cat: Vec<Array2<f32>> =
+                    (0..ns).map(|_| Array2::<f32>::from_elem((t, n), f32::NAN)).collect();
+                let tmr = Instant::now();
+                let mut a = 0usize;
+                while a < t {
+                    let b1 = (a + bs).min(t);
+                    let blk: Vec<ArrayView2<f32>> =
+                        slots.iter().map(|s| s.slice(s![a..b1, ..])).collect();
+                    let outs =
+                        neutralize_std_slots_f32_v2_resid_batch_range(&blk, &shared, flag, a, b1)
+                            .unwrap();
+                    for k in 0..ns {
+                        cat[k].slice_mut(s![a..b1, ..]).assign(&outs[k]);
+                    }
+                    a = b1;
+                }
+                let t_blk = tmr.elapsed().as_secs_f64();
+                std::hint::black_box(&cat);
+                lines.push(format!(
+                    "  [计时] industry_neutralize={flag} 按块 range bs={bs}: {t_blk:.3}s (相对整张 {:.2}x)",
+                    t_blk / t_full
+                ));
+            }
+        }
+    }
+
+    lines.insert(
+        0,
+        format!(
+            "[neu_style range] 逐位一致: {}  ({n_cmp} 组比较)",
+            if all_pass { "PASS" } else { "FAIL" }
+        ),
+    );
+    lines.join("\n")
 }

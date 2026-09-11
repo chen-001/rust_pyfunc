@@ -41,8 +41,10 @@ fn process_single_factor(
     sc: &mut crate::tail_v8_pipeline::V8Scratch,
 ) -> Result<TailTaskResult, String> {
     let force_v7 = std::env::var("TAIL_ENGINE_V7").is_ok();
+    // 注：industry_neutralize=false（纯风格中性化）同样走 v8 融合路径——
+    // 行业码矩阵仍是标准预处理（行业 OLS 填充 / 行业中位填充）的必需输入，
+    // 该开关只决定最后一步残差回归是否含行业 one-hot。
     let v8_ok = !force_v7
-        && shared.industry_neutralize
         && shared.neutralize_std_shared.is_some()
         && shared.bt_pre.is_some()
         && shared.free_mask.is_some();

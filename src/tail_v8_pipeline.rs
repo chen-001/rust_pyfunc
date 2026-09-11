@@ -36,6 +36,7 @@ pub const BLOCK_ROWS: usize = 64;
 pub struct V8Scratch {
     pub block_bufs: Vec<Array2<f32>>,
     pub roll: RollScratch,
+    pub v3sc: crate::tail_v8_neu_v3::V3Scratch,
     pub block_rows: usize,
     pub n_stocks: usize,
 }
@@ -48,6 +49,7 @@ impl V8Scratch {
                 .map(|_| Array2::<f32>::from_elem((block_rows, n_stocks), 0.0))
                 .collect(),
             roll: RollScratch::new(0, n_stocks, windows, block_rows),
+            v3sc: crate::tail_v8_neu_v3::V3Scratch::new(n_stocks),
             block_rows,
             n_stocks,
         }
@@ -228,14 +230,25 @@ fn run_variant_v8(
         if !need.is_empty() {
             let views: Vec<ArrayView2<f32>> =
                 need.iter().map(|&i| sc.block_bufs[i].slice(s![0..rows, ..])).collect();
-            let neutrals =
+            // v3（默认，比 v2 快 2.6~2.8×，数值逐位一致）；TAIL_NEU_V2=1 切回 v2 做诊断。
+            // 注意：v3 目前只实现了行业路径，纯风格（industry_neutralize=false）走 v2 range。
+            let use_v2 =
+                std::env::var("TAIL_NEU_V2").is_ok() || !shared.industry_neutralize;
+            let neutrals = if !use_v2 {
+                let v3s = shared
+                    .v3_shared
+                    .as_ref()
+                    .expect("v8 融合路径需要 v3_shared（可用 TAIL_NEU_V2=1 切回 v2）");
+                crate::tail_v8_neu_v3::v3_slots_range(&views, v3s, t0, t1, &mut sc.v3sc)?
+            } else {
                 crate::factor_neutralize_std::neutralize_std_slots_f32_v2_resid_batch_range(
                     &views,
                     ns_shared,
                     shared.industry_neutralize,
                     t0,
                     t1,
-                )?;
+                )?
+            };
             for (k, &si) in need.iter().enumerate() {
                 let nb = neutrals[k].view();
                 let a = neu_bt1[si].get_or_insert_with(|| BtAcc::new(mk_ctx(1)));

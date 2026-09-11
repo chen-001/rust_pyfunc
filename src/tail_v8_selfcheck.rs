@@ -5,7 +5,8 @@
 //!   print(rp.tail_v8_selfcheck("roll", "/home/chenzongwei/neu_lab/data_yupei_real"))
 //!   print(rp.tail_v8_selfcheck("pf",   ...))
 //!   print(rp.tail_v8_selfcheck("bt",   ...))
-//!   print(rp.tail_v8_selfcheck("neu",  ...))
+//!   print(rp.tail_v8_selfcheck("neu",  ...))   # v2 range 入口对账
+//!   print(rp.tail_v8_selfcheck("neu3", ...))   # v3 中性化对账
 //!
 //! 每个模块在自己的文件里实现 `selfcheck(data_dir) -> String`。
 
@@ -35,7 +36,9 @@ pub fn tail_v8_selfcheck<'py>(
         "pf" => crate::tail_v8_preflight::selfcheck(&data_dir),
         "bt" => crate::tail_v8_backtest::selfcheck(&data_dir),
         "neu" => selfcheck_neu(&data_dir),
-        other => format!("未知模块 {other}（可选 roll / pf / bt / neu）"),
+        "neu3" => crate::tail_v8_neu_v3::selfcheck(&data_dir),
+        "neu_style" => crate::factor_neutralize_std::selfcheck_style_only(&data_dir),
+        other => format!("未知模块 {other}（可选 roll / pf / bt / neu / neu3 / neu_style）"),
     });
     Ok(PyString::new(py, &out))
 }
