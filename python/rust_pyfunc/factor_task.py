@@ -25,14 +25,14 @@ DAEMON_URL = os.environ.get("FACTOR_TASK_URL", "http://127.0.0.1:9099")
 TIMEOUT = 10
 
 # ── 任务名中文化校验（与 factor_taskd 规则一致；daemon 端为权威拦截） ──
-# 例外：hm+数字（如 hm100、hm89）是 hm 系列因子约定命名，同样合规。
+# 例外：hm 系列因子约定命名——hm+数字（如 hm100、hm89）、hm+数字+_ind（如 hm100_ind）。
 _CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 _ASCII_WORD_RE = re.compile(r"[A-Za-z0-9]")
-_HM_NAME_RE = re.compile(r"^hm\d+$", re.IGNORECASE)
+_HM_NAME_RE = re.compile(r"^hm\d+(_ind)?$", re.IGNORECASE)
 
 
 def _validate_chinese_name(name: str) -> str | None:
-    """校验任务名以中文为主体（例外：hm+数字）。返回 None=合规，否则返回不合规原因。"""
+    """校验任务名以中文为主体（例外：hm+数字 / hm+数字_ind）。返回 None=合规，否则返回不合规原因。"""
     if _HM_NAME_RE.match(name):
         return None
     cjk = len(_CJK_RE.findall(name))
@@ -77,7 +77,7 @@ def cmd_submit(args):
         print(
             "   任务名称必须以中文为主体（可含数字/英文），"
             "请改名为如「交友软件_v2.py」「网络社交因子.py」后再提交；"
-            "hm+数字（如 hm100）亦可",
+            "hm+数字（如 hm100）或 hm+数字_ind（如 hm100_ind）亦可",
             file=sys.stderr,
         )
         sys.exit(1)

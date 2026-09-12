@@ -120,14 +120,16 @@ _active_pids_lock = threading.Lock()
 # 规则：中文字符数 >= 1，且 >= 英文/数字字符数的一半（即中文至少占文字内容 1/3），
 # 如「挂单猫0701」「交友软件_v2」合规；「run_urgency_v2_baseline」不含中文，拒绝。
 # 下划线/连字符/空格/括号等分隔符不计数（允许但不算主体）。
-# 例外：hm+数字（如 hm100、hm89、hm134）是 hm 系列因子约定的命名，同样合规。
+# 例外：hm 系列因子约定命名，两种形式同样合规：
+#   ① hm+数字        （如 hm100、hm89、hm134）
+#   ② hm+数字+_ind   （如 hm100_ind、hm134_ind、hm89_ind）
 _CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 _ASCII_WORD_RE = re.compile(r"[A-Za-z0-9]")
-_HM_NAME_RE = re.compile(r"^hm\d+$", re.IGNORECASE)
+_HM_NAME_RE = re.compile(r"^hm\d+(_ind)?$", re.IGNORECASE)
 
 
 def validate_chinese_name(name: str) -> str | None:
-    """校验任务名以中文为主体（例外：hm+数字）。返回 None=合规，否则返回不合规原因。"""
+    """校验任务名以中文为主体（例外：hm+数字 / hm+数字_ind）。返回 None=合规，否则返回不合规原因。"""
     if _HM_NAME_RE.match(name):
         return None
     cjk = len(_CJK_RE.findall(name))
@@ -400,7 +402,7 @@ def submit_task(body: TaskSubmit):
     version = _extract_version(script_path)
 
     # 强制检查：任务名（= 脚本文件名）主体必须为中文（可含数字/英文），
-    # 例外：hm+数字（如 hm100）是 hm 系列因子约定命名，同样接受。
+    # 例外：hm 系列因子约定命名——hm+数字（如 hm100）、hm+数字+_ind（如 hm100_ind）。
     # 这是任务管理系统的硬性规范，CLI/Web 前端只是友好提示，此处才是权威拦截。
     name_err = validate_chinese_name(version)
     if name_err:
@@ -408,7 +410,8 @@ def submit_task(body: TaskSubmit):
             400,
             f"任务名称不合规：{name_err}。任务名称必须以中文为主体"
             "（可含数字/英文），请将脚本改名为如「交友软件_v2.py」"
-            "「网络社交因子.py」后再提交；hm+数字（如 hm100）亦可",
+            "「网络社交因子.py」后再提交；hm+数字（如 hm100）"
+            "或 hm+数字_ind（如 hm100_ind）亦可",
         )
 
     # 提交前语法预检：语法错误在任务系统里只会让任务秒失败并污染历史记录，
