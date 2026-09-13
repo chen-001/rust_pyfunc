@@ -135,6 +135,20 @@ def tail_v3_rank_roll_block_f32(
     """
     ...
 
+def tail_v5_rank_fill_roll_block_f32(
+    data: NDArray[np.float32],
+    restrict: NDArray[np.float32],
+    windows: list[int],
+) -> NDArray[np.float32]:
+    """横截面 rank + 缺失值中位数填充 + rolling 统计 block。
+
+    与 `tail_v3_rank_roll_block_f32` 的区别：先把「当天 Restrict==0 可交易但缺值」
+    的股票的 rank 填成 `(当日有效只数+1)/2`，再在填好的 rank 上做 rolling（不二次 rank）。
+    返回形状 `(n_dates, n_stocks, n_slots)`，最后一维顺序与
+    `tail_v3_rank_roll_block_f32` 完全一致。
+    """
+    ...
+
 def tail_v2_select_by_ic_corr_abs_f32(
     ic_by_factor: NDArray[np.float32],
     threshold: float,

@@ -971,6 +971,7 @@ __all__ = [
     "TailV4LegacyStyleData",
     "tail_v2_rank_roll_factor_f32",
     "tail_v3_rank_roll_block_f32",
+    "tail_v5_rank_fill_roll_block_f32",
     "tail_v2_select_by_ic_corr_abs_f32",
     "tail_v4_run_candidates",
     "tail_v4_run_fulltest_queue",

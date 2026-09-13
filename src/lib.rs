@@ -86,6 +86,7 @@ pub mod tail_backtest_engine;
 pub mod tail_v2_backtest_block;
 pub mod tail_v2_block_neutralizer;
 pub mod tail_v2_ic_corr_filter;
+pub mod tail_rank_fill_roll;
 pub mod tail_v2_rank_roll_factor;
 pub mod tail_v4_pipeline;
 pub mod tail_v5_pipeline;
@@ -610,6 +611,10 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?);
     let _ = m.add_function(wrap_pyfunction!(
         tail_v2_rank_roll_factor::tail_v3_rank_roll_block_f32,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        tail_rank_fill_roll::tail_v5_rank_fill_roll_block_f32,
         m
     )?);
     let _ = m.add_function(wrap_pyfunction!(
