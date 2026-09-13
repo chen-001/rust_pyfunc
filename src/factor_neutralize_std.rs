@@ -1312,6 +1312,130 @@ pub fn neutralize_std_block_with_shared<'py>(
         .to_owned())
 }
 
+/// 与 `neutralize_std_precompute_py` 等价，但**优先复用引擎的跨 run 磁盘缓存**
+/// （`tail_shared_cache`：`style_<key>.bin` + `neutral_<key>.bin`）。
+///
+/// 键与引擎 `build_shared_inputs` 逐字一致（dates + stocks + industry 字节 +
+/// style sha256 + restrict sha256 + ret_sum_gap1/5 sha256），所以同一轴、同一份输入下
+/// 这里加载到的就是引擎刚算过的那一份 —— 命中时省掉 840MB parquet 解析与预计算
+/// （fulltest 有 32 个 worker，每个都重算一遍代价很大）。
+///
+/// 任何失败（目录不可写、文件缺失、键不匹配、`TAIL_SHARED_CACHE=0`）都退化为
+/// 「本地重算」，产出与 `neutralize_std_precompute_py` 完全相同 —— 只会慢，不会算错。
+#[pyfunction]
+#[pyo3(signature = (
+    industry,
+    restrict,
+    style_data_path,
+    restrict_path,
+    ret_sum_gap1_path,
+    ret_sum_gap5_path,
+    dates,
+    stocks
+))]
+pub fn neutralize_std_precompute_cached_py(
+    py: Python<'_>,
+    industry: PyReadonlyArray2<'_, f64>,
+    restrict: PyReadonlyArray2<'_, f32>,
+    style_data_path: String,
+    restrict_path: String,
+    ret_sum_gap1_path: String,
+    ret_sum_gap5_path: String,
+    dates: Vec<i32>,
+    stocks: Vec<String>,
+) -> PyResult<NeutralizeStdSharedHandle> {
+    let industry_owned = industry.as_array().to_owned();
+    let restrict_owned = restrict.as_array().to_owned();
+    let shared = py
+        .allow_threads(move || -> Result<NeutralizeStdShared, String> {
+            let cache = if crate::tail_shared_cache::cache_enabled() {
+                match crate::tail_shared_cache::SharedCache::open(
+                    &restrict_path,
+                    &style_data_path,
+                    &ret_sum_gap1_path,
+                    &ret_sum_gap5_path,
+                    &dates,
+                    &stocks,
+                    Some(&industry_owned),
+                ) {
+                    Ok(c) => Some(c),
+                    Err(e) => {
+                        println!("⚠️ [fulltest-cache] 缓存不可用，本次本地重算: {e}");
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+            if let Some(c) = &cache {
+                println!(
+                    "[fulltest-cache] key={} dir={}",
+                    c.key(),
+                    c.dir_display()
+                );
+            }
+
+            let t_neu = std::time::Instant::now();
+            // 先试 neutral：命中时**完全不需要** style（省掉 3.8GB 读盘 / 840MB parquet 解析）。
+            if let Some(v) = cache.as_ref().and_then(|c| c.load_neutral(&industry_owned)) {
+                println!(
+                    "✅ [fulltest-cache] neutralize 命中 (读盘 {:.2}s，未读 style)",
+                    t_neu.elapsed().as_secs_f64()
+                );
+                return Ok(v);
+            }
+
+            let t_style = std::time::Instant::now();
+            let style_data = match cache.as_ref().and_then(|c| c.load_style()) {
+                Some(d) => {
+                    println!(
+                        "✅ [fulltest-cache] style 命中 (读盘 {:.2}s)",
+                        t_style.elapsed().as_secs_f64()
+                    );
+                    d
+                }
+                None => {
+                    let d = IOOptimizedStyleData::load_from_parquet_io_optimized(
+                        &style_data_path,
+                    )
+                    .map_err(|e| e.to_string())?;
+                    if let Some(c) = &cache {
+                        if let Err(e) = c.store_style(&d) {
+                            println!("⚠️ [fulltest-cache] style 落盘失败: {e}");
+                        }
+                    }
+                    println!(
+                        "❄️ [fulltest-cache] style 未命中，parquet 解析 {:.2}s",
+                        t_style.elapsed().as_secs_f64()
+                    );
+                    d
+                }
+            };
+
+            let v = neutralize_std_precompute(
+                &industry_owned,
+                &restrict_owned,
+                &style_data,
+                &dates,
+                &stocks,
+            )?;
+            if let Some(c) = &cache {
+                if let Err(e) = c.store_neutral(&v) {
+                    println!("⚠️ [fulltest-cache] neutralize 落盘失败: {e}");
+                }
+            }
+            println!(
+                "❄️ [fulltest-cache] neutralize 未命中，重算 {:.2}s",
+                t_neu.elapsed().as_secs_f64()
+            );
+            Ok(v)
+        })
+        .map_err(PyValueError::new_err)?;
+    Ok(NeutralizeStdSharedHandle {
+        inner: std::sync::Arc::new(shared),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

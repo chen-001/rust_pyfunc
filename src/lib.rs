@@ -648,6 +648,10 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         factor_neutralize_std::neutralize_std_block_with_shared,
         m
     )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        factor_neutralize_std::neutralize_std_precompute_cached_py,
+        m
+    )?);
     let _ = m.add_class::<tail_v4_pipeline::TailV4LegacyStyleData>()?;
     // Tail V5：列式存储 + IO/CPU 分离（复制自 v4，支持 factor_store_v5）
     let _ = m.add_function(wrap_pyfunction!(
