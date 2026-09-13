@@ -12,9 +12,11 @@ use std::time::{Duration, Instant};
 use rayon::prelude::*;
 
 use arrow::array::{
-    Array, Float32Array, Float64Array, Int32Array, Int64Array, TimestampMicrosecondArray,
-    TimestampMillisecondArray, TimestampNanosecondArray,
+    Array, ArrayRef, BooleanArray, Float32Array, Float64Array, Int32Array, Int64Array, StringArray,
+    TimestampMicrosecondArray, TimestampMillisecondArray, TimestampNanosecondArray,
 };
+use arrow::datatypes::{DataType, Field, Schema};
+use arrow::record_batch::RecordBatch;
 use chrono::{Datelike, NaiveDateTime};
 use crossbeam::channel::{unbounded, Receiver, RecvTimeoutError, Sender};
 #[cfg(feature = "hdf5")]
@@ -23,6 +25,9 @@ use ndarray::{s, Array1, Array2, Array3, ArrayView1, ArrayView2, ArrayView3};
 use ndarray_npy::{read_npy, write_npy};
 use numpy::IntoPyArray;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use parquet::arrow::arrow_writer::ArrowWriter;
+use parquet::basic::Compression;
+use parquet::file::properties::WriterProperties;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -180,8 +185,54 @@ pub(crate) fn build_shared_inputs(
     index_ret_path: &str,
     config: TailSelectionConfig,
 ) -> Result<SharedInputs, String> {
-    let style_data = IOOptimizedStyleData::load_from_parquet_io_optimized(style_data_path)
-        .map_err(|e| e.to_string())?;
+    // ---- P2 跨 run 固定预计算缓存 ----
+    // 键 = dates + stocks + style sha256 + restrict sha256 + ret_sum sha256 ×2 + industry sha256。
+    // 缓存目录 = dirname(restrict.npy)/_engine_shared_cache/（不随 cache_root 被 force_restart 清掉）。
+    // 任何失败（目录不可写、文件缺失等）都退化为「不缓存」，行为与改动前一致。
+    let shared_cache = if crate::tail_shared_cache::cache_enabled() {
+        match crate::tail_shared_cache::SharedCache::open(
+            restrict_path,
+            style_data_path,
+            ret_sum_gap1_path,
+            ret_sum_gap5_path,
+            &dates,
+            &stocks,
+            industry.as_ref(),
+        ) {
+            Ok(c) => Some(c),
+            Err(e) => {
+                println!("⚠️ [shared-cache] 缓存不可用，本次全量重算: {}", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    let t0 = Instant::now();
+    let style_data = match shared_cache.as_ref().and_then(|c| c.load_style()) {
+        Some(d) => {
+            println!(
+                "✅ [shared-cache] style 命中 (读盘 {:.2}s)",
+                t0.elapsed().as_secs_f64()
+            );
+            d
+        }
+        None => {
+            let d = IOOptimizedStyleData::load_from_parquet_io_optimized(style_data_path)
+                .map_err(|e| e.to_string())?;
+            if let Some(c) = &shared_cache {
+                if let Err(e) = c.store_style(&d) {
+                    println!("⚠️ [shared-cache] style 落盘失败: {}", e);
+                }
+            }
+            println!(
+                "❄️ [shared-cache] style 未命中，parquet 解析 {:.2}s",
+                t0.elapsed().as_secs_f64()
+            );
+            d
+        }
+    };
     let restrict: Array2<f32> =
         read_npy(restrict_path).map_err(|e| format!("读取 restrict.npy 失败: {}", e))?;
     // v8 一档：restrict → 1 字节/格可交易掩码，全 run 建一次
@@ -202,15 +253,38 @@ pub(crate) fn build_shared_inputs(
     // 标准中性化预计算：一次性展开 barra/size/行业分级码 (模板轴)，Arc 共享。
     // 仅在启用标准中性化 (industry 非 None) 时预计算；旧路径 (industry=None) 不触发。
     let neutralize_std_shared = match &industry {
-        Some(ind) => Some(Arc::new(
-            crate::factor_neutralize_std::neutralize_std_precompute(
-                ind,
-                &restrict,
-                &style_data,
-                &dates,
-                &stocks,
-            )?,
-        )),
+        Some(ind) => {
+            let t0 = Instant::now();
+            let ns = match shared_cache.as_ref().and_then(|c| c.load_neutral(ind)) {
+                Some(v) => {
+                    println!(
+                        "✅ [shared-cache] neutralize 命中 (读盘 {:.2}s)",
+                        t0.elapsed().as_secs_f64()
+                    );
+                    v
+                }
+                None => {
+                    let v = crate::factor_neutralize_std::neutralize_std_precompute(
+                        ind,
+                        &restrict,
+                        &style_data,
+                        &dates,
+                        &stocks,
+                    )?;
+                    if let Some(c) = &shared_cache {
+                        if let Err(e) = c.store_neutral(&v) {
+                            println!("⚠️ [shared-cache] neutralize 落盘失败: {}", e);
+                        }
+                    }
+                    println!(
+                        "❄️ [shared-cache] neutralize 未命中，重算 {:.2}s",
+                        t0.elapsed().as_secs_f64()
+                    );
+                    v
+                }
+            };
+            Some(Arc::new(ns))
+        }
         None => None,
     };
 
@@ -223,7 +297,36 @@ pub(crate) fn build_shared_inputs(
     // O1 收益秩预计算 (因子无关): 每日期对 ret_sum_gap1/ret_sum_gap5 全行按
     // (值, index) 排序。按 (mono_key32(v), index) 的 radix 稳定排序, 与
     // ordinal_ranks 的 sort_by 语义一致 (-0/+0 合并、NaN 置末)。
-    let bt_pre = Some(Arc::new(build_bt_precomputed(&ret_s1, &ret_s5)?));
+    let bt_pre = {
+        let t0 = Instant::now();
+        Some(Arc::new(
+            match shared_cache.as_ref().and_then(|c| c.load_bt()) {
+                Some(v) => {
+                    println!(
+                        "✅ [shared-cache] bt_pre 命中 (读盘 {:.2}s)",
+                        t0.elapsed().as_secs_f64()
+                    );
+                    v
+                }
+                None => {
+                    let v = build_bt_precomputed(&ret_s1, &ret_s5)?;
+                    if let Some(c) = &shared_cache {
+                        if let Err(e) = c.store_bt(&v) {
+                            println!("⚠️ [shared-cache] bt_pre 落盘失败: {}", e);
+                        }
+                    }
+                    println!(
+                        "❄️ [shared-cache] bt_pre 未命中，重算 {:.2}s",
+                        t0.elapsed().as_secs_f64()
+                    );
+                    v
+                }
+            },
+        ))
+    };
+    if let Some(c) = &shared_cache {
+        println!("[shared-cache] key={} dir={}", c.key(), c.dir_display());
+    }
 
     Ok(SharedInputs {
         dates: Arc::new(dates),
@@ -656,61 +759,63 @@ fn radix_sort_u32_keys(keys: &[u32], order: &mut Vec<usize>, tmp: &mut Vec<usize
     }
 }
 
-/// u32 key 版本: 构建 (mono_key32(v)) 键数组并稳定排序 → 返回排序后的索引序。
-fn keyed_order_u32(values: &[f32]) -> Vec<usize> {
-    let n = values.len();
-    let mut keys: Vec<u32> = vec![0u32; n];
-    for (i, &v) in values.iter().enumerate() {
-        keys[i] = mono_key32(v);
-    }
-    let mut order: Vec<usize> = (0..n).collect();
-    let mut tmp: Vec<usize> = Vec::new();
-    radix_sort_u32_keys(&keys, &mut order, &mut tmp);
-    order
-}
-
 /// ordinal 秩 (与 ordinal_ranks 一致: 等值按 index 稳定序, 无 NaN)。
 /// O1b (2026-09): u32 4-pass radix, 与旧 (key,index) 8-pass 总序逐位一致。
+/// P3a: 直接复用 rank_both_radix_into（与 rank_both_radix 同一份实现，结果不变）。
 fn ordinal_ranks_radix(values: &[f32]) -> Vec<i64> {
-    let order = keyed_order_u32(values);
-    let mut ranks = vec![0i64; values.len()];
-    for (rank, &idx) in order.iter().enumerate() {
-        ranks[idx] = rank as i64;
-    }
-    ranks
+    let mut keys: Vec<u32> = Vec::new();
+    let mut order: Vec<usize> = Vec::new();
+    let mut tmp: Vec<usize> = Vec::new();
+    let mut ordinal: Vec<i64> = Vec::new();
+    let mut avg: Vec<f64> = Vec::new();
+    rank_both_radix_into(values, &mut keys, &mut order, &mut tmp, &mut ordinal, &mut avg);
+    ordinal
 }
 
 /// 平均秩 (与 average_ranks 一致: 等值组取平均, f32 == 判等)。
 /// O1b (2026-09): u32 4-pass radix, 与旧 (key,index) 8-pass 总序逐位一致。
+/// P3a: 直接复用 rank_both_radix_into（与 rank_both_radix 同一份实现，结果不变）。
 pub(crate) fn average_ranks_radix(values: &[f32]) -> Vec<f64> {
-    let n = values.len();
-    let order = keyed_order_u32(values);
-    let mut ranks = vec![f64::NAN; n];
-    let mut start = 0usize;
-    while start < n {
-        let value = values[order[start]];
-        let mut end = start + 1;
-        while end < n && values[order[end]] == value {
-            end += 1;
-        }
-        let avg_rank = (start + 1 + end) as f64 / 2.0;
-        for &idx in order.iter().take(end).skip(start) {
-            ranks[idx] = avg_rank;
-        }
-        start = end;
-    }
-    ranks
+    let mut keys: Vec<u32> = Vec::new();
+    let mut order: Vec<usize> = Vec::new();
+    let mut tmp: Vec<usize> = Vec::new();
+    let mut ordinal: Vec<i64> = Vec::new();
+    let mut avg: Vec<f64> = Vec::new();
+    rank_both_radix_into(values, &mut keys, &mut order, &mut tmp, &mut ordinal, &mut avg);
+    avg
 }
 
 /// O1b: 一次排序同时产出 ordinal 秩与平均秩 (与分别调用上述两个函数逐位一致)。
-pub(crate) fn rank_both_radix(values: &[f32]) -> (Vec<i64>, Vec<f64>) {
+///
+/// 复用缓冲版 (P3a): keys/order/tmp/ordinal/avg 全部由调用方持有并跨行复用，
+/// 热路径零堆分配。语义与旧实现逐位相同（旧实现即本函数的薄包装）：
+///   - 排序键 = (mono_key32(v), index)，稳定 radix，初始 order 按 index 升序；
+///   - -0.0 规范化为 +0.0；等值组（f32 ==）取平均秩；调用方保证无 NaN。
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn rank_both_radix_into(
+    values: &[f32],
+    keys: &mut Vec<u32>,
+    order: &mut Vec<usize>,
+    tmp: &mut Vec<usize>,
+    ordinal: &mut Vec<i64>,
+    avg: &mut Vec<f64>,
+) {
     let n = values.len();
-    let order = keyed_order_u32(values);
-    let mut ordinal = vec![0i64; n];
-    let mut avg = vec![f64::NAN; n];
+    keys.clear();
+    keys.resize(n, 0u32);
+    for (i, &v) in values.iter().enumerate() {
+        keys[i] = mono_key32(v);
+    }
+    order.clear();
+    order.extend(0..n);
+    radix_sort_u32_keys(keys, order, tmp);
+    ordinal.clear();
+    ordinal.resize(n, 0i64);
     for (rank, &idx) in order.iter().enumerate() {
         ordinal[idx] = rank as i64;
     }
+    avg.clear();
+    avg.resize(n, f64::NAN);
     let mut start = 0usize;
     while start < n {
         let value = values[order[start]];
@@ -724,6 +829,16 @@ pub(crate) fn rank_both_radix(values: &[f32]) -> (Vec<i64>, Vec<f64>) {
         }
         start = end;
     }
+}
+
+/// 薄包装：每次调用新建 5 个缓冲（保留给未走 BtAcc 的调用点，行为不变）。
+pub(crate) fn rank_both_radix(values: &[f32]) -> (Vec<i64>, Vec<f64>) {
+    let mut keys: Vec<u32> = Vec::new();
+    let mut order: Vec<usize> = Vec::new();
+    let mut tmp: Vec<usize> = Vec::new();
+    let mut ordinal: Vec<i64> = Vec::new();
+    let mut avg: Vec<f64> = Vec::new();
+    rank_both_radix_into(values, &mut keys, &mut order, &mut tmp, &mut ordinal, &mut avg);
     (ordinal, avg)
 }
 
@@ -3083,13 +3198,132 @@ fn process_task_with_values(
     Ok(result)
 }
 
-fn write_summary_json(path: &Path, rows: &[SummaryRowRecord]) -> Result<(), String> {
+/// 原子写用的同目录临时路径（同目录保证 rename 不跨文件系统）。
+fn atomic_tmp_path(path: &Path) -> Result<PathBuf, String> {
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| format!("非法输出路径: {}", path.display()))?
+        .to_string_lossy()
+        .to_string();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    Ok(parent.join(format!("{}.tmp.{}.{}", file_name, std::process::id(), nanos)))
+}
+
+/// summary 产物：Rust 直接写 parquet。
+///
+/// 替代旧路径「Rust 写 573MB JSON → Python `json.load` → `pd.DataFrame` → `to_parquet`」。
+///
+/// schema（列序 = `SummaryRowRecord` 字段声明序 = 旧 JSON 的键序 = 旧
+/// `_load_summary_json_full` 得到的 DataFrame 列序）：
+///
+/// | # | 列名 | Arrow 类型 | pandas dtype |
+/// |---|---|---|---|
+/// | 0 | factor_name | Utf8 | object |
+/// | 1 | stage | Utf8 | object |
+/// | 2 | gap | Int64 | int64 |
+/// | 3 | source_factor | Utf8 | object |
+/// | 4 | preflight_passed | Boolean | bool |
+/// | 5 | IC_mean | Float64 | float64 |
+/// | 6 | IR | Float64 | float64 |
+/// | 7 | annualized_return | Float64 | float64 |
+/// | 8 | sharpe_ratio | Float64 | float64 |
+/// | 9 | max_drawdown | Float64 | float64 |
+/// | 10 | date_size | Int64 | int64 |
+/// | 11 | ratio_mean | Float64 | float64 |
+/// | 12 | hedge_annualized_return | Float64 | float64 |
+/// | 13 | hedge_annualized_sharpe_ratio | Float64 | float64 |
+/// | 14 | hedge_max_drawdown | Float64 | float64 |
+///
+/// 行序 = `rows` 原序（与旧 JSON 数组顺序相同）。全部列 nullable=true，但实际不产生 null。
+/// 非有限 f64 一律写 NaN：旧路径经 serde_json 会把 NaN/±Inf 序列化成 `null`，Python
+/// `json.load` 得 None、建 DataFrame 后即 NaN，故语义逐字段一致。
+fn write_summary_parquet(path: &Path, rows: &[SummaryRowRecord]) -> Result<(), String> {
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("factor_name", DataType::Utf8, true),
+        Field::new("stage", DataType::Utf8, true),
+        Field::new("gap", DataType::Int64, true),
+        Field::new("source_factor", DataType::Utf8, true),
+        Field::new("preflight_passed", DataType::Boolean, true),
+        Field::new("IC_mean", DataType::Float64, true),
+        Field::new("IR", DataType::Float64, true),
+        Field::new("annualized_return", DataType::Float64, true),
+        Field::new("sharpe_ratio", DataType::Float64, true),
+        Field::new("max_drawdown", DataType::Float64, true),
+        Field::new("date_size", DataType::Int64, true),
+        Field::new("ratio_mean", DataType::Float64, true),
+        Field::new("hedge_annualized_return", DataType::Float64, true),
+        Field::new("hedge_annualized_sharpe_ratio", DataType::Float64, true),
+        Field::new("hedge_max_drawdown", DataType::Float64, true),
+    ]));
+    let fin = |v: f64| if v.is_finite() { v } else { f64::NAN };
+    let f64_col = |get: fn(&SummaryRowRecord) -> f64| -> ArrayRef {
+        Arc::new(Float64Array::from(
+            rows.iter().map(|r| fin(get(r))).collect::<Vec<_>>(),
+        ))
+    };
+    let columns: Vec<ArrayRef> = vec![
+        Arc::new(StringArray::from_iter_values(
+            rows.iter().map(|r| r.factor_name.as_str()),
+        )),
+        Arc::new(StringArray::from_iter_values(
+            rows.iter().map(|r| r.stage.as_str()),
+        )),
+        Arc::new(Int64Array::from(
+            rows.iter().map(|r| r.gap as i64).collect::<Vec<_>>(),
+        )),
+        Arc::new(StringArray::from_iter_values(
+            rows.iter().map(|r| r.source_factor.as_str()),
+        )),
+        Arc::new(BooleanArray::from(
+            rows.iter().map(|r| r.preflight_passed).collect::<Vec<_>>(),
+        )),
+        f64_col(|r| r.ic_mean),
+        f64_col(|r| r.ir),
+        f64_col(|r| r.annualized_return),
+        f64_col(|r| r.sharpe_ratio),
+        f64_col(|r| r.max_drawdown),
+        Arc::new(Int64Array::from(
+            rows.iter().map(|r| r.date_size as i64).collect::<Vec<_>>(),
+        )),
+        f64_col(|r| r.ratio_mean),
+        f64_col(|r| r.hedge_annualized_return),
+        f64_col(|r| r.hedge_annualized_sharpe_ratio),
+        f64_col(|r| r.hedge_max_drawdown),
+    ];
+    let batch = RecordBatch::try_new(schema.clone(), columns)
+        .map_err(|e| format!("构造 summary RecordBatch 失败: {}", e))?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("创建 metrics 目录失败: {}", e))?;
     }
-    let file = File::create(path).map_err(|e| format!("创建 summary json 失败: {}", e))?;
-    let writer = BufWriter::new(file);
-    serde_json::to_writer(writer, rows).map_err(|e| format!("写 summary json 失败: {}", e))
+    let tmp = atomic_tmp_path(path)?;
+    let write_res = (|| -> Result<(), String> {
+        let file = File::create(&tmp).map_err(|e| format!("创建 summary parquet 失败: {}", e))?;
+        // SNAPPY = pyarrow `to_parquet` 的默认压缩，与旧路径产出的 parquet 同一量级。
+        let props = WriterProperties::builder()
+            .set_compression(Compression::SNAPPY)
+            .build();
+        let mut writer = ArrowWriter::try_new(file, schema, Some(props))
+            .map_err(|e| format!("创建 ArrowWriter 失败: {}", e))?;
+        writer
+            .write(&batch)
+            .map_err(|e| format!("写 summary parquet 失败: {}", e))?;
+        writer
+            .close()
+            .map_err(|e| format!("关闭 summary parquet 失败: {}", e))?;
+        Ok(())
+    })();
+    if let Err(e) = write_res {
+        let _ = fs::remove_file(&tmp);
+        return Err(e);
+    }
+    fs::rename(&tmp, path).map_err(|e| {
+        let _ = fs::remove_file(&tmp);
+        format!("summary parquet 原子改名失败 {}: {}", path.display(), e)
+    })
 }
 
 fn write_ic_outputs(
@@ -3153,20 +3387,20 @@ pub(crate) fn write_aggregated_outputs(
 ) -> Result<(), String> {
     let metrics_dir = cache_root.join("metrics");
     let ic_dir = cache_root.join("ic_ts");
-    write_summary_json(
-        &metrics_dir.join("summary_rolled_gap1_candidates.json"),
+    write_summary_parquet(
+        &metrics_dir.join("summary_rolled_gap1_candidates.parquet"),
         &aggregated.raw_summary_gap1,
     )?;
-    write_summary_json(
-        &metrics_dir.join("summary_rolled_gap5_candidates.json"),
+    write_summary_parquet(
+        &metrics_dir.join("summary_rolled_gap5_candidates.parquet"),
         &aggregated.raw_summary_gap5,
     )?;
-    write_summary_json(
-        &metrics_dir.join("summary_neu_gap1_candidates.json"),
+    write_summary_parquet(
+        &metrics_dir.join("summary_neu_gap1_candidates.parquet"),
         &aggregated.neu_summary_gap1,
     )?;
-    write_summary_json(
-        &metrics_dir.join("summary_neu_gap5_candidates.json"),
+    write_summary_parquet(
+        &metrics_dir.join("summary_neu_gap5_candidates.parquet"),
         &aggregated.neu_summary_gap5,
     )?;
     write_ic_outputs(
@@ -3198,20 +3432,20 @@ pub(crate) fn write_aggregated_outputs(
     // 即使 preflight 不过、收益/IC 不达候选阈值。文件名以 _all 区分 candidates。
     // 注意：即使整批全部 raw_cover 失败、聚合为空，也强制写出空文件，
     // 这样 skill B 才能完整闭环“每个 expected source factor 都有结论”。
-    write_summary_json(
-        &metrics_dir.join("summary_rolled_gap1_all.json"),
+    write_summary_parquet(
+        &metrics_dir.join("summary_rolled_gap1_all.parquet"),
         &aggregated.all_raw_summary_gap1,
     )?;
-    write_summary_json(
-        &metrics_dir.join("summary_rolled_gap5_all.json"),
+    write_summary_parquet(
+        &metrics_dir.join("summary_rolled_gap5_all.parquet"),
         &aggregated.all_raw_summary_gap5,
     )?;
-    write_summary_json(
-        &metrics_dir.join("summary_neu_gap1_all.json"),
+    write_summary_parquet(
+        &metrics_dir.join("summary_neu_gap1_all.parquet"),
         &aggregated.all_neu_summary_gap1,
     )?;
-    write_summary_json(
-        &metrics_dir.join("summary_neu_gap5_all.json"),
+    write_summary_parquet(
+        &metrics_dir.join("summary_neu_gap5_all.parquet"),
         &aggregated.all_neu_summary_gap5,
     )?;
     write_ic_outputs(

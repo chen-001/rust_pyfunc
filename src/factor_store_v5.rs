@@ -3591,8 +3591,12 @@ fn add_exchange_suffix(code: &str) -> String {
 }
 
 /// 把 colblk 存储中指定因子（按因子名）批量导出为 parquet 文件。
-/// 每个因子一个 parquet，schema = date(Int64) + 每个股票一列(Float64)，
-/// 与现有 export_backup_to_parquet_rust 输出格式完全一致，保证 postprocess 兼容。
+/// 每个因子一个 parquet，schema = date(Date64) + 每个股票一列(Float32, PLAIN)，
+/// 行序 = 模板日期序、列序 = 模板股票序（列名带 .SH/.SZ/.BJ 后缀），
+/// 供 design_whatever 的 _read_factor_to_template 直接 read_parquet → set_index("date") → 对齐模板。
+///
+/// 与旧实现相比：共享一个 Reader（不每因子重开）+ 预计算 scatter maps + rayon 按因子并行
+/// + Float32 连续内存构造（无列优先跨步访问）+ 关字典编码。
 ///
 /// 供 design_whatever tail_v5 在候选筛选后导出入选因子给 fulltest/materialize。
 #[pyfunction]
@@ -3603,25 +3607,18 @@ pub fn factor_store_v5_export_factors_parquet(
     factor_names: Vec<String>,
     n_jobs: usize,
 ) -> PyResult<usize> {
-    use arrow::array::{Float64Array, Int64Array};
+    use arrow::array::Date64Array;
     use arrow::datatypes::{DataType, Field, Schema};
-    use arrow::record_batch::RecordBatch;
-    use parquet::arrow::arrow_writer::ArrowWriter;
+    use parquet::basic::{Compression, Encoding};
+    use parquet::file::properties::WriterProperties;
     use rayon::prelude::*;
     use std::sync::Arc as ArrowArc;
 
-    // 控制 rayon 线程数
     let t_entry = std::time::Instant::now();
-    if n_jobs > 0 {
-        let _ = rayon::ThreadPoolBuilder::new()
-            .num_threads(n_jobs)
-            .build_global();
-    }
-    eprintln!("[EXPORT-DBG] build_global 完成 {:?}", t_entry.elapsed());
 
-    let t_open = std::time::Instant::now();
-    let reader = FactorStoreReader::open(&store_dir).map_err(pyerr)?;
-    eprintln!("[EXPORT-DBG] open 完成 {:?}", t_open.elapsed());
+    // 只打开一次 store：所有因子共用同一个 Reader（pread 线程安全，与 tail_backtest_engine
+    // 的共享用法一致），不再每因子重开一次（旧实现每因子重开 + 重建全部分片字典）。
+    let reader = ArrowArc::new(FactorStoreReader::open(&store_dir).map_err(pyerr)?);
 
     // 建立因子名 → col_idx 映射
     let name_to_idx: std::collections::HashMap<&str, usize> = reader
@@ -3633,24 +3630,51 @@ pub fn factor_store_v5_export_factors_parquet(
 
     // 模板轴（dates/stocks），用带后缀的股票代码作为列名
     let (dates, stocks_bare) = reader.template_axes();
-    let dates_i64: Vec<i64> = dates.iter().map(|&d| d as i64).collect();
     let stock_cols: Vec<String> = stocks_bare.iter().map(|c| add_exchange_suffix(c)).collect();
+    let n_cols = stocks_bare.len();
+
+    // scatter maps 只算一次，所有因子/线程复用（数组索引替代逐行 HashMap 查找）
+    let scatter_maps = ArrowArc::new(reader.precompute_scatter_maps(&dates, &stocks_bare));
+
+    // date 列与 schema 对所有因子相同，只构建一次。
+    // date 列用 Date64（毫秒时间戳），pandas 读后可直接 pd.to_datetime 得到 DatetimeIndex。
+    let date_arr = ArrowArc::new(Date64Array::from(
+        dates
+            .iter()
+            .map(|&d| {
+                let y = d / 10000;
+                let m = ((d / 100) % 100) as u32;
+                let dd = (d % 100) as u32;
+                chrono::NaiveDate::from_ymd_opt(y, m, dd)
+                    .and_then(|date| date.and_hms_opt(0, 0, 0))
+                    .map(|dt| dt.and_utc().timestamp_millis())
+                    .unwrap_or(0)
+            })
+            .collect::<Vec<i64>>(),
+    ));
+    // 股票列声明为非空：缺失值一律写成 NaN（合法浮点，不是 null），省掉全部 def level。
+    let mut fields = Vec::with_capacity(n_cols + 1);
+    fields.push(Field::new("date", DataType::Date64, false));
+    for col_name in &stock_cols {
+        fields.push(Field::new(col_name, DataType::Float32, false));
+    }
+    let schema = ArrowArc::new(Schema::new(fields));
+
+    // parquet 写参数：因子值几乎全是互不相同的浮点，字典编码只会白做一次哈希再退回 PLAIN，
+    // 故直接 PLAIN 且不压缩（实测同形状数据：关字典写出快约 2 倍、文件还更小）。
+    let props = ArrowArc::new(
+        WriterProperties::builder()
+            .set_dictionary_enabled(false)
+            .set_encoding(Encoding::PLAIN)
+            .set_compression(Compression::UNCOMPRESSED)
+            .build(),
+    );
 
     std::fs::create_dir_all(&output_dir)
         .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("创建输出目录失败: {e}")))?;
 
-    // 并行导出每个因子
-    let total = factor_names.len();
-    let names_arc = ArrowArc::new(factor_names);
-    let reader_data: Vec<u8> = Vec::new(); // 占位，实际通过 mmap 读
-    let _ = reader_data;
-
-    // 预计算 scatter maps（一次，所有因子复用）——消除 read_factor_into 的逐行 HashMap 查找
-    let dates_i32: Vec<i32> = dates.iter().map(|&d| d as i32).collect();
-    let scatter_maps = reader.precompute_scatter_maps(&dates_i32, &stocks_bare);
-
     // 收集 (name, col_idx) 对。缺失名直接报错，不静默漏导出。
-    let missing: Vec<&String> = names_arc
+    let missing: Vec<&String> = factor_names
         .iter()
         .filter(|name| !name_to_idx.contains_key(name.as_str()))
         .collect();
@@ -3661,108 +3685,151 @@ pub fn factor_store_v5_export_factors_parquet(
             missing.iter().take(20).collect::<Vec<_>>(),
         )));
     }
-    let targets: Vec<(String, usize)> = names_arc
+    let targets: Vec<(&str, usize)> = factor_names
         .iter()
-        .map(|name| {
-            let idx = name_to_idx[name.as_str()];
-            (name.clone(), idx)
-        })
+        .map(|name| (name.as_str(), name_to_idx[name.as_str()]))
         .collect();
 
-    let exported = targets
-        .iter()
-        .map(|(name, col_idx)| -> Result<bool, String> {
-            // 读因子矩阵（投影区顺序读）
-            let t_read = std::time::Instant::now();
-            let matrix =
-                read_factor_matrix_for_export(&store_dir, *col_idx, &dates_i64, &stocks_bare)?;
-            let t_read = t_read.elapsed().as_secs_f64();
-            // 构造 arrow schema + RecordBatch
-            let t_schema = std::time::Instant::now();
-            // date 列用 Date64（毫秒时间戳），pandas 读后可直接 pd.to_datetime 得到 DatetimeIndex
-            // 日期 int → epoch 天数 → 毫秒时间戳
-            let n_rows = dates_i64.len();
-            let date_ms: Vec<i64> = dates_i64
-                .iter()
-                .map(|&d| {
-                    let y = d / 10000;
-                    let m = ((d / 100) % 100) as u32;
-                    let dd = (d % 100) as u32;
-                    chrono::NaiveDate::from_ymd_opt(y as i32, m, dd)
-                        .and_then(|date| date.and_hms_opt(0, 0, 0))
-                        .map(|dt| dt.and_utc().timestamp_millis())
-                        .unwrap_or(0)
-                })
-                .collect();
+    // 并行度 = n_jobs：n_jobs>0 建一个局部 rayon 池（不用 build_global，避免污染进程全局池）；
+    // n_jobs=0 用全局池（= rayon 默认核数）。
+    let pool = if n_jobs > 0 {
+        Some(
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(n_jobs)
+                .build()
+                .map_err(|e| {
+                    pyo3::exceptions::PyRuntimeError::new_err(format!("创建 rayon 线程池失败: {e}"))
+                })?,
+        )
+    } else {
+        None
+    };
 
-            let mut fields = vec![Field::new("date", DataType::Date64, false)];
-            for col_name in &stock_cols {
-                fields.push(Field::new(col_name, DataType::Float64, true));
-            }
-            let schema = ArrowArc::new(Schema::new(fields));
-            let date_arr = arrow::array::Date64Array::from(date_ms);
-            let mut columns: Vec<ArrowArc<dyn arrow::array::Array>> = vec![ArrowArc::new(date_arr)];
-            for s_idx in 0..stock_cols.len() {
-                let col_data: Vec<f64> = (0..n_rows)
-                    .map(|r| {
-                        let v = matrix[[r, s_idx]];
-                        if v.is_finite() {
-                            v as f64
-                        } else {
-                            f64::NAN
-                        }
-                    })
-                    .collect();
-                columns.push(ArrowArc::new(Float64Array::from(col_data)));
-            }
-            let batch = RecordBatch::try_new(schema.clone(), columns)
-                .map_err(|e| format!("构造 RecordBatch 失败: {e}"))?;
-            let t_schema = t_schema.elapsed().as_secs_f64();
-            // 写 parquet
-            let out_path = std::path::Path::new(&output_dir).join(format!("{name}.parquet"));
-            let file = std::fs::File::create(&out_path)
-                .map_err(|e| format!("创建 parquet 失败 {out_path:?}: {e}"))?;
-            let mut writer = ArrowWriter::try_new(file, schema.clone(), None)
-                .map_err(|e| format!("创建 ArrowWriter 失败: {e}"))?;
-            let t_write = std::time::Instant::now();
-            writer
-                .write(&batch)
-                .map_err(|e| format!("写 parquet 失败: {e}"))?;
-            writer
-                .close()
-                .map_err(|e| format!("关闭 parquet 失败: {e}"))?;
-            let t_write = t_write.elapsed().as_secs_f64();
-            eprintln!("[EXPORT] {name}: 读 {t_read:.1}s 构 {t_schema:.1}s 写 {t_write:.1}s");
-            Ok(true)
-        })
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(pyerr)?;
+    let export_all = || -> Result<Vec<bool>, String> {
+        targets
+            .par_iter()
+            .map(|&(name, col_idx)| {
+                export_one_factor_parquet(
+                    &reader,
+                    name,
+                    col_idx,
+                    &dates,
+                    &stocks_bare,
+                    &scatter_maps,
+                    &schema,
+                    &date_arr,
+                    &props,
+                    &output_dir,
+                )
+            })
+            .collect::<Result<Vec<bool>, String>>()
+    };
 
+    let exported = match &pool {
+        Some(p) => p.install(export_all),
+        None => export_all(),
+    }
+    .map_err(pyerr)?;
+
+    eprintln!(
+        "[EXPORT] {} 个因子导出完成，总耗时 {:?}（n_jobs={}）",
+        exported.len(),
+        t_entry.elapsed(),
+        if n_jobs > 0 { n_jobs } else { rayon::current_num_threads() }
+    );
     Ok(exported.len())
 }
 
-/// 导出用的矩阵读取（重新打开 Reader，避免跨线程共享 mmap 问题）
-fn read_factor_matrix_for_export(
-    store_dir: &str,
-    col_idx: usize,
-    dates: &[i64],
-    stocks_bare: &[String],
-) -> Result<ndarray::Array2<f32>, String> {
-    let reader = FactorStoreReader::open(store_dir)?;
-    let dates_i32: Vec<i32> = dates.iter().map(|&d| d as i32).collect();
-    reader.read_factor_to_matrix(col_idx, &dates_i32, stocks_bare)
-}
-
-/// 导出用的 fast 路径矩阵读取：scatter maps 预计算（数组索引，无逐行 HashMap 查找）。
+/// 导出用的 fast 路径矩阵读取：**共享** Reader（不再每因子重开 store，也不重建分片字典）
+/// + 预计算 scatter maps（数组索引，无逐行 HashMap 查找）。
 fn read_factor_matrix_for_export_fast(
-    store_dir: &str,
+    reader: &FactorStoreReader,
     col_idx: usize,
     dates_i32: &[i32],
     stocks_bare: &[String],
     scatter_maps: &[(Vec<usize>, Vec<usize>)],
 ) -> Result<ndarray::Array2<f32>, String> {
-    let reader = FactorStoreReader::open(store_dir)?;
     reader.read_factor_to_matrix_fast(col_idx, dates_i32, stocks_bare, scatter_maps)
+}
+
+/// 导出单个因子为 parquet（rayon 并行时每个因子调一次，线程间共享只读 Reader / scatter maps /
+/// schema / date 列 / 写参数）。
+///
+/// 三步：① 共享 Reader 读成行主序矩阵 → ② 整块转置成"每列一段连续内存" →
+/// ③ Float32 + PLAIN 写出。
+fn export_one_factor_parquet(
+    reader: &FactorStoreReader,
+    name: &str,
+    col_idx: usize,
+    dates_i32: &[i32],
+    stocks_bare: &[String],
+    scatter_maps: &[(Vec<usize>, Vec<usize>)],
+    schema: &Arc<arrow::datatypes::Schema>,
+    date_arr: &Arc<arrow::array::Date64Array>,
+    props: &Arc<parquet::file::properties::WriterProperties>,
+    output_dir: &str,
+) -> Result<bool, String> {
+    use arrow::array::{Array, Float32Array};
+    use arrow::record_batch::RecordBatch;
+    use parquet::arrow::arrow_writer::ArrowWriter;
+
+    let n_rows = dates_i32.len();
+    let n_cols = stocks_bare.len();
+
+    // ① 读因子矩阵（共享 Reader + 预计算 scatter 映射）
+    let t_read = std::time::Instant::now();
+    let matrix =
+        read_factor_matrix_for_export_fast(reader, col_idx, dates_i32, stocks_bare, scatter_maps)?;
+    let t_read = t_read.elapsed().as_secs_f64();
+
+    // ② 整块转置成"每列一段连续内存"再交给 arrow。
+    // 原实现按列遍历行主序矩阵（matrix[[r, c]]，c 固定 r 递增），步长 = n_cols×4B ≈ 31KB，
+    // 几乎每次访问都是 cache miss；这里改成 64×64 分块转置，读写都在 tile 内连续。
+    let t_build = std::time::Instant::now();
+    let src = matrix
+        .as_slice()
+        .ok_or_else(|| "因子矩阵不是标准连续内存布局".to_string())?;
+    let mut cols: Vec<Vec<f32>> = (0..n_cols).map(|_| vec![f32::NAN; n_rows]).collect();
+    const TILE: usize = 64;
+    for r0 in (0..n_rows).step_by(TILE) {
+        let r1 = (r0 + TILE).min(n_rows);
+        for c0 in (0..n_cols).step_by(TILE) {
+            let c1 = (c0 + TILE).min(n_cols);
+            let tile = &mut cols[c0..c1];
+            for r in r0..r1 {
+                let row = &src[r * n_cols + c0..r * n_cols + c1];
+                for (c, &v) in row.iter().enumerate() {
+                    tile[c][r] = if v.is_finite() { v } else { f32::NAN };
+                }
+            }
+        }
+    }
+    // 每列 Vec<f32> 直接 move 进 Float32Array（From<Vec<f32>> 不复制）
+    let mut columns: Vec<Arc<dyn Array>> = Vec::with_capacity(n_cols + 1);
+    columns.push(date_arr.clone());
+    for col_data in cols {
+        columns.push(Arc::new(Float32Array::from(col_data)));
+    }
+    let batch = RecordBatch::try_new(schema.clone(), columns)
+        .map_err(|e| format!("构造 RecordBatch 失败: {e}"))?;
+    let t_build = t_build.elapsed().as_secs_f64();
+
+    // ③ 写 parquet
+    let out_path = std::path::Path::new(output_dir).join(format!("{name}.parquet"));
+    let file = std::fs::File::create(&out_path)
+        .map_err(|e| format!("创建 parquet 失败 {out_path:?}: {e}"))?;
+    let mut writer = ArrowWriter::try_new(file, schema.clone(), Some(props.as_ref().clone()))
+        .map_err(|e| format!("创建 ArrowWriter 失败: {e}"))?;
+    let t_write = std::time::Instant::now();
+    writer
+        .write(&batch)
+        .map_err(|e| format!("写 parquet 失败: {e}"))?;
+    writer
+        .close()
+        .map_err(|e| format!("关闭 parquet 失败: {e}"))?;
+    let t_write = t_write.elapsed().as_secs_f64();
+    eprintln!("[EXPORT] {name}: 读 {t_read:.1}s 转置 {t_build:.1}s 写 {t_write:.1}s");
+    Ok(true)
 }
 
 // ============================ BackupSink：统一写入封装 ============================

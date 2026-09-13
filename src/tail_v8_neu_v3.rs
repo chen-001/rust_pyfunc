@@ -14,6 +14,25 @@
 //! 每 (因子, 面, 日) 只剩：gather |S| → 4 趟 u32 基数排序 → 组游走出 rank pct →
 //! |V| 的 OLS（与生产 `ols_day_row_fast` 完全同一算术）。
 //!
+//! ============================ 按日多面批处理（P3b） ============================
+//! `v3_slots_range` 外层是「日」，内层一次处理同日全部 b 个面（v8 里 b=13）。同一天 b 个面
+//! 共用同一套「只随日期变化」的量：S/V/D 索引、o0c 分段、每日 Cholesky、连续 X（`xdays`）
+//! 与 `valid_cols`。于是把原本每 (面,日) 各自完成的末步合并：
+//!   ① `ols_check_*` 逐面判定（写 0.5 / 判 SVD / 判生产回退）；
+//!   ② `ols_acc_day` 以「位置外层 / 面内层」累加 X'y —— 同一行 `xd` 只读一次供 13 面复用，
+//!      每面看到的加数序列（pos 升序、列升序）与逐面版本逐字相同；
+//!   ③ b 个 X'y 组成 (p × b) 的 RHS，一次 `Cholesky::solve_mut` 解出全部 b 列；
+//!   ④ 逐面写回残差（pred 累加顺序不变）。
+//! nalgebra 的 `solve_mut` 内部是 `for j in 0..b.ncols()` 逐列调用同一个下三角求解、列间无
+//! 耦合 → 每列结果与单列 `chol.solve(&DMatrix::from_column_slice(p,1,..))` 逐位相同
+//! （已用独立 nalgebra 程序对 p∈{10,11,12,38,41,55}、b∈{1,7,13}、带 leading dimension 的
+//! 视图缓冲实测 0 bit 差异）。`shared.chols[idx]` 的每日预分解本身完全不动。
+//!
+//! 热路径零堆分配：`V3Scratch` 里新增 `b_y/b_xty/b_coef/rhs` 与回退路径的
+//! `ind0_row/rank_vals/seen` 缓冲，容量一旦涨到最大值即不再分配；`ols_day_core` 的
+//! `X'y` 也改为复用调用方缓冲。仅 `M_SVD`（|V|<=40 或 Cholesky 失败，实测罕见）与生产行级
+//! 回退仍按面走原实现（逐位优先）。
+//!
 //! **逐位一致**：与 `crate::factor_neutralize_std::neutralize_std_slots_f32_v2_resid_batch`
 //! 完全相同（含 NaN 位置）；出现洞（S 中有 NaN）或非快路径日时逐行回退到生产行级实现
 //! （`v3_row_prod`）。
@@ -79,7 +98,7 @@ fn radix_sort_order(keys: &[u64], order: &mut Vec<usize>, tmp: &mut Vec<usize>) 
     if n <= 1 {
         return;
     }
-    tmp.clear();
+    // 长度已是 n 时 `resize` 零开销（避免每次 memset 整个 tmp）
     tmp.resize(n, 0);
     let mut counts = [0usize; 256];
     for pass in 0..8 {
@@ -111,7 +130,7 @@ fn radix_sort_order32(keys: &[u32], order: &mut Vec<usize>, tmp: &mut Vec<usize>
     if n <= 1 {
         return;
     }
-    tmp.clear();
+    // 长度已是 n 时 `resize` 零开销（避免每次 memset 整个 tmp）
     tmp.resize(n, 0);
     let mut counts = [0usize; 256];
     for pass in 0..4 {
@@ -194,8 +213,9 @@ fn median_inplace(v: &mut [f64]) -> f64 {
     }
 }
 
-fn has_ge_n_unique(vals: &[f64], need: usize) -> bool {
-    let mut seen: Vec<f64> = Vec::with_capacity(need + 1);
+/// `seen` 由调用方提供（scratch 复用），热路径零分配。
+fn has_ge_n_unique(vals: &[f64], need: usize, seen: &mut Vec<f64>) -> bool {
+    seen.clear();
     let mut nan_seen = false;
     for &v in vals {
         if v.is_nan() {
@@ -319,10 +339,11 @@ fn fill_ind_reg_row(
     ys: &mut Vec<f64>,
     bs: &mut Vec<f64>,
     obs: &mut Vec<bool>,
+    seen: &mut Vec<f64>,
 ) {
     let n = row.len();
     for li in 0..3 {
-        if !has_ge_n_unique(row, 10) {
+        if !has_ge_n_unique(row, 10, seen) {
             continue;
         }
         let level_row = level_rows[li];
@@ -606,17 +627,19 @@ fn ols_day_row_fast(
         }
         return true;
     }
-    ols_day_core(y_buf, shared, idx, out_f32_row);
+    ols_day_core(y_buf, shared, idx, out_f32_row, xty);
     false
 }
 
 /// OLS 核心：生产 ols_day_row_fast 的 "mn==mx 之后" 段原样抽出，
 /// 供行级路径与 V3 压缩路径共用（同一份代码 → 同一份 codegen → 逐位一致）。
+/// `xty_buf` 由调用方提供（scratch 复用），热路径不再分配 `X'y`。
 fn ols_day_core(
     y_buf: &[f64],
     shared: &NeutralizeStdShared,
     idx: usize,
     out_f32_row: &mut [f32],
+    xty_buf: &mut Vec<f64>,
 ) {
     let k = 10usize;
     let (p, valid_idx, valid_cols, _xtx) = &shared.per_date[idx];
@@ -639,7 +662,9 @@ fn ols_day_core(
         }
         return;
     }
-    let mut xty = vec![0.0f64; *p];
+    xty_buf.clear();
+    xty_buf.resize(*p, 0.0);
+    let xty: &mut [f64] = &mut xty_buf[..];
     let xd = &shared.xdays[idx];
     for (pos, &yv) in y_buf.iter().enumerate() {
         let xrow = &xd[pos * k..pos * k + k];
@@ -654,7 +679,7 @@ fn ols_day_core(
     let use_svd = valid_idx.len() <= 40 || shared.chols[idx].is_none();
     let coef: Vec<f64> = if !use_svd {
         let chol = shared.chols[idx].as_ref().unwrap();
-        let rhs = DMatrix::from_column_slice(*p, 1, &xty);
+        let rhs = DMatrix::from_column_slice(*p, 1, xty);
         chol.solve(&rhs).column(0).iter().copied().collect()
     } else {
         let n_r = valid_idx.len();
@@ -714,42 +739,25 @@ fn ols_day_core(
     }
 }
 
-/// OLS 末步分派：行业路径用 `ols_day_core`；纯风格路径用 `ols_day_core_style`。
-/// 返回 false = 该行需要生产行级回退（纯风格 SVD / Cholesky 失败；行业路径恒 true）。
-#[inline]
-fn ols_dispatch(
-    y_v: &[f64],
-    ns: &NeutralizeStdShared,
-    idx: usize,
-    out_f32_row: &mut [f32],
-    industry_neutralize: bool,
-) -> bool {
-    if industry_neutralize {
-        ols_day_core(y_v, ns, idx, out_f32_row);
-        true
-    } else {
-        ols_day_core_style(y_v, ns, idx, out_f32_row)
-    }
-}
+// ==================== OLS 末步拆分（准备 / 求解 / 写回），供按日批处理复用 ====================
+//
+// 拆分只改变"何时做"，不改变"怎么做"：准备段与 `ols_day_core` / `ols_day_core_style` 的前半段
+// 逐位同序（mn/mx 扫描、X'y 同序累加），写回段与它们的末段逐位同序（同样的 pred 累加顺序、
+// 同样的 f32 转换）。中间的 Cholesky solve 在 nalgebra 里是 `for j in 0..b.ncols()` 逐列调用
+// 同一个 `solve_lower_triangular_vector_unchecked_mut` → 多列 RHS 与单列 RHS 的每列结果逐位相同。
 
-/// 纯风格残差快路径：模型 = `[1, b0..b9]`（显式截距列 0, p=11），与生产
-/// `get_residual(fv, barra_ranked, None)` **逐位一致**。
-///
-/// - 有效集 = `per_date[idx].valid_idx`（= V），y 由调用方按 V 顺序备好（`y_v`）。
-/// - X'X 用每日预分解 `chols_style[idx]`（在 valid 集上同序累积，与逐行累积同 bit）。
-/// - `n_valid <= 10`（`p == 0`）→ 生产整行跳过 → out 保持 NaN；y 全等 → 0.5。
-/// - 返回 false 表示 `n_valid <= 40` 或 Cholesky 失败 → 交回生产行级 SVD 回退。
-fn ols_day_core_style(
+/// 行业路径末步判定（只判定，不做 `X'y` 累加）：`M_DONE` / `M_READY` / `M_SVD`。
+/// `X'y` 由 `ols_acc_day` 在「位置外层 / 面内层」里统一累加（同一天 13 面共用一次
+/// `xd` / `valid_cols` 遍历，缓存友好），每面看到的加数序列与逐面版本完全一致。
+fn ols_check_industry(
     y_v: &[f64],
-    ns: &NeutralizeStdShared,
+    shared: &NeutralizeStdShared,
     idx: usize,
     out_f32_row: &mut [f32],
-) -> bool {
-    let k = 10usize;
-    let p = k + 1;
-    let (pn, valid_idx, _valid_cols, _xtx) = &ns.per_date[idx];
-    if *pn == 0 {
-        return true; // 有效数 <= 10：生产该日整行 NaN（out 已是 NaN）
+) -> u8 {
+    let (p, valid_idx, _valid_cols, _xtx) = &shared.per_date[idx];
+    if *p == 0 {
+        return M_DONE;
     }
     let mut mn = f64::INFINITY;
     let mut mx = f64::NEG_INFINITY;
@@ -762,31 +770,162 @@ fn ols_day_core_style(
         }
     }
     if mn == mx {
-        // 与生产 `get_residual` 的 uniq.len()==1 同判据
         for &j in valid_idx {
             out_f32_row[j as usize] = 0.5;
         }
-        return true;
+        return M_DONE;
     }
-    if valid_idx.len() <= 40 {
-        return false; // 生产走 SVD 伪逆
+    if valid_idx.len() <= 40 || shared.chols[idx].is_none() {
+        M_SVD
+    } else {
+        M_READY
     }
-    let chol = match ns.chols_style[idx].as_ref() {
-        Some(c) => c,
-        None => return false, // 生产 Cholesky 失败 → SVD
-    };
-    // X'y：与 `get_residual(.., None)` 同序累积（截距列 0 + 10 风格列）
-    let mut xty = [0.0f64; 11];
-    let xd = &ns.xdays[idx];
-    for (pos, &yv) in y_v.iter().enumerate() {
-        xty[0] += yv;
-        let xrow = &xd[pos * k..pos * k + k];
-        for c in 0..k {
-            xty[c + 1] += xrow[c] * yv;
+}
+
+/// 纯风格路径末步判定（只判定，不做 `X'y` 累加）：`M_DONE` / `M_READY` / `M_STYLE_FB`。
+fn ols_check_style(
+    y_v: &[f64],
+    ns: &NeutralizeStdShared,
+    idx: usize,
+    out_f32_row: &mut [f32],
+) -> u8 {
+    let (pn, valid_idx, _valid_cols, _xtx) = &ns.per_date[idx];
+    if *pn == 0 {
+        return M_DONE;
+    }
+    let mut mn = f64::INFINITY;
+    let mut mx = f64::NEG_INFINITY;
+    for &y in y_v {
+        if y < mn {
+            mn = y;
+        }
+        if y > mx {
+            mx = y;
         }
     }
-    let rhs = DMatrix::from_column_slice(p, 1, &xty);
-    let coef: Vec<f64> = chol.solve(&rhs).column(0).iter().copied().collect();
+    if mn == mx {
+        for &j in valid_idx {
+            out_f32_row[j as usize] = 0.5;
+        }
+        return M_DONE;
+    }
+    if valid_idx.len() <= 40 || ns.chols_style[idx].is_none() {
+        M_STYLE_FB
+    } else {
+        M_READY
+    }
+}
+
+/// 按日 13 面共用一次 X 遍历的 `X'y` 累加。
+///
+/// **逐位不变性**：对外层 pos 升序、内层对每个面 f 仍是 `xty_f[c] += xd[pos*k+c] * y_f[pos]`
+/// （c 升序），随后 `xty_f[k+ic] += y_f[pos]` —— 与逐面版本的加数序列逐字相同，只是把同一行
+/// `xd` 的读取在 13 个面之间复用（少 12/13 的 `xd` 访存）。行业与纯风格的列布局不同，各自成段。
+fn ols_acc_day(
+    sc: &mut V3Scratch,
+    ns: &NeutralizeStdShared,
+    idx: usize,
+    industry_neutralize: bool,
+    b: usize,
+    p_alloc: usize,
+) {
+    let k = 10usize;
+    let nv = ns.per_date[idx].1.len();
+    if nv == 0 {
+        return;
+    }
+    // 所有走压缩路径的面其 y 长度恒为 |V|（identity 日 |S| == |V|；其余按 v_from_s 收集）。
+    debug_assert!((0..b).all(|f| sc.b_mode[f] != M_READY || sc.b_n[f] == nv));
+    let stride = sc.b_stride;
+    let xd = &ns.xdays[idx];
+    let valid_cols = &ns.per_date[idx].2;
+    {
+        let modes: &[u8] = &sc.b_mode[..b];
+        let y_all: &[f64] = &sc.b_y[..];
+        let xty: &mut [f64] = &mut sc.b_xty[..];
+        for f in 0..b {
+            if modes[f] == M_READY {
+                let base = f * p_alloc;
+                for v in xty[base..base + p_alloc].iter_mut() {
+                    *v = 0.0;
+                }
+            }
+        }
+        if industry_neutralize {
+            for pos in 0..nv {
+                let xrow = &xd[pos * k..pos * k + k];
+                let ic = valid_cols[pos];
+                for f in 0..b {
+                    if modes[f] != M_READY {
+                        continue;
+                    }
+                    let yv = y_all[f * stride + pos];
+                    let base = f * p_alloc;
+                    for c in 0..k {
+                        xty[base + c] += xrow[c] * yv;
+                    }
+                    if ic >= 0 {
+                        xty[base + k + ic as usize] += yv;
+                    }
+                }
+            }
+        } else {
+            for pos in 0..nv {
+                let xrow = &xd[pos * k..pos * k + k];
+                for f in 0..b {
+                    if modes[f] != M_READY {
+                        continue;
+                    }
+                    let yv = y_all[f * stride + pos];
+                    let base = f * p_alloc;
+                    xty[base] += yv;
+                    for c in 0..k {
+                        xty[base + 1 + c] += xrow[c] * yv;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// 行业路径残差写回：与 `ols_day_core` 末段逐位同序。
+fn ols_write_industry(
+    y_v: &[f64],
+    shared: &NeutralizeStdShared,
+    idx: usize,
+    out_f32_row: &mut [f32],
+    coef: &[f64],
+) {
+    let k = 10usize;
+    let (_p, valid_idx, valid_cols, _xtx) = &shared.per_date[idx];
+    let xd = &shared.xdays[idx];
+    for (pos, &j) in valid_idx.iter().enumerate() {
+        let ji = j as usize;
+        let yv = y_v[pos];
+        let xrow = &xd[pos * k..pos * k + k];
+        let mut pred = 0.0;
+        for c in 0..k {
+            pred += coef[c] * xrow[c];
+        }
+        let ic = valid_cols[pos];
+        if ic >= 0 {
+            pred += coef[k + ic as usize];
+        }
+        out_f32_row[ji] = (yv - pred) as f32;
+    }
+}
+
+/// 纯风格残差写回：与 `ols_day_core_style` 末段逐位同序（含 NaN 归一）。
+fn ols_write_style(
+    y_v: &[f64],
+    ns: &NeutralizeStdShared,
+    idx: usize,
+    out_f32_row: &mut [f32],
+    coef: &[f64],
+) {
+    let k = 10usize;
+    let (_pn, valid_idx, _valid_cols, _xtx) = &ns.per_date[idx];
+    let xd = &ns.xdays[idx];
     for (pos, &j) in valid_idx.iter().enumerate() {
         let ji = j as usize;
         let xrow = &xd[pos * k..pos * k + k];
@@ -794,25 +933,26 @@ fn ols_day_core_style(
         for c in 0..k {
             pred += coef[c + 1] * xrow[c];
         }
-        // 与生产 style 路径同一步：resid 为 NaN 时统一写 f32::NAN（NaN 位置一致）
         let r = y_v[pos] - pred;
         out_f32_row[ji] = if r.is_nan() { f32::NAN } else { r as f32 };
     }
-    true
 }
 
 /// 行级 f64 rank (就地写回), 与 rank_pct_all 的逐行语义一致。
+/// `vals` 是调用方的 scratch 副本缓冲（避免每行一次 `to_vec` 分配）。
 fn rank_pct_row_f64_in_place(
     row: &mut [f64],
     ranks: &mut Vec<f64>,
     idxs: &mut Vec<usize>,
     tmp: &mut Vec<usize>,
     keys: &mut Vec<u64>,
+    vals: &mut Vec<f64>,
 ) {
     // 生产 rank_pct_row_into 从 vals 读入 idxs/keys 后写 ranks, 再拷回 row;
     // 就地时先取副本防读写交错 —— 直接复用 rank_pct_row_into 的读语义。
-    let vals: Vec<f64> = row.to_vec();
-    rank_pct_row_into(&vals, ranks, idxs, tmp, keys);
+    vals.clear();
+    vals.extend_from_slice(row);
+    rank_pct_row_into(vals, ranks, idxs, tmp, keys);
     row.copy_from_slice(ranks);
 }
 
@@ -834,6 +974,19 @@ impl V3Times {
         self.gather + self.sort + self.walk + self.ols + self.fallback
     }
 }
+
+/// 按日多面批处理的末步状态。
+///
+/// - `M_DONE`：该面末步无需任何求解（`p == 0`，或 y 全等已直接写 0.5，或压缩路径空集）。
+/// - `M_READY`：`X'y` 已按列累加进 `b_xty`，等待与同日其它面一起做一次 (p × b) 求解。
+/// - `M_SVD`：行业路径需 SVD（日级判定：`|V| <= 40` 或 Cholesky 失败）→ 交 `ols_day_core`。
+/// - `M_STYLE_FB`：纯风格路径 `|V| <= 40` 或 `chols_style` 缺失 → 交生产行级回退。
+/// - `M_PROD`：压缩流水线失败（S 有洞 / 特殊位置不可精确复算）→ 交生产行级回退。
+const M_DONE: u8 = 0;
+const M_READY: u8 = 1;
+const M_SVD: u8 = 2;
+const M_STYLE_FB: u8 = 3;
+const M_PROD: u8 = 4;
 
 /// 行级临时缓冲（每线程一份，跨行复用，热路径零分配）。
 pub struct V3Scratch {
@@ -871,6 +1024,26 @@ pub struct V3Scratch {
     x_spos: Vec<u32>,
     x_val: Vec<f64>,
     group: Vec<u32>,
+    // ---- 按日多面批处理（b 个面共用一次 gather 索引 / 有效集合 / 一次 solve）----
+    /// `b_y` 每面步长（>= n_stocks），容量一旦涨到最大值就不再变
+    b_stride: usize,
+    /// `b_y` 已分配的面数
+    b_cap: usize,
+    /// 面 f 的 V 序 y 存于 `b_y[f * b_stride ..]`（长度 `b_n[f]`）
+    b_y: Vec<f64>,
+    b_n: Vec<usize>,
+    b_mode: Vec<u8>,
+    /// 列主序 p_alloc × b：面 f 的 `X'y` 存于 `b_xty[f * p_alloc ..]`
+    b_xty: Vec<f64>,
+    /// 列主序 p_alloc × b：面 f 的解存于 `b_coef[f * p_alloc ..]`
+    b_coef: Vec<f64>,
+    /// 复用的 RHS 矩阵（>= p_solve × b），`solve_mut` 直接写它 → 热路径零分配
+    rhs: DMatrix<f64>,
+    // ---- 生产回退路径的零分配缓冲 ----
+    ind0_row: Vec<f64>,
+    rank_vals: Vec<f64>,
+    /// `has_ge_n_unique` 的唯一值去重缓冲
+    seen: Vec<f64>,
 }
 
 impl V3Scratch {
@@ -907,6 +1080,43 @@ impl V3Scratch {
             x_spos: Vec::with_capacity(256),
             x_val: Vec::with_capacity(256),
             group: Vec::with_capacity(64),
+            b_stride: 0,
+            b_cap: 0,
+            b_y: Vec::new(),
+            b_n: Vec::new(),
+            b_mode: Vec::new(),
+            b_xty: Vec::new(),
+            b_coef: Vec::new(),
+            rhs: DMatrix::zeros(0, 0),
+            ind0_row: Vec::with_capacity(n),
+            rank_vals: Vec::with_capacity(n),
+            seen: Vec::with_capacity(16),
+        }
+    }
+
+    /// 保证 `b_y` / `b_n` / `b_mode` 至少覆盖 b 个面、每面 n 个元素（只在容量不足时分配）。
+    fn ensure_batch(&mut self, b: usize, n: usize) {
+        if self.b_cap >= b && self.b_stride >= n {
+            return;
+        }
+        self.b_cap = self.b_cap.max(b);
+        self.b_stride = self.b_stride.max(n);
+        self.b_y.resize(self.b_cap * self.b_stride, 0.0);
+        self.b_n.resize(self.b_cap, 0);
+        self.b_mode.resize(self.b_cap, M_DONE);
+    }
+
+    /// 保证 `b_xty` / `b_coef` / `rhs` 至少覆盖 b 面 × p 列（只在容量不足时分配）。
+    fn ensure_xty(&mut self, b: usize, p: usize) {
+        let need = b * p;
+        if self.b_xty.len() < need {
+            self.b_xty.resize(need, 0.0);
+            self.b_coef.resize(need, 0.0);
+        }
+        if self.rhs.nrows() < p || self.rhs.ncols() < b {
+            let nr = p.max(64);
+            let nc = b.max(16);
+            self.rhs = DMatrix::zeros(nr, nc);
         }
     }
 }
@@ -1163,10 +1373,12 @@ fn v3_row_prod_fill(row: &[f32], idx: usize, shared: &V3Shared, sc: &mut V3Scrat
     );
     let (o3, o4) = (o3v.as_slice().unwrap(), o4v.as_slice().unwrap());
 
-    let ind0_row: Vec<f64> = ind1_r
-        .iter()
-        .map(|&v| if v.is_nan() { 0.0 } else { 1.0 })
-        .collect();
+    sc.ind0_row.clear();
+    sc.ind0_row.extend(
+        ind1_r
+            .iter()
+            .map(|&v| if v.is_nan() { 0.0 } else { 1.0 }),
+    );
 
     sc.pct.clear();
     sc.pct.resize(n, f64::NAN);
@@ -1175,12 +1387,13 @@ fn v3_row_prod_fill(row: &[f32], idx: usize, shared: &V3Shared, sc: &mut V3Scrat
     rank_pct_row_from_f32_in(row, &mut sc.pct, &mut sc.idxs, &mut sc.tmp, &mut sc.keys);
     fill_ind_reg_row(
         &mut sc.pct,
-        [ind2_r, ind1_r, &ind0_row],
+        [ind2_r, ind1_r, &sc.ind0_row],
         size_r,
         [o0, o1, o2],
         &mut sc.ys,
         &mut sc.bs,
         &mut sc.obs,
+        &mut sc.seen,
     );
     for (j, &v) in ind1_r.iter().enumerate() {
         if v.is_nan() {
@@ -1224,6 +1437,7 @@ fn v3_row_prod_fill(row: &[f32], idx: usize, shared: &V3Shared, sc: &mut V3Scrat
         &mut sc.idxs,
         &mut sc.tmp,
         &mut sc.keys64,
+        &mut sc.rank_vals,
     );
 }
 
@@ -1254,6 +1468,7 @@ fn v3_row_prod_style(
 }
 
 /// 纯风格残差的生产行级实现：把整行交给 `get_residual_row_style`，再转 f32 写回。
+/// 10 条风格行用栈上数组承载（无堆分配）。
 fn style_residual_row(
     fv_row: &[f64],
     ns: &NeutralizeStdShared,
@@ -1262,8 +1477,13 @@ fn style_residual_row(
     resid: &mut Vec<f64>,
 ) {
     let n = fv_row.len();
-    let views: Vec<_> = (0..10).map(|c| ns.barra_ranked[c].row(idx)).collect();
-    let bench_rows: Vec<&[f64]> = views.iter().map(|r| r.as_slice().unwrap()).collect();
+    // 10 条风格行视图用栈上数组承载（无堆分配）
+    let views: [ndarray::ArrayView1<'_, f64>; 10] =
+        std::array::from_fn(|c| ns.barra_ranked[c].row(idx));
+    let mut bench_rows: [&[f64]; 10] = [&[]; 10];
+    for c in 0..10 {
+        bench_rows[c] = views[c].as_slice().unwrap();
+    }
     resid.clear();
     resid.resize(n, f64::NAN);
     crate::factor_neutralize_std::get_residual_row_style(fv_row, &bench_rows, resid);
@@ -1283,16 +1503,18 @@ fn style_residual_row(
 ///   若写后为 NaN（size 缺失）→ ind2 级中位填充写入"该 ind2 段 filled 值的中位数"
 /// 这里把段级 (c0,c1) 与 sv 多重集精确复算（ys/bs 按 o0c 顺序累计 → ols2 逐位一致；
 /// sv 多重集一致 → quickselect 结果一致），再与 S\X 的 pct1 序归并，
-/// 得到与生产 rank2 完全相同的平均秩。任何前提不满足 → 返回 false 交回生产行级实现。
-fn v3_row_x(
+/// 得到与生产 rank2 完全相同的平均秩。任何前提不满足 → 返回 `M_PROD` 交回生产行级实现。
+///
+/// 末步不再就地求解，而是把 V 序 y 写进 `b_y[f]`（`M_READY`），由 `v3_day_batch` 与同日
+/// 其它面合并成一次 (p × b) Cholesky solve。
+fn v3_row_x_prep(
     row: &[f32],
     idx: usize,
     shared: &V3Shared,
-    out_row: &mut [f32],
     sc: &mut V3Scratch,
     t: &mut V3Times,
-    industry_neutralize: bool,
-) -> bool {
+    f: usize,
+) -> u8 {
     let n = row.len();
     let ns = shared.s_lens[idx] as usize;
     let ns_f = ns as f64;
@@ -1313,7 +1535,7 @@ fn v3_row_x(
     let np = sc.pv.len();
     t.gather += st.elapsed().as_secs_f64();
     if np == 0 {
-        return true;
+        return M_DONE;
     }
     let st = Instant::now();
     sc.keys.clear();
@@ -1378,9 +1600,9 @@ fn v3_row_x(
     sc.x_val.clear();
     if nx > 0 {
         let pct_row = &sc.pct_full[0..n];
-        if !has_ge_n_unique(pct_row, 10) {
+        if !has_ge_n_unique(pct_row, 10, &mut sc.seen) {
             t.fallback += st.elapsed().as_secs_f64();
-            return false;
+            return M_PROD;
         }
         let o0c0 = shared.o0c_offsets[idx] as usize;
         let o0c = &shared.o0c_flat[o0c0..o0c0 + shared.o0c_lens[idx] as usize];
@@ -1397,7 +1619,7 @@ fn v3_row_x(
             let p = shared.pos0_flat[idx * n + j];
             if p == u32::MAX {
                 t.fallback += st.elapsed().as_secs_f64();
-                return false;
+                return M_PROD;
             }
             let p = p as usize;
             let si = match segs.binary_search(&(p as u32)) {
@@ -1442,7 +1664,7 @@ fn v3_row_x(
                         if !sz.is_nan() {
                             if !last_ok {
                                 t.fallback += st.elapsed().as_secs_f64();
-                                return false;
+                                return M_PROD;
                             }
                             sc.sv.push(last_c0 + last_c1 * sz);
                         }
@@ -1458,7 +1680,7 @@ fn v3_row_x(
             let val = if sz.is_finite() {
                 if !last_ok {
                     t.fallback += st.elapsed().as_secs_f64();
-                    return false;
+                    return M_PROD;
                 }
                 last_c0 + last_c1 * sz
             } else {
@@ -1466,7 +1688,7 @@ fn v3_row_x(
             };
             if val.is_nan() {
                 t.fallback += st.elapsed().as_secs_f64();
-                return false;
+                return M_PROD;
             }
             sc.x_val.push(val);
         }
@@ -1528,35 +1750,42 @@ fn v3_row_x(
             }
         }
         if acc != ns {
-            return false;
+            return M_PROD;
         }
     }
     t.walk += st.elapsed().as_secs_f64();
 
-    // ---- ⑤ OLS（V 顺序） ----
+    // ---- ⑤ 把 y 排到 V 顺序并存入批缓冲（末步求解由 v3_day_batch 统一做） ----
     let st = Instant::now();
-    let off = shared.v_offsets[idx] as usize;
+    let o2 = shared.v_offsets[idx] as usize;
     let nvv = shared.v_lens[idx] as usize;
-    let v_from_s = &shared.v_from_s_flat[off..off + nvv];
-    sc.y_v.clear();
-    for &p in v_from_s {
-        sc.y_v.push(sc.ybuf[p as usize]);
+    let v_from_s = &shared.v_from_s_flat[o2..o2 + nvv];
+    {
+        let off = f * sc.b_stride;
+        let dst = &mut sc.b_y[off..off + nvv];
+        for (q, &p) in v_from_s.iter().enumerate() {
+            dst[q] = sc.ybuf[p as usize];
+        }
     }
-    let ok = ols_dispatch(&sc.y_v, &shared.ns, idx, out_row, industry_neutralize);
+    sc.b_n[f] = nvv;
     t.ols += st.elapsed().as_secs_f64();
-    ok
+    M_READY
 }
 
+/// 压缩快路径的"准备段"：gather S → 4 趟 u32 基数排序 → 组游走出 rank pct → 排到 V 顺序存入
+/// `b_y[f]`。末步求解与写回不在这里做（由 `v3_day_batch` 与同日其它面合并成一次 solve）。
+///
+/// 返回值：`M_DONE`（S 为空，末步无需处理）、`M_PROD`（S 中有洞，交 `v3_row_x_prep`/生产回退）、
+/// `M_READY`（y 已就绪）。
 #[inline]
-fn v3_row_fast(
+fn v3_row_fast_prep(
     row: &[f32],
     idx: usize,
     shared: &V3Shared,
-    out_row: &mut [f32],
     sc: &mut V3Scratch,
     t: &mut V3Times,
-    industry_neutralize: bool,
-) -> bool {
+    f: usize,
+) -> u8 {
     let n = row.len();
     let ns = shared.s_lens[idx] as usize;
     let s_idx = &shared.s_idx_flat[idx * n..idx * n + ns];
@@ -1568,13 +1797,13 @@ fn v3_row_fast(
         let v = row[j as usize];
         if !v.is_finite() {
             t.gather += s.elapsed().as_secs_f64();
-            return false;
+            return M_PROD;
         }
         sc.yv.push(v);
     }
     t.gather += s.elapsed().as_secs_f64();
     if ns == 0 {
-        return true;
+        return M_DONE;
     }
 
     // ---- ② 4 趟 u32 基数排序（|S| 而非 7857；全域等数字的趟自动跳过） ----
@@ -1608,67 +1837,229 @@ fn v3_row_fast(
     }
     t.walk += s.elapsed().as_secs_f64();
 
-    // ---- ④ OLS：把 y 排到 V 顺序（S==V 时直接复用） ----
+    // ---- ④ 把 y 排到 V 顺序存入批缓冲（S==V 时直接整段拷贝） ----
     let s = Instant::now();
-    let ok = if shared.identity[idx] {
-        ols_dispatch(&sc.ybuf, &shared.ns, idx, out_row, industry_neutralize)
+    let off = f * sc.b_stride;
+    if shared.identity[idx] {
+        sc.b_y[off..off + ns].copy_from_slice(&sc.ybuf[..ns]);
+        sc.b_n[f] = ns;
     } else {
-        let off = shared.v_offsets[idx] as usize;
+        let o2 = shared.v_offsets[idx] as usize;
         let nv = shared.v_lens[idx] as usize;
-        let v_from_s = &shared.v_from_s_flat[off..off + nv];
-        sc.y_v.clear();
-        for &p in v_from_s {
-            sc.y_v.push(sc.ybuf[p as usize]);
+        let v_from_s = &shared.v_from_s_flat[o2..o2 + nv];
+        {
+            let dst = &mut sc.b_y[off..off + nv];
+            for (q, &p) in v_from_s.iter().enumerate() {
+                dst[q] = sc.ybuf[p as usize];
+            }
         }
-        ols_dispatch(&sc.y_v, &shared.ns, idx, out_row, industry_neutralize)
-    };
+        sc.b_n[f] = nv;
+    }
     t.ols += s.elapsed().as_secs_f64();
-    ok
+    M_READY
 }
 
 // ==================== 对外接口 ====================
 
-/// 单行调度：快路径 → 特殊位置路径 → 生产行级回退。
-/// `row` 是绝对日期 `idx` 的 slot 行；`shared` 侧按绝对 idx 索引。
-/// `industry_neutralize=false` 时末步走纯风格残差（快路径失败则回退生产风格行路径）。
-#[inline]
-fn v3_row_dispatch(
-    row: &[f32],
+/// 单个「面 × 日」的批处理调度：压缩快路径 → 特殊位置路径 → 生产行级回退。
+/// `slots[f]` 是面 f 的日期块视图，`r` 是块内行号（绝对日期 `idx`）；`outs[f]` 是面 f 的输出。
+///
+/// **按日批处理**：同一天的 b 个面共用同一套「只随日期变化」的索引（S/V/D、o0c 分段、每日
+/// Cholesky 与连续 X）。每面各自跑排序/秩变换得到 V 序 y 后，把 b 个 `X'y` 拼成 (p × b) 的
+/// RHS，一次 `Cholesky::solve_mut` 解出全部 b 列系数，再统一写回。
+///
+/// 逐位不变性：每面的 mn/mx、`X'y` 累加顺序、pred 累加顺序都与拆分前逐字相同；nalgebra 的
+/// `solve_mut` 对多列 RHS 是 `for j in 0..ncols` 逐列调用同一个下三角求解，列与列之间无耦合
+/// → 每列结果与单列求解逐位相同。`shared.chols[idx]` 的每日预分解本身完全不动。
+fn v3_day_batch(
+    slots: &[ArrayView2<f32>],
+    outs: &mut [Array2<f32>],
+    r: usize,
     idx: usize,
     shared: &V3Shared,
-    out_row: &mut [f32],
     sc: &mut V3Scratch,
     times: &mut V3Times,
     industry_neutralize: bool,
 ) {
+    let b = slots.len();
+    let n = shared.n_stocks;
+    sc.ensure_batch(b, n);
+
+    // ---- 非快路径日：b 个面全部走生产行级实现 ----
     if !shared.fast_ok[idx] {
         let s = Instant::now();
-        if industry_neutralize {
-            v3_row_prod(row, idx, shared, out_row, sc);
-        } else {
-            v3_row_prod_style(row, idx, shared, out_row, sc);
+        for f in 0..b {
+            let row_v = slots[f].row(r);
+            let row = row_v.as_slice().unwrap();
+            let mut out_v = outs[f].row_mut(r);
+            let out_row = out_v.as_slice_mut().unwrap();
+            if industry_neutralize {
+                v3_row_prod(row, idx, shared, out_row, sc);
+            } else {
+                v3_row_prod_style(row, idx, shared, out_row, sc);
+            }
         }
         times.fallback += s.elapsed().as_secs_f64();
-        times.slow_rows += 1;
+        times.slow_rows += b as u64;
         return;
     }
-    let s = Instant::now();
-    let ok = if shared.d_lens[idx] == 0 {
-        v3_row_fast(row, idx, shared, out_row, sc, times, industry_neutralize)
-            || v3_row_x(row, idx, shared, out_row, sc, times, industry_neutralize)
-    } else {
-        v3_row_x(row, idx, shared, out_row, sc, times, industry_neutralize)
-    };
-    if !ok {
-        times.fallback += s.elapsed().as_secs_f64();
-        if industry_neutralize {
-            v3_row_prod(row, idx, shared, out_row, sc);
+
+    // ---- 阶段 1：各面独立跑压缩流水线，产出 V 序 y（写进 b_y[f]） ----
+    for f in 0..b {
+        sc.b_mode[f] = M_DONE;
+        sc.b_n[f] = 0;
+        let row_v = slots[f].row(r);
+        let row = row_v.as_slice().unwrap();
+        let st = if shared.d_lens[idx] == 0 {
+            let a = v3_row_fast_prep(row, idx, shared, sc, times, f);
+            if a == M_PROD {
+                v3_row_x_prep(row, idx, shared, sc, times, f)
+            } else {
+                a
+            }
         } else {
-            v3_row_prod_style(row, idx, shared, out_row, sc);
+            v3_row_x_prep(row, idx, shared, sc, times, f)
+        };
+        sc.b_mode[f] = st;
+    }
+
+    // ---- 阶段 1b：末步判定（写 0.5 / 判定 SVD / 判定生产回退，不做 X'y 累加） ----
+    let p_day = shared.ns.per_date[idx].0;
+    let p_alloc = p_day.max(11);
+    sc.ensure_xty(b, p_alloc);
+    let s_ols = Instant::now();
+    for f in 0..b {
+        if sc.b_mode[f] != M_READY {
+            continue;
         }
-        times.slow_rows += 1;
-    } else {
-        times.fast_rows += 1;
+        let off = f * sc.b_stride;
+        let len = sc.b_n[f];
+        let mut out_v = outs[f].row_mut(r);
+        let out_row = out_v.as_slice_mut().unwrap();
+        let mode = if industry_neutralize {
+            ols_check_industry(&sc.b_y[off..off + len], &shared.ns, idx, out_row)
+        } else {
+            ols_check_style(&sc.b_y[off..off + len], &shared.ns, idx, out_row)
+        };
+        sc.b_mode[f] = mode;
+    }
+
+    // ---- 阶段 1c：X'y 累加（位置外层 / 面内层：同日 b 个面共用一次 xd/valid_cols 遍历） ----
+    let n_ready = (0..b).filter(|&f| sc.b_mode[f] == M_READY).count();
+    if n_ready > 0 {
+        ols_acc_day(sc, &shared.ns, idx, industry_neutralize, b, p_alloc);
+    }
+
+    // ---- 阶段 2：一次 (p × b) Cholesky solve（只对 M_READY 的面填列） ----
+    if n_ready > 0 {
+        let p_solve = if industry_neutralize { p_day } else { 11 };
+        let use_svd_industry = industry_neutralize
+            && (shared.ns.per_date[idx].1.len() <= 40 || shared.ns.chols[idx].is_none());
+        let chol: Option<&Cholesky<f64, nalgebra::Dyn>> = if industry_neutralize {
+            if use_svd_industry {
+                None
+            } else {
+                shared.ns.chols[idx].as_ref()
+            }
+        } else {
+            shared.ns.chols_style[idx].as_ref()
+        };
+        match chol {
+            Some(ch) => {
+                {
+                    let mut rhs_v = sc.rhs.view_mut((0, 0), (p_solve, b));
+                    for f in 0..b {
+                        if sc.b_mode[f] != M_READY {
+                            continue;
+                        }
+                        let base = f * p_alloc;
+                        for i in 0..p_solve {
+                            rhs_v[(i, f)] = sc.b_xty[base + i];
+                        }
+                    }
+                    ch.solve_mut(&mut rhs_v);
+                    for f in 0..b {
+                        if sc.b_mode[f] != M_READY {
+                            continue;
+                        }
+                        let base = f * p_alloc;
+                        for i in 0..p_solve {
+                            sc.b_coef[base + i] = rhs_v[(i, f)];
+                        }
+                    }
+                }
+                // ---- 阶段 3：统一写回残差 ----
+                for f in 0..b {
+                    if sc.b_mode[f] != M_READY {
+                        continue;
+                    }
+                    let off = f * sc.b_stride;
+                    let len = sc.b_n[f];
+                    let base = f * p_alloc;
+                    let mut out_v = outs[f].row_mut(r);
+                    let out_row = out_v.as_slice_mut().unwrap();
+                    if industry_neutralize {
+                        ols_write_industry(
+                            &sc.b_y[off..off + len],
+                            &shared.ns,
+                            idx,
+                            out_row,
+                            &sc.b_coef[base..base + p_day],
+                        );
+                    } else {
+                        ols_write_style(
+                            &sc.b_y[off..off + len],
+                            &shared.ns,
+                            idx,
+                            out_row,
+                            &sc.b_coef[base..base + 11],
+                        );
+                    }
+                }
+            }
+            None => {
+                let nm = if industry_neutralize { M_SVD } else { M_STYLE_FB };
+                for f in 0..b {
+                    if sc.b_mode[f] == M_READY {
+                        sc.b_mode[f] = nm;
+                    }
+                }
+            }
+        }
+    }
+    times.ols += s_ols.elapsed().as_secs_f64();
+
+    // ---- 阶段 4：SVD（罕见）/ 生产行级回退 ----
+    for f in 0..b {
+        match sc.b_mode[f] {
+            M_SVD => {
+                let off = f * sc.b_stride;
+                let len = sc.b_n[f];
+                let mut out_v = outs[f].row_mut(r);
+                let out_row = out_v.as_slice_mut().unwrap();
+                let s = Instant::now();
+                ols_day_core(&sc.b_y[off..off + len], &shared.ns, idx, out_row, &mut sc.xty);
+                times.ols += s.elapsed().as_secs_f64();
+                times.fast_rows += 1;
+            }
+            M_STYLE_FB | M_PROD => {
+                let row_v = slots[f].row(r);
+                let row = row_v.as_slice().unwrap();
+                let mut out_v = outs[f].row_mut(r);
+                let out_row = out_v.as_slice_mut().unwrap();
+                let s = Instant::now();
+                if industry_neutralize {
+                    v3_row_prod(row, idx, shared, out_row, sc);
+                } else {
+                    v3_row_prod_style(row, idx, shared, out_row, sc);
+                }
+                times.fallback += s.elapsed().as_secs_f64();
+                times.slow_rows += 1;
+            }
+            _ => {
+                times.fast_rows += 1;
+            }
+        }
     }
 }
 
@@ -1684,12 +2075,10 @@ fn v3_rows(
     industry_neutralize: bool,
 ) {
     let rows = t1 - t0;
+    let blk = std::slice::from_ref(slot_block);
+    let ob = std::slice::from_mut(out);
     for r in 0..rows {
-        let row_v = slot_block.row(r);
-        let row = row_v.as_slice().unwrap();
-        let mut out_v = out.row_mut(r);
-        let out_row = out_v.as_slice_mut().unwrap();
-        v3_row_dispatch(row, t0 + r, shared, out_row, sc, times, industry_neutralize);
+        v3_day_batch(blk, ob, r, t0 + r, shared, sc, times, industry_neutralize);
     }
 }
 
@@ -1760,8 +2149,9 @@ pub fn v3_slot_range(
 
 /// v8 融合流水线入口：B 个面一起按日期块中性化（每块一次调用，scratch 跨块复用）。
 ///
-/// 行外层 / 面内层（与沙箱 `v3_slots_batch` 同结构）：同一行的共享索引/排序数据在
-/// L1/L2 里被 B 个面复用，避免逐面各走一遍 T 行的冷读。数值路径与单面版完全一致。
+/// **日外层 / 面批处理**：同一天的 B 个面共用一次「只随日期变化」的索引（S/V/D、o0c 分段、
+/// 每日 Cholesky 与连续 X），B 个 `X'y` 组成 (p × B) 的 RHS 一次解出，再一次性写回 B 行。
+/// 数值路径与单面版完全一致（逐位）。
 /// `industry_neutralize` 只影响残差末步（行业 one-hot vs 显式截距 + 10 风格），
 /// 索引 / 压缩 / fast_ok / 填充链两边完全共用。
 pub fn v3_slots_range(
@@ -1797,13 +2187,7 @@ pub fn v3_slots_range(
     let mut times = V3Times::default();
     for r in 0..rows {
         let idx = t0 + r;
-        for f in 0..b {
-            let row_v = slots[f].row(r);
-            let row = row_v.as_slice().unwrap();
-            let mut out_v = outs[f].row_mut(r);
-            let out_row = out_v.as_slice_mut().unwrap();
-            v3_row_dispatch(row, idx, shared, out_row, sc, &mut times, industry_neutralize);
-        }
+        v3_day_batch(slots, &mut outs, r, idx, shared, sc, &mut times, industry_neutralize);
     }
     Ok(outs)
 }

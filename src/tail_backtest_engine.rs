@@ -22,7 +22,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 use crate::tail_v5_pipeline::{
-    self, append_completed_source, build_selection_config, build_shared_inputs, factor_result_path,
+    self, build_selection_config, build_shared_inputs, factor_result_path,
     format_hms, init_status_line, is_terminal, read_task_result, reset_status_line,
     update_status_line, write_aggregated_outputs, write_task_result, AggregatedCandidates,
     ProcessStats, SharedInputs, TailTask, TailTaskResult,
@@ -161,7 +161,6 @@ pub fn tail_backtest_engine<'py>(
         let cache_root_path = PathBuf::from(&cache_root);
         let task_results_dir = cache_root_path.join("task_results");
         let logs_dir = cache_root_path.join("logs");
-        let completed_log_path = logs_dir.join("completed_sources.txt");
         fs::create_dir_all(&task_results_dir).map_err(|e| format!("创建 task_results 目录失败: {}", e))?;
         fs::create_dir_all(&logs_dir).map_err(|e| format!("创建 logs 目录失败: {}", e))?;
 
@@ -379,7 +378,8 @@ pub fn tail_backtest_engine<'py>(
                     let preflight_zero = task_result.preflight_zero_failed_windows;
                     let preflight_nan = task_result.preflight_nan_failed_windows;
                     write_task_result(&result_path, &task_result)?;
-                    append_completed_source(&completed_log_path, &task_result.source_factor)?;
+                    // 断点续算完全由「扫 task_results/*.msgpack 是否存在」驱动（见上方恢复循环），
+                    // 旧实现每因子额外 append 一次 logs/completed_sources.txt 纯冗余，已移除。
                     prefill_coverage.insert(
                         task_result.source_factor.clone(),
                         (
