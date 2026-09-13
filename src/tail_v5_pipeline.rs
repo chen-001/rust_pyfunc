@@ -233,20 +233,37 @@ pub(crate) fn build_shared_inputs(
             d
         }
     };
-    let restrict: Array2<f32> =
-        read_npy(restrict_path).map_err(|e| format!("读取 restrict.npy 失败: {}", e))?;
+    // npy 的 fortran_order 是文件自带的：`load_tail_v2_backtest_inputs` 里 ret 由
+    // `DataFrame.to_numpy(...).T` 得来（F 序），而 `np.save` **保留**内存序，于是同一批
+    // 缓存目录里既有 C 序也有 F 序的 npy。v8 回测逐日按行访问 ret/restrict，
+    // 非标准布局会让 `row().as_slice()` 拿不到切片、`row.iter()` 退化成跨步访问。
+    // 这里一次性转成标准行主序（已经是标准布局就不拷贝）。
+    fn to_standard_layout(a: Array2<f32>) -> Array2<f32> {
+        if a.is_standard_layout() {
+            a
+        } else {
+            a.as_standard_layout().into_owned()
+        }
+    }
+    let restrict: Array2<f32> = to_standard_layout(
+        read_npy(restrict_path).map_err(|e| format!("读取 restrict.npy 失败: {}", e))?,
+    );
     // v8 一档：restrict → 1 字节/格可交易掩码，全 run 建一次
     let free_mask = Some(Arc::new(crate::tail_v8_preflight::build_free_mask(
         &restrict.view(),
     )));
-    let ret_g1: Array2<f32> =
-        read_npy(ret_gap1_path).map_err(|e| format!("读取 ret_gap1.npy 失败: {}", e))?;
-    let ret_s1: Array2<f32> =
-        read_npy(ret_sum_gap1_path).map_err(|e| format!("读取 ret_sum_gap1.npy 失败: {}", e))?;
-    let ret_g5: Array2<f32> =
-        read_npy(ret_gap5_path).map_err(|e| format!("读取 ret_gap5.npy 失败: {}", e))?;
-    let ret_s5: Array2<f32> =
-        read_npy(ret_sum_gap5_path).map_err(|e| format!("读取 ret_sum_gap5.npy 失败: {}", e))?;
+    let ret_g1: Array2<f32> = to_standard_layout(
+        read_npy(ret_gap1_path).map_err(|e| format!("读取 ret_gap1.npy 失败: {}", e))?,
+    );
+    let ret_s1: Array2<f32> = to_standard_layout(
+        read_npy(ret_sum_gap1_path).map_err(|e| format!("读取 ret_sum_gap1.npy 失败: {}", e))?,
+    );
+    let ret_g5: Array2<f32> = to_standard_layout(
+        read_npy(ret_gap5_path).map_err(|e| format!("读取 ret_gap5.npy 失败: {}", e))?,
+    );
+    let ret_s5: Array2<f32> = to_standard_layout(
+        read_npy(ret_sum_gap5_path).map_err(|e| format!("读取 ret_sum_gap5.npy 失败: {}", e))?,
+    );
     let index_v: Array1<f32> =
         read_npy(index_ret_path).map_err(|e| format!("读取 index_ret.npy 失败: {}", e))?;
 

@@ -247,9 +247,26 @@ impl<'a> BtAcc<'a> {
             // 判定 + 收集。逐股全扫的布尔式等价改写，结果逐位相同。
             let held_row = self.held_restrict_row;
             let ret_view = self.ctx.ret.row(t);
-            let ret_row = ret_view.as_slice().expect("ret 行必须行优先连续");
+            let ret_row = ret_view.as_slice().unwrap_or_else(|| {
+                panic!(
+                    "ret 行必须行优先连续: shape={:?} strides={:?} is_std={} row_strides={:?} t={}",
+                    self.ctx.ret.dim(),
+                    self.ctx.ret.strides(),
+                    self.ctx.ret.is_standard_layout(),
+                    ret_view.strides(),
+                    t
+                )
+            });
             let restrict_view = self.ctx.restrict.row(held_row);
-            let restrict_row = restrict_view.as_slice().expect("restrict 行必须行优先连续");
+            let restrict_row = restrict_view.as_slice().unwrap_or_else(|| {
+                panic!(
+                    "restrict 行必须行优先连续: shape={:?} strides={:?} is_std={} held_row={}",
+                    self.ctx.restrict.dim(),
+                    self.ctx.restrict.strides(),
+                    self.ctx.restrict.is_standard_layout(),
+                    held_row
+                )
+            });
             let pred_key = (
                 self.ctx.ret.as_ptr() as usize,
                 self.ctx.restrict.as_ptr() as usize,
