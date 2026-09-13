@@ -1256,6 +1256,62 @@ pub fn neutralize_std_block_py<'py>(
         .to_owned())
 }
 
+/// 预计算结果的 Python 侧可复用句柄。
+///
+/// `neutralize_std_block_py` 每次调用都会重新解析 barra parquet 并重算 precompute，
+/// 逐因子调用不可用；这里把 precompute 结果包成 pyclass，让调用方建一次、每个
+/// block/slot 复用（引擎内部就是这么用的）。
+#[pyclass]
+pub struct NeutralizeStdSharedHandle {
+    inner: std::sync::Arc<NeutralizeStdShared>,
+}
+
+/// 预计算一次，返回可复用句柄（供逐因子调用复用，避免重复解析 parquet）。
+#[pyfunction]
+#[pyo3(signature = (industry, restrict, style_data_path, dates, stocks))]
+pub fn neutralize_std_precompute_py(
+    py: Python<'_>,
+    industry: PyReadonlyArray2<'_, f64>,
+    restrict: PyReadonlyArray2<'_, f32>,
+    style_data_path: String,
+    dates: Vec<i32>,
+    stocks: Vec<String>,
+) -> PyResult<NeutralizeStdSharedHandle> {
+    let industry_owned = industry.as_array().to_owned();
+    let restrict_owned = restrict.as_array().to_owned();
+    let shared = py
+        .allow_threads(move || -> Result<NeutralizeStdShared, String> {
+            let style_data =
+                IOOptimizedStyleData::load_from_parquet_io_optimized(&style_data_path)
+                    .map_err(|e| e.to_string())?;
+            neutralize_std_precompute(&industry_owned, &restrict_owned, &style_data, &dates, &stocks)
+        })
+        .map_err(PyValueError::new_err)?;
+    Ok(NeutralizeStdSharedHandle {
+        inner: std::sync::Arc::new(shared),
+    })
+}
+
+/// 用已预计算的句柄做 block 级标准中性化（不重新解析 parquet）。
+#[pyfunction]
+#[pyo3(signature = (factor_block, shared, industry_neutralize=false))]
+pub fn neutralize_std_block_with_shared<'py>(
+    py: Python<'py>,
+    factor_block: PyReadonlyArray3<'py, f32>,
+    shared: &NeutralizeStdSharedHandle,
+    industry_neutralize: bool,
+) -> PyResult<Py<PyArray3<f32>>> {
+    let block = factor_block.as_array().to_owned();
+    let inner = shared.inner.clone();
+    let output = py.allow_threads(move || {
+        neutralize_std_block(block.view(), &inner, industry_neutralize)
+    });
+    Ok(output
+        .map_err(PyValueError::new_err)?
+        .into_pyarray(py)
+        .to_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

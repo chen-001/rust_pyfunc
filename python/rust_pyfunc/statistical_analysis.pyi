@@ -149,6 +149,32 @@ def tail_v5_rank_fill_roll_block_f32(
     """
     ...
 
+class NeutralizeStdSharedHandle:
+    """neutralize_std_precompute_py 返回的可复用预计算句柄（不透明）。"""
+    ...
+
+def neutralize_std_precompute_py(
+    industry: NDArray[np.float64],
+    restrict: NDArray[np.float32],
+    style_data_path: str,
+    dates: list[int],
+    stocks: list[str],
+) -> NeutralizeStdSharedHandle:
+    """生产标准中性化的预计算（barra/size rank、行业分级码、逐日 X'X 等）。
+
+    建一次即可，随后用 `neutralize_std_block_with_shared` 逐 block/slot 复用，
+    避免每次调用都重新解析 barra parquet。
+    """
+    ...
+
+def neutralize_std_block_with_shared(
+    factor_block: NDArray[np.float32],
+    shared: NeutralizeStdSharedHandle,
+    industry_neutralize: bool = False,
+) -> NDArray[np.float32]:
+    """用已预计算的句柄做 block 级生产标准中性化，返回 (T,N,F) 残差 rank pct。"""
+    ...
+
 def tail_v2_select_by_ic_corr_abs_f32(
     ic_by_factor: NDArray[np.float32],
     threshold: float,
