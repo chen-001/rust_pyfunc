@@ -1,0 +1,16 @@
+[package]
+name = "tail_perf_bench_merge"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "tail_perf_bench_merge"
+path = "src/main.rs"
+
+[dependencies]
+ndarray = "0.15"
+rayon = "1"
+nalgebra = "0.32"
+
+[profile.release]
+opt-level = 3

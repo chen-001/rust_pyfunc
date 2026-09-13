@@ -344,17 +344,22 @@ pub fn pipeline_anneal_volume_market(
     vals
 }
 /// extreme_point_fit 流水线的单任务计算。
-/// 调用核心 compute_extreme_fit_with_features（原始展平 4992 + 降维 21984 = 26976）。
+/// 调用核心 compute_extreme_fit_with_features。
+/// `with_curvature=true` → 27360 列（原始展平 4992 + 21 统计量降维 22368）；
+/// `with_curvature=false` → 26976 列（19 统计量旧口径，用于在「为人画像」旧 store 上续算）。
 pub fn pipeline_extreme_point_fit(
     date: i64,
     code: &str,
     _trading_days: &[i64],
     expected_len: usize,
+    with_curvature: bool,
 ) -> Vec<f32> {
-    let mut vals = match extreme_point_fit_metrics::compute_extreme_fit_with_features(code, date) {
-        Ok(v) => v,
-        Err(_) => return nan_vec(expected_len),
-    };
+    let mut vals =
+        match extreme_point_fit_metrics::compute_extreme_fit_with_features(code, date, with_curvature)
+        {
+            Ok(v) => v,
+            Err(_) => return nan_vec(expected_len),
+        };
     if vals.len() < expected_len {
         vals.resize(expected_len, f32::NAN);
     } else if vals.len() > expected_len {
@@ -880,6 +885,7 @@ pub fn run_factor_pipeline(
                             &code,
                             &trading_days,
                             expected_result_length,
+                            oo_params_t.with_curvature,
                         )
                     } else if pipeline_name_t == "distill" {
                         pipeline_distill(date, &code, &trading_days, expected_result_length)

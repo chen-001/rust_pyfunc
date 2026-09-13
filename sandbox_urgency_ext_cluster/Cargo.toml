@@ -1,0 +1,21 @@
+[package]
+name = "sandbox_urgency_ext_cluster"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "sandbox_urgency_ext_cluster"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.18", features = ["extension-module"] }
+numpy = "0.18"
+ndarray = "0.15"
+rayon = "1.8"
+memmap2 = "0.9"
+
+[profile.dev]
+opt-level = 1
+
+[profile.release]
+opt-level = 3

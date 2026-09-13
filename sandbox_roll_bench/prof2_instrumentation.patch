@@ -1,0 +1,173 @@
+diff --git a/src/tail_backtest_engine.rs b/src/tail_backtest_engine.rs
+index 063f216..824d786 100644
+--- a/src/tail_backtest_engine.rs
++++ b/src/tail_backtest_engine.rs
+@@ -299,6 +299,7 @@ pub fn tail_backtest_engine<'py>(
+                 let stocks_arc = shared_clone.stocks.clone();
+                 handles.push(thread::spawn(move || {
+                     while let Ok(task) = rx.recv() {
++                        let _tw = Instant::now();
+                         // 1. 解析 col_idx（失败 = 硬错误：带因子名返回，绝不静默跳过）
+                         let col_idx = match parse_col_idx(&task.factor_path) {
+                             Some(v) => v,
+@@ -313,6 +314,7 @@ pub fn tail_backtest_engine<'py>(
+ 
+                         // 2. 快速读因子（scatter_map 优化，共享 Reader）
+                         // 读取失败 = 硬错误：带因子名返回，绝不静默遗漏（否则 processed+restored < requested）。
++                        let _tr = Instant::now();
+                         let raw_values = match reader.read_factor_to_matrix_fast(
+                             col_idx,
+                             dates_arc.as_slice(),
+@@ -329,11 +331,14 @@ pub fn tail_backtest_engine<'py>(
+                             }
+                         };
+ 
++                        tail_v5_pipeline::prof2_add(2, _tr.elapsed().as_nanos() as u64);
++
+                         // 3. 完整计算流水线（rank_roll → preflight → backtest → neutralize → backtest）
+                         let task_name = task.source_factor.clone();
+                         let outcome = process_single_factor(&task, raw_values, &shared_clone)
+                             .map_err(|err| (task_name, err));
+ 
++                        tail_v5_pipeline::prof2_add(3, _tw.elapsed().as_nanos() as u64);
+                         if tx.send(outcome).is_err() {
+                             break;
+                         }
+@@ -346,6 +351,7 @@ pub fn tail_backtest_engine<'py>(
+         // ---- 主线程收集结果 ----
+         let mut processed_sources = 0usize;
+         while let Ok(task_outcome) = result_receiver.recv() {
++            let _tm = Instant::now();
+             match task_outcome {
+                 Ok(task_result) => {
+                     let result_path = factor_result_path(&task_results_dir, &task_result.source_factor);
+@@ -429,6 +435,7 @@ pub fn tail_backtest_engine<'py>(
+                     return Err(format!("处理因子 {} 失败: {}", task_name, err));
+                 }
+             }
++            tail_v5_pipeline::prof2_add(8, _tm.elapsed().as_nanos() as u64);
+         }
+ 
+         if total_pending > 0 {
+@@ -440,6 +447,9 @@ pub fn tail_backtest_engine<'py>(
+             let _ = handle.join();
+         }
+ 
++        tail_v5_pipeline::prof2_add(9, started.elapsed().as_nanos() as u64);
++        tail_v5_pipeline::prof2_dump("engine");
++
+         // P0-1 读取闭环断言：走到这里时（没有收到过 Err 结果），每个因子要么被恢复、
+         // 要么被成功处理。两者之和必须等于请求总数，否则说明存在静默遗漏
+         // （例如 worker panic / 结果 channel 提前关闭），必须报错而不是产出残缺结果。
+diff --git a/src/tail_v5_pipeline.rs b/src/tail_v5_pipeline.rs
+index d25f53e..921b7ea 100644
+--- a/src/tail_v5_pipeline.rs
++++ b/src/tail_v5_pipeline.rs
+@@ -361,6 +361,7 @@ pub(crate) struct AggregatedCandidates {
+ 
+ impl AggregatedCandidates {
+     pub(crate) fn merge_task(&mut self, task: TailTaskResult) {
++        let _t2 = Instant::now();
+         self.raw_summary_gap1.extend(task.raw_summary_gap1);
+         self.raw_summary_gap5.extend(task.raw_summary_gap5);
+         self.neu_summary_gap1.extend(task.neu_summary_gap1);
+@@ -393,6 +394,7 @@ impl AggregatedCandidates {
+         for record in task.all_neu_ic_gap5 {
+             self.all_neu_ic_gap5.insert(record.factor_name.clone(), record);
+         }
++        prof2_add(6, _t2.elapsed().as_nanos() as u64);
+     }
+ }
+ 
+@@ -1677,10 +1679,14 @@ pub(crate) fn factor_result_path(task_results_dir: &Path, source_factor: &str) -
+ 
+ pub(crate) fn write_task_result(path: &Path, result: &TailTaskResult) -> Result<(), String> {
+     let tmp_path = path.with_extension("msgpack.tmp");
++    let _t2 = Instant::now();
+     let bytes =
+         rmp_serde::to_vec_named(result).map_err(|e| format!("序列化任务结果失败: {}", e))?;
++    prof2_add(4, _t2.elapsed().as_nanos() as u64);
++    let _t2 = Instant::now();
+     fs::write(&tmp_path, bytes).map_err(|e| format!("写入任务结果失败: {}", e))?;
+     fs::rename(&tmp_path, path).map_err(|e| format!("原子替换任务结果失败: {}", e))?;
++    prof2_add(5, _t2.elapsed().as_nanos() as u64);
+     Ok(())
+ }
+ 
+@@ -2844,6 +2850,49 @@ static PROF_NEU: AtomicU64 = AtomicU64::new(0);
+ static PROF_BT_NEU: AtomicU64 = AtomicU64::new(0);
+ static PROF_COUNT: AtomicU64 = AtomicU64::new(0);
+ 
++// ===== 临时插桩 v2（2026-09-11，定位「未计时 40 s」）：测完即回退 =====
++static PROF2_ROLL: AtomicU64 = AtomicU64::new(0);
++static PROF2_PREFLIGHT: AtomicU64 = AtomicU64::new(0);
++static PROF2_READ: AtomicU64 = AtomicU64::new(0);
++static PROF2_WORK: AtomicU64 = AtomicU64::new(0);
++static PROF2_SER: AtomicU64 = AtomicU64::new(0);
++static PROF2_FSWRITE: AtomicU64 = AtomicU64::new(0);
++static PROF2_MERGE: AtomicU64 = AtomicU64::new(0);
++static PROF2_STATUS: AtomicU64 = AtomicU64::new(0);
++static PROF2_MAINLOOP: AtomicU64 = AtomicU64::new(0);
++static PROF2_WALL: AtomicU64 = AtomicU64::new(0);
++
++pub(crate) fn prof2_add(counter: usize, ns: u64) {
++    let c = match counter {
++        0 => &PROF2_ROLL,
++        1 => &PROF2_PREFLIGHT,
++        2 => &PROF2_READ,
++        3 => &PROF2_WORK,
++        4 => &PROF2_SER,
++        5 => &PROF2_FSWRITE,
++        6 => &PROF2_MERGE,
++        7 => &PROF2_STATUS,
++        8 => &PROF2_MAINLOOP,
++        _ => &PROF2_WALL,
++    };
++    c.fetch_add(ns, AtomicOrdering::Relaxed);
++}
++
++pub(crate) fn prof2_dump(tag: &str) {
++    let n = PROF_COUNT.load(AtomicOrdering::Relaxed).max(1);
++    let s = |c: &AtomicU64| c.load(AtomicOrdering::Relaxed) as f64 / 1e9;
++    let per = |c: &AtomicU64| c.load(AtomicOrdering::Relaxed) as f64 / 1e9 / n as f64;
++    eprintln!(
++        "[PROF2 {} n={}] 每因子秒(线程时间): work={:.1} read={:.1} roll={:.1} preflight={:.1} raw_cover={:.1} fold={:.1} neutralize={:.1} bt_raw={:.1} bt_neu={:.1} | 合计线程秒: work={:.0} roll={:.0} preflight={:.0} neu={:.0} bt_neu={:.0} | 主线程秒: loop={:.1} ser={:.1} fswrite={:.1} merge={:.1} status={:.1} | wall={:.1}s",
++        tag, n,
++        per(&PROF2_WORK), per(&PROF2_READ), per(&PROF2_ROLL), per(&PROF2_PREFLIGHT),
++        per(&PROF_RAW_COVER), per(&PROF_FOLD), per(&PROF_NEU), per(&PROF_BT_RAW), per(&PROF_BT_NEU),
++        s(&PROF2_WORK), s(&PROF2_ROLL), s(&PROF2_PREFLIGHT), s(&PROF_NEU), s(&PROF_BT_NEU),
++        s(&PROF2_MAINLOOP), s(&PROF2_SER), s(&PROF2_FSWRITE), s(&PROF2_MERGE), s(&PROF2_STATUS),
++        s(&PROF2_WALL),
++    );
++}
++
+ fn prof_dump(tag: &str) {
+     let rc = PROF_RAW_COVER.load(AtomicOrdering::Relaxed);
+     let fd = PROF_FOLD.load(AtomicOrdering::Relaxed);
+@@ -5588,6 +5637,7 @@ fn process_v7_slot_raw(
+     let derived_name = &derived_names[slot_idx];
+ 
+     // ---- preflight（与 collect_preflight_passed_slots 完全一致） ----
++    let _t2 = Instant::now();
+     let pre_report = preflight_quality_check(
+         &slot_values,
+         &shared.restrict.view(),
+@@ -5595,6 +5645,7 @@ fn process_v7_slot_raw(
+         shared.config.zero_max_threshold,
+         shared.config.nan_max_threshold,
+     );
++    prof2_add(1, _t2.elapsed().as_nanos() as u64);
+     if !pre_report.passed {
+         if pre_report.majority_count_mean > shared.config.majority_count_threshold {
+             result.preflight_maj_failed_windows += 1;
+@@ -6081,8 +6132,10 @@ fn process_v7_variant(
+             return Err("window 必须大于 0".to_string());
+         }
+         let min_periods = std::cmp::max(1, window / 2);
++        let _t2 = Instant::now();
+         let (mean, max, min, std) =
+             crate::tail_v2_rank_roll_factor::rolling_stats_f32_serial(&ranked, window, min_periods);
++        prof2_add(0, _t2.elapsed().as_nanos() as u64);
+         for (slot_mat, stat_idx) in [(mean, 0usize), (max, 1), (min, 2), (std, 3)].into_iter() {
+             buffer.push((slot_idx + stat_idx, slot_mat));
+             if buffer.len() >= b {

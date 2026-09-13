@@ -1,0 +1,23 @@
+[package]
+name = "dev_sandbox_neu_fast"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "dev_sandbox_neu_fast"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.18", features = ["extension-module"] }
+numpy = "0.18"
+ndarray = "0.15"
+nalgebra = "0.32"
+
+[profile.dev]
+opt-level = 3
+debug = false
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

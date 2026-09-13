@@ -96,7 +96,13 @@ fn main() {
                             expected_len,
                         )
                     } else if pipeline_name == "extreme_point_fit" {
-                        pipeline_extreme_point_fit(date, &code, &trading_days, expected_len)
+                        pipeline_extreme_point_fit(
+                            date,
+                            &code,
+                            &trading_days,
+                            expected_len,
+                            oo_params.with_curvature,
+                        )
                     } else if pipeline_name == "distill" {
                         pipeline_distill(date, &code, &trading_days, expected_len)
                     } else if pipeline_name == "distill_tick" {

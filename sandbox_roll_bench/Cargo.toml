@@ -1,0 +1,14 @@
+[package]
+name = "roll_bench"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "roll_bench"
+path = "src/main.rs"
+
+[dependencies]
+ndarray = "0.15"
+
+[profile.release]
+opt-level = 3

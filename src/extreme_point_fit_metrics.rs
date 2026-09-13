@@ -143,13 +143,22 @@ pub fn extreme_fit_names() -> Vec<String> {
     names
 }
 
-/// 生成降维部分的 21984 个因子名（与 get_features_factors_rust_full 输出对齐）。
-/// 19 个单列统计量 × 192 列 + C(192,2) 配对相关性。
-pub fn extreme_fit_feat_names() -> Vec<String> {
+/// 降维部分长度：`with_curvature=true` 为 21 个统计量，`false` 为 19 个（旧口径）。
+pub fn feat_len(with_curvature: bool) -> usize {
+    (if with_curvature { 21 } else { 19 }) * N_COLS + N_COLS * (N_COLS - 1) / 2
+}
+
+/// 生成降维部分的因子名（与 get_features_factors_rust_full_opts 输出严格对齐）。
+/// 21 个（with_curvature=true）或 19 个（false，退回 curvature/quad_coef 之前的旧口径）
+/// 单列统计量 × 192 列 + C(192,2) 配对相关性。
+///
+/// 用途：`为人画像` 的旧 store 是 26976 列（19 统计量口径），续算时必须产出与之
+/// 逐列对齐的 26976 个值/名；`with_curvature=false` 就是那条旧口径。
+pub fn extreme_fit_feat_names(with_curvature: bool) -> Vec<String> {
     let cols = extreme_fit_col_names();
-    let mut names = Vec::with_capacity(FEAT_LEN);
-    // 19 个算子（与 features.rs push_group 顺序严格一致）
-    let ops = [
+    let mut names = Vec::with_capacity(feat_len(with_curvature));
+    // 算子顺序必须与 features.rs push_group 的调用顺序严格一致
+    let mut ops: Vec<&str> = vec![
         "mean",
         "median",
         "std",
@@ -164,14 +173,18 @@ pub fn extreme_fit_feat_names() -> Vec<String> {
         "autocorr1",
         "autocorr1_abs",
         "trend",
-        "curvature",
-        "quad_coef",
+    ];
+    if with_curvature {
+        ops.push("curvature");
+        ops.push("quad_coef");
+    }
+    ops.extend_from_slice(&[
         "period_diff",
         "period_ratio",
         "lz_complexity",
         "entropy_1d",
         "max_range_product",
-    ];
+    ]);
     for op in ops {
         for c in &cols {
             names.push(format!("{c}_{op}"));
@@ -184,15 +197,16 @@ pub fn extreme_fit_feat_names() -> Vec<String> {
             names.push(format!("{}_corr_{}", cols[i], cols[j]));
         }
     }
-    assert_eq!(names.len(), FEAT_LEN);
+    assert_eq!(names.len(), feat_len(with_curvature));
     names
 }
 
-/// 生成全部因子名：原始展平 4992 + 降维 21984 = 26976（pipeline 输出的单一真相源）。
-pub fn extreme_fit_full_names() -> Vec<String> {
+/// 生成全部因子名：原始展平 4992 + 降维（21 统计量 22368 或 19 统计量 21984）。
+/// `with_curvature=true` → 27360 个；`false` → 26976 个（为人画像旧 store 的口径）。
+pub fn extreme_fit_full_names(with_curvature: bool) -> Vec<String> {
     let mut names = extreme_fit_names();
-    names.extend(extreme_fit_feat_names());
-    assert_eq!(names.len(), OUT_LEN + FEAT_LEN);
+    names.extend(extreme_fit_feat_names(with_curvature));
+    assert_eq!(names.len(), OUT_LEN + feat_len(with_curvature));
     names
 }
 
@@ -801,43 +815,56 @@ pub fn compute_extreme_fit_full(code: &str, date: i64) -> std::io::Result<Vec<f3
 // 完整输出（原始展平 + get_features_factors 降维）—— 双入口共同真相源
 // ============================================================================
 
-/// 拼接原始展平 4992 + get_features_factors 降维 21984 = 26976。
+/// 拼接原始展平 4992 + 降维（21 统计量 22368 → 27360，或 19 统计量 21984 → 26976）。
 /// pipeline 和 py_ 入口的唯一共同调用点，保证两入口逐字节一致。
-pub fn build_full_output(raw: &[f32]) -> Vec<f32> {
+pub fn build_full_output(raw: &[f32], with_curvature: bool) -> Vec<f32> {
     let mut all = raw.to_vec();
-    // 重塑为 26×192 的 Array2，过 get_features_factors_rust_full 降维
+    // 重塑为 26×192 的 Array2，过 get_features_factors_rust_full_opts 降维
     let arr = ndarray::Array2::from_shape_vec((N_ROWS, N_COLS), raw.to_vec())
         .unwrap_or_else(|_| ndarray::Array2::zeros((0, N_COLS)));
     let col_names = extreme_fit_col_names();
     let (feat_vals, _) = if arr.nrows() == 0 {
-        (vec![f32::NAN; FEAT_LEN], vec![])
+        (vec![f32::NAN; feat_len(with_curvature)], vec![])
     } else {
-        crate::features::get_features_factors_rust_full(&arr.view(), &col_names, false)
+        crate::features::get_features_factors_rust_full_opts(
+            &arr.view(),
+            &col_names,
+            false,
+            with_curvature,
+        )
     };
     all.extend_from_slice(&feat_vals);
     all
 }
 
-/// 完整核心：读数据 → 算 4992 → 降维拼接到 26976。py_ 和 pipeline 共用。
-pub fn compute_extreme_fit_with_features(code: &str, date: i64) -> std::io::Result<Vec<f32>> {
+/// 完整核心：读数据 → 算 4992 → 降维拼接。py_ 和 pipeline 共用。
+/// `with_curvature=false` 走旧 19 统计量口径，总长 26976（「为人画像」旧 store 的列定义）。
+pub fn compute_extreme_fit_with_features(
+    code: &str,
+    date: i64,
+    with_curvature: bool,
+) -> std::io::Result<Vec<f32>> {
     let raw = compute_extreme_fit_full(code, date)?;
-    Ok(build_full_output(&raw))
+    Ok(build_full_output(&raw, with_curvature))
 }
 
 // ============================================================================
 // PyO3 接口
 // ============================================================================
 
-/// Python 可调用：单股单日计算，返回完整 26976 个因子值（原始展平 + 降维）。
+/// Python 可调用：单股单日计算，默认返回 27360 个值（原始展平 4992 + 21 统计量降维 22368）。
+/// `with_curvature=False` → 26976 个值（19 统计量口径，与「为人画像」旧 store 列定义逐列对齐）。
 /// 与 pipeline 走同一份 build_full_output，输出逐字节相同。
 #[pyfunction]
-pub fn py_extreme_point_fit(code: &str, date: i64) -> PyResult<Vec<f32>> {
-    compute_extreme_fit_with_features(code, date)
+#[pyo3(signature = (code, date, with_curvature=true))]
+pub fn py_extreme_point_fit(code: &str, date: i64, with_curvature: bool) -> PyResult<Vec<f32>> {
+    compute_extreme_fit_with_features(code, date, with_curvature)
         .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("{:?}", e)))
 }
 
-/// Python 拿完整因子名（原始展平 4992 + 降维 21984 = 26976）。
+/// Python 拿完整因子名：默认 27360 个；`with_curvature=False` → 26976 个（19 统计量口径）。
 #[pyfunction]
-pub fn py_extreme_point_fit_names() -> Vec<String> {
-    extreme_fit_full_names()
+#[pyo3(signature = (with_curvature=true))]
+pub fn py_extreme_point_fit_names(with_curvature: bool) -> Vec<String> {
+    extreme_fit_full_names(with_curvature)
 }
