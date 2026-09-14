@@ -3487,7 +3487,12 @@ pub fn copy_subset_write(
         );
     }
 
-    let mut writer = FactorStoreWriter::open(dst_dir, factor_names, false)?;
+    // 必须用**分片**布局写入：横截面 pipeline（ShardedBackupSink::new_colblk_sharded）
+    // 只认 shard_* 子目录，若这里写扁平布局，后续对同一目录追加新日期会另建 shard_*，
+    // 形成"扁平旧数据 + 分片新数据"并存，而读取端只认 shard_* → 旧数据静默消失。
+    // （2026-09-14 事故：urgency_v1/supplement_urgency_ext_cluster_accepted 就是这样丢掉
+    //   2,764 天历史的。）
+    let writer = ShardedBackupSink::new_colblk_sharded(dst_dir, factor_names, STORE_N_SHARDS, false)?;
     let nan_facs = vec![f32::NAN; factor_names.len()];
     let mut written_dates: HashSet<i32> = HashSet::new();
     let mut written_codes: HashSet<String> = HashSet::new();
@@ -3974,6 +3979,12 @@ impl BackupSink {
 
 // ============================ ShardedBackupSink：多分片并行写 ============================
 
+/// 分片数：**所有**写同一个 store 的入口必须用同一个值，否则会在同一目录形成
+/// 两套不兼容的布局（见 `new_colblk_sharded` 里的扁平布局守卫）。
+/// 目前使用方：run_factor_pipeline / run_factor_pipeline_v6 / run_factor_pipeline_cross_section
+/// （原各自硬编码 8）与 factor_store_v5_copy_subset。
+pub const STORE_N_SHARDS: usize = 8;
+
 /// 多分片备份写入后端。N 个独立 Writer 分片，按 date % N 路由，无锁并行写。
 /// 解决单 collector 写盘瓶颈：200 worker 生产速度远超单流 HDD 写盘。
 #[derive(Clone)]
@@ -3989,6 +4000,19 @@ impl ShardedBackupSink {
         n_shards: usize,
         incremental: bool,
     ) -> Result<Self, String> {
+        // 守卫：目标目录若已是**扁平布局** store（顶层 factors.idx），分片写入会在同目录
+        // 另建 shard_*，而读取端（FactorStoreReader）只认 shard_* → 扁平数据静默不可见。
+        // 2026-09-14 事故：factor_store_v5_copy_subset 产出的 accepted group 是扁平布局，
+        // 被横截面 pipeline 追加后该 group 的 2,764 天历史在读取端消失。
+        // 正常情况不会触发：全新目录没有 factors.idx；已是分片布局的目录顶层也没有。
+        if std::path::Path::new(store_dir).join("factors.idx").exists() {
+            return Err(format!(
+                "store_dir {store_dir} 是扁平布局的 store（顶层存在 factors.idx），\
+                 不能用分片写入：会在同目录另建 shard_*，形成并行两套布局，\
+                 读取端只认 shard_* 会让扁平数据静默消失。\
+                 请用分片布局重建该 store（如 factor_store_v5_copy_subset，已改为分片写入）。"
+            ));
+        }
         let mut shards = Vec::with_capacity(n_shards);
         for i in 0..n_shards {
             let shard_dir = format!("{store_dir}/shard_{i}");

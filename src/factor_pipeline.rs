@@ -656,7 +656,7 @@ pub fn run_factor_pipeline(
     let progress_log_enabled = progress_log.unwrap_or(false);
     let batch_size = backup_batch_size.unwrap_or(500);
     let mode = mode.unwrap_or_else(|| "multiprocess".to_string());
-    let n_shards = 8;
+    let n_shards = crate::factor_store_v5::STORE_N_SHARDS;
     let sharded_sink: Option<crate::factor_store_v5::ShardedBackupSink> = if let Some(ref sdir) =
         store_dir
     {
@@ -1689,7 +1689,7 @@ pub fn run_factor_pipeline_v6(
     let progress_log_enabled = progress_log.unwrap_or(false);
     let batch_size = backup_batch_size.unwrap_or(500);
     let mode = mode.unwrap_or_else(|| "multiprocess".to_string());
-    let n_shards = 8;
+    let n_shards = crate::factor_store_v5::STORE_N_SHARDS;
     let sharded_sink: Option<crate::factor_store_v5::ShardedBackupSink> = if let Some(ref sdir) =
         store_dir
     {
@@ -1879,7 +1879,7 @@ pub fn run_factor_pipeline_minute(
     let pipeline_name = pipeline.to_string();
     let update_mode_enabled = update_mode.unwrap_or(false);
     let incremental_projection_enabled = incremental_projection.unwrap_or(false);
-    let n_shards = 8;
+    let n_shards = crate::factor_store_v5::STORE_N_SHARDS;
 
     let store_dir_str = store_dir
         .clone()
@@ -2896,7 +2896,7 @@ pub fn run_factor_pipeline_cross_section(
     let update_mode_enabled = update_mode.unwrap_or(false);
     let force_clear_enabled = force_clear.unwrap_or(false);
     let incremental_projection_enabled = incremental_projection.unwrap_or(false);
-    let n_shards = 8;
+    let n_shards = crate::factor_store_v5::STORE_N_SHARDS;
 
     let store_dir_str = store_dir
         .clone()
