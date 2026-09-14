@@ -3035,40 +3035,23 @@ fn compute_from_streams_approx(
 }
 
 /// v1 入口（读盘，默认参数）：返回 (codes, vals) —— **合并输出 1916 因子**
-/// （1740 时段聚合 + 176 第 4 层网络因子），并直接把完整结果写入备份文件
-/// （backup_writer v4 格式，/hdd/user_home_unsafe/chenzongwei/yhyb5_{date}.bin）。
+/// （1740 时段聚合 + 176 第 4 层网络因子）。
 /// p0 聚合任务与第 4 层对级累加**融合**（同一趟对级遍历，消除第 4 层阶段 A 独立遍历）。
+///
+/// 注：这里原本额外写一份 /hdd/.../yhyb5_{date}.bin（旧 RPBACKUP v4 行式备份，随 v0.88.0
+/// 沙箱迁移带入主项目）。横截面 pipeline 的正式产物已是 colblk store（BackupSink::Colblk），
+/// 全库无任何代码读该 .bin，属每天白写 27~82MB 的死写入，已删除。
 pub fn compute_yhyb_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f32>)> {
     let prm = YhybParams::default();
     let t_start = std::time::Instant::now();
     let (codes_all, streams) = load_streams(date, &prm)?;
     let t_read = std::time::Instant::now();
     let (codes, vals) = compute_from_streams_full(&codes_all, &streams, &prm, true);
-    // 写备份文件（v4 格式，与 pipeline 备份兼容；版本化文件名避免与旧版因子数冲突）
-    let total = N_FACTORS + crate::yhyb_network::N_L4;
-    let backup = format!("/hdd/user_home_unsafe/chenzongwei/yhyb5_{date}.bin");
-    let results: Vec<crate::backup_reader::TaskResult> = codes
-        .iter()
-        .zip(vals.chunks(total))
-        .map(|(code, facs)| crate::backup_reader::TaskResult {
-            date,
-            code: code.clone(),
-            timestamp: 0,
-            facs: facs.to_vec(),
-        })
-        .collect();
-    crate::backup_writer::save_results_to_backup(&results, &backup, total).map_err(|e| {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("备份写入失败 {backup}: {e}"),
-        )
-    })?;
     if std::env::var("YHYB_TIMING").is_ok() {
         eprintln!(
-            "YHYB_TIMING date={date} 读盘+检测={:.1}s 聚合+第4层(融合)={:.1}s 备份={} rayon线程数={}",
+            "YHYB_TIMING date={date} 读盘+检测={:.1}s 聚合+第4层(融合)={:.1}s rayon线程数={}",
             t_read.duration_since(t_start).as_secs_f64(),
             t_read.elapsed().as_secs_f64(),
-            backup,
             rayon::current_num_threads(),
         );
     }
