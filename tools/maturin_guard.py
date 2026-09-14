@@ -9,7 +9,7 @@
 规则：
   - 在 rust_pyfunc 主项目（[package] name = "rust_pyfunc"）目录内：
       * `maturin develop`（无 --release / --profile）→ 直接拦截报错（防止事故）
-      * `maturin develop --release` → 放行但提示（建议 bash dev.sh 更快）
+      * `maturin develop --release` → 放行但提示（建议 ./alter.sh 更快）
       * `maturin build` / 其他 → 放行（maturin build 默认就是 release profile）
   - 其他目录（sandbox、独立 crate 等）→ 放行；若为 dev_sandbox* 且 develop 无
     --release → 提示建议 --release 以便性能测量，但不拦截。
@@ -97,8 +97,7 @@ def main():
             "   裸跑会安装 dev（opt-level 0）构建，回测性能将慢 10~50 倍\n"
             "   （2026-08-31 曾因此把 513MB debug 构建覆盖到 release 安装上）。\n"
             "   请改用：\n"
-            "     bash dev.sh     # 默认 release-fast（无 LTO，增量，性能≈release，日常构建）\n"
-            "     ./alter.sh      # 默认 release-fast + 部署 worker 二进制\n"
+            "     ./alter.sh      # 默认 release-fast（无 LTO，增量）+ 部署 worker 二进制（唯一构建入口）\n"
             "     ./alter.sh release   # fat LTO 全量（~10 分钟，仅发布）\n"
             "   若确需直接 maturin：maturin develop --profile release-fast\n"
             "\n"
@@ -108,7 +107,7 @@ def main():
     if is_main and is_develop and has_profile_flag:
         sys.stderr.write(
             "ℹ️  maturin 守卫：在本目录直接 maturin 不会被拦截，"
-            "但更推荐 `bash dev.sh`（release-fast，增量更快）或 `./alter.sh`。\n"
+            "但更推荐 `./alter.sh`（release-fast 增量 + 部署 worker 二进制，唯一构建入口）。\n"
         )
 
     if is_sandbox and is_develop and not has_profile_flag:

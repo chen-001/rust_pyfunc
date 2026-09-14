@@ -76,7 +76,7 @@ tempfile = "3.10"
 # 构建覆盖 release 安装、回测整体变慢 40 倍的事故）。
 # 此处把 dev 提升为 opt-level 3 + 关闭 debug 信息：即使有人/agent 裸跑
 # `maturin develop`，产物性能也接近 release（编译稍慢，可接受）。
-# 正式构建请始终走：bash dev.sh（默认 release-fast）或 ./alter.sh。
+# 正式构建请始终走：./alter.sh（默认 release-fast + 部署 worker 二进制）。
 # ─────────────────────────────────────────────────────────────
 opt-level = 3
 debug = false
