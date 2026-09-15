@@ -237,6 +237,10 @@ pub fn load_prev_mats(outdir: &str, date: i64) -> std::io::Result<PrevMats> {
 /// 返回 (n_stocks, n_matrices)。
 #[pyfunction]
 pub fn yupei_dist_backup_matrices(outdir: String, date: i64) -> PyResult<(usize, usize)> {
+    super::compute::with_compute_pool(|| backup_matrices_inner(outdir, date)).map_err(io_err)?
+}
+
+fn backup_matrices_inner(outdir: String, date: i64) -> PyResult<(usize, usize)> {
     let (codes, n, stats, hm, _industry) =
         super::compute::compute_yupei_dist_partial(date)
             .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("{e:?}")))?;
@@ -258,6 +262,15 @@ pub fn yupei_dist_backup_matrices(outdir: String, date: i64) -> PyResult<(usize,
 /// 返回 (n_stocks, n_factors)。
 #[pyfunction]
 pub fn yupei_dist_backup_factors(
+    outdir: String,
+    date: i64,
+    prev_date: Option<i64>,
+) -> PyResult<(usize, usize)> {
+    super::compute::with_compute_pool(|| backup_factors_inner(outdir, date, prev_date))
+        .map_err(io_err)?
+}
+
+fn backup_factors_inner(
     outdir: String,
     date: i64,
     prev_date: Option<i64>,

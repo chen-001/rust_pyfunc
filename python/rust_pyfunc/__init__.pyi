@@ -297,6 +297,7 @@ def py_yupei_dist(date: int) -> Tuple[List[str], List[float]]:
 
     返回 (codes, vals): codes 为当日 universe 股票代码列表,
     vals 为行主序 N×2761 的因子值（顺序与 py_yupei_dist_names 一致）。
+    线程上限 200（512 核共享机）; 设环境变量 RAYON_NUM_THREADS 可覆盖。
     """
 
 def py_yupei_dist_names() -> List[str]:

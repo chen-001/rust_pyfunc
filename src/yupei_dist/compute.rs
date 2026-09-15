@@ -27,8 +27,31 @@ pub const MIN_TRADES: usize = 200;
 /// 行业备份目录（python 一次性预提取全部交易日）
 pub const BACKUP_DIR: &str = "/hdd/user_home_unsafe/chenzongwei/yupei_dist_backup";
 
+/// 直接调用时的线程上限：512 核共享机, 不设限会把整机吃满。
+pub const MAX_THREADS: usize = 200;
+
+/// 在 200 线程的局部池里跑 f。外部已设 RAYON_NUM_THREADS 时尊重外部设置
+/// （pipeline worker 由启动方设 RAYON_NUM_THREADS = n_jobs/n_workers, 走这条路）。
+/// 用局部池而不是 build_global：全局池只建一次, 进程里别的函数先建过就会静默失效。
+pub fn with_compute_pool<T: Send>(f: impl FnOnce() -> T + Send) -> std::io::Result<T> {
+    if std::env::var("RAYON_NUM_THREADS").is_ok() {
+        return Ok(f());
+    }
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(MAX_THREADS)
+        .build()
+        .map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::Other, format!("线程池创建失败: {e}"))
+        })?;
+    Ok(pool.install(f))
+}
+
 /// 单日全市场横截面因子: (codes, vals) — vals 行主序 N×F（F=2761）。
 pub fn compute_yupei_dist_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f32>)> {
+    with_compute_pool(|| compute_yupei_dist_full_inner(date))?
+}
+
+fn compute_yupei_dist_full_inner(date: i64) -> std::io::Result<(Vec<String>, Vec<f32>)> {
     let (codes_out, n, stats, hm, industry) = compute_yupei_dist_partial(date)?;
     let set = MatrixSet {
         n,
@@ -121,6 +144,13 @@ pub fn run_indicators(
 /// 单日全市场横截面因子（带前一日矩阵）: dyn_* 跨日因子有值。
 /// prev_date 的 37 张矩阵从备份目录 {BACKUP_DIR}/{prev_date}/mats/*.bin 读取（f32 行主序）。
 pub fn compute_yupei_dist_full_with_prev(
+    date: i64,
+    prev_date: Option<i64>,
+) -> std::io::Result<(Vec<String>, Vec<f32>)> {
+    with_compute_pool(|| compute_yupei_dist_full_with_prev_inner(date, prev_date))?
+}
+
+fn compute_yupei_dist_full_with_prev_inner(
     date: i64,
     prev_date: Option<i64>,
 ) -> std::io::Result<(Vec<String>, Vec<f32>)> {

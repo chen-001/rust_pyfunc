@@ -15,6 +15,8 @@
 //!   - compute_yupei_dist_full(date): 单日全量 (codes, vals N×2761)
 //!   - compute_yupei_dist_full_with_prev(date, prev): 带前一日矩阵（dyn_* 跨日因子）
 //!   - py_yupei_dist / py_yupei_dist_names: Python 入口
+//!   - 线程: 直接调用最多 200（MAX_THREADS, 见 compute::with_compute_pool）;
+//!     外部已设 RAYON_NUM_THREADS 时尊重外部设置（pipeline worker 走这条路）
 //!
 //! 正确性基准:
 //!   - 37 矩阵经桶级前缀和对照朴素 Python（ratio ≈ 1.0000）
