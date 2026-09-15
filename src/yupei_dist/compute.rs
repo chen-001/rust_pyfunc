@@ -7,8 +7,8 @@
 //!   4. 28 个降维指标模块 → 2761 个横截面因子
 //!   5. 组装 (codes, vals N×F) 供 pipeline fan-out
 //!
-//! 行业数据: 读备份目录 {BACKUP_DIR}/{date}/industry.bin（u64 n + n×i16, 与 codes 对齐）;
-//! 缺失时行业模块输出 NaN（因子长度不变）。
+//! 行业数据: 直读 {vars_root}/SzBa/industry.h5（进程内只读一次, 见 industry.rs）;
+//! 读不到直接报错, 不再静默降级成整列 NaN。
 //! 前一日矩阵: cross-section pipeline 单日任务无 prev（批量首日 dyn_* 输出 NaN）。
 
 use std::collections::HashMap;
@@ -35,7 +35,7 @@ pub fn compute_yupei_dist_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f
         codes: codes_out.clone(),
         stats,
         mats: hm,
-        industry,
+        industry: Some(industry),
     };
     let ctx = IndicatorCtx::new(&set, None);
     let vals = run_indicators(&ctx, n, &codes_out)?;
@@ -50,7 +50,7 @@ pub fn compute_yupei_dist_partial(
     usize,
     Vec<crate::yupei_dist::matrix_stage::StockStats>,
     HashMap<String, Vec<f32>>,
-    Option<Vec<i16>>,
+    Vec<i16>,
 )> {
     // ---- 1. 代码枚举（按文件大小降序 → 全市场不截断 → 代码序）----
     let mut codes = list_codes_by_size(date);
@@ -80,20 +80,8 @@ pub fn compute_yupei_dist_partial(
         hm.insert(spec.name.to_string(), m.clone());
     }
 
-    // ---- 4. 行业（可选; 缺失 → None → 行业模块输出 NaN）----
-    // industry.bin 按 symbol_map 全市场顺序存储: 读入后按 codes 重排（缺失 -1）
-    let industry = super::industry::load_industry_all(
-        &Path::new(BACKUP_DIR)
-            .join(date.to_string())
-            .join("industry.bin"),
-    )
-    .ok()
-    .map(|all: std::collections::HashMap<String, i16>| {
-        codes_out
-            .iter()
-            .map(|c| all.get(c).copied().unwrap_or(-1))
-            .collect()
-    });
+    // ---- 4. 行业（直读 h5, 进程内只读一次; 读不到直接报错）----
+    let industry = super::industry::industry_of(date, &codes_out)?;
 
     Ok((codes_out, n, stats, hm, industry))
 }
@@ -174,7 +162,7 @@ pub fn compute_yupei_dist_full_with_prev(
         codes: codes_out.clone(),
         stats,
         mats: hm,
-        industry,
+        industry: Some(industry),
     };
     let ctx = super::indicator_ctx::IndicatorCtx::new(&set, prev);
     let vals = run_indicators(&ctx, n, &codes_out)?;

@@ -2840,6 +2840,9 @@ pub fn run_factor_pipeline_regime(
 /// - trading_days: 交易日历
 /// - n_workers: 可选 worker 进程数。不设则自动 = clamp(n_jobs//50, 2, 8)
 /// - store_dir / store_factor_names: colblk 列式存储
+/// - data_root: Level2 数据目录（默认 /ssd_data/stock），进程内生效并透传给 worker 子进程
+/// - vars_root: 行业 / 日频变量目录（默认 /ssd_data/data/vars），
+///   `{vars_root}/SzBa/industry.h5` 是行业分类的唯一源头；同样透传给 worker 子进程
 /// - incremental_projection: true = 增量投影（追加新日期时 base 投影不动，只把新行写成
 ///   factors.proj.delta.<end>，读取端自动拼接 base + delta）；默认 false = 整片重投影。
 ///
@@ -2850,7 +2853,7 @@ pub fn run_factor_pipeline_regime(
     pipeline, tasks, n_jobs, expected_result_length, trading_days,
     params=None, n_workers=None, update_mode=None, bind_cores=true,
     store_dir=None, store_factor_names=None, force_clear=None, data_root=None,
-    incremental_projection=None
+    vars_root=None, incremental_projection=None
 ))]
 #[allow(clippy::too_many_arguments)]
 pub fn run_factor_pipeline_cross_section(
@@ -2867,6 +2870,7 @@ pub fn run_factor_pipeline_cross_section(
     store_factor_names: Option<Vec<String>>,
     force_clear: Option<bool>,
     data_root: Option<String>,
+    vars_root: Option<String>,
     incremental_projection: Option<bool>,
 ) -> PyResult<PyObject> {
     let py = unsafe { Python::assume_gil_acquired() };
@@ -2874,6 +2878,9 @@ pub fn run_factor_pipeline_cross_section(
     // Level2 数据目录覆盖：进程内生效到本函数结束；worker 子进程通过环境变量透传。
     let _data_root_guard = crate::data_paths::set_level2_root(data_root.as_deref());
     println!("📂 Level2 数据目录: {}", crate::data_paths::describe_level2());
+    // 行业 / 日频变量目录覆盖（SzBa/industry.h5 等）：同上, 同样透传给 worker 子进程。
+    let _vars_root_guard = crate::data_paths::set_vars_root(vars_root.as_deref());
+    println!("📂 行业数据目录: {}", crate::data_paths::describe_vars());
 
     let pipeline_name = pipeline.to_string();
     let known = [
@@ -3225,6 +3232,10 @@ fn run_single_cross_section_worker(
         // Level2 数据目录透传（pipeline 参数 data_root）
         if let Some(root) = crate::data_paths::override_level2() {
             cmd.env(crate::data_paths::ENV_LEVEL2_ROOT, root);
+        }
+        // 行业 / 日频变量目录透传（pipeline 参数 vars_root）
+        if let Some(root) = crate::data_paths::override_vars() {
+            cmd.env(crate::data_paths::ENV_VARS_DIR, root);
         }
         if let Some(idx) = core_affinity_idx {
             cmd.env("RUST_PYFUNC_CORE_AFFINITY_IDX", idx.to_string());

@@ -1,93 +1,138 @@
-//! 行业分类（申万一级, 从 industry_dump 提取的 CSV 读取, 纯 Rust）。
-//! industry.bin 格式: u64 n + n × i16（与 codes 对齐, -1 = 未知）。
-//! 生成: cargo run --release --features hdf5 --bin industry_dump -- <date> <out>
+//! 行业分类（申万一级, 直接读 `SzBa/industry.h5`, 纯 Rust）。
+//!
+//! 唯一源头：`{vars_root}/SzBa/industry.h5`。vars_root 由 data_paths 解析：
+//! pipeline 参数 `vars_root` > 环境变量 `RUST_PYFUNC_VARS_DIR` > 默认 `/ssd_data/data/vars`。
+//!   - dataset `data`，行 r = `{vars_root}/SzBa/calendar_map.csv` 的第 r 个日期；
+//!   - 列 c = `{basic_info_dir}/symbol_map.csv` 里 pos=c 的股票；
+//!   - 行业号 1..31，NaN = 未知 → 本模块统一转成 -1。
+//!
+//! 进程内只读一次：首次取数时把整表分块读进内存并压成 i16（峰值内存 ≈ 块行数 × 列数 × 8B，
+//! 常驻 ≈ 行数 × 列数 × 2B），之后所有日期共用同一份表；vars_root 变化时自动重读。
+//! 读不到文件直接返回 Err —— 不静默降级成整列 NaN（那正是 ind_* 因子在
+//! 20260720~20260908 整列为空的成因）。
 
-use std::io::{Read, Write};
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::{Arc, RwLock};
 
-/// 从 CSV（code,ind）读入并重排为 codes 序
-pub fn load_industry_from_csv(path: &Path, codes: &[String]) -> std::io::Result<Vec<i16>> {
-    let s = std::fs::read_to_string(path)?;
-    let mut map: std::collections::HashMap<String, i16> = std::collections::HashMap::new();
-    for line in s.lines() {
-        if line.is_empty() {
-            continue;
-        }
-        let mut it = line.split(',');
-        let code = it.next().unwrap_or("").trim();
-        let ind = it.next().unwrap_or("").trim();
-        if code.is_empty() || ind.is_empty() {
-            continue;
-        }
-        if let Ok(v) = ind.parse::<i16>() {
-            map.insert(code.to_string(), v);
-        }
-    }
-    Ok(codes
-        .iter()
-        .map(|c| map.get(c).copied().unwrap_or(-1))
-        .collect())
+use ndarray::s;
+
+/// 行业 h5（相对 vars_root）。
+pub const INDUSTRY_H5: &str = "SzBa/industry.h5";
+/// 行业 h5 的行轴日历（相对 vars_root）。
+pub const INDUSTRY_CALENDAR: &str = "SzBa/calendar_map.csv";
+/// 分块读取的行数。
+const BLOCK_ROWS: usize = 256;
+
+/// 全市场行业表：日期轴 + 列序 + i16 行业号。
+pub struct IndustryTable {
+    /// 数据来源（用于判断 vars_root 变化后是否要重读）。
+    pub source: PathBuf,
+    dates: Vec<i64>,
+    ncols: usize,
+    data: Vec<i16>,
+    pos: HashMap<String, usize>,
 }
 
-/// 读 industry.bin（与 codes 对齐）
-pub fn load_industry_bin(path: &Path, codes: &[String]) -> std::io::Result<Vec<i16>> {
-    let mut data = Vec::new();
-    std::fs::File::open(path)?.read_to_end(&mut data)?;
-    if data.len() < 8 {
-        return Ok(vec![-1; codes.len()]);
-    }
-    let n = u64::from_le_bytes(data[0..8].try_into().unwrap()) as usize;
-    let mut out = Vec::with_capacity(n);
-    for i in 0..n {
-        let off = 8 + i * 2;
-        if off + 2 <= data.len() {
-            out.push(i16::from_le_bytes(data[off..off + 2].try_into().unwrap()));
-        } else {
-            out.push(-1);
+impl IndustryTable {
+    /// 最后一个 <= date 的行号（早于首日返回 None）。
+    fn row_of(&self, date: i64) -> Option<usize> {
+        match self.dates.partition_point(|&d| d <= date) {
+            0 => None,
+            n => Some(n - 1),
         }
     }
-    Ok(out)
+
+    /// 指定日期、单只股票的行业号（-1 = 未知或不在列内）。
+    pub fn ind_of(&self, date: i64, code: &str) -> i16 {
+        let Some(r) = self.row_of(date) else {
+            return -1;
+        };
+        match self.pos.get(code) {
+            Some(&c) if c < self.ncols => self.data[r * self.ncols + c],
+            _ => -1,
+        }
+    }
 }
 
-/// 读 industry.bin 原始数组并转为 code→ind 映射（industry.bin 无 code 列,
-/// 顺序对应 /ssd_data/data/basic_info/symbol_map.csv 的 pos 列; 这里返回 (code, ind)
-/// 依赖调用方知道 symbol_map 顺序 —— 简化: 直接返回按序向量并附 code 列表）。
-/// 本函数返回 HashMap: code -> ind（-1 未知）。
-pub fn load_industry_all(path: &Path) -> std::io::Result<std::collections::HashMap<String, i16>> {
-    let mut data = Vec::new();
-    std::fs::File::open(path)?.read_to_end(&mut data)?;
-    if data.len() < 8 {
-        return Ok(std::collections::HashMap::new());
-    }
-    let n = u64::from_le_bytes(data[0..8].try_into().unwrap()) as usize;
-    let vals: Vec<i16> = (0..n)
-        .map(|i| {
-            let off = 8 + i * 2;
-            if off + 2 <= data.len() {
-                i16::from_le_bytes(data[off..off + 2].try_into().unwrap())
-            } else {
-                -1
-            }
-        })
+static TABLE: RwLock<Option<Arc<IndustryTable>>> = RwLock::new(None);
+
+fn io_err<E: std::fmt::Display>(what: &str, e: E) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{what}: {e}"))
+}
+
+/// 保留原错误种类（NotFound 等），并在消息里带上文件路径。
+fn path_err(what: &str, path: &std::path::Path, e: std::io::Error) -> std::io::Error {
+    std::io::Error::new(e.kind(), format!("{what} {}: {e}", path.display()))
+}
+
+fn load_table() -> std::io::Result<IndustryTable> {
+    let source = crate::data_paths::vars_path(INDUSTRY_H5);
+    let cal_path = crate::data_paths::vars_path(INDUSTRY_CALENDAR);
+    let cal = std::fs::read_to_string(&cal_path)
+        .map_err(|e| path_err("读取行业日历失败", &cal_path, e))?;
+    let dates: Vec<i64> = cal
+        .lines()
+        .skip(1)
+        .filter_map(|l| l.trim().parse::<i64>().ok())
         .collect();
-    // symbol_map.csv: pos → code
+    let sym_path = crate::data_paths::basic_info_path("symbol_map.csv");
     let sym =
-        std::fs::read_to_string(crate::data_paths::basic_info_path("symbol_map.csv"))?;
-    let mut map = std::collections::HashMap::new();
-    for (pos, line) in sym.lines().skip(1).enumerate() {
-        let code = line.split(',').next().unwrap_or("").trim();
-        if !code.is_empty() {
-            map.insert(code.to_string(), vals.get(pos).copied().unwrap_or(-1));
-        }
+        std::fs::read_to_string(&sym_path).map_err(|e| path_err("读取 symbol_map 失败", &sym_path, e))?;
+    let codes: Vec<String> = sym
+        .lines()
+        .skip(1)
+        .map(|l| l.split(',').next().unwrap_or("").trim().to_string())
+        .filter(|c| !c.is_empty())
+        .collect();
+    let ncols = codes.len();
+    let pos: HashMap<String, usize> = codes
+        .iter()
+        .enumerate()
+        .map(|(i, c)| (c.clone(), i))
+        .collect();
+
+    let f = hdf5_metno::File::open(&source)
+        .map_err(|e| path_err("打开行业 h5 失败", &source, std::io::Error::other(e.to_string())))?;
+    let ds = f
+        .dataset("data")
+        .map_err(|e| io_err("行业 h5 缺少 dataset data", e))?;
+    let nrows = ds.shape()[0].min(dates.len());
+
+    let mut data: Vec<i16> = Vec::with_capacity(nrows * ncols);
+    let mut r0 = 0;
+    while r0 < nrows {
+        let r1 = (r0 + BLOCK_ROWS).min(nrows);
+        let arr: ndarray::Array2<f64> = ds
+            .read_slice_2d(s![r0..r1, 0..ncols])
+            .map_err(|e| io_err("行业 h5 分块读取失败", e))?;
+        data.extend(arr.iter().map(|&v| if v.is_nan() { -1i16 } else { v as i16 }));
+        r0 = r1;
     }
-    Ok(map)
+    Ok(IndustryTable {
+        source,
+        dates,
+        ncols,
+        data,
+        pos,
+    })
 }
 
-pub fn write_industry_bin(path: &Path, inds: &[i16]) -> std::io::Result<()> {
-    let mut f = std::fs::File::create(path)?;
-    f.write_all(&(inds.len() as u64).to_le_bytes())?;
-    for &v in inds {
-        f.write_all(&v.to_le_bytes())?;
+/// 进程内缓存的行业表：首次调用读盘，之后直接复用；vars_root 变化时重读。
+pub fn table() -> std::io::Result<Arc<IndustryTable>> {
+    let want = crate::data_paths::vars_path(INDUSTRY_H5);
+    if let Some(t) = TABLE.read().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        if t.source == want {
+            return Ok(Arc::clone(t));
+        }
     }
-    Ok(())
+    let fresh = Arc::new(load_table()?);
+    *TABLE.write().unwrap_or_else(|e| e.into_inner()) = Some(Arc::clone(&fresh));
+    Ok(fresh)
+}
+
+/// 指定日期、指定股票列表的行业号（-1 = 未知）。
+pub fn industry_of(date: i64, codes: &[String]) -> std::io::Result<Vec<i16>> {
+    let t = table()?;
+    Ok(codes.iter().map(|c| t.ind_of(date, c)).collect())
 }

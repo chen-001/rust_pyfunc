@@ -29,7 +29,9 @@
 //!
 //! 批量任务: 20150105..20260717 共 2801 天, 8 worker×50 线程, ~10h;
 //! store: /hdd/user_home_unsafe/chenzongwei/factor_store_yupei_dist（~310GB）
-//! 行业: /hdd/user_home_unsafe/chenzongwei/yupei_dist_backup/{date}/industry.bin（2803 天已提取）
+//! 行业: {vars_root}/SzBa/industry.h5 直读（vars_root 由 pipeline 参数 vars_root /
+//! 环境变量 RUST_PYFUNC_VARS_DIR 指定, 默认 /ssd_data/data/vars）; 每进程只读一次,
+//! 不再依赖逐日预提取的 industry.bin
 
 pub mod compute;
 pub mod indicator_ctx;

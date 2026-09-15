@@ -15,9 +15,10 @@
 //!   {data_root}/calendar_map.csv、{data_root}/symbol_map.csv
 //!   ```
 //!
-//! 少量横截面因子额外读取的行业 / 基础信息**不在 data_root 下**，由各自的环境变量指定
+//! 少量横截面因子额外读取的行业 / 基础信息**不在 data_root 下**，由各自的根目录参数指定
 //! （默认值即生产路径，与 data_root 互不影响）：
-//!   - `RUST_PYFUNC_VARS_DIR`（默认 `/ssd_data/data/vars`）→ `SzBa/industry.h5` 等
+//!   - 行业 / 日频变量根 `vars_root`（pipeline 参数）→ `{vars_root}/SzBa/industry.h5`
+//!   - `RUST_PYFUNC_VARS_DIR`（默认 `/ssd_data/data/vars`）→ 同上，worker 透传通道
 //!   - `RUST_PYFUNC_BASIC_INFO_DIR`（默认 `/ssd_data/data/basic_info`）→ `symbol_map.csv`
 //!
 //! 优先级（高 → 低）：
@@ -58,20 +59,23 @@ pub const ENV_BASIC_INFO_DIR: &str = "RUST_PYFUNC_BASIC_INFO_DIR";
 /// 无显式覆盖时的 Level2 二级回退目录（历史行为）。
 const FALLBACK_LEVEL2_ROOT: &str = "/nas197/binary/stock/sz_alpha/stock";
 
-/// 覆盖的种类：Level2 与分钟各自独立，互不干扰。
+/// 覆盖的种类：Level2 / 分钟 / 行业变量各自独立，互不干扰。
 #[derive(Clone, Copy)]
 pub enum DataKind {
     Level2,
     Minute,
+    Vars,
 }
 
 static LEVEL2_OVERRIDE: RwLock<Option<PathBuf>> = RwLock::new(None);
 static MINUTE_OVERRIDE: RwLock<Option<PathBuf>> = RwLock::new(None);
+static VARS_OVERRIDE: RwLock<Option<PathBuf>> = RwLock::new(None);
 
 fn lock_of(kind: DataKind) -> &'static RwLock<Option<PathBuf>> {
     match kind {
         DataKind::Level2 => &LEVEL2_OVERRIDE,
         DataKind::Minute => &MINUTE_OVERRIDE,
+        DataKind::Vars => &VARS_OVERRIDE,
     }
 }
 
@@ -97,6 +101,11 @@ pub fn set_level2_root(root: Option<&str>) -> DataRootGuard {
 /// 设置进程内分钟数据目录覆盖；返回的 guard 在 drop 时还原。
 pub fn set_minute_root(root: Option<&str>) -> DataRootGuard {
     set_root(DataKind::Minute, root)
+}
+
+/// 设置进程内行业 / 日频变量目录覆盖；返回的 guard 在 drop 时还原。
+pub fn set_vars_root(root: Option<&str>) -> DataRootGuard {
+    set_root(DataKind::Vars, root)
 }
 
 fn set_root(kind: DataKind, root: Option<&str>) -> DataRootGuard {
@@ -129,6 +138,11 @@ pub fn override_level2() -> Option<PathBuf> {
 /// 当前进程的分钟覆盖值（spawn worker 时用它透传环境变量）。
 pub fn override_minute() -> Option<PathBuf> {
     read_override(DataKind::Minute)
+}
+
+/// 当前进程的行业变量目录覆盖值（spawn worker 时用它透传环境变量）。
+pub fn override_vars() -> Option<PathBuf> {
+    read_override(DataKind::Vars)
 }
 
 /// 生效的 Level2 数据目录：参数 > RUST_PYFUNC_LEVEL2_ROOT > 旧变量 > 默认。
@@ -181,11 +195,16 @@ pub fn minute_file(name: &str) -> PathBuf {
     minute_root().join(name)
 }
 
-/// `{RUST_PYFUNC_VARS_DIR}/{rel}`，默认 `{DEFAULT_VARS_DIR}/{rel}`。
-pub fn vars_path(rel: &str) -> PathBuf {
-    env_path(ENV_VARS_DIR)
+/// 生效的行业 / 日频变量目录：参数 > RUST_PYFUNC_VARS_DIR > 默认。
+pub fn vars_root() -> PathBuf {
+    override_vars()
+        .or_else(|| env_path(ENV_VARS_DIR))
         .unwrap_or_else(|| PathBuf::from(DEFAULT_VARS_DIR))
-        .join(rel)
+}
+
+/// `{vars_root}/{rel}`，默认 `{DEFAULT_VARS_DIR}/{rel}`。
+pub fn vars_path(rel: &str) -> PathBuf {
+    vars_root().join(rel)
 }
 
 /// `{RUST_PYFUNC_BASIC_INFO_DIR}/{rel}`，默认 `{DEFAULT_BASIC_INFO_DIR}/{rel}`。
@@ -217,4 +236,15 @@ pub fn describe_minute() -> String {
         return format!("{}（环境变量 {ENV_MINUTE_ROOT}）", p.display());
     }
     format!("{DEFAULT_MINUTE_ROOT}（默认）")
+}
+
+/// 可读的当前生效行业 / 日频变量目录（pipeline 入口打印用）。
+pub fn describe_vars() -> String {
+    if let Some(p) = override_vars() {
+        return format!("{}（pipeline 参数 vars_root 覆盖）", p.display());
+    }
+    if let Some(p) = env_path(ENV_VARS_DIR) {
+        return format!("{}（环境变量 {ENV_VARS_DIR}）", p.display());
+    }
+    format!("{DEFAULT_VARS_DIR}（默认）")
 }

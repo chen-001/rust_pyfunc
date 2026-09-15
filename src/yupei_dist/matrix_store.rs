@@ -194,7 +194,7 @@ pub fn read_factors(dir: &Path) -> std::io::Result<(Vec<String>, Vec<String>, Ve
 // ---------------------------------------------------------------------------
 
 /// 从备份目录加载一个日期的完整数据为内存 MatrixSet（供 IndicatorCtx 使用）。
-/// industry.bin 按全市场 symbol_map 顺序存储: 读入后按 codes 重排（缺失 -1）。
+/// 行业与备份目录无关：统一从源头 h5（{vars_root}/SzBa/industry.h5）按日期取。
 pub fn load_backup_set(outdir: &str, date: i64, load_mats: bool) -> std::io::Result<MatrixSet> {
     let d = Path::new(outdir).join(date.to_string());
     let codes = read_codes(&d)?;
@@ -209,13 +209,8 @@ pub fn load_backup_set(outdir: &str, date: i64, load_mats: bool) -> std::io::Res
         }
     }
     let n = codes.len();
-    let industry: Option<Vec<i16>> = industry::load_industry_all(&d.join("industry.bin"))
-        .ok()
-        .map(|all: HashMap<String, i16>| {
-            codes.iter().map(|c| all.get(c).copied().unwrap_or(-1)).collect()
-        })
-        .filter(|v: &Vec<i16>| v.len() == n);
-    let _ = date; // MatrixSet 无日期字段; 日期由目录结构承载
+    // 行业与矩阵备份无关, 统一从源头 h5 取（进程内只读一次）
+    let industry: Option<Vec<i16>> = Some(industry::industry_of(date, &codes)?);
     Ok(MatrixSet { n, codes, stats, mats, industry })
 }
 

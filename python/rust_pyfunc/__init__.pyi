@@ -266,15 +266,20 @@ def run_factor_pipeline_cross_section(
     store_factor_names: Optional[List[str]] = None,
     force_clear: Optional[bool] = None,
     data_root: Optional[str] = None,
+    vars_root: Optional[str] = None,
     incremental_projection: Optional[bool] = None,
 ) -> None:
     """横截面（一天全市场）因子批量计算入口。
 
     data_root: Level2 数据目录（默认 "/ssd_data/stock"），即直接包含各日期文件夹的目录：
       按 {data_root}/{date}/{subdir}/ 枚举与读取全市场数据。
-      少数因子额外读取的行业/基础信息不在该目录下，用环境变量指定：
-      RUST_PYFUNC_VARS_DIR（默认 /ssd_data/data/vars）、
-      RUST_PYFUNC_BASIC_INFO_DIR（默认 /ssd_data/data/basic_info）。
+
+    vars_root: 行业 / 日频变量目录（默认 "/ssd_data/data/vars"）。
+      `{vars_root}/SzBa/industry.h5` 是行业分类的唯一源头，`{vars_root}/SzBa/calendar_map.csv`
+      给出它的行轴日期。优先级：vars_root 参数 > 环境变量 RUST_PYFUNC_VARS_DIR > 默认值；
+      路径写错直接报错，不会静默读到别的数据。行业表在每个 worker 进程内只读一次，
+      之后所有日期共用内存里的表。少数因子额外读取的基础信息仍由
+      RUST_PYFUNC_BASIC_INFO_DIR（默认 /ssd_data/data/basic_info）指定。
 
     update_mode: True = 断点续算（跳过 _completed_dates 里已完成的日期，只算缺失日期）。
       None/False = 全量重跑：store 非空且未传 force_clear=True 会直接报错（拒绝误删）。
