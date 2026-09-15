@@ -965,13 +965,10 @@ impl FactorStoreWriter {
         //   重置投影标志、回写 header），收尾时整片重投影。
         // 背景：每日增量更新（update_mode=True 对已投影 store 追加新日期）依赖此行为；
         // 若调用方忘记重投影，is_projected()=false 会迫使回测走在线转置（慢），不会静默错读。
+        // 增量模式下这里不再打印提示：append_batch 每批每分片都会被调用，逐次打印会淹没日志；
+        // 入口层（factor_pipeline 的 run_factor_pipeline / _v6 / _cross_section）已各打印一次。
         if self.projected_offset > 0 {
-            if self.incremental {
-                eprintln!(
-                    "📎 增量投影模式：保留已有投影（base + delta），新行待收尾时增量投影: {}",
-                    self.store_dir.display()
-                );
-            } else {
+            if !self.incremental {
                 remove_projection_files(&self.store_dir)?;
                 self.projected_offset = 0;
                 self.proj_format_version = 0;
