@@ -1078,19 +1078,7 @@ pub fn anneal(true_vol: &[f32], m_max: usize, buf: &mut AnnealBuf) -> [f32; N_FA
 
 /// 核心：pipeline 和 Python 的唯一共同调用点。
 pub fn compute_anneal_volume_full(code: &str, date: i64) -> std::io::Result<Vec<f32>> {
-    use std::time::Instant;
-    let t_total = Instant::now();
-
-    let t_read = Instant::now();
     let trades = read_trade_fast_inner(code, date, false, true, usize::MAX)?;
-    let t_read_elapsed = t_read.elapsed();
-    eprintln!(
-        "[prof] {} {} read_data: {:?}  n_trades={}",
-        code,
-        date,
-        t_read_elapsed,
-        trades.len()
-    );
 
     if trades.is_empty() {
         return Ok(vec![f32::NAN; EXPECTED_LEN]);
@@ -1099,7 +1087,6 @@ pub fn compute_anneal_volume_full(code: &str, date: i64) -> std::io::Result<Vec<
     let t_open = trades.first().unwrap().time_sec;
 
     // 6 个宏观窗口聚合（缓存）
-    let t_win = Instant::now();
     let win_aggs: Vec<(FxHashMap<i64, AggOrder>, FxHashMap<i64, AggOrder>)> = WINDOW_BOUNDS
         .iter()
         .map(|&(sec_lo, sec_hi)| {
@@ -1110,15 +1097,8 @@ pub fn compute_anneal_volume_full(code: &str, date: i64) -> std::io::Result<Vec<
             aggregate_orders(&trades[lo..hi])
         })
         .collect();
-    eprintln!(
-        "[prof] {} {} 6_window_agg: {:?}",
-        code,
-        date,
-        t_win.elapsed()
-    );
 
     // 65 个标量片段
-    let t_scalar = Instant::now();
     let segs = segment_defs();
     let mut buf = AnnealBuf::new();
     let mut out: Vec<f32> = Vec::with_capacity(EXPECTED_LEN);
@@ -1153,19 +1133,11 @@ pub fn compute_anneal_volume_full(code: &str, date: i64) -> std::io::Result<Vec<
         let factors = anneal(&filtered, m_adapt, &mut buf);
         out.extend_from_slice(&factors);
     }
-    eprintln!(
-        "[prof] {} {} 65_scalar: {:?}",
-        code,
-        date,
-        t_scalar.elapsed()
-    );
 
     // 逐分钟矩阵 237 × 75
-    let t_minute = Instant::now();
     let minute_col_names = build_minute_col_names();
     let mut matrix = Array2::zeros((N_MINUTES, N_MINUTE_COLS));
 
-    let mut n_nonempty = 0usize;
     for m_idx in 0..N_MINUTES {
         let lo_time = t_open + (m_idx as f32) * 60.0;
         let hi_time = t_open + ((m_idx + 1) as f32) * 60.0;
@@ -1175,7 +1147,6 @@ pub fn compute_anneal_volume_full(code: &str, date: i64) -> std::io::Result<Vec<
         if lo >= hi {
             continue;
         }
-        n_nonempty += 1;
 
         let (bid_map, ask_map) = aggregate_orders(&trades[lo..hi]);
 
@@ -1190,24 +1161,10 @@ pub fn compute_anneal_volume_full(code: &str, date: i64) -> std::io::Result<Vec<
             }
         }
     }
-    eprintln!(
-        "[prof] {} {} 237_minute: {:?}  n_nonempty={}",
-        code,
-        date,
-        t_minute.elapsed(),
-        n_nonempty
-    );
 
     // 降维
-    let t_reduce = Instant::now();
     let (reduced_vals, _) =
         features::get_features_factors_rust_full(&matrix.view(), &minute_col_names, false);
-    eprintln!(
-        "[prof] {} {} dim_reduce: {:?}",
-        code,
-        date,
-        t_reduce.elapsed()
-    );
     out.extend_from_slice(&reduced_vals);
 
     // 长度校准
@@ -1216,8 +1173,6 @@ pub fn compute_anneal_volume_full(code: &str, date: i64) -> std::io::Result<Vec<
     } else if out.len() > EXPECTED_LEN {
         out.truncate(EXPECTED_LEN);
     }
-
-    eprintln!("[prof] {} {} TOTAL: {:?}", code, date, t_total.elapsed());
 
     Ok(out)
 }
