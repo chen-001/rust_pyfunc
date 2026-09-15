@@ -118,7 +118,7 @@ fn fallocate_proj(file: &mut File, len: u64) {
 // - 每次写 delta 时都把「最新 delta 的全部行」+「新 chunk 的行」合并成一份新 delta
 //   （新 delta 是旧 delta 的超集），写完 rename 落盘后才删旧 delta；
 // - 收集新行的起点 = max(header.projected_offset, 最新 delta 的 end_offset)，
-//   因此即使 header 水位没来得及更新（崩溃），也不会把同一批 chunk 重复投影。
+//   因此即使 header 已投影到的位置没来得及更新（崩溃），也不会把同一批 chunk 重复投影。
 //
 // 完整性判定：colblk 的 `file_len == projected_offset` ⟺ 所有 chunk 都已被
 // base+delta 覆盖（投影结束会 set_len 截断到 chunk 区末尾）。不等时读取端回退到
@@ -853,7 +853,7 @@ impl FactorStoreWriter {
             .len();
         // chunk 扫描上界：
         // - 有 factors.proj（v3 布局：投影在独立文件，colblk 内只有 chunk + fallocate 零尾）
-        //   → 扫到文件末尾；增量投影下 chunk 区会超过 projected_offset 水位，必须扫全。
+        //   → 扫到文件末尾；增量投影下 chunk 区会超过 projected_offset，必须扫全。
         // - 无 factors.proj 且 projected_offset>0 → 旧格式投影残留在 colblk 内，只扫到投影起点。
         // - 未投影 → 扫到文件末尾。
         let has_proj_file = store_dir.join("factors.proj").exists();
@@ -959,7 +959,7 @@ impl FactorStoreWriter {
         }
 
         // 已投影后允许追加，两种模式：
-        // - 增量投影（incremental=true）：保留 base + delta 投影不删，水位（projected_offset）
+        // - 增量投影（incremental=true）：保留 base + delta 投影不删，已投影到的位置（projected_offset）
         //   也不动；新 chunk 追加在 chunk 区尾部，收尾时由 project_incremental 只投影这些新行。
         // - 全量投影（incremental=false，旧行为）：自动降级为未投影（删 base + 全部 delta、
         //   重置投影标志、回写 header），收尾时整片重投影。
@@ -1076,7 +1076,7 @@ impl FactorStoreWriter {
                 self.chunk_count,
                 self.dict.dates.len() as u32,
                 self.dict.codes.len() as u32,
-                // 增量投影模式下 projected_offset 是"已投影水位"，追加期必须保留（不能清零）
+                // 增量投影模式下 projected_offset 就是已投影到的位置，追加期必须保留（不能清零）
                 self.projected_offset,
                 self.proj_format_version,
             )?;
@@ -1327,9 +1327,9 @@ impl FactorStoreWriter {
             return Ok(());
         }
 
-        // 已是新格式投影（独立 factors.proj 存在）且水位覆盖全部 chunk → 幂等返回。
+        // 已是新格式投影（独立 factors.proj 存在）且已投影到的位置覆盖全部 chunk → 幂等返回。
         // 旧格式投影残留在 colblk 内（projected_offset>0 但无 factors.proj）不算已投影，需重投影。
-        // 水位未覆盖全部 chunk（增量追加后中断/未投影）时也必须走全量重投影把它修好，
+        // 已投影到的位置未覆盖全部 chunk（增量追加后中断/未投影）时也必须走全量重投影把它修好，
         // 否则 store 会永远停在"未完整投影"状态。
         if self.store_dir.join("factors.proj").exists()
             && self.projected_offset > 0
@@ -1377,7 +1377,7 @@ impl FactorStoreWriter {
 
         // ---- 步骤⑦：更新 colblk header（projected_offset=chunk 区末尾作已投影标志 + proj_format_version）+ idx ----
         // 投影数据在独立 factors.proj；colblk 的 projected_offset 记 chunk 区末尾，既作 is_projected()
-        // 标志（>0），又作增量投影的"已投影水位"。
+        // 标志（>0），又作增量投影的"已投影到的位置"。
         self.projected_offset = chunk_area_end;
         self.proj_format_version = PROJ_FORMAT_VERSION;
         write_colblk_header_fields(
@@ -1396,7 +1396,7 @@ impl FactorStoreWriter {
     }
 
     /// chunk 区末尾偏移（最后一个 chunk 的 data 末尾；无 chunk = header 末尾）。
-    /// 等价于"全部 chunk 都投影后的 projected_offset 水位"。
+    /// 等价于"全部 chunk 都投影后的 projected_offset"。
     fn chunk_area_end(&self) -> u64 {
         let body = (ID_BYTES * 2 + self.factor_count * F32_BYTES) as u64;
         self.chunk_index
@@ -1413,7 +1413,7 @@ impl FactorStoreWriter {
     }
 
     /// 把 chunk 头偏移落在 [start, end) 的 chunk 的行追加到缓冲区（行序 + 每因子值列）。
-    /// 全量投影用 [0, u64::MAX)；增量投影用 [水位, chunk_area_end)。
+    /// 全量投影用 [0, u64::MAX)；增量投影用 [已投影到的位置, chunk_area_end)。
     fn read_chunks_into(
         &self,
         start: u64,
@@ -1503,8 +1503,8 @@ impl FactorStoreWriter {
     /// 增量投影：把"尚未投影的新行"写成 `factors.proj.delta.<chunk_area_end>`，base 文件不动。
     ///
     /// 新 delta = 最新 delta 的全部行（它是旧 delta 的超集，天然去重）+ chunk 区
-    /// [起点, chunk_area_end) 的新行；起点 = max(header 水位, 最新 delta 的 end_offset)，
-    /// 因此 header 水位没来得及更新（崩溃）也不会重复投影同一批 chunk。
+    /// [起点, chunk_area_end) 的新行；起点 = max(header 已投影到的位置, 最新 delta 的 end_offset)，
+    /// 因此 header 已投影到的位置没来得及更新（崩溃）也不会重复投影同一批 chunk。
     /// 返回本次新增（不含从旧 delta 继承）的行数。
     fn project_incremental(&mut self, chunk_area_end: u64) -> Result<usize, String> {
         let deltas = list_delta_files(&self.store_dir);
@@ -1562,7 +1562,7 @@ impl FactorStoreWriter {
             }
         }
 
-        // ⑤ 水位前移 + 截断到 chunk 区末尾（维持 file_len == projected_offset 的完整性判据）
+        // ⑤ 已投影到的位置前移 + 截断到 chunk 区末尾（维持 file_len == projected_offset 的完整性判据）
         self.projected_offset = chunk_area_end;
         self.proj_format_version = PROJ_FORMAT_VERSION;
         self.colblk_file
@@ -1769,7 +1769,7 @@ impl SingleStoreReader {
 
     /// 返回已投影状态：base/delta 存在，且 colblk 里没有"尚未投影的 chunk"。
     /// 完整性判据 `file_len == projected_offset`：投影结束会把 colblk 截断到 chunk 区末尾；
-    /// 追加新 chunk（增量模式）后 file_len 会超过水位 → 判为未完整投影，读取端回退 chunk 扫描，
+    /// 追加新 chunk（增量模式）后 file_len 会超过已投影到的位置 → 判为未完整投影，读取端回退 chunk 扫描，
     /// 绝不静默漏掉新行。
     /// 例外：空分片（record_count=0）没有 chunk 可投影，旧代码不截断 fallocate 预留尾
     /// （file_len 可能是 2GB），故按 record_count 直接判定为已投影。
@@ -2104,7 +2104,7 @@ impl SingleStoreReader {
     ) {
         let mut offset = COLBLK_HEADER_SIZE as u64;
         // colblk 内只有 chunk（v3 起投影写在独立文件）→ 扫到文件末尾；
-        // 增量投影下 chunk 区会超过 projected_offset 水位，必须扫全（否则漏新行）。
+        // 增量投影下 chunk 区会超过 projected_offset，必须扫全（否则漏新行）。
         let scan_end = self.file_len;
         while offset + 8 <= scan_end {
             let chunk_hdr = match self.pread(offset, 8) {
@@ -3140,7 +3140,7 @@ pub fn factor_store_v5_project_v7(store_dir: String, n_jobs: usize) -> PyResult<
 /// 适用场景：store 已投影，之后又追加了若干天的新 chunk（例如把因子区间从 2016-2025
 /// 扩到 2015-2026），只想把"新行"投影出来，而不想整片重投影（全量投影的 I/O ≈ 2× store 体积）。
 ///
-/// 行为：每个分片只读"水位之后的 chunk"，写成 `factors.proj.delta.<end>`；`factors.proj`
+/// 行为：每个分片只读"已投影到的位置之后的 chunk"，写成 `factors.proj.delta.<end>`；`factors.proj`
 /// 一个字节都不动。读取端（回测/导出）自动按 base → delta 顺序拼接，无需改调用方。
 /// 无新行时是幂等的空操作。
 #[pyfunction]
