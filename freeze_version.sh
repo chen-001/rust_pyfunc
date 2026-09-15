@@ -107,10 +107,17 @@ sed -i 's/^from rust_pyfunc\.rust_pyfunc import/from .rust_pyfunc import/' treev
 echo "[patch] pandas_corrwith.py ..."
 sed -i 's/^from rust_pyfunc\.rust_pyfunc import/from .rust_pyfunc import/' pandas_corrwith.py
 
+# factor_io_simple.py 里的几个读函数用了 import rust_pyfunc as rp（绝对导入）。
+# 不改成相对导入的话，版本化包里会去 import 顶层那个 rust_pyfunc——别人机器上只装了
+# 这个冻结 wheel 时会 ModuleNotFoundError，装了开发版又会用错版本。
+echo "[patch] factor_io_simple.py ..."
+sed -i 's/^    import rust_pyfunc as rp$/    from . import rust_pyfunc as rp/' factor_io_simple.py
+
 # 确认修补结果
 echo ""
 echo "修补后的导入语句："
 grep -n '^from \.rust_pyfunc import' __init__.py rolling_future.py rolling_past.py treevisual.py pandas_corrwith.py 2>/dev/null || true
+grep -n 'from \. import rust_pyfunc as rp' factor_io_simple.py 2>/dev/null || true
 echo ""
 
 # ── 5. 复制 Rust 源码 + 辅助文件 ────────────────────────────────
@@ -143,6 +150,10 @@ cat "$TMPDIR/pyproject.toml"
 echo ""
 
 # ── 7. 构建 wheel ─────────────────────────────────────────────
+# 构建走 release-fast profile（Cargo.toml 里 lto=false、codegen-units=256），
+# 避开 [profile.release] 的 fat LTO——fat LTO 是单核跑 codegen，一次十分钟量级。
+# 链接器换成 mold（和 alter.sh 一致）。运行性能和 release 基本一样。
+MOLD_BIN="/home/chenzongwei/.local/bin/mold"
 
 build_for_python() {
     local python_bin="$1"
@@ -151,7 +162,7 @@ build_for_python() {
 
     cd "$TMPDIR"
 
-    local opts="--release --interpreter $python_bin"
+    local opts="--profile release-fast --interpreter $python_bin"
     if [ -n "$compat" ]; then
         opts="$opts --compatibility $compat --no-default-features"
     fi
@@ -161,14 +172,21 @@ build_for_python() {
     echo "选项: maturin build $opts"
     echo ""
 
-    # 需要 zig 做交叉链接
     if [ -n "$compat" ]; then
+        # --manylinux* 分支：交叉链接由 cargo-zigbuild 调 zig 完成，这条分支不叠 mold。
+        # 原因：mold -run 是用 LD_PRELOAD 拦截所有子进程的 ld，zig 自己带的链接器
+        # 会被一起换掉，目标 glibc 版本（2.31）就失效了。
         # 用 cargo-zigbuild 替代 cargo —— 自动用 zig 编译和链接，
         # 产生目标 glibc 版本的二进制
         export PATH="${ZIG_DIR}/bin:$PATH"  # 内有 cargo 包装器（含 CARGO/CARGO_BUILD_TARGET 设置）
-        echo "  [zig] 通过 cargo-zigbuild 构建 (glibc 2.31)"
+        echo "  [zig] 通过 cargo-zigbuild 构建 (glibc 2.31)，不使用 mold"
+        CARGO_TARGET_DIR="${PROJECT_DIR}/target" maturin build $opts 2>&1
+    else
+        # mold -run：mold 通过 LD_PRELOAD 接管 cargo/rustc 子进程里的 ld
+        export PATH="/home/chenzongwei/.local/bin:$PATH"
+        echo "  [mold] 链接器使用 mold"
+        CARGO_TARGET_DIR="${PROJECT_DIR}/target" "${MOLD_BIN}" -run maturin build $opts 2>&1
     fi
-    CARGO_TARGET_DIR="${PROJECT_DIR}/target" maturin build $opts 2>&1
 
     echo ""
     echo "[$label] 构建完成"
