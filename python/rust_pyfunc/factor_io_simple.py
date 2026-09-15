@@ -1,25 +1,117 @@
-"""dwo 因子 IO/衍生 简化版 —— 不依赖 szalpha 研究框架，纯 pandas + parquet。
+"""dwo 因子 IO/衍生 简化版 —— 不依赖 szalpha 研究框架，纯 pandas + h5py。
 
 替代 design_whatever_out 的 save_factor / read_factor / get_abs / base_to_final，
 供 _okay.py 实盘每日更新文件使用（rp.save_factor / rp.read_factor / rp.get_abs / rp.base_to_final）。
 
-存储约定：因子统一存 parquet（列 = ['date'(int YYYYMMDD), 股票1, 股票2, ...]）。
-szalpha 的 FactorReader.read_date_data 优先读 {name}.parquet，因此本模块的产物
-可被既有 szalpha 生态直接读取；反过来本模块不读 h5（历史 h5 数据请先用 dwo 读出再转存）。
+存储约定：与 szalpha FactorWriter/FactorReader 的 h5 目录逐项一致，
+{hdf5_dir_here}/{factor_version}/ 下：
+    symbol_map.csv    股票列表（symbol,pos），从 basic_info 复制
+    calendar_map.csv  交易日列表（date_min），从 basic_info/calendar.csv 复制
+    capacity.csv      容量（name,count：symbol_capacity / date_capacity）
+    fields.csv        该版本已写入的因子名（name）
+    {name}.h5         dataset "data"，float64，shape=(date_capacity, symbol_capacity)，
+                      行 = 交易日在日历里的位置，列 = symbol_map 的顺序，没写过的位置是空值
+所以 dwo / szalpha 的读取端能直接读本模块写的文件，反过来也一样，不需要 szalpha。
 
 与 design_whatever_out 的行为对齐点：
-- save_factor：日期窗口 [start_date, end_date] 过滤后落盘；index 统一转 int 日期
-- read_factor：返回 index=date(int) / columns=股票 的 DataFrame，按窗口过滤
+- save_factor：只写 [next_trading_day_tricky(start_date), last_trading_day_tricky(end_date)]
+  这一段交易日，按日历位置整块写；块内缺失的日期写空值；列按 symbol_map 顺序对齐；
+  输入是 DatetimeIndex 时先转成 int 日期
+- read_factor：起始行 = start_date 往前多算 look_back_window-1 个交易日（默认就是 start_date
+  当天），早于 20150105 的截到 20150105（对齐 szalpha 的 largest_hf_start_date）
 - get_abs：每行（截面）减行均值取绝对值（square/quantile 分支一致）
 - base_to_final：{base}_{action}_smooth_{days} 命名解析 + rank(axis=1) + 滚动算子，
   回看 start_date 前 60 个交易日；smooth_1 直接输出 rank（含 dwo 的 endswith('1') 语义）
 """
 import os
 
+os.environ.setdefault("HDF5_USE_FILE_LOCKING", "FALSE")
+
+import shutil
+
+import h5py
 import numpy as np
 import pandas as pd
 
-from .trading_day import last_n_trading_date
+from .trading_day import (
+    _get_td,
+    _resolve_calendar_path,
+    last_n_trading_date,
+    last_trading_day_tricky,
+    next_trading_day_tricky,
+)
+
+HF_START_DATE = 20150105  # szalpha CalculatorBase.largest_hf_start_date
+
+
+def _read_symbols(data_dir: str) -> list:
+    """版本目录里的股票列表（symbol_map.csv 的 symbol 列，顺序即 h5 的列顺序）。"""
+    df = pd.read_csv(os.path.join(data_dir, "symbol_map.csv"), dtype={"symbol": str})
+    return df["symbol"].tolist()
+
+
+def _read_calendar(data_dir: str) -> tuple:
+    """版本目录里的交易日列表 + 日期到行号的映射。"""
+    dates = pd.read_csv(os.path.join(data_dir, "calendar_map.csv"), dtype=np.int64)["date_min"].to_numpy()
+    return dates, dict(zip(dates.tolist(), range(len(dates))))
+
+
+def _read_capacity(data_dir: str) -> tuple:
+    """版本目录里的 (日期容量, 股票容量)。"""
+    df = pd.read_csv(os.path.join(data_dir, "capacity.csv"), index_col="name")
+    return int(df.at["date_capacity", "count"]), int(df.at["symbol_capacity", "count"])
+
+
+def _ensure_version_dir(data_dir: str, name: str) -> str:
+    """按 szalpha 的 h5 目录约定补齐配置文件和 {name}.h5，返回 h5 路径。"""
+    os.makedirs(data_dir, exist_ok=True)
+
+    symbol_file = os.path.join(data_dir, "symbol_map.csv")
+    if not os.path.exists(symbol_file):
+        shutil.copyfile(_resolve_calendar_path("symbol_map.csv"), symbol_file)
+
+    calendar_file = os.path.join(data_dir, "calendar_map.csv")
+    if not os.path.exists(calendar_file):
+        pd.read_csv(_resolve_calendar_path("calendar.csv"), header=None, names=["date_min"]).to_csv(
+            calendar_file, index=False
+        )
+
+    capacity_file = os.path.join(data_dir, "capacity.csv")
+    if not os.path.exists(capacity_file):
+        cfg = pd.read_csv(_resolve_calendar_path("capacity_config.csv"))
+        pd.DataFrame(
+            {
+                "name": ["symbol_capacity", "date_capacity"],
+                "count": [cfg["symbol_capacity"][0], cfg["date_capacity"][0]],
+            }
+        ).to_csv(capacity_file, index=False)
+
+    fields_file = os.path.join(data_dir, "fields.csv")
+    names = pd.read_csv(fields_file)["name"].tolist() if os.path.exists(fields_file) else []
+    if name not in names:
+        pd.DataFrame({"name": names + [name]}).to_csv(fields_file, index=False)
+
+    h5_file = os.path.join(data_dir, f"{name}.h5")
+    if not os.path.exists(h5_file):
+        date_capacity, symbol_capacity = _read_capacity(data_dir)
+        with h5py.File(h5_file, "w") as f:
+            f.create_dataset(
+                "data",
+                shape=(date_capacity, symbol_capacity),
+                dtype=np.float64,
+                maxshape=(date_capacity, None),
+                chunks=True,
+                fillvalue=np.nan,
+            )
+    return h5_file
+
+
+def _refresh_calendar(data_dir: str) -> None:
+    """日历变长时补齐版本目录里的 calendar_map.csv（对齐 szalpha 的 update_latest_calendar）。"""
+    path = os.path.join(data_dir, "calendar_map.csv")
+    dates = _get_td().trading_days
+    if not os.path.exists(path) or len(pd.read_csv(path, dtype=np.int64)) < len(dates):
+        pd.DataFrame({"date_min": dates}).to_csv(path, index=False)
 
 
 def _index_to_int(index: pd.Index) -> pd.Index:
@@ -38,18 +130,23 @@ def save_factor(
     look_back_window: int = 1,
     hdf5_dir_here: str = None,
 ) -> None:
-    """写因子 parquet：date 列（int YYYYMMDD）+ 股票列，仅保留 [start_date, end_date] 窗口。
+    """写因子 h5：只写 [start_date, end_date] 之间的交易日，行列按版本目录的日历和股票表对齐。
 
-    等价于 dwo.save_factor 的窗口过滤 + 落盘；目录 {hdf5_dir_here}/{factor_version}/ 自动创建。
+    目录 {hdf5_dir_here}/{factor_version}/ 不存在时自动建好配置文件和 {name}.h5。
+    look_back_window 只对读取端有意义，写入端和 dwo 一样忽略它。
     """
-    out_dir = os.path.join(hdf5_dir_here, factor_version)
-    os.makedirs(out_dir, exist_ok=True)
-    df = factor_df[(factor_df.index >= start_date) & (factor_df.index <= end_date)]
-    out = df.copy()
-    out.index = _index_to_int(out.index)
-    out = out.reset_index()
-    out = out.rename(columns={out.columns[0]: "date"})
-    out.to_parquet(os.path.join(out_dir, f"{name}.parquet"), index=False)
+    data_dir = os.path.join(hdf5_dir_here, factor_version)
+    h5_file = _ensure_version_dir(data_dir, name)
+    _refresh_calendar(data_dir)
+    dates, date_pos = _read_calendar(data_dir)
+    symbols = _read_symbols(data_dir)
+    start_pos = date_pos[next_trading_day_tricky(start_date)]
+    end_pos = date_pos[last_trading_day_tricky(end_date)] + 1
+    block = factor_df.set_axis(_index_to_int(factor_df.index), axis=0).reindex(
+        index=dates[start_pos:end_pos], columns=symbols
+    )
+    with h5py.File(h5_file, "r+") as f:
+        f["data"][start_pos:end_pos, : len(symbols)] = block.to_numpy(np.float64)
 
 
 def read_factor(
@@ -60,14 +157,20 @@ def read_factor(
     look_back_window: int = 1,
     hdf5_dir_here: str = None,
 ) -> pd.DataFrame:
-    """读因子 parquet，返回 index=date(int) / columns=股票 的 DataFrame，按日期窗口过滤。
+    """读因子 h5，返回 index=交易日(int) / columns=股票 的 DataFrame。
 
-    与 szalpha FactorReader.read_date_data 的 parquet 分支逐行等价。
+    起始行是 start_date 往前 look_back_window-1 个交易日，早于 20150105 的截到 20150105。
     """
-    df = pd.read_parquet(os.path.join(hdf5_dir_here, factor_version, f"{name}.parquet"))
-    if "date" in df.columns:
-        df = df.set_index("date")
-    return df[(df.index >= start_date) & (df.index <= end_date)]
+    data_dir = os.path.join(hdf5_dir_here, factor_version)
+    dates, date_pos = _read_calendar(data_dir)
+    symbols = _read_symbols(data_dir)
+    start_pos = max(date_pos[next_trading_day_tricky(start_date)] - look_back_window + 1, 0)
+    if dates[start_pos] < HF_START_DATE:
+        start_pos = date_pos[HF_START_DATE]
+    end_pos = date_pos[last_trading_day_tricky(end_date)] + 1
+    with h5py.File(os.path.join(data_dir, f"{name}.h5"), "r") as f:
+        data = f["data"][start_pos:end_pos, : len(symbols)]
+    return pd.DataFrame(data, index=dates[start_pos:end_pos], columns=symbols)
 
 
 def get_abs(df: pd.DataFrame, quantile: float = None, square: int = 0) -> pd.DataFrame:
