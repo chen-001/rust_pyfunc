@@ -799,9 +799,11 @@ pub fn run_factor_pipeline(
             }
             return Ok(Python::with_gil(|py| py.None()));
         } else {
-            println!(
-                "⚠️ 找不到 rust_pyfunc_worker 二进制，回退到线程模式。可用 mode=thread 显式指定。"
-            );
+            return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                "找不到 rust_pyfunc_worker 二进制（mode=multiprocess 需要它）。\
+                 请把 worker 放到 rust_pyfunc 包目录下，或用环境变量 RUST_PYFUNC_WORKER_BIN 指定；\
+                 确实想退回线程模式就显式传 mode=\"thread\"。",
+            ));
         }
     }
 
@@ -1152,35 +1154,43 @@ pub fn ipc_read_result<R: std::io::Read>(reader: &mut R) -> std::io::Result<Resu
 }
 
 /// 定位 worker 二进制路径。
-/// 搜索顺序：环境变量 RUST_PYFUNC_WORKER_BIN → Python 包目录 → cargo target 目录。
+/// 搜索顺序：环境变量 RUST_PYFUNC_WORKER_BIN → 已安装包目录（worker 与包放在同一目录）。
 fn locate_worker_binary() -> Option<String> {
-    // 1. 环境变量
     if let Ok(path) = std::env::var("RUST_PYFUNC_WORKER_BIN") {
         if std::path::Path::new(&path).exists() {
             return Some(path);
         }
     }
-    // 2. Python 包目录（alter.sh 会把 worker bin 复制到 python/rust_pyfunc/）
-    //    通过当前 .so 的路径推断包目录
-    if let Ok(so_path) = std::env::current_exe() {
-        // so_path 是 python 解释器路径，不可靠。改为搜索常见 conda/site-packages 路径
-        for prefix in &[
-            "/home/chenzongwei/.conda/envs/chenzongwei311/lib/python3.11/site-packages/rust_pyfunc",
-            "/home/chenzongwei/rust_pyfunc/python/rust_pyfunc",
-        ] {
-            let p = format!("{}/rust_pyfunc_worker", prefix);
-            if std::path::Path::new(&p).exists() {
-                return Some(p);
+    // 从 sys.modules 里取已加载的 rust_pyfunc 模块的 __file__，worker 就在它旁边
+    // （wheel 里带着 worker，所以装到哪台机器上都能找到）。
+    Python::with_gil(|py| {
+        let modules = py.import("sys").ok()?.getattr("modules").ok()?;
+        let dict = modules.downcast::<pyo3::types::PyDict>().ok()?;
+        for (key, value) in dict.iter() {
+            let name = match key.extract::<String>() {
+                Ok(name) => name,
+                Err(_) => continue,
+            };
+            if !(name == "rust_pyfunc" || name.starts_with("rust_pyfunc_")) {
+                continue;
+            }
+            let file = match value.getattr("__file__").and_then(|f| f.extract::<String>()) {
+                Ok(file) => file,
+                Err(_) => continue,
+            };
+            let parent = match std::path::Path::new(&file).parent() {
+                Some(parent) => parent,
+                None => continue,
+            };
+            let worker = parent.join("rust_pyfunc_worker");
+            if worker.exists() {
+                return Some(worker.to_string_lossy().into_owned());
             }
         }
-    }
-    // 3. cargo target 目录（开发时）
-    let dev_path = "/home/chenzongwei/rust_pyfunc/target/release/rust_pyfunc_worker";
-    if std::path::Path::new(dev_path).exists() {
-        return Some(dev_path.to_string());
-    }
-    None
+        None
+    })
 }
+
 /// kill 子进程并立即回收（wait），避免错误路径每次泄漏一个僵尸进程表项。
 fn kill_and_reap(child: &mut std::process::Child) {
     let _ = child.kill();

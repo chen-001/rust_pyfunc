@@ -20,7 +20,8 @@ dynamic = ["version"]
 features = ["pyo3/extension-module", "pyo3/abi3-py38"]
 python-source = "python"
 module-name = "rust_pyfunc"
-include = ["python/rust_pyfunc/*.pyi"]
+# worker 二进制随包分发（25MB），同事装完 wheel 就能直接跑多进程 pipeline
+include = ["python/rust_pyfunc/*.pyi", "rust_pyfunc/rust_pyfunc_worker"]
 
 [tool.mypy]
 mypy_path = "python"

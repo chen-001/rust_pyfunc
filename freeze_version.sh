@@ -135,6 +135,7 @@ dynamic = ["version"]
 features = ["pyo3/extension-module"]
 python-source = "."
 module-name = "${PACKAGE_NAME}.rust_pyfunc"
+include = ["${PACKAGE_NAME}/rust_pyfunc_worker"]
 PYPROJECT
 
 echo "pyproject.toml:"
@@ -178,12 +179,14 @@ build_for_python() {
 CURRENT_PYTHON=$(command -v python3)
 build_for_python "$CURRENT_PYTHON" "$COMPAT_TAG" "当前环境"
 
-# 第二次构建：Python 3.9 + manylinux_2_31
+# 第二次构建：Python 3.9 + manylinux_2_31（给旧 glibc 的机器发 wheel 用，本地锁版本不需要）
+# 这条链路带 --no-default-features，而 hdf5 依赖挂在默认 feature 上、部分模块又无条件用它，
+# 现在编不过；要发这种 wheel 时设 FREEZE_MANYLINUX=1 显式开启并先修好 feature 开关。
 PY39="/opt/anaconda3/bin/python3.9"
-if [ -x "$PY39" ]; then
+if [ "${FREEZE_MANYLINUX:-0}" = "1" ] && [ -x "$PY39" ]; then
     build_for_python "$PY39" "manylinux_2_31" "Python 3.9 + manylinux_2_31"
 else
-    echo "[跳过] python3.9 未找到: ${PY39}"
+    echo "[跳过] Python 3.9 + manylinux_2_31 构建（需要时设 FREEZE_MANYLINUX=1）"
 fi
 
 # ── 8. 收集产物 ────────────────────────────────────────────────
