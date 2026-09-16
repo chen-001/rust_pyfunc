@@ -73,53 +73,78 @@ fn industry_of_day(date: i64) -> Vec<u16> {
 
 static CAP_TABLE: OnceLock<(Vec<i64>, HashMap<String, Vec<f64>>)> = OnceLock::new();
 
+/// 时间戳列 → 20150105 式的整数日期。
+///
+/// 任意时间单位都要认：这份 parquet 的日期列叫 `__index_level_0__`、类型是纳秒，
+/// 早先的代码只认「毫秒 + 列名叫 date」，认不出就把 dates 留成空，
+/// 于是所有日期都退到第 0 行（2015-01-05）的市值——同伴池被冻结了十年。
+fn date_column_to_ymd(col: &dyn arrow::array::Array, unit: &arrow::datatypes::TimeUnit) -> Vec<i64> {
+    use arrow::array::{
+        TimestampMicrosecondArray, TimestampMillisecondArray, TimestampNanosecondArray,
+        TimestampSecondArray,
+    };
+    use arrow::temporal_conversions::{
+        timestamp_ms_to_datetime, timestamp_ns_to_datetime, timestamp_s_to_datetime,
+        timestamp_us_to_datetime,
+    };
+    use chrono::Datelike;
+
+    let to_ymd = |v: i64| -> i64 {
+        let dt = match unit {
+            arrow::datatypes::TimeUnit::Second => timestamp_s_to_datetime(v),
+            arrow::datatypes::TimeUnit::Millisecond => timestamp_ms_to_datetime(v),
+            arrow::datatypes::TimeUnit::Microsecond => timestamp_us_to_datetime(v),
+            arrow::datatypes::TimeUnit::Nanosecond => timestamp_ns_to_datetime(v),
+        };
+        dt.map(|d| d.year() as i64 * 10000 + d.month() as i64 * 100 + d.day() as i64)
+            .unwrap_or(0)
+    };
+    let any = col.as_any();
+    if let Some(a) = any.downcast_ref::<TimestampSecondArray>() {
+        a.iter().map(|v| v.map(to_ymd).unwrap_or(0)).collect()
+    } else if let Some(a) = any.downcast_ref::<TimestampMillisecondArray>() {
+        a.iter().map(|v| v.map(to_ymd).unwrap_or(0)).collect()
+    } else if let Some(a) = any.downcast_ref::<TimestampMicrosecondArray>() {
+        a.iter().map(|v| v.map(to_ymd).unwrap_or(0)).collect()
+    } else if let Some(a) = any.downcast_ref::<TimestampNanosecondArray>() {
+        a.iter().map(|v| v.map(to_ymd).unwrap_or(0)).collect()
+    } else {
+        Vec::new()
+    }
+}
+
 /// 读 total_caps.parquet 一次：日期轴 + code→市值列（带 .SZ/.SH 后缀）。
 fn cap_table() -> &'static (Vec<i64>, HashMap<String, Vec<f64>>) {
     CAP_TABLE.get_or_init(|| {
-        use arrow::array::{Array, Float64Array, StringArray};
+        use arrow::array::{Array, Float64Array};
         use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
         let f = std::fs::File::open("/home/chenzongwei/database/daily_data/total_caps.parquet")
             .unwrap();
         let builder = ParquetRecordBatchReaderBuilder::try_new(f).unwrap();
         let schema = builder.schema().clone();
-        // index 是日期（列名可能为空），其余全是 f64 列
-        let mut date_idx: Option<usize> = None;
-        for (i, fld) in schema.fields().iter().enumerate() {
-            if fld.data_type() == &arrow::datatypes::DataType::Timestamp(arrow::datatypes::TimeUnit::Millisecond, None)
-                || fld.name() == "date"
-            {
-                date_idx = Some(i);
-                break;
-            }
-        }
+        // 日期列 = 任意时间单位的时间戳列（不看列名，也不限定毫秒）
+        let date_col: Option<(usize, arrow::datatypes::TimeUnit)> =
+            schema.fields().iter().enumerate().find_map(|(i, fld)| match fld.data_type() {
+                arrow::datatypes::DataType::Timestamp(unit, _) => Some((i, unit.clone())),
+                _ => None,
+            });
+        let (date_idx, date_unit) = date_col.unwrap_or_else(|| {
+            panic!(
+                "total_caps.parquet 里找不到时间戳类型的日期列，schema={:?}",
+                schema.fields().iter().map(|x| (x.name(), x.data_type())).collect::<Vec<_>>()
+            )
+        });
         let reader = builder.build().unwrap();
         let mut dates: Vec<i64> = Vec::new();
         let mut cols: HashMap<String, Vec<f64>> = HashMap::new();
         let field_names: Vec<String> = schema.fields().iter().map(|x| x.name().clone()).collect();
         for batch in reader {
             let batch = batch.unwrap();
-            if let Some(di) = date_idx {
-                if di < batch.num_columns() {
-                    // Timestamp 列转成 20150105 式 int
-                    if let Some(ts) = batch.column(di).as_any().downcast_ref::<arrow::array::TimestampMillisecondArray>() {
-                        use arrow::temporal_conversions::timestamp_ms_to_datetime;
-                        for v in ts.iter() {
-                            if let Some(ms) = v {
-                                if let Some(dt) = timestamp_ms_to_datetime(ms) {
-                                    use chrono::Datelike;
-                                    dates.push(dt.year() as i64 * 10000 + dt.month() as i64 * 100 + dt.day() as i64);
-                                } else {
-                                    dates.push(0);
-                                }
-                            } else {
-                                dates.push(0);
-                            }
-                        }
-                    }
-                }
+            if date_idx < batch.num_columns() {
+                dates.extend(date_column_to_ymd(batch.column(date_idx).as_ref(), &date_unit));
             }
             for ci in 0..batch.num_columns() {
-                if Some(ci) == date_idx {
+                if ci == date_idx {
                     continue;
                 }
                 let name = field_names[ci].clone();
@@ -129,6 +154,16 @@ fn cap_table() -> &'static (Vec<i64>, HashMap<String, Vec<f64>>) {
                 }
             }
         }
+        // 日期轴必须与行数对齐：早先认不出日期列时 dates 是空的，
+        // cap_of_day 会静默退回第 0 行（2015-01-05），这里直接报错。
+        let n_rows = cols.values().map(|v| v.len()).max().unwrap_or(0);
+        assert_eq!(
+            dates.len(),
+            n_rows,
+            "total_caps.parquet 日期轴({})与数据行数({})不一致，schema 里的时间戳列可能没被识别",
+            dates.len(),
+            n_rows
+        );
         (dates, cols)
     })
 }
