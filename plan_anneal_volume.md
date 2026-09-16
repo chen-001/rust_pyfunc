@@ -462,7 +462,7 @@ names = rp.py_anneal_volume_names()
 assert len(names) == 5975
 rp.run_factor_pipeline(
     pipeline="anneal_volume",
-    tasks=dw.read_level2_list(start_date, end_date),
+    tasks=rp.read_level2_list(start_date, end_date),
     expected_result_length=5975,
     params=None,             # 无参 pipeline
     store_dir=colblk_store_dir,
