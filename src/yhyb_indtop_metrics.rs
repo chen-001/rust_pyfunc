@@ -8,7 +8,7 @@
 //!
 //! 统计口径与初版 agg_fused_blocked 逐位一致（桶=1 秒、geo 零模型、时段掩码、回退链条），
 //! 仅 B 遍历范围从全市场缩到池内。行业从 /ssd_data/data/vars/SzBa/industry.h5 直读
-//! （唯一源头）；市值从 /home/chenzongwei/database/daily_data/total_caps.parquet 直读。
+//! （唯一源头）；市值从 {vars_root}/DailyDerived/S_VAL_MV.h5 直读（见 daily-data-reader 的约定）。
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -69,119 +69,75 @@ fn industry_of_day(date: i64) -> Vec<u16> {
     out
 }
 
-// ---------------- 市值 parquet（total_caps.parquet 直读） ----------------
+// ---------------- 市值（{vars_root}/DailyDerived/S_VAL_MV.h5 直读） ----------------
+//
+// 市值是每天变的，必须按天取。旧版读 /home/chenzongwei/database/daily_data/total_caps.parquet，
+// 而且因为日期列认不出来（列名 __index_level_0__、纳秒时间戳），所有日期都退到第 0 行，
+// 同伴池被冻结在 2015-01-05。现在按 daily-data-reader 的约定直接读 h5 源头：
+// dataset `data`，行 = DailyDerived/calendar_map.csv，列 = DailyDerived/symbol_map.csv。
 
-static CAP_TABLE: OnceLock<(Vec<i64>, HashMap<String, Vec<f64>>)> = OnceLock::new();
-
-/// 时间戳列 → 20150105 式的整数日期。
-///
-/// 任意时间单位都要认：这份 parquet 的日期列叫 `__index_level_0__`、类型是纳秒，
-/// 早先的代码只认「毫秒 + 列名叫 date」，认不出就把 dates 留成空，
-/// 于是所有日期都退到第 0 行（2015-01-05）的市值——同伴池被冻结了十年。
-fn date_column_to_ymd(col: &dyn arrow::array::Array, unit: &arrow::datatypes::TimeUnit) -> Vec<i64> {
-    use arrow::array::{
-        TimestampMicrosecondArray, TimestampMillisecondArray, TimestampNanosecondArray,
-        TimestampSecondArray,
-    };
-    use arrow::temporal_conversions::{
-        timestamp_ms_to_datetime, timestamp_ns_to_datetime, timestamp_s_to_datetime,
-        timestamp_us_to_datetime,
-    };
-    use chrono::Datelike;
-
-    let to_ymd = |v: i64| -> i64 {
-        let dt = match unit {
-            arrow::datatypes::TimeUnit::Second => timestamp_s_to_datetime(v),
-            arrow::datatypes::TimeUnit::Millisecond => timestamp_ms_to_datetime(v),
-            arrow::datatypes::TimeUnit::Microsecond => timestamp_us_to_datetime(v),
-            arrow::datatypes::TimeUnit::Nanosecond => timestamp_ns_to_datetime(v),
-        };
-        dt.map(|d| d.year() as i64 * 10000 + d.month() as i64 * 100 + d.day() as i64)
-            .unwrap_or(0)
-    };
-    let any = col.as_any();
-    if let Some(a) = any.downcast_ref::<TimestampSecondArray>() {
-        a.iter().map(|v| v.map(to_ymd).unwrap_or(0)).collect()
-    } else if let Some(a) = any.downcast_ref::<TimestampMillisecondArray>() {
-        a.iter().map(|v| v.map(to_ymd).unwrap_or(0)).collect()
-    } else if let Some(a) = any.downcast_ref::<TimestampMicrosecondArray>() {
-        a.iter().map(|v| v.map(to_ymd).unwrap_or(0)).collect()
-    } else if let Some(a) = any.downcast_ref::<TimestampNanosecondArray>() {
-        a.iter().map(|v| v.map(to_ymd).unwrap_or(0)).collect()
-    } else {
-        Vec::new()
-    }
+/// 市值 h5 的日期轴与列序（每个目录各自维护 map，用哪个目录就加载哪个）。
+fn cap_maps() -> &'static (Vec<i64>, Vec<String>) {
+    static MAPS: OnceLock<(Vec<i64>, Vec<String>)> = OnceLock::new();
+    MAPS.get_or_init(|| {
+        let dir = crate::data_paths::vars_path("DailyDerived");
+        let cal_path = dir.join("calendar_map.csv");
+        let cal = std::fs::read_to_string(&cal_path)
+            .unwrap_or_else(|e| panic!("读取市值日历失败 {}: {e}", cal_path.display()));
+        let dates: Vec<i64> = cal.lines().skip(1).filter_map(|l| l.trim().parse().ok()).collect();
+        let sym_path = dir.join("symbol_map.csv");
+        let sym = std::fs::read_to_string(&sym_path)
+            .unwrap_or_else(|e| panic!("读取市值股票名单失败 {}: {e}", sym_path.display()));
+        let codes: Vec<String> = sym
+            .lines()
+            .skip(1)
+            .map(|l| l.split(',').next().unwrap_or("").trim().to_string())
+            .filter(|c| !c.is_empty())
+            .collect();
+        (dates, codes)
+    })
 }
 
-/// 读 total_caps.parquet 一次：日期轴 + code→市值列（带 .SZ/.SH 后缀）。
-fn cap_table() -> &'static (Vec<i64>, HashMap<String, Vec<f64>>) {
-    CAP_TABLE.get_or_init(|| {
-        use arrow::array::{Array, Float64Array};
-        use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-        let f = std::fs::File::open("/home/chenzongwei/database/daily_data/total_caps.parquet")
-            .unwrap();
-        let builder = ParquetRecordBatchReaderBuilder::try_new(f).unwrap();
-        let schema = builder.schema().clone();
-        // 日期列 = 任意时间单位的时间戳列（不看列名，也不限定毫秒）
-        let date_col: Option<(usize, arrow::datatypes::TimeUnit)> =
-            schema.fields().iter().enumerate().find_map(|(i, fld)| match fld.data_type() {
-                arrow::datatypes::DataType::Timestamp(unit, _) => Some((i, unit.clone())),
-                _ => None,
-            });
-        let (date_idx, date_unit) = date_col.unwrap_or_else(|| {
-            panic!(
-                "total_caps.parquet 里找不到时间戳类型的日期列，schema={:?}",
-                schema.fields().iter().map(|x| (x.name(), x.data_type())).collect::<Vec<_>>()
-            )
-        });
-        let reader = builder.build().unwrap();
-        let mut dates: Vec<i64> = Vec::new();
-        let mut cols: HashMap<String, Vec<f64>> = HashMap::new();
-        let field_names: Vec<String> = schema.fields().iter().map(|x| x.name().clone()).collect();
-        for batch in reader {
-            let batch = batch.unwrap();
-            if date_idx < batch.num_columns() {
-                dates.extend(date_column_to_ymd(batch.column(date_idx).as_ref(), &date_unit));
-            }
-            for ci in 0..batch.num_columns() {
-                if ci == date_idx {
-                    continue;
-                }
-                let name = field_names[ci].clone();
-                if let Some(a) = batch.column(ci).as_any().downcast_ref::<Float64Array>() {
-                    let vals: Vec<f64> = a.iter().map(|x| x.unwrap_or(f64::NAN)).collect();
-                    cols.entry(name).or_insert_with(Vec::new).extend(vals);
-                }
-            }
+thread_local! {
+    /// hdf5 句柄不是 Sync，按线程缓存；worker 一进程一 pipeline，不会跨数据根复用。
+    static CAP_FILE: std::cell::RefCell<Option<(std::path::PathBuf, hdf5_metno::File)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// 读 S_VAL_MV.h5 的第 r 行（只取 symbol_map 那么多列，避免读到 8000 列容器残留）。
+fn cap_row(r: usize, ncols: usize) -> Vec<f64> {
+    let path = crate::data_paths::vars_path("DailyDerived/S_VAL_MV.h5");
+    CAP_FILE.with(|cell| {
+        let mut slot = cell.borrow_mut();
+        if slot.as_ref().map(|(p, _)| p != &path).unwrap_or(true) {
+            let f = hdf5_metno::File::open(&path)
+                .unwrap_or_else(|e| panic!("打开市值 h5 失败 {}: {e}", path.display()));
+            *slot = Some((path.clone(), f));
         }
-        // 日期轴必须与行数对齐：早先认不出日期列时 dates 是空的，
-        // cap_of_day 会静默退回第 0 行（2015-01-05），这里直接报错。
-        let n_rows = cols.values().map(|v| v.len()).max().unwrap_or(0);
-        assert_eq!(
-            dates.len(),
-            n_rows,
-            "total_caps.parquet 日期轴({})与数据行数({})不一致，schema 里的时间戳列可能没被识别",
-            dates.len(),
-            n_rows
-        );
-        (dates, cols)
+        let (_, f) = slot.as_ref().unwrap();
+        let ds = f
+            .dataset("data")
+            .unwrap_or_else(|e| panic!("市值 h5 缺少 dataset data: {e}"));
+        let arr: ndarray::Array2<f64> = ds
+            .read_slice_2d(ndarray::s![r..r + 1, 0..ncols])
+            .unwrap_or_else(|e| panic!("读取市值 h5 第 {r} 行失败: {e}"));
+        arr.into_raw_vec()
     })
 }
 
 /// 当日总市值：6 位代码 → 市值（NaN 忽略）。
 fn cap_of_day(date: i64) -> HashMap<String, f64> {
-    let (dates, cols) = cap_table();
-    let r = dates.iter().rposition(|&d| d <= date).unwrap_or(0);
-    let mut out = HashMap::new();
-    for (k, v) in cols.iter() {
-        let bare = k.trim_end_matches(".SZ").trim_end_matches(".SH").trim_end_matches(".BJ").to_string();
-        if let Some(&x) = v.get(r) {
-            if x.is_finite() {
-                out.insert(bare, x);
-            }
-        }
-    }
-    out
+    let (dates, codes) = cap_maps();
+    let r = match dates.partition_point(|&d| d <= date) {
+        0 => return HashMap::new(),
+        n => n - 1,
+    };
+    codes
+        .iter()
+        .zip(cap_row(r, codes.len()))
+        .filter(|(_, v)| v.is_finite())
+        .map(|(c, v)| (c.clone(), v))
+        .collect()
 }
 
 // ---------------- 池构建 ----------------
@@ -218,7 +174,12 @@ pub fn build_pools(
         }
     }
     let mut top10: Vec<usize> = Vec::new(); // 310 宇宙
-    for v in by_ind.values_mut() {
+    // 必须按行业号排序后再遍历：HashMap 的迭代顺序每个进程都不同，
+    // 直接 values_mut() 会让 top10 的顺序随机，同一个日期两次跑出来的因子值不一样。
+    let mut ind_keys: Vec<u16> = by_ind.keys().copied().collect();
+    ind_keys.sort_unstable();
+    for ind in ind_keys {
+        let v = by_ind.get_mut(&ind).expect("行业号来自 keys，必定存在");
         v.sort_by(|a, b| b.0.total_cmp(&a.0));
         v.truncate(10);
         for &(_, idx) in v.iter() {
