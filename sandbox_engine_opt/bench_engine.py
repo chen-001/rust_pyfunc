@@ -14,7 +14,6 @@ from prototype import load_all, read_factor_matrix
 import dev_sandbox_rankic as ds
 import dev_sandbox_engine_opt as dso
 
-BARRA = "/home/chenzongwei/database/barra/barra_daily_together_jason.parquet"
 BP = "/home/chenzongwei/pythoncode/_tail_v2_shared/backtest_inputs/000905_20170103_20260522_5438_6b8884a67f05d221/"
 BT_START = 20170201
 N_DAYS = 2276

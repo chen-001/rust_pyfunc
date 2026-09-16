@@ -18,8 +18,6 @@ import design_whatever as dw
 from prototype import (load_all, read_factor_matrix, neutralize_py, rank_pct,
                        fill_ind_reg, group_median_fill, get_residual, spearman)
 
-BARRA = "/home/chenzongwei/database/barra/barra_daily_together_jason.parquet"
-
 
 def neutralize_ret(r, ind, restrict, barra, industry=True, do_fill=True):
     """对收益做中性化（复刻同一链路）。do_fill=False: 跳过行业填充。"""

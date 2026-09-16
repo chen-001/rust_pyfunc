@@ -82,10 +82,10 @@ IC 计算与预处理的其余部分占比较小。请以你测到的数据为�
 - Python：`/home/chenzongwei/.conda/envs/chenzongwei311/bin/python`；
 - 因子数据（colblk 存储）：`/hdd/user_home_unsafe/chenzongwei/factor_store_挂单猫0701c`（`rp.factor_store_v5_info` / `factor_store_v5_template` / `factor_store_v5_read_factor`）；
 - 回测共享输入（收益/restrict 等 npy）：`/home/chenzongwei/pythoncode/_tail_v2_shared/backtest_inputs/000905_20170103_20260522_5438_6b8884a67f05d221/`；
-- 风格数据：`/home/chenzongwei/database/barra/barra_daily_together_jason.parquet`（列 `date, code, value_0..value_9, ind_1..ind_31`）；
+- 风格数据：vars 根目录 `/ssd_data/data/vars`，实际数据在 `{style_vars_dir}/SzBa/`（`calendar_map.csv` / `symbol_map.csv` / 10 个 `{字段}.h5` / `industry.h5`；列序 value_0..value_9 = residual_volatility, book_to_price, size, momentum, leverage, earnings_yield, growth, liquidity, beta, non_linear_size）；
 - 行业矩阵：`design_whatever.tail_v4._load_industry_matrix`（含默认行业 CSV 路径）；
 - sandbox 规范：新建/使用 `rust_pyfunc/sandbox`（Cargo 依赖对齐主项目：pyo3 0.18 / numpy 0.18 / ndarray 0.15 / nalgebra 0.32，`bash build.sh` 安装为 `dev_sandbox`）；
-- 生产口径对照方式：`rp.neutralize_std_block_py`（输入 factor_block / industry / restrict / style_data_path / dates / stocks / industry_neutralize）。
+- 生产口径对照方式：`rp.neutralize_std_block_py`（输入 factor_block / industry / restrict / style_vars_dir / dates / stocks / industry_neutralize）。
 
 ## 6. 验收最低标准（可自行强化）
 

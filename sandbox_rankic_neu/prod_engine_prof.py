@@ -7,7 +7,7 @@ sys.path.insert(0, "/home/chenzongwei/design_whatever")
 import design_whatever as dw
 
 STORE = "/hdd/user_home_unsafe/chenzongwei/factor_store_挂单猫0701c"
-BARRA = "/home/chenzongwei/database/barra/barra_daily_together_jason.parquet"
+STYLE_VARS_DIR = "/ssd_data/data/vars"
 BP = "/home/chenzongwei/pythoncode/_tail_v2_shared/backtest_inputs/000905_20170103_20260522_5438_6b8884a67f05d221/"
 
 
@@ -30,7 +30,7 @@ def main():
         n_jobs=8,
         min_valid=12,
         cache_root="/tmp/rankic_prof_cache",
-        style_data_path=BARRA,
+        style_vars_dir=STYLE_VARS_DIR,
         ret_gap1_path=BP + "ret_gap1.npy",
         ret_sum_gap1_path=BP + "ret_sum_gap1.npy",
         ret_gap5_path=BP + "ret_gap5.npy",

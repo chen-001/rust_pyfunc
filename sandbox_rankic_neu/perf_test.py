@@ -1,6 +1,6 @@
 """提速基准：各方案同输入同规模多次计时（release 构建）。
 
-方案: prod(生产 rp.neutralize_std_block_py, 含 parquet 读)
+方案: prod(生产 rp.neutralize_std_block_py, 含 H5 读)
       full(现状复刻) / c(省resid rank) / cpp(预计算排序+省rank) / c3e(无NaN快路径)
       ret(收益侧中性化一次)
 """
@@ -13,10 +13,8 @@ import time
 sys.path.insert(0, "/home/chenzongwei/design_whatever")
 import design_whatever as dw
 sys.path.insert(0, ".")
-from prototype import load_all, read_factor_matrix
+from prototype import load_all, read_factor_matrix, STYLE_VARS_DIR
 import dev_sandbox_rankic as ds
-
-BARRA = "/home/chenzongwei/database/barra/barra_daily_together_jason.parquet"
 
 
 def bench(fn, *args, n=5, **kw):
@@ -55,8 +53,8 @@ def main():
     results["cpp(预计算排序)"] = bench(ds.neutralize_cpp, slot, ind, restrict, barra, orders, True)
     results["c3exact(无NaN快路径)"] = bench(ds.neutralize_c3_exact, slot, ind, restrict, barra, orders, True)
     results["ret(收益侧一次)"] = bench(ds.neutralize_ret, ret_sum1, ind, restrict, barra, True)
-    results["prod(生产,含parquet读)"] = bench(
-        rp.neutralize_std_block_py, slot[:, :, None], ind, restrict, BARRA,
+    results["prod(生产,含H5读)"] = bench(
+        rp.neutralize_std_block_py, slot[:, :, None], ind, restrict, STYLE_VARS_DIR,
         dates.astype(np.int32).tolist(), stocks, True, n=2)
     # IC 计算
     resid = np.asarray(results["c(省resid rank)"][0])

@@ -28,18 +28,25 @@
 
 ## 数据格式规范
 
-### 风格数据（/home/chenzongwei/database/barra/barra_daily_together_jason.parquet）
+### 风格数据（vars 根目录，默认 /ssd_data/data/vars，数据在 {style_vars_dir}/SzBa/ 下）
 ```
-列结构：
-- date: int32，格式YYYYMMDD（如20220101）
-- stock_code: string，股票代码（如"000001"等）
-- value_0 到 value_10: float64，11个Barra风格因子值
+calendar_map.csv：第 1 行表头 date_min，之后每行一个交易日；第 r 行对应 h5 第 r 行
+symbol_map.csv  ：第 1 行表头 symbol,pos，之后每行 symbol,pos（pos 从 0 起）；第 c 行对应 h5 第 c 列
+{字段}.h5       ：dataset 名固定 "data"，shape (7000, 8000) float64，取值 [r, c]，NaN = 无数据
+                 10 个风格字段：residual_volatility, book_to_price, size, momentum, leverage,
+                 earnings_yield, growth, liquidity, beta, non_linear_size
+industry.h5     ：同上 shape，值 = 申万一级行业编号 1~31，NaN = 未知
 
-数据样例：
-| date     | code | value_0 | value_1 | ... | value_10 |
-|----------|------------|---------|---------|-----|----------|
-| 20220101 | 000001     | 0.123   | -0.456  | ... | 0.789    |
-| 20220101 | 000002     | 0.234   | 0.567   | ... | -0.123   |
+列序（写死，不能改）：
+- value_0 = residual_volatility   value_5 = earnings_yield
+- value_1 = book_to_price         value_6 = growth
+- value_2 = size                  value_7 = liquidity
+- value_3 = momentum              value_8 = beta
+- value_4 = leverage              value_9 = non_linear_size
+- ind_1 ~ ind_31 = industry 的 one-hot（行业编号 k → ind_k = 1）
+共 41 个特征列。行业 one-hot 行和恒为 1，已含截距，不再加常数项。
+
+行集口径：某天某只股票只有在 10 个风格值全部非 NaN 且 industry 非 NaN 时才进入该天的风格矩阵。
 ```
 
 ### 因子数据（*.parquet，例如/nas197/user_home/chenzongwei/hm61_1st_son/amax_bmax_abs_autocorr1_价格中间50perc_fold_max_smooth_10.parquet）
@@ -136,7 +143,7 @@
 ```rust
 #[pyfunction]
 pub fn batch_factor_neutralization(
-    style_data_path: &str,      // 风格数据文件路径
+    style_vars_dir: &str,       // vars 根目录（风格数据在 {style_vars_dir}/SzBa/ 下）
     factor_files_dir: &str,     // 因子文件目录路径（这个路径下存储了1万-10万个因子parquet文件）  
     output_dir: &str,           // 输出目录路径（将中性化之后的因子以同名的parquet文件存储在这个路径下，注意date同样要是index）
     num_threads: Option<usize>, // 并行线程数（可选）
@@ -195,7 +202,7 @@ import rust_pyfunc
 import rust_pyfunc
 
 rust_pyfunc.batch_factor_neutralization(
-            style_data_mmap_path="/home/chenzongwei/database/barra/barra_daily_together_jason.parquet",
+            style_vars_dir="/ssd_data/data/vars",
             factor_file_path="/nas197/user_home/chenzongwei/hm61_1st_son",
             output_path="/nas197/user_home/chenzongwei/hm61_1st_son_neutest",
             num_threads=40

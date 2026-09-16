@@ -7,14 +7,47 @@ import numpy as np
 import pandas as pd
 import rust_pyfunc as rp
 import sys
+from pathlib import Path
+
+import h5py
 
 sys.path.insert(0, "/home/chenzongwei/design_whatever")
 import design_whatever as dw
 
 STORE = "/hdd/user_home_unsafe/chenzongwei/factor_store_挂单猫0701c"
-BARRA = "/home/chenzongwei/database/barra/barra_daily_together_jason.parquet"
+STYLE_VARS_DIR = "/ssd_data/data/vars"
 BP = "/home/chenzongwei/pythoncode/_tail_v2_shared/backtest_inputs/000905_20170103_20260522_5438_6b8884a67f05d221/"
 T, N = 2276, 5438
+
+# {style_vars_dir}/SzBa/{字段}.h5 的列序写死对应 value_0~value_9
+# （rust_pyfunc/src/factor_neutralize_std.rs:870 写死 barra_list[2] 是 size）
+STYLE_FIELDS = (
+    "residual_volatility", "book_to_price", "size", "momentum", "leverage",
+    "earnings_yield", "growth", "liquidity", "beta", "non_linear_size",
+)
+
+
+def load_szba_barra(dates, stocks):
+    """barra 映射到模板轴 (T,N,10)：date->行、6位code->列，直接索引构造。"""
+    szba = Path(STYLE_VARS_DIR) / "SzBa"
+    calendar = pd.read_csv(szba / "calendar_map.csv", dtype=np.int64)
+    symbols = pd.read_csv(szba / "symbol_map.csv", dtype={"symbol": str, "pos": np.int64})
+    date_row = {int(d): r for r, d in enumerate(calendar.iloc[:, 0])}
+    symbol_col = {str(s): int(c) for s, c in zip(symbols["symbol"], symbols["pos"])}
+    rows = np.array([date_row.get(int(d), -1) for d in dates], dtype=np.intp)
+    cols = np.array([symbol_col.get(str(s)[:6], -1) for s in stocks], dtype=np.intp)
+    keep_t = np.where(rows >= 0)[0]
+    keep_s = np.where(cols >= 0)[0]
+    uniq_rows = np.unique(rows[keep_t])
+    uniq_cols = np.unique(cols[keep_s])
+    block_r = np.searchsorted(uniq_rows, rows[keep_t])
+    block_c = np.searchsorted(uniq_cols, cols[keep_s])
+    barra = np.full((len(dates), len(stocks), 10), np.nan)
+    for f, field in enumerate(STYLE_FIELDS):
+        with h5py.File(szba / f"{field}.h5", "r") as h5:
+            values = h5["data"][uniq_rows][:, uniq_cols]
+        barra[keep_t[:, None], keep_s[None, :], f] = values[np.ix_(block_r, block_c)]
+    return barra
 
 
 def load_all(n_days):
@@ -27,19 +60,7 @@ def load_all(n_days):
     restrict = np.load(BP + "restrict.npy")[:n_days].astype(np.float32)
     ret_sum1 = np.load(BP + "ret_sum_gap1.npy")[:n_days]
     ret_sum5 = np.load(BP + "ret_sum_gap5.npy")[:n_days]
-    # barra 映射到模板轴 (T,N,10)：date->行、6位code->列，直接索引构造
-    bar = pd.read_parquet(BARRA, columns=["date", "code"] + [f"value_{i}" for i in range(10)])
-    bar["code"] = bar["code"].str[:6]
-    bar = bar[bar["date"].isin(dates)]
-    row_of = {d: i for i, d in enumerate(dates)}
-    col_of = {c: i for i, c in enumerate(s[:6] for s in stocks)}
-    barra = np.full((n_days, N, 10), np.nan)
-    di = bar["date"].map(row_of).values
-    ci = bar["code"].map(col_of).values
-    ok = ~np.isnan(di) & ~np.isnan(ci)
-    di, ci = di[ok].astype(int), ci[ok].astype(int)
-    vals = bar[[f"value_{i}" for i in range(10)]].values[ok]
-    barra[di, ci] = vals
+    barra = load_szba_barra(dates, stocks)
     return dates, stocks, ind, restrict, ret_sum1, ret_sum5, barra
 
 
@@ -212,7 +233,7 @@ if __name__ == "__main__":
     # 生产基线
     prod = rp.neutralize_std_block_py(
         slot[:, :, None], ind, restrict,
-        BARRA, dates.astype(np.int32).tolist(), stocks, True)
+        STYLE_VARS_DIR, dates.astype(np.int32).tolist(), stocks, True)
     prod = np.asarray(prod)[:, :, 0]
     # Python 复刻
     x_neu, resid, a = neutralize_py(slot, ind, restrict, barra, True)

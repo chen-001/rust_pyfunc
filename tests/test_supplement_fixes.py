@@ -17,18 +17,33 @@ dw = pytest.importorskip("design_whatever")
 PROD_STORE = "/hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb"
 
 
-def _make_tiny_style_parquet(path: Path, dates: list, codes: list) -> str:
-    """造一个最小合法风格 parquet（date + code + 41 列浮点），避免测试加载 840MB 生产文件。
+def _make_tiny_style_vars_dir(path: Path, dates: list, codes: list) -> str:
+    """造一个最小合法的 SzBa vars 目录，避免测试加载 840MB 生产 H5。
 
-    41 列用互不相关的随机值（全零会导致回归矩阵退化、日期转换失败）。
+    按契约的布局写 calendar_map.csv / symbol_map.csv + 10 个 {字段}.h5 + industry.h5，
+    dataset 名固定 "data"。值用互不相关的随机数（全零会导致回归矩阵退化）。
     """
-    rng = np.random.default_rng(11)
-    rows = pd.DataFrame(
-        [{"date": int(d), "code": c} for d in dates for c in codes]
+    import h5py
+
+    szba = path / "SzBa"
+    szba.mkdir(parents=True)
+    pd.DataFrame({"date_min": [int(d) for d in dates]}).to_csv(szba / "calendar_map.csv", index=False)
+    pd.DataFrame({"symbol": list(codes), "pos": list(range(len(codes)))}).to_csv(
+        szba / "symbol_map.csv", index=False
     )
-    for i in range(41):
-        rows[f"c{i}"] = rng.standard_normal(len(rows)) + i * 0.1
-    rows.to_parquet(path, index=False)
+    rng = np.random.default_rng(11)
+    shape = (len(dates), len(codes))
+    fields = (
+        "residual_volatility", "book_to_price", "size", "momentum", "leverage",
+        "earnings_yield", "growth", "liquidity", "beta", "non_linear_size",
+    )
+    for i, field in enumerate(fields):
+        with h5py.File(szba / f"{field}.h5", "w") as h5:
+            h5.create_dataset("data", data=rng.standard_normal(shape) + i * 0.1)
+    with h5py.File(szba / "industry.h5", "w") as h5:
+        # 31 个行业号必须都出现，否则对应 ind 列整列为 0、X'X 退化（股票数要 ≥31）
+        ids = (np.arange(len(codes)) % 31 + 1).astype(np.float64)
+        h5.create_dataset("data", data=np.tile(ids, (len(dates), 1)))
     return str(path)
 
 
@@ -116,8 +131,8 @@ def test_engine_read_failure_not_silent():
     dates = [int(d) for d in tmpl["dates"][:30]]
     stocks = [str(s) for s in tmpl["stocks"][:100]]
     bare_codes = [s.split(".")[0] for s in stocks]
-    style_path = _make_tiny_style_parquet(
-        tmp / "style.parquet", dates[:5], bare_codes[:30]
+    style_vars_dir = _make_tiny_style_vars_dir(
+        tmp / "style_vars", dates[:5], bare_codes[:60]
     )
     n_dates, n_stocks = len(dates), len(stocks)
     inputs = tmp / "inputs"
@@ -142,7 +157,7 @@ def test_engine_read_failure_not_silent():
             n_jobs=2,
             min_valid=5,
             cache_root=str(tmp / "cache"),
-            style_data_path=style_path,
+            style_vars_dir=style_vars_dir,
             ret_gap1_path=str(inputs / "ret_gap1.npy"),
             ret_sum_gap1_path=str(inputs / "ret_sum_gap1.npy"),
             ret_gap5_path=str(inputs / "ret_gap5.npy"),
@@ -213,7 +228,7 @@ def _write_synthetic_cache(root: Path, *, metrics_only: bool) -> None:
         metrics_only=metrics_only,
         industry_neutralize=True,
         index_name="000905",
-        style_data_path="/tmp/style.parquet",
+        style_vars_dir="/tmp/style_vars",
         min_valid=12,
         industry_data_path="/tmp/industry.csv",
         engine_build_sha256="abc123",
@@ -223,7 +238,7 @@ def _write_synthetic_cache(root: Path, *, metrics_only: bool) -> None:
         json.dumps(cfg, ensure_ascii=False), encoding="utf-8"
     )
     (meta / "input_fingerprints.json").write_text(
-        json.dumps({"style_data_path": {"sha256": "f" * 64, "size": 1}}),
+        json.dumps({"style_vars_dir": {"sha256": "f" * 64, "size": 1}}),
         encoding="utf-8",
     )
 

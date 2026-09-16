@@ -174,7 +174,7 @@ Skills：
 
 ## 七、第二轮审核修复记录
 
-1. **基线口径一致**：判定器新增 `_require_compatible_configs`，对比 base/supplement 的 `tail_v4_config.json` 中 engine_logic_version、windows/fold、日期范围、industry_neutralize、index_name、style_data_path、selection_kwargs、preflight。旧 `cross_yhyb` cache 会明确报错，必须先跑 `cross_yhyb_v2` 新基线。
+1. **基线口径一致**：判定器新增 `_require_compatible_configs`，对比 base/supplement 的 `tail_v4_config.json` 中 engine_logic_version、windows/fold、日期范围、industry_neutralize、index_name、style_vars_dir、selection_kwargs、preflight。旧 `cross_yhyb` cache 会明确报错，必须先跑 `cross_yhyb_v2` 新基线。
 2. **只合并值得的因子**：Skill A 改为在独立 git worktree 中按“一个因子一个 commit”开发；Skill B 生成 curated branch/commit，只挑选 `worth_supplementing=True` 因子的代码与注册 hunk，并检查 diff 不含不值得因子。
 3. **expected names 强制闭环**：`expected_supplement_names` 改为必填 keyword-only 参数；判定结束断言结论集合与 expected 完全一致；CLI 支持 `--handoff-json` 自动读 `supplement_names`；Rust metrics-only 即使全部 raw_cover 失败也写出空 `_all` 文件。
 4. **写入错误不再被吞**：Level2/minute/cross-section 三个 writer 均通过错误 channel 把 `append_batch` 错误传回主线程并返回 PyErr；分钟/横截面只有写入成功才 `mark_date_complete`；`append_batch` 先校验长度再删除旧投影。

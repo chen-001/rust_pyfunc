@@ -17,7 +17,6 @@ sys.path.insert(0, ".")
 from prototype import load_all, read_factor_matrix
 import dev_sandbox_rankic as ds
 
-BARRA = "/home/chenzongwei/database/barra/barra_daily_together_jason.parquet"
 N_FACTORS = 30
 BT = 20170201
 

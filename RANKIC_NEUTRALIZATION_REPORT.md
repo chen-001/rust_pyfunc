@@ -100,7 +100,7 @@
 ### 3.1 实验设置
 
 - 数据：2276 天 × 5438 股模板（000905 回测输入 `000905_20170103_20260522_...`），
-  风格 `/home/chenzongwei/database/barra/barra_daily_together_jason.parquet`，
+  风格 `/ssd_data/data/vars/SzBa/`（H5，`style_vars_dir` 默认 `/ssd_data/data/vars`），
   行业 `SW_IND_CODE.csv`（design_whatever 生产路径），真实因子取自 colblk 存储
   `/hdd/user_home_unsafe/chenzongwei/factor_store_挂单猫0701c`（30 个因子，缺失率 ~22%）。
 - 因子预处理与生产一致：横截面平均秩 + 缺失填当日中位秩（_smooth_1 slot，无 NaN）。
