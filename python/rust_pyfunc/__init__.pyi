@@ -818,7 +818,7 @@ def tail_backtest_engine(
     n_jobs: int,
     min_valid: int,
     cache_root: str,
-    style_data_path: str,
+    style_vars_dir: str,
     ret_gap1_path: str,
     ret_sum_gap1_path: str,
     ret_gap5_path: str,

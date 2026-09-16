@@ -1650,7 +1650,7 @@ def query_backup_factor_only_ultra_fast(
     ...
 
 def batch_factor_neutralization(
-    style_data_mmap_path: str,
+    style_vars_dir: str,
     factor_file_path: str,
     output_path: str,
     num_threads: Optional[int] = None
@@ -1680,10 +1680,12 @@ def batch_factor_neutralization(
     
     参数说明：
     ----------
-    style_data_mmap_path : str
-        风格数据文件路径 (parquet格式)
-        文件结构：['date', 'code', 'value_0', 'value_1', ..., 'value_10']
-        包含所有交易日和股票的11个风格因子暴露度
+    style_vars_dir : str
+        vars 数据根目录（默认 /ssd_data/data/vars），风格字段在 {style_vars_dir}/SzBa/ 下
+        每个字段一个 h5（dataset 名 data，shape 7000x8000，float64，NaN=无数据）
+        风格矩阵固定 41 列：value_0~value_9 + ind_1~ind_31（industry 的 one-hot）
+        列序 value_0~value_9 = residual_volatility/book_to_price/size/momentum/leverage/
+        earnings_yield/growth/liquidity/beta/non_linear_size（value_2 = size，写死不可改）
         
     factor_file_path : str
         因子文件目录路径，包含所有需要处理的parquet文件
@@ -1755,7 +1757,7 @@ def batch_factor_neutralization(
     >>> import rust_pyfunc
     >>> 
     >>> rust_pyfunc.batch_factor_neutralization(
-    ...     style_data_mmap_path="/data/barra/barra_daily_together.parquet",
+    ...     style_vars_dir="/ssd_data/data/vars",
     ...     factor_file_path="/data/factors/raw",  # 包含因子parquet文件的目录
     ...     output_path="/data/factors/neutralized",  # 输出目录
     ...     num_threads=8  # 8线程并行
@@ -1771,7 +1773,7 @@ def batch_factor_neutralization(
     
     >>> # 大规模处理示例 - 3万个因子文件
     >>> rust_pyfunc.batch_factor_neutralization(
-    ...     style_data_mmap_path="/database/barra/barra_daily_together.parquet",
+    ...     style_vars_dir="/ssd_data/data/vars",
     ...     factor_file_path="/nas/factors/universe_all",  
     ...     output_path="/nas/factors/neutralized_all",
     ...     num_threads=16  # 16线程加速处理
@@ -1780,7 +1782,7 @@ def batch_factor_neutralization(
     
     >>> # 自动线程数示例
     >>> rust_pyfunc.batch_factor_neutralization(
-    ...     style_data_mmap_path="/data/style_exposure.parquet",
+    ...     style_vars_dir="/ssd_data/data/vars",
     ...     factor_file_path="/data/raw_factors", 
     ...     output_path="/data/neutral_factors"
     ...     # num_threads=None，自动检测CPU核心数
@@ -1802,7 +1804,7 @@ def batch_factor_neutralization(
     >>> 
     >>> # 执行中性化处理
     >>> rust_pyfunc.batch_factor_neutralization(
-    ...     style_data_mmap_path="/data/barra_exposure.parquet",
+    ...     style_vars_dir="/ssd_data/data/vars",
     ...     factor_file_path="/data/factors",
     ...     output_path="/data/neutralized",
     ...     num_threads=12
@@ -1810,12 +1812,13 @@ def batch_factor_neutralization(
     
     📋 数据格式要求：
     ---------------
-    **风格数据文件格式**：
-    - 格式：parquet
-    - 列名：['date', 'code', 'value_0', 'value_1', ..., 'value_10']
-    - date：int32，格式为YYYYMMDD（如20240101）
-    - code：string，股票代码（如"000001"）
-    - value_0到value_10：float64，11个风格因子暴露度
+    **风格数据格式**：
+    - 位置：{style_vars_dir}/SzBa/ 下的 10 个风格字段 h5 + industry.h5
+    - dataset 名固定 data，shape (7000, 8000)，float64，NaN = 无数据
+    - 行轴：calendar_map.csv（第 1 行表头，之后每行一个交易日）
+    - 列轴：symbol_map.csv（symbol,pos，第 c 行 = h5 第 c 列）
+    - 列序：value_0~value_9 见 style_vars_dir 说明，ind_1~ind_31 = industry one-hot
+    - 某天某只股票要 10 个风格值全部非 NaN、且 industry 非 NaN 才进入该天矩阵
     
     **因子数据文件格式**：
     - 格式：parquet
@@ -1861,7 +1864,7 @@ def batch_factor_neutralization(
     ...
 
 def batch_factor_neutralization(
-    style_data_path: str,
+    style_vars_dir: str,
     factor_files_dir: str,
     output_dir: str,
     num_threads: Optional[int] = None
@@ -1891,10 +1894,12 @@ def batch_factor_neutralization(
     
     参数说明：
     ----------
-    style_data_path : str
-        风格数据文件路径 (parquet格式)
-        文件结构：['date', 'stock_code', 'value_0', 'value_1', ..., 'value_10']
-        包含所有交易日和股票的11个风格因子暴露度
+    style_vars_dir : str
+        vars 数据根目录（默认 /ssd_data/data/vars），风格字段在 {style_vars_dir}/SzBa/ 下
+        每个字段一个 h5（dataset 名 data，shape 7000x8000，float64，NaN=无数据）
+        风格矩阵固定 41 列：value_0~value_9 + ind_1~ind_31（industry 的 one-hot）
+        列序 value_0~value_9 = residual_volatility/book_to_price/size/momentum/leverage/
+        earnings_yield/growth/liquidity/beta/non_linear_size（value_2 = size，写死不可改）
         
     factor_files_dir : str
         因子文件目录路径，包含所有需要处理的parquet文件
@@ -1934,7 +1939,7 @@ def batch_factor_neutralization(
     >>> import rust_pyfunc
     >>> 
     >>> rust_pyfunc.batch_factor_neutralization(
-    ...     style_data_path="/data/barra/barra_daily_together.parquet",
+    ...     style_vars_dir="/ssd_data/data/vars",
     ...     factor_files_dir="/data/factors/raw",
     ...     output_dir="/data/factors/neutralized",
     ...     num_threads=8
@@ -1942,7 +1947,7 @@ def batch_factor_neutralization(
     
     >>> # 大规模处理
     >>> rust_pyfunc.batch_factor_neutralization(
-    ...     style_data_path="/database/barra/barra_daily_together.parquet",
+    ...     style_vars_dir="/ssd_data/data/vars",
     ...     factor_files_dir="/nas/factors/universe_all",  
     ...     output_dir="/nas/factors/neutralized_all",
     ...     num_threads=16
@@ -1958,7 +1963,7 @@ def batch_factor_neutralization(
     """
 
 def batch_factor_neutralization_io_optimized(
-    style_data_path: str,
+    style_vars_dir: str,
     factor_files_dir: str,
     output_dir: str,
     num_threads: Optional[int] = None,
@@ -1983,9 +1988,10 @@ def batch_factor_neutralization_io_optimized(
     
     🔧 参数说明：
     -----------
-    style_data_path : str
-        风格数据文件路径（.parquet格式）
-        包含列：date, stock, value_0, value_1, ..., value_10（11个风格因子）
+    style_vars_dir : str
+        vars 数据根目录（默认 /ssd_data/data/vars），风格字段在 {style_vars_dir}/SzBa/ 下
+        每个字段一个 h5（dataset 名 data，shape 7000x8000，float64，NaN=无数据）
+        风格矩阵固定 41 列：value_0~value_9 + ind_1~ind_31（industry 的 one-hot）
         
     factor_files_dir : str  
         因子文件目录路径，包含待中性化的因子数据文件（.parquet格式）
@@ -2034,7 +2040,7 @@ def batch_factor_neutralization_io_optimized(
     >>> import rust_pyfunc
     >>> 
     >>> rust_pyfunc.batch_factor_neutralization_io_optimized(
-    ...     style_data_path="/data/barra/barra_daily_together.parquet",
+    ...     style_vars_dir="/ssd_data/data/vars",
     ...     factor_files_dir="/data/factors/raw",
     ...     output_dir="/data/factors/neutralized",
     ...     num_threads=8
@@ -2042,7 +2048,7 @@ def batch_factor_neutralization_io_optimized(
     
     >>> # 网络存储环境
     >>> rust_pyfunc.batch_factor_neutralization_io_optimized(
-    ...     style_data_path="/nas/barra/style_data.parquet",
+    ...     style_vars_dir="/ssd_data/data/vars",
     ...     factor_files_dir="/nas/factors/daily_factors",  
     ...     output_dir="/nas/output/neutralized_factors",
     ...     num_threads=12
@@ -2050,7 +2056,7 @@ def batch_factor_neutralization_io_optimized(
     
     >>> # 大规模批量处理
     >>> rust_pyfunc.batch_factor_neutralization_io_optimized(
-    ...     style_data_path="/database/barra/barra_daily_together.parquet",
+    ...     style_vars_dir="/ssd_data/data/vars",
     ...     factor_files_dir="/storage/factors/universe_all",
     ...     output_dir="/storage/results/neutralized_all",
     ...     num_threads=16
@@ -2084,7 +2090,7 @@ def batch_factor_neutralization_io_optimized(
     """
 
 def batch_factor_neutralization_simple_math_optimized(
-    style_data_path: str,
+    style_vars_dir: str,
     factor_files_dir: str,
     output_dir: str,
     num_threads: Optional[int] = None
@@ -2100,9 +2106,10 @@ def batch_factor_neutralization_simple_math_optimized(
     
     🔧 参数说明：
     -----------
-    style_data_path : str
-        风格数据文件路径（.parquet格式）
-        包含列：date, stock, value_0, value_1, ..., value_10（11个风格因子）
+    style_vars_dir : str
+        vars 数据根目录（默认 /ssd_data/data/vars），风格字段在 {style_vars_dir}/SzBa/ 下
+        每个字段一个 h5（dataset 名 data，shape 7000x8000，float64，NaN=无数据）
+        风格矩阵固定 41 列：value_0~value_9 + ind_1~ind_31（industry 的 one-hot）
         
     factor_files_dir : str  
         因子文件目录路径，包含待中性化的因子数据文件（.parquet格式）
@@ -2143,7 +2150,7 @@ def batch_factor_neutralization_simple_math_optimized(
     
     >>> # 基础用法
     >>> rust_pyfunc.batch_factor_neutralization_simple_math_optimized(
-    ...     style_data_path="/data/barra/style_daily.parquet",
+    ...     style_vars_dir="/ssd_data/data/vars",
     ...     factor_files_dir="/data/factors/raw",
     ...     output_dir="/data/factors/neutralized_math_opt",
     ...     num_threads=8
@@ -2151,7 +2158,7 @@ def batch_factor_neutralization_simple_math_optimized(
     
     >>> # 高精度场景
     >>> rust_pyfunc.batch_factor_neutralization_simple_math_optimized(
-    ...     style_data_path="/database/style_factors.parquet",
+    ...     style_vars_dir="/ssd_data/data/vars",
     ...     factor_files_dir="/nas/alpha_factors", 
     ...     output_dir="/nas/neutralized_factors",
     ...     num_threads=16
@@ -2166,7 +2173,7 @@ def batch_factor_neutralization_simple_math_optimized(
     """
 
 def batch_factor_neutralization_parallel_optimized(
-    style_data_path: str,
+    style_vars_dir: str,
     factor_files_dir: str,
     output_dir: str,
     num_threads: Optional[int] = None
@@ -2182,9 +2189,10 @@ def batch_factor_neutralization_parallel_optimized(
     
     🔧 参数说明：
     -----------
-    style_data_path : str
-        风格数据文件路径（.parquet格式）
-        包含列：date, stock, value_0, value_1, ..., value_10（11个风格因子）
+    style_vars_dir : str
+        vars 数据根目录（默认 /ssd_data/data/vars），风格字段在 {style_vars_dir}/SzBa/ 下
+        每个字段一个 h5（dataset 名 data，shape 7000x8000，float64，NaN=无数据）
+        风格矩阵固定 41 列：value_0~value_9 + ind_1~ind_31（industry 的 one-hot）
         
     factor_files_dir : str  
         因子文件目录路径，包含待中性化的因子数据文件（.parquet格式）
@@ -2227,7 +2235,7 @@ def batch_factor_neutralization_parallel_optimized(
     
     >>> # 大规模并行处理
     >>> rust_pyfunc.batch_factor_neutralization_parallel_optimized(
-    ...     style_data_path="/data/barra/style_daily.parquet",
+    ...     style_vars_dir="/ssd_data/data/vars",
     ...     factor_files_dir="/data/factors/raw",
     ...     output_dir="/data/factors/neutralized_parallel",
     ...     num_threads=16  # 使用16线程工作窃取
@@ -2235,7 +2243,7 @@ def batch_factor_neutralization_parallel_optimized(
     
     >>> # 自动线程数优化
     >>> rust_pyfunc.batch_factor_neutralization_parallel_optimized(
-    ...     style_data_path="/database/style_factors.parquet",
+    ...     style_vars_dir="/ssd_data/data/vars",
     ...     factor_files_dir="/nas/alpha_factors", 
     ...     output_dir="/nas/neutralized_factors",
     ...     num_threads=None  # 自动使用全部CPU核心
@@ -2243,7 +2251,7 @@ def batch_factor_neutralization_parallel_optimized(
     
     >>> # 超大规模处理（数千因子）
     >>> rust_pyfunc.batch_factor_neutralization_parallel_optimized(
-    ...     style_data_path="/storage/style_data.parquet",
+    ...     style_vars_dir="/ssd_data/data/vars",
     ...     factor_files_dir="/storage/massive_factors",
     ...     output_dir="/storage/neutralized_output",
     ...     num_threads=32  # 高并发处理
@@ -2267,7 +2275,7 @@ def batch_factor_neutralization_parallel_optimized(
     ...
 
 def batch_factor_neutralization_ultimate_optimized(
-    style_data_path: str,
+    style_vars_dir: str,
     factor_files_dir: str,
     output_dir: str,
     num_threads: int = 0
@@ -2300,7 +2308,8 @@ def batch_factor_neutralization_ultimate_optimized(
     - 🔄 多任务: 工作窃取 + 流水线架构
     
     参数:
-        style_data_path: 风格因子数据文件路径 (.parquet格式)
+        style_vars_dir: vars 数据根目录（默认 /ssd_data/data/vars），
+            风格字段在 {style_vars_dir}/SzBa/ 下（10 个风格 h5 + industry.h5）
         factor_files_dir: 因子文件目录路径  
         output_dir: 输出目录路径
         num_threads: 线程数 (0=自动检测最优值，推荐使用自动模式)
@@ -2325,7 +2334,7 @@ def batch_factor_neutralization_ultimate_optimized(
     >>> 
     >>> # 🚀 推荐用法：完全自动化
     >>> rust_pyfunc.batch_factor_neutralization_ultimate_optimized(
-    ...     style_data_path="data/style_factors.parquet",
+    ...     style_vars_dir="/ssd_data/data/vars",
     ...     factor_files_dir="data/factors/",
     ...     output_dir="output/",
     ...     num_threads=0  # 自动检测最优线程数
@@ -2339,7 +2348,7 @@ def batch_factor_neutralization_ultimate_optimized(
     
     >>> # 🔧 手动调优示例（高性能环境）
     >>> rust_pyfunc.batch_factor_neutralization_ultimate_optimized(
-    ...     style_data_path="large_style_data.parquet",  # 500MB+大文件
+    ...     style_vars_dir="/ssd_data/data/vars"
     ...     factor_files_dir="factors_1000/",            # 1000个因子文件
     ...     output_dir="results/",
     ...     num_threads=32  # 手动指定线程数（适合高端服务器）
@@ -2354,7 +2363,7 @@ def batch_factor_neutralization_ultimate_optimized(
     >>> # 🎯 精确控制示例（数值稳定性优先）
     >>> # 当你的数据存在数值问题时，系统会自动检测并启用QR分解
     >>> rust_pyfunc.batch_factor_neutralization_ultimate_optimized(
-    ...     style_data_path="problematic_style.parquet",  # 病态矩阵数据
+    ...     style_vars_dir="/ssd_data/data/vars"
     ...     factor_files_dir="sensitive_factors/",
     ...     output_dir="stable_results/",
     ...     num_threads=0  # 让系统自动平衡性能与稳定性

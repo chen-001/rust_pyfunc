@@ -1,8 +1,8 @@
-use arrow::array::{
-    Array, Float32Array, Float64Array, Int32Array, Int64Array, LargeStringArray, StringArray,
-};
+use arrow::array::{Array, Float64Array, Int32Array, Int64Array};
 use chrono::Local;
+use hdf5_metno as hdf5;
 use nalgebra::{DMatrix, DVector};
+use ndarray::s;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
@@ -90,230 +90,234 @@ impl BatchFileReader {
 }
 
 impl IOOptimizedStyleData {
-    /// I/O优化的风格数据加载 - 使用缓冲读取和预分配
-    pub fn load_from_parquet_io_optimized(path: &str) -> PyResult<Self> {
+    /// SzBa 风格字段 → 风格矩阵前 10 列（value_0~value_9）的固定列序。
+    ///
+    /// 契约写死，不得调整：`factor_neutralize_std.rs` 里 `barra_list[2]` 被当作 size，
+    /// 所以 `value_2` 必须是 `size.h5`。第 11 列起是 industry 的 one-hot `ind_1~ind_31`。
+    const SZBA_STYLE_FIELDS: [&'static str; 10] = [
+        "residual_volatility", // value_0
+        "book_to_price",       // value_1
+        "size",                // value_2
+        "momentum",            // value_3
+        "leverage",            // value_4
+        "earnings_yield",      // value_5
+        "growth",              // value_6
+        "liquidity",           // value_7
+        "beta",                // value_8
+        "non_linear_size",     // value_9
+    ];
+
+    /// 直接从 `{vars_root}/SzBa/` 的 H5 加载风格数据（不再读 barra parquet）。
+    ///
+    /// `vars_root` 是 vars 根目录（默认 `/ssd_data/data/vars`），其下 `SzBa/` 有：
+    /// - `calendar_map.csv`：第 1 行表头，之后每行一个交易日；第 r 行 = h5 第 r 行；
+    /// - `symbol_map.csv`：`symbol,pos`；第 c 行 = h5 第 c 列；
+    /// - `{字段}.h5`：dataset 名固定 `data`，shape (7000, 8000)，float64，NaN = 无数据。
+    ///
+    /// 列序按 `SZBA_STYLE_FIELDS` 写死，`value_2` = size；`ind_1~ind_31` 是 industry 的
+    /// one-hot（行业号 k → ind_k = 1，行和恒为 1，已含截距，不再加常数项）。
+    ///
+    /// 行集口径：某天某只股票只要 10 个风格值全部有限就进入该天矩阵。industry 为 NaN 或
+    /// 不在 1~31 时按「行业未知」处理 —— 31 个 ind 列全置 0，这只股票仍然进矩阵（旧
+    /// parquet 就是这么编码的：当年 join 不到就 fill_null(0.0)），丢掉这些行会改变当天
+    /// 截面内的排名，连带改变留下来的股票的残差。
+    ///
+    /// 与旧 parquet 路径唯一的行为差别：某个风格值是 NaN 时只把这只股票从当天排除，
+    /// 而不是像旧路径那样让 `compute_regression_matrix_io_optimized` 的 X'X 求逆失败、
+    /// 把整天静默丢掉。
+    pub fn load_from_vars_h5(vars_root: &str) -> PyResult<Self> {
         let start_time = Instant::now();
-        println!("🔄 开始I/O优化版风格数据加载...");
+        println!("🔄 开始从 H5 加载风格数据: {}/SzBa", vars_root);
 
-        // 获取文件元数据以预分配内存
-        let file_metadata = fs::metadata(path)
-            .map_err(|e| PyRuntimeError::new_err(format!("获取文件元数据失败: {}", e)))?;
-        let file_size = file_metadata.len();
-
-        println!("📁 文件大小: {:.2}MB", file_size as f64 / 1024.0 / 1024.0);
-
-        // 使用标准文件读取（parquet库优化的读取方式）
-        let file = File::open(path)
-            .map_err(|e| PyRuntimeError::new_err(format!("打开风格数据文件失败: {}", e)))?;
-
-        let builder = ParquetRecordBatchReaderBuilder::try_new(file)
-            .map_err(|e| PyRuntimeError::new_err(format!("创建parquet读取器失败: {}", e)))?;
-
-        // 优化批处理大小 - 根据文件大小动态调整
-        let optimal_batch_size = if file_size > 100 * 1024 * 1024 {
-            // > 100MB
-            32768 // 大文件使用更大的批处理
-        } else if file_size > 10 * 1024 * 1024 {
-            // > 10MB
-            16384 // 中等文件
-        } else {
-            8192 // 小文件
-        };
-
-        let reader = builder
-            .with_batch_size(optimal_batch_size)
-            .build()
-            .map_err(|e| PyRuntimeError::new_err(format!("构建记录批次读取器失败: {}", e)))?;
-
-        // 预分配数据结构以减少内存分配开销
-        let mut all_data = Vec::new();
-        let mut total_rows = 0;
-
-        // 批量读取所有数据
-        for batch_result in reader {
-            let batch = batch_result
-                .map_err(|e| PyRuntimeError::new_err(format!("读取记录批次失败: {}", e)))?;
-            total_rows += batch.num_rows();
-            all_data.push(batch);
+        let szba = Path::new(vars_root).join("SzBa");
+        let cal_path = szba.join("calendar_map.csv");
+        let cal_text = fs::read_to_string(&cal_path).map_err(|e| {
+            PyRuntimeError::new_err(format!("读取 {} 失败: {}", cal_path.display(), e))
+        })?;
+        let dates: Vec<i64> = cal_text
+            .lines()
+            .skip(1)
+            .filter_map(|l| l.trim().parse::<i64>().ok())
+            .collect();
+        if dates.is_empty() {
+            return Err(PyRuntimeError::new_err(format!(
+                "{} 里没有交易日",
+                cal_path.display()
+            )));
         }
 
-        println!(
-            "📊 读取完成: {}行数据, {}个批次",
-            total_rows,
-            all_data.len()
-        );
-
-        // 预分配HashMap以减少重新哈希
-        let estimated_dates = (total_rows / 1000).max(100); // 估算日期数量
-        let mut data_by_date: HashMap<i64, Vec<(String, Vec<f64>)>> =
-            HashMap::with_capacity(estimated_dates);
-
-        // 使用向量化处理优化数据解析
-        let parse_start = Instant::now();
-        for batch in all_data {
-            Self::process_batch_vectorized(&batch, &mut data_by_date)?;
+        let sym_path = szba.join("symbol_map.csv");
+        let sym_text = fs::read_to_string(&sym_path).map_err(|e| {
+            PyRuntimeError::new_err(format!("读取 {} 失败: {}", sym_path.display(), e))
+        })?;
+        let codes: Vec<String> = sym_text
+            .lines()
+            .skip(1)
+            .map(|l| l.split(',').next().unwrap_or("").trim().to_string())
+            .filter(|c| !c.is_empty())
+            .collect();
+        if codes.is_empty() {
+            return Err(PyRuntimeError::new_err(format!(
+                "{} 里没有股票",
+                sym_path.display()
+            )));
         }
-        let parse_time = parse_start.elapsed();
+        let n_codes = codes.len();
 
-        println!("⚡ 数据解析耗时: {:.3}s", parse_time.as_secs_f64());
+        // 11 个 h5 一次性打开（10 个风格字段 + industry），dataset 名固定 "data"。
+        // 逐块顺序读取，HDF5 C 库只在主线程被调用，不用考虑线程安全。
+        let mut files: Vec<(&'static str, hdf5::File, hdf5::Dataset)> = Vec::with_capacity(11);
+        for field in Self::SZBA_STYLE_FIELDS
+            .iter()
+            .copied()
+            .chain(std::iter::once("industry"))
+        {
+            let path = szba.join(format!("{}.h5", field));
+            let file = hdf5::File::open(&path).map_err(|e| {
+                PyRuntimeError::new_err(format!("打开 {} 失败: {}", path.display(), e))
+            })?;
+            let ds = file.dataset("data").map_err(|e| {
+                PyRuntimeError::new_err(format!("{} 里没有 dataset data: {}", path.display(), e))
+            })?;
+            files.push((field, file, ds));
+        }
 
-        // 批量转换为最终数据结构
-        let convert_start = Instant::now();
-        let mut final_data_by_date = HashMap::with_capacity(data_by_date.len());
-        let mut total_stocks_processed = 0;
+        let n_dates = dates.len();
+        let mut data_by_date: HashMap<i64, IOOptimizedStyleDayData> = HashMap::with_capacity(n_dates);
+        let mut total_rows = 0usize;
+        let mut dropped_days = 0usize;
+        let mut empty_days = 0usize;
+        let mut unknown_industry = 0usize;
 
-        // 并行处理日期数据（如果日期数量足够多）
-        if data_by_date.len() > 10 {
-            // 大量日期时使用并行处理
-            let date_results: Vec<_> = data_by_date
-                .into_par_iter()
-                .filter_map(|(date, stock_data)| {
-                    if stock_data.len() >= 12 {
-                        if let Ok(day_data) = Self::convert_date_data_optimized(date, stock_data) {
-                            Some((date, day_data))
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-
-            for (date, day_data) in date_results {
-                total_stocks_processed += day_data.stocks.len();
-                final_data_by_date.insert(date, day_data);
+        // 逐块读盘：一块 BLOCK_ROWS 行 × 11 个字段常驻内存（64×5789×8×11 ≈ 33MB），
+        // 块内按日并行构造 41 列矩阵，避免把上千万行中间结果全留在内存里。
+        const BLOCK_ROWS: usize = 64;
+        let mut r0 = 0usize;
+        while r0 < n_dates {
+            let r1 = (r0 + BLOCK_ROWS).min(n_dates);
+            let mut flats: Vec<Vec<f64>> = Vec::with_capacity(11);
+            for (field, _file, ds) in &files {
+                let arr: ndarray::Array2<f64> =
+                    ds.read_slice_2d(s![r0..r1, 0..n_codes]).map_err(|e| {
+                        PyRuntimeError::new_err(format!("读取 {} 的 {} 失败: {}", field, r0, e))
+                    })?;
+                flats.push(arr.iter().copied().collect());
             }
-        } else {
-            // 少量日期时使用串行处理
-            for (date, stock_data) in data_by_date {
-                if stock_data.len() >= 12 {
-                    match Self::convert_date_data_optimized(date, stock_data) {
-                        Ok(day_data) => {
-                            total_stocks_processed += day_data.stocks.len();
-                            final_data_by_date.insert(date, day_data);
+
+            let day_results: Vec<(i64, usize, usize, Option<PyResult<IOOptimizedStyleDayData>>)> =
+                (r0..r1)
+                    .into_par_iter()
+                    .map(|r| {
+                        let base = (r - r0) * n_codes;
+                        let mut stock_data: Vec<(String, Vec<f64>)> = Vec::new();
+                        let mut unknown_ind = 0usize;
+                        for c in 0..n_codes {
+                            let mut style = [0.0f64; 10];
+                            let mut complete = true;
+                            for k in 0..10 {
+                                let v = flats[k][base + c];
+                                if !v.is_finite() {
+                                    complete = false;
+                                    break;
+                                }
+                                style[k] = v;
+                            }
+                            if !complete {
+                                continue;
+                            }
+                            // industry 为 NaN 或不在 1~31 时按「行业未知」处理：31 个 ind 列
+                            // 全置 0，这只股票仍然进矩阵 —— 旧 parquet 就是这么编码的
+                            // （当年 join 不到就 fill_null(0.0)），丢掉这些行会改变当天截面排名。
+                            let mut row = vec![0.0f64; 41];
+                            row[..10].copy_from_slice(&style);
+                            let ind = flats[10][base + c];
+                            let k = ind as usize;
+                            if ind.is_finite() && (1..=31).contains(&k) {
+                                row[10 + k - 1] = 1.0;
+                            } else {
+                                unknown_ind += 1;
+                            }
+                            stock_data.push((codes[c].clone(), row));
                         }
-                        Err(_) => {
-                            println!("警告: 日期{}数据转换失败", date);
+                        let n = stock_data.len();
+                        if n < 12 {
+                            return (dates[r], n, unknown_ind, None);
+                        }
+                        (
+                            dates[r],
+                            n,
+                            unknown_ind,
+                            Some(Self::convert_date_data_optimized(dates[r], stock_data)),
+                        )
+                    })
+                    .collect();
+
+            for (date, n, unknown, result) in day_results {
+                unknown_industry += unknown;
+                match result {
+                    Some(Ok(day)) => {
+                        total_rows += n;
+                        data_by_date.insert(date, day);
+                    }
+                    Some(Err(e)) => {
+                        println!("⚠️ 日期 {} 风格矩阵构造失败，跳过: {}", date, e);
+                        dropped_days += 1;
+                    }
+                    None => {
+                        if n == 0 {
+                            empty_days += 1;
+                        } else {
+                            dropped_days += 1;
                         }
                     }
                 }
             }
+            r0 = r1;
         }
 
-        let convert_time = convert_start.elapsed();
-        println!("🔄 数据转换耗时: {:.3}s", convert_time.as_secs_f64());
-
-        if final_data_by_date.is_empty() {
+        if data_by_date.is_empty() {
             return Err(PyRuntimeError::new_err(
-                "风格数据为空或所有日期的股票数量都少于12只",
+                "风格数据为空或所有日期的完整行都不足12只",
             ));
         }
 
-        let total_time = start_time.elapsed();
-        println!("✅ I/O优化版风格数据加载完成!");
+        println!("✅ H5 风格数据加载完成!");
         println!(
             "   📊 统计: {}个交易日, {}只股票",
-            final_data_by_date.len(),
-            total_stocks_processed
+            data_by_date.len(),
+            total_rows
         );
-        println!("   ⏱️  总耗时: {:.3}s", total_time.as_secs_f64());
         println!(
-            "   🚀 I/O速度: {:.1}MB/s",
-            file_size as f64 / 1024.0 / 1024.0 / total_time.as_secs_f64()
+            "   📊 风格矩阵: 41列 (value_0~9 = {}), 股票池 {} 只",
+            Self::SZBA_STYLE_FIELDS.join(","),
+            n_codes
         );
+        if dropped_days > 0 {
+            println!(
+                "   ⚠️ 有完整行但不足12只、被跳过的日期: {} 天（风格矩阵会退化，不参与中性化）",
+                dropped_days
+            );
+        }
+        if empty_days > 0 {
+            println!(
+                "   ℹ️ 全天无任何完整行的日期: {} 天（H5 日历含未来行与早期无数据行）",
+                empty_days
+            );
+        }
+        if unknown_industry > 0 {
+            println!(
+                "   ℹ️ industry 未知（NaN 或不在 1~31）、31 个 ind 列全置 0 的行: {}",
+                unknown_industry
+            );
+        }
+        println!("   ⏱️  总耗时: {:.3}s", start_time.elapsed().as_secs_f64());
 
         Ok(IOOptimizedStyleData {
-            data_by_date: final_data_by_date,
+            data_by_date,
             file_cache: Arc::new(Mutex::new(Vec::new())),
         })
     }
 
-    /// 向量化批处理数据解析
-    fn process_batch_vectorized(
-        batch: &arrow::record_batch::RecordBatch,
-        data_by_date: &mut HashMap<i64, Vec<(String, Vec<f64>)>>,
-    ) -> PyResult<()> {
-        let date_column = batch.column(0);
-
-        // 批量解析日期列
-        let batch_dates: Vec<i64> =
-            if let Some(date_array_i64) = date_column.as_any().downcast_ref::<Int64Array>() {
-                (0..date_array_i64.len())
-                    .map(|i| date_array_i64.value(i))
-                    .collect()
-            } else if let Some(date_array_i32) = date_column.as_any().downcast_ref::<Int32Array>() {
-                (0..date_array_i32.len())
-                    .map(|i| date_array_i32.value(i) as i64)
-                    .collect()
-            } else {
-                return Err(PyRuntimeError::new_err(
-                    "日期列类型错误：期望Int64或Int32类型",
-                ));
-            };
-
-        // 支持StringArray和LargeStringArray两种类型
-        let stock_column = batch.column(1);
-        let get_stock_value = |row_idx: usize| -> String {
-            if let Some(string_array) = stock_column.as_any().downcast_ref::<StringArray>() {
-                string_array.value(row_idx).to_string()
-            } else if let Some(large_string_array) =
-                stock_column.as_any().downcast_ref::<LargeStringArray>()
-            {
-                large_string_array.value(row_idx).to_string()
-            } else {
-                panic!("股票代码列类型错误：期望StringArray或LargeStringArray类型");
-            }
-        };
-
-        // 批量提取风格因子列取值闭包: value_0~value_9(Float64) + ind_1~ind_31(Float32) = 41列
-        let style_getters: Vec<Box<dyn Fn(usize) -> f64 + Send + Sync>> = (2..43)
-            .map(|i| {
-                let col = batch.column(i);
-                let as_any = col.as_any();
-                let getter: Box<dyn Fn(usize) -> f64 + Send + Sync> =
-                    if let Some(arr) = as_any.downcast_ref::<Float64Array>() {
-                        Box::new(move |row_idx: usize| {
-                            if arr.is_null(row_idx) {
-                                f64::NAN
-                            } else {
-                                arr.value(row_idx)
-                            }
-                        })
-                    } else if let Some(arr) = as_any.downcast_ref::<Float32Array>() {
-                        Box::new(move |row_idx: usize| {
-                            if arr.is_null(row_idx) {
-                                f64::NAN
-                            } else {
-                                arr.value(row_idx) as f64
-                            }
-                        })
-                    } else {
-                        return Err(PyRuntimeError::new_err(format!(
-                            "风格因子列{}类型错误：期望Float64或Float32",
-                            i - 2
-                        )));
-                    };
-                Ok(getter)
-            })
-            .collect::<PyResult<Vec<_>>>()?;
-
-        // 向量化处理每一行
-        for row_idx in 0..batch.num_rows() {
-            let date = batch_dates[row_idx];
-            let stock = get_stock_value(row_idx);
-
-            // 使用迭代器和collect优化风格值提取
-            let style_values: Vec<f64> = style_getters.iter().map(|g| g(row_idx)).collect();
-
-            data_by_date
-                .entry(date)
-                .or_insert_with(Vec::new)
-                .push((stock, style_values));
-        }
-
-        Ok(())
-    }
 
     /// 优化的单日数据转换
     fn convert_date_data_optimized(
@@ -634,7 +638,7 @@ fn format_duration(total_seconds: u64) -> String {
 /// I/O优化的批量因子中性化函数
 #[pyfunction]
 pub fn batch_factor_neutralization_io_optimized(
-    style_data_path: &str,
+    style_vars_dir: &str,
     factor_files_dir: &str,
     output_dir: &str,
     num_threads: Option<usize>,
@@ -645,8 +649,8 @@ pub fn batch_factor_neutralization_io_optimized(
 
     // 使用I/O优化版本加载风格数据
     println!("📖 正在使用I/O优化加载风格数据...");
-    let style_data = Arc::new(IOOptimizedStyleData::load_from_parquet_io_optimized(
-        style_data_path,
+    let style_data = Arc::new(IOOptimizedStyleData::load_from_vars_h5(
+        style_vars_dir,
     )?);
 
     // 获取所有因子文件并按大小排序以优化处理顺序

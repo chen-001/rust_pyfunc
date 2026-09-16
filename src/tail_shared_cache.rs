@@ -5,7 +5,7 @@
 //! `tail_backtest_engine` 每次调用都要重算一批**只依赖 (dates, stocks, style 文件,
 //! restrict.npy, industry 矩阵)** 的量，与因子完全无关：
 //!
-//! 1. `IOOptimizedStyleData::load_from_parquet_io_optimized` —— 840MB parquet 解析 (≈18.9s)
+//! 1. `IOOptimizedStyleData::load_from_vars_h5` —— `SzBa/` 下 11 个 H5 读取 (≈18.9s)
 //! 2. `neutralize_std_precompute` —— 10 张 (T,N) f64 barra + rank + 每日 Cholesky (≈12.6s)
 //! 3. `build_bt_precomputed` —— 每日期全行 radix 排序 (T×N u32)
 //!
@@ -13,8 +13,9 @@
 //!
 //! 缓存键
 //! ------
-//! `SHA-256(dates ‖ stocks ‖ industry 字节 ‖ style 文件 sha256 ‖ restrict.npy sha256
+//! `SHA-256(dates ‖ stocks ‖ industry 字节 ‖ style 目录 sha256 ‖ restrict.npy sha256
 //!          ‖ ret_sum_gap1.npy sha256 ‖ ret_sum_gap5.npy sha256)` 取前 16 字节十六进制。
+//! style 目录 sha256 = `{style_vars_dir}/SzBa/` 下所有文件（文件名 + 内容 sha256）再哈希一次。
 //! 键变化即失效（旧键文件不会被读取；是否清理由调用方决定）。
 //!
 //! 落盘位置
@@ -361,7 +362,7 @@ fn write_header<W: Write>(w: &mut W, kind: u8) -> std::io::Result<()> {
 }
 
 // ============================================================================
-// 文件摘要 sidecar：避免每 run 重算 840MB style parquet 的 sha256
+// 文件摘要 sidecar：避免每 run 重算 style 目录里那批 h5 的 sha256
 // ============================================================================
 
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
@@ -452,6 +453,36 @@ impl DigestCache {
         Ok(sha)
     }
 
+    /// 摘要一个路径：文件走内容 sha256；目录则按文件名排序，把「文件名 + 每个文件的
+    /// 内容 sha256」串起来再 sha256 一次（只扫这一层，不递归）。
+    ///
+    /// style 数据从单个 parquet 文件变成 `{vars_root}/SzBa/` 一整个目录后，缓存键仍要能
+    /// 反映内容变化。目录里的每个文件都走 `digest_of_file`，它本身按 (size, mtime, ctime)
+    /// 缓存，所以重复调用不会重读那些 450MB 的 h5。目录级结果**不**缓存：目录自身的 stat
+    /// 不随文件内容变化，缓存它会让数据日更后 style 仍命中旧键。
+    fn digest_of_path(&mut self, path: &Path) -> Result<String, String> {
+        let md = fs::metadata(path).map_err(|e| format!("stat 失败 {}: {}", path.display(), e))?;
+        if !md.is_dir() {
+            return self.digest_of_file(path);
+        }
+        let mut names: Vec<String> = fs::read_dir(path)
+            .map_err(|e| format!("读目录失败 {}: {}", path.display(), e))?
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+        names.sort();
+        let mut h = Sha256::new();
+        h.update(b"dir_v1\0");
+        for name in &names {
+            let sha = self.digest_of_file(&path.join(name))?;
+            h.update(&(name.len() as u64).to_le_bytes());
+            h.update(name.as_bytes());
+            h.update(sha.as_bytes());
+        }
+        Ok(hex_lower(&h.finish()))
+    }
+
     fn save(&self) {
         if !self.dirty {
             return;
@@ -486,7 +517,7 @@ impl SharedCache {
     /// 计算键并准备缓存目录。任何失败都返回 Err（调用方应退化为「不缓存」）。
     pub(crate) fn open(
         restrict_path: &str,
-        style_path: &str,
+        style_vars_dir: &str,
         ret_sum_gap1_path: &str,
         ret_sum_gap5_path: &str,
         dates: &[i32],
@@ -503,7 +534,14 @@ impl SharedCache {
             .map_err(|e| format!("创建缓存目录失败 {}: {}", root.display(), e))?;
 
         let mut digests = DigestCache::load(&root.join("digests.json"));
-        let style_sha = digests.digest_of_file(Path::new(style_path))?;
+        let style_sha = {
+            // 只摘要 style 数据所在的那一层（`{vars_root}/SzBa/`）。若调用方直接传了
+            // SzBa 目录本身，就摘要它自己。**不能**摘要整个 vars 根目录：那会把
+            // DailyPrice/DailyDerived 等几十 GB 无关数据全读一遍算 sha256。
+            let szba = Path::new(style_vars_dir).join("SzBa");
+            let target = if szba.is_dir() { szba } else { Path::new(style_vars_dir).to_path_buf() };
+            digests.digest_of_path(&target)?
+        };
         let restrict_sha = digests.digest_of_file(restrict_p)?;
         let rs1_sha = digests.digest_of_file(Path::new(ret_sum_gap1_path))?;
         let rs5_sha = digests.digest_of_file(Path::new(ret_sum_gap5_path))?;
@@ -577,7 +615,7 @@ impl SharedCache {
             return None;
         }
         self.try_load_style().map_err(|e| {
-            println!("⚠️ [shared-cache] style 缓存读取失败，回退 parquet 解析: {}", e);
+            println!("⚠️ [shared-cache] style 缓存读取失败，回退 H5 解析: {}", e);
             e
         }).ok()
     }

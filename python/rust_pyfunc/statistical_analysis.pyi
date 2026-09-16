@@ -156,14 +156,14 @@ class NeutralizeStdSharedHandle:
 def neutralize_std_precompute_py(
     industry: NDArray[np.float64],
     restrict: NDArray[np.float32],
-    style_data_path: str,
+    style_vars_dir: str,
     dates: list[int],
     stocks: list[str],
 ) -> NeutralizeStdSharedHandle:
     """生产标准中性化的预计算（barra/size rank、行业分级码、逐日 X'X 等）。
 
     建一次即可，随后用 `neutralize_std_block_with_shared` 逐 block/slot 复用，
-    避免每次调用都重新解析 barra parquet。
+    避免每次调用都重新读 barra H5（{style_vars_dir}/SzBa/）。
     """
     ...
 
@@ -206,7 +206,7 @@ def tail_v4_run_candidates(
     n_jobs: int,
     min_valid: int,
     cache_root: str,
-    style_data_path: str,
+    style_vars_dir: str,
     ret_gap1_path: str,
     ret_sum_gap1_path: str,
     ret_gap5_path: str,
@@ -245,7 +245,7 @@ def tail_v4_run_fulltest_queue(
     cache_root: str,
     temp_root: str,
     source_dir: str,
-    style_data_path: str,
+    style_vars_dir: str,
     min_valid: int = 12,
     start_date: str = "2016-01-01",
     backtest_start_date: str = "2016-02-01",
@@ -259,7 +259,7 @@ def tail_v4_run_fulltest_queue(
     ...
 
 def tail_v4_neutralize_block_exact(
-    style_data_path: str,
+    style_vars_dir: str,
     dates: list[int],
     stocks: list[str],
     factor_block: NDArray[np.float32],
@@ -269,7 +269,7 @@ def tail_v4_neutralize_block_exact(
     ...
 
 class TailV4LegacyStyleData:
-    def __init__(self, style_data_path: str) -> None: ...
+    def __init__(self, style_vars_dir: str) -> None: ...
 
     def neutralize_block_exact(
         self,

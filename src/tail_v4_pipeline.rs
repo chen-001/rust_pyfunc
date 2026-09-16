@@ -226,7 +226,7 @@ struct TailV4FulltestWorkerConfig {
     start_date: String,
     backtest_start_date: String,
     end_date: String,
-    style_data_path: String,
+    style_vars_dir: String,
     min_valid: usize,
     index_name: String,
     industry_neutralize: bool,
@@ -1615,8 +1615,8 @@ pub struct TailV4LegacyStyleData {
 #[pymethods]
 impl TailV4LegacyStyleData {
     #[new]
-    fn new(style_data_path: String) -> PyResult<Self> {
-        let style_data = IOOptimizedStyleData::load_from_parquet_io_optimized(&style_data_path)?;
+    fn new(style_vars_dir: String) -> PyResult<Self> {
+        let style_data = IOOptimizedStyleData::load_from_vars_h5(&style_vars_dir)?;
         Ok(Self {
             style_data: Arc::new(style_data),
         })
@@ -1652,10 +1652,10 @@ impl TailV4LegacyStyleData {
 }
 
 #[pyfunction]
-#[pyo3(signature = (style_data_path, dates, stocks, factor_block, rank_before=true, min_valid=12, industry_neutralize=true))]
+#[pyo3(signature = (style_vars_dir, dates, stocks, factor_block, rank_before=true, min_valid=12, industry_neutralize=true))]
 pub fn tail_v4_neutralize_block_exact<'py>(
     py: Python<'py>,
-    style_data_path: String,
+    style_vars_dir: String,
     dates: Vec<i32>,
     stocks: Vec<String>,
     factor_block: numpy::PyReadonlyArray3<'py, f32>,
@@ -1664,7 +1664,7 @@ pub fn tail_v4_neutralize_block_exact<'py>(
     industry_neutralize: bool,
 ) -> PyResult<Py<numpy::PyArray3<f32>>> {
     let factor = factor_block.as_array();
-    let style_data = IOOptimizedStyleData::load_from_parquet_io_optimized(&style_data_path)?;
+    let style_data = IOOptimizedStyleData::load_from_vars_h5(&style_vars_dir)?;
     let output = py
         .allow_threads(|| {
             neutralize_block_legacy_exact(
@@ -2175,7 +2175,7 @@ fn reset_status_line() {
     n_jobs,
     min_valid,
     cache_root,
-    style_data_path,
+    style_vars_dir,
     ret_gap1_path,
     ret_sum_gap1_path,
     ret_gap5_path,
@@ -2210,7 +2210,7 @@ pub fn tail_v4_run_candidates<'py>(
     n_jobs: usize,
     min_valid: usize,
     cache_root: String,
-    style_data_path: String,
+    style_vars_dir: String,
     ret_gap1_path: String,
     ret_sum_gap1_path: String,
     ret_gap5_path: String,
@@ -2265,7 +2265,7 @@ pub fn tail_v4_run_candidates<'py>(
             min_valid,
             backtest_start,
             legacy_style_data: Arc::new(
-                IOOptimizedStyleData::load_from_parquet_io_optimized(&style_data_path)
+                IOOptimizedStyleData::load_from_vars_h5(&style_vars_dir)
                     .map_err(|e| e.to_string())?
             ),
             industry_neutralize,
@@ -2534,7 +2534,7 @@ pub fn tail_v4_run_candidates<'py>(
     cache_root,
     temp_root,
     source_dir,
-    style_data_path,
+    style_vars_dir,
     min_valid=12,
     start_date="2016-01-01",
     backtest_start_date="2016-02-01",
@@ -2554,7 +2554,7 @@ pub fn tail_v4_run_fulltest_queue<'py>(
     cache_root: String,
     temp_root: String,
     source_dir: String,
-    style_data_path: String,
+    style_vars_dir: String,
     min_valid: usize,
     start_date: &str,
     backtest_start_date: &str,
@@ -2641,7 +2641,7 @@ pub fn tail_v4_run_fulltest_queue<'py>(
                     start_date: start_date.to_string(),
                     backtest_start_date: backtest_start_date.to_string(),
                     end_date: end_date.to_string(),
-                    style_data_path,
+                    style_vars_dir,
                     min_valid,
                     index_name: index_name.to_string(),
                     industry_neutralize,

@@ -1222,15 +1222,15 @@ pub(crate) fn neutralize_std_slot_f32(
 
 /// pyo3 包装: block 级标准中性化 (验证/独立调用用)。
 /// 输入: factor_block (T,N,F) f32, industry (T,N) f64, restrict (T,N) f32,
-///       style_data_path, dates, stocks, industry_neutralize。
+///       style_vars_dir, dates, stocks, industry_neutralize。
 #[pyfunction]
-#[pyo3(signature = (factor_block, industry, restrict, style_data_path, dates, stocks, industry_neutralize=false))]
+#[pyo3(signature = (factor_block, industry, restrict, style_vars_dir, dates, stocks, industry_neutralize=false))]
 pub fn neutralize_std_block_py<'py>(
     py: Python<'py>,
     factor_block: PyReadonlyArray3<'py, f32>,
     industry: PyReadonlyArray2<'py, f64>,
     restrict: PyReadonlyArray2<'py, f32>,
-    style_data_path: String,
+    style_vars_dir: String,
     dates: Vec<i32>,
     stocks: Vec<String>,
     industry_neutralize: bool,
@@ -1239,7 +1239,7 @@ pub fn neutralize_std_block_py<'py>(
     let industry_owned = industry.as_array().to_owned();
     let restrict_owned = restrict.as_array().to_owned();
     let output = py.allow_threads(move || -> Result<Array3<f32>, String> {
-        let style_data = IOOptimizedStyleData::load_from_parquet_io_optimized(&style_data_path)
+        let style_data = IOOptimizedStyleData::load_from_vars_h5(&style_vars_dir)
             .map_err(|e| e.to_string())?;
         let shared = neutralize_std_precompute(
             &industry_owned,
@@ -1258,7 +1258,7 @@ pub fn neutralize_std_block_py<'py>(
 
 /// 预计算结果的 Python 侧可复用句柄。
 ///
-/// `neutralize_std_block_py` 每次调用都会重新解析 barra parquet 并重算 precompute，
+/// `neutralize_std_block_py` 每次调用都会重新读 barra H5 并重算 precompute，
 /// 逐因子调用不可用；这里把 precompute 结果包成 pyclass，让调用方建一次、每个
 /// block/slot 复用（引擎内部就是这么用的）。
 #[pyclass]
@@ -1266,14 +1266,14 @@ pub struct NeutralizeStdSharedHandle {
     inner: std::sync::Arc<NeutralizeStdShared>,
 }
 
-/// 预计算一次，返回可复用句柄（供逐因子调用复用，避免重复解析 parquet）。
+/// 预计算一次，返回可复用句柄（供逐因子调用复用，避免重复读 barra H5）。
 #[pyfunction]
-#[pyo3(signature = (industry, restrict, style_data_path, dates, stocks))]
+#[pyo3(signature = (industry, restrict, style_vars_dir, dates, stocks))]
 pub fn neutralize_std_precompute_py(
     py: Python<'_>,
     industry: PyReadonlyArray2<'_, f64>,
     restrict: PyReadonlyArray2<'_, f32>,
-    style_data_path: String,
+    style_vars_dir: String,
     dates: Vec<i32>,
     stocks: Vec<String>,
 ) -> PyResult<NeutralizeStdSharedHandle> {
@@ -1282,7 +1282,7 @@ pub fn neutralize_std_precompute_py(
     let shared = py
         .allow_threads(move || -> Result<NeutralizeStdShared, String> {
             let style_data =
-                IOOptimizedStyleData::load_from_parquet_io_optimized(&style_data_path)
+                IOOptimizedStyleData::load_from_vars_h5(&style_vars_dir)
                     .map_err(|e| e.to_string())?;
             neutralize_std_precompute(&industry_owned, &restrict_owned, &style_data, &dates, &stocks)
         })
@@ -1292,7 +1292,7 @@ pub fn neutralize_std_precompute_py(
     })
 }
 
-/// 用已预计算的句柄做 block 级标准中性化（不重新解析 parquet）。
+/// 用已预计算的句柄做 block 级标准中性化（不重新读 barra H5）。
 #[pyfunction]
 #[pyo3(signature = (factor_block, shared, industry_neutralize=false))]
 pub fn neutralize_std_block_with_shared<'py>(
@@ -1317,7 +1317,7 @@ pub fn neutralize_std_block_with_shared<'py>(
 ///
 /// 键与引擎 `build_shared_inputs` 逐字一致（dates + stocks + industry 字节 +
 /// style sha256 + restrict sha256 + ret_sum_gap1/5 sha256），所以同一轴、同一份输入下
-/// 这里加载到的就是引擎刚算过的那一份 —— 命中时省掉 840MB parquet 解析与预计算
+/// 这里加载到的就是引擎刚算过的那一份 —— 命中时省掉 barra H5 读取与预计算
 /// （fulltest 有 32 个 worker，每个都重算一遍代价很大）。
 ///
 /// 任何失败（目录不可写、文件缺失、键不匹配、`TAIL_SHARED_CACHE=0`）都退化为
@@ -1326,7 +1326,7 @@ pub fn neutralize_std_block_with_shared<'py>(
 #[pyo3(signature = (
     industry,
     restrict,
-    style_data_path,
+    style_vars_dir,
     restrict_path,
     ret_sum_gap1_path,
     ret_sum_gap5_path,
@@ -1337,7 +1337,7 @@ pub fn neutralize_std_precompute_cached_py(
     py: Python<'_>,
     industry: PyReadonlyArray2<'_, f64>,
     restrict: PyReadonlyArray2<'_, f32>,
-    style_data_path: String,
+    style_vars_dir: String,
     restrict_path: String,
     ret_sum_gap1_path: String,
     ret_sum_gap5_path: String,
@@ -1351,7 +1351,7 @@ pub fn neutralize_std_precompute_cached_py(
             let cache = if crate::tail_shared_cache::cache_enabled() {
                 match crate::tail_shared_cache::SharedCache::open(
                     &restrict_path,
-                    &style_data_path,
+                    &style_vars_dir,
                     &ret_sum_gap1_path,
                     &ret_sum_gap5_path,
                     &dates,
@@ -1376,7 +1376,7 @@ pub fn neutralize_std_precompute_cached_py(
             }
 
             let t_neu = std::time::Instant::now();
-            // 先试 neutral：命中时**完全不需要** style（省掉 3.8GB 读盘 / 840MB parquet 解析）。
+            // 先试 neutral：命中时**完全不需要** style（省掉 3.8GB 读盘 / barra H5 解析）。
             if let Some(v) = cache.as_ref().and_then(|c| c.load_neutral(&industry_owned)) {
                 println!(
                     "✅ [fulltest-cache] neutralize 命中 (读盘 {:.2}s，未读 style)",
@@ -1395,8 +1395,8 @@ pub fn neutralize_std_precompute_cached_py(
                     d
                 }
                 None => {
-                    let d = IOOptimizedStyleData::load_from_parquet_io_optimized(
-                        &style_data_path,
+                    let d = IOOptimizedStyleData::load_from_vars_h5(
+                        &style_vars_dir,
                     )
                     .map_err(|e| e.to_string())?;
                     if let Some(c) = &cache {
@@ -1405,7 +1405,7 @@ pub fn neutralize_std_precompute_cached_py(
                         }
                     }
                     println!(
-                        "❄️ [fulltest-cache] style 未命中，parquet 解析 {:.2}s",
+                        "❄️ [fulltest-cache] style 未命中，H5 解析 {:.2}s",
                         t_style.elapsed().as_secs_f64()
                     );
                     d
@@ -3064,10 +3064,10 @@ pub fn selfcheck_style_only(data_dir: &str) -> String {
         Ok(m) => m,
         Err(e) => return format!("[neu_style] 读 industry 失败: {e}"),
     };
-    let style_path = std::env::var("V8_STYLE_PATH").unwrap_or_else(|_| {
-        "/home/chenzongwei/database/barra/barra_daily_together_jason.parquet".to_string()
+    let style_vars_dir = std::env::var("V8_STYLE_PATH").unwrap_or_else(|_| {
+        "/ssd_data/data/vars".to_string()
     });
-    let style = match IOOptimizedStyleData::load_from_parquet_io_optimized(&style_path) {
+    let style = match IOOptimizedStyleData::load_from_vars_h5(&style_vars_dir) {
         Ok(s) => s,
         Err(e) => return format!("[neu_style] 加载风格数据失败: {e}"),
     };

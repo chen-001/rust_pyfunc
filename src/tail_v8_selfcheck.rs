@@ -60,11 +60,11 @@ fn selfcheck_neu(data_dir: &str) -> String {
     };
     let restrict: Array2<f32> = read_npy(format!("{data_dir}/restrict.npy")).unwrap();
     let industry: Array2<f64> = read_npy(format!("{data_dir}/industry.npy")).unwrap();
-    let style_path = std::env::var("V8_STYLE_PATH").unwrap_or_else(|_| {
-        "/home/chenzongwei/database/barra/barra_daily_together_jason.parquet".to_string()
+    let style_vars_dir = std::env::var("V8_STYLE_PATH").unwrap_or_else(|_| {
+        "/ssd_data/data/vars".to_string()
     });
     let style = match crate::factor_neutralization_io_optimized::IOOptimizedStyleData::
-        load_from_parquet_io_optimized(&style_path)
+        load_from_vars_h5(&style_vars_dir)
     {
         Ok(s) => s,
         Err(e) => return format!("[neu] 加载风格数据失败: {e}"),
