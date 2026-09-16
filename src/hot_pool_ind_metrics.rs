@@ -26,9 +26,8 @@ use ndarray::Array2;
 use pyo3::prelude::*;
 use rayon::prelude::*;
 
-/// 申万一级行业静态映射（每股最后有效行业归属，6 位码 // 10000 → 1..31）。
-const IND_CSV_PATH: &str = "/hdd/user_home_unsafe/chenzongwei/sw_ind_l1.csv";
-
+/// 申万一级行业：按天从 `{vars_root}/SzBa/industry.h5` 取（见 crate::yupei_dist::industry）。
+/// 不要再用静态映射表——行业归属会随时间变，静态表等于把未来的归属用到历史每一天上。
 const HIST_WIN: usize = 120;
 const Z_THRESH: f64 = 1.5;
 
@@ -46,22 +45,12 @@ pub const N_FACTORS: usize = 4 * 2 * G1_PER
     + 4 * 2 * G4_REDUCED_PER
     + 4 * G4_COOC_PER; // 840+720+24+6720+352 = 8656
 
-fn load_industry() -> std::collections::HashMap<String, u8> {
-    let mut m = std::collections::HashMap::new();
-    if let Ok(content) = std::fs::read_to_string(IND_CSV_PATH) {
-        for line in content.lines().skip(1) {
-            let line = line.trim();
-            if line.is_empty() {
-                continue;
-            }
-            if let Some((code, ind)) = line.split_once(',') {
-                if let Ok(v) = ind.trim().parse::<i32>() {
-                    m.insert(code.trim().to_string(), v.clamp(0, 31) as u8);
-                }
-            }
-        }
-    }
-    m
+/// 当日每只股票的申万一级行业号（0 = 未知，与 hot_stock_pool 的「无行业」约定一致）。
+fn industry_of_day(date: i64, codes: &[String]) -> std::io::Result<Vec<u8>> {
+    Ok(crate::yupei_dist::industry::industry_of(date, codes)?
+        .into_iter()
+        .map(|v| if v < 1 { 0 } else { v as u8 })
+        .collect())
 }
 
 type Feat40 = [f32; FEAT_PER_INCLUSION];
@@ -807,19 +796,19 @@ fn g3_heat(
 
 /// 主入口：读盘 → 计算 8656 个补充因子 → (codes, vals row-major)
 pub fn compute_hot_pool_ind_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f32>)> {
-    let ind_map = load_industry();
     let codes = list_codes(date, "transaction");
     if codes.is_empty() {
         return Ok((vec![], vec![]));
     }
+    let inds = industry_of_day(date, &codes)?;
 
     // ① rayon 并行读全市场逐笔 + per-stock 构建数据（含行业）
     let stocks: Vec<Option<StockData>> = codes
         .par_iter()
-        .map(|code| {
-            let ind = *ind_map.get(code).unwrap_or(&0);
+        .enumerate()
+        .map(|(i, code)| {
             let trades = read_trade_fast_inner(code, date, false, true, usize::MAX).ok()?;
-            build_stock_data(code, date, ind, &trades)
+            build_stock_data(code, date, inds[i], &trades)
         })
         .collect();
 
