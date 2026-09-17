@@ -120,16 +120,17 @@ _active_pids_lock = threading.Lock()
 # 规则：中文字符数 >= 1，且 >= 英文/数字字符数的一半（即中文至少占文字内容 1/3），
 # 如「挂单猫0701」「交友软件_v2」合规；「run_urgency_v2_baseline」不含中文，拒绝。
 # 下划线/连字符/空格/括号等分隔符不计数（允许但不算主体）。
-# 例外：hm 系列因子约定命名，两种形式同样合规：
+# 例外：hm 系列因子约定命名，三种形式同样合规：
 #   ① hm+数字        （如 hm100、hm89、hm134）
 #   ② hm+数字+_ind   （如 hm100_ind、hm134_ind、hm89_ind）
+#   ③ hm+数字+_ssm   （如 hm100_ssm，双边单调度 SSM 选因子的版本）
 _CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 _ASCII_WORD_RE = re.compile(r"[A-Za-z0-9]")
-_HM_NAME_RE = re.compile(r"^hm\d+(_ind)?$", re.IGNORECASE)
+_HM_NAME_RE = re.compile(r"^hm\d+(_ind|_ssm)?$", re.IGNORECASE)
 
 
 def validate_chinese_name(name: str) -> str | None:
-    """校验任务名以中文为主体（例外：hm+数字 / hm+数字_ind）。返回 None=合规，否则返回不合规原因。"""
+    """校验任务名以中文为主体（例外：hm+数字 / hm+数字_ind / hm+数字_ssm）。返回 None=合规，否则返回不合规原因。"""
     if _HM_NAME_RE.match(name):
         return None
     cjk = len(_CJK_RE.findall(name))
@@ -888,6 +889,70 @@ def _pid_belongs_to_script(pid: int, script_path: str) -> bool:
         return False
 
 
+def _task_process_alive(task_id: int, pid: int, script_path: str) -> bool:
+    """任务的子进程是否真的还在跑（防 PID 复用）。
+
+    daemon 重启后内存里的 _active_processes 是空的，只能凭 DB 里持久化的 pid
+    判断。pid 在重启后可能已被系统分给别的进程，所以不能只 os.kill(pid, 0)：
+    先核对 /proc/<pid>/cmdline 确实是本任务的脚本（口径同 cancel_task 的
+    「防 PID 复用误杀」），再探活，两者都满足才算活着。
+    """
+    with _active_pids_lock:
+        proc = _active_processes.get(task_id)
+    if proc is not None:
+        return proc.poll() is None
+    if pid <= 0:
+        return False
+    if not _pid_belongs_to_script(pid, script_path):
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except (ProcessLookupError, PermissionError, OSError):
+        return False
+
+
+def _reconcile_running_tasks() -> list[tuple[int, int]]:
+    """启动对账：把 status='running' 但进程已消失的行标成 failed。
+
+    daemon 重启会丢掉内存里的 _active_processes，而重启恢复只扫 pending，
+    于是「进程早就跑完/消失了」的行会永远停在 running。并发上限为 null 时
+    只是显示错误；一旦设了 max_concurrent，这行会永久占住一个配额，队列卡死。
+    这里按 pid + /proc cmdline 逐行核对，只改真正没有进程的行，并补 finished_at。
+    UPDATE 带 status='running' 条件，重复启动不会碰 completed/failed/cancelled 的行。
+
+    返回被改掉的行 [(task_id, pid), ...]（进程仍活着的行不动，保持 running）。
+    """
+    with _db_lock:
+        db = get_db()
+        rows = db.execute(
+            "SELECT id, pid, script_path FROM tasks WHERE status='running'"
+        ).fetchall()
+        db.close()
+    reconciled: list[tuple[int, int]] = []
+    for row in rows:
+        pid = row["pid"] or 0
+        # 探活在 _db_lock 外做：与 list_tasks 的注释同理，避免持锁期间再取锁
+        if _task_process_alive(row["id"], pid, row["script_path"]):
+            continue
+        with _db_lock:
+            db = get_db()
+            cur = db.execute(
+                "UPDATE tasks SET status='failed', finished_at=?, error=?"
+                " WHERE id=? AND status='running'",
+                (
+                    datetime.now(timezone.utc).isoformat(),
+                    f"守护进程重启后进程已消失（pid={pid}），标记为 failed",
+                    row["id"],
+                ),
+            )
+            db.commit()
+            db.close()
+        if cur.rowcount == 1:
+            reconciled.append((row["id"], pid))
+    return reconciled
+
+
 def _is_process_active(task_id: int) -> bool:
     with _active_pids_lock:
         proc = _active_processes.get(task_id)
@@ -942,6 +1007,9 @@ def main():
         _save_config()
 
     init_db(args.db)
+    # 启动对账：重启前遗留的 running 行若进程已消失，标成 failed。
+    # 必须在调度线程启动前做，否则这些行会先按 running 占掉并发配额。
+    _reconcile_running_tasks()
     # 启动队列调度线程：重启后 pending 任务自动恢复调度
     threading.Thread(target=_scheduler_loop, daemon=True).start()
     uvicorn.run(app, host=args.host, port=args.port, reload=args.reload)
