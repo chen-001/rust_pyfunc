@@ -379,11 +379,25 @@ def _scheduler_tick() -> None:
         ).start()
 
 
+# 周期性对账的间隔与最小年龄门槛（见 _scheduler_loop 里的说明）。
+# 最小年龄要明显大于 launch_task「先写 running/pid=0、再 Popen、再填 pid」这段窗口。
+_RECONCILE_INTERVAL_SEC = 30.0
+_RECONCILE_MIN_AGE_SEC = 300.0
+
+
 def _scheduler_loop() -> None:
     """常驻调度线程：每 1 秒补一轮，覆盖 daemon 重启后的 pending 恢复
     与运行中任务退出后的补位（运行中的任务退出 → 下一 tick 空出配额 → 排队任务顶上）。"""
+    last_reconcile = 0.0
     while True:
         try:
+            # 周期性对账：启动时那次只能处理「重启那一刻进程就已经没了」的行。
+            # 上一个 daemon 启动、重启时进程还活着、之后才退出的任务（本进程没有它的
+            # Popen 句柄，wait() 不会被触发）只能靠这里补上，否则那行永远停在 running。
+            now = time.time()
+            if now - last_reconcile >= _RECONCILE_INTERVAL_SEC:
+                last_reconcile = now
+                _reconcile_running_tasks(min_age_sec=_RECONCILE_MIN_AGE_SEC)
             _scheduler_tick()
         except Exception:
             pass
@@ -912,25 +926,38 @@ def _task_process_alive(task_id: int, pid: int, script_path: str) -> bool:
         return False
 
 
-def _reconcile_running_tasks() -> list[tuple[int, int]]:
-    """启动对账：把 status='running' 但进程已消失的行标成 failed。
+def _reconcile_running_tasks(min_age_sec: float = 0.0) -> list[tuple[int, int]]:
+    """对账：把 status='running' 但进程已消失的行标成 failed。
 
     daemon 重启会丢掉内存里的 _active_processes，而重启恢复只扫 pending，
     于是「进程早就跑完/消失了」的行会永远停在 running。并发上限为 null 时
     只是显示错误；一旦设了 max_concurrent，这行会永久占住一个配额，队列卡死。
     这里按 pid + /proc cmdline 逐行核对，只改真正没有进程的行，并补 finished_at。
-    UPDATE 带 status='running' 条件，重复启动不会碰 completed/failed/cancelled 的行。
+    UPDATE 带 status='running' 条件，重复调用不会碰 completed/failed/cancelled 的行。
+
+    min_age_sec：只对「启动至今超过这么多秒」的行做判断。调度线程周期调用时必须给一个
+    正值——launch_task 是先写 status='running'/pid=0、再 Popen、最后才把 pid 和内存句柄
+    填上，中间有个很短的窗口期，pid=0 且不在内存表里，会被误判成「进程已消失」。
+    启动时调用（没有任何任务在启动）用默认 0 即可。
 
     返回被改掉的行 [(task_id, pid), ...]（进程仍活着的行不动，保持 running）。
     """
+    now = datetime.now(timezone.utc)
     with _db_lock:
         db = get_db()
         rows = db.execute(
-            "SELECT id, pid, script_path FROM tasks WHERE status='running'"
+            "SELECT id, pid, script_path, started_at FROM tasks WHERE status='running'"
         ).fetchall()
         db.close()
     reconciled: list[tuple[int, int]] = []
     for row in rows:
+        if min_age_sec > 0 and row["started_at"]:
+            try:
+                age = (now - datetime.fromisoformat(row["started_at"])).total_seconds()
+            except ValueError:
+                age = min_age_sec
+            if age < min_age_sec:
+                continue
         pid = row["pid"] or 0
         # 探活在 _db_lock 外做：与 list_tasks 的注释同理，避免持锁期间再取锁
         if _task_process_alive(row["id"], pid, row["script_path"]):
