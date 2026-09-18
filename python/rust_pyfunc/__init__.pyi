@@ -807,6 +807,16 @@ def compute_agent_validation_factors_py(
     ...
 
 
+def tail_brc_halves_f32(signal: List[float], future: List[float]) -> Tuple[float, float]:
+    """Balanced Rank Concordance 的单日「半段均值」（调试/独立验证用，不经过回测引擎）。
+
+    返回 (S_t, L_t)：按因子升序把股票切成低/高两半，D_k 是第 k 个切点的标准化秩和偏离，
+    S_t = mean_{k=1..floor(n/2)} D_k（从低端切），L_t = mean_{k=1..floor(n/2)} D_{n-k}（从高端切）。
+    值域都是 [-1, 1]，D_k > 0 表示因子低值对应低收益。n < 2 或输入含 NaN/Inf 时返回 (nan, nan)。
+    """
+    ...
+
+
 def tail_backtest_engine(
     colblk_store_dir: str,
     factor_names: List[str],
@@ -919,6 +929,7 @@ __all__ = [
     "factor_store_v5_export_factors_parquet",
     "factor_store_v5_verify_scatter_fast",
     "tail_backtest_engine",
+    "tail_brc_halves_f32",
     # Pandas扩展函数
     "dataframe_corrwith",
     "dataframe_corrwith_single_thread",

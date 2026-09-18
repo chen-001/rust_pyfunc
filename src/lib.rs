@@ -683,6 +683,10 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         m
     )?);
     let _ = m.add_function(wrap_pyfunction!(
+        tail_v5_pipeline::tail_brc_halves_f32,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
         tail_v8_selfcheck::tail_v8_selfcheck,
         m
     )?);

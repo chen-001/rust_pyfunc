@@ -10,11 +10,12 @@
 //! - `local_t % gap == 0` 时刷新 held 行 = t-1；held 行的 slot 值缓存进 `held_signal`
 //!   （held 行可能落在上一块），restrict 行直接读全局矩阵。
 //! - `(local_t+1) % gap == 0` 时算 IC：收益秩走 `pre.orders_*[t]` 的 gen/stamp walk，
-//!   信号秩用 `rank_both_radix`（同一次排序同时出 ordinal 秩与平均秩）。
+//!   信号秩用 `rank_both_radix`（同一次排序同时出 ordinal 秩与平均秩）；同一天再按
+//!   `filtered_stock_idx` 顺序收集 `ret_sum` 子集算 BRC 的 `(S_t, L_t)` 并累加。
 //! - `stocks_num < portf_num` → `continue`（该日 group_returns 记 0.0、ratio 记 NaN）。
 //! - `has_enough_unique_values`：扫 raw_idx ∈ 0..T-1 的有限值，够 10 个不同值即短路；
 //!   不足则整面返回默认结果（全 NaN summary + 空 IC）。
-//! - summary 12 项分 ic_only / 非 ic_only 两条路径，与生产逐语句相同。
+//! - summary 15 项分 ic_only / 非 ic_only 两条路径，与生产逐语句相同。
 //!
 //! 自测：`rp.tail_v8_selfcheck("bt", data_dir)`。
 
@@ -23,9 +24,9 @@ use std::cell::RefCell;
 use ndarray::{Array1, Array2, ArrayView2};
 
 use crate::tail_v5_pipeline::{
-    annualized_sharpe_sample, compute_mprob, compute_ssm, default_legacy_backtest_result,
-    max_drawdown_from_returns, nanmean_f64, nanstd_population, rank_both_radix_into, BtPrecomputed,
-    LegacyBacktestResult, EPS,
+    annualized_sharpe_sample, brc_day_halves_from_ranks_into, compute_mprob, compute_ssm,
+    default_legacy_backtest_result, finalize_brc, max_drawdown_from_returns, nanmean_f64,
+    nanstd_population, rank_both_radix_into, BrcBuffers, BtPrecomputed, LegacyBacktestResult, EPS,
 };
 
 /// 「市场有效谓词」位图缓存（线程局部，跨累积器复用）。
@@ -129,6 +130,15 @@ pub struct BtAcc<'a> {
     filtered_signal: Vec<f32>,
     filtered_ret: Vec<f32>,
     filtered_stock_idx: Vec<u32>,
+    /// BRC 专用：IC 采样格点上按 `filtered_stock_idx` 顺序收集的 `ret_sum` 子集
+    /// （元素序与生产 opt 路径的 `filtered_future` 一致）。
+    filtered_future: Vec<f32>,
+    /// BRC 逐日 (S_t, L_t) 的累加（与 IC 同一批日子）
+    brc_s_sum: f64,
+    brc_l_sum: f64,
+    brc_days: usize,
+    /// BRC 的复用缓冲（跨日复用，热路径零堆分配）
+    brc_buf: BrcBuffers,
     group_sums: Vec<f64>,
     group_counts: Vec<usize>,
     sig_buf: Vec<f32>,
@@ -171,6 +181,11 @@ impl<'a> BtAcc<'a> {
             filtered_signal: Vec::with_capacity(n_stocks),
             filtered_ret: Vec::with_capacity(n_stocks),
             filtered_stock_idx: Vec::with_capacity(n_stocks),
+            filtered_future: Vec::with_capacity(n_stocks),
+            brc_s_sum: 0.0,
+            brc_l_sum: 0.0,
+            brc_days: 0,
+            brc_buf: BrcBuffers::default(),
             group_sums: vec![0.0; portf_num],
             group_counts: vec![0; portf_num],
             sig_buf: vec![f32::NAN; n_stocks],
@@ -322,6 +337,14 @@ impl<'a> BtAcc<'a> {
 
             let mut ranked_this_row = false;
             if (local_t + 1) % gap == 0 {
+                // BRC 输入：按 filtered_stock_idx 顺序取当日 ret_sum 子集
+                // （与生产 opt 路径 filtered_future 的取值与顺序一致）。
+                let ret_sum_arr: &Array2<f32> = self.ctx.ret_sum;
+                let ret_sum_row = ret_sum_arr.row(t);
+                self.filtered_future.clear();
+                for &stk in self.filtered_stock_idx.iter() {
+                    self.filtered_future.push(ret_sum_row[stk as usize]);
+                }
                 // 收益秩：预排序全行 walk 出子集 ordinal 秩
                 self.gen_id += 1;
                 let gen_id = self.gen_id;
@@ -365,6 +388,19 @@ impl<'a> BtAcc<'a> {
                 self.ic_dates.push(self.ctx.dates[t]);
                 self.ic_values_f64.push(ic_value);
                 self.ic_values_f32.push(ic_value as f32);
+                // BRC 快速路径：signal ordinal（rank_ordinal）与 ret_sum 子集 ordinal
+                // （walk_buf，上面刚 walk 出来）都是现成的 → 不排序、不分配。
+                let (s_t, l_t) = brc_day_halves_from_ranks_into(
+                    &self.rank_ordinal,
+                    &self.walk_buf,
+                    &self.filtered_future,
+                    &mut self.brc_buf,
+                );
+                if s_t.is_finite() && l_t.is_finite() {
+                    self.brc_s_sum += s_t;
+                    self.brc_l_sum += l_t;
+                    self.brc_days += 1;
+                }
             }
 
             let stocks_num = self.filtered_signal.len();
@@ -442,6 +478,7 @@ impl<'a> BtAcc<'a> {
         } else {
             ic_mean.abs() / ic_std * (250.0 / gap as f64).sqrt()
         };
+        let (brc_s, brc_l, brc) = finalize_brc(self.brc_s_sum, self.brc_l_sum, self.brc_days);
         let summary = if self.ctx.ic_only {
             [
                 ic_mean,
@@ -456,6 +493,9 @@ impl<'a> BtAcc<'a> {
                 0.0,
                 f64::NAN,
                 f64::NAN,
+                brc,
+                brc_s,
+                brc_l,
             ]
         } else {
             let first_leg_cum = self.group_returns[0].iter().sum::<f64>();
@@ -486,6 +526,9 @@ impl<'a> BtAcc<'a> {
                 max_drawdown_from_returns(&hedge_returns),
                 compute_ssm(&self.group_returns, portf_num),
                 compute_mprob(&self.group_returns, portf_num),
+                brc,
+                brc_s,
+                brc_l,
             ]
         };
         LegacyBacktestResult { summary, ic_dates: self.ic_dates, ic_values: self.ic_values_f32 }
@@ -574,8 +617,9 @@ pub fn selfcheck(data_dir: &str) -> String {
                 for (tag, got, wantr) in [("gap1", &g1, &want.0), ("gap5", &g5, &want.1)] {
                     n_cmp += 1;
                     let mut bad = 0usize;
-                    // 0..12：含新增的 SSM（下标 10）与 MPROB（下标 11），v8 融合路径与生产 opt 路径必须逐位一致。
-                    for i in 0..12 {
+                    // 0..15：含 SSM（下标 10）、MPROB（下标 11）与 BRC/BRC_S/BRC_L（12/13/14），
+                    // v8 融合路径与生产 opt 路径必须逐位一致。
+                    for i in 0..15 {
                         let (p, q) = (got.summary[i], wantr.summary[i]);
                         let same = (p.is_nan() && q.is_nan()) || p.to_bits() == q.to_bits();
                         if !same {

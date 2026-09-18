@@ -433,6 +433,15 @@ pub(crate) struct SummaryRowRecord {
     /// 概率版双边单调度 MPROB。ic_only 模式或旧缓存回读时为 NaN。
     #[serde(rename = "MPROB", default = "default_nan_f64")]
     pub(crate) mprob: f64,
+    /// Balanced Rank Concordance = min(BRC_S, BRC_L)。无可用日时为 NaN。
+    #[serde(rename = "BRC", default = "default_nan_f64")]
+    pub(crate) brc: f64,
+    /// BRC 的「从低端切」半段均值 BRC_S。
+    #[serde(rename = "BRC_S", default = "default_nan_f64")]
+    pub(crate) brc_s: f64,
+    /// BRC 的「从高端切」半段均值 BRC_L。
+    #[serde(rename = "BRC_L", default = "default_nan_f64")]
+    pub(crate) brc_l: f64,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -541,9 +550,10 @@ impl AggregatedCandidates {
 #[derive(Clone)]
 pub(crate) struct LegacyBacktestResult {
     /// 前 10 个是历史字段（IC_mean/IR/annualized_return/.../hedge_max_drawdown），
-    /// 第 11 个（下标 10）是双边单调度 SSM，第 12 个（下标 11）是概率版 MPROB；
-    /// ic_only 模式下没有组收益，两者都填 NaN。
-    pub(crate) summary: [f64; 12],
+    /// 第 11 个（下标 10）是双边单调度 SSM，第 12 个（下标 11）是概率版 MPROB，
+    /// 第 13/14/15 个（下标 12/13/14）是 BRC / BRC_S / BRC_L。
+    /// ic_only 模式下没有组收益，SSM/MPROB 填 NaN；BRC 不依赖十分组收益，两种模式都算。
+    pub(crate) summary: [f64; 15],
     pub(crate) ic_dates: Vec<i32>,
     pub(crate) ic_values: Vec<f32>,
 }
@@ -943,7 +953,7 @@ pub(crate) struct PreflightReport {
 
 pub(crate) fn default_legacy_backtest_result() -> LegacyBacktestResult {
     LegacyBacktestResult {
-        summary: [f64::NAN; 12],
+        summary: [f64::NAN; 15],
         ic_dates: Vec::new(),
         ic_values: Vec::new(),
     }
@@ -1124,6 +1134,240 @@ pub(crate) fn compute_mprob(group_returns: &[Vec<f64>], portf_num: usize) -> f64
         }
     }
     acc / 45.0
+}
+
+/// Balanced Rank Concordance（BRC）的单日「半段均值」，返回 `(S_t, L_t)`。
+///
+/// 输入是某一天的**有效股票子集**：`signal` = 因子值 f，`future` = 未来收益 r
+/// （与 Rank IC 同一目标，即 `ret_sum`），长度 n。定义（n = 子集长度）：
+///
+/// ```text
+/// 1. r 转升序平均秩 R（并列取平均秩，取值 1..n）；
+/// 2. 按下标稳定排序 f 得 order（f 并列时保持原始下标顺序）；
+/// 3. W_k = Σ_{i<k} R[order[i]]，U_k = W_k - k(k+1)/2，
+///    D_k = 1 - 2·U_k/(k·(n-k))，k = 1..n-1；
+///    D_k = 2·A_k - 1，A_k = P(r_i < r_j | i 在低 factor 组、j 在高 factor 组)；
+/// 4. m = floor(n/2)，S_t = mean_{k=1..m} D_k，L_t = mean_{k=1..m} D_{n-k}。
+/// ```
+///
+/// S_t 只看「从低端切」，L_t 只看「从高端切」（两者共用同一个 f 升序排列）。值域都是
+/// [-1, 1]：U_k = 0（低 factor 组的收益秩恰好是最小的 k 个）时 D_k = 1，
+/// U_k = k(n-k)（完全反序）时 D_k = -1。
+///
+/// **不做任何「整条曲线取负」的定向处理**：D_k > 0 表示因子低值对应低收益。
+/// 两条取负恒等式：
+/// - 把 r 取负：每个 D_k 严格反号 → `(S_t, L_t) → (-S_t, -L_t)`；
+/// - 把 f 取负（因子序整体反转）：`(S_t, L_t) → (-L_t, -S_t)`。
+///
+/// 两者都让 `min(S_t, L_t) → -max(S_t, L_t)`。
+///
+/// 复杂度 O(n log n)：两次排序（r 的平均秩、f 的稳定序），D 的累加是 O(n) 一趟。
+/// 无法计算时返回 `(NaN, NaN)`：n < 2、两侧长度不等、或任一输入含 NaN/±Inf。
+///
+/// 实现走复用缓冲 + radix（[`brc_day_halves_into`]），结果与旧版（每次新建 Vec +
+/// 比较排序）逐位一致；`brc_day_halves` 只是「新建一次缓冲」的薄包装。
+pub(crate) fn brc_day_halves(signal: &[f32], future: &[f32]) -> (f64, f64) {
+    let mut buf = BrcBuffers::default();
+    brc_day_halves_into(signal, future, &mut buf)
+}
+
+/// 「未来收益升序平均秩」的 radix 缓冲（语义与 [`rank_both_radix_into`] 的五个参数一致）。
+/// 只给**没有 orders 的通用/参考路径**用；opt 与 v8 走 [`brc_day_halves_from_ranks_into`]，
+/// 不需要这些缓冲。
+#[derive(Default)]
+pub(crate) struct BrcRankBuffers {
+    keys: Vec<u32>,
+    order: Vec<usize>,
+    tmp: Vec<usize>,
+    ordinal: Vec<i64>,
+    avg: Vec<f64>,
+}
+
+/// BRC 单日计算的复用缓冲：跨日复用，热路径零堆分配。
+///
+/// - `rank`：通用路径（无 orders，参考实现/pyfunction）的 radix 秩缓冲；
+/// - `factor_order`：signal 升序稳定序（下标，长度 n）；
+/// - `future_order` / `future_avg`：快速路径（opt/v8）由 walk 的 ordinal 秩逆置换 +
+///   并列段取平均得到的 future 平均秩。
+#[derive(Default)]
+pub(crate) struct BrcBuffers {
+    rank: BrcRankBuffers,
+    factor_order: Vec<u32>,
+    future_order: Vec<u32>,
+    future_avg: Vec<f64>,
+}
+
+/// W_k / D_k 收口（两条路径共用同一份累加，保证逐位一致）。
+///
+/// 一趟扫 k = 1..n-1：W_k 递推，k ≤ m 进 S，k ≥ n-m 进 L（L 的第 k 项是 D_{n-k}）。
+#[inline]
+fn brc_halves_from_orders(factor_order: &[u32], future_avg: &[f64]) -> (f64, f64) {
+    let n = factor_order.len();
+    let nf = n as f64;
+    let m = n / 2;
+    let mut w = 0.0_f64;
+    let mut s_sum = 0.0_f64;
+    let mut l_sum = 0.0_f64;
+    for k in 1..n {
+        w += future_avg[factor_order[k - 1] as usize];
+        let kf = k as f64;
+        let u = w - kf * (kf + 1.0) / 2.0;
+        let d = 1.0 - 2.0 * u / (kf * (nf - kf));
+        if k <= m {
+            s_sum += d;
+        }
+        if k >= n - m {
+            l_sum += d;
+        }
+    }
+    let mf = m as f64;
+    (s_sum / mf, l_sum / mf)
+}
+
+/// 通用路径核心：给定「因子升序稳定序」`factor_order`（长度 n，元素是 0..n-1 的下标）
+/// 与 `future`，返回 `(S_t, L_t)`。future 的升序平均秩走 radix
+/// （[`rank_both_radix_into`]，已注明与 `average_ranks` 逐位一致）。
+fn brc_from_factor_order(
+    factor_order: &[u32],
+    future: &[f32],
+    rank_buf: &mut BrcRankBuffers,
+) -> (f64, f64) {
+    let n = future.len();
+    if n < 2 || factor_order.len() != n {
+        return (f64::NAN, f64::NAN);
+    }
+    if future.iter().any(|v| !v.is_finite()) {
+        return (f64::NAN, f64::NAN);
+    }
+    rank_both_radix_into(
+        future,
+        &mut rank_buf.keys,
+        &mut rank_buf.order,
+        &mut rank_buf.tmp,
+        &mut rank_buf.ordinal,
+        &mut rank_buf.avg,
+    );
+    brc_halves_from_orders(factor_order, &rank_buf.avg)
+}
+
+/// 秩→下标逆置换（O(n)）：把 ordinal 秩转成升序下标序，写进 `order`。
+/// ordinal 越界时返回 false（调用方按「该日不可算」处理）。
+#[inline]
+fn invert_ordinal_into(ordinal: &[i64], n: usize, order: &mut Vec<u32>) -> bool {
+    order.clear();
+    order.resize(n, 0u32);
+    for (idx, &rank) in ordinal.iter().enumerate() {
+        let r = rank as usize;
+        if rank < 0 || r >= n {
+            return false;
+        }
+        order[r] = idx as u32;
+    }
+    true
+}
+
+/// 复用缓冲版：由 `(signal, future)` 算单日 `(S_t, L_t)`，不新建任何堆缓冲。
+///
+/// 与旧实现逐位一致：因子升序稳定序与 future 的平均秩都走 radix
+/// （[`rank_both_radix_into`] 与 `average_ranks` / `(值, index)` 稳定序逐位一致）。
+pub(crate) fn brc_day_halves_into(
+    signal: &[f32],
+    future: &[f32],
+    buf: &mut BrcBuffers,
+) -> (f64, f64) {
+    let n = signal.len();
+    if n < 2 || future.len() != n {
+        return (f64::NAN, f64::NAN);
+    }
+    if signal.iter().any(|v| !v.is_finite()) || future.iter().any(|v| !v.is_finite()) {
+        return (f64::NAN, f64::NAN);
+    }
+    rank_both_radix_into(
+        signal,
+        &mut buf.rank.keys,
+        &mut buf.rank.order,
+        &mut buf.rank.tmp,
+        &mut buf.rank.ordinal,
+        &mut buf.rank.avg,
+    );
+    if !invert_ordinal_into(&buf.rank.ordinal, n, &mut buf.factor_order) {
+        return (f64::NAN, f64::NAN);
+    }
+    let factor_order: &[u32] = &buf.factor_order;
+    brc_from_factor_order(factor_order, future, &mut buf.rank)
+}
+
+/// **快速路径（opt / v8 生产用）**：signal 与 future 的子集 ordinal 秩都已由引擎现成给出，
+/// BRC 不再做任何排序、不新建任何堆缓冲，每日只多一趟 O(n)。
+///
+/// - `signal_ordinal[i]` = 子集第 i 位股票在 signal 升序里的位置（0..n-1，来自
+///   [`rank_both_radix_into`] 的输出）；
+/// - `future_ordinal[i]` = 同上，但按 ret_sum 升序（来自 `orders[raw_eff_idx]` 的
+///   gen/stamp walk，见 `legacy_backtest_single_factor_with_effective_opt`）；
+/// - `future[i]` = 子集的 ret_sum 值，只用于「并列段」判定。
+///
+/// future 的平均秩由 `future_ordinal` 逆置换出升序下标序后，对连续等值段取
+/// `(start+1+end)/2` —— 与 [`average_ranks`] 的 `(值, index)` 稳定序 + 等值段取平均
+/// **逐位相同**（orders 就是按 (值, index) 预排序的，子集内并列段连续且组内 ordinal 连续）。
+/// 调用方保证 signal 全有限（回测过滤已保证），`future` 的非有限判定在这里做。
+pub(crate) fn brc_day_halves_from_ranks_into(
+    signal_ordinal: &[i64],
+    future_ordinal: &[i64],
+    future: &[f32],
+    buf: &mut BrcBuffers,
+) -> (f64, f64) {
+    let n = future.len();
+    if n < 2 || signal_ordinal.len() != n || future_ordinal.len() != n {
+        return (f64::NAN, f64::NAN);
+    }
+    if future.iter().any(|v| !v.is_finite()) {
+        return (f64::NAN, f64::NAN);
+    }
+    if !invert_ordinal_into(signal_ordinal, n, &mut buf.factor_order) {
+        return (f64::NAN, f64::NAN);
+    }
+    if !invert_ordinal_into(future_ordinal, n, &mut buf.future_order) {
+        return (f64::NAN, f64::NAN);
+    }
+    // 并列段取平均秩：与 average_ranks 的等值段分组（f32 ==）和 (start+1+end)/2 完全同式。
+    buf.future_avg.clear();
+    buf.future_avg.resize(n, f64::NAN);
+    let mut start = 0usize;
+    while start < n {
+        let value = future[buf.future_order[start] as usize];
+        let mut end = start + 1;
+        while end < n && future[buf.future_order[end] as usize] == value {
+            end += 1;
+        }
+        let avg_rank = (start + 1 + end) as f64 / 2.0;
+        for k in start..end {
+            let idx = buf.future_order[k] as usize;
+            buf.future_avg[idx] = avg_rank;
+        }
+        start = end;
+    }
+    let factor_order: &[u32] = &buf.factor_order;
+    let future_avg: &[f64] = &buf.future_avg;
+    brc_halves_from_orders(factor_order, future_avg)
+}
+
+/// 把逐日 `(S_t, L_t)` 的累加和收口成 `(BRC_S, BRC_L, BRC)`。
+///
+/// `days` 是可计算的天数（[`brc_day_halves`] 返回有限值的天数）；一天都没有时三列都是 NaN。
+/// `BRC = min(BRC_S, BRC_L)`，与 SSM/MPROB 不同，这里不做定向，取两个半段的保守下界。
+pub(crate) fn finalize_brc(s_sum: f64, l_sum: f64, days: usize) -> (f64, f64, f64) {
+    if days == 0 {
+        return (f64::NAN, f64::NAN, f64::NAN);
+    }
+    let brc_s = s_sum / days as f64;
+    let brc_l = l_sum / days as f64;
+    (brc_s, brc_l, brc_s.min(brc_l))
+}
+
+/// 调试/独立验证用：直接调 [`brc_day_halves`]（不经过回测引擎）。
+#[pyfunction]
+pub fn tail_brc_halves_f32(signal: Vec<f32>, future: Vec<f32>) -> (f64, f64) {
+    brc_day_halves(&signal, &future)
 }
 
 fn effective_raw_indices_for_slot(
@@ -1366,6 +1610,11 @@ fn legacy_backtest_single_factor_with_effective(
     let mut group_counts = vec![0usize; portf_num];
     let mut held_signal_row_idx = effective_raw_indices[0] - 1;
     let mut held_restrict_row_idx = effective_raw_indices[0] - 1;
+    // BRC：IC 采样格点上逐日 (S_t, L_t) 的累加（与 IC 同一批日子）。
+    let mut brc_s_sum = 0.0_f64;
+    let mut brc_l_sum = 0.0_f64;
+    let mut brc_days = 0usize;
+    let mut brc_buf = BrcBuffers::default();
 
     for (local_t, &raw_eff_idx) in effective_raw_indices.iter().enumerate() {
         if local_t % gap == 0 {
@@ -1393,6 +1642,12 @@ fn legacy_backtest_single_factor_with_effective(
             ic_dates.push(dates[raw_eff_idx]);
             ic_values_f64.push(ic_value);
             ic_values_f32.push(ic_value as f32);
+            let (s_t, l_t) = brc_day_halves_into(&filtered_signal, &filtered_future, &mut brc_buf);
+            if s_t.is_finite() && l_t.is_finite() {
+                brc_s_sum += s_t;
+                brc_l_sum += l_t;
+                brc_days += 1;
+            }
         }
 
         let stocks_num = filtered_signal.len();
@@ -1440,10 +1695,12 @@ fn legacy_backtest_single_factor_with_effective(
     } else {
         ic_mean.abs() / ic_std * (250.0 / gap as f64).sqrt()
     };
+    let (brc_s, brc_l, brc) = finalize_brc(brc_s_sum, brc_l_sum, brc_days);
     let summary = if ic_only {
         // ic_only 模式：跳过收益回测（十分组/多空组合），收益字段填 0.0
         // （该模式下无意义；serde_json 拒绝 NaN，故不用 NaN 占位）。
-        // 末尾两项（下标 10 SSM、11 MPROB）没有组收益可算，填 NaN。
+        // 末尾两项（下标 10 SSM、11 MPROB）没有组收益可算，填 NaN；
+        // BRC 三列不依赖十分组收益，两种模式都算且逐位相同。
         [
             ic_mean,
             ir,
@@ -1457,6 +1714,9 @@ fn legacy_backtest_single_factor_with_effective(
             0.0,
             f64::NAN,
             f64::NAN,
+            brc,
+            brc_s,
+            brc_l,
         ]
     } else {
         let first_leg_cum = group_returns[0].iter().sum::<f64>();
@@ -1489,6 +1749,9 @@ fn legacy_backtest_single_factor_with_effective(
             max_drawdown_from_returns(&hedge_returns),
             compute_ssm(&group_returns, portf_num),
             compute_mprob(&group_returns, portf_num),
+            brc,
+            brc_s,
+            brc_l,
         ]
     };
     LegacyBacktestResult {
@@ -1538,6 +1801,9 @@ fn legacy_backtest_single_factor_with_effective_opt(
     let mut filtered_signal = Vec::<f32>::with_capacity(n_stocks);
     let mut filtered_ret = Vec::<f32>::with_capacity(n_stocks);
     let mut filtered_stock_idx = Vec::<u32>::with_capacity(n_stocks);
+    // BRC 专用：只在 IC 采样格点上按 filtered_stock_idx 顺序收集 ret_sum，
+    // 元素序与参考实现 filtered_future 完全一致（stock_idx 升序）。
+    let mut filtered_future = Vec::<f32>::with_capacity(n_stocks);
     let mut group_sums = vec![0.0_f64; portf_num];
     let mut group_counts = vec![0usize; portf_num];
     let mut held_signal_row_idx = effective_raw_indices[0] - 1;
@@ -1546,6 +1812,17 @@ fn legacy_backtest_single_factor_with_effective_opt(
     let mut stamp = vec![0u32; n_stocks];
     let mut walk_buf = Vec::<i64>::with_capacity(n_stocks);
     let mut gen_id: u32 = 0;
+    // 信号秩的复用缓冲（与 v8 累积器同一套写法：跨日复用，热路径零堆分配）。
+    let mut rk_keys = Vec::<u32>::new();
+    let mut rk_order = Vec::<usize>::new();
+    let mut rk_tmp = Vec::<usize>::new();
+    let mut rk_ordinal = Vec::<i64>::new();
+    let mut rk_avg = Vec::<f64>::new();
+    // BRC：IC 采样格点上逐日 (S_t, L_t) 的累加（与 IC 同一批日子）。
+    let mut brc_s_sum = 0.0_f64;
+    let mut brc_l_sum = 0.0_f64;
+    let mut brc_days = 0usize;
+    let mut brc_buf = BrcBuffers::default();
     let orders = if gap == 1 {
         &pre.orders_g1
     } else {
@@ -1572,11 +1849,17 @@ fn legacy_backtest_single_factor_with_effective_opt(
                 filtered_stock_idx.push(stock_idx as u32);
             }
         }
-        // O1b: 每日一次排序同时产出 ordinal 秩与平均秩。
-        // gap 日的排序结果供 IC 与十分组复用; 非 gap 日只排一次用于十分组。
-        let mut ord_signal: Option<Vec<i64>> = None;
-        let mut avg_signal: Option<Vec<f64>> = None;
-        if (local_t + 1) % gap == 0 {
+        // O1b: 每日一次排序同时产出 ordinal 秩与平均秩（缓冲复用，零堆分配）。
+        // gap 日的排序结果供 IC、BRC 与十分组复用; 非 gap 日只排一次用于十分组。
+        let ranked_this_row = (local_t + 1) % gap == 0;
+        if ranked_this_row {
+            // BRC 的输入：按 filtered_stock_idx 顺序取当日 ret_sum 子集
+            // （与参考实现 filtered_future 的取值与顺序一致）。
+            filtered_future.clear();
+            let ret_sum_row = ret_sum.row(raw_eff_idx);
+            for &stk in filtered_stock_idx.iter() {
+                filtered_future.push(ret_sum_row[stk as usize]);
+            }
             // 收益秩: 预排序全行 walk 出子集 ordinal 秩 (gen 代标记防跨日串扰)
             gen_id += 1;
             let order = &orders[raw_eff_idx];
@@ -1593,14 +1876,18 @@ fn legacy_backtest_single_factor_with_effective_opt(
                     counter += 1;
                 }
             }
-            let (xx, avg_now) = rank_both_radix(&filtered_signal);
-            ord_signal = Some(xx);
-            avg_signal = Some(avg_now);
-            let xx = ord_signal.as_ref().unwrap();
+            rank_both_radix_into(
+                &filtered_signal,
+                &mut rk_keys,
+                &mut rk_order,
+                &mut rk_tmp,
+                &mut rk_ordinal,
+                &mut rk_avg,
+            );
             let n = filtered_signal.len() as f64;
             let mut diff_sq_sum = 0.0;
             for idx in 0..filtered_signal.len() {
-                let diff = walk_buf[idx] - xx[idx];
+                let diff = walk_buf[idx] - rk_ordinal[idx];
                 diff_sq_sum += (diff * diff) as f64;
             }
             let ic_value = if n < 2.0 {
@@ -1611,6 +1898,19 @@ fn legacy_backtest_single_factor_with_effective_opt(
             ic_dates.push(dates[raw_eff_idx]);
             ic_values_f64.push(ic_value);
             ic_values_f32.push(ic_value as f32);
+            // BRC 走快速路径：signal 的 ordinal 秩（rk_ordinal）与 ret_sum 的子集 ordinal 秩
+            // （walk_buf，上面刚 walk 出来）都是现成的 → 不排序、不分配，只多一趟 O(n)。
+            let (s_t, l_t) = brc_day_halves_from_ranks_into(
+                &rk_ordinal,
+                &walk_buf,
+                &filtered_future,
+                &mut brc_buf,
+            );
+            if s_t.is_finite() && l_t.is_finite() {
+                brc_s_sum += s_t;
+                brc_l_sum += l_t;
+                brc_days += 1;
+            }
         }
         let stocks_num = filtered_signal.len();
         if stocks_num < portf_num {
@@ -1628,10 +1928,18 @@ fn legacy_backtest_single_factor_with_effective_opt(
         }
         group_sums.fill(0.0);
         group_counts.fill(0);
-        let (_, ranks) = match avg_signal {
-            Some(a) => (ord_signal.take().unwrap(), a),
-            None => rank_both_radix(&filtered_signal),
-        };
+        if !ranked_this_row {
+            // 非 gap 日：本行只做一次排序，结果直接用于十分组（与旧实现一致）。
+            rank_both_radix_into(
+                &filtered_signal,
+                &mut rk_keys,
+                &mut rk_order,
+                &mut rk_tmp,
+                &mut rk_ordinal,
+                &mut rk_avg,
+            );
+        }
+        let ranks: &[f64] = &rk_avg;
         for idx in 0..stocks_num {
             let pct = ranks[idx] / stocks_num as f64;
             let mut bucket = (pct * portf_num as f64).floor() as usize;
@@ -1657,6 +1965,7 @@ fn legacy_backtest_single_factor_with_effective_opt(
     } else {
         ic_mean.abs() / ic_std * (250.0 / gap as f64).sqrt()
     };
+    let (brc_s, brc_l, brc) = finalize_brc(brc_s_sum, brc_l_sum, brc_days);
     let summary = if ic_only {
         [
             ic_mean,
@@ -1671,6 +1980,9 @@ fn legacy_backtest_single_factor_with_effective_opt(
             0.0,
             f64::NAN,
             f64::NAN,
+            brc,
+            brc_s,
+            brc_l,
         ]
     } else {
         let first_leg_cum = group_returns[0].iter().sum::<f64>();
@@ -1701,6 +2013,9 @@ fn legacy_backtest_single_factor_with_effective_opt(
             max_drawdown_from_returns(&hedge_returns),
             compute_ssm(&group_returns, portf_num),
             compute_mprob(&group_returns, portf_num),
+            brc,
+            brc_s,
+            brc_l,
         ]
     };
     LegacyBacktestResult {
@@ -3130,6 +3445,9 @@ pub(crate) fn summary_from_row(
         hedge_max_drawdown: values[9],
         ssm: values.get(10).copied().unwrap_or(f64::NAN),
         mprob: values.get(11).copied().unwrap_or(f64::NAN),
+        brc: values.get(12).copied().unwrap_or(f64::NAN),
+        brc_s: values.get(13).copied().unwrap_or(f64::NAN),
+        brc_l: values.get(14).copied().unwrap_or(f64::NAN),
     }
 }
 
@@ -3453,6 +3771,9 @@ fn atomic_tmp_path(path: &Path) -> Result<PathBuf, String> {
 /// | 14 | hedge_max_drawdown | Float64 | float64 |
 /// | 15 | SSM | Float64 | float64 |
 /// | 16 | MPROB | Float64 | float64 |
+/// | 17 | BRC | Float64 | float64 |
+/// | 18 | BRC_S | Float64 | float64 |
+/// | 19 | BRC_L | Float64 | float64 |
 ///
 /// 行序 = `rows` 原序（与旧 JSON 数组顺序相同）。全部列 nullable=true，但实际不产生 null。
 /// 非有限 f64 一律写 NaN：旧路径经 serde_json 会把 NaN/±Inf 序列化成 `null`，Python
@@ -3476,6 +3797,9 @@ fn write_summary_parquet(path: &Path, rows: &[SummaryRowRecord]) -> Result<(), S
         Field::new("hedge_max_drawdown", DataType::Float64, true),
         Field::new("SSM", DataType::Float64, true),
         Field::new("MPROB", DataType::Float64, true),
+        Field::new("BRC", DataType::Float64, true),
+        Field::new("BRC_S", DataType::Float64, true),
+        Field::new("BRC_L", DataType::Float64, true),
     ]));
     let fin = |v: f64| if v.is_finite() { v } else { f64::NAN };
     let f64_col = |get: fn(&SummaryRowRecord) -> f64| -> ArrayRef {
@@ -3513,6 +3837,9 @@ fn write_summary_parquet(path: &Path, rows: &[SummaryRowRecord]) -> Result<(), S
         f64_col(|r| r.hedge_max_drawdown),
         f64_col(|r| r.ssm),
         f64_col(|r| r.mprob),
+        f64_col(|r| r.brc),
+        f64_col(|r| r.brc_s),
+        f64_col(|r| r.brc_l),
     ];
     let batch = RecordBatch::try_new(schema.clone(), columns)
         .map_err(|e| format!("构造 summary RecordBatch 失败: {}", e))?;
@@ -4993,7 +5320,9 @@ mod tests {
                 ret_sum_gap5[[i, j]] = next();
             }
         }
-        let index = Array1::<f32>::from_shape_fn(n, |_| next());
+        // index 是「指数日收益」序列，长度必须等于日期数（原测试误用股票数 n，
+        // 会在形状校验处直接 Err，逐位对账根本没跑起来）。
+        let index = Array1::<f32>::from_shape_fn(t, |_| next());
         let dates: Vec<i32> = (0..t as i32).map(|d| 20200101 + d).collect();
         let selected_slots = vec![0usize, 1, 2, 3];
         let (batch_g1, batch_g5) = legacy_backtest_gap1_gap5_selected_slots_f32(
@@ -5112,8 +5441,9 @@ mod tests {
         for (x, y) in full_g5.ic_values.iter().zip(ic_g5.ic_values.iter()) {
             assert_eq!(x.to_bits(), y.to_bits());
         }
-        // IC_mean / IR / date_size / ratio_mean 一致
-        for idx in [0usize, 1, 5, 6] {
+        // IC_mean / IR / date_size / ratio_mean 一致；BRC/BRC_S/BRC_L（12/13/14）
+        // 不依赖十分组收益，两种模式必须逐位相同。
+        for idx in [0usize, 1, 5, 6, 12, 13, 14] {
             assert_eq!(
                 full_g1.summary[idx].to_bits(),
                 ic_g1.summary[idx].to_bits(),
@@ -5342,6 +5672,452 @@ mod tests {
         let ret = Array2::from_elem((1, 5), 0.01_f32);
         let result = compute_raw_cover_rate(&raw.view(), &restrict.view(), &ret.view(), 10);
         assert_eq!(result, 1.0);
+    }
+
+    // ==================== BRC（Balanced Rank Concordance）====================
+
+    /// n=4 的手算例子：完美单调 / 完全反序 / r 含并列 / f 含并列 / S≠L。
+    #[test]
+    fn brc_halves_n4_hand_computed() {
+        // 完美单调（f 与 r 同序）：U_k ≡ 0 → D_k ≡ 1 → (S, L) = (1, 1)
+        let (s, l) = brc_day_halves(&[1.0, 2.0, 3.0, 4.0], &[1.0, 2.0, 3.0, 4.0]);
+        assert_eq!(s, 1.0);
+        assert_eq!(l, 1.0);
+        // 完全反序：U_k = k(n-k) → D_k ≡ -1 → (S, L) = (-1, -1)
+        let (s, l) = brc_day_halves(&[1.0, 2.0, 3.0, 4.0], &[4.0, 3.0, 2.0, 1.0]);
+        assert_eq!(s, -1.0);
+        assert_eq!(l, -1.0);
+        // r 含并列：f=[1,2,3,4]，r=[1,1,2,2] → R=[1.5,1.5,3.5,3.5]
+        // D_1 = 1 - 2*0.5/(1*3) = 2/3，D_2 = 1，D_3 = 1 - 2*0.5/(3*1) = 2/3
+        // S = (D_1+D_2)/2 = 5/6，L = (D_3+D_2)/2 = 5/6
+        let (s, l) = brc_day_halves(&[1.0, 2.0, 3.0, 4.0], &[1.0, 1.0, 2.0, 2.0]);
+        assert!((s - 5.0 / 6.0).abs() < 1e-15, "s={}", s);
+        assert!((l - 5.0 / 6.0).abs() < 1e-15, "l={}", l);
+        // f 含并列（稳定序保持原始下标）：f=[1,1,2,2]，r=[2,1,4,3] → R=[2,1,4,3]
+        // D_1 = 1 - 2*1/(1*3) = 1/3，D_2 = 1，D_3 = 1/3 → S = L = 2/3
+        let (s, l) = brc_day_halves(&[1.0, 1.0, 2.0, 2.0], &[2.0, 1.0, 4.0, 3.0]);
+        assert!((s - 2.0 / 3.0).abs() < 1e-15, "s={}", s);
+        assert!((l - 2.0 / 3.0).abs() < 1e-15, "l={}", l);
+        // S ≠ L 的手算例子：f=[1,2,3,4]，r=[1,2,4,3] → R=[1,2,4,3]
+        // D_1 = 1，D_2 = 1，D_3 = 1 - 2*1/(3*1) = 1/3
+        // S = (D_1+D_2)/2 = 1，L = (D_3+D_2)/2 = 2/3
+        let (s, l) = brc_day_halves(&[1.0, 2.0, 3.0, 4.0], &[1.0, 2.0, 4.0, 3.0]);
+        assert_eq!(s, 1.0);
+        assert!((l - 2.0 / 3.0).abs() < 1e-15, "l={}", l);
+    }
+
+    /// 两条取负恒等式（契约勘误后的口径）：
+    /// - future 取负 → 每个 D_k 严格反号 → (S, L) → (-S, -L)，BRC → -max(S, L)；
+    /// - signal 取负（因子序反转）→ (S, L) → (-L, -S)，BRC → -max(S, L)；
+    /// - 两条叠加 → (S, L) → (L, S)。
+    ///
+    /// 注意不是「future 取负 → (-L, -S)」：那个说法只在 S = L 的对称样本上凑巧成立，
+    /// 下面这组 S = 1、L = 2/3 就是反例。
+    #[test]
+    fn brc_halves_negation_identity() {
+        let signal = [1.0_f32, 2.0, 3.0, 4.0];
+        let future = [1.0_f32, 2.0, 4.0, 3.0];
+        let (s, l) = brc_day_halves(&signal, &future);
+        assert_eq!(s, 1.0);
+        assert!((l - 2.0 / 3.0).abs() < 1e-15, "l={}", l);
+
+        // future 取负：D_k → -D_k → (S, L) → (-S, -L)
+        let neg_future: Vec<f32> = future.iter().map(|v| -v).collect();
+        let (s1, l1) = brc_day_halves(&signal, &neg_future);
+        assert!((s1 - (-s)).abs() < 1e-15, "s1={}", s1);
+        assert!((l1 - (-l)).abs() < 1e-15, "l1={}", l1);
+        assert!((s1.min(l1) - (-s.max(l))).abs() < 1e-15);
+        // 反例核对：(-L, -S) 与实测不符（S ≠ L 时）
+        assert!((s1 - (-l)).abs() > 1e-3, "s1={} -L={}", s1, -l);
+
+        // signal 取负（因子序反转）：S → -L、L → -S
+        let neg_signal: Vec<f32> = signal.iter().map(|v| -v).collect();
+        let (s2, l2) = brc_day_halves(&neg_signal, &future);
+        assert!((s2 - (-l)).abs() < 1e-15, "s2={}", s2);
+        assert!((l2 - (-s)).abs() < 1e-15, "l2={}", l2);
+        assert!((s2.min(l2) - (-s.max(l))).abs() < 1e-15);
+
+        // 两侧同时取负：两条恒等式叠加后 (S, L) → (L, S)（S ↔ L 互换）
+        let (s3, l3) = brc_day_halves(&neg_signal, &neg_future);
+        assert!((s3 - l).abs() < 1e-15, "s3={}", s3);
+        assert!((l3 - s).abs() < 1e-15, "l3={}", l3);
+    }
+
+    /// n < 2、长度不等、含 NaN/±Inf → (NaN, NaN)（该日跳过）。
+    #[test]
+    fn brc_halves_rejects_short_and_nonfinite() {
+        assert!(brc_day_halves(&[1.0], &[1.0]).0.is_nan());
+        assert!(brc_day_halves(&[], &[]).0.is_nan());
+        assert!(brc_day_halves(&[1.0, 2.0], &[1.0]).0.is_nan());
+        assert!(brc_day_halves(&[1.0, f32::NAN], &[1.0, 2.0]).0.is_nan());
+        assert!(brc_day_halves(&[1.0, 2.0], &[1.0, f32::INFINITY]).1.is_nan());
+        assert!(brc_day_halves(&[f32::NEG_INFINITY, 2.0], &[1.0, 2.0]).0.is_nan());
+    }
+
+    /// 优化前的实现（两次比较排序 + 每天新建 Vec），只作为逐位对账的参照留在测试里。
+    fn brc_day_halves_reference(signal: &[f32], future: &[f32]) -> (f64, f64) {
+        let n = signal.len();
+        if n < 2 || future.len() != n {
+            return (f64::NAN, f64::NAN);
+        }
+        if signal.iter().any(|v| !v.is_finite()) || future.iter().any(|v| !v.is_finite()) {
+            return (f64::NAN, f64::NAN);
+        }
+        let ranks = average_ranks(future);
+        let mut order: Vec<u32> = (0..n as u32).collect();
+        order.sort_by(|&a, &b| {
+            signal[a as usize]
+                .partial_cmp(&signal[b as usize])
+                .unwrap_or(Ordering::Equal)
+                .then_with(|| a.cmp(&b))
+        });
+        let nf = n as f64;
+        let m = n / 2;
+        let mut w = 0.0_f64;
+        let mut s_sum = 0.0_f64;
+        let mut l_sum = 0.0_f64;
+        for k in 1..n {
+            w += ranks[order[k - 1] as usize];
+            let kf = k as f64;
+            let u = w - kf * (kf + 1.0) / 2.0;
+            let d = 1.0 - 2.0 * u / (kf * (nf - kf));
+            if k <= m {
+                s_sum += d;
+            }
+            if k >= n - m {
+                l_sum += d;
+            }
+        }
+        let mf = m as f64;
+        (s_sum / mf, l_sum / mf)
+    }
+
+    /// 优化前 vs 优化后（radix + 复用缓冲）：400 组随机数据逐位相等。
+    ///
+    /// 覆盖：n 从 2 到 79；一半样本把值量化成少数档制造并列（signal 并列与 future 并列
+    /// 都有）；每 7 组掺一个 NaN 或 ±Inf（走「该日跳过」分支）。
+    #[test]
+    fn brc_buffered_matches_reference_exact() {
+        let mut seed = 0x5eed_2026_0918_u64;
+        let mut next_f32 = || {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            ((seed >> 33) as u32 as f32) / 1.0e6 - 1000.0
+        };
+        let mut mismatches = 0usize;
+        let mut buf = BrcBuffers::default();
+        for trial in 0..400usize {
+            let n = 2 + (trial * 7 + 3) % 78;
+            let mut signal = Vec::<f32>::with_capacity(n);
+            let mut future = Vec::<f32>::with_capacity(n);
+            for _ in 0..n {
+                let mut s = next_f32();
+                let mut f = next_f32();
+                if trial % 2 == 0 {
+                    // 量化到 3 档 → 大量并列
+                    s = (s / 500.0).round();
+                    f = (f / 500.0).round();
+                }
+                if trial % 4 == 1 {
+                    // 只让 signal 有并列
+                    s = (s / 500.0).round();
+                }
+                if trial % 4 == 3 {
+                    // 只让 future 有并列
+                    f = (f / 500.0).round();
+                }
+                signal.push(s);
+                future.push(f);
+            }
+            if trial % 7 == 0 {
+                let bad = trial % n;
+                match trial % 21 {
+                    0 => future[bad] = f32::NAN,
+                    7 => future[bad] = f32::INFINITY,
+                    _ => signal[bad] = f32::NAN,
+                }
+            }
+            let want = brc_day_halves_reference(&signal, &future);
+            let got = brc_day_halves_into(&signal, &future, &mut buf);
+            let same = |x: f64, y: f64| (x.is_nan() && y.is_nan()) || x.to_bits() == y.to_bits();
+            if !same(want.0, got.0) || !same(want.1, got.1) {
+                mismatches += 1;
+                if mismatches <= 3 {
+                    println!(
+                        "trial={trial} n={n} want=({:?},{:?}) got=({:?},{:?})",
+                        want.0, want.1, got.0, got.1
+                    );
+                }
+            }
+        }
+        assert_eq!(mismatches, 0, "优化前后有 {mismatches}/400 组不一致");
+    }
+
+    /// 复刻生产 `build_bt_precomputed` 的全行序 + opt/v8 的 gen/stamp walk：
+    /// 返回「子集（下标升序）按值升序」的 ordinal 秩（0..n-1）。
+    ///
+    /// 与 `build_bt_precomputed` 完全同式：NaN 键取 u32::MAX（置末），其余走 mono_key32，
+    /// 4 趟稳定 radix + 初始下标升序 ⇒ (值, index) 总序。
+    fn walk_subset_ordinal(full_values: &[f32], subset: &[u32]) -> Vec<i64> {
+        let mut keys: Vec<u32> = full_values
+            .iter()
+            .map(|&v| if v.is_nan() { u32::MAX } else { mono_key32(v) })
+            .collect();
+        let mut order: Vec<usize> = (0..full_values.len()).collect();
+        let mut tmp: Vec<usize> = Vec::new();
+        radix_sort_u32_keys(&keys, &mut order, &mut tmp);
+
+        let mut gen = vec![0u32; full_values.len()];
+        let mut stamp = vec![0u32; full_values.len()];
+        let gen_id = 1u32;
+        for (pos, &stk) in subset.iter().enumerate() {
+            gen[stk as usize] = gen_id;
+            stamp[stk as usize] = (pos + 1) as u32;
+        }
+        let mut out = vec![0i64; subset.len()];
+        let mut counter = 0usize;
+        for &stk in order.iter() {
+            if gen[stk] == gen_id {
+                out[stamp[stk] as usize - 1] = counter as i64;
+                counter += 1;
+            }
+        }
+        out
+    }
+
+    /// 核心主张：orders 的 walk（(值, index) 预排序）逆置换后按连续等值段取平均，
+    /// 与 `average_ranks` 逐位相同。
+    ///
+    /// 覆盖大量并列、-0.0 / +0.0 混排、极端重复（整段同值）、子集只取一小部分等情形。
+    #[test]
+    fn brc_walk_ranks_match_average_ranks_exact() {
+        let mut seed = 0x2026_0918_5eed_u64;
+        let mut next_u32 = || {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (seed >> 33) as u32
+        };
+        let mut buf = BrcBuffers::default();
+        let mut mismatches = 0usize;
+        for trial in 0..400usize {
+            let n_full = 5 + (trial * 11 + 7) % 60;
+            let mut full = Vec::<f32>::with_capacity(n_full);
+            for i in 0..n_full {
+                let r = next_u32();
+                let v = match trial % 5 {
+                    // 极端重复：只有 2~3 个不同值
+                    0 => (r % 3) as f32,
+                    // 大量并列 + -0.0 / +0.0
+                    1 => match r % 6 {
+                        0 => -0.0_f32,
+                        1 => 0.0_f32,
+                        k => (k as f32) - 2.0,
+                    },
+                    // 小数并列
+                    2 => ((r % 20) as f32) / 4.0,
+                    // 几乎全同值
+                    3 => {
+                        if i % 7 == 0 {
+                            (r % 100) as f32
+                        } else {
+                            5.0_f32
+                        }
+                    }
+                    // 一般随机
+                    _ => (r as f32) / 1.0e6 - 1000.0,
+                };
+                full.push(v);
+            }
+            // 子集：随机挑一部分（保持下标升序，与生产 filtered_stock_idx 一致）
+            let mut subset: Vec<u32> = (0..n_full as u32)
+                .filter(|&s| (next_u32() as usize + s as usize) % 3 != 0)
+                .collect();
+            if subset.len() < 2 {
+                subset = (0..n_full as u32).collect();
+            }
+            let subset_values: Vec<f32> = subset.iter().map(|&s| full[s as usize]).collect();
+            let future_ordinal = walk_subset_ordinal(&full, &subset);
+            // 用假 signal（值 = 子集下标倒序）跑快速路径，只为让 future_avg 被填出来
+            let signal: Vec<f32> = (0..subset.len()).map(|i| -(i as f32)).collect();
+            let signal_ordinal = ordinal_ranks_radix(&signal);
+            buf.future_avg.clear();
+            let _ = brc_day_halves_from_ranks_into(
+                &signal_ordinal,
+                &future_ordinal,
+                &subset_values,
+                &mut buf,
+            );
+            let want = average_ranks(&subset_values);
+            if buf.future_avg.len() != want.len() {
+                mismatches += 1;
+                continue;
+            }
+            for (i, &w) in want.iter().enumerate() {
+                if buf.future_avg[i].to_bits() != w.to_bits() {
+                    mismatches += 1;
+                    if mismatches <= 3 {
+                        println!(
+                            "trial={trial} i={i} walk={:?} average_ranks={:?}",
+                            buf.future_avg[i], w
+                        );
+                    }
+                    break;
+                }
+            }
+        }
+        assert_eq!(mismatches, 0, "walk 平均秩与 average_ranks 有 {mismatches}/400 组不一致");
+    }
+
+    /// 快速路径（walk 的 ordinal 秩 + signal ordinal，零排序零分配）与旧参考实现逐位相等。
+    #[test]
+    fn brc_fast_path_matches_reference_exact() {
+        let mut seed = 0x1234_5678_9abc_def0_u64;
+        let mut next_u32 = || {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (seed >> 33) as u32
+        };
+        let mut buf = BrcBuffers::default();
+        let mut mismatches = 0usize;
+        for trial in 0..400usize {
+            let n_full = 4 + (trial * 13 + 5) % 70;
+            let mut full = Vec::<f32>::with_capacity(n_full);
+            for _ in 0..n_full {
+                let r = next_u32();
+                full.push(if trial % 4 == 0 {
+                    (r % 4) as f32
+                } else if trial % 4 == 1 {
+                    match r % 5 {
+                        0 => -0.0_f32,
+                        1 => 0.0_f32,
+                        k => (k as f32) - 2.0,
+                    }
+                } else {
+                    (r as f32) / 1.0e5 - 1000.0
+                });
+            }
+            let mut subset: Vec<u32> = (0..n_full as u32)
+                .filter(|&s| (next_u32() as usize + s as usize) % 4 != 0)
+                .collect();
+            if subset.len() < 2 {
+                subset = (0..n_full as u32).collect();
+            }
+            let n = subset.len();
+            // signal 值（子集内），量化制造并列
+            let signal: Vec<f32> = (0..n)
+                .map(|i| {
+                    let r = next_u32();
+                    if trial % 3 == 0 {
+                        (r % 5) as f32
+                    } else {
+                        (r as f32) / 1.0e5 - 1000.0 + i as f32 * 1.0e-3
+                    }
+                })
+                .collect();
+            let future: Vec<f32> = subset.iter().map(|&s| full[s as usize]).collect();
+            let signal_ordinal = ordinal_ranks_radix(&signal);
+            let future_ordinal = walk_subset_ordinal(&full, &subset);
+
+            let want = brc_day_halves_reference(&signal, &future);
+            let got = brc_day_halves_from_ranks_into(
+                &signal_ordinal,
+                &future_ordinal,
+                &future,
+                &mut buf,
+            );
+            let same = |x: f64, y: f64| (x.is_nan() && y.is_nan()) || x.to_bits() == y.to_bits();
+            if !same(want.0, got.0) || !same(want.1, got.1) {
+                mismatches += 1;
+                if mismatches <= 3 {
+                    println!(
+                        "trial={trial} n={n} want=({:?},{:?}) got=({:?},{:?})",
+                        want.0, want.1, got.0, got.1
+                    );
+                }
+            }
+        }
+        assert_eq!(mismatches, 0, "快速路径与参考实现有 {mismatches}/400 组不一致");
+    }
+
+    /// 生产 opt 路径与参考实现逐位一致（含新增 BRC/BRC_S/BRC_L 三列），两种 ic_only 都比。
+    #[test]
+    fn opt_backtest_matches_reference_exact() {
+        let (t, n) = (14usize, 20usize);
+        let mut seed = 0x0bad_c0de_dead_beefu64;
+        let mut next = || {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            ((seed >> 33) as u32 as f32) / 500.0 - 1000.0
+        };
+        let mut slot = Array2::<f32>::from_elem((t, n), f32::NAN);
+        for i in 0..t {
+            for j in 0..n {
+                if (i * n + j + 3) % 6 != 0 {
+                    slot[[i, j]] = next();
+                }
+            }
+        }
+        let mut restrict = Array2::<f32>::from_elem((t, n), 0.0);
+        for i in 0..t {
+            for j in 0..n {
+                if (i * n + j) % 8 == 0 {
+                    restrict[[i, j]] = 1.0;
+                }
+            }
+        }
+        let mut ret_gap1 = Array2::<f32>::from_elem((t, n), f32::NAN);
+        let mut ret_sum_gap1 = Array2::<f32>::from_elem((t, n), f32::NAN);
+        let mut ret_gap5 = Array2::<f32>::from_elem((t, n), f32::NAN);
+        let mut ret_sum_gap5 = Array2::<f32>::from_elem((t, n), f32::NAN);
+        for i in 0..t {
+            for j in 0..n {
+                ret_gap1[[i, j]] = next();
+                ret_sum_gap1[[i, j]] = next();
+                ret_gap5[[i, j]] = next();
+                ret_sum_gap5[[i, j]] = next();
+            }
+        }
+        let index = Array1::<f32>::from_shape_fn(t, |_| next());
+        let dates: Vec<i32> = (0..t as i32).map(|d| 20200101 + d).collect();
+        let pre = build_bt_precomputed(&ret_sum_gap1, &ret_sum_gap5).unwrap();
+        let open_symbol_counts = precompute_open_symbol_counts(&restrict.view());
+        for &ic_only in &[false, true] {
+            let (ref_g1, ref_g5) = legacy_backtest_gap1_gap5_single_slot(
+                slot.view(),
+                ret_gap1.view(),
+                ret_sum_gap1.view(),
+                ret_gap5.view(),
+                ret_sum_gap5.view(),
+                restrict.view(),
+                index.view(),
+                &dates,
+                dates[2],
+                10,
+                &open_symbol_counts,
+                ic_only,
+            );
+            let (opt_g1, opt_g5) = legacy_backtest_gap1_gap5_single_slot_opt(
+                slot.view(),
+                ret_gap1.view(),
+                ret_sum_gap1.view(),
+                ret_gap5.view(),
+                ret_sum_gap5.view(),
+                restrict.view(),
+                index.view(),
+                &dates,
+                dates[2],
+                10,
+                &open_symbol_counts,
+                ic_only,
+                &pre,
+            );
+            assert_backtest_result_eq(&ref_g1, &opt_g1);
+            assert_backtest_result_eq(&ref_g5, &opt_g5);
+        }
     }
 }
 
