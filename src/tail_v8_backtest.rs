@@ -14,7 +14,7 @@
 //! - `stocks_num < portf_num` → `continue`（该日 group_returns 记 0.0、ratio 记 NaN）。
 //! - `has_enough_unique_values`：扫 raw_idx ∈ 0..T-1 的有限值，够 10 个不同值即短路；
 //!   不足则整面返回默认结果（全 NaN summary + 空 IC）。
-//! - summary 10 项分 ic_only / 非 ic_only 两条路径，与生产逐语句相同。
+//! - summary 12 项分 ic_only / 非 ic_only 两条路径，与生产逐语句相同。
 //!
 //! 自测：`rp.tail_v8_selfcheck("bt", data_dir)`。
 
@@ -23,8 +23,9 @@ use std::cell::RefCell;
 use ndarray::{Array1, Array2, ArrayView2};
 
 use crate::tail_v5_pipeline::{
-    annualized_sharpe_sample, default_legacy_backtest_result, max_drawdown_from_returns,
-    nanmean_f64, nanstd_population, rank_both_radix_into, BtPrecomputed, LegacyBacktestResult, EPS,
+    annualized_sharpe_sample, compute_mprob, compute_ssm, default_legacy_backtest_result,
+    max_drawdown_from_returns, nanmean_f64, nanstd_population, rank_both_radix_into, BtPrecomputed,
+    LegacyBacktestResult, EPS,
 };
 
 /// 「市场有效谓词」位图缓存（线程局部，跨累积器复用）。
@@ -453,6 +454,8 @@ impl<'a> BtAcc<'a> {
                 0.0,
                 0.0,
                 0.0,
+                f64::NAN,
+                f64::NAN,
             ]
         } else {
             let first_leg_cum = self.group_returns[0].iter().sum::<f64>();
@@ -481,6 +484,8 @@ impl<'a> BtAcc<'a> {
                 nanmean_f64(&hedge_returns) * 250.0,
                 annualized_sharpe_sample(&hedge_returns),
                 max_drawdown_from_returns(&hedge_returns),
+                compute_ssm(&self.group_returns, portf_num),
+                compute_mprob(&self.group_returns, portf_num),
             ]
         };
         LegacyBacktestResult { summary, ic_dates: self.ic_dates, ic_values: self.ic_values_f32 }
@@ -569,7 +574,8 @@ pub fn selfcheck(data_dir: &str) -> String {
                 for (tag, got, wantr) in [("gap1", &g1, &want.0), ("gap5", &g5, &want.1)] {
                     n_cmp += 1;
                     let mut bad = 0usize;
-                    for i in 0..10 {
+                    // 0..12：含新增的 SSM（下标 10）与 MPROB（下标 11），v8 融合路径与生产 opt 路径必须逐位一致。
+                    for i in 0..12 {
                         let (p, q) = (got.summary[i], wantr.summary[i]);
                         let same = (p.is_nan() && q.is_nan()) || p.to_bits() == q.to_bits();
                         if !same {
