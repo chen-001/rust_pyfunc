@@ -1082,6 +1082,17 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         corr_diff_features::compute_corr_diff_features,
         m
     )?)?;
+    // corr_contribution_factors 模块在 a5fbf2c 里加了 pub mod 与 .pyi 声明，但漏了这两行
+    // add_function，函数一直没暴露给 Python：hm95 的 go 函数调 compute_corr_contribution_multi
+    // 时报 module 'rust_pyfunc' has no attribute（2026-09-18 实测 2839/2843 个日期全失败）。
+    m.add_function(wrap_pyfunction!(
+        corr_contribution_factors::compute_corr_contribution_factors,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        corr_contribution_factors::compute_corr_contribution_multi,
+        m
+    )?)?;
 
     let _ = m.add_function(wrap_pyfunction!(yand_divergence::debug_theta, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(yand_divergence::debug_compare_thetas, m)?)?;
