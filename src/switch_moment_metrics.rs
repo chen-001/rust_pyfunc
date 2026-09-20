@@ -626,7 +626,7 @@ fn compute_one_field(
     mut vals: Vec<f64>,
     t: usize,
     n: usize,
-    base_idx: &HashMap<&str, usize>,
+    base_idx: &HashMap<String, usize>,
     base: &[String],
 ) -> io::Result<Vec<f32>> {
     for v in vals.iter_mut() {
@@ -670,9 +670,64 @@ fn compute_one_field(
     Ok(out)
 }
 
-/// 并发字段数上限。单字段瞬时占用约 0.6~1GB，并发数直接决定内存峰值。
-/// 默认 = 19（一次全铺开）；可用 RUST_PYFUNC_SWITCH_MOMENT_FIELD_CONC 覆盖。
-fn field_concurrency() -> usize {
+/// 本进程可用的线程预算。优先读 RAYON_NUM_THREADS（pipeline worker 由
+/// run_factor_pipeline_cross_section 设成 threads_per_worker），否则按机器核数。
+/// 故意不碰 rayon 的全局池：本模块只用自己建的字段级小池，全局池一旦初始化就多一批线程。
+fn thread_budget() -> usize {
+    if let Ok(v) = std::env::var("RAYON_NUM_THREADS") {
+        if let Ok(v) = v.parse::<usize>() {
+            if v >= 1 {
+                return v;
+            }
+        }
+    }
+    std::thread::available_parallelism()
+        .map(|x| x.get())
+        .unwrap_or(1)
+}
+
+/// 从预算里扣掉的非字段线程：
+/// - 本 worker 进程自己的主线程（在等结果）：1
+/// - 父进程为每个 worker 起的管理线程：1
+/// - 父进程的主线程 + writer 线程：2
+/// 这样「父进程 + 全部 worker」的总线程数 ≤ n_workers × 预算。默认扣 4。
+fn field_thread_reserve() -> usize {
+    if let Ok(v) = std::env::var("RUST_PYFUNC_SWITCH_MOMENT_RESERVE") {
+        if let Ok(v) = v.parse::<usize>() {
+            return v;
+        }
+    }
+    4
+}
+
+/// 单个字段的耗时（秒）随「分给该字段的线程数」变化的实测表（20241231，本机，单日）：
+/// 1 线程 169s、2 线程 70s、3 线程 54.5s、4 线程 55s、5 线程 54s、6 线程 48.7s。
+/// 2 线程是性价比拐点，3 线程以上基本平（内存带宽打满）。
+const FIELD_COST_SEC: [f64; 7] = [169.0, 70.0, 54.5, 55.0, 54.0, 48.7, 48.7];
+
+/// 在 conc × inner ≤ usable 的约束下挑最省时间的分配（wall ≈ ceil(19/conc) × 单字段耗时）。
+/// 返回 (conc, inner)。
+fn plan_allocation(usable: usize) -> (usize, usize) {
+    let usable = usable.max(1);
+    let mut best = (usable.clamp(1, N_FIELDS), 1usize);
+    let mut best_cost = f64::MAX;
+    for inner in 1..=usable {
+        let conc = (usable / inner).clamp(1, N_FIELDS);
+        if conc * inner > usable {
+            continue;
+        }
+        let cost = FIELD_COST_SEC[(inner - 1).min(FIELD_COST_SEC.len() - 1)];
+        let wall = (N_FIELDS as f64 / conc as f64).ceil() * cost;
+        if wall < best_cost {
+            best_cost = wall;
+            best = (conc, inner);
+        }
+    }
+    best
+}
+
+/// 并发字段数上限（在预算内）。可用 RUST_PYFUNC_SWITCH_MOMENT_FIELD_CONC 覆盖。
+fn field_concurrency(usable: usize) -> usize {
     if let Ok(v) = std::env::var("RUST_PYFUNC_SWITCH_MOMENT_FIELD_CONC") {
         if let Ok(v) = v.parse::<usize>() {
             if v >= 1 {
@@ -680,14 +735,12 @@ fn field_concurrency() -> usize {
             }
         }
     }
-    N_FIELDS
+    plan_allocation(usable).0
 }
 
-/// 每个并发字段分到的线程数。默认 = ceil(2 × 调用方线程数 / 并发字段数)。
-/// 之所以要 2 倍超订：字段内部相当一部分时间在等内存（faer 的 GEMM 也常卡在带宽上），
-/// 实测 50 线程预算下每个字段给 2 线程要 70s，给 5~6 线程只要 ~51s。
+/// 每个并发字段分到的线程数（在它自己的池里跑，避免 19 个字段一起去抢同一个池）。
 /// 可用 RUST_PYFUNC_SWITCH_MOMENT_FIELD_INNER 覆盖。
-fn field_inner_threads(n_threads: usize, conc: usize) -> usize {
+fn field_inner_threads(usable: usize, conc: usize) -> usize {
     if let Ok(v) = std::env::var("RUST_PYFUNC_SWITCH_MOMENT_FIELD_INNER") {
         if let Ok(v) = v.parse::<usize>() {
             if v >= 1 {
@@ -695,24 +748,28 @@ fn field_inner_threads(n_threads: usize, conc: usize) -> usize {
             }
         }
     }
-    (2 * n_threads).div_ceil(conc).max(1)
+    if std::env::var("RUST_PYFUNC_SWITCH_MOMENT_FIELD_CONC").is_ok() {
+        // conc 被外部指定：把剩下的预算都给每个字段，但保证 conc × inner ≤ usable
+        return (usable / conc.max(1)).max(1);
+    }
+    plan_allocation(usable).1
 }
 
-/// 每个并发字段分到的线程数（在它自己的池里跑，避免 19 个字段一起去抢同一个池）。
+/// 字段级线程池：**正好 conc 个**池，每个 inner 线程。
+/// 只建 conc 个（不是 19 个），否则多批处理时每个池都会被用到，线程数会翻几倍。
 struct FieldPools {
     pools: Vec<Arc<rayon::ThreadPool>>,
-    inner: usize,
 }
 
-static FIELD_POOLS: LazyLock<Mutex<HashMap<usize, Arc<FieldPools>>>> =
+static FIELD_POOLS: LazyLock<Mutex<HashMap<(usize, usize), Arc<FieldPools>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-fn get_field_pools(inner: usize) -> Arc<FieldPools> {
+fn get_field_pools(inner: usize, conc: usize) -> Arc<FieldPools> {
     let mut cache = FIELD_POOLS.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(p) = cache.get(&inner) {
+    if let Some(p) = cache.get(&(inner, conc)) {
         return p.clone();
     }
-    let pools: Vec<Arc<rayon::ThreadPool>> = (0..N_FIELDS)
+    let pools: Vec<Arc<rayon::ThreadPool>> = (0..conc)
         .map(|_| {
             Arc::new(
                 rayon::ThreadPoolBuilder::new()
@@ -722,8 +779,8 @@ fn get_field_pools(inner: usize) -> Arc<FieldPools> {
             )
         })
         .collect();
-    let fp = Arc::new(FieldPools { pools, inner });
-    cache.insert(inner, fp.clone());
+    let fp = Arc::new(FieldPools { pools });
+    cache.insert((inner, conc), fp.clone());
     fp
 }
 
@@ -732,9 +789,12 @@ fn get_field_pools(inner: usize) -> Arc<FieldPools> {
 /// 返回 `(codes, 扁平值)`，扁平值长度 = `codes.len() * N_FACTORS`，
 /// 每只股票连续 N_FACTORS 个值，顺序与 `switch_moment_names()` 一致。
 ///
-/// 并行结构：19 个字段彼此独立，一次全铺开；每个字段在**自己的** `inner` 线程池里算。
-/// 这样做而不是让所有字段共用调用方的池，是因为共用时 19 个字段里的 faer GEMM 会各自
-/// 按整池大小切分、互相踩，实测比串行还慢（50 线程共用池 191s，分成 19×2 只有 ~31s）。
+/// 并行结构（n_jobs 是硬上限，绝不超）：
+/// - 本进程线程预算 = RAYON_NUM_THREADS（= pipeline 的 threads_per_worker）。
+/// - 扣掉非字段线程后，按 conc × inner ≤ 剩余预算 切成 conc 个并发字段 × 每字段 inner 线程。
+/// - 每个字段跑在自己的 rayon 小池里：faer 的 GEMM 用 Parallelism::Rayon(0)，
+///   在池里就等于只用该字段分到的那 inner 个线程。
+/// - 用 pool.spawn + channel 投递，不额外开阻塞线程；本进程主线程在等结果。
 pub fn compute_switch_moment_full(date: i64) -> io::Result<(Vec<String>, Vec<f32>)> {
     let meta = get_meta()?;
     let (t, n, raw) = load_raw(date, &meta)?;
@@ -745,46 +805,48 @@ pub fn compute_switch_moment_full(date: i64) -> io::Result<(Vec<String>, Vec<f32
     // 基础因子名 → 列号。注意：compute_all_factors 的产出顺序与 hm95.py 的 _gen_base_793()
     // 不完全相同（ha_time_* 与 ha_mag_* 在 Rust 侧是交错的），Python 侧本来是按名字查字典，
     // 所以这里也必须按名字定位，不能按位置。
-    let base_idx: HashMap<&str, usize> = base
-        .iter()
-        .enumerate()
-        .map(|(i, n)| (n.as_str(), i))
-        .collect();
+    let base_idx: Arc<HashMap<String, usize>> = Arc::new(
+        base.iter()
+            .enumerate()
+            .map(|(i, s)| (s.clone(), i))
+            .collect(),
+    );
+    let base = Arc::new(base);
     let mut flat = vec![f32::NAN; n * N_FACTORS];
 
-    let conc = field_concurrency();
-    let inner = field_inner_threads(rayon::current_num_threads(), conc);
-    let pools = get_field_pools(inner);
+    let budget = thread_budget();
+    let usable = budget.saturating_sub(field_thread_reserve()).max(1);
+    let conc = field_concurrency(usable);
+    let inner = field_inner_threads(usable, conc);
+    let pools = get_field_pools(inner, conc);
 
-    let mut field_list: Vec<(usize, &'static str, Vec<f64>)> = fields
+    let mut slots: Vec<Option<(usize, &'static str, Vec<f64>)>> = fields
         .into_iter()
         .enumerate()
-        .map(|(i, (nm, v))| (i, nm, v))
+        .map(|(i, (nm, v))| Some((i, nm, v)))
         .collect();
 
-    for batch in field_list.chunks_mut(conc) {
-        let results: Vec<(usize, io::Result<Vec<f32>>)> = std::thread::scope(|scope| {
-            let handles: Vec<_> = batch
-                .iter_mut()
-                .zip(pools.pools.iter())
-                .map(|(item, pool)| {
-                    let pool = pool.clone();
-                    let base_idx = &base_idx;
-                    let base = &base;
-                    scope.spawn(move || {
-                        let (fi, fname, vals) = item;
-                        let vals = std::mem::take(vals);
-                        (
-                            *fi,
-                            pool.install(|| compute_one_field(fname, vals, t, n, base_idx, base)),
-                        )
-                    })
-                })
-                .collect();
-            handles.into_iter().map(|h| h.join().unwrap()).collect()
-        });
-
-        for (fi, res) in results {
+    let mut cursor = 0usize;
+    while cursor < N_FIELDS {
+        let end = (cursor + conc).min(N_FIELDS);
+        let (tx, rx) = std::sync::mpsc::channel::<(usize, io::Result<Vec<f32>>)>();
+        let mut sent = 0usize;
+        for k in cursor..end {
+            let item = slots[k].take().expect("字段槽位被重复使用");
+            let pool = pools.pools[k - cursor].clone();
+            let tx = tx.clone();
+            let base_idx = base_idx.clone();
+            let base = base.clone();
+            pool.spawn(move || {
+                let (fi, fname, vals) = item;
+                let r = compute_one_field(fname, vals, t, n, &base_idx, &base);
+                let _ = tx.send((fi, r));
+            });
+            sent += 1;
+        }
+        drop(tx);
+        for _ in 0..sent {
+            let (fi, res) = rx.recv().expect("字段任务没有回传结果");
             let values = res?;
             let fbase = fi * N_BASE;
             for bi in 0..N_BASE {
@@ -795,6 +857,7 @@ pub fn compute_switch_moment_full(date: i64) -> io::Result<(Vec<String>, Vec<f32
                 }
             }
         }
+        cursor = end;
     }
 
     Ok((meta.codes.clone(), flat))

@@ -3046,8 +3046,7 @@ pub fn run_factor_pipeline_cross_section(
         // 即使无新任务也投影（断点续算恢复时，之前只写分片未投影）。
         // 不投影则 tail_pipeline_engine 走 v6 在线转置（单IO线程逐因子转置）极慢。
         println!("🏗️ 检查/执行投影...");
-        sharded_sink
-            .finish_and_project(80)
+        project_within_budget(&sharded_sink, n_jobs)
             .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("投影失败: {}", e)))?;
         println!("✅ 投影完成，可直接回测");
         return Ok(Python::with_gil(|py| py.None()));
@@ -3074,8 +3073,7 @@ pub fn run_factor_pipeline_cross_section(
         // 不投影则 tail_pipeline_engine 走 v6 在线转置（单IO线程逐因子转置）极慢；
         // 投影后直接读连续列，速度提升 ~100x（与 run_factor_pipeline 行为一致）。
         println!("🏗️ 开始投影（finish_and_project）...");
-        sharded_sink
-            .finish_and_project(80)
+        project_within_budget(&sharded_sink, n_jobs)
             .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("投影失败: {}", e)))?;
         println!("✅ 投影完成，可直接回测");
         return Ok(Python::with_gil(|py| py.None()));
@@ -3083,6 +3081,25 @@ pub fn run_factor_pipeline_cross_section(
     Err(pyo3::exceptions::PyRuntimeError::new_err(
         "run_factor_pipeline_cross_section 找不到 rust_pyfunc_worker 二进制",
     ))
+}
+
+/// 父进程 writer 线程里 append_batch 用的线程池大小（append_batch 按 8 个 shard 并行，
+/// 这里固定 4：既够用，又不会把 n_jobs 预算吃掉，也避免初始化 rayon 全局池）。
+const WRITER_POOL_THREADS: usize = 4;
+
+/// 投影：finish_and_project 的 n_jobs 参数当前被忽略（内部走 rayon 全局池 = num_cpus 个线程），
+/// 所以这里显式用一个 n_jobs 大小的专用池把它包起来，保证投影阶段也不超预算。
+fn project_within_budget(
+    sink: &crate::factor_store_v5::ShardedBackupSink,
+    n_jobs: usize,
+) -> Result<(), String> {
+    // 留 2 个给父进程自己的主线程与其它协调线程：投影阶段父进程只剩它们。
+    let threads = n_jobs.saturating_sub(2).clamp(1, 80);
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(threads)
+        .build()
+        .map_err(|e| format!("建投影线程池失败: {e}"))?;
+    pool.install(|| sink.finish_and_project(threads))
 }
 
 /// 横截面 pipeline 的多进程调度（per-date 任务 → MinuteBatch 结果 → 整天写入 colblk）。
@@ -3145,6 +3162,7 @@ fn run_multiprocess_cross_section(
                     &worker_bin,
                     worker_idx,
                     threads_per_worker,
+                    n_workers,
                     task_rx,
                     batch_tx,
                     &params,
@@ -3165,12 +3183,18 @@ fn run_multiprocess_cross_section(
             let sharded_c = sharded_sink.clone();
             let store_dir_c = store_dir.clone();
             let mut done = 0usize;
+            // append_batch 内部用 rayon par_iter（跨 8 个 shard）。若走全局池会初始化
+            // num_cpus 个线程（512），n_jobs 就守不住了，所以固定用一个 4 线程小池。
+            let write_pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(WRITER_POOL_THREADS)
+                .build()
+                .expect("建 writer 线程池失败");
             std::thread::spawn(move || {
                 while let Ok((date, batch)) = batch_rx.recv() {
                     if !batch.is_empty() {
                         let n = batch.len();
                         let elapsed = start.elapsed().as_secs_f64();
-                        match sharded_c.append_batch(&batch) {
+                        match write_pool.install(|| sharded_c.append_batch(&batch)) {
                             Ok(()) => {
                                 mark_date_complete(&store_dir_c, date);
                                 done += 1;
@@ -3235,6 +3259,7 @@ fn run_single_cross_section_worker(
     worker_bin: &str,
     worker_idx: usize,
     threads_per_worker: usize,
+    n_workers: usize,
     task_rx: crossbeam::channel::Receiver<i64>,
     batch_tx: std::sync::mpsc::SyncSender<(i64, Vec<TaskResult>)>,
     params: &Hm90Params,
@@ -3257,6 +3282,16 @@ fn run_single_cross_section_worker(
         cmd.env("OMP_NUM_THREADS", threads_per_worker.to_string());
         cmd.env("OPENBLAS_NUM_THREADS", threads_per_worker.to_string());
         cmd.env("MKL_NUM_THREADS", threads_per_worker.to_string());
+        // 本 worker 要从 threads_per_worker 预算里扣掉的非字段线程：
+        //   自己进程的主线程 1 + 父进程里属于它的管理线程 1
+        //   + 摊到每个 worker 的父进程固定线程（主线程 + writer + writer 池 = 2 + WRITER_POOL_THREADS）
+        // 这样「父进程 + 全部 worker」的总线程数 ≤ n_workers × threads_per_worker = n_jobs。
+        // 3 = 本 worker 主线程 1 + 父进程里属于它的管理线程 1 + 父进程固定开销的兜底 1
+        let reserve = 3 + (2 + WRITER_POOL_THREADS).div_ceil(n_workers.max(1));
+        cmd.env(
+            "RUST_PYFUNC_SWITCH_MOMENT_RESERVE",
+            reserve.to_string(),
+        );
         // Level2 数据目录透传（pipeline 参数 data_root）
         if let Some(root) = crate::data_paths::override_level2() {
             cmd.env(crate::data_paths::ENV_LEVEL2_ROOT, root);
