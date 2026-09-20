@@ -808,17 +808,25 @@ pub(crate) fn compute_all_factors(
 // ============================ PyO3 接口 ============================
 
 /// 单线程或并行（rayon，最多 30 线程）执行
+///
+/// 并行时若调用方**已经在一个 rayon 池里**（例如 pipeline worker 用 RAYON_NUM_THREADS
+/// 设好了线程数），就直接复用那个池 —— 再自建一个写死 18 线程的池，会让外层给多少线程都白费。
+/// 池外调用（Python 直接调本模块的 pyfunction）行为不变：仍然自建 18 线程池。
 fn run_with_pool<F, R>(parallel: bool, f: F) -> R
 where
     F: FnOnce(bool) -> R + Send,
     R: Send,
 {
     if parallel {
-        let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(18)
-            .build()
-            .unwrap();
-        pool.install(|| f(true))
+        if rayon::current_thread_index().is_some() {
+            f(true)
+        } else {
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(18)
+                .build()
+                .unwrap();
+            pool.install(|| f(true))
+        }
     } else {
         f(false)
     }

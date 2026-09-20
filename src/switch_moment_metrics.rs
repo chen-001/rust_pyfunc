@@ -21,6 +21,7 @@
 use crate::corr_contribution_factors::compute_all_factors;
 use ndarray::{s, Array2};
 use pyo3::prelude::*;
+use rayon::prelude::*;
 use std::collections::HashMap;
 use std::io;
 use std::path::PathBuf;
@@ -618,10 +619,122 @@ fn derive_fields(
 // 主计算
 // ============================================================
 
+/// 算一个字段的 793 个因子，返回按基础因子名下标排列的 f32 值
+/// （长度 = N_BASE × n，第 bi 个因子的值在 `[bi*n .. (bi+1)*n]`）。
+fn compute_one_field(
+    fname: &'static str,
+    mut vals: Vec<f64>,
+    t: usize,
+    n: usize,
+    base_idx: &HashMap<&str, usize>,
+    base: &[String],
+) -> io::Result<Vec<f32>> {
+    for v in vals.iter_mut() {
+        *v = nan_to_zero(*v);
+    }
+    let arr = Array2::from_shape_vec((t, n), vals)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+    let facs = compute_all_factors(arr, TOP_K, true);
+    if facs.len() != N_BASE {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("字段 {fname} 产出 {} 个因子，期望 {N_BASE}", facs.len()),
+        ));
+    }
+    let mut out = vec![f32::NAN; N_BASE * n];
+    let mut seen = vec![false; N_BASE];
+    for (nm, values) in facs.iter() {
+        let bi = *base_idx.get(nm.as_str()).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("字段 {fname} 产出未知的基础因子名 {nm}"),
+            )
+        })?;
+        if std::mem::replace(&mut seen[bi], true) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("字段 {fname} 的基础因子名 {nm} 重复"),
+            ));
+        }
+        let dst = &mut out[bi * n..(bi + 1) * n];
+        for s in 0..n {
+            dst[s] = values[s] as f32;
+        }
+    }
+    if let Some(miss) = seen.iter().position(|&s| !s) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("字段 {fname} 缺少基础因子 {}", base[miss]),
+        ));
+    }
+    Ok(out)
+}
+
+/// 并发字段数上限。单字段瞬时占用约 0.6~1GB，并发数直接决定内存峰值。
+/// 默认 = 19（一次全铺开）；可用 RUST_PYFUNC_SWITCH_MOMENT_FIELD_CONC 覆盖。
+fn field_concurrency() -> usize {
+    if let Ok(v) = std::env::var("RUST_PYFUNC_SWITCH_MOMENT_FIELD_CONC") {
+        if let Ok(v) = v.parse::<usize>() {
+            if v >= 1 {
+                return v.min(N_FIELDS);
+            }
+        }
+    }
+    N_FIELDS
+}
+
+/// 每个并发字段分到的线程数。默认 = ceil(2 × 调用方线程数 / 并发字段数)。
+/// 之所以要 2 倍超订：字段内部相当一部分时间在等内存（faer 的 GEMM 也常卡在带宽上），
+/// 实测 50 线程预算下每个字段给 2 线程要 70s，给 5~6 线程只要 ~51s。
+/// 可用 RUST_PYFUNC_SWITCH_MOMENT_FIELD_INNER 覆盖。
+fn field_inner_threads(n_threads: usize, conc: usize) -> usize {
+    if let Ok(v) = std::env::var("RUST_PYFUNC_SWITCH_MOMENT_FIELD_INNER") {
+        if let Ok(v) = v.parse::<usize>() {
+            if v >= 1 {
+                return v;
+            }
+        }
+    }
+    (2 * n_threads).div_ceil(conc).max(1)
+}
+
+/// 每个并发字段分到的线程数（在它自己的池里跑，避免 19 个字段一起去抢同一个池）。
+struct FieldPools {
+    pools: Vec<Arc<rayon::ThreadPool>>,
+    inner: usize,
+}
+
+static FIELD_POOLS: LazyLock<Mutex<HashMap<usize, Arc<FieldPools>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn get_field_pools(inner: usize) -> Arc<FieldPools> {
+    let mut cache = FIELD_POOLS.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(p) = cache.get(&inner) {
+        return p.clone();
+    }
+    let pools: Vec<Arc<rayon::ThreadPool>> = (0..N_FIELDS)
+        .map(|_| {
+            Arc::new(
+                rayon::ThreadPoolBuilder::new()
+                    .num_threads(inner)
+                    .build()
+                    .expect("建字段线程池失败"),
+            )
+        })
+        .collect();
+    let fp = Arc::new(FieldPools { pools, inner });
+    cache.insert(inner, fp.clone());
+    fp
+}
+
 /// 算一个交易日的全市场 switch_moment 因子。
 ///
 /// 返回 `(codes, 扁平值)`，扁平值长度 = `codes.len() * N_FACTORS`，
 /// 每只股票连续 N_FACTORS 个值，顺序与 `switch_moment_names()` 一致。
+///
+/// 并行结构：19 个字段彼此独立，一次全铺开；每个字段在**自己的** `inner` 线程池里算。
+/// 这样做而不是让所有字段共用调用方的池，是因为共用时 19 个字段里的 faer GEMM 会各自
+/// 按整池大小切分、互相踩，实测比串行还慢（50 线程共用池 191s，分成 19×2 只有 ~31s）。
 pub fn compute_switch_moment_full(date: i64) -> io::Result<(Vec<String>, Vec<f32>)> {
     let meta = get_meta()?;
     let (t, n, raw) = load_raw(date, &meta)?;
@@ -639,43 +752,48 @@ pub fn compute_switch_moment_full(date: i64) -> io::Result<(Vec<String>, Vec<f32
         .collect();
     let mut flat = vec![f32::NAN; n * N_FACTORS];
 
-    for (fi, (fname, mut vals)) in fields.into_iter().enumerate() {
-        for v in vals.iter_mut() {
-            *v = nan_to_zero(*v);
-        }
-        let arr = Array2::from_shape_vec((t, n), vals)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
-        let facs = compute_all_factors(arr, TOP_K, true);
-        if facs.len() != N_BASE {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("字段 {fname} 产出 {} 个因子，期望 {N_BASE}", facs.len()),
-            ));
-        }
-        let mut seen = vec![false; N_BASE];
-        for (nm, values) in facs.iter() {
-            let bi = *base_idx.get(nm.as_str()).ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("字段 {fname} 产出未知的基础因子名 {nm}"),
-                )
-            })?;
-            if std::mem::replace(&mut seen[bi], true) {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("字段 {fname} 的基础因子名 {nm} 重复"),
-                ));
+    let conc = field_concurrency();
+    let inner = field_inner_threads(rayon::current_num_threads(), conc);
+    let pools = get_field_pools(inner);
+
+    let mut field_list: Vec<(usize, &'static str, Vec<f64>)> = fields
+        .into_iter()
+        .enumerate()
+        .map(|(i, (nm, v))| (i, nm, v))
+        .collect();
+
+    for batch in field_list.chunks_mut(conc) {
+        let results: Vec<(usize, io::Result<Vec<f32>>)> = std::thread::scope(|scope| {
+            let handles: Vec<_> = batch
+                .iter_mut()
+                .zip(pools.pools.iter())
+                .map(|(item, pool)| {
+                    let pool = pool.clone();
+                    let base_idx = &base_idx;
+                    let base = &base;
+                    scope.spawn(move || {
+                        let (fi, fname, vals) = item;
+                        let vals = std::mem::take(vals);
+                        (
+                            *fi,
+                            pool.install(|| compute_one_field(fname, vals, t, n, base_idx, base)),
+                        )
+                    })
+                })
+                .collect();
+            handles.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+
+        for (fi, res) in results {
+            let values = res?;
+            let fbase = fi * N_BASE;
+            for bi in 0..N_BASE {
+                let col = fbase + bi;
+                let src = &values[bi * n..(bi + 1) * n];
+                for s in 0..n {
+                    flat[s * N_FACTORS + col] = src[s];
+                }
             }
-            let col = fi * N_BASE + bi;
-            for s in 0..n {
-                flat[s * N_FACTORS + col] = values[s] as f32;
-            }
-        }
-        if let Some(miss) = seen.iter().position(|&s| !s) {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("字段 {fname} 缺少基础因子 {}", base[miss]),
-            ));
         }
     }
 
