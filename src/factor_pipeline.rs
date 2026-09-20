@@ -3028,11 +3028,22 @@ pub fn run_factor_pipeline_cross_section(
     //   单日更新（tasks=1 天）→ 1 进程 × n_jobs 线程全力算这一天，不 spawn 空闲 worker 浪费资源；
     //   多日任务保持每进程 ≈50 线程的默认拆分（如 200 → 4 进程 × 50 线程）。
     // 显式传入 n_workers 时尊重用户指定值。
+    // switch_moment 的契约是「n_jobs = 实际 CPU 占用」：它每字段只喂 1 个线程，
+    // 单进程满载约 19 核，所以进程数要按 (n_jobs - 父进程 writer 池) / 19 拆，
+    // 而不是按 n_jobs/50。其它横截面 pipeline 保持原样。
+    let is_switch_moment = pipeline_name == "switch_moment";
     let n_workers = n_workers.unwrap_or_else(|| {
-        let by_jobs = (n_jobs / 50).clamp(2, 8);
-        by_jobs.min(total.max(1))
+        if is_switch_moment {
+            crate::switch_moment_metrics::recommended_workers(n_jobs).min(total.max(1))
+        } else {
+            (n_jobs / 50).clamp(2, 8).min(total.max(1))
+        }
     });
-    let threads_per_worker = (n_jobs / n_workers).max(1);
+    let threads_per_worker = if is_switch_moment {
+        crate::switch_moment_metrics::worker_cpu_budget(n_jobs, n_workers)
+    } else {
+        (n_jobs / n_workers).max(1)
+    };
     // 多线程 worker 若绑定到单个核心，子进程中的 Rayon 线程会继承该 affinity，
     // 标称 N 线程实际退化为单核。仅单线程 worker 才允许单核绑定。
     let effective_bind_cores = bind_cores && threads_per_worker == 1;
@@ -3083,9 +3094,10 @@ pub fn run_factor_pipeline_cross_section(
     ))
 }
 
-/// 父进程 writer 线程里 append_batch 用的线程池大小（append_batch 按 8 个 shard 并行，
-/// 这里固定 4：既够用，又不会把 n_jobs 预算吃掉，也避免初始化 rayon 全局池）。
-const WRITER_POOL_THREADS: usize = 4;
+/// 父进程 writer 线程里 append_batch 用的线程池大小（append_batch 按 8 个 shard 并行）。
+/// 固定 2：追加是 I/O 为主，2 个线程够用；同时它要和 switch_moment_metrics 的
+/// PARENT_CPU_THREADS 对上（n_jobs 是「实际 CPU」的硬上限，父进程吃几个核就从预算里扣几个）。
+const WRITER_POOL_THREADS: usize = 2;
 
 /// 投影：finish_and_project 的 n_jobs 参数当前被忽略（内部走 rayon 全局池 = num_cpus 个线程），
 /// 所以这里显式用一个 n_jobs 大小的专用池把它包起来，保证投影阶段也不超预算。
@@ -3282,16 +3294,7 @@ fn run_single_cross_section_worker(
         cmd.env("OMP_NUM_THREADS", threads_per_worker.to_string());
         cmd.env("OPENBLAS_NUM_THREADS", threads_per_worker.to_string());
         cmd.env("MKL_NUM_THREADS", threads_per_worker.to_string());
-        // 本 worker 要从 threads_per_worker 预算里扣掉的非字段线程：
-        //   自己进程的主线程 1 + 父进程里属于它的管理线程 1
-        //   + 摊到每个 worker 的父进程固定线程（主线程 + writer + writer 池 = 2 + WRITER_POOL_THREADS）
-        // 这样「父进程 + 全部 worker」的总线程数 ≤ n_workers × threads_per_worker = n_jobs。
-        // 3 = 本 worker 主线程 1 + 父进程里属于它的管理线程 1 + 父进程固定开销的兜底 1
-        let reserve = 3 + (2 + WRITER_POOL_THREADS).div_ceil(n_workers.max(1));
-        cmd.env(
-            "RUST_PYFUNC_SWITCH_MOMENT_RESERVE",
-            reserve.to_string(),
-        );
+
         // Level2 数据目录透传（pipeline 参数 data_root）
         if let Some(root) = crate::data_paths::override_level2() {
             cmd.env(crate::data_paths::ENV_LEVEL2_ROOT, root);

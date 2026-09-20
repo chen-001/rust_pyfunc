@@ -686,47 +686,57 @@ fn thread_budget() -> usize {
         .unwrap_or(1)
 }
 
-/// 从预算里扣掉的非字段线程：
-/// - 本 worker 进程自己的主线程（在等结果）：1
-/// - 父进程为每个 worker 起的管理线程：1
-/// - 父进程的主线程 + writer 线程：2
-/// 这样「父进程 + 全部 worker」的总线程数 ≤ n_workers × 预算。默认扣 4。
-fn field_thread_reserve() -> usize {
-    if let Ok(v) = std::env::var("RUST_PYFUNC_SWITCH_MOMENT_RESERVE") {
-        if let Ok(v) = v.parse::<usize>() {
-            return v;
+/// 一个 worker 进程真正能喂满的线程数：19 个字段各 1 线程。
+/// 实测 1 线程/字段时线程 ≈100% 忙，2 线程/字段只有 ~65% 忙，6 线程只有 ~34% 忙
+/// （单字段内部约 69% 的活是串行的），所以「多给线程」换不来 CPU，只会让线程更闲。
+/// 要让 n_jobs 等于实际 CPU 占用，就得**每字段 1 线程**，再用进程数去凑 n_jobs。
+pub const WORKER_SATURATION: usize = N_FIELDS;
+
+/// 父进程在批量阶段真正吃 CPU 的线程数（writer 池，见 factor_pipeline 的
+/// WRITER_POOL_THREADS = 2）。要从 n_jobs 里扣掉，保证「实际 CPU 绝不超过 n_jobs」。
+/// 实测 writer 是 I/O 为主、CPU 只在追加那几秒出现，所以扣 2 已经够保守。
+pub const PARENT_CPU_THREADS: usize = 2;
+
+/// 给定 n_jobs，选让「实际 CPU 最贴近 n_jobs」的 worker 进程数。
+///
+/// 每个 worker 最多喂满 WORKER_SATURATION(=19) 个线程（19 个字段各 1 线程），
+/// 所以「能覆盖的 CPU」= w × min(19, 预算/w)，它随 w 增大而增大（受 19 封顶）。
+/// 先求出预算内能覆盖的最大 CPU，再取「覆盖到该最大值 95% 以上」里 worker 数最少的那个
+/// —— 既贴近 n_jobs，又不用把进程数堆到几百。
+pub fn recommended_workers(n_jobs: usize) -> usize {
+    let budget = n_jobs.saturating_sub(PARENT_CPU_THREADS).max(1);
+    let max_cpu = (1..=256usize)
+        .map_while(|w| {
+            let per = budget / w;
+            if per == 0 {
+                None
+            } else {
+                Some(w * per.min(WORKER_SATURATION))
+            }
+        })
+        .max()
+        .unwrap_or(1);
+    let threshold = max_cpu * 95 / 100;
+    for w in 1..=256usize {
+        let per = budget / w;
+        if per == 0 {
+            break;
+        }
+        if w * per.min(WORKER_SATURATION) >= threshold {
+            return w;
         }
     }
-    4
+    1
 }
 
-/// 单个字段的耗时（秒）随「分给该字段的线程数」变化的实测表（20241231，本机，单日）：
-/// 1 线程 169s、2 线程 70s、3 线程 54.5s、4 线程 55s、5 线程 54s、6 线程 48.7s。
-/// 2 线程是性价比拐点，3 线程以上基本平（内存带宽打满）。
-const FIELD_COST_SEC: [f64; 7] = [169.0, 70.0, 54.5, 55.0, 54.0, 48.7, 48.7];
-
-/// 在 conc × inner ≤ usable 的约束下挑最省时间的分配（wall ≈ ceil(19/conc) × 单字段耗时）。
-/// 返回 (conc, inner)。
-fn plan_allocation(usable: usize) -> (usize, usize) {
-    let usable = usable.max(1);
-    let mut best = (usable.clamp(1, N_FIELDS), 1usize);
-    let mut best_cost = f64::MAX;
-    for inner in 1..=usable {
-        let conc = (usable / inner).clamp(1, N_FIELDS);
-        if conc * inner > usable {
-            continue;
-        }
-        let cost = FIELD_COST_SEC[(inner - 1).min(FIELD_COST_SEC.len() - 1)];
-        let wall = (N_FIELDS as f64 / conc as f64).ceil() * cost;
-        if wall < best_cost {
-            best_cost = wall;
-            best = (conc, inner);
-        }
-    }
-    best
+/// 给定 n_jobs 与 worker 数，每个 worker 的 CPU 预算（= 并发字段数，每字段固定 1 线程）。
+/// 保证 n_workers × 本值 + PARENT_CPU_THREADS ≤ n_jobs。
+pub fn worker_cpu_budget(n_jobs: usize, n_workers: usize) -> usize {
+    (n_jobs.saturating_sub(PARENT_CPU_THREADS) / n_workers.max(1)).clamp(1, WORKER_SATURATION)
 }
 
-/// 并发字段数上限（在预算内）。可用 RUST_PYFUNC_SWITCH_MOMENT_FIELD_CONC 覆盖。
+/// 并发字段数。默认 = min(19, 预算)——每字段 1 线程，线程满载，实际 CPU ≈ 预算。
+/// 可用 RUST_PYFUNC_SWITCH_MOMENT_FIELD_CONC 覆盖（实验用）。
 fn field_concurrency(usable: usize) -> usize {
     if let Ok(v) = std::env::var("RUST_PYFUNC_SWITCH_MOMENT_FIELD_CONC") {
         if let Ok(v) = v.parse::<usize>() {
@@ -735,12 +745,13 @@ fn field_concurrency(usable: usize) -> usize {
             }
         }
     }
-    plan_allocation(usable).0
+    usable.clamp(1, N_FIELDS)
 }
 
-/// 每个并发字段分到的线程数（在它自己的池里跑，避免 19 个字段一起去抢同一个池）。
-/// 可用 RUST_PYFUNC_SWITCH_MOMENT_FIELD_INNER 覆盖。
-fn field_inner_threads(usable: usize, conc: usize) -> usize {
+/// 每个并发字段的线程数。默认恒为 1（这是「n_jobs = 实际 CPU」的关键：
+/// 每字段 1 线程时线程几乎 100% 忙，多给线程只会让线程空转）。
+/// 可用 RUST_PYFUNC_SWITCH_MOMENT_FIELD_INNER 覆盖（实验用）。
+fn field_inner_threads() -> usize {
     if let Ok(v) = std::env::var("RUST_PYFUNC_SWITCH_MOMENT_FIELD_INNER") {
         if let Ok(v) = v.parse::<usize>() {
             if v >= 1 {
@@ -748,11 +759,7 @@ fn field_inner_threads(usable: usize, conc: usize) -> usize {
             }
         }
     }
-    if std::env::var("RUST_PYFUNC_SWITCH_MOMENT_FIELD_CONC").is_ok() {
-        // conc 被外部指定：把剩下的预算都给每个字段，但保证 conc × inner ≤ usable
-        return (usable / conc.max(1)).max(1);
-    }
-    plan_allocation(usable).1
+    1
 }
 
 /// 字段级线程池：**正好 conc 个**池，每个 inner 线程。
@@ -789,33 +796,25 @@ fn get_field_pools(inner: usize, conc: usize) -> Arc<FieldPools> {
 /// 返回 `(codes, 扁平值)`，扁平值长度 = `codes.len() * N_FACTORS`，
 /// 每只股票连续 N_FACTORS 个值，顺序与 `switch_moment_names()` 一致。
 ///
-/// 并行结构（n_jobs 是硬上限，绝不超）：
-/// - 本进程线程预算 = RAYON_NUM_THREADS（= pipeline 的 threads_per_worker）。
-/// - 扣掉非字段线程后，按 conc × inner ≤ 剩余预算 切成 conc 个并发字段 × 每字段 inner 线程。
-/// - 每个字段跑在自己的 rayon 小池里：faer 的 GEMM 用 Parallelism::Rayon(0)，
-///   在池里就等于只用该字段分到的那 inner 个线程。
+/// 并行结构（n_jobs 既是上限、也是实际 CPU 目标，偏差 ≤10% 且绝不超）：
+/// - 本进程线程预算 = RAYON_NUM_THREADS，由 factor_pipeline 按
+///   `worker_cpu_budget(n_jobs, n_workers)` 下发（已经扣掉父进程 writer 池那 4 个核）。
+/// - **每字段固定 1 线程**，并发 conc = min(19, 预算)：实测 1 线程/字段时线程 ≈100% 忙，
+///   所以实际 CPU ≈ 预算；多给线程只会让线程更闲（2 线程/字段 ~65% 忙，6 线程 ~34% 忙，
+///   因为单字段内部约 69% 的活是串行的）。
+/// - 于是「n_jobs = 实际 CPU」靠**进程数**凑：进程数 ≈ (n_jobs - 父进程 4) / 19，
+///   见 recommended_workers()；n_jobs 小时（如 30）单进程喂不满 19，会自动多拆进程。
+/// - 每个字段跑在自己的 1 线程 rayon 小池里：faer 的 GEMM 用 Parallelism::Rayon(0)，
+///   在池里就等于只用这 1 个线程，不会偷偷多开线程。
 /// - 用 pool.spawn + channel 投递，不额外开阻塞线程；本进程主线程在等结果。
 ///
-/// 【重要：n_jobs 是上限，实际 CPU 用量只有它的 45%~55%，这不是 bug】
-/// 每个字段都有一大块工作没法并行（相邻行贡献度循环、OLS 残差、相关矩阵列的复制与
-/// 列统计前的搬运等），所以分给一个字段的第 2 个及以后的线程大部分时间在等活干。
-/// 实测（20241231，单进程，真实数据，采样 /proc/<pid>/task 的 utime+stime）：
+/// 实测（20241231，单进程，采样 /proc/<pid>/task 的 utime+stime 增量）：
 ///   每字段 1 线程 → 20 线程存活、18.8 核（≈100% 忙）
 ///   每字段 2 线程 → 40 线程存活、约 25 核（≈65% 忙）
 ///   每字段 4 线程 → 78 线程存活、38 核（≈50% 忙）
 ///   每字段 6 线程 → 116 线程存活、39 核（≈34% 忙）
-/// 单个进程的 CPU 上限约 40 核，再往上加线程只是让线程更多、更闲。
-/// 按 Amdahl 拟合单日墙钟（每字段 1 线程 156s、2 线程 132s）得串行部分约 108s、
-/// 可并行部分约 48s，串行占 69% —— 与「19 个字段 × 1 线程 ≈ 19 核」的观测吻合。
-/// 多进程同理：n_jobs=512、32 进程、每进程 13 线程时约 230 核在跑、约 230 个线程在等活。
-///
-/// 【反直觉的实测事实：想靠调大并发把实际用量顶到接近 n_jobs，只会更慢】
-/// 把分配从「4 字段 × 3 线程」改成「12 字段 × 1 线程」，在跑线程从约 230 顶到 336 个，
-/// 但全期墙钟反而从 8.6h 涨到 9.2h —— 多出来的线程在抢内存带宽，谁也不快。
-/// 所以这里的配比规则（plan_allocation）是按「墙钟最短」挑的，不是按「用量最高」挑的；
-/// 不要为了把 CPU 顶上去而改它。
-/// 结论：要「实际 CPU ≈ n_jobs」，得先把字段内部那 69% 的串行工作并行化，
-/// 那是 corr_contribution_factors.rs 里的事，不是调这里能解决的。
+/// 注意：单进程最多约 19~21 核（19 个字段各 1 线程），要凑到 30 核必须拆 ≥2 个进程，
+/// 所以 recommended_workers() 在 n_jobs=30 时会返回 2（2 × 13 字段 = 26 核 + 父进程 4 = 30）。
 pub fn compute_switch_moment_full(date: i64) -> io::Result<(Vec<String>, Vec<f32>)> {
     let meta = get_meta()?;
     let (t, n, raw) = load_raw(date, &meta)?;
@@ -835,10 +834,10 @@ pub fn compute_switch_moment_full(date: i64) -> io::Result<(Vec<String>, Vec<f32
     let base = Arc::new(base);
     let mut flat = vec![f32::NAN; n * N_FACTORS];
 
+    // n_jobs 既是上限也是目标：每字段 1 线程把预算喂满，实际 CPU ≈ 预算。
     let budget = thread_budget();
-    let usable = budget.saturating_sub(field_thread_reserve()).max(1);
-    let conc = field_concurrency(usable);
-    let inner = field_inner_threads(usable, conc);
+    let conc = field_concurrency(budget);
+    let inner = field_inner_threads();
     let pools = get_field_pools(inner, conc);
 
     let mut slots: Vec<Option<(usize, &'static str, Vec<f64>)>> = fields
