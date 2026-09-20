@@ -589,7 +589,7 @@ fn process_residual(
     }
 }
 
-fn compute_all_factors(
+pub(crate) fn compute_all_factors(
     field: Array2<f64>,
     top_k: usize,
     parallel: bool,

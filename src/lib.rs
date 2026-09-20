@@ -102,6 +102,7 @@ pub mod theme_cluster_factors;
 pub mod theme_cluster_factors_batch;
 pub mod theme_feature_expansion;
 pub mod topk_corr_matrix;
+pub mod switch_moment_metrics;
 
 pub mod corr_contribution_factors;
 pub mod dct_transform;
@@ -1385,6 +1386,11 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         microstructure_capm_metrics::py_microstructure_capm_names,
         m
     )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        switch_moment_metrics::py_switch_moment_names,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(switch_moment_metrics::py_switch_moment, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(
         multi_factor_capm_metrics::py_multi_factor_capm,
         m

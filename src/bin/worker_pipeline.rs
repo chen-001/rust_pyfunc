@@ -21,6 +21,7 @@ use rust_pyfunc::factor_pipeline::{
     pipeline_pair_interaction, pipeline_peaks, pipeline_qhsk_anneal, pipeline_urgency,
     pipeline_urgency_ext_cluster, pipeline_vsld, pipeline_yhyb,
     pipeline_yhyb_indtop,
+    pipeline_switch_moment,
     pipeline_yupei_dist, ResultMessage, TaskMessage,
 };
 use std::io::{BufReader, BufWriter};
@@ -170,6 +171,8 @@ fn main() {
                         pipeline_long_order(date, expected_len)
                     } else if pipeline_name == "microstructure_capm" {
                         pipeline_microstructure_capm(date, expected_len)
+                    } else if pipeline_name == "switch_moment" {
+                        pipeline_switch_moment(date, expected_len)
                     } else if pipeline_name == "multi_factor_capm" {
                         pipeline_multi_factor_capm(date, expected_len)
                     } else if pipeline_name == "urgency" {

@@ -2512,6 +2512,33 @@ pub fn pipeline_microstructure_capm(date: i64, expected_len: usize) -> Vec<TaskR
     }
 }
 
+/// switch_moment（hm95 切换时刻贡献）横截面 pipeline 包装：调核心，fan-out 成 TaskResult。
+pub fn pipeline_switch_moment(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    if expected_len != crate::switch_moment_metrics::N_FACTORS {
+        eprintln!(
+            "switch_moment expected_len错误 [{date}]: {expected_len} != {}",
+            crate::switch_moment_metrics::N_FACTORS
+        );
+        return Vec::new();
+    }
+    match crate::switch_moment_metrics::compute_switch_moment_full(date) {
+        Ok((codes, vals)) => vals
+            .chunks(expected_len)
+            .zip(codes.iter())
+            .map(|(facs, code)| TaskResult {
+                date,
+                code: code.clone(),
+                timestamp: 0,
+                facs: facs.to_vec(),
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("switch_moment error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
 /// 同热点股票池横截面 pipeline 包装。
 pub fn pipeline_hot_stock_pool(date: i64, expected_len: usize) -> Vec<TaskResult> {
     if expected_len != crate::hot_stock_pool_metrics::N_FACTORS {
@@ -2900,6 +2927,7 @@ pub fn run_factor_pipeline_cross_section(
         "vsld",
         "yhyb",
         "yhyb_indtop",
+        "switch_moment",
     ];
     if !known.contains(&pipeline_name.as_str()) {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(

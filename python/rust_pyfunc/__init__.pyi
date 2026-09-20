@@ -244,6 +244,16 @@ def py_microstructure_capm_names() -> List[str]:
     ...
 
 
+def py_switch_moment_names() -> List[str]:
+    """switch_moment（hm95 切换时刻贡献）15067 个因子名，顺序 = 字段字典序 × 793 基础名序。"""
+    ...
+
+
+def py_switch_moment(date: int) -> Tuple[List[str], List[float]]:
+    """单日直算 switch_moment 因子（核对用）：返回 (codes, 扁平值)，扁平值长度 = len(codes) * 15067。"""
+    ...
+
+
 def py_multi_factor_capm(date: int) -> Tuple[List[str], List[float]]:
     ...
 
@@ -1070,6 +1080,8 @@ __all__ = [
     "py_microstructure_capm",
     "py_microstructure_capm_codes",
     "py_microstructure_capm_names",
+    "py_switch_moment",
+    "py_switch_moment_names",
     "py_multi_factor_capm",
     "py_multi_factor_capm_names",
     "run_factor_pipeline_cross_section",
