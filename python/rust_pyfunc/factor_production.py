@@ -415,7 +415,11 @@ _SETTINGS = [
 
 def factor_production_runtime(settings):
     """供本机验收流程复用底层逻辑；同事只需调用因子脚本中的四个入口。"""
-    return _ProductionRuntime(settings)
+    options = {key: settings[key] for key in [*_SETTINGS, "rp"] if key in settings}
+    return _runtime(
+        options.pop("base_factor_ver"), options.pop("base_hdf5_dir"),
+        options.pop("calendar_root"), options.pop("vars_root"), **options,
+    )
 
 
 def _runtime(base_factor_ver, base_hdf5_dir, calendar_root, vars_root, **overrides):
@@ -497,7 +501,6 @@ def write_selected_factor_base(
     calendar_root,
     vars_root,
     n_jobs=30,
-    stock_only_input=False,
 ):
     """计算指定日期，保存所需原值/fold；成功写入后删除临时 colblk。"""
     runtime = _runtime(
@@ -510,7 +513,6 @@ def write_selected_factor_base(
         colblk_store_dir=colblk_store_dir,
         level2_root=level2_root,
         cpu_limit=n_jobs,
-        stock_only_input=stock_only_input,
     )
     with _stage(runtime):
         runtime.run_base(start_date, end_date, n_jobs)
