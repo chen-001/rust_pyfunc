@@ -1,0 +1,29 @@
+x60y3_buy_cold_f18_lz_complexity
+  days=485  ref BRC_S=+0.004445460905 BRC_L=+0.004614370163 BRC=+0.004445460905
+                table BRC_S=+0.004445460905 BRC_L=+0.004614370163
+                |dS|=3.877e-13 |dL|=4.297e-13
+x60y3_ba_cold_f26_corr_f34
+  days=485  ref BRC_S=-0.004212185340 BRC_L=-0.000176642859 BRC=-0.004212185340
+                table BRC_S=-0.004212185340 BRC_L=-0.000176642859
+                |dS|=2.342e-13 |dL|=3.352e-13
+x15y10_buy_cold_f20_corr_f25
+  days=485  ref BRC_S=+0.000415766396 BRC_L=+0.009280319177 BRC=+0.000415766396
+                table BRC_S=+0.000415766396 BRC_L=+0.009280319177
+                |dS|=1.080e-13 |dL|=4.319e-13
+x15y10_ba_cold_f15_corr_f28
+  days=485  ref BRC_S=+0.002480557564 BRC_L=-0.011858734962 BRC=-0.011858734962
+                table BRC_S=+0.002480557564 BRC_L=-0.011858734962
+                |dS|=1.351e-13 |dL|=4.579e-13
+hotpool_ext_indpool_x60y3_buy_hot_f34_entropy_1d
+  days=485  ref BRC_S=+0.006755916972 BRC_L=+0.002143325664 BRC=+0.002143325664
+                table BRC_S=+0.006755916972 BRC_L=+0.002143325664
+                |dS|=1.172e-13 |dL|=3.642e-13
+hotpool_ext_indpool_x15y10_buy_hot_f12_curvature
+  days=485  ref BRC_S=-0.002268479630 BRC_L=+0.009353028638 BRC=-0.002268479630
+                table BRC_S=-0.002268479630 BRC_L=+0.009353028638
+                |dS|=1.178e-14 |dL|=3.201e-13
+
+max |dBRC_S| = 3.877e-13
+max |dBRC_L| = 4.579e-13
+worst factor: x15y10_ba_cold_f15_corr_f28
+PASS (1e-12)

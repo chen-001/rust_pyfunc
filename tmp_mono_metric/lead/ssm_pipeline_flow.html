@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>加入 SSM 之后的因子筛选流程</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --ink:#1c2128; --muted:#5c6672;
+    --line:#dde3ea; --line-soft:#eef1f5;
+    --accent:#b8450f; --accent-bg:#fff5ee; --accent-line:#e8915a;
+    --blue:#1e4e79; --blue-bg:#eff5fb;
+    --green:#186b43; --green-bg:#eef9f3;
+    --amber:#8a6100; --amber-bg:#fff9e8;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:var(--bg); color:var(--ink);
+    font:14px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  header{padding:22px 28px 10px}
+  h1{margin:0 0 6px; font-size:21px; font-weight:650; letter-spacing:.2px}
+  header .lede{margin:0; color:var(--muted); font-size:13px}
+  .legend{margin-top:12px; display:flex; gap:18px; flex-wrap:wrap; font-size:12.5px; color:var(--muted)}
+  .legend i{display:inline-block; width:26px; height:12px; border-radius:3px; vertical-align:-1px; margin-right:6px; border:1.5px solid}
+  .legend .k-new i{background:var(--accent-bg); border-color:var(--accent-line)}
+  .legend .k-base i{background:var(--panel); border-color:var(--line)}
+
+  .wrap{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) 380px;
+    gap:22px;
+    padding:14px 28px 44px;
+    align-items:start;
+  }
+  @media (max-width:1080px){ .wrap{grid-template-columns:minmax(0,1fr)} }
+
+  .flow{display:flex; flex-direction:column; gap:0}
+  .step{
+    display:grid; grid-template-columns:44px minmax(0,1fr) minmax(0,1.15fr);
+    gap:14px; align-items:center;
+    background:var(--panel); border:1.5px solid var(--line); border-radius:10px;
+    padding:13px 16px;
+  }
+  .step .num{
+    width:30px; height:30px; border-radius:8px; display:grid; place-items:center;
+    background:var(--blue-bg); color:var(--blue); font-weight:650; font-size:13.5px;
+  }
+  .step .label{font-weight:600; font-size:14.5px}
+  .step .sub{color:var(--muted); font-size:13px}
+  .step .sub code{background:#f2f4f7; border-radius:4px; padding:1px 5px; font-size:12px}
+
+  .step.new{background:var(--accent-bg); border-color:var(--accent-line)}
+  .step.new .num{background:#ffe6d5; color:var(--accent)}
+  .tagnew{
+    display:inline-block; margin-left:8px; padding:1px 7px; border-radius:999px;
+    background:var(--accent); color:#fff; font-size:11px; font-weight:600; vertical-align:1px;
+  }
+  .step .why{grid-column:2 / -1; margin-top:2px; color:var(--accent); font-size:12.5px}
+
+  .arrow{display:grid; place-items:center; height:26px; color:#b6c0cc; font-size:13px}
+  .arrow b{font-weight:400}
+
+  aside{position:sticky; top:16px; align-self:start; max-height:calc(100vh - 32px); overflow-y:auto}
+  .card{
+    background:var(--panel); border:1.5px solid var(--line); border-radius:10px;
+    padding:16px 18px; margin-bottom:16px;
+  }
+  .card h2{margin:0 0 10px; font-size:14px; font-weight:650; letter-spacing:.2px}
+  .card p{margin:0 0 10px; color:var(--muted); font-size:13px}
+  .card p:last-child{margin-bottom:0}
+  table{width:100%; border-collapse:collapse; font-size:12.5px}
+  th,td{padding:7px 8px; border-bottom:1px solid var(--line-soft); text-align:right; white-space:nowrap}
+  th:first-child,td:first-child{text-align:left; white-space:normal}
+  th{color:var(--muted); font-weight:600; border-bottom:1px solid var(--line)}
+  tr.best td{background:var(--green-bg); font-weight:600}
+  .note{background:var(--amber-bg); border:1.5px solid #f0d79a; border-radius:8px; padding:11px 13px; font-size:12.5px; color:#4a3a12}
+  .note b{color:#6b4d00}
+  .ok{background:var(--green-bg); border:1.5px solid #a9dcc0; border-radius:8px; padding:11px 13px; font-size:12.5px; color:#123f2a}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+</style>
+</head>
+<body>
+<header>
+  <h1>加入 SSM 之后的因子筛选流程</h1>
+  <p class="lede">以 hm104 为例（组合 store，21,968 列，回测窗口 2016-01-01 ~ 2025-12-31）。橙色两步是这次改动新增的。</p>
+  <div class="legend">
+    <span class="k-base"><i></i>原有步骤</span>
+    <span class="k-new"><i></i>本次新增</span>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="flow">
+
+    <div class="step">
+      <div class="num">1</div>
+      <div class="label">colblk 因子库</div>
+      <div class="sub">hm104 共 21,968 列（横截面算好的因子）</div>
+    </div>
+    <div class="arrow">▼</div>
+
+    <div class="step">
+      <div class="num">2</div>
+      <div class="label">切回测轴 + 加载回测输入</div>
+      <div class="sub">模板轴按窗口截取；加载风格因子、行业码、收益、限制状态、指数收益</div>
+    </div>
+    <div class="arrow">▼</div>
+
+    <div class="step">
+      <div class="num">3</div>
+      <div class="label">引擎逐因子处理：预处理 → 中性化</div>
+      <div class="sub">横截面 rank + 缺失中位数填充；10 列风格因子，行业版再加 31 个行业哑变量</div>
+    </div>
+    <div class="arrow">▼</div>
+
+    <div class="step">
+      <div class="num">4</div>
+      <div class="label">完整回测</div>
+      <div class="sub">按因子值分 10 个等数量组，算每组组均收益，再算多空组合。<b>IC-only 模式会跳过这一步</b></div>
+    </div>
+    <div class="arrow">▼ <b>SSM 的原料从这里来</b></div>
+
+    <div class="step new">
+      <div class="num">5</div>
+      <div class="label">算 SSM<span class="tagnew">新增</span></div>
+      <div class="sub">10 组时间平均收益 → 统一方向（末组低于首组则整条倒序）→ 五段各自算「净位移 ÷ 台阶幅度之和」→ 取最小</div>
+      <div class="why">五段 = 整体(1-10)、空头段(1-5)、多头段(6-10)、首段(1-4)、尾段(7-10)。值域 −1 到 1，只有接近 +1 才是好。</div>
+    </div>
+    <div class="arrow">▼</div>
+
+    <div class="step">
+      <div class="num">6</div>
+      <div class="label">写 summary parquet</div>
+      <div class="sub">每个因子一行，含中性化 RankIC、多空收益、夏普，以及新加的 <code>SSM</code> 列</div>
+    </div>
+    <div class="arrow">▼</div>
+
+    <div class="step new">
+      <div class="num">7</div>
+      <div class="label">cover 过滤 + SSM 门槛<span class="tagnew">新增</span></div>
+      <div class="sub">先筛 <code>ratio_mean ≥ 0.5</code>，再筛 <code>SSM ≥ 0.9</code>，把阶梯排不齐的因子挡在门外</div>
+      <div class="why">SSM 只当门槛，<b>不参与排序</b>。过了门槛之后排序仍然是中性化 |IC| 降序。</div>
+    </div>
+    <div class="arrow">▼</div>
+
+    <div class="step">
+      <div class="num">8</div>
+      <div class="label">四通道并行初筛 + 两道相关去重</div>
+      <div class="sub">neu_ic（|IC| ≥ 0.01）、neu_ret（hedge ≥ 0.055）、raw_ic（|IC| ≥ 0.03）、raw_ret（hedge ≥ 0.1）；每通道内部先按 0.5 / 0.8 去重，合并后再按 0.8 去重一次</div>
+    </div>
+    <div class="arrow">▼</div>
+
+    <div class="step">
+      <div class="num">9</div>
+      <div class="label">分配名额 → 35 个因子</div>
+      <div class="sub">neu_ic 拿满 35 个名额；写入 selected/gap5_selected.parquet</div>
+    </div>
+    <div class="arrow">▼</div>
+
+    <div class="step">
+      <div class="num">10</div>
+      <div class="label">base 落盘 → fulltest 出图 → doc 出 docx</div>
+      <div class="sub">只对筛出的 35 个做完整回测与文档，产出 HF_Documentation docx 与十组收益走势图</div>
+    </div>
+
+  </div>
+
+  <aside>
+    <div class="card">
+      <h2>hm104 三版实测对比</h2>
+      <p>收益指标同口径，都从完整回测表取（原版是 IC-only 跑的，没有收益列）。</p>
+      <table>
+        <thead>
+          <tr><th>版本</th><th>门槛</th><th>|IC| 中位</th><th>多空年化</th><th>夏普</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>hm104 原版</td><td>无</td><td>0.0233</td><td>12.28%</td><td>2.15</td></tr>
+          <tr class="best"><td>hm104_ssm2</td><td>0.5</td><td>0.0181</td><td>13.16%</td><td>2.38</td></tr>
+          <tr><td>hm104_ssm3</td><td>0.9</td><td>0.0167</td><td>12.26%</td><td>2.44</td></tr>
+        </tbody>
+      </table>
+      <p style="margin-top:10px">门槛 0.5 那版是这三版里最好的。0.9 那版夏普只多 0.06，多空年化退回原版水平。</p>
+    </div>
+
+    <div class="card">
+      <h2>为什么 SSM 卡在第 4 步后面</h2>
+      <p>原来的 hm104.py 走 IC-only 模式，引擎在第 4 步直接跳过十分组和多空组合，只算中性化 RankIC。SSM 的输入就是那十个组的组均收益，跳过就没有原料。</p>
+      <p>所以 <code>use_ssm=True</code> 实际做的事是<b>把 ic_only 关掉、强制走完整回测</b>。这是这个改动唯一的算力代价：hm104 从原来的粗筛变成 2 小时 12 分。</p>
+    </div>
+
+    <div class="card">
+      <h2>名额全来自 neu_ic，但不是纯单通道</h2>
+      <div class="note">
+        <p style="margin:0 0 8px"><b>最终 35 个名额 100% 来自中性化 IC 通道。</b>因为 <code>cut1_rate</code> / <code>raw_ret_rate</code> / <code>raw_ic_rate</code> 都是 None，算出来 <code>neu_ret=0</code>、<code>raw_ret=0</code>、<code>raw_ic=0</code>、<code>neu_ic=35</code>。所以入选名单就是「中性化 RankIC only」的产物。</p>
+        <p style="margin:0 0 8px"><b>但另外三个通道在过程里会改动名单，机制是「归类黑洞」。</b>一个因子如果同时进了 neu_ic 池和 neu_ret 池，它会被归类到 neu_ret 名额（0 个），于是<b>整个丢掉</b>，而不是留在 neu_ic 里。</p>
+        <p style="margin:0">实测门槛 0.9 时，35 个里有 <b>6 个</b>是这样被候补顶掉的（对照实验：只用 neu_ic 通道选出的 35 个与四通道版本差 6 个）。这是 IC-only 配置下的既有行为，不是这次改动引入的。</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>SSM 怎么读</h2>
+      <div class="ok">
+        <p style="margin:0 0 8px"><b>只有接近 +1 是好，接近 −1 是坏。</b></p>
+        <p style="margin:0 0 8px">方向在第 5 步已经统一过，单调递减的好因子拿到的是 +1，不是 −1。所以不要按 |SSM| 去读。</p>
+        <p style="margin:0">它的正负与 IC 的正负无关：SSM = 1.000 的因子里 IC 有正有负。</p>
+      </div>
+    </div>
+
+  </aside>
+</div>
+</body>
+</html>

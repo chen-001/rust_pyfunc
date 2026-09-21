@@ -1,0 +1,43 @@
+[PASS] monotone f=+r -> S=L=1  S=1.0 L=1.0
+[PASS] f=+r, r reversed -> S=L=-1  S=-1.0 L=-1.0
+
+random n=5000 cross sections, 5 seeds (expect S, L near 0):
+  seed=0  S=+0.001560  L=+0.002514  |S|+|L|=0.004074
+  seed=1  S=+0.012308  L=-0.006775  |S|+|L|=0.019083
+  seed=2  S=-0.005105  L=-0.005562  |S|+|L|=0.010668
+  seed=3  S=-0.020307  L=-0.004960  |S|+|L|=0.025267
+  seed=4  S=-0.005833  L=+0.005123  |S|+|L|=0.010956
+
+mirror identity on r -> -r (distinct values, no ties in r):
+  seed=0  S=+0.098530808715 L=+0.100939348445 | -r: S'=-0.098530808715 L'=-0.100939348445 | S'+S=+0.000e+00 L'+L=+0.000e+00 S'+L=+2.409e-03 L'+S=-2.409e-03
+  seed=1  S=-0.028890534405 L=-0.053813540378 | -r: S'=+0.028890534405 L'=+0.053813540378 | S'+S=+6.939e-18 L'+L=+6.939e-18 S'+L=-2.492e-02 L'+S=+2.492e-02
+  seed=2  S=+0.024719447580 L=-0.074975339919 | -r: S'=-0.024719447580 L'=+0.074975339919 | S'+S=+0.000e+00 L'+L=+0.000e+00 S'+L=-9.969e-02 L'+S=+9.969e-02
+  seed=3  S=-0.058005319876 L=-0.001055010651 | -r: S'=+0.058005319876 L'=+0.001055010651 | S'+S=+0.000e+00 L'+L=-7.373e-18 S'+L=+5.695e-02 L'+S=-5.695e-02
+  seed=4  S=+0.049372356007 L=+0.067541868503 | -r: S'=-0.049372356007 L'=-0.067541868503 | S'+S=+0.000e+00 L'+L=+1.388e-17 S'+L=+1.817e-02 L'+S=-1.817e-02
+[PASS] identity S'=-S and L'=-L under r -> -r  (numbers above; claimed S'=-L/L'=-S is contradicted below)
+[FAIL] claim 'negate r: S->-L, L->-S' holds  S'=-0.023080410866 -L=-0.042058300811 L'=-0.042058300811 -S=-0.023080410866
+[PASS] actual 'negate r: S->-S, L->-L' holds  
+[PASS] negate r: BRC -> -max(S,L) (holds even though S'=-S, L'=-L)  BRC'=-0.042058300811 -max(S,L)=-0.042058300811
+
+mirror identity on f -> -f (reverse the f order, distinct f):
+[PASS] negate f: S'=-L and L'=-S  S'=-0.042058300811 -L=-0.042058300811 L'=-0.023080410866 -S=-0.023080410866
+
+tiny n (2,3,4) exhaustive: rank-sum vs O(n^2) pairwise
+[PASS] n=2: bitwise identical (ties included=True)  max |diff| = 0.000e+00
+[PASS] n=3: bitwise identical (ties included=True)  max |diff| = 0.000e+00
+[PASS] n=4: bitwise identical (ties included=True)  max |diff| = 0.000e+00
+
+n=50/200 random cross sections: rank-sum vs O(n^2) pairwise
+[PASS] n=50: rank-sum == O(n^2) pairwise  max |diff| = 0.000e+00
+[PASS] n=200: rank-sum == O(n^2) pairwise  max |diff| = 0.000e+00
+
+[PASS] n=1 -> (nan, nan)  
+[PASS] nan in r -> (nan, nan)  
+[PASS] inf in f -> (nan, nan)  
+
+aggregate on a (T,n) panel with a gap-5 grid:
+[PASS] brc_series == manual aggregate  BRC_S=+0.024060 BRC_L=+0.049840 BRC=+0.024060 (grid days=4, one has nan -> skipped)
+[PASS] BRC == min(BRC_S, BRC_L)  
+[PASS] all-nan input -> (nan,nan,nan)  
+
+SOME CHECKS FAILED

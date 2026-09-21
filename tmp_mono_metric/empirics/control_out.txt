@@ -1,0 +1,7 @@
+perfect        reps=  1 IC=+1.0000 share=0.5000 lambda=+1.000 lsh=+1.000 llo=+1.000 ladder_ratio=0.9899
+sym_s3.0       reps= 20 IC=+0.0937 share=0.4998 lambda=+0.929 lsh=+0.945 llo=+0.915 ladder_ratio=0.9847
+sym_s4.8       reps= 20 IC=+0.0587 share=0.4997 lambda=+0.800 lsh=+0.868 llo=+0.802 ladder_ratio=0.9844
+sym_s8.0       reps= 20 IC=+0.0352 share=0.4995 lambda=+0.656 lsh=+0.738 llo=+0.653 ladder_ratio=0.9843
+het_s4.8_k-0.8 reps= 10 IC=+0.0575 share=-0.5339 lambda=+0.116 lsh=-1.000 llo=+1.000 ladder_ratio=0.9942
+het_s4.8_k0.8  reps= 10 IC=+0.0576 share=1.5311 lambda=+0.100 lsh=+1.000 llo=-0.988 ladder_ratio=0.9944
+REAL top50     n= 50  IC=0.0731 share=0.5565 lambda=+0.968 lsh=+0.983 llo=+0.869 ladder_ratio=0.9892

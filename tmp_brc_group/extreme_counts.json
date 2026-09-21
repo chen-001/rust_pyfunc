@@ -1,0 +1,18 @@
+{
+  "brc": {
+    "long_top_strict": 13,
+    "long_top_tie": 13,
+    "short_bot_strict": 23,
+    "short_bot_tie": 23,
+    "both_strict": 12,
+    "both_tie": 12
+  },
+  "orig": {
+    "long_top_strict": 8,
+    "long_top_tie": 8,
+    "short_bot_strict": 20,
+    "short_bot_tie": 20,
+    "both_strict": 4,
+    "both_tie": 4
+  }
+}

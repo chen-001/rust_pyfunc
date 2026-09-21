@@ -1,0 +1,147 @@
+entry   : rp.tail_brc_halves_f32
+factors : ['x60y3_buy_hot_f00_mean', 'x60y3_ba_cold_f20_skew', 'x15y10_ba_cold_f20_period_diff', 'hotpool_ext_indpool_x60y3_ba_cold_f24_curvature']
+axis    : meta/dates.npy 2430 days, backtest_start=20160101, gap=5
+
+x60y3_buy_hot_f00_mean
+  local_t=4 date=20160111 n=2369 held_row=0
+  ref(f64) S=+0.089178090699 L=+0.073298634789
+  rust     S=+0.089178090699 L=+0.073298634789
+  |dS|=9.714e-17 |dL|=4.163e-17  relS=1.089e-15 relL=5.680e-16
+  ref(f32-accum) S=+0.089178092778 L=+0.073298633099  relS=2.331e-08 relL=2.306e-08
+
+x60y3_buy_hot_f00_mean
+  local_t=809 date=20190506 n=3393 held_row=805
+  ref(f64) S=-0.051568471663 L=-0.017233407558
+  rust     S=-0.051568471663 L=-0.017233407558
+  |dS|=1.388e-17 |dL|=3.816e-17  relS=2.691e-16 relL=2.215e-15
+  ref(f32-accum) S=-0.051568470895 L=-0.017233405262  relS=1.488e-08 relL=1.332e-07
+
+x60y3_buy_hot_f00_mean
+  local_t=1214 date=20201229 n=3512 held_row=1210
+  ref(f64) S=+0.089856260969 L=+0.078199274382
+  rust     S=+0.089856260969 L=+0.078199274382
+  |dS|=0.000e+00 |dL|=4.163e-17  relS=0.000e+00 relL=5.324e-16
+  ref(f32-accum) S=+0.089856259525 L=+0.078199274838  relS=1.608e-08 relL=5.831e-09
+
+x60y3_buy_hot_f00_mean
+  local_t=1619 date=20220830 n=4367 held_row=1615
+  ref(f64) S=-0.002521341424 L=-0.003750933812
+  rust     S=-0.002521341424 L=-0.003750933812
+  |dS|=2.602e-18 |dL|=6.505e-18  relS=1.032e-15 relL=1.734e-15
+  ref(f32-accum) S=-0.002521342831 L=-0.003750933567  relS=5.580e-07 relL=6.518e-08
+
+x60y3_buy_hot_f00_mean
+  local_t=2424 date=20251225 n=4912 held_row=2420
+  ref(f64) S=+0.004966869118 L=-0.018389057514
+  rust     S=+0.004966869118 L=-0.018389057514
+  |dS|=8.674e-19 |dL|=1.388e-17  relS=1.746e-16 relL=7.547e-16
+  ref(f32-accum) S=+0.004966869019 L=-0.018389059231  relS=1.988e-08 relL=9.335e-08
+
+x60y3_ba_cold_f20_skew
+  local_t=4 date=20160111 n=2369 held_row=0
+  ref(f64) S=-0.013124714275 L=+0.103852408370
+  rust     S=-0.013124714275 L=+0.103852408370
+  |dS|=1.735e-18 |dL|=6.939e-17  relS=1.322e-16 relL=6.681e-16
+  ref(f32-accum) S=-0.013124713674 L=+0.103852398694  relS=4.578e-08 relL=9.318e-08
+
+x60y3_ba_cold_f20_skew
+  local_t=809 date=20190506 n=3398 held_row=805
+  ref(f64) S=-0.032606908551 L=+0.015515753655
+  rust     S=-0.032606908551 L=+0.015515753655
+  |dS|=4.857e-17 |dL|=6.939e-18  relS=1.490e-15 relL=4.472e-16
+  ref(f32-accum) S=-0.032606907189 L=+0.015515752137  relS=4.177e-08 relL=9.784e-08
+
+x60y3_ba_cold_f20_skew
+  local_t=1214 date=20201229 n=3512 held_row=1210
+  ref(f64) S=-0.117858665130 L=+0.019633870496
+  rust     S=-0.117858665130 L=+0.019633870496
+  |dS|=2.082e-16 |dL|=4.163e-17  relS=1.766e-15 relL=2.120e-15
+  ref(f32-accum) S=-0.117858663201 L=+0.019633866847  relS=1.637e-08 relL=1.859e-07
+
+x60y3_ba_cold_f20_skew
+  local_t=1619 date=20220830 n=4375 held_row=1615
+  ref(f64) S=+0.157926825154 L=+0.223285868234
+  rust     S=+0.157926825154 L=+0.223285868234
+  |dS|=8.327e-17 |dL|=1.110e-16  relS=5.272e-16 relL=4.972e-16
+  ref(f32-accum) S=+0.157926827669 L=+0.223285853863  relS=1.593e-08 relL=6.436e-08
+
+x60y3_ba_cold_f20_skew
+  local_t=2424 date=20251225 n=4920 held_row=2420
+  ref(f64) S=+0.028859401548 L=+0.007214394932
+  rust     S=+0.028859401548 L=+0.007214394932
+  |dS|=1.041e-17 |dL|=2.862e-17  relS=3.607e-16 relL=3.967e-15
+  ref(f32-accum) S=+0.028859401122 L=+0.007214394398  relS=1.476e-08 relL=7.403e-08
+
+x15y10_ba_cold_f20_period_diff
+  local_t=4 date=20160111 n=2369 held_row=0
+  ref(f64) S=+0.062836307534 L=+0.154082578220
+  rust     S=+0.062836307534 L=+0.154082578220
+  |dS|=6.939e-17 |dL|=2.776e-17  relS=1.104e-15 relL=1.801e-16
+  ref(f32-accum) S=+0.062836304307 L=+0.154082581401  relS=5.136e-08 relL=2.065e-08
+
+x15y10_ba_cold_f20_period_diff
+  local_t=809 date=20190506 n=3398 held_row=805
+  ref(f64) S=+0.090530373320 L=+0.109668036088
+  rust     S=+0.090530373320 L=+0.109668036088
+  |dS|=5.551e-17 |dL|=2.082e-16  relS=6.132e-16 relL=1.898e-15
+  ref(f32-accum) S=+0.090530365705 L=+0.109668031335  relS=8.411e-08 relL=4.334e-08
+
+x15y10_ba_cold_f20_period_diff
+  local_t=1214 date=20201229 n=3512 held_row=1210
+  ref(f64) S=-0.015910654554 L=-0.015901588999
+  rust     S=-0.015910654554 L=-0.015901588999
+  |dS|=0.000e+00 |dL|=2.082e-17  relS=0.000e+00 relL=1.309e-15
+  ref(f32-accum) S=-0.015910655260 L=-0.015901589766  relS=4.436e-08 relL=4.823e-08
+
+x15y10_ba_cold_f20_period_diff
+  local_t=1619 date=20220830 n=4375 held_row=1615
+  ref(f64) S=-0.004910170409 L=+0.093879705034
+  rust     S=-0.004910170409 L=+0.093879705034
+  |dS|=1.388e-17 |dL|=8.327e-17  relS=2.826e-15 relL=8.870e-16
+  ref(f32-accum) S=-0.004910170566 L=+0.093879699707  relS=3.200e-08 relL=5.674e-08
+
+x15y10_ba_cold_f20_period_diff
+  local_t=2424 date=20251225 n=4920 held_row=2420
+  ref(f64) S=+0.002397785191 L=-0.103139028242
+  rust     S=+0.002397785191 L=-0.103139028242
+  |dS|=7.589e-17 |dL|=1.110e-16  relS=3.165e-14 relL=1.076e-15
+  ref(f32-accum) S=+0.002397785429 L=-0.103139027953  relS=9.937e-08 relL=2.799e-09
+
+hotpool_ext_indpool_x60y3_ba_cold_f24_curvature
+  local_t=4 date=20160111 n=2369 held_row=0
+  ref(f64) S=+0.164693074055 L=+0.115179978858
+  rust     S=+0.164693074055 L=+0.115179978858
+  |dS|=2.776e-17 |dL|=9.714e-17  relS=1.685e-16 relL=8.434e-16
+  ref(f32-accum) S=+0.164693087339 L=+0.115179993212  relS=8.066e-08 relL=1.246e-07
+
+hotpool_ext_indpool_x60y3_ba_cold_f24_curvature
+  local_t=809 date=20190506 n=3398 held_row=805
+  ref(f64) S=+0.041053162477 L=+0.020793446681
+  rust     S=+0.041053162477 L=+0.020793446681
+  |dS|=6.245e-17 |dL|=1.388e-17  relS=1.521e-15 relL=6.674e-16
+  ref(f32-accum) S=+0.041053161025 L=+0.020793445408  relS=3.537e-08 relL=6.120e-08
+
+hotpool_ext_indpool_x60y3_ba_cold_f24_curvature
+  local_t=1214 date=20201229 n=3512 held_row=1210
+  ref(f64) S=+0.082602943261 L=-0.015032400986
+  rust     S=+0.082602943261 L=-0.015032400986
+  |dS|=1.388e-17 |dL|=2.429e-17  relS=1.680e-16 relL=1.616e-15
+  ref(f32-accum) S=+0.082602940500 L=-0.015032401308  relS=3.342e-08 relL=2.142e-08
+
+hotpool_ext_indpool_x60y3_ba_cold_f24_curvature
+  local_t=1619 date=20220830 n=4375 held_row=1615
+  ref(f64) S=+0.122704131783 L=+0.065432747389
+  rust     S=+0.122704131783 L=+0.065432747389
+  |dS|=2.776e-17 |dL|=1.388e-17  relS=2.262e-16 relL=2.121e-16
+  ref(f32-accum) S=+0.122704133391 L=+0.065432742238  relS=1.311e-08 relL=7.872e-08
+
+hotpool_ext_indpool_x60y3_ba_cold_f24_curvature
+  local_t=2424 date=20251225 n=4920 held_row=2420
+  ref(f64) S=+0.008560149968 L=-0.086691841866
+  rust     S=+0.008560149968 L=-0.086691841866
+  |dS|=2.429e-17 |dL|=6.939e-17  relS=2.837e-15 relL=8.004e-16
+  ref(f32-accum) S=+0.008560148068 L=-0.086691841483  relS=2.220e-07 relL=4.416e-09
+
+max relative error vs ref(f64) : 3.165e-14
+max relative error vs ref(f32) : 5.580e-07
+threshold 1e-9 -> PASS

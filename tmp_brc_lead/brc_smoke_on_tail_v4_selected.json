@@ -1,0 +1,24 @@
+{
+  "ver": "brc_smoke_on",
+  "gap5_selected": [
+    "x60y3_buy_hot_f05_mean_mean_smooth_5",
+    "x60y3_buy_hot_f08_mean_mean_smooth_5",
+    "x60y3_buy_hot_f07_mean_min_smooth_20",
+    "x60y3_buy_hot_f07_mean_fold_smooth_1",
+    "x60y3_buy_hot_f00_mean_fold_max_smooth_20"
+  ],
+  "gap1_selected": [
+    "x60y3_buy_hot_f05_mean_mean_smooth_5",
+    "x60y3_buy_hot_f07_mean_mean_smooth_5",
+    "x60y3_buy_hot_f07_mean_min_smooth_20",
+    "x60y3_buy_hot_f07_mean_fold_smooth_1",
+    "x60y3_buy_hot_f07_mean_fold_max_smooth_5"
+  ],
+  "source_names": [
+    "x60y3_buy_hot_f00_mean_fold",
+    "x60y3_buy_hot_f05_mean",
+    "x60y3_buy_hot_f07_mean",
+    "x60y3_buy_hot_f07_mean_fold",
+    "x60y3_buy_hot_f08_mean"
+  ]
+}

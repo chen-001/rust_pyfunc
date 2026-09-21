@@ -1,0 +1,21 @@
+brc: 年化多头超额 对上 34/35  最大相对误差 6.11e-05；多空年化 对上 32/35  最大相对误差 7.13e-05
+orig: 年化多头超额 对上 33/35  最大相对误差 3.29e-05；多空年化 对上 32/35  最大相对误差 5.71e-05
+date_size 对上 66/66；ratio_mean 最大绝对差 2.22e-15
+
+== brc (35) ==
+  多头组是最高组: 严格 13 / 并列也算 13
+  空头组是最低组: 严格 23 / 并列也算 23
+  两条同时成立:   严格 12 / 并列也算 12
+  多头不是最高 22: ['x15y10_ba_cold_f34_mean_mean_smooth_5', 'hotpool_ext_indpool_x60y3_buy_hot_f12_p75_smooth_1', 'hotpool_ext_indpool_x60y3_buy_hot_f12_p75_mean_smooth_5', 'x60y3_buy_hot_f08_mean_mean_smooth_10', 'x15y10_ba_hot_f08_corr_f30_mean_smooth_10', 'x15y10_ba_cold_f07_std_min_smooth_10', 'x15y10_buy_cold_f28_cv_min_smooth_10', 'x15y10_ba_cold_f02_corr_f28_mean_smooth_10', 'x60y3_ba_cold_f28_cv_smooth_1', 'x15y10_ba_hot_f07_corr_f30_mean_smooth_5']
+  空头不是最低 12: ['x15y10_ba_cold_f34_mean_min_smooth_10', 'hotpool_ext_indpool_x60y3_buy_hot_f12_p75_smooth_1', 'x60y3_buy_hot_f08_mean_mean_smooth_10', 'x15y10_ba_hot_f08_corr_f30_mean_smooth_10', 'x15y10_ba_cold_f02_corr_f28_mean_smooth_10', 'x15y10_ba_hot_f07_corr_f30_mean_smooth_5', 'x15y10_ba_cold_f02_corr_f28_min_smooth_5', 'hotpool_ext_indpool_x15y10_ba_cold_f07_p95_min_smooth_10', 'x15y10_ba_cold_f17_mean_smooth_1', 'hotpool_ext_indpool_x15y10_buy_hot_f25_median_mean_smooth_10']
+  两条不同时 23: ['x15y10_ba_cold_f34_mean_mean_smooth_5', 'x15y10_ba_cold_f34_mean_min_smooth_10', 'hotpool_ext_indpool_x60y3_buy_hot_f12_p75_smooth_1', 'hotpool_ext_indpool_x60y3_buy_hot_f12_p75_mean_smooth_5', 'x60y3_buy_hot_f08_mean_mean_smooth_10', 'x15y10_ba_hot_f08_corr_f30_mean_smooth_10', 'x15y10_ba_cold_f07_std_min_smooth_10', 'x15y10_buy_cold_f28_cv_min_smooth_10', 'x15y10_ba_cold_f02_corr_f28_mean_smooth_10', 'x60y3_ba_cold_f28_cv_smooth_1']
+
+== orig (35) ==
+  多头组是最高组: 严格 8 / 并列也算 8
+  空头组是最低组: 严格 20 / 并列也算 20
+  两条同时成立:   严格 4 / 并列也算 4
+  多头不是最高 27: ['x15y10_ba_hot_f28_p95_max_smooth_5', 'x15y10_ba_hot_f28_p95_max_smooth_10', 'x15y10_ba_hot_f28_autocorr1_abs_mean_smooth_5', 'x15y10_ba_hot_f28_autocorr1_abs_mean_smooth_10', 'x15y10_ba_hot_f28_p95_smooth_1', 'x15y10_ba_cold_f34_mean_mean_smooth_5', 'hotpool_ext_ind_rel_x15y10_ba_cold_rk_vol_autocorr1_smooth_1', 'hotpool_ext_indpool_x60y3_buy_hot_f12_p75_mean_smooth_5', 'x15y10_ba_cold_f34_mean_mean_smooth_10', 'x15y10_ba_hot_f28_autocorr1_abs_smooth_1']
+  空头不是最低 15: ['x15y10_ba_hot_f28_autocorr1_abs_mean_smooth_10', 'hotpool_ext_ind_rel_x15y10_ba_cold_rk_vol_autocorr1_smooth_1', 'hotpool_ext_indpool_x15y10_ba_cold_f28_curvature_max_smooth_5', 'hotpool_ext_indpool_x15y10_ba_hot_f28_curvature_max_smooth_10', 'hotpool_ext_indpool_x60y3_buy_hot_f09_mean_mean_smooth_10', 'x15y10_ba_cold_f00_corr_f28_mean_smooth_5', 'x60y3_buy_hot_f08_mean_smooth_1', 'hotpool_ext_indpool_x60y3_buy_hot_f09_mean_mean_smooth_5', 'x15y10_ba_cold_f00_corr_f28_mean_smooth_10', 'x60y3_buy_hot_f28_curvature_smooth_1']
+  两条不同时 31: ['x15y10_ba_hot_f28_p95_max_smooth_5', 'x15y10_ba_hot_f28_p95_max_smooth_10', 'x15y10_ba_hot_f28_autocorr1_abs_mean_smooth_5', 'x15y10_ba_hot_f28_autocorr1_abs_mean_smooth_10', 'x15y10_ba_hot_f28_p95_smooth_1', 'x15y10_ba_cold_f34_mean_mean_smooth_5', 'hotpool_ext_ind_rel_x15y10_ba_cold_rk_vol_autocorr1_smooth_1', 'hotpool_ext_indpool_x60y3_buy_hot_f12_p75_mean_smooth_5', 'x15y10_ba_cold_f34_mean_mean_smooth_10', 'x15y10_ba_hot_f28_autocorr1_abs_smooth_1']
+
+最小多头/空头极值间距: 0.0103 / 0.0037

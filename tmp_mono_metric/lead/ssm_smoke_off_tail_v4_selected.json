@@ -1,0 +1,24 @@
+{
+  "ver": "ssm_smoke_off",
+  "gap5_selected": [
+    "microcapm_price_log_return_3s_capm_residual_zscore_mean_mean_max_smooth_10",
+    "microcapm_observable_ratio_level_capm_residual_zscore_mean_mean_fold_mean_smooth_5",
+    "microcapm_price_log_return_3s_capm_residual_zscore_mean_mean_mean_smooth_5",
+    "microcapm_observable_ratio_level_capm_residual_zscore_mean_mean_min_smooth_5",
+    "microcapm_spread_bps_capm_residual_zscore_mean_mean_fold_max_smooth_20"
+  ],
+  "gap1_selected": [
+    "microcapm_price_log_return_3s_capm_residual_zscore_mean_mean_max_smooth_10",
+    "microcapm_price_log_return_3s_capm_residual_zscore_mean_mean_fold_smooth_1",
+    "microcapm_observable_ratio_level_capm_residual_zscore_mean_mean_smooth_1",
+    "microcapm_observable_ratio_level_capm_residual_zscore_mean_mean_fold_mean_smooth_10",
+    "microcapm_price_log_return_3s_capm_residual_zscore_mean_mean_smooth_1"
+  ],
+  "source_names": [
+    "microcapm_observable_ratio_level_capm_residual_zscore_mean_mean",
+    "microcapm_observable_ratio_level_capm_residual_zscore_mean_mean_fold",
+    "microcapm_price_log_return_3s_capm_residual_zscore_mean_mean",
+    "microcapm_price_log_return_3s_capm_residual_zscore_mean_mean_fold",
+    "microcapm_spread_bps_capm_residual_zscore_mean_mean_fold"
+  ]
+}

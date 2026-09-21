@@ -6,6 +6,11 @@ from rust_pyfunc.rolling_future import RollingFutureAccessor
 from rust_pyfunc.rolling_past import RollingPastAccessor
 
 _LAZY_EXPORTS = {
+    "factor_production_runtime": (".factor_production", "factor_production_runtime"),
+    "write_selected_factor_base": (".factor_production", "write_selected_factor_base"),
+    "write_selected_factor_db": (".factor_production", "write_selected_factor_db"),
+    "write_selected_factor_final": (".factor_production", "write_selected_factor_final"),
+    "observable_order_factor_names": (".factor_production", "observable_order_factor_names"),
     "corrwith": (".pandas_corrwith", "corrwith"),
     "rank_axis1_df": (".pandas_rank", "rank_axis1_df"),
     "rank_axis0_df": (".pandas_rank", "rank_axis0_df"),

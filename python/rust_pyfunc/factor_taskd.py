@@ -120,17 +120,18 @@ _active_pids_lock = threading.Lock()
 # 规则：中文字符数 >= 1，且 >= 英文/数字字符数的一半（即中文至少占文字内容 1/3），
 # 如「挂单猫0701」「交友软件_v2」合规；「run_urgency_v2_baseline」不含中文，拒绝。
 # 下划线/连字符/空格/括号等分隔符不计数（允许但不算主体）。
-# 例外：hm 系列因子约定命名，三种形式同样合规：
+# 例外：hm 系列因子约定命名，四种形式同样合规：
 #   ① hm+数字        （如 hm100、hm89、hm134）
 #   ② hm+数字+_ind   （如 hm100_ind、hm134_ind、hm89_ind）
-#   ③ hm+数字+_ssm   （如 hm100_ssm，双边单调度 SSM 选因子的版本）
+#   ③ hm+数字+_ssm   （如 hm100_ssm，双边单调度 SSM 版本）
+#   ④ hm+数字+_ssm+序号（如 hm100_ssm2，SSM 选法的第 2 版）
 _CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 _ASCII_WORD_RE = re.compile(r"[A-Za-z0-9]")
-_HM_NAME_RE = re.compile(r"^hm\d+(_ind|_ssm)?$", re.IGNORECASE)
+_HM_NAME_RE = re.compile(r"^hm\d+(_ind|_ssm\d*)?$", re.IGNORECASE)
 
 
 def validate_chinese_name(name: str) -> str | None:
-    """校验任务名以中文为主体（例外：hm+数字 / hm+数字_ind / hm+数字_ssm）。返回 None=合规，否则返回不合规原因。"""
+    """校验任务名以中文为主体（例外：hm+数字 / hm+数字_ind / hm+数字_ssm[序号]）。返回 None=合规，否则返回不合规原因。"""
     if _HM_NAME_RE.match(name):
         return None
     cjk = len(_CJK_RE.findall(name))

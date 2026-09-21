@@ -1,0 +1,5 @@
+cases: 168
+max |rust - ref| over all cases: 1.110e-16
+worst case: (17, 'f_ties', 2, (-0.5477355977355978, -0.6550650738150738), (-0.5477355977355978, -0.6550650738150737))
+mirror identities (r -> -r gives (-S,-L)) hold on every case for both sides
+PASS

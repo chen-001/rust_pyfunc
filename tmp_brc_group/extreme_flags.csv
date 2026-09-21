@@ -1,0 +1,67 @@
+factor_name,list,li,si,long_strict,long_tie,short_strict,short_tie,m_long,m_short
+hotpool_ext_ind_rel_x15y10_ba_cold_rk_vol_autocorr1_smooth_1,orig,0,9,False,False,False,False,0.23700057041322808,0.04244418646249304
+hotpool_ext_ind_rel_x15y10_ba_cold_rk_vol_lz_complexity_fold_mean_smooth_10,orig,0,9,True,True,False,False,-0.13263896728190017,0.4383843502149596
+hotpool_ext_ind_rel_x15y10_ba_cold_z_p95_fold_mean_smooth_5,brc ,9,0,True,True,True,True,-0.2958512301324502,-0.2643903664331402
+hotpool_ext_ind_rel_x15y10_ba_hot_rk_buy_p95_smooth_1,orig,9,0,False,False,True,True,0.31518178723814794,-0.398499773774311
+hotpool_ext_ind_rel_x15y10_ba_hot_rk_buy_std_smooth_1,brc ,9,0,False,False,True,True,0.7384292687832839,-0.3765136546318736
+hotpool_ext_ind_rel_x15y10_ba_hot_rk_vol_autocorr1_abs_fold_mean_smooth_5,orig,0,9,True,True,True,True,-0.048253829048943375,-0.21856001799115507
+hotpool_ext_ind_rel_x15y10_ba_hot_rk_vol_curvature_fold_mean_smooth_20,orig,0,9,True,True,False,False,-0.016178206671802586,0.36161777298559883
+hotpool_ext_indpool_x15y10_ba_cold_f07_p95_min_smooth_10,brc ,9,0,False,False,False,False,0.12311687690463358,0.10004779234228003
+hotpool_ext_indpool_x15y10_ba_cold_f07_p95_min_smooth_5,brc ,9,0,False,False,True,True,0.228572932536947,-0.16556388498771202
+hotpool_ext_indpool_x15y10_ba_cold_f28_curvature_max_smooth_5,orig,0,9,False,False,False,False,0.10172778790942538,0.5379207698203208
+hotpool_ext_indpool_x15y10_ba_hot_f28_curvature_max_smooth_10,orig,0,9,False,False,False,False,0.12011633189731041,0.5290051138540868
+hotpool_ext_indpool_x15y10_buy_hot_f25_median_mean_smooth_10,brc ,9,0,False,False,False,False,0.44913565748024453,0.06540018044339485
+hotpool_ext_indpool_x60y3_ba_hot_f00_mean_min_smooth_5,brc ,9,0,True,True,True,True,-0.08709997340105469,-0.07917356672043513
+hotpool_ext_indpool_x60y3_ba_hot_f07_std_min_smooth_10,orig,9,0,False,False,True,True,0.39811438379223474,-0.023626653261787145
+hotpool_ext_indpool_x60y3_ba_hot_f30_autocorr1_abs_mean_smooth_10,brc ,9,0,True,True,True,True,-0.3172065749963928,-0.147503405263834
+hotpool_ext_indpool_x60y3_ba_hot_f30_autocorr1_abs_min_smooth_5,brc ,9,0,True,True,True,True,-0.215833726938371,-0.09530718553742024
+hotpool_ext_indpool_x60y3_ba_hot_f31_mean_max_smooth_10,orig,0,9,False,False,True,True,0.07115766001044532,-0.3785974890009408
+hotpool_ext_indpool_x60y3_buy_hot_f09_mean_mean_smooth_10,orig,9,0,False,False,False,False,0.5091516682133148,0.40448918500854314
+hotpool_ext_indpool_x60y3_buy_hot_f09_mean_mean_smooth_5,orig,9,0,False,False,False,False,0.5162743611550616,0.40232857316589427
+hotpool_ext_indpool_x60y3_buy_hot_f12_p75_mean_smooth_10,orig,9,0,False,False,True,True,0.23797644428457732,-0.16047311359736344
+hotpool_ext_indpool_x60y3_buy_hot_f12_p75_mean_smooth_5,brc orig,9,0,False,False,True,True,0.20303971220996253,-0.05205694381204473
+hotpool_ext_indpool_x60y3_buy_hot_f12_p75_smooth_1,brc ,9,0,False,False,False,False,0.15034083711926183,0.15704855258021555
+x15y10_ba_cold_f00_corr_f28_mean_smooth_10,orig,0,9,True,True,False,False,-0.02778890004591017,0.24870382144185244
+x15y10_ba_cold_f00_corr_f28_mean_smooth_5,orig,0,9,False,False,False,False,0.110060625387987,0.32123410137981906
+x15y10_ba_cold_f02_corr_f28_mean_smooth_10,brc ,9,0,False,False,False,False,0.18186468967743408,0.4121898941630048
+x15y10_ba_cold_f02_corr_f28_min_smooth_5,brc ,9,0,False,False,False,False,0.15326856131331668,0.490334253336688
+x15y10_ba_cold_f05_corr_f36_mean_smooth_10,brc ,9,0,False,False,True,True,0.053199873883809756,-0.15335500722189838
+x15y10_ba_cold_f06_corr_f36_mean_smooth_5,brc ,9,0,False,False,True,True,0.01876683019702874,-0.15117371079290468
+x15y10_ba_cold_f07_std_min_smooth_10,brc ,9,0,False,False,True,True,0.22709476934987682,-0.5751939080911351
+x15y10_ba_cold_f11_corr_f28_mean_smooth_10,brc ,9,0,False,False,False,False,0.14591826291606047,0.35131748253979955
+x15y10_ba_cold_f17_mean_smooth_1,brc ,9,0,False,False,False,False,0.22732700397417682,0.2150337314379538
+x15y10_ba_cold_f34_mean_mean_smooth_10,orig,9,0,False,False,True,True,0.22788931809311208,-0.0671880903928779
+x15y10_ba_cold_f34_mean_mean_smooth_5,brc orig,9,0,False,False,True,True,0.08309906969985503,-0.2039628296171334
+x15y10_ba_cold_f34_mean_min_smooth_10,brc ,9,0,True,True,False,False,-0.061214992829471626,0.172172288582129
+x15y10_ba_cold_f34_mean_smooth_1,brc orig,9,0,True,True,True,True,-0.07220090063514473,-0.2364284412952275
+x15y10_ba_hot_f05_cv_min_smooth_10,brc ,9,0,True,True,True,True,-0.054147771805411526,-0.12729736422748208
+x15y10_ba_hot_f05_mean_mean_smooth_10,brc orig,9,0,True,True,True,True,-0.035516557989386355,-0.2685226602667039
+x15y10_ba_hot_f05_std_min_smooth_5,brc ,9,0,True,True,True,True,-0.10450112649497911,-0.39583822019586556
+x15y10_ba_hot_f07_corr_f30_mean_smooth_5,brc ,9,0,False,False,False,False,0.2262242505208969,0.7284255608358716
+x15y10_ba_hot_f07_corr_f30_min_smooth_10,orig,9,0,True,True,False,False,-0.04808320368235042,0.31522906571462556
+x15y10_ba_hot_f07_corr_f30_smooth_1,orig,9,0,False,False,False,False,0.4978770962622635,0.26933709438366255
+x15y10_ba_hot_f08_corr_f25_mean_smooth_20,orig,0,9,False,False,False,False,0.4032444619733573,0.3769305812689897
+x15y10_ba_hot_f08_corr_f30_mean_smooth_10,brc ,9,0,False,False,False,False,0.08965102597728603,0.4666300637797965
+x15y10_ba_hot_f13_autocorr1_mean_smooth_5,brc ,9,0,True,True,True,True,-0.010308302750060117,-0.20140756665373982
+x15y10_ba_hot_f28_autocorr1_abs_mean_smooth_10,orig,0,9,False,False,False,False,0.3496943082229653,0.04126050745713966
+x15y10_ba_hot_f28_autocorr1_abs_mean_smooth_5,orig,0,9,False,False,True,True,0.3299389035513298,-0.0036772957595277433
+x15y10_ba_hot_f28_autocorr1_abs_smooth_1,orig,0,9,False,False,True,True,0.5305038316636885,-0.13525601195803055
+x15y10_ba_hot_f28_p25_fold_max_smooth_5,orig,0,9,False,False,True,True,0.47807542517240353,-1.1642427912601936
+x15y10_ba_hot_f28_p95_max_smooth_10,orig,0,9,False,False,True,True,0.23255165793099275,-0.7819182929590089
+x15y10_ba_hot_f28_p95_max_smooth_5,orig,0,9,False,False,True,True,0.2452217229960565,-1.1173549177536912
+x15y10_ba_hot_f28_p95_smooth_1,orig,0,9,False,False,True,True,0.27534654188410945,-1.2609084351451176
+x15y10_ba_hot_f28_trend_max_smooth_10,orig,0,9,False,False,True,True,0.17673822657918858,-0.6767307513505596
+x15y10_ba_hot_f28_trend_max_smooth_5,orig,0,9,False,False,True,True,0.3043725892488245,-0.7955037138534069
+x15y10_buy_cold_f28_cv_min_smooth_10,brc ,9,0,False,False,True,True,0.13572853419334696,-0.10692375458811809
+x60y3_ba_cold_f05_corr_f34_mean_smooth_5,brc ,9,0,True,True,True,True,-0.3625690890637989,-0.500945967128869
+x60y3_ba_cold_f05_corr_f34_smooth_1,brc ,9,0,True,True,True,True,-0.16771383940253526,-0.2457184347254751
+x60y3_ba_cold_f28_cv_min_smooth_5,brc ,9,0,False,False,True,True,0.21306683227638112,-0.9127491190642885
+x60y3_ba_cold_f28_cv_smooth_1,brc ,9,0,False,False,True,True,0.3118233293440744,-1.02044868705308
+x60y3_ba_hot_f05_corr_f33_mean_smooth_5,orig,0,9,True,True,True,True,-0.10454524589345238,-0.07787128176552616
+x60y3_ba_hot_f07_corr_f36_mean_smooth_5,brc ,9,0,False,False,False,False,0.26134256594313043,0.6452150365198357
+x60y3_ba_hot_f28_p95_std_smooth_10,orig,0,9,False,False,True,True,0.2757528189288674,-0.9111932660920266
+x60y3_ba_hot_f34_entropy_1d_mean_smooth_20,brc ,9,0,True,True,True,True,-0.2802951712829951,-0.41330643752005064
+x60y3_buy_hot_f08_mean_mean_smooth_10,brc ,9,0,False,False,False,False,0.5006539356086859,0.24784781640631837
+x60y3_buy_hot_f08_mean_smooth_1,orig,9,0,False,False,False,False,0.3230759483169201,0.49727389864075333
+x60y3_buy_hot_f28_curvature_smooth_1,orig,0,9,False,False,False,False,0.20678539989049982,0.17535190258313293
+x60y3_buy_hot_f28_std_min_smooth_20,brc ,9,0,False,False,True,True,0.11859741785278133,-0.236635157825691

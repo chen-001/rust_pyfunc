@@ -14,8 +14,27 @@ rust_pyfunc - 高性能Python函数库
 - tree_structures: 树结构相关类
 """
 
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 import numpy as np
+
+def factor_production_runtime(settings: dict) -> Any: ...
+def observable_order_factor_names() -> List[str]: ...
+def write_selected_factor_base(
+    pipeline_groups: list, names: List[str], start_date: int, end_date: int, *,
+    base_factor_ver: str, base_hdf5_dir: str, colblk_store_dir: str,
+    level2_root: str, calendar_root: str, vars_root: str,
+    n_jobs: int = 30, stock_only_input: bool = False,
+) -> None: ...
+def write_selected_factor_db(
+    names: List[str], start_date: int, end_date: int, *,
+    base_factor_ver: str, base_hdf5_dir: str, db_factor_ver: str,
+    db_hdf5_dir: str, calendar_root: str, vars_root: str,
+) -> None: ...
+def write_selected_factor_final(
+    names: List[str], start_date: int, end_date: int, *,
+    base_factor_ver: str, base_hdf5_dir: str, final_factor_ver: str,
+    final_hdf5_dir: str, calendar_root: str, vars_root: str,
+) -> None: ...
 
 # 导入所有类型声明
 from .core_functions import *

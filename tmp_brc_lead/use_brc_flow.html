@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>use_brc=True 的筛选步骤</title>
+<style>
+  :root { --ink:#1c2128; --muted:#5c6672; --line:#d7dde5; --blue:#1e4e79; --bluebg:#eff5fb;
+          --green:#186b43; --greenbg:#eef9f3; --orange:#b8450f; --orangebg:#fff5ee; --grey:#f6f8fa; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:28px 34px 60px; background:#fbfcfd; color:var(--ink);
+         font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; }
+  h1 { font-size:22px; margin:0 0 6px; }
+  .sub { color:var(--muted); font-size:13.5px; margin:0 0 22px; }
+  .wrap { display:grid; grid-template-columns: minmax(0,1fr) 320px; gap:26px; align-items:start; }
+  .flow { background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px 10px 6px; }
+  aside { position:sticky; top:16px; align-self:start; max-height:calc(100vh - 32px); overflow-y:auto;
+          background:#fff; border:1px solid var(--line); border-radius:12px; padding:16px 18px; }
+  aside h2 { font-size:15px; margin:0 0 10px; }
+  aside h3 { font-size:13.5px; margin:16px 0 6px; color:var(--blue); }
+  aside p, aside li { font-size:13px; color:var(--muted); margin:4px 0; }
+  aside code { background:var(--grey); padding:1px 5px; border-radius:4px; font-size:12px; color:var(--ink); }
+  svg { width:100%; height:auto; display:block; }
+  .t { font:600 15px/1.35 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif; fill:#1c2128; }
+  .s { font:12.5px/1.4 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif; fill:#5c6672; }
+  .n { font:700 13px/1 -apple-system,sans-serif; fill:#fff; }
+  .ln { stroke:#9aa6b2; stroke-width:1.8; fill:none; }
+</style>
+</head>
+<body>
+<h1>use_brc=True 是怎么筛因子的</h1>
+<p class="sub">从打开开关到最终 35 个入选因子的完整步骤。方框里的字是实际做的事，括号里是代码里对应的参数。</p>
+
+<div class="wrap">
+<div class="flow">
+<svg viewBox="0 0 1000 1500" role="img" aria-label="use_brc 筛选流程">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#9aa6b2"/>
+    </marker>
+  </defs>
+
+  <!-- 1 -->
+  <rect x="180" y="20" width="640" height="66" rx="10" fill="#eff5fb" stroke="#1e4e79" stroke-width="1.6"/>
+  <text class="t" x="500" y="48" text-anchor="middle">1　打开 use_brc=True</text>
+  <text class="s" x="500" y="70" text-anchor="middle">三个开关 use_ssm / use_mprob / use_brc 互斥，同时开两个直接报错</text>
+  <line class="ln" x1="500" y1="86" x2="500" y2="114" marker-end="url(#a)"/>
+
+  <!-- 2 -->
+  <rect x="180" y="118" width="640" height="66" rx="10" fill="#fff5ee" stroke="#b8450f" stroke-width="1.6"/>
+  <text class="t" x="500" y="146" text-anchor="middle">2　强制关掉 IC-only，改走完整回测</text>
+  <text class="s" x="500" y="168" text-anchor="middle">必须算出十分组与多空组合，否则拿不到多头超额、多空年化这些收益指标</text>
+  <line class="ln" x1="500" y1="184" x2="500" y2="212" marker-end="url(#a)"/>
+
+  <!-- 3 -->
+  <rect x="180" y="216" width="640" height="66" rx="10" fill="#f6f8fa" stroke="#9aa6b2" stroke-width="1.4"/>
+  <text class="t" x="500" y="244" text-anchor="middle">3　每个源因子先做预处理，展开成 13 个派生面</text>
+  <text class="s" x="500" y="266" text-anchor="middle">按日横截面平均名次 → 可交易但缺值的填中位名次 → 在名次上做滚动统计</text>
+  <line class="ln" x1="500" y1="282" x2="500" y2="306" marker-end="url(#a)"/>
+  <line class="ln" x1="500" y1="306" x2="315" y2="306"/>
+  <line class="ln" x1="500" y1="306" x2="685" y2="306"/>
+  <line class="ln" x1="315" y1="306" x2="315" y2="326" marker-end="url(#a)"/>
+  <line class="ln" x1="685" y1="306" x2="685" y2="326" marker-end="url(#a)"/>
+
+  <!-- 4 raw/neu -->
+  <rect x="150" y="330" width="330" height="60" rx="10" fill="#f6f8fa" stroke="#9aa6b2" stroke-width="1.4"/>
+  <text class="t" x="315" y="356" text-anchor="middle" font-size="14">raw 通道：直接用名次</text>
+  <text class="s" x="315" y="375" text-anchor="middle">原始值，不做中性化</text>
+  <rect x="520" y="330" width="330" height="60" rx="10" fill="#eef9f3" stroke="#186b43" stroke-width="1.6"/>
+  <text class="t" x="685" y="356" text-anchor="middle" font-size="14">neu 通道：先做中性化</text>
+  <text class="s" x="685" y="375" text-anchor="middle">10 列风格因子（行业版再加 31 个行业哑变量）</text>
+  <line class="ln" x1="315" y1="390" x2="315" y2="414"/>
+  <line class="ln" x1="685" y1="390" x2="685" y2="414"/>
+  <line class="ln" x1="315" y1="414" x2="685" y2="414"/>
+  <line class="ln" x1="500" y1="414" x2="500" y2="440" marker-end="url(#a)"/>
+
+  <!-- 5 -->
+  <rect x="180" y="444" width="640" height="88" rx="10" fill="#eff5fb" stroke="#1e4e79" stroke-width="1.6"/>
+  <text class="t" x="500" y="472" text-anchor="middle">4　逐日回测（每个派生面 × raw/neu × gap1/gap5 各跑一遍）</text>
+  <text class="s" x="500" y="494" text-anchor="middle">十分组收益 → IC_mean / IR / 多空年化 / 夏普 / 回撤 / 多头超额 / SSM / MPROB</text>
+  <text class="s" x="500" y="514" text-anchor="middle">同一天再算 BRC：按因子升序排好股票，对每个切点算判别力，取两半的较小值</text>
+  <line class="ln" x1="500" y1="532" x2="500" y2="560" marker-end="url(#a)"/>
+
+  <!-- 6 -->
+  <rect x="180" y="564" width="640" height="60" rx="10" fill="#f6f8fa" stroke="#9aa6b2" stroke-width="1.4"/>
+  <text class="t" x="500" y="590" text-anchor="middle">5　写出 summary_*_candidates.parquet（20 列）</text>
+  <text class="s" x="500" y="609" text-anchor="middle">其中 BRC / BRC_S / BRC_L 三列是本轮新增的</text>
+  <line class="ln" x1="500" y1="624" x2="500" y2="652" marker-end="url(#a)"/>
+
+  <!-- 7 -->
+  <rect x="180" y="656" width="640" height="60" rx="10" fill="#f6f8fa" stroke="#9aa6b2" stroke-width="1.4"/>
+  <text class="t" x="500" y="682" text-anchor="middle">6　候选池：只留 ratio_mean ≥ 0.5 的因子</text>
+  <text class="s" x="500" y="701" text-anchor="middle">当天有值股票数占可交易股票数的比例，平均下来要过半</text>
+  <line class="ln" x1="500" y1="716" x2="500" y2="744" marker-end="url(#a)"/>
+
+  <!-- 8 -->
+  <rect x="180" y="748" width="640" height="60" rx="10" fill="#eef9f3" stroke="#186b43" stroke-width="1.6"/>
+  <text class="t" x="500" y="774" text-anchor="middle">7　中性化通道过 BRC 门槛：BRC ≥ 0</text>
+  <text class="s" x="500" y="793" text-anchor="middle">BRC 带方向，反向预测的因子（BRC 为负）在这里直接丢掉</text>
+  <line class="ln" x1="500" y1="808" x2="500" y2="836" marker-end="url(#a)"/>
+
+  <!-- 9 -->
+  <rect x="180" y="840" width="640" height="60" rx="10" fill="#eef9f3" stroke="#186b43" stroke-width="1.6"/>
+  <text class="t" x="500" y="866" text-anchor="middle">8　neu_ic 通道的排序键从 |IC_mean| 换成 BRC 降序</text>
+  <text class="s" x="500" y="885" text-anchor="middle">这一步是 use_brc 与 use_ssm 最大的区别：SSM 只当门槛，BRC 直接当排序键</text>
+  <line class="ln" x1="500" y1="900" x2="500" y2="928" marker-end="url(#a)"/>
+
+  <!-- 10 -->
+  <rect x="180" y="932" width="640" height="60" rx="10" fill="#fff5ee" stroke="#b8450f" stroke-width="1.6"/>
+  <text class="t" x="500" y="958" text-anchor="middle">9　相关性去重：与已选因子 |相关| ≥ 0.5 就跳过</text>
+  <text class="s" x="500" y="977" text-anchor="middle">比的是中性化 IC 时间序列的相关系数，从排在前面的因子开始逐个看</text>
+  <line class="ln" x1="500" y1="992" x2="500" y2="1020" marker-end="url(#a)"/>
+
+  <!-- 11 -->
+  <rect x="180" y="1024" width="640" height="60" rx="10" fill="#fff5ee" stroke="#b8450f" stroke-width="1.6"/>
+  <text class="t" x="500" y="1050" text-anchor="middle">10　名额分配：neu_ic 通道取前 35 个</text>
+  <text class="s" x="500" y="1069" text-anchor="middle">本轮配置下 neu_ret / raw_ret / raw_ic 三个通道名额都是 0，只有这一条生效</text>
+  <line class="ln" x1="500" y1="1084" x2="500" y2="1112" marker-end="url(#a)"/>
+
+  <!-- 12 -->
+  <rect x="180" y="1116" width="640" height="76" rx="10" fill="#eff5fb" stroke="#1e4e79" stroke-width="1.6"/>
+  <text class="t" x="500" y="1144" text-anchor="middle">11　产物：gap5_selected.parquet / gap1_selected.parquet</text>
+  <text class="s" x="500" y="1166" text-anchor="middle">外加 source_selected.parquet（去掉派生后缀的源因子名）</text>
+  <text class="s" x="500" y="1184" text-anchor="middle">本轮 hm104：gap5 35 个、gap1 35 个、源因子 52 个</text>
+  <line class="ln" x1="500" y1="1192" x2="500" y2="1220" marker-end="url(#a)"/>
+
+  <!-- 13 -->
+  <rect x="180" y="1224" width="640" height="60" rx="10" fill="#f6f8fa" stroke="#9aa6b2" stroke-width="1.4"/>
+  <text class="t" x="500" y="1250" text-anchor="middle">12　后续：base 落盘 → 对入选因子跑 fulltest → 出 doc</text>
+  <text class="s" x="500" y="1269" text-anchor="middle">只对筛出来的这几十个做完整回测与画图，不碰没入选的</text>
+
+  <!-- 旁注 -->
+  <rect x="30" y="444" width="130" height="88" rx="10" fill="#fff" stroke="#d7dde5" stroke-width="1.2" stroke-dasharray="5 4"/>
+  <text class="s" x="95" y="472" text-anchor="middle">BRC 是什么</text>
+  <text class="s" x="95" y="492" text-anchor="middle">看右边侧栏</text>
+  <line class="ln" x1="160" y1="488" x2="176" y2="488" marker-end="url(#a)" stroke-dasharray="4 3"/>
+</svg>
+</div>
+
+<aside>
+  <h2>BRC 到底在算什么</h2>
+  <p>单看一天、一个因子：</p>
+  <ol>
+    <li>把股票按因子从小到大排好，未来收益也换成名次。</li>
+    <li>对每一个可能的位置切一刀（从第 1 名切到第 n−1 名，全都算，不是只分 10 组）。</li>
+    <li>问一句：低因子那一半的收益，是不是真的比高因子那一半低。这个概率换算成 −1 到 1 的判别力 D。</li>
+    <li>空头半边 S = 从低端切的所有 D 的平均；多头半边 L = 从高端切的所有 D 的平均。</li>
+    <li><code>BRC = min(S, L)</code>。</li>
+  </ol>
+
+  <h3>为什么取 min</h3>
+  <p>空头再强也补不了多头弱。S=0.5、L=0.05 的因子，BRC 就是 0.05，把 S 从 0.5 提到 0.8 分数一点不动。</p>
+
+  <h3>和 |RankIC| 的关系</h3>
+  <p>BRC 带方向，数值上中位约为 IC 的 1.00 倍；和 |RankIC| 的相关只有 0.36。差别就在取 min 这一步：空头很强、多头塌掉的因子会被打下来。</p>
+
+  <h3>本轮 hm104 的实际参数</h3>
+  <ul>
+    <li><code>cover_rate = 0.5</code></li>
+    <li><code>brc_point_neu_gap5 = 0.0</code></li>
+    <li><code>corr_point_neu = 0.5</code></li>
+    <li><code>cut_num = 35</code>，<code>cut2_rate = 1.0</code></li>
+    <li>窗口 5 / 10 / 20，fold 打开，纯风格中性化</li>
+  </ul>
+
+  <h3>结果落在哪</h3>
+  <p><code>/nas197/user_home_unsafe/chenzongwei/hm104_brc_tail_v4/</code> 下的 <code>selected/</code> 与 <code>metrics/</code>。</p>
+</aside>
+</div>
+</body>
+</html>
