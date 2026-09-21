@@ -1134,9 +1134,10 @@ pub fn compute_anneal_volume_full(code: &str, date: i64) -> std::io::Result<Vec<
         out.extend_from_slice(&factors);
     }
 
-    // 逐分钟矩阵 237 × 75
+    // 空分钟没有观测，必须保留 NaN；填零会改变分钟分位数、相关性等衍生统计。
+    // 与 hm97 早期研究口径一致，非空分钟仍由 anneal 的实际输出填充。
     let minute_col_names = build_minute_col_names();
-    let mut matrix = Array2::zeros((N_MINUTES, N_MINUTE_COLS));
+    let mut matrix = Array2::from_elem((N_MINUTES, N_MINUTE_COLS), f32::NAN);
 
     for m_idx in 0..N_MINUTES {
         let lo_time = t_open + (m_idx as f32) * 60.0;

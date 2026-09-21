@@ -89,6 +89,7 @@ def py_distill_tick_names() -> List[str]:
     ...
 
 def py_anneal_volume(code: str, date: int) -> List[float]:
+    """柜员游戏因子；没有成交的分钟保留为 NaN，不作为零值参与分钟统计。"""
     ...
 
 def py_anneal_volume_gpt(code: str, date: int) -> List[float]:
