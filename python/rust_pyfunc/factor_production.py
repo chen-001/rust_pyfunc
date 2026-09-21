@@ -333,10 +333,16 @@ class _ProductionRuntime:
             )
 
     def cleanup_colblk(self):
-        root = Path(self.colblk_store_dir).resolve()
-        expected = (Path(self.output_root) / "temporary" / self.ver).resolve()
-        if root != expected or Path(self.colblk_store_dir).is_symlink():
-            raise ValueError("临时目录与本系列配置不一致，拒绝删除")
+        directory = Path(self.colblk_store_dir)
+        root = directory.resolve()
+        cwd = Path.cwd().resolve()
+        data_dirs = [Path(getattr(self, key)).resolve() for key in (
+            "level2_root", "calendar_root", "vars_root", "base_hdf5_dir",
+            "db_hdf5_dir", "final_hdf5_dir_gap5", "final_hdf5_dir_gap1",
+        )]
+        if (directory.is_symlink() or root == cwd or root in cwd.parents
+                or any(root.is_relative_to(path) or path.is_relative_to(root) for path in data_dirs)):
+            raise ValueError("临时目录不能指向工作目录、数据目录或软链接，拒绝删除")
         if root.exists():
             shutil.rmtree(root)
 
@@ -452,6 +458,8 @@ def _runtime(base_factor_ver, base_hdf5_dir, calendar_root, vars_root, **overrid
         names_in_db=[],
     )
     settings.update(overrides)
+    # 相对临时路径按调用时的工作目录解释，与 H5 的保存位置无关。
+    settings["colblk_store_dir"] = str(Path(settings["colblk_store_dir"]).absolute())
     settings["colblk_of"] = {
         name: (
             settings["colblk_store_dir"]

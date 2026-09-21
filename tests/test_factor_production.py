@@ -1,4 +1,5 @@
 """生产协议回归：完整截面 fold、收尾缺失填补，以及失败时保留中间产物。"""
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -37,22 +38,49 @@ class ProductionRegression(unittest.TestCase):
     def test_colblk_removed_only_after_successful_base_write(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            store = root / "temporary/test"
-            args = dict(base_factor_ver="test_base", base_hdf5_dir=str(root / "base"),
-                        colblk_store_dir=str(store), level2_root=str(root),
-                        calendar_root=str(root), vars_root=str(root))
-            for fail in (True, False):
-                store.mkdir(parents=True, exist_ok=True)
-                (store / "unfinished").write_text("preserve on failure")
-                with patch.object(_ProductionRuntime, "limit_resources", return_value=30), \
-                        patch.object(_ProductionRuntime, "run_base",
-                                     side_effect=RuntimeError("write failed") if fail else None):
-                    if fail:
-                        with self.assertRaisesRegex(RuntimeError, "write failed"):
+            work = root / "work"
+            work.mkdir()
+            (work / "keep.txt").write_text("unrelated")
+            store = work / "factor_store_test"
+            args = dict(base_factor_ver="test_base", base_hdf5_dir=str(root / "output/base"),
+                        colblk_store_dir="factor_store_test", level2_root=str(root / "inputs/l2"),
+                        calendar_root=str(root / "inputs/calendar"), vars_root=str(root / "inputs/vars"))
+            previous = Path.cwd()
+            try:
+                os.chdir(work)
+                for fail in (True, False):
+                    store.mkdir(exist_ok=True)
+                    (store / "unfinished").write_text("preserve on failure")
+                    def compute(runtime, *args):
+                        self.assertEqual(Path(runtime.colblk_store_dir), store)
+                        if fail:
+                            raise RuntimeError("write failed")
+                    with patch.object(_ProductionRuntime, "limit_resources", return_value=30), \
+                            patch.object(_ProductionRuntime, "run_base", compute):
+                        if fail:
+                            with self.assertRaisesRegex(RuntimeError, "write failed"):
+                                rp.write_selected_factor_base([], [], 20241231, 20241231, **args)
+                        else:
                             rp.write_selected_factor_base([], [], 20241231, 20241231, **args)
-                    else:
-                        rp.write_selected_factor_base([], [], 20241231, 20241231, **args)
-                self.assertEqual(store.exists(), fail)
+                    self.assertEqual(store.exists(), fail)
+                    self.assertEqual((work / "keep.txt").read_text(), "unrelated")
+            finally:
+                os.chdir(previous)
+
+    def test_cleanup_refuses_working_directory_data_and_symlink(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            data = root / "output/base"
+            data.mkdir(parents=True)
+            (data / "keep.h5").touch()
+            link = root / "factor_store_link"
+            link.symlink_to(data, target_is_directory=True)
+            for path in (Path.cwd(), data, link):
+                runtime = _runtime("test_base", str(data), str(root / "calendar"),
+                                   str(root / "vars"), colblk_store_dir=str(path))
+                with self.assertRaises(ValueError):
+                    runtime.cleanup_colblk()
+                self.assertTrue((data / "keep.h5").exists())
 
 
 if __name__ == "__main__":
