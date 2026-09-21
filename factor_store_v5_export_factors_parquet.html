@@ -31,8 +31,11 @@
         <div class="function-description">
             <h2>描述</h2>
             <div><p>把 colblk 存储中指定因子（按因子名）批量导出为 parquet 文件。
-每个因子一个 parquet，schema = date(Int64) + 每个股票一列(Float64)，
-与现有 export_backup_to_parquet_rust 输出格式完全一致，保证 postprocess 兼容。</p>
+每个因子一个 parquet，schema = date(Date64) + 每个股票一列(Float32, PLAIN)，
+行序 = 模板日期序、列序 = 模板股票序（列名带 .SH/.SZ/.BJ 后缀），
+供 design_whatever 的 _read_factor_to_template 直接 read_parquet → set_index("date") → 对齐模板。</p>
+<p>与旧实现相比：共享一个 Reader（不每因子重开）+ 预计算 scatter maps + rayon 按因子并行
++ Float32 连续内存构造（无列优先跨步访问）+ 关字典编码。</p>
 <p>供 design_whatever tail_v5 在候选筛选后导出入选因子给 fulltest/materialize。</p></div>
         </div>
         

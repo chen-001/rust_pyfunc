@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>probe_update_window - Rust PyFunc API文档</title>
+    <title>py_hot_pool_ind_names - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
     <script src="static/search.js"></script>
 </head>
@@ -26,18 +26,16 @@
     </div>
     
     <div class="content">
-        <h1>probe_update_window</h1>
+        <h1>py_hot_pool_ind_names</h1>
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><p>探测增量更新窗口（运行时动态，可移植）。</p>
-<p>start = colblk 存储已有最大日期（无存储则返回 start_date，适配新服务器首次全量算）
-end   = /ssd_data/stock 最新原始数据日期（无则返回 end_date）</p></div>
+            <div><p>无文档</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>probe_update_window(colblk_store_dir, start_date, end_date) -> &lt;class &#39;tuple&#39;&gt;</code>
+            <code>py_hot_pool_ind_names() -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -61,7 +59,7 @@ end   = /ssd_data/stock 最新原始数据日期（无则返回 end_date）</p><
             <div class="example-usage-note">
                 <h3>Python使用示例</h3>
                 <pre><code>import numpy as np
-from rust_pyfunc import probe_update_window
+from rust_pyfunc import py_hot_pool_ind_names
 
 # 使用示例
 

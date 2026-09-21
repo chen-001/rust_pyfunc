@@ -30,13 +30,14 @@
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><p>Python 可调用：单股单日计算，返回完整 26976 个因子值（原始展平 + 降维）。
+            <div><p>Python 可调用：单股单日计算，默认返回 27360 个值（原始展平 4992 + 21 统计量降维 22368）。
+<code>with_curvature=False</code> → 26976 个值（19 统计量口径，与「为人画像」旧 store 列定义逐列对齐）。
 与 pipeline 走同一份 build_full_output，输出逐字节相同。</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>py_extreme_point_fit(code, date) -> None</code>
+            <code>py_extreme_point_fit(code, date, with_curvature) -> None</code>
         </div>
         
         <div class="function-parameters">

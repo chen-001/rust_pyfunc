@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>read_factor - Rust PyFunc API文档</title>
+    <title>tail_v4_fulltest_rust - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
     <script src="static/search.js"></script>
 </head>
@@ -26,17 +26,23 @@
     </div>
     
     <div class="content">
-        <h1>read_factor</h1>
+        <h1>tail_v4_fulltest_rust</h1>
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><p>读因子 parquet，返回 index=date(int) / columns=股票 的 DataFrame，按日期窗口过滤。</p>
-<p>与 szalpha FactorReader.read_date_data 的 parquet 分支逐行等价。</p></div>
+            <div><p>fulltest 逐日回测循环（<code>fulltest_whatever.py</code> 1804-1882 行）的 Rust 版。</p>
+<p>返回 dict：
+- <code>portf_ret</code>      : (portf_num, T) float64 ndarray（等价 <code>portf_ret_df.fillna(0).values</code>）
+- <code>ic_values</code>      : list[float]（等价 <code>ic_value_list</code>）
+- <code>ic_dates</code>       : list[str]（等价 <code>ic_date_list</code>）
+- <code>stock_num_list</code> : list[int]（等价 <code>stock_num_list</code>）
+- <code>stock_num_dates</code>: list[str]（等价 <code>stock_num_date_list</code>）
+- <code>portf_num</code> / <code>n_dates</code>：回显</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>read_factor(factor_version, name, start_date, end_date, look_back_window, hdf5_dir_here) -> &lt;class &#39;pandas.DataFrame&#39;&gt;</code>
+            <code>tail_v4_fulltest_rust(signal, ret, ret_sum, restrict, dates, portf_num, h_hori, unique_values, stocks_first) -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -60,7 +66,7 @@
             <div class="example-usage-note">
                 <h3>Python使用示例</h3>
                 <pre><code>import numpy as np
-from rust_pyfunc import read_factor
+from rust_pyfunc import tail_v4_fulltest_rust
 
 # 使用示例
 

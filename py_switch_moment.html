@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>get_factor_names - Rust PyFunc API文档</title>
+    <title>py_switch_moment - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
     <script src="static/search.js"></script>
 </head>
@@ -26,16 +26,16 @@
     </div>
     
     <div class="content">
-        <h1>get_factor_names</h1>
+        <h1>py_switch_moment</h1>
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><p>调用 Rust 因子名函数（rp.py_xxx_names() 形式），返回全部因子名列表。</p></div>
+            <div><p>单日单进程直算入口（核对用；正式计算走 run_factor_pipeline_cross_section）。</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>get_factor_names(names_function) -> &lt;class &#39;list&#39;&gt;</code>
+            <code>py_switch_moment(date) -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -59,7 +59,7 @@
             <div class="example-usage-note">
                 <h3>Python使用示例</h3>
                 <pre><code>import numpy as np
-from rust_pyfunc import get_factor_names
+from rust_pyfunc import py_switch_moment
 
 # 使用示例
 

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>read_factor_from_colblk - Rust PyFunc API文档</title>
+    <title>tail_v8_selfcheck - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
     <script src="static/search.js"></script>
 </head>
@@ -26,17 +26,16 @@
     </div>
     
     <div class="content">
-        <h1>read_factor_from_colblk</h1>
+        <h1>tail_v8_selfcheck</h1>
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><p>从 colblk 列式存储读取单个因子，返回 DataFrame(date×stock)。</p>
-<p>替代 okay 文件里的 _read_factor_from_colblk：按 name 取子集，无需重算。</p></div>
+            <div><p>无文档</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>read_factor_from_colblk(store_dir, name, start_date, end_date) -> &lt;class &#39;pandas.DataFrame&#39;&gt;</code>
+            <code>tail_v8_selfcheck(module, data_dir) -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -60,7 +59,7 @@
             <div class="example-usage-note">
                 <h3>Python使用示例</h3>
                 <pre><code>import numpy as np
-from rust_pyfunc import read_factor_from_colblk
+from rust_pyfunc import tail_v8_selfcheck
 
 # 使用示例
 

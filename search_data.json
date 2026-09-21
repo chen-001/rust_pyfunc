@@ -1,5 +1,10 @@
 [
   {
+    "name": "NeutralizeStdSharedHandle",
+    "description": "<p>预计算结果的 Python 侧可复用句柄。</p>\n<p><code>neutralize_std_block_py</code> 每次调用都会重新读 barra H5 并重算 precompute，\n逐因子调用不可用；这里把 precompute 结果包成 pyclass，让调用方建一次、每个\nblock/slot 复用（引擎内部就是这么用的）。</p>",
+    "params": []
+  },
+  {
     "name": "PriceTree",
     "description": "<p>无文档</p>",
     "params": []
@@ -118,11 +123,6 @@
   {
     "name": "analyze_sequence_permutations_v0816_fixed",
     "description": "<p>无文档</p>",
-    "params": []
-  },
-  {
-    "name": "base_to_final",
-    "description": "<p>base 因子 → final 因子（与 dwo.base_to_final 行为一致）。</p>\n<p>{base}<em>{action}_smooth</em>{days} 命名解析：\n  smooth_1            → rank(axis=1) 直接输出\n  mean/min/max/std    → rank 后 rolling(days, min_periods=days//2).{action}()\n  autocorr            → rank 后滚动窗口内 1 阶自相关\n回看 start_date 前 60 个交易日（max(..., 20150105)），从 base parquet 读取。</p>",
     "params": []
   },
   {
@@ -428,11 +428,6 @@
     "params": []
   },
   {
-    "name": "cleanup_factor_store",
-    "description": "<p>清理批量计算产生的备份数据文件与 colblk 存储目录。</p>\n<p>backup_{ver}* 与 colblk 存储目录是批量计算（全量几千几万个因子）的中间产物，\nnames_save 已单独物化到 hdf5 base，其余因子后续用不上，执行完毕删除。\nscript_dir 默认取调用方脚本目录；colblk 存储目录按传入值清理。</p>",
-    "params": []
-  },
-  {
     "name": "clear_theme_cluster_cache",
     "description": "<p>清除聚类缓存</p>",
     "params": []
@@ -528,6 +523,16 @@
   {
     "name": "compute_allo_microstructure_features_tris_expanded_v3",
     "description": "<p>计算非对称大挂单微观结构特征 v3 - 性能优化版本</p>",
+    "params": []
+  },
+  {
+    "name": "compute_corr_contribution_factors",
+    "description": "<p>计算相邻分钟截面相关系数的逐股贡献度因子</p>\n<h2>参数</h2>\n<p>field : np.ndarray (T, N)\ntop_k : int, 默认 300\nparallel : bool, 默认 False\n    True 时启用 rayon 并行（最多 30 线程），适合单日快速更新</p>\n<h2>返回</h2>\n<p>dict[str, np.ndarray]  — 793 个因子</p>",
+    "params": []
+  },
+  {
+    "name": "compute_corr_contribution_multi",
+    "description": "<p>批量计算多个字段的相邻分钟截面相关系数贡献度因子</p>\n<h2>参数</h2>\n<p>field_stack : np.ndarray (T, N, K)\nfield_names : list[str], 长度 K\ntop_k : int, 默认 300\nparallel : bool, 默认 False\n    True 时启用 rayon 并行（最多 30 线程），适合单日快速更新</p>\n<h2>返回</h2>\n<p>dict[str, np.ndarray]  — K × 793 个因子</p>",
     "params": []
   },
   {
@@ -753,7 +758,7 @@
   },
   {
     "name": "factor_store_v5_export_factors_parquet",
-    "description": "<p>把 colblk 存储中指定因子（按因子名）批量导出为 parquet 文件。\n每个因子一个 parquet，schema = date(Int64) + 每个股票一列(Float64)，\n与现有 export_backup_to_parquet_rust 输出格式完全一致，保证 postprocess 兼容。</p>\n<p>供 design_whatever tail_v5 在候选筛选后导出入选因子给 fulltest/materialize。</p>",
+    "description": "<p>把 colblk 存储中指定因子（按因子名）批量导出为 parquet 文件。\n每个因子一个 parquet，schema = date(Date64) + 每个股票一列(Float32, PLAIN)，\n行序 = 模板日期序、列序 = 模板股票序（列名带 .SH/.SZ/.BJ 后缀），\n供 design_whatever 的 _read_factor_to_template 直接 read_parquet → set_index(\"date\") → 对齐模板。</p>\n<p>与旧实现相比：共享一个 Reader（不每因子重开）+ 预计算 scatter maps + rayon 按因子并行\n+ Float32 连续内存构造（无列优先跨步访问）+ 关字典编码。</p>\n<p>供 design_whatever tail_v5 在候选筛选后导出入选因子给 fulltest/materialize。</p>",
     "params": []
   },
   {
@@ -764,6 +769,11 @@
   {
     "name": "factor_store_v5_open",
     "description": "<p>创建/打开列式因子存储写入器（Python 侧主要供测试用；正式流程由 run_factor_pipeline 内部调用）</p>",
+    "params": []
+  },
+  {
+    "name": "factor_store_v5_project_incremental",
+    "description": "<p>对已有 colblk 存储做<strong>增量投影</strong>（不重新计算、不重写已有 base 投影）。</p>\n<p>适用场景：store 已投影，之后又追加了若干天的新 chunk（例如把因子区间从 2016-2025\n扩到 2015-2026），只想把\"新行\"投影出来，而不想整片重投影（全量投影的 I/O ≈ 2× store 体积）。</p>\n<p>行为：每个分片只读\"已投影到的位置之后的 chunk\"，写成 <code>factors.proj.delta.&lt;end&gt;</code>；<code>factors.proj</code>\n一个字节都不动。读取端（回测/导出）自动按 base → delta 顺序拼接，无需改调用方。\n无新行时是幂等的空操作。</p>",
     "params": []
   },
   {
@@ -1036,11 +1046,6 @@
     "params": []
   },
   {
-    "name": "get_abs",
-    "description": "<p>均值距离化：每行（截面）减去行均值后取绝对值；square=1 取平方，quantile 改算到分位点距离。</p>\n<p>与 dwo.get_abs 表达式逐位一致。</p>",
-    "params": []
-  },
-  {
     "name": "get_agent_daily_feature_column_groups_for_get_features_factors",
     "description": "<p>无文档</p>",
     "params": []
@@ -1058,11 +1063,6 @@
   {
     "name": "get_agent_time_grid_feature_names",
     "description": "<p>获取时间栅格特征列名</p>",
-    "params": []
-  },
-  {
-    "name": "get_factor_names",
-    "description": "<p>调用 Rust 因子名函数（rp.py_xxx_names() 形式），返回全部因子名列表。</p>",
     "params": []
   },
   {
@@ -1312,7 +1312,22 @@
   },
   {
     "name": "neutralize_std_block_py",
-    "description": "<p>pyo3 包装: block 级标准中性化 (验证/独立调用用)。\n输入: factor_block (T,N,F) f32, industry (T,N) f64, restrict (T,N) f32,\n      style_data_path, dates, stocks, industry_neutralize。</p>",
+    "description": "<p>pyo3 包装: block 级标准中性化 (验证/独立调用用)。\n输入: factor_block (T,N,F) f32, industry (T,N) f64, restrict (T,N) f32,\n      style_vars_dir, dates, stocks, industry_neutralize。</p>",
+    "params": []
+  },
+  {
+    "name": "neutralize_std_block_with_shared",
+    "description": "<p>用已预计算的句柄做 block 级标准中性化（不重新读 barra H5）。</p>",
+    "params": []
+  },
+  {
+    "name": "neutralize_std_precompute_cached_py",
+    "description": "<p>与 <code>neutralize_std_precompute_py</code> 等价，但<strong>优先复用引擎的跨 run 磁盘缓存</strong>\n（<code>tail_shared_cache</code>：<code>style_&lt;key&gt;.bin</code> + <code>neutral_&lt;key&gt;.bin</code>）。</p>\n<p>键与引擎 <code>build_shared_inputs</code> 逐字一致（dates + stocks + industry 字节 +\nstyle sha256 + restrict sha256 + ret_sum_gap1/5 sha256），所以同一轴、同一份输入下\n这里加载到的就是引擎刚算过的那一份 —— 命中时省掉 barra H5 读取与预计算\n（fulltest 有 32 个 worker，每个都重算一遍代价很大）。</p>\n<p>任何失败（目录不可写、文件缺失、键不匹配、<code>TAIL_SHARED_CACHE=0</code>）都退化为\n「本地重算」，产出与 <code>neutralize_std_precompute_py</code> 完全相同 —— 只会慢，不会算错。</p>",
+    "params": []
+  },
+  {
+    "name": "neutralize_std_precompute_py",
+    "description": "<p>预计算一次，返回可复用句柄（供逐因子调用复用，避免重复读 barra H5）。</p>",
     "params": []
   },
   {
@@ -1399,11 +1414,6 @@
   {
     "name": "price_volume_orderbook_correlation",
     "description": "<p>无文档</p>",
-    "params": []
-  },
-  {
-    "name": "probe_update_window",
-    "description": "<p>探测增量更新窗口（运行时动态，可移植）。</p>\n<p>start = colblk 存储已有最大日期（无存储则返回 start_date，适配新服务器首次全量算）\nend   = /ssd_data/stock 最新原始数据日期（无则返回 end_date）</p>",
     "params": []
   },
   {
@@ -1503,12 +1513,12 @@
   },
   {
     "name": "py_extreme_point_fit",
-    "description": "<p>Python 可调用：单股单日计算，返回完整 26976 个因子值（原始展平 + 降维）。\n与 pipeline 走同一份 build_full_output，输出逐字节相同。</p>",
+    "description": "<p>Python 可调用：单股单日计算，默认返回 27360 个值（原始展平 4992 + 21 统计量降维 22368）。\n<code>with_curvature=False</code> → 26976 个值（19 统计量口径，与「为人画像」旧 store 列定义逐列对齐）。\n与 pipeline 走同一份 build_full_output，输出逐字节相同。</p>",
     "params": []
   },
   {
     "name": "py_extreme_point_fit_names",
-    "description": "<p>Python 拿完整因子名（原始展平 4992 + 降维 21984 = 26976）。</p>",
+    "description": "<p>Python 拿完整因子名：默认 27360 个；<code>with_curvature=False</code> → 26976 个（19 统计量口径）。</p>",
     "params": []
   },
   {
@@ -1518,6 +1528,16 @@
   },
   {
     "name": "py_hidden_arrange_names",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_hot_pool_ind",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_hot_pool_ind_names",
     "description": "<p>无文档</p>",
     "params": []
   },
@@ -1682,6 +1702,16 @@
     "params": []
   },
   {
+    "name": "py_qhsk_anneal",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_qhsk_anneal_names",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
     "name": "py_read_minute_data",
     "description": "<p>Python 入口：读单字段单日 → (codes, flat_data, n_rows, n_cols)</p>",
     "params": []
@@ -1692,7 +1722,27 @@
     "params": []
   },
   {
+    "name": "py_switch_moment",
+    "description": "<p>单日单进程直算入口（核对用；正式计算走 run_factor_pipeline_cross_section）。</p>",
+    "params": []
+  },
+  {
+    "name": "py_switch_moment_names",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
     "name": "py_urgency",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_urgency_ext",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_urgency_ext_names",
     "description": "<p>无文档</p>",
     "params": []
   },
@@ -1729,6 +1779,16 @@
   {
     "name": "py_yhyb_from_data",
     "description": "<p>v2 入口（Python 传数据，样例验证/调参）：\n- trade_arrays：每股 (n_i, 8) [time_us, time_sec, price, volume, turnover, flag, bid_order, ask_order]\n- market_arrays：每股 (m_i, 25) [time_us, total_ask_vol, total_bid_vol, ask_prc1, bid_prc1,\n  ask_vol1..10, bid_vol1..10]\n- params：可选 17 个参数（默认 YhybParams::default()）\n- approx：true 时用近似统计（1 秒桶中点 + wmean + null 均值池化/x̄ 近似），\n  仅用于评估妥协方案的截面影响，不用于生产</p>",
+    "params": []
+  },
+  {
+    "name": "py_yhyb_indtop",
+    "description": "<p>Python 入口：计算某日补充因子（mode 0 = 3480；mode 1 = 验证对照 1740）。</p>",
+    "params": []
+  },
+  {
+    "name": "py_yhyb_indtop_names",
+    "description": "<p>Python 拿补充因子名（4176）。</p>",
     "params": []
   },
   {
@@ -1870,21 +1930,6 @@
       "ascending",
       "na_option"
     ]
-  },
-  {
-    "name": "read_factor",
-    "description": "<p>读因子 parquet，返回 index=date(int) / columns=股票 的 DataFrame，按日期窗口过滤。</p>\n<p>与 szalpha FactorReader.read_date_data 的 parquet 分支逐行等价。</p>",
-    "params": []
-  },
-  {
-    "name": "read_factor_from_colblk",
-    "description": "<p>从 colblk 列式存储读取单个因子，返回 DataFrame(date×stock)。</p>\n<p>替代 okay 文件里的 _read_factor_from_colblk：按 name 取子集，无需重算。</p>",
-    "params": []
-  },
-  {
-    "name": "read_level2_list",
-    "description": "<p>生成 [start_date, end_date] 内真实存在的 (date, code) 任务列表（per_stock pipeline 用）。</p>\n<p>替代 dw.read_level2_list：日期对齐交易日 → symbol_map.csv 全股票列表 →\n按日目录扫描 transaction 文件集合过滤存在性。每日更新仅 1 天，直接扫描无性能问题。</p>",
-    "params": []
   },
   {
     "name": "read_market",
@@ -2092,7 +2137,7 @@
   },
   {
     "name": "run_factor_pipeline",
-    "description": "<ul>\n<li>tasks: [[date, code], ...]</li>\n<li>n_jobs: 并行线程数（默认 200）</li>\n<li>backup_file: 备份文件路径</li>\n<li>expected_result_length: 每个任务的预期结果长度</li>\n<li>trading_days: 交易日历数组（由 rp.td.trading_days 提供）</li>\n<li>params: 可选参数 dict（tolerance_v1, tolerance_v2）</li>\n<li>update_mode: 断点续算（默认 False）</li>\n<li>bind_cores: 是否核绑定（默认 True）</li>\n</ul>",
+    "description": "<ul>\n<li>tasks: [[date, code], ...]</li>\n<li>n_jobs: 并行线程数（默认 200）</li>\n<li>backup_file: 备份文件路径</li>\n<li>expected_result_length: 每个任务的预期结果长度</li>\n<li>trading_days: 交易日历数组（由 rp.td.trading_days 提供）</li>\n<li>params: 可选参数 dict（tolerance_v1, tolerance_v2）</li>\n<li>update_mode: 断点续算（默认 False）</li>\n<li>bind_cores: 是否核绑定（默认 True）</li>\n<li>incremental_projection: true = 增量投影（store_dir 模式生效）。追加新任务时 base 投影\n  不动，只把新行写成 factors.proj.delta.<end>，读取端自动拼接 base + delta；\n  默认 false = 追加即删投影、收尾整片重投影（I/O ≈ 2× store 体积）。</li>\n</ul>",
     "params": []
   },
   {
@@ -2105,12 +2150,15 @@
       "expected_result_length",
       "trading_days",
       "n_workers",
-      "store_factor_names"
+      "store_factor_names",
+      "data_root",
+      "vars_root",
+      "incremental_projection"
     ]
   },
   {
     "name": "run_factor_pipeline_minute",
-    "description": "<p>分钟 pipeline 的 Python 入口。</p>\n<p>与 run_factor_pipeline_v6 的区别：\n- tasks 是纯日期列表 [date, ...]（非 [[date, code], ...]）\n- pipeline 函数签名是 pipeline_minute_xxx(date) → Vec<TaskResult>（fan-out 全市场）\n- 断点续算按 date 粒度（用 _completed_dates 标记文件，而非 check_completed 逐 cell）\n- collector 不按 batch_size 拆分，整天一次写入</p>",
+    "description": "<p>分钟 pipeline 的 Python 入口。</p>\n<p>与 run_factor_pipeline_v6 的区别：\n- tasks 是纯日期列表 [date, ...]（非 [[date, code], ...]）\n- pipeline 函数签名是 pipeline_minute_xxx(date) → Vec<TaskResult>（fan-out 全市场）\n- 断点续算按 date 粒度（用 _completed_dates 标记文件，而非 check_completed 逐 cell）\n- collector 不按 batch_size 拆分，整天一次写入\n- incremental_projection: true = 增量投影。收尾执行投影：store 已有 base 时只把新日期写成\n  factors.proj.delta.<end>（base 不动）；store 尚无 base 时先建立 base（一次全量投影）。\n  默认 false = 原行为（不投影，回测走在线转置）。</p>",
     "params": []
   },
   {
@@ -2145,11 +2193,6 @@
   {
     "name": "run_pools_simple",
     "description": "<p>极简版并行计算函数 - 只执行不返回</p>",
-    "params": []
-  },
-  {
-    "name": "save_factor",
-    "description": "<p>写因子 parquet：date 列（int YYYYMMDD）+ 股票列，仅保留 [start_date, end_date] 窗口。</p>\n<p>等价于 dwo.save_factor 的窗口过滤 + 落盘；目录 {hdf5_dir_here}/{factor_version}/ 自动创建。</p>",
     "params": []
   },
   {
@@ -2247,6 +2290,11 @@
     "params": []
   },
   {
+    "name": "tail_brc_halves_f32",
+    "description": "<p>调试/独立验证用：直接调 [<code>brc_day_halves</code>]（不经过回测引擎）。</p>",
+    "params": []
+  },
+  {
     "name": "tail_v2_backtest_block",
     "description": "<p>无文档</p>",
     "params": []
@@ -2287,6 +2335,16 @@
     "params": []
   },
   {
+    "name": "tail_v4_fulltest_rust",
+    "description": "<p>fulltest 逐日回测循环（<code>fulltest_whatever.py</code> 1804-1882 行）的 Rust 版。</p>\n<p>返回 dict：\n- <code>portf_ret</code>      : (portf_num, T) float64 ndarray（等价 <code>portf_ret_df.fillna(0).values</code>）\n- <code>ic_values</code>      : list[float]（等价 <code>ic_value_list</code>）\n- <code>ic_dates</code>       : list[str]（等价 <code>ic_date_list</code>）\n- <code>stock_num_list</code> : list[int]（等价 <code>stock_num_list</code>）\n- <code>stock_num_dates</code>: list[str]（等价 <code>stock_num_date_list</code>）\n- <code>portf_num</code> / <code>n_dates</code>：回显</p>",
+    "params": []
+  },
+  {
+    "name": "tail_v4_fulltest_rust_selfcheck",
+    "description": "<p>对同一份输入，把 Python 参考实现与 Rust 实现逐位对账，并打印各自耗时。</p>\n<p><code>py_ref</code> 必须是 <code>py_ref(signal, ret, ret_sum, restrict, dates, portf_num, h_hori, unique_values)</code>\n形式的可调用对象，返回含 <code>portf_ret</code>(P,T float64 ndarray) / <code>ic_values</code> / <code>ic_dates</code> /\n<code>stock_num_list</code> / <code>stock_num_dates</code> 的 dict。</p>",
+    "params": []
+  },
+  {
     "name": "tail_v4_neutralize_block_exact",
     "description": "<p>无文档</p>",
     "params": []
@@ -2317,6 +2375,11 @@
     "params": []
   },
   {
+    "name": "tail_v5_rank_fill_roll_block_f32",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
     "name": "tail_v5_run_candidates",
     "description": "<p>无文档</p>",
     "params": []
@@ -2338,6 +2401,11 @@
   },
   {
     "name": "tail_v5_run_fulltest_queue",
+    "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "tail_v8_selfcheck",
     "description": "<p>无文档</p>",
     "params": []
   },

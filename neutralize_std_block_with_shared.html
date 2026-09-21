@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>save_factor - Rust PyFunc API文档</title>
+    <title>neutralize_std_block_with_shared - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
     <script src="static/search.js"></script>
 </head>
@@ -26,17 +26,16 @@
     </div>
     
     <div class="content">
-        <h1>save_factor</h1>
+        <h1>neutralize_std_block_with_shared</h1>
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><p>写因子 parquet：date 列（int YYYYMMDD）+ 股票列，仅保留 [start_date, end_date] 窗口。</p>
-<p>等价于 dwo.save_factor 的窗口过滤 + 落盘；目录 {hdf5_dir_here}/{factor_version}/ 自动创建。</p></div>
+            <div><p>用已预计算的句柄做 block 级标准中性化（不重新读 barra H5）。</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>save_factor(factor_df, factor_version, name, start_date, end_date, look_back_window, hdf5_dir_here) -> None</code>
+            <code>neutralize_std_block_with_shared(factor_block, shared, industry_neutralize) -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -60,7 +59,7 @@
             <div class="example-usage-note">
                 <h3>Python使用示例</h3>
                 <pre><code>import numpy as np
-from rust_pyfunc import save_factor
+from rust_pyfunc import neutralize_std_block_with_shared
 
 # 使用示例
 

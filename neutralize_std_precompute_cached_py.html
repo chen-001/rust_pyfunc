@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>tail_v5_run_candidates_online - Rust PyFunc API文档</title>
+    <title>neutralize_std_precompute_cached_py - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
     <script src="static/search.js"></script>
 </head>
@@ -26,16 +26,23 @@
     </div>
     
     <div class="content">
-        <h1>tail_v5_run_candidates_online</h1>
+        <h1>neutralize_std_precompute_cached_py</h1>
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><p>无文档</p></div>
+            <div><p>与 <code>neutralize_std_precompute_py</code> 等价，但<strong>优先复用引擎的跨 run 磁盘缓存</strong>
+（<code>tail_shared_cache</code>：<code>style_&lt;key&gt;.bin</code> + <code>neutral_&lt;key&gt;.bin</code>）。</p>
+<p>键与引擎 <code>build_shared_inputs</code> 逐字一致（dates + stocks + industry 字节 +
+style sha256 + restrict sha256 + ret_sum_gap1/5 sha256），所以同一轴、同一份输入下
+这里加载到的就是引擎刚算过的那一份 —— 命中时省掉 barra H5 读取与预计算
+（fulltest 有 32 个 worker，每个都重算一遍代价很大）。</p>
+<p>任何失败（目录不可写、文件缺失、键不匹配、<code>TAIL_SHARED_CACHE=0</code>）都退化为
+「本地重算」，产出与 <code>neutralize_std_precompute_py</code> 完全相同 —— 只会慢，不会算错。</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>tail_v5_run_candidates_online(factor_names, factor_paths, dates, stocks, windows, fold, n_jobs, min_valid, cache_root, style_vars_dir, ret_gap1_path, ret_sum_gap1_path, ret_gap5_path, ret_sum_gap5_path, restrict_path, index_ret_path, backtest_start, cover_rate, ret_point_neu_gap5, ret_point_neu_gap1, ic_point_neu_gap5, ic_point_neu_gap1, ret_point_gap5, ret_point_gap1, ic_point_gap5, ic_point_gap1, ic_more_important_gap5, ic_more_important_gap1, majority_count_threshold, zero_max_threshold, nan_max_threshold) -> None</code>
+            <code>neutralize_std_precompute_cached_py(industry, restrict, style_vars_dir, restrict_path, ret_sum_gap1_path, ret_sum_gap5_path, dates, stocks) -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -59,7 +66,7 @@
             <div class="example-usage-note">
                 <h3>Python使用示例</h3>
                 <pre><code>import numpy as np
-from rust_pyfunc import tail_v5_run_candidates_online
+from rust_pyfunc import neutralize_std_precompute_cached_py
 
 # 使用示例
 

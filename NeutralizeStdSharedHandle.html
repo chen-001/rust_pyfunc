@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>cleanup_factor_store - Rust PyFunc API文档</title>
+    <title>NeutralizeStdSharedHandle - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
     <script src="static/search.js"></script>
 </head>
@@ -26,19 +26,19 @@
     </div>
     
     <div class="content">
-        <h1>cleanup_factor_store</h1>
+        <h1>NeutralizeStdSharedHandle</h1>
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><p>清理批量计算产生的备份数据文件与 colblk 存储目录。</p>
-<p>backup_{ver}* 与 colblk 存储目录是批量计算（全量几千几万个因子）的中间产物，
-names_save 已单独物化到 hdf5 base，其余因子后续用不上，执行完毕删除。
-script_dir 默认取调用方脚本目录；colblk 存储目录按传入值清理。</p></div>
+            <div><p>预计算结果的 Python 侧可复用句柄。</p>
+<p><code>neutralize_std_block_py</code> 每次调用都会重新读 barra H5 并重算 precompute，
+逐因子调用不可用；这里把 precompute 结果包成 pyclass，让调用方建一次、每个
+block/slot 复用（引擎内部就是这么用的）。</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>cleanup_factor_store(colblk_store_dir, ver, script_dir) -> None</code>
+            <code>NeutralizeStdSharedHandle() -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -62,7 +62,7 @@ script_dir 默认取调用方脚本目录；colblk 存储目录按传入值清�
             <div class="example-usage-note">
                 <h3>Python使用示例</h3>
                 <pre><code>import numpy as np
-from rust_pyfunc import cleanup_factor_store
+from rust_pyfunc import NeutralizeStdSharedHandle
 
 # 使用示例
 

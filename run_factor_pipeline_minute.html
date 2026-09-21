@@ -35,12 +35,15 @@
 - tasks 是纯日期列表 [date, ...]（非 [[date, code], ...]）
 - pipeline 函数签名是 pipeline_minute_xxx(date) → Vec<TaskResult>（fan-out 全市场）
 - 断点续算按 date 粒度（用 _completed_dates 标记文件，而非 check_completed 逐 cell）
-- collector 不按 batch_size 拆分，整天一次写入</p></div>
+- collector 不按 batch_size 拆分，整天一次写入
+- incremental_projection: true = 增量投影。收尾执行投影：store 已有 base 时只把新日期写成
+  factors.proj.delta.<end>（base 不动）；store 尚无 base 时先建立 base（一次全量投影）。
+  默认 false = 原行为（不投影，回测走在线转置）。</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>run_factor_pipeline_minute(pipeline, tasks, n_jobs, expected_result_length, trading_days, params, update_mode, bind_cores, store_dir, store_factor_names) -> None</code>
+            <code>run_factor_pipeline_minute(pipeline, tasks, n_jobs, expected_result_length, trading_days, params, update_mode, bind_cores, store_dir, store_factor_names, data_root, incremental_projection) -> None</code>
         </div>
         
         <div class="function-parameters">

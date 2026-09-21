@@ -180,6 +180,33 @@ bid_prices, bid_vols, ask_prices, ask_vols: Vec<Vec\<f64>> — [snapshots][10]</
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="compute_corr_contribution_factors.html">compute_corr_contribution_factors</a></h3>
+                <div><p>计算相邻分钟截面相关系数的逐股贡献度因子</p>
+<h2>参数</h2>
+<p>field : np.ndarray (T, N)
+top_k : int, 默认 300
+parallel : bool, 默认 False
+    True 时启用 rayon 并行（最多 30 线程），适合单日快速更新</p>
+<h2>返回</h2>
+<p>dict[str, np.ndarray]  — 793 个因子</p></div>
+                <a href="compute_corr_contribution_factors.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="compute_corr_contribution_multi.html">compute_corr_contribution_multi</a></h3>
+                <div><p>批量计算多个字段的相邻分钟截面相关系数贡献度因子</p>
+<h2>参数</h2>
+<p>field_stack : np.ndarray (T, N, K)
+field_names : list[str], 长度 K
+top_k : int, 默认 300
+parallel : bool, 默认 False
+    True 时启用 rayon 并行（最多 30 线程），适合单日快速更新</p>
+<h2>返回</h2>
+<p>dict[str, np.ndarray]  — K × 793 个因子</p></div>
+                <a href="compute_corr_contribution_multi.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="compute_corr_diff_features.html">compute_corr_diff_features</a></h3>
                 <div><p>无文档</p></div>
                 <a href="compute_corr_diff_features.html">查看详情</a>
@@ -348,6 +375,15 @@ print(df)
         
         <div id="statistics" class="category">
             <h2 class="category-title">统计分析函数</h2>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="NeutralizeStdSharedHandle.html">NeutralizeStdSharedHandle</a></h3>
+                <div><p>预计算结果的 Python 侧可复用句柄。</p>
+<p><code>neutralize_std_block_py</code> 每次调用都会重新读 barra H5 并重算 precompute，
+逐因子调用不可用；这里把 precompute 结果包成 pyclass，让调用方建一次、每个
+block/slot 复用（引擎内部就是这么用的）。</p></div>
+                <a href="NeutralizeStdSharedHandle.html">查看详情</a>
+            </div>
             
             <div class="function-item">
                 <h3 class="function-name"><a href="PriceTree.html">PriceTree</a></h3>
@@ -560,17 +596,6 @@ market microstructure features, and provides quantitative trading and strategy s
                 <h3 class="function-name"><a href="analyze_sequence_permutations_v0816_fixed.html">analyze_sequence_permutations_v0816_fixed</a></h3>
                 <div><p>无文档</p></div>
                 <a href="analyze_sequence_permutations_v0816_fixed.html">查看详情</a>
-            </div>
-            
-            <div class="function-item">
-                <h3 class="function-name"><a href="base_to_final.html">base_to_final</a></h3>
-                <div><p>base 因子 → final 因子（与 dwo.base_to_final 行为一致）。</p>
-<p>{base}<em>{action}_smooth</em>{days} 命名解析：
-  smooth_1            → rank(axis=1) 直接输出
-  mean/min/max/std    → rank 后 rolling(days, min_periods=days//2).{action}()
-  autocorr            → rank 后滚动窗口内 1 阶自相关
-回看 start_date 前 60 个交易日（max(..., 20150105)），从 base parquet 读取。</p></div>
-                <a href="base_to_final.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -1039,15 +1064,6 @@ market microstructure features, and provides quantitative trading and strategy s
             </div>
             
             <div class="function-item">
-                <h3 class="function-name"><a href="cleanup_factor_store.html">cleanup_factor_store</a></h3>
-                <div><p>清理批量计算产生的备份数据文件与 colblk 存储目录。</p>
-<p>backup_{ver}* 与 colblk 存储目录是批量计算（全量几千几万个因子）的中间产物，
-names_save 已单独物化到 hdf5 base，其余因子后续用不上，执行完毕删除。
-script_dir 默认取调用方脚本目录；colblk 存储目录按传入值清理。</p></div>
-                <a href="cleanup_factor_store.html">查看详情</a>
-            </div>
-            
-            <div class="function-item">
                 <h3 class="function-name"><a href="clear_theme_cluster_cache.html">clear_theme_cluster_cache</a></h3>
                 <div><p>清除聚类缓存</p></div>
                 <a href="clear_theme_cluster_cache.html">查看详情</a>
@@ -1447,8 +1463,11 @@ dst 不得已被所在组合 manifest 引用（防止与已注册 group 冲突�
             <div class="function-item">
                 <h3 class="function-name"><a href="factor_store_v5_export_factors_parquet.html">factor_store_v5_export_factors_parquet</a></h3>
                 <div><p>把 colblk 存储中指定因子（按因子名）批量导出为 parquet 文件。
-每个因子一个 parquet，schema = date(Int64) + 每个股票一列(Float64)，
-与现有 export_backup_to_parquet_rust 输出格式完全一致，保证 postprocess 兼容。</p>
+每个因子一个 parquet，schema = date(Date64) + 每个股票一列(Float32, PLAIN)，
+行序 = 模板日期序、列序 = 模板股票序（列名带 .SH/.SZ/.BJ 后缀），
+供 design_whatever 的 _read_factor_to_template 直接 read_parquet → set_index("date") → 对齐模板。</p>
+<p>与旧实现相比：共享一个 Reader（不每因子重开）+ 预计算 scatter maps + rayon 按因子并行
++ Float32 连续内存构造（无列优先跨步访问）+ 关字典编码。</p>
 <p>供 design_whatever tail_v5 在候选筛选后导出入选因子给 fulltest/materialize。</p></div>
                 <a href="factor_store_v5_export_factors_parquet.html">查看详情</a>
             </div>
@@ -1463,6 +1482,17 @@ dst 不得已被所在组合 manifest 引用（防止与已注册 group 冲突�
                 <h3 class="function-name"><a href="factor_store_v5_open.html">factor_store_v5_open</a></h3>
                 <div><p>创建/打开列式因子存储写入器（Python 侧主要供测试用；正式流程由 run_factor_pipeline 内部调用）</p></div>
                 <a href="factor_store_v5_open.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="factor_store_v5_project_incremental.html">factor_store_v5_project_incremental</a></h3>
+                <div><p>对已有 colblk 存储做<strong>增量投影</strong>（不重新计算、不重写已有 base 投影）。</p>
+<p>适用场景：store 已投影，之后又追加了若干天的新 chunk（例如把因子区间从 2016-2025
+扩到 2015-2026），只想把"新行"投影出来，而不想整片重投影（全量投影的 I/O ≈ 2× store 体积）。</p>
+<p>行为：每个分片只读"已投影到的位置之后的 chunk"，写成 <code>factors.proj.delta.&lt;end&gt;</code>；<code>factors.proj</code>
+一个字节都不动。读取端（回测/导出）自动按 base → delta 顺序拼接，无需改调用方。
+无新行时是幂等的空操作。</p></div>
+                <a href="factor_store_v5_project_incremental.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -1788,13 +1818,6 @@ print(f"平均强度: {result['mean_intensity']:.3f}")</p>
             </div>
             
             <div class="function-item">
-                <h3 class="function-name"><a href="get_abs.html">get_abs</a></h3>
-                <div><p>均值距离化：每行（截面）减去行均值后取绝对值；square=1 取平方，quantile 改算到分位点距离。</p>
-<p>与 dwo.get_abs 表达式逐位一致。</p></div>
-                <a href="get_abs.html">查看详情</a>
-            </div>
-            
-            <div class="function-item">
                 <h3 class="function-name"><a href="get_agent_daily_feature_column_groups_for_get_features_factors.html">get_agent_daily_feature_column_groups_for_get_features_factors</a></h3>
                 <div><p>无文档</p></div>
                 <a href="get_agent_daily_feature_column_groups_for_get_features_factors.html">查看详情</a>
@@ -1816,12 +1839,6 @@ print(f"平均强度: {result['mean_intensity']:.3f}")</p>
                 <h3 class="function-name"><a href="get_agent_time_grid_feature_names.html">get_agent_time_grid_feature_names</a></h3>
                 <div><p>获取时间栅格特征列名</p></div>
                 <a href="get_agent_time_grid_feature_names.html">查看详情</a>
-            </div>
-            
-            <div class="function-item">
-                <h3 class="function-name"><a href="get_factor_names.html">get_factor_names</a></h3>
-                <div><p>调用 Rust 因子名函数（rp.py_xxx_names() 形式），返回全部因子名列表。</p></div>
-                <a href="get_factor_names.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -2189,8 +2206,33 @@ Uses Euclidean distance for k-nearest neighbor search</p></div>
                 <h3 class="function-name"><a href="neutralize_std_block_py.html">neutralize_std_block_py</a></h3>
                 <div><p>pyo3 包装: block 级标准中性化 (验证/独立调用用)。
 输入: factor_block (T,N,F) f32, industry (T,N) f64, restrict (T,N) f32,
-      style_data_path, dates, stocks, industry_neutralize。</p></div>
+      style_vars_dir, dates, stocks, industry_neutralize。</p></div>
                 <a href="neutralize_std_block_py.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="neutralize_std_block_with_shared.html">neutralize_std_block_with_shared</a></h3>
+                <div><p>用已预计算的句柄做 block 级标准中性化（不重新读 barra H5）。</p></div>
+                <a href="neutralize_std_block_with_shared.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="neutralize_std_precompute_cached_py.html">neutralize_std_precompute_cached_py</a></h3>
+                <div><p>与 <code>neutralize_std_precompute_py</code> 等价，但<strong>优先复用引擎的跨 run 磁盘缓存</strong>
+（<code>tail_shared_cache</code>：<code>style_&lt;key&gt;.bin</code> + <code>neutral_&lt;key&gt;.bin</code>）。</p>
+<p>键与引擎 <code>build_shared_inputs</code> 逐字一致（dates + stocks + industry 字节 +
+style sha256 + restrict sha256 + ret_sum_gap1/5 sha256），所以同一轴、同一份输入下
+这里加载到的就是引擎刚算过的那一份 —— 命中时省掉 barra H5 读取与预计算
+（fulltest 有 32 个 worker，每个都重算一遍代价很大）。</p>
+<p>任何失败（目录不可写、文件缺失、键不匹配、<code>TAIL_SHARED_CACHE=0</code>）都退化为
+「本地重算」，产出与 <code>neutralize_std_precompute_py</code> 完全相同 —— 只会慢，不会算错。</p></div>
+                <a href="neutralize_std_precompute_cached_py.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="neutralize_std_precompute_py.html">neutralize_std_precompute_py</a></h3>
+                <div><p>预计算一次，返回可复用句柄（供逐因子调用复用，避免重复读 barra H5）。</p></div>
+                <a href="neutralize_std_precompute_py.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -2324,14 +2366,6 @@ Uses Euclidean distance for k-nearest neighbor search</p></div>
                 <h3 class="function-name"><a href="price_volume_orderbook_correlation.html">price_volume_orderbook_correlation</a></h3>
                 <div><p>无文档</p></div>
                 <a href="price_volume_orderbook_correlation.html">查看详情</a>
-            </div>
-            
-            <div class="function-item">
-                <h3 class="function-name"><a href="probe_update_window.html">probe_update_window</a></h3>
-                <div><p>探测增量更新窗口（运行时动态，可移植）。</p>
-<p>start = colblk 存储已有最大日期（无存储则返回 start_date，适配新服务器首次全量算）
-end   = /ssd_data/stock 最新原始数据日期（无则返回 end_date）</p></div>
-                <a href="probe_update_window.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -2472,14 +2506,15 @@ seg_flat 为 row-major 展平的 (seg_rows × NCOLS)，Python 端 reshape 即可
             
             <div class="function-item">
                 <h3 class="function-name"><a href="py_extreme_point_fit.html">py_extreme_point_fit</a></h3>
-                <div><p>Python 可调用：单股单日计算，返回完整 26976 个因子值（原始展平 + 降维）。
+                <div><p>Python 可调用：单股单日计算，默认返回 27360 个值（原始展平 4992 + 21 统计量降维 22368）。
+<code>with_curvature=False</code> → 26976 个值（19 统计量口径，与「为人画像」旧 store 列定义逐列对齐）。
 与 pipeline 走同一份 build_full_output，输出逐字节相同。</p></div>
                 <a href="py_extreme_point_fit.html">查看详情</a>
             </div>
             
             <div class="function-item">
                 <h3 class="function-name"><a href="py_extreme_point_fit_names.html">py_extreme_point_fit_names</a></h3>
-                <div><p>Python 拿完整因子名（原始展平 4992 + 降维 21984 = 26976）。</p></div>
+                <div><p>Python 拿完整因子名：默认 27360 个；<code>with_curvature=False</code> → 26976 个（19 统计量口径）。</p></div>
                 <a href="py_extreme_point_fit_names.html">查看详情</a>
             </div>
             
@@ -2493,6 +2528,18 @@ seg_flat 为 row-major 展平的 (seg_rows × NCOLS)，Python 端 reshape 即可
                 <h3 class="function-name"><a href="py_hidden_arrange_names.html">py_hidden_arrange_names</a></h3>
                 <div><p>无文档</p></div>
                 <a href="py_hidden_arrange_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_hot_pool_ind.html">py_hot_pool_ind</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_hot_pool_ind.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_hot_pool_ind_names.html">py_hot_pool_ind_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_hot_pool_ind_names.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -2690,6 +2737,18 @@ time_us 由 time_sec（epoch 秒）× 1e6 构造（v2 演示场景秒级精度�
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="py_qhsk_anneal.html">py_qhsk_anneal</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_qhsk_anneal.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_qhsk_anneal_names.html">py_qhsk_anneal_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_qhsk_anneal_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="py_read_minute_data.html">py_read_minute_data</a></h3>
                 <div><p>Python 入口：读单字段单日 → (codes, flat_data, n_rows, n_cols)</p></div>
                 <a href="py_read_minute_data.html">查看详情</a>
@@ -2702,9 +2761,33 @@ time_us 由 time_sec（epoch 秒）× 1e6 构造（v2 演示场景秒级精度�
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="py_switch_moment.html">py_switch_moment</a></h3>
+                <div><p>单日单进程直算入口（核对用；正式计算走 run_factor_pipeline_cross_section）。</p></div>
+                <a href="py_switch_moment.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_switch_moment_names.html">py_switch_moment_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_switch_moment_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="py_urgency.html">py_urgency</a></h3>
                 <div><p>无文档</p></div>
                 <a href="py_urgency.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_urgency_ext.html">py_urgency_ext</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_urgency_ext.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_urgency_ext_names.html">py_urgency_ext_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_urgency_ext_names.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -2753,6 +2836,18 @@ time_us 由 time_sec（epoch 秒）× 1e6 构造（v2 演示场景秒级精度�
 - approx：true 时用近似统计（1 秒桶中点 + wmean + null 均值池化/x̄ 近似），
   仅用于评估妥协方案的截面影响，不用于生产</p></div>
                 <a href="py_yhyb_from_data.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_yhyb_indtop.html">py_yhyb_indtop</a></h3>
+                <div><p>Python 入口：计算某日补充因子（mode 0 = 3480；mode 1 = 验证对照 1740）。</p></div>
+                <a href="py_yhyb_indtop.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_yhyb_indtop_names.html">py_yhyb_indtop_names</a></h3>
+                <div><p>Python 拿补充因子名（4176）。</p></div>
+                <a href="py_yhyb_indtop_names.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -2932,28 +3027,6 @@ time_us 由 time_sec（epoch 秒）× 1e6 构造（v2 演示场景秒级精度�
 <p>这是rust_pyfunc.rank_axis1的DataFrame封装版本，可以直接传入DataFrame
 并返回保持原有索引和列名的DataFrame结果。</p></div>
                 <a href="rank_axis1_df.html">查看详情</a>
-            </div>
-            
-            <div class="function-item">
-                <h3 class="function-name"><a href="read_factor.html">read_factor</a></h3>
-                <div><p>读因子 parquet，返回 index=date(int) / columns=股票 的 DataFrame，按日期窗口过滤。</p>
-<p>与 szalpha FactorReader.read_date_data 的 parquet 分支逐行等价。</p></div>
-                <a href="read_factor.html">查看详情</a>
-            </div>
-            
-            <div class="function-item">
-                <h3 class="function-name"><a href="read_factor_from_colblk.html">read_factor_from_colblk</a></h3>
-                <div><p>从 colblk 列式存储读取单个因子，返回 DataFrame(date×stock)。</p>
-<p>替代 okay 文件里的 _read_factor_from_colblk：按 name 取子集，无需重算。</p></div>
-                <a href="read_factor_from_colblk.html">查看详情</a>
-            </div>
-            
-            <div class="function-item">
-                <h3 class="function-name"><a href="read_level2_list.html">read_level2_list</a></h3>
-                <div><p>生成 [start_date, end_date] 内真实存在的 (date, code) 任务列表（per_stock pipeline 用）。</p>
-<p>替代 dw.read_level2_list：日期对齐交易日 → symbol_map.csv 全股票列表 →
-按日目录扫描 transaction 文件集合过滤存在性。每日更新仅 1 天，直接扫描无性能问题。</p></div>
-                <a href="read_level2_list.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -3340,6 +3413,9 @@ quantile=0.9: 90%分位数分割，只有前10%最高成交量为1</p></div>
 <li>params: 可选参数 dict（tolerance_v1, tolerance_v2）</li>
 <li>update_mode: 断点续算（默认 False）</li>
 <li>bind_cores: 是否核绑定（默认 True）</li>
+<li>incremental_projection: true = 增量投影（store_dir 模式生效）。追加新任务时 base 投影
+  不动，只把新行写成 factors.proj.delta.<end>，读取端自动拼接 base + delta；
+  默认 false = 追加即删投影、收尾整片重投影（I/O ≈ 2× store 体积）。</li>
 </ul></div>
                 <a href="run_factor_pipeline.html">查看详情</a>
             </div>
@@ -3357,7 +3433,10 @@ quantile=0.9: 90%分位数分割，只有前10%最高成交量为1</p></div>
 - tasks 是纯日期列表 [date, ...]（非 [[date, code], ...]）
 - pipeline 函数签名是 pipeline_minute_xxx(date) → Vec<TaskResult>（fan-out 全市场）
 - 断点续算按 date 粒度（用 _completed_dates 标记文件，而非 check_completed 逐 cell）
-- collector 不按 batch_size 拆分，整天一次写入</p></div>
+- collector 不按 batch_size 拆分，整天一次写入
+- incremental_projection: true = 增量投影。收尾执行投影：store 已有 base 时只把新日期写成
+  factors.proj.delta.<end>（base 不动）；store 尚无 base 时先建立 base（一次全量投影）。
+  默认 false = 原行为（不投影，回测走在线转置）。</p></div>
                 <a href="run_factor_pipeline_minute.html">查看详情</a>
             </div>
             
@@ -3394,13 +3473,6 @@ quantile=0.9: 90%分位数分割，只有前10%最高成交量为1</p></div>
                 <h3 class="function-name"><a href="run_pools_simple.html">run_pools_simple</a></h3>
                 <div><p>极简版并行计算函数 - 只执行不返回</p></div>
                 <a href="run_pools_simple.html">查看详情</a>
-            </div>
-            
-            <div class="function-item">
-                <h3 class="function-name"><a href="save_factor.html">save_factor</a></h3>
-                <div><p>写因子 parquet：date 列（int YYYYMMDD）+ 股票列，仅保留 [start_date, end_date] 窗口。</p>
-<p>等价于 dwo.save_factor 的窗口过滤 + 落盘；目录 {hdf5_dir_here}/{factor_version}/ 自动创建。</p></div>
-                <a href="save_factor.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -3550,6 +3622,12 @@ print(f"super加速比: {time1/time3:.2f}倍")
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="tail_brc_halves_f32.html">tail_brc_halves_f32</a></h3>
+                <div><p>调试/独立验证用：直接调 [<code>brc_day_halves</code>]（不经过回测引擎）。</p></div>
+                <a href="tail_brc_halves_f32.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="tail_v2_backtest_block.html">tail_v2_backtest_block</a></h3>
                 <div><p>无文档</p></div>
                 <a href="tail_v2_backtest_block.html">查看详情</a>
@@ -3598,6 +3676,28 @@ print(f"super加速比: {time1/time3:.2f}倍")
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="tail_v4_fulltest_rust.html">tail_v4_fulltest_rust</a></h3>
+                <div><p>fulltest 逐日回测循环（<code>fulltest_whatever.py</code> 1804-1882 行）的 Rust 版。</p>
+<p>返回 dict：
+- <code>portf_ret</code>      : (portf_num, T) float64 ndarray（等价 <code>portf_ret_df.fillna(0).values</code>）
+- <code>ic_values</code>      : list[float]（等价 <code>ic_value_list</code>）
+- <code>ic_dates</code>       : list[str]（等价 <code>ic_date_list</code>）
+- <code>stock_num_list</code> : list[int]（等价 <code>stock_num_list</code>）
+- <code>stock_num_dates</code>: list[str]（等价 <code>stock_num_date_list</code>）
+- <code>portf_num</code> / <code>n_dates</code>：回显</p></div>
+                <a href="tail_v4_fulltest_rust.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="tail_v4_fulltest_rust_selfcheck.html">tail_v4_fulltest_rust_selfcheck</a></h3>
+                <div><p>对同一份输入，把 Python 参考实现与 Rust 实现逐位对账，并打印各自耗时。</p>
+<p><code>py_ref</code> 必须是 <code>py_ref(signal, ret, ret_sum, restrict, dates, portf_num, h_hori, unique_values)</code>
+形式的可调用对象，返回含 <code>portf_ret</code>(P,T float64 ndarray) / <code>ic_values</code> / <code>ic_dates</code> /
+<code>stock_num_list</code> / <code>stock_num_dates</code> 的 dict。</p></div>
+                <a href="tail_v4_fulltest_rust_selfcheck.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="tail_v4_neutralize_block_exact.html">tail_v4_neutralize_block_exact</a></h3>
                 <div><p>无文档</p></div>
                 <a href="tail_v4_neutralize_block_exact.html">查看详情</a>
@@ -3634,6 +3734,12 @@ print(f"super加速比: {time1/time3:.2f}倍")
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="tail_v5_rank_fill_roll_block_f32.html">tail_v5_rank_fill_roll_block_f32</a></h3>
+                <div><p>无文档</p></div>
+                <a href="tail_v5_rank_fill_roll_block_f32.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="tail_v5_run_candidates.html">tail_v5_run_candidates</a></h3>
                 <div><p>无文档</p></div>
                 <a href="tail_v5_run_candidates.html">查看详情</a>
@@ -3661,6 +3767,12 @@ print(f"super加速比: {time1/time3:.2f}倍")
                 <h3 class="function-name"><a href="tail_v5_run_fulltest_queue.html">tail_v5_run_fulltest_queue</a></h3>
                 <div><p>无文档</p></div>
                 <a href="tail_v5_run_fulltest_queue.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="tail_v8_selfcheck.html">tail_v8_selfcheck</a></h3>
+                <div><p>无文档</p></div>
+                <a href="tail_v8_selfcheck.html">查看详情</a>
             </div>
             
             <div class="function-item">

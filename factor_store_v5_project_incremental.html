@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>read_level2_list - Rust PyFunc API文档</title>
+    <title>factor_store_v5_project_incremental - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
     <script src="static/search.js"></script>
 </head>
@@ -26,18 +26,21 @@
     </div>
     
     <div class="content">
-        <h1>read_level2_list</h1>
+        <h1>factor_store_v5_project_incremental</h1>
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><p>生成 [start_date, end_date] 内真实存在的 (date, code) 任务列表（per_stock pipeline 用）。</p>
-<p>替代 dw.read_level2_list：日期对齐交易日 → symbol_map.csv 全股票列表 →
-按日目录扫描 transaction 文件集合过滤存在性。每日更新仅 1 天，直接扫描无性能问题。</p></div>
+            <div><p>对已有 colblk 存储做<strong>增量投影</strong>（不重新计算、不重写已有 base 投影）。</p>
+<p>适用场景：store 已投影，之后又追加了若干天的新 chunk（例如把因子区间从 2016-2025
+扩到 2015-2026），只想把"新行"投影出来，而不想整片重投影（全量投影的 I/O ≈ 2× store 体积）。</p>
+<p>行为：每个分片只读"已投影到的位置之后的 chunk"，写成 <code>factors.proj.delta.&lt;end&gt;</code>；<code>factors.proj</code>
+一个字节都不动。读取端（回测/导出）自动按 base → delta 顺序拼接，无需改调用方。
+无新行时是幂等的空操作。</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>read_level2_list(start_date, end_date) -> &lt;class &#39;list&#39;&gt;</code>
+            <code>factor_store_v5_project_incremental(store_dir, n_jobs) -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -61,7 +64,7 @@
             <div class="example-usage-note">
                 <h3>Python使用示例</h3>
                 <pre><code>import numpy as np
-from rust_pyfunc import read_level2_list
+from rust_pyfunc import factor_store_v5_project_incremental
 
 # 使用示例
 

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>base_to_final - Rust PyFunc API文档</title>
+    <title>compute_corr_contribution_multi - Rust PyFunc API文档</title>
     <link rel="stylesheet" href="static/style.css">
     <script src="static/search.js"></script>
 </head>
@@ -26,21 +26,24 @@
     </div>
     
     <div class="content">
-        <h1>base_to_final</h1>
+        <h1>compute_corr_contribution_multi</h1>
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><p>base 因子 → final 因子（与 dwo.base_to_final 行为一致）。</p>
-<p>{base}<em>{action}_smooth</em>{days} 命名解析：
-  smooth_1            → rank(axis=1) 直接输出
-  mean/min/max/std    → rank 后 rolling(days, min_periods=days//2).{action}()
-  autocorr            → rank 后滚动窗口内 1 阶自相关
-回看 start_date 前 60 个交易日（max(..., 20150105)），从 base parquet 读取。</p></div>
+            <div><p>批量计算多个字段的相邻分钟截面相关系数贡献度因子</p>
+<h2>参数</h2>
+<p>field_stack : np.ndarray (T, N, K)
+field_names : list[str], 长度 K
+top_k : int, 默认 300
+parallel : bool, 默认 False
+    True 时启用 rayon 并行（最多 30 线程），适合单日快速更新</p>
+<h2>返回</h2>
+<p>dict[str, np.ndarray]  — K × 793 个因子</p></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>base_to_final(names_okay, start_date, end_date, base_factor_ver, base_hdf5_dir) -> dict[str, pandas.DataFrame]</code>
+            <code>compute_corr_contribution_multi(field_stack, field_names, top_k, parallel) -> None</code>
         </div>
         
         <div class="function-parameters">
@@ -64,7 +67,7 @@
             <div class="example-usage-note">
                 <h3>Python使用示例</h3>
                 <pre><code>import numpy as np
-from rust_pyfunc import base_to_final
+from rust_pyfunc import compute_corr_contribution_multi
 
 # 使用示例
 

@@ -39,12 +39,15 @@
 <li>params: 可选参数 dict（tolerance_v1, tolerance_v2）</li>
 <li>update_mode: 断点续算（默认 False）</li>
 <li>bind_cores: 是否核绑定（默认 True）</li>
+<li>incremental_projection: true = 增量投影（store_dir 模式生效）。追加新任务时 base 投影
+  不动，只把新行写成 factors.proj.delta.<end>，读取端自动拼接 base + delta；
+  默认 false = 追加即删投影、收尾整片重投影（I/O ≈ 2× store 体积）。</li>
 </ul></div>
         </div>
         
         <div class="function-signature signature">
             <h2>函数签名</h2>
-            <code>run_factor_pipeline(pipeline, tasks, n_jobs, backup_file, expected_result_length, trading_days, params, update_mode, bind_cores, backup_batch_size, progress_log, mode, export_names, export_dir, export_n_jobs, store_dir, store_factor_names) -> None</code>
+            <code>run_factor_pipeline(pipeline, tasks, n_jobs, backup_file, expected_result_length, trading_days, params, update_mode, bind_cores, backup_batch_size, progress_log, mode, export_names, export_dir, export_n_jobs, store_dir, store_factor_names, data_root, incremental_projection) -> None</code>
         </div>
         
         <div class="function-parameters">
