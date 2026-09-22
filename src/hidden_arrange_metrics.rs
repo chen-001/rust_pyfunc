@@ -1134,18 +1134,7 @@ fn compute_all_factors(code: &str, date: i64, tws: &[f64], n_null: usize) {
 // ===================== Pipeline 规范封装 =====================
 /// 因子名（与 compute 输出严格对齐，单一源）。
 pub fn hidden_arrange_names() -> Vec<String> {
-    let mut names: Vec<String> = vec![];
-    for seg_id in 1..=4u32 {
-        for target in TARGETS_C.iter() {
-            // LOGVOL 连续目标: 基础因子 703 个
-            // BIN16/TOP10 离散目标: 基础因子 949 个
-            // 用占位: 实际名字由 extract_all 的输出顺序决定
-            let dummy_win_n = 430usize; // 代表窗口大小
-                                        // 因子名需要和 compute 对齐，用索引而非硬编码
-            names.push(format!("SEG{}_T180_{}_FACTOR_{}", seg_id, target, 0));
-        }
-    }
-    names // 占位，实际由 compute_hidden_arrange_full 返回
+    crate::hidden_arrange_names::names()
 }
 
 /// 纯 Rust 核心（唯一真相源）：读数据 → 4时段 → T180 日频窗口 → 3目标 → 三层游戏 → 因子(RAW) → Vec<f32>
@@ -1196,15 +1185,12 @@ fn compute_hidden_arrange_impl(code: &str, date: i64) -> std::io::Result<(Vec<St
 use std::sync::OnceLock;
 static HA_TEMPLATE: OnceLock<Vec<String>> = OnceLock::new();
 
-/// 固定因子名模板（8772）：用 000001/20220819 跑一次拿到完整四时段名字并缓存。
-/// 因子名对所有股票固定（extract_all 输出顺序确定）。
+/// 固定因子名模板（8772），生产机器不需要保留 000001/20220819 的历史原始文件。
 fn template_names() -> Vec<String> {
     if let Some(t) = HA_TEMPLATE.get() {
         return t.clone();
     }
-    let t = compute_hidden_arrange_impl("000001", 20220819)
-        .map(|(n, _)| n)
-        .unwrap_or_default();
+    let t = hidden_arrange_names();
     let _ = HA_TEMPLATE.set(t.clone());
     t
 }
@@ -3793,10 +3779,5 @@ pub fn py_hidden_arrange(py: Python<'_>, code: &str, date: i64) -> PyResult<Vec<
 }
 #[pyfunction]
 pub fn py_hidden_arrange_names() -> Vec<String> {
-    let t = template_names();
-    if t.is_empty() {
-        hidden_arrange_names()
-    } else {
-        t
-    }
+    template_names()
 }

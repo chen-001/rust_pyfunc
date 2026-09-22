@@ -37,6 +37,17 @@ class _ProductionRuntime:
         return min(n_jobs, len(available))
 
     def raw_dates(self, start, end):
+        if self.pipeline_groups and all(g['pipeline'] == 'switch_moment' for g in self.pipeline_groups):
+            # 分钟因子依赖分钟 H5，不依赖某天是否恰好有 Level2 目录。
+            days = pd.read_csv(Path(self.minute_root) / 'calendar_map.csv').iloc[:, 0].astype(int).tolist()
+            today = int(pd.Timestamp.today().strftime('%Y%m%d'))
+            candidates = [(i, d) for i, d in enumerate(days) if start <= d <= min(end, today)]
+            with h5py.File(Path(self.minute_root) / 'volume.h5', 'r') as handle:
+                data = handle['data']
+                for i, date in reversed(candidates):
+                    if np.isfinite(data[i * 240:(i + 1) * 240]).any():
+                        return [d for j, d in candidates if 4 <= j <= i]
+            return []
         return sorted(
             (
                 int(p.name)
@@ -194,6 +205,7 @@ class _ProductionRuntime:
         return (str(root.resolve()), symbols)
 
     def run_base(self, start_date, end_date, n_jobs=None, stock_only=None):
+        os.environ['RUST_PYFUNC_MINUTE_ROOT'] = self.minute_root
         if n_jobs is None:
             n_jobs = self.cpu_limit
         n_jobs = self.limit_resources(n_jobs)
@@ -412,6 +424,7 @@ _SETTINGS = [
     "level2_root",
     "calendar_root",
     "vars_root",
+    "minute_root",
     "output_root",
     "initial_start_date",
     "cpu_limit",
@@ -447,6 +460,7 @@ def _runtime(base_factor_ver, base_hdf5_dir, calendar_root, vars_root, **overrid
         level2_root="/ssd_data/stock",
         calendar_root=calendar_root,
         vars_root=vars_root,
+        minute_root=str(Path(calendar_root) / '1min_factor_text'),
         initial_start_date=20150105,
         cpu_limit=30,
         stock_only_input=False,
@@ -479,6 +493,7 @@ def _stage(runtime):
     os.environ["RUST_PYFUNC_CALENDAR_PATH"] = runtime.calendar_root
     os.environ["RUST_PYFUNC_VARS_DIR"] = runtime.vars_root
     os.environ["RUST_PYFUNC_BASIC_INFO_DIR"] = str(Path(runtime.calendar_root) / "basic_info")
+    os.environ["RUST_PYFUNC_MINUTE_ROOT"] = runtime.minute_root
     os.environ["RUST_PYFUNC_WORKER_BIN"] = str(
         Path(runtime.rp.__file__).parent / "rust_pyfunc_worker"
     )
@@ -509,6 +524,7 @@ def write_selected_factor_base(
     calendar_root,
     vars_root,
     n_jobs=30,
+    minute_root=None,
 ):
     """计算指定日期，保存所需原值/fold；成功写入后删除临时 colblk。"""
     runtime = _runtime(
@@ -521,6 +537,7 @@ def write_selected_factor_base(
         colblk_store_dir=colblk_store_dir,
         level2_root=level2_root,
         cpu_limit=n_jobs,
+        minute_root=minute_root if minute_root is not None else str(Path(calendar_root) / '1min_factor_text'),
     )
     with _stage(runtime):
         runtime.run_base(start_date, end_date, n_jobs)

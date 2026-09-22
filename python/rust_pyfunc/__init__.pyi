@@ -24,6 +24,7 @@ def write_selected_factor_base(
     base_factor_ver: str, base_hdf5_dir: str, colblk_store_dir: str,
     level2_root: str, calendar_root: str, vars_root: str,
     n_jobs: int = 30,
+    minute_root: Optional[str] = None,
 ) -> None: ...
 def write_selected_factor_db(
     names: List[str], start_date: int, end_date: int, *,

@@ -116,6 +116,7 @@ pub mod distill_metrics;
 pub mod distill_tick_metrics;
 pub mod fast_csv_reader;
 pub mod hidden_arrange_metrics;
+mod hidden_arrange_names;
 pub mod hot_stock_pool_metrics;
 pub mod hot_pool_ind_metrics;
 
