@@ -50,12 +50,12 @@ fn pread_at(file: &File, buf: &mut [u8], offset: u64) -> std::io::Result<usize> 
     }
 }
 
-/// 创建空的 factors.proj 并尝试设置 NOCOW（chattr +C）。
+/// 创建空的 factors.proj；仅在 btrfs 上设置 NOCOW（chattr +C）。
 /// NOCOW 让投影数据绕过 btrfs compress-force：可压缩的 f32 数据不再被压成大量碎片 extent
 /// （实测同等数据 COW 8189 extents/GB vs NOCOW 16 extents/GB）。必须在空文件上设 +C
 /// （已写入 extent 的文件设 +C 不影响旧数据）。
-/// 生产 /hdd（btrfs）chattr 必成功；失败时（如测试环境 tmpfs 不支持）降级为普通写并醒目警告——
-/// 生产环境若见此警告，说明 NOCOW 未生效、投影会碎片化、回测变慢，需排查 chattr/文件系统。
+/// ext4 等非 btrfs 文件系统没有 btrfs COW，直接按普通文件写入即可。
+/// btrfs 上 chattr 失败时降级为普通写并醒目警告，提示排查权限或文件系统。
 fn create_nocow_proj_file(path: &Path) -> Result<File, String> {
     let f = OpenOptions::new()
         .create(true)
@@ -64,24 +64,38 @@ fn create_nocow_proj_file(path: &Path) -> Result<File, String> {
         .truncate(true)
         .open(path)
         .map_err(|e| format!("创建 proj 文件失败: {e}"))?;
-    match std::process::Command::new("chattr")
-        .arg("+C")
-        .arg(path)
-        .output()
+    #[cfg(target_os = "linux")]
     {
-        Ok(o) if o.status.success() => {}
-        Ok(o) => {
-            eprintln!(
-                "⚠️⚠️⚠️ chattr +C 失败 status={:?} stderr={}。NOCOW 未生效，投影将碎片化！\
-                 （生产 /hdd 不应出现此警告，请检查文件系统与 chattr 权限）",
-                o.status.code(),
-                String::from_utf8_lossy(&o.stderr).trim()
-            );
+        // 用已打开文件的 fd 判断实际文件系统，避免路径上的挂载点/软链接误判。
+        let mut fs = std::mem::MaybeUninit::<libc::statfs>::uninit();
+        if unsafe { libc::fstatfs(f.as_raw_fd(), fs.as_mut_ptr()) } != 0 {
+            return Err(format!(
+                "检查 proj 文件系统失败: {}",
+                std::io::Error::last_os_error()
+            ));
         }
-        Err(e) => {
-            eprintln!(
-                "⚠️⚠️⚠️ 无法执行 chattr: {e}。NOCOW 未生效，投影将碎片化！（需 e2fsprogs 提供 chattr）"
-            );
+        if unsafe { fs.assume_init() }.f_type != libc::BTRFS_SUPER_MAGIC {
+            return Ok(f);
+        }
+        match std::process::Command::new("chattr")
+            .arg("+C")
+            .arg(path)
+            .output()
+        {
+            Ok(o) if o.status.success() => {}
+            Ok(o) => {
+                eprintln!(
+                    "⚠️⚠️⚠️ chattr +C 失败 status={:?} stderr={}。NOCOW 未生效，投影将碎片化！\
+                     （生产 /hdd 不应出现此警告，请检查文件系统与 chattr 权限）",
+                    o.status.code(),
+                    String::from_utf8_lossy(&o.stderr).trim()
+                );
+            }
+            Err(e) => {
+                eprintln!(
+                    "⚠️⚠️⚠️ 无法执行 chattr: {e}。NOCOW 未生效，投影将碎片化！（需 e2fsprogs 提供 chattr）"
+                );
+            }
         }
     }
     Ok(f)
