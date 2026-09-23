@@ -103,6 +103,7 @@ pub mod theme_cluster_factors_batch;
 pub mod theme_feature_expansion;
 pub mod topk_corr_matrix;
 pub mod switch_moment_metrics;
+pub mod switch_moment_level2;
 
 pub mod corr_contribution_factors;
 pub mod dct_transform;

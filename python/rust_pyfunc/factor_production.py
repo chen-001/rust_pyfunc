@@ -38,16 +38,16 @@ class _ProductionRuntime:
 
     def raw_dates(self, start, end):
         if self.pipeline_groups and all(g['pipeline'] == 'switch_moment' for g in self.pipeline_groups):
-            # 分钟因子依赖分钟 H5，不依赖某天是否恰好有 Level2 目录。
-            days = pd.read_csv(Path(self.minute_root) / 'calendar_map.csv').iloc[:, 0].astype(int).tolist()
-            today = int(pd.Timestamp.today().strftime('%Y%m%d'))
-            candidates = [(i, d) for i, d in enumerate(days) if start <= d <= min(end, today)]
-            with h5py.File(Path(self.minute_root) / 'volume.h5', 'r') as handle:
-                data = handle['data']
-                for i, date in reversed(candidates):
-                    if np.isfinite(data[i * 240:(i + 1) * 240]).any():
-                        return [d for j, d in candidates if 4 <= j <= i]
-            return []
+            # hm95 的五日窗口从 Level2 日期目录确定；不读取分钟 H5 或分钟日历。
+            root = Path(self.level2_root)
+            days = sorted(
+                int(p.name) for p in root.iterdir()
+                if p.name.isdigit() and self.initial_start_date <= int(p.name) <= end
+                and (p / 'transaction').is_dir() and (p / 'market_data').is_dir()
+                and next((p / 'transaction').glob('*_transaction.csv'), None) is not None
+                and next((p / 'market_data').glob('*_market_data.csv'), None) is not None
+            )
+            return [d for d in days[4:] if d >= start]
         return sorted(
             (
                 int(p.name)
@@ -205,7 +205,8 @@ class _ProductionRuntime:
         return (str(root.resolve()), symbols)
 
     def run_base(self, start_date, end_date, n_jobs=None, stock_only=None):
-        os.environ['RUST_PYFUNC_MINUTE_ROOT'] = self.minute_root
+        if not (self.pipeline_groups and all(g['pipeline'] == 'switch_moment' for g in self.pipeline_groups)):
+            os.environ['RUST_PYFUNC_MINUTE_ROOT'] = self.minute_root
         if n_jobs is None:
             n_jobs = self.cpu_limit
         n_jobs = self.limit_resources(n_jobs)
@@ -493,7 +494,8 @@ def _stage(runtime):
     os.environ["RUST_PYFUNC_CALENDAR_PATH"] = runtime.calendar_root
     os.environ["RUST_PYFUNC_VARS_DIR"] = runtime.vars_root
     os.environ["RUST_PYFUNC_BASIC_INFO_DIR"] = str(Path(runtime.calendar_root) / "basic_info")
-    os.environ["RUST_PYFUNC_MINUTE_ROOT"] = runtime.minute_root
+    if not (runtime.pipeline_groups and all(g['pipeline'] == 'switch_moment' for g in runtime.pipeline_groups)):
+        os.environ["RUST_PYFUNC_MINUTE_ROOT"] = runtime.minute_root
     os.environ["RUST_PYFUNC_WORKER_BIN"] = str(
         Path(runtime.rp.__file__).parent / "rust_pyfunc_worker"
     )
