@@ -137,6 +137,13 @@ def py_anneal_volume_gpt(code: str, date: int) -> List[float]:
 def py_anneal_volume_names() -> List[str]:
     ...
 
+def py_hidden_arrange_from_data(
+    trade_arrays: npt.NDArray[np.float64],
+    market_arrays: npt.NDArray[np.float64],
+) -> List[float]:
+    """逐笔 + 盘口数组版柜员游戏三层因子；与 py_hidden_arrange 逐位一致，供样例/分享用。"""
+    ...
+
 def py_anneal_volume_from_data(
     exchtime_us: npt.NDArray[np.int64],
     price: npt.NDArray[np.float32],

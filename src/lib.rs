@@ -1138,6 +1138,10 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         m
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(
+        hidden_arrange_metrics::py_hidden_arrange_from_data,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
         anneal_volume_market_metrics::py_anneal_volume_market,
         m
     )?)?;

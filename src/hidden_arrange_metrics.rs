@@ -1,4 +1,5 @@
 // 隐藏排列三层游戏因子 — pipeline 规范实现
+use numpy::PyReadonlyArray2;
 use pyo3::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
@@ -206,7 +207,35 @@ fn parse_line(line: &[u8], with_retreat: bool, with_afternoon_adjust: bool) -> O
     } else {
         parse_i64_fast(flag_bytes) as i32
     };
-    let exchtime_us = parse_i64_fast(fields[COL_EXCHTIME]);
+    build_trade_record(
+        parse_i64_fast(fields[COL_EXCHTIME]),
+        parse_f64_fast(fields[COL_PRICE]),
+        parse_f64_fast(fields[COL_VOLUME]),
+        parse_f64_fast(fields[COL_TURNOVER]),
+        flag,
+        parse_i64_fast(fields[COL_BID_ORDER]),
+        parse_i64_fast(fields[COL_ASK_ORDER]),
+        parse_i64_fast(fields[COL_INDEX]),
+        with_afternoon_adjust,
+    )
+}
+
+/// 由已解析出的字段构造 TradeRecord；None 表示该行被过滤（非盘中时段）。
+///
+/// parse_line（读磁盘）与 py_hidden_arrange_from_data（Python 传数组）共用这一处，
+/// 保证「Rust 自己读数据」和「Python 读好数据传进来」两条路径逐位一致。
+/// exchtime_us：原始 transaction.csv 的 exchtime 列（epoch 微秒，UTC）。
+pub fn build_trade_record(
+    exchtime_us: i64,
+    price: f64,
+    volume: f64,
+    turnover: f64,
+    flag: i32,
+    bid_order: i64,
+    ask_order: i64,
+    index: i64,
+    with_afternoon_adjust: bool,
+) -> Option<TradeRecord> {
     let total_us = exchtime_us + OFFSET_US;
     let final_us = if with_afternoon_adjust {
         let day_offset = ((exchtime_us / 1_000_000) + 8 * 3600).rem_euclid(86400);
@@ -223,14 +252,14 @@ fn parse_line(line: &[u8], with_retreat: bool, with_afternoon_adjust: bool) -> O
     let time_sec = (final_us as f64) / 1_000_000.0;
     Some(TradeRecord {
         time_us: final_us,
-        time_sec: time_sec,
-        price: parse_f64_fast(fields[COL_PRICE]),
-        volume: parse_f64_fast(fields[COL_VOLUME]),
-        turnover: parse_f64_fast(fields[COL_TURNOVER]),
+        time_sec,
+        price,
+        volume,
+        turnover,
         flag,
-        bid_order: parse_i64_fast(fields[COL_BID_ORDER]),
-        ask_order: parse_i64_fast(fields[COL_ASK_ORDER]),
-        index: parse_i64_fast(fields[COL_INDEX]),
+        bid_order,
+        ask_order,
+        index,
     })
 }
 
@@ -298,25 +327,6 @@ fn parse_market_line(line: &[u8], adj: bool) -> Option<MarketRecord> {
     if ask_prc1 == 0.0 || bid_prc1 == 0.0 {
         return None;
     }
-    let exchtime_us = parse_i64_fast(fields[MKT_COL_EXCHTIME]);
-    if exchtime_us == 0 {
-        return None;
-    }
-    let total_us = exchtime_us + OFFSET_US;
-    let final_us = if adj {
-        let day_offset = ((exchtime_us / 1_000_000) + 8 * 3600).rem_euclid(86400);
-        if day_offset >= AFTERNOON_START_SEC && day_offset <= AFTERNOON_END_SEC {
-            total_us - SHIFT_US
-        } else if day_offset >= MORNING_START_SEC && day_offset <= MORNING_END_SEC {
-            total_us
-        } else {
-            return None;
-        }
-    } else {
-        total_us
-    };
-    let time_sec = (final_us as f64) / 1_000_000.0;
-    let final_time_sec = time_sec;
     let mut ask_prcs = [0f64; 10];
     let mut ask_vols = [0f64; 10];
     let mut bid_prcs = [0f64; 10];
@@ -328,14 +338,62 @@ fn parse_market_line(line: &[u8], adj: bool) -> Option<MarketRecord> {
         bid_prcs[i] = parse_f64_fast(fields[base + 2]);
         bid_vols[i] = parse_f64_fast(fields[base + 3]);
     }
+    build_market_record(
+        parse_i64_fast(fields[MKT_COL_EXCHTIME]),
+        parse_f64_fast(fields[MKT_COL_LAST_PRC]),
+        parse_f64_fast(fields[MKT_COL_VOLUME]),
+        parse_f64_fast(fields[MKT_COL_TURNOVER]),
+        parse_f64_fast(fields[MKT_COL_TOTAL_ASK_VOL]),
+        parse_f64_fast(fields[MKT_COL_TOTAL_BID_VOL]),
+        ask_prcs,
+        ask_vols,
+        bid_prcs,
+        bid_vols,
+        adj,
+    )
+}
+
+/// 由已解析出的字段构造 MarketRecord；None 表示该行被过滤（exchtime 无效或非盘中）。
+///
+/// parse_market_line（读磁盘）与 py_hidden_arrange_from_data（Python 传数组）共用这一处。
+#[allow(clippy::too_many_arguments)]
+pub fn build_market_record(
+    exchtime_us: i64,
+    last_prc: f64,
+    volume: f64,
+    turnover: f64,
+    total_ask_vol: f64,
+    total_bid_vol: f64,
+    ask_prcs: [f64; 10],
+    ask_vols: [f64; 10],
+    bid_prcs: [f64; 10],
+    bid_vols: [f64; 10],
+    with_afternoon_adjust: bool,
+) -> Option<MarketRecord> {
+    if exchtime_us == 0 {
+        return None;
+    }
+    let total_us = exchtime_us + OFFSET_US;
+    let final_us = if with_afternoon_adjust {
+        let day_offset = ((exchtime_us / 1_000_000) + 8 * 3600).rem_euclid(86400);
+        if day_offset >= AFTERNOON_START_SEC && day_offset <= AFTERNOON_END_SEC {
+            total_us - SHIFT_US
+        } else if day_offset >= MORNING_START_SEC && day_offset <= MORNING_END_SEC {
+            total_us
+        } else {
+            return None;
+        }
+    } else {
+        total_us
+    };
     Some(MarketRecord {
         time_us: final_us,
-        time_sec: final_time_sec,
-        last_prc: parse_f64_fast(fields[MKT_COL_LAST_PRC]),
-        volume: parse_f64_fast(fields[MKT_COL_VOLUME]),
-        turnover: parse_f64_fast(fields[MKT_COL_TURNOVER]),
-        total_ask_vol: parse_f64_fast(fields[MKT_COL_TOTAL_ASK_VOL]),
-        total_bid_vol: parse_f64_fast(fields[MKT_COL_TOTAL_BID_VOL]),
+        time_sec: (final_us as f64) / 1_000_000.0,
+        last_prc,
+        volume,
+        turnover,
+        total_ask_vol,
+        total_bid_vol,
         ask_prcs,
         ask_vols,
         bid_prcs,
@@ -1137,12 +1195,13 @@ pub fn hidden_arrange_names() -> Vec<String> {
     crate::hidden_arrange_names::names()
 }
 
-/// 纯 Rust 核心（唯一真相源）：读数据 → 4时段 → T180 日频窗口 → 3目标 → 三层游戏 → 因子(RAW) → Vec<f32>
-/// 输出长度固定，pipeline 和 Python 入口的共同调用点。
-fn compute_hidden_arrange_impl(code: &str, date: i64) -> std::io::Result<(Vec<String>, Vec<f32>)> {
-    let trade = read_trade_fast(code, date)?;
-    let market = read_market_fast(code, date)?;
-    let ev = align_and_build(&trade, &market);
+/// 纯 Rust 核心（唯一真相源）：读数据 → 4时段 → T180 日频窗口 → 3目标 → 三层游戏 → 因子(RAW)。
+/// 磁盘读取与 Python 传数组（py_hidden_arrange_from_data）两条路径的唯一计算入口。
+pub fn compute_hidden_arrange_from_records(
+    trade: &[TradeRecord],
+    market: &[MarketRecord],
+) -> (Vec<String>, Vec<f32>) {
+    let ev = align_and_build(trade, market);
 
     let mut all_names: Vec<String> = vec![];
     let mut all_vals: Vec<f32> = vec![];
@@ -1179,7 +1238,7 @@ fn compute_hidden_arrange_impl(code: &str, date: i64) -> std::io::Result<(Vec<St
             }
         }
     }
-    Ok((all_names, all_vals))
+    (all_names, all_vals)
 }
 
 use std::sync::OnceLock;
@@ -1201,11 +1260,21 @@ pub fn compute_hidden_arrange_full(
     code: &str,
     date: i64,
 ) -> std::io::Result<(Vec<String>, Vec<f32>)> {
+    let trade = read_trade_fast(code, date)?;
+    let market = read_market_fast(code, date)?;
+    Ok(compute_hidden_arrange_full_from_records(&trade, &market))
+}
+
+/// 记录版全量入口：算完 RAW 后按固定模板对齐成 8772 个（位置恒定，缺失填 NaN）。
+pub fn compute_hidden_arrange_full_from_records(
+    trade: &[TradeRecord],
+    market: &[MarketRecord],
+) -> (Vec<String>, Vec<f32>) {
     let tmpl = template_names();
     if tmpl.is_empty() {
-        return Ok((tmpl, vec![]));
+        return (tmpl, vec![]);
     }
-    let (names, vals) = compute_hidden_arrange_impl(code, date)?;
+    let (names, vals) = compute_hidden_arrange_from_records(trade, market);
     let mut map: HashMap<&str, f32> = HashMap::with_capacity(names.len());
     for (n, v) in names.iter().zip(vals.iter()) {
         map.insert(n.as_str(), *v);
@@ -1214,7 +1283,7 @@ pub fn compute_hidden_arrange_full(
         .iter()
         .map(|n| map.get(n.as_str()).copied().unwrap_or(f32::NAN))
         .collect();
-    Ok((tmpl, out_vals))
+    (tmpl, out_vals)
 }
 
 /// pipeline 包装：worker 进程批量调用，错误吞掉返 NaN。
@@ -3780,4 +3849,91 @@ pub fn py_hidden_arrange(py: Python<'_>, code: &str, date: i64) -> PyResult<Vec<
 #[pyfunction]
 pub fn py_hidden_arrange_names() -> Vec<String> {
     template_names()
+}
+
+/// v2：Python 传逐笔 + 盘口数组，算同样这 8772 个因子。无磁盘依赖，供样例验证/分享。
+///
+/// trade_arrays:  (n, 8) — [exchtime_us, price, volume, turnover, flag, bid_order, ask_order, index]
+/// market_arrays: (m, 46) — [exchtime_us, last_prc, volume, turnover, total_ask_vol, total_bid_vol,
+///                            ask_prc1..ask_prc10, ask_vol1..ask_vol10,
+///                            bid_prc1..bid_prc10, bid_vol1..bid_vol10]
+/// exchtime_us 是原始 CSV 的 exchtime 列（epoch 微秒，UTC）。
+///
+/// 过滤与时间换算走 build_trade_record / build_market_record，与读磁盘路径完全同一处：
+/// trade flag=32 过滤、market 涨跌停（ask_prc1/bid_prc1 为 0）过滤、
+/// 只留 09:30~11:30 与 13:00~14:57、下午时段前移 90 分钟。
+#[pyfunction]
+pub fn py_hidden_arrange_from_data(
+    _py: Python<'_>,
+    trade_arrays: PyReadonlyArray2<f64>,
+    market_arrays: PyReadonlyArray2<f64>,
+) -> PyResult<Vec<f32>> {
+    let t = trade_arrays.as_array();
+    let m = market_arrays.as_array();
+    if t.ncols() != 8 {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "trade_arrays 必须是 (n, 8)：exchtime_us, price, volume, turnover, flag, bid_order, ask_order, index",
+        ));
+    }
+    if m.ncols() != 46 {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "market_arrays 必须是 (m, 46)：exchtime_us, last_prc, volume, turnover, total_ask_vol, total_bid_vol, ask_prc1..10, ask_vol1..10, bid_prc1..10, bid_vol1..10",
+        ));
+    }
+
+    let mut trade: Vec<TradeRecord> = Vec::with_capacity(t.nrows());
+    for i in 0..t.nrows() {
+        let flag = t[[i, 4]] as i32;
+        if flag == 32 {
+            continue;
+        }
+        if let Some(r) = build_trade_record(
+            t[[i, 0]] as i64,
+            t[[i, 1]],
+            t[[i, 2]],
+            t[[i, 3]],
+            flag,
+            t[[i, 5]] as i64,
+            t[[i, 6]] as i64,
+            t[[i, 7]] as i64,
+            true,
+        ) {
+            trade.push(r);
+        }
+    }
+
+    let mut market: Vec<MarketRecord> = Vec::with_capacity(m.nrows());
+    for i in 0..m.nrows() {
+        let mut ask_prcs = [0f64; 10];
+        let mut ask_vols = [0f64; 10];
+        let mut bid_prcs = [0f64; 10];
+        let mut bid_vols = [0f64; 10];
+        for j in 0..10 {
+            ask_prcs[j] = m[[i, 6 + j]];
+            ask_vols[j] = m[[i, 16 + j]];
+            bid_prcs[j] = m[[i, 26 + j]];
+            bid_vols[j] = m[[i, 36 + j]];
+        }
+        if ask_prcs[0] == 0.0 || bid_prcs[0] == 0.0 {
+            continue;
+        }
+        if let Some(r) = build_market_record(
+            m[[i, 0]] as i64,
+            m[[i, 1]],
+            m[[i, 2]],
+            m[[i, 3]],
+            m[[i, 4]],
+            m[[i, 5]],
+            ask_prcs,
+            ask_vols,
+            bid_prcs,
+            bid_vols,
+            true,
+        ) {
+            market.push(r);
+        }
+    }
+
+    let (_names, vals) = compute_hidden_arrange_full_from_records(&trade, &market);
+    Ok(vals)
 }
