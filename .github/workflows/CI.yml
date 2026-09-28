@@ -23,6 +23,8 @@ jobs:
   linux:
     runs-on: ${{ matrix.platform.runner }}
     strategy:
+      # 两个架构各自跑完：一边失败时不要顺手取消另一边，否则日志里看不到另一边的结果
+      fail-fast: false
       matrix:
         # python-version: ['3.8', '3.9', '3.10', '3.11']
         platform:
@@ -54,7 +56,12 @@ jobs:
           args: --release --out dist --find-interpreter
           sccache: 'true'
           manylinux: auto
-          before-script-linux: (cmake --version || pip install cmake || python3 -m pip install cmake || (yum install -y cmake3 && ln -sf /usr/bin/cmake3 /usr/local/bin/cmake) || dnf install -y cmake) && cmake --version
+          # 容器自带的 cmake 太旧（aarch64 镜像里是 3.22.1，HDF5 的构建脚本要求 3.26 以上），
+          # 直接下 Kitware 的官方静态包，装到 /usr/local/bin 覆盖 PATH 里靠前的那个。
+          before-script-linux: |
+            curl -fsSL "https://github.com/Kitware/CMake/releases/download/v3.30.5/cmake-3.30.5-linux-$(uname -m).tar.gz" | tar xz -C /opt
+            ln -sf "/opt/cmake-3.30.5-linux-$(uname -m)/bin/cmake" /usr/local/bin/cmake
+            cmake --version
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
