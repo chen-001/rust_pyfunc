@@ -220,24 +220,28 @@ jobs:
           # 获取当前版本
           CURRENT_VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
           echo "Current version: $CURRENT_VERSION"
-          
+
           # 获取上一次提交的版本
+          OLD_VERSION=""
           if git show HEAD~1:Cargo.toml > /tmp/old_cargo.toml 2>/dev/null; then
             OLD_VERSION=$(grep '^version = ' /tmp/old_cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
             echo "Previous version: $OLD_VERSION"
-            
-            if [ "$CURRENT_VERSION" != "$OLD_VERSION" ]; then
-              echo "Version changed from $OLD_VERSION to $CURRENT_VERSION"
-              echo "changed=true" >> $GITHUB_OUTPUT
-              echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
-            else
-              echo "Version unchanged"
-              echo "changed=false" >> $GITHUB_OUTPUT
-            fi
-          else
-            echo "No previous version found, treating as new"
+          fi
+
+          # 光比提交之间的版本号不够：版本号可能早就写在仓库里（0.90.0 就是），
+          # 只是一直没推上来。所以再看一眼 PyPI 上有没有这一版。
+          # 查不通时按“没有”处理，上传带 skip-existing，重复上传会被跳过。
+          PYPI_STATUS=$(curl -s -o /dev/null -w '%{http_code}' \
+            "https://pypi.org/pypi/rust_pyfunc/${CURRENT_VERSION}/json")
+          echo "PyPI 上 ${CURRENT_VERSION} 的状态码: $PYPI_STATUS"
+
+          if [ "$CURRENT_VERSION" != "$OLD_VERSION" ] || [ "$PYPI_STATUS" != "200" ]; then
+            echo "需要发布 $CURRENT_VERSION"
             echo "changed=true" >> $GITHUB_OUTPUT
             echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          else
+            echo "版本号没变且 PyPI 上已经有这一版，跳过发布"
+            echo "changed=false" >> $GITHUB_OUTPUT
           fi
 
   pypi-publish:
