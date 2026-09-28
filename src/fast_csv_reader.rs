@@ -237,14 +237,40 @@ fn parse_line(line: &[u8], with_retreat: bool, with_afternoon_adjust: bool) -> O
         parse_i64_fast(flag_bytes) as i32
     };
 
-    // exchtime：微秒整数（UTC）→ 带交易所时区偏移的 epoch 整数秒。
-    // 与 read_trade + hm90.go 的 prepare() 语义对齐：
-    //   read_trade: exchtime = to_timedelta(微秒/1e6) + Timestamp('1970-01-01 08:00:00')
-    //   prepare:    time_sec = exchtime.astype(int64) // 1e9
-    //             = (微秒数*1000 + 28800e9) // 1e9   （Timestamp int64 是纳秒）
-    //             = (微秒数 + 28800e6) // 1e6         （整除截断小数部分）
-    // 故输出 = (exchtime_us + 28800_000_000) / 1_000_000 的整数部分。
-    let exchtime_us = parse_i64_fast(fields[COL_EXCHTIME]);
+    build_trade_record(
+        parse_i64_fast(fields[COL_EXCHTIME]),
+        parse_f64_fast(fields[COL_PRICE]) as f32,
+        parse_f64_fast(fields[COL_VOLUME]) as f32,
+        parse_f64_fast(fields[COL_TURNOVER]) as f32,
+        flag,
+        parse_i64_fast(fields[COL_BID_ORDER]),
+        parse_i64_fast(fields[COL_ASK_ORDER]),
+        with_afternoon_adjust,
+    )
+}
+
+/// 由已解析出的字段构造 TradeRecord；None 表示该行被过滤（表头、无效时间、非盘中）。
+///
+/// parse_line（读磁盘）与 py_anneal_volume_from_data（Python 传数组）共用这一处，
+/// 保证「Rust 自己读数据」和「Python 读好数据传进来」两条路径逐位一致。
+///
+/// exchtime_us：原始 Level2 transaction.csv 的 exchtime 列（epoch 微秒，UTC）。
+/// 与 read_trade + hm90.go 的 prepare() 语义对齐：
+///   read_trade: exchtime = to_timedelta(微秒/1e6) + Timestamp('1970-01-01 08:00:00')
+///   prepare:    time_sec = exchtime.astype(int64) // 1e9
+///             = (微秒数*1000 + 28800e9) // 1e9   （Timestamp int64 是纳秒）
+///             = (微秒数 + 28800e6) // 1e6         （整除截断小数部分）
+/// 故输出 = (exchtime_us + 28800_000_000) / 1_000_000 的整数部分。
+pub fn build_trade_record(
+    exchtime_us: i64,
+    price: f32,
+    volume: f32,
+    turnover: f32,
+    flag: i32,
+    bid_order: i64,
+    ask_order: i64,
+    with_afternoon_adjust: bool,
+) -> Option<TradeRecord> {
     // 跳过 CSV 表头及无效时间行；未做 afternoon adjust 时也必须过滤。
     if exchtime_us == 0 {
         return None;
@@ -275,12 +301,12 @@ fn parse_line(line: &[u8], with_retreat: bool, with_afternoon_adjust: bool) -> O
     Some(TradeRecord {
         time_sec: final_time_sec as f32,
         time_us: final_time_us,
-        price: parse_f64_fast(fields[COL_PRICE]) as f32,
-        volume: parse_f64_fast(fields[COL_VOLUME]) as f32,
-        turnover: parse_f64_fast(fields[COL_TURNOVER]) as f32,
+        price,
+        volume,
+        turnover,
         flag,
-        bid_order: parse_i64_fast(fields[COL_BID_ORDER]),
-        ask_order: parse_i64_fast(fields[COL_ASK_ORDER]),
+        bid_order,
+        ask_order,
     })
 }
 

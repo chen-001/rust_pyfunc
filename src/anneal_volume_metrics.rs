@@ -7,7 +7,9 @@
 //! 全程确定性：固定种子 xorshift64 + first_idx 时间序排序 + 单线程退火。
 //! 同股同日反复运算结果逐比特相同。
 
-use crate::fast_csv_reader::{read_trade_fast_inner, TradeRecord};
+use crate::fast_csv_reader::{build_trade_record, read_trade_fast_inner, TradeRecord};
+
+use numpy::PyReadonlyArray1;
 use crate::features;
 use ndarray::Array2;
 use pyo3::prelude::*;
@@ -1079,9 +1081,15 @@ pub fn anneal(true_vol: &[f32], m_max: usize, buf: &mut AnnealBuf) -> [f32; N_FA
 /// 核心：pipeline 和 Python 的唯一共同调用点。
 pub fn compute_anneal_volume_full(code: &str, date: i64) -> std::io::Result<Vec<f32>> {
     let trades = read_trade_fast_inner(code, date, false, true, usize::MAX)?;
+    Ok(compute_anneal_volume_from_records(&trades))
+}
 
+/// 已预处理好的逐笔记录 → 5975 个因子。
+///
+/// 「Rust 自己读磁盘」与「Python 读好传进来」两条路径的唯一计算入口。
+pub fn compute_anneal_volume_from_records(trades: &[TradeRecord]) -> Vec<f32> {
     if trades.is_empty() {
-        return Ok(vec![f32::NAN; EXPECTED_LEN]);
+        return vec![f32::NAN; EXPECTED_LEN];
     }
 
     let t_open = trades.first().unwrap().time_sec;
@@ -1175,7 +1183,7 @@ pub fn compute_anneal_volume_full(code: &str, date: i64) -> std::io::Result<Vec<
         out.truncate(EXPECTED_LEN);
     }
 
-    Ok(out)
+    out
 }
 
 // ============================================================================
@@ -1644,4 +1652,54 @@ pub fn py_anneal_volume(code: &str, date: i64) -> PyResult<Vec<f32>> {
 #[pyfunction]
 pub fn py_anneal_volume_names() -> Vec<String> {
     anneal_volume_names()
+}
+
+/// v2：Python 传逐笔成交数组，算同样这 5975 个因子。无磁盘依赖，供样例验证/分享。
+///
+/// exchtime_us: (n,) i64 — 原始 transaction.csv 的 exchtime 列（epoch 微秒，UTC）
+/// price/volume/turnover: (n,) f32
+/// flag: (n,) i32 — 66=主买, 83=主卖, 32=撤单（会被过滤）
+/// bid_order/ask_order: (n,) i64
+///
+/// 过滤与时间换算走 build_trade_record，与读磁盘路径完全同一处：
+/// flag!=32、只留 09:30~11:30 与 13:00~14:57、下午时段前移 90 分钟。
+#[pyfunction]
+pub fn py_anneal_volume_from_data(
+    _py: Python<'_>,
+    exchtime_us: PyReadonlyArray1<i64>,
+    price: PyReadonlyArray1<f32>,
+    volume: PyReadonlyArray1<f32>,
+    turnover: PyReadonlyArray1<f32>,
+    flag: PyReadonlyArray1<i32>,
+    bid_order: PyReadonlyArray1<i64>,
+    ask_order: PyReadonlyArray1<i64>,
+) -> PyResult<Vec<f32>> {
+    let t = exchtime_us.as_array();
+    let p = price.as_array();
+    let v = volume.as_array();
+    let tn = turnover.as_array();
+    let f = flag.as_array();
+    let bo = bid_order.as_array();
+    let ao = ask_order.as_array();
+    let n = t.len();
+    if p.len() != n
+        || v.len() != n
+        || tn.len() != n
+        || f.len() != n
+        || bo.len() != n
+        || ao.len() != n
+    {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "所有数组的长度必须一致",
+        ));
+    }
+    let trades: Vec<TradeRecord> = (0..n)
+        .filter_map(|i| {
+            if f[i] == 32 {
+                return None;
+            }
+            build_trade_record(t[i], p[i], v[i], tn[i], f[i], bo[i], ao[i], true)
+        })
+        .collect();
+    Ok(compute_anneal_volume_from_records(&trades))
 }

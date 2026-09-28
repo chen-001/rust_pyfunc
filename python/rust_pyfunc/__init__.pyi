@@ -137,6 +137,18 @@ def py_anneal_volume_gpt(code: str, date: int) -> List[float]:
 def py_anneal_volume_names() -> List[str]:
     ...
 
+def py_anneal_volume_from_data(
+    exchtime_us: npt.NDArray[np.int64],
+    price: npt.NDArray[np.float32],
+    volume: npt.NDArray[np.float32],
+    turnover: npt.NDArray[np.float32],
+    flag: npt.NDArray[np.int32],
+    bid_order: npt.NDArray[np.int64],
+    ask_order: npt.NDArray[np.int64],
+) -> List[float]:
+    """逐笔数组版柜员游戏因子；与 py_anneal_volume 逐位一致，供样例/分享用。"""
+    ...
+
 def py_anneal_volume_market(code: str, date: int) -> List[float]:
     ...
 
