@@ -251,6 +251,7 @@ jobs:
       # For PyPI's trusted publishing.
       id-token: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           pattern: wheels-*
@@ -259,6 +260,8 @@ jobs:
       - name: Display version info
         run: |
           echo "Publishing version: ${{ needs.check-version.outputs.new-version }}"
+      - name: Check no runtime dependencies
+        run: python3 tools/check_wheel_deps.py dist
       - name: Publish to PyPi
         uses: pypa/gh-action-pypi-publish@release/v1
         with:

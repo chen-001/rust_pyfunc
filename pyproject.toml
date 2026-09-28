@@ -14,6 +14,10 @@ classifiers = [
 
 dynamic = ["version"]
 
+# 运行时依赖故意留空：这里一旦写上 numpy/pandas/h5py，用 pip install rust_pyfunc 的人
+# 漏掉 --no-deps 就会被自动安装或被降级自己环境里的版本。发布前由
+# tools/check_wheel_deps.py 检查，安装包只要带 Requires-Dist 就不许上传。
+
 [tool.maturin]
 # abi3-py38：pyo3 编译为 stable ABI，每平台只产 1 个 wheel（兼容 Python 3.8+），
 # 把每版本 wheel 数从 ~19 砍到 ~6，从源头根治 PyPI 项目 10GB 存储限额问题。
