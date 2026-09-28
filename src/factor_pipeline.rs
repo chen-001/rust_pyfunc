@@ -13,6 +13,7 @@ use crate::backup_reader::{read_existing_backup_with_filter, TaskResult};
 use crate::backup_writer::save_results_to_backup;
 use crate::distill_metrics;
 use crate::distill_tick_metrics;
+use crate::etp_event_metrics;
 use crate::extreme_point_fit_metrics;
 use crate::fast_csv_reader;
 use crate::features;
@@ -431,6 +432,26 @@ pub fn pipeline_hhi_event(
     vals
 }
 
+/// etp_event 创新高/新低熵变因子流水线的单任务计算。
+/// 不引入新 Params，所有参数在 etp_event_metrics.rs 用 const 写死。
+pub fn pipeline_etp_event(
+    date: i64,
+    code: &str,
+    _trading_days: &[i64],
+    expected_len: usize,
+) -> Vec<f32> {
+    let mut vals = match etp_event_metrics::compute_etp_event_full(code, date) {
+        Ok(v) => v,
+        Err(_) => return nan_vec(expected_len),
+    };
+    if vals.len() < expected_len {
+        vals.resize(expected_len, f32::NAN);
+    } else if vals.len() > expected_len {
+        vals.truncate(expected_len);
+    }
+    vals
+}
+
 /// 把展平的 Vec<f64> 转为 ndarray::Array2。
 fn slice_to_array2(data: &[f32], rows: usize, cols: usize) -> ndarray::Array2<f32> {
     if rows == 0 || cols == 0 {
@@ -662,6 +683,7 @@ pub fn run_factor_pipeline(
         "distill",
         "distill_tick",
         "hhi_event",
+        "etp_event",
         "anneal_volume",
         "anneal_volume_market",
         "hidden_arrange",
@@ -917,6 +939,8 @@ pub fn run_factor_pipeline(
                         pipeline_distill_tick(date, &code, &trading_days, expected_result_length)
                     } else if pipeline_name_t == "hhi_event" {
                         pipeline_hhi_event(date, &code, &trading_days, expected_result_length)
+                    } else if pipeline_name_t == "etp_event" {
+                        pipeline_etp_event(date, &code, &trading_days, expected_result_length)
                     } else if pipeline_name_t == "anneal_volume" {
                         pipeline_anneal_volume(date, &code, &trading_days, expected_result_length)
                     } else if pipeline_name_t == "anneal_volume_market" {
@@ -1710,6 +1734,7 @@ pub fn run_factor_pipeline_v6(
         "distill",
         "distill_tick",
         "hhi_event",
+        "etp_event",
         "anneal_volume",
         "anneal_volume_market",
     ];

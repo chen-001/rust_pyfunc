@@ -117,6 +117,15 @@ def py_hhi_event(code: str, date: int) -> List[float]:
 def py_hhi_event_names() -> List[str]:
     ...
 
+
+def py_etp_event(code: str, date: int) -> List[float]:
+    """A股创新高/新低熵变因子（hm54 现代版）；60 = 2 方向 × 2 侧 × 3 窗口 × 5 统计量。"""
+    ...
+
+
+def py_etp_event_names() -> List[str]:
+    ...
+
 def py_anneal_volume(code: str, date: int) -> List[float]:
     """柜员游戏因子；没有成交的分钟保留为 NaN，不作为零值参与分钟统计。"""
     ...
@@ -1165,6 +1174,8 @@ __all__ = [
     "py_distill_tick_names",
     "py_hhi_event",
     "py_hhi_event_names",
+    "py_etp_event",
+    "py_etp_event_names",
     "get_features_factors",
     "get_features_names",
     "py_individual_order_ratio",
