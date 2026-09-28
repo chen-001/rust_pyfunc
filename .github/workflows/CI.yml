@@ -47,11 +47,14 @@ jobs:
           RUSTFLAGS: ${{ matrix.platform.rustflags }}
         with:
           target: ${{ matrix.platform.target }}
-          args: --release --out dist --find-interpreter --no-default-features
+          # 不能带 --no-default-features：那个参数会关掉 hdf5，而 src 里
+          # minute_data_reader / tail_v4_pipeline 等模块无条件用 hdf5_metno，
+          # 关掉就编不过（2026-08-29 起 Linux 这一步一直失败）。
+          # 静态 HDF5 用 cmake 从源码编，和 Windows、macOS 两个任务一样。
+          args: --release --out dist --find-interpreter
           sccache: 'true'
-          before-script-windows: choco install cmake
           manylinux: auto
-          before-script-linux: ${{ matrix.platform.target == 'aarch64' && 'pip install cmake' || '' }}
+          before-script-linux: (cmake --version || pip install cmake || python3 -m pip install cmake || (yum install -y cmake3 && ln -sf /usr/bin/cmake3 /usr/local/bin/cmake) || dnf install -y cmake) && cmake --version
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
