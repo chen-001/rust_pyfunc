@@ -14,6 +14,7 @@ use rust_pyfunc::factor_pipeline::{
     ipc_read_result, ipc_read_task, ipc_write, ipc_write_result, pipeline_anneal_volume,
     pipeline_anneal_volume_market, pipeline_cross_section_example, pipeline_distill,
     pipeline_distill_tick, pipeline_drop_event, pipeline_extreme_point_fit,
+    pipeline_hhi_event,
     pipeline_hot_pool_ind, pipeline_hot_stock_pool, pipeline_hot_stock_pool_v2,
     pipeline_individual_order_ratio,
     pipeline_long_order, pipeline_microstructure_capm, pipeline_multi_factor_capm,
@@ -108,6 +109,8 @@ fn main() {
                         pipeline_distill(date, &code, &trading_days, expected_len)
                     } else if pipeline_name == "distill_tick" {
                         pipeline_distill_tick(date, &code, &trading_days, expected_len)
+                    } else if pipeline_name == "hhi_event" {
+                        pipeline_hhi_event(date, &code, &trading_days, expected_len)
                     } else if pipeline_name == "anneal_volume" {
                         pipeline_anneal_volume(date, &code, &trading_days, expected_len)
                     } else if pipeline_name == "anneal_volume_market" {

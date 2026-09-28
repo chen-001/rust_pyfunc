@@ -108,6 +108,15 @@ def py_distill_tick(code: str, date: int) -> List[float]:
 def py_distill_tick_names() -> List[str]:
     ...
 
+
+def py_hhi_event(code: str, date: int) -> List[float]:
+    """A股创新高/新低 HHI 事件因子；140 = 2 方向 × 2 侧 × 7 窗口 × 5 统计量。"""
+    ...
+
+
+def py_hhi_event_names() -> List[str]:
+    ...
+
 def py_anneal_volume(code: str, date: int) -> List[float]:
     """柜员游戏因子；没有成交的分钟保留为 NaN，不作为零值参与分钟统计。"""
     ...
@@ -1154,6 +1163,8 @@ __all__ = [
     "py_hidden_arrange_names",
     "py_distill_tick",
     "py_distill_tick_names",
+    "py_hhi_event",
+    "py_hhi_event_names",
     "get_features_factors",
     "get_features_names",
     "py_individual_order_ratio",

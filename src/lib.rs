@@ -115,6 +115,7 @@ pub mod yand_divergence;
 
 pub mod distill_metrics;
 pub mod distill_tick_metrics;
+pub mod hhi_event_metrics;
 pub mod fast_csv_reader;
 pub mod hidden_arrange_metrics;
 mod hidden_arrange_names;
@@ -1178,6 +1179,8 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         distill_tick_metrics::py_distill_tick_names,
         m
     )?)?;
+    let _ = m.add_function(wrap_pyfunction!(hhi_event_metrics::py_hhi_event, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(hhi_event_metrics::py_hhi_event_names, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(
         minute_data_reader::py_read_minute_data,
         m
