@@ -8,6 +8,10 @@ authors = ["chenzongwei"]
 license = "MIT"
 repository = "https://github.com/chen-001/rust_pyfunc"
 keywords = ["python", "rust", "algorithms", "performance"]
+# 发布用的源码包由 cargo 的文件清单生成，会把这几个工作目录里的临时文档和中间结果
+# 一起打进去（71MB，源码包因此从 1.7MB 涨到 64MB）。这里把它们排除在发布包之外，
+# 不影响 cargo build，也不影响 git 里的文件。
+exclude = ["tmp_mono_metric/**", "本地Skills逐项审计.xlsx"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
