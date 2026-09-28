@@ -73,9 +73,9 @@
                               Rotated-90: 衡量交叉尾部（X极小时Y极大）的联动概率
                               越接近1联动越强，越接近0越独立</p>
 <p>非参数经验尾部依赖:
-  - empirical_lower_tail:       P(Y<q分位 | X\<q分位)，取值 [0, 1]
+  - empirical_lower_tail:       P(Y&lt;q分位 | X<q分位)，取值 [0, 1]
                                 衡量两者同时处于极低分位的概率，越大说明同跌联动越强
-  - empirical_upper_tail:       P(Y>1-q分位 | X>1-q分位)，取值 [0, 1]
+  - empirical_upper_tail:       P(Y>1-q分位 | X&gt;1-q分位)，取值 [0, 1]
                                 衡量两者同时处于极高分位的概率，越大说明同涨联动越强
   - empirical_cross_lower_tail: P(Y<q分位 | X>1-q分位)，取值 [0, 1]
                                 X极大时Y极小的概率，负相关核心指标，越大反向联动越强

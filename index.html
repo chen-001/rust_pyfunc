@@ -93,8 +93,8 @@ print(min_word_edit_distance(da, dc))  # 输出: 6 (删除3个单词，添加3�
                 <h3 class="function-name"><a href="compute_affine_centroid.html">compute_affine_centroid</a></h3>
                 <div><p>计算仿射质心相关特征的时间序列
 输入: 按快照组织的十档盘口数据
-bid_prices, bid_vols, ask_prices, ask_vols: Vec<Vec\<f64>> — [snapshots][10]</p>
-<p>返回: Vec<Vec\<Vec\<f64>>> — [feature_category][snapshot]
+bid_prices, bid_vols, ask_prices, ask_vols: Vec&lt;Vec<f64>&gt; — [snapshots][10]</p>
+<p>返回: Vec&lt;Vec&lt;Vec<f64>&gt;&gt; — [feature_category][snapshot]
   category 0: centroid_t (全局质心偏移)
   category 1: centroid_rel (相对偏移)
   category 2: bid_centroid偏移
@@ -1153,9 +1153,9 @@ market microstructure features, and provides quantitative trading and strategy s
                               Rotated-90: 衡量交叉尾部（X极小时Y极大）的联动概率
                               越接近1联动越强，越接近0越独立</p>
 <p>非参数经验尾部依赖:
-  - empirical_lower_tail:       P(Y<q分位 | X\<q分位)，取值 [0, 1]
+  - empirical_lower_tail:       P(Y&lt;q分位 | X<q分位)，取值 [0, 1]
                                 衡量两者同时处于极低分位的概率，越大说明同跌联动越强
-  - empirical_upper_tail:       P(Y>1-q分位 | X>1-q分位)，取值 [0, 1]
+  - empirical_upper_tail:       P(Y>1-q分位 | X&gt;1-q分位)，取值 [0, 1]
                                 衡量两者同时处于极高分位的概率，越大说明同涨联动越强
   - empirical_cross_lower_tail: P(Y<q分位 | X>1-q分位)，取值 [0, 1]
                                 X极大时Y极小的概率，负相关核心指标，越大反向联动越强

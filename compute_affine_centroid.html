@@ -32,8 +32,8 @@
             <h2>描述</h2>
             <div><p>计算仿射质心相关特征的时间序列
 输入: 按快照组织的十档盘口数据
-bid_prices, bid_vols, ask_prices, ask_vols: Vec<Vec\<f64>> — [snapshots][10]</p>
-<p>返回: Vec<Vec\<Vec\<f64>>> — [feature_category][snapshot]
+bid_prices, bid_vols, ask_prices, ask_vols: Vec&lt;Vec<f64>&gt; — [snapshots][10]</p>
+<p>返回: Vec&lt;Vec&lt;Vec<f64>&gt;&gt; — [feature_category][snapshot]
   category 0: centroid_t (全局质心偏移)
   category 1: centroid_rel (相对偏移)
   category 2: bid_centroid偏移
