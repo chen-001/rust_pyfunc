@@ -20,6 +20,7 @@
 //!   - 行业 / 日频变量根 `vars_root`（pipeline 参数）→ `{vars_root}/SzBa/industry.h5`
 //!   - `RUST_PYFUNC_VARS_DIR`（默认 `/ssd_data/data/vars`）→ 同上，worker 透传通道
 //!   - `RUST_PYFUNC_BASIC_INFO_DIR`（默认 `/ssd_data/data/basic_info`）→ `symbol_map.csv`
+//!     同时也是**股票名单**的唯一来源（`list_stock_codes` 用它剔除 ETF/基金/债券/B 股）
 //!
 //! 优先级（高 → 低）：
 //!   1. pipeline 参数 `data_root`：进程内覆盖，`set_*_root` 返回的 guard 在调用结束时还原；
@@ -33,8 +34,9 @@
 //! `/nas197/binary/stock/sz_alpha/stock`——保证"指定的目录就是唯一数据源"，路径写错会
 //! 直接报文件未找到，而不是静默读到另一份数据。
 
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::RwLock;
+use std::sync::{Arc, LazyLock, Mutex, RwLock};
 
 /// Level2 数据目录默认值（直接包含 `{date}/` 各日期文件夹）。
 pub const DEFAULT_LEVEL2_ROOT: &str = "/ssd_data/stock";
@@ -178,33 +180,69 @@ pub fn level2_dir(date: i64, subdir: &str) -> PathBuf {
     level2_roots()[0].join(date.to_string()).join(subdir)
 }
 
+/// A 股股票名单的来源文件（`symbol_map.csv`，首行表头 `symbol,pos`，之后每行 `代码,序号`）。
+///
+/// 与 `switch_moment_level2` / `yhyb_indtop_metrics` 读的是同一个文件：
+/// `{RUST_PYFUNC_BASIC_INFO_DIR}/symbol_map.csv`，默认 `/ssd_data/data/basic_info/symbol_map.csv`。
+/// 用交易所/数据平台维护的正式名单，而不是自己按代码段猜——将来代码段规则变化时，
+/// 只要平台更新了这张表，这里自动跟上，不需要改代码。
+///
+/// 已知的小缺口：`000022` / `000043` / `601313` 这三只因更名换码而从名单消失的历史股票
+/// （分别并入 001872 / 001914 / 601360），按名单过滤时会被一起丢掉，影响可忽略。
+fn stock_universe_path() -> PathBuf {
+    basic_info_path("symbol_map.csv")
+}
+
+/// 股票名单缓存（key = 名单文件路径）：worker 一进程一 pipeline，读一次即够。
+/// `None` 表示名单读不到或内容为空。
+static STOCK_UNIVERSE_CACHE: LazyLock<Mutex<HashMap<PathBuf, Option<Arc<HashSet<String>>>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// 全量股票代码集合；读不到名单时返回 `None`（调用方退化为"所有 6 位数字代码"）。
+fn stock_universe() -> Option<Arc<HashSet<String>>> {
+    let path = stock_universe_path();
+    let mut cache = STOCK_UNIVERSE_CACHE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if let Some(hit) = cache.get(&path) {
+        return hit.clone();
+    }
+    let loaded = std::fs::read_to_string(&path)
+        .ok()
+        .map(|text| {
+            let set: HashSet<String> = text
+                .lines()
+                .filter_map(|l| l.split(',').next())
+                .map(|s| s.trim().to_string())
+                .filter(|s| s.len() == 6 && s.bytes().all(|b| b.is_ascii_digit()))
+                .collect();
+            Arc::new(set)
+        })
+        .filter(|s| !s.is_empty());
+    if loaded.is_none() {
+        // 宁可退化也不能返回空名单：空名单会让整批横截面任务变成"空 universe"而失败。
+        eprintln!(
+            "⚠️ 读不到股票名单 {}（文件缺失或内容为空）：本次横截面枚举退化为「所有 6 位数字代码」，\
+             可能混入 ETF/基金/债券/B 股等非股票标的。请检查 RUST_PYFUNC_BASIC_INFO_DIR。",
+            path.display()
+        );
+    }
+    cache.insert(path, loaded.clone());
+    loaded
+}
+
 /// 6 位代码是否为 **A 股股票**（剔除 ETF/LOF/REITs/可转债/国债逆回购/B 股等非股票标的）。
 ///
-/// Level2 目录里混着大量非股票标的（历史日期尤其多），它们绝不应该进入股票横截面
-/// （会被算进全市场均值/排名/相关系数，污染整条因子）。判定用"股票代码段白名单"：
-///
-/// - 深市：`000` `001` `002` `003`（主板+中小板）、`300` `301` `302`（创业板）
-/// - 沪市：`600` `601` `603` `605`（主板）、`688` `689`（科创板，689 含 CDR）
-/// - 北交所：`430` `830`~`839` `870`~`873` `920`（Level2 逐笔里暂未出现，留作兼容）
-///
-/// 依据 2015-01 ~ 2026-09 全部 Level2 目录的实际前缀分布核对过：非股票标的只出现在
-/// `010` `018` `019` `020`（国债逆回购）、`123` `127` `128`（可转债）、
-/// `159` `160`~`169` `180` `184`（深市 ETF/LOF/REITs）、`200` `201`（深 B 股）、
-/// `500`~`563` `588`（沪市基金/ETF）这些段里，与上面的股票段完全不重叠。
-/// 也不依赖 `basic_info/symbol_map.csv`：该表缺 000022 / 000043 / 601313 这类
-/// 因更名换码而消失的历史股票，用它会把这 3 只真股票一起丢掉。
-#[inline]
+/// 判定依据是 `symbol_map.csv` 这份正式名单，不再按代码段猜（见 `stock_universe_path`）。
+/// 名单读不到时退化为"是 6 位数字就算"，即修复前的行为。
 pub fn is_stock_code(code: &str) -> bool {
     if code.len() != 6 || !code.bytes().all(|b| b.is_ascii_digit()) {
         return false;
     }
-    matches!(
-        &code[..3],
-        "000" | "001" | "002" | "003" | "300" | "301" | "302"          // 深市
-        | "600" | "601" | "603" | "605" | "688" | "689"                // 沪市
-        | "430" | "830" | "831" | "832" | "833" | "834" | "835" | "836" | "837" | "838" | "839"
-        | "870" | "871" | "872" | "873" | "920"                        // 北交所
-    )
+    match stock_universe() {
+        Some(universe) => universe.contains(code),
+        None => true,
+    }
 }
 
 /// 列出某天某子目录下**只含 A 股股票**的代码（文件名形如 `{code}_{date}_{type}.csv`）。
@@ -213,13 +251,20 @@ pub fn is_stock_code(code: &str) -> bool {
 /// 在这里就被剔除，既不读它们的文件，也不会被算进横截面统计。
 /// 返回按代码升序排列，顺序确定（多个进程/多次运行结果一致）。
 pub fn list_stock_codes(date: i64, subdir: &str) -> Vec<String> {
+    let universe = stock_universe(); // 循环外取一次，避免每个文件都加锁查缓存
     let dir = level2_dir(date, subdir);
     let mut set = std::collections::BTreeSet::new();
     if let Ok(entries) = std::fs::read_dir(&dir) {
         for e in entries.flatten() {
             let name = e.file_name().into_string().unwrap_or_default();
             if let Some(code) = name.split('_').next() {
-                if is_stock_code(code) {
+                let is_six_digits =
+                    code.len() == 6 && code.bytes().all(|b| b.is_ascii_digit());
+                // universe 为 None（名单读不到）时退化成修复前的行为：所有 6 位数字代码。
+                let in_universe = universe
+                    .as_ref()
+                    .map_or(true, |u| u.contains(code));
+                if is_six_digits && in_universe {
                     set.insert(code.to_string());
                 }
             }
