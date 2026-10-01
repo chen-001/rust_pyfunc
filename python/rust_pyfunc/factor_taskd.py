@@ -236,6 +236,14 @@ def _fail_task(task_id: int, error: str, run_env: dict | None = None) -> None:
     _update_task(task_id, **fields)
 
 
+def _task_status(task_id: int) -> str | None:
+    with _db_lock:
+        db = get_db()
+        row = db.execute("SELECT status FROM tasks WHERE id=?", (task_id,)).fetchone()
+        db.close()
+    return row["status"] if row else None
+
+
 # ── 执行环境登记与脚本指纹 ───────────────────────────
 
 
@@ -398,6 +406,11 @@ def _run_task(
 
     script_sha256_now = _sha256_file(script_path)
 
+    # 取消/删除竞态：调度器把状态置成 running 之后到线程真正跑起来之间有一个窗口，
+    # 期间被取消的任务不该再启动（也不该被下面的失败写入改回 failed）。
+    if _task_status(task_id) != "running":
+        return
+
     # ① 脚本冻结闸：文件没了、或内容与提交时不一致 → 拒绝执行
     if not os.path.isfile(script_path):
         _fail_task(
@@ -446,6 +459,10 @@ def _run_task(
 
     run_env = _build_run_env(script_path, script_sha256, n_jobs, start_date, end_date)
     run_env["scriptSha256AtStart"] = script_sha256_now
+
+    # 探测解释器/worker 指纹要花几十到几百毫秒，这期间任务可能已被取消；再核一次状态
+    if _task_status(task_id) != "running":
+        return
 
     # 标记为 running（同时登记这次真正用的日志、backup 前缀与执行环境）
     _update_task(
