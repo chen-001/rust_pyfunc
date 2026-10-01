@@ -5,17 +5,24 @@
 通过 SQLite 持久化任务状态，通过 subprocess 管理子进程生命周期。
 
 REST API:
-  POST   /api/tasks                    — 提交任务
+  POST   /api/tasks                    — 提交任务（带 request_id 时同键重试原子返回同一任务）
   GET    /api/tasks                    — 列出所有任务
   GET    /api/tasks/{id}               — 查看任务详情
   POST   /api/tasks/{id}/cancel        — 取消任务
   POST   /api/tasks/{id}/adjust-njobs  — 调节并行数
   GET    /api/tasks/{id}/log           — 获取任务日志
   DELETE /api/tasks/{id}               — 删除记录（不停止运行）
+
+任务记录里记的东西（执行后可见）：
+  script_sha256  提交那一刻脚本内容的 sha256；执行前会重算，不一致就拒绝执行
+  run_env        真实解释器、工作目录、worker 二进制指纹、脚本哈希、传给脚本的日期
+  dates_honored  起止日期是否真的被脚本读了（脚本不读就是 false，不谎报「已按该范围计算」）
+  request_id     提交方给的请求唯一键，同键重试返回同一任务
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -94,6 +101,37 @@ def init_db(db_path: str) -> None:
         db.commit()
     except sqlite3.OperationalError:
         pass
+    # 兼容旧数据库：提交方请求唯一键（同键重试原子返回同一任务）
+    try:
+        db.execute("ALTER TABLE tasks ADD COLUMN request_id TEXT")
+        db.commit()
+    except sqlite3.OperationalError:
+        pass
+    # 兼容旧数据库：提交那一刻脚本内容的 sha256（执行前重算，不一致拒绝执行）
+    try:
+        db.execute("ALTER TABLE tasks ADD COLUMN script_sha256 TEXT")
+        db.commit()
+    except sqlite3.OperationalError:
+        pass
+    # 兼容旧数据库：执行环境登记（解释器 / 工作目录 / worker 指纹 / 脚本哈希 / 日期投递）
+    try:
+        db.execute("ALTER TABLE tasks ADD COLUMN run_env TEXT")
+        db.commit()
+    except sqlite3.OperationalError:
+        pass
+    # 兼容旧数据库：本任务用的控制文件路径
+    try:
+        db.execute("ALTER TABLE tasks ADD COLUMN control_path TEXT")
+        db.commit()
+    except sqlite3.OperationalError:
+        pass
+    # 请求唯一键唯一索引：并发同键提交由 SQLite 兜底，只可能存在一行。
+    # 用部分索引（request_id IS NOT NULL），旧行与不带键的提交不受影响。
+    db.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_request_id"
+        " ON tasks(request_id) WHERE request_id IS NOT NULL"
+    )
+    db.commit()
     db.close()
 
 
@@ -104,6 +142,8 @@ class TaskSubmit(BaseModel):
     start_date: int | None = None
     end_date: int | None = None
     priority: int = 2  # 0=最高；调度器按 priority ASC, id ASC 排队
+    request_id: str | None = None  # 提交方生成的请求唯一键；同键重试返回同一任务
+    script_sha256: str | None = None  # 提交方算的脚本 sha256；与守护进程算的不一致就拒绝
 
 
 class NjobsAdjust(BaseModel):
@@ -172,48 +212,256 @@ def _find_first_backup_file(version: str) -> str | None:
     return f"./{pattern}"
 
 
+def _update_task(task_id: int, **fields) -> None:
+    """UPDATE tasks 的薄封装。列名由调用方在代码里写死，不来自外部输入。"""
+    if not fields:
+        return
+    assignments = ", ".join(f"{name}=?" for name in fields)
+    with _db_lock:
+        db = get_db()
+        db.execute(f"UPDATE tasks SET {assignments} WHERE id=?", (*fields.values(), task_id))
+        db.commit()
+        db.close()
+
+
+def _fail_task(task_id: int, error: str, run_env: dict | None = None) -> None:
+    """没跑起来就算失败：写清原因，并把已经拿到的环境信息登记下来。"""
+    fields: dict = {
+        "status": "failed",
+        "finished_at": datetime.now(timezone.utc).isoformat(),
+        "error": error,
+    }
+    if run_env is not None:
+        fields["run_env"] = json.dumps(run_env, ensure_ascii=False)
+    _update_task(task_id, **fields)
+
+
+# ── 执行环境登记与脚本指纹 ───────────────────────────
+
+
+def _sha256_file(path: str) -> str | None:
+    """文件的 sha256（十六进制）；读不到返回 None。"""
+    digest = hashlib.sha256()
+    try:
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError:
+        return None
+    return digest.hexdigest()
+
+
+def _file_fingerprint(path: str | None) -> dict:
+    """文件指纹：路径、大小、修改时间、sha256。文件不在时 exists=False，不抛错。"""
+    facts: dict = {"path": path, "exists": False, "bytes": None, "mtime": None, "sha256": None}
+    if not path:
+        return facts
+    try:
+        info = os.stat(path)
+    except OSError:
+        return facts
+    facts["exists"] = True
+    facts["bytes"] = info.st_size
+    facts["mtime"] = datetime.fromtimestamp(info.st_mtime).astimezone().isoformat()
+    facts["sha256"] = _sha256_file(path)
+    return facts
+
+
+def _probe_rust_runtime(script_dir: str) -> dict:
+    """问目标解释器：rust_pyfunc 装在哪、worker 二进制解析到哪个文件。
+
+    脚本是用 [sys.executable, script] 起的，解释器只有一个答案；
+    worker 由 rust_pyfunc 自己解析（安装位置未必是本文件所在目录），所以在子进程里问一次，
+    拿不到就退回本文件旁边的部署位置。
+    """
+    code = (
+        "import json\n"
+        "info = {}\n"
+        "try:\n"
+        "    import rust_pyfunc as rp\n"
+        "    info['rustPyfuncFile'] = getattr(rp, '__file__', None)\n"
+        "    locate = getattr(rp, 'locate_worker_binary', None)\n"
+        "    info['worker'] = str(locate()) if callable(locate) else None\n"
+        "except Exception as exc:\n"
+        "    info['error'] = f'{type(exc).__name__}: {exc}'\n"
+        "print(json.dumps(info))\n"
+    )
+    fallback_worker = str(Path(__file__).resolve().with_name("rust_pyfunc_worker"))
+    probed: dict = {"error": "rust_pyfunc 探测没跑起来"}
+    try:
+        out = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=script_dir,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        probed = json.loads(out.stdout.strip().splitlines()[-1])
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+        probed = {"error": "探测 rust_pyfunc 失败（超时或输出不可解析）"}
+    return {
+        "python": sys.executable,
+        "pythonVersion": sys.version.split()[0],
+        "rustPyfuncFile": probed.get("rustPyfuncFile"),
+        "workerPath": probed.get("worker") or fallback_worker,
+        "workerProbeError": probed.get("error"),
+    }
+
+
+def _script_reads_env_dates(script_path: str) -> dict:
+    """脚本源码里有没有读 FACTOR_START_DATE / FACTOR_END_DATE。"""
+    try:
+        with open(script_path, encoding="utf-8", errors="replace") as f:
+            source = f.read()
+    except OSError:
+        return {"start": None, "end": None}
+    return {"start": "FACTOR_START_DATE" in source, "end": "FACTOR_END_DATE" in source}
+
+
+def _build_run_env(
+    script_path: str,
+    script_sha256: str | None,
+    n_jobs: int,
+    start_date: int | None,
+    end_date: int | None,
+) -> dict:
+    """执行环境登记：真实解释器、工作目录、worker 指纹、脚本哈希、日期投递情况。"""
+    script_dir = os.path.dirname(os.path.abspath(script_path))
+    runtime = _probe_rust_runtime(script_dir)
+    reads = _script_reads_env_dates(script_path)
+    delivered: dict = {}
+    read_flags: dict = {}
+    if start_date is not None:
+        delivered["FACTOR_START_DATE"] = str(start_date)
+        read_flags["FACTOR_START_DATE"] = reads["start"]
+    if end_date is not None:
+        delivered["FACTOR_END_DATE"] = str(end_date)
+        read_flags["FACTOR_END_DATE"] = reads["end"]
+    if not delivered:
+        honored: bool | None = None
+        note = "本次没有传起止日期，脚本按自己的默认范围跑"
+    elif all(read_flags.values()):
+        honored = True
+        note = "脚本里读了 FACTOR_START_DATE / FACTOR_END_DATE，区间按投递值生效"
+    else:
+        honored = False
+        missed = "、".join(name for name, ok in read_flags.items() if not ok)
+        note = (
+            f"脚本里没有出现 {missed}，这两个环境变量传下去了但脚本不读，"
+            "不能认为它按这个区间计算（跑的多半是脚本自己的默认范围）"
+        )
+    return {
+        "recordedAt": datetime.now(timezone.utc).isoformat(),
+        "interpreter": runtime["python"],
+        "interpreterVersion": runtime["pythonVersion"],
+        "cwd": script_dir,
+        "rustPyfuncFile": runtime["rustPyfuncFile"],
+        "rustPyfuncWorker": _file_fingerprint(runtime["workerPath"]),
+        "rustPyfuncProbeError": runtime["workerProbeError"],
+        "scriptPath": os.path.abspath(script_path),
+        "scriptSha256AtSubmit": script_sha256,
+        "envDelivered": {"FACTOR_N_JOBS": str(n_jobs), **delivered},
+        "dates": {
+            "requested": {"startDate": start_date, "endDate": end_date},
+            "delivered": delivered or None,
+            "scriptReads": read_flags or None,
+            "honored": honored,
+            "note": note,
+        },
+    }
+
+
 def _run_task(
     task_id: int,
     script_path: str,
     n_jobs: int,
     start_date: int | None,
     end_date: int | None,
+    script_sha256: str | None = None,
+    backup_prefix: str | None = None,
 ) -> None:
-    """在后台线程中执行任务"""
+    """在后台线程中执行任务。
+
+    执行前的两道闸：
+    ① 脚本指纹：提交时算的 sha256 与此刻文件内容不一致（排队期间被改过）就不执行，
+       状态标 failed 并把两个哈希写进任务记录，绝不静默按新内容跑。
+    ② 日期：起止日期用 FACTOR_START_DATE / FACTOR_END_DATE 传给脚本，同时静态检查脚本
+       有没有读这两个变量，结论记在 run_env.dates.honored（脚本不读就是 false，不谎报）。
+    """
     version = _extract_version(script_path)
-    log_path = os.path.expanduser(f"~/.factor_taskd/logs/{version}.log")
+    # 日志按任务 id 隔离：同名脚本重跑各写各的日志，不再互相覆盖（旧格式 <version>.log 不动）
+    log_path = os.path.expanduser(f"~/.factor_taskd/logs/{task_id}_{version}.log")
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
-    backup_prefix = _build_backup_prefix(version)
+    backup_prefix = backup_prefix or _build_backup_prefix(version)
     # 用 Popen(cwd=...) 切目录，禁止 os.chdir —— 会污染 daemon 全局 cwd
     script_dir = os.path.dirname(os.path.abspath(script_path))
+
+    script_sha256_now = _sha256_file(script_path)
+
+    # ① 脚本冻结闸：文件没了、或内容与提交时不一致 → 拒绝执行
+    if not os.path.isfile(script_path):
+        _fail_task(
+            task_id,
+            f"执行前脚本文件不存在：{script_path}",
+            {
+                "recordedAt": datetime.now(timezone.utc).isoformat(),
+                "interpreter": sys.executable,
+                "interpreterVersion": sys.version.split()[0],
+                "cwd": script_dir,
+                "scriptPath": os.path.abspath(script_path),
+                "scriptSha256AtSubmit": script_sha256,
+                "scriptSha256AtStart": None,
+                "refused": True,
+            },
+        )
+        return
+    if script_sha256 is not None and script_sha256_now != script_sha256:
+        _fail_task(
+            task_id,
+            "脚本内容在提交后被修改，拒绝执行（不会静默按新内容跑）："
+            f"提交时 sha256={script_sha256}，执行前 sha256={script_sha256_now}。"
+            "要跑新内容请重新提交，并在任务跑完前不要再改这个文件。",
+            {
+                "recordedAt": datetime.now(timezone.utc).isoformat(),
+                "interpreter": sys.executable,
+                "interpreterVersion": sys.version.split()[0],
+                "cwd": script_dir,
+                "scriptPath": os.path.abspath(script_path),
+                "scriptSha256AtSubmit": script_sha256,
+                "scriptSha256AtStart": script_sha256_now,
+                "refused": True,
+            },
+        )
+        return
 
     cmd = [sys.executable, script_path]
     env = os.environ.copy()
     # 通过环境变量传递 n_jobs，脚本读取后覆盖硬编码值
     env["FACTOR_N_JOBS"] = str(n_jobs)
+    # 起止日期同样通过环境变量传下去；脚本读不读由它自己决定，读没读记进 run_env
+    if start_date is not None:
+        env["FACTOR_START_DATE"] = str(start_date)
+    if end_date is not None:
+        env["FACTOR_END_DATE"] = str(end_date)
 
-    # 标记为 running
-    with _db_lock:
-        db = get_db()
-        db.execute(
-            "UPDATE tasks SET status='running', pid=?, started_at=?, log_path=?, backup_prefix=? WHERE id=?",
-            (
-                0,
-                datetime.now(timezone.utc).isoformat(),
-                log_path,
-                backup_prefix,
-                task_id,
-            ),
-        )
-        db.commit()
-        db.close()
+    run_env = _build_run_env(script_path, script_sha256, n_jobs, start_date, end_date)
+    run_env["scriptSha256AtStart"] = script_sha256_now
+
+    # 标记为 running（同时登记这次真正用的日志、backup 前缀与执行环境）
+    _update_task(
+        task_id,
+        status="running",
+        pid=0,
+        started_at=datetime.now(timezone.utc).isoformat(),
+        log_path=log_path,
+        backup_prefix=backup_prefix,
+        run_env=json.dumps(run_env, ensure_ascii=False),
+    )
 
     try:
-        # O_APPEND：多进程/多 worker 并发写同一日志时按追加原子写入，
-        # 避免共享 file offset 互相覆盖，导致截断多字节 UTF-8。
-        log_fd = os.open(
-            log_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_APPEND, 0o644
-        )
+        # 日志文件只属于本任务，用 O_APPEND 追加（不再 O_TRUNC）：多进程/多 worker 并发写
+        # 同一日志时按追加原子写入，避免共享 file offset 互相覆盖、截断多字节 UTF-8。
+        log_fd = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
         try:
             process = subprocess.Popen(
                 cmd,
@@ -231,11 +479,7 @@ def _run_task(
             _active_processes[task_id] = process
 
         # 更新 PID
-        with _db_lock:
-            db = get_db()
-            db.execute("UPDATE tasks SET pid=? WHERE id=?", (process.pid, task_id))
-            db.commit()
-            db.close()
+        _update_task(task_id, pid=process.pid)
 
         process.wait()
         returncode = process.returncode
@@ -243,51 +487,32 @@ def _run_task(
         # 检查是否被取消
         with _db_lock:
             db = get_db()
-            row = db.execute(
-                "SELECT status FROM tasks WHERE id=?", (task_id,)
-            ).fetchone()
-            if row and row["status"] == "cancelled":
-                db.close()
-                return
+            row = db.execute("SELECT status FROM tasks WHERE id=?", (task_id,)).fetchone()
+            db.close()
+        if row and row["status"] == "cancelled":
+            return
 
         # 标记完成，并快照进度
         new_status = "completed" if returncode == 0 else "failed"
         error_msg = None if returncode == 0 else f"进程退出码: {returncode}"
         progress_snapshot = _read_progress(backup_prefix, task_id, script_dir)
-        with _db_lock:
-            db = get_db()
-            db.execute(
-                "UPDATE tasks SET status=?, finished_at=?, error=?, progress_snapshot=? WHERE id=?",
-                (
-                    new_status,
-                    datetime.now(timezone.utc).isoformat(),
-                    error_msg,
-                    json.dumps(progress_snapshot) if progress_snapshot else None,
-                    task_id,
-                ),
-            )
-            db.commit()
-            db.close()
+        _update_task(
+            task_id,
+            status=new_status,
+            finished_at=datetime.now(timezone.utc).isoformat(),
+            error=error_msg,
+            progress_snapshot=json.dumps(progress_snapshot) if progress_snapshot else None,
+        )
 
     except Exception as e:
-        progress_snapshot = (
-            _read_progress(backup_prefix, task_id, script_dir)
-            if backup_prefix
-            else None
+        progress_snapshot = _read_progress(backup_prefix, task_id, script_dir)
+        _update_task(
+            task_id,
+            status="failed",
+            finished_at=datetime.now(timezone.utc).isoformat(),
+            error=str(e),
+            progress_snapshot=json.dumps(progress_snapshot) if progress_snapshot else None,
         )
-        with _db_lock:
-            db = get_db()
-            db.execute(
-                "UPDATE tasks SET status='failed', finished_at=?, error=?, progress_snapshot=? WHERE id=?",
-                (
-                    datetime.now(timezone.utc).isoformat(),
-                    str(e),
-                    json.dumps(progress_snapshot) if progress_snapshot else None,
-                    task_id,
-                ),
-            )
-            db.commit()
-            db.close()
     finally:
         with _active_pids_lock:
             _active_processes.pop(task_id, None)
@@ -347,7 +572,7 @@ def _scheduler_tick() -> None:
     with _db_lock:
         db = get_db()
         pending = db.execute(
-            "SELECT id, script_path, n_jobs, start_date, end_date"
+            "SELECT id, script_path, n_jobs, start_date, end_date, script_sha256, backup_prefix"
             " FROM tasks WHERE status='pending' ORDER BY priority ASC, id ASC"
         ).fetchall()
         running_n = db.execute(
@@ -375,6 +600,8 @@ def _scheduler_tick() -> None:
                 row["n_jobs"],
                 row["start_date"],
                 row["end_date"],
+                row["script_sha256"],
+                row["backup_prefix"],
             ),
             daemon=True,
         ).start()
@@ -405,12 +632,122 @@ def _scheduler_loop() -> None:
         time.sleep(1)
 
 
+# ── 任务记录读取（列表 / 详情 / 提交回执共用） ────────
+
+
+def _decorate_task(task: dict, include_progress: bool = True) -> dict:
+    """把一行任务补齐成 API 返回的样子：进度、进程是否活着、run_env、日期是否生效。
+
+    必须在 _db_lock 之外调用：_is_process_active 在内存表未命中时会去取 _db_lock，
+    而 _db_lock 不可重入，持锁调用会自死锁（见 list_tasks 的说明）。
+    """
+    if include_progress and task.get("backup_prefix"):
+        search_dir = os.path.dirname(task["script_path"])
+        if task.get("status") in ("cancelled", "completed", "failed") and task.get(
+            "progress_snapshot"
+        ):
+            try:
+                task["progress"] = json.loads(task["progress_snapshot"])
+            except json.JSONDecodeError:
+                task["progress"] = None
+        else:
+            task["progress"] = _read_progress(
+                task["backup_prefix"], task["id"], search_dir
+            )
+    raw_env = task.get("run_env")
+    run_env = None
+    if isinstance(raw_env, str) and raw_env:
+        try:
+            run_env = json.loads(raw_env)
+        except json.JSONDecodeError:
+            run_env = {"parseError": raw_env[:200]}
+    task["run_env"] = run_env
+    dates = run_env.get("dates") if isinstance(run_env, dict) else None
+    honored = dates.get("honored") if isinstance(dates, dict) else None
+    # 起止日期是否真的被脚本读了：没传=null，传了且脚本不读=false（不谎报已按该范围计算）
+    task["dates_honored"] = honored if isinstance(honored, bool) else None
+    task["active"] = _is_process_active(task["id"])
+    task["name_valid"] = validate_chinese_name(task.get("name", "")) is None
+    return task
+
+
+def _task_row(task_id: int) -> dict | None:
+    with _db_lock:
+        db = get_db()
+        row = db.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
+        db.close()
+    return dict(row) if row else None
+
+
+def _task_by_request_id(request_id: str) -> dict | None:
+    with _db_lock:
+        db = get_db()
+        row = db.execute(
+            "SELECT * FROM tasks WHERE request_id=?", (request_id,)
+        ).fetchone()
+        db.close()
+    return dict(row) if row else None
+
+
+def _controller_path(script_dir: str, backup_prefix: str) -> str:
+    """脚本侧控制文件路径。
+
+    这个路径由 Rust 引擎按 <backup_file>.control 写死（见 src/parallel_computing*.rs），
+    backup_file 由脚本自己传给引擎，守护进程只能照同一个约定拼。改成按任务 id 命名会让
+    「运行中调并行数」彻底失效，所以这里保持引擎约定；同名脚本并发时由 adjust_njobs
+    拒绝调整（两个任务共用一个控制文件，改了会互相影响）。
+    """
+    return os.path.join(script_dir, f"{backup_prefix}.control")
+
+
+def _prefix_of(row: dict) -> str:
+    return row.get("backup_prefix") or _build_backup_prefix(
+        _extract_version(row["script_path"])
+    )
+
+
+def _other_active_tasks_with_prefix(backup_prefix: str, exclude: int) -> list[dict]:
+    """还活着（排队/运行中）且共用同一个 backup 前缀的其它任务。"""
+    with _db_lock:
+        db = get_db()
+        rows = db.execute(
+            "SELECT id, name, script_path, backup_prefix, status FROM tasks"
+            " WHERE status IN ('pending', 'running') AND id != ?",
+            (exclude,),
+        ).fetchall()
+        db.close()
+    return [
+        {"id": row["id"], "name": row["name"], "status": row["status"]}
+        for row in rows
+        if _prefix_of(dict(row)) == backup_prefix
+    ]
+
+
 # ── API 端点 ─────────────────────────────────────────
 
 
 @app.post("/api/tasks")
 def submit_task(body: TaskSubmit):
-    """提交新的因子计算任务"""
+    """提交新的因子计算任务。
+
+    request_id 是提交方生成的请求唯一键：同键重试（并发提交、网络重试、响应丢失后重发）
+    原子返回第一次建的那个任务，不会重复建。它跟插件侧「同内容 30 分钟内重复提交提醒」
+    是两件事：前者是同一次提交动作的重试，后者是两次不同的提交动作。
+    """
+    request_id = (body.request_id or "").strip() or None
+    if request_id:
+        existing = _task_by_request_id(request_id)
+        if existing is not None:
+            if os.path.abspath(body.script_path) != existing["script_path"]:
+                raise HTTPException(
+                    409,
+                    f"request_id「{request_id}」已经用在另一个脚本上（任务 "
+                    f"{existing['id']}：{existing['script_path']}），拒绝混用；"
+                    "重试请用原脚本，想提交别的脚本请换一个 request_id",
+                )
+            _scheduler_tick()
+            return {**_decorate_task(existing), "deduplicated": True}
+
     script_path = os.path.abspath(body.script_path)
     if not os.path.isfile(script_path):
         raise HTTPException(400, f"脚本文件不存在: {script_path}")
@@ -439,40 +776,62 @@ def submit_task(body: TaskSubmit):
     except (SyntaxError, ValueError) as e:
         raise HTTPException(400, f"脚本语法错误，拒绝提交：\n{e}")
 
+    # 提交那一刻的脚本指纹：执行前会重算，不一致就拒绝执行（见 _run_task）
+    script_sha256 = _sha256_file(script_path)
+    if script_sha256 is None:
+        raise HTTPException(400, f"脚本读不出来，算不出 sha256：{script_path}")
+    if body.script_sha256 and body.script_sha256 != script_sha256:
+        raise HTTPException(
+            400,
+            "脚本内容与提交方给的指纹不一致（提交过程中文件被改过）：提交方 "
+            f"{body.script_sha256}，守护进程 {script_sha256}。请确认文件稳定后重新提交",
+        )
+
     now = datetime.now(timezone.utc).isoformat()
 
+    task_id: int | None = None
     with _db_lock:
         db = get_db()
-        cursor = db.execute(
-            """INSERT INTO tasks
-               (name, script_path, n_jobs, start_date, end_date,
-                status, priority, version, created_at)
-               VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)""",
-            (
-                version,
-                script_path,
-                body.n_jobs,
-                body.start_date,
-                body.end_date,
-                body.priority,
-                version,
-                now,
-            ),
-        )
-        task_id = cursor.lastrowid
-        db.commit()
+        try:
+            cursor = db.execute(
+                """INSERT INTO tasks
+                   (name, script_path, n_jobs, start_date, end_date,
+                    status, priority, version, created_at, request_id, script_sha256)
+                   VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)""",
+                (
+                    version,
+                    script_path,
+                    body.n_jobs,
+                    body.start_date,
+                    body.end_date,
+                    body.priority,
+                    version,
+                    now,
+                    request_id,
+                    script_sha256,
+                ),
+            )
+            task_id = cursor.lastrowid
+            db.commit()
+        except sqlite3.IntegrityError:
+            # 并发同键：唯一索引挡住了第二条，回头取第一条
+            db.rollback()
+            task_id = None
         db.close()
+
+    if task_id is None:
+        existing = _task_by_request_id(request_id) if request_id else None
+        if existing is None:
+            raise HTTPException(500, "任务写库失败（request_id 冲突但找不到已有任务）")
+        _scheduler_tick()
+        return {**_decorate_task(existing), "deduplicated": True}
 
     # 不自行启动线程：入队后交给调度器（遵守全局并发上限与优先级）。
     # 无上限时调度器会立即启动，行为与旧版一致。
     _scheduler_tick()
 
-    return {
-        "id": task_id,
-        "status": "pending",
-        "name": version,
-        "priority": body.priority,
-    }
+    row = _task_row(task_id)
+    return {**_decorate_task(row if row else {"id": task_id, "name": version, "status": "pending"}), "deduplicated": False}
 
 
 @app.get("/api/tasks")
@@ -493,21 +852,8 @@ def list_tasks():
         db.close()
     tasks = []
     for row in rows:
-        task = dict(row)
-        if task.get("backup_prefix"):
-            search_dir = os.path.dirname(task["script_path"])
-            if task["status"] in ("cancelled", "completed", "failed") and task.get(
-                "progress_snapshot"
-            ):
-                task["progress"] = json.loads(task["progress_snapshot"])
-            else:
-                task["progress"] = _read_progress(
-                    task["backup_prefix"], task["id"], search_dir
-                )
-        task["active"] = _is_process_active(task["id"])
-        # 历史任务名是否合规（列表页面据此给不合规名称打 ⚠️ 徽标）
-        task["name_valid"] = validate_chinese_name(task.get("name", "")) is None
-        tasks.append(task)
+        # 统一走 _decorate_task：进度、探活、run_env 解析、日期是否生效、名称是否合规
+        tasks.append(_decorate_task(dict(row)))
     return tasks
 
 
@@ -519,19 +865,7 @@ def get_task(task_id: int):
         db.close()
     if not row:
         raise HTTPException(404, "任务不存在")
-    task = dict(row)
-    if task.get("backup_prefix"):
-        search_dir = os.path.dirname(task["script_path"])
-        if task["status"] in ("cancelled", "completed", "failed") and task.get(
-            "progress_snapshot"
-        ):
-            task["progress"] = json.loads(task["progress_snapshot"])
-        else:
-            task["progress"] = _read_progress(
-                task["backup_prefix"], task_id, search_dir
-            )
-    task["active"] = _is_process_active(task_id)
-    return task
+    return _decorate_task(dict(row))
 
 
 # 代码接口上限：脚本一般 <1MB；超大文件截断返回并标记 truncated
@@ -650,7 +984,12 @@ def cancel_task(task_id: int):
 
 @app.post("/api/tasks/{task_id}/adjust-njobs")
 def adjust_njobs(task_id: int, body: NjobsAdjust):
-    """调节运行中任务的并行数"""
+    """调节运行中任务的并行数。
+
+    控制文件路径由 Rust 引擎固定成 <backup_file>.control（backup_file 是脚本自己传的），
+    守护进程改不了。于是同名脚本同时跑两个任务时，两个任务共用一个控制文件——这时调整
+    会同时改变另一个任务的并行数，属于静默串台，直接拒绝（409）而不是装作没发生。
+    """
     if body.n_jobs < 1:
         raise HTTPException(400, "n_jobs 必须大于 0")
 
@@ -662,35 +1001,39 @@ def adjust_njobs(task_id: int, body: NjobsAdjust):
     if not row:
         raise HTTPException(404, "任务不存在")
 
-    backup_prefix = row["backup_prefix"]
     if row["status"] == "pending":
         # 排队中尚未启动：只更新 DB 值，调度器启动时自然生效
-        with _db_lock:
-            db = get_db()
-            db.execute("UPDATE tasks SET n_jobs=? WHERE id=?", (body.n_jobs, task_id))
-            db.commit()
-            db.close()
+        _update_task(task_id, n_jobs=body.n_jobs)
         return {"status": "adjusted", "n_jobs": body.n_jobs, "queued": True}
-    if not backup_prefix:
-        raise HTTPException(400, "任务尚未生成 backup 文件前缀")
 
+    backup_prefix = _prefix_of(dict(row))
     script_dir = os.path.dirname(os.path.abspath(row["script_path"]))
-    control_path = os.path.join(script_dir, f"{backup_prefix}.control")
+    control_path = _controller_path(script_dir, backup_prefix)
+
+    others = _other_active_tasks_with_prefix(backup_prefix, exclude=task_id)
+    if others:
+        names = "、".join(f"任务 {o['id']}（{o['name']}，{o['status']}）" for o in others)
+        raise HTTPException(
+            409,
+            f"同名脚本还有 {names} 没结束，它们和本任务共用控制文件 {control_path}"
+            "（路径由 Rust 引擎按 <backup>.control 固定），改并行数会同时改到别的任务。"
+            "等它们结束再调，或取消后重新提交。",
+        )
+
     control_data = {"n_jobs": body.n_jobs}
+    # 原子写：先写临时文件再 replace，脚本不会读到写了一半的 json
+    tmp_path = f"{control_path}.tmp{os.getpid()}"
     try:
-        with open(control_path, "w") as f:
+        with open(tmp_path, "w") as f:
             json.dump(control_data, f)
+        os.replace(tmp_path, control_path)
     except OSError as e:
         raise HTTPException(500, f"写入控制文件失败: {e}")
 
-    # 更新数据库中的 n_jobs
-    with _db_lock:
-        db = get_db()
-        db.execute("UPDATE tasks SET n_jobs=? WHERE id=?", (body.n_jobs, task_id))
-        db.commit()
-        db.close()
+    # 更新数据库中的 n_jobs，并把这次用的控制文件路径记进任务记录
+    _update_task(task_id, n_jobs=body.n_jobs, control_path=control_path)
 
-    return {"status": "adjusted", "n_jobs": body.n_jobs}
+    return {"status": "adjusted", "n_jobs": body.n_jobs, "control_path": control_path}
 
 
 class ConfigUpdate(BaseModel):
