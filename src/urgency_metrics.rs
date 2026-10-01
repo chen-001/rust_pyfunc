@@ -24,7 +24,6 @@ use crate::features::get_features_factors_rust_full;
 use ndarray::Array2;
 use pyo3::prelude::*;
 use rayon::prelude::*;
-use std::fs;
 
 const WIN_US: i64 = 5_000_000; // 5 秒窗口
 const EPS: f32 = 1e-9;
@@ -33,21 +32,9 @@ const NCOLS: usize = NMETRICS * 3; // pre/post/diff = 111
 pub const FEAT_PER_GROUP: usize = 21 * NCOLS + NCOLS * (NCOLS - 1) / 2; // 8436
 pub const N_FACTORS: usize = 3 * FEAT_PER_GROUP; // 25308
 
-/// 列出某天全市场股票代码（横截面枚举）。
+/// 列出某天全市场**股票**代码（横截面枚举；ETF/基金/债券/B 股等非股票标的已剔除）。
 pub fn list_codes(date: i64) -> Vec<String> {
-    let dir = crate::data_paths::level2_dir(date, "transaction");
-    let mut set = std::collections::BTreeSet::new();
-    if let Ok(entries) = fs::read_dir(&dir) {
-        for e in entries.flatten() {
-            let name = e.file_name().into_string().unwrap_or_default();
-            if let Some(code) = name.split('_').next() {
-                if code.chars().all(|c| c.is_ascii_digit()) {
-                    set.insert(code.to_string());
-                }
-            }
-        }
-    }
-    set.into_iter().collect()
+    crate::data_paths::list_stock_codes(date, "transaction")
 }
 
 #[inline]

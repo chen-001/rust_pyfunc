@@ -84,8 +84,6 @@ use crate::fast_csv_reader::{
 use numpy::PyReadonlyArray2;
 use pyo3::prelude::*;
 use rayon::prelude::*;
-use std::collections::BTreeSet;
-use std::fs;
 use std::sync::atomic::Ordering;
 
 // ============================================================================
@@ -2193,21 +2191,10 @@ fn agg_fused_blocked<
     out
 }
 
-/// 列出某天某子目录下所有股票代码（文件名 `{code}_{date}_{type}.csv`）。
+/// 列出某天某子目录下所有**股票**代码（文件名 `{code}_{date}_{type}.csv`，
+/// ETF/基金/债券/B 股等非股票标的已剔除）。
 pub fn list_codes(date: i64, subdir: &str) -> Vec<String> {
-    let dir = crate::data_paths::level2_dir(date, subdir);
-    let mut set = BTreeSet::new();
-    if let Ok(entries) = fs::read_dir(&dir) {
-        for e in entries.flatten() {
-            let name = e.file_name().into_string().unwrap_or_default();
-            if let Some(code) = name.split('_').next() {
-                if code.chars().all(|c| c.is_ascii_digit()) {
-                    set.insert(code.to_string());
-                }
-            }
-        }
-    }
-    set.into_iter().collect()
+    crate::data_paths::list_stock_codes(date, subdir)
 }
 
 // ============================================================================

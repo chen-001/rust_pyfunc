@@ -181,21 +181,9 @@ fn erf_approx(x: f32) -> f32 {
 // Phase 1-3: 并行读全市场 + per-stock per-second 预计算
 // ============================================================================
 
-/// 从目录列出某天全市场股票代码。
+/// 从目录列出某天全市场**股票**代码（ETF/基金/债券/B 股等非股票标的已剔除）。
 fn list_codes(date: i64) -> Vec<String> {
-    let dir = crate::data_paths::level2_dir(date, "transaction");
-    let mut set = std::collections::BTreeSet::new();
-    if let Ok(entries) = std::fs::read_dir(&dir) {
-        for e in entries.flatten() {
-            let name = e.file_name().into_string().unwrap_or_default();
-            if let Some(code) = name.split('_').next() {
-                if code.chars().all(|c| c.is_ascii_digit()) && code.len() == 6 {
-                    set.insert(code.to_string());
-                }
-            }
-        }
-    }
-    set.into_iter().collect()
+    crate::data_paths::list_stock_codes(date, "transaction")
 }
 
 /// 读取一只股票的全部数据并预计算 per-second 聚合。

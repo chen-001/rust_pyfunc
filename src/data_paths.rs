@@ -178,6 +178,56 @@ pub fn level2_dir(date: i64, subdir: &str) -> PathBuf {
     level2_roots()[0].join(date.to_string()).join(subdir)
 }
 
+/// 6 位代码是否为 **A 股股票**（剔除 ETF/LOF/REITs/可转债/国债逆回购/B 股等非股票标的）。
+///
+/// Level2 目录里混着大量非股票标的（历史日期尤其多），它们绝不应该进入股票横截面
+/// （会被算进全市场均值/排名/相关系数，污染整条因子）。判定用"股票代码段白名单"：
+///
+/// - 深市：`000` `001` `002` `003`（主板+中小板）、`300` `301` `302`（创业板）
+/// - 沪市：`600` `601` `603` `605`（主板）、`688` `689`（科创板，689 含 CDR）
+/// - 北交所：`430` `830`~`839` `870`~`873` `920`（Level2 逐笔里暂未出现，留作兼容）
+///
+/// 依据 2015-01 ~ 2026-09 全部 Level2 目录的实际前缀分布核对过：非股票标的只出现在
+/// `010` `018` `019` `020`（国债逆回购）、`123` `127` `128`（可转债）、
+/// `159` `160`~`169` `180` `184`（深市 ETF/LOF/REITs）、`200` `201`（深 B 股）、
+/// `500`~`563` `588`（沪市基金/ETF）这些段里，与上面的股票段完全不重叠。
+/// 也不依赖 `basic_info/symbol_map.csv`：该表缺 000022 / 000043 / 601313 这类
+/// 因更名换码而消失的历史股票，用它会把这 3 只真股票一起丢掉。
+#[inline]
+pub fn is_stock_code(code: &str) -> bool {
+    if code.len() != 6 || !code.bytes().all(|b| b.is_ascii_digit()) {
+        return false;
+    }
+    matches!(
+        &code[..3],
+        "000" | "001" | "002" | "003" | "300" | "301" | "302"          // 深市
+        | "600" | "601" | "603" | "605" | "688" | "689"                // 沪市
+        | "430" | "830" | "831" | "832" | "833" | "834" | "835" | "836" | "837" | "838" | "839"
+        | "870" | "871" | "872" | "873" | "920"                        // 北交所
+    )
+}
+
+/// 列出某天某子目录下**只含 A 股股票**的代码（文件名形如 `{code}_{date}_{type}.csv`）。
+///
+/// 这是所有横截面 pipeline 枚举全市场股票的唯一入口：非股票标的（ETF/基金/债券/B 股）
+/// 在这里就被剔除，既不读它们的文件，也不会被算进横截面统计。
+/// 返回按代码升序排列，顺序确定（多个进程/多次运行结果一致）。
+pub fn list_stock_codes(date: i64, subdir: &str) -> Vec<String> {
+    let dir = level2_dir(date, subdir);
+    let mut set = std::collections::BTreeSet::new();
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for e in entries.flatten() {
+            let name = e.file_name().into_string().unwrap_or_default();
+            if let Some(code) = name.split('_').next() {
+                if is_stock_code(code) {
+                    set.insert(code.to_string());
+                }
+            }
+        }
+    }
+    set.into_iter().collect()
+}
+
 /// 生效的分钟数据目录：参数 > RUST_PYFUNC_MINUTE_ROOT > 默认。
 pub fn minute_root() -> PathBuf {
     override_minute()

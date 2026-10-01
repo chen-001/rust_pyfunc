@@ -124,25 +124,10 @@ fn days_from_civil(y: i64, m: u64, d: u64) -> i64 {
     era * 146097 + doe - 719468
 }
 
-/// 枚举某日全市场股票代码，并按逐笔文件大小降序（成交活跃度代理）
+/// 枚举某日全市场**股票**代码，只读 6 位股票代码段，
+/// ETF/基金/债券/B 股等非股票标的由 `data_paths::list_stock_codes` 剔除。
 pub fn list_codes(date: i64) -> Vec<String> {
-    let dir = crate::data_paths::level2_dir(date, "transaction");
-    let mut v: Vec<(u64, String)> = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(&dir) {
-        for e in entries.flatten() {
-            if let Some(code) = e.file_name().to_str().and_then(|n| n.split('_').next()) {
-                if code.bytes().all(|b| b.is_ascii_digit()) {
-                    let size = e.metadata().map(|m| m.len()).unwrap_or(0);
-                    v.push((size, code.to_string()));
-                }
-            }
-        }
-    }
-    v.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
-    // 全市场：不截断（覆盖所有有逐笔文件的股票，代码序确定性）
-    let mut codes: Vec<String> = v.into_iter().map(|(_, c)| c).collect();
-    codes.sort();
-    codes
+    crate::data_paths::list_stock_codes(date, "transaction")
 }
 
 // ============================================================

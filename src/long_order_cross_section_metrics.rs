@@ -20,8 +20,6 @@
 use crate::fast_csv_reader::{read_trade_fast_inner, TradeRecord};
 use pyo3::prelude::*;
 use rayon::prelude::*;
-use std::collections::BTreeSet;
-use std::fs;
 
 /// 每只股票输出因子数（38→31：剔除 30s 整档 / cross_60_p80 / cross_180_p80 /
 /// cnt_amt_div_ask/buy 等高相关冗余，剩余最高截面相关 0.894）。
@@ -57,20 +55,9 @@ struct Agg {
     init: bool,
 }
 
+/// 列出某天某子目录下所有**股票**代码（ETF/基金/债券/B 股等非股票标的已剔除）
 pub fn list_codes(date: i64, subdir: &str) -> Vec<String> {
-    let dir = crate::data_paths::level2_dir(date, subdir);
-    let mut set = BTreeSet::new();
-    if let Ok(entries) = fs::read_dir(&dir) {
-        for e in entries.flatten() {
-            let name = e.file_name().into_string().unwrap_or_default();
-            if let Some(code) = name.split('_').next() {
-                if code.chars().all(|c| c.is_ascii_digit()) {
-                    set.insert(code.to_string());
-                }
-            }
-        }
-    }
-    set.into_iter().collect()
+    crate::data_paths::list_stock_codes(date, subdir)
 }
 
 /// 按 order id 聚合（可选时间窗口），返回 HashMap。

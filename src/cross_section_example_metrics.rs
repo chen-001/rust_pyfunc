@@ -22,29 +22,16 @@ use crate::fast_csv_reader::{read_market_fast_inner, read_trade_fast_inner, Trad
 use numpy::PyReadonlyArray2;
 use pyo3::prelude::*;
 use rayon::prelude::*;
-use std::collections::BTreeSet;
-use std::fs;
 
 /// 每只股票输出的因子数（示例：3 个横截面标准化特征）。
 /// 新写因子时改成自己的值，并同步 `cross_section_example_names()`。
 pub const N_FACTORS: usize = 3;
 
-/// 列出某天某子目录下所有股票代码（从文件名 `{code}_{date}_{type}.csv` 提取）。
-/// 供横截面因子枚举全市场股票用。
+/// 列出某天某子目录下所有**股票**代码（从文件名 `{code}_{date}_{type}.csv` 提取）。
+/// 供横截面因子枚举全市场股票用；ETF/基金/债券/B 股等非股票标的已由
+/// `data_paths::list_stock_codes` 剔除，既不读它们的文件，也不进入横截面统计。
 pub fn list_codes(date: i64, subdir: &str) -> Vec<String> {
-    let dir = crate::data_paths::level2_dir(date, subdir);
-    let mut set = BTreeSet::new();
-    if let Ok(entries) = fs::read_dir(&dir) {
-        for e in entries.flatten() {
-            let name = e.file_name().into_string().unwrap_or_default();
-            if let Some(code) = name.split('_').next() {
-                if code.chars().all(|c| c.is_ascii_digit()) {
-                    set.insert(code.to_string());
-                }
-            }
-        }
-    }
-    set.into_iter().collect()
+    crate::data_paths::list_stock_codes(date, subdir)
 }
 
 /// per-stock 算 3 个原始特征：[log总成交量, log成交笔数, VWAP]。

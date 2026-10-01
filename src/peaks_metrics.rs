@@ -26,8 +26,6 @@ use crate::fast_csv_reader::{read_trade_fast_inner, TradeRecord};
 use numpy::PyReadonlyArray2;
 use pyo3::prelude::*;
 use rayon::prelude::*;
-use std::collections::BTreeSet;
-use std::fs;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// 每只股票输出的因子数 = 983 因子 + 14 状态标量。
@@ -880,21 +878,9 @@ fn proxy_ranks(tot_vols: &[f64], n_trades: &[usize]) -> Vec<f64> {
 // 核心计算：读全市场 → 983 因子 + 14 状态标量
 // ============================================================
 
-/// 列出某天 transaction 目录下所有股票代码。
+/// 列出某天 transaction 目录下所有**股票**代码（ETF/基金/债券/B 股等非股票标的已剔除）。
 pub fn list_codes(date: i64) -> Vec<String> {
-    let dir = crate::data_paths::level2_dir(date, "transaction");
-    let mut set = BTreeSet::new();
-    if let Ok(entries) = fs::read_dir(&dir) {
-        for e in entries.flatten() {
-            let name = e.file_name().into_string().unwrap_or_default();
-            if let Some(code) = name.split('_').next() {
-                if code.chars().all(|c| c.is_ascii_digit()) && code.len() == 6 {
-                    set.insert(code.to_string());
-                }
-            }
-        }
-    }
-    set.into_iter().collect()
+    crate::data_paths::list_stock_codes(date, "transaction")
 }
 
 /// 单日全市场计算（v1 读盘入口）。

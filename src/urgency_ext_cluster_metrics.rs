@@ -39,21 +39,9 @@ fn axis_allowlist() -> Option<&'static std::collections::HashSet<String>> {
         .as_ref()
 }
 
-/// 列出某天全市场股票代码（横截面枚举，有序去重）。
+/// 列出某天全市场**股票**代码（横截面枚举，有序去重；非股票标的已剔除）。
 pub fn list_codes(date: i64) -> Vec<String> {
-    let dir = crate::data_paths::level2_dir(date, "transaction");
-    let mut set = std::collections::BTreeSet::new();
-    if let Ok(entries) = fs::read_dir(&dir) {
-        for e in entries.flatten() {
-            let name = e.file_name().into_string().unwrap_or_default();
-            if let Some(code) = name.split('_').next() {
-                if code.chars().all(|c| c.is_ascii_digit()) {
-                    set.insert(code.to_string());
-                }
-            }
-        }
-    }
-    set.into_iter().collect()
+    crate::data_paths::list_stock_codes(date, "transaction")
 }
 
 /// 核心唯一真相源：读全市场 → 全市场 q95_abs → 每股迫切交易笔数 → (codes, vals)。

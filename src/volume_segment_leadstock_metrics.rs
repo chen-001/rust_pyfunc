@@ -26,8 +26,6 @@ use numpy::PyReadonlyArray2;
 use pyo3::prelude::*;
 use rayon::prelude::*;
 use std::cmp::Ordering;
-use std::collections::BTreeSet;
-use std::fs;
 
 // ============================ 常量 ============================
 pub const EP1S: &[&str] = &["main_buy", "main_sell", "small", "small_buy", "small_sell"];
@@ -779,20 +777,9 @@ fn compute_from_flat(
 }
 
 // ============================ v1 / v2 入口 ============================
+/// 列出某天全市场**股票**代码（ETF/基金/债券/B 股等非股票标的已剔除）。
 fn list_codes(date: i64) -> Vec<String> {
-    let dir = crate::data_paths::level2_dir(date, "transaction");
-    let mut set = BTreeSet::new();
-    if let Ok(entries) = fs::read_dir(&dir) {
-        for e in entries.flatten() {
-            let name = e.file_name().into_string().unwrap_or_default();
-            if let Some(code) = name.split('_').next() {
-                if code.chars().all(|c| c.is_ascii_digit()) {
-                    set.insert(code.to_string());
-                }
-            }
-        }
-    }
-    set.into_iter().collect()
+    crate::data_paths::list_stock_codes(date, "transaction")
 }
 
 /// v1 读盘入口：rayon 并行读全市场 → 扁平化 → 核心。

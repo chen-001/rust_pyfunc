@@ -23,7 +23,6 @@ use crate::features;
 use chrono::NaiveDate;
 use pyo3::prelude::*;
 use rayon::prelude::*;
-use std::fs;
 use std::io;
 
 pub const N_BINS: usize = 4_740;
@@ -539,20 +538,9 @@ fn extract_14_features(trades: &[TradeRecord], market: &[MarketRecord], start_us
     out
 }
 
+/// 列出当日全市场**股票**代码（ETF/基金/债券/B 股等非股票标的已剔除）
 fn list_codes(date: i64) -> Vec<String> {
-    let dir = crate::data_paths::level2_dir(date, "transaction");
-    let mut codes = std::collections::BTreeSet::new();
-    if let Ok(entries) = fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let name = entry.file_name().into_string().unwrap_or_default();
-            if let Some(code) = name.split('_').next() {
-                if code.len() == 6 && code.bytes().all(|x| x.is_ascii_digit()) {
-                    codes.insert(code.to_string());
-                }
-            }
-        }
-    }
-    codes.into_iter().collect()
+    crate::data_paths::list_stock_codes(date, "transaction")
 }
 
 // ===========================================================================
