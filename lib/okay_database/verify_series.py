@@ -73,6 +73,16 @@ def load_old(okay_path: str):
         return None
 
     dwo.run_factor_out = fake
+    # 有的旧 okay 文件 run_base 里还直接调 dwo.run_factor_rust_bin（不经过 run_factor_out），
+    # 那是真的去跑全历史，会把对账挂死几个小时。这里一并拦掉，只取它定义的类/函数。
+    _orig_rust_bin = getattr(dwo, "run_factor_rust_bin", None)
+
+    def fake_rust_bin(*a, **k):
+        captured.setdefault("run_factor_rust_bin_called", True)
+        return None
+
+    if _orig_rust_bin is not None:
+        dwo.run_factor_rust_bin = fake_rust_bin
     name = Path(okay_path).stem
     mod = importlib.import_module(name)
     try:
@@ -85,6 +95,8 @@ def load_old(okay_path: str):
         captured.setdefault("error", repr(exc))
     finally:
         dwo.run_factor_out = original
+        if _orig_rust_bin is not None:
+            dwo.run_factor_rust_bin = _orig_rust_bin
     return mod, captured
 
 

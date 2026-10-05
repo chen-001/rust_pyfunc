@@ -73,8 +73,9 @@
 //! ════════════════════════════════════════════════════════════════════
 //! 三、已知的数值差异与影响面（都不影响验收）
 //! ════════════════════════════════════════════════════════════════════
-//! · rolling(20).std() 用本文件自己写的两遍法，pandas 用 cython roll_var 的在线算法，
-//!   实测 000001@20250303 上最大相对差 1.1e-14，远低于 1e-4 的验收线。
+//! · rolling(20).std() 逐行复刻了 pandas 的 roll_var（见 rolling_std 的注释）：
+//!   两遍法只差最后一位，但这个量要做回归自变量、残差再去做 rank，
+//!   1 ulp 就足以让名次变掉、进而让 rank_diff 那一族超 1e-4。
 //! · rp.ols_residuals 必须用 ndarray 的 .dot() 照抄（见 ols_residual 的注释），
 //!   顺序求和会让残差的并列结构变掉、进而让 rank 变掉。
 //! · 三种 Pearson 之间彼此的末位差在 1e-15 相对量级；只有当某个 corr 恰好落在
@@ -642,6 +643,150 @@ fn trend_1d(v: &[f64]) -> f64 {
     cov / (vx.sqrt() * vy.sqrt())
 }
 
+// ============================================================================
+// pandas 的 Rolling.std（roll_var 的逐行复刻）
+// ============================================================================
+
+/// add_var：pandas/_libs/window/aggregations.pyx 里的 add_var（带 Kahan 补偿）
+#[allow(clippy::too_many_arguments)]
+fn add_var(
+    val: f64,
+    nobs: &mut f64,
+    mean_x: &mut f64,
+    ssqdm_x: &mut f64,
+    comp: &mut f64,
+    num_same: &mut i64,
+    prev_value: &mut f64,
+) {
+    if val.is_nan() {
+        return;
+    }
+    *nobs += 1.0;
+    if val == *prev_value {
+        *num_same += 1;
+    } else {
+        *num_same = 1;
+    }
+    *prev_value = val;
+
+    // Welford + Kahan：prev_mean 与 y 都用**更新前**的补偿量
+    let prev_mean = *mean_x - *comp;
+    let y = val - *comp;
+    let t = y - *mean_x;
+    *comp = t + *mean_x - y;
+    let delta = t;
+    if *nobs != 0.0 {
+        *mean_x = *mean_x + delta / *nobs;
+    } else {
+        *mean_x = 0.0;
+    }
+    *ssqdm_x = *ssqdm_x + (val - prev_mean) * (val - *mean_x);
+}
+
+/// remove_var：同上的 remove 版本（用的是**另一个**补偿量 compensation_remove）
+fn remove_var(val: f64, nobs: &mut f64, mean_x: &mut f64, ssqdm_x: &mut f64, comp: &mut f64) {
+    if val.is_nan() {
+        return;
+    }
+    *nobs -= 1.0;
+    if *nobs != 0.0 {
+        let prev_mean = *mean_x - *comp;
+        let y = val - *comp;
+        let t = y - *mean_x;
+        *comp = t + *mean_x - y;
+        let delta = t;
+        *mean_x = *mean_x - delta / *nobs;
+        *ssqdm_x = *ssqdm_x - (val - prev_mean) * (val - *mean_x);
+    } else {
+        *mean_x = 0.0;
+        *ssqdm_x = 0.0;
+    }
+}
+
+/// calc_var：窗口里全是同一个值（num_consecutive_same_value >= nobs）时给 0，不是 0±舍入
+fn calc_var(minp: i64, ddof: i64, nobs: f64, ssqdm_x: f64, num_same: i64) -> f64 {
+    if nobs >= minp as f64 && nobs > ddof as f64 {
+        if nobs == 1.0 || num_same as f64 >= nobs {
+            0.0
+        } else {
+            ssqdm_x / (nobs - ddof as f64)
+        }
+    } else {
+        f64::NAN
+    }
+}
+
+/// Series.rolling(window).std() 的逐行复刻（pandas 的 roll_var + 外层 np.sqrt）。
+///
+/// 为什么必须逐行复刻而不能用两遍法：这个量只差最后一两位，但它要拿去做回归的自变量，
+/// 残差再拿去做 rank。实测 000001@20250303 上两遍法与 pandas 的 volatility 有 4310/4719
+/// 个值差 1 ulp，直接让 ask_vol3 的残差名次变了 171 行（最大 1.3e-3），
+/// rank_diff 那一族全部超 1e-4；换成这份复刻后逐位相同。
+///
+/// 结构照抄 roll_var：固定窗口下 start/end 都单调，所以走的是「先按 start 的推进删、
+/// 再按 end 的推进加」那条分支，状态（nobs/mean_x/ssqdm_x/两个补偿量）一直留着。
+fn rolling_std(values: &[f64], window: usize, minp: i64, ddof: i64) -> Vec<f64> {
+    let n = values.len();
+    let mut out = vec![f64::NAN; n];
+    if n == 0 {
+        return out;
+    }
+    let mut nobs = 0.0f64;
+    let mut mean_x = 0.0f64;
+    let mut ssqdm_x = 0.0f64;
+    let mut comp_add = 0.0f64;
+    let mut comp_rem = 0.0f64;
+    let mut num_same: i64 = 0;
+    let mut prev_value = 0.0f64;
+    let (mut prev_s, mut prev_e) = (0usize, 0usize);
+
+    for i in 0..n {
+        let s = (i + 1).saturating_sub(window);
+        let e = i + 1;
+        if i == 0 || s >= prev_e {
+            prev_value = values[s];
+            num_same = 0;
+            nobs = 0.0;
+            mean_x = 0.0;
+            ssqdm_x = 0.0;
+            comp_add = 0.0;
+            comp_rem = 0.0;
+            for j in s..e {
+                add_var(
+                    values[j],
+                    &mut nobs,
+                    &mut mean_x,
+                    &mut ssqdm_x,
+                    &mut comp_add,
+                    &mut num_same,
+                    &mut prev_value,
+                );
+            }
+        } else {
+            for j in prev_s..s {
+                remove_var(values[j], &mut nobs, &mut mean_x, &mut ssqdm_x, &mut comp_rem);
+            }
+            for j in prev_e..e {
+                add_var(
+                    values[j],
+                    &mut nobs,
+                    &mut mean_x,
+                    &mut ssqdm_x,
+                    &mut comp_add,
+                    &mut num_same,
+                    &mut prev_value,
+                );
+            }
+        }
+        let v = calc_var(minp, ddof, nobs, ssqdm_x, num_same);
+        // 外层是 np.sqrt：负数给 NaN，0 给 0
+        out[i] = if v.is_nan() { f64::NAN } else { v.sqrt() };
+        prev_s = s;
+        prev_e = e;
+    }
+    out
+}
+
 /// rp.pandas_series_rank(x)：average、升序、NaN 保持（相等判据 |a-b| < 1e-15）
 fn rank_avg(v: &[f64]) -> Vec<f64> {
     let n = v.len();
@@ -985,18 +1130,7 @@ pub fn compute_stock(code: &str, date: i64) -> Option<Vec<f32>> {
     for i in 1..n {
         pc[i] = last_prc[i] / last_prc[i - 1] - 1.0;
     }
-    let mut volatility = vec![f64::NAN; n];
-    for i in 0..n {
-        let lo = i.saturating_sub(19);
-        let w = &pc[lo..=i];
-        if w.len() < 20 {
-            continue;
-        }
-        if w.iter().any(|x| x.is_nan()) {
-            continue;
-        }
-        volatility[i] = nan_std(w);
-    }
+    let volatility = rolling_std(&pc, 20, 20, 1);
 
     // volume 差分
     let mut volume = vec![f64::NAN; n];
