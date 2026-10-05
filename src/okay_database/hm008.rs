@@ -67,6 +67,25 @@ pub fn names() -> Vec<String> {
     out
 }
 
+/// pandas 的 groupby().sum() 对 float64 用的是补偿求和（Kahan），不是朴素顺序累加。
+/// 这不是可有可无的精度问题：组和刚好落在 d 的整数倍上时，朴素求和差 1e-13 就会
+/// 让 `% d == 0` 判反，因子值直接差好几千。这里照搬 pandas algos 里的 Sum 类。
+#[derive(Clone, Copy, Default)]
+struct Kahan {
+    sum: f64,
+    c: f64,
+}
+
+impl Kahan {
+    #[inline]
+    fn add(&mut self, x: f64) {
+        let y = x - self.c;
+        let t = self.sum + y;
+        self.c = (t - self.sum) - y;
+        self.sum = t;
+    }
+}
+
 /// 一个窗内的聚合结果：窗内总成交量 + 按委托编号聚好的成交量
 struct WinAgg {
     vol_sum: f64,
@@ -75,8 +94,8 @@ struct WinAgg {
 }
 
 fn agg_window(rows: &[&TradeRecord], lo_us: i64, hi_us: i64) -> WinAgg {
-    let mut asks: HashMap<i64, f64> = HashMap::new();
-    let mut bids: HashMap<i64, f64> = HashMap::new();
+    let mut asks: HashMap<i64, Kahan> = HashMap::new();
+    let mut bids: HashMap<i64, Kahan> = HashMap::new();
     let mut vol_sum = 0.0f64;
     for r in rows.iter() {
         let tod = r.time_us.rem_euclid(DAY_US);
@@ -86,14 +105,14 @@ fn agg_window(rows: &[&TradeRecord], lo_us: i64, hi_us: i64) -> WinAgg {
         // 旧代码的 df.volume = df.volume / 100
         let v = r.volume as f64 / 100.0;
         vol_sum += v;
-        *asks.entry(r.ask_order).or_insert(0.0) += v;
-        *bids.entry(r.bid_order).or_insert(0.0) += v;
+        asks.entry(r.ask_order).or_default().add(v);
+        bids.entry(r.bid_order).or_default().add(v);
     }
     // 只需要值；顺序对 sum / std 都没有影响
     WinAgg {
         vol_sum,
-        asks: asks.into_values().collect(),
-        bids: bids.into_values().collect(),
+        asks: asks.into_values().map(|k| k.sum).collect(),
+        bids: bids.into_values().map(|k| k.sum).collect(),
     }
 }
 

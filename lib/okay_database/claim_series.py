@@ -99,7 +99,7 @@ def main() -> int:
             tmp.replace(STATE)
         if note_path.exists():
             note_path.unlink()
-        if args.cmd == "release" or args.cmd == "complete":
+        if args.cmd in ("release", "complete", "fail"):
             path = CLAIMS / f"{args.arg}.json"
             if path.exists():
                 path.unlink()
