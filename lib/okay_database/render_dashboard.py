@@ -17,6 +17,7 @@ REPO = Path("/home/chenzongwei/rust_pyfunc")
 REPORT_DIR = REPO / "reports/okay_database"
 STATE = REPORT_DIR / "program_state.json"
 CLEAN = REPORT_DIR / "colblk_cleanup_state.json"
+CLEAN2 = REPORT_DIR / "store_cleanup_round2_state.json"
 QLOG = REPORT_DIR / "queue_log.jsonl"
 OUT = REPORT_DIR / "index.html"
 
@@ -61,6 +62,7 @@ def load_json(path: Path, default):
 def main() -> int:
     state = load_json(STATE, {"series": [], "count": 0})
     clean = load_json(CLEAN, {})
+    clean2 = load_json(CLEAN2, {})
     series = state.get("series", [])
 
     total = len(series)
@@ -202,6 +204,19 @@ def main() -> int:
 <table><tr><th>时点</th><th>时刻</th><th>总空间</th><th>已用</th><th>剩余可用</th></tr>
 {disk_line('清理前', before)}{disk_line('清理后', after)}</table>
 <div class="scroll"><div style="padding:10px">{clogs}</div></div>
+
+<h2>第二期清理（factor_store 里剩下的 proj 副本 + hm97 归档）</h2>
+<div class="cards">
+ <div class="card"><div class="k">已释放</div><div class="v">{human(clean2.get("total_bytes", 0))}</div></div>
+ <div class="card"><div class="k">文件</div><div class="v">{sum(1 for i in clean2.get("items", []) if i.get("status") == "deleted")} / {len(clean2.get("items", []))}</div></div>
+ <div class="card"><div class="k">保留的入选原件</div><div class="v">{len(clean2.get("keep", []))} 个</div></div>
+ <div class="card"><div class="k">状态</div><div class="v">{esc(clean2.get("status", "未开始"))}</div></div>
+</div>
+<div class="sub">清理前可用 {human(clean2.get("free_before", 0))} · 清理后可用 {human(clean2.get("free_after", 0) or 0)}
+（btrfs 的空间回收是延迟的，收尾值在脚本跑完后另行补齐）</div>
+<table><tr><th>时点</th><th>可用空间</th></tr>
+<tr><td>第二期清理前</td><td class="num">{human(clean2.get("free_before", 0))}</td></tr>
+<tr><td>第二期清理后</td><td class="num strong">{human(clean2.get("free_after", 0) or 0)}</td></tr></table>
 
 <h2>本次补算的临时 colblk（应当逐步清空）</h2>
 <table><tr><th>临时目录</th><th>残留 colblk</th></tr>
