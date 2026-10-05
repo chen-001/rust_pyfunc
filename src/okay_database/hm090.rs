@@ -35,12 +35,15 @@
 //!   全都要精确到秒。本文件改用 order_pair_metrics_pipeline::*_exact_inner，
 //!   时间取 time_us/1e6（整数秒），与旧框架的 //1e9 逐位一致。
 //!
-//! · **lyapunov**：库里的 features 一律关闭 lyapunov（get_features_factors_rust_full
-//!   对应 Python 的 with_lyapunov_exponent=False），每份 1870 个值而不是 1914。
-//!   老库与新库的 get_features_names 默认输出逐项一致（都是 1914），
-//!   旧值里 lyapunov 组恰好是「44 列 × 1 项」的连续一段（在 entropy_1d 与
-//!   max_range_product 之间）。入选的 67 个名字里没有一个含 lyapunov，
-//!   所以下标按「去掉 lyapunov 组的 3740 全长」重算（见 IDX 的注释），值不受影响。
+//! · **特征清单不同**：库里的 features（get_features_factors_rust_full，对应 Python 的
+//!   with_lyapunov_exponent=False）关闭了 lyapunov，同时又多了 curvature / quad_coef
+//!   两项（每列 2 个），所以每份不是旧代码的 1914 而是 1958，两份合计 3916。
+//!   实测 `rp.verify_get_features_factors_rust` 在 44 列上返回 1958 个名字，
+//!   前 21 组与 Python 的 get_features_names(with_lyapunov_exponent=False) 逐项一致，
+//!   只是中间插了 curvature / quad_coef 两组。入选的 67 个名字一个都没落在
+//!   lyapunov / curvature / quad_coef 上，所以按 3916 这套清单重算了 IDX 即可，
+//!   值不受影响（下标由 `rp.verify_get_features_factors_rust` 返回的名字直接定位，
+//!   不是估出来的）。
 //!
 //! ════════════════════════════════════════════════════════════════════
 //! 三、下午平移与窗口（对齐 pandas 的 between_time）
@@ -59,8 +62,11 @@
 //! 按规范第二次加 _dup2 后缀，值不变、列数不变。
 //!
 //! 已知差异（不影响入选的 67 个）：market_fractal_dim_diff / abs_market_fractal_dim_diff
-//! 两列在当前库里与新库旧库之间有实现差异（000001@20250303 上 28965 行里 28633 行不同），
+//! 两列在新旧两个库之间就有实现差异（000001@20250303 上 28965 行里 28633 行不同），
 //! 入选名单里没有任何 fractal 相关的量，也没有以它为自变量的相关系数项。
+//!
+//! 另外，price/volume/turnover 在 Rust 里是 f32（旧框架是 f64），相对误差量级 1e-7，
+//! 远在验收阈值 1e-4 之内。
 
 use crate::data_paths;
 use crate::fast_csv_reader;
@@ -71,10 +77,10 @@ use std::sync::LazyLock;
 /// 旧 go 的 v1/v2 两份特征总长（各 1914，含 lyapunov）。只作对照记录，不参与计算。
 #[allow(dead_code)]
 const LEGACY_FULL: usize = 3828;
-/// 库里的 features 关闭 lyapunov，每份 1870，合起来 3740。
-const FULL: usize = 3740;
-/// 每份特征的长度（关闭 lyapunov）。
-const HALF: usize = 1870;
+/// 库里 features 的实际输出长度：v1/v2 两份各 1958，合计 3916。
+const FULL: usize = 3916;
+/// 每份特征的长度（关了 lyapunov、多了 curvature/quad_coef）。
+const HALF: usize = 1958;
 
 const TOLERANCE_V1: f64 = 0.001;
 const TOLERANCE_V2: f64 = 0.00001;
@@ -88,12 +94,11 @@ const MORNING_END_US: i64 = (11 * 3600 + 30 * 60) * 1_000_000;
 const AFTERNOON_START_US: i64 = (13 * 3600) * 1_000_000;
 const AFTERNOON_END_US: i64 = (14 * 3600 + 57 * 60) * 1_000_000;
 
-// NAMES 是旧 go() 的返回顺序；IDX 是每一项在 FULL（3740）向量里的下标。
-// 3740 = [v1 的 1870 项] + [v2 的 1870 项]，顺序与 Python 的
-// get_features_names(base_cols, with_lyapunov_exponent=False) 一致。
-// 对照脚本：reports/okay_database/claims/hm090.map.txt（那份是 3828 全长的下标，
-// 去掉 lyapunov 段后 v1 里靠后的项减 44、v2 里靠后的项减 88，已用
-// rp.get_features_names 重新核对过每一项）。
+// NAMES 是旧 go() 的返回顺序；IDX 是每一项在 FULL（3916）向量里的下标。
+// 3916 = [v1 的 1958 项] + [v2 的 1958 项]。1958 那套清单来自
+// `rp.verify_get_features_factors_rust(44 列矩阵, base_cols)` 返回的名字，
+// 与 worker 里 get_features_factors_rust_full(.., true) 用的是同一条代码路径。
+// base_cols 就是旧文件 go() 里的那 44 列，顺序与 order_pair 返回的列名一致。
 const NAMES: [&str; 67] = [
     "v1_abs_avg_trade_amount_diff_corr_trade_count",
     "v1_abs_avg_trade_amount_diff_p5",
@@ -165,11 +170,11 @@ const NAMES: [&str; 67] = [
 ];
 
 const IDX: [usize; 67] = [
-    1566, 244, 1660, 1500, 21, 1511, 110, 480, 744, 392, 470, 1611, 1635, 1646, 283, 106, 1132,
-    51, 1002, 577, 783, 213, 1303, 1325, 14, 718, 1220, 1233, 1235, 961, 964, 966, 752, 752,
-    224, 1302, 717, 815, 1782, 264, 132, 43, 1835, 917, 2378, 3420, 3680, 2596, 3517, 2154,
-    3505, 3313, 2153, 2109, 2461, 1922, 2142, 2081, 1884, 3089, 3105, 2847, 2852, 2831, 2398,
-    2748, 2136,
+    1654, 244, 1748, 1588, 21, 1599, 110, 480, 832, 392, 470, 1699, 1723, 1734, 283, 106, 1220,
+    51, 1090, 577, 871, 213, 1391, 1413, 14, 806, 1308, 1321, 1323, 1049, 1052, 1054, 840, 840,
+    224, 1390, 805, 903, 1870, 264, 132, 43, 1923, 1005, 2466, 3596, 3856, 2772, 3693, 2242,
+    3681, 3489, 2241, 2197, 2549, 2010, 2230, 2169, 1972, 3265, 3281, 3023, 3028, 3007, 2486,
+    2924, 2224,
 ];
 
 pub fn names() -> Vec<String> {

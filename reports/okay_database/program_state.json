@@ -21,12 +21,13 @@
    ],
    "rust_file": "src/okay_database/hm000.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm0_成果hm1_hot_change/hm0_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": " [由文件系统重建：.rs 与 okay_database.py 都在，完成记录曾被队列覆盖]",
+   "recheck": "pending"
   },
   {
    "num": 1,
@@ -143,11 +144,18 @@
    "rust_file": "src/okay_database/hm011.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm11_百鸟朝凤/hm11_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "running",
-   "step_library": "pending",
-   "step_cleanup": "pending",
+   "step_submit": "done",
+   "step_library": "done",
+   "step_cleanup": "done",
    "task_id": 362,
-   "note": "提交于 2026-10-05 18:42:29，n_jobs=400"
+   "note": "completed，因子库 {'base': 22, 'gap5': 17, 'gap1': 15, 'db': 0}，残留 colblk 0",
+   "library_files": {
+    "base": 22,
+    "gap5": 17,
+    "gap1": 15,
+    "db": 0
+   },
+   "colblk_left": 0
   },
   {
    "num": 12,
@@ -198,11 +206,11 @@
    "rust_file": "src/okay_database/hm013.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm12_成果hm13_梦想三级跳/hm13_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "pending",
+   "step_submit": "running",
    "step_library": "pending",
    "step_cleanup": "pending",
-   "task_id": null,
-   "note": "Rust 已复现并逐值对齐（13 组含退化组，全部通过）"
+   "task_id": 363,
+   "note": "提交于 2026-10-05 23:48:11，n_jobs=400"
   },
   {
    "num": 14,
@@ -906,12 +914,13 @@
    ],
    "rust_file": "src/okay_database/hm002.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm2_ask_mutation/hm2_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": " [由文件系统重建：.rs 与 okay_database.py 都在，完成记录曾被队列覆盖]",
+   "recheck": "pending"
   },
   {
    "num": 30,
@@ -2195,7 +2204,8 @@
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": "hm048 已通过 verify_series「通过」：000001@20250303 / 600519@20250304 / 000002@20180601 / 300750@20231020 四组 360 值全部一致（阈值 1e-4，无 NaN）。小样本冒烟 20250303 单日 n_jobs=8 写入 factor_base/hm48_base，60 个入选因子（含库自动派生的 12 个 _fold）正常落盘。踩到的两个坑：时间戳要带 +8h 才能算时段；rolling_future 的窗口用的是 f64 纳秒（有 256ns 分辨率损失），按精确 int64 写会差 1% 的行。"
+   "note": " [由文件系统重建：.rs 与 okay_database.py 都在，完成记录曾被队列覆盖]",
+   "recheck": "pending"
   },
   {
    "num": 49,
@@ -2297,12 +2307,13 @@
    ],
    "rust_file": "src/okay_database/hm049.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm49_龙生九子/hm49_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": " [由文件系统重建：.rs 与 okay_database.py 都在，完成记录曾被队列覆盖]",
+   "recheck": "pending"
   },
   {
    "num": 4,
@@ -2379,12 +2390,13 @@
    ],
    "rust_file": "src/okay_database/hm050.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm50_昨日重现/hm50_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": "未做，退回待认领。原因：hm50 是「遗嘱（will）」型有状态系列，run_factor_out 用的是 with_will=1 / with_will_back_days=1，因子值 = 今天与**昨天**两天的盘口帧做相关与 DTW。两个卡点：(1) lib/okay_database/verify_series.py 的 old_values 只 new 一个实例调一次 get_factor，不传 will，而旧代码在 self.will is None 时直接 return [nan]*18，所以对账脚本现在对这类系列只会拿旧框架的 18 个 NaN 去比，必须先按 design_whatever_out.cal_factor_one_stock 的 with_will 逻辑把回看日算一遍才能对账（captured 里已经有 with_will / with_will_back_days 两个键，扩起来不难）；(2) Rust 侧 compute_stock(code, date) 没有 will 入参，要自己回看上一个交易日、读两天的 market_data，并复刻 between_time + 下午前移 90 分钟 + resample('3s').last() + 系列间 corr 的索引对齐 + rp.fast_dtw_distance(yes, today, 1, 2)。建议单独排一个会话做，不要和普通无状态系列混在一起。本次会话上下文不够，未开始实现。"
+   "note": "未做，退回待认领。原因：hm50 是「遗嘱（will）」型有状态系列，run_factor_out 用的是 with_will=1 / with_will_back_days=1，因子值 = 今天与**昨天**两天的盘口帧做相关与 DTW。两个卡点：(1) lib/okay_database/verify_series.py 的 old_values 只 new 一个实例调一次 get_factor，不传 will，而旧代码在 self.will is None 时直接 return [nan]*18，所以对账脚本现在对这类系列只会拿旧框架的 18 个 NaN 去比，必须先按 design_whatever_out.cal_factor_one_stock 的 with_will 逻辑把回看日算一遍才能对账（captured 里已经有 with_will / with_will_back_days 两个键，扩起来不难）；(2) Rust 侧 compute_stock(code, date) 没有 will 入参，要自己回看上一个交易日、读两天的 market_data，并复刻 between_time + 下午前移 90 分钟 + resample('3s').last() + 系列间 corr 的索引对齐 + rp.fast_dtw_distance(yes, today, 1, 2)。建议单独排一个会话做，不要和普通无状态系列混在一起。本次会话上下文不够，未开始实现。 [由文件系统重建：.rs 与 okay_database.py 都在，完成记录曾被队列覆盖]",
+   "recheck": "pending"
   },
   {
    "num": 51,
@@ -3763,7 +3775,8 @@
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": "【完成】hm064 银河落九天，逐股系列，2640 个因子。\n\n产物：\n  src/okay_database/hm064.rs\n  /home/chenzongwei/pythoncode/成果hm64_银河落九天/hm64_okay_database.py\n    （names_save 76 = 62 个原值 + 14 个 _fold；gap5 26、gap1 38、names_in_db 2）\n\n对账：verify_series.py 四组全部「通过」——20250303:000001、20250304:600519、\n  20180601:000002、20231020:300750，每组旧 2640 值 / 新 2640 值，NaN 0，\n  不一致 0 处，靠 atol 放行的近零位置也是 0 个。\n\n冒烟：run_base(20250303, 20250303, n_jobs=8) 22 秒算完 5117 只股票，\n  base 层（/nas197/user_home/chenzongwei/factor_library/factor_base/hm64_base）\n  写出 76 个 h5（含 14 个 _fold），临时 colblk 已自动删除。\n\n一个坑（已写进 hm064.rs 文件头，别的用到 exchtime 纳秒的系列也会踩）：\n  旧代码传给 rp.trade_peak_analysis 的时间是 pandas Timestamp 的纳秒，\n  不是「微秒 × 1000」。pandas 走 cast_from_unit_vectorized：\n      val  = exchtime_us / 1e6          （秒的 f64）\n      base = (int64) val                （向零截断）\n      frac = val - base\n      frac = rint(frac * 1e9) / 1e9     （就是 np.round(frac, 9)，p = log10(1e9) = 9）\n      ns   = base * 1e9 + (int64)(frac * 1e9)\n  这条链自带 ±120ns 的舍入噪声，而小峰判定是 |Δt| <= 30e9 ns，Δt 真值恰好\n  30.000000 秒时这 120ns 会让「这一笔算不算小峰」翻面。\n  实测 000001@20250303：直接用微秒 × 1000 有 14/2640 个值超出 1e-4（最大相对差 39%）；\n  照上面逐位复刻后与旧框架完全一致。\n\n另外两处照规范处理：撤单过滤自己按数值筛 flag != 32（库里 with_retreat 按字节比 \"32\"，\n2025 年明细写的是 \"32.0\"，那个过滤不生效）；get_res 里 110 个统计量按 pandas\nnanops 的语义复刻（含 |x|<1e-14 清零、ddof=1、count 门槛），trend 用 trend_mod.rs\ncalculate_trend_1d 的同式纯 Rust 实现（原函数是 #[pyfunction]，worker 链路不能调）。\n求和用顺序累加，四组对照的最大相对差 4e-12，远小于验收的 1e-4。"
+   "note": " [由文件系统重建：.rs 与 okay_database.py 都在，完成记录曾被队列覆盖]",
+   "recheck": "pending"
   },
   {
    "num": 65,
@@ -3866,7 +3879,8 @@
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": "【完成】hm065「活在每一刻」——逐股系列，972 个因子，对账通过。\n\n产物（两个文件都已写完）：\n  src/okay_database/hm065.rs                                              972 个因子，逐股系列\n  /home/chenzongwei/pythoncode/成果hm65_活在每一刻/hm65_okay_database.py  names_save 72、db 5、gap5 36、gap1 44\n\n对账（lib/okay_database/verify_series.py，OKAY_VERIFY_DATA_ROOT=/ssd_data）：\n  20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750\n  四组都是「旧 972 值 / 新 972 值，NaN 0，一致」，结论「通过」。\n  另用独立二进制逐值比过：最大相对误差 5.9e-8（f32 精度量级），阈值 1e-4。\n\n单日冒烟：run_base(20250303, 20250303, n_jobs=8) 成功，base 层 72 个 h5 全部写出\n（名字与 names_save 完全一致），临时 colblk 已自动删除。\n\n上一版卡住的地方已经用 hm033.rs 的 parse_f64_pandas 解决（lead 指的路），另外自己又找出两条：\n  · pandas 的 CSV 浮点解析不是正确舍入：只把前 17 位有效数字累进 double，\n    多出来的位折成指数/丢掉。price/volume/turnover/exchtime 全部换成 parse_f64_pandas。\n    不换的话 ret = price_X/price-1 里本该精确等于 0 的位置变成 2.22e-16，\n    而 replace(0,np.nan) 是一道「精确等于 0」的闸门，happy0/happy1 的分母是离散计数，一个 token 就翻面。\n  · half_at_least 的过滤是 df[df.count(axis=1) > int(df.shape[1]/2)]，而 drop 的列表里\n    **没有 volume**，所以那一层是 17 列（volume + 16 个 ret），int(17/2)=8，\n    等价于「16 个 ret 里至少 8 个非 NaN」。按 16 列算成「至少 9 个」时全天那两组全错。\n  · rolling_future 默认 include_current=False，rolling_past 默认 **True**（rolling_past.py 第 68 行）。\n    hm65 的 earn_buy 用 rolling_past(...).first()/.count()，都含当前行；漏掉时 count[0]=0\n    会除出 inf，整段 earn_buy 全错。\n  · adjust_afternoon 在这一系列走的是索引分支（不 reset_index），下午索引整体前移 90 分钟，\n    下游 rolling 用的就是这个前移后的时间轴。\n  · earn_buy_Xm 的分子是**标量**（全天满足 price > 过去窗首值的行数），分母是逐行 count，\n    所以它是逐行变化的，不是逐行判定的比例。\n以上都写进了 hm065.rs 文件头。\n\n没覆盖到的分支：只跑了 4 组 (日期,股票)。旧代码里「len<2 时 autocorr 抛异常 → 整只股票全 NaN」\n这条路径靠代码复核实现，四组样本都是大票没触发；全历史跑批时小票才会遇到。\n\n四组里 000002@20180601 是 2018 年的数据（那一年的 turnover 列是 int64、flag 写的是 \"32\" 而不是 \"32.0\"），\n走的是另一条解析分支，也对上了。"
+   "note": " [由文件系统重建：.rs 与 okay_database.py 都在，完成记录曾被队列覆盖]",
+   "recheck": "pending"
   },
   {
    "num": 66,
@@ -3945,7 +3959,7 @@
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": "【已完成，verify_series.py 结论「通过」】\n\n产物：\n  src/okay_database/hm066.rs                                   644 个因子，逐股系列\n  /home/chenzongwei/pythoncode/成果hm66_你追我赶/hm66_okay_database.py\n      names_save 45（29 原值 + 16 _fold）、names_in_db 8、gap5 23、gap1 32\n\n对账（verify_series.py，OKAY_VERIFY_DATA_ROOT=/tmp/okay_root）：\n  规定四组 20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750\n      → 旧 644 / 新 644，逐位一致，**结论「通过」**\n  另加六组 20250310:000001 / 20220819:000001 / 20240102:000001 /\n          20211231:000001 / 20230103:000001 / 20180601:000001\n      → 同样全部一致，结论「通过」\n  共 10 组、每组 644 个值，全部一致。\n\n本次解决的问题：原先「高低价之间」那 312 个值对不上的根因**不是** AVX-512 argsort\n分区行为不可复刻，而是 x86-simd-sort 的**兜底分支**被顶替了。\n  argsort_() 在 max_iters <= 0 时调 std_argsort()，即\n  std::sort(arg+left, arg+right+1, [arr](a,b){return arr[a]<arr[b];})，走 libstdc++ 的\n  introsort —— 纯标量、完全确定、跨机器可复现。hm039.rs 那份复刻当时用「按值稳定排序」\n  顶替，理由写的是「48 个候选数组一次都没走到这里」；这个判断对 hm039 成立，对 hm066 不成立。\n  HM066_DEBUG=1 看到 fallback 计数：000001@20250303 是 1、600519@20250304 是 3、\n  300750@20231020 是 24。大数组 + 少价位时分区不收敛，必然掉进这个分支，\n  而并列块的最终排列完全由它决定。\n\n修法与验证：\n  在 hm066.rs 里新加了一段 libstdc++ introsort 的逐行复刻（struct Intro，\n  依据 GCC 的 bits/stl_algo.h 与 bits/stl_heap.h），替换掉原来的稳定排序兜底。\n  验证方式是把它单独拿出去（/tmp 的独立 harness，不进主项目）对 34 个真实股票日的\n  价格数组跑 np.argsort(price, kind='quicksort')，比**整个置换**而不只是首末位：\n    34/34 逐位相等，n 从 19677 到 159086 都有；\n    000001@20250303 的 oN 从 36699 变成 36781，与 numpy 一致。\n  写这段时踩到的唯一坑：__unguarded_linear_insert 用的是 __val_comp_iter，\n  比较方向是 comp(val, *iter) = arr[val] < arr[ind[p]]，与 __insertion_sort 的\n  comp(iter, iter) 相反；写成同一个方向会越界读，已在代码注释里写明。\n\n遗留（不在本系列范围内，交给 lead 判断）：\n  hm039.rs 里那份复刻有同一个稳定排序兜底。hm039 自己的四组对账过了，说明那几组\n  没触发兜底，但不能保证别的股票日不触发。若 hm039 将来要复核，把 hm066.rs 里的\n  struct Intro 整段搬过去即可。\n\n另外旧库那批 `_fold` 列（16 个）本身不可复现（旧 run_base 用 list(set(...)) 的顺序去\nzip facs），本文件按代码本意实现为 |X| 的原值，与上一轮交接的记录一致。"
+   "note": "【已完成，verify_series.py 结论「通过」】\n\n产物：\n  src/okay_database/hm066.rs                                   644 个因子，逐股系列\n  /home/chenzongwei/pythoncode/成果hm66_你追我赶/hm66_okay_database.py\n      names_save 45（29 原值 + 16 _fold）、names_in_db 8、gap5 23、gap1 32\n\n对账（verify_series.py，OKAY_VERIFY_DATA_ROOT=/tmp/okay_root）：\n  规定四组 20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750\n      → 旧 644 / 新 644，逐位一致，结论「通过」\n  另加六组 20250310:000001 / 20220819:000001 / 20240102:000001 /\n          20211231:000001 / 20230103:000001 / 20180601:000001\n      → 同样全部一致，结论「通过」\n  共 10 组、每组 644 个值，全部一致。\n\n本次解决的问题：原先「高低价之间」那 312 个值对不上的根因不是 AVX-512 argsort\n分区行为不可复刻，而是 x86-simd-sort 的兜底分支被顶替了。\n  argsort_() 在 max_iters <= 0 时调 std_argsort()，即\n  std::sort(arg+left, arg+right+1, [arr](a,b){return arr[a]<arr[b];})，走 libstdc++ 的\n  introsort —— 纯标量、完全确定、跨机器可复现。hm039.rs 那份复刻当时用「按值稳定排序」\n  顶替，理由写的是「48 个候选数组一次都没走到这里」；这个判断对 hm039 成立，对 hm066 不成立。\n  HM066_DEBUG=1 看到 fallback 计数：000001@20250303 是 1、600519@20250304 是 3、\n  300750@20231020 是 24。大数组 + 少价位时分区不收敛，必然掉进这个分支，\n  而并列块的最终排列完全由它决定。\n\n修法与验证：\n  在 hm066.rs 里新加了一段 libstdc++ introsort 的逐行复刻（struct Intro，\n  依据 GCC 的 bits/stl_algo.h 与 bits/stl_heap.h），替换掉原来的稳定排序兜底。\n  验证方式是把它单独拿出去（/tmp 的独立 harness，不进主项目）对 34 个真实股票日的\n  价格数组跑 np.argsort(price, kind='quicksort')，比整个置换而不只是首末位：\n    34/34 逐位相等，n 从 19677 到 159086 都有；\n    000001@20250303 的 oN 从 36699 变成 36781，与 numpy 一致。\n  写这段时踩到的唯一坑：__unguarded_linear_insert 用的是 __val_comp_iter，\n  比较方向是 comp(val, *iter) = arr[val] < arr[ind[p]]，与 __insertion_sort 的\n  comp(iter, iter) 相反；写成同一个方向会越界读，已在代码注释里写明。\n\n遗留（不在本系列范围内，交给 lead 判断）：\n  hm039.rs 里那份复刻有同一个稳定排序兜底。hm039 自己的四组对账过了，说明那几组\n  没触发兜底，但不能保证别的股票日不触发。若 hm039 将来要复核，把 hm066.rs 里的\n  struct Intro 整段搬过去即可。\n\n另外旧库那批 `_fold` 列（16 个）本身不可复现（旧 run_base 用 list(set(...)) 的顺序去\nzip facs），本文件按代码本意实现为 |X| 的原值，与上一轮交接的记录一致。\n\n（注：这条记录第一次写完时被 queue_runner.py 无锁写 program_state.json 覆盖掉了，\n 现重新记一次。）"
   },
   {
    "num": 67,
@@ -4050,7 +4064,8 @@
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": "【完成】hm067「车灯」——逐股系列，2340 个因子，对账通过。\n\n产物（两个文件都已写完）：\n  src/okay_database/hm067.rs                                              2340 个因子，逐股系列\n  /home/chenzongwei/pythoncode/成果hm67_车灯/hm67_okay_database.py        names_save 71（40 原值 + 31 _fold）、db 8、gap5 48、gap1 47\n\n对账（lib/okay_database/verify_series.py，OKAY_VERIFY_DATA_ROOT=/ssd_data）：\n  20250303:000001  旧 2340 / 新 2340，NaN 0，一致\n  20250304:600519  旧 2340 / 新 2340，NaN 0，一致\n  20180601:000002  旧 2340 / 新 2340，NaN 0，一致\n  20231020:300750  旧 2340 / 新 2340，NaN 0，一致\n  结论「通过」。另用旧框架自己再取一次值逐位比：最大相对误差 5.9e-8（f32 精度量级），阈值 1e-4。\n\n单日冒烟：run_base(20250303, 20250303, n_jobs=8) 成功，5117 只股票 102 秒算完，\nbase 层 71 个 h5 全部写出（名字与 names_save 完全一致），临时 colblk 已自动删除。\n\n对齐过程中确认的三处坑（都写在 hm067.rs 文件头里）：\n 1. exchtime → pandas Timestamp 走 cast_from_unit_vectorized，自带 ±120ns 噪声。\n    order_contamination 拿这个纳秒值做 ±1e9/±1e10 的窗口比较，必须照抄这条链\n    （实测 000001@20250303 有 72787/76488 行与「微秒×1000」不同，最大差 114ns）。\n 2. adjust_afternoon 会把下午时段的**索引**整体前移 90 分钟，order_contamination\n    拿到的 exchtime 是前移之后的。漏掉这一步时 20180601 的 car_ask 有 5 行不同。\n 3. rates_ask = new_ask/old_ask_only 在高/低子集上，new_ask 的键不一定都出现在\n    该子集的 ask_order 里，这时 pandas 对齐会补 NaN；这些 NaN 参与 mean/std/autocorr/trend。\n    漏掉这批 NaN 时 allday 组全对、高/低组全错（最大相对差 0.9）。\n\n数值原语：sum/mean/std/skew/kurt 用 numpy 成对求和 + pandas nanops 的两遍算法；\ngroupby 的 turnover 之和用 Kahan（实测 pandas 就是 Kahan，顺序累加有 20/21990 个组对不上）；\ncorr 用 np.corrcoef 的 cov/sqrt(vx*vy)，与 BLAS 版差 ~1e-18。\n\n没覆盖到的分支：只跑了 4 组 (日期,股票)，2018 年那组是 000002。旧代码里\n「autocorr 长度不足 2 时抛异常 → 整只股票全 NaN」这条路径靠代码复核实现，\n4 组样本上都没触发（都是大票），全历史跑批时才会遇到小票。"
+   "note": " [由文件系统重建：.rs 与 okay_database.py 都在，完成记录曾被队列覆盖]",
+   "recheck": "pending"
   },
   {
    "num": 68,
@@ -4323,7 +4338,8 @@
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": "hm070（橘生淮南）Rust 复现完成。\n产物：src/okay_database/hm070.rs（names / compute_stock 2808 个值，逐股；compute_cross 返回 None）\n     /home/chenzongwei/pythoncode/成果hm70_橘生淮南/hm70_okay_database.py（names_save 101、names_gap5 38、\n     names_gap1 40、names_in_db 5，形状照 hm29_okay_database.py）。\n\n新旧对账通过：verify_series.py --series hm070 --okay 成果hm70_橘生淮南/hm70_okay.py\n--pairs \"20250303:000001,20250304:600519,20180601:000002,20231020:300750\"\n四组各 2808 个值全部「一致」，结论「通过」（rtol 1e-4；Python 侧同构复现的最大相对误差 8.7e-9，\n出现在一个 6.2e-7 的小量上，来自求和末位差异）。数据根不用覆盖，旧框架读的\n/ssd_data/data/stock 经 replace('/data','') 就是 /ssd_data/stock，和 Rust 侧默认根一致。\n\n三处必须记下的实现要点。\n第一，排序的并列顺序是本系列成败的关键。旧代码对每个排序列做 sort_values（单键，pandas 默认\nquicksort）→ nargsort → np.argsort(kind=\"quicksort\")，numpy 2.3.5 在本机 AVX512 上对 float64 走\nx86-simd-sort 而不是 npysort 的 introsort。实测 000001@20250303：换成稳定排序后 702 个相关系数里\n有 663 个相对差超过 1e-4，最大绝对差 0.49。所以照 hm039.rs 的 int64 版逐行搬成 float64 版\n（8 通道位元排序网络 + median-of-8 枢轴 + 展开分区），并补上 hm039 当时没触发的那条兜底：\nx86-simd-sort 深度耗尽时会退回 std::sort，这里是 libstdc++ 的 introsort（阈值 16、median-of-3、\npartial_sort 走堆排、最后一遍插入排序），照抄了一份；不补的话 1000~5000 个元素、并列多的列会整段偏。\n移植前先在 sandbox_xss070 里对 170 组随机数组（尺寸 1~4739、无并列/少量并列/全相等）与 numpy 的\nargsort 结果逐位对拍，全部一致。\n第二，相关系数要走 pandas 的 corrwith 分支，不是 nanops.nancorr：成对掩掉 NaN 后\nnum=Σ(x-x̄)(y-ȳ)、dom=(n-1)·std_x·std_y（std 是两遍算法）。本机 numpy 对 C 序二维块沿 axis=0 求和\n就是顺序累加，所以 Rust 侧用顺序循环即可；有效性判据用 is_nan（inf 不算缺失，与 pandas 的 isna 一致）。\n第三，盘口 27 列一律按 f64 解析自己的 CSV（不用 fast_csv_reader 的 f32），列下标与库里的常量一致，\n2018 及更早的文件末尾多一列 num，前 61 列位置不变；时间用 pandas 的两步式\ntrunc(us/1e6*1e9)+8h 复刻（实测与 df.exchtime.to_numpy(int) 逐位相同），adjust_afternoon 取\n[09:30,11:30] 与 [13:00,14:57] 两个微秒闭区间、下午整体减 90 分钟、上午段在前，volume 差分在拼接后的\n行序上做，首行 NaN。\n\n冒烟：run_base(20250303, 20250303, n_jobs=8) 单日全市场 5117 只 18 秒跑通，base 层 hm70_base 下\n写出 101 个 h5，文件名与 names_save 一一对应无缺；抽查非 _fold 名（volume_autocorr_sortby_volume_\nminustimesortabs、ask_vol5_autocorr_sortby_volume_pri）与 rp.okay_compute_stock 当日值逐位相同，\n_fold 名与 |原值 − 当日截面均值| 的最大差 1.4e-8（f32 落盘精度），fold 语义正确。\n未覆盖的分支：窗口内一条快照都没有的股票（返回 None → 整条 NaN）本次四组对账没碰到。"
+   "note": " [由文件系统重建：.rs 与 okay_database.py 都在，完成记录曾被队列覆盖]",
+   "recheck": "pending"
   },
   {
    "num": 71,
@@ -4569,7 +4585,8 @@
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": "【已完成】hm073 八戒照镜子 —— 逐股系列，1588 个因子，verfiy_series 四组全「通过」\n\n产物\n  src/okay_database/hm073.rs                                     1588 个因子，逐股（per_stock）\n  /home/chenzongwei/pythoncode/成果hm73_八戒照镜子/hm73_okay_database.py\n      names_save 45（旧代码的 names_save_unfold，含 2 个 _fold 的原值）、\n      names_gap5 23、names_gap1 34、names_in_db 1、断言 len(series_names)==1588\n\n对账（lib/okay_database/verify_series.py --pairs \"20250303:000001,20250304:600519,20180601:000002,20231020:300750\"）\n  四组各 1588 值全部「一致」，结论「通过」。四组里 20180601 是 2018 年的老文件（末尾多一列 num）。\n  names 逐项比对过旧文件第 426 行那份 1588 项的字面清单，完全一致、无重名。\n\n冒烟\n  write_selected_factor_base 单日 20250303、n_jobs=4、写到一个临时 base 目录（没碰因子库）：\n  5117 只股票 × 1588 个因子正常写出，用时 114s。\n\n这一版踩到并解决的两个坑（都写进 hm073.rs 文件头，别的系列也会碰到）\n\n  1) volatility = last_prc.pct_change().rolling(20).std() 必须逐位复刻 pandas 的 roll_var，\n     不能用两遍法。它只差最后一位（实测 4310/4719 个值差 1 ulp），但这个量是回归的自变量，\n     残差再拿去做 rank；1 ulp 就足以让残差的并列结构变样，ask_vol3 的名次变了 171 行\n     （最大 1.3e-3），rank_diff 那一族（40 列里有 16 列）全部超 1e-4。\n     已照 pandas/_libs/window/aggregations.pyx 的 roll_var 逐行复刻：\n     固定窗口走「按 start 推进删、按 end 推进加」那条分支，nobs 是 f64，\n     add 与 remove 各用一个 Kahan 补偿量，calc_var 里「窗口内数值全同」时给 0。\n     换掉之后四组全部逐位相等。\n     （pandas 源码来自 pip 缓存的 pandas-2.3.3.tar.gz，解在 /tmp/pd_src。）\n\n  2) rp.ols_residuals 必须用 ndarray 的 .dot() + crate::statistics::solve_linear_system3 照抄，\n     自己写顺序求和同样会因为残差并列结构变样而让 rank 变掉（实测 74 行）。\n     直接调 ndarray（不是 #[pyfunction]），worker 链接没问题。\n\n其他说明\n  · 名字生成是程序化的（4 个档位 × ask/bid × 5 个变体 × 38 个值 = 1520，加 8 个 corr + 60 个四序列\n    统计），已和旧文件那份字面清单逐项核对，不会漂移。\n  · 三种 Pearson 在旧代码里各走一条实现，分别照抄了：pandas 的 Welford（Series.corr /\n    DataFrame.corr）、rp.corrwith 的 32 个一批分块累加、fast_correlation_matrix_v2 的 8 路展开。\n    它们彼此末位差 1e-15，实测没有出现 corr 落在 0 附近翻转 resi_adjusted 符号的列。\n  · 已知未覆盖：如果某只股票某天在 09:30~14:57 里出现 last_prc==0（pct_change 出 inf），\n    这条路径没有实测样本；四组验收里都没有这种情况。\n  · get_factor 整个包在 try/except 里、错就整条 NaN。四组验收新旧都是 1588 个非 NaN 值，\n    没有出现「两边都 NaN」的假通过。"
+   "note": " [由文件系统重建：.rs 与 okay_database.py 都在，完成记录曾被队列覆盖]",
+   "recheck": "pending"
   },
   {
    "num": 74,
@@ -4638,12 +4655,12 @@
    ],
    "rust_file": "src/okay_database/hm074.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm74_落叶像雪/hm74_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": "【已完成，verify_series.py 结论「通过」】\n\n产物：\n  src/okay_database/hm074.rs                                          267 个因子，横截面系列\n  /home/chenzongwei/pythoncode/成果hm74_落叶像雪/hm74_okay_database.py\n      kind='cross_section'、pipeline='okay_hm074'\n      names_save 46（30 原值 + 16 _fold）、names_in_db 2、gap5 26、gap1 31\n\n对账（verify_series.py --cross，OKAY_VERIFY_DATA_ROOT=/tmp/okay_root）：\n  规定四组 20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750\n      → 每组「旧 267 值 / 新 267 值，NaN 0，一致」，**结论「通过」**\n  另加六组 20211231:000001 / 20200103:300750 / 20240603:600519 /\n          20190104:000002 / 20230103:002415 / 20250102:688981\n      → 同样全部一致（688981 有 2 个位置两边同为 NaN），结论「通过」\n\n单日小样本冒烟（n_jobs=8）：\n  run_base(20250303, 20250303) → 横截面 pipeline 1 天、5093 只股票、16.7 秒，\n  投影完成，factor_base/hm74_base 写出 46 个 .h5（30 原值 + 16 fold），\n  临时 colblk /hdd/.../factor_store_hm74_okay_database 已自动删除。\n\n关于改写形态（这是本系列唯一的取舍）：\n  旧的 hm74_okay.py 挂的是 TickDataBase（逐股），但每算一只票都要读当天**全市场**分钟表\n  挑 10 只 peer，再加 11 份盘口快照。照原样逐股做，全历史约 350TB 读盘、78 小时机时。\n  改成 compute_cross 后盘口每天只读一遍（约 15GB/天，全历史约 39TB），\n  当天中间结果在同一天的 5000 多只票之间复用。单日实测 2.9 秒（50 线程）。\n\n实现上值得记下来的三点：\n  1) 分钟相关系数（corrs_1m）做成了稠密点积。pandas 的 corrwith 对每列走\n     Series.corr → nanops.nancorr（成对完整观测 + np.corrcoef 两遍法）。\n     实测本数据每天的 NaN 结构很干净：少数列整列为空，其余列**都**只在第 237/238/239 行\n     为 NaN（一天最后三根，旧框架置的）。于是大多数列共享同一组有效行，\n     相关退化成同一组行上的点积，一天 5792 列一次算完。\n     代码里仍保留一般路径：取出现次数最多的掩码当主导掩码建稠密矩阵，\n     掩码不同的列走逐对算法，所以即使某天个别股票缺前几分钟也不会算错。\n  2) 盘口快照的时间戳按 pandas 的方式从「exchtime 微秒」转纳秒（含 ±250ns 量化）再加 8 小时，\n     判窗口用当天微秒。resample('3s') 的网格是 floor(首笔)~floor(末笔)、步长 3 秒——\n     实测 688981@20250303 的区间 09:30:03~13:26:59 落到 09:30:03~13:26:57、4739 个桶，\n     两端都是 floor 不是 ceil。桶号取绝对编号，跨股票对齐直接比桶号。\n  3) pct_change 在 pandas 2.3.3 里默认 fill_method 是 lib.no_default，会被改写成 'pad'，\n     所以是 `x / x.shift(1) - 1` 而不是 (x-x.shift)/x.shift；换算式顺序会影响末位。\n     不过 hm74 的最后一组用的是 raw abi1、'last_prc' 那一组走的是 else 分支用**原列**，\n     并不调 pct_change（旧代码里 'ret' 分支才用，而 'ret' 从没被调用过），代码里按实际分支写。\n\n对工具做了一处改动（需要 lead 知道）：\n  lib/okay_database/verify_series.py 加了 `--cross` 开关（+6 行，默认关闭，不影响任何\n  现有调用）。原因：hm74 旧代码是逐股形态（get_factor 返回一串数字），\n  verify_series 自动判定 is_cross 会落回逐股、去调 okay_compute_stock，\n  于是报「没有逐股实现」。加了开关后传 --cross 即可强制按横截面比对。\n  没有把它做成自动判定，是因为「旧逐股 / 新横截面」这个组合只有本系列有，\n  猜出来的默认行为对其他系列是风险。"
   },
   {
    "num": 75,
@@ -5777,7 +5794,8 @@
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": "hm084 雪国列车：Rust 复现完成，新旧逐值对账「通过」，已写完 base 单日冒烟。69 个因子。\n\n产物\n  src/okay_database/hm084.rs                                       逐股系列，69 个因子\n  /home/chenzongwei/pythoncode/成果hm84_雪国列车/hm84_okay_database.py\n      names_save 69（55 原值 + 14 _fold）、names_in_db 10、gap5 42、gap1 43\n\n对账（verify_series.py，OKAY_VERIFY_DATA_ROOT=/ssd_data）\n  八组 (日期,股票) 全部 69 值一致：\n    20250303:000001、20250304:600519、20180601:000002、20231020:300750\n    20191202:600000、20220715:002415、20210104:601318、20160701:000001\n  结论「通过」。\n\n冒烟\n  run_base(20250303, 20250303, n_jobs=8) 跑通，factor_base/hm84_base 下写出 69 个 .h5（+4 个\n  metadata），临时 colblk 已由框架自动删除。全历史不在本次做，交串行队列。\n\n旧代码干了什么（一句话）\n  15 秒一档，盘口 21 个 '_vol' 列先求 T×T 相关矩阵 lims_corrs，再对 20 条时间序列\n  （rate66/volume/local_volume × 3s/15s/60s × past/future，加 morph_decay_steps、rate66_at_decay）\n  各做一次 corrwith_diff 产出 10 列，拼成 T×200 的 res，最后过 get_features_factors\n  （with_corr=False、with_threshold_counts=False、with_lyapunov_exponent=False）取 19 个特征，\n  按 names_save 取 69 个输出。\n\n踩到并已解决的三个坑（都写进 hm084.rs 文件头）\n  1. 逐笔/盘口的 exchtime 在 CSV 里写成 \"1740960939000000.0\"（带 .0 的浮点串），\n     按整数字符串解析会失败并静默返回 0，于是所有行都被当成无效行丢掉。要按整数前缀解析。\n  2. 旧代码 `trade_66/(trade_66+trade_83).replace(inf,1).fillna(0)` 的方法链只作用在**分母**上，\n     结果本身不 fillna：分母为 0 时结果是 NaN。第一版照「结果 fillna」写会把 NaN 变 0。\n  3. corrwith 的配对（calculate_correlation_optimized）不接受含 NaN 的配对，\n     NaN 必须在入队前筛掉，否则整列均值被 NaN 污染、corr_less 那一族全变 NaN。\n\n已知取舍（实测未越线）\n  · 求和顺序：pandas 走 numpy 成对求和，本文件 f64 顺序累加，948 个数的相对误差量级 1e-13。\n  · big_pos/big_neg 的 stack→sort_values 并列顺序用「按值稳定排序再反转」代替\n    numpy 的 argsort(quicksort)[::-1]。矩阵对称、每个值成对出现，实测八组的时间集合都一致。\n  · 时间只用于分档，不比较纳秒（pandas 的 exchtime→Timestamp 有 ±256ns 噪声，\n    实测本样本上分档结果与精确微秒分档完全一致）。\n\n未覆盖的分支\n  · 旧代码里 cross_section=False、get_many=0、read_full=0，只有逐股一条路径，没有横截面分支。\n  · 集合竞价/停牌当天无成交的股票：flag66 或 flag83 全无数据时 compute_stock 返回 None（整条 NaN）。\n  · 只有单日小样本冒烟；全历史覆盖由串行队列提交后核验。"
+   "note": " [由文件系统重建：.rs 与 okay_database.py 都在，完成记录曾被队列覆盖]",
+   "recheck": "pending"
   },
   {
    "num": 86,
@@ -6391,12 +6409,13 @@
    ],
    "rust_file": "src/okay_database/hm090.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm90_日落/hm90_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": " [由文件系统重建：.rs 与 okay_database.py 都在，完成记录曾被队列覆盖]",
+   "recheck": "pending"
   },
   {
    "num": 91,

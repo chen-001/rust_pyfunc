@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import os
 import re
@@ -69,14 +70,40 @@ def set_single_slot() -> None:
         print(f"[队列] 设置 max_concurrent 失败（继续按提交顺序跑）: {exc}")
 
 
+# 和 claim_series.py 共用同一把文件锁：program_state.json 是多方共写的，
+# 不加锁时队列整体覆盖会把 worker 刚写进去的完成记录（含 note）吃掉。
+_STATE_LOCK = REPORT_DIR / "claims" / ".state.lock"
+
+
 def load_state() -> dict:
     return json.loads(STATE_PATH.read_text())
 
 
 def save_state(state: dict) -> None:
-    tmp = STATE_PATH.with_suffix(".tmp")
-    tmp.write_text(json.dumps(state, ensure_ascii=False, indent=1))
-    tmp.replace(STATE_PATH)
+    _STATE_LOCK.parent.mkdir(parents=True, exist_ok=True)
+    with _STATE_LOCK.open("a") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        tmp = STATE_PATH.with_suffix(".tmp")
+        tmp.write_text(json.dumps(state, ensure_ascii=False, indent=1))
+        tmp.replace(STATE_PATH)
+
+
+def update_series(series_name: str, **fields) -> dict:
+    """只改某个系列的字段，读-改-写全程持锁，避免覆盖别人的记录。"""
+    _STATE_LOCK.parent.mkdir(parents=True, exist_ok=True)
+    with _STATE_LOCK.open("a") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        state = json.loads(STATE_PATH.read_text())
+        target = None
+        for item in state["series"]:
+            if item["series"] == series_name:
+                target = item
+                item.update(fields)
+                break
+        tmp = STATE_PATH.with_suffix(".tmp")
+        tmp.write_text(json.dumps(state, ensure_ascii=False, indent=1))
+        tmp.replace(STATE_PATH)
+    return state
 
 
 def log(record: dict) -> None:
@@ -175,6 +202,8 @@ def colblk_left(ver: str) -> int:
 def pick_next(state: dict) -> dict | None:
     """挑下一个该提交的：改写好了、还没算完、也不在跑。"""
     for s in state["series"]:
+        if s.get("recheck") == "pending":
+            continue  # 完成记录是重建来的、验证结论没被记下，先别提交计算
         if s["step_rewrite"] == "done" and s["step_submit"] not in ("done", "running"):
             return s
     return None
@@ -192,17 +221,17 @@ def reconcile(state: dict) -> None:
             continue
         status = task.get("status")
         if status in ("completed", "failed", "cancelled"):
-            s["step_submit"] = "done" if status == "completed" else status
             files = library_written(library_ver(s))
-            s["library_files"] = files
-            s["step_library"] = "done" if any(files.values()) else "pending"
             left = colblk_left(library_ver(s))
-            s["colblk_left"] = left
-            s["step_cleanup"] = "done" if left == 0 else "pending"
-            s["note"] = f"对账：{status}，因子库 {files}，残留 colblk {left}"
+            update_series(s["series"],
+                          step_submit="done" if status == "completed" else status,
+                          library_files=files,
+                          step_library="done" if any(files.values()) else "pending",
+                          colblk_left=left,
+                          step_cleanup="done" if left == 0 else "pending",
+                          note=f"对账：{status}，因子库 {files}，残留 colblk {left}")
             changed = True
     if changed:
-        save_state(state)
         refresh_dashboard()
 
 
@@ -252,24 +281,23 @@ def main() -> int:
 
         print(f"[队列] 提交 {series['series']} → {script}")
         info = submit(script)
-        series["task_id"] = info["id"]
-        series["step_submit"] = "running"
-        series["note"] = f"提交于 {datetime.now():%Y-%m-%d %H:%M:%S}，n_jobs={N_JOBS}"
-        save_state(state)
+        update_series(series["series"], task_id=info["id"], step_submit="running",
+                      note=f"提交于 {datetime.now():%Y-%m-%d %H:%M:%S}，n_jobs={N_JOBS}")
         refresh_dashboard()
         log({"series": series["series"], "event": "submit", "task_id": info["id"],
              "time": datetime.now().isoformat()})
 
         status = wait_task(info["id"], poll=args.poll)
-        series["step_submit"] = "done" if status == "completed" else status
         files = library_written(library_ver(series))
-        series["library_files"] = files
-        series["step_library"] = "done" if files["gap5"] or files["gap1"] or files["base"] else "pending"
         left = colblk_left(library_ver(series))
-        series["colblk_left"] = left
-        series["step_cleanup"] = "done" if left == 0 else "pending"
-        series["note"] = f"{status}，因子库 {files}，残留 colblk {left}"
-        save_state(state)
+        update_series(series["series"],
+                      step_submit="done" if status == "completed" else status,
+                      library_files=files,
+                      step_library="done" if any(files.values()) else "pending",
+                      colblk_left=left,
+                      step_cleanup="done" if left == 0 else "pending",
+                      note=f"{status}，因子库 {files}，残留 colblk {left}")
+        state = load_state()
         refresh_dashboard()
         log({"series": series["series"], "event": "finish", "status": status,
              "files": files, "colblk_left": left, "time": datetime.now().isoformat()})

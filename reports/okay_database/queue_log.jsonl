@@ -1,3 +1,5 @@
 {"series": "hm029", "event": "submit", "task_id": 360, "time": "2026-10-05T08:14:17.449831"}
 {"series": "hm010", "event": "submit", "task_id": 361, "time": "2026-10-05T12:03:20.090928"}
 {"series": "hm011", "event": "submit", "task_id": 362, "time": "2026-10-05T18:42:29.967817"}
+{"series": "hm011", "event": "finish", "status": "completed", "files": {"base": 22, "gap5": 17, "gap1": 15, "db": 0}, "colblk_left": 0, "time": "2026-10-05T23:48:11.358715"}
+{"series": "hm013", "event": "submit", "task_id": 363, "time": "2026-10-05T23:48:11.712692"}

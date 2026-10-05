@@ -207,6 +207,10 @@ def main() -> int:
     ap.add_argument("--rtol", type=float, default=1e-4)
     ap.add_argument("--atol", type=float, default=1e-9,
                     help="数值零附近的绝对误差兜底；两边都小于它就按舍入噪声放行")
+    ap.add_argument("--cross", action="store_true",
+                    help="强制按横截面系列对账。旧代码是逐股形态、但 Rust 侧按横截面重写了"
+                         "（如 hm074：逐股 get_factor 返回一串数字，Rust 侧是 compute_cross），"
+                         "这时 is_cross 的自动判定会落回逐股，必须显式打开这个开关。")
     ap.add_argument("--out", default="")
     args = ap.parse_args()
 
@@ -232,6 +236,8 @@ def main() -> int:
             code, date = left, int(right)
         code = code.strip().zfill(6)
         old, is_cross = old_values(mod, captured, code, date)
+        if args.cross:
+            is_cross = True
         try:
             if is_cross:
                 new = cross_values(args.series, code, date, rp)
