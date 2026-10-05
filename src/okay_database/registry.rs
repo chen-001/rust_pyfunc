@@ -1,5 +1,6 @@
 // 自动生成，不要手改。生成器：lib/okay_database/gen_registry.py
 
+pub mod hm000;
 pub mod hm003;
 pub mod hm005;
 pub mod hm006;
@@ -41,6 +42,7 @@ pub mod hm044;
 pub mod hm045;
 pub mod hm046;
 pub mod hm048;
+pub mod hm050;
 pub mod hm051;
 pub mod hm052;
 pub mod hm054;
@@ -54,10 +56,12 @@ pub mod hm070;
 pub mod hm071;
 pub mod hm073;
 pub mod hm084;
+pub mod hm090;
 
 /// 逐股（TaskMessage::Task）分发：series 形如 "hm003"。
 pub fn dispatch_stock(series: &str, code: &str, date: i64, expected_len: usize) -> Vec<f32> {
     let out: Option<Vec<f32>> = match series {
+        "hm000" => hm000::compute_stock(code, date),
         "hm003" => hm003::compute_stock(code, date),
         "hm005" => hm005::compute_stock(code, date),
         "hm006" => hm006::compute_stock(code, date),
@@ -99,6 +103,7 @@ pub fn dispatch_stock(series: &str, code: &str, date: i64, expected_len: usize) 
         "hm045" => hm045::compute_stock(code, date),
         "hm046" => hm046::compute_stock(code, date),
         "hm048" => hm048::compute_stock(code, date),
+        "hm050" => hm050::compute_stock(code, date),
         "hm051" => hm051::compute_stock(code, date),
         "hm052" => hm052::compute_stock(code, date),
         "hm054" => hm054::compute_stock(code, date),
@@ -112,6 +117,7 @@ pub fn dispatch_stock(series: &str, code: &str, date: i64, expected_len: usize) 
         "hm071" => hm071::compute_stock(code, date),
         "hm073" => hm073::compute_stock(code, date),
         "hm084" => hm084::compute_stock(code, date),
+        "hm090" => hm090::compute_stock(code, date),
         _ => None,
     };
     match out {
@@ -123,6 +129,7 @@ pub fn dispatch_stock(series: &str, code: &str, date: i64, expected_len: usize) 
 /// 原样返回（不补 NaN），供单股调试入口区分「系列没有实现」和「该股该日算不出来」。
 pub fn dispatch_stock_raw(series: &str, code: &str, date: i64) -> Option<Vec<f32>> {
     match series {
+        "hm000" => hm000::compute_stock(code, date),
         "hm003" => hm003::compute_stock(code, date),
         "hm005" => hm005::compute_stock(code, date),
         "hm006" => hm006::compute_stock(code, date),
@@ -164,6 +171,7 @@ pub fn dispatch_stock_raw(series: &str, code: &str, date: i64) -> Option<Vec<f32
         "hm045" => hm045::compute_stock(code, date),
         "hm046" => hm046::compute_stock(code, date),
         "hm048" => hm048::compute_stock(code, date),
+        "hm050" => hm050::compute_stock(code, date),
         "hm051" => hm051::compute_stock(code, date),
         "hm052" => hm052::compute_stock(code, date),
         "hm054" => hm054::compute_stock(code, date),
@@ -177,6 +185,7 @@ pub fn dispatch_stock_raw(series: &str, code: &str, date: i64) -> Option<Vec<f32
         "hm071" => hm071::compute_stock(code, date),
         "hm073" => hm073::compute_stock(code, date),
         "hm084" => hm084::compute_stock(code, date),
+        "hm090" => hm090::compute_stock(code, date),
         _ => None,
     }
 }
@@ -184,6 +193,7 @@ pub fn dispatch_stock_raw(series: &str, code: &str, date: i64) -> Option<Vec<f32
 /// 横截面 / 分钟（TaskMessage::MinuteTask）分发：一次算一天全市场。
 pub fn dispatch_cross(series: &str, date: i64) -> Option<(Vec<String>, Vec<f32>)> {
     match series {
+        "hm000" => hm000::compute_cross(date),
         "hm003" => hm003::compute_cross(date),
         "hm005" => hm005::compute_cross(date),
         "hm006" => hm006::compute_cross(date),
@@ -225,6 +235,7 @@ pub fn dispatch_cross(series: &str, date: i64) -> Option<(Vec<String>, Vec<f32>)
         "hm045" => hm045::compute_cross(date),
         "hm046" => hm046::compute_cross(date),
         "hm048" => hm048::compute_cross(date),
+        "hm050" => hm050::compute_cross(date),
         "hm051" => hm051::compute_cross(date),
         "hm052" => hm052::compute_cross(date),
         "hm054" => hm054::compute_cross(date),
@@ -238,6 +249,7 @@ pub fn dispatch_cross(series: &str, date: i64) -> Option<(Vec<String>, Vec<f32>)
         "hm071" => hm071::compute_cross(date),
         "hm073" => hm073::compute_cross(date),
         "hm084" => hm084::compute_cross(date),
+        "hm090" => hm090::compute_cross(date),
         _ => None,
     }
 }
@@ -245,6 +257,7 @@ pub fn dispatch_cross(series: &str, date: i64) -> Option<(Vec<String>, Vec<f32>)
 /// 该系列声明的因子名（用于核对 expected_len）。
 pub fn series_names(series: &str) -> Option<Vec<String>> {
     match series {
+        "hm000" => Some(hm000::names()),
         "hm003" => Some(hm003::names()),
         "hm005" => Some(hm005::names()),
         "hm006" => Some(hm006::names()),
@@ -286,6 +299,7 @@ pub fn series_names(series: &str) -> Option<Vec<String>> {
         "hm045" => Some(hm045::names()),
         "hm046" => Some(hm046::names()),
         "hm048" => Some(hm048::names()),
+        "hm050" => Some(hm050::names()),
         "hm051" => Some(hm051::names()),
         "hm052" => Some(hm052::names()),
         "hm054" => Some(hm054::names()),
@@ -299,6 +313,7 @@ pub fn series_names(series: &str) -> Option<Vec<String>> {
         "hm071" => Some(hm071::names()),
         "hm073" => Some(hm073::names()),
         "hm084" => Some(hm084::names()),
+        "hm090" => Some(hm090::names()),
         _ => None,
     }
 }

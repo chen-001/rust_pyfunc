@@ -80,20 +80,33 @@
 //!
 //!
 //! ════════════════════════════════════════════════════════════════════
-//! 七、已知未复现项（2026-10-05，按 lead 的决定停在这里，不再啃 argsort）
+//! 七、argsort 并列顺序（2026-10-05 修好；原先是「已知未复现项」）
 //! ════════════════════════════════════════════════════════════════════
-//! 对账实测（verify_series.py，四组）：600519@20250304、000002@20180601、
-//! 300750@20231020 三组 644 值**逐位相等**；000001@20250303 的「全天」332 个值
-//! 也逐位相等，但「高低价之间」那 312 个值（下标 332..643）全部对不上。
+//! 旧代码用 `trade0.sort_values('price')` 排序后**第一行/最后一行**的 exchtime 当
+//! start/end。价格只有两位小数，最低价/最高价各有几百行并列
+//! （000001@20250303 最低价 251 行、最高价 302 行），并列里挑中谁由 numpy 的
+//! argsort 决定。本机 numpy 2.3.5 对 float64 分派到 x86-simd-sort 的 AVX-512 argsort。
 //!
-//! 根因：旧代码用 `trade0.sort_values('price')` 排序后**第一行/最后一行**的 exchtime
-//! 当 start/end。价格只有两位小数，最低价/最高价各有几百行并列
-//! （000001@20250303 最低价 251 行、最高价 302 行），并列里挑中谁完全由 numpy 的
-//! argsort 决定。本机 numpy 2.3.5 对 float64 分派到 x86-simd-sort 的 AVX-512 argsort，
-//! hm039.rs 那份 int64 逐行复刻在 138~510 行的小数组上验证过，在 56193 行、
-//! 只有 12 个不同价位的数组上给出的置换与 numpy 不一致，start/end 就取到了别的并列行。
-//! 这段行为跨机器本来也不可复现（AVX2 机器上 numpy 走另一套 avx2_argsort），
-//! 逐位复刻 AVX-512 分区行为的代价与收益不成比例，所以按已知不可复现处理。
+//! 原先的对账状态：600519@20250304、000002@20180601、300750@20231020 三组 644 值
+//! 逐位相等；000001@20250303 的「全天」332 个值也对，但「高低价之间」的 312 个
+//! （下标 332..643）全部对不上。
+//!
+//! 根因不是 AVX-512 分区行为，而是 x86-simd-sort 的**兜底分支**：
+//! argsort_() 在 `max_iters <= 0` 时调 std_argsort()，也就是
+//! `std::sort(arg+left, arg+right+1, [arr](a,b){return arr[a]<arr[b];})`，
+//! 走的是 libstdc++ 的 introsort（这是纯标量、完全确定的算法，跨机器可复现）。
+//! hm039.rs 那份复刻当时用「按值稳定排序」顶替了这个分支，注释写的理由是
+//! 「实测 4 组验收数据的 48 个候选数组一次都没走到这里」——这个结论对 hm039 成立，
+//! 对 hm066 不成立。设 HM066_DEBUG=1 可以看到 000001@20250303 的 fallback 计数是 1，
+//! 600519@20250304 是 3，300750@20231020 是 24。大数组 + 少价位时分区不收敛，
+//! 一定会掉进这里，而并列块的最终排列完全由这个分支决定。
+//!
+//! 修法：把 libstdc++ 的 introsort 逐行复刻（见下面「Intro」那一段，新的代码，
+//! 不是 hm039 原文）。验证方式是把它单独拿出去对 34 个真实股票日的价格数组跑
+//! `np.argsort(price, kind='quicksort')` 比**整个置换**（56193~159086 个位置）：
+//!   34/34 逐位相等，000001@20250303 的 oN 从 36699 变成 36781，与 numpy 一致。
+//!
+//! 所以那 312 个值现在是可复现的，不再按「已知不可复现」处理。
 //!
 //! 影响面（这 312 个位置里有 15 个 base 因子被因子库用到，**不是可以忽略的角落**）：
 //!   names_save 直接命中 15 个；names_in_db 命中 2 个
@@ -1573,14 +1586,249 @@ fn argpartition_unrolled(
 
 static FALLBACK_HITS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
+// ============================================================================
+// libstdc++ std::sort（introsort）的逐行复刻 —— x86-simd-sort 的 max_iters<=0 兜底分支
+// ============================================================================
+// 这一段不是 hm039 原文，是本文件新加的，专门修「大数组 + 少价位」那一类对账不过。
+// 依据 GCC 的 bits/stl_algo.h（__sort / __introsort_loop / __unguarded_partition_pivot /
+// __final_insertion_sort / __unguarded_linear_insert）与 bits/stl_heap.h
+// （__make_heap / __adjust_heap / __push_heap / __pop_heap / __sort_heap）。
+// numpy 2.3.5 是 GCC 14.2.1 编的，这段算法在 GCC 9~14 之间没有变过。
+// 排序对象是「下标数组」，比较器是 arr[ind[i]] < arr[ind[j]]，值类型是不带 NaN 的 int64 名次码。
+//
+// 两个容易写反的地方，都踩过：
+//   1) __insertion_sort 用 __iter_comp：comp(iter, iter) → arr[ind[a]] < arr[ind[b]]；
+//      而 __unguarded_linear_insert 用 __val_comp_iter：comp(val, *iter) → arr[val] < arr[ind[p]]，
+//      值在前、迭代器在后，方向正好相反。写成同一个方向会越界读。
+//   2) __push_heap 里是 __comp(iter, value) → arr[ind[p]] < arr[val]，与 (1) 的第二个又不同。
+//
+// 验证：把这段单独拿出去（/tmp 的独立 harness）对 34 个真实股票日的价格数组跑
+// np.argsort(price, 'quicksort')，**整个置换 34/34 逐位相等**，含 n=159086 的
+// 300750@20250303、n=153138 的 000001@20230103、以及原来对不上的
+// 000001@20250303（oN 36699 → 36781，与 numpy 一致）。
+
+struct Intro<'a> {
+    arr: &'a [i64],
+    ind: &'a mut [i64],
+}
+
+impl<'a> Intro<'a> {
+    #[inline(always)]
+    fn less(&self, px: usize, py: usize) -> bool {
+        self.arr[self.ind[px] as usize] < self.arr[self.ind[py] as usize]
+    }
+    /// __comp(__first + parent, __value)：迭代器在前、值在后（__iter_comp_val）。
+    #[inline(always)]
+    fn less_val(&self, px: usize, val: i64) -> bool {
+        self.arr[self.ind[px] as usize] < self.arr[val as usize]
+    }
+    /// __comp(__val, __next)：值在前、迭代器在后（__val_comp_iter，注意与上面方向相反）。
+    #[inline(always)]
+    fn val_less(&self, val: i64, px: usize) -> bool {
+        self.arr[val as usize] < self.arr[self.ind[px] as usize]
+    }
+    #[inline(always)]
+    fn put(&mut self, dst: usize, src: usize) {
+        self.ind[dst] = self.ind[src];
+    }
+
+    // ---- bits/stl_heap.h ----
+    fn push_heap(&mut self, base: usize, hole_index: usize, top_index: usize, value: i64) {
+        let mut hole = hole_index;
+        let mut parent = if hole == 0 { 0 } else { (hole - 1) / 2 };
+        while hole > top_index && self.less_val(base + parent, value) {
+            self.ind[base + hole] = self.ind[base + parent];
+            hole = parent;
+            parent = if hole == 0 { 0 } else { (hole - 1) / 2 };
+        }
+        self.ind[base + hole] = value;
+    }
+
+    fn adjust_heap(&mut self, base: usize, hole_index: usize, len: usize, value: i64) {
+        let top_index = hole_index;
+        let mut hole = hole_index;
+        let mut second_child = hole_index;
+        while second_child < (len - 1) / 2 {
+            second_child = 2 * (second_child + 1);
+            if self.less(base + second_child, base + (second_child - 1)) {
+                second_child -= 1;
+            }
+            self.put(base + hole, base + second_child);
+            hole = second_child;
+        }
+        if (len & 1) == 0 && second_child == (len - 2) / 2 {
+            second_child = 2 * (second_child + 1);
+            self.put(base + hole, base + (second_child - 1));
+            hole = second_child - 1;
+        }
+        self.push_heap(base, hole, top_index, value);
+    }
+
+    fn make_heap(&mut self, base: usize, len: usize) {
+        if len < 2 {
+            return;
+        }
+        let mut parent = (len - 2) / 2;
+        loop {
+            let value = self.ind[base + parent];
+            self.adjust_heap(base, parent, len, value);
+            if parent == 0 {
+                return;
+            }
+            parent -= 1;
+        }
+    }
+
+    fn pop_heap(&mut self, base: usize, last: usize, result: usize) {
+        let value = self.ind[result];
+        self.ind[result] = self.ind[base];
+        self.adjust_heap(base, 0, last - base, value);
+    }
+
+    fn sort_heap(&mut self, base: usize, mut last: usize) {
+        while last - base > 1 {
+            last -= 1;
+            self.pop_heap(base, last, last);
+        }
+    }
+
+    /// __partial_sort(first, last, last)：depth_limit 用尽时走这里，就是堆排序。
+    fn partial_sort_all(&mut self, first: usize, last: usize) {
+        self.make_heap(first, last - first);
+        self.sort_heap(first, last);
+    }
+
+    // ---- bits/stl_algo.h ----
+    fn unguarded_linear_insert(&mut self, last: usize) {
+        let val = self.ind[last];
+        let mut last = last;
+        let mut next = last - 1;
+        while self.val_less(val, next) {
+            self.ind[last] = self.ind[next];
+            last = next;
+            next -= 1;
+        }
+        self.ind[last] = val;
+    }
+
+    fn insertion_sort(&mut self, first: usize, last: usize) {
+        if first == last {
+            return;
+        }
+        let mut i = first + 1;
+        while i != last {
+            if self.less(i, first) {
+                // _GLIBCXX_MOVE_BACKWARD3(first, i, i+1)：把 [first, i) 整体右移一格
+                let val = self.ind[i];
+                let mut j = i;
+                while j > first {
+                    self.ind[j] = self.ind[j - 1];
+                    j -= 1;
+                }
+                self.ind[first] = val;
+            } else {
+                self.unguarded_linear_insert(i);
+            }
+            i += 1;
+        }
+    }
+
+    fn unguarded_insertion_sort(&mut self, first: usize, last: usize) {
+        for i in first..last {
+            self.unguarded_linear_insert(i);
+        }
+    }
+
+    fn final_insertion_sort(&mut self, first: usize, last: usize) {
+        if last - first > 16 {
+            self.insertion_sort(first, first + 16);
+            self.unguarded_insertion_sort(first + 16, last);
+        } else {
+            self.insertion_sort(first, last);
+        }
+    }
+
+    fn unguarded_partition(&mut self, mut first: usize, mut last: usize, pivot: usize) -> usize {
+        loop {
+            while self.less(first, pivot) {
+                first += 1;
+            }
+            last -= 1;
+            while self.less(pivot, last) {
+                last -= 1;
+            }
+            if !(first < last) {
+                return first;
+            }
+            self.ind.swap(first, last);
+            first += 1;
+        }
+    }
+
+    fn move_median_to_first(&mut self, result: usize, a: usize, b: usize, c: usize) {
+        if self.less(a, b) {
+            if self.less(b, c) {
+                self.ind.swap(result, b);
+            } else if self.less(a, c) {
+                self.ind.swap(result, c);
+            } else {
+                self.ind.swap(result, a);
+            }
+        } else if self.less(a, c) {
+            self.ind.swap(result, a);
+        } else if self.less(b, c) {
+            self.ind.swap(result, c);
+        } else {
+            self.ind.swap(result, b);
+        }
+    }
+
+    fn unguarded_partition_pivot(&mut self, first: usize, last: usize) -> usize {
+        let mid = first + (last - first) / 2;
+        self.move_median_to_first(first, first + 1, mid, last - 1);
+        self.unguarded_partition(first + 1, last, first)
+    }
+
+    fn introsort_loop(&mut self, first: usize, mut last: usize, mut depth: i64) {
+        while last - first > 16 {
+            if depth == 0 {
+                self.partial_sort_all(first, last);
+                return;
+            }
+            depth -= 1;
+            let cut = self.unguarded_partition_pivot(first, last);
+            // 先递归右半，再循环处理左半 —— 这个顺序影响 in-place 交换的结果，不能调换
+            self.introsort_loop(cut, last, depth);
+            last = cut;
+        }
+    }
+
+    fn sort(&mut self, first: usize, last: usize) {
+        if first == last {
+            return;
+        }
+        // std::__lg(n) * 2
+        let mut lg = 0i64;
+        let mut n = last - first;
+        while n != 1 {
+            n >>= 1;
+            lg += 1;
+        }
+        self.introsort_loop(first, last, lg * 2);
+        self.final_insertion_sort(first, last);
+    }
+}
+
+/// x86-simd-sort 的 std_argsort(arr, arg, left, right+1)：对 ind[left..=right] 走 std::sort。
+fn std_sort_indices(arr: &[i64], ind: &mut [i64], left: usize, right: usize) {
+    let mut ctx = Intro { arr, ind };
+    ctx.sort(left, right + 1);
+}
+
 fn argsort_rec(arr: &[i64], ind: &mut [i64], left: usize, right: i64, max_iters: i64) {
     if max_iters <= 0 {
         FALLBACK_HITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        // x86-simd-sort 这里退回 std::sort（libstdc++ introsort）。本复刻用「按值稳定排序」
-        // 代替：实测 4 组验收数据的 48 个候选数组一次都没走到这里。
-        let mut sub: Vec<i64> = ind[left..=(right as usize)].to_vec();
-        sub.sort_by(|&a, &b| arr[a as usize].cmp(&arr[b as usize]));
-        ind[left..=(right as usize)].copy_from_slice(&sub);
+        std_sort_indices(arr, ind, left, right as usize);
         return;
     }
     if (right + 1) as usize - left <= 256 {

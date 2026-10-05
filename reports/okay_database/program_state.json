@@ -3940,12 +3940,12 @@
    ],
    "rust_file": "src/okay_database/hm066.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm66_你追我赶/hm66_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": "【已完成，verify_series.py 结论「通过」】\n\n产物：\n  src/okay_database/hm066.rs                                   644 个因子，逐股系列\n  /home/chenzongwei/pythoncode/成果hm66_你追我赶/hm66_okay_database.py\n      names_save 45（29 原值 + 16 _fold）、names_in_db 8、gap5 23、gap1 32\n\n对账（verify_series.py，OKAY_VERIFY_DATA_ROOT=/tmp/okay_root）：\n  规定四组 20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750\n      → 旧 644 / 新 644，逐位一致，**结论「通过」**\n  另加六组 20250310:000001 / 20220819:000001 / 20240102:000001 /\n          20211231:000001 / 20230103:000001 / 20180601:000001\n      → 同样全部一致，结论「通过」\n  共 10 组、每组 644 个值，全部一致。\n\n本次解决的问题：原先「高低价之间」那 312 个值对不上的根因**不是** AVX-512 argsort\n分区行为不可复刻，而是 x86-simd-sort 的**兜底分支**被顶替了。\n  argsort_() 在 max_iters <= 0 时调 std_argsort()，即\n  std::sort(arg+left, arg+right+1, [arr](a,b){return arr[a]<arr[b];})，走 libstdc++ 的\n  introsort —— 纯标量、完全确定、跨机器可复现。hm039.rs 那份复刻当时用「按值稳定排序」\n  顶替，理由写的是「48 个候选数组一次都没走到这里」；这个判断对 hm039 成立，对 hm066 不成立。\n  HM066_DEBUG=1 看到 fallback 计数：000001@20250303 是 1、600519@20250304 是 3、\n  300750@20231020 是 24。大数组 + 少价位时分区不收敛，必然掉进这个分支，\n  而并列块的最终排列完全由它决定。\n\n修法与验证：\n  在 hm066.rs 里新加了一段 libstdc++ introsort 的逐行复刻（struct Intro，\n  依据 GCC 的 bits/stl_algo.h 与 bits/stl_heap.h），替换掉原来的稳定排序兜底。\n  验证方式是把它单独拿出去（/tmp 的独立 harness，不进主项目）对 34 个真实股票日的\n  价格数组跑 np.argsort(price, kind='quicksort')，比**整个置换**而不只是首末位：\n    34/34 逐位相等，n 从 19677 到 159086 都有；\n    000001@20250303 的 oN 从 36699 变成 36781，与 numpy 一致。\n  写这段时踩到的唯一坑：__unguarded_linear_insert 用的是 __val_comp_iter，\n  比较方向是 comp(val, *iter) = arr[val] < arr[ind[p]]，与 __insertion_sort 的\n  comp(iter, iter) 相反；写成同一个方向会越界读，已在代码注释里写明。\n\n遗留（不在本系列范围内，交给 lead 判断）：\n  hm039.rs 里那份复刻有同一个稳定排序兜底。hm039 自己的四组对账过了，说明那几组\n  没触发兜底，但不能保证别的股票日不触发。若 hm039 将来要复核，把 hm066.rs 里的\n  struct Intro 整段搬过去即可。\n\n另外旧库那批 `_fold` 列（16 个）本身不可复现（旧 run_base 用 list(set(...)) 的顺序去\nzip facs），本文件按代码本意实现为 |X| 的原值，与上一轮交接的记录一致。"
   },
   {
    "num": 67,

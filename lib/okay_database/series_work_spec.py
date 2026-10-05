@@ -210,6 +210,15 @@ design_whatever_out 写的）做 Rust 复现，产出两个文件：
   a/b 里 b 为 0 时结果是 NaN 而不是 0。照「对结果 fillna」写会把整族特征变成 NaN。
   符号两边的作用域要分清，rfind 类同理。
 
+
+- 关于 numpy 的 argsort 并列顺序，2026-10-05 有重要修正：x86-simd-sort 在 max_iters<=0 时会退到
+  **libstdc++ 的 std::sort（introsort，纯标量、跨机器确定）**，这一段是**可以**逐位复刻的。
+  之前 hm039 把这个兜底换成了「按值稳定排序」，四组对账过了只是因为那几组没触发兜底。
+  hm066 把 introsort 逐行复刻后（hm066.rs 里的 struct Intro），34 个真实股票日的 np.argsort
+  完整置换 34/34 逐位相等，n 最大到 159086。凡是要复刻 numpy argsort 的系列，
+  直接搬 hm066.rs 的 struct Intro，不要用稳定排序顶替。
+  调试办法：用 HM066_DEBUG 那类开关打印是否掉进兜底分支、兜底发生在哪一段。
+
 """
 
 # 本文件只是规范文本，不参与运行。
