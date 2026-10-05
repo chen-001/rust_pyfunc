@@ -165,13 +165,14 @@ _active_pids_lock = threading.Lock()
 #   ② hm+数字+_ind   （如 hm100_ind、hm134_ind、hm89_ind）
 #   ③ hm+数字+_ssm   （如 hm100_ssm，双边单调度 SSM 版本）
 #   ④ hm+数字+_ssm+序号（如 hm100_ssm2，SSM 选法的第 2 版）
+#   ⑤ hm+数字+_okay_database（如 hm29_okay_database，旧框架因子改写后写入因子库的版本）
 _CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 _ASCII_WORD_RE = re.compile(r"[A-Za-z0-9]")
-_HM_NAME_RE = re.compile(r"^hm\d+(_ind|_ssm\d*)?$", re.IGNORECASE)
+_HM_NAME_RE = re.compile(r"^hm\d+(_ind|_ssm\d*|_okay_database)?$", re.IGNORECASE)
 
 
 def validate_chinese_name(name: str) -> str | None:
-    """校验任务名以中文为主体（例外：hm+数字 / hm+数字_ind / hm+数字_ssm[序号]）。返回 None=合规，否则返回不合规原因。"""
+    """校验任务名以中文为主体（例外：hm+数字 / hm+数字_ind / hm+数字_ssm[序号] / hm+数字_okay_database）。返回 None=合规，否则返回不合规原因。"""
     if _HM_NAME_RE.match(name):
         return None
     cjk = len(_CJK_RE.findall(name))

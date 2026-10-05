@@ -29,7 +29,7 @@ TIMEOUT = 10
 #      hm+数字+_ssm（如 hm100_ssm，双边单调度 SSM 版本）、hm+数字+_ssm+序号（如 hm100_ssm2）。
 _CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 _ASCII_WORD_RE = re.compile(r"[A-Za-z0-9]")
-_HM_NAME_RE = re.compile(r"^hm\d+(_ind|_ssm\d*)?$", re.IGNORECASE)
+_HM_NAME_RE = re.compile(r"^hm\d+(_ind|_ssm\d*|_okay_database)?$", re.IGNORECASE)
 
 
 def _validate_chinese_name(name: str) -> str | None:
@@ -79,7 +79,7 @@ def cmd_submit(args):
             "   任务名称必须以中文为主体（可含数字/英文），"
             "请改名为如「交友软件_v2.py」「网络社交因子.py」后再提交；"
             "hm+数字（如 hm100）、hm+数字_ind（如 hm100_ind）、"
-            "hm+数字_ssm（如 hm100_ssm）亦可",
+            "hm+数字_ssm（如 hm100_ssm）、hm+数字_okay_database（如 hm29_okay_database）亦可",
             file=sys.stderr,
         )
         sys.exit(1)

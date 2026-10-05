@@ -1,0 +1,1584 @@
+[
+ {
+  "store": "cross_yhyb",
+  "rel": "base/shard_0/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/base/shard_0/factors.colblk",
+  "size": 11018306640,
+  "series": "hm107"
+ },
+ {
+  "store": "cross_yhyb",
+  "rel": "base/shard_1/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/base/shard_1/factors.colblk",
+  "size": 12415754104,
+  "series": "hm107"
+ },
+ {
+  "store": "cross_yhyb",
+  "rel": "base/shard_2/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/base/shard_2/factors.colblk",
+  "size": 12656140928,
+  "series": "hm107"
+ },
+ {
+  "store": "cross_yhyb",
+  "rel": "base/shard_3/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/base/shard_3/factors.colblk",
+  "size": 12013165800,
+  "series": "hm107"
+ },
+ {
+  "store": "cross_yhyb",
+  "rel": "base/shard_4/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/base/shard_4/factors.colblk",
+  "size": 10754934480,
+  "series": "hm107"
+ },
+ {
+  "store": "cross_yhyb",
+  "rel": "base/shard_5/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/base/shard_5/factors.colblk",
+  "size": 11874724536,
+  "series": "hm107"
+ },
+ {
+  "store": "cross_yhyb",
+  "rel": "base/shard_6/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/base/shard_6/factors.colblk",
+  "size": 11953822872,
+  "series": "hm107"
+ },
+ {
+  "store": "cross_yhyb",
+  "rel": "base/shard_7/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/base/shard_7/factors.colblk",
+  "size": 11536887928,
+  "series": "hm107"
+ },
+ {
+  "store": "cross_yhyb",
+  "rel": "supplement_yhyb_indtop/shard_0/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/supplement_yhyb_indtop/shard_0/factors.colblk",
+  "size": 24001292480,
+  "series": "hm107"
+ },
+ {
+  "store": "cross_yhyb",
+  "rel": "supplement_yhyb_indtop/shard_1/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/supplement_yhyb_indtop/shard_1/factors.colblk",
+  "size": 27045366904,
+  "series": "hm107"
+ },
+ {
+  "store": "cross_yhyb",
+  "rel": "supplement_yhyb_indtop/shard_2/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/supplement_yhyb_indtop/shard_2/factors.colblk",
+  "size": 27569004048,
+  "series": "hm107"
+ },
+ {
+  "store": "cross_yhyb",
+  "rel": "supplement_yhyb_indtop/shard_3/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/supplement_yhyb_indtop/shard_3/factors.colblk",
+  "size": 26168404600,
+  "series": "hm107"
+ },
+ {
+  "store": "cross_yhyb",
+  "rel": "supplement_yhyb_indtop/shard_4/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/supplement_yhyb_indtop/shard_4/factors.colblk",
+  "size": 23427586160,
+  "series": "hm107"
+ },
+ {
+  "store": "cross_yhyb",
+  "rel": "supplement_yhyb_indtop/shard_5/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/supplement_yhyb_indtop/shard_5/factors.colblk",
+  "size": 25866836536,
+  "series": "hm107"
+ },
+ {
+  "store": "cross_yhyb",
+  "rel": "supplement_yhyb_indtop/shard_6/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/supplement_yhyb_indtop/shard_6/factors.colblk",
+  "size": 26039137272,
+  "series": "hm107"
+ },
+ {
+  "store": "cross_yhyb",
+  "rel": "supplement_yhyb_indtop/shard_7/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/supplement_yhyb_indtop/shard_7/factors.colblk",
+  "size": 25130923528,
+  "series": "hm107"
+ },
+ {
+  "store": "hm100",
+  "rel": "shard_0/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm100/shard_0/factors.colblk",
+  "size": 55038039808,
+  "series": "hm100"
+ },
+ {
+  "store": "hm100",
+  "rel": "shard_1/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm100/shard_1/factors.colblk",
+  "size": 62006158600,
+  "series": "hm100"
+ },
+ {
+  "store": "hm100",
+  "rel": "shard_2/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm100/shard_2/factors.colblk",
+  "size": 63068167032,
+  "series": "hm100"
+ },
+ {
+  "store": "hm100",
+  "rel": "shard_3/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm100/shard_3/factors.colblk",
+  "size": 59918973256,
+  "series": "hm100"
+ },
+ {
+  "store": "hm100",
+  "rel": "shard_4/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm100/shard_4/factors.colblk",
+  "size": 53671253216,
+  "series": "hm100"
+ },
+ {
+  "store": "hm100",
+  "rel": "shard_5/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm100/shard_5/factors.colblk",
+  "size": 59332760368,
+  "series": "hm100"
+ },
+ {
+  "store": "hm100",
+  "rel": "shard_6/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm100/shard_6/factors.colblk",
+  "size": 59821232456,
+  "series": "hm100"
+ },
+ {
+  "store": "hm100",
+  "rel": "shard_7/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm100/shard_7/factors.colblk",
+  "size": 57727438304,
+  "series": "hm100"
+ },
+ {
+  "store": "hm108",
+  "rel": "shard_0/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm108/shard_0/factors.colblk",
+  "size": 36900132040,
+  "series": "hm108"
+ },
+ {
+  "store": "hm108",
+  "rel": "shard_1/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm108/shard_1/factors.colblk",
+  "size": 41590733944,
+  "series": "hm108"
+ },
+ {
+  "store": "hm108",
+  "rel": "shard_2/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm108/shard_2/factors.colblk",
+  "size": 42402208840,
+  "series": "hm108"
+ },
+ {
+  "store": "hm108",
+  "rel": "shard_3/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm108/shard_3/factors.colblk",
+  "size": 40224401648,
+  "series": "hm108"
+ },
+ {
+  "store": "hm108",
+  "rel": "shard_4/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm108/shard_4/factors.colblk",
+  "size": 35997591520,
+  "series": "hm108"
+ },
+ {
+  "store": "hm108",
+  "rel": "shard_5/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm108/shard_5/factors.colblk",
+  "size": 39760127768,
+  "series": "hm108"
+ },
+ {
+  "store": "hm108",
+  "rel": "shard_6/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm108/shard_6/factors.colblk",
+  "size": 40034369160,
+  "series": "hm108"
+ },
+ {
+  "store": "hm108",
+  "rel": "shard_7/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm108/shard_7/factors.colblk",
+  "size": 38630619616,
+  "series": "hm108"
+ },
+ {
+  "store": "hm95",
+  "rel": "shard_0/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm95/shard_0/factors.colblk",
+  "size": 116236421956,
+  "series": "hm95"
+ },
+ {
+  "store": "hm95",
+  "rel": "shard_1/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm95/shard_1/factors.colblk",
+  "size": 130547813240,
+  "series": "hm95"
+ },
+ {
+  "store": "hm95",
+  "rel": "shard_2/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm95/shard_2/factors.colblk",
+  "size": 132991221508,
+  "series": "hm95"
+ },
+ {
+  "store": "hm95",
+  "rel": "shard_3/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm95/shard_3/factors.colblk",
+  "size": 126359113352,
+  "series": "hm95"
+ },
+ {
+  "store": "hm95",
+  "rel": "shard_4/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm95/shard_4/factors.colblk",
+  "size": 113094897040,
+  "series": "hm95"
+ },
+ {
+  "store": "hm95",
+  "rel": "shard_5/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm95/shard_5/factors.colblk",
+  "size": 125660996704,
+  "series": "hm95"
+ },
+ {
+  "store": "hm95",
+  "rel": "shard_6/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm95/shard_6/factors.colblk",
+  "size": 126359113352,
+  "series": "hm95"
+ },
+ {
+  "store": "hm95",
+  "rel": "shard_7/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm95/shard_7/factors.colblk",
+  "size": 121472296816,
+  "series": "hm95"
+ },
+ {
+  "store": "hot_stock_pool_v1_fix",
+  "rel": "base/shard_0/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/base/shard_0/factors.colblk",
+  "size": 76480411768,
+  "series": "hm104+hm105"
+ },
+ {
+  "store": "hot_stock_pool_v1_fix",
+  "rel": "base/shard_1/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/base/shard_1/factors.colblk",
+  "size": 86181471808,
+  "series": "hm104+hm105"
+ },
+ {
+  "store": "hot_stock_pool_v1_fix",
+  "rel": "base/shard_2/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/base/shard_2/factors.colblk",
+  "size": 87849023728,
+  "series": "hm104+hm105"
+ },
+ {
+  "store": "hot_stock_pool_v1_fix",
+  "rel": "base/shard_3/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/base/shard_3/factors.colblk",
+  "size": 83385851240,
+  "series": "hm104+hm105"
+ },
+ {
+  "store": "hot_stock_pool_v1_fix",
+  "rel": "base/shard_4/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/base/shard_4/factors.colblk",
+  "size": 74652559264,
+  "series": "hm104+hm105"
+ },
+ {
+  "store": "hot_stock_pool_v1_fix",
+  "rel": "base/shard_5/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/base/shard_5/factors.colblk",
+  "size": 82424846696,
+  "series": "hm104+hm105"
+ },
+ {
+  "store": "hot_stock_pool_v1_fix",
+  "rel": "base/shard_6/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/base/shard_6/factors.colblk",
+  "size": 82974395376,
+  "series": "hm104+hm105"
+ },
+ {
+  "store": "hot_stock_pool_v1_fix",
+  "rel": "base/shard_7/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/base/shard_7/factors.colblk",
+  "size": 80079345856,
+  "series": "hm104+hm105"
+ },
+ {
+  "store": "hot_stock_pool_v1_fix",
+  "rel": "supplement_hotpool_ind/shard_0/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/supplement_hotpool_ind/shard_0/factors.colblk",
+  "size": 49734671608,
+  "series": "hm104+hm105"
+ },
+ {
+  "store": "hot_stock_pool_v1_fix",
+  "rel": "supplement_hotpool_ind/shard_1/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/supplement_hotpool_ind/shard_1/factors.colblk",
+  "size": 56043202432,
+  "series": "hm104+hm105"
+ },
+ {
+  "store": "hot_stock_pool_v1_fix",
+  "rel": "supplement_hotpool_ind/shard_2/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/supplement_hotpool_ind/shard_2/factors.colblk",
+  "size": 57127599664,
+  "series": "hm104+hm105"
+ },
+ {
+  "store": "hot_stock_pool_v1_fix",
+  "rel": "supplement_hotpool_ind/shard_3/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/supplement_hotpool_ind/shard_3/factors.colblk",
+  "size": 54225230120,
+  "series": "hm104+hm105"
+ },
+ {
+  "store": "hot_stock_pool_v1_fix",
+  "rel": "supplement_hotpool_ind/shard_4/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/supplement_hotpool_ind/shard_4/factors.colblk",
+  "size": 48546032032,
+  "series": "hm104+hm105"
+ },
+ {
+  "store": "hot_stock_pool_v1_fix",
+  "rel": "supplement_hotpool_ind/shard_5/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/supplement_hotpool_ind/shard_5/factors.colblk",
+  "size": 53600295656,
+  "series": "hm104+hm105"
+ },
+ {
+  "store": "hot_stock_pool_v1_fix",
+  "rel": "supplement_hotpool_ind/shard_6/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/supplement_hotpool_ind/shard_6/factors.colblk",
+  "size": 53957663280,
+  "series": "hm104+hm105"
+ },
+ {
+  "store": "hot_stock_pool_v1_fix",
+  "rel": "supplement_hotpool_ind/shard_7/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/supplement_hotpool_ind/shard_7/factors.colblk",
+  "size": 52075033024,
+  "series": "hm104+hm105"
+ },
+ {
+  "store": "hot_stock_pool_v2",
+  "rel": "shard_0/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v2/shard_0/factors.colblk",
+  "size": 76480411768,
+  "series": "hm105"
+ },
+ {
+  "store": "hot_stock_pool_v2",
+  "rel": "shard_1/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v2/shard_1/factors.colblk",
+  "size": 86181471808,
+  "series": "hm105"
+ },
+ {
+  "store": "hot_stock_pool_v2",
+  "rel": "shard_2/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v2/shard_2/factors.colblk",
+  "size": 87849023728,
+  "series": "hm105"
+ },
+ {
+  "store": "hot_stock_pool_v2",
+  "rel": "shard_3/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v2/shard_3/factors.colblk",
+  "size": 83385851240,
+  "series": "hm105"
+ },
+ {
+  "store": "hot_stock_pool_v2",
+  "rel": "shard_4/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v2/shard_4/factors.colblk",
+  "size": 74652559264,
+  "series": "hm105"
+ },
+ {
+  "store": "hot_stock_pool_v2",
+  "rel": "shard_5/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v2/shard_5/factors.colblk",
+  "size": 82147542696,
+  "series": "hm105"
+ },
+ {
+  "store": "hot_stock_pool_v2",
+  "rel": "shard_6/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v2/shard_6/factors.colblk",
+  "size": 82697144632,
+  "series": "hm105"
+ },
+ {
+  "store": "hot_stock_pool_v2",
+  "rel": "shard_7/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v2/shard_7/factors.colblk",
+  "size": 79802041856,
+  "series": "hm105"
+ },
+ {
+  "store": "long_order_v1",
+  "rel": "shard_0/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_long_order_v1/shard_0/factors.colblk",
+  "size": 185020264,
+  "series": "hm99"
+ },
+ {
+  "store": "long_order_v1",
+  "rel": "shard_1/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_long_order_v1/shard_1/factors.colblk",
+  "size": 208548280,
+  "series": "hm99"
+ },
+ {
+  "store": "long_order_v1",
+  "rel": "shard_2/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_long_order_v1/shard_2/factors.colblk",
+  "size": 212650624,
+  "series": "hm99"
+ },
+ {
+  "store": "long_order_v1",
+  "rel": "shard_3/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_long_order_v1/shard_3/factors.colblk",
+  "size": 201758492,
+  "series": "hm99"
+ },
+ {
+  "store": "long_order_v1",
+  "rel": "shard_4/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_long_order_v1/shard_4/factors.colblk",
+  "size": 180562420,
+  "series": "hm99"
+ },
+ {
+  "store": "long_order_v1",
+  "rel": "shard_5/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_long_order_v1/shard_5/factors.colblk",
+  "size": 198723252,
+  "series": "hm99"
+ },
+ {
+  "store": "long_order_v1",
+  "rel": "shard_6/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_long_order_v1/shard_6/factors.colblk",
+  "size": 200063464,
+  "series": "hm99"
+ },
+ {
+  "store": "long_order_v1",
+  "rel": "shard_7/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_long_order_v1/shard_7/factors.colblk",
+  "size": 193030664,
+  "series": "hm99"
+ },
+ {
+  "store": "pair_exp_A_4x50",
+  "rel": "shard_0/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_A_4x50/shard_0/factors.colblk",
+  "size": 187461304,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_A_4x50",
+  "rel": "shard_1/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_A_4x50/shard_1/factors.colblk",
+  "size": 187541656,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_A_4x50",
+  "rel": "shard_2/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_A_4x50/shard_2/factors.colblk",
+  "size": 249841248,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_A_4x50",
+  "rel": "shard_3/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_A_4x50/shard_3/factors.colblk",
+  "size": 309703496,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_A_4x50",
+  "rel": "shard_4/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_A_4x50/shard_4/factors.colblk",
+  "size": 373824400,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_A_4x50",
+  "rel": "shard_5/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_A_4x50/shard_5/factors.colblk",
+  "size": 435507960,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_A_4x50",
+  "rel": "shard_6/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_A_4x50/shard_6/factors.colblk",
+  "size": 374065456,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_A_4x50",
+  "rel": "shard_7/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_A_4x50/shard_7/factors.colblk",
+  "size": 187113112,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_B_6x50",
+  "rel": "shard_0/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_B_6x50/shard_0/factors.colblk",
+  "size": 187461304,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_B_6x50",
+  "rel": "shard_1/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_B_6x50/shard_1/factors.colblk",
+  "size": 187541656,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_B_6x50",
+  "rel": "shard_2/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_B_6x50/shard_2/factors.colblk",
+  "size": 249841248,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_B_6x50",
+  "rel": "shard_3/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_B_6x50/shard_3/factors.colblk",
+  "size": 309703496,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_B_6x50",
+  "rel": "shard_4/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_B_6x50/shard_4/factors.colblk",
+  "size": 373824400,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_B_6x50",
+  "rel": "shard_5/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_B_6x50/shard_5/factors.colblk",
+  "size": 435507960,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_B_6x50",
+  "rel": "shard_6/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_B_6x50/shard_6/factors.colblk",
+  "size": 374065456,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_B_6x50",
+  "rel": "shard_7/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_B_6x50/shard_7/factors.colblk",
+  "size": 187113112,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_C_7x50",
+  "rel": "shard_0/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_C_7x50/shard_0/factors.colblk",
+  "size": 187461304,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_C_7x50",
+  "rel": "shard_1/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_C_7x50/shard_1/factors.colblk",
+  "size": 187541656,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_C_7x50",
+  "rel": "shard_2/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_C_7x50/shard_2/factors.colblk",
+  "size": 249841248,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_C_7x50",
+  "rel": "shard_3/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_C_7x50/shard_3/factors.colblk",
+  "size": 309703496,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_C_7x50",
+  "rel": "shard_4/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_C_7x50/shard_4/factors.colblk",
+  "size": 373824400,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_C_7x50",
+  "rel": "shard_5/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_C_7x50/shard_5/factors.colblk",
+  "size": 435507960,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_C_7x50",
+  "rel": "shard_6/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_C_7x50/shard_6/factors.colblk",
+  "size": 374065456,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_C_7x50",
+  "rel": "shard_7/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_C_7x50/shard_7/factors.colblk",
+  "size": 187113112,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_D_8x50",
+  "rel": "shard_0/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_D_8x50/shard_0/factors.colblk",
+  "size": 187461304,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_D_8x50",
+  "rel": "shard_1/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_D_8x50/shard_1/factors.colblk",
+  "size": 187541656,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_D_8x50",
+  "rel": "shard_2/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_D_8x50/shard_2/factors.colblk",
+  "size": 249841248,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_D_8x50",
+  "rel": "shard_3/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_D_8x50/shard_3/factors.colblk",
+  "size": 309703496,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_D_8x50",
+  "rel": "shard_4/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_D_8x50/shard_4/factors.colblk",
+  "size": 373824400,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_D_8x50",
+  "rel": "shard_5/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_D_8x50/shard_5/factors.colblk",
+  "size": 435507960,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_D_8x50",
+  "rel": "shard_6/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_D_8x50/shard_6/factors.colblk",
+  "size": 374065456,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_D_8x50",
+  "rel": "shard_7/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_D_8x50/shard_7/factors.colblk",
+  "size": 187113112,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_E_4x100",
+  "rel": "shard_0/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_E_4x100/shard_0/factors.colblk",
+  "size": 187461304,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_E_4x100",
+  "rel": "shard_1/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_E_4x100/shard_1/factors.colblk",
+  "size": 187541656,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_E_4x100",
+  "rel": "shard_2/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_E_4x100/shard_2/factors.colblk",
+  "size": 249841248,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_E_4x100",
+  "rel": "shard_3/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_E_4x100/shard_3/factors.colblk",
+  "size": 309703496,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_E_4x100",
+  "rel": "shard_4/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_E_4x100/shard_4/factors.colblk",
+  "size": 373824400,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_E_4x100",
+  "rel": "shard_5/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_E_4x100/shard_5/factors.colblk",
+  "size": 435507960,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_E_4x100",
+  "rel": "shard_6/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_E_4x100/shard_6/factors.colblk",
+  "size": 374065456,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_E_4x100",
+  "rel": "shard_7/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_E_4x100/shard_7/factors.colblk",
+  "size": 187113112,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_F_8x25",
+  "rel": "shard_0/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_F_8x25/shard_0/factors.colblk",
+  "size": 187461304,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_F_8x25",
+  "rel": "shard_1/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_F_8x25/shard_1/factors.colblk",
+  "size": 187541656,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_F_8x25",
+  "rel": "shard_2/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_F_8x25/shard_2/factors.colblk",
+  "size": 249841248,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_F_8x25",
+  "rel": "shard_3/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_F_8x25/shard_3/factors.colblk",
+  "size": 309703496,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_F_8x25",
+  "rel": "shard_4/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_F_8x25/shard_4/factors.colblk",
+  "size": 373824400,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_F_8x25",
+  "rel": "shard_5/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_F_8x25/shard_5/factors.colblk",
+  "size": 435507960,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_F_8x25",
+  "rel": "shard_6/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_F_8x25/shard_6/factors.colblk",
+  "size": 374065456,
+  "series": "hm108"
+ },
+ {
+  "store": "pair_exp_F_8x25",
+  "rel": "shard_7/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_F_8x25/shard_7/factors.colblk",
+  "size": 187113112,
+  "series": "hm108"
+ },
+ {
+  "store": "urgency_v1",
+  "rel": "base/shard_0/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/base/shard_0/factors.colblk",
+  "size": 144988945168,
+  "series": "hm98"
+ },
+ {
+  "store": "urgency_v1",
+  "rel": "base/shard_1/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/base/shard_1/factors.colblk",
+  "size": 163419080064,
+  "series": "hm98"
+ },
+ {
+  "store": "urgency_v1",
+  "rel": "base/shard_2/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/base/shard_2/factors.colblk",
+  "size": 166624743472,
+  "series": "hm98"
+ },
+ {
+  "store": "urgency_v1",
+  "rel": "base/shard_3/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/base/shard_3/factors.colblk",
+  "size": 158053663680,
+  "series": "hm98"
+ },
+ {
+  "store": "urgency_v1",
+  "rel": "base/shard_4/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/base/shard_4/factors.colblk",
+  "size": 141539495816,
+  "series": "hm98"
+ },
+ {
+  "store": "urgency_v1",
+  "rel": "base/shard_5/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/base/shard_5/factors.colblk",
+  "size": 155767765688,
+  "series": "hm98"
+ },
+ {
+  "store": "urgency_v1",
+  "rel": "base/shard_6/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/base/shard_6/factors.colblk",
+  "size": 156806994304,
+  "series": "hm98"
+ },
+ {
+  "store": "urgency_v1",
+  "rel": "base/shard_7/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/base/shard_7/factors.colblk",
+  "size": 151297412160,
+  "series": "hm98"
+ },
+ {
+  "store": "urgency_v1",
+  "rel": "supplement_urgency_ext_cluster/shard_0/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster/shard_0/factors.colblk",
+  "size": 507606852,
+  "series": "hm98"
+ },
+ {
+  "store": "urgency_v1",
+  "rel": "supplement_urgency_ext_cluster/shard_1/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster/shard_1/factors.colblk",
+  "size": 570134364,
+  "series": "hm98"
+ },
+ {
+  "store": "urgency_v1",
+  "rel": "supplement_urgency_ext_cluster/shard_2/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster/shard_2/factors.colblk",
+  "size": 579643540,
+  "series": "hm98"
+ },
+ {
+  "store": "urgency_v1",
+  "rel": "supplement_urgency_ext_cluster/shard_3/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster/shard_3/factors.colblk",
+  "size": 549124536,
+  "series": "hm98"
+ },
+ {
+  "store": "urgency_v1",
+  "rel": "supplement_urgency_ext_cluster/shard_4/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster/shard_4/factors.colblk",
+  "size": 491326864,
+  "series": "hm98"
+ },
+ {
+  "store": "urgency_v1",
+  "rel": "supplement_urgency_ext_cluster/shard_5/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster/shard_5/factors.colblk",
+  "size": 542582704,
+  "series": "hm98"
+ },
+ {
+  "store": "urgency_v1",
+  "rel": "supplement_urgency_ext_cluster/shard_6/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster/shard_6/factors.colblk",
+  "size": 550122996,
+  "series": "hm98"
+ },
+ {
+  "store": "urgency_v1",
+  "rel": "supplement_urgency_ext_cluster/shard_7/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster/shard_7/factors.colblk",
+  "size": 530322020,
+  "series": "hm98"
+ },
+ {
+  "store": "urgency_v1",
+  "rel": "supplement_urgency_ext_cluster_accepted/shard_0/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster_accepted/shard_0/factors.colblk",
+  "size": 17235892,
+  "series": "hm98"
+ },
+ {
+  "store": "urgency_v1",
+  "rel": "supplement_urgency_ext_cluster_accepted/shard_1/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster_accepted/shard_1/factors.colblk",
+  "size": 19422124,
+  "series": "hm98"
+ },
+ {
+  "store": "urgency_v1",
+  "rel": "supplement_urgency_ext_cluster_accepted/shard_2/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster_accepted/shard_2/factors.colblk",
+  "size": 19798192,
+  "series": "hm98"
+ },
+ {
+  "store": "urgency_v1",
+  "rel": "supplement_urgency_ext_cluster_accepted/shard_3/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster_accepted/shard_3/factors.colblk",
+  "size": 18792236,
+  "series": "hm98"
+ },
+ {
+  "store": "urgency_v1",
+  "rel": "supplement_urgency_ext_cluster_accepted/shard_4/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster_accepted/shard_4/factors.colblk",
+  "size": 16824124,
+  "series": "hm98"
+ },
+ {
+  "store": "urgency_v1",
+  "rel": "supplement_urgency_ext_cluster_accepted/shard_5/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster_accepted/shard_5/factors.colblk",
+  "size": 18513828,
+  "series": "hm98"
+ },
+ {
+  "store": "urgency_v1",
+  "rel": "supplement_urgency_ext_cluster_accepted/shard_6/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster_accepted/shard_6/factors.colblk",
+  "size": 18637600,
+  "series": "hm98"
+ },
+ {
+  "store": "urgency_v1",
+  "rel": "supplement_urgency_ext_cluster_accepted/shard_7/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster_accepted/shard_7/factors.colblk",
+  "size": 17984804,
+  "series": "hm98"
+ },
+ {
+  "store": "yupei_dist",
+  "rel": "shard_0/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_yupei_dist/shard_0/factors.colblk",
+  "size": 15226265764,
+  "series": "hm109"
+ },
+ {
+  "store": "yupei_dist",
+  "rel": "shard_1/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_yupei_dist/shard_1/factors.colblk",
+  "size": 17161758652,
+  "series": "hm109"
+ },
+ {
+  "store": "yupei_dist",
+  "rel": "shard_2/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_yupei_dist/shard_2/factors.colblk",
+  "size": 17496612196,
+  "series": "hm109"
+ },
+ {
+  "store": "yupei_dist",
+  "rel": "shard_3/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_yupei_dist/shard_3/factors.colblk",
+  "size": 16597973924,
+  "series": "hm109"
+ },
+ {
+  "store": "yupei_dist",
+  "rel": "shard_4/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_yupei_dist/shard_4/factors.colblk",
+  "size": 14853846448,
+  "series": "hm109"
+ },
+ {
+  "store": "yupei_dist",
+  "rel": "shard_5/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_yupei_dist/shard_5/factors.colblk",
+  "size": 16349060748,
+  "series": "hm109"
+ },
+ {
+  "store": "yupei_dist",
+  "rel": "shard_6/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_yupei_dist/shard_6/factors.colblk",
+  "size": 16462023256,
+  "series": "hm109"
+ },
+ {
+  "store": "yupei_dist",
+  "rel": "shard_7/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_yupei_dist/shard_7/factors.colblk",
+  "size": 15882776780,
+  "series": "hm109"
+ },
+ {
+  "store": "为人画像",
+  "rel": "shard_0/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_为人画像/shard_0/factors.colblk",
+  "size": 143600578640,
+  "series": "hm96"
+ },
+ {
+  "store": "为人画像",
+  "rel": "shard_1/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_为人画像/shard_1/factors.colblk",
+  "size": 161780193576,
+  "series": "hm96"
+ },
+ {
+  "store": "为人画像",
+  "rel": "shard_2/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_为人画像/shard_2/factors.colblk",
+  "size": 164779608168,
+  "series": "hm96"
+ },
+ {
+  "store": "为人画像",
+  "rel": "shard_3/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_为人画像/shard_3/factors.colblk",
+  "size": 156301068608,
+  "series": "hm96"
+ },
+ {
+  "store": "为人画像",
+  "rel": "shard_4/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_为人画像/shard_4/factors.colblk",
+  "size": 139873729232,
+  "series": "hm96"
+ },
+ {
+  "store": "为人画像",
+  "rel": "shard_5/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_为人画像/shard_5/factors.colblk",
+  "size": 154064483784,
+  "series": "hm96"
+ },
+ {
+  "store": "为人画像",
+  "rel": "shard_6/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_为人画像/shard_6/factors.colblk",
+  "size": 155335147528,
+  "series": "hm96"
+ },
+ {
+  "store": "为人画像",
+  "rel": "shard_7/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_为人画像/shard_7/factors.colblk",
+  "size": 149871238152,
+  "series": "hm96"
+ },
+ {
+  "store": "切换时刻贡献",
+  "rel": "factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_切换时刻贡献/factors.colblk",
+  "size": 792627308652,
+  "series": "hm95"
+ },
+ {
+  "store": "切换时刻贡献",
+  "rel": "supplement_anneal/shard_0/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_切换时刻贡献/supplement_anneal/shard_0/factors.colblk",
+  "size": 277068100,
+  "series": "hm95"
+ },
+ {
+  "store": "切换时刻贡献",
+  "rel": "supplement_anneal/shard_1/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_切换时刻贡献/supplement_anneal/shard_1/factors.colblk",
+  "size": 310274756,
+  "series": "hm95"
+ },
+ {
+  "store": "切换时刻贡献",
+  "rel": "supplement_anneal/shard_2/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_切换时刻贡献/supplement_anneal/shard_2/factors.colblk",
+  "size": 314425588,
+  "series": "hm95"
+ },
+ {
+  "store": "切换时刻贡献",
+  "rel": "supplement_anneal/shard_3/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_切换时刻贡献/supplement_anneal/shard_3/factors.colblk",
+  "size": 300935384,
+  "series": "hm95"
+ },
+ {
+  "store": "切换时刻贡献",
+  "rel": "supplement_anneal/shard_4/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_切换时刻贡献/supplement_anneal/shard_4/factors.colblk",
+  "size": 270841852,
+  "series": "hm95"
+ },
+ {
+  "store": "切换时刻贡献",
+  "rel": "supplement_anneal/shard_5/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_切换时刻贡献/supplement_anneal/shard_5/factors.colblk",
+  "size": 296784552,
+  "series": "hm95"
+ },
+ {
+  "store": "切换时刻贡献",
+  "rel": "supplement_anneal/shard_6/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_切换时刻贡献/supplement_anneal/shard_6/factors.colblk",
+  "size": 305086216,
+  "series": "hm95"
+ },
+ {
+  "store": "切换时刻贡献",
+  "rel": "supplement_anneal/shard_7/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_切换时刻贡献/supplement_anneal/shard_7/factors.colblk",
+  "size": 291596012,
+  "series": "hm95"
+ },
+ {
+  "store": "切换时刻贡献",
+  "rel": "supplement_anneal_accepted/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_切换时刻贡献/supplement_anneal_accepted/factors.colblk",
+  "size": 156506288,
+  "series": "hm95"
+ },
+ {
+  "store": "可观测挂单协调骤降",
+  "rel": "shard_0/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_可观测挂单协调骤降/shard_0/factors.colblk",
+  "size": 34197611824,
+  "series": "hm101"
+ },
+ {
+  "store": "可观测挂单协调骤降",
+  "rel": "shard_1/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_可观测挂单协调骤降/shard_1/factors.colblk",
+  "size": 38440066488,
+  "series": "hm101"
+ },
+ {
+  "store": "可观测挂单协调骤降",
+  "rel": "shard_2/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_可观测挂单协调骤降/shard_2/factors.colblk",
+  "size": 39189717704,
+  "series": "hm101"
+ },
+ {
+  "store": "可观测挂单协调骤降",
+  "rel": "shard_3/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_可观测挂单协调骤降/shard_3/factors.colblk",
+  "size": 37107250816,
+  "series": "hm101"
+ },
+ {
+  "store": "可观测挂单协调骤降",
+  "rel": "shard_4/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_可观测挂单协调骤降/shard_4/factors.colblk",
+  "size": 33348204312,
+  "series": "hm101"
+ },
+ {
+  "store": "可观测挂单协调骤降",
+  "rel": "shard_5/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_可观测挂单协调骤降/shard_5/factors.colblk",
+  "size": 36652358304,
+  "series": "hm101"
+ },
+ {
+  "store": "可观测挂单协调骤降",
+  "rel": "shard_6/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_可观测挂单协调骤降/shard_6/factors.colblk",
+  "size": 36790717408,
+  "series": "hm101"
+ },
+ {
+  "store": "可观测挂单协调骤降",
+  "rel": "shard_7/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_可观测挂单协调骤降/shard_7/factors.colblk",
+  "size": 35745313280,
+  "series": "hm101"
+ },
+ {
+  "store": "日内CAPM升级版-多因子模型",
+  "rel": "shard_0/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_日内CAPM升级版-多因子模型/shard_0/factors.colblk",
+  "size": 286745142720,
+  "series": "hm110"
+ },
+ {
+  "store": "日内CAPM升级版-多因子模型",
+  "rel": "shard_1/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_日内CAPM升级版-多因子模型/shard_1/factors.colblk",
+  "size": 323239030272,
+  "series": "hm110"
+ },
+ {
+  "store": "日内CAPM升级版-多因子模型",
+  "rel": "shard_2/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_日内CAPM升级版-多因子模型/shard_2/factors.colblk",
+  "size": 329373129576,
+  "series": "hm110"
+ },
+ {
+  "store": "日内CAPM升级版-多因子模型",
+  "rel": "shard_3/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_日内CAPM升级版-多因子模型/shard_3/factors.colblk",
+  "size": 312675943148,
+  "series": "hm110"
+ },
+ {
+  "store": "日内CAPM升级版-多因子模型",
+  "rel": "shard_4/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_日内CAPM升级版-多因子模型/shard_4/factors.colblk",
+  "size": 279939634580,
+  "series": "hm110"
+ },
+ {
+  "store": "日内CAPM升级版-多因子模型",
+  "rel": "shard_5/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_日内CAPM升级版-多因子模型/shard_5/factors.colblk",
+  "size": 307943417224,
+  "series": "hm110"
+ },
+ {
+  "store": "日内CAPM升级版-多因子模型",
+  "rel": "shard_6/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_日内CAPM升级版-多因子模型/shard_6/factors.colblk",
+  "size": 310072167576,
+  "series": "hm110"
+ },
+ {
+  "store": "日内CAPM升级版-多因子模型",
+  "rel": "shard_7/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_日内CAPM升级版-多因子模型/shard_7/factors.colblk",
+  "size": 299253741948,
+  "series": "hm110"
+ },
+ {
+  "store": "柜员游戏01",
+  "rel": "shard_0/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏01/shard_0/factors.colblk",
+  "size": 36323454456,
+  "series": "hm97"
+ },
+ {
+  "store": "柜员游戏01",
+  "rel": "shard_1/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏01/shard_1/factors.colblk",
+  "size": 41059680912,
+  "series": "hm97"
+ },
+ {
+  "store": "柜员游戏01",
+  "rel": "shard_2/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏01/shard_2/factors.colblk",
+  "size": 41972011064,
+  "series": "hm97"
+ },
+ {
+  "store": "柜员游戏01",
+  "rel": "shard_3/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏01/shard_3/factors.colblk",
+  "size": 39725445972,
+  "series": "hm97"
+ },
+ {
+  "store": "柜员游戏01",
+  "rel": "shard_4/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏01/shard_4/factors.colblk",
+  "size": 35482011852,
+  "series": "hm97"
+ },
+ {
+  "store": "柜员游戏01",
+  "rel": "shard_5/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏01/shard_5/factors.colblk",
+  "size": 39356378128,
+  "series": "hm97"
+ },
+ {
+  "store": "柜员游戏01",
+  "rel": "shard_6/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏01/shard_6/factors.colblk",
+  "size": 39161981900,
+  "series": "hm97"
+ },
+ {
+  "store": "柜员游戏01",
+  "rel": "shard_7/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏01/shard_7/factors.colblk",
+  "size": 37846706284,
+  "series": "hm97"
+ },
+ {
+  "store": "柜员游戏三层01",
+  "rel": "shard_0/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏三层01/shard_0/factors.colblk",
+  "size": 46702957776,
+  "series": "hm103"
+ },
+ {
+  "store": "柜员游戏三层01",
+  "rel": "shard_1/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏三层01/shard_1/factors.colblk",
+  "size": 52615481504,
+  "series": "hm103"
+ },
+ {
+  "store": "柜员游戏三层01",
+  "rel": "shard_2/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏三层01/shard_2/factors.colblk",
+  "size": 53590975704,
+  "series": "hm103"
+ },
+ {
+  "store": "柜员游戏三层01",
+  "rel": "shard_3/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏三层01/shard_3/factors.colblk",
+  "size": 50833515504,
+  "series": "hm103"
+ },
+ {
+  "store": "柜员游戏三层01",
+  "rel": "shard_4/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏三层01/shard_4/factors.colblk",
+  "size": 45490882440,
+  "series": "hm103"
+ },
+ {
+  "store": "柜员游戏三层01",
+  "rel": "shard_5/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏三层01/shard_5/factors.colblk",
+  "size": 50106115664,
+  "series": "hm103"
+ },
+ {
+  "store": "柜员游戏三层01",
+  "rel": "shard_6/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏三层01/shard_6/factors.colblk",
+  "size": 50519370672,
+  "series": "hm103"
+ },
+ {
+  "store": "柜员游戏三层01",
+  "rel": "shard_7/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏三层01/shard_7/factors.colblk",
+  "size": 48742353816,
+  "series": "hm103"
+ },
+ {
+  "store": "柜员游戏退火版挂单失衡",
+  "rel": "shard_0/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡/shard_0/factors.colblk",
+  "size": 43181974552,
+  "series": "hm102"
+ },
+ {
+  "store": "柜员游戏退火版挂单失衡",
+  "rel": "shard_1/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡/shard_1/factors.colblk",
+  "size": 48430937384,
+  "series": "hm102"
+ },
+ {
+  "store": "柜员游戏退火版挂单失衡",
+  "rel": "shard_2/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡/shard_2/factors.colblk",
+  "size": 49286797560,
+  "series": "hm102"
+ },
+ {
+  "store": "柜员游戏退火版挂单失衡",
+  "rel": "shard_3/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡/shard_3/factors.colblk",
+  "size": 46898351664,
+  "series": "hm102"
+ },
+ {
+  "store": "柜员游戏退火版挂单失衡",
+  "rel": "shard_4/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡/shard_4/factors.colblk",
+  "size": 42097980912,
+  "series": "hm102"
+ },
+ {
+  "store": "柜员游戏退火版挂单失衡",
+  "rel": "shard_5/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡/shard_5/factors.colblk",
+  "size": 46111793536,
+  "series": "hm102"
+ },
+ {
+  "store": "柜员游戏退火版挂单失衡",
+  "rel": "shard_6/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡/shard_6/factors.colblk",
+  "size": 47309551672,
+  "series": "hm102"
+ },
+ {
+  "store": "柜员游戏退火版挂单失衡",
+  "rel": "shard_7/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡/shard_7/factors.colblk",
+  "size": 45363950968,
+  "series": "hm102"
+ },
+ {
+  "store": "柜员游戏退火版挂单失衡修复",
+  "rel": "shard_0/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡修复/shard_0/factors.colblk",
+  "size": 50311848632,
+  "series": "hm102"
+ },
+ {
+  "store": "柜员游戏退火版挂单失衡修复",
+  "rel": "shard_1/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡修复/shard_1/factors.colblk",
+  "size": 56681252016,
+  "series": "hm102"
+ },
+ {
+  "store": "柜员游戏退火版挂单失衡修复",
+  "rel": "shard_2/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡修复/shard_2/factors.colblk",
+  "size": 57732125992,
+  "series": "hm102"
+ },
+ {
+  "store": "柜员游戏退火版挂单失衡修复",
+  "rel": "shard_3/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡修复/shard_3/factors.colblk",
+  "size": 54761587744,
+  "series": "hm102"
+ },
+ {
+  "store": "柜员游戏退火版挂单失衡修复",
+  "rel": "shard_4/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡修复/shard_4/factors.colblk",
+  "size": 49006110888,
+  "series": "hm102"
+ },
+ {
+  "store": "柜员游戏退火版挂单失衡修复",
+  "rel": "shard_5/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡修复/shard_5/factors.colblk",
+  "size": 53977978792,
+  "series": "hm102"
+ },
+ {
+  "store": "柜员游戏退火版挂单失衡修复",
+  "rel": "shard_6/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡修复/shard_6/factors.colblk",
+  "size": 54423168216,
+  "series": "hm102"
+ },
+ {
+  "store": "柜员游戏退火版挂单失衡修复",
+  "rel": "shard_7/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡修复/shard_7/factors.colblk",
+  "size": 52508834808,
+  "series": "hm102"
+ },
+ {
+  "store": "蹭热点达人",
+  "rel": "shard_0/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_蹭热点达人/shard_0/factors.colblk",
+  "size": 127855637016,
+  "series": "hm106"
+ },
+ {
+  "store": "蹭热点达人",
+  "rel": "shard_1/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_蹭热点达人/shard_1/factors.colblk",
+  "size": 144127749576,
+  "series": "hm106"
+ },
+ {
+  "store": "蹭热点达人",
+  "rel": "shard_2/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_蹭热点达人/shard_2/factors.colblk",
+  "size": 146862858408,
+  "series": "hm106"
+ },
+ {
+  "store": "蹭热点达人",
+  "rel": "shard_3/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_蹭热点达人/shard_3/factors.colblk",
+  "size": 139417817192,
+  "series": "hm106"
+ },
+ {
+  "store": "蹭热点达人",
+  "rel": "shard_4/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_蹭热点达人/shard_4/factors.colblk",
+  "size": 124821156392,
+  "series": "hm106"
+ },
+ {
+  "store": "蹭热点达人",
+  "rel": "shard_5/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_蹭热点达人/shard_5/factors.colblk",
+  "size": 137307650272,
+  "series": "hm106"
+ },
+ {
+  "store": "蹭热点达人",
+  "rel": "shard_6/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_蹭热点达人/shard_6/factors.colblk",
+  "size": 138256830192,
+  "series": "hm106"
+ },
+ {
+  "store": "蹭热点达人",
+  "rel": "shard_7/factors.colblk",
+  "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_蹭热点达人/shard_7/factors.colblk",
+  "size": 133433045952,
+  "series": "hm106"
+ }
+]

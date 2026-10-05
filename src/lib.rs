@@ -140,6 +140,7 @@ pub mod minute_qhsk_anneal_metrics;
 pub mod multi_factor_capm_metrics;
 pub mod multi_factor_route_timeseries;
 pub mod observable_order_metrics;
+pub mod okay_database;
 pub mod order_pair_metrics_pipeline;
 pub mod orderbook_imb_refactor_metrics;
 pub mod pair_interaction_metrics;
@@ -1116,6 +1117,11 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         observable_order_metrics::py_compute_observable_order_metrics,
         m
     )?)?;
+
+    // hm0~hm92 旧框架因子复现：名字清单 + 单股单日 / 单日全市场调试入口
+    let _ = m.add_function(wrap_pyfunction!(okay_database::okay_series_names, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(okay_database::okay_compute_stock, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(okay_database::okay_compute_cross, m)?)?;
 
     let _ = m.add_function(wrap_pyfunction!(
         orderbook_imb_refactor_metrics::py_compute_orderbook_imb_refactor,

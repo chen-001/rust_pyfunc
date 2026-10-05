@@ -688,7 +688,7 @@ pub fn run_factor_pipeline(
         "anneal_volume_market",
         "hidden_arrange",
     ];
-    if !known.contains(&pipeline_name.as_str()) {
+    if !known.contains(&pipeline_name.as_str()) && !pipeline_name.starts_with("okay_") {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
             "未知流水线: {}（支持: {:?}）",
             pipeline, known
@@ -957,6 +957,14 @@ pub fn run_factor_pipeline(
                             Ok((_n, v)) => v,
                             Err(_) => vec![f32::NAN; expected_result_length],
                         }
+                    } else if let Some(series) = pipeline_name_t.strip_prefix("okay_") {
+                        // hm0~hm92 旧框架因子的 Rust 复现（逐股系列）
+                        crate::okay_database::dispatch_stock(
+                            series,
+                            &code,
+                            date,
+                            expected_result_length,
+                        )
                     } else {
                         pipeline_order_pair_hm90(
                             date,
@@ -1738,7 +1746,7 @@ pub fn run_factor_pipeline_v6(
         "anneal_volume",
         "anneal_volume_market",
     ];
-    if !known.contains(&pipeline_name.as_str()) {
+    if !known.contains(&pipeline_name.as_str()) && !pipeline_name.starts_with("okay_") {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
             "未知流水线: {}（支持: {:?}）",
             pipeline, known
@@ -2979,7 +2987,7 @@ pub fn run_factor_pipeline_cross_section(
         "yhyb_indtop",
         "switch_moment",
     ];
-    if !known.contains(&pipeline_name.as_str()) {
+    if !known.contains(&pipeline_name.as_str()) && !pipeline_name.starts_with("okay_") {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
             "未知横截面流水线: {}（支持: {:?}）",
             pipeline, known

@@ -125,6 +125,11 @@ fn main() {
                             Ok((_n, v)) => v,
                             Err(_) => vec![f32::NAN; expected_len],
                         }
+                    } else if let Some(series) = pipeline_name.strip_prefix("okay_") {
+                        // hm0~hm92 旧框架因子的 Rust 复现（逐股系列）
+                        rust_pyfunc::okay_database::dispatch_stock(
+                            series, &code, date, expected_len,
+                        )
                     } else {
                         pipeline_order_pair_hm90(date, &code, &params, &trading_days, expected_len)
                     }
@@ -197,6 +202,21 @@ fn main() {
                         pipeline_hot_pool_ind(date, expected_len)
                     } else if pipeline_name == "vsld" {
                         pipeline_vsld(date, expected_len)
+                    } else if let Some(series) = pipeline_name.strip_prefix("okay_") {
+                        // hm0~hm92 旧框架因子的 Rust 复现（横截面 / 分钟系列，一次一天全市场）
+                        match rust_pyfunc::okay_database::dispatch_cross(series, date) {
+                            Some((codes, vals)) => vals
+                                .chunks(expected_len)
+                                .zip(codes.iter())
+                                .map(|(facs, code)| TaskResult {
+                                    date,
+                                    code: code.clone(),
+                                    timestamp: 0,
+                                    facs: facs.to_vec(),
+                                })
+                                .collect(),
+                            None => Vec::new(),
+                        }
                     } else {
                         Vec::new()
                     }

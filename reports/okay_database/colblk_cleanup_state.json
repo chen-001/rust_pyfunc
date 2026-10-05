@@ -1,0 +1,2056 @@
+{
+ "started": "2026-10-05 01:12:43",
+ "resumed": "2026-10-05 01:21:08",
+ "status": "done",
+ "dry_run": false,
+ "disk_before": {
+  "path": "/hdd/user_home_unsafe/chenzongwei",
+  "total": 63991577575424,
+  "used": 56639241007104,
+  "free": 7150971703296,
+  "time": "2026-10-05 01:12:43"
+ },
+ "disk_after": {
+  "path": "/hdd/user_home_unsafe/chenzongwei",
+  "total": 63991577575424,
+  "used": 46627842187264,
+  "free": 17143157760000,
+  "time": "2026-10-05 01:49:21"
+ },
+ "items": [
+  {
+   "store": "cross_yhyb",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/base/shard_0/factors.colblk",
+   "size": 11018306640,
+   "series": "hm107",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "cross_yhyb",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/base/shard_1/factors.colblk",
+   "size": 12415754104,
+   "series": "hm107",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "cross_yhyb",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/base/shard_2/factors.colblk",
+   "size": 12656140928,
+   "series": "hm107",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "cross_yhyb",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/base/shard_3/factors.colblk",
+   "size": 12013165800,
+   "series": "hm107",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "cross_yhyb",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/base/shard_4/factors.colblk",
+   "size": 10754934480,
+   "series": "hm107",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "cross_yhyb",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/base/shard_5/factors.colblk",
+   "size": 11874724536,
+   "series": "hm107",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "cross_yhyb",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/base/shard_6/factors.colblk",
+   "size": 11953822872,
+   "series": "hm107",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "cross_yhyb",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/base/shard_7/factors.colblk",
+   "size": 11536887928,
+   "series": "hm107",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "cross_yhyb",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/supplement_yhyb_indtop/shard_0/factors.colblk",
+   "size": 24001292480,
+   "series": "hm107",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "cross_yhyb",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/supplement_yhyb_indtop/shard_1/factors.colblk",
+   "size": 27045366904,
+   "series": "hm107",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "cross_yhyb",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/supplement_yhyb_indtop/shard_2/factors.colblk",
+   "size": 27569004048,
+   "series": "hm107",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "cross_yhyb",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/supplement_yhyb_indtop/shard_3/factors.colblk",
+   "size": 26168404600,
+   "series": "hm107",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "cross_yhyb",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/supplement_yhyb_indtop/shard_4/factors.colblk",
+   "size": 23427586160,
+   "series": "hm107",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "cross_yhyb",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/supplement_yhyb_indtop/shard_5/factors.colblk",
+   "size": 25866836536,
+   "series": "hm107",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "cross_yhyb",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/supplement_yhyb_indtop/shard_6/factors.colblk",
+   "size": 26039137272,
+   "series": "hm107",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "cross_yhyb",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/supplement_yhyb_indtop/shard_7/factors.colblk",
+   "size": 25130923528,
+   "series": "hm107",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hm100",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm100/shard_0/factors.colblk",
+   "size": 55038039808,
+   "series": "hm100",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hm100",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm100/shard_1/factors.colblk",
+   "size": 62006158600,
+   "series": "hm100",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hm100",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm100/shard_2/factors.colblk",
+   "size": 63068167032,
+   "series": "hm100",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hm100",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm100/shard_3/factors.colblk",
+   "size": 59918973256,
+   "series": "hm100",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hm100",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm100/shard_4/factors.colblk",
+   "size": 53671253216,
+   "series": "hm100",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hm100",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm100/shard_5/factors.colblk",
+   "size": 59332760368,
+   "series": "hm100",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hm100",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm100/shard_6/factors.colblk",
+   "size": 59821232456,
+   "series": "hm100",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hm100",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm100/shard_7/factors.colblk",
+   "size": 57727438304,
+   "series": "hm100",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hm108",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm108/shard_0/factors.colblk",
+   "size": 36900132040,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hm108",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm108/shard_1/factors.colblk",
+   "size": 41590733944,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hm108",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm108/shard_2/factors.colblk",
+   "size": 42402208840,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hm108",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm108/shard_3/factors.colblk",
+   "size": 40224401648,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hm108",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm108/shard_4/factors.colblk",
+   "size": 35997591520,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hm108",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm108/shard_5/factors.colblk",
+   "size": 39760127768,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hm108",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm108/shard_6/factors.colblk",
+   "size": 40034369160,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hm108",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm108/shard_7/factors.colblk",
+   "size": 38630619616,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hm95",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm95/shard_0/factors.colblk",
+   "size": 116236421956,
+   "series": "hm95",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hm95",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm95/shard_1/factors.colblk",
+   "size": 130547813240,
+   "series": "hm95",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hm95",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm95/shard_2/factors.colblk",
+   "size": 132991221508,
+   "series": "hm95",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hm95",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm95/shard_3/factors.colblk",
+   "size": 126359113352,
+   "series": "hm95",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hm95",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm95/shard_4/factors.colblk",
+   "size": 113094897040,
+   "series": "hm95",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hm95",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm95/shard_5/factors.colblk",
+   "size": 125660996704,
+   "series": "hm95",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hm95",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm95/shard_6/factors.colblk",
+   "size": 126359113352,
+   "series": "hm95",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hm95",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hm95/shard_7/factors.colblk",
+   "size": 121472296816,
+   "series": "hm95",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hot_stock_pool_v1_fix",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/base/shard_0/factors.colblk",
+   "size": 76480411768,
+   "series": "hm104+hm105",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hot_stock_pool_v1_fix",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/base/shard_1/factors.colblk",
+   "size": 86181471808,
+   "series": "hm104+hm105",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hot_stock_pool_v1_fix",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/base/shard_2/factors.colblk",
+   "size": 87849023728,
+   "series": "hm104+hm105",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hot_stock_pool_v1_fix",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/base/shard_3/factors.colblk",
+   "size": 83385851240,
+   "series": "hm104+hm105",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hot_stock_pool_v1_fix",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/base/shard_4/factors.colblk",
+   "size": 74652559264,
+   "series": "hm104+hm105",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hot_stock_pool_v1_fix",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/base/shard_5/factors.colblk",
+   "size": 82424846696,
+   "series": "hm104+hm105",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hot_stock_pool_v1_fix",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/base/shard_6/factors.colblk",
+   "size": 82974395376,
+   "series": "hm104+hm105",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hot_stock_pool_v1_fix",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/base/shard_7/factors.colblk",
+   "size": 80079345856,
+   "series": "hm104+hm105",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hot_stock_pool_v1_fix",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/supplement_hotpool_ind/shard_0/factors.colblk",
+   "size": 49734671608,
+   "series": "hm104+hm105",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hot_stock_pool_v1_fix",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/supplement_hotpool_ind/shard_1/factors.colblk",
+   "size": 56043202432,
+   "series": "hm104+hm105",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hot_stock_pool_v1_fix",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/supplement_hotpool_ind/shard_2/factors.colblk",
+   "size": 57127599664,
+   "series": "hm104+hm105",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hot_stock_pool_v1_fix",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/supplement_hotpool_ind/shard_3/factors.colblk",
+   "size": 54225230120,
+   "series": "hm104+hm105",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hot_stock_pool_v1_fix",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/supplement_hotpool_ind/shard_4/factors.colblk",
+   "size": 48546032032,
+   "series": "hm104+hm105",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hot_stock_pool_v1_fix",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/supplement_hotpool_ind/shard_5/factors.colblk",
+   "size": 53600295656,
+   "series": "hm104+hm105",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hot_stock_pool_v1_fix",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/supplement_hotpool_ind/shard_6/factors.colblk",
+   "size": 53957663280,
+   "series": "hm104+hm105",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hot_stock_pool_v1_fix",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/supplement_hotpool_ind/shard_7/factors.colblk",
+   "size": 52075033024,
+   "series": "hm104+hm105",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hot_stock_pool_v2",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v2/shard_0/factors.colblk",
+   "size": 76480411768,
+   "series": "hm105",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hot_stock_pool_v2",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v2/shard_1/factors.colblk",
+   "size": 86181471808,
+   "series": "hm105",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hot_stock_pool_v2",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v2/shard_2/factors.colblk",
+   "size": 87849023728,
+   "series": "hm105",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hot_stock_pool_v2",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v2/shard_3/factors.colblk",
+   "size": 83385851240,
+   "series": "hm105",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hot_stock_pool_v2",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v2/shard_4/factors.colblk",
+   "size": 74652559264,
+   "series": "hm105",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hot_stock_pool_v2",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v2/shard_5/factors.colblk",
+   "size": 82147542696,
+   "series": "hm105",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hot_stock_pool_v2",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v2/shard_6/factors.colblk",
+   "size": 82697144632,
+   "series": "hm105",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "hot_stock_pool_v2",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v2/shard_7/factors.colblk",
+   "size": 79802041856,
+   "series": "hm105",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "long_order_v1",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_long_order_v1/shard_0/factors.colblk",
+   "size": 185020264,
+   "series": "hm99",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "long_order_v1",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_long_order_v1/shard_1/factors.colblk",
+   "size": 208548280,
+   "series": "hm99",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "long_order_v1",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_long_order_v1/shard_2/factors.colblk",
+   "size": 212650624,
+   "series": "hm99",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "long_order_v1",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_long_order_v1/shard_3/factors.colblk",
+   "size": 201758492,
+   "series": "hm99",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "long_order_v1",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_long_order_v1/shard_4/factors.colblk",
+   "size": 180562420,
+   "series": "hm99",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "long_order_v1",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_long_order_v1/shard_5/factors.colblk",
+   "size": 198723252,
+   "series": "hm99",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "long_order_v1",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_long_order_v1/shard_6/factors.colblk",
+   "size": 200063464,
+   "series": "hm99",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "long_order_v1",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_long_order_v1/shard_7/factors.colblk",
+   "size": 193030664,
+   "series": "hm99",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_A_4x50",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_A_4x50/shard_0/factors.colblk",
+   "size": 187461304,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_A_4x50",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_A_4x50/shard_1/factors.colblk",
+   "size": 187541656,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_A_4x50",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_A_4x50/shard_2/factors.colblk",
+   "size": 249841248,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_A_4x50",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_A_4x50/shard_3/factors.colblk",
+   "size": 309703496,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_A_4x50",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_A_4x50/shard_4/factors.colblk",
+   "size": 373824400,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_A_4x50",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_A_4x50/shard_5/factors.colblk",
+   "size": 435507960,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_A_4x50",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_A_4x50/shard_6/factors.colblk",
+   "size": 374065456,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_A_4x50",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_A_4x50/shard_7/factors.colblk",
+   "size": 187113112,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_B_6x50",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_B_6x50/shard_0/factors.colblk",
+   "size": 187461304,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_B_6x50",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_B_6x50/shard_1/factors.colblk",
+   "size": 187541656,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_B_6x50",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_B_6x50/shard_2/factors.colblk",
+   "size": 249841248,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_B_6x50",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_B_6x50/shard_3/factors.colblk",
+   "size": 309703496,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_B_6x50",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_B_6x50/shard_4/factors.colblk",
+   "size": 373824400,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_B_6x50",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_B_6x50/shard_5/factors.colblk",
+   "size": 435507960,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_B_6x50",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_B_6x50/shard_6/factors.colblk",
+   "size": 374065456,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_B_6x50",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_B_6x50/shard_7/factors.colblk",
+   "size": 187113112,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_C_7x50",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_C_7x50/shard_0/factors.colblk",
+   "size": 187461304,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_C_7x50",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_C_7x50/shard_1/factors.colblk",
+   "size": 187541656,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_C_7x50",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_C_7x50/shard_2/factors.colblk",
+   "size": 249841248,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_C_7x50",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_C_7x50/shard_3/factors.colblk",
+   "size": 309703496,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_C_7x50",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_C_7x50/shard_4/factors.colblk",
+   "size": 373824400,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_C_7x50",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_C_7x50/shard_5/factors.colblk",
+   "size": 435507960,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_C_7x50",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_C_7x50/shard_6/factors.colblk",
+   "size": 374065456,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_C_7x50",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_C_7x50/shard_7/factors.colblk",
+   "size": 187113112,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_D_8x50",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_D_8x50/shard_0/factors.colblk",
+   "size": 187461304,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_D_8x50",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_D_8x50/shard_1/factors.colblk",
+   "size": 187541656,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_D_8x50",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_D_8x50/shard_2/factors.colblk",
+   "size": 249841248,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_D_8x50",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_D_8x50/shard_3/factors.colblk",
+   "size": 309703496,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_D_8x50",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_D_8x50/shard_4/factors.colblk",
+   "size": 373824400,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_D_8x50",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_D_8x50/shard_5/factors.colblk",
+   "size": 435507960,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_D_8x50",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_D_8x50/shard_6/factors.colblk",
+   "size": 374065456,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_D_8x50",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_D_8x50/shard_7/factors.colblk",
+   "size": 187113112,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_E_4x100",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_E_4x100/shard_0/factors.colblk",
+   "size": 187461304,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_E_4x100",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_E_4x100/shard_1/factors.colblk",
+   "size": 187541656,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_E_4x100",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_E_4x100/shard_2/factors.colblk",
+   "size": 249841248,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_E_4x100",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_E_4x100/shard_3/factors.colblk",
+   "size": 309703496,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_E_4x100",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_E_4x100/shard_4/factors.colblk",
+   "size": 373824400,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_E_4x100",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_E_4x100/shard_5/factors.colblk",
+   "size": 435507960,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_E_4x100",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_E_4x100/shard_6/factors.colblk",
+   "size": 374065456,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_E_4x100",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_E_4x100/shard_7/factors.colblk",
+   "size": 187113112,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_F_8x25",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_F_8x25/shard_0/factors.colblk",
+   "size": 187461304,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_F_8x25",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_F_8x25/shard_1/factors.colblk",
+   "size": 187541656,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_F_8x25",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_F_8x25/shard_2/factors.colblk",
+   "size": 249841248,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_F_8x25",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_F_8x25/shard_3/factors.colblk",
+   "size": 309703496,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_F_8x25",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_F_8x25/shard_4/factors.colblk",
+   "size": 373824400,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_F_8x25",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_F_8x25/shard_5/factors.colblk",
+   "size": 435507960,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_F_8x25",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_F_8x25/shard_6/factors.colblk",
+   "size": 374065456,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "pair_exp_F_8x25",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_F_8x25/shard_7/factors.colblk",
+   "size": 187113112,
+   "series": "hm108",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "urgency_v1",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/base/shard_0/factors.colblk",
+   "size": 144988945168,
+   "series": "hm98",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "urgency_v1",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/base/shard_1/factors.colblk",
+   "size": 163419080064,
+   "series": "hm98",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "urgency_v1",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/base/shard_2/factors.colblk",
+   "size": 166624743472,
+   "series": "hm98",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "urgency_v1",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/base/shard_3/factors.colblk",
+   "size": 158053663680,
+   "series": "hm98",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "urgency_v1",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/base/shard_4/factors.colblk",
+   "size": 141539495816,
+   "series": "hm98",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "urgency_v1",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/base/shard_5/factors.colblk",
+   "size": 155767765688,
+   "series": "hm98",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "urgency_v1",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/base/shard_6/factors.colblk",
+   "size": 156806994304,
+   "series": "hm98",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "urgency_v1",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/base/shard_7/factors.colblk",
+   "size": 151297412160,
+   "series": "hm98",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "urgency_v1",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster/shard_0/factors.colblk",
+   "size": 507606852,
+   "series": "hm98",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "urgency_v1",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster/shard_1/factors.colblk",
+   "size": 570134364,
+   "series": "hm98",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "urgency_v1",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster/shard_2/factors.colblk",
+   "size": 579643540,
+   "series": "hm98",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "urgency_v1",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster/shard_3/factors.colblk",
+   "size": 549124536,
+   "series": "hm98",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "urgency_v1",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster/shard_4/factors.colblk",
+   "size": 491326864,
+   "series": "hm98",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "urgency_v1",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster/shard_5/factors.colblk",
+   "size": 542582704,
+   "series": "hm98",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "urgency_v1",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster/shard_6/factors.colblk",
+   "size": 550122996,
+   "series": "hm98",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "urgency_v1",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster/shard_7/factors.colblk",
+   "size": 530322020,
+   "series": "hm98",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "urgency_v1",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster_accepted/shard_0/factors.colblk",
+   "size": 17235892,
+   "series": "hm98",
+   "status": "skipped",
+   "note": "入选原件，保留"
+  },
+  {
+   "store": "urgency_v1",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster_accepted/shard_1/factors.colblk",
+   "size": 19422124,
+   "series": "hm98",
+   "status": "skipped",
+   "note": "入选原件，保留"
+  },
+  {
+   "store": "urgency_v1",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster_accepted/shard_2/factors.colblk",
+   "size": 19798192,
+   "series": "hm98",
+   "status": "skipped",
+   "note": "入选原件，保留"
+  },
+  {
+   "store": "urgency_v1",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster_accepted/shard_3/factors.colblk",
+   "size": 18792236,
+   "series": "hm98",
+   "status": "skipped",
+   "note": "入选原件，保留"
+  },
+  {
+   "store": "urgency_v1",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster_accepted/shard_4/factors.colblk",
+   "size": 16824124,
+   "series": "hm98",
+   "status": "skipped",
+   "note": "入选原件，保留"
+  },
+  {
+   "store": "urgency_v1",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster_accepted/shard_5/factors.colblk",
+   "size": 18513828,
+   "series": "hm98",
+   "status": "skipped",
+   "note": "入选原件，保留"
+  },
+  {
+   "store": "urgency_v1",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster_accepted/shard_6/factors.colblk",
+   "size": 18637600,
+   "series": "hm98",
+   "status": "skipped",
+   "note": "入选原件，保留"
+  },
+  {
+   "store": "urgency_v1",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster_accepted/shard_7/factors.colblk",
+   "size": 17984804,
+   "series": "hm98",
+   "status": "skipped",
+   "note": "入选原件，保留"
+  },
+  {
+   "store": "yupei_dist",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_yupei_dist/shard_0/factors.colblk",
+   "size": 15226265764,
+   "series": "hm109",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "yupei_dist",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_yupei_dist/shard_1/factors.colblk",
+   "size": 17161758652,
+   "series": "hm109",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "yupei_dist",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_yupei_dist/shard_2/factors.colblk",
+   "size": 17496612196,
+   "series": "hm109",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "yupei_dist",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_yupei_dist/shard_3/factors.colblk",
+   "size": 16597973924,
+   "series": "hm109",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "yupei_dist",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_yupei_dist/shard_4/factors.colblk",
+   "size": 14853846448,
+   "series": "hm109",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "yupei_dist",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_yupei_dist/shard_5/factors.colblk",
+   "size": 16349060748,
+   "series": "hm109",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "yupei_dist",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_yupei_dist/shard_6/factors.colblk",
+   "size": 16462023256,
+   "series": "hm109",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "yupei_dist",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_yupei_dist/shard_7/factors.colblk",
+   "size": 15882776780,
+   "series": "hm109",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "为人画像",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_为人画像/shard_0/factors.colblk",
+   "size": 143600578640,
+   "series": "hm96",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "为人画像",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_为人画像/shard_1/factors.colblk",
+   "size": 161780193576,
+   "series": "hm96",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "为人画像",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_为人画像/shard_2/factors.colblk",
+   "size": 164779608168,
+   "series": "hm96",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "为人画像",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_为人画像/shard_3/factors.colblk",
+   "size": 156301068608,
+   "series": "hm96",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "为人画像",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_为人画像/shard_4/factors.colblk",
+   "size": 139873729232,
+   "series": "hm96",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "为人画像",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_为人画像/shard_5/factors.colblk",
+   "size": 154064483784,
+   "series": "hm96",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "为人画像",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_为人画像/shard_6/factors.colblk",
+   "size": 155335147528,
+   "series": "hm96",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "为人画像",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_为人画像/shard_7/factors.colblk",
+   "size": 149871238152,
+   "series": "hm96",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "切换时刻贡献",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_切换时刻贡献/factors.colblk",
+   "size": 792627308652,
+   "series": "hm95",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "切换时刻贡献",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_切换时刻贡献/supplement_anneal/shard_0/factors.colblk",
+   "size": 277068100,
+   "series": "hm95",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "切换时刻贡献",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_切换时刻贡献/supplement_anneal/shard_1/factors.colblk",
+   "size": 310274756,
+   "series": "hm95",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "切换时刻贡献",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_切换时刻贡献/supplement_anneal/shard_2/factors.colblk",
+   "size": 314425588,
+   "series": "hm95",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "切换时刻贡献",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_切换时刻贡献/supplement_anneal/shard_3/factors.colblk",
+   "size": 300935384,
+   "series": "hm95",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "切换时刻贡献",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_切换时刻贡献/supplement_anneal/shard_4/factors.colblk",
+   "size": 270841852,
+   "series": "hm95",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "切换时刻贡献",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_切换时刻贡献/supplement_anneal/shard_5/factors.colblk",
+   "size": 296784552,
+   "series": "hm95",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "切换时刻贡献",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_切换时刻贡献/supplement_anneal/shard_6/factors.colblk",
+   "size": 305086216,
+   "series": "hm95",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "切换时刻贡献",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_切换时刻贡献/supplement_anneal/shard_7/factors.colblk",
+   "size": 291596012,
+   "series": "hm95",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "切换时刻贡献",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_切换时刻贡献/supplement_anneal_accepted/factors.colblk",
+   "size": 156506288,
+   "series": "hm95",
+   "status": "skipped",
+   "note": "入选原件，保留"
+  },
+  {
+   "store": "可观测挂单协调骤降",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_可观测挂单协调骤降/shard_0/factors.colblk",
+   "size": 34197611824,
+   "series": "hm101",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "可观测挂单协调骤降",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_可观测挂单协调骤降/shard_1/factors.colblk",
+   "size": 38440066488,
+   "series": "hm101",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "可观测挂单协调骤降",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_可观测挂单协调骤降/shard_2/factors.colblk",
+   "size": 39189717704,
+   "series": "hm101",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "可观测挂单协调骤降",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_可观测挂单协调骤降/shard_3/factors.colblk",
+   "size": 37107250816,
+   "series": "hm101",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "可观测挂单协调骤降",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_可观测挂单协调骤降/shard_4/factors.colblk",
+   "size": 33348204312,
+   "series": "hm101",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "可观测挂单协调骤降",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_可观测挂单协调骤降/shard_5/factors.colblk",
+   "size": 36652358304,
+   "series": "hm101",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "可观测挂单协调骤降",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_可观测挂单协调骤降/shard_6/factors.colblk",
+   "size": 36790717408,
+   "series": "hm101",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "可观测挂单协调骤降",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_可观测挂单协调骤降/shard_7/factors.colblk",
+   "size": 35745313280,
+   "series": "hm101",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "日内CAPM升级版-多因子模型",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_日内CAPM升级版-多因子模型/shard_0/factors.colblk",
+   "size": 286745142720,
+   "series": "hm110",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "日内CAPM升级版-多因子模型",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_日内CAPM升级版-多因子模型/shard_1/factors.colblk",
+   "size": 323239030272,
+   "series": "hm110",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "日内CAPM升级版-多因子模型",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_日内CAPM升级版-多因子模型/shard_2/factors.colblk",
+   "size": 329373129576,
+   "series": "hm110",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "日内CAPM升级版-多因子模型",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_日内CAPM升级版-多因子模型/shard_3/factors.colblk",
+   "size": 312675943148,
+   "series": "hm110",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "日内CAPM升级版-多因子模型",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_日内CAPM升级版-多因子模型/shard_4/factors.colblk",
+   "size": 279939634580,
+   "series": "hm110",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "日内CAPM升级版-多因子模型",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_日内CAPM升级版-多因子模型/shard_5/factors.colblk",
+   "size": 307943417224,
+   "series": "hm110",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "日内CAPM升级版-多因子模型",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_日内CAPM升级版-多因子模型/shard_6/factors.colblk",
+   "size": 310072167576,
+   "series": "hm110",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "日内CAPM升级版-多因子模型",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_日内CAPM升级版-多因子模型/shard_7/factors.colblk",
+   "size": 299253741948,
+   "series": "hm110",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "柜员游戏01",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏01/shard_0/factors.colblk",
+   "size": 36323454456,
+   "series": "hm97",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "柜员游戏01",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏01/shard_1/factors.colblk",
+   "size": 41059680912,
+   "series": "hm97",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "柜员游戏01",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏01/shard_2/factors.colblk",
+   "size": 41972011064,
+   "series": "hm97",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "柜员游戏01",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏01/shard_3/factors.colblk",
+   "size": 39725445972,
+   "series": "hm97",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "柜员游戏01",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏01/shard_4/factors.colblk",
+   "size": 35482011852,
+   "series": "hm97",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "柜员游戏01",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏01/shard_5/factors.colblk",
+   "size": 39356378128,
+   "series": "hm97",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "柜员游戏01",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏01/shard_6/factors.colblk",
+   "size": 39161981900,
+   "series": "hm97",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "柜员游戏01",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏01/shard_7/factors.colblk",
+   "size": 37846706284,
+   "series": "hm97",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "柜员游戏三层01",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏三层01/shard_0/factors.colblk",
+   "size": 46702957776,
+   "series": "hm103",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "柜员游戏三层01",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏三层01/shard_1/factors.colblk",
+   "size": 52615481504,
+   "series": "hm103",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "柜员游戏三层01",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏三层01/shard_2/factors.colblk",
+   "size": 53590975704,
+   "series": "hm103",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "柜员游戏三层01",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏三层01/shard_3/factors.colblk",
+   "size": 50833515504,
+   "series": "hm103",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "柜员游戏三层01",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏三层01/shard_4/factors.colblk",
+   "size": 45490882440,
+   "series": "hm103",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "柜员游戏三层01",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏三层01/shard_5/factors.colblk",
+   "size": 50106115664,
+   "series": "hm103",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "柜员游戏三层01",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏三层01/shard_6/factors.colblk",
+   "size": 50519370672,
+   "series": "hm103",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "柜员游戏三层01",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏三层01/shard_7/factors.colblk",
+   "size": 48742353816,
+   "series": "hm103",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "柜员游戏退火版挂单失衡",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡/shard_0/factors.colblk",
+   "size": 43181974552,
+   "series": "hm102",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "柜员游戏退火版挂单失衡",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡/shard_1/factors.colblk",
+   "size": 48430937384,
+   "series": "hm102",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "柜员游戏退火版挂单失衡",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡/shard_2/factors.colblk",
+   "size": 49286797560,
+   "series": "hm102",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "柜员游戏退火版挂单失衡",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡/shard_3/factors.colblk",
+   "size": 46898351664,
+   "series": "hm102",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "柜员游戏退火版挂单失衡",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡/shard_4/factors.colblk",
+   "size": 42097980912,
+   "series": "hm102",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "柜员游戏退火版挂单失衡",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡/shard_5/factors.colblk",
+   "size": 46111793536,
+   "series": "hm102",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "柜员游戏退火版挂单失衡",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡/shard_6/factors.colblk",
+   "size": 47309551672,
+   "series": "hm102",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "柜员游戏退火版挂单失衡",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡/shard_7/factors.colblk",
+   "size": 45363950968,
+   "series": "hm102",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "柜员游戏退火版挂单失衡修复",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡修复/shard_0/factors.colblk",
+   "size": 50311848632,
+   "series": "hm102",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "柜员游戏退火版挂单失衡修复",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡修复/shard_1/factors.colblk",
+   "size": 56681252016,
+   "series": "hm102",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "柜员游戏退火版挂单失衡修复",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡修复/shard_2/factors.colblk",
+   "size": 57732125992,
+   "series": "hm102",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "柜员游戏退火版挂单失衡修复",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡修复/shard_3/factors.colblk",
+   "size": 54761587744,
+   "series": "hm102",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "柜员游戏退火版挂单失衡修复",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡修复/shard_4/factors.colblk",
+   "size": 49006110888,
+   "series": "hm102",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "柜员游戏退火版挂单失衡修复",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡修复/shard_5/factors.colblk",
+   "size": 53977978792,
+   "series": "hm102",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "柜员游戏退火版挂单失衡修复",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡修复/shard_6/factors.colblk",
+   "size": 54423168216,
+   "series": "hm102",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "柜员游戏退火版挂单失衡修复",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡修复/shard_7/factors.colblk",
+   "size": 52508834808,
+   "series": "hm102",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "蹭热点达人",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_蹭热点达人/shard_0/factors.colblk",
+   "size": 127855637016,
+   "series": "hm106",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "蹭热点达人",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_蹭热点达人/shard_1/factors.colblk",
+   "size": 144127749576,
+   "series": "hm106",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "蹭热点达人",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_蹭热点达人/shard_2/factors.colblk",
+   "size": 146862858408,
+   "series": "hm106",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "蹭热点达人",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_蹭热点达人/shard_3/factors.colblk",
+   "size": 139417817192,
+   "series": "hm106",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "蹭热点达人",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_蹭热点达人/shard_4/factors.colblk",
+   "size": 124821156392,
+   "series": "hm106",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "蹭热点达人",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_蹭热点达人/shard_5/factors.colblk",
+   "size": 137307650272,
+   "series": "hm106",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "蹭热点达人",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_蹭热点达人/shard_6/factors.colblk",
+   "size": 138256830192,
+   "series": "hm106",
+   "status": "deleted",
+   "note": ""
+  },
+  {
+   "store": "蹭热点达人",
+   "path": "/hdd/user_home_unsafe/chenzongwei/factor_store_蹭热点达人/shard_7/factors.colblk",
+   "size": 133433045952,
+   "series": "hm106",
+   "status": "deleted",
+   "note": ""
+  }
+ ],
+ "total_bytes": 12560122172116,
+ "log": [
+  "[01:12:43] 计划删除 217 个 colblk，合计 11.42 TB；跳过 9 个（入选原件）",
+  "[01:12:43] 清理前可用空间 6.50 TB / 总 58.20 TB",
+  "[01:12:43] 1/217 已删 10.26 GB /hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/base/shard_0/factors.colblk",
+  "[01:12:43] 2/217 已删 11.56 GB /hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/base/shard_1/factors.colblk",
+  "[01:12:43] 3/217 已删 11.79 GB /hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/base/shard_2/factors.colblk",
+  "[01:12:43] 4/217 已删 11.19 GB /hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/base/shard_3/factors.colblk",
+  "[01:12:43] 5/217 已删 10.02 GB /hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/base/shard_4/factors.colblk",
+  "[01:12:43] 6/217 已删 11.06 GB /hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/base/shard_5/factors.colblk",
+  "[01:12:43] 7/217 已删 11.13 GB /hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/base/shard_6/factors.colblk",
+  "[01:12:44] 8/217 已删 10.74 GB /hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/base/shard_7/factors.colblk",
+  "[01:12:44] 9/217 已删 22.35 GB /hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/supplement_yhyb_indtop/shard_0/factors.colblk",
+  "[01:12:44] 10/217 已删 25.19 GB /hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/supplement_yhyb_indtop/shard_1/factors.colblk",
+  "[01:12:44] 11/217 已删 25.68 GB /hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/supplement_yhyb_indtop/shard_2/factors.colblk",
+  "[01:12:44] 12/217 已删 24.37 GB /hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/supplement_yhyb_indtop/shard_3/factors.colblk",
+  "[01:12:44] 13/217 已删 21.82 GB /hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/supplement_yhyb_indtop/shard_4/factors.colblk",
+  "[01:12:44] 14/217 已删 24.09 GB /hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/supplement_yhyb_indtop/shard_5/factors.colblk",
+  "[01:12:44] 15/217 已删 24.25 GB /hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/supplement_yhyb_indtop/shard_6/factors.colblk",
+  "[01:12:44] 16/217 已删 23.40 GB /hdd/user_home_unsafe/chenzongwei/factor_store_cross_yhyb/supplement_yhyb_indtop/shard_7/factors.colblk",
+  "[01:12:44] 17/217 已删 51.26 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hm100/shard_0/factors.colblk",
+  "[01:12:44] 18/217 已删 57.75 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hm100/shard_1/factors.colblk",
+  "[01:12:44] 19/217 已删 58.74 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hm100/shard_2/factors.colblk",
+  "[01:12:44] 20/217 已删 55.80 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hm100/shard_3/factors.colblk",
+  "[01:12:45] 21/217 已删 49.99 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hm100/shard_4/factors.colblk",
+  "[01:12:45] 22/217 已删 55.26 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hm100/shard_5/factors.colblk",
+  "[01:12:45] 23/217 已删 55.71 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hm100/shard_6/factors.colblk",
+  "[01:12:45] 24/217 已删 53.76 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hm100/shard_7/factors.colblk",
+  "[01:12:45] 25/217 已删 34.37 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hm108/shard_0/factors.colblk",
+  "[01:12:45] 26/217 已删 38.73 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hm108/shard_1/factors.colblk",
+  "[01:12:45] 27/217 已删 39.49 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hm108/shard_2/factors.colblk",
+  "[01:12:45] 28/217 已删 37.46 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hm108/shard_3/factors.colblk",
+  "[01:12:45] 29/217 已删 33.53 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hm108/shard_4/factors.colblk",
+  "[01:12:46] 30/217 已删 37.03 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hm108/shard_5/factors.colblk",
+  "[01:12:46] 31/217 已删 37.28 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hm108/shard_6/factors.colblk",
+  "[01:12:46] 32/217 已删 35.98 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hm108/shard_7/factors.colblk",
+  "[01:12:46] 33/217 已删 108.25 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hm95/shard_0/factors.colblk",
+  "[01:12:46] 34/217 已删 121.58 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hm95/shard_1/factors.colblk",
+  "[01:12:46] 35/217 已删 123.86 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hm95/shard_2/factors.colblk",
+  "[01:12:46] 36/217 已删 117.68 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hm95/shard_3/factors.colblk",
+  "[01:12:47] 37/217 已删 105.33 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hm95/shard_4/factors.colblk",
+  "[01:12:47] 38/217 已删 117.03 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hm95/shard_5/factors.colblk",
+  "[01:12:48] 39/217 已删 117.68 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hm95/shard_6/factors.colblk",
+  "[01:12:48] 40/217 已删 113.13 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hm95/shard_7/factors.colblk",
+  "[01:12:48] 41/217 已删 71.23 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/base/shard_0/factors.colblk",
+  "[01:12:48] 42/217 已删 80.26 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/base/shard_1/factors.colblk",
+  "[01:12:48] 43/217 已删 81.82 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/base/shard_2/factors.colblk",
+  "[01:12:49] 44/217 已删 77.66 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/base/shard_3/factors.colblk",
+  "[01:12:49] 45/217 已删 69.53 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/base/shard_4/factors.colblk",
+  "[01:12:49] 46/217 已删 76.76 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/base/shard_5/factors.colblk",
+  "[01:12:49] 47/217 已删 77.28 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/base/shard_6/factors.colblk",
+  "[01:12:49] 48/217 已删 74.58 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/base/shard_7/factors.colblk",
+  "[01:12:49] 49/217 已删 46.32 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/supplement_hotpool_ind/shard_0/factors.colblk",
+  "[01:12:50] 50/217 已删 52.19 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/supplement_hotpool_ind/shard_1/factors.colblk",
+  "[01:12:50] 51/217 已删 53.20 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/supplement_hotpool_ind/shard_2/factors.colblk",
+  "[01:12:51] 52/217 已删 50.50 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/supplement_hotpool_ind/shard_3/factors.colblk",
+  "[01:12:51] 53/217 已删 45.21 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/supplement_hotpool_ind/shard_4/factors.colblk",
+  "[01:12:51] 54/217 已删 49.92 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/supplement_hotpool_ind/shard_5/factors.colblk",
+  "[01:12:52] 55/217 已删 50.25 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/supplement_hotpool_ind/shard_6/factors.colblk",
+  "[01:12:52] 56/217 已删 48.50 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v1_fix/supplement_hotpool_ind/shard_7/factors.colblk",
+  "[01:12:52] 57/217 已删 71.23 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v2/shard_0/factors.colblk",
+  "[01:12:52] 58/217 已删 80.26 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v2/shard_1/factors.colblk",
+  "[01:12:52] 59/217 已删 81.82 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v2/shard_2/factors.colblk",
+  "[01:12:52] 60/217 已删 77.66 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v2/shard_3/factors.colblk",
+  "[01:12:52] 61/217 已删 69.53 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v2/shard_4/factors.colblk",
+  "[01:12:52] 62/217 已删 76.51 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v2/shard_5/factors.colblk",
+  "[01:12:52] 63/217 已删 77.02 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v2/shard_6/factors.colblk",
+  "[01:12:53] 64/217 已删 74.32 GB /hdd/user_home_unsafe/chenzongwei/factor_store_hot_stock_pool_v2/shard_7/factors.colblk",
+  "[01:12:53] 65/217 已删 176.45 MB /hdd/user_home_unsafe/chenzongwei/factor_store_long_order_v1/shard_0/factors.colblk",
+  "[01:12:53] 66/217 已删 198.89 MB /hdd/user_home_unsafe/chenzongwei/factor_store_long_order_v1/shard_1/factors.colblk",
+  "[01:12:53] 67/217 已删 202.80 MB /hdd/user_home_unsafe/chenzongwei/factor_store_long_order_v1/shard_2/factors.colblk",
+  "[01:12:53] 68/217 已删 192.41 MB /hdd/user_home_unsafe/chenzongwei/factor_store_long_order_v1/shard_3/factors.colblk",
+  "[01:12:53] 69/217 已删 172.20 MB /hdd/user_home_unsafe/chenzongwei/factor_store_long_order_v1/shard_4/factors.colblk",
+  "[01:12:53] 70/217 已删 189.52 MB /hdd/user_home_unsafe/chenzongwei/factor_store_long_order_v1/shard_5/factors.colblk",
+  "[01:12:53] 71/217 已删 190.80 MB /hdd/user_home_unsafe/chenzongwei/factor_store_long_order_v1/shard_6/factors.colblk",
+  "[01:12:53] 72/217 已删 184.09 MB /hdd/user_home_unsafe/chenzongwei/factor_store_long_order_v1/shard_7/factors.colblk",
+  "[01:12:53] 73/217 已删 178.78 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_A_4x50/shard_0/factors.colblk",
+  "[01:12:53] 74/217 已删 178.85 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_A_4x50/shard_1/factors.colblk",
+  "[01:12:53] 75/217 已删 238.27 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_A_4x50/shard_2/factors.colblk",
+  "[01:12:53] 76/217 已删 295.36 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_A_4x50/shard_3/factors.colblk",
+  "[01:12:53] 77/217 已删 356.51 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_A_4x50/shard_4/factors.colblk",
+  "[01:12:53] 78/217 已删 415.33 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_A_4x50/shard_5/factors.colblk",
+  "[01:12:53] 79/217 已删 356.74 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_A_4x50/shard_6/factors.colblk",
+  "[01:12:53] 80/217 已删 178.44 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_A_4x50/shard_7/factors.colblk",
+  "[01:12:53] 81/217 已删 178.78 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_B_6x50/shard_0/factors.colblk",
+  "[01:12:53] 82/217 已删 178.85 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_B_6x50/shard_1/factors.colblk",
+  "[01:12:53] 83/217 已删 238.27 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_B_6x50/shard_2/factors.colblk",
+  "[01:12:53] 84/217 已删 295.36 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_B_6x50/shard_3/factors.colblk",
+  "[01:12:53] 85/217 已删 356.51 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_B_6x50/shard_4/factors.colblk",
+  "[01:12:53] 86/217 已删 415.33 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_B_6x50/shard_5/factors.colblk",
+  "[01:12:53] 87/217 已删 356.74 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_B_6x50/shard_6/factors.colblk",
+  "[01:12:53] 88/217 已删 178.44 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_B_6x50/shard_7/factors.colblk",
+  "[01:12:53] 89/217 已删 178.78 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_C_7x50/shard_0/factors.colblk",
+  "[01:12:53] 90/217 已删 178.85 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_C_7x50/shard_1/factors.colblk",
+  "[01:12:53] 91/217 已删 238.27 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_C_7x50/shard_2/factors.colblk",
+  "[01:12:53] 92/217 已删 295.36 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_C_7x50/shard_3/factors.colblk",
+  "[01:12:53] 93/217 已删 356.51 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_C_7x50/shard_4/factors.colblk",
+  "[01:12:53] 94/217 已删 415.33 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_C_7x50/shard_5/factors.colblk",
+  "[01:12:53] 95/217 已删 356.74 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_C_7x50/shard_6/factors.colblk",
+  "[01:12:53] 96/217 已删 178.44 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_C_7x50/shard_7/factors.colblk",
+  "[01:12:53] 97/217 已删 178.78 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_D_8x50/shard_0/factors.colblk",
+  "[01:12:53] 98/217 已删 178.85 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_D_8x50/shard_1/factors.colblk",
+  "[01:12:53] 99/217 已删 238.27 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_D_8x50/shard_2/factors.colblk",
+  "[01:12:53] 100/217 已删 295.36 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_D_8x50/shard_3/factors.colblk",
+  "[01:12:53] 101/217 已删 356.51 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_D_8x50/shard_4/factors.colblk",
+  "[01:12:53] 102/217 已删 415.33 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_D_8x50/shard_5/factors.colblk",
+  "[01:12:53] 103/217 已删 356.74 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_D_8x50/shard_6/factors.colblk",
+  "[01:12:53] 104/217 已删 178.44 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_D_8x50/shard_7/factors.colblk",
+  "[01:12:53] 105/217 已删 178.78 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_E_4x100/shard_0/factors.colblk",
+  "[01:12:53] 106/217 已删 178.85 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_E_4x100/shard_1/factors.colblk",
+  "[01:12:53] 107/217 已删 238.27 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_E_4x100/shard_2/factors.colblk",
+  "[01:12:53] 108/217 已删 295.36 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_E_4x100/shard_3/factors.colblk",
+  "[01:12:53] 109/217 已删 356.51 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_E_4x100/shard_4/factors.colblk",
+  "[01:12:53] 110/217 已删 415.33 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_E_4x100/shard_5/factors.colblk",
+  "[01:12:53] 111/217 已删 356.74 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_E_4x100/shard_6/factors.colblk",
+  "[01:12:53] 112/217 已删 178.44 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_E_4x100/shard_7/factors.colblk",
+  "[01:12:53] 113/217 已删 178.78 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_F_8x25/shard_0/factors.colblk",
+  "[01:12:53] 114/217 已删 178.85 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_F_8x25/shard_1/factors.colblk",
+  "[01:12:53] 115/217 已删 238.27 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_F_8x25/shard_2/factors.colblk",
+  "[01:12:53] 116/217 已删 295.36 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_F_8x25/shard_3/factors.colblk",
+  "[01:12:53] 117/217 已删 356.51 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_F_8x25/shard_4/factors.colblk",
+  "[01:12:53] 118/217 已删 415.33 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_F_8x25/shard_5/factors.colblk",
+  "[01:12:53] 119/217 已删 356.74 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_F_8x25/shard_6/factors.colblk",
+  "[01:12:53] 120/217 已删 178.44 MB /hdd/user_home_unsafe/chenzongwei/factor_store_pair_exp_F_8x25/shard_7/factors.colblk",
+  "[01:12:53] 121/217 已删 135.03 GB /hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/base/shard_0/factors.colblk",
+  "[01:12:53] 122/217 已删 152.20 GB /hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/base/shard_1/factors.colblk",
+  "[01:12:53] 123/217 已删 155.18 GB /hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/base/shard_2/factors.colblk",
+  "[01:12:53] 124/217 已删 147.20 GB /hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/base/shard_3/factors.colblk",
+  "[01:12:54] 125/217 已删 131.82 GB /hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/base/shard_4/factors.colblk",
+  "[01:12:54] 126/217 已删 145.07 GB /hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/base/shard_5/factors.colblk",
+  "[01:12:54] 127/217 已删 146.04 GB /hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/base/shard_6/factors.colblk",
+  "[01:12:54] 128/217 已删 140.91 GB /hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/base/shard_7/factors.colblk",
+  "[01:12:54] 129/217 已删 484.09 MB /hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster/shard_0/factors.colblk",
+  "[01:12:54] 130/217 已删 543.72 MB /hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster/shard_1/factors.colblk",
+  "[01:12:54] 131/217 已删 552.79 MB /hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster/shard_2/factors.colblk",
+  "[01:12:54] 132/217 已删 523.69 MB /hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster/shard_3/factors.colblk",
+  "[01:12:54] 133/217 已删 468.57 MB /hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster/shard_4/factors.colblk",
+  "[01:12:54] 134/217 已删 517.45 MB /hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster/shard_5/factors.colblk",
+  "[01:12:54] 135/217 已删 524.64 MB /hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster/shard_6/factors.colblk",
+  "[01:12:54] 136/217 已删 505.75 MB /hdd/user_home_unsafe/chenzongwei/factor_store_urgency_v1/supplement_urgency_ext_cluster/shard_7/factors.colblk",
+  "[01:12:54] 137/217 已删 14.18 GB /hdd/user_home_unsafe/chenzongwei/factor_store_yupei_dist/shard_0/factors.colblk",
+  "[01:12:54] 138/217 已删 15.98 GB /hdd/user_home_unsafe/chenzongwei/factor_store_yupei_dist/shard_1/factors.colblk",
+  "[01:12:54] 139/217 已删 16.29 GB /hdd/user_home_unsafe/chenzongwei/factor_store_yupei_dist/shard_2/factors.colblk",
+  "[01:12:54] 140/217 已删 15.46 GB /hdd/user_home_unsafe/chenzongwei/factor_store_yupei_dist/shard_3/factors.colblk",
+  "[01:12:55] 141/217 已删 13.83 GB /hdd/user_home_unsafe/chenzongwei/factor_store_yupei_dist/shard_4/factors.colblk",
+  "[01:12:55] 142/217 已删 15.23 GB /hdd/user_home_unsafe/chenzongwei/factor_store_yupei_dist/shard_5/factors.colblk",
+  "[01:12:55] 143/217 已删 15.33 GB /hdd/user_home_unsafe/chenzongwei/factor_store_yupei_dist/shard_6/factors.colblk",
+  "[01:12:55] 144/217 已删 14.79 GB /hdd/user_home_unsafe/chenzongwei/factor_store_yupei_dist/shard_7/factors.colblk",
+  "[01:12:55] 145/217 已删 133.74 GB /hdd/user_home_unsafe/chenzongwei/factor_store_为人画像/shard_0/factors.colblk",
+  "[01:12:55] 146/217 已删 150.67 GB /hdd/user_home_unsafe/chenzongwei/factor_store_为人画像/shard_1/factors.colblk",
+  "[01:12:55] 147/217 已删 153.46 GB /hdd/user_home_unsafe/chenzongwei/factor_store_为人画像/shard_2/factors.colblk",
+  "[01:12:55] 148/217 已删 145.57 GB /hdd/user_home_unsafe/chenzongwei/factor_store_为人画像/shard_3/factors.colblk",
+  "[01:12:55] 149/217 已删 130.27 GB /hdd/user_home_unsafe/chenzongwei/factor_store_为人画像/shard_4/factors.colblk",
+  "[01:12:56] 150/217 已删 143.48 GB /hdd/user_home_unsafe/chenzongwei/factor_store_为人画像/shard_5/factors.colblk",
+  "[01:12:56] 151/217 已删 144.67 GB /hdd/user_home_unsafe/chenzongwei/factor_store_为人画像/shard_6/factors.colblk",
+  "[01:12:56] 152/217 已删 139.58 GB /hdd/user_home_unsafe/chenzongwei/factor_store_为人画像/shard_7/factors.colblk",
+  "[01:12:59] 153/217 已删 738.19 GB /hdd/user_home_unsafe/chenzongwei/factor_store_切换时刻贡献/factors.colblk",
+  "[01:12:59] 154/217 已删 264.23 MB /hdd/user_home_unsafe/chenzongwei/factor_store_切换时刻贡献/supplement_anneal/shard_0/factors.colblk",
+  "[01:12:59] 155/217 已删 295.90 MB /hdd/user_home_unsafe/chenzongwei/factor_store_切换时刻贡献/supplement_anneal/shard_1/factors.colblk",
+  "[01:12:59] 156/217 已删 299.86 MB /hdd/user_home_unsafe/chenzongwei/factor_store_切换时刻贡献/supplement_anneal/shard_2/factors.colblk",
+  "[01:12:59] 157/217 已删 286.99 MB /hdd/user_home_unsafe/chenzongwei/factor_store_切换时刻贡献/supplement_anneal/shard_3/factors.colblk",
+  "[01:13:00] 158/217 已删 258.29 MB /hdd/user_home_unsafe/chenzongwei/factor_store_切换时刻贡献/supplement_anneal/shard_4/factors.colblk",
+  "[01:13:00] 159/217 已删 283.04 MB /hdd/user_home_unsafe/chenzongwei/factor_store_切换时刻贡献/supplement_anneal/shard_5/factors.colblk",
+  "[01:13:00] 160/217 已删 290.95 MB /hdd/user_home_unsafe/chenzongwei/factor_store_切换时刻贡献/supplement_anneal/shard_6/factors.colblk",
+  "[01:13:00] 161/217 已删 278.09 MB /hdd/user_home_unsafe/chenzongwei/factor_store_切换时刻贡献/supplement_anneal/shard_7/factors.colblk",
+  "[01:13:00] 162/217 已删 31.85 GB /hdd/user_home_unsafe/chenzongwei/factor_store_可观测挂单协调骤降/shard_0/factors.colblk",
+  "[01:13:00] 163/217 已删 35.80 GB /hdd/user_home_unsafe/chenzongwei/factor_store_可观测挂单协调骤降/shard_1/factors.colblk",
+  "[01:13:00] 164/217 已删 36.50 GB /hdd/user_home_unsafe/chenzongwei/factor_store_可观测挂单协调骤降/shard_2/factors.colblk",
+  "[01:13:00] 165/217 已删 34.56 GB /hdd/user_home_unsafe/chenzongwei/factor_store_可观测挂单协调骤降/shard_3/factors.colblk",
+  "[01:13:00] 166/217 已删 31.06 GB /hdd/user_home_unsafe/chenzongwei/factor_store_可观测挂单协调骤降/shard_4/factors.colblk",
+  "[01:13:00] 167/217 已删 34.14 GB /hdd/user_home_unsafe/chenzongwei/factor_store_可观测挂单协调骤降/shard_5/factors.colblk",
+  "[01:13:00] 168/217 已删 34.26 GB /hdd/user_home_unsafe/chenzongwei/factor_store_可观测挂单协调骤降/shard_6/factors.colblk",
+  "[01:13:00] 169/217 已删 33.29 GB /hdd/user_home_unsafe/chenzongwei/factor_store_可观测挂单协调骤降/shard_7/factors.colblk",
+  "[01:13:01] 170/217 已删 267.05 GB /hdd/user_home_unsafe/chenzongwei/factor_store_日内CAPM升级版-多因子模型/shard_0/factors.colblk",
+  "[01:13:01] 171/217 已删 301.04 GB /hdd/user_home_unsafe/chenzongwei/factor_store_日内CAPM升级版-多因子模型/shard_1/factors.colblk",
+  "[01:13:02] 172/217 已删 306.75 GB /hdd/user_home_unsafe/chenzongwei/factor_store_日内CAPM升级版-多因子模型/shard_2/factors.colblk",
+  "[01:13:02] 173/217 已删 291.20 GB /hdd/user_home_unsafe/chenzongwei/factor_store_日内CAPM升级版-多因子模型/shard_3/factors.colblk",
+  "[01:13:02] 174/217 已删 260.71 GB /hdd/user_home_unsafe/chenzongwei/factor_store_日内CAPM升级版-多因子模型/shard_4/factors.colblk",
+  "[01:13:03] 175/217 已删 286.79 GB /hdd/user_home_unsafe/chenzongwei/factor_store_日内CAPM升级版-多因子模型/shard_5/factors.colblk",
+  "[01:13:03] 176/217 已删 288.78 GB /hdd/user_home_unsafe/chenzongwei/factor_store_日内CAPM升级版-多因子模型/shard_6/factors.colblk",
+  "[01:13:04] 177/217 已删 278.70 GB /hdd/user_home_unsafe/chenzongwei/factor_store_日内CAPM升级版-多因子模型/shard_7/factors.colblk",
+  "[01:13:04] 178/217 已删 33.83 GB /hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏01/shard_0/factors.colblk",
+  "[01:21:08] 计划删除 217 个 colblk，合计 11.42 TB；已删 178，本次待删 39；跳过 9 个（入选原件）",
+  "[01:21:08] 清理前可用空间 6.50 TB / 总 58.20 TB",
+  "[01:48:35] 1/39 已删 38.24 GB /hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏01/shard_1/factors.colblk",
+  "[01:48:36] 2/39 已删 39.09 GB /hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏01/shard_2/factors.colblk",
+  "[01:48:36] 3/39 已删 37.00 GB /hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏01/shard_3/factors.colblk",
+  "[01:48:36] 4/39 已删 33.05 GB /hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏01/shard_4/factors.colblk",
+  "[01:49:10] 5/39 已删 36.65 GB /hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏01/shard_5/factors.colblk",
+  "[01:49:10] 6/39 已删 36.47 GB /hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏01/shard_6/factors.colblk",
+  "[01:49:10] 7/39 已删 35.25 GB /hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏01/shard_7/factors.colblk",
+  "[01:49:11] 8/39 已删 43.50 GB /hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏三层01/shard_0/factors.colblk",
+  "[01:49:11] 9/39 已删 49.00 GB /hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏三层01/shard_1/factors.colblk",
+  "[01:49:12] 10/39 已删 49.91 GB /hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏三层01/shard_2/factors.colblk",
+  "[01:49:13] 11/39 已删 47.34 GB /hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏三层01/shard_3/factors.colblk",
+  "[01:49:13] 12/39 已删 42.37 GB /hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏三层01/shard_4/factors.colblk",
+  "[01:49:14] 13/39 已删 46.66 GB /hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏三层01/shard_5/factors.colblk",
+  "[01:49:14] 14/39 已删 47.05 GB /hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏三层01/shard_6/factors.colblk",
+  "[01:49:14] 15/39 已删 45.39 GB /hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏三层01/shard_7/factors.colblk",
+  "[01:49:15] 16/39 已删 40.22 GB /hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡/shard_0/factors.colblk",
+  "[01:49:15] 17/39 已删 45.10 GB /hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡/shard_1/factors.colblk",
+  "[01:49:15] 18/39 已删 45.90 GB /hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡/shard_2/factors.colblk",
+  "[01:49:15] 19/39 已删 43.68 GB /hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡/shard_3/factors.colblk",
+  "[01:49:15] 20/39 已删 39.21 GB /hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡/shard_4/factors.colblk",
+  "[01:49:15] 21/39 已删 42.94 GB /hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡/shard_5/factors.colblk",
+  "[01:49:15] 22/39 已删 44.06 GB /hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡/shard_6/factors.colblk",
+  "[01:49:16] 23/39 已删 42.25 GB /hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡/shard_7/factors.colblk",
+  "[01:49:16] 24/39 已删 46.86 GB /hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡修复/shard_0/factors.colblk",
+  "[01:49:16] 25/39 已删 52.79 GB /hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡修复/shard_1/factors.colblk",
+  "[01:49:16] 26/39 已删 53.77 GB /hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡修复/shard_2/factors.colblk",
+  "[01:49:16] 27/39 已删 51.00 GB /hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡修复/shard_3/factors.colblk",
+  "[01:49:16] 28/39 已删 45.64 GB /hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡修复/shard_4/factors.colblk",
+  "[01:49:17] 29/39 已删 50.27 GB /hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡修复/shard_5/factors.colblk",
+  "[01:49:17] 30/39 已删 50.69 GB /hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡修复/shard_6/factors.colblk",
+  "[01:49:18] 31/39 已删 48.90 GB /hdd/user_home_unsafe/chenzongwei/factor_store_柜员游戏退火版挂单失衡修复/shard_7/factors.colblk",
+  "[01:49:18] 32/39 已删 119.07 GB /hdd/user_home_unsafe/chenzongwei/factor_store_蹭热点达人/shard_0/factors.colblk",
+  "[01:49:19] 33/39 已删 134.23 GB /hdd/user_home_unsafe/chenzongwei/factor_store_蹭热点达人/shard_1/factors.colblk",
+  "[01:49:19] 34/39 已删 136.78 GB /hdd/user_home_unsafe/chenzongwei/factor_store_蹭热点达人/shard_2/factors.colblk",
+  "[01:49:20] 35/39 已删 129.84 GB /hdd/user_home_unsafe/chenzongwei/factor_store_蹭热点达人/shard_3/factors.colblk",
+  "[01:49:20] 36/39 已删 116.25 GB /hdd/user_home_unsafe/chenzongwei/factor_store_蹭热点达人/shard_4/factors.colblk",
+  "[01:49:20] 37/39 已删 127.88 GB /hdd/user_home_unsafe/chenzongwei/factor_store_蹭热点达人/shard_5/factors.colblk",
+  "[01:49:21] 38/39 已删 128.76 GB /hdd/user_home_unsafe/chenzongwei/factor_store_蹭热点达人/shard_6/factors.colblk",
+  "[01:49:21] 39/39 已删 124.27 GB /hdd/user_home_unsafe/chenzongwei/factor_store_蹭热点达人/shard_7/factors.colblk",
+  "[01:49:21] 完成。已释放 2.33 TB；清理后可用空间 15.59 TB / 总 58.20 TB"
+ ],
+ "finished": "2026-10-05 01:49:21"
+}

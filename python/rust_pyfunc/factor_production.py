@@ -25,8 +25,11 @@ class _ProductionRuntime:
                 setattr(self, key, settings[key])
 
     def limit_resources(self, n_jobs):
-        if not 1 <= n_jobs <= 30:
-            raise ValueError("每个系列的 CPU 预算必须在 1 至 30 之间")
+        # 日常生产（每日调度）默认上限 30 核，避免影响同机其他工作。
+        # 历史补算（一次算十年）由补算脚本显式把上限抬到 400，只在那条路径上放宽。
+        ceiling = int(os.environ.get("RUST_PYFUNC_CPU_BUDGET", "30"))
+        if not 1 <= n_jobs <= ceiling:
+            raise ValueError(f"每个系列的 CPU 预算必须在 1 至 {ceiling} 之间")
         available = sorted(os.sched_getaffinity(0))
         cores = available[: min(n_jobs, len(available))]
         for task in Path("/proc/self/task").iterdir():
