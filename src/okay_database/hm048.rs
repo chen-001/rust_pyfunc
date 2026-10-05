@@ -173,10 +173,13 @@ fn round2(x: f64) -> f64 {
 
 /// 与 rolling_window_stat(times, values, window_ns, "sum", include_current=true) 一致。
 ///
+/// ！！times 必须是 **f64 纳秒**，不是精确 int64：rolling_future.py 传的是
+///   index.astype(np.int64).to_numpy()，pyo3 再转成 Vec<f64>，1.7e18 的纳秒在 f64 里
+///   只有 256ns 的分辨率，窗口边界因此会挪。实测 000001@20250303 的 0.1s 窗口，
+///   用精确 int64 会有 605/56193 行与旧代码不同，整条链的相对误差到 1e-3。
+///
 /// 注意累加器是增量的（进窗口就加、出窗口头就减），不是每个 i 重新求和。
-/// 这里 volume 都是整数（round(0) 之后），和值在 f64 里精确，所以增量与重算等价；
-/// 仍然照抄增量写法，避免以后换输入时出问题。
-fn rolling_future_sum(times: &[i64], values: &[f64], window_ns: i64) -> Vec<f64> {
+fn rolling_future_sum(times: &[f64], values: &[f64], window_ns: f64) -> Vec<f64> {
     let n = times.len();
     let mut result = vec![f64::NAN; n];
     let mut window_sum = 0.0f64;
@@ -499,8 +502,9 @@ pub fn compute_stock(code: &str, date: i64) -> Option<Vec<f32>> {
     let mut out: Vec<f64> = Vec::with_capacity(N_OUT);
 
     for (_, tw) in TIME_WINDOWS.iter() {
-        let window_ns = (*tw * 1e9) as i64;
-        let follow = rolling_future_sum(&ns, &volume, window_ns);
+        // rolling_future 的窗口是 f64 纳秒（见 rolling_future_sum 的注释）
+        let window_ns = *tw * 1e9;
+        let follow = rolling_future_sum(&times_f, &volume, window_ns);
         let fp = ffvsp(&times_f, &price, &volume, *tw, true, 0.0);
         let fp_np = ffvsp(&times_f, &price, &volume, *tw, false, 0.0);
         let fp_nf = ffvsp(&times_f, &price, &volume, *tw, true, 0.1);

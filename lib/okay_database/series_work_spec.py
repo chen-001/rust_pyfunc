@@ -169,6 +169,18 @@ design_whatever_out 写的）做 Rust 复现，产出两个文件：
   修法两条：标准化的均值与平方偏差和照抄 numpy 的 pairwise（PW_BLOCKSIZE=128、8 路展开）；
   回归照抄 rp.ols（ndarray 的 .dot() 算 X'X/X'y，再照抄 solve_linear_system3 的 LU），不要自己写循环。
 
+
+- 把 exchtime（epoch 微秒）转成 pandas Timestamp 不是「微秒 × 1000」。pandas 走
+  conversion.pyx 的 cast_from_unit_vectorized：
+      val = exchtime_us / 1e6; base = (int64)val; frac = val - base
+      frac = rint(frac * 1e9) / 1e9          # 就是 np.round(frac, 9)
+      ns = base * 1e9 + (int64)(frac * 1e9)
+  这条链自带 ±120ns 噪声。凡拿这个纳秒值比时间阈值（例如 |Δt| <= 30e9）的系列都会受影响：
+  hm064 不照抄时 000001@20250303 有 14/2640 个值超 1e-4、最大相对差 39%。
+  注意 rint 是四舍六入五成双，Rust 的 f64::round() 不是。
+- 用了 pandas rolling_future 的系列：它的窗口是 f64 纳秒（1.7e18 只有 256ns 分辨率），
+  按精确 int64 写会有 605/56193 行与旧代码不同、相对误差到 1e-3。
+
 """
 
 # 本文件只是规范文本，不参与运行。

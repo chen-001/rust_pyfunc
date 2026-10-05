@@ -89,11 +89,18 @@
    "rust_file": "src/okay_database/hm010.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm10_黑粉铁粉/hm10_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "running",
-   "step_library": "pending",
-   "step_cleanup": "pending",
+   "step_submit": "done",
+   "step_library": "done",
+   "step_cleanup": "done",
    "task_id": 361,
-   "note": "提交于 2026-10-05 12:03:20，n_jobs=400"
+   "note": "对账：completed，因子库 {'base': 14, 'gap5': 7, 'gap1': 10, 'db': 1}，残留 colblk 0",
+   "library_files": {
+    "base": 14,
+    "gap5": 7,
+    "gap1": 10,
+    "db": 1
+   },
+   "colblk_left": 0
   },
   {
    "num": 11,
@@ -136,11 +143,11 @@
    "rust_file": "src/okay_database/hm011.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm11_百鸟朝凤/hm11_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "pending",
+   "step_submit": "running",
    "step_library": "pending",
    "step_cleanup": "pending",
-   "task_id": null,
-   "note": "hm011（百鸟朝凤，逐笔+盘口，merge_asof forward 容差 60/30 秒 × 五时段 × 12 个量 = 120 个因子）已在 src/okay_database/hm011.rs 复现，对账命令 verify_series.py --pairs \"20250303:000001,20250304:600519,20180601:000002,20231020:300750\" 结论「通过」，另加 7 组（20250303:600519、20250305:000002、20231020:000001、20220819:000001、20250303:300750、20250304:000001、20190301:600519）也逐值一致，其中含 NaN 段 24/48/12 个的分支；20250303 单日 n_jobs=4 冒烟已写出 hm11_base 的 22 个入选因子，抽查 6 只股票的 h5 值与 rp.okay_compute_stock 完全相同。"
+   "task_id": 362,
+   "note": "提交于 2026-10-05 18:42:29，n_jobs=400"
   },
   {
    "num": 12,
@@ -2183,12 +2190,12 @@
    ],
    "rust_file": "src/okay_database/hm048.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm48_瞬时协同操作/hm48_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": "hm048 已通过 verify_series「通过」：000001@20250303 / 600519@20250304 / 000002@20180601 / 300750@20231020 四组 360 值全部一致（阈值 1e-4，无 NaN）。小样本冒烟 20250303 单日 n_jobs=8 写入 factor_base/hm48_base，60 个入选因子（含库自动派生的 12 个 _fold）正常落盘。踩到的两个坑：时间戳要带 +8h 才能算时段；rolling_future 的窗口用的是 f64 纳秒（有 256ns 分辨率损失），按精确 int64 写会差 1% 的行。"
   },
   {
    "num": 49,
@@ -3751,12 +3758,12 @@
    ],
    "rust_file": "src/okay_database/hm064.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm64_银河落九天/hm64_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": "【完成】hm064 银河落九天，逐股系列，2640 个因子。\n\n产物：\n  src/okay_database/hm064.rs\n  /home/chenzongwei/pythoncode/成果hm64_银河落九天/hm64_okay_database.py\n    （names_save 76 = 62 个原值 + 14 个 _fold；gap5 26、gap1 38、names_in_db 2）\n\n对账：verify_series.py 四组全部「通过」——20250303:000001、20250304:600519、\n  20180601:000002、20231020:300750，每组旧 2640 值 / 新 2640 值，NaN 0，\n  不一致 0 处，靠 atol 放行的近零位置也是 0 个。\n\n冒烟：run_base(20250303, 20250303, n_jobs=8) 22 秒算完 5117 只股票，\n  base 层（/nas197/user_home/chenzongwei/factor_library/factor_base/hm64_base）\n  写出 76 个 h5（含 14 个 _fold），临时 colblk 已自动删除。\n\n一个坑（已写进 hm064.rs 文件头，别的用到 exchtime 纳秒的系列也会踩）：\n  旧代码传给 rp.trade_peak_analysis 的时间是 pandas Timestamp 的纳秒，\n  不是「微秒 × 1000」。pandas 走 cast_from_unit_vectorized：\n      val  = exchtime_us / 1e6          （秒的 f64）\n      base = (int64) val                （向零截断）\n      frac = val - base\n      frac = rint(frac * 1e9) / 1e9     （就是 np.round(frac, 9)，p = log10(1e9) = 9）\n      ns   = base * 1e9 + (int64)(frac * 1e9)\n  这条链自带 ±120ns 的舍入噪声，而小峰判定是 |Δt| <= 30e9 ns，Δt 真值恰好\n  30.000000 秒时这 120ns 会让「这一笔算不算小峰」翻面。\n  实测 000001@20250303：直接用微秒 × 1000 有 14/2640 个值超出 1e-4（最大相对差 39%）；\n  照上面逐位复刻后与旧框架完全一致。\n\n另外两处照规范处理：撤单过滤自己按数值筛 flag != 32（库里 with_retreat 按字节比 \"32\"，\n2025 年明细写的是 \"32.0\"，那个过滤不生效）；get_res 里 110 个统计量按 pandas\nnanops 的语义复刻（含 |x|<1e-14 清零、ddof=1、count 门槛），trend 用 trend_mod.rs\ncalculate_trend_1d 的同式纯 Rust 实现（原函数是 #[pyfunction]，worker 链路不能调）。\n求和用顺序累加，四组对照的最大相对差 4e-12，远小于验收的 1e-4。"
   },
   {
    "num": 65,
@@ -4311,12 +4318,12 @@
    ],
    "rust_file": "src/okay_database/hm070.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm70_橘生淮南/hm70_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": "hm070（橘生淮南）Rust 复现完成。\n产物：src/okay_database/hm070.rs（names / compute_stock 2808 个值，逐股；compute_cross 返回 None）\n     /home/chenzongwei/pythoncode/成果hm70_橘生淮南/hm70_okay_database.py（names_save 101、names_gap5 38、\n     names_gap1 40、names_in_db 5，形状照 hm29_okay_database.py）。\n\n新旧对账通过：verify_series.py --series hm070 --okay 成果hm70_橘生淮南/hm70_okay.py\n--pairs \"20250303:000001,20250304:600519,20180601:000002,20231020:300750\"\n四组各 2808 个值全部「一致」，结论「通过」（rtol 1e-4；Python 侧同构复现的最大相对误差 8.7e-9，\n出现在一个 6.2e-7 的小量上，来自求和末位差异）。数据根不用覆盖，旧框架读的\n/ssd_data/data/stock 经 replace('/data','') 就是 /ssd_data/stock，和 Rust 侧默认根一致。\n\n三处必须记下的实现要点。\n第一，排序的并列顺序是本系列成败的关键。旧代码对每个排序列做 sort_values（单键，pandas 默认\nquicksort）→ nargsort → np.argsort(kind=\"quicksort\")，numpy 2.3.5 在本机 AVX512 上对 float64 走\nx86-simd-sort 而不是 npysort 的 introsort。实测 000001@20250303：换成稳定排序后 702 个相关系数里\n有 663 个相对差超过 1e-4，最大绝对差 0.49。所以照 hm039.rs 的 int64 版逐行搬成 float64 版\n（8 通道位元排序网络 + median-of-8 枢轴 + 展开分区），并补上 hm039 当时没触发的那条兜底：\nx86-simd-sort 深度耗尽时会退回 std::sort，这里是 libstdc++ 的 introsort（阈值 16、median-of-3、\npartial_sort 走堆排、最后一遍插入排序），照抄了一份；不补的话 1000~5000 个元素、并列多的列会整段偏。\n移植前先在 sandbox_xss070 里对 170 组随机数组（尺寸 1~4739、无并列/少量并列/全相等）与 numpy 的\nargsort 结果逐位对拍，全部一致。\n第二，相关系数要走 pandas 的 corrwith 分支，不是 nanops.nancorr：成对掩掉 NaN 后\nnum=Σ(x-x̄)(y-ȳ)、dom=(n-1)·std_x·std_y（std 是两遍算法）。本机 numpy 对 C 序二维块沿 axis=0 求和\n就是顺序累加，所以 Rust 侧用顺序循环即可；有效性判据用 is_nan（inf 不算缺失，与 pandas 的 isna 一致）。\n第三，盘口 27 列一律按 f64 解析自己的 CSV（不用 fast_csv_reader 的 f32），列下标与库里的常量一致，\n2018 及更早的文件末尾多一列 num，前 61 列位置不变；时间用 pandas 的两步式\ntrunc(us/1e6*1e9)+8h 复刻（实测与 df.exchtime.to_numpy(int) 逐位相同），adjust_afternoon 取\n[09:30,11:30] 与 [13:00,14:57] 两个微秒闭区间、下午整体减 90 分钟、上午段在前，volume 差分在拼接后的\n行序上做，首行 NaN。\n\n冒烟：run_base(20250303, 20250303, n_jobs=8) 单日全市场 5117 只 18 秒跑通，base 层 hm70_base 下\n写出 101 个 h5，文件名与 names_save 一一对应无缺；抽查非 _fold 名（volume_autocorr_sortby_volume_\nminustimesortabs、ask_vol5_autocorr_sortby_volume_pri）与 rp.okay_compute_stock 当日值逐位相同，\n_fold 名与 |原值 − 当日截面均值| 的最大差 1.4e-8（f32 落盘精度），fold 语义正确。\n未覆盖的分支：窗口内一条快照都没有的股票（返回 None → 整条 NaN）本次四组对账没碰到。"
   },
   {
    "num": 71,
