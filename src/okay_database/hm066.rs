@@ -86,10 +86,14 @@
 //! · 逐笔的 price / volume 全部按 f64 自己解析 CSV：volume 在旧代码里是 int64，
 //!   cumsum/sum 之后再相除；用 f32 会把归一化累计量在小数位上打偏，而 39 个值里
 //!   有大量「归一化累计量之差的统计量」，f32 的 1e-7 相对误差会被抵消放大。
-//! · exchtime_float 用平移后的**当日微秒数**当 f64（精确可表示）。旧代码用的是
-//!   `Timestamp.to_numpy(float)` 的纳秒值（>2^53，有 ±128ns 取整），两者差一个仿射
-//!   变换；而这一步只做 (x-min)/(max-min) 和相关系数，都是仿射不变的，差别在 1e-11
-//!   量级，远小于 1e-4 的门槛。
+//! · exchtime_float 必须逐位复刻旧代码的纳秒值，不能图省事用微秒：
+//!   旧代码是 `exchtime.to_numpy(float)`，先由 pandas 把「微秒/1e6 秒」转成 int64 纳秒
+//!   （cast_from_unit_vectorized：base*1e9 + int64(round(frac,9)*1e9)），再转成 float64。
+//!   1.7e18 的纳秒转 f64 时 ulp 是 256ns，这个取整本身就有几十纳秒的量化；
+//!   segment_and_correlate 的分段又是按 `exchtime_float > price` 的真假切的，
+//!   实测把它换成精确的微秒值会让 000002@20180601 的分段整个变样
+//!   （a_mean 从 -0.00407 变成 0.99593），对账直接不过。
+//!   所以这里按 pandas 的公式把纳秒一位不差地算出来，再转 f64。
 
 use std::fs::File;
 use std::io::Read;
@@ -101,14 +105,15 @@ const TRD_COL_VOLUME: usize = 8;
 const TRD_COL_FLAG: usize = 10;
 const TRD_NCOL: usize = 15;
 
-const DAY_US: i64 = 86_400_000_000;
+const DAY_NS: i64 = 86_400_000_000_000;
+const DAY_US: i64 = DAY_NS / 1000;
 const SEC_US: i64 = 1_000_000;
 const MORNING_LO: i64 = (9 * 3600 + 30 * 60) * SEC_US;
 const MORNING_HI: i64 = (11 * 3600 + 30 * 60) * SEC_US;
 const AFTER_LO: i64 = 13 * 3600 * SEC_US;
 const AFTER_HI: i64 = (14 * 3600 + 57 * 60) * SEC_US;
-/// adjust_afternoon 把下午段整体减 90 分钟
-const AFTER_SHIFT: i64 = 90 * 60 * SEC_US;
+/// adjust_afternoon 把下午段整体减 90 分钟（在纳秒上做，与 pandas 一致）
+const AFTER_SHIFT_NS: i64 = 90 * 60 * 1_000_000_000;
 
 /// 每个列对 39 个值，8 个列对 × 2 个数据集 + 20 个前缀 NaN
 const PER_PAIR: usize = 39;
@@ -214,7 +219,8 @@ pub fn names() -> Vec<String> {
 
 #[derive(Clone, Copy, Default)]
 struct Raw {
-    time_us: i64,
+    /// pandas 把 exchtime 转成的纳秒时间戳（未含 8 小时偏移的原始 ns，见 pandas_time_ns）
+    time_ns: i64,
     price: f64,
     volume: f64,
     flag: i64,
@@ -258,6 +264,28 @@ fn parse_f64_at(b: &[u8]) -> f64 {
         .unwrap_or(f64::NAN)
 }
 
+/// pandas `pd.to_timedelta(微秒/1e6, unit="s")` 得到的时间戳（纳秒，未含 8 小时偏移）。
+///
+/// 逐行复刻 pandas/_libs/tslibs/conversion.pyx 的 cast_from_unit_vectorized
+/// （unit='s'、out_unit='ns' 时 m = 1e9、p = 9）：
+///     base = <int64_t>val                // 秒的整数部分，向零截断
+///     frac = val - base
+///     frac = np.round(frac, 9)           // = rint(frac * 1e9) / 1e9
+///     out  = base * m + <int64_t>(frac * m)
+/// 那一步 np.round(frac, 9) 是关键：不去掉它，frac*1e9 会差到 1 纳秒，四组实测都对不上。
+/// 实测五份逐笔文件（2025 与 2018 各若干）这个公式与 pandas 的输出逐行完全相等。
+#[inline]
+fn pandas_time_ns(us: f64) -> i64 {
+    if us.is_nan() {
+        return i64::MIN; // 对应 NaT，后面按「不在任何窗口内」丢掉这一行
+    }
+    let val = us / 1e6;
+    let base = val.trunc();
+    let frac = val - base;
+    let frac = (frac * 1e9).round_ties_even() / 1e9;
+    (base as i64) * 1_000_000_000 + (frac * 1e9) as i64
+}
+
 fn read_trade_f64(code: &str, date: i64) -> Option<Vec<Raw>> {
     let filename = format!("{}_{}_transaction.csv", code, date);
     let mut path = None;
@@ -297,7 +325,7 @@ fn read_trade_f64(code: &str, date: i64) -> Option<Vec<Raw>> {
             f[col] = &bytes[start..];
         }
         out.push(Raw {
-            time_us: parse_i64_at(f[TRD_COL_EXCHTIME]) + 8 * 3600 * SEC_US,
+            time_ns: pandas_time_ns(parse_f64_at(f[TRD_COL_EXCHTIME])),
             price: parse_f64_at(f[TRD_COL_PRICE]),
             volume: parse_f64_at(f[TRD_COL_VOLUME]),
             flag: parse_i64_at(f[TRD_COL_FLAG]),
@@ -318,14 +346,22 @@ struct Frame {
 fn adjust_afternoon(raw: &[Raw]) -> Frame {
     let mut f = Frame::default();
     f.t.reserve(raw.len());
+    // 窗口判定走 pandas between_time：它比的是**微秒**（_get_time_micros 把纳秒截掉）
+    let day_us_of = |ns: i64| -> i64 {
+        if ns == i64::MIN {
+            -1
+        } else {
+            (ns + 8 * 3600 * 1_000_000_000).rem_euclid(DAY_NS) / 1000
+        }
+    };
     // 上午段在前
     for r in raw.iter() {
         if r.flag == 32 {
             continue;
         }
-        let d = r.time_us.rem_euclid(DAY_US);
+        let d = day_us_of(r.time_ns);
         if d >= MORNING_LO && d <= MORNING_HI {
-            f.t.push(d);
+            f.t.push(r.time_ns);
             f.price.push(r.price);
             f.volume.push(r.volume);
             f.flag.push(r.flag);
@@ -336,9 +372,9 @@ fn adjust_afternoon(raw: &[Raw]) -> Frame {
         if r.flag == 32 {
             continue;
         }
-        let d = r.time_us.rem_euclid(DAY_US);
+        let d = day_us_of(r.time_ns);
         if d >= AFTER_LO && d <= AFTER_HI {
-            f.t.push(d - AFTER_SHIFT);
+            f.t.push(r.time_ns - AFTER_SHIFT_NS);
             f.price.push(r.price);
             f.volume.push(r.volume);
             f.flag.push(r.flag);
@@ -430,6 +466,60 @@ fn welford_pearson(x: &[f64], y: &[f64]) -> f64 {
     }
 }
 
+/// numpy 的 pairwise_sum（PW_BLOCKSIZE = 128），逐行复刻。
+///
+/// pandas 的 `.sum()` 走这条路径，求和顺序会改变最后几位；而本系列里
+/// 「归一化累计量之间谁大谁小」决定了 segment_and_correlate 的分段
+/// （见文件头第四节），x 上 1e-14 的差别就能让某一行的归属翻掉，
+/// 进而把段相关系数改动 1e-7 量级。所以这里必须与 numpy 逐位一致，
+/// 不能图省事用顺序累加。实测 000001@20250303 的 corrb 因此从
+/// 0.9822125486349061 变回旧框架的 0.982212377751107。
+fn pairwise_sum(a: &[f64]) -> f64 {
+    let n = a.len();
+    if n < 8 {
+        let mut r = 0.0f64;
+        for i in 0..n {
+            r += a[i];
+        }
+        return r;
+    }
+    if n <= 128 {
+        let mut r = [
+            a[0] + a[1],
+            a[2] + a[3],
+            a[4] + a[5],
+            a[6] + a[7],
+            a[8] + a[9],
+            a[10] + a[11],
+            a[12] + a[13],
+            a[14] + a[15],
+        ];
+        let mut i = 16usize;
+        let stop = n - (n % 8);
+        while i < stop {
+            for k in 0..8 {
+                r[k] += a[i + k];
+            }
+            i += 8;
+        }
+        let mut res = ((r[0] + r[1]) + (r[2] + r[3])) + ((r[4] + r[5]) + (r[6] + r[7]));
+        while i < n {
+            res += a[i];
+            i += 1;
+        }
+        return res;
+    }
+    let mut n2 = n / 2;
+    n2 -= n2 % 8;
+    pairwise_sum(&a[..n2]) + pairwise_sum(&a[n2..])
+}
+
+/// pandas nanops 的求和：先把 NaN 换成 fill（默认 0.0），再走 numpy 的 pairwise_sum
+fn nanops_sum(v: &[f64], fill: f64) -> f64 {
+    let buf: Vec<f64> = v.iter().map(|&x| if x.is_nan() { fill } else { x }).collect();
+    pairwise_sum(&buf)
+}
+
 /// pandas `_zero_out_fperr`：把 |x| < 1e-14 的浮点误差抹成 0
 #[inline]
 fn zero_out_fperr(x: f64) -> f64 {
@@ -441,43 +531,27 @@ fn zero_out_fperr(x: f64) -> f64 {
 }
 
 fn nan_mean(v: &[f64]) -> f64 {
-    let mut n = 0usize;
-    let mut s = 0.0f64;
-    for &x in v.iter() {
-        if !x.is_nan() {
-            n += 1;
-            s += x;
-        }
-    }
+    let n = v.iter().filter(|x| !x.is_nan()).count();
     if n == 0 {
         f64::NAN
     } else {
-        s / n as f64
+        nanops_sum(v, 0.0) / n as f64
     }
 }
 
 /// pandas nanstd（ddof=1）：两遍算法，count - ddof <= 0 时 NaN
 fn nan_std(v: &[f64]) -> f64 {
-    let mut n = 0usize;
-    let mut s = 0.0f64;
-    for &x in v.iter() {
-        if !x.is_nan() {
-            n += 1;
-            s += x;
-        }
-    }
+    let n = v.iter().filter(|x| !x.is_nan()).count();
     let d = n as f64 - 1.0;
     if n == 0 || d <= 0.0 {
         return f64::NAN;
     }
-    let avg = s / n as f64;
-    let mut sq = 0.0f64;
-    for &x in v.iter() {
-        if !x.is_nan() {
-            sq += (avg - x) * (avg - x);
-        }
-    }
-    (sq / d).sqrt()
+    let avg = nanops_sum(v, 0.0) / n as f64;
+    let sq: Vec<f64> = v
+        .iter()
+        .map(|&x| if x.is_nan() { 0.0 } else { (avg - x) * (avg - x) })
+        .collect();
+    (pairwise_sum(&sq) / d).sqrt()
 }
 
 fn nan_max(v: &[f64]) -> f64 {
@@ -527,24 +601,32 @@ fn nan_skew(v: &[f64]) -> f64 {
         return f64::NAN;
     }
     let cnt = n as f64;
-    let mut s = 0.0f64;
-    for &x in v.iter() {
-        if !x.is_nan() {
-            s += x;
-        }
-    }
-    let mean = s / cnt;
-    let (mut m2, mut m3) = (0.0f64, 0.0f64);
-    for &x in v.iter() {
-        if x.is_nan() {
-            continue;
-        }
-        let d = x - mean;
-        m2 += d * d;
-        m3 += d * d * d;
-    }
-    let m2 = zero_out_fperr(m2);
-    let m3 = zero_out_fperr(m3);
+    let mean = nanops_sum(v, 0.0) / cnt;
+    // pandas：values 里 NaN 先换成 0，减完均值后再把 NaN 位置置 0，再求和
+    let a2: Vec<f64> = v
+        .iter()
+        .map(|&x| {
+            if x.is_nan() {
+                0.0
+            } else {
+                let d = x - mean;
+                d * d
+            }
+        })
+        .collect();
+    let a3: Vec<f64> = v
+        .iter()
+        .map(|&x| {
+            if x.is_nan() {
+                0.0
+            } else {
+                let d = x - mean;
+                d * d * d
+            }
+        })
+        .collect();
+    let m2 = zero_out_fperr(pairwise_sum(&a2));
+    let m3 = zero_out_fperr(pairwise_sum(&a3));
     if n < 3 {
         return f64::NAN;
     }
@@ -561,23 +643,32 @@ fn nan_kurt(v: &[f64]) -> f64 {
         return f64::NAN;
     }
     let cnt = n as f64;
-    let mut s = 0.0f64;
-    for &x in v.iter() {
-        if !x.is_nan() {
-            s += x;
-        }
-    }
-    let mean = s / cnt;
-    let (mut m2, mut m4) = (0.0f64, 0.0f64);
-    for &x in v.iter() {
-        if x.is_nan() {
-            continue;
-        }
-        let d = x - mean;
-        let d2 = d * d;
-        m2 += d2;
-        m4 += d2 * d2;
-    }
+    let mean = nanops_sum(v, 0.0) / cnt;
+    let a2: Vec<f64> = v
+        .iter()
+        .map(|&x| {
+            if x.is_nan() {
+                0.0
+            } else {
+                let d = x - mean;
+                d * d
+            }
+        })
+        .collect();
+    let a4: Vec<f64> = v
+        .iter()
+        .map(|&x| {
+            if x.is_nan() {
+                0.0
+            } else {
+                let d = x - mean;
+                let d2 = d * d;
+                d2 * d2
+            }
+        })
+        .collect();
+    let m2 = pairwise_sum(&a2);
+    let m4 = pairwise_sum(&a4);
     if n < 4 {
         return f64::NAN;
     }
@@ -734,9 +825,11 @@ fn cumsum_over_sum(v: &[f64]) -> Vec<f64> {
             out[i] = acc;
         }
     }
+    // 除数用 numpy 的 pairwise 求和（pandas 的 .sum()），不是顺序累加的那个 acc
+    let total = nanops_sum(v, 0.0);
     // 总和为 0 时 pandas 得到 0/0 = NaN 或 x/0 = ±inf，这里靠除法自然产生
     for x in out.iter_mut() {
-        *x /= acc;
+        *x /= total;
     }
     out
 }

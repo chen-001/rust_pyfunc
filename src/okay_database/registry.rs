@@ -21,26 +21,33 @@ pub mod hm022;
 pub mod hm023;
 pub mod hm025;
 pub mod hm026;
+pub mod hm027;
 pub mod hm028;
 pub mod hm029;
 pub mod hm030;
 pub mod hm031;
 pub mod hm032;
+pub mod hm033;
 pub mod hm034;
 pub mod hm035;
 pub mod hm036;
+pub mod hm037;
 pub mod hm038;
 pub mod hm039;
+pub mod hm040;
 pub mod hm041;
+pub mod hm043;
 pub mod hm044;
 pub mod hm045;
 pub mod hm046;
 pub mod hm051;
 pub mod hm052;
 pub mod hm054;
+pub mod hm055;
 pub mod hm061;
 pub mod hm066;
 pub mod hm071;
+pub mod hm073;
 
 /// 逐股（TaskMessage::Task）分发：series 形如 "hm003"。
 pub fn dispatch_stock(series: &str, code: &str, date: i64, expected_len: usize) -> Vec<f32> {
@@ -66,26 +73,33 @@ pub fn dispatch_stock(series: &str, code: &str, date: i64, expected_len: usize) 
         "hm023" => hm023::compute_stock(code, date),
         "hm025" => hm025::compute_stock(code, date),
         "hm026" => hm026::compute_stock(code, date),
+        "hm027" => hm027::compute_stock(code, date),
         "hm028" => hm028::compute_stock(code, date),
         "hm029" => hm029::compute_stock(code, date),
         "hm030" => hm030::compute_stock(code, date),
         "hm031" => hm031::compute_stock(code, date),
         "hm032" => hm032::compute_stock(code, date),
+        "hm033" => hm033::compute_stock(code, date),
         "hm034" => hm034::compute_stock(code, date),
         "hm035" => hm035::compute_stock(code, date),
         "hm036" => hm036::compute_stock(code, date),
+        "hm037" => hm037::compute_stock(code, date),
         "hm038" => hm038::compute_stock(code, date),
         "hm039" => hm039::compute_stock(code, date),
+        "hm040" => hm040::compute_stock(code, date),
         "hm041" => hm041::compute_stock(code, date),
+        "hm043" => hm043::compute_stock(code, date),
         "hm044" => hm044::compute_stock(code, date),
         "hm045" => hm045::compute_stock(code, date),
         "hm046" => hm046::compute_stock(code, date),
         "hm051" => hm051::compute_stock(code, date),
         "hm052" => hm052::compute_stock(code, date),
         "hm054" => hm054::compute_stock(code, date),
+        "hm055" => hm055::compute_stock(code, date),
         "hm061" => hm061::compute_stock(code, date),
         "hm066" => hm066::compute_stock(code, date),
         "hm071" => hm071::compute_stock(code, date),
+        "hm073" => hm073::compute_stock(code, date),
         _ => None,
     };
     match out {
@@ -118,26 +132,33 @@ pub fn dispatch_stock_raw(series: &str, code: &str, date: i64) -> Option<Vec<f32
         "hm023" => hm023::compute_stock(code, date),
         "hm025" => hm025::compute_stock(code, date),
         "hm026" => hm026::compute_stock(code, date),
+        "hm027" => hm027::compute_stock(code, date),
         "hm028" => hm028::compute_stock(code, date),
         "hm029" => hm029::compute_stock(code, date),
         "hm030" => hm030::compute_stock(code, date),
         "hm031" => hm031::compute_stock(code, date),
         "hm032" => hm032::compute_stock(code, date),
+        "hm033" => hm033::compute_stock(code, date),
         "hm034" => hm034::compute_stock(code, date),
         "hm035" => hm035::compute_stock(code, date),
         "hm036" => hm036::compute_stock(code, date),
+        "hm037" => hm037::compute_stock(code, date),
         "hm038" => hm038::compute_stock(code, date),
         "hm039" => hm039::compute_stock(code, date),
+        "hm040" => hm040::compute_stock(code, date),
         "hm041" => hm041::compute_stock(code, date),
+        "hm043" => hm043::compute_stock(code, date),
         "hm044" => hm044::compute_stock(code, date),
         "hm045" => hm045::compute_stock(code, date),
         "hm046" => hm046::compute_stock(code, date),
         "hm051" => hm051::compute_stock(code, date),
         "hm052" => hm052::compute_stock(code, date),
         "hm054" => hm054::compute_stock(code, date),
+        "hm055" => hm055::compute_stock(code, date),
         "hm061" => hm061::compute_stock(code, date),
         "hm066" => hm066::compute_stock(code, date),
         "hm071" => hm071::compute_stock(code, date),
+        "hm073" => hm073::compute_stock(code, date),
         _ => None,
     }
 }
@@ -166,26 +187,33 @@ pub fn dispatch_cross(series: &str, date: i64) -> Option<(Vec<String>, Vec<f32>)
         "hm023" => hm023::compute_cross(date),
         "hm025" => hm025::compute_cross(date),
         "hm026" => hm026::compute_cross(date),
+        "hm027" => hm027::compute_cross(date),
         "hm028" => hm028::compute_cross(date),
         "hm029" => hm029::compute_cross(date),
         "hm030" => hm030::compute_cross(date),
         "hm031" => hm031::compute_cross(date),
         "hm032" => hm032::compute_cross(date),
+        "hm033" => hm033::compute_cross(date),
         "hm034" => hm034::compute_cross(date),
         "hm035" => hm035::compute_cross(date),
         "hm036" => hm036::compute_cross(date),
+        "hm037" => hm037::compute_cross(date),
         "hm038" => hm038::compute_cross(date),
         "hm039" => hm039::compute_cross(date),
+        "hm040" => hm040::compute_cross(date),
         "hm041" => hm041::compute_cross(date),
+        "hm043" => hm043::compute_cross(date),
         "hm044" => hm044::compute_cross(date),
         "hm045" => hm045::compute_cross(date),
         "hm046" => hm046::compute_cross(date),
         "hm051" => hm051::compute_cross(date),
         "hm052" => hm052::compute_cross(date),
         "hm054" => hm054::compute_cross(date),
+        "hm055" => hm055::compute_cross(date),
         "hm061" => hm061::compute_cross(date),
         "hm066" => hm066::compute_cross(date),
         "hm071" => hm071::compute_cross(date),
+        "hm073" => hm073::compute_cross(date),
         _ => None,
     }
 }
@@ -214,26 +242,33 @@ pub fn series_names(series: &str) -> Option<Vec<String>> {
         "hm023" => Some(hm023::names()),
         "hm025" => Some(hm025::names()),
         "hm026" => Some(hm026::names()),
+        "hm027" => Some(hm027::names()),
         "hm028" => Some(hm028::names()),
         "hm029" => Some(hm029::names()),
         "hm030" => Some(hm030::names()),
         "hm031" => Some(hm031::names()),
         "hm032" => Some(hm032::names()),
+        "hm033" => Some(hm033::names()),
         "hm034" => Some(hm034::names()),
         "hm035" => Some(hm035::names()),
         "hm036" => Some(hm036::names()),
+        "hm037" => Some(hm037::names()),
         "hm038" => Some(hm038::names()),
         "hm039" => Some(hm039::names()),
+        "hm040" => Some(hm040::names()),
         "hm041" => Some(hm041::names()),
+        "hm043" => Some(hm043::names()),
         "hm044" => Some(hm044::names()),
         "hm045" => Some(hm045::names()),
         "hm046" => Some(hm046::names()),
         "hm051" => Some(hm051::names()),
         "hm052" => Some(hm052::names()),
         "hm054" => Some(hm054::names()),
+        "hm055" => Some(hm055::names()),
         "hm061" => Some(hm061::names()),
         "hm066" => Some(hm066::names()),
         "hm071" => Some(hm071::names()),
+        "hm073" => Some(hm073::names()),
         _ => None,
     }
 }

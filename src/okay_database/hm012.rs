@@ -388,18 +388,25 @@ fn np_argsort_quicksort(v: &[i64]) -> Vec<usize> {
 // 指标
 // ============================================================================
 
-/// 一个快照在某个时段里的 (label, |现实价 - 理想价|)。
+/// 一个时段里某一侧的 (label, |现实价 - 理想价|)。
+///
+/// ！！时段用的是**label 集合**，不是「快照时刻落在时段内」。
+///   旧代码的时段 label 来自 `df.between_time(...).label`，那里的 df 是「成交 + 盘口」
+///   拼起来的整张表，所以某个成交如果紧跟在时段开始前的那一笔快照后面，
+///   就会把那个**时段外**的快照 label 也带进这个时段。
+///   实测 600519@20250304 的 close30：label 4365 的快照时刻是 14:29:58（在 14:30 之前），
+///   但它是 close30 内某笔成交的前一笔快照，所以旧代码算 close30 时把它也算进去了。
+///   漏掉它会让 close30 的均值偏 0.4%。
 fn side_dist(
     snaps: &[(i64, f64, f64, i64)], // (time_us, ask_prc1, bid_prc1, label) 去重后的快照
-    lo: i64,
-    hi: i64,
+    labels_in_session: &std::collections::HashSet<i64>,
     sums_vol: &HashMap<i64, f64>,
     sums_to: &HashMap<i64, f64>,
     is_ask: bool,
 ) -> Vec<(i64, f64)> {
     let mut out = Vec::new();
-    for &(t, ask1, bid1, label) in snaps.iter() {
-        if !in_span(t, lo, hi) {
+    for &(_t, ask1, bid1, label) in snaps.iter() {
+        if !labels_in_session.contains(&label) {
             continue;
         }
         let (v, to) = match (sums_vol.get(&label), sums_to.get(&label)) {
@@ -416,6 +423,24 @@ fn side_dist(
         out.push((label, d.abs()));
     }
     out
+}
+
+/// pandas `groupby(...).sum()` 对 float64 用的是 Kahan 补偿求和（逐组一个累加器）。
+/// 普通顺序累加会差 1 ulp，而这里 1 ulp 是致命的：像 (x+y) 恰好为 0 这种退化情况，
+/// 差 1e-15 就从「NaN、被丢掉」变成「0、算进均值」。
+#[inline]
+fn kahan_add(
+    sums: &mut HashMap<i64, f64>,
+    comp: &mut HashMap<i64, f64>,
+    key: i64,
+    x: f64,
+) {
+    let c = comp.get(&key).copied().unwrap_or(0.0);
+    let s0 = sums.get(&key).copied().unwrap_or(0.0);
+    let y = x - c;
+    let t = s0 + y;
+    comp.insert(key, (t - s0) - y);
+    sums.insert(key, t);
 }
 
 /// pandas 的 mean()：跳过 NaN；全 NaN / 空返回 NaN
@@ -478,12 +503,31 @@ pub fn compute_stock(code: &str, date: i64) -> Option<Vec<f32>> {
         }
     }
 
-    // 窗口内、按 label 分组求和（flag==66 / flag==83 各一套）
+    // 窗口内、按 label 分组求和（flag==66 / flag==83 各一套）。
+    // ！！两个必须照抄的细节：
+    //   1) 按「排序后的行序」累加，不能按原始成交顺序。pandas 是
+    //      df_66.groupby('label').volume.sum()，groupby 按 frame 的行序累加，
+    //      而那个 frame 已经过 concat + sort_values。实测 000001@20250303 的 label 967 上，
+    //      按原始顺序累加 turnover 得 89621.99999999999，按排序后顺序得 89622.0（= pandas）。
+    //   2) 用 Kahan 补偿求和（见 kahan_add）。pandas 的 group_sum 对 float64 就是 Kahan，
+    //      普通顺序累加在别的组上还会再差 1 ulp。
+    //   这两处差 1 ulp 都会让 p3 与 price1 从「恰好相等」变成差 1e-15，
+    //   于是 (x+y) 从 0 变非 0，多算进一个 d 样本，整段均值能偏 0.2%~0.4%。
     let mut v66: HashMap<i64, f64> = HashMap::new();
     let mut t66: HashMap<i64, f64> = HashMap::new();
     let mut v83: HashMap<i64, f64> = HashMap::new();
     let mut t83: HashMap<i64, f64> = HashMap::new();
-    for (i, t) in trades.iter().enumerate() {
+    let (mut c_v66, mut c_t66, mut c_v83, mut c_t83) = (
+        HashMap::new(),
+        HashMap::new(),
+        HashMap::new(),
+        HashMap::new(),
+    );
+    for &i in perm.iter() {
+        if i >= n_t {
+            continue;
+        }
+        let t = trades[i];
         if !in_span(t.time_us, LD_0930, LD_1457) {
             continue;
         }
@@ -492,18 +536,36 @@ pub fn compute_stock(code: &str, date: i64) -> Option<Vec<f32>> {
             continue;
         }
         if t.flag == 66.0 {
-            *v66.entry(lab).or_insert(0.0) += t.volume;
-            *t66.entry(lab).or_insert(0.0) += t.turnover;
+            kahan_add(&mut v66, &mut c_v66, lab, t.volume);
+            kahan_add(&mut t66, &mut c_t66, lab, t.turnover);
         } else if t.flag == 83.0 {
-            *v83.entry(lab).or_insert(0.0) += t.volume;
-            *t83.entry(lab).or_insert(0.0) += t.turnover;
+            kahan_add(&mut v83, &mut c_v83, lab, t.volume);
+            kahan_add(&mut t83, &mut c_t83, lab, t.turnover);
         }
     }
 
     let mut out: Vec<f32> = Vec::with_capacity(N_OUT);
     for (lo, hi) in SESSIONS.iter() {
-        let a = side_dist(&dedup, *lo, *hi, &v66, &t66, true);
-        let b = side_dist(&dedup, *lo, *hi, &v83, &t83, false);
+        // 时段 label 集合 = 该时段内「盘口行」的 label ∪ 该时段内「成交行」的 label
+        let mut sess_labels: std::collections::HashSet<i64> = std::collections::HashSet::new();
+        for &(t, _, _, label) in dedup.iter() {
+            if in_span(t, *lo, *hi) {
+                sess_labels.insert(label);
+            }
+        }
+        for &i in perm.iter() {
+            if i >= n_t {
+                continue;
+            }
+            if !in_span(trades[i].time_us, *lo, *hi) {
+                continue;
+            }
+            if labels[i] >= 0 {
+                sess_labels.insert(labels[i]);
+            }
+        }
+        let a = side_dist(&dedup, &sess_labels, &v66, &t66, true);
+        let b = side_dist(&dedup, &sess_labels, &v83, &t83, false);
         if a.is_empty() || b.is_empty() {
             out.push(f32::NAN);
             continue;
@@ -520,6 +582,63 @@ pub fn compute_stock(code: &str, date: i64) -> Option<Vec<f32>> {
         out.push(nanmean(&d) as f32);
     }
     debug_assert_eq!(out.len(), N_OUT);
+
+    // ---- 临时调试（设了 HM012_DEBUG 才走）：把每个时段的 (label, d) 按 f64 位拆成
+    //      hi/lo 两个 f32 输出，配合 Python 对拍逐值定位差异。做完就删。 ----
+    if std::env::var("HM012_DEBUG").is_ok() {
+        let mut dbg: Vec<f32> = Vec::new();
+        if std::env::var("HM012_DEBUG").as_deref() == Ok("2") {
+            // 只把这些 label 的四个和吐出来（hi/lo 拆 f64）
+            for lab in [445i64, 2394, 2511, 2879, 2978] {
+                let mut push = |v: f64| {
+                    let b = v.to_bits();
+                    dbg.push(f32::from_bits((b >> 32) as u32));
+                    dbg.push(f32::from_bits((b & 0xffff_ffff) as u32));
+                };
+                dbg.push(lab as f32);
+                push(*v66.get(&lab).unwrap_or(&f64::NAN));
+                push(*t66.get(&lab).unwrap_or(&f64::NAN));
+                push(*v83.get(&lab).unwrap_or(&f64::NAN));
+                push(*t83.get(&lab).unwrap_or(&f64::NAN));
+            }
+            return Some(dbg);
+        }
+        for (lo, hi) in SESSIONS.iter() {
+            let mut sess_labels: std::collections::HashSet<i64> = std::collections::HashSet::new();
+            for &(t, _, _, label) in dedup.iter() {
+                if in_span(t, *lo, *hi) {
+                    sess_labels.insert(label);
+                }
+            }
+            for &i in perm.iter() {
+                if i >= n_t || !in_span(trades[i].time_us, *lo, *hi) {
+                    continue;
+                }
+                if labels[i] >= 0 {
+                    sess_labels.insert(labels[i]);
+                }
+            }
+            let a = side_dist(&dedup, &sess_labels, &v66, &t66, true);
+            let b = side_dist(&dedup, &sess_labels, &v83, &t83, false);
+            let bidx: HashMap<i64, f64> = b.iter().cloned().collect();
+            let mut pairs: Vec<(i64, f64)> = Vec::new();
+            for &(lab, x) in a.iter() {
+                if let Some(&y) = bidx.get(&lab) {
+                    let den = x + y;
+                    pairs.push((lab, if den == 0.0 { f64::NAN } else { x / den }));
+                }
+            }
+            pairs.sort_by_key(|p| p.0);
+            dbg.push(pairs.len() as f32);
+            for (l, v) in pairs.iter() {
+                let bits = v.to_bits();
+                dbg.push(f32::from_bits((bits >> 32) as u32));
+                dbg.push(f32::from_bits((bits & 0xffff_ffff) as u32));
+                dbg.push(*l as f32);
+            }
+        }
+        return Some(dbg);
+    }
     Some(out)
 }
 

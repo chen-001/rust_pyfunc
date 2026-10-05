@@ -76,7 +76,11 @@ def load_old(okay_path: str):
     name = Path(okay_path).stem
     mod = importlib.import_module(name)
     try:
-        mod.run_base(20240102, 20240102, 1)
+        # 旧模块的日历/日频表是按这里的起止日期建的。范围太窄会让「回看 N 个交易日前」
+        # 这类因子在窗口外取不到值（旧代码 KeyError 被 try 吞成 NaN），于是对账看起来通过
+        # 其实两边都是 NaN。默认给一个覆盖全历史的宽范围，需要时用 OKAY_VERIFY_CAL_RANGE 改。
+        cal = os.environ.get("OKAY_VERIFY_CAL_RANGE", "20150105:20261231").split(":")
+        mod.run_base(int(cal[0]), int(cal[1]), 1)
     except Exception as exc:  # noqa: BLE001
         captured.setdefault("error", repr(exc))
     finally:

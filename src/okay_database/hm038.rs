@@ -59,6 +59,7 @@
 //! 三、names_single 的 640 个名字互不重复，不需要 _dup 后缀；
 //!    names_save 里带 `_fold` 的由新流水线按「与截面均值的距离」生成。
 
+use ndarray::{s, Array1, Array2, ArrayView1, ArrayView2};
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::Read;

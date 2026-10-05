@@ -27,6 +27,7 @@ REPO = Path("/home/chenzongwei/rust_pyfunc")
 REPORT = REPO / "reports/okay_database"
 STATE = REPORT / "program_state.json"
 CLAIMS = REPORT / "claims"
+TRIES = CLAIMS / ".tries"   # 被退回的次数：退得越多排得越后，避免反复派给做不动的人
 
 
 def load() -> dict:
@@ -46,7 +47,11 @@ def candidates(state: dict) -> list[dict]:
         if (CLAIMS / f"{s['series']}.json").exists():
             continue
         out.append(s)
-    out.sort(key=lambda s: (0 if s["n_base"] > 0 else 1, s["n_base"], s["num"]))
+    def tries(s):
+        path = TRIES / s["series"]
+        return int(path.read_text()) if path.exists() else 0
+
+    out.sort(key=lambda s: (tries(s), 0 if s["n_base"] > 0 else 1, s["n_base"], s["num"]))
     return out
 
 
@@ -110,7 +115,11 @@ def main() -> int:
         path = CLAIMS / f"{args.arg}.json"
         if path.exists():
             path.unlink()
-            print(f"已放掉 {args.arg}")
+        TRIES.mkdir(parents=True, exist_ok=True)
+        tpath = TRIES / args.arg
+        n = int(tpath.read_text()) + 1 if tpath.exists() else 1
+        tpath.write_text(str(n))
+        print(f"已放掉 {args.arg}（累计退回 {n} 次，队列里会往后排）")
         return 0
 
     if args.cmd == "work":

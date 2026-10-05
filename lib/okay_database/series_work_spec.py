@@ -147,6 +147,28 @@ design_whatever_out 写的）做 Rust 复现，产出两个文件：
    硬依赖 AVX-512，且 numpy 自己换 CPU 也会换路径。所以这类差异按「已知不可复现」处理，
    把实测数字和影响面写进文件头即可，不要去翻 SVML。
 
+
+════════════════════════════════════════════════════════════════════════
+七、第三方库的实现细节（照语义写会错的那种）
+════════════════════════════════════════════════════════════════════════
+
+- scipy 的 stats.f.cdf 走的是 cephes 的 fdtr/incbet，**不是** special.betainc。
+  尾巴 ≤1.11e-16 时 cephes 把它钉成 1-1.11e-16，所以 p 值的下限是 1.11e-16 而不是 0。
+  照抄 betainc 会差 1.11e-4，刚好越过 1e-4 验收线。有 p 值 / Chow 检验 / 方差分析的系列都要注意。
+- pandas 的 `(a - a.mean()) / a.std()` 混着字符串列时，单调用会抛 TypeError，
+  但在 groupby.apply 里会自动改用 include_groups=False 重跑，结果与 pandas 1.x 的 numeric_only 语义一致。
+  别看到 TypeError 就以为旧代码坏了，先跑全量比数。
+- dwo.get_abs 是 |x − 当日截面均值|（df.T.mean() 是对日期求均值），和因子库
+  factor_production.write_selected_base 里的 _fold 实现一致，不需要自己另算。
+
+
+- 凡是分母里含「两个大数相减」或近奇异设计矩阵的量（相关系数、回归 r2、各种比值），
+  f64 顺序求和会把末位差异放大成倍数级。对照实例：hm038 第一版用自己写的顺序求和 + 手写 X'X 循环，
+  r2 那一族每对差 26 处、相对误差到 98%（集合竞价格内成交价完全相同 → 标准化后 y 是常数 →
+  ss_tot 只剩 1ulp 舍入，r2 落到 -1e6 量级）。
+  修法两条：标准化的均值与平方偏差和照抄 numpy 的 pairwise（PW_BLOCKSIZE=128、8 路展开）；
+  回归照抄 rp.ols（ndarray 的 .dot() 算 X'X/X'y，再照抄 solve_linear_system3 的 LU），不要自己写循环。
+
 """
 
 # 本文件只是规范文本，不参与运行。
