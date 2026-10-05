@@ -102,51 +102,15 @@ impl PriceTree {
         }
     }
 
-    fn build_tree(
+    // pub(crate)：okay_database 的 hm031（旧框架 hm31 价格二叉树）要在纯 Rust 侧直接建树取值。
+    // 走 get_all_features 需要 GIL，而 worker 进程里没有 Python 解释器，所以放开这一层可见性。
+    pub(crate) fn build_tree(
         &mut self,
         times: PyReadonlyArray1<i64>,
         prices: PyReadonlyArray1<f64>,
         volumes: PyReadonlyArray1<f64>,
     ) -> PyResult<()> {
-        let times = times.as_array();
-        let prices = prices.as_array();
-        let volumes = volumes.as_array();
-
-        let n = times.len();
-        if n == 0 {
-            return Ok(());
-        }
-
-        // 计算总成交量
-        let total_volume: f64 = volumes.sum();
-
-        // 创建根节点
-        self.root = Some(TreeNode {
-            price: prices[0],
-            volume: volumes[0],
-            probability: volumes[0] / total_volume,
-            time: times[0],
-            left: None,
-            right: None,
-        });
-
-        // 初始化last_price
-        self.last_price = Some(prices[0]);
-
-        // 预分配一个缓存数组来存储当前路径上的节点引用
-        let mut path: Vec<*mut TreeNode> = Vec::with_capacity(32); // 假设树的深度不会超过32
-
-        // 按时间顺序构建树
-        for i in 1..n {
-            self.insert_node_fast(prices[i], volumes[i], times[i], total_volume, &mut path);
-        }
-
-        // 清理最后的状态
-        self.last_price = None;
-        self.last_node = None;
-
-        // 构建完成后更新树的特征
-        self.update_tree_features();
+        self.build_tree_views(times.as_array(), prices.as_array(), volumes.as_array());
         Ok(())
     }
 
@@ -617,6 +581,129 @@ impl PriceTree {
 }
 
 impl PriceTree {
+    /// 建一棵空树，给 Rust 侧调用方用（`#[new] fn new` 是 pyclass 构造器，跨模块不可见）。
+    pub(crate) fn new_tree() -> Self {
+        Self::new()
+    }
+
+    /// 建树的实际实现（纯 Rust，不碰 Python 对象）。放在这个 impl 里而不是 #[pymethods] 里，
+    /// 否则 pyo3 会把它当成一个 pymethod 往外导，而 ArrayView 不是合法的参数类型。
+    pub(crate) fn build_tree_views(
+        &mut self,
+        times: ndarray::ArrayView1<'_, i64>,
+        prices: ndarray::ArrayView1<'_, f64>,
+        volumes: ndarray::ArrayView1<'_, f64>,
+    ) {
+        let n = times.len();
+        if n == 0 {
+            return;
+        }
+
+        // 计算总成交量
+        let total_volume: f64 = volumes.sum();
+
+        // 创建根节点
+        self.root = Some(TreeNode {
+            price: prices[0],
+            volume: volumes[0],
+            probability: volumes[0] / total_volume,
+            time: times[0],
+            left: None,
+            right: None,
+        });
+
+        // 初始化last_price
+        self.last_price = Some(prices[0]);
+
+        // 预分配一个缓存数组来存储当前路径上的节点引用
+        let mut path: Vec<*mut TreeNode> = Vec::with_capacity(32);
+
+        // 按时间顺序构建树
+        for i in 1..n {
+            self.insert_node_fast(prices[i], volumes[i], times[i], total_volume, &mut path);
+        }
+
+        // 清理最后的状态
+        self.last_price = None;
+        self.last_node = None;
+
+        // 构建完成后更新树的特征
+        self.update_tree_features();
+    }
+
+    /// hm031（旧框架 hm31 价格二叉树）要的那 43 个特征，**取值与顺序**完全照抄下面
+    /// `get_all_features` 里 hm31 用到的 43 项，比值也在这里按 Python 的从左到右顺序算好，
+    /// 免得两端各写一遍对不齐。非有限值（inf/nan）由调用方负责转成 NaN。
+    pub(crate) fn features_43(&self) -> [f64; 43] {
+        let max_path_length = self.max_path_length as f64;
+        let avg_path_length = self.get_avg_path_length();
+        let max_subtree_nodes = self.max_subtree_nodes as f64;
+        let avg_subtree_nodes = self.get_avg_subtree_nodes();
+        let max_balance_factor = self.max_balance_factor as f64;
+        let avg_balance_factor = self.get_avg_balance_factor();
+        let skewness = self.calculate_skewness();
+        let avg_volume_per_node = self.get_avg_volume_per_node();
+        let total_volume = self.total_volume;
+        let max_width = self.calculate_width_stats().1 as f64;
+        let avg_width = self.calculate_width_stats().2;
+        let critical_nodes = self.calculate_critical_nodes() as f64;
+        let avg_depth = self.get_avg_depth();
+        let completeness = self.get_completeness();
+        let density = self.get_density();
+        let total_nodes = self.node_count as f64;
+        let internal_nodes = self.internal_nodes as f64;
+        let max_depth = self.depth as f64;
+        let asl = self.calculate_asl();
+        let wpl = self.calculate_wpl();
+        let diameter = self.calculate_diameter() as f64;
+        let degree_two_nodes = self.degree_two_count as f64;
+        [
+            max_path_length,                                            // max_path_length
+            avg_path_length,                                            // avg_path_length
+            avg_path_length / max_path_length,                          // avg_path_length_ratio
+            max_subtree_nodes,                                          // max_subtree_nodes
+            avg_subtree_nodes,                                          // avg_subtree_nodes
+            avg_subtree_nodes / max_subtree_nodes,                      // avg_subtree_nodes_ratio
+            max_balance_factor,                                         // max_balance_factor
+            avg_balance_factor,                                         // avg_balance_factor
+            avg_balance_factor / max_balance_factor,                    // avg_balance_factor_ratio
+            skewness,                                                   // skewness
+            avg_volume_per_node,                                        // avg_volume_per_node
+            avg_volume_per_node / total_volume,                         // avg_volume_per_node_ratio
+            max_width,                                                  // max_width
+            avg_width,                                                  // avg_width
+            avg_width / max_width,                                      // avg_width_ratio
+            critical_nodes,                                             // critical_nodes
+            critical_nodes / avg_width,                                 // critical_nodes_ratio_avg_width
+            critical_nodes / avg_depth,                                 // critical_nodes_ratio_avg_depth
+            critical_nodes / avg_depth / avg_width,                     // ..._ratio_avg_width_avg_depth
+            critical_nodes / avg_path_length,                           // ..._ratio_avg_path_length
+            critical_nodes / total_nodes,                               // ..._ratio_total_nodes
+            completeness,                                               // completeness
+            density,                                                    // density
+            total_nodes,                                                // total_nodes
+            internal_nodes,                                             // internal_nodes
+            internal_nodes / total_nodes,                               // internal_nodes_ratio
+            avg_depth,                                                  // avg_depth
+            avg_depth / max_depth,                                      // avg_depth_ratio
+            asl,                                                        // asl
+            asl / avg_depth,                                            // asl_ratio_avg_depth
+            asl / avg_width,                                            // asl_ratio_avg_width
+            asl / avg_depth / avg_width,                                // ..._ratio_avg_depth_avg_width
+            wpl,                                                        // wpl
+            wpl / avg_depth,                                            // wpl_ratio_avg_depth
+            wpl / avg_width,                                            // wpl_ratio_avg_width
+            wpl / avg_depth / avg_width,                                // ..._ratio_avg_depth_avg_width
+            wpl / avg_path_length,                                      // wpl_ratio_avg_path_length
+            diameter,                                                   // diameter
+            diameter / avg_depth,                                       // diameter_ratio_avg_depth
+            diameter / avg_width,                                       // diameter_ratio_avg_width
+            degree_two_nodes,                                           // degree_two_nodes
+            degree_two_nodes / total_nodes,                             // degree_two_nodes_ratio
+            self.get_degree_ratio(),                                    // degree_ratio
+        ]
+    }
+
     fn insert_node_fast(
         &mut self,
         price: f64,

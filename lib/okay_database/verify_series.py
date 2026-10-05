@@ -102,6 +102,9 @@ def old_values(mod, captured, code: str, date: int):
             change_time=captured.get("change_time", 1),
         )
         if getattr(cls, "check_my_kind", "level2") == "minute":
+            # 分钟系列的 Go 继承的是 dwo.FactorDesign，它的 __init__ 不认识 change_time
+            # （那是 TickDataBase 的参数），传进去只会 TypeError。
+            kwargs.pop("change_time", None)
             rc = cls(None, date, date, 1, captured.get("base_ver"), **kwargs)
         else:
             rc = cls(1, date, date, 1, symbol=code, **kwargs)
@@ -111,6 +114,13 @@ def old_values(mod, captured, code: str, date: int):
         res = list(res)
         if res and isinstance(res[0], pd.Series):
             return [float(s.get(code, float("nan"))) for s in res], True
+        if res and isinstance(res[0], pd.DataFrame):
+            # 分钟系列：get_factor() 返回的是「一天一行 × 全市场列」的 DataFrame 列表
+            # （旧代码里 `i.to_frame(self.end_date).T`），按列取出目标股票那一个值。
+            out = []
+            for s in res:
+                out.append(float(s[code].iloc[0]) if code in s.columns else float("nan"))
+            return out, True
         return [None if v is None else float(v) for v in res], False
     if hasattr(mod, "go"):
         res = mod.go(date, code)

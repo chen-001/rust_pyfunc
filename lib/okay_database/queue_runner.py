@@ -214,6 +214,9 @@ def main() -> int:
     reconcile(load_state())
     while True:
         state = load_state()
+        # 每轮都对账一次：别的队列进程/上次退出留下的 running 状态都能补上
+        reconcile(state)
+        state = load_state()
         busy = running_tasks()
         if busy:
             print(f"[队列] 已有任务在跑（id={busy[0]['id']}），等它结束")

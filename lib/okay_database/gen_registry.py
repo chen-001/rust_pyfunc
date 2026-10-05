@@ -19,7 +19,11 @@ PATTERN = re.compile(r"^hm\d+\.rs$")
 
 def main() -> int:
     files = sorted(p for p in SRC.iterdir() if p.is_file() and PATTERN.match(p.name))
-    mods = [p.stem for p in files]
+    # 带 REGISTRY_SKIP 标记的文件先不收进注册表：半成品/调试中的文件不该卡住所有人的构建
+    mods = [p.stem for p in files if "REGISTRY_SKIP" not in p.read_text(errors="replace")[:2000]]
+    skipped = [p.stem for p in files if p.stem not in mods]
+    if skipped:
+        print(f"（跳过未完成、带 REGISTRY_SKIP 标记的文件：{', '.join(skipped)}）")
 
     lines = [
         "// 自动生成，不要手改。生成器：lib/okay_database/gen_registry.py",
