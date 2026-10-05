@@ -5772,12 +5772,12 @@
    ],
    "rust_file": "src/okay_database/hm084.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm84_雪国列车/hm84_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": "hm084 雪国列车：Rust 复现完成，新旧逐值对账「通过」，已写完 base 单日冒烟。69 个因子。\n\n产物\n  src/okay_database/hm084.rs                                       逐股系列，69 个因子\n  /home/chenzongwei/pythoncode/成果hm84_雪国列车/hm84_okay_database.py\n      names_save 69（55 原值 + 14 _fold）、names_in_db 10、gap5 42、gap1 43\n\n对账（verify_series.py，OKAY_VERIFY_DATA_ROOT=/ssd_data）\n  八组 (日期,股票) 全部 69 值一致：\n    20250303:000001、20250304:600519、20180601:000002、20231020:300750\n    20191202:600000、20220715:002415、20210104:601318、20160701:000001\n  结论「通过」。\n\n冒烟\n  run_base(20250303, 20250303, n_jobs=8) 跑通，factor_base/hm84_base 下写出 69 个 .h5（+4 个\n  metadata），临时 colblk 已由框架自动删除。全历史不在本次做，交串行队列。\n\n旧代码干了什么（一句话）\n  15 秒一档，盘口 21 个 '_vol' 列先求 T×T 相关矩阵 lims_corrs，再对 20 条时间序列\n  （rate66/volume/local_volume × 3s/15s/60s × past/future，加 morph_decay_steps、rate66_at_decay）\n  各做一次 corrwith_diff 产出 10 列，拼成 T×200 的 res，最后过 get_features_factors\n  （with_corr=False、with_threshold_counts=False、with_lyapunov_exponent=False）取 19 个特征，\n  按 names_save 取 69 个输出。\n\n踩到并已解决的三个坑（都写进 hm084.rs 文件头）\n  1. 逐笔/盘口的 exchtime 在 CSV 里写成 \"1740960939000000.0\"（带 .0 的浮点串），\n     按整数字符串解析会失败并静默返回 0，于是所有行都被当成无效行丢掉。要按整数前缀解析。\n  2. 旧代码 `trade_66/(trade_66+trade_83).replace(inf,1).fillna(0)` 的方法链只作用在**分母**上，\n     结果本身不 fillna：分母为 0 时结果是 NaN。第一版照「结果 fillna」写会把 NaN 变 0。\n  3. corrwith 的配对（calculate_correlation_optimized）不接受含 NaN 的配对，\n     NaN 必须在入队前筛掉，否则整列均值被 NaN 污染、corr_less 那一族全变 NaN。\n\n已知取舍（实测未越线）\n  · 求和顺序：pandas 走 numpy 成对求和，本文件 f64 顺序累加，948 个数的相对误差量级 1e-13。\n  · big_pos/big_neg 的 stack→sort_values 并列顺序用「按值稳定排序再反转」代替\n    numpy 的 argsort(quicksort)[::-1]。矩阵对称、每个值成对出现，实测八组的时间集合都一致。\n  · 时间只用于分档，不比较纳秒（pandas 的 exchtime→Timestamp 有 ±256ns 噪声，\n    实测本样本上分档结果与精确微秒分档完全一致）。\n\n未覆盖的分支\n  · 旧代码里 cross_section=False、get_many=0、read_full=0，只有逐股一条路径，没有横截面分支。\n  · 集合竞价/停牌当天无成交的股票：flag66 或 flag83 全无数据时 compute_stock 返回 None（整条 NaN）。\n  · 只有单日小样本冒烟；全历史覆盖由串行队列提交后核验。"
   },
   {
    "num": 86,
