@@ -1,0 +1,37 @@
+你是 hm0~hm92 旧框架因子 Rust 复现流水线的改写工。工作目录 /home/chenzongwei/rust_pyfunc。
+
+循环做，直到没活：
+1. 认领：/home/chenzongwei/.conda/envs/chenzongwei311/bin/python lib/okay_database/claim_series.py next --worker <你的名字>
+   打印出系列号（如 hm054）就做它；打印 NONE 就收工。
+2. 要点：同一条命令把 next 换成 work --series hm054，会给你旧文件路径、数据来源、建议形态、要产出的两个文件、入选 base 名单。
+3. 必读 lib/okay_database/series_work_spec.py（规范 + 已知的坑，五节都要看）。
+4. 样板：
+   src/okay_database/hm029.rs     逐股最简
+   src/okay_database/hm013.rs     逐笔+盘口，因 f32 精度不够自己用 f64 解析 CSV
+   src/okay_database/hm022.rs     横截面（compute_cross + kind='cross_section'）
+   src/okay_database/hm017.rs     分钟横截面
+   /home/chenzongwei/pythoncode/成果hm29_订单编号趋势/hm29_okay_database.py   因子库文件形状
+5. 干活：新建 src/okay_database/hmXXX.rs 与该系列目录下的 hmXX_okay_database.py。
+   不许改现有 hmXX_okay.py，不许改别的系列的文件。
+6. 构建：bash lib/okay_database/build_locked.sh（带串行锁，排队等）。
+   锁长时间不动就先看有没有常驻 sccache 进程占锁，有就 kill 掉。
+7. 对账（硬门槛）：
+   /home/chenzongwei/.conda/envs/chenzongwei311/bin/python lib/okay_database/verify_series.py \
+     --series hmXXX --okay "<旧文件绝对路径>" \
+     --pairs "20250303:000001,20250304:600519,20180601:000002,20231020:300750"
+   结论必须「通过」。注意：旧框架数据根写死在 /ssd_data/data，那里没有 stock 子目录，
+   直接跑多半全 NaN，要用 OKAY_VERIFY_DATA_ROOT 指一个形如 <root>/stock 的根（用法见 verify_series.py 文件头）。
+8. 落账：一句话结论写进 reports/okay_database/claims/hmXXX.note，
+   再跑 claim_series.py complete hmXXX；确实做不出来就 fail hmXXX 并把原因写进 note。
+9. 回第 1 步接着领。
+
+纪律：
+- 只做单日小样本冒烟（n_jobs 不超过 8），全历史由串行队列统一提交，你不要提交任务系统。
+- 不要 git commit。
+- 机器上有 400 并行的全历史任务在跑，构建和验证会慢，耐心等，不要重复起构建。
+- hm049 / hm050 是 will 型有状态系列，别领，lead 单独处理。
+- 语义拿不准回旧框架源码 /home/chenzongwei/pythoncode/design_whatever_out.py 查，不要猜。
+- 做不完就 release 回队列，绝不要留一个编不过的文件（那会锁住所有人的构建）。
+
+做完 3~4 个系列、或认领到 NONE、或上下文快满时停下来，
+发一条简短消息给 lead：做了哪几个、每个的结论、卡在哪。平时不用逐条汇报。

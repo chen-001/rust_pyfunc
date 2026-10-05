@@ -128,12 +128,13 @@ def old_values(mod, captured, code: str, date: int):
     raise RuntimeError("既没截获到 Go 类，也没有 go 函数")
 
 
-def compare(old, new, rtol: float):
+def compare(old, new, rtol: float, atol: float = 1e-9):
     if old is None:
         old = []
     n = max(len(old), len(new))
     bad = []
     nan_old = nan_new = 0
+    near_zero = 0
     for i in range(n):
         a = old[i] if i < len(old) else float("nan")
         b = new[i] if i < len(new) else float("nan")
@@ -146,11 +147,23 @@ def compare(old, new, rtol: float):
         if math.isnan(a) or math.isnan(b):
             bad.append((i, a, b, "一边是 NaN"))
             continue
+        # 无穷要单独判：inf - inf 是 nan，按相对误差比会把「两边都是 inf」误判成不一致
+        if math.isinf(a) or math.isinf(b):
+            if math.isinf(a) and math.isinf(b) and (a > 0) == (b > 0):
+                continue
+            bad.append((i, a, b, "无穷不一致"))
+            continue
+        if abs(a) < atol and abs(b) < atol:
+            # 两边都落在数值零附近：这种量是求和顺序造成的舍入噪声，相对误差没有意义，
+            # 数学上恒等于 0 的量（比如标准化后的回归截距）永远过不了相对误差门槛。
+            # 单独记一笔，回报时要说清有多少个位置是靠这条放行的。
+            near_zero += 1
+            continue
         denom = max(abs(a), abs(b), 1e-12)
         rel = abs(a - b) / denom
         if not (rel <= rtol):
             bad.append((i, a, b, f"相对误差 {rel:.3e}"))
-    return dict(n_old=len(old), n_new=len(new), nan=nan_old, bad=bad)
+    return dict(n_old=len(old), n_new=len(new), nan=nan_old, near_zero=near_zero, bad=bad)
 
 
 def cross_values(series: str, code: str, date: int, rp):
@@ -176,6 +189,8 @@ def main() -> int:
     ap.add_argument("--okay", required=True)
     ap.add_argument("--pairs", default="20250303:000001,20250304:600519,20250305:000002")
     ap.add_argument("--rtol", type=float, default=1e-4)
+    ap.add_argument("--atol", type=float, default=1e-9,
+                    help="数值零附近的绝对误差兜底；两边都小于它就按舍入噪声放行")
     ap.add_argument("--out", default="")
     args = ap.parse_args()
 
@@ -210,7 +225,7 @@ def main() -> int:
             print(f"{code} {date}: Rust 侧失败 {exc}")
             all_ok = False
             continue
-        res = compare(old, new, args.rtol)
+        res = compare(old, new, args.rtol, args.atol)
         res.update(code=code, date=date, cross=is_cross)
         report["pairs"].append(res)
         flag = "一致" if not res["bad"] else f"有 {len(res['bad'])} 处不一致"

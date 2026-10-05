@@ -500,7 +500,7 @@ fn ln_gamma(x: f64) -> f64 {
         y += 1.0;
         ser += c / y;
     }
-    tmp + 2.5066282746310005f64.ln() + ser.ln()
+    tmp + (2.5066282746310005 * ser / x).ln()
 }
 
 /// 连分式（Lentz 算法），Numerical Recipes betacf
@@ -573,8 +573,17 @@ fn betai(a: f64, b: f64, x: f64) -> f64 {
     }
 }
 
-/// p = 1 - scipy.stats.f.cdf(f, dfn, dfd)
+/// p = 1 - scipy.stats.f.cdf(f, dfn, dfd)。
+///
+/// scipy 的 f.cdf 走的是 cephes 的 fdtr → incbet，**不是** special.betainc（后者走 Boost）。
+/// 两者在尾部极小时不同：incbet 在对称分支里有一句
+///     if (t <= MACHEP) t = 1.0 - MACHEP;   /* MACHEP = 1.11022302462515654042e-16 */
+/// 于是 cdf 最高只到 1 - 1.11e-16，p 的最小值就是 1.11e-16 而不是 0。
+/// 实测 scipy 1.15.2：f.cdf(1e5, 11, 150) = 0.9999999999999999（真尾部是 7.7e-284），
+/// 而 special.betainc(5.5, 75, z) = 1.0。照抄 betainc 会让 p 差一个 1.11e-16
+/// （相对误差 1.11e-4，刚好越过验收线），所以这里连这个下限一起复刻。
 fn f_sf(f: f64, dfn: f64, dfd: f64) -> f64 {
+    const MACHEP: f64 = 1.11022302462515654042e-16;
     if f.is_nan() {
         return f64::NAN;
     }
@@ -587,8 +596,21 @@ fn f_sf(f: f64, dfn: f64, dfd: f64) -> f64 {
     if f == f64::NEG_INFINITY {
         return 1.0;
     }
+    let aa = dfn / 2.0;
+    let bb = dfd / 2.0;
     let z = dfn * f / (dfn * f + dfd);
-    1.0 - betai(dfn / 2.0, dfd / 2.0, z)
+    let cdf = if z > aa / (aa + bb) {
+        // 对称分支：t = I_{1-z}(bb, aa) = 1 - I_z(aa, bb)，再套 cephes 的下限
+        let t = betai(bb, aa, 1.0 - z);
+        if t <= MACHEP {
+            1.0 - MACHEP
+        } else {
+            1.0 - t
+        }
+    } else {
+        betai(aa, bb, z)
+    };
+    1.0 - cdf
 }
 
 // ============================================================================
@@ -1123,6 +1145,9 @@ mod tests {
         assert!((betai(0.5, 0.5, 0.5) - 0.5).abs() < 1e-12);
         // scipy.stats.f.cdf(1.0, 5, 5) = 0.5 → p = 0.5
         assert!((f_sf(1.0, 5.0, 5.0) - 0.5).abs() < 1e-12);
+        // cephes 的下限：f.cdf(1e5,11,150) = 0.9999999999999999 → p = 1.11e-16
+        let p = f_sf(1e5, 11.0, 150.0);
+        assert!((p - 1.1102230246251565e-16).abs() < 1e-30, "p = {p:e}");
         assert!(f_sf(f64::INFINITY, 11.0, 100.0) == 0.0);
         assert!(f_sf(-1.0, 11.0, 100.0) == 1.0);
         assert!(f_sf(f64::NAN, 11.0, 100.0).is_nan());

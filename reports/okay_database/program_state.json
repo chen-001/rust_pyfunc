@@ -970,12 +970,12 @@
    ],
    "rust_file": "src/okay_database/hm030.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm30_局部趋势与整体趋势/hm30_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": "hm030（旧 hm30「局部趋势与整体趋势」）Rust 复现完成。\n\n产出文件\n- src/okay_database/hm030.rs：逐股系列，names() 305 个 = 5 个时段（allday/open30/morning/afternoon/close30）× 61 个指标。\n  时段顺序与旧 names 拼接顺序一致，305 个名字无重名。\n- /home/chenzongwei/pythoncode/成果hm30_局部趋势与整体趋势/hm30_okay_database.py：四个入口，ver='hm30'，\n  base='hm30_base'，db/gap5/gap1='hm30'；names_save 41 个、names_gap5 35 个、names_gap1 25 个、\n  names_in_db 4 个，四张名单逐项与旧 hm30_okay.py 比对一致（脚本抽取比对，不是手抄）。\n  旧文件里 base/db/hf 路径写在 /nas197/binary/stock/sz_alpha 下，新文件统一改到因子库目录。\n\n对账（硬门槛，通过）\n  python lib/okay_database/verify_series.py --series hm030 --okay \"…/hm30_okay.py\" \\\n    --pairs \"20250303:000001,20250304:600519,20180601:000002,20231020:300750\"\n  结果：四组都是「旧 305 值 / 新 305 值，NaN 0，一致」，结论「通过」。\n  另算了最大相对误差：四个组合里最差 1.14e-7（纯 f32 舍入），离 1e-4 阈值还有三个数量级。\n\n单日冒烟（通过）\n  20250303 一天、n_jobs=8，5117 只股票算完，base 层写出 41 个 h5（与 names_save 完全一致）；\n  hm30_base 的 partmax_mean_allday 在 000001 上是 262.017822，与旧值 262.01781275890636 一致。\n  未提交任务系统、未跑全历史。\n\n两个必须自己实现、不能调库里 pyfunction 的地方（worker 链路上会链接失败）\n1. max_range_loop / min_range_loop：照 src/statistics/mod.rs 逐行复刻，allow_equal 用 pyo3 签名里的默认值 true。\n2. dtw_distance(a, b, 0)：第三个参数是 radius=0，Sakoe-Chiba 窗口退化成 j==i，DP 只能沿对角线走，\n   结果等价于 Σ|a_i - b_i|（两序列等长时）。库里那个是 #[pyfunction]，所以在本文件里按等价式实现，\n   不是\"少算\"，是等价化简。\n\npandas 语义（已按旧代码逐个对齐，先用 Python 验证过公式再落 Rust）\n- skew 用 nanops.nanskew：count>2 时 g1=m3/m2^1.5，再乘 sqrt(n(n-1))/(n-2)。\n- std 是 ddof=1；mean/std/skew/max 都是 skipna。\n- corr 是 Pearson 成对完整观测；rank 用 method='average'，NaN 保持 NaN。\n- between_time 按时间分量比较、两端都含；last_prc==0 丢、NaN 留（NaN != 0 为真）。\n\n未覆盖到的分支\n- 没有实测「某个时段不足 11 行」那条分支（旧代码给 61 个 NaN），代码里照抄了这个判断，\n  但没找到真实样本对照过。\n- 只用过 /ssd_data/stock 一路数据根目录，没测 RUST_PYFUNC_LEVEL2_ROOT 指向子集目录的情形。\n- 盘口 CSV 的 datetime 只按 \"YYYY-MM-DD HH:MM:SS.xxx\" 这一种写法解析，没测过别的格式。"
   },
   {
    "num": 31,
@@ -1481,7 +1481,7 @@
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": "hm038 未完成（未通过新旧对账，判定为旧值本身不可复现），已放弃认领。\n\n做了什么\n- 用 pandas 把旧 get_factor 的整条链路完整复现了一遍（含 ols、dtw、resample 分格、5 个统计量），\n  除 30 个截距外全部对得上：\n  b1 / b2 / r2 与旧值相对差约 1e-13；分格回归、dtw、rank、标准化链路的结构都验证过了。\n\n卡在哪\n- sing() 先把整个窗口标准化 `(df-df.mean())/df.std()`，再对标准化后的数据回归，\n  截距 b0 在数学上恒等于 0（≈1e-13 的舍入噪声）。\n  而 (price - mean) 是 11.5 量级数的灾难性抵消：pandas 的均值本身带 ~4e-12 的舍入，\n  求和顺序一换，截距就完全变样。\n- 实测 000001@20250303 全天段：\n    旧值（pandas 标准化 + rp.ols 的 LU）      b0 = -1.4067056551285477e-13\n    同一份标准化数据用 numpy lstsq          b0 = -8.007587320486296e-14\n    「先算均值再代公式」                      b0 = -7.962403600972914e-14\n  彼此相对差 43%~100%。verify_series 的判定是 rel = |a-b| / max(|a|,|b|,1e-12)，\n  两边都小于 1e-12 时分母取 1e-12，于是 rel ≈ 0.06，远超 1e-4 的阈值。\n- 影响面：每个 (窗口, rank) 组合的 3 个截距（b0 / ask_b0 / bid_b0），共 30 / 640 个值。\n  b1 / b2 / r2 不受影响。\n\n这 30 个值不在 names_save 里（但自动门槛过不去）\n- names_save 里出现的 b0 一律带 _mean / _std / _skew / _max / _min 后缀，\n  是**分格**截距的聚合；分格截距不是噪声，量级 O(0.1 ~ 100)（实测 000001 全天 756 个格子，\n  b0 头几个 0.79 / 0.79 / 0.79 / 0.62 / 6.4e4），聚合出来的因子是有意义的。\n- 但 verify_series 比的是 get_factor 返回的全部 640 个值，所以脚本这一关仍是「不通过」。\n\n真要做得下去，需要下面任一条\n1. 在 Rust 里逐位复刻 pandas 的 mean / std（numpy 的 pairwise summation）与\n   ndarray 的 X^T X（matrixmultiply 的分块累加），再照抄 solve_linear_system3 的 LU；\n   这样 xtx / xty 一致，截距才能对上。工作量远超单系列预算。\n2. 或者改 verify_series 的判定：对 |旧值| 和 |新值| 都小于 1e-12 的位置改用绝对误差\n   （这类位置本来就是舍入噪声，相对误差没有意义）。\n\n未跑的步骤\n- 没有新建 src/okay_database/hm038.rs，也没有新建 hm38_okay_database.py；\n- 没有构建、没有写 base。"
   },
   {
    "num": 39,
@@ -1724,12 +1724,12 @@
    ],
    "rust_file": "src/okay_database/hm041.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm41_野火/hm41_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": "hm041 野火 —— 复现完成，验证通过\n\n产出\n  src/okay_database/hm041.rs（新增，逐股系列）\n  /home/chenzongwei/pythoncode/成果hm41_野火/hm41_okay_database.py（新增）\n  旧文件 hm41_okay.py 未改。\n\n形态\n  per_stock。只读盘口 market_data，get_many=0 / read_full=0 / change_time=1。\n  change_time=1 在这份旧代码里只做 exchtime 的单位换算，没有 adjust_afternoon，\n  所以五个时段用真实钟点、两端都含：allday[09:30,14:57]、open30、morning、afternoon[13:00,14:57]、close30[14:30,14:57]。\n  每个时段切两档（cut_num=6 → 档位 1~5 叫 num5；cut_num=11 → 档位 1~10 叫 num10）。\n\n验证（硬门槛，通过）\n  lib/okay_database/verify_series.py --series hm041 --okay 旧文件 --pairs\n  20250303:000001、20250304:600519、20180601:000002、20231020:300750\n  四组全部「旧 360 值 / 新 360 值，NaN 0，一致」，结论「通过」。\n  只用了程序判定的结果，没有手工放过任何一格。\n\n必须原样复刻的旧代码错位（重点）\n  旧 sing1 每次返回 36 个值，但 names 每块只声明了 34 个名字，漏了 asks_dura_sum 与\n  bids_dura_sum。旧框架 cal_factor_one_stock / cal_factor_one_day 都是 zip(res, names_single)，\n  按短的截断，所以从每块第 14 位（ab_first）起名字与值整体错位 2 格，每块最后两个值被丢掉。\n  例：存进因子库的 ab_first_num10_open30 实际装的是该块的 asks_dura_sum。\n  处理方式：names() 返回 340 个名字（旧 names_single 原样），compute_stock() 返回完整的 360 个\n  原始值，pipeline 按 expected_result_length=340 截断，正好等于旧 zip 的行为。\n  已实测核对：单日 base 写完后，000001@20250303 的 40 个 names_save 列值对旧 get_factor\n  逐个对齐，不一致 0 个。**不要**把 340 改成 360，那样值会整体前移两格、和因子库对不上。\n\n实现里对齐的几处 pandas 语义\n  · asks_first / asks_last 按 price 去重后，(last-first) 是按 price 对齐不是按位置对齐\n    （keep=first 与 keep=last 留下的行序不同），corr 那几项必须用 price 做键内连接。\n  · corr_asks_first / corr_asks_last / corr_bids_first / corr_bids_last 是\n    corr(exchtime 的纳秒整数值, number)，不是 corr(price, ...)。pandas 2.x 的 DataFrame.corr\n    会把 datetime64[ns] 当 float64 参与，这里照做。\n  · ab_first_rate = asks_first_sum/(asks_first_sum+bids_first_sum)，不是 (a-b)/(a+b)。\n    第一版写成了差值比，实测值从 0.498 变成 -0.003，是硬错误，已在文件里写了注释。\n  · dura_std 是标准差不是方差（第一版漏了 sqrt，实测差 4603 倍）。\n  · skew 用 pandas 的公式 (n*sqrt(n-1)/(n-2))*(m3/m2^1.5)，m2/m3 先做 1e-14 抹零，\n    m2==0 返回 0，n<3 返回 NaN；corr 用 nancorr 的 Welford 算法。\n\n没覆盖到的分支（说清）\n  · 某时段窗口内 asks 或 bids 为空时，旧代码走 [nan]*34 分支（长度 34 而不是 36），\n    会让后面各块整体前移。Rust 侧照抄了这个分支，但四组验证样本都没触发。\n  · 同一时刻有多条快照（exchtime 相同）时，drop_duplicates keep=first/last 的归属取决于\n    多键排序的稳定性。Rust 用稳定排序（sort_by_key），与 pandas 多键 sort_values 走的\n    np.lexsort 一致；但没有专门构造这种样本去压。\n\n冒烟\n  单日 20250303、n_jobs=8，run_base 写出 base：5117 个任务、17 秒、40 个因子文件落地，\n  之后核对列值全部对上。没有提交任务系统，没有 git commit。"
   },
   {
    "num": 43,
@@ -2668,12 +2668,12 @@
    ],
    "rust_file": "src/okay_database/hm054.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm54_创纪录熵变/hm54_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": "hm054（创纪录熵变，Level2 逐笔，per_stock）已复现并通过对账。\nRust: src/okay_database/hm054.rs，114 个因子名与旧 names_single 逐个一致。\n因子库文件: /home/chenzongwei/pythoncode/成果hm54_创纪录熵变/hm54_okay_database.py（names_save 42、gap5 18、gap1 22、names_in_db 1，全部原样搬自 hm54_okay.py）。\n对账: 20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750 四组，旧 114 值 / 新 114 值，全部一致，结论「通过」（覆盖率含一个 2018 年日期）。\n单日冒烟: run_base(20250303,20250303,n_jobs=3) 写完 hm54_base，42 个 h5（26 原值 + 16 个 _fold），5117 个股票日约 5 分钟。\n已知语义差异（都在容差内，已实测）: 旧 rp.calculate_shannon_entropy_change 用 HashMap 累加熵，求和顺序随机；本实现用 BTreeMap 按键升序，两边只差约 1e-13，远小于 1e-4 对账阈值。"
   },
   {
    "num": 55,
@@ -3281,12 +3281,12 @@
    ],
    "rust_file": "src/okay_database/hm005.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm5_整点订单/hm5_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": "hm005（hm5 整点订单）已复现并通过新旧对账。逐股系列，120 个因子 = 6 指标 x 5 时段(all/open30/close30/morning/afternoon) x 4 周期(1s/1m/5m/15m)，只有 1s 那 30 个做 abs(值-0.25)。verify_series 四组 (20250303,000001) (20250304,600519) (20180601,000002) (20231020,300750) 全部「一致」、结论「通过」，120 值逐值最大相对误差 0（未用 OKAY_VERIFY_DATA_ROOT，默认 /ssd_data 根两边都对得上）。单日冒烟 20250303、n_jobs=8、5117 只股票 16 秒算完，落 base 的 44 个入选名与旧框架逐值一致。turnover 用 f64 自解析（f32 时 600519 最大相对误差 8.5e-6，min|值| 仅 1.19e-4，余地不足一个数量级）。产物：src/okay_database/hm005.rs、成果hm5_整点订单/hm5_okay_database.py。gap5 35 个、gap1 29 个、db 4 个名单均从旧文件原样搬入。"
   },
   {
    "num": 60,
@@ -5231,12 +5231,12 @@
    ],
    "rust_file": "src/okay_database/hm007.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm7_后继无人/hm7_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": "hm007 已完成 Rust 复现并通过新旧对账。\n\n产物\n- src/okay_database/hm007.rs（逐股，225 个因子）\n- /home/chenzongwei/pythoncode/成果hm7_后继无人/hm7_okay_database.py（per_stock / okay_hm007）\n- 旧文件 hm7_okay.py 未改动。\n\n对账（lib/okay_database/verify_series.py，阈值 1e-4）\n- 20250303:000001、20250304:600519、20180601:000002、20231020:300750，四组全部一致，\n  结论「通过」。其中 600519@20250304 有 80 个 NaN、300750@20231020 有 8 个 NaN\n  （某些窗口 × 方向的子集为空 → 0/0），新旧 NaN 位置完全对得上。\n\n冒烟\n- run_base(20250303, 20250303, n_jobs=8) 走通，base 层写出 42 个 hdf5，\n  与 names_save 逐个核对无缺无多。未跑全历史，全历史交给队列。\n\n说明\n- 旧文件 ver 是 'no_successor'，新因子库文件按 hj 系列统一命名用 'hm7' / 'hm7_base'。\n- flag==32 的撤单过滤按**数值**做（pandas 也是数值比），不能用 fast_csv_reader\n  那个按字节比 \"32\" 的 with_retreat，否则 2025 年明细里的 \"32.0\" 过滤不掉。\n- groupby 默认 dropna=True，key 为 NaN 的成交不参与分组，代码里照做。\n- 挂单量向量先排序再用：median 需要有序，同时避开 HashMap 迭代顺序带来的不确定性。\n- 空集合的 np.divide 行为（0/0 → NaN、x/0 → ±inf）逐条复刻。\n\n没覆盖到的分支\n- 只验了 4 个交易日各 1 只股票。ask_order / bid_order 出现空字段（NaN key）\n  这类情形没造样本，代码按 pandas 的 dropna 语义处理但没实测。"
   },
   {
    "num": 80,

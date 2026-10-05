@@ -96,13 +96,27 @@
 //! ════════════════════════════════════════════════════════════════════
 //! · Welford 相关系数：与 pandas 逐位一致（20250303 的 500 只股票 × 6 个 dc，
 //!   非 NaN 位置 bit 相同、NaN 位置也相同）。
-//! · np.log 与 glibc log（Rust f64::ln 走的就是 glibc log）：实测约 0.01%~0.2% 的
-//!   输入差 1 ulp。用真实数据比过：6 个 dc 的 log 分别用 numpy 和 libm 算，
-//!   800 只股票上相关系数掩码（0.99/0.01 两个分位）差异为 0。留在文件里备案。
-//! · 列内求和（volumes.sum() / 列均值）用简单顺序累加，numpy 用成对求和，
-//!   相对差 ~1e-16，只影响 log 输入的末位，量级与上一条相同。
+//! · 分位数：与 pandas 的 corr.quantile(0.99/0.01) 取到的 order statistic 一致
+//!   （1000 列对照，掩码零差异）。
+//! · **列内求和必须用 numpy 的成对求和**（pair_sum，已实现）。这一条不是精度洁癖：
+//!   掩码阈值落在大量并列值（corr 恰好 ±1）附近，列和差 1 ulp 就会让掩码翻面，
+//!   因子值能差几十个百分点。实测把 close 的列和换成顺序累加，全市场 5792 列里
+//!   ab_ratio 那 45 个因子会有 4 列（000409 / 002037 / 600192 / 600289）对不上旧值；
+//!   换成 numpy 的成对求和后这 4 列完全对上。
+//! · **已知残差：np.log 用的是 numpy 自带的 SVML 汇编（`__svml_log8`，AVX-512），
+//!   而 Rust 的 f64::ln 走 glibc 的 log**，两者约 0.01%~0.2% 的输入差 1 ulp
+//!   （20250303 的 ab_ratio 实测 2235/1125860 位不同）。这个差异只在刀口上咬人：
+//!   20250303 全市场 270 个因子里，只有 imbalance1 那 45 个因子的 2 只股票
+//!   （603398 / 603823）与旧值不同，最大相对差 9.9e-2。原因是这两列里有 pair 的
+//!   相关系数算出来是 -1.0000000000000013（numpy）与 -1.0（glibc log），
+//!   而 1% 分位阈值为 -1.0000000000000009，正好卡在两者中间。
+//!   这类格子占 5792 列的 0.03%，而且旧值本身就是 ±1 上的浮点噪声，numpy 自己
+//!   换 CPU（SVML 的 log8 / log4 / log2 三条路径）也会变，属于规范里"已知不可复现"。
+//!   本文件按 glibc log 实现，与旧值的这 2 列分歧留档待定。
+//! · 掩码内求均值用的顺序累加 vs pandas 的成对求和，只影响值的末位（相对 1e-16），
+//!   远低于 1e-4 的验收门槛。
 //! · 旧代码把 inf 直接写进因子（分钟分支没有 replace(inf, nan)）。本文件同行为，
-//!   不做额外清洗。
+//!   不做额外清洗。实测 20250303 的 270 × 5792 个值里 inf 个数为 0。
 //!
 //! ════════════════════════════════════════════════════════════════════
 //! 四、输出排布（横截面系列的约定）
@@ -311,38 +325,89 @@ fn nan_tail_rows(a: &mut [f64], n_rows: usize, n_codes: usize) {
     }
 }
 
-/// pandas `DataFrame.sum()`：按列、沿行序跳过 NaN 累加（numpy 成对求和，这里顺序累加）。
-fn col_nansum(a: &[f64], n_rows: usize, n_codes: usize) -> Vec<f64> {
-    let mut s = vec![0.0f64; n_codes];
-    for m in 0..n_rows {
-        let row = &a[m * n_codes..m * n_codes + n_codes];
-        for j in 0..n_codes {
-            let v = row[j];
-            if !v.is_nan() {
-                s[j] += v;
-            }
+/// numpy 成对求和的块大小（`@TYPE@_pair_sum` 里的 PW_BLOCKSIZE）。
+const PW_BLOCKSIZE: usize = 128;
+
+/// numpy 的浮点成对求和（src/umath/loops_arithm_fp.dispatch.c.src 的 `@TYPE@_pair_sum`）。
+///
+/// pandas 的 `DataFrame.sum()` / `.mean()` 先把 NaN 填成 0，再调 `ndarray.sum`，
+/// 走的就是这个算法：长度 < 8 直接顺序加；<= 128 用 8 个累加器展开、
+/// 末尾按 ((r0+r1)+(r2+r3))+((r4+r5)+(r6+r7)) 归约，剩下的尾巴顺序加；
+/// 更长的按 8 的倍数折半递归。
+///
+/// 为什么必须逐位复刻：hm51 的因子完全建立在「相关系数 >= 每列 0.99 分位」的掩码上，
+/// 而分位阈值正好落在大量并列值（corr 恰好 ±1）附近。列归一化用的列和如果只差 1 ulp，
+/// 掩码就会有格子翻面，因子值能差几十个百分点。实测：把 close 列和换成顺序累加，
+/// 全市场 5792 列里有 4 列的掩码会变（000409/002037/600192/600289），
+/// 改成成对求和后这 4 列与旧值逐位对上。对照实验见 Python 侧脚本。
+fn pair_sum(a: &[f64]) -> f64 {
+    let n = a.len();
+    if n < 8 {
+        let mut res = 0.0f64;
+        for v in &a[..n] {
+            res += *v;
         }
+        return res;
     }
-    s
+    if n <= PW_BLOCKSIZE {
+        let mut r = [0.0f64; 8];
+        r.copy_from_slice(&a[..8]);
+        let mut i = 8usize;
+        while i < n - (n % 8) {
+            for k in 0..8 {
+                r[k] += a[i + k];
+            }
+            i += 8;
+        }
+        let mut res = ((r[0] + r[1]) + (r[2] + r[3])) + ((r[4] + r[5]) + (r[6] + r[7]));
+        while i < n {
+            res += a[i];
+            i += 1;
+        }
+        return res;
+    }
+    let mut n2 = n / 2;
+    n2 -= n2 % 8;
+    pair_sum(&a[..n2]) + pair_sum(&a[n2..])
 }
 
-/// pandas `DataFrame.mean()`（axis=0，skipna）：每列在 [m0, m1) 行上的均值。
+/// pandas `DataFrame.sum()`：NaN 填 0 之后按列做 numpy 成对求和（不是顺序累加）。
+fn col_nansum(a: &[f64], n_rows: usize, n_codes: usize) -> Vec<f64> {
+    let mut buf = vec![0.0f64; n_rows];
+    let mut out = vec![0.0f64; n_codes];
+    for j in 0..n_codes {
+        for m in 0..n_rows {
+            let v = a[m * n_codes + j];
+            buf[m] = if v.is_nan() { 0.0 } else { v };
+        }
+        out[j] = pair_sum(&buf);
+    }
+    out
+}
+
+/// pandas `DataFrame.mean()`（axis=0，skipna）：NaN 填 0 后按列做 numpy 成对求和，再除以非 NaN 个数。
 fn col_nanmean(a: &[f64], n_rows: usize, n_codes: usize, m0: usize, m1: usize) -> Vec<f64> {
-    let mut s = vec![0.0f64; n_codes];
-    let mut c = vec![0usize; n_codes];
-    for m in m0..m1.min(n_rows) {
-        let row = &a[m * n_codes..m * n_codes + n_codes];
-        for j in 0..n_codes {
-            let v = row[j];
-            if !v.is_nan() {
-                s[j] += v;
-                c[j] += 1;
+    let m1 = m1.min(n_rows);
+    let mut buf = vec![0.0f64; m1 - m0];
+    let mut out = vec![f64::NAN; n_codes];
+    for j in 0..n_codes {
+        let mut cnt = 0usize;
+        for m in m0..m1 {
+            let v = a[m * n_codes + j];
+            if v.is_nan() {
+                buf[m - m0] = 0.0;
+            } else {
+                buf[m - m0] = v;
+                cnt += 1;
             }
         }
+        out[j] = if cnt == 0 {
+            f64::NAN
+        } else {
+            pair_sum(&buf) / cnt as f64
+        };
     }
-    (0..n_codes)
-        .map(|j| if c[j] == 0 { f64::NAN } else { s[j] / c[j] as f64 })
-        .collect()
+    out
 }
 
 /// np.log(...) 之后 `.replace([inf,-inf], nan)`，再摆成「股票优先」的 [j*m1 + m]。
