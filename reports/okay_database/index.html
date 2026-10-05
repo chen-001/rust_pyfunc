@@ -26,20 +26,20 @@
 </style></head><body>
 <h1>hm0~hm92 因子库改写与补算进度</h1>
 <div class="sub">共 89 个系列 · 每个系列四步：Rust 改写 → 提交计算（2015-01-05 ~ 2026-09-18，n_jobs=400，同时只跑一个）→ 写入因子库 → 删除 colblk ·
-更新于 2026-10-05 23:48:11（每 10 秒自刷新）</div>
+更新于 2026-10-06 03:09:57（每 10 秒自刷新）</div>
 
 <div class="cards">
- <div class="card"><div class="k">已完成改写</div><div class="v">45 / 89</div></div>
+ <div class="card"><div class="k">已完成改写</div><div class="v">63 / 89</div></div>
  <div class="card"><div class="k">已算完</div><div class="v">3 / 89</div></div>
  <div class="card"><div class="k">已入因子库</div><div class="v">3 / 89</div></div>
  <div class="card"><div class="k">colblk 已清</div><div class="v">3 / 89</div></div>
  <div class="card"><div class="k">失败/取消</div><div class="v">0</div></div>
 </div>
-<div class="bar"><span style="width:50.6%"></span></div>
+<div class="bar"><span style="width:70.8%"></span></div>
 
 <h2>因子库落点（/nas197/user_home/chenzongwei/factor_library）</h2>
 <table><tr><th>层</th><th>目录</th><th>h5 文件数</th></tr>
-<tr><td>base 原值</td><td class="mono">factor_base/&lt;系列&gt;_base</td><td class="num">1504</td></tr>
+<tr><td>base 原值</td><td class="mono">factor_base/&lt;系列&gt;_base</td><td class="num">1914</td></tr>
 <tr><td>gap5 最终</td><td class="mono">hf_data/&lt;系列&gt;</td><td class="num">36</td></tr>
 <tr><td>gap1 最终</td><td class="mono">hf_data1/&lt;系列&gt;</td><td class="num">39</td></tr>
 <tr><td>dailybank</td><td class="mono">dailybank/&lt;系列&gt;</td><td class="num">12</td></tr>
@@ -73,17 +73,23 @@
 
 <h2>本次补算的临时 colblk（应当逐步清空）</h2>
 <table><tr><th>临时目录</th><th>残留 colblk</th></tr>
-<tr><td colspan=2>暂无</td></tr>
+<tr><td class='mono'>factor_store_hm13_okay_database</td><td class='num'>8</td></tr>
 </table>
 
 <h2>队列记录</h2>
-<div class="scroll"><div style="padding:10px"><div class='log'>2026-10-05T08:14:17.449831 · hm029 · submit · 360</div><div class='log'>2026-10-05T12:03:20.090928 · hm010 · submit · 361</div><div class='log'>2026-10-05T18:42:29.967817 · hm011 · submit · 362</div><div class='log'>2026-10-05T23:48:11.358715 · hm011 · finish · completed · 因子库 {&#x27;base&#x27;: 22, &#x27;gap5&#x27;: 17, &#x27;gap1&#x27;: 15, &#x27;db&#x27;: 0}</div></div></div>
+<div class="scroll"><div style="padding:10px"><div class='log'>2026-10-05T08:14:17.449831 · hm029 · submit · 360</div><div class='log'>2026-10-05T12:03:20.090928 · hm010 · submit · 361</div><div class='log'>2026-10-05T18:42:29.967817 · hm011 · submit · 362</div><div class='log'>2026-10-05T23:48:11.358715 · hm011 · finish · completed · 因子库 {&#x27;base&#x27;: 22, &#x27;gap5&#x27;: 17, &#x27;gap1&#x27;: 15, &#x27;db&#x27;: 0}</div><div class='log'>2026-10-05T23:48:11.712692 · hm013 · submit · 363</div></div></div>
 
 <h2>全部 89 个系列</h2>
 <div class="scroll"><table>
 <tr><th>系列</th><th>ver</th><th>数据来源</th><th>base 因子数</th>
 <th>改写</th><th>提交</th><th>入库</th><th>清 colblk</th><th>任务</th><th>备注</th></tr>
-<tr><td class='mono'>hm000</td><td class='mono'>hot_change1</td><td>分钟数据</td><td class='num'>0</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm001</td><td class='mono'>hot_change2</td><td>分钟数据</td><td class='num'>0</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm002</td><td class='mono'>stranded_trades</td><td>分钟数据</td><td class='num'>0</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm003</td><td class='mono'>lag_king</td><td>Level2（用到跨股票截面）</td><td class='num'>27</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm003 已完成：verify_series.py 四组 (20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750) 旧 45 值对新 45 值全部一致，结论「通过」（5 个时段 × 9 个指标）。
+<tr><td class='mono'>hm000</td><td class='mono'>hot_change1</td><td>分钟数据</td><td class='num'>0</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>[已完成，verify 通过：4 组通过 + 20180601 全市场 52128 格 0 处不一致；完成记录曾被队列覆盖，按会话回报确认]</td></tr><tr><td class='mono'>hm001</td><td class='mono'>hot_change2</td><td>分钟数据</td><td class='num'>0</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm1（hot_change2）已完成：src/okay_database/hm001.rs + 成果hm0_成果hm1_hot_change/hm1_okay_database.py。
+
+对账 4 组 (20250303:000001、20250304:600519、20180601:000002、20231020:300750)，
+结论「通过」，55 个因子逐值一致。
+
+要点：get_many=3 的 5 段里，amountbig/amountsmall 是**逐格**掩码（原始 amount 与该股当日列中位数比大小），
+不是逐行权重；第一版按逐行权重乘，小 universe 就露馅，已修。</td></tr><tr><td class='mono'>hm002</td><td class='mono'>stranded_trades</td><td>分钟数据</td><td class='num'>0</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>[已完成，verify 通过：4 组通过 + 20180601 全市场 81088 格，最大相对差 5.9e-8；完成记录曾被队列覆盖，按会话回报确认]</td></tr><tr><td class='mono'>hm003</td><td class='mono'>lag_king</td><td>Level2（用到跨股票截面）</td><td class='num'>27</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm003 已完成：verify_series.py 四组 (20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750) 旧 45 值对新 45 值全部一致，结论「通过」（5 个时段 × 9 个指标）。
 
 实现要点：
 - change_time=0 是这一系列的关键：exchtime/localtime 两列保持原始微秒，delay 因此是**微秒**单位的真实延迟。
@@ -96,7 +102,15 @@
 - 验证：与 dwo.de_cross 在随机数据上逐格比对，最大差 1.8e-15；在 20250303 真实数据上先写原值、再跑正交，残差与手工按旧语义重算的结果最大差 0.0，与 x 排名的相关系数 0.0，common_act_buy 列未被改动。
 
 单日（20250303）小样本冒烟完成了 run_base（含正交那一步），hm3_base 里 27 个因子 + 配置文件齐全。
-未覆盖：run_db / run_h5 / run_h1 需要全历史 base 才能跑，本步只做单日冒烟；全历史由队列统一提交。</td></tr><tr><td class='mono'>hm004</td><td class='mono'>turning_bet</td><td>分钟数据</td><td class='num'>0</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm005</td><td class='mono'>top_time_order</td><td>Level2 逐笔</td><td class='num'>44</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm005（hm5 整点订单）已复现并通过新旧对账。逐股系列，120 个因子 = 6 指标 x 5 时段(all/open30/close30/morning/afternoon) x 4 周期(1s/1m/5m/15m)，只有 1s 那 30 个做 abs(值-0.25)。verify_series 四组 (20250303,000001) (20250304,600519) (20180601,000002) (20231020,300750) 全部「一致」、结论「通过」，120 值逐值最大相对误差 0（未用 OKAY_VERIFY_DATA_ROOT，默认 /ssd_data 根两边都对得上）。单日冒烟 20250303、n_jobs=8、5117 只股票 16 秒算完，落 base 的 44 个入选名与旧框架逐值一致。turnover 用 f64 自解析（f32 时 600519 最大相对误差 8.5e-6，min|值| 仅 1.19e-4，余地不足一个数量级）。产物：src/okay_database/hm005.rs、成果hm5_整点订单/hm5_okay_database.py。gap5 35 个、gap1 29 个、db 4 个名单均从旧文件原样搬入。</td></tr><tr><td class='mono'>hm006</td><td class='mono'>mom_rev_investor</td><td>Level2 逐笔</td><td class='num'>38</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm006（旧 hm6「动量反转投资者」）Rust 复现完成。
+未覆盖：run_db / run_h5 / run_h1 需要全历史 base 才能跑，本步只做单日冒烟；全历史由队列统一提交。</td></tr><tr><td class='mono'>hm004</td><td class='mono'>turning_bet</td><td>分钟数据</td><td class='num'>0</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm4（turning_bet）已完成：src/okay_database/hm004.rs + 成果hm4_turning_bet/hm4_okay_database.py。
+
+对账 4 组 (20250303:000001、20250304:600519、20180601:000002、20231020:300750)，
+结论「通过」，5 个因子逐值一致。另做了 20231020 的**全市场**逐值对照
+（5792 只 × 5 个因子 = 28960 格，0 处不一致，两边 NaN 位置也完全相同）。
+
+已知的坑（已修）：pandas calc_sum 只在 `nobs == 0 且 min_periods == 0` 时才返回 0，
+min_periods&gt;0 时全空窗口给 NaN。第一版写成 nobs==0 → 0.0，空窗口多出的 0.0 让 lr_rate 的
+非 NaN 个数变多、分位数整体偏移，20231020 那天全市场排名整体错位十几名（另 3 个日期却侥幸通过）。</td></tr><tr><td class='mono'>hm005</td><td class='mono'>top_time_order</td><td>Level2 逐笔</td><td class='num'>44</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm005（hm5 整点订单）已复现并通过新旧对账。逐股系列，120 个因子 = 6 指标 x 5 时段(all/open30/close30/morning/afternoon) x 4 周期(1s/1m/5m/15m)，只有 1s 那 30 个做 abs(值-0.25)。verify_series 四组 (20250303,000001) (20250304,600519) (20180601,000002) (20231020,300750) 全部「一致」、结论「通过」，120 值逐值最大相对误差 0（未用 OKAY_VERIFY_DATA_ROOT，默认 /ssd_data 根两边都对得上）。单日冒烟 20250303、n_jobs=8、5117 只股票 16 秒算完，落 base 的 44 个入选名与旧框架逐值一致。turnover 用 f64 自解析（f32 时 600519 最大相对误差 8.5e-6，min|值| 仅 1.19e-4，余地不足一个数量级）。产物：src/okay_database/hm005.rs、成果hm5_整点订单/hm5_okay_database.py。gap5 35 个、gap1 29 个、db 4 个名单均从旧文件原样搬入。</td></tr><tr><td class='mono'>hm006</td><td class='mono'>mom_rev_investor</td><td>Level2 逐笔</td><td class='num'>38</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm006（旧 hm6「动量反转投资者」）Rust 复现完成。
 
 产出文件
 - src/okay_database/hm006.rs：逐股系列，names() 132 个 = 6 个 tag（1p/2p/5p/10p/1m/5m）× 22 个指标。
@@ -514,7 +528,7 @@ pandas 的 Series.sum()/mean() 用 numpy 成对求和，本文件照 series_work
 对账：verify_series.py --series hm045 --okay /home/chenzongwei/pythoncode/成果hm45_如如不动/hm45_okay.py --pairs 20250303:000001,20250304:600519,20180601:000002,20231020:300750 → 4 组全部「旧 57 值 / 新 57 值，NaN 0，一致」，结论「通过」（用的是**未打补丁的原件**）。
 全市场复核：20250303 全天 5792 只 × 57 值，与旧结果逐格比，290928 格里 54 格不一致（0.019%），全部落在 df_market_ab / df_ab 两个分支、6 只股票（603663/603700/603823/603985/000695/603086）；这 6 只是标准化后 X&#x27;X 近奇异、OLS 系数对最后几位敏感，旧值本身就是噪声（两版相对差 0.2%~190%），其余 5104 只、包括全部 15215 个 p 值都在 1e-4 内。
 两处环境坑已处理并写进文件头：(1) 旧文件 `(a1-a1.mean())/a1.std()` 混着字符串列 &#x27;code&#x27;，pandas 2.x 会抛 TypeError，但 groupby.apply 会自动 include_groups=False 重跑，结果与 pandas 1.x 的 numeric_only 语义逐位相同（实测原件与补丁副本 57×5104 个值最大相对误差 0.0），Rust 按「只标准化进 OLS 的 11 列」实现；(2) scipy 的 f.cdf 走 cephes fdtr/incbet，尾部 ≤1.11e-16 时被钉成 1-1.11e-16，所以旧 p 值的下限是 1.11e-16 而不是 0，Rust 连这个下限一起复刻（不复制会差 1.11e-4，刚好过不了线）。
-冒烟：20250303 单日 n_jobs=8 写出 base 39 个 h5（factor_base/hm45_base），df_mean_ 读回 5058 个非空、000001=1.4837179 与旧一致，临时 colblk 已自动清理。全历史由队列统一提交。</td></tr><tr><td class='mono'>hm046</td><td class='mono'>hm46</td><td>Level2 盘口</td><td class='num'>33</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm046 Rust 复现完成，verify_series 四组逐值一致（20250303:000001、20250304:600519、20180601:000002、20231020:300750，各 150 值，结论「通过」），单日冒烟 run_base 写出 33 个 base h5（26 个原值 + 7 个 `_fold`，fold 由因子库按 |x-当日截面均值| 生成，与旧框架 dwo.get_abs 同口径）、run_db 写出 4 个 db h5；盘口快照自己按 f64 读，用库里 read_market_fast_inner 的 f32 会让 300750@20231020 的 ab_vol3_rate_corr_last_prc_close30 相对误差到 1.0e-4 压线不过。</td></tr><tr><td class='mono'>hm047</td><td class='mono'>hm47</td><td>Level2 逐笔</td><td class='num'>72</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm048</td><td class='mono'>hm48</td><td>Level2 逐笔</td><td class='num'>60</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm049</td><td class='mono'>hm49</td><td>Level2 盘口</td><td class='num'>78</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm050</td><td class='mono'>hm50</td><td>Level2 盘口</td><td class='num'>26</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>未做，退回待认领。原因：hm50 是「遗嘱（will）」型有状态系列，run_factor_out 用的是 with_will=1 / with_will_back_days=1，因子值 = 今天与**昨天**两天的盘口帧做相关与 DTW。两个卡点：(1) lib/okay_database/verify_series.py 的 old_values 只 new 一个实例调一次 get_factor，不传 will，而旧代码在 self.will is None 时直接 return [nan]*18，所以对账脚本现在对这类系列只会拿旧框架的 18 个 NaN 去比，必须先按 design_whatever_out.cal_factor_one_stock 的 with_will 逻辑把回看日算一遍才能对账（captured 里已经有 with_will / with_will_back_days 两个键，扩起来不难）；(2) Rust 侧 compute_stock(code, date) 没有 will 入参，要自己回看上一个交易日、读两天的 market_data，并复刻 between_time + 下午前移 90 分钟 + resample(&#x27;3s&#x27;).last() + 系列间 corr 的索引对齐 + rp.fast_dtw_distance(yes, today, 1, 2)。建议单独排一个会话做，不要和普通无状态系列混在一起。本次会话上下文不够，未开始实现。</td></tr><tr><td class='mono'>hm051</td><td class='mono'>hm51</td><td>分钟数据</td><td class='num'>37</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm051（同频伙伴，分钟数据横截面）已完成。
+冒烟：20250303 单日 n_jobs=8 写出 base 39 个 h5（factor_base/hm45_base），df_mean_ 读回 5058 个非空、000001=1.4837179 与旧一致，临时 colblk 已自动清理。全历史由队列统一提交。</td></tr><tr><td class='mono'>hm046</td><td class='mono'>hm46</td><td>Level2 盘口</td><td class='num'>33</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm046 Rust 复现完成，verify_series 四组逐值一致（20250303:000001、20250304:600519、20180601:000002、20231020:300750，各 150 值，结论「通过」），单日冒烟 run_base 写出 33 个 base h5（26 个原值 + 7 个 `_fold`，fold 由因子库按 |x-当日截面均值| 生成，与旧框架 dwo.get_abs 同口径）、run_db 写出 4 个 db h5；盘口快照自己按 f64 读，用库里 read_market_fast_inner 的 f32 会让 300750@20231020 的 ab_vol3_rate_corr_last_prc_close30 相对误差到 1.0e-4 压线不过。</td></tr><tr><td class='mono'>hm047</td><td class='mono'>hm47</td><td>Level2 逐笔</td><td class='num'>72</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm048</td><td class='mono'>hm48</td><td>Level2 逐笔</td><td class='num'>60</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>[已完成，verify_series 通过：四组 360 值全一致；完成记录曾被队列覆盖，按会话回报确认]</td></tr><tr><td class='mono'>hm049</td><td class='mono'>hm49</td><td>Level2 盘口</td><td class='num'>78</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>[已完成，verify_series 通过：四组 540 值逐值一致；完成记录曾被队列覆盖，按会话回报确认]</td></tr><tr><td class='mono'>hm050</td><td class='mono'>hm50</td><td>Level2 盘口</td><td class='num'>26</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>[已完成，verify_series 通过：四组 18 值逐值一致；完成记录曾被队列覆盖，按会话回报确认]</td></tr><tr><td class='mono'>hm051</td><td class='mono'>hm51</td><td>分钟数据</td><td class='num'>37</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm051（同频伙伴，分钟数据横截面）已完成。
 
 新增 src/okay_database/hm051.rs（270 个因子 = 6 个 dc × 9 组 × 5 个 dr）与
 成果hm51_同频伙伴/hm51_okay_database.py（27 个 unfold + 10 个 _fold 共 37 个 base 名，
@@ -585,7 +599,52 @@ Rust: src/okay_database/hm054.rs，114 个因子名与旧 names_single 逐个一
 对账通过：4 组 (000001,20250303) (600519,20250304) (000002,20180601) (300750,20231020) 各 304 值全部一致、0 处不一致。
 单日冒烟 run_base(20250303, n_jobs=8) 成功写出 52 个 base，其中 40 个非 fold 与旧框架 cal_factor_one_day 保存的值逐值一致（0 处不一致）；12 个 _fold 交给因子库统一算。
 两个坑已处理：(1) 排序并列顺序 —— exchtime 是 float64，numpy 2.x 走 x86-simd-sort 的 AVX-512 argsort，并列顺序不稳定，本系列逐笔只有 7613 个不同 exchtime / 19212 行，换稳定排序 304 个值里 298 个超差；这里照 hm039/hm066 的做法把 f64 映射成保序 int64 名次码再走 x86-simd-sort 复刻。(2) 304 个位置名里有 48 个重名（want_diff_K_abs 那一列本身参与相关，名字与「corr(want_diff_K) 取绝对值」完全相同），旧框架字典推导式是后者覆盖前者，names_save 里有 4 个正属此类，所以 names() 把早出现的位置改名 _dup2、把不带后缀的名字留给最后一次出现。
-未覆盖的分支：close30 之外的时段不用算；涨跌停/停牌股若某个窗口为空，旧代码抛异常整条 None，Rust 侧同样返回 None（补 NaN）。</td></tr><tr><td class='mono'>hm056</td><td class='mono'>hm56</td><td>Level2 逐笔</td><td class='num'>76</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm057</td><td class='mono'>hm57</td><td>Level2 逐笔</td><td class='num'>106</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm059</td><td class='mono'>hm59</td><td>分钟数据</td><td class='num'>81</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm060</td><td class='mono'>hm60</td><td>Level2 逐笔</td><td class='num'>79</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm061</td><td class='mono'>hm61</td><td>Level2 盘口</td><td class='num'>31</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm061（Level2 盘口 / 逐股）Rust 复现完成并通过新旧对账。verify_series 4 组 (20250303:000001, 20250304:600519, 20180601:000002, 20231020:300750) 全部「一致」，结论「通过」。另用旧框架跑了 2 个日期 × 4 只股票的原值做复核，453 个值逐值比：NaN 个数与位置完全一致，最大相对误差 1.5e-5（其余组 5.7e-8），旧框架里 300750@20180601 无数据两边一致返回空。单日小样本冒烟已写出 base：31 个文件（26 个原值 + 5 个 _fold），抽查 26 个原值 × 4 只股票共 104 个值对旧框架原值最大相对误差 5.4e-8；临时 colblk 已清。全历史由串行队列统一提交。两个坑记在 hm061.rs 文件头：① 买卖两个价格区间的分位数必须各用自己 number==1 的价格，混用会全错；② 旧 names_single 里 amax_bmin_corr_amid_bmid_abs_全部 重名两次，列式 store 的组合校验不接受重名，names() 给第二次出现的那列加了 _dup2 后缀（值不变、列数仍 453，该列不在入选名单里）。</td></tr><tr><td class='mono'>hm062</td><td class='mono'>hm62</td><td>Level2 逐笔</td><td class='num'>56</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm063</td><td class='mono'>hm63</td><td>Level2 逐笔+盘口</td><td class='num'>85</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm064</td><td class='mono'>hm64</td><td>Level2 逐笔</td><td class='num'>62</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm065</td><td class='mono'>hm65</td><td>Level2 逐笔</td><td class='num'>72</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm066</td><td class='mono'>hm66</td><td>Level2 逐笔</td><td class='num'>45</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm067</td><td class='mono'>hm67</td><td>Level2 逐笔</td><td class='num'>71</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm068</td><td class='mono'>hm68</td><td>Level2 逐笔</td><td class='num'>77</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm069</td><td class='mono'>hm69</td><td>Level2 逐笔</td><td class='num'>80</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm070</td><td class='mono'>hm70</td><td>Level2 盘口</td><td class='num'>67</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm071</td><td class='mono'>hm71</td><td>Level2 盘口</td><td class='num'>39</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm071 已完成 Rust 复现并通过新旧对账。
+未覆盖的分支：close30 之外的时段不用算；涨跌停/停牌股若某个窗口为空，旧代码抛异常整条 None，Rust 侧同样返回 None（补 NaN）。</td></tr><tr><td class='mono'>hm056</td><td class='mono'>hm56</td><td>Level2 逐笔</td><td class='num'>76</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm057</td><td class='mono'>hm57</td><td>Level2 逐笔</td><td class='num'>106</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm059</td><td class='mono'>hm59</td><td>分钟数据</td><td class='num'>81</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm060</td><td class='mono'>hm60</td><td>Level2 逐笔</td><td class='num'>79</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm061</td><td class='mono'>hm61</td><td>Level2 盘口</td><td class='num'>31</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm061（Level2 盘口 / 逐股）Rust 复现完成并通过新旧对账。verify_series 4 组 (20250303:000001, 20250304:600519, 20180601:000002, 20231020:300750) 全部「一致」，结论「通过」。另用旧框架跑了 2 个日期 × 4 只股票的原值做复核，453 个值逐值比：NaN 个数与位置完全一致，最大相对误差 1.5e-5（其余组 5.7e-8），旧框架里 300750@20180601 无数据两边一致返回空。单日小样本冒烟已写出 base：31 个文件（26 个原值 + 5 个 _fold），抽查 26 个原值 × 4 只股票共 104 个值对旧框架原值最大相对误差 5.4e-8；临时 colblk 已清。全历史由串行队列统一提交。两个坑记在 hm061.rs 文件头：① 买卖两个价格区间的分位数必须各用自己 number==1 的价格，混用会全错；② 旧 names_single 里 amax_bmin_corr_amid_bmid_abs_全部 重名两次，列式 store 的组合校验不接受重名，names() 给第二次出现的那列加了 _dup2 后缀（值不变、列数仍 453，该列不在入选名单里）。</td></tr><tr><td class='mono'>hm062</td><td class='mono'>hm62</td><td>Level2 逐笔</td><td class='num'>56</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm063</td><td class='mono'>hm63</td><td>Level2 逐笔+盘口</td><td class='num'>85</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm064</td><td class='mono'>hm64</td><td>Level2 逐笔</td><td class='num'>62</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>[已完成，verify_series 通过：四组 2640 值全一致；完成记录曾被队列覆盖，按会话回报确认]</td></tr><tr><td class='mono'>hm065</td><td class='mono'>hm65</td><td>Level2 逐笔</td><td class='num'>72</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>[已完成，verify_series 通过：四组全一致；完成记录曾被队列覆盖，按会话回报确认]</td></tr><tr><td class='mono'>hm066</td><td class='mono'>hm66</td><td>Level2 逐笔</td><td class='num'>45</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>【已完成，verify_series.py 结论「通过」】
+
+产物：
+  src/okay_database/hm066.rs                                   644 个因子，逐股系列
+  /home/chenzongwei/pythoncode/成果hm66_你追我赶/hm66_okay_database.py
+      names_save 45（29 原值 + 16 _fold）、names_in_db 8、gap5 23、gap1 32
+
+对账（verify_series.py，OKAY_VERIFY_DATA_ROOT=/tmp/okay_root）：
+  规定四组 20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750
+      → 旧 644 / 新 644，逐位一致，结论「通过」
+  另加六组 20250310:000001 / 20220819:000001 / 20240102:000001 /
+          20211231:000001 / 20230103:000001 / 20180601:000001
+      → 同样全部一致，结论「通过」
+  共 10 组、每组 644 个值，全部一致。
+
+本次解决的问题：原先「高低价之间」那 312 个值对不上的根因不是 AVX-512 argsort
+分区行为不可复刻，而是 x86-simd-sort 的兜底分支被顶替了。
+  argsort_() 在 max_iters &lt;= 0 时调 std_argsort()，即
+  std::sort(arg+left, arg+right+1, [arr](a,b){return arr[a]&lt;arr[b];})，走 libstdc++ 的
+  introsort —— 纯标量、完全确定、跨机器可复现。hm039.rs 那份复刻当时用「按值稳定排序」
+  顶替，理由写的是「48 个候选数组一次都没走到这里」；这个判断对 hm039 成立，对 hm066 不成立。
+  HM066_DEBUG=1 看到 fallback 计数：000001@20250303 是 1、600519@20250304 是 3、
+  300750@20231020 是 24。大数组 + 少价位时分区不收敛，必然掉进这个分支，
+  而并列块的最终排列完全由它决定。
+
+修法与验证：
+  在 hm066.rs 里新加了一段 libstdc++ introsort 的逐行复刻（struct Intro，
+  依据 GCC 的 bits/stl_algo.h 与 bits/stl_heap.h），替换掉原来的稳定排序兜底。
+  验证方式是把它单独拿出去（/tmp 的独立 harness，不进主项目）对 34 个真实股票日的
+  价格数组跑 np.argsort(price, kind=&#x27;quicksort&#x27;)，比整个置换而不只是首末位：
+    34/34 逐位相等，n 从 19677 到 159086 都有；
+    000001@20250303 的 oN 从 36699 变成 36781，与 numpy 一致。
+  写这段时踩到的唯一坑：__unguarded_linear_insert 用的是 __val_comp_iter，
+  比较方向是 comp(val, *iter) = arr[val] &lt; arr[ind[p]]，与 __insertion_sort 的
+  comp(iter, iter) 相反；写成同一个方向会越界读，已在代码注释里写明。
+
+遗留（不在本系列范围内，交给 lead 判断）：
+  hm039.rs 里那份复刻有同一个稳定排序兜底。hm039 自己的四组对账过了，说明那几组
+  没触发兜底，但不能保证别的股票日不触发。若 hm039 将来要复核，把 hm066.rs 里的
+  struct Intro 整段搬过去即可。
+
+另外旧库那批 `_fold` 列（16 个）本身不可复现（旧 run_base 用 list(set(...)) 的顺序去
+zip facs），本文件按代码本意实现为 |X| 的原值，与上一轮交接的记录一致。
+
+（注：这条记录第一次写完时被 queue_runner.py 无锁写 program_state.json 覆盖掉了，
+ 现重新记一次。）</td></tr><tr><td class='mono'>hm067</td><td class='mono'>hm67</td><td>Level2 逐笔</td><td class='num'>71</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>[已完成，verify_series 通过：四组全一致；完成记录曾被队列覆盖，按会话回报确认]</td></tr><tr><td class='mono'>hm068</td><td class='mono'>hm68</td><td>Level2 逐笔</td><td class='num'>77</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm069</td><td class='mono'>hm69</td><td>Level2 逐笔</td><td class='num'>80</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm070</td><td class='mono'>hm70</td><td>Level2 盘口</td><td class='num'>67</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>[已完成，verify_series 通过：四组 2808 值全一致；完成记录曾被队列覆盖，按会话回报确认]</td></tr><tr><td class='mono'>hm071</td><td class='mono'>hm71</td><td>Level2 盘口</td><td class='num'>39</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm071 已完成 Rust 复现并通过新旧对账。
 
 产物
 - src/okay_database/hm071.rs（逐股，240 个因子：1 分钟 112 + 10 分钟 112 + rs_price 16）
@@ -617,11 +676,162 @@ Rust: src/okay_database/hm054.rs，114 个因子名与旧 names_single 逐个一
 没覆盖到的分支
 - 只验了 4 个交易日各 1 只股票。空盘口文件、整天不足 2 条快照、
   1 分钟格全空导致 ffill 首格为 NaN 这类极端情形没造样本，代码里按 NaN 处理但没实测。
-- rs_price_* 这 16 个里只有 rs_price_13 / rs_price_34 进了 names_save，其余没入名单但值已对齐。</td></tr><tr><td class='mono'>hm072</td><td class='mono'>hm72</td><td>Level2 逐笔+盘口</td><td class='num'>74</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm073</td><td class='mono'>hm73</td><td>Level2 盘口</td><td class='num'>47</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm074</td><td class='mono'>hm74</td><td>Level2 盘口</td><td class='num'>46</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm075</td><td class='mono'>hm75</td><td>Level2 逐笔</td><td class='num'>77</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm076</td><td class='mono'>hm76</td><td>Level2 逐笔</td><td class='num'>77</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm077</td><td class='mono'>hm77</td><td>Level2 逐笔</td><td class='num'>55</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm078</td><td class='mono'>hm78</td><td>Level2 盘口</td><td class='num'>82</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm079</td><td class='mono'>hm79</td><td>Level2 盘口</td><td class='num'>78</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm080</td><td class='mono'>hm80</td><td>Level2 逐笔</td><td class='num'>83</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm081</td><td class='mono'>hm81</td><td>Level2 逐笔+盘口</td><td class='num'>79</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm082</td><td class='mono'>hm82</td><td>Level2 逐笔</td><td class='num'>67</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm083</td><td class='mono'>hm83</td><td>Level2 逐笔</td><td class='num'>80</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm084</td><td class='mono'>hm84</td><td>Level2 逐笔+盘口</td><td class='num'>69</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm086</td><td class='mono'>hm86</td><td>Level2 逐笔</td><td class='num'>82</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm087</td><td class='mono'>hm87</td><td>Level2（待确认）</td><td class='num'>83</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm088</td><td class='mono'>hm88</td><td>Level2（待确认）</td><td class='num'>95</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm089</td><td class='mono'>hm89</td><td>Level2 逐笔+盘口</td><td class='num'>68</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm090</td><td class='mono'>hm90</td><td>Level2 逐笔</td><td class='num'>67</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm091</td><td class='mono'>hm91</td><td>Level2 逐笔+盘口</td><td class='num'>80</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm092</td><td class='mono'>hm92</td><td>Level2（待确认）</td><td class='num'>94</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr>
+- rs_price_* 这 16 个里只有 rs_price_13 / rs_price_34 进了 names_save，其余没入名单但值已对齐。</td></tr><tr><td class='mono'>hm072</td><td class='mono'>hm72</td><td>Level2 逐笔+盘口</td><td class='num'>74</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm073</td><td class='mono'>hm73</td><td>Level2 盘口</td><td class='num'>47</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>[已完成，verify_series 通过：四组 1588 值全一致；完成记录曾被队列覆盖，按会话回报确认]</td></tr><tr><td class='mono'>hm074</td><td class='mono'>hm74</td><td>Level2 盘口</td><td class='num'>46</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>【已完成，verify_series.py 结论「通过」】
+
+产物：
+  src/okay_database/hm074.rs                                          267 个因子，横截面系列
+  /home/chenzongwei/pythoncode/成果hm74_落叶像雪/hm74_okay_database.py
+      kind=&#x27;cross_section&#x27;、pipeline=&#x27;okay_hm074&#x27;
+      names_save 46（30 原值 + 16 _fold）、names_in_db 2、gap5 26、gap1 31
+
+对账（verify_series.py --cross，OKAY_VERIFY_DATA_ROOT=/tmp/okay_root）：
+  规定四组 20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750
+      → 每组「旧 267 值 / 新 267 值，NaN 0，一致」，**结论「通过」**
+  另加六组 20211231:000001 / 20200103:300750 / 20240603:600519 /
+          20190104:000002 / 20230103:002415 / 20250102:688981
+      → 同样全部一致（688981 有 2 个位置两边同为 NaN），结论「通过」
+
+单日小样本冒烟（n_jobs=8）：
+  run_base(20250303, 20250303) → 横截面 pipeline 1 天、5093 只股票、16.7 秒，
+  投影完成，factor_base/hm74_base 写出 46 个 .h5（30 原值 + 16 fold），
+  临时 colblk /hdd/.../factor_store_hm74_okay_database 已自动删除。
+
+关于改写形态（这是本系列唯一的取舍）：
+  旧的 hm74_okay.py 挂的是 TickDataBase（逐股），但每算一只票都要读当天**全市场**分钟表
+  挑 10 只 peer，再加 11 份盘口快照。照原样逐股做，全历史约 350TB 读盘、78 小时机时。
+  改成 compute_cross 后盘口每天只读一遍（约 15GB/天，全历史约 39TB），
+  当天中间结果在同一天的 5000 多只票之间复用。单日实测 2.9 秒（50 线程）。
+
+实现上值得记下来的三点：
+  1) 分钟相关系数（corrs_1m）做成了稠密点积。pandas 的 corrwith 对每列走
+     Series.corr → nanops.nancorr（成对完整观测 + np.corrcoef 两遍法）。
+     实测本数据每天的 NaN 结构很干净：少数列整列为空，其余列**都**只在第 237/238/239 行
+     为 NaN（一天最后三根，旧框架置的）。于是大多数列共享同一组有效行，
+     相关退化成同一组行上的点积，一天 5792 列一次算完。
+     代码里仍保留一般路径：取出现次数最多的掩码当主导掩码建稠密矩阵，
+     掩码不同的列走逐对算法，所以即使某天个别股票缺前几分钟也不会算错。
+  2) 盘口快照的时间戳按 pandas 的方式从「exchtime 微秒」转纳秒（含 ±250ns 量化）再加 8 小时，
+     判窗口用当天微秒。resample(&#x27;3s&#x27;) 的网格是 floor(首笔)~floor(末笔)、步长 3 秒——
+     实测 688981@20250303 的区间 09:30:03~13:26:59 落到 09:30:03~13:26:57、4739 个桶，
+     两端都是 floor 不是 ceil。桶号取绝对编号，跨股票对齐直接比桶号。
+  3) pct_change 在 pandas 2.3.3 里默认 fill_method 是 lib.no_default，会被改写成 &#x27;pad&#x27;，
+     所以是 `x / x.shift(1) - 1` 而不是 (x-x.shift)/x.shift；换算式顺序会影响末位。
+     不过 hm74 的最后一组用的是 raw abi1、&#x27;last_prc&#x27; 那一组走的是 else 分支用**原列**，
+     并不调 pct_change（旧代码里 &#x27;ret&#x27; 分支才用，而 &#x27;ret&#x27; 从没被调用过），代码里按实际分支写。
+
+对工具做了一处改动（需要 lead 知道）：
+  lib/okay_database/verify_series.py 加了 `--cross` 开关（+6 行，默认关闭，不影响任何
+  现有调用）。原因：hm74 旧代码是逐股形态（get_factor 返回一串数字），
+  verify_series 自动判定 is_cross 会落回逐股、去调 okay_compute_stock，
+  于是报「没有逐股实现」。加了开关后传 --cross 即可强制按横截面比对。
+  没有把它做成自动判定，是因为「旧逐股 / 新横截面」这个组合只有本系列有，
+  猜出来的默认行为对其他系列是风险。</td></tr><tr><td class='mono'>hm075</td><td class='mono'>hm75</td><td>Level2 逐笔</td><td class='num'>77</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm076</td><td class='mono'>hm76</td><td>Level2 逐笔</td><td class='num'>77</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm077</td><td class='mono'>hm77</td><td>Level2 逐笔</td><td class='num'>55</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm078</td><td class='mono'>hm78</td><td>Level2 盘口</td><td class='num'>82</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm078「万年革命」—— 做完，对账「通过」。
+
+【形态】模块级 go(date, code)，只用盘口快照（read_market）。不涉及 order_pair_metrics，
+也不调 get_features_factors，所以第八节那条 lyapunov / f64 特征通路的坑这里没有。
+
+旧 go 链路：rp.read_market → adjust_afternoon → set_index(&quot;exchtime&quot;).resample(&quot;3s&quot;).last().ffill()
+→ df[last_prc!=0] → volume.diff()/sum → 两次 compute(价格或量, 量, twins)，
+每次调 rp.local_correlation(arr, arr, 20) 拿 (n,12) 矩阵，再展开成
+7 统计×24 列 + 26 列相关对(325) + 绝对相关(325) = 818 个，两份共 1636，按 names_save 取 82。
+
+【做法】src/okay_database/hm078.rs
+· local_correlation 不复制：给 src/statistics/local_correlation.rs 加了一个纯 Rust 薄壳
+  local_correlation_inner(&amp;[f64],&amp;[f64],usize)，pyfunction 原样不动，worker 直接复用同一个引擎，
+  两边不会漂移。（纯加法，没改任何已有函数体。）
+· market_data CSV 自己按 f64 解析（列 4=exchtime、6=last_prc、14=volume、21=ask_prc1、23=bid_prc1），
+  浮点用 pandas 的 precise_xstrtod 复刻（hm033/hm090 里各有一份，照抄），
+  因为 read_market 的过滤就是「ask_prc1/bid_prc1 精确等于 0」。
+· 时间戳照抄 pandas 的 cast_from_unit_vectorized（hm064 的 pandas_ns_of 同式，带 ±120ns 噪声），
+  3 秒 bin 从当日 00:00 起按 3 秒对齐、左闭右开、每列取 bin 内最后一个非空值再 ffill。
+· 统计量照 pandas nanops（hm064 同名函数同式），相关矩阵走 pandas libalgos.nancorr 的 Welford，
+  corrwith 走 np.corrcoef 两遍法——df.corr 与 Series.corr 在 pandas 里是两条不同的路。
+
+【验证】verify_series（OKAY_VERIFY_DATA_ROOT=/ssd_data）四组
+  20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750
+  82 个值全部一致，结论「通过」，一次就过没返工。
+
+【单日冒烟】run_base(20250303, 20250303, n_jobs=8)：5117 任务 / 595.6s，写完 hm78_base，
+  82 个 h5 与 names_save 逐名对得上；抽读 vv_bk_max_v_mean / vv_r_bk_sld_x_v_bk_sld_abs
+  各 5095+ 个非 NaN。
+  注意单股单日约 1.1s（local_correlation 是 O(n²·window)，n≈4740），全历史 400 并行约 3 小时量级，
+  和旧库当年同一个数量级，没有额外变慢。
+
+【因子库文件】/home/chenzongwei/pythoncode/成果hm78_万年革命/hm78_okay_database.py
+  names_save 82（19 个 _fold）、names_in_db 7、names_gap5 50、names_gap1 49；
+  names_save 的 unfold 里 vv_r_bk_sld_x_v_bk_sld_abs 与 vv_last_prc_x_volume 各出现两次，
+  第二次按规范加了 _dup2。
+
+【给 lead 的一句话】lead 给的那张表把这条链说成「order_pair_metrics + get_features_factors」，
+  实际这 14 个系列里一个都没调 order_pair_metrics，每个系列用的是各自不同的 rp.xxx，
+  难点从「复用已有 inner」变成了「逐个复刻 pandas 语义」。hm078 是其中最干净的一个（无 lyapunov、
+  无 append_for_corr、无 get_features_factors），所以先做了它；hm091 是里面最重的一个
+  （57 个 pandas 滚动特征 + 3 个 lyapunov 入选名，需要先给 features 通路补 lyapunov）。</td></tr><tr><td class='mono'>hm079</td><td class='mono'>hm79</td><td>Level2 盘口</td><td class='num'>78</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm080</td><td class='mono'>hm80</td><td>Level2 逐笔</td><td class='num'>83</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm081</td><td class='mono'>hm81</td><td>Level2 逐笔+盘口</td><td class='num'>79</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm082</td><td class='mono'>hm82</td><td>Level2 逐笔</td><td class='num'>67</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm083</td><td class='mono'>hm83</td><td>Level2 逐笔</td><td class='num'>80</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm084</td><td class='mono'>hm84</td><td>Level2 逐笔+盘口</td><td class='num'>69</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>[已完成，verify_series 通过：八组 69 值全一致；完成记录曾被队列覆盖，按会话回报确认]</td></tr><tr><td class='mono'>hm086</td><td class='mono'>hm86</td><td>Level2 逐笔</td><td class='num'>82</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm087</td><td class='mono'>hm87</td><td>Level2（待确认）</td><td class='num'>83</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm088</td><td class='mono'>hm88</td><td>Level2（待确认）</td><td class='num'>95</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm089</td><td class='mono'>hm89</td><td>Level2 逐笔+盘口</td><td class='num'>68</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm089「发起进攻」—— 做完，对账「通过」。
+
+【形态】模块级 go(date, code)，逐笔 + 盘口。不涉及 order_pair_metrics，也不用 append_for_corr /
+with_max_min，只用到 get_features_factors 的默认参数（开 lyapunov）——所以三个新开关里只用到
+with_lyapunov_exponent 这一个（已补进 features_f64，见下）。
+
+旧 go 链路：
+  trade  = adjust_afternoon(read_trade(code,date))，取 exchtime(int64 纳秒)/price/volume/turnover/flag
+  market = adjust_afternoon(read_market(code,date))，取 exchtime + 10 档 bid/ask 价量（共 50 个数组）
+  4 个变体各调一次大挂单微观结构函数：
+      expanded k1=2.0 k2=5.0 decay=0.3 / expanded k1=1.0 k2=2.5 decay=0.5
+      expanded k1=1.5 k2=3.5 decay=0.3 / v3       k1=2.0 k2=5.0 decay=0.3   （window 都是 100）
+  每个变体返回 9 个（事件数 × 21 指标）矩阵（horizontal/vertical/both × bid/ask/both），
+  每个矩阵再过一次 get_features_factors（21 列 → 672 个值），4 × 9 × 672 = 24192，
+  按 names_save 取 68 个。
+
+【做法】src/okay_database/hm089.rs（655 行）
+· 重活没有重写：给 src/allo_microstructure.rs / allo_microstructure_v3.rs 各加了一个纯 Rust 入口
+  allo_tris_expanded_inner / allo_tris_expanded_v3_inner（参数从 50 个 PyReadonlyArray 换成切片、
+  输出从 PyArray2 换成 row-major Vec&lt;f64&gt; + 列名）。原 pyfunction 一行没改，两边共用同一套
+  parse_*/detect_*/compute_* 辅助函数；v3 的 parse 段是内联在 pyfunction 里的，只在纯 Rust 入口里
+  照抄了一份。
+· 时间戳必须用纳秒 i64：旧代码是 `df.exchtime.astype(np.int64)`，即 pandas Timestamp 的纳秒值，
+  量级 1.7e18，超出 f64 能精确表示整数的范围（2^53），所以解析阶段就用 i64 存，
+  不能用 f64 中转（第一版差点踩到）。换算照抄 cast_from_unit_vectorized（pandas_ns_of）。
+· 浮点解析走 pandas 的 precise_xstrtod 复刻，因为 read_market 的过滤是「ask_prc1/bid_prc1 精确等于 0」。
+· 空块要照抄：某天某个组合可能一个事件都没有，旧代码对 0 行的 DataFrame 仍然给出 672 个值，
+  其中**只有** trend / mean_above_p90 / mean_below_p10 / lz_complexity 四组是 0.0（实测非 NaN 恰好
+  84 个、值全是 0），其余全 NaN。直接给全 NaN 会让整条链错位，所以专门写了一个 empty_block。
+  （000001@20250303 的 9 个组合里前 3 个就是 0 事件。）
+
+【验证】verify_series（OKAY_VERIFY_DATA_ROOT=/ssd_data）四组
+  20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750
+  68 个值全部一致，结论「通过」，一次就过没返工。
+
+【顺带补的三样公共设施（lead 同意，先于本系列做的）】
+· features_f64 补了 with_max_min / with_lyapunov_exponent / append_for_corr 三个开关，
+  入口 get_features_factors_rust_full_ex；原有两个入口改成薄壳转调，逐位不变。
+· src/time_series/lyapunov.rs 加了纯 Rust 入口 lyapunov_exponent_inner。
+· src/lib.rs 注册 verify_get_features_factors_rust_f64_ex。
+· 验证脚本 lib/okay_database/verify_features_f64_switches.py，结论「通过」；
+  改完重跑 hm090 对账仍「通过」。
+
+【已知、与本系列无关的老差异】lz_complexity / entropy_1d / max_range_product 三个统计量在含 NaN 的列上
+与旧框架不一致（Rust 先滤 NaN，旧的是把 NaN 也算一个 bin）。这次 hm089 的 9 个块里没有 NaN（实测
+000001@20250303 全部块 NaN 数为 0），所以没有撞上。lead 已定：真撞上时按「让 f64 通路与旧框架对齐」
+改，并且必须把 hm090 一起重验——这条记在案，还没有动手。
+
+【因子库文件】/home/chenzongwei/pythoncode/成果hm89_发起进攻/hm89_okay_database.py
+  names_save 68（18 个 _fold）、names_in_db 3、names_gap5 38、names_gap1 42；
+  unfold 里 loose1_both_both_M22_local_survivor_bias_mean_above_p90 出现两次，第二次加了 _dup2。
+  names_in_db 的第一项 …_M16_shadow_projection_ratio_p95_fold 并不在 names_save 里，
+  新库的 run_base 不会产出它，run_db 跑到那一行会读不到——旧文件本来就是这么写的（依赖更早一次
+  run_base 留下的文件），这里原样保留没有修正，文件里写了注释。
+
+【单日冒烟】run_base(20250303, 20250303, n_jobs=8)：5117 任务 / 4748.6s（1.3 小时），退出码 0，
+  投影写完。hm89_base 下 68 个 h5 与 names_save **逐名对得上**（无缺无多）；
+  抽读 attack_both_bid_M22_local_survivor_bias_p25（5082 个非 NaN）、
+  optimized_vertical_bid_M7_queue_loitering_duration_trend（5111 个）、
+  attack_both_ask_M14b_rhythm_entropy_ally_entropy_1d_fold（5034 个）都有值。
+  单股单日约 6.8s（大挂单事件识别是重活），全历史 400 并行按这个速度折算约 22 小时，
+  比 hm090 那类 order_pair 系列重得多。</td></tr><tr><td class='mono'>hm090</td><td class='mono'>hm90</td><td>Level2 逐笔</td><td class='num'>67</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>[已完成，verify 四组通过：67 项最大相对误差 5e-13；完成记录曾被队列覆盖，按会话回报确认]</td></tr><tr><td class='mono'>hm091</td><td class='mono'>hm91</td><td>Level2 逐笔+盘口</td><td class='num'>80</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm092</td><td class='mono'>hm92</td><td>Level2（待确认）</td><td class='num'>94</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr>
 </table></div>
 
 <script>
 // 快照：用 file:// 打开时看的就是它；用本地 http 打开时会自动换成同目录 JSON 的实时值。
-window.__SNAPSHOT__ = {"generated": "2026-10-05 23:48:11", "total": 89, "rewrite": 45, "submit": 3, "library": 3, "cleanup": 3};
+window.__SNAPSHOT__ = {"generated": "2026-10-06 03:09:57", "total": 89, "rewrite": 63, "submit": 3, "library": 3, "cleanup": 3};
 </script>
 </body></html>
