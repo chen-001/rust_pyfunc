@@ -181,6 +181,16 @@ design_whatever_out 写的）做 Rust 复现，产出两个文件：
 - 用了 pandas rolling_future 的系列：它的窗口是 f64 纳秒（1.7e18 只有 256ns 分辨率），
   按精确 int64 写会有 605/56193 行与旧代码不同、相对误差到 1e-3。
 
+
+- pandas 的 rolling().std() 要用 roll_var 的算法逐位复刻（pandas/_libs/window/aggregations.pyx），
+  两遍法只差最后一位，但这个量常常是下游回归的自变量、残差还要做 rank，1 ulp 就能让
+  1600 个因子里 16 列超 1e-4（hm073 实例）。
+- rp.ols_residuals 的语义要用 ndarray 的 .dot() 算 X'X/X'y 加 crate::statistics::solve_linear_system3
+  照抄，不要自己写顺序求和，否则残差的并列结构会变、rank 跟着变。直接用 ndarray 不碰 #[pyfunction]，
+  worker 链接没问题。
+- 查 pandas 语义可以直接翻 pip 缓存里解出来的源码：/tmp/pd_src/pandas-2.3.3
+  （windowing、conversion、sorting 这些模块都在）。比猜快得多。
+
 """
 
 # 本文件只是规范文本，不参与运行。

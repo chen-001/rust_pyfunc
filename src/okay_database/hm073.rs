@@ -182,8 +182,8 @@ pub const N_OUT: usize = N_CORR + N_FOUR + 40 * N_PER_COL; // 1588
 const NS_PER_SEC: i64 = 1_000_000_000;
 const DAY_NS: i64 = 86_400 * NS_PER_SEC;
 const OFFSET_8H_NS: i64 = 8 * 3600 * NS_PER_SEC;
-/// 下午整体左移 90 分钟（adjust_afternoon）
-const SHIFT90_NS: i64 = 90 * 60 * NS_PER_SEC;
+// adjust_afternoon 把下午整体左移 90 分钟，但本系列只用行序（上午在前、下午在后），
+// 平移后的具体钟点不参与任何计算，所以不需要那个常量。
 
 const LD_0930: i64 = (9 * 3600 + 30 * 60) * NS_PER_SEC;
 const LD_1130: i64 = (11 * 3600 + 30 * 60) * NS_PER_SEC;

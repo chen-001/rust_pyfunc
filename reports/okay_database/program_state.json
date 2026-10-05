@@ -4564,12 +4564,12 @@
    ],
    "rust_file": "src/okay_database/hm073.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm73_八戒照镜子/hm73_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": "【已完成】hm073 八戒照镜子 —— 逐股系列，1588 个因子，verfiy_series 四组全「通过」\n\n产物\n  src/okay_database/hm073.rs                                     1588 个因子，逐股（per_stock）\n  /home/chenzongwei/pythoncode/成果hm73_八戒照镜子/hm73_okay_database.py\n      names_save 45（旧代码的 names_save_unfold，含 2 个 _fold 的原值）、\n      names_gap5 23、names_gap1 34、names_in_db 1、断言 len(series_names)==1588\n\n对账（lib/okay_database/verify_series.py --pairs \"20250303:000001,20250304:600519,20180601:000002,20231020:300750\"）\n  四组各 1588 值全部「一致」，结论「通过」。四组里 20180601 是 2018 年的老文件（末尾多一列 num）。\n  names 逐项比对过旧文件第 426 行那份 1588 项的字面清单，完全一致、无重名。\n\n冒烟\n  write_selected_factor_base 单日 20250303、n_jobs=4、写到一个临时 base 目录（没碰因子库）：\n  5117 只股票 × 1588 个因子正常写出，用时 114s。\n\n这一版踩到并解决的两个坑（都写进 hm073.rs 文件头，别的系列也会碰到）\n\n  1) volatility = last_prc.pct_change().rolling(20).std() 必须逐位复刻 pandas 的 roll_var，\n     不能用两遍法。它只差最后一位（实测 4310/4719 个值差 1 ulp），但这个量是回归的自变量，\n     残差再拿去做 rank；1 ulp 就足以让残差的并列结构变样，ask_vol3 的名次变了 171 行\n     （最大 1.3e-3），rank_diff 那一族（40 列里有 16 列）全部超 1e-4。\n     已照 pandas/_libs/window/aggregations.pyx 的 roll_var 逐行复刻：\n     固定窗口走「按 start 推进删、按 end 推进加」那条分支，nobs 是 f64，\n     add 与 remove 各用一个 Kahan 补偿量，calc_var 里「窗口内数值全同」时给 0。\n     换掉之后四组全部逐位相等。\n     （pandas 源码来自 pip 缓存的 pandas-2.3.3.tar.gz，解在 /tmp/pd_src。）\n\n  2) rp.ols_residuals 必须用 ndarray 的 .dot() + crate::statistics::solve_linear_system3 照抄，\n     自己写顺序求和同样会因为残差并列结构变样而让 rank 变掉（实测 74 行）。\n     直接调 ndarray（不是 #[pyfunction]），worker 链接没问题。\n\n其他说明\n  · 名字生成是程序化的（4 个档位 × ask/bid × 5 个变体 × 38 个值 = 1520，加 8 个 corr + 60 个四序列\n    统计），已和旧文件那份字面清单逐项核对，不会漂移。\n  · 三种 Pearson 在旧代码里各走一条实现，分别照抄了：pandas 的 Welford（Series.corr /\n    DataFrame.corr）、rp.corrwith 的 32 个一批分块累加、fast_correlation_matrix_v2 的 8 路展开。\n    它们彼此末位差 1e-15，实测没有出现 corr 落在 0 附近翻转 resi_adjusted 符号的列。\n  · 已知未覆盖：如果某只股票某天在 09:30~14:57 里出现 last_prc==0（pct_change 出 inf），\n    这条路径没有实测样本；四组验收里都没有这种情况。\n  · get_factor 整个包在 try/except 里、错就整条 NaN。四组验收新旧都是 1588 个非 NaN 值，\n    没有出现「两边都 NaN」的假通过。"
   },
   {
    "num": 74,

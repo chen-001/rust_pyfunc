@@ -51,6 +51,7 @@ pub mod hm066;
 pub mod hm070;
 pub mod hm071;
 pub mod hm073;
+pub mod hm084;
 
 /// 逐股（TaskMessage::Task）分发：series 形如 "hm003"。
 pub fn dispatch_stock(series: &str, code: &str, date: i64, expected_len: usize) -> Vec<f32> {
@@ -106,6 +107,7 @@ pub fn dispatch_stock(series: &str, code: &str, date: i64, expected_len: usize) 
         "hm070" => hm070::compute_stock(code, date),
         "hm071" => hm071::compute_stock(code, date),
         "hm073" => hm073::compute_stock(code, date),
+        "hm084" => hm084::compute_stock(code, date),
         _ => None,
     };
     match out {
@@ -168,6 +170,7 @@ pub fn dispatch_stock_raw(series: &str, code: &str, date: i64) -> Option<Vec<f32
         "hm070" => hm070::compute_stock(code, date),
         "hm071" => hm071::compute_stock(code, date),
         "hm073" => hm073::compute_stock(code, date),
+        "hm084" => hm084::compute_stock(code, date),
         _ => None,
     }
 }
@@ -226,6 +229,7 @@ pub fn dispatch_cross(series: &str, date: i64) -> Option<(Vec<String>, Vec<f32>)
         "hm070" => hm070::compute_cross(date),
         "hm071" => hm071::compute_cross(date),
         "hm073" => hm073::compute_cross(date),
+        "hm084" => hm084::compute_cross(date),
         _ => None,
     }
 }
@@ -284,6 +288,7 @@ pub fn series_names(series: &str) -> Option<Vec<String>> {
         "hm070" => Some(hm070::names()),
         "hm071" => Some(hm071::names()),
         "hm073" => Some(hm073::names()),
+        "hm084" => Some(hm084::names()),
         _ => None,
     }
 }
