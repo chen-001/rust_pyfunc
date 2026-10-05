@@ -707,3 +707,106 @@ pub fn calculate_lyapunov_exponent(
         &data_array,
     )
 }
+
+// ============================================================================
+// 纯 Rust 入口（2026-10-06 加）：只返回 lyapunov_exponent 一个数。
+// ============================================================================
+//
+// 由来：`get_features_factors` 打开 with_lyapunov_exponent 时会对每一列调一次
+// `calculate_lyapunov_exponent(data)["lyapunov_exponent"]`。features 通路跑在 worker
+// 里，那里没有 Python 解释器，调不了 `#[pyfunction]`，所以在这里留一个不吃 Python 的入口。
+//
+// 控制流与上面那个 pyfunction **逐行一致**（同样的默认参数：method="auto"、m/tau=None、
+// max_t=30、max_tau=20、max_m=10、mi_bins=20），差别只有两点：
+//   · 不构造结果字典，直接返回 lyapunov_exponent；
+//   · pyfunction 里"数据不足返回 NaN 字典"的三个分支，这里直接返回 f64::NAN。
+// 上面那个 pyfunction 一行没改，`calculate_with_adjusted_params_optimized` 也没动。
+
+/// 纯 Rust：`calculate_lyapunov_exponent(data).lyapunov_exponent`（默认参数）。
+pub fn lyapunov_exponent_inner(data: &[f64]) -> f64 {
+    lyapunov_exponent_with(data, "auto", 30, 20, 10, 20)
+}
+
+/// 纯 Rust：`calculate_lyapunov_exponent(data, method, m, tau, max_t, max_tau, max_m, mi_bins)`
+/// 只取 lyapunov_exponent 那一项。m / tau 传 None 表示让函数自己选。
+pub fn lyapunov_exponent_with(
+    data: &[f64],
+    method: &str,
+    max_t: usize,
+    max_tau: usize,
+    max_m: usize,
+    mi_bins: usize,
+) -> f64 {
+    let data_array = Array1::from_vec(data.to_vec());
+    if data_array.is_empty() {
+        return f64::NAN;
+    }
+
+    // 数据标准化（同 pyfunction：min/max 用 f64::min/max 折叠，NaN 会被跳过）
+    let data_min = data_array.fold(f64::INFINITY, |acc, &val| acc.min(val));
+    let data_max = data_array.fold(f64::NEG_INFINITY, |acc, &val| acc.max(val));
+    let data_range = data_max - data_min;
+    let normalized_data = if data_range > 0.0 {
+        data_array.mapv(|x| (x - data_min) / data_range)
+    } else {
+        data_array.clone()
+    };
+
+    // 参数选择策略（m / tau 都按 None 处理，与 Python 侧只传一个位置参数时一致）
+    let (optimal_tau, optimal_m) = match method {
+        "mutual_info" => {
+            let tau_mi = find_optimal_tau_mutual_info(&normalized_data, max_tau, mi_bins);
+            let m_simple = find_optimal_m_simple(normalized_data.len(), tau_mi, max_m);
+            (tau_mi, m_simple)
+        }
+        "autocorrelation" => {
+            let tau_ac = find_optimal_tau_autocorr(&normalized_data, max_tau);
+            let m_simple = find_optimal_m_simple(normalized_data.len(), tau_ac, max_m);
+            (tau_ac, m_simple)
+        }
+        "manual" => return f64::NAN, // 手动模式必须给 m/tau，这里没有，按异常处理
+        _ => {
+            let tau_mi = find_optimal_tau_mutual_info(&normalized_data, max_tau, mi_bins);
+            let tau_ac = find_optimal_tau_autocorr(&normalized_data, max_tau);
+            let optimal_tau = (tau_mi + tau_ac) / 2;
+            let optimal_m = find_optimal_m_simple(normalized_data.len(), optimal_tau, max_m);
+            (optimal_tau, optimal_m)
+        }
+    };
+
+    let (final_m, final_tau) =
+        auto_adjust_parameters(normalized_data.len(), optimal_m, optimal_tau);
+
+    let phase_space = reconstruct_phase_space(&normalized_data, final_m, final_tau);
+    if phase_space.nrows() < 5 {
+        // 极短序列用最基本的参数重试一次
+        let retry_phase_space = reconstruct_phase_space(&normalized_data, 2, 1);
+        if retry_phase_space.nrows() < 5 {
+            return f64::NAN;
+        }
+        return lyapunov_of_phase_space(&normalized_data, 2, 1, max_t);
+    }
+    lyapunov_of_phase_space(&normalized_data, final_m, final_tau, max_t)
+}
+
+/// `calculate_with_adjusted_params_optimized` 的纯数值骨架：相空间 → 最近邻 → 发散率 → 线性拟合斜率。
+/// 任一环节数据不足都返回 NaN（对应 pyfunction 里的 create_nan_result_dict 分支）。
+fn lyapunov_of_phase_space(
+    normalized_data: &Array1<f64>,
+    m: usize,
+    tau: usize,
+    max_t: usize,
+) -> f64 {
+    let phase_space = reconstruct_phase_space(normalized_data, m, tau);
+    if phase_space.nrows() < 5 {
+        return f64::NAN;
+    }
+    let neighbors = find_nearest_neighbors_fast(&phase_space);
+    let divergence = calculate_lyapunov_divergence_optimized(&phase_space, &neighbors, max_t);
+    if divergence.len() < 2 {
+        return f64::NAN;
+    }
+    let time_steps: Vec<f64> = (1..=divergence.len()).map(|i| i as f64).collect();
+    let (lyapunov_exponent, _, _) = linear_fit(&time_steps, &divergence);
+    lyapunov_exponent
+}

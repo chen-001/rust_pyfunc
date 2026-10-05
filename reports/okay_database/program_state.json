@@ -26,8 +26,7 @@
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": " [由文件系统重建：.rs 与 okay_database.py 都在，完成记录曾被队列覆盖]",
-   "recheck": "pending"
+   "note": "[已完成，verify 通过：4 组通过 + 20180601 全市场 52128 格 0 处不一致；完成记录曾被队列覆盖，按会话回报确认]"
   },
   {
    "num": 1,
@@ -48,12 +47,12 @@
    ],
    "rust_file": "src/okay_database/hm001.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm0_成果hm1_hot_change/hm1_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": "hm1（hot_change2）已完成：src/okay_database/hm001.rs + 成果hm0_成果hm1_hot_change/hm1_okay_database.py。\n\n对账 4 组 (20250303:000001、20250304:600519、20180601:000002、20231020:300750)，\n结论「通过」，55 个因子逐值一致。\n\n要点：get_many=3 的 5 段里，amountbig/amountsmall 是**逐格**掩码（原始 amount 与该股当日列中位数比大小），\n不是逐行权重；第一版按逐行权重乘，小 universe 就露馅，已修。"
   },
   {
    "num": 10,
@@ -919,8 +918,7 @@
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": " [由文件系统重建：.rs 与 okay_database.py 都在，完成记录曾被队列覆盖]",
-   "recheck": "pending"
+   "note": "[已完成，verify 通过：4 组通过 + 20180601 全市场 81088 格，最大相对差 5.9e-8；完成记录曾被队列覆盖，按会话回报确认]"
   },
   {
    "num": 30,
@@ -2332,12 +2330,12 @@
    ],
    "rust_file": "src/okay_database/hm004.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm4_turning_bet/hm4_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": "hm4（turning_bet）已完成：src/okay_database/hm004.rs + 成果hm4_turning_bet/hm4_okay_database.py。\n\n对账 4 组 (20250303:000001、20250304:600519、20180601:000002、20231020:300750)，\n结论「通过」，5 个因子逐值一致。另做了 20231020 的**全市场**逐值对照\n（5792 只 × 5 个因子 = 28960 格，0 处不一致，两边 NaN 位置也完全相同）。\n\n已知的坑（已修）：pandas calc_sum 只在 `nobs == 0 且 min_periods == 0` 时才返回 0，\nmin_periods>0 时全空窗口给 NaN。第一版写成 nobs==0 → 0.0，空窗口多出的 0.0 让 lr_rate 的\n非 NaN 个数变多、分位数整体偏移，20231020 那天全市场排名整体错位十几名（另 3 个日期却侥幸通过）。"
   },
   {
    "num": 50,
@@ -5065,12 +5063,12 @@
    ],
    "rust_file": "src/okay_database/hm078.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm78_万年革命/hm78_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": "hm078「万年革命」—— 做完，对账「通过」。\n\n【形态】模块级 go(date, code)，只用盘口快照（read_market）。不涉及 order_pair_metrics，\n也不调 get_features_factors，所以第八节那条 lyapunov / f64 特征通路的坑这里没有。\n\n旧 go 链路：rp.read_market → adjust_afternoon → set_index(\"exchtime\").resample(\"3s\").last().ffill()\n→ df[last_prc!=0] → volume.diff()/sum → 两次 compute(价格或量, 量, twins)，\n每次调 rp.local_correlation(arr, arr, 20) 拿 (n,12) 矩阵，再展开成\n7 统计×24 列 + 26 列相关对(325) + 绝对相关(325) = 818 个，两份共 1636，按 names_save 取 82。\n\n【做法】src/okay_database/hm078.rs\n· local_correlation 不复制：给 src/statistics/local_correlation.rs 加了一个纯 Rust 薄壳\n  local_correlation_inner(&[f64],&[f64],usize)，pyfunction 原样不动，worker 直接复用同一个引擎，\n  两边不会漂移。（纯加法，没改任何已有函数体。）\n· market_data CSV 自己按 f64 解析（列 4=exchtime、6=last_prc、14=volume、21=ask_prc1、23=bid_prc1），\n  浮点用 pandas 的 precise_xstrtod 复刻（hm033/hm090 里各有一份，照抄），\n  因为 read_market 的过滤就是「ask_prc1/bid_prc1 精确等于 0」。\n· 时间戳照抄 pandas 的 cast_from_unit_vectorized（hm064 的 pandas_ns_of 同式，带 ±120ns 噪声），\n  3 秒 bin 从当日 00:00 起按 3 秒对齐、左闭右开、每列取 bin 内最后一个非空值再 ffill。\n· 统计量照 pandas nanops（hm064 同名函数同式），相关矩阵走 pandas libalgos.nancorr 的 Welford，\n  corrwith 走 np.corrcoef 两遍法——df.corr 与 Series.corr 在 pandas 里是两条不同的路。\n\n【验证】verify_series（OKAY_VERIFY_DATA_ROOT=/ssd_data）四组\n  20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750\n  82 个值全部一致，结论「通过」，一次就过没返工。\n\n【单日冒烟】run_base(20250303, 20250303, n_jobs=8)：5117 任务 / 595.6s，写完 hm78_base，\n  82 个 h5 与 names_save 逐名对得上；抽读 vv_bk_max_v_mean / vv_r_bk_sld_x_v_bk_sld_abs\n  各 5095+ 个非 NaN。\n  注意单股单日约 1.1s（local_correlation 是 O(n²·window)，n≈4740），全历史 400 并行约 3 小时量级，\n  和旧库当年同一个数量级，没有额外变慢。\n\n【因子库文件】/home/chenzongwei/pythoncode/成果hm78_万年革命/hm78_okay_database.py\n  names_save 82（19 个 _fold）、names_in_db 7、names_gap5 50、names_gap1 49；\n  names_save 的 unfold 里 vv_r_bk_sld_x_v_bk_sld_abs 与 vv_last_prc_x_volume 各出现两次，\n  第二次按规范加了 _dup2。\n\n【给 lead 的一句话】lead 给的那张表把这条链说成「order_pair_metrics + get_features_factors」，\n  实际这 14 个系列里一个都没调 order_pair_metrics，每个系列用的是各自不同的 rp.xxx，\n  难点从「复用已有 inner」变成了「逐个复刻 pandas 语义」。hm078 是其中最干净的一个（无 lyapunov、\n  无 append_for_corr、无 get_features_factors），所以先做了它；hm091 是里面最重的一个\n  （57 个 pandas 滚动特征 + 3 个 lyapunov 入选名，需要先给 features 通路补 lyapunov）。"
   },
   {
    "num": 79,
@@ -6405,8 +6403,7 @@
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": "完成。verify_series 四组「通过」（20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750）。新增 src/features_f64.rs（features.rs 的 f64 孪生，入选 67 项与 pandas 对齐到 5e-13），hm090.rs 走 f64 特征 + order_pair 的 *_f64_inner + pandas 口径浮点解析。单日冒烟已写出 hm90_base。通用做法见 series_work_spec.py 第八节。",
-   "recheck": "pending"
+   "note": "[已完成，verify 四组通过：67 项最大相对误差 5e-13；完成记录曾被队列覆盖，按会话回报确认]"
   },
   {
    "num": 91,

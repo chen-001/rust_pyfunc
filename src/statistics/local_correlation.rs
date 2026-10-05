@@ -637,3 +637,21 @@ struct WindowStats {
     sum_x_squared: f64,
     valid: bool,
 }
+
+/// 纯 Rust 入口：与上面的 `local_correlation` 用**同一份**引擎，只是不吃 Python 对象。
+///
+/// 由来：hm078 这类「旧 go 函数调 rp.local_correlation」的系列要跑在 worker 进程里，
+/// 那里没有 Python 解释器，调不了 `#[pyfunction]`。与其把 600 行引擎复制进各系列文件，
+/// 不如在这里留一层薄壳——语义与 Python 入口逐位一致，也不会随两边改动漂移。
+///
+/// 输入长度不等或窗口为 0 时返回全 NaN 矩阵（列数仍是 12），与 Python 侧报错不同，
+/// 但调用方都是「同一次调用里自己保证长度」的场景，不会走到这里。
+pub fn local_correlation_inner(prices: &[f64], volumes: &[f64], window_size: usize) -> Array2<f64> {
+    if window_size == 0 || prices.len() != volumes.len() || prices.is_empty() {
+        return Array2::<f64>::from_elem((prices.len(), 12), f64::NAN);
+    }
+    let p = ArrayView1::from(prices);
+    let v = ArrayView1::from(volumes);
+    let mut engine = CorrelationEngine::new(&p, &v, window_size);
+    engine.compute_correlations()
+}

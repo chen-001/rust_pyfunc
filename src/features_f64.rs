@@ -31,6 +31,48 @@ use rayon::prelude::*;
 use std::collections::HashMap;
 
 // ============================================================================
+// 可选开关（2026-10-06 加）
+// ============================================================================
+
+/// `get_features_factors` 的可选开关。
+///
+/// 原来这条 f64 通路只实现了 Python `get_features_factors` 的**默认参数**那一档，
+/// 于是 hm079 / hm081 / hm082 / hm083 / hm080 / hm091 这几个系列全都卡住——
+/// 它们分别要用 with_max_min、with_lyapunov_exponent、append_for_corr。
+/// 与其每个系列各补一遍，不如在这里一次补齐。
+///
+/// 注意：Python 的 `get_features_factors` 里**没有** curvature / quad_coef 这两组，
+/// 那是新库 features 通路自己加的，所以对账老库（0_76_9 / 0_76_11 / 0_76_12）时
+/// 要把 `with_curvature` 关掉。
+#[derive(Clone, Copy, Debug)]
+pub struct FeatureOpts {
+    /// mean_above_p90 / mean_below_p10 两组（Python 默认 True）。
+    pub with_threshold_counts: bool,
+    /// curvature / quad_coef 两组（新库特有，Python 没有；对账老库时置 false）。
+    pub with_curvature: bool,
+    /// max / min / range 三组，位置在 kurt 之后、分位数之前（Python 默认 False）。
+    pub with_max_min: bool,
+    /// lyapunov 一组，位置在 corr 块之后、lz_complexity 之前（Python 默认 True）。
+    pub with_lyapunov_exponent: bool,
+}
+
+impl FeatureOpts {
+    /// 与原来那条 f64 通路完全一致的默认值（关 lyapunov、开 curvature）。
+    pub const LEGACY: FeatureOpts = FeatureOpts {
+        with_threshold_counts: true,
+        with_curvature: true,
+        with_max_min: false,
+        with_lyapunov_exponent: false,
+    };
+}
+
+impl Default for FeatureOpts {
+    fn default() -> Self {
+        FeatureOpts::LEGACY
+    }
+}
+
+// ============================================================================
 // 基础统计量（单列计算，对齐 pandas 行为含 NaN 处理）
 // ============================================================================
 
@@ -120,6 +162,48 @@ pub(crate) fn col_kurt(col: &[f64]) -> f64 {
         return 0.0;
     }
     k4 / (k2 * k2)
+}
+
+/// 单列最大值（跳过 NaN，全 NaN 给 NaN）。对齐 pandas df.max()。
+#[inline]
+pub(crate) fn col_max(col: &[f64]) -> f64 {
+    let mut m = f64::NEG_INFINITY;
+    let mut seen = false;
+    for &v in col {
+        if v.is_nan() {
+            continue;
+        }
+        seen = true;
+        if v > m {
+            m = v;
+        }
+    }
+    if seen {
+        m
+    } else {
+        f64::NAN
+    }
+}
+
+/// 单列最小值（跳过 NaN，全 NaN 给 NaN）。对齐 pandas df.min()。
+#[inline]
+pub(crate) fn col_min(col: &[f64]) -> f64 {
+    let mut m = f64::INFINITY;
+    let mut seen = false;
+    for &v in col {
+        if v.is_nan() {
+            continue;
+        }
+        seen = true;
+        if v < m {
+            m = v;
+        }
+    }
+    if seen {
+        m
+    } else {
+        f64::NAN
+    }
 }
 
 /// 单列中位数（跳过 NaN）。
@@ -724,6 +808,43 @@ pub fn get_features_factors_rust_full_opts(
     with_threshold_counts: bool,
     with_curvature: bool,
 ) -> (Vec<f64>, Vec<String>) {
+    get_features_factors_rust_full_ex(
+        data,
+        col_names,
+        FeatureOpts {
+            with_threshold_counts,
+            with_curvature,
+            with_max_min: false,
+            with_lyapunov_exponent: false,
+        },
+        None,
+    )
+}
+
+/// 带全部开关的入口（2026-10-06 加）。
+///
+/// `append_for_corr` 对应 Python 的 `append_for_corr=<DataFrame>`：
+/// **只有相关块**用 `concat([data, append])` 的列集，统计段仍然只算 data 的列，
+/// 相关块的名字是 `{行名}_corr_{列名}`。传 None 就是原来那一档。
+///
+/// 对齐的是 python/rust_pyfunc/trading_data_utils.py::get_features_factors 的取值顺序：
+///   mean/median/std/skew/kurt
+///   [max/min/range]            with_max_min
+///   p5/p25/p75/p95/iqr/cv
+///   autocorr1/autocorr1_abs
+///   trend
+///   [curvature/quad_coef]      新库特有，Python 没有
+///   period_diff/period_ratio
+///   [mean_above_p90/mean_below_p10]  with_threshold_counts
+///   corr 上三角（列集含 append_for_corr）
+///   [lyapunov]                 with_lyapunov_exponent
+///   lz_complexity/entropy_1d/max_range_product
+pub fn get_features_factors_rust_full_ex(
+    data: &ArrayView2<f64>,
+    col_names: &[String],
+    opts: FeatureOpts,
+    append_for_corr: Option<(&ArrayView2<f64>, &[String])>,
+) -> (Vec<f64>, Vec<String>) {
     let (n_rows, n_cols) = data.dim();
 
     // 空输入防护：0 行或 0 列时返回全 NaN（与 pandas 对空 DataFrame 的行为一致）
@@ -817,6 +938,16 @@ pub fn get_features_factors_rust_full_opts(
             let n_bins = (n_rows as f64).log2().ceil() as usize + 1;
             let entropy = binned_entropy_1d(c, n_bins);
             let max_range = max_range_product_strict(c);
+            // max / min / range（pandas df.max()/df.min()/相减，只在 with_max_min 时用到）
+            let max = col_max(c);
+            let min = col_min(c);
+            let range = max - min;
+            // lyapunov（Python 的 df.apply(_calc_lyapunov)：算不出来给 NaN）
+            let lyapunov = if opts.with_lyapunov_exponent {
+                crate::time_series::lyapunov::lyapunov_exponent_inner(c)
+            } else {
+                f64::NAN
+            };
 
             ColStats {
                 mean,
@@ -824,6 +955,9 @@ pub fn get_features_factors_rust_full_opts(
                 std,
                 skew,
                 kurt,
+                max,
+                min,
+                range,
                 p5,
                 p25,
                 p75,
@@ -841,18 +975,36 @@ pub fn get_features_factors_rust_full_opts(
                 lz,
                 entropy,
                 max_range,
+                lyapunov,
             }
         })
         .collect();
 
-    // corr 矩阵上三角（并行计算所有对）
-    let corr_upper: Vec<f64> = if n_cols >= 2 {
-        let pairs: Vec<(usize, usize)> = (0..n_cols)
-            .flat_map(|i| (i + 1..n_cols).map(move |j| (i, j)))
+    // corr 矩阵上三角（并行计算所有对）。
+    // with_append：列集 = data 的列 + append_for_corr 的列（Python 里是 concat([df, append], axis=1)）。
+    let mut corr_cols: Vec<Vec<f64>> = cols.clone();
+    let mut corr_names_all: Vec<String> = col_names.to_vec();
+    if let Some((ap, ap_names)) = append_for_corr {
+        let (ap_rows, ap_cols) = ap.dim();
+        if ap_rows == n_rows && ap_cols > 0 {
+            for j in 0..ap_cols {
+                corr_cols.push(ap.column(j).to_vec());
+                let nm = ap_names
+                    .get(j)
+                    .cloned()
+                    .unwrap_or_else(|| format!("append{}", j));
+                corr_names_all.push(nm);
+            }
+        }
+    }
+    let n_corr_cols = corr_cols.len();
+    let corr_upper: Vec<f64> = if n_corr_cols >= 2 {
+        let pairs: Vec<(usize, usize)> = (0..n_corr_cols)
+            .flat_map(|i| (i + 1..n_corr_cols).map(move |j| (i, j)))
             .collect();
         pairs
             .iter()
-            .map(|&(i, j)| corr_pair(&cols[i], &cols[j]))
+            .map(|&(i, j)| corr_pair(&corr_cols[i], &corr_cols[j]))
             .collect()
     } else {
         vec![]
@@ -898,7 +1050,31 @@ pub fn get_features_factors_rust_full_opts(
         "kurt",
         col_names,
     );
-    // 2. p5/p25/p75/p95/iqr/cv
+    // 2. max/min/range（Python 的 with_max_min，位置在 kurt 之后、分位数之前）
+    if opts.with_max_min {
+        push_group(
+            &mut res,
+            &mut names,
+            &col_stats.iter().map(|s| s.max).collect::<Vec<_>>(),
+            "max",
+            col_names,
+        );
+        push_group(
+            &mut res,
+            &mut names,
+            &col_stats.iter().map(|s| s.min).collect::<Vec<_>>(),
+            "min",
+            col_names,
+        );
+        push_group(
+            &mut res,
+            &mut names,
+            &col_stats.iter().map(|s| s.range).collect::<Vec<_>>(),
+            "range",
+            col_names,
+        );
+    }
+    // 3. p5/p25/p75/p95/iqr/cv
     push_group(
         &mut res,
         &mut names,
@@ -968,7 +1144,7 @@ pub fn get_features_factors_rust_full_opts(
         col_names,
     );
     // 4b. curvature / quad_coef（二阶趋势）——with_curvature=false 时跳过（旧 19 统计量口径）
-    if with_curvature {
+    if opts.with_curvature {
         push_group(
             &mut res,
             &mut names,
@@ -1000,7 +1176,7 @@ pub fn get_features_factors_rust_full_opts(
         col_names,
     );
     // 6. mean_above_p90 / mean_below_p10（可选）
-    if with_threshold_counts {
+    if opts.with_threshold_counts {
         push_group(
             &mut res,
             &mut names,
@@ -1023,21 +1199,32 @@ pub fn get_features_factors_rust_full_opts(
         );
     }
 
-    // 7. corr 矩阵上三角
-    if n_cols >= 2 {
+    // 7. corr 矩阵上三角（列集可能含 append_for_corr 追加的列）
+    {
         let mut idx = 0;
-        for i in 0..n_cols {
-            for j in (i + 1)..n_cols {
+        for i in 0..n_corr_cols {
+            for j in (i + 1)..n_corr_cols {
                 res.push(corr_upper[idx]);
-                if col_names.len() == n_cols {
-                    names.push(format!("{}_corr_{}", col_names[i], col_names[j]));
+                if corr_names_all.len() == n_corr_cols {
+                    names.push(format!("{}_corr_{}", corr_names_all[i], corr_names_all[j]));
                 }
                 idx += 1;
             }
         }
     }
 
-    // 8. lz_complexity / entropy_1d / max_range_product（关闭 lyapunov）
+    // 7b. lyapunov（Python 的 with_lyapunov_exponent，位置在 corr 之后、lz_complexity 之前）
+    if opts.with_lyapunov_exponent {
+        push_group(
+            &mut res,
+            &mut names,
+            &col_stats.iter().map(|s| s.lyapunov).collect::<Vec<_>>(),
+            "lyapunov",
+            col_names,
+        );
+    }
+
+    // 8. lz_complexity / entropy_1d / max_range_product
     push_group(
         &mut res,
         &mut names,
@@ -1099,6 +1286,9 @@ struct ColStats {
     trend: f64,
     curvature: f64,
     quad_coef: f64,
+    max: f64,
+    min: f64,
+    range: f64,
     period_diff: f64,
     period_ratio: f64,
     mean_above_p90: f64,
@@ -1106,6 +1296,7 @@ struct ColStats {
     lz: f64,
     entropy: f64,
     max_range: f64,
+    lyapunov: f64,
 }
 
 // ============================================================================
@@ -1691,6 +1882,47 @@ pub fn verify_get_features_factors_rust(
 ) -> PyResult<(Vec<f64>, Vec<String>)> {
     let view = data.as_array();
     let (vals, names) = get_features_factors_rust_full(&view, &col_names, true);
+    Ok((vals, names))
+}
+
+/// 带全部开关的验证桥接（2026-10-06 加），Python 侧名字 `verify_get_features_factors_rust_f64_ex`。
+///
+/// 用来和 Python 的 `get_features_factors(df, with_max_min=..., with_lyapunov_exponent=...,
+/// append_for_corr=...)` 逐值比。`append_matrix` 传 None 表示不追加。
+/// 注意 Python 那边没有 curvature / quad_coef，对账时 `with_curvature` 要传 False。
+#[pyfunction]
+#[pyo3(name = "verify_get_features_factors_rust_f64_ex")]
+#[pyo3(signature = (
+    data,
+    col_names,
+    with_threshold_counts = true,
+    with_curvature = false,
+    with_max_min = false,
+    with_lyapunov_exponent = false,
+    append_matrix = None,
+    append_col_names = None
+))]
+pub fn verify_get_features_factors_rust_ex(
+    data: numpy::PyReadonlyArray2<f64>,
+    col_names: Vec<String>,
+    with_threshold_counts: bool,
+    with_curvature: bool,
+    with_max_min: bool,
+    with_lyapunov_exponent: bool,
+    append_matrix: Option<numpy::PyReadonlyArray2<f64>>,
+    append_col_names: Option<Vec<String>>,
+) -> PyResult<(Vec<f64>, Vec<String>)> {
+    let view = data.as_array();
+    let opts = FeatureOpts {
+        with_threshold_counts,
+        with_curvature,
+        with_max_min,
+        with_lyapunov_exponent,
+    };
+    let ap = append_matrix.as_ref().map(|m| m.as_array());
+    let ap_names: Vec<String> = append_col_names.unwrap_or_default();
+    let append = ap.as_ref().map(|a| (a, ap_names.as_slice()));
+    let (vals, names) = get_features_factors_rust_full_ex(&view, &col_names, opts, append);
     Ok((vals, names))
 }
 

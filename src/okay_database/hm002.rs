@@ -334,12 +334,17 @@ fn finite_or_nan(v: f64) -> f64 {
 // ============================================================================
 
 /// pandas aggregations.pyx: add_mean / remove_mean / calc_mean 的逐字转写。
+///
+/// ！！关键：pandas 里 `nobs` / `sum_x` / `neg_ct` 是**同一个**变量，add 和 remove 共用；
+/// 只有 `compensation_add` 与 `compensation_remove` 是两个独立的补偿项。
+/// 第一版把 add/remove 各写成一个独立状态，sum_x 永远只加不减，roll_mean 从第 5 行起全错。
 #[derive(Clone, Copy)]
 struct RollState {
     nobs: i64,
     sum_x: f64,
     neg_ct: i64,
-    compensation: f64,
+    compensation_add: f64,
+    compensation_remove: f64,
     num_consecutive_same_value: i64,
     prev_value: f64,
 }
@@ -350,7 +355,8 @@ impl RollState {
             nobs: 0,
             sum_x: 0.0,
             neg_ct: 0,
-            compensation: 0.0,
+            compensation_add: 0.0,
+            compensation_remove: 0.0,
             num_consecutive_same_value: 0,
             prev_value: 0.0,
         }
@@ -359,9 +365,9 @@ impl RollState {
     fn add(&mut self, val: f64) {
         if val == val {
             self.nobs += 1;
-            let y = val - self.compensation;
+            let y = val - self.compensation_add;
             let t = self.sum_x + y;
-            self.compensation = t - self.sum_x - y;
+            self.compensation_add = t - self.sum_x - y;
             self.sum_x = t;
             if val.is_sign_negative() {
                 self.neg_ct += 1;
@@ -378,9 +384,9 @@ impl RollState {
     fn remove(&mut self, val: f64) {
         if val == val {
             self.nobs -= 1;
-            let y = -val - self.compensation;
+            let y = -val - self.compensation_remove;
             let t = self.sum_x + y;
-            self.compensation = t - self.sum_x - y;
+            self.compensation_remove = t - self.sum_x - y;
             self.sum_x = t;
             if val.is_sign_negative() {
                 self.neg_ct -= 1;
@@ -417,29 +423,27 @@ fn roll_mean(vals: &[f64], window: usize) -> Vec<f64> {
     let n = vals.len();
     let minp = window as i64;
     let mut out = vec![f64::NAN; n];
-    let mut st_add = RollState::new();
-    let mut st_remove = RollState::new();
+    let mut st = RollState::new();
     for i in 0..n {
         let s = i.saturating_sub(window - 1);
         let e = i + 1;
         let prev_s = if i == 0 { 0 } else { (i - 1).saturating_sub(window - 1) };
         let prev_e = i;
         if i == 0 || s >= prev_e {
-            st_add = RollState::new();
-            st_remove = RollState::new();
-            st_add.prev_value = vals[s];
+            st = RollState::new();
+            st.prev_value = vals[s];
             for j in s..e {
-                st_add.add(vals[j]);
+                st.add(vals[j]);
             }
         } else {
             for j in prev_s..s {
-                st_remove.remove(vals[j]);
+                st.remove(vals[j]);
             }
             for j in prev_e..e {
-                st_add.add(vals[j]);
+                st.add(vals[j]);
             }
         }
-        out[i] = st_add.mean(minp);
+        out[i] = st.mean(minp);
     }
     out
 }

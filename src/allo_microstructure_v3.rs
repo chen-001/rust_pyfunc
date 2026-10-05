@@ -1345,3 +1345,135 @@ pub fn compute_allo_microstructure_features_tris_expanded_v3(
 
     Ok((result_arrays, result_names))
 }
+
+// ============================================================================
+// 纯 Rust 入口（2026-10-06 加）——原因同 allo_microstructure.rs
+// ============================================================================
+
+/// 一组事件的输出：`n_events` 行 × `n_features` 列的 row-major 矩阵 + 列名。
+pub struct AlloBlockV3 {
+    pub n_events: usize,
+    pub n_features: usize,
+    pub values: Vec<f64>,
+    pub names: Vec<String>,
+}
+
+/// 纯 Rust 版 `compute_allo_microstructure_features_tris_expanded_v3`。
+#[allow(clippy::too_many_arguments)]
+pub fn allo_tris_expanded_v3_inner(
+    trade_exchtime: &[i64],
+    trade_price: &[f64],
+    trade_volume: &[f64],
+    trade_turnover: &[f64],
+    trade_flag: &[i32],
+    snap_exchtime: &[i64],
+    bid_prc: &[&[f64]; LEVEL_COUNT],
+    bid_vol: &[&[f64]; LEVEL_COUNT],
+    ask_prc: &[&[f64]; LEVEL_COUNT],
+    ask_vol: &[&[f64]; LEVEL_COUNT],
+    k1_horizontal: f64,
+    k2_vertical: f64,
+    window_size: usize,
+    decay_threshold: f64,
+) -> Vec<AlloBlockV3> {
+    let n_snaps = snap_exchtime.len();
+    let n_trades = trade_exchtime.len();
+
+    let mut snapshots = Vec::with_capacity(n_snaps);
+    for i in 0..n_snaps {
+        let mut bids = [BookLevel {
+            price: 0.0,
+            volume: 0.0,
+        }; LEVEL_COUNT];
+        let mut asks = [BookLevel {
+            price: 0.0,
+            volume: 0.0,
+        }; LEVEL_COUNT];
+        for j in 0..LEVEL_COUNT {
+            bids[j] = BookLevel {
+                price: bid_prc[j][i],
+                volume: bid_vol[j][i],
+            };
+            asks[j] = BookLevel {
+                price: ask_prc[j][i],
+                volume: ask_vol[j][i],
+            };
+        }
+        snapshots.push(Snapshot {
+            timestamp: snap_exchtime[i],
+            bids,
+            asks,
+        });
+    }
+
+    let mut trades = Vec::with_capacity(n_trades);
+    for i in 0..n_trades {
+        trades.push(Trade {
+            timestamp: trade_exchtime[i],
+            price: trade_price[i],
+            volume: trade_volume[i],
+            turnover: trade_turnover[i],
+            flag: trade_flag[i],
+        });
+    }
+
+    let detection_modes = vec!["horizontal", "vertical", "both"];
+    let side_filters = vec!["bid", "ask", "both"];
+    let dm_names = ["horizontal", "vertical", "both"];
+    let sf_names = ["bid", "ask", "both"];
+
+    let labeled_events = detect_ala_events_v3(
+        &snapshots,
+        &detection_modes,
+        &side_filters,
+        k1_horizontal,
+        k2_vertical,
+        window_size,
+        decay_threshold,
+    );
+
+    let n_sf = side_filters.len();
+    let n_combinations = detection_modes.len() * n_sf;
+    let snap_timestamps: Vec<i64> = snapshots.iter().map(|s| s.timestamp).collect();
+    let trade_timestamps: Vec<i64> = trades.iter().map(|t| t.timestamp).collect();
+    let mut grouped: Vec<Vec<Vec<f64>>> = vec![Vec::new(); n_combinations];
+    for le in &labeled_events {
+        let gi = le.detection_mode_idx * n_sf + le.side_filter_idx;
+        grouped[gi].push(
+            compute_ala_features_v3(
+                &le.event,
+                &snapshots,
+                &snap_timestamps,
+                &trades,
+                &trade_timestamps,
+            )
+            .to_vec(),
+        );
+    }
+
+    let base_names = get_feature_names();
+    let nf = base_names.len();
+    let mut out = Vec::with_capacity(n_combinations);
+    for gi in 0..n_combinations {
+        let dm = dm_names[gi / n_sf];
+        let sf = sf_names[gi % n_sf];
+        let names: Vec<String> = base_names
+            .iter()
+            .map(|b| format!("{}_{}_{}", dm, sf, b))
+            .collect();
+        let g = &grouped[gi];
+        let mut values = vec![0.0f64; g.len() * nf];
+        for (i, feats) in g.iter().enumerate() {
+            for (j, &v) in feats.iter().enumerate().take(nf) {
+                values[i * nf + j] = if v.is_nan() || v.is_infinite() { 0.0 } else { v };
+            }
+        }
+        out.push(AlloBlockV3 {
+            n_events: g.len(),
+            n_features: nf,
+            values,
+            names,
+        });
+    }
+    out
+}

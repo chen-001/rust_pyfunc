@@ -60,7 +60,9 @@ pub mod hm070;
 pub mod hm071;
 pub mod hm073;
 pub mod hm074;
+pub mod hm078;
 pub mod hm084;
+pub mod hm089;
 pub mod hm090;
 
 /// 逐股（TaskMessage::Task）分发：series 形如 "hm003"。
@@ -126,7 +128,9 @@ pub fn dispatch_stock(series: &str, code: &str, date: i64, expected_len: usize) 
         "hm071" => hm071::compute_stock(code, date),
         "hm073" => hm073::compute_stock(code, date),
         "hm074" => hm074::compute_stock(code, date),
+        "hm078" => hm078::compute_stock(code, date),
         "hm084" => hm084::compute_stock(code, date),
+        "hm089" => hm089::compute_stock(code, date),
         "hm090" => hm090::compute_stock(code, date),
         _ => None,
     };
@@ -199,7 +203,9 @@ pub fn dispatch_stock_raw(series: &str, code: &str, date: i64) -> Option<Vec<f32
         "hm071" => hm071::compute_stock(code, date),
         "hm073" => hm073::compute_stock(code, date),
         "hm074" => hm074::compute_stock(code, date),
+        "hm078" => hm078::compute_stock(code, date),
         "hm084" => hm084::compute_stock(code, date),
+        "hm089" => hm089::compute_stock(code, date),
         "hm090" => hm090::compute_stock(code, date),
         _ => None,
     }
@@ -268,7 +274,9 @@ pub fn dispatch_cross(series: &str, date: i64) -> Option<(Vec<String>, Vec<f32>)
         "hm071" => hm071::compute_cross(date),
         "hm073" => hm073::compute_cross(date),
         "hm074" => hm074::compute_cross(date),
+        "hm078" => hm078::compute_cross(date),
         "hm084" => hm084::compute_cross(date),
+        "hm089" => hm089::compute_cross(date),
         "hm090" => hm090::compute_cross(date),
         _ => None,
     }
@@ -337,7 +345,9 @@ pub fn series_names(series: &str) -> Option<Vec<String>> {
         "hm071" => Some(hm071::names()),
         "hm073" => Some(hm073::names()),
         "hm074" => Some(hm074::names()),
+        "hm078" => Some(hm078::names()),
         "hm084" => Some(hm084::names()),
+        "hm089" => Some(hm089::names()),
         "hm090" => Some(hm090::names()),
         _ => None,
     }

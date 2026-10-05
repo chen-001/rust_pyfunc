@@ -1864,3 +1864,101 @@ pub fn compute_allo_microstructure_features(
         Ok((result_array.into_pyarray(py).to_owned(), feature_names))
     }
 }
+
+// ============================================================================
+// 纯 Rust 入口（2026-10-06 加）
+// ============================================================================
+//
+// 由来：hm089「发起进攻」的旧 go 函数直接调上面这个 `#[pyfunction]`，但复现版要跑在
+// worker 进程里（没有 Python 解释器），调不了 pyfunction。这里把「参数解包之后的整段编排」
+// 原样搬出来做成不吃 Python 的入口，输入改成切片，输出改成 row-major 的 Vec<f64> + 列名。
+// pyfunction 本身一行没改，两边共用下面这些 parse_*/detect_*/compute_* 辅助函数。
+
+/// 一组事件的输出：`n_events` 行 × `n_features` 列的 row-major 矩阵 + 列名。
+pub struct AlloBlock {
+    pub n_events: usize,
+    pub n_features: usize,
+    pub values: Vec<f64>,
+    pub names: Vec<String>,
+}
+
+/// 纯 Rust 版 `compute_allo_microstructure_features_tris_expanded`。
+///
+/// 取值与列序与那个 pyfunction **完全一致**（同一套辅助函数、同一套组合顺序
+/// horizontal/vertical/both × bid/ask/both），只是返回值换成 9 个 `AlloBlock`。
+#[allow(clippy::too_many_arguments)]
+pub fn allo_tris_expanded_inner(
+    trade_exchtime: &[i64],
+    trade_price: &[f64],
+    trade_volume: &[f64],
+    trade_turnover: &[f64],
+    trade_flag: &[i32],
+    snap_exchtime: &[i64],
+    bid_prc: &[&[f64]; LEVEL_COUNT],
+    bid_vol: &[&[f64]; LEVEL_COUNT],
+    ask_prc: &[&[f64]; LEVEL_COUNT],
+    ask_vol: &[&[f64]; LEVEL_COUNT],
+    k1_horizontal: f64,
+    k2_vertical: f64,
+    window_size: usize,
+    decay_threshold: f64,
+) -> Vec<AlloBlock> {
+    let snapshots = parse_snapshots(snap_exchtime, bid_prc, bid_vol, ask_prc, ask_vol);
+    let trades = parse_trades(
+        trade_exchtime,
+        trade_price,
+        trade_volume,
+        trade_turnover,
+        trade_flag,
+    );
+    let close_price = trades.last().map(|t| t.price).unwrap_or(0.0);
+
+    let detection_modes = vec!["horizontal", "vertical", "both"];
+    let side_filters = vec!["bid", "ask", "both"];
+    let dm_names = ["horizontal", "vertical", "both"];
+    let sf_names = ["bid", "ask", "both"];
+
+    let labeled_events = detect_labeled_ala_events(
+        &snapshots,
+        &detection_modes,
+        &side_filters,
+        k1_horizontal,
+        k2_vertical,
+        window_size,
+        decay_threshold,
+    );
+
+    let n_sf = side_filters.len();
+    let n_combinations = detection_modes.len() * n_sf;
+    let mut grouped: Vec<Vec<Vec<f64>>> = vec![Vec::new(); n_combinations];
+    for le in &labeled_events {
+        let gi = le.detection_mode_idx * n_sf + le.side_filter_idx;
+        grouped[gi].push(compute_ala_features(&le.event, &snapshots, &trades, close_price).to_vec());
+    }
+
+    let base_names = get_feature_names();
+    let nf = base_names.len();
+    let mut out = Vec::with_capacity(n_combinations);
+    for gi in 0..n_combinations {
+        let dm = dm_names[gi / n_sf];
+        let sf = sf_names[gi % n_sf];
+        let names: Vec<String> = base_names
+            .iter()
+            .map(|b| format!("{}_{}_{}", dm, sf, b))
+            .collect();
+        let g = &grouped[gi];
+        let mut values = vec![0.0f64; g.len() * nf];
+        for (i, feats) in g.iter().enumerate() {
+            for (j, &v) in feats.iter().enumerate().take(nf) {
+                values[i * nf + j] = if v.is_nan() || v.is_infinite() { 0.0 } else { v };
+            }
+        }
+        out.push(AlloBlock {
+            n_events: g.len(),
+            n_features: nf,
+            values,
+            names,
+        });
+    }
+    out
+}

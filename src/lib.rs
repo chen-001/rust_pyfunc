@@ -991,6 +991,11 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         features_f64::verify_get_features_factors_rust,
         m
     )?)?;
+    // f64 版 + 全部开关（with_max_min / with_lyapunov_exponent / append_for_corr）
+    m.add_function(wrap_pyfunction!(
+        features_f64::verify_get_features_factors_rust_ex,
+        m
+    )?)?;
 
     // 纯 Rust 因子流水线引擎（Phase 3 主入口）
     m.add_function(wrap_pyfunction!(factor_pipeline::run_factor_pipeline, m)?)?;

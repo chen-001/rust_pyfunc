@@ -256,7 +256,11 @@ fn roll_sum(vals: &[f64], window: usize) -> Vec<f64> {
                 }
             }
         }
-        out[i] = if nobs == 0 {
+        // pandas calc_sum：`if nobs == 0 == minp: 0`，即只有 min_periods 也是 0 时才给 0；
+        // 这里 minp = window >= 1，所以 nobs==0 走的是 NaN 分支（第一版写成 nobs==0 → 0.0，
+        // 全空窗口多出 0.0 会让 lr_rate 的非 NaN 个数变多、分位数整体偏移、
+        // 排名跟着整体错位十几名，20231020 全市场对账时暴露）。
+        out[i] = if nobs == 0 && minp == 0 {
             0.0
         } else if nobs >= minp {
             if n_same >= nobs {

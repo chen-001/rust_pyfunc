@@ -1,0 +1,58 @@
+hm089「发起进攻」—— 做完，对账「通过」。
+
+【形态】模块级 go(date, code)，逐笔 + 盘口。不涉及 order_pair_metrics，也不用 append_for_corr /
+with_max_min，只用到 get_features_factors 的默认参数（开 lyapunov）——所以三个新开关里只用到
+with_lyapunov_exponent 这一个（已补进 features_f64，见下）。
+
+旧 go 链路：
+  trade  = adjust_afternoon(read_trade(code,date))，取 exchtime(int64 纳秒)/price/volume/turnover/flag
+  market = adjust_afternoon(read_market(code,date))，取 exchtime + 10 档 bid/ask 价量（共 50 个数组）
+  4 个变体各调一次大挂单微观结构函数：
+      expanded k1=2.0 k2=5.0 decay=0.3 / expanded k1=1.0 k2=2.5 decay=0.5
+      expanded k1=1.5 k2=3.5 decay=0.3 / v3       k1=2.0 k2=5.0 decay=0.3   （window 都是 100）
+  每个变体返回 9 个（事件数 × 21 指标）矩阵（horizontal/vertical/both × bid/ask/both），
+  每个矩阵再过一次 get_features_factors（21 列 → 672 个值），4 × 9 × 672 = 24192，
+  按 names_save 取 68 个。
+
+【做法】src/okay_database/hm089.rs（655 行）
+· 重活没有重写：给 src/allo_microstructure.rs / allo_microstructure_v3.rs 各加了一个纯 Rust 入口
+  allo_tris_expanded_inner / allo_tris_expanded_v3_inner（参数从 50 个 PyReadonlyArray 换成切片、
+  输出从 PyArray2 换成 row-major Vec<f64> + 列名）。原 pyfunction 一行没改，两边共用同一套
+  parse_*/detect_*/compute_* 辅助函数；v3 的 parse 段是内联在 pyfunction 里的，只在纯 Rust 入口里
+  照抄了一份。
+· 时间戳必须用纳秒 i64：旧代码是 `df.exchtime.astype(np.int64)`，即 pandas Timestamp 的纳秒值，
+  量级 1.7e18，超出 f64 能精确表示整数的范围（2^53），所以解析阶段就用 i64 存，
+  不能用 f64 中转（第一版差点踩到）。换算照抄 cast_from_unit_vectorized（pandas_ns_of）。
+· 浮点解析走 pandas 的 precise_xstrtod 复刻，因为 read_market 的过滤是「ask_prc1/bid_prc1 精确等于 0」。
+· 空块要照抄：某天某个组合可能一个事件都没有，旧代码对 0 行的 DataFrame 仍然给出 672 个值，
+  其中**只有** trend / mean_above_p90 / mean_below_p10 / lz_complexity 四组是 0.0（实测非 NaN 恰好
+  84 个、值全是 0），其余全 NaN。直接给全 NaN 会让整条链错位，所以专门写了一个 empty_block。
+  （000001@20250303 的 9 个组合里前 3 个就是 0 事件。）
+
+【验证】verify_series（OKAY_VERIFY_DATA_ROOT=/ssd_data）四组
+  20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750
+  68 个值全部一致，结论「通过」，一次就过没返工。
+
+【顺带补的三样公共设施（lead 同意，先于本系列做的）】
+· features_f64 补了 with_max_min / with_lyapunov_exponent / append_for_corr 三个开关，
+  入口 get_features_factors_rust_full_ex；原有两个入口改成薄壳转调，逐位不变。
+· src/time_series/lyapunov.rs 加了纯 Rust 入口 lyapunov_exponent_inner。
+· src/lib.rs 注册 verify_get_features_factors_rust_f64_ex。
+· 验证脚本 lib/okay_database/verify_features_f64_switches.py，结论「通过」；
+  改完重跑 hm090 对账仍「通过」。
+
+【已知、与本系列无关的老差异】lz_complexity / entropy_1d / max_range_product 三个统计量在含 NaN 的列上
+与旧框架不一致（Rust 先滤 NaN，旧的是把 NaN 也算一个 bin）。这次 hm089 的 9 个块里没有 NaN（实测
+000001@20250303 全部块 NaN 数为 0），所以没有撞上。lead 已定：真撞上时按「让 f64 通路与旧框架对齐」
+改，并且必须把 hm090 一起重验——这条记在案，还没有动手。
+
+【因子库文件】/home/chenzongwei/pythoncode/成果hm89_发起进攻/hm89_okay_database.py
+  names_save 68（18 个 _fold）、names_in_db 3、names_gap5 38、names_gap1 42；
+  unfold 里 loose1_both_both_M22_local_survivor_bias_mean_above_p90 出现两次，第二次加了 _dup2。
+  names_in_db 的第一项 …_M16_shadow_projection_ratio_p95_fold 并不在 names_save 里，
+  新库的 run_base 不会产出它，run_db 跑到那一行会读不到——旧文件本来就是这么写的（依赖更早一次
+  run_base 留下的文件），这里原样保留没有修正，文件里写了注释。
+
+【单日冒烟】run_base(20250303, 20250303, n_jobs=8)，5117 任务。
+  单股单日约 6.8s（大挂单事件识别是重活），全市场 8 并行预计 70 分钟左右，放在后台跑，
+  详细结果见下一条汇报。
