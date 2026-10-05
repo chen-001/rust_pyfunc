@@ -222,3 +222,57 @@ design_whatever_out 写的）做 Rust 复现，产出两个文件：
 """
 
 # 本文件只是规范文本，不参与运行。
+
+════════════════════════════════════════════════════════════════════════
+八、go 函数 + order_pair_metrics + get_features_factors 这条链：用 f64 特征通路
+════════════════════════════════════════════════════════════════════════
+
+【适用】旧 okay 文件是「模块级 go(date, code)」，里面干这四件事的系列：
+    trade1 = rp.adjust_afternoon(rp.read_trade(code, rp.td.last_trading_day(date)))
+    trade2 = rp.adjust_afternoon(rp.read_trade(code, date))
+    result, cols = rp.calculate_order_pair_metrics_more(t2, t1)          # 以及 _v2
+    vals, _ = rp.get_features_factors(pd.DataFrame(result, columns=cols))
+    # 再按 names_save 取子集
+（hm090 是这个形态的样板，hm091 / hm078 / hm079 / hm092 / hm080~hm089 / hm076 / hm077 也多半是。）
+
+【不要用 pipeline_order_pair_hm90】它看上去是同一件事，实测四处对不上：
+  1) with_retreat=false 只按字节比 b"32"，2025 年前后成交明细写的是 "32.0"，撤单过滤不生效
+     （000001@20250303：旧 56193 行 vs 流水线 75205 行）；
+  2) TradeRecord.time_sec 是 f32，epoch 秒 1.7e9 的 f32 分辨率只有 ±128 秒；
+  3) 同一个 record 的 price/volume/turnover 也是 f32，impact1/impact2/price_radiation
+     对价格极敏感（只把 price 换成 f32，impact1_diff 就有 20660/28965 行超 1e-4）；
+  4) 特征清单不同（关 lyapunov 但多 curvature/quad_coef，44 列时每份 1958 不是 1914）。
+
+【要做的事（照 hm090.rs 抄）】
+  a) 自己按 f64 解析 transaction CSV（列索引 4=exchtime、7=price、8=volume、9=turnover、
+     10=flag、13=ask_order、14=bid_order；exchtime 是 "1740964500130000.0" 这种浮点串，
+     整数前缀就是微秒数）。浮点要用 **pandas 的 precise_xstrtod 复刻**（hm033.rs 的
+     parse_f64_pandas + pow10_table，hm090.rs 里也复制了一份）：正确舍入的 str::parse 与它
+     在 260/76488 个 turnover 上差 1 ulp，这 1 ulp 会让 6 个配对行的 impact1/impact2 翻面，
+     把入选因子推到 1e-4 以外。
+  b) 过滤/切窗口自己做：丢 flag==32（数值比较，不是字节比较）；
+     [09:30:00, 11:30:00] ∪ [13:00:00, 14:57:00] 是**微秒闭区间**（按整秒截断会多算边界那秒），
+     下午整体前移 90 分钟；行序 = 上午全部（文件序）在前、下午全部（文件序）在后
+     （order_pair 内部是稳定排序，同秒的行靠输入顺序定名次）。
+  c) 订单配对走 order_pair_metrics_pipeline 的 **f64 入口**（2026-10-05 加的，纯加法，不改老行为）：
+        calculate_order_pair_metrics_more_f64_inner(today: ArrayView2<f64>,
+                                                    yesterday: ArrayView2<f64>, tol)
+        calculate_order_pair_metrics_more_v2_f64_inner(...)
+     输入矩阵列序 = [time_sec(整数秒), price, volume, turnover, flag, bid_order, ask_order]，
+     与旧 go 的 prepare() 一致。tolerance 默认 0.001 / v2 0.00001。
+  d) 特征走 **f64 通路**（2026-10-05 加的，src/features_f64.rs，src/features.rs 的孪生实现，
+     算法与列顺序完全一样，只是标量换成 f64）：
+        let (vals, names) = crate::features_f64::get_features_factors_rust_full(
+            &result.view(), &cols, true);
+     返回 (Vec<f64>, Vec<String>)，名字与 features.rs 那条 f32 通路逐字相同（44 列 1958 个）。
+     Python 侧验证入口：rp.verify_get_features_factors_rust_f64(matrix, cols)。
+     **不要动 src/features.rs**，hm94~hm110 那批新框架系列依赖它。
+  e) 旧 go 的 vals1+vals2 里还含 lyapunov（每列 1 项，44 列时 44 个），f64 通路同样不产出。
+     入选因子若不含 lyapunov 名字（hm090 的 67 项就没有），直接按 1958+1958 的清单定位下标即可，
+     下标要用 rp.verify_get_features_factors_rust_f64(44 列矩阵, base_cols)[1] 返回的名字
+     直接查，不要手算。
+  f) names_save 的 _fold 后缀照旧由 write_selected_base 处理；列名重复的第二个加 _dup2。
+
+【验收】verify_series 四组「通过」。hm090 用这条路之后，同一份 f64 矩阵上新旧两边
+  入选 67 项的最大相对误差是 5e-13；全部 3740 项里只有 90 项超 1e-4，且都是
+  trade_duration_diff 那一族全 NaN 列引起的 NaN/非 NaN 分歧（细节写在 hm090.rs 文件头）。

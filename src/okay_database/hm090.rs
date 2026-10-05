@@ -21,7 +21,7 @@
 //! ════════════════════════════════════════════════════════════════════
 //! 二、和库里现成流水线的关系（重点，别直接套 pipeline_order_pair_hm90）
 //! ════════════════════════════════════════════════════════════════════
-//! factor_pipeline.rs 里的 pipeline_order_pair_hm90 看起来就是同一件事，实测有三处对不上，
+//! factor_pipeline.rs 里的 pipeline_order_pair_hm90 看起来就是同一件事，实测四处对不上，
 //! 直接拿来当 hm090 会得到完全不同的值：
 //!
 //! · **撤单行**：流水线用 read_trade_fast_inner(code, date, false, true, ..)，
@@ -32,8 +32,12 @@
 //!
 //! · **时间精度**：流水线走 parse_trades_from_fast，时间取的是 TradeRecord.time_sec（f32），
 //!   epoch 秒 1.7e9 在 f32 下分辨率只有 ±128 秒，而「之后 10 秒窗口」「成交时长」这些量
-//!   全都要精确到秒。本文件改用 order_pair_metrics_pipeline::*_exact_inner，
-//!   时间取 time_us/1e6（整数秒），与旧框架的 //1e9 逐位一致。
+//!   全都要精确到秒。
+//!
+//! · **价格精度**：同一处的 price/volume/turnover 也是 f32。impact1 / impact2 /
+//!   price_radiation 对价格极敏感，实测只把 price 换成 f32，000001@20250303 的
+//!   impact1_diff 就有 20660/28965 行相对误差超过 1e-4。
+//!   所以本文件自己按 f64 读 CSV，并走 order_pair_metrics_pipeline 的 *_f64_inner。
 //!
 //! · **特征清单不同**：库里的 features（get_features_factors_rust_full，对应 Python 的
 //!   with_lyapunov_exponent=False）关闭了 lyapunov，同时又多了 curvature / quad_coef
@@ -52,7 +56,8 @@
 //! 上午 [09:30:00, 11:30:00]、下午 [13:00:00, 14:57:00]，**微秒级闭区间**，
 //! 下午部分整体前移 90 分钟，最后 concat（上午全部在前、下午全部在后）。
 //! 顺序有意义：order_pair 内部按时间排序用的是稳定排序，同秒的行保持输入顺序。
-//! 本文件按 time_us 的当日偏移（rem_euclid(一天)）判窗口，微秒精度，不是按整秒截断。
+//! 本文件按 `exchtime 微秒 + 8 小时` 的当日偏移（rem_euclid(一天)）判窗口，微秒精度，
+//! 不是按整秒截断。
 //!
 //! ════════════════════════════════════════════════════════════════════
 //! 四、名字与重名
@@ -65,13 +70,13 @@
 //! 两列在新旧两个库之间就有实现差异（000001@20250303 上 28965 行里 28633 行不同），
 //! 入选名单里没有任何 fractal 相关的量，也没有以它为自变量的相关系数项。
 //!
-//! 另外，price/volume/turnover 在 Rust 里是 f32（旧框架是 f64），相对误差量级 1e-7，
-//! 远在验收阈值 1e-4 之内。
+//! 价格/量/额一律按 f64 解析（自己读 CSV，不走 fast_csv_reader 的 f32）：
+//! impact1 / impact2 / price_radiation 对价格精度极敏感，用 f32 会有一批值过不了 1e-4。
 
 use crate::data_paths;
-use crate::fast_csv_reader;
-use crate::features;
+use crate::features_f64;
 use crate::order_pair_metrics_pipeline;
+use ndarray::Array2;
 use std::sync::LazyLock;
 
 /// 旧 go 的 v1/v2 两份特征总长（各 1914，含 lyapunov）。只作对照记录，不参与计算。
@@ -207,57 +212,305 @@ fn last_trading_day(date: i64) -> Option<i64> {
     }
 }
 
-/// 读一个交易日的逐笔，做旧框架那两步：丢掉撤单行 + 下午时段平移。
+/// 读一个交易日的逐笔，复刻旧框架的 `read_trade` + `adjust_afternoon`。
 ///
-/// 不再用 read_trade_fast_inner 自带的 with_retreat / with_afternoon_adjust：
-/// 前者的字节比较漏掉 "32.0" 形式的撤单标记，后者按整秒判窗口而旧代码是微秒闭区间。
-fn read_day(code: &str, date: i64) -> Option<Vec<fast_csv_reader::TradeRecord>> {
-    let raw = fast_csv_reader::read_trade_fast_inner(code, date, true, false, usize::MAX).ok()?;
-    let mut morning: Vec<fast_csv_reader::TradeRecord> = Vec::with_capacity(raw.len());
-    let mut afternoon: Vec<fast_csv_reader::TradeRecord> = Vec::new();
-    for mut r in raw {
-        if r.flag == 32 {
+/// 返回 (n, 7) 的 f64 矩阵，列序与旧 hm90.go 的 `prepare()` 一致：
+///   `[整数秒, price, volume, turnover, flag, bid_order, ask_order]`
+/// 行序 = 上午全部（文件序）在前、下午全部（文件序）在后，与 pandas 的 concat 一致
+/// （同秒的行靠输入顺序决定名次，order_pair 用的是稳定排序，所以行序必须对上）。
+///
+/// 三件事都不借 fast_csv_reader，原因各不同：
+///  · 撤单：旧代码是 `df[df.flag != 32]` 的数值比较，库里那条是按字节比 b"32"，
+///    遇到 "32.0" 不生效。这里按解析出来的整数比。
+///  · 窗口：pandas 的 between_time 是**微秒级闭区间**，按整秒截断会把边界那一秒多算进来。
+///  · 精度：price/volume/turnover 必须是 f64。impact1 / impact2 / price_radiation
+///    对价格极敏感，实测只把 price 换成 f32，000001@20250303 的 impact1_diff
+///    就有 20660/28965 行相对误差超过 1e-4。
+fn read_day(code: &str, date: i64) -> Option<Array2<f64>> {
+    const COL_EXCHTIME: usize = 4;
+    const COL_PRICE: usize = 7;
+    const COL_VOLUME: usize = 8;
+    const COL_TURNOVER: usize = 9;
+    const COL_FLAG: usize = 10;
+    const COL_ASK_ORDER: usize = 13;
+    const COL_BID_ORDER: usize = 14;
+    const EXCHANGE_OFFSET_US: i64 = 8 * 3600 * 1_000_000;
+
+    let filename = format!("{}_{}_transaction.csv", code, date);
+    let mut data = None;
+    for root in data_paths::level2_roots() {
+        let path = root
+            .join(date.to_string())
+            .join("transaction")
+            .join(&filename);
+        if let Ok(bytes) = std::fs::read(&path) {
+            data = Some(bytes);
+            break;
+        }
+    }
+    let data = data?;
+
+    let mut morning: Vec<[f64; 7]> = Vec::new();
+    let mut afternoon: Vec<[f64; 7]> = Vec::new();
+    for (lineno, line) in data.split(|&b| b == b'\n').enumerate() {
+        if lineno == 0 || line.is_empty() {
+            continue; // 表头 / 空行
+        }
+        let mut fields: [&[u8]; 15] = [&[][..]; 15];
+        let mut commas = 0usize;
+        let mut start = 0usize;
+        for (i, &b) in line.iter().enumerate() {
+            if b == b',' {
+                if commas < 15 {
+                    fields[commas] = &line[start..i];
+                }
+                commas += 1;
+                start = i + 1;
+            }
+        }
+        if commas < 15 {
+            fields[commas] = &line[start..];
+        }
+        if commas + 1 < 15 {
+            continue; // 列数不够，pandas 也读不出这一行
+        }
+
+        let exchtime_us = us_prefix(fields[COL_EXCHTIME]);
+        if exchtime_us == 0 {
             continue;
         }
-        let tod = r.time_us.rem_euclid(DAY_US);
+        let flag = int_prefix(fields[COL_FLAG]) as i32;
+        if flag == 32 {
+            continue;
+        }
+        let total_us = exchtime_us + EXCHANGE_OFFSET_US;
+        let tod = total_us.rem_euclid(DAY_US);
+        let mut row = [
+            0.0f64,
+            num(fields[COL_PRICE]),
+            num(fields[COL_VOLUME]),
+            num(fields[COL_TURNOVER]),
+            flag as f64,
+            int_prefix(fields[COL_BID_ORDER]) as f64,
+            int_prefix(fields[COL_ASK_ORDER]) as f64,
+        ];
         if (MORNING_START_US..=MORNING_END_US).contains(&tod) {
-            morning.push(r);
+            row[0] = total_us.div_euclid(1_000_000) as f64;
+            morning.push(row);
         } else if (AFTERNOON_START_US..=AFTERNOON_END_US).contains(&tod) {
-            r.time_us -= AFTERNOON_SHIFT_US;
-            afternoon.push(r);
+            row[0] = (total_us - AFTERNOON_SHIFT_US).div_euclid(1_000_000) as f64;
+            afternoon.push(row);
         }
     }
     morning.append(&mut afternoon);
-    Some(morning)
+    let n = morning.len();
+    let mut out = Array2::<f64>::zeros((n, 7));
+    for (i, row) in morning.iter().enumerate() {
+        for j in 0..7 {
+            out[[i, j]] = row[j];
+        }
+    }
+    Some(out)
+}
+
+/// 去掉字段两端的空白（含行尾的 `\r`）。
+fn trim_ascii(raw: &[u8]) -> &[u8] {
+    let mut s = 0usize;
+    let mut e = raw.len();
+    while s < e && raw[s].is_ascii_whitespace() {
+        s += 1;
+    }
+    while e > s && raw[e - 1].is_ascii_whitespace() {
+        e -= 1;
+    }
+    &raw[s..e]
+}
+
+/// 取字段的整数前缀。`"32.0"` 给 32，与旧框架 `df.flag != 32` 的数值比较一致。
+fn int_prefix(raw: &[u8]) -> i64 {
+    let b = trim_ascii(raw);
+    let mut i = 0usize;
+    let mut neg = false;
+    if i < b.len() && (b[i] == b'-' || b[i] == b'+') {
+        neg = b[i] == b'-';
+        i += 1;
+    }
+    let mut v: i64 = 0;
+    while i < b.len() && b[i].is_ascii_digit() {
+        v = v * 10 + (b[i] - b'0') as i64;
+        i += 1;
+    }
+    if neg {
+        -v
+    } else {
+        v
+    }
+}
+
+/// exchtime 列（形如 `1740964500130000.0`）：整数前缀就是微秒数。
+/// 真遇到科学计数法写法就退回浮点解析。
+fn us_prefix(raw: &[u8]) -> i64 {
+    let b = trim_ascii(raw);
+    if !b.contains(&b'e') && !b.contains(&b'E') {
+        return int_prefix(b);
+    }
+    std::str::from_utf8(b)
+        .ok()
+        .and_then(|s| s.parse::<f64>().ok())
+        .map(|v| v.round() as i64)
+        .unwrap_or(0)
+}
+
+/// 小数转 f64，照抄 pandas 的 C 解析器（见下面 parse_f64_pandas 的说明）。
+/// 空字段给 NaN（pandas 也把空字段读成 NaN）。
+fn num(raw: &[u8]) -> f64 {
+    let b = trim_ascii(raw);
+    if b.is_empty() {
+        return f64::NAN;
+    }
+    parse_f64_pandas(b)
+}
+
+/// 10 的幂表：用 Rust 自己的正确舍入解析 "1e{k}" 建出来，
+/// 与 pandas/tokenizer.c 里那张写死的 e[] 表逐位一致。
+fn pow10_table() -> &'static [f64; 309] {
+    static T: std::sync::OnceLock<[f64; 309]> = std::sync::OnceLock::new();
+    T.get_or_init(|| {
+        let mut t = [1.0f64; 309];
+        for (k, v) in t.iter_mut().enumerate() {
+            *v = format!("1e{}", k).parse::<f64>().unwrap();
+        }
+        t
+    })
+}
+
+/// pandas C 解析器 `precise_xstrtod`（_libs/src/parser/tokenizer.c）的逐行复刻。
+/// 与 src/okay_database/hm033.rs 里的同名函数一致，这里复制一份免得跨系列互相依赖。
+///
+/// ！！这不是「正确舍入」的十进制转二进制：它只把**前 17 位有效数字**
+/// 用 `number = number*10 + digit` 累加进 double，多出来的整数位转成指数，
+/// 多出来的小数位直接丢掉，最后用缓存好的 10 的幂做**一次**乘或除。
+/// 实测 000001@20250303 有 260/76488 个 turnover 与 Rust `str::parse` 差 1 ulp。
+/// 这 1 ulp 看着无所谓，实测会让 6 个配对行的 impact1/impact2 翻面，
+/// 把入选因子里的 4 项推到 1.7e-4~7.2e-4（换回 pandas 的解析值后差异归零），所以必须照抄。
+fn parse_f64_pandas(b: &[u8]) -> f64 {
+    const MAX_DIGITS: usize = 17;
+    let n = b.len();
+    let mut p = 0usize;
+    while p < n && matches!(b[p], b' ' | b'\t' | b'\r' | b'\n') {
+        p += 1;
+    }
+    let mut negative = false;
+    if p < n && (b[p] == b'-' || b[p] == b'+') {
+        negative = b[p] == b'-';
+        p += 1;
+    }
+    let mut number = 0.0f64;
+    let mut exponent: i32 = 0;
+    let mut num_digits = 0usize;
+    let mut num_decimals = 0usize;
+    while p < n && b[p].is_ascii_digit() {
+        if num_digits < MAX_DIGITS {
+            number = number * 10.0 + (b[p] - b'0') as f64;
+            num_digits += 1;
+        } else {
+            exponent += 1;
+        }
+        p += 1;
+    }
+    if p < n && b[p] == b'.' {
+        p += 1;
+        while num_digits < MAX_DIGITS && p < n && b[p].is_ascii_digit() {
+            number = number * 10.0 + (b[p] - b'0') as f64;
+            p += 1;
+            num_digits += 1;
+            num_decimals += 1;
+        }
+        if num_digits >= MAX_DIGITS {
+            while p < n && b[p].is_ascii_digit() {
+                p += 1;
+            }
+        }
+        exponent -= num_decimals as i32;
+    }
+    if num_digits == 0 {
+        return 0.0;
+    }
+    if negative {
+        number = -number;
+    }
+    // 指数段（本数据没有 'e'，按源码照抄）
+    if p < n && (b[p] | 0x20) == b'e' {
+        p += 1;
+        let mut eneg = false;
+        if p < n && (b[p] == b'-' || b[p] == b'+') {
+            eneg = b[p] == b'-';
+            p += 1;
+        }
+        let mut nn: i32 = 0;
+        let mut nd = 0usize;
+        while nd < MAX_DIGITS && p < n && b[p].is_ascii_digit() {
+            nn = nn * 10 + (b[p] - b'0') as i32;
+            nd += 1;
+            p += 1;
+        }
+        if eneg {
+            exponent -= nn;
+        } else {
+            exponent += nn;
+        }
+    }
+    if exponent > 308 {
+        f64::INFINITY
+    } else if exponent > 0 {
+        number * pow10_table()[exponent as usize]
+    } else if exponent < -308 {
+        if exponent < -616 {
+            0.0
+        } else {
+            let t = pow10_table();
+            (number / t[(-308 - exponent) as usize]) / t[308]
+        }
+    } else {
+        number / pow10_table()[(-exponent) as usize]
+    }
 }
 
 pub fn compute_stock(code: &str, date: i64) -> Option<Vec<f32>> {
     let prev = last_trading_day(date)?;
     let t2 = read_day(code, date)?;
     let t1 = read_day(code, prev)?;
+    if t2.nrows() == 0 || t1.nrows() == 0 {
+        // 旧代码遇到空表会直接崩在 .first().unwrap()，效果就是这一天算不出来。
+        return None;
+    }
 
-    let (result1, cols1) = order_pair_metrics_pipeline::calculate_order_pair_metrics_more_exact_inner(
-        &t2,
-        &t1,
-        TOLERANCE_V1,
-    );
+    let (result1, cols1) =
+        order_pair_metrics_pipeline::calculate_order_pair_metrics_more_f64_inner(
+            t2.view(),
+            t1.view(),
+            TOLERANCE_V1,
+        );
     let (result2, cols2) =
-        order_pair_metrics_pipeline::calculate_order_pair_metrics_more_v2_exact_inner(
-            &t2,
-            &t1,
+        order_pair_metrics_pipeline::calculate_order_pair_metrics_more_v2_f64_inner(
+            t2.view(),
+            t1.view(),
             TOLERANCE_V2,
         );
 
-    // 与流水线一致：空配对矩阵给半量 NaN，保证总长度恒定。
+    // 走 f64 的特征通路（src/features_f64.rs，src/features.rs 的孪生实现）。
+    // src/features.rs 内部是 f32，实测 44 列上 1958 项里 244 项相对误差 > 1e-4、最大 18%，
+    // 入选的 67 项里也有 9 项超（最大 2.8e-4），所以这里不能用它。
+    // 空配对矩阵给半量 NaN，保证总长度恒定。
     let (vals1, _) = if result1.nrows() == 0 {
-        (vec![f32::NAN; HALF], Vec::new())
+        (vec![f64::NAN; HALF], Vec::new())
     } else {
-        features::get_features_factors_rust_full(&result1.mapv(|v| v as f32).view(), &cols1, true)
+        features_f64::get_features_factors_rust_full(&result1.view(), &cols1, true)
     };
     let (vals2, _) = if result2.nrows() == 0 {
-        (vec![f32::NAN; HALF], Vec::new())
+        (vec![f64::NAN; HALF], Vec::new())
     } else {
-        features::get_features_factors_rust_full(&result2.mapv(|v| v as f32).view(), &cols2, true)
+        features_f64::get_features_factors_rust_full(&result2.view(), &cols2, true)
     };
 
     let mut full = vals1;
@@ -266,7 +519,8 @@ pub fn compute_stock(code: &str, date: i64) -> Option<Vec<f32>> {
         // 长度不是预期的两份 1870：宁可整条给 NaN，也不要错位取值。
         return None;
     }
-    Some(IDX.iter().map(|&i| full[i]).collect())
+    // 流水线对外是 f32（TaskResult.facs 是 f32），只在最后一步降精度。
+    Some(IDX.iter().map(|&i| full[i] as f32).collect())
 }
 
 pub fn compute_cross(_date: i64) -> Option<(Vec<String>, Vec<f32>)> {

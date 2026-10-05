@@ -279,6 +279,11 @@ fn apply_row_weight(src: &[f64], n: usize, w: &[f64]) -> Vec<f64> {
     out
 }
 
+/// 逐格乘掩码（amountbig / amountsmall 是 240×n 的逐格 1/NaN，不是逐行权重）
+fn apply_elem_mask(src: &[f64], m: &[f64]) -> Vec<f64> {
+    src.iter().zip(m.iter()).map(|(a, b)| a * b).collect()
+}
+
 /// 逐行 rank（pandas DataFrame.rank(axis=1)，升序、并列取平均、NaN 保留）
 fn rank_rows(mat: &[f64], nrows: usize, ncols: usize) -> Vec<f64> {
     let rows: Vec<(usize, Vec<(usize, f64)>)> = (0..nrows)
@@ -550,8 +555,8 @@ pub fn compute_cross(date: i64) -> Option<(Vec<String>, Vec<f32>)> {
         for k in 0..FIELDS.len() {
             let v = match seg {
                 0 | 1 | 2 => apply_row_weight(&raw[k], n, &w),
-                3 => apply_row_weight(&raw[k], n, &big),
-                _ => apply_row_weight(&raw[k], n, &small),
+                3 => apply_elem_mask(&raw[k], &big),
+                _ => apply_elem_mask(&raw[k], &small),
             };
             f.push(v);
         }

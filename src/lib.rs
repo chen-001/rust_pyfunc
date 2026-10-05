@@ -129,6 +129,7 @@ pub mod cross_section_example_metrics;
 pub mod drop_event_metrics;
 pub mod factor_pipeline;
 pub mod factor_store_v5;
+pub mod features_f64;
 pub mod features;
 pub mod individual_order_ratio_metrics;
 pub mod long_order_cross_section_metrics;
@@ -983,6 +984,11 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     // get_features_factors 纯 Rust 版本的验证桥接（Phase 2，仅供一致性验证）
     m.add_function(wrap_pyfunction!(
         features::verify_get_features_factors_rust,
+        m
+    )?)?;
+    // 同一件事的 f64 版（hm0~hm92 那批 go 函数系列要用，见 src/features_f64.rs）
+    m.add_function(wrap_pyfunction!(
+        features_f64::verify_get_features_factors_rust,
         m
     )?)?;
 

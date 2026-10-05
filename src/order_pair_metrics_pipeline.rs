@@ -1073,8 +1073,11 @@ fn calculate_interval_cv_market(
     std / mean
 }
 
-/// 计算更多指标的订单配对函数
 /// 计算更多指标的订单配对函数（流水线纯 Rust 入口）。
+///
+/// 输入是 `fast_csv_reader::TradeRecord`，里面 price/volume/turnover 是 f32。
+/// 需要 f64 精度（复现旧框架、或对价格极敏感的量）请用
+/// [`calculate_order_pair_metrics_more_f64_inner`]。
 pub fn calculate_order_pair_metrics_more_inner(
     today_records: &[fast_csv_reader::TradeRecord],
     yesterday_records: &[fast_csv_reader::TradeRecord],
@@ -1083,7 +1086,36 @@ pub fn calculate_order_pair_metrics_more_inner(
     // 解析成交记录并按时间排序
     let today_records = parse_trades_from_fast(today_records);
     let yesterday_records = parse_trades_from_fast(yesterday_records);
+    calculate_order_pair_metrics_more_records(today_records, yesterday_records, tolerance)
+}
 
+/// 与 [`calculate_order_pair_metrics_more_inner`] 同一条算式，输入直接是 (n,7) 的 f64 矩阵。
+///
+/// 列序与旧框架 hm90.go 的 `prepare()` 一致：
+/// `[time_sec, price, volume, turnover, flag, bid_order, ask_order]`，
+/// 其中 time_sec 是**整数秒**（旧代码 `exchtime.astype(int64)//10**9`）。
+///
+/// 为什么要这一条：`fast_csv_reader::TradeRecord` 的价格是 f32，而
+/// impact1 / impact2 / price_radiation 这几个量对价格精度极敏感
+/// （实测 000001@20250303：只把 price 换成 f32，impact1_diff 就有
+/// 20660/28965 行相对误差超过 1e-4），复现旧框架必须走 f64。
+pub fn calculate_order_pair_metrics_more_f64_inner(
+    today_trades: ArrayView2<f64>,
+    yesterday_trades: ArrayView2<f64>,
+    tolerance: f64,
+) -> (Array2<f64>, Vec<String>) {
+    calculate_order_pair_metrics_more_records(
+        parse_trades(today_trades),
+        parse_trades(yesterday_trades),
+        tolerance,
+    )
+}
+
+fn calculate_order_pair_metrics_more_records(
+    today_records: Vec<TradeRecord>,
+    yesterday_records: Vec<TradeRecord>,
+    tolerance: f64,
+) -> (Array2<f64>, Vec<String>) {
     let today_sorted = SortedTrades::from_records(today_records.clone());
     let yest_sorted = SortedTrades::from_records(yesterday_records.clone());
 
@@ -1434,6 +1466,9 @@ fn find_pairs_v2(
 }
 
 /// 计算订单配对指标（V2版本：不区分买卖方向）— 流水线纯 Rust 入口。
+///
+/// 输入是 `fast_csv_reader::TradeRecord`（price/volume/turnover 是 f32）。
+/// 需要 f64 精度请用 [`calculate_order_pair_metrics_more_v2_f64_inner`]。
 pub fn calculate_order_pair_metrics_more_v2_inner(
     today_records: &[fast_csv_reader::TradeRecord],
     yesterday_records: &[fast_csv_reader::TradeRecord],
@@ -1442,7 +1477,28 @@ pub fn calculate_order_pair_metrics_more_v2_inner(
     // 解析成交记录
     let today_records = parse_trades_from_fast(today_records);
     let yesterday_records = parse_trades_from_fast(yesterday_records);
+    calculate_order_pair_metrics_more_v2_records(today_records, yesterday_records, tolerance)
+}
 
+/// 与 [`calculate_order_pair_metrics_more_v2_inner`] 同一条算式，
+/// 输入直接是 (n,7) 的 f64 矩阵（列序同 [`calculate_order_pair_metrics_more_f64_inner`]）。
+pub fn calculate_order_pair_metrics_more_v2_f64_inner(
+    today_trades: ArrayView2<f64>,
+    yesterday_trades: ArrayView2<f64>,
+    tolerance: f64,
+) -> (Array2<f64>, Vec<String>) {
+    calculate_order_pair_metrics_more_v2_records(
+        parse_trades(today_trades),
+        parse_trades(yesterday_trades),
+        tolerance,
+    )
+}
+
+fn calculate_order_pair_metrics_more_v2_records(
+    today_records: Vec<TradeRecord>,
+    yesterday_records: Vec<TradeRecord>,
+    tolerance: f64,
+) -> (Array2<f64>, Vec<String>) {
     let today_sorted = SortedTrades::from_records(today_records.clone());
     let yest_sorted = SortedTrades::from_records(yesterday_records.clone());
 

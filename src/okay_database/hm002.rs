@@ -236,6 +236,11 @@ fn apply_row_weight(src: &[f64], n: usize, w: &[f64]) -> Vec<f64> {
     out
 }
 
+/// 逐格乘掩码（amountbig / amountsmall 是 240×n 的逐格 1/NaN，不是逐行权重）
+fn apply_elem_mask(src: &[f64], m: &[f64]) -> Vec<f64> {
+    src.iter().zip(m.iter()).map(|(a, b)| a * b).collect()
+}
+
 /// 逐列中位数（跳过 NaN，偶数取中间两个的均值）
 fn column_median(mat: &[f64], n: usize) -> Vec<f64> {
     let res: Vec<(usize, f64)> = (0..n)
@@ -527,13 +532,20 @@ pub fn compute_cross(date: i64) -> Option<(Vec<String>, Vec<f32>)> {
         let w: Vec<f64> = (0..MIN_PER_DAY)
             .map(|row| minute_weight(seg, row))
             .collect();
-        let wsel: &[f64] = match seg {
-            0..=4 => &w,
-            5 => &big,
-            _ => &small,
+        let (buy, sell) = match seg {
+            0..=4 => (
+                apply_row_weight(&raw[IDX_BUY], n, &w),
+                apply_row_weight(&raw[IDX_SELL], n, &w),
+            ),
+            5 => (
+                apply_elem_mask(&raw[IDX_BUY], &big),
+                apply_elem_mask(&raw[IDX_SELL], &big),
+            ),
+            _ => (
+                apply_elem_mask(&raw[IDX_BUY], &small),
+                apply_elem_mask(&raw[IDX_SELL], &small),
+            ),
         };
-        let buy = apply_row_weight(&raw[IDX_BUY], n, wsel);
-        let sell = apply_row_weight(&raw[IDX_SELL], n, wsel);
 
         for (k, mat) in [(0usize, &buy), (1usize, &sell)] {
             // 1) 与分钟序号的相关系数

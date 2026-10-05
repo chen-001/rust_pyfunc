@@ -2204,8 +2204,7 @@
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": " [由文件系统重建：.rs 与 okay_database.py 都在，完成记录曾被队列覆盖]",
-   "recheck": "pending"
+   "note": "[已完成，verify_series 通过：四组 360 值全一致；完成记录曾被队列覆盖，按会话回报确认]"
   },
   {
    "num": 49,
@@ -2312,8 +2311,7 @@
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": " [由文件系统重建：.rs 与 okay_database.py 都在，完成记录曾被队列覆盖]",
-   "recheck": "pending"
+   "note": "[已完成，verify_series 通过：四组 540 值逐值一致；完成记录曾被队列覆盖，按会话回报确认]"
   },
   {
    "num": 4,
@@ -2395,8 +2393,7 @@
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": "未做，退回待认领。原因：hm50 是「遗嘱（will）」型有状态系列，run_factor_out 用的是 with_will=1 / with_will_back_days=1，因子值 = 今天与**昨天**两天的盘口帧做相关与 DTW。两个卡点：(1) lib/okay_database/verify_series.py 的 old_values 只 new 一个实例调一次 get_factor，不传 will，而旧代码在 self.will is None 时直接 return [nan]*18，所以对账脚本现在对这类系列只会拿旧框架的 18 个 NaN 去比，必须先按 design_whatever_out.cal_factor_one_stock 的 with_will 逻辑把回看日算一遍才能对账（captured 里已经有 with_will / with_will_back_days 两个键，扩起来不难）；(2) Rust 侧 compute_stock(code, date) 没有 will 入参，要自己回看上一个交易日、读两天的 market_data，并复刻 between_time + 下午前移 90 分钟 + resample('3s').last() + 系列间 corr 的索引对齐 + rp.fast_dtw_distance(yes, today, 1, 2)。建议单独排一个会话做，不要和普通无状态系列混在一起。本次会话上下文不够，未开始实现。 [由文件系统重建：.rs 与 okay_database.py 都在，完成记录曾被队列覆盖]",
-   "recheck": "pending"
+   "note": "[已完成，verify_series 通过：四组 18 值逐值一致；完成记录曾被队列覆盖，按会话回报确认]"
   },
   {
    "num": 51,
@@ -3775,8 +3772,7 @@
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": " [由文件系统重建：.rs 与 okay_database.py 都在，完成记录曾被队列覆盖]",
-   "recheck": "pending"
+   "note": "[已完成，verify_series 通过：四组 2640 值全一致；完成记录曾被队列覆盖，按会话回报确认]"
   },
   {
    "num": 65,
@@ -3879,8 +3875,7 @@
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": " [由文件系统重建：.rs 与 okay_database.py 都在，完成记录曾被队列覆盖]",
-   "recheck": "pending"
+   "note": "[已完成，verify_series 通过：四组全一致；完成记录曾被队列覆盖，按会话回报确认]"
   },
   {
    "num": 66,
@@ -4064,8 +4059,7 @@
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": " [由文件系统重建：.rs 与 okay_database.py 都在，完成记录曾被队列覆盖]",
-   "recheck": "pending"
+   "note": "[已完成，verify_series 通过：四组全一致；完成记录曾被队列覆盖，按会话回报确认]"
   },
   {
    "num": 68,
@@ -4338,8 +4332,7 @@
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": " [由文件系统重建：.rs 与 okay_database.py 都在，完成记录曾被队列覆盖]",
-   "recheck": "pending"
+   "note": "[已完成，verify_series 通过：四组 2808 值全一致；完成记录曾被队列覆盖，按会话回报确认]"
   },
   {
    "num": 71,
@@ -4585,8 +4578,7 @@
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": " [由文件系统重建：.rs 与 okay_database.py 都在，完成记录曾被队列覆盖]",
-   "recheck": "pending"
+   "note": "[已完成，verify_series 通过：四组 1588 值全一致；完成记录曾被队列覆盖，按会话回报确认]"
   },
   {
    "num": 74,
@@ -5794,8 +5786,7 @@
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": " [由文件系统重建：.rs 与 okay_database.py 都在，完成记录曾被队列覆盖]",
-   "recheck": "pending"
+   "note": "[已完成，verify_series 通过：八组 69 值全一致；完成记录曾被队列覆盖，按会话回报确认]"
   },
   {
    "num": 86,
@@ -6414,7 +6405,7 @@
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": " [由文件系统重建：.rs 与 okay_database.py 都在，完成记录曾被队列覆盖]",
+   "note": "完成。verify_series 四组「通过」（20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750）。新增 src/features_f64.rs（features.rs 的 f64 孪生，入选 67 项与 pandas 对齐到 5e-13），hm090.rs 走 f64 特征 + order_pair 的 *_f64_inner + pandas 口径浮点解析。单日冒烟已写出 hm90_base。通用做法见 series_work_spec.py 第八节。",
    "recheck": "pending"
   },
   {
