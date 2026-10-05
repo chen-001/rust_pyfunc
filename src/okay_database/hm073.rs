@@ -75,6 +75,8 @@
 //! ════════════════════════════════════════════════════════════════════
 //! · rolling(20).std() 用本文件自己写的两遍法，pandas 用 cython roll_var 的在线算法，
 //!   实测 000001@20250303 上最大相对差 1.1e-14，远低于 1e-4 的验收线。
+//! · rp.ols_residuals 必须用 ndarray 的 .dot() 照抄（见 ols_residual 的注释），
+//!   顺序求和会让残差的并列结构变掉、进而让 rank 变掉。
 //! · 三种 Pearson 之间彼此的末位差在 1e-15 相对量级；只有当某个 corr 恰好落在
 //!   0 附近（|corr| < 1e-15）才可能翻转 resi_adjusted 的符号，实测没有这种列。
 //! · names_save 里有 `_fold` 结尾的名字（旧代码 dwo.get_abs 的结果，即「与当日截面均值的距离」），
@@ -85,6 +87,8 @@
 
 use std::fs::File;
 use std::io::Read;
+
+use ndarray::{Array1, Array2};
 
 // ============================================================================
 // 盘口 CSV 的列索引（0 基，与文件表头一致；2018 及更早的文件末尾多一列 num）
@@ -681,7 +685,15 @@ fn rank_norm(v: &[f64]) -> Vec<f64> {
 }
 
 /// rp.ols_residuals(X=[x], y)：带截距的一元回归残差。
-/// 样本过滤只按 is_nan；正规方程用 src/statistics/mod.rs 那套 2×2 LU 逐步解。
+/// 样本过滤只按 is_nan（inf 也算有效样本，和旧代码一致）。
+///
+/// ！！正规方程与预测值都必须用 ndarray 的 `.dot()`，不能自己写顺序求和：
+/// 旧代码的残差要拿去做 rank，而残差的并列（同一份盘口快照重复出现时
+/// resi 会逐位相等）决定了平均名次。自己顺序求和的 X'X 与 ndarray 用的
+/// matrixmultiply 差在末位，实测 000001@20250303 上 resi 只差 1e-8 绝对值
+/// （相对 1e-13），却让 74 行的名次变了，rank_diff 那一族直接超 1e-4。
+/// 这里照抄 src/statistics/mod.rs 的写法（同一份 ndarray + solve_linear_system3），
+/// 两条路径就是同一段代码，逐位一致。
 fn ols_residual(x: &[f64], y: &[f64]) -> Vec<f64> {
     let n = x.len().min(y.len());
     let mut out = vec![f64::NAN; n];
@@ -695,24 +707,20 @@ fn ols_residual(x: &[f64], y: &[f64]) -> Vec<f64> {
     if idx.is_empty() {
         return out;
     }
-    let (mut a00, mut a01, mut a11, mut b0, mut b1) = (0.0f64, 0.0f64, 0.0f64, 0.0f64, 0.0f64);
-    for &i in idx.iter() {
-        a00 += 1.0;
-        a01 += x[i];
-        a11 += x[i] * x[i];
-        b0 += y[i];
-        b1 += x[i] * y[i];
+    let m = idx.len();
+    // 设计矩阵 [1, x]
+    let mut design = Array2::<f64>::ones((m, 2));
+    let mut yv = Array1::<f64>::zeros(m);
+    for (row, &i) in idx.iter().enumerate() {
+        design[[row, 1]] = x[i];
+        yv[row] = y[i];
     }
-    let u00 = a00;
-    let u01 = a01;
-    let l10 = a01 / u00;
-    let u11 = a11 - l10 * u01;
-    let y0 = b0;
-    let y1 = b1 - l10 * y0;
-    let c1 = y1 / u11;
-    let c0 = (y0 - u01 * c1) / u00;
-    for &i in idx.iter() {
-        out[i] = y[i] - (c0 + c1 * x[i]);
+    let xt_x = design.t().dot(&design);
+    let xt_y = design.t().dot(&yv);
+    let coeff = crate::statistics::solve_linear_system3(&xt_x.view(), &xt_y.view());
+    let y_pred = design.dot(&coeff);
+    for (row, &i) in idx.iter().enumerate() {
+        out[i] = y[i] - y_pred[row];
     }
     out
 }

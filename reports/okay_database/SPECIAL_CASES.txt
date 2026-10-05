@@ -1,0 +1,22 @@
+需要单独处理的系列（不按常规队列走）
+
+hm049 / hm050  will 型有状态系列。今天的因子要跟昨天的盘口帧做相关和 DTW。
+              对账脚本表达不了这种前后两天关联，硬跑两边都是空值、看着像通过其实没算。
+              要做需要：扩 verify_series 支持带 will 的两日回看；Rust 侧 compute_stock 加 will 入参。
+
+hm066          644 个因子里 312 个「高低价之间」的值依赖 numpy 在 AVX-512 上的
+              argsort 并列顺序。其中 15 个在 names_save 里、2 个在 names_in_db、
+              gap5 命中 7 个、gap1 命中 9 个。只对当天最高/最低价有并列的股票日生效。
+              要做需要：弄明白为什么标量复刻在 56193 行、12 个不同价位的数组上与 numpy 不一致
+              （小数组 138~510 行是对得上的）。调试开关 HM066_DEBUG=1，
+              x86-simd-sort 源码在 /tmp/xss.h 与 /tmp/kv.hpp，numpy 给的下标是 13280/36781。
+
+hm074          每算一只股票要读当天全市场分钟表加 10 只相关票的盘口，原样做全历史约 78 小时机时。
+              已定改法：改成 compute_cross + kind='cross_section'，一天算一次、当天复用中间结果，
+              I/O 从 350TB 降到 39TB。接手看 claims/hm074.handback.md。
+
+hm012          逻辑全部摸清并写完、能编译，剩 5 个 label 的 price3 差最后一位（浮点求和顺序）。
+              复现路线写在 program_state.json 的 note 里。
+
+其余待领系列里，hm000/hm001/hm002/hm004/hm059 要日频 DailyPrice，hm092 要分钟面板，
+跟常规的「本股 Level2」系列不是一条路。

@@ -41,13 +41,22 @@ N_JOBS = 400
 LIBRARY = "/nas197/user_home/chenzongwei/factor_library"
 
 
-def api(method: str, path: str, body: dict | None = None, timeout: int = 15):
-    data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(f"{DAEMON}{path}", data=data, method=method)
-    req.add_header("Content-Type", "application/json")
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        raw = resp.read().decode()
-    return json.loads(raw) if raw else None
+def api(method: str, path: str, body: dict | None = None, timeout: int = 30, retries: int = 6):
+    """守护进程偶发超时（计算任务把机器压满时）不该让常驻队列整个退出，这里自动重试。"""
+    last = None
+    for attempt in range(retries):
+        data = json.dumps(body).encode() if body is not None else None
+        req = urllib.request.Request(f"{DAEMON}{path}", data=data, method=method)
+        req.add_header("Content-Type", "application/json")
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                raw = resp.read().decode()
+            return json.loads(raw) if raw else None
+        except Exception as exc:  # noqa: BLE001
+            last = exc
+            print(f"[队列] 守护进程无响应（第 {attempt + 1}/{retries} 次）：{exc}")
+            time.sleep(min(5 * (attempt + 1), 30))
+    raise RuntimeError(f"守护进程连续 {retries} 次无响应: {last}")
 
 
 def set_single_slot() -> None:
@@ -125,7 +134,12 @@ def _submit_candidates(script: str):
 
 def wait_task(task_id: int, poll: int = 30) -> str:
     while True:
-        task = api("GET", f"/api/tasks/{task_id}")
+        try:
+            task = api("GET", f"/api/tasks/{task_id}")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[队列] 查任务 {task_id} 暂时失败，继续等：{exc}")
+            time.sleep(poll)
+            continue
         status = task.get("status")
         if status in ("completed", "failed", "cancelled"):
             return status

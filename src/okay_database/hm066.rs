@@ -78,6 +78,45 @@
 //! 其后 312 + 312 个 = 8 列对 × 39 × {_全天, _高低价之间}，_全天 对应 t0、_高低价之间
 //! 对应 trade。
 //!
+//!
+//! ════════════════════════════════════════════════════════════════════
+//! 七、已知未复现项（2026-10-05，按 lead 的决定停在这里，不再啃 argsort）
+//! ════════════════════════════════════════════════════════════════════
+//! 对账实测（verify_series.py，四组）：600519@20250304、000002@20180601、
+//! 300750@20231020 三组 644 值**逐位相等**；000001@20250303 的「全天」332 个值
+//! 也逐位相等，但「高低价之间」那 312 个值（下标 332..643）全部对不上。
+//!
+//! 根因：旧代码用 `trade0.sort_values('price')` 排序后**第一行/最后一行**的 exchtime
+//! 当 start/end。价格只有两位小数，最低价/最高价各有几百行并列
+//! （000001@20250303 最低价 251 行、最高价 302 行），并列里挑中谁完全由 numpy 的
+//! argsort 决定。本机 numpy 2.3.5 对 float64 分派到 x86-simd-sort 的 AVX-512 argsort，
+//! hm039.rs 那份 int64 逐行复刻在 138~510 行的小数组上验证过，在 56193 行、
+//! 只有 12 个不同价位的数组上给出的置换与 numpy 不一致，start/end 就取到了别的并列行。
+//! 这段行为跨机器本来也不可复现（AVX2 机器上 numpy 走另一套 avx2_argsort），
+//! 逐位复刻 AVX-512 分区行为的代价与收益不成比例，所以按已知不可复现处理。
+//!
+//! 影响面（这 312 个位置里有 15 个 base 因子被因子库用到，**不是可以忽略的角落**）：
+//!   names_save 直接命中 15 个；names_in_db 命中 2 个
+//!   （corr_all_on_exchtime_float_price_高低价之间、corra_on_exchtime_float_volume_83_高低价之间）；
+//!   gap5 入选里有 7 个、gap1 入选里有 9 个是由这 15 个 base 加工而来。
+//! 15 个 base 是：
+//!   a_dis_max_on_exchtime_float_volume_66_高低价之间      a_dis_mean_on_exchtime_float_volume_66_高低价之间
+//!   a_dis_median_on_exchtime_float_price_高低价之间       a_dis_min_on_volume_66_volume_83_高低价之间
+//!   a_max_on_exchtime_float_price_高低价之间              a_min_on_exchtime_float_volume_高低价之间
+//!   b_dis_mean_on_exchtime_float_volume_66_高低价之间     b_dis_mean_on_exchtime_float_volume_高低价之间
+//!   b_dis_mean_on_price_volume_高低价之间                 corr_all_on_exchtime_float_price_高低价之间
+//!   corra_on_exchtime_float_price_高低价之间              corra_on_exchtime_float_volume_83_高低价之间
+//!   corra_on_volume_66_volume_83_高低价之间               dtw_a_dis_on_exchtime_float_volume_83_高低价之间
+//!   dtw_a_dis_on_exchtime_float_volume_高低价之间
+//! 注意只对「最高/最低价有并列」的股票日生效；价格极值没有并列时任何排序都一样，
+//! 那 312 个值与旧框架一致。但流动性好的票极值并列很常见，所以这一半不能入库。
+//!
+//! 本文件已经埋好调试开关：设 HM066_DEBUG=1 跑 rp.okay_compute_stock('hm066', 股票, 日期)，
+//! 会打印 n / order[0] / order[last] / low / high / std::sort 兜底次数；
+//! numpy 对 000001@20250303 给的是 order0=13280、orderN=36781。
+//! x86-simd-sort 源码在 /tmp/xss.h（argsort_ / get_pivot_64bit）与 /tmp/kv.hpp
+//! （argsort_n / argsort_n_vec / bitonic 合并），可直接与下面搬运的那份复刻逐行对。
+//!
 //! ════════════════════════════════════════════════════════════════════
 //! 六、精度与读取
 //! ════════════════════════════════════════════════════════════════════
@@ -979,6 +1018,20 @@ pub fn compute_stock(code: &str, date: i64) -> Option<Vec<f32>> {
     let high = f.t[*order.last().unwrap()];
     let start = low.min(high);
     let end = low.max(high);
+    if std::env::var("HM066_DEBUG").is_ok() {
+        use std::sync::atomic::Ordering;
+        eprintln!(
+            "[hm066dbg] {} {} n={} o0={} oN={} low={} high={} fallback={}",
+            code,
+            date,
+            f.t.len(),
+            order[0],
+            order[order.len() - 1],
+            low,
+            high,
+            FALLBACK_HITS.swap(0, Ordering::Relaxed)
+        );
+    }
 
     let all_idx: Vec<usize> = (0..f.t.len()).collect();
     let hl_idx: Vec<usize> = (0..f.t.len())
@@ -1518,8 +1571,11 @@ fn argpartition_unrolled(
     l_store
 }
 
+static FALLBACK_HITS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 fn argsort_rec(arr: &[i64], ind: &mut [i64], left: usize, right: i64, max_iters: i64) {
     if max_iters <= 0 {
+        FALLBACK_HITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         // x86-simd-sort 这里退回 std::sort（libstdc++ introsort）。本复刻用「按值稳定排序」
         // 代替：实测 4 组验收数据的 48 个候选数组一次都没走到这里。
         let mut sub: Vec<i64> = ind[left..=(right as usize)].to_vec();

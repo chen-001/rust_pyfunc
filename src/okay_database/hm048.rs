@@ -460,7 +460,11 @@ pub fn compute_stock(code: &str, date: i64) -> Option<Vec<f32>> {
         if r.flag == 32 {
             continue; // with_retreat=0
         }
-        let t = pandas_ts_ns(r.time_us - EXCHANGE_OFFSET_US);
+        // 旧框架 deal_data 是 to_timedelta(exchtime_us/1e6) + Timestamp('1970-01-01 08:00:00')，
+        // 也就是「pandas 的浮点换算结果」再加 8 小时的纳秒常量。
+        // 8 小时必须真的加进去：后面全篇（时段的 tod、rolling_future 的索引、
+        // ffvsp 的秒差）都按这个带偏移的纳秒来。
+        let t = pandas_ts_ns(r.time_us - EXCHANGE_OFFSET_US) + 8 * 3600 * 1_000_000_000;
         let tod = t.rem_euclid(DAY_NS);
         if tod < NS_0930 || tod > NS_1457 {
             continue;
