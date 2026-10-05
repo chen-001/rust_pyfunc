@@ -8,6 +8,23 @@
 只截获它里面定义的 Go 类，不触发任何写盘。然后用旧框架自己的读取与计算跑单股单日，
 再和 rp.okay_compute_stock 比。
 
+两种系列都支持：
+    逐股系列（compute_stock）：旧 get_factor() 返回一串数字，直接逐值比。
+    横截面系列（compute_cross）：旧 get_factor() 返回的是一串 pandas Series
+        （index 是股票代码），按 index 取出目标股票那一项再逐值比；
+        Rust 侧走 rp.okay_compute_cross(series, date)，返回值是**股票优先**排布的
+        （每只股票连续 expected_len 个值），按 codes 里目标股票的位置切出来。
+
+环境变量 OKAY_VERIFY_DATA_ROOT（可选，默认为空 = 用真实全量数据）：
+    指向一个形如 <root>/stock/<date>/transaction/*.csv 与 <root>/basic_info/*.csv 的目录树。
+    设了它就把旧框架的 dwo.path_to_be_decided 和 Rust 侧的 RUST_PYFUNC_LEVEL2_ROOT
+    同时指过去，两边看到的是同一批股票文件，对照才成立。
+    用途：横截面系列的旧代码一次要读**一天全市场**（6000 只股票、约 23GB、几十分钟），
+    调试和验收时先拿一个只放几百只股票软链接的子集目录把逻辑对齐，
+    最后再不打这个变量、用真实全量数据复核一组。
+    子集目录里 stock/<date>/transaction/ 放软链接，basic_info/ 放 calendar.csv 与
+    symbol_map.csv 的软链接（名单保持全量没关系，读到哪些文件就看目录里有哪些）。
+
 判定：
     - 两边同为 NaN 的位置算一致
     - 非 NaN 位置按相对误差比，默认阈值 1e-4（全链路 f32，比 f64 松一档）
@@ -26,6 +43,12 @@ from pathlib import Path
 import numpy as np
 
 PYCODE = "/home/chenzongwei/pythoncode"
+DATA_ROOT_ENV = "OKAY_VERIFY_DATA_ROOT"
+
+
+def data_root() -> str:
+    """可选的数据目录覆盖（见文件头）。没设就返回空串。"""
+    return os.environ.get(DATA_ROOT_ENV, "").strip()
 
 
 def load_old(okay_path: str):
@@ -33,6 +56,13 @@ def load_old(okay_path: str):
     sys.path.insert(0, PYCODE)
     sys.path.insert(0, str(Path(okay_path).parent))
     import design_whatever_out as dwo
+
+    root = data_root()
+    if root:
+        # 旧框架的 read_trade_data_full_market 按运行时全局查 path_to_be_decided，
+        # 所以在调用 get_factor 之前改这个全局就能把整条链指到子集目录。
+        dwo.path_to_be_decided = root
+        print(f"[数据] 旧框架数据根目录已覆盖为 {root}（{DATA_ROOT_ENV}）")
 
     captured: dict = {}
     original = dwo.run_factor_out
@@ -55,7 +85,15 @@ def load_old(okay_path: str):
 
 
 def old_values(mod, captured, code: str, date: int):
-    """按旧框架的调用方式算单股单日的原始值。"""
+    """按旧框架的调用方式算单股单日的原始值。
+
+    返回 (values, is_cross)：
+      - 逐股系列：values 是一串数字，is_cross=False
+      - 横截面系列：旧的 get_factor() 返回一串 pandas Series（index 是股票代码），
+        values 是按 index 取出的目标股票那一串，is_cross=True
+    """
+    import pandas as pd
+
     if "Go" in captured and captured["Go"] is not None:
         cls = captured["Go"]
         kwargs = dict(
@@ -68,10 +106,15 @@ def old_values(mod, captured, code: str, date: int):
         else:
             rc = cls(1, date, date, 1, symbol=code, **kwargs)
         res = rc.get_factor()
-        return None if res is None else list(res)
+        if res is None:
+            return None, False
+        res = list(res)
+        if res and isinstance(res[0], pd.Series):
+            return [float(s.get(code, float("nan"))) for s in res], True
+        return [None if v is None else float(v) for v in res], False
     if hasattr(mod, "go"):
         res = mod.go(date, code)
-        return None if res is None else list(res)
+        return (None if res is None else list(res)), False
     raise RuntimeError("既没截获到 Go 类，也没有 go 函数")
 
 
@@ -100,6 +143,23 @@ def compare(old, new, rtol: float):
     return dict(n_old=len(old), n_new=len(new), nan=nan_old, bad=bad)
 
 
+def cross_values(series: str, code: str, date: int, rp):
+    """横截面系列：调 okay_compute_cross，按「股票优先」切出目标股票的 expected_len 个值。"""
+    codes, vals = rp.okay_compute_cross(series, date)
+    n = len(rp.okay_series_names(series))
+    if n == 0:
+        raise RuntimeError(f"系列 {series} 没声明因子名")
+    if len(codes) == 0:
+        return [float("nan")] * n
+    assert len(vals) == len(codes) * n, (
+        f"横截面返回值长度 {len(vals)} 与 {len(codes)} 只股票 × {n} 个因子对不上"
+    )
+    if code not in codes:
+        return [float("nan")] * n
+    i = codes.index(code)
+    return list(vals[i * n:(i + 1) * n])
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--series", required=True, help="如 hm029")
@@ -108,6 +168,11 @@ def main() -> int:
     ap.add_argument("--rtol", type=float, default=1e-4)
     ap.add_argument("--out", default="")
     args = ap.parse_args()
+
+    root = data_root()
+    if root:
+        # Rust 侧的数据根目录：<root>/stock/<date>/transaction/...
+        os.environ["RUST_PYFUNC_LEVEL2_ROOT"] = str(Path(root) / "stock")
 
     import rust_pyfunc as rp
 
@@ -125,18 +190,22 @@ def main() -> int:
         else:
             code, date = left, int(right)
         code = code.strip().zfill(6)
-        old = old_values(mod, captured, code, date)
+        old, is_cross = old_values(mod, captured, code, date)
         try:
-            new = rp.okay_compute_stock(args.series, code, date)
+            if is_cross:
+                new = cross_values(args.series, code, date, rp)
+            else:
+                new = rp.okay_compute_stock(args.series, code, date)
         except Exception as exc:  # noqa: BLE001
             print(f"{code} {date}: Rust 侧失败 {exc}")
             all_ok = False
             continue
         res = compare(old, new, args.rtol)
-        res.update(code=code, date=date)
+        res.update(code=code, date=date, cross=is_cross)
         report["pairs"].append(res)
         flag = "一致" if not res["bad"] else f"有 {len(res['bad'])} 处不一致"
-        print(f"{code} {date}: 旧 {res['n_old']} 值 / 新 {res['n_new']} 值，NaN {res['nan']}，{flag}")
+        kind = "横截面" if is_cross else "逐股"
+        print(f"{code} {date} [{kind}]: 旧 {res['n_old']} 值 / 新 {res['n_new']} 值，NaN {res['nan']}，{flag}")
         for i, a, b, why in res["bad"][:10]:
             print(f"    #{i}: 旧={a:.10g} 新={b:.10g} ({why})")
         all_ok = all_ok and not res["bad"]

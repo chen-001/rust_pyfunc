@@ -132,6 +132,16 @@ def wait_task(task_id: int, poll: int = 30) -> str:
         time.sleep(poll)
 
 
+def library_ver(series: dict) -> str:
+    """因子库里的版本名统一用 hm<编号>（hm013 → hm13），不用旧的 research ver。
+
+    旧 okay 文件里的 ver 是研究代号（hide_order_depth、hot_change1 这类），
+    因子库要按系列编号存放，这样 89 个系列摆在库里一眼能对上。
+    """
+    num = int(series["series"][2:])
+    return f"hm{num}"
+
+
 def library_written(ver: str) -> dict:
     """核对因子库四个落点里这个系列的文件数。"""
     out = {}
@@ -169,10 +179,10 @@ def reconcile(state: dict) -> None:
         status = task.get("status")
         if status in ("completed", "failed", "cancelled"):
             s["step_submit"] = "done" if status == "completed" else status
-            files = library_written(s["ver"])
+            files = library_written(library_ver(s))
             s["library_files"] = files
             s["step_library"] = "done" if any(files.values()) else "pending"
-            left = colblk_left(s["ver"])
+            left = colblk_left(library_ver(s))
             s["colblk_left"] = left
             s["step_cleanup"] = "done" if left == 0 else "pending"
             s["note"] = f"对账：{status}，因子库 {files}，残留 colblk {left}"
@@ -235,10 +245,10 @@ def main() -> int:
 
         status = wait_task(info["id"], poll=args.poll)
         series["step_submit"] = "done" if status == "completed" else status
-        files = library_written(series["ver"])
+        files = library_written(library_ver(series))
         series["library_files"] = files
         series["step_library"] = "done" if files["gap5"] or files["gap1"] or files["base"] else "pending"
-        left = colblk_left(series["ver"])
+        left = colblk_left(library_ver(series))
         series["colblk_left"] = left
         series["step_cleanup"] = "done" if left == 0 else "pending"
         series["note"] = f"{status}，因子库 {files}，残留 colblk {left}"

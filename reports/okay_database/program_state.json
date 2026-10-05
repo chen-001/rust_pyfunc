@@ -88,12 +88,12 @@
    ],
    "rust_file": "src/okay_database/hm010.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm10_黑粉铁粉/hm10_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": "Rust 已复现并逐值对齐（4 组，全部通过；复刻了旧代码 416 值只声明 320 名的历史口径）"
   },
   {
    "num": 11,
@@ -421,12 +421,12 @@
    ],
    "rust_file": "src/okay_database/hm020.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm20_撤单数据观察/hm20_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": "Rust 已复现并逐值对齐（4 组通过；因 delay 要用 localtime 大数相减，整个逐笔 CSV 自解析为 f64/i64）"
   },
   {
    "num": 21,
@@ -451,12 +451,12 @@
    "names_in_db": [],
    "rust_file": "src/okay_database/hm021.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm21_阁中帝子今何在/hm21_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": "Rust 已复现：15 个顺序无关值 + 全部入选因子精确对齐；4 个受 numpy 浮点 argsort 并列影响的中间列按已知不可复现处理（不在入选名单内）"
   },
   {
    "num": 22,
@@ -488,12 +488,12 @@
    ],
    "rust_file": "src/okay_database/hm022.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm22_跨股票连结/hm22_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": "Rust 已复现（横截面系列）：子集 4 组 + 真全市场 5117 只复核全部通过，最大相对误差 5.7e-6"
   },
   {
    "num": 23,
