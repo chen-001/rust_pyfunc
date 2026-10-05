@@ -3861,12 +3861,12 @@
    ],
    "rust_file": "src/okay_database/hm065.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm65_活在每一刻/hm65_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": "【完成】hm065「活在每一刻」——逐股系列，972 个因子，对账通过。\n\n产物（两个文件都已写完）：\n  src/okay_database/hm065.rs                                              972 个因子，逐股系列\n  /home/chenzongwei/pythoncode/成果hm65_活在每一刻/hm65_okay_database.py  names_save 72、db 5、gap5 36、gap1 44\n\n对账（lib/okay_database/verify_series.py，OKAY_VERIFY_DATA_ROOT=/ssd_data）：\n  20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750\n  四组都是「旧 972 值 / 新 972 值，NaN 0，一致」，结论「通过」。\n  另用独立二进制逐值比过：最大相对误差 5.9e-8（f32 精度量级），阈值 1e-4。\n\n单日冒烟：run_base(20250303, 20250303, n_jobs=8) 成功，base 层 72 个 h5 全部写出\n（名字与 names_save 完全一致），临时 colblk 已自动删除。\n\n上一版卡住的地方已经用 hm033.rs 的 parse_f64_pandas 解决（lead 指的路），另外自己又找出两条：\n  · pandas 的 CSV 浮点解析不是正确舍入：只把前 17 位有效数字累进 double，\n    多出来的位折成指数/丢掉。price/volume/turnover/exchtime 全部换成 parse_f64_pandas。\n    不换的话 ret = price_X/price-1 里本该精确等于 0 的位置变成 2.22e-16，\n    而 replace(0,np.nan) 是一道「精确等于 0」的闸门，happy0/happy1 的分母是离散计数，一个 token 就翻面。\n  · half_at_least 的过滤是 df[df.count(axis=1) > int(df.shape[1]/2)]，而 drop 的列表里\n    **没有 volume**，所以那一层是 17 列（volume + 16 个 ret），int(17/2)=8，\n    等价于「16 个 ret 里至少 8 个非 NaN」。按 16 列算成「至少 9 个」时全天那两组全错。\n  · rolling_future 默认 include_current=False，rolling_past 默认 **True**（rolling_past.py 第 68 行）。\n    hm65 的 earn_buy 用 rolling_past(...).first()/.count()，都含当前行；漏掉时 count[0]=0\n    会除出 inf，整段 earn_buy 全错。\n  · adjust_afternoon 在这一系列走的是索引分支（不 reset_index），下午索引整体前移 90 分钟，\n    下游 rolling 用的就是这个前移后的时间轴。\n  · earn_buy_Xm 的分子是**标量**（全天满足 price > 过去窗首值的行数），分母是逐行 count，\n    所以它是逐行变化的，不是逐行判定的比例。\n以上都写进了 hm065.rs 文件头。\n\n没覆盖到的分支：只跑了 4 组 (日期,股票)。旧代码里「len<2 时 autocorr 抛异常 → 整只股票全 NaN」\n这条路径靠代码复核实现，四组样本都是大票没触发；全历史跑批时小票才会遇到。\n\n四组里 000002@20180601 是 2018 年的数据（那一年的 turnover 列是 int64、flag 写的是 \"32\" 而不是 \"32.0\"），\n走的是另一条解析分支，也对上了。"
   },
   {
    "num": 66,
@@ -4045,12 +4045,12 @@
    ],
    "rust_file": "src/okay_database/hm067.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm67_车灯/hm67_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": "【完成】hm067「车灯」——逐股系列，2340 个因子，对账通过。\n\n产物（两个文件都已写完）：\n  src/okay_database/hm067.rs                                              2340 个因子，逐股系列\n  /home/chenzongwei/pythoncode/成果hm67_车灯/hm67_okay_database.py        names_save 71（40 原值 + 31 _fold）、db 8、gap5 48、gap1 47\n\n对账（lib/okay_database/verify_series.py，OKAY_VERIFY_DATA_ROOT=/ssd_data）：\n  20250303:000001  旧 2340 / 新 2340，NaN 0，一致\n  20250304:600519  旧 2340 / 新 2340，NaN 0，一致\n  20180601:000002  旧 2340 / 新 2340，NaN 0，一致\n  20231020:300750  旧 2340 / 新 2340，NaN 0，一致\n  结论「通过」。另用旧框架自己再取一次值逐位比：最大相对误差 5.9e-8（f32 精度量级），阈值 1e-4。\n\n单日冒烟：run_base(20250303, 20250303, n_jobs=8) 成功，5117 只股票 102 秒算完，\nbase 层 71 个 h5 全部写出（名字与 names_save 完全一致），临时 colblk 已自动删除。\n\n对齐过程中确认的三处坑（都写在 hm067.rs 文件头里）：\n 1. exchtime → pandas Timestamp 走 cast_from_unit_vectorized，自带 ±120ns 噪声。\n    order_contamination 拿这个纳秒值做 ±1e9/±1e10 的窗口比较，必须照抄这条链\n    （实测 000001@20250303 有 72787/76488 行与「微秒×1000」不同，最大差 114ns）。\n 2. adjust_afternoon 会把下午时段的**索引**整体前移 90 分钟，order_contamination\n    拿到的 exchtime 是前移之后的。漏掉这一步时 20180601 的 car_ask 有 5 行不同。\n 3. rates_ask = new_ask/old_ask_only 在高/低子集上，new_ask 的键不一定都出现在\n    该子集的 ask_order 里，这时 pandas 对齐会补 NaN；这些 NaN 参与 mean/std/autocorr/trend。\n    漏掉这批 NaN 时 allday 组全对、高/低组全错（最大相对差 0.9）。\n\n数值原语：sum/mean/std/skew/kurt 用 numpy 成对求和 + pandas nanops 的两遍算法；\ngroupby 的 turnover 之和用 Kahan（实测 pandas 就是 Kahan，顺序累加有 20/21990 个组对不上）；\ncorr 用 np.corrcoef 的 cov/sqrt(vx*vy)，与 BLAS 版差 ~1e-18。\n\n没覆盖到的分支：只跑了 4 组 (日期,股票)，2018 年那组是 000002。旧代码里\n「autocorr 长度不足 2 时抛异常 → 整只股票全 NaN」这条路径靠代码复核实现，\n4 组样本上都没触发（都是大票），全历史跑批时才会遇到小票。"
   },
   {
    "num": 68,

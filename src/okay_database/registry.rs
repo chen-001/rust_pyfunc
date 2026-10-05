@@ -47,7 +47,9 @@ pub mod hm054;
 pub mod hm055;
 pub mod hm061;
 pub mod hm064;
+pub mod hm065;
 pub mod hm066;
+pub mod hm067;
 pub mod hm070;
 pub mod hm071;
 pub mod hm073;
@@ -103,7 +105,9 @@ pub fn dispatch_stock(series: &str, code: &str, date: i64, expected_len: usize) 
         "hm055" => hm055::compute_stock(code, date),
         "hm061" => hm061::compute_stock(code, date),
         "hm064" => hm064::compute_stock(code, date),
+        "hm065" => hm065::compute_stock(code, date),
         "hm066" => hm066::compute_stock(code, date),
+        "hm067" => hm067::compute_stock(code, date),
         "hm070" => hm070::compute_stock(code, date),
         "hm071" => hm071::compute_stock(code, date),
         "hm073" => hm073::compute_stock(code, date),
@@ -166,7 +170,9 @@ pub fn dispatch_stock_raw(series: &str, code: &str, date: i64) -> Option<Vec<f32
         "hm055" => hm055::compute_stock(code, date),
         "hm061" => hm061::compute_stock(code, date),
         "hm064" => hm064::compute_stock(code, date),
+        "hm065" => hm065::compute_stock(code, date),
         "hm066" => hm066::compute_stock(code, date),
+        "hm067" => hm067::compute_stock(code, date),
         "hm070" => hm070::compute_stock(code, date),
         "hm071" => hm071::compute_stock(code, date),
         "hm073" => hm073::compute_stock(code, date),
@@ -225,7 +231,9 @@ pub fn dispatch_cross(series: &str, date: i64) -> Option<(Vec<String>, Vec<f32>)
         "hm055" => hm055::compute_cross(date),
         "hm061" => hm061::compute_cross(date),
         "hm064" => hm064::compute_cross(date),
+        "hm065" => hm065::compute_cross(date),
         "hm066" => hm066::compute_cross(date),
+        "hm067" => hm067::compute_cross(date),
         "hm070" => hm070::compute_cross(date),
         "hm071" => hm071::compute_cross(date),
         "hm073" => hm073::compute_cross(date),
@@ -284,7 +292,9 @@ pub fn series_names(series: &str) -> Option<Vec<String>> {
         "hm055" => Some(hm055::names()),
         "hm061" => Some(hm061::names()),
         "hm064" => Some(hm064::names()),
+        "hm065" => Some(hm065::names()),
         "hm066" => Some(hm066::names()),
+        "hm067" => Some(hm067::names()),
         "hm070" => Some(hm070::names()),
         "hm071" => Some(hm071::names()),
         "hm073" => Some(hm073::names()),

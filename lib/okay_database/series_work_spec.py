@@ -191,6 +191,17 @@ design_whatever_out 写的）做 Rust 复现，产出两个文件：
 - 查 pandas 语义可以直接翻 pip 缓存里解出来的源码：/tmp/pd_src/pandas-2.3.3
   （windowing、conversion、sorting 这些模块都在）。比猜快得多。
 
+
+- Series.corr 走 np.corrcoef（两遍法），DataFrame.corr 才走 Welford 的 nancorr，两者不是同一条路。
+- groupby.mean()（float64）用的是增量均值 `out += (value - out) / nobs`，不是 sum/count。
+- rolling_future 的 include_current 默认 False，而 **rolling_past 默认 True**（rolling_past.py 第 68 行），
+  两个访问器默认值相反，用 rolling_past(...).first()/.count() 的系列都会踩。
+- pandas 读 CSV 的浮点只取前 17 位有效数字再乘/除 10 的幂，不是正确舍入。
+  可复用的实现：hm033.rs 里的 parse_f64_pandas 与 pow10_table（拿 20874.239999999998 验证应得 20874.24）。
+  只有在「精确等于 0 / 精确相等」被当判定条件时才致命（replace(0,nan)、并列顺序、阈值比较）。
+- count(axis=1) 这类门槛要连被 drop 的列一起数。hm065 实例：drop 列表里没有 volume，
+  所以是 17 列、int(17/2)=8，等价于「16 个 ret 里至少 8 个非 NaN」；按 16 列算成 9 就整天全错。
+
 """
 
 # 本文件只是规范文本，不参与运行。

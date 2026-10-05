@@ -129,24 +129,24 @@ pub static NAMES: [&str; N_OUT] = [
     "big_pos_early_rate66_15s_past_median",
     "big_pos_early_rate66_3s_future_iqr",
     "big_pos_early_rate66_3s_future_skew",
-    "big_pos_early_rate66_60s_future_p95_fold",
+    "big_pos_early_rate66_60s_future_p95",
     "big_pos_early_rate66_60s_past_p75",
     "big_pos_early_volume_60s_future_median",
     "big_pos_late_rate66_3s_future_max_range_product",
-    "big_pos_late_rate66_3s_past_entropy_1d_fold",
+    "big_pos_late_rate66_3s_past_entropy_1d",
     "big_pos_late_rate66_3s_past_mean",
     "big_pos_late_volume_3s_future_trend",
     "corr_big_pos_local_volume_15s_future_autocorr1_abs",
     "corr_big_pos_morph_decay_steps_autocorr1",
-    "corr_big_pos_rate66_3s_future_entropy_1d_fold",
+    "corr_big_pos_rate66_3s_future_entropy_1d",
     "corr_big_pos_rate66_at_decay_entropy_1d",
     "corr_big_pos_volume_15s_future_median",
     "corr_big_pos_volume_3s_future_p25",
-    "corr_full_local_volume_15s_past_cv_fold",
-    "corr_full_local_volume_3s_past_cv_fold",
+    "corr_full_local_volume_15s_past_cv",
+    "corr_full_local_volume_3s_past_cv",
     "corr_full_local_volume_3s_past_iqr",
     "corr_full_local_volume_3s_past_std",
-    "corr_full_volume_15s_future_autocorr1_abs_fold",
+    "corr_full_volume_15s_future_autocorr1_abs",
     "corr_less_local_volume_3s_future_iqr",
     "corr_less_local_volume_3s_past_iqr",
     "corr_less_local_volume_3s_past_p5",
@@ -156,7 +156,7 @@ pub static NAMES: [&str; N_OUT] = [
     "mean_big_neg_local_volume_60s_future_entropy_1d",
     "mean_big_neg_rate66_15s_future_median",
     "mean_big_neg_rate66_15s_future_p25",
-    "mean_big_neg_rate66_3s_past_iqr_fold",
+    "mean_big_neg_rate66_3s_past_iqr",
     "mean_big_neg_rate66_3s_past_median",
     "mean_big_neg_rate66_3s_past_p75",
     "mean_big_neg_volume_3s_future_autocorr1_abs",
@@ -166,21 +166,21 @@ pub static NAMES: [&str; N_OUT] = [
     "mean_big_neg_volume_60s_future_p95",
     "mean_big_neg_volume_60s_future_skew",
     "mean_big_pos_local_volume_15s_past_max_range_product",
-    "mean_big_pos_local_volume_3s_future_entropy_1d_fold",
+    "mean_big_pos_local_volume_3s_future_entropy_1d",
     "mean_big_pos_local_volume_60s_past_entropy_1d",
     "mean_big_pos_morph_decay_steps_p25",
     "mean_big_pos_rate66_15s_future_p95",
     "mean_big_pos_rate66_15s_past_p95",
     "mean_big_pos_rate66_60s_past_entropy_1d",
-    "mean_big_pos_volume_15s_future_p25_fold",
+    "mean_big_pos_volume_15s_future_p25",
     "mean_big_pos_volume_15s_past_p5",
     "mean_big_pos_volume_3s_future_autocorr1_abs",
-    "mean_big_pos_volume_3s_future_mean_fold",
+    "mean_big_pos_volume_3s_future_mean",
     "mean_big_pos_volume_3s_future_p25",
-    "mean_big_pos_volume_3s_future_p95_fold",
-    "mean_big_pos_volume_3s_past_autocorr1_fold",
-    "mean_big_pos_volume_3s_past_mean_fold",
-    "mean_big_pos_volume_3s_past_p25_fold",
+    "mean_big_pos_volume_3s_future_p95",
+    "mean_big_pos_volume_3s_past_autocorr1",
+    "mean_big_pos_volume_3s_past_mean",
+    "mean_big_pos_volume_3s_past_p25",
     "mean_big_pos_volume_60s_future_period_ratio",
     "mean_big_pos_volume_60s_future_std",
     "mean_big_pos_volume_60s_past_entropy_1d",
@@ -199,66 +199,67 @@ pub static TABLE: [(&str, usize, usize); N_OUT] = [
     ("big_neg_late_rate66_15s_future_p75", 7, 39),
     ("big_neg_late_volume_60s_future_median", 1, 119),
     ("big_pos_early_morph_decay_steps_mean", 0, 186),
-    ("big_pos_early_rate66_15s_past_median", 1, 36),
-    ("big_pos_early_rate66_3s_future_iqr", 9, 18),
-    ("big_pos_early_rate66_3s_future_skew", 3, 18),
-    ("big_pos_early_rate66_60s_future_p95_fold", 7, 58),
-    ("big_pos_early_rate66_60s_past_p75", 7, 56),
-    ("big_pos_early_volume_60s_future_median", 1, 119),
-    ("big_pos_late_rate66_3s_future_max_range_product", 18, 18),
-    ("big_pos_late_rate66_3s_past_entropy_1d_fold", 17, 16),
-    ("big_pos_late_rate66_3s_past_mean", 0, 16),
-    ("big_pos_late_volume_3s_future_trend", 13, 109),
-    ("corr_big_pos_local_volume_15s_future_autocorr1_abs", 12, 141),
+    ("big_pos_early_rate66_15s_past_median", 1, 26),
+    ("big_pos_early_rate66_3s_future_iqr", 9, 16),
+    ("big_pos_early_rate66_3s_future_skew", 3, 16),
+    ("big_pos_early_rate66_60s_future_p95", 8, 56),
+    ("big_pos_early_rate66_60s_past_p75", 7, 46),
+    ("big_pos_early_volume_60s_future_median", 1, 116),
+    ("big_pos_late_rate66_3s_future_max_range_product", 18, 17),
+    ("big_pos_late_rate66_3s_past_entropy_1d", 17, 7),
+    ("big_pos_late_rate66_3s_past_mean", 0, 7),
+    ("big_pos_late_volume_3s_future_trend", 13, 77),
+    ("corr_big_pos_local_volume_15s_future_autocorr1_abs", 12, 152),
     ("corr_big_pos_morph_decay_steps_autocorr1", 11, 182),
-    ("corr_big_pos_rate66_3s_future_entropy_1d_fold", 17, 28),
+    ("corr_big_pos_rate66_3s_future_entropy_1d", 17, 12),
     ("corr_big_pos_rate66_at_decay_entropy_1d", 17, 192),
-    ("corr_big_pos_volume_15s_future_median", 1, 101),
-    ("corr_big_pos_volume_3s_future_p25", 6, 71),
-    ("corr_full_local_volume_15s_past_cv_fold", 10, 140),
-    ("corr_full_local_volume_3s_past_cv_fold", 10, 120),
+    ("corr_big_pos_volume_15s_future_median", 1, 92),
+    ("corr_big_pos_volume_3s_future_p25", 6, 72),
+    ("corr_full_local_volume_15s_past_cv", 10, 140),
+    ("corr_full_local_volume_3s_past_cv", 10, 120),
     ("corr_full_local_volume_3s_past_iqr", 9, 120),
     ("corr_full_local_volume_3s_past_std", 2, 120),
-    ("corr_full_volume_15s_future_autocorr1_abs_fold", 12, 91),
-    ("corr_less_local_volume_3s_future_iqr", 9, 121),
-    ("corr_less_local_volume_3s_past_iqr", 9, 131),
-    ("corr_less_local_volume_3s_past_p5", 5, 131),
+    ("corr_full_volume_15s_future_autocorr1_abs", 12, 90),
+    ("corr_less_local_volume_3s_future_iqr", 9, 131),
+    ("corr_less_local_volume_3s_past_iqr", 9, 121),
+    ("corr_less_local_volume_3s_past_p5", 5, 121),
     ("corr_less_rate66_60s_future_iqr", 9, 51),
     ("corr_less_rate66_60s_future_p95", 8, 51),
     ("corr_less_volume_3s_past_period_ratio", 15, 61),
-    ("mean_big_neg_local_volume_60s_future_entropy_1d", 17, 155),
-    ("mean_big_neg_rate66_15s_future_median", 1, 49),
-    ("mean_big_neg_rate66_15s_future_p25", 6, 49),
-    ("mean_big_neg_rate66_3s_past_iqr_fold", 9, 44),
-    ("mean_big_neg_rate66_3s_past_median", 1, 44),
-    ("mean_big_neg_rate66_3s_past_p75", 7, 44),
+    ("mean_big_neg_local_volume_60s_future_entropy_1d", 17, 175),
+    ("mean_big_neg_rate66_15s_future_median", 1, 35),
+    ("mean_big_neg_rate66_15s_future_p25", 6, 35),
+    ("mean_big_neg_rate66_3s_past_iqr", 9, 5),
+    ("mean_big_neg_rate66_3s_past_median", 1, 5),
+    ("mean_big_neg_rate66_3s_past_p75", 7, 5),
     ("mean_big_neg_volume_3s_future_autocorr1_abs", 12, 75),
     ("mean_big_neg_volume_3s_past_autocorr1_abs", 12, 65),
     ("mean_big_neg_volume_60s_future_autocorr1_abs", 12, 115),
     ("mean_big_neg_volume_60s_future_entropy_1d", 17, 115),
     ("mean_big_neg_volume_60s_future_p95", 8, 115),
     ("mean_big_neg_volume_60s_future_skew", 3, 115),
-    ("mean_big_pos_local_volume_15s_past_max_range_product", 18, 130),
-    ("mean_big_pos_local_volume_3s_future_entropy_1d_fold", 17, 145),
-    ("mean_big_pos_local_volume_60s_past_entropy_1d", 17, 150),
+    ("mean_big_pos_local_volume_15s_past_max_range_product", 18, 144),
+    ("mean_big_pos_local_volume_3s_future_entropy_1d", 17, 134),
+    ("mean_big_pos_local_volume_60s_past_entropy_1d", 17, 164),
     ("mean_big_pos_morph_decay_steps_p25", 6, 184),
-    ("mean_big_pos_rate66_15s_future_p95", 8, 49),
-    ("mean_big_pos_rate66_15s_past_p95", 8, 39),
-    ("mean_big_pos_rate66_60s_past_entropy_1d", 17, 55),
-    ("mean_big_pos_volume_15s_future_p25_fold", 6, 95),
-    ("mean_big_pos_volume_15s_past_p5", 5, 90),
-    ("mean_big_pos_volume_3s_future_autocorr1_abs", 12, 75),
-    ("mean_big_pos_volume_3s_future_mean_fold", 0, 75),
-    ("mean_big_pos_volume_3s_future_p25", 6, 75),
-    ("mean_big_pos_volume_3s_future_p95_fold", 8, 75),
-    ("mean_big_pos_volume_3s_past_autocorr1_fold", 11, 60),
-    ("mean_big_pos_volume_3s_past_mean_fold", 0, 60),
-    ("mean_big_pos_volume_3s_past_p25_fold", 6, 60),
-    ("mean_big_pos_volume_60s_future_period_ratio", 15, 115),
-    ("mean_big_pos_volume_60s_future_std", 2, 115),
-    ("mean_big_pos_volume_60s_past_entropy_1d", 17, 110),
-    ("mean_big_pos_volume_60s_past_p25", 6, 110),
+    ("mean_big_pos_rate66_15s_future_p95", 8, 34),
+    ("mean_big_pos_rate66_15s_past_p95", 8, 24),
+    ("mean_big_pos_rate66_60s_past_entropy_1d", 17, 44),
+    ("mean_big_pos_volume_15s_future_p25", 6, 94),
+    ("mean_big_pos_volume_15s_past_p5", 5, 84),
+    ("mean_big_pos_volume_3s_future_autocorr1_abs", 12, 74),
+    ("mean_big_pos_volume_3s_future_mean", 0, 74),
+    ("mean_big_pos_volume_3s_future_p25", 6, 74),
+    ("mean_big_pos_volume_3s_future_p95", 8, 74),
+    ("mean_big_pos_volume_3s_past_autocorr1", 11, 64),
+    ("mean_big_pos_volume_3s_past_mean", 0, 64),
+    ("mean_big_pos_volume_3s_past_p25", 6, 64),
+    ("mean_big_pos_volume_60s_future_period_ratio", 15, 114),
+    ("mean_big_pos_volume_60s_future_std", 2, 114),
+    ("mean_big_pos_volume_60s_past_entropy_1d", 17, 104),
+    ("mean_big_pos_volume_60s_past_p25", 6, 104),
 ];
+
 
 pub fn names() -> Vec<String> {
     NAMES.iter().map(|s| s.to_string()).collect()
@@ -411,11 +412,27 @@ fn parse_f64(b: &[u8]) -> f64 {
         .unwrap_or(f64::NAN)
 }
 
+/// CSV 里的 exchtime 写成 "1740960939000000.0"，要按整数前缀解析（同 fast_csv_reader::parse_i64_fast）
 fn parse_i64(b: &[u8]) -> i64 {
-    std::str::from_utf8(b)
-        .ok()
-        .and_then(|s| s.trim().parse::<i64>().ok())
-        .unwrap_or(0)
+    let mut i = 0usize;
+    let mut neg = false;
+    while i < b.len() && (b[i] == b' ' || b[i] == b'\t') {
+        i += 1;
+    }
+    if i < b.len() && (b[i] == b'-' || b[i] == b'+') {
+        neg = b[i] == b'-';
+        i += 1;
+    }
+    let mut v: i64 = 0;
+    while i < b.len() && b[i].is_ascii_digit() {
+        v = v * 10 + (b[i] - b'0') as i64;
+        i += 1;
+    }
+    if neg {
+        -v
+    } else {
+        v
+    }
 }
 
 fn read_market(code: &str, date: i64) -> std::io::Result<Market> {
@@ -1022,14 +1039,60 @@ impl PriceSeries {
     }
 }
 
+/// 调试开关：设了 HM084_DEBUG 就把中间的档数打到 stderr
+fn dbg_on() -> bool {
+    std::env::var("HM084_DEBUG").is_ok()
+}
+
 pub fn compute_stock(code: &str, date: i64) -> Option<Vec<f32>> {
-    let mkt = read_market(code, date).ok()?;
-    let t66 = trade_bins(code, date, 66).ok()??;
-    let t83 = trade_bins(code, date, 83).ok()??;
+    let dbg = dbg_on();
+    let mkt = match read_market(code, date) {
+        Ok(m) => m,
+        Err(e) => {
+            if dbg {
+                eprintln!("[hm084] read_market 失败 {} {}: {}", code, date, e);
+            }
+            return None;
+        }
+    };
+    let t66 = match trade_bins(code, date, 66).ok().flatten() {
+        Some(v) => v,
+        None => {
+            if dbg {
+                eprintln!("[hm084] flag66 无数据 {} {}", code, date);
+            }
+            return None;
+        }
+    };
+    let t83 = match trade_bins(code, date, 83).ok().flatten() {
+        Some(v) => v,
+        None => {
+            if dbg {
+                eprintln!("[hm084] flag83 无数据 {} {}", code, date);
+            }
+            return None;
+        }
+    };
 
     let t_mkt = mkt.volume.len();
     let g0 = mkt.b0;
     let g1 = mkt.b0 + t_mkt as i64 - 1;
+    if dbg {
+        eprintln!(
+            "[hm084] {} {}: 市场档数 {} [{}..{}], flag66 档 {} [{}..{}], flag83 档 {} [{}..{}]",
+            code,
+            date,
+            t_mkt,
+            g0,
+            g1,
+            t66.1.len(),
+            t66.0,
+            t66.0 + t66.1.len() as i64 - 1,
+            t83.1.len(),
+            t83.0,
+            t83.0 + t83.1.len() as i64 - 1
+        );
+    }
 
     // ---- volume / local_volume ----
     let mut vol = mkt.volume.clone();
@@ -1254,24 +1317,27 @@ pub fn compute_stock(code: &str, date: i64) -> Option<Vec<f32>> {
                         continue;
                     }
                     let row = (bi - g0) as usize;
+                    // corr_optimized 只接受已经筛掉 NaN 的配对，NaN 必须在入队前丢掉
+                    let dv = d[i * t + j];
+                    if dv.is_nan() {
+                        continue;
+                    }
                     let c = corr[row * t_mkt + gi];
-                    if !c.is_nan() {
-                        let dv = d[i * t + j];
-                        if !dv.is_nan() {
-                            pa.push((dv, c));
-                        }
-                        let c2 = corr_less[row * t_mkt + gi];
-                        if !c2.is_nan() {
-                            pb.push((dv, c2));
-                        }
-                        let bpos = big_pos[row * t_mkt + gi];
-                        if !bpos.is_nan() && !dv.is_nan() {
-                            pc.push((bpos * dv, c));
-                        }
-                        let bneg = big_neg[row * t_mkt + gi];
-                        if !bneg.is_nan() && !dv.is_nan() {
-                            pd.push((bneg * dv, c));
-                        }
+                    if c.is_nan() {
+                        continue;
+                    }
+                    pa.push((dv, c));
+                    let c2 = corr_less[row * t_mkt + gi];
+                    if !c2.is_nan() {
+                        pb.push((dv, c2));
+                    }
+                    let bpos = big_pos[row * t_mkt + gi];
+                    if !bpos.is_nan() {
+                        pc.push((bpos * dv, c));
+                    }
+                    let bneg = big_neg[row * t_mkt + gi];
+                    if !bneg.is_nan() {
+                        pd.push((bneg * dv, c));
                     }
                 }
                 cf[j] = corr_optimized(&pa);
