@@ -1805,12 +1805,12 @@
    ],
    "rust_file": "src/okay_database/hm043.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm43_成果hm44_撤单专区/hm43_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": "hm043 已通过 verify_series「通过」：000001@20250303 / 600519@20250304 / 000002@20180601 / 300750@20231020 四组 306 值全部一致（阈值 1e-4，无 NaN 兜底）。小样本冒烟 20250303 单日 n_jobs=8 写入 factor_base/hm43_base，52 个入选因子正常落盘。"
   },
   {
    "num": 44,
@@ -2745,12 +2745,12 @@
    "names_in_db": [],
    "rust_file": "src/okay_database/hm055.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm55_成交失衡与盘口失衡/hm55_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": "hm055 完成：Rust 复现（src/okay_database/hm055.rs）+ 因子库文件（hm55_okay_database.py）。\n对账通过：4 组 (000001,20250303) (600519,20250304) (000002,20180601) (300750,20231020) 各 304 值全部一致、0 处不一致。\n单日冒烟 run_base(20250303, n_jobs=8) 成功写出 52 个 base，其中 40 个非 fold 与旧框架 cal_factor_one_day 保存的值逐值一致（0 处不一致）；12 个 _fold 交给因子库统一算。\n两个坑已处理：(1) 排序并列顺序 —— exchtime 是 float64，numpy 2.x 走 x86-simd-sort 的 AVX-512 argsort，并列顺序不稳定，本系列逐笔只有 7613 个不同 exchtime / 19212 行，换稳定排序 304 个值里 298 个超差；这里照 hm039/hm066 的做法把 f64 映射成保序 int64 名次码再走 x86-simd-sort 复刻。(2) 304 个位置名里有 48 个重名（want_diff_K_abs 那一列本身参与相关，名字与「corr(want_diff_K) 取绝对值」完全相同），旧框架字典推导式是后者覆盖前者，names_save 里有 4 个正属此类，所以 names() 把早出现的位置改名 _dup2、把不带后缀的名字留给最后一次出现。\n未覆盖的分支：close30 之外的时段不用算；涨跌停/停牌股若某个窗口为空，旧代码抛异常整条 None，Rust 侧同样返回 None（补 NaN）。"
   },
   {
    "num": 56,

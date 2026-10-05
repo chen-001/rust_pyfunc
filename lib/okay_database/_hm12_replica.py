@@ -19,6 +19,7 @@ SESS = [('all', LO, HI), ('open30', LO, 10 * 3600 * 10 ** 9),
 
 
 PAIRS = {}
+SUMS = {}
 
 
 def calc(C, D):
@@ -71,7 +72,8 @@ def calc(C, D):
     t_tod_all = t_ns % 86400000000000
     mk_tod = mkd % 86400000000000
     out = []
-    PAIRS.clear()
+    PAIRS.clear(); SUMS.clear()
+    SUMS.update(dict(v66=v66, t66=to66, v83=v83, t83=to83))
     for nm, s, e in SESS:
         # ！！旧代码的时段 label 集合来自「时段内所有行」（成交 + 盘口），
         #   所以某个成交若紧跟在时段开始之前那一笔快照后面，会把那个**时段外**的快照 label

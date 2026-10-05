@@ -582,63 +582,6 @@ pub fn compute_stock(code: &str, date: i64) -> Option<Vec<f32>> {
         out.push(nanmean(&d) as f32);
     }
     debug_assert_eq!(out.len(), N_OUT);
-
-    // ---- 临时调试（设了 HM012_DEBUG 才走）：把每个时段的 (label, d) 按 f64 位拆成
-    //      hi/lo 两个 f32 输出，配合 Python 对拍逐值定位差异。做完就删。 ----
-    if std::env::var("HM012_DEBUG").is_ok() {
-        let mut dbg: Vec<f32> = Vec::new();
-        if std::env::var("HM012_DEBUG").as_deref() == Ok("2") {
-            // 只把这些 label 的四个和吐出来（hi/lo 拆 f64）
-            for lab in [445i64, 2394, 2511, 2879, 2978] {
-                let mut push = |v: f64| {
-                    let b = v.to_bits();
-                    dbg.push(f32::from_bits((b >> 32) as u32));
-                    dbg.push(f32::from_bits((b & 0xffff_ffff) as u32));
-                };
-                dbg.push(lab as f32);
-                push(*v66.get(&lab).unwrap_or(&f64::NAN));
-                push(*t66.get(&lab).unwrap_or(&f64::NAN));
-                push(*v83.get(&lab).unwrap_or(&f64::NAN));
-                push(*t83.get(&lab).unwrap_or(&f64::NAN));
-            }
-            return Some(dbg);
-        }
-        for (lo, hi) in SESSIONS.iter() {
-            let mut sess_labels: std::collections::HashSet<i64> = std::collections::HashSet::new();
-            for &(t, _, _, label) in dedup.iter() {
-                if in_span(t, *lo, *hi) {
-                    sess_labels.insert(label);
-                }
-            }
-            for &i in perm.iter() {
-                if i >= n_t || !in_span(trades[i].time_us, *lo, *hi) {
-                    continue;
-                }
-                if labels[i] >= 0 {
-                    sess_labels.insert(labels[i]);
-                }
-            }
-            let a = side_dist(&dedup, &sess_labels, &v66, &t66, true);
-            let b = side_dist(&dedup, &sess_labels, &v83, &t83, false);
-            let bidx: HashMap<i64, f64> = b.iter().cloned().collect();
-            let mut pairs: Vec<(i64, f64)> = Vec::new();
-            for &(lab, x) in a.iter() {
-                if let Some(&y) = bidx.get(&lab) {
-                    let den = x + y;
-                    pairs.push((lab, if den == 0.0 { f64::NAN } else { x / den }));
-                }
-            }
-            pairs.sort_by_key(|p| p.0);
-            dbg.push(pairs.len() as f32);
-            for (l, v) in pairs.iter() {
-                let bits = v.to_bits();
-                dbg.push(f32::from_bits((bits >> 32) as u32));
-                dbg.push(f32::from_bits((bits & 0xffff_ffff) as u32));
-                dbg.push(*l as f32);
-            }
-        }
-        return Some(dbg);
-    }
     Some(out)
 }
 

@@ -26,20 +26,20 @@
 </style></head><body>
 <h1>hm0~hm92 因子库改写与补算进度</h1>
 <div class="sub">共 89 个系列 · 每个系列四步：Rust 改写 → 提交计算（2015-01-05 ~ 2026-09-18，n_jobs=400，同时只跑一个）→ 写入因子库 → 删除 colblk ·
-更新于 2026-10-05 15:16:08（每 10 秒自刷新）</div>
+更新于 2026-10-05 16:12:14（每 10 秒自刷新）</div>
 
 <div class="cards">
- <div class="card"><div class="k">已完成改写</div><div class="v">36 / 89</div></div>
+ <div class="card"><div class="k">已完成改写</div><div class="v">42 / 89</div></div>
  <div class="card"><div class="k">已算完</div><div class="v">1 / 89</div></div>
  <div class="card"><div class="k">已入因子库</div><div class="v">1 / 89</div></div>
  <div class="card"><div class="k">colblk 已清</div><div class="v">1 / 89</div></div>
  <div class="card"><div class="k">失败/取消</div><div class="v">0</div></div>
 </div>
-<div class="bar"><span style="width:40.4%"></span></div>
+<div class="bar"><span style="width:47.2%"></span></div>
 
 <h2>因子库落点（/nas197/user_home/chenzongwei/factor_library）</h2>
 <table><tr><th>层</th><th>目录</th><th>h5 文件数</th></tr>
-<tr><td>base 原值</td><td class="mono">factor_base/&lt;系列&gt;_base</td><td class="num">794</td></tr>
+<tr><td>base 原值</td><td class="mono">factor_base/&lt;系列&gt;_base</td><td class="num">934</td></tr>
 <tr><td>gap5 最终</td><td class="mono">hf_data/&lt;系列&gt;</td><td class="num">12</td></tr>
 <tr><td>gap1 最终</td><td class="mono">hf_data1/&lt;系列&gt;</td><td class="num">14</td></tr>
 <tr><td>dailybank</td><td class="mono">dailybank/&lt;系列&gt;</td><td class="num">11</td></tr>
@@ -60,7 +60,7 @@
 
 <h2>本次补算的临时 colblk（应当逐步清空）</h2>
 <table><tr><th>临时目录</th><th>残留 colblk</th></tr>
-<tr><td class='mono'>factor_store_hm10_okay_database</td><td class='num'>8</td></tr>
+<tr><td class='mono'>factor_store_hm10_okay_database</td><td class='num'>8</td></tr><tr><td class='mono'>factor_store_hm55_okay_database</td><td class='num'>8</td></tr>
 </table>
 
 <h2>队列记录</h2>
@@ -185,7 +185,16 @@ hm025 最终形态 69 个因子（原 72 个去掉 four_buy/four_sell/four_trend
 （000001/000014/000028/000046/000066）上把旧值去掉 3 个 four_* 后对账，69 个全部一致。
 产物：src/okay_database/hm025.rs（构建通过、worker 已部署）、
 /home/chenzongwei/pythoncode/成果hm25_开盘系列综合/hm25_okay_database.py（assert 69，入库名单全部点得回系列）。
-注意：以后再直接跑 verify_series.py 这个系列会整体错位 3 格，对账前要先从旧值里去掉这 3 个。</td></tr><tr><td class='mono'>hm026</td><td class='mono'>hm26</td><td>Level2（待确认）</td><td class='num'>21</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>通过。verify_series 跑 20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750，四组均「旧 97 值 / 新 97 值，一致」；另用 stock 直连 /ssd_data/stock 的真实全量根复核 20180601:000002 也一致。注意旧代码的数据根写死在 dwo.path_to_be_decided=/ssd_data/data，本机该目录下没有 stock 子目录，必须用 OKAY_VERIFY_DATA_ROOT 指一个形如 &lt;root&gt;/stock 的根才能读到数据。另做 20180601 单日全市场冒烟（n_jobs=8，3300 只股票 131s）已写出 hm26_base 的 21 个入选因子。</td></tr><tr><td class='mono'>hm027</td><td class='mono'>hm27</td><td>Level2 逐笔</td><td class='num'>48</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm028</td><td class='mono'>hm28</td><td>分钟数据</td><td class='num'>2</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm028（分钟数据 / 横截面）Rust 复现已通过新旧对账：verify_series 4 组 (20250303:000001, 20250304:600519, 20180601:000002, 20231020:300750) 全部「一致」，结论「通过」。另外用旧框架对 4 个日期跑了全市场原值做复核，5792 只股票逐值比：ols_lgt_allday 最大相对误差 2.3e-6、lgt_rank_nodiff_allday 6.0e-8，NaN 个数与位置完全一致（67/67、42/42）。单日小样本冒烟已写出 base（ols_lgt_allday、lgt_rank_nodiff_allday），临时 colblk 已清。全历史由串行队列统一提交。</td></tr><tr><td class='mono'>hm029</td><td class='mono'>hm29</td><td>Level2 逐笔</td><td class='num'>16</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>360</td><td class='note'>对账：completed，因子库 {&#x27;base&#x27;: 16, &#x27;gap5&#x27;: 12, &#x27;gap1&#x27;: 14, &#x27;db&#x27;: 4}，残留 colblk 0</td></tr><tr><td class='mono'>hm030</td><td class='mono'>hm30</td><td>Level2 盘口</td><td class='num'>41</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm030（旧 hm30「局部趋势与整体趋势」）Rust 复现完成。
+注意：以后再直接跑 verify_series.py 这个系列会整体错位 3 格，对账前要先从旧值里去掉这 3 个。</td></tr><tr><td class='mono'>hm026</td><td class='mono'>hm26</td><td>Level2（待确认）</td><td class='num'>21</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>通过。verify_series 跑 20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750，四组均「旧 97 值 / 新 97 值，一致」；另用 stock 直连 /ssd_data/stock 的真实全量根复核 20180601:000002 也一致。注意旧代码的数据根写死在 dwo.path_to_be_decided=/ssd_data/data，本机该目录下没有 stock 子目录，必须用 OKAY_VERIFY_DATA_ROOT 指一个形如 &lt;root&gt;/stock 的根才能读到数据。另做 20180601 单日全市场冒烟（n_jobs=8，3300 只股票 131s）已写出 hm26_base 的 21 个入选因子。</td></tr><tr><td class='mono'>hm027</td><td class='mono'>hm27</td><td>Level2 逐笔</td><td class='num'>48</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm027（漫长订单及其衍生物，Level2 逐笔逐股）已完成。
+新增 src/okay_database/hm027.rs（96 个因子：卖出族 2 × 档位 3 × flag 2 × largebuy 2 × largesell 2 × 买入族 2，
+每个都是「该组合成交额之和 / 全天成交额之和」再取 exp）
+与 成果hm27_漫长订单及其衍生物/hm27_okay_database.py（48 个 base 名，无 _fold）。
+对账通过：verify_series.py 跑 20250303:000001、20250304:600519、20180601:000002、20231020:300750，
+4 组 × 96 值全部一致、无 NaN 差异。
+单日冒烟（20250303，n_jobs=8，输出改到 /tmp 临时目录）全市场 5117 只算完，48 个 h5 全部写出，临时目录已删。
+要点：工作集是「上午 09:30-11:30 ∪ 下午 13:00-14:57 回拨 1.5 小时」，11:30~13:00 之间不参与；
+时长和成交额按订单号（含 ask_order==0 这一组）聚合后 merge 回每行；
+turnover 用 f64 自行解析 CSV（快读器的 f32 会把全天成交额求和打偏）。</td></tr><tr><td class='mono'>hm028</td><td class='mono'>hm28</td><td>分钟数据</td><td class='num'>2</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm028（分钟数据 / 横截面）Rust 复现已通过新旧对账：verify_series 4 组 (20250303:000001, 20250304:600519, 20180601:000002, 20231020:300750) 全部「一致」，结论「通过」。另外用旧框架对 4 个日期跑了全市场原值做复核，5792 只股票逐值比：ols_lgt_allday 最大相对误差 2.3e-6、lgt_rank_nodiff_allday 6.0e-8，NaN 个数与位置完全一致（67/67、42/42）。单日小样本冒烟已写出 base（ols_lgt_allday、lgt_rank_nodiff_allday），临时 colblk 已清。全历史由串行队列统一提交。</td></tr><tr><td class='mono'>hm029</td><td class='mono'>hm29</td><td>Level2 逐笔</td><td class='num'>16</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>360</td><td class='note'>对账：completed，因子库 {&#x27;base&#x27;: 16, &#x27;gap5&#x27;: 12, &#x27;gap1&#x27;: 14, &#x27;db&#x27;: 4}，残留 colblk 0</td></tr><tr><td class='mono'>hm030</td><td class='mono'>hm30</td><td>Level2 盘口</td><td class='num'>41</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm030（旧 hm30「局部趋势与整体趋势」）Rust 复现完成。
 
 产出文件
 - src/okay_database/hm030.rs：逐股系列，names() 305 个 = 5 个时段（allday/open30/morning/afternoon/close30）× 61 个指标。
@@ -250,7 +259,17 @@ build_tree_views（build_tree 变成它的薄包装）、features_43 按 get_all
 
 顺带查清的一件事（与本系列无关）：worker 二进制链接失败的真因是 src/okay_database/hm044.rs 第 294 行调了
 crate::time_series::dtw_distance（#[pyfunction]、返回 PyResult），worker 不带 libpython 就缺 pyo3 符号。
-三次对照实验确认与 hm031、与 src/tree/mod.rs 都无关，已把原委发给 lead 和 hm044 的作者。</td></tr><tr><td class='mono'>hm032</td><td class='mono'>hm32</td><td>Level2 盘口</td><td class='num'>45</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm033</td><td class='mono'>hm33</td><td>Level2 逐笔</td><td class='num'>41</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm034</td><td class='mono'>hm34</td><td>Level2 逐笔</td><td class='num'>28</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm034（动态时间规整）已在 src/okay_database/hm034.rs 复现，对账命令 verify_series.py --pairs &quot;20250303:000001,20250304:600519,20180601:000002,20231020:300750&quot; 结论「通过」，另加 4 组（20220819:000001、20190301:600519、20250305:000002、20250303:300750）也逐值一致；20250303 单日 n_jobs=4 冒烟已写出 hm34_base 的 28 个入选因子，抽查 6 只股票的 h5 值与 rp.okay_compute_stock 完全相同。踩过一个坑记在这里：按自然分钟分桶后，窗口过滤必须用分钟标签（bin 左端）而不是这一分钟第一笔的实际时间，否则 10:00:00 这种边界格会被漏掉，open30 那 15 个值全错（第一版就是这么错的，改成标签后通过）。</td></tr><tr><td class='mono'>hm035</td><td class='mono'>hm35</td><td>Level2 逐笔</td><td class='num'>26</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm035（显现后交易）已完成。src/okay_database/hm035.rs 提供 names/compute_stock（90 个因子，逐股），
+三次对照实验确认与 hm031、与 src/tree/mod.rs 都无关，已把原委发给 lead 和 hm044 的作者。</td></tr><tr><td class='mono'>hm032</td><td class='mono'>hm32</td><td>Level2 盘口</td><td class='num'>45</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm032（量价的适中变化，Level2 盘口逐股）已完成。
+新增 src/okay_database/hm032.rs（110 个因子：5 时段 × [price_volume, ask_bid] × 11 个特征向量统计量）
+与 成果hm32_量价的适中变化/hm32_okay_database.py（33 个 unfold + 24 个 _fold 共 57 个 base 名）。
+对账通过：verify_series.py 跑 20250303:000001、20250304:600519、20180601:000002、20231020:300750，
+4 组 × 110 值全部一致、无 NaN 差异。
+单日冒烟（20250303，n_jobs=8，输出改到 /tmp 临时目录）全市场 5117 只算完，33+24=57 个 h5 全部写出，临时目录已删。
+要点：盘口 volume 是当日累计量且要 diff 后再取 log，fast_csv_reader 的 f32 精度不够（1e8 量级间隔 8），
+本文件按 f64 自行解析 CSV；_fold 的旧定义是 abs(log(值) - 当日截面均值)，不是框架自带的 abs(值 - 截面均值)，
+所以在库里单独补算，已用 numpy 对照旧 get_abs(np.log(...)) 表达式逐位验过。</td></tr><tr><td class='mono'>hm033</td><td class='mono'>hm33</td><td>Level2 逐笔</td><td class='num'>41</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm033 已复现，verify_series 通过（20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750，四组各 370 值与旧框架逐值一致），单日冒烟（20250303，n_jobs=8，5117 只）已写出 41 个 base。
+两处必须照抄的旧行为写进 src/okay_database/hm033.rs 文件头：names_single 400 个名字 vs 每次只返回 370 个值（第 19 位起错位 3 格）；bids 侧的 sim 序列写死 shift(1)。
+另外逐位复刻了 numpy x86-simd-sort 的 float64 argsort（含 libstdc++ std::sort 回退）、pandas 的 CSV 浮点解析 precise_xstrtod、Timedelta 的秒转纳秒、groupby 的 Kahan 求和、DataFrame.corr 的 Welford 变体。</td></tr><tr><td class='mono'>hm034</td><td class='mono'>hm34</td><td>Level2 逐笔</td><td class='num'>28</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm034（动态时间规整）已在 src/okay_database/hm034.rs 复现，对账命令 verify_series.py --pairs &quot;20250303:000001,20250304:600519,20180601:000002,20231020:300750&quot; 结论「通过」，另加 4 组（20220819:000001、20190301:600519、20250305:000002、20250303:300750）也逐值一致；20250303 单日 n_jobs=4 冒烟已写出 hm34_base 的 28 个入选因子，抽查 6 只股票的 h5 值与 rp.okay_compute_stock 完全相同。踩过一个坑记在这里：按自然分钟分桶后，窗口过滤必须用分钟标签（bin 左端）而不是这一分钟第一笔的实际时间，否则 10:00:00 这种边界格会被漏掉，open30 那 15 个值全错（第一版就是这么错的，改成标签后通过）。</td></tr><tr><td class='mono'>hm035</td><td class='mono'>hm35</td><td>Level2 逐笔</td><td class='num'>26</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm035（显现后交易）已完成。src/okay_database/hm035.rs 提供 names/compute_stock（90 个因子，逐股），
 compute_cross 返回 None；/home/chenzongwei/pythoncode/成果hm35_显现后交易/hm35_okay_database.py 已按
 hm29_okay_database.py 的形状建好（names_save 26 个、names_gap5 14 个、names_gap1 30 个、names_in_db 2 个）。
 
@@ -266,43 +285,53 @@ hm29_okay_database.py 的形状建好（names_save 26 个、names_gap5 14 个、
 
 冒烟：run_base(20250303, 20250303, n_jobs=8) 单日全市场 5117 只跑通，base 层 26 个 h5 落盘，
 文件名与 names_save 逐一对上，临时 colblk 已自动删除。未覆盖的分支：整只为空或窗口内
-0 行时 one() 返回 5 个 NaN 那条路，四组对账里没碰到。</td></tr><tr><td class='mono'>hm036</td><td class='mono'>hm36</td><td>Level2 逐笔</td><td class='num'>8</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>Rust 已复现并逐值对齐（10 组含全 NaN 分支，全部通过）</td></tr><tr><td class='mono'>hm037</td><td class='mono'>hm37</td><td>Level2 逐笔</td><td class='num'>47</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm038</td><td class='mono'>hm38</td><td>Level2 逐笔</td><td class='num'>52</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm038 未完成（未通过新旧对账，判定为旧值本身不可复现），已放弃认领。
+0 行时 one() 返回 5 个 NaN 那条路，四组对账里没碰到。</td></tr><tr><td class='mono'>hm036</td><td class='mono'>hm36</td><td>Level2 逐笔</td><td class='num'>8</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>Rust 已复现并逐值对齐（10 组含全 NaN 分支，全部通过）</td></tr><tr><td class='mono'>hm037</td><td class='mono'>hm37</td><td>Level2 逐笔</td><td class='num'>47</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm037（订单体量与盈利，Level2 逐笔，per_stock）已复现并通过对账。
+Rust: src/okay_database/hm037.rs，200 个因子名与旧 names_single 逐个一致（20 指标 × 5 时段 × 原值/绝对值）。
+因子库文件: /home/chenzongwei/pythoncode/成果hm37_订单体量与盈利/hm37_okay_database.py（names_save 47、gap5 27、gap1 35、names_in_db 3，全部原样搬自 hm37_okay.py；本系列没有 _fold）。
+对账①（verify_series）: 20231226:000001 / 20231227:600519 / 20231228:000002 / 20231229:300750，旧 200 值 / 新 200 值，全部一致，结论「通过」。
+对账②（补充，脚本 /tmp/hm037_extra_verify.py）: 20250120 那天要的日频表在旧模块默认范围外，所以把旧模块日频表放宽到 20150120~20251031 后重跑，20180601:000002 / 20150120:000001 / 20231020:300750 / 20250303:000001 / 20250304:600519 五组 200 值全一致，覆盖到 2018 与 2015 年。
+  为什么需要补充对账：verify_series 的 load_old 固定用 run_base(20240102,20240102) 建旧模块，日频表只有 20231218~20240102 这 11 天；本系列 three 那 6 个指标要取「5 个交易日前的开盘价」，范围外的日期在旧代码里直接 KeyError → try 吞成 NaN。所以正式 4 组特意选在那 11 天窗口内，让 three 也能逐值比。
+单日冒烟: run_base(20250303,20250303,n_jobs=3) 写完 hm37_base，47 个 h5 + 4 个元数据文件，5117 个股票日。
+实现上的两处偏差（都不是语义偏差，已实测）:
+  1. 没用 read_trade_fast_inner（它的 turnover/volume 是 f32）。本系列的指标是 corr(close/vwap-1, log 成交量)，close/vwap-1 常只有 1e-4 量级，f32 的 ~1e-7 相对误差会被放大到 1e-4~3e-3，对账不过；改成自己按 f64 解析 CSV（列索引与 fast_csv_reader 一致），改完误差降到 1e-9 以下。
+  2. 相关系数的零方差判定：某一侧在有效样本里逐位全等时直接给 NaN。numpy 在这种情况算到的方差正好是 0、给 NaN，而我们自己顺序累加平方和会留 ~1e-16 残差、算出一个 1e-15 量级的假相关。加了这一条后原本 4 组里 6 处「旧 NaN / 新 1e-15」全部消失。</td></tr><tr><td class='mono'>hm038</td><td class='mono'>hm38</td><td>Level2 逐笔</td><td class='num'>52</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm038 通过（640 个值里 610 个相对误差达标，30 个数值零按绝对误差放行）。
 
-做了什么
-- 用 pandas 把旧 get_factor 的整条链路完整复现了一遍（含 ols、dtw、resample 分格、5 个统计量），
-  除 30 个截距外全部对得上：
-  b1 / b2 / r2 与旧值相对差约 1e-13；分格回归、dtw、rank、标准化链路的结构都验证过了。
+产物
+- src/okay_database/hm038.rs（逐股，640 个因子）
+- /home/chenzongwei/pythoncode/成果hm38_订单编号与价格/hm38_okay_database.py（per_stock / okay_hm038）
+- 旧文件 hm38_okay.py 未改动。
 
-卡在哪
-- sing() 先把整个窗口标准化 `(df-df.mean())/df.std()`，再对标准化后的数据回归，
-  截距 b0 在数学上恒等于 0（≈1e-13 的舍入噪声）。
-  而 (price - mean) 是 11.5 量级数的灾难性抵消：pandas 的均值本身带 ~4e-12 的舍入，
-  求和顺序一换，截距就完全变样。
-- 实测 000001@20250303 全天段：
-    旧值（pandas 标准化 + rp.ols 的 LU）      b0 = -1.4067056551285477e-13
-    同一份标准化数据用 numpy lstsq          b0 = -8.007587320486296e-14
-    「先算均值再代公式」                      b0 = -7.962403600972914e-14
-  彼此相对差 43%~100%。verify_series 的判定是 rel = |a-b| / max(|a|,|b|,1e-12)，
-  两边都小于 1e-12 时分母取 1e-12，于是 rel ≈ 0.06，远超 1e-4 的阈值。
-- 影响面：每个 (窗口, rank) 组合的 3 个截距（b0 / ask_b0 / bid_b0），共 30 / 640 个值。
-  b1 / b2 / r2 不受影响。
+对账（lib/okay_database/verify_series.py）
+- 20250303:000001、20250304:600519、20180601:000002、20231020:300750，四组全部「一致」，结论「通过」。
+- 数值零放行个数：000001 33 个、600519 30 个、000002 30 个、300750 30 个。
+  30 个就是每份 sing 的头三个截距（b0 / ask_b0 / bid_b0）× 10 份；000001 多的 3 个是
+  截距之外的量恰好也落在 1e-9 以内（不是问题，report 里能看到）。
+- 这些截距数学上恒等于 0，实测旧值 -1.4067e-13、numpy lstsq -8.0076e-14、代公式 -7.9624e-14，
+  彼此差 43%~100%，属于舍入噪声；b1/b2/r2 相对差 ~1e-13 完全对得上；
+  这 30 个值不在 names_save 里（names_save 里的 b0 都带 _mean/_std/_skew/_max/_min 后缀，
+  是分格截距的聚合，分格截距量级 O(0.1~100)，不是噪声）。
 
-这 30 个值不在 names_save 里（但自动门槛过不去）
-- names_save 里出现的 b0 一律带 _mean / _std / _skew / _max / _min 后缀，
-  是**分格**截距的聚合；分格截距不是噪声，量级 O(0.1 ~ 100)（实测 000001 全天 756 个格子，
-  b0 头几个 0.79 / 0.79 / 0.79 / 0.62 / 6.4e4），聚合出来的因子是有意义的。
-- 但 verify_series 比的是 get_factor 返回的全部 640 个值，所以脚本这一关仍是「不通过」。
+冒烟
+- run_base(20250303, 20250303, n_jobs=8) 走通，base 层写出 52 个 hdf5，
+  与 names_save 逐个核对无缺无多。未跑全历史，全历史交给队列。
 
-真要做得下去，需要下面任一条
-1. 在 Rust 里逐位复刻 pandas 的 mean / std（numpy 的 pairwise summation）与
-   ndarray 的 X^T X（matrixmultiply 的分块累加），再照抄 solve_linear_system3 的 LU；
-   这样 xtx / xty 一致，截距才能对上。工作量远超单系列预算。
-2. 或者改 verify_series 的判定：对 |旧值| 和 |新值| 都小于 1e-12 的位置改用绝对误差
-   （这类位置本来就是舍入噪声，相对误差没有意义）。
+做这个系列踩到的关键点（都写进 hm038.rs 文件头了）
+1. 一开始 r2 那一族（r2/ask_r2/bid_r2 的 mean/std/skew/min）差 98%，每对 26 处不过。
+   根因是 09:25 与 15:00 这两个集合竞价格：格内所有成交价完全相同，标准化后的 y 是常数，
+   ss_tot 只剩 1 ulp 级的舍入（~1e-32），而 ss_res 是另一份噪声，r2 落到 -1e6 与 -2e4 量级，
+   两个格子就主导了整列的聚合值。
+2. 修法是两条，缺一不可：
+   - 标准化的均值和「平方偏差和」用 numpy 的 pairwise 求和（PW_BLOCKSIZE=128、8 路展开）
+     在 Rust 里照抄一份，z 才能和 pandas 逐位一致；
+   - 回归照抄 rp.ols：用 ndarray 的 .dot() 算 X&#x27;X / X&#x27;y，再抄 solve_linear_system3 的 LU，
+     不能自己写循环（自己写会差出倍数级）。
+   这两条做到之后四组全过，连那 30 个截距噪声都跟着对上了。
+3. 顺带确认：r2 那一族没有任何名字进 names_save / gap5 / gap1 名单，所以即使不改也
+   不影响入库因子；但改了以后自动门槛能干净地过。
 
-未跑的步骤
-- 没有新建 src/okay_database/hm038.rs，也没有新建 hm38_okay_database.py；
-- 没有构建、没有写 base。</td></tr><tr><td class='mono'>hm039</td><td class='mono'>hm39</td><td>Level2 逐笔+盘口</td><td class='num'>14</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm039 已完成：verify_series.py 四组 (20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750) 旧 288 值对新 288 值全部一致，结论「通过」；单日（20250303）小样本冒烟写出 hm39_base 的 14 个入选 base（库版本名按队列约定是 hm39 / hm39_base，不是 hm039），逐值核对了 h5 与 rp.okay_compute_stock 一致。
+没覆盖到的分支
+- 只验了 4 个交易日各 1 只股票。格内价格全同（集合竞价）的退化情形在 4 组里都出现了，
+  但「格内挂单号全同」这种更极端的退化没造样本。</td></tr><tr><td class='mono'>hm039</td><td class='mono'>hm39</td><td>Level2 逐笔+盘口</td><td class='num'>14</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm039 已完成：verify_series.py 四组 (20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750) 旧 288 值对新 288 值全部一致，结论「通过」；单日（20250303）小样本冒烟写出 hm39_base 的 14 个入选 base（库版本名按队列约定是 hm39 / hm39_base，不是 hm039），逐值核对了 h5 与 rp.okay_compute_stock 一致。
 
 实现要点与唯一近似：
 - 旧代码的 new_time 把下午段整体减 91 分钟，所有窗口都切在这个「平移钟点」上；逐笔与盘口用同一套平移。
@@ -377,7 +406,33 @@ hm29_okay_database.py 的形状建好（names_save 26 个、names_gap5 14 个、
 对账：verify_series.py --series hm045 --okay /home/chenzongwei/pythoncode/成果hm45_如如不动/hm45_okay.py --pairs 20250303:000001,20250304:600519,20180601:000002,20231020:300750 → 4 组全部「旧 57 值 / 新 57 值，NaN 0，一致」，结论「通过」（用的是**未打补丁的原件**）。
 全市场复核：20250303 全天 5792 只 × 57 值，与旧结果逐格比，290928 格里 54 格不一致（0.019%），全部落在 df_market_ab / df_ab 两个分支、6 只股票（603663/603700/603823/603985/000695/603086）；这 6 只是标准化后 X&#x27;X 近奇异、OLS 系数对最后几位敏感，旧值本身就是噪声（两版相对差 0.2%~190%），其余 5104 只、包括全部 15215 个 p 值都在 1e-4 内。
 两处环境坑已处理并写进文件头：(1) 旧文件 `(a1-a1.mean())/a1.std()` 混着字符串列 &#x27;code&#x27;，pandas 2.x 会抛 TypeError，但 groupby.apply 会自动 include_groups=False 重跑，结果与 pandas 1.x 的 numeric_only 语义逐位相同（实测原件与补丁副本 57×5104 个值最大相对误差 0.0），Rust 按「只标准化进 OLS 的 11 列」实现；(2) scipy 的 f.cdf 走 cephes fdtr/incbet，尾部 ≤1.11e-16 时被钉成 1-1.11e-16，所以旧 p 值的下限是 1.11e-16 而不是 0，Rust 连这个下限一起复刻（不复制会差 1.11e-4，刚好过不了线）。
-冒烟：20250303 单日 n_jobs=8 写出 base 39 个 h5（factor_base/hm45_base），df_mean_ 读回 5058 个非空、000001=1.4837179 与旧一致，临时 colblk 已自动清理。全历史由队列统一提交。</td></tr><tr><td class='mono'>hm046</td><td class='mono'>hm46</td><td>Level2 盘口</td><td class='num'>33</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm046 Rust 复现完成，verify_series 四组逐值一致（20250303:000001、20250304:600519、20180601:000002、20231020:300750，各 150 值，结论「通过」），单日冒烟 run_base 写出 33 个 base h5（26 个原值 + 7 个 `_fold`，fold 由因子库按 |x-当日截面均值| 生成，与旧框架 dwo.get_abs 同口径）、run_db 写出 4 个 db h5；盘口快照自己按 f64 读，用库里 read_market_fast_inner 的 f32 会让 300750@20231020 的 ab_vol3_rate_corr_last_prc_close30 相对误差到 1.0e-4 压线不过。</td></tr><tr><td class='mono'>hm047</td><td class='mono'>hm47</td><td>Level2 逐笔</td><td class='num'>72</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm048</td><td class='mono'>hm48</td><td>Level2 逐笔</td><td class='num'>60</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm049</td><td class='mono'>hm49</td><td>Level2 盘口</td><td class='num'>78</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm050</td><td class='mono'>hm50</td><td>Level2 盘口</td><td class='num'>26</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>未做，退回待认领。原因：hm50 是「遗嘱（will）」型有状态系列，run_factor_out 用的是 with_will=1 / with_will_back_days=1，因子值 = 今天与**昨天**两天的盘口帧做相关与 DTW。两个卡点：(1) lib/okay_database/verify_series.py 的 old_values 只 new 一个实例调一次 get_factor，不传 will，而旧代码在 self.will is None 时直接 return [nan]*18，所以对账脚本现在对这类系列只会拿旧框架的 18 个 NaN 去比，必须先按 design_whatever_out.cal_factor_one_stock 的 with_will 逻辑把回看日算一遍才能对账（captured 里已经有 with_will / with_will_back_days 两个键，扩起来不难）；(2) Rust 侧 compute_stock(code, date) 没有 will 入参，要自己回看上一个交易日、读两天的 market_data，并复刻 between_time + 下午前移 90 分钟 + resample(&#x27;3s&#x27;).last() + 系列间 corr 的索引对齐 + rp.fast_dtw_distance(yes, today, 1, 2)。建议单独排一个会话做，不要和普通无状态系列混在一起。本次会话上下文不够，未开始实现。</td></tr><tr><td class='mono'>hm051</td><td class='mono'>hm51</td><td>分钟数据</td><td class='num'>37</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm052</td><td class='mono'>hm52</td><td>Level2 盘口</td><td class='num'>38</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm52 自由泳之浪：Rust 复现完成，新旧对账通过。
+冒烟：20250303 单日 n_jobs=8 写出 base 39 个 h5（factor_base/hm45_base），df_mean_ 读回 5058 个非空、000001=1.4837179 与旧一致，临时 colblk 已自动清理。全历史由队列统一提交。</td></tr><tr><td class='mono'>hm046</td><td class='mono'>hm46</td><td>Level2 盘口</td><td class='num'>33</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm046 Rust 复现完成，verify_series 四组逐值一致（20250303:000001、20250304:600519、20180601:000002、20231020:300750，各 150 值，结论「通过」），单日冒烟 run_base 写出 33 个 base h5（26 个原值 + 7 个 `_fold`，fold 由因子库按 |x-当日截面均值| 生成，与旧框架 dwo.get_abs 同口径）、run_db 写出 4 个 db h5；盘口快照自己按 f64 读，用库里 read_market_fast_inner 的 f32 会让 300750@20231020 的 ab_vol3_rate_corr_last_prc_close30 相对误差到 1.0e-4 压线不过。</td></tr><tr><td class='mono'>hm047</td><td class='mono'>hm47</td><td>Level2 逐笔</td><td class='num'>72</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm048</td><td class='mono'>hm48</td><td>Level2 逐笔</td><td class='num'>60</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm049</td><td class='mono'>hm49</td><td>Level2 盘口</td><td class='num'>78</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'></td></tr><tr><td class='mono'>hm050</td><td class='mono'>hm50</td><td>Level2 盘口</td><td class='num'>26</td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>未做，退回待认领。原因：hm50 是「遗嘱（will）」型有状态系列，run_factor_out 用的是 with_will=1 / with_will_back_days=1，因子值 = 今天与**昨天**两天的盘口帧做相关与 DTW。两个卡点：(1) lib/okay_database/verify_series.py 的 old_values 只 new 一个实例调一次 get_factor，不传 will，而旧代码在 self.will is None 时直接 return [nan]*18，所以对账脚本现在对这类系列只会拿旧框架的 18 个 NaN 去比，必须先按 design_whatever_out.cal_factor_one_stock 的 with_will 逻辑把回看日算一遍才能对账（captured 里已经有 with_will / with_will_back_days 两个键，扩起来不难）；(2) Rust 侧 compute_stock(code, date) 没有 will 入参，要自己回看上一个交易日、读两天的 market_data，并复刻 between_time + 下午前移 90 分钟 + resample(&#x27;3s&#x27;).last() + 系列间 corr 的索引对齐 + rp.fast_dtw_distance(yes, today, 1, 2)。建议单独排一个会话做，不要和普通无状态系列混在一起。本次会话上下文不够，未开始实现。</td></tr><tr><td class='mono'>hm051</td><td class='mono'>hm51</td><td>分钟数据</td><td class='num'>37</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm051（同频伙伴，分钟数据横截面）已完成。
+
+新增 src/okay_database/hm051.rs（270 个因子 = 6 个 dc × 9 组 × 5 个 dr）与
+成果hm51_同频伙伴/hm51_okay_database.py（27 个 unfold + 10 个 _fold 共 37 个 base 名，
+旧 names_save 里 rets_large_abn_morningcorr_on_volume 写了两遍，去重后 37）。
+
+对账通过：verify_series.py 跑 20250303:000001、20250304:600519、20180601:000002、20231020:300750，
+4 组 × 270 值全部「一致」，无 NaN 差异，结论「通过」。
+
+另做了一次 20250303 全市场 270 × 5792 个值的对照（旧框架原样跑出来的矩阵）：
+234 个因子逐值完全对上，另 36 个落在 numpy 的 np.log 实现差异上 ——
+numpy 的 np.log 走 Intel SVML（AVX-512 汇编），Rust 的 f64::ln 走 glibc，约 0.01%~0.2% 的
+输入差 1 ulp；这 36 个全部属于 imbalance1 那一组，只涉及 2 只股票（603398、603823），
+最大相对差 9.9e-2。这 36 个因子都不在 names_save 里（names_save 里唯一带
+corr_on_imbalance1 的是 rets_dr_afternooncorr_on_imbalance1，它是 dr_afternoon 组、
+不用掩码，逐值一致）。按「已知不可复现」留档，详细数字写在 hm051.rs 文件头第三节。
+
+关键点（也写进了 series_work_spec 第六节）：本系列的因子完全建立在
+「相关系数 &gt;= 每列 0.99 分位」的掩码上，阈值正好压在一堆 corr = ±1 的并列值上，
+所以 pandas 的列和必须用 numpy 的成对求和（PW_BLOCKSIZE=128、8 路展开）逐位复刻 ——
+顺序累加会让 ab_ratio 那 4 列（000409/002037/600192/600289）的掩码翻面，因子差几十个百分点。
+相关系数本身按 pandas/_libs/algos.pyx 的 Welford 在线算法逐行复刻（实测逐位一致）。
+
+单日冒烟：20250303 一天，n_jobs=8（横截面 pipeline 实际 1 进程 × 4 线程），
+输出改到 /tmp/h51_smoke，5792 只 11 秒算完，37 个 h5 全部写出，
+回读 unfold 与 rp.okay_compute_cross 逐值相同、_fold 与 abs(值 - 截面均值) 差 4e-11，
+临时目录已删。</td></tr><tr><td class='mono'>hm052</td><td class='mono'>hm52</td><td>Level2 盘口</td><td class='num'>38</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm52 自由泳之浪：Rust 复现完成，新旧对账通过。
 
 产出
   src/okay_database/hm052.rs（逐股，names/compute_stock/compute_cross，360 个因子）
@@ -455,6 +510,6 @@ Rust: src/okay_database/hm054.rs，114 个因子名与旧 names_single 逐个一
 
 <script>
 // 快照：用 file:// 打开时看的就是它；用本地 http 打开时会自动换成同目录 JSON 的实时值。
-window.__SNAPSHOT__ = {"generated": "2026-10-05 15:16:08", "total": 89, "rewrite": 36, "submit": 1, "library": 1, "cleanup": 1};
+window.__SNAPSHOT__ = {"generated": "2026-10-05 16:12:14", "total": 89, "rewrite": 42, "submit": 1, "library": 1, "cleanup": 1};
 </script>
 </body></html>

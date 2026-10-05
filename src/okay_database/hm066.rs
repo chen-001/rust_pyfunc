@@ -484,17 +484,8 @@ fn pairwise_sum(a: &[f64]) -> f64 {
         return r;
     }
     if n <= 128 {
-        let mut r = [
-            a[0] + a[1],
-            a[2] + a[3],
-            a[4] + a[5],
-            a[6] + a[7],
-            a[8] + a[9],
-            a[10] + a[11],
-            a[12] + a[13],
-            a[14] + a[15],
-        ];
-        let mut i = 16usize;
+        let mut r = [a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7]];
+        let mut i = 8usize;
         let stop = n - (n % 8);
         while i < stop {
             for k in 0..8 {
