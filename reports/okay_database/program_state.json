@@ -2131,12 +2131,12 @@
    ],
    "rust_file": "src/okay_database/hm047.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm47_死亡半衰期/hm47_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": "hm047 死亡半衰期 —— 通过对账\n\n═══ 一句话 ═══\n690 个因子的 Rust 复现完成，四组对账全部一致，单日冒烟写出 base 成功。\n\n═══ 旧代码语义（已逐条对上）═══\nget_many=0 / read_full=0 / change_time=1，逐股，690 个因子 = 138 个指标 × 5 个时段\n（all / open30 / morning / afternoon / close30）。\n\n· 全天表先切 [09:30, 14:57]（between_time，两端闭、纳秒精确），在这张表上算 12 个「半衰期」列：\n  3 个 find_half_energy_time（窗口 1/5/30 秒）、3 个 find_half_extreme_time（默认方向）、\n  6 个 find_half_extreme_time（pos/neg × 1/5/30 秒）；算完全表 replace(0, NaN)。\n· 每个时段 one(df) 返回 138 个值：\n  前 18 个 = corr(volume, energy) 的 DataFrame.corr（Welford），六个能量列 × {全体, 66, 83}；\n  后 120 个 = 四组（large = volume ≥ 0.9 分位、small = volume ≤ 0.5 分位且 > 100、66、83）\n  × 六个方向列 × 五个统计量（std / max / median / autocorr1 / autocorr2）。\n\n═══ 三个必须照抄的点 ═══\n1) 两个 rp 函数（find_half_energy_time / find_half_extreme_time）是 #[pyfunction]，\n   worker 不带 libpython，链路里不能调，已把纯 Rust 主体逐字抄进 hm047.rs\n   （src/time_series/mod.rs 一行没动）。**超时也照抄**：旧代码两个函数都传\n   timeout_seconds=1，实现里每 100 个外层元素查一次 Instant，超时整列返回 NaN。\n2) Series.autocorr 在 pandas 2.x **不再抛 ValueError**（1.x 才会），组太短时只是\n   走到 np.corrcoef 的 0/0 返回 NaN。第一版按 1.x 的语义加了「任一组少于 3 行就整天\n   返回 None」的门槛，结果 600519@20250304 和 300750@20231020 新值整条算不出来，\n   而旧值各有 150 个 NaN 且照常返回 690 个值。去掉门槛后四组全过。\n3) DataFrame.corr 走 libalgos.nancorr 的 Welford（掩码 isfinite），\n   Series.autocorr 走 nanops.nancorr → np.corrcoef 的两遍法（成对丢 NaN、clip 到 [-1,1]），\n   两者不是同一条路，代码里分成 pearson_welford 和 autocorr_lag 两个函数。\n\n另外：CSV 浮点走 pandas C 解析器 precise_xstrtod 的复刻（与 hm090/hm012 同一份）。\n名字顺序也核过：`half_{统计量}_{能量列}_{组}_{up|down}_{时段}`，组名在 up/down 前面\n（旧代码变量名 half_std_M1_66_up 就是这个形状）；把 690 个名字和老文件 run_base 里\n展开后的 names 逐字比过，完全相等。\n\n═══ 证据 ═══\nlib/okay_database/verify_series.py --series hm047（OKAY_VERIFY_DATA_ROOT=/ssd_data）\n  000001 20250303 旧 690 / 新 690，NaN 0，一致\n  600519 20250304 旧 690 / 新 690，NaN 150，一致\n  000002 20180601 旧 690 / 新 690，NaN 0，一致\n  300750 20231020 旧 690 / 新 690，NaN 150，一致\n  结论：通过\n单日冒烟：run_base(20250303, 20250303, n_jobs=4)，5117 个任务，72 个入选 base 写出成功。\n（第一次冒烟因为名字顺序写错留下过一份坏 colblk store，已删掉重跑，现在 store 是干净的。）\n\n═══ 产物 ═══\n· src/okay_database/hm047.rs（690 个因子，names() 与旧文件展开后的 names 完全相等）\n· /home/chenzongwei/pythoncode/成果hm47_死亡半衰期/hm47_okay_database.py\n  names_save 72 个（57 个原值 + 15 个 _fold，_fold 交给 write_selected_base 生成）、\n  names_gap5 29 个、names_gap1 31 个、names_in_db 6 个。\n\n═══ 没覆盖到的分支 ═══\n· 超时那条路没触发过（四组样本的 12 次调用都在 1 秒内跑完），所以「超时整列 NaN」\n  的语义只做了代码对齐，没有实测样本。真触发的日子两边的耗时可能不同，\n  这是本系列唯一一处依赖机器速度的地方，已在文件头写明。\n· 四个时段以外的窗口边界（正好落在 09:30:00.000000 / 14:57:00.000000 的行）没有专门构造样本。"
   },
   {
    "num": 48,

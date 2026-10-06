@@ -5,6 +5,11 @@
 //!   也就是「一整天的逐笔」一张表，窗口由旧代码自己切。属于**逐股**系列。
 //!
 //! ════════════════════════════════════════════════════════════════════
+//! 0) 浮点一律走 parse_f64_pandas（pandas 的 precise_xstrtod 复刻），**不要**用 str::parse。
+//!    旧框架是 pd.read_csv 读进来的，不是正确舍入；实测 000001@20250303 有 260/76488 个
+//!    turnover 与正确舍入差 1 ulp，而本系列下游有 round(2) 比阈值、quantile 切割、nunique
+//!    这类操作，1 ulp 就能把掩码翻面（hm012 就是这么差出 1.4e-4~7.1e-3 的）。
+//!
 //! 一、旧代码逐步对照
 //! ════════════════════════════════════════════════════════════════════
 //! 1) df = read_trade_data_single(with_retreat=0)
@@ -164,12 +169,133 @@ struct Raw {
     extra_nan: bool,
 }
 
-/// pandas 的浮点读取：空串给 NaN，其余交给正确舍入的 str::parse。
+/// 去掉字段两端的空白（含行尾的 `\r`）。
+fn trim_ascii(raw: &[u8]) -> &[u8] {
+    let mut s = 0usize;
+    let mut e = raw.len();
+    while s < e && raw[s].is_ascii_whitespace() {
+        s += 1;
+    }
+    while e > s && raw[e - 1].is_ascii_whitespace() {
+        e -= 1;
+    }
+    &raw[s..e]
+}
+
+/// pandas 的浮点读取：空串给 NaN，其余走 pandas C 解析器 `precise_xstrtod` 的复刻。
+///
+/// ！！不能用 `str::parse::<f64>()`（正确舍入）：旧框架是 `pd.read_csv` 读进来的，
+/// 用的是 `_libs/src/parser/tokenizer.c` 的 precise_xstrtod —— 只累加**前 17 位有效数字**，
+/// 多出来的整数位转成指数、多出来的小数位直接丢掉，最后用一张写死的 10 的幂做一次乘或除。
+/// 实测 000001@20250303 有 260/76488 个 turnover 与正确舍入差 1 ulp。
+/// 本系列下游有 `.round(2) > 0`、`quantile` 分位切割、`nunique` 这类「恰好相等 / 比阈值 /
+/// 排名」的操作，1 ulp 就能把掩码翻面（hm012 在 000001@20250303 上就因此差 1.4e-4~7.1e-3，
+/// 换成这份解析才过）。逐位等价更重要，所以照抄。
 fn parse_f64_at(b: &[u8]) -> f64 {
-    std::str::from_utf8(b)
-        .ok()
-        .and_then(|s| s.trim().parse::<f64>().ok())
-        .unwrap_or(f64::NAN)
+    let t = trim_ascii(b);
+    if t.is_empty() {
+        return f64::NAN;
+    }
+    parse_f64_pandas(t)
+}
+
+/// pandas C 解析器 `precise_xstrtod`（_libs/src/parser/tokenizer.c）的逐行复刻。
+/// 与 src/okay_database/hm033.rs / hm047.rs / hm090.rs 里的同名函数一致，这里复制一份
+/// 免得跨系列互相依赖。
+fn parse_f64_pandas(b: &[u8]) -> f64 {
+    const MAX_DIGITS: usize = 17;
+    let n = b.len();
+    let mut p = 0usize;
+    while p < n && matches!(b[p], b' ' | b'\t' | b'\r' | b'\n') {
+        p += 1;
+    }
+    let mut negative = false;
+    if p < n && (b[p] == b'-' || b[p] == b'+') {
+        negative = b[p] == b'-';
+        p += 1;
+    }
+    let mut number = 0.0f64;
+    let mut exponent: i32 = 0;
+    let mut num_digits = 0usize;
+    let mut num_decimals = 0usize;
+    while p < n && b[p].is_ascii_digit() {
+        if num_digits < MAX_DIGITS {
+            number = number * 10.0 + (b[p] - b'0') as f64;
+            num_digits += 1;
+        } else {
+            exponent += 1;
+        }
+        p += 1;
+    }
+    if p < n && b[p] == b'.' {
+        p += 1;
+        while num_digits < MAX_DIGITS && p < n && b[p].is_ascii_digit() {
+            number = number * 10.0 + (b[p] - b'0') as f64;
+            p += 1;
+            num_digits += 1;
+            num_decimals += 1;
+        }
+        if num_digits >= MAX_DIGITS {
+            while p < n && b[p].is_ascii_digit() {
+                p += 1;
+            }
+        }
+        exponent -= num_decimals as i32;
+    }
+    if num_digits == 0 {
+        return 0.0;
+    }
+    if negative {
+        number = -number;
+    }
+    // 指数段（本数据没有 'e'，按源码照抄）
+    if p < n && (b[p] | 0x20) == b'e' {
+        p += 1;
+        let mut eneg = false;
+        if p < n && (b[p] == b'-' || b[p] == b'+') {
+            eneg = b[p] == b'-';
+            p += 1;
+        }
+        let mut nn: i32 = 0;
+        let mut nd = 0usize;
+        while nd < MAX_DIGITS && p < n && b[p].is_ascii_digit() {
+            nn = nn * 10 + (b[p] - b'0') as i32;
+            nd += 1;
+            p += 1;
+        }
+        if eneg {
+            exponent -= nn;
+        } else {
+            exponent += nn;
+        }
+    }
+    if exponent > 308 {
+        f64::INFINITY
+    } else if exponent > 0 {
+        number * pow10_table()[exponent as usize]
+    } else if exponent < -308 {
+        if exponent < -616 {
+            0.0
+        } else {
+            let t = pow10_table();
+            (number / t[(-308 - exponent) as usize]) / t[308]
+        }
+    } else {
+        number / pow10_table()[(-exponent) as usize]
+    }
+}
+
+/// 10 的幂表：用 Rust 自己的正确舍入解析 "1e{k}" 建出来，
+/// 与 pandas/tokenizer.c 里那张写死的 e[] 表逐位一致。
+fn pow10_table() -> &'static [f64; 309] {
+    static T: std::sync::OnceLock<[f64; 309]> = std::sync::OnceLock::new();
+    T.get_or_init(|| {
+        let mut t = [1.0f64; 309];
+        for (k, v) in t.iter_mut().enumerate() {
+            *v = format!("1e{}", k).parse::<f64>().unwrap();
+        }
+        t
+    })
 }
 
 /// 读 transaction CSV，丢掉 flag == 32（撤单）。行序 = 文件序。
