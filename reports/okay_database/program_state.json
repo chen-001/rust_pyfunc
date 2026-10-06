@@ -58,8 +58,8 @@
    "step_submit": "running",
    "step_library": "done",
    "step_cleanup": "done",
-   "task_id": 369,
-   "note": "提交于 2026-10-06 13:44:26，n_jobs=400",
+   "task_id": 370,
+   "note": "提交于 2026-10-06 14:33:57，n_jobs=400",
    "library_files": {
     "base": 55,
     "gap5": 12,
@@ -4969,12 +4969,12 @@
    ],
    "rust_file": "src/okay_database/hm077.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm76_hm77聚义厅/hm77_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": "hm077「聚义厅（同向/反向订单）」—— 做完，对账「通过」。\n\n【形态】模块级 go(date, code)，逐股系列。与同一个 notebook 出来的 hm076 是姊妹系列，\n差别只有两处：走 rp.calculate_order_time_gap_and_price_percentile_ultra_sorted_v2\n（按 ask_order / bid_order 聚合订单，不看成交 flag），以及没有 v3 那一段\n（旧 one() 在 960 个值处直接 return，hm076 还多 4×105 个价格统计量）。\n\n【产物】\n  src/okay_database/hm077.rs                                        55 个因子，逐股系列\n  /home/chenzongwei/pythoncode/成果hm76_hm77聚义厅/hm77_okay_database.py\n      kind='per_stock'、pipeline='okay_hm077'\n      names_save 55（46 个原值 + 9 个 _fold）、names_in_db 3、gap5 34、gap1 33\n      （四份名单都是从旧 hm77_okay.py 原样搬过来的）\n\n【对账】verify_series.py（OKAY_VERIFY_DATA_ROOT=/ssd_data）四组\n  20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750\n  → 每组「旧 55 值 / 新 55 值，NaN 0，一致」，结论「通过」，一次过没返工。\n\n【关键点一】v2 的买卖分侧有一个必须原样保留的后果：「买单标识」恒等于 1，卖单那一支恒为空表。\n  v2 是「ask_order[i] != 0 记一笔卖单、bid_order[i] != 0 记一笔买单」，两条 if 各自执行、\n  写回时卖单分支在前（标识写 0）、买单分支在后（标识写 1），后者覆盖前者；\n  A 股逐笔每行这两个字段都非 0，所以 features_mai4dan1 恒为 0 行。\n  实测 000001@20250303：dropna 后 52453 行全在买单那一边，卖单那边 0 行。\n  空表那几块（res 下标 336~480 与 816~960）的取值口径都实测过，不是猜的：\n  mean/std/skew/kurt 与两处 corrwith 全 NaN，rp.trend_2d(空矩阵, axis=0) 全 0.0（不是 NaN）。\n  55 个入选因子的下标全部落在买单那一边（[0,96)、[192,336)、[672,816) 三块），\n  空表那几块只作占位、保证列数恒定。这条写进了 hm077.rs 的文件头，复核时不用再猜。\n\n【关键点二】autocorr 那两块走的是 DataFrame.corrwith(DataFrame)：\n  左边 13 列（12 个时间间隔 + trend），右边是 24 列的 shift(1)，pandas 返回的是 **24** 个值，\n  后 11 个是 NaN，不是 13 个。实测确认过，hm076 那份实现也是照这个口径写的。\n\n【单日小样本冒烟】\n  数据根用 /tmp/hm77_smoke/stock（20250303 只软链了 16 只股票的逐笔），\n  base_hdf5_dir 与 colblk_store_dir 都指到 /tmp 下，**不碰真因子库**，n_jobs=8。\n  结果：run_base 602 秒跑完，写出 hm77_base 的 55 个 h5，与 names_save 逐名对得上（缺 0、多 0）；\n  回读其中 46 个非 _fold 因子，与 rp.okay_compute_stock('hm077', 股票, 20250303) 逐值一致\n  （相对误差 ≤1e-5，很多是 0）。\n  剩下 9 个 _fold 因子读回的是横截面口径，和逐股原值不该同值；单独核过：\n  把 16 只股票的原值取出来算 |X − 当日截面均值|，与 h5 里的 _fold 逐个比，\n  9 个因子的 16 只股票最大相对误差 5.2e-08（f32 舍入量级），口径对得上。\n  合起来 55 个因子全部核过。\n  没有跑「单日全市场」冒烟，原因是这个系列单股单日要 9~25 秒（v2 的订单配对在每个\n  同量订单组里是 O(组内订单数²)，与旧框架同一个量级），全市场 5117 只 × n_jobs=8 约 1.8 小时，\n  而机器上还有 400 并行的全历史任务；所以按「单日小样本」的本意用 16 只股票的子集把同一条链路\n  （worker + 列式 store + h5 写出 + 名字对账）整条走了一遍，全历史交给串行队列。\n\n【没覆盖到的分支】\n  · 卖单那一支（features_mai4dan1）恒为空表，所以那一支只有「空输入」这一种实测样本；\n    非空输入那条路没有样本可测，是 v2 的实际行为决定的。\n  · 只验证了 run_base 这一层，没有跑 run_db / run_h5 / run_h1 的冒烟。\n  · 时间上用到的 ±120ns 量化（pandas cast_from_unit_vectorized）与 hm076 同一份实现，\n    四组对账没有出现边界翻面的情况。\n\n【给 lead 的一句话】hm077 与 hm076 共用同一条读盘与 pandas 语义实现（本文件是从 hm076.rs\n逐字搬过来再换 ultra_sorted 那一段），所以 hm076 以后若修了读盘或 features 语义，这份要跟着看。"
   },
   {
    "num": 78,
