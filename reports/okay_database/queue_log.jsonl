@@ -16,3 +16,33 @@
 {"series": "hm001", "event": "submit", "task_id": 369, "time": "2026-10-06T13:44:26.404032"}
 {"series": "hm001", "event": "finish", "status": "failed", "files": {"base": 55, "gap5": 12, "gap1": 0, "db": 1}, "colblk_left": 0, "time": "2026-10-06T14:33:56.857274"}
 {"series": "hm001", "event": "submit", "task_id": 370, "time": "2026-10-06T14:33:57.097396"}
+{"series": "hm001", "event": "finish", "status": "failed", "files": {"base": 55, "gap5": 12, "gap1": 0, "db": 1}, "colblk_left": 0, "time": "2026-10-06T15:22:27.553768"}
+{"series": "hm001", "event": "submit", "task_id": 371, "time": "2026-10-06T15:22:27.785821"}
+{"series": "hm001", "event": "finish", "status": "failed", "files": {"base": 55, "gap5": 12, "gap1": 0, "db": 1}, "colblk_left": 0, "time": "2026-10-06T16:08:58.234445"}
+{"series": "hm001", "event": "submit", "task_id": 372, "time": "2026-10-06T16:08:58.472484"}
+{"series": "hm001", "event": "finish", "status": "failed", "files": {"base": 55, "gap5": 12, "gap1": 0, "db": 1}, "colblk_left": 0, "time": "2026-10-06T16:58:28.919373"}
+{"series": "hm001", "event": "submit", "task_id": 373, "time": "2026-10-06T16:58:29.151408"}
+{"series": "hm001", "event": "finish", "status": "failed", "files": {"base": 55, "gap5": 12, "gap1": 0, "db": 1}, "colblk_left": 0, "time": "2026-10-06T17:44:59.582853"}
+{"series": "hm001", "event": "submit", "task_id": 374, "time": "2026-10-06T17:44:59.803101"}
+{"series": "hm001", "event": "finish", "status": "failed", "files": {"base": 55, "gap5": 12, "gap1": 0, "db": 1}, "colblk_left": 0, "time": "2026-10-06T18:31:30.250547"}
+{"series": "hm001", "event": "submit", "task_id": 375, "time": "2026-10-06T18:31:30.498770"}
+{"series": "hm001", "event": "finish", "status": "failed", "files": {"base": 55, "gap5": 12, "gap1": 0, "db": 1}, "colblk_left": 0, "time": "2026-10-06T19:20:01.040417"}
+{"series": "hm001", "event": "submit", "task_id": 376, "time": "2026-10-06T19:20:01.300872"}
+{"series": "hm001", "event": "finish", "status": "failed", "files": {"base": 55, "gap5": 12, "gap1": 0, "db": 1}, "colblk_left": 0, "time": "2026-10-06T20:06:31.739785"}
+{"series": "hm001", "event": "submit", "task_id": 377, "time": "2026-10-06T20:06:31.969103"}
+{"series": "hm001", "event": "finish", "status": "failed", "files": {"base": 55, "gap5": 12, "gap1": 0, "db": 1}, "colblk_left": 0, "time": "2026-10-06T20:55:02.463159"}
+{"series": "hm001", "event": "submit", "task_id": 378, "time": "2026-10-06T20:55:02.684395"}
+{"series": "hm001", "event": "finish", "status": "failed", "files": {"base": 55, "gap5": 12, "gap1": 0, "db": 1}, "colblk_left": 0, "time": "2026-10-06T21:41:33.167636"}
+{"series": "hm001", "event": "submit", "task_id": 379, "time": "2026-10-06T21:41:33.395192"}
+{"series": "hm001", "event": "finish", "status": "failed", "files": {"base": 55, "gap5": 12, "gap1": 0, "db": 1}, "colblk_left": 0, "time": "2026-10-06T22:28:03.949945"}
+{"series": "hm001", "event": "submit", "task_id": 380, "time": "2026-10-06T22:28:04.164310"}
+{"series": "hm001", "event": "finish", "status": "failed", "files": {"base": 55, "gap5": 12, "gap1": 0, "db": 1}, "colblk_left": 0, "time": "2026-10-06T23:14:34.598734"}
+{"series": "hm001", "event": "submit", "task_id": 381, "time": "2026-10-06T23:14:34.836749"}
+{"series": "hm001", "event": "finish", "status": "failed", "files": {"base": 55, "gap5": 12, "gap1": 0, "db": 1}, "colblk_left": 0, "time": "2026-10-07T00:03:05.293403"}
+{"series": "hm001", "event": "submit", "task_id": 382, "time": "2026-10-07T00:03:05.532763"}
+{"series": "hm001", "event": "finish", "status": "failed", "files": {"base": 55, "gap5": 12, "gap1": 0, "db": 1}, "colblk_left": 0, "time": "2026-10-07T00:53:36.005301"}
+{"series": "hm001", "event": "submit", "task_id": 383, "time": "2026-10-07T00:53:36.351260"}
+{"series": "hm001", "event": "finish", "status": "cancelled", "files": {"base": 55, "gap5": 12, "gap1": 0, "db": 1}, "colblk_left": 8, "time": "2026-10-07T01:07:06.539317"}
+{"series": "hm001", "event": "submit", "task_id": 384, "time": "2026-10-07T01:07:06.809683"}
+{"series": "hm001", "event": "finish", "status": "cancelled", "files": {"base": 55, "gap5": 12, "gap1": 0, "db": 1}, "colblk_left": 8, "time": "2026-10-07T01:11:36.925555"}
+{"series": "hm012", "event": "submit", "task_id": 385, "time": "2026-10-07T01:11:37.179011"}

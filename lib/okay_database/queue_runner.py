@@ -204,7 +204,10 @@ def pick_next(state: dict) -> dict | None:
     for s in state["series"]:
         if s.get("recheck") == "pending":
             continue  # 完成记录是重建来的、验证结论没被记下，先别提交计算
-        if s["step_rewrite"] == "done" and s["step_submit"] not in ("done", "running"):
+        # 只挑从没提交过的。失败/取消的不能自动重提：那会把同一个错误重复跑满几十分钟，
+        # hm1 连跑 18 次失败就是这么来的（每次 46 分钟全量 + 最后一步抛异常）。
+        # 失败的要先有人查清原因、改完，再把 step_submit 手改回 "pending" 才会重排。
+        if s["step_rewrite"] == "done" and s["step_submit"] == "pending":
             return s
     return None
 
