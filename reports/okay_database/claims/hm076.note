@@ -1,0 +1,62 @@
+hm076「聚义厅（同向/反向订单）」—— 做完，四组对账「通过」
+
+（注：本文件是 claim_series.py complete 之后补写的。complete 会把 .note/.json 收走，
+ 原稿已被消费掉，这里按同样内容重写一份，方便以后接手的人看。）
+
+═══ 一、产物 ═══
+新文件 src/okay_database/hm076.rs（逐股，kind='per_stock'，pipeline='okay_hm076'，77 个因子）。
+因子库文件 /home/chenzongwei/pythoncode/成果hm76_hm77聚义厅/hm76_okay_database.py
+（run_base / run_db / run_h5 / run_h1 四个入口，参数与入选名单从旧 okay 文件原样搬）。
+没有改任何别的系列的文件，没有提交任务系统，没有 git commit。
+
+═══ 二、对账（硬门槛）═══
+lib/okay_database/verify_series.py --series hm076 \
+  --okay /home/chenzongwei/pythoncode/成果hm76_hm77聚义厅/hm76_okay.py \
+  --pairs 20250303:000001,20250304:600519,20180601:000002,20231020:300750
+四组都是「旧 77 值 / 新 77 值，NaN 0，一致」，结论「通过」。
+（旧框架数据根 /ssd_data/data -> replace('/data','') -> /ssd_data/stock 正好是真数据，
+ 没有用 OKAY_VERIFY_DATA_ROOT。）
+
+═══ 三、单日冒烟 ═══
+没有直接跑整天（一天 5117 只 x 均值 2.8 s / 4 并行 约 4 小时，n_jobs 限制下跑不完；
+实测 50 分钟只到 21.4%）。改成「31 只子集 + 临时目录」的冒烟：把
+/ssd_data/stock/20250303/transaction 里 31 个 CSV 软链到 /tmp/hm76_smoke/stock，
+base / colblk / dailybank 路径全指到 /tmp/hm76_smoke，跑
+m.run_base(20250303, 20250303, n_jobs=4) 成功：写出 base/hm76_base 下 77 个 h5
+（含 18 个 _fold 版本），read_factor 读回来是 1 行 x 5792 列、31 个非空，
+临时 colblk 写完 base 后自动删掉。生产路径（/nas197/.../factor_library 与
+/hdd/.../factor_store_hm76_okay_database）里没有留下任何东西。
+
+═══ 四、算力估计（2026-10-06 报给 lead，lead 决定先不做性能改写）═══
+单股单日：随机抽 20 只 @20250303，均值 2.81 s、中位数 0.51 s、最大 16.4 s（重尾，
+000001 这种 7.6 万行的要 8.5 s）。一天 5117 只 约 4 个 CPU 小时。
+全历史 20150105~20251031 约 2600 个交易日 x 5117 只 x 2.8 s 约 1.0 万 CPU 小时，
+400 并行折算约 25 小时（常规系列 3~4 小时，它重，但串行补算队列能扛）。
+慢在哪：ultra_sorted（rp.calculate_order_time_gap_and_price_percentile_ultra_sorted）
+对每个「订单总量」组内部是 O(组内订单数^2) —— 每条记录都要遍历组内全部同向/反向记录、
+push 一份 (时间距离, 价格) 再**全量排序**，而且同一个组在 same / diff 两个方向各算一遍；
+I/O 不是瓶颈（4.6 MB 的 CSV 只要 0.08 s，同一只票算 8.5 s 全花在组内平方复杂度上）。
+真要提速只能改算法（部分选择代替全量排序、去掉每条记录一次的目标下标 clone），
+但那样必须逐位证明结果不变（all_prices 的 rank 用的是 Rust binary_search_by，
+并列元素返回哪个下标是不确定的，价格数组那段不能换排序算法），验证成本不低于系列本身，
+且细微差别就是整列错。按项目规矩，性能优化要先在 sandbox 验证、向用户汇报数字拿同意
+再动主项目 —— 这里的数字已原样报给 lead，本轮未做任何改写。
+
+═══ 五、踩到的几个坑（后续同类系列可复用）═══
+1) 旧代码最后 420 个值走的是 means=DataFrame(means).assign(flag=df.flag)，flag 是
+   **按 index 对齐** df.flag，而 df 已排过序、index 被打乱 -> 均值矩阵第 s 行用的是
+   「排序前第 s 行的 flag」来分 66/83。这是旧代码的对齐错位，照抄才对上（Rust 侧用
+   presort_flag 表达）。第一版按「排序后第 s 行的 flag」写，77 项里错 25 项。
+2) 27 列矩阵在 order_volume 组内是 22 列的（results[orig_idx*22 .. +22]），
+   映射回交易记录那一步才是 27 列。写成一维数组时步长容易混。
+3) autocorr 那两块（一个方向里的下标 288 与 432，以及聚合版 768/912）走的是
+   DataFrame.corrwith(DataFrame)：左边只有 13 个时间间隔列、右边是 24 列的 shift(1)，
+   pandas 在 left + right*0 这一步按**并集**对齐成 24 列，后 11 个价格分位数列全是 NaN。
+   照 Series.corr 写会把那 11 个算成实数。
+4) 一天的纳秒数是 86_400_000_000_000，别抄 hm090 里微秒版的 86_400_000_000。
+5) mean/std/skew/kurt/autocorr1/trend 直接复用 src/features_f64.rs 的 f64 通路并按名字取
+   （实测与 dwo.get_features_factors(with_abs=False) 最大相对偏差 ~1e-9），不用自己写；
+   corrwith(Series) 走 np.corrcoef 两遍法，groupby(...).agg('mean') 走 pandas 的
+   Kahan 补偿求和除以计数。
+6) names_save 77 项去掉 _fold 后有 1 个重名（本来就带 _fold 的那一项），
+   按规范第二次加 _dup2，值不变、列数不变。
