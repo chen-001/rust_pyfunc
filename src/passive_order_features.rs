@@ -85,6 +85,69 @@ pub fn calculate_passive_order_features(
     Ok((array.to_owned(), py_list.into()))
 }
 
+/// 纯 Rust 入口（2026-10-06 加，不改 pyfunction 一行）：与上面的 pyfunction 同一段算法，
+/// 只是不做 PyArray 装箱，直接返回 (行主序的 n_intervals × n_features 值, 列名)。
+///
+/// 用途：hm081 那条链要在 worker 里跑（worker 二进制不带 libpython，
+/// 链路上不能碰 #[pyfunction]）。段指针 left/right 的状态机与 pyfunction 逐行一致：
+/// 它假设 trade_times 非递减，且区间是左开右闭 (start, end]。
+pub fn calculate_passive_order_features_inner(
+    trade_times: &[i64],
+    trade_flags: &[i32],
+    trade_bid_orders: &[i64],
+    trade_ask_orders: &[i64],
+    trade_volumes: &[i64],
+    market_times: &[i64],
+    compute_direction_ratio: bool,
+    compute_flag_ratio: bool,
+) -> (Vec<f64>, Vec<String>) {
+    let n_snapshots = market_times.len();
+    let n_intervals = if n_snapshots == 0 { 0 } else { n_snapshots - 1 };
+
+    let base_features = 63;
+    let direction_features = if compute_direction_ratio { 21 } else { 0 };
+    let flag_features = if compute_flag_ratio { 21 } else { 0 };
+    let total_features = base_features + direction_features + flag_features;
+
+    let column_names = get_column_names(compute_direction_ratio, compute_flag_ratio);
+    if n_intervals == 0 {
+        return (Vec::new(), column_names);
+    }
+
+    let mut result = Vec::with_capacity(n_intervals * total_features);
+    let mut left = 0usize;
+    let mut right = 0usize;
+
+    for interval_idx in 0..n_intervals {
+        let start_time = market_times[interval_idx];
+        let end_time = market_times[interval_idx + 1];
+
+        while left < trade_times.len() && trade_times[left] <= start_time {
+            left += 1;
+        }
+        if right < left {
+            right = left;
+        }
+        while right < trade_times.len() && trade_times[right] <= end_time {
+            right += 1;
+        }
+
+        let features = compute_interval_features(
+            trade_flags,
+            trade_bid_orders,
+            trade_ask_orders,
+            trade_volumes,
+            left,
+            right,
+            compute_direction_ratio,
+            compute_flag_ratio,
+        );
+        result.extend(features);
+    }
+
+    (result, column_names)
+}
+
 fn get_column_names(compute_direction_ratio: bool, compute_flag_ratio: bool) -> Vec<String> {
     let mut names = Vec::new();
 

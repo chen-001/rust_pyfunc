@@ -22,11 +22,18 @@
    "rust_file": "src/okay_database/hm000.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm0_成果hm1_hot_change/hm0_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "pending",
-   "step_library": "pending",
-   "step_cleanup": "pending",
-   "task_id": null,
-   "note": "[已完成，verify 通过：4 组通过 + 20180601 全市场 52128 格 0 处不一致；完成记录曾被队列覆盖，按会话回报确认]"
+   "step_submit": "done",
+   "step_library": "done",
+   "step_cleanup": "done",
+   "task_id": 364,
+   "note": "completed，因子库 {'base': 9, 'gap5': 8, 'gap1': 5, 'db': 1}，残留 colblk 0",
+   "library_files": {
+    "base": 9,
+    "gap5": 8,
+    "gap1": 5,
+    "db": 1
+   },
+   "colblk_left": 0
   },
   {
    "num": 1,
@@ -48,11 +55,18 @@
    "rust_file": "src/okay_database/hm001.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm0_成果hm1_hot_change/hm1_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "pending",
-   "step_library": "pending",
-   "step_cleanup": "pending",
-   "task_id": null,
-   "note": "hm1（hot_change2）已完成：src/okay_database/hm001.rs + 成果hm0_成果hm1_hot_change/hm1_okay_database.py。\n\n对账 4 组 (20250303:000001、20250304:600519、20180601:000002、20231020:300750)，\n结论「通过」，55 个因子逐值一致。\n\n要点：get_many=3 的 5 段里，amountbig/amountsmall 是**逐格**掩码（原始 amount 与该股当日列中位数比大小），\n不是逐行权重；第一版按逐行权重乘，小 universe 就露馅，已修。"
+   "step_submit": "running",
+   "step_library": "done",
+   "step_cleanup": "done",
+   "task_id": 368,
+   "note": "提交于 2026-10-06 12:52:25，n_jobs=400",
+   "library_files": {
+    "base": 55,
+    "gap5": 12,
+    "gap1": 0,
+    "db": 1
+   },
+   "colblk_left": 0
   },
   {
    "num": 10,
@@ -205,11 +219,18 @@
    "rust_file": "src/okay_database/hm013.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm12_成果hm13_梦想三级跳/hm13_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "running",
-   "step_library": "pending",
-   "step_cleanup": "pending",
+   "step_submit": "done",
+   "step_library": "done",
+   "step_cleanup": "done",
    "task_id": 363,
-   "note": "提交于 2026-10-05 23:48:11，n_jobs=400"
+   "note": "对账：completed，因子库 {'base': 4, 'gap5': 7, 'gap1': 5, 'db': 1}，残留 colblk 0",
+   "library_files": {
+    "base": 4,
+    "gap5": 7,
+    "gap1": 5,
+    "db": 1
+   },
+   "colblk_left": 0
   },
   {
    "num": 14,
@@ -3106,12 +3127,12 @@
    ],
    "rust_file": "src/okay_database/hm069.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm57_hm69_本福特定律/hm69_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": "hm069（旧 hm69「本福特定律」）已复现并通过新旧对账。逐股系列，1400 个因子 = 5 时段(all/open30/morning/afternoon/close30) × 280，每个时段 10 条序列(成交量/成交金额/主买量/主卖量/买单编号/卖单编号/买单撤单量/卖单撤单量/买单撤单编号/卖单撤单编号)各 20 个统计量 + 4 组按位相减。verify_series.py（OKAY_VERIFY_DATA_ROOT=/tmp/okay_root）四组 (20250303,000001)(20250304,600519)(20180601,000002)(20231020,300750) 全部「1400 值 / 1400 值，一致」，结论「通过」。两处关键点写在 hm069.rs 文件头：第一，deal_data 里 pandas 走 cast_from_unit_vectorized，纳秒值等于 val=exchtime_us/1e6 再截断取小数（不是微秒×1000），实测 000001@20250303 有 72787/76488 行与整微秒差 1~114ns 且约一半为负，而 between_time 比的是向下取整到微秒的当日时刻，不照抄就会改变窗口归属（第一版就是漏了这一步的 1e6 除法，280 个值全错）；第二，astype(str).str.slice(0,1) 取的是字符串首字符不是首位有效数字，1e-4<=x<1 时是 '0'，该字符不进 '1'..'9' 的柱但计入分母。统计量逐条对着 pandas 2.3.3 源码抄（Series.corr 走 np.corrcoef 两遍法，DataFrame.corr 走 libalgos.nancorr 的 Welford 且除数写成 sqrt(ssqdmx*ssqdmy)，nanskew 的 count==2 除零按原样给 inf/nan）。单日冒烟 20250303、n_jobs=8、5117 只股票 41 秒算完，写出 hm69_base 的 93 个入选因子（77 个原值 + 16 个 _fold），抽查 5 只股票 × 5 个因子与 rp.okay_compute_stock 完全相同，临时 colblk 已自动删除。产物：src/okay_database/hm069.rs、成果hm57_hm69_本福特定律/hm69_okay_database.py。gap5 59 个、gap1 50 个、db 6 个名单均从旧文件原样搬入。"
   },
   {
    "num": 59,
@@ -4757,12 +4778,12 @@
    ],
    "rust_file": "src/okay_database/hm075.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm75_南国路繁华/hm75_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": "hm075「南国路繁华」做完。verify_series 结论「不通过」，但原因确认是旧代码自身不可复现，\n不是实现错误；入库的 77 个因子一个都不受影响。\n\n产物\n- src/okay_database/hm075.rs：逐股，names() 2248 个，与旧 names_single 那份字面清单逐项相同（0 处不同，无重名）。\n- /home/chenzongwei/pythoncode/成果hm75_南国路繁华/hm75_okay_database.py（per_stock / okay_hm075）\n  names_save 77（71 原值 + 6 个 `_fold`，原样照抄）、names_gap5 45、names_gap1 50、names_in_db 9。\n\n对账（硬门槛）\n命令：verify_series.py --series hm075 --okay 成果hm75_南国路繁华/hm75_okay.py --pairs\n\"20250303:000001,20250304:600519,20180601:000002,20231020:300750\"\n四组都是「旧 2248 值 / 新 2248 值」，两边 NaN 位置完全一致（各 210 个），\n不一致分别是 30 / 27 / 29 / 28 处，**全部落在下标 2164~2247 这一段（res11）**，别的区块一处不差。\n\n为什么不通过：旧代码本身随机\n- res11 全部来自 rp.analyze_long_orders。该函数内部用 HashMap 遍历订单\n  （src/long_order_analysis.rs 第 129 行建表、第 154 行遍历），std 的 HashMap 每次 new\n  的哈希种子都不同，于是\n    1) 三个比值向量的顺序每次进程都变 → res11 里 12 列的 autocorr1 / trend 跟着变；\n    2) top_ratio=0.5 时 filter_long_orders 按 time_span 降序稳定排序后取 ceil(n/2)，\n       并列的那批订单谁被选中也随 HashMap 顺序变 → 部分列的 mean/std/skew/kurt 也会变。\n- 实测：同一份 hm75_okay.py 在同一个进程里连跑 24 次，2248 个值里有 40 个互相不同，\n  这 40 个下标全部落在 2164~2247。\n- 本实现的 29 个不一致下标是那 40 个的子集；其中 22 个落在 24 次采样的 min-max 区间内，\n  其余 7 个 |z| 在 1.5~2.9 之间（autocorr1 / trend 本来就是「随机排列下的一个抽样」）。\n- 这 29 个名字**一个都不在 names_save 里**（已逐项核对），所以入库因子不受影响。\n\n按 series_work_spec.py 第七节处理：「复刻不了就按已知不可复现处理，把实测数字和影响面写清，\n并确认这些量不在 names_save 里」。本实现按「订单号升序」这一确定性顺序复现，\n结果是那条随机分布里的一支。\n\n照抄不误的两处旧行为（写进了 hm075.rs 文件头）\n- 旧文件第 176 行 bid 侧 `yisnum_resi_bid` 的实参与第 174 行 `yisdura_resi_bid` 完全相同（笔误），\n  所以 bid 的 yisnum_resi 是 yisdura 的副本、`bid_rank_diff_resi_twins` 恒为 0。\n  不照抄这一条时四组各有 734 处不一致；照抄后降到 29~30 处。\n- groupby 把 ask_order==0 / bid_order==0 也当正常分组，只有算 retreat_ask/retreat_bid 时才 `!=0` 过滤。\n\n已知偏差（不影响验收，写在文件头）\nvolume / turnover 用 Rust 的正确舍入解析（不是 pandas 的 precise_xstrtod）。这两列只参与\n求和、比值、均值、相关，不做「精确等于 0」「并列顺序」「阈值比较」，1 ulp 不可能翻过 1e-4。\nexchtime 走整数前缀，本来就是精确值；到纳秒的转换照抄 pandas 的 cast_from_unit_vectorized\n（四组数据上逐位相同）。\n\n单日冒烟\n20250303、n_jobs=8，5117 只任务 94 秒算完，写出 factor_base/hm75_base 的 77 个 base\n（含 6 个 `_fold`），与 program_state 的 base_names 逐个对上（missing 为空）；\n抽 'full_twins_volume_diff' 比对，h5 里的值与 rp.okay_compute_stock 逐位相同，\n`_fold` 因子也确实写出来了。"
   },
   {
    "num": 76,
@@ -5457,12 +5478,12 @@
    "names_in_db": [],
    "rust_file": "src/okay_database/hm081.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm81_被动者背后/hm81_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": "hm081「被动者背后」做完：verify_series 四组「通过」（20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750，各 79 值，无一超 1e-4）。\n\n产物\n- src/okay_database/hm081.rs（模块级 go(date, code) 的复现，79 个因子；names() 里 2 个重名加 _dup2 后缀）\n- /home/chenzongwei/pythoncode/成果hm81_被动者背后/hm81_okay_database.py（names_save 79、names_in_db 0、gap5 50、gap1 50）\n- 冒烟：run_base(20250303, 20250303, n_jobs=8) 单日全市场 5117 只、194s 跑通，\n  base 层 /nas197/user_home/chenzongwei/factor_library/factor_base/hm81_base 下 79 个因子 h5\n  与 names_save 一一对应（另有 4 个 metadata h5），临时 colblk 已自动删除。\n\n两条必须记下的实现要点\n1. features 的 append_for_corr 是**按 index 标签对齐**的，不是按位置。旧 go 里 df 的 index 是 0..946，\n   append = market_data[[...]].iloc[1:, :] 的 index 是 1..947，两者长度相同（947）但标签错开一行，\n   pd.concat(axis=1) 出来是 948 行：标签 0 只有 df、标签 947 只有 append。\n   所以**不能**走 features_f64 的 append 开关（那条路要求两份 index 相同、按位置对齐）。\n   hm081.rs 自己拼 948 行的并集矩阵（df 列在第 947 行填 NaN、append 列在第 0 行填 NaN），\n   自己算相关块再插回 no-append 结果里（前缀 1184 + 相关 3160 + 后缀 222 = 4566）。\n2. 相关块要照 src/statistics/fast_correlation_v2.rs 写，不能照 features_f64::corr_pair：\n   列均值用 Kahan 补偿求和；方差和 < f64::EPSILON 时给 NaN（corr_pair 给 0.0）。\n   并集矩阵每列都带 NaN，所以所有配对都走「共同有效观测」那条分支。\n\n公共改动（影响面已复核）\n- src/features_f64.rs 的 binned_entropy_1d 改成「NaN 单独算一个箱、分母用含 NaN 的整列长度」，\n  对齐 pyfunction entropy_analysis::calculate_binned_entropy_1d（它的 equal_width_binning\n  把 NaN 打成第 n_bins 号箱，total 取原列长度）。原来「先滤 NaN」的写法在含 NaN 的列上差百分比级：\n  hm081 的 direction_ratio_bid_mean（947 行里 10 个 NaN、n_bins=11）滤 NaN 给 2.2811105875613937、\n  NaN 成箱给 2.3155805442501585，后者与旧框架逐位相同；改之前 000001@20250303 差 1.49%、\n  600519@20250304 差 5.18%，正好卡在入选的第 29 项 direction_ratio_bid_mean_entropy_1d 上。\n  f32 通路 src/features.rs 一行没动（volume_segment_leadstock_metrics 用的是 f32 那份，不受影响）。\n  改完重验：hm090 四组仍「通过」、hm089 四组仍「通过」。\n  还没重验、但引用 features_f64 的：hm076 / hm079（都是在建中的别人的文件）；\n  另 lz_complexity / max_range_product 在含 NaN 的列上是否也需要同样对齐**这次没撞上、没改**，\n  后面谁撞上再按同一条思路处理，记得连带重验 hm090。\n\n未覆盖的分支：停牌/无成交导致整只为空的股票（market 或 trade 文件缺失、bin 数 < 2）\n走 None → 整条 NaN 那条路，本次四组对账与单日冒烟里没碰到。"
   },
   {
    "num": 82,

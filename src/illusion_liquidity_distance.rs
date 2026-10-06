@@ -443,26 +443,21 @@ fn compute_combo(
     }
 }
 
-#[pyfunction]
-pub fn illusion_liquidity_distance_factors(
-    py: Python<'_>,
-    price: PyReadonlyArray1<f64>,
-    volume: PyReadonlyArray1<f64>,
-    turnover: PyReadonlyArray1<f64>,
-    timestamps_ns: PyReadonlyArray1<i64>,
+/// 纯 Rust 入口（2026-10-06 加，纯加法、不改老行为）。
+///
+/// 抽出来的原因：`#[pyfunction]` 版在 worker 链路里不能用（worker 二进制不带 libpython，
+/// 链路上碰到 PyResult/PyErr 会链接失败而构建表面还成功）。计算体一行没改，只是换了入参
+/// 与错误类型（String）。Python 侧入口仍然保持原签名。
+pub fn illusion_liquidity_distance_factors_inner(
+    price: &[f64],
+    volume: &[f64],
+    turnover: &[f64],
+    timestamps_ns: &[i64],
     window: usize,
-) -> PyResult<(Vec<String>, Py<PyArray2<f64>>)> {
-    let price = price.as_slice()?;
-    let volume = volume.as_slice()?;
-    let turnover = turnover.as_slice()?;
-    let timestamps_ns = timestamps_ns.as_slice()?;
-
+) -> Result<(Vec<String>, ndarray::Array2<f64>), String> {
     let n = price.len();
     if n < 2 {
-        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-            "数据量不足: 需要≥2条数据, 当前只有{}条",
-            n
-        )));
+        return Err(format!("数据量不足: 需要≥2条数据, 当前只有{}条", n));
     }
 
     // 预处理
@@ -664,6 +659,26 @@ pub fn illusion_liquidity_distance_factors(
         }
     }
 
-    let arr = ndarray::Array2::from_shape_vec((min_len, ncols), data).unwrap();
+    let arr = ndarray::Array2::from_shape_vec((min_len, ncols), data)
+        .map_err(|e| format!("形状不匹配: {e}"))?;
+    Ok((names, arr))
+}
+
+#[pyfunction]
+pub fn illusion_liquidity_distance_factors(
+    py: Python<'_>,
+    price: PyReadonlyArray1<f64>,
+    volume: PyReadonlyArray1<f64>,
+    turnover: PyReadonlyArray1<f64>,
+    timestamps_ns: PyReadonlyArray1<i64>,
+    window: usize,
+) -> PyResult<(Vec<String>, Py<PyArray2<f64>>)> {
+    let price = price.as_slice()?;
+    let volume = volume.as_slice()?;
+    let turnover = turnover.as_slice()?;
+    let timestamps_ns = timestamps_ns.as_slice()?;
+    let (names, arr) =
+        illusion_liquidity_distance_factors_inner(price, volume, turnover, timestamps_ns, window)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e))?;
     Ok((names, arr.into_pyarray(py).to_owned()))
 }

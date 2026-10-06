@@ -3,3 +3,12 @@
 {"series": "hm011", "event": "submit", "task_id": 362, "time": "2026-10-05T18:42:29.967817"}
 {"series": "hm011", "event": "finish", "status": "completed", "files": {"base": 22, "gap5": 17, "gap1": 15, "db": 0}, "colblk_left": 0, "time": "2026-10-05T23:48:11.358715"}
 {"series": "hm013", "event": "submit", "task_id": 363, "time": "2026-10-05T23:48:11.712692"}
+{"series": "hm000", "event": "submit", "task_id": 364, "time": "2026-10-06T08:56:22.707368"}
+{"series": "hm000", "event": "finish", "status": "completed", "files": {"base": 9, "gap5": 8, "gap1": 5, "db": 1}, "colblk_left": 0, "time": "2026-10-06T10:23:23.376402"}
+{"series": "hm001", "event": "submit", "task_id": 365, "time": "2026-10-06T10:23:23.595956"}
+{"series": "hm001", "event": "finish", "status": "failed", "files": {"base": 55, "gap5": 12, "gap1": 0, "db": 1}, "colblk_left": 0, "time": "2026-10-06T11:12:54.067856"}
+{"series": "hm001", "event": "submit", "task_id": 366, "time": "2026-10-06T11:12:54.293667"}
+{"series": "hm001", "event": "finish", "status": "failed", "files": {"base": 55, "gap5": 12, "gap1": 0, "db": 1}, "colblk_left": 0, "time": "2026-10-06T12:03:54.787047"}
+{"series": "hm001", "event": "submit", "task_id": 367, "time": "2026-10-06T12:03:55.013169"}
+{"series": "hm001", "event": "finish", "status": "failed", "files": {"base": 55, "gap5": 12, "gap1": 0, "db": 1}, "colblk_left": 0, "time": "2026-10-06T12:52:25.481139"}
+{"series": "hm001", "event": "submit", "task_id": 368, "time": "2026-10-06T12:52:25.698389"}

@@ -54,15 +54,19 @@ pub struct FeatureOpts {
     pub with_max_min: bool,
     /// lyapunov 一组，位置在 corr 块之后、lz_complexity 之前（Python 默认 True）。
     pub with_lyapunov_exponent: bool,
+    /// lz_complexity / entropy_1d / max_range_product 三组，排在最后（Python 默认 True）。
+    /// 关掉时这三组一列都不输出，之前的所有组位置不变（2026-10-06 加，纯开关）。
+    pub with_complexity: bool,
 }
 
 impl FeatureOpts {
-    /// 与原来那条 f64 通路完全一致的默认值（关 lyapunov、开 curvature）。
+    /// 与原来那条 f64 通路完全一致的默认值（关 lyapunov、开 curvature、开 complexity）。
     pub const LEGACY: FeatureOpts = FeatureOpts {
         with_threshold_counts: true,
         with_curvature: true,
         with_max_min: false,
         with_lyapunov_exponent: false,
+        with_complexity: true,
     };
 }
 
@@ -680,12 +684,26 @@ fn lz_complexity_suffix_automaton_in(seq: &[u8], buf: &mut Vec<SamState>) -> usi
 }
 
 /// 分箱熵（复制自 entropy_analysis.rs）。等宽分箱 + Shannon 熵。
+///
+/// ！！2026-10-06 改：**NaN 要单独算一个箱**，分母用含 NaN 的整列长度。
+/// 旧框架那张特征表里 entropy_1d 走的是 pyfunction
+/// `entropy_analysis::calculate_binned_entropy_1d`，它内部的 `equal_width_binning`
+/// 把每个 NaN 打成第 `n_bins` 号箱（在 [0, n_bins) 之外多出来的一个箱），
+/// `total` 取的是 `bin_indices.len()`，也就是**原列长度**。
+/// 原来是「先滤掉 NaN、分母用有效值个数」，只要某列含 NaN 就会差出百分比级。
+/// 实测 hm081 的 direction_ratio_bid_mean（947 行里 10 个 NaN、n_bins=11）：
+/// 滤 NaN 给 2.2811105875613937，NaN 单独成箱给 2.3155805442501585，
+/// 后者与旧框架逐位相同；差 1.5%，直接越过 1e-4 验收线。
+/// 注：src/features.rs 的 f32 同名函数**不动**（hm94~hm110 那批依赖它），
+/// volume_segment_leadstock_metrics 用的是 f32 那份，不受这里影响。
 pub(crate) fn binned_entropy_1d(col: &[f64], n_bins: usize) -> f64 {
-    let valid: Vec<f64> = col.iter().filter(|&&v| !v.is_nan()).copied().collect();
-    if valid.is_empty() {
+    if col.is_empty() || n_bins == 0 {
         return 0.0;
     }
-    if n_bins == 0 {
+    let valid: Vec<f64> = col.iter().filter(|&&v| !v.is_nan()).copied().collect();
+    if valid.len() < 2 {
+        // 旧实现：没有有效值、或只剩 1 个有效值、或取不到宽度时，
+        // equal_width_binning 给每个位置都打 0 号箱 → 熵 0。
         return 0.0;
     }
 
@@ -696,17 +714,22 @@ pub(crate) fn binned_entropy_1d(col: &[f64], n_bins: usize) -> f64 {
     }
 
     let bin_width = (max_val - min_val) / n_bins as f64;
-    // 用 Vec 替代 HashMap 保证遍历顺序确定（bin idx ∈ [0, n_bins) 可枚举），
+    // 用 Vec 替代 HashMap 保证遍历顺序确定（bin idx ∈ [0, n_bins] 可枚举），
     // 避免 HashMap 随机迭代序导致浮点求和非结合性 → 确定性 bug。
-    let mut counts: Vec<usize> = vec![0; n_bins];
-    for &v in &valid {
+    // 多出来的最后一格（下标 n_bins）就是 NaN 箱。
+    let mut counts: Vec<usize> = vec![0; n_bins + 1];
+    for &v in col.iter() {
+        if v.is_nan() {
+            counts[n_bins] += 1;
+            continue;
+        }
         let mut idx = ((v - min_val) / bin_width).floor() as usize;
         if idx >= n_bins {
             idx = n_bins - 1;
         }
         counts[idx] += 1;
     }
-    let total = valid.len() as f64;
+    let total = col.len() as f64;
     counts
         .iter()
         .map(|&c| {
@@ -816,6 +839,7 @@ pub fn get_features_factors_rust_full_opts(
             with_curvature,
             with_max_min: false,
             with_lyapunov_exponent: false,
+            with_complexity: true,
         },
         None,
     )
@@ -1224,28 +1248,30 @@ pub fn get_features_factors_rust_full_ex(
         );
     }
 
-    // 8. lz_complexity / entropy_1d / max_range_product
-    push_group(
-        &mut res,
-        &mut names,
-        &col_stats.iter().map(|s| s.lz).collect::<Vec<_>>(),
-        "lz_complexity",
-        col_names,
-    );
-    push_group(
-        &mut res,
-        &mut names,
-        &col_stats.iter().map(|s| s.entropy).collect::<Vec<_>>(),
-        "entropy_1d",
-        col_names,
-    );
-    push_group(
-        &mut res,
-        &mut names,
-        &col_stats.iter().map(|s| s.max_range).collect::<Vec<_>>(),
-        "max_range_product",
-        col_names,
-    );
+    // 8. lz_complexity / entropy_1d / max_range_product（opts.with_complexity，Python 默认 True）
+    if opts.with_complexity {
+        push_group(
+            &mut res,
+            &mut names,
+            &col_stats.iter().map(|s| s.lz).collect::<Vec<_>>(),
+            "lz_complexity",
+            col_names,
+        );
+        push_group(
+            &mut res,
+            &mut names,
+            &col_stats.iter().map(|s| s.entropy).collect::<Vec<_>>(),
+            "entropy_1d",
+            col_names,
+        );
+        push_group(
+            &mut res,
+            &mut names,
+            &col_stats.iter().map(|s| s.max_range).collect::<Vec<_>>(),
+            "max_range_product",
+            col_names,
+        );
+    }
 
     (res, names)
 }
@@ -1900,7 +1926,8 @@ pub fn verify_get_features_factors_rust(
     with_max_min = false,
     with_lyapunov_exponent = false,
     append_matrix = None,
-    append_col_names = None
+    append_col_names = None,
+    with_complexity = true
 ))]
 pub fn verify_get_features_factors_rust_ex(
     data: numpy::PyReadonlyArray2<f64>,
@@ -1911,6 +1938,7 @@ pub fn verify_get_features_factors_rust_ex(
     with_lyapunov_exponent: bool,
     append_matrix: Option<numpy::PyReadonlyArray2<f64>>,
     append_col_names: Option<Vec<String>>,
+    with_complexity: bool,
 ) -> PyResult<(Vec<f64>, Vec<String>)> {
     let view = data.as_array();
     let opts = FeatureOpts {
@@ -1918,6 +1946,7 @@ pub fn verify_get_features_factors_rust_ex(
         with_curvature,
         with_max_min,
         with_lyapunov_exponent,
+        with_complexity,
     };
     let ap = append_matrix.as_ref().map(|m| m.as_array());
     let ap_names: Vec<String> = append_col_names.unwrap_or_default();

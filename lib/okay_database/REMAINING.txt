@@ -1,0 +1,23 @@
+剩余未完成的 26 个系列（2026-10-05 存档）
+
+大块头（旧文件 400~1500 行，逻辑在 pandas 里）：
+hm012 hm024 hm047 hm053 hm056 hm057 hm060 hm062 hm063 hm068 hm069 hm072 hm075
+
+分钟数据里的巨无霸：
+hm059（1164 行，一个股票日 1254 个因子）—— 交接手册 claims/hm059.handback.md
+
+go 函数 + Rust 批量入口（按这个次序做）：
+hm082 hm083 hm079 hm081 hm080 hm091 hm076 hm077 hm086 hm087 hm088 hm092
+
+现成基础设施（别重写，直接用）：
+- src/features_f64.rs 的 get_features_factors_rust_full_ex（带 with_max_min / with_lyapunov_exponent / append_for_corr 三个开关）
+- src/order_pair_metrics_pipeline.rs 的 calculate_order_pair_metrics_more_f64_inner / _v2_f64_inner
+- hm033.rs 的 parse_f64_pandas（pandas 的 CSV 浮点读法）、hm039/hm066.rs 的排序复刻（含 struct Intro 的 introsort）
+- hm044.rs 的纯 Rust DTW
+- lib/okay_database/verify_will.py（will 型系列的对账）
+
+已知的公共缺口：
+- features 少了 lyapunov 开关以外的兼容问题已补；f32 通路 features.rs 一行没动，不要改它
+- lz_complexity / entropy_1d / max_range_product 在含 NaN 的列上与旧框架不一致（Rust 先滤 NaN、旧的把 NaN 也算一个 bin）。真撞上要让 f64 通路向旧框架对齐，并且必须把 hm090 一起重验
+
+交接手册都在 reports/okay_database/claims/ 下，接手前先看有没有对应的 .handback.md 或 .note

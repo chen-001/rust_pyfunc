@@ -26,13 +26,13 @@
 </style></head><body>
 <h1>hm0~hm92 因子库改写与补算进度</h1>
 <div class="sub">共 89 个系列 · 每个系列四步：Rust 改写 → 提交计算（2015-01-05 ~ 2026-09-18，n_jobs=400，同时只跑一个）→ 写入因子库 → 删除 colblk ·
-更新于 2026-10-06 03:09:57（每 10 秒自刷新）</div>
+更新于 2026-10-06 12:52:25（每 10 秒自刷新）</div>
 
 <div class="cards">
  <div class="card"><div class="k">已完成改写</div><div class="v">63 / 89</div></div>
- <div class="card"><div class="k">已算完</div><div class="v">3 / 89</div></div>
- <div class="card"><div class="k">已入因子库</div><div class="v">3 / 89</div></div>
- <div class="card"><div class="k">colblk 已清</div><div class="v">3 / 89</div></div>
+ <div class="card"><div class="k">已算完</div><div class="v">5 / 89</div></div>
+ <div class="card"><div class="k">已入因子库</div><div class="v">6 / 89</div></div>
+ <div class="card"><div class="k">colblk 已清</div><div class="v">6 / 89</div></div>
  <div class="card"><div class="k">失败/取消</div><div class="v">0</div></div>
 </div>
 <div class="bar"><span style="width:70.8%"></span></div>
@@ -40,9 +40,9 @@
 <h2>因子库落点（/nas197/user_home/chenzongwei/factor_library）</h2>
 <table><tr><th>层</th><th>目录</th><th>h5 文件数</th></tr>
 <tr><td>base 原值</td><td class="mono">factor_base/&lt;系列&gt;_base</td><td class="num">1914</td></tr>
-<tr><td>gap5 最终</td><td class="mono">hf_data/&lt;系列&gt;</td><td class="num">36</td></tr>
-<tr><td>gap1 最终</td><td class="mono">hf_data1/&lt;系列&gt;</td><td class="num">39</td></tr>
-<tr><td>dailybank</td><td class="mono">dailybank/&lt;系列&gt;</td><td class="num">12</td></tr>
+<tr><td>gap5 最终</td><td class="mono">hf_data/&lt;系列&gt;</td><td class="num">63</td></tr>
+<tr><td>gap1 最终</td><td class="mono">hf_data1/&lt;系列&gt;</td><td class="num">49</td></tr>
+<tr><td>dailybank</td><td class="mono">dailybank/&lt;系列&gt;</td><td class="num">15</td></tr>
 </table>
 
 <h2>colblk 清理（hm94~hm110 遗留）</h2>
@@ -73,23 +73,17 @@
 
 <h2>本次补算的临时 colblk（应当逐步清空）</h2>
 <table><tr><th>临时目录</th><th>残留 colblk</th></tr>
-<tr><td class='mono'>factor_store_hm13_okay_database</td><td class='num'>8</td></tr>
+<tr><td colspan=2>暂无</td></tr>
 </table>
 
 <h2>队列记录</h2>
-<div class="scroll"><div style="padding:10px"><div class='log'>2026-10-05T08:14:17.449831 · hm029 · submit · 360</div><div class='log'>2026-10-05T12:03:20.090928 · hm010 · submit · 361</div><div class='log'>2026-10-05T18:42:29.967817 · hm011 · submit · 362</div><div class='log'>2026-10-05T23:48:11.358715 · hm011 · finish · completed · 因子库 {&#x27;base&#x27;: 22, &#x27;gap5&#x27;: 17, &#x27;gap1&#x27;: 15, &#x27;db&#x27;: 0}</div><div class='log'>2026-10-05T23:48:11.712692 · hm013 · submit · 363</div></div></div>
+<div class="scroll"><div style="padding:10px"><div class='log'>2026-10-05T08:14:17.449831 · hm029 · submit · 360</div><div class='log'>2026-10-05T12:03:20.090928 · hm010 · submit · 361</div><div class='log'>2026-10-05T18:42:29.967817 · hm011 · submit · 362</div><div class='log'>2026-10-05T23:48:11.358715 · hm011 · finish · completed · 因子库 {&#x27;base&#x27;: 22, &#x27;gap5&#x27;: 17, &#x27;gap1&#x27;: 15, &#x27;db&#x27;: 0}</div><div class='log'>2026-10-05T23:48:11.712692 · hm013 · submit · 363</div><div class='log'>2026-10-06T08:56:22.707368 · hm000 · submit · 364</div><div class='log'>2026-10-06T10:23:23.376402 · hm000 · finish · completed · 因子库 {&#x27;base&#x27;: 9, &#x27;gap5&#x27;: 8, &#x27;gap1&#x27;: 5, &#x27;db&#x27;: 1}</div><div class='log'>2026-10-06T10:23:23.595956 · hm001 · submit · 365</div><div class='log'>2026-10-06T11:12:54.067856 · hm001 · finish · failed · 因子库 {&#x27;base&#x27;: 55, &#x27;gap5&#x27;: 12, &#x27;gap1&#x27;: 0, &#x27;db&#x27;: 1}</div><div class='log'>2026-10-06T11:12:54.293667 · hm001 · submit · 366</div><div class='log'>2026-10-06T12:03:54.787047 · hm001 · finish · failed · 因子库 {&#x27;base&#x27;: 55, &#x27;gap5&#x27;: 12, &#x27;gap1&#x27;: 0, &#x27;db&#x27;: 1}</div><div class='log'>2026-10-06T12:03:55.013169 · hm001 · submit · 367</div><div class='log'>2026-10-06T12:52:25.481139 · hm001 · finish · failed · 因子库 {&#x27;base&#x27;: 55, &#x27;gap5&#x27;: 12, &#x27;gap1&#x27;: 0, &#x27;db&#x27;: 1}</div></div></div>
 
 <h2>全部 89 个系列</h2>
 <div class="scroll"><table>
 <tr><th>系列</th><th>ver</th><th>数据来源</th><th>base 因子数</th>
 <th>改写</th><th>提交</th><th>入库</th><th>清 colblk</th><th>任务</th><th>备注</th></tr>
-<tr><td class='mono'>hm000</td><td class='mono'>hot_change1</td><td>分钟数据</td><td class='num'>0</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>[已完成，verify 通过：4 组通过 + 20180601 全市场 52128 格 0 处不一致；完成记录曾被队列覆盖，按会话回报确认]</td></tr><tr><td class='mono'>hm001</td><td class='mono'>hot_change2</td><td>分钟数据</td><td class='num'>0</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm1（hot_change2）已完成：src/okay_database/hm001.rs + 成果hm0_成果hm1_hot_change/hm1_okay_database.py。
-
-对账 4 组 (20250303:000001、20250304:600519、20180601:000002、20231020:300750)，
-结论「通过」，55 个因子逐值一致。
-
-要点：get_many=3 的 5 段里，amountbig/amountsmall 是**逐格**掩码（原始 amount 与该股当日列中位数比大小），
-不是逐行权重；第一版按逐行权重乘，小 universe 就露馅，已修。</td></tr><tr><td class='mono'>hm002</td><td class='mono'>stranded_trades</td><td>分钟数据</td><td class='num'>0</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>[已完成，verify 通过：4 组通过 + 20180601 全市场 81088 格，最大相对差 5.9e-8；完成记录曾被队列覆盖，按会话回报确认]</td></tr><tr><td class='mono'>hm003</td><td class='mono'>lag_king</td><td>Level2（用到跨股票截面）</td><td class='num'>27</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm003 已完成：verify_series.py 四组 (20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750) 旧 45 值对新 45 值全部一致，结论「通过」（5 个时段 × 9 个指标）。
+<tr><td class='mono'>hm000</td><td class='mono'>hot_change1</td><td>分钟数据</td><td class='num'>0</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>364</td><td class='note'>completed，因子库 {&#x27;base&#x27;: 9, &#x27;gap5&#x27;: 8, &#x27;gap1&#x27;: 5, &#x27;db&#x27;: 1}，残留 colblk 0</td></tr><tr><td class='mono'>hm001</td><td class='mono'>hot_change2</td><td>分钟数据</td><td class='num'>0</td><td><span class='badge ok'>已完成</span></td><td><span class='badge run'>进行中</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>368</td><td class='note'>提交于 2026-10-06 12:52:25，n_jobs=400</td></tr><tr><td class='mono'>hm002</td><td class='mono'>stranded_trades</td><td>分钟数据</td><td class='num'>0</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>[已完成，verify 通过：4 组通过 + 20180601 全市场 81088 格，最大相对差 5.9e-8；完成记录曾被队列覆盖，按会话回报确认]</td></tr><tr><td class='mono'>hm003</td><td class='mono'>lag_king</td><td>Level2（用到跨股票截面）</td><td class='num'>27</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm003 已完成：verify_series.py 四组 (20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750) 旧 45 值对新 45 值全部一致，结论「通过」（5 个时段 × 9 个指标）。
 
 实现要点：
 - change_time=0 是这一系列的关键：exchtime/localtime 两列保持原始微秒，delay 因此是**微秒**单位的真实延迟。
@@ -241,7 +235,7 @@ label 2978 的 flag83 组只有 2 笔（t=[12693.999999999998, 26542.0]），两
 真旧代码用 lib/okay_database/verify_series.py 的 load_old / old_values 拿。
 
 ═══ 纪律 ═══
-没有提交任务系统，没有 git commit，没有留半成品编译不过的文件，构建锁没占。</td></tr><tr><td class='mono'>hm013</td><td class='mono'>hide_order_depth</td><td>Level2 逐笔+盘口</td><td class='num'>4</td><td><span class='badge ok'>已完成</span></td><td><span class='badge run'>进行中</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>363</td><td class='note'>提交于 2026-10-05 23:48:11，n_jobs=400</td></tr><tr><td class='mono'>hm014</td><td class='mono'>hm14</td><td>Level2 逐笔</td><td class='num'>16</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm014（K线里程碑）已完成。src/okay_database/hm014.rs 提供 names/compute_stock（20 个因子，逐股），
+没有提交任务系统，没有 git commit，没有留半成品编译不过的文件，构建锁没占。</td></tr><tr><td class='mono'>hm013</td><td class='mono'>hide_order_depth</td><td>Level2 逐笔+盘口</td><td class='num'>4</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>363</td><td class='note'>对账：completed，因子库 {&#x27;base&#x27;: 4, &#x27;gap5&#x27;: 7, &#x27;gap1&#x27;: 5, &#x27;db&#x27;: 1}，残留 colblk 0</td></tr><tr><td class='mono'>hm014</td><td class='mono'>hm14</td><td>Level2 逐笔</td><td class='num'>16</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm014（K线里程碑）已完成。src/okay_database/hm014.rs 提供 names/compute_stock（20 个因子，逐股），
 compute_cross 返回 None；/home/chenzongwei/pythoncode/成果hm14_k线里程碑/hm14_okay_database.py 已按
 hm29_okay_database.py 的形状建好（names_save 16 个、names_gap5 17 个、names_gap1 18 个、names_in_db 1 个）。
 
@@ -832,6 +826,6 @@ with_lyapunov_exponent 这一个（已补进 features_f64，见下）。
 
 <script>
 // 快照：用 file:// 打开时看的就是它；用本地 http 打开时会自动换成同目录 JSON 的实时值。
-window.__SNAPSHOT__ = {"generated": "2026-10-06 03:09:57", "total": 89, "rewrite": 63, "submit": 3, "library": 3, "cleanup": 3};
+window.__SNAPSHOT__ = {"generated": "2026-10-06 12:52:25", "total": 89, "rewrite": 63, "submit": 5, "library": 6, "cleanup": 6};
 </script>
 </body></html>

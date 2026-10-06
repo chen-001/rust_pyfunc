@@ -1,0 +1,89 @@
+hm082「时间不可逆」—— 认领后交回队列（不是做不出来，是本轮 final-e 上下文快满，别留半成品）
+
+═══ 一、形态：模块级 go(date, code) 系列，重活在两个地方 ═══
+旧文件 /home/chenzongwei/pythoncode/成果hm82_时间不可逆/hm82_okay.py（677 行，go 在第 38 行起）。
+go 只做三件事：
+
+  df = rp.adjust_afternoon(rp.read_trade(code, date)).set_index('exchtime')
+  for m in [4,5,6]:  res += _compute_m(df.copy(), m)      # 每档 1/3 的值
+  res = {k:v for k,v in zip(names,res)}; 取 names_save_unfold（83 项，17 个带 _fold）
+
+read_trade 是默认参数（丢 flag==32），**没有用 read_market**。整条链只用逐笔的
+price / volume / turnover 三列。
+
+═══ 二、_compute_m(df, m) 逐步 ═══
+1) df.volume_signed = df.volume * np.sign(df.price - 70)   ← 阈值就是写死的 70（不是当日均价）
+2) 六次调用两个大函数（各自返回 dict，含 10 个字段）：
+     rp.time_irreversibility_static_detailed(v, m)   → local_irreversibility_signed / relative_bias
+                                                       / i_ord / permutation_entropy
+                                                       / normalized_permutation_entropy / kl_divergence
+     rp.time_irreversibility_transfer_detailed(v, m) → flow_direction / i_trans / entropy_rate
+                                                       / transition_entropy
+   v 分别取 df.volume、df.volume_signed、df.price（volume 与 volume_signed 各调 static+transfer，
+   price 只调 static+transfer，共 6 次）。
+3) 派生出 13 列（tick 层，长度 = 逐笔行数）：
+   volume_local_irreversibility_signed / volume_relative_bias / volume_flow_direction /
+   volume_signed_local_irreversibility_signed / volume_signed_relative_bias / volume_signed_flow_direction /
+   price_local_irreversibility_signed / price_relative_bias / price_flow_direction /
+   cross_lir_vol_signed_vs_vol = 前者减后者、cross_lir_price_vs_vol、cross_flow_vol_signed_vs_vol、
+   cross_flow_price_vs_vol（cross_* 都是两个 detailed 结果相减）
+4) 三个 1 分钟序列（resample('1min').apply 每个 bin 给一个标量）：
+     df.volume|volume_signed|price × time_irreversibility_static_simple(...,m)
+     df.volume|price            × time_irreversibility_transfer_simple(...,m)   ← 只有 5 个 simple
+   外加 volume_minute = resample.volume.sum()、volume_signed_minute、price_minute =
+   resample.turnover.sum() / resample.volume.sum()。合成 data_minute（8 列）。
+5) data_minute_son = data_minute 的 5 列（去掉 volume/volume_signed/price）。
+6) 两次特征：
+     res1,names1 = rp.get_features_factors(data(13列), with_max_min=True,
+                     with_lyapunov_exponent=False, append_for_corr=df[['volume','volume_signed','price']])
+     res2,names2 = rp.get_features_factors(data_minute_son(5列), with_max_min=True,
+                     with_lyapunov_exponent=False, append_for_corr=data_minute[['volume','volume_signed','price']])
+   **这两处的 append 与 df 的 index 完全相同（同一张表取子列），所以按位置对齐就对**，
+   与 hm081 那种「index 错开一行」的情形不同 —— 可以直接用 features_f64 的 append 开关：
+     FeatureOpts { with_threshold_counts: true, with_curvature: false, with_max_min: true,
+                   with_lyapunov_exponent: false }
+     features_f64::get_features_factors_rust_full_ex(&m.view(), &cols, opts, Some((&ap.view(), &ap_cols)))
+   （with_threshold_counts 是 Python 的默认值 True，别按 hm090 那档写 false。）
+7) factors = 21 个标量 + res1 + res2 + 两段条件切割：
+   · tick 段：cols = 13 个 tick 列 + 3 个 raw 列（volume/volume_signed/price），共 16 列；
+     16×16 对，每对 pp ∈ {90,75}：threshold = np.percentile(A[~isnan(A)], pp)，
+     mask = A > threshold，push safe_mean(B, mask) 和 safe_sum(B,mask)/(np.nansum(B)+1e-8)。
+     safe_mean/safe_sum 在 mask.sum()==0 时返回 0（不是 NaN）。
+     → 16*16*2*2 = 1024 个值
+   · minute 段：cols = data_minute 的 8 列，8*8*2*2 = 256 个值
+   每档共 21 + len(res1) + len(res2) + 1024 + 256。
+8) names 由 _gen_stat_names / _gen_cut_names 生成（顺序必须逐字对上）：
+   _stat_ops 21 项 = mean median std skew kurt max min range p5 p25 p75 p95 iqr cv
+                     autocorr1 autocorr1_abs trend period_diff period_ratio
+                     mean_above_p90 mean_below_p10     ← 与 with_max_min+threshold 的清单一致
+   _extra_ops 3 项 = lz_complexity entropy_1d max_range_product（排在 corr 之后）
+   corr 对 = C(len(cols)+3, 2)，列集 = cols + raw 三列，名字 {a}_corr_{b}
+   每档名字顺序 = [21 个 {p}_{md}{tag}] + stat(tick) + stat(minute) + cut(tick+raw) + cut('minute_'+minute+raw)
+
+═══ 三、必须先补的公共件（现在还没有）═══
+src/time_irreversibility.rs 里四个都是 #[pyfunction]，body 直接写在里面，**没有纯 Rust 入口**：
+  time_irreversibility_static_simple / static_detailed / transfer_simple / transfer_detailed
+worker 链路不能调 #[pyfunction]，所以照 hm089（allo_microstructure）与 hm081
+（passive_order_features）的做法，在同一个文件里加 pub fn *_inner(data: &[f64], m: usize) -> ...，
+把 pyfunction 的 body 原样搬进去、pyfunction 改成薄壳转调（或干脆复制一份，pyfunction 一行不改）。
+detailed 那两只要返回 dict 的 10 个字段，建议返回 struct 或 [f64; 10] + 具名的取值函数。
+hm083 是同一族（time_irreversibility_{static,transfer}_detailed + 自己 groupby 切割），
+这两个 inner 一次做完两个系列都能用 —— 先做 inner 这一件是最划算的。
+
+═══ 四、几个会踩的坑（本轮已确认过的几条）═══
+· resample('1min').apply(标量函数)：bin 从当日 00:00:00 起按 1 分钟对齐、label 取左边界；
+  每个 bin 把该列在该区间内的**原始值（含 NaN）**喂给函数；空 bin 也会调（要先实测空输入返回什么，
+  不要猜）。1 分钟整除一天，所以与「按平移后时间轴分箱」一致。
+· 下午平移与 hm081/hm090 一样：上午 [09:30,11:30]、下午 [13:00,14:57] 闭区间、下午前移 90 分钟、
+  上午全部在前下午全部在后；pandas 的时间是纳秒（±120ns 噪声只在边界上才可能有影响，见 hm081.rs 的说明）。
+· price/volume/turnover 一律自解析 f64（hm090.rs / hm033.rs 的 parse_f64_pandas 可复用）。
+· np.percentile 是线性插值（(n-1)*q 位置），且**只对非 NaN 求**（旧代码自己传了 A[~isnan(A)]）。
+· safe_mean/safe_sum 空 mask 给 0；分母是 np.nansum(B)+1e-8，全 NaN 时是 1e-8 不是 NaN。
+· names_save 里有 _fold 后缀，按老规矩交给 write_selected_base 算；重名要加 _dup2
+  （先在旧文件里搜一遍 names_save_unfold 有没有重复）。
+· 本轮我已经把 src/features_f64.rs 的 binned_entropy_1d 对齐到旧框架（NaN 单独成箱）——
+  hm082 的入选项里有 cross_flow_vol_signed_vs_vol_m4_entropy_1d，正好吃这个修正，别再改回去。
+
+═══ 五、本轮动过的东西 ═══
+没有新建 src/okay_database/hm082.rs（一行都没落盘），没有改任何别的系列的文件，
+没有提交任务系统。本轮我完成的是 hm081，见同目录 hm081.note。
