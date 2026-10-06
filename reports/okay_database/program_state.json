@@ -58,8 +58,8 @@
    "step_submit": "running",
    "step_library": "done",
    "step_cleanup": "done",
-   "task_id": 368,
-   "note": "提交于 2026-10-06 12:52:25，n_jobs=400",
+   "task_id": 369,
+   "note": "提交于 2026-10-06 13:44:26，n_jobs=400",
    "library_files": {
     "base": 55,
     "gap5": 12,
@@ -2884,12 +2884,12 @@
    ],
    "rust_file": "src/okay_database/hm056.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm56_瞬时协同后的死亡半衰期/hm56_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": "hm056「瞬时协同后的死亡半衰期」已用 Rust 复现（src/okay_database/hm056.rs，520 个因子），\n新旧对账四组「通过」。\n\n对账：OKAY_VERIFY_DATA_ROOT=/ssd_data --pairs 20250303:000001 / 20250304:600519 /\n20180601:000002 / 20231020:300750，四组都是「旧 520 值 / 新 520 值」逐值一致（门槛 1e-4），\nNaN 个数两边也相同（6 / 2 / 4 / 0），结论「通过」。\n单日小样本冒烟：20250303 全市场，n_jobs=8，30 秒跑完 5117 只，base 写到\n/hdd/user_home_unsafe/chenzongwei/hm56_smoke（临时目录，没碰正式因子库）。\n\n结构：旧代码没有 adjust_afternoon，只切两个真实钟点窗口 [09:30,09:45] 与 [14:45,14:57]，\n每个窗口跑两遍（extreme=0 用 find_half_energy_time，extreme=1 用 find_half_extreme_time），\n四段 130 项拼成 520，顺序 = open15_full / close15_full / open15_extreme / close15_extreme。\n\n四个 #[pyfunction] 的纯 Rust 版抄进了本文件（worker 不带 libpython 不能在链路里调）：\nfind_half_energy_time / find_half_extreme_time（与 hm047.rs 的同名函数逐行一致）、\nfind_follow_volume_sum_same_price（与 hm048.rs 的 ffvsp 一致）、mark_follow_groups。\nsrc/time_series 一行没动。本系列的调用都走默认 timeout=None、filter_ratio=0，\n所以超时机制和频率过滤两条分支整段没抄。\n\n几个必须对齐的细节：\n- find_half_*_time 收到的第一参数是 datetime64[ns].to_numpy(dtype=float)，也就是**纳秒**的\n  f64，函数内部再 /1e9 变秒；exchtime 的纳秒值照抄 pandas 的 cast_from_unit_vectorized。\n- DataFrame.corr() 的 libalgos.nancorr 只算 yi<=xi 那一半再对称复制，\n  covxy += (vx-meanx_new)*dy_old，两列换序差 1e-3 量级。这里的 frame 恒为\n  [其它列, energy列]，所以本文件统一写成 welford_corr(energy, other)。\n- sum 跳过 NaN，空组/全 NaN 组的 sum 是 0.0（bse_* 那 5 项在 66/83 组为空时就是靠这条），\n  mean/std 是 NaN；std 是样本标准差 ddof=1。\n- round(follow_price - volume, 2) 是 numpy 的 rint(x*100)/100。\n- Series.autocorr(5) 要求 len>5，旧代码的 try/except 会把它吞成「整只股票当日全 NaN」，\n  所以去重后行数 < 6（含 0 行）时本文件返回 None，不是返回 130 个 NaN。\n  只有「窗口本身为空」或「窗口行数 >= 100000」才返回 130 个 NaN。\n\n因子库文件写在 成果hm56_瞬时协同后的死亡半衰期/hm56_okay_database.py：\nnames_save 76 项（旧 names_save_unfold 的 49 项 + 27 个 _fold 版本，\n因为新流水线只在「带 _fold 的名字也在 names_save 里」时才生成折出版本），\nnames_gap5 27 项、names_gap1 21 项、names_in_db 2 项，全部照搬旧文件。"
   },
   {
    "num": 57,

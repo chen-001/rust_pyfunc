@@ -145,14 +145,16 @@ const CORR_KEYS: [(&str, usize, &str); 18] = [
 
 /// 四组的顺序 = res 里 120 个 half_* 的顺序
 const GRP4: [&str; 4] = ["large", "small", "66", "83"];
-/// 六个方向列的顺序 = res 里每组的列序
-const DIR_COLS: [(&str, usize); 6] = [
-    ("N1_up", E_N1_UP),
-    ("N2_up", E_N2_UP),
-    ("M1_up", E_M1_UP),
-    ("N1_down", E_N1_DOWN),
-    ("N2_down", E_N2_DOWN),
-    ("M1_down", E_M1_DOWN),
+/// 六个方向列的顺序 = res 里每组的列序。
+/// 名字是 `half_{统计量}_{能量列}_{组}_{up|down}_{窗口}`，
+/// 注意**组名在 up/down 前面**（旧代码的变量名如 half_std_M1_66_up 就是这个形状）。
+const DIR_COLS: [(&str, &str, usize); 6] = [
+    ("N1", "up", E_N1_UP),
+    ("N2", "up", E_N2_UP),
+    ("M1", "up", E_M1_UP),
+    ("N1", "down", E_N1_DOWN),
+    ("N2", "down", E_N2_DOWN),
+    ("M1", "down", E_M1_DOWN),
 ];
 /// 五个统计量的顺序
 const STATS5: [&str; 5] = ["std", "max", "median", "autocorr1", "autocorr2"];
@@ -177,9 +179,9 @@ pub fn names() -> Vec<String> {
         });
     }
     for g in GRP4.iter() {
-        for (c, _) in DIR_COLS.iter() {
+        for (c, d, _) in DIR_COLS.iter() {
             for s in STATS5.iter() {
-                base.push(format!("half_{}_{}_{}", s, c, g));
+                base.push(format!("half_{}_{}_{}_{}", s, c, g, d));
             }
         }
     }
@@ -801,7 +803,7 @@ fn one(fr: &Frame, sel: &[usize]) -> Option<Vec<f64>> {
     }
     // 120 个 half_*
     for g in groups.iter() {
-        for (_, c) in DIR_COLS.iter() {
+        for (_, _, c) in DIR_COLS.iter() {
             let x: Vec<f64> = g.iter().map(|&i| fr.energy[i][*c]).collect();
             out.push(ff::col_std(&x));
             out.push(ff::col_max(&x));

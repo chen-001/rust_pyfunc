@@ -1,0 +1,57 @@
+hm068「反向车灯」—— 认领后交回队列（评估后没开工，不是做不出来，是本轮上下文不够）
+
+═══ 一、形态 ═══
+旧文件 /home/chenzongwei/pythoncode/成果hm68_反向车灯/hm68_okay.py（482 行），逐股系列。
+get_many=0 / read_full=0 / change_time=1，Go 里第一步就是 dwo.adjust_afternoon(df)。
+
+  res = sing(df, 1, 1) + sing(df, 1, 10) + sing(df, 10, 1)      # (perc, seconds) 三档
+  sing(df, perc, seconds):
+      car_bid, car_ask = rp.order_contamination_bilateral(
+          df.exchtime.to_numpy(int), df.bid_order.to_numpy(int),
+          df.ask_order.to_numpy(int), df.volume.to_numpy(int), perc, seconds)
+      df = df.assign(car_ask=car_ask, car_bid=car_bid)
+      temp_ask = groupby('ask_order').turnover.sum() / groupby('ask_order').volume.sum()
+      temp_bid = 同 bid_order；temps = concat([temp_ask, temp_bid])   ← index 会有重复值
+      temp_high = temps[temps >= temps.quantile(0.8)]；temp_low = temps[temps <= temps.quantile(0.2)]
+      df_high = df[car_ask.isin(temp_high.index) | car_bid.isin(temp_high.index)]
+      df_low  = 同（用 temp_low）
+      res0, res1, res2 = one(df), one(df_high), one(df_low)
+      res = res0 + res1 + res2 + (res1-res0) + (res2-res0)        # 5 段 × 156 = 780
+  最后 names = 5 个后缀 × 3 档 (perc,seconds) = 15 × 156 = **2340 个因子**。
+  后缀顺序：_quan2tian1 / _gao1jia420perc / _di1jia420perc /
+            _gao1jia420percjian3quan2tian1 / _di1jia420percjian3quan2tian1，
+  再外面套 _1perc1s / _1perc10s / _10perc1s。names 里没有重名。
+
+═══ 二、one(df) 的 156 项（机械但量大） ═══
+每项都是 ask / bid 成对出现，共 78 对。用到的 pandas 口径：
+  nunique / mean / std / skew / kurt / median / min / max / sum / autocorr() / corr(price) /
+  corr(volume) / trend（rp.trend）/ quantile / isin / groupby(...).sum() / reset_index 后的
+  两列相关。
+  另外 df_affected_ask/bid.volume 会先被除以 df.volume.sum() 再算 std/skew/kurt/median/autocorr；
+  rates_ask = new_ask / old_ask_only（按 index 交集对齐）之后 reset_index，再算
+  rates_ask.volume.corr(rates_ask.car_ask)。
+
+要复刻的第三方口径（和 hm024/hm056 是同一套，可直接搬）：
+  · Series.std 是 ddof=1；skew 是无偏 G2；kurt 是无偏 G2（bias 修正）——skew/kurt 要点开
+    pandas/core/nanops.py 的 nanskew / nankurt 逐字抄。
+  · Series.autocorr(k) = corr(shift(k)) → np.corrcoef 两遍法；lag >= len 抛 ValueError，
+    旧代码的 try/except 会吞成「整只股票当日全 NaN」。
+  · Series.corr(Series) 也是 np.corrcoef 两遍法（不是 DataFrame.corr 的 Welford）。
+  · rp.trend 是 #[pyfunction]（src/time_series/trend_mod.rs:44），worker 链路不能调；
+    hm015/hm048/hm060/hm064/hm065/hm067/hm071/hm073/hm075/hm076 里都有纯 Rust 版可抄。
+  · rp.order_contamination_bilateral 同样是 #[pyfunction]（src/order_contamination.rs:297），
+    函数体约 200 行、自包含（只用本文件的输入数组），整段抄进 hmXXX.rs 即可，
+    注意里面 HashMap 的 values() 只喂给 select_nth_unstable_by 取第 k 大，
+    阈值是良定义的、与迭代顺序无关。
+
+═══ 三、几个要注意的点 ═══
+· adjust_afternoon 会改行序（上午全部在前、下午全部在后），autocorr / trend 对行序敏感，
+  必须照抄；exchtime 传进 order_contamination_bilateral 前是 datetime64[ns].to_numpy(int)，
+  也就是**纳秒整数**。
+· temps = concat([temp_ask, temp_bid]) 的 index 会重复，quantile 是对全部元素（含重复）算的，
+  线性插值口径 (n-1)*q。
+· names_save 77 项（12 个带 _fold），names_save_unfold 72 项；写因子库文件时两边都要带上
+  （新流水线只在「带 _fold 的名字也在 names_save 里」时才生成折出版本），去重后共 84 个。
+
+═══ 四、本轮动过的东西 ═══
+没有新建 src/okay_database/hm068.rs，没有改任何别的系列的文件，没有提交任务系统。
