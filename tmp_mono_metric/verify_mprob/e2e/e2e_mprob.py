@@ -31,9 +31,11 @@ WINDOWS = [5, 10, 20]
 
 
 def slot_order():
+    # 每个窗口在 tail_v5_rank_fill_roll_block_f32 里占 5 个 slot：
+    # mean / max / min / std / autocorr（顺序必须与 Rust 侧一致）
     o = ["smooth_1"]
     for w in WINDOWS:
-        for st in ("mean", "max", "min", "std"):
+        for st in ("mean", "max", "min", "std", "autocorr"):
             o.append(f"{st}_smooth_{w}")
     return o
 

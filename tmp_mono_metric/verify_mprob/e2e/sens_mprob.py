@@ -21,7 +21,9 @@ BASE = "/tmp/mprob_smoke_on_tail_v4"
 SRC = "/hdd/user_home_unsafe/chenzongwei/factor_data/mprob_smoke_on"
 SRCNAME = "microcapm_observable_ratio_level_capm_residual_zscore_mean_mean"
 STAT = "mean_smooth_5"
-_ORDER = ["smooth_1"] + [f"{st}_smooth_{w}" for w in (5, 10, 20) for st in ("mean", "max", "min", "std")]
+_ORDER = ["smooth_1"] + [
+    f"{st}_smooth_{w}" for w in (5, 10, 20) for st in ("mean", "max", "min", "std", "autocorr")
+]
 SLOT = _ORDER.index(STAT)
 GAP = 1
 STYLE = "/ssd_data/data/vars"

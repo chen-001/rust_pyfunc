@@ -812,8 +812,89 @@ fn sandbox_ic_pearson_fast(
     Ok(out.into_pyarray(py).to_owned())
 }
 
+// ============================================================================
+//  Sandbox: 收尾引擎 rolling 自相关（对齐旧框架 tail_whatever.autocorr_df）
+//
+//  口径：在已经横截面 rank、也做过可交易缺失填充的矩阵上，对每个日期取长度 window
+//  的滚动窗口，算该列与其滞后一期（上一行）的 Pearson 相关系数。
+//  与 pandas `son.corrwith(son.shift(1))` 一致：
+//    · 窗口 [row-window+1, row] 内相邻行组成配对 (v[k], v[k-1])，共 window-1 对；
+//    · 只保留两侧都非 NaN 的对（成对完整观测）；
+//    · 有效对少于 2 对、或任一侧中心化平方和为 0 时返回 NaN；
+//    · 第 window-1 行起才有值，之前 NaN（与 rolling mean/max/min/std 对齐）。
+// ============================================================================
+
+pub fn rolling_autocorr_f32_serial(ranked: &Array2<f32>, window: usize) -> Array2<f32> {
+    let n_rows = ranked.nrows();
+    let n_cols = ranked.ncols();
+    let mut out = Array2::<f32>::from_elem((n_rows, n_cols), f32::NAN);
+    if window < 2 {
+        return out;
+    }
+    let mut buf = vec![0.0f64; window];
+    for col_idx in 0..n_cols {
+        for row_idx in (window - 1)..n_rows {
+            let start = row_idx + 1 - window;
+            for (t, slot) in buf.iter_mut().enumerate() {
+                *slot = ranked[[start + t, col_idx]] as f64;
+            }
+            let mut n = 0usize;
+            let mut sx = 0.0f64;
+            let mut sy = 0.0f64;
+            for t in 0..(window - 1) {
+                let x = buf[t + 1];
+                let y = buf[t];
+                if !x.is_nan() && !y.is_nan() {
+                    n += 1;
+                    sx += x;
+                    sy += y;
+                }
+            }
+            if n < 2 {
+                continue;
+            }
+            let mx = sx / n as f64;
+            let my = sy / n as f64;
+            let mut sxx = 0.0f64;
+            let mut syy = 0.0f64;
+            let mut sxy = 0.0f64;
+            for t in 0..(window - 1) {
+                let x = buf[t + 1];
+                let y = buf[t];
+                if !x.is_nan() && !y.is_nan() {
+                    let dx = x - mx;
+                    let dy = y - my;
+                    sxx += dx * dx;
+                    syy += dy * dy;
+                    sxy += dx * dy;
+                }
+            }
+            if sxx > 0.0 && syy > 0.0 {
+                out[[row_idx, col_idx]] = (sxy / (sxx * syy).sqrt()) as f32;
+            }
+        }
+    }
+    out
+}
+
+#[pyfunction]
+#[pyo3(signature = (ranked, window))]
+pub fn sandbox_autocorr_f32<'py>(
+    py: Python<'py>,
+    ranked: PyReadonlyArray2<'py, f32>,
+    window: usize,
+) -> PyResult<&'py PyArray2<f32>> {
+    let view = ranked.as_array();
+    let owned =
+        Array2::<f32>::from_shape_vec(view.dim(), view.iter().copied().collect())
+            .map_err(|_| pyo3::exceptions::PyValueError::new_err("ranked 形状无效"))?;
+    let out = py.allow_threads(|| rolling_autocorr_f32_serial(&owned, window));
+    Ok(out.into_pyarray(py))
+}
+
 #[pymodule]
 fn dev_sandbox(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(sandbox_autocorr_f32, m)?)?;
     m.add_function(wrap_pyfunction!(sandbox_ic_old, m)?)?;
     m.add_function(wrap_pyfunction!(sandbox_ic_new, m)?)?;
     m.add_function(wrap_pyfunction!(sandbox_ic_pearson_old, m)?)?;

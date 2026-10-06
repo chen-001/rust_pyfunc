@@ -274,7 +274,12 @@ class _ProductionRuntime:
             )
 
     def final_frames(self, names, start_date, end_date):
-        """复用收尾引擎的 rank → 可交易缺失中位数填充 → rolling，保持 float32 口径。"""
+        """复用收尾引擎的 rank → 可交易缺失中位数填充 → rolling，保持 float32 口径。
+
+        rolling 算子与 Rust 侧 `tail_v5_rank_fill_roll_block_f32` 的 slot 布局一一对应：
+        slot 0 是填好的 rank，其后每个窗口固定 5 位，顺序为
+        mean / max / min / std / autocorr（autocorr 与旧框架 autocorr_df 同口径）。
+        """
         groups = {}
         for name in names:
             if name.endswith("_smooth_1"):
@@ -283,7 +288,7 @@ class _ProductionRuntime:
                 prefix, window = name.rsplit("_smooth_", 1)
                 source, stat = prefix.rsplit("_", 1)
                 window = int(window)
-                if stat not in ("mean", "max", "min", "std"):
+                if stat not in _TAIL_ROLL_STATS:
                     raise ValueError("不支持的收尾算子: " + name)
             groups.setdefault(source, []).append((name, stat, window))
         days = [int(d) for d in self.rp.td.trading_days]
@@ -310,8 +315,8 @@ class _ProductionRuntime:
             for index, window in enumerate(windows):
                 slots.update(
                     {
-                        (stat, window): 1 + 4 * index + offset
-                        for offset, stat in enumerate(("mean", "max", "min", "std"))
+                        (stat, window): 1 + len(_TAIL_ROLL_STATS) * index + offset
+                        for offset, stat in enumerate(_TAIL_ROLL_STATS)
                     }
                 )
             for name, stat, window in targets:
@@ -404,6 +409,11 @@ class _ProductionRuntime:
                 temporary = self.state_path.with_suffix(".tmp")
                 temporary.write_text(json.dumps(state, ensure_ascii=False))
                 temporary.replace(self.state_path)
+
+
+# 收尾 rolling 的算子清单，顺序必须与 Rust 侧 tail_v5_rank_fill_roll_block_f32
+# 每个窗口输出的 5 个 slot 一致（mean / max / min / std / autocorr）。
+_TAIL_ROLL_STATS = ("mean", "max", "min", "std", "autocorr")
 
 
 _SETTINGS = [

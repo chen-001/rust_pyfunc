@@ -38,6 +38,9 @@ GAP = 5
 PORTF = 10
 WINDOWS = [5, 10, 20]
 STATS = ("mean", "max", "min", "std")
+# 每个窗口在 tail_v5_rank_fill_roll_block_f32 里占的 slot 数：
+# smooth_1 之后依次是 mean/max/min/std/autocorr（autocorr 与旧框架 autocorr_df 同口径）
+SLOTS_PER_WINDOW = 5
 
 
 def parse_name(name):
@@ -49,7 +52,7 @@ def parse_name(name):
             token = f"_{stat}_smooth_"
             if token in name:
                 variant, win = name.rsplit(token, 1)
-                slot = 1 + WINDOWS.index(int(win)) * 4 + STATS.index(stat)
+                slot = 1 + WINDOWS.index(int(win)) * SLOTS_PER_WINDOW + STATS.index(stat)
                 break
         else:
             raise ValueError(f"无法解析派生名: {name}")
