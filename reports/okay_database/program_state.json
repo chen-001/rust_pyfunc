@@ -187,12 +187,12 @@
    "names_in_db": [],
    "rust_file": "src/okay_database/hm012.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm12_成果hm13_梦想三级跳/hm12_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": "hm012 梦想三级跳 —— 未通过对账，交回（代码已写好且能编译，差最后一处）\n\n═══ 一句话结论 ═══\nRust 侧逻辑已按旧代码写完并编译通过，四组对账样本里 600519@20250304、000002@20180601、\n300750@20231020 三组「一致」，只有 000001@20250303 不一致（#0 相对误差 1.4e-4、#1 7.1e-3、\n#2 2.0e-4），所以整体判「不通过」。差异已经定位到 5 个 label 上，不是逻辑写错，是浮点求和\n的最后一个 ulp 问题，但我这轮上下文不够，没能收掉，交回。\n\n═══ 现状（文件都是干净的）═══\n· src/okay_database/hm012.rs 已写好、能编译、无临时调试代码、无 REGISTRY_SKIP。\n  （16:31 我一度把带编译错误的临时调试块留在主文件里，把全队构建堵了一次，已经删干净，\n   第一行的 REGISTRY_SKIP 也删了。这个是我的操作问题，抱歉。）\n· /home/chenzongwei/pythoncode/成果hm12_成果hm13_梦想三级跳/hm12_okay_database.py 还没建。\n· 临时探索脚本都已删除。\n\n═══ 旧代码语义（已完全摸清，接手的人直接用）═══\nget_many=0 / read_full=0 / change_time=1，per_stock，5 个因子：\n  all_mean4_p1, open30_mean4_p1, morning_mean4_p1, afternoon_mean4_p1, close30_mean4_p1\n流程：\n1) df = 逐笔（丢 flag==32）；df2 = 盘口（**不过滤 last_prc**，与 hm013/hm041 不同）\n2) df2 切 [09:30:00, 14:57:00]，按窗口内行号打 label（0 起），\n   drop_duplicates(subset=['exchtime']) 同一时刻只留第一行\n3) concat([df, df2_label]).sort_values(['exchtime'])，label 做 ffill\n   → 每笔成交拿到「排在它前面的最后一个快照」的 label\n   单键 sort_values 走 numpy 的不稳定 quicksort，并列顺序要逐行复刻\n   （hm012.rs 里那段 np_argsort_quicksort 与 hm013.rs 同源，已按 numpy 对过）\n4) 再切一次窗口，按 label 分组：\n   flag==66 的成交量/成交额之和、flag==83 的之和\n   price3 = 成交额之和 / 成交量之和（dropna 只丢 NaN，inf 留着）\n   price1 = 该 label 的 ask_prc1 / bid_prc1\n5) 每个时段（all/open30/morning/afternoon/close30）：\n   x = |price3_asks - ask_prc1|，y = |bid_prc1 - price3_bids|\n   d = x / (x + y)，分母恰好为 0 的换成 NaN\n   该时段结果 = d 的均值（跳过 NaN；两侧任一为空则整段 NaN）\n\n═══ 两个必须照抄、否则整段偏 0.2%~0.4% 的点（都已写进 hm012.rs）═══\n1) pandas 的 `groupby(...).sum()` 对 float64 用的是 **Kahan 补偿求和**，不是普通顺序累加。\n   实测：n=40 和 n=5000 的随机数组上，groupby == Kahan == np.sum(pairwise) != 顺序累加；\n   n=300 上 groupby == Kahan == 顺序累加 != pairwise。四次都是 groupby == Kahan。\n   差 1 ulp 会让 price3 与 price1 从「恰好相等」变成差 1e-15，于是 (x+y) 从 0 变非 0，\n   多算进一个 d 样本，均值就偏 0.2%~0.4%。\n2) 时段的 label 集合不是「快照时刻落在时段内」，而是「该时段内所有行（成交 + 盘口）的 label」。\n   成交如果紧跟在时段开始前那一笔快照后面，会把那个**时段外**的快照 label 也带进这个时段。\n   实测 600519@20250304 的 close30：label 4365 的快照时刻是 14:29:58，但它被算进了 close30。\n   漏掉它 close30 偏 0.4%。hm012.rs 里已按「两侧并集」实现。\n\n═══ 剩下那一处（接手的人从这里接着查）═══\n用 000001@20250303 比对，Rust 与「按上面两条写出来的正确参考实现」之间，\n时段 label 集合完全一致、d 的样本数一致，只有 5 个 label 的值不同：\n  all:       label 445(参考 NaN / Rust 0.0)、2394(NaN/1.0)、2511(值差 1e-13)、2879(NaN/1.0)\n  open30:    445\n  morning:   445、2394\n  afternoon: 2511、2879、2978(NaN/0.0)\n  close30:   无\n也就是说 Rust 那边这几个 label 的 price3 与参考实现差最后一个 ulp，导致 (x+y) 从 0 变非 0。\n其中 label 2511 的 flag83 组有 29 笔成交，最像「同 label 成交的累加顺序不同」；\nlabel 2978 的 flag83 组只有 2 笔（t=[12693.999999999998, 26542.0]），两笔相加与顺序无关，\n所以它更像是「有成交被分到了别的 label」——怀疑还是 concat + sort_values 的并列顺序，\n或者 pandas 把 exchtime 转 ns 时的舍入（浮点除法带来的 ±128ns）在窗口边界上差了一行。\n建议下一步：给 hm012.rs 临时加一个 REGISTRY_SKIP 的调试出口（**先加 REGISTRY_SKIP 再改文件**），\n把 perm 和每笔成交的 label 吐出来，和 Python 参考实现逐笔比，就能定位到具体是哪一笔分错了。\n用纯 Python 写参考实现对拍会快很多（我这轮就是这么找到前面两条的）。\n\n═══ 我用来对拍的 Python 参考实现（已删，但思路可复现）═══\n把旧代码的每一步用 pandas/numpy 重写一遍，但用 Rust 侧的整数微秒 + 自己的 quicksort 复刻，\n逐层和真旧代码比：先比每 label 的 volume/turnover 之和，再比 price3，再比 d 的集合。\n真旧代码用 lib/okay_database/verify_series.py 的 load_old / old_values 拿。\n\n═══ 纪律 ═══\n没有提交任务系统，没有 git commit，没有留半成品编译不过的文件，构建锁没占。"
+   "note": "hm012 梦想三级跳 —— 通过对账\n\n前一轮交回时只差 000001@20250303 一组（#0 相对误差 1.4e-4、#1 7.1e-3、#2 2.0e-4）。\n这一轮定位到根因并修掉：CSV 浮点解析。\n\n═══ 根因 ═══\n旧框架的逐笔是 pd.read_csv 读的，走 pandas C 解析器 precise_xstrtod；Rust 侧原来用\nstr::parse（正确舍入）。000001@20250303 的 turnover 有 260/76488 个两者差 1 ulp\n（CSV 里写 \"2165.7599999999998\"，pandas 读成 2165.76）。\n差 1 ulp 让某个 label 的 price3 = Σturnover/Σvolume 与盘口价从「恰好相等」变成差 1e-15，\n于是 d = x/(x+y) 的分母从 0 变非 0，本该被丢掉的样本被算进均值，三段各偏 1 个样本。\n\n不是排序问题。sort 那一层已经对：把 hm012.rs 里那段 np_argsort_quicksort 逐行搬到\nPython 跑，和 np.argsort(datetime64 数组, kind='quicksort') 的置换 61712/61712 完全相同。\n注意 numpy 对 int64 数组和对 datetime64 数组的 quicksort 并列顺序**不一样**\n（本例 35177 个位置不同），旧代码走的是 datetime 那条，不要照 int64 写。\n\n也验证了另外两条已知细节确实要照抄：\n· groupby(...).sum() 是 Kahan 补偿求和（换成朴素累加就对不上）；\n· 时段 label 集合是「该时段内成交 + 盘口的 label 并集」，不是「快照时刻落在时段内」。\n\n═══ 改了什么 ═══\nsrc/okay_database/hm012.rs：把 parse_f64_at 换成 pandas 解析器的复刻\n（parse_f64_pandas + pow10_table，与 hm090.rs / hm033.rs 同一份），空字段仍给 NaN。\n文件头写了这一段的原因和验证过程。\n\n═══ 证据 ═══\nlib/okay_database/verify_series.py --series hm012（OKAY_VERIFY_DATA_ROOT=/ssd_data）\n  000001 20250303 旧 5 / 新 5，一致\n  600519 20250304 一致\n  000002 20180601 一致\n  300750 20231020 一致\n  结论：通过\n单日冒烟：20250303 run_base(20250303,20250303,n_jobs=4)，5117 个任务，base 写出成功。\n\n═══ 产物 ═══\n· src/okay_database/hm012.rs（5 个因子：all/open30/morning/afternoon/close30 各一个 mean4_p1）\n· /home/chenzongwei/pythoncode/成果hm12_成果hm13_梦想三级跳/hm12_okay_database.py\n  names_save 5 个、names_gap5 6 个、names_gap1 6 个，names_in_db 空（旧文件就是空）。\n\n═══ 没覆盖到的分支 ═══\n四组样本都只走了「两侧都有成交、价格恰好对齐」的主路径；旧代码 try/except 吞异常那条\n（get_factor 抛异常就整条不算）没有构造出样本。分母为 0 的退化路径有覆盖（445/2394/2879/2978）。"
   },
   {
    "num": 13,
@@ -653,12 +653,12 @@
    ],
    "rust_file": "src/okay_database/hm024.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm24_翻山越岭/hm24_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": "hm024「翻山越岭」已用 Rust 复现（src/okay_database/hm024.rs，612 个因子），新旧对账四组「通过」。\n\n对账：OKAY_VERIFY_DATA_ROOT=/ssd_data --pairs 20250303:000001 / 20250304:600519 /\n20180601:000002 / 20231020:300750，四组都是「旧 612 值 / 新 612 值」逐值一致（门槛 1e-4），\n结论「通过」。单日小样本冒烟：20250303 全市场，n_jobs=8，17 秒跑完 5117 只，\nbase 写到 /hdd/user_home_unsafe/chenzongwei/hm24_smoke（临时目录，没碰正式因子库）。\n\n**一个必须上报的东西：旧文件的 names 与值长度不一致（609 vs 612），本文件按 612 声明。**\n旧代码里 sing() 返回 65*3 + **9** = 204 项（res4 有 9 个 |66段-83段| 差项），\n但拼出来的 names 只有 65*3 + **8** = 203 项，三个时段合计 609 项。\n旧框架 run_factor_out 里是 `zip(res, names_single)`，按短的截断，\n所以旧 base 文件第 i 列 = 值向量第 i 项，609 之后那 3 个值被丢掉。\nRust 侧 names() 返回 612 个名字：前 609 个与旧文件逐字相同、顺序相同，\n末尾补 3 个（afternoon_6683_begins_times_rate_abs / _ends_rate_ba_abs / _ends_times_rate_abs），\n这样「列名↔取值」的映射与旧 base 完全一致，入选的 55 个 base 名一个都没被移动。\n副作用：每只股票后两个时段的列名与旧文件里那套语义名字有整体错位（旧文件本来就错位），\n这是照抄旧行为，不是新引入的。\n\n三个必须逐位复刻的地方（都不是\"顺手\"能替代的，实测错了就过不了 1e-4）：\n1) exchtime 微秒 → 纳秒要走 pandas 的 cast_from_unit_vectorized（±240ns 噪声）。\n   滚动窗口左端是**开**区间，数据里相邻两笔常常正好差 30 秒，噪声符号决定那一笔算不算进窗口：\n   000001@20250303 的 all 段 21815 个秒里 275 个 after_volume 因此不同，\n   若忽略噪声，612 个因子里 105 个超 1e-4（times_* 那族直接 0 vs 2.38e-7）。\n2) concat(...).sort_index() 的并列顺序：sort_index 是单键，走 pandas nargsort →\n   DatetimeArray.argsort('quicksort') → numpy 通用的 aquicksort_<datetime_tag>，\n   **不是** int64 的 x86-simd-sort 那条路（实测同一份 43630 个元素上两者差 572 个位置）。\n   滚动窗口 end 恒为 i+1，同一个纳秒上 label0 / label1 两行的先后决定了那一笔算不算进窗口。\n   本文件照抄 hm013.rs 的 np_argsort_quicksort。\n3) pandas 变量窗口 roll_sum 的 Kahan + 增量 add/remove，start 从 start[i-1] 起扫、end=i+1。\n\n另外两个坑：\n- DataFrame.corr() 的 libalgos.nancorr 只算 yi <= xi 那一半再对称复制，\n  Welford 里 covxy += (vx-meanx_new)*dy_old，两列换序结果不一样（差 1e-3 量级），\n  读 {a,b} 这一对时必须拿下标大的那列当 x。\n- Series.autocorr(k) 是 Series.corr(shift(k)) → np.corrcoef（两遍法，notna 成对剔除），\n  和 DataFrame.corr 的 Welford 不是同一条路；lag >= len 会抛 ValueError，\n  旧代码的 try/except 会把它吞成「整只股票当日全 NaN」，本文件同样返回 None。\n\n其它要点：\n- 三个时段 all=[09:30,14:57]、morning=[09:30,11:30]、afternoon=[13:00,14:57]，\n  都是纳秒级闭区间（不是整秒截断）；不做 adjust_afternoon（旧代码没调）。\n- 因子库文件写在 成果hm24_翻山越岭/hm24_okay_database.py，\n  names_save 55 项、names_gap5 35 项、names_gap1 35 项、names_in_db 4 项，全部照搬旧文件。"
   },
   {
    "num": 25,
@@ -2634,12 +2634,12 @@
    ],
    "rust_file": "src/okay_database/hm053.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm53_最速曲线/hm53_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": "hm053「最速曲线」已用 Rust 复现（src/okay_database/hm053.rs，1050 个因子）。\n\n== 对账 ==\n口径：4 组选在旧代码**没有**超时的股票日，严格逐值一致；另加 1 组超时日期，把已知偏差记录在案。\n全部用 OKAY_VERIFY_DATA_ROOT=/ssd_data，相对误差门槛 1e-4。\n\n  A. 严格一致的 4 组（结论「通过」）：\n     20250303:000001  旧 1050 / 新 1050，NaN 1，一致\n     20250304:600519  旧 1050 / 新 1050，NaN 0，一致\n     20180601:000002  旧 1050 / 新 1050，NaN 0，一致\n     20231020:600519  旧 1050 / 新 1050，NaN 0，一致\n  B. 有意偏差的 1 组（结论「不通过」，偏差即预期）：\n     20231020:300750  旧 1050 / 新 1050，NaN 0，42 处不一致\n\n== B 组的偏差是什么（不是漏算，是有意为之）==\n旧代码给 rp.brachistochrone_curve 传了 timeout_seconds=1，那个函数在每个点、每次二分迭代\n都调一次 Instant::now()。实测这台机器 Instant::now() 约 440ns，300750@20231020 的 x 区间\n覆盖全部 59599 个点，光时钟调用就要 1.3 秒，于是必然超时 → 「_se 下 x 取 exchtime_int」的\n两组（time_price、time_volume，各 21 个）返回 NaN。同一份输入不设超时时只要 31 ms，\n说明这 1 秒与计算量无关，纯粹是时钟开销。同一天 x=volume 的两组因为 cumsum 是随机游走、\n区间只覆盖 66 个点，8 ms 跑完，不超时。\n实测偏差位置就是第 126~167 号共 42 处，全是「旧 NaN / 新有值」，其余 1008 个值逐值一致，\n没有第二类差异（bad 里只有「一边是 NaN」这一种）。\n\n阈值大约在 45000 个点（000001@20250303 21815 点不超时；300750@20231020 59599 点超时），\n取决于机器 clock_gettime 代价与当时负载，跨机器/跨次运行不可复现。\n\n== 取舍（lead 已确认：确定性优先 + 写清偏差）==\n不设超时，按数学定义算出全部 1050 个值。理由：那 1 秒超时把机器噪声写进因子库，\n同一个因子重算时会在「有值 / NaN」之间跳；而差异只出现在旧代码给 NaN 的地方，新值本身是对的。\n\n受影响的位置：每个窗口里 x 取 exchtime_int 的两组 `_se`，一个窗口 42 个，理论上最多 210 个；\n具体哪些窗口命中取决于该窗口的行数，是数据相关的。300750@20231020 只有 all 窗口命中。\n\n受影响的入选 base（窗口 = all 的那些）：\n  distance_mean_time_price_se_all\n  x_mean_high20_distance_time_price_se_all\n  x_mean_high20_distance_time_price_se_all_fold\n  y_mean_high20_distance_abs_time_price_se_all\n最终名单里由它们派生的 4 个：\n  distance_mean_time_price_se_all_smooth_1\n  distance_mean_time_price_se_all_min_smooth_5\n  x_mean_high20_distance_time_price_se_all_fold_mean_smooth_5\n  y_mean_high20_distance_abs_time_price_se_all_mean_smooth_10\n\n== 其它 ==\n单日小样本冒烟：20250303 一天全市场，n_jobs=8，往临时目录\n/hdd/user_home_unsafe/chenzongwei/hm053_smoke 写 base，写出 75 个因子\n（58 个原值 + 17 个 _fold），跑完 95.6 秒，已删掉临时目录。\n单股单日耗时 0.21~0.46 秒。\nbrachistochrone_curve 是 #[pyfunction]，worker 链路上不能碰，算法整段抄进 hm053.rs，\n没有改公共文件 src/sequence/mod.rs。\nSeries.autocorr 走 Series.corr(shift(lag)) → np.corrcoef，与 hm060 里的 DataFrame.corrwith\n不是同一条路，本文件单独复刻；quantile 用 numpy 的 linear 法。\n因子库文件写在 成果hm53_最速曲线/hm53_okay_database.py，names_save 75 项（含 17 个 _fold）。"
   },
   {
    "num": 54,
@@ -3430,12 +3430,12 @@
    ],
    "rust_file": "src/okay_database/hm060.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm60_拼团成功/hm60_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": "hm060「拼团成功」已用 Rust 复现（src/okay_database/hm060.rs，1674 个因子），新旧对账四组全部「通过」。\n\n对账：OKAY_VERIFY_DATA_ROOT=/ssd_data，pairs 20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750，\n四组都是「旧 1674 值 / 新 1674 值，NaN 74，一致」，结论「通过」（相对误差门槛 1e-4）。\n单股单日耗时 0.27~0.67 秒（旧框架同一件事 num_threads=8 要 1.2 秒）。\n\n单日小样本冒烟：20250303 一天全市场 5117 只，n_jobs=8，往临时目录\n/hdd/user_home_unsafe/chenzongwei/hm060_smoke 写 base，写出 105 个因子\n（78 个原值 + 27 个 _fold），非空 5117 行，跑完已删掉临时目录。\n没有写因子库的正式路径，全历史由串行队列统一提交。\n\n要点：\n- order_neighborhood_analysis 是 #[pyfunction]，worker 链路上不能碰，算法整段抄进 hm060.rs，\n  没有改公共文件 src/order_neighborhood.rs。\n- exchtime 必须照抄 pandas 的 cast_from_unit_vectorized（ns 与「微秒 × 1000」差几十到几百 ns），\n  否则 between_time 在窗口边界那一微秒上会判反。\n- 153 个相关系数走 np.corrcoef，autocorr 走 DataFrame.corrwith 的 demeaned 乘积那条路，\n  两者不是同一条，分别复刻。\n- 旧代码给 order_neighborhood_analysis 传了 timeout_ms=5000，本实现不设超时。\n- 四组对账都没有触发「orders 为空」或「买/卖子集为空」这两个整天给 NaN 的分支，\n  这两个分支是照 pandas 在空表上 df.max() 抛异常的行为写的，未实测覆盖。\n- 因子库文件写在 成果hm60_拼团成功/hm60_okay_database.py，names_save 105 项（含 27 个 _fold）。"
   },
   {
    "num": 61,
@@ -3579,12 +3579,12 @@
    ],
    "rust_file": "src/okay_database/hm062.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm62_闪现开团/hm62_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": "hm062 完成。src/okay_database/hm062.rs（逐股，960 个因子）+ 成果hm62_闪现开团/hm62_okay_database.py（入选 56 项）。\n\n对账：verify_series hm062 四组（000001@20250303、600519@20250304、000002@20180601、300750@20231020）\n旧 960 值 / 新 960 值全部「一致」，结论「通过」。\n\n坑一：这个旧文件是 TickDataBase + Go.get_factor 形态，verify 比的是 get_factor 的原样输出，\n也就是 names_single 的 **960** 项，不是 names_save 的 55 项。第一版按入选名单只返回 55 项，\n长度就对不上；names() 必须返回 960。\n坑二：拼接统计量名时列名与统计量之间少了下划线（\"all_gap_smallmean\"），\n单日冒烟时 write_selected_base 报 KeyError 才暴露；已修成 \"all_gap_small_mean\"。\n\n单日冒烟：20250303 一天、n_jobs=6，5117 个任务 83 秒算完，56 个入选因子（含 11 个 _fold）全部写出，\n1×5792，逐个 5111 非空。冒烟写在 /tmp 临时 base，没碰生产因子库。\n\n实现要点：rp.find_half_energy_time 与 rp.calculate_large_order_nearby_small_order_time_gap 都是\n#[pyfunction]，worker 不能调，已把两者的纯 Rust 主体逐行抄进 hm062.rs（src/time_series/mod.rs 一行没动）；\n统计量用 crate::features_f64 的 col_* 加上 numpy pairwise_sum 与 np.corrcoef 两遍法；\n手动复刻了「all / 66 / 83 任一组少于 4 行时旧代码 Series.autocorr 抛异常 → 整行 NaN」的行为。\n没有已知差异。"
   },
   {
    "num": 63,
@@ -5195,12 +5195,12 @@
    ],
    "rust_file": "src/okay_database/hm079.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm79_交流之苦/hm79_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": "hm079 完成。src/okay_database/hm079.rs（逐股，盘口 10 档量差分 → 60 笔/10 笔窗口协方差 → 39 列特征 → 入选 78 项）\n与 成果hm79_交流之苦/hm79_okay_database.py 已就位。\n\n对账：verify_series hm079 四组（000001@20250303、600519@20250304、000002@20180601、300750@20231020）\n旧 78 值 / 新 78 值全部「一致」，结论「通过」。features_f64 的 binned_entropy_1d NaN 口径改动\n与 FeatureOpts 新增 with_complexity 字段加入后已重跑一次，仍为「通过」。\n\n单日冒烟：20250303 一天、n_jobs=8，78 个入选因子（含 26 个 _fold）全部写出，1×5792，逐个非空约 5100 只。\n冒烟写在 /tmp 临时 base 目录，没有碰生产因子库。\n\n实现要点：rp.orderbook_volume_cov_factors 是 #[pyfunction]，worker 不能调，已把它的纯 Rust 主体逐行抄进 hm079.rs\n（src/orderbook_volume_cov_factors.rs 一行没动）；特征走 features_f64::get_features_factors_rust_full_ex。\nnames_save 去掉 _fold 后有 2 组重名（volume_corr_last_prc、b_diag_60w_iqr），names() 给第二次出现加了 _dup2，值不变。\n没有已知差异。"
   },
   {
    "num": 7,

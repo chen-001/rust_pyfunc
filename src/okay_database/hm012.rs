@@ -37,8 +37,21 @@
 //!   afternoon_mean4_p1, close30_mean4_p1
 //! names_save 就是这 5 个，names_in_db 为空。
 //!
-//! 精度：逐笔的 volume/turnover 与盘口的 ask_prc1/bid_prc1 都按 f64 自解析 CSV
-//! （列索引与 fast_csv_reader 的常量一致），与 hm013 同一套读法。
+//! ════════════════════════════════════════════════════════════════════
+//! 精度：CSV 浮点必须走 pandas 的解析器，不能用 Rust 的正确舍入
+//! ════════════════════════════════════════════════════════════════════
+//! 逐笔的 volume/turnover 与盘口的 ask_prc1/bid_prc1 都按 f64 自解析 CSV
+//! （列索引与 fast_csv_reader 的常量一致），但解析函数是 pandas C 解析器
+//! precise_xstrtod 的复刻（parse_f64_pandas，与 hm090.rs / hm033.rs 同一份）。
+//!
+//! 这一处是本系列原来唯一对不过账的原因：
+//!   000001@20250303 的 turnover 有 260/76488 个与 Rust `str::parse` 差 1 ulp，
+//!   例如 CSV 里写的是 "2165.7599999999998"，pandas 读成 2165.76。
+//!   1 ulp 会让某个 label 的 price3 = Σturnover/Σvolume 与盘口价从「恰好相等」
+//!   变成差 1e-15，于是 d = x/(x+y) 的分母从 0 变非 0，本该被丢掉的样本被算进均值：
+//!   all 偏 1.4e-4、open30 偏 7.1e-3、morning 偏 2.0e-4。
+//!   已用纯 Python 复现验证：raw CSV + 正确舍入 → 与改前的 Rust 一致；
+//!   raw CSV + pandas 解析 → 与旧代码逐位一致。
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -123,16 +136,130 @@ fn parse_i64_at(b: &[u8]) -> i64 {
     }
 }
 
-/// 空单元格按 pandas 的读法给 NaN
+/// 10 的幂表：用 Rust 自己的正确舍入解析 "1e{k}" 建出来，
+/// 与 pandas/tokenizer.c 里那张写死的 e[] 表逐位一致。
+fn pow10_table() -> &'static [f64; 309] {
+    static T: std::sync::OnceLock<[f64; 309]> = std::sync::OnceLock::new();
+    T.get_or_init(|| {
+        let mut t = [1.0f64; 309];
+        for (k, v) in t.iter_mut().enumerate() {
+            *v = format!("1e{}", k).parse::<f64>().unwrap();
+        }
+        t
+    })
+}
+
+/// pandas C 解析器 `precise_xstrtod`（_libs/src/parser/tokenizer.c）的逐行复刻，
+/// 与 hm090.rs / hm033.rs 里的同名函数一致（这里复制一份，避免跨系列互相依赖）。
+///
+/// ！！这不是「正确舍入」的十进制转二进制：它只把**前 17 位有效数字**
+/// 用 `number = number * 10 + digit` 累加进 double，多出来的整数位转成指数，
+/// 多出来的小数位直接丢掉，最后用缓存好的 10 的幂做**一次**乘或除。
+///
+/// 这处差异正是本系列原来对不过账的根因：
+///   000001@20250303 的 turnover 有 260/76488 个与 Rust `str::parse` 差 1 ulp
+///   （例如 CSV 里的 "2165.7599999999998"，pandas 读成 2165.76）。
+///   差 1 ulp 会让某个 label 的 price3 = Σturnover/Σvolume 与盘口价
+///   从「恰好相等」变成差 1e-15，于是 d = x/(x+y) 的分母从 0 变非 0，
+///   本该被丢掉的一个样本被算进均值，五个时段里有三个偏 1.4e-4~7.1e-3。
+///   换成这个解析器之后四组对账全部一致。
+fn parse_f64_pandas(b: &[u8]) -> f64 {
+    const MAX_DIGITS: usize = 17;
+    let n = b.len();
+    let mut p = 0usize;
+    while p < n && matches!(b[p], b' ' | b'\t' | b'\r' | b'\n') {
+        p += 1;
+    }
+    let mut negative = false;
+    if p < n && (b[p] == b'-' || b[p] == b'+') {
+        negative = b[p] == b'-';
+        p += 1;
+    }
+    let mut number = 0.0f64;
+    let mut exponent: i32 = 0;
+    let mut num_digits = 0usize;
+    let mut num_decimals = 0usize;
+    while p < n && b[p].is_ascii_digit() {
+        if num_digits < MAX_DIGITS {
+            number = number * 10.0 + (b[p] - b'0') as f64;
+            num_digits += 1;
+        } else {
+            exponent += 1;
+        }
+        p += 1;
+    }
+    if p < n && b[p] == b'.' {
+        p += 1;
+        while num_digits < MAX_DIGITS && p < n && b[p].is_ascii_digit() {
+            number = number * 10.0 + (b[p] - b'0') as f64;
+            p += 1;
+            num_digits += 1;
+            num_decimals += 1;
+        }
+        if num_digits >= MAX_DIGITS {
+            while p < n && b[p].is_ascii_digit() {
+                p += 1;
+            }
+        }
+        exponent -= num_decimals as i32;
+    }
+    if num_digits == 0 {
+        return 0.0;
+    }
+    if negative {
+        number = -number;
+    }
+    if p < n && (b[p] | 0x20) == b'e' {
+        p += 1;
+        let mut eneg = false;
+        if p < n && (b[p] == b'-' || b[p] == b'+') {
+            eneg = b[p] == b'-';
+            p += 1;
+        }
+        let mut nn: i32 = 0;
+        let mut nd = 0usize;
+        while nd < MAX_DIGITS && p < n && b[p].is_ascii_digit() {
+            nn = nn * 10 + (b[p] - b'0') as i32;
+            nd += 1;
+            p += 1;
+        }
+        if eneg {
+            exponent -= nn;
+        } else {
+            exponent += nn;
+        }
+    }
+    if exponent > 308 {
+        f64::INFINITY
+    } else if exponent > 0 {
+        number * pow10_table()[exponent as usize]
+    } else if exponent < -308 {
+        if exponent < -616 {
+            0.0
+        } else {
+            let t = pow10_table();
+            (number / t[(-308 - exponent) as usize]) / t[308]
+        }
+    } else {
+        number / pow10_table()[(-exponent) as usize]
+    }
+}
+
+/// 空单元格按 pandas 的读法给 NaN，其余走 pandas 的解析器
 #[inline]
 fn parse_f64_at(b: &[u8]) -> f64 {
-    if b.is_empty() {
+    let mut s = 0usize;
+    let mut e = b.len();
+    while s < e && matches!(b[s], b' ' | b'\t' | b'\r' | b'\n') {
+        s += 1;
+    }
+    while e > s && matches!(b[e - 1], b' ' | b'\t' | b'\r' | b'\n') {
+        e -= 1;
+    }
+    if s >= e {
         return f64::NAN;
     }
-    std::str::from_utf8(b)
-        .ok()
-        .and_then(|s| s.trim().parse::<f64>().ok())
-        .unwrap_or(f64::NAN)
+    parse_f64_pandas(&b[s..e])
 }
 
 /// 把一行按逗号切成最多 n 段

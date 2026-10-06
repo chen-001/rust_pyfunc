@@ -23,6 +23,7 @@ pub mod hm020;
 pub mod hm021;
 pub mod hm022;
 pub mod hm023;
+pub mod hm024;
 pub mod hm025;
 pub mod hm026;
 pub mod hm027;
@@ -44,16 +45,19 @@ pub mod hm043;
 pub mod hm044;
 pub mod hm045;
 pub mod hm046;
+pub mod hm047;
 pub mod hm048;
 pub mod hm049;
 pub mod hm050;
 pub mod hm051;
 pub mod hm052;
+pub mod hm053;
 pub mod hm054;
 pub mod hm055;
 pub mod hm057;
 pub mod hm060;
 pub mod hm061;
+pub mod hm062;
 pub mod hm064;
 pub mod hm065;
 pub mod hm066;
@@ -65,6 +69,7 @@ pub mod hm073;
 pub mod hm074;
 pub mod hm075;
 pub mod hm076;
+pub mod hm077;
 pub mod hm078;
 pub mod hm079;
 pub mod hm081;
@@ -98,6 +103,7 @@ pub fn dispatch_stock(series: &str, code: &str, date: i64, expected_len: usize) 
         "hm021" => hm021::compute_stock(code, date),
         "hm022" => hm022::compute_stock(code, date),
         "hm023" => hm023::compute_stock(code, date),
+        "hm024" => hm024::compute_stock(code, date),
         "hm025" => hm025::compute_stock(code, date),
         "hm026" => hm026::compute_stock(code, date),
         "hm027" => hm027::compute_stock(code, date),
@@ -119,16 +125,19 @@ pub fn dispatch_stock(series: &str, code: &str, date: i64, expected_len: usize) 
         "hm044" => hm044::compute_stock(code, date),
         "hm045" => hm045::compute_stock(code, date),
         "hm046" => hm046::compute_stock(code, date),
+        "hm047" => hm047::compute_stock(code, date),
         "hm048" => hm048::compute_stock(code, date),
         "hm049" => hm049::compute_stock(code, date),
         "hm050" => hm050::compute_stock(code, date),
         "hm051" => hm051::compute_stock(code, date),
         "hm052" => hm052::compute_stock(code, date),
+        "hm053" => hm053::compute_stock(code, date),
         "hm054" => hm054::compute_stock(code, date),
         "hm055" => hm055::compute_stock(code, date),
         "hm057" => hm057::compute_stock(code, date),
         "hm060" => hm060::compute_stock(code, date),
         "hm061" => hm061::compute_stock(code, date),
+        "hm062" => hm062::compute_stock(code, date),
         "hm064" => hm064::compute_stock(code, date),
         "hm065" => hm065::compute_stock(code, date),
         "hm066" => hm066::compute_stock(code, date),
@@ -140,6 +149,7 @@ pub fn dispatch_stock(series: &str, code: &str, date: i64, expected_len: usize) 
         "hm074" => hm074::compute_stock(code, date),
         "hm075" => hm075::compute_stock(code, date),
         "hm076" => hm076::compute_stock(code, date),
+        "hm077" => hm077::compute_stock(code, date),
         "hm078" => hm078::compute_stock(code, date),
         "hm079" => hm079::compute_stock(code, date),
         "hm081" => hm081::compute_stock(code, date),
@@ -180,6 +190,7 @@ pub fn dispatch_stock_raw(series: &str, code: &str, date: i64) -> Option<Vec<f32
         "hm021" => hm021::compute_stock(code, date),
         "hm022" => hm022::compute_stock(code, date),
         "hm023" => hm023::compute_stock(code, date),
+        "hm024" => hm024::compute_stock(code, date),
         "hm025" => hm025::compute_stock(code, date),
         "hm026" => hm026::compute_stock(code, date),
         "hm027" => hm027::compute_stock(code, date),
@@ -201,16 +212,19 @@ pub fn dispatch_stock_raw(series: &str, code: &str, date: i64) -> Option<Vec<f32
         "hm044" => hm044::compute_stock(code, date),
         "hm045" => hm045::compute_stock(code, date),
         "hm046" => hm046::compute_stock(code, date),
+        "hm047" => hm047::compute_stock(code, date),
         "hm048" => hm048::compute_stock(code, date),
         "hm049" => hm049::compute_stock(code, date),
         "hm050" => hm050::compute_stock(code, date),
         "hm051" => hm051::compute_stock(code, date),
         "hm052" => hm052::compute_stock(code, date),
+        "hm053" => hm053::compute_stock(code, date),
         "hm054" => hm054::compute_stock(code, date),
         "hm055" => hm055::compute_stock(code, date),
         "hm057" => hm057::compute_stock(code, date),
         "hm060" => hm060::compute_stock(code, date),
         "hm061" => hm061::compute_stock(code, date),
+        "hm062" => hm062::compute_stock(code, date),
         "hm064" => hm064::compute_stock(code, date),
         "hm065" => hm065::compute_stock(code, date),
         "hm066" => hm066::compute_stock(code, date),
@@ -222,6 +236,7 @@ pub fn dispatch_stock_raw(series: &str, code: &str, date: i64) -> Option<Vec<f32
         "hm074" => hm074::compute_stock(code, date),
         "hm075" => hm075::compute_stock(code, date),
         "hm076" => hm076::compute_stock(code, date),
+        "hm077" => hm077::compute_stock(code, date),
         "hm078" => hm078::compute_stock(code, date),
         "hm079" => hm079::compute_stock(code, date),
         "hm081" => hm081::compute_stock(code, date),
@@ -258,6 +273,7 @@ pub fn dispatch_cross(series: &str, date: i64) -> Option<(Vec<String>, Vec<f32>)
         "hm021" => hm021::compute_cross(date),
         "hm022" => hm022::compute_cross(date),
         "hm023" => hm023::compute_cross(date),
+        "hm024" => hm024::compute_cross(date),
         "hm025" => hm025::compute_cross(date),
         "hm026" => hm026::compute_cross(date),
         "hm027" => hm027::compute_cross(date),
@@ -279,16 +295,19 @@ pub fn dispatch_cross(series: &str, date: i64) -> Option<(Vec<String>, Vec<f32>)
         "hm044" => hm044::compute_cross(date),
         "hm045" => hm045::compute_cross(date),
         "hm046" => hm046::compute_cross(date),
+        "hm047" => hm047::compute_cross(date),
         "hm048" => hm048::compute_cross(date),
         "hm049" => hm049::compute_cross(date),
         "hm050" => hm050::compute_cross(date),
         "hm051" => hm051::compute_cross(date),
         "hm052" => hm052::compute_cross(date),
+        "hm053" => hm053::compute_cross(date),
         "hm054" => hm054::compute_cross(date),
         "hm055" => hm055::compute_cross(date),
         "hm057" => hm057::compute_cross(date),
         "hm060" => hm060::compute_cross(date),
         "hm061" => hm061::compute_cross(date),
+        "hm062" => hm062::compute_cross(date),
         "hm064" => hm064::compute_cross(date),
         "hm065" => hm065::compute_cross(date),
         "hm066" => hm066::compute_cross(date),
@@ -300,6 +319,7 @@ pub fn dispatch_cross(series: &str, date: i64) -> Option<(Vec<String>, Vec<f32>)
         "hm074" => hm074::compute_cross(date),
         "hm075" => hm075::compute_cross(date),
         "hm076" => hm076::compute_cross(date),
+        "hm077" => hm077::compute_cross(date),
         "hm078" => hm078::compute_cross(date),
         "hm079" => hm079::compute_cross(date),
         "hm081" => hm081::compute_cross(date),
@@ -336,6 +356,7 @@ pub fn series_names(series: &str) -> Option<Vec<String>> {
         "hm021" => Some(hm021::names()),
         "hm022" => Some(hm022::names()),
         "hm023" => Some(hm023::names()),
+        "hm024" => Some(hm024::names()),
         "hm025" => Some(hm025::names()),
         "hm026" => Some(hm026::names()),
         "hm027" => Some(hm027::names()),
@@ -357,16 +378,19 @@ pub fn series_names(series: &str) -> Option<Vec<String>> {
         "hm044" => Some(hm044::names()),
         "hm045" => Some(hm045::names()),
         "hm046" => Some(hm046::names()),
+        "hm047" => Some(hm047::names()),
         "hm048" => Some(hm048::names()),
         "hm049" => Some(hm049::names()),
         "hm050" => Some(hm050::names()),
         "hm051" => Some(hm051::names()),
         "hm052" => Some(hm052::names()),
+        "hm053" => Some(hm053::names()),
         "hm054" => Some(hm054::names()),
         "hm055" => Some(hm055::names()),
         "hm057" => Some(hm057::names()),
         "hm060" => Some(hm060::names()),
         "hm061" => Some(hm061::names()),
+        "hm062" => Some(hm062::names()),
         "hm064" => Some(hm064::names()),
         "hm065" => Some(hm065::names()),
         "hm066" => Some(hm066::names()),
@@ -378,6 +402,7 @@ pub fn series_names(series: &str) -> Option<Vec<String>> {
         "hm074" => Some(hm074::names()),
         "hm075" => Some(hm075::names()),
         "hm076" => Some(hm076::names()),
+        "hm077" => Some(hm077::names()),
         "hm078" => Some(hm078::names()),
         "hm079" => Some(hm079::names()),
         "hm081" => Some(hm081::names()),
