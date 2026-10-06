@@ -837,6 +837,7 @@ pub fn compute_stock(code: &str, date: i64) -> Option<Vec<f32>> {
         with_curvature: false,
         with_max_min: false,
         with_lyapunov_exponent: false,
+        with_complexity: true,
     };
     let (v0, n0) = features_f64::get_features_factors_rust_full_ex(
         &dmat.view(),

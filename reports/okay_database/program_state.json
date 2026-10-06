@@ -3015,12 +3015,12 @@
    "names_in_db": [],
    "rust_file": "src/okay_database/hm057.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm57_hm69_本福特定律/hm57_okay_database.py",
-   "step_rewrite": "pending",
+   "step_rewrite": "done",
    "step_submit": "pending",
    "step_library": "pending",
    "step_cleanup": "pending",
    "task_id": null,
-   "note": ""
+   "note": "hm057（旧 hm57 本福特定律早一版）已复现并通过新旧对账。逐股系列，1400 个因子 = 5 时段 × 280（10 条序列各 20 个统计量 + 4 组按位相减），与 hm069 同名同结构。verify_series.py（OKAY_VERIFY_DATA_ROOT=/tmp/okay_root）四组 (20250303,000001)(20250304,600519)(20180601,000002)(20231020,300750) 全部「1400 值 / 1400 值，NaN 0，一致」，结论「通过」（一次过，没返工）。与 hm069 的两处差别写在 hm057.rs 文件头：第一，这个系列**不做** adjust_afternoon 的下午平移，窗口就是真实钟点 [09:30:00, 14:57:00]（09:15~09:25 与 14:57~15:00 两段竞价被切掉），撤单行保留；第二，旧代码 `def one(df)` 收了参数 df 却从头到尾引用外层的 trade_data，所以 res1..res5 五段数值完全相同、只有后缀不同，输出是同一份 280 个值复制五份，不能改回「各自切窗口再算」。时间戳仍要照抄 pandas 的 exchtime_us/1e6 → rint(frac*1e9)/1e9 → +8h 那条链（±114ns 噪声会影响卡在边界上的行），首字符仍按 astype(str).str.slice(0,1) 的三条分支取。单日冒烟 20250303、n_jobs=8、5117 只股票写出 hm57_base 的 106 个入选因子（53 个原值 + 53 个 _fold），抽查 5 只股票 × 5 个因子与 rp.okay_compute_stock 完全相同，临时 colblk 已自动删除。产物：src/okay_database/hm057.rs、成果hm57_hm69_本福特定律/hm57_okay_database.py。gap5 43 个、gap1 45 个名单从旧文件原样搬入；旧 run_db 的 names_in_db 是空列表，这一层没有因子。"
   },
   {
    "num": 69,

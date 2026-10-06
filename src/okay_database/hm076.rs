@@ -592,15 +592,10 @@ fn read_day(code: &str, date: i64) -> Option<Vec<Row>> {
 
     let mut morning: Vec<Row> = Vec::new();
     let mut afternoon: Vec<Row> = Vec::new();
-    let mut n_lines = 0usize;
-    let mut n_zero = 0usize;
-    let mut n_rows = 0usize;
-    let mut dbg_n = 0usize;
     for (lineno, line) in data.split(|&b| b == b'\n').enumerate() {
         if lineno == 0 || line.is_empty() {
             continue;
         }
-        n_lines += 1;
         let mut fields: [&[u8]; 15] = [&[][..]; 15];
         let mut commas = 0usize;
         let mut start = 0usize;
@@ -621,23 +616,14 @@ fn read_day(code: &str, date: i64) -> Option<Vec<Row>> {
         }
         let exchtime_us = parse_f64_pandas(trim_ascii(fields[COL_EXCHTIME]));
         if exchtime_us == 0.0 {
-            n_zero += 1;
             continue;
         }
-        n_rows += 1;
         let flag = int_prefix(fields[COL_FLAG]) as i32;
         if flag == 32 {
             continue;
         }
         let ns = pandas_time_ns(exchtime_us).wrapping_add(OFFSET_NS);
         let tod = ns.rem_euclid(DAY_NS);
-        if std::env::var("HM076_DEBUG").is_ok() && dbg_n < 5 {
-            dbg_n += 1;
-            eprintln!(
-                "[hm076] dbg us={} ns={} tod={} win=[{},{}]",
-                exchtime_us, ns, tod, MORNING_START_NS, MORNING_END_NS
-            );
-        }
         let mut row = Row {
             ns,
             price: parse_f64_pandas(trim_ascii(fields[COL_PRICE])),
@@ -655,16 +641,6 @@ fn read_day(code: &str, date: i64) -> Option<Vec<Row>> {
         }
     }
     morning.append(&mut afternoon);
-    if std::env::var("HM076_DEBUG").is_ok() {
-        eprintln!(
-            "[hm076] 解析完：lines={} zero={} rows={} morning={} afternoon={}",
-            n_lines,
-            n_zero,
-            n_rows,
-            morning.len(),
-            afternoon.len()
-        );
-    }
     if morning.is_empty() {
         return None;
     }
@@ -1456,26 +1432,14 @@ fn one(d: &Day, direction: &str) -> Vec<f64> {
 // ────────────────────────── 入口 ──────────────────────────
 
 pub fn compute_stock(code: &str, date: i64) -> Option<Vec<f32>> {
-    let rows = match read_day(code, date) {
-        Some(r) => r,
-        None => {
-            if std::env::var("HM076_DEBUG").is_ok() {
-                eprintln!("[hm076] read_day 返回 None: {} {}", code, date);
-            }
-            return None;
-        }
-    };
+    let rows = read_day(code, date)?;
     let day = build_day(rows);
     let res1 = one(&day, "same");
     let res2 = one(&day, "diff");
-    let l1 = res1.len();
-    let l2 = res2.len();
     let mut full = res1;
     full.extend(res2);
     if full.len() != FULL_LEN {
-        if std::env::var("HM076_DEBUG").is_ok() {
-            eprintln!("[hm076] 长度不对 {} + {} = {}", l1, l2, full.len());
-        }
+        // 长度不对说明中间某一块算空了，宁可整条给 NaN 也不要错位取值
         return None;
     }
     Some(IDX.iter().map(|&i| full[i] as f32).collect())

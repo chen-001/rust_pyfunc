@@ -1916,6 +1916,8 @@ pub fn verify_get_features_factors_rust(
 /// 用来和 Python 的 `get_features_factors(df, with_max_min=..., with_lyapunov_exponent=...,
 /// append_for_corr=...)` 逐值比。`append_matrix` 传 None 表示不追加。
 /// 注意 Python 那边没有 curvature / quad_coef，对账时 `with_curvature` 要传 False。
+/// `with_complexity`（2026-10-06 加，默认 True）关掉时不再输出
+/// lz_complexity / entropy_1d / max_range_product 三组，前面所有组的位置和取值不变。
 #[pyfunction]
 #[pyo3(name = "verify_get_features_factors_rust_f64_ex")]
 #[pyo3(signature = (

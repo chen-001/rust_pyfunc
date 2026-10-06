@@ -51,6 +51,7 @@ pub mod hm051;
 pub mod hm052;
 pub mod hm054;
 pub mod hm055;
+pub mod hm057;
 pub mod hm060;
 pub mod hm061;
 pub mod hm064;
@@ -125,6 +126,7 @@ pub fn dispatch_stock(series: &str, code: &str, date: i64, expected_len: usize) 
         "hm052" => hm052::compute_stock(code, date),
         "hm054" => hm054::compute_stock(code, date),
         "hm055" => hm055::compute_stock(code, date),
+        "hm057" => hm057::compute_stock(code, date),
         "hm060" => hm060::compute_stock(code, date),
         "hm061" => hm061::compute_stock(code, date),
         "hm064" => hm064::compute_stock(code, date),
@@ -206,6 +208,7 @@ pub fn dispatch_stock_raw(series: &str, code: &str, date: i64) -> Option<Vec<f32
         "hm052" => hm052::compute_stock(code, date),
         "hm054" => hm054::compute_stock(code, date),
         "hm055" => hm055::compute_stock(code, date),
+        "hm057" => hm057::compute_stock(code, date),
         "hm060" => hm060::compute_stock(code, date),
         "hm061" => hm061::compute_stock(code, date),
         "hm064" => hm064::compute_stock(code, date),
@@ -283,6 +286,7 @@ pub fn dispatch_cross(series: &str, date: i64) -> Option<(Vec<String>, Vec<f32>)
         "hm052" => hm052::compute_cross(date),
         "hm054" => hm054::compute_cross(date),
         "hm055" => hm055::compute_cross(date),
+        "hm057" => hm057::compute_cross(date),
         "hm060" => hm060::compute_cross(date),
         "hm061" => hm061::compute_cross(date),
         "hm064" => hm064::compute_cross(date),
@@ -360,6 +364,7 @@ pub fn series_names(series: &str) -> Option<Vec<String>> {
         "hm052" => Some(hm052::names()),
         "hm054" => Some(hm054::names()),
         "hm055" => Some(hm055::names()),
+        "hm057" => Some(hm057::names()),
         "hm060" => Some(hm060::names()),
         "hm061" => Some(hm061::names()),
         "hm064" => Some(hm064::names()),

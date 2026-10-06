@@ -807,6 +807,7 @@ fn try_full_values(code: &str, date: i64) -> Option<Vec<f64>> {
         with_curvature: false,
         with_max_min: false,
         with_lyapunov_exponent: false,
+        with_complexity: true,
     };
     let (vals, gen_names) = features_f64::get_features_factors_rust_full_ex(
         &data.view(),

@@ -117,6 +117,7 @@ const OPTS: FeatureOpts = FeatureOpts {
     with_curvature: false,
     with_max_min: false,
     with_lyapunov_exponent: true,
+    with_complexity: true,
 };
 
 const NAMES: [&str; 68] = [
