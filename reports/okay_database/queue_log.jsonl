@@ -46,3 +46,18 @@
 {"series": "hm001", "event": "submit", "task_id": 384, "time": "2026-10-07T01:07:06.809683"}
 {"series": "hm001", "event": "finish", "status": "cancelled", "files": {"base": 55, "gap5": 12, "gap1": 0, "db": 1}, "colblk_left": 8, "time": "2026-10-07T01:11:36.925555"}
 {"series": "hm012", "event": "submit", "task_id": 385, "time": "2026-10-07T01:11:37.179011"}
+{"series": "hm014", "event": "submit", "task_id": 386, "time": "2026-10-07T09:25:41.532641"}
+{"series": "hm014", "event": "finish", "status": "completed", "files": {"base": 16, "gap5": 17, "gap1": 18, "db": 1}, "colblk_left": 0, "time": "2026-10-07T12:53:13.716788"}
+{"series": "hm015", "event": "submit", "task_id": 387, "time": "2026-10-07T12:53:14.126610"}
+{"series": "hm015", "event": "finish", "status": "completed", "files": {"base": 15, "gap5": 10, "gap1": 13, "db": 2}, "colblk_left": 0, "time": "2026-10-07T16:16:45.934989"}
+{"series": "hm016", "event": "submit", "task_id": 388, "time": "2026-10-07T16:16:46.213709"}
+{"series": "hm016", "event": "finish", "status": "completed", "files": {"base": 5, "gap5": 6, "gap1": 6, "db": 0}, "colblk_left": 0, "time": "2026-10-07T19:33:47.943645"}
+{"series": "hm017", "event": "submit", "task_id": 389, "time": "2026-10-07T19:33:48.201731"}
+{"series": "hm017", "event": "finish", "status": "completed", "files": {"base": 23, "gap5": 21, "gap1": 17, "db": 1}, "colblk_left": 0, "time": "2026-10-07T19:57:18.437691"}
+{"series": "hm018", "event": "submit", "task_id": 390, "time": "2026-10-07T19:57:18.667888"}
+{"series": "hm018", "event": "finish", "status": "completed", "files": {"base": 2, "gap5": 1, "gap1": 2, "db": 0}, "colblk_left": 0, "time": "2026-10-08T03:06:59.551995"}
+{"series": "hm020", "event": "submit", "task_id": 391, "time": "2026-10-08T03:06:59.793982"}
+{"series": "hm020", "event": "finish", "status": "completed", "files": {"base": 10, "gap5": 10, "gap1": 10, "db": 2}, "colblk_left": 0, "time": "2026-10-08T08:55:13.645207"}
+{"series": "hm021", "event": "submit", "task_id": 392, "time": "2026-10-08T08:55:13.925258"}
+{"series": "hm021", "event": "finish", "status": "completed", "files": {"base": 5, "gap5": 2, "gap1": 4, "db": 0}, "colblk_left": 0, "time": "2026-10-08T16:01:08.374955"}
+{"series": "hm022", "event": "submit", "task_id": 393, "time": "2026-10-08T16:01:08.653246"}

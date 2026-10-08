@@ -41,6 +41,16 @@ END_DATE = 20260918
 N_JOBS = 400
 LIBRARY = "/nas197/user_home/chenzongwei/factor_library"
 
+# 因子库统计的脚本与产物。界面状态条上的「因子库 · 数据 X/5614」取自这里的 coverage.json，
+# 那份文件是快照，不主动刷就不动——2026-10-08 的现象（hm21 16:01 写完，界面还显示 15:15 的
+# 旧数字 1349）就是这么来的。队列每完成一个系列在这里挂钩子，让数字自动跟上。
+LIBRARY_REPO = Path("/home/chenzongwei/dsh-factor-research")
+LIBRARY_CLI = LIBRARY_REPO / "lib/factor_library.py"
+COVERAGE_JSON = LIBRARY_REPO / "factor_library/coverage.json"
+REFRESH_LOCK = REPORT_DIR / "claims" / ".library_refresh.lock"
+REFRESH_TIMEOUT = 1800  # 四个步骤正常两分钟左右，给到半小时只为止损
+REFRESH_SAMPLE = f"{START_DATE}-{END_DATE}"
+
 
 def api(method: str, path: str, body: dict | None = None, timeout: int = 30, retries: int = 6):
     """守护进程偶发超时（计算任务把机器压满时）不该让常驻队列整个退出，这里自动重试。"""
@@ -215,6 +225,7 @@ def pick_next(state: dict) -> dict | None:
 def reconcile(state: dict) -> None:
     """进程重启后对账：标着 running 的系列，如果任务已经不在了，就按结果落账。"""
     changed = False
+    completed: list[str] = []
     for s in state["series"]:
         if s.get("step_submit") != "running" or not s.get("task_id"):
             continue
@@ -233,21 +244,122 @@ def reconcile(state: dict) -> None:
                           colblk_left=left,
                           step_cleanup="done" if left == 0 else "pending",
                           note=f"对账：{status}，因子库 {files}，残留 colblk {left}")
+            if status == "completed":
+                completed.append(s["series"])
             changed = True
     if changed:
         refresh_dashboard()
+    # 对账落账的完成也要刷新统计，否则队列重启后这批数字同样不跟手
+    if completed:
+        on_series_completed(completed)
 
 
 def refresh_dashboard() -> None:
     subprocess.run([PY, str(REPO / "lib/okay_database/render_dashboard.py")], capture_output=True)
 
 
+def library_with_data() -> int | None:
+    """当前 coverage.json 里 gap1/gap5 口径的有数据条数，只用来记「刷之前是多少」。"""
+    try:
+        data = json.loads(COVERAGE_JSON.read_text())
+        return data.get("summary", {}).get("gap", {}).get("withData")
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def refresh_library_stats(reason: str) -> dict:
+    """把因子库的四个统计产物刷一遍（scan → coverage → backfill-plan → common-sample）。
+
+    这是「界面数字不跟着补算走」的根治点。status 里的 withData 读的是 coverage.json，
+    那是快照，以前只有人记得手动跑 coverage 才会更新：hm021 是 16:01 写完的，而最后一次
+    手动跑是 15:15，那份快照里根本没有 hm021，界面就一直显示旧数字。
+
+    刷新失败绝不影响补算主线，所有异常和超时都收成返回值，由调用方记进 queue_log。
+    两处加锁：factor_library.py 自己那把锁管写入（排队、原子替换），这里这把锁只是
+    避免两个队列进程同时刷一遍白烧 CPU。全程约两分钟，而下一个系列本来就是几小时，
+    串行等着没有代价。
+    """
+    before = library_with_data()
+    REFRESH_LOCK.parent.mkdir(parents=True, exist_ok=True)
+    handle = REFRESH_LOCK.open("a")
+    try:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            print("[队列] 另一次因子库刷新正在跑，这次跳过")
+            return {"ok": True, "skipped": "refresh-busy", "reason": reason,
+                    "withDataBefore": before, "withDataAfter": before}
+        t0 = time.time()
+        proc = subprocess.run(
+            [PY, str(LIBRARY_CLI), "refresh", "--root", "/home/chenzongwei/pythoncode",
+             "--sample", REFRESH_SAMPLE, "--json"],
+            capture_output=True, text=True, timeout=REFRESH_TIMEOUT)
+        text = (proc.stdout or "").strip()
+        payload = {}
+        if text:
+            try:
+                payload = json.loads(text.splitlines()[-1])
+            except ValueError:
+                payload = {}
+        after = payload.get("withData")
+        if after is None:
+            after = library_with_data()
+        info = {
+            "ok": proc.returncode == 0,
+            "reason": reason,
+            "seconds": round(time.time() - t0, 1),
+            "withDataBefore": before,
+            "withDataAfter": after,
+            "steps": payload.get("steps"),
+            "failedSteps": payload.get("failedSteps"),
+            "artifacts": payload.get("artifacts"),
+        }
+        if proc.returncode != 0:
+            info["error"] = (payload.get("errors")
+                             or (proc.stderr or "").strip()[-300:] or "刷新退出码非零")
+        return info
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "reason": reason, "withDataBefore": before,
+                "withDataAfter": library_with_data(), "error": repr(exc)}
+    finally:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+        finally:
+            handle.close()
+
+
+def on_series_completed(series_names: list[str]) -> None:
+    """一个系列补算完成后的收尾。内部全部兜住异常，绝不让它影响提交下一条的主线。"""
+    name = "、".join(series_names)
+    try:
+        print(f"[队列] {name} 完成，刷新因子库统计（coverage 约一两分钟）")
+        info = refresh_library_stats(f"series-completed:{name}")
+    except Exception as exc:  # noqa: BLE001
+        info = {"ok": False, "reason": f"series-completed:{name}", "error": repr(exc)}
+    try:
+        log({"series": series_names, "event": "library-refresh",
+             "time": datetime.now().isoformat(), **info})
+    except Exception as exc:  # noqa: BLE001
+        print(f"[队列] 刷新记录没写进 queue_log：{exc}")
+    if info.get("ok"):
+        print(f"[队列] 因子库统计已更新：有数据 {info.get('withDataBefore')} → "
+              f"{info.get('withDataAfter')}（{info.get('seconds')} 秒）")
+    else:
+        print(f"[队列] 因子库统计刷新失败（不影响补算）：{info.get('error')}")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--once", action="store_true")
     ap.add_argument("--status", action="store_true")
+    ap.add_argument("--refresh-only", action="store_true",
+                    help="只跑一次因子库统计刷新就退出（验证挂钩子用，不碰补算）")
     ap.add_argument("--poll", type=int, default=30)
     args = ap.parse_args()
+
+    if args.refresh_only:
+        on_series_completed(["手动触发"])
+        return 0
 
     state = load_state()
     if args.status:
@@ -305,6 +417,11 @@ def main() -> int:
         log({"series": series["series"], "event": "finish", "status": status,
              "files": files, "colblk_left": left, "time": datetime.now().isoformat()})
         print(f"[队列] {series['series']} 结束：{status}，因子库 {files}，残留 colblk {left}")
+
+        # 只有真算完才刷新统计。失败/取消的没往库里写新东西，刷了数字也不动，
+        # 只会白烧两分钟并把「没涨」记进日志，看着像又一次故障。
+        if status == "completed":
+            on_series_completed([series["series"]])
 
         if args.once:
             return 0

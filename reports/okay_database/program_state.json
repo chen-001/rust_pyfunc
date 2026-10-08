@@ -59,11 +59,11 @@
    "step_library": "done",
    "step_cleanup": "done",
    "task_id": 384,
-   "note": "收尾引擎补上 rolling 自相关后，只重跑 run_h1 即完成；hf_data1/hm1 共 16 个 h5（含 4 个 autocorr），日期 20150106-20260918",
+   "note": "收尾引擎补上 rolling 自相关后，只重跑 run_h1 即完成；hf_data1/hm1 共 16 个 h5（含 4 个 autocorr）。索引轴 20150105–20260918；autocorr 要凑满整窗才有值，smooth_40 首个有值日 20150306、smooth_10 是 20150116（mean/max/min/std 是 min_periods=window/2，不受此限）。",
    "library_files": {
     "base": 55,
     "gap5": 12,
-    "gap1": 0,
+    "gap1": 16,
     "db": 1
    },
    "colblk_left": 8
@@ -188,11 +188,18 @@
    "rust_file": "src/okay_database/hm012.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm12_成果hm13_梦想三级跳/hm12_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "running",
-   "step_library": "pending",
-   "step_cleanup": "pending",
+   "step_submit": "done",
+   "step_library": "done",
+   "step_cleanup": "done",
    "task_id": 385,
-   "note": "提交于 2026-10-07 01:11:37，n_jobs=400"
+   "note": "对账：completed，因子库 {'base': 5, 'gap5': 6, 'gap1': 6, 'db': 0}，残留 colblk 0",
+   "library_files": {
+    "base": 5,
+    "gap5": 6,
+    "gap1": 6,
+    "db": 0
+   },
+   "colblk_left": 0
   },
   {
    "num": 13,
@@ -269,11 +276,18 @@
    "rust_file": "src/okay_database/hm014.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm14_k线里程碑/hm14_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "pending",
-   "step_library": "pending",
-   "step_cleanup": "pending",
-   "task_id": null,
-   "note": "hm014（K线里程碑）已完成。src/okay_database/hm014.rs 提供 names/compute_stock（20 个因子，逐股），\ncompute_cross 返回 None；/home/chenzongwei/pythoncode/成果hm14_k线里程碑/hm14_okay_database.py 已按\nhm29_okay_database.py 的形状建好（names_save 16 个、names_gap5 17 个、names_gap1 18 个、names_in_db 1 个）。\n\n新旧对账通过：verify_series.py --series hm014 --pairs \"20250303:000001,20250304:600519,\n20180601:000002,20231020:300750\" 四组全部「一致」，结论「通过」（阈值 1e-4，20 个值无一超差）。\n\n两处必须记下的实现要点。第一，price 不能用库里的 f32 读取器，read_trade_fast_inner 的 price 是 f32，\n而这个因子的结果常常是两个大数相减得到的小数（量级 1e-3），价格上的 f32 精度会被放大，实测\n600519@20250304 的 open30_sell 与 open30_big_sell 相对误差 1.63e-4 超阈值，改成自己按 f64 解析\nCSV（保留 pandas 的 file 行序、price 用 std 的正确舍入解析）后逐值一致。第二，下午段是真实\n13:00~14:57 整体前移 90 分钟后与上午 09:30~11:30 拼接，五个时段都在平移后的时间轴上按微秒闭区间取，\n1 分钟分箱也按平移后的时间轴对齐（所以时移 ±10/20/30 秒时箱子和真实分钟不对齐，这是因子本身的设计）。\n\n冒烟：run_base(20250303, 20250303, n_jobs=8) 单日全市场 5117 只跑通，base 层 16 个 h5 落盘\n（hm14_base 目录下文件名与 names_save 完全对应），临时 colblk 已自动删除。未覆盖的分支：\n停牌/无成交导致整只为空的股票走 None→整条 NaN 那条路，本次四组对账里没碰到。"
+   "step_submit": "done",
+   "step_library": "done",
+   "step_cleanup": "done",
+   "task_id": 386,
+   "note": "completed，因子库 {'base': 16, 'gap5': 17, 'gap1': 18, 'db': 1}，残留 colblk 0",
+   "library_files": {
+    "base": 16,
+    "gap5": 17,
+    "gap1": 18,
+    "db": 1
+   },
+   "colblk_left": 0
   },
   {
    "num": 15,
@@ -312,11 +326,18 @@
    "rust_file": "src/okay_database/hm015.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm15_成果hm16_收盘分歧/hm15_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "pending",
-   "step_library": "pending",
-   "step_cleanup": "pending",
-   "task_id": null,
-   "note": "hm015 Rust 复现完成，verify_series 四组逐值一致（20250303:000001、20250304:600519、20180601:000002、20231020:300750，各 80 值，结论「通过」），单日冒烟 run_base 写出 15 个 base h5、run_db 写出 2 个 db h5 均正常。"
+   "step_submit": "done",
+   "step_library": "done",
+   "step_cleanup": "done",
+   "task_id": 387,
+   "note": "completed，因子库 {'base': 15, 'gap5': 10, 'gap1': 13, 'db': 2}，残留 colblk 0",
+   "library_files": {
+    "base": 15,
+    "gap5": 10,
+    "gap1": 13,
+    "db": 2
+   },
+   "colblk_left": 0
   },
   {
    "num": 16,
@@ -342,11 +363,18 @@
    "rust_file": "src/okay_database/hm016.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm15_成果hm16_收盘分歧/hm16_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "pending",
-   "step_library": "pending",
-   "step_cleanup": "pending",
-   "task_id": null,
-   "note": "Rust 已复现并逐值对齐（4 组 + 冒烟全市场比，全部通过；因 f32 精度问题自带 f64 读取）"
+   "step_submit": "done",
+   "step_library": "done",
+   "step_cleanup": "done",
+   "task_id": 388,
+   "note": "completed，因子库 {'base': 5, 'gap5': 6, 'gap1': 6, 'db': 0}，残留 colblk 0",
+   "library_files": {
+    "base": 5,
+    "gap5": 6,
+    "gap1": 6,
+    "db": 0
+   },
+   "colblk_left": 0
   },
   {
    "num": 17,
@@ -392,11 +420,18 @@
    "rust_file": "src/okay_database/hm017.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm17_色差/hm17_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "pending",
-   "step_library": "pending",
-   "step_cleanup": "pending",
-   "task_id": null,
-   "note": "hm017（分钟系列，走 compute_cross）Rust 复现完成，verify_series 四组逐值一致（20250303:000001、20250304:600519、20180601:000002、20231020:300750，各 60 值，结论「通过」），另在 20240102/20180601/20250303/20150105 四天做了全市场 5792 只 × 60 个因子的整表对照也是 0 处不一致，单日冒烟 run_base 写出 23 个 base h5、run_db 写出 1 个 db h5；顺手给 verify_series.py 补了「分钟系列返回 DataFrame 列表」这一条分支（原样报 TypeError，现已能取列对照）。"
+   "step_submit": "done",
+   "step_library": "done",
+   "step_cleanup": "done",
+   "task_id": 389,
+   "note": "completed，因子库 {'base': 23, 'gap5': 21, 'gap1': 17, 'db': 1}，残留 colblk 0",
+   "library_files": {
+    "base": 23,
+    "gap5": 21,
+    "gap1": 17,
+    "db": 1
+   },
+   "colblk_left": 0
   },
   {
    "num": 18,
@@ -419,11 +454,18 @@
    "rust_file": "src/okay_database/hm018.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm18_海日生残夜/hm18_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "pending",
-   "step_library": "pending",
-   "step_cleanup": "pending",
-   "task_id": null,
-   "note": "Rust 已复现并逐值对齐（4 组 + 随机 12 组，全部通过）"
+   "step_submit": "done",
+   "step_library": "done",
+   "step_cleanup": "done",
+   "task_id": 390,
+   "note": "completed，因子库 {'base': 2, 'gap5': 1, 'gap1': 2, 'db': 0}，残留 colblk 0",
+   "library_files": {
+    "base": 2,
+    "gap5": 1,
+    "gap1": 2,
+    "db": 0
+   },
+   "colblk_left": 0
   },
   {
    "num": 20,
@@ -457,11 +499,18 @@
    "rust_file": "src/okay_database/hm020.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm20_撤单数据观察/hm20_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "pending",
-   "step_library": "pending",
-   "step_cleanup": "pending",
-   "task_id": null,
-   "note": "Rust 已复现并逐值对齐（4 组通过；因 delay 要用 localtime 大数相减，整个逐笔 CSV 自解析为 f64/i64）"
+   "step_submit": "done",
+   "step_library": "done",
+   "step_cleanup": "done",
+   "task_id": 391,
+   "note": "completed，因子库 {'base': 10, 'gap5': 10, 'gap1': 10, 'db': 2}，残留 colblk 0",
+   "library_files": {
+    "base": 10,
+    "gap5": 10,
+    "gap1": 10,
+    "db": 2
+   },
+   "colblk_left": 0
   },
   {
    "num": 21,
@@ -487,11 +536,18 @@
    "rust_file": "src/okay_database/hm021.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm21_阁中帝子今何在/hm21_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "pending",
-   "step_library": "pending",
-   "step_cleanup": "pending",
-   "task_id": null,
-   "note": "Rust 已复现：15 个顺序无关值 + 全部入选因子精确对齐；4 个受 numpy 浮点 argsort 并列影响的中间列按已知不可复现处理（不在入选名单内）"
+   "step_submit": "done",
+   "step_library": "done",
+   "step_cleanup": "done",
+   "task_id": 392,
+   "note": "completed，因子库 {'base': 5, 'gap5': 2, 'gap1': 4, 'db': 0}，残留 colblk 0",
+   "library_files": {
+    "base": 5,
+    "gap5": 2,
+    "gap1": 4,
+    "db": 0
+   },
+   "colblk_left": 0
   },
   {
    "num": 22,
@@ -524,11 +580,11 @@
    "rust_file": "src/okay_database/hm022.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm22_跨股票连结/hm22_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "pending",
+   "step_submit": "running",
    "step_library": "pending",
    "step_cleanup": "pending",
-   "task_id": null,
-   "note": "Rust 已复现（横截面系列）：子集 4 组 + 真全市场 5117 只复核全部通过，最大相对误差 5.7e-6"
+   "task_id": 393,
+   "note": "提交于 2026-10-08 16:01:08，n_jobs=400"
   },
   {
    "num": 23,
