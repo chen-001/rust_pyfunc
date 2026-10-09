@@ -580,11 +580,18 @@
    "rust_file": "src/okay_database/hm022.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm22_跨股票连结/hm22_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "running",
-   "step_library": "pending",
-   "step_cleanup": "pending",
+   "step_submit": "done",
+   "step_library": "done",
+   "step_cleanup": "done",
    "task_id": 393,
-   "note": "提交于 2026-10-08 16:01:08，n_jobs=400"
+   "note": "对账：completed，因子库 {'base': 10, 'gap5': 13, 'gap1': 9, 'db': 1}，残留 colblk 0",
+   "library_files": {
+    "base": 10,
+    "gap5": 13,
+    "gap1": 9,
+    "db": 1
+   },
+   "colblk_left": 0
   },
   {
    "num": 23,
@@ -625,11 +632,18 @@
    "rust_file": "src/okay_database/hm023.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm23_主被转换订单/hm23_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "pending",
-   "step_library": "pending",
-   "step_cleanup": "pending",
-   "task_id": null,
-   "note": "hm23 横向截面系列 Rust 复现已完成（src/okay_database/hm023.rs + hm23_okay_database.py），verify_series.py 的硬门槛判「不通过」，但这是**旧代码本身不可复现**导致的，不是实现错误；按「接受 + 写清楚」处理，不剔列。\n\n证据 1（子集 106 只，20250303）：同一份 hm23_okay.py 连跑两次，5830 个格子里 72 个不同，幅度 1~3，全部落在每个时段的 exchtime_diff_mean / exchtime_diff_std / exchtime_diff_skew / exchtime_diff_and_code 这 4 个量上；其余 35 列两次完全一致。Rust 版在子集上与旧代码逐格对比：差异同样只出现在这 4 个量上（单次运行 2~4 格），35 个确定性列逐格完全一致。\n\n证据 2（全市场 6066 只，000001@20250303）：旧代码连跑两次，55 个值里 20 个不同（同样是那 4 个量 × 5 个时段，最大差 313，例如 afternoon_exchtime_diff_and_code 2009 vs 1696）。Rust 版 vs 旧第一次差 21 格、vs 旧第二次差 20 格，多出来的唯一一格是 all_volume_ratio_std（10 vs 9），来自 polars 的 f32 累加与本地 f64 累加的一次排名翻转。\n\n根因：exchtime_diff 是 sort([\"exchtime\"]) 之后**全局滞后 1000 行**的差，同一时刻的那些行怎么排由 polars 的 unique 输出顺序决定，而 polars 的 unique 在多线程下每次进程的输出顺序都不同（实测 POLARS_MAX_THREADS=1 又是另一个值）。\n\nRust 侧已做的对齐：按 CSV 的 index 列升序重排（旧代码 read_csv 后 sort(['index'])）、unique 保留首次出现、count>1 过滤、稳定排序、total_seconds 取 Int64 整秒、skew 用 m3/m2^1.5、std 用 ddof=1、volume_ratio_sum 用 numpy 的 pairwise 求和、drop_nulls 只丢 polars 的 null 不丢 NaN。\n\n入选名单里 10/18 属于不可复现量（morning/all/afternoon 的 exchtime_diff_mean、_std、_skew、_and_code），已接受确定性取值；旧代码本来就没有唯一答案，本实现给的是其中确定的那一个。exchtime_diff_code_* 与 volume_ratio_* 这些稳定的仍然精确对齐。names_save / names_gap5 / names_gap1 / names_in_db 与旧 hm23_okay.py 逐字一致，未做任何改动。"
+   "step_submit": "done",
+   "step_library": "done",
+   "step_cleanup": "done",
+   "task_id": 394,
+   "note": "对账：completed，因子库 {'base': 18, 'gap5': 6, 'gap1': 16, 'db': 1}，残留 colblk 0",
+   "library_files": {
+    "base": 18,
+    "gap5": 6,
+    "gap1": 16,
+    "db": 1
+   },
+   "colblk_left": 0
   },
   {
    "num": 24,
@@ -710,11 +724,18 @@
    "rust_file": "src/okay_database/hm024.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm24_翻山越岭/hm24_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "pending",
-   "step_library": "pending",
-   "step_cleanup": "pending",
-   "task_id": null,
-   "note": "hm024「翻山越岭」已用 Rust 复现（src/okay_database/hm024.rs，612 个因子），新旧对账四组「通过」。\n\n对账：OKAY_VERIFY_DATA_ROOT=/ssd_data --pairs 20250303:000001 / 20250304:600519 /\n20180601:000002 / 20231020:300750，四组都是「旧 612 值 / 新 612 值」逐值一致（门槛 1e-4），\n结论「通过」。单日小样本冒烟：20250303 全市场，n_jobs=8，17 秒跑完 5117 只，\nbase 写到 /hdd/user_home_unsafe/chenzongwei/hm24_smoke（临时目录，没碰正式因子库）。\n\n**一个必须上报的东西：旧文件的 names 与值长度不一致（609 vs 612），本文件按 612 声明。**\n旧代码里 sing() 返回 65*3 + **9** = 204 项（res4 有 9 个 |66段-83段| 差项），\n但拼出来的 names 只有 65*3 + **8** = 203 项，三个时段合计 609 项。\n旧框架 run_factor_out 里是 `zip(res, names_single)`，按短的截断，\n所以旧 base 文件第 i 列 = 值向量第 i 项，609 之后那 3 个值被丢掉。\nRust 侧 names() 返回 612 个名字：前 609 个与旧文件逐字相同、顺序相同，\n末尾补 3 个（afternoon_6683_begins_times_rate_abs / _ends_rate_ba_abs / _ends_times_rate_abs），\n这样「列名↔取值」的映射与旧 base 完全一致，入选的 55 个 base 名一个都没被移动。\n副作用：每只股票后两个时段的列名与旧文件里那套语义名字有整体错位（旧文件本来就错位），\n这是照抄旧行为，不是新引入的。\n\n三个必须逐位复刻的地方（都不是\"顺手\"能替代的，实测错了就过不了 1e-4）：\n1) exchtime 微秒 → 纳秒要走 pandas 的 cast_from_unit_vectorized（±240ns 噪声）。\n   滚动窗口左端是**开**区间，数据里相邻两笔常常正好差 30 秒，噪声符号决定那一笔算不算进窗口：\n   000001@20250303 的 all 段 21815 个秒里 275 个 after_volume 因此不同，\n   若忽略噪声，612 个因子里 105 个超 1e-4（times_* 那族直接 0 vs 2.38e-7）。\n2) concat(...).sort_index() 的并列顺序：sort_index 是单键，走 pandas nargsort →\n   DatetimeArray.argsort('quicksort') → numpy 通用的 aquicksort_<datetime_tag>，\n   **不是** int64 的 x86-simd-sort 那条路（实测同一份 43630 个元素上两者差 572 个位置）。\n   滚动窗口 end 恒为 i+1，同一个纳秒上 label0 / label1 两行的先后决定了那一笔算不算进窗口。\n   本文件照抄 hm013.rs 的 np_argsort_quicksort。\n3) pandas 变量窗口 roll_sum 的 Kahan + 增量 add/remove，start 从 start[i-1] 起扫、end=i+1。\n\n另外两个坑：\n- DataFrame.corr() 的 libalgos.nancorr 只算 yi <= xi 那一半再对称复制，\n  Welford 里 covxy += (vx-meanx_new)*dy_old，两列换序结果不一样（差 1e-3 量级），\n  读 {a,b} 这一对时必须拿下标大的那列当 x。\n- Series.autocorr(k) 是 Series.corr(shift(k)) → np.corrcoef（两遍法，notna 成对剔除），\n  和 DataFrame.corr 的 Welford 不是同一条路；lag >= len 会抛 ValueError，\n  旧代码的 try/except 会把它吞成「整只股票当日全 NaN」，本文件同样返回 None。\n\n其它要点：\n- 三个时段 all=[09:30,14:57]、morning=[09:30,11:30]、afternoon=[13:00,14:57]，\n  都是纳秒级闭区间（不是整秒截断）；不做 adjust_afternoon（旧代码没调）。\n- 因子库文件写在 成果hm24_翻山越岭/hm24_okay_database.py，\n  names_save 55 项、names_gap5 35 项、names_gap1 35 项、names_in_db 4 项，全部照搬旧文件。"
+   "step_submit": "done",
+   "step_library": "done",
+   "step_cleanup": "done",
+   "task_id": 395,
+   "note": "completed，因子库 {'base': 55, 'gap5': 35, 'gap1': 35, 'db': 4}，残留 colblk 0",
+   "library_files": {
+    "base": 55,
+    "gap5": 35,
+    "gap1": 35,
+    "db": 4
+   },
+   "colblk_left": 0
   },
   {
    "num": 25,
@@ -756,11 +777,18 @@
    "rust_file": "src/okay_database/hm025.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm25_开盘系列综合/hm25_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "pending",
-   "step_library": "pending",
-   "step_cleanup": "pending",
-   "task_id": null,
-   "note": "已放行：入库的 18 个因子全部一致；3 个不可复现的 four_* 已从系列里摘除。\n\nhm025 最终形态 69 个因子（原 72 个去掉 four_buy/four_sell/four_trend_volume_rank_abs）。\n摘除依据：旧 four() 的 `sort([\"code\",\"exchtime\"])` 是 polars 多列排序、并列行顺序不稳定，\n取决于 readdir 的任意顺序 —— 对照实验只把文件拼接顺序从 sorted(glob) 换成 glob 原序，\n000001/20250303 的旧值就从 0.05271937505636257 跳到 0.05291089246490235，而两次的\n行数 592、归一化量和 0.9999996423721313、volume_rank 最小/最大 54713.5/136565.0 完全相同，\n差的全部是 cum_count() 落在哪一行。这 3 个不在 names_save 里、不进因子库。\n\n证据：全市场四组样本（20250303:000001、20250304:600519、20180601:000002、20231020:300750）\n里，这 3 个之外的所有因子上一次逐一一致；摘除并重排下标后，又在 20180601 的 5 只股票\n（000001/000014/000028/000046/000066）上把旧值去掉 3 个 four_* 后对账，69 个全部一致。\n产物：src/okay_database/hm025.rs（构建通过、worker 已部署）、\n/home/chenzongwei/pythoncode/成果hm25_开盘系列综合/hm25_okay_database.py（assert 69，入库名单全部点得回系列）。\n注意：以后再直接跑 verify_series.py 这个系列会整体错位 3 格，对账前要先从旧值里去掉这 3 个。"
+   "step_submit": "done",
+   "step_library": "done",
+   "step_cleanup": "done",
+   "task_id": 396,
+   "note": "对账：completed，因子库 {'base': 18, 'gap5': 12, 'gap1': 17, 'db': 2}，残留 colblk 0",
+   "library_files": {
+    "base": 18,
+    "gap5": 12,
+    "gap1": 17,
+    "db": 2
+   },
+   "colblk_left": 0
   },
   {
    "num": 26,
@@ -807,11 +835,11 @@
    "rust_file": "src/okay_database/hm026.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm26_兴业转移熵/hm26_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "pending",
+   "step_submit": "running",
    "step_library": "pending",
    "step_cleanup": "pending",
-   "task_id": null,
-   "note": "通过。verify_series 跑 20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750，四组均「旧 97 值 / 新 97 值，一致」；另用 stock 直连 /ssd_data/stock 的真实全量根复核 20180601:000002 也一致。注意旧代码的数据根写死在 dwo.path_to_be_decided=/ssd_data/data，本机该目录下没有 stock 子目录，必须用 OKAY_VERIFY_DATA_ROOT 指一个形如 <root>/stock 的根才能读到数据。另做 20180601 单日全市场冒烟（n_jobs=8，3300 只股票 131s）已写出 hm26_base 的 21 个入选因子。"
+   "task_id": 397,
+   "note": "提交于 2026-10-10 01:10:23，n_jobs=400"
   },
   {
    "num": 27,

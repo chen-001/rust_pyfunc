@@ -354,11 +354,38 @@ def main() -> int:
     ap.add_argument("--status", action="store_true")
     ap.add_argument("--refresh-only", action="store_true",
                     help="只跑一次因子库统计刷新就退出（验证挂钩子用，不碰补算）")
+    ap.add_argument("--tick", action="store_true",
+                    help="给系统定时任务用的一次性动作：先对账已结束的任务，再看有没有在跑；"
+                         "都没有就提交下一个待补的系列，然后立刻退出，不等它跑完")
     ap.add_argument("--poll", type=int, default=30)
     args = ap.parse_args()
 
     if args.refresh_only:
         on_series_completed(["手动触发"])
+        return 0
+
+    if args.tick:
+        # 这个模式的存在理由：常驻进程会随对话结束一起消失，补算就断在「上一个算完了、
+        # 下一个没人提交」这个缝上。让系统定时任务每几分钟叫一次这个模式，
+        # 每次只做一件事就退出，就不依赖任何一直开着的进程了。
+        state = load_state()
+        reconcile(state)                      # 把已结束、还没记账的补上，并刷新统计
+        if running_tasks():                   # 有任务在跑或在排队，这轮什么都不做
+            return 0
+        series = pick_next(load_state())
+        if series is None:
+            return 0
+        script = series["database_py"]
+        if not Path(script).is_file():
+            update_series(series["series"], note="database 脚本不存在，无法提交")
+            return 1
+        info = submit(script)
+        update_series(series["series"], task_id=info["id"], step_submit="running",
+                      note=f"提交于 {datetime.now():%Y-%m-%d %H:%M:%S}，n_jobs={N_JOBS}")
+        log({"series": series["series"], "event": "submit", "task_id": info["id"],
+             "time": datetime.now().isoformat(), "by": "tick"})
+        refresh_dashboard()
+        print(f"[tick] 已提交 {series['series']}（任务 {info['id']}）")
         return 0
 
     state = load_state()
