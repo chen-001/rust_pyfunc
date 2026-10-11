@@ -28,6 +28,7 @@ use std::path::{Path, PathBuf};
 mod check;
 mod reduce;
 mod reduce2;
+mod simd;
 mod topk;
 
 // ------------------------------------------------------------------ 基础 IO
@@ -347,14 +348,18 @@ fn cmd_net(args: &[String]) {
         // ---- rho（行主序）与 rhoT（列读用）----
         let t0 = std::time::Instant::now();
         let mut rho = vec![0.0f32; n * n];
-        for i in 0..n {
-            rho[i * n + i] = 1.0;
-            let si = (e[i]).sqrt();
+        rho.par_chunks_mut(n).enumerate().for_each(|(i, row)| {
+            row[i] = 1.0;
+            let si = e[i].sqrt();
             for j in (i + 1)..n {
-                let sj = (e[j]).sqrt();
-                let v = (sdir[i * n + j] + sdir[j * n + i]) as f64 / (si * sj);
-                rho[i * n + j] = v as f32;
-                rho[j * n + i] = v as f32;
+                let sj = e[j].sqrt();
+                row[j] = ((sdir[i * n + j] + sdir[j * n + i]) as f64 / (si * sj)) as f32;
+            }
+        });
+        // 上三角算完后镜像到下三角（读刚写完的行，cache 热）
+        for i in 0..n {
+            for j in 0..i {
+                rho[i * n + j] = rho[j * n + i];
             }
         }
         // 对称核自检：rho 必须在 [-1.001, 1.001]
@@ -370,20 +375,26 @@ fn cmd_net(args: &[String]) {
             }
         }
         eprintln!("[p2:{mat}] |rho| 最大 = {maxabs:.5}, 超过 1.001 的格子 = {over}");
+        // 转置：按输出行分块并行，rhot[j][i] = rho[i][j]
         let mut rhot = vec![0.0f32; n * n];
         {
             const B: usize = 64;
-            for bi in (0..n).step_by(B) {
-                for bj in (0..n).step_by(B) {
-                    let i1 = (bi + B).min(n);
-                    let j1 = (bj + B).min(n);
-                    for i in bi..i1 {
-                        for j in bj..j1 {
-                            rhot[j * n + i] = rho[i * n + j];
+            let nb = n.div_ceil(B);
+            rhot
+                .par_chunks_mut(B * n)
+                .enumerate()
+                .for_each(|(bj, rows)| {
+                    for (rj, row) in rows.chunks_mut(n).enumerate() {
+                        let j = bj * B + rj;
+                        for bi in 0..nb {
+                            let i0 = bi * B;
+                            let i1 = (i0 + B).min(n);
+                            for i in i0..i1 {
+                                row[i] = rho[i * n + j];
+                            }
                         }
                     }
-                }
-            }
+                });
         }
         eprintln!("[p2:{mat}] rho + 转置 {:.1}s", t0.elapsed().as_secs_f32());
 
@@ -444,18 +455,31 @@ fn cmd_net(args: &[String]) {
             let nb = MBLK.min(n).max(1);
             let bounds: Vec<(usize, usize)> =
                 (0..nb).map(|k| (k * n / nb, (k + 1) * n / nb)).collect();
-            type Mass = (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, u64);
+            // -inf 掩码：非个股位置加 -inf，使 h/gap 天然落到 argmax 之外、relu 为 0。
+            // 比在每对里逐个判断 !mask[x] 快得多，还让 fill_h 可以整行 SIMD。
+            let addm: Vec<f32> = (0..n)
+                .map(|i| if is_stock[i] { 0.0 } else { f32::NEG_INFINITY })
+                .collect();
+            // 合法候选数对每对都一样：全体个股减去 B、C 自身
+            let n_stocks = is_stock.iter().filter(|&&v| v).count();
+            let n_valid_pair = (n_stocks as u32).saturating_sub(2);
+            // f32 分块累加器：每块私有、块内顺序累加、最后按下标合并——确定性不变。
+            // 用 f32 是因为六份 f64 的每对每 x 读写是最贵的内存流量，砍半立竿见影。
+            type Mass = (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>, u64);
             let parts: Vec<Mass> = bounds
                 .par_iter()
                 .map(|&(b0, b1)| {
                     let sh = sh_ref;
-                    let mut em = vec![0.0f64; n];
-                    let mut gm = vec![0.0f64; n];
-                    let mut g2m = vec![0.0f64; n];
-                    let mut sm = vec![0.0f64; n];
-                    let mut sgm = vec![0.0f64; n];
-                    let mut sg2m = vec![0.0f64; n];
+                    let mut em = vec![0.0f32; n];
+                    let mut gm = vec![0.0f32; n];
+                    let mut g2m = vec![0.0f32; n];
+                    let mut sm = vec![0.0f32; n];
+                    let mut sgm = vec![0.0f32; n];
+                    let mut sg2m = vec![0.0f32; n];
                     let mut npair = 0u64;
+                    // 本块私有的 h/gap 物化缓冲，热路径上不再分配
+                    let mut hb = vec![0.0f32; n];
+                    let mut gb = vec![0.0f32; n];
                     for b in b0..b1 {
                         if !mask_ref[b] {
                             continue;
@@ -477,88 +501,83 @@ fn cmd_net(args: &[String]) {
                             let wb = (sb / d) as f32;
                             let wc = (sc / d) as f32;
                             let q = &rhot_ref[c * n..c * n + n];
-                            let s = best_x(sh.n, p, q, wb, wc, b, c, mask_ref);
-                            if s.bi == usize::MAX {
+                            // 一趟物化：hb = wb*p + wc*q + addm；gb = hb - max(p,q)。
+                            // 非个股与 B/C 自己写 -inf，argmax/relu 自然排除。
+                            crate::simd::fill_h(&mut hb, wb, wc, p, q, &addm);
+                            crate::simd::fill_gap(&mut gb, &hb, p, q);
+                            hb[b] = f32::NEG_INFINITY;
+                            hb[c] = f32::NEG_INFINITY;
+                            gb[b] = f32::NEG_INFINITY;
+                            gb[c] = f32::NEG_INFINITY;
+                            // X0 = argmax h；X0* = argmax gap（同取下标小的在前）
+                            let (bi, h) = crate::simd::argmax_first(&hb);
+                            if bi == usize::MAX {
                                 continue;
                             }
-                            let gain = s.h - s.single;
-                            let gains = s.hs - s.singles;
-                            let nv = s.n_valid.max(1) as f32;
-                            let grel_v = if s.single > 1e-4 {
-                                gain / s.single
+                            let (bsi, gs_) = crate::simd::argmax_first(&gb);
+                            let (sh_pos, sg_pos, sqg_pos, npos) =
+                                crate::simd::pos_stats(&hb, &gb);
+                            let (pbi, qci) = (p[bi], q[bi]);
+                            let single = if pbi > qci { pbi } else { qci };
+                            let (pbs, qcs) = (p[bsi], q[bsi]);
+                            let singles = if pbs > qcs { pbs } else { qcs };
+                            let gain = h - single;
+                            // GSTAR = argmax-gap 处的 gap 值本身（= h - max(p,q)，
+                            // 不要再减 singles）；RHO_US = 该处的 h = gap + singles。
+                            let gains = gs_;
+                            let rus_v = gs_ + singles;
+                            let nv = n_valid_pair.max(1) as f32;
+                            let grel_v = if single > 1e-4 {
+                                gain / single
                             } else {
                                 f32::NAN
                             };
-                            let gsh_v = if s.h > 1e-4 {
-                                gain / s.h
+                            let gsh_v = if h > 1e-4 {
+                                gain / h
                             } else {
                                 f32::NAN
                             };
-                            let ghhi_v = if s.sum_gap_pos > 0.0 {
-                                s.sumsq_gap_pos / (s.sum_gap_pos * s.sum_gap_pos)
+                            let ghhi_v = if sg_pos > 0.0 {
+                                sqg_pos / (sg_pos * sg_pos)
                             } else {
                                 f32::NAN
                             };
                             unsafe {
-                                let mut put = |m: *mut f32, v: f32| {
+                                let put = |m: *mut f32, v: f32| {
                                     *m.add(b * n + c) = v;
                                     *m.add(c * n + b) = v;
                                 };
                                 put(sh.g, gain);
-                                put(sh.ru, s.h);
-                                put(sh.sg, s.single);
-                                put(sh.x0, s.bi as f32);
+                                put(sh.ru, h);
+                                put(sh.sg, single);
+                                put(sh.x0, bi as f32);
                                 put(sh.gs, gains);
-                                put(sh.rus, s.hs);
-                                put(sh.sgs, s.singles);
-                                put(sh.x0s, s.bsi as f32);
+                                put(sh.rus, rus_v);
+                                put(sh.sgs, singles);
+                                put(sh.x0s, bsi as f32);
                                 put(sh.grel, grel_v);
                                 put(sh.gsh, gsh_v);
-                                put(sh.gcov, s.sum_gap_pos / nv);
-                                put(sh.gnpos, s.n_gap_pos as f32 / nv);
+                                put(sh.gcov, sg_pos / nv);
+                                put(sh.gnpos, npos as f32 / nv);
                                 put(sh.ghhi, ghhi_v);
-                                put(sh.pb, s.pb);
-                                put(sh.qc, s.qc);
-                                put(sh.pbs, s.pbs);
-                                put(sh.qcs, s.qcs);
+                                put(sh.pb, pbi);
+                                put(sh.qc, qci);
+                                put(sh.pbs, pbs);
+                                put(sh.qcs, qcs);
                             }
                             npair += 1;
-                            // 第二趟：软质量分配（每对把 1 份质量按 relu(h) 占比摊给全体 X；
+                            // 软质量分配（每对把 1 份质量按 relu(h) 占比摊给全体 X；
                             // gap 口径同理按 relu(gap) 摊）。这是 explain_* 族低覆盖的根治：
                             // 不再只有 argmax 那只股票被记到，每只跟配对形状沾边的 X 都分到质量。
-                            let inv_h = if s.sum_h_pos > 0.0 {
-                                1.0 / s.sum_h_pos
-                            } else {
-                                0.0
-                            };
-                            let inv_g = if s.sum_gap_pos > 0.0 {
-                                1.0 / s.sum_gap_pos
-                            } else {
-                                0.0
-                            };
-                            if inv_h > 0.0 || inv_g > 0.0 {
-                                for x in 0..n {
-                                    if x == b || x == c || !mask_ref[x] {
-                                        continue;
-                                    }
-                                    let h = wb * p[x] + wc * q[x];
-                                    let mx = if p[x] > q[x] { p[x] } else { q[x] };
-                                    let gap = h - mx;
-                                    if h > 0.0 && inv_h > 0.0 {
-                                        let w = (h * inv_h) as f64;
-                                        let g = gap as f64;
-                                        em[x] += w;
-                                        gm[x] += w * g;
-                                        g2m[x] += w * g * g;
-                                    }
-                                    if gap > 0.0 && inv_g > 0.0 {
-                                        let w = (gap * inv_g) as f64;
-                                        let g = gap as f64;
-                                        sm[x] += w;
-                                        sgm[x] += w * g;
-                                        sg2m[x] += w * g * g;
-                                    }
-                                }
+                            if sh_pos > 0.0 {
+                                crate::simd::mass_acc_h(
+                                    &mut em, &mut gm, &mut g2m, &hb, &gb, 1.0 / sh_pos,
+                                );
+                            }
+                            if sg_pos > 0.0 {
+                                crate::simd::mass_acc_g(
+                                    &mut sm, &mut sgm, &mut sg2m, &gb, 1.0 / sg_pos,
+                                );
                             }
                         }
                     }
@@ -575,12 +594,12 @@ fn cmd_net(args: &[String]) {
             // 按下标顺序合并，保证确定性
             for (em, gm, g2m, sm, sgm, sg2m, np) in parts.iter() {
                 for x in 0..n {
-                    emass[x] += em[x];
-                    gmass[x] += gm[x];
-                    g2mass[x] += g2m[x];
-                    smass[x] += sm[x];
-                    sgmass[x] += sgm[x];
-                    sg2mass[x] += sg2m[x];
+                    emass[x] += em[x] as f64;
+                    gmass[x] += gm[x] as f64;
+                    g2mass[x] += g2m[x] as f64;
+                    smass[x] += sm[x] as f64;
+                    sgmass[x] += sgm[x] as f64;
+                    sg2mass[x] += sg2m[x] as f64;
                 }
                 npair_tot += np;
             }
@@ -712,21 +731,42 @@ fn cmd_net(args: &[String]) {
         // 带来的那部分（r 的信息），也就是真正的"互补性显著度"。
         // 不需要蒙特卡洛：真实配对本身就铺满网格，直接用同格配对的经验均值/标准差。
         let t0 = std::time::Instant::now();
+        // (min(p,q), max(p,q)) 各 bins×bins 联合分位网格，参数 --exz-bins（默认 10）
+        let bins: usize = parse_flag(args, "--exz-bins")
+            .map(|s| s.parse().expect("--exz-bins"))
+            .unwrap_or(10);
+        let ncell = bins * bins;
         let cond_std = |pmat: &[f32], qmat: &[f32], wmat: &[f32]| -> Vec<f32> {
-            // u = min(p,q), v = max(p,q) 的十分位切点（只在合法配对上取）
+            // u = min(p,q), v = max(p,q) 的分位切点（只在合法配对上取）。
+            // 三个 n² 循环全部 rayon 并行：行块 fold/reduce 合并，确定性与串行版一致
+            // （计数/求和都是按格累加，合并顺序固定为行块下标序）。
+            const RB: usize = 256;
+            let nrb = n.div_ceil(RB);
+            let uv_pairs: Vec<(Vec<f64>, Vec<f64>)> = (0..nrb)
+                .into_par_iter()
+                .map(|rb| {
+                    let mut us: Vec<f64> = Vec::new();
+                    let mut vs: Vec<f64> = Vec::new();
+                    for i in (rb * RB)..((rb + 1) * RB).min(n) {
+                        for j in (i + 1)..n {
+                            let pv = pmat[i * n + j] as f64;
+                            let qv = qmat[i * n + j] as f64;
+                            if !(pv.is_finite() && qv.is_finite()) {
+                                continue;
+                            }
+                            let (u, v) = if pv <= qv { (pv, qv) } else { (qv, pv) };
+                            us.push(u);
+                            vs.push(v);
+                        }
+                    }
+                    (us, vs)
+                })
+                .collect();
             let mut us: Vec<f64> = Vec::new();
             let mut vs: Vec<f64> = Vec::new();
-            for i in 0..n {
-                for j in (i + 1)..n {
-                    let pv = pmat[i * n + j] as f64;
-                    let qv = qmat[i * n + j] as f64;
-                    if !(pv.is_finite() && qv.is_finite()) {
-                        continue;
-                    }
-                    let (u, v) = if pv <= qv { (pv, qv) } else { (qv, pv) };
-                    us.push(u);
-                    vs.push(v);
-                }
+            for (a, b) in uv_pairs {
+                us.extend_from_slice(&a);
+                vs.extend_from_slice(&b);
             }
             let m = us.len();
             let mut out = vec![f32::NAN; n * n];
@@ -735,45 +775,62 @@ fn cmd_net(args: &[String]) {
             }
             let mut su = us.clone();
             let mut sv = vs.clone();
-            su.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            sv.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            let cuts_u: Vec<f64> = (1..10).map(|k| su[(k * m / 10).min(m - 1)]).collect();
-            let cuts_v: Vec<f64> = (1..10).map(|k| sv[(k * m / 10).min(m - 1)]).collect();
+            su.par_sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
+            sv.par_sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
+            let cuts_u: Vec<f64> = (1..bins).map(|k| su[(k * m / bins).min(m - 1)]).collect();
+            let cuts_v: Vec<f64> = (1..bins).map(|k| sv[(k * m / bins).min(m - 1)]).collect();
             let cell_of = |u: f64, v: f64| -> usize {
-                let du = decile_of(u, &cuts_u);
-                let dv = decile_of(v, &cuts_v);
-                du * 10 + dv
+                // 分位格下标：第一个 >= 该值的切点位置（与旧 decile_of 语义一致）
+                let du = cuts_u.partition_point(|&c| u > c);
+                let dv = cuts_v.partition_point(|&c| v > c);
+                du * bins + dv
             };
-            let mut cnt = vec![0usize; 100];
-            let mut sm = vec![0.0f64; 100];
-            let mut sq = vec![0.0f64; 100];
-            for i in 0..n {
-                for j in (i + 1)..n {
-                    let pv = pmat[i * n + j] as f64;
-                    let qv = qmat[i * n + j] as f64;
-                    let w = wmat[i * n + j] as f64;
-                    if !(pv.is_finite() && qv.is_finite() && w.is_finite()) {
-                        continue;
+            let agg: Vec<(Vec<u64>, Vec<f64>, Vec<f64>)> = (0..nrb)
+                .into_par_iter()
+                .map(|rb| {
+                    let mut cnt = vec![0u64; ncell];
+                    let mut sm = vec![0.0f64; ncell];
+                    let mut sq = vec![0.0f64; ncell];
+                    for i in (rb * RB)..((rb + 1) * RB).min(n) {
+                        for j in (i + 1)..n {
+                            let pv = pmat[i * n + j] as f64;
+                            let qv = qmat[i * n + j] as f64;
+                            let w = wmat[i * n + j] as f64;
+                            if !(pv.is_finite() && qv.is_finite() && w.is_finite()) {
+                                continue;
+                            }
+                            let (u, v) = if pv <= qv { (pv, qv) } else { (qv, pv) };
+                            let c = cell_of(u, v);
+                            cnt[c] += 1;
+                            sm[c] += w;
+                            sq[c] += w * w;
+                        }
                     }
-                    let (u, v) = if pv <= qv { (pv, qv) } else { (qv, pv) };
-                    let c = cell_of(u, v);
-                    cnt[c] += 1;
-                    sm[c] += w;
-                    sq[c] += w * w;
+                    (cnt, sm, sq)
+                })
+                .collect();
+            let mut cnt = vec![0u64; ncell];
+            let mut sm = vec![0.0f64; ncell];
+            let mut sq = vec![0.0f64; ncell];
+            for (c, s, q) in agg.iter() {
+                for k in 0..ncell {
+                    cnt[k] += c[k];
+                    sm[k] += s[k];
+                    sq[k] += q[k];
                 }
             }
-            let ntot = cnt.iter().sum::<usize>().max(1) as f64;
+            let ntot = cnt.iter().sum::<u64>().max(1) as f64;
             let gm = sm.iter().sum::<f64>() / ntot;
             let gs2 = (sq.iter().sum::<f64>() / ntot - gm * gm).max(0.0).sqrt();
-            let mut stats = vec![(gm, gs2); 100];
-            for c in 0..100 {
+            let mut stats = vec![(gm, gs2); ncell];
+            for c in 0..ncell {
                 if cnt[c] >= 30 {
                     let mm = sm[c] / cnt[c] as f64;
                     let sd = (sq[c] / cnt[c] as f64 - mm * mm).max(0.0).sqrt();
                     stats[c] = (mm, sd);
                 }
             }
-            for i in 0..n {
+            out.par_chunks_mut(n).enumerate().for_each(|(i, row)| {
                 for j in (i + 1)..n {
                     let pv = pmat[i * n + j] as f64;
                     let qv = qmat[i * n + j] as f64;
@@ -784,76 +841,93 @@ fn cmd_net(args: &[String]) {
                     let (u, v) = if pv <= qv { (pv, qv) } else { (qv, pv) };
                     let (mm, sd) = stats[cell_of(u, v)];
                     if sd > 1e-12 {
-                        let val = ((w - mm) / sd) as f32;
-                        out[i * n + j] = val;
-                        out[j * n + i] = val;
+                        row[j] = ((w - mm) / sd) as f32;
                     }
+                }
+            });
+            // 上三角写完后镜像到下三角
+            for i in 0..n {
+                for j in 0..i {
+                    out[i * n + j] = out[j * n + i];
                 }
             }
             out
         };
-        let exz = cond_std(&pbv, &qcv, &g);
-        let exzs = cond_std(&pbsv, &qcsv, &gs);
+        let (exz, exzs) = rayon::join(
+            || cond_std(&pbv, &qcv, &g),
+            || cond_std(&pbsv, &qcsv, &gs),
+        );
         eprintln!("[p2:{mat}] (p,q) 条件标准化 EXZ/EXZS {:.1}s", t0.elapsed().as_secs_f32());
 
-        // ---- 落盘 ----
+        // ---- 落盘（23 个文件并行写，磁盘带宽能同时吃多路）----
+        let t0 = std::time::Instant::now();
         let tag = if mats.len() > 1 { format!("_{mat}") } else { String::new() };
-        write_f32(&out.join(format!("G{tag}.bin")), &g).unwrap();
-        write_f32(&out.join(format!("RHO_U{tag}.bin")), &ru).unwrap();
-        write_f32(&out.join(format!("SINGLE{tag}.bin")), &sg).unwrap();
-        write_f32(&out.join(format!("X0{tag}.bin")), &x0).unwrap();
-        write_f32(&out.join(format!("Z{tag}.bin")), &z).unwrap();
-        write_f32(&out.join(format!("GSTAR{tag}.bin")), &gs).unwrap();
-        write_f32(&out.join(format!("RHO_US{tag}.bin")), &rus).unwrap();
-        write_f32(&out.join(format!("SINGLE_S{tag}.bin")), &sgs).unwrap();
-        write_f32(&out.join(format!("X0STAR{tag}.bin")), &x0s).unwrap();
-        write_f32(&out.join(format!("ZS{tag}.bin")), &zs).unwrap();
-        write_f32(&out.join(format!("GREL{tag}.bin")), &grel).unwrap();
-        write_f32(&out.join(format!("GSH{tag}.bin")), &gsh).unwrap();
-        write_f32(&out.join(format!("GCOV{tag}.bin")), &gcov).unwrap();
-        write_f32(&out.join(format!("GNPOS{tag}.bin")), &gnpos).unwrap();
-        write_f32(&out.join(format!("GHHI{tag}.bin")), &ghhi).unwrap();
-        write_f32(&out.join(format!("PB{tag}.bin")), &pbv).unwrap();
-        write_f32(&out.join(format!("QC{tag}.bin")), &qcv).unwrap();
-        write_f32(&out.join(format!("PBS{tag}.bin")), &pbsv).unwrap();
-        write_f32(&out.join(format!("QCS{tag}.bin")), &qcsv).unwrap();
-        write_f32(&out.join(format!("EXZ{tag}.bin")), &exz).unwrap();
-        write_f32(&out.join(format!("EXZS{tag}.bin")), &exzs).unwrap();
-        // 多矩阵时 rho/E 也必须带 mat 后缀（不同 mat 的 rho 不同，原来会被最后一个覆盖）
-        write_f32(&out.join(format!("rho{tag}.bin")), &rho).unwrap();
-        write_f64(&out.join(format!("E{tag}.bin")), &e).unwrap();
-        // 软质量向量：emass | gmass | smass | sgmass 各 n 个 f32
-        write_f32(&out.join(format!("MASS{tag}.bin")), &mass_vectors).unwrap();
+        {
+            let writes: Vec<(&str, &[f32])> = vec![
+                ("G", &g), ("RHO_U", &ru), ("SINGLE", &sg), ("X0", &x0),
+                ("Z", &z), ("GSTAR", &gs), ("RHO_US", &rus), ("SINGLE_S", &sgs),
+                ("X0STAR", &x0s), ("ZS", &zs), ("GREL", &grel), ("GSH", &gsh),
+                ("GCOV", &gcov), ("GNPOS", &gnpos), ("GHHI", &ghhi),
+                ("PB", &pbv), ("QC", &qcv), ("PBS", &pbsv), ("QCS", &qcsv),
+                ("EXZ", &exz), ("EXZS", &exzs), ("rho", &rho),
+            ];
+            writes.par_iter().for_each(|(nm, v)| {
+                write_f32(&out.join(format!("{nm}{tag}.bin")), v).unwrap();
+            });
+            write_f64(&out.join(format!("E{tag}.bin")), &e).unwrap();
+            // 软质量向量：emass|gmass|g2mass|smass|sgmass|sg2mass 各 n 个 f32
+            write_f32(&out.join(format!("MASS{tag}.bin")), &mass_vectors).unwrap();
+        }
+        eprintln!("[p2:{mat}] 落盘 {:.1}s", t0.elapsed().as_secs_f32());
+        let t0 = std::time::Instant::now();
 
         // ---- 汇报用：按 G、Z、ZS 的头部配对 ----
         // 注意变量名不要和上面的 gs/zs 矩阵撞，这里统一用 gq/zq 存分位用的向量。
-        let mut pairs: Vec<(usize, usize, f32, f32, f32, usize, f32, f32, usize)> = Vec::new();
-        for b in 0..n {
-            for c in (b + 1)..n {
-                let bi = x0[b * n + c] as usize;
-                if bi >= n {
-                    continue;
+        let pairs: Vec<(usize, usize, f32, f32, f32, usize, f32, f32, usize)> = (0..n)
+            .into_par_iter()
+            .map(|b| {
+                let mut v = Vec::new();
+                for c in (b + 1)..n {
+                    let bi = x0[b * n + c] as usize;
+                    if bi >= n {
+                        continue;
+                    }
+                    let bsi = x0s[b * n + c] as usize;
+                    v.push((
+                        b, c, g[b * n + c], z[b * n + c], ru[b * n + c], bi,
+                        zs[b * n + c], gs[b * n + c], bsi,
+                    ));
                 }
-                let bsi = x0s[b * n + c] as usize;
-                pairs.push((
-                    b, c, g[b * n + c], z[b * n + c], ru[b * n + c], bi,
-                    zs[b * n + c], gs[b * n + c], bsi,
-                ));
+                v
+            })
+            .reduce(Vec::new, |mut a, mut b| {
+                a.append(&mut b);
+                a
+            });
+        // top-15 只需要部分排序：select_nth 切出头部再对小段排序，
+        // 分位数同理只要次序统计量，不做 780 万元组的全排序。
+        let top15 = |v: &mut Vec<(usize, usize, f32, f32, f32, usize, f32, f32, usize)>,
+                     key: fn(&(_, _, f32, f32, f32, usize, f32, f32, usize)) -> f32| {
+            let tk = topk.min(v.len());
+            if tk < v.len() {
+                v.select_nth_unstable_by(tk, |a, b| key(b).partial_cmp(&key(a)).unwrap());
             }
-        }
+            v[..tk].sort_unstable_by(|a, b| key(b).partial_cmp(&key(a)).unwrap());
+        };
         let mut by_g = pairs.clone();
-        by_g.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap());
+        top15(&mut by_g, |t| t.2);
         let mut by_z = pairs.clone();
-        by_z.sort_by(|a, b| b.3.partial_cmp(&a.3).unwrap());
+        top15(&mut by_z, |t| t.3);
         let mut by_zs = pairs.clone();
-        by_zs.sort_by(|a, b| b.6.partial_cmp(&a.6).unwrap());
+        top15(&mut by_zs, |t| t.6);
         let gq: Vec<f32> = pairs.iter().map(|p| p.2).collect();
         let zq: Vec<f32> = pairs.iter().map(|p| p.3).collect();
         let zsq: Vec<f32> = pairs.iter().map(|p| p.6).collect();
         let q = |v: &[f32], p: f64| -> f32 {
             let mut s = v.to_vec();
-            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            s[((s.len() as f64) * p) as usize % s.len()]
+            let k = ((s.len() as f64) * p) as usize % s.len();
+            s.select_nth_unstable_by(k, |a, b| a.partial_cmp(b).unwrap());
+            s[k]
         };
         eprintln!(
             "[p2:{mat}] G 分位 p10/p50/p90 = {:.4}/{:.4}/{:.4};  Z>2 占比 {:.3}%  ZS>2 占比 {:.3}%",
@@ -882,6 +956,7 @@ fn cmd_net(args: &[String]) {
                 codes[t.0], codes[t.1], t.6, t.7, t.3, codes[t.8]
             );
         }
+        eprintln!("[p2:{mat}] 汇报段 {:.1}s", t0.elapsed().as_secs_f32());
 
         let strata_json: Vec<serde_json::Value> = strata
             .iter()

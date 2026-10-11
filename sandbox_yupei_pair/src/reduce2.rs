@@ -13,7 +13,7 @@
 use rayon::prelude::*;
 use std::time::Instant;
 
-use crate::reduce::{spearman, topk_adj, MatSet, Out};
+use crate::reduce::{spearman, topk_adj_multi, MatSet, Out};
 
 // ============================================================
 // A. 行统计：每股在一张 N×N 分数矩阵上的配对分布形状
@@ -167,23 +167,42 @@ fn explain_extra(
     z: &[f32],
     ok: &[bool],
 ) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
-    // 每只入选股收一份 (w,z) 列表（全部配对约 680 万条 ×8B，内存可接受）
+    // 每只入选股收一份 (w,z) 列表（全部配对约 680 万条 ×8B，内存可接受）。
+    // 行块并行收集再按块序合并；表内顺序对下游统计（排序/求和）无影响，结果确定。
+    const RB3: usize = 256;
+    let nrb = n.div_ceil(RB3);
+    let parts: Vec<(Vec<Vec<(f32, f32)>>, usize)> = (0..nrb)
+        .into_par_iter()
+        .map(|rb| {
+            let mut sel: Vec<Vec<(f32, f32)>> = vec![Vec::new(); n];
+            let mut tot = 0usize;
+            for i in (rb * RB3)..((rb + 1) * RB3).min(n) {
+                if !ok[i] {
+                    continue;
+                }
+                for j in (i + 1)..n {
+                    if !ok[j] {
+                        continue;
+                    }
+                    let x = x0sel[i * n + j];
+                    if x < 0 || x as usize >= n {
+                        continue;
+                    }
+                    sel[x as usize].push((w[i * n + j], z[i * n + j]));
+                    tot += 1;
+                }
+            }
+            (sel, tot)
+        })
+        .collect();
     let mut sel: Vec<Vec<(f32, f32)>> = vec![Vec::new(); n];
     let mut total = 0usize;
-    for i in 0..n {
-        if !ok[i] {
-            continue;
-        }
-        for j in (i + 1)..n {
-            if !ok[j] {
-                continue;
+    for (ps, t) in parts {
+        total += t;
+        for x in 0..n {
+            if !ps[x].is_empty() {
+                sel[x].extend_from_slice(&ps[x]);
             }
-            let x = x0sel[i * n + j];
-            if x < 0 || x as usize >= n {
-                continue;
-            }
-            sel[x as usize].push((w[i * n + j], z[i * n + j]));
-            total += 1;
         }
     }
     let inv = if total > 0 { 1.0 / total as f64 } else { 0.0 };
@@ -466,10 +485,20 @@ fn pair_scan_topk(
         .map(|bk| {
             let b0 = bk * BLK;
             let b1 = (b0 + BLK).min(n);
-            // 每 x 的块内 top-kmax（按 v 降序保持）+ 击败数
+            // 每 x 的块内 top-kmax：插入序存储 + 跟踪当前 min，内层只有一次比较；
+            // 命中才插入/淘汰并重扫 50 元表。淘汰目标与旧版逐位一致——旧版列表
+            // 全程降序排序、顶掉 tl[kmax-1]（稳定序里最靠尾的 min），等价于在
+            // 插入序里淘汰"最后出现的最小值"：这里用 <= 取最后一个 min 再
+            // remove+push，保持存活元素的插入顺序，块末再统一降序排序，
+            // 与旧版成员集合及顺序完全相同。
             let mut top: Vec<Vec<(f32, i32, i32)>> = vec![Vec::new(); n];
-            let mut beat = vec![0i64; n];
+            // tmin 初值 -inf：列表未满时任何有限值都能进；
+            // 被 -inf 掩掉的 x（==b/c/非个股）-inf > -inf 为假，天然排除
+            let mut tmin = vec![f32::NEG_INFINITY; n];
+            let mut beat32 = vec![0i32; n];
+            let mut hits: Vec<u32> = Vec::with_capacity(256);
             let mut a = vec![0.0f32; n];
+            let mut vbuf = vec![0.0f32; n];
             for b in b0..b1 {
                 if !ok[b] {
                     continue;
@@ -486,25 +515,43 @@ fn pair_scan_topk(
                     let row = &mt[c * n..c * n + n];
                     let saved = a[c];
                     a[c] = f32::NEG_INFINITY;
-                    for x in 0..n {
-                        let v = (a[x] + row[x]) * w;
-                        if v > single[x] {
-                            beat[x] += 1;
-                        }
+                    crate::simd::mul_add(&mut vbuf, &a, row, w);
+                    // 击败计数：SIMD 掩码加（i32 足够：对数 < 2^31）
+                    crate::simd::add_cnt_gt_i32(&mut beat32, &vbuf, &single);
+                    // top-k 插入：movemask 命中位才进列表操作
+                    hits.clear();
+                    crate::simd::collect_gt_idx(&mut hits, &vbuf, &tmin);
+                    for &x in &hits {
+                        let x = x as usize;
                         let tl = &mut top[x];
                         if tl.len() < kmax {
-                            tl.push((v, b as i32, c as i32));
-                            if tl.len() == kmax {
-                                tl.sort_by(|u, vv| vv.0.partial_cmp(&u.0).unwrap());
+                            tl.push((vbuf[x], b as i32, c as i32));
+                        } else {
+                            let mut mv = f32::INFINITY;
+                            let mut last = 0usize;
+                            for (t, e) in tl.iter().enumerate() {
+                                if e.0 <= mv {
+                                    mv = e.0;
+                                    last = t;
+                                }
                             }
-                        } else if v > tl[kmax - 1].0 {
-                            tl[kmax - 1] = (v, b as i32, c as i32);
-                            tl.sort_by(|u, vv| vv.0.partial_cmp(&u.0).unwrap());
+                            tl.remove(last);
+                            tl.push((vbuf[x], b as i32, c as i32));
                         }
+                        tmin[x] = if tl.len() < kmax {
+                            f32::NEG_INFINITY
+                        } else {
+                            tl.iter().map(|e| e.0).fold(f32::INFINITY, f32::min)
+                        };
                     }
                     a[c] = saved;
                 }
             }
+            // 块末统一降序排序：与旧版"全程保持降序"的最终顺序一致（成员相同）
+            for tl in top.iter_mut() {
+                tl.sort_by(|u, vv| vv.0.partial_cmp(&u.0).unwrap());
+            }
+            let beat: Vec<i64> = beat32.iter().map(|&v| v as i64).collect();
             (top, beat)
         })
         .collect();
@@ -811,13 +858,19 @@ fn block_r4(ms: &MatSet, pre: &str, n: usize, ok: &[bool], out: &mut Out) {
         ("gs", &ms.gs),
         ("zs", &ms.zs),
     ];
-    let mut adjs: Vec<(&'static str, usize, Vec<bool>)> = Vec::new();
-    for (gn, m) in &graphs {
-        for &k in &ks {
-            let n_ok = ok.iter().filter(|&&v| v).count();
-            let kk = k.min(n_ok.saturating_sub(1));
-            let adj = topk_adj(n, m, kk, ok);
+    let n_ok = ok.iter().filter(|&&v| v).count();
+    let kks: Vec<usize> = ks.iter().map(|&k| k.min(n_ok.saturating_sub(1))).collect();
+    // 邻接矩阵只算 5 次（每图一次排序、5 档共享），adjs 存引用避免拷贝
+    let adj_all: Vec<Vec<Vec<bool>>> = graphs
+        .iter()
+        .map(|(_, m)| topk_adj_multi(n, m, &kks, ok))
+        .collect();
+    let mut adjs: Vec<(&'static str, usize, &Vec<bool>)> = Vec::new();
+    for (gi, (gn, _)) in graphs.iter().enumerate() {
+        for (ki, &k) in ks.iter().enumerate() {
+            let adj = &adj_all[gi][ki];
             let deg: Vec<f64> = (0..n)
+                .into_par_iter()
                 .map(|i| (0..n).filter(|&j| adj[i * n + j]).count() as f64)
                 .collect();
             out.push(&format!("{pre}r4_deg_{gn}_k{k}"), deg);
@@ -836,26 +889,25 @@ fn block_r4(ms: &MatSet, pre: &str, n: usize, ok: &[bool], out: &mut Out) {
             .unwrap();
         let mut ov = vec![f64::NAN; n];
         let mut ja = vec![f64::NAN; n];
-        for i in 0..n {
-            if !ok[i] {
-                continue;
-            }
-            let mut inter = 0usize;
-            let mut uni = 0usize;
-            for j in 0..n {
-                let (a, b) = (ar[i * n + j], ag[i * n + j]);
-                if a && b {
-                    inter += 1;
+        ov.par_iter_mut()
+            .zip(ja.par_iter_mut())
+            .enumerate()
+            .for_each(|(i, (o, j2))| {
+                if !ok[i] {
+                    return;
                 }
-                if a || b {
-                    uni += 1;
+                let mut inter = 0usize;
+                let mut uni = 0usize;
+                for j in 0..n {
+                    let (a, b) = (ar[i * n + j], ag[i * n + j]);
+                    inter += (a && b) as usize;
+                    uni += (a || b) as usize;
                 }
-            }
-            ov[i] = inter as f64 / *k as f64;
-            if uni > 0 {
-                ja[i] = inter as f64 / uni as f64;
-            }
-        }
+                *o = inter as f64 / *k as f64;
+                if uni > 0 {
+                    *j2 = inter as f64 / uni as f64;
+                }
+            });
         out.push(&format!("{pre}r4_ov_{gn}_k{k}"), ov);
         out.push(&format!("{pre}r4_jac_{gn}_k{k}"), ja);
     }
@@ -953,27 +1005,46 @@ fn resid_stats(
             le[j],
         ]
     };
+    // X'X / X'y 按行块并行累加，按块序合并（确定性；与串行仅差浮点结合顺序）
+    const RB2: usize = 256;
+    let nrb = n.div_ceil(RB2);
+    let partials: Vec<([[f64; K]; K], [f64; K])> = (0..nrb)
+        .into_par_iter()
+        .map(|rb| {
+            let mut xtx = [[0.0f64; K]; K];
+            let mut xty = [0.0f64; K];
+            for i in (rb * RB2)..((rb + 1) * RB2).min(n) {
+                if !ok[i] {
+                    continue;
+                }
+                for j in (i + 1)..n {
+                    if !ok[j] {
+                        continue;
+                    }
+                    let y = wmat[i * n + j] as f64;
+                    if !y.is_finite() {
+                        continue;
+                    }
+                    let d = cov(i, j);
+                    for a in 0..K {
+                        for b in 0..K {
+                            xtx[a][b] += d[a] * d[b];
+                        }
+                        xty[a] += d[a] * y;
+                    }
+                }
+            }
+            (xtx, xty)
+        })
+        .collect();
     let mut xtx = vec![vec![0.0f64; K]; K];
     let mut xty = vec![0.0f64; K];
-    for i in 0..n {
-        if !ok[i] {
-            continue;
-        }
-        for j in (i + 1)..n {
-            if !ok[j] {
-                continue;
+    for (px, py) in partials.iter() {
+        for a in 0..K {
+            for b in 0..K {
+                xtx[a][b] += px[a][b];
             }
-            let d = cov(i, j);
-            let y = wmat[i * n + j] as f64;
-            if !y.is_finite() {
-                continue;
-            }
-            for a in 0..K {
-                for b in 0..K {
-                    xtx[a][b] += d[a] * d[b];
-                }
-                xty[a] += d[a] * y;
-            }
+            xty[a] += py[a];
         }
     }
     for i in 0..K {
@@ -981,25 +1052,29 @@ fn resid_stats(
     }
     let beta = solve_lin(xtx, xty, K);
     let mut res = vec![f32::NAN; n * n];
-    for i in 0..n {
+    res.par_chunks_mut(n).enumerate().for_each(|(i, row)| {
         if !ok[i] {
-            continue;
+            return;
         }
         for j in (i + 1)..n {
             if !ok[j] {
                 continue;
             }
-            let d = cov(i, j);
             let y = wmat[i * n + j] as f64;
             if !y.is_finite() {
                 continue;
             }
+            let d = cov(i, j);
             let mut fit = 0.0f64;
             for a in 0..K {
                 fit += beta[a] * d[a];
             }
-            res[i * n + j] = (y - fit) as f32;
-            res[j * n + i] = (y - fit) as f32;
+            row[j] = (y - fit) as f32;
+        }
+    });
+    for i in 0..n {
+        for j in 0..i {
+            res[i * n + j] = res[j * n + i];
         }
     }
     // 行统计 8 项（复用 row_stats16 再取需要的）

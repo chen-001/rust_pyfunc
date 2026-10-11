@@ -16,6 +16,8 @@
 
 use std::path::PathBuf;
 
+use rayon::prelude::*;
+
 use crate::{parse_flag, read_codes, read_f32};
 
 struct Mat {
@@ -36,31 +38,38 @@ fn load(day: &PathBuf, n: usize, name: &str, tag: &str) -> Option<Mat> {
     })
 }
 
-/// 严格上三角的对称偏差与有限率
+/// 严格上三角的对称偏差与有限率（按行并行归约）
 fn upper_stats(v: &[f32], n: usize) -> (f64, f64) {
-    let mut dev = 0.0f64;
-    let mut fin = 0usize;
-    let mut tot = 0usize;
-    for i in 0..n {
-        for j in (i + 1)..n {
-            tot += 1;
-            let a = v[i * n + j];
-            let b = v[j * n + i];
-            if a.is_finite() {
-                fin += 1;
+    let (dev, fin, tot) = (0..n)
+        .into_par_iter()
+        .map(|i| {
+            let mut dev = 0.0f64;
+            let mut fin = 0usize;
+            let mut tot = 0usize;
+            for j in (i + 1)..n {
+                tot += 1;
+                let a = v[i * n + j];
+                let b = v[j * n + i];
+                if a.is_finite() {
+                    fin += 1;
+                }
+                let d = if a.is_finite() && b.is_finite() {
+                    (a - b).abs() as f64
+                } else if a.is_finite() == b.is_finite() {
+                    0.0
+                } else {
+                    f64::INFINITY // 一边有限一边 NaN：不对称
+                };
+                if d > dev {
+                    dev = d;
+                }
             }
-            let d = if a.is_finite() && b.is_finite() {
-                (a - b).abs() as f64
-            } else if a.is_finite() == b.is_finite() {
-                0.0
-            } else {
-                f64::INFINITY // 一边有限一边 NaN：不对称
-            };
-            if d > dev {
-                dev = d;
-            }
-        }
-    }
+            (dev, fin, tot)
+        })
+        .reduce(
+            || (0.0, 0, 0),
+            |a, b| (a.0.max(b.0), a.1 + b.1, a.2 + b.2),
+        );
     (dev, fin as f64 / tot.max(1) as f64)
 }
 
@@ -90,15 +99,19 @@ pub fn cmd_check(args: &[String]) {
         }
     };
 
-    // ---- 1. 期望矩阵清单 ----
+    // ---- 1. 期望矩阵清单（22 张并行读，串行读是 check 最大墙钟开销）----
     let names = [
         "G", "RHO_U", "SINGLE", "X0", "Z", "GSTAR", "RHO_US", "SINGLE_S", "X0STAR",
         "ZS", "GREL", "GSH", "GCOV", "GNPOS", "GHHI", "PB", "QC", "PBS", "QCS",
         "EXZ", "EXZS", "rho",
     ];
+    let loaded: Vec<Option<Mat>> = names
+        .par_iter()
+        .map(|nm| load(&day, n, nm, &tag))
+        .collect();
     let mut mats: std::collections::HashMap<String, Mat> = std::collections::HashMap::new();
-    for nm in names {
-        match load(&day, n, nm, &tag) {
+    for (nm, m) in names.iter().zip(loaded) {
+        match m {
             Some(m) => {
                 mats.insert(m.name.clone(), m);
             }
@@ -121,47 +134,55 @@ pub fn cmd_check(args: &[String]) {
         eprintln!("[check:cov] {} 上三角有限率 {:.3}%", m.name, 100.0 * cov);
     }
 
-    // ---- 3. 分解自洽 ----
+    // ---- 3. 分解自洽（行并行归约最大偏差）----
     let get = |nm: &str| -> &[f32] { &mats[&format!("{nm}{tag}")].v };
+    // 通用：上三角逐格 dev = f(i,j) 的最大值
+    fn max_dev(n: usize, f: impl Fn(usize, usize) -> f32 + Sync) -> f32 {
+        (0..n)
+            .into_par_iter()
+            .map(|i| {
+                let mut d = 0.0f32;
+                for j in (i + 1)..n {
+                    d = d.max(f(i, j));
+                }
+                d
+            })
+            .reduce(|| 0.0f32, |a, b| a.max(b))
+    }
     if mats.contains_key(&format!("SINGLE{tag}")) && mats.contains_key(&format!("PB{tag}")) {
         let (sg, pb, qc) = (get("SINGLE"), get("PB"), get("QC"));
-        let mut dev = 0.0f32;
-        for i in 0..n {
-            for j in (i + 1)..n {
-                let k = i * n + j;
-                if sg[k].is_finite() {
-                    let mx = if pb[k] > qc[k] { pb[k] } else { qc[k] };
-                    dev = dev.max((mx - sg[k]).abs());
-                }
+        let dev = max_dev(n, |i, j| {
+            let k = i * n + j;
+            if sg[k].is_finite() {
+                (pb[k].max(qc[k]) - sg[k]).abs()
+            } else {
+                0.0
             }
-        }
+        });
         warn(dev <= 1e-6, format!("SINGLE==max(PB,QC) 偏差 {dev:.2e}"));
     }
     if mats.contains_key(&format!("SINGLE_S{tag}")) && mats.contains_key(&format!("PBS{tag}")) {
         let (sg, pb, qc) = (get("SINGLE_S"), get("PBS"), get("QCS"));
-        let mut dev = 0.0f32;
-        for i in 0..n {
-            for j in (i + 1)..n {
-                let k = i * n + j;
-                if sg[k].is_finite() {
-                    let mx = if pb[k] > qc[k] { pb[k] } else { qc[k] };
-                    dev = dev.max((mx - sg[k]).abs());
-                }
+        let dev = max_dev(n, |i, j| {
+            let k = i * n + j;
+            if sg[k].is_finite() {
+                (pb[k].max(qc[k]) - sg[k]).abs()
+            } else {
+                0.0
             }
-        }
+        });
         warn(dev <= 1e-6, format!("SINGLE_S==max(PBS,QCS) 偏差 {dev:.2e}"));
     }
     {
         let (g, sg, ru) = (get("G"), get("SINGLE"), get("RHO_U"));
-        let mut dev = 0.0f32;
-        for i in 0..n {
-            for j in (i + 1)..n {
-                let k = i * n + j;
-                if g[k].is_finite() && sg[k].is_finite() && ru[k].is_finite() {
-                    dev = dev.max((sg[k] + g[k] - ru[k]).abs());
-                }
+        let dev = max_dev(n, |i, j| {
+            let k = i * n + j;
+            if g[k].is_finite() && sg[k].is_finite() && ru[k].is_finite() {
+                (sg[k] + g[k] - ru[k]).abs()
+            } else {
+                0.0
             }
-        }
+        });
         warn(dev <= 1e-5, format!("RHO_U==SINGLE+G 偏差 {dev:.2e}"));
     }
 
@@ -169,19 +190,25 @@ pub fn cmd_check(args: &[String]) {
     for nm in ["EXZ", "EXZS"] {
         let key = format!("{nm}{tag}");
         if let Some(m) = mats.get(&key) {
-            let mut s = 0.0f64;
-            let mut sq = 0.0f64;
-            let mut c = 0usize;
-            for i in 0..n {
-                for j in (i + 1)..n {
-                    let v = m.v[i * n + j] as f64;
-                    if v.is_finite() {
-                        s += v;
-                        sq += v * v;
-                        c += 1;
+            let (s, sq, c) = (0..n)
+                .into_par_iter()
+                .map(|i| {
+                    let mut s = 0.0f64;
+                    let mut sq = 0.0f64;
+                    let mut c = 0usize;
+                    for j in (i + 1)..n {
+                        let v = m.v[i * n + j] as f64;
+                        if v.is_finite() {
+                            s += v;
+                            sq += v * v;
+                            c += 1;
+                        }
                     }
-                }
-            }
+                    (s, sq, c)
+                })
+                .reduce(|| (0.0, 0.0, 0), |a, b| {
+                    (a.0 + b.0, a.1 + b.1, a.2 + b.2)
+                });
             let mean = s / c.max(1) as f64;
             let sd = (sq / c.max(1) as f64 - mean * mean).max(0.0).sqrt();
             warn(

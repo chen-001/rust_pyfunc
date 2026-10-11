@@ -131,11 +131,16 @@ fn order_score(y: u32, h: &[f32], gap: &[f32], crit: usize) -> f32 {
 }
 
 /// 扫 [b0, b1) 这一段 B，h-top 与 gap-top 两口径各档同时累加。
+/// addm 是预建的 -inf 掩码（非个股位置）；n_valid = 个股数-2，对所有配对相同。
+/// 与旧版差异仅工程层：h/gap 用 SIMD 物化、top-K 用 u64 打包键整型选择，
+/// 排序序与 h_less 完全一致（分数降序、同分下标升序 → pack_desc_idx_asc 升序）。
 fn block_accumulate(
     n: usize,
     rho: &[f32],
     e: &[f64],
     mask: &[bool],
+    addm: &[f32],
+    n_valid: usize,
     b0: usize,
     b1: usize,
     ks: &[usize],
@@ -146,9 +151,12 @@ fn block_accumulate(
     // 本块自己的缓冲，热路径上不再分配
     let mut h = vec![0.0f32; n];
     let mut gap = vec![0.0f32; n];
-    let mut idx = vec![0u32; n];
-    let mut gidx = vec![0u32; n];
+    let mut kh = vec![0u64; n];
+    let mut kg = vec![0u64; n];
+    let mut idx = vec![0u32; maxk];
+    let mut gidx = vec![0u32; maxk];
     let mut pref = vec![0.0f64; maxk];
+    let take = n_valid.min(maxk);
 
     for b in b0..b1 {
         if !mask[b] {
@@ -173,39 +181,29 @@ fn block_accumulate(
             let wc = (sc / d) as f32;
             let q = &rho[c * n..c * n + n];
 
-            // 物化 h 与 gap，同时数合法候选
-            let mut valid = 0usize;
-            for x in 0..n {
-                idx[x] = x as u32;
-                gidx[x] = x as u32;
-                if x == b || x == c || !mask[x] {
-                    h[x] = f32::NEG_INFINITY;
-                    gap[x] = f32::NEG_INFINITY;
-                } else {
-                    let hh = wb * p[x] + wc * q[x];
-                    h[x] = hh;
-                    gap[x] = hh - if p[x] > q[x] { p[x] } else { q[x] };
-                    valid += 1;
-                }
-            }
-            let take = valid.min(maxk);
+            // 物化 h 与 gap（SIMD）；B/C 与非个股位 -inf
+            crate::simd::fill_h(&mut h, wb, wc, p, q, addm);
+            crate::simd::fill_gap(&mut gap, &h, p, q);
+            h[b] = f32::NEG_INFINITY;
+            h[c] = f32::NEG_INFINITY;
+            gap[b] = f32::NEG_INFINITY;
+            gap[c] = f32::NEG_INFINITY;
             if take == 0 {
                 continue;
             }
-            // h-top：部分选择 + 排序
-            idx.select_nth_unstable_by(take - 1, |&a, &cc| {
-                h_less(h[a as usize], a, h[cc as usize], cc)
-            });
-            idx[..take].sort_unstable_by(|&a, &cc| {
-                h_less(h[a as usize], a, h[cc as usize], cc)
-            });
-            // gap-top：同一套，排序键换 gap
-            gidx.select_nth_unstable_by(take - 1, |&a, &cc| {
-                h_less(gap[a as usize], a, gap[cc as usize], cc)
-            });
-            gidx[..take].sort_unstable_by(|&a, &cc| {
-                h_less(gap[a as usize], a, gap[cc as usize], cc)
-            });
+            // 打包 (score,idx) u64 键：升序整型序 = 分数降序+下标升序
+            for x in 0..n {
+                kh[x] = crate::simd::pack_desc_idx_asc(h[x], x as u32);
+                kg[x] = crate::simd::pack_desc_idx_asc(gap[x], x as u32);
+            }
+            kh.select_nth_unstable(take - 1);
+            kh[..take].sort_unstable();
+            kg.select_nth_unstable(take - 1);
+            kg[..take].sort_unstable();
+            for v in 0..take {
+                idx[v] = kh[v] as u32;
+                gidx[v] = kg[v] as u32;
+            }
 
             // h 口径的 relu 前缀和 + 累加
             let mut s = 0.0f64;
@@ -306,10 +304,17 @@ pub fn cmd_topk(args: &[String]) {
     // ---- 分块并行累加，再按下标顺序合并 ----
     let nb = NBLOCKS.min(n).max(1);
     let bounds: Vec<(usize, usize)> = (0..nb).map(|k| (k * n / nb, (k + 1) * n / nb)).collect();
+    // -inf 掩码与定长合法候选数：对全部有效配对都一样
+    let addm: Vec<f32> = (0..n)
+        .map(|i| if mask[i] { 0.0 } else { f32::NEG_INFINITY })
+        .collect();
+    let n_valid = n_stocks.saturating_sub(2);
     let t0 = Instant::now();
     let accs: Vec<Acc> = bounds
         .par_iter()
-        .map(|&(b0, b1)| block_accumulate(n, &rho, &e, &mask, b0, b1, &ks, maxk))
+        .map(|&(b0, b1)| {
+            block_accumulate(n, &rho, &e, &mask, &addm, n_valid, b0, b1, &ks, maxk)
+        })
         .collect();
     let t_scan = t0.elapsed().as_secs_f64();
     let pairs: u64 = accs.iter().map(|a| a.pairs).sum();

@@ -347,18 +347,23 @@ pub(crate) fn pair_scan(n: usize, rho: &[f32], e: &[f64], ok: &[bool]) -> (Vec<f
     const BLK: usize = 64;
     let nblk = n.div_ceil(BLK);
     let t0 = Instant::now();
-    let blocks: Vec<Vec<(f32, i32)>> = (0..nblk)
+    // 每块输出两个平面：ov=各 B 下每 x 的最大值，oc=取得最大值的 C 下标。
+    // 内层 (a+row)*w 用 SIMD 物化，比较更新用带掩码的 AVX2 助手。
+    let blocks: Vec<(Vec<f32>, Vec<i32>)> = (0..nblk)
         .into_par_iter()
         .map(|bk| {
             let b0 = bk * BLK;
             let b1 = (b0 + BLK).min(n);
-            let mut out = vec![(f32::NEG_INFINITY, -1i32); (b1 - b0) * n];
+            let mut ov = vec![f32::NEG_INFINITY; (b1 - b0) * n];
+            let mut oc = vec![-1i32; (b1 - b0) * n];
             let mut a = vec![0.0f32; n];
+            let mut vbuf = vec![0.0f32; n];
             for b in b0..b1 {
                 if !ok[b] {
                     continue;
                 }
-                let ob = &mut out[(b - b0) * n..(b - b0) * n + n];
+                let ob = &mut ov[(b - b0) * n..(b - b0) * n + n];
+                let cb = &mut oc[(b - b0) * n..(b - b0) * n + n];
                 for x in 0..n {
                     a[x] = m[x * n + b];
                 }
@@ -371,37 +376,34 @@ pub(crate) fn pair_scan(n: usize, rho: &[f32], e: &[f64], ok: &[bool]) -> (Vec<f
                     let row = &mt[c * n..c * n + n];
                     let saved = a[c];
                     a[c] = f32::NEG_INFINITY; // C == X 不能算
-                    for x in 0..n {
-                        let v = (a[x] + row[x]) * w;
-                        if v > ob[x].0 {
-                            ob[x] = (v, c as i32);
-                        }
-                    }
+                    crate::simd::mul_add(&mut vbuf, &a, row, w);
+                    crate::simd::elem_max_upd_idx(ob, cb, &vbuf, c as i32);
                     a[c] = saved;
                 }
             }
-            out
+            (ov, oc)
         })
         .collect();
     let mut best = vec![f32::NEG_INFINITY; n];
     let mut bi = vec![-1i32; n];
     let mut ci = vec![-1i32; n];
-    for (bk, blk) in blocks.iter().enumerate() {
+    for (bk, (ov, oc)) in blocks.iter().enumerate() {
         let b0 = bk * BLK;
         let b1 = (b0 + BLK).min(n);
         for b in b0..b1 {
             if !ok[b] {
                 continue;
             }
-            let ob = &blk[(b - b0) * n..(b - b0) * n + n];
+            let ob = &ov[(b - b0) * n..(b - b0) * n + n];
+            let cb = &oc[(b - b0) * n..(b - b0) * n + n];
             for x in 0..n {
                 if !ok[x] {
                     continue;
                 }
-                if ob[x].0 > best[x] {
-                    best[x] = ob[x].0;
+                if ob[x] > best[x] {
+                    best[x] = ob[x];
                     bi[x] = b as i32;
-                    ci[x] = ob[x].1;
+                    ci[x] = cb[x];
                 }
             }
         }
@@ -833,6 +835,59 @@ pub(crate) fn topk_adj(n: usize, sq: &[f32], k: usize, ok: &[bool]) -> Vec<bool>
         }
     }
     adj
+}
+
+/// topk_adj 的多 k 版本：每行 (score,下标) 打包成 u64 键只排一次序，
+/// 多个 k 档共享排序结果取前缀——R4 要同时出 5 档图时比逐档跑快 ~5 倍。
+/// 排序序与单 k 版完全一致（分数降序、同分下标大者靠前；fkey 的整型序
+/// 与 total_cmp 一致，+NaN 排最前、-NaN 排最后，与旧版相同）。
+/// 返回 adj[ki][i*n+j]，与 topk_adj 同样写成无向邻接。
+pub(crate) fn topk_adj_multi(
+    n: usize,
+    sq: &[f32],
+    ks: &[usize],
+    ok: &[bool],
+) -> Vec<Vec<bool>> {
+    // 每行的 top-maxk 邻居下标（按序），前缀即各档答案
+    let kmax = *ks.iter().max().unwrap_or(&0);
+    let rows: Vec<Vec<u32>> = (0..n)
+        .into_par_iter()
+        .map(|i| {
+            if !ok[i] {
+                return Vec::new();
+            }
+            let row = &sq[i * n..i * n + n];
+            let mut keys: Vec<u64> = Vec::with_capacity(n);
+            for j in 0..n {
+                if j == i || !ok[j] {
+                    continue;
+                }
+                keys.push(crate::simd::pack_desc_idx_desc(row[j], j as u32));
+            }
+            let kk = kmax.min(keys.len());
+            if kk == 0 {
+                return Vec::new();
+            }
+            if kk < keys.len() {
+                keys.select_nth_unstable(kk - 1);
+                keys.truncate(kk);
+            }
+            keys.sort_unstable();
+            keys.into_iter().map(|k| !k as u32).collect()
+        })
+        .collect();
+    let mut out = vec![vec![false; n * n]; ks.len()];
+    for (ki, &k) in ks.iter().enumerate() {
+        let adj = &mut out[ki];
+        for i in 0..n {
+            for &j in rows[i].iter().take(k) {
+                let j = j as usize;
+                adj[i * n + j] = true;
+                adj[j * n + i] = true;
+            }
+        }
+    }
+    out
 }
 
 pub(crate) struct R4 {
@@ -1270,7 +1325,18 @@ fn load_or_nan(day: &Path, n: usize, nm: &str) -> Vec<f32> {
 }
 
 pub(crate) fn load_matset(day: &Path, n: usize, tag: &str) -> MatSet {
-    let l = |nm: &str| load_or_nan(day, n, &format!("{nm}{tag}"));
+    // 21 张矩阵并行读：串行读是 reduce 最大的墙钟开销（单矩阵 ~13s），
+    // rayon 按文件名并行后 IO 与页缓存预热都摊到多核上。
+    const MATS: [&str; 21] = [
+        "rho", "G", "Z", "GSTAR", "ZS", "X0", "X0STAR", "RHO_U", "RHO_US",
+        "SINGLE", "SINGLE_S", "GREL", "GSH", "GCOV", "GNPOS", "GHHI", "PB",
+        "QC", "PBS", "QCS", "EXZ",
+    ];
+    let loaded: Vec<Vec<f32>> = MATS
+        .par_iter()
+        .map(|nm| load_or_nan(day, n, &format!("{nm}{tag}")))
+        .collect();
+    let exzs = load_or_nan(day, n, &format!("EXZS{tag}"));
     let e = {
         let p = day.join(format!("E{tag}.bin"));
         let raw = std::fs::read(&p).expect(&format!("读 {} 失败", p.display()));
@@ -1281,8 +1347,28 @@ pub(crate) fn load_matset(day: &Path, n: usize, tag: &str) -> MatSet {
             .map(|i| f64::from_le_bytes(raw[i * 8..i * 8 + 8].try_into().unwrap()))
             .collect::<Vec<f64>>()
     };
-    let mut z = l("Z");
-    let mut zs = l("ZS");
+    let mut it = loaded.into_iter();
+    let rho = it.next().unwrap();
+    let g = it.next().unwrap();
+    let mut z = it.next().unwrap();
+    let gs = it.next().unwrap();
+    let mut zs = it.next().unwrap();
+    let x0 = read_x0(&it.next().unwrap(), n);
+    let x0s = read_x0(&it.next().unwrap(), n);
+    let ru = it.next().unwrap();
+    let rus = it.next().unwrap();
+    let sg = it.next().unwrap();
+    let sgs = it.next().unwrap();
+    let grel = it.next().unwrap();
+    let gsh = it.next().unwrap();
+    let gcov = it.next().unwrap();
+    let gnpos = it.next().unwrap();
+    let ghhi = it.next().unwrap();
+    let pb = it.next().unwrap();
+    let qc = it.next().unwrap();
+    let pbs = it.next().unwrap();
+    let qcs = it.next().unwrap();
+    let exz = it.next().unwrap();
     // Z / ZS：上下三角不一致时取平均对称化（真实数据这两份是一致的）
     if max_abs_diff_to_transpose(&z, n) > 1e-6 {
         symmetrize_f32(&mut z, n);
@@ -1290,16 +1376,18 @@ pub(crate) fn load_matset(day: &Path, n: usize, tag: &str) -> MatSet {
     if max_abs_diff_to_transpose(&zs, n) > 1e-6 {
         symmetrize_f32(&mut zs, n);
     }
-    let x0 = read_x0(&l("X0"), n);
-    let x0s = read_x0(&l("X0STAR"), n);
     let mut sc = vec![f32::NAN; n * n];
-    for i in 0..n {
+    sc.par_chunks_mut(n).enumerate().for_each(|(i, row)| {
         for j in (i + 1)..n {
             let (a, b) = (zs[i * n + j], z[i * n + j]);
             if a.is_finite() && b.is_finite() {
-                sc[i * n + j] = a - b;
-                sc[j * n + i] = a - b;
+                row[j] = a - b;
             }
+        }
+    });
+    for i in 0..n {
+        for j in 0..i {
+            sc[i * n + j] = sc[j * n + i];
         }
     }
     // MASS 统一成 6×n 布局 emass|gmass|g2mass|smass|sgmass|sg2mass；
@@ -1318,29 +1406,29 @@ pub(crate) fn load_matset(day: &Path, n: usize, tag: &str) -> MatSet {
         }
     };
     MatSet {
-        rho: l("rho"),
+        rho,
         e,
-        g: l("G"),
+        g,
         z,
-        gs: l("GSTAR"),
+        gs,
         zs,
         x0,
         x0s,
-        ru: l("RHO_U"),
-        rus: l("RHO_US"),
-        sg: l("SINGLE"),
-        sgs: l("SINGLE_S"),
-        grel: l("GREL"),
-        gsh: l("GSH"),
-        gcov: l("GCOV"),
-        gnpos: l("GNPOS"),
-        ghhi: l("GHHI"),
-        pb: l("PB"),
-        qc: l("QC"),
-        pbs: l("PBS"),
-        qcs: l("QCS"),
-        exz: l("EXZ"),
-        exzs: l("EXZS"),
+        ru,
+        rus,
+        sg,
+        sgs,
+        grel,
+        gsh,
+        gcov,
+        gnpos,
+        ghhi,
+        pb,
+        qc,
+        pbs,
+        qcs,
+        exz,
+        exzs,
         sc,
         mass,
     }
