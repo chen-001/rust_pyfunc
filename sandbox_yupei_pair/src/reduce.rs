@@ -1257,7 +1257,7 @@ pub(crate) struct MatSet {
     pub exz: Vec<f32>,
     pub exzs: Vec<f32>,
     pub sc: Vec<f32>,   // ZS - Z
-    pub mass: Vec<f32>, // 4n：emass|gmass|smass|sgmass
+    pub mass: Vec<f32>, // 6n：emass|gmass|g2mass|smass|sgmass|sg2mass（旧4n自动补NaN）
 }
 
 /// 读一张矩阵；旧输出没有的新文件用全 NaN 兜底，让下游列变全空而不是崩掉。
@@ -1302,11 +1302,19 @@ pub(crate) fn load_matset(day: &Path, n: usize, tag: &str) -> MatSet {
             }
         }
     }
+    // MASS 统一成 6×n 布局 emass|gmass|g2mass|smass|sgmass|sg2mass；
+    // 旧输出只有 4×n（没有二阶矩），把 g2/sg2 两段填 NaN，下游软 std 自然落空。
     let mass = {
         let p = day.join(format!("MASS{tag}.bin"));
         match read_f32(&p) {
-            Ok(v) if v.len() == 4 * n => v,
-            _ => vec![f32::NAN; 4 * n],
+            Ok(v) if v.len() == 6 * n => v,
+            Ok(v) if v.len() == 4 * n => {
+                let mut mv = vec![f32::NAN; 6 * n];
+                mv[..2 * n].copy_from_slice(&v[..2 * n]); // emass, gmass
+                mv[3 * n..5 * n].copy_from_slice(&v[2 * n..4 * n]); // smass, sgmass
+                mv
+            }
+            _ => vec![f32::NAN; 6 * n],
         }
     };
     MatSet {

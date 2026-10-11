@@ -191,24 +191,32 @@ pub fn cmd_check(args: &[String]) {
         }
     }
 
-    // ---- 5. MASS 向量 ----
+    // ---- 5. MASS 向量（6×n：emass|gmass|g2mass|smass|sgmass|sg2mass，兼容旧 4×n）----
     let mp = day.join(format!("MASS{tag}.bin"));
     match read_f32(&mp) {
-        Ok(mv) if mv.len() == 4 * n => {
+        Ok(mv) if mv.len() == 4 * n || mv.len() == 6 * n => {
+            let six = mv.len() == 6 * n;
+            let names: Vec<&str> = if six {
+                vec!["emass", "gmass", "g2mass", "smass", "sgmass", "sg2mass"]
+            } else {
+                vec!["emass", "gmass", "smass", "sgmass"]
+            };
+            let smass_idx = if six { 3 } else { 2 };
+            let sgmass_idx = if six { 4 } else { 3 };
             let mut nonneg_bad = false;
-            for (k, nm) in ["emass", "gmass", "smass", "sgmass"].iter().enumerate() {
+            for (k, nm) in names.iter().enumerate() {
                 let sl = &mv[k * n..k * n + n];
                 let sum: f64 = sl.iter().map(|&v| v as f64).sum();
                 let nz = sl.iter().filter(|&&v| v != 0.0).count();
                 let mn = sl.iter().copied().fold(f32::INFINITY, f32::min);
-                // 只有 emass/smass 按构造必须非负；gmass/sgmass 是加权 gap，可为负
-                if (*nm == "emass" || *nm == "smass") && mn < 0.0 {
+                // emass/smass/g2mass/sg2mass 按构造必须非负；gmass/sgmass 是加权 gap，可为负
+                if (*nm != "gmass" && *nm != "sgmass") && mn < 0.0 {
                     nonneg_bad = true;
                 }
                 eprintln!("[check:cov] MASS[{nm}] sum={sum:.4} 非零 {nz}/{n} min={mn:.2e}");
             }
             let em_sum: f64 = mv[0..n].iter().map(|&v| v as f64).sum();
-            let sm_sum: f64 = mv[2 * n..3 * n].iter().map(|&v| v as f64).sum();
+            let sm_sum: f64 = mv[smass_idx * n..(smass_idx + 1) * n].iter().map(|&v| v as f64).sum();
             // 每对把 1 份质量摊完：emass/smass 归一后总和应 ≈ 1
             // （em 只在 sum_h_pos>0 的对上摊、sm 只在 sum_gap_pos>0 的对上摊，
             //  归一除的是全部有效对数，极端情况会略小于 1，容差放宽到 [0.9, 1.1]）
@@ -216,7 +224,7 @@ pub fn cmd_check(args: &[String]) {
                 (0.9..=1.1).contains(&em_sum) && (0.9..=1.1).contains(&sm_sum),
                 format!("emass/smass 归一和 {em_sum:.4}/{sm_sum:.4}（期望≈1）"),
             );
-            warn(!nonneg_bad, "emass/smass 存在负值".to_string());
+            warn(!nonneg_bad, "emass/smass/g2mass/sg2mass 存在负值".to_string());
         }
         _ => {
             eprintln!("[check:FAIL] MASS{tag}.bin 缺失或长度不对");

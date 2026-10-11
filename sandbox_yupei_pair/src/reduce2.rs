@@ -262,7 +262,7 @@ fn block_explain(ms: &MatSet, pre: &str, n: usize, ok: &[bool], out: &mut Out) {
         out.push(&format!("{pre}{tag}_w_p90"), wp);
         out.push(&format!("{pre}{tag}_w_t5m"), wt);
     }
-    // 软质量向量（net 落盘的 MASS）：emass|gmass|smass|sgmass
+    // 软质量向量（net 落盘的 MASS，6×n 布局）：emass|gmass|g2mass|smass|sgmass|sg2mass
     let med_of = |sl: &[f64]| -> f64 {
         let mut v: Vec<f64> = sl.iter().copied().filter(|x| x.is_finite()).collect();
         if v.is_empty() {
@@ -271,9 +271,10 @@ fn block_explain(ms: &MatSet, pre: &str, n: usize, ok: &[bool], out: &mut Out) {
         v.sort_by(|a, b| a.partial_cmp(b).unwrap());
         v[v.len() / 2]
     };
-    for (tag, k) in [("e", 0usize), ("s", 2usize)] {
+    for (tag, k) in [("e", 0usize), ("s", 3usize)] {
         let em: Vec<f64> = (0..n).map(|i| ms.mass[k * n + i] as f64).collect();
         let gm: Vec<f64> = (0..n).map(|i| ms.mass[(k + 1) * n + i] as f64).collect();
+        let g2: Vec<f64> = (0..n).map(|i| ms.mass[(k + 2) * n + i] as f64).collect();
         let me = med_of(&em);
         let mg = med_of(&gm);
         out.push(&format!("{pre}{tag}_mass"), em.clone());
@@ -290,6 +291,28 @@ fn block_explain(ms: &MatSet, pre: &str, n: usize, ok: &[bool], out: &mut Out) {
                 .map(|&v| if mg.is_finite() && mg != 0.0 { v / mg } else { f64::NAN })
                 .collect(),
         );
+        // 无条件软版本（覆盖率修复）：责任加权平均增益 = gmass/emass，
+        // 责任加权标准差 = sqrt(g2mass/emass - mean²)。emass>0 的股票全覆盖。
+        let wmean: Vec<f64> = (0..n)
+            .map(|i| {
+                if ok[i] && em[i] > 0.0 {
+                    gm[i] / em[i]
+                } else {
+                    f64::NAN
+                }
+            })
+            .collect();
+        let wstd: Vec<f64> = (0..n)
+            .map(|i| {
+                if ok[i] && em[i] > 0.0 && g2[i].is_finite() {
+                    (g2[i] / em[i] - wmean[i] * wmean[i]).max(0.0).sqrt()
+                } else {
+                    f64::NAN
+                }
+            })
+            .collect();
+        out.push(&format!("{pre}{tag}_w_mean_soft"), wmean);
+        out.push(&format!("{pre}{tag}_w_std_soft"), wstd);
     }
     // 作为配对成员的 Z 软质量
     let (m1, s1) = partner_z_extra(n, &ms.z, ok);

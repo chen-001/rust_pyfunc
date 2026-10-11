@@ -409,10 +409,11 @@ fn cmd_net(args: &[String]) {
         let mut pbsv = vec![f32::NAN; n * n];
         let mut qcsv = vec![f32::NAN; n * n];
         // 软质量向量（每股一个数）：emass=Σ_pairs relu(h)/Σrelu(h)，gmass=emass 加权 gap，
-        // smass/sgmass 是 gap 口径的同款。按固定块切 B、块内顺序累加、按下标合并 → 确定性。
+        // g2mass=emass 加权 gap²（算责任加权 std 用），smass/sgmass/sg2mass 是 gap 口径同款。
+        // 按固定块切 B、块内顺序累加、按下标合并 → 确定性。
         const MBLK: usize = 256;
         let npair_eff;
-        let mass_vectors: Vec<f32>; // 4×n：emass|gmass|smass|sgmass（按对数归一）
+        let mass_vectors: Vec<f32>; // 6×n：emass|gmass|g2mass|smass|sgmass|sg2mass（按对数归一）
         {
             let sh = Shared {
                 n,
@@ -443,15 +444,17 @@ fn cmd_net(args: &[String]) {
             let nb = MBLK.min(n).max(1);
             let bounds: Vec<(usize, usize)> =
                 (0..nb).map(|k| (k * n / nb, (k + 1) * n / nb)).collect();
-            type Mass = (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, u64);
+            type Mass = (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, u64);
             let parts: Vec<Mass> = bounds
                 .par_iter()
                 .map(|&(b0, b1)| {
                     let sh = sh_ref;
                     let mut em = vec![0.0f64; n];
                     let mut gm = vec![0.0f64; n];
+                    let mut g2m = vec![0.0f64; n];
                     let mut sm = vec![0.0f64; n];
                     let mut sgm = vec![0.0f64; n];
+                    let mut sg2m = vec![0.0f64; n];
                     let mut npair = 0u64;
                     for b in b0..b1 {
                         if !mask_ref[b] {
@@ -543,41 +546,49 @@ fn cmd_net(args: &[String]) {
                                     let gap = h - mx;
                                     if h > 0.0 && inv_h > 0.0 {
                                         let w = (h * inv_h) as f64;
+                                        let g = gap as f64;
                                         em[x] += w;
-                                        gm[x] += w * gap as f64;
+                                        gm[x] += w * g;
+                                        g2m[x] += w * g * g;
                                     }
                                     if gap > 0.0 && inv_g > 0.0 {
                                         let w = (gap * inv_g) as f64;
+                                        let g = gap as f64;
                                         sm[x] += w;
-                                        sgm[x] += w * gap as f64;
+                                        sgm[x] += w * g;
+                                        sg2m[x] += w * g * g;
                                     }
                                 }
                             }
                         }
                     }
-                    (em, gm, sm, sgm, npair)
+                    (em, gm, g2m, sm, sgm, sg2m, npair)
                 })
                 .collect();
             let mut emass = vec![0.0f64; n];
             let mut gmass = vec![0.0f64; n];
+            let mut g2mass = vec![0.0f64; n];
             let mut smass = vec![0.0f64; n];
             let mut sgmass = vec![0.0f64; n];
+            let mut sg2mass = vec![0.0f64; n];
             let mut npair_tot = 0u64;
             // 按下标顺序合并，保证确定性
-            for (em, gm, sm, sgm, np) in parts.iter() {
+            for (em, gm, g2m, sm, sgm, sg2m, np) in parts.iter() {
                 for x in 0..n {
                     emass[x] += em[x];
                     gmass[x] += gm[x];
+                    g2mass[x] += g2m[x];
                     smass[x] += sm[x];
                     sgmass[x] += sgm[x];
+                    sg2mass[x] += sg2m[x];
                 }
                 npair_tot += np;
             }
             npair_eff = npair_tot;
             // 归一化成"平均每对分到的质量/增益"，写进 mass_vectors
             let inv_p = if npair_tot > 0 { 1.0 / npair_tot as f64 } else { 0.0 };
-            let mut mv = Vec::with_capacity(4 * n);
-            for arr in [&emass, &gmass, &smass, &sgmass] {
+            let mut mv = Vec::with_capacity(6 * n);
+            for arr in [&emass, &gmass, &g2mass, &smass, &sgmass, &sg2mass] {
                 for x in 0..n {
                     mv.push((arr[x] * inv_p) as f32);
                 }
