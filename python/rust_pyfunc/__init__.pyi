@@ -377,7 +377,8 @@ def py_yupei_dist_names() -> List[str]:
 def yupei_dist_backup_matrices(outdir: str, date: int) -> Tuple[int, int]:
     """读全市场逐笔 → 37 矩阵 + 统计量 → 写入 <outdir>/<date>/（codes/stats/mats）。
 
-    返回 (n_stocks, n_matrices)。参数口径与生产一致（全市场, MIN_TRADES=200）。
+    返回 (n_stocks, n_matrices)。universe = symbol_map ∩ 当日 L2 文件
+    （无成交/读不到的股票保留为空行，不做成交笔数筛选）。
     """
 
 def yupei_dist_backup_factors(
@@ -413,6 +414,41 @@ def yupei_dist_backup_verify(outdir: str, date: int) -> List[str]:
 
 def yupei_dist_backup_matrix_names() -> List[str]:
     """37 个矩阵名（与备份 mats/ 目录文件一致）。"""
+
+def py_yupei_pair(
+    date: int,
+    mats: Optional[List[str]] = None,
+    sig_temp: float = 0.3,
+    sig_thr: float = 2.0,
+    null_mc: int = 20000,
+    exz_bins: int = 10,
+) -> Tuple[List[str], List[str], List[float]]:
+    """玉佩2 配对互补网络 —— 单日全市场内存管线（不落盘）。
+
+    一次性完成：L2 逐笔 → 37 张有向交互矩阵（yupei_dist 上游）→ 每张指定矩阵
+    独立跑 配对扫描(net) → 硬校验(check) → reduce 因子块 + topk K 档因子块，
+    全部内存中进行，不读 codes.txt、不落任何中间文件。
+
+    股票覆盖 = cross-section 标准口径（symbol_map ∩ 当日 L2 文件，≈5100 只）：
+    无成交/读不到的股票保留行但整行 NaN，不做成交笔数筛选。
+
+    参数:
+      date      交易日 YYYYMMDD
+      mats      要跑的矩阵名列表；None = 默认 15 张（cnt×9τ + vol×6τ）。
+                可选值见 MATRIX_SPECS 37 张（cnt_t*/vol_t*/logvol_t*/flow_t*/
+                urg_t*/ext_*）。
+      sig_temp  sigmoid 软化温度（默认 0.3）
+      sig_thr   sigmoid 软化阈值（默认 2.0）
+      null_mc   空模型蒙特卡洛抽样上限（默认 20000）
+      exz_bins  (p,q) 条件网格边数（默认 10）
+
+    返回 (codes, names, vals)：
+      codes  当日全部股票代码（长度 N，含无成交股）
+      names  因子名（长度 F，多矩阵时带 {mat}_ 前缀）
+      vals   行主序 N×F，按 codes×names reshape 成 DataFrame 即可
+
+    线程上限 200；设环境变量 RAYON_NUM_THREADS 可覆盖。
+    """
 
 def py_pairwise_merge_metrics(
     times_a: List[int], big_a: List[int], times_b: List[int], big_b: List[int]

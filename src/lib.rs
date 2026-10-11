@@ -41,6 +41,7 @@ pub mod tree;
 pub mod vector_similarity;
 pub mod vector_similarity_optimized;
 pub mod yupei_dist;
+pub mod yupei_pair;
 
 pub mod cross_stock_regression;
 pub mod cross_stock_regression_fast;
@@ -1252,6 +1253,10 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(
         yupei_dist::matrix_store::yupei_dist_backup_matrix_names,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        yupei_pair::py_yupei_pair,
         m
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(

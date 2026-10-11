@@ -351,6 +351,26 @@ pub struct StockPrep {
     pub sum_w: [f64; 6],
 }
 
+impl StockPrep {
+    /// 空预处理（有逐笔文件但读不到 / 0 笔成交 / 全部成交在交易时段外）：
+    /// 保留在 universe 中占一行，cells 为空 → 所有矩阵行/列自然全 0，统计量为 NaN。
+    pub fn empty(code: String) -> Self {
+        StockPrep {
+            code,
+            cells: Vec::new(),
+            n_trades: 0,
+            amount: f64::NAN,
+            total_vol: f64::NAN,
+            imb: f64::NAN,
+            ret: f64::NAN,
+            vol30: f64::NAN,
+            vwap: f64::NAN,
+            q95u: f64::NAN,
+            sum_w: [f64::NAN; 6],
+        }
+    }
+}
+
 /// 每股统计量汇总（供降维指标用，也写盘备份）
 #[derive(Clone, Copy, Debug, Default)]
 pub struct StockStats {

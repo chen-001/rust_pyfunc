@@ -1,10 +1,10 @@
 //! 正式库入口: 单日全市场横截面因子计算（寻找玉佩-成交距离）。
 //!
 //! 流程（与 sandbox `yupei_dist factors` 完全一致）:
-//!   1. 枚举代码（当日**全部**有逐笔的股票, 不设数量上限; 最终按代码序输出保证确定性。
-//!      注: list_codes_by_size 内部先按文件大小降序, 但紧接着的 codes.sort() 把它覆盖成
-//!      代码序, 那一步排序已无实际作用, 是 top-4000 截断时代的遗留）
-//!   2. 并行读逐笔 + 每股预处理（10ms 桶, u[9] 权重场; 成交不足 MIN_TRADES=200 笔的剔除）
+//!   1. 枚举代码（**cross-section 标准口径**: `list_stock_codes` = symbol_map 股票
+//!      ∩ 当日 L2 transaction 文件, 代码升序; ETF/基金/债券/B 股在此剔除）
+//!   2. 并行读逐笔 + 每股预处理（10ms 桶, u[9] 权重场; 读不到/0 笔成交的股票
+//!      保留在 universe 中为空行——cells 空 → 矩阵行/列全 0, 统计量 NaN）
 //!   3. 37 张关联-差异矩阵（衰减事件场交互能量）
 //!   4. 28 个降维指标模块 → 2761 个横截面因子
 //!   5. 组装 (codes, vals N×F) 供 pipeline fan-out
@@ -23,9 +23,10 @@ use super::indicator_ctx::{IndicatorCtx, MatrixSet};
 use super::matrix_stage::{compute_matrices, prep_stock, StockPrep, MATRIX_SPECS};
 use super::names::YUPEI_DIST_NAMES;
 
-/// 因子宇宙：全市场（不设股票数上限；MIN_TRADES=200 过滤低活跃股）
-/// 最少成交笔数（低于此剔除）
-pub const MIN_TRADES: usize = 200;
+/// 因子宇宙：cross-section 标准口径（symbol_map 股票 ∩ 当日 L2 文件，不做成交筛选；
+/// 读不到/0 笔成交的股票保留为空行）。MIN_TRADES=1 仅排除"文件存在但一条逐笔都没有"
+/// 的退化情形——这种股票由 StockPrep::empty 以空行形式保留在 universe 中。
+pub const MIN_TRADES: usize = 1;
 /// 行业备份目录（python 一次性预提取全部交易日）
 pub const BACKUP_DIR: &str = "/hdd/user_home_unsafe/chenzongwei/yupei_dist_backup";
 
@@ -77,12 +78,11 @@ pub fn compute_yupei_dist_partial(
     HashMap<String, Vec<f32>>,
     Vec<i16>,
 )> {
-    // ---- 1. 代码枚举（按文件大小降序 → 全市场不截断 → 代码序）----
-    let mut codes = list_codes_by_size(date);
-    codes.sort();
+    // ---- 1. 代码枚举（cross-section 标准口径：symbol_map 股票 ∩ 当日 L2 文件，升序）----
+    let codes = crate::data_paths::list_stock_codes(date, "transaction");
     let day_start_us = day_start_us_of(date);
 
-    // ---- 2. 并行读 + 每股预处理 ----
+    // ---- 2. 并行读 + 每股预处理（universe 固定；失败的股票以空行保留）----
     let preps: Vec<Option<StockPrep>> = codes
         .par_iter()
         .map(|c| {
@@ -91,7 +91,11 @@ pub fn compute_yupei_dist_partial(
                 .and_then(|recs| prep_stock(c, &recs, day_start_us, MIN_TRADES))
         })
         .collect();
-    let stocks: Vec<StockPrep> = preps.into_iter().flatten().collect();
+    let stocks: Vec<StockPrep> = codes
+        .into_iter()
+        .zip(preps)
+        .map(|(c, p)| p.unwrap_or_else(|| StockPrep::empty(c)))
+        .collect();
     if stocks.is_empty() {
         return Err(std::io::Error::new(std::io::ErrorKind::Other, "无有效股票"));
     }
@@ -217,30 +221,6 @@ pub fn py_yupei_dist(date: i64) -> PyResult<(Vec<String>, Vec<f32>)> {
 #[pyfunction]
 pub fn py_yupei_dist_names() -> Vec<String> {
     yupei_dist_names()
-}
-
-/// 枚举当日全市场代码（按文件大小降序; 同大小按代码序）
-pub fn list_codes_by_size(date: i64) -> Vec<String> {
-    for root in crate::data_paths::level2_roots() {
-        let dir = root.join(date.to_string()).join("transaction");
-        if let Ok(entries) = std::fs::read_dir(&dir) {
-            let mut v: Vec<(u64, String)> = Vec::new();
-            for e in entries.flatten() {
-                if let Some(code) = e.file_name().to_str().and_then(|n| n.split('_').next()) {
-                    if code.bytes().all(|b| b.is_ascii_digit()) {
-                        let size = e.metadata().map(|m| m.len()).unwrap_or(0);
-                        v.push((size, code.to_string()));
-                    }
-                }
-            }
-            v.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
-            let codes: Vec<String> = v.into_iter().map(|(_, c)| c).collect();
-            if !codes.is_empty() {
-                return codes;
-            }
-        }
-    }
-    Vec::new()
 }
 
 /// 日起点（UTC 零点 + 9.5h; 与 fast_csv_reader 的 +8h 偏移配合, 9:30 开盘 = 0）
