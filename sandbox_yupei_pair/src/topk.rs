@@ -232,10 +232,9 @@ pub fn cmd_topk(args: &[String]) {
     let backup_root = PathBuf::from(&args[0]);
     let date: i64 = args[1].parse().expect("date");
     let outdir = PathBuf::from(&args[2]);
-    let mat = parse_flag(args, "--mat").unwrap_or("cnt_t1").to_string();
-    if mat.contains(',') {
-        panic!("topk 只支持单个矩阵，收到 {mat}（多矩阵请分次跑）");
-    }
+    let mats_arg = parse_flag(args, "--mat").unwrap_or("cnt_t1").to_string();
+    let mats: Vec<String> = mats_arg.split(',').map(|s| s.trim().to_string()).collect();
+    let multi = mats.len() > 1;
     if let Some(t) = parse_flag(args, "--threads") {
         let k: usize = t.parse().unwrap();
         let _ = rayon::ThreadPoolBuilder::new().num_threads(k).build_global();
@@ -276,174 +275,195 @@ pub fn cmd_topk(args: &[String]) {
         eprintln!("[topk:p1] n = {n}, date = {date}，没给 --stocks-only：非个股也会参与配对");
     }
     let n_stocks = mask.iter().filter(|&&v| v).count();
-
-    // ---- 读矩阵、算 E 与 rho（与 net 完全同一套） ----
-    let t0 = Instant::now();
-    let mpath = day.join("mats").join(format!("{mat}.bin"));
-    let sdir = read_f32(&mpath).expect("读矩阵失败");
-    if sdir.len() != n * n {
-        panic!("矩阵 {mat} 有 {} 个元素，期望 {}", sdir.len(), n * n);
-    }
-    let e: Vec<f64> = (0..n).map(|i| 2.0 * sdir[i * n + i] as f64).collect();
-    let n_bad_e = e.iter().filter(|&&v| !(v > 0.0)).count();
-    let mut rho = vec![0.0f32; n * n];
-    for i in 0..n {
-        rho[i * n + i] = 1.0;
-        let si = e[i].sqrt();
-        for j in (i + 1)..n {
-            let sj = e[j].sqrt();
-            let v = (sdir[i * n + j] + sdir[j * n + i]) as f64 / (si * sj);
-            rho[i * n + j] = v as f32;
-            rho[j * n + i] = v as f32;
-        }
-    }
-    drop(sdir);
-    let t_read = t0.elapsed().as_secs_f64();
-    eprintln!("[topk:p2] 矩阵 {mat} 读入并算完 rho {t_read:.1}s，自能量非正 {n_bad_e} 只");
-
-    // ---- 分块并行累加，再按下标顺序合并 ----
-    let nb = NBLOCKS.min(n).max(1);
-    let bounds: Vec<(usize, usize)> = (0..nb).map(|k| (k * n / nb, (k + 1) * n / nb)).collect();
-    // -inf 掩码与定长合法候选数：对全部有效配对都一样
-    let addm: Vec<f32> = (0..n)
-        .map(|i| if mask[i] { 0.0 } else { f32::NEG_INFINITY })
-        .collect();
-    let n_valid = n_stocks.saturating_sub(2);
-    let t0 = Instant::now();
-    let accs: Vec<Acc> = bounds
-        .par_iter()
-        .map(|&(b0, b1)| {
-            block_accumulate(n, &rho, &e, &mask, &addm, n_valid, b0, b1, &ks, maxk)
-        })
-        .collect();
-    let t_scan = t0.elapsed().as_secs_f64();
-    let pairs: u64 = accs.iter().map(|a| a.pairs).sum();
-    let skipped: u64 = accs.iter().map(|a| a.skipped).sum();
-    eprintln!(
-        "[topk:p3] {} 档 × 2 口径一趟扫完：{pairs} 对，跳过 {skipped} 对，{t_scan:.1}s，线程 {}",
-        ks.len(),
-        rayon::current_num_threads()
-    );
-
-    let t0 = Instant::now();
-    let mut total = Acc::new(n, ks.len());
-    for a in accs.iter() {
-        total.add(a);
-    }
-    let t_merge = t0.elapsed().as_secs_f64();
-
-    // ---- 落盘：只保留白名单股票，行序与 reduce_rs 的 factors.bin 一致 ----
-    let t0 = Instant::now();
     let keep: Vec<usize> = (0..n).filter(|&i| mask[i]).collect();
     let nk = keep.len();
-    let nlev = ks.len();
-    let f = nlev * 4 * 2;
-    let mut rows = Vec::with_capacity(nk * f);
-    // 每口径四个量；crit0=h-top 沿用旧名 x0topk{K}_*，crit1=gap-top 用 gtopk{K}_*
-    for &i in keep.iter() {
-        for crit in 0..2 {
-            for l in 0..nlev {
-                let base = (crit * nlev + l) * n + i;
-                let c = total.cnt[base];
-                rows.push(c as f32);
-                rows.push(if c > 0 {
-                    (total.sum_gap[base] / c as f64) as f32
-                } else {
-                    f32::NAN
-                });
-                rows.push(if c > 0 {
-                    (total.sum_h[base] / c as f64) as f32
-                } else {
-                    f32::NAN
-                });
-                // mass_share：对全部配对取平均（没被选中就自然摊薄），总有限
-                rows.push((total.sum_mass[base] / pairs.max(1) as f64) as f32);
-            }
-        }
-    }
 
     let dir = outdir.join(date.to_string()).join("topk");
     std::fs::create_dir_all(&dir).expect("建输出目录失败");
-    {
-        let mut s = String::new();
-        for crit in 0..2 {
-            let pf = if crit == 0 { "x0topk" } else { "gtopk" };
-            for &k in ks.iter() {
-                s.push_str(&format!("{pf}{k}_count\n"));
-                s.push_str(&format!("{pf}{k}_gain_mean\n"));
-                s.push_str(&format!("{pf}{k}_h_mean\n"));
-                s.push_str(&format!("{pf}{k}_mass_share\n"));
+
+    // 各矩阵完全独立：读盘、扫描、落盘、汇总全部并行。
+    // 多矩阵时文件名带 _{mat} 后缀、列名带 {mat}_ 前缀（与 reduce 前缀口径一致），
+    // 避免旧版多矩阵同名文件互相覆盖的静默丢失。
+    let results: Vec<(String, serde_json::Value)> = mats
+        .par_iter()
+        .map(|mat| {
+            let tag = if multi { format!("_{mat}") } else { String::new() };
+            let pre = if multi { format!("{mat}_") } else { String::new() };
+
+            // ---- 读矩阵、算 E 与 rho（与 net 完全同一套） ----
+            let t0 = Instant::now();
+            let mpath = day.join("mats").join(format!("{mat}.bin"));
+            let sdir = read_f32(&mpath).expect("读矩阵失败");
+            if sdir.len() != n * n {
+                panic!("矩阵 {mat} 有 {} 个元素，期望 {}", sdir.len(), n * n);
             }
-        }
-        std::fs::write(dir.join("names.txt"), s).unwrap();
-    }
-    write_f32(&dir.join("factors.bin"), &rows).unwrap();
+            let e: Vec<f64> = (0..n).map(|i| 2.0 * sdir[i * n + i] as f64).collect();
+            let n_bad_e = e.iter().filter(|&&v| !(v > 0.0)).count();
+            let mut rho = vec![0.0f32; n * n];
+            for i in 0..n {
+                rho[i * n + i] = 1.0;
+                let si = e[i].sqrt();
+                for j in (i + 1)..n {
+                    let sj = e[j].sqrt();
+                    let v = (sdir[i * n + j] + sdir[j * n + i]) as f64 / (si * sj);
+                    rho[i * n + j] = v as f32;
+                    rho[j * n + i] = v as f32;
+                }
+            }
+            drop(sdir);
+            let t_read = t0.elapsed().as_secs_f64();
+            eprintln!("[topk:p2] 矩阵 {mat} 读入并算完 rho {t_read:.1}s，自能量非正 {n_bad_e} 只");
 
-    // ---- 汇总（覆盖度按口径分别报）----
-    let mut levels: Vec<serde_json::Value> = Vec::new();
-    for crit in 0..2 {
-        let crit_name = if crit == 0 { "h-top" } else { "gap-top" };
-        for (l, &k) in ks.iter().enumerate() {
-            let base = (crit * nlev + l) * n;
-            let mut sel: Vec<(u32, usize)> = keep
-                .iter()
-                .map(|&i| (total.cnt[base + i], i))
-                .filter(|&(c, _)| c > 0)
+            // ---- 分块并行累加，再按下标顺序合并 ----
+            let nb = NBLOCKS.min(n).max(1);
+            let bounds: Vec<(usize, usize)> =
+                (0..nb).map(|k| (k * n / nb, (k + 1) * n / nb)).collect();
+            // -inf 掩码与定长合法候选数：对全部有效配对都一样
+            let addm: Vec<f32> = (0..n)
+                .map(|i| if mask[i] { 0.0 } else { f32::NEG_INFINITY })
                 .collect();
-            let n_selected = sel.len();
-            let n_selections: u64 = sel.iter().map(|&(c, _)| c as u64).sum();
-            sel.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
-            let top10: Vec<serde_json::Value> = sel
-                .iter()
-                .take(10)
-                .map(|&(c, i)| serde_json::json!({"code": codes[i], "count": c}))
+            let n_valid = n_stocks.saturating_sub(2);
+            let t0 = Instant::now();
+            let accs: Vec<Acc> = bounds
+                .par_iter()
+                .map(|&(b0, b1)| {
+                    block_accumulate(n, &rho, &e, &mask, &addm, n_valid, b0, b1, &ks, maxk)
+                })
                 .collect();
-            let top10_sum: u64 = sel.iter().take(10).map(|&(c, _)| c as u64).sum();
-            let top1 = sel.first().map(|&(c, _)| c as u64).unwrap_or(0);
-            levels.push(serde_json::json!({
-                "crit": crit_name,
-                "K": k,
-                "n_selected": n_selected,
-                "coverage": n_selected as f64 / n_stocks.max(1) as f64,
-                "n_selections": n_selections,
-                "top1_count": top1,
-                "top10_share": top10_sum as f64 / n_selections.max(1) as f64,
-                "top10": top10,
-            }));
+            let t_scan = t0.elapsed().as_secs_f64();
+            let pairs: u64 = accs.iter().map(|a| a.pairs).sum();
+            let skipped: u64 = accs.iter().map(|a| a.skipped).sum();
             eprintln!(
-                "[topk:p4] {crit_name} K={k:<3} 有值股票 {n_selected}/{n_stocks}（{:.1}%），选中次数 {n_selections}，前 10 占比 {:.3}",
-                100.0 * n_selected as f64 / n_stocks.max(1) as f64,
-                top10_sum as f64 / n_selections.max(1) as f64
+                "[topk:p3:{mat}] {} 档 × 2 口径一趟扫完：{pairs} 对，跳过 {skipped} 对，{t_scan:.1}s",
+                ks.len()
             );
-        }
-    }
 
-    let summary = serde_json::json!({
-        "date": date,
-        "n": n,
-        "n_stocks": n_stocks,
-        "n_non_stock": n - n_stocks,
-        "stocks_only": stocks_only,
-        "mat": mat,
-        "threads": rayon::current_num_threads(),
-        "nblocks": nb,
-        "K_list": ks,
-        "n_pairs": pairs,
-        "n_pairs_skipped": skipped,
-        "matrix": mpath.to_string_lossy(),
-        "codes_source": day.join("codes.txt").to_string_lossy(),
-        "seconds_read": t_read,
-        "seconds_scan": t_scan,
-        "seconds_merge": t_merge,
-        "seconds_write": t0.elapsed().as_secs_f64(),
-        "seconds_total": t_all.elapsed().as_secs_f64(),
-        "levels": levels,
-    });
-    std::fs::write(
-        dir.join("summary.json"),
-        serde_json::to_string_pretty(&summary).unwrap(),
-    )
-    .unwrap();
+            let t0 = Instant::now();
+            let mut total = Acc::new(n, ks.len());
+            for a in accs.iter() {
+                total.add(a);
+            }
+            let t_merge = t0.elapsed().as_secs_f64();
+
+            // ---- 落盘：只保留白名单股票，行序与 reduce_rs 的 factors.bin 一致 ----
+            let t0 = Instant::now();
+            let nlev = ks.len();
+            let f = nlev * 4 * 2;
+            let mut rows = Vec::with_capacity(nk * f);
+            // 每口径四个量；crit0=h-top 沿用旧名 x0topk{K}_*，crit1=gap-top 用 gtopk{K}_*
+            for &i in keep.iter() {
+                for crit in 0..2 {
+                    for l in 0..nlev {
+                        let base = (crit * nlev + l) * n + i;
+                        let c = total.cnt[base];
+                        rows.push(c as f32);
+                        rows.push(if c > 0 {
+                            (total.sum_gap[base] / c as f64) as f32
+                        } else {
+                            f32::NAN
+                        });
+                        rows.push(if c > 0 {
+                            (total.sum_h[base] / c as f64) as f32
+                        } else {
+                            f32::NAN
+                        });
+                        // mass_share：对全部配对取平均（没被选中就自然摊薄），总有限
+                        rows.push((total.sum_mass[base] / pairs.max(1) as f64) as f32);
+                    }
+                }
+            }
+
+            {
+                let mut s = String::new();
+                for crit in 0..2 {
+                    let pf = if crit == 0 { "x0topk" } else { "gtopk" };
+                    for &k in ks.iter() {
+                        s.push_str(&format!("{pre}{pf}{k}_count\n"));
+                        s.push_str(&format!("{pre}{pf}{k}_gain_mean\n"));
+                        s.push_str(&format!("{pre}{pf}{k}_h_mean\n"));
+                        s.push_str(&format!("{pre}{pf}{k}_mass_share\n"));
+                    }
+                }
+                std::fs::write(dir.join(format!("names{tag}.txt")), s).unwrap();
+            }
+            write_f32(&dir.join(format!("factors{tag}.bin")), &rows).unwrap();
+
+            // ---- 汇总（覆盖度按口径分别报）----
+            let mut levels: Vec<serde_json::Value> = Vec::new();
+            for crit in 0..2 {
+                let crit_name = if crit == 0 { "h-top" } else { "gap-top" };
+                for (l, &k) in ks.iter().enumerate() {
+                    let base = (crit * nlev + l) * n;
+                    let mut sel: Vec<(u32, usize)> = keep
+                        .iter()
+                        .map(|&i| (total.cnt[base + i], i))
+                        .filter(|&(c, _)| c > 0)
+                        .collect();
+                    let n_selected = sel.len();
+                    let n_selections: u64 = sel.iter().map(|&(c, _)| c as u64).sum();
+                    sel.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+                    let top10: Vec<serde_json::Value> = sel
+                        .iter()
+                        .take(10)
+                        .map(|&(c, i)| serde_json::json!({"code": codes[i], "count": c}))
+                        .collect();
+                    let top10_sum: u64 = sel.iter().take(10).map(|&(c, _)| c as u64).sum();
+                    let top1 = sel.first().map(|&(c, _)| c as u64).unwrap_or(0);
+                    levels.push(serde_json::json!({
+                        "crit": crit_name,
+                        "K": k,
+                        "n_selected": n_selected,
+                        "coverage": n_selected as f64 / n_stocks.max(1) as f64,
+                        "n_selections": n_selections,
+                        "top1_count": top1,
+                        "top10_share": top10_sum as f64 / n_selections.max(1) as f64,
+                        "top10": top10,
+                    }));
+                    eprintln!(
+                        "[topk:p4:{mat}] {crit_name} K={k:<3} 有值股票 {n_selected}/{n_stocks}（{:.1}%），选中次数 {n_selections}，前 10 占比 {:.3}",
+                        100.0 * n_selected as f64 / n_stocks.max(1) as f64,
+                        top10_sum as f64 / n_selections.max(1) as f64
+                    );
+                }
+            }
+
+            let summary = serde_json::json!({
+                "date": date,
+                "n": n,
+                "n_stocks": n_stocks,
+                "n_non_stock": n - n_stocks,
+                "stocks_only": stocks_only,
+                "mat": mat,
+                "threads": rayon::current_num_threads(),
+                "nblocks": nb,
+                "K_list": ks,
+                "n_pairs": pairs,
+                "n_pairs_skipped": skipped,
+                "matrix": mpath.to_string_lossy(),
+                "codes_source": day.join("codes.txt").to_string_lossy(),
+                "seconds_read": t_read,
+                "seconds_scan": t_scan,
+                "seconds_merge": t_merge,
+                "seconds_write": t0.elapsed().as_secs_f64(),
+                "levels": levels,
+            });
+            (mat.clone(), summary)
+        })
+        .collect();
+
+    // 汇总落盘：单矩阵保持旧文件名 summary.json，多矩阵每矩阵一份
+    for (m, v) in &results {
+        let fname = if multi {
+            format!("summary_{m}.json")
+        } else {
+            "summary.json".to_string()
+        };
+        std::fs::write(
+            dir.join(fname),
+            serde_json::to_string_pretty(v).unwrap(),
+        )
+        .unwrap();
+    }
 
     eprintln!(
         "[topk:done] {:.1}s，输出 {}",
@@ -451,7 +471,8 @@ pub fn cmd_topk(args: &[String]) {
         dir.display()
     );
     println!(
-        "{{\"ok\":true,\"date\":{date},\"n\":{n},\"n_stocks\":{nk},\"n_factors\":{f},\"outdir\":\"{}\"}}",
+        "{{\"ok\":true,\"date\":{date},\"n\":{n},\"n_stocks\":{nk},\"n_mats\":{},\"outdir\":\"{}\"}}",
+        results.len(),
         dir.display()
     );
 }

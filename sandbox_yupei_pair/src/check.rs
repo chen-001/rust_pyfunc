@@ -76,9 +76,32 @@ fn upper_stats(v: &[f32], n: usize) -> (f64, f64) {
 pub fn cmd_check(args: &[String]) {
     let pair_root = PathBuf::from(&args[0]);
     let date = args[1].clone();
-    let mat = parse_flag(args, "--mat").unwrap_or("cnt_t1").to_string();
+    let mats_arg = parse_flag(args, "--mat").unwrap_or("cnt_t1").to_string();
+    let mats: Vec<String> = mats_arg.split(',').map(|s| s.trim().to_string()).collect();
     let day = pair_root.join(&date);
     let codes = read_codes(&day.join("codes.txt")).expect("读 codes.txt 失败");
+    let n = codes.len();
+    // 各矩阵独立检查、并行执行；结果按 --mat 顺序输出，任一失败整体退出码非零
+    let oks: Vec<usize> = mats
+        .par_iter()
+        .map(|mat| check_one(&day, &date, mat, &codes))
+        .collect();
+    let mut any_fail = false;
+    for (m, f) in mats.iter().zip(&oks) {
+        if *f == 0 {
+            println!("{{\"ok\":true,\"date\":{date},\"mat\":\"{m}\"}}");
+        } else {
+            println!("{{\"ok\":false,\"date\":{date},\"mat\":\"{m}\",\"fails\":{f}}}");
+            any_fail = true;
+        }
+    }
+    if any_fail {
+        std::process::exit(1);
+    }
+}
+
+/// 单矩阵全套硬检查，返回失败项数（0 = 全绿）。
+fn check_one(day: &PathBuf, date: &str, mat: &str, codes: &[String]) -> usize {
     let n = codes.len();
     // 与 net 的落盘口径一致：单矩阵无后缀
     let has_tagged = day.join(format!("G_{mat}.bin")).exists();
@@ -87,14 +110,14 @@ pub fn cmd_check(args: &[String]) {
     } else {
         String::new()
     };
-    eprintln!("[check] date={date} n={n} tag='{tag}'");
+    eprintln!("[check:{mat}] date={date} n={n} tag='{tag}'");
 
     let fails = std::cell::Cell::new(0usize);
     let warn = |ok: bool, msg: String| {
         if ok {
-            eprintln!("[check:ok] {msg}");
+            eprintln!("[check:{mat}:ok] {msg}");
         } else {
-            eprintln!("[check:FAIL] {msg}");
+            eprintln!("[check:{mat}:FAIL] {msg}");
             fails.set(fails.get() + 1);
         }
     };
@@ -302,14 +325,9 @@ pub fn cmd_check(args: &[String]) {
     }
 
     if fails.get() == 0 {
-        eprintln!("[check] 全部硬检查通过");
-        println!("{{\"ok\":true,\"date\":{date},\"mat\":\"{mat}\"}}");
+        eprintln!("[check:{mat}] 全部硬检查通过");
     } else {
-        eprintln!("[check] {} 项硬检查失败", fails.get());
-        println!(
-            "{{\"ok\":false,\"date\":{date},\"fails\":{}}}",
-            fails.get()
-        );
-        std::process::exit(1);
+        eprintln!("[check:{mat}] {} 项硬检查失败", fails.get());
     }
+    fails.get()
 }

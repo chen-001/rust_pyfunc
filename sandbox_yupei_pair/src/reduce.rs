@@ -1683,33 +1683,48 @@ pub fn cmd_reduce(args: &[String]) {
     }
     let has_lnt = lnt.as_ref().map(|v| v.iter().any(|x| x.is_finite())).unwrap_or(false);
 
-    let mut out = Out::new();
+    // 各矩阵之间完全独立：MatSet 装载与全部因子块都并行，
+    // 每矩阵产一个局部 Out，最后按 --mat 顺序拼接列（确定性）。
     let multi = mats.len() > 1;
-    for mat in &mats {
-        // 文件名 tag 按目录里实际存在的文件探测，而不是按 --mat 个数推断：
-        // 多矩阵目录下用单 mat 刷参数变体（如 E 组）时能找到 _cnt_t1 后缀文件；
-        // 列名前缀跟随探测结果，保证与文件来源一致。
-        let tag = if multi {
-            format!("_{mat}")
-        } else if day.join(format!("rho_{mat}.bin")).exists() {
-            format!("_{mat}")
-        } else {
-            String::new()
-        };
-        let pre = if !tag.is_empty() { format!("{mat}_") } else { String::new() };
-        let t0 = Instant::now();
-        let ms = load_matset(&day, n, &tag);
-        eprintln!("[reduce:{mat}] MatSet 读入 {:.1}s", t0.elapsed().as_secs_f32());
-        produce_one_mat(
-            &ms,
-            &pre,
-            n,
-            &ok,
-            industry.as_deref(),
-            lnt.as_deref(),
-            has_lnt,
-            &mut out,
-        );
+    let outs: Vec<Out> = mats
+        .par_iter()
+        .map(|mat| {
+            // 文件名 tag 按目录里实际存在的文件探测，而不是按 --mat 个数推断：
+            // 多矩阵目录下用单 mat 刷参数变体（如 E 组）时能找到 _cnt_t1 后缀文件；
+            // 列名前缀跟随探测结果，保证与文件来源一致。
+            let tag = if multi {
+                format!("_{mat}")
+            } else if day.join(format!("rho_{mat}.bin")).exists() {
+                format!("_{mat}")
+            } else {
+                String::new()
+            };
+            let pre = if !tag.is_empty() {
+                format!("{mat}_")
+            } else {
+                String::new()
+            };
+            let t0 = Instant::now();
+            let ms = load_matset(&day, n, &tag);
+            eprintln!("[reduce:{mat}] MatSet 读入 {:.1}s", t0.elapsed().as_secs_f32());
+            let mut out = Out::new();
+            produce_one_mat(
+                &ms,
+                &pre,
+                n,
+                &ok,
+                industry.as_deref(),
+                lnt.as_deref(),
+                has_lnt,
+                &mut out,
+            );
+            out
+        })
+        .collect();
+    let mut out = Out::new();
+    for o in outs {
+        out.names.extend(o.names);
+        out.cols.extend(o.cols);
     }
 
     // ---------------- 落盘 ----------------

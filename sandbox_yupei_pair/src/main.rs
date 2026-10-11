@@ -331,7 +331,12 @@ fn cmd_net(args: &[String]) {
     summary.insert("n_non_stock".into(),
         serde_json::json!(is_stock.iter().filter(|&&v| !v).count()));
 
-    for mat in &mats {
+    // 各矩阵之间完全独立：读盘、配对扫描、EXZ、落盘、汇报全部并行。
+    // 每矩阵返回一份 summary 片段，最后按 --mat 顺序合并，保证输出确定。
+    let n_mats = mats.len();
+    let run_sums: Vec<(String, serde_json::Value)> = mats
+        .par_iter()
+        .map(|mat| {
         let t0 = std::time::Instant::now();
         let mpath = day.join("mats").join(format!("{mat}.bin"));
         let sdir = read_f32(&mpath).expect("读矩阵失败");
@@ -861,7 +866,7 @@ fn cmd_net(args: &[String]) {
 
         // ---- 落盘（23 个文件并行写，磁盘带宽能同时吃多路）----
         let t0 = std::time::Instant::now();
-        let tag = if mats.len() > 1 { format!("_{mat}") } else { String::new() };
+        let tag = if n_mats > 1 { format!("_{mat}") } else { String::new() };
         {
             let writes: Vec<(&str, &[f32])> = vec![
                 ("G", &g), ("RHO_U", &ru), ("SINGLE", &sg), ("X0", &x0),
@@ -966,8 +971,8 @@ fn cmd_net(args: &[String]) {
                                    "mean": m, "std": sd, "count": c})
             })
             .collect();
-        summary.insert(
-            format!("run_{mat}"),
+        (
+            mat.clone(),
             serde_json::json!({
                 "mat": mat,
                 "n": n,
@@ -991,7 +996,11 @@ fn cmd_net(args: &[String]) {
                     "b": codes[t.0], "c": codes[t.1], "ZS": t.6, "Gstar": t.7, "Z": t.3,
                     "X0star": codes[t.8]})).collect::<Vec<_>>(),
             }),
-        );
+        )
+        })
+        .collect();
+    for (m, v) in run_sums {
+        summary.insert(format!("run_{m}"), v);
     }
 
     std::fs::write(
