@@ -1135,6 +1135,98 @@ fn cmd_net(args: &[String]) {
     );
 }
 
+/// 总控入口：一条命令跑完 net → check → reduce → topk 全流程。
+///
+///   yupei_pair run <backup_root> <date> <outdir> [--mat a,b,c] [--threads N]
+///       [--stocks-only] [--null-mc 20000] [--topk 15]
+///       [--sig-temp 0.3] [--sig-thr 2.0] [--k-list 1,2,5,10,20,50,100,200,500]
+///
+/// 输出布局（全部落在 <outdir>/<date>/ 下）：
+///   *.bin / codes.txt / summary.json   —— net 的 24 张矩阵 + 元数据
+///   topk/   names_{mat}.txt / factors_{mat}.bin / summary_{mat}.json
+///   reduce_rs/ names.txt / factors.bin / coverage.txt / factors.json
+/// check 任一矩阵失败会直接 exit(1) 终止全流程，不产出半成品因子。
+fn cmd_run(args: &[String]) {
+    let t_all = std::time::Instant::now();
+    let backup_root = args[0].clone();
+    let date = args[1].clone();
+    let outdir = args[2].clone();
+    let mats = parse_flag(args, "--mat").unwrap_or("cnt_t1").to_string();
+
+    // 带值参数透传：run 的参数名与各子命令一致，逐项转发；
+    // --stocks-only 是开关参数，出现就带上。
+    let passthru = |a: &mut Vec<String>, names: &[&str]| {
+        for f in names {
+            if let Some(v) = parse_flag(args, f) {
+                a.push((*f).to_string());
+                a.push(v.to_string());
+            }
+        }
+    };
+    let stocks_flag = |a: &mut Vec<String>| {
+        if args.iter().any(|x| x == "--stocks-only") {
+            a.push("--stocks-only".to_string());
+        }
+    };
+
+    eprintln!("[run] ===== net =====");
+    {
+        let mut a = vec![
+            backup_root.clone(),
+            date.clone(),
+            outdir.clone(),
+            "--mat".to_string(),
+            mats.clone(),
+        ];
+        passthru(&mut a, &["--threads", "--null-mc", "--topk"]);
+        stocks_flag(&mut a);
+        cmd_net(&a);
+    }
+    eprintln!("[run] ===== check =====");
+    {
+        let a = vec![
+            outdir.clone(),
+            date.clone(),
+            "--mat".to_string(),
+            mats.clone(),
+        ];
+        check::cmd_check(&a); // 任一矩阵失败内部 exit(1)，不会进下一步
+    }
+    eprintln!("[run] ===== reduce =====");
+    {
+        let mut a = vec![
+            outdir.clone(),
+            date.clone(),
+            outdir.clone(),
+            "--mat".to_string(),
+            mats.clone(),
+            // reduce 的 industry/stats 从 --backup 读，显式传同一 backup_root，
+            // 不依赖它的默认值恰好匹配。
+            "--backup".to_string(),
+            backup_root.clone(),
+        ];
+        passthru(&mut a, &["--threads", "--sig-temp", "--sig-thr"]);
+        reduce::cmd_reduce(&a);
+    }
+    eprintln!("[run] ===== topk =====");
+    {
+        let mut a = vec![
+            backup_root.clone(),
+            date.clone(),
+            outdir.clone(),
+            "--mat".to_string(),
+            mats.clone(),
+        ];
+        passthru(&mut a, &["--threads", "--k-list"]);
+        stocks_flag(&mut a);
+        topk::cmd_topk(&a);
+    }
+    eprintln!(
+        "[run] ===== 全流程完成：{:.1}s =====",
+        t_all.elapsed().as_secs_f64()
+    );
+}
+
 fn main() {
     // 参数个数的检查与原来完全一样（net 与 reduce 都要 5 个），net 的行为不动
     let args: Vec<String> = std::env::args().collect();
@@ -1143,6 +1235,7 @@ fn main() {
         eprintln!("      yupei_pair reduce <pair_out_dir> <date> <outdir> [--backup <root>] [--threads N] [--mat cnt_t1,...]");
         eprintln!("      yupei_pair topk <backup_root> <date> <outdir> [--mat cnt_t1] [--threads N] [--stocks-only] [--k-list 1,2,5,10,20,50,100]");
         eprintln!("      yupei_pair check <pair_out_dir> <date> [--mat cnt_t1]");
+        eprintln!("      yupei_pair run <backup_root> <date> <outdir> [--mat a,b,c] [--threads N] [--stocks-only]  ← 全流程总控");
         std::process::exit(1);
     }
     match args[1].as_str() {
@@ -1150,6 +1243,7 @@ fn main() {
         "reduce" => reduce::cmd_reduce(&args[2..]),
         "topk" => topk::cmd_topk(&args[2..]),
         "check" => check::cmd_check(&args[2..]),
+        "run" => cmd_run(&args[2..]),
         other => {
             eprintln!("未知子命令: {other}");
             std::process::exit(1);
