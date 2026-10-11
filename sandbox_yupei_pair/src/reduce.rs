@@ -65,6 +65,7 @@
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::time::Instant;
 
 use crate::{parse_flag, read_codes, read_f32, read_symbol_map};
@@ -72,7 +73,28 @@ use crate::{parse_flag, read_codes, read_f32, read_symbol_map};
 // pair_reduce.py 的默认配置：--k 20 / --max-k 8。
 pub(crate) const K_TOPK: usize = 20;
 pub(crate) const MAX_K: usize = 8;
-pub(crate) const Z_THR: f64 = 2.0;
+
+/// sigmoid 软化与硬阈值的共享参数（--sig-temp / --sig-thr，E 组参数刷选用）。
+/// reduce 启动时由 cmd_reduce 写入 OnceLock，全进程只设一次；所有用
+/// sigmoid((z-thr)/temp) 或 z>thr 的统计（z2_count、zsoft、pz_soft、spec_soft 等）
+/// 统一从 soft() 读取，保证同一套参数口径一致。
+#[derive(Clone, Copy)]
+pub(crate) struct SoftCfg {
+    pub temp: f64,
+    pub thr: f64,
+}
+static SOFT: OnceLock<SoftCfg> = OnceLock::new();
+const SOFT_DEFAULT: SoftCfg = SoftCfg {
+    temp: 0.3,
+    thr: 2.0,
+};
+pub(crate) fn soft() -> SoftCfg {
+    *SOFT.get().unwrap_or(&SOFT_DEFAULT)
+}
+/// 供 cmd_reduce 在启动时写入参数（重复设置时忽略，保持首次值）。
+pub(crate) fn set_soft(cfg: SoftCfg) {
+    let _ = SOFT.set(cfg);
+}
 
 // ============================================================
 // 小工具
@@ -457,6 +479,7 @@ pub(crate) fn r1_role(n: usize, x0: &[i32], pw: &[f32], pwz: &[f32], ok: &[bool]
     let mut count_z2 = vec![0.0f64; n];
     let mut partner_z2 = vec![0.0f64; n];
     let mut n_good = 0usize;
+    let zthr = soft().thr;
     for i in 0..n {
         if !ok[i] {
             continue;
@@ -467,7 +490,7 @@ pub(crate) fn r1_role(n: usize, x0: &[i32], pw: &[f32], pwz: &[f32], ok: &[bool]
             }
             // 作为伙伴出现在强互补对里：strong_pair 是上三角掩码，行数它的较小下标、
             // 列数它的较大下标，所以每只股票在一对里只被数到一次
-            if pwz[i * n + j] as f64 > Z_THR {
+            if pwz[i * n + j] as f64 > zthr {
                 partner_z2[i] += 1.0;
                 partner_z2[j] += 1.0;
             }
@@ -484,7 +507,7 @@ pub(crate) fn r1_role(n: usize, x0: &[i32], pw: &[f32], pwz: &[f32], ok: &[bool]
                 max_w[x] = w;
             }
             sum_z[x] += z;
-            if z > Z_THR {
+            if z > zthr {
                 count_z2[x] += 1.0;
             }
             n_good += 1;
@@ -1140,6 +1163,7 @@ pub(crate) fn r6_plane(n: usize, z: &[f32], zs: &[f32], ok: &[bool]) -> R6 {
     let mut sc = vec![0.0f32; n * n]; // 对称，对角 0
     let mut sp = vec![0.0f32; n * n];
     let mut cnt_valid = vec![0.0f64; n];
+    let zthr = soft().thr;
     for i in 0..n {
         if !ok[i] {
             continue;
@@ -1151,7 +1175,7 @@ pub(crate) fn r6_plane(n: usize, z: &[f32], zs: &[f32], ok: &[bool]) -> R6 {
             let zl = z[i * n + j] as f64;
             let zsl = zs[i * n + j] as f64;
             let s = (zsl - zl) as f32;
-            let p = if zsl > 2.0 && zl < -2.0 { 1.0f32 } else { 0.0 };
+            let p = if zsl > zthr && zl < -zthr { 1.0f32 } else { 0.0 };
             sc[i * n + j] = s;
             sc[j * n + i] = s;
             sp[i * n + j] = p;
@@ -1601,11 +1625,22 @@ pub fn cmd_reduce(args: &[String]) {
     }
     let mats_arg = parse_flag(args, "--mat").unwrap_or("cnt_t1").to_string();
     let mats: Vec<String> = mats_arg.split(',').map(|s| s.trim().to_string()).collect();
+    // E 组参数变体：sigmoid 温度与硬阈值（默认 0.3 / 2.0，与原硬编码一致）
+    let sig_temp: f64 = parse_flag(args, "--sig-temp")
+        .map(|s| s.parse().expect("--sig-temp 需为浮点数"))
+        .unwrap_or(0.3);
+    let sig_thr: f64 = parse_flag(args, "--sig-thr")
+        .map(|s| s.parse().expect("--sig-thr 需为浮点数"))
+        .unwrap_or(2.0);
+    set_soft(SoftCfg {
+        temp: sig_temp,
+        thr: sig_thr,
+    });
 
     let day = pair_root.join(&date);
     let codes = read_codes(&day.join("codes.txt")).expect("读 codes.txt 失败");
     let n = codes.len();
-    eprintln!("[reduce] date = {date}, n = {n}, mats = {mats:?}, 线程 {}", rayon::current_num_threads());
+    eprintln!("[reduce] date = {date}, n = {n}, mats = {mats:?}, 线程 {}, sigmoid temp={sig_temp} thr={sig_thr}", rayon::current_num_threads());
 
     // 股票白名单与行业、成交笔数
     let basic = std::env::var("RUST_PYFUNC_BASIC_INFO_DIR")
@@ -1651,8 +1686,17 @@ pub fn cmd_reduce(args: &[String]) {
     let mut out = Out::new();
     let multi = mats.len() > 1;
     for mat in &mats {
-        let tag = if multi { format!("_{mat}") } else { String::new() };
-        let pre = if multi { format!("{mat}_") } else { String::new() };
+        // 文件名 tag 按目录里实际存在的文件探测，而不是按 --mat 个数推断：
+        // 多矩阵目录下用单 mat 刷参数变体（如 E 组）时能找到 _cnt_t1 后缀文件；
+        // 列名前缀跟随探测结果，保证与文件来源一致。
+        let tag = if multi {
+            format!("_{mat}")
+        } else if day.join(format!("rho_{mat}.bin")).exists() {
+            format!("_{mat}")
+        } else {
+            String::new()
+        };
+        let pre = if !tag.is_empty() { format!("{mat}_") } else { String::new() };
         let t0 = Instant::now();
         let ms = load_matset(&day, n, &tag);
         eprintln!("[reduce:{mat}] MatSet 读入 {:.1}s", t0.elapsed().as_secs_f32());

@@ -225,7 +225,11 @@ fn explain_extra(
         }
         log1p[x] = (s.len() as f64).ln_1p();
         share[x] = s.len() as f64 * inv;
-        zsoft[x] = s.iter().map(|&(_, zz)| sigmoid((zz as f64 - 2.0) / 0.3)).sum();
+        let sc = crate::reduce::soft();
+        zsoft[x] = s
+            .iter()
+            .map(|&(_, zz)| sigmoid((zz as f64 - sc.thr) / sc.temp))
+            .sum();
         let mut ws: Vec<f64> = s.iter().map(|&(a, _)| a as f64).collect();
         ws.sort_by(|a, b| a.partial_cmp(b).unwrap());
         let m = ws.len();
@@ -236,10 +240,11 @@ fn explain_extra(
     (log1p, share, zsoft, wp90, wt5)
 }
 
-/// 作为配对成员（B/C 任一）的 Z 软质量：Σ_j max(z-2,0) 与 Σ_j sigmoid((z-2)/0.3)。
+/// 作为配对成员（B/C 任一）的 Z 软质量：Σ_j max(z-thr,0) 与 Σ_j sigmoid((z-thr)/temp)。
 fn partner_z_extra(n: usize, z: &[f32], ok: &[bool]) -> (Vec<f64>, Vec<f64>) {
     let mut mass = vec![f64::NAN; n];
     let mut soft = vec![f64::NAN; n];
+    let sc = crate::reduce::soft();
     mass.par_iter_mut()
         .zip(soft.par_iter_mut())
         .enumerate()
@@ -255,10 +260,10 @@ fn partner_z_extra(n: usize, z: &[f32], ok: &[bool]) -> (Vec<f64>, Vec<f64>) {
                 }
                 let v = z[i * n + j] as f64;
                 if v.is_finite() {
-                    if v > 2.0 {
-                        a += v - 2.0;
+                    if v > sc.thr {
+                        a += v - sc.thr;
                     }
-                    b += sigmoid((v - 2.0) / 0.3);
+                    b += sigmoid((v - sc.thr) / sc.temp);
                 }
             }
             *mm = a;
@@ -1185,7 +1190,9 @@ fn block_plane(
         &format!("{pre}pl_{tag}_spec_max"),
         stats.iter().map(|r| r[8]).collect(),
     );
-    // 软专才占比：mean_j sigmoid(b-2)*sigmoid(-a-2)；行相关：a 与 b 的 spearman
+    // 软专才占比：mean_j sigmoid((b-thr)/temp)*sigmoid((-a-thr)/temp)；行相关：a 与 b 的 spearman
+    // （原实现此处隐式温度 1.0，已统一为全局 --sig-temp/--sig-thr 口径）
+    let sc = crate::reduce::soft();
     let rows2: Vec<(f64, f64, f64)> = (0..n)
         .into_par_iter()
         .map(|i| {
@@ -1202,7 +1209,7 @@ fn block_plane(
                 }
                 let (x, y) = (a[i * n + j] as f64, b[i * n + j] as f64);
                 if x.is_finite() && y.is_finite() {
-                    sh += sigmoid(y - 2.0) * sigmoid(-x - 2.0);
+                    sh += sigmoid((y - sc.thr) / sc.temp) * sigmoid((-x - sc.thr) / sc.temp);
                     cnt += 1;
                     va.push(x);
                     vb.push(y);
