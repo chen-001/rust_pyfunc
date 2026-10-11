@@ -99,30 +99,31 @@ fn row_stats16(row: &[f32], i: usize, n: usize, ok: &[bool]) -> [f64; 16] {
     ]
 }
 
-/// 矩阵清单：名字 + 引用。行统计对每张各出 16 列，命名 row_{MAT}_{stat}。
-fn mat_catalog(ms: &MatSet) -> Vec<(&'static str, &Vec<f32>)> {
+/// 矩阵清单：名字 + 切片引用（MatData 经 Deref 取 &[f32]）。
+/// 行统计对每张各出 16 列，命名 row_{MAT}_{stat}。
+fn mat_catalog(ms: &MatSet) -> Vec<(&'static str, &[f32])> {
     vec![
-        ("rho", &ms.rho),
-        ("g", &ms.g),
-        ("z", &ms.z),
-        ("gs", &ms.gs),
-        ("zs", &ms.zs),
-        ("sc", &ms.sc),
-        ("grel", &ms.grel),
-        ("gsh", &ms.gsh),
-        ("gcov", &ms.gcov),
-        ("gnpos", &ms.gnpos),
-        ("ghhi", &ms.ghhi),
-        ("exz", &ms.exz),
-        ("exzs", &ms.exzs),
-        ("ru", &ms.ru),
-        ("sgl", &ms.sg),
-        ("rus", &ms.rus),
-        ("sgs", &ms.sgs),
-        ("pb", &ms.pb),
-        ("qc", &ms.qc),
-        ("pbs", &ms.pbs),
-        ("qcs", &ms.qcs),
+        ("rho", &ms.rho[..]),
+        ("g", &ms.g[..]),
+        ("z", &ms.z[..]),
+        ("gs", &ms.gs[..]),
+        ("zs", &ms.zs[..]),
+        ("sc", &ms.sc[..]),
+        ("grel", &ms.grel[..]),
+        ("gsh", &ms.gsh[..]),
+        ("gcov", &ms.gcov[..]),
+        ("gnpos", &ms.gnpos[..]),
+        ("ghhi", &ms.ghhi[..]),
+        ("exz", &ms.exz[..]),
+        ("exzs", &ms.exzs[..]),
+        ("ru", &ms.ru[..]),
+        ("sgl", &ms.sg[..]),
+        ("rus", &ms.rus[..]),
+        ("sgs", &ms.sgs[..]),
+        ("pb", &ms.pb[..]),
+        ("qc", &ms.qc[..]),
+        ("pbs", &ms.pbs[..]),
+        ("qcs", &ms.qcs[..]),
     ]
 }
 
@@ -856,12 +857,12 @@ fn clustering(n: usize, adj: &[bool], i: usize) -> f64 {
 fn block_r4(ms: &MatSet, pre: &str, n: usize, ok: &[bool], out: &mut Out) {
     let t0 = Instant::now();
     let ks = [5usize, 10, 20, 50, 100];
-    let graphs: Vec<(&'static str, &Vec<f32>)> = vec![
-        ("rho", &ms.rho),
-        ("g", &ms.g),
-        ("z", &ms.z),
-        ("gs", &ms.gs),
-        ("zs", &ms.zs),
+    let graphs: Vec<(&'static str, &[f32])> = vec![
+        ("rho", &ms.rho[..]),
+        ("g", &ms.g[..]),
+        ("z", &ms.z[..]),
+        ("gs", &ms.gs[..]),
+        ("zs", &ms.zs[..]),
     ];
     let n_ok = ok.iter().filter(|&&v| v).count();
     let kks: Vec<usize> = ks.iter().map(|&k| k.min(n_ok.saturating_sub(1))).collect();

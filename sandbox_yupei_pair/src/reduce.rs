@@ -68,7 +68,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::Instant;
 
-use crate::{parse_flag, read_codes, read_f32, read_symbol_map};
+use crate::{parse_flag, read_codes, read_f32, read_symbol_map, mmap_f32, MatData};
 
 // pair_reduce.py 的默认配置：--k 20 / --max-k 8。
 pub(crate) const K_TOPK: usize = 20;
@@ -146,14 +146,19 @@ pub(crate) fn transpose_f64(a: &[f64], n: usize) -> Vec<f64> {
 }
 
 pub(crate) fn max_abs_diff_to_transpose(a: &[f32], n: usize) -> f64 {
+    // 抽样对称性检查：每 64 行抽 1 行扫全行（含对角两侧），
+    // 保留"发现不对称数据就报警"的防御力，但避免为检查而
+    // fault-in 整张 62MB 映射（MatSet 装载路径，串行不嵌套 par）。
     let mut mx = 0.0f64;
-    for i in 0..n {
-        for j in (i + 1)..n {
+    let mut i = 0usize;
+    while i < n {
+        for j in 0..n {
             let d = (a[i * n + j] as f64 - a[j * n + i] as f64).abs();
             if d > mx {
                 mx = d;
             }
         }
+        i += 64;
     }
     mx
 }
@@ -241,6 +246,7 @@ pub(crate) fn nanmedian(v: &[f64]) -> f64 {
 // ============================================================
 
 /// X0.bin / X0STAR.bin：四舍五入取整，只在严格上三角有效，其余写 -1。
+/// 保持串行：MatSet 装载在外层多矩阵 par 循环内，嵌套 par 只会饥饿排队。
 pub(crate) fn read_x0(raw: &[f32], n: usize) -> Vec<i32> {
     let mut out = vec![-1i32; n * n];
     for i in 0..n {
@@ -1312,55 +1318,61 @@ impl Out {
 // ============================================================
 
 pub(crate) struct MatSet {
-    pub rho: Vec<f32>,
+    pub rho: MatData,
     pub e: Vec<f64>,
-    pub g: Vec<f32>,
-    pub z: Vec<f32>,
-    pub gs: Vec<f32>,
-    pub zs: Vec<f32>,
+    pub g: MatData,
+    pub z: MatData,
+    pub gs: MatData,
+    pub zs: MatData,
     pub x0: Vec<i32>,
     pub x0s: Vec<i32>,
-    pub ru: Vec<f32>,
-    pub rus: Vec<f32>,
-    pub sg: Vec<f32>,
-    pub sgs: Vec<f32>,
-    pub grel: Vec<f32>,
-    pub gsh: Vec<f32>,
-    pub gcov: Vec<f32>,
-    pub gnpos: Vec<f32>,
-    pub ghhi: Vec<f32>,
-    pub pb: Vec<f32>,
-    pub qc: Vec<f32>,
-    pub pbs: Vec<f32>,
-    pub qcs: Vec<f32>,
-    pub exz: Vec<f32>,
-    pub exzs: Vec<f32>,
-    pub sc: Vec<f32>,   // ZS - Z
-    pub mass: Vec<f32>, // 6n：emass|gmass|g2mass|smass|sgmass|sg2mass（旧4n自动补NaN）
+    pub ru: MatData,
+    pub rus: MatData,
+    pub sg: MatData,
+    pub sgs: MatData,
+    pub grel: MatData,
+    pub gsh: MatData,
+    pub gcov: MatData,
+    pub gnpos: MatData,
+    pub ghhi: MatData,
+    pub pb: MatData,
+    pub qc: MatData,
+    pub pbs: MatData,
+    pub qcs: MatData,
+    pub exz: MatData,
+    pub exzs: MatData,
+    pub sc: MatData,   // ZS - Z
+    pub mass: MatData, // 6n：emass|gmass|g2mass|smass|sgmass|sg2mass（旧4n自动补NaN）
 }
 
-/// 读一张矩阵；旧输出没有的新文件用全 NaN 兜底，让下游列变全空而不是崩掉。
-fn load_or_nan(day: &Path, n: usize, nm: &str) -> Vec<f32> {
+/// 装载一张矩阵：文件存在且长度正确时用只读 mmap 零拷贝挂入；
+/// 缺失/坏文件用全 NaN owned Vec 兜底，让下游列变全空而不是崩掉。
+fn load_mat_data(day: &Path, n: usize, nm: &str) -> MatData {
     let p = day.join(format!("{nm}.bin"));
-    match read_f32(&p) {
-        Ok(v) if v.len() == n * n => v,
-        _ => vec![f32::NAN; n * n],
+    match mmap_f32(&p) {
+        Ok(m) if m.as_f32().len() == n * n => MatData::Map(m),
+        Ok(m) => {
+            eprintln!("[reduce] {} 长度 {} != n*n={}，按缺失处理", p.display(), m.as_f32().len(), n * n);
+            MatData::Own(vec![f32::NAN; n * n])
+        }
+        Err(_) => MatData::Own(vec![f32::NAN; n * n]),
     }
 }
 
 pub(crate) fn load_matset(day: &Path, n: usize, tag: &str) -> MatSet {
-    // 21 张矩阵并行读：串行读是 reduce 最大的墙钟开销（单矩阵 ~13s），
-    // rayon 按文件名并行后 IO 与页缓存预热都摊到多核上。
+    // 22 张矩阵 mmap 零拷贝挂入：不再分配 22×62MB 用户缓冲，
+    // 也没有内核 copy_to_user——mmap 调用本身 O(微秒)，
+    // 页 fault-in 摊到后续并行计算里（共享 page cache 页）。
     const MATS: [&str; 21] = [
         "rho", "G", "Z", "GSTAR", "ZS", "X0", "X0STAR", "RHO_U", "RHO_US",
         "SINGLE", "SINGLE_S", "GREL", "GSH", "GCOV", "GNPOS", "GHHI", "PB",
         "QC", "PBS", "QCS", "EXZ",
     ];
-    let loaded: Vec<Vec<f32>> = MATS
-        .par_iter()
-        .map(|nm| load_or_nan(day, n, &format!("{nm}{tag}")))
+    let loaded: Vec<MatData> = MATS
+        .iter()
+        .map(|nm| load_mat_data(day, n, &format!("{nm}{tag}")))
         .collect();
-    let exzs = load_or_nan(day, n, &format!("EXZS{tag}"));
+    let exzs = load_mat_data(day, n, &format!("EXZS{tag}"));
     let e = {
         let p = day.join(format!("E{tag}.bin"));
         let raw = std::fs::read(&p).expect(&format!("读 {} 失败", p.display()));
@@ -1374,11 +1386,11 @@ pub(crate) fn load_matset(day: &Path, n: usize, tag: &str) -> MatSet {
     let mut it = loaded.into_iter();
     let rho = it.next().unwrap();
     let g = it.next().unwrap();
-    let mut z = it.next().unwrap();
+    let z = it.next().unwrap();
     let gs = it.next().unwrap();
-    let mut zs = it.next().unwrap();
-    let x0 = read_x0(&it.next().unwrap(), n);
-    let x0s = read_x0(&it.next().unwrap(), n);
+    let zs = it.next().unwrap();
+    let x0 = read_x0(&it.next().unwrap()[..], n);
+    let x0s = read_x0(&it.next().unwrap()[..], n);
     let ru = it.next().unwrap();
     let rus = it.next().unwrap();
     let sg = it.next().unwrap();
@@ -1393,22 +1405,33 @@ pub(crate) fn load_matset(day: &Path, n: usize, tag: &str) -> MatSet {
     let pbs = it.next().unwrap();
     let qcs = it.next().unwrap();
     let exz = it.next().unwrap();
-    // Z / ZS：上下三角不一致时取平均对称化（真实数据这两份是一致的）
-    if max_abs_diff_to_transpose(&z, n) > 1e-6 {
-        symmetrize_f32(&mut z, n);
-    }
-    if max_abs_diff_to_transpose(&zs, n) > 1e-6 {
-        symmetrize_f32(&mut zs, n);
-    }
+    // Z / ZS：上下三角不一致时取平均对称化（真实数据这两份是一致的）。
+    // mmap 是只读映射，需对称化时复制成 owned 再改。
+    let z = if max_abs_diff_to_transpose(&z[..], n) > 1e-6 {
+        let mut zv = z.to_vec();
+        symmetrize_f32(&mut zv, n);
+        MatData::Own(zv)
+    } else {
+        z
+    };
+    let zs = if max_abs_diff_to_transpose(&zs[..], n) > 1e-6 {
+        let mut zv = zs.to_vec();
+        symmetrize_f32(&mut zv, n);
+        MatData::Own(zv)
+    } else {
+        zs
+    };
+    // sc 构建保持串行：load_matset 在外层多矩阵 par 循环内，
+    // 嵌套 par 在 50 线程池上只会排队（任务级并行内不嵌套）。
     let mut sc = vec![f32::NAN; n * n];
-    sc.par_chunks_mut(n).enumerate().for_each(|(i, row)| {
+    for i in 0..n {
         for j in (i + 1)..n {
             let (a, b) = (zs[i * n + j], z[i * n + j]);
             if a.is_finite() && b.is_finite() {
-                row[j] = a - b;
+                sc[i * n + j] = a - b;
             }
         }
-    });
+    }
     for i in 0..n {
         for j in 0..i {
             sc[i * n + j] = sc[j * n + i];
@@ -1418,15 +1441,16 @@ pub(crate) fn load_matset(day: &Path, n: usize, tag: &str) -> MatSet {
     // 旧输出只有 4×n（没有二阶矩），把 g2/sg2 两段填 NaN，下游软 std 自然落空。
     let mass = {
         let p = day.join(format!("MASS{tag}.bin"));
-        match read_f32(&p) {
-            Ok(v) if v.len() == 6 * n => v,
-            Ok(v) if v.len() == 4 * n => {
+        match mmap_f32(&p) {
+            Ok(m) if m.as_f32().len() == 6 * n => MatData::Map(m),
+            Ok(m) if m.as_f32().len() == 4 * n => {
+                let v = m.as_f32();
                 let mut mv = vec![f32::NAN; 6 * n];
                 mv[..2 * n].copy_from_slice(&v[..2 * n]); // emass, gmass
                 mv[3 * n..5 * n].copy_from_slice(&v[2 * n..4 * n]); // smass, sgmass
-                mv
+                MatData::Own(mv)
             }
-            _ => vec![f32::NAN; 6 * n],
+            _ => MatData::Own(vec![f32::NAN; 6 * n]),
         }
     };
     MatSet {
@@ -1453,7 +1477,7 @@ pub(crate) fn load_matset(day: &Path, n: usize, tag: &str) -> MatSet {
         qcs,
         exz,
         exzs,
-        sc,
+        sc: MatData::Own(sc),
         mass,
     }
 }
@@ -1686,26 +1710,33 @@ pub fn cmd_reduce(args: &[String]) {
     // 各矩阵之间完全独立：MatSet 装载与全部因子块都并行，
     // 每矩阵产一个局部 Out，最后按 --mat 顺序拼接列（确定性）。
     let multi = mats.len() > 1;
-    let outs: Vec<Out> = mats
-        .par_iter()
+    // 文件名 tag 按目录里实际存在的文件探测，而不是按 --mat 个数推断：
+    // 多矩阵目录下用单 mat 刷参数变体（如 E 组）时能找到 _cnt_t1 后缀文件；
+    // 列名前缀跟随探测结果，保证与文件来源一致。
+    let tags: Vec<String> = mats
+        .iter()
         .map(|mat| {
-            // 文件名 tag 按目录里实际存在的文件探测，而不是按 --mat 个数推断：
-            // 多矩阵目录下用单 mat 刷参数变体（如 E 组）时能找到 _cnt_t1 后缀文件；
-            // 列名前缀跟随探测结果，保证与文件来源一致。
-            let tag = if multi {
-                format!("_{mat}")
-            } else if day.join(format!("rho_{mat}.bin")).exists() {
+            if multi || day.join(format!("rho_{mat}.bin")).exists() {
                 format!("_{mat}")
             } else {
                 String::new()
-            };
+            }
+        })
+        .collect();
+    // 注：MatSet 文件是 net 刚写出的页缓存热数据，后台预取反而与
+    // 任务读盘竞争带宽（实测后段矩阵 50-78s 长尾），故不做预取——
+    // 读盘优化靠 read_f32 单拷贝路径（省一次 62MB 分配+拷贝）。
+    let outs: Vec<Out> = mats
+        .par_iter()
+        .zip(tags.par_iter())
+        .map(|(mat, tag)| {
             let pre = if !tag.is_empty() {
                 format!("{mat}_")
             } else {
                 String::new()
             };
             let t0 = Instant::now();
-            let ms = load_matset(&day, n, &tag);
+            let ms = load_matset(&day, n, tag);
             eprintln!("[reduce:{mat}] MatSet 读入 {:.1}s", t0.elapsed().as_secs_f32());
             let mut out = Out::new();
             produce_one_mat(

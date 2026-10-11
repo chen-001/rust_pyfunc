@@ -61,16 +61,109 @@ fn read_ntrades(p: &Path) -> std::io::Result<Vec<f64>> {
 }
 
 fn read_f32(p: &Path) -> std::io::Result<Vec<f32>> {
-    let data = std::fs::read(p)?;
-    if data.len() % 4 != 0 {
+    // 单拷贝读：直接 read_exact 进 Vec 的未初始化容量，
+    // 比 fs::read + memcpy 省一次 62MB 分配和一次全量拷贝。
+    let mut f = std::fs::File::open(p)?;
+    let nbytes = f.metadata()?.len() as usize;
+    if nbytes % 4 != 0 {
         return Err(err("f32 文件长度不是 4 的倍数"));
     }
-    let n = data.len() / 4;
-    let mut out = vec![0.0f32; n];
+    let n = nbytes / 4;
+    let mut out: Vec<f32> = Vec::with_capacity(n);
     unsafe {
-        std::ptr::copy_nonoverlapping(data.as_ptr(), out.as_mut_ptr() as *mut u8, data.len());
+        let buf = std::slice::from_raw_parts_mut(out.as_mut_ptr() as *mut u8, nbytes);
+        use std::io::Read;
+        f.read_exact(buf)?;
+        out.set_len(n);
     }
     Ok(out)
+}
+
+// ============ 只读文件 mmap（MatSet 零拷贝装载） ============
+// reduce 阶段 MatSet 的 24 张 62MB 矩阵若走 read()：
+//   每张要 ①分配 62MB 用户缓冲（大 VMA + 首触零页 fault 风暴）
+//        ②内核把 page cache 再 copy_to_user 一遍；
+// 15 矩阵并行时分配器/mmap_lock/页缓存带宽三方争抢，长尾 70-80s。
+// 改成只读 mmap：直接把 page cache 页挂进地址空间，
+// 零分配、零拷贝，fault-in 只是建页表（~16K 次 minor fault 共 ~10ms）。
+
+extern "C" {
+    fn mmap(addr: *mut u8, len: usize, prot: i32, flags: i32, fd: i32, off: i64) -> *mut u8;
+    fn munmap(addr: *mut u8, len: usize) -> i32;
+}
+const PROT_READ: i32 = 0x1;
+const MAP_PRIVATE: i32 = 0x02; // 只读私有映射：与 MAP_SHARED 同访问 page cache，且不污染文件
+
+pub(crate) struct MmapFile {
+    ptr: *mut u8,
+    len: usize,
+}
+// 映射只读共享，跨线程访问安全
+unsafe impl Send for MmapFile {}
+unsafe impl Sync for MmapFile {}
+impl Drop for MmapFile {
+    fn drop(&mut self) {
+        unsafe {
+            munmap(self.ptr, self.len);
+        }
+    }
+}
+
+/// 把文件以只读 mmap 挂入地址空间；长度不是 4 的倍数时返回 Err。
+pub(crate) fn mmap_f32(p: &Path) -> std::io::Result<MmapFile> {
+    use std::os::unix::io::AsRawFd;
+    let f = std::fs::File::open(p)?;
+    let len = f.metadata()?.len() as usize;
+    if len == 0 || len % 4 != 0 {
+        return Err(err("文件为空或长度不是 4 的倍数"));
+    }
+    let ptr = unsafe { mmap(std::ptr::null_mut(), len, PROT_READ, MAP_PRIVATE, f.as_raw_fd(), 0) };
+    if ptr as isize == -1 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(MmapFile { ptr, len })
+}
+impl MmapFile {
+    /// 以 f32 切片视角访问映射区（len 保证是 4 的倍数）
+    pub(crate) fn as_f32(&self) -> &[f32] {
+        unsafe { std::slice::from_raw_parts(self.ptr as *const f32, self.len / 4) }
+    }
+}
+
+/// MatSet 矩阵的存储：要么是 mmap 映射（零拷贝），要么是 owned Vec
+/// （NaN 兜底矩阵、对称化重写后的矩阵、程序自算的 sc/mass）。
+/// Deref 到 [f32]，所以 `ms.rho[i]`、`ms.rho.par_chunks(n)` 等用法不变。
+pub(crate) enum MatData {
+    Map(MmapFile),
+    Own(Vec<f32>),
+}
+impl std::ops::Deref for MatData {
+    type Target = [f32];
+    fn deref(&self) -> &[f32] {
+        match self {
+            MatData::Map(m) => m.as_f32(),
+            MatData::Own(v) => v,
+        }
+    }
+}
+
+/// 后台顺序预读文件列表填页缓存（HDD 上尤其有效：
+/// 把磁盘延迟藏在后续计算后面，之后真正的 read 全部命中缓存）。
+pub(crate) fn prefetch_pagecache(files: Vec<PathBuf>) {
+    std::thread::spawn(move || {
+        use std::io::Read;
+        let mut buf = vec![0u8; 8 << 20];
+        for p in files {
+            if let Ok(mut f) = std::fs::File::open(&p) {
+                loop {
+                    match f.read(&mut buf) {
+                        Ok(0) | Err(_) => break,
+                        Ok(_) => {}
+                    }
+                }
+            }
+        }
+    });
 }
 
 fn write_f32(p: &Path, v: &[f32]) -> std::io::Result<()> {
@@ -276,6 +369,13 @@ fn cmd_net(args: &[String]) {
     }
 
     let day = backup_root.join(date.to_string());
+    // 输入矩阵在 HDD 上：后台顺序预读全部 --mat 文件填页缓存，
+    // 后面各 mat 任务的 read_f32 直接命中缓存，不再排队等磁盘。
+    prefetch_pagecache(
+        mats.iter()
+            .map(|m| day.join("mats").join(format!("{m}.bin")))
+            .collect(),
+    );
     let codes = read_codes(&day.join("codes.txt")).expect("读 codes.txt 失败");
     let n = codes.len();
     let ntrades = read_ntrades(&day.join("stats.bin")).expect("读 stats.bin 失败");
@@ -887,47 +987,67 @@ fn cmd_net(args: &[String]) {
         let t0 = std::time::Instant::now();
 
         // ---- 汇报用：按 G、Z、ZS 的头部配对 ----
-        // 注意变量名不要和上面的 gs/zs 矩阵撞，这里统一用 gq/zq 存分位用的向量。
-        let pairs: Vec<(usize, usize, f32, f32, f32, usize, f32, f32, usize)> = (0..n)
+        // 每行只保留三个口径各自的 top-K 候选，合并后取全局 top-K——
+        // 全局 top-K 必然落在各行 top-K 的并集里，与旧版全量收集等价；
+        // 分位数直接收集矩阵值，不再复制 780 万元组 × 3 份。
+        type Pr = (usize, usize, f32, f32, f32, usize, f32, f32, usize);
+        let row_parts: Vec<(Vec<Pr>, Vec<Pr>, Vec<Pr>, Vec<f32>, Vec<f32>, Vec<f32>)> = (0..n)
             .into_par_iter()
             .map(|b| {
-                let mut v = Vec::new();
+                let mut recs: Vec<Pr> = Vec::new();
+                let mut gv = Vec::new();
+                let mut zv = Vec::new();
+                let mut zsv = Vec::new();
                 for c in (b + 1)..n {
                     let bi = x0[b * n + c] as usize;
                     if bi >= n {
                         continue;
                     }
                     let bsi = x0s[b * n + c] as usize;
-                    v.push((
+                    recs.push((
                         b, c, g[b * n + c], z[b * n + c], ru[b * n + c], bi,
                         zs[b * n + c], gs[b * n + c], bsi,
                     ));
+                    gv.push(g[b * n + c]);
+                    zv.push(z[b * n + c]);
+                    zsv.push(zs[b * n + c]);
                 }
-                v
+                let take = |v: &mut Vec<Pr>, key: fn(&Pr) -> f32| -> Vec<Pr> {
+                    v.sort_unstable_by(|a, b| key(b).partial_cmp(&key(a)).unwrap());
+                    v.truncate(topk.min(v.len()));
+                    std::mem::take(v)
+                };
+                let mut bg = recs.clone();
+                let mut bz = recs.clone();
+                (
+                    take(&mut bg, |t| t.2),
+                    take(&mut bz, |t| t.3),
+                    take(&mut recs, |t| t.6),
+                    gv, zv, zsv,
+                )
             })
-            .reduce(Vec::new, |mut a, mut b| {
-                a.append(&mut b);
-                a
-            });
-        // top-15 只需要部分排序：select_nth 切出头部再对小段排序，
-        // 分位数同理只要次序统计量，不做 780 万元组的全排序。
-        let top15 = |v: &mut Vec<(usize, usize, f32, f32, f32, usize, f32, f32, usize)>,
-                     key: fn(&(_, _, f32, f32, f32, usize, f32, f32, usize)) -> f32| {
-            let tk = topk.min(v.len());
-            if tk < v.len() {
-                v.select_nth_unstable_by(tk, |a, b| key(b).partial_cmp(&key(a)).unwrap());
-            }
-            v[..tk].sort_unstable_by(|a, b| key(b).partial_cmp(&key(a)).unwrap());
+            .collect();
+        let mut by_g = Vec::new();
+        let mut by_z = Vec::new();
+        let mut by_zs = Vec::new();
+        let mut gq = Vec::new();
+        let mut zq = Vec::new();
+        let mut zsq = Vec::new();
+        for (bg, bz, bzs, gv, zv, zsv) in row_parts {
+            by_g.extend(bg);
+            by_z.extend(bz);
+            by_zs.extend(bzs);
+            gq.extend(gv);
+            zq.extend(zv);
+            zsq.extend(zsv);
+        }
+        let top15 = |v: &mut Vec<Pr>, key: fn(&Pr) -> f32| {
+            v.sort_unstable_by(|a, b| key(b).partial_cmp(&key(a)).unwrap());
+            v.truncate(topk.min(v.len()));
         };
-        let mut by_g = pairs.clone();
         top15(&mut by_g, |t| t.2);
-        let mut by_z = pairs.clone();
         top15(&mut by_z, |t| t.3);
-        let mut by_zs = pairs.clone();
         top15(&mut by_zs, |t| t.6);
-        let gq: Vec<f32> = pairs.iter().map(|p| p.2).collect();
-        let zq: Vec<f32> = pairs.iter().map(|p| p.3).collect();
-        let zsq: Vec<f32> = pairs.iter().map(|p| p.6).collect();
         let q = |v: &[f32], p: f64| -> f32 {
             let mut s = v.to_vec();
             let k = ((s.len() as f64) * p) as usize % s.len();
