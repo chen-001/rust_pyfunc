@@ -8,6 +8,11 @@
 - 旧类继承 dwo.FactorDesign 且有 new_get_field_min_data → 分钟数据（per-date 全市场）
 - 旧类继承 dwo.TickDataBase → Level2 逐笔/盘口（per-stock）
 - go(date, code) 形态 → 看函数体里读的是逐笔还是盘口
+
+kind 以生产脚本 hmXX_okay_database.py 的 pipeline_groups 为准，旧脚本只作回退。
+第三种形态单独标出来：cross_postprocess=True 表示「逐股计算 + 横截面后处理」，
+即旧脚本里的 de_cross 只是对 base 输出做的后处理，不代表这个系列是横截面形态
+（hm003 就是这种，旧规则会把 de_cross 误当成计算形态）。
 """
 from __future__ import annotations
 
@@ -116,6 +121,11 @@ def parse(path: Path, database_py: Path | None = None) -> dict:
     if declared in ("per_stock", "cross_section"):
         kind = declared
 
+    # 第三种形态：逐股计算 + 横截面后处理。生产脚本在时能直接判定；还没有生产脚本时留 None。
+    cross_postprocess = None
+    if declared in ("per_stock", "cross_section"):
+        cross_postprocess = declared == "per_stock" and uses_cross
+
     style = "go 函数" if has_go else ("FactorDesign" if "FactorDesign" in " ".join(bases) else "TickDataBase")
 
     return {
@@ -125,6 +135,7 @@ def parse(path: Path, database_py: Path | None = None) -> dict:
         "kind": kind,
         "kind_from_old_file": kind_from_old_file,
         "kind_from_database_py": declared,
+        "cross_postprocess": cross_postprocess,
         "uses_cross_section": uses_cross,
         "names_save": list(dict.fromkeys(lists.get("names_save", []))),
         "names_okay": list(dict.fromkeys(lists.get("names_okay", []))),
@@ -165,6 +176,7 @@ def main() -> int:
                 "kind": info["kind"],
                 "kind_from_old_file": info["kind_from_old_file"],
                 "kind_from_database_py": info["kind_from_database_py"],
+                "cross_postprocess": info["cross_postprocess"],
                 "uses_cross_section": info["uses_cross_section"],
                 "base_names": sorted(bases),
                 "n_base": len(bases),

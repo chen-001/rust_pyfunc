@@ -1,5 +1,5 @@
 {
- "generated": "2026-10-12 09:11:35",
+ "generated": "2026-10-12 09:20:23",
  "count": 89,
  "series": [
   {
@@ -13,6 +13,7 @@
    "kind": "cross_section",
    "kind_from_old_file": "cross_section",
    "kind_from_database_py": "cross_section",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [],
    "n_base": 0,
@@ -48,6 +49,7 @@
    "kind": "cross_section",
    "kind_from_old_file": "cross_section",
    "kind_from_database_py": "cross_section",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [],
    "n_base": 0,
@@ -83,6 +85,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "1m_afternoon_ask_pri_mean_sell_after",
@@ -133,6 +136,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "turnover_all_max_adj_afternoon_param60",
@@ -189,6 +193,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [],
    "n_base": 0,
@@ -222,6 +227,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "all_asks",
@@ -262,6 +268,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "afternoon_big_buy",
@@ -314,6 +321,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "afternoon_lag0_corr_price_disag",
@@ -366,6 +374,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "abs_cov_brown_close30",
@@ -405,6 +414,7 @@
    "kind": "cross_section",
    "kind_from_old_file": "cross_section",
    "kind_from_database_py": "cross_section",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "afternoon_mean_diff_kind1_abs",
@@ -464,6 +474,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "ask_all",
@@ -500,6 +511,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "ask_abs_total_volume_corr_lag1",
@@ -547,6 +559,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "max_label",
@@ -586,6 +599,7 @@
    "kind": "cross_section",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "cross_section",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "afternoon_corr_median",
@@ -632,6 +646,7 @@
    "kind": "cross_section",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "cross_section",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "afternoon_exchtime_diff_and_code",
@@ -686,6 +701,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "afternoon_66_begins_price_trend",
@@ -780,6 +796,7 @@
    "kind": "cross_section",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "cross_section",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "eight_kurt",
@@ -835,6 +852,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "buc_entropy1",
@@ -895,6 +913,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "longsell_1p0_longbuy_1p0_largebuy_largesell_66",
@@ -980,6 +999,7 @@
    "kind": "cross_section",
    "kind_from_old_file": "cross_section",
    "kind_from_database_py": "cross_section",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "lgt_rank_nodiff_allday",
@@ -1018,6 +1038,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "corr_ask_bid_allday",
@@ -1073,6 +1094,7 @@
    "kind": "cross_section",
    "kind_from_old_file": "cross_section",
    "kind_from_database_py": "cross_section",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [],
    "n_base": 0,
@@ -1108,6 +1130,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "corr_full_partmax_morning",
@@ -1188,6 +1211,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "asl_close30_unfold",
@@ -1256,6 +1280,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "max_eigenvalue_ask_bid_close30_fold",
@@ -1337,6 +1362,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "asks_corr10_minus_bids_corr10_open30_part",
@@ -1412,6 +1438,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "autocorr10_morning",
@@ -1467,6 +1494,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "last_volume_afternoon_83",
@@ -1523,6 +1551,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "asks_duravolume_corr3_abs",
@@ -1558,6 +1587,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "asks_corr_before_three_close30_notabs",
@@ -1636,6 +1666,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "ask_b0_max_notrank_afternoon",
@@ -1724,6 +1755,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "asks_neg_sum_minute1_silent_future180_param100",
@@ -1768,6 +1800,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "cross_section",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": true,
    "uses_cross_section": true,
    "base_names": [
     "bid_turnover_diff_allday",
@@ -1826,6 +1859,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "fool_high_inner66_time_real_mean_close30",
@@ -1911,6 +1945,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "ab_first_abs_num10_close30",
@@ -1980,6 +2015,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "bs_corr1_allday",
@@ -2063,6 +2099,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "buy_corr1_allday",
@@ -2124,6 +2161,7 @@
    "kind": "cross_section",
    "kind_from_old_file": "cross_section",
    "kind_from_database_py": "cross_section",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "df_ab_corr1_",
@@ -2191,6 +2229,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "ab_vol3_rate_corr_last_prc_close30",
@@ -2256,6 +2295,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "corr_volume_M1_66_afternoon",
@@ -2362,6 +2402,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "corr_price_price_rate_afternoon_3s",
@@ -2451,6 +2492,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "ask_bid_imbalance1_rate_corrmax_yesterday_afternoon",
@@ -2560,6 +2602,7 @@
    "kind": "cross_section",
    "kind_from_old_file": "cross_section",
    "kind_from_database_py": "cross_section",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [],
    "n_base": 0,
@@ -2588,6 +2631,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "corr_volume_corr_yes_afternoon_today_afternoon",
@@ -2646,6 +2690,7 @@
    "kind": "cross_section",
    "kind_from_old_file": "cross_section",
    "kind_from_database_py": "cross_section",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "ab_ratio_large_abn_afternooncorr_on_volume",
@@ -2712,6 +2757,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "abresi_de15s_kurt_abs_all",
@@ -2782,6 +2828,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "corr_y_yperfect_price_volume_hl_all",
@@ -2879,6 +2926,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "down_ask_etp300_autocorr1",
@@ -2950,6 +2998,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "b_dtw_act_vol_corr_last_prc_close30",
@@ -3029,6 +3078,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "buy_sell_energy_N1_open15_extreme",
@@ -3135,6 +3185,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "all_ask&bid_order_diff_abs_deviation_abs_autocorr1",
@@ -3268,6 +3319,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "all_ask&bid_order_diff_abs_deviation_abs_mean",
@@ -3382,6 +3434,7 @@
    "kind": "cross_section",
    "kind_from_old_file": "cross_section",
    "kind_from_database_py": null,
+   "cross_postprocess": null,
    "uses_cross_section": false,
    "base_names": [
     "auto15_ask_10r2_out_uprate_afternoon",
@@ -3499,6 +3552,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "cjbs_diff_15m_afternoon",
@@ -3575,6 +3629,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "corr_同向均量比_同向时差总和_buy_编号附近5perc",
@@ -3691,6 +3746,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "amax_bmax_abs_corr_amin_bmin_abs_全部",
@@ -3754,6 +3810,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "66_corr_gs_fd_与大单间隔_只算后面",
@@ -3844,6 +3901,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": null,
+   "cross_postprocess": null,
    "uses_cross_section": false,
    "base_names": [
     "act_buy_rate_autocorr_bid_仅撤退_最大80perc",
@@ -3963,6 +4021,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "DTW距离_autocorr_全部_下午",
@@ -4055,6 +4114,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "corr_buy_autocorr_删去最后10分钟_下午_不需要至少一半",
@@ -4160,6 +4220,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "a_dis_max_on_exchtime_float_volume_66_全天",
@@ -4241,6 +4302,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "ask_affected_order_autocorr_quan2tian1_1perc10s",
@@ -4348,6 +4410,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": null,
+   "cross_postprocess": null,
    "uses_cross_section": false,
    "base_names": [
     "ask_affected_order_corr_price_gao1jia420perc_10perc1s",
@@ -4458,6 +4521,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "buy_down_std_10p",
@@ -4527,6 +4591,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "ask_vol10_autocorr_sortby_ask_vol9_minustimesortabs_fold",
@@ -4627,6 +4692,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "rs_ask_vol1_13_1m_fold",
@@ -4698,6 +4764,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": null,
+   "cross_postprocess": null,
    "uses_cross_section": false,
    "base_names": [
     "lzc_abi1_corr_ret_next",
@@ -4803,6 +4870,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "ask_resi_diff_corr_bid_resi_adjusted_diff",
@@ -4879,6 +4947,7 @@
    "kind": "cross_section",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "cross_section",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "cdrs_max___abi1",
@@ -4955,6 +5024,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "full_ask_bid_diff_abs_v_yisnum_resi_ask_rank_corr_ask_rank_diff_resi_yisnum_abs",
@@ -5069,6 +5139,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "66_jia4ge2biao1zhun3cha4_1%_trend_sameside",
@@ -5178,6 +5249,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "mai3dan1_corr_jia4ge2fen1wei4shu430perc_jia4ge2_sameside",
@@ -5264,6 +5336,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "pv_bk_btw_v_x_v_bk_rev",
@@ -5381,6 +5454,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "a_adj_60w_corr_diag_dabs_60w_fold",
@@ -5494,6 +5568,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "cjbs_afternoon_param50",
@@ -5567,6 +5642,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": null,
+   "cross_postprocess": null,
    "uses_cross_section": false,
    "base_names": [
     "ask_order_corr_bid_order_fold",
@@ -5677,6 +5753,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "ask_order_volume_autocorr_corr_passive_ask_order_dedup_std",
@@ -5783,6 +5860,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": null,
+   "cross_postprocess": null,
    "uses_cross_section": false,
    "base_names": [
     "cross_flow_price_vs_vol_m4_corr_volume_signed_m4",
@@ -5886,6 +5964,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": null,
+   "cross_postprocess": null,
    "uses_cross_section": false,
    "base_names": [
     "all_pri_flow_dir_m5_autocorr1",
@@ -6004,6 +6083,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "big_neg_early_rate66_15s_future_p75",
@@ -6111,6 +6191,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": null,
+   "cross_postprocess": null,
    "uses_cross_section": false,
    "base_names": [
     "GLOB_sync_mean",
@@ -6227,6 +6308,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": null,
+   "cross_postprocess": null,
    "uses_cross_section": false,
    "base_names": [
     "m01s_V2S_EV_burstiness_running_cv_fold",
@@ -6346,6 +6428,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": null,
+   "cross_postprocess": null,
    "uses_cross_section": false,
    "base_names": [
     "A_acceleration_follow_V2S_EV_burstiness_running_p25",
@@ -6476,6 +6559,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "attack_both_ask_M11a_attack_skewness_opponent_p5",
@@ -6575,6 +6659,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "std_13_all",
@@ -6638,6 +6723,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": "per_stock",
+   "cross_postprocess": false,
    "uses_cross_section": false,
    "base_names": [
     "v1_abs_avg_trade_amount_diff_corr_trade_count",
@@ -6742,6 +6828,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": null,
+   "cross_postprocess": null,
    "uses_cross_section": false,
    "base_names": [
     "ask_consumption_rate_cv_fold",
@@ -6858,6 +6945,7 @@
    "kind": "per_stock",
    "kind_from_old_file": "per_stock",
    "kind_from_database_py": null,
+   "cross_postprocess": null,
    "uses_cross_section": false,
    "base_names": [
     "autocorr1_abs_on_rate662rate66_diff_from1to_100_mean",
@@ -6987,6 +7075,7 @@
    "kind": "cross_section",
    "kind_from_old_file": "cross_section",
    "kind_from_database_py": "cross_section",
+   "cross_postprocess": false,
    "uses_cross_section": true,
    "base_names": [
     "all_dorms_duras_corr1",
