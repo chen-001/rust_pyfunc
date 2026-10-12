@@ -28,6 +28,9 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from scan_series import kind_from_database_py  # noqa: E402
+
 REPO = Path("/home/chenzongwei/rust_pyfunc")
 REPORT_DIR = REPO / "reports/okay_database"
 STATE_PATH = REPORT_DIR / "program_state.json"
@@ -38,7 +41,7 @@ CLI = str(REPO / "python/rust_pyfunc/factor_task.py")
 
 START_DATE = 20150105
 END_DATE = 20260918
-N_JOBS = 400
+N_JOBS = 200
 LIBRARY = "/nas197/user_home/chenzongwei/factor_library"
 
 # 因子库统计的脚本与产物。界面状态条上的「因子库 · 数据 X/5614」取自这里的 coverage.json，
@@ -167,6 +170,23 @@ def _submit_candidates(script: str):
         link.unlink()
     link.symlink_to(Path(script).resolve())
     return [script, str(link)]
+
+
+def kind_conflict(series: dict) -> str | None:
+    """清单里的 kind 与生产脚本 pipeline_groups 的 kind 不一致时返回说明，否则 None。
+
+    hm074 那类坑：旧研究脚本是逐股形态，Rust 改写换成了横截面，清单里还留着旧的 kind。
+    提交前对不上就在这里停下并记账，不靠人记得；由生产脚本（真源）说了算。
+    """
+    declared = series.get("kind")
+    script = series.get("database_py") or ""
+    actual = kind_from_database_py(Path(script))
+    if not declared or actual is None:
+        return None
+    if actual != declared:
+        return (f"kind 与生产脚本不一致：清单写的是 {declared}，{Path(script).name} 的 pipeline_groups "
+                f"是 {actual}；先把两边改一致再提交")
+    return None
 
 
 def wait_task(task_id: int, poll: int = 30) -> str:
@@ -379,6 +399,13 @@ def main() -> int:
         if not Path(script).is_file():
             update_series(series["series"], note="database 脚本不存在，无法提交")
             return 1
+        conflict = kind_conflict(series)
+        if conflict:
+            update_series(series["series"], note=conflict)
+            log({"series": series["series"], "event": "kind-conflict",
+                 "time": datetime.now().isoformat()})
+            print(f"[tick] 拒绝提交 {series['series']}：{conflict}")
+            return 1
         info = submit(script)
         update_series(series["series"], task_id=info["id"], step_submit="running",
                       note=f"提交于 {datetime.now():%Y-%m-%d %H:%M:%S}，n_jobs={N_JOBS}")
@@ -421,6 +448,14 @@ def main() -> int:
             print(f"[队列] {series['series']} 缺少 {script}，跳过")
             return 1 if args.once else 0
 
+        conflict = kind_conflict(series)
+        if conflict:
+            series["note"] = conflict
+            save_state(state)
+            log({"series": series["series"], "event": "kind-conflict",
+                 "time": datetime.now().isoformat()})
+            print(f"[队列] 拒绝提交 {series['series']}：{conflict}")
+            return 1
         print(f"[队列] 提交 {series['series']} → {script}")
         info = submit(script)
         update_series(series["series"], task_id=info["id"], step_submit="running",

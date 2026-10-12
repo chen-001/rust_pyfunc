@@ -38,7 +38,38 @@ def string_list(node: ast.AST) -> list[str] | None:
     return out
 
 
-def parse(path: Path) -> dict:
+def kind_from_database_py(path: Path | None) -> str | None:
+    """从 Rust 版生产脚本 hmXX_okay_database.py 的 pipeline_groups 取 kind。
+
+    这是唯一真源：旧 okay 文件只说明研究时期的形态，Rust 改写可能换了形态
+    （hm074 就是 tick 逐股改成了横截面）。没有这个文件、解析不了、或者多个 kind
+    混用时返回 None，交回旧文件的启发式判断。
+    """
+    if path is None or not path.is_file():
+        return None
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+    except SyntaxError:
+        return None
+    kinds: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(isinstance(t, ast.Name) and t.id == "pipeline_groups" for t in node.targets):
+            continue
+        if not isinstance(node.value, ast.List):
+            continue
+        for elt in node.value.elts:
+            if isinstance(elt, ast.Call):
+                for kw in elt.keywords:
+                    if kw.arg == "kind" and isinstance(kw.value, ast.Constant):
+                        kinds.add(str(kw.value.value))
+    if len(kinds) == 1:
+        return kinds.pop()
+    return None
+
+
+def parse(path: Path, database_py: Path | None = None) -> dict:
     src = path.read_text(encoding="utf-8", errors="replace")
     tree = ast.parse(src)
     lists: dict[str, list[str]] = {}
@@ -80,6 +111,11 @@ def parse(path: Path) -> dict:
         source = "Level2 " + "+".join(parts) if parts else "Level2（待确认）"
         kind = "per_stock"
 
+    kind_from_old_file = kind
+    declared = kind_from_database_py(database_py)
+    if declared in ("per_stock", "cross_section"):
+        kind = declared
+
     style = "go 函数" if has_go else ("FactorDesign" if "FactorDesign" in " ".join(bases) else "TickDataBase")
 
     return {
@@ -87,6 +123,8 @@ def parse(path: Path) -> dict:
         "style": style,
         "source": source,
         "kind": kind,
+        "kind_from_old_file": kind_from_old_file,
+        "kind_from_database_py": declared,
         "uses_cross_section": uses_cross,
         "names_save": list(dict.fromkeys(lists.get("names_save", []))),
         "names_okay": list(dict.fromkeys(lists.get("names_okay", []))),
@@ -105,7 +143,7 @@ def main() -> int:
         num = int(m.group(1))
         if num >= 94:
             continue
-        info = parse(path)
+        info = parse(path, path.parent / f"hm{num}_okay_database.py")
         # 入选名单的 base 名字：去掉收尾算子后缀
         bases = set(info["names_save"])
         for name in info["names_gap5"] + info["names_gap1"]:
@@ -125,6 +163,8 @@ def main() -> int:
                 "style": info["style"],
                 "source": info["source"],
                 "kind": info["kind"],
+                "kind_from_old_file": info["kind_from_old_file"],
+                "kind_from_database_py": info["kind_from_database_py"],
                 "uses_cross_section": info["uses_cross_section"],
                 "base_names": sorted(bases),
                 "n_base": len(bases),
@@ -170,6 +210,12 @@ def main() -> int:
     kinds: dict[str, int] = {}
     for s in series:
         kinds[s["source"]] = kinds.get(s["source"], 0) + 1
+    conflicts = [s for s in series
+                 if s.get("kind_from_database_py") and s["kind_from_old_file"] != s["kind_from_database_py"]]
+    if conflicts:
+        print(f"kind 与旧文件判断不一致的系列 {len(conflicts)} 个（按生产脚本为准）：")
+        for s in conflicts:
+            print(f"  {s['series']}: 旧文件={s['kind_from_old_file']} 生产脚本={s['kind_from_database_py']}")
     print(f"共 {len(series)} 个系列，清单写入 {OUT}")
     for k, v in sorted(kinds.items(), key=lambda kv: -kv[1]):
         print(f"  {k}: {v}")

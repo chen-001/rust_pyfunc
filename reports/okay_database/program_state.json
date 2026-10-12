@@ -1,5 +1,5 @@
 {
- "generated": "2026-10-05 01:44:40",
+ "generated": "2026-10-12 09:11:35",
  "count": 89,
  "series": [
   {
@@ -11,6 +11,8 @@
    "style": "FactorDesign",
    "source": "分钟数据",
    "kind": "cross_section",
+   "kind_from_old_file": "cross_section",
+   "kind_from_database_py": "cross_section",
    "uses_cross_section": false,
    "base_names": [],
    "n_base": 0,
@@ -44,6 +46,8 @@
    "style": "FactorDesign",
    "source": "分钟数据",
    "kind": "cross_section",
+   "kind_from_old_file": "cross_section",
+   "kind_from_database_py": "cross_section",
    "uses_cross_section": false,
    "base_names": [],
    "n_base": 0,
@@ -77,6 +81,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔+盘口",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "1m_afternoon_ask_pri_mean_sell_after",
@@ -125,6 +131,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔+盘口",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "turnover_all_max_adj_afternoon_param60",
@@ -179,6 +187,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔+盘口",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [],
    "n_base": 0,
@@ -210,6 +220,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔+盘口",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "all_asks",
@@ -248,6 +260,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "afternoon_big_buy",
@@ -298,6 +312,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "afternoon_lag0_corr_price_disag",
@@ -348,6 +364,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "abs_cov_brown_close30",
@@ -385,6 +403,8 @@
    "style": "FactorDesign",
    "source": "分钟数据",
    "kind": "cross_section",
+   "kind_from_old_file": "cross_section",
+   "kind_from_database_py": "cross_section",
    "uses_cross_section": false,
    "base_names": [
     "afternoon_mean_diff_kind1_abs",
@@ -442,6 +462,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔+盘口",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "ask_all",
@@ -476,6 +498,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "ask_abs_total_volume_corr_lag1",
@@ -521,6 +545,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔+盘口",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "max_label",
@@ -557,7 +583,9 @@
    "okay_py": "/home/chenzongwei/pythoncode/成果hm22_跨股票连结/hm22_okay.py",
    "style": "TickDataBase",
    "source": "Level2（待确认）",
-   "kind": "per_stock",
+   "kind": "cross_section",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "cross_section",
    "uses_cross_section": false,
    "base_names": [
     "afternoon_corr_median",
@@ -601,7 +629,9 @@
    "okay_py": "/home/chenzongwei/pythoncode/成果hm23_主被转换订单/hm23_okay.py",
    "style": "TickDataBase",
    "source": "Level2（待确认）",
-   "kind": "per_stock",
+   "kind": "cross_section",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "cross_section",
    "uses_cross_section": false,
    "base_names": [
     "afternoon_exchtime_diff_and_code",
@@ -654,6 +684,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "afternoon_66_begins_price_trend",
@@ -745,7 +777,9 @@
    "okay_py": "/home/chenzongwei/pythoncode/成果hm25_开盘系列综合/hm25_okay.py",
    "style": "TickDataBase",
    "source": "Level2（待确认）",
-   "kind": "per_stock",
+   "kind": "cross_section",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "cross_section",
    "uses_cross_section": false,
    "base_names": [
     "eight_kurt",
@@ -799,6 +833,8 @@
    "style": "TickDataBase",
    "source": "Level2（待确认）",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "buc_entropy1",
@@ -835,11 +871,18 @@
    "rust_file": "src/okay_database/hm026.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm26_兴业转移熵/hm26_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "running",
-   "step_library": "pending",
-   "step_cleanup": "pending",
+   "step_submit": "done",
+   "step_library": "done",
+   "step_cleanup": "done",
    "task_id": 397,
-   "note": "提交于 2026-10-10 01:10:23，n_jobs=400"
+   "note": "对账：completed，因子库 {'base': 21, 'gap5': 17, 'gap1': 18, 'db': 4}，残留 colblk 0",
+   "library_files": {
+    "base": 21,
+    "gap5": 17,
+    "gap1": 18,
+    "db": 4
+   },
+   "colblk_left": 0
   },
   {
    "num": 27,
@@ -850,6 +893,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "longsell_1p0_longbuy_1p0_largebuy_largesell_66",
@@ -911,11 +956,18 @@
    "rust_file": "src/okay_database/hm027.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm27_漫长订单及其衍生物/hm27_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "pending",
-   "step_library": "pending",
-   "step_cleanup": "pending",
-   "task_id": null,
-   "note": "hm027（漫长订单及其衍生物，Level2 逐笔逐股）已完成。\n新增 src/okay_database/hm027.rs（96 个因子：卖出族 2 × 档位 3 × flag 2 × largebuy 2 × largesell 2 × 买入族 2，\n每个都是「该组合成交额之和 / 全天成交额之和」再取 exp）\n与 成果hm27_漫长订单及其衍生物/hm27_okay_database.py（48 个 base 名，无 _fold）。\n对账通过：verify_series.py 跑 20250303:000001、20250304:600519、20180601:000002、20231020:300750，\n4 组 × 96 值全部一致、无 NaN 差异。\n单日冒烟（20250303，n_jobs=8，输出改到 /tmp 临时目录）全市场 5117 只算完，48 个 h5 全部写出，临时目录已删。\n要点：工作集是「上午 09:30-11:30 ∪ 下午 13:00-14:57 回拨 1.5 小时」，11:30~13:00 之间不参与；\n时长和成交额按订单号（含 ask_order==0 这一组）聚合后 merge 回每行；\nturnover 用 f64 自行解析 CSV（快读器的 f32 会把全天成交额求和打偏）。"
+   "step_submit": "done",
+   "step_library": "done",
+   "step_cleanup": "done",
+   "task_id": 398,
+   "note": "completed，因子库 {'base': 48, 'gap5': 36, 'gap1': 33, 'db': 2}，残留 colblk 0",
+   "library_files": {
+    "base": 48,
+    "gap5": 36,
+    "gap1": 33,
+    "db": 2
+   },
+   "colblk_left": 0
   },
   {
    "num": 28,
@@ -926,6 +978,8 @@
    "style": "FactorDesign",
    "source": "分钟数据",
    "kind": "cross_section",
+   "kind_from_old_file": "cross_section",
+   "kind_from_database_py": "cross_section",
    "uses_cross_section": false,
    "base_names": [
     "lgt_rank_nodiff_allday",
@@ -940,11 +994,18 @@
    "rust_file": "src/okay_database/hm028.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm28_天机不可泄露/hm28_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "pending",
-   "step_library": "pending",
-   "step_cleanup": "pending",
-   "task_id": null,
-   "note": "hm028（分钟数据 / 横截面）Rust 复现已通过新旧对账：verify_series 4 组 (20250303:000001, 20250304:600519, 20180601:000002, 20231020:300750) 全部「一致」，结论「通过」。另外用旧框架对 4 个日期跑了全市场原值做复核，5792 只股票逐值比：ols_lgt_allday 最大相对误差 2.3e-6、lgt_rank_nodiff_allday 6.0e-8，NaN 个数与位置完全一致（67/67、42/42）。单日小样本冒烟已写出 base（ols_lgt_allday、lgt_rank_nodiff_allday），临时 colblk 已清。全历史由串行队列统一提交。"
+   "step_submit": "done",
+   "step_library": "done",
+   "step_cleanup": "done",
+   "task_id": 399,
+   "note": "completed，因子库 {'base': 2, 'gap5': 2, 'gap1': 2, 'db': 1}，残留 colblk 0",
+   "library_files": {
+    "base": 2,
+    "gap5": 2,
+    "gap1": 2,
+    "db": 1
+   },
+   "colblk_left": 0
   },
   {
    "num": 29,
@@ -955,6 +1016,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "corr_ask_bid_allday",
@@ -1008,6 +1071,8 @@
    "style": "FactorDesign",
    "source": "分钟数据",
    "kind": "cross_section",
+   "kind_from_old_file": "cross_section",
+   "kind_from_database_py": "cross_section",
    "uses_cross_section": false,
    "base_names": [],
    "n_base": 0,
@@ -1019,11 +1084,18 @@
    "rust_file": "src/okay_database/hm002.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm2_ask_mutation/hm2_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "pending",
-   "step_library": "pending",
-   "step_cleanup": "pending",
-   "task_id": null,
-   "note": "[已完成，verify 通过：4 组通过 + 20180601 全市场 81088 格，最大相对差 5.9e-8；完成记录曾被队列覆盖，按会话回报确认]"
+   "step_submit": "done",
+   "step_library": "done",
+   "step_cleanup": "done",
+   "task_id": 400,
+   "note": "completed，因子库 {'base': 14, 'gap5': 7, 'gap1': 10, 'db': 1}，残留 colblk 0",
+   "library_files": {
+    "base": 14,
+    "gap5": 7,
+    "gap1": 10,
+    "db": 1
+   },
+   "colblk_left": 0
   },
   {
    "num": 30,
@@ -1034,6 +1106,8 @@
    "style": "TickDataBase",
    "source": "Level2 盘口",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "corr_full_partmax_morning",
@@ -1090,11 +1164,18 @@
    "rust_file": "src/okay_database/hm030.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm30_局部趋势与整体趋势/hm30_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "pending",
-   "step_library": "pending",
-   "step_cleanup": "pending",
-   "task_id": null,
-   "note": "hm030（旧 hm30「局部趋势与整体趋势」）Rust 复现完成。\n\n产出文件\n- src/okay_database/hm030.rs：逐股系列，names() 305 个 = 5 个时段（allday/open30/morning/afternoon/close30）× 61 个指标。\n  时段顺序与旧 names 拼接顺序一致，305 个名字无重名。\n- /home/chenzongwei/pythoncode/成果hm30_局部趋势与整体趋势/hm30_okay_database.py：四个入口，ver='hm30'，\n  base='hm30_base'，db/gap5/gap1='hm30'；names_save 41 个、names_gap5 35 个、names_gap1 25 个、\n  names_in_db 4 个，四张名单逐项与旧 hm30_okay.py 比对一致（脚本抽取比对，不是手抄）。\n  旧文件里 base/db/hf 路径写在 /nas197/binary/stock/sz_alpha 下，新文件统一改到因子库目录。\n\n对账（硬门槛，通过）\n  python lib/okay_database/verify_series.py --series hm030 --okay \"…/hm30_okay.py\" \\\n    --pairs \"20250303:000001,20250304:600519,20180601:000002,20231020:300750\"\n  结果：四组都是「旧 305 值 / 新 305 值，NaN 0，一致」，结论「通过」。\n  另算了最大相对误差：四个组合里最差 1.14e-7（纯 f32 舍入），离 1e-4 阈值还有三个数量级。\n\n单日冒烟（通过）\n  20250303 一天、n_jobs=8，5117 只股票算完，base 层写出 41 个 h5（与 names_save 完全一致）；\n  hm30_base 的 partmax_mean_allday 在 000001 上是 262.017822，与旧值 262.01781275890636 一致。\n  未提交任务系统、未跑全历史。\n\n两个必须自己实现、不能调库里 pyfunction 的地方（worker 链路上会链接失败）\n1. max_range_loop / min_range_loop：照 src/statistics/mod.rs 逐行复刻，allow_equal 用 pyo3 签名里的默认值 true。\n2. dtw_distance(a, b, 0)：第三个参数是 radius=0，Sakoe-Chiba 窗口退化成 j==i，DP 只能沿对角线走，\n   结果等价于 Σ|a_i - b_i|（两序列等长时）。库里那个是 #[pyfunction]，所以在本文件里按等价式实现，\n   不是\"少算\"，是等价化简。\n\npandas 语义（已按旧代码逐个对齐，先用 Python 验证过公式再落 Rust）\n- skew 用 nanops.nanskew：count>2 时 g1=m3/m2^1.5，再乘 sqrt(n(n-1))/(n-2)。\n- std 是 ddof=1；mean/std/skew/max 都是 skipna。\n- corr 是 Pearson 成对完整观测；rank 用 method='average'，NaN 保持 NaN。\n- between_time 按时间分量比较、两端都含；last_prc==0 丢、NaN 留（NaN != 0 为真）。\n\n未覆盖到的分支\n- 没有实测「某个时段不足 11 行」那条分支（旧代码给 61 个 NaN），代码里照抄了这个判断，\n  但没找到真实样本对照过。\n- 只用过 /ssd_data/stock 一路数据根目录，没测 RUST_PYFUNC_LEVEL2_ROOT 指向子集目录的情形。\n- 盘口 CSV 的 datetime 只按 \"YYYY-MM-DD HH:MM:SS.xxx\" 这一种写法解析，没测过别的格式。"
+   "step_submit": "done",
+   "step_library": "done",
+   "step_cleanup": "done",
+   "task_id": 401,
+   "note": "completed，因子库 {'base': 41, 'gap5': 35, 'gap1': 25, 'db': 4}，残留 colblk 0",
+   "library_files": {
+    "base": 41,
+    "gap5": 35,
+    "gap1": 25,
+    "db": 4
+   },
+   "colblk_left": 0
   },
   {
    "num": 31,
@@ -1105,6 +1186,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "asl_close30_unfold",
@@ -1149,11 +1232,18 @@
    "rust_file": "src/okay_database/hm031.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm31_价格二叉树/hm31_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "pending",
-   "step_library": "pending",
-   "step_cleanup": "pending",
-   "task_id": null,
-   "note": "hm031（价格二叉树）已完成。src/okay_database/hm031.rs 提供 names/compute_stock（215 个因子 = 43 特征 × 5 时段，\n逐股），compute_cross 返回 None；/home/chenzongwei/pythoncode/成果hm31_价格二叉树/hm31_okay_database.py 已按\nhm29_okay_database.py 的形状建好（base 层 26 个 unfold + 4 个 fold、names_gap5 20 个、names_gap1 22 个、\nnames_in_db 5 个）。\n\n新旧对账通过：verify_series.py --series hm031 --pairs \"20250303:000001,20250304:600519,20180601:000002,\n20231020:300750\" 四组各 215 个值全部「一致」，结论「通过」（阈值 1e-4）。\n\ncompleteness_allday_fold 在旧值退化的日期上与旧框架不等价，已按可用口径处理（lead 已批）。旧表达式\ndwo.get_abs(np.log(fac)) 遇到 fac == 0 会先得 log(0) = -inf，pandas 截面均值被 -inf 污染成 -inf，当天整列\nfold 全变 inf；而 completeness 经常正好是 0（tree depth >= 63 时 get_completeness 走 node_count / f64::MAX，\n落到 f32 下溢成 0，实测 20250303 全市场 5117 只里 4840 只为 0），照抄就写出一个整列 inf 的废因子。\n新口径：非有限的 log 值先抹成 NaN，截面均值只在有限值上求；旧值本来有限的地方逐个对上，只在旧值退化的\n那些股票上不一样。另外 3 个 fold（wpl / avg_width / asl_ratio_avg_depth）的 unfold 值不会为 0，\n两种写法结果完全相同、不受影响。这条偏差已同时写死在 hm031.rs 文件头与 hm31_okay_database.py 文件头。\n\n实现要点：树不重写，直接复用 crate::tree::PriceTree（旧代码调的就是它）。worker 进程没有 Python 解释器、\nget_all_features 要 GIL，所以在 src/tree/mod.rs 加了三个 pub(crate) 入口：把 build_tree 的函数体搬进\nbuild_tree_views（build_tree 变成它的薄包装）、features_43 按 get_all_features 里 hm31 用到的那 43 项\n同一顺序取值、new_tree() 供跨模块构造。原有行为一个字没改。这是动仓库里已有的共享文件，事前应该先打招呼，\n我漏了，中途还把这两个函数先写进 #[pymethods] 块导致整个 crate 编不过、blocked 了所有人的构建锁，\n已修复并已向 lead 报备。\n\n冒烟：run_base(20250303, 20250303, n_jobs=8) 单日全市场跑通，base 层落盘 30 个 h5（26 unfold + 4 fold，\n文件名与名单逐一对上），临时 colblk 已自动删除。\n\n顺带查清的一件事（与本系列无关）：worker 二进制链接失败的真因是 src/okay_database/hm044.rs 第 294 行调了\ncrate::time_series::dtw_distance（#[pyfunction]、返回 PyResult），worker 不带 libpython 就缺 pyo3 符号。\n三次对照实验确认与 hm031、与 src/tree/mod.rs 都无关，已把原委发给 lead 和 hm044 的作者。"
+   "step_submit": "done",
+   "step_library": "done",
+   "step_cleanup": "done",
+   "task_id": 402,
+   "note": "completed，因子库 {'base': 30, 'gap5': 20, 'gap1': 22, 'db': 5}，残留 colblk 0",
+   "library_files": {
+    "base": 30,
+    "gap5": 20,
+    "gap1": 22,
+    "db": 5
+   },
+   "colblk_left": 0
   },
   {
    "num": 32,
@@ -1164,6 +1254,8 @@
    "style": "TickDataBase",
    "source": "Level2 盘口",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "max_eigenvalue_ask_bid_close30_fold",
@@ -1221,11 +1313,18 @@
    "rust_file": "src/okay_database/hm032.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm32_量价的适中变化/hm32_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "pending",
-   "step_library": "pending",
-   "step_cleanup": "pending",
-   "task_id": null,
-   "note": "hm032（量价的适中变化，Level2 盘口逐股）已完成。\n新增 src/okay_database/hm032.rs（110 个因子：5 时段 × [price_volume, ask_bid] × 11 个特征向量统计量）\n与 成果hm32_量价的适中变化/hm32_okay_database.py（33 个 unfold + 24 个 _fold 共 57 个 base 名）。\n对账通过：verify_series.py 跑 20250303:000001、20250304:600519、20180601:000002、20231020:300750，\n4 组 × 110 值全部一致、无 NaN 差异。\n单日冒烟（20250303，n_jobs=8，输出改到 /tmp 临时目录）全市场 5117 只算完，33+24=57 个 h5 全部写出，临时目录已删。\n要点：盘口 volume 是当日累计量且要 diff 后再取 log，fast_csv_reader 的 f32 精度不够（1e8 量级间隔 8），\n本文件按 f64 自行解析 CSV；_fold 的旧定义是 abs(log(值) - 当日截面均值)，不是框架自带的 abs(值 - 截面均值)，\n所以在库里单独补算，已用 numpy 对照旧 get_abs(np.log(...)) 表达式逐位验过。"
+   "step_submit": "done",
+   "step_library": "done",
+   "step_cleanup": "done",
+   "task_id": 403,
+   "note": "对账：completed，因子库 {'base': 57, 'gap5': 28, 'gap1': 34, 'db': 1}，残留 colblk 0",
+   "library_files": {
+    "base": 57,
+    "gap5": 28,
+    "gap1": 34,
+    "db": 1
+   },
+   "colblk_left": 0
   },
   {
    "num": 33,
@@ -1236,6 +1335,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "asks_corr10_minus_bids_corr10_open30_part",
@@ -1294,11 +1395,11 @@
    "rust_file": "src/okay_database/hm033.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm33_相似单时间抱团特征/hm33_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "pending",
+   "step_submit": "running",
    "step_library": "pending",
    "step_cleanup": "pending",
-   "task_id": null,
-   "note": "hm033 已复现，verify_series 通过（20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750，四组各 370 值与旧框架逐值一致），单日冒烟（20250303，n_jobs=8，5117 只）已写出 41 个 base。\n两处必须照抄的旧行为写进 src/okay_database/hm033.rs 文件头：names_single 400 个名字 vs 每次只返回 370 个值（第 19 位起错位 3 格）；bids 侧的 sim 序列写死 shift(1)。\n另外逐位复刻了 numpy x86-simd-sort 的 float64 argsort（含 libstdc++ std::sort 回退）、pandas 的 CSV 浮点解析 precise_xstrtod、Timedelta 的秒转纳秒、groupby 的 Kahan 求和、DataFrame.corr 的 Welford 变体。"
+   "task_id": 404,
+   "note": "提交于 2026-10-12 07:48:00，n_jobs=200"
   },
   {
    "num": 34,
@@ -1309,6 +1410,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "autocorr10_morning",
@@ -1362,6 +1465,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "last_volume_afternoon_83",
@@ -1416,6 +1521,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "asks_duravolume_corr3_abs",
@@ -1449,6 +1556,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "asks_corr_before_three_close30_notabs",
@@ -1525,6 +1634,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "ask_b0_max_notrank_afternoon",
@@ -1611,6 +1722,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔+盘口",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "asks_neg_sum_minute1_silent_future180_param100",
@@ -1652,7 +1765,9 @@
    "okay_py": "/home/chenzongwei/pythoncode/成果hm3_网络延迟因子/hm3_okay.py",
    "style": "TickDataBase",
    "source": "Level2（用到跨股票截面）",
-   "kind": "cross_section",
+   "kind": "per_stock",
+   "kind_from_old_file": "cross_section",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": true,
    "base_names": [
     "bid_turnover_diff_allday",
@@ -1709,6 +1824,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "fool_high_inner66_time_real_mean_close30",
@@ -1792,6 +1909,8 @@
    "style": "TickDataBase",
    "source": "Level2 盘口",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "ab_first_abs_num10_close30",
@@ -1859,6 +1978,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "bs_corr1_allday",
@@ -1940,6 +2061,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "buy_corr1_allday",
@@ -1999,6 +2122,8 @@
    "style": "FactorDesign",
    "source": "分钟数据",
    "kind": "cross_section",
+   "kind_from_old_file": "cross_section",
+   "kind_from_database_py": "cross_section",
    "uses_cross_section": false,
    "base_names": [
     "df_ab_corr1_",
@@ -2064,6 +2189,8 @@
    "style": "TickDataBase",
    "source": "Level2 盘口",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "ab_vol3_rate_corr_last_prc_close30",
@@ -2127,6 +2254,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "corr_volume_M1_66_afternoon",
@@ -2231,6 +2360,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "corr_price_price_rate_afternoon_3s",
@@ -2318,6 +2449,8 @@
    "style": "TickDataBase",
    "source": "Level2 盘口",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "ask_bid_imbalance1_rate_corrmax_yesterday_afternoon",
@@ -2425,6 +2558,8 @@
    "style": "FactorDesign",
    "source": "分钟数据",
    "kind": "cross_section",
+   "kind_from_old_file": "cross_section",
+   "kind_from_database_py": "cross_section",
    "uses_cross_section": false,
    "base_names": [],
    "n_base": 0,
@@ -2451,6 +2586,8 @@
    "style": "TickDataBase",
    "source": "Level2 盘口",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "corr_volume_corr_yes_afternoon_today_afternoon",
@@ -2507,6 +2644,8 @@
    "style": "FactorDesign",
    "source": "分钟数据",
    "kind": "cross_section",
+   "kind_from_old_file": "cross_section",
+   "kind_from_database_py": "cross_section",
    "uses_cross_section": false,
    "base_names": [
     "ab_ratio_large_abn_afternooncorr_on_volume",
@@ -2571,6 +2710,8 @@
    "style": "TickDataBase",
    "source": "Level2 盘口",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "abresi_de15s_kurt_abs_all",
@@ -2639,6 +2780,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "corr_y_yperfect_price_volume_hl_all",
@@ -2734,6 +2877,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "down_ask_etp300_autocorr1",
@@ -2803,6 +2948,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔+盘口",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "b_dtw_act_vol_corr_last_prc_close30",
@@ -2880,6 +3027,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "buy_sell_energy_N1_open15_extreme",
@@ -2984,6 +3133,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "all_ask&bid_order_diff_abs_deviation_abs_autocorr1",
@@ -3115,6 +3266,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "all_ask&bid_order_diff_abs_deviation_abs_mean",
@@ -3227,6 +3380,8 @@
    "style": "FactorDesign",
    "source": "分钟数据",
    "kind": "cross_section",
+   "kind_from_old_file": "cross_section",
+   "kind_from_database_py": null,
    "uses_cross_section": false,
    "base_names": [
     "auto15_ask_10r2_out_uprate_afternoon",
@@ -3342,6 +3497,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "cjbs_diff_15m_afternoon",
@@ -3416,6 +3573,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "corr_同向均量比_同向时差总和_buy_编号附近5perc",
@@ -3530,6 +3689,8 @@
    "style": "TickDataBase",
    "source": "Level2 盘口",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "amax_bmax_abs_corr_amin_bmin_abs_全部",
@@ -3591,6 +3752,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "66_corr_gs_fd_与大单间隔_只算后面",
@@ -3679,6 +3842,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔+盘口",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": null,
    "uses_cross_section": false,
    "base_names": [
     "act_buy_rate_autocorr_bid_仅撤退_最大80perc",
@@ -3796,6 +3961,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "DTW距离_autocorr_全部_下午",
@@ -3886,6 +4053,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "corr_buy_autocorr_删去最后10分钟_下午_不需要至少一半",
@@ -3989,6 +4158,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "a_dis_max_on_exchtime_float_volume_66_全天",
@@ -4068,6 +4239,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "ask_affected_order_autocorr_quan2tian1_1perc10s",
@@ -4173,6 +4346,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": null,
    "uses_cross_section": false,
    "base_names": [
     "ask_affected_order_corr_price_gao1jia420perc_10perc1s",
@@ -4281,6 +4456,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "buy_down_std_10p",
@@ -4348,6 +4525,8 @@
    "style": "TickDataBase",
    "source": "Level2 盘口",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "ask_vol10_autocorr_sortby_ask_vol9_minustimesortabs_fold",
@@ -4446,6 +4625,8 @@
    "style": "TickDataBase",
    "source": "Level2 盘口",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "rs_ask_vol1_13_1m_fold",
@@ -4515,6 +4696,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔+盘口",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": null,
    "uses_cross_section": false,
    "base_names": [
     "lzc_abi1_corr_ret_next",
@@ -4618,6 +4801,8 @@
    "style": "TickDataBase",
    "source": "Level2 盘口",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "ask_resi_diff_corr_bid_resi_adjusted_diff",
@@ -4691,7 +4876,9 @@
    "okay_py": "/home/chenzongwei/pythoncode/成果hm74_落叶像雪/hm74_okay.py",
    "style": "TickDataBase",
    "source": "Level2 盘口",
-   "kind": "per_stock",
+   "kind": "cross_section",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "cross_section",
    "uses_cross_section": false,
    "base_names": [
     "cdrs_max___abi1",
@@ -4766,6 +4953,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "full_ask_bid_diff_abs_v_yisnum_resi_ask_rank_corr_ask_rank_diff_resi_yisnum_abs",
@@ -4878,6 +5067,8 @@
    "style": "go 函数",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "66_jia4ge2biao1zhun3cha4_1%_trend_sameside",
@@ -4985,6 +5176,8 @@
    "style": "go 函数",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "mai3dan1_corr_jia4ge2fen1wei4shu430perc_jia4ge2_sameside",
@@ -5069,6 +5262,8 @@
    "style": "go 函数",
    "source": "Level2 盘口",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "pv_bk_btw_v_x_v_bk_rev",
@@ -5184,6 +5379,8 @@
    "style": "go 函数",
    "source": "Level2 盘口",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "a_adj_60w_corr_diag_dabs_60w_fold",
@@ -5295,6 +5492,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "cjbs_afternoon_param50",
@@ -5366,6 +5565,8 @@
    "style": "go 函数",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": null,
    "uses_cross_section": false,
    "base_names": [
     "ask_order_corr_bid_order_fold",
@@ -5474,6 +5675,8 @@
    "style": "go 函数",
    "source": "Level2 逐笔+盘口",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "ask_order_volume_autocorr_corr_passive_ask_order_dedup_std",
@@ -5578,6 +5781,8 @@
    "style": "go 函数",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": null,
    "uses_cross_section": false,
    "base_names": [
     "cross_flow_price_vs_vol_m4_corr_volume_signed_m4",
@@ -5679,6 +5884,8 @@
    "style": "go 函数",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": null,
    "uses_cross_section": false,
    "base_names": [
     "all_pri_flow_dir_m5_autocorr1",
@@ -5795,6 +6002,8 @@
    "style": "go 函数",
    "source": "Level2 逐笔+盘口",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "big_neg_early_rate66_15s_future_p75",
@@ -5900,6 +6109,8 @@
    "style": "go 函数",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": null,
    "uses_cross_section": false,
    "base_names": [
     "GLOB_sync_mean",
@@ -6014,6 +6225,8 @@
    "style": "go 函数",
    "source": "Level2（待确认）",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": null,
    "uses_cross_section": false,
    "base_names": [
     "m01s_V2S_EV_burstiness_running_cv_fold",
@@ -6131,6 +6344,8 @@
    "style": "go 函数",
    "source": "Level2（待确认）",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": null,
    "uses_cross_section": false,
    "base_names": [
     "A_acceleration_follow_V2S_EV_burstiness_running_p25",
@@ -6259,6 +6474,8 @@
    "style": "go 函数",
    "source": "Level2 逐笔+盘口",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "attack_both_ask_M11a_attack_skewness_opponent_p5",
@@ -6356,6 +6573,8 @@
    "style": "TickDataBase",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "std_13_all",
@@ -6417,6 +6636,8 @@
    "style": "go 函数",
    "source": "Level2 逐笔",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": "per_stock",
    "uses_cross_section": false,
    "base_names": [
     "v1_abs_avg_trade_amount_diff_corr_trade_count",
@@ -6519,6 +6740,8 @@
    "style": "go 函数",
    "source": "Level2 逐笔+盘口",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": null,
    "uses_cross_section": false,
    "base_names": [
     "ask_consumption_rate_cv_fold",
@@ -6633,6 +6856,8 @@
    "style": "go 函数",
    "source": "Level2（待确认）",
    "kind": "per_stock",
+   "kind_from_old_file": "per_stock",
+   "kind_from_database_py": null,
    "uses_cross_section": false,
    "base_names": [
     "autocorr1_abs_on_rate662rate66_diff_from1to_100_mean",
@@ -6760,6 +6985,8 @@
    "style": "TickDataBase",
    "source": "Level2（用到跨股票截面）",
    "kind": "cross_section",
+   "kind_from_old_file": "cross_section",
+   "kind_from_database_py": "cross_section",
    "uses_cross_section": true,
    "base_names": [
     "all_dorms_duras_corr1",
