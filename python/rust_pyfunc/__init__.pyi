@@ -1107,6 +1107,7 @@ __all__ = [
     "neutralize_std_precompute_py",
     "neutralize_std_block_with_shared",
     "tail_v2_select_by_ic_corr_abs_f32",
+    "tail_v2_select_by_ic_corr_f32",
     "tail_v4_run_candidates",
     "tail_v4_run_fulltest_queue",
     "segment_and_correlate",

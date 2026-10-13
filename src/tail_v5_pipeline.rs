@@ -1606,6 +1606,10 @@ fn legacy_backtest_single_factor_with_effective(
     let mut filtered_signal = Vec::<f32>::with_capacity(n_stocks);
     let mut filtered_ret = Vec::<f32>::with_capacity(n_stocks);
     let mut filtered_future = Vec::<f32>::with_capacity(n_stocks);
+    // 2026-10: IC 改成每个交易日一个点（与 factor_gate 对齐）。非格点日的信号不是
+    // held 行，要单独扫一遍，故另备一组缓冲。
+    let mut ic_signal = Vec::<f32>::with_capacity(n_stocks);
+    let mut ic_future = Vec::<f32>::with_capacity(n_stocks);
     let mut group_sums = vec![0.0_f64; portf_num];
     let mut group_counts = vec![0usize; portf_num];
     let mut held_signal_row_idx = effective_raw_indices[0] - 1;
@@ -1643,6 +1647,33 @@ fn legacy_backtest_single_factor_with_effective(
             ic_values_f64.push(ic_value);
             ic_values_f32.push(ic_value as f32);
             let (s_t, l_t) = brc_day_halves_into(&filtered_signal, &filtered_future, &mut brc_buf);
+            if s_t.is_finite() && l_t.is_finite() {
+                brc_s_sum += s_t;
+                brc_l_sum += l_t;
+                brc_days += 1;
+            }
+        } else if local_t + 1 >= gap {
+            // 非格点日也要一个 IC 点。信号取「本窗口起点前一日」= effective 序列往回
+            // gap-1 天那一行的前一行；收益仍取当日 ret_sum（gap 日滚动和）。格点日
+            // （上面那一支）的 held 信号与该行逐位相同，故格点日的 IC 值不变。
+            let ic_signal_row_idx = effective_raw_indices[local_t + 1 - gap] - 1;
+            ic_signal.clear();
+            ic_future.clear();
+            for stock_idx in 0..n_stocks {
+                let signal_value = factor[[ic_signal_row_idx, stock_idx, slot_idx]];
+                let ret_value = ret[[raw_eff_idx, stock_idx]];
+                let is_open = restrict[[ic_signal_row_idx, stock_idx]].is_finite()
+                    && restrict[[ic_signal_row_idx, stock_idx]] == 0.0;
+                if signal_value.is_finite() && ret_value.is_finite() && is_open {
+                    ic_signal.push(signal_value);
+                    ic_future.push(ret_sum[[raw_eff_idx, stock_idx]]);
+                }
+            }
+            let ic_value = legacy_spearman_correlation(&ic_future, &ic_signal);
+            ic_dates.push(dates[raw_eff_idx]);
+            ic_values_f64.push(ic_value);
+            ic_values_f32.push(ic_value as f32);
+            let (s_t, l_t) = brc_day_halves_into(&ic_signal, &ic_future, &mut brc_buf);
             if s_t.is_finite() && l_t.is_finite() {
                 brc_s_sum += s_t;
                 brc_l_sum += l_t;
@@ -1804,6 +1835,11 @@ fn legacy_backtest_single_factor_with_effective_opt(
     // BRC 专用：只在 IC 采样格点上按 filtered_stock_idx 顺序收集 ret_sum，
     // 元素序与参考实现 filtered_future 完全一致（stock_idx 升序）。
     let mut filtered_future = Vec::<f32>::with_capacity(n_stocks);
+    // 2026-10: IC 改成每个交易日一个点（与 factor_gate 对齐）。非格点日的 IC 集合
+    // 与十分组集合不同（信号取窗口起点前一日），故另备一组缓冲与索引。
+    let mut ic_signal = Vec::<f32>::with_capacity(n_stocks);
+    let mut ic_stock_idx = Vec::<u32>::with_capacity(n_stocks);
+    let mut ic_future = Vec::<f32>::with_capacity(n_stocks);
     let mut group_sums = vec![0.0_f64; portf_num];
     let mut group_counts = vec![0usize; portf_num];
     let mut held_signal_row_idx = effective_raw_indices[0] - 1;
@@ -1904,6 +1940,78 @@ fn legacy_backtest_single_factor_with_effective_opt(
                 &rk_ordinal,
                 &walk_buf,
                 &filtered_future,
+                &mut brc_buf,
+            );
+            if s_t.is_finite() && l_t.is_finite() {
+                brc_s_sum += s_t;
+                brc_l_sum += l_t;
+                brc_days += 1;
+            }
+        } else if local_t + 1 >= gap {
+            // 非格点日也要一个 IC 点。信号取「本窗口起点前一日」= effective 序列往回
+            // gap-1 天那一行的前一行；收益仍取当日 ret_sum。格点日（上面那一支）的
+            // held 信号与该行逐位相同，故格点日的 IC 值不变。
+            let ic_signal_row_idx = effective_raw_indices[local_t + 1 - gap] - 1;
+            ic_signal.clear();
+            ic_stock_idx.clear();
+            for stock_idx in 0..n_stocks {
+                let signal_value = factor[[ic_signal_row_idx, stock_idx, slot_idx]];
+                let ret_value = ret[[raw_eff_idx, stock_idx]];
+                let is_open = restrict[[ic_signal_row_idx, stock_idx]].is_finite()
+                    && restrict[[ic_signal_row_idx, stock_idx]] == 0.0;
+                if signal_value.is_finite() && ret_value.is_finite() && is_open {
+                    ic_signal.push(signal_value);
+                    ic_stock_idx.push(stock_idx as u32);
+                }
+            }
+            ic_future.clear();
+            let ret_sum_row = ret_sum.row(raw_eff_idx);
+            for &stk in ic_stock_idx.iter() {
+                ic_future.push(ret_sum_row[stk as usize]);
+            }
+            // 收益秩：预排序全行 walk 出子集 ordinal 秩（gen/stamp 防跨日串扰）
+            gen_id += 1;
+            let order = &orders[raw_eff_idx];
+            for (pos, &stk) in ic_stock_idx.iter().enumerate() {
+                gen[stk as usize] = gen_id;
+                stamp[stk as usize] = (pos + 1) as u32;
+            }
+            walk_buf.clear();
+            walk_buf.resize(ic_stock_idx.len(), 0);
+            let mut counter = 0usize;
+            for &stk in order {
+                if gen[stk as usize] == gen_id {
+                    walk_buf[stamp[stk as usize] as usize - 1] = counter as i64;
+                    counter += 1;
+                }
+            }
+            // 信号秩：与格点日同一套 radix 排序（下一段的十分组排序会再覆盖这些缓冲）
+            rank_both_radix_into(
+                &ic_signal,
+                &mut rk_keys,
+                &mut rk_order,
+                &mut rk_tmp,
+                &mut rk_ordinal,
+                &mut rk_avg,
+            );
+            let nf = ic_signal.len() as f64;
+            let mut diff_sq_sum = 0.0;
+            for idx in 0..ic_signal.len() {
+                let diff = walk_buf[idx] - rk_ordinal[idx];
+                diff_sq_sum += (diff * diff) as f64;
+            }
+            let ic_value = if nf < 2.0 {
+                f64::NAN
+            } else {
+                1.0 - 6.0 * diff_sq_sum / (nf * (nf * nf - 1.0))
+            };
+            ic_dates.push(dates[raw_eff_idx]);
+            ic_values_f64.push(ic_value);
+            ic_values_f32.push(ic_value as f32);
+            let (s_t, l_t) = brc_day_halves_from_ranks_into(
+                &rk_ordinal,
+                &walk_buf,
+                &ic_future,
                 &mut brc_buf,
             );
             if s_t.is_finite() && l_t.is_finite() {

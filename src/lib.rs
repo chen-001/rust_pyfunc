@@ -632,6 +632,10 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         m
     )?);
     let _ = m.add_function(wrap_pyfunction!(
+        tail_v2_ic_corr_filter::tail_v2_select_by_ic_corr_f32,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
         tail_v4_pipeline::tail_v4_run_candidates,
         m
     )?);

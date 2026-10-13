@@ -181,6 +181,9 @@ def tail_v2_select_by_ic_corr_abs_f32(
 ) -> list[int]:
     """按候选优先顺序做贪心筛选，若与已选任一因子的 IC 绝对相关性超过阈值则丢弃。
 
+    2026-10 起：两行 IC 序列的日期轴交集为 0（或交集不足 2 天、或交集上方差为 0）时，
+    相关性无定义，本函数**直接抛 ValueError**，不再把它当成 0（不相似）静默放行。
+
     参数说明：
     ----------
     ic_by_factor : numpy.ndarray
@@ -193,6 +196,28 @@ def tail_v2_select_by_ic_corr_abs_f32(
     -------
     list[int]
         保留下来的行下标，按原候选顺序返回。
+    """
+    ...
+
+def tail_v2_select_by_ic_corr_f32(
+    ic_by_factor: NDArray[np.float32],
+    threshold: float,
+    min_common_days: int = 2,
+    on_uncomputable: str = "raise",
+    min_overlap_ratio: float = 0.5,
+) -> dict:
+    """带对账信息的贪心去相关（`tail_v2_select_by_ic_corr_abs_f32` 的完整版）。
+
+    返回 dict：
+      selected         保留的行下标
+      n_dates          每行 IC 序列的有效日期数
+      uncomputable     算不出相关性的配对 `[候选下标, 已留下标, 共同交易日, 原因]`，
+                       原因取值 `no_common_date` / `too_few_common_days` / `zero_variance_on_overlap`
+      low_overlap      共同交易日占较短序列比例低于 `min_overlap_ratio` 的配对（不算错误，只留痕）
+      threshold / min_common_days / min_overlap_ratio / n_factors
+
+    `on_uncomputable="raise"`（默认）时，只要存在 uncomputable 配对就抛 ValueError；
+    传 `"report"` 则只记录，由调用方决定放行还是报错（Python 侧用它生成带因子名的报错）。
     """
     ...
 

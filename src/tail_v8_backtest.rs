@@ -142,6 +142,15 @@ pub struct BtAcc<'a> {
     group_sums: Vec<f64>,
     group_counts: Vec<usize>,
     sig_buf: Vec<f32>,
+    /// 2026-10: IC 改成每天一个点后，非格点日的信号行要往回 gap-1 天取。
+    /// `sig_ring[local_t % gap]` 存当日 sig_buf，`ring_t` 存它对应的 raw 行号 t；
+    /// IC 用槽 `(local_t + 1) % gap`（恰好是往回 gap-1 天那一格）。
+    sig_ring: Vec<Vec<f32>>,
+    ring_t: Vec<usize>,
+    /// 非格点日 IC 专用的过滤集合（信号/索引/ret_sum 子集），与十分组集合分开。
+    ic_signal: Vec<f32>,
+    ic_stock_idx: Vec<u32>,
+    ic_future: Vec<f32>,
     /// rank_both_radix_into 的复用缓冲（跨行复用，热路径零分配）
     rank_keys: Vec<u32>,
     rank_order: Vec<usize>,
@@ -156,6 +165,7 @@ impl<'a> BtAcc<'a> {
         let t_total = ctx.restrict.nrows();
         let portf_num = ctx.portf_num;
         let ic_only = ctx.ic_only;
+        let gap = ctx.gap;
         // 新累积器 = 新一次回测：谓词位图缓存里的数组地址可能已失效，整体作废。
         VALID_PRED.with(|cell| cell.borrow_mut().invalidate());
         Self {
@@ -189,6 +199,11 @@ impl<'a> BtAcc<'a> {
             group_sums: vec![0.0; portf_num],
             group_counts: vec![0; portf_num],
             sig_buf: vec![f32::NAN; n_stocks],
+            sig_ring: vec![vec![f32::NAN; n_stocks]; gap],
+            ring_t: vec![0usize; gap],
+            ic_signal: Vec::with_capacity(n_stocks),
+            ic_stock_idx: Vec::with_capacity(n_stocks),
+            ic_future: Vec::with_capacity(n_stocks),
             rank_keys: Vec::with_capacity(n_stocks),
             rank_order: Vec::with_capacity(n_stocks),
             rank_tmp: Vec::with_capacity(n_stocks),
@@ -252,6 +267,12 @@ impl<'a> BtAcc<'a> {
             if self.local_t % gap == 0 {
                 self.held_restrict_row = t - 1;
                 self.held_signal.copy_from_slice(&self.sig_buf);
+            }
+            // IC 信号环：写入当日 sig_buf（= 第 t-1 行），IC 取往回 gap-1 天的槽。
+            {
+                let slot = self.local_t % gap;
+                self.sig_ring[slot].copy_from_slice(&self.sig_buf);
+                self.ring_t[slot] = t;
             }
             let local_t = self.local_t;
 
@@ -394,6 +415,96 @@ impl<'a> BtAcc<'a> {
                     &self.rank_ordinal,
                     &self.walk_buf,
                     &self.filtered_future,
+                    &mut self.brc_buf,
+                );
+                if s_t.is_finite() && l_t.is_finite() {
+                    self.brc_s_sum += s_t;
+                    self.brc_l_sum += l_t;
+                    self.brc_days += 1;
+                }
+            } else if local_t + 1 >= gap {
+                // 非格点日也要一个 IC 点（2026-10 起与 factor_gate 对齐）：信号取
+                // 往回 gap-1 天那一日的 sig_buf（环槽 (local_t+1)%gap），收益取当日
+                // ret_sum。格点日分支的 held 信号与该行逐位相同，故格点日的 IC 不变。
+                let ic_slot = (local_t + 1) % gap;
+                let ic_restrict_row = self.ring_t[ic_slot] - 1;
+                self.ic_signal.clear();
+                self.ic_stock_idx.clear();
+                let ret_view_ic = self.ctx.ret.row(t);
+                let ret_row_ic = ret_view_ic
+                    .as_slice()
+                    .expect("ret 行必须行优先连续");
+                let restrict_view_ic = self.ctx.restrict.row(ic_restrict_row);
+                let restrict_row_ic = restrict_view_ic
+                    .as_slice()
+                    .expect("restrict 行必须行优先连续");
+                let ic_sig = &self.sig_ring[ic_slot];
+                for s in 0..n {
+                    let signal_value = ic_sig[s];
+                    if !signal_value.is_finite() {
+                        continue;
+                    }
+                    let ret_value = ret_row_ic[s];
+                    if !ret_value.is_finite() {
+                        continue;
+                    }
+                    let rv = restrict_row_ic[s];
+                    if !(rv.is_finite() && rv == 0.0) {
+                        continue;
+                    }
+                    self.ic_signal.push(signal_value);
+                    self.ic_stock_idx.push(s as u32);
+                }
+                let ret_sum_arr_ic: &Array2<f32> = self.ctx.ret_sum;
+                let ret_sum_row_ic = ret_sum_arr_ic.row(t);
+                self.ic_future.clear();
+                for &stk in self.ic_stock_idx.iter() {
+                    self.ic_future.push(ret_sum_row_ic[stk as usize]);
+                }
+                self.gen_id += 1;
+                let gen_id_ic = self.gen_id;
+                let orders_ic =
+                    if gap == 1 { &self.ctx.pre.orders_g1 } else { &self.ctx.pre.orders_g5 };
+                let order_ic = &orders_ic[t];
+                for (pos, &stk) in self.ic_stock_idx.iter().enumerate() {
+                    self.gen[stk as usize] = gen_id_ic;
+                    self.stamp[stk as usize] = (pos + 1) as u32;
+                }
+                self.walk_buf.clear();
+                self.walk_buf.resize(self.ic_stock_idx.len(), 0);
+                let mut counter_ic = 0usize;
+                for &stk in order_ic {
+                    if self.gen[stk as usize] == gen_id_ic {
+                        self.walk_buf[self.stamp[stk as usize] as usize - 1] = counter_ic as i64;
+                        counter_ic += 1;
+                    }
+                }
+                rank_both_radix_into(
+                    &self.ic_signal,
+                    &mut self.rank_keys,
+                    &mut self.rank_order,
+                    &mut self.rank_tmp,
+                    &mut self.rank_ordinal,
+                    &mut self.rank_avg,
+                );
+                let nf_ic = self.ic_signal.len() as f64;
+                let mut diff_sq_sum_ic = 0.0;
+                for idx in 0..self.ic_signal.len() {
+                    let diff = self.walk_buf[idx] - self.rank_ordinal[idx];
+                    diff_sq_sum_ic += (diff * diff) as f64;
+                }
+                let ic_value = if nf_ic < 2.0 {
+                    f64::NAN
+                } else {
+                    1.0 - 6.0 * diff_sq_sum_ic / (nf_ic * (nf_ic * nf_ic - 1.0))
+                };
+                self.ic_dates.push(self.ctx.dates[t]);
+                self.ic_values_f64.push(ic_value);
+                self.ic_values_f32.push(ic_value as f32);
+                let (s_t, l_t) = brc_day_halves_from_ranks_into(
+                    &self.rank_ordinal,
+                    &self.walk_buf,
+                    &self.ic_future,
                     &mut self.brc_buf,
                 );
                 if s_t.is_finite() && l_t.is_finite() {
