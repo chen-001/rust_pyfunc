@@ -1,0 +1,13 @@
+{
+  "full_output_dates": [
+    20220819,
+    20240930,
+    20241231
+  ],
+  "threads": 50,
+  "audit_binary_sha256": "a1566c976cd7b9f92511cb13b311123f8dc461bd02fa25f511e42d695d708ebe",
+  "restored_default_sandbox_sha256": "523fe7484d37892781c7519a30eaa3c49639c59f76bc9336d2d077d560a2462d",
+  "raw_sample_directory": "/tmp/yp_prune_audit/intermediates",
+  "deployed_by_this_task": false,
+  "timing_note": "Single-run ablations on 20241231; full reference includes read-only audit sampling; no backtest of discarded factors."
+}

@@ -10,3 +10,6 @@
 /package_layout_base/
 /package_heap_only/
 !/src/yupei_pair/topk_heap.rs
+
+/package_layout_final/
+/package_prune/

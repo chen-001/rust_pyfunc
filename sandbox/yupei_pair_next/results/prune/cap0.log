@@ -1,0 +1,1549 @@
+{"module": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_pair_next/package/rust_pyfunc/rust_pyfunc.abi3.so", "threads": 50, "date": 20241231, "mats": null, "sha256": "a1566c976cd7b9f92511cb13b311123f8dc461bd02fa25f511e42d695d708ebe", "load_before": [45.30322265625, 49.58544921875, 36.689453125]}
+[yupei_pair] date=20241231 universe n=5107，矩阵 15 张
+[net:cnt_t1] 有效配对 13038171（自能量非正 0），扫描 30.6s
+[net:vol_t3] 有效配对 13038171（自能量非正 0），扫描 30.6s
+[net:cnt_t05] 有效配对 13038171（自能量非正 0），扫描 30.6s
+[net:cnt_t02] 有效配对 13038171（自能量非正 0），扫描 30.6s
+[net:cnt_t10] 有效配对 13038171（自能量非正 0），扫描 30.6s
+[net:cnt_t01] 有效配对 13038171（自能量非正 0），扫描 30.6s
+[net:cnt_t005] 有效配对 13038171（自能量非正 0），扫描 30.6s
+[net:cnt_t30] 有效配对 13038171（自能量非正 0），扫描 30.6s
+[net:vol_t02] 有效配对 13038171（自能量非正 0），扫描 30.6s
+[net:cnt_t3] 有效配对 13038171（自能量非正 0），扫描 30.6s
+[net:vol_t30] 有效配对 13038171（自能量非正 0），扫描 30.6s
+[net:vol_t05] 有效配对 13038171（自能量非正 0），扫描 30.6s
+[net:vol_t5] 有效配对 13038171（自能量非正 0），扫描 30.6s
+[net:cnt_t5] 有效配对 13038171（自能量非正 0），扫描 30.6s
+[net:vol_t1] 有效配对 13038171（自能量非正 0），扫描 30.6s
+[net:cnt_t1] 空模型 0.3s（55 层有效）
+[net:cnt_t05] 空模型 0.3s（55 层有效）
+[net:cnt_t10] 空模型 0.3s（55 层有效）
+[net:vol_t3] 空模型 0.3s（55 层有效）
+[net:cnt_t005] 空模型 0.3s（55 层有效）
+[net:vol_t5] 空模型 0.3s（55 层有效）
+[net:vol_t02] 空模型 0.3s（55 层有效）
+[net:vol_t05] 空模型 0.3s（55 层有效）
+[net:cnt_t01] 空模型 0.3s（55 层有效）
+[net:cnt_t3] 空模型 0.3s（55 层有效）
+[net:cnt_t02] 空模型 0.3s（55 层有效）
+[net:cnt_t30] 空模型 0.4s（55 层有效）
+[net:cnt_t5] 空模型 0.3s（55 层有效）
+[net:vol_t30] 空模型 0.4s（55 层有效）
+[net:vol_t1] 空模型 0.4s（55 层有效）
+[net:cnt_t02] 空模型 19996 抽样, G mean=0.0126 std=0.0238; (p,q) 条件化 2.8s
+[net:vol_t1] 空模型 19996 抽样, G mean=0.0230 std=0.0351; (p,q) 条件化 2.0s
+[net:vol_t30] 空模型 19996 抽样, G mean=0.0270 std=0.0272; (p,q) 条件化 2.2s
+[net:cnt_t3] 空模型 19996 抽样, G mean=0.0361 std=0.0375; (p,q) 条件化 2.9s
+[check:cnt_t02:ok] G 长度 26081449 != 26081449
+[check:cnt_t02:ok] G 对称偏差 0.000000
+[check:cov] G 上三角有限率 100.000%
+[check:cnt_t02:ok] RHO_U 长度 26081449 != 26081449
+[net:cnt_t01] 空模型 19996 抽样, G mean=0.0074 std=0.0192; (p,q) 条件化 2.9s
+[check:vol_t1:ok] G 长度 26081449 != 26081449
+[check:vol_t30:ok] G 长度 26081449 != 26081449
+[check:cnt_t3:ok] G 长度 26081449 != 26081449
+[check:cnt_t01:ok] G 长度 26081449 != 26081449
+[check:cnt_t01:ok] G 对称偏差 0.000000
+[check:cov] G 上三角有限率 100.000%
+[check:cnt_t01:ok] RHO_U 长度 26081449 != 26081449
+[check:cnt_t3:ok] G 对称偏差 0.000000
+[check:cov] G 上三角有限率 100.000%
+[check:cnt_t3:ok] RHO_U 长度 26081449 != 26081449
+[check:vol_t1:ok] G 对称偏差 0.000000
+[check:cov] G 上三角有限率 100.000%
+[check:vol_t1:ok] RHO_U 长度 26081449 != 26081449
+[check:vol_t30:ok] G 对称偏差 0.000000
+[check:cov] G 上三角有限率 100.000%
+[check:vol_t30:ok] RHO_U 长度 26081449 != 26081449
+[check:vol_t1:ok] RHO_U 对称偏差 0.000000
+[check:cov] RHO_U 上三角有限率 100.000%
+[check:vol_t1:ok] SINGLE 长度 26081449 != 26081449
+[check:vol_t30:ok] RHO_U 对称偏差 0.000000
+[check:cov] RHO_U 上三角有限率 100.000%
+[check:vol_t30:ok] SINGLE 长度 26081449 != 26081449
+[net:cnt_t10] 空模型 19996 抽样, G mean=0.0356 std=0.0333; (p,q) 条件化 3.3s
+[check:cnt_t02:ok] RHO_U 对称偏差 0.000000
+[check:cov] RHO_U 上三角有限率 100.000%
+[check:cnt_t02:ok] SINGLE 长度 26081449 != 26081449
+[check:cnt_t3:ok] RHO_U 对称偏差 0.000000
+[check:cov] RHO_U 上三角有限率 100.000%
+[check:cnt_t3:ok] SINGLE 长度 26081449 != 26081449
+[check:cnt_t10:ok] G 长度 26081449 != 26081449
+[check:cnt_t01:ok] RHO_U 对称偏差 0.000000
+[check:cov] RHO_U 上三角有限率 100.000%
+[check:cnt_t01:ok] SINGLE 长度 26081449 != 26081449
+[check:cnt_t10:ok] G 对称偏差 0.000000
+[check:cov] G 上三角有限率 100.000%
+[check:cnt_t10:ok] RHO_U 长度 26081449 != 26081449
+[check:cnt_t01:ok] SINGLE 对称偏差 0.000000
+[check:cov] SINGLE 上三角有限率 100.000%
+[check:cnt_t01:ok] X0 长度 26081449 != 26081449
+[check:cnt_t10:ok] RHO_U 对称偏差 0.000000
+[check:cov] RHO_U 上三角有限率 100.000%
+[check:cnt_t10:ok] SINGLE 长度 26081449 != 26081449
+[check:vol_t30:ok] SINGLE 对称偏差 0.000000
+[check:cov] SINGLE 上三角有限率 100.000%
+[check:vol_t30:ok] X0 长度 26081449 != 26081449
+[check:cnt_t3:ok] SINGLE 对称偏差 0.000000
+[check:cov] SINGLE 上三角有限率 100.000%
+[check:cnt_t3:ok] X0 长度 26081449 != 26081449
+[check:cnt_t3:ok] X0 对称偏差 0.000000
+[check:vol_t30:ok] X0 对称偏差 0.000000
+[check:cov] X0 上三角有限率 100.000%
+[check:cnt_t01:ok] X0 对称偏差 0.000000
+[check:cov] X0 上三角有限率 100.000%
+[check:cnt_t01:ok] Z 长度 26081449 != 26081449
+[check:cov] X0 上三角有限率 100.000%
+[check:cnt_t3:ok] Z 长度 26081449 != 26081449
+[check:cnt_t02:ok] SINGLE 对称偏差 0.000000
+[check:cov] SINGLE 上三角有限率 100.000%
+[check:cnt_t10:ok] SINGLE 对称偏差 0.000000
+[check:cov] SINGLE 上三角有限率 100.000%
+[check:cnt_t10:ok] X0 长度 26081449 != 26081449
+[check:vol_t1:ok] SINGLE 对称偏差 0.000000
+[check:cov] SINGLE 上三角有限率 100.000%
+[check:vol_t1:ok] X0 长度 26081449 != 26081449
+[check:vol_t30:ok] Z 长度 26081449 != 26081449
+[check:cnt_t02:ok] X0 长度 26081449 != 26081449
+[check:cnt_t02:ok] X0 对称偏差 0.000000
+[check:vol_t1:ok] X0 对称偏差 0.000000
+[check:cov] X0 上三角有限率 100.000%
+[check:vol_t1:ok] Z 长度 26081449 != 26081449
+[check:cov] X0 上三角有限率 100.000%
+[check:cnt_t02:ok] Z 长度 26081449 != 26081449
+[check:cnt_t3:ok] Z 对称偏差 0.000000
+[check:cov] Z 上三角有限率 100.000%
+[check:cnt_t3:ok] GSTAR 长度 26081449 != 26081449
+[check:cnt_t01:ok] Z 对称偏差 0.000000
+[check:cov] Z 上三角有限率 100.000%
+[check:cnt_t01:ok] GSTAR 长度 26081449 != 26081449
+[check:vol_t30:ok] Z 对称偏差 0.000000
+[check:cov] Z 上三角有限率 100.000%
+[check:vol_t30:ok] GSTAR 长度 26081449 != 26081449
+[check:cnt_t10:ok] X0 对称偏差 0.000000
+[check:cov] X0 上三角有限率 100.000%
+[check:cnt_t10:ok] Z 长度 26081449 != 26081449
+[check:vol_t30:ok] GSTAR 对称偏差 0.000000
+[check:cov] GSTAR 上三角有限率 100.000%
+[check:vol_t30:ok] RHO_US 长度 26081449 != 26081449
+[check:cnt_t02:ok] Z 对称偏差 0.000000
+[check:cov] Z 上三角有限率 100.000%
+[check:cnt_t02:ok] GSTAR 长度 26081449 != 26081449
+[check:vol_t1:ok] Z 对称偏差 0.000000
+[check:cov] Z 上三角有限率 100.000%
+[check:vol_t1:ok] GSTAR 长度 26081449 != 26081449
+[check:cnt_t01:ok] GSTAR 对称偏差 0.000000
+[check:cov] GSTAR 上三角有限率 100.000%
+[check:cnt_t01:ok] RHO_US 长度 26081449 != 26081449
+[check:cnt_t3:ok] GSTAR 对称偏差 0.000000
+[check:cov] GSTAR 上三角有限率 100.000%
+[check:cnt_t3:ok] RHO_US 长度 26081449 != 26081449
+[check:cnt_t10:ok] Z 对称偏差 0.000000
+[check:cov] Z 上三角有限率 100.000%
+[check:cnt_t10:ok] GSTAR 长度 26081449 != 26081449
+[check:cnt_t01:ok] RHO_US 对称偏差 0.000000
+[check:cov] RHO_US 上三角有限率 100.000%
+[check:cnt_t01:ok] SINGLE_S 长度 26081449 != 26081449
+[check:cnt_t02:ok] GSTAR 对称偏差 0.000000
+[check:cov] GSTAR 上三角有限率 100.000%
+[check:vol_t30:ok] RHO_US 对称偏差 0.000000
+[check:cov] RHO_US 上三角有限率 100.000%
+[check:vol_t30:ok] SINGLE_S 长度 26081449 != 26081449
+[check:cnt_t02:ok] RHO_US 长度 26081449 != 26081449
+[check:cnt_t10:ok] GSTAR 对称偏差 0.000000
+[check:cov] GSTAR 上三角有限率 100.000%
+[check:cnt_t10:ok] RHO_US 长度 26081449 != 26081449
+[check:vol_t1:ok] GSTAR 对称偏差 0.000000
+[check:cov] GSTAR 上三角有限率 100.000%
+[check:vol_t1:ok] RHO_US 长度 26081449 != 26081449
+[check:cnt_t01:ok] SINGLE_S 对称偏差 0.000000
+[check:cov] SINGLE_S 上三角有限率 100.000%
+[check:cnt_t01:ok] X0STAR 长度 26081449 != 26081449
+[check:cnt_t01:ok] X0STAR 对称偏差 0.000000
+[check:cov] X0STAR 上三角有限率 100.000%
+[check:cnt_t01:ok] ZS 长度 26081449 != 26081449
+[check:cnt_t10:ok] RHO_US 对称偏差 0.000000
+[check:cov] RHO_US 上三角有限率 100.000%
+[check:cnt_t3:ok] RHO_US 对称偏差 0.000000
+[check:cov] RHO_US 上三角有限率 100.000%
+[check:cnt_t3:ok] SINGLE_S 长度 26081449 != 26081449
+[check:vol_t1:ok] RHO_US 对称偏差 0.000000
+[check:cov] RHO_US 上三角有限率 100.000%
+[check:cnt_t10:ok] SINGLE_S 长度 26081449 != 26081449
+[check:vol_t30:ok] SINGLE_S 对称偏差 0.000000
+[check:cov] SINGLE_S 上三角有限率 100.000%
+[check:cnt_t02:ok] RHO_US 对称偏差 0.000000
+[check:cov] RHO_US 上三角有限率 100.000%
+[check:vol_t30:ok] X0STAR 长度 26081449 != 26081449
+[check:vol_t1:ok] SINGLE_S 长度 26081449 != 26081449
+[check:cnt_t02:ok] SINGLE_S 长度 26081449 != 26081449
+[check:cnt_t3:ok] SINGLE_S 对称偏差 0.000000
+[check:cov] SINGLE_S 上三角有限率 100.000%
+[check:cnt_t3:ok] X0STAR 长度 26081449 != 26081449
+[check:cnt_t02:ok] SINGLE_S 对称偏差 0.000000
+[check:cov] SINGLE_S 上三角有限率 100.000%
+[check:cnt_t02:ok] X0STAR 长度 26081449 != 26081449
+[check:cnt_t3:ok] X0STAR 对称偏差 0.000000
+[check:cov] X0STAR 上三角有限率 100.000%
+[check:cnt_t3:ok] ZS 长度 26081449 != 26081449
+[check:vol_t30:ok] X0STAR 对称偏差 0.000000
+[check:cov] X0STAR 上三角有限率 100.000%
+[check:vol_t30:ok] ZS 长度 26081449 != 26081449
+[check:cnt_t10:ok] SINGLE_S 对称偏差 0.000000
+[check:cov] SINGLE_S 上三角有限率 100.000%
+[check:cnt_t10:ok] X0STAR 长度 26081449 != 26081449
+[check:vol_t1:ok] SINGLE_S 对称偏差 0.000000
+[check:cov] SINGLE_S 上三角有限率 100.000%
+[check:vol_t1:ok] X0STAR 长度 26081449 != 26081449
+[check:cnt_t10:ok] X0STAR 对称偏差 0.000000
+[check:cov] X0STAR 上三角有限率 100.000%
+[check:cnt_t10:ok] ZS 长度 26081449 != 26081449
+[check:vol_t1:ok] X0STAR 对称偏差 0.000000
+[check:cov] X0STAR 上三角有限率 100.000%
+[check:vol_t1:ok] ZS 长度 26081449 != 26081449
+[check:vol_t30:ok] ZS 对称偏差 0.000000
+[check:cov] ZS 上三角有限率 100.000%
+[check:vol_t30:ok] GREL 长度 26081449 != 26081449
+[check:cnt_t01:ok] ZS 对称偏差 0.000000
+[check:cov] ZS 上三角有限率 100.000%
+[check:cnt_t01:ok] GREL 长度 26081449 != 26081449
+[check:cnt_t3:ok] ZS 对称偏差 0.000000
+[check:vol_t30:ok] GREL 对称偏差 0.000000
+[check:cov] GREL 上三角有限率 100.000%
+[check:cnt_t01:ok] GREL 对称偏差 0.000000
+[check:cov] GREL 上三角有限率 100.000%
+[check:cov] ZS 上三角有限率 100.000%
+[check:cnt_t3:ok] GREL 长度 26081449 != 26081449
+[check:vol_t1:ok] ZS 对称偏差 0.000000
+[check:cov] ZS 上三角有限率 100.000%
+[check:vol_t1:ok] GREL 长度 26081449 != 26081449
+[check:cnt_t02:ok] X0STAR 对称偏差 0.000000
+[check:cov] X0STAR 上三角有限率 100.000%
+[check:cnt_t10:ok] ZS 对称偏差 0.000000
+[check:cov] ZS 上三角有限率 100.000%
+[check:cnt_t10:ok] GREL 长度 26081449 != 26081449
+[check:vol_t30:ok] GSH 长度 26081449 != 26081449
+[check:cnt_t02:ok] ZS 长度 26081449 != 26081449
+[check:cnt_t01:ok] GSH 长度 26081449 != 26081449
+[check:cnt_t02:ok] ZS 对称偏差 0.000000
+[check:cov] ZS 上三角有限率 100.000%
+[check:vol_t30:ok] GSH 对称偏差 0.000000
+[check:cov] GSH 上三角有限率 100.000%
+[check:vol_t30:ok] GCOV 长度 26081449 != 26081449
+[check:cnt_t01:ok] GSH 对称偏差 0.000000
+[check:cov] GSH 上三角有限率 100.000%
+[check:cnt_t01:ok] GCOV 长度 26081449 != 26081449
+[check:vol_t1:ok] GREL 对称偏差 0.000000
+[check:cov] GREL 上三角有限率 100.000%
+[check:vol_t1:ok] GSH 长度 26081449 != 26081449
+[check:cnt_t02:ok] GREL 长度 26081449 != 26081449
+[check:cnt_t10:ok] GREL 对称偏差 0.000000
+[check:cov] GREL 上三角有限率 100.000%
+[check:cnt_t10:ok] GSH 长度 26081449 != 26081449
+[check:cnt_t3:ok] GREL 对称偏差 0.000000
+[check:cov] GREL 上三角有限率 100.000%
+[check:cnt_t3:ok] GSH 长度 26081449 != 26081449
+[check:cnt_t01:ok] GCOV 对称偏差 0.000000
+[check:cov] GCOV 上三角有限率 100.000%
+[check:cnt_t01:ok] GNPOS 长度 26081449 != 26081449
+[check:vol_t1:ok] GSH 对称偏差 0.000000
+[check:cov] GSH 上三角有限率 100.000%
+[check:vol_t1:ok] GCOV 长度 26081449 != 26081449
+[check:cnt_t10:ok] GSH 对称偏差 0.000000
+[check:cov] GSH 上三角有限率 100.000%
+[check:cnt_t10:ok] GCOV 长度 26081449 != 26081449
+[check:cnt_t3:ok] GSH 对称偏差 0.000000
+[check:cov] GSH 上三角有限率 100.000%
+[check:cnt_t3:ok] GCOV 长度 26081449 != 26081449
+[check:cnt_t02:ok] GREL 对称偏差 0.000000
+[check:cov] GREL 上三角有限率 100.000%
+[check:cnt_t02:ok] GSH 长度 26081449 != 26081449
+[check:cnt_t01:ok] GNPOS 对称偏差 0.000000
+[check:cov] GNPOS 上三角有限率 100.000%
+[check:cnt_t01:ok] GHHI 长度 26081449 != 26081449
+[check:vol_t30:ok] GCOV 对称偏差 0.000000
+[check:cov] GCOV 上三角有限率 100.000%
+[check:vol_t30:ok] GNPOS 长度 26081449 != 26081449
+[check:cnt_t10:ok] GCOV 对称偏差 0.000000
+[check:cov] GCOV 上三角有限率 100.000%
+[check:cnt_t10:ok] GNPOS 长度 26081449 != 26081449
+[check:cnt_t02:ok] GSH 对称偏差 0.000000
+[check:vol_t1:ok] GCOV 对称偏差 0.000000
+[check:cov] GCOV 上三角有限率 100.000%
+[check:vol_t1:ok] GNPOS 长度 26081449 != 26081449
+[check:cov] GSH 上三角有限率 100.000%
+[check:cnt_t02:ok] GCOV 长度 26081449 != 26081449
+[check:cnt_t10:ok] GNPOS 对称偏差 0.000000
+[check:cov] GNPOS 上三角有限率 100.000%
+[check:cnt_t3:ok] GCOV 对称偏差 0.000000
+[check:cov] GCOV 上三角有限率 100.000%
+[check:vol_t30:ok] GNPOS 对称偏差 0.000000
+[check:cov] GNPOS 上三角有限率 100.000%
+[check:vol_t30:ok] GHHI 长度 26081449 != 26081449
+[check:cnt_t10:ok] GHHI 长度 26081449 != 26081449
+[check:cnt_t3:ok] GNPOS 长度 26081449 != 26081449
+[check:cnt_t01:ok] GHHI 对称偏差 0.000000
+[check:cov] GHHI 上三角有限率 100.000%
+[check:cnt_t01:ok] PB 长度 26081449 != 26081449
+[check:cnt_t3:ok] GNPOS 对称偏差 0.000000
+[check:cov] GNPOS 上三角有限率 100.000%
+[check:cnt_t3:ok] GHHI 长度 26081449 != 26081449
+[check:cnt_t10:ok] GHHI 对称偏差 0.000000
+[check:cov] GHHI 上三角有限率 99.996%
+[check:cnt_t02:ok] GCOV 对称偏差 0.000000
+[check:cov] GCOV 上三角有限率 100.000%
+[check:cnt_t10:ok] PB 长度 26081449 != 26081449
+[check:cnt_t02:ok] GNPOS 长度 26081449 != 26081449
+[check:cnt_t01:ok] PB 对称偏差 0.000000
+[check:cov] PB 上三角有限率 100.000%
+[check:cnt_t01:ok] QC 长度 26081449 != 26081449
+[check:cnt_t3:ok] GHHI 对称偏差 0.000000
+[check:cov] GHHI 上三角有限率 99.997%
+[check:cnt_t3:ok] PB 长度 26081449 != 26081449
+[check:vol_t30:ok] GHHI 对称偏差 0.000000
+[check:cnt_t02:ok] GNPOS 对称偏差 0.000000
+[check:cov] GNPOS 上三角有限率 100.000%
+[check:cnt_t01:ok] QC 对称偏差 0.000000
+[check:cov] QC 上三角有限率 100.000%
+[check:cnt_t01:ok] PBS 长度 26081449 != 26081449
+[check:cov] GHHI 上三角有限率 99.993%
+[check:vol_t30:ok] PB 长度 26081449 != 26081449
+[check:vol_t1:ok] GNPOS 对称偏差 0.000000
+[check:cov] GNPOS 上三角有限率 100.000%
+[check:cnt_t3:ok] PB 对称偏差 0.000000
+[check:cov] PB 上三角有限率 100.000%
+[check:cnt_t3:ok] QC 长度 26081449 != 26081449
+[check:cnt_t10:ok] PB 对称偏差 0.000000
+[check:cov] PB 上三角有限率 100.000%
+[check:cnt_t10:ok] QC 长度 26081449 != 26081449
+[check:cnt_t02:ok] GHHI 长度 26081449 != 26081449
+[check:vol_t1:ok] GHHI 长度 26081449 != 26081449
+[check:cnt_t10:ok] QC 对称偏差 0.000000
+[check:cov] QC 上三角有限率 100.000%
+[check:cnt_t10:ok] PBS 长度 26081449 != 26081449
+[check:vol_t1:ok] GHHI 对称偏差 0.000000
+[check:cov] GHHI 上三角有限率 100.000%
+[check:vol_t1:ok] PB 长度 26081449 != 26081449
+[check:cnt_t3:ok] QC 对称偏差 0.000000
+[check:cov] QC 上三角有限率 100.000%
+[check:cnt_t3:ok] PBS 长度 26081449 != 26081449
+[check:cnt_t02:ok] GHHI 对称偏差 0.000000
+[check:cov] GHHI 上三角有限率 100.000%
+[check:cnt_t02:ok] PB 长度 26081449 != 26081449
+[check:cnt_t01:ok] PBS 对称偏差 0.000000
+[check:cov] PBS 上三角有限率 100.000%
+[check:cnt_t01:ok] QCS 长度 26081449 != 26081449
+[check:cnt_t01:ok] QCS 对称偏差 0.000000
+[check:cov] QCS 上三角有限率 100.000%
+[check:cnt_t01:ok] EXZ 长度 26081449 != 26081449
+[check:cnt_t02:ok] PB 对称偏差 0.000000
+[check:cov] PB 上三角有限率 100.000%
+[check:cnt_t02:ok] QC 长度 26081449 != 26081449
+[check:vol_t30:ok] PB 对称偏差 0.000000
+[check:cov] PB 上三角有限率 100.000%
+[check:vol_t30:ok] QC 长度 26081449 != 26081449
+[check:vol_t1:ok] PB 对称偏差 0.000000
+[check:cov] PB 上三角有限率 100.000%
+[check:vol_t1:ok] QC 长度 26081449 != 26081449
+[check:cnt_t10:ok] PBS 对称偏差 0.000000
+[check:cov] PBS 上三角有限率 100.000%
+[check:cnt_t3:ok] PBS 对称偏差 0.000000
+[check:cov] PBS 上三角有限率 100.000%
+[check:cnt_t10:ok] QCS 长度 26081449 != 26081449
+[check:cnt_t3:ok] QCS 长度 26081449 != 26081449
+[check:cnt_t3:ok] QCS 对称偏差 0.000000
+[check:cnt_t02:ok] QC 对称偏差 0.000000
+[check:cov] QC 上三角有限率 100.000%
+[check:cnt_t02:ok] PBS 长度 26081449 != 26081449
+[check:vol_t1:ok] QC 对称偏差 0.000000
+[check:cov] QC 上三角有限率 100.000%
+[check:vol_t1:ok] PBS 长度 26081449 != 26081449
+[check:cov] QCS 上三角有限率 100.000%
+[check:cnt_t3:ok] EXZ 长度 26081449 != 26081449
+[check:cnt_t01:ok] EXZ 对称偏差 0.000000
+[check:cov] EXZ 上三角有限率 100.000%
+[check:cnt_t01:ok] EXZS 长度 26081449 != 26081449
+[check:vol_t30:ok] QC 对称偏差 0.000000
+[check:cov] QC 上三角有限率 100.000%
+[check:vol_t30:ok] PBS 长度 26081449 != 26081449
+[check:cnt_t10:ok] QCS 对称偏差 0.000000
+[check:cov] QCS 上三角有限率 100.000%
+[check:cnt_t10:ok] EXZ 长度 26081449 != 26081449
+[check:cnt_t3:ok] EXZ 对称偏差 0.000000
+[check:cov] EXZ 上三角有限率 100.000%
+[check:cnt_t3:ok] EXZS 长度 26081449 != 26081449
+[check:cnt_t10:ok] EXZ 对称偏差 0.000000
+[check:cov] EXZ 上三角有限率 100.000%
+[check:cnt_t10:ok] EXZS 长度 26081449 != 26081449
+[check:vol_t30:ok] PBS 对称偏差 0.000000
+[check:cov] PBS 上三角有限率 100.000%
+[check:vol_t30:ok] QCS 长度 26081449 != 26081449
+[check:cnt_t10:ok] EXZS 对称偏差 0.000000
+[check:cov] EXZS 上三角有限率 100.000%
+[check:cnt_t10:ok] rho 长度 26081449 != 26081449
+[check:cnt_t3:ok] EXZS 对称偏差 0.000000
+[check:cov] EXZS 上三角有限率 100.000%
+[check:cnt_t3:ok] rho 长度 26081449 != 26081449
+[check:vol_t1:ok] PBS 对称偏差 0.000000
+[check:cov] PBS 上三角有限率 100.000%
+[check:vol_t1:ok] QCS 长度 26081449 != 26081449
+[check:cnt_t10:ok] rho 对称偏差 0.000000
+[check:cov] rho 上三角有限率 100.000%
+[check:cnt_t01:ok] EXZS 对称偏差 0.000000
+[check:cov] EXZS 上三角有限率 100.000%
+[check:cnt_t01:ok] rho 长度 26081449 != 26081449
+[check:cnt_t02:ok] PBS 对称偏差 0.000000
+[check:cov] PBS 上三角有限率 100.000%
+[check:cnt_t02:ok] QCS 长度 26081449 != 26081449
+[check:cnt_t02:ok] QCS 对称偏差 0.000000
+[check:cov] QCS 上三角有限率 100.000%
+[check:cnt_t02:ok] EXZ 长度 26081449 != 26081449
+[check:vol_t1:ok] QCS 对称偏差 0.000000
+[check:cov] QCS 上三角有限率 100.000%
+[check:vol_t1:ok] EXZ 长度 26081449 != 26081449
+[check:cnt_t01:ok] rho 对称偏差 0.000000
+[check:cov] rho 上三角有限率 100.000%
+[check:cnt_t3:ok] rho 对称偏差 0.000000
+[check:cov] rho 上三角有限率 100.000%
+[check:vol_t30:ok] QCS 对称偏差 0.000000
+[check:cov] QCS 上三角有限率 100.000%
+[check:vol_t30:ok] EXZ 长度 26081449 != 26081449
+[check:cnt_t3:ok] SINGLE==max(PB,QC) 偏差 0.00e0
+[check:cnt_t10:ok] SINGLE==max(PB,QC) 偏差 0.00e0
+[check:cnt_t01:ok] SINGLE==max(PB,QC) 偏差 0.00e0
+[check:vol_t1:ok] EXZ 对称偏差 0.000000
+[check:cov] EXZ 上三角有限率 100.000%
+[check:vol_t1:ok] EXZS 长度 26081449 != 26081449
+[check:cnt_t3:ok] SINGLE_S==max(PBS,QCS) 偏差 0.00e0
+[check:vol_t1:ok] EXZS 对称偏差 0.000000
+[check:cov] EXZS 上三角有限率 100.000%
+[check:vol_t1:ok] rho 长度 26081449 != 26081449
+[check:cnt_t3:ok] RHO_U==SINGLE+G 偏差 0.00e0
+[check:cnt_t01:ok] SINGLE_S==max(PBS,QCS) 偏差 0.00e0
+[check:cnt_t02:ok] EXZ 对称偏差 0.000000
+[check:cnt_t3:ok] EXZ 条件标准化 mean=0.0000 std=1.0000（期望≈0/1）
+[check:cnt_t10:ok] SINGLE_S==max(PBS,QCS) 偏差 0.00e0
+[check:vol_t30:ok] EXZ 对称偏差 0.000000
+[check:cov] EXZ 上三角有限率 100.000%
+[check:vol_t30:ok] EXZS 长度 26081449 != 26081449
+[check:cnt_t01:ok] RHO_U==SINGLE+G 偏差 2.98e-8
+[check:cov] EXZ 上三角有限率 100.000%
+[check:cnt_t02:ok] EXZS 长度 26081449 != 26081449
+[check:vol_t1:ok] rho 对称偏差 0.000000
+[check:cov] rho 上三角有限率 100.000%
+[check:cnt_t10:ok] RHO_U==SINGLE+G 偏差 0.00e0
+[check:cnt_t01:ok] EXZ 条件标准化 mean=0.0000 std=1.0000（期望≈0/1）
+[check:vol_t1:ok] SINGLE==max(PB,QC) 偏差 0.00e0
+[check:cnt_t02:ok] EXZS 对称偏差 0.000000
+[check:cov] EXZS 上三角有限率 100.000%
+[check:cnt_t02:ok] rho 长度 26081449 != 26081449
+[check:cnt_t01:ok] EXZS 条件标准化 mean=0.0000 std=1.0000（期望≈0/1）
+[check:cov] MASS[emass] sum=1.0000 非零 5107/5107 min=1.58e-5
+[check:cov] MASS[gmass] sum=0.0043 非零 5107/5107 min=-2.05e-6
+[check:cov] MASS[g2mass] sum=0.0001 非零 5107/5107 min=1.07e-10
+[check:cov] MASS[smass] sum=1.0000 非零 5107/5107 min=6.75e-6
+[check:cov] MASS[sgmass] sum=0.0063 非零 5107/5107 min=4.25e-9
+[check:cov] MASS[sg2mass] sum=0.0001 非零 5107/5107 min=5.07e-12
+[check:cnt_t01:ok] emass/smass 归一和 1.0000/1.0000（期望≈1）
+[check:cnt_t01:ok] emass/smass/g2mass/sg2mass 存在负值
+[check:vol_t30:ok] EXZS 对称偏差 0.000000
+[check:cov] EXZS 上三角有限率 100.000%
+[check:vol_t30:ok] rho 长度 26081449 != 26081449
+[check:cnt_t01:ok] rho 对角偏差 0.00e0
+[check:vol_t1:ok] SINGLE_S==max(PBS,QCS) 偏差 0.00e0
+[check:cnt_t10:ok] EXZ 条件标准化 mean=0.0000 std=1.0000（期望≈0/1）
+[check:cnt_t3:ok] EXZS 条件标准化 mean=-0.0000 std=1.0000（期望≈0/1）
+[check:cov] MASS[emass] sum=1.0000 非零 5107/5107 min=2.85e-5
+[check:cov] MASS[gmass] sum=0.0240 非零 5107/5107 min=-1.33e-6
+[check:cov] MASS[g2mass] sum=0.0016 非零 5107/5107 min=1.97e-9
+[check:cov] MASS[smass] sum=1.0000 非零 5107/5107 min=3.86e-5
+[check:cov] MASS[sgmass] sum=0.0342 非零 5107/5107 min=1.86e-7
+[check:cov] MASS[sg2mass] sum=0.0015 非零 5107/5107 min=1.22e-9
+[check:cnt_t3:ok] emass/smass 归一和 1.0000/1.0000（期望≈1）
+[check:cnt_t3:ok] emass/smass/g2mass/sg2mass 存在负值
+[check:cnt_t3:ok] rho 对角偏差 0.00e0
+[check:cnt_t3:ok] X0 非法格数 0
+[check:cnt_t01:ok] X0 非法格数 0
+[check:vol_t1:ok] RHO_U==SINGLE+G 偏差 2.98e-8
+[check:cnt_t10:ok] EXZS 条件标准化 mean=-0.0000 std=1.0000（期望≈0/1）
+[check:cov] MASS[emass] sum=1.0000 非零 5107/5107 min=4.21e-5
+[check:cov] MASS[gmass] sum=0.0221 非零 5107/5107 min=-2.49e-6
+[check:cov] MASS[g2mass] sum=0.0021 非零 5107/5107 min=7.42e-9
+[check:cov] MASS[smass] sum=1.0000 非零 5107/5107 min=5.77e-5
+[check:cov] MASS[sgmass] sum=0.0369 非零 5107/5107 min=4.83e-7
+[check:cov] MASS[sg2mass] sum=0.0018 非零 5107/5107 min=5.38e-9
+[check:cnt_t10:ok] emass/smass 归一和 1.0000/1.0000（期望≈1）
+[check:cnt_t10:ok] emass/smass/g2mass/sg2mass 存在负值
+[check:cnt_t10:ok] rho 对角偏差 0.00e0
+[check:vol_t1:ok] EXZ 条件标准化 mean=-0.0000 std=1.0000（期望≈0/1）
+[check:cnt_t02:ok] rho 对称偏差 0.000000
+[check:vol_t1:ok] EXZS 条件标准化 mean=0.0000 std=1.0000（期望≈0/1）
+[check:vol_t30:ok] rho 对称偏差 0.000000
+[check:cov] rho 上三角有限率 100.000%
+[check:cov] rho 上三角有限率 100.000%
+[check:cov] MASS[emass] sum=1.0000 非零 5107/5107 min=1.43e-5
+[check:cov] MASS[gmass] sum=0.0129 非零 5107/5107 min=-1.94e-6
+[check:cov] MASS[g2mass] sum=0.0007 非零 5107/5107 min=6.28e-10
+[check:cov] MASS[smass] sum=1.0000 非零 5107/5107 min=1.82e-5
+[check:cov] MASS[sgmass] sum=0.0211 非零 5107/5107 min=3.01e-8
+[check:cov] MASS[sg2mass] sum=0.0006 非零 5107/5107 min=1.04e-10
+[check:vol_t1:ok] emass/smass 归一和 1.0000/1.0000（期望≈1）
+[check:vol_t1:ok] emass/smass/g2mass/sg2mass 存在负值
+[check:vol_t1:ok] rho 对角偏差 0.00e0
+[check:cnt_t02:ok] SINGLE==max(PB,QC) 偏差 0.00e0
+[check:vol_t30:ok] SINGLE==max(PB,QC) 偏差 0.00e0
+[check:vol_t30:ok] SINGLE_S==max(PBS,QCS) 偏差 0.00e0
+[check:cnt_t02:ok] SINGLE_S==max(PBS,QCS) 偏差 0.00e0
+[check:cnt_t02:ok] RHO_U==SINGLE+G 偏差 2.98e-8
+[check:vol_t30:ok] RHO_U==SINGLE+G 偏差 0.00e0
+[check:vol_t30:ok] EXZ 条件标准化 mean=-0.0000 std=1.0000（期望≈0/1）
+[check:cnt_t02:ok] EXZ 条件标准化 mean=0.0000 std=1.0000（期望≈0/1）
+[check:vol_t30:ok] EXZS 条件标准化 mean=-0.0000 std=1.0000（期望≈0/1）
+[check:cov] MASS[emass] sum=1.0000 非零 5107/5107 min=4.13e-5
+[check:cov] MASS[gmass] sum=0.0063 非零 5107/5107 min=-3.83e-6
+[check:cov] MASS[g2mass] sum=0.0028 非零 5107/5107 min=1.66e-8
+[check:cov] MASS[smass] sum=0.9999 非零 5107/5107 min=4.76e-5
+[check:cov] MASS[sgmass] sum=0.0309 非零 5107/5107 min=3.16e-7
+[check:cov] MASS[sg2mass] sum=0.0013 非零 5107/5107 min=3.98e-9
+[check:vol_t30:ok] emass/smass 归一和 1.0000/0.9999（期望≈1）
+[check:vol_t30:ok] emass/smass/g2mass/sg2mass 存在负值
+[check:vol_t30:ok] rho 对角偏差 0.00e0
+[check:cnt_t02:ok] EXZS 条件标准化 mean=-0.0000 std=1.0000（期望≈0/1）
+[check:cov] MASS[emass] sum=1.0000 非零 5107/5107 min=1.73e-5
+[check:cov] MASS[gmass] sum=0.0072 非零 5107/5107 min=-2.07e-6
+[check:cov] MASS[g2mass] sum=0.0001 非零 5107/5107 min=1.90e-10
+[check:cov] MASS[smass] sum=1.0000 非零 5107/5107 min=9.49e-6
+[check:cov] MASS[sgmass] sum=0.0102 非零 5107/5107 min=9.60e-9
+[check:cov] MASS[sg2mass] sum=0.0001 非零 5107/5107 min=1.70e-11
+[check:cnt_t02:ok] emass/smass 归一和 1.0000/1.0000（期望≈1）
+[check:cnt_t02:ok] emass/smass/g2mass/sg2mass 存在负值
+[check:cnt_t02:ok] rho 对角偏差 0.00e0
+[check:cnt_t3:ok] X0STAR 非法格数 0
+[check:cnt_t3] 全部硬检查通过
+[check:cnt_t01:ok] X0STAR 非法格数 0
+[check:cnt_t01] 全部硬检查通过
+[check:cnt_t10:ok] X0 非法格数 0
+[check:vol_t1:ok] X0 非法格数 0
+[check:vol_t30:ok] X0 非法格数 0
+[check:cnt_t02:ok] X0 非法格数 0
+[check:cnt_t10:ok] X0STAR 非法格数 0
+[check:cnt_t10] 全部硬检查通过
+[check:vol_t1:ok] X0STAR 非法格数 0
+[check:vol_t1] 全部硬检查通过
+[check:vol_t30:ok] X0STAR 非法格数 0
+[check:vol_t30] 全部硬检查通过
+[check:cnt_t02:ok] X0STAR 非法格数 0
+[check:cnt_t02] 全部硬检查通过
+[net:vol_t5] 空模型 19996 抽样, G mean=0.0330 std=0.0385; (p,q) 条件化 4.5s
+[check:vol_t5:ok] G 长度 26081449 != 26081449
+[check:vol_t5:ok] G 对称偏差 0.000000
+[check:cov] G 上三角有限率 100.000%
+[check:vol_t5:ok] RHO_U 长度 26081449 != 26081449
+[reduce:p7] R1 第一路 0.1s
+[reduce:p7] R1 第一路 0.2s
+[reduce:p7] R1 第一路 0.2s
+[net:cnt_t5] 空模型 19996 抽样, G mean=0.0372 std=0.0367; (p,q) 条件化 4.5s
+[net:vol_t02] 空模型 19996 抽样, G mean=0.0090 std=0.0234; (p,q) 条件化 4.8s
+[reduce:p7] R1 第一路 0.2s
+[check:cnt_t5:ok] G 长度 26081449 != 26081449
+[check:cnt_t5:ok] G 对称偏差 0.000000
+[check:cov] G 上三角有限率 100.000%
+[check:cnt_t5:ok] RHO_U 长度 26081449 != 26081449
+[check:vol_t02:ok] G 长度 26081449 != 26081449
+[net:cnt_t005] 空模型 19996 抽样, G mean=0.0031 std=0.0153; (p,q) 条件化 4.9s
+[reduce:p8] R1 第二路 0.2s
+[check:cnt_t5:ok] RHO_U 对称偏差 0.000000
+[check:cov] RHO_U 上三角有限率 100.000%
+[check:cnt_t5:ok] SINGLE 长度 26081449 != 26081449
+[check:vol_t5:ok] RHO_U 对称偏差 0.000000
+[check:cov] RHO_U 上三角有限率 100.000%
+[check:vol_t5:ok] SINGLE 长度 26081449 != 26081449
+[check:vol_t02:ok] G 对称偏差 0.000000
+[check:cov] G 上三角有限率 100.000%
+[check:vol_t02:ok] RHO_U 长度 26081449 != 26081449
+[check:cnt_t005:ok] G 长度 26081449 != 26081449
+[check:vol_t02:ok] RHO_U 对称偏差 0.000000
+[check:cov] RHO_U 上三角有限率 100.000%
+[check:vol_t02:ok] SINGLE 长度 26081449 != 26081449
+[reduce:p8] R1 第二路 0.1s
+[check:vol_t5:ok] SINGLE 对称偏差 0.000000
+[check:cov] SINGLE 上三角有限率 100.000%
+[check:vol_t5:ok] X0 长度 26081449 != 26081449
+[check:vol_t5:ok] X0 对称偏差 0.000000
+[check:cov] X0 上三角有限率 100.000%
+[check:vol_t5:ok] Z 长度 26081449 != 26081449
+[check:vol_t02:ok] SINGLE 对称偏差 0.000000
+[check:cov] SINGLE 上三角有限率 100.000%
+[check:vol_t02:ok] X0 长度 26081449 != 26081449
+[check:vol_t5:ok] Z 对称偏差 0.000000
+[check:cov] Z 上三角有限率 100.000%
+[check:vol_t5:ok] GSTAR 长度 26081449 != 26081449
+[check:cnt_t005:ok] G 对称偏差 0.000000
+[check:cov] G 上三角有限率 100.000%
+[check:cnt_t005:ok] RHO_U 长度 26081449 != 26081449
+[check:vol_t5:ok] GSTAR 对称偏差 0.000000
+[check:cov] GSTAR 上三角有限率 100.000%
+[check:vol_t02:ok] X0 对称偏差 0.000000
+[check:cov] X0 上三角有限率 100.000%
+[check:vol_t02:ok] Z 长度 26081449 != 26081449
+[check:vol_t5:ok] RHO_US 长度 26081449 != 26081449
+[reduce:p8] R1 第二路 0.2s
+[reduce:p7] R1 第一路 0.3s
+[check:vol_t02:ok] Z 对称偏差 0.000000
+[check:cov] Z 上三角有限率 100.000%
+[check:vol_t02:ok] GSTAR 长度 26081449 != 26081449
+[check:cnt_t005:ok] RHO_U 对称偏差 0.000000
+[check:cov] RHO_U 上三角有限率 100.000%
+[check:vol_t5:ok] RHO_US 对称偏差 0.000000
+[check:cov] RHO_US 上三角有限率 100.000%
+[check:cnt_t005:ok] SINGLE 长度 26081449 != 26081449
+[check:vol_t5:ok] SINGLE_S 长度 26081449 != 26081449
+[reduce:p8] R1 第二路 0.2s
+[reduce:p7] R1 第一路 0.4s
+[net:cnt_t30] 空模型 19996 抽样, G mean=0.0276 std=0.0248; (p,q) 条件化 4.6s
+[check:cnt_t30:ok] G 长度 26081449 != 26081449
+[reduce:p8] R1 第二路 0.2s
+[check:cnt_t30:ok] G 对称偏差 0.000000
+[check:cov] G 上三角有限率 100.000%
+[check:cnt_t30:ok] RHO_U 长度 26081449 != 26081449
+[reduce:p8] R1 第二路 0.2s
+[check:cnt_t30:ok] RHO_U 对称偏差 0.000000
+[check:cov] RHO_U 上三角有限率 100.000%
+[check:cnt_t30:ok] SINGLE 长度 26081449 != 26081449
+[check:cnt_t30:ok] SINGLE 对称偏差 0.000000
+[check:cov] SINGLE 上三角有限率 100.000%
+[check:cnt_t30:ok] X0 长度 26081449 != 26081449
+[check:cnt_t30:ok] X0 对称偏差 0.000000
+[check:cov] X0 上三角有限率 100.000%
+[check:cnt_t30:ok] Z 长度 26081449 != 26081449
+[check:cnt_t30:ok] Z 对称偏差 0.000000
+[check:cov] Z 上三角有限率 100.000%
+[check:cnt_t30:ok] GSTAR 长度 26081449 != 26081449
+[check:cnt_t30:ok] GSTAR 对称偏差 0.000000
+[check:cov] GSTAR 上三角有限率 100.000%
+[check:cnt_t30:ok] RHO_US 长度 26081449 != 26081449
+[check:cnt_t30:ok] RHO_US 对称偏差 0.000000
+[check:cov] RHO_US 上三角有限率 100.000%
+[check:cnt_t30:ok] SINGLE_S 长度 26081449 != 26081449
+[check:cnt_t30:ok] SINGLE_S 对称偏差 0.000000
+[check:cov] SINGLE_S 上三角有限率 100.000%
+[check:cnt_t30:ok] X0STAR 长度 26081449 != 26081449
+[check:cnt_t30:ok] X0STAR 对称偏差 0.000000
+[check:cov] X0STAR 上三角有限率 100.000%
+[check:cnt_t30:ok] ZS 长度 26081449 != 26081449
+[check:cnt_t30:ok] ZS 对称偏差 0.000000
+[check:cov] ZS 上三角有限率 100.000%
+[check:cnt_t30:ok] GREL 长度 26081449 != 26081449
+[check:cnt_t30:ok] GREL 对称偏差 0.000000
+[check:cov] GREL 上三角有限率 100.000%
+[check:cnt_t30:ok] GSH 长度 26081449 != 26081449
+[check:cnt_t30:ok] GSH 对称偏差 0.000000
+[check:cov] GSH 上三角有限率 100.000%
+[check:cnt_t30:ok] GCOV 长度 26081449 != 26081449
+[check:vol_t5:ok] SINGLE_S 对称偏差 0.000000
+[check:cov] SINGLE_S 上三角有限率 100.000%
+[check:vol_t5:ok] X0STAR 长度 26081449 != 26081449
+[check:vol_t5:ok] X0STAR 对称偏差 0.000000
+[check:cov] X0STAR 上三角有限率 100.000%
+[check:vol_t5:ok] ZS 长度 26081449 != 26081449
+[check:vol_t5:ok] ZS 对称偏差 0.000000
+[check:cov] ZS 上三角有限率 100.000%
+[check:vol_t5:ok] GREL 长度 26081449 != 26081449
+[check:vol_t5:ok] GREL 对称偏差 0.000000
+[check:cov] GREL 上三角有限率 100.000%
+[check:vol_t5:ok] GSH 长度 26081449 != 26081449
+[check:vol_t5:ok] GSH 对称偏差 0.000000
+[check:cov] GSH 上三角有限率 100.000%
+[check:vol_t5:ok] GCOV 长度 26081449 != 26081449
+[check:vol_t5:ok] GCOV 对称偏差 0.000000
+[check:cov] GCOV 上三角有限率 100.000%
+[check:vol_t5:ok] GNPOS 长度 26081449 != 26081449
+[check:vol_t5:ok] GNPOS 对称偏差 0.000000
+[check:cov] GNPOS 上三角有限率 100.000%
+[check:vol_t5:ok] GHHI 长度 26081449 != 26081449
+[check:vol_t5:ok] GHHI 对称偏差 0.000000
+[check:cov] GHHI 上三角有限率 99.998%
+[check:vol_t5:ok] PB 长度 26081449 != 26081449
+[check:vol_t5:ok] PB 对称偏差 0.000000
+[check:cov] PB 上三角有限率 100.000%
+[check:vol_t5:ok] QC 长度 26081449 != 26081449
+[check:cnt_t30:ok] GCOV 对称偏差 0.000000
+[check:cov] GCOV 上三角有限率 100.000%
+[check:cnt_t30:ok] GNPOS 长度 26081449 != 26081449
+[check:cnt_t30:ok] GNPOS 对称偏差 0.000000
+[check:cov] GNPOS 上三角有限率 100.000%
+[check:cnt_t30:ok] GHHI 长度 26081449 != 26081449
+[check:cnt_t30:ok] GHHI 对称偏差 0.000000
+[check:cov] GHHI 上三角有限率 99.999%
+[check:cnt_t30:ok] PB 长度 26081449 != 26081449
+[check:cnt_t30:ok] PB 对称偏差 0.000000
+[check:cov] PB 上三角有限率 100.000%
+[check:cnt_t30:ok] QC 长度 26081449 != 26081449
+[check:cnt_t30:ok] QC 对称偏差 0.000000
+[check:cov] QC 上三角有限率 100.000%
+[check:cnt_t30:ok] PBS 长度 26081449 != 26081449
+[check:cnt_t30:ok] PBS 对称偏差 0.000000
+[check:cov] PBS 上三角有限率 100.000%
+[check:cnt_t30:ok] QCS 长度 26081449 != 26081449
+[net:vol_t05] 空模型 19996 抽样, G mean=0.0166 std=0.0305; (p,q) 条件化 9.9s
+[check:vol_t05:ok] G 长度 26081449 != 26081449
+[check:vol_t05:ok] G 对称偏差 0.000000
+[check:cov] G 上三角有限率 100.000%
+[check:vol_t05:ok] RHO_U 长度 26081449 != 26081449
+[check:vol_t05:ok] RHO_U 对称偏差 0.000000
+[check:cov] RHO_U 上三角有限率 100.000%
+[check:vol_t05:ok] SINGLE 长度 26081449 != 26081449
+[check:vol_t05:ok] SINGLE 对称偏差 0.000000
+[check:cov] SINGLE 上三角有限率 100.000%
+[check:vol_t05:ok] X0 长度 26081449 != 26081449
+[check:vol_t05:ok] X0 对称偏差 0.000000
+[check:cov] X0 上三角有限率 100.000%
+[check:vol_t05:ok] Z 长度 26081449 != 26081449
+[check:vol_t05:ok] Z 对称偏差 0.000000
+[check:cov] Z 上三角有限率 100.000%
+[check:vol_t05:ok] GSTAR 长度 26081449 != 26081449
+[check:vol_t05:ok] GSTAR 对称偏差 0.000000
+[check:cov] GSTAR 上三角有限率 100.000%
+[check:vol_t05:ok] RHO_US 长度 26081449 != 26081449
+[check:vol_t05:ok] RHO_US 对称偏差 0.000000
+[check:cov] RHO_US 上三角有限率 100.000%
+[check:vol_t05:ok] SINGLE_S 长度 26081449 != 26081449
+[check:cnt_t30:ok] QCS 对称偏差 0.000000
+[check:cov] QCS 上三角有限率 100.000%
+[check:cnt_t30:ok] EXZ 长度 26081449 != 26081449
+[check:cnt_t30:ok] EXZ 对称偏差 0.000000
+[check:cov] EXZ 上三角有限率 100.000%
+[check:cnt_t30:ok] EXZS 长度 26081449 != 26081449
+[check:vol_t05:ok] SINGLE_S 对称偏差 0.000000
+[check:cov] SINGLE_S 上三角有限率 100.000%
+[check:vol_t05:ok] X0STAR 长度 26081449 != 26081449
+[check:cnt_t30:ok] EXZS 对称偏差 0.000000
+[check:cov] EXZS 上三角有限率 100.000%
+[check:cnt_t30:ok] rho 长度 26081449 != 26081449
+[check:vol_t05:ok] X0STAR 对称偏差 0.000000
+[check:cov] X0STAR 上三角有限率 100.000%
+[check:vol_t05:ok] ZS 长度 26081449 != 26081449
+[check:vol_t05:ok] ZS 对称偏差 0.000000
+[check:cov] ZS 上三角有限率 100.000%
+[check:vol_t05:ok] GREL 长度 26081449 != 26081449
+[check:cnt_t30:ok] rho 对称偏差 0.000000
+[check:cov] rho 上三角有限率 100.000%
+[check:cnt_t30:ok] SINGLE==max(PB,QC) 偏差 0.00e0
+[check:cnt_t30:ok] SINGLE_S==max(PBS,QCS) 偏差 0.00e0
+[check:cnt_t30:ok] RHO_U==SINGLE+G 偏差 0.00e0
+[check:cnt_t30:ok] EXZ 条件标准化 mean=0.0000 std=1.0000（期望≈0/1）
+[check:cnt_t30:ok] EXZS 条件标准化 mean=-0.0000 std=1.0000（期望≈0/1）
+[check:cov] MASS[emass] sum=1.0000 非零 5107/5107 min=6.14e-5
+[check:cov] MASS[gmass] sum=0.0106 非零 5107/5107 min=-3.85e-6
+[check:cov] MASS[g2mass] sum=0.0022 非零 5107/5107 min=2.85e-8
+[check:cov] MASS[smass] sum=1.0000 非零 5107/5107 min=6.54e-5
+[check:cov] MASS[sgmass] sum=0.0309 非零 5107/5107 min=7.69e-7
+[check:cov] MASS[sg2mass] sum=0.0013 非零 5107/5107 min=1.27e-8
+[check:cnt_t30:ok] emass/smass 归一和 1.0000/1.0000（期望≈1）
+[check:cnt_t30:ok] emass/smass/g2mass/sg2mass 存在负值
+[check:cnt_t30:ok] rho 对角偏差 0.00e0
+[check:vol_t05:ok] GREL 对称偏差 0.000000
+[check:cov] GREL 上三角有限率 100.000%
+[check:vol_t05:ok] GSH 长度 26081449 != 26081449
+[check:vol_t05:ok] GSH 对称偏差 0.000000
+[check:cov] GSH 上三角有限率 100.000%
+[check:vol_t05:ok] GCOV 长度 26081449 != 26081449
+[check:vol_t05:ok] GCOV 对称偏差 0.000000
+[check:cov] GCOV 上三角有限率 100.000%
+[check:vol_t05:ok] GNPOS 长度 26081449 != 26081449
+[check:cnt_t30:ok] X0 非法格数 0
+[check:cnt_t30:ok] X0STAR 非法格数 0
+[check:cnt_t30] 全部硬检查通过
+[check:vol_t5:ok] QC 对称偏差 0.000000
+[check:cov] QC 上三角有限率 100.000%
+[check:vol_t5:ok] PBS 长度 26081449 != 26081449
+[check:vol_t5:ok] PBS 对称偏差 0.000000
+[check:cov] PBS 上三角有限率 100.000%
+[check:vol_t5:ok] QCS 长度 26081449 != 26081449
+[check:vol_t5:ok] QCS 对称偏差 0.000000
+[check:cov] QCS 上三角有限率 100.000%
+[check:vol_t5:ok] EXZ 长度 26081449 != 26081449
+[check:vol_t5:ok] EXZ 对称偏差 0.000000
+[check:cov] EXZ 上三角有限率 100.000%
+[check:vol_t5:ok] EXZS 长度 26081449 != 26081449
+[check:vol_t5:ok] EXZS 对称偏差 0.000000
+[check:cov] EXZS 上三角有限率 100.000%
+[check:vol_t5:ok] rho 长度 26081449 != 26081449
+[check:vol_t5:ok] rho 对称偏差 0.000000
+[check:cov] rho 上三角有限率 100.000%
+[check:vol_t5:ok] SINGLE==max(PB,QC) 偏差 0.00e0
+[check:vol_t5:ok] SINGLE_S==max(PBS,QCS) 偏差 0.00e0
+[check:vol_t5:ok] RHO_U==SINGLE+G 偏差 2.98e-8
+[reduce:p7] R1 第一路 1.1s
+[check:vol_t5:ok] EXZ 条件标准化 mean=0.0000 std=1.0000（期望≈0/1）
+[check:vol_t5:ok] EXZS 条件标准化 mean=0.0000 std=1.0000（期望≈0/1）
+[check:cov] MASS[emass] sum=1.0000 非零 5107/5107 min=2.14e-5
+[check:cov] MASS[gmass] sum=0.0188 非零 5107/5107 min=-1.67e-6
+[check:cov] MASS[g2mass] sum=0.0020 非零 5107/5107 min=2.69e-9
+[check:cov] MASS[smass] sum=1.0000 非零 5107/5107 min=3.68e-5
+[check:cov] MASS[sgmass] sum=0.0340 非零 5107/5107 min=1.27e-7
+[check:cov] MASS[sg2mass] sum=0.0016 非零 5107/5107 min=7.15e-10
+[check:vol_t5:ok] emass/smass 归一和 1.0000/1.0000（期望≈1）
+[check:vol_t5:ok] emass/smass/g2mass/sg2mass 存在负值
+[check:vol_t5:ok] rho 对角偏差 0.00e0
+[check:vol_t5:ok] X0 非法格数 0
+[reduce:p8] R1 第二路 0.2s
+[check:vol_t5:ok] X0STAR 非法格数 0
+[check:vol_t5] 全部硬检查通过
+[reduce:p7] R1 第一路 0.2s
+[check:cnt_t5:ok] SINGLE 对称偏差 0.000000
+[check:cov] SINGLE 上三角有限率 100.000%
+[check:cnt_t5:ok] X0 长度 26081449 != 26081449
+[net:cnt_t1] 空模型 19996 抽样, G mean=0.0277 std=0.0345; (p,q) 条件化 13.5s
+[check:cnt_t5:ok] X0 对称偏差 0.000000
+[check:cov] X0 上三角有限率 100.000%
+[check:cnt_t5:ok] Z 长度 26081449 != 26081449
+[check:cnt_t5:ok] Z 对称偏差 0.000000
+[check:cov] Z 上三角有限率 100.000%
+[check:cnt_t5:ok] GSTAR 长度 26081449 != 26081449
+[check:cnt_t1:ok] G 长度 26081449 != 26081449
+[check:cnt_t1:ok] G 对称偏差 0.000000
+[check:cov] G 上三角有限率 100.000%
+[check:cnt_t1:ok] RHO_U 长度 26081449 != 26081449
+[check:cnt_t5:ok] GSTAR 对称偏差 0.000000
+[check:cov] GSTAR 上三角有限率 100.000%
+[check:cnt_t5:ok] RHO_US 长度 26081449 != 26081449
+[check:cnt_t1:ok] RHO_U 对称偏差 0.000000
+[check:cov] RHO_U 上三角有限率 100.000%
+[check:cnt_t1:ok] SINGLE 长度 26081449 != 26081449
+[check:cnt_t5:ok] RHO_US 对称偏差 0.000000
+[check:cov] RHO_US 上三角有限率 100.000%
+[check:cnt_t5:ok] SINGLE_S 长度 26081449 != 26081449
+[check:cnt_t5:ok] SINGLE_S 对称偏差 0.000000
+[check:cov] SINGLE_S 上三角有限率 100.000%
+[check:cnt_t5:ok] X0STAR 长度 26081449 != 26081449
+[check:cnt_t1:ok] SINGLE 对称偏差 0.000000
+[check:cov] SINGLE 上三角有限率 100.000%
+[check:cnt_t1:ok] X0 长度 26081449 != 26081449
+[check:cnt_t1:ok] X0 对称偏差 0.000000
+[check:cov] X0 上三角有限率 100.000%
+[check:cnt_t1:ok] Z 长度 26081449 != 26081449
+[check:cnt_t5:ok] X0STAR 对称偏差 0.000000
+[check:cov] X0STAR 上三角有限率 100.000%
+[check:cnt_t5:ok] ZS 长度 26081449 != 26081449
+[check:cnt_t5:ok] ZS 对称偏差 0.000000
+[check:cov] ZS 上三角有限率 100.000%
+[check:cnt_t5:ok] GREL 长度 26081449 != 26081449
+[check:cnt_t1:ok] Z 对称偏差 0.000000
+[check:cov] Z 上三角有限率 100.000%
+[check:cnt_t1:ok] GSTAR 长度 26081449 != 26081449
+[check:cnt_t1:ok] GSTAR 对称偏差 0.000000
+[check:cov] GSTAR 上三角有限率 100.000%
+[check:cnt_t1:ok] RHO_US 长度 26081449 != 26081449
+[check:cnt_t5:ok] GREL 对称偏差 0.000000
+[check:cov] GREL 上三角有限率 100.000%
+[check:cnt_t5:ok] GSH 长度 26081449 != 26081449
+[reduce:p2+D] 合并配对扫描（best + top-50）8.3s
+[reduce:p9] R2 三分解 8.3s
+[check:cnt_t5:ok] GSH 对称偏差 0.000000
+[check:cov] GSH 上三角有限率 100.000%
+[check:cnt_t5:ok] GCOV 长度 26081449 != 26081449
+[check:cnt_t1:ok] RHO_US 对称偏差 0.000000
+[check:cov] RHO_US 上三角有限率 100.000%
+[check:cnt_t1:ok] SINGLE_S 长度 26081449 != 26081449
+[reduce:p3] R3 贪心 16 步（含8步+16步合并）0.1s
+[check:cnt_t5:ok] GCOV 对称偏差 0.000000
+[check:cov] GCOV 上三角有限率 100.000%
+[check:cnt_t5:ok] GNPOS 长度 26081449 != 26081449
+[check:cnt_t1:ok] SINGLE_S 对称偏差 0.000000
+[check:cov] SINGLE_S 上三角有限率 100.000%
+[check:cnt_t1:ok] X0STAR 长度 26081449 != 26081449
+[check:cnt_t1:ok] X0STAR 对称偏差 0.000000
+[check:cov] X0STAR 上三角有限率 100.000%
+[check:cnt_t1:ok] ZS 长度 26081449 != 26081449
+[check:cnt_t5:ok] GNPOS 对称偏差 0.000000
+[check:cov] GNPOS 上三角有限率 100.000%
+[check:cnt_t5:ok] GHHI 长度 26081449 != 26081449
+[check:cnt_t1:ok] ZS 对称偏差 0.000000
+[check:cov] ZS 上三角有限率 100.000%
+[check:cnt_t1:ok] GREL 长度 26081449 != 26081449
+[check:cnt_t5:ok] GHHI 对称偏差 0.000000
+[check:cov] GHHI 上三角有限率 99.996%
+[check:cnt_t5:ok] PB 长度 26081449 != 26081449
+[check:cnt_t5:ok] PB 对称偏差 0.000000
+[check:cov] PB 上三角有限率 100.000%
+[check:cnt_t5:ok] QC 长度 26081449 != 26081449
+[check:vol_t05:ok] GNPOS 对称偏差 0.000000
+[check:cov] GNPOS 上三角有限率 100.000%
+[check:vol_t05:ok] GHHI 长度 26081449 != 26081449
+[reduce:p8] R1 第二路 1.4s
+[check:cnt_t1:ok] GREL 对称偏差 0.000000
+[check:cov] GREL 上三角有限率 100.000%
+[check:cnt_t1:ok] GSH 长度 26081449 != 26081449
+[reduce:p4] R4 图对照 0.1s
+[reduce:p2+D] 合并配对扫描（best + top-50）8.6s
+[reduce:p2+D] 合并配对扫描（best + top-50）8.8s
+[reduce:p9] R2 三分解 8.6s
+[reduce:p9] R2 三分解 8.8s
+[check:cnt_t1:ok] GSH 对称偏差 0.000000
+[check:cov] GSH 上三角有限率 100.000%
+[check:cnt_t1:ok] GCOV 长度 26081449 != 26081449
+[check:cnt_t1:ok] GCOV 对称偏差 0.000000
+[check:cov] GCOV 上三角有限率 100.000%
+[check:cnt_t1:ok] GNPOS 长度 26081449 != 26081449
+[check:cnt_t1:ok] GNPOS 对称偏差 0.000000
+[check:cov] GNPOS 上三角有限率 100.000%
+[check:cnt_t1:ok] GHHI 长度 26081449 != 26081449
+[check:cnt_t1:ok] GHHI 对称偏差 0.000000
+[check:cov] GHHI 上三角有限率 100.000%
+[check:cnt_t1:ok] PB 长度 26081449 != 26081449
+[check:cnt_t1:ok] PB 对称偏差 0.000000
+[check:cov] PB 上三角有限率 100.000%
+[check:cnt_t1:ok] QC 长度 26081449 != 26081449
+[check:cnt_t1:ok] QC 对称偏差 0.000000
+[check:cov] QC 上三角有限率 100.000%
+[check:cnt_t1:ok] PBS 长度 26081449 != 26081449
+[check:cnt_t1:ok] PBS 对称偏差 0.000000
+[check:cov] PBS 上三角有限率 100.000%
+[check:cnt_t1:ok] QCS 长度 26081449 != 26081449
+[check:cnt_t1:ok] QCS 对称偏差 0.000000
+[check:cov] QCS 上三角有限率 100.000%
+[check:cnt_t1:ok] EXZ 长度 26081449 != 26081449
+[check:cnt_t1:ok] EXZ 对称偏差 0.000000
+[check:cov] EXZ 上三角有限率 100.000%
+[check:cnt_t1:ok] EXZS 长度 26081449 != 26081449
+[check:cnt_t1:ok] EXZS 对称偏差 0.000000
+[check:cov] EXZS 上三角有限率 100.000%
+[check:cnt_t1:ok] rho 长度 26081449 != 26081449
+[check:cnt_t1:ok] rho 对称偏差 0.000000
+[check:cov] rho 上三角有限率 100.000%
+[check:cnt_t1:ok] SINGLE==max(PB,QC) 偏差 0.00e0
+[check:cnt_t1:ok] SINGLE_S==max(PBS,QCS) 偏差 0.00e0
+[check:cnt_t1:ok] RHO_U==SINGLE+G 偏差 2.98e-8
+[check:cnt_t1:ok] EXZ 条件标准化 mean=-0.0000 std=1.0000（期望≈0/1）
+[check:cnt_t1:ok] EXZS 条件标准化 mean=-0.0000 std=1.0000（期望≈0/1）
+[check:cov] MASS[emass] sum=1.0000 非零 5107/5107 min=2.20e-5
+[check:cov] MASS[gmass] sum=0.0179 非零 5107/5107 min=-1.65e-6
+[check:cov] MASS[g2mass] sum=0.0008 非零 5107/5107 min=6.90e-10
+[check:cov] MASS[smass] sum=1.0000 非零 5107/5107 min=2.19e-5
+[check:cov] MASS[sgmass] sum=0.0245 非零 5107/5107 min=5.95e-8
+[check:cov] MASS[sg2mass] sum=0.0008 非零 5107/5107 min=2.36e-10
+[check:cnt_t1:ok] emass/smass 归一和 1.0000/1.0000（期望≈1）
+[check:cnt_t1:ok] emass/smass/g2mass/sg2mass 存在负值
+[check:cnt_t1:ok] rho 对角偏差 0.00e0
+[check:cnt_t1:ok] X0 非法格数 0
+[check:cnt_t1:ok] X0STAR 非法格数 0
+[check:cnt_t1] 全部硬检查通过
+[reduce:p7] R1 第一路 0.1s
+[check:cnt_t005:ok] SINGLE 对称偏差 0.000000
+[check:cov] SINGLE 上三角有限率 100.000%
+[check:cnt_t005:ok] X0 长度 26081449 != 26081449
+[check:cnt_t005:ok] X0 对称偏差 0.000000
+[check:cov] X0 上三角有限率 100.000%
+[check:cnt_t005:ok] Z 长度 26081449 != 26081449
+[check:cnt_t005:ok] Z 对称偏差 0.000000
+[check:cov] Z 上三角有限率 100.000%
+[check:cnt_t005:ok] GSTAR 长度 26081449 != 26081449
+[check:cnt_t005:ok] GSTAR 对称偏差 0.000000
+[check:cov] GSTAR 上三角有限率 100.000%
+[check:cnt_t005:ok] RHO_US 长度 26081449 != 26081449
+[check:cnt_t005:ok] RHO_US 对称偏差 0.000000
+[check:cov] RHO_US 上三角有限率 100.000%
+[check:cnt_t005:ok] SINGLE_S 长度 26081449 != 26081449
+[reduce:p8] R1 第二路 0.1s
+[check:cnt_t005:ok] SINGLE_S 对称偏差 0.000000
+[check:cov] SINGLE_S 上三角有限率 100.000%
+[check:cnt_t005:ok] X0STAR 长度 26081449 != 26081449
+[check:cnt_t005:ok] X0STAR 对称偏差 0.000000
+[check:cov] X0STAR 上三角有限率 100.000%
+[check:cnt_t005:ok] ZS 长度 26081449 != 26081449
+[check:cnt_t005:ok] ZS 对称偏差 0.000000
+[check:cov] ZS 上三角有限率 100.000%
+[check:cnt_t005:ok] GREL 长度 26081449 != 26081449
+[check:cnt_t005:ok] GREL 对称偏差 0.000000
+[check:cov] GREL 上三角有限率 100.000%
+[check:cnt_t005:ok] GSH 长度 26081449 != 26081449
+[check:cnt_t005:ok] GSH 对称偏差 0.000000
+[check:cov] GSH 上三角有限率 100.000%
+[check:cnt_t005:ok] GCOV 长度 26081449 != 26081449
+[check:cnt_t005:ok] GCOV 对称偏差 0.000000
+[check:cov] GCOV 上三角有限率 100.000%
+[check:cnt_t005:ok] GNPOS 长度 26081449 != 26081449
+[check:cnt_t005:ok] GNPOS 对称偏差 0.000000
+[check:cov] GNPOS 上三角有限率 100.000%
+[check:cnt_t005:ok] GHHI 长度 26081449 != 26081449
+[check:cnt_t005:ok] GHHI 对称偏差 0.000000
+[check:cov] GHHI 上三角有限率 100.000%
+[check:cnt_t005:ok] PB 长度 26081449 != 26081449
+[check:cnt_t005:ok] PB 对称偏差 0.000000
+[check:cov] PB 上三角有限率 100.000%
+[check:cnt_t005:ok] QC 长度 26081449 != 26081449
+[check:cnt_t005:ok] QC 对称偏差 0.000000
+[check:cov] QC 上三角有限率 100.000%
+[check:cnt_t005:ok] PBS 长度 26081449 != 26081449
+[check:cnt_t005:ok] PBS 对称偏差 0.000000
+[check:cov] PBS 上三角有限率 100.000%
+[check:cnt_t005:ok] QCS 长度 26081449 != 26081449
+[check:vol_t02:ok] GSTAR 对称偏差 0.000000
+[check:cov] GSTAR 上三角有限率 100.000%
+[check:vol_t02:ok] RHO_US 长度 26081449 != 26081449
+[reduce:p3] R3 贪心 16 步（含8步+16步合并）3.3s
+[reduce:p3] R3 贪心 16 步（含8步+16步合并）3.3s
+[check:cnt_t005:ok] QCS 对称偏差 0.000000
+[check:cov] QCS 上三角有限率 100.000%
+[check:cnt_t005:ok] EXZ 长度 26081449 != 26081449
+[check:cnt_t5:ok] QC 对称偏差 0.000000
+[check:cov] QC 上三角有限率 100.000%
+[check:cnt_t5:ok] PBS 长度 26081449 != 26081449
+[reduce:p2+D] 合并配对扫描（best + top-50）12.1s
+[reduce:p9] R2 三分解 12.2s
+[check:cnt_t005:ok] EXZ 对称偏差 0.000000
+[check:cov] EXZ 上三角有限率 100.000%
+[check:cnt_t005:ok] EXZS 长度 26081449 != 26081449
+[reduce:p2+D] 合并配对扫描（best + top-50）5.4s
+[reduce:p2+D] 合并配对扫描（best + top-50）12.2s
+[reduce:p9] R2 三分解 5.4s
+[reduce:p9] R2 三分解 12.3s
+[check:cnt_t005:ok] EXZS 对称偏差 0.000000
+[check:cov] EXZS 上三角有限率 100.000%
+[check:cnt_t005:ok] rho 长度 26081449 != 26081449
+[check:cnt_t5:ok] PBS 对称偏差 0.000000
+[check:cov] PBS 上三角有限率 100.000%
+[check:cnt_t5:ok] QCS 长度 26081449 != 26081449
+[check:cnt_t5:ok] QCS 对称偏差 0.000000
+[check:cov] QCS 上三角有限率 100.000%
+[check:cnt_t5:ok] EXZ 长度 26081449 != 26081449
+[check:cnt_t005:ok] rho 对称偏差 0.000000
+[check:cov] rho 上三角有限率 100.000%
+[check:cnt_t5:ok] EXZ 对称偏差 0.000000
+[check:cov] EXZ 上三角有限率 100.000%
+[check:cnt_t5:ok] EXZS 长度 26081449 != 26081449
+[check:cnt_t005:ok] SINGLE==max(PB,QC) 偏差 0.00e0
+[check:cnt_t005:ok] SINGLE_S==max(PBS,QCS) 偏差 0.00e0
+[check:cnt_t5:ok] EXZS 对称偏差 0.000000
+[check:cov] EXZS 上三角有限率 100.000%
+[check:cnt_t5:ok] rho 长度 26081449 != 26081449
+[reduce:p4] R4 图对照 0.4s
+[reduce:p4] R4 图对照 0.6s
+[check:cnt_t5:ok] rho 对称偏差 0.000000
+[check:cov] rho 上三角有限率 100.000%
+[check:cnt_t5:ok] SINGLE==max(PB,QC) 偏差 0.00e0
+[check:cnt_t5:ok] SINGLE_S==max(PBS,QCS) 偏差 0.00e0
+[check:cnt_t005:ok] RHO_U==SINGLE+G 偏差 2.98e-8
+[check:cnt_t005:ok] EXZ 条件标准化 mean=-0.0000 std=1.0000（期望≈0/1）
+[check:cnt_t005:ok] EXZS 条件标准化 mean=-0.0000 std=1.0000（期望≈0/1）
+[check:cov] MASS[emass] sum=1.0000 非零 5107/5107 min=1.45e-5
+[check:cov] MASS[gmass] sum=0.0024 非零 5107/5107 min=-1.78e-6
+[check:cov] MASS[g2mass] sum=0.0000 非零 5107/5107 min=4.83e-11
+[check:cov] MASS[smass] sum=1.0000 非零 5107/5107 min=4.57e-6
+[check:cov] MASS[sgmass] sum=0.0038 非零 5107/5107 min=1.82e-9
+[check:cov] MASS[sg2mass] sum=0.0000 非零 5107/5107 min=1.50e-12
+[check:cnt_t005:ok] emass/smass 归一和 1.0000/1.0000（期望≈1）
+[check:cnt_t005:ok] emass/smass/g2mass/sg2mass 存在负值
+[check:cnt_t005:ok] rho 对角偏差 0.00e0
+[check:cnt_t005:ok] X0 非法格数 0
+[check:cnt_t005:ok] X0STAR 非法格数 0
+[check:cnt_t005] 全部硬检查通过
+[check:cnt_t5:ok] RHO_U==SINGLE+G 偏差 0.00e0
+[check:cnt_t5:ok] EXZ 条件标准化 mean=-0.0000 std=1.0000（期望≈0/1）
+[check:cnt_t5:ok] EXZS 条件标准化 mean=-0.0000 std=1.0000（期望≈0/1）
+[check:cov] MASS[emass] sum=1.0000 非零 5107/5107 min=3.32e-5
+[check:cov] MASS[gmass] sum=0.0246 非零 5107/5107 min=-1.65e-6
+[check:cov] MASS[g2mass] sum=0.0019 非零 5107/5107 min=3.34e-9
+[check:cov] MASS[smass] sum=1.0000 非零 5107/5107 min=4.66e-5
+[check:cov] MASS[sgmass] sum=0.0367 非零 5107/5107 min=2.89e-7
+[check:cov] MASS[sg2mass] sum=0.0017 非零 5107/5107 min=2.39e-9
+[check:cnt_t5:ok] emass/smass 归一和 1.0000/1.0000（期望≈1）
+[check:cnt_t5:ok] emass/smass/g2mass/sg2mass 存在负值
+[check:cnt_t5:ok] rho 对角偏差 0.00e0
+[reduce:p5] R5 四路残差回归合并 1.4s
+[reduce:p3] R3 贪心 16 步（含8步+16步合并）1.8s
+[check:cnt_t5:ok] X0 非法格数 0
+[check:cnt_t5:ok] X0STAR 非法格数 0
+[check:cnt_t5] 全部硬检查通过
+[reduce:p4] R4 图对照 0.1s
+[reduce:p3] R3 贪心 16 步（含8步+16步合并）1.9s
+[reduce:p7] R1 第一路 0.2s
+[reduce:p4] R4 图对照 0.1s
+[reduce:p2+D] 合并配对扫描（best + top-50）14.4s
+[reduce:p9] R2 三分解 14.4s
+[reduce:p8] R1 第二路 0.2s
+[reduce:p5] R5 四路残差回归合并 1.7s
+[reduce:p5] R5 四路残差回归合并 0.3s
+[reduce:p3] R3 贪心 16 步（含8步+16步合并）0.2s
+[reduce:p2+D] 合并配对扫描（best + top-50）4.2s
+[reduce:p9] R2 三分解 4.3s
+[reduce:p7] R1 第一路 0.2s
+[reduce:p8] R1 第二路 0.2s
+[reduce:p4] R4 图对照 0.6s
+[net:vol_t3] 空模型 19996 抽样, G mean=0.0311 std=0.0391; (p,q) 条件化 20.4s
+[check:vol_t3:ok] G 长度 26081449 != 26081449
+[check:vol_t3:ok] G 对称偏差 0.000000
+[check:cov] G 上三角有限率 100.000%
+[check:vol_t3:ok] RHO_U 长度 26081449 != 26081449
+[reduce:p5] R5 四路残差回归合并 1.8s
+[check:vol_t3:ok] RHO_U 对称偏差 0.000000
+[check:cov] RHO_U 上三角有限率 100.000%
+[check:vol_t3:ok] SINGLE 长度 26081449 != 26081449
+[reduce:p6] R6 平面 2.5s
+[reduce:p6] R6 平面 2.5s
+[check:vol_t3:ok] SINGLE 对称偏差 0.000000
+[check:cov] SINGLE 上三角有限率 100.000%
+[check:vol_t3:ok] X0 长度 26081449 != 26081449
+[check:vol_t3:ok] X0 对称偏差 0.000000
+[check:cov] X0 上三角有限率 100.000%
+[check:vol_t3:ok] Z 长度 26081449 != 26081449
+[check:vol_t3:ok] Z 对称偏差 0.000000
+[check:cov] Z 上三角有限率 100.000%
+[check:vol_t3:ok] GSTAR 长度 26081449 != 26081449
+[check:vol_t3:ok] GSTAR 对称偏差 0.000000
+[check:cov] GSTAR 上三角有限率 100.000%
+[check:vol_t3:ok] RHO_US 长度 26081449 != 26081449
+[check:vol_t3:ok] RHO_US 对称偏差 0.000000
+[check:cov] RHO_US 上三角有限率 100.000%
+[check:vol_t3:ok] SINGLE_S 长度 26081449 != 26081449
+[check:vol_t3:ok] SINGLE_S 对称偏差 0.000000
+[check:cov] SINGLE_S 上三角有限率 100.000%
+[check:vol_t3:ok] X0STAR 长度 26081449 != 26081449
+[check:vol_t3:ok] X0STAR 对称偏差 0.000000
+[check:cov] X0STAR 上三角有限率 100.000%
+[check:vol_t3:ok] ZS 长度 26081449 != 26081449
+[check:vol_t3:ok] ZS 对称偏差 0.000000
+[check:cov] ZS 上三角有限率 100.000%
+[check:vol_t3:ok] GREL 长度 26081449 != 26081449
+[check:vol_t3:ok] GREL 对称偏差 0.000000
+[check:cov] GREL 上三角有限率 100.000%
+[check:vol_t3:ok] GSH 长度 26081449 != 26081449
+[check:vol_t3:ok] GSH 对称偏差 0.000000
+[check:cov] GSH 上三角有限率 100.000%
+[check:vol_t3:ok] GCOV 长度 26081449 != 26081449
+[check:vol_t3:ok] GCOV 对称偏差 0.000000
+[check:cov] GCOV 上三角有限率 100.000%
+[check:vol_t3:ok] GNPOS 长度 26081449 != 26081449
+[reduce:p6] R6 平面 0.3s
+[check:vol_t3:ok] GNPOS 对称偏差 0.000000
+[check:cov] GNPOS 上三角有限率 100.000%
+[check:vol_t3:ok] GHHI 长度 26081449 != 26081449
+[check:vol_t3:ok] GHHI 对称偏差 0.000000
+[check:cov] GHHI 上三角有限率 99.999%
+[check:vol_t3:ok] PB 长度 26081449 != 26081449
+[check:vol_t3:ok] PB 对称偏差 0.000000
+[check:cov] PB 上三角有限率 100.000%
+[check:vol_t3:ok] QC 长度 26081449 != 26081449
+[check:vol_t3:ok] QC 对称偏差 0.000000
+[check:cov] QC 上三角有限率 100.000%
+[check:vol_t3:ok] PBS 长度 26081449 != 26081449
+[check:vol_t3:ok] PBS 对称偏差 0.000000
+[check:cov] PBS 上三角有限率 100.000%
+[check:vol_t3:ok] QCS 长度 26081449 != 26081449
+[check:vol_t3:ok] QCS 对称偏差 0.000000
+[check:cov] QCS 上三角有限率 100.000%
+[check:vol_t3:ok] EXZ 长度 26081449 != 26081449
+[reduce:p10] 空模型对照 0.2s
+[check:vol_t3:ok] EXZ 对称偏差 0.000000
+[check:cov] EXZ 上三角有限率 100.000%
+[check:vol_t3:ok] EXZS 长度 26081449 != 26081449
+[check:vol_t3:ok] EXZS 对称偏差 0.000000
+[check:cov] EXZS 上三角有限率 100.000%
+[check:vol_t3:ok] rho 长度 26081449 != 26081449
+[check:vol_t3:ok] rho 对称偏差 0.000000
+[check:cov] rho 上三角有限率 100.000%
+[reduce:p10] 空模型对照 0.3s
+[check:vol_t3:ok] SINGLE==max(PB,QC) 偏差 0.00e0
+[check:vol_t3:ok] SINGLE_S==max(PBS,QCS) 偏差 0.00e0
+[net:cnt_t05] 空模型 19996 抽样, G mean=0.0208 std=0.0304; (p,q) 条件化 22.5s
+[check:cnt_t05:ok] G 长度 26081449 != 26081449
+[check:cnt_t05:ok] G 对称偏差 0.000000
+[check:cov] G 上三角有限率 100.000%
+[check:vol_t05:ok] GHHI 对称偏差 0.000000
+[check:cov] GHHI 上三角有限率 100.000%
+[check:vol_t05:ok] PB 长度 26081449 != 26081449
+[check:vol_t3:ok] RHO_U==SINGLE+G 偏差 2.98e-8
+[check:vol_t02:ok] RHO_US 对称偏差 0.000000
+[check:cov] RHO_US 上三角有限率 100.000%
+[check:vol_t02:ok] SINGLE_S 长度 26081449 != 26081449
+[check:cnt_t05:ok] RHO_U 长度 26081449 != 26081449
+[reduce:p6] R6 平面 3.4s
+[reduce:p3] R3 贪心 16 步（含8步+16步合并）5.2s
+[reduce:p3] R3 贪心 16 步（含8步+16步合并）2.8s
+[check:vol_t3:ok] EXZ 条件标准化 mean=0.0000 std=1.0000（期望≈0/1）
+[check:vol_t3:ok] EXZS 条件标准化 mean=0.0000 std=1.0000（期望≈0/1）
+[check:cov] MASS[emass] sum=1.0000 非零 5107/5107 min=1.84e-5
+[check:cov] MASS[gmass] sum=0.0181 非零 5107/5107 min=-1.48e-6
+[check:cov] MASS[g2mass] sum=0.0016 非零 5107/5107 min=1.62e-9
+[check:cov] MASS[smass] sum=1.0000 非零 5107/5107 min=3.11e-5
+[check:cov] MASS[sgmass] sum=0.0310 非零 5107/5107 min=8.67e-8
+[check:cov] MASS[sg2mass] sum=0.0013 非零 5107/5107 min=4.09e-10
+[check:vol_t3:ok] emass/smass 归一和 1.0000/1.0000（期望≈1）
+[check:vol_t3:ok] emass/smass/g2mass/sg2mass 存在负值
+[check:vol_t3:ok] rho 对角偏差 0.00e0
+[check:vol_t3:ok] X0 非法格数 0
+[reduce:p2+D] 合并配对扫描（best + top-50）2.6s
+[reduce:p9] R2 三分解 2.7s
+[reduce:p2+D] 合并配对扫描（best + top-50）3.1s
+[reduce:p2+D] 合并配对扫描（best + top-50）5.5s
+[check:vol_t3:ok] X0STAR 非法格数 0
+[check:vol_t3] 全部硬检查通过
+[reduce:p9] R2 三分解 3.1s
+[reduce:p9] R2 三分解 8.9s
+[check:vol_t05:ok] PB 对称偏差 0.000000
+[check:cov] PB 上三角有限率 100.000%
+[check:vol_t05:ok] QC 长度 26081449 != 26081449
+[check:vol_t02:ok] SINGLE_S 对称偏差 0.000000
+[check:cov] SINGLE_S 上三角有限率 100.000%
+[check:vol_t02:ok] X0STAR 长度 26081449 != 26081449
+[check:cnt_t05:ok] RHO_U 对称偏差 0.000000
+[check:cov] RHO_U 上三角有限率 100.000%
+[check:cnt_t05:ok] SINGLE 长度 26081449 != 26081449
+[reduce:p5] R5 四路残差回归合并 3.4s
+[reduce:p5] R5 四路残差回归合并 8.9s
+[reduce:p10] 空模型对照 0.5s
+[reduce:p3] R3 贪心 16 步（含8步+16步合并）0.1s
+[reduce:p3] R3 贪心 16 步（含8步+16步合并）0.2s
+[reduce:p3] R3 贪心 16 步（含8步+16步合并）0.1s
+[check:vol_t02:ok] X0STAR 对称偏差 0.000000
+[check:cnt_t05:ok] SINGLE 对称偏差 0.000000
+[check:cov] SINGLE 上三角有限率 100.000%
+[check:cov] X0STAR 上三角有限率 100.000%
+[check:vol_t02:ok] ZS 长度 26081449 != 26081449
+[check:vol_t05:ok] QC 对称偏差 0.000000
+[check:cov] QC 上三角有限率 100.000%
+[check:cnt_t05:ok] X0 长度 26081449 != 26081449
+[reduce:p10] 空模型对照 0.3s
+[check:vol_t05:ok] PBS 长度 26081449 != 26081449
+[reduce:p4] R4 图对照 0.4s
+[check:vol_t05:ok] PBS 对称偏差 0.000000
+[check:cov] PBS 上三角有限率 100.000%
+[check:vol_t05:ok] QCS 长度 26081449 != 26081449
+[check:vol_t05:ok] QCS 对称偏差 0.000000
+[check:cov] QCS 上三角有限率 100.000%
+[check:vol_t05:ok] EXZ 长度 26081449 != 26081449
+[check:cnt_t05:ok] X0 对称偏差 0.000000
+[check:cov] X0 上三角有限率 100.000%
+[check:cnt_t05:ok] Z 长度 26081449 != 26081449
+[check:cnt_t05:ok] Z 对称偏差 0.000000
+[check:cov] Z 上三角有限率 100.000%
+[check:vol_t05:ok] EXZ 对称偏差 0.000000
+[check:cov] EXZ 上三角有限率 100.000%
+[check:cnt_t05:ok] GSTAR 长度 26081449 != 26081449
+[check:vol_t02:ok] ZS 对称偏差 0.000000
+[check:cov] ZS 上三角有限率 100.000%
+[check:vol_t02:ok] GREL 长度 26081449 != 26081449
+[check:vol_t05:ok] EXZS 长度 26081449 != 26081449
+[reduce:p4] R4 图对照 0.3s
+[reduce:p4] R4 图对照 0.3s
+[reduce:p4] R4 图对照 0.3s
+[reduce:p4] R4 图对照 0.3s
+[check:vol_t05:ok] EXZS 对称偏差 0.000000
+[check:vol_t02:ok] GREL 对称偏差 0.000000
+[check:cov] GREL 上三角有限率 100.000%
+[check:vol_t02:ok] GSH 长度 26081449 != 26081449
+[reduce:p7] R1 第一路 0.1s
+[check:cov] EXZS 上三角有限率 100.000%
+[check:vol_t05:ok] rho 长度 26081449 != 26081449
+[check:cnt_t05:ok] GSTAR 对称偏差 0.000000
+[check:cov] GSTAR 上三角有限率 100.000%
+[check:cnt_t05:ok] RHO_US 长度 26081449 != 26081449
+[check:cnt_t05:ok] RHO_US 对称偏差 0.000000
+[check:cov] RHO_US 上三角有限率 100.000%
+[check:cnt_t05:ok] SINGLE_S 长度 26081449 != 26081449
+[check:vol_t05:ok] rho 对称偏差 0.000000
+[reduce:p8] R1 第二路 0.1s
+[check:cov] rho 上三角有限率 100.000%
+[reduce:p6] R6 平面 0.5s
+[check:vol_t02:ok] GSH 对称偏差 0.000000
+[check:cov] GSH 上三角有限率 100.000%
+[check:vol_t02:ok] GCOV 长度 26081449 != 26081449
+[check:cnt_t05:ok] SINGLE_S 对称偏差 0.000000
+[check:vol_t02:ok] GCOV 对称偏差 0.000000
+[check:cov] GCOV 上三角有限率 100.000%
+[check:vol_t05:ok] SINGLE==max(PB,QC) 偏差 0.00e0
+[check:cov] SINGLE_S 上三角有限率 100.000%
+[check:cnt_t05:ok] X0STAR 长度 26081449 != 26081449
+[check:vol_t02:ok] GNPOS 长度 26081449 != 26081449
+[reduce:p6] R6 平面 0.6s
+[check:vol_t02:ok] GNPOS 对称偏差 0.000000
+[check:cov] GNPOS 上三角有限率 100.000%
+[check:vol_t02:ok] GHHI 长度 26081449 != 26081449
+[check:vol_t05:ok] SINGLE_S==max(PBS,QCS) 偏差 0.00e0
+[reduce:p10] 空模型对照 0.3s
+[reduce2:A] 行统计 21×16 1.1s
+[reduce2:B] explain 扩展 0.1s
+[reduce2:C] bestcomp 剖面 0.0s
+[reduce2:F] 图扩展 0.4s
+[check:vol_t05:ok] RHO_U==SINGLE+G 偏差 2.98e-8
+[check:cnt_t05:ok] X0STAR 对称偏差 0.000000
+[check:cov] X0STAR 上三角有限率 100.000%
+[check:cnt_t05:ok] ZS 长度 26081449 != 26081449
+[reduce:p5] R5 四路残差回归合并 2.3s
+[check:cnt_t05:ok] ZS 对称偏差 0.000000
+[check:cov] ZS 上三角有限率 100.000%
+[check:cnt_t05:ok] GREL 长度 26081449 != 26081449
+[check:vol_t02:ok] GHHI 对称偏差 0.000000
+[check:cov] GHHI 上三角有限率 100.000%
+[check:vol_t02:ok] PB 长度 26081449 != 26081449
+[check:vol_t02:ok] PB 对称偏差 0.000000
+[check:cov] PB 上三角有限率 100.000%
+[check:vol_t05:ok] EXZ 条件标准化 mean=-0.0000 std=1.0000（期望≈0/1）
+[check:vol_t02:ok] QC 长度 26081449 != 26081449
+[reduce:p10] 空模型对照 2.2s
+[reduce:p5] R5 四路残差回归合并 2.4s
+[reduce:p2+D] 合并配对扫描（best + top-50）2.1s
+[reduce:p9] R2 三分解 2.2s
+[check:vol_t05:ok] EXZS 条件标准化 mean=-0.0000 std=1.0000（期望≈0/1）
+[check:cnt_t05:ok] GREL 对称偏差 0.000000
+[check:cov] GREL 上三角有限率 100.000%
+[check:cnt_t05:ok] GSH 长度 26081449 != 26081449
+[check:cov] MASS[emass] sum=1.0000 非零 5107/5107 min=1.28e-5
+[check:cov] MASS[gmass] sum=0.0089 非零 5107/5107 min=-2.27e-6
+[check:cov] MASS[g2mass] sum=0.0004 非零 5107/5107 min=4.42e-10
+[check:cov] MASS[smass] sum=1.0000 非零 5107/5107 min=1.04e-5
+[check:cov] MASS[sgmass] sum=0.0148 非零 5107/5107 min=1.19e-8
+[reduce:p5] R5 四路残差回归合并 2.5s
+[check:vol_t02:ok] QC 对称偏差 0.000000
+[check:cov] QC 上三角有限率 100.000%
+[check:vol_t02:ok] PBS 长度 26081449 != 26081449
+[reduce:p5] R5 四路残差回归合并 2.5s
+[check:cov] MASS[sg2mass] sum=0.0003 非零 5107/5107 min=3.57e-11
+[reduce:p5] R5 四路残差回归合并 2.6s
+[check:vol_t05:ok] emass/smass 归一和 1.0000/1.0000（期望≈1）
+[check:vol_t05:ok] emass/smass/g2mass/sg2mass 存在负值
+[check:vol_t05:ok] rho 对角偏差 0.00e0
+[reduce:p3] R3 贪心 16 步（含8步+16步合并）0.1s
+[check:vol_t05:ok] X0 非法格数 0
+[check:vol_t02:ok] PBS 对称偏差 0.000000
+[check:cov] PBS 上三角有限率 100.000%
+[check:vol_t02:ok] QCS 长度 26081449 != 26081449
+[reduce:p6] R6 平面 0.3s
+[check:vol_t05:ok] X0STAR 非法格数 0
+[check:vol_t05] 全部硬检查通过
+[check:vol_t02:ok] QCS 对称偏差 0.000000
+[check:cov] QCS 上三角有限率 100.000%
+[check:vol_t02:ok] EXZ 长度 26081449 != 26081449
+[check:vol_t02:ok] EXZ 对称偏差 0.000000
+[check:cov] EXZ 上三角有限率 100.000%
+[check:vol_t02:ok] EXZS 长度 26081449 != 26081449
+[check:vol_t02:ok] EXZS 对称偏差 0.000000
+[check:cov] EXZS 上三角有限率 100.000%
+[check:vol_t02:ok] rho 长度 26081449 != 26081449
+[check:vol_t02:ok] rho 对称偏差 0.000000
+[check:cov] rho 上三角有限率 100.000%
+[reduce:p4] R4 图对照 0.4s
+[reduce:p10] 空模型对照 0.3s
+[reduce:p6] R6 平面 0.4s
+[reduce:p6] R6 平面 0.4s
+[reduce:p6] R6 平面 0.4s
+[check:vol_t02:ok] SINGLE==max(PB,QC) 偏差 0.00e0
+[check:cnt_t05:ok] GSH 对称偏差 0.000000
+[check:cov] GSH 上三角有限率 100.000%
+[check:cnt_t05:ok] GCOV 长度 26081449 != 26081449
+[reduce:p6] R6 平面 0.6s
+[check:cnt_t05:ok] GCOV 对称偏差 0.000000
+[check:cov] GCOV 上三角有限率 100.000%
+[check:cnt_t05:ok] GNPOS 长度 26081449 != 26081449
+[check:cnt_t05:ok] GNPOS 对称偏差 0.000000
+[check:cov] GNPOS 上三角有限率 100.000%
+[check:cnt_t05:ok] GHHI 长度 26081449 != 26081449
+[check:cnt_t05:ok] GHHI 对称偏差 0.000000
+[check:cov] GHHI 上三角有限率 100.000%
+[check:cnt_t05:ok] PB 长度 26081449 != 26081449
+[check:vol_t02:ok] SINGLE_S==max(PBS,QCS) 偏差 0.00e0
+[reduce:p7] R1 第一路 0.2s
+[check:vol_t02:ok] RHO_U==SINGLE+G 偏差 2.98e-8
+[reduce:p10] 空模型对照 0.3s
+[check:cnt_t05:ok] PB 对称偏差 0.000000
+[check:cov] PB 上三角有限率 100.000%
+[check:cnt_t05:ok] QC 长度 26081449 != 26081449
+[reduce:p10] 空模型对照 0.3s
+[reduce:p10] 空模型对照 0.2s
+[check:vol_t02:ok] EXZ 条件标准化 mean=0.0000 std=1.0000（期望≈0/1）
+[check:vol_t02:ok] EXZS 条件标准化 mean=0.0000 std=1.0000（期望≈0/1）
+[check:cov] MASS[emass] sum=1.0000 非零 5107/5107 min=1.12e-5
+[check:cov] MASS[gmass] sum=0.0048 非零 5107/5107 min=-2.71e-6
+[check:cov] MASS[g2mass] sum=0.0001 非零 5107/5107 min=2.46e-10
+[check:cov] MASS[smass] sum=1.0000 非零 5107/5107 min=5.30e-6
+[check:cov] MASS[sgmass] sum=0.0084 非零 5107/5107 min=3.35e-9
+[check:cov] MASS[sg2mass] sum=0.0001 非零 5107/5107 min=6.00e-12
+[check:vol_t02:ok] emass/smass 归一和 1.0000/1.0000（期望≈1）
+[check:vol_t02:ok] emass/smass/g2mass/sg2mass 存在负值
+[check:vol_t02:ok] rho 对角偏差 0.00e0
+[check:vol_t02:ok] X0 非法格数 0
+[reduce:p8] R1 第二路 0.2s
+[check:vol_t02:ok] X0STAR 非法格数 0
+[check:vol_t02] 全部硬检查通过
+[reduce:p10] 空模型对照 0.4s
+[check:cnt_t05:ok] QC 对称偏差 0.000000
+[reduce:p5] R5 四路残差回归合并 0.5s
+[check:cov] QC 上三角有限率 100.000%
+[check:cnt_t05:ok] PBS 长度 26081449 != 26081449
+[check:cnt_t05:ok] PBS 对称偏差 0.000000
+[check:cov] PBS 上三角有限率 100.000%
+[check:cnt_t05:ok] QCS 长度 26081449 != 26081449
+[reduce2:A] 行统计 21×16 4.2s
+[reduce:p6] R6 平面 0.3s
+[reduce:p7] R1 第一路 0.2s
+[reduce:p10] 空模型对照 0.3s
+[reduce:p8] R1 第二路 0.2s
+[reduce2:B] explain 扩展 3.1s
+[reduce2:C] bestcomp 剖面 0.0s
+[reduce2:A] 行统计 21×16 3.8s
+[reduce2:B] explain 扩展 0.1s
+[reduce2:C] bestcomp 剖面 0.0s
+[reduce:p2+D] 合并配对扫描（best + top-50）3.2s
+[reduce:p9] R2 三分解 3.2s
+[reduce2:G] 残差扩展 5.0s
+[check:cnt_t05:ok] QCS 对称偏差 0.000000
+[check:cov] QCS 上三角有限率 100.000%
+[check:cnt_t05:ok] EXZ 长度 26081449 != 26081449
+[reduce:p3] R3 贪心 16 步（含8步+16步合并）0.1s
+[reduce:p2+D] 合并配对扫描（best + top-50）4.0s
+[reduce:p9] R2 三分解 4.0s
+[check:cnt_t05:ok] EXZ 对称偏差 0.000000
+[check:cov] EXZ 上三角有限率 100.000%
+[check:cnt_t05:ok] EXZS 长度 26081449 != 26081449
+[reduce:p3] R3 贪心 16 步（含8步+16步合并）0.1s
+[reduce:p4] R4 图对照 0.4s
+[check:cnt_t05:ok] EXZS 对称偏差 0.000000
+[check:cov] EXZS 上三角有限率 100.000%
+[check:cnt_t05:ok] rho 长度 26081449 != 26081449
+[reduce2:A] 行统计 21×16 8.3s
+[reduce:p4] R4 图对照 0.3s
+[check:cnt_t05:ok] rho 对称偏差 0.000000
+[check:cov] rho 上三角有限率 100.000%
+[check:cnt_t05:ok] SINGLE==max(PB,QC) 偏差 0.00e0
+[check:cnt_t05:ok] SINGLE_S==max(PBS,QCS) 偏差 0.00e0
+[reduce2:A] 行统计 21×16 8.3s
+[check:cnt_t05:ok] RHO_U==SINGLE+G 偏差 2.98e-8
+[check:cnt_t05:ok] EXZ 条件标准化 mean=-0.0000 std=1.0000（期望≈0/1）
+[check:cnt_t05:ok] EXZS 条件标准化 mean=0.0000 std=1.0000（期望≈0/1）
+[check:cov] MASS[emass] sum=1.0000 非零 5107/5107 min=1.96e-5
+[check:cov] MASS[gmass] sum=0.0128 非零 5107/5107 min=-1.87e-6
+[check:cov] MASS[g2mass] sum=0.0004 非零 5107/5107 min=3.79e-10
+[check:cov] MASS[smass] sum=1.0000 非零 5107/5107 min=1.47e-5
+[check:cov] MASS[sgmass] sum=0.0176 非零 5107/5107 min=2.65e-8
+[check:cov] MASS[sg2mass] sum=0.0004 非零 5107/5107 min=7.54e-11
+[check:cnt_t05:ok] emass/smass 归一和 1.0000/1.0000（期望≈1）
+[check:cnt_t05:ok] emass/smass/g2mass/sg2mass 存在负值
+[check:cnt_t05:ok] rho 对角偏差 0.00e0
+[check:cnt_t05:ok] X0 非法格数 0
+[check:cnt_t05:ok] X0STAR 非法格数 0
+[check:cnt_t05] 全部硬检查通过
+[reduce2:B] explain 扩展 0.8s
+[reduce:p5] R5 四路残差回归合并 0.8s
+[reduce2:C] bestcomp 剖面 0.1s
+[reduce:p5] R5 四路残差回归合并 0.7s
+[reduce2:A] 行统计 21×16 8.8s
+[reduce2:H] 平面扩展 1.3s
+[reduce2] 扩展块总 7.9s
+[yupei_pair:vol_t1] 629 因子块完成（活跃 5107/5107）
+[reduce:p7] R1 第一路 0.1s
+[reduce:p6] R6 平面 0.4s
+[reduce2:A] 行统计 21×16 6.5s
+[reduce2:B] explain 扩展 0.9s
+[reduce:p8] R1 第二路 0.2s
+[reduce:p10] 空模型对照 0.3s
+[reduce2:F] 图扩展 1.3s
+[reduce2:B] explain 扩展 1.7s
+[reduce2:G] 残差扩展 0.3s
+[reduce2:C] bestcomp 剖面 0.1s
+[reduce2:A] 行统计 21×16 7.1s
+[reduce2:B] explain 扩展 0.2s
+[reduce2:A] 行统计 21×16 7.2s
+[reduce2:C] bestcomp 剖面 0.0s
+[reduce:p2+D] 合并配对扫描（best + top-50）1.6s
+[reduce:p9] R2 三分解 1.6s
+[reduce:p3] R3 贪心 16 步（含8步+16步合并）0.1s
+[reduce2:B] explain 扩展 1.9s
+[reduce:p6] R6 平面 2.3s
+[reduce2:B] explain 扩展 0.4s
+[reduce2:A] 行统计 21×16 8.0s
+[reduce2:C] bestcomp 剖面 0.1s
+[reduce:p4] R4 图对照 0.1s
+[reduce2:H] 平面扩展 0.8s
+[reduce2] 扩展块总 11.7s
+[yupei_pair:vol_t30] 629 因子块完成（活跃 5107/5107）
+[reduce:p10] 空模型对照 0.2s
+[reduce2:C] bestcomp 剖面 2.1s
+[reduce:p5] R5 四路残差回归合并 0.3s
+[reduce2:C] bestcomp 剖面 0.4s
+[reduce2:A] 行统计 21×16 7.4s
+[reduce2:B] explain 扩展 0.6s
+[reduce2:A] 行统计 21×16 8.3s
+[reduce2:C] bestcomp 剖面 0.2s
+[reduce:p6] R6 平面 0.4s
+[reduce2:B] explain 扩展 0.4s
+[reduce2:B] explain 扩展 0.3s
+[reduce2:C] bestcomp 剖面 0.1s
+[reduce:p10] 空模型对照 0.3s
+[reduce2:C] bestcomp 剖面 0.1s
+[reduce2:A] 行统计 21×16 2.9s
+[reduce2:A] 行统计 21×16 1.1s
+[reduce2:B] explain 扩展 0.2s
+[reduce2:C] bestcomp 剖面 0.0s
+[reduce2:B] explain 扩展 0.3s
+[reduce2:C] bestcomp 剖面 0.1s
+[reduce2:F] 图扩展 2.3s
+[reduce2:F] 图扩展 6.0s
+[reduce2:A] 行统计 21×16 0.8s
+[reduce2:G] 残差扩展 0.3s
+[reduce2:G] 残差扩展 0.4s
+[reduce2:F] 图扩展 2.4s
+[reduce2:B] explain 扩展 0.3s
+[reduce2:C] bestcomp 剖面 0.1s
+[reduce2:G] 残差扩展 0.3s
+[reduce2:F] 图扩展 6.2s
+[reduce2:G] 残差扩展 0.4s
+[reduce2:H] 平面扩展 0.8s
+[reduce2] 扩展块总 14.5s
+[yupei_pair:cnt_t02] 629 因子块完成（活跃 5107/5107）
+[reduce2:F] 图扩展 2.3s
+[reduce2:H] 平面扩展 1.2s
+[reduce2] 扩展块总 14.3s
+[yupei_pair:cnt_t3] 629 因子块完成（活跃 5107/5107）
+[reduce2:F] 图扩展 2.7s
+[reduce2:H] 平面扩展 1.0s
+[reduce2] 扩展块总 11.1s
+[yupei_pair:cnt_t005] 629 因子块完成（活跃 5107/5107）
+[reduce2:F] 图扩展 1.8s
+[reduce2:F] 图扩展 2.5s
+[reduce2:H] 平面扩展 0.8s
+[reduce2] 扩展块总 11.3s
+[yupei_pair:cnt_t1] 629 因子块完成（活跃 5107/5107）
+[reduce2:G] 残差扩展 0.6s
+[reduce2:F] 图扩展 3.7s
+[reduce2:G] 残差扩展 0.8s
+[reduce2:F] 图扩展 3.6s
+[reduce2:G] 残差扩展 0.5s
+[reduce2:F] 图扩展 3.0s
+[reduce2:G] 残差扩展 1.0s
+[reduce2:H] 平面扩展 1.1s
+[reduce2] 扩展块总 12.9s
+[yupei_pair:cnt_t5] 629 因子块完成（活跃 5107/5107）
+[reduce2:G] 残差扩展 0.8s
+[reduce2:G] 残差扩展 0.8s
+[reduce2:G] 残差扩展 1.2s
+[reduce2:F] 图扩展 3.3s
+[reduce2:H] 平面扩展 0.9s
+[reduce2] 扩展块总 11.9s
+[yupei_pair:vol_t3] 629 因子块完成（活跃 5107/5107）
+[reduce2:F] 图扩展 2.9s
+[reduce2:H] 平面扩展 1.4s
+[reduce2] 扩展块总 5.7s
+[yupei_pair:vol_t05] 629 因子块完成（活跃 5107/5107）
+[reduce2:H] 平面扩展 2.0s
+[reduce2] 扩展块总 17.1s
+[yupei_pair:cnt_t01] 629 因子块完成（活跃 5107/5107）
+[reduce2:G] 残差扩展 1.2s
+[reduce2:G] 残差扩展 1.0s
+[reduce2:H] 平面扩展 1.6s
+[reduce2] 扩展块总 14.3s
+[reduce2:H] 平面扩展 1.6s
+[reduce2] 扩展块总 14.1s
+[yupei_pair:cnt_t30] 629 因子块完成（活跃 5107/5107）
+[reduce2:H] 平面扩展 1.6s
+[reduce2] 扩展块总 15.1s
+[yupei_pair:vol_t5] 629 因子块完成（活跃 5107/5107）
+[yupei_pair:cnt_t10] 629 因子块完成（活跃 5107/5107）
+[reduce2:H] 平面扩展 1.1s
+[reduce2] 扩展块总 6.3s
+[yupei_pair:cnt_t05] 629 因子块完成（活跃 5107/5107）
+[reduce2:H] 平面扩展 1.3s
+[reduce2] 扩展块总 9.2s
+[yupei_pair:vol_t02] 629 因子块完成（活跃 5107/5107）
+[yupei_pair] 完成：5107 股票 × 9435 因子，总 95.7s
+{"module": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_pair_next/package/rust_pyfunc/rust_pyfunc.abi3.so", "threads": 50, "date": 20241231, "mats": null, "sha256": "a1566c976cd7b9f92511cb13b311123f8dc461bd02fa25f511e42d695d708ebe", "load_before": [45.30322265625, 49.58544921875, 36.689453125], "seconds": 97.3231961093843, "load_after": [48.61767578125, 50.20068359375, 38.265625], "peak_rss_kib": 50659724}
