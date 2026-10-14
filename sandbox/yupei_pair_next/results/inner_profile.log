@@ -1,0 +1,108 @@
+[yupei_pair] date=20241231 universe n=5107，矩阵 9 张
+[inner-profile:cnt_t1] hg/select/absorb/mass sampled_ns=[626712446, 3732815003, 906677998, 525679438]
+[net:cnt_t1] 有效配对 13038171（自能量非正 0），扫描 12.7s
+[net:cnt_t1] 空模型 0.4s（55 层有效）
+[net:cnt_t1] 空模型 19996 抽样, G mean=0.0277 std=0.0345; (p,q) 条件化 0.6s
+[check:cnt_t1:ok] G 长度 26081449 != 26081449
+[check:cnt_t1:ok] G 对称偏差 0.000000
+[check:cov] G 上三角有限率 100.000%
+[check:cnt_t1:ok] RHO_U 长度 26081449 != 26081449
+[check:cnt_t1:ok] RHO_U 对称偏差 0.000000
+[check:cov] RHO_U 上三角有限率 100.000%
+[check:cnt_t1:ok] SINGLE 长度 26081449 != 26081449
+[check:cnt_t1:ok] SINGLE 对称偏差 0.000000
+[check:cov] SINGLE 上三角有限率 100.000%
+[check:cnt_t1:ok] X0 长度 26081449 != 26081449
+[check:cnt_t1:ok] X0 对称偏差 0.000000
+[check:cov] X0 上三角有限率 100.000%
+[check:cnt_t1:ok] Z 长度 26081449 != 26081449
+[check:cnt_t1:ok] Z 对称偏差 0.000000
+[check:cov] Z 上三角有限率 100.000%
+[check:cnt_t1:ok] GSTAR 长度 26081449 != 26081449
+[check:cnt_t1:ok] GSTAR 对称偏差 0.000000
+[check:cov] GSTAR 上三角有限率 100.000%
+[check:cnt_t1:ok] RHO_US 长度 26081449 != 26081449
+[check:cnt_t1:ok] RHO_US 对称偏差 0.000000
+[check:cov] RHO_US 上三角有限率 100.000%
+[check:cnt_t1:ok] SINGLE_S 长度 26081449 != 26081449
+[check:cnt_t1:ok] SINGLE_S 对称偏差 0.000000
+[check:cov] SINGLE_S 上三角有限率 100.000%
+[check:cnt_t1:ok] X0STAR 长度 26081449 != 26081449
+[check:cnt_t1:ok] X0STAR 对称偏差 0.000000
+[check:cov] X0STAR 上三角有限率 100.000%
+[check:cnt_t1:ok] ZS 长度 26081449 != 26081449
+[check:cnt_t1:ok] ZS 对称偏差 0.000000
+[check:cov] ZS 上三角有限率 100.000%
+[check:cnt_t1:ok] GREL 长度 26081449 != 26081449
+[check:cnt_t1:ok] GREL 对称偏差 0.000000
+[check:cov] GREL 上三角有限率 100.000%
+[check:cnt_t1:ok] GSH 长度 26081449 != 26081449
+[check:cnt_t1:ok] GSH 对称偏差 0.000000
+[check:cov] GSH 上三角有限率 100.000%
+[check:cnt_t1:ok] GCOV 长度 26081449 != 26081449
+[check:cnt_t1:ok] GCOV 对称偏差 0.000000
+[check:cov] GCOV 上三角有限率 100.000%
+[check:cnt_t1:ok] GNPOS 长度 26081449 != 26081449
+[check:cnt_t1:ok] GNPOS 对称偏差 0.000000
+[check:cov] GNPOS 上三角有限率 100.000%
+[check:cnt_t1:ok] GHHI 长度 26081449 != 26081449
+[check:cnt_t1:ok] GHHI 对称偏差 0.000000
+[check:cov] GHHI 上三角有限率 100.000%
+[check:cnt_t1:ok] PB 长度 26081449 != 26081449
+[check:cnt_t1:ok] PB 对称偏差 0.000000
+[check:cov] PB 上三角有限率 100.000%
+[check:cnt_t1:ok] QC 长度 26081449 != 26081449
+[check:cnt_t1:ok] QC 对称偏差 0.000000
+[check:cov] QC 上三角有限率 100.000%
+[check:cnt_t1:ok] PBS 长度 26081449 != 26081449
+[check:cnt_t1:ok] PBS 对称偏差 0.000000
+[check:cov] PBS 上三角有限率 100.000%
+[check:cnt_t1:ok] QCS 长度 26081449 != 26081449
+[check:cnt_t1:ok] QCS 对称偏差 0.000000
+[check:cov] QCS 上三角有限率 100.000%
+[check:cnt_t1:ok] EXZ 长度 26081449 != 26081449
+[check:cnt_t1:ok] EXZ 对称偏差 0.000000
+[check:cov] EXZ 上三角有限率 100.000%
+[check:cnt_t1:ok] EXZS 长度 26081449 != 26081449
+[check:cnt_t1:ok] EXZS 对称偏差 0.000000
+[check:cov] EXZS 上三角有限率 100.000%
+[check:cnt_t1:ok] rho 长度 26081449 != 26081449
+[check:cnt_t1:ok] rho 对称偏差 0.000000
+[check:cov] rho 上三角有限率 100.000%
+[check:cnt_t1:ok] SINGLE==max(PB,QC) 偏差 0.00e0
+[check:cnt_t1:ok] SINGLE_S==max(PBS,QCS) 偏差 0.00e0
+[check:cnt_t1:ok] RHO_U==SINGLE+G 偏差 2.98e-8
+[check:cnt_t1:ok] EXZ 条件标准化 mean=-0.0000 std=1.0000（期望≈0/1）
+[check:cnt_t1:ok] EXZS 条件标准化 mean=-0.0000 std=1.0000（期望≈0/1）
+[check:cov] MASS[emass] sum=1.0000 非零 5107/5107 min=2.20e-5
+[check:cov] MASS[gmass] sum=0.0179 非零 5107/5107 min=-1.65e-6
+[check:cov] MASS[g2mass] sum=0.0008 非零 5107/5107 min=6.90e-10
+[check:cov] MASS[smass] sum=1.0000 非零 5107/5107 min=2.19e-5
+[check:cov] MASS[sgmass] sum=0.0245 非零 5107/5107 min=5.95e-8
+[check:cov] MASS[sg2mass] sum=0.0008 非零 5107/5107 min=2.36e-10
+[check:cnt_t1:ok] emass/smass 归一和 1.0000/1.0000（期望≈1）
+[check:cnt_t1:ok] emass/smass/g2mass/sg2mass 存在负值
+[check:cnt_t1:ok] rho 对角偏差 0.00e0
+[check:cnt_t1:ok] X0 非法格数 0
+[check:cnt_t1:ok] X0STAR 非法格数 0
+[check:cnt_t1] 全部硬检查通过
+[reduce:p7] R1 第一路 0.1s
+[reduce:p8] R1 第二路 0.1s
+[reduce:p2+D] 合并配对扫描（best + top-50）2.4s
+[reduce:p9] R2 三分解 2.4s
+[reduce:p3] R3 贪心 16 步（含8步+16步合并）0.1s
+[reduce:p4] R4 图对照 0.1s
+[reduce:p5] R5 四路残差回归合并 0.2s
+[reduce:p6] R6 平面 0.2s
+[reduce:p10] 空模型对照 0.2s
+[reduce2:A] 行统计 21×16 0.4s
+[reduce2:B] explain 扩展 0.1s
+[reduce2:C] bestcomp 剖面 0.0s
+[reduce2:F] 图扩展 0.5s
+[reduce2:G] 残差扩展 0.3s
+[reduce2:H] 平面扩展 0.6s
+[reduce2] 扩展块总 2.1s
+[yupei_pair:cnt_t1] 701 因子块完成（活跃 5107/5107）
+[yupei_pair] 完成：5107 股票 × 701 因子，总 48.1s
+seconds 48.17466110177338
+bit_differences 0

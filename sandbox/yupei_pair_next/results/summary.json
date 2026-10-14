@@ -1,0 +1,14 @@
+{
+  "baseline_mean_seconds": 234.90539467614144,
+  "optimized_mean_seconds": 222.41071874462068,
+  "saved_seconds": 12.49467593152076,
+  "reduction": 0.05319024685979168,
+  "shape": [
+    5107,
+    10515
+  ],
+  "bit_differences": 0,
+  "threads": 50,
+  "date": 20241231,
+  "production_deployed": false
+}

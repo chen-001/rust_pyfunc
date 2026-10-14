@@ -1,0 +1,26 @@
+{
+  "module": "/home/chenzongwei/rust_pyfunc/perf_sandbox/yp_pkg_v9/rust_pyfunc/rust_pyfunc.abi3.so",
+  "threads": 50,
+  "date": 20241231,
+  "mats": null,
+  "sha256": "d490bb75a262215c5eac513fc32bef9b2f3ff30850e2a26002bab0d27b773312",
+  "load_before": [
+    32.8720703125,
+    38.6904296875,
+    28.4580078125
+  ],
+  "seconds": 233.26797880791128,
+  "load_after": [
+    49.37548828125,
+    45.78466796875,
+    33.69677734375
+  ],
+  "peak_rss_kib": 63561716,
+  "order_equal": true,
+  "bit_differences": 0,
+  "nan_mismatches": 0,
+  "shape": [
+    5107,
+    10515
+  ]
+}
