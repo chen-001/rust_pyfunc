@@ -2415,3 +2415,47 @@ def batch_factor_neutralization_ultimate_optimized(
     这是所有优化版本的集大成者，智能、高效、稳定，适合所有生产环境使用！
     """
     ...
+
+
+def tlq_gate_rank_pct_rows(
+    matrix: NDArray[np.float64],
+) -> NDArray[np.float64]:
+    """对 (T × N) 矩阵逐行做 rank pct（pandas rank(axis=1, pct=True) 语义）。
+
+    用于 tail_pipeline_engine 的 TLQ 淘汰环节：size 与 10 个 Barra 的排名与因子无关，
+    只算一次，多个因子共用。
+    """
+    ...
+
+
+def tlq_gate_interleave_styles(
+    styles: list[NDArray[np.float64]],
+    n_stocks: int,
+) -> NDArray[np.float64]:
+    """把 k 张 (T × N) 矩阵交错成 (T × N*k) 行主序块，供回测逐行取用。"""
+    ...
+
+
+def tlq_gate_base_resid(
+    factor: NDArray[np.float64],
+    log_exret: NDArray[np.float64],
+    restrict: NDArray[np.float64],
+    industry: NDArray[np.float64],
+    barra_ranked: NDArray[np.float64],
+    n_styles: int,
+    size_ranked: NDArray[np.float64],
+    week_first: NDArray[np.int32],
+    group_from: int,
+    group_to: int,
+    curve_points: int = 160,
+) -> tuple:
+    """一个因子的 base_resid 与两套 TLQ（时序分层质量）。
+
+    流程：rank pct → 行业回归填充（基准 size）→ 行业中位填充 → 限制股置空 → rank pct
+          → Barra 线性中性化取残差 → rank pct → 十分组（自然周再平衡、组内等权）
+          → 十组日收益 → 累计曲线 → 两套 TLQ。
+
+    返回 (水位口径 TLQ, 分段口径 TLQ, 十组日收益, 160 点采样曲线, 每段明细)。
+    分段口径读相邻采样点之间的增量（159 段），是 tail_pipeline_engine 淘汰因子用的那套。
+    """
+    ...

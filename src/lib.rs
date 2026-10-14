@@ -87,6 +87,7 @@ pub mod tail_backtest_engine;
 pub mod tail_v2_backtest_block;
 pub mod tail_v2_block_neutralizer;
 pub mod tail_v2_ic_corr_filter;
+pub mod tlq_gate;
 pub mod tail_rank_fill_roll;
 pub mod tail_v2_rank_roll_factor;
 pub mod tail_v4_fulltest_rust;
@@ -635,6 +636,9 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         tail_v2_ic_corr_filter::tail_v2_select_by_ic_corr_f32,
         m
     )?);
+    let _ = m.add_function(wrap_pyfunction!(tlq_gate::tlq_gate_base_resid, m)?);
+    let _ = m.add_function(wrap_pyfunction!(tlq_gate::tlq_gate_rank_pct_rows, m)?);
+    let _ = m.add_function(wrap_pyfunction!(tlq_gate::tlq_gate_interleave_styles, m)?);
     let _ = m.add_function(wrap_pyfunction!(
         tail_v4_pipeline::tail_v4_run_candidates,
         m

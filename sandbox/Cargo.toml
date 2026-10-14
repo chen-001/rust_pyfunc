@@ -12,6 +12,7 @@ pyo3 = { version = "0.18", features = ["extension-module"] }
 numpy = "0.18"
 ndarray = "0.15"
 nalgebra = "0.32"
+rayon = "1"
 
 # dev 模式也开启基础优化，避免无优化下排序/矩阵操作失真影响测速对比
 [profile.dev]

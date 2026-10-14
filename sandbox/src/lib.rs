@@ -1,3 +1,5 @@
+mod tlq;
+
 use ndarray::Array2;
 use numpy::{IntoPyArray, PyReadonlyArray2, PyReadonlyArray3, PyArray2, PyArray3};
 use pyo3::prelude::*;
@@ -895,6 +897,9 @@ pub fn sandbox_autocorr_f32<'py>(
 #[pymodule]
 fn dev_sandbox(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(sandbox_autocorr_f32, m)?)?;
+    m.add_function(wrap_pyfunction!(tlq::sandbox_tlq_base_resid, m)?)?;
+    m.add_function(wrap_pyfunction!(tlq::sandbox_rank_pct_rows, m)?)?;
+    m.add_function(wrap_pyfunction!(tlq::sandbox_interleave_styles, m)?)?;
     m.add_function(wrap_pyfunction!(sandbox_ic_old, m)?)?;
     m.add_function(wrap_pyfunction!(sandbox_ic_new, m)?)?;
     m.add_function(wrap_pyfunction!(sandbox_ic_pearson_old, m)?)?;
