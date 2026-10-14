@@ -6,3 +6,7 @@
 !/src/yupei_pair/
 /src/yupei_pair/*
 !/src/yupei_pair/bitonic_sort.rs
+
+/package_layout_base/
+/package_heap_only/
+!/src/yupei_pair/topk_heap.rs

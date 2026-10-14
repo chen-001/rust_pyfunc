@@ -1,0 +1,184 @@
+--- a/src/yupei_pair/mod.rs
++++ b/src/yupei_pair/mod.rs
+@@ -22,6 +22,7 @@
+ //!   # vals 行主序 len(codes) × len(names)，reshape 成 DataFrame 即可
+ 
+ pub(crate) mod bitonic_sort;
++pub(crate) mod topk_heap;
+ pub(crate) mod check;
+ pub(crate) mod net;
+ pub(crate) mod reduce;
+--- a/src/yupei_pair/reduce2.rs
++++ b/src/yupei_pair/reduce2.rs
+@@ -559,7 +559,7 @@
+         Vec<f32>,
+         Vec<i32>,
+         Vec<i32>,
+-        Vec<Vec<(f32, i32, i32)>>,
++        super::topk_heap::FlatTop,
+         Vec<i64>,
+     );
+     let blocks: Vec<BlkOut> = (0..nblk)
+@@ -570,7 +570,7 @@
+             let mut blk_best = vec![f32::NEG_INFINITY; n];
+             let mut blk_bi = vec![-1i32; n];
+             let mut blk_ci = vec![-1i32; n];
+-            let mut top: Vec<Vec<(f32, i32, i32)>> = vec![Vec::new(); n];
++            let mut top = super::topk_heap::FlatTop::new(n, kmax);
+             let mut tmin = vec![f32::NEG_INFINITY; n];
+             let mut beat32 = vec![0i32; n];
+             let mut hits: Vec<u32> = Vec::with_capacity(256);
+@@ -609,33 +609,13 @@
+                             blk_bi[x] = b as i32;
+                             blk_ci[x] = c as i32;
+                         }
+-                        let tl = &mut top[x];
+-                        if tl.len() < kmax {
+-                            tl.push((vx, b as i32, c as i32));
+-                        } else {
+-                            let mut mv = f32::INFINITY;
+-                            let mut last = 0usize;
+-                            for (t, e) in tl.iter().enumerate() {
+-                                if e.0 <= mv {
+-                                    mv = e.0;
+-                                    last = t;
+-                                }
+-                            }
+-                            tl.remove(last);
+-                            tl.push((vx, b as i32, c as i32));
+-                        }
+-                        tmin[x] = if tl.len() < kmax {
+-                            f32::NEG_INFINITY
+-                        } else {
+-                            tl.iter().map(|e| e.0).fold(f32::INFINITY, f32::min)
+-                        };
++                        top.push(x, (vx, b as i32, c as i32));
++                        tmin[x] = top.threshold(x);
+                     }
+                     a[c] = saved;
+                 }
+             }
+-            for tl in top.iter_mut() {
+-                tl.sort_by(|u, vv| vv.0.partial_cmp(&u.0).unwrap());
+-            }
++            top.sort_rows();
+             let beat: Vec<i64> = beat32.iter().map(|&v| v as i64).collect();
+             (blk_best, blk_bi, blk_ci, top, beat)
+         })
+@@ -646,6 +626,7 @@
+     let mut ci = vec![-1i32; n];
+     let mut top: Vec<Vec<(f32, i32, i32)>> = vec![Vec::new(); n];
+     let mut beat = vec![0i64; n];
++    let mut merge_buf = Vec::with_capacity(kmax);
+     for (b_best, b_bi, b_ci, bt, bb) in blocks.iter() {
+         for x in 0..n {
+             if ok[x] && b_best[x] > best[x] {
+@@ -654,18 +635,26 @@
+                 ci[x] = b_ci[x];
+             }
+             beat[x] += bb[x];
++            let incoming = bt.row(x);
++            if incoming.is_empty() { continue; }
+             let tl = &mut top[x];
+-            if tl.len() + bt[x].len() <= kmax {
+-                tl.extend_from_slice(&bt[x]);
+-            } else {
+-                tl.extend_from_slice(&bt[x]);
+-                tl.sort_by(|u, vv| vv.0.partial_cmp(&u.0).unwrap());
+-                tl.truncate(kmax);
+-            }
+-        }
+-    }
+-    for x in 0..n {
+-        top[x].sort_by(|u, vv| vv.0.partial_cmp(&u.0).unwrap());
++            // Both lists are sorted. Equal scores retain earlier blocks first,
++            // exactly as the old stable sort of concatenate(old, incoming).
++            if tl.is_empty() {
++                tl.extend_from_slice(&incoming[..incoming.len().min(kmax)]);
++                continue;
++            }
++            merge_buf.clear();
++            let (mut i, mut j) = (0, 0);
++            while merge_buf.len() < kmax && (i < tl.len() || j < incoming.len()) {
++                if j == incoming.len() || (i < tl.len() && tl[i].0 >= incoming[j].0) {
++                    merge_buf.push(tl[i]); i += 1;
++                } else {
++                    merge_buf.push(incoming[j]); j += 1;
++                }
++            }
++            std::mem::swap(tl, &mut merge_buf);
++        }
+     }
+     eprintln!(
+         "[reduce:p2+D] 合并配对扫描（best + top-{kmax}）{:.1}s",
+--- a/src/yupei_dist/matrix_stage.rs
++++ b/src/yupei_dist/matrix_stage.rs
+@@ -841,6 +841,15 @@
+ 
+ /// pack 宽度（A-major [a][64]）
+ const PACK_W: usize = 64;
++// Compact only the specialized families; generic/scalar paths retain the full layout.
++const fn pack_width(need: u8) -> usize {
++    if cfg!(target_arch = "x86_64") {
++        if need == FAM_CNT { return 16; }
++        if need == FAM_VOL || need == (FAM_CNT | FAM_VOL) { return 24; }
++    }
++    PACK_W
++}
++
+ /// gp 槽步长（每桶 56 槽）
+ const GP_STRIDE: usize = 56;
+ 
+@@ -1241,7 +1250,7 @@
+             if ca == 0 {
+                 continue;
+             }
+-            let base = a * PACK_W;
++            let base = a * pack_width(NEED);
+             unsafe {
+                 let ca0 = offs[a];
+                 let mut j0 = 0usize;
+@@ -1493,6 +1502,7 @@
+     // TILE=1; pack 块对齐 [a][64]: 7 块 × 8 通道（cnt×2, vol, logvol, flow, urg, ext）,
+     // 块内通道 0..len-1 对应矩阵场; gp 场 [k][37] 按场索引连续（块内非对齐 ymm 加载）。
+     let ntiles = n;
++    let pack_w = pack_width(need);
+     // 块配置: (场起始, 长度, u+ 场, u− 场, signed)
+     // 场索引: cnt 0..9, vol 9..15, logvol 15..19, flow 19..27(±交替), urg 27..33, ext 33..37
+     const BLOCKS: [(usize, usize, usize, usize, bool); 7] = [
+@@ -1526,7 +1536,7 @@
+     }
+     let packs: Vec<std::sync::Mutex<Vec<f32>>> = (0..ntiles)
+         .into_par_iter()
+-        .map(|_| std::sync::Mutex::new(vec![0.0f32; n * PACK_W + 56]))
++        .map(|_| std::sync::Mutex::new(vec![0.0f32; n * pack_w + 56]))
+         .collect();
+ 
+     for block in 0..N_BLOCKS {
+@@ -1571,7 +1581,7 @@
+         let gfields = &gfields;
+         (0..ntiles).into_par_iter().for_each(|b| {
+             let mut g = packs[b].lock().unwrap();
+-            let (pack, acc_mem) = g.split_at_mut(n * PACK_W);
++            let (pack, acc_mem) = g.split_at_mut(n * pack_w);
+             TL_GP.with(|tl| {
+                 let mut gp_borrow = tl.borrow_mut();
+                 let gp = gp_borrow.as_mut_slice();
+@@ -1629,7 +1639,7 @@
+     let mats_raw: Vec<MatPtr> = mats.iter_mut().map(|v| MatPtr(v.as_mut_ptr())).collect();
+     (0..ntiles).into_par_iter().for_each(|b| {
+         let g = packs[b].lock().unwrap();
+-        let pack = &g[..n * PACK_W];
++        let pack = &g[..n * pack_w];
+         for m in 0..nm {
+             // 不被请求的家族不写回：省掉 22 张（约 2.3 GB）的写流量
+             if need & (1u8 << MATRIX_SPECS[m].family) == 0 {
+@@ -1639,7 +1649,7 @@
+             let ptr = mats_raw[m].0;
+             for a in 0..n {
+                 unsafe {
+-                    *ptr.add(a * n + b) = pack[a * PACK_W + ch];
++                    *ptr.add(a * n + b) = pack[a * pack_w + ch];
+                 }
+             }
+         }

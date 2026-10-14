@@ -15,6 +15,6 @@
   "src/yupei_pair/net.rs": "543a34ec4548260d9cd43e8d390ef269da7748672f6e9600f4ad6205c4d75059",
   "src/yupei_pair/reduce.rs": "f62ee3579a9ee33d366249f23ba0a65d431fc77c0b4c1a7374b30bd8dda6cd03",
   "src/yupei_pair/reduce2.rs": "8a3a7e71c5cde9fbdc264297714845ad21442a61f8f9f1a920bd77a05d05f49c",
-  "src/yupei_pair/simd.rs": "51b45439aa4f25a5e69c1fae5e6e7c5bc282431c42c8d2999e79f37460590544",
+  "src/yupei_pair/simd.rs": "ffc8c8218eb255c9a1b6f7bb235d4b586528a9e751c1f0c7f0be2f52634fe3c9",
   "src/yupei_pair/topk.rs": "ee7dd683ba5fe90fb6fa2af4c37f8ac43a37cc4292f467e19765f8e6e2dd46b2"
 }
