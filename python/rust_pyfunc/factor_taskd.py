@@ -40,6 +40,11 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+if __package__:
+    from . import compute_terminal
+else:
+    import compute_terminal
+
 # ── 配置 ──────────────────────────────────────────────
 DEFAULT_DB_PATH = os.path.expanduser("~/.factor_taskd/tasks.db")
 DEFAULT_HOST = "127.0.0.1"
@@ -297,17 +302,22 @@ def _probe_rust_runtime(script_dir: str) -> dict:
     )
     fallback_worker = str(Path(__file__).resolve().with_name("rust_pyfunc_worker"))
     probed: dict = {"error": "rust_pyfunc 探测没跑起来"}
+    probe_facts: dict = {}
     try:
+        probe_cmd, probe_facts = compute_terminal.prepare_command([sys.executable, "-c", code])
         out = subprocess.run(
-            [sys.executable, "-c", code],
+            probe_cmd,
             cwd=script_dir,
             capture_output=True,
             text=True,
             timeout=60,
         )
         probed = json.loads(out.stdout.strip().splitlines()[-1])
-    except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+    except (OSError, RuntimeError, subprocess.SubprocessError, ValueError, IndexError):
         probed = {"error": "探测 rust_pyfunc 失败（超时或输出不可解析）"}
+    finally:
+        if probe_facts.get("scope"):
+            compute_terminal.stop_scope(probe_facts["scope"])
     return {
         "python": sys.executable,
         "pythonVersion": sys.version.split()[0],
@@ -448,7 +458,18 @@ def _run_task(
         )
         return
 
-    cmd = [sys.executable, script_path]
+    # 每个任务独立 scope，但全部共享 compute.slice 的总额度。未生效时禁止裸跑。
+    try:
+        scope = f"compute-task-{task_id}-{uuid.uuid4().hex}.scope"
+        result_dir = Path(_db_path).parent / "exits"
+        result_dir.mkdir(parents=True, exist_ok=True)
+        cmd, protection = compute_terminal.prepare_command(
+            [sys.executable, script_path],
+            unit=scope, result_path=str(result_dir / f"{scope}.json"),
+        )
+    except Exception as exc:
+        _fail_task(task_id, f"计算保护未就绪，拒绝启动：{exc}")
+        return
     env = os.environ.copy()
     # 通过环境变量传递 n_jobs，脚本读取后覆盖硬编码值
     env["FACTOR_N_JOBS"] = str(n_jobs)
@@ -460,6 +481,7 @@ def _run_task(
 
     run_env = _build_run_env(script_path, script_sha256, n_jobs, start_date, end_date)
     run_env["scriptSha256AtStart"] = script_sha256_now
+    run_env["computeProtection"] = protection
 
     # 探测解释器/worker 指纹要花几十到几百毫秒，这期间任务可能已被取消；再核一次状态
     if _task_status(task_id) != "running":
@@ -487,7 +509,7 @@ def _run_task(
                 stderr=subprocess.STDOUT,
                 env=env,
                 cwd=script_dir,
-                preexec_fn=os.setsid if hasattr(os, "setsid") else None,
+                start_new_session=True,
             )
         finally:
             os.close(log_fd)
@@ -499,8 +521,17 @@ def _run_task(
         # 更新 PID
         _update_task(task_id, pid=process.pid)
 
+        # 取消可能发生于 Popen / 登记 PID 的短窗口内；不能留下刚启动的孤儿 scope。
+        if _task_status(task_id) != "running":
+            compute_terminal.stop_scope(protection["scope"])
+            process.wait(timeout=10)
+            return
+
         process.wait()
         returncode = process.returncode
+        receipt = _compute_receipt(run_env)
+        if receipt is not None:
+            returncode = receipt
 
         # 检查是否被取消
         with _db_lock:
@@ -523,6 +554,8 @@ def _run_task(
         )
 
     except Exception as e:
+        if _task_status(task_id) == "cancelled":
+            return
         progress_snapshot = _read_progress(backup_prefix, task_id, script_dir)
         _update_task(
             task_id,
@@ -532,6 +565,11 @@ def _run_task(
             progress_snapshot=json.dumps(progress_snapshot) if progress_snapshot else None,
         )
     finally:
+        # 主程序结束后回收仍留在 scope 的子孙进程，防止后台计算无人管理。
+        try:
+            compute_terminal.stop_scope(protection["scope"])
+        except Exception as exc:
+            print(f"[计算保护] 清理任务 {task_id} 分组失败：{exc}", file=sys.stderr)
         with _active_pids_lock:
             _active_processes.pop(task_id, None)
 
@@ -573,11 +611,19 @@ def _queue_state() -> dict:
         pending = db.execute(
             "SELECT COUNT(*) FROM tasks WHERE status='pending'"
         ).fetchone()[0]
+        active_tasks = db.execute(
+            "SELECT id, name, pid, run_env FROM tasks WHERE status='running' AND pid > 0"
+        ).fetchall()
         db.close()
     return {
         "max_concurrent": _max_concurrent,
         "running": running,
         "pending": pending,
+        "compute": compute_terminal.status(),
+        "unprotected_running": [
+            {"id": row["id"], "name": row["name"]} for row in active_tasks
+            if not compute_terminal.task_is_protected(row["pid"], row["run_env"])
+        ],
     }
 
 
@@ -963,6 +1009,17 @@ def cancel_task(task_id: int):
     # 终止进程
     pid_from_db = row["pid"] if row and row["pid"] else 0
     script_path = row["script_path"] if row else ""
+    # 新任务按 scope 取消，覆盖 setsid 脱离进程组的 worker；旧任务保留 PID 核验回退。
+    try:
+        run_env = json.loads(row["run_env"] or "{}")
+    except (TypeError, json.JSONDecodeError):
+        run_env = {}
+    protection = run_env.get("computeProtection") or {}
+    if protection.get("scope"):
+        try:
+            compute_terminal.stop_scope(protection["scope"])
+        except Exception as exc:
+            raise HTTPException(503, f"停止计算分组失败，请检查：{exc}") from exc
     with _active_pids_lock:
         proc = _active_processes.get(task_id)
         if proc:
@@ -1288,8 +1345,19 @@ def _task_process_alive(task_id: int, pid: int, script_path: str) -> bool:
         return False
 
 
+def _compute_receipt(run_env: dict) -> int | None:
+    try:
+        result_path = run_env.get("computeProtection", {}).get("result_path")
+        if not result_path:
+            return None
+        value = json.loads(Path(result_path).read_text()).get("returncode")
+        return value if type(value) is int else None
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
 def _reconcile_running_tasks(min_age_sec: float = 0.0) -> list[tuple[int, int]]:
-    """对账：把 status='running' 但进程已消失的行标成 failed。
+    """对账：新计算任务按完成回执恢复成功/失败；没有回执的旧任务保留 failed 规则。
 
     daemon 重启会丢掉内存里的 _active_processes，而重启恢复只扫 pending，
     于是「进程早就跑完/消失了」的行会永远停在 running。并发上限为 null 时
@@ -1308,7 +1376,7 @@ def _reconcile_running_tasks(min_age_sec: float = 0.0) -> list[tuple[int, int]]:
     with _db_lock:
         db = get_db()
         rows = db.execute(
-            "SELECT id, pid, script_path, started_at FROM tasks WHERE status='running'"
+            "SELECT id, pid, script_path, started_at, run_env FROM tasks WHERE status='running'"
         ).fetchall()
         db.close()
     reconciled: list[tuple[int, int]] = []
@@ -1324,14 +1392,26 @@ def _reconcile_running_tasks(min_age_sec: float = 0.0) -> list[tuple[int, int]]:
         # 探活在 _db_lock 外做：与 list_tasks 的注释同理，避免持锁期间再取锁
         if _task_process_alive(row["id"], pid, row["script_path"]):
             continue
+        try:
+            run_env = json.loads(row["run_env"] or "{}")
+        except (TypeError, ValueError):
+            run_env = {}
+        receipt = _compute_receipt(run_env)
+        protection = run_env.get("computeProtection", {})
+        if protection.get("scope"):
+            compute_terminal.stop_scope(protection["scope"])
+        recovered_status = "completed" if receipt == 0 else "failed"
+        recovered_error = (None if receipt == 0 else f"进程退出码: {receipt}" if receipt is not None
+                           else f"守护进程重启后进程已消失（pid={pid}），标记为 failed")
         with _db_lock:
             db = get_db()
             cur = db.execute(
-                "UPDATE tasks SET status='failed', finished_at=?, error=?"
+                "UPDATE tasks SET status=?, finished_at=?, error=?"
                 " WHERE id=? AND status='running'",
                 (
+                    recovered_status,
                     datetime.now(timezone.utc).isoformat(),
-                    f"守护进程重启后进程已消失（pid={pid}），标记为 failed",
+                    recovered_error,
                     row["id"],
                 ),
             )
