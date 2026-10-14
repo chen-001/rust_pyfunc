@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>py_hidden_arrange_from_data - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>py_hidden_arrange_from_data</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>v2：Python 传逐笔 + 盘口数组，算同样这 8772 个因子。无磁盘依赖，供样例验证/分享。</p>
+<p>trade_arrays:  (n, 8) — [exchtime_us, price, volume, turnover, flag, bid_order, ask_order, index]
+market_arrays: (m, 46) — [exchtime_us, last_prc, volume, turnover, total_ask_vol, total_bid_vol,
+                           ask_prc1..ask_prc10, ask_vol1..ask_vol10,
+                           bid_prc1..bid_prc10, bid_vol1..bid_vol10]
+exchtime_us 是原始 CSV 的 exchtime 列（epoch 微秒，UTC）。</p>
+<p>过滤与时间换算走 build_trade_record / build_market_record，与读磁盘路径完全同一处：
+trade flag=32 过滤、market 涨跌停（ask_prc1/bid_prc1 为 0）过滤、
+只留 09:30~11:30 与 13:00~14:57、下午时段前移 90 分钟。</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>py_hidden_arrange_from_data(trade_arrays, market_arrays) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                <p>此函数没有参数</p>
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import py_hidden_arrange_from_data
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

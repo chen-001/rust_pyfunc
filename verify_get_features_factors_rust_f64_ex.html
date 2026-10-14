@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>verify_get_features_factors_rust_f64_ex - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>verify_get_features_factors_rust_f64_ex</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>带全部开关的验证桥接（2026-10-06 加），Python 侧名字 <code>verify_get_features_factors_rust_f64_ex</code>。</p>
+<p>用来和 Python 的 <code>get_features_factors(df, with_max_min=..., with_lyapunov_exponent=...,
+append_for_corr=...)</code> 逐值比。<code>append_matrix</code> 传 None 表示不追加。
+注意 Python 那边没有 curvature / quad_coef，对账时 <code>with_curvature</code> 要传 False。
+<code>with_complexity</code>（2026-10-06 加，默认 True）关掉时不再输出
+lz_complexity / entropy_1d / max_range_product 三组，前面所有组的位置和取值不变。</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>verify_get_features_factors_rust_f64_ex(data, col_names, with_threshold_counts, with_curvature, with_max_min, with_lyapunov_exponent, append_matrix, append_col_names, with_complexity) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                <p>此函数没有参数</p>
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import verify_get_features_factors_rust_f64_ex
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>tlq_gate_base_resid - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>tlq_gate_base_resid</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>一次算完一个因子的 base_resid 与两套 TLQ（水位口径 + 分段口径）。</p>
+<p>入参都是行主序连续的 f64 矩阵（日期 × 股票）：
+  factor        原始因子值
+  log_exret     对数超额收益（Python 侧算好）
+  restrict      0 = 可交易
+  industry      申万行业码
+  barra         k 个风格因子原始值（函数内各自 rank pct）
+  size          fill 基准（函数内 rank pct）
+  week_first    每个交易日所属自然周的第一个交易日的下标（-1 表示该日不参与）
+  group_from / group_to  参与 TLQ 的日期区间（Python 侧按 start/end 截）</p>
+<p>返回 (水位口径 TLQ, 分段口径 TLQ, 十组日收益, 160 点采样曲线, 每段明细)。</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>tlq_gate_base_resid(factor, log_exret, restrict, industry, barra_ranked, n_styles, size_ranked, week_first, group_from, group_to, curve_points) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                <p>此函数没有参数</p>
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import tlq_gate_base_resid
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

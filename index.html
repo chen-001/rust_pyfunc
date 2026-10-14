@@ -2242,6 +2242,24 @@ style sha256 + restrict sha256 + ret_sum_gap1/5 sha256），所以同一轴、�
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="okay_compute_cross.html">okay_compute_cross</a></h3>
+                <div><p>单日全市场调试入口（横截面 / 分钟系列）。</p></div>
+                <a href="okay_compute_cross.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="okay_compute_stock.html">okay_compute_stock</a></h3>
+                <div><p>单股单日调试入口：抛异常可见完整栈，用于和老 Python 结果逐值对比。</p></div>
+                <a href="okay_compute_stock.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="okay_series_names.html">okay_series_names</a></h3>
+                <div><p>Python 侧拿某个系列的因子名清单（不要在 py 文件里重写名字逻辑，否则双端会漂移）。</p></div>
+                <a href="okay_series_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="ols.html">ols</a></h3>
                 <div><p>普通最小二乘(OLS)回归。
 用于拟合线性回归模型 y = Xβ + ε，其中β是要估计的回归系数。</p></div>
@@ -2376,6 +2394,18 @@ style sha256 + restrict sha256 + ret_sum_gap1/5 sha256），所以同一轴、�
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="py_anneal_volume_from_data.html">py_anneal_volume_from_data</a></h3>
+                <div><p>v2：Python 传逐笔成交数组，算同样这 5975 个因子。无磁盘依赖，供样例验证/分享。</p>
+<p>exchtime_us: (n,) i64 — 原始 transaction.csv 的 exchtime 列（epoch 微秒，UTC）
+price/volume/turnover: (n,) f32
+flag: (n,) i32 — 66=主买, 83=主卖, 32=撤单（会被过滤）
+bid_order/ask_order: (n,) i64</p>
+<p>过滤与时间换算走 build_trade_record，与读磁盘路径完全同一处：
+flag!=32、只留 09:30~11:30 与 13:00~14:57、下午时段前移 90 分钟。</p></div>
+                <a href="py_anneal_volume_from_data.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="py_anneal_volume_gpt.html">py_anneal_volume_gpt</a></h3>
                 <div><p>无文档</p></div>
                 <a href="py_anneal_volume_gpt.html">查看详情</a>
@@ -2505,6 +2535,18 @@ seg_flat 为 row-major 展平的 (seg_rows × NCOLS)，Python 端 reshape 即可
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="py_etp_event.html">py_etp_event</a></h3>
+                <div><p>单股单日调试用，错误抛异常（可见完整栈）。</p></div>
+                <a href="py_etp_event.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_etp_event_names.html">py_etp_event_names</a></h3>
+                <div><p>Python 拿因子名。</p></div>
+                <a href="py_etp_event_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="py_extreme_point_fit.html">py_extreme_point_fit</a></h3>
                 <div><p>Python 可调用：单股单日计算，默认返回 27360 个值（原始展平 4992 + 21 统计量降维 22368）。
 <code>with_curvature=False</code> → 26976 个值（19 统计量口径，与「为人画像」旧 store 列定义逐列对齐）。
@@ -2519,9 +2561,35 @@ seg_flat 为 row-major 展平的 (seg_rows × NCOLS)，Python 端 reshape 即可
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="py_hhi_event.html">py_hhi_event</a></h3>
+                <div><p>单股单日调试用，错误抛异常（可见完整栈）。</p></div>
+                <a href="py_hhi_event.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_hhi_event_names.html">py_hhi_event_names</a></h3>
+                <div><p>Python 拿因子名。</p></div>
+                <a href="py_hhi_event_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="py_hidden_arrange.html">py_hidden_arrange</a></h3>
                 <div><p>无文档</p></div>
                 <a href="py_hidden_arrange.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_hidden_arrange_from_data.html">py_hidden_arrange_from_data</a></h3>
+                <div><p>v2：Python 传逐笔 + 盘口数组，算同样这 8772 个因子。无磁盘依赖，供样例验证/分享。</p>
+<p>trade_arrays:  (n, 8) — [exchtime_us, price, volume, turnover, flag, bid_order, ask_order, index]
+market_arrays: (m, 46) — [exchtime_us, last_prc, volume, turnover, total_ask_vol, total_bid_vol,
+                           ask_prc1..ask_prc10, ask_vol1..ask_vol10,
+                           bid_prc1..bid_prc10, bid_vol1..bid_vol10]
+exchtime_us 是原始 CSV 的 exchtime 列（epoch 微秒，UTC）。</p>
+<p>过滤与时间换算走 build_trade_record / build_market_record，与读磁盘路径完全同一处：
+trade flag=32 过滤、market 涨跌停（ask_prc1/bid_prc1 为 0）过滤、
+只留 09:30~11:30 与 13:00~14:57、下午时段前移 90 分钟。</p></div>
+                <a href="py_hidden_arrange_from_data.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -2872,6 +2940,14 @@ time_us 由 time_sec（epoch 秒）× 1e6 构造（v2 演示场景秒级精度�
                 <h3 class="function-name"><a href="py_yupei_dist_names.html">py_yupei_dist_names</a></h3>
                 <div><p>Python 拿因子名（2761 个, 顺序与 py_yupei_dist 输出一致）。</p></div>
                 <a href="py_yupei_dist_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_yupei_pair.html">py_yupei_pair</a></h3>
+                <div><p>Python 入口：单日全市场配对互补因子。</p>
+<p><code>mats=None</code> 默认 DEFAULT_MATS 15 张（cnt×9τ + vol×6τ）。
+返回 <code>(codes, names, vals)</code>，vals 行主序 len(codes)×len(names)。</p></div>
+                <a href="py_yupei_pair.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -3665,8 +3741,18 @@ print(f"super加速比: {time1/time3:.2f}倍")
             
             <div class="function-item">
                 <h3 class="function-name"><a href="tail_v2_select_by_ic_corr_abs_f32.html">tail_v2_select_by_ic_corr_abs_f32</a></h3>
-                <div><p>无文档</p></div>
+                <div><p>老入口：只返回保留下来的下标，行为与 <code>tail_v2_select_by_ic_corr_f32</code> 的 raise 模式一致。</p>
+<p>2026-10 起不再允许「算不出来的相关性 = 0（不相似）」这种静默放行。</p></div>
                 <a href="tail_v2_select_by_ic_corr_abs_f32.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="tail_v2_select_by_ic_corr_f32.html">tail_v2_select_by_ic_corr_f32</a></h3>
+                <div><p>带对账信息的贪心去相关：返回 dict（selected / n_dates / uncomputable / low_overlap / 阈值口径）。</p>
+<p><code>on_uncomputable</code>：
+- <code>"raise"</code>（默认）遇到算不出来的配对直接抛 ValueError；
+- <code>"report"</code> 只记录不抛错，由调用方决定怎么处理（Python 侧用它来生成带因子名的报错）。</p></div>
+                <a href="tail_v2_select_by_ic_corr_f32.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -3881,6 +3967,34 @@ print(f"super加速比: {time1/time3:.2f}倍")
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="tlq_gate_base_resid.html">tlq_gate_base_resid</a></h3>
+                <div><p>一次算完一个因子的 base_resid 与两套 TLQ（水位口径 + 分段口径）。</p>
+<p>入参都是行主序连续的 f64 矩阵（日期 × 股票）：
+  factor        原始因子值
+  log_exret     对数超额收益（Python 侧算好）
+  restrict      0 = 可交易
+  industry      申万行业码
+  barra         k 个风格因子原始值（函数内各自 rank pct）
+  size          fill 基准（函数内 rank pct）
+  week_first    每个交易日所属自然周的第一个交易日的下标（-1 表示该日不参与）
+  group_from / group_to  参与 TLQ 的日期区间（Python 侧按 start/end 截）</p>
+<p>返回 (水位口径 TLQ, 分段口径 TLQ, 十组日收益, 160 点采样曲线, 每段明细)。</p></div>
+                <a href="tlq_gate_base_resid.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="tlq_gate_interleave_styles.html">tlq_gate_interleave_styles</a></h3>
+                <div><p>把 k 张 (T × N) 矩阵交错成 (T × N*k) 的行主序块，供回测逐行取用。</p></div>
+                <a href="tlq_gate_interleave_styles.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="tlq_gate_rank_pct_rows.html">tlq_gate_rank_pct_rows</a></h3>
+                <div><p>对一张 (T × N) 矩阵逐行做 rank pct（factor 无关的量只算一次，别每个因子重算）。</p></div>
+                <a href="tlq_gate_rank_pct_rows.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="to_uniform.html">to_uniform</a></h3>
                 <div><p>将数据转换为均匀分布（经验CDF）</p></div>
                 <a href="to_uniform.html">查看详情</a>
@@ -3974,6 +4088,26 @@ print(f"转移熵: {te}")
                 <h3 class="function-name"><a href="verify_get_features_factors_rust.html">verify_get_features_factors_rust</a></h3>
                 <div><p>验证用：接收 numpy (n,m) 矩阵 + 列名，调纯 Rust get_features_factors_rust_full(with_threshold_counts=true)（对齐 Python 默认）。</p></div>
                 <a href="verify_get_features_factors_rust.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="verify_get_features_factors_rust_f64.html">verify_get_features_factors_rust_f64</a></h3>
+                <div><p>验证用：接收 numpy (n,m) 的 f64 矩阵 + 列名，调纯 Rust
+get_features_factors_rust_full(with_threshold_counts=true)，全程不做 f32 转换。</p>
+<p>名字与 src/features.rs 的同名 pyfunction 一致（只是数值换成 f64），
+Python 侧用 rp.verify_get_features_factors_rust_f64(...) 调。</p></div>
+                <a href="verify_get_features_factors_rust_f64.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="verify_get_features_factors_rust_f64_ex.html">verify_get_features_factors_rust_f64_ex</a></h3>
+                <div><p>带全部开关的验证桥接（2026-10-06 加），Python 侧名字 <code>verify_get_features_factors_rust_f64_ex</code>。</p>
+<p>用来和 Python 的 <code>get_features_factors(df, with_max_min=..., with_lyapunov_exponent=...,
+append_for_corr=...)</code> 逐值比。<code>append_matrix</code> 传 None 表示不追加。
+注意 Python 那边没有 curvature / quad_coef，对账时 <code>with_curvature</code> 要传 False。
+<code>with_complexity</code>（2026-10-06 加，默认 True）关掉时不再输出
+lz_complexity / entropy_1d / max_range_product 三组，前面所有组的位置和取值不变。</p></div>
+                <a href="verify_get_features_factors_rust_f64_ex.html">查看详情</a>
             </div>
             
             <div class="function-item">

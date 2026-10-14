@@ -1336,6 +1336,21 @@
     "params": []
   },
   {
+    "name": "okay_compute_cross",
+    "description": "<p>单日全市场调试入口（横截面 / 分钟系列）。</p>",
+    "params": []
+  },
+  {
+    "name": "okay_compute_stock",
+    "description": "<p>单股单日调试入口：抛异常可见完整栈，用于和老 Python 结果逐值对比。</p>",
+    "params": []
+  },
+  {
+    "name": "okay_series_names",
+    "description": "<p>Python 侧拿某个系列的因子名清单（不要在 py 文件里重写名字逻辑，否则双端会漂移）。</p>",
+    "params": []
+  },
+  {
     "name": "ols",
     "description": "<p>普通最小二乘(OLS)回归。\n用于拟合线性回归模型 y = Xβ + ε，其中β是要估计的回归系数。</p>",
     "params": [
@@ -1419,6 +1434,11 @@
   {
     "name": "py_anneal_volume",
     "description": "<p>Python 可调用：py_anneal_volume(code, date)\n单股单日计算，返回 5975 个因子值。错误抛 PyIOError。</p>",
+    "params": []
+  },
+  {
+    "name": "py_anneal_volume_from_data",
+    "description": "<p>v2：Python 传逐笔成交数组，算同样这 5975 个因子。无磁盘依赖，供样例验证/分享。</p>\n<p>exchtime_us: (n,) i64 — 原始 transaction.csv 的 exchtime 列（epoch 微秒，UTC）\nprice/volume/turnover: (n,) f32\nflag: (n,) i32 — 66=主买, 83=主卖, 32=撤单（会被过滤）\nbid_order/ask_order: (n,) i64</p>\n<p>过滤与时间换算走 build_trade_record，与读磁盘路径完全同一处：\nflag!=32、只留 09:30~11:30 与 13:00~14:57、下午时段前移 90 分钟。</p>",
     "params": []
   },
   {
@@ -1512,6 +1532,16 @@
     "params": []
   },
   {
+    "name": "py_etp_event",
+    "description": "<p>单股单日调试用，错误抛异常（可见完整栈）。</p>",
+    "params": []
+  },
+  {
+    "name": "py_etp_event_names",
+    "description": "<p>Python 拿因子名。</p>",
+    "params": []
+  },
+  {
     "name": "py_extreme_point_fit",
     "description": "<p>Python 可调用：单股单日计算，默认返回 27360 个值（原始展平 4992 + 21 统计量降维 22368）。\n<code>with_curvature=False</code> → 26976 个值（19 统计量口径，与「为人画像」旧 store 列定义逐列对齐）。\n与 pipeline 走同一份 build_full_output，输出逐字节相同。</p>",
     "params": []
@@ -1522,8 +1552,23 @@
     "params": []
   },
   {
+    "name": "py_hhi_event",
+    "description": "<p>单股单日调试用，错误抛异常（可见完整栈）。</p>",
+    "params": []
+  },
+  {
+    "name": "py_hhi_event_names",
+    "description": "<p>Python 拿因子名。</p>",
+    "params": []
+  },
+  {
     "name": "py_hidden_arrange",
     "description": "<p>无文档</p>",
+    "params": []
+  },
+  {
+    "name": "py_hidden_arrange_from_data",
+    "description": "<p>v2：Python 传逐笔 + 盘口数组，算同样这 8772 个因子。无磁盘依赖，供样例验证/分享。</p>\n<p>trade_arrays:  (n, 8) — [exchtime_us, price, volume, turnover, flag, bid_order, ask_order, index]\nmarket_arrays: (m, 46) — [exchtime_us, last_prc, volume, turnover, total_ask_vol, total_bid_vol,\n                           ask_prc1..ask_prc10, ask_vol1..ask_vol10,\n                           bid_prc1..bid_prc10, bid_vol1..bid_vol10]\nexchtime_us 是原始 CSV 的 exchtime 列（epoch 微秒，UTC）。</p>\n<p>过滤与时间换算走 build_trade_record / build_market_record，与读磁盘路径完全同一处：\ntrade flag=32 过滤、market 涨跌停（ask_prc1/bid_prc1 为 0）过滤、\n只留 09:30~11:30 与 13:00~14:57、下午时段前移 90 分钟。</p>",
     "params": []
   },
   {
@@ -1809,6 +1854,11 @@
   {
     "name": "py_yupei_dist_names",
     "description": "<p>Python 拿因子名（2761 个, 顺序与 py_yupei_dist 输出一致）。</p>",
+    "params": []
+  },
+  {
+    "name": "py_yupei_pair",
+    "description": "<p>Python 入口：单日全市场配对互补因子。</p>\n<p><code>mats=None</code> 默认 DEFAULT_MATS 15 张（cnt×9τ + vol×6τ）。\n返回 <code>(codes, names, vals)</code>，vals 行主序 len(codes)×len(names)。</p>",
     "params": []
   },
   {
@@ -2326,7 +2376,12 @@
   },
   {
     "name": "tail_v2_select_by_ic_corr_abs_f32",
-    "description": "<p>无文档</p>",
+    "description": "<p>老入口：只返回保留下来的下标，行为与 <code>tail_v2_select_by_ic_corr_f32</code> 的 raise 模式一致。</p>\n<p>2026-10 起不再允许「算不出来的相关性 = 0（不相似）」这种静默放行。</p>",
+    "params": []
+  },
+  {
+    "name": "tail_v2_select_by_ic_corr_f32",
+    "description": "<p>带对账信息的贪心去相关：返回 dict（selected / n_dates / uncomputable / low_overlap / 阈值口径）。</p>\n<p><code>on_uncomputable</code>：\n- <code>\"raise\"</code>（默认）遇到算不出来的配对直接抛 ValueError；\n- <code>\"report\"</code> 只记录不抛错，由调用方决定怎么处理（Python 侧用它来生成带因子名的报错）。</p>",
     "params": []
   },
   {
@@ -2463,6 +2518,21 @@
     ]
   },
   {
+    "name": "tlq_gate_base_resid",
+    "description": "<p>一次算完一个因子的 base_resid 与两套 TLQ（水位口径 + 分段口径）。</p>\n<p>入参都是行主序连续的 f64 矩阵（日期 × 股票）：\n  factor        原始因子值\n  log_exret     对数超额收益（Python 侧算好）\n  restrict      0 = 可交易\n  industry      申万行业码\n  barra         k 个风格因子原始值（函数内各自 rank pct）\n  size          fill 基准（函数内 rank pct）\n  week_first    每个交易日所属自然周的第一个交易日的下标（-1 表示该日不参与）\n  group_from / group_to  参与 TLQ 的日期区间（Python 侧按 start/end 截）</p>\n<p>返回 (水位口径 TLQ, 分段口径 TLQ, 十组日收益, 160 点采样曲线, 每段明细)。</p>",
+    "params": []
+  },
+  {
+    "name": "tlq_gate_interleave_styles",
+    "description": "<p>把 k 张 (T × N) 矩阵交错成 (T × N*k) 的行主序块，供回测逐行取用。</p>",
+    "params": []
+  },
+  {
+    "name": "tlq_gate_rank_pct_rows",
+    "description": "<p>对一张 (T × N) 矩阵逐行做 rank pct（factor 无关的量只算一次，别每个因子重算）。</p>",
+    "params": []
+  },
+  {
     "name": "to_uniform",
     "description": "<p>将数据转换为均匀分布（经验CDF）</p>",
     "params": []
@@ -2554,6 +2624,16 @@
   {
     "name": "verify_get_features_factors_rust",
     "description": "<p>验证用：接收 numpy (n,m) 矩阵 + 列名，调纯 Rust get_features_factors_rust_full(with_threshold_counts=true)（对齐 Python 默认）。</p>",
+    "params": []
+  },
+  {
+    "name": "verify_get_features_factors_rust_f64",
+    "description": "<p>验证用：接收 numpy (n,m) 的 f64 矩阵 + 列名，调纯 Rust\nget_features_factors_rust_full(with_threshold_counts=true)，全程不做 f32 转换。</p>\n<p>名字与 src/features.rs 的同名 pyfunction 一致（只是数值换成 f64），\nPython 侧用 rp.verify_get_features_factors_rust_f64(...) 调。</p>",
+    "params": []
+  },
+  {
+    "name": "verify_get_features_factors_rust_f64_ex",
+    "description": "<p>带全部开关的验证桥接（2026-10-06 加），Python 侧名字 <code>verify_get_features_factors_rust_f64_ex</code>。</p>\n<p>用来和 Python 的 <code>get_features_factors(df, with_max_min=..., with_lyapunov_exponent=...,\nappend_for_corr=...)</code> 逐值比。<code>append_matrix</code> 传 None 表示不追加。\n注意 Python 那边没有 curvature / quad_coef，对账时 <code>with_curvature</code> 要传 False。\n<code>with_complexity</code>（2026-10-06 加，默认 True）关掉时不再输出\nlz_complexity / entropy_1d / max_range_product 三组，前面所有组的位置和取值不变。</p>",
     "params": []
   },
   {
