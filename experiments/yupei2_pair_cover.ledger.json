@@ -1,0 +1,16 @@
+{
+  "type": "factor-experiment-ledger",
+  "schemaVersion": 1,
+  "experiment": "yupei2_pair_cover",
+  "family": "yupei2_pair_cover",
+  "question": "把成交距离从求和口径换成取最大近邻的覆盖口径后，'第二名伙伴补上的覆盖缺口'能不能构成有效的选股因子，以及它是不是只是活跃度或行业的影子",
+  "window": "20241231-20241231",
+  "criteria": "机制样本上最优 C 增益明显超出按笔数匹配的随机 C；且去掉当日收益、波动、换手、行业后 IC 绝对值不低于 0.01",
+  "stage": "研究设想",
+  "nextAction": "先把假设卡过一遍，再跑小样本验证",
+  "scriptPath": "/home/chenzongwei/rust_pyfunc/experiments/yupei2/empirics.py",
+  "createdAt": "2026-10-08T16:53:59",
+  "updatedAt": "2026-10-08T18:54:12",
+  "stageHistory": [],
+  "sessionId": "session-a8fe1459-ff59-453b-8631-ff90bd2406e0"
+}

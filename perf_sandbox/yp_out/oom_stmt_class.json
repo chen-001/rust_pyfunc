@@ -1,0 +1,242 @@
+[
+ {
+  "line": 611,
+  "col0": 0,
+  "n": 20,
+  "desc": "P1 盘口失衡 4 档 ×5（for dim in 0..4）",
+  "kind": "部分被删",
+  "dropped": 8
+ },
+ {
+  "line": 616,
+  "col0": 20,
+  "n": 10,
+  "desc": "P2 10档trend 同侧/对手 ×5",
+  "kind": "部分被删",
+  "dropped": 2
+ },
+ {
+  "line": 621,
+  "col0": 30,
+  "n": 10,
+  "desc": "P3 10档std 同侧/对手 ×5",
+  "kind": "部分被删",
+  "dropped": 2
+ },
+ {
+  "line": 627,
+  "col0": 40,
+  "n": 10,
+  "desc": "P7 rolling10 det/|det| ×5",
+  "kind": "部分被删",
+  "dropped": 5
+ },
+ {
+  "line": 633,
+  "col0": 50,
+  "n": 10,
+  "desc": "P8 rolling20 det/|det| ×5",
+  "kind": "部分被删",
+  "dropped": 6
+ },
+ {
+  "line": 639,
+  "col0": 60,
+  "n": 1,
+  "desc": "P4 价格波动率",
+  "kind": "整条保留",
+  "dropped": 0
+ },
+ {
+  "line": 647,
+  "col0": 61,
+  "n": 1,
+  "desc": "P5 间隔成交量 std（另一分支 649）",
+  "kind": "整条可跳",
+  "dropped": 1
+ },
+ {
+  "line": 656,
+  "col0": 62,
+  "n": 1,
+  "desc": "P6 间隔成交量 trend",
+  "kind": "整条保留",
+  "dropped": 0
+ },
+ {
+  "line": 663,
+  "col0": 63,
+  "n": 1,
+  "desc": "P9 d_same",
+  "kind": "整条保留",
+  "dropped": 0
+ },
+ {
+  "line": 664,
+  "col0": 64,
+  "n": 1,
+  "desc": "P9 |d_same|",
+  "kind": "整条可跳",
+  "dropped": 1
+ },
+ {
+  "line": 665,
+  "col0": 65,
+  "n": 1,
+  "desc": "P9 d_opp",
+  "kind": "整条可跳",
+  "dropped": 1
+ },
+ {
+  "line": 666,
+  "col0": 66,
+  "n": 1,
+  "desc": "P9 |d_opp|",
+  "kind": "整条可跳",
+  "dropped": 1
+ },
+ {
+  "line": 667,
+  "col0": 67,
+  "n": 1,
+  "desc": "P9 差",
+  "kind": "整条可跳",
+  "dropped": 1
+ },
+ {
+  "line": 668,
+  "col0": 68,
+  "n": 1,
+  "desc": "P9 |差|",
+  "kind": "整条可跳",
+  "dropped": 1
+ },
+ {
+  "line": 669,
+  "col0": 69,
+  "n": 1,
+  "desc": "P9 差绝对值",
+  "kind": "整条可跳",
+  "dropped": 1
+ },
+ {
+  "line": 670,
+  "col0": 70,
+  "n": 1,
+  "desc": "P9 |差绝对值|",
+  "kind": "整条可跳",
+  "dropped": 1
+ },
+ {
+  "line": 675,
+  "col0": 71,
+  "n": 1,
+  "desc": "P10 d（另一分支 676）",
+  "kind": "整条保留",
+  "dropped": 0
+ },
+ {
+  "line": 699,
+  "col0": 72,
+  "n": 5,
+  "desc": "T1 订单编号差值 原始 ×5",
+  "kind": "部分被删",
+  "dropped": 1
+ },
+ {
+  "line": 700,
+  "col0": 77,
+  "n": 5,
+  "desc": "T1 |差值| ×5",
+  "kind": "部分被删",
+  "dropped": 3
+ },
+ {
+  "line": 714,
+  "col0": 82,
+  "n": 5,
+  "desc": "T2 按秒主买占比 ×5",
+  "kind": "部分被删",
+  "dropped": 2
+ },
+ {
+  "line": 756,
+  "col0": 87,
+  "n": 25,
+  "desc": "T3 买/卖/差/|差|/全量 各 ×5（5 个源）",
+  "kind": "部分被删",
+  "dropped": 19
+ },
+ {
+  "line": 842,
+  "col0": 112,
+  "n": 25,
+  "desc": "T4 买均/卖均/差/|差|/全量 各 ×5（5 个源）",
+  "kind": "部分被删",
+  "dropped": 24
+ },
+ {
+  "line": 856,
+  "col0": 137,
+  "n": 1,
+  "desc": "主买 全量 d_all",
+  "kind": "整条可跳",
+  "dropped": 1
+ },
+ {
+  "line": 857,
+  "col0": 138,
+  "n": 1,
+  "desc": "主买 全量 |d|",
+  "kind": "整条保留",
+  "dropped": 0
+ },
+ {
+  "line": 860,
+  "col0": 139,
+  "n": 1,
+  "desc": "主买 d_buy",
+  "kind": "整条可跳",
+  "dropped": 1
+ },
+ {
+  "line": 861,
+  "col0": 140,
+  "n": 1,
+  "desc": "主买 |d_buy|",
+  "kind": "整条保留",
+  "dropped": 0
+ },
+ {
+  "line": 864,
+  "col0": 141,
+  "n": 1,
+  "desc": "主卖 d_sell",
+  "kind": "整条可跳",
+  "dropped": 1
+ },
+ {
+  "line": 865,
+  "col0": 142,
+  "n": 1,
+  "desc": "主卖 |d_sell|",
+  "kind": "整条保留",
+  "dropped": 0
+ },
+ {
+  "line": 867,
+  "col0": 143,
+  "n": 1,
+  "desc": "主买-主卖 差",
+  "kind": "整条可跳",
+  "dropped": 1
+ },
+ {
+  "line": 868,
+  "col0": 144,
+  "n": 1,
+  "desc": "主买-主卖 |差|",
+  "kind": "整条保留",
+  "dropped": 0
+ }
+]

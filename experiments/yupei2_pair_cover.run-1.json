@@ -1,0 +1,24 @@
+{
+  "type": "factor-experiment-run",
+  "schemaVersion": 1,
+  "experiment": "yupei2_pair_cover",
+  "runId": "run-1",
+  "order": 1,
+  "scriptPath": "/home/chenzongwei/rust_pyfunc/experiments/yupei2/empirics.py",
+  "scriptSha256": "c1e47ad540477936d55a236fb3c68d081dd39e824c78e182354bb2090342eba8",
+  "startDate": "20241231",
+  "endDate": "20241231",
+  "universe": "20241231 备份 codes.txt 每10只取1只=397只股票",
+  "nJobs": 1,
+  "taskId": null,
+  "outputDir": "/tmp/yupei2_empirics_result.pkl",
+  "note": null,
+  "recordedAt": "2026-10-08T18:54:12",
+  "sessionId": "session-a8fe1459-ff59-453b-8631-ff90bd2406e0",
+  "lib": {
+    "soPath": "/home/chenzongwei/rust_pyfunc/python/rust_pyfunc/rust_pyfunc.abi3.so",
+    "so": "49673329:1791332668963074321",
+    "workerPath": "/home/chenzongwei/rust_pyfunc/python/rust_pyfunc/rust_pyfunc_worker",
+    "worker": "22202768:1791332908997002091"
+  }
+}

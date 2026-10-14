@@ -1,0 +1,66 @@
+{
+  "type": "factor-experiment-evidence",
+  "schemaVersion": 1,
+  "experiment": "yupei2_pair_net",
+  "evidenceId": "ev-2",
+  "order": 2,
+  "runId": "run-1",
+  "kind": "sample-validation",
+  "scope": "20241230 与 20241231 两个交易日的机制样本，股票白名单口径 3684 只，算了 N×N 配对互补矩阵与 77 个降维因子",
+  "measured": {
+    "single-stock-seconds": 0.046,
+    "single-stock-jobs": 1,
+    "market-seconds": 8.4,
+    "market-jobs": 50,
+    "empty-columns": 0,
+    "const-columns": 0
+  },
+  "exitCode": null,
+  "artifacts": [
+    {
+      "path": "/tmp/yupei2_pair_so/20241231/reduce/factors.bin",
+      "exists": true,
+      "kind": "file"
+    },
+    {
+      "path": "/tmp/yupei2_pair_so/20241231/reduce/names.txt",
+      "exists": true,
+      "kind": "file"
+    },
+    {
+      "path": "/tmp/yupei2_pair_so/20241230/reduce/factors.bin",
+      "exists": true,
+      "kind": "file"
+    },
+    {
+      "path": "/tmp/yupei2_pair_so/20241231/summary.json",
+      "exists": true,
+      "kind": "file"
+    },
+    {
+      "path": "/tmp/yupei2_pair_ref.json",
+      "exists": true,
+      "kind": "file"
+    },
+    {
+      "path": "/tmp/yupei2_cover/cov_summary.json",
+      "exists": true,
+      "kind": "file"
+    }
+  ],
+  "derived": {
+    "ok": true,
+    "reasons": [],
+    "rule": "单股单日 ≤ 1 秒且并行 1；单日全市场 ≤ 60 秒且并行 50；空列 0、常量列 0"
+  },
+  "judgment": {
+    "text": "数值对阵：①拼接可加性 S(A,U_BC)=S(A,B)+S(A,C) 由独立 Python 复算，相对差 0.0（有向核 1.4e-16），且互补与重复两种拼接下三个 S 逐位相同，证明原算子必须换评价方式；②rho[X][U_BC]=wB*rho[X][B]+wC*rho[X][C] 相对差 1.5e-16（eC/eB=17.6 的非等权例子），E_U 相对差 0；③Rust 输出的 rho/E 与逐笔暴力复算相对差中位 1.4e-6（f32 存储量级），与备份 cnt_t1.bin 相对差中位 1.4e-6；④RHO_U 减 SINGLE 与 G 的最大偏差 0.0，G 与 Z 的对称最大偏差 0.0（第一次跑出来 Z 不对称 18.0，是分层键把 B、C 顺序编进去了，已修）；⑤求和核另用 sandbox_yupei_cover 复算备份，cnt_t1 全量 1571 万个数相对差 0.99%。",
+    "by": "agent"
+  },
+  "fingerprints": {
+    "scriptSha256": "946a6bcb2b50cf78978e0b3fa9d6d2e0672f9b98488beff277aef07a09d4502b",
+    "so": "49673329:1791477636408377753",
+    "worker": "22202768:1791477665025708679"
+  },
+  "recordedAt": "2026-10-09T01:12:25"
+}

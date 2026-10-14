@@ -1,0 +1,16 @@
+{
+  "type": "factor-experiment-ledger",
+  "schemaVersion": 1,
+  "experiment": "yupei2_dir_reduce",
+  "family": "yupei2_dir_reduce",
+  "question": "把成交距离矩阵的方向从'行和减列和'换成配对级领先份额等有界、无量纲的聚合方式之后，方向性因子能不能比现有的 dir_*/lead_* 更有信息，以及它是不是只是规模、行业或对称强度的影子",
+  "window": "20241230-20241231",
+  "criteria": "机制样本上跨日秩相关不低于 0.2、与对称强度的秩相关绝对值不高于 0.8；接收益以后行业中性化并扣掉对称强度，gap5 的 IC 绝对值不低于 0.01",
+  "stage": "研究设想",
+  "nextAction": "先把假设卡过一遍，再跑小样本验证",
+  "scriptPath": null,
+  "createdAt": "2026-10-08T17:51:38",
+  "updatedAt": "2026-10-08T18:31:16",
+  "stageHistory": [],
+  "sessionId": "session-b0b6717d-d38c-4cba-8787-72fc4ea4b7d1"
+}

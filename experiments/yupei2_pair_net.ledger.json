@@ -1,0 +1,39 @@
+{
+  "type": "factor-experiment-ledger",
+  "schemaVersion": 1,
+  "experiment": "yupei2_pair_net",
+  "family": "yupei2_pair_net",
+  "question": "把成交距离从两只股票之间推广到「两只股票拼成一只」之后，配对层面的互补增益在扣掉活跃度空模型后还剩多少，能不能从这张配对互补矩阵里降维出比现有 2761 个因子更细的横截面量",
+  "window": "20241230-20241231",
+  "criteria": "机制样本上：扣掉活跃度分层空模型后 Z>2 的配对占比明显高于 5%；降维主力因子跨日 Spearman >= 0.3；每个新因子与老 2761 因子的最大 |Spearman| < 0.9",
+  "stage": "批量计算",
+  "nextAction": "按 skill 写明的通过条件接着往下走",
+  "scriptPath": "/home/chenzongwei/rust_pyfunc/sandbox_yupei_pair/src/main.rs",
+  "createdAt": "2026-10-08T23:46:21",
+  "updatedAt": "2026-10-10T00:04:46",
+  "stageHistory": [
+    {
+      "from": "研究设想",
+      "to": "小样本验证",
+      "at": "2026-10-09T01:13:12",
+      "by": "program",
+      "evidence": [
+        "ev-1"
+      ],
+      "reason": null,
+      "envAck": null
+    },
+    {
+      "from": "小样本验证",
+      "to": "批量计算",
+      "at": "2026-10-09T01:13:12",
+      "by": "program",
+      "evidence": [
+        "ev-3"
+      ],
+      "reason": null,
+      "envAck": null
+    }
+  ],
+  "sessionId": "session-6b1e6861-bcb2-43b7-a5cc-a018ba154b0d"
+}

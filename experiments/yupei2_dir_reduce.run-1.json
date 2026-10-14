@@ -1,0 +1,24 @@
+{
+  "type": "factor-experiment-run",
+  "schemaVersion": 1,
+  "experiment": "yupei2_dir_reduce",
+  "runId": "run-1",
+  "order": 1,
+  "scriptPath": "/home/chenzongwei/rust_pyfunc/experiments/yupei2/dir_probe.py",
+  "scriptSha256": "c657205cd85649d988716a16ebd4eb4de33efc1ad81595bc9b07571f570d683f",
+  "startDate": "20241230",
+  "endDate": "20241231",
+  "universe": "两日 codes.txt 交集 3746 只",
+  "nJobs": 1,
+  "taskId": null,
+  "outputDir": "/home/chenzongwei/rust_pyfunc/experiments/yupei2_dir_reduce.probe.json",
+  "note": "机制样本探测：只读备份矩阵，不算收益",
+  "recordedAt": "2026-10-08T17:58:45",
+  "sessionId": "session-b0b6717d-d38c-4cba-8787-72fc4ea4b7d1",
+  "lib": {
+    "soPath": "/home/chenzongwei/rust_pyfunc/python/rust_pyfunc/rust_pyfunc.abi3.so",
+    "so": "49673329:1791332668963074321",
+    "workerPath": "/home/chenzongwei/rust_pyfunc/python/rust_pyfunc/rust_pyfunc_worker",
+    "worker": "22202768:1791332908997002091"
+  }
+}

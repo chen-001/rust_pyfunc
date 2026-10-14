@@ -1,0 +1,962 @@
+{
+  "ok": true,
+  "command": "cases",
+  "generated_at": "2026-10-04T19:04:44",
+  "factor": {
+    "name": "hotpool_ext_ind_rel_x15y10_ba_hot_rk_buy_p75",
+    "path": "/nas197/user_home_unsafe/chenzongwei/factor_data/hm104/hotpool_ext_ind_rel_x15y10_ba_hot_rk_buy_p75.parquet",
+    "ref_dir": "/nas197/user_home_unsafe/chenzongwei/factor_data/hm104",
+    "first_date": 20150105,
+    "last_date": 20260908,
+    "n_days_total": 2840,
+    "n_stocks": 9190,
+    "window": [
+      20240816,
+      20260908
+    ],
+    "n_days_window": 500
+  },
+  "params": {
+    "top": 8,
+    "days": 500,
+    "strata": 5,
+    "per_stratum": 3,
+    "extreme_z": 20.0,
+    "counter_direction": "high",
+    "counter_gap": 1,
+    "counter_timing": "close",
+    "against": "/nas197/user_home_unsafe/chenzongwei/factor_data/hm104_brc"
+  },
+  "sections": [
+    {
+      "title": "数值异常",
+      "reliability": "最可靠。缺失、极端、被截断三类全部由 parquet 与日频行情判定，不靠人眼看。",
+      "window_stats": {
+        "n_days": 500,
+        "median_valid_per_day": 5138,
+        "min_valid_per_day": 5042,
+        "max_valid_per_day": 5179,
+        "n_nan_cells": 2029691,
+        "nan_share": 0.4417,
+        "n_posinf": 0,
+        "n_neginf": 0
+      },
+      "missing_days": [],
+      "missing_stocks": [
+        {
+          "code": "163395",
+          "valid_ratio": 0.0,
+          "days_with_quote": 0,
+          "kind": "数据缺，这段时间这只股票在日频里基本没有行情"
+        },
+        {
+          "code": "163230",
+          "valid_ratio": 0.0,
+          "days_with_quote": 0,
+          "kind": "数据缺，这段时间这只股票在日频里基本没有行情"
+        },
+        {
+          "code": "163235",
+          "valid_ratio": 0.0,
+          "days_with_quote": 0,
+          "kind": "数据缺，这段时间这只股票在日频里基本没有行情"
+        },
+        {
+          "code": "163244",
+          "valid_ratio": 0.0,
+          "days_with_quote": 0,
+          "kind": "数据缺，这段时间这只股票在日频里基本没有行情"
+        },
+        {
+          "code": "163257",
+          "valid_ratio": 0.0,
+          "days_with_quote": 0,
+          "kind": "数据缺，这段时间这只股票在日频里基本没有行情"
+        },
+        {
+          "code": "163267",
+          "valid_ratio": 0.0,
+          "days_with_quote": 0,
+          "kind": "数据缺，这段时间这只股票在日频里基本没有行情"
+        },
+        {
+          "code": "163273",
+          "valid_ratio": 0.0,
+          "days_with_quote": 0,
+          "kind": "数据缺，这段时间这只股票在日频里基本没有行情"
+        },
+        {
+          "code": "163280",
+          "valid_ratio": 0.0,
+          "days_with_quote": 0,
+          "kind": "数据缺，这段时间这只股票在日频里基本没有行情"
+        }
+      ],
+      "frozen_values": [],
+      "extreme_values": {
+        "threshold_robust_z": 20.0,
+        "n_over_threshold": 0,
+        "cases": [
+          {
+            "code": "301236",
+            "date": 20241008,
+            "value": 0.046985,
+            "robust_z": -6.06,
+            "over_threshold": false,
+            "cs_pct": 0.0,
+            "kind": "算法边界，当天有行情，取值离当天中位数很远"
+          },
+          {
+            "code": "600986",
+            "date": 20260114,
+            "value": 0.016917,
+            "robust_z": -5.99,
+            "over_threshold": false,
+            "cs_pct": 0.0,
+            "kind": "算法边界，当天有行情，取值离当天中位数很远"
+          },
+          {
+            "code": "002049",
+            "date": 20241008,
+            "value": 0.055883,
+            "robust_z": -5.98,
+            "over_threshold": false,
+            "cs_pct": 0.0002,
+            "kind": "算法边界，当天有行情，取值离当天中位数很远"
+          },
+          {
+            "code": "002795",
+            "date": 20241105,
+            "value": 0.03749,
+            "robust_z": -5.96,
+            "over_threshold": false,
+            "cs_pct": 0.0,
+            "kind": "算法边界，当天有行情，取值离当天中位数很远"
+          },
+          {
+            "code": "002878",
+            "date": 20241129,
+            "value": 0.023629,
+            "robust_z": -5.94,
+            "over_threshold": false,
+            "cs_pct": 0.0,
+            "kind": "算法边界，当天有行情，取值离当天中位数很远"
+          },
+          {
+            "code": "301419",
+            "date": 20241126,
+            "value": 0.029267,
+            "robust_z": -5.92,
+            "over_threshold": false,
+            "cs_pct": 0.0,
+            "kind": "算法边界，当天有行情，取值离当天中位数很远"
+          },
+          {
+            "code": "002227",
+            "date": 20241224,
+            "value": 0.03867,
+            "robust_z": -5.92,
+            "over_threshold": false,
+            "cs_pct": 0.0,
+            "kind": "算法边界，当天有行情，取值离当天中位数很远"
+          },
+          {
+            "code": "603626",
+            "date": 20250226,
+            "value": 0.026046,
+            "robust_z": -5.91,
+            "over_threshold": false,
+            "cs_pct": 0.0,
+            "kind": "算法边界，当天有行情，取值离当天中位数很远"
+          }
+        ]
+      },
+      "nan_attribution": {
+        "数据缺，当天日频里没有行情": 2023669,
+        "算法缺口，当天有行情但因子为空": 6022,
+        "空值总格数": 2029691,
+        "统计范围": "窗口内全部格子，不是抽样"
+      }
+    },
+    {
+      "title": "同样本输出分歧",
+      "available": true,
+      "reliability": "数值本身可靠，但把差读成构造差异需要前提。两个版本哪怕原始信号完全一样，只要股票池不同，最终值也会不同，所以先给选择偏差的四项事实，再看能不能说成构造差异。",
+      "against_path": "/nas197/user_home_unsafe/chenzongwei/factor_data/hm104_brc/hotpool_ext_ind_rel_x15y10_ba_hot_rk_buy_p75.parquet",
+      "n_common_days": 500,
+      "n_common_stocks": 9190,
+      "n_compared_cells": 2562403,
+      "mean_abs_diff": 0.001989,
+      "mean_abs_diff_definition": "交集里两版都有值的格子，逐格取绝对差，再对所有格子求平均",
+      "max_abs_diff": 0.429831,
+      "mean_rank_corr": 0.9986,
+      "n_days_with_corr": 500,
+      "selection_bias": {
+        "liquidity_median_common_pool": 82271.893027,
+        "liquidity_median_only_new_pool": null,
+        "liquidity_median_only_against_pool": 49014.463846,
+        "liquidity_unit": "当天成交量在两个版本覆盖的整段日期上的平均，取该池股票的中位数",
+        "same_raw_data_and_window": "程序判不了，由调用者用 --same-inputs 声明",
+        "coverage_note": "股票与日期按两个版本目录各自的完整覆盖比，不是按这次比较用的窗口比",
+        "new_version_days": 2840,
+        "against_version_days": 2843,
+        "only_new_version_stocks": 0,
+        "only_against_version_stocks": 37,
+        "only_new_version_days": 0,
+        "only_against_version_days": 3,
+        "common_days": 500,
+        "common_stocks": 9190,
+        "both_missing_cells": 2028880,
+        "only_new_has_value_cells": 2906,
+        "only_against_has_value_cells": 811,
+        "only_new_version_stock_examples": [],
+        "only_against_version_stock_examples": [
+          "001232",
+          "001237",
+          "001248",
+          "001257",
+          "001312"
+        ]
+      },
+      "verdict": "输出分歧",
+      "verdict_note": "只叫输出分歧，不叫构造差异。两版输出不同，可能来自构造改动，也可能来自股票池或覆盖不同。两边各有对方没有的股票（新 0 只，旧 37 只）；两边各有对方没有的日期（新 0 天，旧 3 天）；交集里有格子只有一边有值（2906 与 811 个）；没有声明两版用的是同一段原始数据与同一个回看窗口，可以加 --same-inputs 声明。",
+      "cases": [
+        {
+          "date": 20241009,
+          "code": "000809",
+          "new": 0.936054,
+          "old": 0.506223,
+          "diff": 0.429831,
+          "new_cs_std": 0.125439,
+          "diff_over_cs_std": 3.427
+        },
+        {
+          "date": 20241009,
+          "code": "600136",
+          "new": 0.50089,
+          "old": 0.875738,
+          "diff": -0.374849,
+          "new_cs_std": 0.125439,
+          "diff_over_cs_std": -2.988
+        },
+        {
+          "date": 20241009,
+          "code": "600854",
+          "new": 0.843193,
+          "old": 0.46965,
+          "diff": 0.373542,
+          "new_cs_std": 0.125439,
+          "diff_over_cs_std": 2.978
+        },
+        {
+          "date": 20241009,
+          "code": "000048",
+          "new": 0.808475,
+          "old": 0.440864,
+          "diff": 0.367611,
+          "new_cs_std": 0.125439,
+          "diff_over_cs_std": 2.931
+        },
+        {
+          "date": 20241009,
+          "code": "000558",
+          "new": 0.883234,
+          "old": 0.525036,
+          "diff": 0.358198,
+          "new_cs_std": 0.125439,
+          "diff_over_cs_std": 2.856
+        },
+        {
+          "date": 20241009,
+          "code": "600641",
+          "new": 0.68613,
+          "old": 0.366809,
+          "diff": 0.319322,
+          "new_cs_std": 0.125439,
+          "diff_over_cs_std": 2.546
+        },
+        {
+          "date": 20241009,
+          "code": "000886",
+          "new": 0.70546,
+          "old": 0.387525,
+          "diff": 0.317935,
+          "new_cs_std": 0.125439,
+          "diff_over_cs_std": 2.535
+        },
+        {
+          "date": 20250407,
+          "code": "002627",
+          "new": 0.544559,
+          "old": 0.227932,
+          "diff": 0.316627,
+          "new_cs_std": 0.195915,
+          "diff_over_cs_std": 1.616
+        }
+      ],
+      "notes": [
+        "两个版本先取日期与股票列的交集再相减，交集是 500 天 × 9190 只。",
+        "差值的量级跟因子本身的量级有关，所以同时给出「差值 / 当天横截面标准差」，后者才能在因子之间比大小。",
+        "这一类先叫输出分歧。只有股票池与覆盖完全一致、并且声明了两版用同一段原始数据与同一个回看窗口时，才说成构造差异。"
+      ]
+    },
+    {
+      "title": "按日期与流动性分层的极值",
+      "reliability": "可靠。分档用的是当天成交量的横截面分位，档内再取因子最高与最低。",
+      "strata": 5,
+      "n_cells": 2562403,
+      "by_stratum": [
+        {
+          "stratum": 1,
+          "n_cells": 506591,
+          "amount_range": [
+            103.0,
+            94924.9
+          ],
+          "highest": [
+            {
+              "date": 20250106,
+              "code": "002647",
+              "value": 0.999738,
+              "cs_pct": 1.0,
+              "stratum": 1,
+              "amount": 3375.0,
+              "gap1": -0.050373,
+              "stock_history_pct": 0.998
+            },
+            {
+              "date": 20260612,
+              "code": "600599",
+              "value": 0.999356,
+              "cs_pct": 1.0,
+              "stratum": 1,
+              "amount": 24275.02,
+              "gap1": 0.0,
+              "stock_history_pct": 0.9975
+            },
+            {
+              "date": 20260112,
+              "code": "688184",
+              "value": 0.9993,
+              "cs_pct": 1.0,
+              "stratum": 1,
+              "amount": 9607.55,
+              "gap1": -0.006284,
+              "stock_history_pct": 0.998
+            }
+          ],
+          "lowest": [
+            {
+              "date": 20260106,
+              "code": "002848",
+              "value": 0.0,
+              "cs_pct": 0.0052,
+              "stratum": 1,
+              "amount": 13076.0,
+              "gap1": 0.005041,
+              "stock_history_pct": 0.0
+            },
+            {
+              "date": 20250414,
+              "code": "002656",
+              "value": 0.0,
+              "cs_pct": 0.0044,
+              "stratum": 1,
+              "amount": 12004.0,
+              "gap1": 0.048732,
+              "stock_history_pct": 0.0
+            },
+            {
+              "date": 20251110,
+              "code": "000609",
+              "value": 0.0,
+              "cs_pct": 0.0029,
+              "stratum": 1,
+              "amount": 5536.83,
+              "gap1": 0.050463,
+              "stock_history_pct": 0.0
+            }
+          ]
+        },
+        {
+          "stratum": 2,
+          "n_cells": 513764,
+          "amount_range": [
+            12722.72,
+            198774.45
+          ],
+          "highest": [
+            {
+              "date": 20260609,
+              "code": "600599",
+              "value": 0.999042,
+              "cs_pct": 1.0,
+              "stratum": 2,
+              "amount": 60985.06,
+              "gap1": -0.06962,
+              "stock_history_pct": 0.9901
+            },
+            {
+              "date": 20260608,
+              "code": "600599",
+              "value": 0.99886,
+              "cs_pct": 1.0,
+              "stratum": 2,
+              "amount": 65329.42,
+              "gap1": -0.084942,
+              "stock_history_pct": 0.9877
+            },
+            {
+              "date": 20260611,
+              "code": "600599",
+              "value": 0.998799,
+              "cs_pct": 1.0,
+              "stratum": 2,
+              "amount": 43721.05,
+              "gap1": 0.0,
+              "stock_history_pct": 0.9852
+            }
+          ],
+          "lowest": [
+            {
+              "date": 20251204,
+              "code": "002348",
+              "value": 0.0,
+              "cs_pct": 0.0016,
+              "stratum": 2,
+              "amount": 36859.0,
+              "gap1": -0.031252,
+              "stock_history_pct": 0.0
+            },
+            {
+              "date": 20250722,
+              "code": "001239",
+              "value": 0.0,
+              "cs_pct": 0.0038,
+              "stratum": 2,
+              "amount": 43379.15,
+              "gap1": 0.100261,
+              "stock_history_pct": 0.0
+            },
+            {
+              "date": 20250423,
+              "code": "002983",
+              "value": 0.0,
+              "cs_pct": 0.0028,
+              "stratum": 2,
+              "amount": 58058.72,
+              "gap1": -0.036234,
+              "stock_history_pct": 0.0
+            }
+          ]
+        },
+        {
+          "stratum": 3,
+          "n_cells": 513937,
+          "amount_range": [
+            28376.56,
+            374088.19
+          ],
+          "highest": [
+            {
+              "date": 20250321,
+              "code": "600462",
+              "value": 0.998987,
+              "cs_pct": 1.0,
+              "stratum": 3,
+              "amount": 80853.0,
+              "gap1": -0.01466,
+              "stock_history_pct": 0.9942
+            },
+            {
+              "date": 20250625,
+              "code": "600387",
+              "value": 0.998886,
+              "cs_pct": 1.0,
+              "stratum": 3,
+              "amount": 95759.39,
+              "gap1": 0.0,
+              "stock_history_pct": 0.9884
+            },
+            {
+              "date": 20260429,
+              "code": "002808",
+              "value": 0.998602,
+              "cs_pct": 1.0,
+              "stratum": 3,
+              "amount": 106914.0,
+              "gap1": -0.050393,
+              "stock_history_pct": 0.9951
+            }
+          ],
+          "lowest": [
+            {
+              "date": 20251208,
+              "code": "002235",
+              "value": 0.0,
+              "cs_pct": 0.003,
+              "stratum": 3,
+              "amount": 69330.92,
+              "gap1": 0.099803,
+              "stock_history_pct": 0.0
+            },
+            {
+              "date": 20250917,
+              "code": "301421",
+              "value": 0.0,
+              "cs_pct": 0.002,
+              "stratum": 3,
+              "amount": 129047.07,
+              "gap1": 0.072404,
+              "stock_history_pct": 0.0
+            },
+            {
+              "date": 20251120,
+              "code": "301092",
+              "value": 0.0,
+              "cs_pct": 0.0018,
+              "stratum": 3,
+              "amount": 116335.96,
+              "gap1": -0.08239,
+              "stock_history_pct": 0.0
+            }
+          ]
+        },
+        {
+          "stratum": 4,
+          "n_cells": 513979,
+          "amount_range": [
+            56781.04,
+            751763.0
+          ],
+          "highest": [
+            {
+              "date": 20250626,
+              "code": "600387",
+              "value": 0.999545,
+              "cs_pct": 1.0,
+              "stratum": 4,
+              "amount": 142843.13,
+              "gap1": 0.057503,
+              "stock_history_pct": 0.9942
+            },
+            {
+              "date": 20250918,
+              "code": "600525",
+              "value": 0.998951,
+              "cs_pct": 0.9998,
+              "stratum": 4,
+              "amount": 363207.67,
+              "gap1": -0.03077,
+              "stock_history_pct": 0.998
+            },
+            {
+              "date": 20250306,
+              "code": "603003",
+              "value": 0.998706,
+              "cs_pct": 1.0,
+              "stratum": 4,
+              "amount": 160644.01,
+              "gap1": -0.010694,
+              "stock_history_pct": 0.9944
+            }
+          ],
+          "lowest": [
+            {
+              "date": 20250721,
+              "code": "002917",
+              "value": 0.0,
+              "cs_pct": 0.0041,
+              "stratum": 4,
+              "amount": 270863.81,
+              "gap1": 0.099997,
+              "stock_history_pct": 0.0
+            },
+            {
+              "date": 20250321,
+              "code": "002750",
+              "value": 0.0,
+              "cs_pct": 0.0021,
+              "stratum": 4,
+              "amount": 228325.38,
+              "gap1": -0.047948,
+              "stock_history_pct": 0.0
+            },
+            {
+              "date": 20250321,
+              "code": "002633",
+              "value": 0.0,
+              "cs_pct": 0.0021,
+              "stratum": 4,
+              "amount": 232703.3,
+              "gap1": -0.085341,
+              "stock_history_pct": 0.0
+            }
+          ]
+        },
+        {
+          "stratum": 5,
+          "n_cells": 514132,
+          "amount_range": [
+            127153.79,
+            60110591.97
+          ],
+          "highest": [
+            {
+              "date": 20250918,
+              "code": "600360",
+              "value": 0.998957,
+              "cs_pct": 1.0,
+              "stratum": 5,
+              "amount": 598241.33,
+              "gap1": -0.013549,
+              "stock_history_pct": 0.9979
+            },
+            {
+              "date": 20260521,
+              "code": "600130",
+              "value": 0.998719,
+              "cs_pct": 1.0,
+              "stratum": 5,
+              "amount": 1125013.13,
+              "gap1": -0.021841,
+              "stock_history_pct": 0.998
+            },
+            {
+              "date": 20250707,
+              "code": "600462",
+              "value": 0.99867,
+              "cs_pct": 1.0,
+              "stratum": 5,
+              "amount": 477825.76,
+              "gap1": -0.056581,
+              "stock_history_pct": 0.9884
+            }
+          ],
+          "lowest": [
+            {
+              "date": 20250421,
+              "code": "002565",
+              "value": 0.0,
+              "cs_pct": 0.0032,
+              "stratum": 5,
+              "amount": 932386.9,
+              "gap1": 0.101186,
+              "stock_history_pct": 0.0
+            },
+            {
+              "date": 20250717,
+              "code": "002178",
+              "value": 0.0,
+              "cs_pct": 0.0017,
+              "stratum": 5,
+              "amount": 1249968.94,
+              "gap1": 0.100279,
+              "stock_history_pct": 0.0
+            },
+            {
+              "date": 20251125,
+              "code": "000510",
+              "value": 0.0,
+              "cs_pct": 0.0033,
+              "stratum": 5,
+              "amount": 381323.11,
+              "gap1": 0.099727,
+              "stock_history_pct": 0.0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "高值但随后收益差的案例",
+      "reliability": "只作反例，不算证据。这一段样本被调过参数之后就不能再当独立验证样本。",
+      "fixed_conditions": {
+        "方向": "因子值高的那一侧",
+        "持有期": "1 个交易日",
+        "交易时点": "第 D 日收盘成交",
+        "收益口径": "close(D+1)/close(D)-1",
+        "入选规则": "当天因子值分位与未来收益分位一个在头部一个在尾部"
+      },
+      "n_selected_cells": 17938,
+      "cases": [
+        {
+          "date": 20260813,
+          "code": "688496",
+          "value": 0.997974,
+          "cs_pct": 1.0,
+          "forward_return": -0.11505,
+          "return_cs_pct": 0.0002,
+          "score": 0.9998
+        },
+        {
+          "date": 20260514,
+          "code": "301139",
+          "value": 0.996383,
+          "cs_pct": 1.0,
+          "forward_return": -0.20004,
+          "return_cs_pct": 0.0002,
+          "score": 0.9998
+        },
+        {
+          "date": 20260422,
+          "code": "688287",
+          "value": 0.996338,
+          "cs_pct": 0.9998,
+          "forward_return": -0.20207,
+          "return_cs_pct": 0.0002,
+          "score": 0.9996
+        },
+        {
+          "date": 20260513,
+          "code": "301139",
+          "value": 0.997958,
+          "cs_pct": 1.0,
+          "forward_return": -0.19982,
+          "return_cs_pct": 0.0006,
+          "score": 0.9994
+        },
+        {
+          "date": 20240925,
+          "code": "600198",
+          "value": 0.992145,
+          "cs_pct": 0.9998,
+          "forward_return": -0.09976,
+          "return_cs_pct": 0.0004,
+          "score": 0.9994
+        },
+        {
+          "date": 20240927,
+          "code": "002309",
+          "value": 0.993361,
+          "cs_pct": 0.9996,
+          "forward_return": -0.05084,
+          "return_cs_pct": 0.0002,
+          "score": 0.9994
+        },
+        {
+          "date": 20260514,
+          "code": "688496",
+          "value": 0.995118,
+          "cs_pct": 0.9997,
+          "forward_return": -0.19847,
+          "return_cs_pct": 0.0004,
+          "score": 0.9993
+        },
+        {
+          "date": 20250625,
+          "code": "600462",
+          "value": 0.997417,
+          "cs_pct": 0.9998,
+          "forward_return": -0.11734,
+          "return_cs_pct": 0.0006,
+          "score": 0.9992
+        }
+      ],
+      "notes": [
+        "这一类的方向、持有期、交易时点都固定在上面三个字段里，输出里不换口径。",
+        "一旦有人拿这段样本调过参数，它就只是故事，不能再当独立验证样本用。"
+      ]
+    },
+    {
+      "title": "匹配对照",
+      "reliability": "最低。它只能控制成交额与波动率这两个已经观测到的条件，控制不了没观测到的条件，所以不能当成「现象一样但因子不同」的证据，更不能当因果。",
+      "match_vars": [
+        "当天成交量",
+        "当天振幅"
+      ],
+      "n_candidate_pairs": 12475,
+      "cases": [
+        {
+          "date": 20250626,
+          "high": {
+            "code": "600387",
+            "value": 0.999545,
+            "amount": 142843.13,
+            "swing": 0.022844,
+            "amount_stratum": 4,
+            "swing_stratum": 3,
+            "gap1": 0.057503
+          },
+          "low": {
+            "code": "002961",
+            "value": 0.0,
+            "amount": 168473.38,
+            "swing": 0.026617,
+            "amount_stratum": 4,
+            "swing_stratum": 3,
+            "gap1": 0.04839
+          },
+          "value_diff": 0.999545
+        },
+        {
+          "date": 20260112,
+          "high": {
+            "code": "688184",
+            "value": 0.9993,
+            "amount": 9607.55,
+            "swing": 0.016807,
+            "amount_stratum": 1,
+            "swing_stratum": 1,
+            "gap1": -0.006284
+          },
+          "low": {
+            "code": "000691",
+            "value": 0.0,
+            "amount": 736.0,
+            "swing": 0.0,
+            "amount_stratum": 1,
+            "swing_stratum": 1,
+            "gap1": 0.049732
+          },
+          "value_diff": 0.9993
+        },
+        {
+          "date": 20250818,
+          "high": {
+            "code": "603559",
+            "value": 0.999269,
+            "amount": 9762.0,
+            "swing": 0.029702,
+            "amount_stratum": 1,
+            "swing_stratum": 3,
+            "gap1": -0.022141
+          },
+          "low": {
+            "code": "002848",
+            "value": 0.0,
+            "amount": 36994.0,
+            "swing": 0.026875,
+            "amount_stratum": 1,
+            "swing_stratum": 3,
+            "gap1": 0.033853
+          },
+          "value_diff": 0.999269
+        },
+        {
+          "date": 20260108,
+          "high": {
+            "code": "688184",
+            "value": 0.99926,
+            "amount": 10468.39,
+            "swing": 0.013731,
+            "amount_stratum": 1,
+            "swing_stratum": 1,
+            "gap1": 0.002084
+          },
+          "low": {
+            "code": "000691",
+            "value": 0.0,
+            "amount": 235.0,
+            "swing": 0.0,
+            "amount_stratum": 1,
+            "swing_stratum": 1,
+            "gap1": 0.050163
+          },
+          "value_diff": 0.99926
+        },
+        {
+          "date": 20250918,
+          "high": {
+            "code": "600360",
+            "value": 0.998957,
+            "amount": 598241.33,
+            "swing": 0.047948,
+            "amount_stratum": 5,
+            "swing_stratum": 4,
+            "gap1": -0.013549
+          },
+          "low": {
+            "code": "000981",
+            "value": 0.0,
+            "amount": 16884829.8,
+            "swing": 0.054066,
+            "amount_stratum": 5,
+            "swing_stratum": 4,
+            "gap1": -0.049151
+          },
+          "value_diff": 0.998957
+        },
+        {
+          "date": 20250625,
+          "high": {
+            "code": "600387",
+            "value": 0.998886,
+            "amount": 95759.39,
+            "swing": 0.033879,
+            "amount_stratum": 3,
+            "swing_stratum": 4,
+            "gap1": 0.0
+          },
+          "low": {
+            "code": "002921",
+            "value": 0.0,
+            "amount": 122790.36,
+            "swing": 0.030654,
+            "amount_stratum": 3,
+            "swing_stratum": 4,
+            "gap1": -0.056932
+          },
+          "value_diff": 0.998886
+        },
+        {
+          "date": 20250820,
+          "high": {
+            "code": "603559",
+            "value": 0.998802,
+            "amount": 8887.7,
+            "swing": 0.021494,
+            "amount_stratum": 1,
+            "swing_stratum": 2,
+            "gap1": 0.008254
+          },
+          "low": {
+            "code": "002789",
+            "value": 0.0,
+            "amount": 21293.7,
+            "swing": 0.018634,
+            "amount_stratum": 1,
+            "swing_stratum": 2,
+            "gap1": -0.014401
+          },
+          "value_diff": 0.998802
+        },
+        {
+          "date": 20251014,
+          "high": {
+            "code": "603388",
+            "value": 0.998761,
+            "amount": 10414.0,
+            "swing": 0.0,
+            "amount_stratum": 1,
+            "swing_stratum": 1,
+            "gap1": -0.046988
+          },
+          "low": {
+            "code": "000638",
+            "value": 0.0,
+            "amount": 9572.0,
+            "swing": 0.0,
+            "amount_stratum": 1,
+            "swing_stratum": 1,
+            "gap1": 0.050858
+          },
+          "value_diff": 0.998761
+        }
+      ],
+      "notes": [
+        "配对是同一交易日内、成交量与振幅各分五档后落在同一格的两只股票。",
+        "同一格里因子值差得多，只说明在这一格内两者不同，不说明差在哪。要往下问，用 drill 把那一天的逐笔与盘口摆出来看。"
+      ]
+    }
+  ],
+  "verdict": {
+    "code": "cases_found",
+    "text": "hotpool_ext_ind_rel_x15y10_ba_hot_rk_buy_p75 在 20240816~20260908 这段里，0 天出现大面积缺失，8 只股票的有效比例不到一半，0 只股票九成以上的日子取同一个值，稳健 z 超过 20 的格子有 0 个。"
+  },
+  "notes": [
+    "五类案例按可靠程度从高到低排，不按发现顺序排。同一批数据被反复用来挑案例之后，挑出来的案例就不再是独立样本。",
+    "匹配对照那一类只能控制成交额与波动率，不能当因果证据。",
+    "反例那一类固定了方向、持有期、交易时点，被用来调参后不能再当独立验证样本。"
+  ]
+}

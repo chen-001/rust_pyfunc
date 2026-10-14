@@ -1,0 +1,418 @@
+{
+  "type": "factor-experiment-snapshot",
+  "schemaVersion": 1,
+  "taskId": 413,
+  "name": "hm94",
+  "submittedAt": "2026-10-14T02:56:44.948Z",
+  "scriptPath": "/home/chenzongwei/pythoncode/成果hm94_挂单猫/hm94.py",
+  "script": {
+    "path": "/home/chenzongwei/pythoncode/成果hm94_挂单猫/hm94.py",
+    "sha256": "7220562a6fd1296e36bd53f225487704e7b662736d2df536678255f26182c7e5",
+    "bytes": 17122,
+    "lines": 343,
+    "copyPath": "/home/chenzongwei/rust_pyfunc/experiments/413.py"
+  },
+  "fingerprint": "186adfe5a0074c7d3339d38005d96005969a7ff6be04c2280907373caee8ff48",
+  "params": {
+    "nJobs": 300,
+    "startDate": "20150101",
+    "endDate": "20260924",
+    "priority": 2
+  },
+  "env": {
+    "capturedAt": "2026-10-14T02:56:44.948Z",
+    "python": {
+      "version": "3.10.12 (main, Jun 11 2023, 05:26:28) [GCC 11.4.0]",
+      "versionShort": "3.10.12",
+      "executable": "/usr/bin/python3",
+      "rustPyfuncImportable": true,
+      "rustPyfuncFile": null,
+      "source": "挑的是能 import rust_pyfunc 的解释器（python3）",
+      "tried": [
+        "python3"
+      ],
+      "note": null
+    },
+    "rustPyfuncSo": {
+      "path": "/home/chenzongwei/rust_pyfunc/python/rust_pyfunc/rust_pyfunc.abi3.so",
+      "exists": true,
+      "bytes": 42637761,
+      "mtime": "2026-10-14T02:45:41.127Z",
+      "mtimeMs": 1791945941127.3142
+    },
+    "rustPyfuncWorker": {
+      "path": "/home/chenzongwei/rust_pyfunc/python/rust_pyfunc/rust_pyfunc_worker",
+      "exists": true,
+      "bytes": 17864976,
+      "mtime": "2026-10-14T02:56:02.993Z",
+      "mtimeMs": 1791946562993.4065
+    },
+    "mainRepo": {
+      "dir": "/home/chenzongwei/rust_pyfunc",
+      "isRepo": true,
+      "root": "/home/chenzongwei/rust_pyfunc",
+      "head": "6b4be7a",
+      "branch": "main",
+      "dirty": true,
+      "changedFiles": 42,
+      "changes": [
+        {
+          "flag": " M",
+          "path": "reports/okay_database/index.html"
+        },
+        {
+          "flag": " M",
+          "path": "reports/okay_database/program_state.json"
+        },
+        {
+          "flag": " M",
+          "path": "reports/okay_database/queue_log.jsonl"
+        },
+        {
+          "flag": "??",
+          "path": "factor_gate_pipeline_v20260825.py"
+        },
+        {
+          "flag": "??",
+          "path": "perf_sandbox/"
+        },
+        {
+          "flag": "??",
+          "path": "reports/okay_database/claims/.library_refresh.lock"
+        },
+        {
+          "flag": "??",
+          "path": "reports/okay_database/program_state.json.bak_20261012_hm074"
+        },
+        {
+          "flag": "??",
+          "path": "reports/okay_database/submit/backup_hm26.bin.control"
+        },
+        {
+          "flag": "??",
+          "path": "reports/okay_database/submit/hm14.py"
+        },
+        {
+          "flag": "??",
+          "path": "reports/okay_database/submit/hm15.py"
+        },
+        {
+          "flag": "??",
+          "path": "reports/okay_database/submit/hm16.py"
+        },
+        {
+          "flag": "??",
+          "path": "reports/okay_database/submit/hm17.py"
+        },
+        {
+          "flag": "??",
+          "path": "reports/okay_database/submit/hm18.py"
+        },
+        {
+          "flag": "??",
+          "path": "reports/okay_database/submit/hm2.py"
+        },
+        {
+          "flag": "??",
+          "path": "reports/okay_database/submit/hm20.py"
+        },
+        {
+          "flag": "??",
+          "path": "reports/okay_database/submit/hm21.py"
+        },
+        {
+          "flag": "??",
+          "path": "reports/okay_database/submit/hm22.py"
+        },
+        {
+          "flag": "??",
+          "path": "reports/okay_database/submit/hm23.py"
+        },
+        {
+          "flag": "??",
+          "path": "reports/okay_database/submit/hm24.py"
+        },
+        {
+          "flag": "??",
+          "path": "reports/okay_database/submit/hm25.py"
+        },
+        {
+          "flag": "??",
+          "path": "reports/okay_database/submit/hm26.py"
+        },
+        {
+          "flag": "??",
+          "path": "reports/okay_database/submit/hm27.py"
+        },
+        {
+          "flag": "??",
+          "path": "reports/okay_database/submit/hm28.py"
+        },
+        {
+          "flag": "??",
+          "path": "reports/okay_database/submit/hm3.py"
+        },
+        {
+          "flag": "??",
+          "path": "reports/okay_database/submit/hm30.py"
+        },
+        {
+          "flag": "??",
+          "path": "reports/okay_database/submit/hm31.py"
+        },
+        {
+          "flag": "??",
+          "path": "reports/okay_database/submit/hm32.py"
+        },
+        {
+          "flag": "??",
+          "path": "reports/okay_database/submit/hm33.py"
+        },
+        {
+          "flag": "??",
+          "path": "reports/okay_database/submit/hm34.py"
+        },
+        {
+          "flag": "??",
+          "path": "reports/okay_database/submit/hm35.py"
+        }
+      ],
+      "excludedSnapshotFiles": 1,
+      "note": null
+    },
+    "scriptDir": {
+      "dir": "/home/chenzongwei/pythoncode/成果hm94_挂单猫",
+      "isRepo": true,
+      "root": "/home/chenzongwei/pythoncode",
+      "head": "3389d03",
+      "branch": "main",
+      "dirty": true,
+      "changedFiles": 153,
+      "changes": [
+        {
+          "flag": " D",
+          "path": "others/pyt/l2_2607a.py"
+        },
+        {
+          "flag": " D",
+          "path": "others/pyt/l2_2607b.py"
+        },
+        {
+          "flag": " D",
+          "path": "others/pyt/l2_2607c.py"
+        },
+        {
+          "flag": " M",
+          "path": "\\345\\255\\246\\346\\234\\257_\\350\\241\\214\\344\\270\\272\\345\\233\\240\\345\\255\\220/\\345\\210\\233\\347\\272\\252\\345\\275\\225\\347\\206\\265\\345\\217\\230HHI.py"
+        },
+        {
+          "flag": " M",
+          "path": "\\346\\210\\220\\346\\236\\234hm100_\\346\\227\\245\\345\\206\\205capm/hm100.py"
+        },
+        {
+          "flag": " M",
+          "path": "\\346\\210\\220\\346\\236\\234hm100_\\346\\227\\245\\345\\206\\205capm/hm100_ind.py"
+        },
+        {
+          "flag": " M",
+          "path": "\\346\\210\\220\\346\\236\\234hm100_\\346\\227\\245\\345\\206\\205capm/hm100_ssm.py"
+        },
+        {
+          "flag": " M",
+          "path": "\\346\\210\\220\\346\\236\\234hm100_\\346\\227\\245\\345\\206\\205capm/hm100_ssm2.py"
+        },
+        {
+          "flag": " M",
+          "path": "\\346\\210\\220\\346\\236\\234hm100_\\346\\227\\245\\345\\206\\205capm/\\345\\210\\206\\351\\222\\237\\345\\206\\205capm.py"
+        },
+        {
+          "flag": " M",
+          "path": "\\346\\210\\220\\346\\236\\234hm101_\\345\\217\\257\\350\\247\\202\\346\\265\\213\\346\\214\\202\\345\\215\\225\\345\\215\\217\\345\\220\\214\\351\\252\\244\\351\\231\\215/drop_event_flow.py"
+        },
+        {
+          "flag": " M",
+          "path": "\\346\\210\\220\\346\\236\\234hm101_\\345\\217\\257\\350\\247\\202\\346\\265\\213\\346\\214\\202\\345\\215\\225\\345\\215\\217\\345\\220\\214\\351\\252\\244\\351\\231\\215/hm101.py"
+        },
+        {
+          "flag": " M",
+          "path": "\\346\\210\\220\\346\\236\\234hm101_\\345\\217\\257\\350\\247\\202\\346\\265\\213\\346\\214\\202\\345\\215\\225\\345\\215\\217\\345\\220\\214\\351\\252\\244\\351\\231\\215/hm101_ind.py"
+        },
+        {
+          "flag": " M",
+          "path": "\\346\\210\\220\\346\\236\\234hm101_\\345\\217\\257\\350\\247\\202\\346\\265\\213\\346\\214\\202\\345\\215\\225\\345\\215\\217\\345\\220\\214\\351\\252\\244\\351\\231\\215/hm101_ssm.py"
+        },
+        {
+          "flag": " M",
+          "path": "\\346\\210\\220\\346\\236\\234hm102_\\346\\237\\234\\345\\221\\230\\346\\270\\270\\346\\210\\217\\351\\200\\200\\347\\201\\253\\347\\211\\210\\346\\214\\202\\345\\215\\225\\345\\244\\261\\350\\241\\241/hm102.py"
+        },
+        {
+          "flag": " M",
+          "path": "\\346\\210\\220\\346\\236\\234hm102_\\346\\237\\234\\345\\221\\230\\346\\270\\270\\346\\210\\217\\351\\200\\200\\347\\201\\253\\347\\211\\210\\346\\214\\202\\345\\215\\225\\345\\244\\261\\350\\241\\241/hm102_ind.py"
+        },
+        {
+          "flag": " M",
+          "path": "\\346\\210\\220\\346\\236\\234hm102_\\346\\237\\234\\345\\221\\230\\346\\270\\270\\346\\210\\217\\351\\200\\200\\347\\201\\253\\347\\211\\210\\346\\214\\202\\345\\215\\225\\345\\244\\261\\350\\241\\241/hm102_ssm.py"
+        },
+        {
+          "flag": " M",
+          "path": "\\346\\210\\220\\346\\236\\234hm102_\\346\\237\\234\\345\\221\\230\\346\\270\\270\\346\\210\\217\\351\\200\\200\\347\\201\\253\\347\\211\\210\\346\\214\\202\\345\\215\\225\\345\\244\\261\\350\\241\\241/\\346\\237\\234\\345\\221\\230\\346\\270\\270\\346\\210\\217\\351\\200\\200\\347\\201\\253\\347\\211\\210\\346\\214\\202\\345\\215\\225\\345\\244\\261\\350\\241\\241.py"
+        },
+        {
+          "flag": " M",
+          "path": "\\346\\210\\220\\346\\236\\234hm102_\\346\\237\\234\\345\\221\\230\\346\\270\\270\\346\\210\\217\\351\\200\\200\\347\\201\\253\\347\\211\\210\\346\\214\\202\\345\\215\\225\\345\\244\\261\\350\\241\\241/\\346\\237\\234\\345\\221\\230\\346\\270\\270\\346\\210\\217\\351\\200\\200\\347\\201\\253\\347\\211\\210\\346\\214\\202\\345\\215\\225\\345\\244\\261\\350\\241\\241\\344\\277\\256\\345\\244\\215.py"
+        },
+        {
+          "flag": " M",
+          "path": "\\346\\210\\220\\346\\236\\234hm103_\\346\\237\\234\\345\\221\\230\\346\\270\\270\\346\\210\\217\\344\\270\\211\\345\\261\\202/call_pipeline.py"
+        },
+        {
+          "flag": " M",
+          "path": "\\346\\210\\220\\346\\236\\234hm103_\\346\\237\\234\\345\\221\\230\\346\\270\\270\\346\\210\\217\\344\\270\\211\\345\\261\\202/hm103.py"
+        },
+        {
+          "flag": " M",
+          "path": "\\346\\210\\220\\346\\236\\234hm103_\\346\\237\\234\\345\\221\\230\\346\\270\\270\\346\\210\\217\\344\\270\\211\\345\\261\\202/hm103_ind.py"
+        },
+        {
+          "flag": " M",
+          "path": "\\346\\210\\220\\346\\236\\234hm103_\\346\\237\\234\\345\\221\\230\\346\\270\\270\\346\\210\\217\\344\\270\\211\\345\\261\\202/hm103_ssm.py"
+        },
+        {
+          "flag": " M",
+          "path": "\\346\\210\\220\\346\\236\\234hm104_\\345\\220\\214\\347\\203\\255\\347\\202\\271\\350\\202\\241\\347\\245\\250\\346\\261\\240/hm104.py"
+        },
+        {
+          "flag": " M",
+          "path": "\\346\\210\\220\\346\\236\\234hm104_\\345\\220\\214\\347\\203\\255\\347\\202\\271\\350\\202\\241\\347\\245\\250\\346\\261\\240/hm104_ind.py"
+        },
+        {
+          "flag": " M",
+          "path": "\\346\\210\\220\\346\\236\\234hm104_\\345\\220\\214\\347\\203\\255\\347\\202\\271\\350\\202\\241\\347\\245\\250\\346\\261\\240/hm104_ssm.py"
+        },
+        {
+          "flag": " M",
+          "path": "\\346\\210\\220\\346\\236\\234hm104_\\345\\220\\214\\347\\203\\255\\347\\202\\271\\350\\202\\241\\347\\245\\250\\346\\261\\240/hm104_ssm2.py"
+        },
+        {
+          "flag": " M",
+          "path": "\\346\\210\\220\\346\\236\\234hm104_\\345\\220\\214\\347\\203\\255\\347\\202\\271\\350\\202\\241\\347\\245\\250\\346\\261\\240/hm104_ssm3.py"
+        },
+        {
+          "flag": " M",
+          "path": "\\346\\210\\220\\346\\236\\234hm104_\\345\\220\\214\\347\\203\\255\\347\\202\\271\\350\\202\\241\\347\\245\\250\\346\\261\\240/hm104_\\345\\235\\207\\350\\241\\241\\347\\247\\251\\344\\270\\200\\350\\207\\264.py"
+        },
+        {
+          "flag": " M",
+          "path": "\\346\\210\\220\\346\\236\\234hm104_\\345\\220\\214\\347\\203\\255\\347\\202\\271\\350\\202\\241\\347\\245\\250\\346\\261\\240/hm104_\\345\\235\\207\\350\\241\\241\\347\\247\\251\\344\\270\\200\\350\\207\\264_ic.py"
+        },
+        {
+          "flag": " M",
+          "path": "\\346\\210\\220\\346\\236\\234hm104_\\345\\220\\214\\347\\203\\255\\347\\202\\271\\350\\202\\241\\347\\245\\250\\346\\261\\240/hm104_\\346\\246\\202\\347\\216\\207\\345\\215\\225\\350\\260\\203\\345\\272\\246.py"
+        }
+      ],
+      "excludedSnapshotFiles": 0,
+      "note": null
+    },
+    "platform": {
+      "node": "v24.11.1",
+      "os": "linux x64"
+    },
+    "note": "这里记的是提交那一刻由插件探测的机器状态，解释器是猜的（挑能 import rust_pyfunc 的那个），真正跑任务用的解释器 / 工作目录 / worker 指纹在守护进程的任务记录里（factor_task_status 可看 run_env）。rust_pyfunc 的 .so 与 worker 都取自主仓库的部署位置；git 信息取不到时字段为 null，理由写在 note 里。"
+  },
+  "expected": {
+    "factors": null,
+    "factorsNote": "清单赋值「names =」右边不是字面量列表（不是 [ 开头），跳过静态解析",
+    "startDate": "20150101",
+    "endDate": "20260924",
+    "path": "/home/chenzongwei/pythoncode/成果hm94_挂单猫",
+    "pathNote": "期望产出的目录 /home/chenzongwei/pythoncode/成果hm94_挂单猫（daemon 用 cwd=脚本所在目录启动）。",
+    "backupFile": "/home/chenzongwei/pythoncode/成果hm94_挂单猫/backup_hm94.bin",
+    "backupFileNote": "期望的产物前缀：脚本所在目录下 backup_<任务名>.bin（与 daemon 的命名约定一致）。"
+  },
+  "daemon": {
+    "taskId": 413,
+    "status": "pending",
+    "scriptPath": "/home/chenzongwei/pythoncode/成果hm94_挂单猫/hm94.py",
+    "nJobs": 300,
+    "priority": 2,
+    "createdAt": null,
+    "responseFields": [
+      "id",
+      "name",
+      "priority",
+      "status"
+    ]
+  },
+  "checks": [
+    {
+      "code": "script_ext",
+      "level": "通过",
+      "message": "脚本文件存在且扩展名是 .py：/home/chenzongwei/pythoncode/成果hm94_挂单猫/hm94.py"
+    },
+    {
+      "code": "task_name",
+      "level": "通过",
+      "message": "任务名「hm94」合规（中文为主体或命中 hm 例外命名）"
+    },
+    {
+      "code": "env_typo",
+      "level": "通过",
+      "message": "没有 FACTOR_NJOBS 拼写错误"
+    },
+    {
+      "code": "env_n_jobs",
+      "level": "通过",
+      "message": "脚本里设置了 FACTOR_N_JOBS（出现 2 处）"
+    },
+    {
+      "code": "entrypoint",
+      "level": "通过",
+      "message": "找到计算入口：run_factor_pipeline、tail_pipeline_engine"
+    },
+    {
+      "code": "names_list",
+      "level": "通过",
+      "message": "因子名清单（names = [...]）写在本文件里，worker 子进程能读到"
+    },
+    {
+      "code": "go_def",
+      "level": "通过",
+      "message": "脚本没有调用 go(...)，跳过 go 函数自包含检查"
+    },
+    {
+      "code": "recent_edit",
+      "level": "通过",
+      "message": "脚本最后修改时间 2026-10-14T02:38:03.817Z，不在最近 10 分钟内"
+    },
+    {
+      "code": "date_order",
+      "level": "通过",
+      "message": "起止日期格式正确，先后顺序没问题"
+    },
+    {
+      "code": "end_date",
+      "level": "警告",
+      "message": "endDate=20260924，与建议值 20260831（当前日期前两个月的月底）不同。算错结束日期会白跑，确认这是有意为之再提交。"
+    },
+    {
+      "code": "n_jobs",
+      "level": "通过",
+      "message": "nJobs=300"
+    },
+    {
+      "code": "priority",
+      "level": "通过",
+      "message": "priority=2"
+    },
+    {
+      "code": "env_dates",
+      "level": "警告",
+      "message": "传了起止日期，但脚本里没找到 FACTOR_START_DATE、FACTOR_END_DATE：守护进程会把这些环境变量传下去，脚本不读就等于没传，任务多半按脚本自己的默认范围跑（跑完任务记录里会写 honored=false）。要么别传日期，要么让脚本读这两个变量。"
+    }
+  ],
+  "checksSummary": {
+    "pass": 11,
+    "warn": 2,
+    "block": 0
+  }
+}

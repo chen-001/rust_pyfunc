@@ -1,0 +1,16 @@
+[package]
+name = "hm076_bench"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+ndarray = "0.15"
+rayon = "1.8"
+
+[profile.release]
+opt-level = 3
+incremental = true
+codegen-units = 256
+lto = false

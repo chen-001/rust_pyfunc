@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>玉佩2 双层网络（配对互补）研究报告</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#ffffff; --ink:#1c2024; --ink2:#4a5158; --ink3:#7c858d;
+    --line:#e3e6ea; --line2:#eef0f3;
+    --accent:#2f5fd0; --accent-soft:#eaf0fd;
+    --warn:#b4531a; --warn-soft:#fdf2e8;
+    --ok:#1f7a4d; --ok-soft:#e9f6ef;
+    --bad:#b3261e; --bad-soft:#fdecea;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+    --serif:Georgia,"Times New Roman","Songti SC",serif;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:15px/1.75 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1040px;margin:0 auto;padding:40px 24px 96px}
+
+  header.doc{border-bottom:2px solid var(--ink);padding-bottom:18px;margin-bottom:8px}
+  header.doc h1{margin:0 0 8px;font-size:27px;letter-spacing:-.3px;line-height:1.35}
+  header.doc .meta{color:var(--ink3);font-size:13px;font-family:var(--mono)}
+
+  h2{
+    font-size:19px;margin:46px 0 14px;padding-left:12px;
+    border-left:4px solid var(--accent);line-height:1.4;
+  }
+  h3{font-size:15.5px;margin:28px 0 10px;color:var(--ink)}
+  p{margin:10px 0}
+  ul,ol{margin:10px 0;padding-left:22px}
+  li{margin:5px 0}
+  code{font-family:var(--mono);font-size:.92em;background:#eef1f4;padding:1px 5px;border-radius:4px}
+  a{color:var(--accent)}
+
+  /* ---------- 公式 ---------- */
+  .eq{
+    background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:18px 20px;margin:16px 0;font-family:var(--serif);font-size:18px;
+    line-height:2.1;overflow-x:auto;
+  }
+  .eq .row{display:block;white-space:nowrap}
+  .eq .row + .row{margin-top:10px}
+  .eq i{font-style:italic;font-family:var(--serif)}
+  .eq .op{font-style:normal;padding:0 .18em;color:var(--ink2)}
+  .eq .lbl{font-family:var(--mono);font-size:12px;color:var(--ink3);display:block;margin-bottom:6px;letter-spacing:.2px}
+  .frac{display:inline-block;vertical-align:middle;text-align:center;margin:0 .3em;font-size:.94em}
+  .frac > .num{display:block;border-bottom:1.2px solid currentColor;padding:0 .35em .1em}
+  .frac > .den{display:block;padding:.1em .35em 0}
+  .big{font-size:1.5em;vertical-align:-.22em;line-height:0}
+  .lim{display:inline-block;vertical-align:middle;text-align:center;font-size:.62em;line-height:1.15;margin:0 .12em}
+  .sum{display:inline-block;vertical-align:middle;text-align:center;font-style:normal;margin:0 .16em;line-height:1.02}
+  .sum > .s{display:block;font-size:1.5em;line-height:1}
+  .sum > .l{display:block;font-size:.55em;line-height:1.25;font-family:var(--serif);font-style:italic;padding-top:1px}
+  .rad{font-size:1.1em;vertical-align:-.06em}
+  sub,sup{font-size:.68em}
+  .var{font-style:italic;font-family:var(--serif)}
+  .n{font-family:var(--mono);font-size:.9em}
+
+  /* ---------- 卡片 / 提示 ---------- */
+  .callout{border-radius:10px;padding:16px 18px;margin:18px 0;border:1px solid var(--line);background:var(--card)}
+  .callout .t{font-weight:700;font-size:13px;letter-spacing:.4px;margin-bottom:6px;text-transform:uppercase}
+  .callout.info{background:var(--accent-soft);border-color:#cfdcfa}
+  .callout.info .t{color:var(--accent)}
+  .callout.warn{background:var(--warn-soft);border-color:#f3ddc7}
+  .callout.warn .t{color:var(--warn)}
+  .callout.ok{background:var(--ok-soft);border-color:#c9e8d7}
+  .callout.ok .t{color:var(--ok)}
+  .callout.bad{background:var(--bad-soft);border-color:#f6d2ce}
+  .callout.bad .t{color:var(--bad)}
+
+  /* ---------- 表格 ---------- */
+  table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13.5px;background:var(--card);
+        border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  caption{caption-side:top;text-align:left;font-size:12.5px;color:var(--ink3);padding:0 0 8px;font-family:var(--mono)}
+  th{background:#f0f2f5;text-align:left;font-weight:600;font-size:12.5px;color:var(--ink2);
+     padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+  td{padding:9px 12px;border-bottom:1px solid var(--line2);vertical-align:top}
+  tbody tr:last-child td{border-bottom:none}
+  tbody tr:nth-child(even){background:#fafbfc}
+  td.num,th.num{font-family:var(--mono);font-size:12.5px;text-align:right;white-space:nowrap}
+  .good{color:var(--ok);font-weight:600}
+  .badd{color:var(--bad);font-weight:600}
+  .mute{color:var(--ink3)}
+
+  /* ---------- 条形图 ---------- */
+  .bars{margin:16px 0;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px}
+  .bar{display:grid;grid-template-columns:132px 1fr 58px;align-items:center;gap:10px;margin:7px 0;font-size:13px}
+  .bar .lab{font-family:var(--mono);font-size:12.5px;color:var(--ink2);text-align:right}
+  .bar .track{height:11px;background:#eef0f3;border-radius:6px;overflow:hidden}
+  .bar .fill{height:100%;background:var(--accent);border-radius:6px}
+  .bar .fill.dim{background:#9db4e6}
+  .bar .fill.warm{background:#d98b4a}
+  .bar .val{font-family:var(--mono);font-size:12.5px;color:var(--ink2)}
+
+  /* ---------- 度量块 ---------- */
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));gap:12px;margin:18px 0}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:13px 15px}
+  .stat .k{font-size:12px;color:var(--ink3);margin-bottom:4px}
+  .stat .v{font-size:21px;font-weight:650;font-family:var(--mono);letter-spacing:-.5px}
+  .stat .s{font-size:11.5px;color:var(--ink3);margin-top:3px;font-family:var(--mono)}
+
+  .filelist{font-family:var(--mono);font-size:12.5px;line-height:2.05;color:var(--ink2)}
+  .filelist b{color:var(--ink);font-weight:600}
+  hr.soft{border:none;border-top:1px solid var(--line);margin:34px 0}
+  footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);color:var(--ink3);font-size:12px;font-family:var(--mono)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="doc">
+  <h1>玉佩2 双层网络（配对互补）研究报告</h1>
+  <div class="meta">实验 yupei2_pair_net ｜ 机制样本 20241230–20241231 ｜ 生成于 2026-10-09</div>
+</header>
+
+<div class="callout warn">
+  <div class="t">结论</div>
+  思路在数学上成立，但有硬天花板，实测下来「互补」在你这套归一化里的含量比预期少很多。<br>
+  第一个指标（求和核的组合形状增益 <span class="var">G</span>）已经用 Rust 实现好，全市场 N×N 只要 9.4 秒。<br>
+  第二个指标（取最大近邻的覆盖增益）按 ChatGPT 给的归一化方式，600 个候选配对里<strong>一个正的都没有</strong>。<br>
+  降维出的 77 个因子里，跨日稳的那批基本是现有 <code>rec_*_reciprocity</code> 的换皮，真正新的那批跨日只有 0.4 到 0.5。
+</div>
+
+<h2>摘要</h2>
+
+<p style="color:var(--ink2)">三句话说完。你这个构造<strong>能算</strong>，<strong>算得很快</strong>，但<strong>不能用来证明「互补」</strong>。下面按重要性排。</p>
+
+<div class="callout ok">
+  <div class="t">先说口径</div>
+  这张报告里的数字<strong>全部是在只保留 A 股股票的数据上算的</strong>。基金、债券、ETF 在读逐笔之前就被剔除了，
+  配对的两端和 X 的候选集都只含股票。有两处早期用了未过滤数据，已经重算并替换，
+  一处是覆盖核，一处是跨日稳定性，两处在正文里都标了更正前后的对照。
+</div>
+
+<table>
+  <thead><tr><th style="width:72px;white-space:nowrap">级别</th><th>核心结论</th><th style="width:38%">支撑数字</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><span class="bad" style="font-weight:700">最重要</span></td>
+      <td><b>G 主要不是配对的属性。</b>把它对 (p,&thinsp;q) 这个相似度剖面做完条件平均之后，只剩 0.9% 的方差是配对自己的内容</td>
+      <td>剖面解释掉 99.1%；残差 std / G 的 std = 0.094；残差与 G 的 Spearman 只有 0.013</td>
+    </tr>
+    <tr>
+      <td><span class="bad" style="font-weight:700">最重要</span></td>
+      <td><b>第二个指标按 ChatGPT 的归一化方式不成立。</b>并集的覆盖自能量因为取最大而被抬高，分母涨得比分子快</td>
+      <td>600 个候选配对 Gcov 全部为负，中位 &minus;0.106；cov(U,U) 是 cov(B,B) 的 6.7 倍</td>
+    </tr>
+    <tr>
+      <td><span class="warn" style="font-weight:700">重要</span></td>
+      <td><b>降维出来的东西，稳的是旧的，新的是不稳的。</b>跨日最稳的前 7 条里 6 条与老因子 <code>rec_*_reciprocity</code> 撞 0.77 到 0.88</td>
+      <td>r5_res_max 撞老因子 0.909；真正新的那批跨日只有 0.40 到 0.50</td>
+    </tr>
+    <tr>
+      <td><span class="warn" style="font-weight:700">重要</span></td>
+      <td><b>玉佩2 的股票池漏了白名单，这是代码 bug，不是优化建议。</b>基金和债券混在横截面里参与计算，而且现在重跑依然会混进去</td>
+      <td>codes.txt 里 280 个非个股；6,784,086 对股票-股票配对里有 7.24% 的 X<sub>0</sub> 落在基金或债券上；一个 ETF 占了全部配对的 7.1%，排第三</td>
+    </tr>
+    <tr>
+      <td><span class="good" style="font-weight:700">好消息</span></td>
+      <td><b>互补关系不是相似度换了个说法。</b>两张图的边几乎不重合</td>
+      <td>k=20 时共同邻居比例 0.55%、Jaccard 0.07%、度序列 Spearman &minus;0.384</td>
+    </tr>
+    <tr>
+      <td><span class="good" style="font-weight:700">好消息</span></td>
+      <td><b>往 k 只篮子走比停在 2 只有希望。</b>贪心篮子没有塌成单枢纽</td>
+      <td>8 只篮子 ρ 均值 0.456，伙伴互相 ρ 中位 0.276，退化比例仅 1.6%</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>建议，按该做的顺序</h3>
+<ol>
+  <li>
+    <b>先修玉佩2 的白名单漏检。</b>这是 bug 修复，不是调参。修完要让整条 2761 因子的线重算一遍，
+    历史备份矩阵也是带 ETF 算出来的，同样要重做。这一步不做，后面所有结论都站在被污染的数据上。
+    <span class="mute">详见第八节，有代码位置和提交记录。</span>
+  </li>
+  <li>
+    <b>把 X<sub>0</sub> 换成「补缺口最大」的那只。</b>零成本，只改一行 argmax 的目标函数。
+    跨日 Spearman 从 0.502 升到 0.685，前 10 名集中度从 50.6% 降到 20.7%。
+  </li>
+  <li>
+    <b>把活跃度分层空模型换掉。</b>它现在不构成检验，只是标准化。换成条件冗余残差才有判别力，
+    换了之后你就知道「互补」到底还剩多少内容。
+  </li>
+  <li>
+    <b>因子层面只带 8 条下去，或者干脆换个方向。</b>要带就带
+    <code>p_zs_max</code>、<code>p_gen_top20</code>、<code>p_gen_max</code>、<code>p_quad</code>、
+    <code>s_r5_res_hhi</code>、<code>s_r5_res_mean</code>、<code>r4_deg_G_topk</code>、<code>r1_explain_count_z2</code>。
+    更值得投入的是把 2 只伙伴推广成 k 只的贪心篮子，那一路没有塌，而且它才是你原始直觉的完整版本。
+  </li>
+</ol>
+
+<h2>一、你的核心指标是什么</h2>
+
+<p>把 A 全天每一笔和 B 全天每一笔两两配对，时间差按指数衰减加权求和。名字叫距离，实际上是互动强度，成交越多越大，所以必须用自能量归一化之后才可比。</p>
+
+<div class="eq">
+  <span class="lbl">原算子（10ms 桶实现，行在后列在前，同桶 50/50 折半）</span>
+  <span class="row">
+    <i>S</i>(<i>A</i>,&thinsp;<i>B</i>) <span class="op">=</span>
+    <span class="sum"><span class="s">Σ</span><span class="l">a ∈ A</span></span>
+    <span class="sum"><span class="s">Σ</span><span class="l">b ∈ B</span></span>
+    <i>w<sub>a</sub></i> <span class="op">·</span> <i>w<sub>b</sub></i> <span class="op">·</span>
+    <i>e</i><sup>&minus;|t<sub>a</sub> &minus; t<sub>b</sub>| / τ</sup>
+  </span>
+  <span class="row">
+    <i>E<sub>A</sub></i> <span class="op">=</span> 2 <span class="op">·</span> <i>S</i><sub>dir</sub>[<i>A</i>][<i>A</i>]
+    <span class="op" style="padding-left:2.4em">ρ(<i>A</i>,&thinsp;<i>B</i>)</span> <span class="op">=</span>
+    <span class="frac"><span class="num"><i>S</i>(<i>A</i>,&thinsp;<i>B</i>)</span>
+      <span class="den"><span class="rad">√</span>(<i>E<sub>A</sub></i> <span class="op">·</span> <i>E<sub>B</sub></i>)</span></span>
+    <span class="op" style="padding-left:1em">|ρ| <span class="op">≤</span> 1</span>
+  </span>
+</div>
+
+<p>你帖子里的 37 张矩阵就是这个式子换 6 种权重和多个 τ。正式口径在 <code>src/yupei_dist/matrix_stage.rs</code> 第 3 行起。</p>
+
+<div class="callout info">
+  <div class="t">关键事实</div>
+  拼接满足严格的 <i>S</i>(<i>A</i>,&thinsp;<i>U<sub>BC</sub></i>) = <i>S</i>(<i>A</i>,&thinsp;<i>B</i>) + <i>S</i>(<i>A</i>,&thinsp;<i>C</i>)，
+  我用独立 Python 暴力复算过，相对差 <b>0.0</b>（有向核 1.4&nbsp;×&nbsp;10<sup>&minus;16</sup>）。
+  这条意味着<strong>拼接本身不产生任何新信息，全部信息都藏在归一化的分母里</strong>。
+</div>
+
+<h2>二、你这个思路哪里站得住、哪里要改</h2>
+
+<h3>站得住的地方</h3>
+<p>换成归一化之后，互补和重复确实分得开了。而且互补图跟相似图在图结构上几乎不重合，k=20 时平均共同邻居只有 0.55%，两个度序列的 Spearman 是 &minus;0.384。这不是相似度换了个说法。</p>
+
+<h3>三个必须知道的问题</h3>
+
+<table>
+  <caption>构造的数学边界，逐条有实测数字</caption>
+  <thead>
+    <tr><th>你的设想</th><th>实测结论</th><th class="num">数字</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>A 离 <i>U<sub>BC</sub></i> 很近，但离 B、C 都远</td>
+      <td>不可能。因为 ρ(<i>X</i>,&thinsp;<i>U<sub>BC</sub></i>) ≤ √(p²+q²) ≤ √2 · max(p,q)，改善上限只有 41%</td>
+      <td class="num">上限 (√2−1)·max(p,q) ≈ 0.414·max(p,q)<br><span class="mute">实测 G 中位 0.027，p99 0.092</span></td>
+    </tr>
+    <tr>
+      <td>合并后原算子能区分互补与重复</td>
+      <td>不能。两种拼接下三个 S 逐位完全相同</td>
+      <td class="num">互补与重复都给<br>S(X,B)=S(X,C)=2.0001362<br>S(X,U)=4.0002724<br><span class="mute">相对差 0</span></td>
+    </tr>
+    <tr>
+      <td>换成归一化 ρ 就能区分</td>
+      <td>能，但只能在下限上区分</td>
+      <td class="num">τ→0 时<br>互补 ρ=1.0000（G=0.293）<br>重复 ρ=0.7071（G=0.0000）</td>
+    </tr>
+    <tr>
+      <td>G 大就说明互补</td>
+      <td>不成立。两个都平庸的独立伙伴，G 也恒为正</td>
+      <td class="num">eB=eC 且 r=0 时<br>G=(√2−1)·p=0.23915<br><span class="mute">与解析值完全相同</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>问题一 · 硬天花板</h3>
+<div class="eq">
+  <span class="row">
+    ρ(<i>X</i>,&thinsp;<i>U<sub>BC</sub></i>) <span class="op">=</span> <i>w<sub>B</sub></i>·ρ(<i>X</i>,<i>B</i>) <span class="op">+</span> <i>w<sub>C</sub></i>·ρ(<i>X</i>,<i>C</i>)
+    <span class="op">≤</span> <span class="rad">√</span>(p² <span class="op">+</span> q²)
+    <span class="op">≤</span> <span class="rad">√</span>2 <span class="op">·</span> max(p,&thinsp;q)
+  </span>
+  <span class="row" style="font-size:.85em;color:#4a5158">
+    其中 <i>w<sub>B</sub></i> = √e<sub>B</sub> / D，<i>w<sub>C</sub></i> = √e<sub>C</sub> / D，
+    D = √(e<sub>B</sub> + e<sub>C</sub> + 2·ρ(B,C)·√(e<sub>B</sub>·e<sub>C</sub>))，
+    p = ρ(<i>X</i>,<i>B</i>)，q = ρ(<i>X</i>,<i>C</i>)
+  </span>
+</div>
+<p>所以「A 离拼接后很近、但离 B 和 C 都远」在数学上不可能出现。这不是实现问题，是算子的结构决定的。用最小时间序列把这个上限和实测对到了 1e&minus;15。</p>
+
+<h3>问题二 · 你那条 argmax 规则会把 X<sub>0</sub> 垄断</h3>
+
+<div class="stats">
+  <div class="stat"><div class="k">第一路 X<sub>0</sub> = argmax ρ(X, U<sub>BC</sub>)</div><div class="v">922</div><div class="s">只股票被选中（共 3684）</div></div>
+  <div class="stat"><div class="k">前 10 名占全部配对</div><div class="v">50.6%</div><div class="s">第一名 002130 独占 12.5%</div></div>
+  <div class="stat"><div class="k">第二路 X<sub>0</sub>* = argmax 补缺口</div><div class="v">3544</div><div class="s">前 10 名只占 20.7%</div></div>
+</div>
+
+<div class="eq">
+  <span class="lbl">第二路是我在同一趟扫描里加的，用来治这个病</span>
+  <span class="row">
+    <i>X</i><sub>0</sub>* <span class="op">=</span> argmax<sub><i>X</i></sub>
+    &nbsp;[&thinsp;ρ(<i>X</i>,&thinsp;<i>U<sub>BC</sub></i>) <span class="op">&minus;</span> max(ρ(<i>X</i>,<i>B</i>),&thinsp;ρ(<i>X</i>,<i>C</i>))&thinsp;]
+  </span>
+  <span class="row">
+    <i>G</i>(<i>B</i>,<i>C</i>) <span class="op">=</span> ρ(<i>X</i><sub>0</sub>,&thinsp;<i>U<sub>BC</sub></i>) <span class="op">&minus;</span> max(ρ(<i>X</i><sub>0</sub>,<i>B</i>),&thinsp;ρ(<i>X</i><sub>0</sub>,<i>C</i>))
+  </span>
+</div>
+
+<p>X<sub>0</sub> 集中在少数股票上，意味着 G(B,C) 很大程度在描述「这对股票对市场上最典型的那几只拟合得怎么样」，而不是 B、C 两个人的性质。</p>
+
+<p class="mute">同一批股票-股票配对，如果允许基金和债券也当候选，X<sub>0</sub> 的集中度只从 50.6% 变成 49.9%，
+第一名占比从 12.5% 变成 13.0%，看上去几乎没差。真正的差别是那 7.24% 的配对直接换了 X，见第八节。</p>
+
+<h3>问题三 · G 主要不是配对的属性</h3>
+
+<p>这一条是本次最重要的发现，上一版写得太绕，这里从头讲一遍，每个数都能对上文件里的字段。</p>
+
+<p><b>第一步，先看一对股票手上到底有哪几个数。</b>以 000001 和 600000 为例，指标算完以后这一对在文件里留下这些值。</p>
+
+<table>
+  <caption>数据来自 /tmp/yupei2_pair_so/20241231/，行列下标就是 codes.txt 的行序</caption>
+  <thead><tr><th>字段</th><th>含义</th><th class="num">这一对的值</th></tr></thead>
+  <tbody>
+    <tr><td><code>X0.bin[000001][600000]</code></td><td>这一对最适合解释哪只股票</td><td class="num">600036</td></tr>
+    <tr><td><i>p</i> = <code>rho.bin[600036][000001]</code></td><td>B 跟这只最合适的股票有多像</td><td class="num">0.363324</td></tr>
+    <tr><td><i>q</i> = <code>rho.bin[600036][600000]</code></td><td>C 跟这只最合适的股票有多像</td><td class="num">0.441098</td></tr>
+    <tr><td><i>r</i> = <code>rho.bin[000001][600000]</code></td><td>B 和 C 彼此有多像</td><td class="num">0.286781</td></tr>
+    <tr><td><code>RHO_U.bin[000001][600000]</code></td><td>把 B、C 拼起来以后跟 600036 有多像</td><td class="num">0.479130</td></tr>
+    <tr><td><code>SINGLE.bin[000001][600000]</code></td><td>只用最好的那一只，跟 600036 有多像</td><td class="num">0.441098</td></tr>
+    <tr><td><code>G.bin[000001][600000]</code></td><td>拼接比最好的单只强多少，就是上面两行相减</td><td class="num">0.038031</td></tr>
+  </tbody>
+</table>
+
+<p>再看两对做对照，立刻能看出 G 的大小被什么决定。</p>
+
+<table>
+  <thead><tr><th>配对</th><th>X<sub>0</sub></th><th class="num">p</th><th class="num">q</th><th class="num">r</th><th class="num">G</th></tr></thead>
+  <tbody>
+    <tr><td>000001 + 600000</td><td>600036</td><td class="num">0.3633</td><td class="num">0.4411</td><td class="num">0.2868</td><td class="num">0.0380</td></tr>
+    <tr><td>000001 + 600519</td><td>601601</td><td class="num">0.3697</td><td class="num">0.4150</td><td class="num">0.2616</td><td class="num">0.0306</td></tr>
+    <tr><td>000533 + 603825</td><td>002416</td><td class="num">0.5218</td><td class="num">0.5402</td><td class="num">0.1584</td><td class="num">0.1475</td></tr>
+  </tbody>
+</table>
+
+<p>规律是，<b>G 主要由「B 和 C 谁更像 X<sub>0</sub>」决定</b>。两个都像，拼起来才有增益，000533 那对两个都在 0.5 以上，G 就到 0.148。一个好一个差，拼起来反而把分数拉低。全样本分一下看得更清楚。</p>
+
+<table>
+  <thead><tr><th>(p,&thinsp;q) 所处的档位</th><th class="num">配对数</th><th class="num">G 的均值</th></tr></thead>
+  <tbody>
+    <tr><td>p 高（&gt;0.55）而 q 低（&lt;0.15），一个好伙伴配一个差伙伴</td><td class="num">22,913</td><td class="num badd">&minus;0.0540</td></tr>
+    <tr><td>p、q 都在 0.30 到 0.45 之间，两个都中等</td><td class="num">1,031,277</td><td class="num good">+0.0625</td></tr>
+  </tbody>
+</table>
+
+<p>同样是「一对股票」，剖面不同，G 的符号就反过来了。</p>
+
+<p><b>第二步，看去掉这个剖面之后还剩多少。</b>做法是这样。把全部 678 万对股票按 (<i>p</i>,&thinsp;<i>q</i>) 分成 24 × 24 = 576 格。每一格里算该格所有配对 <i>r</i> 的平均值，记作 <i>r&#770;</i>。然后用<b>每一对真实的 p 和 q</b>，配上<b>它所在那一格的典型 <i>r&#770;</i></b> 重新算一遍 G，得到 G_pred。两者相减就是残差。</p>
+
+<div class="stats">
+  <div class="stat"><div class="k">G 的标准差</div><div class="v">0.0405</div><div class="s">p10 到 p90 跨度 0.0912</div></div>
+  <div class="stat"><div class="k">残差的标准差</div><div class="v">0.0038</div><div class="s">p10 到 p90 跨度 0.0082</div></div>
+  <div class="stat"><div class="k">残差占 G 的比例</div><div class="v">9.4%</div><div class="s">按方差算是 0.9%</div></div>
+</div>
+
+<p><b>翻译成人话。</b>只要知道两件事，B 跟它最合适的那只股票有多像、C 跟那只股票有多像，再知道这个相似度档位下大多数配对彼此有多像，就能把 G 押到九成准。真正属于「这一对股票自己」的信息只剩那 9.4%。而这 9.4% 的内容也只有一句话，就是<b>这对股票彼此之间比同档位的其他配对更不像还是更像</b>，残差与「同档位平均 <i>r</i> 减去实际 <i>r</i>」的 Spearman 是 0.98。</p>
+
+<div class="callout warn">
+  <div class="t">这意味着什么</div>
+  按你原来的设想，G 应该是「B、C 这一对」的性质。实测下来它九成以上是「B 和 C 各自有多合群」的性质。
+  拿 G 当配对互补分数去建 N×N 矩阵，矩阵里绝大部分是两只股票各自的画像，配对的成分很薄。
+  真正带配对含义的是残差那一层，而它的跨日稳定性只有 0.30。
+</div>
+
+<h2>三、第二个指标的反直觉否定结果</h2>
+
+<p>取最大近邻的覆盖核实现好了，也独立核对过（逐量比对 9 位有效数字一致）。递推从加法换成取最大。</p>
+
+<div class="eq">
+  <span class="lbl">覆盖场：找离得最近的那一笔，而不是把所有笔加起来</span>
+  <span class="row">
+    <i>n</i><sub>max</sub>[k] <span class="op">=</span> max(&thinsp;<i>n</i><sub>max</sub>[k&minus;1] <span class="op">·</span> d,&nbsp; u[k&minus;1]&thinsp;)
+    <span class="op" style="padding-left:1.6em">near<sub>Y</sub>[k] <span class="op">=</span> max(&thinsp;<i>n</i><sub>max</sub>[k],&nbsp; <i>n</i><sub>max</sub><sup>反向</sup>[k]&thinsp;)</span>
+  </span>
+  <span class="row" style="font-size:.85em;color:#4a5158">
+    cov(<i>A</i>,<i>B</i>) = Σ<sub>k</sub> u<sub>A</sub>[k] · near<sub>B</sub>[k]　　d = e<sup>&minus;0.01/τ</sup>
+  </span>
+</div>
+
+<table>
+  <caption>600 个候选配对（rho 前 300 + 随机对照 300），τ=1 秒</caption>
+  <thead><tr><th>统计量</th><th class="num">最小</th><th class="num">中位</th><th class="num">最大</th><th class="num">为正的个数</th></tr></thead>
+  <tbody>
+    <tr><td>Gcov（按 ρ 的归一化方式），未过滤口径</td><td class="num badd">&minus;0.9383</td><td class="num badd">&minus;0.1057</td><td class="num badd">&minus;0.0103</td><td class="num badd">0 / 600</td></tr>
+    <tr><td>Gcov 同上，<b>只用股票重跑</b></td><td class="num badd">&minus;0.9383</td><td class="num badd">&minus;0.0948</td><td class="num badd">&minus;0.0103</td><td class="num badd">0 / 600</td></tr>
+  </tbody>
+</table>
+
+<div class="callout bad">
+  <div class="t">为什么全为负</div>
+  并集的覆盖自能量 Σ<sub>k</sub> max(near<sub>B</sub>, near<sub>C</sub>)² 因为取最大而被抬高。例：000001 与 000004 这一对的
+  cov(U,U) = 1.02 × 10<sup>7</sup>，是 cov(B,B) = 1.53 × 10<sup>6</sup> 的 6.7 倍。分母涨得比分子快，ρ 必然被压低。
+  <br><br>剔除基金债券后重跑，结论不变。cov(U,U) 相对单只被抬高的倍数，中位从 12.7 变成 13.2，量级没动；
+  Gcov 仍然 600 对全部为负，中位从 &minus;0.106 抬到 &minus;0.095。也就是说这个否定结果不是非个股造成的，它是算子本身的性质。
+  另一个要注意的点，取最大核不是正定核，所以「柯西-施瓦茨保证 |ρ| ≤ 1」对求和核成立、对这个核不成立，它严格来说不能当相关系数用。
+</div>
+
+<p>要让第二个指标能用，得把分母换成覆盖率而不是相似度。但那样增益恒为非负，必须再配零基线才行。</p>
+
+<h2>四、两个指标的实测与性能</h2>
+
+<table>
+  <thead><tr><th>项目</th><th>做法</th><th class="num">实测</th><th>判定</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>① 组合形状增益 G<br><span class="mute">求和核</span></td>
+      <td>读已有备份矩阵，不重算逐笔</td>
+      <td class="num">7,854,666 对<br>200 线程 8.6 秒<br>50 线程 9.4 秒</td>
+      <td class="good">成立，含量少</td>
+    </tr>
+    <tr>
+      <td>② 互补覆盖增益 Gcov<br><span class="mute">取最大近邻核</span></td>
+      <td>回到逐笔，16.4 毫秒一对</td>
+      <td class="num">600 对全部为负<br>中位 &minus;0.106</td>
+      <td class="badd">不成立</td>
+    </tr>
+    <tr>
+      <td>单股单日完整计算</td>
+      <td>读一只股票全天逐笔 + 建场，并行 1</td>
+      <td class="num">0.046 秒</td>
+      <td class="good">通过（限 1 秒）</td>
+    </tr>
+    <tr>
+      <td>求和核复算备份对账</td>
+      <td>独立实现，全量 1571 万个数</td>
+      <td class="num">cnt_t1 相对差 0.99%<br>两遍 sha256 相同</td>
+      <td class="good">通过</td>
+    </tr>
+    <tr>
+      <td>ρ 与自能量的独立复算</td>
+      <td>逐笔暴力两两配对，不加速</td>
+      <td class="num">相对差中位 1.4 × 10<sup>&minus;6</sup></td>
+      <td class="good">f32 存储量级</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>五、跨日稳定性</h2>
+
+<p>20241230 与 20241231 两天的共同股票 3746 只，共同配对 6,098,778 对，逐对比较。参照值是相似度 ρ 自己的跨日稳定性 0.743。</p>
+
+<div class="callout bad">
+  <div class="t">这里有一处数字更正</div>
+  我第一次算这一组的时候，把非个股那 280 行整行整列算了进去。那 280 行两天都是 0，位置一样，
+  等于给相关系数塞了一批完全对齐的常数，把结果抬高了。下面的数字是只保留「股票-股票」配对重算的，
+  以这里为准。更正前后的对照：ρ 从 0.781 落到 0.743，G 从 0.517 落到 0.440，Z 从 0.502 落到 0.398，ZS 从 0.685 落到 0.523。
+</div>
+
+<div class="bars">
+  <div class="bar"><div class="lab">ρ（参照值）</div><div class="track"><div class="fill dim" style="width:74.3%"></div></div><div class="val">0.743</div></div>
+  <div class="bar"><div class="lab">ZS（第二路）</div><div class="track"><div class="fill" style="width:52.3%"></div></div><div class="val">0.523</div></div>
+  <div class="bar"><div class="lab">G（原始量）</div><div class="track"><div class="fill" style="width:44.0%"></div></div><div class="val">0.440</div></div>
+  <div class="bar"><div class="lab">Z（第一路）</div><div class="track"><div class="fill" style="width:39.8%"></div></div><div class="val">0.398</div></div>
+  <div class="bar"><div class="lab">三角残差</div><div class="track"><div class="fill warm" style="width:30.1%"></div></div><div class="val">0.301</div></div>
+</div>
+
+<p>第二路（X<sub>0</sub>* 口径）在配对层面系统性比第一路稳，这个差距在按股票聚合的因子层面更大。</p>
+
+<h3>另外两条对照排掉了常见解释</h3>
+<table>
+  <thead><tr><th>竞争解释</th><th class="num">实测</th><th>判定</th></tr></thead>
+  <tbody>
+    <tr><td>高互补配对只是同行业凑在一起</td><td class="num">同行业基线 5.13%<br>Z&gt;2 的配对 4.79%<br>Z&gt;3 的配对 4.62%</td><td class="good">排掉。高互补配对反而更不同行业</td></tr>
+    <tr><td>G 只是活跃度的影子</td><td class="num">Spearman(G, log 笔数对) = &minus;0.187</td><td class="good">排掉。方向还是负的</td></tr>
+    <tr><td>互补关系只是分钟成交量相似度的换皮</td><td class="num">vs ρ 为 0.470<br>vs ZS 为 0.127<br>在 ρ 十分位内为 +0.02 到 &minus;0.06</td><td class="good">排掉。扣掉 tick 相似度后分钟量不再提供信息</td></tr>
+  </tbody>
+</table>
+
+<h2>六、降维结果</h2>
+
+<table>
+  <thead><tr><th>诊断项</th><th>结果</th></tr></thead>
+  <tbody>
+    <tr><td>因子数</td><td>77 个（含 20 个空模型对照列）。两日整列全空 0 列、常量列 0 列</td></tr>
+    <tr><td>跨日最稳的前 7 条</td><td class="badd">其中 6 条与老因子 rec_*_reciprocity 撞 0.77 到 0.88，基本是换皮</td></tr>
+    <tr><td>真正新的那批</td><td class="warn">跨日只有 0.40 到 0.50，但撞老因子低于 0.70</td></tr>
+    <tr><td>互补图 vs 相似图</td><td class="good">k=20 时平均共同邻居比例 0.55%、Jaccard 0.07%、度序列 Spearman &minus;0.384</td></tr>
+    <tr><td>G 的方差来源</td><td>99.1% 来自「B、C 各自跟 X<sub>0</sub> 有多像」这个剖面</td></tr>
+    <tr><td>子模贪心篮子</td><td class="good">8 只篮子的 ρ 均值 0.456，伙伴之间平均 ρ 中位 0.276，退化比例仅 1.6%，没有塌成单枢纽</td></tr>
+    <tr><td>最佳伙伴对 vs 最佳单伙伴</td><td>0.397 对 0.347，平均增益 0.0496，92.9% 的股票都为正</td></tr>
+  </tbody>
+</table>
+
+<h3>各族因子的跨日稳定性（中位数）</h3>
+<div class="bars">
+  <div class="bar"><div class="lab">s_r5_ 残差族</div><div class="track"><div class="fill" style="width:59.0%"></div></div><div class="val">0.590</div></div>
+  <div class="bar"><div class="lab">r5_ 残差族</div><div class="track"><div class="fill" style="width:53.2%"></div></div><div class="val">0.532</div></div>
+  <div class="bar"><div class="lab">p_ 平面族</div><div class="track"><div class="fill" style="width:50.8%"></div></div><div class="val">0.508</div></div>
+  <div class="bar"><div class="lab">s_r1_ 角色族（第二路）</div><div class="track"><div class="fill" style="width:47.7%"></div></div><div class="val">0.477</div></div>
+  <div class="bar"><div class="lab">r2_ 三分解族</div><div class="track"><div class="fill" style="width:46.7%"></div></div><div class="val">0.467</div></div>
+  <div class="bar"><div class="lab">r3_ 贪心篮子族</div><div class="track"><div class="fill" style="width:44.6%"></div></div><div class="val">0.446</div></div>
+  <div class="bar"><div class="lab">r1_ 角色族（第一路）</div><div class="track"><div class="fill warm" style="width:31.7%"></div></div><div class="val">0.317</div></div>
+</div>
+
+<div class="callout warn">
+  <div class="t">最要命的一条</div>
+  跨日最稳的前 7 条里，<code>r5_res_max</code> 与老因子 <code>topk_cnt_t1_top20_mean</code> 的 Spearman 是 <b>0.909</b>，
+  <code>r2_best_pair</code> 与 <code>rec_cnt_t005_reciprocity</code> 是 0.884。
+  也就是说<strong>稳的东西基本是旧的，新的东西只有 0.4 到 0.5 的稳定性</strong>。
+</div>
+
+<h2>七、我建议的四个优化</h2>
+
+<ol>
+  <li>
+    <b>把 X<sub>0</sub> 换成「补缺口最大」的那只。</b>零成本，跨日 Spearman 从 0.502 升到 0.685，X<sub>0</sub> 的集中度从 50.6% 降到 20.7%。建议作为默认。
+  </li>
+  <li>
+    <b>把活跃度分层空模型换掉。</b>我原本以为它是检验，其实不是。空模型抽的配对本就和真实配对来自同一个分布，逐层均值方差都对得上（差出 3 个标准误的层数 0），
+    所以 Z 只是把数据标准化了一遍，P(Z&gt;2)=0.091% 是分布形状，不是证据。有检验力的对照是条件冗余基线，也就是把 G 对 (p,&thinsp;q) 回归掉之后的残差。
+  </li>
+  <li>
+    <b>基金和债券必须在计算之前筛掉，而且这是代码 bug 不是优化建议。</b>
+    <span class="mute">完整证据见下一节。</span>
+  </li>
+  <li>
+    <b>往 k 只篮子的方向走比停在 2 只更有希望。</b>贪心篮子没有塌成单枢纽，8 只篮子的相似度均值 0.456，退化比例只有 1.6%。
+  </li>
+</ol>
+
+<h2>八、白名单漏检的完整证据</h2>
+
+<p>你问得对，这确实该是默认行为。框架里<strong>确实已经有了默认剔除</strong>，但<strong>玉佩2 这一个模块没接上</strong>。不是「批量剔除、沙盒不剔除」，而是反过来，其他 12 个横截面 pipeline 都剔除了，只有玉佩2 无论在批量路径还是沙盒路径都没剔除。</p>
+
+<table>
+  <thead><tr><th>位置</th><th>是不是默认剔除非个股</th><th>证据</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>框架唯一的枚举入口<br><code>data_paths::list_stock_codes</code></td>
+      <td class="good">是</td>
+      <td>按 <code>symbol_map.csv</code> 过滤，代码注释写明「这是所有横截面 pipeline 枚举全市场股票的唯一入口，非股票标的在这里就被剔除，既不读它们的文件，也不会被算进横截面统计」</td>
+    </tr>
+    <tr>
+      <td>其他 12 个横截面 pipeline<br><span class="mute">peaks / urgency / yhyb / hot_stock_pool / pair_interaction / drop_event / long_order / microstructure_capm / multi_factor_capm / volume_segment / urgency_ext_cluster / cross_section_example</span></td>
+      <td class="good">是</td>
+      <td>都在 2026-10-01 的提交 <code>72a4d1c</code>（v0.90.0「横截面 pipeline 只读 A 股股票」）里改成调用上面那个入口</td>
+    </tr>
+    <tr>
+      <td><b>玉佩2</b><br><code>yupei_dist/compute.rs</code> 的 <code>list_codes_by_size</code></td>
+      <td class="badd">否</td>
+      <td>自己 <code>read_dir</code> 扫目录，只判「六位都是数字」，完全不查股票表。那次提交的 13 个文件里没有它</td>
+    </tr>
+    <tr>
+      <td>玉佩2 的沙盒<br><code>sandbox_yupei_dist/cli_util.rs</code></td>
+      <td class="badd">否</td>
+      <td>同一套写法。我这次的 sandbox 也是照着抄的，后来才加了 <code>--stocks-only</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout bad">
+  <div class="t">影响范围</div>
+  玉佩2 的备份 <code>codes.txt</code> 里是 3964 行，其中 280 行不在股票表里（276 个 5 开头的 ETF 加 4 个 <code>019xxx</code> 债券）。<br>
+  因为你的规则对 X 取 argmax，非个股特别容易被挑出来当 X<sub>0</sub>。一个 ETF 一个人占了全部配对的 <b>7.1%</b>，排第三。<br>
+  把这批代码放回候选集里，<b>6,784,086 对股票-股票配对中有 491,392 对（7.24%）的 X<sub>0</sub> 落在基金或债券上</b>。
+  反过来说，只要 X<sub>0</sub> 落在股票上，两个口径选出的就是同一只（一致率 1.0000），
+  因为剔除非个股只减少候选、不改变股票之间的相对次序。所以污染完全集中在那 7.24% 上。<br>
+  加上白名单后，Z&gt;2 的占比从 0.317% 变成 0.091%，跨日 Spearman(ZS) 从 0.557 升到 0.685。
+  这还只是我这次的指标，对原来那 2761 个因子，影响落在横截面归一化、排名、邻居集合、社群划分这些环节上，没法从产物里看出来。<br>
+  <b>修法</b>是把 <code>list_codes_by_size</code> 换成 <code>crate::data_paths::list_stock_codes</code>。
+  改完之后玉佩2 的全部因子值和历史备份矩阵都要重算，因为没有别的办法判断 ETF 当年影响了多少。
+</div>
+
+<h2>九、台账状态与遗留问题</h2>
+
+<p>实验名 <code>yupei2_pair_net</code>，现在推进到<b>批量计算</b>。期间有一条证据作废过，是我改完 Z 对称性 bug 之后脚本指纹变了（946a6bcb 变成 52a9a3cd），程序判的，我重跑了 run-2 并记了 ev-3。</p>
+
+<table>
+  <caption>假设卡上三条证伪条件逐条核对</caption>
+  <thead><tr><th>证伪条件</th><th>结果</th></tr></thead>
+  <tbody>
+    <tr><td>扣掉活跃度分层空模型后 Z&gt;2 的配对占比不超过 5%</td><td class="badd">被触发（实测 0.091%）。但触发的原因是这条条件本身把 Z 当成了检验统计量，写法有缺陷，已在证据的 judgment 里写明</td></tr>
+    <tr><td>主力因子跨日 Spearman 低于 0.2</td><td class="good">通过</td></tr>
+    <tr><td>每个新因子与老 2761 因子的最大 |Spearman| 高于 0.9</td><td class="badd">被违反，r5_res_max 撞到 0.909</td></tr>
+  </tbody>
+</table>
+
+<p>按失败四分类，这是「与已有因子重复」加「结果不稳」两类混在一起。</p>
+
+<div class="callout info">
+  <div class="t">建议带下去的 8 条因子</div>
+  <code>p_zs_max</code>　<code>p_gen_top20</code>　<code>p_gen_max</code>　<code>p_quad</code>　
+  <code>s_r5_res_hhi</code>　<code>s_r5_res_mean</code>　<code>r4_deg_G_topk</code>　<code>r1_explain_count_z2</code>
+</div>
+
+<h3>杂事</h3>
+<ul>
+  <li><code>lib/compute_budget.py layer</code> 直接崩了，报 <code>KeyError: 'readable'</code>，我没去改它的代码。</li>
+  <li>这次改动落在 A 层，但求和核那一路是复用已有 A 层产物，不用回逐笔，这也是它能 9 秒跑完全市场的原因。</li>
+  <li>
+    <code>sandbox_yupei_cover</code> 那条 cnt_t005 的对账没过，我定位到了原因。复算里前缀项多乘了一次衰减系数，误差上限恰好等于 1&minus;d，
+    τ=1 对 0.995%、τ=0.05 对 18.13%，和实测的 0.9952% 与 18.127% 完全对上。修法是把 <code>sigma * d</code> 里的 <code>* d</code> 去掉。它不影响覆盖核的符号结论。
+  </li>
+</ul>
+
+<h2>附 · 文件清单</h2>
+<div class="filelist">
+  <b>sandbox_yupei_pair/src/main.rs</b>　　配对互补网络（求和核），读备份矩阵<br>
+  <b>sandbox_yupei_cover/src/main.rs</b>　　取最大近邻覆盖核，回到逐笔<br>
+  <b>experiments/yupei2/pair_spec.txt</b>　　口径冻结稿，第 7 节是跑完以后修正的四条<br>
+  <b>experiments/yupei2/pair_ref.py</b>　　独立暴力复算与合成精确性检查<br>
+  <b>experiments/yupei2/pair_net_diag.py</b>　　机制诊断（四条竞争解释）<br>
+  <b>experiments/yupei2/pair_conditional.py</b>　　条件冗余残差<br>
+  <b>experiments/yupei2/pair_vs_minute.py</b>　　分钟成交量相似度对照<br>
+  <b>experiments/yupei2/pair_reduce.py</b>　　精细化降维与诊断<br>
+  <b>/tmp/yupei2_pair_so/&lt;日期&gt;/</b>　　矩阵产物<br>
+  <b>/tmp/yupei2_pair_so/&lt;日期&gt;/reduce/</b>　　77 个降维因子
+</div>
+
+<footer>
+  实验 yupei2_pair_net ｜ 机制样本 20241230–20241231 ｜ 股票白名单口径 3684 只 ｜ 全部数字来自实测，未做收益回测
+</footer>
+
+</div>
+</body>
+</html>

@@ -26,23 +26,23 @@
 </style></head><body>
 <h1>hm0~hm92 因子库改写与补算进度</h1>
 <div class="sub">共 89 个系列 · 每个系列四步：Rust 改写 → 提交计算（2015-01-05 ~ 2026-09-18，n_jobs=400，同时只跑一个）→ 写入因子库 → 删除 colblk ·
-更新于 2026-10-08 16:01:08（每 10 秒自刷新）</div>
+更新于 2026-10-13 20:02:27（每 10 秒自刷新）</div>
 
 <div class="cards">
  <div class="card"><div class="k">已完成改写</div><div class="v">77 / 89</div></div>
- <div class="card"><div class="k">已算完</div><div class="v">14 / 89</div></div>
- <div class="card"><div class="k">已入因子库</div><div class="v">14 / 89</div></div>
- <div class="card"><div class="k">colblk 已清</div><div class="v">14 / 89</div></div>
- <div class="card"><div class="k">失败/取消</div><div class="v">0</div></div>
+ <div class="card"><div class="k">已算完</div><div class="v">32 / 89</div></div>
+ <div class="card"><div class="k">已入因子库</div><div class="v">33 / 89</div></div>
+ <div class="card"><div class="k">colblk 已清</div><div class="v">32 / 89</div></div>
+ <div class="card"><div class="k">失败/取消</div><div class="v">1</div></div>
 </div>
 <div class="bar"><span style="width:86.5%"></span></div>
 
 <h2>因子库落点（/nas197/user_home/chenzongwei/factor_library）</h2>
 <table><tr><th>层</th><th>目录</th><th>h5 文件数</th></tr>
-<tr><td>base 原值</td><td class="mono">factor_base/&lt;系列&gt;_base</td><td class="num">2346</td></tr>
-<tr><td>gap5 最终</td><td class="mono">hf_data/&lt;系列&gt;</td><td class="num">136</td></tr>
-<tr><td>gap1 最终</td><td class="mono">hf_data1/&lt;系列&gt;</td><td class="num">141</td></tr>
-<tr><td>dailybank</td><td class="mono">dailybank/&lt;系列&gt;</td><td class="num">18</td></tr>
+<tr><td>base 原值</td><td class="mono">factor_base/&lt;系列&gt;_base</td><td class="num">2542</td></tr>
+<tr><td>gap5 最终</td><td class="mono">hf_data/&lt;系列&gt;</td><td class="num">486</td></tr>
+<tr><td>gap1 最终</td><td class="mono">hf_data1/&lt;系列&gt;</td><td class="num">522</td></tr>
+<tr><td>dailybank</td><td class="mono">dailybank/&lt;系列&gt;</td><td class="num">65</td></tr>
 </table>
 
 <h2>colblk 清理（hm94~hm110 遗留）</h2>
@@ -73,30 +73,17 @@
 
 <h2>本次补算的临时 colblk（应当逐步清空）</h2>
 <table><tr><th>临时目录</th><th>残留 colblk</th></tr>
-<tr><td class='mono'>factor_store_hm1_okay_database</td><td class='num'>8</td></tr>
+<tr><td class='mono'>factor_store_hm1_okay_database</td><td class='num'>8</td></tr><tr><td class='mono'>factor_store_hm3_okay_database</td><td class='num'>8</td></tr>
 </table>
 
 <h2>队列记录</h2>
-<div class="scroll"><div style="padding:10px"><div class='log'>2026-10-06T22:28:04.164310 · hm001 · submit · 380</div><div class='log'>2026-10-06T23:14:34.598734 · hm001 · finish · failed · 因子库 {&#x27;base&#x27;: 55, &#x27;gap5&#x27;: 12, &#x27;gap1&#x27;: 0, &#x27;db&#x27;: 1}</div><div class='log'>2026-10-06T23:14:34.836749 · hm001 · submit · 381</div><div class='log'>2026-10-07T00:03:05.293403 · hm001 · finish · failed · 因子库 {&#x27;base&#x27;: 55, &#x27;gap5&#x27;: 12, &#x27;gap1&#x27;: 0, &#x27;db&#x27;: 1}</div><div class='log'>2026-10-07T00:03:05.532763 · hm001 · submit · 382</div><div class='log'>2026-10-07T00:53:36.005301 · hm001 · finish · failed · 因子库 {&#x27;base&#x27;: 55, &#x27;gap5&#x27;: 12, &#x27;gap1&#x27;: 0, &#x27;db&#x27;: 1}</div><div class='log'>2026-10-07T00:53:36.351260 · hm001 · submit · 383</div><div class='log'>2026-10-07T01:07:06.539317 · hm001 · finish · cancelled · 因子库 {&#x27;base&#x27;: 55, &#x27;gap5&#x27;: 12, &#x27;gap1&#x27;: 0, &#x27;db&#x27;: 1}</div><div class='log'>2026-10-07T01:07:06.809683 · hm001 · submit · 384</div><div class='log'>2026-10-07T01:11:36.925555 · hm001 · finish · cancelled · 因子库 {&#x27;base&#x27;: 55, &#x27;gap5&#x27;: 12, &#x27;gap1&#x27;: 0, &#x27;db&#x27;: 1}</div><div class='log'>2026-10-07T01:11:37.179011 · hm012 · submit · 385</div><div class='log'>2026-10-07T09:25:41.532641 · hm014 · submit · 386</div><div class='log'>2026-10-07T12:53:13.716788 · hm014 · finish · completed · 因子库 {&#x27;base&#x27;: 16, &#x27;gap5&#x27;: 17, &#x27;gap1&#x27;: 18, &#x27;db&#x27;: 1}</div><div class='log'>2026-10-07T12:53:14.126610 · hm015 · submit · 387</div><div class='log'>2026-10-07T16:16:45.934989 · hm015 · finish · completed · 因子库 {&#x27;base&#x27;: 15, &#x27;gap5&#x27;: 10, &#x27;gap1&#x27;: 13, &#x27;db&#x27;: 2}</div><div class='log'>2026-10-07T16:16:46.213709 · hm016 · submit · 388</div><div class='log'>2026-10-07T19:33:47.943645 · hm016 · finish · completed · 因子库 {&#x27;base&#x27;: 5, &#x27;gap5&#x27;: 6, &#x27;gap1&#x27;: 6, &#x27;db&#x27;: 0}</div><div class='log'>2026-10-07T19:33:48.201731 · hm017 · submit · 389</div><div class='log'>2026-10-07T19:57:18.437691 · hm017 · finish · completed · 因子库 {&#x27;base&#x27;: 23, &#x27;gap5&#x27;: 21, &#x27;gap1&#x27;: 17, &#x27;db&#x27;: 1}</div><div class='log'>2026-10-07T19:57:18.667888 · hm018 · submit · 390</div><div class='log'>2026-10-08T03:06:59.551995 · hm018 · finish · completed · 因子库 {&#x27;base&#x27;: 2, &#x27;gap5&#x27;: 1, &#x27;gap1&#x27;: 2, &#x27;db&#x27;: 0}</div><div class='log'>2026-10-08T03:06:59.793982 · hm020 · submit · 391</div><div class='log'>2026-10-08T08:55:13.645207 · hm020 · finish · completed · 因子库 {&#x27;base&#x27;: 10, &#x27;gap5&#x27;: 10, &#x27;gap1&#x27;: 10, &#x27;db&#x27;: 2}</div><div class='log'>2026-10-08T08:55:13.925258 · hm021 · submit · 392</div><div class='log'>2026-10-08T16:01:08.374955 · hm021 · finish · completed · 因子库 {&#x27;base&#x27;: 5, &#x27;gap5&#x27;: 2, &#x27;gap1&#x27;: 4, &#x27;db&#x27;: 0}</div></div></div>
+<div class="scroll"><div style="padding:10px"><div class='log'>2026-10-10T13:51:48.781931 · [&#x27;hm002&#x27;] · library-refresh · -</div><div class='log'>2026-10-10T13:51:49.113175 · hm030 · submit · 401</div><div class='log'>2026-10-10T16:15:50.471085 · hm030 · finish · completed · 因子库 {&#x27;base&#x27;: 41, &#x27;gap5&#x27;: 35, &#x27;gap1&#x27;: 25, &#x27;db&#x27;: 4}</div><div class='log'>2026-10-10T16:18:45.186126 · [&#x27;hm030&#x27;] · library-refresh · -</div><div class='log'>2026-10-10T16:18:45.434462 · hm031 · submit · 402</div><div class='log'>2026-10-10T21:01:23.061207 · hm031 · finish · completed · 因子库 {&#x27;base&#x27;: 30, &#x27;gap5&#x27;: 20, &#x27;gap1&#x27;: 22, &#x27;db&#x27;: 5}</div><div class='log'>2026-10-10T21:04:10.365801 · [&#x27;hm031&#x27;] · library-refresh · -</div><div class='log'>2026-10-10T21:04:10.595351 · hm032 · submit · 403</div><div class='log'>2026-10-12T07:48:00.184268 · [&#x27;hm032&#x27;] · library-refresh · -</div><div class='log'>2026-10-12T07:48:00.423301 · hm033 · submit · 404</div><div class='log'>2026-10-12T14:40:36.926257 · [&#x27;hm033&#x27;] · library-refresh · -</div><div class='log'>2026-10-12T14:40:37.193858 · hm034 · submit · 405</div><div class='log'>2026-10-12T19:18:56.437106 · [&#x27;hm034&#x27;] · library-refresh · -</div><div class='log'>2026-10-12T19:18:56.697232 · hm035 · submit · 406</div><div class='log'>2026-10-12T23:31:49.245909 · [&#x27;hm035&#x27;] · library-refresh · -</div><div class='log'>2026-10-12T23:31:49.430568 · hm036 · submit · 407</div><div class='log'>2026-10-13T03:34:16.223267 · [&#x27;hm036&#x27;] · library-refresh · -</div><div class='log'>2026-10-13T03:34:16.453097 · hm037 · submit · 408</div><div class='log'>2026-10-13T07:34:44.473284 · [&#x27;hm037&#x27;] · library-refresh · -</div><div class='log'>2026-10-13T07:34:44.664042 · hm038 · submit · 409</div><div class='log'>2026-10-13T11:41:27.671757 · hm039 · submit · 410</div><div class='log'>2026-10-13T11:47:38.821762 · [&#x27;手动触发&#x27;] · library-refresh · -</div><div class='log'>2026-10-13T18:07:22.453044 · [&#x27;hm039&#x27;] · library-refresh · -</div><div class='log'>2026-10-13T18:07:22.651163 · hm003 · submit · 411</div><div class='log'>2026-10-13T20:02:27.537423 · hm040 · submit · 412</div></div></div>
 
 <h2>全部 89 个系列</h2>
 <div class="scroll"><table>
 <tr><th>系列</th><th>ver</th><th>数据来源</th><th>base 因子数</th>
 <th>改写</th><th>提交</th><th>入库</th><th>清 colblk</th><th>任务</th><th>备注</th></tr>
-<tr><td class='mono'>hm000</td><td class='mono'>hot_change1</td><td>分钟数据</td><td class='num'>0</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>364</td><td class='note'>completed，因子库 {&#x27;base&#x27;: 9, &#x27;gap5&#x27;: 8, &#x27;gap1&#x27;: 5, &#x27;db&#x27;: 1}，残留 colblk 0</td></tr><tr><td class='mono'>hm001</td><td class='mono'>hot_change2</td><td>分钟数据</td><td class='num'>0</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>384</td><td class='note'>收尾引擎补上 rolling 自相关后，只重跑 run_h1 即完成；hf_data1/hm1 共 16 个 h5（含 4 个 autocorr）。索引轴 20150105–20260918；autocorr 要凑满整窗才有值，smooth_40 首个有值日 20150306、smooth_10 是 20150116（mean/max/min/std 是 min_periods=window/2，不受此限）。</td></tr><tr><td class='mono'>hm002</td><td class='mono'>stranded_trades</td><td>分钟数据</td><td class='num'>0</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>[已完成，verify 通过：4 组通过 + 20180601 全市场 81088 格，最大相对差 5.9e-8；完成记录曾被队列覆盖，按会话回报确认]</td></tr><tr><td class='mono'>hm003</td><td class='mono'>lag_king</td><td>Level2（用到跨股票截面）</td><td class='num'>27</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm003 已完成：verify_series.py 四组 (20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750) 旧 45 值对新 45 值全部一致，结论「通过」（5 个时段 × 9 个指标）。
-
-实现要点：
-- change_time=0 是这一系列的关键：exchtime/localtime 两列保持原始微秒，delay 因此是**微秒**单位的真实延迟。
-- get_many=2 的五个时段是真实钟点闭区间：allday 全部、open30 [09:29:50,10:00:10]、morning [09:29:50,11:30:10]、afternoon [12:59:50,15:00:10]、close30 [14:29:50,15:00:10]，段顺序与 names 顺序一致。
-- 分组统计按 pandas 语义：按 ask_order/bid_order 分组求 delay 均值再对组均值取平均；标准差是 ddof=1 的样本标准差，单元素组算 NaN、求平均时跳过；bid_turnover 等价于「每个委托一行」，行上带该委托的 bid_delay，再对「每委托」取 0.1/0.9 分位。
-
-多出来的那一步跨股票正交（不在 get_factor 里，verify_series 覆盖不到）：
-- 旧 run_base 对 27 个入选名里非 common_act_buy 的 22 个做了 dwo.de_cross(该因子.rank(axis=1), common_act_buy_同段.rank(axis=1))，用残差覆盖原值。
-- 本文件在 run_base 里用 Python 复刻（_ols_resid）：逐日对截面排名做带截距 OLS、只取两边都非空值的股票（inner join）。
-- 验证：与 dwo.de_cross 在随机数据上逐格比对，最大差 1.8e-15；在 20250303 真实数据上先写原值、再跑正交，残差与手工按旧语义重算的结果最大差 0.0，与 x 排名的相关系数 0.0，common_act_buy 列未被改动。
-
-单日（20250303）小样本冒烟完成了 run_base（含正交那一步），hm3_base 里 27 个因子 + 配置文件齐全。
-未覆盖：run_db / run_h5 / run_h1 需要全历史 base 才能跑，本步只做单日冒烟；全历史由队列统一提交。</td></tr><tr><td class='mono'>hm004</td><td class='mono'>turning_bet</td><td>分钟数据</td><td class='num'>0</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm4（turning_bet）已完成：src/okay_database/hm004.rs + 成果hm4_turning_bet/hm4_okay_database.py。
+<tr><td class='mono'>hm000</td><td class='mono'>hot_change1</td><td>分钟数据</td><td class='num'>0</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>364</td><td class='note'>completed，因子库 {&#x27;base&#x27;: 9, &#x27;gap5&#x27;: 8, &#x27;gap1&#x27;: 5, &#x27;db&#x27;: 1}，残留 colblk 0</td></tr><tr><td class='mono'>hm001</td><td class='mono'>hot_change2</td><td>分钟数据</td><td class='num'>0</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>384</td><td class='note'>收尾引擎补上 rolling 自相关后，只重跑 run_h1 即完成；hf_data1/hm1 共 16 个 h5（含 4 个 autocorr）。索引轴 20150105–20260918；autocorr 要凑满整窗才有值，smooth_40 首个有值日 20150306、smooth_10 是 20150116（mean/max/min/std 是 min_periods=window/2，不受此限）。</td></tr><tr><td class='mono'>hm002</td><td class='mono'>stranded_trades</td><td>分钟数据</td><td class='num'>0</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>400</td><td class='note'>completed，因子库 {&#x27;base&#x27;: 14, &#x27;gap5&#x27;: 7, &#x27;gap1&#x27;: 10, &#x27;db&#x27;: 1}，残留 colblk 0</td></tr><tr><td class='mono'>hm003</td><td class='mono'>lag_king</td><td>Level2（用到跨股票截面）</td><td class='num'>27</td><td><span class='badge ok'>已完成</span></td><td><span class='badge bad'>已取消</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>411</td><td class='note'>对账：cancelled，因子库 {&#x27;base&#x27;: 27, &#x27;gap5&#x27;: 0, &#x27;gap1&#x27;: 0, &#x27;db&#x27;: 0}，残留 colblk 8</td></tr><tr><td class='mono'>hm004</td><td class='mono'>turning_bet</td><td>分钟数据</td><td class='num'>0</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm4（turning_bet）已完成：src/okay_database/hm004.rs + 成果hm4_turning_bet/hm4_okay_database.py。
 
 对账 4 组 (20250303:000001、20250304:600519、20180601:000002、20231020:300750)，
 结论「通过」，5 个因子逐值一致。另做了 20231020 的**全市场**逐值对照
@@ -166,254 +153,7 @@ min_periods&gt;0 时全空窗口给 NaN。第一版写成 nobs==0 → 0.0，空�
 
 没覆盖到的分支
 - 只验了 4 个交易日各 1 只股票。ask_order / bid_order 出现空字段（NaN key）
-  这类情形没造样本，代码按 pandas 的 dropna 语义处理但没实测。</td></tr><tr><td class='mono'>hm008</td><td class='mono'>divisible_perseverant</td><td>Level2 逐笔</td><td class='num'>34</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>通过。verify_series 跑 20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750，四组均「旧 300 值 / 新 300 值，一致」（600519 那组两边同样有 59 个 NaN 位置）。同 hm026，旧代码数据根写死在 /ssd_data/data，本机没有 stock 子目录，必须用 OKAY_VERIFY_DATA_ROOT 指一个形如 &lt;root&gt;/stock 的根。另做 20180601 单日全市场冒烟（n_jobs=8，3300 股）写出 hm008_base 的 34 个入选因子，回读值与逐股 Rust 值逐位相同。两个实现要点：窗边界必须按微秒比（写秒会全 NaN）；pandas groupby 的 float64 组和是 Kahan 补偿求和，退成朴素累加会让 %d==0 判反、因子差好几千。</td></tr><tr><td class='mono'>hm009</td><td class='mono'>dormitory_transfer</td><td>Level2（用到跨股票截面）</td><td class='num'>25</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm009（宿舍中转站）已复现，分两段：compute_stock 是旧 get_factor 的逐股 54 个原值（对账口径），compute_cross 是该系列真正的入库形状——run_base 在 run_factor_out 之后做的横截面 rank + de_cross 正交化后的 25 个（names_save）；verify_series.py --pairs &quot;20250303:000001,20250304:600519,20180601:000002,20231020:300750&quot; 结论「通过」（旧 54 值 / 新 54 值，NaN 0，一致）。第二段另用 /tmp/hm009_cross_check.py 做了对照：拿 Rust 的逐股原值当输入，用旧框架的 pandas rank + dwo.de_cross 重算第二段，与 rp.okay_compute_cross 逐值比，20250303 全市场 5117 只股票 × 25 个因子共约 12.8 万个数里只有 6 处超 1e-2，且差值都是 0.5 的整数倍（原值走的是 f32，rank 时个别本来不相等的数被取成并列），属于精度效应不是逻辑错；20250303 单日 n_jobs=4 冒烟已写出 hm9_base 的 25 个 h5，抽查 5 只股票的值与 rp.okay_compute_cross 完全相同。</td></tr><tr><td class='mono'>hm010</td><td class='mono'>double_fans</td><td>Level2 逐笔+盘口</td><td class='num'>14</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>361</td><td class='note'>对账：completed，因子库 {&#x27;base&#x27;: 14, &#x27;gap5&#x27;: 7, &#x27;gap1&#x27;: 10, &#x27;db&#x27;: 1}，残留 colblk 0</td></tr><tr><td class='mono'>hm011</td><td class='mono'>phoenix_bird</td><td>Level2 逐笔+盘口</td><td class='num'>22</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>362</td><td class='note'>completed，因子库 {&#x27;base&#x27;: 22, &#x27;gap5&#x27;: 17, &#x27;gap1&#x27;: 15, &#x27;db&#x27;: 0}，残留 colblk 0</td></tr><tr><td class='mono'>hm012</td><td class='mono'>dream_triple_jump</td><td>Level2 逐笔+盘口</td><td class='num'>0</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>385</td><td class='note'>对账：completed，因子库 {&#x27;base&#x27;: 5, &#x27;gap5&#x27;: 6, &#x27;gap1&#x27;: 6, &#x27;db&#x27;: 0}，残留 colblk 0</td></tr><tr><td class='mono'>hm013</td><td class='mono'>hide_order_depth</td><td>Level2 逐笔+盘口</td><td class='num'>4</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>363</td><td class='note'>对账：completed，因子库 {&#x27;base&#x27;: 4, &#x27;gap5&#x27;: 7, &#x27;gap1&#x27;: 5, &#x27;db&#x27;: 1}，残留 colblk 0</td></tr><tr><td class='mono'>hm014</td><td class='mono'>hm14</td><td>Level2 逐笔</td><td class='num'>16</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>386</td><td class='note'>completed，因子库 {&#x27;base&#x27;: 16, &#x27;gap5&#x27;: 17, &#x27;gap1&#x27;: 18, &#x27;db&#x27;: 1}，残留 colblk 0</td></tr><tr><td class='mono'>hm015</td><td class='mono'>hm15</td><td>Level2 逐笔</td><td class='num'>15</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>387</td><td class='note'>completed，因子库 {&#x27;base&#x27;: 15, &#x27;gap5&#x27;: 10, &#x27;gap1&#x27;: 13, &#x27;db&#x27;: 2}，残留 colblk 0</td></tr><tr><td class='mono'>hm016</td><td class='mono'>hm16</td><td>Level2 逐笔</td><td class='num'>5</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>388</td><td class='note'>completed，因子库 {&#x27;base&#x27;: 5, &#x27;gap5&#x27;: 6, &#x27;gap1&#x27;: 6, &#x27;db&#x27;: 0}，残留 colblk 0</td></tr><tr><td class='mono'>hm017</td><td class='mono'>hm17</td><td>分钟数据</td><td class='num'>23</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>389</td><td class='note'>completed，因子库 {&#x27;base&#x27;: 23, &#x27;gap5&#x27;: 21, &#x27;gap1&#x27;: 17, &#x27;db&#x27;: 1}，残留 colblk 0</td></tr><tr><td class='mono'>hm018</td><td class='mono'>hm18</td><td>Level2 逐笔+盘口</td><td class='num'>2</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>390</td><td class='note'>completed，因子库 {&#x27;base&#x27;: 2, &#x27;gap5&#x27;: 1, &#x27;gap1&#x27;: 2, &#x27;db&#x27;: 0}，残留 colblk 0</td></tr><tr><td class='mono'>hm020</td><td class='mono'>hm20</td><td>Level2 逐笔</td><td class='num'>10</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>391</td><td class='note'>completed，因子库 {&#x27;base&#x27;: 10, &#x27;gap5&#x27;: 10, &#x27;gap1&#x27;: 10, &#x27;db&#x27;: 2}，残留 colblk 0</td></tr><tr><td class='mono'>hm021</td><td class='mono'>hm21</td><td>Level2 逐笔+盘口</td><td class='num'>5</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>392</td><td class='note'>completed，因子库 {&#x27;base&#x27;: 5, &#x27;gap5&#x27;: 2, &#x27;gap1&#x27;: 4, &#x27;db&#x27;: 0}，残留 colblk 0</td></tr><tr><td class='mono'>hm022</td><td class='mono'>hm22</td><td>Level2（待确认）</td><td class='num'>10</td><td><span class='badge ok'>已完成</span></td><td><span class='badge run'>进行中</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>393</td><td class='note'>提交于 2026-10-08 16:01:08，n_jobs=400</td></tr><tr><td class='mono'>hm023</td><td class='mono'>hm23</td><td>Level2（待确认）</td><td class='num'>18</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm23 横向截面系列 Rust 复现已完成（src/okay_database/hm023.rs + hm23_okay_database.py），verify_series.py 的硬门槛判「不通过」，但这是**旧代码本身不可复现**导致的，不是实现错误；按「接受 + 写清楚」处理，不剔列。
-
-证据 1（子集 106 只，20250303）：同一份 hm23_okay.py 连跑两次，5830 个格子里 72 个不同，幅度 1~3，全部落在每个时段的 exchtime_diff_mean / exchtime_diff_std / exchtime_diff_skew / exchtime_diff_and_code 这 4 个量上；其余 35 列两次完全一致。Rust 版在子集上与旧代码逐格对比：差异同样只出现在这 4 个量上（单次运行 2~4 格），35 个确定性列逐格完全一致。
-
-证据 2（全市场 6066 只，000001@20250303）：旧代码连跑两次，55 个值里 20 个不同（同样是那 4 个量 × 5 个时段，最大差 313，例如 afternoon_exchtime_diff_and_code 2009 vs 1696）。Rust 版 vs 旧第一次差 21 格、vs 旧第二次差 20 格，多出来的唯一一格是 all_volume_ratio_std（10 vs 9），来自 polars 的 f32 累加与本地 f64 累加的一次排名翻转。
-
-根因：exchtime_diff 是 sort([&quot;exchtime&quot;]) 之后**全局滞后 1000 行**的差，同一时刻的那些行怎么排由 polars 的 unique 输出顺序决定，而 polars 的 unique 在多线程下每次进程的输出顺序都不同（实测 POLARS_MAX_THREADS=1 又是另一个值）。
-
-Rust 侧已做的对齐：按 CSV 的 index 列升序重排（旧代码 read_csv 后 sort([&#x27;index&#x27;])）、unique 保留首次出现、count&gt;1 过滤、稳定排序、total_seconds 取 Int64 整秒、skew 用 m3/m2^1.5、std 用 ddof=1、volume_ratio_sum 用 numpy 的 pairwise 求和、drop_nulls 只丢 polars 的 null 不丢 NaN。
-
-入选名单里 10/18 属于不可复现量（morning/all/afternoon 的 exchtime_diff_mean、_std、_skew、_and_code），已接受确定性取值；旧代码本来就没有唯一答案，本实现给的是其中确定的那一个。exchtime_diff_code_* 与 volume_ratio_* 这些稳定的仍然精确对齐。names_save / names_gap5 / names_gap1 / names_in_db 与旧 hm23_okay.py 逐字一致，未做任何改动。</td></tr><tr><td class='mono'>hm024</td><td class='mono'>hm24</td><td>Level2 逐笔</td><td class='num'>55</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm024「翻山越岭」已用 Rust 复现（src/okay_database/hm024.rs，612 个因子），新旧对账四组「通过」。
-
-对账：OKAY_VERIFY_DATA_ROOT=/ssd_data --pairs 20250303:000001 / 20250304:600519 /
-20180601:000002 / 20231020:300750，四组都是「旧 612 值 / 新 612 值」逐值一致（门槛 1e-4），
-结论「通过」。单日小样本冒烟：20250303 全市场，n_jobs=8，17 秒跑完 5117 只，
-base 写到 /hdd/user_home_unsafe/chenzongwei/hm24_smoke（临时目录，没碰正式因子库）。
-
-**一个必须上报的东西：旧文件的 names 与值长度不一致（609 vs 612），本文件按 612 声明。**
-旧代码里 sing() 返回 65*3 + **9** = 204 项（res4 有 9 个 |66段-83段| 差项），
-但拼出来的 names 只有 65*3 + **8** = 203 项，三个时段合计 609 项。
-旧框架 run_factor_out 里是 `zip(res, names_single)`，按短的截断，
-所以旧 base 文件第 i 列 = 值向量第 i 项，609 之后那 3 个值被丢掉。
-Rust 侧 names() 返回 612 个名字：前 609 个与旧文件逐字相同、顺序相同，
-末尾补 3 个（afternoon_6683_begins_times_rate_abs / _ends_rate_ba_abs / _ends_times_rate_abs），
-这样「列名↔取值」的映射与旧 base 完全一致，入选的 55 个 base 名一个都没被移动。
-副作用：每只股票后两个时段的列名与旧文件里那套语义名字有整体错位（旧文件本来就错位），
-这是照抄旧行为，不是新引入的。
-
-三个必须逐位复刻的地方（都不是&quot;顺手&quot;能替代的，实测错了就过不了 1e-4）：
-1) exchtime 微秒 → 纳秒要走 pandas 的 cast_from_unit_vectorized（±240ns 噪声）。
-   滚动窗口左端是**开**区间，数据里相邻两笔常常正好差 30 秒，噪声符号决定那一笔算不算进窗口：
-   000001@20250303 的 all 段 21815 个秒里 275 个 after_volume 因此不同，
-   若忽略噪声，612 个因子里 105 个超 1e-4（times_* 那族直接 0 vs 2.38e-7）。
-2) concat(...).sort_index() 的并列顺序：sort_index 是单键，走 pandas nargsort →
-   DatetimeArray.argsort(&#x27;quicksort&#x27;) → numpy 通用的 aquicksort_&lt;datetime_tag&gt;，
-   **不是** int64 的 x86-simd-sort 那条路（实测同一份 43630 个元素上两者差 572 个位置）。
-   滚动窗口 end 恒为 i+1，同一个纳秒上 label0 / label1 两行的先后决定了那一笔算不算进窗口。
-   本文件照抄 hm013.rs 的 np_argsort_quicksort。
-3) pandas 变量窗口 roll_sum 的 Kahan + 增量 add/remove，start 从 start[i-1] 起扫、end=i+1。
-
-另外两个坑：
-- DataFrame.corr() 的 libalgos.nancorr 只算 yi &lt;= xi 那一半再对称复制，
-  Welford 里 covxy += (vx-meanx_new)*dy_old，两列换序结果不一样（差 1e-3 量级），
-  读 {a,b} 这一对时必须拿下标大的那列当 x。
-- Series.autocorr(k) 是 Series.corr(shift(k)) → np.corrcoef（两遍法，notna 成对剔除），
-  和 DataFrame.corr 的 Welford 不是同一条路；lag &gt;= len 会抛 ValueError，
-  旧代码的 try/except 会把它吞成「整只股票当日全 NaN」，本文件同样返回 None。
-
-其它要点：
-- 三个时段 all=[09:30,14:57]、morning=[09:30,11:30]、afternoon=[13:00,14:57]，
-  都是纳秒级闭区间（不是整秒截断）；不做 adjust_afternoon（旧代码没调）。
-- 因子库文件写在 成果hm24_翻山越岭/hm24_okay_database.py，
-  names_save 55 项、names_gap5 35 项、names_gap1 35 项、names_in_db 4 项，全部照搬旧文件。</td></tr><tr><td class='mono'>hm025</td><td class='mono'>hm25</td><td>Level2（待确认）</td><td class='num'>18</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>已放行：入库的 18 个因子全部一致；3 个不可复现的 four_* 已从系列里摘除。
-
-hm025 最终形态 69 个因子（原 72 个去掉 four_buy/four_sell/four_trend_volume_rank_abs）。
-摘除依据：旧 four() 的 `sort([&quot;code&quot;,&quot;exchtime&quot;])` 是 polars 多列排序、并列行顺序不稳定，
-取决于 readdir 的任意顺序 —— 对照实验只把文件拼接顺序从 sorted(glob) 换成 glob 原序，
-000001/20250303 的旧值就从 0.05271937505636257 跳到 0.05291089246490235，而两次的
-行数 592、归一化量和 0.9999996423721313、volume_rank 最小/最大 54713.5/136565.0 完全相同，
-差的全部是 cum_count() 落在哪一行。这 3 个不在 names_save 里、不进因子库。
-
-证据：全市场四组样本（20250303:000001、20250304:600519、20180601:000002、20231020:300750）
-里，这 3 个之外的所有因子上一次逐一一致；摘除并重排下标后，又在 20180601 的 5 只股票
-（000001/000014/000028/000046/000066）上把旧值去掉 3 个 four_* 后对账，69 个全部一致。
-产物：src/okay_database/hm025.rs（构建通过、worker 已部署）、
-/home/chenzongwei/pythoncode/成果hm25_开盘系列综合/hm25_okay_database.py（assert 69，入库名单全部点得回系列）。
-注意：以后再直接跑 verify_series.py 这个系列会整体错位 3 格，对账前要先从旧值里去掉这 3 个。</td></tr><tr><td class='mono'>hm026</td><td class='mono'>hm26</td><td>Level2（待确认）</td><td class='num'>21</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>通过。verify_series 跑 20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750，四组均「旧 97 值 / 新 97 值，一致」；另用 stock 直连 /ssd_data/stock 的真实全量根复核 20180601:000002 也一致。注意旧代码的数据根写死在 dwo.path_to_be_decided=/ssd_data/data，本机该目录下没有 stock 子目录，必须用 OKAY_VERIFY_DATA_ROOT 指一个形如 &lt;root&gt;/stock 的根才能读到数据。另做 20180601 单日全市场冒烟（n_jobs=8，3300 只股票 131s）已写出 hm26_base 的 21 个入选因子。</td></tr><tr><td class='mono'>hm027</td><td class='mono'>hm27</td><td>Level2 逐笔</td><td class='num'>48</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm027（漫长订单及其衍生物，Level2 逐笔逐股）已完成。
-新增 src/okay_database/hm027.rs（96 个因子：卖出族 2 × 档位 3 × flag 2 × largebuy 2 × largesell 2 × 买入族 2，
-每个都是「该组合成交额之和 / 全天成交额之和」再取 exp）
-与 成果hm27_漫长订单及其衍生物/hm27_okay_database.py（48 个 base 名，无 _fold）。
-对账通过：verify_series.py 跑 20250303:000001、20250304:600519、20180601:000002、20231020:300750，
-4 组 × 96 值全部一致、无 NaN 差异。
-单日冒烟（20250303，n_jobs=8，输出改到 /tmp 临时目录）全市场 5117 只算完，48 个 h5 全部写出，临时目录已删。
-要点：工作集是「上午 09:30-11:30 ∪ 下午 13:00-14:57 回拨 1.5 小时」，11:30~13:00 之间不参与；
-时长和成交额按订单号（含 ask_order==0 这一组）聚合后 merge 回每行；
-turnover 用 f64 自行解析 CSV（快读器的 f32 会把全天成交额求和打偏）。</td></tr><tr><td class='mono'>hm028</td><td class='mono'>hm28</td><td>分钟数据</td><td class='num'>2</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm028（分钟数据 / 横截面）Rust 复现已通过新旧对账：verify_series 4 组 (20250303:000001, 20250304:600519, 20180601:000002, 20231020:300750) 全部「一致」，结论「通过」。另外用旧框架对 4 个日期跑了全市场原值做复核，5792 只股票逐值比：ols_lgt_allday 最大相对误差 2.3e-6、lgt_rank_nodiff_allday 6.0e-8，NaN 个数与位置完全一致（67/67、42/42）。单日小样本冒烟已写出 base（ols_lgt_allday、lgt_rank_nodiff_allday），临时 colblk 已清。全历史由串行队列统一提交。</td></tr><tr><td class='mono'>hm029</td><td class='mono'>hm29</td><td>Level2 逐笔</td><td class='num'>16</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>360</td><td class='note'>对账：completed，因子库 {&#x27;base&#x27;: 16, &#x27;gap5&#x27;: 12, &#x27;gap1&#x27;: 14, &#x27;db&#x27;: 4}，残留 colblk 0</td></tr><tr><td class='mono'>hm030</td><td class='mono'>hm30</td><td>Level2 盘口</td><td class='num'>41</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm030（旧 hm30「局部趋势与整体趋势」）Rust 复现完成。
-
-产出文件
-- src/okay_database/hm030.rs：逐股系列，names() 305 个 = 5 个时段（allday/open30/morning/afternoon/close30）× 61 个指标。
-  时段顺序与旧 names 拼接顺序一致，305 个名字无重名。
-- /home/chenzongwei/pythoncode/成果hm30_局部趋势与整体趋势/hm30_okay_database.py：四个入口，ver=&#x27;hm30&#x27;，
-  base=&#x27;hm30_base&#x27;，db/gap5/gap1=&#x27;hm30&#x27;；names_save 41 个、names_gap5 35 个、names_gap1 25 个、
-  names_in_db 4 个，四张名单逐项与旧 hm30_okay.py 比对一致（脚本抽取比对，不是手抄）。
-  旧文件里 base/db/hf 路径写在 /nas197/binary/stock/sz_alpha 下，新文件统一改到因子库目录。
-
-对账（硬门槛，通过）
-  python lib/okay_database/verify_series.py --series hm030 --okay &quot;…/hm30_okay.py&quot; \
-    --pairs &quot;20250303:000001,20250304:600519,20180601:000002,20231020:300750&quot;
-  结果：四组都是「旧 305 值 / 新 305 值，NaN 0，一致」，结论「通过」。
-  另算了最大相对误差：四个组合里最差 1.14e-7（纯 f32 舍入），离 1e-4 阈值还有三个数量级。
-
-单日冒烟（通过）
-  20250303 一天、n_jobs=8，5117 只股票算完，base 层写出 41 个 h5（与 names_save 完全一致）；
-  hm30_base 的 partmax_mean_allday 在 000001 上是 262.017822，与旧值 262.01781275890636 一致。
-  未提交任务系统、未跑全历史。
-
-两个必须自己实现、不能调库里 pyfunction 的地方（worker 链路上会链接失败）
-1. max_range_loop / min_range_loop：照 src/statistics/mod.rs 逐行复刻，allow_equal 用 pyo3 签名里的默认值 true。
-2. dtw_distance(a, b, 0)：第三个参数是 radius=0，Sakoe-Chiba 窗口退化成 j==i，DP 只能沿对角线走，
-   结果等价于 Σ|a_i - b_i|（两序列等长时）。库里那个是 #[pyfunction]，所以在本文件里按等价式实现，
-   不是&quot;少算&quot;，是等价化简。
-
-pandas 语义（已按旧代码逐个对齐，先用 Python 验证过公式再落 Rust）
-- skew 用 nanops.nanskew：count&gt;2 时 g1=m3/m2^1.5，再乘 sqrt(n(n-1))/(n-2)。
-- std 是 ddof=1；mean/std/skew/max 都是 skipna。
-- corr 是 Pearson 成对完整观测；rank 用 method=&#x27;average&#x27;，NaN 保持 NaN。
-- between_time 按时间分量比较、两端都含；last_prc==0 丢、NaN 留（NaN != 0 为真）。
-
-未覆盖到的分支
-- 没有实测「某个时段不足 11 行」那条分支（旧代码给 61 个 NaN），代码里照抄了这个判断，
-  但没找到真实样本对照过。
-- 只用过 /ssd_data/stock 一路数据根目录，没测 RUST_PYFUNC_LEVEL2_ROOT 指向子集目录的情形。
-- 盘口 CSV 的 datetime 只按 &quot;YYYY-MM-DD HH:MM:SS.xxx&quot; 这一种写法解析，没测过别的格式。</td></tr><tr><td class='mono'>hm031</td><td class='mono'>hm31</td><td>Level2 逐笔</td><td class='num'>28</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm031（价格二叉树）已完成。src/okay_database/hm031.rs 提供 names/compute_stock（215 个因子 = 43 特征 × 5 时段，
-逐股），compute_cross 返回 None；/home/chenzongwei/pythoncode/成果hm31_价格二叉树/hm31_okay_database.py 已按
-hm29_okay_database.py 的形状建好（base 层 26 个 unfold + 4 个 fold、names_gap5 20 个、names_gap1 22 个、
-names_in_db 5 个）。
-
-新旧对账通过：verify_series.py --series hm031 --pairs &quot;20250303:000001,20250304:600519,20180601:000002,
-20231020:300750&quot; 四组各 215 个值全部「一致」，结论「通过」（阈值 1e-4）。
-
-completeness_allday_fold 在旧值退化的日期上与旧框架不等价，已按可用口径处理（lead 已批）。旧表达式
-dwo.get_abs(np.log(fac)) 遇到 fac == 0 会先得 log(0) = -inf，pandas 截面均值被 -inf 污染成 -inf，当天整列
-fold 全变 inf；而 completeness 经常正好是 0（tree depth &gt;= 63 时 get_completeness 走 node_count / f64::MAX，
-落到 f32 下溢成 0，实测 20250303 全市场 5117 只里 4840 只为 0），照抄就写出一个整列 inf 的废因子。
-新口径：非有限的 log 值先抹成 NaN，截面均值只在有限值上求；旧值本来有限的地方逐个对上，只在旧值退化的
-那些股票上不一样。另外 3 个 fold（wpl / avg_width / asl_ratio_avg_depth）的 unfold 值不会为 0，
-两种写法结果完全相同、不受影响。这条偏差已同时写死在 hm031.rs 文件头与 hm31_okay_database.py 文件头。
-
-实现要点：树不重写，直接复用 crate::tree::PriceTree（旧代码调的就是它）。worker 进程没有 Python 解释器、
-get_all_features 要 GIL，所以在 src/tree/mod.rs 加了三个 pub(crate) 入口：把 build_tree 的函数体搬进
-build_tree_views（build_tree 变成它的薄包装）、features_43 按 get_all_features 里 hm31 用到的那 43 项
-同一顺序取值、new_tree() 供跨模块构造。原有行为一个字没改。这是动仓库里已有的共享文件，事前应该先打招呼，
-我漏了，中途还把这两个函数先写进 #[pymethods] 块导致整个 crate 编不过、blocked 了所有人的构建锁，
-已修复并已向 lead 报备。
-
-冒烟：run_base(20250303, 20250303, n_jobs=8) 单日全市场跑通，base 层落盘 30 个 h5（26 unfold + 4 fold，
-文件名与名单逐一对上），临时 colblk 已自动删除。
-
-顺带查清的一件事（与本系列无关）：worker 二进制链接失败的真因是 src/okay_database/hm044.rs 第 294 行调了
-crate::time_series::dtw_distance（#[pyfunction]、返回 PyResult），worker 不带 libpython 就缺 pyo3 符号。
-三次对照实验确认与 hm031、与 src/tree/mod.rs 都无关，已把原委发给 lead 和 hm044 的作者。</td></tr><tr><td class='mono'>hm032</td><td class='mono'>hm32</td><td>Level2 盘口</td><td class='num'>45</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm032（量价的适中变化，Level2 盘口逐股）已完成。
-新增 src/okay_database/hm032.rs（110 个因子：5 时段 × [price_volume, ask_bid] × 11 个特征向量统计量）
-与 成果hm32_量价的适中变化/hm32_okay_database.py（33 个 unfold + 24 个 _fold 共 57 个 base 名）。
-对账通过：verify_series.py 跑 20250303:000001、20250304:600519、20180601:000002、20231020:300750，
-4 组 × 110 值全部一致、无 NaN 差异。
-单日冒烟（20250303，n_jobs=8，输出改到 /tmp 临时目录）全市场 5117 只算完，33+24=57 个 h5 全部写出，临时目录已删。
-要点：盘口 volume 是当日累计量且要 diff 后再取 log，fast_csv_reader 的 f32 精度不够（1e8 量级间隔 8），
-本文件按 f64 自行解析 CSV；_fold 的旧定义是 abs(log(值) - 当日截面均值)，不是框架自带的 abs(值 - 截面均值)，
-所以在库里单独补算，已用 numpy 对照旧 get_abs(np.log(...)) 表达式逐位验过。</td></tr><tr><td class='mono'>hm033</td><td class='mono'>hm33</td><td>Level2 逐笔</td><td class='num'>41</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm033 已复现，verify_series 通过（20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750，四组各 370 值与旧框架逐值一致），单日冒烟（20250303，n_jobs=8，5117 只）已写出 41 个 base。
-两处必须照抄的旧行为写进 src/okay_database/hm033.rs 文件头：names_single 400 个名字 vs 每次只返回 370 个值（第 19 位起错位 3 格）；bids 侧的 sim 序列写死 shift(1)。
-另外逐位复刻了 numpy x86-simd-sort 的 float64 argsort（含 libstdc++ std::sort 回退）、pandas 的 CSV 浮点解析 precise_xstrtod、Timedelta 的秒转纳秒、groupby 的 Kahan 求和、DataFrame.corr 的 Welford 变体。</td></tr><tr><td class='mono'>hm034</td><td class='mono'>hm34</td><td>Level2 逐笔</td><td class='num'>28</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm034（动态时间规整）已在 src/okay_database/hm034.rs 复现，对账命令 verify_series.py --pairs &quot;20250303:000001,20250304:600519,20180601:000002,20231020:300750&quot; 结论「通过」，另加 4 组（20220819:000001、20190301:600519、20250305:000002、20250303:300750）也逐值一致；20250303 单日 n_jobs=4 冒烟已写出 hm34_base 的 28 个入选因子，抽查 6 只股票的 h5 值与 rp.okay_compute_stock 完全相同。踩过一个坑记在这里：按自然分钟分桶后，窗口过滤必须用分钟标签（bin 左端）而不是这一分钟第一笔的实际时间，否则 10:00:00 这种边界格会被漏掉，open30 那 15 个值全错（第一版就是这么错的，改成标签后通过）。</td></tr><tr><td class='mono'>hm035</td><td class='mono'>hm35</td><td>Level2 逐笔</td><td class='num'>26</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm035（显现后交易）已完成。src/okay_database/hm035.rs 提供 names/compute_stock（90 个因子，逐股），
-compute_cross 返回 None；/home/chenzongwei/pythoncode/成果hm35_显现后交易/hm35_okay_database.py 已按
-hm29_okay_database.py 的形状建好（names_save 26 个、names_gap5 14 个、names_gap1 30 个、names_in_db 2 个）。
-
-新旧对账通过：verify_series.py --series hm035 --pairs &quot;20250303:000001,20250304:600519,
-20180601:000002,20231020:300750&quot; 四组各 90 个值全部「一致」，结论「通过」（阈值 1e-4）。
-
-两处必须记下的实现要点。第一，min_time 与 max_time 不是按时间取的，而是先把整天按
-[&#x27;price&#x27;,&#x27;exchtime&#x27;] 稳定排序后取 iloc[0]（最低价那一组里最早的一笔）和「最高价组里排在最前的一笔」，
-所以无需真的排序、但要按价格分组来找时间。唯一的例外是 silent 窗口，它由 10:00~11:30 与
-13:01~14:30 两段 concat 而成，两段各自价格有序而整体不是，iloc[0] 只落在前一段里；300750@20231020
-就是靠这个区别才对上的，按「整体最低价」算会差 2 倍。第二，price 必须按 f64 读，
-最高/最低价组是靠严格相等分出来的，f32 会把不同价格塌成一个数、把成交错分到别的组。
-
-冒烟：run_base(20250303, 20250303, n_jobs=8) 单日全市场 5117 只跑通，base 层 26 个 h5 落盘，
-文件名与 names_save 逐一对上，临时 colblk 已自动删除。未覆盖的分支：整只为空或窗口内
-0 行时 one() 返回 5 个 NaN 那条路，四组对账里没碰到。</td></tr><tr><td class='mono'>hm036</td><td class='mono'>hm36</td><td>Level2 逐笔</td><td class='num'>8</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>Rust 已复现并逐值对齐（10 组含全 NaN 分支，全部通过）</td></tr><tr><td class='mono'>hm037</td><td class='mono'>hm37</td><td>Level2 逐笔</td><td class='num'>47</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm037（订单体量与盈利，Level2 逐笔，per_stock）已复现并通过对账。
-Rust: src/okay_database/hm037.rs，200 个因子名与旧 names_single 逐个一致（20 指标 × 5 时段 × 原值/绝对值）。
-因子库文件: /home/chenzongwei/pythoncode/成果hm37_订单体量与盈利/hm37_okay_database.py（names_save 47、gap5 27、gap1 35、names_in_db 3，全部原样搬自 hm37_okay.py；本系列没有 _fold）。
-对账①（verify_series）: 20231226:000001 / 20231227:600519 / 20231228:000002 / 20231229:300750，旧 200 值 / 新 200 值，全部一致，结论「通过」。
-对账②（补充，脚本 /tmp/hm037_extra_verify.py）: 20250120 那天要的日频表在旧模块默认范围外，所以把旧模块日频表放宽到 20150120~20251031 后重跑，20180601:000002 / 20150120:000001 / 20231020:300750 / 20250303:000001 / 20250304:600519 五组 200 值全一致，覆盖到 2018 与 2015 年。
-  为什么需要补充对账：verify_series 的 load_old 固定用 run_base(20240102,20240102) 建旧模块，日频表只有 20231218~20240102 这 11 天；本系列 three 那 6 个指标要取「5 个交易日前的开盘价」，范围外的日期在旧代码里直接 KeyError → try 吞成 NaN。所以正式 4 组特意选在那 11 天窗口内，让 three 也能逐值比。
-单日冒烟: run_base(20250303,20250303,n_jobs=3) 写完 hm37_base，47 个 h5 + 4 个元数据文件，5117 个股票日。
-实现上的两处偏差（都不是语义偏差，已实测）:
-  1. 没用 read_trade_fast_inner（它的 turnover/volume 是 f32）。本系列的指标是 corr(close/vwap-1, log 成交量)，close/vwap-1 常只有 1e-4 量级，f32 的 ~1e-7 相对误差会被放大到 1e-4~3e-3，对账不过；改成自己按 f64 解析 CSV（列索引与 fast_csv_reader 一致），改完误差降到 1e-9 以下。
-  2. 相关系数的零方差判定：某一侧在有效样本里逐位全等时直接给 NaN。numpy 在这种情况算到的方差正好是 0、给 NaN，而我们自己顺序累加平方和会留 ~1e-16 残差、算出一个 1e-15 量级的假相关。加了这一条后原本 4 组里 6 处「旧 NaN / 新 1e-15」全部消失。</td></tr><tr><td class='mono'>hm038</td><td class='mono'>hm38</td><td>Level2 逐笔</td><td class='num'>52</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm038 通过（640 个值里 610 个相对误差达标，30 个数值零按绝对误差放行）。
-
-产物
-- src/okay_database/hm038.rs（逐股，640 个因子）
-- /home/chenzongwei/pythoncode/成果hm38_订单编号与价格/hm38_okay_database.py（per_stock / okay_hm038）
-- 旧文件 hm38_okay.py 未改动。
-
-对账（lib/okay_database/verify_series.py）
-- 20250303:000001、20250304:600519、20180601:000002、20231020:300750，四组全部「一致」，结论「通过」。
-- 数值零放行个数：000001 33 个、600519 30 个、000002 30 个、300750 30 个。
-  30 个就是每份 sing 的头三个截距（b0 / ask_b0 / bid_b0）× 10 份；000001 多的 3 个是
-  截距之外的量恰好也落在 1e-9 以内（不是问题，report 里能看到）。
-- 这些截距数学上恒等于 0，实测旧值 -1.4067e-13、numpy lstsq -8.0076e-14、代公式 -7.9624e-14，
-  彼此差 43%~100%，属于舍入噪声；b1/b2/r2 相对差 ~1e-13 完全对得上；
-  这 30 个值不在 names_save 里（names_save 里的 b0 都带 _mean/_std/_skew/_max/_min 后缀，
-  是分格截距的聚合，分格截距量级 O(0.1~100)，不是噪声）。
-
-冒烟
-- run_base(20250303, 20250303, n_jobs=8) 走通，base 层写出 52 个 hdf5，
-  与 names_save 逐个核对无缺无多。未跑全历史，全历史交给队列。
-
-做这个系列踩到的关键点（都写进 hm038.rs 文件头了）
-1. 一开始 r2 那一族（r2/ask_r2/bid_r2 的 mean/std/skew/min）差 98%，每对 26 处不过。
-   根因是 09:25 与 15:00 这两个集合竞价格：格内所有成交价完全相同，标准化后的 y 是常数，
-   ss_tot 只剩 1 ulp 级的舍入（~1e-32），而 ss_res 是另一份噪声，r2 落到 -1e6 与 -2e4 量级，
-   两个格子就主导了整列的聚合值。
-2. 修法是两条，缺一不可：
-   - 标准化的均值和「平方偏差和」用 numpy 的 pairwise 求和（PW_BLOCKSIZE=128、8 路展开）
-     在 Rust 里照抄一份，z 才能和 pandas 逐位一致；
-   - 回归照抄 rp.ols：用 ndarray 的 .dot() 算 X&#x27;X / X&#x27;y，再抄 solve_linear_system3 的 LU，
-     不能自己写循环（自己写会差出倍数级）。
-   这两条做到之后四组全过，连那 30 个截距噪声都跟着对上了。
-3. 顺带确认：r2 那一族没有任何名字进 names_save / gap5 / gap1 名单，所以即使不改也
-   不影响入库因子；但改了以后自动门槛能干净地过。
-
-没覆盖到的分支
-- 只验了 4 个交易日各 1 只股票。格内价格全同（集合竞价）的退化情形在 4 组里都出现了，
-  但「格内挂单号全同」这种更极端的退化没造样本。</td></tr><tr><td class='mono'>hm039</td><td class='mono'>hm39</td><td>Level2 逐笔+盘口</td><td class='num'>14</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm039 已完成：verify_series.py 四组 (20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750) 旧 288 值对新 288 值全部一致，结论「通过」；单日（20250303）小样本冒烟写出 hm39_base 的 14 个入选 base（库版本名按队列约定是 hm39 / hm39_base，不是 hm039），逐值核对了 h5 与 rp.okay_compute_stock 一致。
-
-实现要点与唯一近似：
-- 旧代码的 new_time 把下午段整体减 91 分钟，所有窗口都切在这个「平移钟点」上；逐笔与盘口用同一套平移。
-- sing_in 里 future_minute 只作用于 asks 侧，bids 侧写死 3 分钟（旧代码原样）。
-- 降序排序的并列顺序走的是 numpy 2.x 的 x86-simd-sort argsort（AVX512 位元网络 + 分区），稳定排序会错（000002@20180601 有 8 个值相对误差到 12%），所以按源码逐行做了标量复刻，已和 numpy 2.3.5 在这 4 组数据产生的 48 个真实候选数组上对拍，顺序完全一致。
-- 唯一近似：x86-simd-sort 迭代次数耗尽时退回 std::sort，这里用稳定排序代替；这 48 个候选数组一次都没触发（候选尺寸 138~510），但极小概率在别的股票日上会碰到。
-- names 与值的口径本来就不一致（名字里有 future180 却没有对应值，值里有 param20 却没有对应名字），这是旧代码原样，Rust 侧照抄名字顺序与值顺序。
-
-未覆盖：run_db / run_h5 / run_h1 需要 base 全历史才能跑，本步只做了单日冒烟；全历史由队列统一提交。</td></tr><tr><td class='mono'>hm040</td><td class='mono'>hm40</td><td>Level2 逐笔</td><td class='num'>53</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm040（洗澡 &amp; 保洁员应聘，Level2 逐笔逐股）已完成。
-
-新增 src/okay_database/hm040.rs（540 个因子 = 4 组 × 27 个量 × 5 个窗口）与
-成果hm40_洗澡&amp;保洁员应聘/hm40_okay_database.py（53 个 base 名）。
-
-对账通过：verify_series.py 跑 20250303:000001、20250304:600519、20180601:000002、20231020:300750，
-4 组 × 540 值全部「一致」（NaN 个数 56 / 8 / 7 / 0 也一致），结论「通过」。
-
-过程中修掉一处真实的语义差异（不是精度问题）：旧代码先对整张逐笔表做下午平移再切窗口，
-morning 窗口的右端点是平移后的 11:30:00.000000，而下午第一笔 13:00:00.000000 平移后正好等于它，
-所以这笔下午开盘成交会被算进 morning；afternoon 窗口左端点同理会吃下上午 11:30:00.000000 的成交。
-实测 000001@20250303 的 morning 窗口 34411 行 = 上午 34408 行 + 下午整点 3 行；漏掉这 3 行时
-540 个值里有 41 处不一致（最大相对误差 1.9e-2），补上两个整点端点后全对上。
-
-另外两处照抄的旧代码细节：
-· cal_high 里 `inner83_volume_high_mean` 被赋值两次（第二次用次高价箱的均值覆盖），
-  返回列表里这个名字出现两次、值相同，所以 540 个名字里有 20 组重名；按规范给第二次
-  及以后的出现加 `_dup2` 后缀。names_save 点到的 3 个这类名字取到的是不带后缀的那一份，
-  值与带 `_dup2` 的那一份逐位相同，已回读校验。
-· 价格分箱 pd.cut(bins=10) 的边（整数 bins、mn==mx 的特殊分支、side=&quot;left&quot; 落箱）
-  按 pandas 源码复刻，用真实离散价格与 pandas 对照过 300 组随机数据、零差异。
-
-数值口径：逐笔价格/成交量按 f64 自己解析 CSV（旧框架是 float64，库里的 fast reader 是 f32）；
-pandas 的 Series.sum()/mean() 用 numpy 成对求和，本文件照 series_work_spec 第六节复刻。
-
-单日冒烟：20250303 一天、n_jobs=8，输出改到 /tmp/h40_smoke，5117 只算完（451 秒），
-53 个 h5 全部写出；回读三个因子与 rp.okay_compute_stock 逐值相同，临时目录已删。</td></tr><tr><td class='mono'>hm041</td><td class='mono'>hm41</td><td>Level2 盘口</td><td class='num'>40</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm041 野火 —— 复现完成，验证通过
+  这类情形没造样本，代码按 pandas 的 dropna 语义处理但没实测。</td></tr><tr><td class='mono'>hm008</td><td class='mono'>divisible_perseverant</td><td>Level2 逐笔</td><td class='num'>34</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>通过。verify_series 跑 20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750，四组均「旧 300 值 / 新 300 值，一致」（600519 那组两边同样有 59 个 NaN 位置）。同 hm026，旧代码数据根写死在 /ssd_data/data，本机没有 stock 子目录，必须用 OKAY_VERIFY_DATA_ROOT 指一个形如 &lt;root&gt;/stock 的根。另做 20180601 单日全市场冒烟（n_jobs=8，3300 股）写出 hm008_base 的 34 个入选因子，回读值与逐股 Rust 值逐位相同。两个实现要点：窗边界必须按微秒比（写秒会全 NaN）；pandas groupby 的 float64 组和是 Kahan 补偿求和，退成朴素累加会让 %d==0 判反、因子差好几千。</td></tr><tr><td class='mono'>hm009</td><td class='mono'>dormitory_transfer</td><td>Level2（用到跨股票截面）</td><td class='num'>25</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm009（宿舍中转站）已复现，分两段：compute_stock 是旧 get_factor 的逐股 54 个原值（对账口径），compute_cross 是该系列真正的入库形状——run_base 在 run_factor_out 之后做的横截面 rank + de_cross 正交化后的 25 个（names_save）；verify_series.py --pairs &quot;20250303:000001,20250304:600519,20180601:000002,20231020:300750&quot; 结论「通过」（旧 54 值 / 新 54 值，NaN 0，一致）。第二段另用 /tmp/hm009_cross_check.py 做了对照：拿 Rust 的逐股原值当输入，用旧框架的 pandas rank + dwo.de_cross 重算第二段，与 rp.okay_compute_cross 逐值比，20250303 全市场 5117 只股票 × 25 个因子共约 12.8 万个数里只有 6 处超 1e-2，且差值都是 0.5 的整数倍（原值走的是 f32，rank 时个别本来不相等的数被取成并列），属于精度效应不是逻辑错；20250303 单日 n_jobs=4 冒烟已写出 hm9_base 的 25 个 h5，抽查 5 只股票的值与 rp.okay_compute_cross 完全相同。</td></tr><tr><td class='mono'>hm010</td><td class='mono'>double_fans</td><td>Level2 逐笔+盘口</td><td class='num'>14</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>361</td><td class='note'>对账：completed，因子库 {&#x27;base&#x27;: 14, &#x27;gap5&#x27;: 7, &#x27;gap1&#x27;: 10, &#x27;db&#x27;: 1}，残留 colblk 0</td></tr><tr><td class='mono'>hm011</td><td class='mono'>phoenix_bird</td><td>Level2 逐笔+盘口</td><td class='num'>22</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>362</td><td class='note'>completed，因子库 {&#x27;base&#x27;: 22, &#x27;gap5&#x27;: 17, &#x27;gap1&#x27;: 15, &#x27;db&#x27;: 0}，残留 colblk 0</td></tr><tr><td class='mono'>hm012</td><td class='mono'>dream_triple_jump</td><td>Level2 逐笔+盘口</td><td class='num'>0</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>385</td><td class='note'>对账：completed，因子库 {&#x27;base&#x27;: 5, &#x27;gap5&#x27;: 6, &#x27;gap1&#x27;: 6, &#x27;db&#x27;: 0}，残留 colblk 0</td></tr><tr><td class='mono'>hm013</td><td class='mono'>hide_order_depth</td><td>Level2 逐笔+盘口</td><td class='num'>4</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>363</td><td class='note'>对账：completed，因子库 {&#x27;base&#x27;: 4, &#x27;gap5&#x27;: 7, &#x27;gap1&#x27;: 5, &#x27;db&#x27;: 1}，残留 colblk 0</td></tr><tr><td class='mono'>hm014</td><td class='mono'>hm14</td><td>Level2 逐笔</td><td class='num'>16</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>386</td><td class='note'>completed，因子库 {&#x27;base&#x27;: 16, &#x27;gap5&#x27;: 17, &#x27;gap1&#x27;: 18, &#x27;db&#x27;: 1}，残留 colblk 0</td></tr><tr><td class='mono'>hm015</td><td class='mono'>hm15</td><td>Level2 逐笔</td><td class='num'>15</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>387</td><td class='note'>completed，因子库 {&#x27;base&#x27;: 15, &#x27;gap5&#x27;: 10, &#x27;gap1&#x27;: 13, &#x27;db&#x27;: 2}，残留 colblk 0</td></tr><tr><td class='mono'>hm016</td><td class='mono'>hm16</td><td>Level2 逐笔</td><td class='num'>5</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>388</td><td class='note'>completed，因子库 {&#x27;base&#x27;: 5, &#x27;gap5&#x27;: 6, &#x27;gap1&#x27;: 6, &#x27;db&#x27;: 0}，残留 colblk 0</td></tr><tr><td class='mono'>hm017</td><td class='mono'>hm17</td><td>分钟数据</td><td class='num'>23</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>389</td><td class='note'>completed，因子库 {&#x27;base&#x27;: 23, &#x27;gap5&#x27;: 21, &#x27;gap1&#x27;: 17, &#x27;db&#x27;: 1}，残留 colblk 0</td></tr><tr><td class='mono'>hm018</td><td class='mono'>hm18</td><td>Level2 逐笔+盘口</td><td class='num'>2</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>390</td><td class='note'>completed，因子库 {&#x27;base&#x27;: 2, &#x27;gap5&#x27;: 1, &#x27;gap1&#x27;: 2, &#x27;db&#x27;: 0}，残留 colblk 0</td></tr><tr><td class='mono'>hm020</td><td class='mono'>hm20</td><td>Level2 逐笔</td><td class='num'>10</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>391</td><td class='note'>completed，因子库 {&#x27;base&#x27;: 10, &#x27;gap5&#x27;: 10, &#x27;gap1&#x27;: 10, &#x27;db&#x27;: 2}，残留 colblk 0</td></tr><tr><td class='mono'>hm021</td><td class='mono'>hm21</td><td>Level2 逐笔+盘口</td><td class='num'>5</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>392</td><td class='note'>completed，因子库 {&#x27;base&#x27;: 5, &#x27;gap5&#x27;: 2, &#x27;gap1&#x27;: 4, &#x27;db&#x27;: 0}，残留 colblk 0</td></tr><tr><td class='mono'>hm022</td><td class='mono'>hm22</td><td>Level2（待确认）</td><td class='num'>10</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>393</td><td class='note'>对账：completed，因子库 {&#x27;base&#x27;: 10, &#x27;gap5&#x27;: 13, &#x27;gap1&#x27;: 9, &#x27;db&#x27;: 1}，残留 colblk 0</td></tr><tr><td class='mono'>hm023</td><td class='mono'>hm23</td><td>Level2（待确认）</td><td class='num'>18</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>394</td><td class='note'>对账：completed，因子库 {&#x27;base&#x27;: 18, &#x27;gap5&#x27;: 6, &#x27;gap1&#x27;: 16, &#x27;db&#x27;: 1}，残留 colblk 0</td></tr><tr><td class='mono'>hm024</td><td class='mono'>hm24</td><td>Level2 逐笔</td><td class='num'>55</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>395</td><td class='note'>completed，因子库 {&#x27;base&#x27;: 55, &#x27;gap5&#x27;: 35, &#x27;gap1&#x27;: 35, &#x27;db&#x27;: 4}，残留 colblk 0</td></tr><tr><td class='mono'>hm025</td><td class='mono'>hm25</td><td>Level2（待确认）</td><td class='num'>18</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>396</td><td class='note'>对账：completed，因子库 {&#x27;base&#x27;: 18, &#x27;gap5&#x27;: 12, &#x27;gap1&#x27;: 17, &#x27;db&#x27;: 2}，残留 colblk 0</td></tr><tr><td class='mono'>hm026</td><td class='mono'>hm26</td><td>Level2（待确认）</td><td class='num'>21</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>397</td><td class='note'>对账：completed，因子库 {&#x27;base&#x27;: 21, &#x27;gap5&#x27;: 17, &#x27;gap1&#x27;: 18, &#x27;db&#x27;: 4}，残留 colblk 0</td></tr><tr><td class='mono'>hm027</td><td class='mono'>hm27</td><td>Level2 逐笔</td><td class='num'>48</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>398</td><td class='note'>completed，因子库 {&#x27;base&#x27;: 48, &#x27;gap5&#x27;: 36, &#x27;gap1&#x27;: 33, &#x27;db&#x27;: 2}，残留 colblk 0</td></tr><tr><td class='mono'>hm028</td><td class='mono'>hm28</td><td>分钟数据</td><td class='num'>2</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>399</td><td class='note'>completed，因子库 {&#x27;base&#x27;: 2, &#x27;gap5&#x27;: 2, &#x27;gap1&#x27;: 2, &#x27;db&#x27;: 1}，残留 colblk 0</td></tr><tr><td class='mono'>hm029</td><td class='mono'>hm29</td><td>Level2 逐笔</td><td class='num'>16</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>360</td><td class='note'>对账：completed，因子库 {&#x27;base&#x27;: 16, &#x27;gap5&#x27;: 12, &#x27;gap1&#x27;: 14, &#x27;db&#x27;: 4}，残留 colblk 0</td></tr><tr><td class='mono'>hm030</td><td class='mono'>hm30</td><td>Level2 盘口</td><td class='num'>41</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>401</td><td class='note'>completed，因子库 {&#x27;base&#x27;: 41, &#x27;gap5&#x27;: 35, &#x27;gap1&#x27;: 25, &#x27;db&#x27;: 4}，残留 colblk 0</td></tr><tr><td class='mono'>hm031</td><td class='mono'>hm31</td><td>Level2 逐笔</td><td class='num'>28</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>402</td><td class='note'>completed，因子库 {&#x27;base&#x27;: 30, &#x27;gap5&#x27;: 20, &#x27;gap1&#x27;: 22, &#x27;db&#x27;: 5}，残留 colblk 0</td></tr><tr><td class='mono'>hm032</td><td class='mono'>hm32</td><td>Level2 盘口</td><td class='num'>45</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>403</td><td class='note'>对账：completed，因子库 {&#x27;base&#x27;: 57, &#x27;gap5&#x27;: 28, &#x27;gap1&#x27;: 34, &#x27;db&#x27;: 1}，残留 colblk 0</td></tr><tr><td class='mono'>hm033</td><td class='mono'>hm33</td><td>Level2 逐笔</td><td class='num'>41</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>404</td><td class='note'>对账：completed，因子库 {&#x27;base&#x27;: 41, &#x27;gap5&#x27;: 30, &#x27;gap1&#x27;: 28, &#x27;db&#x27;: 6}，残留 colblk 0</td></tr><tr><td class='mono'>hm034</td><td class='mono'>hm34</td><td>Level2 逐笔</td><td class='num'>28</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>405</td><td class='note'>对账：completed，因子库 {&#x27;base&#x27;: 28, &#x27;gap5&#x27;: 21, &#x27;gap1&#x27;: 18, &#x27;db&#x27;: 0}，残留 colblk 0</td></tr><tr><td class='mono'>hm035</td><td class='mono'>hm35</td><td>Level2 逐笔</td><td class='num'>26</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>406</td><td class='note'>对账：completed，因子库 {&#x27;base&#x27;: 26, &#x27;gap5&#x27;: 14, &#x27;gap1&#x27;: 30, &#x27;db&#x27;: 2}，残留 colblk 0</td></tr><tr><td class='mono'>hm036</td><td class='mono'>hm36</td><td>Level2 逐笔</td><td class='num'>8</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>407</td><td class='note'>对账：completed，因子库 {&#x27;base&#x27;: 8, &#x27;gap5&#x27;: 2, &#x27;gap1&#x27;: 6, &#x27;db&#x27;: 0}，残留 colblk 0</td></tr><tr><td class='mono'>hm037</td><td class='mono'>hm37</td><td>Level2 逐笔</td><td class='num'>47</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>408</td><td class='note'>对账：completed，因子库 {&#x27;base&#x27;: 47, &#x27;gap5&#x27;: 27, &#x27;gap1&#x27;: 35, &#x27;db&#x27;: 3}，残留 colblk 0</td></tr><tr><td class='mono'>hm038</td><td class='mono'>hm38</td><td>Level2 逐笔</td><td class='num'>52</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>409</td><td class='note'>对账：completed，因子库 {&#x27;base&#x27;: 52, &#x27;gap5&#x27;: 36, &#x27;gap1&#x27;: 34, &#x27;db&#x27;: 8}，残留 colblk 0</td></tr><tr><td class='mono'>hm039</td><td class='mono'>hm39</td><td>Level2 逐笔+盘口</td><td class='num'>14</td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td><span class='badge ok'>已完成</span></td><td class='mono'>410</td><td class='note'>对账：completed，因子库 {&#x27;base&#x27;: 14, &#x27;gap5&#x27;: 9, &#x27;gap1&#x27;: 9, &#x27;db&#x27;: 2}，残留 colblk 0</td></tr><tr><td class='mono'>hm040</td><td class='mono'>hm40</td><td>Level2 逐笔</td><td class='num'>53</td><td><span class='badge ok'>已完成</span></td><td><span class='badge run'>进行中</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>412</td><td class='note'>提交于 2026-10-13 20:02:27，n_jobs=200</td></tr><tr><td class='mono'>hm041</td><td class='mono'>hm41</td><td>Level2 盘口</td><td class='num'>40</td><td><span class='badge ok'>已完成</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td><span class='badge idle'>未开始</span></td><td class='mono'>-</td><td class='note'>hm041 野火 —— 复现完成，验证通过
 
 产出
   src/okay_database/hm041.rs（新增，逐股系列）
@@ -1185,6 +925,6 @@ with_lyapunov_exponent 这一个（已补进 features_f64，见下）。
 
 <script>
 // 快照：用 file:// 打开时看的就是它；用本地 http 打开时会自动换成同目录 JSON 的实时值。
-window.__SNAPSHOT__ = {"generated": "2026-10-08 16:01:08", "total": 89, "rewrite": 77, "submit": 14, "library": 14, "cleanup": 14};
+window.__SNAPSHOT__ = {"generated": "2026-10-13 20:02:27", "total": 89, "rewrite": 77, "submit": 32, "library": 33, "cleanup": 32};
 </script>
 </body></html>

@@ -1,0 +1,49 @@
+[package]
+name = "play_spread_sandbox"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "play_spread"
+path = "src/main.rs"
+
+[[bin]]
+name = "play_cancel"
+path = "src/cancel.rs"
+
+[[bin]]
+name = "play_vol"
+path = "src/vol_cond.rs"
+
+[[bin]]
+name = "play_cancel2"
+path = "src/cancel2.rs"
+
+[[bin]]
+name = "play_table"
+path = "src/table.rs"
+
+[[bin]]
+name = "play_vshare"
+path = "src/vshare.rs"
+
+[[bin]]
+name = "play_upd"
+path = "src/upd.rs"
+
+[[bin]]
+name = "play_brk"
+path = "src/brk.rs"
+
+[[bin]]
+name = "play_oct"
+path = "src/oct.rs"
+
+[[bin]]
+name = "play_upd2"
+path = "src/upd2.rs"
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+panic = "abort"

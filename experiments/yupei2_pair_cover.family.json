@@ -1,0 +1,21 @@
+{
+  "type": "factor-research-family",
+  "schemaVersion": 1,
+  "family": "yupei2_pair_cover",
+  "createdAt": "2026-10-08T16:53:59",
+  "trials": [
+    {
+      "window": "20241231-20241231",
+      "universe": "397只（备份名单每10只取1）",
+      "direction": "无（机制样本，不看收益）",
+      "params": "cnt/vol, tau=0.05/1, 同桶0.5折半, 求和核+取max覆盖核+饱和截断",
+      "outcome": "kept",
+      "runId": "run-1",
+      "note": null,
+      "role": "mechanism",
+      "at": "2026-10-08T18:54:19",
+      "sessionId": "session-a8fe1459-ff59-453b-8631-ff90bd2406e0"
+    }
+  ],
+  "inResearch": []
+}

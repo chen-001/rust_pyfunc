@@ -1,0 +1,24 @@
+{
+  "type": "factor-experiment-run",
+  "schemaVersion": 1,
+  "experiment": "yupei2_pair_net",
+  "runId": "run-1",
+  "order": 1,
+  "scriptPath": "/home/chenzongwei/rust_pyfunc/sandbox_yupei_pair/src/main.rs",
+  "scriptSha256": "946a6bcb2b50cf78978e0b3fa9d6d2e0672f9b98488beff277aef07a09d4502b",
+  "startDate": "20241231",
+  "endDate": "20241231",
+  "universe": "备份矩阵口径，20241231 codes.txt 3964 只",
+  "nJobs": 200,
+  "taskId": null,
+  "outputDir": "/tmp/yupei2_pair/20241231",
+  "note": null,
+  "recordedAt": "2026-10-08T23:46:28",
+  "sessionId": "session-6b1e6861-bcb2-43b7-a5cc-a018ba154b0d",
+  "lib": {
+    "soPath": "/home/chenzongwei/rust_pyfunc/python/rust_pyfunc/rust_pyfunc.abi3.so",
+    "so": "49673329:1791332668963074321",
+    "workerPath": "/home/chenzongwei/rust_pyfunc/python/rust_pyfunc/rust_pyfunc_worker",
+    "worker": "22202768:1791332908997002091"
+  }
+}

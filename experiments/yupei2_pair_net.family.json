@@ -1,0 +1,21 @@
+{
+  "type": "factor-research-family",
+  "schemaVersion": 1,
+  "family": "yupei2_pair_net",
+  "createdAt": "2026-10-08T23:46:21",
+  "trials": [
+    {
+      "window": "20241230-20241231",
+      "universe": "备份矩阵口径，20241230 3950 只 / 20241231 3964 只",
+      "direction": "无（机制样本，不看收益）",
+      "params": "cnt_t1（另算 cnt_t005/cnt_t30/vol_t1）；空模型 100 层 20000 抽样",
+      "outcome": "kept",
+      "runId": "run-1",
+      "note": null,
+      "role": "mechanism",
+      "at": "2026-10-08T23:46:28",
+      "sessionId": "session-6b1e6861-bcb2-43b7-a5cc-a018ba154b0d"
+    }
+  ],
+  "inResearch": []
+}

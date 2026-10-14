@@ -1,0 +1,381 @@
+### 000001
+== 000001 20250303 mode=both rows_all=5005 read_ms=21.8
+   transform_ms=0.2
+   [allday   ] n= 4828 std_ms=   0.2 nan=false nonfinite=0 | naive alloc=0.0 build=1331.4 matvec=1406.5 iters=5+5 mem_MB=186 ev1=5506.452762 | fast=21.1ms iters=5+5 maxdiff=4.547e-12
+   [open30   ] n=  601 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=4.7 matvec=9.4 iters=5+5 mem_MB=3 ev1=653.566611 | fast=1.3ms iters=5+5 maxdiff=3.411e-13
+   [morning  ] n= 2401 std_ms=   0.4 nan=false nonfinite=0 | naive alloc=0.1 build=155.9 matvec=376.8 iters=6+5 mem_MB=46 ev1=2664.294845 | fast=9.7ms iters=6+5 maxdiff=2.728e-12
+   [afternoon] n= 2338 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.1 build=177.5 matvec=320.3 iters=7+5 mem_MB=44 ev1=2586.340236 | fast=7.7ms iters=7+5 maxdiff=4.547e-13
+   [close30  ] n=  541 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.3 build=0.4 matvec=7.5 iters=6+6 mem_MB=2 ev1=582.844544 | fast=1.0ms iters=6+6 maxdiff=1.137e-13
+   TOTAL naive: alloc=0.4 build=1669.9 matvec=2120.5 std=0.8 iters=55 sum_n=10709
+   TOTAL fast_ms=40.9  maxdiff_all=4.547e-12
+== 000001 20250303 mode=both rows_all=5005 read_ms=16.2
+   transform_ms=0.1
+   [allday   ] n= 4828 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=630.6 matvec=654.2 iters=5+5 mem_MB=186 ev1=5506.452762 | fast=21.5ms iters=5+5 maxdiff=4.547e-12
+   [open30   ] n=  601 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=17.2 matvec=8.2 iters=5+5 mem_MB=3 ev1=653.566611 | fast=1.1ms iters=5+5 maxdiff=3.411e-13
+   [morning  ] n= 2401 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=255.8 matvec=230.7 iters=6+5 mem_MB=46 ev1=2664.294845 | fast=7.9ms iters=6+5 maxdiff=2.728e-12
+   [afternoon] n= 2338 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.1 build=348.9 matvec=198.5 iters=7+5 mem_MB=44 ev1=2586.340236 | fast=7.4ms iters=7+5 maxdiff=4.547e-13
+   [close30  ] n=  541 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.5 build=0.3 matvec=7.2 iters=6+6 mem_MB=2 ev1=582.844544 | fast=1.0ms iters=6+6 maxdiff=1.137e-13
+   TOTAL naive: alloc=0.6 build=1252.9 matvec=1098.8 std=0.4 iters=55 sum_n=10709
+   TOTAL fast_ms=38.8  maxdiff_all=4.547e-12
+### 000915
+== 000915 20250303 mode=both rows_all=4633 read_ms=5.2
+   transform_ms=0.2
+   [allday   ] n= 4484 std_ms=   0.2 nan=false nonfinite=0 | naive alloc=0.0 build=1106.5 matvec=739.9 iters=5+4 mem_MB=161 ev1=4958.166182 | fast=10.8ms iters=5+4 maxdiff=6.366e-12
+   [open30   ] n=  596 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=2.9 matvec=8.1 iters=7+4 mem_MB=3 ev1=633.187545 | fast=1.0ms iters=7+4 maxdiff=3.411e-13
+   [morning  ] n= 2300 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=260.5 matvec=172.7 iters=6+4 mem_MB=42 ev1=2580.864934 | fast=4.5ms iters=6+4 maxdiff=3.638e-12
+   [afternoon] n= 2095 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=220.1 matvec=133.3 iters=6+4 mem_MB=35 ev1=2316.127072 | fast=4.2ms iters=6+4 maxdiff=1.819e-12
+   [close30  ] n=  527 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.1 build=0.3 matvec=6.3 iters=6+4 mem_MB=2 ev1=573.166361 | fast=0.9ms iters=6+4 maxdiff=1.137e-13
+   TOTAL naive: alloc=0.2 build=1590.3 matvec=1060.4 std=0.4 iters=50 sum_n=10002
+   TOTAL fast_ms=21.4  maxdiff_all=6.366e-12
+== 000915 20250303 mode=both rows_all=4633 read_ms=10.8
+   transform_ms=0.1
+   [allday   ] n= 4484 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=635.4 matvec=435.5 iters=5+4 mem_MB=161 ev1=4958.166182 | fast=9.0ms iters=5+4 maxdiff=6.366e-12
+   [open30   ] n=  596 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=3.2 matvec=7.8 iters=7+4 mem_MB=3 ev1=633.187545 | fast=0.8ms iters=7+4 maxdiff=3.411e-13
+   [morning  ] n= 2300 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=168.7 matvec=122.3 iters=6+4 mem_MB=42 ev1=2580.864934 | fast=3.5ms iters=6+4 maxdiff=3.638e-12
+   [afternoon] n= 2095 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=128.1 matvec=99.3 iters=6+4 mem_MB=35 ev1=2316.127072 | fast=3.1ms iters=6+4 maxdiff=1.819e-12
+   [close30  ] n=  527 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.1 build=0.2 matvec=5.5 iters=6+4 mem_MB=2 ev1=573.166361 | fast=0.6ms iters=6+4 maxdiff=1.137e-13
+   TOTAL naive: alloc=0.1 build=935.6 matvec=670.4 std=0.3 iters=50 sum_n=10002
+   TOTAL fast_ms=17.0  maxdiff_all=6.366e-12
+### 002218
+== 002218 20250303 mode=both rows_all=4597 read_ms=9.3
+   transform_ms=0.1
+   [allday   ] n= 4438 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=577.5 matvec=432.3 iters=5+4 mem_MB=158 ev1=4882.717369 | fast=11.1ms iters=5+4 maxdiff=1.819e-12
+   [open30   ] n=  600 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=3.4 matvec=8.5 iters=7+5 mem_MB=3 ev1=621.380266 | fast=0.9ms iters=7+5 maxdiff=1.251e-12
+   [morning  ] n= 2244 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=153.2 matvec=127.9 iters=5+6 mem_MB=40 ev1=2391.824056 | fast=5.5ms iters=5+6 maxdiff=3.183e-12
+   [afternoon] n= 2105 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=121.1 matvec=102.4 iters=5+5 mem_MB=35 ev1=2283.683475 | fast=5.2ms iters=5+5 maxdiff=2.728e-12
+   [close30  ] n=  533 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.1 build=0.3 matvec=6.9 iters=3+9 mem_MB=2 ev1=576.346657 | fast=1.0ms iters=3+9 maxdiff=1.705e-13
+   TOTAL naive: alloc=0.1 build=855.4 matvec=678.0 std=0.3 iters=54 sum_n=9920
+   TOTAL fast_ms=23.7  maxdiff_all=3.183e-12
+== 002218 20250303 mode=both rows_all=4597 read_ms=11.8
+   transform_ms=0.3
+   [allday   ] n= 4438 std_ms=   0.2 nan=false nonfinite=0 | naive alloc=0.0 build=642.4 matvec=883.6 iters=5+4 mem_MB=158 ev1=4882.717369 | fast=15.5ms iters=5+4 maxdiff=1.819e-12
+   [open30   ] n=  600 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.1 build=5.9 matvec=11.2 iters=7+5 mem_MB=3 ev1=621.380266 | fast=1.3ms iters=7+5 maxdiff=1.251e-12
+   [morning  ] n= 2244 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.1 build=173.9 matvec=219.8 iters=5+6 mem_MB=40 ev1=2391.824056 | fast=6.7ms iters=5+6 maxdiff=3.183e-12
+   [afternoon] n= 2105 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.1 build=159.4 matvec=144.3 iters=5+5 mem_MB=35 ev1=2283.683475 | fast=5.5ms iters=5+5 maxdiff=2.728e-12
+   [close30  ] n=  533 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.2 build=0.4 matvec=7.8 iters=3+9 mem_MB=2 ev1=576.346657 | fast=1.0ms iters=3+9 maxdiff=1.705e-13
+   TOTAL naive: alloc=0.4 build=982.0 matvec=1266.7 std=0.5 iters=54 sum_n=9920
+   TOTAL fast_ms=30.0  maxdiff_all=3.183e-12
+### 002606
+== 002606 20250303 mode=both rows_all=4519 read_ms=8.4
+   transform_ms=0.1
+   [allday   ] n= 4349 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=556.0 matvec=420.9 iters=5+4 mem_MB=151 ev1=4900.113189 | fast=11.9ms iters=5+4 maxdiff=1.182e-11
+   [open30   ] n=  594 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=2.9 matvec=8.7 iters=7+5 mem_MB=3 ev1=651.971581 | fast=1.1ms iters=7+5 maxdiff=7.958e-13
+   [morning  ] n= 2210 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=134.9 matvec=119.1 iters=6+4 mem_MB=39 ev1=2441.247979 | fast=5.0ms iters=6+4 maxdiff=1.137e-11
+   [afternoon] n= 2050 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=101.5 matvec=108.5 iters=6+5 mem_MB=34 ev1=2256.464791 | fast=4.7ms iters=6+5 maxdiff=2.728e-12
+   [close30  ] n=  517 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.1 build=0.3 matvec=5.6 iters=5+5 mem_MB=2 ev1=576.872819 | fast=0.9ms iters=5+5 maxdiff=2.274e-13
+   TOTAL naive: alloc=0.1 build=795.5 matvec=662.7 std=0.3 iters=52 sum_n=9720
+   TOTAL fast_ms=23.5  maxdiff_all=1.182e-11
+== 002606 20250303 mode=both rows_all=4519 read_ms=18.0
+   transform_ms=0.2
+   [allday   ] n= 4349 std_ms=   0.2 nan=false nonfinite=0 | naive alloc=0.0 build=1028.1 matvec=502.3 iters=5+4 mem_MB=151 ev1=4900.113189 | fast=13.8ms iters=5+4 maxdiff=1.182e-11
+   [open30   ] n=  594 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=20.4 matvec=8.7 iters=7+5 mem_MB=3 ev1=651.971581 | fast=1.1ms iters=7+5 maxdiff=7.958e-13
+   [morning  ] n= 2210 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=241.4 matvec=153.7 iters=6+4 mem_MB=39 ev1=2441.247979 | fast=5.1ms iters=6+4 maxdiff=1.137e-11
+   [afternoon] n= 2050 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=282.5 matvec=176.7 iters=6+5 mem_MB=34 ev1=2256.464791 | fast=4.7ms iters=6+5 maxdiff=2.728e-12
+   [close30  ] n=  517 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.3 build=0.3 matvec=6.0 iters=5+5 mem_MB=2 ev1=576.872819 | fast=0.8ms iters=5+5 maxdiff=2.274e-13
+   TOTAL naive: alloc=0.4 build=1572.8 matvec=847.4 std=0.4 iters=52 sum_n=9720
+   TOTAL fast_ms=25.5  maxdiff_all=1.182e-11
+### 003006
+== 003006 20250303 mode=both rows_all=4482 read_ms=20.0
+   transform_ms=0.2
+   [allday   ] n= 4341 std_ms=   0.2 nan=false nonfinite=0 | naive alloc=0.0 build=1022.4 matvec=619.4 iters=6+4 mem_MB=151 ev1=4820.529608 | fast=9.3ms iters=6+4 maxdiff=5.457e-12
+   [open30   ] n=  556 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=2.4 matvec=5.1 iters=4+4 mem_MB=2 ev1=609.067557 | fast=0.6ms iters=4+4 maxdiff=3.411e-13
+   [morning  ] n= 2143 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=128.7 matvec=96.9 iters=5+4 mem_MB=37 ev1=2370.075029 | fast=3.0ms iters=5+4 maxdiff=2.274e-12
+   [afternoon] n= 2109 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=125.4 matvec=92.2 iters=5+4 mem_MB=36 ev1=2340.007625 | fast=2.9ms iters=5+4 maxdiff=4.093e-12
+   [close30  ] n=  513 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.3 build=0.2 matvec=4.8 iters=5+4 mem_MB=2 ev1=536.780428 | fast=0.6ms iters=5+4 maxdiff=6.821e-13
+   TOTAL naive: alloc=0.4 build=1279.1 matvec=818.4 std=0.4 iters=45 sum_n=9662
+   TOTAL fast_ms=16.3  maxdiff_all=5.457e-12
+== 003006 20250303 mode=both rows_all=4482 read_ms=9.1
+   transform_ms=0.1
+   [allday   ] n= 4341 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=529.0 matvec=454.6 iters=6+4 mem_MB=151 ev1=4820.529608 | fast=9.3ms iters=6+4 maxdiff=5.457e-12
+   [open30   ] n=  556 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=4.8 matvec=5.1 iters=4+4 mem_MB=2 ev1=609.067557 | fast=0.6ms iters=4+4 maxdiff=3.411e-13
+   [morning  ] n= 2143 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=129.0 matvec=96.4 iters=5+4 mem_MB=37 ev1=2370.075029 | fast=2.9ms iters=5+4 maxdiff=2.274e-12
+   [afternoon] n= 2109 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=140.5 matvec=92.9 iters=5+4 mem_MB=36 ev1=2340.007625 | fast=3.7ms iters=5+4 maxdiff=4.093e-12
+   [close30  ] n=  513 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.1 build=0.3 matvec=5.0 iters=5+4 mem_MB=2 ev1=536.780428 | fast=0.8ms iters=5+4 maxdiff=6.821e-13
+   TOTAL naive: alloc=0.1 build=803.6 matvec=654.0 std=0.3 iters=45 sum_n=9662
+   TOTAL fast_ms=17.1  maxdiff_all=5.457e-12
+### 300107
+== 300107 20250303 mode=both rows_all=4491 read_ms=15.1
+   transform_ms=0.2
+   [allday   ] n= 4340 std_ms=   0.2 nan=false nonfinite=0 | naive alloc=0.0 build=962.2 matvec=515.9 iters=4+5 mem_MB=151 ev1=4831.906427 | fast=11.5ms iters=4+5 maxdiff=8.185e-12
+   [open30   ] n=  597 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=6.0 matvec=8.8 iters=7+5 mem_MB=3 ev1=639.711453 | fast=1.1ms iters=7+5 maxdiff=3.411e-13
+   [morning  ] n= 2174 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=260.6 matvec=133.0 iters=6+5 mem_MB=38 ev1=2342.210191 | fast=4.9ms iters=6+5 maxdiff=1.364e-12
+   [afternoon] n= 2077 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=203.4 matvec=91.9 iters=4+4 mem_MB=35 ev1=2323.676443 | fast=3.6ms iters=4+4 maxdiff=1.364e-12
+   [close30  ] n=  527 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.2 build=0.3 matvec=5.8 iters=4+6 mem_MB=2 ev1=587.321373 | fast=0.8ms iters=4+6 maxdiff=2.274e-13
+   TOTAL naive: alloc=0.3 build=1432.5 matvec=755.3 std=0.4 iters=50 sum_n=9715
+   TOTAL fast_ms=22.0  maxdiff_all=8.185e-12
+== 300107 20250303 mode=both rows_all=4491 read_ms=6.9
+   transform_ms=0.1
+   [allday   ] n= 4340 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=526.4 matvec=411.6 iters=4+5 mem_MB=151 ev1=4831.906427 | fast=10.1ms iters=4+5 maxdiff=8.185e-12
+   [open30   ] n=  597 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=4.1 matvec=8.5 iters=7+5 mem_MB=3 ev1=639.711453 | fast=0.9ms iters=7+5 maxdiff=3.411e-13
+   [morning  ] n= 2174 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=138.3 matvec=119.5 iters=6+5 mem_MB=38 ev1=2342.210191 | fast=4.0ms iters=6+5 maxdiff=1.364e-12
+   [afternoon] n= 2077 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=130.0 matvec=80.3 iters=4+4 mem_MB=35 ev1=2323.676443 | fast=3.0ms iters=4+4 maxdiff=1.364e-12
+   [close30  ] n=  527 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.1 build=0.2 matvec=5.6 iters=4+6 mem_MB=2 ev1=587.321373 | fast=0.7ms iters=4+6 maxdiff=2.274e-13
+   TOTAL naive: alloc=0.1 build=799.0 matvec=625.5 std=0.3 iters=50 sum_n=9715
+   TOTAL fast_ms=18.7  maxdiff_all=8.185e-12
+### 300492
+== 300492 20250303 mode=both rows_all=2734 read_ms=4.1
+   transform_ms=0.1
+   [allday   ] n= 2606 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=180.2 matvec=161.3 iters=6+4 mem_MB=54 ev1=2833.620469 | fast=3.7ms iters=6+4 maxdiff=3.183e-12
+   [open30   ] n=  471 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=0.5 matvec=4.3 iters=6+4 mem_MB=2 ev1=512.740803 | fast=0.5ms iters=6+4 maxdiff=3.411e-13
+   [morning  ] n= 1486 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=54.7 matvec=46.6 iters=5+5 mem_MB=18 ev1=1613.305830 | fast=1.8ms iters=5+5 maxdiff=1.364e-12
+   [afternoon] n= 1031 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.2 build=0.7 matvec=16.0 iters=4+3 mem_MB=9 ev1=1097.677548 | fast=0.9ms iters=4+3 maxdiff=2.629e-13
+   [close30  ] n=  338 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=0.1 matvec=2.4 iters=6+5 mem_MB=1 ev1=368.340356 | fast=0.4ms iters=6+5 maxdiff=1.705e-13
+   TOTAL naive: alloc=0.2 build=236.3 matvec=230.6 std=0.2 iters=48 sum_n=5932
+   TOTAL fast_ms=7.3  maxdiff_all=3.183e-12
+== 300492 20250303 mode=both rows_all=2734 read_ms=6.3
+   transform_ms=0.1
+   [allday   ] n= 2606 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=188.9 matvec=162.2 iters=6+4 mem_MB=54 ev1=2833.620469 | fast=3.6ms iters=6+4 maxdiff=3.183e-12
+   [open30   ] n=  471 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=0.6 matvec=4.4 iters=6+4 mem_MB=2 ev1=512.740803 | fast=0.5ms iters=6+4 maxdiff=3.411e-13
+   [morning  ] n= 1486 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=43.3 matvec=46.5 iters=5+5 mem_MB=18 ev1=1613.305830 | fast=1.8ms iters=5+5 maxdiff=1.364e-12
+   [afternoon] n= 1031 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.3 build=0.7 matvec=16.1 iters=4+3 mem_MB=9 ev1=1097.677548 | fast=0.9ms iters=4+3 maxdiff=2.629e-13
+   [close30  ] n=  338 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=0.1 matvec=2.3 iters=6+5 mem_MB=1 ev1=368.340356 | fast=0.4ms iters=6+5 maxdiff=1.705e-13
+   TOTAL naive: alloc=0.3 build=233.6 matvec=231.5 std=0.2 iters=48 sum_n=5932
+   TOTAL fast_ms=7.2  maxdiff_all=3.183e-12
+### 300870
+== 300870 20250303 mode=both rows_all=4921 read_ms=8.9
+   transform_ms=0.1
+   [allday   ] n= 4753 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=521.6 matvec=549.3 iters=6+4 mem_MB=181 ev1=4819.229689 | fast=11.3ms iters=6+4 maxdiff=6.366e-12
+   [open30   ] n=  601 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=3.0 matvec=6.6 iters=6+3 mem_MB=3 ev1=670.652702 | fast=0.8ms iters=6+3 maxdiff=1.023e-12
+   [morning  ] n= 2391 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=186.2 matvec=138.9 iters=6+4 mem_MB=46 ev1=2261.801902 | fast=4.3ms iters=6+4 maxdiff=2.728e-12
+   [afternoon] n= 2273 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=170.7 matvec=126.4 iters=6+4 mem_MB=41 ev1=2467.240941 | fast=3.6ms iters=6+4 maxdiff=3.183e-12
+   [close30  ] n=  533 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.1 build=0.2 matvec=5.3 iters=5+4 mem_MB=2 ev1=585.215478 | fast=0.6ms iters=5+4 maxdiff=3.411e-13
+   TOTAL naive: alloc=0.1 build=881.8 matvec=826.5 std=0.3 iters=48 sum_n=10551
+   TOTAL fast_ms=20.6  maxdiff_all=6.366e-12
+== 300870 20250303 mode=both rows_all=4921 read_ms=12.1
+   transform_ms=0.2
+   [allday   ] n= 4753 std_ms=   0.2 nan=false nonfinite=0 | naive alloc=0.0 build=824.1 matvec=561.8 iters=6+4 mem_MB=181 ev1=4819.229689 | fast=11.3ms iters=6+4 maxdiff=6.366e-12
+   [open30   ] n=  601 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=2.1 matvec=6.6 iters=6+3 mem_MB=3 ev1=670.652702 | fast=0.8ms iters=6+3 maxdiff=1.023e-12
+   [morning  ] n= 2391 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=145.8 matvec=135.3 iters=6+4 mem_MB=46 ev1=2261.801902 | fast=4.2ms iters=6+4 maxdiff=2.728e-12
+   [afternoon] n= 2273 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=304.2 matvec=292.2 iters=6+4 mem_MB=41 ev1=2467.240941 | fast=4.4ms iters=6+4 maxdiff=3.183e-12
+   [close30  ] n=  533 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=7.4 build=0.3 matvec=5.4 iters=5+4 mem_MB=2 ev1=585.215478 | fast=0.8ms iters=5+4 maxdiff=3.411e-13
+   TOTAL naive: alloc=7.5 build=1276.5 matvec=1001.3 std=0.4 iters=48 sum_n=10551
+   TOTAL fast_ms=21.4  maxdiff_all=6.366e-12
+### 301281
+== 301281 20250303 mode=both rows_all=3674 read_ms=13.5
+   transform_ms=0.1
+   [allday   ] n= 3525 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=429.8 matvec=216.4 iters=4+3 mem_MB=99 ev1=3942.437208 | fast=5.0ms iters=4+3 maxdiff=4.547e-12
+   [open30   ] n=  584 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=4.6 matvec=7.4 iters=7+4 mem_MB=3 ev1=638.674890 | fast=0.8ms iters=7+4 maxdiff=2.274e-13
+   [morning  ] n= 1788 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=87.9 matvec=56.4 iters=5+3 mem_MB=26 ev1=1991.279094 | fast=2.0ms iters=5+3 maxdiff=2.046e-12
+   [afternoon] n= 1648 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.6 build=1.8 matvec=57.7 iters=6+4 mem_MB=22 ev1=1803.168717 | fast=2.1ms iters=6+4 maxdiff=2.274e-12
+   [close30  ] n=  419 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=0.1 matvec=3.4 iters=5+5 mem_MB=1 ev1=469.609834 | fast=0.5ms iters=5+5 maxdiff=2.487e-13
+   TOTAL naive: alloc=0.6 build=524.2 matvec=341.4 std=0.2 iters=46 sum_n=7964
+   TOTAL fast_ms=10.4  maxdiff_all=4.547e-12
+== 301281 20250303 mode=both rows_all=3674 read_ms=6.0
+   transform_ms=0.1
+   [allday   ] n= 3525 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=318.1 matvec=214.2 iters=4+3 mem_MB=99 ev1=3942.437208 | fast=5.1ms iters=4+3 maxdiff=4.547e-12
+   [open30   ] n=  584 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=3.9 matvec=7.5 iters=7+4 mem_MB=3 ev1=638.674890 | fast=0.8ms iters=7+4 maxdiff=2.274e-13
+   [morning  ] n= 1788 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=83.6 matvec=57.0 iters=5+3 mem_MB=26 ev1=1991.279094 | fast=2.0ms iters=5+3 maxdiff=2.046e-12
+   [afternoon] n= 1648 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.6 build=1.8 matvec=57.8 iters=6+4 mem_MB=22 ev1=1803.168717 | fast=2.1ms iters=6+4 maxdiff=2.274e-12
+   [close30  ] n=  419 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=0.1 matvec=3.4 iters=5+5 mem_MB=1 ev1=469.609834 | fast=0.5ms iters=5+5 maxdiff=2.487e-13
+   TOTAL naive: alloc=0.6 build=407.5 matvec=340.0 std=0.2 iters=46 sum_n=7964
+   TOTAL fast_ms=10.4  maxdiff_all=4.547e-12
+### 510230
+== 510230 20250303 mode=both rows_all=7352 read_ms=18.5
+   transform_ms=0.2
+   [allday   ] n= 6385 std_ms=   0.2 nan=false nonfinite=0 | naive alloc=0.0 build=1136.6 matvec=1428.1 iters=9+6 mem_MB=326 ev1=5808.513490 | fast=17.5ms iters=9+6 maxdiff=3.629e-10
+   [open30   ] n=  600 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.1 build=7.0 matvec=6.6 iters=5+4 mem_MB=3 ev1=612.007065 | fast=0.7ms iters=5+4 maxdiff=2.274e-12
+   [morning  ] n= 2398 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=178.6 matvec=181.9 iters=8+6 mem_MB=46 ev1=2304.852049 | fast=5.6ms iters=8+6 maxdiff=3.183e-12
+   [afternoon] n= 2322 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=133.1 matvec=170.0 iters=10+4 mem_MB=43 ev1=2157.013482 | fast=4.2ms iters=10+4 maxdiff=2.183e-11
+   [close30  ] n=  535 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.1 build=0.2 matvec=7.8 iters=9+5 mem_MB=2 ev1=536.878021 | fast=0.8ms iters=9+5 maxdiff=6.821e-13
+   TOTAL naive: alloc=0.2 build=1455.5 matvec=1794.4 std=0.3 iters=66 sum_n=12240
+   TOTAL fast_ms=28.8  maxdiff_all=3.629e-10
+== 510230 20250303 mode=both rows_all=7352 read_ms=14.1
+   transform_ms=0.2
+   [allday   ] n= 6385 std_ms=   0.2 nan=false nonfinite=0 | naive alloc=0.0 build=1052.1 matvec=1424.0 iters=9+6 mem_MB=326 ev1=5808.513490 | fast=16.8ms iters=9+6 maxdiff=3.629e-10
+   [open30   ] n=  600 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.9 build=6.2 matvec=6.6 iters=5+4 mem_MB=3 ev1=612.007065 | fast=0.7ms iters=5+4 maxdiff=2.274e-12
+   [morning  ] n= 2398 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=163.9 matvec=182.4 iters=8+6 mem_MB=46 ev1=2304.852049 | fast=5.4ms iters=8+6 maxdiff=3.183e-12
+   [afternoon] n= 2322 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=136.3 matvec=170.5 iters=10+4 mem_MB=43 ev1=2157.013482 | fast=4.2ms iters=10+4 maxdiff=2.183e-11
+   [close30  ] n=  535 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.1 build=0.2 matvec=7.8 iters=9+5 mem_MB=2 ev1=536.878021 | fast=0.8ms iters=9+5 maxdiff=6.821e-13
+   TOTAL naive: alloc=1.0 build=1358.8 matvec=1791.3 std=0.3 iters=66 sum_n=12240
+   TOTAL fast_ms=27.9  maxdiff_all=3.629e-10
+### 517300
+== 517300 20250303 mode=both rows_all=7191 read_ms=18.1
+   transform_ms=0.2
+   [allday   ] n= 6154 std_ms=   0.2 nan=false nonfinite=0 | naive alloc=0.0 build=1779.9 matvec=1875.1 iters=14+6 mem_MB=303 ev1=5063.820934 | fast=22.0ms iters=14+6 maxdiff=1.146e-10
+   [open30   ] n=  555 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=1.0 build=6.3 matvec=16.1 iters=16+8 mem_MB=2 ev1=484.246214 | fast=1.8ms iters=16+8 maxdiff=1.819e-12
+   [morning  ] n= 2190 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=159.5 matvec=261.4 iters=13+8 mem_MB=38 ev1=1903.965309 | fast=7.2ms iters=13+8 maxdiff=1.319e-11
+   [afternoon] n= 2168 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=146.1 matvec=398.0 iters=15+5 mem_MB=38 ev1=1816.507144 | fast=6.9ms iters=15+5 maxdiff=6.366e-12
+   [close30  ] n=  500 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.7 build=0.3 matvec=8.2 iters=10+5 mem_MB=2 ev1=452.728958 | fast=1.1ms iters=10+5 maxdiff=3.411e-13
+   TOTAL naive: alloc=1.8 build=2092.1 matvec=2558.8 std=0.5 iters=100 sum_n=11567
+   TOTAL fast_ms=39.0  maxdiff_all=1.146e-10
+== 517300 20250303 mode=both rows_all=7191 read_ms=11.4
+   transform_ms=0.2
+   [allday   ] n= 6154 std_ms=   0.2 nan=false nonfinite=0 | naive alloc=0.0 build=1113.6 matvec=1742.3 iters=14+6 mem_MB=303 ev1=5063.820934 | fast=13.9ms iters=14+6 maxdiff=1.146e-10
+   [open30   ] n=  555 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.1 build=0.6 matvec=14.1 iters=16+8 mem_MB=2 ev1=484.246214 | fast=1.1ms iters=16+8 maxdiff=1.819e-12
+   [morning  ] n= 2190 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=141.0 matvec=221.7 iters=13+8 mem_MB=38 ev1=1903.965309 | fast=4.5ms iters=13+8 maxdiff=1.319e-11
+   [afternoon] n= 2168 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=136.8 matvec=204.7 iters=15+5 mem_MB=38 ev1=1816.507144 | fast=4.3ms iters=15+5 maxdiff=6.366e-12
+   [close30  ] n=  500 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.1 build=0.2 matvec=7.2 iters=10+5 mem_MB=2 ev1=452.728958 | fast=0.7ms iters=10+5 maxdiff=3.411e-13
+   TOTAL naive: alloc=0.2 build=1392.2 matvec=2189.9 std=0.3 iters=100 sum_n=11567
+   TOTAL fast_ms=24.4  maxdiff_all=1.146e-10
+### 563059
+== 563059 20250303 mode=both rows_all=78 read_ms=0.1
+   transform_ms=0.0
+   [allday] n=0
+   [open30] n=0
+   [morning] n=0
+   [afternoon] n=0
+   [close30] n=0
+   TOTAL naive: alloc=0.0 build=0.0 matvec=0.0 std=0.0 iters=0 sum_n=0
+   TOTAL fast_ms=0.0  maxdiff_all=0.000e0
+== 563059 20250303 mode=both rows_all=78 read_ms=0.1
+   transform_ms=0.0
+   [allday] n=0
+   [open30] n=0
+   [morning] n=0
+   [afternoon] n=0
+   [close30] n=0
+   TOTAL naive: alloc=0.0 build=0.0 matvec=0.0 std=0.0 iters=0 sum_n=0
+   TOTAL fast_ms=0.0  maxdiff_all=0.000e0
+### 563421
+== 563421 20250303 mode=both rows_all=77 read_ms=0.1
+   transform_ms=0.0
+   [allday] n=0
+   [open30] n=0
+   [morning] n=0
+   [afternoon] n=0
+   [close30] n=0
+   TOTAL naive: alloc=0.0 build=0.0 matvec=0.0 std=0.0 iters=0 sum_n=0
+   TOTAL fast_ms=0.0  maxdiff_all=0.000e0
+== 563421 20250303 mode=both rows_all=77 read_ms=0.1
+   transform_ms=0.0
+   [allday] n=0
+   [open30] n=0
+   [morning] n=0
+   [afternoon] n=0
+   [close30] n=0
+   TOTAL naive: alloc=0.0 build=0.0 matvec=0.0 std=0.0 iters=0 sum_n=0
+   TOTAL fast_ms=0.0  maxdiff_all=0.000e0
+### 563783
+== 563783 20250303 mode=both rows_all=78 read_ms=0.1
+   transform_ms=0.0
+   [allday] n=0
+   [open30] n=0
+   [morning] n=0
+   [afternoon] n=0
+   [close30] n=0
+   TOTAL naive: alloc=0.0 build=0.0 matvec=0.0 std=0.0 iters=0 sum_n=0
+   TOTAL fast_ms=0.0  maxdiff_all=0.000e0
+== 563783 20250303 mode=both rows_all=78 read_ms=0.1
+   transform_ms=0.0
+   [allday] n=0
+   [open30] n=0
+   [morning] n=0
+   [afternoon] n=0
+   [close30] n=0
+   TOTAL naive: alloc=0.0 build=0.0 matvec=0.0 std=0.0 iters=0 sum_n=0
+   TOTAL fast_ms=0.0  maxdiff_all=0.000e0
+### 600143
+== 600143 20250303 mode=both rows_all=5444 read_ms=21.3
+   transform_ms=0.1
+   [allday   ] n= 4921 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=707.6 matvec=580.1 iters=5+5 mem_MB=194 ev1=5394.237768 | fast=16.8ms iters=5+5 maxdiff=3.274e-11
+   [open30   ] n=  600 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.1 build=0.8 matvec=5.9 iters=4+4 mem_MB=3 ev1=691.180596 | fast=0.8ms iters=4+4 maxdiff=4.547e-13
+   [morning  ] n= 2400 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=131.9 matvec=122.4 iters=5+4 mem_MB=46 ev1=2498.362498 | fast=5.8ms iters=5+4 maxdiff=3.638e-12
+   [afternoon] n= 2340 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=128.5 matvec=150.4 iters=7+5 mem_MB=44 ev1=2596.849098 | fast=6.5ms iters=7+5 maxdiff=2.274e-12
+   [close30  ] n=  540 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.1 build=0.2 matvec=5.3 iters=5+4 mem_MB=2 ev1=599.134593 | fast=0.7ms iters=5+4 maxdiff=2.274e-13
+   TOTAL naive: alloc=0.2 build=969.0 matvec=864.0 std=0.3 iters=48 sum_n=10801
+   TOTAL fast_ms=30.5  maxdiff_all=3.274e-11
+== 600143 20250303 mode=both rows_all=5444 read_ms=32.0
+   transform_ms=0.2
+   [allday   ] n= 4921 std_ms=   0.2 nan=false nonfinite=0 | naive alloc=0.0 build=1136.3 matvec=622.5 iters=5+5 mem_MB=194 ev1=5394.237768 | fast=17.2ms iters=5+5 maxdiff=3.274e-11
+   [open30   ] n=  600 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.1 build=16.0 matvec=6.1 iters=4+4 mem_MB=3 ev1=691.180596 | fast=0.9ms iters=4+4 maxdiff=4.547e-13
+   [morning  ] n= 2400 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=306.4 matvec=129.4 iters=5+4 mem_MB=46 ev1=2498.362498 | fast=6.6ms iters=5+4 maxdiff=3.638e-12
+   [afternoon] n= 2340 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=235.5 matvec=172.7 iters=7+5 mem_MB=44 ev1=2596.849098 | fast=7.9ms iters=7+5 maxdiff=2.274e-12
+   [close30  ] n=  540 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.1 build=0.3 matvec=6.0 iters=5+4 mem_MB=2 ev1=599.134593 | fast=0.9ms iters=5+4 maxdiff=2.274e-13
+   TOTAL naive: alloc=0.2 build=1694.6 matvec=936.7 std=0.4 iters=48 sum_n=10801
+   TOTAL fast_ms=33.3  maxdiff_all=3.274e-11
+### 600617
+== 600617 20250303 mode=both rows_all=3683 read_ms=23.6
+   transform_ms=0.1
+   [allday   ] n= 3372 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=628.3 matvec=388.4 iters=7+7 mem_MB=91 ev1=3531.964924 | fast=9.6ms iters=7+7 maxdiff=9.095e-12
+   [open30   ] n=  552 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=14.0 matvec=9.5 iters=7+9 mem_MB=2 ev1=591.586263 | fast=0.9ms iters=7+9 maxdiff=4.547e-13
+   [morning  ] n= 1684 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=132.4 matvec=84.7 iters=7+7 mem_MB=23 ev1=1789.041145 | fast=3.1ms iters=7+7 maxdiff=4.320e-12
+   [afternoon] n= 1508 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.7 build=1.7 matvec=67.7 iters=7+7 mem_MB=18 ev1=1521.903396 | fast=2.7ms iters=7+7 maxdiff=1.364e-12
+   [close30  ] n=  425 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.1 build=0.1 matvec=5.6 iters=4+12 mem_MB=1 ev1=438.900475 | fast=0.7ms iters=4+12 maxdiff=5.684e-13
+   TOTAL naive: alloc=0.8 build=776.5 matvec=555.8 std=0.2 iters=74 sum_n=7541
+   TOTAL fast_ms=17.2  maxdiff_all=9.095e-12
+== 600617 20250303 mode=both rows_all=3683 read_ms=21.2
+   transform_ms=0.1
+   [allday   ] n= 3372 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=518.7 matvec=386.4 iters=7+7 mem_MB=91 ev1=3531.964924 | fast=9.5ms iters=7+7 maxdiff=9.095e-12
+   [open30   ] n=  552 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=10.4 matvec=9.4 iters=7+9 mem_MB=2 ev1=591.586263 | fast=1.0ms iters=7+9 maxdiff=4.547e-13
+   [morning  ] n= 1684 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=128.6 matvec=83.9 iters=7+7 mem_MB=23 ev1=1789.041145 | fast=3.2ms iters=7+7 maxdiff=4.320e-12
+   [afternoon] n= 1508 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.6 build=1.6 matvec=67.9 iters=7+7 mem_MB=18 ev1=1521.903396 | fast=2.8ms iters=7+7 maxdiff=1.364e-12
+   [close30  ] n=  425 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=0.1 matvec=5.5 iters=4+12 mem_MB=1 ev1=438.900475 | fast=0.7ms iters=4+12 maxdiff=5.684e-13
+   TOTAL naive: alloc=0.7 build=659.4 matvec=553.2 std=0.2 iters=74 sum_n=7541
+   TOTAL fast_ms=17.2  maxdiff_all=9.095e-12
+### 601187
+== 601187 20250303 mode=both rows_all=4685 read_ms=24.3
+   transform_ms=0.2
+   [allday   ] n= 4363 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=835.1 matvec=482.1 iters=4+6 mem_MB=152 ev1=4771.178530 | fast=12.8ms iters=4+6 maxdiff=2.910e-11
+   [open30   ] n=  582 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.1 build=11.7 matvec=6.3 iters=3+6 mem_MB=3 ev1=654.172369 | fast=0.7ms iters=3+6 maxdiff=3.411e-13
+   [morning  ] n= 2148 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=208.4 matvec=111.7 iters=4+6 mem_MB=37 ev1=2392.104058 | fast=5.0ms iters=4+6 maxdiff=3.183e-12
+   [afternoon] n= 2035 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=173.5 matvec=95.2 iters=5+5 mem_MB=33 ev1=2151.680237 | fast=3.9ms iters=5+5 maxdiff=3.638e-12
+   [close30  ] n=  499 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.1 build=0.2 matvec=5.4 iters=4+7 mem_MB=2 ev1=520.291891 | fast=0.6ms iters=4+7 maxdiff=3.411e-13
+   TOTAL naive: alloc=0.2 build=1228.8 matvec=700.7 std=0.3 iters=50 sum_n=9627
+   TOTAL fast_ms=23.0  maxdiff_all=2.910e-11
+== 601187 20250303 mode=both rows_all=4685 read_ms=16.0
+   transform_ms=0.2
+   [allday   ] n= 4363 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=477.0 matvec=454.7 iters=4+6 mem_MB=152 ev1=4771.178530 | fast=12.5ms iters=4+6 maxdiff=2.910e-11
+   [open30   ] n=  582 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.1 build=7.4 matvec=6.2 iters=3+6 mem_MB=3 ev1=654.172369 | fast=0.7ms iters=3+6 maxdiff=3.411e-13
+   [morning  ] n= 2148 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=133.6 matvec=105.2 iters=4+6 mem_MB=37 ev1=2392.104058 | fast=4.8ms iters=4+6 maxdiff=3.183e-12
+   [afternoon] n= 2035 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=125.0 matvec=92.8 iters=5+5 mem_MB=33 ev1=2151.680237 | fast=4.0ms iters=5+5 maxdiff=3.638e-12
+   [close30  ] n=  499 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.1 build=0.2 matvec=5.4 iters=4+7 mem_MB=2 ev1=520.291891 | fast=0.6ms iters=4+7 maxdiff=3.411e-13
+   TOTAL naive: alloc=0.1 build=743.2 matvec=664.3 std=0.3 iters=50 sum_n=9627
+   TOTAL fast_ms=22.7  maxdiff_all=2.910e-11
+### 603261
+== 603261 20250303 mode=both rows_all=3842 read_ms=22.4
+   transform_ms=0.1
+   [allday   ] n= 3548 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=526.3 matvec=295.9 iters=5+4 mem_MB=101 ev1=3806.571951 | fast=5.9ms iters=5+4 maxdiff=3.774e-11
+   [open30   ] n=  561 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=10.7 matvec=6.4 iters=6+4 mem_MB=3 ev1=612.417724 | fast=0.7ms iters=6+4 maxdiff=4.547e-13
+   [morning  ] n= 1784 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=127.4 matvec=80.1 iters=8+3 mem_MB=25 ev1=1841.860516 | fast=2.6ms iters=8+3 maxdiff=6.821e-12
+   [afternoon] n= 1584 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.8 build=1.8 matvec=39.8 iters=4+3 mem_MB=20 ev1=1728.402896 | fast=1.7ms iters=4+3 maxdiff=4.547e-12
+   [close30  ] n=  476 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.1 build=0.2 matvec=3.7 iters=5+3 mem_MB=2 ev1=524.910364 | fast=0.5ms iters=5+3 maxdiff=6.821e-13
+   TOTAL naive: alloc=1.0 build=666.3 matvec=425.9 std=0.2 iters=45 sum_n=7953
+   TOTAL fast_ms=11.3  maxdiff_all=3.774e-11
+== 603261 20250303 mode=both rows_all=3842 read_ms=12.4
+   transform_ms=0.1
+   [allday   ] n= 3548 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=316.5 matvec=272.0 iters=5+4 mem_MB=101 ev1=3806.571951 | fast=5.8ms iters=5+4 maxdiff=3.774e-11
+   [open30   ] n=  561 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=8.5 matvec=6.3 iters=6+4 mem_MB=3 ev1=612.417724 | fast=0.7ms iters=6+4 maxdiff=4.547e-13
+   [morning  ] n= 1784 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=89.6 matvec=75.5 iters=8+3 mem_MB=25 ev1=1841.860516 | fast=2.4ms iters=8+3 maxdiff=6.821e-12
+   [afternoon] n= 1584 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.5 build=1.7 matvec=38.5 iters=4+3 mem_MB=20 ev1=1728.402896 | fast=1.6ms iters=4+3 maxdiff=4.547e-12
+   [close30  ] n=  476 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=0.2 matvec=3.6 iters=5+3 mem_MB=2 ev1=524.910364 | fast=0.5ms iters=5+3 maxdiff=6.821e-13
+   TOTAL naive: alloc=0.6 build=416.4 matvec=395.9 std=0.2 iters=45 sum_n=7953
+   TOTAL fast_ms=10.9  maxdiff_all=3.774e-11
+### 603966
+== 603966 20250303 mode=both rows_all=3972 read_ms=12.9
+   transform_ms=0.1
+   [allday   ] n= 3713 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=330.4 matvec=296.7 iters=5+4 mem_MB=110 ev1=4034.619830 | fast=7.9ms iters=5+4 maxdiff=9.095e-13
+   [open30   ] n=  538 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=7.6 matvec=6.3 iters=7+4 mem_MB=2 ev1=564.761518 | fast=0.7ms iters=7+4 maxdiff=2.274e-13
+   [morning  ] n= 1757 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=78.8 matvec=54.4 iters=4+4 mem_MB=25 ev1=1900.587216 | fast=2.2ms iters=4+4 maxdiff=1.592e-12
+   [afternoon] n= 1776 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=82.5 matvec=68.2 iters=5+5 mem_MB=25 ev1=1934.271315 | fast=2.6ms iters=5+5 maxdiff=4.775e-12
+   [close30  ] n=  464 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=0.2 matvec=5.4 iters=6+7 mem_MB=2 ev1=514.275127 | fast=0.6ms iters=6+7 maxdiff=1.137e-12
+   TOTAL naive: alloc=0.1 build=499.5 matvec=430.9 std=0.2 iters=51 sum_n=8248
+   TOTAL fast_ms=14.1  maxdiff_all=4.775e-12
+== 603966 20250303 mode=both rows_all=3972 read_ms=7.1
+   transform_ms=0.1
+   [allday   ] n= 3713 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=342.9 matvec=300.2 iters=5+4 mem_MB=110 ev1=4034.619830 | fast=7.1ms iters=5+4 maxdiff=9.095e-13
+   [open30   ] n=  538 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=6.5 matvec=6.3 iters=7+4 mem_MB=2 ev1=564.761518 | fast=0.7ms iters=7+4 maxdiff=2.274e-13
+   [morning  ] n= 1757 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=74.0 matvec=54.3 iters=4+4 mem_MB=25 ev1=1900.587216 | fast=2.2ms iters=4+4 maxdiff=1.592e-12
+   [afternoon] n= 1776 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=72.7 matvec=69.5 iters=5+5 mem_MB=25 ev1=1934.271315 | fast=2.6ms iters=5+5 maxdiff=4.775e-12
+   [close30  ] n=  464 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=0.1 matvec=5.4 iters=6+7 mem_MB=2 ev1=514.275127 | fast=0.6ms iters=6+7 maxdiff=1.137e-12
+   TOTAL naive: alloc=0.1 build=496.3 matvec=435.7 std=0.2 iters=51 sum_n=8248
+   TOTAL fast_ms=13.2  maxdiff_all=4.775e-12
+### 688259
+== 688259 20250303 mode=both rows_all=3908 read_ms=13.8
+   transform_ms=0.1
+   [allday   ] n= 3642 std_ms=   0.1 nan=false nonfinite=0 | naive alloc=0.0 build=330.1 matvec=288.2 iters=5+4 mem_MB=106 ev1=3970.501857 | fast=8.0ms iters=5+4 maxdiff=3.229e-11
+   [open30   ] n=  540 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=0.7 matvec=5.9 iters=7+3 mem_MB=2 ev1=574.395211 | fast=0.7ms iters=7+3 maxdiff=3.411e-13
+   [morning  ] n= 1859 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=85.0 matvec=83.0 iters=7+4 mem_MB=28 ev1=2011.050682 | fast=3.1ms iters=7+4 maxdiff=2.274e-12
+   [afternoon] n= 1603 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.5 build=1.7 matvec=54.3 iters=5+5 mem_MB=21 ev1=1730.008309 | fast=2.4ms iters=5+5 maxdiff=2.274e-12
+   [close30  ] n=  417 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=0.1 matvec=3.1 iters=5+4 mem_MB=1 ev1=457.964269 | fast=0.5ms iters=5+4 maxdiff=5.116e-13
+   TOTAL naive: alloc=0.6 build=417.6 matvec=434.5 std=0.2 iters=49 sum_n=8061
+   TOTAL fast_ms=14.7  maxdiff_all=3.229e-11
+== 688259 20250303 mode=both rows_all=3908 read_ms=22.3
+   transform_ms=0.2
+   [allday   ] n= 3642 std_ms=   1.1 nan=false nonfinite=0 | naive alloc=0.0 build=590.8 matvec=311.9 iters=5+4 mem_MB=106 ev1=3970.501857 | fast=8.1ms iters=5+4 maxdiff=3.229e-11
+   [open30   ] n=  540 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=0.8 matvec=5.8 iters=7+3 mem_MB=2 ev1=574.395211 | fast=0.7ms iters=7+3 maxdiff=3.411e-13
+   [morning  ] n= 1859 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.0 build=150.1 matvec=84.2 iters=7+4 mem_MB=28 ev1=2011.050682 | fast=3.1ms iters=7+4 maxdiff=2.274e-12
+   [afternoon] n= 1603 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.8 build=1.9 matvec=55.7 iters=5+5 mem_MB=21 ev1=1730.008309 | fast=2.5ms iters=5+5 maxdiff=2.274e-12
+   [close30  ] n=  417 std_ms=   0.0 nan=false nonfinite=0 | naive alloc=0.1 build=0.1 matvec=3.1 iters=5+4 mem_MB=1 ev1=457.964269 | fast=0.6ms iters=5+4 maxdiff=5.116e-13
+   TOTAL naive: alloc=1.0 build=743.7 matvec=460.8 std=1.2 iters=49 sum_n=8061
+   TOTAL fast_ms=15.0  maxdiff_all=3.229e-11
+DONE

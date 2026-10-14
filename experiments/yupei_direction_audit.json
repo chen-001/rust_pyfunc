@@ -1,0 +1,791 @@
+{
+  "audit": "yupei_dist（hm109 寻找玉佩2-成交距离）28 个降维模块的方向性审计",
+  "source_files": [
+    "src/yupei_dist/indicator_ctx.rs",
+    "src/yupei_dist/indicators/*.rs（28 个模块，注册表在 indicators/generated.rs）",
+    "src/yupei_dist/names.rs（YUPEI_DIST_NAMES，2761 个因子名）",
+    "src/yupei_dist/matrix_stage.rs（矩阵存储语义）"
+  ],
+  "matrix_convention": {
+    "storage": "所有矩阵按有向存 S_dir[i][j] = i 领先 j 的交互能量（matrix_stage.rs 第 10 行注释），行主序 N×N f32，对角 0",
+    "directed_accessors": [
+      "ctx.matrix(name)",
+      "ctx.matrix_net(name)",
+      "ctx.row_sum_dir(name)",
+      "ctx.col_sum_dir(name)",
+      "ctx.prev.set.mats（edge_dynamics 直接读前一日有向备份）"
+    ],
+    "symmetric_accessors": [
+      "ctx.symmetric(name) = S + S^T（对角 0，带缓存）",
+      "ctx.row_sum_sym(name) = 对称矩阵行和"
+    ],
+    "note": "row_sum_dir / col_sum_dir 这两个方法在 28 个模块里一次都没被调用；有向族都是自己用矩阵切片求和"
+  },
+  "modules": [
+    {
+      "module": "assortativity",
+      "file": "src/yupei_dist/indicators/assortativity.rs",
+      "uses_direction": "no",
+      "direction_class": "symmetric",
+      "ctx_methods": [
+        "symmetric",
+        "row_sum_sym"
+      ],
+      "matrices": "37 张全部",
+      "statistic": "行内 corr(S_ij, Strength_j) 与 Σ_j p_ij·Strength_j − 全市场均值",
+      "name_prefix": "assort_",
+      "factor_count": 74,
+      "example_name": "assort_cnt_t1_corr",
+      "note": "S 与 Strength 都取自对称矩阵",
+      "example_names": [
+        "assort_cnt_t1_corr"
+      ]
+    },
+    {
+      "module": "basket_hedge",
+      "file": "src/yupei_dist/indicators/basket_hedge.rs",
+      "uses_direction": "no",
+      "direction_class": "symmetric",
+      "ctx_methods": [
+        "symmetric"
+      ],
+      "matrices": "9 对 same/opp",
+      "statistic": "对称化后的 same 行和(basket)、opp 行和(hedge) 及比值",
+      "name_prefix": "bh_",
+      "factor_count": 27,
+      "example_name": "bh_flow_t1_basket",
+      "note": "same/opp 是主动买卖方向，不是领先滞后方向；且各自先对称化",
+      "example_names": [
+        "bh_flow_t1_basket"
+      ]
+    },
+    {
+      "module": "betweenness",
+      "file": "src/yupei_dist/indicators/betweenness.rs",
+      "uses_direction": "no",
+      "direction_class": "symmetric",
+      "ctx_methods": [
+        "symmetric"
+      ],
+      "matrices": "37 张全部",
+      "statistic": "对称矩阵每行 top-50 无权图的 Brandes 介数",
+      "name_prefix": "btw_",
+      "factor_count": 37,
+      "example_name": "btw_cnt_t1_betweenness",
+      "note": "图本身无向",
+      "example_names": [
+        "btw_cnt_t1_betweenness"
+      ]
+    },
+    {
+      "module": "cliqueness",
+      "file": "src/yupei_dist/indicators/cliqueness.rs",
+      "uses_direction": "no",
+      "direction_class": "symmetric",
+      "ctx_methods": [
+        "symmetric",
+        "row_sum_sym"
+      ],
+      "matrices": "37 张全部",
+      "statistic": "对称行和 × 邻居间连接占比",
+      "name_prefix": "clique_",
+      "factor_count": 37,
+      "example_name": "clique_cnt_t1_score",
+      "note": "",
+      "example_names": [
+        "clique_cnt_t1_score"
+      ]
+    },
+    {
+      "module": "closeness",
+      "file": "src/yupei_dist/indicators/closeness.rs",
+      "uses_direction": "no",
+      "direction_class": "symmetric",
+      "ctx_methods": [
+        "symmetric"
+      ],
+      "matrices": "37 张全部",
+      "statistic": "对称 top-50 子图 ≤3 跳的接近中心性",
+      "name_prefix": "clo_",
+      "factor_count": 37,
+      "example_name": "clo_cnt_t1_closeness",
+      "note": "",
+      "example_names": [
+        "clo_cnt_t1_closeness"
+      ]
+    },
+    {
+      "module": "clustering",
+      "file": "src/yupei_dist/indicators/clustering.rs",
+      "uses_direction": "no",
+      "direction_class": "symmetric",
+      "ctx_methods": [
+        "symmetric"
+      ],
+      "matrices": "37 张全部",
+      "statistic": "加权聚类系数（邻居 top-50）",
+      "name_prefix": "clu_",
+      "factor_count": 37,
+      "example_name": "clu_cnt_t1_coef",
+      "note": "",
+      "example_names": [
+        "clu_cnt_t1_coef"
+      ]
+    },
+    {
+      "module": "community",
+      "file": "src/yupei_dist/indicators/community.rs",
+      "uses_direction": "no",
+      "direction_class": "symmetric",
+      "ctx_methods": [
+        "symmetric"
+      ],
+      "matrices": "37 张全部",
+      "statistic": "对称图上 Louvain 社群的 size/within/outside/purity/participation",
+      "name_prefix": "comm_",
+      "factor_count": 185,
+      "example_name": "comm_cnt_t1_purity",
+      "note": "无向图",
+      "example_names": [
+        "comm_cnt_t1_purity"
+      ]
+    },
+    {
+      "module": "concentration",
+      "file": "src/yupei_dist/indicators/concentration.rs",
+      "uses_direction": "no",
+      "direction_class": "symmetric",
+      "ctx_methods": [
+        "symmetric",
+        "row_sum_sym"
+      ],
+      "matrices": "37 张全部",
+      "statistic": "对称行归一后的 HHI/熵/归一化熵/Top3·5·10 占比",
+      "name_prefix": "conc_",
+      "factor_count": 222,
+      "example_name": "conc_cnt_t1_hhi",
+      "note": "",
+      "example_names": [
+        "conc_cnt_t1_hhi"
+      ]
+    },
+    {
+      "module": "directionality",
+      "file": "src/yupei_dist/indicators/directionality.rs",
+      "uses_direction": "yes",
+      "direction_class": "directed",
+      "ctx_methods": [
+        "matrix",
+        "matrix_net"
+      ],
+      "matrices": "37 张有向 + 9 张 signed 净矩阵 same−opp",
+      "statistic": "out_strength=行和；in_strength=列和；net_lead=行和−列和；lead_ratio=(行和−列和)/(行和+列和)",
+      "name_prefix": "dir_",
+      "factor_count": 184,
+      "example_name": "dir_cnt_t1_net_lead",
+      "note": "唯一使用 matrix_net 的两个模块之一；net_lead/lead_ratio 转置后严格变号",
+      "example_names": [
+        "dir_cnt_t1_net_lead",
+        "dir_cnt_t1_out_strength",
+        "dir_cnt_t1_in_strength",
+        "dir_cnt_t1_lead_ratio",
+        "dir_flow_t5_net_lead"
+      ]
+    },
+    {
+      "module": "edge_dynamics",
+      "file": "src/yupei_dist/indicators/edge_dynamics.rs",
+      "uses_direction": "no",
+      "direction_class": "symmetric",
+      "ctx_methods": [
+        "symmetric"
+      ],
+      "matrices": "37 张全部 ×2 日",
+      "statistic": "当日与前一交易日对称矩阵的边持久性/保留率/新伙伴/边变化/冲击/换手",
+      "name_prefix": "dyn_",
+      "factor_count": 333,
+      "example_name": "dyn_cnt_t1_edge_persistence",
+      "note": "前一日矩阵在模块内手动做 S+S^T",
+      "example_names": [
+        "dyn_cnt_t1_edge_persistence"
+      ]
+    },
+    {
+      "module": "eigenvector",
+      "file": "src/yupei_dist/indicators/eigenvector.rs",
+      "uses_direction": "no",
+      "direction_class": "symmetric",
+      "ctx_methods": [
+        "symmetric"
+      ],
+      "matrices": "37 张全部",
+      "statistic": "对称矩阵主特征向量",
+      "name_prefix": "eig_",
+      "factor_count": 37,
+      "example_name": "eig_cnt_t1_centrality",
+      "note": "",
+      "example_names": [
+        "eig_cnt_t1_centrality"
+      ]
+    },
+    {
+      "module": "hidden_interaction",
+      "file": "src/yupei_dist/indicators/hidden_interaction.rs",
+      "uses_direction": "no",
+      "direction_class": "symmetric",
+      "ctx_methods": [
+        "symmetric"
+      ],
+      "matrices": "37 张全部",
+      "statistic": "对称 log1p(S) 对行业/规模/流动性/收益差做 OLS 后的残差正负度和",
+      "name_prefix": "hid_",
+      "factor_count": 74,
+      "example_name": "hid_cnt_t1_degree_pos",
+      "note": "",
+      "example_names": [
+        "hid_cnt_t1_degree_pos"
+      ]
+    },
+    {
+      "module": "industry",
+      "file": "src/yupei_dist/indicators/industry.rs",
+      "uses_direction": "no",
+      "direction_class": "symmetric",
+      "ctx_methods": [
+        "symmetric"
+      ],
+      "matrices": "37 张全部",
+      "statistic": "行业内强度 within 与 cross_ratio/mismatch",
+      "name_prefix": "ind_",
+      "factor_count": 111,
+      "example_name": "ind_cnt_t1_within",
+      "note": "",
+      "example_names": [
+        "ind_cnt_t1_within"
+      ]
+    },
+    {
+      "module": "isolation",
+      "file": "src/yupei_dist/indicators/isolation.rs",
+      "uses_direction": "no",
+      "direction_class": "symmetric",
+      "ctx_methods": [
+        "symmetric",
+        "row_sum_sym"
+      ],
+      "matrices": "37 张全部",
+      "statistic": "1/(对称行和) 与 −Top5 均值",
+      "name_prefix": "iso_",
+      "factor_count": 74,
+      "example_name": "iso_cnt_t1_inv_strength",
+      "note": "",
+      "example_names": [
+        "iso_cnt_t1_inv_strength"
+      ]
+    },
+    {
+      "module": "leader_return",
+      "file": "src/yupei_dist/indicators/leader_return.rs",
+      "uses_direction": "yes",
+      "direction_class": "directed",
+      "ctx_methods": [
+        "matrix"
+      ],
+      "matrices": "37 张有向",
+      "statistic": "ldr_return=Σ_{j≠i}(S_ji/列和_i)·r_j；ldr_shock 同式换成收益 z 分",
+      "name_prefix": "ldr_",
+      "factor_count": 74,
+      "example_name": "ldr_cnt_t1_return",
+      "note": "按“谁领先 i”加权，转置后变成按“i 领先谁”加权",
+      "example_names": [
+        "ldr_cnt_t1_return",
+        "ldr_cnt_t1_shock"
+      ]
+    },
+    {
+      "module": "leadership",
+      "file": "src/yupei_dist/indicators/leadership.rs",
+      "uses_direction": "yes",
+      "direction_class": "directed",
+      "ctx_methods": [
+        "matrix",
+        "matrix_net"
+      ],
+      "matrices": "37 张有向 + 9 张 signed 净矩阵",
+      "statistic": "breadth=#{j: S_ij>S_ji}/(N−1)；strength=Σ_j max(S_ij−S_ji,0)；concentration=正净领先的 HHI",
+      "name_prefix": "lead_",
+      "factor_count": 138,
+      "example_name": "lead_cnt_t1_breadth",
+      "note": "显式比较 S_ij 与 S_ji",
+      "example_names": [
+        "lead_cnt_t1_breadth",
+        "lead_cnt_t1_strength",
+        "lead_cnt_t1_concentration",
+        "lead_urg_t30_concentration",
+        "lead_flow_t5_breadth"
+      ]
+    },
+    {
+      "module": "motifs",
+      "file": "src/yupei_dist/indicators/motifs.rs",
+      "uses_direction": "partial",
+      "direction_class": "directed(部分)",
+      "ctx_methods": [
+        "matrix"
+      ],
+      "matrices": "37 张有向",
+      "statistic": "top-20 出边图上的 feed_forward / cycle / reciprocal 计数",
+      "name_prefix": "mot_",
+      "factor_count": 111,
+      "example_name": "mot_cnt_t1_feed_forward",
+      "note": "feed_forward 与 cycle 强烈方向敏感；reciprocal 计数概念上与方向无关",
+      "example_names": [
+        "mot_cnt_t1_feed_forward",
+        "mot_cnt_t1_cycle",
+        "mot_cnt_t1_reciprocal"
+      ]
+    },
+    {
+      "module": "multiscale",
+      "file": "src/yupei_dist/indicators/multiscale.rs",
+      "uses_direction": "no",
+      "direction_class": "symmetric",
+      "ctx_methods": [
+        "symmetric",
+        "row_sum_sym"
+      ],
+      "matrices": "11 组快慢 τ 配对",
+      "statistic": "快/慢对称行和、比值、两组 Top10 的 Jaccard",
+      "name_prefix": "ms_",
+      "factor_count": 44,
+      "example_name": "ms_cnt_t1_cnt_t30_fast_slow_ratio",
+      "note": "",
+      "example_names": [
+        "ms_cnt_t1_cnt_t30_fast_slow_ratio"
+      ]
+    },
+    {
+      "module": "neighbor_dispersion",
+      "file": "src/yupei_dist/indicators/neighbor_dispersion.rs",
+      "uses_direction": "no",
+      "direction_class": "symmetric",
+      "ctx_methods": [
+        "symmetric",
+        "row_sum_sym"
+      ],
+      "matrices": "37 张全部",
+      "statistic": "邻居收益加权方差 sqrt(Σp(r−mean)²)",
+      "name_prefix": "nbz_",
+      "factor_count": 37,
+      "example_name": "nbz_cnt_t1_return_dispersion",
+      "note": "与 neighbor_z 共用 nbz_ 前缀，靠后缀 _return_dispersion 区分",
+      "example_names": [
+        "nbz_cnt_t1_return_dispersion"
+      ]
+    },
+    {
+      "module": "neighbor_strength",
+      "file": "src/yupei_dist/indicators/neighbor_strength.rs",
+      "uses_direction": "no",
+      "direction_class": "symmetric",
+      "ctx_methods": [
+        "symmetric",
+        "row_sum_sym"
+      ],
+      "matrices": "37 张全部",
+      "statistic": "Σ_j p_ij·Strength_j",
+      "name_prefix": "nbs_",
+      "factor_count": 37,
+      "example_name": "nbs_cnt_t1_neighbor_strength",
+      "note": "",
+      "example_names": [
+        "nbs_cnt_t1_neighbor_strength"
+      ]
+    },
+    {
+      "module": "neighbor_z",
+      "file": "src/yupei_dist/indicators/neighbor_z.rs",
+      "uses_direction": "no",
+      "direction_class": "symmetric",
+      "ctx_methods": [
+        "symmetric",
+        "row_sum_sym"
+      ],
+      "matrices": "37 张全部",
+      "statistic": "Σ_j p_ij·Z_j，Z ∈ {收益, 换手, 波动, 失衡, 规模}",
+      "name_prefix": "nbz_",
+      "factor_count": 185,
+      "example_name": "nbz_cnt_t1_return",
+      "note": "",
+      "example_names": [
+        "nbz_cnt_t1_return"
+      ]
+    },
+    {
+      "module": "network_momentum",
+      "file": "src/yupei_dist/indicators/network_momentum.rs",
+      "uses_direction": "no",
+      "direction_class": "symmetric",
+      "ctx_methods": [
+        "symmetric",
+        "row_sum_sym"
+      ],
+      "matrices": "37 张全部",
+      "statistic": "Σ_j p_ij·r_j",
+      "name_prefix": "mom_",
+      "factor_count": 37,
+      "example_name": "mom_cnt_t1_network_momentum",
+      "note": "名字像动量但权重矩阵是对称的",
+      "example_names": [
+        "mom_cnt_t1_network_momentum"
+      ]
+    },
+    {
+      "module": "pagerank",
+      "file": "src/yupei_dist/indicators/pagerank.rs",
+      "uses_direction": "yes",
+      "direction_class": "directed",
+      "ctx_methods": [
+        "matrix"
+      ],
+      "matrices": "37 张有向",
+      "statistic": "有向图 PageRank（d=0.85，迭代 ≤100 次）",
+      "name_prefix": "pr_",
+      "factor_count": 37,
+      "example_name": "pr_cnt_t1_pagerank",
+      "note": "入链方向的平稳分布，转置后值改变",
+      "example_names": [
+        "pr_cnt_t1_pagerank",
+        "pr_vol_t1_pagerank"
+      ]
+    },
+    {
+      "module": "reciprocity",
+      "file": "src/yupei_dist/indicators/reciprocity.rs",
+      "uses_direction": "no",
+      "direction_class": "directed(统计量对称)",
+      "ctx_methods": [
+        "matrix"
+      ],
+      "matrices": "37 张有向",
+      "statistic": "Σ_j min(S_ij,S_ji) / Σ_j max(S_ij,S_ji)",
+      "name_prefix": "rec_",
+      "factor_count": 37,
+      "example_name": "rec_cnt_t1_reciprocity",
+      "note": "读的是有向矩阵，但 min/max 对调换 i、j 不变，转置后逐位相同",
+      "example_names": [
+        "rec_cnt_t1_reciprocity",
+        "rec_vol_t1_reciprocity"
+      ]
+    },
+    {
+      "module": "starness",
+      "file": "src/yupei_dist/indicators/starness.rs",
+      "uses_direction": "no",
+      "direction_class": "symmetric",
+      "ctx_methods": [
+        "symmetric",
+        "row_sum_sym"
+      ],
+      "matrices": "37 张全部",
+      "statistic": "对称行和 × (1 − 归一化聚类系数)",
+      "name_prefix": "star_",
+      "factor_count": 37,
+      "example_name": "star_cnt_t1_score",
+      "note": "",
+      "example_names": [
+        "star_cnt_t1_score"
+      ]
+    },
+    {
+      "module": "strength",
+      "file": "src/yupei_dist/indicators/strength.rs",
+      "uses_direction": "no",
+      "direction_class": "symmetric",
+      "ctx_methods": [
+        "symmetric"
+      ],
+      "matrices": "37 张全部",
+      "statistic": "对称行和/均值/中位数/90 分位",
+      "name_prefix": "strength_",
+      "factor_count": 148,
+      "example_name": "strength_cnt_t1_sum",
+      "note": "按恒等式 对称行和 = dir 行和 + dir 列和，方向正好抵消",
+      "example_names": [
+        "strength_cnt_t1_sum"
+      ]
+    },
+    {
+      "module": "surplus",
+      "file": "src/yupei_dist/indicators/surplus.rs",
+      "uses_direction": "no",
+      "direction_class": "symmetric",
+      "ctx_methods": [
+        "symmetric"
+      ],
+      "matrices": "37 张全部",
+      "statistic": "(对称行和 − null 行和)/sqrt(null 行和)，null_ij = c·w_i·w_j",
+      "name_prefix": "srp_",
+      "factor_count": 37,
+      "example_name": "srp_cnt_t1_surplus_z",
+      "note": "",
+      "example_names": [
+        "srp_cnt_t1_surplus_z"
+      ]
+    },
+    {
+      "module": "topk",
+      "file": "src/yupei_dist/indicators/topk.rs",
+      "uses_direction": "no",
+      "direction_class": "symmetric",
+      "ctx_methods": [
+        "symmetric"
+      ],
+      "matrices": "37 张全部",
+      "statistic": "对称矩阵每行 Top1/3/5/10/20 均值与 Top3/5 和、最大伙伴、伙伴差",
+      "name_prefix": "topk_",
+      "factor_count": 333,
+      "example_name": "topk_cnt_t1_top1_mean",
+      "note": "",
+      "example_names": [
+        "topk_cnt_t1_top1_mean"
+      ]
+    }
+  ],
+  "prefix_counts": {
+    "dyn": 333,
+    "topk": 333,
+    "conc": 222,
+    "nbz": 222,
+    "comm": 185,
+    "dir": 184,
+    "strength": 148,
+    "lead": 138,
+    "ind": 111,
+    "mot": 111,
+    "assort": 74,
+    "hid": 74,
+    "iso": 74,
+    "ldr": 74,
+    "ms": 44,
+    "btw": 37,
+    "clique": 37,
+    "clo": 37,
+    "clu": 37,
+    "eig": 37,
+    "nbs": 37,
+    "mom": 37,
+    "pr": 37,
+    "rec": 37,
+    "star": 37,
+    "srp": 37,
+    "bh": 27
+  },
+  "summary": {
+    "modules_total": 28,
+    "factors_total": 2761,
+    "modules_touching_directed_accessors": 6,
+    "modules_directed_list": [
+      "directionality",
+      "leadership",
+      "leader_return",
+      "motifs",
+      "pagerank",
+      "reciprocity"
+    ],
+    "directed_prefix_family": {
+      "prefixes": [
+        "dir_",
+        "lead_",
+        "rec_",
+        "mot_",
+        "pr_",
+        "ldr_"
+      ],
+      "factor_count": 581,
+      "detail": {
+        "dir_": 184,
+        "lead_": 138,
+        "mot_": 111,
+        "ldr_": 74,
+        "rec_": 37,
+        "pr_": 37
+      }
+    },
+    "strictly_direction_carrying": {
+      "factor_count": 507,
+      "detail": {
+        "dir_net_lead+dir_lead_ratio": 92,
+        "dir_out_strength+dir_in_strength": 92,
+        "lead_": 138,
+        "mot_feed_forward+mot_cycle": 74,
+        "ldr_": 74,
+        "pr_": 37
+      },
+      "explanation": "这些因子的值会随矩阵转置改变，换句话说它们区分谁领先谁"
+    },
+    "reads_directed_but_transpose_invariant": {
+      "factor_count": 74,
+      "detail": {
+        "rec_": 37,
+        "mot_*_reciprocal": 37
+      },
+      "explanation": "读的是有向矩阵，但 min/max 比值与互边计数对调换 i、j 不变，方向信息在算式里被抵消掉了"
+    },
+    "symmetric_family": {
+      "factor_count": 2180,
+      "share": 0.7896,
+      "explanation": "剩下的 22 个模块只调用 ctx.symmetric / ctx.row_sum_sym，方向在进入算式之前就被抹平"
+    },
+    "signed_net_matrix_usage": {
+      "factor_count": 63,
+      "detail": {
+        "dir_": 36,
+        "lead_": 27
+      },
+      "explanation": "signed 族的净矩阵 net = same − opp（ctx.matrix_net）只在 directionality 与 leadership 出现，其余模块顶多用对称化后的 same 或 opp 单边"
+    },
+    "matrices_per_module": {
+      "37 张有向矩阵": [
+        "assortativity",
+        "betweenness",
+        "cliqueness",
+        "closeness",
+        "clustering",
+        "community",
+        "concentration",
+        "eigenvector",
+        "hidden_interaction",
+        "industry",
+        "isolation",
+        "motifs",
+        "network_momentum",
+        "pagerank",
+        "reciprocity",
+        "starness",
+        "strength",
+        "surplus",
+        "topk",
+        "edge_dynamics(当日+前日)",
+        "leader_return",
+        "neighbor_dispersion",
+        "neighbor_strength",
+        "neighbor_z"
+      ],
+      "46 张（37 有向 + 9 net）": [
+        "directionality",
+        "leadership"
+      ],
+      "9 对 same/opp": [
+        "basket_hedge"
+      ],
+      "11 组快慢 τ 配对": [
+        "multiscale"
+      ]
+    },
+    "modules_reading_directed_matrix": {
+      "count": 6,
+      "list": [
+        "directionality",
+        "leadership",
+        "leader_return",
+        "motifs",
+        "pagerank",
+        "reciprocity"
+      ],
+      "note": "这 6 个模块调用了 ctx.matrix 或 ctx.matrix_net；其余 22 个模块只调用 ctx.symmetric / ctx.row_sum_sym"
+    },
+    "modules_truly_carrying_direction": {
+      "count": 5,
+      "list": [
+        "directionality",
+        "leadership",
+        "leader_return",
+        "pagerank",
+        "motifs(部分)"
+      ],
+      "note": "motifs 只有 feed_forward 与 cycle 两列有方向，reciprocal 列没有"
+    },
+    "modules_reading_directed_but_flattening": {
+      "count": 1,
+      "list": [
+        "reciprocity"
+      ],
+      "note": "读有向矩阵但算式把方向抵消掉"
+    },
+    "modules_symmetric_only": {
+      "count": 22,
+      "list": [
+        "assortativity",
+        "basket_hedge",
+        "betweenness",
+        "cliqueness",
+        "closeness",
+        "clustering",
+        "community",
+        "concentration",
+        "edge_dynamics",
+        "eigenvector",
+        "hidden_interaction",
+        "industry",
+        "isolation",
+        "multiscale",
+        "neighbor_dispersion",
+        "neighbor_strength",
+        "neighbor_z",
+        "network_momentum",
+        "starness",
+        "strength",
+        "surplus",
+        "topk"
+      ]
+    }
+  },
+  "numeric_checks": {
+    "method": "在合成有向矩阵上验证算式的转置性质（n=60，随机稀疏非负，非市场数据；只是算式层校验）",
+    "results": [
+      {
+        "check": "rec_ 的 Σmin/Σmax",
+        "result": "转置后逐位差 = 0.0",
+        "meaning": "严格方向无关"
+      },
+      {
+        "check": "mot_*_reciprocal（top-20 稀疏化后的互边计数）",
+        "result": "转置后相关 0.762，均值绝对差 1.35，水平均值 7.02",
+        "meaning": "概念上方向无关，只因为 top-20 出边集合本身随转置变化而有小差异"
+      },
+      {
+        "check": "mot_*_feed_forward",
+        "result": "转置后相关 0.252",
+        "meaning": "强烈方向敏感"
+      },
+      {
+        "check": "mot_*_cycle",
+        "result": "转置后相关 0.590",
+        "meaning": "方向敏感"
+      },
+      {
+        "check": "pr_ 的 PageRank",
+        "result": "转置后最大差 0.0184（均匀分布水平 1/60=0.0167）",
+        "meaning": "方向敏感"
+      },
+      {
+        "check": "dir_ 的 net_lead = 行和 − 列和",
+        "result": "转置后严格变号，逐位差 = 0.0",
+        "meaning": "纯方向量"
+      },
+      {
+        "check": "strength_ 的对称行和",
+        "result": "与 dir 行和 + dir 列和逐位相同（差 3.6e-15）",
+        "meaning": "对称行和正好把方向抵消掉"
+      }
+    ]
+  },
+  "caveats": [
+    "判定依据是模块调用的 ctx 方法与算式本身，不是回测表现；方向信息保住了不等于有预测能力",
+    "同一模块内不同列的方向性质可能不同，motifs 就是这种（feed_forward/cycle 有方向，reciprocal 没有）",
+    "flow/urg/ext 的 same 与 opp 是主动买卖方向，属于成交方向而不是领先滞后方向；本审计只把 same−opp 的净矩阵计入有向使用",
+    "names.rs 里 nbz_ 前缀被 neighbor_z(185) 与 neighbor_dispersion(37) 共用，按模块切分靠后缀 _return_dispersion"
+  ],
+  "prefix_counts_note": "按因子名第一个下划线前的前缀统计（与模块一一对应，唯一例外是 nbz_ 被 neighbor_z 185 与 neighbor_dispersion 37 共用，合计 222）；合计 2761"
+}

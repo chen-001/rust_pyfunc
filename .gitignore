@@ -186,3 +186,12 @@ tests/
 2026-03-26-212555-personalizedmeetingfeatures.txt
 docs/theme_feature_expansion_explanation.md
 python/rust_pyfunc/rust_pyfunc_worker
+
+# ============================================================================
+# 9. 沙箱里可重跑的中间产物（体积大，git 里只留源码与对账文档）
+# ============================================================================
+# perf_sandbox 下打包出来的库副本，每个 20~70MB，内含 22MB 的 worker 二进制
+perf_sandbox/yp_pkg*/
+perf_sandbox/yp_old_pkg/
+# 沙箱单日/单股跑出来的面板输出，单个几百 MB 的 jsonl
+sandbox*/out/

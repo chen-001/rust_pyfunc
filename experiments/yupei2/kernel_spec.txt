@@ -1,0 +1,479 @@
+玉佩2（yupei_dist，"寻找玉佩-成交距离"）核心算子语义核实
+核实人 kernel-spec，只读代码，未改动任何源文件。
+代码根目录 /home/chenzongwei/rust_pyfunc，所有行号以 2026-10-08 工作区当前文件为准。
+凡代码里没有明确定论的地方，本文写"未确认"。
+
+================================================================
+0. 一句话结论
+================================================================
+
+S_dir[i][j] 里，"行的成交发生在后、列的成交发生在前"（同桶各记一半）。
+代码注释与命名口径反过来，把它叫"i 领先 j"（行领先列）。两处方向相反，
+下游用因子时必须按"时间先后"读，不能按名字读。证据见第 1 节，含数值反证。
+
+另有四件必须先讲清楚的事：
+(1) 模块头注释仍是旧版（写 21 张矩阵/21 个 g 场），实际是 37 张
+    （matrix_stage.rs:1-31、:800 与 matrix_stage.rs:66-334 不一致）。
+(2) g_info() 是死代码，且里面的 tau 列表只有 5 个值，一旦被调用会 panic
+    （matrix_stage.rs:574-623，全仓库只有定义处一次出现，无调用点）。
+(3) 矩阵对角不是 0（注释 matrix_stage.rs:11、:800 写"对角 0"）。
+    20241231 备份 cnt_t1 实测 3964 只股票的对角全非零，最大 1.079e8。
+    原因是 S_dir[i][i] = 自成交在同一 10ms 桶内两两配对，本来就非零。
+(4) 全部 28 个模块里没有任何"按笔取 max"的算子；yupei_dist 里所有逐笔聚合
+    都是相加（求和），max 只出现在"伙伴级/股票级"（见第 5 节）。
+
+================================================================
+1. S_ij 的精确定义与有向语义
+================================================================
+
+1.1 数学式（代码实际实现的，不是文档写的）
+
+  逐笔层（prep_stock，matrix_stage.rs:374-525）：
+    每笔成交按 flag 与量算权重，落到 10ms 桶（BUCKET_US=10_000，
+    matrix_stage.rs:39），同桶内同族权重直接相加成一个 u 场值
+    （matrix_stage.rs:478-485）。
+
+  桶层（compute_matrices，matrix_stage.rs:1384-1526）：
+    d(τ) = exp(-BUCKET_US/(τ*1e6)) = exp(-0.01/τ)      matrix_stage.rs:559-562
+    g_j[k] = Σ_{l<k} u_j[l] * d^{k-l} + 0.5 * u_j[k]    matrix_stage.rs:933/941/945/949/953/957
+    S_dir[i][j] = Σ_k u_i[k] * g_j[k]                   matrix_stage.rs:1239-1249
+
+  展开即：
+    S_dir[i][j] = Σ_k u_i[k] * Σ_{l<k} u_j[l]*d^(k-l)
+                  + 0.5 * Σ_k u_i[k]*u_j[k]
+
+  对称矩阵（大部分模块用的口径，indicator_ctx.rs:166-187）：
+    S_sym = S_dir + S_dir^T（i≠j；对角线被强制为 0）
+    代入上式可得干净形式：
+      S_sym[i][j] = Σ_{桶对(a,b)} u_i[a]*u_j[b]*d^|a-b|，同桶项 d^0=1
+    即对称矩阵恰好等于"按桶量化的 e^{-|t_i-t_j|/τ}"，同桶靠 0.5+0.5=1 补齐。
+
+1.2 衰减系数表（decay(τ) = exp(-0.01/τ)，桶间每步的乘子）
+
+  τ=0.05s 0.81873075
+  τ=0.10s 0.90483742
+  τ=0.20s 0.95122942
+  τ=0.50s 0.98019867
+  τ=1.00s 0.99004983
+  τ=3.00s 0.99667222
+  τ=5.00s 0.99800200
+  τ=10.0s 0.99900050
+  τ=30.0s 0.99966672
+  实现里不调 exp，每桶只做一次"加 u 再乘 d"的递推（phase1），acc 跨 4096 桶
+  的块持久保留，保证 l<k 覆盖全天（matrix_stage.rs:895-960、:1485-1505）。
+
+1.3 唯一近似：桶内一律取 1（对称口径）/ 0.5（有向口径）
+
+  同一 10ms 桶内的任意两笔，无论真实时间差多少，对称矩阵里权重都是 1；
+  真实核在桶内的平均值达不到 1。逐 τ 的精确桶内均值与高估幅度：
+
+    τ=0.05s  精确均值 0.936538  高估 6.78%
+    τ=0.10s  精确均值 0.967484  高估 3.36%
+    τ=0.20s  精确均值 0.983540  高估 1.67%
+    τ=0.50s  精确均值 0.993367  高估 0.67%
+    τ=1.00s  精确均值 0.996675  高估 0.33%
+    τ=3.00s  精确均值 0.998890  高估 0.11%
+    τ=5.00s  精确均值 0.999334  高估 0.07%
+    τ=10.0s  精确均值 0.999667  高估 0.03%
+    τ=30.0s  精确均值 0.999889  高估 0.01%
+  （均值由本人数值积分算出；相邻桶的平均值与 d 几乎相等，不是误差来源。）
+  另外桶内值是"权重和之积"，不是逐笔两两求和；同桶内一笔与自身的配对也
+  被算进去（这也是对角非零的原因）。
+
+1.4 有向语义：钉死为"行在后、列在前"
+
+  代码事实（两条互相独立）：
+  a) phase1 为 tile 股票 b 建 g（matrix_stage.rs:1494-1499 传入 counts[b]/offs[b]），
+     g 只含 b 自己 l<=k 的成交；phase2 用所有股票 a 的桶单元去乘这个 g
+     （matrix_stage.rs:1219-1249），刷盘写 pack[a*PACK_W+ch] 到
+     mats[m][a*n+b]（matrix_stage.rs:1515-1523），即 行=a、列=b。
+     所以列 b 的成交桶 <= 行 a 的成交桶。
+  b) 数值反证（本人 20241231 实测，备份目录
+     /hdd/user_home_unsafe/chenzongwei/yupei_dist_backup/20241231）：
+     取非对称最强的一对 002958 / 000709。
+       cnt_t005: M[002958,000709] = 7235.23
+                 按"行在后"公式算(row=002958,col=000709) = 7192.8  相对差 0.6%
+                 按"行在前"公式算(row=000709,col=002958) = 80055   相对差 13%
+       cnt_t1  : M[002958,000709] = 99968.2
+                 按"行在后"公式算 = 99981.4                          相对差 0.01%
+                 按"行在前"公式算 = 472908（这是 M[000709,002958]，差 4.7 倍）
+     两个候选值相差 10 倍以上，M 只跟"行在后"的那一个对上。
+  c) 独立于公式的第三个证据：两只股票的 10ms 桶互相关
+     C(L)=Σ_k u_002958[k]*u_000709[k+L]。
+       L>=1 且 000709 在后的对数 = 394946
+       L>=1 且 002958 在后的对数 = 22678
+     即 000709 系统性晚于 002958；而矩阵上大的那格正是 M[000709,002958]=92019
+     （小格 M[002958,000709]=7235）。行=晚的那只，坐实。
+
+  命名口径（与上面相反，全仓库一致，共 5 处）：
+    matrix_stage.rs:7   "S_{A→B} = Σ_k u_A[k]·g_B[k]   (A 领先 B)"
+    matrix_stage.rs:10  "S_dir[i][j] = i 领先 j 的交互能量"
+    mod.rs:9            "S_dir[i][j]（i 领先 j 的衰减事件场能量）"
+    leader_return.rs:62 let sji = d[j*n+i]; // j 领先 i
+    leadership.rs:2-3   LeadBreadth = #{j: S_ij > S_ji}/(N-1)（记为 i 的领先广度）
+    pagerank.rs:2       "S_dir[i][j] = i→j"（行是出边/源）
+  也就是说：代码把"行"叫领先者、把"行"当有向边的源，但算出来的行成交时间更晚。
+  凡是要判"谁先动"的下游结论，一律按 1.4 的时间口径，不要按名字。
+
+  顺带（同一件事的第三个口径）：directionality.rs:27-30 的 OutStrength 就是行和
+  （整行求和，含对角），InStrength 是列和（directionality.rs:31-47，也含对角）。
+
+1.5 与 20241231 备份的对齐精度（本人自测，供别人复用）
+
+  用 Python 复算 001391 与 300059（cnt 族，u=每笔 1）：
+    cnt_t1 : 复算(row=001391,col=300059) / M = 0.9969
+             复算(row=300059,col=001391) / M = 0.9962
+             复算 001391 对角 / M = 0.9992
+    cnt_t005: 同一对两向 1.00696 / 0.99483，对角 1.00290
+  残差量与"桶内取 1"和 f32 累加量级一致（τ 越小残差越大），不是口径错误。
+  注意备份数据是 2026-08-09 写的，N=3964（matrix_stage.rs 后来在 mod.rs:6-7
+  记录 20241231 全市场为 5580 只），行序见 codes.txt。
+
+================================================================
+2. 37 张矩阵清单与 6 族权重
+================================================================
+
+2.1 规格表（matrix_stage.rs:66-332；MATRIX_LIST 顺序与之一致，
+    已用脚本逐项比对为 True；MATRIX_LIST 见 indicator_ctx.rs:12-50）
+
+  name              family  tau(s)  signed  same
+  cnt_t005          cnt     0.05    false   true
+  cnt_t01           cnt     0.1     false   true
+  cnt_t02           cnt     0.2     false   true
+  cnt_t05           cnt     0.5     false   true
+  cnt_t1            cnt     1.0     false   true
+  cnt_t3            cnt     3.0     false   true
+  cnt_t5            cnt     5.0     false   true
+  cnt_t10           cnt     10.0    false   true
+  cnt_t30           cnt     30.0    false   true
+  vol_t02           vol     0.2     false   true
+  vol_t05           vol     0.5     false   true
+  vol_t1            vol     1.0     false   true
+  vol_t3            vol     3.0     false   true
+  vol_t5            vol     5.0     false   true
+  vol_t30           vol     30.0    false   true
+  logvol_t05        logvol  0.5     false   true
+  logvol_t1         logvol  1.0     false   true
+  logvol_t3         logvol  3.0     false   true
+  logvol_t30        logvol  30.0    false   true
+  flow_same_t02     flow    0.2     true    true
+  flow_opp_t02      flow    0.2     true    false
+  flow_same_t05     flow    0.5     true    true
+  flow_opp_t05      flow    0.5     true    false
+  flow_same_t1      flow    1.0     true    true
+  flow_opp_t1       flow    1.0     true    false
+  flow_same_t5      flow    5.0     true    true
+  flow_opp_t5       flow    5.0     true    false
+  urg_same_t1       urg     1.0     true    true
+  urg_opp_t1        urg     1.0     true    false
+  urg_same_t5       urg     5.0     true    true
+  urg_opp_t5        urg     5.0     true    false
+  urg_same_t30      urg     30.0    true    true
+  urg_opp_t30       urg     30.0    true    false
+  ext_same_t1       ext     1.0     true    true
+  ext_opp_t1        ext     1.0     true    false
+  ext_same_t5       ext     5.0     true    true
+  ext_opp_t5        ext     5.0     true    false
+  合计 9+6+4+8+6+4 = 37，N_MATRICES = MATRIX_SPECS.len()（matrix_stage.rs:334）。
+  cnt/vol/logvol 的 same 字段是占位（signed=false 时该字段不参与运算，
+  matrix_stage.rs:582-593）。signed 族的净矩阵 same-opp 只由 9 个 τ 组成，
+  见 indicator_ctx.rs:53-55（NET_LIST）与 :217-235（matrix_net）。
+
+2.2 每笔权重（prep_stock，matrix_stage.rs:416-487）
+
+  记号：v = max(volume,0)（:422），sv = sqrt(v)（:423），lv = ln(1+v)（:424），
+  s = +1 当 flag==66，-1 当 flag==83，否则 0（:425-429）。
+  桶内 9 个 u 场（:44-54 定义，:459-476 填值）：
+    U_CNT    = 1（所有 flag，含 s=0）                     :460
+    U_VOL    = sv（所有 flag）                            :461
+    U_LOGVOL = lv（所有 flag）                            :462
+    cnt   族权重 w = 1                                    （模块头注释 :16）
+    vol   族权重 w = sqrt(v)                              （:17）
+    logvol族权重 w = ln(1+v)                              （:18）
+    flow  族 U_FLOW_P = sv（s>0），U_FLOW_M = sv（s<0），s=0 不进 flow 场  :464-472
+          即 w = s*sqrt(v)，符号由落在哪个 lobe 承载（两个 lobe 都是非负量）
+    urg   族 U_URG_P = s*u（s>0），U_URG_M = -(s*u)（s<0）  :463, :466, :472
+          即 w = s*u，u 是订单号差异的每股 z 分（可为负，所以 urg 矩阵可为负）
+    ext   族 U_EXT_P = sv（s>0 且 |u|>q95），U_EXT_M = sv（s<0 且 |u|>q95）:467-475
+          即 w = 1(|u|>q95)*s*sqrt(v)，两个 lobe 都非负
+
+2.3 urg 的 z 标准化在哪一层、按谁的标准
+
+  在逐笔层、桶聚合之前，且按"该股票当天自己的逐笔分布"标准化：
+    r_i = (bid_order - ask_order)/(|bid_order|+|ask_order|)   matrix_stage.rs:388-393
+    mean/std 由该股票当天全部逐笔算（包括被时间窗过滤掉的笔）
+                                                             matrix_stage.rs:394-400
+    u_i = (r_i - mean)/std；std=0 时 u=0                     matrix_stage.rs:430-434
+  即 z 是"每股每日"的口径，不是全市场、不是截面、不是分时段。
+
+2.4 ext 的 q95 阈值在哪一层、按谁的标准
+
+  同样在逐笔层、桶聚合之前，按"该股票当天自己的 |u| 分布"取 95 分位：
+    absus 排序后取 q95u = absus[(0.95*n) as usize]           matrix_stage.rs:453-455
+    逐笔判 |u| > q95u 决定是否进 ext 场                       matrix_stage.rs:467, :473
+  absus 只含落在交易时段内的笔（pass 2 里越界的笔被 continue，:417-420）。
+  模块头注释把 ext 写成"桶级近似"（matrix_stage.rs:20），但按代码，阈值判定
+  发生在逐笔层；"桶级"只是整个算子的 10ms 桶分辨率，不是 ext 独有。
+
+2.5 same/opp 的确切配对（phase2，matrix_stage.rs:1243-1249）
+
+  same = A 的 P lobe × B 的 P lobe + A 的 M lobe × B 的 M lobe
+  opp  = A 的 P lobe × B 的 M lobe + A 的 M lobe × B 的 P lobe
+  对 flow/ext 就是"同侧/对侧"；对 urg 是"同侧 urgency 之积"（可为负）。
+  signed 族与无符号族的 g 场打包与通道映射在
+  matrix_stage.rs:1418-1440（BLOCKS 与 field_channel）。
+
+2.6 全流程入口与规模
+
+  compute_yupei_dist_partial：枚举当日全部有逐笔的股票 → codes.sort() → 每股
+  read_trade_fast_inner(c,date,false,true,usize::MAX)（false=过滤撤单，
+  true=盘中过滤+下午整体前移 90 分钟）→ prep_stock(MIN_TRADES=200 剔除)
+  见 compute.rs:80-99、:28、:246-252；时段口径见 day_start_us_of。
+  矩阵阶段 compute.rs:102；指标阶段 compute.rs:115-144（因子数 2761 与
+  names.rs 对不上会直接报错）。
+  因子列数与模块数：names.rs 注册 2761 个（names.rs:2），由 28 个模块产出
+  （indicators/generated.rs:63-177）。每个模块的列数（本人统计，按名前缀）：
+    assort 74, bh 27, btw 37, clique 37, clo 37, clu 37, comm 185, conc 222,
+    dir 184, dyn 333, eig 37, hid 74, ind 111, iso 74, ldr 74, lead 138,
+    mom 37, mot 111, ms 44, nbs 37, nbz 222（neighbor_z 185 + dispersion 37）,
+    pr 37, rec 37, srp 37, star 37, strength 148, topk 333
+  注意 neighbor_z 与 neighbor_dispersion 共用 nbz 前缀。
+
+================================================================
+3. 28 个模块逐列的"绝对量 / 比例"口径
+================================================================
+
+先给三条通用规则：
+  A. 凡走 ctx.symmetric()（indicator_ctx.rs:166-187）的，用的是 S_dir+S_dir^T，
+     对角被置 0，即不含自身桶内配对。
+  B. 凡走 ctx.matrix()（原始 S_dir）的，含对角；directionality、pagerank、
+     motifs、reciprocity、leadership、leader_return、edge_dynamics 的分支各不同。
+  C. 凡是 Σ_j p_ij·X_j 形式（p=S/行和）的，权重是比例，但被平均的量 X 是原始
+     量纲，所以结果与 X 同量纲，不是无量纲比例。
+
+逐个点名（题目要求的六个在前）：
+  strength.rs:21-61   strength_{mat}_sum     = 对称行和，绝对量
+                      _mean = sum/(N-1)，_median/_q90 = 行内中位数/90 分位，
+                      四个都是绝对量（未做行归一化）。
+  topk.rs:40-102      topk_{mat}_top{1,3,5,10,20}_mean、_top3_sum/_top5_sum、
+                      _maxpartner（=top1 值）、_bestpartnergap（top1-top2）
+                      全部是对称矩阵里的原始值，绝对量。MaxPartner 只指
+                      "最大值伙伴"，不是对逐笔取 max。
+  concentration.rs:29-100 p_ij = S_ij/行和（:46），hhi=Σp²、entropy、norm_entropy
+                      （除以 ln(N-1)，:28）、top3/5/10_share=TopK 占比
+                      全部是按行归一化后的比例/无量纲量。
+  directionality.rs:27-69 out_strength=行和(含对角)=绝对量；in_strength=列和
+                      (含对角)=绝对量；net_lead=out-in=绝对量；
+                      lead_ratio=(out-in)/(out+in+1e-9)=比值（:53-60）。
+                      遍历 37 矩阵 + 9 个净矩阵（:19-21）。
+  isolation.rs:27-40  iso_{mat}_inv_strength = 1/(对称行和+1e-9)，绝对量的倒数
+                      （大=孤立）；iso_{mat}_neg_top5 = -Top5均值，绝对量取负。
+  surplus.rs:23-62    srp_{mat}_surplus_z = (对称行和 - null_row)/sqrt(null_row)，
+                      null_ij = c*w_i*w_j，c=2τ/14220（:29-30），w 按家族取
+                      stats.sum_w_*（:31-48）。是"相对零模型的标准化盈余"，
+                      既不是纯绝对量也不是行归一化比例。
+
+其余 22 个：
+  assortativity.rs:29-89  assort_{mat}_corr = 行内 corr(S_ij, Strength_j)，无量纲；
+                      _nb_str_minus_mean = 邻居强度均值 - 全市场强度均值，绝对量。
+  basket_hedge.rs:39-55   bh_{fam}_{tau}_basket = flow_same 对称行和（绝对量）；
+                      _hedge = flow_opp 对称行和（绝对量）；
+                      _hedge_ratio = hedge/(basket+hedge+1e-9)（比例）。
+  betweenness.rs:50-105   btw_{mat}_betweenness = Brandes 依赖累加，未归一化（绝对量）。
+  cliqueness.rs:28-49     clique_{mat}_score = 行和 × cc，cc=邻居对之间的平均
+                      边权（links/maxl，:45），两者都是原始量纲 → 绝对量。
+  closeness.rs:41-83      clo_{mat}_closeness = 1/(跳数总和+不可达惩罚)，绝对量
+                      （不含行归一化）。
+  clustering.rs:95-123    clu_{mat}_coef = 加权聚类系数，边权先除以全矩阵最大边权
+                      max_w（:89-94、:107-109），结果在 [0,1]，是无量纲比例。
+  community.rs:38-207     comm_{mat}_size = 社群股票数（计数）；
+                      _within/_outside = 社群里/外的边权和（绝对量）；
+                      _purity = within/total（比例）；_participation = 1-Σr²（比例）。
+  edge_dynamics.rs:96-243 dyn_{mat}_edge_persistence = 行内 Pearson（无量纲）；
+                      _retention = Top10 命中/10（比例）；_new_partner = 新伙伴的
+                      S 之和（绝对量）；_edge_change/_pos/_neg = S 差的求和（绝对量）；
+                      _network_shock_max = max|Δ/(x+y)|（比例）；_top_shock_mean =
+                      Top5 冲击均值（比例）；_turnover = 1-Jaccard（比例）。
+                      用对称矩阵（当日与 prev 各对称化一次，:52-88）。
+  eigenvector.rs:30-83    eig_{mat}_centrality = 对称矩阵主特征向量，单位化。
+  hidden_interaction.rs:73-108 hid_{mat}_degree_pos/_neg =
+                      Σ_j max(ε_ij,0)/(N-1) 与 Σ_j max(-ε_ij,0)/(N-1)，
+                      绝对量（log1p(S) 的残差量纲），且是按对取 max 的拆分。
+  industry.rs:41-91       ind_{mat}_within = 同行业邻居 S 之和（绝对量）；
+                      _cross_ratio = (总-同行业)/总（比例）；_mismatch 与
+                      _cross_ratio 同列（代码 :83-84 用了同一个值，属实现细节）。
+  leader_return.rs:50-89  ldr_{mat}_return = Σ_j (S_ji/列和_i)*r_j（比例权重加权
+                      平均收益，量纲=收益）；_shock 同式但乘横截面 z 分。
+  leadership.rs:29-65     lead_{mat}_breadth = 计数/(N-1)（比例）；
+                      _strength = Σ_j max(S_ij-S_ji,0)（绝对量）；
+                      _concentration = Σnet²/(Σnet)²（HHI，比例），跳过 i=j（:37-39）。
+  motifs.rs:27-71         mot_{mat}_feed_forward/_cycle/_reciprocal = 三节点 motif
+                      计数（整数），走原始有向矩阵（:22）。
+  multiscale.rs:33-107    ms_*_fast_strength/_slow_strength = 两个 τ 的对称行和
+                      （绝对量）；_fast_slow_ratio = fast/(slow+1e-9)（比值）；
+                      _scale_consistency = 两个 Top10 集合的 Jaccard（比例）。
+  neighbor_dispersion.rs:30-58 nbz_{mat}_return_dispersion = sqrt(Σ p*(r_j-mean)²)，
+                      比例权重加权的收益标准差（量纲=收益）。
+  neighbor_z.rs:36-75     nbz_{mat}_{return,turnover,volatility,imbalance,size}
+                      = Σ p*Z_j，比例权重，Z 取 stats 的原始值
+                      （ret/total_vol/vol30/imb/amount，:20-24）。
+  neighbor_strength.rs:27-48 nbs_{mat}_neighbor_strength = Σ p*Strength_j，
+                      结果与 Strength 同量纲（绝对量）。
+  network_momentum.rs:29-50 mom_{mat}_network_momentum = Σ p*r_j（同 leader 的加权
+                      平均收益，但用对称矩阵行归一）。
+  pagerank.rs:30-66       pr_{mat}_pagerank = 出度归一化的有向 PageRank
+                      （d=0.85，100 次或 L1<1e-9），是分布，∑≈1。
+  reciprocity.rs:23-45    rec_{mat}_reciprocity = Σ_j min(S_ij,S_ji)/Σ_j max(...)，
+                      比例（[0,1]），跳过 i=j（:30-31）。
+  starness.rs:31-65       star_{mat}_score = 行和 × (1 - cc/max_cc)，cc 为邻居对
+                      平均边权（绝对量纲），max_cc 为全市场最大（:57），结果绝对量。
+
+================================================================
+4. 有没有已经在做"两只股票当一个整体 / 超边 / 组合"的模块
+================================================================
+
+结论：没有任何模块把"两只股票当成一个整体"做新的聚合；最接近的是
+hidden_interaction（把"股票对"当作回归样本单元）和 community（把一组股票
+当集合），以及 motifs（三节点有向模式）。逐个回答：
+
+  hidden_interaction.rs（最接近"对"这一层）
+    · 回归样本单元是"无序股票对"：只遍历 i<j（:42），y=log1p(S_sym[i][j])（:47）。
+    · 解释变量本身是"对"的属性：同行业 0/1、|Δlog amount|、|Δ total_vol|、
+      |Δ ret|（:113-140）。也就是说，代码里已经有一处把 (i,j) 当作一个整体、
+      用对级特征去解释这条边。
+    · 残差按正负拆开：pos=Σ max(ε,0)、neg=Σ max(-ε,0)（:94-98），再除以 N-1。
+      这里的 max 是"伙伴/对级"的，不是逐笔的。
+    · 但它没有做"把两只股票并成一个组合再算距离"，只是对边做横截面回归。
+
+  basket_hedge.rs
+    · basket = flow_same 的对称行和，hedge = flow_opp 的对称行和，
+      hedge_ratio = hedge/(basket+hedge)（:39-51）。
+    · 口径是"每股与同向伙伴/反向伙伴的总强度"，逐伙伴相加，没有集合运算，
+      没有 OR/max，也没有把两只股票合并。
+
+  community.rs
+    · Louvain（对称 cnt 族，每行 top-50 无向化，:40-81），得到的是"股票集合"
+      （社群），再按每股算 size/within/outside/purity/participation（:153-206）。
+    · within 就是"集合内部边权求和"（:162-171），participation 是"按社群分组的
+      连接占比"的 1-Σr²（:172-186）。有集合概念，但聚合方式是普通求和，
+      不含 OR/max/min，也不支持"任意两只股票临时组成一个成员"。
+
+  cliqueness.rs / starness.rs
+    · 都用"该股 top-50 邻居"这个集合，cc = 集合内无序邻居对之间的平均边权
+      （cliqueness.rs:39-45、starness.rs:42-49）。是集合上的平均，不是 OR/max。
+    · cliqueness = 强度×cc；starness = 强度×(1-cc/max_cc)（starness.rs:57-62）。
+
+  multiscale.rs
+    · fast/slow 两套 τ 的行和、比值，加 scale_consistency = 两个 Top10 集合的
+      Jaccard（:77-95）。这是全代码里唯一显式的集合交并运算，但比较的是
+      "同一只股票在两个时间尺度下的伙伴集合"，不是两只股票的合并。
+
+  surplus.rs
+    · 秩 1 零模型：null_ij = c*w_i*w_j，c=2τ/T；因子=(行和S - 行和null)/sqrt(行和null)
+      （:29-58）。逐伙伴求和，没有集合运算。
+
+  motifs.rs（题目没点名，但它是全仓库最接近"超边"的东西）
+    · 有向三角计数：feed_forward = #{i→j→l, i→l}、cycle = #{i→j→l→i}、
+      reciprocal = #{i→j 且 j→i}（:44-62），走原始有向矩阵、每行 top-20 出边。
+    · 它把"三只股票"当成一个模式单元来计数，是模式计数而不是超边权重求和。
+
+  其余（assortativity/betweenness/closeness/clustering/eigenvector/pagerank/
+  reciprocity/leadership/directionality/edge_dynamics/neighbor_*/industry/
+  leader_return/network_momentum/strength/topk/concentration/isolation）
+  都是"每股一个数"的节点级指标，不含把两只股票并成一体的操作。
+
+================================================================
+5. 有没有"按笔取 max（而非求和）"的算子
+================================================================
+
+5.1 src/yupei_dist 内：没有。
+
+  对 yupei_dist 全部 .rs 做 grep "max"（剔除 names.rs 的因子名清单、剔除行内含
+  注释符的行）命中 46 行，逐条归类后没有一处是对逐笔（或对桶内成交）取 max 的：
+    · matrix_stage.rs:422,447 是数值下限保护 .max(0.0)
+    · 逐笔聚合唯一路径是相加：matrix_stage.rs:478-485（同桶 u 场相加）、
+      :899-907 与 :903-905（桶内加权求和）、:1072-1080（标量版同）
+    · 伙伴级/股票级 max：
+      reciprocity.rs:35-36      Σ_j max(S_ij, S_ji) 与 min 配对（伙伴级）
+      edge_dynamics.rs:143-144  max_shock（伙伴级最大冲击）
+      starness.rs:57            max_cc（全市场股票级最大聚类系数）
+      clustering.rs:89-94      max_w（全矩阵最大边权，归一化用）
+      cliqueness.rs:38-42, starness.rs:41-47 的 maxl 是"邻居对总数"，不是 max 算子
+    · 因子名叫 MaxPartner（topk.rs:88）只是"最大的那个伙伴"，值仍是原始 S。
+  也就是说：yupei_dist 里不存在"把求和换成 max"的同类算子，也不存在
+  任何"两只股票取 max 合并"的算子。
+
+5.2 src 其他模块：有对一串数值取 max 的算子，但没有"配对距离"类的。
+
+  全仓库也没有第二个实现 e^{-|t_i-t_j|/τ} 型成交距离的地方
+  （grep "exp(-...tau" 在 src/ 下除 yupei_dist 外只有
+  distill_metrics.rs:269 的一条注释描述指数衰减拟合，不是配对核）。
+  与"取 max"沾边的现成实现（都在逐笔/事件序列上取极值，但不做配对交互）：
+    src/distill_tick_metrics.rs:372-390   dist_peak_pos：在一串量上扫最大值的桶位
+    src/order_pair_metrics_pipeline.rs:780-784  max_price：某订单后 10s 窗口内
+                                          逐笔价格取 max/min 求振幅
+    src/sequence/mod.rs:86               find_max_range_product：对索引对取
+                                          min(v_i,v_j)*(j-i) 的最大值
+    src/features.rs:627                  max_range_product_strict：同上逻辑的严格版
+    src/distill_metrics.rs:1701          sliding_window_max_count：滑窗内最大事件数
+    src/trade_peak_analysis.rs:57,207    trade_peak_analysis / is_local_peak：
+                                          逐笔量的局部峰识别
+    src/microstructure_pattern_features_v2.rs:678  construct_curvature_peak：曲率峰
+    src/okay_database/hm039.rs:26-33     逐时段取 trade_max/trade_min 价格（档位
+                                          配对用的极值，不是按笔聚合）
+  结论：这些都不是"成交距离"的 max 版；要把 yupei_dist 的求和换成 max 覆盖，
+  需要新写算子，代码里没有现成可复用的。
+
+================================================================
+6. 文档/注释与实现不一致的地方（引用时小心）
+================================================================
+
+  (a) matrix_stage.rs:1-31 的模块头：写"21 个 g 场 / 共 21 张 N×N 矩阵"（:8, :24），
+      实际 g_fields 返回 37 个场（:631-790）、MATRIX_SPECS 37 张（:66-332）。
+      同处 τ 清单也过期：flow 写 {1,5}（实际 {0.2,0.5,1,5}）、vol 写 {0.2,1,5,30}
+      （实际 {0.2,0.5,1,3,5,30}）、logvol 写 {1,30}（实际 {0.5,1,3,30}）、
+      urg 写 {1,30}（实际 {1,5,30}）、ext 写 {1}（实际 {1,5}）。
+  (b) matrix_stage.rs:800 "返回 21 张"；同一文件 :1379 与 :1381 还留着重复的
+      "pack 宽度 / gp 槽步长"注释（真正定义在 :803-805）。
+  (c) matrix_stage.rs:574-623 g_info()：死代码，且 tau_list 只有
+      {0.05,0.2,1,5,30}，对 cnt_t01/cnt_t05/cnt_t3/cnt_t10 会在
+      position().unwrap() 处 panic。它对应的"21 场布局"注释（:564-566）同样过期。
+      实际布局见 :1418-1440 与 g_fields()（cnt 9τ、vol 6τ、logvol 4τ、
+      flow ±×4τ、urg ±×3τ、ext ±×2τ，槽位 GP_STRIDE=56）。
+  (d) matrix_stage.rs:11 与 :800 写"对角 0"；实测非零（见第 0 节）。受影响的
+      因子是直接用原始有向矩阵的那些（directionality 的 out/in 含对角；
+      pagerank 的出度含对角；motifs 的 top-20 出边可能含自身）。用对称矩阵的
+      模块因 symmetric() 强制对角为 0（indicator_ctx.rs:174-181）而不受影响；
+      leadership.rs:37-39、reciprocity.rs:30-31、leader_return.rs:59-61 显式跳过对角。
+  (e) surplus 的零模型权重 sum_w_flow 在 prep_stock 里对所有笔累加
+      （matrix_stage.rs:440 在 flag 判断之外），而 flow 矩阵只统计 flag 66/83 的笔
+      （:464-472）。也就是说 flow 族的 null 权重和比矩阵实际使用的权重和偏大，
+      surplus 的 srp_flow_* 存在这个口径差（vol/logvol/cnt/urg/ext 无此问题，
+      见 :437-441、:477）。
+  (f) mod.rs:6-7 记录 20241231 全市场 5580 只，但 /hdd/.../yupei_dist_backup/
+      20241231/codes.txt 只有 3964 只；该备份是 2026-08-09 写的旧 top-4000 时代产物。
+      拿这份备份对齐时，行序与股票数都要按 codes.txt 走。
+
+================================================================
+7. 本人做过但要与"代码事实"分开的检查
+================================================================
+
+  第 1.3/1.4/1.5 节里的数字来自本人自己写的 Python 复算（读 rp.read_trade +
+  rp.adjust_afternoon，桶由 exchtime 相对当日 09:30 的微秒差除以 10000 得到；
+  时间基准与 compute.rs:246-252 的 day_start_us 一致）。这些是"复算与备份吻合"
+  的数值证据，不是代码里写着的结论。复算脚本本身没有落盘（本任务只交付本文件）。
+  可加性、max 覆盖互补等实测由 task-2 负责，不在本文范围。
+
+================================================================
+8. 未确认项
+================================================================
+
+  · 未确认：矩阵备份（/hdd/.../yupei_dist_backup/20241231）当时的构建二进制
+    与当前源码是否逐字节一致。残差 0.1%~1% 与"桶内取 1"和 f32 累加量级相符，
+    但我没有比对当时的 .so。
+  · 未确认：phase1 里 f32 递推在超长空桶段是否有下溢丢精度（τ=30s 时空桶段很长）。
+    本文只给出与备份的实测比值，没有单独测下溢。
+  · 未确认：把"行领先列"的命名口径写进注释是有意约定还是笔误。全仓库命名一致
+    （5 处），但没有任何注释解释为什么要让"领先者"等于成交更晚的一方。
+  · 未确认：ext 注释里的"桶级近似"具体指什么；按代码，阈值判定在逐笔层，
+    桶级只影响衰减分辨率。

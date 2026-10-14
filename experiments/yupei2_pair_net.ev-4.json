@@ -1,0 +1,61 @@
+{
+  "type": "factor-experiment-evidence",
+  "schemaVersion": 1,
+  "experiment": "yupei2_pair_net",
+  "evidenceId": "ev-4",
+  "order": 4,
+  "runId": "run-3",
+  "kind": "sample-validation",
+  "scope": "20241230 与 20241231 两个交易日的机制样本，股票白名单口径，全 Rust 流水线：配对互补网络 + 77 个降维因子的合成",
+  "measured": {
+    "single-stock-seconds": 0.046,
+    "single-stock-jobs": 1,
+    "market-seconds": 12.7,
+    "market-jobs": 50,
+    "empty-columns": 0,
+    "const-columns": 0
+  },
+  "exitCode": null,
+  "artifacts": [
+    {
+      "path": "/tmp/yupei2_pair_rs/20241231/reduce_rs/names.txt",
+      "exists": true,
+      "kind": "file"
+    },
+    {
+      "path": "/tmp/yupei2_pair_rs/20241231/reduce_rs/factors.bin",
+      "exists": true,
+      "kind": "file"
+    },
+    {
+      "path": "/tmp/yupei2_pair_rs/20241231/reduce_rs/factors.json",
+      "exists": true,
+      "kind": "file"
+    },
+    {
+      "path": "/tmp/yupei2_pair_rs/20241230/reduce_rs/factors.bin",
+      "exists": true,
+      "kind": "file"
+    },
+    {
+      "path": "/tmp/yupei2_pair_so/20241231/reduce/factors.bin",
+      "exists": true,
+      "kind": "file"
+    }
+  ],
+  "derived": {
+    "ok": true,
+    "reasons": [],
+    "rule": "单股单日 ≤ 1 秒且并行 1；单日全市场 ≤ 60 秒且并行 50；空列 0、常量列 0"
+  },
+  "judgment": {
+    "text": "①速度：单股单日 0.046 秒（并行 1）；单日全市场整条流水线在 50 并行下 12.7 秒（配对网络 9.6 秒 + 降维合成 3.1 秒），远低于 60 秒门槛。②空列与常量列：Rust 输出 3684×77 与 3682×77，整列全空 0 列、取值恒定 0 列，两天都过。③数值对阵：Rust 版降维与 Python 版逐列比，列名 77 行逐行一致，NaN 位置逐格一致，两边都有限的 266,220 格里最大绝对差 1.907e-06（出现在第 55 列 p_spec_top20），中位绝对差 0，远小于 1e-5。④确定性：同一输入用 16 / 50 / 128 / 512 线程各跑一遍，factors.bin、names.txt、factors.json 三种文件的 sha256 全部相同，说明按 B 分块并行再按下标合并没有引入顺序依赖。⑤台账指纹的局限：脚本指纹只覆盖 sandbox_yupei_pair/src/main.rs，降维代码在 reduce.rs，不在指纹里，这一步的凭据靠上面这几条人工核对的数字。",
+    "by": "agent"
+  },
+  "fingerprints": {
+    "scriptSha256": "398f08519d8259e7fc8f2d7514c5b84c73d07059db4fb0c63eaa18d207ac1ae4",
+    "so": "49673329:1791477636408377753",
+    "worker": "22202768:1791477665025708679"
+  },
+  "recordedAt": "2026-10-10T00:04:46"
+}

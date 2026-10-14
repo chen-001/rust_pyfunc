@@ -1,0 +1,24 @@
+{
+  "type": "factor-experiment-run",
+  "schemaVersion": 1,
+  "experiment": "yupei2_pair_net",
+  "runId": "run-3",
+  "order": 3,
+  "scriptPath": "/home/chenzongwei/rust_pyfunc/sandbox_yupei_pair/src/main.rs",
+  "scriptSha256": "398f08519d8259e7fc8f2d7514c5b84c73d07059db4fb0c63eaa18d207ac1ae4",
+  "startDate": "20241230",
+  "endDate": "20241231",
+  "universe": "股票白名单口径（symbol_map.csv），20241231 输出 3684 只，20241230 输出 3682 只",
+  "nJobs": 50,
+  "taskId": null,
+  "outputDir": "/tmp/yupei2_pair_rs",
+  "note": "降维合成已从 Python 搬进 Rust，代码在 sandbox_yupei_pair/src/reduce.rs（sha256 前16位 0636fe641721bf82）。台账的脚本指纹只覆盖 main.rs，reduce.rs 不在指纹里，这一点要在判断里写明。",
+  "recordedAt": "2026-10-10T00:04:46",
+  "sessionId": "session-30be4b71-ac60-48f4-b95f-47bbf4ee97f5",
+  "lib": {
+    "soPath": "/home/chenzongwei/rust_pyfunc/python/rust_pyfunc/rust_pyfunc.abi3.so",
+    "so": "49673329:1791477636408377753",
+    "workerPath": "/home/chenzongwei/rust_pyfunc/python/rust_pyfunc/rust_pyfunc_worker",
+    "worker": "22202768:1791477665025708679"
+  }
+}

@@ -1,0 +1,33 @@
+[package]
+name = "x_spread_price_sandbox"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "x_spread_price"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+panic = "abort"
+
+[[bin]]
+name = "x_signal_race"
+path = "src/bin/x_signal_race.rs"
+
+[[bin]]
+name = "x_recent_side"
+path = "src/bin/x_recent_side.rs"
+
+[[bin]]
+name = "x_trade_count"
+path = "src/bin/x_trade_count.rs"
+
+[[bin]]
+name = "x_triple"
+path = "src/bin/x_triple.rs"
+
+[[bin]]
+name = "x_side_strict"
+path = "src/bin/x_side_strict.rs"

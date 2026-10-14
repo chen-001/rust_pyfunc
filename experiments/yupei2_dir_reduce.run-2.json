@@ -1,0 +1,24 @@
+{
+  "type": "factor-experiment-run",
+  "schemaVersion": 1,
+  "experiment": "yupei2_dir_reduce",
+  "runId": "run-2",
+  "order": 2,
+  "scriptPath": "/home/chenzongwei/rust_pyfunc/experiments/yupei2/dir_probe.py",
+  "scriptSha256": "f98cd7660121911d3d725d7740988a1cdc719a4382349fa92c018ae5cec44c74",
+  "startDate": "20241230",
+  "endDate": "20241231",
+  "universe": "两日 codes.txt 交集 3746 只",
+  "nJobs": 1,
+  "taskId": null,
+  "outputDir": "/home/chenzongwei/rust_pyfunc/experiments/yupei2_dir_reduce.probe.json",
+  "note": "第二轮机制样本：权重指数 alpha 扫描 + 分位数口径，结果写 probe2.json，probe.json 同时原样重生成",
+  "recordedAt": "2026-10-08T18:06:25",
+  "sessionId": "session-b0b6717d-d38c-4cba-8787-72fc4ea4b7d1",
+  "lib": {
+    "soPath": "/home/chenzongwei/rust_pyfunc/python/rust_pyfunc/rust_pyfunc.abi3.so",
+    "so": "49673329:1791332668963074321",
+    "workerPath": "/home/chenzongwei/rust_pyfunc/python/rust_pyfunc/rust_pyfunc_worker",
+    "worker": "22202768:1791332908997002091"
+  }
+}

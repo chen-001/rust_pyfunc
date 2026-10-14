@@ -1421,11 +1421,18 @@
    "rust_file": "src/okay_database/hm033.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm33_相似单时间抱团特征/hm33_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "running",
-   "step_library": "pending",
-   "step_cleanup": "pending",
+   "step_submit": "done",
+   "step_library": "done",
+   "step_cleanup": "done",
    "task_id": 404,
-   "note": "提交于 2026-10-12 07:48:00，n_jobs=200"
+   "note": "对账：completed，因子库 {'base': 41, 'gap5': 30, 'gap1': 28, 'db': 6}，残留 colblk 0",
+   "library_files": {
+    "base": 41,
+    "gap5": 30,
+    "gap1": 28,
+    "db": 6
+   },
+   "colblk_left": 0
   },
   {
    "num": 34,
@@ -1477,11 +1484,18 @@
    "rust_file": "src/okay_database/hm034.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm34_动态时间规整/hm34_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "pending",
-   "step_library": "pending",
-   "step_cleanup": "pending",
-   "task_id": null,
-   "note": "hm034（动态时间规整）已在 src/okay_database/hm034.rs 复现，对账命令 verify_series.py --pairs \"20250303:000001,20250304:600519,20180601:000002,20231020:300750\" 结论「通过」，另加 4 组（20220819:000001、20190301:600519、20250305:000002、20250303:300750）也逐值一致；20250303 单日 n_jobs=4 冒烟已写出 hm34_base 的 28 个入选因子，抽查 6 只股票的 h5 值与 rp.okay_compute_stock 完全相同。踩过一个坑记在这里：按自然分钟分桶后，窗口过滤必须用分钟标签（bin 左端）而不是这一分钟第一笔的实际时间，否则 10:00:00 这种边界格会被漏掉，open30 那 15 个值全错（第一版就是这么错的，改成标签后通过）。"
+   "step_submit": "done",
+   "step_library": "done",
+   "step_cleanup": "done",
+   "task_id": 405,
+   "note": "对账：completed，因子库 {'base': 28, 'gap5': 21, 'gap1': 18, 'db': 0}，残留 colblk 0",
+   "library_files": {
+    "base": 28,
+    "gap5": 21,
+    "gap1": 18,
+    "db": 0
+   },
+   "colblk_left": 0
   },
   {
    "num": 35,
@@ -1534,11 +1548,18 @@
    "rust_file": "src/okay_database/hm035.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm35_显现后交易/hm35_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "pending",
-   "step_library": "pending",
-   "step_cleanup": "pending",
-   "task_id": null,
-   "note": "hm035（显现后交易）已完成。src/okay_database/hm035.rs 提供 names/compute_stock（90 个因子，逐股），\ncompute_cross 返回 None；/home/chenzongwei/pythoncode/成果hm35_显现后交易/hm35_okay_database.py 已按\nhm29_okay_database.py 的形状建好（names_save 26 个、names_gap5 14 个、names_gap1 30 个、names_in_db 2 个）。\n\n新旧对账通过：verify_series.py --series hm035 --pairs \"20250303:000001,20250304:600519,\n20180601:000002,20231020:300750\" 四组各 90 个值全部「一致」，结论「通过」（阈值 1e-4）。\n\n两处必须记下的实现要点。第一，min_time 与 max_time 不是按时间取的，而是先把整天按\n['price','exchtime'] 稳定排序后取 iloc[0]（最低价那一组里最早的一笔）和「最高价组里排在最前的一笔」，\n所以无需真的排序、但要按价格分组来找时间。唯一的例外是 silent 窗口，它由 10:00~11:30 与\n13:01~14:30 两段 concat 而成，两段各自价格有序而整体不是，iloc[0] 只落在前一段里；300750@20231020\n就是靠这个区别才对上的，按「整体最低价」算会差 2 倍。第二，price 必须按 f64 读，\n最高/最低价组是靠严格相等分出来的，f32 会把不同价格塌成一个数、把成交错分到别的组。\n\n冒烟：run_base(20250303, 20250303, n_jobs=8) 单日全市场 5117 只跑通，base 层 26 个 h5 落盘，\n文件名与 names_save 逐一对上，临时 colblk 已自动删除。未覆盖的分支：整只为空或窗口内\n0 行时 one() 返回 5 个 NaN 那条路，四组对账里没碰到。"
+   "step_submit": "done",
+   "step_library": "done",
+   "step_cleanup": "done",
+   "task_id": 406,
+   "note": "对账：completed，因子库 {'base': 26, 'gap5': 14, 'gap1': 30, 'db': 2}，残留 colblk 0",
+   "library_files": {
+    "base": 26,
+    "gap5": 14,
+    "gap1": 30,
+    "db": 2
+   },
+   "colblk_left": 0
   },
   {
    "num": 36,
@@ -1570,11 +1591,18 @@
    "rust_file": "src/okay_database/hm036.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm36_尾盘撤单/hm36_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "pending",
-   "step_library": "pending",
-   "step_cleanup": "pending",
-   "task_id": null,
-   "note": "Rust 已复现并逐值对齐（10 组含全 NaN 分支，全部通过）"
+   "step_submit": "done",
+   "step_library": "done",
+   "step_cleanup": "done",
+   "task_id": 407,
+   "note": "对账：completed，因子库 {'base': 8, 'gap5': 2, 'gap1': 6, 'db': 0}，残留 colblk 0",
+   "library_files": {
+    "base": 8,
+    "gap5": 2,
+    "gap1": 6,
+    "db": 0
+   },
+   "colblk_left": 0
   },
   {
    "num": 37,
@@ -1649,11 +1677,18 @@
    "rust_file": "src/okay_database/hm037.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm37_订单体量与盈利/hm37_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "pending",
-   "step_library": "pending",
-   "step_cleanup": "pending",
-   "task_id": null,
-   "note": "hm037（订单体量与盈利，Level2 逐笔，per_stock）已复现并通过对账。\nRust: src/okay_database/hm037.rs，200 个因子名与旧 names_single 逐个一致（20 指标 × 5 时段 × 原值/绝对值）。\n因子库文件: /home/chenzongwei/pythoncode/成果hm37_订单体量与盈利/hm37_okay_database.py（names_save 47、gap5 27、gap1 35、names_in_db 3，全部原样搬自 hm37_okay.py；本系列没有 _fold）。\n对账①（verify_series）: 20231226:000001 / 20231227:600519 / 20231228:000002 / 20231229:300750，旧 200 值 / 新 200 值，全部一致，结论「通过」。\n对账②（补充，脚本 /tmp/hm037_extra_verify.py）: 20250120 那天要的日频表在旧模块默认范围外，所以把旧模块日频表放宽到 20150120~20251031 后重跑，20180601:000002 / 20150120:000001 / 20231020:300750 / 20250303:000001 / 20250304:600519 五组 200 值全一致，覆盖到 2018 与 2015 年。\n  为什么需要补充对账：verify_series 的 load_old 固定用 run_base(20240102,20240102) 建旧模块，日频表只有 20231218~20240102 这 11 天；本系列 three 那 6 个指标要取「5 个交易日前的开盘价」，范围外的日期在旧代码里直接 KeyError → try 吞成 NaN。所以正式 4 组特意选在那 11 天窗口内，让 three 也能逐值比。\n单日冒烟: run_base(20250303,20250303,n_jobs=3) 写完 hm37_base，47 个 h5 + 4 个元数据文件，5117 个股票日。\n实现上的两处偏差（都不是语义偏差，已实测）:\n  1. 没用 read_trade_fast_inner（它的 turnover/volume 是 f32）。本系列的指标是 corr(close/vwap-1, log 成交量)，close/vwap-1 常只有 1e-4 量级，f32 的 ~1e-7 相对误差会被放大到 1e-4~3e-3，对账不过；改成自己按 f64 解析 CSV（列索引与 fast_csv_reader 一致），改完误差降到 1e-9 以下。\n  2. 相关系数的零方差判定：某一侧在有效样本里逐位全等时直接给 NaN。numpy 在这种情况算到的方差正好是 0、给 NaN，而我们自己顺序累加平方和会留 ~1e-16 残差、算出一个 1e-15 量级的假相关。加了这一条后原本 4 组里 6 处「旧 NaN / 新 1e-15」全部消失。"
+   "step_submit": "done",
+   "step_library": "done",
+   "step_cleanup": "done",
+   "task_id": 408,
+   "note": "对账：completed，因子库 {'base': 47, 'gap5': 27, 'gap1': 35, 'db': 3}，残留 colblk 0",
+   "library_files": {
+    "base": 47,
+    "gap5": 27,
+    "gap1": 35,
+    "db": 3
+   },
+   "colblk_left": 0
   },
   {
    "num": 38,
@@ -1738,11 +1773,18 @@
    "rust_file": "src/okay_database/hm038.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm38_订单编号与价格/hm38_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "pending",
-   "step_library": "pending",
-   "step_cleanup": "pending",
-   "task_id": null,
-   "note": "hm038 通过（640 个值里 610 个相对误差达标，30 个数值零按绝对误差放行）。\n\n产物\n- src/okay_database/hm038.rs（逐股，640 个因子）\n- /home/chenzongwei/pythoncode/成果hm38_订单编号与价格/hm38_okay_database.py（per_stock / okay_hm038）\n- 旧文件 hm38_okay.py 未改动。\n\n对账（lib/okay_database/verify_series.py）\n- 20250303:000001、20250304:600519、20180601:000002、20231020:300750，四组全部「一致」，结论「通过」。\n- 数值零放行个数：000001 33 个、600519 30 个、000002 30 个、300750 30 个。\n  30 个就是每份 sing 的头三个截距（b0 / ask_b0 / bid_b0）× 10 份；000001 多的 3 个是\n  截距之外的量恰好也落在 1e-9 以内（不是问题，report 里能看到）。\n- 这些截距数学上恒等于 0，实测旧值 -1.4067e-13、numpy lstsq -8.0076e-14、代公式 -7.9624e-14，\n  彼此差 43%~100%，属于舍入噪声；b1/b2/r2 相对差 ~1e-13 完全对得上；\n  这 30 个值不在 names_save 里（names_save 里的 b0 都带 _mean/_std/_skew/_max/_min 后缀，\n  是分格截距的聚合，分格截距量级 O(0.1~100)，不是噪声）。\n\n冒烟\n- run_base(20250303, 20250303, n_jobs=8) 走通，base 层写出 52 个 hdf5，\n  与 names_save 逐个核对无缺无多。未跑全历史，全历史交给队列。\n\n做这个系列踩到的关键点（都写进 hm038.rs 文件头了）\n1. 一开始 r2 那一族（r2/ask_r2/bid_r2 的 mean/std/skew/min）差 98%，每对 26 处不过。\n   根因是 09:25 与 15:00 这两个集合竞价格：格内所有成交价完全相同，标准化后的 y 是常数，\n   ss_tot 只剩 1 ulp 级的舍入（~1e-32），而 ss_res 是另一份噪声，r2 落到 -1e6 与 -2e4 量级，\n   两个格子就主导了整列的聚合值。\n2. 修法是两条，缺一不可：\n   - 标准化的均值和「平方偏差和」用 numpy 的 pairwise 求和（PW_BLOCKSIZE=128、8 路展开）\n     在 Rust 里照抄一份，z 才能和 pandas 逐位一致；\n   - 回归照抄 rp.ols：用 ndarray 的 .dot() 算 X'X / X'y，再抄 solve_linear_system3 的 LU，\n     不能自己写循环（自己写会差出倍数级）。\n   这两条做到之后四组全过，连那 30 个截距噪声都跟着对上了。\n3. 顺带确认：r2 那一族没有任何名字进 names_save / gap5 / gap1 名单，所以即使不改也\n   不影响入库因子；但改了以后自动门槛能干净地过。\n\n没覆盖到的分支\n- 只验了 4 个交易日各 1 只股票。格内价格全同（集合竞价）的退化情形在 4 组里都出现了，\n  但「格内挂单号全同」这种更极端的退化没造样本。"
+   "step_submit": "done",
+   "step_library": "done",
+   "step_cleanup": "done",
+   "task_id": 409,
+   "note": "对账：completed，因子库 {'base': 52, 'gap5': 36, 'gap1': 34, 'db': 8}，残留 colblk 0",
+   "library_files": {
+    "base": 52,
+    "gap5": 36,
+    "gap1": 34,
+    "db": 8
+   },
+   "colblk_left": 0
   },
   {
    "num": 39,
@@ -1783,11 +1825,18 @@
    "rust_file": "src/okay_database/hm039.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm39_边城新生/hm39_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "pending",
-   "step_library": "pending",
-   "step_cleanup": "pending",
-   "task_id": null,
-   "note": "hm039 已完成：verify_series.py 四组 (20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750) 旧 288 值对新 288 值全部一致，结论「通过」；单日（20250303）小样本冒烟写出 hm39_base 的 14 个入选 base（库版本名按队列约定是 hm39 / hm39_base，不是 hm039），逐值核对了 h5 与 rp.okay_compute_stock 一致。\n\n实现要点与唯一近似：\n- 旧代码的 new_time 把下午段整体减 91 分钟，所有窗口都切在这个「平移钟点」上；逐笔与盘口用同一套平移。\n- sing_in 里 future_minute 只作用于 asks 侧，bids 侧写死 3 分钟（旧代码原样）。\n- 降序排序的并列顺序走的是 numpy 2.x 的 x86-simd-sort argsort（AVX512 位元网络 + 分区），稳定排序会错（000002@20180601 有 8 个值相对误差到 12%），所以按源码逐行做了标量复刻，已和 numpy 2.3.5 在这 4 组数据产生的 48 个真实候选数组上对拍，顺序完全一致。\n- 唯一近似：x86-simd-sort 迭代次数耗尽时退回 std::sort，这里用稳定排序代替；这 48 个候选数组一次都没触发（候选尺寸 138~510），但极小概率在别的股票日上会碰到。\n- names 与值的口径本来就不一致（名字里有 future180 却没有对应值，值里有 param20 却没有对应名字），这是旧代码原样，Rust 侧照抄名字顺序与值顺序。\n\n未覆盖：run_db / run_h5 / run_h1 需要 base 全历史才能跑，本步只做了单日冒烟；全历史由队列统一提交。"
+   "step_submit": "done",
+   "step_library": "done",
+   "step_cleanup": "done",
+   "task_id": 410,
+   "note": "对账：completed，因子库 {'base': 14, 'gap5': 9, 'gap1': 9, 'db': 2}，残留 colblk 0",
+   "library_files": {
+    "base": 14,
+    "gap5": 9,
+    "gap1": 9,
+    "db": 2
+   },
+   "colblk_left": 0
   },
   {
    "num": 3,
@@ -1842,11 +1891,18 @@
    "rust_file": "src/okay_database/hm003.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm3_网络延迟因子/hm3_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "pending",
-   "step_library": "pending",
+   "step_submit": "cancelled",
+   "step_library": "done",
    "step_cleanup": "pending",
-   "task_id": null,
-   "note": "hm003 已完成：verify_series.py 四组 (20250303:000001 / 20250304:600519 / 20180601:000002 / 20231020:300750) 旧 45 值对新 45 值全部一致，结论「通过」（5 个时段 × 9 个指标）。\n\n实现要点：\n- change_time=0 是这一系列的关键：exchtime/localtime 两列保持原始微秒，delay 因此是**微秒**单位的真实延迟。\n- get_many=2 的五个时段是真实钟点闭区间：allday 全部、open30 [09:29:50,10:00:10]、morning [09:29:50,11:30:10]、afternoon [12:59:50,15:00:10]、close30 [14:29:50,15:00:10]，段顺序与 names 顺序一致。\n- 分组统计按 pandas 语义：按 ask_order/bid_order 分组求 delay 均值再对组均值取平均；标准差是 ddof=1 的样本标准差，单元素组算 NaN、求平均时跳过；bid_turnover 等价于「每个委托一行」，行上带该委托的 bid_delay，再对「每委托」取 0.1/0.9 分位。\n\n多出来的那一步跨股票正交（不在 get_factor 里，verify_series 覆盖不到）：\n- 旧 run_base 对 27 个入选名里非 common_act_buy 的 22 个做了 dwo.de_cross(该因子.rank(axis=1), common_act_buy_同段.rank(axis=1))，用残差覆盖原值。\n- 本文件在 run_base 里用 Python 复刻（_ols_resid）：逐日对截面排名做带截距 OLS、只取两边都非空值的股票（inner join）。\n- 验证：与 dwo.de_cross 在随机数据上逐格比对，最大差 1.8e-15；在 20250303 真实数据上先写原值、再跑正交，残差与手工按旧语义重算的结果最大差 0.0，与 x 排名的相关系数 0.0，common_act_buy 列未被改动。\n\n单日（20250303）小样本冒烟完成了 run_base（含正交那一步），hm3_base 里 27 个因子 + 配置文件齐全。\n未覆盖：run_db / run_h5 / run_h1 需要全历史 base 才能跑，本步只做单日冒烟；全历史由队列统一提交。"
+   "task_id": 411,
+   "note": "对账：cancelled，因子库 {'base': 27, 'gap5': 0, 'gap1': 0, 'db': 0}，残留 colblk 8",
+   "library_files": {
+    "base": 27,
+    "gap5": 0,
+    "gap1": 0,
+    "db": 0
+   },
+   "colblk_left": 8
   },
   {
    "num": 40,
@@ -1928,11 +1984,11 @@
    "rust_file": "src/okay_database/hm040.rs",
    "database_py": "/home/chenzongwei/pythoncode/成果hm40_洗澡&保洁员应聘/hm40_okay_database.py",
    "step_rewrite": "done",
-   "step_submit": "pending",
+   "step_submit": "running",
    "step_library": "pending",
    "step_cleanup": "pending",
-   "task_id": null,
-   "note": "hm040（洗澡 & 保洁员应聘，Level2 逐笔逐股）已完成。\n\n新增 src/okay_database/hm040.rs（540 个因子 = 4 组 × 27 个量 × 5 个窗口）与\n成果hm40_洗澡&保洁员应聘/hm40_okay_database.py（53 个 base 名）。\n\n对账通过：verify_series.py 跑 20250303:000001、20250304:600519、20180601:000002、20231020:300750，\n4 组 × 540 值全部「一致」（NaN 个数 56 / 8 / 7 / 0 也一致），结论「通过」。\n\n过程中修掉一处真实的语义差异（不是精度问题）：旧代码先对整张逐笔表做下午平移再切窗口，\nmorning 窗口的右端点是平移后的 11:30:00.000000，而下午第一笔 13:00:00.000000 平移后正好等于它，\n所以这笔下午开盘成交会被算进 morning；afternoon 窗口左端点同理会吃下上午 11:30:00.000000 的成交。\n实测 000001@20250303 的 morning 窗口 34411 行 = 上午 34408 行 + 下午整点 3 行；漏掉这 3 行时\n540 个值里有 41 处不一致（最大相对误差 1.9e-2），补上两个整点端点后全对上。\n\n另外两处照抄的旧代码细节：\n· cal_high 里 `inner83_volume_high_mean` 被赋值两次（第二次用次高价箱的均值覆盖），\n  返回列表里这个名字出现两次、值相同，所以 540 个名字里有 20 组重名；按规范给第二次\n  及以后的出现加 `_dup2` 后缀。names_save 点到的 3 个这类名字取到的是不带后缀的那一份，\n  值与带 `_dup2` 的那一份逐位相同，已回读校验。\n· 价格分箱 pd.cut(bins=10) 的边（整数 bins、mn==mx 的特殊分支、side=\"left\" 落箱）\n  按 pandas 源码复刻，用真实离散价格与 pandas 对照过 300 组随机数据、零差异。\n\n数值口径：逐笔价格/成交量按 f64 自己解析 CSV（旧框架是 float64，库里的 fast reader 是 f32）；\npandas 的 Series.sum()/mean() 用 numpy 成对求和，本文件照 series_work_spec 第六节复刻。\n\n单日冒烟：20250303 一天、n_jobs=8，输出改到 /tmp/h40_smoke，5117 只算完（451 秒），\n53 个 h5 全部写出；回读三个因子与 rp.okay_compute_stock 逐值相同，临时目录已删。"
+   "task_id": 412,
+   "note": "提交于 2026-10-13 20:02:27，n_jobs=200"
   },
   {
    "num": 41,

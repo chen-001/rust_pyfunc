@@ -1,0 +1,24 @@
+{
+  "type": "factor-experiment-run",
+  "schemaVersion": 1,
+  "experiment": "yupei2_dir_reduce",
+  "runId": "run-3",
+  "order": 3,
+  "scriptPath": "/home/chenzongwei/rust_pyfunc/experiments/yupei2/dir_probe3.py",
+  "scriptSha256": "49027695c906258c43f427f81bbed314bfe0c7570c78120e00268e1ea85cdc34",
+  "startDate": "20241230",
+  "endDate": "20241231",
+  "universe": "两日 codes.txt 交集 3746 只",
+  "nJobs": 1,
+  "taskId": null,
+  "outputDir": "/home/chenzongwei/rust_pyfunc/experiments/yupei2_dir_reduce.probe3.json",
+  "note": "第三轮机制样本：时标谱（9 个 tau 拟合 log S vs 1/tau）、跨 tau 一致性、同向/对盘 2x2、集合重叠",
+  "recordedAt": "2026-10-08T18:31:16",
+  "sessionId": "session-b0b6717d-d38c-4cba-8787-72fc4ea4b7d1",
+  "lib": {
+    "soPath": "/home/chenzongwei/rust_pyfunc/python/rust_pyfunc/rust_pyfunc.abi3.so",
+    "so": "49673329:1791332668963074321",
+    "workerPath": "/home/chenzongwei/rust_pyfunc/python/rust_pyfunc/rust_pyfunc_worker",
+    "worker": "22202768:1791332908997002091"
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "type": "factor-research-family",
+  "schemaVersion": 1,
+  "family": "yupei2_dir_reduce",
+  "createdAt": "2026-10-08T17:51:38",
+  "trials": [
+    {
+      "window": "20241230-20241231",
+      "universe": "全市场有逐笔的股票（备份矩阵口径，两日交集 3746 只）",
+      "direction": "无（只看统计量本身的分布、跨日稳定性、与规模和强度的相关）",
+      "params": "矩阵 cnt_t005/cnt_t1/cnt_t30/vol_t1；统计量 q_top20_equal/q_top20_wmean/q_all_wmean/lead_breadth/net_lead_raw/logit_top20/strong_weak_gap/top20_lead_share",
+      "outcome": "kept",
+      "runId": "run-1",
+      "note": "跨日稳定性 0.42-0.51（全伙伴类）与 0.05-0.30（前 20 伙伴类），对称强度同日跨日 0.91 作参照",
+      "role": "mechanism",
+      "at": "2026-10-08T17:58:45",
+      "sessionId": "session-b0b6717d-d38c-4cba-8787-72fc4ea4b7d1"
+    },
+    {
+      "window": "20241230-20241231",
+      "universe": "全市场有逐笔的股票（备份矩阵口径，两日交集 3746 只）",
+      "direction": "无（机制样本，只看统计量的稳定性与重叠）",
+      "params": "矩阵 cnt_t005/cnt_t1/cnt_t30/vol_t1；alpha∈{0,0.25,0.5,0.75,1} 软权重、前50%截断、符号z、q 的 P75/P90、前20伙伴等权",
+      "outcome": "kept",
+      "runId": "run-2",
+      "note": "跨日稳定性：q_p90 0.73（去规模笔数后 0.68）最好，lead_breadth 0.40、软权重各档 0.35-0.39、前20伙伴 0.15；权重指数不是有效旋钮",
+      "role": "mechanism",
+      "at": "2026-10-08T18:06:26",
+      "sessionId": "session-b0b6717d-d38c-4cba-8787-72fc4ea4b7d1"
+    },
+    {
+      "window": "20241230-20241231",
+      "universe": "全市场有逐笔的股票（备份矩阵口径，两日交集 3746 只）",
+      "direction": "时标谱在两个方向上重合（秩相关 0.965），说明它不带方向；带方向的 ts_ratio 跨日只有 0.327",
+      "params": "cnt 族 9 个 tau 的 log S 对 1/tau 最小二乘；flow_same_t1/flow_opp_t1 的 2x2；集合 Jaccard 前 50",
+      "outcome": "dropped",
+      "runId": "run-3",
+      "note": "时标 ts_follow 跨日 0.740、去规模 0.727、与 q_p90 只 0.29（可当独立的关系时标因子），但不是方向因子；跨 tau 一致性 0.030 作废；79 万配对中方向份额偏离 0.5 超过 0.15 的只有 715 对",
+      "role": "mechanism",
+      "at": "2026-10-08T18:31:16",
+      "sessionId": "session-b0b6717d-d38c-4cba-8787-72fc4ea4b7d1"
+    }
+  ],
+  "inResearch": [
+    "20241230-20241231"
+  ]
+}

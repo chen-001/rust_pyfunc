@@ -1,0 +1,888 @@
+{
+ "schema": "yupei2_dir_reduce.module_map/v1",
+ "experiment": "yupei2_dir_reduce",
+ "generated_by": "mod-map (task-5)",
+ "mode": "只读代码审计 + 因子名登记册查重；未改任何源码，未跑批量计算，未提交因子任务",
+ "matrix_convention": {
+  "statement": "所有矩阵按有向存储 S_dir[i][j] = 『i 领先 j 的交互能量』，行主序 N×N f32，对角 0；同 10ms 桶内的成交对按 50/50 折半计入两个方向",
+  "source": "src/yupei_dist/matrix_stage.rs:10-12；同样的读法见 leader_return.rs:62 的注释『d[j*n+i] = j 领先 i』",
+  "matrix_count": "37 张（cnt 9τ + vol 6τ + logvol 4τ + flow same/opp×4τ + urg same/opp×3τ + ext same/opp×2τ），另有 signed 族净矩阵 9 张 flow/urg/ext_t{τ} = same − opp"
+ },
+ "erasing_primitives": [
+  {
+   "name": "ctx.symmetric(name)",
+   "file": "src/yupei_dist/indicator_ctx.rs",
+   "line": 167,
+   "formula": "S_sym[i][j] = S_dir[i][j] + S_dir[j][i]（对角 0）",
+   "effect": "把 i 领先 j 与 j 领先 i 直接相加，方向在进入任何算式之前就没了"
+  },
+  {
+   "name": "ctx.row_sum_sym(name)",
+   "file": "src/yupei_dist/indicator_ctx.rs",
+   "line": 189,
+   "formula": "Σ_j S_sym[i][j] = out_i + in_i",
+   "effect": "行和等于有向出强度加有向入强度，与 directionality 的 out/in 两列之和恒等"
+  }
+ ],
+ "preserving_primitives": [
+  {
+   "name": "ctx.matrix(name)",
+   "file": "src/yupei_dist/indicator_ctx.rs",
+   "line": 154
+  },
+  {
+   "name": "ctx.matrix_net(name)",
+   "file": "src/yupei_dist/indicator_ctx.rs",
+   "line": 219,
+   "note": "net = same − opp，只在 directionality 与 leadership 用到"
+  },
+  {
+   "name": "ctx.row_sum_dir(name)",
+   "file": "src/yupei_dist/indicator_ctx.rs",
+   "line": 207,
+   "note": "已实现但 28 个模块里一次都没被调用，是有向化改造现成的落点"
+  },
+  {
+   "name": "ctx.col_sum_dir(name)",
+   "file": "src/yupei_dist/indicator_ctx.rs",
+   "line": 237,
+   "note": "同上，已实现未被调用；leader_return 与 directionality 各自手写了等价的列和循环"
+  }
+ ],
+ "summary": {
+  "modules_total": 28,
+  "factors_total": 2761,
+  "factors_checked_against": 2761,
+  "direction_erased_modules": 23,
+  "direction_erased_list": [
+   "assortativity",
+   "basket_hedge",
+   "betweenness",
+   "cliqueness",
+   "closeness",
+   "clustering",
+   "community",
+   "concentration",
+   "edge_dynamics",
+   "eigenvector",
+   "hidden_interaction",
+   "industry",
+   "isolation",
+   "multiscale",
+   "neighbor_dispersion",
+   "neighbor_strength",
+   "neighbor_z",
+   "network_momentum",
+   "reciprocity",
+   "starness",
+   "strength",
+   "surplus",
+   "topk"
+  ],
+  "direction_erased_factors": 2217,
+  "direction_preserved_modules": 5,
+  "direction_preserved_list": [
+   "directionality",
+   "leadership",
+   "leader_return",
+   "pagerank",
+   "motifs"
+  ],
+  "direction_preserved_factors": 544,
+  "note_23_vs_22": "按调用点算是 22 个模块只调 ctx.symmetric / ctx.row_sum_sym；reciprocity 第 19 行读的是有向 ctx.matrix，但 Σmin/Σmax 在转置下不变，输出仍然没有方向，所以『结果被抹平』的模块是 23 个、条目里标为 erased_by_formula。",
+  "direction_blind_columns_inside_preserved_modules": {
+   "factors": 74,
+   "items": [
+    "rec_{mat}_reciprocity (37)",
+    "mot_{mat}_reciprocal (37)"
+   ],
+   "reason": "读有向矩阵但算式对调换 i、j 不变"
+  },
+  "single_line_change_modules": [
+   "strength",
+   "topk",
+   "concentration",
+   "isolation",
+   "network_momentum",
+   "neighbor_strength",
+   "neighbor_dispersion",
+   "neighbor_z",
+   "assortativity",
+   "surplus",
+   "betweenness",
+   "closeness",
+   "industry"
+  ],
+  "heavy_rewrite_modules": [
+   "community",
+   "clustering",
+   "reciprocity"
+  ],
+  "caveat": "以上判断来自读源码，没有跑任何计算；『改一处就能变有向』指的是调用点唯一、且该模块的算式结构不需要重新定义，不代表改完数值一定稳定。"
+ },
+ "modules": [
+  {
+   "module": "assortativity",
+   "file": "src/yupei_dist/indicators/assortativity.rs",
+   "factor_prefix": "assort_",
+   "n_factors": 74,
+   "matrix_source": "37 张全部（对称化后）",
+   "direction_class": "erased",
+   "erased_call_sites": [
+    {
+     "line": 20,
+     "code": "let sym = match ctx.symmetric(mat) {"
+    },
+    {
+     "line": 24,
+     "code": "let row_sums = match ctx.row_sum_sym(mat) {"
+    }
+   ],
+   "change_point": "assortativity::compute 两处取矩阵：第 20 行 ctx.symmetric(mat)，第 24 行 ctx.row_sum_sym(mat)。",
+   "directed_design": "第 20 行换成 P = ctx.matrix(mat) 的行归一化（P[i][j]=L[i][j]/Σ_j L[i][j]），第 24 行换成 ctx.row_sum_dir(mat)（indicator_ctx.rs:207，全库目前无人调用）。第 28/44 行的行内 corr 与第 66-83 行的 Σp·Strength 逻辑都不用动，含义从『我的对称强度 vs 邻居强度』变成『我把领先分给谁 vs 邻居强度』。行和与列和两条口径可分别出一列。",
+   "examples": [
+    "assort_cnt_t1_corr",
+    "assort_cnt_t1_nb_str_minus_mean"
+   ]
+  },
+  {
+   "module": "basket_hedge",
+   "file": "src/yupei_dist/indicators/basket_hedge.rs",
+   "factor_prefix": "bh_",
+   "n_factors": 27,
+   "matrix_source": "9 对 signed 族 same/opp",
+   "direction_class": "erased",
+   "erased_call_sites": [
+    {
+     "line": 31,
+     "code": "let same = match ctx.symmetric(&format!(\"{fam}_same_{tau}\")) {"
+    },
+    {
+     "line": 35,
+     "code": "let opp = match ctx.symmetric(&format!(\"{fam}_opp_{tau}\")) {"
+    }
+   ],
+   "change_point": "basket_hedge::compute 第 31 行与第 35 行两次 ctx.symmetric(...)。",
+   "directed_design": "两处 ctx.symmetric(...) 换成 ctx.matrix(...) 拿到原始有向同向/反向矩阵；第 39-46 行的行和换成 out 和（ctx.row_sum_dir）与 in 和（ctx.col_sum_dir），basket 从『同向互动的总和』拆成『我主动领先的同向互动』与『别人领先我的同向互动』。same/opp 本身是主动买卖方向、不是领先滞后方向，这一条要跟方向性分开说。",
+   "examples": [
+    "bh_flow_t1_basket",
+    "bh_flow_t1_hedge",
+    "bh_flow_t1_hedge_ratio"
+   ]
+  },
+  {
+   "module": "betweenness",
+   "file": "src/yupei_dist/indicators/betweenness.rs",
+   "factor_prefix": "btw_",
+   "n_factors": 37,
+   "matrix_source": "37 张全部（对称化后）",
+   "direction_class": "erased",
+   "erased_call_sites": [
+    {
+     "line": 20,
+     "code": "let sym = match ctx.symmetric(mat) {"
+    }
+   ],
+   "change_point": "betweenness::compute 第 20 行 ctx.symmetric(mat)，以及第 26-40 行在该对称矩阵上取每行 top-50 建无向邻居表，第 68/82 行的 BFS 只走这张无向表。",
+   "directed_design": "第 20 行换成 ctx.matrix(mat)，第 26-40 行的 top-50 变成有向出边 top-50，第 53-97 行的 Brandes BFS 改成只沿出边走（有向最短路）。sigma/delta 的累加结构不用改，改的是邻居表的取法。",
+   "examples": [
+    "btw_cnt_t1_betweenness"
+   ]
+  },
+  {
+   "module": "cliqueness",
+   "file": "src/yupei_dist/indicators/cliqueness.rs",
+   "factor_prefix": "clique_",
+   "n_factors": 37,
+   "matrix_source": "37 张全部（对称化后）",
+   "direction_class": "erased",
+   "erased_call_sites": [
+    {
+     "line": 20,
+     "code": "let sym = match ctx.symmetric(mat) {"
+    },
+    {
+     "line": 24,
+     "code": "let row_sums = match ctx.row_sum_sym(mat) {"
+    },
+    {
+     "line": 41,
+     "code": "links += sym[nbr[a] as usize * n + nbr[b] as usize] as f64;"
+    }
+   ],
+   "change_point": "cliqueness::compute 第 20/24 行取对称矩阵与对称行和，第 41 行用对称矩阵查邻居之间的边。",
+   "directed_design": "第 20 行换 P 或 ctx.matrix(mat)，第 24 行换 ctx.row_sum_dir(mat)，第 41 行的 sym[a][b] 换成 d[nbr[a]][nbr[b]]（有向边），聚类部分按方向拆成『邻居是否也领先于邻居』。",
+   "examples": [
+    "clique_cnt_t1_score"
+   ]
+  },
+  {
+   "module": "closeness",
+   "file": "src/yupei_dist/indicators/closeness.rs",
+   "factor_prefix": "clo_",
+   "n_factors": 37,
+   "matrix_source": "37 张全部（对称化后）",
+   "direction_class": "erased",
+   "erased_call_sites": [
+    {
+     "line": 22,
+     "code": "let sym = match ctx.symmetric(mat) {"
+    }
+   ],
+   "change_point": "closeness::compute 第 22 行 ctx.symmetric(mat)，第 26-40 行取对称 top-50 邻居，第 41-80 行的多源 BFS 在无向图上走。",
+   "directed_design": "第 22 行换 ctx.matrix(mat)，第 26-40 行的邻居表改成有向出边 top-50，BFS 只沿出边走；『到别人的距离』与『别人到我的距离』成为两个不同的量，可分别出列。",
+   "examples": [
+    "clo_cnt_t1_closeness"
+   ]
+  },
+  {
+   "module": "clustering",
+   "file": "src/yupei_dist/indicators/clustering.rs",
+   "factor_prefix": "clu_",
+   "n_factors": 37,
+   "matrix_source": "37 张全部（对称化后）",
+   "direction_class": "erased",
+   "erased_call_sites": [
+    {
+     "line": 79,
+     "code": "let sym = match ctx.symmetric(mat) {"
+    },
+    {
+     "line": 107,
+     "code": "let wij = (sym[i * n + ja] / max_w) as f64;"
+    },
+    {
+     "line": 108,
+     "code": "let wjk = (sym[ja * n + jb] / max_w) as f64;"
+    },
+    {
+     "line": 109,
+     "code": "let wki = (sym[jb * n + i] / max_w) as f64;"
+    }
+   ],
+   "change_point": "clustering::compute 第 79 行 ctx.symmetric(mat)；第 107-109 行三条边都取自对称矩阵，构成的是无向三角 i-ja-jb。",
+   "directed_design": "只换矩阵指针不够，公式要拆环。有向版用 Fagiolo 有向聚类系数：环 i→ja→jb→i 与 i→jb→ja→i 分别用 d[i][ja]·d[ja][jb]·d[jb][i] 与反向三条算，再取平均。第 86 行的 topk_minheap 改成在有向行上选。",
+   "examples": [
+    "clu_cnt_t1_coef"
+   ]
+  },
+  {
+   "module": "community",
+   "file": "src/yupei_dist/indicators/community.rs",
+   "factor_prefix": "comm_",
+   "n_factors": 185,
+   "matrix_source": "37 张全部（对称化后）",
+   "direction_class": "erased",
+   "erased_call_sites": [
+    {
+     "line": 23,
+     "code": ".map(|m| ctx.symmetric(m))"
+    },
+    {
+     "line": 75,
+     "code": "let w = (sym[a as usize * n + b as usize] + sym[b as usize * n + a as usize]) * 0.5;"
+    },
+    {
+     "line": 119,
+     "code": "let gain = k_in - k_i[i] * comm_tot[c] / (2.0 * m);"
+    }
+   ],
+   "change_point": "community::compute 第 23 行 ctx.symmetric(m)；第 75 行显式把权重再对称化一次；第 119 行用的是无向模块度增益 k_in − k_i·Σ_tot/(2m)。",
+   "directed_design": "这是 28 个里改动最大的一处：模块度要从无向换成有向（Leicht-Newman），零模型从 k_i·Σ_tot/(2m) 换成 k_i^out·k_j^in/m，第 75 行的权重合并整段去掉。Louvain 的节点扫描与社群重编号（第 89-145 行）可以保留。",
+   "examples": [
+    "comm_cnt_t1_size",
+    "comm_cnt_t1_within",
+    "comm_cnt_t1_participation"
+   ]
+  },
+  {
+   "module": "concentration",
+   "file": "src/yupei_dist/indicators/concentration.rs",
+   "factor_prefix": "conc_",
+   "n_factors": 222,
+   "matrix_source": "37 张全部（对称化后）",
+   "direction_class": "erased",
+   "erased_call_sites": [
+    {
+     "line": 20,
+     "code": "let sym = match ctx.symmetric(mat) {"
+    },
+    {
+     "line": 24,
+     "code": "let row_sums = match ctx.row_sum_sym(mat) {"
+    }
+   ],
+   "change_point": "concentration::compute 第 20 行 ctx.symmetric(mat)，第 24 行 ctx.row_sum_sym(mat)；第 44-90 行的 HHI/熵/top3·5·10 都建立在这一行分布上。",
+   "directed_design": "第 20 行换成 P（第 i 行除以行和），第 24 行换成 ctx.row_sum_dir(mat)，后面 HHI/熵/topK 的循环完全不动。P 与 Q（列归一化）各出一套，P 口径是『我把注意力分给谁』，Q 口径是『谁在领先我』。",
+   "examples": [
+    "conc_cnt_t1_hhi",
+    "conc_cnt_t1_entropy",
+    "conc_cnt_t1_top3_share"
+   ]
+  },
+  {
+   "module": "directionality",
+   "file": "src/yupei_dist/indicators/directionality.rs",
+   "factor_prefix": "dir_",
+   "n_factors": 184,
+   "matrix_source": "46 张（37 有向 + 9 net）",
+   "direction_class": "preserved",
+   "erased_call_sites": [],
+   "change_point": "无需改动。dir_matrix（第 76-89 行）第 85 行取 ctx.matrix_net、第 88 行取 ctx.matrix；out/in/net_lead/lead_ratio 四列都随转置改变。",
+   "directed_design": "已经是方向保留版：第 27-30 行 out_strength = 有向行和，第 31-47 行 in_strength = 有向列和，第 48-60 行 net_lead 与 lead_ratio。有向降维设计应当把它当基线而不是重做。",
+   "examples": [
+    "dir_cnt_t1_out_strength",
+    "dir_cnt_t1_in_strength",
+    "dir_cnt_t1_net_lead",
+    "dir_cnt_t1_lead_ratio"
+   ]
+  },
+  {
+   "module": "edge_dynamics",
+   "file": "src/yupei_dist/indicators/edge_dynamics.rs",
+   "factor_prefix": "dyn_",
+   "n_factors": 333,
+   "matrix_source": "37 张全部 × 当日/前日",
+   "direction_class": "erased",
+   "erased_call_sites": [
+    {
+     "line": 52,
+     "code": "let sym = match ctx.symmetric(mat) {"
+    },
+    {
+     "line": 82,
+     "code": "psym.par_chunks_mut(pn).enumerate().for_each(|(i, row)| {"
+    },
+    {
+     "line": 85,
+     "code": "row[j] = pd[i * pn + j] + pd[j * pn + i];"
+    }
+   ],
+   "change_point": "edge_dynamics::compute 第 52 行当日对称化；第 81-88 行对前一日矩阵手工做 psym[i][j] = pd[i][j] + pd[j][i]；第 152/160 行的 Pearson 与 top-10 都在对称口径上。",
+   "directed_design": "第 52 行换成 ctx.matrix(mat)；第 81-88 行整段删掉，直接用 prev.set.mats.get(mat)——compute.rs 第 170-180 行从 {BACKUP_DIR}/{prev_date}/mats/*.bin 读进来的就是有向 f32，不需要额外数据。第 158-203 行的 retention/turnover 保留拓扑，但 top-10 改成有向出边 top-10，比较对象从『边强度是否还在』变成『领先份额与领先方向是否还在』。",
+   "examples": [
+    "dyn_cnt_t1_edge_persistence",
+    "dyn_cnt_t1_retention",
+    "dyn_cnt_t1_turnover"
+   ]
+  },
+  {
+   "module": "eigenvector",
+   "file": "src/yupei_dist/indicators/eigenvector.rs",
+   "factor_prefix": "eig_",
+   "n_factors": 37,
+   "matrix_source": "37 张全部（对称化后）",
+   "direction_class": "erased",
+   "erased_call_sites": [
+    {
+     "line": 20,
+     "code": "let sym = match ctx.symmetric(mat) {"
+    },
+    {
+     "line": 24,
+     "code": "let col = power_iteration(&sym, n);"
+    }
+   ],
+   "change_point": "eigenvector::compute 第 20 行 ctx.symmetric(mat)，第 24 行把对称矩阵交给 power_iteration（第 30-83 行）。",
+   "directed_design": "第 20 行换成 P（行随机），幂迭代仍可复用：行随机矩阵主特征值恒为 1，主特征向量一定收敛且是实向量，不会出现有向矩阵主特征值成复对的问题。若要『谁被领先得最多』则换成 Q。第 44-55 行的 matvec 与第 57-71 行的归一化不用改。注意这与 pr_*_pagerank 高度重合，只差阻尼 0.85 与悬挂节点处理。",
+   "examples": [
+    "eig_cnt_t1_centrality"
+   ]
+  },
+  {
+   "module": "hidden_interaction",
+   "file": "src/yupei_dist/indicators/hidden_interaction.rs",
+   "factor_prefix": "hid_",
+   "n_factors": 74,
+   "matrix_source": "37 张全部（对称化后）",
+   "direction_class": "erased",
+   "erased_call_sites": [
+    {
+     "line": 31,
+     "code": "let sym = match ctx.symmetric(mat) {"
+    },
+    {
+     "line": 42,
+     "code": "for j in (i + 1)..n {"
+    },
+    {
+     "line": 48,
+     "code": "let x = feature_vec(i, j, ind, &f_size, &f_liq, &f_ret);"
+    }
+   ],
+   "change_point": "hidden_interaction::compute 第 31 行 ctx.symmetric(mat)；第 42 行只扫上三角（本身就是对称假设）；feature_vec（第 113-140 行）的特征全是 |x_i − x_j| 型对称量。",
+   "directed_design": "第 31 行换 ctx.matrix(mat)，第 42 行改成扫全部 j≠i、被解释变量保持 log1p(S_ij)（有向），feature_vec 里加一列方向特征（例如 I(S_ij > S_ji) 或 log((S_ij+ε)/(S_ji+ε))）。残差拆 pos/neg 的第 73-104 行可以复用，但 pos 与 neg 应分别对应『我多领先』和『别人多领先』。",
+   "examples": [
+    "hid_cnt_t1_degree_pos",
+    "hid_cnt_t1_degree_neg"
+   ]
+  },
+  {
+   "module": "industry",
+   "file": "src/yupei_dist/indicators/industry.rs",
+   "factor_prefix": "ind_",
+   "n_factors": 111,
+   "matrix_source": "37 张全部（对称化后）",
+   "direction_class": "erased",
+   "erased_call_sites": [
+    {
+     "line": 42,
+     "code": "let sym = match ctx.symmetric(mat) {"
+    },
+    {
+     "line": 67,
+     "code": "if ij == ii {"
+    }
+   ],
+   "change_point": "industry::compute 第 42 行 ctx.symmetric(mat)；第 67 行同行业判定 w 累加在对称行上。",
+   "directed_design": "第 42 行换 ctx.matrix(mat)，第 54-70 行的 w 拆成两个：行内同行业（我领先同行业）与列内同行业（同行业领先我），within 列变成 within_out 与 within_in 两列，cross_ratio/mismatch 相应各出一份。行业数据读法（第 19-40 行）不动。",
+   "examples": [
+    "ind_cnt_t1_within",
+    "ind_cnt_t1_cross_ratio",
+    "ind_cnt_t1_mismatch"
+   ]
+  },
+  {
+   "module": "isolation",
+   "file": "src/yupei_dist/indicators/isolation.rs",
+   "factor_prefix": "iso_",
+   "n_factors": 74,
+   "matrix_source": "37 张全部（对称化后）",
+   "direction_class": "erased",
+   "erased_call_sites": [
+    {
+     "line": 19,
+     "code": "let sym = match ctx.symmetric(mat) {"
+    },
+    {
+     "line": 23,
+     "code": "let row_sums = match ctx.row_sum_sym(mat) {"
+    }
+   ],
+   "change_point": "isolation::compute 第 19 行 ctx.symmetric(mat)，第 23 行 ctx.row_sum_sym(mat)；第 31-40 行的 top5 也取自对称行。",
+   "directed_design": "第 19 行换 ctx.matrix(mat)，第 23 行换 ctx.row_sum_dir(mat)，top5 加一个『有向出边 top5 份额』版本。有向化后『我不领先任何人』与『没人领先我』成为两件事，可分别出列。",
+   "examples": [
+    "iso_cnt_t1_inv_strength",
+    "iso_cnt_t1_neg_top5"
+   ]
+  },
+  {
+   "module": "leader_return",
+   "file": "src/yupei_dist/indicators/leader_return.rs",
+   "factor_prefix": "ldr_",
+   "n_factors": 74,
+   "matrix_source": "37 张有向",
+   "direction_class": "preserved",
+   "erased_call_sites": [],
+   "change_point": "无需改动。第 28 行 ctx.matrix(mat) 取有向矩阵；第 33-49 行手算有向列和 Σ_k S_{k→i}；第 62 行 d[j*n+i] 读的是『j 领先 i』；第 90-91 行输出 ldr_*_return 与 ldr_*_shock。",
+   "directed_design": "已经有向，且只覆盖列口径（谁在领先我）。它是候选设计 7 里『列归一化 Q 加权伙伴收益』那半边；缺的是行口径（我带的人）与两者之差。",
+   "examples": [
+    "ldr_cnt_t1_return",
+    "ldr_cnt_t1_shock"
+   ]
+  },
+  {
+   "module": "leadership",
+   "file": "src/yupei_dist/indicators/leadership.rs",
+   "factor_prefix": "lead_",
+   "n_factors": 138,
+   "matrix_source": "46 张（37 有向 + 9 net）",
+   "direction_class": "preserved",
+   "erased_call_sites": [],
+   "change_point": "无需改动。dir_matrix（第 72-85 行）第 81 行取 ctx.matrix_net、第 84 行取 ctx.matrix；第 40 行用 row[j] − d[j*n+i] 算逐对净领先。",
+   "directed_design": "已经有向：breadth（净领先的伙伴计数占比）、strength（净领先总量）、concentration（正净领先量的 HHI）。这三个都以『绝对值差』为对象，没有做成份额 q；候选设计 1/8 与它相邻但不重合。",
+   "examples": [
+    "lead_cnt_t1_breadth",
+    "lead_cnt_t1_strength",
+    "lead_cnt_t1_concentration"
+   ]
+  },
+  {
+   "module": "motifs",
+   "file": "src/yupei_dist/indicators/motifs.rs",
+   "factor_prefix": "mot_",
+   "n_factors": 111,
+   "matrix_source": "37 张有向",
+   "direction_class": "preserved_partial",
+   "erased_call_sites": [],
+   "change_point": "无需改动。第 22 行 ctx.matrix(mat)，第 27-30 行取出边 top-20。feed_forward（第 55-57 行）与 cycle（第 58-60 行）保方向；reciprocal（第 44-47 行）是 i→j 且 j→i 的计数，对调换 i、j 不变。",
+   "directed_design": "已经有向。注意 mot_*_reciprocal 这 37 列与 rec_*_reciprocity 一样是转置不变量，查重与方向性统计时应当从有向因子里剔除。",
+   "examples": [
+    "mot_cnt_t1_feed_forward",
+    "mot_cnt_t1_cycle",
+    "mot_cnt_t1_reciprocal"
+   ]
+  },
+  {
+   "module": "multiscale",
+   "file": "src/yupei_dist/indicators/multiscale.rs",
+   "factor_prefix": "ms_",
+   "n_factors": 44,
+   "matrix_source": "11 组快慢 τ 配对（对称化后）",
+   "direction_class": "erased",
+   "erased_call_sites": [
+    {
+     "line": 46,
+     "code": "let fast = match ctx.symmetric(fast_n) {"
+    },
+    {
+     "line": 50,
+     "code": "let slow = match ctx.symmetric(slow_n) {"
+    },
+    {
+     "line": 54,
+     "code": "let fast_sum = match ctx.row_sum_sym(fast_n) {"
+    },
+    {
+     "line": 58,
+     "code": "let slow_sum = match ctx.row_sum_sym(slow_n) {"
+    }
+   ],
+   "change_point": "multiscale::compute 第 46/50 行两次 ctx.symmetric，第 54/58 行两次 ctx.row_sum_sym；第 69-95 行的 fast/slow top-10 与 Jaccard 都建立在这上面。现有 11 组 τ 配对见第 33-44 行常量表。",
+   "directed_design": "四处分别换成 ctx.matrix + ctx.row_sum_dir，第 71/75 行的 topk 改成有向出边 top-10，scale_consistency 从『邻居集合重叠』改成『领先份额符号是否一致』。注意现有配对里没有 (0.05s, 30s) 这一对，最短与最长的直接对照需要新增一组。",
+   "examples": [
+    "ms_cnt_t005_cnt_t1_fast_slow_ratio",
+    "ms_cnt_t1_cnt_t30_scale_consistency"
+   ]
+  },
+  {
+   "module": "neighbor_dispersion",
+   "file": "src/yupei_dist/indicators/neighbor_dispersion.rs",
+   "factor_prefix": "nbz_",
+   "n_factors": 37,
+   "matrix_source": "37 张全部（对称化后）",
+   "direction_class": "erased",
+   "prefix_note": "与 neighbor_z 共用 nbz_ 前缀，靠后缀 return_dispersion 区分",
+   "erased_call_sites": [
+    {
+     "line": 22,
+     "code": "let sym = match ctx.symmetric(mat) {"
+    },
+    {
+     "line": 26,
+     "code": "let row_sums = match ctx.row_sum_sym(mat) {"
+    }
+   ],
+   "change_point": "neighbor_dispersion::compute 第 22 行 ctx.symmetric(mat)，第 26 行 ctx.row_sum_sym(mat)；第 39-51 行的均值与方差都用对称行归一化权重 p。",
+   "directed_design": "第 22/26 行换成有向，p 换成 P 的行归一化。『我带的这批人收益有多分歧』与『带我的人收益有多分歧』是两列。",
+   "examples": [
+    "nbz_cnt_t1_return_dispersion"
+   ]
+  },
+  {
+   "module": "neighbor_strength",
+   "file": "src/yupei_dist/indicators/neighbor_strength.rs",
+   "factor_prefix": "nbs_",
+   "n_factors": 37,
+   "matrix_source": "37 张全部（对称化后）",
+   "direction_class": "erased",
+   "erased_call_sites": [
+    {
+     "line": 19,
+     "code": "let sym = match ctx.symmetric(mat) {"
+    },
+    {
+     "line": 23,
+     "code": "let row_sums = match ctx.row_sum_sym(mat) {"
+    }
+   ],
+   "change_point": "neighbor_strength::compute 第 19 行 ctx.symmetric(mat)，第 23 行 ctx.row_sum_sym(mat)；第 29-44 行是 Σ_j p_ij·Strength_j。",
+   "directed_design": "第 19/23 行换成有向，p 换成 P。还要决定 Strength_j 用有向行和还是列和，这两个选择对应不同的二阶含义（我把领先分给强伙伴 vs 强伙伴在领先我）。",
+   "examples": [
+    "nbs_cnt_t1_neighbor_strength"
+   ]
+  },
+  {
+   "module": "neighbor_z",
+   "file": "src/yupei_dist/indicators/neighbor_z.rs",
+   "factor_prefix": "nbz_",
+   "n_factors": 185,
+   "matrix_source": "37 张全部（对称化后）",
+   "direction_class": "erased",
+   "prefix_note": "与 neighbor_dispersion 共用 nbz_ 前缀，后缀 return/turnover/volatility/imbalance/size",
+   "erased_call_sites": [
+    {
+     "line": 28,
+     "code": "let sym = match ctx.symmetric(mat) {"
+    },
+    {
+     "line": 32,
+     "code": "let row_sums = match ctx.row_sum_sym(mat) {"
+    }
+   ],
+   "change_point": "neighbor_z::compute 第 28 行 ctx.symmetric(mat)，第 32 行 ctx.row_sum_sym(mat)；第 36-55 行的 neighbor 闭包对 5 个 Z（ret/total_vol/vol30/imb/amount）各算一次 Σ_j p_ij·Z_j。",
+   "directed_design": "第 28/32 行换成有向，p 换成 P 得『我带的人的收益/换手/波动/失衡/规模』；再加一份 Q 加权得『带我的人的…』。5 个 Z 各两列共 10 列，是方向化后最容易出增量的模块之一。",
+   "examples": [
+    "nbz_cnt_t1_return",
+    "nbz_cnt_t1_size"
+   ]
+  },
+  {
+   "module": "network_momentum",
+   "file": "src/yupei_dist/indicators/network_momentum.rs",
+   "factor_prefix": "mom_",
+   "n_factors": 37,
+   "matrix_source": "37 张全部（对称化后）",
+   "direction_class": "erased",
+   "erased_call_sites": [
+    {
+     "line": 21,
+     "code": "let sym = match ctx.symmetric(mat) {"
+    },
+    {
+     "line": 25,
+     "code": "let row_sums = match ctx.row_sum_sym(mat) {"
+    }
+   ],
+   "change_point": "network_momentum::compute 第 21 行 ctx.symmetric(mat)，第 25 行 ctx.row_sum_sym(mat)；第 30-46 行是 Σ_j p_ij·r_j。",
+   "directed_design": "第 21/25 行换成有向，p 换成 P 得『我带的那些人今天涨跌』。对偶的『带我的人今天涨跌』已经有 ldr_*_return（leader_return.rs 第 62 行读 d[j*n+i]），所以这一列有向化之后才能和 ldr 配对做差。",
+   "examples": [
+    "mom_cnt_t1_network_momentum"
+   ]
+  },
+  {
+   "module": "pagerank",
+   "file": "src/yupei_dist/indicators/pagerank.rs",
+   "factor_prefix": "pr_",
+   "n_factors": 37,
+   "matrix_source": "37 张有向",
+   "direction_class": "preserved",
+   "erased_call_sites": [],
+   "change_point": "无需改动。第 21 行 ctx.matrix(mat) 取有向矩阵，第 30-33 行按有向出度归一，第 35-38 行转置后按列累加，是有向行随机转移上的幂迭代。",
+   "directed_design": "已经有向。它其实已经实现了候选设计 3 里『P 上特征向量中心性』的绝大部分，区别只在阻尼 0.85、悬挂节点均分、迭代停止条件；查重时按这个口径算重叠，不要当成两个独立构造。",
+   "examples": [
+    "pr_cnt_t1_pagerank"
+   ]
+  },
+  {
+   "module": "reciprocity",
+   "file": "src/yupei_dist/indicators/reciprocity.rs",
+   "factor_prefix": "rec_",
+   "n_factors": 37,
+   "matrix_source": "37 张有向",
+   "direction_class": "erased_by_formula",
+   "erased_call_sites": [
+    {
+     "line": 19,
+     "code": "let d = match ctx.matrix(mat) {"
+    },
+    {
+     "line": 35,
+     "code": "num += a.min(b);"
+    },
+    {
+     "line": 36,
+     "code": "den += a.max(b);"
+    }
+   ],
+   "change_point": "第 19 行读的确实是有向矩阵 ctx.matrix(mat)，但第 33-37 行的 Σ_j min(S_ij,S_ji) / Σ_j max(S_ij,S_ji) 在转置下逐位不变。这是唯一一个『读了有向矩阵、结果却没有方向』的模块。",
+   "directed_design": "换算式而不是换矩阵：例如 Σ_j |S_ij − S_ji| / Σ_j (S_ij + S_ji)（净领先占比），或对逐对 q 取方差。直接用 I(S_ij>S_ji) 计数会与 lead_*_breadth 撞车，要避开。",
+   "examples": [
+    "rec_cnt_t1_reciprocity"
+   ]
+  },
+  {
+   "module": "starness",
+   "file": "src/yupei_dist/indicators/starness.rs",
+   "factor_prefix": "star_",
+   "n_factors": 37,
+   "matrix_source": "37 张全部（对称化后）",
+   "direction_class": "erased",
+   "erased_call_sites": [
+    {
+     "line": 21,
+     "code": "let sym = match ctx.symmetric(mat) {"
+    },
+    {
+     "line": 25,
+     "code": "let row_sums = match ctx.row_sum_sym(mat) {"
+    },
+    {
+     "line": 46,
+     "code": "links += sym[ja * n + jb] as f64;"
+    }
+   ],
+   "change_point": "starness::compute 第 21/25 行取对称矩阵与对称行和，第 46 行用对称矩阵查邻居之间的边。",
+   "directed_design": "第 21 行换 P，第 25 行换 ctx.row_sum_dir(mat)，第 46 行的 sym[ja][jb] 换成 d[ja][jb]。StarScore = Strength × (1 − 归一化聚类系数) 的形式可以保留，但有向版需要重新定义『我的邻居之间互相领先的程度』。",
+   "examples": [
+    "star_cnt_t1_score"
+   ]
+  },
+  {
+   "module": "strength",
+   "file": "src/yupei_dist/indicators/strength.rs",
+   "factor_prefix": "strength_",
+   "n_factors": 148,
+   "matrix_source": "37 张全部（对称化后）",
+   "direction_class": "erased",
+   "erased_call_sites": [
+    {
+     "line": 22,
+     "code": "let sym = match ctx.symmetric(mat) {"
+    },
+    {
+     "line": 29,
+     "code": "let s: f64 = row.iter().map(|&v| v as f64).sum();"
+    }
+   ],
+   "change_point": "strength::compute 第 22 行 ctx.symmetric(mat)，第 26-31 行直接对对称行求和；中位数/q90（第 33-48 行）也在对称行上排序。",
+   "directed_design": "第 22 行换 ctx.matrix(mat)，行和直接算或改用现成但从未被调用的 ctx.row_sum_dir(mat)。注意有向化之后 strength_*_sum 与 dir_*_out_strength + dir_*_in_strength 是同一个量，查重时必须合并，不能当两个独立构造。",
+   "examples": [
+    "strength_cnt_t1_sum",
+    "strength_cnt_t1_median"
+   ]
+  },
+  {
+   "module": "surplus",
+   "file": "src/yupei_dist/indicators/surplus.rs",
+   "factor_prefix": "srp_",
+   "n_factors": 37,
+   "matrix_source": "37 张全部（对称化后）",
+   "direction_class": "erased",
+   "erased_call_sites": [
+    {
+     "line": 25,
+     "code": "let sym = match ctx.symmetric(mat) {"
+    },
+    {
+     "line": 53,
+     "code": "let row_sum: f64 = sym[i * n..(i + 1) * n].iter().map(|&v| v as f64).sum();"
+    }
+   ],
+   "change_point": "surplus::compute 第 25 行 ctx.symmetric(mat)、第 53 行取对称行和。零模型 null_ij = c·w_i·w_j（第 29-30 行，c = 2τ/14220，秩 1 配置模型）本身是有向可用的，但被套在对称行和上，输出只剩一个标量 z。",
+   "directed_design": "第 25 行换 ctx.matrix(mat)，逐边算 R_ij = S_ij / null_ij（现在代码只算行和之比，第 58 行），再在 R 上算净领先（ctx.row_sum_dir − ctx.col_sum_dir）与 top-K 份额。这是候选设计 4 最直接的落点，零模型公式不用重新推导。",
+   "examples": [
+    "srp_cnt_t1_surplus_z"
+   ]
+  },
+  {
+   "module": "topk",
+   "file": "src/yupei_dist/indicators/topk.rs",
+   "factor_prefix": "topk_",
+   "n_factors": 333,
+   "matrix_source": "37 张全部（对称化后）",
+   "direction_class": "erased",
+   "erased_call_sites": [
+    {
+     "line": 36,
+     "code": "let sym = match ctx.symmetric(mat) {"
+    },
+    {
+     "line": 42,
+     "code": ".map(|i| topk_indices(&sym[i * n..(i + 1) * n], 20))"
+    }
+   ],
+   "change_point": "topk::compute 第 36 行 ctx.symmetric(mat)；第 40-43 行在对称行上做 top-20 部分选择，第 44-102 行的 topK 均值/和/maxpartner/bestpartnergap 都取对称权重。",
+   "directed_design": "第 36 行换成 ctx.matrix(mat)（取有向出边 top-K），或换成行归一化 P（取领先份额 top-K）。若要保持『伙伴强度排序』的含义，第 42 行的选择依据要用对称强度而取值用有向份额，这两件事要在设计里写清是两条不同的构造。",
+   "examples": [
+    "topk_cnt_t1_top1_mean",
+    "topk_cnt_t1_maxpartner",
+    "topk_cnt_t1_bestpartnergap"
+   ]
+  }
+ ],
+ "candidates": [
+  {
+   "id": 1,
+   "design": "配对级领先份额聚合：q = S[j][i] / (S[i][j] + S[j][i])，按对称强度 S[i][j]+S[j][i] 取前 K 个伙伴后算术/加权平均",
+   "verdict": "部分已有（整体口径已有，配对份额口径没有）",
+   "closest_existing": [
+    "dir_{mat}_lead_ratio：同样是净领先占比 (Out−In)/(Out+In)，但用整体 out/in，不是逐对 q，也没有 top-K 选择",
+    "lead_{mat}_breadth：唯一在配对级看方向的，但只看 S_ij>S_ji 的符号计数，不看份额大小",
+    "lead_{mat}_concentration：对正的净领先量做 HHI，是加权聚合但权重是净额不是份额",
+    "rec_{mat}_reciprocity：唯一逐对用 min/max 的，方向在算式里被抵消，仅剩对称强度占比",
+    "topk_{mat}_top1_mean / top3_mean / top20_mean / maxpartner 等：有 top-K 选择，但选的是对称权重、取的也是对称权重，完全不看方向"
+   ],
+   "gap": "全 2761 个名字里没有任何因子以配对份额 q 为被聚合对象，也没有『先按对称强度选前 K 个伙伴、再在有向份额上聚合』这一步。可判定为新构造。",
+   "nearest_factor": "dir_cnt_t1_lead_ratio"
+  },
+  {
+   "id": 2,
+   "design": "领先份额的条件切割：强伙伴组 q 均值 − 弱伙伴组 q 均值；同行业组 − 跨行业组；大市值组 − 小市值组",
+   "verdict": "部分已有（切割维度都有，被切的对象都是方向无关量）",
+   "closest_existing": [
+    "ind_{mat}_within / ind_{mat}_cross_ratio / ind_{mat}_mismatch：同行业 vs 跨行业切割，但矩阵已对称化（industry.rs:42）",
+    "assort_{mat}_corr：行内 corr(S_ij, Strength_j)，等价于『按伙伴强度分组的对称权重相关』，方向无关",
+    "assort_{mat}_nb_str_minus_mean：邻居强度减市场均值，同样对称口径",
+    "hid_{mat}_degree_pos / hid_{mat}_degree_neg：OLS 控制同行业哑变量与规模差、流动性差、收益差后的残差，是最接近『条件化』的，但矩阵对称",
+    "bh_{fam}_{tau}_hedge_ratio：同向/反向分组比值，行和级别，不是 q 也不是组间差"
+   ],
+   "gap": "没有因子以 q 为被切对象、切完再做组间差。『按伙伴规模分组』完全没有：nbz_*_size 是邻居规模加权，不是按伙伴规模分组做差。",
+   "nearest_factor": "ind_cnt_t1_cross_ratio"
+  },
+  {
+   "id": 3,
+   "design": "有向归一化图统计：对 L 行归一化 P 与列归一化 Q，在 P/Q 上算 HHI、熵、top3 占比、聚类、特征向量中心性、同配",
+   "verdict": "部分已有（同统计量已有，只是全部建在对称矩阵上；Q 口径完全没有）",
+   "closest_existing": [
+    "conc_{mat}_hhi / conc_{mat}_entropy / conc_{mat}_norm_entropy / conc_{mat}_top3_share / top5_share / top10_share：同一批统计量，但第 20 行先 ctx.symmetric(mat)（concentration.rs:20）",
+    "pr_{mat}_pagerank：已经是行归一化有向转移上的幂迭代，与『P 上特征向量中心性』只差阻尼 0.85 与悬挂节点处理；查重时这两者要合并看",
+    "eig_{mat}_centrality：特征向量中心性，但用在对称矩阵上（eigenvector.rs:20）",
+    "clu_{mat}_coef / clique_{mat}_score / star_{mat}_score：三种聚类/星型统计，全是对称三角",
+    "assort_{mat}_corr：同配，对称口径",
+    "lead_{mat}_concentration：有向净流的 HHI，是 Q 口径最接近的一列"
+   ],
+   "gap": "Q（列归一化）口径的 HHI/熵/top3 一个都没有。P 口径虽有同名统计量，但对角化对象不同：对称行归一化是 (L+Lᵀ) 的行分布，语义是『我的互动量怎么分』，不是『我把领先分给谁』。",
+   "nearest_factor": "conc_cnt_t1_hhi"
+  },
+  {
+   "id": 4,
+   "design": "零模型残差的方向版：R = S/E（E 为配置模型或泊松期望），在 R 上算净领先与 top-K 份额",
+   "verdict": "部分已有（零模型公式已有且完全相同，但用在对称行和上，颗粒度是行和不是逐边）",
+   "closest_existing": [
+    "srp_{mat}_surplus_z：(对称行和 − null 行和)/sqrt(null 行和)，null_ij = c·w_i·w_j、c = 2τ/14220（surplus.rs:29-30），就是秩 1 配置模型；但第 25 行先对称化、第 53 行只取行和，输出单列标量",
+    "hid_{mat}_degree_pos / hid_{mat}_degree_neg：另一种残差化（OLS 控制同行业、日志规模差、流动性差、收益差），同样建在对称矩阵上"
+   ],
+   "gap": "逐边残差 R_ij = S_ij / null_ij 没有；R 上的净领先（行和 − 列和）与 top-K 份额没有。现有 surplus 只做了『行和之比』这一步聚合，把逐边信息压掉了。",
+   "nearest_factor": "srp_cnt_t1_surplus_z"
+  },
+  {
+   "id": 5,
+   "design": "多尺度方向一致性：同一只股票在 τ=0.05s 与 τ=30s 的领先份额之差，或跨 τ 的符号一致性",
+   "verdict": "部分已有（多尺度框架已有，但两侧都对称化，且最短最长没有直接配对）",
+   "closest_existing": [
+    "ms_{fast}_{slow}_fast_slow_ratio：快慢强度比，对称口径（multiscale.rs:46/50/54/58）",
+    "ms_{fast}_{slow}_scale_consistency：Top10 邻居 Jaccard，衡量『邻居集合是否稳定』，不是『方向是否一致』",
+    "现有 11 组 τ 配对：cnt(005,1)、cnt(02,5)、cnt(1,30)、vol(02,5)、vol(1,30)、logvol(05,3)、logvol(1,30)、flow_same(02,1)、flow_same(05,5)、urg_same(1,30)、ext_same(1,5)"
+   ],
+   "gap": "没有以领先份额 q 为对象的多尺度一致性，也没有跨 τ 的符号一致性。τ=0.05s 与 τ=30s 没有直接配对（现有最长链是 005→1→30 两跳）。",
+   "nearest_factor": "ms_cnt_t1_cnt_t30_fast_slow_ratio"
+  },
+  {
+   "id": 6,
+   "design": "跨日方向稳定性：与前一日的 L 比较，方向份额翻转的伙伴占比、前 20 个『我领先』的伙伴第二天的保留率",
+   "verdict": "部分已有（跨日机制完全相同，只是两侧都对称化，衡量的不是方向）",
+   "closest_existing": [
+    "dyn_{mat}_edge_persistence：当日与前一日对称矩阵行内 Pearson，对称口径（edge_dynamics.rs:52 与 81-88）",
+    "dyn_{mat}_retention：Top10 重叠率，对称口径",
+    "dyn_{mat}_new_partner / dyn_{mat}_turnover：1 − Jaccard(Top10)，对称口径",
+    "dyn_{mat}_edge_change / pos_edge_change / neg_edge_change / network_shock_max / top_shock_mean：边强度变化类，全部对称"
+   ],
+   "gap": "方向翻转的伙伴占比没有；『我领先』伙伴集合的次日保留率没有。好消息是前一日备份 mats/*.bin 本身就是有向 f32（compute.rs:170-180），改成有向只需删掉 edge_dynamics.rs:81-88 的手工对称化，不需要补数据。",
+   "nearest_factor": "dyn_cnt_t1_retention"
+  },
+  {
+   "id": 7,
+   "design": "响应方向：列归一化 Q 加权的伙伴当日收益（带我的人涨跌）减 行归一化 P 加权的伙伴收益（我带的人涨跌）",
+   "verdict": "一半已有（Q 半边已有现成因子，P 半边只有对称版，差值没有）",
+   "closest_existing": [
+    "ldr_{mat}_return：Σ_j (S_{j→i}/Σ_k S_{k→i})·r_j，正是 Q 加权的『带我的人当日收益』（leader_return.rs:62 读 d[j*n+i]）",
+    "ldr_{mat}_shock：同款，把 r 换成横截面 z 分",
+    "mom_{mat}_network_momentum：Σ_j p_ij·r_j，p 来自对称行归一化（network_momentum.rs:21/25），是无向版的『我带的人收益』——对称化之后 out 与 in 混在一起，所以它不是 P 口径"
+   ],
+   "gap": "P 加权的有向版（严格意义上的『我带的那些人』）没有；两者之差没有任何因子。这条设计里真正的新东西是差值，不是 Q 半边。",
+   "nearest_factor": "ldr_cnt_t1_return"
+  },
+  {
+   "id": 8,
+   "design": "领先份额的对数比聚合：logit(q) 的 top-K 均值",
+   "verdict": "无",
+   "closest_existing": [
+    "dir_{mat}_lead_ratio：同样是占比型，但用在整体 out/in 上，不是配对级 q，也没有 log 变换与 top-K",
+    "conc_{mat}_top3_share / top5_share / top10_share：有 top-K 份额，但对象是对称行分布"
+   ],
+   "gap": "全 2761 个因子名里没有任何 logit 或 log 变换（grep logit/log_ 命中 0），也没有以配对份额 q 为输入的因子。判定为全新。",
+   "nearest_factor": "dir_cnt_t1_lead_ratio"
+  }
+ ]
+}

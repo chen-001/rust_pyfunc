@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<title>py_yupei_pair 提速说明（v4 / v5 / v6 三版合并）</title>
+<style>
+:root{--bg:#f7f8fa;--card:#fff;--fg:#1f2328;--mut:#5b6472;--line:#e3e6eb;--acc:#0b6bcb;--ok:#0a7d3f;--warn:#b45309}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.7 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+.wrap{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:24px;padding:24px}
+h1{font-size:22px;margin:0 0 4px}
+h2{font-size:17px;margin:28px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+p,li{color:var(--fg)}
+.mut{color:var(--mut);font-size:13px}
+table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:hidden;margin:10px 0}
+th,td{padding:9px 12px;border-bottom:1px solid var(--line);text-align:left;font-size:14px;vertical-align:top}
+th{background:#f1f3f6;font-weight:600}
+tr:last-child td{border-bottom:0}
+code{background:#eef1f5;border-radius:4px;padding:1px 6px;font-size:13px}
+pre{background:#0f172a;color:#e6edf3;padding:12px 14px;border-radius:8px;overflow:auto;font-size:13px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px 16px;margin:12px 0}
+.ok{border-left:4px solid var(--ok)}
+.warn{border-left:4px solid var(--warn)}
+aside{position:sticky;top:16px;align-self:start;max-height:calc(100vh - 32px);overflow-y:auto;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px 16px}
+aside h3{font-size:14px;margin:0 0 8px}
+aside ul{margin:0;padding-left:18px;font-size:13px;color:var(--mut)}
+.tag{display:inline-block;background:#eaf2fd;color:var(--acc);border-radius:4px;padding:0 6px;font-size:12px;margin-right:4px}
+</style></head><body><div class="wrap"><main>
+<h1>py_yupei_pair 提速说明</h1>
+<p class="mut">2026-10-13 · 单日全市场配对互补（玉佩2）· 三版改动都在沙箱里，没有部署</p>
+
+<h2>一句话</h2>
+<p>三处改动合在一起：能确定的那一段（net 配对扫描，单张、同时跑 10 个）从 <b>91.5 秒降到 56.6 秒</b>；<b>53,700,105 个输出值一个都没变</b>。整趟的标准口径（20241231、默认 15 张、同时跑 50 个、机器空着）只量到 v4 那一版：<b>423.41 秒 → 392.23 秒</b>；v5、v6 的整趟数字还没量，要占补算队列 25 分钟空档。</p>
+
+<h2>三版各改了什么</h2>
+<table><tr><th>版本</th><th>改了哪里</th><th>原来的做法</th><th>现在的做法</th></tr>
+<tr><td><span class="tag">v4</span>只算你要的</td><td>准备矩阵那一步</td><td>37 张矩阵每次全算、全写回、全搬进内存</td><td>你要 15 张，就只算这 15 张对应的两组；另外 22 张不算、不写、不搬（省约 2.3 GB 搬运）</td></tr>
+<tr><td><span class="tag">v4</span>两处重复扫描并一趟</td><td>net 与 topk</td><td>同一批 1303 万个配对，两边各扫一遍、各算一遍 h 和 gap</td><td>合成一趟，h 和 gap 只算一遍；两边各自累加的方式没动</td></tr>
+<tr><td><span class="tag">v5</span>九遍并三遍</td><td>每个配对内部</td><td>对 h、g 两个数组做 9 遍独立扫描：算 h、算 g、各找一次最大值、各找一次下标、统计量、六个累加数组分两遍</td><td>并成 3 遍：第一遍算 h 和 g 并同时取最大值与统计量，第二遍一趟找两个下标，第三遍把 h 口径与 gap 口径的六个累加数组并成一趟</td></tr>
+<tr><td><span class="tag">v6</span>累加改成一次算 8 个</td><td>六个累加数组</td><td>每个元素逐个判断、逐个加</td><td>8 个元素一次算完，判断条件用掩码代替分支</td></tr>
+</table>
+<p class="mut">数值为什么不变：h 和 g 的算式一个字没改；最大值、四个统计量的归约顺序（8 路累加、按通道依次相加、尾巴按原顺序）照旧；合并下标查找和六个数组的累加，都是「每个格子每个配对只加一次」，加法次序没变；一次算 8 个只影响同一条指令里的 8 个格子，格子之间互不相干。</p>
+
+<h2>实测：能直接比的那一段</h2>
+<p>同一段代码、同一台机器、同样同时跑 10 个、补算队列都在跑（约 200 个进程、负载 216~260），看每张矩阵那行「配对扫描」：</p>
+<table><tr><th>版本</th><th>配对扫描（单张 cnt_t1）</th><th>相对 v4</th><th>当时的机器状态</th></tr>
+<tr><td>v4</td><td>91.5 秒</td><td>—</td><td>10-13 01:17，队列在跑</td></tr>
+<tr><td>v5</td><td>73.1 秒</td><td>−20%</td><td>10-13 13:29，队列 201 个进程</td></tr>
+<tr><td>v6</td><td><b>56.6 秒</b></td><td><b>−38%</b></td><td>10-13 14:24，队列 201 个进程</td></tr>
+</table>
+<p class="mut">同一份代码连着测两次的差是 73.1 对 74.3（1.6%），上表相邻两次的差是 20% 和 23%，比噪声大一个量级以上。这三行是判断改动有没有用的依据。</p>
+
+<h2 class="warn">整趟时间：量到多少、还差什么</h2>
+<div class="card warn">
+<table><tr><th>口径</th><th>机器状态</th><th>总时间</th><th>能不能比</th></tr>
+<tr><td>v4：20241231、默认 15 张、同时跑 50 个</td><td>机器空着</td><td>423.41 → <b>392.23 秒</b></td><td>可以，这一组是同一时刻一前一后量的</td></tr>
+<tr><td>v5：默认 15 张、同时跑 10 个</td><td>队列 201 个进程在跑</td><td>1485.46 秒</td><td>只能当旁证</td></tr>
+<tr><td>v6：默认 15 张、同时跑 10 个</td><td>队列 201 个进程在跑</td><td>1168.67 秒</td><td>只能当旁证</td></tr>
+<tr><td>改前：默认 15 张、同时跑 10 个</td><td>机器空着</td><td>1745.49 秒</td><td>不能当基线，机器状态和上面两行不一样</td></tr>
+</table>
+<p><b>同一份代码在 15 分钟内测出 480.88 秒和 282.56 秒两个总时间</b>，差 70%，那是补算队列抢盘造成的。所以跨时刻的总时间不能直接比，这也是早先「快 55%」那个说法错掉的原因。</p>
+<p>net 那一段在 v4、同时跑 50 个、机器空着时是 278 秒，占整趟 392 秒的 71%。按上面 −38% 的比例推算，v6 整趟大约 286 秒。<b>这是推算，不是实测</b>；要准数得在补算队列空出 25 分钟的时候，按标准口径（同时跑 50 个、机器空着）跑一趟。</p>
+</div>
+
+<h2>数值怎么验的</h2>
+<div class="card ok">
+<p>跑完和改前的存档一个格子一个格子比：<b>53,700,105 个值，0 个不同</b>；该是空值的位置也一致；股票顺序、列名顺序都没变。单张那次 358 万个值同样 0 个不同。v5、v6 各跑过一遍完整核对，都是 0 个不同。</p>
+<p class="mut">v6 那次核对：2026-10-13 14:44 起、默认 15 张、同时跑 10 个、补算队列 201 个进程同时在跑、负载 216~260，跑了 23 分钟。</p>
+</div>
+
+<h2>试过但更差的三条路（都退回去了）</h2>
+<table><tr><th>做法</th><th>结果</th><th>原因</th></tr>
+<tr><td>把选择用的键从 8 字节压到 4 字节</td><td>数值不对，而且更慢</td><td>挑选那一步会就地打乱数组，打乱后位置不再对应原来的股票下标</td></tr>
+<tr><td>按 256 个桶先粗后细地挑前 500 名</td><td>数值对，但慢一倍（107.0 秒对 56.6 秒）</td><td>数桶那一步是对同一小块内存连续读改写，相邻股票的桶号常常相同，形成串行等待</td></tr>
+<tr><td>打包键改成 8 个一组</td><td>数值对，速度没变（56.8 对 56.6）</td><td>那一段的瓶颈不在打包本身</td></tr>
+</table>
+
+<h2>怎么用 / 怎么退回</h2>
+<p>三版可以单独打，也可以一次全打。改动没有部署，生产位置那份库仍是 10 月 11 日 23:07，一直没动。</p>
+<pre># 回到干净源码
+cd /home/chenzongwei/rust_pyfunc &amp;&amp; git checkout -- src/
+
+# 一次全打（v4 + v5 + v6）
+git apply perf_sandbox/yupei_opt_v6.patch
+
+# 或者只打 v4
+git apply perf_sandbox/yupei_opt_v4.patch
+
+# 或者在 v4 之上再打 v5 + v6 这两处
+git apply perf_sandbox/yupei_opt_v4.patch
+git apply perf_sandbox/yupei_opt_v6_incr.patch
+
+# 只打 v5（九遍并三遍，不含 v6）
+git apply perf_sandbox/yupei_opt_v4.patch
+git apply perf_sandbox/yupei_opt_v5_third_only.patch
+
+# 编译（不部署），产物在 target/release-fast/
+PATH=$HOME/.cargo/bin:$PATH cargo build --profile release-fast --jobs 8
+
+# 退回
+git checkout -- src/</pre>
+<p class="mut">不要跑 <code>alter.sh</code>，那会把产物装到生产位置。每个补丁都能一条命令干净重打（<code>git apply --check</code> 都验过）。</p>
+
+<h2>还没做的一处（要你决定）</h2>
+<table><tr><th>候选</th><th>估省</th><th>要不要做的关键</th></tr>
+<tr><td>去掉每张矩阵 20 列空模型对照的计算</td><td>10~20 秒（推算）</td><td>会让每张矩阵的输出少 20 列，属于减输出，必须你点头</td></tr>
+</table>
+
+<h2>材料位置</h2>
+<ul>
+<li>补丁：<code>perf_sandbox/yupei_opt_v6.patch</code>（三版全量）、<code>yupei_opt_v4.patch</code>、<code>yupei_opt_v6_incr.patch</code>、<code>yupei_opt_v5_third_only.patch</code></li>
+<li>技术说明：<code>perf_sandbox/yupei_opt_v6_audit.md</code>（含测速口径四条规则）、<code>yupei_opt_audit.md</code>、<code>yupei_opt_v5_audit.md</code></li>
+<li>核对存档：<code>perf_sandbox/yp_out/vals.npy</code>（改前的 5370 万个值）+ <code>meta.json</code></li>
+</ul>
+</main><aside>
+<h3>看这一页要记住的</h3>
+<ul>
+<li>能确定的那一段：net 配对扫描 91.5 → <b>56.6 秒</b>（−38%，同时跑 10 个、队列在跑）</li>
+<li>整趟标准口径只量到 v4：423.41 → <b>392.23 秒</b>（−7.4%，同时跑 50 个、机器空着）</li>
+<li>v5、v6 的整趟数字还没量，要占队列 25 分钟空档</li>
+<li>推算 v6 整趟约 286 秒（不是实测）</li>
+<li>5370 万个值 <b>0 个不同</b>，v5、v6 各验过一遍</li>
+<li>跨时刻的总时间不可比：同一份代码测到过 480.88 秒和 282.56 秒</li>
+<li>三版都没部署，生产库没动</li>
+<li>回退一条命令：<code>git checkout -- src/</code></li>
+<li>还有一处可选：去掉 20 列空模型对照，估 10~20 秒（推算）</li>
+</ul>
+</aside></div></body></html>
