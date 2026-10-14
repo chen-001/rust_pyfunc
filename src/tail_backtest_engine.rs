@@ -22,10 +22,10 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 use crate::tail_v5_pipeline::{
-    self, build_selection_config, build_shared_inputs, factor_result_path,
-    format_hms, init_status_line, is_terminal, read_task_result, reset_status_line,
-    update_status_line, write_aggregated_outputs, write_task_result, AggregatedCandidates,
-    ProcessStats, SharedInputs, TailTask, TailTaskResult,
+    self, build_selection_config, build_shared_inputs, factor_result_path, format_hms,
+    init_status_line, is_terminal, read_task_result, reset_status_line, update_status_line,
+    write_aggregated_outputs, write_task_result, AggregatedCandidates, ProcessStats, SharedInputs,
+    TailTask, TailTaskResult,
 };
 
 /// 单个因子的完整处理（IO + 计算 + 写结果），在一个线程内串行执行。
@@ -98,6 +98,7 @@ fn parse_col_idx(factor_path: &str) -> Option<usize> {
     industry_neutralize=true,
     industry_matrix=None,
     ic_only=false,
+    io_concurrency=None, io_batch_size=None, io_batch_bytes=67108864,
 ))]
 #[allow(clippy::too_many_arguments)]
 pub fn tail_backtest_engine<'py>(
@@ -138,6 +139,9 @@ pub fn tail_backtest_engine<'py>(
     industry_neutralize: bool,
     industry_matrix: Option<numpy::PyReadonlyArray2<'py, f64>>,
     ic_only: bool,
+    io_concurrency: Option<usize>,
+    io_batch_size: Option<usize>,
+    io_batch_bytes: usize,
 ) -> PyResult<PyObject> {
     if factor_names.len() != factor_paths.len() {
         return Err(PyValueError::new_err(
@@ -148,6 +152,16 @@ pub fn tail_backtest_engine<'py>(
         return Err(PyValueError::new_err("n_jobs 必须大于 0"));
     }
 
+    let profile = crate::storage_policy::StorageProfile::detect(Path::new(&colblk_store_dir))
+        .map_err(PyRuntimeError::new_err)?;
+    let resolved_io = io_concurrency.unwrap_or(profile.io_concurrency(n_jobs));
+    let resolved_batch = io_batch_size.unwrap_or(profile.io_batch_size());
+    if resolved_io == 0 || resolved_batch == 0 || io_batch_bytes == 0 {
+        return Err(PyValueError::new_err(
+            "io_concurrency/io_batch_size/io_batch_bytes 必须 > 0",
+        ));
+    }
+    let read_count = Arc::new(AtomicUsize::new(0));
     let industry = industry_matrix
         .ok_or_else(|| {
             PyValueError::new_err("tail_backtest_engine 需要 industry_matrix (模板轴行业码)")
@@ -194,7 +208,8 @@ pub fn tail_backtest_engine<'py>(
         for (source_factor, _factor_path) in factor_names.iter().zip(factor_paths.iter()) {
             let result_path = factor_result_path(&task_results_dir, source_factor);
             if result_path.exists() {
-                if let Ok(task_result) = read_task_result(&result_path) {
+                {
+                    let task_result=read_task_result(&result_path).map_err(|e|format!("读取已保存因子结果 {source_factor} 失败: {e}"))?;
                     let passed = task_result.passed;
                     let raw_cov = task_result.eliminated_by_raw_cover;
                     let any_window = task_result.any_window_passed_preflight;
@@ -249,6 +264,9 @@ pub fn tail_backtest_engine<'py>(
             })
             .collect();
 
+        let mut pending_tasks=pending_tasks;
+        pending_tasks.sort_by_key(|task|parse_col_idx(&task.factor_path).unwrap_or(usize::MAX));
+        let read_cols:Vec<_>=pending_tasks.iter().filter_map(|t|parse_col_idx(&t.factor_path)).collect();
         let total_pending = pending_tasks.len();
 
         // n_jobs 仍然保持 thread-per-factor 语义，但每个 factor 的内存足迹已通过流式
@@ -284,6 +302,7 @@ pub fn tail_backtest_engine<'py>(
 
         let shared_arc = Arc::new(shared);
         let processed_count = Arc::new(AtomicUsize::new(0));
+        let cancelled=Arc::new(std::sync::atomic::AtomicBool::new(false));
 
         // 所有 worker 共享同一个 Reader 和同一份 scatter_maps。
         // 旧实现每个线程各开一个 Reader，会复制 8 个分片的全部 factor_names/dates/codes 字典；
@@ -291,26 +310,30 @@ pub fn tail_backtest_engine<'py>(
         let shared_reader = if n_workers > 0 {
             let reader = Arc::new(
                 crate::factor_store_v5::FactorStoreReader::open(&colblk_store_dir)
+                    .and_then(|r|r.with_io_concurrency(resolved_io))
                     .map_err(|e| format!("打开 colblk 存储失败: {e}"))?,
             );
             let scatter_maps = Arc::new(reader.precompute_scatter_maps(
                 shared_arc.dates.as_slice(),
                 shared_arc.stocks.as_slice(),
             ));
-            Some((reader, scatter_maps))
+            let valid_cols:Vec<_>=read_cols.iter().copied().filter(|&c|c<reader.factor_names().len()).collect();
+            let cache=Arc::new(crate::storage_read_cache::FactorReadCache::new(&reader,&valid_cols,resolved_batch,shared_arc.dates.len().saturating_mul(shared_arc.stocks.len()).saturating_mul(4),io_batch_bytes)?);
+            Some((reader, scatter_maps, cache))
         } else {
             None
         };
 
         // 启动 n_workers 个 worker 线程（thread-per-factor，但并发数已被内存上限约束）
         let mut handles = Vec::with_capacity(n_workers);
-        if let Some((reader, scatter_maps)) = shared_reader.as_ref() {
+        if let Some((reader, scatter_maps, cache)) = shared_reader.as_ref() {
             for _ in 0..n_workers {
                 let rx = task_receiver.clone();
                 let tx = result_sender.clone();
                 let shared_clone = shared_arc.clone();
                 let reader = reader.clone();
                 let scatter_maps = scatter_maps.clone();
+                let cache=cache.clone();let cancelled=cancelled.clone();
                 let dates_arc = shared_clone.dates.clone();
                 let stocks_arc = shared_clone.stocks.clone();
                 handles.push(thread::spawn(move || {
@@ -321,6 +344,7 @@ pub fn tail_backtest_engine<'py>(
                         crate::tail_v8_pipeline::BLOCK_ROWS,
                     );
                     while let Ok(task) = rx.recv() {
+                        if cancelled.load(AtomicOrdering::Relaxed) {break;}
                         // 1. 解析 col_idx（失败 = 硬错误：带因子名返回，绝不静默跳过）
                         let col_idx = match parse_col_idx(&task.factor_path) {
                             Some(v) => v,
@@ -335,8 +359,8 @@ pub fn tail_backtest_engine<'py>(
 
                         // 2. 快速读因子（scatter_map 优化，共享 Reader）
                         // 读取失败 = 硬错误：带因子名返回，绝不静默遗漏（否则 processed+restored < requested）。
-                        let raw_values = match reader.read_factor_to_matrix_fast(
-                            col_idx,
+                        let raw_values = match cache.take(
+                            &reader,col_idx,
                             dates_arc.as_slice(),
                             stocks_arc.as_slice(),
                             &scatter_maps,
@@ -449,6 +473,8 @@ pub fn tail_backtest_engine<'py>(
                 }
                 Err((task_name, err)) => {
                     reset_status_line();
+                    cancelled.store(true,AtomicOrdering::Relaxed);
+                    for h in handles {let _=h.join();}
                     return Err(format!("处理因子 {} 失败: {}", task_name, err));
                 }
             }
@@ -463,6 +489,7 @@ pub fn tail_backtest_engine<'py>(
             let _ = handle.join();
         }
 
+        if let Some((_,_,cache))=&shared_reader {read_count.store(cache.reads.load(AtomicOrdering::Relaxed),AtomicOrdering::Relaxed);}
         // P0-1 读取闭环断言：走到这里时（没有收到过 Err 结果），每个因子要么被恢复、
         // 要么被成功处理。两者之和必须等于请求总数，否则说明存在静默遗漏
         // （例如 worker panic / 结果 channel 提前关闭），必须报错而不是产出残缺结果。
@@ -491,6 +518,19 @@ pub fn tail_backtest_engine<'py>(
 
     let info = PyDict::new(py);
     info.set_item("processed_sources", output.0)?;
+    info.set_item(
+        "storage_kind",
+        if profile.network {
+            "nas"
+        } else if profile.btrfs {
+            "local_btrfs"
+        } else {
+            "local"
+        },
+    )?;
+    info.set_item("io_concurrency", resolved_io)?;
+    info.set_item("io_batch_size", resolved_batch)?;
+    info.set_item("io_read_groups", read_count.load(AtomicOrdering::Relaxed))?;
     info.set_item("restored_sources", output.1)?;
     let candidate_counts = PyDict::new(py);
     for (key, value) in output.2 {

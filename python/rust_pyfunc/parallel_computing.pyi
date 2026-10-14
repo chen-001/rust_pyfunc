@@ -2459,3 +2459,8 @@ def tlq_gate_base_resid(
     分段口径读相邻采样点之间的增量（159 段），是 tail_pipeline_engine 淘汰因子用的那套。
     """
     ...
+
+
+def factor_store_storage_profile(path: str) -> dict:
+    """按实际挂载识别 NAS/本机存储，跟随软链接；支持尚未创建的 store 路径。"""
+    ...

@@ -263,7 +263,10 @@ pub fn pipeline_observable_order(
 
         for arr in [seg.view(), pre5.view(), diff.view(), abs_diff.view()] {
             let (vals, _) = if arr.nrows() == 0 {
-                (nan_vec(features_per_group(&col_names, with_curvature)), vec![])
+                (
+                    nan_vec(features_per_group(&col_names, with_curvature)),
+                    vec![],
+                )
             } else {
                 features::get_features_factors_rust_full_opts(
                     &arr,
@@ -356,12 +359,14 @@ pub fn pipeline_extreme_point_fit(
     expected_len: usize,
     with_curvature: bool,
 ) -> Vec<f32> {
-    let mut vals =
-        match extreme_point_fit_metrics::compute_extreme_fit_with_features(code, date, with_curvature)
-        {
-            Ok(v) => v,
-            Err(_) => return nan_vec(expected_len),
-        };
+    let mut vals = match extreme_point_fit_metrics::compute_extreme_fit_with_features(
+        code,
+        date,
+        with_curvature,
+    ) {
+        Ok(v) => v,
+        Err(_) => return nan_vec(expected_len),
+    };
     if vals.len() < expected_len {
         vals.resize(expected_len, f32::NAN);
     } else if vals.len() > expected_len {
@@ -671,7 +676,10 @@ pub fn run_factor_pipeline(
 
     // Level2 数据目录覆盖：进程内生效到本函数结束；worker 子进程通过环境变量透传。
     let _data_root_guard = crate::data_paths::set_level2_root(data_root.as_deref());
-    println!("📂 Level2 数据目录: {}", crate::data_paths::describe_level2());
+    println!(
+        "📂 Level2 数据目录: {}",
+        crate::data_paths::describe_level2()
+    );
 
     let pipeline_name = pipeline.to_string();
     let known = [
@@ -699,12 +707,20 @@ pub fn run_factor_pipeline(
     let incremental_projection_enabled = incremental_projection.unwrap_or(false);
     let progress_log_enabled = progress_log.unwrap_or(false);
     let batch_size = backup_batch_size.unwrap_or(500);
+    if n_jobs == 0 || batch_size == 0 {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "n_jobs / backup_batch_size 必须 > 0",
+        ));
+    }
     let mode = mode.unwrap_or_else(|| "multiprocess".to_string());
     let n_shards = crate::factor_store_v5::STORE_N_SHARDS;
     let sharded_sink: Option<crate::factor_store_v5::ShardedBackupSink> = if let Some(ref sdir) =
         store_dir
     {
-        if std::path::Path::new(sdir).join("factor_groups.json").exists() {
+        if std::path::Path::new(sdir)
+            .join("factor_groups.json")
+            .exists()
+        {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
                 "store_dir {sdir} 是组合 store 根目录（存在 factor_groups.json）。\n                 计算必须指向某个 group 子目录；把补充因子写入新 group 后，                 用 factor_store_v5_register_group 注册进根目录。"
             )));
@@ -729,7 +745,9 @@ pub fn run_factor_pipeline(
         None
     };
     if incremental_projection_enabled {
-        println!("📎 增量投影已启用：追加新任务时 base 投影不动，只投影新行（factors.proj.delta.*）");
+        println!(
+            "📎 增量投影已启用：追加新任务时 base 投影不动，只投影新行（factors.proj.delta.*）"
+        );
     }
     let sink: crate::factor_store_v5::BackupSink =
         crate::factor_store_v5::BackupSink::new_bin(backup_file.clone(), expected_result_length);
@@ -1230,7 +1248,10 @@ fn locate_worker_binary() -> Option<String> {
             if !(name == "rust_pyfunc" || name.starts_with("rust_pyfunc_")) {
                 continue;
             }
-            let file = match value.getattr("__file__").and_then(|f| f.extract::<String>()) {
+            let file = match value
+                .getattr("__file__")
+                .and_then(|f| f.extract::<String>())
+            {
                 Ok(file) => file,
                 Err(_) => continue,
             };
@@ -1427,9 +1448,24 @@ fn run_multiprocess_v2(
         // 队列容量 WRITE_QUEUE_BATCHES 个 batch（每 batch ~batch_size 条结果）。
         // 写盘平均跟得上生产（进度稳定 + 主进程 RSS 不积压），但 /hdd 机械盘+btrfs 有周期性 writeback stall，
         // 小缓冲会被填满→背压倒灌→worker 周期性集体停顿（S=200）。内存充足（1.5TB），用大缓冲吸收突发。
-        const WRITE_QUEUE_BATCHES: usize = 50;
-        let (write_tx, write_rx) =
-            crossbeam::channel::bounded::<Vec<TaskResult>>(WRITE_QUEUE_BATCHES);
+        let profile = match sharded_sink.as_ref().and_then(|ss| ss.store_dir()) {
+            Some(dir) => crate::storage_policy::StorageProfile::detect(std::path::Path::new(&dir))
+                .map_err(pyo3::exceptions::PyIOError::new_err)?,
+            None => crate::storage_policy::StorageProfile {
+                network: false,
+                btrfs: false,
+            },
+        };
+        let batch_bytes = batch_size
+            .saturating_mul(expected_result_length)
+            .saturating_mul(4);
+        let queue_batches = profile.write_queue_batches(batch_bytes);
+        eprintln!(
+            "[STORE] {} 写队列: {queue_batches} 批，单批值区约 {:.1} MiB",
+            if profile.network { "NAS" } else { "本地" },
+            batch_bytes as f64 / 1048576.0
+        );
+        let (write_tx, write_rx) = crossbeam::channel::bounded::<Vec<TaskResult>>(queue_batches);
 
         // writer 线程：从写队列取 batch 写盘（慢操作在后台，不阻塞 collector/worker）
         let (writer_err_tx, writer_err_rx) = std::sync::mpsc::channel::<String>();
@@ -1496,8 +1532,8 @@ fn run_multiprocess_v2(
         }
         let _ = collector_handle.join(); // collector 排空 result_rx，残余入队列，drop write_tx
         let _ = writer_handle.join(); // writer 排空写队列，所有 batch 落盘后才返回（必须 last join）
-        // 先检查 writer 错误，再 join monitor：writer 失败时 completed 永远到不了 total，
-        // monitor 靠 write_failed 标志在 1s 内退出，join 不会挂死。
+                                      // 先检查 writer 错误，再 join monitor：writer 失败时 completed 永远到不了 total，
+                                      // monitor 靠 write_failed 标志在 1s 内退出，join 不会挂死。
         if let Ok(e) = writer_err_rx.try_recv() {
             write_failed.store(true, Ordering::Relaxed);
             let _ = monitor_handle.join();
@@ -1758,23 +1794,24 @@ pub fn run_factor_pipeline_v6(
     let batch_size = backup_batch_size.unwrap_or(500);
     let mode = mode.unwrap_or_else(|| "multiprocess".to_string());
     let n_shards = crate::factor_store_v5::STORE_N_SHARDS;
-    let sharded_sink: Option<crate::factor_store_v5::ShardedBackupSink> = if let Some(ref sdir) =
-        store_dir
-    {
-        let snames = store_factor_names.clone().unwrap_or_else(|| {
-            (0..expected_result_length)
-                .map(|i| format!("factor_{i}"))
-                .collect()
-        });
-        Some(
-            crate::factor_store_v5::ShardedBackupSink::new_colblk_sharded(sdir, &snames, n_shards, false)
+    let sharded_sink: Option<crate::factor_store_v5::ShardedBackupSink> =
+        if let Some(ref sdir) = store_dir {
+            let snames = store_factor_names.clone().unwrap_or_else(|| {
+                (0..expected_result_length)
+                    .map(|i| format!("factor_{i}"))
+                    .collect()
+            });
+            Some(
+                crate::factor_store_v5::ShardedBackupSink::new_colblk_sharded(
+                    sdir, &snames, n_shards, false,
+                )
                 .map_err(|e| {
                     pyo3::exceptions::PyIOError::new_err(format!("打开 colblk 存储失败: {}", e))
                 })?,
-        )
-    } else {
-        None
-    };
+            )
+        } else {
+            None
+        };
     let sink: crate::factor_store_v5::BackupSink =
         crate::factor_store_v5::BackupSink::new_bin(backup_file.clone(), expected_result_length);
 
@@ -1879,31 +1916,45 @@ pub fn run_factor_pipeline_v6(
 // ==================== 分钟数据 Pipeline（per-date 任务粒度）====================
 
 /// 读取 _completed_dates 标记文件，返回已完成日期集合。
-fn read_completed_dates(store_dir: &str) -> std::collections::HashSet<i64> {
+fn read_completed_dates(store_dir: &str) -> Result<std::collections::HashSet<i64>, String> {
     let path = std::path::Path::new(store_dir).join("_completed_dates");
-    let mut set = std::collections::HashSet::new();
-    if let Ok(content) = std::fs::read_to_string(&path) {
-        for line in content.lines() {
-            if let Ok(d) = line.trim().parse::<i64>() {
-                set.insert(d);
-            }
+    let Some(bytes) = crate::storage_policy::read_optional(&path)? else {
+        return Ok(Default::default());
+    };
+    let text = String::from_utf8(bytes).map_err(|e| format!("完成日期文件损坏 {path:?}: {e}"))?;
+    text.split_whitespace()
+        .map(|v| {
+            v.parse::<i64>()
+                .map_err(|e| format!("完成日期文件 {path:?} 非法日期 {v}: {e}"))
+        })
+        .collect()
+}
+/// One atomic, durable marker publication. Missing and network read failures are distinct.
+fn mark_date_complete(store_dir: &str, date: i64) -> Result<(), String> {
+    let mut dates: std::collections::BTreeSet<_> =
+        read_completed_dates(store_dir)?.into_iter().collect();
+    dates.insert(date);
+    let text: String = dates.into_iter().map(|d| format!("{d}\n")).collect();
+    crate::storage_policy::atomic_write(
+        &std::path::Path::new(store_dir).join("_completed_dates"),
+        text.as_bytes(),
+    )
+}
+/// A saved date receipt survives a marker error; retry publishes missing markers without duplicate data.
+fn recover_completed_dates(
+    store_dir: &str,
+    sink: &crate::factor_store_v5::ShardedBackupSink,
+) -> Result<std::collections::HashSet<i64>, String> {
+    let mut marked = read_completed_dates(store_dir)?;
+    let recovered = sink.committed_dates()?;
+    let all: std::collections::HashSet<_> = marked.union(&recovered).copied().collect();
+    sink.validate_completed_dates(&all)?;
+    for date in recovered {
+        if marked.insert(date) {
+            mark_date_complete(store_dir, date)?;
         }
     }
-    set
-}
-
-/// 追加一个已完成日期到 _completed_dates 标记文件（O_APPEND + sync）。
-fn mark_date_complete(store_dir: &str, date: i64) {
-    let path = std::path::Path::new(store_dir).join("_completed_dates");
-    use std::io::Write;
-    if let Ok(mut f) = std::fs::OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open(&path)
-    {
-        let _ = writeln!(f, "{date}");
-        let _ = f.sync_all();
-    }
+    Ok(marked)
 }
 
 /// 分钟 pipeline 的 Python 入口。
@@ -1967,7 +2018,9 @@ pub fn run_factor_pipeline_minute(
         .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("打开 colblk 存储失败: {e}")))?
     };
     if incremental_projection_enabled {
-        println!("📎 增量投影已启用：追加新日期时 base 投影不动，只投影新行（factors.proj.delta.*）");
+        println!(
+            "📎 增量投影已启用：追加新日期时 base 投影不动，只投影新行（factors.proj.delta.*）"
+        );
     }
 
     // 解析参数（复用 Level2 的 oo_params，分钟 pipeline 暂无自定义 params）
@@ -1987,7 +2040,8 @@ pub fn run_factor_pipeline_minute(
 
     // 断点续算：按 date 过滤
     let pending: Vec<i64> = if update_mode_enabled {
-        let completed = read_completed_dates(&store_dir_str);
+        let completed = recover_completed_dates(&store_dir_str, &sharded_sink)
+            .map_err(pyo3::exceptions::PyIOError::new_err)?;
         all_dates
             .into_iter()
             .filter(|d| !completed.contains(d))
@@ -2125,11 +2179,14 @@ fn run_multiprocess_minute(
                     if batch.is_empty() {
                         continue;
                     }
-                    if let Err(e) = sharded_c.append_batch(&batch) {
+                    if let Err(e) = sharded_c
+                        .append_date(date, &batch)
+                        .and_then(|_| sharded_c.commit_date(date))
+                        .and_then(|_| mark_date_complete(&store_dir_c, date))
+                    {
                         let _ = writer_err_tx.send(e);
                         break;
                     }
-                    mark_date_complete(&store_dir_c, date);
                 }
             })
         };
@@ -2397,7 +2454,11 @@ pub fn pipeline_yhyb(date: i64, expected_len: usize) -> Vec<TaskResult> {
 /// 输出 4176 因子（G1a 1740 + G1b 1740 + G3 696），方案 A：pipeline 内重算初版
 /// 全市场基线（compute_from_streams），总耗时 ~77s/天（达标口径：不慢于初版 82s）。
 pub fn pipeline_yhyb_indtop(date: i64, expected_len: usize) -> Vec<TaskResult> {
-    match crate::yhyb_indtop_metrics::compute_yhyb_ext(date, &crate::yhyb_metrics::YhybParams::default(), 0) {
+    match crate::yhyb_indtop_metrics::compute_yhyb_ext(
+        date,
+        &crate::yhyb_metrics::YhybParams::default(),
+        0,
+    ) {
         Ok((codes, vals)) => {
             let n_factors = expected_len;
             vals.chunks(n_factors)
@@ -2465,7 +2526,8 @@ pub fn pipeline_urgency_ext_cluster(date: i64, expected_len: usize) -> Vec<TaskR
 }
 
 /// urgency 横截面 pipeline 包装：调核心，fan-out 成 TaskResult。
-pub fn pipeline_urgency(date: i64, expected_len: usize) -> Vec<TaskResult> {    match crate::urgency_metrics::compute_urgency_full(date) {
+pub fn pipeline_urgency(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    match crate::urgency_metrics::compute_urgency_full(date) {
         Ok((codes, vals)) => vals
             .chunks(expected_len)
             .zip(codes.iter())
@@ -2776,7 +2838,8 @@ pub fn run_factor_pipeline_regime(
     }
 
     // 断点续算：过滤已完成日期
-    let completed = read_completed_dates(&store_dir_str);
+    let completed = recover_completed_dates(&store_dir_str, &sharded_sink)
+        .map_err(pyo3::exceptions::PyIOError::new_err)?;
     let pending: Vec<i64> = all_dates
         .into_iter()
         .filter(|d| !completed.contains(d))
@@ -2862,13 +2925,18 @@ pub fn run_factor_pipeline_regime(
                     facs: facs.to_vec(),
                 })
                 .collect();
-            match sharded_sink.append_batch(&batch) {
+            match sharded_sink
+                .append_date(date, &batch)
+                .and_then(|_| sharded_sink.commit_date(date))
+                .and_then(|_| mark_date_complete(&store_dir_str, date))
+            {
                 Ok(()) => {
-                    mark_date_complete(&store_dir_str, date);
                     n_factor_days += 1;
                 }
                 Err(e) => {
-                    eprintln!("❌ 方案2 {date} 写入失败: {e} — 未标记完成，续算重试");
+                    return Err(pyo3::exceptions::PyIOError::new_err(format!(
+                        "方案2 {date} 写入/保存失败: {e}"
+                    )));
                 }
             }
         } else if is_warmup && !codes.is_empty() {
@@ -2962,7 +3030,10 @@ pub fn run_factor_pipeline_cross_section(
 
     // Level2 数据目录覆盖：进程内生效到本函数结束；worker 子进程通过环境变量透传。
     let _data_root_guard = crate::data_paths::set_level2_root(data_root.as_deref());
-    println!("📂 Level2 数据目录: {}", crate::data_paths::describe_level2());
+    println!(
+        "📂 Level2 数据目录: {}",
+        crate::data_paths::describe_level2()
+    );
     // 行业 / 日频变量目录覆盖（SzBa/industry.h5 等）：同上, 同样透传给 worker 子进程。
     let _vars_root_guard = crate::data_paths::set_vars_root(vars_root.as_deref());
     println!("📂 行业数据目录: {}", crate::data_paths::describe_vars());
@@ -3028,8 +3099,9 @@ pub fn run_factor_pipeline_cross_section(
             )));
         }
         if non_empty {
-            std::fs::remove_dir_all(&store_dir_str)
-                .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("清空 store 失败: {e}")))?;
+            std::fs::remove_dir_all(&store_dir_str).map_err(|e| {
+                pyo3::exceptions::PyIOError::new_err(format!("清空 store 失败: {e}"))
+            })?;
         }
         std::fs::create_dir_all(&store_dir_str)
             .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("创建 store 失败: {e}")))?;
@@ -3050,7 +3122,9 @@ pub fn run_factor_pipeline_cross_section(
         .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("打开 colblk 存储失败: {e}")))?
     };
     if incremental_projection_enabled {
-        println!("📎 增量投影已启用：追加新日期时 base 投影不动，只投影新行（factors.proj.delta.*）");
+        println!(
+            "📎 增量投影已启用：追加新日期时 base 投影不动，只投影新行（factors.proj.delta.*）"
+        );
     }
 
     // 复用 oo_params（横截面 pipeline 暂无自定义 params）
@@ -3070,7 +3144,8 @@ pub fn run_factor_pipeline_cross_section(
 
     // 断点续算：按 date 过滤
     let pending: Vec<i64> = if update_mode_enabled {
-        let completed = read_completed_dates(&store_dir_str);
+        let completed = recover_completed_dates(&store_dir_str, &sharded_sink)
+            .map_err(pyo3::exceptions::PyIOError::new_err)?;
         all_dates
             .into_iter()
             .filter(|d| !completed.contains(d))
@@ -3264,9 +3339,9 @@ fn run_multiprocess_cross_section(
                     if !batch.is_empty() {
                         let n = batch.len();
                         let elapsed = start.elapsed().as_secs_f64();
-                        match write_pool.install(|| sharded_c.append_batch(&batch)) {
+                        match write_pool.install(|| sharded_c.append_date(date,&batch).and_then(|_|sharded_c.commit_date(date)).and_then(|_|mark_date_complete(&store_dir_c,date))) {
                             Ok(()) => {
-                                mark_date_complete(&store_dir_c, date);
+
                                 done += 1;
                                 eprintln!(
                                     "[{}] ✅ {date} 完成: {n} 股 ({done}/{total}, {elapsed:.0}s)",

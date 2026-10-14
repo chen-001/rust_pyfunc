@@ -2447,7 +2447,7 @@ pub(crate) fn write_task_result(path: &Path, result: &TailTaskResult) -> Result<
     let bytes =
         rmp_serde::to_vec_named(result).map_err(|e| format!("序列化任务结果失败: {}", e))?;
     fs::write(&tmp_path, bytes).map_err(|e| format!("写入任务结果失败: {}", e))?;
-    fs::rename(&tmp_path, path).map_err(|e| format!("原子替换任务结果失败: {}", e))?;
+    crate::storage_policy::publish(&tmp_path,path)?;
     Ok(())
 }
 

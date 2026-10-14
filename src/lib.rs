@@ -131,6 +131,8 @@ pub mod cross_section_example_metrics;
 pub mod drop_event_metrics;
 pub mod factor_pipeline;
 pub mod factor_store_v5;
+pub mod storage_policy;
+pub mod storage_read_cache;
 pub mod features_f64;
 pub mod features;
 pub mod individual_order_ratio_metrics;
@@ -369,6 +371,7 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     // 列式因子存储 RPFBINV5（计算备份 + 回测读取统一格式）
     let _ = m.add_function(wrap_pyfunction!(factor_store_v5::factor_store_v5_open, m)?);
     let _ = m.add_function(wrap_pyfunction!(factor_store_v5::factor_store_v5_info, m)?);
+    m.add_function(wrap_pyfunction!(storage_policy::factor_store_storage_profile, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(
         factor_store_v5::factor_store_v5_register_group,
         m

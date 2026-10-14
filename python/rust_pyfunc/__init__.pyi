@@ -961,6 +961,9 @@ def tail_backtest_engine(
     industry_neutralize: bool = True,
     industry_matrix: Optional[object] = None,
     ic_only: bool = False,
+    io_concurrency: Optional[int] = None,
+    io_batch_size: Optional[int] = None,
+    io_batch_bytes: int = 67108864,
 ) -> dict:
     """批量回测引擎。
 
@@ -1030,6 +1033,7 @@ __all__ = [
     # 列式因子存储 RPFBINV5（计算备份 + 回测读取统一格式）
     "factor_store_v5_open",
     "factor_store_v5_info",
+    "factor_store_storage_profile",
     "factor_store_v5_register_group",
     "factor_store_v5_read_factor",
     "factor_store_v5_template",
@@ -1254,3 +1258,8 @@ __all__ = [
     "illusion_liquidity_distance_factors",
     "compute_corr_diff_features",
 ]
+
+
+def factor_store_storage_profile(path: str) -> dict:
+    """按实际挂载识别 NAS/本机存储，跟随软链接；支持尚未创建的 store 路径。"""
+    ...
