@@ -35,20 +35,20 @@ use rayon::prelude::*;
 use std::time::Instant;
 
 /// B 分成多少块。固定值，不随线程数变，否则换线程数结果会变。
-const NBLOCKS: usize = 512;
+pub(crate) const NBLOCKS: usize = 512;
 /// 每个累加器里每档每口径 4 个量：cnt(u32), sum_gap, sum_h, sum_mass。
-struct Acc {
+pub(crate) struct Acc {
     // [口径2][档nlev][统计4? 分开存] —— 分四个平面存，索引 = (crit*nlev + l)*n + y
-    cnt: Vec<u32>,
-    sum_gap: Vec<f64>,
-    sum_h: Vec<f64>,
-    sum_mass: Vec<f64>,
-    pairs: u64,
-    skipped: u64,
+    pub(crate) cnt: Vec<u32>,
+    pub(crate) sum_gap: Vec<f64>,
+    pub(crate) sum_h: Vec<f64>,
+    pub(crate) sum_mass: Vec<f64>,
+    pub(crate) pairs: u64,
+    pub(crate) skipped: u64,
 }
 
 impl Acc {
-    fn new(n: usize, nlev: usize) -> Self {
+    pub(crate) fn new(n: usize, nlev: usize) -> Self {
         let l = 2 * nlev * n;
         Acc {
             cnt: vec![0u32; l],
@@ -59,7 +59,7 @@ impl Acc {
             skipped: 0,
         }
     }
-    fn add(&mut self, o: &Acc) {
+    pub(crate) fn add(&mut self, o: &Acc) {
         for i in 0..self.cnt.len() {
             self.cnt[i] += o.cnt[i];
             self.sum_gap[i] += o.sum_gap[i];
@@ -77,7 +77,7 @@ impl Acc {
 /// score 是该口径的分数数组（h 或 gap），order 是按该分数排好的前 take 下标，
 /// relu_pref[v] = Σ_{u<=v} relu(score[order[u]])，供各档归一化用。
 #[allow(clippy::too_many_arguments)]
-fn absorb_topk(
+pub(crate) fn absorb_topk(
     acc: &mut Acc,
     n: usize,
     crit: usize,
@@ -246,8 +246,25 @@ pub(crate) fn topk_one_mat(
     for a in accs.iter() {
         total.add(a);
     }
-    let pairs = total.pairs;
+    let (names, cols) = finalize_total(&total, n, mask, ks, pre);
+    eprintln!(
+        "[topk] {nlev} 档 × 2 口径 {:.1}s，pairs={}",
+        t0.elapsed().as_secs_f64(),
+        total.pairs
+    );
+    return (names, cols);
+}
 
+/// 把累计器收成 (names, cols)。与 topk_one_mat 原有的尾部逐字一致。
+pub(crate) fn finalize_total(
+    total: &Acc,
+    n: usize,
+    mask: &[bool],
+    ks: &[usize],
+    pre: &str,
+) -> (Vec<String>, Vec<Vec<f32>>) {
+    let nlev = ks.len();
+    let pairs = total.pairs;
     // names + cols：每口径四量，顺序 (crit × l × 4)
     let mut names = Vec::with_capacity(nlev * 4 * 2);
     for crit in 0..2 {
@@ -281,9 +298,5 @@ pub(crate) fn topk_one_mat(
             cols.push(c_ms);
         }
     }
-    eprintln!(
-        "[topk] {nlev} 档 × 2 口径 {:.1}s，pairs={pairs}",
-        t0.elapsed().as_secs_f64()
-    );
     (names, cols)
 }

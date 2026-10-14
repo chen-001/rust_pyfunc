@@ -333,6 +333,26 @@ pub const MATRIX_SPECS: [MatrixSpec; 37] = [
 
 pub const N_MATRICES: usize = MATRIX_SPECS.len();
 
+/// 权重家族位（MATRIX_SPECS.family 的顺序：0=cnt 1=vol 2=logvol 3=flow 4=urg 5=ext）
+pub const FAM_CNT: u8 = 1 << 0;
+pub const FAM_VOL: u8 = 1 << 1;
+pub const FAM_LOGVOL: u8 = 1 << 2;
+pub const FAM_FLOW: u8 = 1 << 3;
+pub const FAM_URG: u8 = 1 << 4;
+pub const FAM_EXT: u8 = 1 << 5;
+pub const FAM_ALL: u8 = FAM_CNT | FAM_VOL | FAM_LOGVOL | FAM_FLOW | FAM_URG | FAM_EXT;
+
+/// 请求的矩阵名 → 需要计算的家族位。
+pub fn family_mask_of(names: &[String]) -> u8 {
+    let mut m = 0u8;
+    for n in names {
+        if let Some(sp) = MATRIX_SPECS.iter().find(|sp| sp.name == n.as_str()) {
+            m |= 1 << sp.family;
+        }
+    }
+    m
+}
+
 /// 每股预处理结果: 稀疏桶单元 + 统计量
 #[derive(Clone, Debug)]
 pub struct StockPrep {
@@ -826,7 +846,7 @@ const GP_STRIDE: usize = 56;
 
 #[cfg(target_arch = "x86_64")]
 #[allow(clippy::too_many_arguments)]
-fn phase1_simd(
+fn phase1_simd<const NEED: u8>(
     gp: &mut [f32],
     acc_mem: &mut [f32],
     block_buf: &[(u32, [f32; N_U])],
@@ -926,57 +946,63 @@ fn phase1_simd(
                 b_curs += 1;
             }
             let gpk = gp.as_mut_ptr().add(k * GP_STRIDE);
-            let uc = _mm256_set1_ps(ub[U_CNT]);
-            let uv = _mm256_blend_ps(_mm256_set1_ps(ub[U_VOL]), zero, 0b11000000);
-            let ul = _mm256_blend_ps(_mm256_set1_ps(ub[U_LOGVOL]), zero, 0b11110000);
-            let u4 = _mm256_unpacklo_ps(
-                _mm256_set1_ps(ub[U_FLOW_P]),
-                _mm256_set1_ps(ub[U_FLOW_M]),
-            );
-            let u5 = _mm256_blend_ps(
-                _mm256_unpacklo_ps(
-                    _mm256_set1_ps(ub[U_URG_P]),
-                    _mm256_set1_ps(ub[U_URG_M]),
-                ),
-                zero,
-                0b11000000,
-            );
-            let u6 = _mm256_blend_ps(
-                _mm256_unpacklo_ps(
-                    _mm256_set1_ps(ub[U_EXT_P]),
-                    _mm256_set1_ps(ub[U_EXT_M]),
-                ),
-                zero,
-                0b11110000,
-            );
-            // cnt 块0（槽 0..8）: gpk = acc + 0.5u; acc = (acc+u)·dec
-            let g0 = _mm256_add_ps(a0, _mm256_mul_ps(half, uc));
-            _mm256_storeu_ps(gpk, g0);
-            a0 = _mm256_mul_ps(_mm256_add_ps(a0, uc), d0);
-            // cnt_t30（槽 8, 标量）
-            let ucs = ub[U_CNT];
-            *gpk.add(8) = a1s + 0.5 * ucs;
-            a1s = (a1s + ucs) * d1s;
-            // vol（槽 16..24）
-            let g2 = _mm256_add_ps(a2, _mm256_mul_ps(half, uv));
-            _mm256_storeu_ps(gpk.add(16), g2);
-            a2 = _mm256_mul_ps(_mm256_add_ps(a2, uv), d2);
-            // logvol（槽 24..32）
-            let g3 = _mm256_add_ps(a3, _mm256_mul_ps(half, ul));
-            _mm256_storeu_ps(gpk.add(24), g3);
-            a3 = _mm256_mul_ps(_mm256_add_ps(a3, ul), d3);
-            // flow ±（槽 32..40, unpacklo 交错 P+/P−）
-            let g4 = _mm256_add_ps(a4, _mm256_mul_ps(half, u4));
-            _mm256_storeu_ps(gpk.add(32), g4);
-            a4 = _mm256_mul_ps(_mm256_add_ps(a4, u4), d4);
-            // urg ±（槽 40..48）
-            let g5 = _mm256_add_ps(a5, _mm256_mul_ps(half, u5));
-            _mm256_storeu_ps(gpk.add(40), g5);
-            a5 = _mm256_mul_ps(_mm256_add_ps(a5, u5), d5);
-            // ext ±（槽 48..56）
-            let g6 = _mm256_add_ps(a6, _mm256_mul_ps(half, u6));
-            _mm256_storeu_ps(gpk.add(48), g6);
-            a6 = _mm256_mul_ps(_mm256_add_ps(a6, u6), d6);
+            // 只算请求的家族：被跳过的家族 gp 槽保持 0（块首已清零），只喂给不被请求的矩阵。
+            if NEED & FAM_CNT != 0 {
+                let uc = _mm256_set1_ps(ub[U_CNT]);
+                let g0 = _mm256_add_ps(a0, _mm256_mul_ps(half, uc));
+                _mm256_storeu_ps(gpk, g0);
+                a0 = _mm256_mul_ps(_mm256_add_ps(a0, uc), d0);
+                let ucs = ub[U_CNT];
+                *gpk.add(8) = a1s + 0.5 * ucs;
+                a1s = (a1s + ucs) * d1s;
+            }
+            if NEED & FAM_VOL != 0 {
+                let uv = _mm256_blend_ps(_mm256_set1_ps(ub[U_VOL]), zero, 0b11000000);
+                let g2 = _mm256_add_ps(a2, _mm256_mul_ps(half, uv));
+                _mm256_storeu_ps(gpk.add(16), g2);
+                a2 = _mm256_mul_ps(_mm256_add_ps(a2, uv), d2);
+            }
+            if NEED & FAM_LOGVOL != 0 {
+                let ul = _mm256_blend_ps(_mm256_set1_ps(ub[U_LOGVOL]), zero, 0b11110000);
+                let g3 = _mm256_add_ps(a3, _mm256_mul_ps(half, ul));
+                _mm256_storeu_ps(gpk.add(24), g3);
+                a3 = _mm256_mul_ps(_mm256_add_ps(a3, ul), d3);
+            }
+            if NEED & FAM_FLOW != 0 {
+                let u4 = _mm256_unpacklo_ps(
+                    _mm256_set1_ps(ub[U_FLOW_P]),
+                    _mm256_set1_ps(ub[U_FLOW_M]),
+                );
+                let g4 = _mm256_add_ps(a4, _mm256_mul_ps(half, u4));
+                _mm256_storeu_ps(gpk.add(32), g4);
+                a4 = _mm256_mul_ps(_mm256_add_ps(a4, u4), d4);
+            }
+            if NEED & FAM_URG != 0 {
+                let u5 = _mm256_blend_ps(
+                    _mm256_unpacklo_ps(
+                        _mm256_set1_ps(ub[U_URG_P]),
+                        _mm256_set1_ps(ub[U_URG_M]),
+                    ),
+                    zero,
+                    0b11000000,
+                );
+                let g5 = _mm256_add_ps(a5, _mm256_mul_ps(half, u5));
+                _mm256_storeu_ps(gpk.add(40), g5);
+                a5 = _mm256_mul_ps(_mm256_add_ps(a5, u5), d5);
+            }
+            if NEED & FAM_EXT != 0 {
+                let u6 = _mm256_blend_ps(
+                    _mm256_unpacklo_ps(
+                        _mm256_set1_ps(ub[U_EXT_P]),
+                        _mm256_set1_ps(ub[U_EXT_M]),
+                    ),
+                    zero,
+                    0b11110000,
+                );
+                let g6 = _mm256_add_ps(a6, _mm256_mul_ps(half, u6));
+                _mm256_storeu_ps(gpk.add(48), g6);
+                a6 = _mm256_mul_ps(_mm256_add_ps(a6, u6), d6);
+            }
         }
         // 块末 store 回 acc（跨块持久）
         let amut = acc_mem.as_mut_ptr();
@@ -991,7 +1017,7 @@ fn phase1_simd(
 }
 #[cfg(any(not(target_arch = "x86_64"), test))]
 #[allow(clippy::too_many_arguments, dead_code)]
-fn phase1_scalar(
+fn phase1_scalar<const _NEED: u8>(
     gp: &mut [f32],
     acc_mem: &mut [f32],
     block_buf: &[(u32, [f32; N_U])],
@@ -1191,7 +1217,7 @@ fn phase1_scalar(
 }
 #[cfg(target_arch = "x86_64")]
 #[allow(clippy::too_many_arguments)]
-fn phase2_simd(
+fn phase2_simd<const NEED: u8>(
     pack: &mut [f32],
     gp: &[f32],
     block_buf: &[(u32, [f32; N_U])],
@@ -1237,36 +1263,46 @@ fn phase2_simd(
                         break;
                     }
                     let ua = &cell.1;
-                    // 8 个权重标量广播（每单元一次）
-                    let uc = _mm256_set1_ps(ua[U_CNT]);
-                    let uv = _mm256_set1_ps(ua[U_VOL]);
-                    let ul = _mm256_set1_ps(ua[U_LOGVOL]);
-                    let fp = _mm256_set1_ps(ua[U_FLOW_P]);
-                    let fm = _mm256_set1_ps(ua[U_FLOW_M]);
-                    let up = _mm256_set1_ps(ua[U_URG_P]);
-                    let um = _mm256_set1_ps(ua[U_URG_M]);
-                    let xp = _mm256_set1_ps(ua[U_EXT_P]);
-                    let xm = _mm256_set1_ps(ua[U_EXT_M]);
                     let gpk = gpk0.add(kl * GP_STRIDE);
-                    // 7 个 ymm 加载（56 槽, 块对齐; 未用槽恒 0 → 乘积恒 0）
-                    let g0 = _mm256_loadu_ps(gpk); // cnt 8τ
-                    let g1 = _mm256_loadu_ps(gpk.add(8)); // cnt_t30 + 0×7
-                    let g2 = _mm256_loadu_ps(gpk.add(16)); // vol 6τ + 0×2
-                    let g3 = _mm256_loadu_ps(gpk.add(24)); // logvol 4τ + 0×4
-                    let g4 = _mm256_loadu_ps(gpk.add(32)); // flow ±
-                    let g5 = _mm256_loadu_ps(gpk.add(40)); // urg ±
-                    let g6 = _mm256_loadu_ps(gpk.add(48)); // ext ±
-                    p0 = _mm256_fmadd_ps(uc, g0, p0);
-                    p1 = _mm256_fmadd_ps(uc, g1, p1);
-                    p2 = _mm256_fmadd_ps(uv, g2, p2);
-                    p3 = _mm256_fmadd_ps(ul, g3, p3);
-                    // signed 块: same = A+×B+ + A−×B−; opp = A+×B− + A−×B+（通道交换）
-                    let g4x = _mm256_permutevar8x32_ps(g4, idx_x);
-                    p4 = _mm256_fmadd_ps(fp, g4, _mm256_fmadd_ps(fm, g4x, p4));
-                    let g5x = _mm256_permutevar8x32_ps(g5, idx_x);
-                    p5 = _mm256_fmadd_ps(up, g5, _mm256_fmadd_ps(um, g5x, p5));
-                    let g6x = _mm256_permutevar8x32_ps(g6, idx_x);
-                    p6 = _mm256_fmadd_ps(xp, g6, _mm256_fmadd_ps(xm, g6x, p6));
+                    // 只算请求的家族：被跳过的家族不读 gp、不做 FMA。
+                    if NEED & FAM_CNT != 0 {
+                        let uc = _mm256_set1_ps(ua[U_CNT]);
+                        let g0 = _mm256_loadu_ps(gpk);
+                        let g1 = _mm256_loadu_ps(gpk.add(8));
+                        p0 = _mm256_fmadd_ps(uc, g0, p0);
+                        p1 = _mm256_fmadd_ps(uc, g1, p1);
+                    }
+                    if NEED & FAM_VOL != 0 {
+                        let uv = _mm256_set1_ps(ua[U_VOL]);
+                        let g2 = _mm256_loadu_ps(gpk.add(16));
+                        p2 = _mm256_fmadd_ps(uv, g2, p2);
+                    }
+                    if NEED & FAM_LOGVOL != 0 {
+                        let ul = _mm256_set1_ps(ua[U_LOGVOL]);
+                        let g3 = _mm256_loadu_ps(gpk.add(24));
+                        p3 = _mm256_fmadd_ps(ul, g3, p3);
+                    }
+                    if NEED & FAM_FLOW != 0 {
+                        let fp = _mm256_set1_ps(ua[U_FLOW_P]);
+                        let fm = _mm256_set1_ps(ua[U_FLOW_M]);
+                        let g4 = _mm256_loadu_ps(gpk.add(32));
+                        let g4x = _mm256_permutevar8x32_ps(g4, idx_x);
+                        p4 = _mm256_fmadd_ps(fp, g4, _mm256_fmadd_ps(fm, g4x, p4));
+                    }
+                    if NEED & FAM_URG != 0 {
+                        let up = _mm256_set1_ps(ua[U_URG_P]);
+                        let um = _mm256_set1_ps(ua[U_URG_M]);
+                        let g5 = _mm256_loadu_ps(gpk.add(40));
+                        let g5x = _mm256_permutevar8x32_ps(g5, idx_x);
+                        p5 = _mm256_fmadd_ps(up, g5, _mm256_fmadd_ps(um, g5x, p5));
+                    }
+                    if NEED & FAM_EXT != 0 {
+                        let xp = _mm256_set1_ps(ua[U_EXT_P]);
+                        let xm = _mm256_set1_ps(ua[U_EXT_M]);
+                        let g6 = _mm256_loadu_ps(gpk.add(48));
+                        let g6x = _mm256_permutevar8x32_ps(g6, idx_x);
+                        p6 = _mm256_fmadd_ps(xp, g6, _mm256_fmadd_ps(xm, g6x, p6));
+                    }
                     j += 1;
                 }
                 _mm256_storeu_ps(pack_ptr.add(base), p0);
@@ -1283,7 +1319,7 @@ fn phase2_simd(
 }
 #[cfg(any(not(target_arch = "x86_64"), test))]
 #[allow(clippy::too_many_arguments, dead_code)]
-fn phase2_scalar(
+fn phase2_scalar<const _NEED: u8>(
     pack: &mut [f32],
     gp: &[f32],
     block_buf: &[(u32, [f32; N_U])],
@@ -1401,7 +1437,7 @@ fn phase2_scalar(
 /// gp 槽步长（每桶 56 槽）
 
 
-pub fn compute_matrices(stocks: &[StockPrep]) -> (Vec<Vec<f32>>, Vec<StockStats>) {
+pub fn compute_matrices(stocks: &[StockPrep], need: u8) -> (Vec<Vec<f32>>, Vec<StockStats>) {
     let n = stocks.len();
     let nm = N_MATRICES;
     let gfields = g_fields();
@@ -1514,14 +1550,46 @@ pub fn compute_matrices(stocks: &[StockPrep]) -> (Vec<Vec<f32>>, Vec<StockStats>
             let bcnt = counts_ref[b];
             let boff = offs_ref[b];
             #[cfg(target_arch = "x86_64")]
-            phase1_simd(gp, acc_mem, block_buf_ref, bcnt, boff, k0 as u32);
+            if need == FAM_CNT {
+                phase1_simd::<{ FAM_CNT }>(&mut *gp, &mut *acc_mem, block_buf_ref, bcnt, boff, k0 as u32);
+            } else if need == FAM_VOL {
+                phase1_simd::<{ FAM_VOL }>(&mut *gp, &mut *acc_mem, block_buf_ref, bcnt, boff, k0 as u32);
+            } else if need == (FAM_CNT | FAM_VOL) {
+                phase1_simd::<{ FAM_CNT | FAM_VOL }>(&mut *gp, &mut *acc_mem, block_buf_ref, bcnt, boff, k0 as u32);
+            } else {
+                phase1_simd::<{ FAM_ALL }>(&mut *gp, &mut *acc_mem, block_buf_ref, bcnt, boff, k0 as u32);
+            }
             #[cfg(not(target_arch = "x86_64"))]
-            phase1_scalar(gp, acc_mem, block_buf_ref, bcnt, boff, k0 as u32);
+            if need == FAM_CNT {
+                phase1_scalar::<{ FAM_CNT }>(&mut *gp, &mut *acc_mem, block_buf_ref, bcnt, boff, k0 as u32);
+            } else if need == FAM_VOL {
+                phase1_scalar::<{ FAM_VOL }>(&mut *gp, &mut *acc_mem, block_buf_ref, bcnt, boff, k0 as u32);
+            } else if need == (FAM_CNT | FAM_VOL) {
+                phase1_scalar::<{ FAM_CNT | FAM_VOL }>(&mut *gp, &mut *acc_mem, block_buf_ref, bcnt, boff, k0 as u32);
+            } else {
+                phase1_scalar::<{ FAM_ALL }>(&mut *gp, &mut *acc_mem, block_buf_ref, bcnt, boff, k0 as u32);
+            }
             // ---- 2. A-major 累积（SUB=2 提升 gp L1 驻留）----
             #[cfg(target_arch = "x86_64")]
-            phase2_simd(pack, gp, block_buf_ref, counts_ref, offs_ref, n, k0 as u32);
+            if need == FAM_CNT {
+                phase2_simd::<{ FAM_CNT }>(pack, gp, block_buf_ref, counts_ref, offs_ref, n, k0 as u32);
+            } else if need == FAM_VOL {
+                phase2_simd::<{ FAM_VOL }>(pack, gp, block_buf_ref, counts_ref, offs_ref, n, k0 as u32);
+            } else if need == (FAM_CNT | FAM_VOL) {
+                phase2_simd::<{ FAM_CNT | FAM_VOL }>(pack, gp, block_buf_ref, counts_ref, offs_ref, n, k0 as u32);
+            } else {
+                phase2_simd::<{ FAM_ALL }>(pack, gp, block_buf_ref, counts_ref, offs_ref, n, k0 as u32);
+            }
             #[cfg(not(target_arch = "x86_64"))]
-            phase2_scalar(pack, gp, block_buf_ref, counts_ref, offs_ref, n, k0 as u32);
+            if need == FAM_CNT {
+                phase2_scalar::<{ FAM_CNT }>(pack, gp, block_buf_ref, counts_ref, offs_ref, n, k0 as u32);
+            } else if need == FAM_VOL {
+                phase2_scalar::<{ FAM_VOL }>(pack, gp, block_buf_ref, counts_ref, offs_ref, n, k0 as u32);
+            } else if need == (FAM_CNT | FAM_VOL) {
+                phase2_scalar::<{ FAM_CNT | FAM_VOL }>(pack, gp, block_buf_ref, counts_ref, offs_ref, n, k0 as u32);
+            } else {
+                phase2_scalar::<{ FAM_ALL }>(pack, gp, block_buf_ref, counts_ref, offs_ref, n, k0 as u32);
+            }
         });
     }
     // ---- 日末刷入 S[m][a][b]（并行; 每 tile 只写第 b 列, 列互不相交）----
@@ -1533,6 +1601,10 @@ pub fn compute_matrices(stocks: &[StockPrep]) -> (Vec<Vec<f32>>, Vec<StockStats>
         let g = packs[b].lock().unwrap();
         let pack = &g[..n * PACK_W];
         for m in 0..nm {
+            // 不被请求的家族不写回：省掉 22 张（约 2.3 GB）的写流量
+            if need & (1u8 << MATRIX_SPECS[m].family) == 0 {
+                continue;
+            }
             let ch = field_channel(m);
             let ptr = mats_raw[m].0;
             for a in 0..n {

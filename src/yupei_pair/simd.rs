@@ -79,6 +79,167 @@ pub fn fill_gap(g: &mut [f32], h: &[f32], p: &[f32], q: &[f32]) {
     }
 }
 
+/// 一趟算完 h、g 并累计「最大值」与「pos_stats 的三个和 + 计数」。
+///
+/// 等价于依次调用 fill_h、fill_gap、argmax_first（只取最大值那半段）、pos_stats 的
+/// 累加段，归约顺序与尾巴的处理顺序与逐个调用时完全一致：
+///   * 最大值：8 路 max 累加 → 按 lane 0..8 依次比较 → 尾巴按 x 升序比较（严格大于）；
+///   * pos_stats：8 路和累加 → 按 lane 0..8 依次相加 → 尾巴按 x 升序累加；
+///   * b、c 位置写 -inf（原代码在两次 fill 之后单独置位，此处等价）。
+/// 返回 (最大值h, 最大值g, Σrelu(h), Σrelu(g), Σrelu(g)², #(g>0))。
+pub fn fused_hg_stats(
+    hb: &mut [f32],
+    gb: &mut [f32],
+    wb: f32,
+    wc: f32,
+    p: &[f32],
+    q: &[f32],
+    addm: &[f32],
+    b: usize,
+    c: usize,
+) -> (f32, f32, f32, f32, f32, u32) {
+    let n = hb.len();
+    #[cfg(target_arch = "x86_64")]
+    unsafe {
+        if have_avx2() {
+            let wv = _mm256_set1_ps(wb);
+            let cv = _mm256_set1_ps(wc);
+            let zero = _mm256_setzero_ps();
+            let mut mh = _mm256_set1_ps(f32::NEG_INFINITY);
+            let mut mg = _mm256_set1_ps(f32::NEG_INFINITY);
+            let mut sh = _mm256_setzero_ps();
+            let mut sg = _mm256_setzero_ps();
+            let mut sq = _mm256_setzero_ps();
+            let mut cnt = 0u32;
+            let mut x = 0;
+            let mut hbuf = [0f32; 8];
+            let mut gbuf = [0f32; 8];
+            while x + 8 <= n {
+                let (hv, gv);
+                if (b >= x && b < x + 8) || (c >= x && c < x + 8) {
+                    // 含 b/c 的那块：这两个位置必须是 -inf，标量算这 8 个再按原 lane 累加
+                    for i in 0..8 {
+                        let xx = x + i;
+                        let mut h = wb * p[xx] + wc * q[xx] + addm[xx];
+                        let mut g = h - if p[xx] > q[xx] { p[xx] } else { q[xx] };
+                        if xx == b || xx == c {
+                            h = f32::NEG_INFINITY;
+                            g = f32::NEG_INFINITY;
+                        }
+                        hbuf[i] = h;
+                        gbuf[i] = g;
+                    }
+                    for i in 0..8 {
+                        hb[x + i] = hbuf[i];
+                        gb[x + i] = gbuf[i];
+                    }
+                    hv = _mm256_loadu_ps(hbuf.as_ptr());
+                    gv = _mm256_loadu_ps(gbuf.as_ptr());
+                } else {
+                    let a = _mm256_loadu_ps(p.as_ptr().add(x));
+                    let bv = _mm256_loadu_ps(q.as_ptr().add(x));
+                    let m = _mm256_loadu_ps(addm.as_ptr().add(x));
+                    // 不用 fma：与 fill_h 的两次舍入一致
+                    hv = _mm256_add_ps(
+                        _mm256_add_ps(_mm256_mul_ps(wv, a), _mm256_mul_ps(cv, bv)),
+                        m,
+                    );
+                    gv = _mm256_sub_ps(hv, _mm256_max_ps(a, bv));
+                    _mm256_storeu_ps(hb.as_mut_ptr().add(x), hv);
+                    _mm256_storeu_ps(gb.as_mut_ptr().add(x), gv);
+                }
+                mh = _mm256_max_ps(mh, hv);
+                mg = _mm256_max_ps(mg, gv);
+                sh = _mm256_add_ps(sh, _mm256_max_ps(hv, zero));
+                let gp = _mm256_max_ps(gv, zero);
+                sg = _mm256_add_ps(sg, gp);
+                sq = _mm256_add_ps(sq, _mm256_mul_ps(gp, gp));
+                let mm = _mm256_movemask_ps(_mm256_cmp_ps::<_CMP_GT_OQ>(gv, zero)) as u32;
+                cnt += mm.count_ones();
+                x += 8;
+            }
+            let mut b1 = [0f32; 8];
+            let mut b2 = [0f32; 8];
+            _mm256_storeu_ps(b1.as_mut_ptr(), mh);
+            _mm256_storeu_ps(b2.as_mut_ptr(), mg);
+            let (mut mx_h, mut mx_g) = (f32::NEG_INFINITY, f32::NEG_INFINITY);
+            for i in 0..8 {
+                if b1[i] > mx_h {
+                    mx_h = b1[i];
+                }
+                if b2[i] > mx_g {
+                    mx_g = b2[i];
+                }
+            }
+            let mut b3 = [0f32; 8];
+            let mut b4 = [0f32; 8];
+            let mut b5 = [0f32; 8];
+            _mm256_storeu_ps(b3.as_mut_ptr(), sh);
+            _mm256_storeu_ps(b4.as_mut_ptr(), sg);
+            _mm256_storeu_ps(b5.as_mut_ptr(), sq);
+            let (mut s1, mut s2, mut s3) = (0f32, 0f32, 0f32);
+            for i in 0..8 {
+                s1 += b3[i];
+                s2 += b4[i];
+                s3 += b5[i];
+            }
+            while x < n {
+                let mut h = wb * p[x] + wc * q[x] + addm[x];
+                let mut g = h - if p[x] > q[x] { p[x] } else { q[x] };
+                if x == b || x == c {
+                    h = f32::NEG_INFINITY;
+                    g = f32::NEG_INFINITY;
+                }
+                hb[x] = h;
+                gb[x] = g;
+                if h > mx_h {
+                    mx_h = h;
+                }
+                if h > 0.0 {
+                    s1 += h;
+                }
+                if g > mx_g {
+                    mx_g = g;
+                }
+                if g > 0.0 {
+                    s2 += g;
+                    s3 += g * g;
+                    cnt += 1;
+                }
+                x += 1;
+            }
+            return (mx_h, mx_g, s1, s2, s3, cnt);
+        }
+    }
+    let (mut mx_h, mut mx_g) = (f32::NEG_INFINITY, f32::NEG_INFINITY);
+    let (mut s1, mut s2, mut s3, mut cnt) = (0f32, 0f32, 0f32, 0u32);
+    for x in 0..n {
+        let mut h = wb * p[x] + wc * q[x] + addm[x];
+        let mut g = h - if p[x] > q[x] { p[x] } else { q[x] };
+        if x == b || x == c {
+            h = f32::NEG_INFINITY;
+            g = f32::NEG_INFINITY;
+        }
+        hb[x] = h;
+        gb[x] = g;
+        if h > mx_h {
+            mx_h = h;
+        }
+        if h > 0.0 {
+            s1 += h;
+        }
+        if g > mx_g {
+            mx_g = g;
+        }
+        if g > 0.0 {
+            s2 += g;
+            s3 += g * g;
+            cnt += 1;
+        }
+    }
+    (mx_h, mx_g, s1, s2, s3, cnt)
+}
+
 /// (首个最大值的 x, 最大值)。全是 -inf 时返回 (usize::MAX, -inf)，
 /// 与旧标量版"找不到合法候选"的语义一致。
 pub fn argmax_first(v: &[f32]) -> (usize, f32) {
@@ -138,6 +299,71 @@ pub fn argmax_first(v: &[f32]) -> (usize, f32) {
         }
     }
     (bi, mx)
+}
+
+/// 一趟找出 h、g 里「第一个等于最大值」的下标，等价于两次 argmax_first 的后半段
+/// （两次分别只扫一个数组）。扫描顺序、并列取小下标的语义都不变。
+/// mx_g 为 -inf 时按原语义不扫 g、直接返回 usize::MAX。
+pub fn argmax_first_two(h: &[f32], g: &[f32], mx_h: f32, mx_g: f32) -> (usize, usize) {
+    let n = h.len();
+    let find_g = mx_g != f32::NEG_INFINITY;
+    #[cfg(target_arch = "x86_64")]
+    unsafe {
+        if have_avx2() {
+            let mh = _mm256_set1_ps(mx_h);
+            let mg = _mm256_set1_ps(mx_g);
+            let mut bi = usize::MAX;
+            let mut bsi = usize::MAX;
+            let mut x = 0;
+            while x + 8 <= n {
+                if bi == usize::MAX {
+                    let c = _mm256_cmp_ps::<_CMP_EQ_OQ>(_mm256_loadu_ps(h.as_ptr().add(x)), mh);
+                    let mask = _mm256_movemask_ps(c) as u32;
+                    if mask != 0 {
+                        bi = x + mask.trailing_zeros() as usize;
+                    }
+                }
+                if bsi == usize::MAX && find_g {
+                    let c = _mm256_cmp_ps::<_CMP_EQ_OQ>(_mm256_loadu_ps(g.as_ptr().add(x)), mg);
+                    let mask = _mm256_movemask_ps(c) as u32;
+                    if mask != 0 {
+                        bsi = x + mask.trailing_zeros() as usize;
+                    }
+                }
+                if bi != usize::MAX && (bsi != usize::MAX || !find_g) {
+                    return (bi, bsi);
+                }
+                x += 8;
+            }
+            while x < n {
+                if bi == usize::MAX && h[x] == mx_h {
+                    bi = x;
+                }
+                if bsi == usize::MAX && find_g && g[x] == mx_g {
+                    bsi = x;
+                }
+                if bi != usize::MAX && (bsi != usize::MAX || !find_g) {
+                    break;
+                }
+                x += 1;
+            }
+            return (bi, bsi);
+        }
+    }
+    let mut bi = usize::MAX;
+    let mut bsi = usize::MAX;
+    for x in 0..n {
+        if bi == usize::MAX && h[x] == mx_h {
+            bi = x;
+        }
+        if bsi == usize::MAX && find_g && g[x] == mx_g {
+            bsi = x;
+        }
+        if bi != usize::MAX && (bsi != usize::MAX || !find_g) {
+            break;
+        }
+    }
+    (bi, bsi)
 }
 
 /// (Σ relu(h), Σ relu(g), Σ relu(g)², #(g>0)) —— f32 SIMD 归约。
@@ -228,6 +454,131 @@ pub fn mass_acc_g(sm: &mut [f32], sgm: &mut [f32], sg2m: &mut [f32], g: &[f32], 
             sm[x] += w;
             sgm[x] += w * g[x];
             sg2m[x] += w * g[x] * g[x];
+        }
+    }
+}
+
+/// mass_acc_h 与 mass_acc_g 并成一趟，8 个元素一组（AVX2）。
+///
+/// 逐位不变的理由：六个数组都是逐元素的独立累加（没有任何跨元素的归约），所以一条
+/// SIMD 指令算 8 个元素与标量逐个算结果逐位相同。`h[x] > 0` 用比较掩码实现，掩码为假
+/// 的通道把「要加的那个数」用 and 清零再相加：对初值 0.0、只增正数的 em/gm/g2m 与
+/// sm/sgm/sg2m，加 +0.0 是恒等；乘法在掩码为假时可能算出 NaN，也在 and 这一步被清成
+/// +0.0，不会写进数组。do_h/do_g 对应原代码的两个「和大于 0 才累加」条件。
+#[allow(clippy::too_many_arguments)]
+pub fn mass_acc_hg(
+    em: &mut [f32],
+    gm: &mut [f32],
+    g2m: &mut [f32],
+    sm: &mut [f32],
+    sgm: &mut [f32],
+    sg2m: &mut [f32],
+    h: &[f32],
+    g: &[f32],
+    invh: f32,
+    invg: f32,
+    do_h: bool,
+    do_g: bool,
+) {
+    let n = h.len();
+    #[cfg(target_arch = "x86_64")]
+    unsafe {
+        if have_avx2() {
+            let zero = _mm256_setzero_ps();
+            let vh = _mm256_set1_ps(invh);
+            let vg = _mm256_set1_ps(invg);
+            let mut x = 0;
+            while x + 8 <= n {
+                let hv = _mm256_loadu_ps(h.as_ptr().add(x));
+                let gv = _mm256_loadu_ps(g.as_ptr().add(x));
+                if do_h {
+                    let m = _mm256_cmp_ps::<_CMP_GT_OQ>(hv, zero);
+                    let w = _mm256_mul_ps(hv, vh);
+                    let wgg = _mm256_mul_ps(w, gv);
+                    let wgg2 = _mm256_mul_ps(wgg, gv);
+                    let e0 = _mm256_loadu_ps(em.as_ptr().add(x));
+                    let g0 = _mm256_loadu_ps(gm.as_ptr().add(x));
+                    let q0 = _mm256_loadu_ps(g2m.as_ptr().add(x));
+                    _mm256_storeu_ps(
+                        em.as_mut_ptr().add(x),
+                        _mm256_add_ps(e0, _mm256_and_ps(w, m)),
+                    );
+                    _mm256_storeu_ps(
+                        gm.as_mut_ptr().add(x),
+                        _mm256_add_ps(g0, _mm256_and_ps(wgg, m)),
+                    );
+                    _mm256_storeu_ps(
+                        g2m.as_mut_ptr().add(x),
+                        _mm256_add_ps(q0, _mm256_and_ps(wgg2, m)),
+                    );
+                }
+                if do_g {
+                    let m = _mm256_cmp_ps::<_CMP_GT_OQ>(gv, zero);
+                    let w = _mm256_mul_ps(gv, vg);
+                    let wg = _mm256_mul_ps(w, gv);
+                    let wg2 = _mm256_mul_ps(wg, gv);
+                    let s0 = _mm256_loadu_ps(sm.as_ptr().add(x));
+                    let s1 = _mm256_loadu_ps(sgm.as_ptr().add(x));
+                    let s2 = _mm256_loadu_ps(sg2m.as_ptr().add(x));
+                    _mm256_storeu_ps(
+                        sm.as_mut_ptr().add(x),
+                        _mm256_add_ps(s0, _mm256_and_ps(w, m)),
+                    );
+                    _mm256_storeu_ps(
+                        sgm.as_mut_ptr().add(x),
+                        _mm256_add_ps(s1, _mm256_and_ps(wg, m)),
+                    );
+                    _mm256_storeu_ps(
+                        sg2m.as_mut_ptr().add(x),
+                        _mm256_add_ps(s2, _mm256_and_ps(wg2, m)),
+                    );
+                }
+                x += 8;
+            }
+            while x < n {
+                if do_h {
+                    let hv = h[x];
+                    if hv > 0.0 {
+                        let w = hv * invh;
+                        let gg = g[x];
+                        em[x] += w;
+                        gm[x] += w * gg;
+                        g2m[x] += w * gg * gg;
+                    }
+                }
+                if do_g {
+                    let gv = g[x];
+                    if gv > 0.0 {
+                        let w = gv * invg;
+                        sm[x] += w;
+                        sgm[x] += w * gv;
+                        sg2m[x] += w * gv * gv;
+                    }
+                }
+                x += 1;
+            }
+            return;
+        }
+    }
+    for x in 0..n {
+        if do_h {
+            let hv = h[x];
+            if hv > 0.0 {
+                let w = hv * invh;
+                let gg = g[x];
+                em[x] += w;
+                gm[x] += w * gg;
+                g2m[x] += w * gg * gg;
+            }
+        }
+        if do_g {
+            let gv = g[x];
+            if gv > 0.0 {
+                let w = gv * invg;
+                sm[x] += w;
+                sgm[x] += w * gv;
+                sg2m[x] += w * gv * gv;
+            }
         }
     }
 }

@@ -79,8 +79,14 @@ fn compute_yupei_pair_inner(
     set_soft(sig);
 
     // ---- 1. 上游：cross-section 口径枚举 + 逐笔预处理 + 37 张矩阵 ----
+    // 只算请求的矩阵用到的权重家族：默认 15 张只要 cnt+vol，其余 22 张不参与计算、
+    // 不写回、也不搬进内存表。
+    let need = {
+        let m = crate::yupei_dist::matrix_stage::family_mask_of(mats);
+        if m == 0 { crate::yupei_dist::matrix_stage::FAM_ALL } else { m }
+    };
     let (codes, n, stats, hm, industry) =
-        crate::yupei_dist::compute::compute_yupei_dist_partial(date)?;
+        crate::yupei_dist::compute::compute_yupei_dist_partial_need(date, need)?;
     eprintln!("[yupei_pair] date={date} universe n={n}，矩阵 {} 张", hm.len());
 
     // 每股活跃度（成交笔数）→ 十分位分层（空模型用）+ ln(成交笔数)（R5 协变量）
@@ -126,7 +132,9 @@ fn compute_yupei_pair_inner(
             let n_stocks = stock_idx.len();
 
             // ---- net ----
-            let net = net::net_one_mat(sdir, n, &dec, &mask, &stock_idx, null_mc, exz_bins, mat);
+            let mut net = net::net_one_mat(
+                sdir, n, &dec, &mask, &stock_idx, null_mc, exz_bins, mat, Some(&KS_DEFAULT),
+            );
 
             // ---- check（硬校验，任一失败即中止该矩阵）----
             let fails = check::check_net(&net, n, &mask, mat);
@@ -138,6 +146,8 @@ fn compute_yupei_pair_inner(
             }
 
             // ---- reduce：legacy + reduce2 扩展块（列 f64 → f32）----
+            // topk 的累计结果已经从同一趟扫描里拿出来了，先取走再 move net
+            let tk_total = net.topk_total.take();
             let ms = matset_from_net(net, n);
             let mut out = Out::new();
             let pre = format!("{mat}_");
@@ -147,7 +157,10 @@ fn compute_yupei_pair_inner(
                 &mut out,
             );
             // ---- topk：K 档 × 双口径（rho/e 复用 ms 里的）----
-            let (tn, tc) = topk_one_mat(&ms.rho, &ms.e, n, &mask, &KS_DEFAULT, &pre);
+            let (tn, tc) = match tk_total {
+                Some(t) => topk::finalize_total(&t, n, &mask, &KS_DEFAULT, &pre),
+                None => topk_one_mat(&ms.rho, &ms.e, n, &mask, &KS_DEFAULT, &pre),
+            };
 
             // 合并 names/cols（reduce cols 是 f64，topk cols 是 f32，统一成 f32）
             let mut names = out.names;
