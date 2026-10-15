@@ -175,6 +175,35 @@ def test_stop_refuses_unrelated_service():
         ct.stop_scope("factor-taskd.service")
 
 
+def test_disabled_memory_high_keeps_hard_limit_and_checks_kernel(tmp_path, monkeypatch):
+    cfg = {"cpus": [0], "memory_high_gib": None, "memory_max_gib": 1024,
+           "swap_max_gib": 16, "tasks_max": 32768}
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps(cfg))
+    monkeypatch.setattr(ct, "CONFIG_PATH", config)
+    monkeypatch.setattr(ct, "_slice_path", lambda: tmp_path)
+    for name, value in {"memory.high": "max", "memory.max": str(1024 * ct.GIB),
+                        "memory.swap.max": str(16 * ct.GIB), "pids.max": "32768"}.items():
+        (tmp_path / name).write_text(value)
+    assert ct.load_config()["memory_high_gib"] is None
+    facts = ct.status()
+    assert facts["ready"] and "不设提前减速线" in facts["message"]
+    # 不能只看配置就谎报保护生效：硬上限消失、或旧减速线还在，均拒绝启动。
+    for name, wrong in [("memory.max", "max"), ("memory.high", str(896 * ct.GIB))]:
+        old = (tmp_path / name).read_text()
+        (tmp_path / name).write_text(wrong)
+        assert not ct.status()["ready"]
+        (tmp_path / name).write_text(old)
+    cfg["memory_high_gib"] = 896
+    config.write_text(json.dumps(cfg))
+    (tmp_path / "memory.high").write_text(str(896 * ct.GIB))
+    assert ct.status()["ready"]  # 已有的数字减速线配置继续可用。
+    cfg.pop("memory_high_gib")
+    config.write_text(json.dumps(cfg))
+    with pytest.raises(ValueError, match="显式指定"):
+        ct.load_config()
+
+
 def test_real_http_daemon_restart_recovers_success(tmp_path):
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))

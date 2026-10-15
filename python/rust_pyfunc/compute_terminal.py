@@ -56,7 +56,9 @@ def default_config() -> dict:
         cpus.extend(group)
     cpus = sorted(cpus or [min(os.sched_getaffinity(0))])
     return {
-        "cpus": cpus, "memory_high_gib": 896, "memory_max_gib": 1024,
+        # Level2 读取会积累大量可回收的文件缓存，提前减速会反复回收、再读取。
+        # null 表示不设 memory.high；memory.max 仍给所有任务保留合计 1 TiB 的硬边界。
+        "cpus": cpus, "memory_high_gib": None, "memory_max_gib": 1024,
         "swap_max_gib": 16, "tasks_max": 32768,
     }
 
@@ -69,10 +71,15 @@ def load_config() -> dict:
     if not isinstance(cpus, list) or not cpus or any(type(c) is not int or c < 0 for c in cpus):
         raise ValueError("cpus 必须是非空的 CPU 编号列表")
     cfg["cpus"] = sorted(set(cpus))
-    for key in ("memory_high_gib", "memory_max_gib", "swap_max_gib", "tasks_max"):
+    for key in ("memory_max_gib", "swap_max_gib", "tasks_max"):
         if type(cfg.get(key)) is not int or cfg[key] < (0 if key == "swap_max_gib" else 1):
             raise ValueError(f"{key} 必须是有效整数")
-    if cfg["memory_high_gib"] > cfg["memory_max_gib"]:
+    if "memory_high_gib" not in cfg:
+        raise ValueError("必须显式指定 memory_high_gib；null 表示关闭提前减速")
+    high = cfg["memory_high_gib"]
+    if high is not None and (type(high) is not int or high < 1):
+        raise ValueError("memory_high_gib 必须是正整数或 null")
+    if high is not None and high > cfg["memory_max_gib"]:
         raise ValueError("内存减速线不能大于内存上限")
     return cfg
 
@@ -102,8 +109,10 @@ def status() -> dict:
             "memory.swap.current", "pids.max", "pids.current", "cpu.max",
             "cpuset.cpus.effective", "memory.events",
         )}
-        ready = all(actual[name] == str(cfg[key] * scale) for name, key, scale in (
-            ("memory.high", "memory_high_gib", GIB), ("memory.max", "memory_max_gib", GIB),
+        high = cfg["memory_high_gib"]
+        ready = (actual["memory.high"] == ("max" if high is None else str(high * GIB))) and all(
+            actual[name] == str(cfg[key] * scale) for name, key, scale in (
+            ("memory.max", "memory_max_gib", GIB),
             ("memory.swap.max", "swap_max_gib", GIB), ("pids.max", "tasks_max", 1),
         ))
         quota = actual["cpu.max"].split()
@@ -112,7 +121,8 @@ def status() -> dict:
         cpu_mode = "quota" if cpu_hard else "affinity"
         message = (
             f"所有计算任务共享：内存上限 {cfg['memory_max_gib']} GiB，"
-            f"交换空间上限 {cfg['swap_max_gib']} GiB，线程/进程上限 {cfg['tasks_max']}；"
+            + ("不设提前减速线（文件缓存计入总额度），" if high is None else f"内存减速线 {high} GiB，")
+            + f"交换空间上限 {cfg['swap_max_gib']} GiB，线程/进程上限 {cfg['tasks_max']}；"
             + (f"CPU 总额度已启用（最多相当于 {len(cfg['cpus'])} 个 CPU）"
                if cpu_hard else f"默认在指定的 {len(cfg['cpus'])} 个 CPU 上运行，严格 CPU 总额度待管理员开放")
         )
@@ -238,7 +248,8 @@ def install() -> None:
     units.mkdir(parents=True, exist_ok=True)
     (units / SLICE).write_text(
         "[Unit]\nDescription=计算终端与因子任务共享资源额度\n\n[Slice]\n"
-        f"MemoryHigh={cfg['memory_high_gib']}G\nMemoryMax={cfg['memory_max_gib']}G\n"
+        f"MemoryHigh={'infinity' if cfg['memory_high_gib'] is None else str(cfg['memory_high_gib']) + 'G'}\n"
+        f"MemoryMax={cfg['memory_max_gib']}G\n"
         f"MemorySwapMax={cfg['swap_max_gib']}G\nTasksMax={cfg['tasks_max']}\n"
         f"CPUQuota={len(cfg['cpus']) * 100}%\nCPUWeight=50\n"
         f"AllowedCPUs={','.join(map(str, cfg['cpus']))}\n"
@@ -271,7 +282,8 @@ def install() -> None:
     _systemctl("start", SLICE)
     # 已运行的 slice 在 daemon-reload 后仍要显式更新可用的控制器。
     _systemctl("set-property", SLICE,
-               f"MemoryHigh={cfg['memory_high_gib']}G", f"MemoryMax={cfg['memory_max_gib']}G",
+               f"MemoryHigh={'infinity' if cfg['memory_high_gib'] is None else str(cfg['memory_high_gib']) + 'G'}",
+               f"MemoryMax={cfg['memory_max_gib']}G",
                f"MemorySwapMax={cfg['swap_max_gib']}G", f"TasksMax={cfg['tasks_max']}",
                f"CPUQuota={len(cfg['cpus']) * 100}%", "CPUWeight=50",
                f"AllowedCPUs={','.join(map(str, cfg['cpus']))}")
