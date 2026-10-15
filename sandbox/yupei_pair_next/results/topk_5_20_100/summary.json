@@ -1,0 +1,17 @@
+{
+  "full_seconds": 209.5278469827026,
+  "subset_seconds": 148.90733337029815,
+  "saved_seconds": 60.620513612404466,
+  "reduction": 0.28931960350553754,
+  "threads": 50,
+  "date": 20241231,
+  "kept_k": [
+    5,
+    20,
+    100
+  ],
+  "retained_bit_differences": 0,
+  "full_bit_differences": 0,
+  "production_deployed": false,
+  "sandbox_default_restored": true
+}

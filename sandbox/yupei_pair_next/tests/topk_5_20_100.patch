@@ -1,0 +1,11 @@
+--- a/src/yupei_pair/mod.rs
++++ b/src/yupei_pair/mod.rs
+@@ -39,7 +39,7 @@
+ use topk::topk_one_mat;
+ 
+ /// topk 的默认 K 档（与 sandbox 一致：九档）。
+-const KS_DEFAULT: [usize; 9] = [1, 2, 5, 10, 20, 50, 100, 200, 500];
++const KS_DEFAULT: [usize; 3] = [5, 20, 100];
+ 
+ /// 默认跑的矩阵集合：cnt 全九档 τ + vol 六档 τ（C 组口径）。
+ /// MATRIX_SPECS 里还有 logvol/flow/urg/ext 族，需要时显式传 mats 即可。
