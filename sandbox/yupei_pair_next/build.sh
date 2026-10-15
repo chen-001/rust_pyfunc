@@ -15,6 +15,7 @@ PYBASE
   # bitonic_sort.rs is already tracked in this sandbox; apply only the two integrations.
   patch -p1 < <(sed '/^--- \/dev\/null/,$d' bitonic.patch)
   patch -p1 < layout.patch
+  patch -p1 < lossless.patch
 fi
 export PATH="/home/chenzongwei/.cargo/bin:$PATH"
 export PYO3_PYTHON=/home/chenzongwei/.conda/envs/chenzongwei311/bin/python
