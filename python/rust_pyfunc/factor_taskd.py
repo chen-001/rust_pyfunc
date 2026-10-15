@@ -1189,11 +1189,96 @@ def get_task_log(task_id: int, offset: int = 0, limit: int = 1000):
     return _read_log_file(row["log_path"], offset, limit)
 
 
+# ── 进度行解析 ────────────────────────────────────────
+# 任务日志里有三种进度行，取文件里最后出现的那一行当作当前进度：
+#   1) 逐股 pipeline（Rust 监控线程每 10 秒一行）
+#      [ts] 📊 进度: 1/2 (50.0%), 速度: 547/s, 已用: 5.0h, 预估剩余(全局): 4.0h, ...
+#   2) 横截面 pipeline（每写完一天一行，只给已完成天数和已用秒数）
+#      [ts] ✅ 20240102 完成: 5792 股 (94/2848, 1375s)
+#      这行没有速度，速度和剩余由「已完成天数 ÷ 已用秒数」推出来。
+#   3) base / Fulltest / doc 阶段（tail 流程）
+#      [ts] Fulltest 进度 100/180 (55.6%)，已恢复 0 个，…，已用0h6m46s，预计剩余0h5m25s
+_PROGRESS_RE = re.compile(
+    r"进度:\s*(\d+)/(\d+)\s*\(([0-9.]+)%\).*?速度:\s*(\d+)/s"
+    r".*?已用:\s*([^,\s]+).*?预估剩余\(全局\):\s*([^,\s]+)"
+)
+_CROSS_SECTION_RE = re.compile(r"完成:\s*\d+\s*股\s*\((\d+)/(\d+),\s*([0-9.]+)s\)")
+_STAGE_RE = re.compile(
+    r"进度\s+(\d+)/(\d+)\s*\(([0-9.]+)%\).*?已用\s*(\d+h\d+m\d+s)"
+    r".*?预计剩余\s*(\d+h\d+m\d+s)"
+)
+
+
+def _fmt_duration(secs: float) -> str:
+    """和 Rust 侧 fmt_eta 同一套刻度（秒 / 分 / 小时），两条路径显示保持一致。"""
+    if secs < 60:
+        return f"{secs:.0f}s"
+    if secs < 3600:
+        return f"{secs / 60:.0f}m"
+    return f"{secs / 3600:.1f}h"
+
+
+def _fmt_rate(per_hour: float) -> str:
+    return f"{per_hour:.0f}" if per_hour >= 10 else f"{per_hour:.1f}"
+
+
+def parse_progress_line(lines) -> dict | None:
+    """从日志行里取最后一条进度行，转成接口字段。
+
+    找不到任何进度行时退回最后一条 Step 标记（脚本自己打的阶段说明）。
+    """
+    step = None
+    for line in reversed(lines):
+        m = _PROGRESS_RE.search(line)
+        if m:
+            return {
+                "completed": int(m.group(1)),
+                "total": int(m.group(2)),
+                "progress_pct": float(m.group(3)),
+                "speed": int(m.group(4)),
+                "speed_unit": "/s",
+                "elapsed": m.group(5),
+                "eta": m.group(6),
+            }
+        m = _CROSS_SECTION_RE.search(line)
+        if m:
+            done, total, elapsed = int(m.group(1)), int(m.group(2)), float(m.group(3))
+            # 日志把秒数四舍五入成整数，偶尔会是 0s；这时算不出速度，直说 N/A，不报 0。
+            if elapsed > 0:
+                speed, eta = _fmt_rate(done / elapsed * 3600), _fmt_duration(
+                    (total - done) * elapsed / done
+                )
+                unit = "/h"
+            else:
+                speed, eta, unit = "N/A", "N/A", ""
+            return {
+                "completed": done,
+                "total": total,
+                "progress_pct": round(done / total * 100, 1),
+                "speed": speed,
+                "speed_unit": unit,
+                "elapsed": _fmt_duration(elapsed),
+                "eta": eta,
+            }
+        m = _STAGE_RE.search(line)
+        if m:
+            return {
+                "completed": int(m.group(1)),
+                "total": int(m.group(2)),
+                "progress_pct": float(m.group(3)),
+                "speed": None,
+                "speed_unit": None,
+                "elapsed": m.group(4),
+                "eta": m.group(5),
+            }
+        if step is None and "Step" in line and ":" in line:
+            step = line.strip()[:80]
+    return {"step": step} if step else None
+
+
 @app.get("/api/tasks/{task_id}/progress")
 def get_task_progress(task_id: int):
-    """解析任务日志最后一行 📊 进度，返回结构化进度数据。"""
-    import re
-
+    """解析任务日志最后一条进度行，返回结构化进度数据。"""
     with _db_lock:
         db = get_db()
         row = db.execute(
@@ -1207,31 +1292,10 @@ def get_task_progress(task_id: int):
             lines = f.readlines()
     except OSError:
         return {"status": row["status"], "progress_pct": None}
-    # 从末尾找最后一条 📊 进度行
-    for line in reversed(lines):
-        m = re.search(
-            r"进度:\s*(\d+)/(\d+)\s*\(([0-9.]+)%\).*?速度:\s*(\d+)/s.*?已用:\s*(\S+).*?预估剩余\(全局\):\s*(\S+)",
-            line,
-        )
-        if m:
-            return {
-                "status": row["status"],
-                "completed": int(m.group(1)),
-                "total": int(m.group(2)),
-                "progress_pct": float(m.group(3)),
-                "speed": int(m.group(4)),
-                "elapsed": m.group(5),
-                "eta": m.group(6),
-            }
-    # 找 Step 标记
-    for line in reversed(lines):
-        if "Step" in line and ":" in line:
-            return {
-                "status": row["status"],
-                "step": line.strip()[:80],
-                "progress_pct": None,
-            }
-    return {"status": row["status"], "progress_pct": None}
+    parsed = parse_progress_line(lines)
+    if not parsed:
+        return {"status": row["status"], "progress_pct": None}
+    return {"status": row["status"], **parsed}
 
 
 @app.get("/api/tasks/{task_id}/subprocess-log")
