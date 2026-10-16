@@ -284,6 +284,45 @@ fn remove_projection_files(store_dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// value 区分段强制落盘的段大小。挂载的耐心约 189 秒，按 NAS 实测单次 1 GiB 确认最慢
+/// 14.8 秒算，留 13 倍余量；取 1 GiB。环境变量覆盖只给测试用（好在 MB 级 store 上验证
+/// 分段确实发生），一旦设了就明确打一行提示，免得被当成生产调参用。
+fn proj_sync_chunk() -> usize {
+    match std::env::var("RUST_PYFUNC_PROJ_SYNC_CHUNK")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+    {
+        Some(v) if v > 0 => {
+            eprintln!(
+                "⚠️ RUST_PYFUNC_PROJ_SYNC_CHUNK={v} 覆盖了投影分段确认的默认段大小，这个开关只给测试用"
+            );
+            v
+        }
+        _ => 1 << 30,
+    }
+}
+
+/// 写入 value 区并逐段确认。整段只在最后确认一次，会让本地内核把远超对面吸收速度的数据
+/// 推给对面，对面缓存一满就停住，耐心（约 189 秒）用尽后内核把那批写丢掉，调用方只看到
+/// 一个 I/O 错误，hm95 投影就是这么挂的。独立核验实测：64 GB 一次确认时，第一次确认在
+/// 192.6 秒报 EIO，之后服务端那 64 GB 里约 30 GB 内容是空的，而且再确认一次会假报成功；
+/// 同样 64 GB 改成每 1 GiB 确认一次，64 次确认零失败、读回 65536 块全对。分段才是真正
+/// 防住这件事的一步，所以这里不靠失败重试，靠把未确认量压在一段以内。
+fn write_proj_values(
+    proj_file: &mut File,
+    buf: &[u8],
+    path: &Path,
+    chunk: usize,
+) -> Result<(), String> {
+    for piece in buf.chunks(chunk) {
+        proj_file
+            .write_all(piece)
+            .map_err(|e| format!("写 value 段批量失败: {e}"))?;
+        sync_file(proj_file, &path.display().to_string())?;
+    }
+    Ok(())
+}
+
 /// 把一组行写成 v3 格式投影文件（header + 共享行序段 + 每因子连续 raw f32 段）。
 /// 全量投影（factors.proj）与增量 delta（factors.proj.delta.<end>）共用同一份布局，
 /// 因此读取端对两者用同一套解析逻辑。
@@ -363,9 +402,7 @@ fn write_proj_file(
             cur += csz;
             batch_buf.extend_from_slice(c);
         }
-        proj_file
-            .write_all(&batch_buf)
-            .map_err(|e| format!("写 value 段批量失败: {e}"))?;
+        write_proj_values(&mut proj_file, &batch_buf, path, proj_sync_chunk())?;
         f0 = f1;
     }
     proj_file

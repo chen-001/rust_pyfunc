@@ -72,6 +72,13 @@ impl StorageProfile {
 }
 
 /// A real sync is required before publishing a commit/projection; flush is not fsync.
+///
+/// 这里刻意不重试。2026-10-16 独立核验实测：往 NAS 写 64 GiB，第一次确认在 192.6 秒报 EIO，
+/// 同一个句柄上紧接着再确认一次 3.4 秒就返回成功，但读回时 65536 块里有 28582 块内容不对，
+/// 服务端真实长度比客户端报的少约 64 MB（两轮都复现）。也就是说软挂载超时之后，客户端已经
+/// 把那批写丢掉了，再问一次得到的成功是假的。重试会把「确定失败」变成「静默成功且产物损坏」，
+/// 方向与「读取失败不得被解释成缺失值」正相反。要扛住对面停顿靠的是把确认拆小
+/// （见 factor_store_v5.rs 的 write_proj_values），不是失败之后重问。
 pub fn sync_file(file: &File, context: &str) -> Result<(), String> {
     file.sync_all()
         .map_err(|e| format!("保存 {context} 失败: {e}"))
