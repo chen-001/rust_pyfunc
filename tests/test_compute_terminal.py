@@ -175,6 +175,21 @@ def test_stop_refuses_unrelated_service():
         ct.stop_scope("factor-taskd.service")
 
 
+def test_default_cpu_pool_keeps_whole_cores_and_reserves_82_cpus(monkeypatch):
+    # 双插槽、每核两个硬件线程；两插槽轮流选核，与当前机器的拓扑一致。
+    cores = [core for i in range(128) for core in (i, i + 128)]
+    monkeypatch.setattr(ct.os, "sched_getaffinity", lambda _: set(range(512)))
+    monkeypatch.setattr(ct, "_cpu_groups", lambda: [[i, i + 256] for i in cores])
+    cpus = set(ct.default_config()["cpus"])
+    assert len(cpus) == 430
+    assert len(set(range(512)) - cpus) == 82
+    assert all((i in cpus) == (i + 256 in cpus) for i in range(256))
+    assert abs(len(cpus & (set(range(128)) | set(range(256, 384))))
+               - len(cpus & (set(range(128, 256)) | set(range(384, 512))))) <= 2
+    old_pool = set(range(64)) | set(range(128, 192)) | set(range(256, 320)) | set(range(384, 448))
+    assert old_pool <= cpus
+
+
 def test_disabled_memory_high_keeps_hard_limit_and_checks_kernel(tmp_path, monkeypatch):
     cfg = {"cpus": [0], "memory_high_gib": None, "memory_max_gib": 1024,
            "swap_max_gib": 16, "tasks_max": 32768}

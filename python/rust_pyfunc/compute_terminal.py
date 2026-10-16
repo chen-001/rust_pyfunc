@@ -49,7 +49,8 @@ def _cpu_groups() -> list[list[int]]:
 
 def default_config() -> dict:
     cpus: list[int] = []
-    target = min(256, max(1, len(os.sched_getaffinity(0)) // 2))
+    # 当前 512 逻辑 CPU 的机器使用 430 个；较小机器按同一比例留出交互余量。
+    target = min(430, max(1, len(os.sched_getaffinity(0)) * 430 // 512))
     for group in _cpu_groups():
         if len(cpus) + len(group) > target:
             break
