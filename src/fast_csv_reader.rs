@@ -23,6 +23,29 @@ use rayon::prelude::*;
 use std::fs::File;
 use std::io::Read;
 
+/// 读完一个 Level2 文件后，立刻把它占的页缓存丢掉。
+///
+/// 背景（2026-10-16 实测）：批量跑 pipeline 时每个 (date, code) 文件只读一次，
+/// 但读进来的干净页会一直留在页缓存里。计算任务的 cgroup 内存因此被顶到 1 TiB 硬上限
+/// （memory.events 里 max 触发 3.15 亿次，compact_stall 峰值 105 次/秒），内核只能不停回收，
+/// 表现为大量 kworker/mm_percpu_wq 与 kcompactd 活动（实测可运行内核线程 50~240 个）。
+/// 读完马上 DONTNEED，页不再堆积，回收压力随之消失。
+///
+/// 注意：必须在 mmap 解除映射之后再调——映射还在时页丢不掉。
+/// 丢缓存只是省内存的提示，失败不影响读取结果，所以这里不返回错误。
+#[cfg(unix)]
+fn drop_page_cache(path: &str) {
+    use std::os::unix::io::AsRawFd;
+    if let Ok(f) = File::open(path) {
+        unsafe {
+            libc::posix_fadvise(f.as_raw_fd(), 0, 0, libc::POSIX_FADV_DONTNEED);
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn drop_page_cache(_path: &str) {}
+
 /// 单条逐笔成交记录（已预处理）。
 ///
 /// 字段顺序与 hm90.go 的 prepare() 中 np.column_stack 顺序一致：
@@ -347,11 +370,9 @@ pub fn read_trade_fast_inner(
     if file_size < parallel_threshold {
         let mut content = String::new();
         File::open(&path)?.read_to_string(&mut content)?;
-        return Ok(parse_chunk(
-            content.as_bytes(),
-            with_retreat,
-            with_afternoon_adjust,
-        ));
+        let out = parse_chunk(content.as_bytes(), with_retreat, with_afternoon_adjust);
+        drop_page_cache(&path);
+        return Ok(out);
     }
 
     // 大文件用 mmap + 多线程并行解析
@@ -400,6 +421,9 @@ pub fn read_trade_fast_inner(
     for p in partials.drain(..) {
         result.extend(p);
     }
+    // 先解除映射，再丢页缓存（映射还在时页丢不掉）
+    drop(mmap);
+    drop_page_cache(&path);
     Ok(result)
 }
 
@@ -745,11 +769,13 @@ pub fn read_market_fast_inner(
     if file_size < parallel_threshold {
         let mut content = String::new();
         File::open(&path)?.read_to_string(&mut content)?;
-        return Ok(parse_market_chunk(
+        let out = parse_market_chunk(
             content.as_bytes(),
             with_high_low_limited,
             with_afternoon_adjust,
-        ));
+        );
+        drop_page_cache(&path);
+        return Ok(out);
     }
 
     let mmap = unsafe { Mmap::map(&file)? };
@@ -793,6 +819,9 @@ pub fn read_market_fast_inner(
     for p in partials.drain(..) {
         result.extend(p);
     }
+    // 先解除映射，再丢页缓存（映射还在时页丢不掉）
+    drop(mmap);
+    drop_page_cache(&path);
     Ok(result)
 }
 
@@ -1002,7 +1031,9 @@ pub fn read_market_pair_inner(
     if file_size < parallel_threshold {
         let mut content = String::new();
         File::open(&path)?.read_to_string(&mut content)?;
-        return Ok(parse_market_pair_chunk(content.as_bytes()));
+        let out = parse_market_pair_chunk(content.as_bytes());
+        drop_page_cache(&path);
+        return Ok(out);
     }
 
     let mmap = unsafe { Mmap::map(&file)? };
@@ -1044,6 +1075,9 @@ pub fn read_market_pair_inner(
     for p in partials.drain(..) {
         result.extend(p);
     }
+    // 先解除映射，再丢页缓存（映射还在时页丢不掉）
+    drop(mmap);
+    drop_page_cache(&path);
     Ok(result)
 }
 
