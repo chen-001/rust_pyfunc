@@ -33,7 +33,10 @@ pub fn fill_h(out: &mut [f32], wb: f32, wc: f32, p: &[f32], q: &[f32], addm: &[f
                 let m = _mm256_loadu_ps(addm.as_ptr().add(x));
                 // 不用 fma：保持与标量 wb*p + wc*q 相同的两次舍入，
                 // 保证 argmax 在并列/近并列边缘的选择与旧版逐位一致
-                let r = _mm256_add_ps(_mm256_add_ps(_mm256_mul_ps(wv, a), _mm256_mul_ps(cv, b)), m);
+                let r = _mm256_add_ps(
+                    _mm256_add_ps(_mm256_mul_ps(wv, a), _mm256_mul_ps(cv, b)),
+                    m,
+                );
                 _mm256_storeu_ps(out.as_mut_ptr().add(x), r);
                 x += 8;
             }
@@ -429,14 +432,7 @@ pub fn pos_stats(h: &[f32], g: &[f32]) -> (f32, f32, f32, u32) {
 /// em[x] += w, gm[x] += w*g, g2m[x] += w*g²，其中 w = relu(h)*invh。
 /// 三个累加器都是本块私有的 f32 数组（确定性靠块内顺序累加 + 按下标合并保证）。
 /// 必须 w>0 才累加一阶二阶矩：掩码位 w=0 但 g=-inf，0×(-inf)=NaN 会污染全表。
-pub fn mass_acc_h(
-    em: &mut [f32],
-    gm: &mut [f32],
-    g2m: &mut [f32],
-    h: &[f32],
-    g: &[f32],
-    invh: f32,
-) {
+pub fn mass_acc_h(em: &mut [f32], gm: &mut [f32], g2m: &mut [f32], h: &[f32], g: &[f32], invh: f32) {
     let n = em.len();
     for x in 0..n {
         if h[x] > 0.0 {
@@ -944,7 +940,12 @@ pub fn pack_desc_idx_desc(score: f32, idx: u32) -> u64 {
 ///
 /// 逐位等价于全量打包 + select_nth_unstable(take - 1) + kh[..take].sort_unstable()：
 /// 因为每个键低 32 位是唯一的下标 x，全表 n 个 u64 键严格互异，前 take 小的键排序后唯一确定。
-pub fn select_topk_keys(scores: &[f32], take: usize, kh: &mut [u64], mid_buf: &mut [u64]) {
+pub fn select_topk_keys(
+    scores: &[f32],
+    take: usize,
+    kh: &mut [u64],
+    mid_buf: &mut [u64],
+) {
     let n = scores.len();
     if take == 0 || n == 0 {
         return;
@@ -1011,7 +1012,7 @@ pub fn select_topk_keys(scores: &[f32], take: usize, kh: &mut [u64], mid_buf: &m
                     if n_hi > take {
                         kh[..n_hi].select_nth_unstable(take - 1);
                     }
-                    kh[..take].sort_unstable();
+                    super::bitonic_sort::sort_keys(&mut kh[..take], mid_buf);
                     return;
                 }
                 if n_hi + n_mid >= take {
@@ -1021,7 +1022,7 @@ pub fn select_topk_keys(scores: &[f32], take: usize, kh: &mut [u64], mid_buf: &m
                         mid.select_nth_unstable(need - 1);
                     }
                     kh[n_hi..take].copy_from_slice(&mid[..need]);
-                    kh[..take].sort_unstable();
+                    super::bitonic_sort::sort_keys(&mut kh[..take], mid_buf);
                     return;
                 }
             }
@@ -1031,5 +1032,5 @@ pub fn select_topk_keys(scores: &[f32], take: usize, kh: &mut [u64], mid_buf: &m
         kh[x] = pack_desc_idx_asc(scores[x], x as u32);
     }
     kh.select_nth_unstable(take - 1);
-    kh[..take].sort_unstable();
+    super::bitonic_sort::sort_keys(&mut kh[..take], mid_buf);
 }

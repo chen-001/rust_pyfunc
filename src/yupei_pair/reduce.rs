@@ -389,6 +389,7 @@ pub(crate) struct R1Role {
     pub(crate) gain_mean: Vec<f64>,
     pub(crate) gain_max: Vec<f64>,
     pub(crate) z_mean: Vec<f64>,
+    pub(crate) z_max: Vec<f64>,
     pub(crate) partner_z2: Vec<f64>,
 }
 
@@ -398,6 +399,7 @@ pub(crate) fn r1_role(n: usize, x0: &[i32], pw: &[f32], pwz: &[f32], ok: &[bool]
     let mut sum_w = vec![0.0f64; n];
     let mut max_w = vec![f64::NEG_INFINITY; n];
     let mut sum_z = vec![0.0f64; n];
+    let mut max_z = vec![f64::NEG_INFINITY; n];
     let mut count_z2 = vec![0.0f64; n];
     let mut partner_z2 = vec![0.0f64; n];
     let mut n_good = 0usize;
@@ -429,6 +431,7 @@ pub(crate) fn r1_role(n: usize, x0: &[i32], pw: &[f32], pwz: &[f32], ok: &[bool]
                 max_w[x] = w;
             }
             sum_z[x] += z;
+            if z > max_z[x] { max_z[x] = z; }
             if z > zthr {
                 count_z2[x] += 1.0;
             }
@@ -447,12 +450,14 @@ pub(crate) fn r1_role(n: usize, x0: &[i32], pw: &[f32], pwz: &[f32], ok: &[bool]
     let z_mean: Vec<f64> = (0..n)
         .map(|x| if count[x] > 0.0 { sum_z[x] / count[x] } else { f64::NAN })
         .collect();
+    let z_max = (0..n).map(|x| if count[x] > 0.0 { max_z[x] } else { f64::NAN }).collect();
     R1Role {
         count,
         count_z2,
         gain_mean,
         gain_max,
         z_mean,
+        z_max,
         partner_z2,
     }
 }
@@ -808,14 +813,18 @@ pub(crate) fn topk_adj(n: usize, sq: &[f32], k: usize, ok: &[bool]) -> Vec<bool>
 /// 排序序与单 k 版完全一致（分数降序、同分下标大者靠前；fkey 的整型序
 /// 与 total_cmp 一致，+NaN 排最前、-NaN 排最后，与旧版相同）。
 /// 返回 adj[ki][i*n+j]，与 topk_adj 同样写成无向邻接。
-pub(crate) fn topk_adj_multi(
+pub(crate) fn topk_adj_multi(n: usize, sq: &[f32], ks: &[usize], ok: &[bool]) -> Vec<Vec<bool>> {
+    let rows = topk_rows(n, sq, *ks.iter().max().unwrap_or(&0), ok);
+    topk_adj_from_rows(n, &rows, ks)
+}
+pub(crate) fn topk_rows(
     n: usize,
     sq: &[f32],
-    ks: &[usize],
+    kmax: usize,
     ok: &[bool],
-) -> Vec<Vec<bool>> {
+) -> Vec<Vec<u32>> {
     // 每行的 top-maxk 邻居下标（按序），前缀即各档答案
-    let kmax = *ks.iter().max().unwrap_or(&0);
+
     let rows: Vec<Vec<u32>> = (0..n)
         .into_par_iter()
         .map(|i| {
@@ -842,6 +851,10 @@ pub(crate) fn topk_adj_multi(
             keys.into_iter().map(|k| !k as u32).collect()
         })
         .collect();
+    rows
+}
+
+pub(crate) fn topk_adj_from_rows(n: usize, rows: &[Vec<u32>], ks: &[usize]) -> Vec<Vec<bool>> {
     let mut out = vec![vec![false; n * n]; ks.len()];
     for (ki, &k) in ks.iter().enumerate() {
         let adj = &mut out[ki];
@@ -857,6 +870,8 @@ pub(crate) fn topk_adj_multi(
 }
 
 pub(crate) struct R4 {
+    pub(crate) rows_rho: Vec<Vec<u32>>,
+    pub(crate) rows_g: Vec<Vec<u32>>,
     pub(crate) deg_rho: Vec<f64>,
     pub(crate) deg_g: Vec<f64>,
     pub(crate) overlap: Vec<f64>,
@@ -871,8 +886,10 @@ pub(crate) fn r4_graphs(n: usize, rho: &[f32], g: &[f32], ok: &[bool]) -> R4 {
     let t0 = Instant::now();
     let n_ok = ok.iter().filter(|&&v| v).count();
     let k = K_TOPK.min(n_ok.saturating_sub(1));
-    let a_rho = topk_adj(n, rho, k, ok);
-    let a_g = topk_adj(n, g, k, ok);
+    let rows_rho = topk_rows(n, rho, 100, ok);
+    let rows_g = topk_rows(n, g, 100, ok);
+    let a_rho = topk_adj_from_rows(n, &rows_rho, &[k]).pop().unwrap();
+    let a_g = topk_adj_from_rows(n, &rows_g, &[k]).pop().unwrap();
     let deg_rho: Vec<f64> = (0..n)
         .map(|i| (0..n).filter(|&j| a_rho[i * n + j]).count() as f64)
         .collect();
@@ -908,6 +925,7 @@ pub(crate) fn r4_graphs(n: usize, rho: &[f32], g: &[f32], ok: &[bool]) -> R4 {
         .collect();
     eprintln!("[reduce:p4] R4 图对照 {:.1}s", t0.elapsed().as_secs_f32());
     R4 {
+        rows_rho, rows_g,
         deg_rho,
         deg_g,
         overlap,
@@ -1479,16 +1497,16 @@ pub(crate) fn produce_one_mat(
 
     // ---------------- 空模型对照（G -> Z，GSTAR -> ZS）----------------
     let t0 = Instant::now();
-    let n1 = r1_role(n, x0, z, z, ok);
+
     let nbc = r1_bestcomp(n, z, z, ok);
-    let ns1 = r1_role(n, x0s, zs, zs, ok);
+
     let nsbc = r1_bestcomp(n, zs, zs, ok);
     out.push(&p("null_r1_bestcomp_gain"), nbc.gain.clone());
     out.push(&p("null_r1_bestcomp_mutual"), nbc.mutual.clone());
     out.push(&p("null_r1_bestcomp_rank"), nbc.rank.clone());
-    out.push(&p("null_r1_explain_gain_max"), n1.gain_max.clone());
-    out.push(&p("null_r1_explain_gain_mean"), n1.gain_mean.clone());
-    out.push(&p("null_r1_explain_z_mean"), n1.z_mean.clone());
+    out.push(&p("null_r1_explain_gain_max"), r1.z_max.clone());
+    out.push(&p("null_r1_explain_gain_mean"), r1.z_mean.clone());
+    out.push(&p("null_r1_explain_z_mean"), r1.z_mean.clone());
     if let Some((zr5, _)) = r5_opt.as_mut() {
         out.push(&p("null_r5_res_hhi"), std::mem::take(&mut zr5.res_hhi));
         out.push(&p("null_r5_res_max"), std::mem::take(&mut zr5.res_max));
@@ -1498,9 +1516,9 @@ pub(crate) fn produce_one_mat(
     out.push(&p("null_s_r1_bestcomp_gain"), nsbc.gain.clone());
     out.push(&p("null_s_r1_bestcomp_mutual"), nsbc.mutual.clone());
     out.push(&p("null_s_r1_bestcomp_rank"), nsbc.rank.clone());
-    out.push(&p("null_s_r1_explain_gain_max"), ns1.gain_max.clone());
-    out.push(&p("null_s_r1_explain_gain_mean"), ns1.gain_mean.clone());
-    out.push(&p("null_s_r1_explain_z_mean"), ns1.z_mean.clone());
+    out.push(&p("null_s_r1_explain_gain_max"), s1.z_max.clone());
+    out.push(&p("null_s_r1_explain_gain_mean"), s1.z_mean.clone());
+    out.push(&p("null_s_r1_explain_z_mean"), s1.z_mean.clone());
     if let Some((_, zs5)) = r5_opt.take() {
         out.push(&p("null_s_r5_res_hhi"), zs5.res_hhi);
         out.push(&p("null_s_r5_res_max"), zs5.res_max);
@@ -1520,6 +1538,7 @@ pub(crate) fn produce_one_mat(
         has_lnt,
         (&r2_top, &r2_beat),
         (&r3.k16_picks, &r3.k16_marg, &r3.k16_rs),
+        (&r4.rows_rho, &r4.rows_g),
         out,
     );
 }

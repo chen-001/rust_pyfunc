@@ -2,6 +2,8 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 # Recreate the isolated source snapshot after checkout; refuse an unrelated baseline.
+# 2026-10-17：bitonic_sort / topk_heap / 布局 / 无损清理 三份补丁已并入正式版 src/，
+# 这里不再打补丁，直接照抄当时的主项目源码（含 K=5/20/100 三档）。
 if [ ! -f src/lib.rs ]; then
   /home/chenzongwei/.conda/envs/chenzongwei311/bin/python - <<'PYBASE'
 from pathlib import Path
@@ -12,10 +14,6 @@ for name, expected in json.loads(Path('baseline_sources.json').read_text()).item
 PYBASE
   cp -a ../../src/. ./src/
   cp ../../Cargo.toml ../../Cargo.lock ./
-  # bitonic_sort.rs is already tracked in this sandbox; apply only the two integrations.
-  patch -p1 < <(sed '/^--- \/dev\/null/,$d' bitonic.patch)
-  patch -p1 < layout.patch
-  patch -p1 < lossless.patch
 fi
 export PATH="/home/chenzongwei/.cargo/bin:$PATH"
 export PYO3_PYTHON=/home/chenzongwei/.conda/envs/chenzongwei311/bin/python

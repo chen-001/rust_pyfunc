@@ -202,26 +202,8 @@ pub(crate) fn net_one_mat(
             rho[i * n + j] = rho[j * n + i];
         }
     }
-    let mut rhot = vec![0.0f32; n * n];
-    {
-        const B: usize = 64;
-        let nb = n.div_ceil(B);
-        rhot
-            .par_chunks_mut(B * n)
-            .enumerate()
-            .for_each(|(bj, rows)| {
-                for (rj, row) in rows.chunks_mut(n).enumerate() {
-                    let j = bj * B + rj;
-                    for bi in 0..nb {
-                        let i0 = bi * B;
-                        let i1 = (i0 + B).min(n);
-                        for i in i0..i1 {
-                            row[i] = rho[i * n + j];
-                        }
-                    }
-                }
-            });
-    }
+    // rho is mirrored bit for bit above; its transpose is the same immutable data.
+    let rhot = &rho;
 
     // ---- 全部配对的 X0 / RHO_U / SINGLE / G + 分数矩阵 + 软质量向量 ----
     let mut g = vec![0.0f32; n * n];
@@ -540,15 +522,21 @@ pub(crate) fn net_one_mat(
         if !(d > 0.0) {
             continue;
         }
-        let p = &rhot[b * n..b * n + n];
-        let q = &rhot[c * n..c * n + n];
-        let s = best_x(n, p, q, (sb / d) as f32, (sc / d) as f32, b, c, mask);
-        if s.bi == usize::MAX || s.bsi == usize::MAX {
-            continue;
-        }
+        // Zero/nonfinite scores retain the original scalar edge-case path.
+        let (gv, gsv) = (g[b*n+c], gs[b*n+c]);
+        let (sample_g, sample_gs) = if gv.is_finite() && gsv.is_finite()
+            && gv != 0.0 && gsv != 0.0 && x0[b*n+c] >= 0.0 && x0s[b*n+c] >= 0.0 {
+            (gv, gsv)
+        } else {
+            let p = &rhot[b*n..b*n+n];
+            let q = &rhot[c*n..c*n+n];
+            let s = best_x(n, p, q, (sb/d) as f32, (sc/d) as f32, b, c, mask);
+            if s.bi == usize::MAX || s.bsi == usize::MAX { continue; }
+            (s.h-s.single, s.hs-s.singles)
+        };
         // 分层键必须与 (b,c) 的顺序无关，否则 Z 矩阵不对称
         let (d1, d2) = if dec[b] <= dec[c] { (dec[b], dec[c]) } else { (dec[c], dec[b]) };
-        samples.push((d1 * 10 + d2, s.h - s.single, s.hs - s.singles));
+        samples.push((d1 * 10 + d2, sample_g, sample_gs));
     }
     let mut cnt = vec![0usize; nstrata];
     let mut sum = vec![0.0f64; nstrata];

@@ -21,6 +21,8 @@
 //!   codes, names, vals = rp.py_yupei_pair(20241231, ["cnt_t1","vol_t5"])
 //!   # vals 行主序 len(codes) × len(names)，reshape 成 DataFrame 即可
 
+pub(crate) mod bitonic_sort;
+pub(crate) mod topk_heap;
 pub(crate) mod check;
 pub(crate) mod net;
 pub(crate) mod reduce;
@@ -36,8 +38,9 @@ use rayon::prelude::*;
 use reduce::{matset_from_net, produce_one_mat, set_soft, Out, SoftCfg};
 use topk::topk_one_mat;
 
-/// topk 的默认 K 档（与 sandbox 一致：九档）。
-const KS_DEFAULT: [usize; 9] = [1, 2, 5, 10, 20, 50, 100, 200, 500];
+/// topk 的默认 K 档：只留 5 / 20 / 100 三档。原九档里其余六档在 20241231 实测
+/// 对保留列逐位相同，删掉后少 720 列、单日快 29%（209.5s → 148.9s，50 线程）。
+const KS_DEFAULT: [usize; 3] = [5, 20, 100];
 
 /// 默认跑的矩阵集合：cnt 全九档 τ + vol 六档 τ（C 组口径）。
 /// MATRIX_SPECS 里还有 logvol/flow/urg/ext 族，需要时显式传 mats 即可。

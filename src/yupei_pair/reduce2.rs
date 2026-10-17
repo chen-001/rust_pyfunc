@@ -99,6 +99,20 @@ fn row_stats16(row: &[f32], i: usize, n: usize, ok: &[bool]) -> [f64; 16] {
     ]
 }
 
+fn row_stats4(row: &[f32], i: usize, n: usize, ok: &[bool]) -> [f64; 16] {
+    let mut v: Vec<f64> = (0..n).filter(|&j| j != i && ok[j]).map(|j| row[j] as f64).filter(|v| v.is_finite()).collect();
+    let mut out = [f64::NAN; 16];
+    let m = v.len();
+    if m == 0 { return out; }
+    v.sort_unstable_by(|a,b| a.total_cmp(b));
+    out[0] = v.iter().sum::<f64>() / m as f64;
+    out[6] = v[(0.9*(m-1) as f64).round() as usize];
+    out[8] = v[m-1];
+    let k = 20.min(m);
+    out[11] = v[m-k..].iter().sum::<f64>() / k as f64;
+    out
+}
+
 /// 矩阵清单：名字 + 切片引用（MatData 经 Deref 取 &[f32]）。
 /// 行统计对每张各出 16 列，命名 row_{MAT}_{stat}。
 fn mat_catalog(ms: &MatSet) -> Vec<(&'static str, &[f32])> {
@@ -127,7 +141,8 @@ fn mat_catalog(ms: &MatSet) -> Vec<(&'static str, &[f32])> {
     ]
 }
 
-fn block_row_stats(ms: &MatSet, pre: &str, n: usize, ok: &[bool], out: &mut Out) {
+fn block_row_stats(ms: &MatSet, pre: &str, n: usize, ok: &[bool], out: &mut Out) -> Vec<[f64;16]> {
+    let mut sc_stats = Vec::new();
     let t0 = Instant::now();
     for (mn, m) in mat_catalog(ms) {
         // 先并行算全部行的 16 统计，再逐统计装配列（按统计名循环，列顺序确定）
@@ -146,8 +161,10 @@ fn block_row_stats(ms: &MatSet, pre: &str, n: usize, ok: &[bool], out: &mut Out)
                 rows.iter().map(|r| r[si]).collect(),
             );
         }
+        if mn == "sc" { sc_stats = rows; }
     }
     eprintln!("[reduce2:A] 行统计 21×16 {:.1}s", t0.elapsed().as_secs_f32());
+    sc_stats
 }
 
 // ============================================================
@@ -559,7 +576,7 @@ pub(crate) fn pair_scan_merged(
         Vec<f32>,
         Vec<i32>,
         Vec<i32>,
-        Vec<Vec<(f32, i32, i32)>>,
+        super::topk_heap::FlatTop,
         Vec<i64>,
     );
     let blocks: Vec<BlkOut> = (0..nblk)
@@ -570,7 +587,7 @@ pub(crate) fn pair_scan_merged(
             let mut blk_best = vec![f32::NEG_INFINITY; n];
             let mut blk_bi = vec![-1i32; n];
             let mut blk_ci = vec![-1i32; n];
-            let mut top: Vec<Vec<(f32, i32, i32)>> = vec![Vec::new(); n];
+            let mut top = super::topk_heap::FlatTop::new(n, kmax);
             let mut tmin = vec![f32::NEG_INFINITY; n];
             let mut beat32 = vec![0i32; n];
             let mut hits: Vec<u32> = Vec::with_capacity(256);
@@ -609,33 +626,13 @@ pub(crate) fn pair_scan_merged(
                             blk_bi[x] = b as i32;
                             blk_ci[x] = c as i32;
                         }
-                        let tl = &mut top[x];
-                        if tl.len() < kmax {
-                            tl.push((vx, b as i32, c as i32));
-                        } else {
-                            let mut mv = f32::INFINITY;
-                            let mut last = 0usize;
-                            for (t, e) in tl.iter().enumerate() {
-                                if e.0 <= mv {
-                                    mv = e.0;
-                                    last = t;
-                                }
-                            }
-                            tl.remove(last);
-                            tl.push((vx, b as i32, c as i32));
-                        }
-                        tmin[x] = if tl.len() < kmax {
-                            f32::NEG_INFINITY
-                        } else {
-                            tl.iter().map(|e| e.0).fold(f32::INFINITY, f32::min)
-                        };
+                        top.push(x, (vx, b as i32, c as i32));
+                        tmin[x] = top.threshold(x);
                     }
                     a[c] = saved;
                 }
             }
-            for tl in top.iter_mut() {
-                tl.sort_by(|u, vv| vv.0.partial_cmp(&u.0).unwrap());
-            }
+            top.sort_rows();
             let beat: Vec<i64> = beat32.iter().map(|&v| v as i64).collect();
             (blk_best, blk_bi, blk_ci, top, beat)
         })
@@ -646,6 +643,7 @@ pub(crate) fn pair_scan_merged(
     let mut ci = vec![-1i32; n];
     let mut top: Vec<Vec<(f32, i32, i32)>> = vec![Vec::new(); n];
     let mut beat = vec![0i64; n];
+    let mut merge_buf = Vec::with_capacity(kmax);
     for (b_best, b_bi, b_ci, bt, bb) in blocks.iter() {
         for x in 0..n {
             if ok[x] && b_best[x] > best[x] {
@@ -654,18 +652,26 @@ pub(crate) fn pair_scan_merged(
                 ci[x] = b_ci[x];
             }
             beat[x] += bb[x];
+            let incoming = bt.row(x);
+            if incoming.is_empty() { continue; }
             let tl = &mut top[x];
-            if tl.len() + bt[x].len() <= kmax {
-                tl.extend_from_slice(&bt[x]);
-            } else {
-                tl.extend_from_slice(&bt[x]);
-                tl.sort_by(|u, vv| vv.0.partial_cmp(&u.0).unwrap());
-                tl.truncate(kmax);
+            // Both lists are sorted. Equal scores retain earlier blocks first,
+            // exactly as the old stable sort of concatenate(old, incoming).
+            if tl.is_empty() {
+                tl.extend_from_slice(&incoming[..incoming.len().min(kmax)]);
+                continue;
             }
+            merge_buf.clear();
+            let (mut i, mut j) = (0, 0);
+            while merge_buf.len() < kmax && (i < tl.len() || j < incoming.len()) {
+                if j == incoming.len() || (i < tl.len() && tl[i].0 >= incoming[j].0) {
+                    merge_buf.push(tl[i]); i += 1;
+                } else {
+                    merge_buf.push(incoming[j]); j += 1;
+                }
+            }
+            std::mem::swap(tl, &mut merge_buf);
         }
-    }
-    for x in 0..n {
-        top[x].sort_by(|u, vv| vv.0.partial_cmp(&u.0).unwrap());
     }
     eprintln!(
         "[reduce:p2+D] 合并配对扫描（best + top-{kmax}）{:.1}s",
@@ -870,7 +876,7 @@ fn clustering(n: usize, adj: &[bool], i: usize) -> f64 {
     linked as f64 / (d * (d - 1) / 2) as f64
 }
 
-fn block_r4(ms: &MatSet, pre: &str, n: usize, ok: &[bool], out: &mut Out) {
+fn block_r4(ms: &MatSet, pre: &str, n: usize, ok: &[bool], graph_rows: (&[Vec<u32>], &[Vec<u32>]), out: &mut Out) {
     let t0 = Instant::now();
     let ks = [5usize, 10, 20, 50, 100];
     let graphs: Vec<(&'static str, &[f32])> = vec![
@@ -885,7 +891,12 @@ fn block_r4(ms: &MatSet, pre: &str, n: usize, ok: &[bool], out: &mut Out) {
     // 邻接矩阵只算 5 次（每图一次排序、5 档共享），adjs 存引用避免拷贝
     let adj_all: Vec<Vec<Vec<bool>>> = graphs
         .iter()
-        .map(|(_, m)| topk_adj_multi(n, m, &kks, ok))
+        .enumerate()
+        .map(|(gi, (_, m))| match gi {
+            0 => super::reduce::topk_adj_from_rows(n, graph_rows.0, &kks),
+            1 => super::reduce::topk_adj_from_rows(n, graph_rows.1, &kks),
+            _ => topk_adj_multi(n, m, &kks, ok),
+        })
         .collect();
     let mut adjs: Vec<(&'static str, usize, &Vec<bool>)> = Vec::new();
     for (gi, (gn, _)) in graphs.iter().enumerate() {
@@ -1043,8 +1054,10 @@ fn resid_stats(
     ln: &[f64],
     le: &[f64],
     ok: &[bool],
+    xtx_cache: &mut Option<Vec<Vec<f64>>>,
 ) -> Vec<[f64; 8]> {
     const K: usize = 7;
+    let compute_xtx = xtx_cache.is_none();
     let cov = |i: usize, j: usize| -> [f64; K] {
         let lb = ln[i];
         let lc = ln[j];
@@ -1080,9 +1093,9 @@ fn resid_stats(
                     }
                     let d = cov(i, j);
                     for a in 0..K {
-                        for b in 0..K {
+                        if compute_xtx { for b in 0..K {
                             xtx[a][b] += d[a] * d[b];
-                        }
+                        }}
                         xty[a] += d[a] * y;
                     }
                 }
@@ -1100,6 +1113,8 @@ fn resid_stats(
             xty[a] += py[a];
         }
     }
+    if let Some(cached) = xtx_cache.as_ref() { xtx = cached.clone(); }
+    else { *xtx_cache = Some(xtx.clone()); }
     for i in 0..K {
         xtx[i][i] += 1e-8;
     }
@@ -1187,6 +1202,11 @@ fn block_r5(
         .collect();
     let le: Vec<f64> = ms.e.iter().map(|&v| v.max(1.0).ln()).collect();
     let stat_names = ["mean", "std", "p90", "t10m", "t20m", "max", "hhi", "possh"];
+    let weights = [&ms.g, &ms.gs, &ms.z, &ms.zs, &ms.sc];
+    let same_mask = (0..n).all(|i| !ok[i] || (i+1..n).all(|j| {
+        !ok[j] || weights.iter().all(|w| w[i*n+j].is_finite() == ms.g[i*n+j].is_finite())
+    }));
+    let mut xtx_cache = None;
     for (wn, w) in [
         ("g", &ms.g),
         ("gs", &ms.gs),
@@ -1194,7 +1214,8 @@ fn block_r5(
         ("zs", &ms.zs),
         ("sc", &ms.sc),
     ] {
-        let stats = resid_stats(n, w, &ms.rho, &ln, &le, ok);
+        if !same_mask { xtx_cache = None; }
+        let stats = resid_stats(n, w, &ms.rho, &ln, &le, ok, &mut xtx_cache);
         for (si, sn) in stat_names.iter().enumerate() {
             out.push(
                 &format!("{pre}res_{wn}_{sn}"),
@@ -1218,8 +1239,11 @@ fn block_plane(
     b: &[f32],
     n: usize,
     ok: &[bool],
+    cached_stats: Option<&[[f64;16]]>,
     out: &mut Out,
 ) {
+    let computed: Vec<[f64;16]>;
+    let stats = if let Some(cached) = cached_stats { cached } else {
     // spec 矩阵
     let mut sc = vec![f32::NAN; n * n];
     for i in 0..n {
@@ -1231,16 +1255,18 @@ fn block_plane(
             }
         }
     }
-    let stats: Vec<[f64; 16]> = (0..n)
+    computed = (0..n)
         .into_par_iter()
         .map(|i| {
             if !ok[i] {
                 [f64::NAN; 16]
             } else {
-                row_stats16(&sc[i * n..i * n + n], i, n, ok)
+                row_stats4(&sc[i * n..i * n + n], i, n, ok)
             }
         })
         .collect();
+    &computed[..]
+    };
     out.push(
         &format!("{pre}pl_{tag}_spec_mean"),
         stats.iter().map(|r| r[0]).collect(),
@@ -1331,11 +1357,11 @@ fn block_plane(
     );
 }
 
-fn block_planes(ms: &MatSet, pre: &str, n: usize, ok: &[bool], out: &mut Out) {
+fn block_planes(ms: &MatSet, pre: &str, n: usize, ok: &[bool], sc_stats: &[[f64;16]], out: &mut Out) {
     let t0 = Instant::now();
-    block_plane(pre, "zzs", &ms.z, &ms.zs, n, ok, out);       // 通才 Z vs 专才 ZS
-    block_plane(pre, "zexz", &ms.z, &ms.exz, n, ok, out);     // 活跃度基线 Z vs (p,q) 基线 EXZ
-    block_plane(pre, "zsexzs", &ms.zs, &ms.exzs, n, ok, out); // 专才 ZS vs 条件化专才 EXZS
+    block_plane(pre, "zzs", &ms.z, &ms.zs, n, ok, Some(sc_stats), out);       // 通才 Z vs 专才 ZS
+    block_plane(pre, "zexz", &ms.z, &ms.exz, n, ok, None, out);     // 活跃度基线 Z vs (p,q) 基线 EXZ
+    block_plane(pre, "zsexzs", &ms.zs, &ms.exzs, n, ok, None, out); // 专才 ZS vs 条件化专才 EXZS
     eprintln!("[reduce2:H] 平面扩展 {:.1}s", t0.elapsed().as_secs_f32());
 }
 
@@ -1354,16 +1380,17 @@ pub(crate) fn expand(
     has_lnt: bool,
     r2_top_beat: (&[Vec<(f32, i32, i32)>], &[i64]),
     r3_k16: (&[usize], &[f64], &[f64]),
+    graph_rows: (&[Vec<u32>], &[Vec<u32>]),
     out: &mut Out,
 ) {
     let t0 = Instant::now();
-    block_row_stats(ms, pre, n, ok, out);
+    let sc_stats = block_row_stats(ms, pre, n, ok, out);
     block_explain(ms, pre, n, ok, out);
     block_bestcomp(ms, pre, n, ok, out);
     block_r2(pre, n, ok, industry, r2_top_beat.0, r2_top_beat.1, out);
     block_r3(ms, pre, n, ok, r3_k16, out);
-    block_r4(ms, pre, n, ok, out);
+    block_r4(ms, pre, n, ok, graph_rows, out);
     block_r5(ms, pre, n, ok, lnt, has_lnt, out);
-    block_planes(ms, pre, n, ok, out);
+    block_planes(ms, pre, n, ok, &sc_stats, out);
     eprintln!("[reduce2] 扩展块总 {:.1}s", t0.elapsed().as_secs_f32());
 }
