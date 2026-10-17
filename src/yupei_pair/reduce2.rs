@@ -42,7 +42,7 @@ fn row_stats16(row: &[f32], i: usize, n: usize, ok: &[bool]) -> [f64; 16] {
     if m == 0 {
         return [f64::NAN; 16];
     }
-    v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    v.sort_unstable_by(|a, b| a.total_cmp(b));
     let sum: f64 = v.iter().sum();
     let mean = sum / m as f64;
     let var = v.iter().map(|x| (x - mean) * (x - mean)).sum::<f64>() / m as f64;
@@ -168,15 +168,13 @@ fn explain_extra(
     z: &[f32],
     ok: &[bool],
 ) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
-    // 每只入选股收一份 (w,z) 列表（全部配对约 680 万条 ×8B，内存可接受）。
-    // 行块并行收集再按块序合并；表内顺序对下游统计（排序/求和）无影响，结果确定。
     const RB3: usize = 256;
     let nrb = n.div_ceil(RB3);
-    let parts: Vec<(Vec<Vec<(f32, f32)>>, usize)> = (0..nrb)
+    // 第一趟：各行块独立统计每只股票 x 的入选次数（20KB/块，L1 常驻，零堆扩容）
+    let rb_cnts: Vec<Vec<u32>> = (0..nrb)
         .into_par_iter()
         .map(|rb| {
-            let mut sel: Vec<Vec<(f32, f32)>> = vec![Vec::new(); n];
-            let mut tot = 0usize;
+            let mut cnt = vec![0u32; n];
             for i in (rb * RB3)..((rb + 1) * RB3).min(n) {
                 if !ok[i] {
                     continue;
@@ -186,57 +184,118 @@ fn explain_extra(
                         continue;
                     }
                     let x = x0sel[i * n + j];
-                    if x < 0 || x as usize >= n {
-                        continue;
+                    if x >= 0 && (x as usize) < n {
+                        cnt[x as usize] += 1;
                     }
-                    sel[x as usize].push((w[i * n + j], z[i * n + j]));
-                    tot += 1;
                 }
             }
-            (sel, tot)
+            cnt
         })
         .collect();
-    let mut sel: Vec<Vec<(f32, f32)>> = vec![Vec::new(); n];
-    let mut total = 0usize;
-    for (ps, t) in parts {
-        total += t;
-        for x in 0..n {
-            if !ps[x].is_empty() {
-                sel[x].extend_from_slice(&ps[x]);
-            }
+
+    let mut stock_off = vec![0usize; n + 1];
+    for x in 0..n {
+        let mut s = 0usize;
+        for rb in 0..nrb {
+            s += rb_cnts[rb][x] as usize;
+        }
+        stock_off[x + 1] = stock_off[x] + s;
+    }
+    let total = stock_off[n];
+    // 每个 (rb, x) 在平坦数组中的起始偏移，保证按 rb=0..nrb 顺序拼接，与原 sel[x] 元素顺序完全一致
+    let mut rb_offs = vec![0usize; nrb * n];
+    for x in 0..n {
+        let mut cur = stock_off[x];
+        for rb in 0..nrb {
+            rb_offs[rb * n + x] = cur;
+            cur += rb_cnts[rb][x] as usize;
         }
     }
+
+    // 第二趟：一次性分配连续平坦缓冲，各行块无锁写入各自不相交区间
+    let mut all_wz: Vec<(f32, f32)> = vec![(0.0, 0.0); total];
+    struct WzPtr(*mut (f32, f32));
+    unsafe impl Send for WzPtr {}
+    unsafe impl Sync for WzPtr {}
+    let wz_ptr = WzPtr(all_wz.as_mut_ptr());
+    let rb_offs_ref = &rb_offs;
+    (0..nrb).into_par_iter().for_each(|rb| {
+        let _ = &wz_ptr;
+        let mut pos = rb_offs_ref[rb * n..(rb + 1) * n].to_vec();
+        for i in (rb * RB3)..((rb + 1) * RB3).min(n) {
+            if !ok[i] {
+                continue;
+            }
+            for j in (i + 1)..n {
+                if !ok[j] {
+                    continue;
+                }
+                let x = x0sel[i * n + j];
+                if x < 0 || (x as usize) >= n {
+                    continue;
+                }
+                let xu = x as usize;
+                let p = pos[xu];
+                pos[xu] = p + 1;
+                unsafe {
+                    *wz_ptr.0.add(p) = (w[i * n + j], z[i * n + j]);
+                }
+            }
+        }
+    });
+
+    // 第三趟：按股票 x 并行计算统计量，用 select_nth_unstable 替代大数组全排序
     let inv = if total > 0 { 1.0 / total as f64 } else { 0.0 };
-    let mut log1p = vec![f64::NAN; n];
-    let mut share = vec![f64::NAN; n];
-    let mut zsoft = vec![f64::NAN; n];
-    let mut wp90 = vec![f64::NAN; n];
-    let mut wt5 = vec![f64::NAN; n];
-    for x in 0..n {
-        if !ok[x] {
-            continue;
-        }
-        let s = &sel[x];
-        if s.is_empty() {
-            // 没被选中过：计数型给 0（连续语义下 0 是真实值，不是缺失）
-            log1p[x] = 0.0;
-            share[x] = 0.0;
-            zsoft[x] = 0.0;
-            continue;
-        }
-        log1p[x] = (s.len() as f64).ln_1p();
-        share[x] = s.len() as f64 * inv;
-        let sc = super::reduce::soft();
-        zsoft[x] = s
-            .iter()
-            .map(|&(_, zz)| sigmoid((zz as f64 - sc.thr) / sc.temp))
-            .sum();
-        let mut ws: Vec<f64> = s.iter().map(|&(a, _)| a as f64).collect();
-        ws.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        let m = ws.len();
-        wp90[x] = ws[((0.90 * (m - 1) as f64).round() as usize).min(m - 1)];
-        let k = 5.min(m);
-        wt5[x] = ws[m - k..].iter().sum::<f64>() / k as f64;
+    let sc = super::reduce::soft();
+    let per_x: Vec<(f64, f64, f64, f64, f64)> = (0..n)
+        .into_par_iter()
+        .map(|x| {
+            if !ok[x] {
+                return (f64::NAN, f64::NAN, f64::NAN, f64::NAN, f64::NAN);
+            }
+            let s = &all_wz[stock_off[x]..stock_off[x + 1]];
+            if s.is_empty() {
+                return (0.0, 0.0, 0.0, f64::NAN, f64::NAN);
+            }
+            let m = s.len();
+            let lg = (m as f64).ln_1p();
+            let sh = m as f64 * inv;
+            let zs: f64 = s
+                .iter()
+                .map(|&(_, zz)| sigmoid((zz as f64 - sc.thr) / sc.temp))
+                .sum();
+            let mut ws: Vec<f64> = s.iter().map(|&(a, _)| a as f64).collect();
+            let idx90 = ((0.90 * (m - 1) as f64).round() as usize).min(m - 1);
+            let k = 5.min(m);
+            let top_start = m - k;
+            let (wp, wt) = if m > 64 && idx90 < top_start {
+                ws.select_nth_unstable_by(top_start, |a, b| a.total_cmp(b));
+                ws[top_start..].sort_by(|a, b| a.partial_cmp(b).unwrap());
+                let wt = ws[top_start..].iter().sum::<f64>() / k as f64;
+                ws[..top_start].select_nth_unstable_by(idx90, |a, b| a.total_cmp(b));
+                let wp = ws[idx90];
+                (wp, wt)
+            } else {
+                ws.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                let wp = ws[idx90];
+                let wt = ws[top_start..].iter().sum::<f64>() / k as f64;
+                (wp, wt)
+            };
+            (lg, sh, zs, wp, wt)
+        })
+        .collect();
+
+    let mut log1p = Vec::with_capacity(n);
+    let mut share = Vec::with_capacity(n);
+    let mut zsoft = Vec::with_capacity(n);
+    let mut wp90 = Vec::with_capacity(n);
+    let mut wt5 = Vec::with_capacity(n);
+    for (a, b, c, d, e) in per_x {
+        log1p.push(a);
+        share.push(b);
+        zsoft.push(c);
+        wp90.push(d);
+        wt5.push(e);
     }
     (log1p, share, zsoft, wp90, wt5)
 }
@@ -450,23 +509,36 @@ fn block_bestcomp(ms: &MatSet, pre: &str, n: usize, ok: &[bool], out: &mut Out) 
 // D. R2 扩展：每只 X 的前 50 配对（top-K 替代 argmax）+ 击败单只的配对数
 // ============================================================
 
-/// 与 pair_scan 同一公式，但每只 X 保留前 kmax 对 (v,b,c)，并数出 rhoU>best_single 的对数。
-/// 精确性：全局 top-K 的成员必在其所在 B 块的块内 top-K 里，按块收再并集后取 top-K 是精确的。
-/// 返回 (top: n×Vec<(v,b,c)>, nbeat: n)。
-fn pair_scan_topk(
+/// 合并版全配对扫描：一趟同时产出
+///   1) reduce::pair_scan 的 (best_pair, bi, ci)（全局最强配对及其 B, C 下标）
+///   2) reduce2::pair_scan_topk 的 (top: n×Vec<(v,b,c)>, nbeat: n)（前 kmax 对 + 击败单只计数）
+///
+/// 为什么逐位一致：
+///   - rho 已严格对称化，mt[b*n+x] = rho[b*n+x]*se[b] 与原 transpose_f32(&m, n) 逐位相等；
+///   - 每个块内 blk_best[x]（块内最高值）恒 >= tmin[x]（块内第 kmax 高值），因此任何能刷新
+///     blk_best[x] 的 (b, c) 必然满足 vbuf[x] > tmin[x] 并进入 hits，直接在 hits 循环内更新
+///     blk_best / blk_bi / blk_ci 与全表 elem_max_upd_idx 结果完全一致。
+pub(crate) fn pair_scan_merged(
     n: usize,
     rho: &[f32],
     e: &[f64],
     single: &[f32],
     ok: &[bool],
     kmax: usize,
-) -> (Vec<Vec<(f32, i32, i32)>>, Vec<i64>) {
+) -> (Vec<f32>, Vec<i32>, Vec<i32>, Vec<Vec<(f32, i32, i32)>>, Vec<i64>) {
     let t0 = Instant::now();
+    let single64: Vec<f32> = single
+        .iter()
+        .map(|&v| if v.is_finite() { v } else { f32::NEG_INFINITY })
+        .collect();
     let se: Vec<f32> = (0..n).map(|i| e[i].max(1e-30).sqrt() as f32).collect();
-    let mut m = vec![0.0f32; n * n];
-    m.par_chunks_mut(n).enumerate().for_each(|(x, row)| {
-        for b in 0..n {
-            row[b] = rho[x * n + b] * se[b];
+    // rho 对称 → mt[b*n+x] = m[x*n+b] = rho[x*n+b]*se[b] = rho[b*n+x]*se[b]，免除 m 分配与转置
+    let mut mt = vec![0.0f32; n * n];
+    mt.par_chunks_mut(n).enumerate().for_each(|(b, row)| {
+        let sb = se[b];
+        let rb = &rho[b * n..b * n + n];
+        for x in 0..n {
+            row[x] = rb[x] * sb;
         }
     });
     let mut wm = vec![0.0f32; n * n];
@@ -480,26 +552,25 @@ fn pair_scan_topk(
             row[c] = 1.0f32 / den;
         }
     });
-    let mt = super::reduce::transpose_f32(&m, n);
-    eprintln!("[reduce2:D] 准备 M/W {:.1}s", t0.elapsed().as_secs_f32());
 
     const BLK: usize = 64;
     let nblk = n.div_ceil(BLK);
-    let t0 = Instant::now();
-    let blocks: Vec<(Vec<Vec<(f32, i32, i32)>>, Vec<i64>)> = (0..nblk)
+    type BlkOut = (
+        Vec<f32>,
+        Vec<i32>,
+        Vec<i32>,
+        Vec<Vec<(f32, i32, i32)>>,
+        Vec<i64>,
+    );
+    let blocks: Vec<BlkOut> = (0..nblk)
         .into_par_iter()
         .map(|bk| {
             let b0 = bk * BLK;
             let b1 = (b0 + BLK).min(n);
-            // 每 x 的块内 top-kmax：插入序存储 + 跟踪当前 min，内层只有一次比较；
-            // 命中才插入/淘汰并重扫 50 元表。淘汰目标与旧版逐位一致——旧版列表
-            // 全程降序排序、顶掉 tl[kmax-1]（稳定序里最靠尾的 min），等价于在
-            // 插入序里淘汰"最后出现的最小值"：这里用 <= 取最后一个 min 再
-            // remove+push，保持存活元素的插入顺序，块末再统一降序排序，
-            // 与旧版成员集合及顺序完全相同。
+            let mut blk_best = vec![f32::NEG_INFINITY; n];
+            let mut blk_bi = vec![-1i32; n];
+            let mut blk_ci = vec![-1i32; n];
             let mut top: Vec<Vec<(f32, i32, i32)>> = vec![Vec::new(); n];
-            // tmin 初值 -inf：列表未满时任何有限值都能进；
-            // 被 -inf 掩掉的 x（==b/c/非个股）-inf > -inf 为假，天然排除
             let mut tmin = vec![f32::NEG_INFINITY; n];
             let mut beat32 = vec![0i32; n];
             let mut hits: Vec<u32> = Vec::with_capacity(256);
@@ -509,9 +580,7 @@ fn pair_scan_topk(
                 if !ok[b] {
                     continue;
                 }
-                for x in 0..n {
-                    a[x] = m[x * n + b];
-                }
+                a.copy_from_slice(&mt[b * n..b * n + n]);
                 a[b] = f32::NEG_INFINITY;
                 for c in (b + 1)..n {
                     if !ok[c] {
@@ -521,17 +590,28 @@ fn pair_scan_topk(
                     let row = &mt[c * n..c * n + n];
                     let saved = a[c];
                     a[c] = f32::NEG_INFINITY;
-                    super::simd::mul_add(&mut vbuf, &a, row, w);
-                    // 击败计数：SIMD 掩码加（i32 足够：对数 < 2^31）
-                    super::simd::add_cnt_gt_i32(&mut beat32, &vbuf, &single);
-                    // top-k 插入：movemask 命中位才进列表操作
                     hits.clear();
-                    super::simd::collect_gt_idx(&mut hits, &vbuf, &tmin);
+                    super::simd::fused_pair_scan_step(
+                        &mut vbuf,
+                        &mut beat32,
+                        &mut hits,
+                        &a,
+                        row,
+                        w,
+                        &single64,
+                        &tmin,
+                    );
                     for &x in &hits {
                         let x = x as usize;
+                        let vx = vbuf[x];
+                        if vx > blk_best[x] {
+                            blk_best[x] = vx;
+                            blk_bi[x] = b as i32;
+                            blk_ci[x] = c as i32;
+                        }
                         let tl = &mut top[x];
                         if tl.len() < kmax {
-                            tl.push((vbuf[x], b as i32, c as i32));
+                            tl.push((vx, b as i32, c as i32));
                         } else {
                             let mut mv = f32::INFINITY;
                             let mut last = 0usize;
@@ -542,7 +622,7 @@ fn pair_scan_topk(
                                 }
                             }
                             tl.remove(last);
-                            tl.push((vbuf[x], b as i32, c as i32));
+                            tl.push((vx, b as i32, c as i32));
                         }
                         tmin[x] = if tl.len() < kmax {
                             f32::NEG_INFINITY
@@ -553,19 +633,26 @@ fn pair_scan_topk(
                     a[c] = saved;
                 }
             }
-            // 块末统一降序排序：与旧版"全程保持降序"的最终顺序一致（成员相同）
             for tl in top.iter_mut() {
                 tl.sort_by(|u, vv| vv.0.partial_cmp(&u.0).unwrap());
             }
             let beat: Vec<i64> = beat32.iter().map(|&v| v as i64).collect();
-            (top, beat)
+            (blk_best, blk_bi, blk_ci, top, beat)
         })
         .collect();
-    // 并集合取全局 top-kmax（按下标序合并，确定性）
+
+    let mut best = vec![f32::NEG_INFINITY; n];
+    let mut bi = vec![-1i32; n];
+    let mut ci = vec![-1i32; n];
     let mut top: Vec<Vec<(f32, i32, i32)>> = vec![Vec::new(); n];
     let mut beat = vec![0i64; n];
-    for (bt, bb) in blocks.iter() {
+    for (b_best, b_bi, b_ci, bt, bb) in blocks.iter() {
         for x in 0..n {
+            if ok[x] && b_best[x] > best[x] {
+                best[x] = b_best[x];
+                bi[x] = b_bi[x];
+                ci[x] = b_ci[x];
+            }
             beat[x] += bb[x];
             let tl = &mut top[x];
             if tl.len() + bt[x].len() <= kmax {
@@ -580,24 +667,22 @@ fn pair_scan_topk(
     for x in 0..n {
         top[x].sort_by(|u, vv| vv.0.partial_cmp(&u.0).unwrap());
     }
-    eprintln!("[reduce2:D] top-{kmax} 配对扫描 {:.1}s", t0.elapsed().as_secs_f32());
-    (top, beat)
+    eprintln!(
+        "[reduce:p2+D] 合并配对扫描（best + top-{kmax}）{:.1}s",
+        t0.elapsed().as_secs_f32()
+    );
+    (best, bi, ci, top, beat)
 }
 
 fn block_r2(
-    ms: &MatSet,
     pre: &str,
     n: usize,
     ok: &[bool],
     industry: Option<&[i32]>,
+    top: &[Vec<(f32, i32, i32)>],
+    beat: &[i64],
     out: &mut Out,
 ) {
-    let single = super::reduce::best_single_of(n, &ms.rho, ok);
-    let single64: Vec<f32> = single
-        .iter()
-        .map(|&v| if v.is_finite() { v } else { f32::NEG_INFINITY })
-        .collect();
-    let (top, beat) = pair_scan_topk(n, &ms.rho, &ms.e, &single64, ok, 50);
     let mut t5 = vec![f64::NAN; n];
     let mut t10 = vec![f64::NAN; n];
     let mut t20 = vec![f64::NAN; n];
@@ -651,82 +736,6 @@ fn block_r2(
 // E. R3 扩展：贪心篮子 16 步全留 + 曲线形状参数
 // ============================================================
 
-/// r3_greedy 的参数化版：kmax 步，返回 (picks n×kmax, marg n×kmax, rhocurve n×(kmax+1))。
-fn r3_greedy_k(
-    n: usize,
-    rho: &[f32],
-    e: &[f64],
-    ok: &[bool],
-    kmax: usize,
-) -> (Vec<usize>, Vec<f64>, Vec<f64>) {
-    let t0 = Instant::now();
-    let se: Vec<f64> = (0..n).map(|i| e[i].max(1e-30).sqrt()).collect();
-    let r: Vec<f64> = rho.iter().map(|&v| v as f64).collect();
-    let rt = super::reduce::transpose_f64(&r, n);
-    let mut dt = vec![0.0f64; n * n];
-    let mut q = vec![0.0f64; n];
-    let mut is_in = vec![false; n * n];
-    let mut picks = vec![0usize; n * kmax];
-    let mut marg = vec![f64::NAN; n * kmax];
-    let mut rs = vec![0.0f64; n * (kmax + 1)];
-    for step in 0..kmax {
-        let picked: Vec<usize> = (0..n)
-            .into_par_iter()
-            .map(|x| {
-                let qx = q[x];
-                let num = dt[x * n + x];
-                let rx = &r[x * n..x * n + n];
-                let dx = &dt[x * n..x * n + n];
-                let inn = &is_in[x * n..x * n + n];
-                let mut bestv = f64::NEG_INFINITY;
-                let mut pick = 0usize;
-                for y in 0..n {
-                    if y == x || !ok[y] || inn[y] {
-                        continue;
-                    }
-                    let numc = num + rx[y] * se[y];
-                    let denc = (qx + (2.0 * se[y]) * dx[y] + e[y]).max(1e-30).sqrt();
-                    let v = numc / denc;
-                    if v > bestv {
-                        bestv = v;
-                        pick = y;
-                    }
-                }
-                pick
-            })
-            .collect();
-        for x in 0..n {
-            picks[x * kmax + step] = picked[x];
-        }
-        let q_new: Vec<f64> = (0..n)
-            .into_par_iter()
-            .map(|x| {
-                let p = picked[x];
-                q[x] + 2.0 * se[p] * dt[x * n + p] + e[p]
-            })
-            .collect();
-        dt.par_chunks_mut(n).enumerate().for_each(|(x, dx)| {
-            let p = picked[x];
-            let sp = se[p];
-            let rp = &rt[p * n..p * n + n];
-            for y in 0..n {
-                dx[y] += sp * rp[y];
-            }
-        });
-        for x in 0..n {
-            is_in[x * n + picked[x]] = true;
-        }
-        q = q_new;
-        for x in 0..n {
-            let v = dt[x * n + x] / q[x].max(1e-30).sqrt();
-            rs[x * (kmax + 1) + step + 1] = v;
-            marg[x * kmax + step] = v - rs[x * (kmax + 1) + step];
-        }
-    }
-    eprintln!("[reduce2:E] R3 贪心 {kmax} 步 {:.1}s", t0.elapsed().as_secs_f32());
-    (picks, marg, rs)
-}
-
 /// 增益序列首次跌破 thresh*marg1 的小数步数（线性插值，连续化 n_to_10pct）。
 fn marg_cross_step(marg: &[f64], kmax: usize, thr: f64) -> f64 {
     let m1 = marg[0];
@@ -751,10 +760,17 @@ fn marg_cross_step(marg: &[f64], kmax: usize, thr: f64) -> f64 {
     (kmax + 1) as f64
 }
 
-fn block_r3(ms: &MatSet, pre: &str, n: usize, ok: &[bool], out: &mut Out) {
+fn block_r3(
+    ms: &MatSet,
+    pre: &str,
+    n: usize,
+    ok: &[bool],
+    r3_k16: (&[usize], &[f64], &[f64]),
+    out: &mut Out,
+) {
     const K: usize = 16;
-    let (picks, marg, rs) = r3_greedy_k(n, &ms.rho, &ms.e, ok, K);
-    let r: Vec<f64> = ms.rho.iter().map(|&v| v as f64).collect();
+    let (picks, marg, rs) = r3_k16;
+    let rho = &ms.rho;
     for s in 0..K {
         out.push(
             &format!("{pre}r3x_marg{}", s + 1),
@@ -807,7 +823,7 @@ fn block_r3(ms: &MatSet, pre: &str, n: usize, ok: &[bool], out: &mut Out) {
         for i in 0..K {
             for j in 0..K {
                 if i != j {
-                    vals.push(r[s[i] * n + s[j]]);
+                    vals.push(rho[s[i] * n + s[j]] as f64);
                 }
             }
         }
@@ -980,24 +996,55 @@ fn solve_lin(mut a: Vec<Vec<f64>>, mut b: Vec<f64>, k: usize) -> Vec<f64> {
     x
 }
 
+/// resid_stats 专用的 8 统计量（mean,std,p90,t10m,t20m,max,hhi,possh）：
+/// 省去 row_stats16 里未使用的 skew（5106 次除法 + powi(3)）及另外 7 个分位数。
+fn row_stats_resid8(v: &mut [f64]) -> [f64; 8] {
+    let m = v.len();
+    if m == 0 {
+        return [f64::NAN; 8];
+    }
+    v.sort_unstable_by(|a, b| a.total_cmp(b));
+    let sum: f64 = v.iter().sum();
+    let mean = sum / m as f64;
+    let var = v.iter().map(|x| (x - mean) * (x - mean)).sum::<f64>() / m as f64;
+    let std = var.sqrt();
+    let idx90 = (0.90 * (m - 1) as f64).round() as usize;
+    let p90 = v[idx90.min(m - 1)];
+    let k10 = 10.min(m);
+    let t10m = v[m - k10..].iter().sum::<f64>() / k10 as f64;
+    let k20 = 20.min(m);
+    let t20m = v[m - k20..].iter().sum::<f64>() / k20 as f64;
+    let max = v[m - 1];
+    let possh = v.iter().filter(|&&x| x > 0.0).count() as f64 / m as f64;
+    let sp: f64 = v.iter().copied().filter(|x| *x > 0.0).sum();
+    let hhip = if sp > 0.0 {
+        v.iter()
+            .filter(|&&x| x > 0.0)
+            .map(|x| {
+                let w = x / sp;
+                w * w
+            })
+            .sum()
+    } else {
+        f64::NAN
+    };
+    [mean, std, p90, t10m, t20m, max, hhip, possh]
+}
+
 /// 把 wmat 对协变量回归后的残差行统计。
 /// 协变量（每对 7 个）：1, r=rho(B,C), lnB, lnC, |lnB-lnC|, lnE_B, lnE_C。
 /// 输出每行 8 个统计：mean,std,p90,t10m,t20m,max,hhi,possh。
+/// 直接按行流式计算残差（因为 wmat 与 rho 均对称，j < i 的格子即上三角 (j, i) 的残差），
+/// 免除每次分配 104 MB 的 res 矩阵和单线程下三角镜像拷贝。
 fn resid_stats(
     n: usize,
     wmat: &[f32],
     rho: &[f32],
-    lnt: &[f64],
-    e: &[f64],
+    ln: &[f64],
+    le: &[f64],
     ok: &[bool],
 ) -> Vec<[f64; 8]> {
     const K: usize = 7;
-    let med = super::reduce::nanmedian(lnt);
-    let ln: Vec<f64> = lnt
-        .iter()
-        .map(|&v| if v.is_finite() { v } else { med })
-        .collect();
-    let le: Vec<f64> = e.iter().map(|&v| v.max(1.0).ln()).collect();
     let cov = |i: usize, j: usize| -> [f64; K] {
         let lb = ln[i];
         let lc = ln[j];
@@ -1057,51 +1104,64 @@ fn resid_stats(
         xtx[i][i] += 1e-8;
     }
     let beta = solve_lin(xtx, xty, K);
-    let mut res = vec![f32::NAN; n * n];
-    res.par_chunks_mut(n).enumerate().for_each(|(i, row)| {
-        if !ok[i] {
-            return;
-        }
-        for j in (i + 1)..n {
-            if !ok[j] {
-                continue;
-            }
-            let y = wmat[i * n + j] as f64;
-            if !y.is_finite() {
-                continue;
-            }
-            let d = cov(i, j);
-            let mut fit = 0.0f64;
-            for a in 0..K {
-                fit += beta[a] * d[a];
-            }
-            row[j] = (y - fit) as f32;
-        }
-    });
-    for i in 0..n {
-        for j in 0..i {
-            res[i * n + j] = res[j * n + i];
-        }
-    }
-    // 行统计 8 项（复用 row_stats16 再取需要的）
     (0..n)
         .into_par_iter()
         .map(|i| {
-            let mut o = [f64::NAN; 8];
             if !ok[i] {
-                return o;
+                return [f64::NAN; 8];
             }
-            let s = row_stats16(&res[i * n..i * n + n], i, n, ok);
-            // mean,std,p90,t10m,t20m,max,hhi,possh
-            o[0] = s[0];
-            o[1] = s[1];
-            o[2] = s[6];
-            o[3] = s[10];
-            o[4] = s[11];
-            o[5] = s[8];
-            o[6] = s[14];
-            o[7] = s[13];
-            o
+            let mut v: Vec<f64> = Vec::with_capacity(n);
+            let wi = &wmat[i * n..i * n + n];
+            let ri = &rho[i * n..i * n + n];
+            let li = ln[i];
+            let ei = le[i];
+            // j < i：对应上三角 (j, i) 的残差（wmat 与 rho 均对称）
+            for j in 0..i {
+                if !ok[j] {
+                    continue;
+                }
+                let y = wi[j] as f64;
+                if !y.is_finite() {
+                    continue;
+                }
+                let lb = ln[j];
+                let lc = li;
+                let fit = beta[0]
+                    + beta[1] * (ri[j] as f64)
+                    + beta[2] * lb
+                    + beta[3] * lc
+                    + beta[4] * (lb - lc).abs()
+                    + beta[5] * le[j]
+                    + beta[6] * ei;
+                let r_f32 = (y - fit) as f32;
+                if r_f32.is_finite() {
+                    v.push(r_f32 as f64);
+                }
+            }
+            // j > i：对应上三角 (i, j) 的残差
+            for j in (i + 1)..n {
+                if !ok[j] {
+                    continue;
+                }
+                let y = wi[j] as f64;
+                if !y.is_finite() {
+                    continue;
+                }
+                let lb = li;
+                let lc = ln[j];
+                let fit = beta[0]
+                    + beta[1] * (ri[j] as f64)
+                    + beta[2] * lb
+                    + beta[3] * lc
+                    + beta[4] * (lb - lc).abs()
+                    + beta[5] * ei
+                    + beta[6] * le[j];
+                let r_f32 = (y - fit) as f32;
+                if r_f32.is_finite() {
+                    v.push(r_f32 as f64);
+                }
+            }
+            row_stats_resid8(&mut v)
         })
         .collect()
 }
@@ -1120,6 +1180,12 @@ fn block_r5(
     }
     let t0 = Instant::now();
     let lntv = lnt.unwrap();
+    let med = super::reduce::nanmedian(lntv);
+    let ln: Vec<f64> = lntv
+        .iter()
+        .map(|&v| if v.is_finite() { v } else { med })
+        .collect();
+    let le: Vec<f64> = ms.e.iter().map(|&v| v.max(1.0).ln()).collect();
     let stat_names = ["mean", "std", "p90", "t10m", "t20m", "max", "hhi", "possh"];
     for (wn, w) in [
         ("g", &ms.g),
@@ -1128,7 +1194,7 @@ fn block_r5(
         ("zs", &ms.zs),
         ("sc", &ms.sc),
     ] {
-        let stats = resid_stats(n, w, &ms.rho, lntv, &ms.e, ok);
+        let stats = resid_stats(n, w, &ms.rho, &ln, &le, ok);
         for (si, sn) in stat_names.iter().enumerate() {
             out.push(
                 &format!("{pre}res_{wn}_{sn}"),
@@ -1277,6 +1343,7 @@ fn block_planes(ms: &MatSet, pre: &str, n: usize, ok: &[bool], out: &mut Out) {
 // 入口
 // ============================================================
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn expand(
     ms: &MatSet,
     pre: &str,
@@ -1285,14 +1352,16 @@ pub(crate) fn expand(
     industry: Option<&[i32]>,
     lnt: Option<&[f64]>,
     has_lnt: bool,
+    r2_top_beat: (&[Vec<(f32, i32, i32)>], &[i64]),
+    r3_k16: (&[usize], &[f64], &[f64]),
     out: &mut Out,
 ) {
     let t0 = Instant::now();
     block_row_stats(ms, pre, n, ok, out);
     block_explain(ms, pre, n, ok, out);
     block_bestcomp(ms, pre, n, ok, out);
-    block_r2(ms, pre, n, ok, industry, out);
-    block_r3(ms, pre, n, ok, out);
+    block_r2(pre, n, ok, industry, r2_top_beat.0, r2_top_beat.1, out);
+    block_r3(ms, pre, n, ok, r3_k16, out);
     block_r4(ms, pre, n, ok, out);
     block_r5(ms, pre, n, ok, lnt, has_lnt, out);
     block_planes(ms, pre, n, ok, out);

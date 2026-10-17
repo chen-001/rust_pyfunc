@@ -33,10 +33,7 @@ pub fn fill_h(out: &mut [f32], wb: f32, wc: f32, p: &[f32], q: &[f32], addm: &[f
                 let m = _mm256_loadu_ps(addm.as_ptr().add(x));
                 // 不用 fma：保持与标量 wb*p + wc*q 相同的两次舍入，
                 // 保证 argmax 在并列/近并列边缘的选择与旧版逐位一致
-                let r = _mm256_add_ps(
-                    _mm256_add_ps(_mm256_mul_ps(wv, a), _mm256_mul_ps(cv, b)),
-                    m,
-                );
+                let r = _mm256_add_ps(_mm256_add_ps(_mm256_mul_ps(wv, a), _mm256_mul_ps(cv, b)), m);
                 _mm256_storeu_ps(out.as_mut_ptr().add(x), r);
                 x += 8;
             }
@@ -432,7 +429,14 @@ pub fn pos_stats(h: &[f32], g: &[f32]) -> (f32, f32, f32, u32) {
 /// em[x] += w, gm[x] += w*g, g2m[x] += w*g²，其中 w = relu(h)*invh。
 /// 三个累加器都是本块私有的 f32 数组（确定性靠块内顺序累加 + 按下标合并保证）。
 /// 必须 w>0 才累加一阶二阶矩：掩码位 w=0 但 g=-inf，0×(-inf)=NaN 会污染全表。
-pub fn mass_acc_h(em: &mut [f32], gm: &mut [f32], g2m: &mut [f32], h: &[f32], g: &[f32], invh: f32) {
+pub fn mass_acc_h(
+    em: &mut [f32],
+    gm: &mut [f32],
+    g2m: &mut [f32],
+    h: &[f32],
+    g: &[f32],
+    invh: f32,
+) {
     let n = em.len();
     for x in 0..n {
         if h[x] > 0.0 {
@@ -765,6 +769,82 @@ pub fn collect_gt_idx(out: &mut Vec<u32>, v: &[f32], refv: &[f32]) {
     }
 }
 
+/// 将 mul_add + add_cnt_gt_i32 + collect_gt_idx 三趟扫描融合为一趟 AVX2 循环：
+///   v[x] = (a[x] + b[x]) * w
+///   beat[x] += (v[x] > single[x]) as i32
+///   若 v[x] > tmin[x]，将 v[x] 写回 vbuf[x] 并将 x 追加到 hits
+/// 仅在存在命中位 (m_top != 0) 时才写回 vbuf，省掉 >95% 的 vbuf 写与两趟重读。
+pub fn fused_pair_scan_step(
+    vbuf: &mut [f32],
+    beat: &mut [i32],
+    hits: &mut Vec<u32>,
+    a: &[f32],
+    b: &[f32],
+    w: f32,
+    single: &[f32],
+    tmin: &[f32],
+) {
+    let n = a.len();
+    #[cfg(target_arch = "x86_64")]
+    unsafe {
+        if have_avx2() {
+            let wv = _mm256_set1_ps(w);
+            let one = _mm256_set1_epi32(1);
+            let mut x = 0usize;
+            while x + 8 <= n {
+                let vv = _mm256_mul_ps(
+                    _mm256_add_ps(
+                        _mm256_loadu_ps(a.as_ptr().add(x)),
+                        _mm256_loadu_ps(b.as_ptr().add(x)),
+                    ),
+                    wv,
+                );
+                let m_beat = _mm256_castps_si256(_mm256_cmp_ps::<_CMP_GT_OQ>(
+                    vv,
+                    _mm256_loadu_ps(single.as_ptr().add(x)),
+                ));
+                let cur = _mm256_loadu_si256(beat.as_ptr().add(x) as *const __m256i);
+                _mm256_storeu_si256(
+                    beat.as_mut_ptr().add(x) as *mut __m256i,
+                    _mm256_add_epi32(cur, _mm256_and_si256(m_beat, one)),
+                );
+                let m_top = _mm256_movemask_ps(_mm256_cmp_ps::<_CMP_GT_OQ>(
+                    vv,
+                    _mm256_loadu_ps(tmin.as_ptr().add(x)),
+                )) as u32;
+                if m_top != 0 {
+                    _mm256_storeu_ps(vbuf.as_mut_ptr().add(x), vv);
+                    let mut mm = m_top;
+                    while mm != 0 {
+                        let k = mm.trailing_zeros() as usize;
+                        hits.push((x + k) as u32);
+                        mm &= mm - 1;
+                    }
+                }
+                x += 8;
+            }
+            while x < n {
+                let v = (a[x] + b[x]) * w;
+                beat[x] += (v > single[x]) as i32;
+                if v > tmin[x] {
+                    vbuf[x] = v;
+                    hits.push(x as u32);
+                }
+                x += 1;
+            }
+            return;
+        }
+    }
+    for x in 0..n {
+        let v = (a[x] + b[x]) * w;
+        beat[x] += (v > single[x]) as i32;
+        if v > tmin[x] {
+            vbuf[x] = v;
+            hits.push(x as u32);
+        }
+    }
+}
+
 /// beat[x] += (v[x] > refv[x])，i32 逐格计数（配对数 < 2^31，不会溢出）。
 /// SIMD 掩码加：每 8 格一次 cmp+and+add，替代逐格分支。
 pub fn add_cnt_gt_i32(beat: &mut [i32], v: &[f32], refv: &[f32]) {
@@ -837,14 +917,13 @@ pub fn for_each_gt(v: &[f32], refv: &[f32], mut f: impl FnMut(usize)) {
 
 /// f32 → 保序 u32：正数翻符号位、负数全部取反，使整型序 = 浮点序。
 /// 用于把 (score, idx) 打包成 u64 做整型 select_nth / sort，去掉浮点 comparator。
+/// 无分支实现：负数算术右移 31 位得 0xffff_ffff（或 0x8000_0000 仍为 0xffff_ffff，异或取反），
+/// 非负数算术右移 31 位得 0（或 0x8000_0000 得 0x8000_0000，异或翻最高位）。
 #[inline(always)]
 pub fn fkey(v: f32) -> u32 {
     let b = v.to_bits();
-    if b & 0x8000_0000 != 0 {
-        !b
-    } else {
-        b | 0x8000_0000
-    }
+    let mask = ((b as i32 >> 31) as u32) | 0x8000_0000;
+    b ^ mask
 }
 
 /// 打包"分数降序、下标升序"的 u64 键：升序比较 = 分数大的在前、同分按下标小的在前。
@@ -858,4 +937,99 @@ pub fn pack_desc_idx_asc(score: f32, idx: u32) -> u64 {
 #[inline(always)]
 pub fn pack_desc_idx_desc(score: f32, idx: u32) -> u64 {
     ((!fkey(score)) as u64) << 32 | (!(idx)) as u64
+}
+
+/// 从 scores[0..n] 中选出按「分数降序、同分下标升序」排好序的前 take 个打包键，
+/// 写入 kh[..take]。
+///
+/// 逐位等价于全量打包 + select_nth_unstable(take - 1) + kh[..take].sort_unstable()：
+/// 因为每个键低 32 位是唯一的下标 x，全表 n 个 u64 键严格互异，前 take 小的键排序后唯一确定。
+pub fn select_topk_keys(scores: &[f32], take: usize, kh: &mut [u64], mid_buf: &mut [u64]) {
+    let n = scores.len();
+    if take == 0 || n == 0 {
+        return;
+    }
+    #[cfg(target_arch = "x86_64")]
+    unsafe {
+        if have_avx2() && n >= 1024 && take * 4 < n {
+            const NSAMP: usize = 128;
+            let step = n / NSAMP;
+            let mut samp = [0.0f32; NSAMP];
+            for s in 0..NSAMP {
+                samp[s] = *scores.get_unchecked(s * step);
+            }
+            let k1 = ((take * NSAMP) / n).saturating_sub(2).max(1);
+            let k2 = (((take * NSAMP) / n) + 5).min(NSAMP - 1);
+            samp.select_nth_unstable_by(k2, |a, b| b.total_cmp(a));
+            let t2 = samp[k2];
+            samp[..k2].select_nth_unstable_by(k1, |a, b| b.total_cmp(a));
+            let t1 = samp[k1];
+            if t2.is_finite() && t1.is_finite() && t1 >= t2 {
+                let vt1 = _mm256_set1_ps(t1);
+                let vt2 = _mm256_set1_ps(t2);
+                let mut n_hi = 0usize;
+                let mut n_mid = 0usize;
+                let mut x = 0usize;
+                while x + 8 <= n {
+                    let v = _mm256_loadu_ps(scores.as_ptr().add(x));
+                    let m2 = _mm256_movemask_ps(_mm256_cmp_ps::<_CMP_GE_OQ>(v, vt2)) as u32;
+                    if m2 != 0 {
+                        let m1 = _mm256_movemask_ps(_mm256_cmp_ps::<_CMP_GE_OQ>(v, vt1)) as u32;
+                        let mut hi = m1;
+                        while hi != 0 {
+                            let l = hi.trailing_zeros() as usize;
+                            let idx = x + l;
+                            *kh.get_unchecked_mut(n_hi) =
+                                pack_desc_idx_asc(*scores.get_unchecked(idx), idx as u32);
+                            n_hi += 1;
+                            hi &= hi - 1;
+                        }
+                        let mut md = m2 & !m1;
+                        while md != 0 {
+                            let l = md.trailing_zeros() as usize;
+                            let idx = x + l;
+                            *mid_buf.get_unchecked_mut(n_mid) =
+                                pack_desc_idx_asc(*scores.get_unchecked(idx), idx as u32);
+                            n_mid += 1;
+                            md &= md - 1;
+                        }
+                    }
+                    x += 8;
+                }
+                while x < n {
+                    let sv = *scores.get_unchecked(x);
+                    if sv >= t1 {
+                        *kh.get_unchecked_mut(n_hi) = pack_desc_idx_asc(sv, x as u32);
+                        n_hi += 1;
+                    } else if sv >= t2 {
+                        *mid_buf.get_unchecked_mut(n_mid) = pack_desc_idx_asc(sv, x as u32);
+                        n_mid += 1;
+                    }
+                    x += 1;
+                }
+                if n_hi >= take {
+                    if n_hi > take {
+                        kh[..n_hi].select_nth_unstable(take - 1);
+                    }
+                    kh[..take].sort_unstable();
+                    return;
+                }
+                if n_hi + n_mid >= take {
+                    let need = take - n_hi;
+                    let mid = &mut mid_buf[..n_mid];
+                    if n_mid > need {
+                        mid.select_nth_unstable(need - 1);
+                    }
+                    kh[n_hi..take].copy_from_slice(&mid[..need]);
+                    kh[..take].sort_unstable();
+                    return;
+                }
+            }
+        }
+    }
+    for x in 0..n {
+        kh[x] = pack_desc_idx_asc(scores[x], x as u32);
+    }
+    kh.select_nth_unstable(take - 1);
+    kh[..take].sort_unstable();
 }

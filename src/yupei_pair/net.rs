@@ -314,6 +314,7 @@ pub(crate) fn net_one_mat(
                 // topk 的块内缓冲（热路径上不再分配）
                 let mut kh: Vec<u64> = vec![0u64; n];
                 let mut kg: Vec<u64> = vec![0u64; n];
+                let mut mid_buf: Vec<u64> = vec![0u64; n];
                 let mut idx: Vec<u32> = vec![0u32; maxk_t];
                 let mut gidx: Vec<u32> = vec![0u32; maxk_t];
                 let mut pref: Vec<f64> = vec![0.0f64; maxk_t];
@@ -363,44 +364,62 @@ pub(crate) fn net_one_mat(
                             &mut hb, &mut gb, wb, wc, p, q, &addm, b, c,
                         );
                         // ---- topk 合并段：h/gap 只算这一遍，按 topk 原来的顺序累计 ----
+                        let mut topk_done = false;
                         if let Some(t) = tacc.as_mut() {
                             if take_t > 0 {
-                                for x in 0..n {
-                                    kh[x] = simd::pack_desc_idx_asc(hb[x], x as u32);
-                                }
-                                kh.select_nth_unstable(take_t - 1);
-                                kh[..take_t].sort_unstable();
-                                for x in 0..n {
-                                    kg[x] = simd::pack_desc_idx_asc(gb[x], x as u32);
-                                }
-                                kg.select_nth_unstable(take_t - 1);
-                                kg[..take_t].sort_unstable();
+                                simd::select_topk_keys(&hb, take_t, &mut kh, &mut mid_buf);
+                                simd::select_topk_keys(&gb, take_t, &mut kg, &mut mid_buf);
                                 for v in 0..take_t {
                                     idx[v] = kh[v] as u32;
                                     gidx[v] = kg[v] as u32;
                                 }
                                 let mut sf = 0.0f64;
+                                let mut pos_h = 0usize;
                                 for v in 0..take_t {
                                     let y = idx[v] as usize;
-                                    sf += hb[y].max(0.0) as f64;
+                                    let sc = hb[y];
+                                    if sc > 0.0 {
+                                        sf += sc as f64;
+                                        pos_h = v + 1;
+                                    }
                                     pref[v] = sf;
                                 }
-                                absorb_topk(t, n, 0, nlev_t, ks_ref, &idx[..take_t], &hb, &gb, &pref);
+                                absorb_topk(t, n, 0, nlev_t, ks_ref, &idx[..take_t], &hb, &gb, &pref, pos_h);
                                 sf = 0.0;
+                                let mut pos_g = 0usize;
                                 for v in 0..take_t {
                                     let y = gidx[v] as usize;
-                                    sf += gb[y].max(0.0) as f64;
+                                    let sc = gb[y];
+                                    if sc > 0.0 {
+                                        sf += sc as f64;
+                                        pos_g = v + 1;
+                                    }
                                     pref[v] = sf;
                                 }
-                                absorb_topk(t, n, 1, nlev_t, ks_ref, &gidx[..take_t], &hb, &gb, &pref);
+                                absorb_topk(t, n, 1, nlev_t, ks_ref, &gidx[..take_t], &hb, &gb, &pref, pos_g);
                                 t.pairs += 1;
+                                topk_done = true;
                             }
                         }
                         if mx_h == f32::NEG_INFINITY {
                             continue;
                         }
-                        // 两个「首个最大下标」并成一趟（原来扫两遍）
-                        let (bi, bsi) = simd::argmax_first_two(&hb, &gb, mx_h, mx_g);
+                        // 两个「首个最大下标」：若 topk 已排序完前 take_t 名，第 0 名即首个最大下标
+                        let (bi, bsi) = if topk_done
+                            && hb[idx[0] as usize] == mx_h
+                            && (mx_g == f32::NEG_INFINITY || gb[gidx[0] as usize] == mx_g)
+                        {
+                            (
+                                idx[0] as usize,
+                                if mx_g == f32::NEG_INFINITY {
+                                    usize::MAX
+                                } else {
+                                    gidx[0] as usize
+                                },
+                            )
+                        } else {
+                            simd::argmax_first_two(&hb, &gb, mx_h, mx_g)
+                        };
                         let h = mx_h;
                         let gs_ = mx_g;
                         let (pbi, qci) = (p[bi], q[bi]);

@@ -64,9 +64,15 @@ def py_ref(signal, ret, ret_sum, restrict, dates, portf_num, H_hori, unique_valu
         b3 = restrict_arr_d_o == 0
         ret_arr_d = ret_arr_d_o[b1 & b2 & b3]
         signal_arr_d = signal_arr_d_o[b1 & b2 & b3]
-        if ((t + 1) % H_hori) == 0:
-            ret_after_h_hori = ret_arr_sum[:, t][b1 & b2 & b3]
-            ic_value_list.append(calc_spearman_correlation(ret_after_h_hori, signal_arr_d))
+        # IC 每天一个点（2026-10-16 改，口径与 tail_pipeline_engine 一致）：
+        # 信号取本持仓窗口的起点 t+1-H_hori 那一行，收益取当日 ret_arr_sum。
+        # 格点日 (t+1) % H_hori == 0 的那一行与 held 行相同，故格点日的 IC 值不变。
+        if t + 1 >= H_hori:
+            sig_row = t + 1 - H_hori
+            signal_ic = const_signal_arr[:, sig_row]
+            restrict_ic = S_restrict_arr[:, sig_row]
+            keep = (~np.isnan(signal_ic)) & (~np.isnan(ret_arr[:, t])) & (restrict_ic == 0)
+            ic_value_list.append(calc_spearman_correlation(ret_arr_sum[:, t][keep], signal_ic[keep]))
             ic_date_list.append(dates[t])
         stocks_num = len(signal_arr_d)
         if stocks_num < portf_num:

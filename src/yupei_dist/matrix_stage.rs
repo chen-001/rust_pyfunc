@@ -1243,18 +1243,21 @@ fn phase2_simd<const NEED: u8>(
             }
             let base = a * PACK_W;
             unsafe {
-                let mut p0 = _mm256_loadu_ps(pack_ptr.add(base));
-                let mut p1 = _mm256_loadu_ps(pack_ptr.add(base + 8));
-                let mut p2 = _mm256_loadu_ps(pack_ptr.add(base + 16));
-                let mut p3 = _mm256_loadu_ps(pack_ptr.add(base + 24));
-                let mut p4 = _mm256_loadu_ps(pack_ptr.add(base + 32));
-                let mut p5 = _mm256_loadu_ps(pack_ptr.add(base + 40));
-                let mut p6 = _mm256_loadu_ps(pack_ptr.add(base + 48));
                 let ca0 = offs[a];
                 let mut j0 = 0usize;
                 while j0 < ca && ((block_buf[ca0 + j0].0 - k0) as usize) < k_lo {
                     j0 += 1;
                 }
+                if j0 >= ca || ((block_buf[ca0 + j0].0 - k0) as usize) >= k_hi {
+                    continue;
+                }
+                let mut p0 = if NEED & FAM_CNT != 0 { _mm256_loadu_ps(pack_ptr.add(base)) } else { _mm256_setzero_ps() };
+                let mut p1 = if NEED & FAM_CNT != 0 { _mm256_loadu_ps(pack_ptr.add(base + 8)) } else { _mm256_setzero_ps() };
+                let mut p2 = if NEED & FAM_VOL != 0 { _mm256_loadu_ps(pack_ptr.add(base + 16)) } else { _mm256_setzero_ps() };
+                let mut p3 = if NEED & FAM_LOGVOL != 0 { _mm256_loadu_ps(pack_ptr.add(base + 24)) } else { _mm256_setzero_ps() };
+                let mut p4 = if NEED & FAM_FLOW != 0 { _mm256_loadu_ps(pack_ptr.add(base + 32)) } else { _mm256_setzero_ps() };
+                let mut p5 = if NEED & FAM_URG != 0 { _mm256_loadu_ps(pack_ptr.add(base + 40)) } else { _mm256_setzero_ps() };
+                let mut p6 = if NEED & FAM_EXT != 0 { _mm256_loadu_ps(pack_ptr.add(base + 48)) } else { _mm256_setzero_ps() };
                 let mut j = j0;
                 while j < ca {
                     let cell = &block_buf[ca0 + j];
@@ -1305,13 +1308,25 @@ fn phase2_simd<const NEED: u8>(
                     }
                     j += 1;
                 }
-                _mm256_storeu_ps(pack_ptr.add(base), p0);
-                _mm256_storeu_ps(pack_ptr.add(base + 8), p1);
-                _mm256_storeu_ps(pack_ptr.add(base + 16), p2);
-                _mm256_storeu_ps(pack_ptr.add(base + 24), p3);
-                _mm256_storeu_ps(pack_ptr.add(base + 32), p4);
-                _mm256_storeu_ps(pack_ptr.add(base + 40), p5);
-                _mm256_storeu_ps(pack_ptr.add(base + 48), p6);
+                if NEED & FAM_CNT != 0 {
+                    _mm256_storeu_ps(pack_ptr.add(base), p0);
+                    _mm256_storeu_ps(pack_ptr.add(base + 8), p1);
+                }
+                if NEED & FAM_VOL != 0 {
+                    _mm256_storeu_ps(pack_ptr.add(base + 16), p2);
+                }
+                if NEED & FAM_LOGVOL != 0 {
+                    _mm256_storeu_ps(pack_ptr.add(base + 24), p3);
+                }
+                if NEED & FAM_FLOW != 0 {
+                    _mm256_storeu_ps(pack_ptr.add(base + 32), p4);
+                }
+                if NEED & FAM_URG != 0 {
+                    _mm256_storeu_ps(pack_ptr.add(base + 40), p5);
+                }
+                if NEED & FAM_EXT != 0 {
+                    _mm256_storeu_ps(pack_ptr.add(base + 48), p6);
+                }
             }
         }
     }
@@ -1441,7 +1456,16 @@ pub fn compute_matrices(stocks: &[StockPrep], need: u8) -> (Vec<Vec<f32>>, Vec<S
     let n = stocks.len();
     let nm = N_MATRICES;
     let gfields = g_fields();
-    let mut mats: Vec<Vec<f32>> = vec![vec![0.0f32; n * n]; nm];
+    let mut mats: Vec<Vec<f32>> = (0..nm)
+        .into_par_iter()
+        .map(|m| {
+            if need & (1u8 << MATRIX_SPECS[m].family) != 0 {
+                vec![0.0f32; n * n]
+            } else {
+                Vec::new()
+            }
+        })
+        .collect();
     let stats: Vec<StockStats> = stocks
         .iter()
         .map(|s| StockStats {
@@ -1494,8 +1518,15 @@ pub fn compute_matrices(stocks: &[StockPrep], need: u8) -> (Vec<Vec<f32>>, Vec<S
     // gp 槽布局（GP_STRIDE=56, 每块 8 槽对齐, 未用槽恒 0）:
     //   0..9 cnt(9τ), 9..16 空闲(块1), 16..24 vol(6τ), 24..32 logvol(4τ),
     //   32..40 flow±(4τ), 40..48 urg±(3τ), 48..56 ext±(2τ)
+    // gp 跨块不持久，改为线程局部复用缓冲（初次分配即全 0，未用槽永不被写，
+    // 已用槽在 phase1 每桶全覆盖重写，省掉 4.68 GB 分配与每块每股 1.63 TB 的清零）。
+    thread_local! {
+        static TL_GP: std::cell::RefCell<Vec<f32>> =
+            std::cell::RefCell::new(vec![0.0f32; BLOCK_BUCKETS * GP_STRIDE]);
+    }
     let packs: Vec<std::sync::Mutex<Vec<f32>>> = (0..ntiles)
-        .map(|_| std::sync::Mutex::new(vec![0.0f32; n * PACK_W + BLOCK_BUCKETS * GP_STRIDE + 56]))
+        .into_par_iter()
+        .map(|_| std::sync::Mutex::new(vec![0.0f32; n * PACK_W + 56]))
         .collect();
 
     for block in 0..N_BLOCKS {
@@ -1540,56 +1571,55 @@ pub fn compute_matrices(stocks: &[StockPrep], need: u8) -> (Vec<Vec<f32>>, Vec<S
         let gfields = &gfields;
         (0..ntiles).into_par_iter().for_each(|b| {
             let mut g = packs[b].lock().unwrap();
-            let (pack, rest) = g.split_at_mut(n * PACK_W);
-            let (gp, acc_mem) = rest.split_at_mut(BLOCK_BUCKETS * GP_STRIDE);
-            // 未用槽一次性清零（跨块不复用; 已用槽每桶重写）
-            unsafe {
-                std::ptr::write_bytes(gp.as_mut_ptr(), 0, gp.len());
-            }
-            // ---- phase 1: 扫桶推进 g 场（x86_64 AVX2 SIMD；其他架构标量回退，逐位一致）----
-            let bcnt = counts_ref[b];
-            let boff = offs_ref[b];
-            #[cfg(target_arch = "x86_64")]
-            if need == FAM_CNT {
-                phase1_simd::<{ FAM_CNT }>(&mut *gp, &mut *acc_mem, block_buf_ref, bcnt, boff, k0 as u32);
-            } else if need == FAM_VOL {
-                phase1_simd::<{ FAM_VOL }>(&mut *gp, &mut *acc_mem, block_buf_ref, bcnt, boff, k0 as u32);
-            } else if need == (FAM_CNT | FAM_VOL) {
-                phase1_simd::<{ FAM_CNT | FAM_VOL }>(&mut *gp, &mut *acc_mem, block_buf_ref, bcnt, boff, k0 as u32);
-            } else {
-                phase1_simd::<{ FAM_ALL }>(&mut *gp, &mut *acc_mem, block_buf_ref, bcnt, boff, k0 as u32);
-            }
-            #[cfg(not(target_arch = "x86_64"))]
-            if need == FAM_CNT {
-                phase1_scalar::<{ FAM_CNT }>(&mut *gp, &mut *acc_mem, block_buf_ref, bcnt, boff, k0 as u32);
-            } else if need == FAM_VOL {
-                phase1_scalar::<{ FAM_VOL }>(&mut *gp, &mut *acc_mem, block_buf_ref, bcnt, boff, k0 as u32);
-            } else if need == (FAM_CNT | FAM_VOL) {
-                phase1_scalar::<{ FAM_CNT | FAM_VOL }>(&mut *gp, &mut *acc_mem, block_buf_ref, bcnt, boff, k0 as u32);
-            } else {
-                phase1_scalar::<{ FAM_ALL }>(&mut *gp, &mut *acc_mem, block_buf_ref, bcnt, boff, k0 as u32);
-            }
-            // ---- 2. A-major 累积（SUB=2 提升 gp L1 驻留）----
-            #[cfg(target_arch = "x86_64")]
-            if need == FAM_CNT {
-                phase2_simd::<{ FAM_CNT }>(pack, gp, block_buf_ref, counts_ref, offs_ref, n, k0 as u32);
-            } else if need == FAM_VOL {
-                phase2_simd::<{ FAM_VOL }>(pack, gp, block_buf_ref, counts_ref, offs_ref, n, k0 as u32);
-            } else if need == (FAM_CNT | FAM_VOL) {
-                phase2_simd::<{ FAM_CNT | FAM_VOL }>(pack, gp, block_buf_ref, counts_ref, offs_ref, n, k0 as u32);
-            } else {
-                phase2_simd::<{ FAM_ALL }>(pack, gp, block_buf_ref, counts_ref, offs_ref, n, k0 as u32);
-            }
-            #[cfg(not(target_arch = "x86_64"))]
-            if need == FAM_CNT {
-                phase2_scalar::<{ FAM_CNT }>(pack, gp, block_buf_ref, counts_ref, offs_ref, n, k0 as u32);
-            } else if need == FAM_VOL {
-                phase2_scalar::<{ FAM_VOL }>(pack, gp, block_buf_ref, counts_ref, offs_ref, n, k0 as u32);
-            } else if need == (FAM_CNT | FAM_VOL) {
-                phase2_scalar::<{ FAM_CNT | FAM_VOL }>(pack, gp, block_buf_ref, counts_ref, offs_ref, n, k0 as u32);
-            } else {
-                phase2_scalar::<{ FAM_ALL }>(pack, gp, block_buf_ref, counts_ref, offs_ref, n, k0 as u32);
-            }
+            let (pack, acc_mem) = g.split_at_mut(n * PACK_W);
+            TL_GP.with(|tl| {
+                let mut gp_borrow = tl.borrow_mut();
+                let gp = gp_borrow.as_mut_slice();
+                // ---- phase 1: 扫桶推进 g 场（x86_64 AVX2 SIMD；其他架构标量回退，逐位一致）----
+                let bcnt = counts_ref[b];
+                let boff = offs_ref[b];
+                #[cfg(target_arch = "x86_64")]
+                if need == FAM_CNT {
+                    phase1_simd::<{ FAM_CNT }>(&mut *gp, &mut *acc_mem, block_buf_ref, bcnt, boff, k0 as u32);
+                } else if need == FAM_VOL {
+                    phase1_simd::<{ FAM_VOL }>(&mut *gp, &mut *acc_mem, block_buf_ref, bcnt, boff, k0 as u32);
+                } else if need == (FAM_CNT | FAM_VOL) {
+                    phase1_simd::<{ FAM_CNT | FAM_VOL }>(&mut *gp, &mut *acc_mem, block_buf_ref, bcnt, boff, k0 as u32);
+                } else {
+                    phase1_simd::<{ FAM_ALL }>(&mut *gp, &mut *acc_mem, block_buf_ref, bcnt, boff, k0 as u32);
+                }
+                #[cfg(not(target_arch = "x86_64"))]
+                if need == FAM_CNT {
+                    phase1_scalar::<{ FAM_CNT }>(&mut *gp, &mut *acc_mem, block_buf_ref, bcnt, boff, k0 as u32);
+                } else if need == FAM_VOL {
+                    phase1_scalar::<{ FAM_VOL }>(&mut *gp, &mut *acc_mem, block_buf_ref, bcnt, boff, k0 as u32);
+                } else if need == (FAM_CNT | FAM_VOL) {
+                    phase1_scalar::<{ FAM_CNT | FAM_VOL }>(&mut *gp, &mut *acc_mem, block_buf_ref, bcnt, boff, k0 as u32);
+                } else {
+                    phase1_scalar::<{ FAM_ALL }>(&mut *gp, &mut *acc_mem, block_buf_ref, bcnt, boff, k0 as u32);
+                }
+                // ---- 2. A-major 累积（SUB=2 提升 gp L1 驻留）----
+                #[cfg(target_arch = "x86_64")]
+                if need == FAM_CNT {
+                    phase2_simd::<{ FAM_CNT }>(pack, gp, block_buf_ref, counts_ref, offs_ref, n, k0 as u32);
+                } else if need == FAM_VOL {
+                    phase2_simd::<{ FAM_VOL }>(pack, gp, block_buf_ref, counts_ref, offs_ref, n, k0 as u32);
+                } else if need == (FAM_CNT | FAM_VOL) {
+                    phase2_simd::<{ FAM_CNT | FAM_VOL }>(pack, gp, block_buf_ref, counts_ref, offs_ref, n, k0 as u32);
+                } else {
+                    phase2_simd::<{ FAM_ALL }>(pack, gp, block_buf_ref, counts_ref, offs_ref, n, k0 as u32);
+                }
+                #[cfg(not(target_arch = "x86_64"))]
+                if need == FAM_CNT {
+                    phase2_scalar::<{ FAM_CNT }>(pack, gp, block_buf_ref, counts_ref, offs_ref, n, k0 as u32);
+                } else if need == FAM_VOL {
+                    phase2_scalar::<{ FAM_VOL }>(pack, gp, block_buf_ref, counts_ref, offs_ref, n, k0 as u32);
+                } else if need == (FAM_CNT | FAM_VOL) {
+                    phase2_scalar::<{ FAM_CNT | FAM_VOL }>(pack, gp, block_buf_ref, counts_ref, offs_ref, n, k0 as u32);
+                } else {
+                    phase2_scalar::<{ FAM_ALL }>(pack, gp, block_buf_ref, counts_ref, offs_ref, n, k0 as u32);
+                }
+            });
         });
     }
     // ---- 日末刷入 S[m][a][b]（并行; 每 tile 只写第 b 列, 列互不相交）----

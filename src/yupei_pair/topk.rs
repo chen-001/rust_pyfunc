@@ -36,13 +36,22 @@ use std::time::Instant;
 
 /// B 分成多少块。固定值，不随线程数变，否则换线程数结果会变。
 pub(crate) const NBLOCKS: usize = 512;
+
+/// 单个 (口径, 档位, 股票) 的累加格：32 字节对齐（半条 cache line），
+/// 避免原来分成 4 个独立 Vec 时每次更新跨 4 条 cache line 随机写。
+#[repr(C, align(32))]
+#[derive(Clone, Copy, Default)]
+pub(crate) struct TopkCell {
+    pub(crate) cnt: u32,
+    pub(crate) _pad: u32,
+    pub(crate) sum_gap: f64,
+    pub(crate) sum_h: f64,
+    pub(crate) sum_mass: f64,
+}
+
 /// 每个累加器里每档每口径 4 个量：cnt(u32), sum_gap, sum_h, sum_mass。
 pub(crate) struct Acc {
-    // [口径2][档nlev][统计4? 分开存] —— 分四个平面存，索引 = (crit*nlev + l)*n + y
-    pub(crate) cnt: Vec<u32>,
-    pub(crate) sum_gap: Vec<f64>,
-    pub(crate) sum_h: Vec<f64>,
-    pub(crate) sum_mass: Vec<f64>,
+    pub(crate) cells: Vec<TopkCell>,
     pub(crate) pairs: u64,
     pub(crate) skipped: u64,
 }
@@ -51,20 +60,17 @@ impl Acc {
     pub(crate) fn new(n: usize, nlev: usize) -> Self {
         let l = 2 * nlev * n;
         Acc {
-            cnt: vec![0u32; l],
-            sum_gap: vec![0.0f64; l],
-            sum_h: vec![0.0f64; l],
-            sum_mass: vec![0.0f64; l],
+            cells: vec![TopkCell::default(); l],
             pairs: 0,
             skipped: 0,
         }
     }
     pub(crate) fn add(&mut self, o: &Acc) {
-        for i in 0..self.cnt.len() {
-            self.cnt[i] += o.cnt[i];
-            self.sum_gap[i] += o.sum_gap[i];
-            self.sum_h[i] += o.sum_h[i];
-            self.sum_mass[i] += o.sum_mass[i];
+        for (dst, src) in self.cells.iter_mut().zip(o.cells.iter()) {
+            dst.cnt += src.cnt;
+            dst.sum_gap += src.sum_gap;
+            dst.sum_h += src.sum_h;
+            dst.sum_mass += src.sum_mass;
         }
         self.pairs += o.pairs;
         self.skipped += o.skipped;
@@ -76,6 +82,8 @@ impl Acc {
 /// 把一个口径的前 take 名累加进 acc 的对应平面。
 /// score 是该口径的分数数组（h 或 gap），order 是按该分数排好的前 take 下标，
 /// relu_pref[v] = Σ_{u<=v} relu(score[order[u]])，供各档归一化用。
+/// pos_len 是 order 中 score > 0.0 的前缀长度（因 order 按 score 降序，v >= pos_len 时
+/// relu(score) == 0.0，+0.0 对初值 0.0 且只加非负数的 sum_mass 是恒等操作，直接免除除法）。
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn absorb_topk(
     acc: &mut Acc,
@@ -87,7 +95,9 @@ pub(crate) fn absorb_topk(
     h: &[f32],
     gap: &[f32],
     relu_pref: &[f64],
+    pos_len: usize,
 ) {
+    let score_arr = if crit == 0 { h } else { gap };
     for (l, &k) in ks.iter().enumerate() {
         let kk = k.min(order.len());
         if kk == 0 {
@@ -95,22 +105,25 @@ pub(crate) fn absorb_topk(
         }
         let denom = relu_pref[kk - 1].max(1e-30);
         let base = (crit * nlev + l) * n;
-        for v in 0..kk {
-            let y = order[v] as usize;
-            acc.cnt[base + y] += 1;
-            acc.sum_gap[base + y] += gap[y] as f64;
-            acc.sum_h[base + y] += h[y] as f64;
-            acc.sum_mass[base + y] += (order_score(order[v], h, gap, crit)).max(0.0) as f64 / denom;
+        let pkk = kk.min(pos_len);
+        unsafe {
+            let cells_ptr = acc.cells.as_mut_ptr().add(base);
+            for v in 0..pkk {
+                let y = *order.get_unchecked(v) as usize;
+                let c = &mut *cells_ptr.add(y);
+                c.cnt += 1;
+                c.sum_gap += *gap.get_unchecked(y) as f64;
+                c.sum_h += *h.get_unchecked(y) as f64;
+                c.sum_mass += (*score_arr.get_unchecked(y) as f64) / denom;
+            }
+            for v in pkk..kk {
+                let y = *order.get_unchecked(v) as usize;
+                let c = &mut *cells_ptr.add(y);
+                c.cnt += 1;
+                c.sum_gap += *gap.get_unchecked(y) as f64;
+                c.sum_h += *h.get_unchecked(y) as f64;
+            }
         }
-    }
-}
-
-#[inline]
-fn order_score(y: u32, h: &[f32], gap: &[f32], crit: usize) -> f32 {
-    if crit == 0 {
-        h[y as usize]
-    } else {
-        gap[y as usize]
     }
 }
 
@@ -191,20 +204,30 @@ fn block_accumulate(
 
             // h 口径的 relu 前缀和 + 累加
             let mut s = 0.0f64;
+            let mut pos_h = 0usize;
             for v in 0..take {
                 let y = idx[v] as usize;
-                s += h[y].max(0.0) as f64;
+                let sc = h[y];
+                if sc > 0.0 {
+                    s += sc as f64;
+                    pos_h = v + 1;
+                }
                 pref[v] = s;
             }
-            absorb_topk(&mut acc, n, 0, nlev, ks, &idx[..take], &h, &gap, &pref);
+            absorb_topk(&mut acc, n, 0, nlev, ks, &idx[..take], &h, &gap, &pref, pos_h);
             // gap 口径的 relu 前缀和 + 累加
             s = 0.0;
+            let mut pos_g = 0usize;
             for v in 0..take {
                 let y = gidx[v] as usize;
-                s += gap[y].max(0.0) as f64;
+                let sc = gap[y];
+                if sc > 0.0 {
+                    s += sc as f64;
+                    pos_g = v + 1;
+                }
                 pref[v] = s;
             }
-            absorb_topk(&mut acc, n, 1, nlev, ks, &gidx[..take], &h, &gap, &pref);
+            absorb_topk(&mut acc, n, 1, nlev, ks, &gidx[..take], &h, &gap, &pref, pos_g);
             acc.pairs += 1;
         }
     }
@@ -286,11 +309,12 @@ pub(crate) fn finalize_total(
                 if !mask[i] {
                     continue;
                 }
-                let c = total.cnt[base + i];
+                let cell = &total.cells[base + i];
+                let c = cell.cnt;
                 c_cnt[i] = c as f32;
-                c_gain[i] = if c > 0 { (total.sum_gap[base + i] / c as f64) as f32 } else { f32::NAN };
-                c_h[i] = if c > 0 { (total.sum_h[base + i] / c as f64) as f32 } else { f32::NAN };
-                c_ms[i] = (total.sum_mass[base + i] / pairs.max(1) as f64) as f32;
+                c_gain[i] = if c > 0 { (cell.sum_gap / c as f64) as f32 } else { f32::NAN };
+                c_h[i] = if c > 0 { (cell.sum_h / c as f64) as f32 } else { f32::NAN };
+                c_ms[i] = (cell.sum_mass / pairs.max(1) as f64) as f32;
             }
             cols.push(c_cnt);
             cols.push(c_gain);

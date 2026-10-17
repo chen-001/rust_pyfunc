@@ -587,89 +587,108 @@ pub(crate) struct R3 {
     pub(crate) avg_pr: Vec<f64>,
     pub(crate) hub: Vec<f64>,
     pub(crate) degen: Vec<f64>,
+    /// 16 步完整贪心产物 (picks n×16, marg n×16, rs n×17)，供 reduce2::block_r3 直接复用，
+    /// 避免再跑一遍完全相同的贪心循环。
+    pub(crate) k16_picks: Vec<usize>,
+    pub(crate) k16_marg: Vec<f64>,
+    pub(crate) k16_rs: Vec<f64>,
 }
 
-/// pair_reduce.py 的 r3_greedy。
-/// rho[X][U_S] = (Σ_{Y∈S} se_Y rho[X][Y]) / sqrt(Q_x)，Q_x = Σ_{Y,Z∈S} se_Y se_Z rho[Y][Z]。
-/// D[:,x] = rho @ c_x（c_x = se * 1_{S_x}），加入一只伙伴只要一次 O(N) 的列更新。
-/// 这里把 D 转置成 Dt[x][Y] 存，让每一步的候选值扫描与列更新都是顺序读。
-pub(crate) fn r3_greedy(n: usize, rho: &[f32], e: &[f64], ok: &[bool]) -> R3 {
+/// 参数化 kmax 步子模贪心篮子（按股票 x 并行，每只股票在线程私有 L1 缓冲里跑完 kmax 步）。
+///
+/// 为什么与旧版逐步全表同步逐位一致：
+/// 旧版在每步内对每只 x 独立选 pick[x]、独立更新 q[x] 与 dt[x, :]、is_in[x, :]，
+/// 不同股票 x 之间在全部步上没有任何数据交互；且 rho 已在 net_one_mat 中严格对称化
+/// （rho[p*n+y] == rho[y*n+p] 逐位相等），直接按行读 rho 与读转置矩阵 rt 完全相同。
+/// 省去 r(208MB) + rt(208MB) + dt(208MB) + is_in(26MB) 的巨型分配和跨步 DRAM 读写。
+pub(crate) fn r3_greedy_k(
+    n: usize,
+    rho: &[f32],
+    e: &[f64],
+    ok: &[bool],
+    kmax: usize,
+) -> (Vec<usize>, Vec<f64>, Vec<f64>) {
     let t0 = Instant::now();
     let se: Vec<f64> = (0..n).map(|i| e[i].max(1e-30).sqrt()).collect();
-    let r: Vec<f64> = rho.iter().map(|&v| v as f64).collect();
-    let rt = transpose_f64(&r, n);
-    let mut dt = vec![0.0f64; n * n]; // Dt[x*n+Y] = D[Y,x]
-    let mut q = vec![0.0f64; n];
-    let mut is_in = vec![false; n * n];
-    let mut picks = vec![0usize; n * MAX_K];
-    let mut marg = vec![f64::NAN; n * MAX_K];
-    let mut rs = vec![0.0f64; n * (MAX_K + 1)];
-    for step in 0..MAX_K {
-        // 候选值：val[Y,x] = (num_x + se_Y R[X][Y]) / sqrt(Q_x + 2 se_Y D[Y,x] + E_Y)
-        let picked: Vec<usize> = (0..n)
-            .into_par_iter()
-            .map(|x| {
-                let qx = q[x];
-                let num = dt[x * n + x];
-                let rx = &r[x * n..x * n + n];
-                let dx = &dt[x * n..x * n + n];
-                let inn = &is_in[x * n..x * n + n];
-                let mut bestv = f64::NEG_INFINITY;
-                let mut pick = 0usize; // numpy argmax 全 -inf 时给 0
+    let se2: Vec<f64> = se.iter().map(|&v| 2.0 * v).collect();
+    thread_local! {
+        static TL_R3: std::cell::RefCell<(Vec<f64>, Vec<f64>, Vec<bool>)> =
+            const { std::cell::RefCell::new((Vec::new(), Vec::new(), Vec::new())) };
+    }
+    let per_x: Vec<(Vec<usize>, Vec<f64>, Vec<f64>)> = (0..n)
+        .into_par_iter()
+        .map(|x| {
+            TL_R3.with(|tl| {
+                let mut b = tl.borrow_mut();
+                let (dx, rx_se, inn) = &mut *b;
+                dx.clear();
+                dx.resize(n, 0.0f64);
+                rx_se.clear();
+                rx_se.resize(n, 0.0f64);
+                inn.clear();
+                inn.resize(n, false);
+                let rx_f32 = &rho[x * n..x * n + n];
                 for y in 0..n {
-                    if y == x || !ok[y] || inn[y] {
-                        continue;
-                    }
-                    let numc = num + rx[y] * se[y];
-                    let denc = (qx + (2.0 * se[y]) * dx[y] + e[y]).max(1e-30).sqrt();
-                    let v = numc / denc;
-                    if v > bestv {
-                        bestv = v;
-                        pick = y;
-                    }
+                    rx_se[y] = (rx_f32[y] as f64) * se[y];
                 }
-                pick
+                let mut qx = 0.0f64;
+                let mut picks_x = vec![0usize; kmax];
+                let mut marg_x = vec![f64::NAN; kmax];
+                let mut rs_x = vec![0.0f64; kmax + 1];
+                for step in 0..kmax {
+                    let num = dx[x];
+                    let mut bestv = f64::NEG_INFINITY;
+                    let mut pick = 0usize; // numpy argmax 全 -inf 时给 0
+                    for y in 0..n {
+                        if y == x || !ok[y] || inn[y] {
+                            continue;
+                        }
+                        let numc = num + rx_se[y];
+                        let denc = (qx + se2[y] * dx[y] + e[y]).max(1e-30).sqrt();
+                        let v = numc / denc;
+                        if v > bestv {
+                            bestv = v;
+                            pick = y;
+                        }
+                    }
+                    picks_x[step] = pick;
+                    // Q 用更新前的 D 更新
+                    qx = qx + 2.0 * se[pick] * dx[pick] + e[pick];
+                    // D 的行更新（rho 对称，第 pick 行即原 rt 的第 pick 行）
+                    let sp = se[pick];
+                    let rp = &rho[pick * n..pick * n + n];
+                    for y in 0..n {
+                        dx[y] += sp * (rp[y] as f64);
+                    }
+                    inn[pick] = true;
+                    let v = dx[x] / qx.max(1e-30).sqrt();
+                    rs_x[step + 1] = v;
+                    marg_x[step] = v - rs_x[step];
+                }
+                (picks_x, marg_x, rs_x)
             })
-            .collect();
-        for x in 0..n {
-            picks[x * MAX_K + step] = picked[x];
-        }
-        // Q 用更新前的 D 更新
-        let q_new: Vec<f64> = (0..n)
-            .into_par_iter()
-            .map(|x| {
-                let p = picked[x];
-                q[x] + 2.0 * se[p] * dt[x * n + p] + e[p]
-            })
-            .collect();
-        // D 的列更新：D[:,x] += se_pick[x] * R[:, pick[x]]
-        dt.par_chunks_mut(n).enumerate().for_each(|(x, dx)| {
-            let p = picked[x];
-            let sp = se[p];
-            let rp = &rt[p * n..p * n + n];
-            for y in 0..n {
-                dx[y] += sp * rp[y];
-            }
-        });
-        for x in 0..n {
-            is_in[x * n + picked[x]] = true;
-        }
-        q = q_new;
-        let (rho_new, marg_step) = {
-            let mut rho_new = vec![0.0f64; n];
-            let mut marg_step = vec![0.0f64; n];
-            for x in 0..n {
-                let num_new = dt[x * n + x];
-                let v = num_new / q[x].max(1e-30).sqrt();
-                rho_new[x] = v;
-                marg_step[x] = v - rs[x * (MAX_K + 1) + step];
-            }
-            (rho_new, marg_step)
-        };
-        for x in 0..n {
-            rs[x * (MAX_K + 1) + step + 1] = rho_new[x];
-            marg[x * MAX_K + step] = marg_step[x];
-        }
+        })
+        .collect();
+    let mut picks = vec![0usize; n * kmax];
+    let mut marg = vec![f64::NAN; n * kmax];
+    let mut rs = vec![0.0f64; n * (kmax + 1)];
+    for (x, (px, mx, rx)) in per_x.into_iter().enumerate() {
+        picks[x * kmax..x * kmax + kmax].copy_from_slice(&px);
+        marg[x * kmax..x * kmax + kmax].copy_from_slice(&mx);
+        rs[x * (kmax + 1)..x * (kmax + 1) + kmax + 1].copy_from_slice(&rx);
+    }
+    eprintln!("[reduce:p3] R3 贪心 {kmax} 步（含8步+16步合并）{:.1}s", t0.elapsed().as_secs_f32());
+    (picks, marg, rs)
+}
+
+/// pair_reduce.py 的 r3_greedy：一次跑完 16 步，前 8 步直接产出 legacy R3，全 16 步留给 reduce2::block_r3。
+pub(crate) fn r3_greedy(n: usize, rho: &[f32], e: &[f64], ok: &[bool]) -> R3 {
+    const K16: usize = 16;
+    let (k16_picks, k16_marg, k16_rs) = r3_greedy_k(n, rho, e, ok, K16);
+    let mut marg = vec![f64::NAN; n * MAX_K];
+    for x in 0..n {
+        marg[x * MAX_K..x * MAX_K + MAX_K]
+            .copy_from_slice(&k16_marg[x * K16..x * K16 + MAX_K]);
     }
     // 增益降到首步 10% 以下所需只数（首次命中即停，与 Python 的循环等价）
     let n_to: Vec<f64> = (0..n)
@@ -685,12 +704,12 @@ pub(crate) fn r3_greedy(n: usize, rho: &[f32], e: &[f64], ok: &[bool]) -> R3 {
             v
         })
         .collect();
-    let basket_rho: Vec<f64> = (0..n).map(|x| rs[x * (MAX_K + 1) + MAX_K]).collect();
+    let basket_rho: Vec<f64> = (0..n).map(|x| k16_rs[x * (K16 + 1) + MAX_K]).collect();
     // 伙伴两两之间的平均 rho 与最大 rho（按行主序摊开，与 numpy 的布尔掩码顺序一致）
     let stats: Vec<(f64, f64)> = (0..n)
         .into_par_iter()
         .map(|x| {
-            let s = &picks[x * MAX_K..x * MAX_K + MAX_K];
+            let s = &k16_picks[x * K16..x * K16 + MAX_K];
             if MAX_K < 2 {
                 return (f64::NAN, f64::NAN);
             }
@@ -702,7 +721,7 @@ pub(crate) fn r3_greedy(n: usize, rho: &[f32], e: &[f64], ok: &[bool]) -> R3 {
                     if i == j {
                         continue;
                     }
-                    let v = r[s[i] * n + s[j]];
+                    let v = rho[s[i] * n + s[j]] as f64;
                     sum += v;
                     cnt += 1;
                     if v > mx {
@@ -719,7 +738,6 @@ pub(crate) fn r3_greedy(n: usize, rho: &[f32], e: &[f64], ok: &[bool]) -> R3 {
         .iter()
         .map(|&v| if v > 0.5 { 1.0 } else { 0.0 })
         .collect();
-    eprintln!("[reduce:p3] R3 贪心 {} 步 {:.1}s", MAX_K, t0.elapsed().as_secs_f32());
     R3 {
         marg,
         n_to,
@@ -727,6 +745,9 @@ pub(crate) fn r3_greedy(n: usize, rho: &[f32], e: &[f64], ok: &[bool]) -> R3 {
         avg_pr,
         hub,
         degen,
+        k16_picks,
+        k16_marg,
+        k16_rs,
     }
 }
 
@@ -975,37 +996,55 @@ pub(crate) fn row_stats(row: &[f32]) -> (f64, f64, f64, f64) {
     (mx, t20, mean, hhi)
 }
 
-/// pair_reduce.py 的 r5_residual。把 wmat（G / GSTAR / Z / ZS）对
-/// (1, rho[B][C], log 成交笔数 B, log 成交笔数 C, |两者之差|) 回归，取残差的行内统计。
-pub(crate) fn r5_residual(n: usize, wmat: &[f32], rho: &[f32], lnt: &[f64], ok: &[bool]) -> R5 {
+/// 四路 R5 残差回归合并版（g, gs, z, zs 共享完全相同的协变量矩阵 X 与对称阵 rho）：
+///   1) 一趟遍历上三角同时累加公共 xtx 与四路 xty（原来串行扫 4 遍，且 xtx 重复算 4 遍）；
+///   2) 第二趟按行 i 并行直接生成第 i 行的残差向量并算 row_stats（因为 wmat 与 rho 均严格对称，
+///      j < i 格子的值即上三角 (j, i) 格子的残差，无需分配 4 × 104 MB 的 res 矩阵和串行镜像下三角）。
+pub(crate) fn r5_residual_4(
+    n: usize,
+    wmats: [&[f32]; 4],
+    rho: &[f32],
+    lnt: &[f64],
+    ok: &[bool],
+) -> [R5; 4] {
     let t0 = Instant::now();
     let med = nanmedian(lnt);
     let ln: Vec<f64> = lnt
         .iter()
         .map(|&v| if v.is_finite() { v } else { med })
         .collect();
-    // 第一趟：XtX 与 Xty
     let mut xtx = [[0.0f64; 5]; 5];
-    let mut xty = [0.0f64; 5];
+    let mut xty = [[0.0f64; 5]; 4];
     let mut npair = 0usize;
     for i in 0..n {
         if !ok[i] {
             continue;
         }
+        let lb = ln[i];
+        let ri = &rho[i * n..i * n + n];
+        let w0 = &wmats[0][i * n..i * n + n];
+        let w1 = &wmats[1][i * n..i * n + n];
+        let w2 = &wmats[2][i * n..i * n + n];
+        let w3 = &wmats[3][i * n..i * n + n];
         for j in (i + 1)..n {
             if !ok[j] {
                 continue;
             }
-            let r = rho[i * n + j] as f64;
-            let lb = ln[i];
+            let r = ri[j] as f64;
             let lc = ln[j];
             let d = [1.0, r, lb, lc, (lb - lc).abs()];
-            let y = wmat[i * n + j] as f64;
+            let y0 = w0[j] as f64;
+            let y1 = w1[j] as f64;
+            let y2 = w2[j] as f64;
+            let y3 = w3[j] as f64;
             for a in 0..5 {
                 for b in 0..5 {
                     xtx[a][b] += d[a] * d[b];
                 }
-                xty[a] += d[a] * y;
+                xty[0][a] += d[a] * y0;
+                xty[1][a] += d[a] * y1;
+                xty[2][a] += d[a] * y2;
+                xty[3][a] += d[a] * y3;
             }
             npair += 1;
         }
@@ -1017,48 +1056,70 @@ pub(crate) fn r5_residual(n: usize, wmat: &[f32], rho: &[f32], lnt: &[f64], ok: 
     for i in 0..5 {
         a[i][i] += 1e-8;
     }
-    let beta = solve5(a, xty);
-    // 第二趟：残差，上三角填好再对称化（下三角照抄上三角，对角留空）
-    let mut res = vec![f32::NAN; n * n];
-    let mut cnt_fin = vec![0usize; n];
-    for i in 0..n {
-        if !ok[i] {
-            continue;
+    let betas: [[f64; 5]; 4] = [
+        solve5(a, xty[0]),
+        solve5(a, xty[1]),
+        solve5(a, xty[2]),
+        solve5(a, xty[3]),
+    ];
+    let n_ok = ok.iter().filter(|&&v| v).count();
+    let out_arr: [R5; 4] = std::array::from_fn(|k| {
+        let beta = betas[k];
+        let wmat = wmats[k];
+        let stats: Vec<(f64, f64, f64, f64)> = (0..n)
+            .into_par_iter()
+            .map(|i| {
+                if !ok[i] || n_ok <= 1 {
+                    return (f64::NAN, f64::NAN, f64::NAN, f64::NAN);
+                }
+                let mut row_res = vec![f32::NAN; n];
+                let li = ln[i];
+                let ri = &rho[i * n..i * n + n];
+                let wi = &wmat[i * n..i * n + n];
+                // j < i：对应原上三角 (j, i)，lb = ln[j], lc = ln[i]
+                for j in 0..i {
+                    if !ok[j] {
+                        continue;
+                    }
+                    let r = ri[j] as f64;
+                    let lb = ln[j];
+                    let lc = li;
+                    let y = wi[j] as f64;
+                    row_res[j] = (y
+                        - (beta[0]
+                            + beta[1] * r
+                            + beta[2] * lb
+                            + beta[3] * lc
+                            + beta[4] * (lb - lc).abs())) as f32;
+                }
+                // j > i：对应原上三角 (i, j)，lb = ln[i], lc = ln[j]
+                for j in (i + 1)..n {
+                    if !ok[j] {
+                        continue;
+                    }
+                    let r = ri[j] as f64;
+                    let lb = li;
+                    let lc = ln[j];
+                    let y = wi[j] as f64;
+                    row_res[j] = (y
+                        - (beta[0]
+                            + beta[1] * r
+                            + beta[2] * lb
+                            + beta[3] * lc
+                            + beta[4] * (lb - lc).abs())) as f32;
+                }
+                row_stats(&row_res)
+            })
+            .collect();
+        R5 {
+            res_max: stats.iter().map(|t| t.0).collect(),
+            res_top20: stats.iter().map(|t| t.1).collect(),
+            res_mean: stats.iter().map(|t| t.2).collect(),
+            res_hhi: stats.iter().map(|t| t.3).collect(),
         }
-        for j in (i + 1)..n {
-            if !ok[j] {
-                continue;
-            }
-            let r = rho[i * n + j] as f64;
-            let lb = ln[i];
-            let lc = ln[j];
-            let y = wmat[i * n + j] as f64;
-            let v = (y
-                - (beta[0] + beta[1] * r + beta[2] * lb + beta[3] * lc + beta[4] * (lb - lc).abs()))
-                as f32;
-            res[i * n + j] = v;
-            res[j * n + i] = v;
-            cnt_fin[i] += 1;
-            cnt_fin[j] += 1;
-        }
-    }
-    let stats: Vec<(f64, f64, f64, f64)> = (0..n)
-        .into_par_iter()
-        .map(|i| {
-            if cnt_fin[i] == 0 {
-                (f64::NAN, f64::NAN, f64::NAN, f64::NAN)
-            } else {
-                row_stats(&res[i * n..i * n + n])
-            }
-        })
-        .collect();
-    eprintln!("[reduce:p5] R5 残差回归 {:.1}s", t0.elapsed().as_secs_f32());
-    R5 {
-        res_max: stats.iter().map(|t| t.0).collect(),
-        res_top20: stats.iter().map(|t| t.1).collect(),
-        res_mean: stats.iter().map(|t| t.2).collect(),
-        res_hhi: stats.iter().map(|t| t.3).collect(),
-    }
+    });
+    eprintln!("[reduce:p5] R5 四路残差回归合并 {:.1}s", t0.elapsed().as_secs_f32());
+    out_arr
 }
 
 // ============================================================
@@ -1349,10 +1410,11 @@ pub(crate) fn produce_one_mat(
     out.push(&p("s_r1_explain_z_mean"), s1.z_mean.clone());
     eprintln!("[reduce:p8] R1 第二路 {:.1}s", t0.elapsed().as_secs_f32());
 
-    // ---------------- R2 ----------------
+    // ---------------- R2（与 reduce2::block_r2 的 top-50 配对扫描合并为一趟）----------------
     let t0 = Instant::now();
-    let (best_pair, b_i, c_i) = pair_scan(n, rho, e, ok);
     let single = best_single_of(n, rho, ok);
+    let (best_pair, b_i, c_i, r2_top, r2_beat) =
+        super::reduce2::pair_scan_merged(n, rho, e, &single, ok, 50);
     let (r2_single, r2_pair, r2_gain, r2_ratio, r2_cross) =
         three_way(n, &single, &best_pair, &b_i, &c_i, industry);
     out.push(&p("r2_best_single"), r2_single);
@@ -1386,22 +1448,23 @@ pub(crate) fn produce_one_mat(
     out.push(&p("r4_neighbor_jaccard"), r4.jaccard.clone());
     out.push(&p("r4_quad"), r4.quad.clone());
 
-    // ---------------- R5 两路 ----------------
-    if has_lnt {
+    // ---------------- R5 四路（g, gs, z, zs 一次合算）----------------
+    let mut r5_opt = if has_lnt {
         let lntv = lnt.unwrap();
-        let r5 = r5_residual(n, g, rho, lntv, ok);
+        let [r5, s5, zr5, zs5] = r5_residual_4(n, [g, gs, z, zs], rho, lntv, ok);
         out.push(&p("r5_res_max"), r5.res_max);
         out.push(&p("r5_res_top20_mean"), r5.res_top20);
         out.push(&p("r5_res_mean"), r5.res_mean);
         out.push(&p("r5_res_hhi"), r5.res_hhi);
-        let s5 = r5_residual(n, gs, rho, lntv, ok);
         out.push(&p("s_r5_res_hhi"), s5.res_hhi);
         out.push(&p("s_r5_res_max"), s5.res_max);
         out.push(&p("s_r5_res_mean"), s5.res_mean);
         out.push(&p("s_r5_res_top20_mean"), s5.res_top20);
+        Some((zr5, zs5))
     } else {
         eprintln!("[reduce] 没有成交笔数，跳过 r5_/s_r5_/null_r5_/null_s_r5_ 列");
-    }
+        None
+    };
 
     // ---------------- R6 ----------------
     let r6 = r6_plane(n, z, zs, ok);
@@ -1426,13 +1489,11 @@ pub(crate) fn produce_one_mat(
     out.push(&p("null_r1_explain_gain_max"), n1.gain_max.clone());
     out.push(&p("null_r1_explain_gain_mean"), n1.gain_mean.clone());
     out.push(&p("null_r1_explain_z_mean"), n1.z_mean.clone());
-    if has_lnt {
-        let lntv = lnt.unwrap();
-        let zr5 = r5_residual(n, z, rho, lntv, ok);
-        out.push(&p("null_r5_res_hhi"), zr5.res_hhi);
-        out.push(&p("null_r5_res_max"), zr5.res_max);
-        out.push(&p("null_r5_res_mean"), zr5.res_mean);
-        out.push(&p("null_r5_res_top20_mean"), zr5.res_top20);
+    if let Some((zr5, _)) = r5_opt.as_mut() {
+        out.push(&p("null_r5_res_hhi"), std::mem::take(&mut zr5.res_hhi));
+        out.push(&p("null_r5_res_max"), std::mem::take(&mut zr5.res_max));
+        out.push(&p("null_r5_res_mean"), std::mem::take(&mut zr5.res_mean));
+        out.push(&p("null_r5_res_top20_mean"), std::mem::take(&mut zr5.res_top20));
     }
     out.push(&p("null_s_r1_bestcomp_gain"), nsbc.gain.clone());
     out.push(&p("null_s_r1_bestcomp_mutual"), nsbc.mutual.clone());
@@ -1440,9 +1501,7 @@ pub(crate) fn produce_one_mat(
     out.push(&p("null_s_r1_explain_gain_max"), ns1.gain_max.clone());
     out.push(&p("null_s_r1_explain_gain_mean"), ns1.gain_mean.clone());
     out.push(&p("null_s_r1_explain_z_mean"), ns1.z_mean.clone());
-    if has_lnt {
-        let lntv = lnt.unwrap();
-        let zs5 = r5_residual(n, zs, rho, lntv, ok);
+    if let Some((_, zs5)) = r5_opt.take() {
         out.push(&p("null_s_r5_res_hhi"), zs5.res_hhi);
         out.push(&p("null_s_r5_res_max"), zs5.res_max);
         out.push(&p("null_s_r5_res_mean"), zs5.res_mean);
@@ -1451,5 +1510,16 @@ pub(crate) fn produce_one_mat(
     eprintln!("[reduce:p10] 空模型对照 {:.1}s", t0.elapsed().as_secs_f32());
 
     // ---------------- 扩展块（reduce2）----------------
-    super::reduce2::expand(ms, pre, n, ok, industry, lnt, has_lnt, out);
+    super::reduce2::expand(
+        ms,
+        pre,
+        n,
+        ok,
+        industry,
+        lnt,
+        has_lnt,
+        (&r2_top, &r2_beat),
+        (&r3.k16_picks, &r3.k16_marg, &r3.k16_rs),
+        out,
+    );
 }

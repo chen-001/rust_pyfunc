@@ -301,6 +301,10 @@ fn run_core(
     let mut sig_d: Vec<f64> = Vec::with_capacity(n_stocks);
     let mut ret_d: Vec<f64> = Vec::with_capacity(n_stocks);
     let mut ic_x: Vec<f64> = Vec::with_capacity(n_stocks);
+    // IC 用的信号/restrict 行（非格点日与 held 行不同，见下面 IC 段）
+    let mut ic_sig: Vec<f64> = Vec::with_capacity(n_stocks);
+    let mut ic_rstr: Vec<f64> = Vec::with_capacity(n_stocks);
+    let mut ic_sig_v: Vec<f64> = Vec::with_capacity(n_stocks);
     let mut valid_idx: Vec<u32> = Vec::with_capacity(n_stocks);
     let mut pairs: Vec<(f64, u32)> = Vec::with_capacity(n_stocks);
     let mut group_of: Vec<u32> = vec![u32::MAX; n_stocks.max(1)];
@@ -346,14 +350,38 @@ fn run_core(
         }
         let stocks_num = sig_d.len();
 
-        // IC：每 H_hori 天一次（在股票数检查之前，与原代码一致）
-        if (t + 1) % h_hori == 0 {
+        // IC：每天一个点，口径与 tail_pipeline_engine 的日频中性化 IC 完全一致
+        // （2026-10-16 改；此前是每 H_hori 天一个点）。
+        //   信号行 = t + 1 - h_hori，也就是「本持仓窗口的起点」那一天；
+        //   收益 = 当日 ret_sum（h_hori 日滚动和，覆盖 t-h_hori+1 .. t，
+        //          正好是信号那天的未来 h_hori 日收益）。
+        // 格点日（(t+1) % h_hori == 0）的 held 行与 t+1-h_hori 逐位相同，所以格点日的
+        // IC 值与改动前一致，新增的是非格点日那些点。仍在股票数检查之前算，顺序不变。
+        if t + 1 >= h_hori {
+            let sig_row = t + 1 - h_hori;
+            sig_p.gather_into(sig_row, &mut ic_sig);
+            rstr_p.gather_into(sig_row, &mut ic_rstr);
+            ret_p.gather_into(t, &mut ret_row);
             rs_p.gather_into(t, &mut rsum_row);
             ic_x.clear();
-            for &i in valid_idx.iter() {
-                ic_x.push(rsum_row[i as usize]);
+            ic_sig_v.clear();
+            for i in 0..n_stocks {
+                let s = ic_sig[i];
+                // 与上面格点日同一套有效条件（用 is_nan，不用 is_finite：原实现与本文件
+                // 其它地方都只排除 NaN，±Inf 是要参与相关的）；参与相关的收益用当日 ret_sum。
+                if s.is_nan() {
+                    continue;
+                }
+                if ret_row[i].is_nan() {
+                    continue;
+                }
+                if ic_rstr[i] != 0.0 {
+                    continue;
+                }
+                ic_sig_v.push(s);
+                ic_x.push(rsum_row[i]);
             }
-            let ic = calc_spearman_correlation_np(py, &ic_x, &sig_d)?;
+            let ic = calc_spearman_correlation_np(py, &ic_x, &ic_sig_v)?;
             ic_values.push(ic);
             ic_dates.push(dates[t].clone());
         }

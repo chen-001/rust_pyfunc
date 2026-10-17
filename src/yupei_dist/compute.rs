@@ -121,12 +121,12 @@ pub fn compute_yupei_dist_partial_need(
     // ---- 3. 37 张矩阵 + 统计量 ----
     let (mats, stats) = compute_matrices(&stocks, need);
     let mut hm: HashMap<String, Vec<f32>> = HashMap::with_capacity(MATRIX_SPECS.len());
-    for (m, spec) in mats.iter().zip(MATRIX_SPECS.iter()) {
-        // 只把请求的家族搬进 hm：省掉其余矩阵的整块克隆（默认 22 张、约 2.3 GB）
+    for (m, spec) in mats.into_iter().zip(MATRIX_SPECS.iter()) {
+        // 只把请求的家族搬进 hm：move 零拷贝，省掉 15 张（约 1.56 GB）的整块克隆
         if need & (1u8 << spec.family) == 0 {
             continue;
         }
-        hm.insert(spec.name.to_string(), m.clone());
+        hm.insert(spec.name.to_string(), m);
     }
 
     // ---- 4. 行业（直读 h5, 进程内只读一次; 读不到直接报错）----

@@ -15,30 +15,57 @@ use rayon::prelude::*;
 
 use super::net::NetMats;
 
-/// 严格上三角的对称偏差与有限率（按行并行归约）
-fn upper_stats(v: &[f32], n: usize) -> (f64, f64) {
-    let (dev, fin, tot) = (0..n)
+/// 严格上三角的对称偏差与有限率（64×64 分块按行块并行归约，消除 v[j*n+i] 跨 20KB 步长的列读 cache miss）
+fn upper_stats(v: &[f32], n: usize, skip_sym: bool) -> (f64, f64) {
+    if skip_sym {
+        let (fin, tot) = (0..n)
+            .into_par_iter()
+            .map(|i| {
+                let row = &v[i * n..i * n + n];
+                let mut fin = 0usize;
+                for &x in &row[(i + 1)..n] {
+                    if x.is_finite() {
+                        fin += 1;
+                    }
+                }
+                (fin, n - 1 - i)
+            })
+            .reduce(|| (0, 0), |a, b| (a.0 + b.0, a.1 + b.1));
+        return (0.0, fin as f64 / tot.max(1) as f64);
+    }
+    const B: usize = 64;
+    let nb = n.div_ceil(B);
+    let (dev, fin, tot) = (0..nb)
         .into_par_iter()
-        .map(|i| {
+        .map(|bi| {
+            let i0 = bi * B;
+            let i1 = (i0 + B).min(n);
             let mut dev = 0.0f64;
             let mut fin = 0usize;
             let mut tot = 0usize;
-            for j in (i + 1)..n {
-                tot += 1;
-                let a = v[i * n + j];
-                let b = v[j * n + i];
-                if a.is_finite() {
-                    fin += 1;
-                }
-                let d = if a.is_finite() && b.is_finite() {
-                    (a - b).abs() as f64
-                } else if a.is_finite() == b.is_finite() {
-                    0.0
-                } else {
-                    f64::INFINITY
-                };
-                if d > dev {
-                    dev = d;
+            for bj in bi..nb {
+                let j0 = bj * B;
+                let j1 = (j0 + B).min(n);
+                for i in i0..i1 {
+                    let js = if bi == bj { i + 1 } else { j0 };
+                    for j in js..j1 {
+                        tot += 1;
+                        let a = v[i * n + j];
+                        let b = v[j * n + i];
+                        if a.is_finite() {
+                            fin += 1;
+                        }
+                        let d = if a.is_finite() && b.is_finite() {
+                            (a - b).abs() as f64
+                        } else if a.is_finite() == b.is_finite() {
+                            0.0
+                        } else {
+                            f64::INFINITY
+                        };
+                        if d > dev {
+                            dev = d;
+                        }
+                    }
                 }
             }
             (dev, fin, tot)
@@ -74,7 +101,7 @@ pub(crate) fn check_net(m: &NetMats, n: usize, mask: &[bool], mat: &str) -> usiz
     ];
     for (nm, v) in &mats {
         warn(v.len() == n * n, format!("{nm} 长度 {} != {}", v.len(), n * n));
-        let (dev, cov) = upper_stats(v, n);
+        let (dev, cov) = upper_stats(v, n, nm.starts_with("X0"));
         // X0/X0STAR 只有上三角有效（下三角写 -1 的对称格），不对称是设计如此
         warn(nm.starts_with("X0") || dev <= 0.0, format!("{nm} 对称偏差 {dev:.6}"));
         eprintln!("[check:cov] {nm} 上三角有限率 {:.3}%", 100.0 * cov);
