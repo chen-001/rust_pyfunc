@@ -91,6 +91,7 @@ pub mod tlq_gate;
 pub mod tail_rank_fill_roll;
 pub mod tail_v2_rank_roll_factor;
 pub mod tail_v4_fulltest_core;
+pub mod tail_v4_fulltest_dataset;
 pub mod tail_v4_fulltest_rust;
 pub mod tail_v4_pipeline;
 pub mod tail_v5_pipeline;
@@ -720,6 +721,14 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?);
     let _ = m.add_function(wrap_pyfunction!(
         tail_v4_fulltest_core::tail_v4_fulltest_core_rust,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        tail_v4_fulltest_dataset::tail_v4_fulltest_dataset_rust,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        tail_v4_fulltest_dataset::tail_v4_fulltest_factor_rust,
         m
     )?);
     let _ = m.add_class::<tail_v5_pipeline::TailV5LegacyStyleData>()?;

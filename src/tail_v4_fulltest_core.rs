@@ -698,22 +698,16 @@ pub fn tail_v4_fulltest_core_rust(
     for (i, d) in dates.iter().enumerate() {
         pos_of.insert(d.as_str(), i);
     }
-    let mut ratio_sum = 0.0f64;
-    let mut ratio_cnt = 0usize;
+    let mut ratio_series = vec![NAN; stock_num_dates.len()];
     for (k, d) in stock_num_dates.iter().enumerate() {
         if let Some(&pos) = pos_of.get(d.as_str()) {
             let denom = valid_symbol_num[pos];
             if denom != 0.0 {
-                ratio_sum += stock_num[k] as f64 / denom;
-                ratio_cnt += 1;
+                ratio_series[k] = stock_num[k] as f64 / denom;
             }
         }
     }
-    let ratio_mean = if ratio_cnt == 0 {
-        NAN
-    } else {
-        ratio_sum / ratio_cnt as f64
-    };
+    let ratio_mean = nanmean(&ratio_series);
 
     let sign = if ic_mean < 0.0 {
         "long small, short large"
@@ -778,6 +772,23 @@ pub fn tail_v4_fulltest_core_rust(
     dict.set_item("hedge_max_drawdown", hedge_max_drawdown / 100.0)?;
     dict.set_item("res_rank_ic_mean", res_ic_mean)?;
     dict.set_item("long_only_ic", long_only_ic)?;
+    // 左移后、未做日期筛选的完整日期轴：Python 那边 stock_num 表要 reindex 到它
+    // （与 valid_df.columns 同长，比筛选后的日期多出末尾那一天）。
+    dict.set_item(
+        "dates_left",
+        PyList::new(
+            py,
+            (1..t0).map(|t| PyString::new(py, &dates_all[t])),
+        ),
+    )?;
+    dict.set_item(
+        "index_ret_used",
+        PyArray::from_owned_array(py, Array1::from(idx_q.clone())),
+    )?;
+    dict.set_item(
+        "ratio_series",
+        PyArray::from_owned_array(py, Array1::from(ratio_series)),
+    )?;
     dict.set_item("ratio_mean", ratio_mean)?;
     dict.set_item("sign", sign)?;
     Ok(dict.into())
