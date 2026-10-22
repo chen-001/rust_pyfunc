@@ -6,7 +6,9 @@
 //! - 时段：只取连续竞价 9:30:00-11:30:00 与 13:00:00-15:00:00，15:00 整点归入最后一桶。
 //!   9:15-9:25 集合竞价的撤单与成交都不算（20240329 的 000001 有 688 笔集合竞价撤单）。
 //! - 撤单没有价格（price 与 turnover 恒为 0），所以一切规模用股数，不用金额。
-//! - 成批：同一微秒时间戳（exchtime，已加 8 小时）内的撤单记录算一批。
+//! - 成批：同一毫秒内的撤单记录算一批。exchtime 字段是微秒，但八个展示日里有七天
+//!   末三位恒为零（精度只到毫秒），2025-11－27 那天约一半记录带真微秒。按毫秒取整，
+//!   八天口径才一致。
 //!
 //! 构建: cd sandbox_cancel_census && cargo build --release
 //! 运行: ./target/release/cancel_census 20240329 > out/20240329.json
@@ -159,7 +161,7 @@ fn stat_one(date: i64, code: &str) -> Option<Part> {
     let mut batch_tick = [0u64; 4];
     let mut n_batch = 0u64;
 
-    let mut cur_us = i64::MIN;
+    let mut cur_us = i64::MIN;   // 毫秒
     let mut cur_cnt = 0u32;
     let mut cur_vol = 0.0f64;
 
@@ -170,6 +172,7 @@ fn stat_one(date: i64, code: &str) -> Option<Part> {
             if t.vol <= 0.0 {
                 continue;
             }
+            let ms = t.us / 1000;
             let side = if t.bid_order > 0 {
                 0
             } else if t.ask_order > 0 {
@@ -185,7 +188,7 @@ fn stat_one(date: i64, code: &str) -> Option<Part> {
                 hist_c[k] += 1;
             }
             csz.push(t.vol);
-            if t.us == cur_us {
+            if ms == cur_us {
                 cur_cnt += 1;
                 cur_vol += t.vol;
             } else {
@@ -201,7 +204,7 @@ fn stat_one(date: i64, code: &str) -> Option<Part> {
                     batch_tick[idx] += cur_cnt as u64;
                     n_batch += 1;
                 }
-                cur_us = t.us;
+                cur_us = ms;
                 cur_cnt = 1;
                 cur_vol = t.vol;
             }

@@ -14,7 +14,7 @@ const OFFSET_US: i64 = 8 * 3600 * 1_000_000;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Tick {
-    pub us: i64,       // 东八区微秒，已加 8 小时
+    pub us: i64,       // 东八区微秒，已加 8 小时（分组时按毫秒取整，见 main.rs）
     pub vol: f64,
     pub turnover: f64,
     pub flag: i32,

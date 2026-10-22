@@ -171,7 +171,7 @@ plt.close()
 
 # ---------------- 图五：撤单是不是成批的
 fig, ax = plt.subplots(figsize=(14.5, 8))
-name = ["同一微秒\n1 笔", "2 笔", "3 到 10 笔", "11 笔以上"]
+name = ["同一毫秒\n1 笔", "2 笔", "3 到 10 笔", "11 笔以上"]
 bn = np.stack(f.batch_n.values).sum(0).astype(float)
 bv = np.stack(f.batch_vol.values).sum(0)
 bt = np.stack(f.batch_tick.values).sum(0).astype(float)
