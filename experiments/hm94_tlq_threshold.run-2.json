@@ -1,0 +1,24 @@
+{
+  "type": "factor-experiment-run",
+  "schemaVersion": 1,
+  "experiment": "hm94_tlq_threshold",
+  "runId": "run-2",
+  "order": 2,
+  "scriptPath": "/home/chenzongwei/pythoncode/成果hm94_挂单猫/hm94.py",
+  "scriptSha256": "185f075b544e5c8dd3d382c5ec3b0bc2de5ac70fe8efda5e1160bdabee30f2cd",
+  "startDate": "20160101",
+  "endDate": "20251231",
+  "universe": "hm94 引擎的 5469 只股票轴",
+  "nJobs": 200,
+  "taskId": 424,
+  "outputDir": "/nas197/user_home_unsafe/chenzongwei/hm94_tail_v4/selected",
+  "note": "定稿重跑：TLQ 改成绝对门槛 0.2 + 目标 45 个，候选池起点从 60 提到 320",
+  "recordedAt": "2026-10-16T01:22:38",
+  "sessionId": "session-d3c8d71c-2269-4d54-9318-0bd8eddcc823",
+  "lib": {
+    "soPath": "/home/chenzongwei/rust_pyfunc/python/rust_pyfunc/rust_pyfunc.abi3.so",
+    "so": "51680353:1791992961469500205",
+    "workerPath": "/home/chenzongwei/rust_pyfunc/python/rust_pyfunc/rust_pyfunc_worker",
+    "worker": "22370560:1791993003682799442"
+  }
+}

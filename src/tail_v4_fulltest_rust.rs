@@ -228,7 +228,7 @@ fn calc_spearman_correlation_np(py: Python<'_>, x: &[f64], y: &[f64]) -> PyResul
 // ============================================================================
 
 /// 循环段全部输出。
-pub struct FulltestOut {
+pub(crate) struct FulltestOut {
     pub portf_num: usize,
     pub n_dates: usize,
     /// (portf_num, T) 行主序；空组/股票数不足日均已按 `fillna(0)` 填 0.0
@@ -240,7 +240,7 @@ pub struct FulltestOut {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn run_core(
+pub(crate) fn run_core(
     py: Python<'_>,
     signal: &ArrayView2<f64>,
     ret: &ArrayView2<f64>,

@@ -1,0 +1,24 @@
+{
+  "type": "factor-experiment-run",
+  "schemaVersion": 1,
+  "experiment": "hm94_tlq_threshold",
+  "runId": "run-3",
+  "order": 3,
+  "scriptPath": "/home/chenzongwei/pythoncode/成果hm94_挂单猫/hm94.py",
+  "scriptSha256": "6b89133ce58ac3fb3eea2235682e1cbe6b0c350fb0137dd7c88445a5fa9abdd1",
+  "startDate": "20160101",
+  "endDate": "20251231",
+  "universe": "hm94 引擎的 5469 只股票轴",
+  "nJobs": 200,
+  "taskId": 426,
+  "outputDir": "/nas197/user_home_unsafe/chenzongwei/hm94_tail_v4/selected",
+  "note": "第 2 次提交：cut_num 改回 60（写 320 会触发 tail_v4_config.json 比对拒绝，任务 424 因此失败），池子交给引擎的 tlq_target_num 翻倍逻辑涨到 480",
+  "recordedAt": "2026-10-16T09:57:10",
+  "sessionId": "session-d3c8d71c-2269-4d54-9318-0bd8eddcc823",
+  "lib": {
+    "soPath": "/home/chenzongwei/rust_pyfunc/python/rust_pyfunc/rust_pyfunc.abi3.so",
+    "so": "51680353:1791992961469500205",
+    "workerPath": "/home/chenzongwei/rust_pyfunc/python/rust_pyfunc/rust_pyfunc_worker",
+    "worker": "22370560:1791993003682799442"
+  }
+}

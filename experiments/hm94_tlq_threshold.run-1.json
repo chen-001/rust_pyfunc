@@ -1,0 +1,24 @@
+{
+  "type": "factor-experiment-run",
+  "schemaVersion": 1,
+  "experiment": "hm94_tlq_threshold",
+  "runId": "run-1",
+  "order": 1,
+  "scriptPath": "/home/chenzongwei/pythoncode/成果hm94_挂单猫/tlq_threshold_test.py",
+  "scriptSha256": "4a6861dac0da0b4d67dc92502c76819a5ec08af11c54352c20647984fee4410b",
+  "startDate": "20160104",
+  "endDate": "20251231",
+  "universe": "hm94 引擎的 5469 只股票轴",
+  "nJobs": 24,
+  "taskId": null,
+  "outputDir": "/home/chenzongwei/pythoncode/成果hm94_挂单猫/tlq_threshold_test",
+  "note": null,
+  "recordedAt": "2026-10-15T23:28:03",
+  "sessionId": "session-d3c8d71c-2269-4d54-9318-0bd8eddcc823",
+  "lib": {
+    "soPath": "/home/chenzongwei/rust_pyfunc/python/rust_pyfunc/rust_pyfunc.abi3.so",
+    "so": "51680353:1791992961469500205",
+    "workerPath": "/home/chenzongwei/rust_pyfunc/python/rust_pyfunc/rust_pyfunc_worker",
+    "worker": "22370560:1791993003682799442"
+  }
+}

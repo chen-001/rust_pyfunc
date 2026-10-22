@@ -1,0 +1,24 @@
+{
+  "type": "factor-experiment-run",
+  "schemaVersion": 1,
+  "experiment": "hm94_tlq_threshold",
+  "runId": "run-4",
+  "order": 4,
+  "scriptPath": "/home/chenzongwei/pythoncode/others/hm94验收与入库.py",
+  "scriptSha256": "7e4a581bfa2aecd8addcb28b443aa62bca45b0f56691fb3f61b12de086368983",
+  "startDate": "20150101",
+  "endDate": "20260924",
+  "universe": "生产 colblk 与两个 h5 目录",
+  "nJobs": 200,
+  "taskId": 430,
+  "outputDir": "/nas197/binary/stock/sz_alpha/hf_data/hm94",
+  "note": "hmokay4 第 2~4 步：本机历史验收 + h5 落盘 + dailybank 入库",
+  "recordedAt": "2026-10-16T14:00:04",
+  "sessionId": "session-d3c8d71c-2269-4d54-9318-0bd8eddcc823",
+  "lib": {
+    "soPath": "/home/chenzongwei/rust_pyfunc/python/rust_pyfunc/rust_pyfunc.abi3.so",
+    "so": "51680353:1792126738427215145",
+    "workerPath": "/home/chenzongwei/rust_pyfunc/python/rust_pyfunc/rust_pyfunc_worker",
+    "worker": "22370560:1792126812813110519"
+  }
+}

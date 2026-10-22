@@ -1,0 +1,18 @@
+{
+  "type": "factor-submit-intent",
+  "schemaVersion": 1,
+  "fingerprint": "3073646c1e9357d63f4a64109ea9ef146139ae3562d209fcec24501479136e47",
+  "requestId": "dabdaf21-84e9-4a15-9744-8b312452fd5c",
+  "scriptPath": "/home/chenzongwei/pythoncode/成果hm95_切换时刻贡献/hm95.py",
+  "name": "hm95",
+  "params": {
+    "nJobs": 200,
+    "startDate": null,
+    "endDate": null
+  },
+  "createdAt": "2026-10-16T01:44:47.021Z",
+  "lastAttemptAt": "2026-10-16T01:44:47.021Z",
+  "attempts": 1,
+  "taskId": 425,
+  "resolvedAt": "2026-10-16T01:44:48.635Z"
+}

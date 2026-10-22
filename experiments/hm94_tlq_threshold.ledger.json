@@ -1,0 +1,16 @@
+{
+  "type": "factor-experiment-ledger",
+  "schemaVersion": 1,
+  "experiment": "hm94_tlq_threshold",
+  "family": "hm94",
+  "question": "把 TLQ 筛选从「候选池里删掉最低的 15 个」换成「分段 TLQ 大于 0.2 的绝对门槛」，会选出哪些因子、跟现行 45 个比怎么样",
+  "window": "20160104-20251231",
+  "criteria": "两种改法各自的名单与现行 45 个比，重合率与平均 |IC| 落在假设卡写明的推翻线之外",
+  "stage": "研究设想",
+  "nextAction": "先把假设卡过一遍，再跑小样本验证",
+  "scriptPath": "/home/chenzongwei/pythoncode/成果hm94_挂单猫/tlq_threshold_test.py",
+  "createdAt": "2026-10-15T23:27:41",
+  "updatedAt": "2026-10-16T14:00:04",
+  "stageHistory": [],
+  "sessionId": "session-d3c8d71c-2269-4d54-9318-0bd8eddcc823"
+}

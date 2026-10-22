@@ -1,0 +1,18 @@
+{
+  "type": "factor-submit-intent",
+  "schemaVersion": 1,
+  "fingerprint": "441087b9fb3730af27e955aad30d94c4c75d6b9f911738ec8533991e9ee19a8e",
+  "requestId": "ce734618-cb9f-47d7-a13f-f644597297d2",
+  "scriptPath": "/home/chenzongwei/pythoncode/成果hm94_挂单猫/hm94.py",
+  "name": "hm94",
+  "params": {
+    "nJobs": 200,
+    "startDate": "20150101",
+    "endDate": "20260924"
+  },
+  "createdAt": "2026-10-15T03:56:45.162Z",
+  "lastAttemptAt": "2026-10-15T03:56:45.162Z",
+  "attempts": 1,
+  "taskId": 415,
+  "resolvedAt": "2026-10-15T03:56:45.862Z"
+}
