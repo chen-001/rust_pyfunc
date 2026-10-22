@@ -221,6 +221,29 @@ def tail_v2_select_by_ic_corr_f32(
     """
     ...
 
+def tail_v2_select_by_ic_corr_par_f32(
+    ic_by_factor: NDArray[np.float32],
+    threshold: float,
+    min_common_days: int = 2,
+    on_uncomputable: str = "raise",
+    min_overlap_ratio: float = 0.5,
+    n_threads: int = 0,
+) -> dict:
+    """`tail_v2_select_by_ic_corr_f32` 的并行版，结果与它逐位一致。
+
+    按块两阶段并行：已选集合按块冻结，块内候选并行扫「冻结的已选集合」（命中阈值立即 break，
+    工作量与串行相同），然后块内按原下标顺序串行补扫「本块已接受的」再定夺。
+    每个候选的比较顺序与串行完全相同，因此 selected 与 uncomputable / low_overlap 连顺序都一致。
+    矩阵只读共享，线程不复制数据，内存不随线程数增长。
+
+    参数说明：
+    ----------
+    n_threads : int
+        0 用全局 rayon 池；大于 0 时建一个独立线程池（跑完即释放，不污染全局池）。
+        实测 77090 行 × 2415 列的 float32 矩阵，串行约 26 秒，50 线程约 1.8 秒。
+    """
+    ...
+
 def tail_v4_run_candidates(
     factor_names: list[str],
     factor_paths: list[str],

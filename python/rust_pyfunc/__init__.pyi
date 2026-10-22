@@ -1115,6 +1115,7 @@ __all__ = [
     "neutralize_std_block_with_shared",
     "tail_v2_select_by_ic_corr_abs_f32",
     "tail_v2_select_by_ic_corr_f32",
+    "tail_v2_select_by_ic_corr_par_f32",
     "tlq_gate_base_resid",
     "tlq_gate_rank_pct_rows",
     "tlq_gate_interleave_styles",

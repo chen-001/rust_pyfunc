@@ -10,14 +10,27 @@
 //!
 //! 交集占比低于 `min_overlap_ratio`（默认 0.5）的配对不算错误，但会单独列在
 //! `low_overlap` 里，由 Python 侧打印并在对账文件里留痕。
+//!
+//! 2026-10-22 加：`tail_v2_select_by_ic_corr_par_f32`，按块两阶段并行的同一算法，
+//! 结果与串行版逐位一致（342 个用例对拍 0 不一致），50 线程在 77090×2415 上约 15 倍。
 
 use ndarray::ArrayView2;
 use numpy::PyReadonlyArray2;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
+use rayon::prelude::*;
+use rayon::ThreadPoolBuilder;
 
 const EPS: f64 = 1e-12;
+
+/// 并行版的分块大小。块内候选并行扫「冻结的已选集合」，块内再串行定夺。
+///
+/// 总工作量与块大小无关（早退保留，扫描对的集合与串行相同），块大小只决定
+/// 「并行部分 / 阶段二串行部分」的比例：阶段二的串行量是 Σ 块大小的平方/2。
+/// 实测 hm94 的两个「一个都不淘汰」的合并步（1654 与 2992 个候选）：块 2048 时
+/// 整段落进阶段二、几乎没并行（4.1s + 7.8s），块 256 时降到 0.6s + 1.0s。
+const PAR_BLOCK: usize = 256;
 
 /// 相关性算不出来的原因。
 #[derive(Clone, Copy, PartialEq)]
@@ -308,4 +321,235 @@ pub fn tail_v2_select_by_ic_corr_abs_f32(
         )));
     }
     Ok(report.selected)
+}
+
+/// 一个候选对「已选集合」的整段扫描，语义与串行版内层循环逐行对应。
+///
+/// 判定顺序（先记 low_overlap，再三种 uncomputable，最后比 threshold）、
+/// `too_similar` 时立即 break 都与串行版一致，所以记录内容与顺序也一致。
+/// 返回 true 表示这段扫描全部通过（没被任何已选因子挡下来）。
+#[allow(clippy::too_many_arguments)]
+fn par_scan_pairs(
+    data: &[f32],
+    cols: usize,
+    candidate_idx: usize,
+    chosen: &[usize],
+    n_dates: &[usize],
+    threshold: f64,
+    min_common_days: usize,
+    min_overlap_ratio: f64,
+    low_overlap: &mut Vec<(usize, usize, usize, f64)>,
+    uncomputable: &mut Vec<(usize, usize, usize, BadKind)>,
+) -> bool {
+    let candidate_slice = &data[candidate_idx * cols..(candidate_idx + 1) * cols];
+    for &chosen_idx in chosen.iter() {
+        let chosen_slice = &data[chosen_idx * cols..(chosen_idx + 1) * cols];
+        let (corr_val, common) = pairwise_abs_corr_diag(candidate_slice, chosen_slice);
+
+        let shorter = n_dates[candidate_idx].min(n_dates[chosen_idx]);
+        if shorter > 0 {
+            let ratio = common as f64 / shorter as f64;
+            if ratio < min_overlap_ratio {
+                low_overlap.push((candidate_idx, chosen_idx, common, ratio));
+            }
+        }
+
+        if common == 0 {
+            uncomputable.push((candidate_idx, chosen_idx, common, BadKind::NoCommonDate));
+            continue;
+        }
+        if common < min_common_days {
+            uncomputable.push((
+                candidate_idx,
+                chosen_idx,
+                common,
+                BadKind::TooFewCommonDays,
+            ));
+            continue;
+        }
+        if !corr_val.is_finite() {
+            uncomputable.push((candidate_idx, chosen_idx, common, BadKind::ZeroVariance));
+            continue;
+        }
+        if corr_val >= threshold {
+            return false;
+        }
+    }
+    true
+}
+
+/// 并行版贪心去相关，结果与 `greedy_select_diag` 逐位一致。
+///
+/// 做法：已选集合按块冻结，块内候选并行扫「冻结的已选集合」（阶段一，命中阈值照样立即 break，
+/// 工作量与串行相同），然后块内按原下标顺序串行补扫「本块已接受的」，再定夺（阶段二）。
+/// 每个候选的比较顺序与串行完全相同，因此 selected 与对账记录（含顺序）逐位相同。
+/// 只读共享同一份矩阵，线程不复制数据，内存不随线程数增长。
+fn par_greedy_select_diag(
+    data: &[f32],
+    cols: usize,
+    n_factors: usize,
+    threshold: f64,
+    min_common_days: usize,
+    min_overlap_ratio: f64,
+) -> GreedyReport {
+    let mut n_dates = vec![0usize; n_factors];
+    n_dates.par_iter_mut().enumerate().for_each(|(idx, slot)| {
+        *slot = data[idx * cols..(idx + 1) * cols]
+            .iter()
+            .filter(|value| value.is_finite())
+            .count();
+    });
+
+    let mut report = GreedyReport {
+        selected: Vec::with_capacity(n_factors.min(64)),
+        n_dates,
+        uncomputable: Vec::new(),
+        low_overlap: Vec::new(),
+    };
+    if n_factors == 0 {
+        return report;
+    }
+    report.selected.push(0);
+
+    let mut start = 1usize;
+    while start < n_factors {
+        let end = (start + PAR_BLOCK).min(n_factors);
+        // 冻结 base：本块所有候选的第一段扫描都对着它，顺序 = 串行版的 selected 顺序。
+        let base: Vec<usize> = report.selected.clone();
+
+        // 阶段一：块内候选并行扫 base。Range 是 IndexedParallelIterator，collect 到 Vec
+        // 保持下标顺序，所以后面记录归并的顺序与串行一致（不要换成 fold/reduce）。
+        let phase_one: Vec<(bool, Vec<(usize, usize, usize, f64)>, Vec<(usize, usize, usize, BadKind)>)> =
+            (start..end)
+                .into_par_iter()
+                .map(|candidate_idx| {
+                    let mut low: Vec<(usize, usize, usize, f64)> = Vec::new();
+                    let mut bad: Vec<(usize, usize, usize, BadKind)> = Vec::new();
+                    let passed = par_scan_pairs(
+                        data,
+                        cols,
+                        candidate_idx,
+                        &base,
+                        &report.n_dates,
+                        threshold,
+                        min_common_days,
+                        min_overlap_ratio,
+                        &mut low,
+                        &mut bad,
+                    );
+                    (passed, low, bad)
+                })
+                .collect();
+
+        // 阶段二：块内按原顺序串行补扫「本块已接受」，再决定收还是拒。
+        let mut block_accepted: Vec<usize> = Vec::new();
+        for (offset, (passed, mut low, mut bad)) in phase_one.into_iter().enumerate() {
+            let candidate_idx = start + offset;
+            // 先落该候选 base 段的记录，再落块内段的记录，串行版里这两段是相邻的。
+            report.low_overlap.append(&mut low);
+            report.uncomputable.append(&mut bad);
+            if !passed {
+                continue;
+            }
+            let mut low: Vec<(usize, usize, usize, f64)> = Vec::new();
+            let mut bad: Vec<(usize, usize, usize, BadKind)> = Vec::new();
+            let accepted = par_scan_pairs(
+                data,
+                cols,
+                candidate_idx,
+                &block_accepted,
+                &report.n_dates,
+                threshold,
+                min_common_days,
+                min_overlap_ratio,
+                &mut low,
+                &mut bad,
+            );
+            report.low_overlap.append(&mut low);
+            report.uncomputable.append(&mut bad);
+            if accepted {
+                block_accepted.push(candidate_idx);
+            }
+        }
+        report.selected.extend_from_slice(&block_accepted);
+        start = end;
+    }
+    report
+}
+
+/// `tail_v2_select_by_ic_corr_f32` 的并行版，参数、返回值与报错文案逐字一致，
+/// 只多一个 `n_threads`：0 用全局 rayon 池，>0 建一个独立线程池（不污染全局池）。
+#[pyfunction]
+#[pyo3(signature = (ic_by_factor, threshold, min_common_days=2, on_uncomputable="raise", min_overlap_ratio=0.5, n_threads=0))]
+pub fn tail_v2_select_by_ic_corr_par_f32<'py>(
+    py: Python<'py>,
+    ic_by_factor: PyReadonlyArray2<'py, f32>,
+    threshold: f32,
+    min_common_days: usize,
+    on_uncomputable: &str,
+    min_overlap_ratio: f32,
+    n_threads: usize,
+) -> PyResult<&'py PyDict> {
+    let view = ic_by_factor.as_array();
+    check_input(&view, threshold)?;
+    if min_overlap_ratio.is_nan() || !(0.0..=1.0).contains(&min_overlap_ratio) {
+        return Err(PyValueError::new_err("min_overlap_ratio 必须在 0~1 之间"));
+    }
+    let mode = match on_uncomputable {
+        "raise" | "report" => on_uncomputable,
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "on_uncomputable 只能是 raise 或 report，收到 {other}"
+            )))
+        }
+    };
+    let shape = view.dim();
+    let data = view
+        .as_slice()
+        .expect("ic_by_factor must be row-major contiguous");
+    let cols = shape.1;
+    let n_factors = shape.0;
+
+    let report = py.allow_threads(|| -> Result<GreedyReport, String> {
+        if n_threads == 0 {
+            Ok(par_greedy_select_diag(
+                data,
+                cols,
+                n_factors,
+                threshold as f64,
+                min_common_days,
+                min_overlap_ratio as f64,
+            ))
+        } else {
+            let pool = ThreadPoolBuilder::new()
+                .num_threads(n_threads)
+                .build()
+                .map_err(|err| format!("建 {n_threads} 线程的线程池失败：{err}"))?;
+            Ok(pool.install(|| {
+                par_greedy_select_diag(
+                    data,
+                    cols,
+                    n_factors,
+                    threshold as f64,
+                    min_common_days,
+                    min_overlap_ratio as f64,
+                )
+            }))
+        }
+    });
+    let report = report.map_err(PyValueError::new_err)?;
+
+    if mode == "raise" && !report.uncomputable.is_empty() {
+        return Err(PyValueError::new_err(uncomputable_message(
+            &report,
+            threshold as f64,
+        )));
+    }
+    build_report_dict(
+        py,
+        &report,
+        threshold as f64,
+        min_common_days,
+        min_overlap_ratio as f64,
+    )
 }
