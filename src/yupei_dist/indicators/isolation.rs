@@ -1,5 +1,5 @@
 //! isolation: 孤立度（降维指标.md 三十五）。
-//! inv_strength = 1/(对称行和+ε); neg_top5 = -(Top5Mean)。cnt_t1 与 vol_t1 各两个。
+//! inv_strength = 1/(对称行和+ε); neg_top5 = -(Top5Mean)。cnt_t1 与 rvol_t1 各两个。
 
 use crate::yupei_dist::indicator_ctx::{IndicatorCtx, IndicatorResult};
 use rayon::prelude::*;
@@ -9,7 +9,7 @@ pub fn name() -> &'static str {
 }
 
 pub fn desc() -> &'static str {
-    "孤立度: 1/strength 与 -top5_mean (cnt_t1, vol_t1)"
+    "孤立度: 1/strength 与 -top5_mean (cnt_t1, rvol_t1)"
 }
 
 pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {

@@ -32,10 +32,9 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     // 快/慢 τ 配对: (快矩阵, 慢矩阵)
     for (fast_n, slow_n) in [
         ("cnt_t005", "cnt_t1"),
-        ("cnt_t02", "cnt_t5"),
         ("cnt_t1", "cnt_t30"),
-        ("vol_t02", "vol_t5"),
-        ("vol_t1", "vol_t30"),
+        ("rvol_t005", "rvol_t1"),
+        ("rvol_t1", "rvol_t30"),
         ("logvol_t05", "logvol_t3"),
         ("logvol_t1", "logvol_t30"),
         ("flow_same_t02", "flow_same_t1"),

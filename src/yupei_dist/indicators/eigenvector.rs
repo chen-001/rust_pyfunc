@@ -1,6 +1,6 @@
 //! eigenvector: 特征向量中心性（降维指标.md 九）。
 //! 对称矩阵幂迭代求主特征向量: splitmix64 固定种子初始化, 每次迭代归一化,
-//! ≤40 次或 cos 收敛>0.9999; 符号统一（最大绝对值元素为正）。行并行 matvec。cnt_t1 与 vol_t1。
+//! ≤40 次或 cos 收敛>0.9999; 符号统一（最大绝对值元素为正）。行并行 matvec。cnt_t1 与 rvol_t1。
 
 use crate::yupei_dist::indicator_ctx::{IndicatorCtx, IndicatorResult};
 use rayon::prelude::*;
@@ -10,7 +10,7 @@ pub fn name() -> &'static str {
 }
 
 pub fn desc() -> &'static str {
-    "特征向量中心性: 确定性幂迭代 (cnt_t1, vol_t1)"
+    "特征向量中心性: 确定性幂迭代 (cnt_t1, rvol_t1)"
 }
 
 pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {

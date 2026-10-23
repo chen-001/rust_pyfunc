@@ -364,18 +364,22 @@ def run_factor_pipeline_cross_section(
 
 
 def py_yupei_dist(date: int) -> Tuple[List[str], List[float]]:
-    """单日全市场横截面因子（寻找玉佩-成交距离）: 37 张关联-差异矩阵 × 28 指标模块 = 2761 因子。
+    """单日全市场横截面因子（寻找玉佩-成交距离）: 28 张关联-差异矩阵 × 28 指标模块。
 
     返回 (codes, vals): codes 为当日 universe 股票代码列表,
-    vals 为行主序 N×2761 的因子值（顺序与 py_yupei_dist_names 一致）。
+    vals 为行主序 N×F 的因子值（顺序与 py_yupei_dist_names 一致）。
     线程上限 200（512 核共享机）; 设环境变量 RAYON_NUM_THREADS 可覆盖。
     """
 
 def py_yupei_dist_names() -> List[str]:
-    """2761 个因子名（与 py_yupei_dist 输出列顺序一致）。"""
+    """因子名（与 py_yupei_dist 输出列顺序一致）。"""
+
+def py_yupei_dist_emit_names() -> List[str]:
+    """维护用：跑指标模块名收集（合成矩阵，不读数据），输出顺序 = names.rs 应存顺序。
+    MATRIX_SPECS 改矩阵集之后用它再生成 names.rs。"""
 
 def yupei_dist_backup_matrices(outdir: str, date: int) -> Tuple[int, int]:
-    """读全市场逐笔 → 37 矩阵 + 统计量 → 写入 <outdir>/<date>/（codes/stats/mats）。
+    """读全市场逐笔 → 28 矩阵 + 统计量 → 写入 <outdir>/<date>/（codes/stats/mats）。
 
     返回 (n_stocks, n_matrices)。universe = symbol_map ∩ 当日 L2 文件
     （无成交/读不到的股票保留为空行，不做成交笔数筛选）。
@@ -384,7 +388,7 @@ def yupei_dist_backup_matrices(outdir: str, date: int) -> Tuple[int, int]:
 def yupei_dist_backup_factors(
     outdir: str, date: int, prev_date: Optional[int] = None
 ) -> Tuple[int, int]:
-    """读备份 → 运行 28 个指标模块（2761 因子）→ 写 factors.bin/names.txt/meta.json。
+    """读备份 → 运行 28 个指标模块→ 写 factors.bin/names.txt/meta.json。
 
     prev_date 给定时从同备份目录加载前一日矩阵（dyn_* 跨日因子有值）。
     返回 (n_stocks, n_factors)。
@@ -413,7 +417,7 @@ def yupei_dist_backup_verify(outdir: str, date: int) -> List[str]:
     """校验备份完整性: 返回缺失矩阵名清单（空 = 完整）。"""
 
 def yupei_dist_backup_matrix_names() -> List[str]:
-    """37 个矩阵名（与备份 mats/ 目录文件一致）。"""
+    """28 个矩阵名（与备份 mats/ 目录文件一致）。"""
 
 def py_yupei_pair(
     date: int,
@@ -425,7 +429,7 @@ def py_yupei_pair(
 ) -> Tuple[List[str], List[str], List[float]]:
     """玉佩2 配对互补网络 —— 单日全市场内存管线（不落盘）。
 
-    一次性完成：L2 逐笔 → 37 张有向交互矩阵（yupei_dist 上游）→ 每张指定矩阵
+    一次性完成：L2 逐笔 → 28 张有向交互矩阵（yupei_dist 上游）→ 每张指定矩阵
     独立跑 配对扫描(net) → 硬校验(check) → reduce 因子块 + topk K 档因子块，
     全部内存中进行，不读 codes.txt、不落任何中间文件。
 
@@ -437,8 +441,8 @@ def py_yupei_pair(
 
     参数:
       date      交易日 YYYYMMDD
-      mats      要跑的矩阵名列表；None = 默认 15 张（cnt×9τ + vol×6τ）。
-                可选值见 MATRIX_SPECS 37 张（cnt_t*/vol_t*/logvol_t*/flow_t*/
+      mats      要跑的矩阵名列表；None = 默认 6 张（cnt×3τ + rvol×3τ；rvol 已替换旧 vol 族）。
+                可选值见 MATRIX_SPECS 28 张（cnt_t*/rvol_t*/logvol_t*/flow_t*/
                 urg_t*/ext_*）。
       sig_temp  sigmoid 软化温度（默认 0.3）
       sig_thr   sigmoid 软化阈值（默认 2.0）

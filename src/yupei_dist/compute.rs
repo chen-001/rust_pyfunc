@@ -3,10 +3,10 @@
 //! 流程（与 sandbox `yupei_dist factors` 完全一致）:
 //!   1. 枚举代码（**cross-section 标准口径**: `list_stock_codes` = symbol_map 股票
 //!      ∩ 当日 L2 transaction 文件, 代码升序; ETF/基金/债券/B 股在此剔除）
-//!   2. 并行读逐笔 + 每股预处理（10ms 桶, u[9] 权重场; 读不到/0 笔成交的股票
+//!   2. 并行读逐笔 + 每股预处理（10ms 桶, u[10] 权重场; 读不到/0 笔成交的股票
 //!      保留在 universe 中为空行——cells 空 → 矩阵行/列全 0, 统计量 NaN）
-//!   3. 37 张关联-差异矩阵（衰减事件场交互能量）
-//!   4. 28 个降维指标模块 → 2761 个横截面因子
+//!   3. 28 张关联-差异矩阵（衰减事件场交互能量）
+//!   4. 28 个降维指标模块 → 横截面因子（数量由 names.rs 注册表锁定）
 //!   5. 组装 (codes, vals N×F) 供 pipeline fan-out
 //!
 //! 行业数据: 直读 {vars_root}/SzBa/industry.h5（进程内只读一次, 见 industry.rs）;
@@ -20,7 +20,7 @@ use pyo3::prelude::*;
 use rayon::prelude::*;
 
 use super::indicator_ctx::{IndicatorCtx, MatrixSet};
-use super::matrix_stage::{compute_matrices, prep_stock, StockPrep, MATRIX_SPECS};
+use super::matrix_stage::{compute_matrices, prep_stock, StockPrep, StockStats, MATRIX_SPECS, N_MATRICES};
 use super::names::YUPEI_DIST_NAMES;
 
 /// 因子宇宙：cross-section 标准口径（symbol_map 股票 ∩ 当日 L2 文件，不做成交筛选；
@@ -49,7 +49,7 @@ pub fn with_compute_pool<T: Send>(f: impl FnOnce() -> T + Send) -> std::io::Resu
     Ok(pool.install(f))
 }
 
-/// 单日全市场横截面因子: (codes, vals) — vals 行主序 N×F（F=2761）。
+/// 单日全市场横截面因子: (codes, vals) — vals 行主序 N×F（F=names.rs 注册数）。
 pub fn compute_yupei_dist_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f32>)> {
     with_compute_pool(|| compute_yupei_dist_full_inner(date))?
 }
@@ -69,7 +69,7 @@ fn compute_yupei_dist_full_inner(date: i64) -> std::io::Result<(Vec<String>, Vec
 }
 
 /// 单日前半段（读数据 + 矩阵 + 行业）: 返回组装 MatrixSet 所需的部件。
-/// 全家族版本（旧入口）：py_yupei_dist 用得上全部 37 张。
+/// 全家族版本（旧入口）：py_yupei_dist 用得上全部 28 张。
 pub fn compute_yupei_dist_partial(
     date: i64,
 ) -> std::io::Result<(
@@ -118,7 +118,7 @@ pub fn compute_yupei_dist_partial_need(
     let codes_out: Vec<String> = stocks.iter().map(|s| s.code.clone()).collect();
     let n = codes_out.len();
 
-    // ---- 3. 37 张矩阵 + 统计量 ----
+    // ---- 3. 28 张矩阵 + 统计量 ----
     let (mats, stats) = compute_matrices(&stocks, need);
     let mut hm: HashMap<String, Vec<f32>> = HashMap::with_capacity(MATRIX_SPECS.len());
     for (m, spec) in mats.into_iter().zip(MATRIX_SPECS.iter()) {
@@ -168,7 +168,7 @@ pub fn run_indicators(
 }
 
 /// 单日全市场横截面因子（带前一日矩阵）: dyn_* 跨日因子有值。
-/// prev_date 的 37 张矩阵从备份目录 {BACKUP_DIR}/{prev_date}/mats/*.bin 读取（f32 行主序）。
+/// prev_date 的 28 张矩阵从备份目录 {BACKUP_DIR}/{prev_date}/mats/*.bin 读取（f32 行主序）。
 pub fn compute_yupei_dist_full_with_prev(
     date: i64,
     prev_date: Option<i64>,
@@ -241,6 +241,40 @@ pub fn py_yupei_dist(date: i64) -> PyResult<(Vec<String>, Vec<f32>)> {
 #[pyfunction]
 pub fn py_yupei_dist_names() -> Vec<String> {
     yupei_dist_names()
+}
+
+
+/// 再生成 names.rs 用：构造合成 MatrixSet（28 张非零矩阵 + 默认统计量，
+/// 无 prev / 无行业），跑全部指标模块只收集名字（不动 values）。
+/// 结构分支与真实单日运行完全一致：名字集合与数据取值无关，只依赖
+/// "28 张矩阵是否都在"（无矩阵的模块同样以占位名输出）与 prev=None。
+/// n=64 足够小（约 28×64×64×4B = 0.44MB 矩阵），又能避开 n<k 的极端分支。
+#[pyfunction]
+pub fn py_yupei_dist_emit_names() -> Vec<String> {
+    let n = 64usize;
+    let mut x = 0x2545F4914F6CDD1Du64; // 固定种子 → 确定性
+    let mut next = move || {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        ((x >> 11) & 0xF_FFFF) as f32 / 0xF_FFFF as f32 + 0.01
+    };
+    let codes: Vec<String> = (0..n).map(|i| format!("SYN{i:04}")).collect();
+    let stats = vec![StockStats::default(); n];
+    let mut mats: HashMap<String, Vec<f32>> = HashMap::with_capacity(N_MATRICES);
+    for spec in MATRIX_SPECS.iter() {
+        mats.insert(spec.name.to_string(), (0..n * n).map(|_| next()).collect());
+    }
+    let set = MatrixSet { n, codes: codes.clone(), stats, mats, industry: None };
+    let ctx = IndicatorCtx::new(&set, None);
+    let mut out = Vec::new();
+    for def in super::indicators::all() {
+        for r in (def.compute)(&ctx) {
+            debug_assert_eq!(r.values.len(), n);
+            out.push(r.name);
+        }
+    }
+    out
 }
 
 /// 日起点（UTC 零点 + 9.5h; 与 fast_csv_reader 的 +8h 偏移配合, 9:30 开盘 = 0）

@@ -62,7 +62,7 @@ pub fn write_stats(dir: &Path, stats: &[StockStats]) -> std::io::Result<()> {
     for s in stats {
         for v in [
             s.n_trades, s.amount, s.total_vol, s.imb, s.ret, s.vol30, s.vwap, s.q95u,
-            s.sum_w_cnt, s.sum_w_vol, s.sum_w_logvol, s.sum_w_flow, s.sum_w_urg, s.sum_w_ext,
+            s.sum_w_cnt, s.sum_w_rvol, s.sum_w_logvol, s.sum_w_flow, s.sum_w_urg, s.sum_w_ext,
         ] {
             buf.copy_from_slice(&v.to_le_bytes());
             f.write_all(&buf)?;
@@ -98,7 +98,7 @@ pub fn read_stats(dir: &Path) -> std::io::Result<Vec<StockStats>> {
         out.push(StockStats {
             n_trades: vals[0], amount: vals[1], total_vol: vals[2], imb: vals[3],
             ret: vals[4], vol30: vals[5], vwap: vals[6], q95u: vals[7],
-            sum_w_cnt: vals[8], sum_w_vol: vals[9], sum_w_logvol: vals[10],
+            sum_w_cnt: vals[8], sum_w_rvol: vals[9], sum_w_logvol: vals[10],
             sum_w_flow: vals[11], sum_w_urg: vals[12], sum_w_ext: vals[13],
         });
     }
@@ -316,7 +316,7 @@ pub fn yupei_dist_backup_read_matrix(
 
 /// 读每股统计量: (codes, N×14 f64)。列序同 StockStats 声明序
 /// （n_trades, amount, total_vol, imb, ret, vol30, vwap, q95u,
-///   sum_w_cnt, sum_w_vol, sum_w_logvol, sum_w_flow, sum_w_urg, sum_w_ext）。
+///   sum_w_cnt, sum_w_rvol, sum_w_logvol, sum_w_flow, sum_w_urg, sum_w_ext）。
 #[pyfunction]
 pub fn yupei_dist_backup_read_stats(
     py: Python,
@@ -331,7 +331,7 @@ pub fn yupei_dist_backup_read_stats(
     for s in &stats {
         flat.extend([
             s.n_trades, s.amount, s.total_vol, s.imb, s.ret, s.vol30, s.vwap, s.q95u,
-            s.sum_w_cnt, s.sum_w_vol, s.sum_w_logvol, s.sum_w_flow, s.sum_w_urg, s.sum_w_ext,
+            s.sum_w_cnt, s.sum_w_rvol, s.sum_w_logvol, s.sum_w_flow, s.sum_w_urg, s.sum_w_ext,
         ]);
     }
     let arr = ndarray::Array2::from_shape_vec((n, 14), flat)

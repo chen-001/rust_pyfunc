@@ -1,4 +1,4 @@
-//! 指标上下文（正式库内存版）: 21 张矩阵 + 每股统计量 + 行业 + 前一交易日矩阵。
+//! 指标上下文（正式库内存版）: 28 张矩阵 + 每股统计量 + 行业 + 前一交易日矩阵。
 //! 与 sandbox 版 API 保持一致（indicators/*.rs 无需改动即可编译）。
 
 use std::cell::RefCell;
@@ -7,24 +7,16 @@ use std::sync::Arc;
 
 use super::matrix_stage::{StockStats, MATRIX_SPECS};
 
-/// 37 矩阵全集（与 matrix_stage.rs MATRIX_SPECS 顺序一致; 指标模块遍历用）。
-/// 布局: cnt×9τ, vol×6τ, logvol×4τ, flow same/opp×4τ, urg same/opp×3τ, ext same/opp×2τ。
-pub const MATRIX_LIST: [&str; 37] = [
+/// 28 矩阵全集（与 matrix_stage.rs MATRIX_SPECS 顺序一致; 指标模块遍历用）。
+/// 布局: cnt×3τ, rvol×3τ, logvol×4τ, flow same/opp×4τ, urg same/opp×3τ, ext same/opp×2τ。
+/// （cnt 9τ→3τ 与 vol→rvol 替换于 2026-10：τ 裁剪经穷举验证，见 matrix_stage.rs 注释）
+pub const MATRIX_LIST: [&str; 28] = [
     "cnt_t005",
-    "cnt_t01",
-    "cnt_t02",
-    "cnt_t05",
     "cnt_t1",
-    "cnt_t3",
-    "cnt_t5",
-    "cnt_t10",
     "cnt_t30",
-    "vol_t02",
-    "vol_t05",
-    "vol_t1",
-    "vol_t3",
-    "vol_t5",
-    "vol_t30",
+    "rvol_t005",
+    "rvol_t1",
+    "rvol_t30",
     "logvol_t05",
     "logvol_t1",
     "logvol_t3",

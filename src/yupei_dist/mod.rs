@@ -5,12 +5,12 @@
 //!      （不设数量上限; 仅剔除当日成交不足 MIN_TRADES=200 笔的股票）。
 //!      注: 历史上的 top-4000 截断已取消。20241231 实测: 当日有逐笔文件 6021 只,
 //!      经 MIN_TRADES=200 过滤后实际计算 5580 只（旧 top-4000 版同一天只有 3964 只）
-//!   2. 每股预处理: 10ms 桶聚合, u[9] 权重场（cnt/vol/logvol/flow±/urg±/ext±）
-//!   3. 37 张有向交互矩阵 S_dir[i][j]（i 领先 j 的衰减事件场能量）:
+//!   2. 每股预处理: 10ms 桶聚合, u[10] 权重场（cnt/rvol/logvol/flow±/urg±/ext±）
+//!   3. 28 张有向交互矩阵 S_dir[i][j]（i 领先 j 的衰减事件场能量）:
 //!      cnt 9τ(0.05..30s), vol 6τ, logvol 4τ, flow/urg/ext same/opp 各 4/3/2τ
 //!      SIMD 实现（phase1 7×ymm 递推 + phase2 AVX2 9×FMA, 争用下 105s/天）
 //!   4. 28 个降维指标模块 → 2761 因子（强度/集中度/方向性/邻居质量/中心性/
-//!      聚类/社群/行业/跨日动态/正反网络等, 全部遍历 37 矩阵）
+//!      聚类/社群/行业/跨日动态/正反网络等, 全部遍历 28 矩阵）
 //!   5. cross-section pipeline（run_factor_pipeline_cross_section, pipeline="yupei_dist"）
 //!      → colblk 存储 → tail_pipeline_engine 回测
 //!
@@ -22,7 +22,7 @@
 //!     外部已设 RAYON_NUM_THREADS 时尊重外部设置（pipeline worker 走这条路）
 //!
 //! 正确性基准:
-//!   - 37 矩阵经桶级前缀和对照朴素 Python（ratio ≈ 1.0000）
+//!   - 28 矩阵经桶级前缀和对照朴素 Python（ratio ≈ 1.0000）
 //!   - SIMD 版 vs 标量版最大相对差 9.7e-8
 //!   - 正式库 vs sandbox 备份: 除 dyn（单日任务无 prev, 预期 NaN）外逐位一致
 //!   - 指标并行化: 两次运行 md5 一致（确定性）
@@ -31,7 +31,7 @@
 //! 全市场后同一天 5580 股, 矩阵阶段耗时随 N² 增长, 这些数字仅作历史参考）:
 //!   - 矩阵: 标量 212s → AVX2 131s → phase1+2 SIMD 105s（争用下）; 空机预估 ~45s
 //!   - 指标: ~29s（clustering/edge_dynamics/community 并行化后）
-//!   - 单日全流程空机预估 ~76s（2761 因子×37 矩阵; 原 60s 目标为 105 因子时代预算）
+//!   - 单日全流程空机预估 ~76s（因子×28 矩阵; 原 60s 目标为 105 因子时代预算）
 //!
 //! 批量任务: 20150105..20260717 共 2801 天, 8 worker×50 线程, ~10h;
 //! store: /hdd/user_home_unsafe/chenzongwei/factor_store_yupei_dist（~310GB）

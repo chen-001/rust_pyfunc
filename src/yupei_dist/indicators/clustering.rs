@@ -1,6 +1,6 @@
 //! clustering: 加权聚类系数（降维指标.md 十三）。
 //! 加权版（Zhang-Horvath 型）: CC_i = Σ_{j<k∈N(i)} (ŵ_ij·ŵ_jk·ŵ_ki)^{1/3} / C(m,2),
-//! 其中 ŵ_ij = S_ij / max(S) 归一化边权, N(i) = 每行 top-50 邻居。cnt_t1 与 vol_t1。
+//! 其中 ŵ_ij = S_ij / max(S) 归一化边权, N(i) = 每行 top-50 邻居。cnt_t1 与 rvol_t1。
 
 use crate::yupei_dist::indicator_ctx::{IndicatorCtx, IndicatorResult};
 use rayon::prelude::*;
@@ -10,7 +10,7 @@ pub fn name() -> &'static str {
 }
 
 pub fn desc() -> &'static str {
-    "加权聚类系数 (cnt_t1, vol_t1; top-50 邻居)"
+    "加权聚类系数 (cnt_t1, rvol_t1; top-50 邻居)"
 }
 
 /// top-k 部分选择: 小顶堆保持 k 个最大（值降序, 同值索引升序, 确定性）

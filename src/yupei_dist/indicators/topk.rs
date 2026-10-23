@@ -10,7 +10,7 @@ pub fn name() -> &'static str {
 }
 
 pub fn desc() -> &'static str {
-    "Top-K 均值/和/MaxPartner/BestPartnerGap (cnt_t1, vol_t1)"
+    "Top-K 均值/和/MaxPartner/BestPartnerGap (cnt_t1, rvol_t1)"
 }
 
 /// 每行 top-k 索引（值降序, 同值索引升序; 确定性）

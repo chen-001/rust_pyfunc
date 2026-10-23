@@ -1,12 +1,12 @@
 //! 玉佩2 双层网络（配对互补）—— 内存管线总控。
 //!
-//! 一个函数跑完「L2 逐笔 → 37 张有向交互矩阵 → 配对网络（net）→ 硬校验（check）
+//! 一个函数跑完「L2 逐笔 → 28 张有向交互矩阵 → 配对网络（net）→ 硬校验（check）
 //! → 因子合成（reduce + topk）」全流程，等价于 sandbox_yupei_pair 的
 //! `net → check → reduce → topk` 四步 CLI，但全部在内存中流动、不落任何中间文件。
 //!
 //! 数据流（单日、全市场）：
 //!   1. `compute_yupei_dist_partial(date)` —— cross-section 标准口径枚举股票
-//!      （symbol_map ∩ 当日 L2 文件），每股 10ms 桶 u[9] 权重场 + 37 张 n×n 有向矩阵
+//!      （symbol_map ∩ 当日 L2 文件），每股 10ms 桶 u[10] 权重场 + 28 张 n×n 有向矩阵
 //!   2. 每张指定矩阵独立一条链：sdir → net_one_mat（rho/X0/G/Z/EXZ/…22 张）
 //!      → check_net（硬校验）→ matset_from_net → produce_one_mat（reduce 因子块）
 //!      + topk_one_mat（K 档因子块）
@@ -42,17 +42,15 @@ use topk::topk_one_mat;
 /// 对保留列逐位相同，删掉后少 720 列、单日快 29%（209.5s → 148.9s，50 线程）。
 const KS_DEFAULT: [usize; 3] = [5, 20, 100];
 
-/// 默认跑的矩阵集合：cnt 全九档 τ + vol 六档 τ（C 组口径）。
-/// MATRIX_SPECS 里还有 logvol/flow/urg/ext 族，需要时显式传 mats 即可。
-pub const DEFAULT_MATS: [&str; 15] = [
-    "cnt_t005", "cnt_t01", "cnt_t02", "cnt_t05", "cnt_t1", "cnt_t3",
-    "cnt_t5", "cnt_t10", "cnt_t30", "vol_t02", "vol_t05", "vol_t1",
-    "vol_t3", "vol_t5", "vol_t30",
+/// 默认跑的矩阵集合：cnt 三档 τ + rvol 三档 τ（2026-10 裁剪：rvol 替换 vol，
+/// cnt 9τ→3τ 经穷举验证；MATRIX_SPECS 里还有 logvol/flow/urg/ext 族，需要时显式传 mats）。
+pub const DEFAULT_MATS: [&str; 6] = [
+    "cnt_t005", "cnt_t1", "cnt_t30", "rvol_t005", "rvol_t1", "rvol_t30",
 ];
 
 /// 单日全市场配对互补因子（内存管线版）。
 ///
-/// * `mats` —— 要跑的矩阵名（必须是 `compute_matrices` 产出的 37 个名字里的）
+/// * `mats` —— 要跑的矩阵名（必须是 `compute_matrices` 产出的 28 个名字里的）
 /// * `sig`  —— sigmoid 软化参数（E 组参数刷选用，默认 (0.3, 2.0)）
 /// * `null_mc` —— 空模型蒙特卡洛抽样上限（默认 20000）
 /// * `exz_bins` —— (p,q) 条件网格边数（默认 10）
@@ -81,7 +79,7 @@ fn compute_yupei_pair_inner(
     let t_all = std::time::Instant::now();
     set_soft(sig);
 
-    // ---- 1. 上游：cross-section 口径枚举 + 逐笔预处理 + 37 张矩阵 ----
+    // ---- 1. 上游：cross-section 口径枚举 + 逐笔预处理 + 28 张矩阵 ----
     // 只算请求的矩阵用到的权重家族：默认 15 张只要 cnt+vol，其余 22 张不参与计算、
     // 不写回、也不搬进内存表。
     let need = {
@@ -119,7 +117,7 @@ fn compute_yupei_pair_inner(
             let sdir = hm.get(mat.as_str()).ok_or_else(|| {
                 io::Error::new(
                     io::ErrorKind::InvalidInput,
-                    format!("矩阵 {mat} 不在 MATRIX_SPECS 的 37 张里"),
+                    format!("矩阵 {mat} 不在 MATRIX_SPECS 的 28 张里"),
                 )
             })?;
             if sdir.len() != n * n {
@@ -213,7 +211,7 @@ fn compute_yupei_pair_inner(
 
 /// Python 入口：单日全市场配对互补因子。
 ///
-/// `mats=None` 默认 DEFAULT_MATS 15 张（cnt×9τ + vol×6τ）。
+/// `mats=None` 默认 DEFAULT_MATS 15 张（cnt×3τ + rvol×3τ）。
 /// 返回 `(codes, names, vals)`，vals 行主序 len(codes)×len(names)。
 #[pyfunction]
 #[pyo3(signature = (date, mats=None, sig_temp=0.3, sig_thr=2.0, null_mc=20000, exz_bins=10))]

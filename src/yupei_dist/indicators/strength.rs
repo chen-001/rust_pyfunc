@@ -11,7 +11,7 @@ pub fn name() -> &'static str {
 }
 
 pub fn desc() -> &'static str {
-    "强度: sum/mean/median/q90 (cnt_t1, vol_t1)"
+    "强度: sum/mean/median/q90 (cnt_t1, rvol_t1)"
 }
 
 pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {

@@ -31,8 +31,8 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
         let w: Vec<f64> = stats
             .iter()
             .map(|st| {
-                if mat.starts_with("vol") {
-                    st.sum_w_vol.max(0.0)
+                if mat.starts_with("rvol") {
+                    st.sum_w_rvol.max(0.0)
                 } else if mat.starts_with("logvol") {
                     st.sum_w_logvol.max(0.0)
                 } else if mat.starts_with("flow") {

@@ -1,6 +1,6 @@
 //! concentration: 连接集中度（降维指标.md 三）。
 //! p_ij = S_ij / 行和; HHI = Σp²; Entropy = -Σp·ln p; NormalizedEntropy = Entropy/ln(N-1);
-//! Top3Share/Top5Share/Top10Share = TopK 和 / 行和。cnt_t1 与 vol_t1。
+//! Top3Share/Top5Share/Top10Share = TopK 和 / 行和。cnt_t1 与 rvol_t1。
 
 use crate::yupei_dist::indicator_ctx::{IndicatorCtx, IndicatorResult};
 use rayon::prelude::*;
@@ -10,7 +10,7 @@ pub fn name() -> &'static str {
 }
 
 pub fn desc() -> &'static str {
-    "集中度: HHI/熵/归一化熵/Top3·5·10占比 (cnt_t1, vol_t1)"
+    "集中度: HHI/熵/归一化熵/Top3·5·10占比 (cnt_t1, rvol_t1)"
 }
 
 pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
