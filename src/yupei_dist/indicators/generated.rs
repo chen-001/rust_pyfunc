@@ -21,12 +21,16 @@ pub mod directionality;
 pub mod edge_dynamics;
 #[path = "eigenvector.rs"]
 pub mod eigenvector;
+#[path = "forman.rs"]
+pub mod forman;
 #[path = "hidden_interaction.rs"]
 pub mod hidden_interaction;
 #[path = "industry.rs"]
 pub mod industry;
 #[path = "isolation.rs"]
 pub mod isolation;
+#[path = "jsmarg.rs"]
+pub mod jsmarg;
 #[path = "leader_return.rs"]
 pub mod leader_return;
 #[path = "leadership.rs"]
@@ -45,8 +49,16 @@ pub mod neighbor_z;
 pub mod network_momentum;
 #[path = "pagerank.rs"]
 pub mod pagerank;
+#[path = "percolation.rs"]
+pub mod percolation;
+#[path = "rankdep.rs"]
+pub mod rankdep;
+#[path = "reach2.rs"]
+pub mod reach2;
 #[path = "reciprocity.rs"]
 pub mod reciprocity;
+#[path = "spectral.rs"]
+pub mod spectral;
 #[path = "starness.rs"]
 pub mod starness;
 #[path = "strength.rs"]
@@ -55,6 +67,8 @@ pub mod strength;
 pub mod surplus;
 #[path = "topk.rs"]
 pub mod topk;
+#[path = "trophic.rs"]
+pub mod trophic;
 use crate::yupei_dist::indicator_ctx::{IndicatorCtx, IndicatorResult};
 pub struct IndicatorDef {
     pub name: &'static str,
@@ -107,6 +121,10 @@ pub fn all() -> Vec<IndicatorDef> {
             compute: eigenvector::compute,
         },
         IndicatorDef {
+            name: "forman",
+            compute: forman::compute,
+        },
+        IndicatorDef {
             name: "hidden_interaction",
             compute: hidden_interaction::compute,
         },
@@ -117,6 +135,10 @@ pub fn all() -> Vec<IndicatorDef> {
         IndicatorDef {
             name: "isolation",
             compute: isolation::compute,
+        },
+        IndicatorDef {
+            name: "jsmarg",
+            compute: jsmarg::compute,
         },
         IndicatorDef {
             name: "leader_return",
@@ -155,8 +177,24 @@ pub fn all() -> Vec<IndicatorDef> {
             compute: pagerank::compute,
         },
         IndicatorDef {
+            name: "percolation",
+            compute: percolation::compute,
+        },
+        IndicatorDef {
+            name: "rankdep",
+            compute: rankdep::compute,
+        },
+        IndicatorDef {
+            name: "reach2",
+            compute: reach2::compute,
+        },
+        IndicatorDef {
             name: "reciprocity",
             compute: reciprocity::compute,
+        },
+        IndicatorDef {
+            name: "spectral",
+            compute: spectral::compute,
         },
         IndicatorDef {
             name: "starness",
@@ -173,6 +211,10 @@ pub fn all() -> Vec<IndicatorDef> {
         IndicatorDef {
             name: "topk",
             compute: topk::compute,
+        },
+        IndicatorDef {
+            name: "trophic",
+            compute: trophic::compute,
         },
     ]
 }

@@ -13,62 +13,11 @@ pub fn desc() -> &'static str {
     "加权聚类系数 (cnt_t1, rvol_t1; top-50 邻居)"
 }
 
-/// top-k 部分选择: 小顶堆保持 k 个最大（值降序, 同值索引升序, 确定性）
+/// top-k 部分选择（值降序, 同值索引升序, 确定性）。
+/// 旧实现的小顶堆方向写反（堆顶放"最好"、更好才替换，实际返回前 k 列）；改为统一走
+/// topk_util::topk_select_indices 的 quickselect 版（O(n)+O(k log k)，行为已对照验证）。
 fn topk_minheap(row: &[f32], k: usize) -> Vec<u32> {
-    use std::cmp::Ordering;
-    let mut heap: Vec<u32> = Vec::with_capacity(k);
-    let worse = |a: u32, b: u32| -> Ordering {
-        // b 更差（更小）时 a 排在 b 前 —— 小顶堆: 堆顶是最差（最小）的
-        row[b as usize]
-            .partial_cmp(&row[a as usize])
-            .unwrap_or(Ordering::Equal)
-            .then_with(|| b.cmp(&a))
-    };
-    for j in 0..row.len() as u32 {
-        if heap.len() < k {
-            heap.push(j);
-            // 上浮
-            let mut idx = heap.len() - 1;
-            while idx > 0 {
-                let parent = (idx - 1) / 2;
-                if worse(heap[idx], heap[parent]) == Ordering::Less {
-                    heap.swap(idx, parent);
-                    idx = parent;
-                } else {
-                    break;
-                }
-            }
-        } else if worse(j, heap[0]) == Ordering::Less {
-            // j 比堆顶（最差）更好: 替换堆顶并下沉
-            heap[0] = j;
-            let mut idx = 0;
-            loop {
-                let l = idx * 2 + 1;
-                let r = l + 1;
-                let mut m = idx;
-                if l < heap.len() && worse(heap[l], heap[m]) == Ordering::Less {
-                    m = l;
-                }
-                if r < heap.len() && worse(heap[r], heap[m]) == Ordering::Less {
-                    m = r;
-                }
-                if m != idx {
-                    heap.swap(idx, m);
-                    idx = m;
-                } else {
-                    break;
-                }
-            }
-        }
-    }
-    // 堆内排序（值降序, 同值索引升序）保证确定性输出
-    heap.sort_unstable_by(|&a, &b| {
-        row[b as usize]
-            .partial_cmp(&row[a as usize])
-            .unwrap_or(Ordering::Equal)
-            .then_with(|| a.cmp(&b))
-    });
-    heap
+    crate::yupei_dist::topk_util::topk_select_indices(row, k)
 }
 
 pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
