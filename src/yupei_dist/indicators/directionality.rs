@@ -20,6 +20,9 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let mut mats: Vec<&str> = crate::yupei_dist::indicator_ctx::MATRIX_LIST.to_vec();
     mats.extend(crate::yupei_dist::indicator_ctx::NET_LIST);
     for mat in mats {
+        if !ctx.wants("dir_", mat) {
+            continue;
+        }
         let d = match dir_matrix(ctx, mat) {
             Some(m) => m,
             None => continue,
@@ -60,13 +63,20 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             .collect();
         let out32: Vec<f32> = out_s.iter().map(|&v| v as f32).collect();
         let in32: Vec<f32> = in_s.iter().map(|&v| v as f32).collect();
-        out.push(IndicatorResult::new(
-            format!("dir_{mat}_out_strength"),
-            out32,
-        ));
-        out.push(IndicatorResult::new(format!("dir_{mat}_in_strength"), in32));
-        out.push(IndicatorResult::new(format!("dir_{mat}_net_lead"), net));
-        out.push(IndicatorResult::new(format!("dir_{mat}_lead_ratio"), ratio));
+        // lite: 同矩阵上四列可能只幸存一部分，按完整列名过滤
+        let emit = |nm: String, v: Vec<f32>, out: &mut Vec<IndicatorResult>| {
+            let ok = match &ctx.keep {
+                None => true,
+                Some(k) => k.contains(nm.as_str()),
+            };
+            if ok {
+                out.push(IndicatorResult::new(nm, v));
+            }
+        };
+        emit(format!("dir_{mat}_out_strength"), out32, &mut out);
+        emit(format!("dir_{mat}_in_strength"), in32, &mut out);
+        emit(format!("dir_{mat}_net_lead"), net, &mut out);
+        emit(format!("dir_{mat}_lead_ratio"), ratio, &mut out);
     }
     out
 }

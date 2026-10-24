@@ -14,11 +14,22 @@ pub fn desc() -> &'static str {
     "强度: sum/mean/median/q90 (cnt_t1, rvol_t1)"
 }
 
+/// lite 模式下只推幸存列（keep=Some 时按完整列名过滤）。
+fn emit(ctx: &IndicatorCtx, out: &mut Vec<IndicatorResult>, name: String, col: Vec<f32>) {
+    match &ctx.keep {
+        Some(k) if !k.contains(name.as_str()) => {}
+        _ => out.push(IndicatorResult::new(name, col)),
+    }
+}
+
 pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let n = ctx.n();
     let mut out = Vec::new();
     // 强度谱系矩阵: 6 种权重设计 × 多 τ（含 signed 族的 same 对称分量）
     for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
+        if !ctx.wants("strength_", mat) {
+            continue;
+        }
         let sym = match ctx.symmetric(mat) {
             Some(s) => s,
             None => continue,
@@ -51,13 +62,10 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             .map(|&s| (s / (n as f64 - 1.0).max(1.0)) as f32)
             .collect();
         let sums32: Vec<f32> = sums.iter().map(|&s| s as f32).collect();
-        out.push(IndicatorResult::new(format!("strength_{mat}_sum"), sums32));
-        out.push(IndicatorResult::new(format!("strength_{mat}_mean"), means));
-        out.push(IndicatorResult::new(
-            format!("strength_{mat}_median"),
-            medians,
-        ));
-        out.push(IndicatorResult::new(format!("strength_{mat}_q90"), q90s));
+        emit(ctx, &mut out, format!("strength_{mat}_sum"), sums32);
+        emit(ctx, &mut out, format!("strength_{mat}_mean"), means);
+        emit(ctx, &mut out, format!("strength_{mat}_median"), medians);
+        emit(ctx, &mut out, format!("strength_{mat}_q90"), q90s);
     }
     out
 }

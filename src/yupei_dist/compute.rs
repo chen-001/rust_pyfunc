@@ -230,6 +230,145 @@ pub fn yupei_dist_names() -> Vec<String> {
     YUPEI_DIST_NAMES.iter().map(|s| s.to_string()).collect()
 }
 
+// ───────────────────────────── 精简版（741 列）─────────────────────────────
+// 只算 lite_names.rs 里 YUPEI_DIST_LITE_NAMES 的幸存列：各指标模块在遍历
+// 矩阵前先调 ctx.wants(prefix, mat)，该矩阵上无幸存列就整张跳过；
+// 无矩阵命名的列用 ctx.keep_name 判定。模块只负责"不算不列"，
+// 本函数负责把幸存者收集并与静态名单对账（缺列/多列都报错）。
+
+pub fn run_indicators_lite(ctx: &IndicatorCtx, n: usize) -> std::io::Result<Vec<f32>> {
+    use super::lite_names::YUPEI_DIST_LITE_NAMES as LITE;
+    let mut names: Vec<String> = Vec::with_capacity(LITE.len());
+    let mut cols: Vec<Vec<f32>> = Vec::with_capacity(LITE.len());
+    for def in super::indicators::all() {
+        for r in (def.compute)(ctx) {
+            debug_assert_eq!(r.values.len(), n);
+            names.push(r.name);
+            cols.push(r.values);
+        }
+    }
+    // 对账：模块实际产出必须与静态名单同集合（数量也一致）
+    let produced: std::collections::HashSet<&str> =
+        names.iter().map(|s| s.as_str()).collect();
+    let expected: std::collections::HashSet<&str> = LITE.iter().copied().collect();
+    let missing: Vec<&&str> = expected.difference(&produced).collect();
+    let extra: Vec<&&str> = produced.difference(&expected).collect();
+    if !missing.is_empty() || !extra.is_empty() || names.len() != LITE.len() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!(
+                "lite 因子数不匹配: 计算 {} != 名单 {}. 缺 {:?} 多 {:?}",
+                names.len(),
+                LITE.len(),
+                &missing[..missing.len().min(8)],
+                &extra[..extra.len().min(8)]
+            ),
+        ));
+    }
+    // 按名单顺序重排
+    let pos: std::collections::HashMap<&str, usize> = names
+        .iter()
+        .enumerate()
+        .map(|(i, s)| (s.as_str(), i))
+        .collect();
+    let nf = LITE.len();
+    let mut vals = vec![0.0f32; n * nf];
+    for (fi, &nm) in LITE.iter().enumerate() {
+        let col = &cols[pos[nm]];
+        for i in 0..n {
+            vals[i * nf + fi] = col[i];
+        }
+    }
+    Ok(vals)
+}
+
+/// 精简版单日全市场因子（741 列），带前一日矩阵。
+/// 与 compute_yupei_dist_full_with_prev 同数据路径，只收窄了指标部分。
+pub fn compute_yupei_dist_lite(
+    date: i64,
+    prev_date: Option<i64>,
+) -> std::io::Result<(Vec<String>, Vec<f32>)> {
+    with_compute_pool(|| compute_yupei_dist_lite_inner(date, prev_date))?
+}
+
+fn compute_yupei_dist_lite_inner(
+    date: i64,
+    prev_date: Option<i64>,
+) -> std::io::Result<(Vec<String>, Vec<f32>)> {
+    let (codes_out, n, stats, hm, industry) = compute_yupei_dist_partial(date)?;
+    let prev = match prev_date {
+        Some(pd) => {
+            let pdir = Path::new(BACKUP_DIR).join(pd.to_string());
+            let pcodes: Vec<String> = std::fs::read_to_string(pdir.join("codes.txt"))?
+                .lines()
+                .map(|l| l.trim().to_string())
+                .filter(|l| !l.is_empty())
+                .collect();
+            let mut pmats: HashMap<String, Vec<f32>> = HashMap::new();
+            for spec in MATRIX_SPECS.iter() {
+                let p = pdir.join("mats").join(format!("{}.bin", spec.name));
+                if p.exists() {
+                    let raw = std::fs::read(&p)?;
+                    let data: Vec<f32> = unsafe {
+                        std::slice::from_raw_parts(raw.as_ptr() as *const f32, raw.len() / 4)
+                            .to_vec()
+                    };
+                    pmats.insert(spec.name.to_string(), data);
+                }
+            }
+            let pset = super::indicator_ctx::PrevMats {
+                n: pcodes.len(),
+                codes: pcodes,
+                mats: pmats,
+            };
+            Some(super::indicator_ctx::PrevDay::new(Box::leak(Box::new(
+                pset,
+            ))))
+        }
+        None => None,
+    };
+    let set = MatrixSet {
+        n,
+        codes: codes_out.clone(),
+        stats,
+        mats: hm,
+        industry: Some(industry),
+    };
+    let keep: std::collections::HashSet<&'static str> =
+        super::lite_names::YUPEI_DIST_LITE_NAMES.iter().copied().collect();
+    let ctx = IndicatorCtx::with_keep(&set, prev, keep);
+    let vals = run_indicators_lite(&ctx, n)?;
+    Ok((codes_out, vals))
+}
+
+/// Python: 精简版因子（741 列）。返回 (codes, names, vals)。
+/// names 一并返回——列序与全量版不同，调用方不要混用全量名单。
+#[pyfunction]
+pub fn py_yupei_dist_lite(
+    date: i64,
+    prev_date: Option<i64>,
+) -> PyResult<(Vec<String>, Vec<String>, Vec<f32>)> {
+    let (codes, vals) = compute_yupei_dist_lite(date, prev_date)
+        .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("{e:?}")))?;
+    Ok((
+        codes,
+        super::lite_names::YUPEI_DIST_LITE_NAMES
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+        vals,
+    ))
+}
+
+/// Python 拿精简版因子名（741 个）。
+#[pyfunction]
+pub fn py_yupei_dist_lite_names() -> Vec<String> {
+    super::lite_names::YUPEI_DIST_LITE_NAMES
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
+}
+
 /// Python 入口: 单日全市场 2761 个横截面因子 (codes, vals)。
 #[pyfunction]
 pub fn py_yupei_dist(date: i64) -> PyResult<(Vec<String>, Vec<f32>)> {

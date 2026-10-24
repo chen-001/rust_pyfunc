@@ -16,6 +16,15 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let n = ctx.n();
     let mut out = Vec::new();
     for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
+        if !ctx.wants("rec_", mat) {
+            continue;
+        }
+        let nm = format!("rec_{mat}_reciprocity");
+        if let Some(k) = &ctx.keep {
+            if !k.contains(nm.as_str()) {
+                continue;
+            }
+        }
         let d = match ctx.matrix(mat) {
             Some(m) => m,
             None => continue,
@@ -42,7 +51,7 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                 }
             })
             .collect();
-        out.push(IndicatorResult::new(format!("rec_{mat}_reciprocity"), col));
+        out.push(IndicatorResult::new(nm, col));
     }
     out
 }

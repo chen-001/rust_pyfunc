@@ -14,11 +14,23 @@ pub fn desc() -> &'static str {
     "三角 motif: feed_forward/cycle/reciprocal 计数 (cnt_t1 有向, top-20)"
 }
 
+/// lite 模式列级过滤（同矩阵三列只留一部分时按完整列名判定）。
+#[inline]
+fn kept(ctx: &IndicatorCtx, name: &str) -> bool {
+    match &ctx.keep {
+        None => true,
+        Some(k) => k.contains(name),
+    }
+}
+
 pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let n = ctx.n();
     let mut out: Vec<IndicatorResult> = Vec::new();
     let k = 20usize;
     for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
+        if !ctx.wants("mot_", mat) {
+            continue;
+        }
         let d = match ctx.matrix(mat) {
             Some(m) => m,
             None => continue,
@@ -66,9 +78,15 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
         let ff: Vec<f32> = rows.iter().map(|&(a, _, _)| a).collect();
         let cy: Vec<f32> = rows.iter().map(|&(_, b, _)| b).collect();
         let rc: Vec<f32> = rows.iter().map(|&(_, _, c)| c).collect();
-        out.push(IndicatorResult::new(format!("mot_{mat}_feed_forward"), ff));
-        out.push(IndicatorResult::new(format!("mot_{mat}_cycle"), cy));
-        out.push(IndicatorResult::new(format!("mot_{mat}_reciprocal"), rc));
+        if kept(ctx, &format!("mot_{mat}_feed_forward")) {
+            out.push(IndicatorResult::new(format!("mot_{mat}_feed_forward"), ff));
+        }
+        if kept(ctx, &format!("mot_{mat}_cycle")) {
+            out.push(IndicatorResult::new(format!("mot_{mat}_cycle"), cy));
+        }
+        if kept(ctx, &format!("mot_{mat}_reciprocal")) {
+            out.push(IndicatorResult::new(format!("mot_{mat}_reciprocal"), rc));
+        }
     }
     out
 }

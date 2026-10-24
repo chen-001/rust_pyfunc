@@ -17,12 +17,15 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let n = ctx.n();
     let mut out = Vec::new();
     for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
+        if !ctx.wants("eig_", mat) {
+            continue;
+        }
         let sym = match ctx.symmetric(mat) {
             Some(s) => s,
             None => continue,
         };
         let col = power_iteration(&sym, n);
-        out.push(IndicatorResult::new(format!("eig_{mat}_centrality"), col));
+        emit(ctx, &mut out, format!("eig_{mat}_centrality"), col);
     }
     out
 }
@@ -80,4 +83,14 @@ fn power_iteration(m: &[f32], n: usize) -> Vec<f32> {
         v.iter_mut().for_each(|x| *x = -*x);
     }
     v.iter().map(|&x| x as f32).collect()
+}
+
+/// 列级过滤: keep=None 全发; keep=Some 只发名单内列。
+fn emit(ctx: &IndicatorCtx, out: &mut Vec<IndicatorResult>, name: String, values: Vec<f32>) {
+    if let Some(k) = &ctx.keep {
+        if !k.contains(name.as_str()) {
+            return;
+        }
+    }
+    out.push(IndicatorResult::new(name, values));
 }

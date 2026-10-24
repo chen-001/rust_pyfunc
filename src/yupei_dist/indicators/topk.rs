@@ -33,6 +33,9 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let mut out = Vec::new();
     // Top-K 谱系: 无符号族多 τ + signed 族 same 分量
     for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
+        if !ctx.wants("topk_", mat) {
+            continue;
+        }
         let sym = match ctx.symmetric(mat) {
             Some(s) => s,
             None => continue,
@@ -41,6 +44,12 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             .into_par_iter()
             .map(|i| topk_indices(&sym[i * n..(i + 1) * n], 20))
             .collect();
+        let kept = |suffix: &str| -> bool {
+            match &ctx.keep {
+                Some(k) => k.contains(format!("topk_{mat}_{suffix}").as_str()),
+                None => true,
+            }
+        };
         for (kk, suffix) in [
             (1usize, "top1_mean"),
             (3, "top3_mean"),
@@ -48,6 +57,9 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             (10, "top10_mean"),
             (20, "top20_mean"),
         ] {
+            if !kept(suffix) {
+                continue;
+            }
             let col: Vec<f32> = (0..n)
                 .into_par_iter()
                 .map(|i| {
@@ -66,6 +78,9 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             out.push(IndicatorResult::new(format!("topk_{mat}_{suffix}"), col));
         }
         for (kk, suffix) in [(3usize, "top3_sum"), (5, "top5_sum")] {
+            if !kept(suffix) {
+                continue;
+            }
             let col: Vec<f32> = (0..n)
                 .into_par_iter()
                 .map(|i| {
@@ -75,31 +90,35 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                 .collect();
             out.push(IndicatorResult::new(format!("topk_{mat}_{suffix}"), col));
         }
-        let col: Vec<f32> = (0..n)
-            .into_par_iter()
-            .map(|i| {
-                if top20[i].is_empty() {
-                    0.0
-                } else {
-                    sym[i * n + top20[i][0] as usize]
-                }
-            })
-            .collect();
-        out.push(IndicatorResult::new(format!("topk_{mat}_maxpartner"), col));
-        let col: Vec<f32> = (0..n)
-            .into_par_iter()
-            .map(|i| {
-                let t = &top20[i];
-                if t.len() < 2 {
-                    return 0.0;
-                }
-                sym[i * n + t[0] as usize] - sym[i * n + t[1] as usize]
-            })
-            .collect();
-        out.push(IndicatorResult::new(
-            format!("topk_{mat}_bestpartnergap"),
-            col,
-        ));
+        if kept("maxpartner") {
+            let col: Vec<f32> = (0..n)
+                .into_par_iter()
+                .map(|i| {
+                    if top20[i].is_empty() {
+                        0.0
+                    } else {
+                        sym[i * n + top20[i][0] as usize]
+                    }
+                })
+                .collect();
+            out.push(IndicatorResult::new(format!("topk_{mat}_maxpartner"), col));
+        }
+        if kept("bestpartnergap") {
+            let col: Vec<f32> = (0..n)
+                .into_par_iter()
+                .map(|i| {
+                    let t = &top20[i];
+                    if t.len() < 2 {
+                        return 0.0;
+                    }
+                    sym[i * n + t[0] as usize] - sym[i * n + t[1] as usize]
+                })
+                .collect();
+            out.push(IndicatorResult::new(
+                format!("topk_{mat}_bestpartnergap"),
+                col,
+            ));
+        }
     }
     out
 }

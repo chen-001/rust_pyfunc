@@ -25,6 +25,9 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
 
     let mut out = Vec::new();
     for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
+        if !ctx.wants("nbz_", mat) {
+            continue;
+        }
         let sym = match ctx.symmetric(mat) {
             Some(s) => s,
             None => continue,
@@ -53,26 +56,21 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                 })
                 .collect()
         };
-        out.push(IndicatorResult::new(
-            format!("nbz_{mat}_return"),
-            neighbor(&z_ret),
-        ));
-        out.push(IndicatorResult::new(
-            format!("nbz_{mat}_turnover"),
-            neighbor(&z_turn),
-        ));
-        out.push(IndicatorResult::new(
-            format!("nbz_{mat}_volatility"),
-            neighbor(&z_vol),
-        ));
-        out.push(IndicatorResult::new(
-            format!("nbz_{mat}_imbalance"),
-            neighbor(&z_imb),
-        ));
-        out.push(IndicatorResult::new(
-            format!("nbz_{mat}_size"),
-            neighbor(&z_size),
-        ));
+        for (suffix, z) in [
+            ("return", &z_ret),
+            ("turnover", &z_turn),
+            ("volatility", &z_vol),
+            ("imbalance", &z_imb),
+            ("size", &z_size),
+        ] {
+            let nm = format!("nbz_{mat}_{suffix}");
+            if let Some(k) = &ctx.keep {
+                if !k.contains(nm.as_str()) {
+                    continue;
+                }
+            }
+            out.push(IndicatorResult::new(nm, neighbor(z)));
+        }
     }
     out
 }

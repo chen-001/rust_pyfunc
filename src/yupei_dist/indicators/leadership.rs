@@ -22,6 +22,9 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
         m.extend(crate::yupei_dist::indicator_ctx::NET_LIST);
         m
     } {
+        if !ctx.wants("lead_", mat) {
+            continue;
+        }
         let d = match dir_matrix(ctx, mat) {
             Some(m) => m,
             None => continue,
@@ -54,15 +57,18 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
         let breadth: Vec<f32> = rows.iter().map(|&(a, _, _)| a).collect();
         let strength: Vec<f32> = rows.iter().map(|&(_, b, _)| b).collect();
         let conc: Vec<f32> = rows.iter().map(|&(_, _, c)| c).collect();
-        out.push(IndicatorResult::new(format!("lead_{mat}_breadth"), breadth));
-        out.push(IndicatorResult::new(
-            format!("lead_{mat}_strength"),
-            strength,
-        ));
-        out.push(IndicatorResult::new(
-            format!("lead_{mat}_concentration"),
-            conc,
-        ));
+        let emit = |nm: String, v: Vec<f32>, out: &mut Vec<IndicatorResult>| {
+            let ok = match &ctx.keep {
+                None => true,
+                Some(k) => k.contains(nm.as_str()),
+            };
+            if ok {
+                out.push(IndicatorResult::new(nm, v));
+            }
+        };
+        emit(format!("lead_{mat}_breadth"), breadth, &mut out);
+        emit(format!("lead_{mat}_strength"), strength, &mut out);
+        emit(format!("lead_{mat}_concentration"), conc, &mut out);
     }
     out
 }

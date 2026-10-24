@@ -143,14 +143,23 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let n = ctx.n();
     let mut out = Vec::new();
     for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
+        if !ctx.wants("maxst_", mat) {
+            continue;
+        }
         let sym = match ctx.symmetric(mat) {
             Some(s) => s,
             None => continue,
         };
         let (deg, depth, bott) = mst_stats(&sym, n);
-        out.push(IndicatorResult::new(format!("maxst_{mat}_deg"), deg));
-        out.push(IndicatorResult::new(format!("maxst_{mat}_depth"), depth));
-        out.push(IndicatorResult::new(format!("maxst_{mat}_bott"), bott));
+        for (suffix, col) in [("deg", deg), ("depth", depth), ("bott", bott)] {
+            let nm = format!("maxst_{mat}_{suffix}");
+            if let Some(k) = &ctx.keep {
+                if !k.contains(nm.as_str()) {
+                    continue;
+                }
+            }
+            out.push(IndicatorResult::new(nm, col));
+        }
     }
     out
 }

@@ -99,6 +99,9 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
         return out;
     }
     for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
+        if !ctx.wants_any(&["eig2_", "eig3_", "spec_"], mat) {
+            continue;
+        }
         let sym = match ctx.symmetric(mat) {
             Some(s) => s,
             None => continue,
@@ -107,8 +110,14 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
         fix_sign(&mut v1);
         let (lam2, mut v2) = power_mode(&sym, n, 60, &[&v1[..]]);
         fix_sign(&mut v2);
-        let (_lam3, mut v3) = power_mode(&sym, n, 80, &[&v1[..], &v2[..]]);
-        fix_sign(&mut v3);
+        // v3 只在 eig3 列幸存时算（未幸存矩阵省一组 80 次双 deflate 幂迭代）
+        let v3 = if ctx.wants("eig3_", mat) {
+            let (_l3, mut v3) = power_mode(&sym, n, 80, &[&v1[..], &v2[..]]);
+            fix_sign(&mut v3);
+            Some(v3)
+        } else {
+            None
+        };
         let gap = if lam1.abs() > 1e-12 {
             ((lam1 - lam2) / lam1) as f32
         } else {
@@ -124,30 +133,29 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
         } else {
             f32::NAN
         };
-        out.push(IndicatorResult::new(
-            format!("eig2_{mat}_coord"),
-            v2.iter().map(|&x| x as f32).collect(),
-        ));
-        out.push(IndicatorResult::new(
-            format!("eig2_{mat}_part"),
-            v2.iter().map(|&x| (x * x * n as f64) as f32).collect(),
-        ));
-        out.push(IndicatorResult::new(
-            format!("spec_{mat}_gap"),
-            vec![gap; n],
-        ));
-        out.push(IndicatorResult::new(
-            format!("eig3_{mat}_coord"),
-            v3.iter().map(|&x| x as f32).collect(),
-        ));
-        out.push(IndicatorResult::new(
-            format!("eig3_{mat}_part"),
-            v3.iter().map(|&x| (x * x * n as f64) as f32).collect(),
-        ));
-        out.push(IndicatorResult::new(
-            format!("spec_{mat}_lam2share"),
-            vec![lam2share; n],
-        ));
+        emit(ctx, &mut out, format!("eig2_{mat}_coord"),
+            v2.iter().map(|&x| x as f32).collect());
+        emit(ctx, &mut out, format!("eig2_{mat}_part"),
+            v2.iter().map(|&x| (x * x * n as f64) as f32).collect());
+        emit(ctx, &mut out, format!("spec_{mat}_gap"), vec![gap; n]);
+        if let Some(ref v3) = v3 {
+            emit(ctx, &mut out, format!("eig3_{mat}_coord"),
+                v3.iter().map(|&x| x as f32).collect());
+            emit(ctx, &mut out, format!("eig3_{mat}_part"),
+                v3.iter().map(|&x| (x * x * n as f64) as f32).collect());
+        }
+        emit(ctx, &mut out, format!("spec_{mat}_lam2share"), vec![lam2share; n]);
     }
     out
+}
+
+/// 列级过滤: keep=None 全发; keep=Some 只发名单内列
+/// （矩阵级 wants 只管"算不算", 幸存矩阵的未幸存兄弟列不外发）。
+fn emit(ctx: &IndicatorCtx, out: &mut Vec<IndicatorResult>, name: String, values: Vec<f32>) {
+    if let Some(k) = &ctx.keep {
+        if !k.contains(name.as_str()) {
+            return;
+        }
+    }
+    out.push(IndicatorResult::new(name, values));
 }

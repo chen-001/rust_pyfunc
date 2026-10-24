@@ -24,6 +24,9 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let n = ctx.n();
     let mut out = Vec::new();
     for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
+        if !ctx.wants_any(&["jsmarg_", "consens_"], mat) {
+            continue;
+        }
         let sym = match ctx.symmetric(mat) {
             Some(s) => s,
             None => continue,
@@ -121,8 +124,12 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
         };
         let js: Vec<f32> = both.iter().map(|t| t.0).collect();
         let consens: Vec<f32> = both.iter().map(|t| t.1).collect();
-        out.push(IndicatorResult::new(format!("jsmarg_{mat}"), js));
-        out.push(IndicatorResult::new(format!("consens_{mat}_top20"), consens));
+        if ctx.keep.is_none() || ctx.keep.as_ref().unwrap().contains(format!("jsmarg_{mat}").as_str()) {
+            out.push(IndicatorResult::new(format!("jsmarg_{mat}"), js));
+        }
+        if ctx.keep.is_none() || ctx.keep.as_ref().unwrap().contains(format!("consens_{mat}_top20").as_str()) {
+            out.push(IndicatorResult::new(format!("consens_{mat}_top20"), consens));
+        }
     }
     out
 }

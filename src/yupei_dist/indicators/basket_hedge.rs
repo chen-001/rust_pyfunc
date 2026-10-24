@@ -28,6 +28,10 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
         ("ext", "t1"),
         ("ext", "t5"),
     ] {
+        // 列名 bh_{fam}_{tau}_xxx: 矩阵名位置放 {fam}_{tau}
+        if !ctx.wants("bh_", &format!("{fam}_{tau}")) {
+            continue;
+        }
         let same = match ctx.symmetric(&format!("{fam}_same_{tau}")) {
             Some(s) => s,
             None => continue,
@@ -50,9 +54,12 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             .map(|(&b, &h)| h / (b + h + 1e-9))
             .collect();
         let tag = format!("bh_{fam}_{tau}");
-        out.push(IndicatorResult::new(format!("{tag}_basket"), basket));
-        out.push(IndicatorResult::new(format!("{tag}_hedge"), hedge));
-        out.push(IndicatorResult::new(format!("{tag}_hedge_ratio"), ratio));
+        for (suffix, col) in [("basket", basket), ("hedge", hedge), ("hedge_ratio", ratio)] {
+            let nm = format!("{tag}_{suffix}");
+            if ctx.keep.is_none() || ctx.keep.as_ref().unwrap().contains(nm.as_str()) {
+                out.push(IndicatorResult::new(nm, col));
+            }
+        }
     }
     out
 }

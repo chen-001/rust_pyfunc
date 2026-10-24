@@ -20,6 +20,16 @@ pub fn desc() -> &'static str {
     "单向依赖: dep_top5=秩差; dep_wmean=有向权重不对称; dep_admirer=入向隐性影响力 (全部28矩阵)"
 }
 
+/// lite 模式下列级过滤：keep=None 恒真，Some 时按完整列名查名单
+/// （同矩阵兄弟列可能只留一部分，矩阵级 wants 之外还要逐列过滤）。
+#[inline]
+fn kept(ctx: &IndicatorCtx, name: &str) -> bool {
+    match &ctx.keep {
+        None => true,
+        Some(k) => k.contains(name),
+    }
+}
+
 /// x 在 row 的排序中是否排在 i 之前（值降序, 同值索引升序; 与 topk 选择同口径）。
 #[inline]
 fn ranks_before(row: &[f32], x: usize, i: usize) -> bool {
@@ -48,40 +58,62 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let mut out = Vec::new();
     let k = 50usize;
     for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
+        // lite 模式：该矩阵任一 dep_ 列幸存才往下算
+        if !ctx.wants("dep_", mat) {
+            continue;
+        }
         let sym = match ctx.symmetric(mat) {
             Some(s) => s,
             None => continue,
         };
+        let need_top5 = kept(ctx, &format!("dep_{mat}_top5"));
+        let need_wmean = kept(ctx, &format!("dep_{mat}_wmean"));
+        let need_admirer = kept(ctx, &format!("dep_{mat}_admirer"));
         // dep_wmean 需要原始有向矩阵（sym 对称下 w_ij−w_ji 恒 0）
-        let dir = match ctx.matrix(mat) {
-            Some(d) => d,
-            None => continue,
+        let dir = if need_wmean {
+            match ctx.matrix(mat) {
+                Some(d) => d,
+                None => {
+                    out.push(IndicatorResult::new(
+                        format!("dep_{mat}_wmean"),
+                        vec![f32::NAN; n],
+                    ));
+                    continue;
+                }
+            }
+        } else {
+            &sym[..]
         };
         // 每行 top-50（确定性, 行并行）；top5 = 其前 5
         let nbrs: Vec<Vec<u32>> = (0..n)
             .into_par_iter()
             .map(|i| topk_select_indices(&sym[i * n..(i + 1) * n], k))
             .collect();
-        // 选择矩阵的排序副本（二分反查「我是否在 j 的 top50」）
-        let mut nbrs_sorted: Vec<Vec<u32>> = nbrs.clone();
-        for v in nbrs_sorted.iter_mut() {
-            v.sort_unstable();
-        }
-        // indeg_i = 被多少行选进 top50（O(n·k) 一次扫完）
-        let mut indeg = vec![0u32; n];
-        for l in nbrs.iter() {
-            for &j in l.iter() {
-                indeg[j as usize] += 1;
+        // adm 需要排序副本（二分反查）与入度；仅列幸存才建
+        let (nbrs_sorted, indeg) = if need_admirer {
+            let mut ns: Vec<Vec<u32>> = nbrs.clone();
+            for v in ns.iter_mut() {
+                v.sort_unstable();
             }
-        }
+            let mut deg = vec![0u32; n];
+            for l in nbrs.iter() {
+                for &j in l.iter() {
+                    deg[j as usize] += 1;
+                }
+            }
+            (ns, deg)
+        } else {
+            (Vec::new(), Vec::new())
+        };
 
         let rows: Vec<[f32; 3]> = (0..n)
             .into_par_iter()
             .map(|i| {
-                let drow = &dir[i * n..(i + 1) * n];
-                // dep_top5
                 let mut dep_v = f32::NAN;
-                if nbrs[i].len() >= 5 {
+                let mut wmean_v = f32::NAN;
+                let mut adm_v = f32::NAN;
+                // dep_top5
+                if need_top5 && nbrs[i].len() >= 5 {
                     let mut acc = 0.0f64;
                     for (pos, &j) in nbrs[i].iter().take(5).enumerate() {
                         let ju = j as usize;
@@ -91,33 +123,52 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                     dep_v = (acc / 5.0) as f32;
                 }
                 // dep_wmean: mean_j∈top50 (d_ij − d_ji) / max(d_ij, ε)
-                let mut wm = 0.0f64;
-                for &j in nbrs[i].iter() {
-                    let ju = j as usize;
-                    let wij = drow[ju] as f64;
-                    let wji = dir[ju * n + i] as f64;
-                    wm += (wij - wji) / wij.max(1e-9);
+                if need_wmean {
+                    let drow = &dir[i * n..(i + 1) * n];
+                    let mut wm = 0.0f64;
+                    for &j in nbrs[i].iter() {
+                        let ju = j as usize;
+                        let wij = drow[ju] as f64;
+                        let wji = dir[ju * n + i] as f64;
+                        wm += (wij - wji) / wij.max(1e-9);
+                    }
+                    wmean_v = if nbrs[i].is_empty() {
+                        f32::NAN
+                    } else {
+                        (wm / nbrs[i].len() as f64) as f32
+                    };
                 }
-                let wmean_v = if nbrs[i].is_empty() {
-                    f32::NAN
-                } else {
-                    (wm / nbrs[i].len() as f64) as f32
-                };
                 // dep_admirer: (被选中次数 − 互选次数) / 50
-                let mutual = nbrs[i]
-                    .iter()
-                    .filter(|&&j| nbrs_sorted[j as usize].binary_search(&(i as u32)).is_ok())
-                    .count();
-                let adm_v = (indeg[i] - mutual as u32) as f32 / k as f32;
+                if need_admirer {
+                    let mutual = nbrs[i]
+                        .iter()
+                        .filter(|&&j| {
+                            nbrs_sorted[j as usize].binary_search(&(i as u32)).is_ok()
+                        })
+                        .count();
+                    adm_v = (indeg[i] - mutual as u32) as f32 / k as f32;
+                }
                 [dep_v, wmean_v, adm_v]
             })
             .collect();
-        let dep: Vec<f32> = rows.iter().map(|r| r[0]).collect();
-        let wm: Vec<f32> = rows.iter().map(|r| r[1]).collect();
-        let adm: Vec<f32> = rows.iter().map(|r| r[2]).collect();
-        out.push(IndicatorResult::new(format!("dep_{mat}_top5"), dep));
-        out.push(IndicatorResult::new(format!("dep_{mat}_wmean"), wm));
-        out.push(IndicatorResult::new(format!("dep_{mat}_admirer"), adm));
+        if need_top5 {
+            out.push(IndicatorResult::new(
+                format!("dep_{mat}_top5"),
+                rows.iter().map(|r| r[0]).collect(),
+            ));
+        }
+        if need_wmean {
+            out.push(IndicatorResult::new(
+                format!("dep_{mat}_wmean"),
+                rows.iter().map(|r| r[1]).collect(),
+            ));
+        }
+        if need_admirer {
+            out.push(IndicatorResult::new(
+                format!("dep_{mat}_admirer"),
+                rows.iter().map(|r| r[2]).collect(),
+            ));
+        }
     }
     out
 }

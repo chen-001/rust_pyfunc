@@ -13,10 +13,22 @@ pub fn desc() -> &'static str {
     "同配性: 行内 corr(S_ij, Strength_j); 邻居强度减市场均值 (cnt_t1)"
 }
 
+/// lite 模式列级过滤（同矩阵两列只留一部分时按完整列名判定）。
+#[inline]
+fn kept(ctx: &IndicatorCtx, name: &str) -> bool {
+    match &ctx.keep {
+        None => true,
+        Some(k) => k.contains(name),
+    }
+}
+
 pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let n = ctx.n();
     let mut out = Vec::new();
     for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
+        if !ctx.wants("assort_", mat) {
+            continue;
+        }
         let sym = match ctx.symmetric(mat) {
             Some(s) => s,
             None => continue,
@@ -82,11 +94,15 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             })
             .collect();
         let minus_mean: Vec<f32> = nb_str.iter().map(|&v| v - mean_str as f32).collect();
-        out.push(IndicatorResult::new(format!("assort_{mat}_corr"), corr));
-        out.push(IndicatorResult::new(
-            format!("assort_{mat}_nb_str_minus_mean"),
-            minus_mean,
-        ));
+        if kept(ctx, &format!("assort_{mat}_corr")) {
+            out.push(IndicatorResult::new(format!("assort_{mat}_corr"), corr));
+        }
+        if kept(ctx, &format!("assort_{mat}_nb_str_minus_mean")) {
+            out.push(IndicatorResult::new(
+                format!("assort_{mat}_nb_str_minus_mean"),
+                minus_mean,
+            ));
+        }
     }
     out
 }

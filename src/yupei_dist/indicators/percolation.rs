@@ -108,10 +108,12 @@ impl Uf {
 
 /// 单张对称矩阵的渗流扫描，返回 (theta_star_norm, birth, stranded, width, comp)。
 /// width = θ(maxC≥25%N) − θ(maxC≥75%N) 的归一区间宽; comp = θ* 之上连通块大小/N。
+/// need_comp=false 时跳过 comp 的第二遍并查集（comp 全 NaN）。
 fn scan(
     sym: &[f32],
     n: usize,
     row_sums: &[f64],
+    need_comp: bool,
 ) -> (f32, Vec<f32>, Vec<f32>, f32, Vec<f32>) {
     // anchor = strength 最大股（并列取小索引）
     let mut anchor = 0usize;
@@ -161,8 +163,7 @@ fn scan(
             vec![f32::NAN; n],
             vec![f32::NAN; n],
             f32::NAN,
-            vec![f32::NAN; n],
-        );
+            vec![f32::NAN; n]);
     }
     let wmax = edges[0].0;
     let wmax_inv = 1.0 / wmax;
@@ -214,7 +215,7 @@ fn scan(
     };
     // comp: θ* 之上（w > θ* 原始权）无权图的每股连通块大小 / N，第二遍并查集
     let mut comp = vec![f32::NAN; n];
-    if theta_star.is_finite() {
+    if need_comp && theta_star.is_finite() {
         let tw = theta_star * wmax;
         let mut uf2 = Uf::new(n, u32::MAX, wmax_inv); // anchor 无意义, 仅复用结构
         for &(w, i, j) in &edges {
@@ -237,6 +238,9 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
         return out;
     }
     for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
+        if !ctx.wants("perc_", mat) {
+            continue;
+        }
         let sym = match ctx.symmetric(mat) {
             Some(s) => s,
             None => continue,
@@ -245,23 +249,26 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             Some(s) => s,
             None => continue,
         };
-        let (theta_star, _birth, stranded, width, comp) = scan(&sym, n, &row_sums);
-        out.push(IndicatorResult::new(
-            format!("perc_{mat}_theta"),
-            vec![theta_star; n],
-        ));
-        out.push(IndicatorResult::new(
-            format!("perc_{mat}_stranded"),
-            stranded,
-        ));
-        out.push(IndicatorResult::new(
-            format!("perc_{mat}_width"),
-            vec![width; n],
-        ));
-        out.push(IndicatorResult::new(
-            format!("perc_{mat}_comp"),
-            comp,
-        ));
+        // comp 列未幸存时跳过其第二遍并查集
+        let need_comp = match &ctx.keep {
+            None => true,
+            Some(k) => k.contains(format!("perc_{mat}_comp").as_str()),
+        };
+        let (theta_star, _birth, stranded, width, comp) = scan(&sym, n, &row_sums, need_comp);
+        emit(ctx, &mut out, format!("perc_{mat}_theta"), vec![theta_star; n]);
+        emit(ctx, &mut out, format!("perc_{mat}_stranded"), stranded);
+        emit(ctx, &mut out, format!("perc_{mat}_width"), vec![width; n]);
+        emit(ctx, &mut out, format!("perc_{mat}_comp"), comp);
     }
     out
+}
+
+/// 列级过滤: keep=None 全发; keep=Some 只发名单内列。
+fn emit(ctx: &IndicatorCtx, out: &mut Vec<IndicatorResult>, name: String, values: Vec<f32>) {
+    if let Some(k) = &ctx.keep {
+        if !k.contains(name.as_str()) {
+            return;
+        }
+    }
+    out.push(IndicatorResult::new(name, values));
 }

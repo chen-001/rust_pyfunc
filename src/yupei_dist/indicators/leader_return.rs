@@ -25,6 +25,9 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let shock: Vec<f64> = r.iter().map(|&x| (x - mean_r) / std_r).collect();
 
     for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
+        if !ctx.wants("ldr_", mat) {
+            continue;
+        }
         let d = match ctx.matrix(mat) {
             Some(m) => m,
             None => continue,
@@ -87,8 +90,12 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                 acc as f32
             })
             .collect();
-        out.push(IndicatorResult::new(format!("ldr_{mat}_return"), ret_col));
-        out.push(IndicatorResult::new(format!("ldr_{mat}_shock"), shock_col));
+        if ctx.keep.is_none() || ctx.keep.as_ref().unwrap().contains(format!("ldr_{mat}_return").as_str()) {
+            out.push(IndicatorResult::new(format!("ldr_{mat}_return"), ret_col));
+        }
+        if ctx.keep.is_none() || ctx.keep.as_ref().unwrap().contains(format!("ldr_{mat}_shock").as_str()) {
+            out.push(IndicatorResult::new(format!("ldr_{mat}_shock"), shock_col));
+        }
     }
     out
 }

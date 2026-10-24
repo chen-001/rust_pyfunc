@@ -28,6 +28,9 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let f_ret: Vec<f64> = stats.iter().map(|s| s.ret).collect();
 
     for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
+        if !ctx.wants("hid_", mat) {
+            continue;
+        }
         let sym = match ctx.symmetric(mat) {
             Some(s) => s,
             None => continue,
@@ -104,8 +107,8 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             .collect();
         let pos: Vec<f32> = col_pos.iter().map(|&(p, _)| p).collect();
         let neg: Vec<f32> = col_pos.iter().map(|&(_, q)| q).collect();
-        out.push(IndicatorResult::new(format!("hid_{mat}_degree_pos"), pos));
-        out.push(IndicatorResult::new(format!("hid_{mat}_degree_neg"), neg));
+        emit(ctx, &mut out, format!("hid_{mat}_degree_pos"), pos);
+        emit(ctx, &mut out, format!("hid_{mat}_degree_neg"), neg);
     }
     out
 }
@@ -180,4 +183,14 @@ fn solve(a: &[f64; P * P], b: &[f64; P]) -> [f64; P] {
         }
     }
     v
+}
+
+/// 列级过滤: keep=None 全发; keep=Some 只发名单内列。
+fn emit(ctx: &IndicatorCtx, out: &mut Vec<IndicatorResult>, name: String, values: Vec<f32>) {
+    if let Some(k) = &ctx.keep {
+        if !k.contains(name.as_str()) {
+            return;
+        }
+    }
+    out.push(IndicatorResult::new(name, values));
 }

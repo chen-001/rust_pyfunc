@@ -1261,6 +1261,14 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         m
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(
+        yupei_dist::compute::py_yupei_dist_lite,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        yupei_dist::compute::py_yupei_dist_lite_names,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
         yupei_dist::matrix_store::yupei_dist_backup_matrices,
         m
     )?)?;

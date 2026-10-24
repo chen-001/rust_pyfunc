@@ -24,6 +24,15 @@ pub fn desc() -> &'static str {
     "二/三跳触达缺口+邻居效率: lgap=ln(2-R), eff=R2/(deg+1) (top-50并集无权图, 全部28矩阵)"
 }
 
+/// lite 模式列级过滤（同矩阵兄弟列只留一部分时按完整列名判定）。
+#[inline]
+fn kept(ctx: &IndicatorCtx, name: &str) -> bool {
+    match &ctx.keep {
+        None => true,
+        Some(k) => k.contains(name),
+    }
+}
+
 fn union_adj(n: usize, nbrs: &[Vec<u32>]) -> Vec<Vec<u32>> {
     let mut edges: BTreeSet<(u32, u32)> = BTreeSet::new();
     for (i, list) in nbrs.iter().enumerate() {
@@ -48,10 +57,17 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let mut out = Vec::new();
     let k = 50usize;
     for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
+        // lite 模式：三族列任一幸存才算；reach3 位图最贵, 单列门
+        if !ctx.wants_any(&["reach2_", "reach3_", "reach_"], mat) {
+            continue;
+        }
         let sym = match ctx.symmetric(mat) {
             Some(s) => s,
             None => continue,
         };
+        let need2 = kept(ctx, &format!("reach2_{mat}_lgap"));
+        let need3 = kept(ctx, &format!("reach3_{mat}_lgap"));
+        let need_eff = kept(ctx, &format!("reach_{mat}_eff"));
         let nbrs: Vec<Vec<u32>> = (0..n)
             .into_par_iter()
             .map(|i| topk_select_indices(&sym[i * n..(i + 1) * n], k))
@@ -65,40 +81,71 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                 let set = |bm: &mut Vec<u64>, x: u32| {
                     bm[(x >> 6) as usize] |= 1u64 << (x & 63);
                 };
-                set(&mut bm, i as u32); // 自身置位, 最后从计数里扣掉
-                set(&mut bm3, i as u32);
+                let two = need2 || need_eff;
+                if two {
+                    set(&mut bm, i as u32); // 自身置位, 最后从计数里扣掉
+                }
+                if need3 {
+                    set(&mut bm3, i as u32);
+                }
                 for &j in adj[i].iter() {
-                    set(&mut bm, j);
-                    set(&mut bm3, j);
+                    if two {
+                        set(&mut bm, j);
+                    }
+                    if need3 {
+                        set(&mut bm3, j);
+                    }
                     for &q in adj[j as usize].iter() {
-                        set(&mut bm, q);
-                        set(&mut bm3, q);
-                        for &r in adj[q as usize].iter() {
-                            set(&mut bm3, r);
+                        if two {
+                            set(&mut bm, q);
+                        }
+                        if need3 {
+                            set(&mut bm3, q);
+                            for &r in adj[q as usize].iter() {
+                                set(&mut bm3, r);
+                            }
                         }
                     }
                 }
-                let cnt: u64 = bm.iter().map(|w| w.count_ones() as u64).sum();
-                let cnt3: u64 = bm3.iter().map(|w| w.count_ones() as u64).sum();
-                let reached = cnt.saturating_sub(1); // 扣自身
-                let reached3 = cnt3.saturating_sub(1);
                 let den = (n - 1).max(1) as f64;
-                let r2 = reached as f64 / den;
-                let r3 = reached3 as f64 / den;
-                let lgap = (2.0 - r2).ln() as f32;
-                let lgap3 = (2.0 - r3).ln() as f32;
-                let deg = adj[i].len() as f64;
-                // 无邻居时 reach=0 → lgap=ln2, eff 按 0/(0+1)=0 给出（深井最极端端）
-                let eff = (r2 / (deg + 1.0)) as f32;
+                let mut lgap = f32::NAN;
+                let mut lgap3 = f32::NAN;
+                let mut eff = f32::NAN;
+                let mut r2 = 0.0f64;
+                if two {
+                    let cnt: u64 = bm.iter().map(|w| w.count_ones() as u64).sum();
+                    r2 = cnt.saturating_sub(1) as f64 / den;
+                    lgap = (2.0 - r2).ln() as f32;
+                }
+                if need3 {
+                    let cnt3: u64 = bm3.iter().map(|w| w.count_ones() as u64).sum();
+                    lgap3 = (2.0 - cnt3.saturating_sub(1) as f64 / den).ln() as f32;
+                }
+                if need_eff {
+                    // 无邻居时 reach=0 → eff 按 0/(0+1)=0（深井最极端端）
+                    eff = (r2 / (adj[i].len() as f64 + 1.0)) as f32;
+                }
                 [lgap, lgap3, eff]
             })
             .collect();
-        let l2: Vec<f32> = rows.iter().map(|r| r[0]).collect();
-        let l3: Vec<f32> = rows.iter().map(|r| r[1]).collect();
-        let eff: Vec<f32> = rows.iter().map(|r| r[2]).collect();
-        out.push(IndicatorResult::new(format!("reach2_{mat}_lgap"), l2));
-        out.push(IndicatorResult::new(format!("reach3_{mat}_lgap"), l3));
-        out.push(IndicatorResult::new(format!("reach_{mat}_eff"), eff));
+        if need2 {
+            out.push(IndicatorResult::new(
+                format!("reach2_{mat}_lgap"),
+                rows.iter().map(|r| r[0]).collect(),
+            ));
+        }
+        if need3 {
+            out.push(IndicatorResult::new(
+                format!("reach3_{mat}_lgap"),
+                rows.iter().map(|r| r[1]).collect(),
+            ));
+        }
+        if need_eff {
+            out.push(IndicatorResult::new(
+                format!("reach_{mat}_eff"),
+                rows.iter().map(|r| r[2]).collect(),
+            ));
+        }
     }
     out
 }

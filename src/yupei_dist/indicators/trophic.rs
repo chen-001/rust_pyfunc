@@ -25,6 +25,15 @@ pub fn desc() -> &'static str {
     "营养层级: inco=mean_{top50出边}(h_j-h_i-1)^2; span=top50邻居h极差 (Λh=入强-出强, 全部28矩阵)"
 }
 
+/// lite 模式列级过滤（同矩阵兄弟列只留一部分时按完整列名判定）。
+#[inline]
+fn kept(ctx: &IndicatorCtx, name: &str) -> bool {
+    match &ctx.keep {
+        None => true,
+        Some(k) => k.contains(name),
+    }
+}
+
 /// Jacobi 预条件 CG 解缩边拉普拉斯系统 A'x=b'（去锚节点）。
 /// nodes: 分量内全局节点升序, 末位是锚（x≡0, 不参与求解）;
 /// adj_w: 全局对称权邻接 Wt; deg_w: ΣWt。rhs 长度 = nodes.len()-1。
@@ -93,6 +102,9 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let mut out = Vec::new();
     let k = 50usize;
     for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
+        if !ctx.wants("trophic_", mat) {
+            continue;
+        }
         let sym = match ctx.symmetric(mat) {
             Some(s) => s,
             None => continue,
@@ -205,10 +217,18 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                 ]
             })
             .collect();
-        let inco: Vec<f32> = rows.iter().map(|r| r[0]).collect();
-        let span: Vec<f32> = rows.iter().map(|r| r[1]).collect();
-        out.push(IndicatorResult::new(format!("trophic_{mat}_inco"), inco));
-        out.push(IndicatorResult::new(format!("trophic_{mat}_span"), span));
+        if kept(ctx, &format!("trophic_{mat}_inco")) {
+            out.push(IndicatorResult::new(
+                format!("trophic_{mat}_inco"),
+                rows.iter().map(|r| r[0]).collect(),
+            ));
+        }
+        if kept(ctx, &format!("trophic_{mat}_span")) {
+            out.push(IndicatorResult::new(
+                format!("trophic_{mat}_span"),
+                rows.iter().map(|r| r[1]).collect(),
+            ));
+        }
     }
     out
 }

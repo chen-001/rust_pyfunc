@@ -18,6 +18,9 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let k = 50usize;
     let mut out = Vec::new();
     for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
+        if !ctx.wants("star_", mat) {
+            continue;
+        }
         let sym = match ctx.symmetric(mat) {
             Some(s) => s,
             None => continue,
@@ -62,7 +65,17 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                 (row_sums[i] as f32) * (1.0 - cc)
             })
             .collect();
-        out.push(IndicatorResult::new(format!("star_{mat}_score"), col));
+        emit(ctx, &mut out, format!("star_{mat}_score"), col);
     }
     out
+}
+
+/// 列级过滤: keep=None 全发; keep=Some 只发名单内列。
+fn emit(ctx: &IndicatorCtx, out: &mut Vec<IndicatorResult>, name: String, values: Vec<f32>) {
+    if let Some(k) = &ctx.keep {
+        if !k.contains(name.as_str()) {
+            return;
+        }
+    }
+    out.push(IndicatorResult::new(name, values));
 }

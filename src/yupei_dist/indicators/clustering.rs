@@ -25,6 +25,10 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let mut out = Vec::new();
     let k = 50usize;
     for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
+        // lite 模式：该矩阵 clu_ 列幸存才往下算
+        if !ctx.wants("clu_", mat) {
+            continue;
+        }
         let sym = match ctx.symmetric(mat) {
             Some(s) => s,
             None => continue,

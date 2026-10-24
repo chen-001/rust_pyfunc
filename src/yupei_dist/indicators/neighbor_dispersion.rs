@@ -19,6 +19,15 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let r: Vec<f64> = stats.iter().map(|s| s.ret).collect();
     let mut out = Vec::new();
     for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
+        if !ctx.wants("nbz_", mat) {
+            continue;
+        }
+        let nm = format!("nbz_{mat}_return_dispersion");
+        if let Some(k) = &ctx.keep {
+            if !k.contains(nm.as_str()) {
+                continue;
+            }
+        }
         let sym = match ctx.symmetric(mat) {
             Some(s) => s,
             None => continue,
@@ -52,10 +61,7 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                 var.sqrt() as f32
             })
             .collect();
-        out.push(IndicatorResult::new(
-            format!("nbz_{mat}_return_dispersion"),
-            col,
-        ));
+        out.push(IndicatorResult::new(nm, col));
     }
     out
 }

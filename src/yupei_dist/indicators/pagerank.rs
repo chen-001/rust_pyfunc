@@ -18,6 +18,9 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let n = ctx.n();
     let mut out = Vec::new();
     for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
+        if !ctx.wants("pr_", mat) {
+            continue;
+        }
         let d = match ctx.matrix(mat) {
             Some(m) => m,
             None => continue,
@@ -63,7 +66,17 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             }
         }
         let col: Vec<f32> = rank.iter().map(|&x| x as f32).collect();
-        out.push(IndicatorResult::new(format!("pr_{mat}_pagerank"), col));
+        emit(ctx, &mut out, format!("pr_{mat}_pagerank"), col);
     }
     out
+}
+
+/// 列级过滤: keep=None 全发; keep=Some 只发名单内列。
+fn emit(ctx: &IndicatorCtx, out: &mut Vec<IndicatorResult>, name: String, values: Vec<f32>) {
+    if let Some(k) = &ctx.keep {
+        if !k.contains(name.as_str()) {
+            return;
+        }
+    }
+    out.push(IndicatorResult::new(name, values));
 }

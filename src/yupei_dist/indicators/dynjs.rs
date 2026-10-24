@@ -20,17 +20,33 @@ pub fn desc() -> &'static str {
     "跨日行分布: dynjs=共同支撑集JS散度; dynjs_dir=共同支撑集熵差(当日-前日) (全部28矩阵)"
 }
 
+/// lite 模式列级过滤（同矩阵兄弟列只留一部分时按完整列名判定）。
+#[inline]
+fn kept(ctx: &IndicatorCtx, name: &str) -> bool {
+    match &ctx.keep {
+        None => true,
+        Some(k) => k.contains(name),
+    }
+}
+
 pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let n = ctx.n();
     let mut out = Vec::new();
     let prev = match ctx.prev {
         Some(ref p) => p,
         None => {
-            // 无前一日数据（批量首日）: 输出 NaN 列保持因子长度
+            // 无前一日数据（批量首日）: 幸存列输出 NaN 保长度（lite 下仍走 wants/kept）
             for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
+                if !ctx.wants("dynjs_", mat) {
+                    continue;
+                }
                 let nan = vec![f32::NAN; n];
-                out.push(IndicatorResult::new(format!("dynjs_{mat}"), nan.clone()));
-                out.push(IndicatorResult::new(format!("dynjs_{mat}_dir"), nan));
+                if kept(ctx, &format!("dynjs_{mat}")) {
+                    out.push(IndicatorResult::new(format!("dynjs_{mat}"), nan.clone()));
+                }
+                if kept(ctx, &format!("dynjs_{mat}_dir")) {
+                    out.push(IndicatorResult::new(format!("dynjs_{mat}_dir"), nan));
+                }
             }
             return out;
         }
@@ -40,6 +56,9 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let map: Vec<Option<usize>> = ctx.codes().iter().map(|c| prev.prev_idx(c)).collect();
 
     for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
+        if !ctx.wants("dynjs_", mat) {
+            continue;
+        }
         let sym = match ctx.symmetric(mat) {
             Some(s) => s,
             None => continue,
@@ -49,8 +68,12 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             Some(m) => m.as_slice(),
             None => {
                 let nan = vec![f32::NAN; n];
-                out.push(IndicatorResult::new(format!("dynjs_{mat}"), nan.clone()));
-                out.push(IndicatorResult::new(format!("dynjs_{mat}_dir"), nan));
+                if kept(ctx, &format!("dynjs_{mat}")) {
+                    out.push(IndicatorResult::new(format!("dynjs_{mat}"), nan.clone()));
+                }
+                if kept(ctx, &format!("dynjs_{mat}_dir")) {
+                    out.push(IndicatorResult::new(format!("dynjs_{mat}_dir"), nan));
+                }
                 continue;
             }
         };
@@ -130,10 +153,18 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                 [js as f32, (ha - hb) as f32]
             })
             .collect();
-        let js: Vec<f32> = rows.iter().map(|r| r[0]).collect();
-        let dir: Vec<f32> = rows.iter().map(|r| r[1]).collect();
-        out.push(IndicatorResult::new(format!("dynjs_{mat}"), js));
-        out.push(IndicatorResult::new(format!("dynjs_{mat}_dir"), dir));
+        if kept(ctx, &format!("dynjs_{mat}")) {
+            out.push(IndicatorResult::new(
+                format!("dynjs_{mat}"),
+                rows.iter().map(|r| r[0]).collect(),
+            ));
+        }
+        if kept(ctx, &format!("dynjs_{mat}_dir")) {
+            out.push(IndicatorResult::new(
+                format!("dynjs_{mat}_dir"),
+                rows.iter().map(|r| r[1]).collect(),
+            ));
+        }
     }
     out
 }

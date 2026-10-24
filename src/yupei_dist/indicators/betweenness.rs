@@ -17,6 +17,10 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let n = ctx.n();
     let mut out = Vec::new();
     for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
+        // lite 模式：该矩阵 btw_ 列幸存才往下算（单列全弃则整矩阵跳过）
+        if !ctx.wants("btw_", mat) {
+            continue;
+        }
         let sym = match ctx.symmetric(mat) {
             Some(s) => s,
             None => continue,

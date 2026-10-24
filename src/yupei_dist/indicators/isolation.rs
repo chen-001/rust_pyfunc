@@ -16,6 +16,9 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let n = ctx.n();
     let mut out = Vec::new();
     for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
+        if !ctx.wants("iso_", mat) {
+            continue;
+        }
         let sym = match ctx.symmetric(mat) {
             Some(s) => s,
             None => continue,
@@ -38,14 +41,20 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                 -(s / 5.0)
             })
             .collect();
-        out.push(IndicatorResult::new(
-            format!("iso_{mat}_inv_strength"),
-            inv_s,
-        ));
-        out.push(IndicatorResult::new(
-            format!("iso_{mat}_neg_top5"),
-            neg_top5,
-        ));
+        emit(ctx, &mut out, format!("iso_{mat}_inv_strength"),
+            inv_s,);
+        emit(ctx, &mut out, format!("iso_{mat}_neg_top5"),
+            neg_top5,);
     }
     out
+}
+
+/// 列级过滤: keep=None 全发; keep=Some 只发名单内列。
+fn emit(ctx: &IndicatorCtx, out: &mut Vec<IndicatorResult>, name: String, values: Vec<f32>) {
+    if let Some(k) = &ctx.keep {
+        if !k.contains(name.as_str()) {
+            return;
+        }
+    }
+    out.push(IndicatorResult::new(name, values));
 }

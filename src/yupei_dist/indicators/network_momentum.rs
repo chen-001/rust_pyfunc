@@ -18,6 +18,15 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let r: Vec<f64> = stats.iter().map(|s| s.ret).collect();
     let mut out = Vec::new();
     for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
+        if !ctx.wants("mom_", mat) {
+            continue;
+        }
+        let nm = format!("mom_{mat}_network_momentum");
+        if let Some(k) = &ctx.keep {
+            if !k.contains(nm.as_str()) {
+                continue;
+            }
+        }
         let sym = match ctx.symmetric(mat) {
             Some(s) => s,
             None => continue,
@@ -44,10 +53,7 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                 acc as f32
             })
             .collect();
-        out.push(IndicatorResult::new(
-            format!("mom_{mat}_network_momentum"),
-            col,
-        ));
+        out.push(IndicatorResult::new(nm, col));
     }
     out
 }

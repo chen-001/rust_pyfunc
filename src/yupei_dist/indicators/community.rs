@@ -17,13 +17,19 @@ pub fn desc() -> &'static str {
 
 pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let n = ctx.n();
-    // 串行收集矩阵（symmetric 缓存顺序不变）
+    // 串行收集矩阵（symmetric 缓存顺序不变; lite 模式下无幸存列的矩阵跳过）
     let syms: Vec<Option<std::sync::Arc<Vec<f32>>>> = crate::yupei_dist::indicator_ctx::MATRIX_LIST
         .iter()
-        .map(|m| ctx.symmetric(m))
+        .map(|m| {
+            if !ctx.wants("comm_", m) {
+                return None;
+            }
+            ctx.symmetric(m)
+        })
         .collect();
     // 矩阵级并行（每矩阵内部 Louvain 串行; 确定性: 结果按矩阵索引收集）
-    let per_mat: Vec<Vec<IndicatorResult>> = syms
+    // 注: IndicatorCtx 含 RefCell 不可跨线程, keep 过滤在收集后做（compute_one 返回全部候选列）
+    let per_mat: Vec<Vec<(String, Vec<f32>)>> = syms
         .into_par_iter()
         .enumerate()
         .map(|(mi, sym)| match sym {
@@ -31,11 +37,19 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             None => Vec::new(),
         })
         .collect();
-    per_mat.into_iter().flatten().collect()
+    per_mat
+        .into_iter()
+        .flatten()
+        .filter(|(name, _)| match &ctx.keep {
+            None => true,
+            Some(k) => k.contains(name.as_str()),
+        })
+        .map(|(name, values)| IndicatorResult::new(name, values))
+        .collect()
 }
 
-/// 单矩阵社群计算（top-50 邻接 + Louvain + 指标; 确定性）
-fn compute_one(n: usize, mat: &str, sym: &[f32]) -> Vec<IndicatorResult> {
+/// 单矩阵社群计算（top-50 邻接 + Louvain + 指标; 确定性; 返回候选列, keep 过滤在调用方）
+fn compute_one(n: usize, mat: &str, sym: &[f32]) -> Vec<(String, Vec<f32>)> {
     let mut out = Vec::new();
     // ---- 构建无向加权邻接表（每行 top-50; 边保留当 i∈top50(j) 或 j∈top50(i), 权重=(S_ij+S_ji)/2）
     let k = 50usize;
@@ -196,13 +210,10 @@ fn compute_one(n: usize, mat: &str, sym: &[f32]) -> Vec<IndicatorResult> {
     let outside: Vec<f32> = rows.iter().map(|&(_, b, _, _)| b).collect();
     let purity: Vec<f32> = rows.iter().map(|&(_, _, c, _)| c).collect();
     let part: Vec<f32> = rows.iter().map(|&(_, _, _, d)| d).collect();
-    out.push(IndicatorResult::new(format!("comm_{mat}_size"), size_col));
-    out.push(IndicatorResult::new(format!("comm_{mat}_within"), within));
-    out.push(IndicatorResult::new(format!("comm_{mat}_outside"), outside));
-    out.push(IndicatorResult::new(format!("comm_{mat}_purity"), purity));
-    out.push(IndicatorResult::new(
-        format!("comm_{mat}_participation"),
-        part,
-    ));
+    out.push((format!("comm_{mat}_size"), size_col));
+    out.push((format!("comm_{mat}_within"), within));
+    out.push((format!("comm_{mat}_outside"), outside));
+    out.push((format!("comm_{mat}_purity"), purity));
+    out.push((format!("comm_{mat}_participation"), part));
     out
 }

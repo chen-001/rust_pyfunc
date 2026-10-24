@@ -25,6 +25,9 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
         None => {
             // 无前一日数据（批量首日）: 输出 NaN 列保持因子长度
             for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
+                if !ctx.wants("dyn_", mat) {
+                    continue;
+                }
                 let nan = vec![f32::NAN; n];
                 for s in [
                     "edge_persistence",
@@ -49,6 +52,9 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let k = 10usize;
 
     for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
+        if !ctx.wants("dyn_", mat) {
+            continue;
+        }
         let sym = match ctx.symmetric(mat) {
             Some(s) => s,
             None => continue,

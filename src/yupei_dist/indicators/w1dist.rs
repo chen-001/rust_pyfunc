@@ -61,6 +61,9 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let n = ctx.n();
     let mut out = Vec::new();
     for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
+        if !ctx.wants("w1_", mat) {
+            continue;
+        }
         let sym = match ctx.symmetric(mat) {
             Some(s) => s,
             None => continue,
@@ -84,8 +87,12 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
         }
         if mkt.is_empty() {
             let nan = vec![f32::NAN; n];
-            out.push(IndicatorResult::new(format!("w1_{mat}"), nan.clone()));
-            out.push(IndicatorResult::new(format!("w1_{mat}_asym"), nan));
+            if ctx.keep.is_none() || ctx.keep.as_ref().unwrap().contains(format!("w1_{mat}").as_str()) {
+                out.push(IndicatorResult::new(format!("w1_{mat}"), nan.clone()));
+            }
+            if ctx.keep.is_none() || ctx.keep.as_ref().unwrap().contains(format!("w1_{mat}_asym").as_str()) {
+                out.push(IndicatorResult::new(format!("w1_{mat}_asym"), nan));
+            }
             continue;
         }
         mkt.par_sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
@@ -132,8 +139,12 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             .collect();
         let w1: Vec<f32> = both.iter().map(|t| t.0).collect();
         let asym: Vec<f32> = both.iter().map(|t| t.1).collect();
-        out.push(IndicatorResult::new(format!("w1_{mat}"), w1));
-        out.push(IndicatorResult::new(format!("w1_{mat}_asym"), asym));
+        if ctx.keep.is_none() || ctx.keep.as_ref().unwrap().contains(format!("w1_{mat}").as_str()) {
+            out.push(IndicatorResult::new(format!("w1_{mat}"), w1));
+        }
+        if ctx.keep.is_none() || ctx.keep.as_ref().unwrap().contains(format!("w1_{mat}_asym").as_str()) {
+            out.push(IndicatorResult::new(format!("w1_{mat}_asym"), asym));
+        }
     }
     out
 }

@@ -2,7 +2,7 @@
 //! 与 sandbox 版 API 保持一致（indicators/*.rs 无需改动即可编译）。
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use super::matrix_stage::{StockStats, MATRIX_SPECS};
@@ -115,6 +115,9 @@ pub struct IndicatorCtx<'a> {
     pub prev: Option<PrevDay<'a>>,
     sym_cache: RefCell<HashMap<String, Arc<Vec<f32>>>>,
     rowsum_cache: RefCell<HashMap<String, Arc<Vec<f64>>>>,
+    /// 精简模式：只算这些列名。None = 全量。
+    /// 值取自 lite_names.rs 的 YUPEI_DIST_LITE_NAMES（或调用方给定子集）。
+    pub keep: Option<HashSet<&'static str>>,
 }
 
 impl<'a> IndicatorCtx<'a> {
@@ -124,6 +127,50 @@ impl<'a> IndicatorCtx<'a> {
             prev,
             sym_cache: RefCell::new(HashMap::new()),
             rowsum_cache: RefCell::new(HashMap::new()),
+            keep: None,
+        }
+    }
+
+    /// 精简模式构造：keep=要算的完整列名集合。
+    pub fn with_keep(
+        set: &'a MatrixSet,
+        prev: Option<PrevDay<'a>>,
+        keep: HashSet<&'static str>,
+    ) -> Self {
+        IndicatorCtx { keep: Some(keep), ..Self::new(set, prev) }
+    }
+
+    /// 该模块在矩阵 mat 上是否有要算的列。
+    /// prefix 是列名中矩阵名之前的部分（如 "dep_"、"maxst_"）。
+    /// keep=None（全量模式）恒真；keep=Some 时查 "{prefix}{mat}" 是否任一幸存列的前缀。
+    /// 实现：幸存列名是 "{prefix}{mat}_{suffix}" 或 "{prefix}{mat}" 结尾，
+    /// 用 starts_with("{prefix}{mat}") 判定（mat 名含 '_'，不会误配 cnt_t1 vs cnt_t30）。
+    pub fn wants(&self, prefix: &str, mat: &str) -> bool {
+        match &self.keep {
+            None => true,
+            Some(k) => {
+                let head = format!("{prefix}{mat}");
+                k.iter().any(|n| n.starts_with(head.as_str()))
+            }
+        }
+    }
+
+    /// 同 wants，但模块在该矩阵上出多个前缀的列时任一命中即算。
+    pub fn wants_any(&self, prefixes: &[&str], mat: &str) -> bool {
+        match &self.keep {
+            None => true,
+            Some(k) => prefixes.iter().any(|p| {
+                let head = format!("{p}{mat}");
+                k.iter().any(|n| n.starts_with(head.as_str()))
+            }),
+        }
+    }
+
+    /// 单个无矩阵列（标量/非 mat 命名）是否幸存。
+    pub fn keep_name(&self, name: &'static str) -> bool {
+        match &self.keep {
+            None => true,
+            Some(k) => k.contains(name),
         }
     }
 

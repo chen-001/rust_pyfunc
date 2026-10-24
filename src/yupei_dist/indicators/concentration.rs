@@ -13,10 +13,21 @@ pub fn desc() -> &'static str {
     "集中度: HHI/熵/归一化熵/Top3·5·10占比 (cnt_t1, rvol_t1)"
 }
 
+/// lite 模式下只推幸存列。
+fn emit(ctx: &IndicatorCtx, out: &mut Vec<IndicatorResult>, name: String, col: Vec<f32>) {
+    match &ctx.keep {
+        Some(k) if !k.contains(name.as_str()) => {}
+        _ => out.push(IndicatorResult::new(name, col)),
+    }
+}
+
 pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let n = ctx.n();
     let mut out = Vec::new();
     for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
+        if !ctx.wants("conc_", mat) {
+            continue;
+        }
         let sym = match ctx.symmetric(mat) {
             Some(s) => s,
             None => continue,
@@ -96,7 +107,7 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             ("top5_share", t5),
             ("top10_share", t10),
         ] {
-            out.push(IndicatorResult::new(format!("conc_{mat}_{name}"), col));
+            emit(ctx, &mut out, format!("conc_{mat}_{name}"), col);
         }
     }
     out

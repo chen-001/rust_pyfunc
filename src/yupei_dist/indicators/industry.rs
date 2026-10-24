@@ -21,24 +21,24 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
         None => {
             // 无行业数据（批量日期未提取）: 输出 NaN 列保持因子长度
             for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
+        if !ctx.wants("ind_", mat) {
+            continue;
+        }
                 let nan = vec![f32::NAN; n];
-                out.push(IndicatorResult::new(
-                    format!("ind_{mat}_within"),
-                    nan.clone(),
-                ));
-                out.push(IndicatorResult::new(
-                    format!("ind_{mat}_cross_ratio"),
-                    nan.clone(),
-                ));
-                out.push(IndicatorResult::new(
-                    format!("ind_{mat}_mismatch"),
-                    nan.clone(),
-                ));
+                emit(ctx, &mut out, format!("ind_{mat}_within"),
+                    nan.clone(),);
+                emit(ctx, &mut out, format!("ind_{mat}_cross_ratio"),
+                    nan.clone(),);
+                emit(ctx, &mut out, format!("ind_{mat}_mismatch"),
+                    nan.clone(),);
             }
             return out;
         }
     };
     for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
+        if !ctx.wants("ind_", mat) {
+            continue;
+        }
         let sym = match ctx.symmetric(mat) {
             Some(s) => s,
             None => continue,
@@ -82,12 +82,20 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
         let within: Vec<f32> = rows.iter().map(|&(a, _)| a).collect();
         let cross: Vec<f32> = rows.iter().map(|&(_, b)| b).collect();
         let mism: Vec<f32> = rows.iter().map(|&(_, b)| b).collect();
-        out.push(IndicatorResult::new(format!("ind_{mat}_within"), within));
-        out.push(IndicatorResult::new(
-            format!("ind_{mat}_cross_ratio"),
-            cross,
-        ));
-        out.push(IndicatorResult::new(format!("ind_{mat}_mismatch"), mism));
+        emit(ctx, &mut out, format!("ind_{mat}_within"), within);
+        emit(ctx, &mut out, format!("ind_{mat}_cross_ratio"),
+            cross,);
+        emit(ctx, &mut out, format!("ind_{mat}_mismatch"), mism);
     }
     out
+}
+
+/// 列级过滤: keep=None 全发; keep=Some 只发名单内列。
+fn emit(ctx: &IndicatorCtx, out: &mut Vec<IndicatorResult>, name: String, values: Vec<f32>) {
+    if let Some(k) = &ctx.keep {
+        if !k.contains(name.as_str()) {
+            return;
+        }
+    }
+    out.push(IndicatorResult::new(name, values));
 }

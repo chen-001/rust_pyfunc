@@ -24,6 +24,15 @@ pub fn desc() -> &'static str {
     "Forman 边曲率: mean=等权均值; negfrac=F<0占比; wmean=按边权加权均值 (top-50并集无权图, 全部28矩阵)"
 }
 
+/// lite 模式列级过滤（同矩阵兄弟列只留一部分时按完整列名判定）。
+#[inline]
+fn kept(ctx: &IndicatorCtx, name: &str) -> bool {
+    match &ctx.keep {
+        None => true,
+        Some(k) => k.contains(name),
+    }
+}
+
 /// 由每行 top-k 名单构建对称无权邻接表（并集）, 邻接按索引升序（确定性）。
 fn union_adj(n: usize, nbrs: &[Vec<u32>]) -> Vec<Vec<u32>> {
     let mut edges: BTreeSet<(u32, u32)> = BTreeSet::new();
@@ -48,6 +57,9 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let mut out = Vec::new();
     let k = 50usize;
     for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
+        if !ctx.wants("forman_", mat) {
+            continue;
+        }
         let sym = match ctx.symmetric(mat) {
             Some(s) => s,
             None => continue,
@@ -103,12 +115,24 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                 [mean_v, negf_v, wmean_v]
             })
             .collect();
-        let mean: Vec<f32> = rows.iter().map(|r| r[0]).collect();
-        let negf: Vec<f32> = rows.iter().map(|r| r[1]).collect();
-        let wmean: Vec<f32> = rows.iter().map(|r| r[2]).collect();
-        out.push(IndicatorResult::new(format!("forman_{mat}_mean"), mean));
-        out.push(IndicatorResult::new(format!("forman_{mat}_negfrac"), negf));
-        out.push(IndicatorResult::new(format!("forman_{mat}_wmean"), wmean));
+        if kept(ctx, &format!("forman_{mat}_mean")) {
+            out.push(IndicatorResult::new(
+                format!("forman_{mat}_mean"),
+                rows.iter().map(|r| r[0]).collect(),
+            ));
+        }
+        if kept(ctx, &format!("forman_{mat}_negfrac")) {
+            out.push(IndicatorResult::new(
+                format!("forman_{mat}_negfrac"),
+                rows.iter().map(|r| r[1]).collect(),
+            ));
+        }
+        if kept(ctx, &format!("forman_{mat}_wmean")) {
+            out.push(IndicatorResult::new(
+                format!("forman_{mat}_wmean"),
+                rows.iter().map(|r| r[2]).collect(),
+            ));
+        }
     }
     out
 }

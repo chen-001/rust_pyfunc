@@ -42,6 +42,16 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
         ("urg_same_t1", "urg_same_t30"),
         ("ext_same_t1", "ext_same_t5"),
     ] {
+        let tag = format!("ms_{fast_n}_{slow_n}");
+        if !ctx.wants("ms_", &format!("{fast_n}_{slow_n}")) {
+            continue;
+        }
+        let kept = |suffix: &str| -> bool {
+            match &ctx.keep {
+                Some(k) => k.contains(format!("{tag}_{suffix}").as_str()),
+                None => true,
+            }
+        };
         let fast = match ctx.symmetric(fast_n) {
             Some(s) => s,
             None => continue,
@@ -58,51 +68,61 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             Some(s) => s,
             None => continue,
         };
-        let fast_s: Vec<f32> = fast_sum.iter().map(|&v| v as f32).collect();
-        let slow_s: Vec<f32> = slow_sum.iter().map(|&v| v as f32).collect();
-        let ratio: Vec<f32> = fast_s
-            .iter()
-            .zip(slow_s.iter())
-            .map(|(&f, &s)| f / (s + 1e-9))
-            .collect();
-        let top10_f: Vec<Vec<u32>> = (0..n)
-            .into_par_iter()
-            .map(|i| topk(&fast[i * n..(i + 1) * n], 10))
-            .collect();
-        let top10_s: Vec<Vec<u32>> = (0..n)
-            .into_par_iter()
-            .map(|i| topk(&slow[i * n..(i + 1) * n], 10))
-            .collect();
-        let jaccard: Vec<f32> = (0..n)
-            .into_par_iter()
-            .map(|i| {
-                let a = &top10_f[i];
-                let b = &top10_s[i];
-                let mut inter = 0usize;
-                for &x in a.iter() {
-                    if b.contains(&x) {
-                        inter += 1;
+        if kept("fast_strength") {
+            out.push(IndicatorResult::new(
+                format!("{tag}_fast_strength"),
+                fast_sum.iter().map(|&v| v as f32).collect::<Vec<_>>(),
+            ));
+        }
+        if kept("slow_strength") {
+            out.push(IndicatorResult::new(
+                format!("{tag}_slow_strength"),
+                slow_sum.iter().map(|&v| v as f32).collect::<Vec<_>>(),
+            ));
+        }
+        if kept("fast_slow_ratio") {
+            out.push(IndicatorResult::new(
+                format!("{tag}_fast_slow_ratio"),
+                fast_sum
+                    .iter()
+                    .zip(slow_sum.iter())
+                    .map(|(&f, &s)| (f / (s + 1e-9)) as f32)
+                    .collect::<Vec<f32>>(),
+            ));
+        }
+        if kept("scale_consistency") {
+            let top10_f: Vec<Vec<u32>> = (0..n)
+                .into_par_iter()
+                .map(|i| topk(&fast[i * n..(i + 1) * n], 10))
+                .collect();
+            let top10_s: Vec<Vec<u32>> = (0..n)
+                .into_par_iter()
+                .map(|i| topk(&slow[i * n..(i + 1) * n], 10))
+                .collect();
+            let jaccard: Vec<f32> = (0..n)
+                .into_par_iter()
+                .map(|i| {
+                    let a = &top10_f[i];
+                    let b = &top10_s[i];
+                    let mut inter = 0usize;
+                    for &x in a.iter() {
+                        if b.contains(&x) {
+                            inter += 1;
+                        }
                     }
-                }
-                let union = a.len() + b.len() - inter;
-                if union > 0 {
-                    inter as f32 / union as f32
-                } else {
-                    0.0
-                }
-            })
-            .collect();
-        let tag = format!("ms_{fast_n}_{slow_n}");
-        out.push(IndicatorResult::new(format!("{tag}_fast_strength"), fast_s));
-        out.push(IndicatorResult::new(format!("{tag}_slow_strength"), slow_s));
-        out.push(IndicatorResult::new(
-            format!("{tag}_fast_slow_ratio"),
-            ratio,
-        ));
-        out.push(IndicatorResult::new(
-            format!("{tag}_scale_consistency"),
-            jaccard,
-        ));
+                    let union = a.len() + b.len() - inter;
+                    if union > 0 {
+                        inter as f32 / union as f32
+                    } else {
+                        0.0
+                    }
+                })
+                .collect();
+            out.push(IndicatorResult::new(
+                format!("{tag}_scale_consistency"),
+                jaccard,
+            ));
+        }
     }
     out
 }

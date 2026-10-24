@@ -21,6 +21,9 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let mut out = Vec::new();
     // 盈余对多矩阵: τ 不同 → c = 2τ/T 不同; 权重按矩阵家族取对应 sum_w
     for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
+        if !ctx.wants("srp_", mat) {
+            continue;
+        }
         let tau = crate::yupei_dist::indicator_ctx::matrix_tau(mat);
         let sym = match ctx.symmetric(mat) {
             Some(s) => s,
