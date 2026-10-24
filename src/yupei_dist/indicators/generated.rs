@@ -17,6 +17,8 @@ pub mod community;
 pub mod concentration;
 #[path = "directionality.rs"]
 pub mod directionality;
+#[path = "dynjs.rs"]
+pub mod dynjs;
 #[path = "edge_dynamics.rs"]
 pub mod edge_dynamics;
 #[path = "eigenvector.rs"]
@@ -35,6 +37,8 @@ pub mod jsmarg;
 pub mod leader_return;
 #[path = "leadership.rs"]
 pub mod leadership;
+#[path = "maxst.rs"]
+pub mod maxst;
 #[path = "motifs.rs"]
 pub mod motifs;
 #[path = "multiscale.rs"]
@@ -69,6 +73,8 @@ pub mod surplus;
 pub mod topk;
 #[path = "trophic.rs"]
 pub mod trophic;
+#[path = "w1dist.rs"]
+pub mod w1dist;
 use crate::yupei_dist::indicator_ctx::{IndicatorCtx, IndicatorResult};
 pub struct IndicatorDef {
     pub name: &'static str,
@@ -113,6 +119,10 @@ pub fn all() -> Vec<IndicatorDef> {
             compute: directionality::compute,
         },
         IndicatorDef {
+            name: "dynjs",
+            compute: dynjs::compute,
+        },
+        IndicatorDef {
             name: "edge_dynamics",
             compute: edge_dynamics::compute,
         },
@@ -147,6 +157,10 @@ pub fn all() -> Vec<IndicatorDef> {
         IndicatorDef {
             name: "leadership",
             compute: leadership::compute,
+        },
+        IndicatorDef {
+            name: "maxst",
+            compute: maxst::compute,
         },
         IndicatorDef {
             name: "motifs",
@@ -215,6 +229,10 @@ pub fn all() -> Vec<IndicatorDef> {
         IndicatorDef {
             name: "trophic",
             compute: trophic::compute,
+        },
+        IndicatorDef {
+            name: "w1dist",
+            compute: w1dist::compute,
         },
     ]
 }
