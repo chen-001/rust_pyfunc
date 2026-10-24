@@ -1,13 +1,12 @@
-//! spectral: 谱隙与第二集体模式（统计物理扩展，20251031 原型验证版）。
+//! spectral: 谱隙与第二/三集体模式（统计物理扩展，20251031 原型验证版）。
 //! 对对称矩阵 S_sym = S_dir + S_dirᵀ（对角 0）做幂迭代:
-//!   λ1,v1 = 主模式（同 eigenvector.rs，≤40 次或 cos>0.9999）;
-//!   λ2,v2 = 第二模式（deflated 幂迭代，每步 w -= v1·(v1·w) 后归一，≤60 次）。
+//!   λ1,v1 = 主模式; λ2,v2 = 去 v1 的 deflated 幂迭代; λ3,v3 = 去 v1,v2 的双 deflate。
 //! 每股输出:
-//!   eig2_{mat}_coord = v2_i（符号约定: 绝对值最大元素取正，同 eigenvector.rs）;
-//!   eig2_{mat}_part  = N·v2_i²（该模式内的参与度，等于 |v2|·√IPR2 的单调等价）;
-//!   spec_{mat}_gap   = (λ1−λ2)/λ1 全市场标量，逐股写同一值。
-//! 物理含义: gap 收缩 → 市场模式之外有竞争的第二集体模式（分裂/板块化）;
-//! v2 坐标与参与度给出该次模式的载股，与行强度类指标弱相关（原型 worst|rho|≈0.4）。
+//!   eig2_{mat}_coord/part, eig3_{mat}_coord/part: 第二/三模式坐标与参与度 N·v²;
+//!   spec_{mat}_gap       = (λ1−λ2)/λ1 标量广播;
+//!   spec_{mat}_lam2share = λ2/Σ_ij S_ij 标量广播（Σλ_i 用总交互能量 ΣS 代理, sym 对角 0）。
+//! 物理含义: gap 收缩 → 市场模式之外有竞争的集体模式（分裂/板块化）;
+//! lam2share 是次模式相对总强度的能量占比; v2/v3 给出各次模式载股。
 //! 确定性: splitmix64 固定种子 LCG 初始化（与 eigenvector.rs 同款）。
 
 use crate::yupei_dist::indicator_ctx::{IndicatorCtx, IndicatorResult};
@@ -18,7 +17,7 @@ pub fn name() -> &'static str {
 }
 
 pub fn desc() -> &'static str {
-    "谱隙+第二模式: deflated幂迭代 v2/N·v2²/gap (28矩阵)"
+    "谱隙+次模式: deflated幂迭代 v2/v3/part/gap/lam2share (28矩阵)"
 }
 
 /// 确定性 LCG 初始化（与 eigenvector.rs 相同种子与步进）
@@ -52,14 +51,14 @@ fn matvec(m: &[f32], v: &[f64], n: usize) -> Vec<f64> {
     w
 }
 
-/// deflate = Some(v1) 时每步正交化去主模式方向。
+/// deflates 内每个向量都在每步正交化去除（v1, v2, ...）。
 /// 返回 (Rayleigh 商 λ, 单位向量); 收敛: |Δλ| ≤ 1e-8·max(1,λ) 或达 iters 上限。
-fn power_mode(m: &[f32], n: usize, iters: usize, deflate: Option<&[f64]>) -> (f64, Vec<f64>) {
+fn power_mode(m: &[f32], n: usize, iters: usize, deflates: &[&[f64]]) -> (f64, Vec<f64>) {
     let mut v = seed_vec(n);
     let mut lam = 0.0f64;
     for _ in 0..iters {
         let mut w = matvec(m, &v, n);
-        if let Some(u) = deflate {
+        for u in deflates {
             let dot: f64 = w.iter().zip(u.iter()).map(|(a, b)| a * b).sum();
             w.iter_mut().zip(u.iter()).for_each(|(a, b)| *a -= dot * b);
         }
@@ -104,12 +103,24 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             Some(s) => s,
             None => continue,
         };
-        let (lam1, mut v1) = power_mode(&sym, n, 40, None);
+        let (lam1, mut v1) = power_mode(&sym, n, 40, &[]);
         fix_sign(&mut v1);
-        let (lam2, mut v2) = power_mode(&sym, n, 60, Some(&v1));
+        let (lam2, mut v2) = power_mode(&sym, n, 60, &[&v1[..]]);
         fix_sign(&mut v2);
+        let (_lam3, mut v3) = power_mode(&sym, n, 80, &[&v1[..], &v2[..]]);
+        fix_sign(&mut v3);
         let gap = if lam1.abs() > 1e-12 {
             ((lam1 - lam2) / lam1) as f32
+        } else {
+            f32::NAN
+        };
+        // lam2share = λ2 / Σ_ij S_ij（总交互能量代理; sym 对角为 0 故 Tr=0 不能当分母）
+        let sum_s: f64 = (0..n)
+            .into_par_iter()
+            .map(|i| sym[i * n..(i + 1) * n].iter().map(|&v| v as f64).sum::<f64>())
+            .sum();
+        let lam2share = if sum_s.abs() > 1e-12 {
+            (lam2 / sum_s) as f32
         } else {
             f32::NAN
         };
@@ -124,6 +135,18 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
         out.push(IndicatorResult::new(
             format!("spec_{mat}_gap"),
             vec![gap; n],
+        ));
+        out.push(IndicatorResult::new(
+            format!("eig3_{mat}_coord"),
+            v3.iter().map(|&x| x as f32).collect(),
+        ));
+        out.push(IndicatorResult::new(
+            format!("eig3_{mat}_part"),
+            v3.iter().map(|&x| (x * x * n as f64) as f32).collect(),
+        ));
+        out.push(IndicatorResult::new(
+            format!("spec_{mat}_lam2share"),
+            vec![lam2share; n],
         ));
     }
     out

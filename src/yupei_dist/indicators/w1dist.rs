@@ -8,6 +8,10 @@
 //! 分位, 非抽样）。是对 p 合并、不是对原始 w 合并——生产 sym 是 S+Sᵀ 未归一,
 //! 行尺度悬殊, 直接合并 w 会让市场分布被高强度行主导, w1 退化成行强度代理;
 //! 归一成 p 后行尺度被消掉, 量的就是分布形状（双峰/重尾/平坦）。
+//! 兄弟列 w1_{mat}_asym: 同积分的带符号版 mean_u (Q_i(u) - Q_mkt(u))（不取绝对值）:
+//! 正=行分布比市场重尾/偏强, 负=轻尾/偏弱。注: ∫Q du 恰等于支撑均值,
+//! 故 w1_asym ≈ 1/k_i - μ_mkt（k_i 为正伙伴数, μ_mkt 为市场合并分布均值）,
+//! 实现仍走 513 网格积分保持与 w1 同口径。
 //! 孤立行（非对角正权重和 ≤0）输出 NaN。全部 28 矩阵。
 //! 成本: 市场端一次全量排序 O(N² log N²), 行端每行排序 O(N² log N)。
 
@@ -50,7 +54,7 @@ pub fn name() -> &'static str {
 }
 
 pub fn desc() -> &'static str {
-    "W1距离: 行分布p vs 市场合并行分布, 513网格L1 (28矩阵)"
+    "W1距离: 行分布p vs 市场合并行分布, L1+带符号 (28矩阵)"
 }
 
 pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
@@ -79,10 +83,9 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             }
         }
         if mkt.is_empty() {
-            out.push(IndicatorResult::new(
-                format!("w1_{mat}"),
-                vec![f32::NAN; n],
-            ));
+            let nan = vec![f32::NAN; n];
+            out.push(IndicatorResult::new(format!("w1_{mat}"), nan.clone()));
+            out.push(IndicatorResult::new(format!("w1_{mat}_asym"), nan));
             continue;
         }
         mkt.par_sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
@@ -93,14 +96,14 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             .collect();
         let qs = &qs[..];
 
-        // ---- 行分布 W1 ----
-        let w1: Vec<f32> = (0..n)
+        // ---- 行分布 W1（同一次扫描出 L1 与带符号两列）----
+        let both: Vec<(f32, f32)> = (0..n)
             .into_par_iter()
             .map(|i| {
                 let row = &sym[i * n..(i + 1) * n];
                 let wsum = row_wsum(row, i, n);
                 if wsum <= 0.0 {
-                    return f32::NAN;
+                    return (f32::NAN, f32::NAN);
                 }
                 let inv = 1.0 / wsum;
                 let mut r: Vec<f64> = Vec::with_capacity(n / 2);
@@ -110,18 +113,27 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                     }
                 }
                 if r.is_empty() {
-                    return f32::NAN;
+                    return (f32::NAN, f32::NAN);
                 }
                 r.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
-                let mut s = 0.0f64;
+                let mut s_abs = 0.0f64;
+                let mut s_sig = 0.0f64;
                 for (g, &qm) in qs.iter().enumerate() {
                     let u = g as f64 / (GRID - 1) as f64;
-                    s += (qinterp(&r, u) - qm).abs();
+                    let d = qinterp(&r, u) - qm;
+                    s_abs += d.abs();
+                    s_sig += d;
                 }
-                (s / GRID as f64) as f32
+                (
+                    (s_abs / GRID as f64) as f32,
+                    (s_sig / GRID as f64) as f32,
+                )
             })
             .collect();
+        let w1: Vec<f32> = both.iter().map(|t| t.0).collect();
+        let asym: Vec<f32> = both.iter().map(|t| t.1).collect();
         out.push(IndicatorResult::new(format!("w1_{mat}"), w1));
+        out.push(IndicatorResult::new(format!("w1_{mat}_asym"), asym));
     }
     out
 }

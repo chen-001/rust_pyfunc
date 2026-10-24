@@ -6,6 +6,9 @@
 //!   分量内 h 平移到最低=1。
 //!   trophic_{mat}_inco_i = mean_{j∈top50(i)} (h_j − h_i − 1)²
 //! 值高 = 上下游关系错位（邻居层级差偏离 +1 的整齐链条）; 低 = 链条连贯。
+//! 兄弟列:
+//!   trophic_{mat}_span_i = max_j h_j − min_j h_j（j∈top50(i)），邻居高度的极差——
+//!                          局部链高差，和 inco 是不同统计（span 不管均值位移只管展幅）。
 //! 与 dep_top5 同属"秩互惠"族但视角不同：dep 讲"我重仓谁", inco 讲"邻居间层级是否连贯"。
 //! 稀疏化用 topk_select_indices（quickselect 部分选择, 确定性: 值降序, 同值索引升序）。
 
@@ -19,7 +22,7 @@ pub fn name() -> &'static str {
 }
 
 pub fn desc() -> &'static str {
-    "营养层级违反度: mean_{top50出边}(h_j-h_i-1)^2, Λh=入强-出强(秩诱导有向) (全部28矩阵)"
+    "营养层级: inco=mean_{top50出边}(h_j-h_i-1)^2; span=top50邻居h极差 (Λh=入强-出强, 全部28矩阵)"
 }
 
 /// Jacobi 预条件 CG 解缩边拉普拉斯系统 A'x=b'（去锚节点）。
@@ -176,21 +179,36 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                 h[g] = vals[l] - minv + 1.0;
             }
         }
-        // 节点违反度 inco_i = mean_{j∈top50(i)} (h_j - h_i - 1)^2
-        let col: Vec<f32> = (0..n)
+        // 节点违反度 inco_i = mean_{j∈top50(i)} (h_j - h_i - 1)^2;
+        // span_i = top50 邻居 h 的极差（max−min，不含自身）
+        let rows: Vec<[f32; 2]> = (0..n)
             .map(|i| {
                 if nbrs[i].is_empty() {
-                    return f32::NAN;
+                    return [f32::NAN; 2];
                 }
                 let mut acc = 0.0f64;
+                let (mut hi, mut lo) = (f64::NEG_INFINITY, f64::INFINITY);
                 for &j in nbrs[i].iter() {
-                    let d = h[j as usize] - h[i] - 1.0;
+                    let hj = h[j as usize];
+                    let d = hj - h[i] - 1.0;
                     acc += d * d;
+                    if hj > hi {
+                        hi = hj;
+                    }
+                    if hj < lo {
+                        lo = hj;
+                    }
                 }
-                (acc / nbrs[i].len() as f64) as f32
+                [
+                    (acc / nbrs[i].len() as f64) as f32,
+                    (hi - lo) as f32,
+                ]
             })
             .collect();
-        out.push(IndicatorResult::new(format!("trophic_{mat}_inco"), col));
+        let inco: Vec<f32> = rows.iter().map(|r| r[0]).collect();
+        let span: Vec<f32> = rows.iter().map(|r| r[1]).collect();
+        out.push(IndicatorResult::new(format!("trophic_{mat}_inco"), inco));
+        out.push(IndicatorResult::new(format!("trophic_{mat}_span"), span));
     }
     out
 }

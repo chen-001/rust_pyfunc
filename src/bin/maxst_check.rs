@@ -45,6 +45,16 @@ fn main() {
         .find(|r| r.name == format!("maxst_{mat}_deg"))
         .unwrap_or_else(|| panic!("maxst_{mat}_deg"))
         .values;
+    let depth = &results
+        .iter()
+        .find(|r| r.name == format!("maxst_{mat}_depth"))
+        .unwrap()
+        .values;
+    let bott = &results
+        .iter()
+        .find(|r| r.name == format!("maxst_{mat}_bott"))
+        .unwrap()
+        .values;
     let sum: f64 = deg.iter().map(|&v| v as f64).sum();
     let maxd = deg.iter().cloned().fold(0.0f32, f32::max);
     let gt5 = deg.iter().filter(|&&v| v > 5.0).count();
@@ -54,12 +64,39 @@ fn main() {
         s.sort_by(|a, b| a.partial_cmp(b).unwrap());
         s[n / 2]
     };
+    let dmax = depth
+        .iter()
+        .filter(|v| v.is_finite())
+        .cloned()
+        .fold(0.0f32, f32::max);
+    let dmed = {
+        let mut s: Vec<f32> = depth.iter().filter(|v| v.is_finite()).cloned().collect();
+        s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        s[s.len() / 2]
+    };
+    let bmed = {
+        let mut s: Vec<f32> = bott.iter().filter(|v| v.is_finite()).cloned().collect();
+        s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        s[s.len() / 2]
+    };
     println!(
-        "mat={mat} n={n} deg_sum={sum:.0} deg_max={maxd:.0} deg_med={med:.0} gt5={gt5} gt20={gt20} total_ms={ms:.1}"
+        "mat={mat} n={n} deg_sum={sum:.0} deg_max={maxd:.0} deg_med={med:.0} gt5={gt5} gt20={gt20} \
+         depth_max={dmax:.0} depth_med={dmed:.0} bott_med={bmed:.6} cols={} total_ms={ms:.1}",
+        results.len()
     );
-    std::fs::write(
-        out,
-        deg.iter().map(|v| format!("{v:.0}")).collect::<Vec<_>>().join("\n") + "\n",
-    )
-    .unwrap();
+    let mut txt = String::from("deg,depth,bott\n");
+    for i in 0..n {
+        let ds = if depth[i].is_finite() {
+            format!("{:.0}", depth[i])
+        } else {
+            "nan".into()
+        };
+        let bs = if bott[i].is_finite() {
+            format!("{:.8}", bott[i])
+        } else {
+            "nan".into()
+        };
+        txt.push_str(&format!("{:.0},{ds},{bs}\n", deg[i]));
+    }
+    std::fs::write(out, txt).unwrap();
 }

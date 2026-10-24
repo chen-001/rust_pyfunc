@@ -64,9 +64,10 @@ fn normalized(sym: &[f32], n: usize) -> (Vec<f32>, Vec<f32>) {
     (w, rw)
 }
 
-/// 稠密 Prim 最大生成树, 返回每股度数。输入为未归一对称矩阵（内部归一）。
-/// 起点 = 归一化行强度 argmax（同权小索引）。确定性: 每轮 argmax 同权取最小索引。
-pub fn mst_degrees(sym: &[f32], n: usize) -> Vec<f32> {
+/// 稠密 Prim 最大生成树, 返回 (deg, depth, bott)。
+/// deg = 树上度数; depth = 到根边数（根=0, 未到树=NaN）; bott = 入树边权（根/未到树=NaN）。
+/// 输入为未归一对称矩阵（内部归一）。确定性: 每轮 argmax 同权取最小索引。
+pub fn mst_stats(sym: &[f32], n: usize) -> (Vec<f32>, Vec<f32>, Vec<f32>) {
     let (w, strength) = normalized(sym, n);
     let root = strength
         .iter()
@@ -83,7 +84,10 @@ pub fn mst_degrees(sym: &[f32], n: usize) -> Vec<f32> {
     let mut best = vec![0.0f32; n];
     let mut par = vec![0usize; n];
     let mut deg = vec![0u32; n];
+    let mut depth = vec![f32::NAN; n];
+    let mut bott = vec![f32::NAN; n];
     in_t[root] = true;
+    depth[root] = 0.0;
     {
         let row = &w[root * n..(root + 1) * n];
         for j in 0..n {
@@ -108,6 +112,8 @@ pub fn mst_degrees(sym: &[f32], n: usize) -> Vec<f32> {
         in_t[j] = true;
         deg[j] += 1;
         deg[par[j]] += 1;
+        depth[j] = depth[par[j]] + 1.0;
+        bott[j] = w[j * n + par[j]];
         // 更新: w(j,k) > best[k] 或 (== 且 j < par[k]) → par=j
         let row = &w[j * n..(j + 1) * n];
         for k in 0..n {
@@ -121,7 +127,16 @@ pub fn mst_degrees(sym: &[f32], n: usize) -> Vec<f32> {
             }
         }
     }
-    deg.into_iter().map(|d| d as f32).collect()
+    (
+        deg.into_iter().map(|d| d as f32).collect(),
+        depth,
+        bott,
+    )
+}
+
+/// 兼容旧签名: 只取度数。
+pub fn mst_degrees(sym: &[f32], n: usize) -> Vec<f32> {
+    mst_stats(sym, n).0
 }
 
 pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
@@ -132,8 +147,10 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             Some(s) => s,
             None => continue,
         };
-        let deg = mst_degrees(&sym, n);
+        let (deg, depth, bott) = mst_stats(&sym, n);
         out.push(IndicatorResult::new(format!("maxst_{mat}_deg"), deg));
+        out.push(IndicatorResult::new(format!("maxst_{mat}_depth"), depth));
+        out.push(IndicatorResult::new(format!("maxst_{mat}_bott"), bott));
     }
     out
 }
