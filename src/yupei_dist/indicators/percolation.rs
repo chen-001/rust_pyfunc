@@ -233,34 +233,41 @@ fn scan(
 
 pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let n = ctx.n();
-    let mut out = Vec::new();
     if n == 0 {
-        return out;
+        return Vec::new();
     }
-    for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
-        if !ctx.wants("perc_", mat) {
-            continue;
-        }
-        let sym = match ctx.symmetric(mat) {
-            Some(s) => s,
-            None => continue,
-        };
-        let row_sums = match ctx.row_sum_sym(mat) {
-            Some(s) => s,
-            None => continue,
-        };
-        // comp 列未幸存时跳过其第二遍并查集
-        let need_comp = match &ctx.keep {
-            None => true,
-            Some(k) => k.contains(format!("perc_{mat}_comp").as_str()),
-        };
-        let (theta_star, _birth, stranded, width, comp) = scan(&sym, n, &row_sums, need_comp);
-        emit(ctx, &mut out, format!("perc_{mat}_theta"), vec![theta_star; n]);
-        emit(ctx, &mut out, format!("perc_{mat}_stranded"), stranded);
-        emit(ctx, &mut out, format!("perc_{mat}_width"), vec![width; n]);
-        emit(ctx, &mut out, format!("perc_{mat}_comp"), comp);
-    }
-    out
+    // 矩阵循环并行: 每张矩阵的边排序/并查集是模块内最大开销, 28 张互相独立。
+    // par_iter().map().collect() 保序（MATRIX_LIST 序），输出顺序与串行一致。
+    let per_mat: Vec<Vec<IndicatorResult>> = crate::yupei_dist::indicator_ctx::MATRIX_LIST
+        .par_iter()
+        .filter(|mat| ctx.wants("perc_", mat))
+        .map(|mat| {
+            let sym = match ctx.symmetric(mat) {
+                Some(s) => s,
+                None => return Vec::new(),
+            };
+            let row_sums = match ctx.row_sum_sym(mat) {
+                Some(s) => s,
+                None => return Vec::new(),
+            };
+            // comp 列未幸存时跳过其第二遍并查集
+            let need_comp = match &ctx.keep {
+                None => true,
+                Some(k) => k.contains(format!("perc_{mat}_comp").as_str()),
+            };
+            let (theta_star, _birth, stranded, width, comp) =
+                scan(&sym, n, &row_sums, need_comp);
+            let mut out = Vec::new();
+            emit(ctx, &mut out, format!("perc_{mat}_theta"), vec![theta_star; n]);
+            emit(ctx, &mut out, format!("perc_{mat}_stranded"), stranded);
+            emit(ctx, &mut out, format!("perc_{mat}_width"), vec![width; n]);
+            emit(ctx, &mut out, format!("perc_{mat}_comp"), comp);
+            out
+        })
+        .collect();
+    // 注: filter 后 collect 只含被算矩阵, 但每张矩阵内部列序不变;
+    // run_indicators 按名字对账/注册序重排，矩阵间相对顺序不进入下游。
+    per_mat.into_iter().flatten().collect()
 }
 
 /// 列级过滤: keep=None 全发; keep=Some 只发名单内列。

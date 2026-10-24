@@ -1,9 +1,9 @@
 //! 指标上下文（正式库内存版）: 28 张矩阵 + 每股统计量 + 行业 + 前一交易日矩阵。
 //! 与 sandbox 版 API 保持一致（indicators/*.rs 无需改动即可编译）。
 
-use std::cell::RefCell;
+use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use super::matrix_stage::{StockStats, MATRIX_SPECS};
 
@@ -113,8 +113,11 @@ impl IndicatorResult {
 pub struct IndicatorCtx<'a> {
     pub set: &'a MatrixSet,
     pub prev: Option<PrevDay<'a>>,
-    sym_cache: RefCell<HashMap<String, Arc<Vec<f32>>>>,
-    rowsum_cache: RefCell<HashMap<String, Arc<Vec<f64>>>>,
+    /// 对称化/行和缓存：Mutex 包装（非 RefCell），让同一模块的矩阵循环
+    /// 可以 rayon 并行——并行时 ctx 被多线程共享，RefCell 不是 Sync。
+    /// 串行路径下 Mutex 的开销 = 一次无竞争加锁，可忽略。
+    sym_cache: Mutex<HashMap<String, Arc<Vec<f32>>>>,
+    rowsum_cache: Mutex<HashMap<String, Arc<Vec<f64>>>>,
     /// 精简模式：只算这些列名。None = 全量。
     /// 值取自 lite_names.rs 的 YUPEI_DIST_LITE_NAMES（或调用方给定子集）。
     pub keep: Option<HashSet<&'static str>>,
@@ -125,8 +128,8 @@ impl<'a> IndicatorCtx<'a> {
         IndicatorCtx {
             set,
             prev,
-            sym_cache: RefCell::new(HashMap::new()),
-            rowsum_cache: RefCell::new(HashMap::new()),
+            sym_cache: Mutex::new(HashMap::new()),
+            rowsum_cache: Mutex::new(HashMap::new()),
             keep: None,
         }
     }
@@ -204,41 +207,44 @@ impl<'a> IndicatorCtx<'a> {
 
     /// 对称化: S_sym = S_dir + S_dirᵀ（对角 0）。结果缓存。
     pub fn symmetric(&self, name: &str) -> Option<Arc<Vec<f32>>> {
-        if let Some(v) = self.sym_cache.borrow().get(name) {
+        if let Some(v) = self.sym_cache.lock().unwrap().get(name) {
             return Some(v.clone());
         }
         let d = self.matrix(name)?;
         let n = self.n();
+        // 对称化按行并行：单张矩阵 n² 次读写（5153² ≈ 2650 万），27 张串行要 3~4 秒。
         let mut out = vec![0.0f32; n * n];
-        for i in 0..n {
+        out.par_chunks_mut(n).enumerate().for_each(|(i, row_out)| {
             let row = &d[i * n..(i + 1) * n];
             for j in 0..n {
                 if i != j {
-                    out[i * n + j] = row[j] + d[j * n + i];
+                    row_out[j] = row[j] + d[j * n + i];
                 }
             }
-        }
+        });
         let arc = Arc::new(out);
         self.sym_cache
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .insert(name.to_string(), arc.clone());
         Some(arc)
     }
 
     pub fn row_sum_sym(&self, name: &str) -> Option<Arc<Vec<f64>>> {
-        if let Some(v) = self.rowsum_cache.borrow().get(name) {
+        if let Some(v) = self.rowsum_cache.lock().unwrap().get(name) {
             return Some(v.clone());
         }
         let sym = self.symmetric(name)?;
         let n = self.n();
-        let mut out = Vec::with_capacity(n);
-        for i in 0..n {
-            let row = &sym[i * n..(i + 1) * n];
-            out.push(row.iter().map(|&v| v as f64).sum());
-        }
+        // 行和同样按行并行（n² 次读取）
+        let out: Vec<f64> = sym
+            .par_chunks(n)
+            .map(|row| row.iter().map(|&v| v as f64).sum())
+            .collect();
         let arc = Arc::new(out);
         self.rowsum_cache
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .insert(name.to_string(), arc.clone());
         Some(arc)
     }
@@ -257,7 +263,7 @@ impl<'a> IndicatorCtx<'a> {
     /// （如 "flow_t5" → flow_same_t5 − flow_opp_t5; "urg_t30" → urg_same_t30 − urg_opp_t30）。缓存。
     pub fn matrix_net(&self, name: &str) -> Option<Arc<Vec<f32>>> {
         let key = format!("net_{name}");
-        if let Some(v) = self.sym_cache.borrow().get(&key) {
+        if let Some(v) = self.sym_cache.lock().unwrap().get(&key) {
             return Some(v.clone());
         }
         let (family, tau) = name.rsplit_once('_')?;
@@ -269,7 +275,7 @@ impl<'a> IndicatorCtx<'a> {
             out[i] = same[i] - opp[i];
         }
         let arc = Arc::new(out);
-        self.sym_cache.borrow_mut().insert(key, arc.clone());
+        self.sym_cache.lock().unwrap().insert(key, arc.clone());
         Some(arc)
     }
 

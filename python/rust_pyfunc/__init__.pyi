@@ -374,6 +374,20 @@ def py_yupei_dist(date: int) -> Tuple[List[str], List[float]]:
 def py_yupei_dist_names() -> List[str]:
     """因子名（与 py_yupei_dist 输出列顺序一致）。"""
 
+def py_yupei_dist_lite(
+    date: int, prev_date: Optional[int] = None
+) -> Tuple[List[str], List[str], List[float]]:
+    """单日全市场横截面因子·精简版：只算去重后幸存的 741 列。
+
+    返回 (codes, names, vals)。names 一并返回——列序与全量版不同, 不要混用
+    py_yupei_dist_names 的名单。相同列名取值与全量版逐位一致。
+    prev_date 传入上一交易日才能算跨日因子（dyn_*），传 None 时这些列全为 NaN。
+    线程上限 200; 设环境变量 RAYON_NUM_THREADS 可覆盖。
+    """
+
+def py_yupei_dist_lite_names() -> List[str]:
+    """精简版因子名（与 py_yupei_dist_lite 输出列顺序一致, 共 741 个）。"""
+
 def py_yupei_dist_emit_names() -> List[str]:
     """维护用：跑指标模块名收集（合成矩阵，不读数据），输出顺序 = names.rs 应存顺序。
     MATRIX_SPECS 改矩阵集之后用它再生成 names.rs。"""

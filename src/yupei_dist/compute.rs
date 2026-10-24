@@ -136,16 +136,23 @@ pub fn compute_yupei_dist_partial_need(
 }
 
 /// 后半段: 跑全部指标模块 + 组装 N×F（行主序）+ 长度/顺序校验。
+/// 模块间并行：39 个模块互相独立（只读 ctx，矩阵缓存 Mutex 化），
+/// par_iter().map().collect() 保持注册序 → 列序与串行版完全一致。
 pub fn run_indicators(
     ctx: &IndicatorCtx,
     n: usize,
     codes_out: &[String],
 ) -> std::io::Result<Vec<f32>> {
+    let _ = codes_out;
+    let per_mod: Vec<Vec<Vec<f32>>> = super::indicators::all()
+        .into_par_iter()
+        .map(|def| (def.compute)(ctx).into_iter().map(|r| r.values).collect())
+        .collect();
     let mut cols: Vec<Vec<f32>> = Vec::new();
-    for def in super::indicators::all() {
-        for r in (def.compute)(ctx) {
-            debug_assert_eq!(r.values.len(), n);
-            cols.push(r.values);
+    for v in per_mod {
+        for col in v {
+            debug_assert_eq!(col.len(), n);
+            cols.push(col);
         }
     }
     let nf = cols.len();
@@ -238,10 +245,16 @@ pub fn yupei_dist_names() -> Vec<String> {
 
 pub fn run_indicators_lite(ctx: &IndicatorCtx, n: usize) -> std::io::Result<Vec<f32>> {
     use super::lite_names::YUPEI_DIST_LITE_NAMES as LITE;
+    // 模块间并行（同 run_indicators）：percolation 55s 的串行段是最大头，
+    // 并行后 39 个模块同时跑，重模块内部再按矩阵并行。
+    let per_mod: Vec<Vec<super::indicator_ctx::IndicatorResult>> = super::indicators::all()
+        .into_par_iter()
+        .map(|def| (def.compute)(ctx))
+        .collect();
     let mut names: Vec<String> = Vec::with_capacity(LITE.len());
     let mut cols: Vec<Vec<f32>> = Vec::with_capacity(LITE.len());
-    for def in super::indicators::all() {
-        for r in (def.compute)(ctx) {
+    for v in per_mod {
+        for r in v {
             debug_assert_eq!(r.values.len(), n);
             names.push(r.name);
             cols.push(r.values);
