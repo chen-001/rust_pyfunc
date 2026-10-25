@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
-"""成交的节奏（第 04 期）：日频过滤、对账、四个图的中间量。"""
+"""成交的节奏（第 04 期）：日频过滤、对账、图的中间量。
+
+两个计数单位
+- 记录：文件里一行，图一图二用它，描述文件长什么样
+- 事件：同一时间戳（10 毫秒刻度）算一次，图三图四用它
+"""
 import json
 from pathlib import Path
 
@@ -44,22 +49,24 @@ def daily(dates):
 
 def load():
     dates = [d for d in DATES if (SB / f"out/{d}.json").exists() and (SB / f"out/{d}.json").stat().st_size > 100000]
-    rows, hist, hist_s, lz, lz_s = [], [], [], [], []
+    rows, hist, lz = [], [], []
+    mk = {}
     for d in dates:
         o = json.load(open(SB / f"out/{d}.json"))
+        m = o["market"]
+        mk[d] = m
         for r in o["recs"]:
-            rows.append({k: r[k] for k in ("code", "s", "c", "s2", "nc", "nauc", "noth", "amt", "amt_c", "vol",
-                                          "d_op", "d_sp", "d_ou", "d_su", "d_mc", "maxcs", "maxcsm")} | {"date": d})
+            mean_e = r["e"] / T
+            cov = r["sem"] / T - mean_e * m["mean"]
+            r2 = cov * cov / ((r["sx2"] / T - mean_e ** 2) * m["var"]) if r["sx2"] > 0 else np.nan
+            rows.append({"code": r["code"], "s": r["s"], "e": r["e"], "nc": r["nc"],
+                         "amt": r["amt"], "tamt": r["amt"], "vol": r["vol"], "tvol": r["vol"],
+                         "fano": r["fano"], "r2": r2, "date": d})
             hist.append(r["hist"])
-            hist_s.append(r["hist_s"])
             lz.append(r["lz"])
-            lz_s.append(r["lz_s"])
     df = pd.DataFrame(rows)
-    df["tamt"] = df["amt"]      # 逐笔加总的成交额
-    df["tvol"] = df["vol"]
     df["code"] = df["code"].astype(str).str.zfill(6)
-    A = dict(H=np.array(hist, float), HS=np.array(hist_s, float),
-             LZ=np.array(lz, float), LZS=np.array(lz_s, float))
+    A = dict(H=np.array(hist, float), LZ=np.array(lz, float), MK=mk)
     D = daily(dates)
     idx = list(D["close"].index)
     for k in ["close", "pre", "st", "hi", "lo", "amt", "vol", "mv"]:
@@ -71,34 +78,24 @@ def load():
         j = idx.index(d)
         age[d] = D["close"].iloc[max(0, j - 60): j].notna().sum() >= 60
     df["age_ok"] = [bool(age[d].get(c, False)) for d, c in zip(df["date"], df["code"])]
-    df["ratio_p"] = df.d_op / df.d_sp
-    df["ratio_u"] = df.d_ou / df.d_su
-    df["common"] = 1 - (df.ratio_p - 1) / (df.ratio_u - 1)
     df["ret"] = df.close / df.pre - 1
-    df["lam"] = df.s / T
+    df["lam"] = df.e / T
     f = (df.st == 1) & (df.hi != df.lo) & df.age_ok & df.amt.notna()
-    return df[f].reset_index(drop=True), {k: v[f.values] for k, v in A.items()}
+    return df[f].reset_index(drop=True), {k: (v[f.values] if isinstance(v, np.ndarray) else v) for k, v in A.items()}
 
 
 if __name__ == "__main__":
     df, A = load()
     pd.set_option("display.width", 200)
     print("过滤后", len(df), df.groupby("date").size().to_dict())
-    df["ratio_amt"] = df.tamt / (df.amt * 1000)
-    df["ratio_vol"] = df.tvol / (df.vol * 100)
     print("\n对账 逐笔成交额 / 日频")
-    print(df.groupby("date")["ratio_amt"].describe(percentiles=[.05, .5, .95]).round(4).to_string())
-    print("\n对账 逐笔成交量 / 日频")
-    print(df.groupby("date")["ratio_vol"].describe(percentiles=[.05, .5, .95]).round(4).to_string())
-    print("\n纯成团倍数 ratio_p")
-    print(df.groupby("date")["ratio_p"].describe(percentiles=[.1, .5, .9]).round(2).to_string())
-    print("\n去作息前 ratio_u 中位")
-    print(df.groupby("date")["ratio_u"].median().round(2).to_string())
-    print("\n共同作息解释的份额 中位")
-    print(df.groupby("date")["common"].median().round(3).to_string())
-    print("\n每秒成交笔数均值 lam 中位")
-    print(df.groupby("date")["lam"].median().round(2).to_string())
-    print("\n一秒内最多簇数 实际/对照 中位")
-    print(df.groupby("date")[["maxcs", "maxcsm"]].median().round(1).to_string())
-    print("\n整体 ratio_p 分位", np.round(df.ratio_p.quantile([.1, .25, .5, .75, .9]).values, 2),
-          " 均值", round(df.ratio_p.mean(), 2))
+    print(df.groupby("date").apply(lambda g: (g.tamt / (g.amt * 1000)).quantile([.05, .5, .95]),
+                                   include_groups=False).round(6).to_string())
+    print("\n每秒事件数中位 / 记录数中位")
+    print(df.groupby("date")[["lam", "s"]].median().round(2).to_string())
+    print("\n每秒事件数方差除以均值（随机=1）")
+    print(df.groupby("date")["fano"].describe(percentiles=[.1, .5, .9]).round(2).to_string())
+    print("\n与大盘同秒的相关系数平方")
+    print(df.groupby("date")["r2"].describe(percentiles=[.1, .5, .9]).round(3).to_string())
+    print("\n整体 fano 分位", np.round(df.fano.quantile([.1, .25, .5, .75, .9]).values, 2))
+    print("整体 r2 中位", round(df.r2.median(), 3))

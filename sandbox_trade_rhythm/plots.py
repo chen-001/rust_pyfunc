@@ -57,25 +57,20 @@ def main():
             continue
         m = (df.q == qi).values
         h = A["H"][m].sum(0)
-        hs = A["HS"][m].sum(0)
         pr = np.r_[h[:K], h[K:].sum()]
-        ps = np.r_[hs[:K], hs[K:].sum()]
-        pr, ps = pr / pr.sum(), ps / ps.sum()
+        pr = pr / pr.sum()
         x = np.arange(K + 1)
-        ax.bar(x - 0.2, pr, width=0.4, color=C_REAL, label="实际")
-        ax.bar(x + 0.2, ps, width=0.4, color=C_SUR, label="同笔数对照")
+        ax.bar(x, pr, width=0.62, color=C_REAL)
         ax.set_xticks(x)
         ax.set_xticklabels([str(i) for i in range(K)] + [f"{K}+"])
         ax.set_title(f"第 {qi + 1} 组　每秒中位 {lam[qi]:.2f} 笔", fontsize=12.5)
         ax.set_xlabel("一秒钟里的成交笔数", fontsize=11)
         if qi % 3 == 0:
             ax.set_ylabel("占全天 14,220 秒的比例", fontsize=11)
-        if qi == 0:
-            ax.legend(frameon=False, fontsize=11)
-        ax.text(0.97, 0.92, f"空秒 {pr[0] * 100:.0f}% / 对照 {ps[0] * 100:.0f}%",
-                transform=ax.transAxes, ha="right", va="top", fontsize=11,
+        ax.text(0.97, 0.92, f"空着的秒 {pr[0] * 100:.0f}%",
+                transform=ax.transAxes, ha="right", va="top", fontsize=12,
                 bbox=dict(fc="white", ec="none", alpha=.85, pad=2))
-    fig.suptitle("空着的秒比随机撒开更多，挤爆的秒也更多", fontsize=15, y=0.98)
+    fig.suptitle("最冷清的五分之一，一天里近九成的秒没有成交", fontsize=15, y=0.98)
     fig.tight_layout(rect=[0, 0, 1, 0.955])
     fig.savefig(OUT / "f1_per_second.png", dpi=150)
     plt.close(fig)
@@ -83,34 +78,32 @@ def main():
     # ---------- 图二 ----------
     fx = np.linspace(0, 1, A['LZ'].shape[1])
     lr = A["LZ"].mean(0)
-    ls = A["LZS"].mean(0)
-    half_r, half_s = np.interp(0.5, lr, fx), np.interp(0.5, ls, fx)
-    top1_r, top1_s = np.interp(0.01, fx, lr), np.interp(0.01, fx, ls)
+    half_r = np.interp(0.5, lr, fx)
+    top1_r = np.interp(0.01, fx, lr)
     fig, ax = plt.subplots(figsize=(11.8, 7.4))
-    ax.plot(fx[1:] * 100, lr[1:] * 100, color=C_REAL, lw=2.6, label="实际")
-    ax.plot(fx[1:] * 100, ls[1:] * 100, color=C_SUR, lw=2.4, ls="--", label="同笔数对照")
+    for qi in range(5):
+        m = (df.q == qi).values
+        ax.plot(fx[1:] * 100, A["LZ"][m].mean(0)[1:] * 100, color=CQ[qi], lw=2.6,
+                label=f"第 {qi + 1} 组　每秒 {lam[qi]:.2f} 笔")
     ax.axhline(50, color="#999999", lw=0.9, ls=":")
-    ax.plot([half_r * 100], [50], "o", color=C_REAL, ms=9)
-    ax.plot([half_s * 100], [50], "o", color=C_SUR, ms=9)
-    ax.annotate(f"实际 {half_r * 100:.1f}%", (half_r * 100, 50), xytext=(8, -30),
-                textcoords="offset points", color=C_REAL, fontsize=12.5, fontweight="bold")
-    ax.annotate(f"对照 {half_s * 100:.1f}%", (half_s * 100, 50), xytext=(14, -56),
-                textcoords="offset points", color="#5D6D7E", fontsize=12.5)
+    ax.plot([half_r * 100], [50], "o", color=C_REAL, ms=10, zorder=5)
+    ax.annotate(f"全体中位 {half_r * 100:.1f}%", (half_r * 100, 50), xytext=(10, -34),
+                textcoords="offset points", color=C_REAL, fontsize=13, fontweight="bold")
     ax.set_xscale("log")
     ax.set_xlim(0.3, 100)
     ax.set_ylim(0, 100)
     ax.set_xlabel("最忙的那部分时间，占全天的比例（%，对数轴）", fontsize=12)
     ax.set_ylabel("这部分时间里发生的成交，占全天的比例（%）", fontsize=12)
-    ax.set_title("一半的成交挤在最忙的几个百分点里", fontsize=15)
-    ax.legend(frameon=False, fontsize=12, loc="lower right")
-    ax.text(0.03, 0.06, f"最忙的 1% 时间（142 秒）里发生了 {top1_r * 100:.0f}% 的成交，对照是 {top1_s * 100:.0f}%",
-            transform=ax.transAxes, fontsize=11.5, color="#333333")
+    ax.set_title("越忙的股票，一半成交铺得越开", fontsize=15)
+    ax.legend(frameon=False, fontsize=11.5, loc="lower right")
+    ax.text(0.03, 0.06, f"最忙的 1% 时间（142 秒）里发生了 {top1_r * 100:.0f}% 的成交",
+            transform=ax.transAxes, fontsize=12, color="#333333")
     fig.tight_layout()
     fig.savefig(OUT / "f2_concentration.png", dpi=150)
     plt.close(fig)
 
     # ---------- 图三 ----------
-    stat = df.groupby("q").ratio_p.describe(percentiles=[.1, .25, .5, .75, .9])
+    stat = df.groupby("q").fano.describe(percentiles=[.1, .25, .5, .75, .9])
     x = np.arange(5)
     fig, ax = plt.subplots(figsize=(11.8, 7.2))
     ax.fill_between(x, stat["10%"], stat["90%"], color="#D6EAF8", label="十分位到九十分位")
@@ -118,36 +111,40 @@ def main():
     ax.plot(x, stat["50%"], "o-", color=C_REAL, lw=2.4, ms=9, label="中位")
     for i in range(5):
         ha, dx = ("right", -0.12) if i == 4 else ("left", 0.12)
-        ax.text(i + dx, stat["50%"].iloc[i] + 0.018, f"{stat['50%'].iloc[i]:.2f}", ha=ha, fontsize=13,
+        ax.text(i + dx, stat["50%"].iloc[i] + 0.06, f"{stat['50%'].iloc[i]:.2f}", ha=ha, fontsize=13,
                 color=C_REAL, fontweight="bold")
+    ax.axhline(1, color="#333333", lw=1.3, ls="--")
+    ax.text(0.02, 1.06, "1 = 同样多次成交，随机撒开", fontsize=11.5, color="#333333")
     ax.set_xticks(x)
-    ax.set_xticklabels([f"第 {i + 1} 组\n每秒 {lam[i]:.2f} 笔" for i in range(5)])
-    ax.set_ylabel("纯成团倍数（实际 ÷ 同笔数对照）", fontsize=12)
-    ax.set_title("活跃度差 13 倍，成团只多两成", fontsize=15)
+    ax.set_xticklabels([f"第 {i + 1} 组\n每秒 {lam[i]:.2f} 次" for i in range(5)])
+    ax.set_ylim(0.8, 5.0)
+    ax.set_ylabel("每秒成交次数的方差 ÷ 均值", fontsize=12)
+    ax.set_title("活跃度差 10 倍，成团差一倍半", fontsize=15)
     ax.legend(frameon=False, fontsize=11.5, loc="upper left")
     fig.tight_layout()
     fig.savefig(OUT / "f3_vs_activity.png", dpi=150)
     plt.close(fig)
 
     # ---------- 图四 ----------
-    cm = df.groupby("date").common.median() * 100
+    r2d = df.groupby("date").r2.median() * 100
     fig, ax = plt.subplots(figsize=(12.2, 6.8))
-    cols = ["#5D6D7E" if cm[d] < 12 else "#C0392B" for d in DATES]
-    ax.bar(range(8), [cm[d] for d in DATES], color=cols, width=.62)
+    cols = ["#5D6D7E" if r2d[d] < 12 else "#C0392B" for d in DATES]
+    ax.bar(range(8), [r2d[d] for d in DATES], color=cols, width=.62)
     for i, d in enumerate(DATES):
-        ax.text(i, cm[d] + 0.6, f"{cm[d]:.1f}%", ha="center", fontsize=12.5)
+        ax.text(i, r2d[d] + 0.4, f"{r2d[d]:.1f}%", ha="center", fontsize=12.5)
     ax.set_xticks(range(8))
     ax.set_xticklabels([LEG[d] for d in DATES], fontsize=11)
-    ax.set_ylabel("成团里由全市场共同作息解释的比例（%）", fontsize=12)
-    ax.set_ylim(0, max(cm) * 1.22)
-    ax.set_title("常态日各走各的，天量日和暴跌日才会一起动", fontsize=15)
+    ax.set_ylabel("同一秒的成交能被大盘解释的比例（%）", fontsize=12)
+    ax.set_ylim(0, max(r2d) * 1.25)
+    ax.set_title("常态日各走各的，暴跌日两成跟大盘同步", fontsize=15)
     fig.tight_layout()
     fig.savefig(OUT / "f4_common.png", dpi=150)
     plt.close(fig)
 
-    print(f"一半成交落在最忙的 {half_r * 100:.2f}% 时间（对照 {half_s * 100:.2f}%）")
-    print(f"最忙 1% 时间承载 {top1_r * 100:.1f}%（对照 {top1_s * 100:.1f}%）")
-    print("按日 common：", cm.round(1).to_dict())
+    print(f"一半成交落在最忙的 {half_r * 100:.2f}% 时间")
+    print(f"最忙 1% 时间承载 {top1_r * 100:.1f}%")
+    print("按日 R2：", r2d.round(1).to_dict())
+    print("fano 中位 %.2f，r2 中位 %.3f，扣掉大盘后 %.2f" % (df.fano.median(), df.r2.median(), (df.fano*(1-df.r2)).median()))
     print("图已写入", OUT)
 
 
