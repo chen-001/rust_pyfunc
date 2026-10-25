@@ -114,12 +114,12 @@ def main():
         ax.text(i + dx, stat["50%"].iloc[i] + 0.06, f"{stat['50%'].iloc[i]:.2f}", ha=ha, fontsize=13,
                 color=C_REAL, fontweight="bold")
     ax.axhline(1, color="#333333", lw=1.3, ls="--")
-    ax.text(0.02, 1.06, "1 = 同样多次成交，随机撒开", fontsize=11.5, color="#333333")
+    ax.text(0.99, 0.07, "虚线 1 = 同样多笔成交随机撒开", transform=ax.transAxes, ha="right", fontsize=12, color="#333333")
     ax.set_xticks(x)
-    ax.set_xticklabels([f"第 {i + 1} 组\n每秒 {lam[i]:.2f} 次" for i in range(5)])
-    ax.set_ylim(0.8, 5.0)
-    ax.set_ylabel("每秒成交次数的方差 ÷ 均值", fontsize=12)
-    ax.set_title("活跃度差 10 倍，成团差一倍半", fontsize=15)
+    ax.set_xticklabels([f"第 {i + 1} 组\n每秒 {lam[i]:.2f} 笔" for i in range(5)])
+    ax.set_ylim(0, 55)
+    ax.set_ylabel("每秒成交笔数的方差 ÷ 均值", fontsize=12)
+    ax.set_title("活跃度差 13 倍，成团差近 4 倍", fontsize=15)
     ax.legend(frameon=False, fontsize=11.5, loc="upper left")
     fig.tight_layout()
     fig.savefig(OUT / "f3_vs_activity.png", dpi=150)
@@ -128,7 +128,8 @@ def main():
     # ---------- 图四 ----------
     r2d = df.groupby("date").r2.median() * 100
     fig, ax = plt.subplots(figsize=(12.2, 6.8))
-    cols = ["#5D6D7E" if r2d[d] < 12 else "#C0392B" for d in DATES]
+    EXT = {20240205, 20240930, 20241008, 20250407}
+    cols = ["#C0392B" if d in EXT else "#5D6D7E" for d in DATES]
     ax.bar(range(8), [r2d[d] for d in DATES], color=cols, width=.62)
     for i, d in enumerate(DATES):
         ax.text(i, r2d[d] + 0.4, f"{r2d[d]:.1f}%", ha="center", fontsize=12.5)
@@ -136,7 +137,7 @@ def main():
     ax.set_xticklabels([LEG[d] for d in DATES], fontsize=11)
     ax.set_ylabel("同一秒的成交能被大盘解释的比例（%）", fontsize=12)
     ax.set_ylim(0, max(r2d) * 1.25)
-    ax.set_title("常态日各走各的，暴跌日两成跟大盘同步", fontsize=15)
+    ax.set_title("常态日一成不到，天量日三成跟大盘同步", fontsize=15)
     fig.tight_layout()
     fig.savefig(OUT / "f4_common.png", dpi=150)
     plt.close(fig)
@@ -144,7 +145,7 @@ def main():
     print(f"一半成交落在最忙的 {half_r * 100:.2f}% 时间")
     print(f"最忙 1% 时间承载 {top1_r * 100:.1f}%")
     print("按日 R2：", r2d.round(1).to_dict())
-    print("fano 中位 %.2f，r2 中位 %.3f，扣掉大盘后 %.2f" % (df.fano.median(), df.r2.median(), (df.fano*(1-df.r2)).median()))
+    print("fano 中位 %.1f，r2 中位 %.3f，扣掉大盘后 %.1f" % (df.fano.median(), df.r2.median(), (df.fano*(1-df.r2)).median()))
     print("图已写入", OUT)
 
 

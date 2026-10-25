@@ -11,8 +11,9 @@
 //!
 //! 输出
 //! - hist / lz：每秒成交「记录」数的直方图与累计集中曲线（描述用）。
-//! - fano：每秒成交「事件」数的方差除以均值。同样笔数随机撒开等于 1。
-//! - sx2 / sem：Σ(每秒事件数²) 与 Σ(每秒事件数 × 当天全市场每秒事件数)，算相关系数用。
+//! - fano：每秒成交「记录」数的方差除以均值（主指标）。同样笔数随机撒开等于 1。
+//! - fano_e：把同一时间戳的几条并成一次之后的同一个数，只用来写口径备注。
+//! - sx2 / sem：Σ(每秒记录数²) 与 Σ(每秒记录数 × 当天全市场每秒记录数)，算相关系数用。
 //!
 //! 构建：cd sandbox_trade_rhythm && cargo build --release
 //! 运行：./target/release/trade_rhythm 20240329 > out/20240329.json
@@ -46,6 +47,7 @@ struct Rec {
     amt_c: f64,
     vol: f64,
     fano: f64,
+    fano_e: f64,
     sx2: f64,
     sem: f64,
     hist: Vec<u32>,
@@ -79,6 +81,7 @@ struct Part {
     amt: f64,
     amt_c: f64,
     vol: f64,
+    rcnt: Vec<u32>,
     ecnt: Vec<u16>,
     hist: [u32; NB],
     lz: Vec<f32>,
@@ -173,8 +176,8 @@ fn read_one(date: i64, code: &str) -> Option<Part> {
         hist[(v as usize).min(NB - 1)] += 1;
     }
     let mut lz = vec![0.0f32; NLZ];
-    lorenz(&mut rcnt, &mut lz);
-    Some(Part { code: code.to_string(), s, e, nc, nauc, noth, amt, amt_c, vol, ecnt, hist, lz })
+    lorenz(&mut rcnt.clone(), &mut lz);
+    Some(Part { code: code.to_string(), s, e, nc, nauc, noth, amt, amt_c, vol, rcnt, ecnt, hist, lz })
 }
 
 fn stock_universe(date: i64) -> Vec<String> {
@@ -210,11 +213,11 @@ fn main() {
         panic!("没有可用的股票日");
     }
 
-    // 全市场每秒的成交事件数，作为当天大家的共同作息
+    // 全市场每秒的成交记录数，作为当天大家的共同作息
     let mut mkt = vec![0.0f64; T];
     for p in parts.iter() {
         for i in 0..T {
-            mkt[i] += p.ecnt[i] as f64;
+            mkt[i] += p.rcnt[i] as f64;
         }
     }
     let mtot: f64 = mkt.iter().sum();
@@ -227,15 +230,22 @@ fn main() {
         .map(|p| {
             let mut sx2 = 0.0f64;
             let mut sem = 0.0f64;
+            let mut sx2e = 0.0f64;
             for i in 0..T {
-                let v = p.ecnt[i] as f64;
+                let v = p.rcnt[i] as f64;
                 if v > 0.0 {
                     sx2 += v * v;
                     sem += v * mkt[i];
                 }
+                let w = p.ecnt[i] as f64;
+                if w > 0.0 {
+                    sx2e += w * w;
+                }
             }
-            let mean = p.e as f64 / T as f64;
+            let mean = p.s as f64 / T as f64;
             let var = sx2 / T as f64 - mean * mean;
+            let mean_e = p.e as f64 / T as f64;
+            let var_e = sx2e / T as f64 - mean_e * mean_e;
             Rec {
                 code: p.code,
                 s: p.s,
@@ -247,6 +257,7 @@ fn main() {
                 amt_c: p.amt_c,
                 vol: p.vol,
                 fano: var / mean,
+                fano_e: var_e / mean_e,
                 sx2,
                 sem,
                 hist: p.hist.to_vec(),
@@ -255,6 +266,6 @@ fn main() {
         })
         .collect();
     let out = Out { date, n_codes: codes.len(), n_valid, n_fail: codes.len() - n_valid, market: Market { events: mtot, mean: mmean, var: mvar }, recs };
-    eprintln!("valid={} fail={} 全市场事件 {:.0} 每秒均值 {:.1}", out.n_valid, out.n_fail, mtot, mmean);
+    eprintln!("valid={} fail={} 全市场记录 {:.0} 每秒均值 {:.1}", out.n_valid, out.n_fail, mtot, mmean);
     println!("{}", serde_json::to_string(&out).unwrap());
 }

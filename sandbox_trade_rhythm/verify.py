@@ -58,10 +58,11 @@ def main():
         tick = us // 10**4
         first = np.r_[True, tick[1:] != tick[:-1]]
         ec = np.bincount(idx[first], minlength=T)
-        ecnt[i] = ec
+        ecnt[i] = rc
         rows[c] = dict(s=int(keep.sum()), e=int(first.sum()),
                        hist=np.bincount(np.minimum(rc, NB - 1), minlength=NB),
-                       lz=lorenz(rc), fano=float(ec.var() / ec.mean()))
+                       lz=lorenz(rc), fano=float(rc.var() / rc.mean()),
+                       fano_e=float(ec.var() / ec.mean()))
     mkt = ecnt.sum(0)
 
     bad = 0
@@ -70,12 +71,13 @@ def main():
         v = rows[c]
         sem = float((ecnt[i] * mkt).sum())
         r2_py = np.corrcoef(ecnt[i], mkt)[0, 1] ** 2
-        mean_e = r["e"] / T
+        mean_e = r["s"] / T
         mmean, mvar = mkt.mean(), mkt.var()
         r2_rust = ((r["sem"] - T * mmean * mean_e) / np.sqrt((r["sx2"] - T * mean_e ** 2) * (mvar * T))) ** 2
         chk = {"s": r["s"] - v["s"], "e": r["e"] - v["e"], "fano": r["fano"] - v["fano"],
                "sem": r["sem"] - sem, "hist": int(np.abs(np.array(r["hist"]) - v["hist"]).sum()),
-               "lz": float(np.abs(np.array(r["lz"]) - v["lz"]).max()), "r2": r2_rust - r2_py}
+               "lz": float(np.abs(np.array(r["lz"]) - v["lz"]).max()), "r2": r2_rust - r2_py,
+               "fano_e": r["fano_e"] - v["fano_e"]}
         worst = max(abs(x) for x in chk.values())
         if worst > 1e-3:
             bad += 1

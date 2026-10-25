@@ -61,7 +61,7 @@ def load():
             r2 = cov * cov / ((r["sx2"] / T - mean_e ** 2) * m["var"]) if r["sx2"] > 0 else np.nan
             rows.append({"code": r["code"], "s": r["s"], "e": r["e"], "nc": r["nc"],
                          "amt": r["amt"], "tamt": r["amt"], "vol": r["vol"], "tvol": r["vol"],
-                         "fano": r["fano"], "r2": r2, "date": d})
+                         "fano": r["fano"], "fano_e": r["fano_e"], "r2": r2, "date": d})
             hist.append(r["hist"])
             lz.append(r["lz"])
     df = pd.DataFrame(rows)
@@ -79,7 +79,7 @@ def load():
         age[d] = D["close"].iloc[max(0, j - 60): j].notna().sum() >= 60
     df["age_ok"] = [bool(age[d].get(c, False)) for d, c in zip(df["date"], df["code"])]
     df["ret"] = df.close / df.pre - 1
-    df["lam"] = df.e / T
+    df["lam"] = df.s / T
     f = (df.st == 1) & (df.hi != df.lo) & df.age_ok & df.amt.notna()
     return df[f].reset_index(drop=True), {k: (v[f.values] if isinstance(v, np.ndarray) else v) for k, v in A.items()}
 

@@ -34,7 +34,8 @@ def main():
          "fano_分位": {k: float(df.fano.quantile(v)) for k, v in
                      [("10%", .1), ("25%", .25), ("50%", .5), ("75%", .75), ("90%", .9)]},
          "r2_中位": float(df.r2.median()),
-         "fano_net_中位": float(df.fano_net.median())}
+         "fano_net_中位": float(df.fano_net.median()),
+         "fano_并成一次_中位": float(df.fano_e.median())}
     lr = A["LZ"].mean(0)
     N["一半成交时间"] = float(np.interp(0.5, lr, fx))
     N["最忙1%成交占比"] = float(np.interp(0.01, fx, lr))
@@ -50,14 +51,15 @@ def main():
                      "fano_中位": df.fano[m].median(), "fano_25%": df.fano[m].quantile(.25),
                      "fano_75%": df.fano[m].quantile(.75), "fano_10%": df.fano[m].quantile(.1),
                      "fano_90%": df.fano[m].quantile(.9),
-                     "r2_中位": df.r2[m].median(), "fano_net_中位": df.fano_net[m].median()})
+                     "r2_中位": df.r2[m].median(), "fano_net_中位": df.fano_net[m].median(),
+                     "fano_并成一次_中位": df.fano_e[m].median()})
     Q = pd.DataFrame(rows)
     D = df.groupby("date").agg(股票日=("s", "size"), 中位记录数=("s", "median"), 每秒事件中位=("lam", "median"),
-                              fano中位=("fano", "median"), r2中位=("r2", "median"),
+                              fano中位=("fano", "median"), fano并成一次=("fano_e", "median"), r2中位=("r2", "median"),
                               fano净中位=("fano_net", "median")).reset_index()
     D["对账比"] = [float((df[df.date == d].tamt / (df[df.date == d].amt * 1000)).median()) for d in D.date]
     D["名称"] = [LEG[d] for d in D.date]
-    D = D[["date", "名称", "股票日", "中位记录数", "每秒事件中位", "fano中位", "r2中位", "fano净中位", "对账比"]]
+    D = D[["date", "名称", "股票日", "中位记录数", "每秒事件中位", "fano中位", "fano并成一次", "r2中位", "fano净中位", "对账比"]]
 
     N["五分位"] = Q.to_dict(orient="records")
     N["按日"] = D.to_dict(orient="records")
