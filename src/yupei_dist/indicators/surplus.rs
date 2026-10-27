@@ -30,7 +30,16 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             None => continue,
         };
         // null 是秩 1: null_ij = c·w_i·w_j, c = 2τ/T
-        let c = 2.0 * tau / 14220.0;
+        // signed 族（flow/urg/ext）的 same/opp 各只存**一半能量**（同向对 / 反向对），
+        // 而 sum_w_* 是**无符号**的全份权重和，所以这两族的零模型要减半。
+        // 泊松复算（τ=0.5、40 次独立重复）: 全份矩阵 行和/null = 0.875，
+        // same = 0.437、opp = 0.438 —— 恰为全份的 0.50。
+        let half = if mat.contains("_same_") || mat.contains("_opp_") {
+            0.5
+        } else {
+            1.0
+        };
+        let c = 2.0 * tau / 14220.0 * half;
         let w: Vec<f64> = stats
             .iter()
             .map(|st| {
@@ -56,7 +65,7 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                 let row_sum: f64 = sym[i * n..(i + 1) * n].iter().map(|&v| v as f64).sum();
                 let null_row = c * w[i] * total_w;
                 if null_row <= 0.0 {
-                    return 0.0f32;
+                    return f32::NAN;
                 }
                 ((row_sum - null_row) / null_row.sqrt()) as f32
             })

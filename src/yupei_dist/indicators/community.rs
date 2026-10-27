@@ -55,18 +55,7 @@ fn compute_one(n: usize, mat: &str, sym: &[f32]) -> Vec<(String, Vec<f32>)> {
     let k = 50usize;
     let top: Vec<Vec<u32>> = (0..n)
         .into_par_iter()
-        .map(|i| {
-            let row = &sym[i * n..(i + 1) * n];
-            let mut idx: Vec<u32> = (0..n as u32).collect();
-            idx.sort_unstable_by(|&a, &b| {
-                row[b as usize]
-                    .partial_cmp(&row[a as usize])
-                    .unwrap_or(std::cmp::Ordering::Equal)
-                    .then_with(|| a.cmp(&b))
-            });
-            idx.truncate(k);
-            idx
-        })
+        .map(|i| crate::yupei_dist::topk_util::topk_select_indices(&sym[i * n..(i + 1) * n], k))
         .collect();
     // 无向边: 用 BTreeSet 保证确定性
     let mut edges: std::collections::BTreeSet<(u32, u32)> = std::collections::BTreeSet::new();
@@ -104,20 +93,28 @@ fn compute_one(n: usize, mat: &str, sym: &[f32]) -> Vec<(String, Vec<f32>)> {
     for i in 0..n {
         comm[i] = i;
     }
-    // 社群内边权和（Σ_tot）与内部边权
+    // 社群内边权和（Σ_tot）
     let mut comm_tot: Vec<f64> = k_i.clone();
-    for round in 0..12 {
+    for _round in 0..12 {
         let mut moved = false;
         for i in 0..n {
             let c0 = comm[i];
-            // 邻居社群及到它们的边权和（Vec+排序替代 BTreeMap, 键升序同 → 结果逐位一致）
+            // i 到各邻居社群的边权和（Vec+排序替代 BTreeMap, 键升序同 → 结果逐位一致）
             let mut inc: Vec<(usize, f64)> = Vec::with_capacity(16);
             for &(j, w) in adj[i].iter() {
                 inc.push((comm[j as usize], w as f64));
             }
             inc.sort_unstable_by_key(|&(c, _)| c);
+            // 标准 Louvain 移动判据（Blondel 2008）: 先把 i 从原社群摘出，再对**每个候选
+            // 社群（含原社群 c0）**算 ΔQ = k_in(i,c) − k_i·Σ_tot(c)/(2m)，取最大；
+            // 只有最大 ΔQ > 0 才搬。
+            // 旧实现把 c0 直接 continue、门槛写死 0，等于把"留在原社群"的增益当成 0，
+            // 于是只要某个邻居社群的目标项为正就搬 —— 第一轮（每人自成社群）恰好等价，
+            // 第二轮起判据就是错的: 12 轮每轮都在搬，最终划分取决于第 12 轮停在哪一步
+            // （合成 20 张随机图的模块度 0.346 对标准写法 0.610）。
+            let tot_c0 = comm_tot[c0] - k_i[i]; // i 摘出后的源社群 Σ_tot
             let mut best_c = c0;
-            let mut best_gain = 0.0f64;
+            let mut best_gain = f64::NEG_INFINITY;
             let mut idx = 0usize;
             while idx < inc.len() {
                 let c = inc[idx].0;
@@ -126,25 +123,23 @@ fn compute_one(n: usize, mat: &str, sym: &[f32]) -> Vec<(String, Vec<f32>)> {
                     k_in += inc[idx].1;
                     idx += 1;
                 }
-                if c == c0 {
-                    continue;
-                }
-                // 标准加权模块度增益（无向, γ=1）: ΔQ = k_in - k_i·Σ_tot/2m
-                let gain = k_in - k_i[i] * comm_tot[c] / (2.0 * m);
+                let tot_c = if c == c0 { tot_c0 } else { comm_tot[c] };
+                let gain = k_in - k_i[i] * tot_c / (2.0 * m);
                 if gain > best_gain {
                     best_gain = gain;
                     best_c = c;
                 }
             }
-            if best_c != c0 {
+            let _ = _round;
+            if best_c != c0 && best_gain > 1e-12 {
                 comm_tot[c0] -= k_i[i];
                 comm_tot[best_c] += k_i[i];
                 comm[i] = best_c;
                 moved = true;
             }
         }
-        // 聚合轮（简化: 只做节点移动轮, 不收缩图; 12 轮足够收敛）
-        if !moved && round > 0 {
+        // 聚合轮（简化: 只做节点移动轮, 不收缩图; 标准判据下 ΔQ 单调增，必收敛）
+        if !moved {
             break;
         }
     }

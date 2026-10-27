@@ -26,28 +26,13 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             None => continue,
         };
         let k = 50usize;
-        // 每行 top-50 邻居（确定性）
+        // 每行 top-50 邻居（确定性; 只取正权边, 不用零值补位）
         let nbrs: Vec<Vec<u32>> = (0..n)
             .into_par_iter()
-            .map(|i| {
-                let row = &sym[i * n..(i + 1) * n];
-                let mut idx: Vec<u32> = (0..n as u32).collect();
-                idx.sort_unstable_by(|&a, &b| {
-                    row[b as usize]
-                        .partial_cmp(&row[a as usize])
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                        .then_with(|| a.cmp(&b))
-                });
-                idx.truncate(k);
-                idx
-            })
+            .map(|i| crate::yupei_dist::topk_util::topk_select_indices(&sym[i * n..(i + 1) * n], k))
             .collect();
-        // 邻居查询表: 每行一个排序数组（二分查询）
-        let mut sorted_nbrs: Vec<Vec<u32>> = nbrs.clone();
-        for v in sorted_nbrs.iter_mut() {
-            v.sort_unstable();
-        }
-        let is_edge = |a: usize, b: u32| -> bool { sorted_nbrs[a].binary_search(&b).is_ok() };
+        // 邻居表已按索引升序? 不需要: Brandes 只遍历 nbrs，不做邻接查询。
+        // （旧的 is_edge 闭包是死代码，已删——原意是无向图，实际跑的是有向图。）
 
         // Brandes（无权, 只走邻居子图）: 对每个源点 s, BFS 计算依赖累加
         // 并行于源点; 每源点的 sigma/delta 数组本地分配（n=3964, k=50 图稀疏）
@@ -80,13 +65,17 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                         }
                     }
                 }
-                // 反向累积依赖（只对可达节点; 确定性: 按 order 逆序）
+                // 反向累积依赖（标准 Brandes）:
+                //   δ(v) = Σ_{w ∈ succ(v)} (σ_v / σ_w)·(1 + δ(w))
+                // 逆序处理保证后继的 δ(w) 已经算好。
+                // 旧实现写成 delta[w] += (σ_w/σ_v)(1+δ(v))，方向反了——把依赖推给后继
+                // 而不是从前驱收，数值会超过介数的理论上界 (n-1)(n-2)（实测归一化后 3.98）。
                 for &v32 in order.iter().rev() {
                     let v = v32 as usize;
                     for &w in nbrs[v].iter() {
                         let w = w as usize;
-                        if dist[w] == dist[v] + 1 {
-                            delta[w] += sigma[w] / sigma[v] * (1.0 + delta[v]);
+                        if dist[w] == dist[v] + 1 && sigma[w] > 0.0 {
+                            delta[v] += sigma[v] / sigma[w] * (1.0 + delta[w]);
                         }
                     }
                 }
@@ -104,8 +93,13 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                 betweenness[j as usize] += v;
             }
         }
-        // 归一化: 除以 (N-1)(N-2)/2（可选; 保留原始计数, 注释说明）
-        let col: Vec<f32> = betweenness.iter().map(|&x| x as f32).collect();
+        // 归一化: 有向介数除以 (N-1)(N-2)，值域 [0,1]，可跨日/跨 universe 比较。
+        // （图是有向的: i 选 j 不保证 j 选 i，所以用有向归一因子，不是 (N-1)(N-2)/2。）
+        let norm = ((n as f64 - 1.0) * (n as f64 - 2.0)).max(f64::MIN_POSITIVE);
+        let col: Vec<f32> = betweenness
+            .iter()
+            .map(|&x| if n >= 3 { (x / norm) as f32 } else { f32::NAN })
+            .collect();
         out.push(IndicatorResult::new(format!("btw_{mat}_betweenness"), col));
     }
     out

@@ -31,8 +31,13 @@ fn kept(ctx: &IndicatorCtx, name: &str) -> bool {
 }
 
 /// x 在 row 的排序中是否排在 i 之前（值降序, 同值索引升序; 与 topk 选择同口径）。
+/// **权重为 0 的列不算"排在前面"**：那只是没连上，不是名次。
+/// （旧实现把 0 值也计入名次，于是"没进名单"的秩由代码索引大小决定。）
 #[inline]
 fn ranks_before(row: &[f32], x: usize, i: usize) -> bool {
+    if row[x] <= 0.0 {
+        return false;
+    }
     match row[x].partial_cmp(&row[i]).unwrap_or(std::cmp::Ordering::Equal) {
         std::cmp::Ordering::Greater => true,
         std::cmp::Ordering::Equal => x < i,
@@ -122,21 +127,26 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                     }
                     dep_v = (acc / 5.0) as f32;
                 }
-                // dep_wmean: mean_j∈top50 (d_ij − d_ji) / max(d_ij, ε)
+                // dep_wmean: mean_j∈topK (d_ij − d_ji) / (|d_ij| + |d_ji|)，值域 (−1, 1)。
+                // 旧实现拿被减数 d_ij 当分母（max(d_ij, 1e-9)）：d_ij → 0 时商无界，
+                // d_ij 为负时（urg 族权重是 z 分数，可正可负）分母被钳到 1e-9 → 商可达 1e14。
+                // 实测 2025-10-31: dep_urg_opp_t1/t5/t30 的中位数就是 −4.7e10/−9.8e10/−3.3e11。
                 if need_wmean {
                     let drow = &dir[i * n..(i + 1) * n];
                     let mut wm = 0.0f64;
+                    let mut cnt = 0usize;
                     for &j in nbrs[i].iter() {
                         let ju = j as usize;
                         let wij = drow[ju] as f64;
                         let wji = dir[ju * n + i] as f64;
-                        wm += (wij - wji) / wij.max(1e-9);
+                        let den = wij.abs() + wji.abs();
+                        if den <= 1e-9 {
+                            continue; // 两条边都是 0 → 这一对没有方向信息
+                        }
+                        wm += (wij - wji) / den;
+                        cnt += 1;
                     }
-                    wmean_v = if nbrs[i].is_empty() {
-                        f32::NAN
-                    } else {
-                        (wm / nbrs[i].len() as f64) as f32
-                    };
+                    wmean_v = if cnt == 0 { f32::NAN } else { (wm / cnt as f64) as f32 };
                 }
                 // dep_admirer: (被选中次数 − 互选次数) / 50
                 if need_admirer {

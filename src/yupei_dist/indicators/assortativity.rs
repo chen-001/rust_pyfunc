@@ -1,6 +1,10 @@
 //! assortativity: 网络同配性个股版（降维指标.md 十八）。
-//! assort_corr: 每行 (S_ij, Strength_j) 的 Pearson 相关（j 遍历邻居, 确定性）;
+//! assort_corr: 每行 (S_ij, Strength_j) 的 Pearson 相关（j 遍历**整行 n−1 个**，确定性）;
 //! nb_str_minus_mean = NeighborStrength_i - 全市场 Strength 均值。
+//! 口径说明: 这不是 Newman 的边集同配系数（那只在"边"上取两端度数做相关）。
+//! 这里非邻居位置的 S_ij = 0 也进样本，所以相关系数主要由"连没连上"这个二值事实决定，
+//! 行越稀疏越被零堆拉走；x 方差为 0（空行）时无定义 → 输出 NaN。
+//! 注意 nb_str_minus_mean 与 neighbor_strength 模块同式（同一列减一个当日常数）。
 
 use crate::yupei_dist::indicator_ctx::{IndicatorCtx, IndicatorResult};
 use rayon::prelude::*;
@@ -62,7 +66,7 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                     cnt += 1;
                 }
                 if cnt < 3 {
-                    return 0.0f32;
+                    return f32::NAN;
                 }
                 let c = cnt as f64;
                 let num = sxy - sx * sy / c;
@@ -80,7 +84,7 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             .map(|i| {
                 let total = row_sums[i];
                 if total <= 0.0 {
-                    return 0.0f32;
+                    return f32::NAN;
                 }
                 let inv = 1.0 / total;
                 let row = &sym[i * n..(i + 1) * n];

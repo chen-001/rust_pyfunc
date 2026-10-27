@@ -40,20 +40,21 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             let s: f64 = row.iter().map(|&v| v as f64).sum();
             sums.push(s);
         }
-        // 中位数 / q90: 每行排序（行内并行）
+        // 中位数 / q90: 只在**正权邻居**上取（行内其余位置是 0，不是邻居）。
+        // 旧实现把整行 n 个元素一起排序，样本被 n-1-k 个 0 稀释：
+        // 邻居数 < n/10 时 q90 直接落在 0 上，中位数更早就变 0，列退化成常数。
         let (medians, q90s): (Vec<f32>, Vec<f32>) = (0..n)
             .into_par_iter()
             .map(|i| {
                 let row = &sym[i * n..(i + 1) * n];
-                let mut sorted: Vec<f32> = row.to_vec();
-                sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-                let nz = sorted.len();
-                let med = if nz > 0 { sorted[nz / 2] } else { 0.0 };
-                let q90 = if nz > 0 {
-                    sorted[(nz as f64 * 0.9) as usize]
-                } else {
-                    0.0
-                };
+                let mut nz: Vec<f32> = row.iter().copied().filter(|&v| v > 0.0).collect();
+                if nz.is_empty() {
+                    return (f32::NAN, f32::NAN);
+                }
+                nz.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                let m = nz.len();
+                let med = nz[m / 2];
+                let q90 = nz[(((m as f64) * 0.9) as usize).min(m - 1)];
                 (med, q90)
             })
             .unzip();

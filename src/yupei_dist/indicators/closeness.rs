@@ -1,6 +1,7 @@
 //! closeness: 接近中心性（降维指标.md 十二, 近似）。
-//! top-50 邻居子图, 距离 d=1/(S+ε); 每源点 Dijkstra（3 跳上限近似）;
-//! Closeness = 1/Σd; 不可达按 N 计入。实现方案注释说明。
+//! top-50 邻居子图（只取正权边）, 距离 = 跳数（无权 BFS, ≤3 跳上限近似）;
+//! Closeness = Wasserman-Faust 可达版 = (|R|/(N−1))·(|R|/Σ_{j∈R} d_ij)，值域 [0,1]。
+//! 不可达节点不计入距离和，只在 |R|/(N−1) 这一项里体现（标准处理）。
 
 use crate::yupei_dist::indicator_ctx::{IndicatorCtx, IndicatorResult};
 use rayon::prelude::*;
@@ -28,18 +29,7 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
         };
         let nbrs: Vec<Vec<u32>> = (0..n)
             .into_par_iter()
-            .map(|i| {
-                let row = &sym[i * n..(i + 1) * n];
-                let mut idx: Vec<u32> = (0..n as u32).collect();
-                idx.sort_unstable_by(|&a, &b| {
-                    row[b as usize]
-                        .partial_cmp(&row[a as usize])
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                        .then_with(|| a.cmp(&b))
-                });
-                idx.truncate(k);
-                idx
-            })
+            .map(|i| crate::yupei_dist::topk_util::topk_select_indices(&sym[i * n..(i + 1) * n], k))
             .collect();
         let col: Vec<f32> = (0..n)
             .into_par_iter()
@@ -73,13 +63,16 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                         reached += 1;
                     }
                 }
-                let unreached = (n - 1) - reached;
-                let total = sum_d + unreached as f64 * (max_hops as f64 + 1.0);
-                if total > 0.0 {
-                    (1.0 / total) as f32
-                } else {
-                    0.0
+                // Wasserman-Faust 可达版接近中心性（不连通图的定义）:
+                //   C(i) = (|R|/(N-1)) · (|R|/Σ_{j∈R} d_ij)
+                // 值域 [0,1]，与 universe 大小无关，可跨日比较。
+                // （旧实现是 1/Σd，缺 (N-1) 归一，绝对水平落在 1/(3N)~1/(4N)，
+                //   随每天股票数漂移；不可达还按 max_hops+1=4 硬算距离。）
+                if reached == 0 || n < 2 {
+                    return f32::NAN;
                 }
+                let r = reached as f64;
+                ((r / (n as f64 - 1.0)) * (r / sum_d)) as f32
             })
             .collect();
         out.push(IndicatorResult::new(format!("clo_{mat}_closeness"), col));

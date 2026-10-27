@@ -47,7 +47,8 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                 if den > 0.0 {
                     (num / den) as f32
                 } else {
-                    0.0
+                    // 该行与所有对手都没有交互 → 互惠性无定义（旧实现返回 0）
+                    f32::NAN
                 }
             })
             .collect();

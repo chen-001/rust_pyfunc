@@ -31,19 +31,17 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             Some(s) => s,
             None => continue,
         };
-        let row_sums = match ctx.row_sum_sym(mat) {
-            Some(s) => s,
-            None => continue,
-        };
         let col: Vec<f32> = (0..n)
             .into_par_iter()
             .map(|i| {
-                let total = row_sums[i];
+                let row = &sym[i * n..(i + 1) * n];
+                // 分母用**正项之和**: urg 族矩阵元素可为负（权重是带符号 z 分数），
+                // 带符号行和会让 p = v/total 大于 1，权重和不再归一。
+                let total: f64 = row.iter().map(|&v| (v as f64).max(0.0)).sum();
                 if total <= 0.0 {
-                    return 0.0f32;
+                    return f32::NAN;
                 }
                 let inv = 1.0 / total;
-                let row = &sym[i * n..(i + 1) * n];
                 let mut acc = 0.0f64;
                 for (j, &v) in row.iter().enumerate() {
                     if v > 0.0 {

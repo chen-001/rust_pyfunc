@@ -1,6 +1,9 @@
 //! neighbor_z: 邻居质量（降维指标.md 六）。
-//! p_ij = S_ij/行和(对称 cnt_t1); NeighborZ_i = Σ_j p_ij·Z_j,
-//! Z ∈ {日内收益 ret, 总成交量 total_vol(换手代理), vol30, 订单失衡 imb, 成交额 amount(规模代理)}。
+//! p_ij = S_ij/行和(对称); NeighborZ_i = Σ_j p_ij·Z_j（邻居的加权均值）。
+//! 口径说明: 输出**没有做 z 标准化**，Z 是原始量:
+//!   return = 日内收益率, turnover = 总成交量（股数，不是换手率）,
+//!   volatility = 30s 桶收益波动, imbalance = 订单失衡, size = 成交额。
+//! 所以 turnover / size 是日频水平量，量纲随全市场成交量漂移，跨日不可比。
 
 use crate::yupei_dist::indicator_ctx::{IndicatorCtx, IndicatorResult};
 use rayon::prelude::*;
@@ -32,20 +35,19 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             Some(s) => s,
             None => continue,
         };
-        let row_sums = match ctx.row_sum_sym(mat) {
-            Some(s) => s,
-            None => continue,
-        };
         let neighbor = |z: &[f64]| -> Vec<f32> {
             (0..n)
                 .into_par_iter()
                 .map(|i| {
-                    let total = row_sums[i];
+                    let row = &sym[i * n..(i + 1) * n];
+                    // 分母用**正项之和**: urg 族矩阵元素可为负（权重是带符号 z 分数），
+                    // 带符号行和会让 p = v/total 大于 1，权重和不再归一。
+                    let total: f64 = row.iter().map(|&v| (v as f64).max(0.0)).sum();
                     if total <= 0.0 {
-                        return 0.0f32;
+                        // 该行没有任何正权交互 → 邻居加权无定义
+                        return f32::NAN;
                     }
                     let inv = 1.0 / total;
-                    let row = &sym[i * n..(i + 1) * n];
                     let mut acc = 0.0f64;
                     for (j, &v) in row.iter().enumerate() {
                         if v > 0.0 {

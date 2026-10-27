@@ -124,8 +124,9 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             f32::NAN
         };
         // lam2share = λ2 / Σ_ij S_ij（总交互能量代理; sym 对角为 0 故 Tr=0 不能当分母）
+        // 串行求和: 浮点加法的并行归约树形状随线程数变，同一输入不同 n_jobs 会给末位
+        // 不同的标量，而这个标量会广播成整列 → 破坏可复现性。O(n²) 一次，代价可忽略。
         let sum_s: f64 = (0..n)
-            .into_par_iter()
             .map(|i| sym[i * n..(i + 1) * n].iter().map(|&v| v as f64).sum::<f64>())
             .sum();
         let lam2share = if sum_s.abs() > 1e-12 {

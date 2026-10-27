@@ -13,17 +13,9 @@ pub fn desc() -> &'static str {
     "多尺度: fast/slow strength, ratio, scale consistency (cnt_t02 vs cnt_t30)"
 }
 
-/// 每行 top-k 索引（值降序, 同值索引升序; 确定性）
+/// 每行 top-k 索引（值降序, 同值索引升序; 确定性; 只取正权边, 不用零值补位）。
 fn topk(row: &[f32], k: usize) -> Vec<u32> {
-    let mut idx: Vec<u32> = (0..row.len() as u32).collect();
-    idx.sort_unstable_by(|&a, &b| {
-        row[b as usize]
-            .partial_cmp(&row[a as usize])
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| a.cmp(&b))
-    });
-    idx.truncate(k);
-    idx
+    crate::yupei_dist::topk_util::topk_select_indices(row, k)
 }
 
 pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
@@ -86,7 +78,15 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                 fast_sum
                     .iter()
                     .zip(slow_sum.iter())
-                    .map(|(&f, &s)| (f / (s + 1e-9)) as f32)
+                    .map(|(&f, &s)| {
+                        // 慢尺度行和为 0（当天没成交 / 该族无权重）→ 比值无定义。
+                        // 旧写法 f/(s+1e-9) 在 s=0 时给出 1e9 量级的假极值。
+                        if s > 0.0 {
+                            (f / s) as f32
+                        } else {
+                            f32::NAN
+                        }
+                    })
                     .collect::<Vec<f32>>(),
             ));
         }
@@ -114,7 +114,8 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                     if union > 0 {
                         inter as f32 / union as f32
                     } else {
-                        0.0
+                        // 两侧都没有正权邻居 → Jaccard 无定义（旧实现返回 0）
+                        f32::NAN
                     }
                 })
                 .collect();

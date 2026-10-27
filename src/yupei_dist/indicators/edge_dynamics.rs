@@ -17,6 +17,15 @@ pub fn desc() -> &'static str {
     "跨日动态: 边持久性/保留率/新伙伴/边变化/冲击/换手 (cnt_t1 vs prev)"
 }
 
+/// lite 模式列级过滤（同矩阵 9 列只留一部分时按完整列名判定）。
+#[inline]
+fn kept(ctx: &IndicatorCtx, name: &str) -> bool {
+    match &ctx.keep {
+        None => true,
+        Some(k) => k.contains(name),
+    }
+}
+
 pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let n = ctx.n();
     let mut out = Vec::new();
@@ -40,7 +49,10 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                     "top_shock_mean",
                     "turnover",
                 ] {
-                    out.push(IndicatorResult::new(format!("dyn_{mat}_{s}"), nan.clone()));
+                    let nm = format!("dyn_{mat}_{s}");
+                    if kept(ctx, &nm) {
+                        out.push(IndicatorResult::new(nm, nan.clone()));
+                    }
                 }
             }
             return out;
@@ -76,10 +88,10 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                     "top_shock_mean",
                     "turnover",
                 ] {
-                    out.push(IndicatorResult::new(
-                        format!("dyn_{mat}_{sfx}"),
-                        nan.clone(),
-                    ));
+                    let nm = format!("dyn_{mat}_{sfx}");
+                    if kept(ctx, &nm) {
+                        out.push(IndicatorResult::new(nm, nan.clone()));
+                    }
                 }
                 continue;
             }
@@ -173,7 +185,13 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                         }
                     }
                 }
-                let reten_v = inter as f32 / k as f32;
+                // 保留率 = 当日 top 邻居中仍在对方 top-10 的比例。
+                // 分母用**当日有效邻居数**，不是常数 10（旧实现 /k，支撑不足 10 的股票永远到不了 1）。
+                let reten_v = if t_now.is_empty() {
+                    f32::NAN
+                } else {
+                    inter as f32 / t_now.len() as f32
+                };
                 // 新伙伴: 当日 top-10 中不在 prev top-10 的
                 let mut np = 0.0f64;
                 for &x in t_now.iter() {
@@ -190,22 +208,24 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                 let nchg_v = sum_neg as f32;
                 let shock_v = max_shock as f32;
                 let mut tshock_v = f32::NAN;
-                if shocks.len() >= 5 {
+                if !shocks.is_empty() {
                     shocks.sort_by(|a, b| {
                         b.abs()
                             .partial_cmp(&a.abs())
                             .unwrap_or(std::cmp::Ordering::Equal)
                     });
-                    tshock_v = (shocks.iter().take(5).sum::<f64>() / 5.0) as f32;
-                } else if !shocks.is_empty() {
-                    tshock_v = (shocks.iter().sum::<f64>() / shocks.len() as f64) as f32;
+                    // 名字是"Top5 冲击均值"= 最剧烈 5 条边的平均**幅度**。
+                    // 旧实现按 |shock| 选边却带符号求和，正负相消后可接近 0。
+                    let take = shocks.len().min(5);
+                    tshock_v = (shocks.iter().take(take).map(|v| v.abs()).sum::<f64>()
+                        / take as f64) as f32;
                 }
-                // turnover = 1 - Jaccard
+                // turnover = 1 - Jaccard；两侧都没有正权邻居 → 无定义
                 let union = t_now.len() + t_prev.len() - inter;
                 let turn_v = if union > 0 {
                     1.0 - inter as f32 / union as f32
                 } else {
-                    0.0
+                    f32::NAN
                 };
                 let _ = sum_pd;
                 [
@@ -222,30 +242,24 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
         let shock: Vec<f32> = rows.iter().map(|r| r[6]).collect();
         let tshock: Vec<f32> = rows.iter().map(|r| r[7]).collect();
         let turn: Vec<f32> = rows.iter().map(|r| r[8]).collect();
-        out.push(IndicatorResult::new(
-            format!("dyn_{mat}_edge_persistence"),
-            pers,
-        ));
-        out.push(IndicatorResult::new(format!("dyn_{mat}_retention"), reten));
-        out.push(IndicatorResult::new(format!("dyn_{mat}_new_partner"), newp));
-        out.push(IndicatorResult::new(format!("dyn_{mat}_edge_change"), echg));
-        out.push(IndicatorResult::new(
-            format!("dyn_{mat}_pos_edge_change"),
-            pchg,
-        ));
-        out.push(IndicatorResult::new(
-            format!("dyn_{mat}_neg_edge_change"),
-            nchg,
-        ));
-        out.push(IndicatorResult::new(
-            format!("dyn_{mat}_network_shock_max"),
-            shock,
-        ));
-        out.push(IndicatorResult::new(
-            format!("dyn_{mat}_top_shock_mean"),
-            tshock,
-        ));
-        out.push(IndicatorResult::new(format!("dyn_{mat}_turnover"), turn));
+        // 统一走 keep 过滤: lite 模式按完整列名逐列判定（旧实现无条件推 9 列，
+        // 只靠"lite 名单里 dyn_ 恰好 252 列全在"才没触发列数对账失败）。
+        for (suffix, col) in [
+            ("edge_persistence", pers),
+            ("retention", reten),
+            ("new_partner", newp),
+            ("edge_change", echg),
+            ("pos_edge_change", pchg),
+            ("neg_edge_change", nchg),
+            ("network_shock_max", shock),
+            ("top_shock_mean", tshock),
+            ("turnover", turn),
+        ] {
+            let nm = format!("dyn_{mat}_{suffix}");
+            if kept(ctx, &nm) {
+                out.push(IndicatorResult::new(nm, col));
+            }
+        }
     }
     out
 }

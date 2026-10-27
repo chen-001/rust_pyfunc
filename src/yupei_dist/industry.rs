@@ -79,18 +79,30 @@ fn load_table() -> std::io::Result<IndustryTable> {
     let sym_path = crate::data_paths::basic_info_path("symbol_map.csv");
     let sym =
         std::fs::read_to_string(&sym_path).map_err(|e| path_err("读取 symbol_map 失败", &sym_path, e))?;
-    let codes: Vec<String> = sym
-        .lines()
-        .skip(1)
-        .map(|l| l.split(',').next().unwrap_or("").trim().to_string())
-        .filter(|c| !c.is_empty())
-        .collect();
-    let ncols = codes.len();
-    let pos: HashMap<String, usize> = codes
-        .iter()
-        .enumerate()
-        .map(|(i, c)| (c.clone(), i))
-        .collect();
+    // symbol_map.csv 的两列是 symbol,pos。列号必须读 pos 字段本身，
+    // 不能用"该行在文件里的行号"——文件一旦按代码或名称重排，行号与列号就错位，
+    // 而 ind_* / hid_* 会静默拿到别的股票的行业号。
+    // （当前文件恰好按 pos 升序且从 0 连续，所以旧写法结果也是对的，属于隐患。）
+    let mut pos: HashMap<String, usize> = HashMap::new();
+    let mut ncols = 0usize;
+    for line in sym.lines().skip(1) {
+        let mut it = line.split(',');
+        let c = it.next().unwrap_or("").trim();
+        if c.is_empty() {
+            continue;
+        }
+        let p: usize = it
+            .next()
+            .unwrap_or("")
+            .trim()
+            .parse()
+            .map_err(|e| io_err("symbol_map.csv 的 pos 列缺失或不是整数", e))?;
+        pos.insert(c.to_string(), p);
+        ncols = ncols.max(p + 1);
+    }
+    if ncols == 0 {
+        return Err(io_err("symbol_map.csv 没有可用行", "空表"));
+    }
 
     let f = hdf5_metno::File::open(&source)
         .map_err(|e| path_err("打开行业 h5 失败", &source, std::io::Error::other(e.to_string())))?;

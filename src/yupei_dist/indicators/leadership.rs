@@ -50,7 +50,9 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                 (
                     cnt as f32 / (n as f32 - 1.0).max(1.0),
                     s as f32,
-                    if s > 0.0 { (s2 / (s * s)) as f32 } else { 0.0 },
+                    // LeadConcentration = 净领先分布的 HHI。没有任何净领先（s=0）时分布为空集，
+                    // 集中度无定义 → NaN（旧实现给 0，与"极端分散"混在一起）。
+                    if s > 0.0 { (s2 / (s * s)) as f32 } else { f32::NAN },
                 )
             })
             .collect();

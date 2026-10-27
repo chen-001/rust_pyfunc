@@ -2,8 +2,11 @@
 //! 对对称矩阵 S_sym = S_dir + S_dirᵀ（对角 0）取上三角正权边，按权值降序做增量并查集:
 //!   theta* = 最大连通分量首次 ≥ N/2 时的边权 / w_max（归一，无量纲），逐股同值;
 //!   birth_i = i 所在分量并入 anchor(全市场 strength 最大股, 并列取小索引) 分量时的边权/w_max;
-//!   stranded_i = rmax_i − birth_i（未归一原始权差; rmax=行最大非对角元）。
+//!   stranded_i = rmax_i − birth_i·w_max（rmax = 行最大非对角元，回到原始权量纲）。
 //!   到 theta* 仍未并入主干的股 birth=NaN → stranded=NaN; 孤立股 rmax=NaN → stranded=NaN。
+//! 口径说明: 扫描用的是 **未归一化**的 S_sym 原值。生产 sym 是 dir+dirᵀ 的双向强度，
+//! 各股尺度差几个数量级（maxst.rs 为此先做行强度归一才跑 Prim），所以 θ* 由最强那几只
+//! 股票的绝对量级决定，stranded 也回到原始能量、跨股票不可比。同日排序仍有效。
 //!   width  = θ(maxC≥25%N) − θ(maxC≥75%N) 归一区间宽（转变陡缓，标量广播）;
 //!   comp_i = θ* 之上（w>θ*）无权图中 i 的连通块大小/N（局部碎片度）。
 //! 物理含义: theta* 刻画骨架成形位置（靠少数强边还是均摊）; width 刻画转变陡缓;

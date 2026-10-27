@@ -1,6 +1,8 @@
 //! pagerank: PageRank（降维指标.md 十）。
-//! 有向 cnt_t1（S_dir[i][j] = i→j）: 阻尼 0.85, 迭代 ≤100 次或 L1 变化 <1e-9;
-//! 出度为零的行均分; 固定初始 1/N 均匀（确定性）。
+//! 有向 cnt_t1（存储语义 S_dir[i][j] = i 领先 j，质量沿 i→j 流）:
+//! 阻尼 0.85, 迭代 ≤100 次或 L1 变化 <1e-9; 出度为零的行均分; 固定初始 1/N 均匀（确定性）。
+//! 注意方向含义: 质量从领先方流到被领先方，所以**高分 = 被很多股票领先**（跟随者中心）；
+//! 与 directionality 的 out_strength、leadership 的 strength（领先别人的量）方向相反。
 //! 实现: 先把矩阵转置为列主序（next[j] = Σ_i rank_i·S_ij/outdeg_i 按列并行累加）。
 
 use crate::yupei_dist::indicator_ctx::{IndicatorCtx, IndicatorResult};

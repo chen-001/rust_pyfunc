@@ -52,8 +52,11 @@ pub fn matrix_tau(name: &str) -> f64 {
     let t = name.rsplit('_').next().unwrap_or("t1");
     let s = t.trim_start_matches('t');
     let v: f64 = s.parse().unwrap_or(1.0);
+    // 尾码是去掉小数点的秒数: "005"→0.05, "05"→0.5, "02"→0.2, "1"→1, "30"→30。
+    // 以 0 开头即小数码，位数决定 10 的次数: 值 = v / 10^(len-1)。
+    // （旧实现对任何以 0 开头的码一律 /100，把 t05 算成 0.05、t02 算成 0.02，差 10 倍。）
     if s.len() > 1 && s.starts_with('0') {
-        v / 100.0
+        v / 10f64.powi(s.len() as i32 - 1)
     } else {
         v
     }

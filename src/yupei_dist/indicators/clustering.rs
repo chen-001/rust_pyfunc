@@ -50,7 +50,8 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                 let nbr = &nbrs[i];
                 let m = nbr.len();
                 if m < 2 {
-                    return 0.0f32;
+                    // 邻居不足 2 个 → 聚类系数无定义（旧实现返回 0）
+                    return f32::NAN;
                 }
                 let mut num = 0.0f64;
                 for a in 0..m {

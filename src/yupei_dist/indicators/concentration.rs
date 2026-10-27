@@ -32,22 +32,21 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             Some(s) => s,
             None => continue,
         };
-        let row_sums = match ctx.row_sum_sym(mat) {
-            Some(s) => s,
-            None => continue,
-        };
-        let ln_n = ((n as f64) - 1.0).max(1.0).ln();
         let rows: Vec<(f32, f32, f32, f32, f32, f32)> = (0..n)
             .into_par_iter()
             .map(|i| {
                 let row = &sym[i * n..(i + 1) * n];
-                let total = row_sums[i];
+                // 分母必须用**正项之和**：urg 族的权重是带符号的 z 分数，sym 元素可为负，
+                // 带符号行和会让 p = v/total 大于 1（熵超过 ln(nz)，归一化熵 > 1）。
+                let total: f64 = row.iter().map(|&v| (v as f64).max(0.0)).sum();
                 if total <= 0.0 {
-                    return (0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+                    // 行和为 0（当天没成交 / 该族无权重）→ 分布无定义，输出 NaN
+                    return (f32::NAN, f32::NAN, f32::NAN, f32::NAN, f32::NAN, f32::NAN);
                 }
                 let inv = 1.0 / total;
                 let mut h = 0.0f64;
                 let mut e = 0.0f64;
+                let mut nz = 0usize; // 非零邻居数 = 该行分布的支撑集大小
                 let mut s3 = 0.0f64;
                 let mut s5 = 0.0f64;
                 let mut s10 = 0.0f64;
@@ -58,6 +57,7 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                     if p <= 0.0 {
                         continue;
                     }
+                    nz += 1;
                     h += p * p;
                     e -= p * p.ln();
                     if best.len() < 10 {
@@ -86,7 +86,10 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                 (
                     h as f32,
                     e as f32,
-                    if ln_n > 0.0 { (e / ln_n) as f32 } else { 0.0 },
+                    // 归一化熵: 分母是 ln(该行非零邻居数)，值域 [0,1]。
+                    // （旧实现除以 ln(N-1)，分布只落在 k 个伙伴上时可到 ln k/ln(N-1)≈0.5，
+                    //   几乎完全由邻居个数决定，不是集中度。）
+                    if nz >= 2 { (e / (nz as f64).ln()) as f32 } else { 0.0 },
                     s3 as f32,
                     s5 as f32,
                     s10 as f32,

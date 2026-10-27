@@ -18,11 +18,17 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
     let mut out = Vec::new();
     let stats = ctx.stats();
     let r: Vec<f64> = stats.iter().map(|s| s.ret).collect();
-    // Shock_j = (r_j - mean)/std
-    let mean_r = r.iter().sum::<f64>() / (n as f64).max(1.0);
-    let var_r = r.iter().map(|&x| (x - mean_r) * (x - mean_r)).sum::<f64>() / (n as f64).max(1.0);
+    // Shock_j = (r_j - mean)/std，横截面矩只在**有效**收益上统计。
+    // 空行股票（当天没成交/读不到）的 ret 是 NaN，让它进 Σ/Σ² 会把整列 z 变成 NaN。
+    let valid: Vec<f64> = r.iter().copied().filter(|x| x.is_finite()).collect();
+    let nv = valid.len() as f64;
+    let mean_r = valid.iter().sum::<f64>() / nv.max(1.0);
+    let var_r = valid.iter().map(|&x| (x - mean_r) * (x - mean_r)).sum::<f64>() / nv.max(1.0);
     let std_r = var_r.sqrt().max(1e-12);
-    let shock: Vec<f64> = r.iter().map(|&x| (x - mean_r) / std_r).collect();
+    let shock: Vec<f64> = r
+        .iter()
+        .map(|&x| if x.is_finite() { (x - mean_r) / std_r } else { f64::NAN })
+        .collect();
 
     for mat in crate::yupei_dist::indicator_ctx::MATRIX_LIST {
         if !ctx.wants("ldr_", mat) {
@@ -55,7 +61,7 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             .map(|i| {
                 let denom = col_sum[i];
                 if denom <= 0.0 {
-                    return 0.0f32;
+                    return f32::NAN;
                 }
                 let mut acc = 0.0f64;
                 for j in 0..n {
@@ -75,7 +81,7 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             .map(|i| {
                 let denom = col_sum[i];
                 if denom <= 0.0 {
-                    return 0.0f32;
+                    return f32::NAN;
                 }
                 let mut acc = 0.0f64;
                 for j in 0..n {

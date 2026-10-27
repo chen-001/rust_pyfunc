@@ -1,6 +1,11 @@
 //! directionality: 方向性（降维指标.md 四）。
-//! 用有向矩阵 S_dir: OutStrength=行和, InStrength=列和, NetLead=Out-In,
-//! LeadRatio=(Out-In)/(Out+In+ε)。cnt_t1 与 cnt_t30。
+//! 用有向矩阵 S_dir（存储语义 **S_dir[i][j] = i 领先 j**，行领先列）:
+//!   OutStrength_i = 行和 = Σ_j S_ij（我领先别人的能量）
+//!   InStrength_i  = 列和 = Σ_j S_ji（别人领先我的能量）
+//!   NetLead = Out − In;   LeadRatio = (Out − In)/(|Out| + |In|) ∈ [−1,1]
+//! LeadRatio 的分母用绝对值之和: net 矩阵（same−opp）的 Out/In 可正可负，
+//! 用 Out+In 会在 0 附近穿过 → 商能炸到 1e9；非负矩阵上 |Out|+|In| = Out+In，值不变。
+//! 覆盖 28 张有向矩阵 + signed 族 9 个净有向（net = same − opp）。
 
 use crate::yupei_dist::indicator_ctx::{IndicatorCtx, IndicatorResult};
 use rayon::prelude::*;
@@ -57,8 +62,15 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             .iter()
             .zip(in_s.iter())
             .map(|(o, x)| {
-                let denom = o + x + 1e-9;
-                ((o - x) / denom) as f32
+                // 分母用 |o|+|x|：net 矩阵（same−opp）的 o、x 可正可负，o+x 会在 0 附近
+                // 穿过 0 → 旧写法 (o−x)/(o+x+1e-9) 能炸到 1e4~1e10。
+                // 对非负矩阵 |o|+|x| = o+x，值不变。
+                let denom = o.abs() + x.abs();
+                if denom <= 1e-9 {
+                    0.0
+                } else {
+                    ((o - x) / denom) as f32
+                }
             })
             .collect();
         let out32: Vec<f32> = out_s.iter().map(|&v| v as f32).collect();

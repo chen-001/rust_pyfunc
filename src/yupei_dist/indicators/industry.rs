@@ -43,21 +43,23 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             Some(s) => s,
             None => continue,
         };
-        let rows: Vec<(f32, f32)> = (0..n)
+        let rows: Vec<(f32, f32, f32)> = (0..n)
             .into_par_iter()
             .map(|i| {
                 let ii = ind[i];
                 if ii < 0 {
-                    return (f32::NAN, f32::NAN);
+                    return (f32::NAN, f32::NAN, f32::NAN);
                 }
                 let row = &sym[i * n..(i + 1) * n];
                 let mut w = 0.0f64;
-                let mut total = 0.0f64;
+                let mut total = 0.0f64; // 行业已知邻居的交互和
+                let mut all_total = 0.0f64; // 全部正权邻居的交互和（含行业未知）
                 let mut known = 0usize;
                 for (j, &v) in row.iter().enumerate() {
                     if v <= 0.0 {
                         continue;
                     }
+                    all_total += v as f64;
                     let ij = ind[j];
                     if ij < 0 {
                         continue;
@@ -69,19 +71,23 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                     }
                 }
                 if known == 0 {
-                    return (f32::NAN, f32::NAN);
+                    return (f32::NAN, f32::NAN, f32::NAN);
                 }
-                if total > 0.0 {
-                    let cr = (total - w) / total;
-                    (w as f32, cr as f32)
+                let cr = if total > 0.0 { (total - w) / total } else { 0.0 };
+                // mismatch = 全部交互里"非同行业"的占比，分母含行业未知的伙伴；
+                // 与 cross_ratio（只在行业已知的邻居里算）是两个不同的量。
+                // 旧实现把 cross 那一列直接复制过来，两列逐位相同。
+                let mm = if all_total > 0.0 {
+                    (all_total - w) / all_total
                 } else {
-                    (w as f32, 0.0)
-                }
+                    f64::NAN
+                };
+                (w as f32, cr as f32, mm as f32)
             })
             .collect();
-        let within: Vec<f32> = rows.iter().map(|&(a, _)| a).collect();
-        let cross: Vec<f32> = rows.iter().map(|&(_, b)| b).collect();
-        let mism: Vec<f32> = rows.iter().map(|&(_, b)| b).collect();
+        let within: Vec<f32> = rows.iter().map(|&(a, _, _)| a).collect();
+        let cross: Vec<f32> = rows.iter().map(|&(_, b, _)| b).collect();
+        let mism: Vec<f32> = rows.iter().map(|&(_, _, c)| c).collect();
         emit(ctx, &mut out, format!("ind_{mat}_within"), within);
         emit(ctx, &mut out, format!("ind_{mat}_cross_ratio"),
             cross,);

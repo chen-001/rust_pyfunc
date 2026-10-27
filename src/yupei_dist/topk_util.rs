@@ -1,9 +1,15 @@
 //! top-k 部分选择工具（确定性: 值降序, 同值索引升序）。
 //! 小顶堆保持 k 个最大, 用于替代全排序的 O(n·log k) 方案。
 
-/// 每行 top-k 索引（值降序, 同值索引升序; 确定性）。
+/// 每行 top-k 索引（值降序, 同值索引升序; 确定性）。**只返回权重为正的项**。
 /// O(n) quickselect 划界 + O(k log k) 排序。
 /// （旧的小顶堆实现方向写反，会返回"前 k 列+游走最大值"；已废弃。）
+///
+/// 2026-10 修正: 旧实现恒返回 k 个索引，行内正值不足 k 个时由"值 0、索引最小"的
+/// 位置补齐——那等于把"没连上"变成"连到索引 0..k−1"，空行股票因此拿到
+/// motifs≈k(k−1)、聚类系数分母被撑到 C(k,2)、dep_admirer 入度凭空增加。
+/// 现在按值降序扫描到第一个非正项即截断，返回长度 = min(k, 正项个数)。
+/// 调用方必须按 `len()` 而不是常数 k 做分母（见各模块）。
 pub fn topk_select_indices(row: &[f32], k: usize) -> Vec<u32> {
     let n = row.len();
     let k = k.min(n);
@@ -21,6 +27,12 @@ pub fn topk_select_indices(row: &[f32], k: usize) -> Vec<u32> {
     idx.select_nth_unstable_by(k - 1, cmp);
     let mut head = idx[..k].to_vec();
     head.sort_unstable_by(cmp);
+    // 已按值降序排好，正项在前；截掉后面的非正项（权重 0 = 没连上，不是邻居）
+    let keep = head
+        .iter()
+        .take_while(|&&j| row[j as usize] > 0.0)
+        .count();
+    head.truncate(keep);
     head
 }
 

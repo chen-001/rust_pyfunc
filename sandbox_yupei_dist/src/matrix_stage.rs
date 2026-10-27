@@ -614,7 +614,7 @@ pub fn compute_matrices(stocks: &[StockPrep]) -> (Vec<Vec<f32>>, Vec<StockStats>
             let ch = field_channel(m);
             let ptr = mats_raw[m].0;
             for a in 0..n {
-                unsafe { *ptr.add(a * n + b) = pack[a * PACK_W + ch]; }
+                unsafe { *ptr.add(b * n + a) = pack[a * PACK_W + ch]; }
             }
         }
     });

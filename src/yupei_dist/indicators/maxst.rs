@@ -91,7 +91,9 @@ pub fn mst_stats(sym: &[f32], n: usize) -> (Vec<f32>, Vec<f32>, Vec<f32>) {
     {
         let row = &w[root * n..(root + 1) * n];
         for j in 0..n {
-            best[j] = row[j];
+            // 零权边不是边: 初值给 NEG_INFINITY，不让"权重 0 的坑"把节点接进树。
+            // 旧实现初值 0.0，Prim 会把跨分量的零权桥也算一跳，depth 于是由索引顺序决定。
+            best[j] = if row[j] > 0.0 { row[j] } else { f32::NEG_INFINITY };
             par[j] = root;
         }
         best[root] = f32::NEG_INFINITY;
@@ -107,21 +109,21 @@ pub fn mst_stats(sym: &[f32], n: usize) -> (Vec<f32>, Vec<f32>, Vec<f32>) {
             }
         }
         if j == usize::MAX {
-            break;
+            break; // 剩下的节点与已入树部分不连通（零权不算边）→ depth/bott 保持 NaN
         }
         in_t[j] = true;
         deg[j] += 1;
         deg[par[j]] += 1;
         depth[j] = depth[par[j]] + 1.0;
         bott[j] = w[j * n + par[j]];
-        // 更新: w(j,k) > best[k] 或 (== 且 j < par[k]) → par=j
+        // 更新: 只接受正权边; w(j,k) > best[k] 或 (== 且 j < par[k]) → par=j
         let row = &w[j * n..(j + 1) * n];
         for k in 0..n {
             if in_t[k] {
                 continue;
             }
             let wk = row[k];
-            if wk > best[k] || (wk == best[k] && j < par[k]) {
+            if wk > 0.0 && (wk > best[k] || (wk == best[k] && j < par[k])) {
                 best[k] = wk;
                 par[k] = j;
             }

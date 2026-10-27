@@ -13,19 +13,10 @@ pub fn desc() -> &'static str {
     "Top-K 均值/和/MaxPartner/BestPartnerGap (cnt_t1, rvol_t1)"
 }
 
-/// 每行 top-k 索引（值降序, 同值索引升序; 确定性）
+/// 每行 top-k 索引（值降序, 同值索引升序; 确定性; 只取正权边, 不用零值补位）。
+/// 返回长度可能小于 k（该行正权邻居不足时），调用方按 len() 判不足并输出 NaN。
 fn topk_indices(row: &[f32], k: usize) -> Vec<u32> {
-    let n = row.len();
-    let mut idx: Vec<u32> = (0..n as u32).collect();
-    idx.sort_unstable_by(|&a, &b| {
-        let va = row[a as usize];
-        let vb = row[b as usize];
-        vb.partial_cmp(&va)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| a.cmp(&b))
-    });
-    idx.truncate(k.min(n));
-    idx
+    crate::yupei_dist::topk_util::topk_select_indices(row, k)
 }
 
 pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
@@ -65,7 +56,8 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                 .map(|i| {
                     let t = &top20[i];
                     if t.len() < kk {
-                        return 0.0f32;
+                        // 正权邻居不足 kk 个 → Top-k 均值无定义（旧实现返回 0）
+                        return f32::NAN;
                     }
                     let s: f64 = t
                         .iter()
@@ -85,6 +77,9 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                 .into_par_iter()
                 .map(|i| {
                     let t = &top20[i];
+                    if t.len() < kk {
+                        return f32::NAN;
+                    }
                     t.iter().take(kk).map(|&j| sym[i * n + j as usize]).sum()
                 })
                 .collect();
@@ -95,7 +90,7 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                 .into_par_iter()
                 .map(|i| {
                     if top20[i].is_empty() {
-                        0.0
+                        f32::NAN
                     } else {
                         sym[i * n + top20[i][0] as usize]
                     }
@@ -109,7 +104,7 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
                 .map(|i| {
                     let t = &top20[i];
                     if t.len() < 2 {
-                        return 0.0;
+                        return f32::NAN;
                     }
                     sym[i * n + t[0] as usize] - sym[i * n + t[1] as usize]
                 })

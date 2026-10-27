@@ -9,7 +9,8 @@
 //!   3. 28 张有向交互矩阵 S_dir[i][j]（i 领先 j 的衰减事件场能量）:
 //!      cnt 9τ(0.05..30s), vol 6τ, logvol 4τ, flow/urg/ext same/opp 各 4/3/2τ
 //!      SIMD 实现（phase1 7×ymm 递推 + phase2 AVX2 9×FMA, 争用下 105s/天）
-//!   4. 28 个降维指标模块 → 2761 因子（强度/集中度/方向性/邻居质量/中心性/
+//!   4. 28 个降维指标模块 → 2958 因子（精简版只保留去重后幸存的 741 列，
+//!      强度/集中度/方向性/邻居质量/中心性/
 //!      聚类/社群/行业/跨日动态/正反网络等, 全部遍历 28 矩阵）
 //!   5. cross-section pipeline（run_factor_pipeline_cross_section, pipeline="yupei_dist"）
 //!      → colblk 存储 → tail_pipeline_engine 回测

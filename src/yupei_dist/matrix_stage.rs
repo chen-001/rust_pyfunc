@@ -4,7 +4,7 @@
 //!   S_AB = Σ_{i∈A} Σ_{j∈B} w_i·w_j·e^{-|t_i−t_j|/τ}
 //! 等价逐笔实现: 每笔成交权重 w_i（6 种设计），按 10ms 时间桶聚合为 u 场，
 //! 用"带衰减的滚动累加器"（z 场）做 B-固定流式扫描:
-//!   S_{A→B} = Σ_k u_A[k]·g_B[k],  g_B[k] = Σ_{l<k} u_B[l]·e^{-(k−l)Δ/τ}   (A 领先 B)
+//!   S_{A→B} = Σ_k u_A[k]·g_B[k],  g_B[k] = Σ_{l<k} u_B[l]·e^{-(k−l)Δ/τ}   (B 领先 A)
 //! 一次扫描同时算全部 (权重设计 × τ) 组合（AVX2 8-lane 对 A 批处理）。
 //!
 //! 存储语义: 所有矩阵存"有向" S_dir[i][j] = "i 领先 j 的交互能量"（行主序 N×N f32,
@@ -1095,7 +1095,13 @@ pub fn compute_matrices(stocks: &[StockPrep], need: u8) -> (Vec<Vec<f32>>, Vec<S
             });
         });
     }
-    // ---- 日末刷入 S[m][a][b]（并行; 每 tile 只写第 b 列, 列互不相交）----
+    // ---- 日末刷入 S[m][b][a]（并行; 每 tile 只写第 b 行, 行互不相交）----
+    // 方向: pack[a] = Σ_k u_a[k]·g_b[k]，g_b[k] 只含 b 在桶 k 之前的历史权重，
+    // 所以这一对里 **b 早、a 后**，即 b 领先 a。要满足"行领先列"的存储语义
+    // （S_dir[i][j] = i 领先 j，见文件头），必须写到 S[b][a]，不是 S[a][b]。
+    // 2026-10 修正: 旧实现写 S[a][b]，落盘方向与注释相反，导致 directionality /
+    // leadership / leader_return 三个有向模块的"出/入"全部取到反的一侧
+    // （合成两只股票实测: A 在 1.00s、B 在 2.00s 时值落在 S[A][B]，即列领先行）。
     struct MatPtr(*mut f32);
     unsafe impl Send for MatPtr {}
     unsafe impl Sync for MatPtr {}
@@ -1112,7 +1118,8 @@ pub fn compute_matrices(stocks: &[StockPrep], need: u8) -> (Vec<Vec<f32>>, Vec<S
             let ptr = mats_raw[m].0;
             for a in 0..n {
                 unsafe {
-                    *ptr.add(a * n + b) = pack[a * PACK_W + ch];
+                    // 行写（连续地址）: b 领先 a → S[b][a]
+                    *ptr.add(b * n + a) = pack[a * PACK_W + ch];
                 }
             }
         }

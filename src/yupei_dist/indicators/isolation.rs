@@ -27,18 +27,25 @@ pub fn compute(ctx: &IndicatorCtx) -> Vec<IndicatorResult> {
             Some(s) => s,
             None => continue,
         };
+        // 1/strength: 强度为 0（空行/该族无权重）时无定义，输出 NaN。
+        // 旧实现用 1/(v+1e-9)，空行股票直接得到 1e9 这个哨兵数——既不是 inf 也不是 NaN，
+        // 与其它列"0 填充"的约定也不一致，做 z 标准化时一只票就能吃掉整列。
         let inv_s: Vec<f32> = row_sums
             .iter()
-            .map(|&v| (1.0 / (v + 1e-9)) as f32)
+            .map(|&v| if v > 0.0 { (1.0 / v) as f32 } else { f32::NAN })
             .collect();
+        // neg_top5: 只在正权邻居上取前 5（旧实现排序整行，邻居不足 5 个时 0 会进来）
         let neg_top5: Vec<f32> = (0..n)
             .into_par_iter()
             .map(|i| {
                 let row = &sym[i * n..(i + 1) * n];
-                let mut top: Vec<f32> = row.to_vec();
+                let mut top: Vec<f32> = row.iter().copied().filter(|&v| v > 0.0).collect();
+                if top.is_empty() {
+                    return f32::NAN;
+                }
                 top.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
-                let s: f32 = top.iter().take(5).sum();
-                -(s / 5.0)
+                let take = top.len().min(5);
+                -(top.iter().take(take).sum::<f32>() / take as f32)
             })
             .collect();
         emit(ctx, &mut out, format!("iso_{mat}_inv_strength"),

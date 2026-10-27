@@ -10,6 +10,10 @@
 //!   forman_{mat}_wmean   = 按边权 max(sym,0) 加权的平均曲率（强边的曲率）;
 //!                          与 mean 同源但随权重倾斜, 权全 0 时退化回 mean。
 //! 稀疏化用 topk_select_indices（quickselect 部分选择, 确定性: 值降序, 同值索引升序）。
+//! 口径说明: F = 4 − d_i − d_j + 3·△ 出自小度数图（网格、三角剖分）。本图度数是
+//! 出 50 + 入（重尾），4 − d_i − d_j 一项就是 −100 量级，F ≥ 0 要求两节点邻域重合
+//! ≥ 约 2/3。所以 mean 基本是"−度"的代理、negfrac 测的是邻域同质程度，
+//! 而不是名字暗示的"瓶颈边份额"。同日排序有效，跨日不可比。
 
 use crate::yupei_dist::indicator_ctx::{IndicatorCtx, IndicatorResult};
 use crate::yupei_dist::topk_util::topk_select_indices;

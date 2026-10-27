@@ -1,6 +1,8 @@
 //! eigenvector: 特征向量中心性（降维指标.md 九）。
 //! 对称矩阵幂迭代求主特征向量: splitmix64 固定种子初始化, 每次迭代归一化,
 //! ≤40 次或 cos 收敛>0.9999; 符号统一（最大绝对值元素为正）。行并行 matvec。cnt_t1 与 rvol_t1。
+//! 注意（主特征向量无此问题）: spectral.rs 的第 2/3 特征向量也按"最大绝对值元素为正"锚定，
+//! 而它们的符号本身没有定义——锚点换人时整列翻号，跨日 IC 序列会有正负跳变。
 
 use crate::yupei_dist::indicator_ctx::{IndicatorCtx, IndicatorResult};
 use rayon::prelude::*;
