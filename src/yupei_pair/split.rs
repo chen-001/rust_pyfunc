@@ -182,11 +182,13 @@ fn compute_split_inner(
 
     // ---- 2. 四分量矩阵 ----
     let m4 = compute_split_mats(&stocks, tau as f32, weight);
-    eprintln!(
-        "[yupei_split] date={date} n={n} tau={tau} weight={:?} 四分量完成 {:.1}s",
-        weight,
-        t_all.elapsed().as_secs_f32()
-    );
+    if super::verbose() {
+        eprintln!(
+            "[yupei_split] date={date} n={n} tau={tau} weight={:?} 四分量完成 {:.1}s",
+            weight,
+            t_all.elapsed().as_secs_f32()
+        );
+    }
 
     // ---- 3. 活跃度分层（空模型用）+ 协变量 ----
     let ntrades: Vec<f64> = stats.iter().map(|s| s.n_trades).collect();
@@ -222,7 +224,9 @@ fn compute_split_inner(
     if jobs.is_empty() {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "combos 过滤后没有可跑的链"));
     }
-    eprintln!("[yupei_split] 准备跑 {} 条链", jobs.len());
+    if super::verbose() {
+        eprintln!("[yupei_split] 准备跑 {} 条链", jobs.len());
+    }
 
     // ---- 3b. 预计算 9 种方向组合的 rho（15 条链共用）----
     // 每条链原本要现算 rbx/rcx/rbc 三张（各 O(n²)，一张 n=5153 约 106MB），
@@ -238,10 +242,12 @@ fn compute_split_inner(
         dirs.iter().position(|&x| x == a).unwrap_or(0) * 3
             + dirs.iter().position(|&x| x == b).unwrap_or(0)
     };
-    eprintln!(
-        "[yupei_split] 9 张方向 rho 预计算完成 {:.1}s",
-        t_all.elapsed().as_secs_f32()
-    );
+    if super::verbose() {
+        eprintln!(
+            "[yupei_split] 9 张方向 rho 预计算完成 {:.1}s",
+            t_all.elapsed().as_secs_f32()
+        );
+    }
 
     let results: Vec<ChainOut> = jobs
         .par_iter()
@@ -335,12 +341,14 @@ fn compute_split_inner(
             row[j] = col[i];
         }
     });
-    eprintln!(
-        "[yupei_split] 完成：{} 股票 × {} 因子，总 {:.1}s",
-        n,
-        f,
-        t_all.elapsed().as_secs_f32()
-    );
+    if super::verbose() {
+        eprintln!(
+            "[yupei_split] 完成：{} 股票 × {} 因子，总 {:.1}s",
+            n,
+            f,
+            t_all.elapsed().as_secs_f32()
+        );
+    }
     Ok((codes, names, vals))
 }
 

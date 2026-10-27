@@ -105,7 +105,9 @@ fn compute_yupei_pair_inner(
     };
     let (codes, n, _stocks, stats, hm, industry) =
         crate::yupei_dist::compute::compute_yupei_dist_partial_need(date, need)?;
-    eprintln!("[yupei_pair] date={date} universe n={n}，矩阵 {} 张", hm.len());
+    if verbose() {
+        eprintln!("[yupei_pair] date={date} universe n={n}，矩阵 {} 张", hm.len());
+    }
 
     // 每股活跃度（成交笔数）→ 十分位分层（空模型用）+ ln(成交笔数)（R5 协变量）
     let ntrades: Vec<f64> = stats.iter().map(|s| s.n_trades).collect();
@@ -189,10 +191,12 @@ fn compute_yupei_pair_inner(
                 .map(|c| c.into_iter().map(|v| v as f32).collect())
                 .collect();
             cols.extend(tc);
-            eprintln!(
-                "[yupei_pair:{mat}] {} 因子块完成（活跃 {n_stocks}/{n}）",
-                names.len()
-            );
+            if verbose() {
+                eprintln!(
+                    "[yupei_pair:{mat}] {} 因子块完成（活跃 {n_stocks}/{n}）",
+                    names.len()
+                );
+            }
             Ok((names, cols))
         })
         .collect();
@@ -217,12 +221,14 @@ fn compute_yupei_pair_inner(
             row[j] = col[i];
         }
     });
-    eprintln!(
-        "[yupei_pair] 完成：{} 股票 × {} 因子，总 {:.1}s",
-        n,
-        f,
-        t_all.elapsed().as_secs_f32()
-    );
+    if verbose() {
+        eprintln!(
+            "[yupei_pair] 完成：{} 股票 × {} 因子，总 {:.1}s",
+            n,
+            f,
+            t_all.elapsed().as_secs_f32()
+        );
+    }
     Ok((codes, names, vals))
 }
 
