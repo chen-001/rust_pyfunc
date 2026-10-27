@@ -534,10 +534,12 @@ pub(crate) fn net_one_mat(
         }
         mass_vectors = mv;
     }
-    eprintln!(
-        "[net:{mat_name}] 有效配对 {npair_eff}（自能量非正 {n_bad}），扫描 {:.1}s",
-        t0.elapsed().as_secs_f32()
-    );
+    if super::verbose() {
+        eprintln!(
+            "[net:{mat_name}] 有效配对 {npair_eff}（自能量非正 {n_bad}），扫描 {:.1}s",
+            t0.elapsed().as_secs_f32()
+        );
+    }
 
     // ---- 空模型：按 (B 活跃度档, C 活跃度档) 分层的随机配对 ----
     let t0 = std::time::Instant::now();
@@ -621,11 +623,13 @@ pub(crate) fn net_one_mat(
             strata_s.push((hmean, hstd, cnts[s]));
         }
     }
-    eprintln!(
-        "[net:{mat_name}] 空模型 {:.1}s（{} 层有效）",
-        t0.elapsed().as_secs_f32(),
-        strata.iter().filter(|s| s.2 >= 30).count()
-    );
+    if super::verbose() {
+        eprintln!(
+            "[net:{mat_name}] 空模型 {:.1}s（{} 层有效）",
+            t0.elapsed().as_secs_f32(),
+            strata.iter().filter(|s| s.2 >= 30).count()
+        );
+    }
 
     // ---- Z = (G - 层均值) / 层标准差；ZS 同法，用 G* ----
     let mut z = vec![0.0f32; n * n];
@@ -771,11 +775,13 @@ pub(crate) fn net_one_mat(
         || cond_std(&pbv, &qcv, &g),
         || cond_std(&pbsv, &qcsv, &gs),
     );
-    eprintln!(
-        "[net:{mat_name}] 空模型 {} 抽样, G mean={gmean:.4} std={gstd:.4}; (p,q) 条件化 {:.1}s",
-        gcnt,
-        t0.elapsed().as_secs_f32()
-    );
+    if super::verbose() {
+        eprintln!(
+            "[net:{mat_name}] 空模型 {} 抽样, G mean={gmean:.4} std={gstd:.4}; (p,q) 条件化 {:.1}s",
+            gcnt,
+            t0.elapsed().as_secs_f32()
+        );
+    }
 
     NetMats {
         e, rho, g, ru, sg, x0, gs, rus, sgs, x0s, z, zs,

@@ -44,6 +44,21 @@ use topk::topk_one_mat;
 /// 对保留列逐位相同，删掉后少 720 列、单日快 29%（209.5s → 148.9s，50 线程）。
 const KS_DEFAULT: [usize; 3] = [5, 20, 100];
 
+/// 内部计时与逐矩阵自检的打印开关。
+///
+/// 默认关闭：这些行是开发期定位用的，量产时单日单链就要打上百行，8 个进程一起写
+/// 会让日志淹没真正的进度行（实测一批任务里 check/reduce/reduce2 三类占 97.8%）。
+/// 排查问题时设环境变量 `YUPEI_VERBOSE=1` 重新打开。
+pub(crate) fn verbose() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        matches!(
+            std::env::var("YUPEI_VERBOSE").as_deref(),
+            Ok("1") | Ok("true") | Ok("yes")
+        )
+    })
+}
+
 /// 默认跑的矩阵集合：cnt 三档 τ + rvol 三档 τ（2026-10 裁剪：rvol 替换 vol，
 /// cnt 9τ→3τ 经穷举验证；MATRIX_SPECS 里还有 logvol/flow/urg/ext 族，需要时显式传 mats）。
 pub const DEFAULT_MATS: [&str; 6] = [

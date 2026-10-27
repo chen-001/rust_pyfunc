@@ -471,6 +471,37 @@ def py_yupei_pair(
     线程上限 200；设环境变量 RAYON_NUM_THREADS 可覆盖。
     """
 
+def py_yupei_pair_split(
+    date: int,
+    tau: float = 1.0,
+    weight: str = "cnt",
+    combos: Optional[List[str]] = None,
+    ks: Optional[List[int]] = None,
+    sig_temp: float = 0.3,
+    sig_thr: float = 2.0,
+    null_mc: int = 20000,
+    exz_bins: int = 10,
+) -> Tuple[List[str], List[str], List[float]]:
+    """玉佩2 双层版（主买/主卖拆分）—— 单日全市场，15 条链 × 653 列 = 9795 列。
+
+    每笔成交按主动方向拆成主买（flag 66）/ 主卖（flag 83），配对组合 5 种 ×
+    第三只方向 3 种 = 15 条链，列名前缀 sp{配对}{X}。
+
+    返回 (codes, names, vals)，与 py_yupei_pair 同构。
+    本函数会把一整天完整算一遍（20251031 实测单线程 2 小时），只要列名时用
+    py_yupei_pair_split_names。
+    """
+
+def py_yupei_pair_split_names(
+    combos: Optional[List[str]] = None,
+    ks: Optional[List[int]] = None,
+) -> List[str]:
+    """15 条链的因子列名，不读 Level2、不算因子（毫秒级）。
+
+    与 py_yupei_pair_split(...)[1] 逐字相同：列名只由代码里的字面量决定，
+    与行情数据无关，所以用一份 n=64 的合成矩阵跑一遍名字收集即可。
+    """
+
 def py_pairwise_merge_metrics(
     times_a: List[int], big_a: List[int], times_b: List[int], big_b: List[int]
 ) -> Tuple[float, float, float, float]:
@@ -618,6 +649,31 @@ def py_cross_section_example_from_data(
 
 
 def py_cross_section_example_names() -> List[str]:
+    ...
+
+def py_dijkstra(date: int) -> Tuple[List[str], List[float]]:
+    """最优路径（Dijkstra）横截面因子：单日全市场，每股 7422 个值。
+
+    27 种分桶口径 × 2 套时间窗口，把 Level2 逐笔按口径分桶当节点、
+    相邻窗口连边跑最短路，从图与路径取连续量，最后横截面 z-score。
+    """
+    ...
+
+def py_dijkstra_names() -> List[str]:
+    """最优路径因子的名字（7422 个，顺序与 py_dijkstra 的输出列一一对应）。"""
+    ...
+
+def py_relaynet(date: int) -> Tuple[List[str], List[float]]:
+    """接力网络（relaynet）横截面因子：单日全市场，每股 ~1200 个值。
+
+    同一天全市场股票当节点，用逐笔对齐到 30 秒格子的价格变动构造多种
+    共动相似度（收益相关/绝对收益/符号一致/上行尾部/主动买压/领先滞后），
+    稀疏化成 ~50 张图后跑 Dijkstra/中心性/社区，逐股票输出因子。
+    """
+    ...
+
+def py_relaynet_names() -> List[str]:
+    """接力网络因子的名字（顺序与 py_relaynet 的输出列一一对应）。"""
     ...
 
 
@@ -1214,6 +1270,10 @@ __all__ = [
     "run_factor_pipeline_cross_section",
     "py_cross_section_example",
     "py_cross_section_example_names",
+    "py_dijkstra",
+    "py_dijkstra_names",
+    "py_relaynet",
+    "py_relaynet_names",
     "py_peaks",
     "py_peaks_from_data",
     "py_peaks_names",

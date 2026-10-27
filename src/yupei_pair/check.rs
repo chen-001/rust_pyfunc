@@ -81,12 +81,16 @@ fn upper_stats(v: &[f32], n: usize, skip_sym: bool) -> (f64, f64) {
 /// `mask` = 活跃股票掩码（net 的配对参与集）。
 pub(crate) fn check_net(m: &NetMats, n: usize, mask: &[bool], mat: &str) -> usize {
     let fails = std::cell::Cell::new(0usize);
+    // 通过项只在 YUPEI_VERBOSE=1 时打印：量产时每天 15 条链 × 22 张矩阵全打一遍，
+    // 会把日志刷满。失败项无论如何都打，否则只拿到一个数字、看不出是哪个矩阵坏在哪。
+    let show = super::verbose();
     let warn = |ok: bool, msg: String| {
-        if ok {
-            eprintln!("[check:{mat}:ok] {msg}");
-        } else {
-            eprintln!("[check:{mat}:FAIL] {msg}");
+        if !ok {
             fails.set(fails.get() + 1);
+        }
+        if show || !ok {
+            let tag = if ok { "ok" } else { "FAIL" };
+            eprintln!("[check:{mat}:{tag}] {msg}");
         }
     };
 
@@ -104,7 +108,9 @@ pub(crate) fn check_net(m: &NetMats, n: usize, mask: &[bool], mat: &str) -> usiz
         let (dev, cov) = upper_stats(v, n, nm.starts_with("X0"));
         // X0/X0STAR 只有上三角有效（下三角写 -1 的对称格），不对称是设计如此
         warn(nm.starts_with("X0") || dev <= 0.0, format!("{nm} 对称偏差 {dev:.6}"));
-        eprintln!("[check:cov] {nm} 上三角有限率 {:.3}%", 100.0 * cov);
+        if show {
+            eprintln!("[check:cov] {nm} 上三角有限率 {:.3}%", 100.0 * cov);
+        }
     }
 
     // ---- 2. 分解自洽 ----
@@ -192,7 +198,9 @@ pub(crate) fn check_net(m: &NetMats, n: usize, mask: &[bool], mat: &str) -> usiz
                 if (*nm != "gmass" && *nm != "sgmass") && mn < 0.0 {
                     nonneg_bad = true;
                 }
-                eprintln!("[check:cov] MASS[{nm}] sum={sum:.4} 非零 {nz}/{n} min={mn:.2e}");
+                if show {
+                    eprintln!("[check:cov] MASS[{nm}] sum={sum:.4} 非零 {nz}/{n} min={mn:.2e}");
+                }
             }
             let em_sum: f64 = mv[0..n].iter().map(|&v| v as f64).sum();
             let sm_sum: f64 = mv[3 * n..4 * n].iter().map(|&v| v as f64).sum();
@@ -238,10 +246,11 @@ pub(crate) fn check_net(m: &NetMats, n: usize, mask: &[bool], mat: &str) -> usiz
         warn(bad == 0, format!("{nm} 非法格数 {bad}"));
     }
 
-    if fails.get() == 0 {
+    let n_fails = fails.get();
+    if n_fails > 0 {
+        eprintln!("[check:{mat}] {n_fails} 项硬检查失败");
+    } else if show {
         eprintln!("[check:{mat}] 全部硬检查通过");
-    } else {
-        eprintln!("[check:{mat}] {} 项硬检查失败", fails.get());
     }
-    fails.get()
+    n_fails
 }

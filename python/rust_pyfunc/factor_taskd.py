@@ -715,9 +715,11 @@ def _decorate_task(task: dict, include_progress: bool = True) -> dict:
             except json.JSONDecodeError:
                 task["progress"] = None
         else:
+            # 横截面 pipeline 不写 backup_*.progress.jsonl（它的进度只落在日志的
+            # `✅ <date> 完成: N 股 (done/total, Ts)` 行里），按文件找不到就退回读日志。
             task["progress"] = _read_progress(
                 task["backup_prefix"], task["id"], search_dir
-            )
+            ) or _progress_from_log(task.get("log_path"))
     raw_env = task.get("run_env")
     run_env = None
     if isinstance(raw_env, str) and raw_env:
@@ -1329,6 +1331,33 @@ def delete_task(task_id: int):
 
 
 # ── 辅助 ─────────────────────────────────────────────
+
+
+def _progress_from_log(log_path: str | None) -> dict | None:
+    """横截面 pipeline 的进度：日志里没有 progress.jsonl，只有每天的完成行。
+
+    读日志尾部 512KB 交给 `parse_progress_line`，再包装成和 `_read_progress`
+    同样的结构（records/latest/is_running），调用方不必区分这两个来源。
+    """
+    if not log_path:
+        return None
+    try:
+        with open(log_path, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            f.seek(max(0, size - 512 * 1024))
+            tail = f.read().decode("utf-8", "replace")
+    except OSError:
+        return None
+    parsed = parse_progress_line(tail.split("\n"))
+    if not parsed or "completed" not in parsed:
+        return None
+    latest = {
+        "collected": parsed["completed"],
+        "total_tasks": parsed["total"],
+        "status": "running",
+    }
+    return {"records": [latest], "latest": latest, "is_running": True}
 
 
 def _read_progress(

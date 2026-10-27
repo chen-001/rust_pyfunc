@@ -270,12 +270,29 @@ pub(crate) fn topk_one_mat(
         total.add(a);
     }
     let (names, cols) = finalize_total(&total, n, mask, ks, pre);
-    eprintln!(
-        "[topk] {nlev} 档 × 2 口径 {:.1}s，pairs={}",
-        t0.elapsed().as_secs_f64(),
-        total.pairs
-    );
+    if super::verbose() {
+        eprintln!(
+            "[topk] {nlev} 档 × 2 口径 {:.1}s，pairs={}",
+            t0.elapsed().as_secs_f64(),
+            total.pairs
+        );
+    }
     return (names, cols);
+}
+
+/// topk 的列名序列，与 `finalize_total` 产出的顺序逐字一致。
+/// 单独提出来的原因：只要列名时不必跑一遍 topk 扫描。
+pub(crate) fn total_names(pre: &str, ks: &[usize]) -> Vec<String> {
+    let mut names = Vec::with_capacity(ks.len() * 8);
+    for pf in ["x0topk", "gtopk"] {
+        for &k in ks.iter() {
+            names.push(format!("{pre}{pf}{k}_count"));
+            names.push(format!("{pre}{pf}{k}_gain_mean"));
+            names.push(format!("{pre}{pf}{k}_h_mean"));
+            names.push(format!("{pre}{pf}{k}_mass_share"));
+        }
+    }
+    names
 }
 
 /// 把累计器收成 (names, cols)。与 topk_one_mat 原有的尾部逐字一致。
@@ -289,16 +306,7 @@ pub(crate) fn finalize_total(
     let nlev = ks.len();
     let pairs = total.pairs;
     // names + cols：每口径四量，顺序 (crit × l × 4)
-    let mut names = Vec::with_capacity(nlev * 4 * 2);
-    for crit in 0..2 {
-        let pf = if crit == 0 { "x0topk" } else { "gtopk" };
-        for &k in ks.iter() {
-            names.push(format!("{pre}{pf}{k}_count"));
-            names.push(format!("{pre}{pf}{k}_gain_mean"));
-            names.push(format!("{pre}{pf}{k}_h_mean"));
-            names.push(format!("{pre}{pf}{k}_mass_share"));
-        }
-    }
+    let names = total_names(pre, ks);
     let mut cols: Vec<Vec<f32>> = Vec::with_capacity(nlev * 4 * 2);
     for crit in 0..2 {
         for l in 0..nlev {

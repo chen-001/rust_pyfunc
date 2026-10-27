@@ -1307,6 +1307,10 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         m
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(
+        yupei_pair::split::py_yupei_pair_split_names,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
         pairwise_merge_metrics::py_pairwise_merge_metrics,
         m
     )?)?;

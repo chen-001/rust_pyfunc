@@ -286,7 +286,9 @@ pub(crate) fn pair_scan(n: usize, rho: &[f32], e: &[f64], ok: &[bool]) -> (Vec<f
         }
     });
     let mt = transpose_f32(&m, n);
-    eprintln!("[reduce:p2] pair_scan 准备 M/W {:.1}s", t0.elapsed().as_secs_f32());
+    if super::verbose() {
+        eprintln!("[reduce:p2] pair_scan 准备 M/W {:.1}s", t0.elapsed().as_secs_f32());
+    }
 
     const BLK: usize = 64;
     let nblk = n.div_ceil(BLK);
@@ -352,11 +354,13 @@ pub(crate) fn pair_scan(n: usize, rho: &[f32], e: &[f64], ok: &[bool]) -> (Vec<f
             }
         }
     }
-    eprintln!(
-        "[reduce:p2] pair_scan 扫完 {} 对 {:.1}s",
-        n * (n - 1) / 2,
-        t0.elapsed().as_secs_f32()
-    );
+    if super::verbose() {
+        eprintln!(
+            "[reduce:p2] pair_scan 扫完 {} 对 {:.1}s",
+            n * (n - 1) / 2,
+            t0.elapsed().as_secs_f32()
+        );
+    }
     (best, bi, ci)
 }
 
@@ -682,7 +686,9 @@ pub(crate) fn r3_greedy_k(
         marg[x * kmax..x * kmax + kmax].copy_from_slice(&mx);
         rs[x * (kmax + 1)..x * (kmax + 1) + kmax + 1].copy_from_slice(&rx);
     }
-    eprintln!("[reduce:p3] R3 贪心 {kmax} 步（含8步+16步合并）{:.1}s", t0.elapsed().as_secs_f32());
+    if super::verbose() {
+        eprintln!("[reduce:p3] R3 贪心 {kmax} 步（含8步+16步合并）{:.1}s", t0.elapsed().as_secs_f32());
+    }
     (picks, marg, rs)
 }
 
@@ -923,7 +929,9 @@ pub(crate) fn r4_graphs(n: usize, rho: &[f32], g: &[f32], ok: &[bool]) -> R4 {
             a + b
         })
         .collect();
-    eprintln!("[reduce:p4] R4 图对照 {:.1}s", t0.elapsed().as_secs_f32());
+    if super::verbose() {
+        eprintln!("[reduce:p4] R4 图对照 {:.1}s", t0.elapsed().as_secs_f32());
+    }
     R4 {
         rows_rho, rows_g,
         deg_rho,
@@ -1136,7 +1144,9 @@ pub(crate) fn r5_residual_4(
             res_hhi: stats.iter().map(|t| t.3).collect(),
         }
     });
-    eprintln!("[reduce:p5] R5 四路残差回归合并 {:.1}s", t0.elapsed().as_secs_f32());
+    if super::verbose() {
+        eprintln!("[reduce:p5] R5 四路残差回归合并 {:.1}s", t0.elapsed().as_secs_f32());
+    }
     out_arr
 }
 
@@ -1273,7 +1283,9 @@ pub(crate) fn r6_plane(n: usize, z: &[f32], zs: &[f32], ok: &[bool]) -> R6 {
             a + b
         })
         .collect();
-    eprintln!("[reduce:p6] R6 平面 {:.1}s", t0.elapsed().as_secs_f32());
+    if super::verbose() {
+        eprintln!("[reduce:p6] R6 平面 {:.1}s", t0.elapsed().as_secs_f32());
+    }
     R6 {
         gen_max,
         gen_top20,
@@ -1410,7 +1422,9 @@ pub(crate) fn produce_one_mat(
     out.push(&p("r1_bestcomp_z"), bc.z_of.clone());
     out.push(&p("r1_bestcomp_mutual"), bc.mutual.clone());
     out.push(&p("r1_bestcomp_rank"), bc.rank.clone());
-    eprintln!("[reduce:p7] R1 第一路 {:.1}s", t0.elapsed().as_secs_f32());
+    if super::verbose() {
+        eprintln!("[reduce:p7] R1 第一路 {:.1}s", t0.elapsed().as_secs_f32());
+    }
 
     // ---------------- R1 第二路（列名按 Python 的 sorted(s1.keys()) 排序）----------------
     let t0 = Instant::now();
@@ -1426,7 +1440,9 @@ pub(crate) fn produce_one_mat(
     out.push(&p("s_r1_explain_gain_max"), s1.gain_max.clone());
     out.push(&p("s_r1_explain_gain_mean"), s1.gain_mean.clone());
     out.push(&p("s_r1_explain_z_mean"), s1.z_mean.clone());
-    eprintln!("[reduce:p8] R1 第二路 {:.1}s", t0.elapsed().as_secs_f32());
+    if super::verbose() {
+        eprintln!("[reduce:p8] R1 第二路 {:.1}s", t0.elapsed().as_secs_f32());
+    }
 
     // ---------------- R2（与 reduce2::block_r2 的 top-50 配对扫描合并为一趟）----------------
     let t0 = Instant::now();
@@ -1442,7 +1458,9 @@ pub(crate) fn produce_one_mat(
     out.push(&p("r2_best_pair_cross_industry"), r2_cross);
     out.push(&p("r2_best_pair_Bidx"), b_i.iter().map(|&v| v as f64).collect());
     out.push(&p("r2_best_pair_Cidx"), c_i.iter().map(|&v| v as f64).collect());
-    eprintln!("[reduce:p9] R2 三分解 {:.1}s", t0.elapsed().as_secs_f32());
+    if super::verbose() {
+        eprintln!("[reduce:p9] R2 三分解 {:.1}s", t0.elapsed().as_secs_f32());
+    }
 
     // ---------------- R3 ----------------
     let r3 = r3_greedy(n, rho, e, ok);
@@ -1480,7 +1498,9 @@ pub(crate) fn produce_one_mat(
         out.push(&p("s_r5_res_top20_mean"), s5.res_top20);
         Some((zr5, zs5))
     } else {
-        eprintln!("[reduce] 没有成交笔数，跳过 r5_/s_r5_/null_r5_/null_s_r5_ 列");
+        if super::verbose() {
+            eprintln!("[reduce] 没有成交笔数，跳过 r5_/s_r5_/null_r5_/null_s_r5_ 列");
+        }
         None
     };
 
@@ -1525,7 +1545,9 @@ pub(crate) fn produce_one_mat(
         out.push(&p("null_s_r5_res_mean"), zs5.res_mean);
         out.push(&p("null_s_r5_res_top20_mean"), zs5.res_top20);
     }
-    eprintln!("[reduce:p10] 空模型对照 {:.1}s", t0.elapsed().as_secs_f32());
+    if super::verbose() {
+        eprintln!("[reduce:p10] 空模型对照 {:.1}s", t0.elapsed().as_secs_f32());
+    }
 
     // ---------------- 扩展块（reduce2）----------------
     super::reduce2::expand(

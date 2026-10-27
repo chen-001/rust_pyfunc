@@ -163,7 +163,9 @@ fn block_row_stats(ms: &MatSet, pre: &str, n: usize, ok: &[bool], out: &mut Out)
         }
         if mn == "sc" { sc_stats = rows; }
     }
-    eprintln!("[reduce2:A] 行统计 21×16 {:.1}s", t0.elapsed().as_secs_f32());
+    if super::verbose() {
+        eprintln!("[reduce2:A] 行统计 21×16 {:.1}s", t0.elapsed().as_secs_f32());
+    }
     sc_stats
 }
 
@@ -422,7 +424,9 @@ fn block_explain(ms: &MatSet, pre: &str, n: usize, ok: &[bool], out: &mut Out) {
     let (m2, s2) = partner_z_extra(n, &ms.zs, ok);
     out.push(&format!("{pre}psz_mass"), m2);
     out.push(&format!("{pre}psz_soft"), s2);
-    eprintln!("[reduce2:B] explain 扩展 {:.1}s", t0.elapsed().as_secs_f32());
+    if super::verbose() {
+        eprintln!("[reduce2:B] explain 扩展 {:.1}s", t0.elapsed().as_secs_f32());
+    }
 }
 
 // ============================================================
@@ -519,7 +523,9 @@ fn block_bestcomp(ms: &MatSet, pre: &str, n: usize, ok: &[bool], out: &mut Out) 
         out.push(&format!("{pre}{tag}_mutual_pct"), mp);
         out.push(&format!("{pre}{tag}_z_top1"), zt);
     }
-    eprintln!("[reduce2:C] bestcomp 剖面 {:.1}s", t0.elapsed().as_secs_f32());
+    if super::verbose() {
+        eprintln!("[reduce2:C] bestcomp 剖面 {:.1}s", t0.elapsed().as_secs_f32());
+    }
 }
 
 // ============================================================
@@ -673,10 +679,12 @@ pub(crate) fn pair_scan_merged(
             std::mem::swap(tl, &mut merge_buf);
         }
     }
-    eprintln!(
-        "[reduce:p2+D] 合并配对扫描（best + top-{kmax}）{:.1}s",
-        t0.elapsed().as_secs_f32()
-    );
+    if super::verbose() {
+        eprintln!(
+            "[reduce:p2+D] 合并配对扫描（best + top-{kmax}）{:.1}s",
+            t0.elapsed().as_secs_f32()
+        );
+    }
     (best, bi, ci, top, beat)
 }
 
@@ -961,7 +969,9 @@ fn block_r4(ms: &MatSet, pre: &str, n: usize, ok: &[bool], graph_rows: (&[Vec<u3
             .collect();
         out.push(&format!("{pre}r4_clust_{gn}"), cl);
     }
-    eprintln!("[reduce2:F] 图扩展 {:.1}s", t0.elapsed().as_secs_f32());
+    if super::verbose() {
+        eprintln!("[reduce2:F] 图扩展 {:.1}s", t0.elapsed().as_secs_f32());
+    }
 }
 
 // ============================================================
@@ -1223,7 +1233,9 @@ fn block_r5(
             );
         }
     }
-    eprintln!("[reduce2:G] 残差扩展 {:.1}s", t0.elapsed().as_secs_f32());
+    if super::verbose() {
+        eprintln!("[reduce2:G] 残差扩展 {:.1}s", t0.elapsed().as_secs_f32());
+    }
 }
 
 // ============================================================
@@ -1362,7 +1374,9 @@ fn block_planes(ms: &MatSet, pre: &str, n: usize, ok: &[bool], sc_stats: &[[f64;
     block_plane(pre, "zzs", &ms.z, &ms.zs, n, ok, Some(sc_stats), out);       // 通才 Z vs 专才 ZS
     block_plane(pre, "zexz", &ms.z, &ms.exz, n, ok, None, out);     // 活跃度基线 Z vs (p,q) 基线 EXZ
     block_plane(pre, "zsexzs", &ms.zs, &ms.exzs, n, ok, None, out); // 专才 ZS vs 条件化专才 EXZS
-    eprintln!("[reduce2:H] 平面扩展 {:.1}s", t0.elapsed().as_secs_f32());
+    if super::verbose() {
+        eprintln!("[reduce2:H] 平面扩展 {:.1}s", t0.elapsed().as_secs_f32());
+    }
 }
 
 // ============================================================
@@ -1392,5 +1406,7 @@ pub(crate) fn expand(
     block_r4(ms, pre, n, ok, graph_rows, out);
     block_r5(ms, pre, n, ok, lnt, has_lnt, out);
     block_planes(ms, pre, n, ok, &sc_stats, out);
-    eprintln!("[reduce2] 扩展块总 {:.1}s", t0.elapsed().as_secs_f32());
+    if super::verbose() {
+        eprintln!("[reduce2] 扩展块总 {:.1}s", t0.elapsed().as_secs_f32());
+    }
 }

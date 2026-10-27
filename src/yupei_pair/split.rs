@@ -29,7 +29,7 @@ use rayon::prelude::*;
 
 use super::check::check_net;
 use super::net::{net_one_mat, SplitRho};
-use super::reduce::{matset_from_net, produce_one_mat, Out, SoftCfg};
+use super::reduce::{matset_from_net, produce_one_mat, MatSet, Out, SoftCfg};
 use super::split_mat::{compute_split_mats, PmWeight, MM, MP, PM, PP};
 use super::topk::{finalize_total, topk_one_mat};
 
@@ -310,7 +310,9 @@ fn compute_split_inner(
                 .map(|c| c.into_iter().map(|v| v as f32).collect())
                 .collect();
             cols.extend(tc);
-            eprintln!("[yupei_split:{label}] {} 列（活跃 {n_stocks}/{n}）", names.len());
+            if super::verbose() {
+                eprintln!("[yupei_split:{label}] {} 列（活跃 {n_stocks}/{n}）", names.len());
+            }
             Ok((label.clone(), names, cols))
         })
         .collect();
@@ -380,4 +382,103 @@ pub fn py_yupei_pair_split(
         exz_bins,
     )
     .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("{e:?}")))
+}
+
+// ============================================================
+// 只出列名：不读 Level2、不算因子
+// ============================================================
+
+/// 一份合成的 MatSet：固定种子的正数 + rho 对角 1 + X0 合法下标。
+///
+/// 与 `py_yupei_dist_emit_names` 同一套做法：列名只由 `produce_one_mat` /
+/// `reduce2::expand` / `topk` 里的代码字面量决定，与 n 和真实行情无关；唯一的
+/// 结构开关是 `has_lnt`（真实数据恒 true，这里也传 true）。
+/// n=64 既能让 n×n 矩阵只有 16KB 量级，又能避开 n<MAX_K 之类的极端分支。
+fn fake_matset(n: usize) -> MatSet {
+    let nn = n * n;
+    let mut x = 0x2545F4914F6CDD1Du64; // 固定种子 → 确定性
+    let mut next = move || {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        ((x >> 11) & 0xF_FFFF) as f32 / 0xF_FFFF as f32 + 0.01
+    };
+    let mut f = |k: usize| -> Vec<f32> { (0..k).map(|_| next()).collect() };
+    let mut rho = f(nn);
+    for i in 0..n {
+        rho[i * n + i] = 1.0;
+    }
+    MatSet {
+        rho,
+        e: (0..n).map(|i| 1.0 + i as f64 * 0.01).collect(),
+        g: f(nn),
+        z: f(nn),
+        gs: f(nn),
+        zs: f(nn),
+        x0: (0..nn).map(|k| ((k * 7 + 1) % n) as i32).collect(),
+        x0s: (0..nn).map(|k| ((k * 11 + 3) % n) as i32).collect(),
+        ru: f(nn),
+        rus: f(nn),
+        sg: f(nn),
+        sgs: f(nn),
+        grel: f(nn),
+        gsh: f(nn),
+        gcov: f(nn),
+        gnpos: f(nn),
+        ghhi: f(nn),
+        pb: f(nn),
+        qc: f(nn),
+        pbs: f(nn),
+        qcs: f(nn),
+        exz: f(nn),
+        exzs: f(nn),
+        sc: f(nn),
+        mass: f(6 * n),
+    }
+}
+
+/// 15 条链的因子列名，顺序与 `compute_split_inner` 的实际产出一致。
+pub(crate) fn split_factor_names(combos: &[String], ks: &[usize]) -> Vec<String> {
+    let n = 64usize;
+    let ms = fake_matset(n);
+    let mask = vec![true; n];
+    let industry: Vec<i32> = (0..n).map(|i| (i % 20) as i32).collect();
+    let lnt: Vec<f64> = (0..n).map(|i| ((i + 1) as f64).ln()).collect();
+    let mut names: Vec<String> = Vec::new();
+    for &(_a, _b, tag) in BC_COMBOS.iter() {
+        for &c_dir in X_DIRS.iter() {
+            let short = format!("{tag}{}", dir_tag(c_dir));
+            let label = format!("sp{short}");
+            if !combos.is_empty() && !combos.iter().any(|x| *x == short || *x == label) {
+                continue;
+            }
+            let pre = format!("{label}_");
+            let mut out = Out::new();
+            produce_one_mat(
+                &ms,
+                &pre,
+                n,
+                &mask,
+                Some(&industry),
+                Some(&lnt),
+                true,
+                &mut out,
+            );
+            names.extend(out.names);
+            names.extend(super::topk::total_names(&pre, ks));
+        }
+    }
+    names
+}
+
+/// Python 入口：直接给出 15 条链的因子列名，不读数据、不算因子。
+///
+/// 与 `py_yupei_pair_split(...)[1]` 返回的名单逐字相同，但耗时从「一整天」降到毫秒。
+#[pyfunction]
+#[pyo3(signature = (combos=None, ks=None))]
+pub fn py_yupei_pair_split_names(combos: Option<Vec<String>>, ks: Option<Vec<usize>>) -> Vec<String> {
+    split_factor_names(
+        &combos.unwrap_or_default(),
+        &ks.unwrap_or_else(|| vec![5, 20, 100]),
+    )
 }
