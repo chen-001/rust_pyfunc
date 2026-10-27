@@ -241,7 +241,7 @@ pub fn yupei_dist_backup_matrices(outdir: String, date: i64) -> PyResult<(usize,
 }
 
 fn backup_matrices_inner(outdir: String, date: i64) -> PyResult<(usize, usize)> {
-    let (codes, n, stats, hm, _industry) =
+    let (codes, n, _stocks, stats, hm, _industry) =
         super::compute::compute_yupei_dist_partial(date)
             .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("{e:?}")))?;
     let dir = Path::new(&outdir).join(date.to_string());

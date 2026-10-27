@@ -55,7 +55,7 @@ pub fn compute_yupei_dist_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f
 }
 
 fn compute_yupei_dist_full_inner(date: i64) -> std::io::Result<(Vec<String>, Vec<f32>)> {
-    let (codes_out, n, stats, hm, industry) = compute_yupei_dist_partial(date)?;
+    let (codes_out, n, _stocks, stats, hm, industry) = compute_yupei_dist_partial(date)?;
     let set = MatrixSet {
         n,
         codes: codes_out.clone(),
@@ -75,6 +75,7 @@ pub fn compute_yupei_dist_partial(
 ) -> std::io::Result<(
     Vec<String>,
     usize,
+    Vec<crate::yupei_dist::matrix_stage::StockPrep>,
     Vec<crate::yupei_dist::matrix_stage::StockStats>,
     HashMap<String, Vec<f32>>,
     Vec<i16>,
@@ -90,6 +91,7 @@ pub fn compute_yupei_dist_partial_need(
 ) -> std::io::Result<(
     Vec<String>,
     usize,
+    Vec<crate::yupei_dist::matrix_stage::StockPrep>,
     Vec<crate::yupei_dist::matrix_stage::StockStats>,
     HashMap<String, Vec<f32>>,
     Vec<i16>,
@@ -132,7 +134,7 @@ pub fn compute_yupei_dist_partial_need(
     // ---- 4. 行业（直读 h5, 进程内只读一次; 读不到直接报错）----
     let industry = super::industry::industry_of(date, &codes_out)?;
 
-    Ok((codes_out, n, stats, hm, industry))
+    Ok((codes_out, n, stocks, stats, hm, industry))
 }
 
 /// 后半段: 跑全部指标模块 + 组装 N×F（行主序）+ 长度/顺序校验。
@@ -187,7 +189,7 @@ fn compute_yupei_dist_full_with_prev_inner(
     date: i64,
     prev_date: Option<i64>,
 ) -> std::io::Result<(Vec<String>, Vec<f32>)> {
-    let (codes_out, n, stats, hm, industry) = compute_yupei_dist_partial(date)?;
+    let (codes_out, n, _stocks, stats, hm, industry) = compute_yupei_dist_partial(date)?;
     // 加载前一日矩阵
     let prev = match prev_date {
         Some(pd) => {
@@ -308,7 +310,7 @@ fn compute_yupei_dist_lite_inner(
     date: i64,
     prev_date: Option<i64>,
 ) -> std::io::Result<(Vec<String>, Vec<f32>)> {
-    let (codes_out, n, stats, hm, industry) = compute_yupei_dist_partial(date)?;
+    let (codes_out, n, _stocks, stats, hm, industry) = compute_yupei_dist_partial(date)?;
     let prev = match prev_date {
         Some(pd) => {
             let pdir = Path::new(BACKUP_DIR).join(pd.to_string());

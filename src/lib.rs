@@ -130,6 +130,8 @@ pub mod hot_pool_ind_metrics;
 pub mod anneal_volume_market_metrics;
 pub mod anneal_volume_metrics;
 pub mod cross_section_example_metrics;
+pub mod dijkstra_metrics;
+pub mod relaynet_metrics;
 pub mod drop_event_metrics;
 pub mod factor_pipeline;
 pub mod factor_store_v5;
@@ -1301,6 +1303,10 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         m
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(
+        yupei_pair::split::py_yupei_pair_split,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
         pairwise_merge_metrics::py_pairwise_merge_metrics,
         m
     )?)?;
@@ -1312,6 +1318,11 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         cross_section_example_metrics::py_cross_section_example_names,
         m
     )?)?;
+
+    let _ = m.add_function(wrap_pyfunction!(dijkstra_metrics::py_dijkstra, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(dijkstra_metrics::py_dijkstra_names, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(relaynet_metrics::py_relaynet, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(relaynet_metrics::py_relaynet_names, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(
         pair_interaction_metrics::py_pair_interaction,
         m

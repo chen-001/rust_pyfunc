@@ -44,6 +44,18 @@ pub(crate) fn decile_of(v: f64, cuts: &[f64]) -> usize {
     d
 }
 
+/// 方向拆分时的三套取数矩阵（行 = 配对位置，列 = 第三只 X）。
+/// 现有单矩阵路径传 None，三者都退化成同一个对称 rho。
+#[derive(Clone, Copy)]
+pub(crate) struct SplitRho<'a> {
+    /// 配对第一只（方向 a）对 X（方向 c）：`b_row[b*n + x]`
+    pub b_row: &'a [f32],
+    /// 配对第二只（方向 b）对 X（方向 c）：`c_row[c*n + x]`
+    pub c_row: &'a [f32],
+    /// 配对两只之间（a 对 b）：`bc[b*n + c]`
+    pub bc: &'a [f32],
+}
+
 /// net 一张输入矩阵的全部产物（内存版）。
 /// 字段名与 reduce 的 MatSet / 旧落盘文件名一一对应。
 pub(crate) struct NetMats {
@@ -180,6 +192,7 @@ pub(crate) fn net_one_mat(
     exz_bins: usize,
     mat_name: &str,
     topk_ks: Option<&[usize]>,
+    split: Option<(&SplitRho, &[f64], &[f64])>,
 ) -> NetMats {
     let t0 = std::time::Instant::now();
     // ---- E_i = 2 * S_dir[i][i] ----
@@ -204,6 +217,20 @@ pub(crate) fn net_one_mat(
     }
     // rho is mirrored bit for bit above; its transpose is the same immutable data.
     let rhot = &rho;
+    // 方向拆分: 三套取数矩阵分别代表 (a,c)、(b,c)、(a,b) 三个方向组合。
+    // 不拆分时三者都等于 rhot（现有行为）。
+    // 方向拆分时自能量也要分两套: B 用方向 a 的能量、C 用方向 b 的能量
+    // （X 的能量已经吸收进 rho 的归一化里）。
+    let (pb, pc, rbc, ea, eb2) = match split {
+        Some((sp, ea, eb)) => (sp.b_row, sp.c_row, sp.bc, ea, eb),
+        None => (
+            rhot.as_slice(),
+            rhot.as_slice(),
+            rhot.as_slice(),
+            e.as_slice(),
+            e.as_slice(),
+        ),
+    };
 
     // ---- 全部配对的 X0 / RHO_U / SINGLE / G + 分数矩阵 + 软质量向量 ----
     let mut g = vec![0.0f32; n * n];
@@ -251,8 +278,12 @@ pub(crate) fn net_one_mat(
             pbs: pbsv.as_mut_ptr(),
             qcs: qcsv.as_mut_ptr(),
         };
-        let e_ref = &e;
+        let e_ref = ea;
+        let e_ref2 = eb2;
         let rhot_ref = &rhot;
+        let pb_ref = pb;
+        let pc_ref = pc;
+        let rbc_ref = rbc;
         let mask_ref = mask;
         let sh_ref: &Shared = &sh;
         let nb = MBLK.min(n).max(1);
@@ -323,23 +354,23 @@ pub(crate) fn net_one_mat(
                     if !mask_ref[b] {
                         continue;
                     }
-                    let p = &rhot_ref[b * n..b * n + n];
+                    let p = &pb_ref[b * n..b * n + n];
                     let eb = e_ref[b];
                     let sb = eb.sqrt();
                     for c in (b + 1)..n {
                         if !mask_ref[c] {
                             continue;
                         }
-                        let ec = e_ref[c];
+                        let ec = e_ref2[c];
                         let sc = ec.sqrt();
-                        let r = rhot_ref[b * n + c] as f64;
+                        let r = rbc_ref[b * n + c] as f64;
                         let d = (eb + ec + 2.0 * r * sb * sc).sqrt();
                         if !(d > 0.0) {
                             continue;
                         }
                         let wb = (sb / d) as f32;
                         let wc = (sc / d) as f32;
-                        let q = &rhot_ref[c * n..c * n + n];
+                        let q = &pc_ref[c * n..c * n + n];
                         // 一趟算完 h/g（b、c 位置写 -inf），同时累计两个最大值与
                         // pos_stats 的三个和 + 计数（原来要 fill_h/fill_gap/两次取最大/统计五趟）
                         let (mx_h, mx_g, sh_pos, sg_pos, sqg_pos, npos) = simd::fused_hg_stats(
@@ -513,11 +544,11 @@ pub(crate) fn net_one_mat(
             continue;
         }
         let (b, c) = if b < c { (b, c) } else { (c, b) };
-        let eb = e[b];
-        let ec = e[c];
+        let eb = ea[b];
+        let ec = eb2[c];
         let sb = eb.sqrt();
         let sc = ec.sqrt();
-        let r = rhot[b * n + c] as f64;
+        let r = rbc[b * n + c] as f64;
         let d = (eb + ec + 2.0 * r * sb * sc).sqrt();
         if !(d > 0.0) {
             continue;
@@ -528,8 +559,8 @@ pub(crate) fn net_one_mat(
             && gv != 0.0 && gsv != 0.0 && x0[b*n+c] >= 0.0 && x0s[b*n+c] >= 0.0 {
             (gv, gsv)
         } else {
-            let p = &rhot[b*n..b*n+n];
-            let q = &rhot[c*n..c*n+n];
+            let p = &pb[b*n..b*n+n];
+            let q = &pc[c*n..c*n+n];
             let s = best_x(n, p, q, (sb/d) as f32, (sc/d) as f32, b, c, mask);
             if s.bi == usize::MAX || s.bsi == usize::MAX { continue; }
             (s.h-s.single, s.hs-s.singles)

@@ -130,6 +130,11 @@ pub struct StockPrep {
     pub code: String,
     /// (桶idx, u[9])，按桶升序，同桶已合并
     pub cells: Vec<(u32, [f32; N_U])>,
+    /// 方向拆分的桶单元，桶号与 `cells` 一一对应:
+    /// `[cnt_P, cnt_M, vol_P, vol_M]`（买笔计数/卖笔计数/买笔√v/卖笔√v）。
+    /// 只给「玉佩2 配对」的主买/主卖拆分用；28 张矩阵仍走 `cells`（不区分方向）。
+    /// 方向未知的笔（flag 既非 66 也非 83）不进这四个场。
+    pub cells_pm: Vec<(u32, [f32; 4])>,
     pub n_trades: usize,
     pub amount: f64,
     pub total_vol: f64,
@@ -149,6 +154,7 @@ impl StockPrep {
         StockPrep {
             code,
             cells: Vec::new(),
+            cells_pm: Vec::new(),
             n_trades: 0,
             amount: f64::NAN,
             total_vol: f64::NAN,
@@ -293,6 +299,9 @@ pub fn prep_stock(
     absus.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let q95u = absus[(((absus.len() as f64) * 0.95) as usize).min(absus.len() - 1)] as f64;
     let mut cells: Vec<(u32, [f32; N_U])> = Vec::with_capacity(tmp.len());
+    // 方向拆分场：[cnt_P, cnt_M, vol_P, vol_M]，桶号与 cells 一一对应。
+    // 同一笔只进 P 或 M 一路（flag 66 买 / 83 卖；其它 flag 两边都不进）。
+    let mut cells_pm: Vec<(u32, [f32; 4])> = Vec::with_capacity(tmp.len());
     let mut sum_w_ext = 0.0f64;
     for t in tmp {
         let mut u9 = [0.0f32; N_U];
@@ -300,6 +309,14 @@ pub fn prep_stock(
         u9[U_VOL] = t.sv;
         u9[U_LOGVOL] = t.lv;
         u9[U_RVOL] = t.rv;
+        let mut u4 = [0.0f32; 4];
+        if t.s > 0.0 {
+            u4[0] = 1.0; // cnt_P
+            u4[2] = t.sv; // vol_P
+        } else if t.s < 0.0 {
+            u4[1] = 1.0; // cnt_M
+            u4[3] = t.sv; // vol_M
+        }
         let w_urg = t.s * t.u;
         if t.s > 0.0 {
             u9[U_FLOW_P] = t.sv;
@@ -320,10 +337,15 @@ pub fn prep_stock(
                 for k in 0..N_U {
                     ua[k] += u9[k];
                 }
+                let ub = &mut cells_pm.last_mut().expect("cells_pm 与 cells 同长").1;
+                for k in 0..4 {
+                    ub[k] += u4[k];
+                }
                 continue;
             }
         }
         cells.push((t.bidx, u9));
+        cells_pm.push((t.bidx, u4));
     }
     let n_kept = cells
         .iter()
@@ -333,6 +355,7 @@ pub fn prep_stock(
     Some(StockPrep {
         code: code.to_string(),
         cells,
+        cells_pm,
         n_trades: n_kept,
         amount,
         total_vol,

@@ -28,6 +28,8 @@ pub(crate) mod net;
 pub(crate) mod reduce;
 pub(crate) mod reduce2;
 pub(crate) mod simd;
+pub(crate) mod split;
+pub mod split_mat;
 pub(crate) mod topk;
 
 use std::io;
@@ -86,7 +88,7 @@ fn compute_yupei_pair_inner(
         let m = crate::yupei_dist::matrix_stage::family_mask_of(mats);
         if m == 0 { crate::yupei_dist::matrix_stage::FAM_ALL } else { m }
     };
-    let (codes, n, stats, hm, industry) =
+    let (codes, n, _stocks, stats, hm, industry) =
         crate::yupei_dist::compute::compute_yupei_dist_partial_need(date, need)?;
     eprintln!("[yupei_pair] date={date} universe n={n}，矩阵 {} 张", hm.len());
 
@@ -134,7 +136,7 @@ fn compute_yupei_pair_inner(
 
             // ---- net ----
             let mut net = net::net_one_mat(
-                sdir, n, &dec, &mask, &stock_idx, null_mc, exz_bins, mat, Some(&KS_DEFAULT),
+                sdir, n, &dec, &mask, &stock_idx, null_mc, exz_bins, mat, Some(&KS_DEFAULT), None,
             );
 
             // ---- check（硬校验，任一失败即中止该矩阵）----
