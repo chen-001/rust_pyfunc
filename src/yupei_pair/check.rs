@@ -196,9 +196,11 @@ pub(crate) fn check_net(m: &NetMats, n: usize, mask: &[bool], mat: &str) -> usiz
             }
             let em_sum: f64 = mv[0..n].iter().map(|&v| v as f64).sum();
             let sm_sum: f64 = mv[3 * n..4 * n].iter().map(|&v| v as f64).sum();
+            // 两种口径各自归一: h 口径应当 ≈1；gap 口径在"没有超额解释"的配对上
+            // 会被整体停用（Σ≈0），这也算正常，只要求它不是异常值。
             warn(
-                (0.9..=1.1).contains(&em_sum) && (0.9..=1.1).contains(&sm_sum),
-                format!("emass/smass 归一和 {em_sum:.4}/{sm_sum:.4}（期望≈1）"),
+                (0.9..=1.1).contains(&em_sum) && ((0.9..=1.1).contains(&sm_sum) || sm_sum.abs() < 1e-6),
+                format!("emass/smass 归一和 {em_sum:.4}/{sm_sum:.4}（期望≈1，gap 口径允许 0）"),
             );
             warn(!nonneg_bad, "emass/smass/g2mass/sg2mass 存在负值".to_string());
         } else {

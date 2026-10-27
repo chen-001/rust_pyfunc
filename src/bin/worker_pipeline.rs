@@ -12,7 +12,7 @@
 use rust_pyfunc::backup_reader::TaskResult;
 use rust_pyfunc::factor_pipeline::{
     ipc_read_result, ipc_read_task, ipc_write, ipc_write_result, pipeline_anneal_volume,
-    pipeline_anneal_volume_market, pipeline_cross_section_example, pipeline_distill,
+    pipeline_anneal_volume_market, pipeline_cross_section_example, pipeline_dijkstra, pipeline_distill,
     pipeline_distill_tick, pipeline_drop_event, pipeline_extreme_point_fit,
     pipeline_hhi_event,
     pipeline_etp_event,
@@ -20,11 +20,13 @@ use rust_pyfunc::factor_pipeline::{
     pipeline_individual_order_ratio,
     pipeline_long_order, pipeline_microstructure_capm, pipeline_multi_factor_capm,
     pipeline_observable_order, pipeline_order_pair_hm90, pipeline_orderbook_imb_refactor,
-    pipeline_pair_interaction, pipeline_peaks, pipeline_qhsk_anneal, pipeline_urgency,
+    pipeline_pair_interaction, pipeline_peaks, pipeline_qhsk_anneal, pipeline_relaynet,
+    pipeline_urgency,
     pipeline_urgency_ext_cluster, pipeline_vsld, pipeline_yhyb,
     pipeline_yhyb_indtop,
     pipeline_switch_moment,
-    pipeline_yupei_dist, ResultMessage, TaskMessage,
+    pipeline_yupei_dist, pipeline_yupei_dist_lite, pipeline_yupei_pair_split, ResultMessage,
+    TaskMessage,
 };
 use std::io::{BufReader, BufWriter};
 
@@ -168,12 +170,20 @@ fn main() {
                         crate_logic::pipeline_minute_capm(date, expected_len)
                     } else if pipeline_name == "cross_section_example" {
                         pipeline_cross_section_example(date, expected_len)
+                    } else if pipeline_name == "relaynet" {
+                        pipeline_relaynet(date, expected_len)
+                    } else if pipeline_name == "dijkstra" {
+                        pipeline_dijkstra(date, expected_len)
                     } else if pipeline_name == "peaks" {
                         pipeline_peaks(date, expected_len)
                     } else if pipeline_name == "pair_interaction" {
                         pipeline_pair_interaction(date, expected_len)
                     } else if pipeline_name == "yupei_dist" {
                         pipeline_yupei_dist(date, expected_len)
+                    } else if pipeline_name == "yupei_dist_lite" {
+                        pipeline_yupei_dist_lite(date, expected_len)
+                    } else if pipeline_name == "yupei_pair_split" {
+                        pipeline_yupei_pair_split(date, expected_len)
                     } else if pipeline_name == "yhyb" {
                         pipeline_yhyb(date, expected_len)
                     } else if pipeline_name == "yhyb_indtop" {

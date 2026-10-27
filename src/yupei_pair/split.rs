@@ -224,14 +224,33 @@ fn compute_split_inner(
     }
     eprintln!("[yupei_split] 准备跑 {} 条链", jobs.len());
 
+    // ---- 3b. 预计算 9 种方向组合的 rho（15 条链共用）----
+    // 每条链原本要现算 rbx/rcx/rbc 三张（各 O(n²)，一张 n=5153 约 106MB），
+    // 而 15 条链实际只用到 9 种 (行方向, 列方向) 组合 → 45 次构造降到 9 次。
+    let dirs = [D_ALL, D_P, D_M];
+    let mut rho_cache: Vec<Vec<f32>> = Vec::with_capacity(9);
+    for &a in dirs.iter() {
+        for &b in dirs.iter() {
+            rho_cache.push(rho_ab(&m4, n, a, b));
+        }
+    }
+    let ridx = |a: usize, b: usize| -> usize {
+        dirs.iter().position(|&x| x == a).unwrap_or(0) * 3
+            + dirs.iter().position(|&x| x == b).unwrap_or(0)
+    };
+    eprintln!(
+        "[yupei_split] 9 张方向 rho 预计算完成 {:.1}s",
+        t_all.elapsed().as_secs_f32()
+    );
+
     let results: Vec<ChainOut> = jobs
         .par_iter()
         .map(|(a, b, c_dir, label)| {
             let (a, b, c_dir) = (*a, *b, *c_dir);
-            // 三套取数矩阵 + 两套自能量
-            let rbx = rho_ab(&m4, n, a, c_dir); // 行 B(a) 对列 X(c)
-            let rcx = rho_ab(&m4, n, b, c_dir); // 行 C(b) 对列 X(c)
-            let rbc = rho_ab(&m4, n, a, b); // 行 B(a) 对列 C(b)
+            // 三套取数矩阵从缓存取（行 B(a) 对列 X(c) / 行 C(b) 对列 X(c) / 行 B(a) 对列 C(b)）
+            let rbx = &rho_cache[ridx(a, c_dir)];
+            let rcx = &rho_cache[ridx(b, c_dir)];
+            let rbc = &rho_cache[ridx(a, b)];
             let e_a = energy(&m4, n, a);
             let e_b = energy(&m4, n, b);
 
@@ -249,9 +268,9 @@ fn compute_split_inner(
             let n_stocks = stock_idx.len();
 
             let sp = SplitRho {
-                b_row: &rbx,
-                c_row: &rcx,
-                bc: &rbc,
+                b_row: rbx.as_slice(),
+                c_row: rcx.as_slice(),
+                bc: rbc.as_slice(),
             };
             let mut net = net_one_mat(
                 &sdir,

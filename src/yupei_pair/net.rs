@@ -35,6 +35,9 @@ impl Rng {
     }
 }
 
+/// mass 归一化分母的下限：低于它说明该口径没有有效权质量，直接停用。
+const MASS_EPS: f32 = 1e-6;
+
 pub(crate) fn decile_of(v: f64, cuts: &[f64]) -> usize {
     // cuts 是 9 个十分位切点，返回 0..9
     let mut d = 0usize;
@@ -481,10 +484,13 @@ pub(crate) fn net_one_mat(
                             &mut em, &mut gm, &mut g2m,
                             &mut sm, &mut sgm, &mut sg2m,
                             &hb, &gb,
-                            if sh_pos > 0.0 { 1.0 / sh_pos } else { 1.0 },
-                            if sg_pos > 0.0 { 1.0 / sg_pos } else { 1.0 },
-                            sh_pos > 0.0,
-                            sg_pos > 0.0,
+                            // 归一化分母设下限: gap 口径的 Σrelu(g) 可能极小
+                            // （方向拆分下有些配对的"超额解释"整体接近 0），
+                            // 1/极小值会溢出成 inf，污染整列 mass。
+                            if sh_pos > MASS_EPS { 1.0 / sh_pos } else { 1.0 },
+                            if sg_pos > MASS_EPS { 1.0 / sg_pos } else { 1.0 },
+                            sh_pos > MASS_EPS,
+                            sg_pos > MASS_EPS,
                         );
                     }
                 }

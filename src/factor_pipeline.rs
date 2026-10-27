@@ -2385,6 +2385,26 @@ pub fn pipeline_peaks(date: i64, expected_len: usize) -> Vec<TaskResult> {
     }
 }
 
+pub fn pipeline_dijkstra(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    match crate::dijkstra_metrics::compute_dijkstra_full(date) {
+        Ok((codes, vals)) => {
+            vals.chunks(expected_len)
+                .zip(codes.iter())
+                .map(|(facs, code)| TaskResult {
+                    date,
+                    code: code.clone(),
+                    timestamp: 0,
+                    facs: facs.to_vec(),
+                })
+                .collect()
+        }
+        Err(e) => {
+            eprintln!("dijkstra error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
 pub fn pipeline_cross_section_example(date: i64, expected_len: usize) -> Vec<TaskResult> {
     match crate::cross_section_example_metrics::compute_cross_section_example_full(date) {
         Ok((codes, vals)) => {
@@ -2401,6 +2421,86 @@ pub fn pipeline_cross_section_example(date: i64, expected_len: usize) -> Vec<Tas
         }
         Err(e) => {
             eprintln!("cross_section_example error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
+/// 接力网络（relaynet）横截面 pipeline：全市场股票当节点跑共动图统计。
+/// 与 cross_section_example 同样的 (codes, vals) → TaskResult 展开方式。
+pub fn pipeline_relaynet(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    match crate::relaynet_metrics::compute_relaynet_full(date) {
+        Ok((codes, vals)) => {
+            let n_factors = expected_len;
+            vals.chunks(n_factors)
+                .zip(codes.iter())
+                .map(|(facs, code)| TaskResult {
+                    date,
+                    code: code.clone(),
+                    timestamp: 0,
+                    facs: facs.to_vec(),
+                })
+                .collect()
+        }
+        Err(e) => {
+            eprintln!("relaynet error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
+/// 寻找玉佩-双层版横截面 pipeline 包装：精简版 741 列（去重后幸存）。
+/// 与 pipeline_yupei_dist 同数据路径，只收窄指标部分；prev=None 时跨日列
+/// （dyn_* 与 dynjs_* 共 308 列）输出 NaN——备份目录 yupei_dist_backup 目前
+/// 只有 industry.bin、没有 mats/*.bin，无处读前一日矩阵。
+pub fn pipeline_yupei_dist_lite(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    match crate::yupei_dist::compute::compute_yupei_dist_lite(date, None) {
+        Ok((codes, vals)) => {
+            let n_factors = expected_len;
+            vals.chunks(n_factors)
+                .zip(codes.iter())
+                .map(|(facs, code)| TaskResult {
+                    date,
+                    code: code.clone(),
+                    timestamp: 0,
+                    facs: facs.to_vec(),
+                })
+                .collect()
+        }
+        Err(e) => {
+            eprintln!("yupei_dist_lite error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
+/// 寻找玉佩-双层版（主买/主卖拆分）横截面 pipeline：15 种组合 × 653 列 = 9795 列。
+/// 参数固定为 tau=1.0s、weight=cnt（笔数）、全部 15 条链，保证列序与批量一致。
+pub fn pipeline_yupei_pair_split(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    match crate::yupei_pair::split::compute_split_full(
+        date,
+        1.0,
+        crate::yupei_pair::split_mat::PmWeight::Cnt,
+        &[],
+        &[5, 20, 100],
+        crate::yupei_pair::reduce::SoftCfg { temp: 0.3, thr: 2.0 },
+        20000,
+        10,
+    ) {
+        Ok((codes, _names, vals)) => {
+            let n_factors = expected_len;
+            vals.chunks(n_factors)
+                .zip(codes.iter())
+                .map(|(facs, code)| TaskResult {
+                    date,
+                    code: code.clone(),
+                    timestamp: 0,
+                    facs: facs.to_vec(),
+                })
+                .collect()
+        }
+        Err(e) => {
+            eprintln!("yupei_pair_split error [{date}]: {e:?}");
             Vec::new()
         }
     }
@@ -3041,8 +3141,11 @@ pub fn run_factor_pipeline_cross_section(
     let pipeline_name = pipeline.to_string();
     let known = [
         "cross_section_example",
+        "dijkstra",
         "peaks",
         "yupei_dist",
+        "yupei_dist_lite",
+        "yupei_pair_split",
         "pair_interaction",
         "urgency",
         "urgency_ext_cluster",
@@ -3057,6 +3160,7 @@ pub fn run_factor_pipeline_cross_section(
         "yhyb",
         "yhyb_indtop",
         "switch_moment",
+        "relaynet",
     ];
     if !known.contains(&pipeline_name.as_str()) && !pipeline_name.starts_with("okay_") {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
