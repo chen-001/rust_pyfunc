@@ -144,15 +144,21 @@ pub(crate) fn check_net(m: &NetMats, n: usize, mask: &[bool], mat: &str) -> usiz
     }
     {
         let (g, sg, ru) = (&m.g, &m.sg, &m.ru);
+        // G 是 `gain = h - single` 的 f32 差，其中 h = wb*p + wc*q 是加权和、single 是未加权最大值。
+        // 权重 wb/wc 小时 h 可以远小于 single，此时 gain ≈ -single，它的 ulp 由 single 决定
+        // （single≈1000 时 ulp≈6e-5），加回 single 复原 h 的绝对误差就是 1e-4 量级。
+        // 用 |h| 当分母会把这个误差放大成 4e-5 的相对值，误判成失败。
+        // 正确的尺度是 max(|single|, |h|)：误差相对它只有 eps 量级。
+        // 2015 年股灾那几天（20150527/0707/0708/1015 等）就是这样被误判的。
         let dev = max_dev(n, |i, j| {
             let k = i * n + j;
             if g[k].is_finite() && sg[k].is_finite() && ru[k].is_finite() {
-                (sg[k] + g[k] - ru[k]).abs()
+                (sg[k] + g[k] - ru[k]).abs() / sg[k].abs().max(ru[k].abs()).max(1.0)
             } else {
                 0.0
             }
         });
-        warn(dev <= 1e-5, format!("RHO_U==SINGLE+G 偏差 {dev:.2e}"));
+        warn(dev <= 1e-6, format!("RHO_U==SINGLE+G 相对偏差 {dev:.2e}"));
     }
 
     // ---- 3. EXZ/EXZS 条件标准化 ----
@@ -204,11 +210,15 @@ pub(crate) fn check_net(m: &NetMats, n: usize, mask: &[bool], mat: &str) -> usiz
             }
             let em_sum: f64 = mv[0..n].iter().map(|&v| v as f64).sum();
             let sm_sum: f64 = mv[3 * n..4 * n].iter().map(|&v| v as f64).sum();
-            // 两种口径各自归一: h 口径应当 ≈1；gap 口径在"没有超额解释"的配对上
-            // 会被整体停用（Σ≈0），这也算正常，只要求它不是异常值。
+            // emass/smass 是「有成交股票」上的软质量归一，停牌股贡献 0，所以总和 ≤ 1。
+            // 原来要求 ≈1（0.9..1.1）在两类情形下会误判：
+            //   1. 当天停牌股多（2015 年常见），em_sum 会掉到 0.88 左右；
+            //   2. gap 口径（sm）用的是 relu(gain)，而 gain = 加权和 - 未加权最大值，
+            //      权重小的日子大量配对 gain < 0，sm_sum 会掉到 0.4~0.9，这是口径本身的性质。
+            // 所以只检查「不膨胀、不出现负总和」，不要求填满。
             warn(
-                (0.9..=1.1).contains(&em_sum) && ((0.9..=1.1).contains(&sm_sum) || sm_sum.abs() < 1e-6),
-                format!("emass/smass 归一和 {em_sum:.4}/{sm_sum:.4}（期望≈1，gap 口径允许 0）"),
+                (0.0..=1.1).contains(&em_sum) && (-1e-6..=1.1).contains(&sm_sum),
+                format!("emass/smass 归一和 {em_sum:.4}/{sm_sum:.4}（应 ≤1，gap 口径可为 0）"),
             );
             warn(!nonneg_bad, "emass/smass/g2mass/sg2mass 存在负值".to_string());
         } else {
