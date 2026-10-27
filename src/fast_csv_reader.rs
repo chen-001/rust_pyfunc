@@ -249,16 +249,19 @@ fn parse_line(line: &[u8], with_retreat: bool, with_afternoon_adjust: bool) -> O
 
     // 解析 flag
     let flag_bytes = fields[COL_FLAG];
-    // flag==32 过滤：仅当 with_retreat=false
-    // flag 字段可能是 "32"、"66"、"83" 或空字符串
-    if !with_retreat && flag_bytes == b"32" {
-        return None;
-    }
     let flag = if flag_bytes.is_empty() {
         0
     } else {
         parse_i64_fast(flag_bytes) as i32
     };
+    // flag==32 过滤：仅当 with_retreat=false。
+    // 必须先解析再比较: CSV 里这一列写的是浮点（"32.0" / "66.0" / "83.0"），
+    // 用字节精确比较 b"32" 永远匹配不上，撤单会全部漏进矩阵。
+    // 2026-10 修正: 修正前撤单占全部记录的 17%（20251031 实测 Σcnt 里 17.1% 是撤单），
+    // 它们没有主动方向，会让"主买+主卖"与"全部"对不上，也污染所有 28 张矩阵。
+    if !with_retreat && flag == 32 {
+        return None;
+    }
 
     build_trade_record(
         parse_i64_fast(fields[COL_EXCHTIME]),

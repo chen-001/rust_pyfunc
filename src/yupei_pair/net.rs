@@ -150,13 +150,15 @@ fn best_x(n: usize, p: &[f32], q: &[f32], wb: f32, wc: f32, b: usize, c: usize, 
         }
         let h = wb * p[x] + wc * q[x];
         let single = if p[x] > q[x] { p[x] } else { q[x] };
-        if h > s.h {
+        // 容差比较: 与当前最优相差 Q_GRID 以内视为并列，保留先遇到的（索引小）。
+        // 直接用 `>` 会让 1e-7 级的浮点差异把 X0 翻到别的候选上。
+        if h > s.h + crate::yupei_pair::simd::Q_GRID {
             s.h = h;
             s.bi = x;
             s.single = single;
         }
         let gain = h - single;
-        if gain > bgs {
+        if gain > bgs + crate::yupei_pair::simd::Q_GRID {
             bgs = gain;
             s.bsi = x;
             s.singles = single;

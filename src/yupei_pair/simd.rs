@@ -271,10 +271,11 @@ pub fn argmax_first(v: &[f32]) -> (usize, f32) {
                 return (usize::MAX, f32::NEG_INFINITY);
             }
             // 找第一个等于 mx 的下标（tie 取下标小的，与旧版 `>` 语义一致）
-            let mv = _mm256_set1_ps(mx);
+            // 容差匹配: 与最大值相差 Q_GRID 以内的都算并列，取索引最小的那个。
+            let mv = _mm256_set1_ps(mx - Q_GRID);
             let mut x = 0;
             while x + 8 <= n {
-                let c = _mm256_cmp_ps::<_CMP_EQ_OQ>(_mm256_loadu_ps(v.as_ptr().add(x)), mv);
+                let c = _mm256_cmp_ps::<_CMP_GE_OQ>(_mm256_loadu_ps(v.as_ptr().add(x)), mv);
                 let mask = _mm256_movemask_ps(c) as u32;
                 if mask != 0 {
                     return (x + mask.trailing_zeros() as usize, mx);
@@ -282,7 +283,7 @@ pub fn argmax_first(v: &[f32]) -> (usize, f32) {
                 x += 8;
             }
             while x < n {
-                if v[x] == mx {
+                if v[x] >= mx - Q_GRID {
                     return (x, mx);
                 }
                 x += 1;
@@ -310,21 +311,22 @@ pub fn argmax_first_two(h: &[f32], g: &[f32], mx_h: f32, mx_g: f32) -> (usize, u
     #[cfg(target_arch = "x86_64")]
     unsafe {
         if have_avx2() {
-            let mh = _mm256_set1_ps(mx_h);
-            let mg = _mm256_set1_ps(mx_g);
+            // 容差匹配: 与最大值相差 Q_GRID 以内即并列，取索引最小的。
+            let mh = _mm256_set1_ps(mx_h - Q_GRID);
+            let mg = _mm256_set1_ps(mx_g - Q_GRID);
             let mut bi = usize::MAX;
             let mut bsi = usize::MAX;
             let mut x = 0;
             while x + 8 <= n {
                 if bi == usize::MAX {
-                    let c = _mm256_cmp_ps::<_CMP_EQ_OQ>(_mm256_loadu_ps(h.as_ptr().add(x)), mh);
+                    let c = _mm256_cmp_ps::<_CMP_GE_OQ>(_mm256_loadu_ps(h.as_ptr().add(x)), mh);
                     let mask = _mm256_movemask_ps(c) as u32;
                     if mask != 0 {
                         bi = x + mask.trailing_zeros() as usize;
                     }
                 }
                 if bsi == usize::MAX && find_g {
-                    let c = _mm256_cmp_ps::<_CMP_EQ_OQ>(_mm256_loadu_ps(g.as_ptr().add(x)), mg);
+                    let c = _mm256_cmp_ps::<_CMP_GE_OQ>(_mm256_loadu_ps(g.as_ptr().add(x)), mg);
                     let mask = _mm256_movemask_ps(c) as u32;
                     if mask != 0 {
                         bsi = x + mask.trailing_zeros() as usize;
@@ -336,10 +338,10 @@ pub fn argmax_first_two(h: &[f32], g: &[f32], mx_h: f32, mx_g: f32) -> (usize, u
                 x += 8;
             }
             while x < n {
-                if bi == usize::MAX && h[x] == mx_h {
+                if bi == usize::MAX && h[x] >= mx_h - Q_GRID {
                     bi = x;
                 }
-                if bsi == usize::MAX && find_g && g[x] == mx_g {
+                if bsi == usize::MAX && find_g && g[x] >= mx_g - Q_GRID {
                     bsi = x;
                 }
                 if bi != usize::MAX && (bsi != usize::MAX || !find_g) {
@@ -353,10 +355,10 @@ pub fn argmax_first_two(h: &[f32], g: &[f32], mx_h: f32, mx_g: f32) -> (usize, u
     let mut bi = usize::MAX;
     let mut bsi = usize::MAX;
     for x in 0..n {
-        if bi == usize::MAX && h[x] == mx_h {
+        if bi == usize::MAX && h[x] >= mx_h - Q_GRID {
             bi = x;
         }
-        if bsi == usize::MAX && find_g && g[x] == mx_g {
+        if bsi == usize::MAX && find_g && g[x] >= mx_g - Q_GRID {
             bsi = x;
         }
         if bi != usize::MAX && (bsi != usize::MAX || !find_g) {
@@ -912,12 +914,35 @@ pub fn for_each_gt(v: &[f32], refv: &[f32], mut f: impl FnMut(usize)) {
 }
 
 /// f32 → 保序 u32：正数翻符号位、负数全部取反，使整型序 = 浮点序。
+/// 选择用的量化网格（绝对值）。
+///
+/// 用途：把"参与排序/取最大"的得分四舍五入到 1e-6，再比较。
+/// 为什么需要：得分是 rho 的加权和，矩阵累加顺序不同（SIMD 8 lane vs 标量、
+/// 不同实现、不同编译选项）会带来 1e-7 级的差异；直接比较 f32 位模式时，
+/// 这点差异足以把 argmax 或 top-k 的第 K 名翻到另一个候选上，导致依赖
+/// "第三只选谁"的整列因子重排。量化后同一档按索引 tie-break，选择就稳定了。
+///
+/// 取值依据：选择得分（rho 加权和、gap）落在 [-1, 1]；f32 累加上千项后的误差在
+/// 1e-5 量级，而相邻候选的真实差异通常是 1e-3 以上，取 1e-4 能吸收累加噪声、
+/// 又不合并有意义的差异。这个值是"稳定性 vs 分辨率"的旋钮，可按需调整。
+pub const Q_GRID: f32 = 1e-4;
+
+/// 把得分对齐到 Q_GRID 网格（NaN/inf 原样返回）。
+#[inline(always)]
+pub fn quant(v: f32) -> f32 {
+    if v.is_finite() {
+        (v * (1.0 / Q_GRID)).round() * Q_GRID
+    } else {
+        v
+    }
+}
+
 /// 用于把 (score, idx) 打包成 u64 做整型 select_nth / sort，去掉浮点 comparator。
 /// 无分支实现：负数算术右移 31 位得 0xffff_ffff（或 0x8000_0000 仍为 0xffff_ffff，异或取反），
 /// 非负数算术右移 31 位得 0（或 0x8000_0000 得 0x8000_0000，异或翻最高位）。
 #[inline(always)]
 pub fn fkey(v: f32) -> u32 {
-    let b = v.to_bits();
+    let b = quant(v).to_bits();
     let mask = ((b as i32 >> 31) as u32) | 0x8000_0000;
     b ^ mask
 }
