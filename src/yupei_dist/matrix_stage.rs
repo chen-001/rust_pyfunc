@@ -303,6 +303,12 @@ pub fn prep_stock(
     // 同一笔只进 P 或 M 一路（flag 66 买 / 83 卖；其它 flag 两边都不进）。
     let mut cells_pm: Vec<(u32, [f32; 4])> = Vec::with_capacity(tmp.len());
     let mut sum_w_ext = 0.0f64;
+    // 逐笔在个别日期不是严格按时间升序（2016 年前后若干天出现），而这里的「连续相同
+    // 桶号合并」与下游 yupei_pair/split_mat.rs 的分块都假设 bidx 单调递增：一旦乱序，
+    // 早于块起点的 cell 会被算进该块，(cell.0 - k0) 在 u32 下回绕成接近 2^32 的数，
+    // split_mat.rs:145 的 gp[kl*2..kl*2+2] 直接越界 panic（worker 崩溃、当天失败）。
+    // 稳定排序后再合并；不影响上面那个循环里按原始文件顺序取的 first_p/last_p。
+    tmp.sort_by_key(|t| t.bidx);
     for t in tmp {
         let mut u9 = [0.0f32; N_U];
         u9[U_CNT] = 1.0;
