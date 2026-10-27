@@ -3603,15 +3603,13 @@ fn run_single_cross_section_worker(
 
             match ipc_read_result(&mut reader) {
                 Ok(ResultMessage::MinuteBatch(batch)) => {
-                    let n_stocks = batch.len();
+                    // 每天每个 worker 一行「worker{i} 完成 <date>: N 股」在 8 进程下
+                    // 是每天 8 行，信息与 writer 线程的「✅ <date> 完成: N 股 (x/total, Ts)」
+                    // 重复，只有 worker 编号是额外的。这里不再打印。
                     if batch_tx.send((date, batch)).is_err() {
                         kill_and_reap(&mut child);
                         break 'outer;
                     }
-                    eprintln!(
-                        "[{}] worker{worker_idx} 完成 {date}: {n_stocks} 股",
-                        Local::now().format("%H:%M:%S")
-                    );
                 }
                 Ok(ResultMessage::Error { date, code, msg }) => {
                     eprintln!("⚠️ cross_section worker{worker_idx} 错误 [{date},{code}]: {msg}");
