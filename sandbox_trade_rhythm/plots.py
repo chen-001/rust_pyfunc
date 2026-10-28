@@ -103,7 +103,7 @@ def main():
     plt.close(fig)
 
     # ---------- 图三 ----------
-    stat = df.groupby("q").fano.describe(percentiles=[.1, .25, .5, .75, .9])
+    stat = df.groupby("q").fano_n.describe(percentiles=[.1, .25, .5, .75, .9])
     x = np.arange(5)
     fig, ax = plt.subplots(figsize=(11.8, 7.2))
     ax.fill_between(x, stat["10%"], stat["90%"], color="#D6EAF8", label="十分位到九十分位")
@@ -114,12 +114,12 @@ def main():
         ax.text(i + dx, stat["50%"].iloc[i] + 0.06, f"{stat['50%'].iloc[i]:.2f}", ha=ha, fontsize=13,
                 color=C_REAL, fontweight="bold")
     ax.axhline(1, color="#333333", lw=1.3, ls="--")
-    ax.text(0.99, 0.07, "虚线 1 = 同样多笔成交随机撒开", transform=ax.transAxes, ha="right", fontsize=12, color="#333333")
+    ax.text(0.99, 0.10, "虚线 1 = 同样多笔成交随机撒开", transform=ax.transAxes, ha="right", fontsize=12, color="#333333")
     ax.set_xticks(x)
     ax.set_xticklabels([f"第 {i + 1} 组\n每秒 {lam[i]:.2f} 笔" for i in range(5)])
-    ax.set_ylim(0, 55)
-    ax.set_ylabel("每秒成交笔数的方差 ÷ 均值", fontsize=12)
-    ax.set_title("活跃度差 13 倍，成团差近 4 倍", fontsize=15)
+    ax.set_ylim(0, 16)
+    ax.set_ylabel("方差 ÷ 均值 ÷（1 + 每秒笔数）", fontsize=12)
+    ax.set_title("活跃度差 13 倍，成团几乎一样", fontsize=15)
     ax.legend(frameon=False, fontsize=11.5, loc="upper left")
     fig.tight_layout()
     fig.savefig(OUT / "f3_vs_activity.png", dpi=150)
@@ -145,7 +145,7 @@ def main():
     print(f"一半成交落在最忙的 {half_r * 100:.2f}% 时间")
     print(f"最忙 1% 时间承载 {top1_r * 100:.1f}%")
     print("按日 R2：", r2d.round(1).to_dict())
-    print("fano 中位 %.1f，r2 中位 %.3f，扣掉大盘后 %.1f" % (df.fano.median(), df.r2.median(), (df.fano*(1-df.r2)).median()))
+    print("无量纲版中位 %.2f，方差除均值中位 %.1f，r2 中位 %.3f" % (df.fano_n.median(), df.fano.median(), df.r2.median()))
     print("图已写入", OUT)
 
 

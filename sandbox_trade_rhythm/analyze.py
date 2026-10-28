@@ -80,6 +80,7 @@ def load():
     df["age_ok"] = [bool(age[d].get(c, False)) for d, c in zip(df["date"], df["code"])]
     df["ret"] = df.close / df.pre - 1
     df["lam"] = df.s / T
+    df["fano_n"] = df.fano / (1 + df.lam)
     f = (df.st == 1) & (df.hi != df.lo) & df.age_ok & df.amt.notna()
     return df[f].reset_index(drop=True), {k: (v[f.values] if isinstance(v, np.ndarray) else v) for k, v in A.items()}
 
