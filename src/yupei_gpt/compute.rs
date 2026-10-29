@@ -84,7 +84,9 @@ pub fn compute_daily(config: &Config) -> io::Result<DailyCore> {
     let mut times = BTreeMap::new();
     let mut audits = Vec::new();
     let timer = Instant::now();
-    eprintln!("Loading whitelist stocks for {}", config.date);
+    if std::env::var_os("YUPEI_GPT_VERBOSE").is_some() {
+        eprintln!("Loading whitelist stocks for {}", config.date);
+    }
     let (stocks, manifest, calendar) = input::load(config)?;
     times.insert("read_and_aggregate".into(), timer.elapsed().as_secs_f64());
     let n = stocks.len();
@@ -102,7 +104,9 @@ pub fn compute_daily(config: &Config) -> io::Result<DailyCore> {
         .as_bytes(),
     );
     let timer = Instant::now();
-    eprintln!("Computing corrected event kernel for {n} stocks");
+    if std::env::var_os("YUPEI_GPT_VERBOSE").is_some() {
+        eprintln!("Computing corrected event kernel for {n} stocks");
+    }
     let kernel = kernel::compute_kernel(&stocks, 1.0)?;
     times.insert("event_kernel".into(), timer.elapsed().as_secs_f64());
     let mut columns = Vec::new();
@@ -123,7 +127,10 @@ pub fn compute_daily(config: &Config) -> io::Result<DailyCore> {
         }
         work.push((chain.clone(), mirror));
     }
-    eprintln!("Computing {} network families in parallel", work.len());
+    let verbose = std::env::var_os("YUPEI_GPT_VERBOSE").is_some();
+    if verbose {
+        eprintln!("Computing {} network families in parallel", work.len());
+    }
     let timer = Instant::now();
     // One pipeline per family: scan -> family stats -> per-chain posts, so a
     // finished family's post runs while other families still stream scans.
@@ -146,7 +153,9 @@ pub fn compute_daily(config: &Config) -> io::Result<DailyCore> {
         })
         .collect();
     let net_elapsed = timer.elapsed().as_secs_f64();
-    eprintln!("network families finished {net_elapsed:.3}s");
+    if verbose {
+        eprintln!("network families finished {net_elapsed:.3}s");
+    }
     times.insert("network".into(), net_elapsed);
     let mut outputs: BTreeMap<String, NetworkOutput> = BTreeMap::new();
     for result in posted {

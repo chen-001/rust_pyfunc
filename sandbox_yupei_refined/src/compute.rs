@@ -74,7 +74,9 @@ fn compute(config: &Config) -> io::Result<(ResultData, Snapshot)> {
     let mut times = BTreeMap::new();
     let mut audits = Vec::new();
     let timer = Instant::now();
-    eprintln!("Loading whitelist stocks for {}", config.date);
+    if std::env::var_os("YUPEI_GPT_VERBOSE").is_some() {
+        eprintln!("Loading whitelist stocks for {}", config.date);
+    }
     let (stocks, manifest, calendar) = input::load(config)?;
     times.insert("read_and_aggregate".into(), timer.elapsed().as_secs_f64());
     let n = stocks.len();
@@ -112,7 +114,9 @@ fn compute(config: &Config) -> io::Result<(ResultData, Snapshot)> {
         history.push(snap);
     }
     let timer = Instant::now();
-    eprintln!("Computing corrected event kernel for {n} stocks");
+    if std::env::var_os("YUPEI_GPT_VERBOSE").is_some() {
+        eprintln!("Computing corrected event kernel for {n} stocks");
+    }
     let kernel = kernel::compute_kernel(&stocks, 1.0)?;
     times.insert("event_kernel".into(), timer.elapsed().as_secs_f64());
     let mut columns = Vec::new();
@@ -134,7 +138,10 @@ fn compute(config: &Config) -> io::Result<(ResultData, Snapshot)> {
         }
         work.push((chain.clone(), mirror));
     }
-    eprintln!("Computing {} network families in parallel", work.len());
+    let verbose = std::env::var_os("YUPEI_GPT_VERBOSE").is_some();
+    if verbose {
+        eprintln!("Computing {} network families in parallel", work.len());
+    }
     let timer = Instant::now();
     // One pipeline per family: scan -> family stats -> per-chain posts, so a
     // finished family's post runs while other families still stream scans.
@@ -157,7 +164,9 @@ fn compute(config: &Config) -> io::Result<(ResultData, Snapshot)> {
         })
         .collect();
     let post_elapsed = timer.elapsed().as_secs_f64();
-    eprintln!("network families finished {post_elapsed:.3}s");
+    if verbose {
+        eprintln!("network families finished {post_elapsed:.3}s");
+    }
     let scan_elapsed = post_elapsed;
     for chain in &config.chains {
         times.insert(format!("network_{chain}"), (scan_elapsed + post_elapsed) / 15.0);
