@@ -224,8 +224,16 @@ fn parse_decimal_fast(bytes: &[u8]) -> f64 {
 ///
 /// with_retreat=false 时过滤 flag==32；exchtime 微秒整数转 epoch 秒；
 /// with_afternoon_adjust=true 时做下午时段平移（时间超出 [09:30,11:30]∪[13:00,14:57] 的行被过滤）。
+/// code/date 用于剔除混入文件的非本股票、非本日期行（symbol 列按原始字节比，date 列解析成整数再比，
+/// 覆盖 "20251031" 与 "20251031.0" 两种写法）。
 #[inline]
-fn parse_line(line: &[u8], with_retreat: bool, with_afternoon_adjust: bool) -> Option<TradeRecord> {
+fn parse_line(
+    line: &[u8],
+    with_retreat: bool,
+    with_afternoon_adjust: bool,
+    code: &str,
+    date: i64,
+) -> Option<TradeRecord> {
     if line.is_empty() {
         return None;
     }
@@ -245,6 +253,12 @@ fn parse_line(line: &[u8], with_retreat: bool, with_afternoon_adjust: bool) -> O
     }
     if col < 15 {
         fields[col] = &line[start..];
+    }
+
+    // 非本股票 / 非本日期行直接丢（0=symbol, 2=date）。
+    // date 列先解析成数值再比较：部分文件写 "20251031.0"，按字节比会误杀整份文件。
+    if fields[0] != code.as_bytes() || parse_i64_fast(fields[2]) != date {
+        return None;
     }
 
     // 解析 flag
@@ -373,7 +387,13 @@ pub fn read_trade_fast_inner(
     if file_size < parallel_threshold {
         let mut content = String::new();
         File::open(&path)?.read_to_string(&mut content)?;
-        let out = parse_chunk(content.as_bytes(), with_retreat, with_afternoon_adjust);
+        let out = parse_chunk(
+            content.as_bytes(),
+            with_retreat,
+            with_afternoon_adjust,
+            code,
+            date,
+        );
         drop_page_cache(&path);
         return Ok(out);
     }
@@ -415,7 +435,9 @@ pub fn read_trade_fast_inner(
     // 并行解析各块
     let mut partials: Vec<Vec<TradeRecord>> = chunks
         .par_iter()
-        .map(|&(s, e)| parse_chunk(&data[s..e], with_retreat, with_afternoon_adjust))
+        .map(|&(s, e)| {
+            parse_chunk(&data[s..e], with_retreat, with_afternoon_adjust, code, date)
+        })
         .collect();
 
     // 合并结果（预分配总容量减少 reallocation）
@@ -431,7 +453,13 @@ pub fn read_trade_fast_inner(
 }
 
 /// 解析一个字节块（可能含多行）→ Vec<TradeRecord>。
-fn parse_chunk(data: &[u8], with_retreat: bool, with_afternoon_adjust: bool) -> Vec<TradeRecord> {
+fn parse_chunk(
+    data: &[u8],
+    with_retreat: bool,
+    with_afternoon_adjust: bool,
+    code: &str,
+    date: i64,
+) -> Vec<TradeRecord> {
     // 估算行数（按平均行长）预分配
     let est_lines = data.len() / 80 + 1;
     let mut out = Vec::with_capacity(est_lines);
@@ -445,7 +473,7 @@ fn parse_chunk(data: &[u8], with_retreat: bool, with_afternoon_adjust: bool) -> 
             } else {
                 line
             };
-            if let Some(rec) = parse_line(line, with_retreat, with_afternoon_adjust) {
+            if let Some(rec) = parse_line(line, with_retreat, with_afternoon_adjust, code, date) {
                 out.push(rec);
             }
             start = i + 1;
@@ -459,7 +487,7 @@ fn parse_chunk(data: &[u8], with_retreat: bool, with_afternoon_adjust: bool) -> 
         } else {
             line
         };
-        if let Some(rec) = parse_line(line, with_retreat, with_afternoon_adjust) {
+        if let Some(rec) = parse_line(line, with_retreat, with_afternoon_adjust, code, date) {
             out.push(rec);
         }
     }
@@ -626,11 +654,14 @@ pub struct MarketRecord {
 /// 解析 market_data 的一行。
 /// with_high_low_limited=false 时过滤涨跌停（ask_prc1==0 或 bid_prc1==0）。
 /// with_afternoon_adjust=true 时做下午时段平移（同 read_trade_fast）。
+/// code/date 用于剔除混入文件的非本股票、非本日期行（同 parse_line）。
 #[inline]
 fn parse_market_line(
     line: &[u8],
     with_high_low_limited: bool,
     with_afternoon_adjust: bool,
+    code: &str,
+    date: i64,
 ) -> Option<MarketRecord> {
     if line.is_empty() {
         return None;
@@ -650,6 +681,11 @@ fn parse_market_line(
     }
     if col < 61 {
         fields[col] = &line[start..];
+    }
+
+    // 非本股票 / 非本日期行直接丢（0=symbol, 2=date）
+    if fields[0] != code.as_bytes() || parse_i64_fast(fields[2]) != date {
+        return None;
     }
 
     // 涨跌停过滤
@@ -717,6 +753,8 @@ fn parse_market_chunk(
     data: &[u8],
     with_high_low_limited: bool,
     with_afternoon_adjust: bool,
+    code: &str,
+    date: i64,
 ) -> Vec<MarketRecord> {
     let est_lines = data.len() / 200 + 1; // market_data 行较长
     let mut out = Vec::with_capacity(est_lines);
@@ -729,8 +767,13 @@ fn parse_market_chunk(
             } else {
                 line
             };
-            if let Some(rec) = parse_market_line(line, with_high_low_limited, with_afternoon_adjust)
-            {
+            if let Some(rec) = parse_market_line(
+                line,
+                with_high_low_limited,
+                with_afternoon_adjust,
+                code,
+                date,
+            ) {
                 out.push(rec);
             }
             start = i + 1;
@@ -743,7 +786,13 @@ fn parse_market_chunk(
         } else {
             line
         };
-        if let Some(rec) = parse_market_line(line, with_high_low_limited, with_afternoon_adjust) {
+        if let Some(rec) = parse_market_line(
+            line,
+            with_high_low_limited,
+            with_afternoon_adjust,
+            code,
+            date,
+        ) {
             out.push(rec);
         }
     }
@@ -776,6 +825,8 @@ pub fn read_market_fast_inner(
             content.as_bytes(),
             with_high_low_limited,
             with_afternoon_adjust,
+            code,
+            date,
         );
         drop_page_cache(&path);
         return Ok(out);
@@ -813,7 +864,13 @@ pub fn read_market_fast_inner(
     let mut partials: Vec<Vec<MarketRecord>> = chunks
         .par_iter()
         .map(|&(s, e)| {
-            parse_market_chunk(&data[s..e], with_high_low_limited, with_afternoon_adjust)
+            parse_market_chunk(
+                &data[s..e],
+                with_high_low_limited,
+                with_afternoon_adjust,
+                code,
+                date,
+            )
         })
         .collect();
 
@@ -921,11 +978,12 @@ struct MarketPairRow {
 
 /// 解析 market_data 一行 → MarketPairRow。
 /// 过滤条件（与 Python read_market_pair 等价）：
+///   symbol!=code 或 date 不匹配（混入的非本股/非本日行）→ 丢弃
 ///   ask_prc1==0 或 bid_prc1==0（涨跌停）→ 丢弃
 ///   last_prc==0（无成交快照）→ 丢弃
 ///   exchtime==0（无效行）→ 丢弃
 #[inline]
-fn parse_market_pair_line(line: &[u8]) -> Option<MarketPairRow> {
+fn parse_market_pair_line(line: &[u8], code: &str, date: i64) -> Option<MarketPairRow> {
     if line.is_empty() {
         return None;
     }
@@ -944,6 +1002,11 @@ fn parse_market_pair_line(line: &[u8]) -> Option<MarketPairRow> {
     }
     if col < 61 {
         fields[col] = &line[start..];
+    }
+
+    // 非本股票 / 非本日期行直接丢（0=symbol, 2=date）
+    if fields[0] != code.as_bytes() || parse_i64_fast(fields[2]) != date {
+        return None;
     }
 
     // 涨跌停过滤（同 read_market 默认 with_high_low_limited=0）
@@ -985,7 +1048,7 @@ fn parse_market_pair_line(line: &[u8]) -> Option<MarketPairRow> {
 }
 
 /// 解析 market_data 字节块 → Vec<MarketPairRow>。
-fn parse_market_pair_chunk(data: &[u8]) -> Vec<MarketPairRow> {
+fn parse_market_pair_chunk(data: &[u8], code: &str, date: i64) -> Vec<MarketPairRow> {
     let est_lines = data.len() / 200 + 1;
     let mut out = Vec::with_capacity(est_lines);
     let mut start = 0usize;
@@ -997,7 +1060,7 @@ fn parse_market_pair_chunk(data: &[u8]) -> Vec<MarketPairRow> {
             } else {
                 line
             };
-            if let Some(rec) = parse_market_pair_line(line) {
+            if let Some(rec) = parse_market_pair_line(line, code, date) {
                 out.push(rec);
             }
             start = i + 1;
@@ -1010,7 +1073,7 @@ fn parse_market_pair_chunk(data: &[u8]) -> Vec<MarketPairRow> {
         } else {
             line
         };
-        if let Some(rec) = parse_market_pair_line(line) {
+        if let Some(rec) = parse_market_pair_line(line, code, date) {
             out.push(rec);
         }
     }
@@ -1034,7 +1097,7 @@ pub fn read_market_pair_inner(
     if file_size < parallel_threshold {
         let mut content = String::new();
         File::open(&path)?.read_to_string(&mut content)?;
-        let out = parse_market_pair_chunk(content.as_bytes());
+        let out = parse_market_pair_chunk(content.as_bytes(), code, date);
         drop_page_cache(&path);
         return Ok(out);
     }
@@ -1070,7 +1133,7 @@ pub fn read_market_pair_inner(
 
     let mut partials: Vec<Vec<MarketPairRow>> = chunks
         .par_iter()
-        .map(|&(s, e)| parse_market_pair_chunk(&data[s..e]))
+        .map(|&(s, e)| parse_market_pair_chunk(&data[s..e], code, date))
         .collect();
 
     let total: usize = partials.iter().map(|v| v.len()).sum();
@@ -1184,7 +1247,7 @@ mod tests {
     fn test_parse_line_basic() {
         // 真实 CSV 行格式（含空字段 order_type,func_code）
         let line = b"000001,2026-06-05 09:30:00.000,20260605,93000000,1780622580000000,1780622580000000,1,13.50,100,1350.0,66,,,0,302";
-        let rec = parse_line(line, false, false).expect("应解析成功");
+        let rec = parse_line(line, false, false, "000001", 20260605).expect("应解析成功");
         assert_eq!(rec.flag, 66);
         assert!((rec.price - 13.50).abs() < 1e-9);
         assert_eq!(rec.volume, 100.0);
@@ -1199,9 +1262,21 @@ mod tests {
     fn test_parse_line_flag32_filtered() {
         let line = b"000001,2026-06-05 09:15:00.020,20260605,91500020,1780622100020000,1780622100042000,305,0.0,100,0.0,32,,,0,302";
         // with_retreat=false → 过滤
-        assert!(parse_line(line, false, false).is_none());
+        assert!(parse_line(line, false, false, "000001", 20260605).is_none());
         // with_retreat=true → 保留
-        assert!(parse_line(line, true, false).is_some());
+        assert!(parse_line(line, true, false, "000001", 20260605).is_some());
+    }
+
+    #[test]
+    fn test_parse_line_wrong_code_or_date_filtered() {
+        let line = b"000001,2026-06-05 09:30:00.000,20260605,93000000,1780622580000000,1780622580000000,1,13.50,100,1350.0,66,,,0,302";
+        // 别的股票行混入 → 丢
+        assert!(parse_line(line, false, false, "600519", 20260605).is_none());
+        // 别的日期行混入 → 丢
+        assert!(parse_line(line, false, false, "000001", 20260606).is_none());
+        // date 写成浮点文本也能正确匹配
+        let line_f = b"000001,2026-06-05 09:30:00.000,20260605.0,93000000,1780622580000000,1780622580000000,1,13.50,100,1350.0,66,,,0,302";
+        assert!(parse_line(line_f, false, false, "000001", 20260605).is_some());
     }
 
     #[test]
@@ -1215,7 +1290,7 @@ mod tests {
             "000001,t,20260605,0,{},{},1,10.0,100,1000.0,66,,,0,5",
             exchtime_us, exchtime_us
         );
-        let rec = parse_line(line.as_bytes(), false, true).expect("应解析成功");
+        let rec = parse_line(line.as_bytes(), false, true, "000001", 20260605).expect("应解析成功");
         // 输出 = (UTC秒 + 8h) - 90min = (19800+28800) - 5400 = 43200
         assert!((rec.time_sec - 43200.0).abs() < 1e-6);
     }
@@ -1230,7 +1305,7 @@ mod tests {
             "000001,t,20260605,0,{},{},1,10.0,100,1000.0,66,,,0,5",
             exchtime_us, exchtime_us
         );
-        let rec = parse_line(line.as_bytes(), false, true).expect("应解析成功");
+        let rec = parse_line(line.as_bytes(), false, true, "000001", 20260605).expect("应解析成功");
         // 输出 = UTC秒 + 8h = 7200 + 28800 = 36000
         assert!((rec.time_sec - 36000.0).abs() < 1e-6);
     }
@@ -1244,7 +1319,7 @@ mod tests {
             "000001,t,20260605,0,{},{},1,10.0,100,1000.0,66,,,0,5",
             exchtime_us, exchtime_us
         );
-        assert!(parse_line(line.as_bytes(), false, true).is_none());
+        assert!(parse_line(line.as_bytes(), false, true, "000001", 20260605).is_none());
     }
 
     #[test]
@@ -1255,4 +1330,143 @@ mod tests {
         // 超出范围
         assert_eq!(find_line_boundary(data, 100), data.len());
     }
+}
+
+/// 轻量解析：只取时间、成交量、方向、两个挂单号。
+///
+/// 相对 `parse_line` 省两件事：
+///   1. 先看方向列，撤单（flag=32）和方向不明（flag=0）直接丢弃，不再解析时间和成交量。
+///      实测撤单占全部记录的 17% 到 25%，这一条省下的是整行解析的大头。
+///   2. 不解析价格和成交额，这两列在配对网络里用不到。
+fn parse_line_light(
+    line: &[u8],
+    with_afternoon_adjust: bool,
+    code: &str,
+    date: i64,
+) -> Option<TradeRecord> {
+    if line.is_empty() {
+        return None;
+    }
+    let mut fields: [&[u8]; 15] = [&[][..]; 15];
+    let mut start = 0usize;
+    let mut col = 0usize;
+    for (i, &b) in line.iter().enumerate() {
+        if b == b',' {
+            if col < 15 {
+                fields[col] = &line[start..i];
+            }
+            col += 1;
+            start = i + 1;
+            if col == 14 {
+                fields[14] = &line[start..];
+                break;
+            }
+        }
+    }
+    if col < 14 {
+        return None;
+    }
+    // 非本股票 / 非本日期行直接丢（0=symbol, 2=date）
+    if fields[0] != code.as_bytes() || parse_i64_fast(fields[2]) != date {
+        return None;
+    }
+    let flag = if fields[COL_FLAG].is_empty() {
+        0
+    } else {
+        parse_i64_fast(fields[COL_FLAG]) as i32
+    };
+    if flag != 66 && flag != 83 {
+        return None;
+    }
+    build_trade_record(
+        parse_i64_fast(fields[COL_EXCHTIME]),
+        0.0,
+        parse_f64_fast(fields[COL_VOLUME]) as f32,
+        0.0,
+        flag,
+        parse_i64_fast(fields[COL_BID_ORDER]),
+        parse_i64_fast(fields[COL_ASK_ORDER]),
+        with_afternoon_adjust,
+    )
+}
+
+/// 轻量读取：与 `read_trade_fast_inner(with_retreat=false, with_afternoon_adjust=true)`
+/// 返回同一批「主买/主卖」记录，但只解析配对网络用得到的列。
+pub fn read_trade_light_inner(code: &str, date: i64) -> std::io::Result<Vec<TradeRecord>> {
+    let filename = format!("{}_{}_transaction.csv", code, date);
+    let path = resolve_stock_path(date, "transaction", &filename)?;
+    let file = File::open(&path)?;
+    let file_size = file.metadata()?.len() as usize;
+
+    if file_size < 1_000_000 {
+        let mut content = String::new();
+        File::open(&path)?.read_to_string(&mut content)?;
+        let out = parse_chunk_light(content.as_bytes(), true, code, date);
+        drop_page_cache(&path);
+        return Ok(out);
+    }
+    let mmap = unsafe { Mmap::map(&file)? };
+    let data = &mmap[..];
+    let body_start = data
+        .iter()
+        .position(|&b| b == b'\n')
+        .map(|p| p + 1)
+        .unwrap_or(0);
+    let n_threads = rayon::current_num_threads().min(32).max(1);
+    let chunk_size = (data.len() - body_start) / n_threads + 1;
+    let chunks: Vec<(usize, usize)> = (0..n_threads)
+        .map(|i| {
+            let start = body_start + i * chunk_size;
+            let raw_end = start + chunk_size;
+            let start = if i == 0 { start } else { find_line_boundary(data, start) };
+            let end = if i == n_threads - 1 {
+                data.len()
+            } else {
+                find_line_boundary(data, raw_end.min(data.len()))
+            };
+            (start.min(end), end)
+        })
+        .filter(|(s, e)| s < e)
+        .collect();
+    let mut partials: Vec<Vec<TradeRecord>> = chunks
+        .par_iter()
+        .map(|&(s, e)| parse_chunk_light(&data[s..e], true, code, date))
+        .collect();
+    let total: usize = partials.iter().map(|v| v.len()).sum();
+    let mut result = Vec::with_capacity(total);
+    for p in partials.drain(..) {
+        result.extend(p);
+    }
+    drop(mmap);
+    drop_page_cache(&path);
+    Ok(result)
+}
+
+fn parse_chunk_light(
+    data: &[u8],
+    with_afternoon_adjust: bool,
+    code: &str,
+    date: i64,
+) -> Vec<TradeRecord> {
+    let est = data.len() / 80 + 1;
+    let mut out = Vec::with_capacity(est);
+    let mut start = 0usize;
+    for i in 0..data.len() {
+        if data[i] == b'\n' {
+            let line = &data[start..i];
+            let line = if line.last() == Some(&b'\r') { &line[..line.len() - 1] } else { line };
+            if let Some(rec) = parse_line_light(line, with_afternoon_adjust, code, date) {
+                out.push(rec);
+            }
+            start = i + 1;
+        }
+    }
+    if start < data.len() {
+        let line = &data[start..];
+        let line = if line.last() == Some(&b'\r') { &line[..line.len() - 1] } else { line };
+        if let Some(rec) = parse_line_light(line, with_afternoon_adjust, code, date) {
+            out.push(rec);
+        }
+    }
+    out
 }

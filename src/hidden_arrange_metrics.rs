@@ -179,7 +179,13 @@ fn parse_f64_fast(bytes: &[u8]) -> f64 {
 }
 
 #[inline]
-fn parse_line(line: &[u8], with_retreat: bool, with_afternoon_adjust: bool) -> Option<TradeRecord> {
+fn parse_line(
+    line: &[u8],
+    with_retreat: bool,
+    with_afternoon_adjust: bool,
+    code: &str,
+    date: i64,
+) -> Option<TradeRecord> {
     if line.is_empty() {
         return None;
     }
@@ -197,6 +203,10 @@ fn parse_line(line: &[u8], with_retreat: bool, with_afternoon_adjust: bool) -> O
     }
     if col < 15 {
         fields[col] = &line[start..];
+    }
+    // 非本股票 / 非本日期行直接丢（0=symbol, 2=date；date 解析成整数再比）
+    if fields[0] != code.as_bytes() || parse_i64_fast(fields[2]) != date {
+        return None;
     }
     let flag_bytes = fields[COL_FLAG];
     if !with_retreat && flag_bytes == b"32" {
@@ -263,7 +273,7 @@ pub fn build_trade_record(
     })
 }
 
-fn parse_chunk(data: &[u8], with_retreat: bool, adj: bool) -> Vec<TradeRecord> {
+fn parse_chunk(data: &[u8], with_retreat: bool, adj: bool, code: &str, date: i64) -> Vec<TradeRecord> {
     let mut out = Vec::with_capacity(data.len() / 80 + 1);
     let mut start = 0;
     for i in 0..data.len() {
@@ -274,7 +284,7 @@ fn parse_chunk(data: &[u8], with_retreat: bool, adj: bool) -> Vec<TradeRecord> {
             } else {
                 line
             };
-            if let Some(r) = parse_line(line, with_retreat, adj) {
+            if let Some(r) = parse_line(line, with_retreat, adj, code, date) {
                 out.push(r);
             }
             start = i + 1;
@@ -287,7 +297,7 @@ fn parse_chunk(data: &[u8], with_retreat: bool, adj: bool) -> Vec<TradeRecord> {
         } else {
             line
         };
-        if let Some(r) = parse_line(line, with_retreat, adj) {
+        if let Some(r) = parse_line(line, with_retreat, adj, code, date) {
             out.push(r);
         }
     }
@@ -299,11 +309,11 @@ pub fn read_trade_fast(code: &str, date: i64) -> std::io::Result<Vec<TradeRecord
     let path = resolve_stock_path(date, "transaction", &filename)?;
     let mut content = String::new();
     File::open(&path)?.read_to_string(&mut content)?;
-    Ok(parse_chunk(content.as_bytes(), false, true))
+    Ok(parse_chunk(content.as_bytes(), false, true, code, date))
 }
 
 #[inline]
-fn parse_market_line(line: &[u8], adj: bool) -> Option<MarketRecord> {
+fn parse_market_line(line: &[u8], adj: bool, code: &str, date: i64) -> Option<MarketRecord> {
     if line.is_empty() {
         return None;
     }
@@ -321,6 +331,10 @@ fn parse_market_line(line: &[u8], adj: bool) -> Option<MarketRecord> {
     }
     if col < 61 {
         fields[col] = &line[start..];
+    }
+    // 非本股票 / 非本日期行直接丢（0=symbol, 2=date；date 解析成整数再比）
+    if fields[0] != code.as_bytes() || parse_i64_fast(fields[2]) != date {
+        return None;
     }
     let ask_prc1 = parse_f64_fast(fields[MKT_COL_ASK_PRC_BASE]);
     let bid_prc1 = parse_f64_fast(fields[MKT_COL_ASK_PRC_BASE + 2]);
@@ -401,7 +415,7 @@ pub fn build_market_record(
     })
 }
 
-fn parse_market_chunk(data: &[u8], adj: bool) -> Vec<MarketRecord> {
+fn parse_market_chunk(data: &[u8], adj: bool, code: &str, date: i64) -> Vec<MarketRecord> {
     let mut out = Vec::with_capacity(data.len() / 200 + 1);
     let mut start = 0;
     for i in 0..data.len() {
@@ -412,7 +426,7 @@ fn parse_market_chunk(data: &[u8], adj: bool) -> Vec<MarketRecord> {
             } else {
                 line
             };
-            if let Some(r) = parse_market_line(line, adj) {
+            if let Some(r) = parse_market_line(line, adj, code, date) {
                 out.push(r);
             }
             start = i + 1;
@@ -425,7 +439,7 @@ fn parse_market_chunk(data: &[u8], adj: bool) -> Vec<MarketRecord> {
         } else {
             line
         };
-        if let Some(r) = parse_market_line(line, adj) {
+        if let Some(r) = parse_market_line(line, adj, code, date) {
             out.push(r);
         }
     }
@@ -437,7 +451,7 @@ pub fn read_market_fast(code: &str, date: i64) -> std::io::Result<Vec<MarketReco
     let path = resolve_stock_path(date, "market_data", &filename)?;
     let mut content = String::new();
     File::open(&path)?.read_to_string(&mut content)?;
-    Ok(parse_market_chunk(content.as_bytes(), true))
+    Ok(parse_market_chunk(content.as_bytes(), true, code, date))
 }
 
 // 隐藏排列三层游戏 —— Rust sandbox（与 Python 参考实现逐数值对照）

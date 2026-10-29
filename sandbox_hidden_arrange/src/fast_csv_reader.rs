@@ -118,7 +118,7 @@ fn parse_f64_fast(bytes: &[u8]) -> f64 {
 }
 
 #[inline]
-fn parse_line(line: &[u8], with_retreat: bool, with_afternoon_adjust: bool) -> Option<TradeRecord> {
+fn parse_line(line: &[u8], with_retreat: bool, with_afternoon_adjust: bool, code: &str, date: i64) -> Option<TradeRecord> {
     if line.is_empty() { return None; }
     let mut fields: [&[u8]; 15] = [&[][..]; 15];
     let mut start = 0; let mut col = 0;
@@ -126,9 +126,12 @@ fn parse_line(line: &[u8], with_retreat: bool, with_afternoon_adjust: bool) -> O
         if b == b',' { if col < 15 { fields[col] = &line[start..i]; } col += 1; start = i + 1; }
     }
     if col < 15 { fields[col] = &line[start..]; }
+    // 非本股票 / 非本日期行直接丢（0=symbol, 2=date；date 解析成整数再比，覆盖 "20251031.0"）
+    if fields[0] != code.as_bytes() || parse_i64_fast(fields[2]) != date { return None; }
     let flag_bytes = fields[COL_FLAG];
-    if !with_retreat && flag_bytes == b"32" { return None; }
+    // 先解析成数值再比较：部分日期的 flag 列写 "32.0"，按字节比 b"32" 会漏掉撤单
     let flag = if flag_bytes.is_empty() { 0 } else { parse_i64_fast(flag_bytes) as i32 };
+    if !with_retreat && flag == 32 { return None; }
     let exchtime_us = parse_i64_fast(fields[COL_EXCHTIME]);
     let total_us = exchtime_us + OFFSET_US;
     let final_us = if with_afternoon_adjust {
@@ -146,21 +149,21 @@ fn parse_line(line: &[u8], with_retreat: bool, with_afternoon_adjust: bool) -> O
     })
 }
 
-fn parse_chunk(data: &[u8], with_retreat: bool, adj: bool) -> Vec<TradeRecord> {
+fn parse_chunk(data: &[u8], with_retreat: bool, adj: bool, code: &str, date: i64) -> Vec<TradeRecord> {
     let mut out = Vec::with_capacity(data.len() / 80 + 1);
     let mut start = 0;
     for i in 0..data.len() {
         if data[i] == b'\n' {
             let line = &data[start..i];
             let line = if line.last() == Some(&b'\r') { &line[..line.len()-1] } else { line };
-            if let Some(r) = parse_line(line, with_retreat, adj) { out.push(r); }
+            if let Some(r) = parse_line(line, with_retreat, adj, code, date) { out.push(r); }
             start = i + 1;
         }
     }
     if start < data.len() {
         let line = &data[start..];
         let line = if line.last() == Some(&b'\r') { &line[..line.len()-1] } else { line };
-        if let Some(r) = parse_line(line, with_retreat, adj) { out.push(r); }
+        if let Some(r) = parse_line(line, with_retreat, adj, code, date) { out.push(r); }
     }
     out
 }
@@ -170,11 +173,11 @@ pub fn read_trade_fast(code: &str, date: i64) -> std::io::Result<Vec<TradeRecord
     let path = resolve_stock_path(date, "transaction", &filename)?;
     let mut content = String::new();
     File::open(&path)?.read_to_string(&mut content)?;
-    Ok(parse_chunk(content.as_bytes(), false, true))
+    Ok(parse_chunk(content.as_bytes(), false, true, code, date))
 }
 
 #[inline]
-fn parse_market_line(line: &[u8], adj: bool) -> Option<MarketRecord> {
+fn parse_market_line(line: &[u8], adj: bool, code: &str, date: i64) -> Option<MarketRecord> {
     if line.is_empty() { return None; }
     let mut fields: [&[u8]; 61] = [&[][..]; 61];
     let mut start = 0; let mut col = 0;
@@ -182,6 +185,8 @@ fn parse_market_line(line: &[u8], adj: bool) -> Option<MarketRecord> {
         if b == b',' { if col < 61 { fields[col] = &line[start..i]; } col += 1; start = i + 1; }
     }
     if col < 61 { fields[col] = &line[start..]; }
+    // 非本股票 / 非本日期行直接丢（0=symbol, 2=date）
+    if fields[0] != code.as_bytes() || parse_i64_fast(fields[2]) != date { return None; }
     let ask_prc1 = parse_f64_fast(fields[MKT_COL_ASK_PRC_BASE]);
     let bid_prc1 = parse_f64_fast(fields[MKT_COL_ASK_PRC_BASE + 2]);
     if ask_prc1 == 0.0 || bid_prc1 == 0.0 { return None; }
@@ -213,21 +218,21 @@ fn parse_market_line(line: &[u8], adj: bool) -> Option<MarketRecord> {
     })
 }
 
-fn parse_market_chunk(data: &[u8], adj: bool) -> Vec<MarketRecord> {
+fn parse_market_chunk(data: &[u8], adj: bool, code: &str, date: i64) -> Vec<MarketRecord> {
     let mut out = Vec::with_capacity(data.len() / 200 + 1);
     let mut start = 0;
     for i in 0..data.len() {
         if data[i] == b'\n' {
             let line = &data[start..i];
             let line = if line.last() == Some(&b'\r') { &line[..line.len()-1] } else { line };
-            if let Some(r) = parse_market_line(line, adj) { out.push(r); }
+            if let Some(r) = parse_market_line(line, adj, code, date) { out.push(r); }
             start = i + 1;
         }
     }
     if start < data.len() {
         let line = &data[start..];
         let line = if line.last() == Some(&b'\r') { &line[..line.len()-1] } else { line };
-        if let Some(r) = parse_market_line(line, adj) { out.push(r); }
+        if let Some(r) = parse_market_line(line, adj, code, date) { out.push(r); }
     }
     out
 }
@@ -237,5 +242,5 @@ pub fn read_market_fast(code: &str, date: i64) -> std::io::Result<Vec<MarketReco
     let path = resolve_stock_path(date, "market_data", &filename)?;
     let mut content = String::new();
     File::open(&path)?.read_to_string(&mut content)?;
-    Ok(parse_market_chunk(content.as_bytes(), true))
+    Ok(parse_market_chunk(content.as_bytes(), true, code, date))
 }
