@@ -236,8 +236,8 @@ pub fn read_stock(code: &str, path: &Path, industry: i32, date: i64) -> io::Resu
     let mut minute_sell = vec![0.0; 237];
     let mut first = vec![f64::NAN; 237];
     let mut close = vec![f64::NAN; 237];
-    let mut first_ts = vec![(i64::MAX, i64::MAX); 237];
-    let mut last_ts = vec![(i64::MIN, i64::MIN); 237];
+    let mut first_ts = vec![(i64::MAX, f64::INFINITY); 237];
+    let mut last_ts = vec![(i64::MIN, f64::NEG_INFINITY); 237];
     let expected_day = epoch_day(date)?;
     for (line_no, line) in lines.enumerate() {
         if line.is_empty() {
@@ -303,7 +303,11 @@ pub fn read_stock(code: &str, path: &Path, industry: i32, date: i64) -> io::Resu
             n_sell += 1;
             minute_sell[minute] += value;
         }
-        let index: i64 = fields[6].parse().map_err(|_| fail())?;
+        // 2015 等旧文件 index 是 "0.0" 浮点写法；f64 兼容两种格式且非负下序一致。
+        let index: f64 = fields[6].parse().map_err(|_| fail())?;
+        if !index.is_finite() {
+            return Err(fail());
+        }
         let key = (ts, index);
         if key < first_ts[minute] {
             first_ts[minute] = key;
