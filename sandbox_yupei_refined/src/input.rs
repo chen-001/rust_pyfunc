@@ -240,6 +240,8 @@ pub fn read_stock(code: &str, path: &Path, industry: i32, date: i64) -> io::Resu
     let mut last_ts = vec![(i64::MIN, f64::NEG_INFINITY); 237];
     let expected_day = epoch_day(date)?;
     let mut iter = lines.enumerate().peekable();
+    let mut skipped_foreign_date = false;
+    let mut any_row = false;
     while let Some((line_no, line)) = iter.next() {
         if line.is_empty() {
             continue;
@@ -267,18 +269,22 @@ pub fn read_stock(code: &str, path: &Path, industry: i32, date: i64) -> io::Resu
         if flag != 66 && flag != 83 {
             continue;
         }
-        // 代码字段：旧文件写不带前导零的数字（2552 对应文件名 002552），
-        // 按数值而不是字符串比较。行尾被截断的不完整行只允许出现在文件末尾，
-        // 其余字段数不足的行仍然整只票拒绝（不把坏数据当可用）。
+        // symbol：旧文件写不带前导零的数字（2552 对应 002552），按数值比。
         if fields[0].parse::<i64>().map_err(|_| fail())?
             != code.parse::<i64>().map_err(|_| fail())?
-            || fields[2].parse::<i64>().map_err(|_| fail())? != date
         {
             return Err(bad(format!(
-                "{}:{} code/date mismatch",
+                "{}:{} symbol mismatch",
                 path.display(),
                 line_no + 2
             )));
+        }
+        // 行内 date：个别文件混入了其他交易日的整段记录（如 600476_20160405
+        // 含 14752 行 date=20160401 且 exchtime 也是 4月1日），那些行属于别天，
+        // 直接跳过；一行都不剩说明整个文件放错日期，才报整只票错。
+        if fields[2].parse::<i64>().map_err(|_| fail())? != date {
+            skipped_foreign_date = true;
+            continue;
         }
         let ts: i64 = fields[4].parse().map_err(|_| fail())?;
         let local_ts = ts.checked_add(28_800_000_000).ok_or_else(fail)?;
