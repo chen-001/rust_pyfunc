@@ -2250,6 +2250,7 @@ dependencies = [
  "rustc-hash",
  "serde",
  "serde_json",
+ "sha2",
  "sys-info",
  "tempfile",
  "thiserror 1.0.69",

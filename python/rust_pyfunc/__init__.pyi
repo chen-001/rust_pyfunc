@@ -492,6 +492,22 @@ def py_yupei_pair_split(
     py_yupei_pair_split_names。
     """
 
+def py_yupei_gpt(date: int) -> tuple[list[str], list[float]]:
+    """玉佩精炼版单日计算：返回 (codes, 491列×股票数 扁平f32)。"""
+    ...
+
+def py_yupei_gpt_names() -> list[str]:
+    """玉佩精炼版单日 491 列因子名。"""
+    ...
+
+def py_yupei_gpt_temporal(date: int) -> tuple[list[str], list[float]]:
+    """玉佩精炼版历史阶段：29 个时序列（读 .ygsnap.json 快照）。"""
+    ...
+
+def py_yupei_gpt_temporal_names() -> list[str]:
+    """玉佩精炼版 29 个历史时序列因子名。"""
+    ...
+
 def py_yupei_pair_split_names(
     combos: Optional[List[str]] = None,
     ks: Optional[List[int]] = None,

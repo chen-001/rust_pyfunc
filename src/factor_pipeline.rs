@@ -3146,6 +3146,8 @@ pub fn run_factor_pipeline_cross_section(
         "yupei_dist",
         "yupei_dist_lite",
         "yupei_pair_split",
+        "yupei_gpt",
+        "yupei_gpt_temporal",
         "pair_interaction",
         "urgency",
         "urgency_ext_cluster",
@@ -3629,6 +3631,47 @@ fn run_single_cross_section_worker(
                     continue 'outer;
                 }
             }
+        }
+    }
+}
+
+/// 玉佩精炼版（GPT 改进版）横截面 pipeline：单日 491 列。
+/// 快照写 YUPEI_GPT_SNAP_DIR（可选），供 yupei_gpt_temporal 第二阶段。
+pub fn pipeline_yupei_gpt(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    match crate::yupei_gpt::compute::compute_full(date) {
+        Ok((codes, vals)) => vals
+            .chunks(expected_len)
+            .zip(codes.iter())
+            .map(|(facs, code)| TaskResult {
+                date,
+                code: code.clone(),
+                timestamp: 0,
+                facs: facs.to_vec(),
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("yupei_gpt error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
+/// 玉佩精炼版第二阶段：29 个历史时序列（读 .ygsnap.json 快照）。
+pub fn pipeline_yupei_gpt_temporal(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    match crate::yupei_gpt::compute::compute_temporal_full(date) {
+        Ok((codes, vals)) => vals
+            .chunks(expected_len)
+            .zip(codes.iter())
+            .map(|(facs, code)| TaskResult {
+                date,
+                code: code.clone(),
+                timestamp: 0,
+                facs: facs.to_vec(),
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("yupei_gpt_temporal error [{date}]: {e:?}");
+            Vec::new()
         }
     }
 }

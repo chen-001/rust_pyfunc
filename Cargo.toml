@@ -49,6 +49,7 @@ roots = "0.0.8"
 log = "0.4"
 once_cell = "1.19"
 csv = "1.3"
+sha2 = "0.10"
 ndarray-npy = "0.8"
 core_affinity = "0.8"
 hdf5-metno = { version = "0.12", features = ["static", "zlib"], optional = true }
