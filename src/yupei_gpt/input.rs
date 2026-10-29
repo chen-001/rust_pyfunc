@@ -266,10 +266,12 @@ pub fn read_stock(code: &str, path: &Path, industry: i32, date: i64) -> io::Resu
             }
             return Err(fail());
         }
-        let flag: i32 = fields[10].parse().map_err(|_| fail())?;
-        if flag != 66 && flag != 83 {
+        // 2025 文件把整型列写成 "66.0"/"83.0" 浮点，按 f64 解析同时兼容。
+        let flag: f64 = fields[10].parse().map_err(|_| fail())?;
+        if flag != 66.0 && flag != 83.0 {
             continue;
         }
+        let flag = flag as i32;
         // symbol：旧文件写不带前导零的数字（2552 对应 002552），按数值比。
         if fields[0].parse::<i64>().map_err(|_| fail())?
             != code.parse::<i64>().map_err(|_| fail())?
@@ -287,7 +289,9 @@ pub fn read_stock(code: &str, path: &Path, industry: i32, date: i64) -> io::Resu
             skipped_foreign_date = true;
             continue;
         }
-        let ts: i64 = fields[4].parse().map_err(|_| fail())?;
+        let ts: i64 = fields[4]
+            .parse::<f64>()
+            .map_err(|_| fail())? as i64;
         let local_ts = ts.checked_add(28_800_000_000).ok_or_else(fail)?;
         if local_ts.div_euclid(86_400_000_000) != expected_day {
             return Err(bad(format!(
