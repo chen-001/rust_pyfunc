@@ -284,6 +284,264 @@ pub fn mass_acc_hg(
     }
 }
 
+/// Mass accumulators borrowed during the fused sweep (em/gm/g2m of the
+/// h-weighted X-center moments; weight = h*invh on h>0, identical mask).
+pub struct MassAccMut<'a> {
+    pub em: &'a mut [f32],
+    pub gm: &'a mut [f32],
+    pub g2m: &'a mut [f32],
+    pub invh: f32,
+}
+
+fn sampled_thresholds(scores: &[f32], take: usize) -> Option<(f32, f32)> {
+    let n = scores.len();
+    const NSAMP: usize = 128;
+    let step = n / NSAMP;
+    let mut samp = [0.0f32; NSAMP];
+    for s in 0..NSAMP {
+        samp[s] = unsafe { *scores.get_unchecked(s * step) };
+    }
+    let k1 = ((take * NSAMP) / n).saturating_sub(2).max(1);
+    let k2 = (((take * NSAMP) / n) + 5).min(NSAMP - 1);
+    samp.select_nth_unstable_by(k2, |a, b| b.total_cmp(a));
+    let t2 = samp[k2];
+    samp[..k2].select_nth_unstable_by(k1, |a, b| b.total_cmp(a));
+    let t1 = samp[k1];
+    if t2.is_finite() && t1.is_finite() && t1 >= t2 {
+        Some((t1, t2))
+    } else {
+        None
+    }
+}
+
+fn finish_topk(
+    keys_hi: usize,
+    keys_mid: usize,
+    take: usize,
+    kh: &mut [u64],
+    mid: &mut [u64],
+    scores: &[f32],
+    code_rank: &[u32],
+) {
+    if take == 0 {
+        return;
+    }
+    if keys_hi >= take {
+        if keys_hi > take {
+            kh[..keys_hi].select_nth_unstable(take - 1);
+        }
+        kh[..take].sort_unstable();
+        return;
+    }
+    if keys_hi + keys_mid >= take {
+        let need = take - keys_hi;
+        let midb = &mut mid[..keys_mid];
+        if keys_mid > need {
+            midb.select_nth_unstable(need - 1);
+        }
+        kh[keys_hi..take].copy_from_slice(&midb[..need]);
+        kh[..take].sort_unstable();
+        return;
+    }
+    let n = scores.len();
+    for (x, &sv) in scores.iter().enumerate() {
+        kh[x] = super::key(sv, code_rank[x]);
+    }
+    let _ = n;
+    kh.select_nth_unstable(take - 1);
+    kh[..take].sort_unstable();
+}
+
+/// Single sweep over both score arrays: collects top-K candidates for hb and
+/// gb with the same sampled-threshold logic as select_topk_keys, and folds the
+/// h-weighted mass accumulation into the same pass. Identical semantics to
+/// select_topk_keys + mass_acc_hg, just fewer sweeps over memory.
+#[allow(clippy::too_many_arguments)]
+pub fn topk2_mass(
+    hb: &[f32],
+    gb: &[f32],
+    ht: usize,
+    gt: usize,
+    code_rank: &[u32],
+    hk: &mut [u64],
+    midh: &mut [u64],
+    gk: &mut [u64],
+    midg: &mut [u64],
+    mut mass: Option<MassAccMut<'_>>,
+) {
+    let n = hb.len();
+    let th_h = if ht > 0 && n >= 1024 && ht * 4 < n && have_avx2() {
+        sampled_thresholds(hb, ht)
+    } else {
+        None
+    };
+    let th_g = if gt > 0 && n >= 1024 && gt * 4 < n && have_avx2() {
+        sampled_thresholds(gb, gt)
+    } else {
+        None
+    };
+    let mut n_hi_h = 0usize;
+    let mut n_mid_h = 0usize;
+    let mut n_hi_g = 0usize;
+    let mut n_mid_g = 0usize;
+    #[cfg(target_arch = "x86_64")]
+    unsafe {
+        if have_avx2() {
+            let zero = _mm256_setzero_ps();
+            let (vt1h, vt2h) = th_h
+                .map(|(a, b)| (_mm256_set1_ps(a), _mm256_set1_ps(b)))
+                .unwrap_or((zero, zero));
+            let (vt1g, vt2g) = th_g
+                .map(|(a, b)| (_mm256_set1_ps(a), _mm256_set1_ps(b)))
+                .unwrap_or((zero, zero));
+            let vinvh = _mm256_set1_ps(mass.as_ref().map_or(0.0, |m| m.invh));
+            let mut x = 0usize;
+            while x + 8 <= n {
+                let hv = _mm256_loadu_ps(hb.as_ptr().add(x));
+                let gv = _mm256_loadu_ps(gb.as_ptr().add(x));
+                if th_h.is_some() {
+                    let m2 = _mm256_movemask_ps(_mm256_cmp_ps::<_CMP_GE_OQ>(hv, vt2h)) as u32;
+                    if m2 != 0 {
+                        let m1 = _mm256_movemask_ps(_mm256_cmp_ps::<_CMP_GE_OQ>(hv, vt1h)) as u32;
+                        let mut hi = m1;
+                        while hi != 0 {
+                            let l = hi.trailing_zeros() as usize;
+                            let idx = x + l;
+                            *hk.get_unchecked_mut(n_hi_h) =
+                                super::key(*hb.get_unchecked(idx), code_rank[idx]);
+                            n_hi_h += 1;
+                            hi &= hi - 1;
+                        }
+                        let mut md = m2 & !m1;
+                        while md != 0 {
+                            let l = md.trailing_zeros() as usize;
+                            let idx = x + l;
+                            *midh.get_unchecked_mut(n_mid_h) =
+                                super::key(*hb.get_unchecked(idx), code_rank[idx]);
+                            n_mid_h += 1;
+                            md &= md - 1;
+                        }
+                    }
+                }
+                if th_g.is_some() {
+                    let m2 = _mm256_movemask_ps(_mm256_cmp_ps::<_CMP_GE_OQ>(gv, vt2g)) as u32;
+                    if m2 != 0 {
+                        let m1 = _mm256_movemask_ps(_mm256_cmp_ps::<_CMP_GE_OQ>(gv, vt1g)) as u32;
+                        let mut hi = m1;
+                        while hi != 0 {
+                            let l = hi.trailing_zeros() as usize;
+                            let idx = x + l;
+                            *gk.get_unchecked_mut(n_hi_g) =
+                                super::key(*gb.get_unchecked(idx), code_rank[idx]);
+                            n_hi_g += 1;
+                            hi &= hi - 1;
+                        }
+                        let mut md = m2 & !m1;
+                        while md != 0 {
+                            let l = md.trailing_zeros() as usize;
+                            let idx = x + l;
+                            *midg.get_unchecked_mut(n_mid_g) =
+                                super::key(*gb.get_unchecked(idx), code_rank[idx]);
+                            n_mid_g += 1;
+                            md &= md - 1;
+                        }
+                    }
+                }
+                if let Some(m) = mass.as_mut() {
+                    let mpos = _mm256_cmp_ps::<_CMP_GT_OQ>(hv, zero);
+                    let w = _mm256_mul_ps(hv, vinvh);
+                    let wgg = _mm256_mul_ps(w, gv);
+                    let wgg2 = _mm256_mul_ps(wgg, gv);
+                    let e0 = _mm256_loadu_ps(m.em.as_ptr().add(x));
+                    let g0 = _mm256_loadu_ps(m.gm.as_ptr().add(x));
+                    let q0 = _mm256_loadu_ps(m.g2m.as_ptr().add(x));
+                    _mm256_storeu_ps(
+                        m.em.as_mut_ptr().add(x),
+                        _mm256_add_ps(e0, _mm256_and_ps(w, mpos)),
+                    );
+                    _mm256_storeu_ps(
+                        m.gm.as_mut_ptr().add(x),
+                        _mm256_add_ps(g0, _mm256_and_ps(wgg, mpos)),
+                    );
+                    _mm256_storeu_ps(
+                        m.g2m.as_mut_ptr().add(x),
+                        _mm256_add_ps(q0, _mm256_and_ps(wgg2, mpos)),
+                    );
+                }
+                x += 8;
+            }
+            while x < n {
+                let hv = *hb.get_unchecked(x);
+                let gv = *gb.get_unchecked(x);
+                if let Some((t1, t2)) = th_h {
+                    if hv >= t1 {
+                        *hk.get_unchecked_mut(n_hi_h) = super::key(hv, code_rank[x]);
+                        n_hi_h += 1;
+                    } else if hv >= t2 {
+                        *midh.get_unchecked_mut(n_mid_h) = super::key(hv, code_rank[x]);
+                        n_mid_h += 1;
+                    }
+                }
+                if let Some((t1, t2)) = th_g {
+                    if gv >= t1 {
+                        *gk.get_unchecked_mut(n_hi_g) = super::key(gv, code_rank[x]);
+                        n_hi_g += 1;
+                    } else if gv >= t2 {
+                        *midg.get_unchecked_mut(n_mid_g) = super::key(gv, code_rank[x]);
+                        n_mid_g += 1;
+                    }
+                }
+                if let Some(m) = mass.as_mut() {
+                    if hv > 0.0 {
+                        let w = hv * m.invh;
+                        m.em[x] += w;
+                        m.gm[x] += w * gv;
+                        m.g2m[x] += w * gv * gv;
+                    }
+                }
+                x += 1;
+            }
+        }
+    }
+    // Non-AVX2 or small-n fallback: the fused sweep skipped candidate
+    // collection, so run the exact selection (and mass, scalar) per array.
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        for x in 0..n {
+            let hv = hb[x];
+            let gv = gb[x];
+            if let Some((t1, t2)) = th_h {
+                if hv >= t1 {
+                    hk[n_hi_h] = super::key(hv, code_rank[x]);
+                    n_hi_h += 1;
+                } else if hv >= t2 {
+                    midh[n_mid_h] = super::key(hv, code_rank[x]);
+                    n_mid_h += 1;
+                }
+            }
+            if let Some((t1, t2)) = th_g {
+                if gv >= t1 {
+                    gk[n_hi_g] = super::key(gv, code_rank[x]);
+                    n_hi_g += 1;
+                } else if gv >= t2 {
+                    midg[n_mid_g] = super::key(gv, code_rank[x]);
+                    n_mid_g += 1;
+                }
+            }
+            if let Some(m) = mass.as_mut() {
+                if hv > 0.0 {
+                    let w = hv * m.invh;
+                    m.em[x] += w;
+                    m.gm[x] += w * gv;
+                    m.g2m[x] += w * gv * gv;
+                }
+            }
+        }
+    }
+    finish_topk(n_hi_h, n_mid_h, ht, hk, midh, hb, code_rank);
+    finish_topk(n_hi_g, n_mid_g, gt, gk, midg, gb, code_rank);
+}
+
 /// Exact top-K. Sampled thresholds only reduce the candidate sorting set;
 /// if that set is too small the full exact selection runs. All X were already
 /// scored, and no score is rounded. Genuine ties use canonical stock-code rank.

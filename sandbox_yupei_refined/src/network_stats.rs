@@ -1,5 +1,6 @@
 //! Small deterministic statistics for the refined network; no random sampling.
 use crate::model::AuditRow;
+use rayon::prelude::*;
 
 pub(super) fn mean(v: &[f64]) -> f64 {
     if v.is_empty() {
@@ -120,6 +121,7 @@ impl Ridge {
 /// zero covariance. Cholesky is valid because the positive ridge makes the
 /// standardized normal matrix positive definite. Tiny/nonfinite pivots are an
 /// explicit failed fit, never replaced by coefficients of zero.
+#[allow(dead_code)]
 pub(super) fn fit_ridge<F: FnMut(&mut dyn FnMut([f64; 5], f64))>(mut each: F) -> Option<Ridge> {
     let (mut n, mut sx, mut sy) = (0usize, [0.; 5], 0.);
     each(&mut |x, y| {
@@ -149,6 +151,127 @@ pub(super) fn fit_ridge<F: FnMut(&mut dyn FnMut([f64; 5], f64))>(mut each: F) ->
             }
         }
     });
+    let scale = std::array::from_fn(|k| {
+        let s = (cov[k][k] / n as f64).sqrt();
+        if s > 1e-12 {
+            s
+        } else {
+            1.
+        }
+    });
+    let mut a = [[0.; 5]; 5];
+    let mut b = [0.; 5];
+    for i in 0..5 {
+        b[i] = cy[i] / (n as f64 * scale[i]);
+        for k in 0..=i {
+            let v = cov[i][k] / (n as f64 * scale[i] * scale[k]);
+            a[i][k] = v;
+            a[k][i] = v;
+        }
+        a[i][i] += 1e-6;
+    }
+    let mut l = [[0.; 5]; 5];
+    for i in 0..5 {
+        for k in 0..=i {
+            let s = a[i][k] - (0..k).map(|t| l[i][t] * l[k][t]).sum::<f64>();
+            if i == k {
+                if !s.is_finite() || s <= 0. {
+                    return None;
+                }
+                l[i][k] = s.sqrt();
+            } else {
+                l[i][k] = s / l[k][k];
+            }
+        }
+    }
+    let mut z = [0.; 5];
+    for i in 0..5 {
+        z[i] = (b[i] - (0..i).map(|k| l[i][k] * z[k]).sum::<f64>()) / l[i][i];
+    }
+    let mut beta = [0.; 5];
+    for i in (0..5).rev() {
+        beta[i] = (z[i] - (i + 1..5).map(|k| l[k][i] * beta[k]).sum::<f64>()) / l[i][i];
+    }
+    if !beta.iter().all(|v| v.is_finite()) {
+        return None;
+    }
+    Some(Ridge {
+        mean_x: mx,
+        scale,
+        mean_y: my,
+        beta,
+        n,
+    })
+}
+
+/// Parallel two-pass ridge over a flat index domain; `at` returns the
+/// (covariates, y) of a finite observation or None. Chunk partial sums are
+/// combined in index order, so results are deterministic across runs.
+pub(super) fn fit_ridge_par<F>(nn: usize, at: &F) -> Option<Ridge>
+where
+    F: Fn(usize) -> Option<([f64; 5], f64)> + Sync,
+{
+    const CHUNK: usize = 1 << 16;
+    type Sums = (usize, [f64; 5], f64);
+    let pass1: Vec<Sums> = (0..nn.div_ceil(CHUNK))
+        .into_par_iter()
+        .map(|blk| {
+            let mut acc: Sums = (0, [0.; 5], 0.);
+            for k in blk * CHUNK..((blk + 1) * CHUNK).min(nn) {
+                if let Some((x, y)) = at(k) {
+                    acc.0 += 1;
+                    acc.2 += y;
+                    for j in 0..5 {
+                        acc.1[j] += x[j];
+                    }
+                }
+            }
+            acc
+        })
+        .collect();
+    let (mut n, mut sx, mut sy) = (0usize, [0.; 5], 0.);
+    for (cn, cx, cy) in pass1 {
+        n += cn;
+        sy += cy;
+        for j in 0..5 {
+            sx[j] += cx[j];
+        }
+    }
+    if n < 8 {
+        return None;
+    }
+    let mx = sx.map(|v| v / n as f64);
+    let my = sy / n as f64;
+    type Cov = ([[f64; 5]; 5], [f64; 5]);
+    let pass2: Vec<Cov> = (0..nn.div_ceil(CHUNK))
+        .into_par_iter()
+        .map(|blk| {
+            let mut cov = [[0.; 5]; 5];
+            let mut cy = [0.; 5];
+            for k in blk * CHUNK..((blk + 1) * CHUNK).min(nn) {
+                if let Some((x, y)) = at(k) {
+                    for a in 0..5 {
+                        let xa = x[a] - mx[a];
+                        cy[a] += xa * (y - my);
+                        for b in 0..=a {
+                            cov[a][b] += xa * (x[b] - mx[b]);
+                        }
+                    }
+                }
+            }
+            (cov, cy)
+        })
+        .collect();
+    let mut cov = [[0.; 5]; 5];
+    let mut cy = [0.; 5];
+    for (cc, cy2) in pass2 {
+        for a in 0..5 {
+            cy[a] += cy2[a];
+            for b in 0..=a {
+                cov[a][b] += cc[a][b];
+            }
+        }
+    }
     let scale = std::array::from_fn(|k| {
         let s = (cov[k][k] / n as f64).sqrt();
         if s > 1e-12 {

@@ -11,6 +11,19 @@
 //! Z uses exact all-pair activity-stratum moments, not legacy random draws.
 //! Residuals use standardized symmetric covariates and ridge (see stats module),
 //! hence their numerical values intentionally differ from the legacy residuals.
+//!
+//! Exact reuse (no approximation):
+//! - Chains with a == b: ordered pair (j,i) has the same h/g vectors and the
+//!   same g/gs/gnpos/gcov as (i,j); only self_assoc differs (it records the
+//!   B-member's own row at argmax). One unordered scan writes both slots.
+//! - Mixed families (a,b) vs (b,a): mirror pair (j,i) of chain (b,a,c) equals
+//!   forward pair (i,j) of chain (a,b,c), again except self_assoc. One scan
+//!   over (i in dir a, j in dir b) fills both pair matrices.
+//! - X-center accumulators (mass/top-K counts/incident/pair total) have the
+//!   same value for every chain of a family, so one accumulator serves all.
+//! - O(n^2) post passes (moments, Z, ridge fits, rho samples) are parallelized
+//!   inside the caller's rayon pool; the top-K and mass passes are fused with
+//!   the per-pair statistics pass into a single sweep over the h/g arrays.
 use crate::model::{AuditRow, FactorColumn, Kernel, NeighborState, NetworkOutput, Stock};
 use rayon::prelude::*;
 use std::io;
@@ -18,12 +31,12 @@ use std::io;
 mod simd;
 #[path = "network_stats.rs"]
 mod stats;
-use stats::{fit_ridge, hhi, mean, quantile_sorted, rank_audit, skew, topmean_sorted};
+use stats::{fit_ridge_par, hhi, mean, quantile_sorted, rank_audit, skew, topmean_sorted};
 
 const BLOCK_ROWS: usize = 16; // Independent of the Rayon thread count.
 const NAN: f64 = f64::NAN;
 #[derive(Clone, Copy)]
-struct Pair {
+pub struct Pair {
     g: f32,
     gs: f32,
     gnpos: f32,
@@ -41,14 +54,51 @@ impl Pair {
         }
     }
 }
-struct Block {
+#[derive(Clone)]
+pub struct Acc {
     mass: [Vec<f32>; 3],
     h_count: Vec<u64>,
     g_count: Vec<u64>,
     incident: Vec<u64>,
     pairs: u64,
 }
-fn invalid(s: impl Into<String>) -> io::Error {
+impl Acc {
+    fn new(n: usize) -> Self {
+        Self {
+            mass: std::array::from_fn(|_| vec![0.; n]),
+            h_count: vec![0; n],
+            g_count: vec![0; n],
+            incident: vec![0; n],
+            pairs: 0,
+        }
+    }
+    fn merge(&mut self, other: Acc) {
+        for x in 0..self.mass[0].len() {
+            for k in 0..3 {
+                self.mass[k][x] += other.mass[k][x];
+            }
+            self.h_count[x] += other.h_count[x];
+            self.g_count[x] += other.g_count[x];
+            self.incident[x] += other.incident[x];
+        }
+        self.pairs += other.pairs;
+    }
+}
+/// Disjoint per-slot writes into both pair matrices via raw pointers: every
+/// unordered pair is written by exactly one worker into two distinct slots, so
+/// no synchronization is needed. `ptr::write` never fabricates a reference.
+struct Scatter {
+    ptr: *mut Pair,
+}
+unsafe impl Send for Scatter {}
+unsafe impl Sync for Scatter {}
+impl Scatter {
+    #[inline(always)]
+    unsafe fn put(&self, idx: usize, v: Pair) {
+        self.ptr.add(idx).write(v);
+    }
+}
+fn bad(s: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidInput, s.into())
 }
 fn directions(chain: &str) -> io::Result<(usize, usize, usize)> {
@@ -58,7 +108,7 @@ fn directions(chain: &str) -> io::Result<(usize, usize, usize)> {
     ]
     .contains(&chain)
     {
-        return Err(invalid(format!("Unsupported network chain {chain}")));
+        return Err(bad(format!("Unsupported network chain {chain}")));
     }
     let d = |c: u8| match c {
         b'A' | b'a' => 0,
@@ -68,6 +118,15 @@ fn directions(chain: &str) -> io::Result<(usize, usize, usize)> {
     };
     let b = chain.as_bytes();
     Ok((d(b[0]), d(b[1]), d(b[2])))
+}
+/// The mirror chain name (member roles exchanged), if different.
+pub fn mirror_name(chain: &str) -> Option<String> {
+    let mut chars: Vec<char> = chain.chars().collect();
+    if chars.len() != 3 || chars[0] == chars[1] {
+        return None;
+    }
+    chars.swap(0, 1);
+    Some(chars.into_iter().collect())
 }
 fn activity(s: &Stock, d: usize) -> f64 {
     match d {
@@ -104,9 +163,6 @@ fn key(score: f32, code_rank: u32) -> u64 {
         b ^ 0x8000_0000
     };
     ((!ascending as u64) << 32) | code_rank as u64
-}
-fn top_keys(scores: &[f32], take: usize, code_rank: &[u32], out: &mut [u64], scratch: &mut [u64]) {
-    simd::select_topk_keys(scores, take, code_rank, out, scratch);
 }
 fn top_neighbors(row: &[f32], i: usize, k: usize, codes: &[Stock], positive: bool) -> Vec<usize> {
     let mut indices: Vec<_> = (0..row.len())
@@ -146,105 +202,62 @@ fn reverse_rank(row: &[f32], partner: usize, threshold: f32) -> (f64, f64) {
     }
 }
 
-pub fn compute_network(
-    stocks: &[Stock],
-    kernel: &Kernel,
-    chain: &str,
-) -> io::Result<NetworkOutput> {
-    let (a, b, c) = directions(chain)?;
-    let n = stocks.len();
-    if n == 0 || kernel.n != n {
-        return Err(invalid(
-            "Network requires a nonempty stock universe matching Kernel.n",
-        ));
-    }
+/// One scan over unordered (a==b) or single-order (a!=b) pairs fills the
+/// forward matrix and, for a!=b, also the mirror matrix (rev[j*n+i] holds the
+/// (b,a)-chain pair with its own self_assoc). `multiplicity` is 2 for a==b
+/// (each unordered pair stands for two ordered pairs) and 1 for a!=b (each
+/// scanned pair maps bijectively to one pair per family chain); the shared
+/// accumulators are scaled accordingly so every chain reads identical values.
+fn scan_pairs(
+    n: usize,
+    va: &[bool],
+    vb: &[bool],
+    vx: &[bool],
+    ea: &[f64],
+    eb: &[f64],
+    sa: &[f64],
+    sb: &[f64],
+    rbc: &[f32],
+    p: &[f32],
+    q: &[f32],
+    addm: &[f32],
+    code_order: &[usize],
+    code_rank: &[u32],
+    want_rev: bool,
+) -> io::Result<(Vec<Pair>, Option<Vec<Pair>>, Acc)> {
+    let symmetric = p.as_ptr() == q.as_ptr() && va.as_ptr() == vb.as_ptr();
+    let mult: u64 = if symmetric { 2 } else { 1 };
     let nn = n
         .checked_mul(n)
-        .ok_or_else(|| invalid("Network matrix size overflow"))?;
-    if kernel.energy.iter().any(|v| v.len() != n) || kernel.rho.iter().any(|v| v.len() != nn) {
-        return Err(invalid("Kernel energy/rho dimensions do not match stocks"));
-    }
-    if kernel
-        .energy
-        .iter()
-        .flatten()
-        .any(|&x| !x.is_finite() || x < 0.)
-    {
-        return Err(invalid("Kernel energy must be finite and nonnegative"));
-    }
-    let mut code_order: Vec<_> = (0..n).collect();
-    code_order.sort_unstable_by(|&i, &j| stocks[i].code.cmp(&stocks[j].code));
-    if code_order
-        .windows(2)
-        .any(|w| stocks[w[0]].code == stocks[w[1]].code)
-    {
-        return Err(invalid("Duplicate stock code in network universe"));
-    }
-    let mut code_rank = vec![0u32; n];
-    for (rank, &i) in code_order.iter().enumerate() {
-        code_rank[i] = rank as u32;
-    }
-    let (ea, eb, ex) = (&kernel.energy[a], &kernel.energy[b], &kernel.energy[c]);
-    let va: Vec<_> = ea.iter().map(|x| *x > 0.).collect();
-    let vb: Vec<_> = eb.iter().map(|x| *x > 0.).collect();
-    let vx: Vec<_> = ex.iter().map(|x| *x > 0.).collect();
-    let sa: Vec<_> = ea.iter().map(|x| x.sqrt()).collect();
-    let sb: Vec<_> = eb.iter().map(|x| x.sqrt()).collect();
-    let rbc = &kernel.rho[a * 3 + b];
-    let pr = &kernel.rho[a * 3 + c];
-    let qr = &kernel.rho[b * 3 + c];
-    // A missing direction has a finite placeholder only inside the vector kernel;
-    // its -infinity mask excludes it from both numerator and eligible-X count.
-    // Missing rho despite positive directional energies is a malformed Kernel.
-    for (mat, vi, label) in [(pr, &va, "a/c"), (qr, &vb, "b/c")] {
-        for i in 0..n {
-            if !vi[i] {
-                continue;
-            }
-            for x in 0..n {
-                if vx[x] && !mat[i * n + x].is_finite() {
-                    return Err(invalid(format!(
-                        "Nonfinite {label} rho with positive energies: {} vs {}",
-                        stocks[i].code, stocks[x].code
-                    )));
-                }
-            }
-        }
-    }
-    let p: Vec<_> = pr
-        .iter()
-        .map(|&v| if v.is_finite() { v } else { 0. })
-        .collect();
-    let q: Vec<_> = qr
-        .iter()
-        .map(|&v| if v.is_finite() { v } else { 0. })
-        .collect();
-    let addm: Vec<_> = vx
-        .iter()
-        .map(|&v| if v { 0. } else { f32::NEG_INFINITY })
-        .collect();
+        .ok_or_else(|| bad("Network matrix size overflow"))?;
     let nx = vx.iter().filter(|&&x| x).count();
-    let mut pairs = vec![Pair::missing(); nn];
-    let blocks: Vec<Block> = pairs
-        .par_chunks_mut(BLOCK_ROWS * n)
-        .enumerate()
-        .map(|(blk, rows)| {
-            let mut result = Block {
-                mass: std::array::from_fn(|_| vec![0.; n]),
-                h_count: vec![0; n],
-                g_count: vec![0; n],
-                incident: vec![0; n],
-                pairs: 0,
-            };
+    let mut fwd = vec![Pair::missing(); nn];
+    let mut rev = if !symmetric && want_rev {
+        Some(vec![Pair::missing(); nn])
+    } else {
+        None
+    };
+    let write_rev = rev.is_some() || symmetric;
+    let fwd_scatter = Scatter {
+        ptr: fwd.as_mut_ptr(),
+    };
+    let rev_scatter = Scatter {
+        ptr: rev.as_mut().map_or(fwd.as_mut_ptr(), |r| r.as_mut_ptr()),
+    };
+    let blocks: Vec<Acc> = (0..n.div_ceil(BLOCK_ROWS))
+        .into_par_iter()
+        .map(|blk| {
+            let mut result = Acc::new(n);
             let (mut hb, mut gb) = (vec![0.; n], vec![0.; n]);
             let (mut hk, mut gk) = (vec![0u64; n], vec![0u64; n]);
-            let mut scratch = vec![0u64; n];
-            for (offset, row) in rows.chunks_mut(n).enumerate() {
-                let i = blk * BLOCK_ROWS + offset;
+            let (mut midh, mut midg) = (vec![0u64; n], vec![0u64; n]);
+            let i_end = ((blk + 1) * BLOCK_ROWS).min(n);
+            for i in blk * BLOCK_ROWS..i_end {
                 if !va[i] {
                     continue;
                 }
-                for j in 0..n {
+                let j_start = if symmetric { i + 1 } else { 0 };
+                for j in j_start..n {
                     if i == j || !vb[j] {
                         continue;
                     }
@@ -265,101 +278,137 @@ pub fn compute_network(
                     let pi = &p[i * n..(i + 1) * n];
                     let qj = &q[j * n..(j + 1) * n];
                     let (_mh, mg, sh, sg, _sq, npos) =
-                        simd::fused_hg_stats(&mut hb, &mut gb, wi, wj, pi, qj, &addm, i, j);
+                        simd::fused_hg_stats(&mut hb, &mut gb, wi, wj, pi, qj, addm, i, j);
                     let ht = 20.min(nv);
                     let gt = 100.min(nv);
-                    top_keys(&hb, ht, &code_rank, &mut hk, &mut scratch);
-                    top_keys(&gb, gt, &code_rank, &mut gk, &mut scratch);
+                    let mass = if sh > 0. && sh.is_finite() {
+                        let [em, gm, g2m] = result.mass.each_mut();
+                        Some(simd::MassAccMut {
+                            em: &mut em[..],
+                            gm: &mut gm[..],
+                            g2m: &mut g2m[..],
+                            invh: (mult as f64 / sh as f64) as f32,
+                        })
+                    } else {
+                        None
+                    };
+                    simd::topk2_mass(
+                        &hb,
+                        &gb,
+                        ht,
+                        gt,
+                        code_rank,
+                        &mut hk,
+                        &mut midh,
+                        &mut gk,
+                        &mut midg,
+                        mass,
+                    );
                     let x = code_order[hk[0] as u32 as usize];
                     let h = hb[x];
-                    row[j] = Pair {
+                    let pair_fwd = Pair {
                         g: h - pi[x].max(qj[x]),
                         gs: mg,
                         gnpos: npos as f32 / nv as f32,
                         gcov: sg / nv as f32,
                         self_assoc: pi[x],
                     };
+                    let pair_rev = Pair {
+                        self_assoc: qj[x],
+                        ..pair_fwd
+                    };
+                    unsafe {
+                        fwd_scatter.put(i * n + j, pair_fwd);
+                        if write_rev {
+                            rev_scatter.put(j * n + i, pair_rev);
+                        }
+                    }
                     for &k in &hk[..ht] {
-                        result.h_count[code_order[k as u32 as usize]] += 1;
+                        result.h_count[code_order[k as u32 as usize]] += mult;
                     }
                     for &k in &gk[..gt] {
-                        result.g_count[code_order[k as u32 as usize]] += 1;
+                        result.g_count[code_order[k as u32 as usize]] += mult;
                     }
-                    if sh > 0. && sh.is_finite() {
-                        let [em, gm, g2] = &mut result.mass;
-                        simd::mass_acc_hg(
-                            em,
-                            gm,
-                            g2,
-                            &mut [],
-                            &mut [],
-                            &mut [],
-                            &hb,
-                            &gb,
-                            1. / sh,
-                            0.,
-                            true,
-                            false,
-                        );
-                    }
-                    result.pairs += 1;
-                    result.incident[i] += 1;
-                    result.incident[j] += 1;
+                    result.pairs += mult;
+                    result.incident[i] += mult;
+                    result.incident[j] += mult;
                 }
             }
             result
         })
         .collect();
-    drop(p);
-    drop(q);
-    let (mut total_pairs, mut mass, mut hc, mut gc, mut incident) = (
-        0u64,
-        std::array::from_fn::<_, 3, _>(|_| vec![0f64; n]),
-        vec![0u64; n],
-        vec![0u64; n],
-        vec![0u64; n],
-    );
+    let mut acc = Acc::new(n);
     for block in blocks {
-        total_pairs += block.pairs;
-        for x in 0..n {
-            for k in 0..3 {
-                mass[k][x] += block.mass[k][x] as f64;
-            }
-            hc[x] += block.h_count[x];
-            gc[x] += block.g_count[x];
-            incident[x] += block.incident[x];
-        }
+        acc.merge(block);
     }
-    let ln_a: Vec<_> = stocks.iter().map(|s| activity(s, a).ln_1p()).collect();
-    let ln_b: Vec<_> = stocks.iter().map(|s| activity(s, b).ln_1p()).collect();
-    let le_a: Vec<_> = ea.iter().map(|e| e.ln_1p()).collect();
-    let le_b: Vec<_> = eb.iter().map(|e| e.ln_1p()).collect();
-    // Pool activity cuts across the two roles, making strata invariant under
-    // exchanging the directional roles, without swapping the actual stocks.
-    let mut pool = ln_a.clone();
-    pool.extend_from_slice(&ln_b);
-    let dec = bins(&pool);
-    let cell = |i: usize, j: usize| {
-        let x = dec[i];
-        let y = dec[n + j];
-        x.min(y) * 10 + x.max(y)
-    };
+    Ok((fwd, rev, acc))
+}
+
+/// Moment/Z/fit products of the forward matrix; the mirror chain reuses them
+/// verbatim because its pair multiset and covariates are identical.
+pub struct FamStats {
+    z: Vec<f32>,
+    fit_g: Option<stats::Ridge>,
+    fit_z: Option<stats::Ridge>,
+    alln: usize,
+    z_fallback_pairs: usize,
+    sd_ratio: Option<f64>,
+}
+
+fn cell_moments_parallel(
+    pairs: &[Pair],
+    cell: &(dyn Fn(usize, usize) -> usize + Sync),
+    n: usize,
+) -> (Vec<(usize, f64, f64)>, usize, f64, f64) {
+    const ROWS: usize = 64;
+    let blocks: Vec<(Vec<(usize, f64, f64)>, usize, f64, f64)> = (0..n.div_ceil(ROWS))
+        .into_par_iter()
+        .map(|blk| {
+            let mut moments = vec![(0usize, 0f64, 0f64); 100];
+            let (mut alln, mut allsum, mut allsq) = (0usize, 0f64, 0f64);
+            let i_end = ((blk + 1) * ROWS).min(n);
+            for i in blk * ROWS..i_end {
+                let row = &pairs[i * n..(i + 1) * n];
+                for (j, pair) in row.iter().enumerate() {
+                    let v = pair.g as f64;
+                    if v.is_finite() {
+                        let t = &mut moments[cell(i, j)];
+                        t.0 += 1;
+                        t.1 += v;
+                        t.2 += v * v;
+                        alln += 1;
+                        allsum += v;
+                        allsq += v * v;
+                    }
+                }
+            }
+            (moments, alln, allsum, allsq)
+        })
+        .collect();
     let mut moments = vec![(0usize, 0f64, 0f64); 100];
     let (mut alln, mut allsum, mut allsq) = (0usize, 0f64, 0f64);
-    for i in 0..n {
-        for j in 0..n {
-            let v = pairs[i * n + j].g as f64;
-            if v.is_finite() {
-                let t = &mut moments[cell(i, j)];
-                t.0 += 1;
-                t.1 += v;
-                t.2 += v * v;
-                alln += 1;
-                allsum += v;
-                allsq += v * v;
-            }
+    for (m, cn, cs, cq) in blocks {
+        for k in 0..100 {
+            moments[k].0 += m[k].0;
+            moments[k].1 += m[k].1;
+            moments[k].2 += m[k].2;
         }
+        alln += cn;
+        allsum += cs;
+        allsq += cq;
     }
+    (moments, alln, allsum, allsq)
+}
+
+fn family_stats(
+    pairs: &[Pair],
+    n: usize,
+    cell: &(dyn Fn(usize, usize) -> usize + Sync),
+    cov: &(dyn Fn(usize, usize) -> [f64; 5] + Sync),
+    rbc: &[f32],
+) -> FamStats {
+    let nn = pairs.len();
+    let (moments, alln, allsum, allsq) = cell_moments_parallel(pairs, cell, n);
     let global = if alln > 0 {
         let m = allsum / alln as f64;
         (m, (allsq / alln as f64 - m * m).max(0.).sqrt())
@@ -380,14 +429,147 @@ pub fn compute_network(
         .collect();
     let mut z = vec![f32::NAN; nn];
     z.par_chunks_mut(n).enumerate().for_each(|(i, row)| {
-        for j in 0..n {
-            let v = pairs[i * n + j].g as f64;
+        let prow = &pairs[i * n..(i + 1) * n];
+        for (j, value) in row.iter_mut().enumerate() {
+            let v = prow[j].g as f64;
             let (m, sd) = moments[cell(i, j)];
             if v.is_finite() && sd > 1e-12 {
-                row[j] = ((v - m) / sd) as f32;
+                *value = ((v - m) / sd) as f32;
             }
         }
     });
+    let finite_at = |k: usize| {
+        let pair = &pairs[k];
+        let y = pair.g as f64;
+        let (i, j) = (k / n, k % n);
+        if y.is_finite() {
+            let x = cov(i, j);
+            if x.iter().all(|v| v.is_finite()) {
+                return Some((x, y));
+            }
+        }
+        None
+    };
+    let finite_z_at = |k: usize| {
+        let y = z[k] as f64;
+        let (i, j) = (k / n, k % n);
+        if y.is_finite() {
+            let x = cov(i, j);
+            if x.iter().all(|v| v.is_finite()) {
+                return Some((x, y));
+            }
+        }
+        None
+    };
+    let fit_g = fit_ridge_par(nn, &finite_at);
+    let fit_z = fit_ridge_par(nn, &finite_z_at);
+    // Conditional-residual diagnostic identical to the legacy audit.
+    let mut rho_samples: Vec<f64> = (0..nn)
+        .into_par_iter()
+        .filter_map(|k| {
+            if pairs[k].g.is_finite() && rbc[k].is_finite() {
+                Some(rbc[k] as f64)
+            } else {
+                None
+            }
+        })
+        .collect();
+    rho_samples.par_sort_unstable_by(f64::total_cmp);
+    let cuts: Vec<_> = (1..10)
+        .map(|k| quantile_sorted(&rho_samples, k as f64 / 10.))
+        .collect();
+    const ROWS: usize = 64;
+    let cm = (0..n.div_ceil(ROWS))
+        .into_par_iter()
+        .map(|blk| {
+            let mut cm = [(0usize, 0f64, 0f64); 10];
+            let lo = blk * ROWS * n;
+            let hi = ((blk + 1) * ROWS * n).min(nn);
+            for k in lo..hi {
+                let y = pairs[k].g as f64;
+                if y.is_finite() && rbc[k].is_finite() {
+                    let t = &mut cm[cuts.partition_point(|&cut| rbc[k] as f64 > cut)];
+                    t.0 += 1;
+                    t.1 += y;
+                    t.2 += y * y;
+                }
+            }
+            cm
+        })
+        .collect::<Vec<_>>()
+        .into_iter()
+        .fold([(0usize, 0f64, 0f64); 10], |mut a, b| {
+            for k in 0..10 {
+                a[k].0 += b[k].0;
+                a[k].1 += b[k].1;
+                a[k].2 += b[k].2;
+            }
+            a
+        });
+    let within = cm
+        .iter()
+        .filter(|t| t.0 > 0)
+        .map(|&(n, s, q)| (q - s * s / n as f64).max(0.))
+        .sum::<f64>();
+    let total = if alln > 0 {
+        (allsq - allsum * allsum / alln as f64).max(0.)
+    } else {
+        0.
+    };
+    let sd_ratio = if alln >= 3 && total > 1e-24 {
+        Some((within / total).sqrt())
+    } else {
+        None
+    };
+    FamStats {
+        z,
+        fit_g,
+        fit_z,
+        alln,
+        z_fallback_pairs,
+        sd_ratio,
+    }
+}
+
+struct PostInputs<'a> {
+    stocks: &'a [Stock],
+    n: usize,
+    chain: &'a str,
+    a: usize,
+    b: usize,
+    c: usize,
+    va: &'a [bool],
+    vb: &'a [bool],
+    vx: &'a [bool],
+    rbc: &'a [f32],
+    le_a: &'a [f64],
+    le_b: &'a [f64],
+    pairs: &'a [Pair],
+    acc: &'a Acc,
+    fam: &'a FamStats,
+    /// true: this chain's Z matrix is the transpose of fam.z (mirror reuse).
+    z_transposed: bool,
+    code_order: &'a [usize],
+}
+
+fn post_chain(input: &PostInputs) -> io::Result<NetworkOutput> {
+    let n = input.n;
+    let chain = input.chain;
+    let (a, b, c) = (input.a, input.b, input.c);
+    let (va, vb, vx) = (input.va, input.vb, input.vx);
+    let (rbc, le_a, le_b) = (input.rbc, input.le_a, input.le_b);
+    let (pairs, acc, fam, stocks) = (input.pairs, input.acc, input.fam, input.stocks);
+    let z = &fam.z;
+    let zt = input.z_transposed;
+    let zrow = |i: usize| -> Vec<f32> {
+        if zt {
+            (0..n).map(|j| z[j * n + i]).collect()
+        } else {
+            z[i * n..(i + 1) * n].to_vec()
+        }
+    };
+    let ln_a: Vec<_> = stocks.iter().map(|s| activity(s, a).ln_1p()).collect();
+    let ln_b: Vec<_> = stocks.iter().map(|s| activity(s, b).ln_1p()).collect();
     let cov = |i: usize, j: usize| {
         [
             rbc[i * n + j] as f64,
@@ -397,28 +579,13 @@ pub fn compute_network(
             (le_a[i] - le_b[j]).abs(),
         ]
     };
-    let fit_g = fit_ridge(|visit| {
-        for i in 0..n {
-            for j in 0..n {
-                let y = pairs[i * n + j].g as f64;
-                if y.is_finite() {
-                    visit(cov(i, j), y);
-                }
-            }
-        }
-    });
-    let fit_z = fit_ridge(|visit| {
-        for i in 0..n {
-            for j in 0..n {
-                let y = z[i * n + j] as f64;
-                if y.is_finite() {
-                    visit(cov(i, j), y);
-                }
-            }
-        }
-    });
-    // Keep legacy OR-union graph overlap as well as a clearly named directed
-    // variant. OR is a topology reduction only; it never swaps scoring roles.
+    let fit_g = fam.fit_g.as_ref();
+    let fit_z = fam.fit_z.as_ref();
+    let total_pairs = acc.pairs;
+    let mass = &acc.mass;
+    let hc = &acc.h_count;
+    let gc = &acc.g_count;
+    let incident = &acc.incident;
     let tops: Vec<_> = (0..n)
         .into_par_iter()
         .map(|i| {
@@ -432,10 +599,11 @@ pub fn compute_network(
                     }
                 })
                 .collect();
+            let zr = zrow(i);
             [
                 top_neighbors(&r, i, 100, stocks, false),
                 top_neighbors(&g, i, 100, stocks, false),
-                top_neighbors(&z[i * n..(i + 1) * n], i, 100, stocks, false),
+                top_neighbors(&zr, i, 100, stocks, false),
             ]
         })
         .collect();
@@ -459,7 +627,7 @@ pub fn compute_network(
         .into_par_iter()
         .map(|i| {
             let row = &pairs[i * n..(i + 1) * n];
-            let zr = &z[i * n..(i + 1) * n];
+            let zr = zrow(i);
             let rr = &rbc[i * n..(i + 1) * n];
             let mut vals = [NAN; 32];
             let mut neighbor = Vec::new();
@@ -577,9 +745,10 @@ pub fn compute_network(
             if chain == "ppp" {
                 // Z top100 already includes finite negative values and resolves
                 // ties by stock code. Reuse its first member, then scan only that
-                // partner's row: O(N²) total work, with no extra dense matrix.
+                // partner's row: O(N^2) total work, with no extra dense matrix.
                 if let Some(&p) = tops[i][2].first() {
-                    (vals[30], vals[31]) = reverse_rank(&z[p * n..(p + 1) * n], p, zr[p]);
+                    (vals[30], vals[31]) =
+                        reverse_rank(&z[p * n..(p + 1) * n], p, zr[p]);
                 }
             }
             (vals, neighbor, audit_r, audit_g)
@@ -630,9 +799,9 @@ pub fn compute_network(
         let values = (0..n)
             .map(|i| match k {
                 4 => {
-                    let den = mass[0][i];
+                    let den = mass[0][i] as f64;
                     if vx[i] && total_pairs > incident[i] && den > 0. {
-                        (mass[2][i] / den - (mass[1][i] / den).powi(2))
+                        (mass[2][i] as f64 / den - (mass[1][i] as f64 / den).powi(2))
                             .max(0.)
                             .sqrt()
                     } else {
@@ -658,50 +827,15 @@ pub fn compute_network(
             .collect();
         columns.push(FactorColumn::new(format!("yr_{chain}_{name}"), values));
     }
+    let alln = fam.alln;
     let mut audits = Vec::new();
     if chain == "ppp" {
         audits.push(AuditRow{name:"yr_ppp_best_z_partner_reverse_rank_definition".into(),layer:"definition".into(),n:alln,value:None,detail:"For each i, choose finite Z[i,p] row maximum (negative values are valid; ties by ascending stock code). Count finite k != p with Z[p,k] strictly greater than Z[i,p]. Fraction divides by all finite k != p in p's row, including i. Missing best partner or empty reverse domain is undefined. Preserves the legacy reverse-rank reduction, applied to the new activity-stratified Z.".into()});
     }
-    audits.push(AuditRow{name:format!("yr_{chain}_z_global_fallback_pair_fraction"),layer:"coverage".into(),n:alln,value:if alln>0{Some(z_fallback_pairs as f64/alln as f64)}else{None},detail:format!("{z_fallback_pairs} ordered pairs use global G moments because their pooled-activity stratum has fewer than 30 observations. Undefined zero standard deviations remain missing.")});
+    audits.push(AuditRow{name:format!("yr_{chain}_z_global_fallback_pair_fraction"),layer:"coverage".into(),n:alln,value:if alln>0{Some(fam.z_fallback_pairs as f64/alln as f64)}else{None},detail:format!("{} ordered pairs use global G moments because their pooled-activity stratum has fewer than 30 observations. Undefined zero standard deviations remain missing.",fam.z_fallback_pairs)});
     audits.push(AuditRow{name:format!("yr_{chain}_graph_definition"),layer:"definition".into(),n:alln,value:None,detail:"r4_ov_*_k100 retains the legacy undirected OR of each row top100 and intersection/100 (can exceed one); *_directed_k100 compares role-specific outgoing rows and divides by effective K. Scoring remains fully ordered; graph OR never assigns roles by code.".into()});
     audits.push(AuditRow{name:format!("yr_{chain}_diagnostic_columns"),layer:"definition".into(),n:alln,value:None,detail:"Six diag_* columns are diagnostic controls, not additional alpha proposals. Top100 uses the same G-selected partner set for both rho and G; means/maxima use the same full valid-pair domain.".into()});
-    // Numeric layer: ten rho bins; conditional-mean residual variance / total G
-    // variance. This is a diagnostic (in-sample), not an orthogonality guarantee.
-    let mut rho_samples = Vec::with_capacity(alln);
-    for k in 0..nn {
-        if pairs[k].g.is_finite() && rbc[k].is_finite() {
-            rho_samples.push(rbc[k] as f64);
-        }
-    }
-    rho_samples.sort_unstable_by(f64::total_cmp);
-    let cuts: Vec<_> = (1..10)
-        .map(|k| quantile_sorted(&rho_samples, k as f64 / 10.))
-        .collect();
-    let mut cm = [(0usize, 0f64, 0f64); 10];
-    for k in 0..nn {
-        let y = pairs[k].g as f64;
-        if y.is_finite() && rbc[k].is_finite() {
-            let t = &mut cm[cuts.partition_point(|&cut| rbc[k] as f64 > cut)];
-            t.0 += 1;
-            t.1 += y;
-            t.2 += y * y;
-        }
-    }
-    let within = cm
-        .iter()
-        .filter(|t| t.0 > 0)
-        .map(|&(n, s, q)| (q - s * s / n as f64).max(0.))
-        .sum::<f64>();
-    let total = if alln > 0 {
-        (allsq - allsum * allsum / alln as f64).max(0.)
-    } else {
-        0.
-    };
-    let ratio = if alln >= 3 && total > 1e-24 {
-        Some((within / total).sqrt())
-    } else {
-        None
-    };
+    let ratio = fam.sd_ratio;
     audits.push(AuditRow{name:format!("yr_{chain}_g_rho_conditional_residual_sd_ratio"),layer:"numeric".into(),n:alln,value:ratio,detail:if ratio.is_some(){"sqrt(within-rho-decile G variance / total G variance), exact ordered valid pairs; descriptive in-sample diagnostic".into()}else{"Undefined: fewer than 3 valid pairs or zero G variance".into()}});
     for (k, tag) in ["rowmean", "rowmax", "top100mean"].iter().enumerate() {
         let r: Vec<_> = rowdata.iter().map(|v| v.2[k]).collect();
@@ -727,79 +861,231 @@ pub fn compute_network(
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn reverse_rank_uses_strict_comparison_and_valid_reverse_domain() {
-        let row = [f32::NAN, -2., -1., -1., -0.5, f32::INFINITY];
-        // The chosen negative threshold remains valid; equality is not a win.
-        assert_eq!(reverse_rank(&row, 0, -1.), (1., 0.25));
-        assert_eq!(reverse_rank(&row, 0, -3.), (4., 1.));
-        assert_eq!(reverse_rank(&row, 0, 0.), (0., 0.));
-        // A finite diagonal must never enter the reverse comparison domain.
-        assert_eq!(reverse_rank(&[99., -2., -1.], 0, -1.), (0., 0.));
-        let missing = reverse_rank(&[f32::NAN; 3], 1, -1.);
-        assert!(missing.0.is_nan() && missing.1.is_nan());
+/// Everything the pair scan produces for one family: forward matrix, optional
+/// mirror matrix, shared accumulators, and the precomputed chain-level vectors
+/// both directions need for post processing.
+pub struct ScanBundle {
+    pub n: usize,
+    pub a: usize,
+    pub b: usize,
+    pub c: usize,
+    pub va: Vec<bool>,
+    pub vb: Vec<bool>,
+    pub vx: Vec<bool>,
+    pub sa: Vec<f64>,
+    pub sb: Vec<f64>,
+    pub ln_a: Vec<f64>,
+    pub ln_b: Vec<f64>,
+    pub le_a: Vec<f64>,
+    pub le_b: Vec<f64>,
+    pub dec: Vec<usize>,
+    pub pairs_fwd: Vec<Pair>,
+    pub pairs_rev: Option<Vec<Pair>>,
+    pub acc: Acc,
+}
+
+/// Scan only: produces the pair matrices for `chain` (a,b,c) and, when
+/// `mirror` is Some, the role-mirrored chain's matrix from the same sweep.
+pub fn scan_family(
+    stocks: &[Stock],
+    kernel: &Kernel,
+    chain: &str,
+    mirror: bool,
+) -> io::Result<ScanBundle> {
+    let (a, b, c) = directions(chain)?;
+    let n = stocks.len();
+    if n == 0 || kernel.n != n {
+        return Err(bad(
+            "Network requires a nonempty stock universe matching Kernel.n",
+        ));
     }
-    #[test]
-    fn best_z_partner_accepts_negative_values_and_breaks_ties_by_code() {
-        let stocks: Vec<_> = ["000004", "000003", "000002", "000001"]
-            .iter()
-            .map(|&code| Stock {
-                code: code.into(),
-                industry: 1,
-                cells: vec![],
-                n_buy: 1,
-                n_sell: 1,
-                amount: 1.,
-                minute_buy: vec![],
-                minute_sell: vec![],
-                minute_ret: vec![],
-                minute_close: vec![],
-            })
-            .collect();
-        let row = [f32::NAN, -1., -1., -2.];
-        assert_eq!(top_neighbors(&row, 0, 100, &stocks, false), vec![2, 1, 3]);
-        assert!(top_neighbors(&[f32::NAN; 4], 0, 100, &stocks, false).is_empty());
+    let nn = n
+        .checked_mul(n)
+        .ok_or_else(|| bad("Network matrix size overflow"))?;
+    if kernel.energy.iter().any(|v| v.len() != n) || kernel.rho.iter().any(|v| v.len() != nn) {
+        return Err(bad("Kernel energy/rho dimensions do not match stocks"));
     }
-    #[test]
-    fn accelerated_selection_is_exact_with_ties_and_missing_x() {
-        let n = 4099;
-        let ranks: Vec<_> = (0..n as u32).rev().collect();
-        for kind in 0..4 {
-            let scores: Vec<f32> = (0..n)
-                .map(|i| match kind {
-                    0 => (((i * 719) % 1009) as f32 - 700.) / 1000.,
-                    1 => {
-                        if i % 3 == 0 {
-                            f32::NEG_INFINITY
-                        } else {
-                            0.001
-                        }
-                    }
-                    2 => {
-                        if i % 100 == 0 {
-                            1.
-                        } else {
-                            f32::NEG_INFINITY
-                        }
-                    }
-                    _ => 1. + ((i * 719) % 1009) as f32 * 1e-7,
-                })
-                .collect();
-            let mut all: Vec<_> = scores
-                .iter()
-                .zip(&ranks)
-                .map(|(&s, &r)| key(s, r))
-                .collect();
-            all.sort_unstable();
-            for take in [1, 20, 100, 1000] {
-                let mut result = vec![0; n];
-                let mut scratch = vec![0; n];
-                top_keys(&scores, take, &ranks, &mut result, &mut scratch);
-                assert_eq!(&result[..take], &all[..take]);
+    if kernel
+        .energy
+        .iter()
+        .flatten()
+        .any(|&x| !x.is_finite() || x < 0.)
+    {
+        return Err(bad("Kernel energy must be finite and nonnegative"));
+    }
+    let (ea, eb, ex) = (&kernel.energy[a], &kernel.energy[b], &kernel.energy[c]);
+    let va: Vec<_> = ea.iter().map(|x| *x > 0.).collect();
+    let vb: Vec<_> = eb.iter().map(|x| *x > 0.).collect();
+    let vx: Vec<_> = ex.iter().map(|x| *x > 0.).collect();
+    let sa: Vec<_> = ea.iter().map(|x| x.sqrt()).collect();
+    let sb: Vec<_> = eb.iter().map(|x| x.sqrt()).collect();
+    let rbc = &kernel.rho[a * 3 + b];
+    let pr = &kernel.rho[a * 3 + c];
+    let qr = &kernel.rho[b * 3 + c];
+    for (mat, vi, label) in [(pr, &va, "a/c"), (qr, &vb, "b/c")] {
+        for i in 0..n {
+            if !vi[i] {
+                continue;
+            }
+            for x in 0..n {
+                if vx[x] && !mat[i * n + x].is_finite() {
+                    return Err(bad(format!(
+                        "Nonfinite {label} rho with positive energies: {} vs {}",
+                        stocks[i].code, stocks[x].code
+                    )));
+                }
             }
         }
     }
+    let p: Vec<f32> = pr
+        .iter()
+        .map(|&v| if v.is_finite() { v } else { 0. })
+        .collect();
+    let qv: Vec<f32> = if a == b {
+        Vec::new()
+    } else {
+        qr.iter()
+            .map(|&v| if v.is_finite() { v } else { 0. })
+            .collect()
+    };
+    let q: &[f32] = if a == b { p.as_slice() } else { qv.as_slice() };
+    let vb_scan: &[bool] = if a == b { va.as_slice() } else { vb.as_slice() };
+    let sb_scan: &[f64] = if a == b { sa.as_slice() } else { sb.as_slice() };
+    let eb_scan: &[f64] = if a == b { ea } else { eb };
+    let addm: Vec<_> = vx
+        .iter()
+        .map(|&v| if v { 0. } else { f32::NEG_INFINITY })
+        .collect();
+    let code_order = code_order_of(stocks)?;
+    let code_rank = code_rank_of(&code_order);
+    let (pairs_fwd, pairs_rev, acc) = scan_pairs(
+        n, &va, vb_scan, &vx, ea, eb_scan, &sa, sb_scan, rbc, &p, q, &addm, &code_order,
+        &code_rank, mirror,
+    )?;
+    let ln_a: Vec<_> = stocks.iter().map(|s| activity(s, a).ln_1p()).collect();
+    let ln_b: Vec<_> = stocks.iter().map(|s| activity(s, b).ln_1p()).collect();
+    let mut pool = ln_a.clone();
+    pool.extend_from_slice(&ln_b);
+    let dec = bins(&pool);
+    let le_a: Vec<f64> = ea.iter().map(|e| e.ln_1p()).collect();
+    let le_b: Vec<f64> = eb.iter().map(|e| e.ln_1p()).collect();
+    Ok(ScanBundle {
+        n,
+        a,
+        b,
+        c,
+        va,
+        vb,
+        vx,
+        sa,
+        sb,
+        ln_a,
+        ln_b,
+        le_a,
+        le_b,
+        dec,
+        pairs_fwd,
+        pairs_rev,
+        acc,
+    })
+}
+
+fn code_order_of(stocks: &[Stock]) -> io::Result<Vec<usize>> {
+    let mut code_order: Vec<_> = (0..stocks.len()).collect();
+    code_order.sort_unstable_by(|&i, &j| stocks[i].code.cmp(&stocks[j].code));
+    if code_order
+        .windows(2)
+        .any(|w| stocks[w[0]].code == stocks[w[1]].code)
+    {
+        return Err(bad("Duplicate stock code in network universe"));
+    }
+    Ok(code_order)
+}
+fn code_rank_of(code_order: &[usize]) -> Vec<u32> {
+    let mut code_rank = vec![0u32; code_order.len()];
+    for (rank, &i) in code_order.iter().enumerate() {
+        code_rank[i] = rank as u32;
+    }
+    code_rank
+}
+
+/// Family-level Z/ridge products of the forward matrix, reused by the mirror.
+pub fn family_stats_of(
+    kernel: &Kernel,
+    bundle: &ScanBundle,
+) -> FamStats {
+    let n = bundle.n;
+    let rbc = &kernel.rho[bundle.a * 3 + bundle.b];
+    let cell = |i: usize, j: usize| {
+        let x = bundle.dec[i];
+        let y = bundle.dec[n + j];
+        x.min(y) * 10 + x.max(y)
+    };
+    let cov = |i: usize, j: usize| {
+        [
+            rbc[i * n + j] as f64,
+            bundle.ln_a[i] + bundle.ln_b[j],
+            (bundle.ln_a[i] - bundle.ln_b[j]).abs(),
+            bundle.le_a[i] + bundle.le_b[j],
+            (bundle.le_a[i] - bundle.le_b[j]).abs(),
+        ]
+    };
+    family_stats(&bundle.pairs_fwd, n, &cell, &cov, rbc)
+}
+
+/// Post one direction of a scanned family. `mirror` selects the rev matrix,
+/// swapped member directions, and the transposed view of the shared Z.
+pub fn post_family(
+    stocks: &[Stock],
+    kernel: &Kernel,
+    bundle: &ScanBundle,
+    fam: &FamStats,
+    chain: &str,
+    mirror: bool,
+) -> io::Result<NetworkOutput> {
+    let (a, b, c) = if mirror {
+        (bundle.b, bundle.a, bundle.c)
+    } else {
+        (bundle.a, bundle.b, bundle.c)
+    };
+    let (ma, mb, mc) = directions(chain)?;
+    if ma != a || mb != b || mc != c {
+        return Err(bad("post chain does not match the scanned family"));
+    }
+    let n = bundle.n;
+    let (ea, eb, ex) = (&kernel.energy[a], &kernel.energy[b], &kernel.energy[c]);
+    let va: Vec<bool> = ea.iter().map(|x| *x > 0.).collect();
+    let vb: Vec<bool> = eb.iter().map(|x| *x > 0.).collect();
+    let vx: Vec<bool> = ex.iter().map(|x| *x > 0.).collect();
+    let le_a: Vec<f64> = ea.iter().map(|e| e.ln_1p()).collect();
+    let le_b: Vec<f64> = eb.iter().map(|e| e.ln_1p()).collect();
+    let rbc = &kernel.rho[a * 3 + b];
+    let pairs = if mirror {
+        bundle
+            .pairs_rev
+            .as_ref()
+            .ok_or_else(|| bad("mirror pair matrix missing"))?
+    } else {
+        &bundle.pairs_fwd
+    };
+    let code_order = code_order_of(stocks)?;
+    post_chain(&PostInputs {
+        stocks,
+        n,
+        chain,
+        a,
+        b,
+        c,
+        va: &va,
+        vb: &vb,
+        vx: &vx,
+        rbc,
+        le_a: &le_a,
+        le_b: &le_b,
+        pairs,
+        acc: &bundle.acc,
+        fam,
+        z_transposed: mirror,
+        code_order: &code_order,
+    })
 }

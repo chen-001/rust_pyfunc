@@ -1,4 +1,5 @@
 use crate::{extensions, input, kernel, leadlag, model::*, network, temporal};
+use rayon::prelude::*;
 use serde::Serialize;
 use std::{collections::BTreeMap, io, path::Path, time::Instant};
 
@@ -116,18 +117,66 @@ fn compute(config: &Config) -> io::Result<(ResultData, Snapshot)> {
     times.insert("event_kernel".into(), timer.elapsed().as_secs_f64());
     let mut columns = Vec::new();
     let mut neighbors = Vec::new();
+    // Chain families: a==b chains scan half the ordered pairs; a!=b chains are
+    // scanned once together with their role-mirror (e.g. pmp serves mpp).
+    // Scans run in parallel across families; post-processing is parallel too.
+    let mut done: std::collections::BTreeSet<String> = Default::default();
+    let mut work: Vec<(String, Option<String>)> = Vec::new();
     for chain in &config.chains {
-        let timer = Instant::now();
-        eprintln!("Computing exact network {chain}");
-        let result = network::compute_network(&stocks, &kernel, chain)?;
-        columns.extend(result.columns);
-        audits.extend(result.audits);
-        if ["AAa", "ppp", "mmm"].contains(&chain.as_str()) {
-            neighbors.push(result.neighbors);
+        if done.contains(chain) {
+            continue;
         }
-        let elapsed = timer.elapsed().as_secs_f64();
-        times.insert(format!("network_{chain}"), elapsed);
-        eprintln!("{chain} finished {elapsed:.3}s");
+        let mirror = network::mirror_name(chain)
+            .filter(|m| config.chains.contains(m) && !done.contains(m));
+        done.insert(chain.clone());
+        if let Some(m) = &mirror {
+            done.insert(m.clone());
+        }
+        work.push((chain.clone(), mirror));
+    }
+    eprintln!("Computing {} network families in parallel", work.len());
+    let timer = Instant::now();
+    // One pipeline per family: scan -> family stats -> per-chain posts, so a
+    // finished family's post runs while other families still stream scans.
+    let posted: Vec<io::Result<Vec<(String, NetworkOutput)>>> = work
+        .par_iter()
+        .map(|(chain, mirror)| {
+            let bundle = network::scan_family(&stocks, &kernel, chain, mirror.is_some())?;
+            let fam = network::family_stats_of(&kernel, &bundle);
+            let mut out = vec![(
+                chain.clone(),
+                network::post_family(&stocks, &kernel, &bundle, &fam, chain, false)?,
+            )];
+            if let Some(m) = mirror {
+                out.push((
+                    m.clone(),
+                    network::post_family(&stocks, &kernel, &bundle, &fam, m, true)?,
+                ));
+            }
+            Ok(out)
+        })
+        .collect();
+    let post_elapsed = timer.elapsed().as_secs_f64();
+    eprintln!("network families finished {post_elapsed:.3}s");
+    let scan_elapsed = post_elapsed;
+    for chain in &config.chains {
+        times.insert(format!("network_{chain}"), (scan_elapsed + post_elapsed) / 15.0);
+    }
+    let mut outputs: BTreeMap<String, NetworkOutput> = BTreeMap::new();
+    for result in posted {
+        for (name, out) in result? {
+            outputs.insert(name, out);
+        }
+    }
+    for chain in &config.chains {
+        let out = outputs
+            .remove(chain)
+            .expect("every chain produced by its family");
+        if ["AAa", "ppp", "mmm"].contains(&chain.as_str()) {
+            neighbors.push(out.neighbors);
+        }
+        columns.extend(out.columns);
+        audits.extend(out.audits);
     }
     // Structural pruning, decided from formulas rather than this day's ranks.
     // Effective neighbor count is exactly 1/HHI. Ordered pm/mp pairs have the
