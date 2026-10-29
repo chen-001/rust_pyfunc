@@ -239,7 +239,8 @@ pub fn read_stock(code: &str, path: &Path, industry: i32, date: i64) -> io::Resu
     let mut first_ts = vec![(i64::MAX, f64::INFINITY); 237];
     let mut last_ts = vec![(i64::MIN, f64::NEG_INFINITY); 237];
     let expected_day = epoch_day(date)?;
-    for (line_no, line) in lines.enumerate() {
+    let mut iter = lines.enumerate().peekable();
+    while let Some((line_no, line)) = iter.next() {
         if line.is_empty() {
             continue;
         }
@@ -257,13 +258,22 @@ pub fn read_stock(code: &str, path: &Path, industry: i32, date: i64) -> io::Resu
             ))
         };
         if count < 11 {
+            if iter.peek().is_none() {
+                break;
+            }
             return Err(fail());
         }
         let flag: i32 = fields[10].parse().map_err(|_| fail())?;
         if flag != 66 && flag != 83 {
             continue;
         }
-        if fields[0] != code || fields[2].parse::<i64>().map_err(|_| fail())? != date {
+        // 代码字段：旧文件写不带前导零的数字（2552 对应文件名 002552），
+        // 按数值而不是字符串比较。行尾被截断的不完整行只允许出现在文件末尾，
+        // 其余字段数不足的行仍然整只票拒绝（不把坏数据当可用）。
+        if fields[0].parse::<i64>().map_err(|_| fail())?
+            != code.parse::<i64>().map_err(|_| fail())?
+            || fields[2].parse::<i64>().map_err(|_| fail())? != date
+        {
             return Err(bad(format!(
                 "{}:{} code/date mismatch",
                 path.display(),
