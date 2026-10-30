@@ -1,0 +1,80 @@
+{"date": 20260717, "package": "/home/chenzongwei/rust_pyfunc/python/rust_pyfunc/__init__.py", "threads": "50", "opt": "0", "ks": [5, 30], "load_before": [1.00146484375, 10.81787109375, 18.41015625], "module_sha256": "9d5d4746879bc60c8bbc9db2419d1bb19f0a53a1c0876d4414b072ba5bcd2f24", "switches": {"YUPEI_MULTI_CACHE": null, "YUPEI_MULTI_SVD": null, "YUPEI_SVD_CHUNK": null, "YUPEI_SORT100_SIMD": null, "YUPEI_NET_PROFILE": null, "YUPEI_STAGE": "1", "YUPEI_VERBOSE": null}}
+[multi-stage] name=read seconds=4.783093
+[multi-stage] date=20260717 stocks=5195 thread_count=50
+[multi-stage] name=industry seconds=0.161090
+[multi-stage] name=cells seconds=1.292002
+[multi-stage] name=m4_prepare_ seconds=13.462837
+[stage] prefix= m4 0.0s rho 0.1s chains 5
+[stage] spAAp net 24.0s produce 10.1s topk 0.0s
+[stage] sppma net 24.0s produce 10.4s topk 0.0s
+[stage] spppp net 24.0s produce 10.4s topk 0.0s
+[stage] spppa net 23.9s produce 11.2s topk 0.0s
+[stage] spmpm net 29.6s produce 6.4s topk 0.0s
+[multi-stage] name=carrier_ seconds=50.530119
+[multi-stage] name=m4_prepare_or_ seconds=8.784735
+[stage] prefix=or_ m4 0.0s rho 0.1s chains 5
+[stage] or_spppa net 23.2s produce 10.1s topk 0.0s
+[stage] or_spppp net 23.1s produce 10.7s topk 0.0s
+[stage] or_spmpm net 23.1s produce 11.1s topk 0.0s
+[stage] or_sppma net 23.2s produce 11.0s topk 0.0s
+[stage] or_spAAp net 23.1s produce 11.9s topk 0.0s
+[multi-stage] name=carrier_or_ seconds=45.314717
+[multi-stage] name=m4_prepare_oc_ seconds=0.000004
+[stage] prefix=oc_ m4 0.0s rho 0.2s chains 5
+[stage] oc_spppp net 23.5s produce 9.5s topk 0.0s
+[stage] oc_spppa net 23.1s produce 9.9s topk 0.0s
+[stage] oc_spmpm net 22.7s produce 11.0s topk 0.0s
+[stage] oc_sppma net 22.7s produce 11.0s topk 0.0s
+[stage] oc_spAAp net 23.5s produce 10.8s topk 0.1s
+[multi-stage] name=carrier_oc_ seconds=35.669904
+[multi-stage] name=m4_prepare_os_ seconds=4.164633
+[stage] prefix=os_ m4 0.0s rho 0.1s chains 5
+[stage] os_sppma net 25.5s produce 10.4s topk 0.0s
+[stage] os_spppa net 24.8s produce 11.1s topk 0.0s
+[stage] os_spmpm net 24.8s produce 11.6s topk 0.0s
+[stage] os_spppp net 24.9s produce 11.9s topk 0.0s
+[stage] os_spAAp net 24.9s produce 11.9s topk 0.0s
+[multi-stage] name=carrier_os_ seconds=42.413815
+[multi-stage] name=lead seconds=0.333751
+[multi-stage] name=svd seconds=4.038225
+[multi-stage] name=assemble seconds=0.242037
+[multi-stage] name=total_compute seconds=184.869748
+{
+  "date": 20260717,
+  "package": "/home/chenzongwei/rust_pyfunc/python/rust_pyfunc/__init__.py",
+  "threads": "50",
+  "opt": "0",
+  "ks": [
+    5,
+    30
+  ],
+  "load_before": [
+    1.00146484375,
+    10.81787109375,
+    18.41015625
+  ],
+  "module_sha256": "9d5d4746879bc60c8bbc9db2419d1bb19f0a53a1c0876d4414b072ba5bcd2f24",
+  "switches": {
+    "YUPEI_MULTI_CACHE": null,
+    "YUPEI_MULTI_SVD": null,
+    "YUPEI_SVD_CHUNK": null,
+    "YUPEI_SORT100_SIMD": null,
+    "YUPEI_NET_PROFILE": null,
+    "YUPEI_STAGE": "1",
+    "YUPEI_VERBOSE": null
+  },
+  "call_seconds": 187.3947681952268,
+  "array_seconds": 1.6491312813013792,
+  "stocks": 5195,
+  "factors": 12914,
+  "finite": 66164287,
+  "nan": 923943,
+  "inf": 0,
+  "max_rss_kib": 30243228,
+  "sha256": "3f33107dbd389468133d0b03bf2b032c6f898cfdd5912134816901df7d1f53c1",
+  "load_after": [
+    35.55517578125,
+    24.90673828125,
+    22.650390625
+  ]
+}
