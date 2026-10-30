@@ -1065,6 +1065,74 @@ pub fn py_yupei_multi_v5(
     .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("{e:?}")))
 }
 
+/// 列名单源：不读 Level2、不算因子，毫秒级。
+///
+/// 列名只由 `produce_one_mat_shared` 与 `topk::total_names` 里的代码字面量决定，
+/// 与 n 和真实行情无关（唯一的结构开关 `has_lnt` 真实数据恒为 true，这里也传 true）。
+/// 前缀与顺序照 `run_chains` 里 jobs 的构造来：载体（四套）× BC_COMBOS × X_DIRS，
+/// 再由 chains 过滤。合成 MatSet 复用 split 里那份，n=64。
+pub(crate) fn multi_factor_names(
+    ks: &[usize],
+    svd_k: usize,
+    chains: Option<&[String]>,
+) -> Vec<String> {
+    let n = 64usize;
+    let ms = crate::yupei_pair::split::fake_matset(n);
+    let mask = vec![true; n];
+    let industry: Vec<i32> = (0..n).map(|i| (i % 20) as i32).collect();
+    let lnt: Vec<f64> = (0..n).map(|i| ((i + 1) as f64).ln()).collect();
+    let mut names: Vec<String> = Vec::new();
+    for mode in [
+        CellMode::Base,
+        CellMode::Order,
+        CellMode::Otsu,
+        CellMode::OrderSide,
+    ] {
+        for &(_a, _b, tag) in BC_COMBOS.iter() {
+            for &c_dir in X_DIRS.iter() {
+                let short = format!("{tag}{}", dir_tag(c_dir));
+                if let Some(list) = chains {
+                    if !list.iter().any(|x| x == &short || x == &format!("sp{short}")) {
+                        continue;
+                    }
+                }
+                let pre = format!("{}sp{short}_", mode.tag());
+                let mut out = Out::new();
+                produce_one_mat_shared(
+                    &ms,
+                    &pre,
+                    n,
+                    &mask,
+                    Some(industry.as_slice()),
+                    Some(lnt.as_slice()),
+                    true,
+                    None,
+                    SoftCfg { temp: 0.3, thr: 2.0 },
+                    &mut out,
+                );
+                names.extend(out.names);
+                names.extend(crate::yupei_pair::topk::total_names(&pre, ks));
+            }
+        }
+    }
+    for nm in ["mean", "std", "skew", "max", "p10", "p90"] {
+        names.push(format!("ld_AA_{nm}"));
+    }
+    for i in 0..svd_k {
+        names.push(format!("sv_comp{}", i + 1));
+    }
+    names
+}
+
+/// Python 入口：只给 v5 的列名（毫秒级，不读数据）。与 `py_yupei_multi_v5`
+/// 的输出列逐字一致；流程脚本用它拿名字，不必先跑一整天。
+#[pyfunction]
+#[pyo3(signature = (ks=None, svd_k=8))]
+pub fn py_yupei_multi_v5_names(ks: Option<Vec<usize>>, svd_k: usize) -> Vec<String> {
+    let chains: Vec<String> = V5_CHAINS.iter().map(|s| s.to_string()).collect();
+    multi_factor_names(&ks.unwrap_or_else(|| vec![5, 20]), svd_k, Some(&chains))
+}
+
 
 /// 基准：同一天、同一批桶单元，标量版与 SIMD 版各跑一遍四分量矩阵。
 /// 返回 (标量耗时秒, SIMD 耗时秒, 两版最大绝对差)。

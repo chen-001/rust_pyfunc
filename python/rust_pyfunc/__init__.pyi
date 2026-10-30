@@ -536,6 +536,17 @@ def py_yupei_multi_v5(
     """
     ...
 
+def py_yupei_multi_v5_names(
+    ks: Optional[List[int]] = None,
+    svd_k: int = 8,
+) -> List[str]:
+    """v5 定稿版的列名（12914 个），不读 Level2、不算因子，毫秒级。
+
+    与 py_yupei_multi_v5 的输出列逐字一致；流程脚本用它拿名字。
+    ks 默认 [5, 20]，svd_k 默认 8，须与计算时传的一致。
+    """
+    ...
+
 def py_yupei_gpt(date: int) -> tuple[list[str], list[float]]:
     """玉佩精炼版单日计算：返回 (codes, 491列×股票数 扁平f32)。"""
     ...

@@ -2506,6 +2506,47 @@ pub fn pipeline_yupei_pair_split(date: i64, expected_len: usize) -> Vec<TaskResu
     }
 }
 
+/// 寻找玉佩-多种同步度（v5 定稿版）横截面 pipeline：四套载体 × 五条方向组合 = 12914 列。
+/// 参数固定为 py_yupei_multi_v5 的默认值（tau=1.0s、weight=cnt、ks=[5,20]、svd_k=8、
+/// 软阈值 0.3/2.0、null_mc=20000、exz_bins=10），保证列序与 py_yupei_multi_v5 一致。
+pub fn pipeline_yupei_multi_v5(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    let chains: Vec<String> = crate::yupei_multi::V5_CHAINS
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    match crate::yupei_multi::compute_multi_full(
+        date,
+        1.0,
+        "cnt",
+        &[5, 20],
+        crate::yupei_pair::reduce::SoftCfg {
+            temp: 0.3,
+            thr: 2.0,
+        },
+        20000,
+        10,
+        8,
+        Some(&chains),
+    ) {
+        Ok((codes, _names, vals)) => {
+            let n_factors = expected_len;
+            vals.chunks(n_factors)
+                .zip(codes.iter())
+                .map(|(facs, code)| TaskResult {
+                    date,
+                    code: code.clone(),
+                    timestamp: 0,
+                    facs: facs.to_vec(),
+                })
+                .collect()
+        }
+        Err(e) => {
+            eprintln!("yupei_multi_v5 error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
 /// 寻找玉佩-成交距离横截面 pipeline 包装：调核心，fan-out 成 TaskResult。
 pub fn pipeline_yupei_dist(date: i64, expected_len: usize) -> Vec<TaskResult> {
     match crate::yupei_dist::compute::compute_yupei_dist_full(date) {
@@ -3148,6 +3189,7 @@ pub fn run_factor_pipeline_cross_section(
         "yupei_pair_split",
         "yupei_gpt",
         "yupei_gpt_temporal",
+        "yupei_multi_v5",
         "pair_interaction",
         "urgency",
         "urgency_ext_cluster",

@@ -401,7 +401,7 @@ pub fn py_yupei_pair_split(
 /// `reduce2::expand` / `topk` 里的代码字面量决定，与 n 和真实行情无关；唯一的
 /// 结构开关是 `has_lnt`（真实数据恒 true，这里也传 true）。
 /// n=64 既能让 n×n 矩阵只有 16KB 量级，又能避开 n<MAX_K 之类的极端分支。
-fn fake_matset(n: usize) -> MatSet {
+pub(crate) fn fake_matset(n: usize) -> MatSet {
     let nn = n * n;
     let mut x = 0x2545F4914F6CDD1Du64; // 固定种子 → 确定性
     let mut next = move || {

@@ -1257,6 +1257,11 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(yupei_multi::py_yupei_multi, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(yupei_multi::py_yupei_multi_v5, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        yupei_multi::py_yupei_multi_v5_names,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(yupei_multi::py_bench_split_mats, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(yupei_dist::compute::py_yupei_dist, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(
         yupei_dist::compute::py_yupei_dist_names,

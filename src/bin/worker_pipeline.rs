@@ -26,7 +26,8 @@ use rust_pyfunc::factor_pipeline::{
     pipeline_yhyb_indtop,
     pipeline_switch_moment,
     pipeline_yupei_dist, pipeline_yupei_dist_lite, pipeline_yupei_gpt,
-    pipeline_yupei_gpt_temporal, pipeline_yupei_pair_split, ResultMessage,
+    pipeline_yupei_gpt_temporal, pipeline_yupei_multi_v5, pipeline_yupei_pair_split,
+    ResultMessage,
     TaskMessage,
 };
 use std::io::{BufReader, BufWriter};
@@ -189,6 +190,8 @@ fn main() {
                         pipeline_yupei_gpt(date, expected_len)
                     } else if pipeline_name == "yupei_gpt_temporal" {
                         pipeline_yupei_gpt_temporal(date, expected_len)
+                    } else if pipeline_name == "yupei_multi_v5" {
+                        pipeline_yupei_multi_v5(date, expected_len)
                     } else if pipeline_name == "yhyb" {
                         pipeline_yhyb(date, expected_len)
                     } else if pipeline_name == "yhyb_indtop" {
