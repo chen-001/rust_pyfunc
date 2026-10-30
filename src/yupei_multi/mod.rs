@@ -994,11 +994,11 @@ pub fn py_yupei_multi(
 
 
 /// 定稿入口：四套载体（原版、订单级、聚簇、订单方向级）+ 五种方向组合，
-/// 默认输出 13074 列。相对通用入口只是把 chains 钉死，其余完全相同。
+/// 默认使用 Top5/Top20，输出 12914 列；方向组合固定为五条链。
 ///
 /// date: 交易日 YYYYMMDD；tau: 衰减时间尺度（秒），默认 1.0。
 /// weight: "cnt" 按笔数，"vol" 按成交量平方根，默认 "cnt"。
-/// ks: 附加 TopK 因子的档位列表，默认 [5, 20, 100]；可传 [5, 20, 30]。
+/// ks: 附加 TopK 因子的档位列表，默认 [5, 20]；可显式传其他档位。
 /// svd_k: 横截面分解成分数，默认 8；sig_temp / sig_thr: 软阈值参数，默认 0.3 / 2.0。
 /// null_mc: 空模型抽样上限，默认 20000；exz_bins: 条件网格边数，默认 10。
 /// 返回 (股票代码, 因子列名, 按股票逐行展开的因子值)。线程数由 RAYON_NUM_THREADS 控制。
@@ -1020,7 +1020,7 @@ pub fn py_yupei_multi_v5(
         date,
         tau,
         weight,
-        &ks.unwrap_or_else(|| vec![5, 20, 100]),
+        &ks.unwrap_or_else(|| vec![5, 20]),
         SoftCfg {
             temp: sig_temp,
             thr: sig_thr,

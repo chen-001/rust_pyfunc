@@ -522,9 +522,9 @@ def py_yupei_multi_v5(
     null_mc: int = 20000,
     exz_bins: int = 10,
 ) -> Tuple[List[str], List[str], List[float]]:
-    """四套载体、固定五条方向链；默认输出 13074 列。
+    """四套载体、固定五条方向链；默认输出 12914 列。
 
-    ks 默认 [5, 20, 100]；[5, 20, 30] 将最大一档改为30，[30]仅保留一档。
+    ks 默认 [5, 20]；可显式传 [5, 30] 或 [5, 20, 100] 等其他档位。
     ks 控制附加TopK档位，不改变其他因子内部固定的Top20/Top50等参数。
     weight 为 "cnt"（笔数）或 "vol"（成交量平方根）；tau 为衰减秒数；
     svd_k 为分解成分数，sig_temp/sig_thr 为软阈值温度/阈值，null_mc 为

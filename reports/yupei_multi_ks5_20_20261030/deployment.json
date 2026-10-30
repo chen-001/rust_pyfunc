@@ -1,0 +1,14 @@
+{
+  "module": "/home/chenzongwei/rust_pyfunc/python/rust_pyfunc/rust_pyfunc.abi3.so",
+  "module_sha256": "b80e72dd00c387e2b6f444af399e216f3ac35a662ac3c2a8809a68b598300173",
+  "worker": "/home/chenzongwei/rust_pyfunc/python/rust_pyfunc/rust_pyfunc_worker",
+  "worker_sha256": "58c2119eccf0c1e62247a5c28bbc03046792a26dba8c94d39e596f7ceeb6c148",
+  "source_sha256": "b247dfaa248d67e2e554c3ceb49ab3a25e2db625de751222b36053b399976f00",
+  "default_ks": [
+    5,
+    20
+  ],
+  "profile": "release-fast",
+  "date": 20260717,
+  "threads": 50
+}
