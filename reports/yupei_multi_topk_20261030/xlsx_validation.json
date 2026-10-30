@@ -1,0 +1,15 @@
+{
+  "file": "reports/yupei_multi_topk_20261030/py_yupei_multi_v5修复与TopK对比.xlsx",
+  "sheets_checked": [
+    "耗时结论",
+    "阶段耗时",
+    "参数说明",
+    "输出对账",
+    "差异列",
+    "差异样例"
+  ],
+  "formula_count": 54,
+  "shared_formula_ranges": 0,
+  "error_count": 0,
+  "errors": []
+}
