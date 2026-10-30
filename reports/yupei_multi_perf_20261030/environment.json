@@ -1,0 +1,36 @@
+{
+  "version": "0.92.0",
+  "date": "2026-10-30",
+  "cpu": "AMD EPYC 9754, 2 sockets, 256 physical cores",
+  "threads": 50,
+  "source_sha256": {
+    "python/rust_pyfunc/rust_pyfunc.abi3.so": "3842e093f7d553c26cca5db71d81e660b89bed721e08b86d848e3fac0e9e618d",
+    "src/yupei_multi/mod.rs": "5b1c888b317d7dedcf2c89b6e86ac4a000ed8294fbcf9d492d04d558e9a6be0c",
+    "src/yupei_pair/net.rs": "5b3ebd66385e94c722989d1fab4e9f81392071cd9862ac8aca9d4069764870cf",
+    "src/yupei_pair/simd.rs": "e326129b007ee52f62c1869d2e0675dbe81e50200a512e82e230cb9dcb37b316",
+    "src/yupei_pair/reduce.rs": "009ae0cc2ade31e3e44d61ccffef4f34a6ffdadd27f37e31751d3b9a126ce339",
+    "src/yupei_pair/reduce2.rs": "014764967ead26e0689caa0fdd67a3046f765964aaa985aa40467d723976b328",
+    "src/yupei_pair/split_mat.rs": "ab027847cd5a423837880814e026eedab1ceb62839a142aa250e3069d100bd60",
+    "src/yupei_pair/bitonic_sort.rs": "cdc3ac3567e811e3b22e2269d85f1bcb4878e174f6f01a2961b893d74259263b",
+    "sandbox/yupei_multi_perf_20261030/package_initial/rust_pyfunc/rust_pyfunc.abi3.so": "b23589af4914ffb85a7ee9df5553305697092c17b6bcb151be5b32151fd43896",
+    "sandbox/yupei_multi_perf_20261030/package_sort100/rust_pyfunc/rust_pyfunc.abi3.so": "cd07693f0ef6341aa6a1506f1e0e9d440528b18d1a320abf27270c1997362ba1"
+  },
+  "parameters": {
+    "tau": 1.0,
+    "weight": "cnt",
+    "ks": [
+      5,
+      20,
+      100
+    ],
+    "svd_k": 8,
+    "sig_temp": 0.3,
+    "sig_thr": 2.0,
+    "null_mc": 20000,
+    "exz_bins": 10
+  },
+  "csv_bytes_20260717": 32868636295,
+  "csv_bytes_20241231": 22378191448,
+  "clock_boundary": "Python call through return-list conversion; excludes NumPy conversion and saving",
+  "validation_scope": "20260717, default cnt and all 13074 columns, 50 Rayon workers; no multi-day guarantee"
+}
