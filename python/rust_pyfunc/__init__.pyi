@@ -526,6 +526,7 @@ def py_yupei_multi_v5(
 
     ks 默认 [5, 20]；可显式传 [5, 30] 或 [5, 20, 100] 等其他档位。
     ks 控制附加TopK档位，不改变其他因子内部固定的Top20/Top50等参数。
+    等值加速路径默认启用；线程数在新进程启动前通过 RAYON_NUM_THREADS 设置。
     weight 为 "cnt"（笔数）或 "vol"（成交量平方根）；tau 为衰减秒数；
     svd_k 为分解成分数，sig_temp/sig_thr 为软阈值温度/阈值，null_mc 为
     空模型抽样规模（按100层分配，每层至少20次尝试），exz_bins 为条件网格边数。

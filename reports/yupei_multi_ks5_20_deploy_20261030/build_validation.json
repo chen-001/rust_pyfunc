@@ -1,0 +1,24 @@
+{
+  "build_command": "PATH=/home/chenzongwei/.cargo/bin:$PATH CARGO_BUILD_JOBS=16 timeout 600s ./alter.sh",
+  "exit_code": 0,
+  "profile": "release-fast",
+  "completion_lines": [
+    "Finished `release-fast` profile [optimized] target(s) in 53.26s",
+    "Finished `release-fast` profile [optimized] target(s) in 1m 18s",
+    "\u2705 worker \u4e8c\u8fdb\u5236\uff08release-fast\uff09\u5df2\u90e8\u7f72\u5230 python/rust_pyfunc/rust_pyfunc_worker",
+    "\u6821\u9a8c\u65f6\u95f4\u6233\uff1a2026-10-30 19:47:20"
+  ],
+  "build_log_sha256": "91161970d0eac2cb8275d07b6cbb88c720fa52658b64db5e62ab2b3fe87ef616",
+  "sandbox_source": "sandbox/yupei_multi_ks5_20_20261030",
+  "selected_optimizations": [
+    "high-first candidate selection",
+    "AVX512 per-stock accumulation",
+    "two-target matrix kernel",
+    "shared R2/R3",
+    "tiled lower-triangle mirroring"
+  ],
+  "not_selected": [
+    "R6 streaming"
+  ],
+  "prerequisites_recorded": "Previously used SSE/cells matrix entry, fake_sdir visibility, BitMat graph implementation, and v5 Python export are recorded with the integration; unrelated experiments remain unstaged."
+}

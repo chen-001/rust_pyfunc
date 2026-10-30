@@ -13,7 +13,7 @@
 use rayon::prelude::*;
 use std::time::Instant;
 
-use super::reduce::{spearman, topk_adj_multi, MatSet, Out};
+use super::reduce::{spearman, topk_adj_bits, topk_rows, BitMat, MatSet, Out};
 
 // ============================================================
 // A. 行统计：每股在一张 N×N 分数矩阵上的配对分布形状
@@ -862,10 +862,10 @@ fn block_r3(
 // F. R4 扩展：5 张核 × 5 个 k 的图 + 相似图对照 + 聚类系数
 // ============================================================
 
-fn clustering(n: usize, adj: &[bool], i: usize) -> f64 {
+fn clustering(n: usize, adj: &BitMat, i: usize) -> f64 {
     let mut nbrs = Vec::new();
     for j in 0..n {
-        if adj[i * n + j] {
+        if adj.get(i, j) {
             nbrs.push(j);
         }
     }
@@ -876,7 +876,7 @@ fn clustering(n: usize, adj: &[bool], i: usize) -> f64 {
     let mut linked = 0usize;
     for a in 0..d {
         for b in (a + 1)..d {
-            if adj[nbrs[a] * n + nbrs[b]] {
+            if adj.get(nbrs[a], nbrs[b]) {
                 linked += 1;
             }
         }
@@ -897,22 +897,26 @@ fn block_r4(ms: &MatSet, pre: &str, n: usize, ok: &[bool], graph_rows: (&[Vec<u3
     let n_ok = ok.iter().filter(|&&v| v).count();
     let kks: Vec<usize> = ks.iter().map(|&k| k.min(n_ok.saturating_sub(1))).collect();
     // 邻接矩阵只算 5 次（每图一次排序、5 档共享），adjs 存引用避免拷贝
-    let adj_all: Vec<Vec<Vec<bool>>> = graphs
+    let adj_all: Vec<Vec<BitMat>> = graphs
         .iter()
         .enumerate()
         .map(|(gi, (_, m))| match gi {
-            0 => super::reduce::topk_adj_from_rows(n, graph_rows.0, &kks),
-            1 => super::reduce::topk_adj_from_rows(n, graph_rows.1, &kks),
-            _ => topk_adj_multi(n, m, &kks, ok),
+            0 => topk_adj_bits(n, graph_rows.0, &kks),
+            1 => topk_adj_bits(n, graph_rows.1, &kks),
+            _ => {
+                let kmax = *kks.iter().max().unwrap_or(&0);
+                let rows = topk_rows(n, m, kmax, ok);
+                topk_adj_bits(n, &rows, &kks)
+            }
         })
         .collect();
-    let mut adjs: Vec<(&'static str, usize, &Vec<bool>)> = Vec::new();
+    let mut adjs: Vec<(&'static str, usize, &BitMat)> = Vec::new();
     for (gi, (gn, _)) in graphs.iter().enumerate() {
         for (ki, &k) in ks.iter().enumerate() {
             let adj = &adj_all[gi][ki];
             let deg: Vec<f64> = (0..n)
                 .into_par_iter()
-                .map(|i| (0..n).filter(|&j| adj[i * n + j]).count() as f64)
+                .map(|i| adj.deg(i) as f64)
                 .collect();
             out.push(&format!("{pre}r4_deg_{gn}_k{k}"), deg);
             adjs.push((gn, k, adj));
@@ -940,7 +944,7 @@ fn block_r4(ms: &MatSet, pre: &str, n: usize, ok: &[bool], graph_rows: (&[Vec<u3
                 let mut inter = 0usize;
                 let mut uni = 0usize;
                 for j in 0..n {
-                    let (a, b) = (ar[i * n + j], ag[i * n + j]);
+                    let (a, b) = (ar.get(i, j), ag.get(i, j));
                     inter += (a && b) as usize;
                     uni += (a || b) as usize;
                 }

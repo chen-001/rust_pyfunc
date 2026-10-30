@@ -50,7 +50,18 @@ impl PmWeight {
 
 /// 单日四分量矩阵: `[PP, PM, MP, MM]`，各 n×n 行主序，S[i][j] = i 领先 j。
 pub fn compute_split_mats(stocks: &[StockPrep], tau: f32, w: PmWeight) -> [Vec<f32>; 4] {
-    let n = stocks.len();
+    let cells: Vec<Vec<(u32, [f32; 4])>> = stocks.iter().map(|s| s.cells_pm.clone()).collect();
+    compute_split_mats_from_cells(&cells, tau, w)
+}
+
+/// 同一套算法，直接吃「桶单元列表」。多载体 pipeline 里订单级、聚簇两套桶单元
+/// 只有这一层不同，直接传进来复用全部下游。
+pub fn compute_split_mats_from_cells(
+    cells: &[Vec<(u32, [f32; 4])>],
+    tau: f32,
+    w: PmWeight,
+) -> [Vec<f32>; 4] {
+    let n = cells.len();
     let (lp, lm) = w.lanes();
     let decay = (-(BUCKET_US as f32) / (tau * 1e6)).exp();
     let mut mats: [Vec<f32>; 4] = std::array::from_fn(|_| vec![0.0f32; n * n]);
@@ -68,12 +79,12 @@ pub fn compute_split_mats(stocks: &[StockPrep], tau: f32, w: PmWeight) -> [Vec<f
         let k1 = k0 + BLOCK_BUCKETS as u32;
 
         // ---- 1. 每股块内 cell 数 + 拼块内缓冲（按股票连续）----
-        let counts: Vec<usize> = stocks
+        let counts: Vec<usize> = cells
             .par_iter()
             .enumerate()
             .map(|(i, st)| {
                 let mut c = cursors[i];
-                while c < st.cells_pm.len() && st.cells_pm[c].0 < k1 {
+                while c < st.len() && st[c].0 < k1 {
                     c += 1;
                 }
                 c - cursors[i]
@@ -91,7 +102,7 @@ pub fn compute_split_mats(stocks: &[StockPrep], tau: f32, w: PmWeight) -> [Vec<f
         for i in 0..n {
             let s = cursors[i];
             let c = counts[i];
-            buf[offs[i]..offs[i] + c].copy_from_slice(&stocks[i].cells_pm[s..s + c]);
+            buf[offs[i]..offs[i] + c].copy_from_slice(&cells[i][s..s + c]);
             cursors[i] += c;
         }
 
@@ -261,3 +272,152 @@ mod tests {
         assert!(m4[PP][1 * n + 0] > 0.0, "S[B][A] 应 > 0");
     }
 }
+
+/// SIMD 版四分量矩阵：把四个分量打包成一个四元组，用 SSE 一次算完。
+///
+/// 与 `compute_split_mats_from_cells` 数学等价，只有配对累加那一段变了：
+/// 标量版每个成交桶做四次乘加，这里改成「构造两个四元组、一次乘加」。
+/// 建场那一段保持标量，因为衰减是逐格递推，有前后依赖。
+pub fn compute_split_mats_simd(
+    cells: &[Vec<(u32, [f32; 4])>],
+    tau: f32,
+    w: PmWeight,
+) -> [Vec<f32>; 4] {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if std::env::var("YUPEI_MATRIX_TWO_TARGET").as_deref() != Ok("0")
+            && std::arch::is_x86_feature_detected!("avx2")
+        {
+            return unsafe { compute_split_mats_two_targets(cells, tau, w) };
+        }
+        compute_split_mats_sse(cells, tau, w)
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        compute_split_mats_from_cells(cells, tau, w)
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+fn compute_split_mats_sse(
+    cells: &[Vec<(u32, [f32; 4])>],
+    tau: f32,
+    w: PmWeight,
+) -> [Vec<f32>; 4] {
+    use std::arch::x86_64::*;
+    let n = cells.len();
+    let (lp, lm) = w.lanes();
+    let decay = (-(BUCKET_US as f32) / (tau * 1e6)).exp();
+    let mut mats: [Vec<f32>; 4] = std::array::from_fn(|_| vec![0.0f32; n * n]);
+
+    const GPAD: usize = BLOCK_BUCKETS * 2;
+    let packs: Vec<std::sync::Mutex<Vec<f32>>> = (0..n)
+        .into_par_iter()
+        .map(|_| std::sync::Mutex::new(vec![0.0f32; n * 4 + 2 + GPAD]))
+        .collect();
+
+    let mut cursors = vec![0usize; n];
+    for block in 0..N_BLOCKS {
+        let k0 = (block * BLOCK_BUCKETS) as u32;
+        let k1 = k0 + BLOCK_BUCKETS as u32;
+
+        let counts: Vec<usize> = cells
+            .par_iter()
+            .enumerate()
+            .map(|(i, st)| {
+                let mut c = cursors[i];
+                while c < st.len() && st[c].0 < k1 {
+                    c += 1;
+                }
+                c - cursors[i]
+            })
+            .collect();
+        let total: usize = counts.iter().sum();
+        if total == 0 {
+            continue;
+        }
+        let mut offs: Vec<usize> = Vec::with_capacity(n + 1);
+        let mut acc = 0usize;
+        for &c in counts.iter() {
+            offs.push(acc);
+            acc += c;
+        }
+        offs.push(acc);
+        let mut buf: Vec<(u32, [f32; 4])> = vec![(0, [0.0f32; 4]); total];
+        for i in 0..n {
+            let s = cursors[i];
+            let c = counts[i];
+            buf[offs[i]..offs[i] + c].copy_from_slice(&cells[i][s..s + c]);
+            cursors[i] += c;
+        }
+
+        let (buf_ref, offs_ref, counts_ref) = (&buf, &offs, &counts);
+        (0..n).into_par_iter().for_each(|j| {
+            let mut g = packs[j].lock().unwrap();
+            let (pack, rest) = g.split_at_mut(n * 4);
+            let (acc, gp) = rest.split_at_mut(2);
+            let (mut ap, mut am) = (acc[0], acc[1]);
+            let (bcnt, boff) = (counts_ref[j], offs_ref[j]);
+            let mut cur = 0usize;
+            for k in 0..BLOCK_BUCKETS {
+                let (mut up, mut um) = (0.0f32, 0.0f32);
+                while cur < bcnt && (buf_ref[boff + cur].0 - k0) as usize == k {
+                    let u = &buf_ref[boff + cur].1;
+                    up += u[lp];
+                    um += u[lm];
+                    cur += 1;
+                }
+                gp[k * 2] = ap + 0.5 * up;
+                gp[k * 2 + 1] = am + 0.5 * um;
+                ap = (ap + up) * decay;
+                am = (am + um) * decay;
+            }
+
+            // 配对累加：四个分量打包成 [PP, PM, MP, MM]，一次乘加算完
+            unsafe {
+                for i in 0..n {
+                    let ca = counts_ref[i];
+                    if ca == 0 {
+                        continue;
+                    }
+                    let base = i * 4;
+                    let mut pv = _mm_loadu_ps(pack.as_ptr().add(base));
+                    for t in 0..ca {
+                        let cell = &buf_ref[offs_ref[i] + t];
+                        let kl = (cell.0 - k0) as usize;
+                        let gpk = [*gp.get_unchecked(kl * 2), *gp.get_unchecked(kl * 2 + 1)];
+                        let up = *cell.1.get_unchecked(lp);
+                        let um = *cell.1.get_unchecked(lm);
+                        // e0=PP=up*gP  e1=PM=up*gM  e2=MP=um*gP  e3=MM=um*gM
+                        let a = _mm_set_ps(um, um, up, up);
+                        let b = _mm_set_ps(gpk[1], gpk[0], gpk[1], gpk[0]);
+                        pv = _mm_add_ps(pv, _mm_mul_ps(a, b));
+                    }
+                    _mm_storeu_ps(pack.as_mut_ptr().add(base), pv);
+                }
+            }
+            acc[0] = ap;
+            acc[1] = am;
+        });
+    }
+
+    struct Ptr(*mut f32);
+    unsafe impl Send for Ptr {}
+    unsafe impl Sync for Ptr {}
+    let raw: Vec<Ptr> = mats.iter_mut().map(|v| Ptr(v.as_mut_ptr())).collect();
+    (0..n).into_par_iter().for_each(|j| {
+        let g = packs[j].lock().unwrap();
+        let pack = &g[..n * 4];
+        for i in 0..n {
+            for t in 0..4 {
+                unsafe {
+                    *raw[t].0.add(j * n + i) = pack[i * 4 + t];
+                }
+            }
+        }
+    });
+    mats
+}
+
+// Same accumulations, two target stocks per AVX2 vector; hardware fallback remains available.
+include!("split_mat_two_target.rs");

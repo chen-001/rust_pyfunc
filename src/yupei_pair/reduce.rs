@@ -1393,6 +1393,46 @@ pub(crate) fn matset_from_net(net: NetMats, n: usize) -> MatSet {
     }
 }
 
+/// Independent of the third-stock direction: reuse within one carrier + (B, C).
+/// Build outside the parallel chain loop: a blocking OnceLock initializer that
+/// itself enters Rayon can deadlock when a worker steals another dependent chain.
+pub(crate) struct SharedRhoReduce {
+    single: Vec<f32>,
+    best_pair: Vec<f32>,
+    b_i: Vec<i32>,
+    c_i: Vec<i32>,
+    r2_top: Vec<Vec<(f32, i32, i32)>>,
+    r2_beat: Vec<i64>,
+    r3: R3,
+}
+
+/// Reproduce net_one_mat's f32 sdir -> (f64 e, f32 rho) round trip exactly.
+/// Using the original rho_ab directly would silently change floating-point bits.
+pub(crate) fn prepare_shared_rho_reduce(
+    sdir: &[f32], n: usize, ok: &[bool],
+) -> SharedRhoReduce {
+    let e: Vec<f64> = (0..n).map(|i| 2.0 * sdir[i * n + i] as f64).collect();
+    let mut rho = vec![0.0f32; n * n];
+    rho.par_chunks_mut(n).enumerate().for_each(|(i, row)| {
+        row[i] = 1.0;
+        let si = e[i].sqrt();
+        for j in (i + 1)..n {
+            let sj = e[j].sqrt();
+            row[j] = ((sdir[i * n + j] + sdir[j * n + i]) as f64 / (si * sj)) as f32;
+        }
+    });
+    for i in 0..n {
+        for j in 0..i {
+            rho[i * n + j] = rho[j * n + i];
+        }
+    }
+    let single = best_single_of(n, &rho, ok);
+    let (best_pair, b_i, c_i, r2_top, r2_beat) =
+        super::reduce2::pair_scan_merged(n, &rho, &e, &single, ok, 50);
+    let r3 = r3_greedy(n, &rho, &e, ok);
+    SharedRhoReduce { single, best_pair, b_i, c_i, r2_top, r2_beat, r3 }
+}
+
 /// 一个矩阵全套的因子合成：legacy 77 列（逐字搬旧版）+ reduce2 扩展列。
 pub(crate) fn produce_one_mat(
     ms: &MatSet,
@@ -1403,6 +1443,17 @@ pub(crate) fn produce_one_mat(
     lnt: Option<&[f64]>,
     has_lnt: bool,
     out: &mut Out,
+) {
+    produce_one_mat_shared(ms, pre, n, ok, industry, lnt, has_lnt, None, out);
+}
+
+/// Optional cache of R2/R3 only; G/GS/X0 and every network-dependent statistic
+/// remain chain-specific. Existing callers retain the original API and behavior.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn produce_one_mat_shared(
+    ms: &MatSet, pre: &str, n: usize, ok: &[bool],
+    industry: Option<&[i32]>, lnt: Option<&[f64]>, has_lnt: bool,
+    shared: Option<&SharedRhoReduce>, out: &mut Out,
 ) {
     let (rho, e, g, gs) = (&ms.rho, &ms.e, &ms.g, &ms.gs);
     let (z, zs, x0, x0s) = (&ms.z, &ms.zs, &ms.x0, &ms.x0s);
@@ -1446,9 +1497,19 @@ pub(crate) fn produce_one_mat(
 
     // ---------------- R2（与 reduce2::block_r2 的 top-50 配对扫描合并为一趟）----------------
     let t0 = Instant::now();
-    let single = best_single_of(n, rho, ok);
-    let (best_pair, b_i, c_i, r2_top, r2_beat) =
-        super::reduce2::pair_scan_merged(n, rho, e, &single, ok, 50);
+    let local_r2;
+    let (single, best_pair, b_i, c_i, r2_top, r2_beat) = match shared {
+        Some(shared) => (&shared.single, &shared.best_pair, &shared.b_i,
+            &shared.c_i, &shared.r2_top, &shared.r2_beat),
+        None => {
+            let single = best_single_of(n, rho, ok);
+            let (best_pair, b_i, c_i, r2_top, r2_beat) =
+                super::reduce2::pair_scan_merged(n, rho, e, &single, ok, 50);
+            local_r2 = (single, best_pair, b_i, c_i, r2_top, r2_beat);
+            (&local_r2.0, &local_r2.1, &local_r2.2,
+                &local_r2.3, &local_r2.4, &local_r2.5)
+        }
+    };
     let (r2_single, r2_pair, r2_gain, r2_ratio, r2_cross) =
         three_way(n, &single, &best_pair, &b_i, &c_i, industry);
     out.push(&p("r2_best_single"), r2_single);
@@ -1463,7 +1524,14 @@ pub(crate) fn produce_one_mat(
     }
 
     // ---------------- R3 ----------------
-    let r3 = r3_greedy(n, rho, e, ok);
+    let local_r3;
+    let r3 = match shared {
+        Some(shared) => &shared.r3,
+        None => {
+            local_r3 = r3_greedy(n, rho, e, ok);
+            &local_r3
+        }
+    };
     for s in 0..4 {
         out.push(
             &p(&format!("r3_marg{}", s + 1)),
@@ -1563,4 +1631,62 @@ pub(crate) fn produce_one_mat(
         (&r4.rows_rho, &r4.rows_g),
         out,
     );
+}
+
+/// 一位一格的邻接矩阵。原来用 `Vec<bool>`，一个格子一字节；25 个矩阵要 675 MB。
+pub(crate) struct BitMat {
+    pub(crate) n: usize,
+    pub(crate) bits: Vec<u64>,
+}
+
+impl BitMat {
+    pub(crate) fn zeros(n: usize) -> Self {
+        BitMat { n, bits: vec![0u64; (n * n + 63) / 64] }
+    }
+    #[inline]
+    pub(crate) fn set(&mut self, i: usize, j: usize) {
+        let p = i * self.n + j;
+        self.bits[p >> 6] |= 1u64 << (p & 63);
+    }
+    #[inline]
+    pub(crate) fn get(&self, i: usize, j: usize) -> bool {
+        let p = i * self.n + j;
+        (self.bits[p >> 6] >> (p & 63)) & 1 == 1
+    }
+    /// 第 i 行的真值个数。
+    #[inline]
+    pub(crate) fn deg(&self, i: usize) -> u32 {
+        let base = i * self.n;
+        let (lo, hi) = (base, base + self.n);
+        let (wl, wh) = (lo >> 6, (hi + 63) >> 6);
+        let mut s = 0u32;
+        for w in wl..wh {
+            let mut v = self.bits[w];
+            if w == wl && lo % 64 != 0 {
+                v &= u64::MAX << (lo % 64);
+            }
+            if w == wh - 1 && hi % 64 != 0 {
+                v &= u64::MAX >> (64 - hi % 64);
+            }
+            s += v.count_ones();
+        }
+        s
+    }
+}
+
+/// 与 `topk_adj_from_rows` 同样的对称填充，只是存成位向量。
+pub(crate) fn topk_adj_bits(n: usize, rows: &[Vec<u32>], ks: &[usize]) -> Vec<BitMat> {
+    ks.iter()
+        .map(|&k| {
+            let mut m = BitMat::zeros(n);
+            for i in 0..n {
+                for &j in rows[i].iter().take(k) {
+                    let j = j as usize;
+                    m.set(i, j);
+                    m.set(j, i);
+                }
+            }
+            m
+        })
+        .collect()
 }

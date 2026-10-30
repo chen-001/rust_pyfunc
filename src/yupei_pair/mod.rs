@@ -25,6 +25,7 @@ pub(crate) mod bitonic_sort;
 pub(crate) mod topk_heap;
 pub(crate) mod check;
 pub(crate) mod net;
+mod mirror_stage;
 pub(crate) mod reduce;
 pub(crate) mod reduce2;
 pub(crate) mod simd;

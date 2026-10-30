@@ -1,0 +1,26 @@
+{
+  "call_seconds": 147.4584980737418,
+  "stocks": 5195,
+  "factors": 12914,
+  "default_ks": [
+    5,
+    20
+  ],
+  "threads": 50,
+  "bit_mismatches": 0,
+  "numeric_values": 67088230,
+  "optimization_environment_required": false,
+  "shared_groups_observed": 4,
+  "mirror_stages_observed": 20,
+  "r6_included": false,
+  "binaries": {
+    "python/rust_pyfunc/rust_pyfunc.abi3.so": {
+      "sha256": "2a25e4302e5d3ecac38ecee819b9817ad7205cddad0a9b9f0b9f9ca87f801c3b",
+      "mtime": 1793360761.2017
+    },
+    "python/rust_pyfunc/rust_pyfunc_worker": {
+      "sha256": "006dc3d3e1fe82fd791cdebe74f1bfb77a28c09aaf12a12b64991f0db963eb65",
+      "mtime": 1793360840.8116338
+    }
+  }
+}

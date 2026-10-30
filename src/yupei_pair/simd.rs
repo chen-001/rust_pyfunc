@@ -482,6 +482,17 @@ pub fn mass_acc_hg(
     do_h: bool,
     do_g: bool,
 ) {
+    // Enabled by default; set YUPEI_MASS_AVX512=0 for diagnostics. Short tails keep the legacy path.
+    #[cfg(target_arch = "x86_64")]
+    if h.len() >= 16 {
+        static MASS_AVX512: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if *MASS_AVX512.get_or_init(|| {
+            std::env::var("YUPEI_MASS_AVX512").as_deref() != Ok("0")
+                && is_x86_feature_detected!("avx512f")
+        }) {
+            return mass_acc_hg_512(em, gm, g2m, sm, sgm, sg2m, h, g, invh, invg, do_h, do_g);
+        }
+    }
     let n = h.len();
     #[cfg(target_arch = "x86_64")]
     unsafe {
@@ -971,6 +982,11 @@ pub fn select_topk_keys(
     kh: &mut [u64],
     mid_buf: &mut [u64],
 ) {
+    // Enabled by default; an explicit 0 restores the legacy selector. Read once per process.
+    static HIGH_FIRST: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    if *HIGH_FIRST.get_or_init(|| std::env::var("YUPEI_TOPK_HIGH_FIRST").as_deref() != Ok("0")) {
+        return select_topk_keys_high_first(scores, take, kh, mid_buf);
+    }
     let n = scores.len();
     if take == 0 || n == 0 {
         return;
@@ -1058,4 +1074,189 @@ pub fn select_topk_keys(
     }
     kh.select_nth_unstable(take - 1);
     super::bitonic_sort::sort_keys(&mut kh[..take], mid_buf);
+}
+
+// Exact legacy selection: collect mid candidates only when the high bucket is too small.
+fn select_topk_keys_high_first(
+    scores: &[f32],
+    take: usize,
+    kh: &mut [u64],
+    mid_buf: &mut [u64],
+) {
+    let n = scores.len();
+    if take == 0 || n == 0 {
+        return;
+    }
+    #[cfg(target_arch = "x86_64")]
+    unsafe {
+        if have_avx2() && n >= 1024 && take * 4 < n {
+            const NSAMP: usize = 128;
+            let step = n / NSAMP;
+            let mut samp = [0.0f32; NSAMP];
+            for s in 0..NSAMP {
+                samp[s] = *scores.get_unchecked(s * step);
+            }
+            let k1 = ((take * NSAMP) / n).saturating_sub(2).max(1);
+            let k2 = (((take * NSAMP) / n) + 5).min(NSAMP - 1);
+            samp.select_nth_unstable_by(k2, |a, b| b.total_cmp(a));
+            let t2 = samp[k2];
+            samp[..k2].select_nth_unstable_by(k1, |a, b| b.total_cmp(a));
+            let t1 = samp[k1];
+            if t2.is_finite() && t1.is_finite() && t1 >= t2 {
+                let vt1 = _mm256_set1_ps(t1);
+                let vt2 = _mm256_set1_ps(t2);
+                let mut n_hi = 0usize;
+                let mut x = 0usize;
+                // Preserve exact legacy t1 candidate set; defer mid candidates until needed.
+                while x + 8 <= n {
+                    let v = _mm256_loadu_ps(scores.as_ptr().add(x));
+                    let mut hi = _mm256_movemask_ps(_mm256_cmp_ps::<_CMP_GE_OQ>(v, vt1)) as u32;
+                    while hi != 0 {
+                        let l = hi.trailing_zeros() as usize;
+                        let idx = x + l;
+                        *kh.get_unchecked_mut(n_hi) =
+                            pack_desc_idx_asc(*scores.get_unchecked(idx), idx as u32);
+                        n_hi += 1;
+                        hi &= hi - 1;
+                    }
+                    x += 8;
+                }
+                while x < n {
+                    let sv = *scores.get_unchecked(x);
+                    if sv >= t1 {
+                        *kh.get_unchecked_mut(n_hi) = pack_desc_idx_asc(sv, x as u32);
+                        n_hi += 1;
+                    }
+                    x += 1;
+                }
+                if n_hi >= take {
+                    if n_hi > take {
+                        kh[..n_hi].select_nth_unstable(take - 1);
+                    }
+                    super::bitonic_sort::sort_keys(&mut kh[..take], mid_buf);
+                    return;
+                }
+                let mut n_mid = 0usize;
+                let mut x = 0usize;
+                while x + 8 <= n {
+                    let v = _mm256_loadu_ps(scores.as_ptr().add(x));
+                    let above_lower = _mm256_cmp_ps::<_CMP_GE_OQ>(v, vt2);
+                    let below_upper = _mm256_cmp_ps::<_CMP_LT_OQ>(v, vt1);
+                    let mut md = _mm256_movemask_ps(_mm256_and_ps(above_lower, below_upper)) as u32;
+                    while md != 0 {
+                        let l = md.trailing_zeros() as usize;
+                        let idx = x + l;
+                        *mid_buf.get_unchecked_mut(n_mid) =
+                            pack_desc_idx_asc(*scores.get_unchecked(idx), idx as u32);
+                        n_mid += 1;
+                        md &= md - 1;
+                    }
+                    x += 8;
+                }
+                while x < n {
+                    let sv = *scores.get_unchecked(x);
+                    if sv < t1 && sv >= t2 {
+                        *mid_buf.get_unchecked_mut(n_mid) = pack_desc_idx_asc(sv, x as u32);
+                        n_mid += 1;
+                    }
+                    x += 1;
+                }
+                if n_hi + n_mid >= take {
+                    let need = take - n_hi;
+                    let mid = &mut mid_buf[..n_mid];
+                    if n_mid > need {
+                        mid.select_nth_unstable(need - 1);
+                    }
+                    kh[n_hi..take].copy_from_slice(&mid[..need]);
+                    super::bitonic_sort::sort_keys(&mut kh[..take], mid_buf);
+                    return;
+                }
+            }
+        }
+    }
+    for x in 0..n {
+        kh[x] = pack_desc_idx_asc(scores[x], x as u32);
+    }
+    kh.select_nth_unstable(take - 1);
+    super::bitonic_sort::sort_keys(&mut kh[..take], mid_buf);
+}
+
+// Independent per-stock accumulations: same multiply/add order, 16 lanes instead of 8.
+fn mass_acc_hg_512(
+    em: &mut [f32],
+    gm: &mut [f32],
+    g2m: &mut [f32],
+    sm: &mut [f32],
+    sgm: &mut [f32],
+    sg2m: &mut [f32],
+    h: &[f32],
+    g: &[f32],
+    invh: f32,
+    invg: f32,
+    do_h: bool,
+    do_g: bool,
+) {
+    let n = h.len();
+    #[cfg(target_arch = "x86_64")]
+    unsafe {
+        if is_x86_feature_detected!("avx512f") {
+            let zero = _mm512_setzero_ps();
+            let vh = _mm512_set1_ps(invh);
+            let vg = _mm512_set1_ps(invg);
+            let mut x = 0;
+            while x + 16 <= n {
+                let hv = _mm512_loadu_ps(h.as_ptr().add(x));
+                let gv = _mm512_loadu_ps(g.as_ptr().add(x));
+                if do_h {
+                    let m = _mm512_cmp_ps_mask::<_CMP_GT_OQ>(hv, zero);
+                    let w = _mm512_mul_ps(hv, vh);
+                    let wgg = _mm512_mul_ps(w, gv);
+                    let wgg2 = _mm512_mul_ps(wgg, gv);
+                    let e0 = _mm512_loadu_ps(em.as_ptr().add(x));
+                    let g0 = _mm512_loadu_ps(gm.as_ptr().add(x));
+                    let q0 = _mm512_loadu_ps(g2m.as_ptr().add(x));
+                    _mm512_storeu_ps(
+                        em.as_mut_ptr().add(x),
+                        _mm512_add_ps(e0, _mm512_maskz_mov_ps(m, w)),
+                    );
+                    _mm512_storeu_ps(
+                        gm.as_mut_ptr().add(x),
+                        _mm512_add_ps(g0, _mm512_maskz_mov_ps(m, wgg)),
+                    );
+                    _mm512_storeu_ps(
+                        g2m.as_mut_ptr().add(x),
+                        _mm512_add_ps(q0, _mm512_maskz_mov_ps(m, wgg2)),
+                    );
+                }
+                if do_g {
+                    let m = _mm512_cmp_ps_mask::<_CMP_GT_OQ>(gv, zero);
+                    let w = _mm512_mul_ps(gv, vg);
+                    let wg = _mm512_mul_ps(w, gv);
+                    let wg2 = _mm512_mul_ps(wg, gv);
+                    let s0 = _mm512_loadu_ps(sm.as_ptr().add(x));
+                    let s1 = _mm512_loadu_ps(sgm.as_ptr().add(x));
+                    let s2 = _mm512_loadu_ps(sg2m.as_ptr().add(x));
+                    _mm512_storeu_ps(
+                        sm.as_mut_ptr().add(x),
+                        _mm512_add_ps(s0, _mm512_maskz_mov_ps(m, w)),
+                    );
+                    _mm512_storeu_ps(
+                        sgm.as_mut_ptr().add(x),
+                        _mm512_add_ps(s1, _mm512_maskz_mov_ps(m, wg)),
+                    );
+                    _mm512_storeu_ps(
+                        sg2m.as_mut_ptr().add(x),
+                        _mm512_add_ps(s2, _mm512_maskz_mov_ps(m, wg2)),
+                    );
+                }
+                x += 16;
+            }
+            mass_acc_hg(
+                &mut em[x..], &mut gm[x..], &mut g2m[x..], &mut sm[x..],
+                &mut sgm[x..], &mut sg2m[x..], &h[x..], &g[x..], invh, invg, do_h, do_g,
+            );
+            return;
+        }
+    }
+    mass_acc_hg(em, gm, g2m, sm, sgm, sg2m, h, g, invh, invg, do_h, do_g);
 }

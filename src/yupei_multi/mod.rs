@@ -23,7 +23,7 @@ use rayon::prelude::*;
 use crate::yupei_dist::matrix_stage::{BUCKET_US, N_BUCKETS, StockPrep};
 use crate::yupei_pair::check::check_net;
 use crate::yupei_pair::net::{decile_of, net_one_mat, SplitRho};
-use crate::yupei_pair::reduce::{matset_from_net, produce_one_mat, set_soft, Out, SoftCfg};
+use crate::yupei_pair::reduce::{matset_from_net, prepare_shared_rho_reduce, produce_one_mat_shared, set_soft, Out, SoftCfg};
 use crate::yupei_pair::split::{
     dir_tag, energy, rho_ab, BC_COMBOS, D_ALL, D_M, D_P, X_DIRS,
 };
@@ -522,6 +522,34 @@ fn run_chains(
         eprintln!("[stage] prefix={prefix} m4 {m4_s:.1}s rho {rho_s:.1}s chains {}", jobs.len());
     }
 
+    // R2/R3 depend on (B, C), not on X direction. Cache only combinations
+    // actually used by more than one chain. No global state and no blocking
+    // initialization inside the chain workers.
+    let share_reduce = std::env::var("YUPEI_SHARE_RHO_REDUCE").as_deref() != Ok("0");
+    let t_shared = std::time::Instant::now();
+    let mut uses = [0usize; 9];
+    for &(a, b, _, _) in &jobs {
+        uses[ridx(a, b)] += 1;
+    }
+    let shared_reduce: Vec<_> = (0..9usize).into_par_iter().map(|key| {
+        if !share_reduce || uses[key] < 2 { return None; }
+        let (a, b) = (dirs[key / 3], dirs[key % 3]);
+        let e_a = energy(&m4, n, a);
+        let mut rho_sym = rho_cache[ridx(a, b)].clone();
+        for i in 0..n {
+            for j in 0..i {
+                rho_sym[i * n + j] = rho_sym[j * n + i];
+            }
+        }
+        let sdir = crate::yupei_pair::split::fake_sdir(&e_a, &rho_sym, n);
+        let mask: Vec<bool> = e_a.iter().map(|&v| v > 0.0).collect();
+        Some(prepare_shared_rho_reduce(&sdir, n, &mask))
+    }).collect();
+    if share_reduce && std::env::var("YUPEI_STAGE").is_ok() {
+        eprintln!("[stage] prefix={prefix} shared_rho_reduce {:.3}s groups {}",
+            t_shared.elapsed().as_secs_f64(), shared_reduce.iter().filter(|x| x.is_some()).count());
+    }
+
     let results: Vec<ChainOut> = jobs
         .par_iter()
         .map(|(a, b, c_dir, label)| {
@@ -572,7 +600,8 @@ fn run_chains(
             let mut out = Out::new();
             let pre = format!("{label}_");
             let tp = std::time::Instant::now();
-            produce_one_mat(&ms, &pre, n, &mask, industry_opt, lnt_opt, has_lnt, &mut out);
+            produce_one_mat_shared(&ms, &pre, n, &mask, industry_opt, lnt_opt, has_lnt,
+                shared_reduce[ridx(a, b)].as_ref(), &mut out);
             let produce_s = tp.elapsed().as_secs_f64();
             let tk_s0 = std::time::Instant::now();
             let (tn, tc) = match tk_total {

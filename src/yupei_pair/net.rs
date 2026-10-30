@@ -236,7 +236,6 @@ pub(crate) fn net_one_mat(
             e.as_slice(),
         ),
     };
-
     // ---- 全部配对的 X0 / RHO_U / SINGLE / G + 分数矩阵 + 软质量向量 ----
     let mut g = vec![0.0f32; n * n];
     let mut ru = vec![0.0f32; n * n];
@@ -263,6 +262,7 @@ pub(crate) fn net_one_mat(
     let npair_eff;
     let mass_vectors: Vec<f32>;
     let mut topk_total: Option<TopkAcc>;
+    let mirror_output = std::env::var("YUPEI_NET_MIRROR").as_deref() != Ok("0");
     {
         let sh = Shared {
             g: g.as_mut_ptr(),
@@ -458,7 +458,7 @@ pub(crate) fn net_one_mat(
                         unsafe {
                             let put = |m: *mut f32, v: f32| {
                                 *m.add(b * n + c) = v;
-                                *m.add(c * n + b) = v;
+                                if !mirror_output { *m.add(c * n + b) = v; }
                             };
                             put(sh.g, gain);
                             put(sh.ru, h);
@@ -533,6 +533,16 @@ pub(crate) fn net_one_mat(
             }
         }
         mass_vectors = mv;
+    }
+    if mirror_output {
+        let started = std::time::Instant::now();
+        [&mut g, &mut ru, &mut sg, &mut x0, &mut gs, &mut rus, &mut sgs,
+         &mut x0s, &mut grel, &mut gsh, &mut gcov, &mut gnpos, &mut ghhi,
+         &mut pbv, &mut qcv, &mut pbsv, &mut qcsv]
+            .into_par_iter().for_each(|mat| super::mirror_stage::mirror_lower(mat, n));
+        if std::env::var("YUPEI_STAGE").is_ok() {
+            eprintln!("[mirror-stage] name={mat_name} seconds={:.6}", started.elapsed().as_secs_f64());
+        }
     }
     if super::verbose() {
         eprintln!(

@@ -125,7 +125,7 @@ pub fn rho_ab(m: &[Vec<f32>; 4], n: usize, a: usize, b: usize) -> Vec<f32> {
 /// 由 (e, rho) 反造一份伪 S_dir，使 `net_one_mat` 内部算出的 e、rho 与目标一致:
 ///   S_dir[i][i] = e_i/2；S_dir[i][j] = S_dir[j][i] = rho_ij·√(e_i e_j)/2。
 /// `rho` 必须是镜像对称的（net 内部会再镜像一次，不影响结果）。
-fn fake_sdir(e: &[f64], rho: &[f32], n: usize) -> Vec<f32> {
+pub(crate) fn fake_sdir(e: &[f64], rho: &[f32], n: usize) -> Vec<f32> {
     let mut s = vec![0.0f32; n * n];
     for i in 0..n {
         s[i * n + i] = (e[i] / 2.0) as f32;
