@@ -18,14 +18,21 @@ unsafe fn compute_split_mats_two_targets(
     let mut cursors = vec![0usize; n];
     for block in 0..N_BLOCKS {
         let k0 = (block * BLOCK_BUCKETS) as u32;
-        let k1 = k0 + BLOCK_BUCKETS as u32;
+        let k1 = ((k0 as usize + BLOCK_BUCKETS).min(N_BUCKETS)) as u32;
+        let block_len = (k1 - k0) as usize;
         let counts: Vec<usize> = cells.par_iter().enumerate().map(|(i, st)| {
             let mut c = cursors[i];
             while c < st.len() && st[c].0 < k1 { c += 1; }
             c - cursors[i]
         }).collect();
         let total: usize = counts.iter().sum();
-        if total == 0 { continue; } // Preserve the reference's empty-block semantics.
+        if total == 0 {
+            packs.par_iter().for_each(|pack| {
+                let mut g = pack.lock().unwrap();
+                decay_empty_block(&mut g[n * 8..n * 8 + 4], decay, block_len);
+            });
+            continue;
+        }
         let mut offs = Vec::with_capacity(n + 1);
         let mut acc = 0usize;
         for &c in &counts { offs.push(acc); acc += c; }
@@ -46,7 +53,7 @@ unsafe fn compute_split_mats_two_targets(
                 let (mut ap, mut am) = (acc[slot * 2], acc[slot * 2 + 1]);
                 let (bcnt, boff) = (counts[j], offs[j]);
                 let mut cur = 0usize;
-                for k in 0..BLOCK_BUCKETS {
+                for k in 0..block_len {
                     let (mut up, mut um) = (0.0f32, 0.0f32);
                     while cur < bcnt && (buf[boff + cur].0 - k0) as usize == k {
                         let u = &buf[boff + cur].1;
@@ -69,12 +76,12 @@ unsafe fn compute_split_mats_two_targets(
                         let cell = &buf[offs[i] + t];
                         let kl = (cell.0 - k0) as usize;
                         let hist = _mm_loadu_ps(gp.as_ptr().add(kl * 4));
-                        // [p0,m0,p0,m0,p1,m1,p1,m1]
+                        // Earlier-side direction first: [p0,p0,m0,m0,p1,p1,m1,m1].
                         let h8 = _mm256_insertf128_ps(_mm256_castps128_ps256(hist), hist, 1);
-                        let h8 = _mm256_permutevar8x32_ps(h8, _mm256_setr_epi32(0, 1, 0, 1, 2, 3, 2, 3));
+                        let h8 = _mm256_permutevar8x32_ps(h8, _mm256_setr_epi32(0, 0, 1, 1, 2, 2, 3, 3));
                         let up = *cell.1.get_unchecked(lp);
                         let um = *cell.1.get_unchecked(lm);
-                        let weight = _mm256_setr_ps(up, up, um, um, up, up, um, um);
+                        let weight = _mm256_setr_ps(up, um, up, um, up, um, up, um);
                         pv = _mm256_add_ps(pv, _mm256_mul_ps(weight, h8));
                     }
                     _mm256_storeu_ps(pack.as_mut_ptr().add(base), pv);

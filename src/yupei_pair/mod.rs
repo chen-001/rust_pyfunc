@@ -38,7 +38,7 @@ use std::io;
 use pyo3::prelude::*;
 use rayon::prelude::*;
 
-use reduce::{matset_from_net, produce_one_mat, set_soft, Out, SoftCfg};
+use reduce::{matset_from_net, produce_one_mat, Out, SoftCfg};
 use topk::topk_one_mat;
 
 /// topk 的默认 K 档：只留 5 / 20 / 100 三档。原九档里其余六档在 20241231 实测
@@ -95,7 +95,6 @@ fn compute_yupei_pair_inner(
     exz_bins: usize,
 ) -> io::Result<(Vec<String>, Vec<String>, Vec<f32>)> {
     let t_all = std::time::Instant::now();
-    set_soft(sig);
 
     // ---- 1. 上游：cross-section 口径枚举 + 逐笔预处理 + 28 张矩阵 ----
     // 只算请求的矩阵用到的权重家族：默认 15 张只要 cnt+vol，其余 22 张不参与计算、
@@ -174,7 +173,7 @@ fn compute_yupei_pair_inner(
             let pre = format!("{mat}_");
             produce_one_mat(
                 &ms, &pre, n, &mask,
-                industry_opt, lnt_opt, has_lnt,
+                industry_opt, lnt_opt, has_lnt, sig,
                 &mut out,
             );
             // ---- topk：K 档 × 双口径（rho/e 复用 ms 里的）----

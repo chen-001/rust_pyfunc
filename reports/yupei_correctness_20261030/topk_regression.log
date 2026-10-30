@@ -1,0 +1,12 @@
+   Compiling yupei_correct_selector_probe v0.1.0 (/home/chenzongwei/rust_pyfunc/sandbox/yupei_correctness_20261030/selector_probe)
+    Finished `release` profile [optimized] target(s) in 3.91s
+     Running unittests src/main.rs (sandbox/yupei_correctness_20261030/selector_probe/target/release/deps/yupei_correct_selector_probe-8f515c5934f60376)
+
+running 4 tests
+test net::packed_best_tests::scalar_null_model_uses_same_winners_and_actual_scores ... ok
+test tests::absorb_mass_applies_relu_per_selected_stock ... ok
+test tests::common_topk_and_all_net_fields_do_not_depend_on_requested_ks ... ok
+test tests::nonfinite_candidates_never_win_or_count_and_empty_means_undefined ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+

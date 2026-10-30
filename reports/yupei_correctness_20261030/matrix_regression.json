@@ -1,0 +1,167 @@
+{
+  "source_root": "/home/chenzongwei/rust_pyfunc",
+  "scope": "真实矩阵源码单核小样本；独立 Python f32 递推；未重算全市场全天",
+  "cases": [
+    {
+      "case": "empty_input",
+      "weight": "cnt",
+      "tau": 1.0,
+      "stocks": 0,
+      "values": 0,
+      "python_bitwise": true,
+      "scalar_sse_avx2_bitwise": true,
+      "swapped_pm_bitwise": true
+    },
+    {
+      "case": "empty_input",
+      "weight": "vol",
+      "tau": 1.0,
+      "stocks": 0,
+      "values": 0,
+      "python_bitwise": true,
+      "scalar_sse_avx2_bitwise": true,
+      "swapped_pm_bitwise": true
+    },
+    {
+      "case": "empty_stocks",
+      "weight": "cnt",
+      "tau": 1.0,
+      "stocks": 3,
+      "values": 36,
+      "python_bitwise": true,
+      "scalar_sse_avx2_bitwise": true,
+      "swapped_pm_bitwise": true
+    },
+    {
+      "case": "empty_stocks",
+      "weight": "vol",
+      "tau": 1.0,
+      "stocks": 3,
+      "values": 36,
+      "python_bitwise": true,
+      "scalar_sse_avx2_bitwise": true,
+      "swapped_pm_bitwise": true
+    },
+    {
+      "case": "direction_audit_example",
+      "weight": "cnt",
+      "tau": 1.0,
+      "stocks": 2,
+      "values": 16,
+      "python_bitwise": true,
+      "scalar_sse_avx2_bitwise": true,
+      "swapped_pm_bitwise": true
+    },
+    {
+      "case": "direction_audit_example",
+      "weight": "vol",
+      "tau": 1.0,
+      "stocks": 2,
+      "values": 16,
+      "python_bitwise": true,
+      "scalar_sse_avx2_bitwise": true,
+      "swapped_pm_bitwise": true
+    },
+    {
+      "case": "empty_block_audit_example",
+      "weight": "cnt",
+      "tau": 1.0,
+      "stocks": 2,
+      "values": 16,
+      "python_bitwise": true,
+      "scalar_sse_avx2_bitwise": true,
+      "swapped_pm_bitwise": true
+    },
+    {
+      "case": "empty_block_audit_example",
+      "weight": "vol",
+      "tau": 1.0,
+      "stocks": 2,
+      "values": 16,
+      "python_bitwise": true,
+      "scalar_sse_avx2_bitwise": true,
+      "swapped_pm_bitwise": true
+    },
+    {
+      "case": "last_bucket_audit_example",
+      "weight": "cnt",
+      "tau": 1.0,
+      "stocks": 1,
+      "values": 4,
+      "python_bitwise": true,
+      "scalar_sse_avx2_bitwise": true,
+      "swapped_pm_bitwise": true
+    },
+    {
+      "case": "last_bucket_audit_example",
+      "weight": "vol",
+      "tau": 1.0,
+      "stocks": 1,
+      "values": 4,
+      "python_bitwise": true,
+      "scalar_sse_avx2_bitwise": true,
+      "swapped_pm_bitwise": true
+    },
+    {
+      "case": "odd_tail_and_day_limit",
+      "weight": "cnt",
+      "tau": 1.0,
+      "stocks": 3,
+      "values": 36,
+      "python_bitwise": true,
+      "scalar_sse_avx2_bitwise": true,
+      "swapped_pm_bitwise": true
+    },
+    {
+      "case": "odd_tail_and_day_limit",
+      "weight": "vol",
+      "tau": 1.0,
+      "stocks": 3,
+      "values": 36,
+      "python_bitwise": true,
+      "scalar_sse_avx2_bitwise": true,
+      "swapped_pm_bitwise": true
+    },
+    {
+      "case": "mixed_gaps_odd_universe",
+      "weight": "cnt",
+      "tau": 30.0,
+      "stocks": 5,
+      "values": 100,
+      "python_bitwise": true,
+      "scalar_sse_avx2_bitwise": true,
+      "swapped_pm_bitwise": true
+    },
+    {
+      "case": "mixed_gaps_odd_universe",
+      "weight": "vol",
+      "tau": 30.0,
+      "stocks": 5,
+      "values": 100,
+      "python_bitwise": true,
+      "scalar_sse_avx2_bitwise": true,
+      "swapped_pm_bitwise": true
+    }
+  ],
+  "compared_values": 416,
+  "direction_rho_after": 0.9900498390197754,
+  "tail_self_energy_after": 1.0,
+  "empty_block_interaction_after": 1.610516309942529e-18,
+  "blocks": 348,
+  "final_block_buckets": 688,
+  "excludes_bucket_N_and_after": true,
+  "stage_tail_scalar_simd_bitwise": true,
+  "stage_tail_unused_buffer_untouched": true,
+  "stage_tail_python_acc_bitwise": true,
+  "stage_all28_last_bucket_correct": true,
+  "flip_reuse": "交换 P/M 和 volP/volM 后，重算矩阵逐位等于原矩阵 [MM,MP,PM,PP]；cnt/vol 均覆盖",
+  "interface_changes": false,
+  "rayon_threads": 1,
+  "hardware": "AVX2/FMA 检测后实跑 SSE 和双目标 AVX2",
+  "hashes": {
+    "yupei_pair/split_mat.rs": "9345d30dc92fdbab0b0615c7afa6b91d57cf7569fb2d5e79c678811fd2902561",
+    "yupei_pair/split_mat_two_target.rs": "f91d1daaeebe22f6bca50f6696bcc356246cfa297c81346212af71107cf50ed1",
+    "yupei_dist/matrix_stage.rs": "8dbeb525bad1fbd8958b115dbd7ae7ba160b6624a1ed37bf5be62e6236ac7b90"
+  },
+  "limitation": "测试为稀疏合成输入与此前 audit_errors.py 三个最小反例，不代表真实全天受影响列数。"
+}

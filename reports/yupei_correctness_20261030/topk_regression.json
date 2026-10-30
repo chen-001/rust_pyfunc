@@ -1,0 +1,127 @@
+{
+  "scope": "单线程合成数据局部测量，不代表50线程全日提速。",
+  "selector": {
+    "kind": "correctness",
+    "vectors": 4096,
+    "length": 5195,
+    "ks": [
+      1,
+      5,
+      20,
+      30,
+      100,
+      500
+    ],
+    "reference_mismatches": 0,
+    "prefix_checks": 24576,
+    "legacy_different_k20": 1790
+  },
+  "selector_distributions": [
+    "uniform",
+    "cubic tail",
+    "all zero ties",
+    "smooth trend",
+    "dense quantized ties",
+    "95% masked",
+    "negative only",
+    "near zero",
+    "random f32 bits",
+    "NaN payload/Inf/signed-zero",
+    "K-dependent legacy counterexample",
+    "half-grid neighboring f32 values",
+    "quantization overflow",
+    "range near fast-boundary cutoff",
+    "minimum subnormals",
+    "negative dense ties"
+  ],
+  "timings": [
+    {
+      "pathological": false,
+      "calls_per_trial": 24576,
+      "legacy_optimized_mean_seconds": 0.14913722750000002,
+      "correct_selector_mean_seconds": 0.0800287925,
+      "full_key_reference_mean_seconds": 0.243939816,
+      "saving_vs_legacy_percent": 46.338822411057635,
+      "saving_vs_full_reference_percent": 67.19322256929144
+    },
+    {
+      "pathological": true,
+      "calls_per_trial": 24576,
+      "legacy_optimized_mean_seconds": 0.1869123445,
+      "correct_selector_mean_seconds": 0.16079253599999999,
+      "full_key_reference_mean_seconds": 0.23509252,
+      "saving_vs_legacy_percent": 13.974362458441048,
+      "saving_vs_full_reference_percent": 31.60457168097054
+    }
+  ],
+  "integration": {
+    "passed": 4,
+    "failed": 0,
+    "test_names": [
+      "scalar_null_model_uses_same_winners_and_actual_scores",
+      "absorb_mass_applies_relu_per_selected_stock",
+      "common_topk_and_all_net_fields_do_not_depend_on_requested_ks",
+      "nonfinite_candidates_never_win_or_count_and_empty_means_undefined"
+    ],
+    "ks_compared": [
+      [
+        5,
+        20
+      ],
+      [
+        5,
+        20,
+        30
+      ],
+      [
+        5,
+        20,
+        100
+      ],
+      [
+        20,
+        5
+      ],
+      null
+    ],
+    "covered": [
+      "23 non-TopK float32 arrays, energy/strata/pair counts",
+      "all common finalized TopK columns",
+      "merged versus standalone TopK",
+      "finite and dense ties",
+      "mixed NaN/Inf candidates and all-empty candidates",
+      "fewer valid candidates than K",
+      "selected candidate actual h/g and scalar null-model winner consistency"
+    ]
+  },
+  "files": {
+    "sandbox/yupei_correctness_20261030/src/yupei_pair/simd.rs": "9505be76b97e8d901dab3e97cbbbd33e86a131aa34133f14a0707d7c49c52ca3",
+    "sandbox/yupei_correctness_20261030/src/yupei_pair/net.rs": "767373b7f865e057b203438ab071cea726262aa96857ad2ae1506e1e2b4c0734",
+    "sandbox/yupei_correctness_20261030/src/yupei_pair/topk.rs": "dc05f3693e6913542531baffb079c117afe8748298ba806941707fc3526285d0"
+  },
+  "interface_effects": [
+    "Python signatures and return-column naming are unchanged.",
+    "Scores now belong to the selected stock; quantized ties use ascending stock index.",
+    "Common K prefixes and best explainers no longer depend on max(K) or TopK being enabled.",
+    "Generic selector preserves packed-key total order over all f32 values including NaN payloads.",
+    "Network layer jointly excludes nonfinite h/g; all-invalid candidates return MAX/-1 winner sentinels and undefined score/mass outputs.",
+    "Invalid candidates do not contribute counts, sums, mass or pair denominator.",
+    "YUPEI_TOPK_HIGH_FIRST=0 now selects a correct full-key reference implementation rather than restoring the incorrect legacy ranking.",
+    "Internal absorb_topk no longer accepts pos_len; every valid selected score applies its own ReLU.",
+    "BF16 experiment code was not modified."
+  ],
+  "retest_after_migration": "YUPEI_SELECTOR_SOURCE_ROOT=/home/chenzongwei/rust_pyfunc RAYON_NUM_THREADS=2 cargo test --manifest-path tests/yupei_correctness_20261030/selector_probe/Cargo.toml --release --offline --jobs 1 --target-dir sandbox/yupei_correctness_20261030/selector_probe/target -- --test-threads=1",
+  "limitations": [
+    "Local timing uses synthetic vectors; real-day performance requires the root full-day benchmark.",
+    "Common-column integration checks use small synthetic markets; real market-wide checks remain with root.",
+    "Pre-existing empty market/n=0 caller validation is not changed."
+  ],
+  "test_crate": "tests/yupei_correctness_20261030/selector_probe",
+  "default_source_root": "sandbox/yupei_correctness_20261030",
+  "artifacts": {
+    "integration_log": "reports/yupei_correctness_20261030/topk_regression.log",
+    "selector_results": "reports/yupei_correctness_20261030/topk_selector_results.jsonl",
+    "summary": "reports/yupei_correctness_20261030/topk_regression.json"
+  },
+  "delivery_reorganization": "Moved only test sources and evidence; retained target artifacts under sandbox and did not rerun computation."
+}

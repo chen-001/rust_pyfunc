@@ -1,0 +1,13 @@
+{"kind":"correctness","vectors":4096,"length":5195,"ks":[1,5,20,30,100,500],"reference_mismatches":0,"prefix_checks":24576,"legacy_different_k20":1790}
+{"kind":"timing","pathological":false,"mode":0,"calls":24576,"seconds":0.149406154,"digest":16611509444419302636}
+{"kind":"timing","pathological":false,"mode":1,"calls":24576,"seconds":0.080012169,"digest":16611509444418866136}
+{"kind":"timing","pathological":false,"mode":2,"calls":24576,"seconds":0.244044893,"digest":16611509444418866136}
+{"kind":"timing","pathological":false,"mode":2,"calls":24576,"seconds":0.243834739,"digest":16611509444418866136}
+{"kind":"timing","pathological":false,"mode":1,"calls":24576,"seconds":0.080045416,"digest":16611509444418866136}
+{"kind":"timing","pathological":false,"mode":0,"calls":24576,"seconds":0.148868301,"digest":16611509444419302636}
+{"kind":"timing","pathological":true,"mode":0,"calls":24576,"seconds":0.187396769,"digest":692699197458617884}
+{"kind":"timing","pathological":true,"mode":1,"calls":24576,"seconds":0.160788973,"digest":13299976650011809804}
+{"kind":"timing","pathological":true,"mode":2,"calls":24576,"seconds":0.235504519,"digest":13299976650011809804}
+{"kind":"timing","pathological":true,"mode":2,"calls":24576,"seconds":0.234680521,"digest":13299976650011809804}
+{"kind":"timing","pathological":true,"mode":1,"calls":24576,"seconds":0.160796099,"digest":13299976650011809804}
+{"kind":"timing","pathological":true,"mode":0,"calls":24576,"seconds":0.18642792,"digest":692699197458617884}

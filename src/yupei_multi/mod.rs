@@ -23,7 +23,7 @@ use rayon::prelude::*;
 use crate::yupei_dist::matrix_stage::{BUCKET_US, N_BUCKETS, StockPrep};
 use crate::yupei_pair::check::check_net;
 use crate::yupei_pair::net::{decile_of, net_one_mat, SplitRho};
-use crate::yupei_pair::reduce::{matset_from_net, prepare_shared_rho_reduce, produce_one_mat_shared, set_soft, Out, SoftCfg};
+use crate::yupei_pair::reduce::{matset_from_net, prepare_shared_rho_reduce, produce_one_mat_shared, Out, SoftCfg};
 use crate::yupei_pair::split::{
     dir_tag, energy, rho_ab, BC_COMBOS, D_ALL, D_M, D_P, X_DIRS,
 };
@@ -122,7 +122,11 @@ fn build_cells(
                     e.2 += w;
                 }
             }
-            for (tw, sp, sm) in agg.into_values() {
+            // Fix the accumulation order before stable bucket sorting: different
+            // HashMap seeds must not reorder floating-point volumes in one bucket.
+            let mut orders: Vec<_> = agg.into_iter().collect();
+            orders.sort_unstable_by_key(|&(key, _)| key);
+            for (_, (tw, sp, sm)) in orders {
                 let tot = sp + sm;
                 if tot <= 0.0 {
                     continue;
@@ -231,6 +235,15 @@ fn build_cells(
 }
 
 
+/// Named carriers prevent the cluster and order-side outputs from being swapped.
+#[derive(Default)]
+struct CarrierCells {
+    base: Vec<(u32, [f32; 4])>,
+    order: Vec<(u32, [f32; 4])>,
+    otsu: Vec<(u32, [f32; 4])>,
+    side: Vec<(u32, [f32; 4])>,
+}
+
 /// 一次遍历逐笔，同时生成四套桶单元。
 ///
 /// 原来四套各扫一遍全量记录，四次遍历做的是同一件事的四个投影。这里合并成一次：
@@ -238,12 +251,7 @@ fn build_cells(
 fn build_all_cells(
     recs: &[crate::fast_csv_reader::TradeRecord],
     day_start: i64,
-) -> (
-    Vec<(u32, [f32; 4])>,
-    Vec<(u32, [f32; 4])>,
-    Vec<(u32, [f32; 4])>,
-    Vec<(u32, [f32; 4])>,
-) {
+) -> CarrierCells {
     use std::collections::HashMap;
     let mut base: Vec<(u32, [f32; 4])> = Vec::with_capacity(recs.len());
     let mut seq: Vec<(u32, [f32; 4], f64)> = Vec::with_capacity(recs.len());
@@ -300,7 +308,9 @@ fn build_all_cells(
     // ---- 订单聚合：双向派生（主动方视角与订单方向视角只差通道交换）----
     let mut order_pts: Vec<(f64, [f32; 4])> = Vec::with_capacity(agg.len());
     let mut side_pts: Vec<(f64, [f32; 4])> = Vec::with_capacity(agg.len());
-    for (tw, sp, sm) in agg.into_values() {
+    let mut orders: Vec<_> = agg.into_iter().collect();
+    orders.sort_unstable_by_key(|&(key, _)| key);
+    for (_, (tw, sp, sm)) in orders {
         let tot = sp + sm;
         if tot <= 0.0 {
             continue;
@@ -331,12 +341,12 @@ fn build_all_cells(
     // ---- 聚簇：Otsu 在间隔上找断点 ----
     let otsu_out = cluster_seq(seq);
 
-    (
-        base_out,
-        bucketize(order_pts),
-        bucketize(side_pts),
-        otsu_out,
-    )
+    CarrierCells {
+        base: base_out,
+        order: bucketize(order_pts),
+        otsu: otsu_out,
+        side: bucketize(side_pts),
+    }
 }
 
 /// 事件序列（时间为桶号浮点）→ 落回 10 毫秒桶并合并同桶。
@@ -475,7 +485,6 @@ fn run_chains(
     chains: Option<&[String]>,
     existing_m4: Option<&[Vec<f32>; 4]>,
 ) -> io::Result<(Vec<String>, Vec<Vec<f32>>)> {
-    set_soft(sig);
     let has_lnt = lnt_opt.map_or(false, |x| x.iter().any(|v| v.is_finite()));
     let t_m4 = std::time::Instant::now();
     let computed_m4;
@@ -601,7 +610,7 @@ fn run_chains(
             let pre = format!("{label}_");
             let tp = std::time::Instant::now();
             produce_one_mat_shared(&ms, &pre, n, &mask, industry_opt, lnt_opt, has_lnt,
-                shared_reduce[ridx(a, b)].as_ref(), &mut out);
+                shared_reduce[ridx(a, b)].as_ref(), sig, &mut out);
             let produce_s = tp.elapsed().as_secs_f64();
             let tk_s0 = std::time::Instant::now();
             let (tn, tc) = match tk_total {
@@ -884,27 +893,22 @@ pub fn compute_multi_full(
 
     // ---- 2. 三套桶单元（并行生成）----
     // 四套桶单元合并成一次遍历（原来四套各扫一遍全量记录）
-    let built: Vec<(
-        Vec<(u32, [f32; 4])>,
-        Vec<(u32, [f32; 4])>,
-        Vec<(u32, [f32; 4])>,
-        Vec<(u32, [f32; 4])>,
-    )> = raw
+    let built: Vec<CarrierCells> = raw
         .par_iter()
         .map(|r| match r {
             Some(v) => build_all_cells(v, day_start),
-            None => (Vec::new(), Vec::new(), Vec::new(), Vec::new()),
+            None => CarrierCells::default(),
         })
         .collect();
     let mut cells_base: Vec<Vec<(u32, [f32; 4])>> = Vec::with_capacity(n);
     let mut cells_order: Vec<Vec<(u32, [f32; 4])>> = Vec::with_capacity(n);
     let mut cells_otsu: Vec<Vec<(u32, [f32; 4])>> = Vec::with_capacity(n);
     let mut cells_side: Vec<Vec<(u32, [f32; 4])>> = Vec::with_capacity(n);
-    for (a, b, c, d) in built {
-        cells_base.push(a);
-        cells_order.push(b);
-        cells_otsu.push(c);
-        cells_side.push(d);
+    for CarrierCells { base, order, otsu, side } in built {
+        cells_base.push(base);
+        cells_order.push(order);
+        cells_otsu.push(otsu);
+        cells_side.push(side);
     }
     drop(raw);
     stage("cells", cells_started);
@@ -927,13 +931,12 @@ pub fn compute_multi_full(
             // 基础矩阵在四套载体计算后继续用于领先度，避免重算。
             CellMode::Base => base_m4 = Some(compute_split_mats_simd(cells, tau as f32, w)),
             CellMode::Order => order_m4 = Some(compute_split_mats_simd(cells, tau as f32, w)),
-            CellMode::Otsu => {
-                // build_all_cells 的第三项实际是订单方向桶；保持现有 oc_/os_ 标签语义。
+            CellMode::OrderSide => {
                 // 交换 P/M 通道只需移动矩阵所有权，不复制数据，也不改变累加顺序。
                 let [pp, pm, mp, mm] = order_m4.take().expect("order matrix computed");
                 other_m4 = Some([mm, mp, pm, pp]);
             }
-            CellMode::OrderSide => other_m4 = Some(compute_split_mats_simd(cells, tau as f32, w)),
+            CellMode::Otsu => other_m4 = Some(compute_split_mats_simd(cells, tau as f32, w)),
         }
         stage(&format!("m4_prepare_{}", mode.tag()), m4_started);
         let cached_m4 = match mode {

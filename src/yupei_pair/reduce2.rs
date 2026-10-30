@@ -13,7 +13,7 @@
 use rayon::prelude::*;
 use std::time::Instant;
 
-use super::reduce::{spearman, topk_adj_bits, topk_rows, BitMat, MatSet, Out};
+use super::reduce::{spearman, topk_adj_bits, topk_rows, BitMat, MatSet, Out, SoftCfg};
 
 // ============================================================
 // A. 行统计：每股在一张 N×N 分数矩阵上的配对分布形状
@@ -186,6 +186,7 @@ fn explain_extra(
     w: &[f32],
     z: &[f32],
     ok: &[bool],
+    sig: SoftCfg,
 ) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
     const RB3: usize = 256;
     let nrb = n.div_ceil(RB3);
@@ -265,7 +266,7 @@ fn explain_extra(
 
     // 第三趟：按股票 x 并行计算统计量，用 select_nth_unstable 替代大数组全排序
     let inv = if total > 0 { 1.0 / total as f64 } else { 0.0 };
-    let sc = super::reduce::soft();
+    let sc = sig;
     let per_x: Vec<(f64, f64, f64, f64, f64)> = (0..n)
         .into_par_iter()
         .map(|x| {
@@ -320,10 +321,10 @@ fn explain_extra(
 }
 
 /// 作为配对成员（B/C 任一）的 Z 软质量：Σ_j max(z-thr,0) 与 Σ_j sigmoid((z-thr)/temp)。
-fn partner_z_extra(n: usize, z: &[f32], ok: &[bool]) -> (Vec<f64>, Vec<f64>) {
+fn partner_z_extra(n: usize, z: &[f32], ok: &[bool], sig: SoftCfg) -> (Vec<f64>, Vec<f64>) {
     let mut mass = vec![f64::NAN; n];
     let mut soft = vec![f64::NAN; n];
-    let sc = super::reduce::soft();
+    let sc = sig;
     mass.par_iter_mut()
         .zip(soft.par_iter_mut())
         .enumerate()
@@ -351,14 +352,14 @@ fn partner_z_extra(n: usize, z: &[f32], ok: &[bool]) -> (Vec<f64>, Vec<f64>) {
     (mass, soft)
 }
 
-fn block_explain(ms: &MatSet, pre: &str, n: usize, ok: &[bool], out: &mut Out) {
+fn block_explain(ms: &MatSet, pre: &str, n: usize, ok: &[bool], sig: SoftCfg, out: &mut Out) {
     let t0 = Instant::now();
     // X0 路（e_）与 X0* 路（es_）
     for (tag, x0sel, w, z) in [
         ("e", &ms.x0, &ms.g, &ms.z),
         ("es", &ms.x0s, &ms.gs, &ms.zs),
     ] {
-        let (lg, sh, zs_, wp, wt) = explain_extra(n, x0sel, w, z, ok);
+        let (lg, sh, zs_, wp, wt) = explain_extra(n, x0sel, w, z, ok, sig);
         out.push(&format!("{pre}{tag}_cnt_log1p"), lg);
         out.push(&format!("{pre}{tag}_cnt_share"), sh);
         out.push(&format!("{pre}{tag}_zsoft"), zs_);
@@ -418,10 +419,10 @@ fn block_explain(ms: &MatSet, pre: &str, n: usize, ok: &[bool], out: &mut Out) {
         out.push(&format!("{pre}{tag}_w_std_soft"), wstd);
     }
     // 作为配对成员的 Z 软质量
-    let (m1, s1) = partner_z_extra(n, &ms.z, ok);
+    let (m1, s1) = partner_z_extra(n, &ms.z, ok, sig);
     out.push(&format!("{pre}pz_mass"), m1);
     out.push(&format!("{pre}pz_soft"), s1);
-    let (m2, s2) = partner_z_extra(n, &ms.zs, ok);
+    let (m2, s2) = partner_z_extra(n, &ms.zs, ok, sig);
     out.push(&format!("{pre}psz_mass"), m2);
     out.push(&format!("{pre}psz_soft"), s2);
     if super::verbose() {
@@ -1256,6 +1257,7 @@ fn block_plane(
     n: usize,
     ok: &[bool],
     cached_stats: Option<&[[f64;16]]>,
+    sig: SoftCfg,
     out: &mut Out,
 ) {
     let computed: Vec<[f64;16]>;
@@ -1301,7 +1303,7 @@ fn block_plane(
     );
     // 软专才占比：mean_j sigmoid((b-thr)/temp)*sigmoid((-a-thr)/temp)；行相关：a 与 b 的 spearman
     // （原实现此处隐式温度 1.0，已统一为全局 --sig-temp/--sig-thr 口径）
-    let sc = super::reduce::soft();
+    let sc = sig;
     let rows2: Vec<(f64, f64, f64)> = (0..n)
         .into_par_iter()
         .map(|i| {
@@ -1373,11 +1375,11 @@ fn block_plane(
     );
 }
 
-fn block_planes(ms: &MatSet, pre: &str, n: usize, ok: &[bool], sc_stats: &[[f64;16]], out: &mut Out) {
+fn block_planes(ms: &MatSet, pre: &str, n: usize, ok: &[bool], sc_stats: &[[f64;16]], sig: SoftCfg, out: &mut Out) {
     let t0 = Instant::now();
-    block_plane(pre, "zzs", &ms.z, &ms.zs, n, ok, Some(sc_stats), out);       // 通才 Z vs 专才 ZS
-    block_plane(pre, "zexz", &ms.z, &ms.exz, n, ok, None, out);     // 活跃度基线 Z vs (p,q) 基线 EXZ
-    block_plane(pre, "zsexzs", &ms.zs, &ms.exzs, n, ok, None, out); // 专才 ZS vs 条件化专才 EXZS
+    block_plane(pre, "zzs", &ms.z, &ms.zs, n, ok, Some(sc_stats), sig, out);       // 通才 Z vs 专才 ZS
+    block_plane(pre, "zexz", &ms.z, &ms.exz, n, ok, None, sig, out);     // 活跃度基线 Z vs (p,q) 基线 EXZ
+    block_plane(pre, "zsexzs", &ms.zs, &ms.exzs, n, ok, None, sig, out); // 专才 ZS vs 条件化专才 EXZS
     if super::verbose() {
         eprintln!("[reduce2:H] 平面扩展 {:.1}s", t0.elapsed().as_secs_f32());
     }
@@ -1399,17 +1401,18 @@ pub(crate) fn expand(
     r2_top_beat: (&[Vec<(f32, i32, i32)>], &[i64]),
     r3_k16: (&[usize], &[f64], &[f64]),
     graph_rows: (&[Vec<u32>], &[Vec<u32>]),
+    sig: SoftCfg,
     out: &mut Out,
 ) {
     let t0 = Instant::now();
     let sc_stats = block_row_stats(ms, pre, n, ok, out);
-    block_explain(ms, pre, n, ok, out);
+    block_explain(ms, pre, n, ok, sig, out);
     block_bestcomp(ms, pre, n, ok, out);
     block_r2(pre, n, ok, industry, r2_top_beat.0, r2_top_beat.1, out);
     block_r3(ms, pre, n, ok, r3_k16, out);
     block_r4(ms, pre, n, ok, graph_rows, out);
     block_r5(ms, pre, n, ok, lnt, has_lnt, out);
-    block_planes(ms, pre, n, ok, &sc_stats, out);
+    block_planes(ms, pre, n, ok, &sc_stats, sig, out);
     if super::verbose() {
         eprintln!("[reduce2] 扩展块总 {:.1}s", t0.elapsed().as_secs_f32());
     }

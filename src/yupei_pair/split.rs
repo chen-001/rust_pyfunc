@@ -174,7 +174,6 @@ fn compute_split_inner(
     exz_bins: usize,
 ) -> io::Result<(Vec<String>, Vec<String>, Vec<f32>)> {
     let t_all = std::time::Instant::now();
-    super::reduce::set_soft(sig);
 
     // ---- 1. 上游：逐笔预处理（含方向拆分场）+ 行业；need=0 不算 28 张矩阵 ----
     let (codes, n, stocks, stats, _hm, industry) =
@@ -302,7 +301,7 @@ fn compute_split_inner(
             let mut out = Out::new();
             let pre = format!("{label}_");
             produce_one_mat(
-                &ms, &pre, n, &mask, industry_opt, lnt_opt, has_lnt, &mut out,
+                &ms, &pre, n, &mask, industry_opt, lnt_opt, has_lnt, sig, &mut out,
             );
             let (tn, tc) = match tk_total {
                 Some(t) => finalize_total(&t, n, &mask, ks, &pre),
@@ -470,6 +469,7 @@ pub(crate) fn split_factor_names(combos: &[String], ks: &[usize]) -> Vec<String>
                 Some(&industry),
                 Some(&lnt),
                 true,
+                SoftCfg::default(),
                 &mut out,
             );
             names.extend(out.names);

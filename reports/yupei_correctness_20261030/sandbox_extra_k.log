@@ -1,0 +1,112 @@
+{"date": 20260717, "package": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_correctness_20261030/package/rust_pyfunc/__init__.py", "threads": "50", "opt": "0", "ks": [5, 20, 30], "ks_origin": "explicit", "load_before": [29.8720703125, 18.95849609375, 10.8642578125], "module_sha256": "52ecef66c55eb3882353f53fef9e240aa163f435001e0978234f5275dd4a79c4", "switches": {"YUPEI_MULTI_CACHE": null, "YUPEI_MULTI_SVD": null, "YUPEI_SVD_CHUNK": null, "YUPEI_SORT100_SIMD": null, "YUPEI_NET_PROFILE": null, "YUPEI_STAGE": "1", "YUPEI_VERBOSE": null, "YUPEI_TOPK_HIGH_FIRST": null, "YUPEI_SHARE_RHO_REDUCE": null, "YUPEI_NET_MIRROR": null, "YUPEI_MASS_AVX512": null, "YUPEI_MATRIX_TWO_TARGET": null, "YUPEI_R6_STREAMING": null}}
+[multi-stage] name=read seconds=5.586084
+[multi-stage] date=20260717 stocks=5195 thread_count=50
+[multi-stage] name=industry seconds=0.164699
+[multi-stage] name=cells seconds=1.433919
+[multi-stage] name=m4_prepare_ seconds=8.041465
+[stage] prefix= m4 0.0s rho 0.1s chains 5
+[stage] prefix= shared_rho_reduce 2.261s groups 1
+[mirror-stage] name=spppp seconds=0.149732
+[mirror-stage] name=sppma seconds=0.321461
+[mirror-stage] name=spmpm seconds=0.431967
+[mirror-stage] name=spppa seconds=0.442722
+[mirror-stage] name=spAAp seconds=0.141339
+[stage] spppa net 21.6s produce 5.2s topk 0.0s
+[stage] spppp net 21.0s produce 7.3s topk 0.0s
+[stage] sppma net 21.0s produce 7.4s topk 0.0s
+[stage] spAAp net 21.1s produce 7.8s topk 0.0s
+[stage] spmpm net 21.7s produce 5.2s topk 0.0s
+[multi-stage] name=carrier_ seconds=40.695489
+[multi-stage] name=m4_prepare_or_ seconds=5.548747
+[stage] prefix=or_ m4 0.0s rho 0.1s chains 5
+[stage] prefix=or_ shared_rho_reduce 2.139s groups 1
+[mirror-stage] name=or_sppma seconds=0.122181
+[mirror-stage] name=or_spppp seconds=0.112917
+[mirror-stage] name=or_spppa seconds=0.131695
+[mirror-stage] name=or_spAAp seconds=0.074285
+[mirror-stage] name=or_spmpm seconds=0.138302
+[stage] or_spppp net 22.2s produce 7.4s topk 0.0s
+[stage] or_spppa net 22.8s produce 7.1s topk 0.0s
+[stage] or_sppma net 22.2s produce 8.0s topk 0.0s
+[stage] or_spAAp net 22.3s produce 8.5s topk 0.0s
+[stage] or_spmpm net 22.2s produce 8.7s topk 0.0s
+[multi-stage] name=carrier_or_ seconds=39.743786
+[multi-stage] name=m4_prepare_oc_ seconds=3.243696
+[stage] prefix=oc_ m4 0.0s rho 0.1s chains 5
+[stage] prefix=oc_ shared_rho_reduce 2.159s groups 1
+[mirror-stage] name=oc_spppp seconds=0.195908
+[mirror-stage] name=oc_sppma seconds=0.210334
+[mirror-stage] name=oc_spAAp seconds=0.151417
+[mirror-stage] name=oc_spmpm seconds=0.221283
+[mirror-stage] name=oc_spppa seconds=1.244473
+[stage] oc_spppp net 21.2s produce 5.5s topk 0.0s
+[stage] oc_spppa net 22.2s produce 3.8s topk 0.0s
+[stage] oc_spAAp net 21.1s produce 8.5s topk 0.0s
+[stage] oc_sppma net 21.2s produce 8.6s topk 0.0s
+[stage] oc_spmpm net 21.2s produce 8.6s topk 0.4s
+[multi-stage] name=carrier_oc_ seconds=36.862529
+[multi-stage] name=m4_prepare_os_ seconds=0.000004
+[stage] prefix=os_ m4 0.0s rho 0.3s chains 5
+[stage] prefix=os_ shared_rho_reduce 2.095s groups 1
+[mirror-stage] name=os_spppp seconds=0.076398
+[mirror-stage] name=os_spmpm seconds=0.090905
+[mirror-stage] name=os_spppa seconds=0.213817
+[mirror-stage] name=os_sppma seconds=0.253797
+[mirror-stage] name=os_spAAp seconds=0.289316
+[stage] os_spppa net 21.7s produce 4.7s topk 0.0s
+[stage] os_spppp net 21.8s produce 6.7s topk 0.0s
+[stage] os_spAAp net 21.1s produce 7.4s topk 0.0s
+[stage] os_sppma net 21.1s produce 7.8s topk 0.0s
+[stage] os_spmpm net 21.1s produce 8.0s topk 0.0s
+[multi-stage] name=carrier_os_ seconds=32.564766
+[multi-stage] name=lead seconds=0.414812
+[multi-stage] name=svd seconds=4.198021
+[multi-stage] name=assemble seconds=0.229568
+[multi-stage] name=total_compute seconds=161.974480
+{
+  "date": 20260717,
+  "package": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_correctness_20261030/package/rust_pyfunc/__init__.py",
+  "threads": "50",
+  "opt": "0",
+  "ks": [
+    5,
+    20,
+    30
+  ],
+  "ks_origin": "explicit",
+  "load_before": [
+    29.8720703125,
+    18.95849609375,
+    10.8642578125
+  ],
+  "module_sha256": "52ecef66c55eb3882353f53fef9e240aa163f435001e0978234f5275dd4a79c4",
+  "switches": {
+    "YUPEI_MULTI_CACHE": null,
+    "YUPEI_MULTI_SVD": null,
+    "YUPEI_SVD_CHUNK": null,
+    "YUPEI_SORT100_SIMD": null,
+    "YUPEI_NET_PROFILE": null,
+    "YUPEI_STAGE": "1",
+    "YUPEI_VERBOSE": null,
+    "YUPEI_TOPK_HIGH_FIRST": null,
+    "YUPEI_SHARE_RHO_REDUCE": null,
+    "YUPEI_NET_MIRROR": null,
+    "YUPEI_MASS_AVX512": null,
+    "YUPEI_MATRIX_TWO_TARGET": null,
+    "YUPEI_R6_STREAMING": null
+  },
+  "call_seconds": 164.01545215584338,
+  "array_seconds": 1.7297589983791113,
+  "stocks": 5195,
+  "factors": 13074,
+  "finite": 67059147,
+  "nan": 860283,
+  "inf": 0,
+  "max_rss_kib": 30267348,
+  "sha256": "c995c2b8e0062691697260a3ce367ee736a76ca0b0f723d982be0bc8a03f1151",
+  "load_after": [
+    40.91552734375,
+    28.67822265625,
+    15.9091796875
+  ]
+}

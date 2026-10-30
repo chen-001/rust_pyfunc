@@ -146,23 +146,25 @@ fn best_x(n: usize, p: &[f32], q: &[f32], wb: f32, wc: f32, b: usize, c: usize, 
         hs: 0.0,
         singles: 0.0,
     };
-    let mut bgs = f32::NEG_INFINITY;
+    let (mut best_h_key, mut best_g_key) = (u64::MAX, u64::MAX);
     for x in 0..n {
         if x == b || x == c || !mask[x] {
             continue;
         }
-        let h = wb * p[x] + wc * q[x];
+        let h = wb * p[x] + wc * q[x] + 0.0;
         let single = if p[x] > q[x] { p[x] } else { q[x] };
-        // 容差比较: 与当前最优相差 Q_GRID 以内视为并列，保留先遇到的（索引小）。
-        // 直接用 `>` 会让 1e-7 级的浮点差异把 X0 翻到别的候选上。
-        if h > s.h + crate::yupei_pair::simd::Q_GRID {
+        let gain = h - single;
+        if !h.is_finite() || !gain.is_finite() { continue; }
+        let h_key = simd::pack_desc_idx_asc(h, x as u32);
+        if h_key < best_h_key {
+            best_h_key = h_key;
             s.h = h;
             s.bi = x;
             s.single = single;
         }
-        let gain = h - single;
-        if gain > bgs + crate::yupei_pair::simd::Q_GRID {
-            bgs = gain;
+        let g_key = simd::pack_desc_idx_asc(gain, x as u32);
+        if g_key < best_g_key {
+            best_g_key = g_key;
             s.bsi = x;
             s.singles = single;
             s.hs = h;
@@ -177,6 +179,31 @@ fn best_x(n: usize, p: &[f32], q: &[f32], wb: f32, wc: f32, b: usize, c: usize, 
         s.singles = f32::NAN;
     }
     s
+}
+
+#[cfg(test)]
+mod packed_best_tests {
+    use super::*;
+    #[test]
+    fn scalar_null_model_uses_same_winners_and_actual_scores() {
+        let n=129;
+        for seed in 0..128 {
+            let p:Vec<f32>=(0..n).map(|i|((i*13+seed*17) as f32).sin()*0.0002+0.3).collect();
+            let q:Vec<f32>=(0..n).map(|i|((i*19+seed*11) as f32).cos()*0.0002+0.3).collect();
+            let mask:Vec<_>=(0..n).map(|i|i%11!=0).collect();
+            let addm:Vec<_>=mask.iter().map(|&m|if m {0.0}else{f32::NEG_INFINITY}).collect();
+            let (b,c)=(3,7);
+            let mut h=vec![0.0;n];let mut g=vec![0.0;n];
+            simd::fused_hg_stats(&mut h,&mut g,0.7,0.4,&p,&q,&addm,b,c);
+            let (bi,bsi)=simd::argmax_packed_two(&h,&g);
+            let s=best_x(n,&p,&q,0.7,0.4,b,c,&mask);
+            assert_eq!((s.bi,s.bsi),(bi,bsi));
+            assert_eq!(s.h.to_bits(),h[bi].to_bits());
+            assert_eq!(s.hs.to_bits(),h[bsi].to_bits());
+            assert_eq!((s.h-s.single).to_bits(),g[bi].to_bits());
+            assert_eq!((s.hs-s.singles).to_bits(),g[bsi].to_bits());
+        }
+    }
 }
 
 /// 单张有向矩阵的全套配对网络产物。
@@ -285,7 +312,6 @@ pub(crate) fn net_one_mat(
         };
         let e_ref = ea;
         let e_ref2 = eb2;
-        let rhot_ref = &rhot;
         let pb_ref = pb;
         let pc_ref = pc;
         let rbc_ref = rbc;
@@ -378,9 +404,20 @@ pub(crate) fn net_one_mat(
                         let q = &pc_ref[c * n..c * n + n];
                         // 一趟算完 h/g（b、c 位置写 -inf），同时累计两个最大值与
                         // pos_stats 的三个和 + 计数（原来要 fill_h/fill_gap/两次取最大/统计五趟）
-                        let (mx_h, mx_g, sh_pos, sg_pos, sqg_pos, npos) = simd::fused_hg_stats(
+                        let (mx_h, _mx_g, sh_pos, sg_pos, sqg_pos, npos) = simd::fused_hg_stats(
                             &mut hb, &mut gb, wb, wc, p, q, &addm, b, c,
                         );
+                        if mx_h == f32::NEG_INFINITY {
+                            if let Some(t) = tacc.as_mut() { t.skipped += 1; }
+                            // No valid explanation: retain -1 winner sentinels and undefined scores.
+                            unsafe {
+                                for ptr in [sh.g, sh.ru, sh.sg, sh.gs, sh.rus, sh.sgs] {
+                                    *ptr.add(b*n+c) = f32::NAN;
+                                    if !mirror_output { *ptr.add(c*n+b) = f32::NAN; }
+                                }
+                            }
+                            continue;
+                        }
                         // ---- topk 合并段：h/gap 只算这一遍，按 topk 原来的顺序累计 ----
                         let mut topk_done = false;
                         if let Some(t) = tacc.as_mut() {
@@ -392,61 +429,46 @@ pub(crate) fn net_one_mat(
                                     gidx[v] = kg[v] as u32;
                                 }
                                 let mut sf = 0.0f64;
-                                let mut pos_h = 0usize;
                                 for v in 0..take_t {
                                     let y = idx[v] as usize;
                                     let sc = hb[y];
                                     if sc > 0.0 {
                                         sf += sc as f64;
-                                        pos_h = v + 1;
                                     }
                                     pref[v] = sf;
                                 }
-                                absorb_topk(t, n, 0, nlev_t, ks_ref, &idx[..take_t], &hb, &gb, &pref, pos_h);
+                                absorb_topk(t, n, 0, nlev_t, ks_ref, &idx[..take_t], &hb, &gb, &pref);
                                 sf = 0.0;
-                                let mut pos_g = 0usize;
                                 for v in 0..take_t {
                                     let y = gidx[v] as usize;
                                     let sc = gb[y];
                                     if sc > 0.0 {
                                         sf += sc as f64;
-                                        pos_g = v + 1;
                                     }
                                     pref[v] = sf;
                                 }
-                                absorb_topk(t, n, 1, nlev_t, ks_ref, &gidx[..take_t], &hb, &gb, &pref, pos_g);
+                                absorb_topk(t, n, 1, nlev_t, ks_ref, &gidx[..take_t], &hb, &gb, &pref);
                                 t.pairs += 1;
                                 topk_done = true;
                             }
                         }
-                        if mx_h == f32::NEG_INFINITY {
-                            continue;
-                        }
-                        // 两个「首个最大下标」：若 topk 已排序完前 take_t 名，第 0 名即首个最大下标
-                        let (bi, bsi) = if topk_done
-                            && hb[idx[0] as usize] == mx_h
-                            && (mx_g == f32::NEG_INFINITY || gb[gidx[0] as usize] == mx_g)
-                        {
-                            (
-                                idx[0] as usize,
-                                if mx_g == f32::NEG_INFINITY {
-                                    usize::MAX
-                                } else {
-                                    gidx[0] as usize
-                                },
-                            )
+                        // TopK and non-TopK paths use one quantized score/index order.
+                        // The returned scores belong to the selected stocks themselves.
+                        let (bi, bsi) = if topk_done {
+                            (idx[0] as usize, gidx[0] as usize)
                         } else {
-                            simd::argmax_first_two(&hb, &gb, mx_h, mx_g)
+                            simd::argmax_packed_two(&hb, &gb)
                         };
-                        let h = mx_h;
-                        let gs_ = mx_g;
+                        if bi == usize::MAX || bsi == usize::MAX { continue; }
+                        let h = hb[bi];
+                        let gs_ = gb[bsi];
                         let (pbi, qci) = (p[bi], q[bi]);
                         let single = if pbi > qci { pbi } else { qci };
                         let (pbs, qcs) = (p[bsi], q[bsi]);
                         let singles = if pbs > qcs { pbs } else { qcs };
-                        let gain = h - single;
+                        let gain = gb[bi];
                         let gains = gs_;
-                        let rus_v = gs_ + singles;
+                        let rus_v = hb[bsi];
                         let nv = n_valid_pair.max(1) as f32;
                         let grel_v = if single > 1e-4 { gain / single } else { f32::NAN };
                         let gsh_v = if h > 1e-4 { gain / h } else { f32::NAN };
@@ -525,7 +547,7 @@ pub(crate) fn net_one_mat(
             npair_tot += np;
         }
         npair_eff = npair_tot;
-        let inv_p = if npair_tot > 0 { 1.0 / npair_tot as f64 } else { 0.0 };
+        let inv_p = if npair_tot > 0 { 1.0 / npair_tot as f64 } else { f64::NAN };
         let mut mv = Vec::with_capacity(6 * n);
         for arr in [&emass, &gmass, &g2mass, &smass, &sgmass, &sg2mass] {
             for x in 0..n {
@@ -649,6 +671,8 @@ pub(crate) fn net_one_mat(
             if i == j {
                 continue;
             }
+            if !g[i*n+j].is_finite() { z[i*n+j] = f32::NAN; }
+            if !gs[i*n+j].is_finite() { zs[i*n+j] = f32::NAN; }
             let (d1, d2) = if dec[i] <= dec[j] { (dec[i], dec[j]) } else { (dec[j], dec[i]) };
             let s = d1 * 10 + d2;
             let (m, sd, _) = strata[s];

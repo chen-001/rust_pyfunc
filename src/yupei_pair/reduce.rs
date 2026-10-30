@@ -59,7 +59,6 @@
 //! 确定性：所有并行都是「按块收集、再按下标顺序合并」，不遍历 HashMap。
 
 use rayon::prelude::*;
-use std::sync::OnceLock;
 use std::time::Instant;
 
 use super::net::NetMats;
@@ -69,26 +68,17 @@ use super::simd;
 pub(crate) const K_TOPK: usize = 20;
 pub(crate) const MAX_K: usize = 8;
 
-/// sigmoid 软化与硬阈值的共享参数（E 组参数刷选用，由管线入口写入 OnceLock，
-/// 全进程只设一次；所有用
-/// sigmoid((z-thr)/temp) 或 z>thr 的统计（z2_count、zsoft、pz_soft、spec_soft 等）
-/// 统一从 soft() 读取，保证同一套参数口径一致。
+/// 每次任务独立的 sigmoid 温度与硬阈值，显式传给全部统计块。
+/// 不使用全局或线程局部状态，顺序调用和嵌套 Rayon 并行均可使用不同配置。
 #[derive(Clone, Copy)]
 pub(crate) struct SoftCfg {
     pub temp: f64,
     pub thr: f64,
 }
-static SOFT: OnceLock<SoftCfg> = OnceLock::new();
-const SOFT_DEFAULT: SoftCfg = SoftCfg {
-    temp: 0.3,
-    thr: 2.0,
-};
-pub(crate) fn soft() -> SoftCfg {
-    *SOFT.get().unwrap_or(&SOFT_DEFAULT)
-}
-/// 管线入口在启动时写入参数（重复设置时忽略，保持首次值）。
-pub(crate) fn set_soft(cfg: SoftCfg) {
-    let _ = SOFT.set(cfg);
+impl Default for SoftCfg {
+    fn default() -> Self {
+        Self { temp: 0.3, thr: 2.0 }
+    }
 }
 
 // ============================================================
@@ -398,7 +388,7 @@ pub(crate) struct R1Role {
 }
 
 /// pair_reduce.py 的 r1_role。把 G（或 GSTAR / Z / ZS）按「被选为 X0 的对」聚合。
-pub(crate) fn r1_role(n: usize, x0: &[i32], pw: &[f32], pwz: &[f32], ok: &[bool]) -> R1Role {
+pub(crate) fn r1_role(n: usize, x0: &[i32], pw: &[f32], pwz: &[f32], ok: &[bool], sig: SoftCfg) -> R1Role {
     let mut count = vec![0.0f64; n];
     let mut sum_w = vec![0.0f64; n];
     let mut max_w = vec![f64::NEG_INFINITY; n];
@@ -407,7 +397,7 @@ pub(crate) fn r1_role(n: usize, x0: &[i32], pw: &[f32], pwz: &[f32], ok: &[bool]
     let mut count_z2 = vec![0.0f64; n];
     let mut partner_z2 = vec![0.0f64; n];
     let mut n_good = 0usize;
-    let zthr = soft().thr;
+    let zthr = sig.thr;
     for i in 0..n {
         if !ok[i] {
             continue;
@@ -1168,13 +1158,13 @@ pub(crate) struct R6 {
 /// pair_reduce.py 的 r6_plane。
 /// gen 侧用严格上三角（Zrow 与 ZSrow 只填上三角，所以最后一行的这四个数是空的）；
 /// spec 侧用对称阵 Sc（对角填 0，所以 spec_max 下界是 0）。
-pub(crate) fn r6_plane(n: usize, z: &[f32], zs: &[f32], ok: &[bool]) -> R6 {
+pub(crate) fn r6_plane(n: usize, z: &[f32], zs: &[f32], ok: &[bool], sig: SoftCfg) -> R6 {
     let t0 = Instant::now();
     // 每个配对的 (spec, 是否专才对) 与参与配对的次数
     let mut sc = vec![0.0f32; n * n]; // 对称，对角 0
     let mut sp = vec![0.0f32; n * n];
     let mut cnt_valid = vec![0.0f64; n];
-    let zthr = soft().thr;
+    let zthr = sig.thr;
     for i in 0..n {
         if !ok[i] {
             continue;
@@ -1442,9 +1432,10 @@ pub(crate) fn produce_one_mat(
     industry: Option<&[i32]>,
     lnt: Option<&[f64]>,
     has_lnt: bool,
+    sig: SoftCfg,
     out: &mut Out,
 ) {
-    produce_one_mat_shared(ms, pre, n, ok, industry, lnt, has_lnt, None, out);
+    produce_one_mat_shared(ms, pre, n, ok, industry, lnt, has_lnt, None, sig, out);
 }
 
 /// Optional cache of R2/R3 only; G/GS/X0 and every network-dependent statistic
@@ -1453,7 +1444,7 @@ pub(crate) fn produce_one_mat(
 pub(crate) fn produce_one_mat_shared(
     ms: &MatSet, pre: &str, n: usize, ok: &[bool],
     industry: Option<&[i32]>, lnt: Option<&[f64]>, has_lnt: bool,
-    shared: Option<&SharedRhoReduce>, out: &mut Out,
+    shared: Option<&SharedRhoReduce>, sig: SoftCfg, out: &mut Out,
 ) {
     let (rho, e, g, gs) = (&ms.rho, &ms.e, &ms.g, &ms.gs);
     let (z, zs, x0, x0s) = (&ms.z, &ms.zs, &ms.x0, &ms.x0s);
@@ -1461,7 +1452,7 @@ pub(crate) fn produce_one_mat_shared(
 
     // ---------------- R1 第一路 ----------------
     let t0 = Instant::now();
-    let r1 = r1_role(n, x0, g, z, ok);
+    let r1 = r1_role(n, x0, g, z, ok, sig);
     let bc = r1_bestcomp(n, g, z, ok);
     out.push(&p("r1_explain_count"), r1.count.clone());
     out.push(&p("r1_explain_count_z2"), r1.count_z2.clone());
@@ -1479,7 +1470,7 @@ pub(crate) fn produce_one_mat_shared(
 
     // ---------------- R1 第二路（列名按 Python 的 sorted(s1.keys()) 排序）----------------
     let t0 = Instant::now();
-    let s1 = r1_role(n, x0s, gs, zs, ok);
+    let s1 = r1_role(n, x0s, gs, zs, ok, sig);
     let sbc = r1_bestcomp(n, gs, zs, ok);
     out.push(&p("s_r1_as_partner_z2_count"), s1.partner_z2.clone());
     out.push(&p("s_r1_bestcomp_gain"), sbc.gain.clone());
@@ -1573,7 +1564,7 @@ pub(crate) fn produce_one_mat_shared(
     };
 
     // ---------------- R6 ----------------
-    let r6 = r6_plane(n, z, zs, ok);
+    let r6 = r6_plane(n, z, zs, ok, sig);
     out.push(&p("p_gen_max"), r6.gen_max);
     out.push(&p("p_gen_top20"), r6.gen_top20);
     out.push(&p("p_quad"), r6.quad);
@@ -1629,6 +1620,7 @@ pub(crate) fn produce_one_mat_shared(
         (&r2_top, &r2_beat),
         (&r3.k16_picks, &r3.k16_marg, &r3.k16_rs),
         (&r4.rows_rho, &r4.rows_g),
+        sig,
         out,
     );
 }

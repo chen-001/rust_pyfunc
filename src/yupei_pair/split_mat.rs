@@ -4,8 +4,8 @@
 //! 主买（P，flag=66）和主卖（M，flag=83）两套，两两组合成四个分量:
 //!
 //!   S_pq[i][j] = 「i 的 p 类成交」领先「j 的 q 类成交」的衰减交互能量
-//!                 = Σ_k u_p[i][k] · g_q[j][k]
-//!   g_q[j][k] = Σ_{l<k} u_q[j][l]·e^{-(k−l)Δ/τ} + 0.5·u_q[j][k]
+//!                 = Σ_k g_p[i][k] · u_q[j][k]
+//!   g_p[i][k] = Σ_{l<k} u_p[i][l]·e^{-(k−l)Δ/τ} + 0.5·u_p[i][k]
 //!
 //! 存储语义与 matrix_stage 一致: **S[i][j] = i 领先 j**（行领先列）。
 //! 所以 tile 固定的是"先动方 j"（提供历史 g），遍历的 i 是"后动方"，
@@ -20,7 +20,7 @@
 
 use rayon::prelude::*;
 
-use crate::yupei_dist::matrix_stage::{StockPrep, BLOCK_BUCKETS, BUCKET_US, N_BLOCKS};
+use crate::yupei_dist::matrix_stage::{StockPrep, BLOCK_BUCKETS, BUCKET_US, N_BLOCKS, N_BUCKETS};
 
 /// 四分量下标: 0=PP（买领先买）, 1=PM（买领先卖）, 2=MP（卖领先买）, 3=MM（卖领先卖）。
 pub const PP: usize = 0;
@@ -76,7 +76,8 @@ pub fn compute_split_mats_from_cells(
     let mut cursors = vec![0usize; n];
     for block in 0..N_BLOCKS {
         let k0 = (block * BLOCK_BUCKETS) as u32;
-        let k1 = k0 + BLOCK_BUCKETS as u32;
+        let k1 = ((k0 as usize + BLOCK_BUCKETS).min(N_BUCKETS)) as u32;
+        let block_len = (k1 - k0) as usize;
 
         // ---- 1. 每股块内 cell 数 + 拼块内缓冲（按股票连续）----
         let counts: Vec<usize> = cells
@@ -91,6 +92,14 @@ pub fn compute_split_mats_from_cells(
             })
             .collect();
         let total: usize = counts.iter().sum();
+        if total == 0 {
+            // 全市场没有成交时仍推进时钟；逐桶乘法保留 f32 的每步舍入。
+            packs.par_iter().for_each(|pack| {
+                let mut g = pack.lock().unwrap();
+                decay_empty_block(&mut g[n * 4..n * 4 + 2], decay, block_len);
+            });
+            continue;
+        }
         let mut offs: Vec<usize> = Vec::with_capacity(n + 1);
         let mut acc = 0usize;
         for &c in counts.iter() {
@@ -121,7 +130,7 @@ pub fn compute_split_mats_from_cells(
             let bcnt = counts_ref[j];
             let boff = offs_ref[j];
             let mut cur = 0usize;
-            for k in 0..BLOCK_BUCKETS {
+            for k in 0..block_len {
                 let mut up = 0.0f32;
                 let mut um = 0.0f32;
                 while cur < bcnt && (buf_ref[boff + cur].0 - k0) as usize == k {
@@ -157,8 +166,8 @@ pub fn compute_split_mats_from_cells(
                     let up = cell.1[lp];
                     let um = cell.1[lm];
                     p[PP] += up * gpk[0];
-                    p[PM] += up * gpk[1];
-                    p[MP] += um * gpk[0];
+                    p[PM] += um * gpk[0];
+                    p[MP] += up * gpk[1];
                     p[MM] += um * gpk[1];
                 }
                 pack[base] = p[PP];
@@ -193,6 +202,16 @@ pub fn compute_split_mats_from_cells(
 
 /// gp 场在 pack 尾部的槽数: 每桶 2 个场（gP, gM）。
 const GPAD: usize = BLOCK_BUCKETS * 2;
+
+/// 没有成交的整块也要逐桶衰减；不能以 acc * decay.powi(len) 替代。
+#[inline]
+fn decay_empty_block(acc: &mut [f32], decay: f32, block_len: usize) {
+    for _ in 0..block_len {
+        for value in acc.iter_mut() {
+            *value = (*value + 0.0) * decay;
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -319,7 +338,8 @@ fn compute_split_mats_sse(
     let mut cursors = vec![0usize; n];
     for block in 0..N_BLOCKS {
         let k0 = (block * BLOCK_BUCKETS) as u32;
-        let k1 = k0 + BLOCK_BUCKETS as u32;
+        let k1 = ((k0 as usize + BLOCK_BUCKETS).min(N_BUCKETS)) as u32;
+        let block_len = (k1 - k0) as usize;
 
         let counts: Vec<usize> = cells
             .par_iter()
@@ -334,6 +354,11 @@ fn compute_split_mats_sse(
             .collect();
         let total: usize = counts.iter().sum();
         if total == 0 {
+            // 全市场没有成交时仍推进时钟；逐桶乘法保留 f32 的每步舍入。
+            packs.par_iter().for_each(|pack| {
+                let mut g = pack.lock().unwrap();
+                decay_empty_block(&mut g[n * 4..n * 4 + 2], decay, block_len);
+            });
             continue;
         }
         let mut offs: Vec<usize> = Vec::with_capacity(n + 1);
@@ -359,7 +384,7 @@ fn compute_split_mats_sse(
             let (mut ap, mut am) = (acc[0], acc[1]);
             let (bcnt, boff) = (counts_ref[j], offs_ref[j]);
             let mut cur = 0usize;
-            for k in 0..BLOCK_BUCKETS {
+            for k in 0..block_len {
                 let (mut up, mut um) = (0.0f32, 0.0f32);
                 while cur < bcnt && (buf_ref[boff + cur].0 - k0) as usize == k {
                     let u = &buf_ref[boff + cur].1;
@@ -388,9 +413,10 @@ fn compute_split_mats_sse(
                         let gpk = [*gp.get_unchecked(kl * 2), *gp.get_unchecked(kl * 2 + 1)];
                         let up = *cell.1.get_unchecked(lp);
                         let um = *cell.1.get_unchecked(lm);
-                        // e0=PP=up*gP  e1=PM=up*gM  e2=MP=um*gP  e3=MM=um*gM
-                        let a = _mm_set_ps(um, um, up, up);
-                        let b = _mm_set_ps(gpk[1], gpk[0], gpk[1], gpk[0]);
+                        // 首字母是历史场（先动方）的方向，次字母是当前成交的方向。
+                        // [PP, PM, MP, MM] = [up*gP, um*gP, up*gM, um*gM]
+                        let a = _mm_set_ps(um, up, um, up);
+                        let b = _mm_set_ps(gpk[1], gpk[1], gpk[0], gpk[0]);
                         pv = _mm_add_ps(pv, _mm_mul_ps(a, b));
                     }
                     _mm_storeu_ps(pack.as_mut_ptr().add(base), pv);

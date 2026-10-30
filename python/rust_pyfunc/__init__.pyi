@@ -530,7 +530,8 @@ def py_yupei_multi_v5(
     weight 为 "cnt"（笔数）或 "vol"（成交量平方根）；tau 为衰减秒数；
     svd_k 为分解成分数，sig_temp/sig_thr 为软阈值温度/阈值，null_mc 为
     空模型抽样规模（按100层分配，每层至少20次尝试），exz_bins 为条件网格边数。
-    软阈值参数在进程内首次调用时固定；比较不同参数时使用新进程。
+    sig_temp/sig_thr 每次调用独立生效；并发调用之间互不覆盖。
+    oc_ 为 Otsu 聚簇载体，os_ 为订单方向载体。TopK 各档共用同一排序规则。
     返回格式同 py_yupei_multi。
     """
     ...

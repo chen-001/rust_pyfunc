@@ -1,0 +1,46 @@
+{
+  "date": 20260717,
+  "package": "/home/chenzongwei/rust_pyfunc/python/rust_pyfunc/__init__.py",
+  "threads": "50",
+  "opt": "0",
+  "ks": [
+    5,
+    20
+  ],
+  "ks_origin": "library_default",
+  "load_before": [
+    7.80712890625,
+    18.11279296875,
+    14.052734375
+  ],
+  "module_sha256": "c54894494f9e076cb5d548ab198d530f7398a52dbdcc5f30f0bf0ebdd1a5629e",
+  "switches": {
+    "YUPEI_MULTI_CACHE": null,
+    "YUPEI_MULTI_SVD": null,
+    "YUPEI_SVD_CHUNK": null,
+    "YUPEI_SORT100_SIMD": null,
+    "YUPEI_NET_PROFILE": null,
+    "YUPEI_STAGE": "1",
+    "YUPEI_VERBOSE": null,
+    "YUPEI_TOPK_HIGH_FIRST": null,
+    "YUPEI_SHARE_RHO_REDUCE": null,
+    "YUPEI_NET_MIRROR": null,
+    "YUPEI_MASS_AVX512": null,
+    "YUPEI_MATRIX_TWO_TARGET": null,
+    "YUPEI_R6_STREAMING": null
+  },
+  "call_seconds": 161.85211343877017,
+  "array_seconds": 1.8273626249283552,
+  "stocks": 5195,
+  "factors": 12914,
+  "finite": 66282763,
+  "nan": 805467,
+  "inf": 0,
+  "max_rss_kib": 30418592,
+  "sha256": "445df54014e5a65f29eb3c79f4d41b0e80941208c284b08e55549a6e1a688d33",
+  "load_after": [
+    36.9443359375,
+    28.4482421875,
+    18.7490234375
+  ]
+}

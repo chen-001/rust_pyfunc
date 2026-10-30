@@ -1,0 +1,11 @@
+{
+  "entry": "timeout 600s ./alter.sh",
+  "profile": "release-fast",
+  "optimized_builds": [
+    "Finished `release-fast` profile [optimized] target(s) in 1m 05s",
+    "Finished `release-fast` profile [optimized] target(s) in 1m 20s"
+  ],
+  "worker_deployed": true,
+  "new_compiler_errors": false,
+  "unit_regressions": "production_regressions.json"
+}

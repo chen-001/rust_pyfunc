@@ -1,0 +1,221 @@
+{
+  "stocks": 5195,
+  "factors": 12914,
+  "default_ks": [
+    5,
+    20
+  ],
+  "previous_seconds": 147.4584980737418,
+  "extra_k": {
+    "stocks": 5195,
+    "columns": 12914,
+    "bit_mismatches": 0,
+    "labels_match": true,
+    "added_columns": 160
+  },
+  "deployment": {
+    "stocks": 5195,
+    "columns": 12914,
+    "bit_mismatches": 0,
+    "labels_match": true,
+    "added_columns": 0
+  },
+  "changed_groups": [
+    {
+      "group": "base",
+      "columns": 3225,
+      "changed_columns": 3175,
+      "bit_mismatches": 14289786,
+      "nan_mask_mismatches": 60567
+    },
+    {
+      "group": "or_",
+      "columns": 3225,
+      "changed_columns": 3178,
+      "bit_mismatches": 14431253,
+      "nan_mask_mismatches": 78554
+    },
+    {
+      "group": "oc_",
+      "columns": 3225,
+      "changed_columns": 3224,
+      "bit_mismatches": 14940659,
+      "nan_mask_mismatches": 148514
+    },
+    {
+      "group": "os_",
+      "columns": 3225,
+      "changed_columns": 3224,
+      "bit_mismatches": 14925025,
+      "nan_mask_mismatches": 142527
+    },
+    {
+      "group": "ld_",
+      "columns": 6,
+      "changed_columns": 6,
+      "bit_mismatches": 29086,
+      "nan_mask_mismatches": 0
+    },
+    {
+      "group": "sv_",
+      "columns": 8,
+      "changed_columns": 0,
+      "bit_mismatches": 0,
+      "nan_mask_mismatches": 0
+    }
+  ],
+  "svd_columns": 8,
+  "svd_bit_mismatches": 0,
+  "runs": {
+    "sandbox_default": {
+      "date": 20260717,
+      "package": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_correctness_20261030/package/rust_pyfunc/__init__.py",
+      "threads": "50",
+      "opt": "0",
+      "ks": [
+        5,
+        20
+      ],
+      "ks_origin": "library_default",
+      "load_before": [
+        6.93310546875,
+        5.72314453125,
+        5.615234375
+      ],
+      "module_sha256": "52ecef66c55eb3882353f53fef9e240aa163f435001e0978234f5275dd4a79c4",
+      "switches": {
+        "YUPEI_MULTI_CACHE": null,
+        "YUPEI_MULTI_SVD": null,
+        "YUPEI_SVD_CHUNK": null,
+        "YUPEI_SORT100_SIMD": null,
+        "YUPEI_NET_PROFILE": null,
+        "YUPEI_STAGE": "1",
+        "YUPEI_VERBOSE": null,
+        "YUPEI_TOPK_HIGH_FIRST": null,
+        "YUPEI_SHARE_RHO_REDUCE": null,
+        "YUPEI_NET_MIRROR": null,
+        "YUPEI_MASS_AVX512": null,
+        "YUPEI_MATRIX_TWO_TARGET": null,
+        "YUPEI_R6_STREAMING": null
+      },
+      "call_seconds": 160.37431523017585,
+      "array_seconds": 1.8353781457990408,
+      "stocks": 5195,
+      "factors": 12914,
+      "finite": 66282763,
+      "nan": 805467,
+      "inf": 0,
+      "max_rss_kib": 30970972,
+      "sha256": "445df54014e5a65f29eb3c79f4d41b0e80941208c284b08e55549a6e1a688d33",
+      "load_after": [
+        34.65234375,
+        19.48486328125,
+        10.9443359375
+      ]
+    },
+    "sandbox_extra_k": {
+      "date": 20260717,
+      "package": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_correctness_20261030/package/rust_pyfunc/__init__.py",
+      "threads": "50",
+      "opt": "0",
+      "ks": [
+        5,
+        20,
+        30
+      ],
+      "ks_origin": "explicit",
+      "load_before": [
+        29.8720703125,
+        18.95849609375,
+        10.8642578125
+      ],
+      "module_sha256": "52ecef66c55eb3882353f53fef9e240aa163f435001e0978234f5275dd4a79c4",
+      "switches": {
+        "YUPEI_MULTI_CACHE": null,
+        "YUPEI_MULTI_SVD": null,
+        "YUPEI_SVD_CHUNK": null,
+        "YUPEI_SORT100_SIMD": null,
+        "YUPEI_NET_PROFILE": null,
+        "YUPEI_STAGE": "1",
+        "YUPEI_VERBOSE": null,
+        "YUPEI_TOPK_HIGH_FIRST": null,
+        "YUPEI_SHARE_RHO_REDUCE": null,
+        "YUPEI_NET_MIRROR": null,
+        "YUPEI_MASS_AVX512": null,
+        "YUPEI_MATRIX_TWO_TARGET": null,
+        "YUPEI_R6_STREAMING": null
+      },
+      "call_seconds": 164.01545215584338,
+      "array_seconds": 1.7297589983791113,
+      "stocks": 5195,
+      "factors": 13074,
+      "finite": 67059147,
+      "nan": 860283,
+      "inf": 0,
+      "max_rss_kib": 30267348,
+      "sha256": "c995c2b8e0062691697260a3ce367ee736a76ca0b0f723d982be0bc8a03f1151",
+      "load_after": [
+        40.91552734375,
+        28.67822265625,
+        15.9091796875
+      ]
+    },
+    "installed": {
+      "date": 20260717,
+      "package": "/home/chenzongwei/rust_pyfunc/python/rust_pyfunc/__init__.py",
+      "threads": "50",
+      "opt": "0",
+      "ks": [
+        5,
+        20
+      ],
+      "ks_origin": "library_default",
+      "load_before": [
+        7.80712890625,
+        18.11279296875,
+        14.052734375
+      ],
+      "module_sha256": "c54894494f9e076cb5d548ab198d530f7398a52dbdcc5f30f0bf0ebdd1a5629e",
+      "switches": {
+        "YUPEI_MULTI_CACHE": null,
+        "YUPEI_MULTI_SVD": null,
+        "YUPEI_SVD_CHUNK": null,
+        "YUPEI_SORT100_SIMD": null,
+        "YUPEI_NET_PROFILE": null,
+        "YUPEI_STAGE": "1",
+        "YUPEI_VERBOSE": null,
+        "YUPEI_TOPK_HIGH_FIRST": null,
+        "YUPEI_SHARE_RHO_REDUCE": null,
+        "YUPEI_NET_MIRROR": null,
+        "YUPEI_MASS_AVX512": null,
+        "YUPEI_MATRIX_TWO_TARGET": null,
+        "YUPEI_R6_STREAMING": null
+      },
+      "call_seconds": 161.85211343877017,
+      "array_seconds": 1.8273626249283552,
+      "stocks": 5195,
+      "factors": 12914,
+      "finite": 66282763,
+      "nan": 805467,
+      "inf": 0,
+      "max_rss_kib": 30418592,
+      "sha256": "445df54014e5a65f29eb3c79f4d41b0e80941208c284b08e55549a6e1a688d33",
+      "load_after": [
+        36.9443359375,
+        28.4482421875,
+        18.7490234375
+      ]
+    }
+  },
+  "default_mean_seconds": 161.113214334473,
+  "build_files": {
+    "python/rust_pyfunc/rust_pyfunc.abi3.so": {
+      "sha256": "c54894494f9e076cb5d548ab198d530f7398a52dbdcc5f30f0bf0ebdd1a5629e",
+      "mtime": 1793362774.0709796
+    },
+    "python/rust_pyfunc/rust_pyfunc_worker": {
+      "sha256": "e70e23d9b0722b2ad2ebec6684070c3ac7bcfa5bec5311516e7857989d91548a",
+      "mtime": 1793362855.5690365
+    }
+  }
+}

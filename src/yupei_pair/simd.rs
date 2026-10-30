@@ -79,6 +79,39 @@ pub fn fill_gap(g: &mut [f32], h: &[f32], p: &[f32], q: &[f32]) {
     }
 }
 
+/// Network candidates require both actual h and gap scores to be finite.
+/// The generic packed-key selector deliberately keeps its total order over all f32 values.
+#[cfg(target_arch = "x86_64")]
+#[inline(always)]
+unsafe fn finite_hg_lanes(h: __m256, g: __m256) -> (__m256, __m256) {
+    let sign = _mm256_set1_ps(-0.0);
+    let inf = _mm256_set1_ps(f32::INFINITY);
+    let ok_h = _mm256_cmp_ps::<_CMP_LT_OQ>(_mm256_andnot_ps(sign, h), inf);
+    let ok_g = _mm256_cmp_ps::<_CMP_LT_OQ>(_mm256_andnot_ps(sign, g), inf);
+    let ok = _mm256_and_ps(ok_h, ok_g);
+    let excluded = _mm256_set1_ps(f32::NEG_INFINITY);
+    (_mm256_blendv_ps(excluded, h, ok), _mm256_blendv_ps(excluded, g, ok))
+}
+
+pub fn sanitize_hg_candidates(h: &mut [f32], g: &mut [f32]) {
+    let mut x = 0;
+    #[cfg(target_arch = "x86_64")]
+    unsafe {
+        if have_avx2() {
+            while x + 8 <= h.len() {
+                let (hv,gv) = finite_hg_lanes(_mm256_loadu_ps(h.as_ptr().add(x)), _mm256_loadu_ps(g.as_ptr().add(x)));
+                _mm256_storeu_ps(h.as_mut_ptr().add(x),hv);
+                _mm256_storeu_ps(g.as_mut_ptr().add(x),gv);
+                x += 8;
+            }
+        }
+    }
+    while x < h.len() {
+        if !h[x].is_finite() || !g[x].is_finite() { h[x]=f32::NEG_INFINITY; g[x]=f32::NEG_INFINITY; }
+        x += 1;
+    }
+}
+
 /// 一趟算完 h、g 并累计「最大值」与「pos_stats 的三个和 + 计数」。
 ///
 /// 等价于依次调用 fill_h、fill_gap、argmax_first（只取最大值那半段）、pos_stats 的
@@ -115,7 +148,7 @@ pub fn fused_hg_stats(
             let mut hbuf = [0f32; 8];
             let mut gbuf = [0f32; 8];
             while x + 8 <= n {
-                let (hv, gv);
+                let (mut hv, mut gv);
                 if (b >= x && b < x + 8) || (c >= x && c < x + 8) {
                     // 含 b/c 的那块：这两个位置必须是 -inf，标量算这 8 个再按原 lane 累加
                     for i in 0..8 {
@@ -129,10 +162,6 @@ pub fn fused_hg_stats(
                         hbuf[i] = h;
                         gbuf[i] = g;
                     }
-                    for i in 0..8 {
-                        hb[x + i] = hbuf[i];
-                        gb[x + i] = gbuf[i];
-                    }
                     hv = _mm256_loadu_ps(hbuf.as_ptr());
                     gv = _mm256_loadu_ps(gbuf.as_ptr());
                 } else {
@@ -145,9 +174,10 @@ pub fn fused_hg_stats(
                         m,
                     );
                     gv = _mm256_sub_ps(hv, _mm256_max_ps(a, bv));
-                    _mm256_storeu_ps(hb.as_mut_ptr().add(x), hv);
-                    _mm256_storeu_ps(gb.as_mut_ptr().add(x), gv);
                 }
+                (hv, gv) = finite_hg_lanes(hv, gv);
+                _mm256_storeu_ps(hb.as_mut_ptr().add(x), hv);
+                _mm256_storeu_ps(gb.as_mut_ptr().add(x), gv);
                 mh = _mm256_max_ps(mh, hv);
                 mg = _mm256_max_ps(mg, gv);
                 sh = _mm256_add_ps(sh, _mm256_max_ps(hv, zero));
@@ -190,6 +220,7 @@ pub fn fused_hg_stats(
                     h = f32::NEG_INFINITY;
                     g = f32::NEG_INFINITY;
                 }
+                if !h.is_finite() || !g.is_finite() { h=f32::NEG_INFINITY; g=f32::NEG_INFINITY; }
                 hb[x] = h;
                 gb[x] = g;
                 if h > mx_h {
@@ -220,6 +251,7 @@ pub fn fused_hg_stats(
             h = f32::NEG_INFINITY;
             g = f32::NEG_INFINITY;
         }
+        if !h.is_finite() || !g.is_finite() { h=f32::NEG_INFINITY; g=f32::NEG_INFINITY; }
         hb[x] = h;
         gb[x] = g;
         if h > mx_h {
@@ -364,6 +396,21 @@ pub fn argmax_first_two(h: &[f32], g: &[f32], mx_h: f32, mx_g: f32) -> (usize, u
         if bi != usize::MAX && (bsi != usize::MAX || !find_g) {
             break;
         }
+    }
+    (bi, bsi)
+}
+
+/// Best h/g candidates under exactly the same complete packed-key order as TopK.
+/// Used when TopK accumulation is disabled; no tolerance-based alternative ordering.
+pub fn argmax_packed_two(h: &[f32], g: &[f32]) -> (usize, usize) {
+    let (mut best_h, mut best_g) = (u64::MAX, u64::MAX);
+    let (mut bi, mut bsi) = (usize::MAX, usize::MAX);
+    for x in 0..h.len() {
+        if !h[x].is_finite() || !g[x].is_finite() { continue; }
+        let kh = pack_desc_idx_asc(h[x], x as u32);
+        let kg = pack_desc_idx_asc(g[x], x as u32);
+        if kh < best_h { best_h = kh; bi = x; }
+        if kg < best_g { best_g = kg; bsi = x; }
     }
     (bi, bsi)
 }
@@ -927,7 +974,7 @@ pub fn for_each_gt(v: &[f32], refv: &[f32], mut f: impl FnMut(usize)) {
 /// f32 → 保序 u32：正数翻符号位、负数全部取反，使整型序 = 浮点序。
 /// 选择用的量化网格（绝对值）。
 ///
-/// 用途：把"参与排序/取最大"的得分四舍五入到 1e-6，再比较。
+/// 用途：把"参与排序/取最大"的得分四舍五入到 1e-4，再比较。
 /// 为什么需要：得分是 rho 的加权和，矩阵累加顺序不同（SIMD 8 lane vs 标量、
 /// 不同实现、不同编译选项）会带来 1e-7 级的差异；直接比较 f32 位模式时，
 /// 这点差异足以把 argmax 或 top-k 的第 K 名翻到另一个候选上，导致依赖
@@ -982,204 +1029,154 @@ pub fn select_topk_keys(
     kh: &mut [u64],
     mid_buf: &mut [u64],
 ) {
-    // Enabled by default; an explicit 0 restores the legacy selector. Read once per process.
+    let n = scores.len();
+    if take == 0 || n == 0 { return; }
+    // Both paths now obey complete packed-key order. 0 selects the full-key reference path.
     static HIGH_FIRST: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    if *HIGH_FIRST.get_or_init(|| std::env::var("YUPEI_TOPK_HIGH_FIRST").as_deref() != Ok("0")) {
+    if *HIGH_FIRST.get_or_init(|| std::env::var("YUPEI_TOPK_HIGH_FIRST").as_deref() != Ok("0"))
+        && n >= 1024 && take * 4 < n
+    {
         return select_topk_keys_high_first(scores, take, kh, mid_buf);
     }
-    let n = scores.len();
-    if take == 0 || n == 0 {
-        return;
-    }
-    #[cfg(target_arch = "x86_64")]
-    unsafe {
-        if have_avx2() && n >= 1024 && take * 4 < n {
-            const NSAMP: usize = 128;
-            let step = n / NSAMP;
-            let mut samp = [0.0f32; NSAMP];
-            for s in 0..NSAMP {
-                samp[s] = *scores.get_unchecked(s * step);
-            }
-            let k1 = ((take * NSAMP) / n).saturating_sub(2).max(1);
-            let k2 = (((take * NSAMP) / n) + 5).min(NSAMP - 1);
-            samp.select_nth_unstable_by(k2, |a, b| b.total_cmp(a));
-            let t2 = samp[k2];
-            samp[..k2].select_nth_unstable_by(k1, |a, b| b.total_cmp(a));
-            let t1 = samp[k1];
-            if t2.is_finite() && t1.is_finite() && t1 >= t2 {
-                let vt1 = _mm256_set1_ps(t1);
-                let vt2 = _mm256_set1_ps(t2);
-                let mut n_hi = 0usize;
-                let mut n_mid = 0usize;
-                let mut x = 0usize;
-                while x + 8 <= n {
-                    let v = _mm256_loadu_ps(scores.as_ptr().add(x));
-                    let m2 = _mm256_movemask_ps(_mm256_cmp_ps::<_CMP_GE_OQ>(v, vt2)) as u32;
-                    if m2 != 0 {
-                        let m1 = _mm256_movemask_ps(_mm256_cmp_ps::<_CMP_GE_OQ>(v, vt1)) as u32;
-                        let mut hi = m1;
-                        while hi != 0 {
-                            let l = hi.trailing_zeros() as usize;
-                            let idx = x + l;
-                            *kh.get_unchecked_mut(n_hi) =
-                                pack_desc_idx_asc(*scores.get_unchecked(idx), idx as u32);
-                            n_hi += 1;
-                            hi &= hi - 1;
-                        }
-                        let mut md = m2 & !m1;
-                        while md != 0 {
-                            let l = md.trailing_zeros() as usize;
-                            let idx = x + l;
-                            *mid_buf.get_unchecked_mut(n_mid) =
-                                pack_desc_idx_asc(*scores.get_unchecked(idx), idx as u32);
-                            n_mid += 1;
-                            md &= md - 1;
-                        }
-                    }
-                    x += 8;
-                }
-                while x < n {
-                    let sv = *scores.get_unchecked(x);
-                    if sv >= t1 {
-                        *kh.get_unchecked_mut(n_hi) = pack_desc_idx_asc(sv, x as u32);
-                        n_hi += 1;
-                    } else if sv >= t2 {
-                        *mid_buf.get_unchecked_mut(n_mid) = pack_desc_idx_asc(sv, x as u32);
-                        n_mid += 1;
-                    }
-                    x += 1;
-                }
-                if n_hi >= take {
-                    if n_hi > take {
-                        kh[..n_hi].select_nth_unstable(take - 1);
-                    }
-                    super::bitonic_sort::sort_keys(&mut kh[..take], mid_buf);
-                    return;
-                }
-                if n_hi + n_mid >= take {
-                    let need = take - n_hi;
-                    let mid = &mut mid_buf[..n_mid];
-                    if n_mid > need {
-                        mid.select_nth_unstable(need - 1);
-                    }
-                    kh[n_hi..take].copy_from_slice(&mid[..need]);
-                    super::bitonic_sort::sort_keys(&mut kh[..take], mid_buf);
-                    return;
-                }
-            }
-        }
-    }
-    for x in 0..n {
-        kh[x] = pack_desc_idx_asc(scores[x], x as u32);
-    }
-    kh.select_nth_unstable(take - 1);
+    for x in 0..n { kh[x] = pack_desc_idx_asc(scores[x], x as u32); }
+    kh[..n].select_nth_unstable(take - 1);
     super::bitonic_sort::sort_keys(&mut kh[..take], mid_buf);
 }
 
-// Exact legacy selection: collect mid candidates only when the high bucket is too small.
-fn select_topk_keys_high_first(
-    scores: &[f32],
-    take: usize,
-    kh: &mut [u64],
-    mid_buf: &mut [u64],
-) {
-    let n = scores.len();
-    if take == 0 || n == 0 {
-        return;
+
+/// Unquantized numeric order, including -0 before +0. NaNs are handled separately.
+#[inline(always)]
+fn raw_order_key(v: f32) -> u32 {
+    let bits = v.to_bits();
+    bits ^ (((bits as i32 >> 31) as u32) | 0x8000_0000)
+}
+
+#[inline(always)]
+fn raw_from_order(key: u32) -> f32 {
+    f32::from_bits(if key & 0x8000_0000 != 0 { key ^ 0x8000_0000 } else { !key })
+}
+
+/// First numeric f32 whose quantized key is >= target (or > target for strict=true).
+/// The arithmetic estimate is only a hint: adjacent floats are checked against fkey itself.
+/// Binary search is an exact bounded fallback for very large values and unusual boundaries.
+fn quant_bucket_lower(raw_sample: f32, strict: bool) -> f32 {
+    let target = fkey(raw_sample);
+    let passes = |v: f32| if strict { fkey(v) > target } else { fkey(v) >= target };
+    let q = quant(raw_sample);
+    if (!strict && q.to_bits() == 0) || (strict && q.to_bits() == 0x8000_0000) {
+        return 0.0;
     }
+    if raw_sample.is_finite() && raw_sample.abs() < 16.0 {
+        let inv_grid = 1.0f32 / Q_GRID;
+        let bin = (raw_sample * inv_grid).round() as f64;
+        let edge = ((bin + if strict { 0.5 } else { -0.5 }) / inv_grid as f64) as f32;
+        let mut key = raw_order_key(edge);
+        for _ in 0..8 {
+            if !passes(raw_from_order(key)) { key += 1; }
+            else if passes(raw_from_order(key - 1)) { key -= 1; }
+            else { return raw_from_order(key); }
+        }
+    }
+    // Numeric f32 keys span -inf through +inf; endpoint sentinels are unnecessary here,
+    // because callers only use this helper for samples with finite quantized scores.
+    let (mut lo, mut hi) = (raw_order_key(f32::NEG_INFINITY), raw_order_key(f32::INFINITY));
+    while lo < hi {
+        let mid = lo + (hi - lo) / 2;
+        if passes(raw_from_order(mid)) { hi = mid; } else { lo = mid + 1; }
+    }
+    raw_from_order(lo)
+}
+
+/// Collect exactly the complete packed keys <= cutoff, preserving input-index order.
+/// Numeric prefilter boundaries include the entire quantized tie bucket. The threshold's
+/// stock index decides which equal-score candidates enter; NaNs are explicitly checked.
+fn collect_packed_prefix(scores: &[f32], cutoff: u64, out: &mut [u64]) -> usize {
+    let cutoff_idx = cutoff as u32 as usize;
+    let sample = scores[cutoff_idx];
+    if !quant(sample).is_finite() {
+        let mut count = 0;
+        for (x, &score) in scores.iter().enumerate() {
+            let key = pack_desc_idx_asc(score, x as u32);
+            if key <= cutoff { out[count] = key; count += 1; }
+        }
+        return count;
+    }
+    let lower = quant_bucket_lower(sample, false);
+    let upper = quant_bucket_lower(sample, true);
+    let mut count = 0usize;
+    let mut x = 0usize;
     #[cfg(target_arch = "x86_64")]
     unsafe {
-        if have_avx2() && n >= 1024 && take * 4 < n {
-            const NSAMP: usize = 128;
-            let step = n / NSAMP;
-            let mut samp = [0.0f32; NSAMP];
-            for s in 0..NSAMP {
-                samp[s] = *scores.get_unchecked(s * step);
-            }
-            let k1 = ((take * NSAMP) / n).saturating_sub(2).max(1);
-            let k2 = (((take * NSAMP) / n) + 5).min(NSAMP - 1);
-            samp.select_nth_unstable_by(k2, |a, b| b.total_cmp(a));
-            let t2 = samp[k2];
-            samp[..k2].select_nth_unstable_by(k1, |a, b| b.total_cmp(a));
-            let t1 = samp[k1];
-            if t2.is_finite() && t1.is_finite() && t1 >= t2 {
-                let vt1 = _mm256_set1_ps(t1);
-                let vt2 = _mm256_set1_ps(t2);
-                let mut n_hi = 0usize;
-                let mut x = 0usize;
-                // Preserve exact legacy t1 candidate set; defer mid candidates until needed.
-                while x + 8 <= n {
-                    let v = _mm256_loadu_ps(scores.as_ptr().add(x));
-                    let mut hi = _mm256_movemask_ps(_mm256_cmp_ps::<_CMP_GE_OQ>(v, vt1)) as u32;
-                    while hi != 0 {
-                        let l = hi.trailing_zeros() as usize;
-                        let idx = x + l;
-                        *kh.get_unchecked_mut(n_hi) =
-                            pack_desc_idx_asc(*scores.get_unchecked(idx), idx as u32);
-                        n_hi += 1;
-                        hi &= hi - 1;
-                    }
-                    x += 8;
+        if have_avx2() {
+            let vlo = _mm256_set1_ps(lower);
+            let vhi = _mm256_set1_ps(upper);
+            while x + 8 <= scores.len() {
+                let v = _mm256_loadu_ps(scores.as_ptr().add(x));
+                let numeric = if x + 7 <= cutoff_idx {
+                    _mm256_cmp_ps::<_CMP_GE_OQ>(v, vlo)
+                } else if x > cutoff_idx {
+                    _mm256_cmp_ps::<_CMP_GE_OQ>(v, vhi)
+                } else {
+                    let lo = _mm256_cmp_ps::<_CMP_GE_OQ>(v, vlo);
+                    let hi = _mm256_cmp_ps::<_CMP_GE_OQ>(v, vhi);
+                    let ix = _mm256_setr_epi32(x as i32, (x+1) as i32, (x+2) as i32, (x+3) as i32,
+                        (x+4) as i32, (x+5) as i32, (x+6) as i32, (x+7) as i32);
+                    let before = _mm256_cmpgt_epi32(_mm256_set1_epi32((cutoff_idx+1) as i32), ix);
+                    _mm256_blendv_ps(hi, lo, _mm256_castsi256_ps(before))
+                };
+                let nan = _mm256_cmp_ps::<_CMP_UNORD_Q>(v, v);
+                let mut mask = _mm256_movemask_ps(_mm256_or_ps(numeric, nan)) as u32;
+                while mask != 0 {
+                    let i = x + mask.trailing_zeros() as usize;
+                    let key = pack_desc_idx_asc(*scores.get_unchecked(i), i as u32);
+                    // Explicit check also preserves the packed-key order of every NaN payload.
+                    if key <= cutoff { *out.get_unchecked_mut(count) = key; count += 1; }
+                    mask &= mask - 1;
                 }
-                while x < n {
-                    let sv = *scores.get_unchecked(x);
-                    if sv >= t1 {
-                        *kh.get_unchecked_mut(n_hi) = pack_desc_idx_asc(sv, x as u32);
-                        n_hi += 1;
-                    }
-                    x += 1;
-                }
-                if n_hi >= take {
-                    if n_hi > take {
-                        kh[..n_hi].select_nth_unstable(take - 1);
-                    }
-                    super::bitonic_sort::sort_keys(&mut kh[..take], mid_buf);
-                    return;
-                }
-                let mut n_mid = 0usize;
-                let mut x = 0usize;
-                while x + 8 <= n {
-                    let v = _mm256_loadu_ps(scores.as_ptr().add(x));
-                    let above_lower = _mm256_cmp_ps::<_CMP_GE_OQ>(v, vt2);
-                    let below_upper = _mm256_cmp_ps::<_CMP_LT_OQ>(v, vt1);
-                    let mut md = _mm256_movemask_ps(_mm256_and_ps(above_lower, below_upper)) as u32;
-                    while md != 0 {
-                        let l = md.trailing_zeros() as usize;
-                        let idx = x + l;
-                        *mid_buf.get_unchecked_mut(n_mid) =
-                            pack_desc_idx_asc(*scores.get_unchecked(idx), idx as u32);
-                        n_mid += 1;
-                        md &= md - 1;
-                    }
-                    x += 8;
-                }
-                while x < n {
-                    let sv = *scores.get_unchecked(x);
-                    if sv < t1 && sv >= t2 {
-                        *mid_buf.get_unchecked_mut(n_mid) = pack_desc_idx_asc(sv, x as u32);
-                        n_mid += 1;
-                    }
-                    x += 1;
-                }
-                if n_hi + n_mid >= take {
-                    let need = take - n_hi;
-                    let mid = &mut mid_buf[..n_mid];
-                    if n_mid > need {
-                        mid.select_nth_unstable(need - 1);
-                    }
-                    kh[n_hi..take].copy_from_slice(&mid[..need]);
-                    super::bitonic_sort::sort_keys(&mut kh[..take], mid_buf);
-                    return;
-                }
+                x += 8;
             }
         }
     }
-    for x in 0..n {
-        kh[x] = pack_desc_idx_asc(scores[x], x as u32);
+    while x < scores.len() {
+        let score = scores[x];
+        if score >= if x <= cutoff_idx { lower } else { upper } || score.is_nan() {
+            let key = pack_desc_idx_asc(score, x as u32);
+            if key <= cutoff { out[count] = key; count += 1; }
+        }
+        x += 1;
     }
-    kh.select_nth_unstable(take - 1);
-    super::bitonic_sort::sort_keys(&mut kh[..take], mid_buf);
+    count
 }
+
+/// Exact quantized TopK with sampled complete-key thresholds and an exact full-key fallback.
+fn select_topk_keys_high_first(scores: &[f32], take: usize, kh: &mut [u64], scratch: &mut [u64]) {
+    const NSAMP: usize = 128;
+    let n = scores.len();
+    let step = n / NSAMP;
+    let mut sample = [0u64; NSAMP];
+    for s in 0..NSAMP {
+        let x = s * step;
+        sample[s] = pack_desc_idx_asc(scores[x], x as u32);
+    }
+    let k1 = ((take * NSAMP) / n).saturating_sub(2).max(1);
+    let k2 = (((take * NSAMP) / n) + 5).min(NSAMP - 1);
+    sample.select_nth_unstable(k2);
+    let t2 = sample[k2];
+    sample[..k2].select_nth_unstable(k1);
+    let t1 = sample[k1];
+    for threshold in [t1, t2] {
+        let count = collect_packed_prefix(scores, threshold, kh);
+        if count >= take {
+            if count > take { kh[..count].select_nth_unstable(take - 1); }
+            super::bitonic_sort::sort_keys(&mut kh[..take], scratch);
+            return;
+        }
+    }
+    for x in 0..n { kh[x] = pack_desc_idx_asc(scores[x], x as u32); }
+    kh[..n].select_nth_unstable(take - 1);
+    super::bitonic_sort::sort_keys(&mut kh[..take], scratch);
+}
+
 
 // Independent per-stock accumulations: same multiply/add order, 16 lanes instead of 8.
 fn mass_acc_hg_512(

@@ -1,0 +1,10 @@
+{
+  "python/rust_pyfunc/rust_pyfunc.abi3.so": {
+    "sha256": "2a25e4302e5d3ecac38ecee819b9817ad7205cddad0a9b9f0b9f9ca87f801c3b",
+    "mtime": 1793360761.2017
+  },
+  "python/rust_pyfunc/rust_pyfunc_worker": {
+    "sha256": "006dc3d3e1fe82fd791cdebe74f1bfb77a28c09aaf12a12b64991f0db963eb65",
+    "mtime": 1793360840.8116338
+  }
+}

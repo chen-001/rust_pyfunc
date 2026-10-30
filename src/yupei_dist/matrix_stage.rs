@@ -39,7 +39,7 @@ use std::arch::x86_64::*;
 pub const BUCKET_US: i64 = 10_000; // 10ms
 pub const N_BUCKETS: usize = 1_422_000; // 14220s × 100
 pub const BLOCK_BUCKETS: usize = 4096; // 块内桶数 (40.96s)
-pub const N_BLOCKS: usize = N_BUCKETS / BLOCK_BUCKETS; // 348
+pub const N_BLOCKS: usize = N_BUCKETS.div_ceil(BLOCK_BUCKETS); // 348，含末尾 688 桶
 
 /// 每单元 10 个 u 场: [cnt, vol(√v, 供 flow/ext), logvol, flow+, flow−, urg+, urg−, ext+, ext−, rvol]
 /// rvol = v/该股过去30秒成交总量（相对量权重，替换旧 vol 族矩阵；家族位沿用 family=1）。
@@ -511,7 +511,7 @@ fn phase1_simd<const NEED: u8>(
         let mut a3 = _mm256_loadu_ps(aptr.add(24));
         let mut a4 = _mm256_loadu_ps(aptr.add(32));
         let mut a5 = _mm256_loadu_ps(aptr.add(40));
-        for k in 0..BLOCK_BUCKETS {
+        for k in 0..BLOCK_BUCKETS.min(N_BUCKETS - k0 as usize) {
             for f in 0..N_U {
                 ub[f] = 0.0;
             }
@@ -641,7 +641,7 @@ fn phase1_scalar<const _NEED: u8>(
         ];
         let mut b_curs = 0usize;
         let mut ub = [0.0f32; N_U];
-        for k in 0..BLOCK_BUCKETS {
+        for k in 0..BLOCK_BUCKETS.min(N_BUCKETS - k0 as usize) {
             for f in 0..N_U {
                 ub[f] = 0.0;
             }
@@ -757,7 +757,8 @@ fn phase2_simd<const NEED: u8>(
     let idx_x = unsafe { _mm256_setr_epi32(1, 0, 3, 2, 5, 4, 7, 6) };
     for sub in 0..SUB {
         let k_lo = sub * sub_buckets;
-        let k_hi = k_lo + sub_buckets;
+        let k_hi = (k_lo + sub_buckets).min(N_BUCKETS - k0 as usize);
+        if k_lo >= k_hi { continue; }
         for a in 0..n {
             let ca = counts[a];
             if ca == 0 {
@@ -869,7 +870,8 @@ fn phase2_scalar<const _NEED: u8>(
         // 标量回退：与 SIMD 版逐位一致（mul_add 单次舍入、slot 序固定）
         for sub in 0..SUB {
             let k_lo = sub * sub_buckets;
-            let k_hi = k_lo + sub_buckets;
+            let k_hi = (k_lo + sub_buckets).min(N_BUCKETS - k0 as usize);
+            if k_lo >= k_hi { continue; }
             for a in 0..n {
                 let ca = counts[a];
                 if ca == 0 {
@@ -1034,7 +1036,7 @@ pub fn compute_matrices(stocks: &[StockPrep], need: u8) -> (Vec<Vec<f32>>, Vec<S
 
     for block in 0..N_BLOCKS {
         let k0 = block * BLOCK_BUCKETS;
-        let k1 = k0 + BLOCK_BUCKETS;
+        let k1 = (k0 + BLOCK_BUCKETS).min(N_BUCKETS);
         // ---- 1. 每股块内单元（游标推进, 并行）----
         let counts: Vec<usize> = stocks
             .par_iter()
