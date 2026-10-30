@@ -1,0 +1,23 @@
+{
+  "file": "reports/yupei_multi_ks5_20_20261030/py_yupei_multi_v5默认5和20与优化审计.xlsx",
+  "sheets_checked": [
+    "正式默认",
+    "优化对照",
+    "原始阶段计时",
+    "无重叠阶段拆分",
+    "方案与证据",
+    "错误审计",
+    "全量对账"
+  ],
+  "formula_count": 131,
+  "shared_formula_ranges": 0,
+  "error_count": 0,
+  "errors": [],
+  "date": "2026-10-30",
+  "static_status": "PASS",
+  "dynamic_status": "PASS",
+  "dynamic_tool": "LibreOffice headless; separate output directory; formula caches and totals verified",
+  "metric_checks": "Recommended mean, savings, percentages, full-stage sum and R6 matched-control savings verified",
+  "final_status": "PASS",
+  "file_sha256": "dd340e630c2883a13d4ba5608558b7e3412f81739baaccd16060122390cd9ffd"
+}

@@ -1,0 +1,27 @@
+{
+  "reference": "/home/chenzongwei/rust_pyfunc/reports/yupei_multi_ks5_20_20261030/default_after",
+  "candidate": "/home/chenzongwei/rust_pyfunc/reports/yupei_multi_ks5_20_20261030/r6_repeat",
+  "stocks": 5195,
+  "same_column_order": true,
+  "groups": {
+    "shared_topk": {
+      "columns": 320,
+      "values": 1662400,
+      "changed_columns": 0,
+      "bit_mismatches": 0,
+      "nan_mask_mismatches": 0,
+      "inf_mask_mismatches": 0
+    },
+    "non_topk": {
+      "columns": 12594,
+      "values": 65425830,
+      "changed_columns": 0,
+      "bit_mismatches": 0,
+      "nan_mask_mismatches": 0,
+      "inf_mask_mismatches": 0
+    }
+  },
+  "removed": [],
+  "added": [],
+  "changed": []
+}

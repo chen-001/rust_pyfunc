@@ -32,7 +32,7 @@ meta["switches"] = {k: os.environ.get(k) for k in (
     "YUPEI_MULTI_CACHE", "YUPEI_MULTI_SVD", "YUPEI_SVD_CHUNK", "YUPEI_SORT100_SIMD",
     "YUPEI_NET_PROFILE", "YUPEI_STAGE", "YUPEI_VERBOSE", "YUPEI_TOPK_HIGH_FIRST",
     "YUPEI_SHARE_RHO_REDUCE", "YUPEI_NET_MIRROR", "YUPEI_MASS_AVX512",
-    "YUPEI_MATRIX_TWO_TARGET")}
+    "YUPEI_MATRIX_TWO_TARGET", "YUPEI_R6_STREAMING")}
 print(json.dumps(meta), flush=True)
 t0 = time.perf_counter()
 codes, names, vals = rp.py_yupei_multi_v5(date, ks=ks)

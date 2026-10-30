@@ -1,0 +1,27 @@
+{
+  "source_sha256": {
+    "src/yupei_multi/mod.rs": "fdb8bdbd69aec0ba58a1454288b692047b390c7227dc3920fc89808c5ae36105",
+    "src/yupei_pair/mirror_stage.rs": "1a84cbdb36e315247dcff379eececa9c3cdc525f510685fb66fa1378e18d8620",
+    "src/yupei_pair/mod.rs": "f466f9bb49358dda065ff71bb9d160547e6a43dbed3643dcb707294ef57651e8",
+    "src/yupei_pair/net.rs": "59703e31d7f833efdd8a552890ef4b33ff37c88d9bdf00a56791d8c9d2a3ede3",
+    "src/yupei_pair/reduce.rs": "a242c3693b9f42e4ce8037589e2506424653511c0c6e9d929b19a32928ab6da9",
+    "src/yupei_pair/simd.rs": "5b3ec787bfa48c3b4692aff60d1d77fa75f433abfeae62ba9c3950e6f4f36559",
+    "src/yupei_pair/split_mat.rs": "d4b7de4d5c6d663558cc38e146abde54584c900a534787b582aa3e004d897c44",
+    "src/yupei_pair/split_mat_two_target.rs": "7dd8209612c331540d941d972750947ac0939da0e760464c2dfa9305b59fbb47",
+    "src/yupei_pair/r6_streaming.rs": "2e0aa4a227a6735d7488ea09b81b9f01e6b3c348f9752a719ed33523dff991ed"
+  },
+  "module_sha256": "b1a45a3fa98f6d5793486006ba6c0299470df2965f3b92be19cd9116c4173557",
+  "profile": "release-fast",
+  "formal_source_changed_by_optimization": false,
+  "switches": [
+    "YUPEI_TOPK_HIGH_FIRST",
+    "YUPEI_MASS_AVX512",
+    "YUPEI_MATRIX_TWO_TARGET",
+    "YUPEI_SHARE_RHO_REDUCE",
+    "YUPEI_NET_MIRROR",
+    "YUPEI_R6_STREAMING"
+  ],
+  "build_exit_code": 0,
+  "build_log_sha256": "46aeac97262dfee7fb2c807b90a70b602fdd12d1e737758c3dbfbe1ee6820392",
+  "build_completion": "    Finished `release-fast` profile [optimized] target(s) in 1m 17s"
+}
