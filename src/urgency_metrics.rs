@@ -19,7 +19,7 @@
 //! 单进程 50线程 ~99s/天（CPU ~4930s）。框架 n_jobs=500(10进程×50线程) 约 6.8h/2500天。
 //! 关键优化：both 连续 SoA 预提取（消除随机访问）、par_iter over 股票×版本（负载均衡）、
 //! unsafe get_unchecked、价格冲击 per-stock 前缀和。
-use crate::fast_csv_reader::read_trade_fast_inner;
+use crate::fast_csv_reader::{read_trade_fast_inner, TradeRecord};
 use crate::features::get_features_factors_rust_full;
 use ndarray::Array2;
 use pyo3::prelude::*;
@@ -523,7 +523,7 @@ fn stock_version_factors(
 pub fn compute_urgency_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f32>)> {
     let codes = list_codes(date);
     // ① rayon 并行读全市场（过滤撤单）
-    let per_stock: Vec<(String, Vec<_>)> = codes
+    let per_stock: Vec<(String, Vec<TradeRecord>)> = codes
         .par_iter()
         .filter_map(|code| {
             let mut trades = read_trade_fast_inner(code, date, false, true, usize::MAX).ok()?;
@@ -534,9 +534,20 @@ pub fn compute_urgency_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f32>
             Some((code.clone(), trades))
         })
         .collect();
+    Ok(compute_urgency_from_trades(&per_stock))
+}
+
+/// 由「每只股票一份逐笔记录」算全市场迫切交易联动因子。
+///
+/// 读磁盘（compute_urgency_full）与 Python 传数组（py_urgency_from_data）两条路径共用这一处；
+/// 记录构造一侧走 build_trade_record（撤单在这里丢掉），保证输出逐位一致。
+/// 输入顺序就是输出 codes 的顺序；逐笔为空的股票在这里被跳过。
+pub fn compute_urgency_from_trades(
+    per_stock: &[(String, Vec<TradeRecord>)],
+) -> (Vec<String>, Vec<f32>) {
     let n_stocks = per_stock.len();
     if n_stocks == 0 {
-        return Ok((Vec::new(), Vec::new()));
+        return (Vec::new(), Vec::new());
     }
     let mut code_of_cid: Vec<String> = Vec::with_capacity(n_stocks);
     let total: usize = per_stock.iter().map(|(_, t)| t.len()).sum();
@@ -563,7 +574,6 @@ pub fn compute_urgency_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f32>
             cid.push(c as u32);
         }
     }
-    drop(per_stock);
     let n = time_us.len();
 
     // ② 全市场分位
@@ -736,7 +746,7 @@ pub fn compute_urgency_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f32>
             }
         }
     }
-    Ok((out_codes, out_vals))
+    (out_codes, out_vals)
 }
 
 /// 因子名（N_FACTORS 个：sell_/buy_/both_ 前缀 × 降维名）。
@@ -778,4 +788,60 @@ mod tests {
     fn test_metric_names_count() {
         assert_eq!(metric_names().len(), NCOLS);
     }
+}
+
+/// Python 可调用（全市场数组版，供样例/分享用）：
+/// `py_urgency_from_data(codes, trade_arrays)`
+///
+/// - codes：股票代码列表，顺序就是输出 codes 的顺序
+/// - trade_arrays：每只股票一个 (n_i, 7) 的 float64 数组，列序
+///   [exchtime_us, price, volume, turnover, flag, bid_order, ask_order]
+///   （exchtime_us = 原始 Level2 transaction.csv 的 exchtime 列；flag==32 的撤单在这里丢掉）
+///
+/// 与 py_urgency(date) 的输出逐位一致（前提是 codes 与逐笔内容和生产当天完全一致）。
+#[pyfunction]
+pub fn py_urgency_from_data(
+    codes: Vec<String>,
+    trade_arrays: Vec<numpy::PyReadonlyArray2<f64>>,
+) -> PyResult<(Vec<String>, Vec<f32>)> {
+    if codes.len() != trade_arrays.len() {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "codes.len()={} != trade_arrays.len()={}",
+            codes.len(),
+            trade_arrays.len()
+        )));
+    }
+    let mut per_stock: Vec<(String, Vec<TradeRecord>)> = Vec::with_capacity(codes.len());
+    for (code, arr) in codes.iter().zip(trade_arrays.iter()) {
+        let a = arr.as_array();
+        if a.ncols() != 7 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "trade_arrays 每只股票必须是 (n, 7)：exchtime_us, price, volume, turnover, flag, bid_order, ask_order",
+            ));
+        }
+        let mut trades: Vec<TradeRecord> = Vec::with_capacity(a.nrows());
+        for i in 0..a.nrows() {
+            let flag = a[[i, 4]] as i32;
+            if flag == 32 {
+                continue;
+            }
+            if let Some(r) = crate::fast_csv_reader::build_trade_record(
+                a[[i, 0]] as i64,
+                a[[i, 1]] as f32,
+                a[[i, 2]] as f32,
+                a[[i, 3]] as f32,
+                flag,
+                a[[i, 5]] as i64,
+                a[[i, 6]] as i64,
+                true,
+            ) {
+                trades.push(r);
+            }
+        }
+        if trades.is_empty() {
+            continue;
+        }
+        per_stock.push((code.clone(), trades));
+    }
+    Ok(compute_urgency_from_trades(&per_stock))
 }

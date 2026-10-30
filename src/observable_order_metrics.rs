@@ -1073,11 +1073,25 @@ pub fn compute_observable_order_metrics(
 ) -> std::io::Result<
     [(Vec<f32>, usize, Vec<f32>, usize); 4], // bid_A, bid_B, ask_A, ask_B
 > {
-    // 1. 读取数据（撤单已在读取时过滤）
+    // 读取数据（撤单已在读取时过滤）
     let trade = read_trade_fast_inner(code, date, false, true, usize::MAX)?;
     let market = read_market_fast_inner(code, date, false, true, usize::MAX)?;
+    Ok(compute_observable_order_metrics_from_records(
+        &trade, &market, params,
+    ))
+}
 
-    // 2. 预计算全天盘口序列
+/// 由已构造好的逐笔 / 盘口记录计算 4 套配置的 (seg_flat, seg_rows, pre5_flat, pre5_rows)。
+///
+/// 读磁盘（read_trade_fast_inner + read_market_fast_inner）与 Python 传数组
+/// （py_observable_order_from_data）两条路径共用这一处，记录构造一侧分别走
+/// build_trade_record / build_market_record，保证输出逐位一致。
+pub fn compute_observable_order_metrics_from_records(
+    trade: &[TradeRecord],
+    market: &[MarketRecord],
+    params: &ObsOrderParams,
+) -> [(Vec<f32>, usize, Vec<f32>, usize); 4] {
+    // 1. 预计算全天盘口序列
     let imb = precompute_imbalance(&market);
     // 可观测挂单比例
     let obs_bid: Vec<f32> = market
@@ -1193,8 +1207,194 @@ pub fn compute_observable_order_metrics(
         results[ci] = (seg_flat, nrows, pre5_flat, nrows);
     }
 
-    Ok(results)
+    results
 }
+
+// ============================================================================
+// 完整因子输出（原始指标 → 16 组特征降维）
+// ============================================================================
+
+/// 把 (n_rows × NCOLS) 的展平数据按 keep 索引过滤为 (n_rows × keep.len()) 的 Array2。
+fn filter_array2(data: &[f32], n_rows: usize, keep: &[usize]) -> ndarray::Array2<f32> {
+    if n_rows == 0 || keep.is_empty() {
+        return ndarray::Array2::zeros((0, keep.len()));
+    }
+    let mut out = vec![0.0f32; n_rows * keep.len()];
+    for r in 0..n_rows {
+        for (j, &c) in keep.iter().enumerate() {
+            out[r * keep.len() + j] = data[r * NCOLS + c];
+        }
+    }
+    ndarray::Array2::from_shape_vec((n_rows, keep.len()), out)
+        .unwrap_or_else(|_| ndarray::Array2::zeros((0, keep.len())))
+}
+
+/// get_features_factors_rust_full_opts(with_threshold_counts=false) 每组输出的长度。
+fn features_per_group(col_names: &[String], with_curvature: bool) -> usize {
+    let n = col_names.len();
+    // 19 个单列统计量（mean/median/std/skew/kurt/p5/p25/p75/p95/iqr/cv/
+    // autocorr1/autocorr1_abs/trend/period_diff/period_ratio/lz_complexity/
+    // entropy_1d/max_range_product）+ 2 个可选二阶趋势（curvature/quad_coef）
+    // 再加 n*(n-1)/2 个两两相关
+    let per_col = if with_curvature { 21 } else { 19 };
+    per_col * n + n * (n - 1) / 2
+}
+
+/// Rust 侧 147 列原始指标名（过滤 DELETE_COLS 前）。
+fn build_col_names() -> Vec<String> {
+    let mut names = Vec::with_capacity(NCOLS);
+    let aggs = ["mean", "std", "skew", "ac1", "trend"];
+    for imb in ["imb1", "imb1_5", "imb1_10", "imb6_10"] {
+        for a in &aggs {
+            names.push(format!("{}_{}", imb, a));
+        }
+    }
+    for v in ["vt_same", "vt_opp"] {
+        for a in &aggs {
+            names.push(format!("{}_{}", v, a));
+        }
+    }
+    for v in ["vs_same", "vs_opp"] {
+        for a in &aggs {
+            names.push(format!("{}_{}", v, a));
+        }
+    }
+    for r in ["r10_det", "r10_abs"] {
+        for a in &aggs {
+            names.push(format!("{}_{}", r, a));
+        }
+    }
+    for r in ["r20_det", "r20_abs"] {
+        for a in &aggs {
+            names.push(format!("{}_{}", r, a));
+        }
+    }
+    for s in [
+        "pvol",
+        "ivstd",
+        "ivtrend",
+        "sd10_same",
+        "sd10_same_abs",
+        "sd10_opp",
+        "sd10_opp_abs",
+        "sd10_diff",
+        "sd10_diff_abs",
+        "sd10_absdiff",
+        "sd10_absdiff_abs",
+        "sd20_both",
+        "sd20_both_abs",
+    ] {
+        names.push(s.to_string());
+    }
+    for od in ["od_raw", "od_abs"] {
+        for a in &aggs {
+            names.push(format!("{}_{}", od, a));
+        }
+    }
+    for a in &aggs {
+        names.push(format!("br_{}", a));
+    }
+    for ct in ["ct_b", "ct_s", "ct_d", "ct_da", "ct_a"] {
+        for a in &aggs {
+            names.push(format!("{}_{}", ct, a));
+        }
+    }
+    for am in ["am_b", "am_s", "am_d", "am_da", "am_a"] {
+        for a in &aggs {
+            names.push(format!("{}_{}", am, a));
+        }
+    }
+    for s in [
+        "tr_d", "tr_ad", "bu_d", "bu_ad", "se_d", "se_ad", "bs_dd", "bs_dda", "btr",
+    ] {
+        names.push(s.to_string());
+    }
+    assert_eq!(names.len(), NCOLS);
+    names
+}
+
+/// 完整因子输出：4 套配置 × (seg + pre5 + diff + abs_diff) = 16 组特征降维。
+///
+/// pipeline_observable_order 与 py_observable_order_from_data 的唯一共同调用点，
+/// 保证两条路径输出逐位一致。长度 = 16 × features_per_group(63, with_curvature)
+/// （with_curvature=false → 50400，true → 52416）。
+pub fn observable_order_full_from_records(
+    trade: &[TradeRecord],
+    market: &[MarketRecord],
+    params: &ObsOrderParams,
+    with_curvature: bool,
+) -> Vec<f32> {
+    let results = compute_observable_order_metrics_from_records(trade, market, params);
+
+    let keep = keep_cols();
+    let full_names = build_col_names();
+    let col_names: Vec<String> = keep.iter().map(|&i| full_names[i].clone()).collect();
+    let ncols_out = col_names.len();
+    let mut all_factors: Vec<f32> =
+        Vec::with_capacity(16 * features_per_group(&col_names, with_curvature));
+
+    for (seg_flat, seg_rows, pre5_flat, pre5_rows) in results.iter() {
+        let seg = filter_array2(seg_flat, *seg_rows, &keep);
+        let pre5 = filter_array2(pre5_flat, *pre5_rows, &keep);
+        let diff = if seg.nrows() > 0 && pre5.nrows() > 0 && seg.nrows() == pre5.nrows() {
+            let mut d = ndarray::Array2::zeros(seg.dim());
+            for r in 0..seg.nrows() {
+                for c in 0..ncols_out {
+                    d[[r, c]] = seg[[r, c]] - pre5[[r, c]];
+                }
+            }
+            d
+        } else {
+            ndarray::Array2::zeros((0, ncols_out))
+        };
+        let abs_diff = {
+            let mut d = ndarray::Array2::zeros(diff.dim());
+            for r in 0..diff.nrows() {
+                for c in 0..diff.ncols() {
+                    d[[r, c]] = diff[[r, c]].abs();
+                }
+            }
+            d
+        };
+
+        for arr in [seg.view(), pre5.view(), diff.view(), abs_diff.view()] {
+            let (vals, _) = if arr.nrows() == 0 {
+                (
+                    vec![f32::NAN; features_per_group(&col_names, with_curvature)],
+                    vec![],
+                )
+            } else {
+                crate::features::get_features_factors_rust_full_opts(
+                    &arr,
+                    &col_names,
+                    false,
+                    with_curvature,
+                )
+            };
+            all_factors.extend_from_slice(&vals);
+        }
+    }
+
+    all_factors
+}
+
+/// 读盘路径的完整因子输出（pipeline 与 py_ 入口共用）。
+pub fn compute_observable_order_full(
+    code: &str,
+    date: i64,
+    params: &ObsOrderParams,
+    with_curvature: bool,
+) -> std::io::Result<Vec<f32>> {
+    let trade = read_trade_fast_inner(code, date, false, true, usize::MAX)?;
+    let market = read_market_fast_inner(code, date, false, true, usize::MAX)?;
+    Ok(observable_order_full_from_records(
+        &trade,
+        &market,
+        params,
+        with_curvature,
+    ))
+}
+
 // ============================================================================
 // PyO3 接口
 // ============================================================================
@@ -1290,4 +1490,101 @@ fn filter_cols(data: &[f32], n_rows: usize, keep: &[usize]) -> Vec<f32> {
         }
     }
     out
+}
+
+/// Python 可调用（数组版，供样例/分享用）：
+/// `py_observable_order_from_data(trade_arrays, market_arrays, params=None, with_curvature=True)`
+///
+/// - trade_arrays：形状 (n, 7) 的 float64 数组，列序
+///   [exchtime_us, price, volume, turnover, flag, bid_order, ask_order]
+///   （exchtime_us = 原始 Level2 transaction.csv 的 exchtime 列；flag==32 的撤单在这里丢掉）
+/// - market_arrays：形状 (m, 46) 的 float64 数组，列序
+///   [exchtime_us, last_prc, volume, turnover, total_ask_vol, total_bid_vol,
+///    ask_prc1..ask_prc10, ask_vol1..ask_vol10, bid_prc1..bid_prc10, bid_vol1..bid_vol10]
+/// - params：同 py_compute_observable_order_metrics 的参数字典；with_curvature=False 输出
+///   19 统计量口径（50400 列），True 输出 21 统计量口径（52416 列）
+///
+/// 与 pipeline=observable_order 的逐股输出逐位一致。
+#[pyfunction]
+#[pyo3(signature = (trade_arrays, market_arrays, params=None, with_curvature=true))]
+pub fn py_observable_order_from_data(
+    _py: Python<'_>,
+    trade_arrays: numpy::PyReadonlyArray2<f64>,
+    market_arrays: numpy::PyReadonlyArray2<f64>,
+    params: Option<&pyo3::types::PyAny>,
+    with_curvature: bool,
+) -> PyResult<Vec<f32>> {
+    let p = match params {
+        Some(d) => parse_params(d)?,
+        None => ObsOrderParams::default(),
+    };
+    let t = trade_arrays.as_array();
+    let m = market_arrays.as_array();
+    if t.ncols() != 7 {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "trade_arrays 必须是 (n, 7)：exchtime_us, price, volume, turnover, flag, bid_order, ask_order",
+        ));
+    }
+    if m.ncols() != 46 {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "market_arrays 必须是 (m, 46)：exchtime_us, last_prc, volume, turnover, total_ask_vol, total_bid_vol, ask_prc1..10, ask_vol1..10, bid_prc1..10, bid_vol1..10",
+        ));
+    }
+
+    let mut trade: Vec<TradeRecord> = Vec::with_capacity(t.nrows());
+    for i in 0..t.nrows() {
+        let flag = t[[i, 4]] as i32;
+        if flag == 32 {
+            continue;
+        }
+        if let Some(r) = crate::fast_csv_reader::build_trade_record(
+            t[[i, 0]] as i64,
+            t[[i, 1]] as f32,
+            t[[i, 2]] as f32,
+            t[[i, 3]] as f32,
+            flag,
+            t[[i, 5]] as i64,
+            t[[i, 6]] as i64,
+            true,
+        ) {
+            trade.push(r);
+        }
+    }
+
+    let mut market: Vec<MarketRecord> = Vec::with_capacity(m.nrows());
+    for i in 0..m.nrows() {
+        let mut ask_prcs = [0.0f32; 10];
+        let mut ask_vols = [0.0f32; 10];
+        let mut bid_prcs = [0.0f32; 10];
+        let mut bid_vols = [0.0f32; 10];
+        for j in 0..10 {
+            ask_prcs[j] = m[[i, 6 + j]] as f32;
+            ask_vols[j] = m[[i, 16 + j]] as f32;
+            bid_prcs[j] = m[[i, 26 + j]] as f32;
+            bid_vols[j] = m[[i, 36 + j]] as f32;
+        }
+        if let Some(r) = crate::fast_csv_reader::build_market_record(
+            m[[i, 0]] as i64,
+            m[[i, 1]] as f32,
+            m[[i, 2]] as f32,
+            m[[i, 3]] as f32,
+            m[[i, 4]] as f32,
+            m[[i, 5]] as f32,
+            ask_prcs,
+            ask_vols,
+            bid_prcs,
+            bid_vols,
+            false,
+            true,
+        ) {
+            market.push(r);
+        }
+    }
+
+    Ok(observable_order_full_from_records(
+        &trade,
+        &market,
+        &p,
+        with_curvature,
+    ))
 }

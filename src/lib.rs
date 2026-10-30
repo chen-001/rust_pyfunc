@@ -1162,6 +1162,10 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         observable_order_metrics::py_compute_observable_order_metrics,
         m
     )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        observable_order_metrics::py_observable_order_from_data,
+        m
+    )?)?;
 
     // hm0~hm92 旧框架因子复现：名字清单 + 单股单日 / 单日全市场调试入口
     let _ = m.add_function(wrap_pyfunction!(okay_database::okay_series_names, m)?)?;
@@ -1214,6 +1218,10 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(
         extreme_point_fit_metrics::py_extreme_point_fit_names,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        extreme_point_fit_metrics::py_extreme_point_fit_from_data,
         m
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(
@@ -1437,12 +1445,17 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(urgency_metrics::py_urgency, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(urgency_metrics::py_urgency_names, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(urgency_metrics::py_urgency_from_data, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(
         urgency_ext_cluster_metrics::py_urgency_ext,
         m
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(
         urgency_ext_cluster_metrics::py_urgency_ext_names,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        urgency_ext_cluster_metrics::py_urgency_ext_from_data,
         m
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(

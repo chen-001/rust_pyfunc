@@ -706,6 +706,20 @@ fn compute_column_group(
 pub fn compute_extreme_fit_full(code: &str, date: i64) -> std::io::Result<Vec<f32>> {
     let trade = read_trade_fast_inner(code, date, false, true, usize::MAX)?;
     let market = read_market_fast_inner(code, date, false, true, usize::MAX)?;
+    Ok(compute_extreme_fit_full_from_records(&trade, &market))
+}
+
+/// 由已构造好的逐笔 / 盘口记录算 4992 个原始展平值。
+///
+/// 读磁盘（compute_extreme_fit_full）与 Python 传数组（py_extreme_point_fit_from_data）
+/// 两条路径共用这一处；记录构造一侧分别走 build_trade_record / build_market_record，
+/// 保证输出逐位一致。
+pub fn compute_extreme_fit_full_from_records(
+    trade_recs: &[TradeRecord],
+    market_recs: &[MarketRecord],
+) -> Vec<f32> {
+    let trade = trade_recs;
+    let market = market_recs;
 
     let mut out = vec![f32::NAN; OUT_LEN];
 
@@ -808,7 +822,7 @@ pub fn compute_extreme_fit_full(code: &str, date: i64) -> std::io::Result<Vec<f3
         }
     }
 
-    Ok(out)
+    out
 }
 
 // ============================================================================
@@ -844,8 +858,23 @@ pub fn compute_extreme_fit_with_features(
     date: i64,
     with_curvature: bool,
 ) -> std::io::Result<Vec<f32>> {
-    let raw = compute_extreme_fit_full(code, date)?;
-    Ok(build_full_output(&raw, with_curvature))
+    let trade = read_trade_fast_inner(code, date, false, true, usize::MAX)?;
+    let market = read_market_fast_inner(code, date, false, true, usize::MAX)?;
+    Ok(extreme_fit_with_features_from_records(
+        &trade,
+        &market,
+        with_curvature,
+    ))
+}
+
+/// 由已构造好的记录算「4992 原始展平 + 降维」，两条路径（读磁盘 / Python 传数组）共用。
+pub fn extreme_fit_with_features_from_records(
+    trade: &[TradeRecord],
+    market: &[MarketRecord],
+    with_curvature: bool,
+) -> Vec<f32> {
+    let raw = compute_extreme_fit_full_from_records(trade, market);
+    build_full_output(&raw, with_curvature)
 }
 
 // ============================================================================
@@ -867,4 +896,92 @@ pub fn py_extreme_point_fit(code: &str, date: i64, with_curvature: bool) -> PyRe
 #[pyo3(signature = (with_curvature=true))]
 pub fn py_extreme_point_fit_names(with_curvature: bool) -> Vec<String> {
     extreme_fit_full_names(with_curvature)
+}
+
+/// Python 可调用（数组版，供样例/分享用）：
+/// `py_extreme_point_fit_from_data(trade_arrays, market_arrays, with_curvature=True)`
+///
+/// - trade_arrays：形状 (n, 7) 的 float64 数组，列序
+///   [exchtime_us, price, volume, turnover, flag, bid_order, ask_order]
+///   （exchtime_us = 原始 Level2 transaction.csv 的 exchtime 列；flag==32 的撤单在这里丢掉）
+/// - market_arrays：形状 (m, 46) 的 float64 数组，列序
+///   [exchtime_us, last_prc, volume, turnover, total_ask_vol, total_bid_vol,
+///    ask_prc1..ask_prc10, ask_vol1..ask_vol10, bid_prc1..bid_prc10, bid_vol1..bid_vol10]
+///
+/// 与 py_extreme_point_fit / pipeline=extreme_point_fit 的输出逐位一致。
+#[pyfunction]
+#[pyo3(signature = (trade_arrays, market_arrays, with_curvature=true))]
+pub fn py_extreme_point_fit_from_data(
+    trade_arrays: numpy::PyReadonlyArray2<f64>,
+    market_arrays: numpy::PyReadonlyArray2<f64>,
+    with_curvature: bool,
+) -> PyResult<Vec<f32>> {
+    let t = trade_arrays.as_array();
+    let m = market_arrays.as_array();
+    if t.ncols() != 7 {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "trade_arrays 必须是 (n, 7)：exchtime_us, price, volume, turnover, flag, bid_order, ask_order",
+        ));
+    }
+    if m.ncols() != 46 {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "market_arrays 必须是 (m, 46)：exchtime_us, last_prc, volume, turnover, total_ask_vol, total_bid_vol, ask_prc1..10, ask_vol1..10, bid_prc1..10, bid_vol1..10",
+        ));
+    }
+
+    let mut trade: Vec<TradeRecord> = Vec::with_capacity(t.nrows());
+    for i in 0..t.nrows() {
+        let flag = t[[i, 4]] as i32;
+        if flag == 32 {
+            continue;
+        }
+        if let Some(r) = crate::fast_csv_reader::build_trade_record(
+            t[[i, 0]] as i64,
+            t[[i, 1]] as f32,
+            t[[i, 2]] as f32,
+            t[[i, 3]] as f32,
+            flag,
+            t[[i, 5]] as i64,
+            t[[i, 6]] as i64,
+            true,
+        ) {
+            trade.push(r);
+        }
+    }
+
+    let mut market: Vec<MarketRecord> = Vec::with_capacity(m.nrows());
+    for i in 0..m.nrows() {
+        let mut ask_prcs = [0.0f32; 10];
+        let mut ask_vols = [0.0f32; 10];
+        let mut bid_prcs = [0.0f32; 10];
+        let mut bid_vols = [0.0f32; 10];
+        for j in 0..10 {
+            ask_prcs[j] = m[[i, 6 + j]] as f32;
+            ask_vols[j] = m[[i, 16 + j]] as f32;
+            bid_prcs[j] = m[[i, 26 + j]] as f32;
+            bid_vols[j] = m[[i, 36 + j]] as f32;
+        }
+        if let Some(r) = crate::fast_csv_reader::build_market_record(
+            m[[i, 0]] as i64,
+            m[[i, 1]] as f32,
+            m[[i, 2]] as f32,
+            m[[i, 3]] as f32,
+            m[[i, 4]] as f32,
+            m[[i, 5]] as f32,
+            ask_prcs,
+            ask_vols,
+            bid_prcs,
+            bid_vols,
+            false,
+            true,
+        ) {
+            market.push(r);
+        }
+    }
+
+    Ok(extreme_fit_with_features_from_records(
+        &trade,
+        &market,
+        with_curvature,
+    ))
 }

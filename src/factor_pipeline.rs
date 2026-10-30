@@ -205,7 +205,6 @@ pub fn pipeline_observable_order(
     _trading_days: &[i64],
     expected_len: usize,
 ) -> Vec<f32> {
-    // 1. 调核心计算（4 套配置）
     let obs_params = observable_order_metrics::ObsOrderParams {
         q: ooparams.q as f32,
         drop_min: ooparams.drop_min,
@@ -214,70 +213,16 @@ pub fn pipeline_observable_order(
         rolling_n: ooparams.rolling_n,
         autocorr_lag: ooparams.autocorr_lag,
     };
-    let results =
-        match observable_order_metrics::compute_observable_order_metrics(code, date, &obs_params) {
-            Ok(r) => r,
-            Err(_) => return nan_vec(expected_len),
-        };
     // 旧 store（0701c，50400 列）续算时需要退回 19 统计量口径
-    let with_curvature = ooparams.with_curvature;
-
-    // 2. 生成列名（过滤后 114 列，与 go 函数一致）
-    let keep = observable_order_metrics::keep_cols();
-    let col_names: Vec<String> = keep.iter().map(|&i| build_col_names().remove(i)).collect();
-    // remove 会移动，改用索引
-    let full_names = build_col_names();
-    let col_names: Vec<String> = keep.iter().map(|&i| full_names[i].clone()).collect();
-    let ncols_out = col_names.len();
-
-    // 3. 对 4 套配置 × 4 种数组(seg/pre5/diff/abs_diff) = 16 组各算 get_features_factors
-    let keys = ["bid_A", "bid_B", "ask_A", "ask_B"];
-    let mut all_factors: Vec<f32> = Vec::with_capacity(expected_len);
-
-    for (ci, _key) in keys.iter().enumerate() {
-        let (seg_flat, seg_rows, pre5_flat, pre5_rows) = &results[ci];
-        // 内部 NCOLS 列，过滤为 ncols_out 列
-        let seg = filter_array2(seg_flat, *seg_rows, &keep);
-        let pre5 = filter_array2(pre5_flat, *pre5_rows, &keep);
-        // diff / abs_diff（过滤后的列上做差）
-        let diff = if seg.nrows() > 0 && pre5.nrows() > 0 && seg.nrows() == pre5.nrows() {
-            let mut d = ndarray::Array2::zeros(seg.dim());
-            for r in 0..seg.nrows() {
-                for c in 0..ncols_out {
-                    d[[r, c]] = seg[[r, c]] - pre5[[r, c]];
-                }
-            }
-            d
-        } else {
-            ndarray::Array2::zeros((0, ncols_out))
-        };
-        let abs_diff = {
-            let mut d = ndarray::Array2::zeros(diff.dim());
-            for r in 0..diff.nrows() {
-                for c in 0..diff.ncols() {
-                    d[[r, c]] = diff[[r, c]].abs();
-                }
-            }
-            d
-        };
-
-        for arr in [seg.view(), pre5.view(), diff.view(), abs_diff.view()] {
-            let (vals, _) = if arr.nrows() == 0 {
-                (
-                    nan_vec(features_per_group(&col_names, with_curvature)),
-                    vec![],
-                )
-            } else {
-                features::get_features_factors_rust_full_opts(
-                    &arr,
-                    &col_names,
-                    false,
-                    with_curvature,
-                )
-            };
-            all_factors.extend_from_slice(&vals);
-        }
-    }
+    let mut all_factors = match observable_order_metrics::compute_observable_order_full(
+        code,
+        date,
+        &obs_params,
+        ooparams.with_curvature,
+    ) {
+        Ok(v) => v,
+        Err(_) => return nan_vec(expected_len),
+    };
 
     // 长度校准：若实际长度与 expected_len 不符，用 NaN 填充或截断
     if all_factors.len() < expected_len {
@@ -464,120 +409,6 @@ fn slice_to_array2(data: &[f32], rows: usize, cols: usize) -> ndarray::Array2<f3
     }
     ndarray::Array2::from_shape_vec((rows, cols), data.to_vec())
         .unwrap_or_else(|_| ndarray::Array2::zeros((0, cols)))
-}
-
-/// 把 (n_rows × NCOLS) 的展平数据按 keep 索引过滤为 (n_rows × keep.len()) 的 Array2。
-fn filter_array2(data: &[f32], n_rows: usize, keep: &[usize]) -> ndarray::Array2<f32> {
-    let ncols = observable_order_metrics::NCOLS;
-    if n_rows == 0 || keep.is_empty() {
-        return ndarray::Array2::zeros((0, keep.len()));
-    }
-    let mut out = vec![0.0f32; n_rows * keep.len()];
-    for r in 0..n_rows {
-        for (j, &c) in keep.iter().enumerate() {
-            out[r * keep.len() + j] = data[r * ncols + c];
-        }
-    }
-    ndarray::Array2::from_shape_vec((n_rows, keep.len()), out)
-        .unwrap_or_else(|_| ndarray::Array2::zeros((0, keep.len())))
-}
-
-/// 计算 get_features_factors_rust_full(with_threshold_counts=false) 在 n_cols 列时的输出长度。
-fn features_per_group(col_names: &[String], with_curvature: bool) -> usize {
-    let n = col_names.len();
-    // mean/median/std/skew/kurt + p5/p25/p75/p95/iqr/cv + autocorr1/abs + trend
-    //   [+ curvature/quad_coef（with_curvature=true 时）]
-    //   + period_diff/ratio + lz/entropy/max_range
-    // = (5+6+2+1 + 2[可选] + 2+3)*n + C(n,2) = 21*n + C(n,2) 或 19*n + C(n,2)
-    let per_col = if with_curvature { 21 } else { 19 };
-    per_col * n + n * (n - 1) / 2
-}
-
-/// 生成 147 列的列名（与 go 函数 observable_order_go.py 一致）。
-fn build_col_names() -> Vec<String> {
-    let mut names = Vec::with_capacity(observable_order_metrics::NCOLS);
-    let aggs = ["mean", "std", "skew", "ac1", "trend"];
-    // P1 盘口失衡 4 档 ×5 = 20
-    for imb in ["imb1", "imb1_5", "imb1_10", "imb6_10"] {
-        for a in &aggs {
-            names.push(format!("{}_{}", imb, a));
-        }
-    }
-    // P2 10档trend 同侧/对手 ×5 = 10
-    for v in ["vt_same", "vt_opp"] {
-        for a in &aggs {
-            names.push(format!("{}_{}", v, a));
-        }
-    }
-    // P3 10档std 同侧/对手 ×5 = 10
-    for v in ["vs_same", "vs_opp"] {
-        for a in &aggs {
-            names.push(format!("{}_{}", v, a));
-        }
-    }
-    // P7 rolling10 同侧 det/|det| ×5 = 10
-    for r in ["r10_det", "r10_abs"] {
-        for a in &aggs {
-            names.push(format!("{}_{}", r, a));
-        }
-    }
-    // P8 rolling20 双方 det/|det| ×5 = 10
-    for r in ["r20_det", "r20_abs"] {
-        for a in &aggs {
-            names.push(format!("{}_{}", r, a));
-        }
-    }
-    // 盘口标量 13（与 compute_segment_features 的 push 顺序严格对齐）
-    // P4 价格波动率, P5 间隔成交量std, P6 间隔成交量trend
-    // S1 段内10档归一化协方差det 8版本: 同侧det/|同侧|/对手det/|对手|/差/|差|/|同侧|-|对手|/||差||
-    // S2 段内双方20档归一化协方差det 2版本: 双方det/|双方|
-    for s in [
-        "pvol",
-        "ivstd",
-        "ivtrend",
-        "sd10_same",
-        "sd10_same_abs",
-        "sd10_opp",
-        "sd10_opp_abs",
-        "sd10_diff",
-        "sd10_diff_abs",
-        "sd10_absdiff",
-        "sd10_absdiff_abs",
-        "sd20_both",
-        "sd20_both_abs",
-    ] {
-        names.push(s.to_string());
-    }
-    // T1 订单差值 原始/|·| ×5 = 10
-    for od in ["od_raw", "od_abs"] {
-        for a in &aggs {
-            names.push(format!("{}_{}", od, a));
-        }
-    }
-    // T2 主买占比 ×5 = 5
-    for a in &aggs {
-        names.push(format!("br_{}", a));
-    }
-    // T3 按秒成交笔数 买/卖/差/|差|/全量 ×5 = 25
-    for ct in ["ct_b", "ct_s", "ct_d", "ct_da", "ct_a"] {
-        for a in &aggs {
-            names.push(format!("{}_{}", ct, a));
-        }
-    }
-    // T4 按秒每笔均额 买/卖/差/|差|/全量 ×5 = 25
-    for am in ["am_b", "am_s", "am_d", "am_da", "am_a"] {
-        for a in &aggs {
-            names.push(format!("{}_{}", am, a));
-        }
-    }
-    // 逐笔标量 9
-    for s in [
-        "tr_d", "tr_ad", "bu_d", "bu_ad", "se_d", "se_ad", "bs_dd", "bs_dda", "btr",
-    ] {
-        names.push(s.to_string());
-    }
-    assert_eq!(names.len(), observable_order_metrics::NCOLS);
-    names
 }
 
 /// 生成 NaN 填充向量（错误回退）。

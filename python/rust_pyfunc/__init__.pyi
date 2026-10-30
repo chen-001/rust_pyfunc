@@ -88,6 +88,20 @@ def py_extreme_point_fit_names(with_curvature: bool = True) -> List[str]:
     ...
 
 
+def py_extreme_point_fit_from_data(
+    trade_arrays: npt.NDArray[np.float64],
+    market_arrays: npt.NDArray[np.float64],
+    with_curvature: bool = True,
+) -> List[float]:
+    """数组版极端点拟合因子（样例/分享用）；与 py_extreme_point_fit 逐位一致。
+
+    trade_arrays: (n, 7) [exchtime_us, price, volume, turnover, flag, bid_order, ask_order]
+    market_arrays: (m, 46) [exchtime_us, last_prc, volume, turnover, total_ask_vol,
+        total_bid_vol, ask_prc1..10, ask_vol1..10, bid_prc1..10, bid_vol1..10]
+    """
+    ...
+
+
 def py_distill(code: str, date: int, prev_date: Optional[int] = None) -> List[float]:
     ...
 
@@ -1001,7 +1015,27 @@ def py_urgency_ext_names() -> List[str]:
     ...
 
 
+def py_urgency_ext_from_data(
+    codes: List[str],
+    trade_arrays: List["numpy.ndarray"],
+) -> Tuple[List[str], List[float]]:
+    """全市场数组版迫切交易笔数（样例/分享用）；与 py_urgency_ext 逐位一致。"""
+    ...
+
+
 def py_urgency_names() -> List[str]:
+    ...
+
+
+def py_urgency_from_data(
+    codes: List[str],
+    trade_arrays: List["numpy.ndarray"],
+) -> Tuple[List[str], List[float]]:
+    """全市场数组版迫切交易联动因子（样例/分享用）；与 py_urgency 逐位一致。
+
+    trade_arrays: 每只股票一个 (n_i, 7) 数组，
+    列序 [exchtime_us, price, volume, turnover, flag, bid_order, ask_order]。
+    """
     ...
 
 

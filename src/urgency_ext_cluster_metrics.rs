@@ -62,14 +62,25 @@ pub fn compute_urgency_ext_full(date: i64) -> std::io::Result<(Vec<String>, Vec<
             Some((code.clone(), trades))
         })
         .collect();
+    Ok(compute_urgency_ext_from_trades(&per_trades))
+}
+
+/// 由「每只股票一份逐笔记录」算迫切交易笔数。
+///
+/// 读磁盘（compute_urgency_ext_full）与 Python 传数组（py_urgency_ext_from_data）
+/// 两条路径共用这一处；记录构造一侧走 build_trade_record（撤单在这里丢掉）。
+/// 输入顺序就是输出 codes 的顺序；逐笔为空的股票在这里被跳过。
+pub fn compute_urgency_ext_from_trades(
+    per_trades: &[(String, Vec<TradeRecord>)],
+) -> (Vec<String>, Vec<f32>) {
     if per_trades.is_empty() {
-        return Ok((Vec::new(), Vec::new()));
+        return (Vec::new(), Vec::new());
     }
     // ② 全市场 |ratio| 95% 分位（与初版相同口径）
     let total: usize = per_trades.iter().map(|(_, t)| t.len()).sum();
     let mut ab: Vec<f32> = Vec::with_capacity(total);
-    for (_, trades) in &per_trades {
-        for t in trades {
+    for (_, trades) in per_trades.iter() {
+        for t in trades.iter() {
             let sum = (t.ask_order + t.bid_order) as f64;
             let r = if sum > 0.0 {
                 ((t.ask_order - t.bid_order) as f64 / sum) as f32
@@ -87,9 +98,9 @@ pub fn compute_urgency_ext_full(date: i64) -> std::io::Result<(Vec<String>, Vec<
     // ③ per-stock 计数（保序）
     let mut codes_out: Vec<String> = Vec::with_capacity(per_trades.len());
     let mut vals: Vec<f32> = Vec::with_capacity(per_trades.len());
-    for (code, trades) in per_trades {
+    for (code, trades) in per_trades.iter() {
         let mut cnt = 0u32;
-        for t in &trades {
+        for t in trades.iter() {
             let sum = (t.ask_order + t.bid_order) as f64;
             let r = if sum > 0.0 {
                 ((t.ask_order - t.bid_order) as f64 / sum) as f32
@@ -100,10 +111,10 @@ pub fn compute_urgency_ext_full(date: i64) -> std::io::Result<(Vec<String>, Vec<
                 cnt += 1;
             }
         }
-        codes_out.push(code);
+        codes_out.push(code.clone());
         vals.push(cnt as f32);
     }
-    Ok((codes_out, vals))
+    (codes_out, vals)
 }
 
 /// 因子名（唯一真相源）。
@@ -119,4 +130,57 @@ pub fn py_urgency_ext(_py: Python<'_>, date: i64) -> PyResult<(Vec<String>, Vec<
 #[pyfunction]
 pub fn py_urgency_ext_names() -> Vec<String> {
     ext_names()
+}
+
+/// Python 可调用（全市场数组版，供样例/分享用）：
+/// `py_urgency_ext_from_data(codes, trade_arrays)`
+///
+/// 入参格式与 py_urgency_from_data 完全相同：每只股票一个 (n_i, 7) 数组，
+/// 列序 [exchtime_us, price, volume, turnover, flag, bid_order, ask_order]。
+/// 与 py_urgency_ext(date) 的输出逐位一致。
+#[pyfunction]
+pub fn py_urgency_ext_from_data(
+    codes: Vec<String>,
+    trade_arrays: Vec<numpy::PyReadonlyArray2<f64>>,
+) -> PyResult<(Vec<String>, Vec<f32>)> {
+    if codes.len() != trade_arrays.len() {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "codes.len()={} != trade_arrays.len()={}",
+            codes.len(),
+            trade_arrays.len()
+        )));
+    }
+    let mut per_trades: Vec<(String, Vec<TradeRecord>)> = Vec::with_capacity(codes.len());
+    for (code, arr) in codes.iter().zip(trade_arrays.iter()) {
+        let a = arr.as_array();
+        if a.ncols() != 7 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "trade_arrays 每只股票必须是 (n, 7)：exchtime_us, price, volume, turnover, flag, bid_order, ask_order",
+            ));
+        }
+        let mut trades: Vec<TradeRecord> = Vec::with_capacity(a.nrows());
+        for i in 0..a.nrows() {
+            let flag = a[[i, 4]] as i32;
+            if flag == 32 {
+                continue;
+            }
+            if let Some(r) = crate::fast_csv_reader::build_trade_record(
+                a[[i, 0]] as i64,
+                a[[i, 1]] as f32,
+                a[[i, 2]] as f32,
+                a[[i, 3]] as f32,
+                flag,
+                a[[i, 5]] as i64,
+                a[[i, 6]] as i64,
+                true,
+            ) {
+                trades.push(r);
+            }
+        }
+        if trades.is_empty() {
+            continue;
+        }
+        per_trades.push((code.clone(), trades));
+    }
+    Ok(compute_urgency_ext_from_trades(&per_trades))
 }

@@ -688,38 +688,6 @@ fn parse_market_line(
         return None;
     }
 
-    // 涨跌停过滤
-    if !with_high_low_limited {
-        let ask_prc1 = parse_f64_fast(fields[MKT_COL_ASK_PRC_BASE]);
-        let bid_prc1 = parse_f64_fast(fields[MKT_COL_ASK_PRC_BASE + 2]);
-        if ask_prc1 == 0.0 || bid_prc1 == 0.0 {
-            return None;
-        }
-    }
-
-    // exchtime → epoch 秒（与 read_trade_fast 相同的偏移逻辑）。
-    // 过滤 exchtime=0 的无效行（market_data 的集合竞价前空快照可能有 exchtime=0）。
-    let exchtime_us = parse_i64_fast(fields[MKT_COL_EXCHTIME]);
-    if exchtime_us == 0 {
-        return None;
-    }
-    let total_us = exchtime_us + 8 * 3600 * 1_000_000;
-    let final_time_us = if with_afternoon_adjust {
-        let day_offset = ((exchtime_us / 1_000_000) + 8 * 3600).rem_euclid(86400);
-        if day_offset >= AFTERNOON_START_SEC && day_offset <= AFTERNOON_END_SEC {
-            Some(total_us - AFTERNOON_SHIFT_SEC * 1_000_000)
-        } else if day_offset >= MORNING_START_SEC && day_offset <= MORNING_END_SEC {
-            Some(total_us)
-        } else {
-            None
-        }
-    } else {
-        Some(total_us)
-    };
-
-    let time_us = final_time_us?;
-    let time_sec = (time_us / 1_000_000) as f64;
-
     // 解析 10 档 ask/bid（每档 4 列：ask_prc, ask_vol, bid_prc, bid_vol）
     let mut ask_prcs = [0.0f32; 10];
     let mut ask_vols = [0.0f32; 10];
@@ -733,14 +701,73 @@ fn parse_market_line(
         bid_vols[i] = parse_f64_fast(fields[base + 3]) as f32;
     }
 
+    build_market_record(
+        parse_i64_fast(fields[MKT_COL_EXCHTIME]),
+        parse_f64_fast(fields[MKT_COL_LAST_PRC]) as f32,
+        parse_f64_fast(fields[MKT_COL_VOLUME]) as f32,
+        parse_f64_fast(fields[MKT_COL_TURNOVER]) as f32,
+        parse_f64_fast(fields[MKT_COL_TOTAL_ASK_VOL]) as f32,
+        parse_f64_fast(fields[MKT_COL_TOTAL_BID_VOL]) as f32,
+        ask_prcs,
+        ask_vols,
+        bid_prcs,
+        bid_vols,
+        with_high_low_limited,
+        with_afternoon_adjust,
+    )
+}
+
+/// 由已解析出的字段构造 MarketRecord；None 表示该行被过滤。
+///
+/// parse_market_line（读磁盘）与 py_observable_order_from_data / py_extreme_point_fit_from_data
+/// （Python 传数组）共用这一处，保证「Rust 自己读数据」和「Python 读好数据传进来」两条路径逐位一致。
+///
+/// - `with_high_low_limited=false` 时按涨跌停过滤（ask_prc1==0 或 bid_prc1==0）
+/// - `with_afternoon_adjust=true` 时做下午时段平移；不在盘中时段的行返回 None
+/// - exchtime_us==0 视为无效行
+///
+/// exchtime_us：原始 Level2 market_data.csv 的 exchtime 列（epoch 微秒，UTC）。
+pub fn build_market_record(
+    exchtime_us: i64,
+    last_prc: f32,
+    volume: f32,
+    turnover: f32,
+    total_ask_vol: f32,
+    total_bid_vol: f32,
+    ask_prcs: [f32; 10],
+    ask_vols: [f32; 10],
+    bid_prcs: [f32; 10],
+    bid_vols: [f32; 10],
+    with_high_low_limited: bool,
+    with_afternoon_adjust: bool,
+) -> Option<MarketRecord> {
+    if !with_high_low_limited && (ask_prcs[0] == 0.0 || bid_prcs[0] == 0.0) {
+        return None;
+    }
+    if exchtime_us == 0 {
+        return None;
+    }
+    let total_us = exchtime_us + 8 * 3600 * 1_000_000;
+    let final_time_us = if with_afternoon_adjust {
+        let day_offset = ((exchtime_us / 1_000_000) + 8 * 3600).rem_euclid(86400);
+        if day_offset >= AFTERNOON_START_SEC && day_offset <= AFTERNOON_END_SEC {
+            total_us - AFTERNOON_SHIFT_SEC * 1_000_000
+        } else if day_offset >= MORNING_START_SEC && day_offset <= MORNING_END_SEC {
+            total_us
+        } else {
+            return None;
+        }
+    } else {
+        total_us
+    };
     Some(MarketRecord {
-        time_sec: time_sec as f32,
-        time_us,
-        last_prc: parse_f64_fast(fields[MKT_COL_LAST_PRC]) as f32,
-        volume: parse_f64_fast(fields[MKT_COL_VOLUME]) as f32,
-        turnover: parse_f64_fast(fields[MKT_COL_TURNOVER]) as f32,
-        total_ask_vol: parse_f64_fast(fields[MKT_COL_TOTAL_ASK_VOL]) as f32,
-        total_bid_vol: parse_f64_fast(fields[MKT_COL_TOTAL_BID_VOL]) as f32,
+        time_sec: (final_time_us / 1_000_000) as f32,
+        time_us: final_time_us,
+        last_prc,
+        volume,
+        turnover,
+        total_ask_vol,
+        total_bid_vol,
         ask_prcs,
         ask_vols,
         bid_prcs,
