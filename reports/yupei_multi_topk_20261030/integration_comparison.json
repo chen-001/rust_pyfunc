@@ -1,0 +1,27 @@
+{
+  "reference": "reports/yupei_multi_perf_20261030/source_baseline_20260717",
+  "candidate": "reports/yupei_multi_topk_20261030/k100_a",
+  "stocks": 5195,
+  "same_column_order": true,
+  "groups": {
+    "shared_topk": {
+      "columns": 480,
+      "values": 2493600,
+      "changed_columns": 0,
+      "bit_mismatches": 0,
+      "nan_mask_mismatches": 0,
+      "inf_mask_mismatches": 0
+    },
+    "non_topk": {
+      "columns": 12594,
+      "values": 65425830,
+      "changed_columns": 0,
+      "bit_mismatches": 0,
+      "nan_mask_mismatches": 0,
+      "inf_mask_mismatches": 0
+    }
+  },
+  "removed": [],
+  "added": [],
+  "changed": []
+}

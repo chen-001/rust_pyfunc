@@ -1,0 +1,18 @@
+{
+  "module": "/home/chenzongwei/rust_pyfunc/python/rust_pyfunc/rust_pyfunc.abi3.so",
+  "module_sha256": "9d5d4746879bc60c8bbc9db2419d1bb19f0a53a1c0876d4414b072ba5bcd2f24",
+  "worker": "/home/chenzongwei/rust_pyfunc/python/rust_pyfunc/rust_pyfunc_worker",
+  "worker_sha256": "ecb8e112cb3cba180b0b78b4500a0e2a5eda8a40b7a5e935e9ca5934196a7125",
+  "source_sha256": "c73b8f5a915540f7d10c4b08bd073fd6acc2f35218fa99db00d51d91220c74e6",
+  "profile": "release-fast",
+  "stocks": 5195,
+  "date": 20260717,
+  "threads": 50,
+  "sequence": [
+    "k100_a",
+    "k30_a",
+    "k30_b",
+    "k100_b"
+  ],
+  "default_ks_changed": false
+}

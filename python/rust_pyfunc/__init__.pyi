@@ -492,6 +492,48 @@ def py_yupei_pair_split(
     py_yupei_pair_split_names。
     """
 
+def py_yupei_multi(
+    date: int,
+    tau: float = 1.0,
+    weight: str = "cnt",
+    ks: Optional[List[int]] = None,
+    svd_k: int = 8,
+    chains: Optional[List[str]] = None,
+    sig_temp: float = 0.3,
+    sig_thr: float = 2.0,
+    null_mc: int = 20000,
+    exz_bins: int = 10,
+) -> Tuple[List[str], List[str], List[float]]:
+    """多载体单日全市场计算；chains=None 运行全部方向链。
+
+    ks 默认 [5, 20, 100]。返回股票代码、列名及按股票逐行展开的数值。
+    线程数在新进程启动前通过 RAYON_NUM_THREADS 设置。
+    """
+    ...
+
+def py_yupei_multi_v5(
+    date: int,
+    tau: float = 1.0,
+    weight: str = "cnt",
+    ks: Optional[List[int]] = None,
+    svd_k: int = 8,
+    sig_temp: float = 0.3,
+    sig_thr: float = 2.0,
+    null_mc: int = 20000,
+    exz_bins: int = 10,
+) -> Tuple[List[str], List[str], List[float]]:
+    """四套载体、固定五条方向链；默认输出 13074 列。
+
+    ks 默认 [5, 20, 100]；[5, 20, 30] 将最大一档改为30，[30]仅保留一档。
+    ks 控制附加TopK档位，不改变其他因子内部固定的Top20/Top50等参数。
+    weight 为 "cnt"（笔数）或 "vol"（成交量平方根）；tau 为衰减秒数；
+    svd_k 为分解成分数，sig_temp/sig_thr 为软阈值温度/阈值，null_mc 为
+    空模型抽样规模（按100层分配，每层至少20次尝试），exz_bins 为条件网格边数。
+    软阈值参数在进程内首次调用时固定；比较不同参数时使用新进程。
+    返回格式同 py_yupei_multi。
+    """
+    ...
+
 def py_yupei_gpt(date: int) -> tuple[list[str], list[float]]:
     """玉佩精炼版单日计算：返回 (codes, 491列×股票数 扁平f32)。"""
     ...

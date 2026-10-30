@@ -20,8 +20,10 @@ import rust_pyfunc as rp
 out = Path(sys.argv[1])
 out.mkdir(parents=True, exist_ok=True)
 date = int(sys.argv[2]) if len(sys.argv) > 2 else 20260717
+ks = [int(x) for x in sys.argv[3].split(",")] if len(sys.argv) > 3 else None
 meta = {"date": date, "package": rp.__file__, "threads": os.environ.get("RAYON_NUM_THREADS"),
-        "opt": os.environ.get("YUPEI_MULTI_OPT", "0"), "load_before": os.getloadavg()}
+        "opt": os.environ.get("YUPEI_MULTI_OPT", "0"), "ks": ks or [5, 20, 100],
+        "load_before": os.getloadavg()}
 so = next(Path(rp.__file__).parent.glob("rust_pyfunc*.so"))
 meta["module_sha256"] = hashlib.sha256(so.read_bytes()).hexdigest()
 meta["switches"] = {k: os.environ.get(k) for k in (
@@ -29,7 +31,7 @@ meta["switches"] = {k: os.environ.get(k) for k in (
     "YUPEI_NET_PROFILE", "YUPEI_STAGE", "YUPEI_VERBOSE")}
 print(json.dumps(meta), flush=True)
 t0 = time.perf_counter()
-codes, names, vals = rp.py_yupei_multi_v5(date)
+codes, names, vals = rp.py_yupei_multi_v5(date, ks=ks)
 meta["call_seconds"] = time.perf_counter() - t0
 t1 = time.perf_counter()
 a = np.asarray(vals, dtype=np.float32).reshape(len(codes), len(names))
