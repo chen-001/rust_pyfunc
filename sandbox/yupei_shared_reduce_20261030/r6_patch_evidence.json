@@ -1,0 +1,46 @@
+{
+  "base_directory": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_multi_ks5_20_20261030",
+  "base_reduce_sha256": "f1dbd31e9e173574c34abee27475def011aa3ce3aabe4ab539e7eabf9806435f",
+  "patch_sha256": "f8b5474c70ff18befa9f6c2549dc5b56a9b3d832c5c4284500828e7b452ab706",
+  "helper_sha256": "2e0aa4a227a6735d7488ea09b81b9f01e6b3c348f9752a719ed33523dff991ed",
+  "switch": "YUPEI_R6_STREAMING=1",
+  "off_path": "Original r6_plane body is byte-for-byte unchanged after the new cached-flag check.",
+  "cache_scope": "OnceLock<bool>, initialized on first r6_plane call in each process; comparisons must use fresh processes.",
+  "patch_apply_check": "checking file src/yupei_pair/reduce.rs\nchecking file src/yupei_pair/r6_streaming.rs",
+  "microtest": {
+    "cases": 28,
+    "values_compared": 23232,
+    "bit_mismatches": 0,
+    "n": [
+      0,
+      1,
+      2,
+      17,
+      65,
+      128,
+      513
+    ],
+    "includes": [
+      "NaN and positive infinity",
+      "invalid stock masks",
+      "asymmetric z/zs input",
+      "empty and singleton input",
+      "odd stock count"
+    ],
+    "source": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_shared_reduce_20261030/kernel_check/src/bin/r6_check.rs",
+    "log": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_shared_reduce_20261030/kernel_check/r6_4threads.log"
+  },
+  "preserved_semantics": [
+    "Always read the canonical upper triangle for mirrored spec values, even on asymmetric input.",
+    "Invalid pairs and the diagonal remain positive zero in the spec row.",
+    "The gen side still uses only j>i; final-row empty outputs stay unchanged.",
+    "Retain f64 subtraction -> f32 rounding -> f64 row value.",
+    "Spec-share denominator counts valid stock pairs including nonfinite data; comparisons with NaN remain false.",
+    "Retain row order, top20 selection, summation and Spearman implementation."
+  ],
+  "not_run_this_step": [
+    "Compilation",
+    "New numerical benchmarks",
+    "Full-day benchmark"
+  ]
+}

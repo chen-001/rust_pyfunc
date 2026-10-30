@@ -1,0 +1,133 @@
+{
+  "scope": "Single-thread synthetic selector microbenchmark; not a measured full-day speedup.",
+  "command": "cargo build --manifest-path sandbox/yupei_top20_selector_20261030/Cargo.toml --release --jobs 1 --target-dir sandbox/yupei_top20_selector_20261030/target; target/release/yupei_top20_selector_probe 4096 12",
+  "source_sha256": {
+    "src/yupei_pair/simd.rs": "e326129b007ee52f62c1869d2e0675dbe81e50200a512e82e230cb9dcb37b316",
+    "src/yupei_pair/bitonic_sort.rs": "cdc3ac3567e811e3b22e2269d85f1bcb4878e174f6f01a2961b893d74259263b",
+    "sandbox/yupei_top20_selector_20261030/src/candidate.rs": "d29b80d21f5a9f29508b5bf0ee443b5c5cbcfcba6a6225f5b22acca36b6bbcdb"
+  },
+  "families": [
+    "uniform [-1,1)",
+    "positive cubic tail",
+    "all-zero ties except masked stocks",
+    "sinusoidal trend plus noise",
+    "dense quantized near-ties",
+    "95% negative-infinity masked",
+    "negative only",
+    "near-zero dense ties"
+  ],
+  "legacy_seconds_mean": 0.3868292365,
+  "candidate_seconds_mean": 0.287067219,
+  "selector_saving_percent": 25.78967877470658,
+  "correctness": {
+    "kind": "correctness",
+    "vectors": 4096,
+    "ks": [
+      5,
+      20,
+      30,
+      100
+    ],
+    "legacy_mismatches": 0,
+    "quantized_reference_different_vectors_k20": 1260
+  },
+  "notes": [
+    "Uses the same sampled thresholds and preserves high/mid candidate sequence.",
+    "When high candidates already suffice, old code discards all mid work. Candidate postpones it.",
+    "Does not repair the inherited raw-prefilter versus quantized-score inconsistency.",
+    "NaN, infinities, negative zero, K=0 and short-vector fallback are separately checked.",
+    "Reference full quantized sorting differences use synthetic adversarial distributions and are not a market-wide incidence estimate."
+  ],
+  "timings": [
+    {
+      "kind": "timing",
+      "trial": 0,
+      "candidate": false,
+      "calls": 49152,
+      "seconds": 0.387003774,
+      "digest": 14777658241275018512
+    },
+    {
+      "kind": "timing",
+      "trial": 1,
+      "candidate": true,
+      "calls": 49152,
+      "seconds": 0.287208512,
+      "digest": 14777658241275018512
+    },
+    {
+      "kind": "timing",
+      "trial": 2,
+      "candidate": true,
+      "calls": 49152,
+      "seconds": 0.286925926,
+      "digest": 14777658241275018512
+    },
+    {
+      "kind": "timing",
+      "trial": 3,
+      "candidate": false,
+      "calls": 49152,
+      "seconds": 0.386654699,
+      "digest": 14777658241275018512
+    }
+  ],
+  "candidate_counts": [
+    {
+      "kind": "candidates",
+      "family": 0,
+      "eligible_vectors": 512,
+      "high_sufficient_vectors": 471,
+      "discarded_mid_packs_avoided": 76007
+    },
+    {
+      "kind": "candidates",
+      "family": 1,
+      "eligible_vectors": 512,
+      "high_sufficient_vectors": 467,
+      "discarded_mid_packs_avoided": 74635
+    },
+    {
+      "kind": "candidates",
+      "family": 2,
+      "eligible_vectors": 512,
+      "high_sufficient_vectors": 512,
+      "discarded_mid_packs_avoided": 0
+    },
+    {
+      "kind": "candidates",
+      "family": 3,
+      "eligible_vectors": 512,
+      "high_sufficient_vectors": 485,
+      "discarded_mid_packs_avoided": 72910
+    },
+    {
+      "kind": "candidates",
+      "family": 4,
+      "eligible_vectors": 512,
+      "high_sufficient_vectors": 472,
+      "discarded_mid_packs_avoided": 75775
+    },
+    {
+      "kind": "candidates",
+      "family": 5,
+      "eligible_vectors": 314,
+      "high_sufficient_vectors": 289,
+      "discarded_mid_packs_avoided": 34607
+    },
+    {
+      "kind": "candidates",
+      "family": 6,
+      "eligible_vectors": 512,
+      "high_sufficient_vectors": 471,
+      "discarded_mid_packs_avoided": 77930
+    },
+    {
+      "kind": "candidates",
+      "family": 7,
+      "eligible_vectors": 512,
+      "high_sufficient_vectors": 466,
+      "discarded_mid_packs_avoided": 73656
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "cases": 60,
+  "rho_and_e_values_compared": 253392,
+  "bit_mismatches": 0,
+  "reference_source": "src/yupei_pair/net.rs",
+  "candidate_source": "sandbox/yupei_multi_ks5_20_20261030/src/yupei_pair/reduce.rs",
+  "note": "Extracted the actual e/rho construction statements, replacing only Rayon chunk iteration with standard chunk iteration."
+}

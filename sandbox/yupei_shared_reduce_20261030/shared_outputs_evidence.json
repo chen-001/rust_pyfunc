@@ -1,0 +1,1094 @@
+{
+  "date": 20260717,
+  "stocks": 5195,
+  "by_carrier": [
+    {
+      "prefix": "",
+      "columns_compared": 66,
+      "values_compared": 342870,
+      "mismatch_values": 0,
+      "columns": [
+        {
+          "suffix": "r2_best_single",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_best_pair",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_pair_gain",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_pair_gain_ratio",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_best_pair_cross_industry",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_best_pair_Bidx",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_best_pair_Cidx",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3_marg1",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3_marg2",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3_marg3",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3_marg4",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3_n_to_10pct",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3_basket_rho8",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3_avg_partner_rho",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3_max_partner_rho",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3_degenerate",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r4_deg_rho_topk",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_mean",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_std",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_med",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_p10",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_p25",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_p75",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_p90",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_p95",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_max",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_t5m",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_t10m",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_t20m",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_t50m",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_possh",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_hhip",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_skew",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_pair_top5m",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_pair_top10m",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_pair_top20m",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_pair_top50m",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_nbeat_single",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_cross_top50",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg1",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg2",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg3",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg4",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg5",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg6",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg7",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg8",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg9",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg10",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg11",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg12",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg13",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg14",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg15",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg16",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_rho4",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_rho8",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_rho16",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_auc",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_halflife",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_n10_interp",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg_entropy",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_avg_partner_rho",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_p90_partner_rho",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_prho_gt05_share",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_degen_soft",
+          "bit_mismatches": 0
+        }
+      ]
+    },
+    {
+      "prefix": "or_",
+      "columns_compared": 66,
+      "values_compared": 342870,
+      "mismatch_values": 0,
+      "columns": [
+        {
+          "suffix": "r2_best_single",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_best_pair",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_pair_gain",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_pair_gain_ratio",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_best_pair_cross_industry",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_best_pair_Bidx",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_best_pair_Cidx",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3_marg1",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3_marg2",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3_marg3",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3_marg4",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3_n_to_10pct",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3_basket_rho8",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3_avg_partner_rho",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3_max_partner_rho",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3_degenerate",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r4_deg_rho_topk",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_mean",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_std",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_med",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_p10",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_p25",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_p75",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_p90",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_p95",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_max",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_t5m",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_t10m",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_t20m",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_t50m",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_possh",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_hhip",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_skew",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_pair_top5m",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_pair_top10m",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_pair_top20m",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_pair_top50m",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_nbeat_single",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_cross_top50",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg1",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg2",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg3",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg4",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg5",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg6",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg7",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg8",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg9",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg10",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg11",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg12",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg13",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg14",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg15",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg16",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_rho4",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_rho8",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_rho16",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_auc",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_halflife",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_n10_interp",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg_entropy",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_avg_partner_rho",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_p90_partner_rho",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_prho_gt05_share",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_degen_soft",
+          "bit_mismatches": 0
+        }
+      ]
+    },
+    {
+      "prefix": "oc_",
+      "columns_compared": 66,
+      "values_compared": 342870,
+      "mismatch_values": 0,
+      "columns": [
+        {
+          "suffix": "r2_best_single",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_best_pair",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_pair_gain",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_pair_gain_ratio",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_best_pair_cross_industry",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_best_pair_Bidx",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_best_pair_Cidx",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3_marg1",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3_marg2",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3_marg3",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3_marg4",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3_n_to_10pct",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3_basket_rho8",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3_avg_partner_rho",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3_max_partner_rho",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3_degenerate",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r4_deg_rho_topk",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_mean",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_std",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_med",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_p10",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_p25",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_p75",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_p90",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_p95",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_max",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_t5m",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_t10m",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_t20m",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_t50m",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_possh",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_hhip",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_skew",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_pair_top5m",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_pair_top10m",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_pair_top20m",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_pair_top50m",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_nbeat_single",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_cross_top50",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg1",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg2",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg3",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg4",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg5",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg6",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg7",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg8",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg9",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg10",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg11",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg12",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg13",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg14",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg15",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg16",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_rho4",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_rho8",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_rho16",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_auc",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_halflife",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_n10_interp",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg_entropy",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_avg_partner_rho",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_p90_partner_rho",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_prho_gt05_share",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_degen_soft",
+          "bit_mismatches": 0
+        }
+      ]
+    },
+    {
+      "prefix": "os_",
+      "columns_compared": 66,
+      "values_compared": 342870,
+      "mismatch_values": 0,
+      "columns": [
+        {
+          "suffix": "r2_best_single",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_best_pair",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_pair_gain",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_pair_gain_ratio",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_best_pair_cross_industry",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_best_pair_Bidx",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_best_pair_Cidx",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3_marg1",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3_marg2",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3_marg3",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3_marg4",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3_n_to_10pct",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3_basket_rho8",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3_avg_partner_rho",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3_max_partner_rho",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3_degenerate",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r4_deg_rho_topk",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_mean",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_std",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_med",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_p10",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_p25",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_p75",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_p90",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_p95",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_max",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_t5m",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_t10m",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_t20m",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_t50m",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_possh",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_hhip",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "row_rho_skew",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_pair_top5m",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_pair_top10m",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_pair_top20m",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_pair_top50m",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_nbeat_single",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r2_cross_top50",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg1",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg2",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg3",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg4",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg5",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg6",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg7",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg8",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg9",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg10",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg11",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg12",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg13",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg14",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg15",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg16",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_rho4",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_rho8",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_rho16",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_auc",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_halflife",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_n10_interp",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_marg_entropy",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_avg_partner_rho",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_p90_partner_rho",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_prho_gt05_share",
+          "bit_mismatches": 0
+        },
+        {
+          "suffix": "r3x_degen_soft",
+          "bit_mismatches": 0
+        }
+      ]
+    }
+  ]
+}

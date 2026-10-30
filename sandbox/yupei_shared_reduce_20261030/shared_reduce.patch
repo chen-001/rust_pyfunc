@@ -1,0 +1,162 @@
+--- a/src/yupei_pair/reduce.rs
++++ b/src/yupei_pair/reduce.rs
+@@ -1393,6 +1393,46 @@
+     }
+ }
+ 
++/// Independent of the third-stock direction: reuse within one carrier + (B, C).
++/// Build outside the parallel chain loop: a blocking OnceLock initializer that
++/// itself enters Rayon can deadlock when a worker steals another dependent chain.
++pub(crate) struct SharedRhoReduce {
++    single: Vec<f32>,
++    best_pair: Vec<f32>,
++    b_i: Vec<i32>,
++    c_i: Vec<i32>,
++    r2_top: Vec<Vec<(f32, i32, i32)>>,
++    r2_beat: Vec<i64>,
++    r3: R3,
++}
++
++/// Reproduce net_one_mat's f32 sdir -> (f64 e, f32 rho) round trip exactly.
++/// Using the original rho_ab directly would silently change floating-point bits.
++pub(crate) fn prepare_shared_rho_reduce(
++    sdir: &[f32], n: usize, ok: &[bool],
++) -> SharedRhoReduce {
++    let e: Vec<f64> = (0..n).map(|i| 2.0 * sdir[i * n + i] as f64).collect();
++    let mut rho = vec![0.0f32; n * n];
++    rho.par_chunks_mut(n).enumerate().for_each(|(i, row)| {
++        row[i] = 1.0;
++        let si = e[i].sqrt();
++        for j in (i + 1)..n {
++            let sj = e[j].sqrt();
++            row[j] = ((sdir[i * n + j] + sdir[j * n + i]) as f64 / (si * sj)) as f32;
++        }
++    });
++    for i in 0..n {
++        for j in 0..i {
++            rho[i * n + j] = rho[j * n + i];
++        }
++    }
++    let single = best_single_of(n, &rho, ok);
++    let (best_pair, b_i, c_i, r2_top, r2_beat) =
++        super::reduce2::pair_scan_merged(n, &rho, &e, &single, ok, 50);
++    let r3 = r3_greedy(n, &rho, &e, ok);
++    SharedRhoReduce { single, best_pair, b_i, c_i, r2_top, r2_beat, r3 }
++}
++
+ /// 一个矩阵全套的因子合成：legacy 77 列（逐字搬旧版）+ reduce2 扩展列。
+ pub(crate) fn produce_one_mat(
+     ms: &MatSet,
+@@ -1403,6 +1443,17 @@
+     lnt: Option<&[f64]>,
+     has_lnt: bool,
+     out: &mut Out,
++) {
++    produce_one_mat_shared(ms, pre, n, ok, industry, lnt, has_lnt, None, out);
++}
++
++/// Optional cache of R2/R3 only; G/GS/X0 and every network-dependent statistic
++/// remain chain-specific. Existing callers retain the original API and behavior.
++#[allow(clippy::too_many_arguments)]
++pub(crate) fn produce_one_mat_shared(
++    ms: &MatSet, pre: &str, n: usize, ok: &[bool],
++    industry: Option<&[i32]>, lnt: Option<&[f64]>, has_lnt: bool,
++    shared: Option<&SharedRhoReduce>, out: &mut Out,
+ ) {
+     let (rho, e, g, gs) = (&ms.rho, &ms.e, &ms.g, &ms.gs);
+     let (z, zs, x0, x0s) = (&ms.z, &ms.zs, &ms.x0, &ms.x0s);
+@@ -1446,9 +1497,19 @@
+ 
+     // ---------------- R2（与 reduce2::block_r2 的 top-50 配对扫描合并为一趟）----------------
+     let t0 = Instant::now();
+-    let single = best_single_of(n, rho, ok);
+-    let (best_pair, b_i, c_i, r2_top, r2_beat) =
+-        super::reduce2::pair_scan_merged(n, rho, e, &single, ok, 50);
++    let local_r2;
++    let (single, best_pair, b_i, c_i, r2_top, r2_beat) = match shared {
++        Some(shared) => (&shared.single, &shared.best_pair, &shared.b_i,
++            &shared.c_i, &shared.r2_top, &shared.r2_beat),
++        None => {
++            let single = best_single_of(n, rho, ok);
++            let (best_pair, b_i, c_i, r2_top, r2_beat) =
++                super::reduce2::pair_scan_merged(n, rho, e, &single, ok, 50);
++            local_r2 = (single, best_pair, b_i, c_i, r2_top, r2_beat);
++            (&local_r2.0, &local_r2.1, &local_r2.2,
++                &local_r2.3, &local_r2.4, &local_r2.5)
++        }
++    };
+     let (r2_single, r2_pair, r2_gain, r2_ratio, r2_cross) =
+         three_way(n, &single, &best_pair, &b_i, &c_i, industry);
+     out.push(&p("r2_best_single"), r2_single);
+@@ -1463,7 +1524,14 @@
+     }
+ 
+     // ---------------- R3 ----------------
+-    let r3 = r3_greedy(n, rho, e, ok);
++    let local_r3;
++    let r3 = match shared {
++        Some(shared) => &shared.r3,
++        None => {
++            local_r3 = r3_greedy(n, rho, e, ok);
++            &local_r3
++        }
++    };
+     for s in 0..4 {
+         out.push(
+             &p(&format!("r3_marg{}", s + 1)),
+--- a/src/yupei_multi/mod.rs
++++ b/src/yupei_multi/mod.rs
+@@ -23,7 +23,7 @@
+ use crate::yupei_dist::matrix_stage::{BUCKET_US, N_BUCKETS, StockPrep};
+ use crate::yupei_pair::check::check_net;
+ use crate::yupei_pair::net::{decile_of, net_one_mat, SplitRho};
+-use crate::yupei_pair::reduce::{matset_from_net, produce_one_mat, set_soft, Out, SoftCfg};
++use crate::yupei_pair::reduce::{matset_from_net, prepare_shared_rho_reduce, produce_one_mat_shared, set_soft, Out, SoftCfg};
+ use crate::yupei_pair::split::{
+     dir_tag, energy, rho_ab, BC_COMBOS, D_ALL, D_M, D_P, X_DIRS,
+ };
+@@ -522,6 +522,34 @@
+         eprintln!("[stage] prefix={prefix} m4 {m4_s:.1}s rho {rho_s:.1}s chains {}", jobs.len());
+     }
+ 
++    // R2/R3 depend on (B, C), not on X direction. Cache only combinations
++    // actually used by more than one chain. No global state and no blocking
++    // initialization inside the chain workers.
++    let share_reduce = std::env::var("YUPEI_SHARE_RHO_REDUCE").as_deref() == Ok("1");
++    let t_shared = std::time::Instant::now();
++    let mut uses = [0usize; 9];
++    for &(a, b, _, _) in &jobs {
++        uses[ridx(a, b)] += 1;
++    }
++    let shared_reduce: Vec<_> = (0..9usize).into_par_iter().map(|key| {
++        if !share_reduce || uses[key] < 2 { return None; }
++        let (a, b) = (dirs[key / 3], dirs[key % 3]);
++        let e_a = energy(&m4, n, a);
++        let mut rho_sym = rho_cache[ridx(a, b)].clone();
++        for i in 0..n {
++            for j in 0..i {
++                rho_sym[i * n + j] = rho_sym[j * n + i];
++            }
++        }
++        let sdir = crate::yupei_pair::split::fake_sdir(&e_a, &rho_sym, n);
++        let mask: Vec<bool> = e_a.iter().map(|&v| v > 0.0).collect();
++        Some(prepare_shared_rho_reduce(&sdir, n, &mask))
++    }).collect();
++    if share_reduce && std::env::var("YUPEI_STAGE").is_ok() {
++        eprintln!("[stage] prefix={prefix} shared_rho_reduce {:.3}s groups {}",
++            t_shared.elapsed().as_secs_f64(), shared_reduce.iter().filter(|x| x.is_some()).count());
++    }
++
+     let results: Vec<ChainOut> = jobs
+         .par_iter()
+         .map(|(a, b, c_dir, label)| {
+@@ -572,7 +600,8 @@
+             let mut out = Out::new();
+             let pre = format!("{label}_");
+             let tp = std::time::Instant::now();
+-            produce_one_mat(&ms, &pre, n, &mask, industry_opt, lnt_opt, has_lnt, &mut out);
++            produce_one_mat_shared(&ms, &pre, n, &mask, industry_opt, lnt_opt, has_lnt,
++                shared_reduce[ridx(a, b)].as_ref(), &mut out);
+             let produce_s = tp.elapsed().as_secs_f64();
+             let tk_s0 = std::time::Instant::now();
+             let (tn, tc) = match tk_total {

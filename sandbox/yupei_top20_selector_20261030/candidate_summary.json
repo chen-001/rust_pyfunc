@@ -1,0 +1,201 @@
+{
+  "measurement_scope": "单核合成数据局部微基准，不代表全日提速；全日和50线程验证由主agent执行。",
+  "selector_k20": {
+    "legacy_mean_seconds": 0.3868292365,
+    "candidate_mean_seconds": 0.287067219,
+    "saving_percent": 25.78967877470658,
+    "trials": [
+      {
+        "kind": "timing",
+        "trial": 0,
+        "candidate": false,
+        "calls": 49152,
+        "seconds": 0.387003774,
+        "digest": 14777658241275018512
+      },
+      {
+        "kind": "timing",
+        "trial": 1,
+        "candidate": true,
+        "calls": 49152,
+        "seconds": 0.287208512,
+        "digest": 14777658241275018512
+      },
+      {
+        "kind": "timing",
+        "trial": 2,
+        "candidate": true,
+        "calls": 49152,
+        "seconds": 0.286925926,
+        "digest": 14777658241275018512
+      },
+      {
+        "kind": "timing",
+        "trial": 3,
+        "candidate": false,
+        "calls": 49152,
+        "seconds": 0.386654699,
+        "digest": 14777658241275018512
+      }
+    ]
+  },
+  "selector_k100": {
+    "legacy_mean_seconds": 0.4729408005,
+    "candidate_mean_seconds": 0.45364664099999996,
+    "saving_percent": 4.079614082693217,
+    "trials": [
+      {
+        "kind": "timing",
+        "trial": 0,
+        "k": 100,
+        "candidate": false,
+        "calls": 49152,
+        "seconds": 0.4725846,
+        "digest": 14777658241274273768
+      },
+      {
+        "kind": "timing",
+        "trial": 1,
+        "k": 100,
+        "candidate": true,
+        "calls": 49152,
+        "seconds": 0.453689385,
+        "digest": 14777658241274273768
+      },
+      {
+        "kind": "timing",
+        "trial": 2,
+        "k": 100,
+        "candidate": true,
+        "calls": 49152,
+        "seconds": 0.453603897,
+        "digest": 14777658241274273768
+      },
+      {
+        "kind": "timing",
+        "trial": 3,
+        "k": 100,
+        "candidate": false,
+        "calls": 49152,
+        "seconds": 0.473297001,
+        "digest": 14777658241274273768
+      }
+    ]
+  },
+  "mass_avx512": {
+    "legacy_mean_seconds": 0.159499172,
+    "candidate_mean_seconds": 0.13270403749999998,
+    "saving_percent": 16.799544576946147,
+    "trials": [
+      {
+        "kind": "timing",
+        "candidate": false,
+        "calls": 51200,
+        "seconds": 0.159563288,
+        "digest": 720841.1941347718
+      },
+      {
+        "kind": "timing",
+        "candidate": true,
+        "calls": 51200,
+        "seconds": 0.132766372,
+        "digest": 720841.1941347718
+      },
+      {
+        "kind": "timing",
+        "candidate": true,
+        "calls": 51200,
+        "seconds": 0.132641703,
+        "digest": 720841.1941347718
+      },
+      {
+        "kind": "timing",
+        "candidate": false,
+        "calls": 51200,
+        "seconds": 0.159435056,
+        "digest": 720841.1941347718
+      }
+    ]
+  },
+  "selector_correctness": {
+    "vectors": 4096,
+    "length": 5195,
+    "ks": [
+      5,
+      20,
+      30,
+      100
+    ],
+    "bit_mismatches": 0,
+    "fallback_lengths": [
+      1,
+      7,
+      31,
+      128,
+      1000,
+      1024,
+      5195
+    ],
+    "edge_cases": [
+      "K=0",
+      "NaN",
+      "Inf",
+      "negative infinity",
+      "negative zero",
+      "dense ties",
+      "negative-only"
+    ]
+  },
+  "mass_correctness": {
+    "bit_mismatches": 0,
+    "lengths": [
+      1,
+      7,
+      8,
+      15,
+      16,
+      17,
+      31,
+      32,
+      1000,
+      5195
+    ],
+    "do_h_do_g": [
+      "true,true",
+      "true,false",
+      "false,true",
+      "false,false"
+    ],
+    "normal_vectors": 128,
+    "edge_cases": [
+      "NaN payload 0x7fc00001 and 0xffc12345",
+      "positive/negative infinity",
+      "positive/negative zero including initial accumulator negative zero",
+      "positive/negative minimum subnormal",
+      "1e-30",
+      "1e30"
+    ]
+  },
+  "patches": [
+    {
+      "switch": "YUPEI_TOPK_HIGH_FIRST=1",
+      "entry": "select_topk_keys",
+      "helper": "select_topk_keys_high_first",
+      "change": "先只收高阈值候选，足够K直接返回，不足才补收中阈值候选。",
+      "preserved": "采样点、阈值、候选下标顺序、量化键、选择与排序、回退路径完全保留。",
+      "limitation": "不修正raw阈值与量化排序不一致的已有错误；K大时收益可能降低，本次已局部测K20和K100。"
+    },
+    {
+      "switch": "YUPEI_MASS_AVX512=1",
+      "entry": "mass_acc_hg",
+      "helper": "mass_acc_hg_512",
+      "change": "每次更新16个独立股票而非8个；依然执行原乘法及相加顺序。",
+      "preserved": "无跨股票归约，尾部不足16仍走原AVX2/标量实现。负零、NaN payload和正负无穷逐位验证。",
+      "limitation": "需要avx512f；开关初始化时检测，机器不支持时走原实现。内存带宽可能限制实际50线程收益。"
+    }
+  ],
+  "full_sandbox_source": "sandbox/yupei_multi_ks5_20_20261030/src/yupei_pair/simd.rs",
+  "full_sandbox_source_sha256": "5b3ec787bfa48c3b4692aff60d1d77fa75f433abfeae62ba9c3950e6f4f36559",
+  "baseline_source_sha256": "e326129b007ee52f62c1869d2e0675dbe81e50200a512e82e230cb9dcb37b316",
+  "frozen": true
+}
