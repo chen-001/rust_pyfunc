@@ -2236,6 +2236,30 @@ pub fn pipeline_dijkstra(date: i64, expected_len: usize) -> Vec<TaskResult> {
     }
 }
 
+/// Full-source relaynet implementation, shared by Python and the deployed worker.
+pub fn pipeline_relaynet_six_people(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    let n_factors = crate::relaynet_six_people::n_factors();
+    assert_eq!(expected_len, n_factors, "relaynet_six_people factor count mismatch");
+    match crate::relaynet_six_people::compute_relaynet_full(date) {
+        Ok((codes, vals)) => {
+            assert_eq!(vals.len(), codes.len() * n_factors);
+            vals.chunks_exact(n_factors)
+                .zip(codes)
+                .map(|(facs, code)| TaskResult {
+                    date,
+                    code,
+                    timestamp: 0,
+                    facs: facs.to_vec(),
+                })
+                .collect()
+        }
+        Err(e) => {
+            eprintln!("relaynet_six_people error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
 pub fn pipeline_cross_section_example(date: i64, expected_len: usize) -> Vec<TaskResult> {
     match crate::cross_section_example_metrics::compute_cross_section_example_full(date) {
         Ok((codes, vals)) => {
@@ -3010,8 +3034,18 @@ pub fn run_factor_pipeline_cross_section(
     let _vars_root_guard = crate::data_paths::set_vars_root(vars_root.as_deref());
     println!("📂 行业数据目录: {}", crate::data_paths::describe_vars());
 
+    // Reject a wrong column count before touching a store or spawning workers.
+    if pipeline == "relaynet_six_people"
+        && expected_result_length != crate::relaynet_six_people::n_factors()
+    {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "relaynet_six_people 需要 {} 个因子，expected_result_length={}",
+            crate::relaynet_six_people::n_factors(), expected_result_length
+        )));
+    }
     let pipeline_name = pipeline.to_string();
     let known = [
+        "relaynet_six_people",
         "cross_section_example",
         "dijkstra",
         "peaks",

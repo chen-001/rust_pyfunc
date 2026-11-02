@@ -10,6 +10,7 @@
 //!   4. 收到 Shutdown（长度0）则退出
 //!   5. 计算错误不 panic，回传 Error 消息（避免进程崩溃重启开销）
 use rust_pyfunc::backup_reader::TaskResult;
+use rust_pyfunc::factor_pipeline::pipeline_relaynet_six_people;
 use rust_pyfunc::factor_pipeline::{
     ipc_read_result, ipc_read_task, ipc_write, ipc_write_result, pipeline_anneal_volume,
     pipeline_anneal_volume_market, pipeline_cross_section_example, pipeline_dijkstra, pipeline_distill,
@@ -170,6 +171,8 @@ fn main() {
                         crate_logic::pipeline_minute_example(date, expected_len)
                     } else if pipeline_name == "minute_capm" {
                         crate_logic::pipeline_minute_capm(date, expected_len)
+                    } else if pipeline_name == "relaynet_six_people" {
+                        pipeline_relaynet_six_people(date, expected_len)
                     } else if pipeline_name == "cross_section_example" {
                         pipeline_cross_section_example(date, expected_len)
                     } else if pipeline_name == "relaynet" {

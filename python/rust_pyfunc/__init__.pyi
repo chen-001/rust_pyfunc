@@ -733,6 +733,24 @@ def py_cross_section_example_from_data(
     ...
 
 
+def py_relaynet_six_people(date: int) -> Tuple[List[str], List[float]]:
+    """全量精确接力网络：单日全市场，477 张图，每股 13,574 个因子。
+
+    返回股票代码和按股票逐行展开的因子值；列序见 py_relaynet_six_people_names。
+    最短路和中介中心性遍历全部源节点，不使用源节点抽样。
+    包含缓存、top-k、PageRank、生成森林和邻居距离修正，结果与旧 py_relaynet 有区别。
+    独立下午分图的10个重名列改为 rlg_pm30_split_rd_thr20_*，列数和位置不变。
+    在 import rust_pyfunc 前设置 RAYON_NUM_THREADS=50 可限制计算线程数。
+    批量入口为 run_factor_pipeline_cross_section(pipeline="relaynet_six_people", ...)。
+    """
+    ...
+
+
+def py_relaynet_six_people_names() -> List[str]:
+    """13,574 个因子名，与 py_relaynet_six_people 的输出列一一对应。"""
+    ...
+
+
 def py_cross_section_example_names() -> List[str]:
     ...
 
@@ -1373,6 +1391,8 @@ __all__ = [
     "py_multi_factor_capm",
     "py_multi_factor_capm_names",
     "run_factor_pipeline_cross_section",
+    "py_relaynet_six_people",
+    "py_relaynet_six_people_names",
     "py_cross_section_example",
     "py_cross_section_example_names",
     "py_dijkstra",

@@ -131,6 +131,7 @@ pub mod hot_pool_ind_metrics;
 
 pub mod anneal_volume_market_metrics;
 pub mod anneal_volume_metrics;
+pub mod relaynet_six_people;
 pub mod cross_section_example_metrics;
 pub mod dijkstra_metrics;
 pub mod relaynet_metrics;
@@ -1341,6 +1342,8 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         pairwise_merge_metrics::py_pairwise_merge_metrics,
         m
     )?)?;
+    let _ = m.add_function(wrap_pyfunction!(relaynet_six_people::py_relaynet_six_people, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(relaynet_six_people::py_relaynet_six_people_names, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(
         cross_section_example_metrics::py_cross_section_example,
         m
