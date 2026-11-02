@@ -1,0 +1,19 @@
+{
+  "graph": "reports/relaynet_perf_20261102/rd_thr15.bin",
+  "shape": [
+    8,
+    5107
+  ],
+  "reverse_scan_seconds": [
+    0.8109778575599194,
+    0.6745358780026436,
+    0.7270962856709957
+  ],
+  "parent_array_seconds": [
+    0.4588407091796398,
+    0.45272110775113106,
+    0.453534422442317
+  ],
+  "bit_identical": true,
+  "threads": "50"
+}

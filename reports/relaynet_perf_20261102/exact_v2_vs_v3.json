@@ -1,0 +1,12 @@
+{
+  "comparison": "exact_v2_vs_exact_v3",
+  "shape": [
+    5107,
+    13574
+  ],
+  "total": 69322418,
+  "changed": 0,
+  "nonfinite_mismatch": 0,
+  "max_abs": 0.0,
+  "columns": []
+}

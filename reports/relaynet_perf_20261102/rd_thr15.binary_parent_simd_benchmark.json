@@ -1,0 +1,58 @@
+{
+  "nodes": 5107,
+  "bitwise_equal": true,
+  "runs": [
+    {
+      "parent_simd": false,
+      "seconds": 0.47490695491433144
+    },
+    {
+      "parent_simd": true,
+      "seconds": 0.47022772766649723
+    },
+    {
+      "parent_simd": true,
+      "seconds": 0.4747300464659929
+    },
+    {
+      "parent_simd": false,
+      "seconds": 0.43305390141904354
+    },
+    {
+      "parent_simd": false,
+      "seconds": 0.4447965081781149
+    },
+    {
+      "parent_simd": true,
+      "seconds": 0.4603326041251421
+    },
+    {
+      "parent_simd": true,
+      "seconds": 0.47330646216869354
+    },
+    {
+      "parent_simd": false,
+      "seconds": 0.4623510539531708
+    },
+    {
+      "parent_simd": false,
+      "seconds": 0.45962378196418285
+    },
+    {
+      "parent_simd": true,
+      "seconds": 0.4430155400186777
+    },
+    {
+      "parent_simd": true,
+      "seconds": 0.46702317148447037
+    },
+    {
+      "parent_simd": false,
+      "seconds": 0.44185434468090534
+    }
+  ],
+  "medians": {
+    "False": 0.4522101450711489,
+    "True": 0.4686254495754838
+  }
+}

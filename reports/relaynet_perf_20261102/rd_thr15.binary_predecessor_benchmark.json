@@ -1,0 +1,92 @@
+{
+  "nodes": 5107,
+  "bitwise_equal": true,
+  "runs": [
+    {
+      "parents": false,
+      "hoist": false,
+      "seconds": 0.5195082724094391
+    },
+    {
+      "parents": false,
+      "hoist": true,
+      "seconds": 0.46748407557606697
+    },
+    {
+      "parents": true,
+      "hoist": false,
+      "seconds": 0.48345810547471046
+    },
+    {
+      "parents": true,
+      "hoist": true,
+      "seconds": 0.4510019049048424
+    },
+    {
+      "parents": true,
+      "hoist": true,
+      "seconds": 0.4463524241000414
+    },
+    {
+      "parents": true,
+      "hoist": false,
+      "seconds": 0.45075139589607716
+    },
+    {
+      "parents": false,
+      "hoist": true,
+      "seconds": 0.4612685702741146
+    },
+    {
+      "parents": false,
+      "hoist": false,
+      "seconds": 0.5126160159707069
+    },
+    {
+      "parents": false,
+      "hoist": false,
+      "seconds": 0.5161399561911821
+    },
+    {
+      "parents": false,
+      "hoist": true,
+      "seconds": 0.47160646691918373
+    },
+    {
+      "parents": true,
+      "hoist": false,
+      "seconds": 0.48081998340785503
+    },
+    {
+      "parents": true,
+      "hoist": true,
+      "seconds": 0.4786020927131176
+    },
+    {
+      "parents": true,
+      "hoist": true,
+      "seconds": 0.461100023239851
+    },
+    {
+      "parents": true,
+      "hoist": false,
+      "seconds": 0.478001331910491
+    },
+    {
+      "parents": false,
+      "hoist": true,
+      "seconds": 0.4919937588274479
+    },
+    {
+      "parents": false,
+      "hoist": false,
+      "seconds": 0.5083821509033442
+    }
+  ],
+  "medians": {
+    "parents=False,hoist=False": 0.5143779860809445,
+    "parents=False,hoist=True": 0.46954527124762535,
+    "parents=True,hoist=False": 0.479410657659173,
+    "parents=True,hoist=True": 0.4560509640723467
+  }
+}

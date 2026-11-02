@@ -1,0 +1,41 @@
+{
+  "nodes": 5107,
+  "bitwise_equal": true,
+  "runs": [
+    {
+      "direction": false,
+      "seconds": 0.7695625517517328
+    },
+    {
+      "direction": true,
+      "seconds": 0.5156376156955957
+    },
+    {
+      "direction": true,
+      "seconds": 0.4872484002262354
+    },
+    {
+      "direction": false,
+      "seconds": 0.6428535785526037
+    },
+    {
+      "direction": false,
+      "seconds": 0.6325771789997816
+    },
+    {
+      "direction": true,
+      "seconds": 0.473763819783926
+    },
+    {
+      "direction": true,
+      "seconds": 0.46961526945233345
+    },
+    {
+      "direction": false,
+      "seconds": 0.6345267836004496
+    }
+  ],
+  "push_median": 0.6386901810765266,
+  "direction_median": 0.4805061100050807,
+  "speedup": 1.329203037750703
+}

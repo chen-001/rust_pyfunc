@@ -1,0 +1,26 @@
+{
+  "nodes": 5107,
+  "graph": "full rd_thr15 bidirectional view",
+  "bitwise_equal": true,
+  "runs": [
+    {
+      "old": true,
+      "seconds": 1.9539399482309818
+    },
+    {
+      "old": false,
+      "seconds": 0.08491250872612
+    },
+    {
+      "old": false,
+      "seconds": 0.09972574189305305
+    },
+    {
+      "old": true,
+      "seconds": 1.9600939005613327
+    }
+  ],
+  "old_median": 1.9570169243961573,
+  "fast_median": 0.09231912530958652,
+  "speedup": 21.198391100797597
+}
