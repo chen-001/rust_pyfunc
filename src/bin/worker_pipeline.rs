@@ -21,6 +21,7 @@ use rust_pyfunc::factor_pipeline::{
     pipeline_individual_order_ratio,
     pipeline_long_order, pipeline_microstructure_capm, pipeline_multi_factor_capm,
     pipeline_observable_order, pipeline_order_pair_hm90, pipeline_orderbook_imb_refactor,
+    pipeline_orderflow_ctx,
     pipeline_pair_interaction, pipeline_peaks, pipeline_qhsk_anneal, pipeline_relaynet,
     pipeline_urgency,
     pipeline_urgency_ext_cluster, pipeline_vsld, pipeline_yhyb,
@@ -193,6 +194,8 @@ fn main() {
                         pipeline_relaynet_six_people(date, expected_len)
                     } else if pipeline_name == "cross_section_example" {
                         pipeline_cross_section_example(date, expected_len)
+                    } else if pipeline_name == "orderflow_ctx" {
+                        pipeline_orderflow_ctx(date, expected_len)
                     } else if pipeline_name == "relaynet" {
                         pipeline_relaynet(date, expected_len)
                     } else if pipeline_name == "dijkstra" {

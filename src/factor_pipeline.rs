@@ -2490,6 +2490,29 @@ pub fn pipeline_cross_section_example(date: i64, expected_len: usize) -> Vec<Tas
     }
 }
 
+/// orderflow_ctx 横截面 pipeline：三时段×三类流×上下文算子工厂。
+/// 与 cross_section_example 同样的 (codes, vals) → TaskResult 展开方式。
+pub fn pipeline_orderflow_ctx(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    match crate::orderflow_ctx_metrics::compute_orderflow_ctx_full(date) {
+        Ok((codes, vals)) => {
+            let n_factors = expected_len;
+            vals.chunks(n_factors)
+                .zip(codes.iter())
+                .map(|(facs, code)| TaskResult {
+                    date,
+                    code: code.clone(),
+                    timestamp: 0,
+                    facs: facs.to_vec(),
+                })
+                .collect()
+        }
+        Err(e) => {
+            eprintln!("orderflow_ctx error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
 /// 接力网络（relaynet）横截面 pipeline：全市场股票当节点跑共动图统计。
 /// 与 cross_section_example 同样的 (codes, vals) → TaskResult 展开方式。
 pub fn pipeline_relaynet(date: i64, expected_len: usize) -> Vec<TaskResult> {
@@ -3258,6 +3281,7 @@ pub fn run_factor_pipeline_cross_section(
     let known = [
         "relaynet_six_people",
         "cross_section_example",
+        "orderflow_ctx",
         "dijkstra",
         "peaks",
         "yupei_dist",

@@ -636,6 +636,25 @@ def py_pairwise_merge_metrics(
 def py_cross_section_example(date: int) -> Tuple[List[str], List[float]]:
     ...
 
+def py_orderflow_ctx(date: int) -> Tuple[List[str], List[float]]:
+    """orderflow_ctx 横截面因子：三时段×三类流×上下文算子，每股 10030 值。
+
+    参数
+    ----
+    date : int
+        交易日, 形如 20241231
+
+    返回
+    ----
+    (codes, vals) : codes 为股票代码列表, vals 为每股 10030 个 f32 值
+        （顺序与 py_orderflow_ctx_names 一致；缺的时段/流为 NaN）。
+    """
+    ...
+
+def py_orderflow_ctx_names() -> List[str]:
+    """返回 orderflow_ctx 的 10030 个因子名（{scope}_{stream}_{op}）。"""
+    ...
+
 
 def py_peaks(date: int) -> Tuple[List[str], List[float]]:
     """高峰-小峰截面因子（方案1）：读一天全市场逐笔 -> 983 因子 + 14 状态标量.
@@ -1433,6 +1452,8 @@ __all__ = [
     "py_relaynet_six_people_names",
     "py_cross_section_example",
     "py_cross_section_example_names",
+    "py_orderflow_ctx",
+    "py_orderflow_ctx_names",
     "py_dijkstra",
     "py_dijkstra_names",
     "py_relaynet",
