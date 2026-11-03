@@ -140,6 +140,7 @@ pub mod drop_event_metrics;
 pub mod factor_pipeline;
 pub mod worker_lifecycle;
 pub mod factor_store_v5;
+pub mod factor_store_segments;
 pub mod storage_policy;
 pub mod storage_read_cache;
 pub mod dagpath_metrics;

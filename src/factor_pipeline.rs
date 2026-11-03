@@ -482,6 +482,49 @@ fn parse_observable_order_params(py: Python, params: &PyObject) -> PyResult<Obse
     }
     Ok(p)
 }
+/// Validate the opt-in store before creating/removing any directory. The budget covers
+/// storage buffering only; worker results, IPC queues and factor kernels are separate.
+fn validate_direct_write_options(
+    direct_write: bool,
+    write_buffer_gb: f64,
+    store_dir: Option<&str>,
+    names: Option<&[String]>,
+    expected_len: usize,
+    incremental: bool,
+) -> PyResult<usize> {
+    if !direct_write {
+        return Ok(0);
+    }
+    if store_dir.map_or(true, |s| s.trim().is_empty()) {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "direct_write=True 必须显式指定非空 store_dir（使用新目录，不能自动转换旧库）",
+        ));
+    }
+    if incremental {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "direct_write=True 不执行投影，不能同时启用 incremental_projection",
+        ));
+    }
+    if expected_len == 0 || names.map_or(false, |n| n.len() != expected_len) {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "direct_write 要求 expected_result_length > 0，store_factor_names 长度必须与其一致",
+        ));
+    }
+    let bytes = write_buffer_gb * 1024.0 * 1024.0 * 1024.0;
+    if !write_buffer_gb.is_finite() || write_buffer_gb <= 0.0
+        || !bytes.is_finite() || bytes < 1.0 || bytes >= usize::MAX as f64
+    {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "write_buffer_gb 必须是有限正数（单位 GiB），且换算后的字节数必须可表示",
+        ));
+    }
+    println!(
+        "📦 直接列段写入：存储缓冲预算 {write_buffer_gb:.3} GiB；不生成 colblk、不做投影。\n\
+         预算不含 worker/IPC/结果队列；崩溃时尚未封存的数据会在续算时重算。"
+    );
+    Ok(bytes as usize)
+}
+
 /// - tasks: [[date, code], ...]
 /// - n_jobs: 并行线程数（默认 200）
 /// - backup_file: 备份文件路径
@@ -493,13 +536,15 @@ fn parse_observable_order_params(py: Python, params: &PyObject) -> PyResult<Obse
 /// - incremental_projection: true = 增量投影（store_dir 模式生效）。追加新任务时 base 投影
 ///   不动，只把新行写成 factors.proj.delta.<end>，读取端自动拼接 base + delta；
 ///   默认 false = 追加即删投影、收尾整片重投影（I/O ≈ 2× store 体积）。
+/// - direct_write: 写最终列段，不执行投影；仅新目录或已有同格式目录。
+/// - write_buffer_gb: direct_write 的存储缓冲预算（GiB），不限制计算/IPC总内存。
 #[pyfunction]
 #[pyo3(signature = (
     pipeline, tasks, n_jobs, backup_file, expected_result_length, trading_days,
     params=None, update_mode=None, bind_cores=true, backup_batch_size=None, progress_log=None, mode=None,
     export_names=None, export_dir=None, export_n_jobs=80,
     store_dir=None, store_factor_names=None, data_root=None,
-    incremental_projection=None
+    incremental_projection=None, direct_write=false, write_buffer_gb=32.0
 ))]
 #[allow(clippy::too_many_arguments)]
 pub fn run_factor_pipeline(
@@ -522,6 +567,8 @@ pub fn run_factor_pipeline(
     store_factor_names: Option<Vec<String>>,
     data_root: Option<String>,
     incremental_projection: Option<bool>,
+    direct_write: bool,
+    write_buffer_gb: f64,
 ) -> PyResult<PyObject> {
     let py = unsafe { Python::assume_gil_acquired() };
 
@@ -566,6 +613,19 @@ pub fn run_factor_pipeline(
         ));
     }
     let mode = mode.unwrap_or_else(|| "multiprocess".to_string());
+    let direct_buffer_bytes = validate_direct_write_options(
+        direct_write,
+        write_buffer_gb,
+        store_dir.as_deref(),
+        store_factor_names.as_deref(),
+        expected_result_length,
+        incremental_projection_enabled,
+    )?;
+    if direct_write && mode != "multiprocess" && mode != "thread" {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "direct_write 的 mode 必须是 multiprocess 或 thread",
+        ));
+    }
     let n_shards = crate::factor_store_v5::STORE_N_SHARDS;
     let sharded_sink: Option<crate::factor_store_v5::ShardedBackupSink> = if let Some(ref sdir) =
         store_dir
@@ -583,15 +643,24 @@ pub fn run_factor_pipeline(
                 .map(|i| format!("factor_{i}"))
                 .collect()
         });
-        Some(
+        let opened = if direct_write {
+            crate::factor_store_v5::ShardedBackupSink::new_direct_segments(
+                sdir,
+                &snames,
+                direct_buffer_bytes,
+            )
+        } else {
             crate::factor_store_v5::ShardedBackupSink::new_colblk_sharded(
                 sdir,
                 &snames,
                 n_shards,
                 incremental_projection_enabled,
             )
+        };
+        Some(
+            opened
             .map_err(|e| {
-                pyo3::exceptions::PyIOError::new_err(format!("打开 colblk 存储失败: {}", e))
+                pyo3::exceptions::PyIOError::new_err(format!("打开因子存储失败: {}", e))
             })?,
         )
     } else {
@@ -668,9 +737,9 @@ pub fn run_factor_pipeline(
         // 即使无新任务，投影仍可能未做（断点续算恢复时）。
         // 只对需要投影的后端（store_dir 模式）执行，且仅当未投影时。
         if let Some(ref ss) = sharded_sink {
-            println!("🏗️ 检查/执行投影...");
+            println!("{}", if direct_write { "📦 收尾直接列段（不投影）..." } else { "🏗️ 检查/执行投影..." });
             ss.finish_and_project(export_n_jobs)
-                .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("投影失败: {}", e)))?;
+                .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("存储收尾失败: {}", e)))?;
         }
         return Ok(Python::with_gil(|py| py.None()));
     }
@@ -695,8 +764,11 @@ pub fn run_factor_pipeline(
                 &worker_bin,
             )?;
             if let Some(ref ss) = sharded_sink {
+                if direct_write {
+                    println!("📦 收尾直接列段（不投影）...");
+                }
                 ss.finish_and_project(export_n_jobs).map_err(|e| {
-                    pyo3::exceptions::PyIOError::new_err(format!("投影失败: {}", e))
+                    pyo3::exceptions::PyIOError::new_err(format!("存储收尾失败: {}", e))
                 })?;
             } else if let Some(ref names) = export_names {
                 let dir = export_dir.clone().unwrap_or_else(|| {
@@ -733,6 +805,8 @@ pub fn run_factor_pipeline(
     // 备份间隔记录（供进度监控线程算最近5批预估）
     let backup_intervals: std::sync::Arc<Mutex<Vec<f64>>> =
         std::sync::Arc::new(Mutex::new(Vec::new()));
+    let thread_write_error = std::sync::Arc::new(Mutex::new(None::<String>));
+    let monitor_cancel = std::sync::Arc::new(AtomicBool::new(false));
     py.allow_threads(|| -> PyResult<()> {
         // 用 std::thread + crossbeam channel（无锁多消费者）替代 rayon。
         // rayon 工作窃取在本场景（长尾大文件任务）并行效率低（实测仅 ~45%）。
@@ -761,6 +835,9 @@ pub fn run_factor_pipeline(
             let backup_file = backup_file_cloned.clone();
             let completed = completed.clone();
             let cores = cores_arc.clone();
+            let direct_sink = if direct_write { sharded_sink.clone() } else { None };
+            let thread_write_error = thread_write_error.clone();
+            let cancelled = monitor_cancel.clone();
             let mut last_flush_t = std::time::Instant::now();
 
             let handle = std::thread::spawn(move || {
@@ -772,6 +849,9 @@ pub fn run_factor_pipeline(
 
                 // 循环取任务并计算（完全串行，无内部并行）
                 while let Ok((date, code)) = task_rx.recv() {
+                    if direct_write && cancelled.load(Ordering::Relaxed) {
+                        break;
+                    }
                     let vals = if pipeline_name_t == "observable_order" {
                         pipeline_observable_order(
                             date,
@@ -860,23 +940,39 @@ pub fn run_factor_pipeline(
                         facs: vals.clone(),
                     };
 
-                    // 累积结果，达 batch_size 时批量写 backup
-                    let should_flush = {
+                    if let Some(ref direct_sink) = direct_sink {
+                        // Keep the small collector buffer locked while appending so blocked
+                        // worker threads cannot each retain another full batch in memory.
                         let mut buf = results_buf.lock().unwrap();
                         buf.push(result);
-                        buf.len() >= batch_size
-                    };
-                    if should_flush {
-                        let batch: Vec<TaskResult> = {
+                        if buf.len() >= batch_size {
+                            if let Err(e) = direct_sink.append_batch(&buf) {
+                                *thread_write_error.lock().unwrap() = Some(e);
+                                cancelled.store(true, Ordering::Relaxed);
+                                break;
+                            }
+                            buf.clear();
+                            backup_intervals_t.lock().unwrap()
+                                .push(last_flush_t.elapsed().as_secs_f64());
+                            last_flush_t = std::time::Instant::now();
+                        }
+                    } else {
+                        // Preserve the legacy thread/bin route when direct_write=False.
+                        let should_flush = {
                             let mut buf = results_buf.lock().unwrap();
-                            buf.drain(..).collect()
+                            buf.push(result);
+                            buf.len() >= batch_size
                         };
-                        let _ =
-                            save_results_to_backup(&batch, &backup_file, expected_result_length);
-                        // 记录备份间隔（供监控线程估算）
-                        let mut intervals = backup_intervals_t.lock().unwrap();
-                        intervals.push(last_flush_t.elapsed().as_secs_f64());
-                        last_flush_t = std::time::Instant::now();
+                        if should_flush {
+                            let batch: Vec<TaskResult> = {
+                                let mut buf = results_buf.lock().unwrap();
+                                buf.drain(..).collect()
+                            };
+                            let _ = save_results_to_backup(&batch, &backup_file, expected_result_length);
+                            let mut intervals = backup_intervals_t.lock().unwrap();
+                            intervals.push(last_flush_t.elapsed().as_secs_f64());
+                            last_flush_t = std::time::Instant::now();
+                        }
                     }
 
                     completed.fetch_add(1, Ordering::Relaxed);
@@ -885,7 +981,6 @@ pub fn run_factor_pipeline(
             handles.push(handle);
         }
         // 启动独立进度监控线程（不影响计算）
-        let monitor_cancel = std::sync::Arc::new(AtomicBool::new(false));
         let monitor_handle = spawn_progress_monitor(
             completed.clone(),
             total,
@@ -905,6 +1000,13 @@ pub fn run_factor_pipeline(
         for h in handles {
             let _ = h.join();
         }
+        if let Some(error) = thread_write_error.lock().unwrap().take() {
+            monitor_cancel.store(true, Ordering::Relaxed);
+            let _ = monitor_handle.join();
+            return Err(pyo3::exceptions::PyIOError::new_err(format!(
+                "直接列段写入失败: {error}"
+            )));
+        }
         // 任务丢失检测：worker panic 时 completed 到不了 total，monitor 会永久空转；
         // 先置位取消标志让 monitor 在 1s 内退出，再显式报错。
         if completed.load(Ordering::Relaxed) < total {
@@ -921,11 +1023,23 @@ pub fn run_factor_pipeline(
         // 写入剩余结果
         let remaining: Vec<TaskResult> = results_buf.lock().unwrap().drain(..).collect();
         if !remaining.is_empty() {
-            let _ = save_results_to_backup(&remaining, &backup_file_cloned, expected_result_length);
+            if direct_write {
+                sharded_sink.as_ref().unwrap().append_batch(&remaining)
+                    .map_err(pyo3::exceptions::PyIOError::new_err)?;
+            } else {
+                let _ = save_results_to_backup(&remaining, &backup_file_cloned, expected_result_length);
+            }
         }
 
         Ok(())
     })?;
+
+    if direct_write {
+        println!("📦 收尾直接列段（不投影）...");
+        sharded_sink.as_ref().unwrap().finish_and_project(export_n_jobs)
+            .map_err(pyo3::exceptions::PyIOError::new_err)?;
+        return Ok(Python::with_gil(|py| py.None()));
+    }
 
     let done = completed.load(Ordering::Relaxed);
     let elapsed = start.elapsed().as_secs_f64();
@@ -1275,6 +1389,7 @@ fn run_multiprocess_v2(
     use std::process::{Command, Stdio};
 
     let total = pending.len();
+    let direct_write = sharded_sink.as_ref().map_or(false, |s| s.is_direct_segments());
     let trading_days_arc = std::sync::Arc::new(trading_days);
     let completed = std::sync::Arc::new(AtomicUsize::new(0));
     let start = std::time::Instant::now();
@@ -1325,6 +1440,7 @@ fn run_multiprocess_v2(
                     &trading_days,
                     expected_result_length,
                     core_affinity_idx,
+                    direct_write,
                 )
             });
             handles.push(handle);
@@ -1364,7 +1480,9 @@ fn run_multiprocess_v2(
         let batch_bytes = batch_size
             .saturating_mul(expected_result_length)
             .saturating_mul(4);
-        let queue_batches = profile.write_queue_batches(batch_bytes);
+        // Direct storage already has a configurable large buffer. A single queued
+        // collector batch gives backpressure without stacking 50 extra large batches.
+        let queue_batches = if direct_write { 1 } else { profile.write_queue_batches(batch_bytes) };
         eprintln!(
             "[STORE] {} 写队列: {queue_batches} 批，单批值区约 {:.1} MiB",
             if profile.network { "NAS" } else { "本地" },
@@ -1433,8 +1551,15 @@ fn run_multiprocess_v2(
 
         // 等待所有 worker 管理线程完成（所有任务算完 → result_tx 全 drop → collector recv 返回 Err）
         let managers_result = join_worker_managers(handles);
-        let _ = collector_handle.join(); // collector 排空 result_rx，残余入队列，drop write_tx
-        let _ = writer_handle.join(); // writer 排空写队列，所有 batch 落盘后才返回（必须 last join）
+        let collector_result = collector_handle.join(); // collector 排空 result_rx，残余入队列，drop write_tx
+        let writer_result = writer_handle.join(); // writer 排空写队列，所有 batch 落盘后才返回（必须 last join）
+        if direct_write && (collector_result.is_err() || writer_result.is_err()) {
+            write_failed.store(true, Ordering::Relaxed);
+            let _ = monitor_handle.join();
+            return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                "直接列段 collector/writer 线程异常退出；未完成的任务需续算",
+            ));
+        }
         if let Err(error) = managers_result {
             write_failed.store(true, Ordering::Relaxed);
             let _ = monitor_handle.join();
@@ -1492,6 +1617,7 @@ fn run_single_worker_manager(
     trading_days: &[i64],
     expected_len: usize,
     core_affinity_idx: Option<usize>,
+    strict_worker_errors: bool,
 ) -> Result<(), String> {
     use std::io::{BufReader, BufWriter, Write};
     use std::process::{Child, Command, Stdio};
@@ -1561,6 +1687,10 @@ fn run_single_worker_manager(
                 code: code.clone(),
             };
             if ipc_write(&mut writer, &task_msg).is_err() {
+                if strict_worker_errors {
+                    kill_and_reap(&mut child);
+                    return Err(format!("worker{worker_idx} 发送任务失败 [{date},{code}]，该任务未完成"));
+                }
                 // IPC 错误：该任务记 NaN，重启 worker。
                 // NaN 占位长度必须与 expected_len 一致，否则 append_batch 严格校验会整批失败。
                 // result channel 已死（collector/writer 已退出）→ 本管理器立即退出。
@@ -1583,6 +1713,10 @@ fn run_single_worker_manager(
             // 收结果
             match ipc_read_result(&mut reader) {
                 Ok(ResultMessage::Result(r)) => {
+                    if strict_worker_errors && (r.date != date || r.code != code) {
+                        kill_and_reap(&mut child);
+                        return Err(format!("worker{worker_idx} 返回的任务标识与 [{date},{code}] 不一致"));
+                    }
                     // result channel 已死 → 不再消费任务，立即退出。
                     if result_tx.send(r).is_err() {
                         kill_and_reap(&mut child);
@@ -1590,6 +1724,10 @@ fn run_single_worker_manager(
                     }
                 }
                 Ok(ResultMessage::Error { date, code, msg }) => {
+                    if strict_worker_errors {
+                        kill_and_reap(&mut child);
+                        return Err(format!("worker{worker_idx} 计算失败 [{date},{code}]: {msg}；未登记完成"));
+                    }
                     eprintln!(
                         "⚠️ worker{} 计算错误 [{},{}]: {}",
                         worker_idx, date, code, msg
@@ -1608,12 +1746,24 @@ fn run_single_worker_manager(
                     }
                 }
                 Ok(ResultMessage::Ready | ResultMessage::ParentBoundReady { .. }) => {
+                    if strict_worker_errors {
+                        kill_and_reap(&mut child);
+                        return Err(format!("worker{worker_idx} 任务 [{date},{code}] 返回了意外的 Ready 消息"));
+                    }
                     // 忽略意外的 Ready
                 }
                 Ok(ResultMessage::MinuteBatch(_)) => {
+                    if strict_worker_errors {
+                        kill_and_reap(&mut child);
+                        return Err(format!("worker{worker_idx} 任务 [{date},{code}] 返回了意外的整日结果"));
+                    }
                     // Level2 worker 不应该收到 MinuteBatch，忽略
                 }
                 Err(_) => {
+                    if strict_worker_errors {
+                        kill_and_reap(&mut child);
+                        return Err(format!("worker{worker_idx} 读取结果失败 [{date},{code}]，该任务未完成"));
+                    }
                     // IPC 错误，重启 worker
                     eprintln!("⚠️ worker{} IPC 错误，重启中...", worker_idx);
                     if result_tx
@@ -3061,7 +3211,7 @@ pub fn run_factor_pipeline_regime(
     pipeline, tasks, n_jobs, expected_result_length, trading_days,
     params=None, n_workers=None, update_mode=None, bind_cores=true,
     store_dir=None, store_factor_names=None, force_clear=None, data_root=None,
-    vars_root=None, incremental_projection=None
+    vars_root=None, incremental_projection=None, direct_write=false, write_buffer_gb=32.0
 ))]
 #[allow(clippy::too_many_arguments)]
 pub fn run_factor_pipeline_cross_section(
@@ -3080,6 +3230,8 @@ pub fn run_factor_pipeline_cross_section(
     data_root: Option<String>,
     vars_root: Option<String>,
     incremental_projection: Option<bool>,
+    direct_write: bool,
+    write_buffer_gb: f64,
 ) -> PyResult<PyObject> {
     let py = unsafe { Python::assume_gil_acquired() };
 
@@ -3142,6 +3294,17 @@ pub fn run_factor_pipeline_cross_section(
     let update_mode_enabled = update_mode.unwrap_or(false);
     let force_clear_enabled = force_clear.unwrap_or(false);
     let incremental_projection_enabled = incremental_projection.unwrap_or(false);
+    if n_jobs == 0 || n_workers == Some(0) {
+        return Err(pyo3::exceptions::PyValueError::new_err("n_jobs / n_workers 必须 > 0"));
+    }
+    let direct_buffer_bytes = validate_direct_write_options(
+        direct_write,
+        write_buffer_gb,
+        store_dir.as_deref(),
+        store_factor_names.as_deref(),
+        expected_result_length,
+        incremental_projection_enabled,
+    )?;
     let n_shards = crate::factor_store_v5::STORE_N_SHARDS;
 
     let store_dir_str = store_dir
@@ -3165,6 +3328,12 @@ pub fn run_factor_pipeline_cross_section(
             .read_dir()
             .map(|mut it| it.next().is_some())
             .unwrap_or(false);
+        if direct_write && non_empty {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "direct_write=True 不支持清空非空目录 {store_dir_str}（force_clear 也不适用）；\
+                 请使用 update_mode=True 续算或指定新目录"
+            )));
+        }
         if non_empty && !force_clear_enabled {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
                 "store_dir {store_dir_str} 非空且未传 force_clear=True，拒绝清空重建。                 若目录是初版/既有 store，请勿用 update_mode=False 指向它；                 确认要丢弃其中数据时再显式传 force_clear=True。"
@@ -3185,13 +3354,16 @@ pub fn run_factor_pipeline_cross_section(
                 .map(|i| format!("factor_{i}"))
                 .collect()
         });
-        crate::factor_store_v5::ShardedBackupSink::new_colblk_sharded(
-            &store_dir_str,
-            &snames,
-            n_shards,
-            incremental_projection_enabled,
-        )
-        .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("打开 colblk 存储失败: {e}")))?
+        let opened = if direct_write {
+            crate::factor_store_v5::ShardedBackupSink::new_direct_segments(
+                &store_dir_str, &snames, direct_buffer_bytes,
+            )
+        } else {
+            crate::factor_store_v5::ShardedBackupSink::new_colblk_sharded(
+                &store_dir_str, &snames, n_shards, incremental_projection_enabled,
+            )
+        };
+        opened.map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("打开因子存储失败: {e}")))?
     };
     if incremental_projection_enabled {
         println!(
@@ -3213,11 +3385,22 @@ pub fn run_factor_pipeline_cross_section(
         let date: i64 = item.extract()?;
         all_dates.push(date);
     }
+    if direct_write {
+        all_dates.sort_unstable();
+        all_dates.dedup();
+    }
+    let requested_direct_dates = if direct_write { all_dates.clone() } else { Vec::new() };
 
     // 断点续算：按 date 过滤
     let pending: Vec<i64> = if update_mode_enabled {
-        let completed = recover_completed_dates(&store_dir_str, &sharded_sink)
-            .map_err(pyo3::exceptions::PyIOError::new_err)?;
+        let completed = if direct_write {
+            sharded_sink.direct_completed_dates()
+                .map_err(pyo3::exceptions::PyIOError::new_err)?
+                .ok_or_else(|| pyo3::exceptions::PyIOError::new_err("直接列段缺少持久日期记录"))?
+        } else {
+            recover_completed_dates(&store_dir_str, &sharded_sink)
+                .map_err(pyo3::exceptions::PyIOError::new_err)?
+        };
         all_dates
             .into_iter()
             .filter(|d| !completed.contains(d))
@@ -3259,12 +3442,8 @@ pub fn run_factor_pipeline_cross_section(
 
     if total == 0 {
         println!("✅ 所有日期都已完成（cross_section pipeline）");
-        // 即使无新任务也投影（断点续算恢复时，之前只写分片未投影）。
-        // 不投影则 tail_pipeline_engine 走 v6 在线转置（单IO线程逐因子转置）极慢。
-        println!("🏗️ 检查/执行投影...");
-        project_within_budget(&sharded_sink, n_jobs)
-            .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("投影失败: {}", e)))?;
-        println!("✅ 投影完成，可直接回测");
+        finish_cross_section_store(&sharded_sink, n_jobs, &requested_direct_dates)
+            .map_err(pyo3::exceptions::PyIOError::new_err)?;
         return Ok(Python::with_gil(|py| py.None()));
     }
     println!("📋 横截面 pipeline 待处理: {total} 天");
@@ -3285,13 +3464,8 @@ pub fn run_factor_pipeline_cross_section(
             store_dir_str,
             &worker_bin,
         )?;
-        // ⭐ 投影：分片 colblk → 连续列式存储。
-        // 不投影则 tail_pipeline_engine 走 v6 在线转置（单IO线程逐因子转置）极慢；
-        // 投影后直接读连续列，速度提升 ~100x（与 run_factor_pipeline 行为一致）。
-        println!("🏗️ 开始投影（finish_and_project）...");
-        project_within_budget(&sharded_sink, n_jobs)
-            .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("投影失败: {}", e)))?;
-        println!("✅ 投影完成，可直接回测");
+        finish_cross_section_store(&sharded_sink, n_jobs, &requested_direct_dates)
+            .map_err(pyo3::exceptions::PyIOError::new_err)?;
         return Ok(Python::with_gil(|py| py.None()));
     }
     Err(pyo3::exceptions::PyRuntimeError::new_err(
@@ -3303,6 +3477,30 @@ pub fn run_factor_pipeline_cross_section(
 /// 固定 2：追加是 I/O 为主，2 个线程够用；同时它要和 switch_moment_metrics 的
 /// PARENT_CPU_THREADS 对上（n_jobs 是「实际 CPU」的硬上限，父进程吃几个核就从预算里扣几个）。
 const WRITER_POOL_THREADS: usize = 2;
+
+fn finish_cross_section_store(
+    sink: &crate::factor_store_v5::ShardedBackupSink,
+    n_jobs: usize,
+    required_dates: &[i64],
+) -> Result<(), String> {
+    if sink.is_direct_segments() {
+        println!("📦 封存最后一个直接列段（不投影）...");
+        sink.finish_and_project(n_jobs)?;
+        let durable = sink.direct_completed_dates()?.ok_or("直接列段缺少持久日期记录")?;
+        let missing: Vec<i64> = required_dates.iter().copied()
+            .filter(|d| !durable.contains(d)).collect();
+        if !missing.is_empty() {
+            return Err(format!("直接列段收尾后仍有 {} 个日期未持久完成，例如 {:?}",
+                missing.len(), &missing[..missing.len().min(10)]));
+        }
+        println!("✅ 直接列段已封存，全部请求日期已持久完成（无需投影）");
+    } else {
+        println!("🏗️ 检查/执行投影...");
+        project_within_budget(sink, n_jobs)?;
+        println!("✅ 投影完成，可直接回测");
+    }
+    Ok(())
+}
 
 /// 投影：finish_and_project 的 n_jobs 参数当前被忽略（内部走 rayon 全局池 = num_cpus 个线程），
 /// 所以这里显式用一个 n_jobs 大小的专用池把它包起来，保证投影阶段也不超预算。
@@ -3337,6 +3535,7 @@ fn run_multiprocess_cross_section(
     worker_bin: &str,
 ) -> PyResult<()> {
     let total = pending.len();
+    let direct_write = sharded_sink.is_direct_segments();
     let trading_days_arc = std::sync::Arc::new(trading_days);
     let start = std::time::Instant::now();
 
@@ -3350,7 +3549,7 @@ fn run_multiprocess_cross_section(
 
         // 结果 channel：MinuteBatch（整天一批）
         let (batch_tx, batch_rx) =
-            std::sync::mpsc::sync_channel::<(i64, Vec<TaskResult>)>(n_workers * 2);
+            std::sync::mpsc::sync_channel::<(i64, Vec<TaskResult>)>(if direct_write { 1 } else { n_workers * 2 });
 
         let core_ids = if bind_cores {
             core_affinity::get_core_ids()
@@ -3411,13 +3610,21 @@ fn run_multiprocess_cross_section(
                     if !batch.is_empty() {
                         let n = batch.len();
                         let elapsed = start.elapsed().as_secs_f64();
-                        match write_pool.install(|| sharded_c.append_date(date,&batch).and_then(|_|sharded_c.commit_date(date)).and_then(|_|mark_date_complete(&store_dir_c,date))) {
+                        let written = write_pool.install(|| {
+                            sharded_c.append_date(date, &batch)?;
+                            if !direct_write {
+                                sharded_c.commit_date(date)?;
+                                mark_date_complete(&store_dir_c, date)?;
+                            }
+                            Ok::<(), String>(())
+                        });
+                        match written {
                             Ok(()) => {
-
                                 done += 1;
                                 eprintln!(
-                                    "[{}] ✅ {date} 完成: {n} 股 ({done}/{total}, {elapsed:.0}s)",
-                                    Local::now().format("%H:%M:%S")
+                                    "[{}] ✅ {date} {}: {n} 股 ({done}/{total}, {elapsed:.0}s)",
+                                    Local::now().format("%H:%M:%S"),
+                                    if direct_write { "已接收，完成状态以封段为准" } else { "完成" }
                                 );
                             }
                             Err(e) => {
@@ -3448,11 +3655,11 @@ fn run_multiprocess_cross_section(
 
         // 等待所有 worker
         let managers_result = join_worker_managers(handles);
-        let _ = writer_handle.join();
+        writer_handle.join().map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("横截面存储 writer 线程异常退出"))?;
         managers_result.map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
         if let Ok(e) = writer_err_rx.try_recv() {
             return Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
-                "横截面 colblk 批量写入失败: {e}"
+                "横截面因子批量写入失败: {e}"
             )));
         }
         Ok(())

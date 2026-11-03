@@ -231,6 +231,8 @@ def run_factor_pipeline(
     store_factor_names: Optional[List[str]] = None,
     data_root: Optional[str] = None,
     incremental_projection: Optional[bool] = None,
+    direct_write: bool = False,
+    write_buffer_gb: float = 32.0,
 ) -> None:
     """Level2 per-(date, code) 因子批量计算入口。
 
@@ -248,6 +250,13 @@ def run_factor_pipeline(
     incremental_projection: True = 增量投影（仅 store_dir 模式）。追加新任务时保留已有
       factors.proj 不动，新行写成 factors.proj.delta.<end>，读取端自动拼接 base + delta；
       默认 False = 追加即删投影、收尾整片重投影（I/O ≈ 2× store 体积）。
+    direct_write: True = 在 store_dir 直接写最终列段，不生成 colblk 或执行投影。
+      默认 False 保持旧流程；须使用新目录或已有同格式目录，不能转换旧库，
+      不能与 incremental_projection=True 同用。只在完整列段发布后登记完成；
+      崩溃时未封存的结果会在 update_mode=True 续算时重算。
+    write_buffer_gb: 直接写入的存储缓冲预算，单位 GiB，默认 32.0。
+      仅 direct_write=True 时有效，必须为有限正数；不包含 worker、IPC、
+      结果队列和因子计算内存，因此不是整个进程的内存上限。
     """
     ...
 
@@ -372,6 +381,8 @@ def run_factor_pipeline_cross_section(
     data_root: Optional[str] = None,
     vars_root: Optional[str] = None,
     incremental_projection: Optional[bool] = None,
+    direct_write: bool = False,
+    write_buffer_gb: float = 32.0,
 ) -> None:
     """横截面（一天全市场）因子批量计算入口。
 
@@ -385,13 +396,21 @@ def run_factor_pipeline_cross_section(
       之后所有日期共用内存里的表。少数因子额外读取的基础信息仍由
       RUST_PYFUNC_BASIC_INFO_DIR（默认 /ssd_data/data/basic_info）指定。
 
-    update_mode: True = 断点续算（跳过 _completed_dates 里已完成的日期，只算缺失日期）。
-      None/False = 全量重跑：store 非空且未传 force_clear=True 会直接报错（拒绝误删）。
+    update_mode: True = 断点续算（旧格式读取日期完成凭据；直接列段读取已提交清单）。
+      None/False = 全量重跑：旧格式 store 非空且未传 force_clear=True 会直接报错。
+      direct_write=True 不支持清空非空目录，force_clear 不适用；请续算或指定新目录。
 
     incremental_projection: True = 增量投影。追加新日期时保留已有投影（base 不动），
       收尾只把新行写成 factors.proj.delta.<end>；读取端自动拼接 base + delta。
       False/None = 旧行为：追加即删投影，收尾整片重投影（I/O ≈ 2× store 体积）。
       已有多年数据、只补算新日期时开这个开关可省掉整库重投影。
+    direct_write: True = 在 store_dir 直接写最终列段，不生成 colblk 或执行投影。
+      默认 False 保持旧流程；须使用新目录或已有同格式目录，不能转换旧库，
+      不能与 incremental_projection=True 同用。只在完整列段发布后登记完成；
+      崩溃时未封存的结果会在 update_mode=True 续算时重算。
+    write_buffer_gb: 直接写入的存储缓冲预算，单位 GiB，默认 32.0。
+      仅 direct_write=True 时有效，必须为有限正数；不包含 worker、IPC、
+      结果队列和因子计算内存，因此不是整个进程的内存上限。
     """
     ...
 

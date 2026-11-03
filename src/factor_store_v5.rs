@@ -17,6 +17,7 @@
 //! 投影把"按 chunk 组织"重排为"按因子组织"，让回测的列扫描变成单次连续顺序读。
 
 use crate::backup_reader::TaskResult;
+use crate::factor_store_segments::{DirectSegmentWriter, MANIFEST_NAME as SEGMENT_MANIFEST_NAME};
 use crate::storage_policy::{
     atomic_write, publish, read_optional, sync_dir, sync_file, StorageProfile,
 };
@@ -876,6 +877,15 @@ impl FactorStoreWriter {
         incremental: bool,
     ) -> Result<Self, String> {
         let store_dir = PathBuf::from(store_dir);
+        if store_dir
+            .join(SEGMENT_MANIFEST_NAME)
+            .try_exists()
+            .map_err(|e| format!("检查直接列段目录失败: {e}"))?
+        {
+            return Err(format!(
+                "{store_dir:?} 是直接列段存储，不能用 colblk 写入；请沿用直接列段模式或使用新目录"
+            ));
+        }
         std::fs::create_dir_all(&store_dir).map_err(|e| format!("创建 store_dir 失败: {e}"))?;
         let colblk_path = store_dir.join("factors.colblk");
         let idx_path = store_dir.join("factors.idx");
@@ -2104,6 +2114,7 @@ impl FactorStoreWriter {
 /// 一个投影段（base `factors.proj` 或增量 delta `factors.proj.delta.<end>`）的元信息。
 /// 两者格式完全一致（同一个 write_proj_file 产出），只是行集不同。
 struct ProjMeta {
+    rows: u64,
     row_order_offset: u64,
     row_order_csz: u64,
     /// 每因子 value 段 (offset, compressed_size)
@@ -2130,9 +2141,13 @@ impl ProjSegment {
         if raw.is_empty() {
             return Ok((Vec::new(), Vec::new()));
         }
-        let dec =
-            zstd::decode_all(&raw[..]).map_err(|e| format!("解压行序 {:?}: {e}", self.path))?;
-        if dec.len() % 8 != 0 {
+        let expected_bytes = self.meta.rows.checked_mul(8).ok_or("投影行序长度溢出")?;
+        let decoder = zstd::stream::read::Decoder::new(&raw[..])
+            .map_err(|e| format!("解压行序 {:?}: {e}", self.path))?;
+        let mut dec = Vec::new();
+        decoder.take(expected_bytes + 1).read_to_end(&mut dec)
+            .map_err(|e| format!("解压行序 {:?}: {e}", self.path))?;
+        if dec.len() as u64 != expected_bytes {
             return Err(format!("投影行序损坏: {:?}", self.path));
         }
         let mut d = Vec::with_capacity(dec.len() / 8);
@@ -2217,6 +2232,7 @@ fn open_proj_segment(path: &Path) -> Result<ProjSegment, String> {
         path: path.to_path_buf(),
         file: pf,
         meta: ProjMeta {
+            rows,
             row_order_offset,
             row_order_csz,
             val_index,
@@ -2234,18 +2250,120 @@ struct SingleStoreReader {
     /// 空 = 未投影（旧格式投影残留在 colblk 内的情况 open_dir 已报错拦截）。
     proj_segments: Vec<ProjSegment>,
     coverage_end: u64,
+    /// 直接列段没有 colblk；file 仅持有 manifest，禁止进入旧 chunk 扫描路径。
+    direct_segments: bool,
 }
 
 impl SingleStoreReader {
     fn pread(&self, offset: u64, len: usize) -> Result<Vec<u8>, String> {
+        if self.direct_segments {
+            return Err("直接列段存储不含 colblk，不能扫描旧 chunk".into());
+        }
         let mut buf = vec![0; len];
         pread_at(&self.file, &mut buf, offset)
             .map_err(|e| format!("读取 colblk offset={offset}, len={len}: {e}"))?;
         Ok(buf)
     }
 
-    /// 打开单个存储目录（必须含 factors.colblk + factors.idx）。
+    /// 直接列段共享既有 v3 列读取格式；空 manifest 也是可读取的已提交快照。
+    fn open_direct_segments(
+        store_dir: &Path,
+        manifest: crate::factor_store_segments::SegmentManifest,
+    ) -> Result<Self, String> {
+        for name in ["factors.colblk", "factors.idx", "factors.proj", "shards.layout.json"] {
+            if store_dir.join(name).try_exists().map_err(|e| e.to_string())? {
+                return Err(format!("存储目录混合了直接列段和旧 colblk 布局: {store_dir:?}"));
+            }
+        }
+        for entry in std::fs::read_dir(store_dir).map_err(|e| e.to_string())? {
+            let name = entry.map_err(|e| e.to_string())?.file_name();
+            if name.to_string_lossy().strip_prefix("shard_")
+                .is_some_and(|n| n.parse::<usize>().is_ok())
+            {
+                return Err(format!("直接列段目录包含旧分片布局: {store_dir:?}"));
+            }
+        }
+        if manifest.dates.len() > u32::MAX as usize || manifest.codes.len() > u32::MAX as usize {
+            return Err("直接列段字典超过 u32 编码范围".into());
+        }
+        let mut dict = FactorDict::new(manifest.factor_names);
+        for date in manifest.dates {
+            if dict.date_to_id.contains_key(&date) {
+                return Err("直接列段日期字典重复".into());
+            }
+            dict.intern_date(date);
+        }
+        for code in manifest.codes {
+            if dict.code_to_id.contains_key(&code) {
+                return Err("直接列段股票字典重复".into());
+            }
+            dict.intern_code(&code);
+        }
+        let mut record_count = 0u64;
+        let mut proj_segments = Vec::with_capacity(manifest.parts.len());
+        let mut seen = HashSet::new();
+        let mut present_dates = vec![false; dict.dates.len()];
+        for part in manifest.parts {
+            let rel = Path::new(&part.file);
+            if rel.components().count() != 1
+                || !matches!(rel.components().next(), Some(std::path::Component::Normal(_)))
+                || !seen.insert(part.file.clone())
+            {
+                return Err(format!("直接列段清单文件名非法或重复: {}", part.file));
+            }
+            let segment = open_proj_segment(&store_dir.join(rel))?;
+            if segment.meta.rows != part.rows
+                || segment.meta.val_index.len() != dict.factor_names.len()
+            {
+                return Err(format!("直接列段与清单行数/因子数不一致: {}", part.file));
+            }
+            // 只读取各段的压缩行序，不读取因子值；共享缓存供后续所有列复用。
+            let (ds, cs) = segment.row_order()?;
+            if ds.len() as u64 != part.rows
+                || ds.iter().any(|&d| d as usize >= dict.dates.len())
+                || cs.iter().any(|&c| c as usize >= dict.codes.len())
+            {
+                return Err(format!("直接列段行索引越界或行数不一致: {}", part.file));
+            }
+            for &d in ds {
+                present_dates[d as usize] = true;
+            }
+            record_count = record_count.checked_add(part.rows).ok_or("直接列段行数溢出")?;
+            proj_segments.push(segment);
+        }
+        for date in manifest.completed_dates {
+            let id = dict.date_to_id.get(&date).ok_or("直接列段完成日期不在字典中")?;
+            if !present_dates[*id as usize] {
+                return Err(format!("直接列段完成日期 {date} 没有对应数据"));
+            }
+        }
+        let hdr = ColblkHeader {
+            record_count,
+            factor_count: dict.factor_names.len(),
+            chunk_count: 0,
+            date_count: dict.dates.len(),
+            code_count: dict.codes.len(),
+            projected_offset: 0,
+            proj_format_version: PROJ_FORMAT_VERSION,
+        };
+        let file = File::open(store_dir.join(SEGMENT_MANIFEST_NAME))
+            .map_err(|e| format!("打开直接列段清单失败: {e}"))?;
+        Ok(Self {
+            file,
+            file_len: 0,
+            hdr,
+            dict,
+            proj_segments,
+            coverage_end: 0,
+            direct_segments: true,
+        })
+    }
+
+    /// 打开单个存储目录，自动识别旧 colblk 与直接列段清单。
     fn open_dir(store_dir: &Path) -> Result<Self, String> {
+        if let Some(manifest) = crate::factor_store_segments::load_manifest(store_dir)? {
+            return Self::open_direct_segments(store_dir, manifest);
+        }
         let colblk_path = store_dir.join("factors.colblk");
         let idx_path = store_dir.join("factors.idx");
         if !colblk_path.exists() || !idx_path.exists() {
@@ -2307,6 +2425,7 @@ impl SingleStoreReader {
             dict,
             proj_segments,
             coverage_end,
+            direct_segments: false,
         })
     }
 
@@ -2317,6 +2436,9 @@ impl SingleStoreReader {
     /// 例外：空分片（record_count=0）没有 chunk 可投影，旧代码不截断 fallocate 预留尾
     /// （file_len 可能是 2GB），故按 record_count 直接判定为已投影。
     fn is_projected(&self) -> bool {
+        if self.direct_segments {
+            return true;
+        }
         if self.proj_segments.is_empty() || self.coverage_end == 0 {
             return false;
         }
@@ -2325,6 +2447,9 @@ impl SingleStoreReader {
 
     /// 增量 delta 段数量（观测用）
     fn delta_count(&self) -> usize {
+        if self.direct_segments {
+            return 0; // 正式列段不是增量投影 delta。
+        }
         self.proj_segments.len().saturating_sub(1)
     }
 
@@ -2526,6 +2651,27 @@ impl SingleStoreReader {
         {
             return Err("因子区间越界".into());
         }
+        if self.direct_segments {
+            if n_factors == 0 {
+                return Ok(());
+            }
+            let (ds, cs, values) = self.read_columns(col_idx_min, col_idx_min + n_factors)?;
+            let dm: Vec<_> = self.dict.dates.iter()
+                .map(|d| date_pos.get(d).copied().unwrap_or(usize::MAX)).collect();
+            let cm: Vec<_> = self.dict.codes.iter()
+                .map(|c| stock_pos.get(c).copied().unwrap_or(usize::MAX)).collect();
+            for (output, values) in outputs.iter_mut().zip(values) {
+                for i in 0..ds.len() {
+                    let r = dm[ds[i] as usize];
+                    let c = cm[cs[i] as usize];
+                    if r != usize::MAX && c != usize::MAX {
+                        let value = values[i];
+                        output[[r, c]] = if value.is_finite() { value } else { f32::NAN };
+                    }
+                }
+            }
+            return Ok(());
+        }
         let mut offset = COLBLK_HEADER_SIZE as u64;
         // colblk 内只有 chunk（v3 起投影写在独立文件）→ 扫到文件末尾；
         // 增量投影下 chunk 区会超过 projected_offset，必须扫全（否则漏新行）。
@@ -2670,7 +2816,9 @@ impl FactorStoreReader {
     /// 返回该 group 的所有分片，并校验所有分片因子名完全一致。
     fn open_group_stores(group_dir: &Path) -> Result<Vec<SingleStoreReader>, String> {
         let mut stores = Vec::new();
-        if group_dir.join("shard_0").join("factors.idx").exists() {
+        if group_dir.join(SEGMENT_MANIFEST_NAME).try_exists().map_err(|e| e.to_string())? {
+            stores.push(SingleStoreReader::open_dir(group_dir)?);
+        } else if group_dir.join("shard_0").join("factors.idx").exists() {
             let mut shard_dirs: Vec<(usize, PathBuf)> = Vec::new();
             let entries =
                 std::fs::read_dir(group_dir).map_err(|e| format!("读取存储目录失败: {e}"))?;
@@ -3196,6 +3344,18 @@ pub fn factor_store_v5_info(store_dir: String) -> PyResult<PyObject> {
         )?;
         dict.set_item("factor_count", reader.factor_names().len())?;
         dict.set_item("is_projected", reader.is_projected())?;
+        let direct_stores = reader.groups.iter().flat_map(|g| &g.stores)
+            .filter(|s| s.direct_segments).count();
+        let total_stores = reader.groups.iter().map(|g| g.stores.len()).sum::<usize>();
+        dict.set_item("storage_layout", if direct_stores == 0 {
+            "colblk"
+        } else if direct_stores == total_stores {
+            "direct_segments"
+        } else {
+            "mixed_groups"
+        })?;
+        dict.set_item("direct_segment_count", reader.groups.iter().flat_map(|g| &g.stores)
+            .filter(|s| s.direct_segments).map(|s| s.proj_segments.len()).sum::<usize>())?;
         // 增量投影观测：delta 段数量（0 = 纯 base；>0 = base + 增量 delta）
         dict.set_item("proj_deltas", reader.delta_count())?;
         dict.set_item("factor_names", reader.factor_names().to_vec())?;
@@ -3275,6 +3435,7 @@ pub fn factor_store_v5_register_group(
     let existing_axes = if manifest_path.exists()
         || root.join("shard_0").join("factors.idx").exists()
         || root.join("factors.idx").exists()
+        || root.join(SEGMENT_MANIFEST_NAME).try_exists().map_err(pyerr)?
     {
         Some(
             FactorStoreReader::open(&store_dir)
@@ -3348,7 +3509,9 @@ pub fn factor_store_v5_register_group(
             )));
         }
         manifest.groups
-    } else if root.join("shard_0").join("factors.idx").exists() || root.join("factors.idx").exists()
+    } else if root.join("shard_0").join("factors.idx").exists()
+        || root.join("factors.idx").exists()
+        || root.join(SEGMENT_MANIFEST_NAME).try_exists().map_err(pyerr)?
     {
         vec![FactorStoreGroupEntry {
             name: "base".to_string(),
@@ -4425,15 +4588,49 @@ pub const STORE_N_SHARDS: usize = 8;
 pub struct ShardedBackupSink {
     shards: Vec<BackupSink>,
     n_shards: usize,
+    direct: Option<Arc<Mutex<DirectSegmentWriter>>>,
 }
 
 impl ShardedBackupSink {
+    /// 直接列段写入不创建旧备份或投影文件；克隆句柄共享同一个有界缓冲 writer。
+    pub fn new_direct_segments(
+        store_dir: &str,
+        factor_names: &[String],
+        buffer_bytes: usize,
+    ) -> Result<Self, String> {
+        let writer = DirectSegmentWriter::open(store_dir, factor_names, buffer_bytes)?;
+        Ok(Self {
+            shards: Vec::new(),
+            n_shards: 1,
+            direct: Some(Arc::new(Mutex::new(writer))),
+        })
+    }
+
+    pub fn is_direct_segments(&self) -> bool {
+        self.direct.is_some()
+    }
+
+    /// 只返回 manifest 已发布的完整日期；尚在缓冲中的日期不能作为续算完成依据。
+    pub fn direct_completed_dates(&self) -> Result<Option<HashSet<i64>>, String> {
+        self.direct.as_ref().map(|writer| {
+            writer.lock().map_err(|e| format!("锁直接列段 writer 失败: {e}"))
+                .map(|w| w.completed_dates())
+        }).transpose()
+    }
+
     pub fn new_colblk_sharded(
         store_dir: &str,
         factor_names: &[String],
         n_shards: usize,
         incremental: bool,
     ) -> Result<Self, String> {
+        if Path::new(store_dir).join(SEGMENT_MANIFEST_NAME)
+            .try_exists().map_err(|e| format!("检查直接列段目录失败: {e}"))?
+        {
+            return Err(format!(
+                "{store_dir} 是直接列段存储，不能切换为 colblk 分片写入；请沿用原模式或使用新目录"
+            ));
+        }
         // 守卫：目标目录若已是**扁平布局** store（顶层 factors.idx），分片写入会在同目录
         // 另建 shard_*，而读取端（FactorStoreReader）只认 shard_* → 扁平数据静默不可见。
         // 2026-09-14 事故：factor_store_v5_copy_subset 产出的 accepted group 是扁平布局，
@@ -4487,11 +4684,14 @@ impl ShardedBackupSink {
                     .map_err(|e| e.to_string())?,
             )?;
         }
-        Ok(ShardedBackupSink { shards, n_shards })
+        Ok(ShardedBackupSink { shards, n_shards, direct: None })
     }
 
     /// 按 date % n_shards 路由 + rayon 并行写各 shard（不同 shard 的 Mutex 不竞争）。
     pub fn append_batch(&self, results: &[TaskResult]) -> Result<(), String> {
+        if let Some(writer) = &self.direct {
+            return writer.lock().map_err(|e| e.to_string())?.append_batch(results);
+        }
         if results.is_empty() {
             return Ok(());
         }
@@ -4532,9 +4732,16 @@ impl ShardedBackupSink {
     }
 
     pub fn store_dir(&self) -> Option<String> {
+        if let Some(writer) = &self.direct {
+            return writer.lock().ok().map(|w| w.store_dir().to_string_lossy().into_owned());
+        }
         self.shards.first().and_then(BackupSink::store_dir)
     }
     pub fn commit_batch(&self, results: &[TaskResult]) -> Result<(), String> {
+        if self.direct.is_some() {
+            // append 已按缓冲上限封段；不为旧每批提交接口强制制造小列段。
+            return Ok(());
+        }
         let mut seen = vec![false; self.n_shards];
         for r in results {
             seen[r.date as usize % self.n_shards] = true;
@@ -4554,6 +4761,9 @@ impl ShardedBackupSink {
         let mut seen = HashSet::new();
         if batch.iter().any(|r| !seen.insert(r.code.as_str())) {
             return Err("日期批次股票代码重复".into());
+        }
+        if let Some(writer) = &self.direct {
+            return writer.lock().map_err(|e| e.to_string())?.append_date(date, batch);
         }
         let shard = &self.shards[date as usize % self.n_shards];
         if let BackupSink::Colblk { writer } = shard {
@@ -4575,6 +4785,10 @@ impl ShardedBackupSink {
         }
     }
     pub fn commit_date(&self, date: i64) -> Result<(), String> {
+        if self.direct.is_some() {
+            // 日期完成状态只能随正式段 manifest 发布，不能写旧 date_commits 凭据。
+            return Ok(());
+        }
         let shard = &self.shards[date as usize % self.n_shards];
         shard.commit()?;
         if let BackupSink::Colblk { writer } = shard {
@@ -4597,6 +4811,14 @@ impl ShardedBackupSink {
     }
     /// Stable receipts precede the human-readable marker. At most one small read per shard.
     pub fn validate_completed_dates(&self, dates: &HashSet<i64>) -> Result<(), String> {
+        if let Some(committed) = self.direct_completed_dates()? {
+            let mut missing: Vec<_> = dates.difference(&committed).copied().collect();
+            missing.sort_unstable();
+            if !missing.is_empty() {
+                return Err(format!("直接列段清单没有提交这些完整日期: {missing:?}"));
+            }
+            return Ok(());
+        }
         for (i, shard) in self.shards.iter().enumerate() {
             let expected: Vec<_> = dates
                 .iter()
@@ -4621,6 +4843,9 @@ impl ShardedBackupSink {
         Ok(())
     }
     pub fn committed_dates(&self) -> Result<HashSet<i64>, String> {
+        if let Some(dates) = self.direct_completed_dates()? {
+            return Ok(dates);
+        }
         let mut dates = HashSet::new();
         for shard in &self.shards {
             if let BackupSink::Colblk { writer } = shard {
@@ -4647,10 +4872,14 @@ impl ShardedBackupSink {
         ShardedBackupSink {
             shards: self.shards.iter().map(|s| s.clone_handle()).collect(),
             n_shards: self.n_shards,
+            direct: self.direct.clone(),
         }
     }
 
     pub fn finish_and_project(&self, n_jobs: usize) -> Result<(), String> {
+        if let Some(writer) = &self.direct {
+            return writer.lock().map_err(|e| e.to_string())?.finish();
+        }
         let n_shards = self.shards.len();
         for (i, shard) in self.shards.iter().enumerate() {
             eprintln!("🏗️ 投影 shard {}/{}", i + 1, n_shards);
@@ -4663,6 +4892,9 @@ impl ShardedBackupSink {
     /// 并行度 = min(shard数, 4)（内存约束：每 shard 转置 ~300GB，4 并行 1.2TB < 1.5TB）。
     /// 每个 shard 内部已有 rayon 窗口并行压缩（步骤⑤），此处在 shard 间叠加并行。
     pub fn finish_and_project_v7(&self, n_jobs: usize) -> Result<(), String> {
+        if let Some(writer) = &self.direct {
+            return writer.lock().map_err(|e| e.to_string())?.finish();
+        }
         let n_shards = self.shards.len();
         let parallelism = n_shards.min(4);
         eprintln!("🚀 V7 并行投影：{} shard，{} 路并行", n_shards, parallelism);
@@ -4686,6 +4918,9 @@ impl ShardedBackupSink {
     }
 
     pub fn check_completed(&self) -> Result<HashSet<(i64, String)>, String> {
+        if let Some(writer) = &self.direct {
+            return writer.lock().map_err(|e| e.to_string())?.check_completed();
+        }
         let mut all = HashSet::new();
         let n_shards = self.shards.len();
         for (i, shard) in self.shards.iter().enumerate() {
