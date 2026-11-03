@@ -88,6 +88,16 @@ def py_extreme_point_fit_names(with_curvature: bool = True) -> List[str]:
     ...
 
 
+def py_dagpath(code: str, date: int) -> List[float]:
+    """逐笔跳跃DAG最短路因子族（O(n) 三边版）单股单日完整因子值，固定 17384 个。"""
+    ...
+
+
+def py_dagpath_names() -> List[str]:
+    """dagpath 全部因子名，17384 个，与 py_dagpath 输出逐位对应。"""
+    ...
+
+
 def py_extreme_point_fit_from_data(
     trade_arrays: npt.NDArray[np.float64],
     market_arrays: npt.NDArray[np.float64],
@@ -115,6 +125,15 @@ def py_hidden_arrange(code: str, date: int) -> List[float]:
 
 
 def py_hidden_arrange_names() -> List[str]:
+    ...
+
+
+def py_geffe_leak(code: str, date: int) -> List[float]:
+    """线性反馈移位寄存器的非线性组合（组合泄露）；固定 144612 列，算不出来给 NaN。"""
+    ...
+
+
+def py_geffe_leak_names() -> List[str]:
     ...
 
 
@@ -1439,10 +1458,14 @@ __all__ = [
     "read_market_pair",
     "read_minute_data",
     "py_extreme_point_fit_names",
+    "py_dagpath",
+    "py_dagpath_names",
     "py_distill",
     "py_distill_names",
     "py_hidden_arrange",
     "py_hidden_arrange_names",
+    "py_geffe_leak",
+    "py_geffe_leak_names",
     "py_distill_tick",
     "py_distill_tick_names",
     "py_hhi_event",
@@ -1457,6 +1480,8 @@ __all__ = [
     "py_orderbook_imb_refactor_names",
     "py_extreme_point_fit",
     "py_extreme_point_fit_names",
+    "py_dagpath",
+    "py_dagpath_names",
     "dct_1d",
     "dct_2d",
     "personalized_meeting_feature_names",

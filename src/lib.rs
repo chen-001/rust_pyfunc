@@ -125,6 +125,7 @@ pub mod hhi_event_metrics;
 pub mod etp_event_metrics;
 pub mod fast_csv_reader;
 pub mod hidden_arrange_metrics;
+pub mod geffe_leak_metrics;
 mod hidden_arrange_names;
 pub mod hot_stock_pool_metrics;
 pub mod hot_pool_ind_metrics;
@@ -137,9 +138,11 @@ pub mod dijkstra_metrics;
 pub mod relaynet_metrics;
 pub mod drop_event_metrics;
 pub mod factor_pipeline;
+pub mod worker_lifecycle;
 pub mod factor_store_v5;
 pub mod storage_policy;
 pub mod storage_read_cache;
+pub mod dagpath_metrics;
 pub mod features_f64;
 pub mod features;
 pub mod individual_order_ratio_metrics;
@@ -1218,6 +1221,14 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         m
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(
+        dagpath_metrics::py_dagpath,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        dagpath_metrics::py_dagpath_names,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
         extreme_point_fit_metrics::py_extreme_point_fit_names,
         m
     )?)?;
@@ -1243,6 +1254,8 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         hidden_arrange_metrics::py_hidden_arrange_names,
         m
     )?);
+    let _ = m.add_function(wrap_pyfunction!(geffe_leak_metrics::py_geffe_leak, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(geffe_leak_metrics::py_geffe_leak_names, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(distill_tick_metrics::py_distill_tick, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(
         distill_tick_metrics::py_distill_tick_names,

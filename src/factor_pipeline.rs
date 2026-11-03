@@ -402,6 +402,26 @@ pub fn pipeline_etp_event(
     vals
 }
 
+/// dagpath 逐笔跳跃DAG最短路因子族流水线的单任务计算。
+/// 无参数，网格在 dagpath_metrics.rs 用 const 写死（O(n) 三边版，17384 列）。
+pub fn pipeline_dagpath(
+    date: i64,
+    code: &str,
+    _trading_days: &[i64],
+    expected_len: usize,
+) -> Vec<f32> {
+    let mut vals = match crate::dagpath_metrics::compute_dagpath_full(code, date) {
+        Ok(v) => v,
+        Err(_) => return nan_vec(expected_len),
+    };
+    if vals.len() < expected_len {
+        vals.resize(expected_len, f32::NAN);
+    } else if vals.len() > expected_len {
+        vals.truncate(expected_len);
+    }
+    vals
+}
+
 /// 把展平的 Vec<f64> 转为 ndarray::Array2。
 fn slice_to_array2(data: &[f32], rows: usize, cols: usize) -> ndarray::Array2<f32> {
     if rows == 0 || cols == 0 {
@@ -526,6 +546,8 @@ pub fn run_factor_pipeline(
         "anneal_volume",
         "anneal_volume_market",
         "hidden_arrange",
+        "dagpath",
+        "geffe_leak",
     ];
     if !known.contains(&pipeline_name.as_str()) && !pipeline_name.starts_with("okay_") {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
@@ -806,6 +828,13 @@ pub fn run_factor_pipeline(
                             Ok((_n, v)) => v,
                             Err(_) => vec![f32::NAN; expected_result_length],
                         }
+                    } else if pipeline_name_t == "geffe_leak" {
+                        match crate::geffe_leak_metrics::compute_geffe_leak_full(&code, date) {
+                            Ok(v) => v,
+                            Err(_) => vec![f32::NAN; expected_result_length],
+                        }
+                    } else if pipeline_name_t == "dagpath" {
+                        pipeline_dagpath(date, &code, &trading_days, expected_result_length)
                     } else if let Some(series) = pipeline_name_t.strip_prefix("okay_") {
                         // hm0~hm92 旧框架因子的 Rust 复现（逐股系列）
                         crate::okay_database::dispatch_stock(
@@ -998,6 +1027,8 @@ pub enum ResultMessage {
     },
     /// worker 就绪确认（收到 Init 后回复）
     Ready,
+    /// Append only: existing result discriminants and data encoding stay unchanged.
+    ParentBoundReady { parent_pid: u32 },
 }
 
 /// 写一个 IPC 消息到 writer（4字节长度前缀 + bincode）。
@@ -1103,6 +1134,49 @@ fn locate_worker_binary() -> Option<String> {
 fn kill_and_reap(child: &mut std::process::Child) {
     let _ = child.kill();
     let _ = child.wait();
+}
+
+/// Only startup metadata changes; tasks and factor result buffers are untouched.
+fn initialize_worker(
+    child: &mut std::process::Child,
+    writer: &mut impl std::io::Write,
+    reader: &mut impl std::io::Read,
+    init: &TaskMessage,
+) -> Result<(), String> {
+    let result: Result<(), String> = (|| {
+        ipc_write(writer, init).map_err(|error| format!("发送 Init 失败: {error}"))?;
+        match ipc_read_result(reader).map_err(|error| format!("读取 Ready 失败: {error}"))? {
+            ResultMessage::ParentBoundReady { parent_pid }
+                if parent_pid == std::process::id() => Ok(()),
+            ResultMessage::Ready if !cfg!(target_os = "linux") => Ok(()),
+            ResultMessage::Ready => Err("worker 未确认父进程退出保护，可能仍在使用旧二进制".into()),
+            _ => Err("worker 启动确认无效或父进程编号不匹配".into()),
+        }
+    })();
+    result.map_err(|error| {
+        kill_and_reap(child);
+        format!(
+            "worker 启动失败: {error}；请同步更新 rust_pyfunc 扩展与 rust_pyfunc_worker，\
+             并检查 RUST_PYFUNC_WORKER_BIN。保护初始化失败时不自动重试"
+        )
+    })
+}
+
+/// Join every manager before returning an error so live threads cannot detach.
+fn join_worker_managers(
+    handles: Vec<std::thread::JoinHandle<Result<(), String>>>,
+) -> Result<(), String> {
+    let mut first_error = None;
+    for handle in handles {
+        let result = handle.join().unwrap_or_else(|_| Err("worker 管理线程异常退出".into()));
+        if let Err(error) = result {
+            first_error.get_or_insert(error);
+        }
+    }
+    match first_error {
+        Some(error) => Err(error),
+        None => Ok(()),
+    }
 }
 
 /// 独立进度监控线程：每 10 秒打印进度 + 两种剩余时长预估。
@@ -1251,7 +1325,7 @@ fn run_multiprocess_v2(
                     &trading_days,
                     expected_result_length,
                     core_affinity_idx,
-                );
+                )
             });
             handles.push(handle);
         }
@@ -1358,11 +1432,14 @@ fn run_multiprocess_v2(
         };
 
         // 等待所有 worker 管理线程完成（所有任务算完 → result_tx 全 drop → collector recv 返回 Err）
-        for h in handles {
-            let _ = h.join();
-        }
+        let managers_result = join_worker_managers(handles);
         let _ = collector_handle.join(); // collector 排空 result_rx，残余入队列，drop write_tx
         let _ = writer_handle.join(); // writer 排空写队列，所有 batch 落盘后才返回（必须 last join）
+        if let Err(error) = managers_result {
+            write_failed.store(true, Ordering::Relaxed);
+            let _ = monitor_handle.join();
+            return Err(pyo3::exceptions::PyRuntimeError::new_err(error));
+        }
                                       // 先检查 writer 错误，再 join monitor：writer 失败时 completed 永远到不了 total，
                                       // monitor 靠 write_failed 标志在 1s 内退出，join 不会挂死。
         if let Ok(e) = writer_err_rx.try_recv() {
@@ -1415,7 +1492,7 @@ fn run_single_worker_manager(
     trading_days: &[i64],
     expected_len: usize,
     core_affinity_idx: Option<usize>,
-) {
+) -> Result<(), String> {
     use std::io::{BufReader, BufWriter, Write};
     use std::process::{Child, Command, Stdio};
 
@@ -1423,6 +1500,7 @@ fn run_single_worker_manager(
     'outer: loop {
         // spawn worker 进程
         let mut cmd = Command::new(worker_bin);
+        crate::worker_lifecycle::configure_parent(&mut cmd);
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit());
@@ -1461,18 +1539,7 @@ fn run_single_worker_manager(
             trading_days: trading_days.to_vec(),
             expected_len,
         };
-        if ipc_write(&mut writer, &init_msg).is_err() {
-            kill_and_reap(&mut child);
-            continue;
-        }
-        // 等待 Ready 确认
-        match ipc_read_result(&mut reader) {
-            Ok(ResultMessage::Ready) => {}
-            _ => {
-                kill_and_reap(&mut child);
-                continue;
-            }
-        }
+        initialize_worker(&mut child, &mut writer, &mut reader, &init_msg)?;
 
         // 内层循环：取任务 → 发任务 → 收结果
         loop {
@@ -1540,7 +1607,7 @@ fn run_single_worker_manager(
                         break 'outer;
                     }
                 }
-                Ok(ResultMessage::Ready) => {
+                Ok(ResultMessage::Ready | ResultMessage::ParentBoundReady { .. }) => {
                     // 忽略意外的 Ready
                 }
                 Ok(ResultMessage::MinuteBatch(_)) => {
@@ -1567,6 +1634,7 @@ fn run_single_worker_manager(
             }
         }
     }
+    Ok(())
 }
 
 // ==================== v6：计算+写colblk，不投影（投影由 tail_v5_run_candidates_online 在线转置替代）====================
@@ -1612,6 +1680,7 @@ pub fn run_factor_pipeline_v6(
         "etp_event",
         "anneal_volume",
         "anneal_volume_market",
+        "dagpath",
     ];
     if !known.contains(&pipeline_name.as_str()) && !pipeline_name.starts_with("okay_") {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
@@ -1993,7 +2062,7 @@ fn run_multiprocess_minute(
                     &trading_days,
                     expected_result_length,
                     core_affinity_idx,
-                );
+                )
             });
             handles.push(handle);
         }
@@ -2023,11 +2092,10 @@ fn run_multiprocess_minute(
         };
 
         // 等待所有 worker 管理线程完成
-        for h in handles {
-            let _ = h.join();
-        }
+        let managers_result = join_worker_managers(handles);
         // batch_rx 排空 → writer recv 返回 Err → writer 退出
         let _ = writer_handle.join();
+        managers_result.map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
         if let Ok(e) = writer_err_rx.try_recv() {
             return Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
                 "分钟 colblk 批量写入失败: {e}"
@@ -2055,12 +2123,13 @@ fn run_single_minute_worker(
     trading_days: &[i64],
     expected_len: usize,
     core_affinity_idx: Option<usize>,
-) {
+) -> Result<(), String> {
     use std::io::{BufReader, BufWriter, Write};
     use std::process::{Command, Stdio};
 
     'outer: loop {
         let mut cmd = Command::new(worker_bin);
+        crate::worker_lifecycle::configure_parent(&mut cmd);
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit());
@@ -2098,18 +2167,7 @@ fn run_single_minute_worker(
             trading_days: trading_days.to_vec(),
             expected_len,
         };
-        if ipc_write(&mut writer, &init_msg).is_err() {
-            kill_and_reap(&mut child);
-            continue;
-        }
-        // 等 Ready
-        match ipc_read_result(&mut reader) {
-            Ok(ResultMessage::Ready) => {}
-            _ => {
-                kill_and_reap(&mut child);
-                continue;
-            }
-        }
+        initialize_worker(&mut child, &mut writer, &mut reader, &init_msg)?;
 
         // 内层循环：取 date → 发 MinuteTask → 收 MinuteBatch
         loop {
@@ -2155,6 +2213,7 @@ fn run_single_minute_worker(
             }
         }
     }
+    Ok(())
 }
 
 // ============================================================
@@ -3329,7 +3388,7 @@ fn run_multiprocess_cross_section(
                     &trading_days,
                     expected_result_length,
                     core_affinity_idx,
-                );
+                )
             });
             handles.push(handle);
         }
@@ -3388,10 +3447,9 @@ fn run_multiprocess_cross_section(
         };
 
         // 等待所有 worker
-        for h in handles {
-            let _ = h.join();
-        }
+        let managers_result = join_worker_managers(handles);
         let _ = writer_handle.join();
+        managers_result.map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
         if let Ok(e) = writer_err_rx.try_recv() {
             return Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
                 "横截面 colblk 批量写入失败: {e}"
@@ -3426,12 +3484,13 @@ fn run_single_cross_section_worker(
     trading_days: &[i64],
     expected_len: usize,
     core_affinity_idx: Option<usize>,
-) {
+) -> Result<(), String> {
     use std::io::{BufReader, BufWriter, Write};
     use std::process::{Command, Stdio};
 
     'outer: loop {
         let mut cmd = Command::new(worker_bin);
+        crate::worker_lifecycle::configure_parent(&mut cmd);
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit());
@@ -3475,17 +3534,7 @@ fn run_single_cross_section_worker(
             trading_days: trading_days.to_vec(),
             expected_len,
         };
-        if ipc_write(&mut writer, &init_msg).is_err() {
-            kill_and_reap(&mut child);
-            continue;
-        }
-        match ipc_read_result(&mut reader) {
-            Ok(ResultMessage::Ready) => {}
-            _ => {
-                kill_and_reap(&mut child);
-                continue;
-            }
-        }
+        initialize_worker(&mut child, &mut writer, &mut reader, &init_msg)?;
 
         // 内层循环：取 date → 发 MinuteTask → 收 MinuteBatch
         loop {
@@ -3540,6 +3589,7 @@ fn run_single_cross_section_worker(
             }
         }
     }
+    Ok(())
 }
 
 /// 玉佩精炼版（GPT 改进版）横截面 pipeline：单日 491 列。

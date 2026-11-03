@@ -13,7 +13,7 @@ use rust_pyfunc::backup_reader::TaskResult;
 use rust_pyfunc::factor_pipeline::pipeline_relaynet_six_people;
 use rust_pyfunc::factor_pipeline::{
     ipc_read_result, ipc_read_task, ipc_write, ipc_write_result, pipeline_anneal_volume,
-    pipeline_anneal_volume_market, pipeline_cross_section_example, pipeline_dijkstra, pipeline_distill,
+    pipeline_anneal_volume_market, pipeline_cross_section_example, pipeline_dagpath, pipeline_dijkstra, pipeline_distill,
     pipeline_distill_tick, pipeline_drop_event, pipeline_extreme_point_fit,
     pipeline_hhi_event,
     pipeline_etp_event,
@@ -34,6 +34,13 @@ use rust_pyfunc::factor_pipeline::{
 use std::io::{BufReader, BufWriter};
 
 fn main() {
+    let parent_pid = match rust_pyfunc::worker_lifecycle::bind_to_parent() {
+        Ok(parent_pid) => parent_pid,
+        Err(error) => {
+            eprintln!("worker: 父进程退出保护初始化失败: {error}");
+            std::process::exit(1);
+        }
+    };
     // 核绑定（可选）
     if let Ok(idx_str) = std::env::var("RUST_PYFUNC_CORE_AFFINITY_IDX") {
         if let Ok(idx) = idx_str.parse::<usize>() {
@@ -67,7 +74,11 @@ fn main() {
         };
 
     // 回复 Ready
-    if ipc_write_result(&mut writer, &ResultMessage::Ready).is_err() {
+    let ready = match parent_pid {
+        Some(parent_pid) => ResultMessage::ParentBoundReady { parent_pid },
+        None => ResultMessage::Ready,
+    };
+    if ipc_write_result(&mut writer, &ready).is_err() {
         eprintln!("worker: 无法回复 Ready，退出");
         std::process::exit(1);
     }
@@ -130,6 +141,13 @@ fn main() {
                             Ok((_n, v)) => v,
                             Err(_) => vec![f32::NAN; expected_len],
                         }
+                    } else if pipeline_name == "geffe_leak" {
+                        match rust_pyfunc::geffe_leak_metrics::compute_geffe_leak_full(&code, date) {
+                            Ok(v) => v,
+                            Err(_) => vec![f32::NAN; expected_len],
+                        }
+                    } else if pipeline_name == "dagpath" {
+                        pipeline_dagpath(date, &code, &trading_days, expected_len)
                     } else if let Some(series) = pipeline_name.strip_prefix("okay_") {
                         // hm0~hm92 旧框架因子的 Rust 复现（逐股系列）
                         rust_pyfunc::okay_database::dispatch_stock(
