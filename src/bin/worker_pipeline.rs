@@ -147,6 +147,11 @@ fn main() {
                             Ok(v) => v,
                             Err(_) => vec![f32::NAN; expected_len],
                         }
+                    } else if pipeline_name == "lfsr_leak_ext1" {
+                        match rust_pyfunc::lfsr_leak_ext1_metrics::compute_lfsr_leak_ext1_full(&code, date) {
+                            Ok(v) => v,
+                            Err(_) => vec![f32::NAN; expected_len],
+                        }
                     } else if pipeline_name == "dagpath" {
                         pipeline_dagpath(date, &code, &trading_days, expected_len)
                     } else if let Some(series) = pipeline_name.strip_prefix("okay_") {

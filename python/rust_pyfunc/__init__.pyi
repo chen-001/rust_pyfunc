@@ -137,6 +137,15 @@ def py_geffe_leak_names() -> List[str]:
     ...
 
 
+def py_lfsr_leak_ext1(code: str, date: int) -> List[float]:
+    """线性反馈移位存储器的非线性组合（拓展一）；固定 15744 列，算不出来给 NaN。"""
+    ...
+
+
+def py_lfsr_leak_ext1_names() -> List[str]:
+    ...
+
+
 def py_distill_tick(code: str, date: int) -> List[float]:
     ...
 
@@ -1506,6 +1515,8 @@ __all__ = [
     "py_hidden_arrange_names",
     "py_geffe_leak",
     "py_geffe_leak_names",
+    "py_lfsr_leak_ext1",
+    "py_lfsr_leak_ext1_names",
     "py_distill_tick",
     "py_distill_tick_names",
     "py_hhi_event",

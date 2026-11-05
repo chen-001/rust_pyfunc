@@ -127,6 +127,7 @@ pub mod etp_event_metrics;
 pub mod fast_csv_reader;
 pub mod hidden_arrange_metrics;
 pub mod geffe_leak_metrics;
+pub mod lfsr_leak_ext1_metrics;
 mod hidden_arrange_names;
 pub mod hot_stock_pool_metrics;
 pub mod hot_pool_ind_metrics;
@@ -1258,6 +1259,11 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?);
     let _ = m.add_function(wrap_pyfunction!(geffe_leak_metrics::py_geffe_leak, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(geffe_leak_metrics::py_geffe_leak_names, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(lfsr_leak_ext1_metrics::py_lfsr_leak_ext1, m)?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        lfsr_leak_ext1_metrics::py_lfsr_leak_ext1_names,
+        m
+    )?)?;
     let _ = m.add_function(wrap_pyfunction!(distill_tick_metrics::py_distill_tick, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(
         distill_tick_metrics::py_distill_tick_names,

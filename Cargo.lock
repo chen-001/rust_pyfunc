@@ -2229,6 +2229,7 @@ dependencies = [
  "lapack",
  "libc",
  "log",
+ "memchr",
  "memmap2",
  "nalgebra",
  "ndarray",
