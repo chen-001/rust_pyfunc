@@ -12,7 +12,8 @@
 use rust_pyfunc::backup_reader::TaskResult;
 use rust_pyfunc::factor_pipeline::pipeline_relaynet_six_people;
 use rust_pyfunc::factor_pipeline::{
-    ipc_read_result, ipc_read_task, ipc_write, ipc_write_result, pipeline_anneal_volume,
+    ipc_read_result, ipc_read_task, ipc_write, ipc_write_result, pipeline_anneal_cross_peer,
+    pipeline_anneal_order_profile, pipeline_anneal_regime_diff, pipeline_anneal_volume,
     pipeline_anneal_volume_market, pipeline_cross_section_example, pipeline_dagpath, pipeline_dijkstra, pipeline_distill,
     pipeline_distill_tick, pipeline_drop_event, pipeline_extreme_point_fit,
     pipeline_hhi_event, pipeline_lfsr_leak_ext1,
@@ -135,6 +136,10 @@ fn main() {
                         pipeline_anneal_volume(date, &code, &trading_days, expected_len)
                     } else if pipeline_name == "anneal_volume_market" {
                         pipeline_anneal_volume_market(date, &code, &trading_days, expected_len)
+                    } else if pipeline_name == "anneal_regime_diff" {
+                        pipeline_anneal_regime_diff(date, &code, &trading_days, expected_len)
+                    } else if pipeline_name == "anneal_order_profile" {
+                        pipeline_anneal_order_profile(date, &code, &trading_days, expected_len)
                     } else if pipeline_name == "hidden_arrange" {
                         match rust_pyfunc::hidden_arrange_metrics::compute_hidden_arrange_full(
                             &code, date,
@@ -246,6 +251,8 @@ fn main() {
                         pipeline_hot_pool_ind(date, expected_len)
                     } else if pipeline_name == "vsld" {
                         pipeline_vsld(date, expected_len)
+                    } else if pipeline_name == "anneal_cross_peer" {
+                        pipeline_anneal_cross_peer(date, expected_len)
                     } else if let Some(series) = pipeline_name.strip_prefix("okay_") {
                         // hm0~hm92 旧框架因子的 Rust 复现（横截面 / 分钟系列，一次一天全市场）
                         match rust_pyfunc::okay_database::dispatch_cross(series, date) {

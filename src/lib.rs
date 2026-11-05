@@ -134,6 +134,9 @@ pub mod hot_pool_ind_metrics;
 
 pub mod anneal_volume_market_metrics;
 pub mod anneal_volume_metrics;
+pub mod anneal_regime_diff_metrics;
+pub mod anneal_order_profile_metrics;
+pub mod anneal_cross_peer_metrics;
 pub mod relaynet_six_people;
 pub mod cross_section_example_metrics;
 pub mod dijkstra_metrics;
@@ -1555,6 +1558,42 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(
         multi_factor_capm_metrics::py_multi_factor_capm_names,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        anneal_regime_diff_metrics::py_anneal_regime_diff,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        anneal_regime_diff_metrics::py_anneal_regime_diff_names,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        anneal_regime_diff_metrics::py_anneal_regime_diff_from_data,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        anneal_order_profile_metrics::py_anneal_order_profile,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        anneal_order_profile_metrics::py_anneal_order_profile_names,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        anneal_order_profile_metrics::py_anneal_order_profile_from_data,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        anneal_cross_peer_metrics::py_anneal_cross_peer,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        anneal_cross_peer_metrics::py_anneal_cross_peer_names,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        anneal_cross_peer_metrics::py_anneal_cross_peer_from_data,
         m
     )?)?;
     Ok(())

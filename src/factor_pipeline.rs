@@ -422,6 +422,44 @@ pub fn pipeline_dagpath(
     vals
 }
 
+/// 柜员游戏扩展系列1：时空尺度与行情条件可还原性差异（16516 列）。
+pub fn pipeline_anneal_regime_diff(
+    date: i64,
+    code: &str,
+    _trading_days: &[i64],
+    expected_len: usize,
+) -> Vec<f32> {
+    let mut vals = match crate::anneal_regime_diff_metrics::compute_anneal_regime_diff_full(code, date) {
+        Ok(v) => v,
+        Err(_) => return nan_vec(expected_len),
+    };
+    if vals.len() < expected_len {
+        vals.resize(expected_len, f32::NAN);
+    } else if vals.len() > expected_len {
+        vals.truncate(expected_len);
+    }
+    vals
+}
+
+/// 柜员游戏扩展系列2：多维订单画像与博弈序可还原性差异（15384 列）。
+pub fn pipeline_anneal_order_profile(
+    date: i64,
+    code: &str,
+    _trading_days: &[i64],
+    expected_len: usize,
+) -> Vec<f32> {
+    let mut vals = match crate::anneal_order_profile_metrics::compute_anneal_order_profile_full(code, date) {
+        Ok(v) => v,
+        Err(_) => return nan_vec(expected_len),
+    };
+    if vals.len() < expected_len {
+        vals.resize(expected_len, f32::NAN);
+    } else if vals.len() > expected_len {
+        vals.truncate(expected_len);
+    }
+    vals
+}
+
 /// 把展平的 Vec<f64> 转为 ndarray::Array2。
 fn slice_to_array2(data: &[f32], rows: usize, cols: usize) -> ndarray::Array2<f32> {
     if rows == 0 || cols == 0 {
@@ -592,6 +630,8 @@ pub fn run_factor_pipeline(
         "etp_event",
         "anneal_volume",
         "anneal_volume_market",
+        "anneal_regime_diff",
+        "anneal_order_profile",
         "hidden_arrange",
         "dagpath",
         "geffe_leak",
@@ -896,6 +936,20 @@ pub fn run_factor_pipeline(
                         pipeline_anneal_volume(date, &code, &trading_days, expected_result_length)
                     } else if pipeline_name_t == "anneal_volume_market" {
                         pipeline_anneal_volume_market(
+                            date,
+                            &code,
+                            &trading_days,
+                            expected_result_length,
+                        )
+                    } else if pipeline_name_t == "anneal_regime_diff" {
+                        pipeline_anneal_regime_diff(
+                            date,
+                            &code,
+                            &trading_days,
+                            expected_result_length,
+                        )
+                    } else if pipeline_name_t == "anneal_order_profile" {
+                        pipeline_anneal_order_profile(
                             date,
                             &code,
                             &trading_days,
@@ -1830,6 +1884,8 @@ pub fn run_factor_pipeline_v6(
         "etp_event",
         "anneal_volume",
         "anneal_volume_market",
+        "anneal_regime_diff",
+        "anneal_order_profile",
         "dagpath",
     ];
     if !known.contains(&pipeline_name.as_str()) && !pipeline_name.starts_with("okay_") {
@@ -3015,6 +3071,33 @@ pub fn pipeline_multi_factor_capm(date: i64, expected_len: usize) -> Vec<TaskRes
     }
 }
 
+/// 柜员游戏扩展系列3：全市场横截面联动与同伴可还原性（anneal_cross_peer，11760 列）。
+pub fn pipeline_anneal_cross_peer(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    if expected_len != crate::anneal_cross_peer_metrics::N_FACTORS {
+        eprintln!(
+            "anneal_cross_peer expected_len错误 [{date}]: {expected_len} != {}",
+            crate::anneal_cross_peer_metrics::N_FACTORS
+        );
+        return Vec::new();
+    }
+    match crate::anneal_cross_peer_metrics::compute_anneal_cross_peer_full(date) {
+        Ok((codes, vals)) => vals
+            .chunks(expected_len)
+            .zip(codes.iter())
+            .map(|(facs, code)| TaskResult {
+                date,
+                code: code.clone(),
+                timestamp: 0,
+                facs: facs.to_vec(),
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("anneal_cross_peer error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
 /// 方案 2 顺序流水线：run_factor_pipeline_regime（状态进计算过程）。
 ///
 /// 与 run_factor_pipeline_cross_section（per-date 独立并行）的本质区别：
@@ -3326,6 +3409,7 @@ pub fn run_factor_pipeline_cross_section(
         "yhyb_indtop",
         "switch_moment",
         "relaynet",
+        "anneal_cross_peer",
     ];
     if !known.contains(&pipeline_name.as_str()) && !pipeline_name.starts_with("okay_") {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(

@@ -1544,7 +1544,80 @@ __all__ = [
     "orderbook_volume_cov_factors",
     "illusion_liquidity_distance_factors",
     "compute_corr_diff_features",
+    "py_anneal_regime_diff",
+    "py_anneal_regime_diff_names",
+    "py_anneal_regime_diff_from_data",
+    "py_anneal_order_profile",
+    "py_anneal_order_profile_names",
+    "py_anneal_order_profile_from_data",
+    "py_anneal_cross_peer",
+    "py_anneal_cross_peer_names",
+    "py_anneal_cross_peer_from_data",
 ]
+
+
+def py_anneal_regime_diff(code: str, date: int) -> List[float]:
+    """柜员游戏扩展系列1：时空尺度与行情条件可还原性差异（单股单日 16516 维）。"""
+    ...
+
+
+def py_anneal_regime_diff_names() -> List[str]:
+    """返回柜员游戏扩展系列1全部 16516 个因子名。"""
+    ...
+
+
+def py_anneal_regime_diff_from_data(
+    exchtime_us: "numpy.ndarray",
+    price: "numpy.ndarray",
+    volume: "numpy.ndarray",
+    turnover: "numpy.ndarray",
+    flag: "numpy.ndarray",
+    bid_order: "numpy.ndarray",
+    ask_order: "numpy.ndarray",
+) -> List[float]:
+    """v2 无磁盘依赖入口：传入逐笔成交列数组计算系列1全部 16516 个因子。"""
+    ...
+
+
+def py_anneal_order_profile(code: str, date: int) -> List[float]:
+    """柜员游戏扩展系列2：多维订单画像与博弈序可还原性差异（单股单日 15384 维）。"""
+    ...
+
+
+def py_anneal_order_profile_names() -> List[str]:
+    """返回柜员游戏扩展系列2全部 15384 个因子名。"""
+    ...
+
+
+def py_anneal_order_profile_from_data(
+    exchtime_us: "numpy.ndarray",
+    price: "numpy.ndarray",
+    volume: "numpy.ndarray",
+    turnover: "numpy.ndarray",
+    flag: "numpy.ndarray",
+    bid_order: "numpy.ndarray",
+    ask_order: "numpy.ndarray",
+) -> List[float]:
+    """v2 无磁盘依赖入口：传入逐笔成交列数组计算系列2全部 15384 个因子。"""
+    ...
+
+
+def py_anneal_cross_peer(date: int) -> Tuple[List[str], List[float]]:
+    """柜员游戏扩展系列3：全市场横截面联动与同伴可还原性（单日全市场，每股 11760 维）。"""
+    ...
+
+
+def py_anneal_cross_peer_names() -> List[str]:
+    """返回柜员游戏扩展系列3全部 11760 个因子名。"""
+    ...
+
+
+def py_anneal_cross_peer_from_data(
+    codes: List[str],
+    trades_list: List[Optional["numpy.ndarray"]],
+) -> Tuple[List[str], List[float]]:
+    """v2 无磁盘依赖入口：传入股票代码列表与逐笔成交数组计算系列3横截面因子。"""
+    ...
 
 
 def factor_store_storage_profile(path: str) -> dict:
