@@ -137,8 +137,12 @@ def py_geffe_leak_names() -> List[str]:
     ...
 
 
-def py_lfsr_leak_ext1(code: str, date: int) -> List[float]:
-    """线性反馈移位存储器的非线性组合（拓展一）；固定 15744 列，算不出来给 NaN。"""
+def py_lfsr_leak_ext1(date: int) -> Tuple[List[str], List[float]]:
+    """线性反馈移位存储器的非线性组合（拓展一）：单日全市场，返回 (codes, vals)。
+
+    每股 15744 列原始位流特征，再逐列做横截面 z-score（前两列计数保持原值）；
+    盘口不足 300 行或逐笔不足 500 笔的股票不进当天输出。
+    """
     ...
 
 

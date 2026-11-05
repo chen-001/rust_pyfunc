@@ -1,8 +1,8 @@
 //! 线性反馈移位存储器的非线性组合（拓展一）—— 位流 × 算子 × 视角大发散
 //!
-//! 来源：sandbox_lfsr_leak 单日全市场探索（原版只在沙箱里输出矩阵给 Python 看）。
-//! 正式版改成单股 per-stock pipeline：只算本股逐笔/盘口，不做任何跨股票运算，
-//! 输出恒定 15744 列，算不出来给 NaN。跨股票的标准化/排名留给回测里的 rank 去做。
+//! 来源：sandbox_lfsr_leak 单日全市场探索。正式版走横截面 pipeline：
+//! 第②步逐股算 15744 个位流特征（只看本股逐笔/盘口），第③步逐列做横截面 z-score
+//! （前两列计数保持原值），与沙箱那张矩阵逐位相同。输出恒定 15744 列。
 //!
 //! 构成（名字由 build_specs 生成，与该函数同序）：
 //!   2 个计数（盘口快照数、逐笔笔数）
@@ -15,6 +15,7 @@
 //! 与沙箱唯一的差别：沙箱最后做了一次全市场逐列 z-score，这里不做（那是存储之后的事）。
 //! 读取器与算子都从沙箱原样搬来，逐位相同。
 use pyo3::prelude::*;
+use rayon::prelude::*;
 use std::sync::OnceLock;
 
 mod reader {
@@ -865,7 +866,7 @@ fn eval_env(sp: &Spec, e: &Env) -> f64 {
 }
 
 
-// ---------- 对外入口 ----------
+// ---------- 对外入口（横截面：一天全市场） ----------
 
 /// 固定输出长度（由 build_specs 决定，改动会破坏已有 store 的列名对齐）
 pub const OUT_LEN: usize = 15744;
@@ -881,34 +882,117 @@ pub fn lfsr_leak_ext1_names() -> Vec<String> {
     N.get_or_init(|| specs().iter().map(|s| s.name.clone()).collect()).clone()
 }
 
-/// 单股单日核心：读盘 → 建位流 → 算全部特征。
-/// 输出恒为 OUT_LEN 个 f32；盘口不足 300 行或逐笔不足 500 笔时整行 NaN。
-pub fn compute_lfsr_leak_ext1_full(code: &str, date: i64) -> std::io::Result<Vec<f32>> {
-    let mkt = read_market_fast(code, date)?;
-    let tr = read_trade_fast(code, date)?;
-    Ok(compute_lfsr_leak_ext1_from_records(&mkt, &tr))
-}
-
-/// 无 IO 内核：读盘版与传数组版都走这里，保证两入口一致。
-pub fn compute_lfsr_leak_ext1_from_records(
-    mkt: &[MarketRecord],
-    tr: &[TradeRecord],
-) -> Vec<f32> {
-    match build_env(mkt, tr) {
-        Some(env) => {
-            let out: Vec<f32> = specs().iter().map(|sp| eval_env(sp, &env) as f32).collect();
-            debug_assert_eq!(out.len(), OUT_LEN, "lfsr_leak_ext1 列数必须恒定");
-            out
+/// 当天同时有逐笔和盘口两个文件的股票。
+/// 名单来自 symbol_map.csv（与 switch_moment / yhyb_indtop 同一个文件），
+/// 按表里的行序输出；表里出现非法代码直接报错，不退回扫描全目录。
+fn list_codes(date: i64) -> std::io::Result<Vec<String>> {
+    use std::io::{Error, ErrorKind};
+    let invalid = |e| Error::new(ErrorKind::InvalidData, e);
+    let root = &crate::data_paths::level2_roots()[0];
+    let day = root.join(date.to_string());
+    let mut reader =
+        csv::Reader::from_path(crate::data_paths::basic_info_path("symbol_map.csv")).map_err(invalid)?;
+    let col = reader
+        .headers()
+        .map_err(invalid)?
+        .iter()
+        .position(|h| h == "symbol")
+        .ok_or_else(|| Error::new(ErrorKind::InvalidData, "股票表缺少 symbol 列"))?;
+    let mut out = Vec::new();
+    for record in reader.records() {
+        let record = record.map_err(invalid)?;
+        let code = record.get(col).unwrap_or("").trim();
+        if code.is_empty() || code.len() > 6 || !code.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(Error::new(ErrorKind::InvalidData, "股票表含无效代码"));
         }
-        None => vec![f32::NAN; OUT_LEN],
+        let code = format!("{code:0>6}");
+        if day.join("transaction").join(format!("{code}_{date}_transaction.csv")).is_file()
+            && day.join("market_data").join(format!("{code}_{date}_market_data.csv")).is_file()
+        {
+            out.push(code);
+        }
     }
+    if out.is_empty() {
+        return Err(Error::new(ErrorKind::InvalidData, "当天没有同时有逐笔和盘口的股票"));
+    }
+    Ok(out)
 }
 
-/// 单股单日调试入口（错误抛异常，可见完整栈）
+/// 单股内核（横截面第②步）：逐笔 + 盘口 → OUT_LEN 个原始特征（f64，未标准化）。
+/// 盘口不足 300 行或逐笔不足 500 笔时返回 None，该股不进当天输出。
+fn stock_features(mkt: &[MarketRecord], tr: &[TradeRecord]) -> Option<Vec<f64>> {
+    let env = build_env(mkt, tr)?;
+    Some(specs().iter().map(|sp| eval_env(sp, &env)).collect())
+}
+
+/// 横截面第③步：逐列减均值除标准差，只用有限值统计；前两列（计数）保持原值。
+/// 逐列统计与逐行套用都在同一个 rayon 池里跑，每列的求和顺序与沙箱版一致，
+/// 所以数值与沙箱那张矩阵逐位相同。
+fn zscore_matrix(mat: &mut [Vec<f64>]) {
+    let stats: Vec<Option<(f64, f64)>> = (0..OUT_LEN)
+        .into_par_iter()
+        .map(|j| {
+            if j < 2 {
+                return None;
+            }
+            let mut fin: Vec<f64> = mat.iter().map(|r| r[j]).filter(|x| x.is_finite()).collect();
+            if fin.len() < 30 {
+                return None;
+            }
+            fin.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let m = fin.iter().sum::<f64>() / fin.len() as f64;
+            let s = (fin.iter().map(|x| (x - m).powi(2)).sum::<f64>() / fin.len() as f64).sqrt();
+            if s < 1e-12 {
+                None
+            } else {
+                Some((m, s))
+            }
+        })
+        .collect();
+    mat.par_iter_mut().for_each(|r| {
+        for (x, st) in r.iter_mut().zip(stats.iter()) {
+            if let Some((m, s)) = *st {
+                if x.is_finite() {
+                    *x = (*x - m) / s;
+                }
+            }
+        }
+    });
+}
+
+/// 单日全市场核心：读当天全市场 → 每股特征 → 逐列 z-score → (codes, vals)。
+/// vals 按股票顺序展开，长度恒为 codes.len() * OUT_LEN。
+pub fn compute_lfsr_leak_ext1_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f32>)> {
+    let codes = list_codes(date)?;
+    let feats: Vec<Option<Vec<f64>>> = codes
+        .par_iter()
+        .map(|code| {
+            let mkt = read_market_fast(code, date).ok()?;
+            let tr = read_trade_fast(code, date).ok()?;
+            stock_features(&mkt, &tr)
+        })
+        .collect();
+    let mut valid: Vec<String> = Vec::with_capacity(codes.len());
+    let mut mat: Vec<Vec<f64>> = Vec::with_capacity(codes.len());
+    for (code, f) in codes.iter().zip(feats.into_iter()) {
+        if let Some(v) = f {
+            valid.push(code.clone());
+            mat.push(v);
+        }
+    }
+    zscore_matrix(&mut mat);
+    let mut vals: Vec<f32> = Vec::with_capacity(valid.len() * OUT_LEN);
+    for r in mat.drain(..) {
+        debug_assert_eq!(r.len(), OUT_LEN, "lfsr_leak_ext1 列数必须恒定");
+        vals.extend(r.into_iter().map(|v| v as f32));
+    }
+    Ok((valid, vals))
+}
+
+/// 单日全市场调试入口（错误抛异常，可见完整栈）
 #[pyfunction]
-pub fn py_lfsr_leak_ext1(code: &str, date: i64) -> PyResult<Vec<f32>> {
-    compute_lfsr_leak_ext1_full(code, date)
-        .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("{e:?}")))
+pub fn py_lfsr_leak_ext1(date: i64) -> PyResult<(Vec<String>, Vec<f32>)> {
+    compute_lfsr_leak_ext1_full(date).map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("{e:?}")))
 }
 
 #[pyfunction]

@@ -15,7 +15,7 @@ use rust_pyfunc::factor_pipeline::{
     ipc_read_result, ipc_read_task, ipc_write, ipc_write_result, pipeline_anneal_volume,
     pipeline_anneal_volume_market, pipeline_cross_section_example, pipeline_dagpath, pipeline_dijkstra, pipeline_distill,
     pipeline_distill_tick, pipeline_drop_event, pipeline_extreme_point_fit,
-    pipeline_hhi_event,
+    pipeline_hhi_event, pipeline_lfsr_leak_ext1,
     pipeline_etp_event,
     pipeline_hot_pool_ind, pipeline_hot_stock_pool, pipeline_hot_stock_pool_v2,
     pipeline_individual_order_ratio,
@@ -147,11 +147,6 @@ fn main() {
                             Ok(v) => v,
                             Err(_) => vec![f32::NAN; expected_len],
                         }
-                    } else if pipeline_name == "lfsr_leak_ext1" {
-                        match rust_pyfunc::lfsr_leak_ext1_metrics::compute_lfsr_leak_ext1_full(&code, date) {
-                            Ok(v) => v,
-                            Err(_) => vec![f32::NAN; expected_len],
-                        }
                     } else if pipeline_name == "dagpath" {
                         pipeline_dagpath(date, &code, &trading_days, expected_len)
                     } else if let Some(series) = pipeline_name.strip_prefix("okay_") {
@@ -199,6 +194,8 @@ fn main() {
                         pipeline_relaynet_six_people(date, expected_len)
                     } else if pipeline_name == "cross_section_example" {
                         pipeline_cross_section_example(date, expected_len)
+                    } else if pipeline_name == "lfsr_leak_ext1" {
+                        pipeline_lfsr_leak_ext1(date, expected_len)
                     } else if pipeline_name == "orderflow_ctx" {
                         pipeline_orderflow_ctx(date, expected_len)
                     } else if pipeline_name == "relaynet" {

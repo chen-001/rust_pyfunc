@@ -595,7 +595,6 @@ pub fn run_factor_pipeline(
         "hidden_arrange",
         "dagpath",
         "geffe_leak",
-        "lfsr_leak_ext1",
     ];
     if !known.contains(&pipeline_name.as_str()) && !pipeline_name.starts_with("okay_") {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
@@ -911,11 +910,6 @@ pub fn run_factor_pipeline(
                         }
                     } else if pipeline_name_t == "geffe_leak" {
                         match crate::geffe_leak_metrics::compute_geffe_leak_full(&code, date) {
-                            Ok(v) => v,
-                            Err(_) => vec![f32::NAN; expected_result_length],
-                        }
-                    } else if pipeline_name_t == "lfsr_leak_ext1" {
-                        match crate::lfsr_leak_ext1_metrics::compute_lfsr_leak_ext1_full(&code, date) {
                             Ok(v) => v,
                             Err(_) => vec![f32::NAN; expected_result_length],
                         }
@@ -2496,6 +2490,26 @@ pub fn pipeline_cross_section_example(date: i64, expected_len: usize) -> Vec<Tas
     }
 }
 
+/// lfsr_leak_ext1 横截面 pipeline：位流三元组合等 15744 个特征，当天逐列 z-score。
+pub fn pipeline_lfsr_leak_ext1(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    match crate::lfsr_leak_ext1_metrics::compute_lfsr_leak_ext1_full(date) {
+        Ok((codes, vals)) => vals
+            .chunks(expected_len)
+            .zip(codes.iter())
+            .map(|(facs, code)| TaskResult {
+                date,
+                code: code.clone(),
+                timestamp: 0,
+                facs: facs.to_vec(),
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("lfsr_leak_ext1 error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
 /// orderflow_ctx 横截面 pipeline：三时段×三类流×上下文算子工厂。
 /// 与 cross_section_example 同样的 (codes, vals) → TaskResult 展开方式。
 pub fn pipeline_orderflow_ctx(date: i64, expected_len: usize) -> Vec<TaskResult> {
@@ -3287,6 +3301,7 @@ pub fn run_factor_pipeline_cross_section(
     let known = [
         "relaynet_six_people",
         "cross_section_example",
+        "lfsr_leak_ext1",
         "orderflow_ctx",
         "dijkstra",
         "peaks",
