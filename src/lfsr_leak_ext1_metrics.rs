@@ -919,10 +919,15 @@ fn list_codes(date: i64) -> std::io::Result<Vec<String>> {
 }
 
 /// 单股内核（横截面第②步）：逐笔 + 盘口 → OUT_LEN 个原始特征（f64，未标准化）。
-/// 盘口不足 300 行或逐笔不足 500 笔时返回 None，该股不进当天输出。
-fn stock_features(mkt: &[MarketRecord], tr: &[TradeRecord]) -> Option<Vec<f64>> {
-    let env = build_env(mkt, tr)?;
-    Some(specs().iter().map(|sp| eval_env(sp, &env)).collect())
+/// 数据不够（盘口 <300 行或逐笔 <500 笔）时整行 NaN。
+/// 横截面要求「当天 universe 的每只股票都有一行」：半天休市（如 2016-01-07 熔断）
+/// 那种整日算不出来的情况，也必须发全 universe 的 NaN 行，不能发空 batch——
+/// 空的日期会被父进程判为「未完成」而让整次提交失败。
+fn stock_features(mkt: &[MarketRecord], tr: &[TradeRecord]) -> Vec<f64> {
+    match build_env(mkt, tr) {
+        Some(env) => specs().iter().map(|sp| eval_env(sp, &env)).collect(),
+        None => vec![f64::NAN; OUT_LEN],
+    }
 }
 
 /// 横截面第③步：逐列减均值除标准差，只用有限值统计；前两列（计数）保持原值。
@@ -961,32 +966,25 @@ fn zscore_matrix(mat: &mut [Vec<f64>]) {
 }
 
 /// 单日全市场核心：读当天全市场 → 每股特征 → 逐列 z-score → (codes, vals)。
+/// codes 是当天 universe 的全部股票（不是「算得出来的那些」），
 /// vals 按股票顺序展开，长度恒为 codes.len() * OUT_LEN。
 pub fn compute_lfsr_leak_ext1_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f32>)> {
     let codes = list_codes(date)?;
-    let feats: Vec<Option<Vec<f64>>> = codes
+    let mut mat: Vec<Vec<f64>> = codes
         .par_iter()
-        .map(|code| {
-            let mkt = read_market_fast(code, date).ok()?;
-            let tr = read_trade_fast(code, date).ok()?;
-            stock_features(&mkt, &tr)
+        .map(|code| match (read_market_fast(code, date), read_trade_fast(code, date)) {
+            (Ok(mkt), Ok(tr)) => stock_features(&mkt, &tr),
+            // 读盘失败（文件缺失/损坏）同样给 NaN 行，保证当天行数与 universe 一致
+            _ => vec![f64::NAN; OUT_LEN],
         })
         .collect();
-    let mut valid: Vec<String> = Vec::with_capacity(codes.len());
-    let mut mat: Vec<Vec<f64>> = Vec::with_capacity(codes.len());
-    for (code, f) in codes.iter().zip(feats.into_iter()) {
-        if let Some(v) = f {
-            valid.push(code.clone());
-            mat.push(v);
-        }
-    }
     zscore_matrix(&mut mat);
-    let mut vals: Vec<f32> = Vec::with_capacity(valid.len() * OUT_LEN);
+    let mut vals: Vec<f32> = Vec::with_capacity(codes.len() * OUT_LEN);
     for r in mat.drain(..) {
         debug_assert_eq!(r.len(), OUT_LEN, "lfsr_leak_ext1 列数必须恒定");
         vals.extend(r.into_iter().map(|v| v as f32));
     }
-    Ok((valid, vals))
+    Ok((codes, vals))
 }
 
 /// 单日全市场调试入口（错误抛异常，可见完整栈）
