@@ -244,7 +244,7 @@ def run_factor_pipeline(
     store_factor_names: Optional[List[str]] = None,
     data_root: Optional[str] = None,
     incremental_projection: Optional[bool] = None,
-    direct_write: bool = False,
+    direct_write: Optional[bool] = None,
     write_buffer_gb: float = 32.0,
 ) -> None:
     """Level2 per-(date, code) 因子批量计算入口。
@@ -264,7 +264,8 @@ def run_factor_pipeline(
       factors.proj 不动，新行写成 factors.proj.delta.<end>，读取端自动拼接 base + delta；
       默认 False = 追加即删投影、收尾整片重投影（I/O ≈ 2× store 体积）。
     direct_write: True = 在 store_dir 直接写最终列段，不生成 colblk 或执行投影。
-      默认 False 保持旧流程；须使用新目录或已有同格式目录，不能转换旧库，
+      默认 None = 自动打开：给了 store_dir 且没显式要 incremental_projection 就直写；
+      显式 False 保持旧流程。须使用新目录或已有同格式目录，不能转换旧库，
       不能与 incremental_projection=True 同用。只在完整列段发布后登记完成；
       崩溃时未封存的结果会在 update_mode=True 续算时重算。
     write_buffer_gb: 直接写入的存储缓冲预算，单位 GiB，默认 32.0。
@@ -394,7 +395,7 @@ def run_factor_pipeline_cross_section(
     data_root: Optional[str] = None,
     vars_root: Optional[str] = None,
     incremental_projection: Optional[bool] = None,
-    direct_write: bool = False,
+    direct_write: Optional[bool] = None,
     write_buffer_gb: float = 32.0,
 ) -> None:
     """横截面（一天全市场）因子批量计算入口。
@@ -418,7 +419,8 @@ def run_factor_pipeline_cross_section(
       False/None = 旧行为：追加即删投影，收尾整片重投影（I/O ≈ 2× store 体积）。
       已有多年数据、只补算新日期时开这个开关可省掉整库重投影。
     direct_write: True = 在 store_dir 直接写最终列段，不生成 colblk 或执行投影。
-      默认 False 保持旧流程；须使用新目录或已有同格式目录，不能转换旧库，
+      默认 None = 自动打开：给了 store_dir 且没显式要 incremental_projection 就直写；
+      显式 False 保持旧流程。须使用新目录或已有同格式目录，不能转换旧库，
       不能与 incremental_projection=True 同用。只在完整列段发布后登记完成；
       崩溃时未封存的结果会在 update_mode=True 续算时重算。
     write_buffer_gb: 直接写入的存储缓冲预算，单位 GiB，默认 32.0。

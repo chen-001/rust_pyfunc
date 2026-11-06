@@ -575,6 +575,8 @@ fn validate_direct_write_options(
 ///   不动，只把新行写成 factors.proj.delta.<end>，读取端自动拼接 base + delta；
 ///   默认 false = 追加即删投影、收尾整片重投影（I/O ≈ 2× store 体积）。
 /// - direct_write: 写最终列段，不执行投影；仅新目录或已有同格式目录。
+///   默认 None = 自动打开：只要给了 store_dir 且没显式要 incremental_projection，就直写列段；
+///   显式 False 走原来的 colblk + 投影路径；显式 True 与 incremental_projection 同时给会报冲突。
 /// - write_buffer_gb: direct_write 的存储缓冲预算（GiB），不限制计算/IPC总内存。
 #[pyfunction]
 #[pyo3(signature = (
@@ -582,7 +584,7 @@ fn validate_direct_write_options(
     params=None, update_mode=None, bind_cores=true, backup_batch_size=None, progress_log=None, mode=None,
     export_names=None, export_dir=None, export_n_jobs=80,
     store_dir=None, store_factor_names=None, data_root=None,
-    incremental_projection=None, direct_write=false, write_buffer_gb=32.0
+    incremental_projection=None, direct_write=None, write_buffer_gb=32.0
 ))]
 #[allow(clippy::too_many_arguments)]
 pub fn run_factor_pipeline(
@@ -605,7 +607,7 @@ pub fn run_factor_pipeline(
     store_factor_names: Option<Vec<String>>,
     data_root: Option<String>,
     incremental_projection: Option<bool>,
-    direct_write: bool,
+    direct_write: Option<bool>,
     write_buffer_gb: f64,
 ) -> PyResult<PyObject> {
     let py = unsafe { Python::assume_gil_acquired() };
@@ -645,6 +647,13 @@ pub fn run_factor_pipeline(
 
     let update_mode_enabled = update_mode.unwrap_or(false);
     let incremental_projection_enabled = incremental_projection.unwrap_or(false);
+    // direct_write 默认打开：没显式指定时，只要有 store_dir、不是要增量投影、且目标不是旧 colblk 库，
+    // 就直写最终列段。store_dir 为空时没有落盘目标；已有 colblk / 分片 / 投影布局的老库沿用原格式。
+    let direct_write = direct_write.unwrap_or_else(|| {
+        store_dir.as_deref().is_some_and(|s| {
+            !incremental_projection_enabled && !crate::factor_store_v5::has_legacy_colblk_layout(s)
+        })
+    });
     let progress_log_enabled = progress_log.unwrap_or(false);
     let batch_size = backup_batch_size.unwrap_or(500);
     if n_jobs == 0 || batch_size == 0 {
@@ -3358,6 +3367,8 @@ pub fn run_factor_pipeline_regime(
 ///   `{vars_root}/SzBa/industry.h5` 是行业分类的唯一源头；同样透传给 worker 子进程
 /// - incremental_projection: true = 增量投影（追加新日期时 base 投影不动，只把新行写成
 ///   factors.proj.delta.<end>，读取端自动拼接 base + delta）；默认 false = 整片重投影。
+/// - direct_write: 直写最终列段，不生成 colblk、不做投影。默认 None = 自动打开
+///   （有 store_dir 且没显式要 incremental_projection 时即直写）；显式 False 走 colblk 路径。
 ///
 /// 调度：n_workers 个进程，每进程设 RAYON_NUM_THREADS = n_jobs/n_workers，
 /// 异步从日期队列领任务，每个 date 任务内并行读全市场 + 横截面计算。
@@ -3366,7 +3377,7 @@ pub fn run_factor_pipeline_regime(
     pipeline, tasks, n_jobs, expected_result_length, trading_days,
     params=None, n_workers=None, update_mode=None, bind_cores=true,
     store_dir=None, store_factor_names=None, force_clear=None, data_root=None,
-    vars_root=None, incremental_projection=None, direct_write=false, write_buffer_gb=32.0
+    vars_root=None, incremental_projection=None, direct_write=None, write_buffer_gb=32.0
 ))]
 #[allow(clippy::too_many_arguments)]
 pub fn run_factor_pipeline_cross_section(
@@ -3385,7 +3396,7 @@ pub fn run_factor_pipeline_cross_section(
     data_root: Option<String>,
     vars_root: Option<String>,
     incremental_projection: Option<bool>,
-    direct_write: bool,
+    direct_write: Option<bool>,
     write_buffer_gb: f64,
 ) -> PyResult<PyObject> {
     let py = unsafe { Python::assume_gil_acquired() };
@@ -3453,6 +3464,13 @@ pub fn run_factor_pipeline_cross_section(
     let update_mode_enabled = update_mode.unwrap_or(false);
     let force_clear_enabled = force_clear.unwrap_or(false);
     let incremental_projection_enabled = incremental_projection.unwrap_or(false);
+    // 同上（per-stock 入口）：direct_write 默认打开，显式 False 才走 colblk / 投影路径；
+    // 目标已是旧 colblk / 分片 / 投影库时也走原路径，不自动换格式。
+    let direct_write = direct_write.unwrap_or_else(|| {
+        store_dir.as_deref().is_some_and(|s| {
+            !incremental_projection_enabled && !crate::factor_store_v5::has_legacy_colblk_layout(s)
+        })
+    });
     if n_jobs == 0 || n_workers == Some(0) {
         return Err(pyo3::exceptions::PyValueError::new_err("n_jobs / n_workers 必须 > 0"));
     }

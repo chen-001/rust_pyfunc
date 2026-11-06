@@ -3311,6 +3311,25 @@ impl FactorStoreReader {
 
 // ============================ PyO3 导出 ============================
 
+/// 目录里已经有旧 colblk / 分片 / 投影 / 组合布局时返回 true。
+///
+/// 用途：`direct_write` 默认自动打开时，遇到这种老库必须沿用原格式，不能自动换直写——
+/// 直写 writer 见到这些文件会拒绝写入（“需要新的直接段目录，发现不兼容文件”），
+/// 但对已经有数据的库来说，报错不该是默认行为的后果。
+pub fn has_legacy_colblk_layout(store_dir: &str) -> bool {
+    let dir = std::path::Path::new(store_dir);
+    [
+        "factors.colblk",
+        "factors.idx",
+        "factors.proj",
+        "shards.layout.json",
+        "shard_0",
+        "factor_groups.json",
+    ]
+    .iter()
+    .any(|name| dir.join(name).exists())
+}
+
 /// 创建/打开列式因子存储写入器（Python 侧主要供测试用；正式流程由 run_factor_pipeline 内部调用）
 #[pyfunction]
 #[pyo3(signature = (store_dir, factor_names))]

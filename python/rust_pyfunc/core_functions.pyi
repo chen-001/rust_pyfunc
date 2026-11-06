@@ -2470,7 +2470,7 @@ def run_factor_pipeline(
     store_factor_names: Optional[List[str]] = None,
     data_root: Optional[str] = None,
     incremental_projection: Optional[bool] = None,
-    direct_write: bool = False,
+    direct_write: Optional[bool] = None,
     write_buffer_gb: float = 32.0,
 ) -> None:
     """纯 Rust 因子流水线引擎（run_factor_pipeline 优化方案 Phase 3）。
@@ -2532,7 +2532,8 @@ def run_factor_pipeline(
     - tail_pipeline_v5 用少量线程顺序读投影区 + 内存有界队列 + 200 计算线程，
       彻底消除 HDD 80 路随机寻道瓶颈。
     direct_write: True = 在 store_dir 直接写最终列段，不生成 colblk 或执行投影。
-      默认 False 保持旧流程；须使用新目录或已有同格式目录，不能转换旧库，
+      默认 None = 自动打开：给了 store_dir 且没显式要 incremental_projection 就直写；
+      显式 False 保持旧流程。须使用新目录或已有同格式目录，不能转换旧库，
       不能与 incremental_projection=True 同用。只在完整列段发布后登记完成；
       崩溃时未封存的结果会在 update_mode=True 续算时重算。
     write_buffer_gb: 直接写入的存储缓冲预算，单位 GiB，默认 32.0。
