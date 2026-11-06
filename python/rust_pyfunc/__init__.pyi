@@ -612,6 +612,19 @@ def py_yupei_multi_v5_names(
     """
     ...
 
+def py_yupei_union_all(date: int) -> Tuple[List[str], List[str], List[float]]:
+    """玉佩四合一：yupei_dist_lite + yupei_gpt + yupei_pair_split + yupei_multi_v5 的因子并集。
+
+    返回 (codes, names, vals)，vals 为 len(codes) × 20716 的行主序扁平 f32。
+    列序：lite 741 | gpt 491 | split 9795 | v5 去掉与 split 同名的 3225 列后剩下的 9689 列。
+    参数固定为四个函数各自 pipeline 的默认值；股票取四段并集，缺失段填 NaN。
+    """
+    ...
+
+def py_yupei_union_all_names() -> List[str]:
+    """四合一的 20716 个列名，不读数据，与 py_yupei_union_all 输出逐字一致。"""
+    ...
+
 def py_yupei_gpt(date: int) -> tuple[list[str], list[float]]:
     """玉佩精炼版单日计算：返回 (codes, 491列×股票数 扁平f32)。"""
     ...

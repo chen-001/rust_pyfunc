@@ -2669,6 +2669,35 @@ pub fn pipeline_yupei_pair_split(date: i64, expected_len: usize) -> Vec<TaskResu
     }
 }
 
+/// 玉佩四合一横截面 pipeline：yupei_dist_lite + yupei_gpt + yupei_pair_split + yupei_multi_v5
+/// 的因子并集，共 20716 列，列序见 `yupei_union_all.rs` 顶部说明。任一段失败整天报错。
+pub fn pipeline_yupei_union_all(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    match crate::yupei_union_all::compute_yupei_union_all(date) {
+        Ok((codes, names, vals)) => {
+            if names.len() != expected_len {
+                eprintln!(
+                    "yupei_union_all error [{date}]: 实际 {} 列 ≠ expected_result_length {expected_len}",
+                    names.len()
+                );
+                return Vec::new();
+            }
+            vals.chunks(expected_len)
+                .zip(codes.iter())
+                .map(|(facs, code)| TaskResult {
+                    date,
+                    code: code.clone(),
+                    timestamp: 0,
+                    facs: facs.to_vec(),
+                })
+                .collect()
+        }
+        Err(e) => {
+            eprintln!("yupei_union_all error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
 /// 寻找玉佩-多种同步度（v5 定稿版）横截面 pipeline：四套载体 × 五条方向组合 = 12914 列。
 /// 参数固定为 py_yupei_multi_v5 的默认值（tau=1.0s、weight=cnt、ks=[5,20]、svd_k=8、
 /// 软阈值 0.3/2.0、null_mc=20000、exz_bins=10），保证列序与 py_yupei_multi_v5 一致。
@@ -3394,6 +3423,7 @@ pub fn run_factor_pipeline_cross_section(
         "yupei_gpt",
         "yupei_gpt_temporal",
         "yupei_multi_v5",
+        "yupei_union_all",
         "pair_interaction",
         "urgency",
         "urgency_ext_cluster",
