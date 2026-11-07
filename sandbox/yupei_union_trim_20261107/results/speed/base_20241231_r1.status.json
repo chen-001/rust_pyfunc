@@ -1,0 +1,5 @@
+{
+  "task": "base:20241231:1",
+  "exit_code": 0,
+  "evidence": "exec session 11898 returned exit_code=0; /usr/bin/time log Exit status: 0"
+}

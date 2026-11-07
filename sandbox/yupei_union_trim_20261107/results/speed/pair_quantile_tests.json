@@ -1,0 +1,36 @@
+{
+  "created_at": "2026-11-07T15:57:47.396127+08:00",
+  "measurement": "standalone_exact_quantile_correctness",
+  "commands": [
+    {
+      "command": [
+        "rustc",
+        "--edition=2021",
+        "--test",
+        "tests/pair_exact_quantile.rs",
+        "-O",
+        "-o",
+        "/tmp/pair_exact_quantile_20261107"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.25325458496809006,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "/tmp/pair_exact_quantile_20261107"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.009337188675999641,
+      "stdout": "\nrunning 2 tests\ntest negative_zero_preserves_input_and_requests_original_sort ... ok\ntest cuts_match_sort_for_repeated_ranks_ties_and_varied_input_order ... ok\n\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n\n",
+      "stderr": ""
+    }
+  ],
+  "source_sha256": {
+    "src/yupei_pair/exact_quantile.rs": "91c387419051cfb59390f037aefccd8b6463bf5c65fd3933d754977a5c8439d5",
+    "tests/pair_exact_quantile.rs": "ff1bf8964b988cb585b31216f345eed4f6cf0fef8a711dd6275bf4adcbe15cb6"
+  },
+  "tests_passed": 2,
+  "tests_failed": 0
+}

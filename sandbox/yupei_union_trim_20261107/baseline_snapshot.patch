@@ -1,0 +1,672 @@
+--- a/src/bin/verify_split.rs
++++ b/src/bin/verify_split.rs
+@@ -48,14 +48,9 @@
+             if d > worst { worst = d; }
+         }
+     }
+-    println!("四分量之和 vs cnt_t1 最大绝对差 = {worst:.3e}（应远小于 1e-5）");
+-
+-    // 方向自检: 只放两只股票，A 在 1.00s、B 在 2.00s（A 先）。
+-    // 存储语义是"行领先列"，所以值应落在 S[B][A]，S[A][B] 约等于 0。
+-    let ab = vec![mk("A", &[(100, 1.0, 0.0)]), mk("B", &[(200, 1.0, 0.0)])];
+-    let m2 = compute_split_mats(&ab, 1.0, PmWeight::Cnt);
+-    let (sab, sba) = (m2[PP][0 * 2 + 1], m2[PP][1 * 2 + 0]);
+-    println!("方向自检: S[A][B]={sab:.3e}（应≈0）  S[B][A]={sba:.6}（应=e^-1=0.3679）");
++    println!("四分量之和 vs cnt_t1 最大绝对差 = {worst:.3e}");
++    println!("S[A][B] (A 桶100 买, B 桶99 买 → B 领先 A, 应为 0) = {:.6}", m4[PP][0 * n + 1]);
++    println!("S[B][A] (应为 e^(-1/τ) 量级 > 0)                    = {:.6}", m4[PP][1 * n + 0]);
+     for i in 0..n {
+         let row: Vec<String> = (0..n).map(|j| format!("{:8.4}", full[i * n + j])).collect();
+         println!("full[{i}] = [{}]", row.join(", "));
+--- a/src/bin/worker_pipeline.rs
++++ b/src/bin/worker_pipeline.rs
+@@ -16,7 +16,7 @@
+     pipeline_anneal_order_profile, pipeline_anneal_regime_diff, pipeline_anneal_volume,
+     pipeline_anneal_volume_market, pipeline_cross_section_example, pipeline_dagpath, pipeline_dijkstra, pipeline_distill,
+     pipeline_distill_tick, pipeline_drop_event, pipeline_extreme_point_fit,
+-    pipeline_hhi_event, pipeline_lfsr_ext2, pipeline_lfsr_leak_ext1,
++    pipeline_hhi_event, pipeline_lfsr_leak_ext1,
+     pipeline_etp_event,
+     pipeline_hot_pool_ind, pipeline_hot_stock_pool, pipeline_hot_stock_pool_v2,
+     pipeline_individual_order_ratio,
+@@ -202,8 +202,6 @@
+                         pipeline_cross_section_example(date, expected_len)
+                     } else if pipeline_name == "lfsr_leak_ext1" {
+                         pipeline_lfsr_leak_ext1(date, expected_len)
+-                    } else if pipeline_name == "lfsr_ext2" {
+-                        pipeline_lfsr_ext2(date, expected_len)
+                     } else if pipeline_name == "orderflow_ctx" {
+                         pipeline_orderflow_ctx(date, expected_len)
+                     } else if pipeline_name == "relaynet" {
+--- a/src/factor_pipeline.rs
++++ b/src/factor_pipeline.rs
+@@ -2575,27 +2575,6 @@
+     }
+ }
+ 
+-/// lfsr_ext2 横截面 pipeline：拓展二（17005 列）。一天全市场一次算完：
+-/// 全市场分位数门槛 → 逐股位流特征 → 横截面 z-score 与风格残差。
+-pub fn pipeline_lfsr_ext2(date: i64, expected_len: usize) -> Vec<TaskResult> {
+-    match crate::lfsr_ext2_metrics::compute_lfsr_ext2_full(date) {
+-        Ok((codes, vals)) => vals
+-            .chunks(expected_len)
+-            .zip(codes.iter())
+-            .map(|(facs, code)| TaskResult {
+-                date,
+-                code: code.clone(),
+-                timestamp: 0,
+-                facs: facs.to_vec(),
+-            })
+-            .collect(),
+-        Err(e) => {
+-            eprintln!("lfsr_ext2 error [{date}]: {e:?}");
+-            Vec::new()
+-        }
+-    }
+-}
+-
+ /// orderflow_ctx 横截面 pipeline：三时段×三类流×上下文算子工厂。
+ /// 与 cross_section_example 同样的 (codes, vals) → TaskResult 展开方式。
+ pub fn pipeline_orderflow_ctx(date: i64, expected_len: usize) -> Vec<TaskResult> {
+@@ -3446,7 +3425,6 @@
+         "relaynet_six_people",
+         "cross_section_example",
+         "lfsr_leak_ext1",
+-        "lfsr_ext2",
+         "orderflow_ctx",
+         "dijkstra",
+         "peaks",
+--- a/src/lfsr_leak_ext1_metrics.rs
++++ b/src/lfsr_leak_ext1_metrics.rs
+@@ -18,7 +18,7 @@
+ use rayon::prelude::*;
+ use std::sync::OnceLock;
+ 
+-pub(crate) mod reader {
++mod reader {
+     //! 精简版数据读取（单线程，无 pyo3/rayon），从 fast_csv_reader.rs 移植。
+     //! 读取 transaction / market_data CSV，做 adjust_afternoon 平移。
+     //! 只保留因子实际用到的字段：盘口不解析第 6~10 档与 last_prc/volume，
+@@ -506,7 +506,7 @@
+ 
+ // ---------- Spec 驱动：特征名与计算同序 ----------
+ #[derive(Clone)]
+-pub(crate) enum Op {
++enum Op {
+     Count,                 // i: 0=nsnap 1=ntrade
+     Rate, Ac(usize), Run, Tasym, SpCv, Ctx(usize),
+     Corr0, CorrL, AndR, XorR, Edge,
+@@ -516,11 +516,10 @@
+     HalfRate, HalfAc,      // 前后半日差异
+     Sess(usize),           // 时段率：b=0 下午段, b=1 尾盘段
+ }
+-/// 一个扩展一的列定义。字段私有，只暴露给拓展二按名字取用与求值。
+ #[derive(Clone)]
+-pub(crate) struct Spec { name: String, op: Op, a: usize, b: usize, c: usize }
+-
+-pub(crate) struct Env {
++struct Spec { name: String, op: Op, a: usize, b: usize, c: usize }
++
++struct Env {
+     seqs: Vec<Vec<u8>>,        // 盘口 L 网格上的流
+     tseqs: Vec<Vec<u8>>,       // 逐笔网格上的流
+     trips: Vec<Cells>,         // 三元组联合统计
+@@ -617,7 +616,7 @@
+ const UNARY_T: &[usize] = &[0, 1, 3, 6, 7]; // tseqs 下标：tsgn,tbig8,tdpx,rgap,turg
+ const UNARY_TNEW: &[usize] = &[9, 10, 11, 12, 13, 14, 15, 16];
+ 
+-pub(crate) fn build_specs() -> Vec<Spec> {
++fn build_specs() -> Vec<Spec> {
+     let mut v = Vec::with_capacity(12000);
+     let mut push = |name: String, op: Op, a: usize, b: usize, c: usize| {
+         v.push(Spec { name, op, a, b, c });
+@@ -700,7 +699,7 @@
+     v
+ }
+ 
+-pub(crate) fn build_env(mkt: &[MarketRecord], tr: &[TradeRecord]) -> Option<Env> {
++fn build_env(mkt: &[MarketRecord], tr: &[TradeRecord]) -> Option<Env> {
+     if mkt.len() < 300 || tr.len() < 500 { return None; }
+     let mut ts: Vec<i64> = Vec::with_capacity(mkt.len());
+     let (mut imb1, mut imbt, mut mid, mut spread, mut dep, mut b1v, mut a1v, mut imb5): (
+@@ -852,7 +851,7 @@
+     Some(Env { seqs, tseqs, trips, masks, tg_mid, tg_imb, segs, nsnap: ts.len(), ntrade: tr.len() })
+ }
+ 
+-pub(crate) fn eval_env(sp: &Spec, e: &Env) -> f64 {
++fn eval_env(sp: &Spec, e: &Env) -> f64 {
+     if sp.a >= 100 { // 逐笔网格流
+         let s = &e.tseqs[sp.a - 100];
+         return match &sp.op {
+@@ -886,7 +885,7 @@
+ /// 当天同时有逐笔和盘口两个文件的股票。
+ /// 名单来自 symbol_map.csv（与 switch_moment / yhyb_indtop 同一个文件），
+ /// 按表里的行序输出；表里出现非法代码直接报错，不退回扫描全目录。
+-pub(crate) fn list_codes(date: i64) -> std::io::Result<Vec<String>> {
++fn list_codes(date: i64) -> std::io::Result<Vec<String>> {
+     use std::io::{Error, ErrorKind};
+     let invalid = |e| Error::new(ErrorKind::InvalidData, e);
+     let root = &crate::data_paths::level2_roots()[0];
+@@ -998,24 +997,3 @@
+ pub fn py_lfsr_leak_ext1_names() -> Vec<String> {
+     lfsr_leak_ext1_names()
+ }
+-
+-// ---------- 给拓展二复用：按名字取 spec 与求值 ----------
+-
+-/// 按名字取 spec（拓展二保留列）。名字必须是 build_specs 里真实存在的，找不到直接 panic，
+-/// 不做静默兜底——列名对不上说明 keep 名单和实现脱节了。
+-pub(crate) fn specs_of_names(names: &[&str]) -> Vec<&'static Spec> {
+-    let all = specs();
+-    names
+-        .iter()
+-        .map(|n| {
+-            all.iter()
+-                .find(|s| s.name == *n)
+-                .unwrap_or_else(|| panic!("拓展一里没有列 {n}"))
+-        })
+-        .collect()
+-}
+-
+-/// 单列求值（拓展二复用拓展一的算子与 Env）
+-pub(crate) fn eval_one(sp: &Spec, e: &Env) -> f64 {
+-    eval(sp, e)
+-}
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -129,7 +129,6 @@
+ pub mod hidden_arrange_metrics;
+ pub mod geffe_leak_metrics;
+ pub mod lfsr_leak_ext1_metrics;
+-pub mod lfsr_ext2_metrics;
+ mod hidden_arrange_names;
+ pub mod hot_stock_pool_metrics;
+ pub mod hot_pool_ind_metrics;
+@@ -1269,8 +1268,6 @@
+         lfsr_leak_ext1_metrics::py_lfsr_leak_ext1_names,
+         m
+     )?)?;
+-    let _ = m.add_function(wrap_pyfunction!(lfsr_ext2_metrics::py_lfsr_ext2, m)?)?;
+-    let _ = m.add_function(wrap_pyfunction!(lfsr_ext2_metrics::py_lfsr_ext2_names, m)?)?;
+     let _ = m.add_function(wrap_pyfunction!(distill_tick_metrics::py_distill_tick, m)?)?;
+     let _ = m.add_function(wrap_pyfunction!(
+         distill_tick_metrics::py_distill_tick_names,
+--- a/src/tail_v4_pipeline.rs
++++ b/src/tail_v4_pipeline.rs
+@@ -982,7 +982,6 @@
+     python_path: String,
+     worker_config_json: String,
+     verbose: bool,
+-    retry_counts: Arc<Mutex<HashMap<String, usize>>>,
+ ) {
+     let script_content = create_tail_v4_fulltest_worker_script();
+     let script_path = format!("/tmp/tail_v4_fulltest_worker_{}.py", worker_id);
+@@ -997,7 +996,6 @@
+         .stdin(Stdio::piped())
+         .stdout(Stdio::piped())
+         .stderr(Stdio::piped())
+-        .env("TAIL_V4_WORKER_INDEX", worker_id.to_string())
+         .env("OMP_NUM_THREADS", "1")
+         .env("OPENBLAS_NUM_THREADS", "1")
+         .env("MKL_NUM_THREADS", "1")
+@@ -1108,31 +1106,9 @@
+ 
+         let mut len_buf = [0u8; 4];
+         if stdout.read_exact(&mut len_buf).is_err() {
+-            // worker 在交出结果前就没了。最常见的成因是并发太高、内存被顶到上限后被内核杀掉
+-            // （单 worker 常驻约 4GiB，几十个一起起来时尤其容易）。这里把这个任务放回队首，
+-            // 让还活着的 worker 接着做；同一个任务连续 3 次都撞上 worker 死亡才判定为致命错误。
+-            // 死掉的 worker 不再补位，并发数自然下降，等于给整条队列一个自我减压的机会。
+-            let attempts = {
+-                let mut guard = retry_counts.lock().unwrap_or_else(|e| e.into_inner());
+-                let counter = guard.entry(task.task_key.clone()).or_insert(0);
+-                *counter += 1;
+-                *counter
+-            };
+-            if attempts < 3 {
+-                if let Ok(mut guard) = task_queue.lock() {
+-                    guard.push_front(task);
+-                }
+-                if verbose {
+-                    eprintln!(
+-                        "[Tail V4 Fulltest][worker {}] 进程没了，任务放回队列重试（第 {} 次）",
+-                        worker_id, attempts
+-                    );
+-                }
+-                break;
+-            }
+             let _ = result_sender.send(Err(format!(
+-                "读取 fulltest worker 结果长度失败: {}（重试 {} 次仍失败，worker 反复被中断）",
+-                task.task_key, attempts
++                "读取 fulltest worker 结果长度失败: {}",
++                task.task_key
+             )));
+             stop_flag.store(true, AtomicOrdering::Relaxed);
+             break;
+@@ -1140,21 +1116,9 @@
+         let result_len = u32::from_le_bytes(len_buf) as usize;
+         let mut result_data = vec![0u8; result_len];
+         if stdout.read_exact(&mut result_data).is_err() {
+-            let attempts = {
+-                let mut guard = retry_counts.lock().unwrap_or_else(|e| e.into_inner());
+-                let counter = guard.entry(task.task_key.clone()).or_insert(0);
+-                *counter += 1;
+-                *counter
+-            };
+-            if attempts < 3 {
+-                if let Ok(mut guard) = task_queue.lock() {
+-                    guard.push_front(task);
+-                }
+-                break;
+-            }
+             let _ = result_sender.send(Err(format!(
+-                "读取 fulltest worker 结果失败: {}（重试 {} 次仍失败）",
+-                task.task_key, attempts
++                "读取 fulltest worker 结果失败: {}",
++                task.task_key
+             )));
+             stop_flag.store(true, AtomicOrdering::Relaxed);
+             break;
+@@ -2687,8 +2651,6 @@
+ 
+                 let pending_total = pending_tasks.len();
+                 let task_queue = Arc::new(Mutex::new(pending_tasks));
+-                let retry_counts: Arc<Mutex<HashMap<String, usize>>> =
+-                    Arc::new(Mutex::new(HashMap::new()));
+                 let stop_flag = Arc::new(AtomicBool::new(false));
+                 let pid_registry: TailV4PidRegistry = Arc::new(Mutex::new(HashMap::new()));
+                 let (result_sender, result_receiver) =
+@@ -2700,7 +2662,6 @@
+                     let sender_clone = result_sender.clone();
+                     let stop_clone = Arc::clone(&stop_flag);
+                     let pid_registry_clone = Arc::clone(&pid_registry);
+-                    let retry_counts_clone = Arc::clone(&retry_counts);
+                     let python_path_owned = python_path.to_string();
+                     let worker_config_json_clone = worker_config_json.clone();
+                     handles.push(thread::spawn(move || {
+@@ -2713,7 +2674,6 @@
+                             python_path_owned,
+                             worker_config_json_clone,
+                             verbose,
+-                            retry_counts_clone,
+                         );
+                     }));
+                 }
+--- a/src/yhyb_indtop_metrics.rs
++++ b/src/yhyb_indtop_metrics.rs
+@@ -77,7 +77,7 @@
+ // dataset `data`，行 = DailyDerived/calendar_map.csv，列 = DailyDerived/symbol_map.csv。
+ 
+ /// 市值 h5 的日期轴与列序（每个目录各自维护 map，用哪个目录就加载哪个）。
+-pub(crate) fn cap_maps() -> &'static (Vec<i64>, Vec<String>) {
++fn cap_maps() -> &'static (Vec<i64>, Vec<String>) {
+     static MAPS: OnceLock<(Vec<i64>, Vec<String>)> = OnceLock::new();
+     MAPS.get_or_init(|| {
+         let dir = crate::data_paths::vars_path("DailyDerived");
+@@ -105,7 +105,7 @@
+ }
+ 
+ /// 读 S_VAL_MV.h5 的第 r 行（只取 symbol_map 那么多列，避免读到 8000 列容器残留）。
+-pub(crate) fn cap_row(r: usize, ncols: usize) -> Vec<f64> {
++fn cap_row(r: usize, ncols: usize) -> Vec<f64> {
+     let path = crate::data_paths::vars_path("DailyDerived/S_VAL_MV.h5");
+     CAP_FILE.with(|cell| {
+         let mut slot = cell.borrow_mut();
+--- a/src/yupei_pair/net.rs
++++ b/src/yupei_pair/net.rs
+@@ -263,19 +263,6 @@
+             e.as_slice(),
+         ),
+     };
+-    // 精度实验：设 YUPEI_BF16=1 时把「C 对 X」那一套相关值截断到 16 位精度（bf16），
+-    // 用来量出降低精度对最终因子值的影响。默认关闭，行为与原来逐位一致。
+-    let pc_trunc: Vec<f32>;
+-    let pc: &[f32] = if std::env::var("YUPEI_BF16").is_ok() {
+-        pc_trunc = pc
+-            .iter()
+-            .map(|&x| f32::from_bits(x.to_bits() & 0xFFFF_0000))
+-            .collect();
+-        &pc_trunc
+-    } else {
+-        pc
+-    };
+-
+     // ---- 全部配对的 X0 / RHO_U / SINGLE / G + 分数矩阵 + 软质量向量 ----
+     let mut g = vec![0.0f32; n * n];
+     let mut ru = vec![0.0f32; n * n];
+--- a/src/yupei_pair/simd.rs
++++ b/src/yupei_pair/simd.rs
+@@ -1043,162 +1043,6 @@
+     super::bitonic_sort::sort_keys(&mut kh[..take], mid_buf);
+ }
+ 
+-pub fn fused_hg_stats_bf16(
+-    hb: &mut [f32],
+-    gb: &mut [f32],
+-    wb: f32,
+-    wc: f32,
+-    p: &[f32],
+-    q16: &[u16],
+-    addm: &[f32],
+-    b: usize,
+-    c: usize,
+-) -> (f32, f32, f32, f32, f32, u32) {
+-    let n = hb.len();
+-    #[cfg(target_arch = "x86_64")]
+-    unsafe {
+-        if have_avx2() {
+-            let wv = _mm256_set1_ps(wb);
+-            let cv = _mm256_set1_ps(wc);
+-            let zero = _mm256_setzero_ps();
+-            let mut mh = _mm256_set1_ps(f32::NEG_INFINITY);
+-            let mut mg = _mm256_set1_ps(f32::NEG_INFINITY);
+-            let mut sh = _mm256_setzero_ps();
+-            let mut sg = _mm256_setzero_ps();
+-            let mut sq = _mm256_setzero_ps();
+-            let mut cnt = 0u32;
+-            let mut x = 0;
+-            let mut hbuf = [0f32; 8];
+-            let mut gbuf = [0f32; 8];
+-            while x + 8 <= n {
+-                let (hv, gv);
+-                if (b >= x && b < x + 8) || (c >= x && c < x + 8) {
+-                    // 含 b/c 的那块：这两个位置必须是 -inf，标量算这 8 个再按原 lane 累加
+-                    for i in 0..8 {
+-                        let xx = x + i;
+-                        let qx = f32::from_bits((q16[xx] as u32) << 16);
+-                        let mut h = wb * p[xx] + wc * qx + addm[xx];
+-                        let mut g = h - if p[xx] > qx { p[xx] } else { qx };
+-                        if xx == b || xx == c {
+-                            h = f32::NEG_INFINITY;
+-                            g = f32::NEG_INFINITY;
+-                        }
+-                        hbuf[i] = h;
+-                        gbuf[i] = g;
+-                    }
+-                    for i in 0..8 {
+-                        hb[x + i] = hbuf[i];
+-                        gb[x + i] = gbuf[i];
+-                    }
+-                    hv = _mm256_loadu_ps(hbuf.as_ptr());
+-                    gv = _mm256_loadu_ps(gbuf.as_ptr());
+-                } else {
+-                    let a = _mm256_loadu_ps(p.as_ptr().add(x));
+-                    let q8 = _mm256_cvtepu16_epi32(_mm_loadu_si128(q16.as_ptr().add(x) as *const __m128i));
+-                    let bv = _mm256_castsi256_ps(_mm256_slli_epi32(q8, 16));
+-                    let m = _mm256_loadu_ps(addm.as_ptr().add(x));
+-                    // 不用 fma：与 fill_h 的两次舍入一致
+-                    hv = _mm256_add_ps(
+-                        _mm256_add_ps(_mm256_mul_ps(wv, a), _mm256_mul_ps(cv, bv)),
+-                        m,
+-                    );
+-                    gv = _mm256_sub_ps(hv, _mm256_max_ps(a, bv));
+-                    _mm256_storeu_ps(hb.as_mut_ptr().add(x), hv);
+-                    _mm256_storeu_ps(gb.as_mut_ptr().add(x), gv);
+-                }
+-                mh = _mm256_max_ps(mh, hv);
+-                mg = _mm256_max_ps(mg, gv);
+-                sh = _mm256_add_ps(sh, _mm256_max_ps(hv, zero));
+-                let gp = _mm256_max_ps(gv, zero);
+-                sg = _mm256_add_ps(sg, gp);
+-                sq = _mm256_add_ps(sq, _mm256_mul_ps(gp, gp));
+-                let mm = _mm256_movemask_ps(_mm256_cmp_ps::<_CMP_GT_OQ>(gv, zero)) as u32;
+-                cnt += mm.count_ones();
+-                x += 8;
+-            }
+-            let mut b1 = [0f32; 8];
+-            let mut b2 = [0f32; 8];
+-            _mm256_storeu_ps(b1.as_mut_ptr(), mh);
+-            _mm256_storeu_ps(b2.as_mut_ptr(), mg);
+-            let (mut mx_h, mut mx_g) = (f32::NEG_INFINITY, f32::NEG_INFINITY);
+-            for i in 0..8 {
+-                if b1[i] > mx_h {
+-                    mx_h = b1[i];
+-                }
+-                if b2[i] > mx_g {
+-                    mx_g = b2[i];
+-                }
+-            }
+-            let mut b3 = [0f32; 8];
+-            let mut b4 = [0f32; 8];
+-            let mut b5 = [0f32; 8];
+-            _mm256_storeu_ps(b3.as_mut_ptr(), sh);
+-            _mm256_storeu_ps(b4.as_mut_ptr(), sg);
+-            _mm256_storeu_ps(b5.as_mut_ptr(), sq);
+-            let (mut s1, mut s2, mut s3) = (0f32, 0f32, 0f32);
+-            for i in 0..8 {
+-                s1 += b3[i];
+-                s2 += b4[i];
+-                s3 += b5[i];
+-            }
+-            while x < n {
+-                let qx = f32::from_bits((q16[x] as u32) << 16);
+-                let mut h = wb * p[x] + wc * qx + addm[x];
+-                let mut g = h - if p[x] > qx { p[x] } else { qx };
+-                if x == b || x == c {
+-                    h = f32::NEG_INFINITY;
+-                    g = f32::NEG_INFINITY;
+-                }
+-                hb[x] = h;
+-                gb[x] = g;
+-                if h > mx_h {
+-                    mx_h = h;
+-                }
+-                if h > 0.0 {
+-                    s1 += h;
+-                }
+-                if g > mx_g {
+-                    mx_g = g;
+-                }
+-                if g > 0.0 {
+-                    s2 += g;
+-                    s3 += g * g;
+-                    cnt += 1;
+-                }
+-                x += 1;
+-            }
+-            return (mx_h, mx_g, s1, s2, s3, cnt);
+-        }
+-    }
+-    let (mut mx_h, mut mx_g) = (f32::NEG_INFINITY, f32::NEG_INFINITY);
+-    let (mut s1, mut s2, mut s3, mut cnt) = (0f32, 0f32, 0f32, 0u32);
+-    for x in 0..n {
+-        let qx = f32::from_bits((q16[x] as u32) << 16);
+-        let mut h = wb * p[x] + wc * qx + addm[x];
+-        let mut g = h - if p[x] > qx { p[x] } else { qx };
+-        if x == b || x == c {
+-            h = f32::NEG_INFINITY;
+-            g = f32::NEG_INFINITY;
+-        }
+-        hb[x] = h;
+-        gb[x] = g;
+-        if h > mx_h {
+-            mx_h = h;
+-        }
+-        if h > 0.0 {
+-            s1 += h;
+-        }
+-        if g > mx_g {
+-            mx_g = g;
+-        }
+-        if g > 0.0 {
+-            s2 += g;
+-            s3 += g * g;
+-            cnt += 1;
+-        }
+-    }
+-    (mx_h, mx_g, s1, s2, s3, cnt)
+-}
+ 
+ /// Unquantized numeric order, including -0 before +0. NaNs are handled separately.
+ #[inline(always)]
+--- a/src/yupei_pair/split_mat.rs
++++ b/src/yupei_pair/split_mat.rs
+@@ -292,168 +292,6 @@
+     }
+ }
+ 
+-/// 稀疏版四分量矩阵：只遍历真实成交的桶，不填 4096 格的空场。
+-///
+-/// 与 `compute_split_mats_from_cells` 数学等价：衰减用同一张「逐次相乘」得到的
+-/// 幂表，所以结果逐位一致。原版对每个 tile 每块固定跑 4096 次循环，而一只股票
+-/// 在这 40 秒里通常只有几个到几十个成交桶，99% 的循环是空转。
+-pub fn compute_split_mats_sparse(
+-    cells: &[Vec<(u32, [f32; 4])>],
+-    tau: f32,
+-    w: PmWeight,
+-) -> [Vec<f32>; 4] {
+-    let n = cells.len();
+-    let (lp, lm) = w.lanes();
+-    let decay = (-(BUCKET_US as f32) / (tau * 1e6)).exp();
+-    let mut mats: [Vec<f32>; 4] = std::array::from_fn(|_| vec![0.0f32; n * n]);
+-
+-    // decay 的幂表：用连续相乘构造，与逐桶递推的浮点结果逐位一致
+-    let mut dtab = vec![0.0f32; BLOCK_BUCKETS + 1];
+-    dtab[0] = 1.0;
+-    for k in 1..=BLOCK_BUCKETS {
+-        dtab[k] = dtab[k - 1] * decay;
+-    }
+-
+-    // pack: [n*4 累加器][2 跨块 acc][jk:BLOCK][jg:2*BLOCK][jacc:2*BLOCK]
+-    const SPAD: usize = BLOCK_BUCKETS * 5;
+-    let packs: Vec<std::sync::Mutex<Vec<f32>>> = (0..n)
+-        .into_par_iter()
+-        .map(|_| std::sync::Mutex::new(vec![0.0f32; n * 4 + 2 + SPAD]))
+-        .collect();
+-
+-    let mut cursors = vec![0usize; n];
+-    for block in 0..N_BLOCKS {
+-        let k0 = (block * BLOCK_BUCKETS) as u32;
+-        let k1 = k0 + BLOCK_BUCKETS as u32;
+-
+-        let counts: Vec<usize> = cells
+-            .par_iter()
+-            .enumerate()
+-            .map(|(i, st)| {
+-                let mut c = cursors[i];
+-                while c < st.len() && st[c].0 < k1 {
+-                    c += 1;
+-                }
+-                c - cursors[i]
+-            })
+-            .collect();
+-        let total: usize = counts.iter().sum();
+-        if total == 0 {
+-            continue;
+-        }
+-        let mut offs: Vec<usize> = Vec::with_capacity(n + 1);
+-        let mut acc = 0usize;
+-        for &c in counts.iter() {
+-            offs.push(acc);
+-            acc += c;
+-        }
+-        offs.push(acc);
+-        let mut buf: Vec<(u32, [f32; 4])> = vec![(0, [0.0f32; 4]); total];
+-        for i in 0..n {
+-            let s = cursors[i];
+-            let c = counts[i];
+-            buf[offs[i]..offs[i] + c].copy_from_slice(&cells[i][s..s + c]);
+-            cursors[i] += c;
+-        }
+-
+-        let (buf_ref, offs_ref, counts_ref, dtab_ref) = (&buf, &offs, &counts, &dtab);
+-        (0..n).into_par_iter().for_each(|j| {
+-            let mut g = packs[j].lock().unwrap();
+-            let (pack, rest) = g.split_at_mut(n * 4);
+-            let (acc, sp) = rest.split_at_mut(2);
+-            let (jk, r2) = sp.split_at_mut(BLOCK_BUCKETS);
+-            let (jg, jacc) = r2.split_at_mut(BLOCK_BUCKETS * 2);
+-            let (acc0p, acc0m) = (acc[0], acc[1]);
+-            let bcnt = counts_ref[j];
+-            let boff = offs_ref[j];
+-
+-            // ---- phase1：只在 j 自己的成交桶上推进，建紧凑衰减场 ----
+-            let (mut ap, mut am) = (acc0p, acc0m);
+-            let mut prev: i32 = -1;
+-            for idx in 0..bcnt {
+-                let cell = &buf_ref[boff + idx];
+-                let k = (cell.0 - k0) as usize;
+-                let d = if prev < 0 { dtab_ref[k] } else { dtab_ref[k - prev as usize] };
+-                ap *= d;
+-                am *= d;
+-                jk[idx] = k as f32;
+-                let (up, um) = (cell.1[lp], cell.1[lm]);
+-                jg[idx * 2] = ap + 0.5 * up;
+-                jg[idx * 2 + 1] = am + 0.5 * um;
+-                ap = (ap + up) * decay;
+-                am = (am + um) * decay;
+-                jacc[idx * 2] = ap;
+-                jacc[idx * 2 + 1] = am;
+-                prev = k as i32;
+-            }
+-            if bcnt > 0 {
+-                let last = jk[bcnt - 1] as usize;
+-                let d = dtab_ref[BLOCK_BUCKETS - 1 - last];
+-                ap *= d;
+-                am *= d;
+-            }
+-            acc[0] = ap;
+-            acc[1] = am;
+-
+-            // ---- phase2：每个 i 的每个成交桶，用双指针取 j 的场 ----
+-            for i in 0..n {
+-                let icnt = counts_ref[i];
+-                if icnt == 0 {
+-                    continue;
+-                }
+-                let base = i * 4;
+-                let mut p = [pack[base], pack[base + 1], pack[base + 2], pack[base + 3]];
+-                let mut ptr = 0usize;
+-                for t in 0..icnt {
+-                    let cell = &buf_ref[offs_ref[i] + t];
+-                    let k = (cell.0 - k0) as usize;
+-                    let (gp, gm) = if bcnt == 0 || k < jk[0] as usize {
+-                        // j 本块没成交，或 i 早于 j 在本块的第一个成交桶：
+-                        // 场就是块起点值按桶衰减
+-                        (acc0p * dtab_ref[k], acc0m * dtab_ref[k])
+-                    } else {
+-                        while ptr + 1 < bcnt && (jk[ptr + 1] as usize) <= k {
+-                            ptr += 1;
+-                        }
+-                        if (jk[ptr] as usize) == k {
+-                            (jg[ptr * 2], jg[ptr * 2 + 1])
+-                        } else {
+-                            let d = dtab_ref[k - jk[ptr] as usize];
+-                            (jacc[ptr * 2] * d, jacc[ptr * 2 + 1] * d)
+-                        }
+-                    };
+-                    let (up, um) = (cell.1[lp], cell.1[lm]);
+-                    p[PP] += up * gp;
+-                    p[PM] += up * gm;
+-                    p[MP] += um * gp;
+-                    p[MM] += um * gm;
+-                }
+-                pack[base] = p[PP];
+-                pack[base + 1] = p[PM];
+-                pack[base + 2] = p[MP];
+-                pack[base + 3] = p[MM];
+-            }
+-        });
+-    }
+-
+-    struct Ptr(*mut f32);
+-    unsafe impl Send for Ptr {}
+-    unsafe impl Sync for Ptr {}
+-    let raw: Vec<Ptr> = mats.iter_mut().map(|v| Ptr(v.as_mut_ptr())).collect();
+-    (0..n).into_par_iter().for_each(|j| {
+-        let g = packs[j].lock().unwrap();
+-        let pack = &g[..n * 4];
+-        for i in 0..n {
+-            for t in 0..4 {
+-                unsafe {
+-                    *raw[t].0.add(j * n + i) = pack[i * 4 + t];
+-                }
+-            }
+-        }
+-    });
+-    mats
+-}
+-
+ /// SIMD 版四分量矩阵：把四个分量打包成一个四元组，用 SSE 一次算完。
+ ///
+ /// 与 `compute_split_mats_from_cells` 数学等价，只有配对累加那一段变了：

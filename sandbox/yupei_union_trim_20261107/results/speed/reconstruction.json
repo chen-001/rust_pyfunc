@@ -1,0 +1,28 @@
+{
+  "patches": [
+    {
+      "patch": "baseline_snapshot.patch",
+      "exit_code": 0
+    },
+    {
+      "patch": "speed.patch",
+      "exit_code": 0
+    }
+  ],
+  "frozen_source_reconstruction_exact": true,
+  "candidate_reconstruction_exact": true,
+  "baseline_snapshot_files": [
+    "src/bin/verify_split.rs",
+    "src/bin/worker_pipeline.rs",
+    "src/factor_pipeline.rs",
+    "src/lfsr_leak_ext1_metrics.rs",
+    "src/lib.rs",
+    "src/tail_v4_pipeline.rs",
+    "src/yhyb_indtop_metrics.rs",
+    "src/yupei_pair/net.rs",
+    "src/yupei_pair/simd.rs",
+    "src/yupei_pair/split_mat.rs"
+  ],
+  "snapshot_patch_bytes": 27680,
+  "changed_files": 9
+}

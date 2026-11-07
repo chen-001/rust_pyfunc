@@ -1,0 +1,16 @@
+{
+  "task": "fast:20241231:1",
+  "command": [
+    "/usr/bin/time",
+    "-v",
+    "/home/chenzongwei/.conda/envs/chenzongwei311/bin/python",
+    "-I",
+    "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/tests/check_speed.py",
+    "run",
+    "fast",
+    "20241231",
+    "1"
+  ],
+  "exit_code": 0,
+  "process_wall_seconds": 353.88171485997736
+}

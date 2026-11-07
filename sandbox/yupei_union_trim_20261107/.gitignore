@@ -5,3 +5,8 @@
 /target/
 /*.log
 /results/*.npy
+/frozen/
+/python/
+/tests/bin/
+/results/speed/*.npy
+/results/speed/*.log
