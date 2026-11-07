@@ -1,0 +1,17 @@
+{
+  "exact_compile_exit_code": 0,
+  "test_exit_code": 0,
+  "size_cases": 6,
+  "families_per_size": 12,
+  "input_bits_equal": true,
+  "same_input_allocation_reused": true,
+  "send_sync": true,
+  "wrong_kernel_rejected": true,
+  "dangling_compile_exit_code": 1,
+  "dangling_rejected_with": "E0515",
+  "mutation_compile_exit_code": 1,
+  "mutation_rejected_with": "E0502",
+  "scope": "isolated_actual_shared_rho_helper_no_market_data_no_timing",
+  "helper_sha256": "5af4b0b7fc4bc36d7c739f0a4e4e698140698ce8bc50a366f87283ae84261250",
+  "scan_pairs_source_unchanged": true
+}

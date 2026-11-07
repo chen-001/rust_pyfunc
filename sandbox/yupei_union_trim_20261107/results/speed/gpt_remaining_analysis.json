@@ -1,0 +1,117 @@
+{
+  "evidence_type": "source_analysis_and_calculated_scale_not_a_timing_measurement",
+  "performance_tests_run": false,
+  "universe_n": 5107,
+  "universe_source": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/results/trim.log",
+  "scope": "12 complete GPT families: AA, pp, pm, mm member pairs; each has a/p/m targets",
+  "candidate3": {
+    "switch": "YUPEI_GPT_SHARE_RHO=1",
+    "default_enabled": false,
+    "change": "Keep 9 immutable sanitized rho matrices; share identical physical inputs across families",
+    "source": [
+      {
+        "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_gpt/network.rs",
+        "line": 43,
+        "evidence": "pub struct SharedRho"
+      },
+      {
+        "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_gpt/network.rs",
+        "line": 977,
+        "evidence": "let pr = &kernel.rho[a * 3 + c]"
+      },
+      {
+        "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_gpt/network.rs",
+        "line": 996,
+        "evidence": "let pv: Vec<f32> = if shared.is_some()"
+      }
+    ],
+    "calculated_sizes": {
+      "one_matrix_elements": 26081449,
+      "one_matrix_bytes": 104325796,
+      "old_distinct_allocations": 15,
+      "new_distinct_allocations": 9,
+      "old_clean_input_bytes_if_all_live": 1564886940,
+      "new_clean_input_bytes": 938932164,
+      "removed_duplicate_bytes": 625954776
+    },
+    "exactness": "Same finite-or-positive-zero transform. No pair scan, block partition, or Acc merge edits. Kernel source is immutably borrowed. Invalid original-rho checks remain unchanged.",
+    "lifetime": "SharedRho owns its clean Vecs and borrows the original Kernel; returned slices borrow SharedRho. Compiler rejects dangling views and original source mutation. Owner drops after synchronous family scans complete.",
+    "unknown": "No full candidate3 build, full-market equivalence run, or elapsed-time measurement yet. Cache/bandwidth benefit and sequential 9-matrix preparation cost are unknown.",
+    "note": "Whole-market scan working-set savings are calculated bytes, not measured peak RSS; families can finish at different times."
+  },
+  "other_exact_reuse": [
+    {
+      "item": "Pair normalizing weights are independent of target direction c",
+      "source": [
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_gpt/network.rs",
+          "line": 301,
+          "evidence": "let d2 = ea[i] + eb[j] + 2. * r * sa[i] * sb[j]"
+        },
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_gpt/network.rs",
+          "line": 306,
+          "evidence": "let (wi, wj) = ((sa[i] / d) as f32, (sb[j] / d) as f32)"
+        }
+      ],
+      "calculated_upper_bound": {
+        "current_weight_evaluations": 195572565,
+        "unique_member_pair_weights": 65190855,
+        "duplicate_square_roots": 130381710,
+        "duplicate_f64_divisions": 260763420,
+        "all_score_positions": 998789089455
+      },
+      "feasibility": "Exact if computed with the existing expression and reused without recomputing from reciprocals. Full 4-group dense f32 weight-pair cache would add 4*8*n*n bytes; block-local three-target grouping avoids a full cache but requires a larger scan refactor.",
+      "priority": "Lower than input sharing: O(n^2) weight work versus O(n^3) score processing; no measured seconds saved."
+    },
+    {
+      "item": "Input finite checks and direction vectors repeat",
+      "source": [
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_gpt/network.rs",
+          "line": 979,
+          "evidence": "for (mat, vi, label) in [(pr, &va, \"a/c\"), (qr, &vb, \"b/c\")]"
+        }
+      ],
+      "calculated_upper_bound": {
+        "current_validation_matrix_visits": 24,
+        "unique_direction_matrices": 9,
+        "duplicate_cell_check_positions": 391221735
+      },
+      "feasibility": "Can validate each direction pair once with the same positive-energy masks, but would alter which family-specific error is reported first. Candidate3 deliberately keeps these checks unchanged.",
+      "priority": "Preparatory O(n^2) work; not an explanation for all of the roughly minute-long scan."
+    }
+  ],
+  "not_exact_shortcuts": [
+    {
+      "idea": "Reconstruct all-event rho/H from buy/sell rho/H",
+      "why_not": "Kernel normalizes component sums in f64 and then stores separate rho entries as f32. Recombining already-rounded direction rho values changes rounding; H/G maxima, top-K and positive masks are nonlinear.",
+      "source": [
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_gpt/kernel.rs",
+          "line": 242,
+          "evidence": "let numerator = component_sum(&lead, i * n + j, a, b)"
+        },
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_gpt/kernel.rs",
+          "line": 244,
+          "evidence": "*value = (numerator / (energy[a][i] * energy[b][j]).sqrt()) as f32;"
+        }
+      ]
+    },
+    {
+      "idea": "Reuse complete H/G arrays or top-K results across different target directions",
+      "why_not": "p, q, target validity and hence H/G values all depend on c. Only weights share exactly; no general identical score result was found beyond existing same-direction/mirror reuse."
+    }
+  ],
+  "changed_source_files": [
+    "src/yupei_gpt/compute.rs",
+    "src/yupei_gpt/network.rs"
+  ],
+  "test_file": "tests/gpt_shared_rho_exact.py",
+  "test_result": "results/speed/gpt_shared_rho_exact.json",
+  "v2_backups": [
+    "frozen/candidate2_src/src/yupei_gpt/compute.rs",
+    "frozen/candidate2_src/src/yupei_gpt/network.rs"
+  ]
+}

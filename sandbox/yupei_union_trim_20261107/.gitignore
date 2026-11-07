@@ -10,3 +10,7 @@
 /tests/bin/
 /results/speed/*.npy
 /results/speed/*.log
+/results/speed/*.reserved
+/results/speed/.acceptance_queue.lock
+/results/speed/acceptance_queue.stop
+/results/speed/acceptance_queue.tmp

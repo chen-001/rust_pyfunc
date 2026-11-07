@@ -1,0 +1,12 @@
+{
+  "exit_code": 0,
+  "profile": "release-fast",
+  "build_elapsed_literal": "1m 45s",
+  "evidence": "build_speed3.log",
+  "module_sha256": "a4b504e261dd5da5f98607259fb046ace908e7971e879f53f1071c1e7d23a759",
+  "new_opt_in_switches": [
+    "YUPEI_TOPK100_WIDE_FIRST",
+    "YUPEI_GPT_SHARE_RHO"
+  ],
+  "default": "both off; GPT batch defaults all"
+}

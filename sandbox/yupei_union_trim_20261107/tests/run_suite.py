@@ -14,8 +14,11 @@ OUT.mkdir(parents=True, exist_ok=True)
 for task in sys.argv[1:]:
     variant, date, repeat = task.split(":")
     prefix = f"{variant}_{date}_r{repeat}"
-    if (OUT / f"{prefix}.json").exists():
-        raise RuntimeError(f"Refusing to overwrite completed run {prefix}")
+    if any(OUT.glob(f"{prefix}.*")):
+        raise RuntimeError(f"Refusing to overwrite an existing run or reservation {prefix}")
+    # Exclusive creation prevents two suites from choosing the same prefix.
+    with (OUT / f"{prefix}.reserved").open("x") as reservation:
+        reservation.write(json.dumps({"pid": os.getpid(), "created_at": time.time()}))
     validation_only = os.environ.get("YUPEI_VALIDATE_ONLY") == "1"
     while os.getloadavg()[0] > 50 and not validation_only:
         print(json.dumps({"event": "waiting_load", "task": task,
@@ -66,5 +69,9 @@ for task in sys.argv[1:]:
         command = [PYTHON, "-I", str(ROOT / "tests/check_speed.py"), "compare",
                    f"base_{date}_r1", prefix]
         result = subprocess.run(command)
+        status["comparison_exit_code"] = result.returncode
+        status["compute_exit_code"] = status["exit_code"]
+        status["exit_code"] = result.returncode
+        (OUT / f"{prefix}.status.json").write_text(json.dumps(status, indent=2) + "\n")
         if result.returncode:
             sys.exit(result.returncode)

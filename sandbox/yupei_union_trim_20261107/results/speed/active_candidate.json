@@ -1,0 +1,16 @@
+{
+  "active_sandbox": "candidate2",
+  "module_sha256": "b7c4fbafd8f934d4db82d5ff8d812aaf3b2202a5447d2073bcfda4b8849100d9",
+  "source_manifest": "candidate2_sources.json",
+  "build_patch": "speed.patch",
+  "correctness_dates": [
+    20160104,
+    20180102,
+    20241231
+  ],
+  "correctness": "All stocks, all 18758 columns bitwise equal to frozen baseline.",
+  "candidate3": "Three dates bitwise equal with SHARE_RHO=1 and TOPK100_WIDE_FIRST=1; speed unmeasured, preserved separately and not selected as current source.",
+  "candidate3_source_copy": "frozen/candidate3_src/src",
+  "candidate3_patch": "candidate3_speed.patch",
+  "speed_status": "Awaiting stable low load; no overall speedup or budget claim."
+}

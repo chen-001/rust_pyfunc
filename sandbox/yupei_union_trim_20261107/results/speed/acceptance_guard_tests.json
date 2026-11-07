@@ -1,0 +1,5 @@
+{
+  "scope": "Only refusal paths exercised; no factor computation",
+  "single_instance_lock_refuses_without_state_change": true,
+  "existing_run_refused_without_log_overwrite": true
+}

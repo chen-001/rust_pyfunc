@@ -1,0 +1,7 @@
+{
+  "patch_exit_code": 0,
+  "changed_file_count": 11,
+  "all_changed_files_sha256_exact": true,
+  "source": "candidate3_speed.patch",
+  "scope": "Reconstruct candidate3 from the frozen trimmed sources; does not validate speed or complete outputs."
+}

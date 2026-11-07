@@ -1,0 +1,159 @@
+{
+  "status": "pending_not_started_waiting_stopped_by_parent",
+  "performance_runs_executed": 0,
+  "active_performance_subprocesses": false,
+  "active_load_observers": false,
+  "external_blocker": {
+    "parent_pid": 2813409,
+    "description": "Parent independently verified an external 400-thread factor task covering 20150105 through 20261023. No external task was modified or stopped.",
+    "last_observed_load1": 276.197265625
+  },
+  "preconditions_verified": {
+    "v3_20180102_exit_code": 0,
+    "v3_20180102_full_output_bits_equal": true,
+    "v3_20241231_exit_code": 0,
+    "v3_20241231_shape": [
+      5107,
+      18758
+    ],
+    "v3_20241231_full_output_bits_equal": true,
+    "frozen_v3_module_sha256_previously_verified": "a4b504e261dd5da5f98607259fb046ace908e7971e879f53f1071c1e7d23a759"
+  },
+  "benchmark_scope": {
+    "function": "py_yupei_gpt",
+    "date": 20241231,
+    "stocks": 5107,
+    "columns": 491,
+    "threads": 50,
+    "first_stage": "One run per setting only for screening, not a stable performance claim"
+  },
+  "planned_commands": [
+    {
+      "setting": "all families, share off",
+      "command": [
+        "/home/chenzongwei/.conda/envs/chenzongwei311/bin/python",
+        "-I",
+        "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/tests/gpt_family_bench.py",
+        "ab_v3_all_off_r1",
+        "--date",
+        "20241231",
+        "--batch",
+        "all",
+        "--share-rho",
+        "off",
+        "--expected-module-sha256",
+        "a4b504e261dd5da5f98607259fb046ace908e7971e879f53f1071c1e7d23a759",
+        "--package-root",
+        "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/frozen/variants/v3/package",
+        "--source-manifest",
+        "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/results/speed/candidate3_sources.json"
+      ],
+      "comparison": "This establishes the numerical all/off reference."
+    },
+    {
+      "setting": "batch 1, share off",
+      "command": [
+        "/home/chenzongwei/.conda/envs/chenzongwei311/bin/python",
+        "-I",
+        "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/tests/gpt_family_bench.py",
+        "ab_v3_batch1_off_r1",
+        "--date",
+        "20241231",
+        "--batch",
+        "1",
+        "--share-rho",
+        "off",
+        "--expected-module-sha256",
+        "a4b504e261dd5da5f98607259fb046ace908e7971e879f53f1071c1e7d23a759",
+        "--baseline",
+        "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/results/speed/gpt_ab_v3_all_off_r1_20241231.json",
+        "--package-root",
+        "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/frozen/variants/v3/package",
+        "--source-manifest",
+        "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/results/speed/candidate3_sources.json"
+      ]
+    },
+    {
+      "setting": "all families, share on",
+      "command": [
+        "/home/chenzongwei/.conda/envs/chenzongwei311/bin/python",
+        "-I",
+        "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/tests/gpt_family_bench.py",
+        "ab_v3_all_on_r1",
+        "--date",
+        "20241231",
+        "--batch",
+        "all",
+        "--share-rho",
+        "on",
+        "--expected-module-sha256",
+        "a4b504e261dd5da5f98607259fb046ace908e7971e879f53f1071c1e7d23a759",
+        "--baseline",
+        "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/results/speed/gpt_ab_v3_all_off_r1_20241231.json",
+        "--package-root",
+        "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/frozen/variants/v3/package",
+        "--source-manifest",
+        "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/results/speed/candidate3_sources.json"
+      ]
+    }
+  ],
+  "conditional_fourth": {
+    "setting": "batch 1, share on",
+    "condition": "Only if the preceding results justify testing the combination. Do not continue a parameter sweep when improvement is absent or minor.",
+    "command": [
+      "/home/chenzongwei/.conda/envs/chenzongwei311/bin/python",
+      "-I",
+      "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/tests/gpt_family_bench.py",
+      "ab_v3_batch1_on_r1",
+      "--date",
+      "20241231",
+      "--batch",
+      "1",
+      "--share-rho",
+      "on",
+      "--expected-module-sha256",
+      "a4b504e261dd5da5f98607259fb046ace908e7971e879f53f1071c1e7d23a759",
+      "--baseline",
+      "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/results/speed/gpt_ab_v3_all_off_r1_20241231.json",
+      "--package-root",
+      "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/frozen/variants/v3/package",
+      "--source-manifest",
+      "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/results/speed/candidate3_sources.json"
+    ]
+  },
+  "gates": [
+    "Start only when load1<=50; benchmark enforces it both before import and immediately before the call.",
+    "No concurrent task-owned performance calculation or library rebuild; verify requested module SHA.",
+    "Independent observer records load every 10 seconds; any sampled value>100 marks performance invalid.",
+    "Compare each candidate with all/off: stock order, names/order, shape, NaN positions, and defined f32 bit patterns.",
+    "Never overwrite existing output tags. Failed or invalid runs need a new tag before retry.",
+    "A one-run improvement is screening evidence only. At least three admissible repetitions and first-run/min/median accounting are needed before a stable speed claim."
+  ],
+  "script_changes": [
+    "Added --share-rho on/off and explicit environment reset; all A/B settings use 50 Rayon threads.",
+    "Added --expected-module-sha256 and recorded module SHA, GPT source hashes/mtimes, library path and mtime.",
+    "Added a lightweight separate load observer because the extension may hold the Python GIL; the observer creates no factor worker thread.",
+    "Recorded load samples/max and performance-validity flag; numeric outputs are still saved if performance is invalid.",
+    "Enforced 5107 stocks on 20241231 and all 491 GPT columns; preserved exact whole-output comparison and max differences.",
+    "Default and planned commands now import frozen candidate3 package; changed source hashes are verified against candidate3_sources.json, unchanged sources resolve to frozen/src, and backup mtimes are not used for consistency checks."
+  ],
+  "script_validation": {
+    "previous_version_py_compile_exit_code": 0,
+    "script_sha256": "a6f235373b05fdf460e7c2f54f00a4ead7d1cd445e05c9d198274aa4498c3651",
+    "shared_rho_script_sha256": "2b3b96165a245682db7695024baefda112c186186b3662935f2edce0e9736a7e",
+    "execution_after_source_routing_patch": false,
+    "note": "Per parent request only scripts and pending-plan metadata were edited; no calculation, standalone Rust test, library build, or performance benchmark ran."
+  },
+  "recommendation": "Keep both scheduling and shared-input changes opt-in for now. Three-day equality supports numerical safety, but no admissible scheduling/sharing A/B timing has been run, so do not enable them by default or claim a speed benefit yet.",
+  "driver_written": false,
+  "artifact_provenance": {
+    "experimental_package_root": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/frozen/variants/v3/package",
+    "experimental_module_sha256": "a4b504e261dd5da5f98607259fb046ace908e7971e879f53f1071c1e7d23a759",
+    "source_manifest": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/results/speed/candidate3_sources.json",
+    "changed_source_root": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/frozen/candidate3_src",
+    "unchanged_source_root": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/frozen",
+    "selection_rule": "Files listed in candidate3_sources.json come from frozen/candidate3_src/<path>; other GPT files come from frozen/<path>. Changed sources must match saved SHA256.",
+    "current_sandbox_role": "candidate2 delivery snapshot; experiment scripts never import its package or inspect its current src",
+    "mtime_used_for_provenance": false
+  }
+}

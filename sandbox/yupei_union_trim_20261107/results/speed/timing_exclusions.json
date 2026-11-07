@@ -27,5 +27,13 @@
   "v3_20160104_r1": {
     "exclude_from_timing_summary": true,
     "reason": "Validation only under external machine load; not a speed benchmark."
+  },
+  "v3_20180102_r1": {
+    "exclude_from_timing_summary": true,
+    "reason": "Validation only under external machine load; not a speed benchmark."
+  },
+  "v3_20241231_r1": {
+    "exclude_from_timing_summary": true,
+    "reason": "Validation only under external machine load; not a speed benchmark."
   }
 }

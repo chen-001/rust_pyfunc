@@ -1,0 +1,350 @@
+{
+  "schema": "shared_input_feasibility_v1",
+  "decision": "do_not_implement_cross_module_parse_refactor_in_this_round",
+  "status": "read_only_source_analysis_complete; no production edits, builds, or performance tests performed for this analysis",
+  "fixed_contract": {
+    "factor_columns": 18758,
+    "threads": 50,
+    "requirement": "preserve existing outputs, filtering, time handling, numeric precision, ordering, missing-value and error semantics"
+  },
+  "summary": {
+    "feasible": "One file-byte read can feed three independent consumer rules within each stock task, yielding StockPrep, GPT Stock, and multi CarrierCells. Release that stock’s raw bytes and temporary records before the task ends; retain only prepared outputs across the market.",
+    "not_equivalent": "A single canonical cleaned TradeRecord stream is not interchangeable across all three modules. Existing TradeRecord loses GPT-required f64 values, raw timestamp, and index, while row predicates and error handling differ.",
+    "recommendation": "Do not implement now. The low-load frozen 20241231 baseline provides only an 11.277357246-second loose elimination ceiling for the two duplicate stages, and actual savings would be lower because GPT aggregation and metadata work remain. Current source and logs do not establish a worthwhile speedup for the larger compatibility-sensitive change."
+  },
+  "measured_log_evidence": {
+    "definition": "Numbers below are existing logged wall times, not new runs. GPT read_and_aggregate includes metadata, read, parsing, event aggregation and minute-price aggregation. Multi read includes universe enumeration and light-reader work, but excludes cells. Stages execute sequentially in union.",
+    "records": [
+      {
+        "variant": "base",
+        "date": 20241231,
+        "gpt_read_and_aggregate_seconds": 7.674076246,
+        "multi_read_seconds": 3.603281,
+        "multi_cells_seconds": 0.333248,
+        "start_load1": 2.693359375,
+        "refs": [
+          {
+            "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/results/speed/base_20241231_r1.log",
+            "line": 1
+          },
+          {
+            "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/results/speed/base_20241231_r1.log",
+            "line": 43
+          },
+          {
+            "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/results/speed/base_20241231_r1.log",
+            "line": 62
+          },
+          {
+            "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/results/speed/base_20241231_r1.log",
+            "line": 65
+          }
+        ]
+      },
+      {
+        "variant": "base",
+        "date": 20160104,
+        "gpt_read_and_aggregate_seconds": 8.501508119,
+        "multi_read_seconds": 0.840591,
+        "refs": [
+          {
+            "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/results/speed/base_20160104_r1.log",
+            "line": 43
+          },
+          {
+            "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/results/speed/base_20160104_r1.log",
+            "line": 62
+          }
+        ]
+      },
+      {
+        "variant": "base",
+        "date": 20180102,
+        "gpt_read_and_aggregate_seconds": 5.70908306,
+        "multi_read_seconds": 0.639841,
+        "refs": [
+          {
+            "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/results/speed/base_20180102_r1.log",
+            "line": 43
+          },
+          {
+            "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/results/speed/base_20180102_r1.log",
+            "line": 62
+          }
+        ]
+      },
+      {
+        "variant": "v2",
+        "date": 20241231,
+        "gpt_read_and_aggregate_seconds": 8.918673445,
+        "multi_read_seconds": 19.379711,
+        "multi_cells_seconds": 0.376641,
+        "refs": [
+          {
+            "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/results/speed/v2_20241231_r1.log",
+            "line": 57
+          },
+          {
+            "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/results/speed/v2_20241231_r1.log",
+            "line": 261
+          },
+          {
+            "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/results/speed/v2_20241231_r1.log",
+            "line": 264
+          }
+        ]
+      }
+    ]
+  },
+  "derived_ceiling_not_measured_speedup": {
+    "date": 20241231,
+    "reference": "base_20241231_r1",
+    "formula": "logged GPT read_and_aggregate + logged multi read",
+    "seconds": 11.277357246000001,
+    "meaning": "A loose stage-elimination ceiling under unchanged costs elsewhere, pretending both complete stages vanish at zero additional cost. This is arithmetic over measurements, not an achieved or predicted speedup and not a rigorous machine-wide timing bound.",
+    "why_actual_savings_lower": [
+      "GPT strict metadata validation, event aggregation, amount sums, minute open/close arbitration and returns still have to run.",
+      "Multi parsing can share fast-compatible fields, but its carrier construction still has to run; measured multi cells are not included in the elimination ceiling.",
+      "Branch-specific parsing and validation remain necessary; common tokenization does not make fast decimal conversion and standard f64 parsing equivalent.",
+      "Prepared GPT and multi outputs live earlier and longer alongside lite matrices, potentially increasing memory pressure."
+    ],
+    "v2_same_stage_sum_seconds": 28.298384445,
+    "cross_run_caution": "Stage times vary greatly across existing runs. Do not attribute the v2-to-base difference to this unimplemented idea or use a high-load run as a speedup estimate.",
+    "unknown": [
+      "Pure disk-read versus tokenization versus numeric-parsing shares are not separately logged.",
+      "Actual fused-input wall time and memory peak are unknown.",
+      "No speedup has been measured for this proposal."
+    ]
+  },
+  "source_derived_findings": [
+    {
+      "topic": "Current read count and stage order",
+      "finding": "Union prepares lite/split once, runs GPT with its own loader, then split, then multi with its own light loader. Under identical resolved paths there are three file-input passes. Component code lists are finally unioned by stock code with NaN padding; they need not be equal.",
+      "refs": [
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_union_all.rs",
+          "line": 136
+        },
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_union_all.rs",
+          "line": 168
+        },
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_union_all.rs",
+          "line": 205
+        },
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_union_all.rs",
+          "line": 285
+        }
+      ]
+    },
+    {
+      "topic": "Lost precision and fields",
+      "finding": "TradeRecord stores price, volume and turnover as f32 and only adjusted time_us, without input index. GPT uses standard f64 price/turnover parsing, raw timestamp and finite f64 index for lexicographic minute open/close selection. Reconstructing GPT Stock from TradeRecord cannot generally preserve values. Fast manual decimal conversion also is not proven bit-equivalent to standard f64 parsing, so parse once as f64 then cast is unsafe for the original fast path.",
+      "refs": [
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/fast_csv_reader.rs",
+          "line": 148
+        },
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/fast_csv_reader.rs",
+          "line": 230
+        },
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/fast_csv_reader.rs",
+          "line": 304
+        },
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_gpt/input.rs",
+          "line": 292
+        },
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_gpt/input.rs",
+          "line": 312
+        },
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_gpt/input.rs",
+          "line": 329
+        }
+      ]
+    },
+    {
+      "topic": "Time semantics",
+      "finding": "Fast readers accept whole seconds through 11:30:00 and 14:57:00 inclusive and compress the afternoon by 90 minutes. Dist/multi then filter bucket offsets into [0,14220s), removing the final close bucket but retaining the 11:30 boundary. GPT uses half-open morning [09:30,11:30) and afternoon [13:00,14:57), keeps lunch spacing in event slot, and explicitly validates timestamp local date. Do not globally filter or globally adjust before dispatching consumers.",
+      "refs": [
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/fast_csv_reader.rs",
+          "line": 304
+        },
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_dist/matrix_stage.rs",
+          "line": 255
+        },
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_multi/mod.rs",
+          "line": 251
+        },
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_gpt/input.rs",
+          "line": 292
+        }
+      ]
+    },
+    {
+      "topic": "Row and symbol filters",
+      "finding": "Full fast reader accepts all flags except 32, exact byte-equal symbol and permissive integer-prefix date parsing; light reader accepts only 66/83 and requires at least 14 commas. GPT accepts only numeric f64 flags exactly 66/83 before checking symbol/date, compares numeric integer symbols (allowing missing leading zeroes), requires standard integer date, and reports malformed/symbol/timestamp errors. A short row accepted by full reader may be rejected by light reader or error in GPT.",
+      "refs": [
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/fast_csv_reader.rs",
+          "line": 119
+        },
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/fast_csv_reader.rs",
+          "line": 230
+        },
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/fast_csv_reader.rs",
+          "line": 1368
+        },
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_gpt/input.rs",
+          "line": 250
+        }
+      ]
+    },
+    {
+      "topic": "Ordering and counts",
+      "finding": "Dist order-ID statistics, sliding volume baseline and first/last prices depend on raw file order. Multi order-group weighted sums depend on raw order and stable bucket sorts; preserve sorted order-ID traversal. GPT amount and minute sums use raw file order, then sorts event slots and chooses minute open/close by (timestamp,index). Multi n_trades is the count returned by light reader before bucket trimming, or NaN on read failure; it cannot be replaced with dist kept count or GPT buy+sell count.",
+      "refs": [
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_dist/matrix_stage.rs",
+          "line": 191
+        },
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_dist/matrix_stage.rs",
+          "line": 306
+        },
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_multi/mod.rs",
+          "line": 251
+        },
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_multi/mod.rs",
+          "line": 930
+        },
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_gpt/input.rs",
+          "line": 317
+        }
+      ]
+    },
+    {
+      "topic": "Universes and file resolution",
+      "finding": "Dist/multi enumerate any filename with a six-digit stock prefix under the first root, use a cached permissive whitelist (fallback to six-digit codes if missing), and resolve expected transaction filename with optional second-root fallback. GPT strictly validates symbol,pos and calendar, requires the exact filename suffix under only its configured first root, and has independent tasks and manifest. Share byte buffers only for identical resolved files; preserve separate sorted code lists and original union alignment.",
+      "refs": [
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/data_paths.rs",
+          "line": 164
+        },
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/data_paths.rs",
+          "line": 210
+        },
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/data_paths.rs",
+          "line": 252
+        },
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/fast_csv_reader.rs",
+          "line": 96
+        },
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_gpt/input.rs",
+          "line": 70
+        },
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_gpt/input.rs",
+          "line": 162
+        },
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_gpt/input.rs",
+          "line": 379
+        }
+      ]
+    },
+    {
+      "topic": "Missing files, invalid UTF-8 and errors",
+      "finding": "Dist converts reader errors to empty StockPrep. Multi converts reader errors to None and n_trades NaN; its >=1 MB mmap path parses bytes without requiring valid UTF-8. Dist calls full reader with usize::MAX and therefore uses read_to_string for realistic files. GPT uses read_to_string, strict headers and validation, and propagates a stock error to the entire GPT stage. A common early failure/empty-row policy changes semantics. GPT permits a final short row but errors on earlier short rows. Its skipped_foreign_date/any_row variables do not cause an all-foreign-date rejection in the current implementation, despite the comment.",
+      "refs": [
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_dist/compute.rs",
+          "line": 104
+        },
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/fast_csv_reader.rs",
+          "line": 372
+        },
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/fast_csv_reader.rs",
+          "line": 1422
+        },
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_multi/mod.rs",
+          "line": 918
+        },
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_gpt/input.rs",
+          "line": 214
+        },
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_gpt/input.rs",
+          "line": 263
+        },
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_gpt/input.rs",
+          "line": 343
+        }
+      ]
+    },
+    {
+      "topic": "Industry cannot be unified implicitly",
+      "finding": "Dist/multi use basic_info symbol positions, latest industry date <= requested date and f64-to-i16 conversion with only NaN mapped to -1. GPT uses SzBa own symbol axis, exact date, strict axis validation and finite 1..31 values else -1. Retain both industry loaders and GPT manifest/config hashes.",
+      "refs": [
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_dist/industry.rs",
+          "line": 38
+        },
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_dist/industry.rs",
+          "line": 79
+        },
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_dist/industry.rs",
+          "line": 121
+        },
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_gpt/input.rs",
+          "line": 125
+        },
+        {
+          "path": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/src/yupei_gpt/input.rs",
+          "line": 392
+        }
+      ]
+    }
+  ],
+  "minimal_feasible_design_not_implemented": [
+    "Lowest-risk first step would add byte-buffer parsing adapters around the existing three parsers and prepared-input compute entrypoints. One stock file is read into bytes once, parsed by the original three rules, and discarded. This saves repeated file I/O without claiming a single semantic parse.",
+    "A further one-tokenization implementation would scan original rows once into borrowed field slices and dispatch to separate fast-full, fast-light and GPT predicates/converters. Keep row number, header status, final-line status, comma count, original bytes and original order available; do not create one shared filtered record list.",
+    "Per stock, build original full-reader temporary records for unchanged dist prep; independent light-valid records or a carrier accumulator for multi; independent GPT events/minute aggregates. Finalize StockPrep, CarrierCells and GPT Stock, retain multi raw-reader count/failure marker, then drop raw bytes and temporary records. Dist depends on whole-stock mean/std and quantile, so eliminating all per-stock temporary storage would be a separate algorithm change.",
+    "Prepare independent metadata/task plans, combine only identical resolved file tasks, and preserve separate code universes, manifests, industry rules and snapshot behavior. Keep stored component errors and release them at their original union stage if stage error precedence must remain unchanged.",
+    "Keep the existing 50-thread pool and sequential matrix/network stages. New prepared inputs extend lifetimes; measure memory before adopting. Exact compatibility for a source changing between the former three reads is impossible for a one-read design; immutability of inputs during a call is required."
+  ],
+  "scope_for_simpler_future_change": "Multi alone can transform read -> count plus build_all_cells -> drop raw inside each stock task, retaining carrier cells rather than the current whole-market raw Vec. This is primarily a memory-lifetime improvement and does not establish a runtime win; not implemented or benchmarked.",
+  "validation_required_if_revisited": [
+    "Per-consumer raw/prepared parity for malformed, non-UTF8, boundary-time, foreign-date, missing-leading-zero symbol, unknown flag, short-final-line and failed-read cases.",
+    "Bitwise comparison of all prepared numeric fields including raw-count NaNs and minute price tie arbitration.",
+    "Three complete trading-day output comparisons with the frozen 18758-column baseline, plus idle-load repeated end-to-end timing."
+  ]
+}

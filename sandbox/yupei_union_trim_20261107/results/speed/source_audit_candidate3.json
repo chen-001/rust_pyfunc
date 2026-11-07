@@ -1,0 +1,117 @@
+{
+  "created_at": "2026-11-07T16:29:53.439042+08:00",
+  "scope": "candidate3 pair Top100 wider-first threshold and GPT shared clean-rho; candidate2 common changes reviewed separately",
+  "method": "Read-only source/patch review and reading existing test artifacts. No library build, market calculation or performance benchmark executed by this audit.",
+  "reviewed_source_sha256": {
+    "src/yupei_gpt/compute.rs": "fac93a3fc06e93dfd5135e0c79840305162d5973df945a7104bf9640177b65e8",
+    "src/yupei_gpt/network.rs": "cdfc949e4a7345ef3002adf960b9ec266810537fba019cf0f33401f0c3dd0bf3",
+    "src/yupei_gpt/network_simd.rs": "ce85ecacbae65bd045712d9d1faeea44916b72bb8aa49e30450b9762aaf437c9",
+    "src/yupei_pair/simd.rs": "449e0423f8a33221934fe74b26d249241cc66ec56d41adc78efd51feb6dd5378",
+    "src/yupei_pair/net.rs": "2d7637e428e347ea38fe1a7ee137cacd85f7f2b160be713d0ba93fc05ee65daf",
+    "src/yupei_pair/reduce2.rs": "d46a01b1ab8d61b87a78260c71072d56ef8364f5795c263fc709a7eaf72d789b",
+    "src/yupei_pair/split.rs": "95e6ff7489bfe434e48da653b6a8ced83047a585790afaf917306255fc575c6e",
+    "src/yupei_pair/reduce.rs": "9a9e8fe6ea0cd7c976d67776b4f650108929eb5155e19e94b01bea5eaaa87246",
+    "src/yupei_pair/exact_quantile.rs": "91c387419051cfb59390f037aefccd8b6463bf5c65fd3933d754977a5c8439d5",
+    "src/yupei_pair/bitonic_sort.rs": "f4c439084f355b96ea9020f10500c87db0534e65f412cf75266eda4fbcc4382b"
+  },
+  "evidence_files": [
+    "candidate3_pair.patch",
+    "results/speed/candidate2_sources.json",
+    "frozen/candidate2_src/yupei_gpt/compute.rs",
+    "frozen/candidate2_src/yupei_gpt/network.rs",
+    "results/speed/pair_topk_candidate3_tests.json",
+    "results/speed/gpt_shared_rho_exact.json",
+    "results/speed/pair_bitset_tests.json"
+  ],
+  "conclusion": {
+    "type": "source inference plus limited local test evidence",
+    "semantic_counterexample_found": false,
+    "all_possible_inputs_exhaustively_tested": false,
+    "candidate3_full_output_equivalence": "未测；不得由局部测试或v2产物代替",
+    "candidate3_performance": "未测；禁止宣布提速或预算达标"
+  },
+  "candidate3_pair": {
+    "switch": "YUPEI_TOPK100_WIDE_FIRST=1; default off",
+    "equivalence_reason": "Only Top100 changes first sampled complete-u64 threshold from t1 to t2. Any collected prefix with at least take keys contains the global top-take. Selection and final full-key sort remain exact; insufficient candidates fall back to all packed keys.",
+    "ties_and_nonfinite": "collect_packed_prefix unchanged: complete score/index keys decide ties; NaN payloads are explicitly packed and compared; nonfinite threshold samples use complete-key collection. Signed zero and quantization retain original fkey rules.",
+    "default_semantics": "Absent wide-first switch retains original two-threshold path and fallback; diagnostics absent calls the ordinary selector. Source reasoning supports equal outputs; newly compiled whole-output regression remains required.",
+    "diagnostics": "TopkSelectionDiag belongs to each fixed work block, not a shared counter. Indexed parallel collection followed by integer addition; no shared atomics and no floating-point merge reordering.",
+    "counter_meaning": "calls includes all diagnosed selector invocations. full_key_fallbacks counts insufficient sampled prefixes only, not normal direct-full-key mode when high-first is disabled.",
+    "default_overhead_unknown": "Not zero source overhead: Top100 reads cached OnceLock and branches; net checks diagnostics per selected pair and carries a 64-byte local counter per block. DIAG=false eliminates counter updates, but measured overhead is unknown.",
+    "process_setting": "Set switches before a fresh process starts; OnceLock settings are cached. Do not use late environment mutation for an A/B comparison."
+  },
+  "candidate3_gpt": {
+    "switch": "YUPEI_GPT_SHARE_RHO=1; default off",
+    "equivalence_reason": "Shared nine direction matrices apply exactly the former per-family finite-or-positive-zero transformation; p/q select a*3+c and b*3+c, with p reused when a==b. Original-rho validation, masks, energy, rbc, pair scans, fixed blocks and Acc merge order remain unchanged.",
+    "ownership": "SharedRho borrows the original Kernel and owns its cleaned vectors. Matrix views borrow that owner; matches rejects a different Kernel object. Synchronous parallel work finishes before owner drop. No added raw pointers or mutable shared cache.",
+    "default_semantics": "Switch absent retains per-family clean copies; extra Option dispatch does not change inputs or arithmetic.",
+    "unmeasured_costs": "Sequential nine-matrix preparation cost and cache/bandwidth benefits are unknown. With small family_batch, nine persistent matrices can use more memory than one/two family-local copies. Calculated bytes are not measured RSS or saved seconds."
+  },
+  "candidate2_common": {
+    "r4_bitset": "Row-start and row-end masks isolate exactly the original n bits, including dirty shared words and diagonal. Intersection/union are integers; configured-k denominator, inactive-row NaN and empty-union NaN remain unchanged.",
+    "split_shared_r2_r3": "Cache keyed by direction pair. e/rho use the identical original f32 sdir round trip, mask e_a>0, and same existing routines. Network-dependent G/GS/Z/ZS outputs are still chain-specific.",
+    "exact_quantiles": "Only finite source values enter. Rank selection has no new arithmetic; negative zero requests original sort before mutation. Original downstream accumulation order retained.",
+    "small_sort": "Complete u64 ordering, sentinel padding removed before return. Default network applies only length100, with monotone guard; length20 stays original sort. Existing length500 remains covered by regression.",
+    "gpt_topk_and_stats": "Removed unused accumulators do not feed retained outputs. H winner uses minimum complete key; selected H/G sets affect integer counts only; mass updates preserve traversal order.",
+    "family_batch": "Default recorded v2 schedule is families=12,batch=12. Positive optional batch groups independent indexed family work and preserves result order. Non-default scheduling lacks full-output measured proof.",
+    "preexisting_switches": "YUPEI_NET_MIRROR and YUPEI_MATRIX_TWO_TARGET both exist in frozen/src; they are not candidate3 changes."
+  },
+  "measured_evidence": {
+    "pair_topk": "Existing JSON records three fresh-process switch combinations, each exit0 with2 tests passed. Covers boundaries, equal-score ties, NaN payloads, infinities, signed zero and forced sampled-threshold fallback. No performance run.",
+    "gpt_shared_rho": "Existing JSON:6 sizes x12 families, input_bits_equal=true, wrong-kernel and Send+Sync checks. Expected dangling/mutation compiler rejections E0515/E0502. These prove helper/input properties, not final factor outputs.",
+    "pair_bitset": "Existing JSON:2 tests passed; covers n0/1 and unaligned word boundaries, diagonal, dirty padding, inactive masks and truncated degree with original denominator. Microbenchmark ignored/deferred due load.",
+    "thread_logs": "v2_20160104_r1.log records lite threads=50, GPT rayon_threads=50, multi thread_count=50."
+  },
+  "thread_limit": {
+    "measured_scope": "Only the current fresh-process harness establishes 50: RAYON_NUM_THREADS=50 before import, actual stage logs confirm it.",
+    "source_finding": "Added Rayon work uses existing pool; no new pool introduced in candidates. Existing with_compute_pool default MAX_THREADS remains200 when environment variable absent.",
+    "limitation": "Direct arbitrary calls or setting RAYON_NUM_THREADS after an already initialized global pool do not guarantee50. This audit does not claim universal fixed50 API behavior."
+  },
+  "v2_measured_coverage": [
+    {
+      "left": "base_20160104_r1",
+      "right": "v2_20160104_r1",
+      "shape": [
+        2543,
+        18758
+      ],
+      "names_exact": true,
+      "codes_exact": true,
+      "nan_exact": true,
+      "array_equal_nan": true,
+      "bits_equal": true,
+      "max_abs_diff": 0.0,
+      "max_rel_diff": 0.0
+    },
+    {
+      "left": "base_20180102_r1",
+      "right": "v2_20180102_r1",
+      "shape": [
+        3248,
+        18758
+      ],
+      "names_exact": true,
+      "codes_exact": true,
+      "nan_exact": true,
+      "array_equal_nan": true,
+      "bits_equal": true,
+      "max_abs_diff": 0.0,
+      "max_rel_diff": 0.0
+    }
+  ],
+  "remaining_validation": [
+    "candidate3 newly built default-off full outputs versus frozen v2/base",
+    "candidate3 switches on: all18758 columns, names/codes/NaN/full bits across three full-market dates including20241231",
+    "non-default family batch requires its own setting-specific output proof if adopted",
+    "at least3 eligible fresh-process 20241231 timings per adopted module+settings; validation-only and overloaded runs excluded",
+    "candidate3 diagnostic counters useful to choose threshold, but diagnostic-enabled timing must not mix with disabled mode"
+  ],
+  "report_changes": {
+    "validation_only": "Always excluded from timing summary, independent of load/exclusion file",
+    "identity": "variant+module_sha256+calculation experiment_settings for performance and three-date coverage",
+    "legacy_settings": "Missing experiment_settings treated as default{} and visibly annotated",
+    "operational_settings": "YUPEI_STAGE/YUPEI_VALIDATE_ONLY/YUPEI_VERBOSE/YUPEI_GPT_VERBOSE excluded from grouping; performance-affecting diagnostic switches retained",
+    "load": "status max_load1>100 excluded, load samples retained",
+    "filename": "compare_*.json explicitly excluded from run discovery"
+  }
+}
