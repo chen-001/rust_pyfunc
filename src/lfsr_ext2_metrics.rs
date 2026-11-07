@@ -1114,11 +1114,12 @@ pub fn compute_lfsr_ext2_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f3
         })
         .collect();
     let valid = parts.iter().filter(|p| p.is_some()).count();
+    // 整日一只都算不出来（典型是 2016-01-07 那种只有十几分钟交易的熔断日）：
+    // 仍然发全 universe 的 NaN 行，绝不返回空 batch —— 空的结果会被父进程判成
+    // 「这一天没完成」而让整次提交失败，而这一天本来就应该有行、只是全为空值。
     if valid == 0 {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            format!("{date} 没有任何一只股票同时有可用的逐笔与盘口"),
-        ));
+        eprintln!("lfsr_ext2 {date}: 整日无有效股票（多半是熔断日），发 {nr} 行全 NaN");
+        return Ok((codes, vec![f32::NAN; nr * OUT_LEN]));
     }
     // ② 全市场门槛：只用有效股票的观测
     let mut h = vec![vec![0u64; NB]; NV];
