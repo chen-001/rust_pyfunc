@@ -475,6 +475,21 @@ pub fn pipeline_anneal_order_profile_v2(
     vals
 }
 
+/// 柜员游戏扩展系列1 新版（44832 列）：微秒时间切分 + 打乱对照超额 + 30 秒分辨率 + 全天/下午/尾盘30分钟三段。
+pub fn pipeline_anneal_regime_excess(
+    date: i64,
+    code: &str,
+    _trading_days: &[i64],
+    expected_len: usize,
+) -> Vec<f32> {
+    let mut vals = match crate::anneal_regime_excess_metrics::compute_anneal_regime_excess_full(code, date) {
+        Ok(v) => v,
+        Err(_) => return nan_vec(expected_len),
+    };
+    vals.resize(expected_len, f32::NAN);
+    vals
+}
+
 /// 把展平的 Vec<f64> 转为 ndarray::Array2。
 fn slice_to_array2(data: &[f32], rows: usize, cols: usize) -> ndarray::Array2<f32> {
     if rows == 0 || cols == 0 {
@@ -650,6 +665,7 @@ pub fn run_factor_pipeline(
         "anneal_regime_diff",
         "anneal_order_profile",
         "anneal_order_profile_v2",
+        "anneal_regime_excess",
         "hidden_arrange",
         "dagpath",
         "geffe_leak",
@@ -982,6 +998,13 @@ pub fn run_factor_pipeline(
                         )
                     } else if pipeline_name_t == "anneal_order_profile_v2" {
                         pipeline_anneal_order_profile_v2(
+                            date,
+                            &code,
+                            &trading_days,
+                            expected_result_length,
+                        )
+                    } else if pipeline_name_t == "anneal_regime_excess" {
+                        pipeline_anneal_regime_excess(
                             date,
                             &code,
                             &trading_days,
@@ -1919,6 +1942,7 @@ pub fn run_factor_pipeline_v6(
         "anneal_regime_diff",
         "anneal_order_profile",
         "anneal_order_profile_v2",
+        "anneal_regime_excess",
         "dagpath",
     ];
     if !known.contains(&pipeline_name.as_str()) && !pipeline_name.starts_with("okay_") {
