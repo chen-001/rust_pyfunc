@@ -1,0 +1,23 @@
+# 柜员游戏拓展3 修正版沙箱（主项目 Cargo.toml 不引用）。依赖版本与主项目一致。
+[package]
+name = "acp2_sandbox"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "acp2_sandbox"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.18", features = ["extension-module"] }
+numpy = "0.18"
+ndarray = "0.15"
+rayon = "1.8"
+rustc-hash = "1.1"
+memmap2 = "0.9"
+libc = "0.2"
+csv = "1.3"
+
+[profile.release]
+opt-level = 3
+codegen-units = 16

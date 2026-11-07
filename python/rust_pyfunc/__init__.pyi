@@ -1612,6 +1612,9 @@ __all__ = [
     "py_anneal_cross_peer",
     "py_anneal_cross_peer_names",
     "py_anneal_cross_peer_from_data",
+    "py_anneal_cross_peer_v2",
+    "py_anneal_cross_peer_v2_names",
+    "py_anneal_cross_peer_v2_from_data",
 ]
 
 
@@ -1676,6 +1679,25 @@ def py_anneal_cross_peer_from_data(
     trades_list: List[Optional["numpy.ndarray"]],
 ) -> Tuple[List[str], List[float]]:
     """v2 无磁盘依赖入口：传入股票代码列表与逐笔成交数组计算系列3横截面因子。"""
+    ...
+
+
+def py_anneal_cross_peer_v2(date: int) -> Tuple[List[str], List[float]]:
+    """柜员游戏扩展系列3 修正版（单日全市场，每股 55680 维）：微秒时间切分，60 秒与 30 秒两种时间格，
+    全天 / 下午 / 尾盘30分钟 三个时段；算不出来的值为 NaN。"""
+    ...
+
+
+def py_anneal_cross_peer_v2_names() -> List[str]:
+    """返回柜员游戏扩展系列3 修正版全部 55680 个因子名。"""
+    ...
+
+
+def py_anneal_cross_peer_v2_from_data(
+    codes: List[str],
+    trades_list: List[Optional["numpy.ndarray"]],
+) -> Tuple[List[str], List[float]]:
+    """传数据版：trades_list 每项为 read_trade_fast_us(code, date, 0, True) 的 (n, 8) 数组，读不到传 None。"""
     ...
 
 

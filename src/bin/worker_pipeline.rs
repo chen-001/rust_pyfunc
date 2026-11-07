@@ -13,6 +13,7 @@ use rust_pyfunc::backup_reader::TaskResult;
 use rust_pyfunc::factor_pipeline::pipeline_relaynet_six_people;
 use rust_pyfunc::factor_pipeline::{
     ipc_read_result, ipc_read_task, ipc_write, ipc_write_result, pipeline_anneal_cross_peer,
+    pipeline_anneal_cross_peer_v2,
     pipeline_anneal_order_profile, pipeline_anneal_order_profile_v2, pipeline_anneal_regime_diff, pipeline_anneal_volume,
     pipeline_anneal_volume_market, pipeline_cross_section_example, pipeline_dagpath, pipeline_dijkstra, pipeline_distill,
     pipeline_distill_tick, pipeline_drop_event, pipeline_extreme_point_fit,
@@ -263,6 +264,8 @@ fn main() {
                         pipeline_vsld(date, expected_len)
                     } else if pipeline_name == "anneal_cross_peer" {
                         pipeline_anneal_cross_peer(date, expected_len)
+                    } else if pipeline_name == "anneal_cross_peer_v2" {
+                        pipeline_anneal_cross_peer_v2(date, expected_len)
                     } else if let Some(series) = pipeline_name.strip_prefix("okay_") {
                         // hm0~hm92 旧框架因子的 Rust 复现（横截面 / 分钟系列，一次一天全市场）
                         match rust_pyfunc::okay_database::dispatch_cross(series, date) {

@@ -3174,6 +3174,34 @@ pub fn pipeline_multi_factor_capm(date: i64, expected_len: usize) -> Vec<TaskRes
     }
 }
 
+/// 柜员游戏扩展系列3 修正版（anneal_cross_peer_v2，55680 列）：微秒时间切分、60 秒 + 30 秒双尺度、
+/// 全天 / 下午 / 尾盘30 三时段、算不出来输出 NaN、模块 7 真正以模板为退火起点。
+pub fn pipeline_anneal_cross_peer_v2(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    if expected_len != crate::anneal_cross_peer_v2_metrics::N_FACTORS {
+        eprintln!(
+            "anneal_cross_peer_v2 expected_len错误 [{date}]: {expected_len} != {}",
+            crate::anneal_cross_peer_v2_metrics::N_FACTORS
+        );
+        return Vec::new();
+    }
+    match crate::anneal_cross_peer_v2_metrics::compute_anneal_cross_peer_v2_full(date) {
+        Ok((codes, vals)) => vals
+            .chunks(expected_len)
+            .zip(codes.iter())
+            .map(|(facs, code)| TaskResult {
+                date,
+                code: code.clone(),
+                timestamp: 0,
+                facs: facs.to_vec(),
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("anneal_cross_peer_v2 error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
 /// 柜员游戏扩展系列3：全市场横截面联动与同伴可还原性（anneal_cross_peer，11760 列）。
 pub fn pipeline_anneal_cross_peer(date: i64, expected_len: usize) -> Vec<TaskResult> {
     if expected_len != crate::anneal_cross_peer_metrics::N_FACTORS {
@@ -3518,6 +3546,7 @@ pub fn run_factor_pipeline_cross_section(
         "relaynet",
         "orderflow_ctx_v2",
         "anneal_cross_peer",
+        "anneal_cross_peer_v2",
     ];
     if !known.contains(&pipeline_name.as_str()) && !pipeline_name.starts_with("okay_") {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
