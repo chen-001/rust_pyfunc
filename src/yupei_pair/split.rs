@@ -173,14 +173,41 @@ fn compute_split_inner(
     null_mc: usize,
     exz_bins: usize,
 ) -> io::Result<(Vec<String>, Vec<String>, Vec<f32>)> {
-    let t_all = std::time::Instant::now();
-
     // ---- 1. 上游：逐笔预处理（含方向拆分场）+ 行业；need=0 不算 28 张矩阵 ----
     let (codes, n, stocks, stats, _hm, industry) =
         crate::yupei_dist::compute::compute_yupei_dist_partial_need(date, 0)?;
+    drop(_hm);
+    compute_split_from_prep(
+        date, codes, n, &stocks, &stats, &industry, tau, weight, combos, ks, sig, null_mc,
+        exz_bins,
+    )
+}
 
+/// split 的后半段：从「已经读好并预处理过的逐笔」开始算。
+/// 预处理结果与 compute_yupei_dist_partial_need 的返回逐项相同（need 只影响 28 张矩阵，
+/// 不影响 stocks/stats/industry），所以四合一可以把 lite 那份预处理直接传进来，省掉第二次读盘。
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn compute_split_from_prep(
+    date: i64,
+    codes: Vec<String>,
+    n: usize,
+    stocks: &[crate::yupei_dist::matrix_stage::StockPrep],
+    stats: &[crate::yupei_dist::matrix_stage::StockStats],
+    industry: &[i16],
+    tau: f64,
+    weight: PmWeight,
+    combos: &[String],
+    ks: &[usize],
+    sig: SoftCfg,
+    null_mc: usize,
+    exz_bins: usize,
+) -> io::Result<(Vec<String>, Vec<String>, Vec<f32>)> {
+    let t_all = std::time::Instant::now();
     // ---- 2. 四分量矩阵 ----
-    let m4 = compute_split_mats(&stocks, tau as f32, weight);
+    let m4 = compute_split_mats(stocks, tau as f32, weight);
+    if std::env::var("YUPEI_STAGE").is_ok() {
+        eprintln!("[split-stage] m4 {:.2}s", t_all.elapsed().as_secs_f64());
+    }
     if super::verbose() {
         eprintln!(
             "[yupei_split] date={date} n={n} tau={tau} weight={:?} 四分量完成 {:.1}s",

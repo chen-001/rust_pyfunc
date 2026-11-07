@@ -80,8 +80,25 @@ pub fn compute_yupei_union_all(date: i64) -> io::Result<(Vec<String>, Vec<String
     };
 
     // ---- 1. 四段依次算（顺序执行，避免四份大矩阵同时占内存）----
-    let (lite_codes, lite_vals) = crate::yupei_dist::compute::compute_yupei_dist_lite(date, None)
+    // lite 与 split 的上游是同一个函数（读逐笔 + 每股预处理 + 行业），原来各调一次、读两遍盘。
+    // 这里只调一次：28 张矩阵交给 lite，预处理结果（stocks/stats/industry）留给 split。
+    let (lite_codes, n_prep, prep_stocks, prep_stats, prep_hm, prep_industry) =
+        crate::yupei_dist::compute::with_compute_pool(|| {
+            crate::yupei_dist::compute::compute_yupei_dist_partial(date)
+        })
+        .and_then(|r| r)
         .map_err(|e| tag_err("yupei_dist_lite", e))?;
+    let lite_vals = crate::yupei_dist::compute::with_compute_pool(|| {
+        crate::yupei_dist::compute::compute_yupei_dist_lite_from_partial(
+            &lite_codes,
+            n_prep,
+            prep_stats.clone(),
+            prep_hm,
+            prep_industry.clone(),
+        )
+    })
+    .and_then(|r| r)
+    .map_err(|e| tag_err("yupei_dist_lite", e))?;
     let lite = Part {
         tag: "yupei_dist_lite",
         codes: lite_codes,
@@ -105,20 +122,31 @@ pub fn compute_yupei_union_all(date: i64) -> io::Result<(Vec<String>, Vec<String
     };
     log("yupei_gpt");
 
-    let (split_codes, split_names, split_vals) = crate::yupei_pair::split::compute_split_full(
-        date,
-        1.0,
-        crate::yupei_pair::split_mat::PmWeight::Cnt,
-        &[],
-        &SPLIT_KS,
-        crate::yupei_pair::reduce::SoftCfg { temp: 0.3, thr: 2.0 },
-        20000,
-        10,
-    )
+    let (split_codes, split_names, split_vals) = crate::yupei_dist::compute::with_compute_pool(|| {
+        crate::yupei_pair::split::compute_split_from_prep(
+            date,
+            lite.codes.clone(),
+            n_prep,
+            &prep_stocks,
+            &prep_stats,
+            &prep_industry,
+            1.0,
+            crate::yupei_pair::split_mat::PmWeight::Cnt,
+            &[],
+            &SPLIT_KS,
+            crate::yupei_pair::reduce::SoftCfg { temp: 0.3, thr: 2.0 },
+            20000,
+            10,
+        )
+    })
+    .and_then(|r| r)
     .map_err(|e| tag_err("yupei_pair_split", e))?;
+    // 预处理结果用完即释放，避免和 v5 的读盘同时占内存
+    drop(prep_stocks);
     log("yupei_pair_split");
 
-    let (v5_codes, v5_names, v5_vals) = crate::yupei_multi::compute_multi_full(
+    // v5 跳过原版载体那 5 条链：它们的列与 split 同名同值，原本算完就丢（约占 v5 四分之一）。
+    let (v5_codes, v5_names, v5_vals) = crate::yupei_multi::compute_multi_full_skip_base(
         date,
         1.0,
         "cnt",
@@ -132,7 +160,30 @@ pub fn compute_yupei_union_all(date: i64) -> io::Result<(Vec<String>, Vec<String
     .map_err(|e| tag_err("yupei_multi_v5", e))?;
     log("yupei_multi_v5");
 
+    // 对账：跳过原版载体后，v5 返回的列必须恰好等于「全量 v5 去掉 split 同名列」的名单，
+    // 顺序也一致；否则说明两边列名规则变了，整天报错，不静默错列。
     let keep = v5_keep(&v5_names, &split_names);
+    if keep.len() != v5_names.len() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "yupei_multi_v5 段跳过原版载体后仍有 {} 列与 split 同名",
+                v5_names.len() - keep.len()
+            ),
+        ));
+    }
+    let full_v5 = crate::yupei_multi::multi_factor_names(&V5_KS, V5_SVD_K, Some(&v5_chains()));
+    let expect: Vec<String> = v5_keep(&full_v5, &split_names).into_iter().map(|(_, n)| n).collect();
+    if expect != v5_names {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "yupei_multi_v5 段列名与预期不符：实际 {} 列，预期 {} 列",
+                v5_names.len(),
+                expect.len()
+            ),
+        ));
+    }
     let split = Part {
         tag: "yupei_pair_split",
         codes: split_codes,

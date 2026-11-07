@@ -833,6 +833,40 @@ pub fn compute_multi_full(
     svd_k: usize,
     chains: Option<&[String]>,
 ) -> io::Result<(Vec<String>, Vec<String>, Vec<f32>)> {
+    compute_multi_full_impl(date, tau, weight, ks, sig, null_mc, exz_bins, svd_k, chains, false)
+}
+
+/// 同 compute_multi_full，但跳过「原版载体」（列名前缀为空）那一套链。
+/// 供 yupei_union_all 用：原版载体的列与 yupei_pair_split 同名同值，四合一本来就丢掉它们。
+/// 原版载体的四分量矩阵与桶单元照常计算（领先度、横截面分解要用），其余列逐位不变。
+#[allow(clippy::too_many_arguments)]
+pub fn compute_multi_full_skip_base(
+    date: i64,
+    tau: f64,
+    weight: &str,
+    ks: &[usize],
+    sig: SoftCfg,
+    null_mc: usize,
+    exz_bins: usize,
+    svd_k: usize,
+    chains: Option<&[String]>,
+) -> io::Result<(Vec<String>, Vec<String>, Vec<f32>)> {
+    compute_multi_full_impl(date, tau, weight, ks, sig, null_mc, exz_bins, svd_k, chains, true)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn compute_multi_full_impl(
+    date: i64,
+    tau: f64,
+    weight: &str,
+    ks: &[usize],
+    sig: SoftCfg,
+    null_mc: usize,
+    exz_bins: usize,
+    svd_k: usize,
+    chains: Option<&[String]>,
+    skip_base_chains: bool,
+) -> io::Result<(Vec<String>, Vec<String>, Vec<f32>)> {
     let total_started = std::time::Instant::now();
     let stage_enabled = std::env::var("YUPEI_STAGE").is_ok();
     let stage = |name: &str, started: std::time::Instant| {
@@ -944,6 +978,11 @@ pub fn compute_multi_full(
             CellMode::Order => order_m4.as_ref(),
             _ => other_m4.as_ref(),
         };
+        if skip_base_chains && matches!(mode, CellMode::Base) {
+            // 原版载体的链与 split 重复，四合一不需要；矩阵已在上面算好留给领先度用。
+            stage(&format!("carrier_{}", mode.tag()), carrier_started);
+            continue;
+        }
         let (ns, cs) = run_chains(
             cells,
             n,

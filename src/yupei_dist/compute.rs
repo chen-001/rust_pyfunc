@@ -356,6 +356,28 @@ fn compute_yupei_dist_lite_inner(
     Ok((codes_out, vals))
 }
 
+/// lite 的后半段（prev=None）：用调用方已经算好的 compute_yupei_dist_partial 结果跑 741 列指标。
+/// 与 compute_yupei_dist_lite(date, None) 逐位一致；供四合一复用同一份预处理。
+pub fn compute_yupei_dist_lite_from_partial(
+    codes_out: &[String],
+    n: usize,
+    stats: Vec<crate::yupei_dist::matrix_stage::StockStats>,
+    hm: HashMap<String, Vec<f32>>,
+    industry: Vec<i16>,
+) -> std::io::Result<Vec<f32>> {
+    let set = MatrixSet {
+        n,
+        codes: codes_out.to_vec(),
+        stats,
+        mats: hm,
+        industry: Some(industry),
+    };
+    let keep: std::collections::HashSet<&'static str> =
+        super::lite_names::YUPEI_DIST_LITE_NAMES.iter().copied().collect();
+    let ctx = IndicatorCtx::with_keep(&set, None, keep);
+    run_indicators_lite(&ctx, n)
+}
+
 /// Python: 精简版因子（741 列）。返回 (codes, names, vals)。
 /// names 一并返回——列序与全量版不同，调用方不要混用全量名单。
 #[pyfunction]
