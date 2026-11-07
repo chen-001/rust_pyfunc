@@ -1,0 +1,7 @@
+/src/
+/Cargo.toml
+/Cargo.lock
+/package/
+/target/
+/*.log
+/results/*.npy
