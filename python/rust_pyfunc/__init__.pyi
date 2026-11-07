@@ -1606,6 +1606,9 @@ __all__ = [
     "py_anneal_order_profile",
     "py_anneal_order_profile_names",
     "py_anneal_order_profile_from_data",
+    "py_anneal_order_profile_v2",
+    "py_anneal_order_profile_v2_names",
+    "py_anneal_order_profile_v2_from_data",
     "py_anneal_cross_peer",
     "py_anneal_cross_peer_names",
     "py_anneal_cross_peer_from_data",
@@ -1678,4 +1681,27 @@ def py_anneal_cross_peer_from_data(
 
 def factor_store_storage_profile(path: str) -> dict:
     """按实际挂载识别 NAS/本机存储，跟随软链接；支持尚未创建的 store 路径。"""
+    ...
+
+
+def py_anneal_order_profile_v2(code: str, date: int) -> List[float]:
+    """柜员游戏扩展系列2 修正版（单股单日 7873 列）：微秒时间切分、打乱对照超额、显式成交量结构。"""
+    ...
+
+
+def py_anneal_order_profile_v2_names() -> List[str]:
+    """返回柜员游戏扩展系列2 修正版全部 7873 个因子名。"""
+    ...
+
+
+def py_anneal_order_profile_v2_from_data(
+    exchtime_us: "numpy.ndarray",
+    price: "numpy.ndarray",
+    volume: "numpy.ndarray",
+    turnover: "numpy.ndarray",
+    flag: "numpy.ndarray",
+    bid_order: "numpy.ndarray",
+    ask_order: "numpy.ndarray",
+) -> List[float]:
+    """无磁盘依赖入口：传入逐笔成交列数组计算修正版全部 7873 个因子。"""
     ...
