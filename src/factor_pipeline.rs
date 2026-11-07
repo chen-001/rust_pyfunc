@@ -2643,6 +2643,26 @@ pub fn pipeline_relaynet(date: i64, expected_len: usize) -> Vec<TaskResult> {
 }
 
 /// 寻找玉佩-双层版横截面 pipeline 包装：精简版 741 列（去重后幸存）。
+/// orderflow_ctx_v2 横截面 pipeline：orderflow_ctx 修正版（9900 列）。
+pub fn pipeline_orderflow_ctx_v2(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    match crate::orderflow_ctx_v2_metrics::compute_orderflow_ctx_v2_full(date) {
+        Ok((codes, vals)) => vals
+            .chunks(expected_len)
+            .zip(codes.iter())
+            .map(|(facs, code)| TaskResult {
+                date,
+                code: code.clone(),
+                timestamp: 0,
+                facs: facs.to_vec(),
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("orderflow_ctx_v2 error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
 /// 与 pipeline_yupei_dist 同数据路径，只收窄指标部分；prev=None 时跨日列
 /// （dyn_* 与 dynjs_* 共 308 列）输出 NaN——备份目录 yupei_dist_backup 目前
 /// 只有 industry.bin、没有 mats/*.bin，无处读前一日矩阵。
@@ -3472,6 +3492,7 @@ pub fn run_factor_pipeline_cross_section(
         "yhyb_indtop",
         "switch_moment",
         "relaynet",
+        "orderflow_ctx_v2",
         "anneal_cross_peer",
     ];
     if !known.contains(&pipeline_name.as_str()) && !pipeline_name.starts_with("okay_") {

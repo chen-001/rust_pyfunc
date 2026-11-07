@@ -81,6 +81,7 @@ pub mod mutual_information_2d_final;
 pub mod mutual_information_2d_fixed;
 pub mod order_pair_metrics;
 pub mod orderflow_ctx_metrics;
+pub mod orderflow_ctx_v2_metrics;
 pub mod passive_order_features;
 pub mod permutation_analysis_v0816_fixed;
 pub mod personalized_meeting_features;
@@ -1391,6 +1392,14 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         m
     )?)?;
 
+    let _ = m.add_function(wrap_pyfunction!(
+        orderflow_ctx_v2_metrics::py_orderflow_ctx_v2,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        orderflow_ctx_v2_metrics::py_orderflow_ctx_v2_names,
+        m
+    )?)?;
     let _ = m.add_function(wrap_pyfunction!(dijkstra_metrics::py_dijkstra, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(dijkstra_metrics::py_dijkstra_names, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(relaynet_metrics::py_relaynet, m)?)?;

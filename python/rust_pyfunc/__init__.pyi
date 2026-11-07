@@ -697,6 +697,29 @@ def py_orderflow_ctx_names() -> List[str]:
     """返回 orderflow_ctx 的 10030 个因子名（{scope}_{stream}_{op}）。"""
     ...
 
+def py_orderflow_ctx_v2(date: int) -> Tuple[List[str], List[float]]:
+    """orderflow_ctx 修正版横截面因子，每股 9900 值（3 时段 × 3300）。
+
+    相对 orderflow_ctx：tick_big 改用变价幅度自身的中位数；opw 改为末笔价严格高于首笔价；
+    删除恒为常数的 odec_dom 流；xt_imb_mi / xt_imb_lead 改为按时间对齐成交与快照；
+    删除与 f_n_tr 重复的 n_trades。
+
+    参数
+    ----
+    date : int
+        交易日, 形如 20241231
+
+    返回
+    ----
+    (codes, vals) : codes 为股票代码列表, vals 为每股 9900 个 f32 值
+        （顺序与 py_orderflow_ctx_v2_names 一致；缺的时段/流为 NaN）。
+    """
+    ...
+
+def py_orderflow_ctx_v2_names() -> List[str]:
+    """返回 orderflow_ctx_v2 的 9900 个因子名（{scope}_{stream}_{op}）。"""
+    ...
+
 
 def py_peaks(date: int) -> Tuple[List[str], List[float]]:
     """高峰-小峰截面因子（方案1）：读一天全市场逐笔 -> 983 因子 + 14 状态标量.
@@ -1496,6 +1519,8 @@ __all__ = [
     "py_cross_section_example_names",
     "py_orderflow_ctx",
     "py_orderflow_ctx_names",
+    "py_orderflow_ctx_v2",
+    "py_orderflow_ctx_v2_names",
     "py_dijkstra",
     "py_dijkstra_names",
     "py_relaynet",
