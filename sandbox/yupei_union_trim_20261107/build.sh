@@ -1,11 +1,33 @@
 #!/bin/bash
 # yupei_union_all 精简版沙箱：编译本目录 src/（即实测过的完整源码），不安装、不部署 worker。
-# src/ 不入库；缺失时从主项目复制并打 optimization.patch（先核对被改文件的指纹没变）。
+# src/ 不入库；缺失时从固定提交重建冻结源码，不依赖共享主目录的当前改动。
 # 用法：bash build.sh [--release]。使用与冻结基线相同的优化 release-fast 配置。
 # 产物：package/rust_pyfunc/rust_pyfunc.abi3.so；不安装到 Python 环境。
 set -euo pipefail
 cd "$(dirname "$0")"
 if [ ! -f src/lib.rs ]; then
+  if [ -f frozen_source_base.json ]; then
+    /home/chenzongwei/.conda/envs/chenzongwei311/bin/python - <<'PYFROZEN'
+from pathlib import Path
+import hashlib, io, json, os, subprocess, tarfile
+meta = json.loads(Path('frozen_source_base.json').read_text())
+patch = Path('frozen_baseline.patch').read_bytes()
+assert hashlib.sha256(patch).hexdigest() == meta['patch_sha256'], '冻结补丁指纹不符'
+env = dict(os.environ, HTTP_PROXY='http://127.0.0.1:10808', HTTPS_PROXY='http://127.0.0.1:10808')
+archive = subprocess.check_output(['git', '-C', '../..', 'archive', meta['revision'],
+                                   'src', 'Cargo.toml', 'Cargo.lock'], env=env)
+with tarfile.open(fileobj=io.BytesIO(archive)) as source:
+    for member in source.getmembers():
+        if member.isfile():
+            dest = Path(member.name)
+            assert not dest.is_absolute() and '..' not in dest.parts
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(source.extractfile(member).read())
+subprocess.run(['patch', '-p1'], input=patch, check=True)
+for name, digest in meta['cargo_hashes'].items():
+    assert hashlib.sha256(Path(name).read_bytes()).hexdigest() == digest, name
+PYFROZEN
+  else
   /home/chenzongwei/.conda/envs/chenzongwei311/bin/python - <<'PYBASE'
 from pathlib import Path
 import hashlib, json, shutil
@@ -25,6 +47,7 @@ PYBASE
   # that already differed from the concurrently edited main checkout.
   if [ -f baseline_snapshot.patch ]; then
     patch -p1 < baseline_snapshot.patch
+  fi
   fi
   if [ -f speed.patch ]; then
     /home/chenzongwei/.conda/envs/chenzongwei311/bin/python - <<'PYSPEED'

@@ -27,12 +27,14 @@ def run(args):
     os.environ["YUPEI_STAGE"] = "1"
     os.environ["OPENBLAS_NUM_THREADS"] = "1"
     os.environ["OMP_NUM_THREADS"] = "1"
-    package = ROOT / ("frozen/package" if args.variant == "base" else "package")
+    saved_package = ROOT / "frozen/variants" / args.variant / "package"
+    package = ROOT / "frozen/package" if args.variant == "base" else (
+        saved_package if saved_package.is_dir() else ROOT / "package")
     sys.path.insert(0, str(package))
     import rust_pyfunc as rp
     assert Path(rp.__file__).resolve().is_relative_to(package.resolve())
     before_load = os.getloadavg()
-    if before_load[0] > 50:
+    if before_load[0] > 50 and not args.validation_only:
         raise RuntimeError(f"load1 exceeds timing limit: {before_load}")
     expected = rp.py_yupei_union_all_names()
     assert len(expected) == 18758, len(expected)
@@ -62,7 +64,10 @@ def run(args):
               "numpy_seconds": array_seconds, "write_seconds": write_seconds,
               "load_before": before_load, "load_after": os.getloadavg(),
               "max_rss_kib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
-              "module_sha256": module_hash,
+              "module_sha256": module_hash, "validation_only": args.validation_only,
+              "experiment_settings": {key: value for key, value in sorted(os.environ.items())
+                                      if key.startswith("YUPEI_") and key not in
+                                      {"YUPEI_STAGE", "YUPEI_VALIDATE_ONLY"}},
               "nan_count": int(np.isnan(matrix).sum()),
               "inf_count": int(np.isinf(matrix).sum())}
     save_json(Path(str(prefix) + ".json"), report)
@@ -104,7 +109,7 @@ def compare(args):
               "max_rel_diff": max_rel}
     save_json(OUT / f"compare_{args.left}__{args.right}.json", report)
     print(json.dumps(report), flush=True)
-    assert nan_same and value_same, report
+    assert nan_same and value_same and bits_same, report
 
 
 if __name__ == "__main__":
@@ -114,6 +119,8 @@ if __name__ == "__main__":
     bench.add_argument("variant")
     bench.add_argument("date", type=int)
     bench.add_argument("repeat", type=int)
+    bench.add_argument("--validation-only", action="store_true",
+                       help="check all values under load; exclude this run from speed conclusions")
     check = sub.add_parser("compare")
     check.add_argument("left")
     check.add_argument("right")

@@ -1,0 +1,39 @@
+{
+  "created_at": "2026-11-07T16:09:07.172633+08:00",
+  "measurement": "extracted_production_bitset_helper",
+  "tests_passed": 2,
+  "tests_failed": 0,
+  "helper_sha256": "0fe3a2ca9c9fada97c8ab1351cc5ccddbb067dbce152c4a14fe24caa6f4adff8",
+  "commands": [
+    {
+      "command": [
+        "rustc",
+        "--edition=2021",
+        "--test",
+        "tests/pair_bitset_counter.rs",
+        "-O",
+        "-C",
+        "target-cpu=native",
+        "--extern",
+        "rayon=/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/target/release-fast/deps/librayon-ba289a9542cf0604.rlib",
+        "-L",
+        "dependency=/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/target/release-fast/deps",
+        "-o",
+        "/tmp/pair_bitset_ils2v9e8/test"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.46787116676568985,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "/tmp/pair_bitset_ils2v9e8/test"
+      ],
+      "exit_code": 0,
+      "wall_seconds": 0.17804971523582935,
+      "stdout": "\nrunning 3 tests\ntest microbench ... ignored\ntest graph_outputs_match_bits_for_empty_mask_truncated_degree_and_original_denominator ... ok\ntest every_row_matches_with_unaligned_boundaries_diagonal_and_dirty_padding ... ok\n\ntest result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.14s\n\n",
+      "stderr": ""
+    }
+  ]
+}

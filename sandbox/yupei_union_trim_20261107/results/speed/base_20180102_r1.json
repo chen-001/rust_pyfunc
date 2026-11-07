@@ -1,0 +1,29 @@
+{
+  "date": 20180102,
+  "variant": "base",
+  "repeat": 1,
+  "shape": [
+    3248,
+    18758
+  ],
+  "threads": 50,
+  "call_seconds": 139.27737149223685,
+  "cpu_seconds": 5169.903158493,
+  "numpy_seconds": 23.03792231529951,
+  "write_seconds": 0.1409962773323059,
+  "load_before": [
+    331.552734375,
+    254.12451171875,
+    149.51953125
+  ],
+  "load_after": [
+    341.75732421875,
+    304.646484375,
+    186.8603515625
+  ],
+  "max_rss_kib": 24403308,
+  "module_sha256": "c3a192b8495ab36e66d56df28733797d57a91455e28f41a9eca32971fcec8066",
+  "validation_only": true,
+  "nan_count": 576096,
+  "inf_count": 0
+}

@@ -21,16 +21,35 @@
      let (mats, stats) = compute_matrices(&stocks, need);
 --- a/src/yupei_gpt/compute.rs
 +++ b/src/yupei_gpt/compute.rs
-@@ -129,6 +129,7 @@
+@@ -129,17 +129,38 @@
          work.push((chain.clone(), mirror));
      }
      let verbose = std::env::var_os("YUPEI_GPT_VERBOSE").is_some();
 +    let stage = std::env::var_os("YUPEI_STAGE").is_some();
++    // Only the outer family schedule changes. Every family still scans the
++    // same rows/blocks in the caller's existing Rayon pool, and Acc blocks are
++    // merged in their original index order. Unset means the original schedule.
++    let family_batch = match std::env::var("YUPEI_GPT_FAMILY_BATCH") {
++        Ok(value) => value.parse::<usize>().ok().filter(|&v| v > 0)
++            .ok_or_else(|| input::bad("YUPEI_GPT_FAMILY_BATCH must be a positive integer"))?,
++        Err(std::env::VarError::NotPresent) => work.len(),
++        Err(_) => return Err(input::bad("YUPEI_GPT_FAMILY_BATCH must be a positive integer")),
++    };
++    if stage {
++        eprintln!("[gpt-schedule] families={} batch={} rayon_threads={}",
++            work.len(), family_batch, rayon::current_num_threads());
++    }
      if verbose {
-         eprintln!("Computing {} network families in parallel", work.len());
+-        eprintln!("Computing {} network families in parallel", work.len());
++        eprintln!("Computing {} network families, at most {} active", work.len(), family_batch.min(work.len()));
      }
-@@ -138,8 +139,13 @@
-     let posted: Vec<io::Result<Vec<(String, NetworkOutput)>>> = work
+     let timer = Instant::now();
+     // One pipeline per family: scan -> family stats -> per-chain posts, so a
+     // finished family's post runs while other families still stream scans.
+-    let posted: Vec<io::Result<Vec<(String, NetworkOutput)>>> = work
++    let mut posted: Vec<io::Result<Vec<(String, NetworkOutput)>>> = Vec::with_capacity(work.len());
++    for batch in work.chunks(family_batch) {
++        let current: Vec<io::Result<Vec<(String, NetworkOutput)>>> = batch
          .par_iter()
          .map(|(chain, mirror)| {
 +            let family_start = stage.then(Instant::now);
@@ -43,11 +62,10 @@
              let mut out = vec![(
                  chain.clone(),
                  network::post_family(&stocks, &kernel, &bundle, &fam, chain, false)?,
-@@ -149,6 +155,14 @@
-                     m.clone(),
+@@ -150,9 +171,21 @@
                      network::post_family(&stocks, &kernel, &bundle, &fam, m, true)?,
                  ));
-+            }
+             }
 +            if let Some(t) = post_start {
 +                // Families share the existing 50-thread pool. These elapsed
 +                // stage times overlap and must not be summed as CPU time.
@@ -55,9 +73,17 @@
 +                    mirror.as_deref().unwrap_or("-"), scan_seconds.unwrap(),
 +                    stats_seconds.unwrap(), t.elapsed().as_secs_f64(),
 +                    family_start.unwrap().elapsed().as_secs_f64());
-             }
++            }
              Ok(out)
          })
+         .collect();
++        // Indexed parallel collection and sequential extension retain exactly
++        // the original family order, independently of worker completion order.
++        posted.extend(current);
++    }
+     let net_elapsed = timer.elapsed().as_secs_f64();
+     if verbose {
+         eprintln!("network families finished {net_elapsed:.3}s");
 --- a/src/yupei_gpt/network.rs
 +++ b/src/yupei_gpt/network.rs
 @@ -238,6 +238,9 @@
@@ -705,6 +731,72 @@
  
      NetMats {
          e, rho, g, ru, sg, x0, gs, rus, sgs, x0s, z, zs,
+--- a/src/yupei_pair/reduce2.rs
++++ b/src/yupei_pair/reduce2.rs
+@@ -885,8 +885,37 @@
+     linked as f64 / (d * (d - 1) / 2) as f64
+ }
+ 
++// BEGIN PAIR_BITSET_ROW_OVERLAP
++/// Count one row's intersection/union without expanding its packed bits.
++/// Rows share boundary words when n is not divisible by 64, so both ends must
++/// be masked exactly as BitMat::deg does. This is integer-only and preserves
++/// the old per-column get(i, j) counts, including the diagonal when it is set.
++#[inline]
++fn bitset_row_overlap_union(a: &[u64], b: &[u64], n: usize, i: usize) -> (usize, usize) {
++    let lo = i * n;
++    let hi = lo + n;
++    let first = lo >> 6;
++    let end = (hi + 63) >> 6;
++    let mut inter = 0usize;
++    let mut union = 0usize;
++    for word in first..end {
++        let mut mask = u64::MAX;
++        if word == first && lo % 64 != 0 {
++            mask &= u64::MAX << (lo % 64);
++        }
++        if word == end - 1 && hi % 64 != 0 {
++            mask &= u64::MAX >> (64 - hi % 64);
++        }
++        inter += ((a[word] & b[word]) & mask).count_ones() as usize;
++        union += ((a[word] | b[word]) & mask).count_ones() as usize;
++    }
++    (inter, union)
++}
++// END PAIR_BITSET_ROW_OVERLAP
++
+ fn block_r4(ms: &MatSet, pre: &str, n: usize, ok: &[bool], graph_rows: (&[Vec<u32>], &[Vec<u32>]), out: &mut Out) {
+     let t0 = Instant::now();
++    let bits_baseline = std::env::var("YUPEI_R4_BITS_BASELINE").as_deref() == Ok("1");
+     let ks = [5usize, 10, 20, 50, 100];
+     let graphs: Vec<(&'static str, &[f32])> = vec![
+         ("rho", &ms.rho[..]),
+@@ -942,13 +971,18 @@
+                 if !ok[i] {
+                     return;
+                 }
+-                let mut inter = 0usize;
+-                let mut uni = 0usize;
+-                for j in 0..n {
+-                    let (a, b) = (ar.get(i, j), ag.get(i, j));
+-                    inter += (a && b) as usize;
+-                    uni += (a || b) as usize;
+-                }
++                let (inter, uni) = if bits_baseline {
++                    let mut inter = 0usize;
++                    let mut uni = 0usize;
++                    for j in 0..n {
++                        let (a, b) = (ar.get(i, j), ag.get(i, j));
++                        inter += (a && b) as usize;
++                        uni += (a || b) as usize;
++                    }
++                    (inter, uni)
++                } else {
++                    bitset_row_overlap_union(&ar.bits, &ag.bits, n, i)
++                };
+                 *o = inter as f64 / *k as f64;
+                 if uni > 0 {
+                     *j2 = inter as f64 / uni as f64;
 --- a/src/yupei_pair/split.rs
 +++ b/src/yupei_pair/split.rs
 @@ -29,7 +29,9 @@

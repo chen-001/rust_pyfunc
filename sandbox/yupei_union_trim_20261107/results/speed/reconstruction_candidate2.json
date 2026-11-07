@@ -1,0 +1,9 @@
+{
+  "fixed_revision": "8cdceb044b6a5ff8a9c94261c093afcef8ba69e3",
+  "frozen_source_files_checked": 367,
+  "frozen_sources_exact": true,
+  "candidate2_changed_files_exact": true,
+  "candidate2_patch_bytes": 36620,
+  "build_syntax_exit_code": 0,
+  "note": "Applied fixed-revision baseline patch plus candidate2 patch in a fresh temporary directory; no main checkout or source file changes."
+}
