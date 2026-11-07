@@ -1,0 +1,25 @@
+[package]
+name = "anneal_regime_v2_sbx"
+version = "0.1.0"
+edition = "2021"
+
+# 沙箱：柜员游戏拓展1 新版（anneal_regime_excess）。主项目 Cargo.toml 不引用本 crate。
+[lib]
+name = "anneal_regime_v2_sbx"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pyo3 = { version = "0.18", features = ["extension-module"] }
+numpy = "0.18"
+ndarray = "0.15"
+rayon = "1.8"
+memmap2 = "0.9"
+rustc-hash = "1.1"
+libc = "0.2"
+
+[profile.release]
+opt-level = 3
+codegen-units = 16
+lto = false
+
+[workspace]
