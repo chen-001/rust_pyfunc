@@ -150,6 +150,20 @@ def py_lfsr_leak_ext1_names() -> List[str]:
     ...
 
 
+def py_lfsr_ext2(date: int) -> Tuple[List[str], List[float]]:
+    """线性反馈移位存储器的非线性组合（拓展二）：单日全市场，返回 (codes, vals)。
+
+    每股 8506 列原始特征（2 计数 + 63 个拓展一入选列 + 8441 个新列），逐列做横截面 z-score
+    （计数与 5 个 ctl_* 风格变量除外），再对 5 个风格变量 + ln 总市值做回归取残差、残差再
+    z-score，得到 8499 个 _r 列，合计 17005 列。算不出来的股票整行 NaN，universe 一只不少。
+    """
+    ...
+
+
+def py_lfsr_ext2_names() -> List[str]:
+    ...
+
+
 def py_distill_tick(code: str, date: int) -> List[float]:
     ...
 
@@ -1536,6 +1550,8 @@ __all__ = [
     "py_geffe_leak_names",
     "py_lfsr_leak_ext1",
     "py_lfsr_leak_ext1_names",
+    "py_lfsr_ext2",
+    "py_lfsr_ext2_names",
     "py_distill_tick",
     "py_distill_tick_names",
     "py_hhi_event",

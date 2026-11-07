@@ -16,7 +16,7 @@ use rust_pyfunc::factor_pipeline::{
     pipeline_anneal_order_profile, pipeline_anneal_regime_diff, pipeline_anneal_volume,
     pipeline_anneal_volume_market, pipeline_cross_section_example, pipeline_dagpath, pipeline_dijkstra, pipeline_distill,
     pipeline_distill_tick, pipeline_drop_event, pipeline_extreme_point_fit,
-    pipeline_hhi_event, pipeline_lfsr_leak_ext1,
+    pipeline_hhi_event, pipeline_lfsr_ext2, pipeline_lfsr_leak_ext1,
     pipeline_etp_event,
     pipeline_hot_pool_ind, pipeline_hot_stock_pool, pipeline_hot_stock_pool_v2,
     pipeline_individual_order_ratio,
@@ -202,6 +202,8 @@ fn main() {
                         pipeline_cross_section_example(date, expected_len)
                     } else if pipeline_name == "lfsr_leak_ext1" {
                         pipeline_lfsr_leak_ext1(date, expected_len)
+                    } else if pipeline_name == "lfsr_ext2" {
+                        pipeline_lfsr_ext2(date, expected_len)
                     } else if pipeline_name == "orderflow_ctx" {
                         pipeline_orderflow_ctx(date, expected_len)
                     } else if pipeline_name == "relaynet" {

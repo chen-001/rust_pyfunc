@@ -18,7 +18,7 @@ use pyo3::prelude::*;
 use rayon::prelude::*;
 use std::sync::OnceLock;
 
-mod reader {
+pub(crate) mod reader {
     //! 精简版数据读取（单线程，无 pyo3/rayon），从 fast_csv_reader.rs 移植。
     //! 读取 transaction / market_data CSV，做 adjust_afternoon 平移。
     //! 只保留因子实际用到的字段：盘口不解析第 6~10 档与 last_prc/volume，
@@ -506,7 +506,7 @@ fn tern_stat(cs: &Cells, func: usize, stat: usize) -> f64 {
 
 // ---------- Spec 驱动：特征名与计算同序 ----------
 #[derive(Clone)]
-enum Op {
+pub(crate) enum Op {
     Count,                 // i: 0=nsnap 1=ntrade
     Rate, Ac(usize), Run, Tasym, SpCv, Ctx(usize),
     Corr0, CorrL, AndR, XorR, Edge,
@@ -516,10 +516,11 @@ enum Op {
     HalfRate, HalfAc,      // 前后半日差异
     Sess(usize),           // 时段率：b=0 下午段, b=1 尾盘段
 }
+/// 一个扩展一的列定义。字段私有，只暴露给拓展二按名字取用与求值。
 #[derive(Clone)]
-struct Spec { name: String, op: Op, a: usize, b: usize, c: usize }
+pub(crate) struct Spec { name: String, op: Op, a: usize, b: usize, c: usize }
 
-struct Env {
+pub(crate) struct Env {
     seqs: Vec<Vec<u8>>,        // 盘口 L 网格上的流
     tseqs: Vec<Vec<u8>>,       // 逐笔网格上的流
     trips: Vec<Cells>,         // 三元组联合统计
@@ -616,7 +617,7 @@ const UNARY_NEW: &[usize] = &[18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30
 const UNARY_T: &[usize] = &[0, 1, 3, 6, 7]; // tseqs 下标：tsgn,tbig8,tdpx,rgap,turg
 const UNARY_TNEW: &[usize] = &[9, 10, 11, 12, 13, 14, 15, 16];
 
-fn build_specs() -> Vec<Spec> {
+pub(crate) fn build_specs() -> Vec<Spec> {
     let mut v = Vec::with_capacity(12000);
     let mut push = |name: String, op: Op, a: usize, b: usize, c: usize| {
         v.push(Spec { name, op, a, b, c });
@@ -699,7 +700,7 @@ fn build_specs() -> Vec<Spec> {
     v
 }
 
-fn build_env(mkt: &[MarketRecord], tr: &[TradeRecord]) -> Option<Env> {
+pub(crate) fn build_env(mkt: &[MarketRecord], tr: &[TradeRecord]) -> Option<Env> {
     if mkt.len() < 300 || tr.len() < 500 { return None; }
     let mut ts: Vec<i64> = Vec::with_capacity(mkt.len());
     let (mut imb1, mut imbt, mut mid, mut spread, mut dep, mut b1v, mut a1v, mut imb5): (
@@ -851,7 +852,7 @@ fn build_env(mkt: &[MarketRecord], tr: &[TradeRecord]) -> Option<Env> {
     Some(Env { seqs, tseqs, trips, masks, tg_mid, tg_imb, segs, nsnap: ts.len(), ntrade: tr.len() })
 }
 
-fn eval_env(sp: &Spec, e: &Env) -> f64 {
+pub(crate) fn eval_env(sp: &Spec, e: &Env) -> f64 {
     if sp.a >= 100 { // 逐笔网格流
         let s = &e.tseqs[sp.a - 100];
         return match &sp.op {
@@ -885,7 +886,7 @@ pub fn lfsr_leak_ext1_names() -> Vec<String> {
 /// 当天同时有逐笔和盘口两个文件的股票。
 /// 名单来自 symbol_map.csv（与 switch_moment / yhyb_indtop 同一个文件），
 /// 按表里的行序输出；表里出现非法代码直接报错，不退回扫描全目录。
-fn list_codes(date: i64) -> std::io::Result<Vec<String>> {
+pub(crate) fn list_codes(date: i64) -> std::io::Result<Vec<String>> {
     use std::io::{Error, ErrorKind};
     let invalid = |e| Error::new(ErrorKind::InvalidData, e);
     let root = &crate::data_paths::level2_roots()[0];
@@ -996,4 +997,27 @@ pub fn py_lfsr_leak_ext1(date: i64) -> PyResult<(Vec<String>, Vec<f32>)> {
 #[pyfunction]
 pub fn py_lfsr_leak_ext1_names() -> Vec<String> {
     lfsr_leak_ext1_names()
+}
+
+// ---------- 给拓展二复用：按名字取 spec 与求值 ----------
+
+/// 按名字取 spec（拓展二保留列）。名字必须是 build_specs 里真实存在的，找不到直接 panic，
+/// 不做静默兜底——列名对不上说明 keep 名单和实现脱节了。
+pub(crate) fn specs_of_names(names: &[&str]) -> Vec<&'static Spec> {
+    let all = specs();
+    names
+        .iter()
+        .map(|n| {
+            all.iter()
+                .find(|s| s.name == *n)
+                .unwrap_or_else(|| panic!("拓展一里没有列 {n}"))
+        })
+        .collect()
+}
+
+/// 单列求值（拓展二复用拓展一的算子与 Env）。
+/// 必须走 eval_env 而不是 eval：eval_env 先把 a>=100 的逐笔网格流分派到 tseqs 并转发给 eval，
+/// 直接调 eval 会让那些列拿 a=101 去索引只有 36 条的 seqs。
+pub(crate) fn eval_one(sp: &Spec, e: &Env) -> f64 {
+    eval_env(sp, e)
 }

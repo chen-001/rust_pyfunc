@@ -2575,6 +2575,27 @@ pub fn pipeline_lfsr_leak_ext1(date: i64, expected_len: usize) -> Vec<TaskResult
     }
 }
 
+/// lfsr_ext2 横截面 pipeline：拓展二（17005 列）。一天全市场一次算完：
+/// 全市场分位数门槛 → 逐股位流特征 → 横截面 z-score 与风格残差。
+pub fn pipeline_lfsr_ext2(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    match crate::lfsr_ext2_metrics::compute_lfsr_ext2_full(date) {
+        Ok((codes, vals)) => vals
+            .chunks(expected_len)
+            .zip(codes.iter())
+            .map(|(facs, code)| TaskResult {
+                date,
+                code: code.clone(),
+                timestamp: 0,
+                facs: facs.to_vec(),
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("lfsr_ext2 error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
 /// orderflow_ctx 横截面 pipeline：三时段×三类流×上下文算子工厂。
 /// 与 cross_section_example 同样的 (codes, vals) → TaskResult 展开方式。
 pub fn pipeline_orderflow_ctx(date: i64, expected_len: usize) -> Vec<TaskResult> {
@@ -3425,6 +3446,7 @@ pub fn run_factor_pipeline_cross_section(
         "relaynet_six_people",
         "cross_section_example",
         "lfsr_leak_ext1",
+        "lfsr_ext2",
         "orderflow_ctx",
         "dijkstra",
         "peaks",

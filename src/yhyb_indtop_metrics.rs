@@ -77,7 +77,7 @@ fn industry_of_day(date: i64) -> Vec<u16> {
 // dataset `data`，行 = DailyDerived/calendar_map.csv，列 = DailyDerived/symbol_map.csv。
 
 /// 市值 h5 的日期轴与列序（每个目录各自维护 map，用哪个目录就加载哪个）。
-fn cap_maps() -> &'static (Vec<i64>, Vec<String>) {
+pub(crate) fn cap_maps() -> &'static (Vec<i64>, Vec<String>) {
     static MAPS: OnceLock<(Vec<i64>, Vec<String>)> = OnceLock::new();
     MAPS.get_or_init(|| {
         let dir = crate::data_paths::vars_path("DailyDerived");
@@ -105,7 +105,7 @@ thread_local! {
 }
 
 /// 读 S_VAL_MV.h5 的第 r 行（只取 symbol_map 那么多列，避免读到 8000 列容器残留）。
-fn cap_row(r: usize, ncols: usize) -> Vec<f64> {
+pub(crate) fn cap_row(r: usize, ncols: usize) -> Vec<f64> {
     let path = crate::data_paths::vars_path("DailyDerived/S_VAL_MV.h5");
     CAP_FILE.with(|cell| {
         let mut slot = cell.borrow_mut();
