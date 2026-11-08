@@ -196,7 +196,7 @@ def fig6():
     ax = fig.add_subplot(gs[0]); col = ["#C8D3DC"] * len(cnt); col[W] = "#C0392B"
     ax.bar(xs, cnt, width=8.4, color=col, linewidth=0)
     ax.text(0, cnt[W] + 8, f"{cnt[W]} 只股票", ha="center", va="bottom", color="#C0392B", fontsize=11)
-    ax.axhline(Ex["median_all"], color=INK, lw=1, ls="--"); ax.text(16, 92, f"虚线：这一天普通的 10 毫秒，{Ex['median_all']} 只", ha="left", va="bottom", fontsize=9.5, color=INK)
+    ax.axhline(Ex["median_all"], color=INK, lw=1, ls="--"); ax.text(16, 92, f"虚线：当天中位水平 {Ex['median_all']} 只", ha="left", va="bottom", fontsize=9.5, color=INK)
     ax.set_xlim(-158, 158); ax.set_ylim(0, 500); ax.set_xticks(range(-150, 151, 50)); ax.set_xlabel("相对这一刻的毫秒数（每根柱子是 10 毫秒）"); ax.set_ylabel("这 10 毫秒里有主动卖单的股票数")
     ax.set_title("一个例子：2024-03-29 上午 10:55:26.66 前后", loc="left", fontsize=11.5)
     for j, th in enumerate([100, 200, 300]):
