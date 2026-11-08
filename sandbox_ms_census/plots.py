@@ -26,10 +26,10 @@ rec, ev, ev0, evx, amt = G("rec"), G("ev"), G("ev0"), G("evx"), G("amt100")
 snap, occ, clk, gap, shuf = G("snap"), G("occ"), G("clk"), G("gap"), G("shuf")
 pair, sd, sdv, bday, bmin, S = G("pair"), G("sd"), G("sdv"), G("bday"), G("bmin"), G("scal")
 N = {}
-N["股票日"] = int(len(S)); N["记录"] = int(S[:, 0].sum()); N["主动单"] = int(S[:, 1].sum()); N["刻度"] = int(S[:, 2].sum())
+N["股票日"] = int(len(S)); N["记录"] = int(S[:, 0].sum()); N["主动单"] = int(S[:, 1].sum()); N["10毫秒"] = int(S[:, 2].sum())
 N["每张主动单记录数"] = S[:, 0].sum() / S[:, 1].sum()
-N["刻度里含两张及以上主动单的占比"] = S[:, 3].sum() / S[:, 2].sum()
-N["每个有成交的刻度主动单数"] = S[:, 1].sum() / S[:, 2].sum()
+N["10毫秒里含两张及以上主动单的占比"] = S[:, 3].sum() / S[:, 2].sum()
+N["每个有成交的10毫秒主动单数"] = S[:, 1].sum() / S[:, 2].sum()
 N["端点秒记录"] = int(S[:, 9].sum()); N["时间倒序记录"] = int(S[:, 8].sum())
 D = daily()
 r = np.concatenate([As[d]["amt_all"] / 1000 / D["amt"].loc[d, Ms[d]["codes"]].values for d in DATES])
@@ -161,7 +161,7 @@ def fig5():
     P = pair.sum(0); y = sdv.sum(0) / P; bd = bday.sum(0) / P; bm = bmin.sum(0) / P; ds = sd.sum(0) / P
     x = np.arange(13)
     fig, axes = plt.subplots(1, 2, figsize=(13, 4.9))
-    fig.suptitle(f"间隔越短，下一单越像上一单：同一刻度的两张单 {y[0]:.0%} 方向和股数都相同，同一分钟打乱只有 {bm[0]:.0%}", x=0.01, ha="left", fontsize=13)
+    fig.suptitle(f"间隔越短，下一单越像上一单：同一10毫秒的两张单 {y[0]:.0%} 方向和股数都相同，同一分钟打乱只有 {bm[0]:.0%}", x=0.01, ha="left", fontsize=13)
     ax = axes[0]
     ax.plot(x, y, color="#C0392B", lw=2.2, marker="o", ms=4, label="真实")
     ax.plot(x, bm, color=GREY, lw=1.8, marker="o", ms=3, label="同一分钟内打乱")
@@ -175,30 +175,38 @@ def fig5():
     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.0%}"))
     ax.set_title("方向相同", loc="left", fontsize=11)
     fig.tight_layout(rect=(0, 0, 1, .94)); fig.savefig(OUT / "f5_repeat.png", dpi=170); plt.close(fig)
-    N["图五_分组"] = L; N["图五_同刻度配对占相邻配对"] = float(P[0] / P.sum())
+    N["图五_分组"] = L; N["图五_同10毫秒配对占相邻配对"] = float(P[0] / P.sum())
     for k, v in [("真实同向同量", y), ("同分钟打乱", bm), ("全天打乱", bd), ("真实同向", ds), ("配对数", P)]: N[f"图五_{k}"] = v.tolist()
     for m in "603":
-        i = mk == m; N[f"图五_{NAME[m]}_同刻度"] = dict(真实同向同量=float(sdv[i, 0].sum() / pair[i, 0].sum()), 同分钟打乱=float(bmin[i, 0].sum() / pair[i, 0].sum()), 真实同向=float(sd[i, 0].sum() / pair[i, 0].sum()))
+        i = mk == m; N[f"图五_{NAME[m]}_同10毫秒"] = dict(真实同向同量=float(sdv[i, 0].sum() / pair[i, 0].sum()), 同分钟打乱=float(bmin[i, 0].sum() / pair[i, 0].sum()), 真实同向=float(sd[i, 0].sum() / pair[i, 0].sum()))
 
 # ---- 图六：齐发
 def fig6():
     real = sum(np.array(Ms[d]["cross"]["real_ex"], float) for d in DATES); fake = sum(np.array(Ms[d]["cross"]["fake_ex"], float) for d in DATES)
     nz = np.flatnonzero(real)
-    fig, axes = plt.subplots(1, 2, figsize=(13, 4.9))
     def tail(a): return np.cumsum(a[::-1])[::-1]
     Tr, Tf = tail(real), tail(fake)
-    n100r, n100f = Tr[100], Tf[100]; N["图六_八天_100只以上刻度_真实"] = float(n100r); N["图六_八天_100只以上刻度_错开"] = float(n100f); N["图六_八天_50只以上刻度_真实"] = float(Tr[50]); N["图六_八天_50只以上刻度_错开"] = float(Tf[50])
-    fig.suptitle(f"同一个 10 毫秒里上百只股票同方向成交：八天 {n100r:,.0f} 个刻度，把股票错开几分钟后只剩 {n100f:,.0f} 个", x=0.01, ha="left", fontsize=13)
-    ax = axes[0]; x = np.arange(N_H := 700)
-    ax.plot(x[1:], Tr[1:N_H], color="#C0392B", lw=2.0, label="真实"); ax.plot(x[1:], Tf[1:N_H], color=GREY, lw=2.0, label="每只股票时间线错开 1 到 5 分钟")
-    ax.set_xscale("log"); ax.set_yscale("log"); ax.set_xlabel("同一个 10 毫秒里、同方向有主动单的股票数（对数）"); ax.set_ylabel("至少这么多股票的刻度数，八天合计（对数）"); ax.set_xlim(1, N_H); ax.legend(frameon=False, fontsize=9)
-    ax.set_title("一格 10 倍，曲线越靠右越极端", loc="left", fontsize=11)
-    ax = axes[1]; xd = np.arange(8); rs = []; fs = []; lab = [f"{str(d)[2:4]}-{str(d)[4:6]}-{str(d)[6:]}" for d in DATES]
-    for d in DATES:
-        c = Ms[d]["cross"]; rs.append(sum(c["real_ex"][100:])); fs.append(sum(c["fake_ex"][100:]))
-    ax.bar(xd - .2, rs, .4, color="#C0392B", label="真实"); ax.bar(xd + .2, fs, .4, color=GREY, label="错开后")
-    ax.set_xticks(xd); ax.set_xticklabels(lab, rotation=30, ha="right", fontsize=9); ax.set_ylabel("100 只及以上的刻度数"); ax.legend(frameon=False, fontsize=9); ax.set_title("八天逐日", loc="left", fontsize=11)
-    fig.tight_layout(rect=(0, 0, 1, .94)); fig.savefig(OUT / "f6_cross.png", dpi=170); plt.close(fig)
+    n100r, n100f = Tr[100], Tf[100]
+    N["图六_八天_100只以上_真实"] = float(n100r); N["图六_八天_100只以上_错开"] = float(n100f); N["图六_八天_50只以上_真实"] = float(Tr[50]); N["图六_八天_50只以上_错开"] = float(Tf[50])
+    Ex = json.load(open(SB / "why4hz/fig6_example.json"))
+    cnt = np.array(Ex["count"]); W = len(cnt) // 2; xs = (np.arange(len(cnt)) - W) * 10; others = np.delete(cnt, W)
+    N["图六_例子"] = dict(日期=Ex["date"], 时间=Ex["time"], 方向="主动卖", 当时股票数=int(cnt[W]), 前后150毫秒中位=float(np.median(others)), 前后最高=int(others.max()), 这一天普通10毫秒中位=Ex["median_all"], 当天股票总数=Ex["n_codes"])
+    fig = plt.figure(figsize=(14.5, 5.2)); gs = fig.add_gridspec(1, 4, width_ratios=[2.2, 1, 1, 1], wspace=.34)
+    fig.suptitle("同一个 10 毫秒里，几百只股票一起被主动买或主动卖；把时间错开后，这种情况几乎消失", x=0.01, ha="left", fontsize=14)
+    ax = fig.add_subplot(gs[0]); col = ["#C8D3DC"] * len(cnt); col[W] = "#C0392B"
+    ax.bar(xs, cnt, width=8.4, color=col, linewidth=0)
+    ax.text(0, cnt[W] + 8, f"{cnt[W]} 只股票", ha="center", va="bottom", color="#C0392B", fontsize=11)
+    ax.axhline(Ex["median_all"], color=INK, lw=1, ls="--"); ax.text(150, 62, f"虚线：这一天普通的 10 毫秒，{Ex['median_all']} 只", ha="right", va="bottom", fontsize=9.5, color=INK)
+    ax.set_xlim(-158, 158); ax.set_ylim(0, 500); ax.set_xticks(range(-150, 151, 50)); ax.set_xlabel("相对这一刻的毫秒数（每根柱子是 10 毫秒）"); ax.set_ylabel("这 10 毫秒里有主动卖单的股票数")
+    ax.set_title("一个例子：2024-03-29 上午 10:55:26.66 前后", loc="left", fontsize=11.5)
+    for j, th in enumerate([100, 200, 300]):
+        ax = fig.add_subplot(gs[j + 1]); r, f = float(Tr[th]), float(Tf[th]); N[f"图六_八天_{th}只以上_真实"] = r; N[f"图六_八天_{th}只以上_错开"] = f
+        ax.bar([0, 1], [r, f], width=.62, color=["#C0392B", GREY]); ax.set_xticks([0, 1]); ax.set_xticklabels(["真实", "错开后"]); ax.set_ylim(0, r * 1.18); ax.grid(axis="x", visible=False)
+        ax.text(0, r, f"{r:,.0f}", ha="center", va="bottom", fontsize=10.5, color="#C0392B"); ax.text(1, f, f"{f:,.0f}", ha="center", va="bottom", fontsize=10.5, color="#566573")
+        ax.set_title(f"至少 {th} 只股票", loc="left", fontsize=11.5)
+        if j == 0: ax.set_ylabel("这样的 10 毫秒有多少个（八天合计）")
+    fig.text(.01, -.03, "错开后：每只股票的时间线整体挪 1 到 5 分钟，各自的节奏不变，只破坏“同时”。两段开盘后 5 分钟的成交已剔除。", fontsize=9.5, color="#566573")
+    fig.savefig(OUT / "f6_cross.png", dpi=170, bbox_inches="tight"); plt.close(fig)
     rows = {}
     for d in DATES:
         c = Ms[d]["cross"]; r = np.array(c["real_ex"]); f = np.array(c["fake_ex"])
@@ -219,7 +227,7 @@ def fig6():
     single = 0; tot = 0
     for d in DATES:
         tp = np.array(Ms[d]["cross"]["top"][:100]); share = tp[:, 2] / (tp[:, 2] + tp[:, 3]); single += int(((share > .8) | (share < .2)).sum()); tot += 100
-    N["图六_前100刻度八成以上来自一个交易所的占比"] = single / tot
+    N["图六_前10010毫秒八成以上来自一个交易所的占比"] = single / tot
 
 def xlsx():
     import pandas as pd
