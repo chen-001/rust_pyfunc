@@ -1,0 +1,66 @@
+{
+  "created_at": "2026-11-08T13:04:29.405562+08:00",
+  "status": "needs_review",
+  "cpu": 511,
+  "kernel_threads": 1,
+  "performance_benchmark_run": true,
+  "repeats_per_mode": 3,
+  "whole_market_performance_claim": false,
+  "fixture": "synthetic same carrier+(a,b), three different c responses",
+  "scope": "Normal-equation preparation and solve only; cached mode includes cache construction. Residual outputs checked, not timed. Not reduce2 7x7.",
+  "source_sha256": {
+    "frozen/src/yupei_pair/reduce.rs": "9a9e8fe6ea0cd7c976d67776b4f650108929eb5155e19e94b01bea5eaaa87246",
+    "tests/pair_r5_shared_xtx_probe.rs": "2aaf5a3ef9e6ec87591edbdbe52f3d62c6212644fc96dee9b0a74486a9d3b87b",
+    "tests/pair_r5_shared_xtx_probe.py": "5f32ceb9f30e3b0cd320d07e103c89567f89379c05bb647a5afd54db93209533"
+  },
+  "generated_reference_sha256": "682fb24342b40da33d7a2a2c5454d03346836d5a42243d2ac5315acf416ffd48",
+  "records": [],
+  "build": {
+    "command": [
+      "rustc",
+      "--edition=2021",
+      "tests/pair_r5_shared_xtx_probe.rs",
+      "-O",
+      "-C",
+      "target-cpu=native",
+      "-o",
+      "/tmp/pair_r5_xtx_fjxcnd4b/probe"
+    ],
+    "exit_code": 0,
+    "stdout": "",
+    "stderr": "",
+    "load_before": [
+      22.32177734375,
+      31.84716796875,
+      35.16357421875
+    ],
+    "load_after": [
+      21.8955078125,
+      31.6005859375,
+      35.06591796875
+    ],
+    "sampled_load1_max": 22.32177734375,
+    "performance_valid_by_observed_load": true
+  },
+  "correctness": {
+    "command": [
+      "/tmp/pair_r5_xtx_fjxcnd4b/probe"
+    ],
+    "exit_code": 101,
+    "stdout": "",
+    "stderr": "\nthread 'main' (961919) panicked at tests/pair_r5_shared_xtx_probe.rs:81:9:\nassertion `left == right` failed: XTX: index 1\n  left: 18444492273895866368\n right: 18444532305675419648\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n",
+    "load_before": [
+      21.8955078125,
+      31.6005859375,
+      35.06591796875
+    ],
+    "load_after": [
+      21.8955078125,
+      31.6005859375,
+      35.06591796875
+    ],
+    "sampled_load1_max": 21.8955078125,
+    "performance_valid_by_observed_load": true
+  },
+  "reason": "RuntimeError: Subprocess exited 101; see recorded stderr"
+}
