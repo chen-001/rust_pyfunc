@@ -1615,6 +1615,9 @@ __all__ = [
     "py_anneal_regime_excess",
     "py_anneal_regime_excess_names",
     "py_anneal_regime_excess_from_data",
+    "py_anneal_regime_raw_excess",
+    "py_anneal_regime_raw_excess_names",
+    "py_anneal_regime_raw_excess_from_data",
     "py_anneal_cross_peer",
     "py_anneal_cross_peer_names",
     "py_anneal_cross_peer_from_data",
@@ -1755,6 +1758,29 @@ def py_anneal_regime_excess_from_data(
     ask_order: "numpy.ndarray",
 ) -> List[float]:
     """无磁盘依赖入口：传入逐笔成交列数组计算新版全部 44832 个因子。"""
+    ...
+
+
+def py_anneal_regime_raw_excess(code: str, date: int) -> List[float]:
+    """柜员游戏扩展系列1 v3（单股单日 44694 列）：v1 原始退火指标 + 打乱对照超额 + 订单量结构，微秒时间、30 秒、全天/下午/尾盘30分钟。"""
+    ...
+
+
+def py_anneal_regime_raw_excess_names() -> List[str]:
+    """返回柜员游戏扩展系列1 v3 全部 44694 个因子名。"""
+    ...
+
+
+def py_anneal_regime_raw_excess_from_data(
+    exchtime_us: "numpy.ndarray",
+    price: "numpy.ndarray",
+    volume: "numpy.ndarray",
+    turnover: "numpy.ndarray",
+    flag: "numpy.ndarray",
+    bid_order: "numpy.ndarray",
+    ask_order: "numpy.ndarray",
+) -> List[float]:
+    """无磁盘依赖入口：传入逐笔成交列数组计算 v3 全部 44694 个因子。"""
     ...
 
 

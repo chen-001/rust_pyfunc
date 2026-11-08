@@ -490,6 +490,21 @@ pub fn pipeline_anneal_regime_excess(
     vals
 }
 
+/// 柜员游戏扩展系列1 v3（44694 列）：v1 原始退火指标 + 打乱对照超额 + 订单量结构，微秒时间、30 秒、三段。
+pub fn pipeline_anneal_regime_raw_excess(
+    date: i64,
+    code: &str,
+    _trading_days: &[i64],
+    expected_len: usize,
+) -> Vec<f32> {
+    let mut vals = match crate::anneal_regime_raw_excess_metrics::compute_anneal_regime_raw_excess_full(code, date) {
+        Ok(v) => v,
+        Err(_) => return nan_vec(expected_len),
+    };
+    vals.resize(expected_len, f32::NAN);
+    vals
+}
+
 /// 柜员游戏扩展系列2 第三版（30045 列）：v1 与 v2 合并 + 下午 / 尾盘时间分段 + 成交活跃度。
 pub fn pipeline_anneal_order_profile_v3(
     date: i64,
@@ -682,6 +697,7 @@ pub fn run_factor_pipeline(
         "anneal_order_profile_v2",
         "anneal_order_profile_v3",
         "anneal_regime_excess",
+        "anneal_regime_raw_excess",
         "hidden_arrange",
         "dagpath",
         "geffe_leak",
@@ -1028,6 +1044,13 @@ pub fn run_factor_pipeline(
                         )
                     } else if pipeline_name_t == "anneal_regime_excess" {
                         pipeline_anneal_regime_excess(
+                            date,
+                            &code,
+                            &trading_days,
+                            expected_result_length,
+                        )
+                    } else if pipeline_name_t == "anneal_regime_raw_excess" {
+                        pipeline_anneal_regime_raw_excess(
                             date,
                             &code,
                             &trading_days,
@@ -1967,6 +1990,7 @@ pub fn run_factor_pipeline_v6(
         "anneal_order_profile_v2",
         "anneal_order_profile_v3",
         "anneal_regime_excess",
+        "anneal_regime_raw_excess",
         "dagpath",
     ];
     if !known.contains(&pipeline_name.as_str()) && !pipeline_name.starts_with("okay_") {

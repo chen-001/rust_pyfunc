@@ -1,4 +1,4 @@
-"""柜员游戏三个修正版的真实 pipeline 入口冒烟测试（需先 ./alter.sh）。
+"""柜员游戏修正版与第三版的真实 pipeline 入口冒烟测试（需先 ./alter.sh）。
 
 检查：直写列段的记录数、列数与名字一致；抽查列与单股 Python 入口逐位相同（per-stock 两个）；
 横截面版只检查记录数与列数。临时目录放 HDD，结束后删除。
@@ -63,5 +63,7 @@ if __name__ == "__main__":
         check_stock("anneal_regime_excess", rp.py_anneal_regime_excess_names(), rp.py_anneal_regime_excess)
         check_stock("anneal_order_profile_v2", rp.py_anneal_order_profile_v2_names(), rp.py_anneal_order_profile_v2)
         check_cross("anneal_cross_peer_v2", rp.py_anneal_cross_peer_v2_names())
+        check_stock("anneal_regime_raw_excess", rp.py_anneal_regime_raw_excess_names(), rp.py_anneal_regime_raw_excess)
+        check_stock("anneal_order_profile_v3", rp.py_anneal_order_profile_v3_names(), rp.py_anneal_order_profile_v3)
     finally:
         shutil.rmtree(ROOT, ignore_errors=True)

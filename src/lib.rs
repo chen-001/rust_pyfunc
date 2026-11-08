@@ -142,6 +142,7 @@ pub mod anneal_order_profile_metrics;
 pub mod anneal_order_profile_v2_metrics;
 pub mod anneal_order_profile_v3_metrics;
 pub mod anneal_regime_excess_metrics;
+pub mod anneal_regime_raw_excess_metrics;
 pub mod anneal_cross_peer_metrics;
 pub mod anneal_cross_peer_v2_metrics;
 pub mod relaynet_six_people;
@@ -1637,6 +1638,18 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(
         anneal_regime_excess_metrics::py_anneal_regime_excess_from_data,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        anneal_regime_raw_excess_metrics::py_anneal_regime_raw_excess,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        anneal_regime_raw_excess_metrics::py_anneal_regime_raw_excess_names,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        anneal_regime_raw_excess_metrics::py_anneal_regime_raw_excess_from_data,
         m
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(
