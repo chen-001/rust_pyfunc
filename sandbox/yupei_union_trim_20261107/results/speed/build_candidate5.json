@@ -1,0 +1,8 @@
+{
+  "exit_code": 0,
+  "wall_seconds": 74.24662005901337,
+  "source_manifest": "candidate5_sources.json",
+  "patch": "candidate5_speed.patch",
+  "changes_from_v4": "Opt-in exact four-pair mass accumulation; default mass1, unchanged TopK policy.",
+  "module_sha256": "7956cdd1ec10e4c4b86fb7f6b9283d685126f9d0e3fa761ebbdc6a249dcf7e03"
+}

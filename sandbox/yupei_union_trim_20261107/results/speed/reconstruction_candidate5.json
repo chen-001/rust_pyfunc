@@ -1,0 +1,10 @@
+{
+  "patch_exit_code": 0,
+  "patch_sha256": "cc30bbba1a1fd3c31c122f79ad24833b01eae4d2ffeb33ced6cdcb890e882a82",
+  "source_files": 370,
+  "reconstructed_files": 370,
+  "mismatched_files": [],
+  "all_sources_exact": true,
+  "stdout": "patching file src/lib.rs\npatching file src/yupei_dist/compute.rs\npatching file src/yupei_gpt/compute.rs\npatching file src/yupei_gpt/network.rs\npatching file src/yupei_gpt/network_simd.rs\npatching file src/yupei_pair/bitonic_sort.rs\npatching file src/yupei_pair/exact_quantile.rs\npatching file src/yupei_pair/mod.rs\npatching file src/yupei_pair/net.rs\npatching file src/yupei_pair/reduce2.rs\npatching file src/yupei_pair/split.rs\npatching file src/yupei_pair_mass_batch.rs\npatching file src/yupei_pair_scan_stats.rs\n",
+  "stderr": ""
+}
