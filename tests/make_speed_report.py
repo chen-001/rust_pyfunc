@@ -64,6 +64,47 @@ def run_identity(run):
                        ensure_ascii=False, separators=(",", ":")))
 
 
+def output_validation_reasons(record, status, documents):
+    """Pure-data gate: a finished calculation is not a finished comparison."""
+    reasons = []
+    shape = record.get("shape")
+    shape_valid = (isinstance(shape, (list, tuple)) and len(shape) == 2
+                   and all(isinstance(value, int) and not isinstance(value, bool) for value in shape)
+                   and shape[0] > 0 and shape[1] == 18758)
+    if not shape_valid:
+        reasons.append("输出shape未测或无效：必须为正行数×18758列")
+    reference_name = f"base_{record['date']}_r1"
+    if record["name"] == reference_name:
+        return reasons, "原始base_r1历史对照例外：不要求自比较，仍校验固定shape"
+    status = status if isinstance(status, dict) else {}
+    comparison_code = status.get("comparison_exit_code")
+    if not (isinstance(comparison_code, int) and not isinstance(comparison_code, bool)
+            and comparison_code == 0):
+        reasons.append("对账退出码未测：尚未完成对账" if comparison_code is None
+                       else f"对账退出码不合格：comparison_exit_code={comparison_code}")
+    filename = f"compare_{reference_name}__{record['name']}.json"
+    comparison = documents.get(filename)
+    if not isinstance(comparison, dict):
+        reasons.append("缺少完整严格对账产物：" + filename)
+        return reasons, filename
+    if comparison.get("left") != reference_name or comparison.get("right") != record["name"]:
+        reasons.append("严格对账左右运行身份不匹配")
+    reference = documents.get(reference_name + ".json", {})
+    reference_shape = reference.get("shape") if isinstance(reference, dict) else None
+    if (not shape_valid or comparison.get("shape") != shape or reference_shape != shape
+            or ("shape_exact" in comparison and comparison["shape_exact"] is not True)):
+        reasons.append("严格对账shape不一致或基线shape缺失")
+    bad_flags = [key for key in ("names_exact", "codes_exact", "nan_exact", "array_equal_nan", "bits_equal")
+                 if comparison.get(key) is not True]
+    if bad_flags:
+        reasons.append("严格对账未通过/缺项：" + ", ".join(bad_flags))
+    bad_diffs = [key for key in ("mismatched_cells", "max_abs_diff", "max_rel_diff")
+                 if not finite(comparison.get(key)) or comparison[key] != 0]
+    if bad_diffs:
+        reasons.append("严格对账差异非0或未测：" + ", ".join(bad_diffs))
+    return reasons, filename
+
+
 def excel_value(value):
     if value is None:
         return UNKNOWN
@@ -345,6 +386,57 @@ def local_tables(documents, decisions):
             add(project, kind, before, after, "ns/调用", filename, level,
                 "单核、合成输入、每配置3次；只评价该内核，不外推50线程全市场收益")
 
+    filename = "pair_mass4_tailref_ordered_microbench.json"
+    mass4 = documents.get(filename, {})
+    if isinstance(mass4, dict) and mass4:
+        checks = mass4.get("correctness", [])
+        exact = (len(checks) == 2 and {x.get("mass_avx512") for x in checks} == {"0", "1"}
+                 and all(x.get("exit_code") == 0
+                         and x.get("result", {}).get("six_accumulators_bits_equal") is True
+                         and x.get("result", {}).get("repeated_batches_bits_equal") is True
+                         for x in checks))
+        grouped = defaultdict(lambda: ([], []))
+        for item in mass4.get("records", []):
+            seconds, calls = item.get("seconds"), item.get("iterations")
+            per_batch = seconds * 1e9 / calls if finite(seconds) and finite(calls) and calls > 0 else None
+            load = first(item.get("load_before"))
+            admissible = (mass4.get("status") == "completed" and mass4.get("kernel_threads") == 1
+                          and exact and item.get("exit_code") == 0 and finite(per_batch)
+                          and finite(load) and load <= 50
+                          and item.get("performance_valid_by_observed_load") is True)
+            key = (item.get("n"), item.get("batch"), item.get("access"), item.get("kind"),
+                   item.get("mass_avx512"))
+            baseline = item.get("mode") == "reference"
+            if admissible:
+                grouped[key][0 if baseline else 1].append(per_batch)
+            raw.append(["实测局部核", "pair_mass4", filename, item.get("repeat"),
+                        "原版" if baseline else "候选", item.get("n"), calls, seconds, "秒/整组调用",
+                        per_batch, f"ns/{item.get('batch')}对批次", str(key),
+                        f"单核合成输入；最终版本双路径精确验证={exact}；计入局部汇总={admissible}"])
+        for (n, batch, access, kind, avx512), (before, after) in grouped.items():
+            add("pair_mass4", f"{access}/{kind}; n={n}; batch={batch}; AVX512={avx512}",
+                before, after, f"ns/{batch}对批次", filename, "访存：四对质量统计保序批量更新",
+                "单核合成输入；staged包含等值复制；与真实分数生成、TopK的缓存交互未测。混合开关含复制情形可能变慢，不外推整体收益")
+
+    filename = "pair_r5_shared_xtx_screen_20261108.json"
+    r5 = documents.get(filename, {})
+    if isinstance(r5, dict) and r5:
+        code = r5.get("correctness", {}).get("exit_code")
+        failed = isinstance(code, int) and code != 0
+        note = ("本轮XTX的NaN完整位模式不一致，正确性检查失败，未接入源码；编译成功不代表验证通过。"
+                "performance_benchmark_run是任务计划标记；实际records为空，没有性能成绩。")
+        for key, value in (("筛选结果", "不通过" if failed else "证据未齐"),
+                           ("build.exit_code", r5.get("build", {}).get("exit_code")),
+                           ("correctness.exit_code", code),
+                           ("实际性能记录数", len(r5.get("records", []))),
+                           ("correctness.stderr", r5.get("correctness", {}).get("stderr"))):
+            tests.append(["实测局部筛选", filename, key, value, note])
+        state, reason = decision(decisions, "local", "pair_r5_shared_xtx")
+        excluded.append(["实测局部筛选失败" if failed else "筛选证据未齐", "重复计算：共享XTX",
+                         "pair_r5_shared_xtx", r5.get("fixture"), status_label(state),
+                         None, None, None, None, 0, 0, "无可用性能数据；禁止计入收益",
+                         note, filename, reason])
+
     def leaves(value, path=""):
         if isinstance(value, dict):
             for key, child in value.items():
@@ -357,6 +449,22 @@ def local_tables(documents, decisions):
 
     for filename, doc in documents.items():
         if not (filename.endswith(("_exact.json", "_tests.json", "_correctness.json")) or filename == "sort_summary.json"):
+            continue
+        if filename.startswith("pair_mass4") and filename.endswith("_correctness.json"):
+            # Failed predecessors remain explicit failures. Only the ordered
+            # final revision supplies the successful mass4 performance record.
+            for check in doc.get("correctness", []):
+                key = f"mass_avx512={check.get('mass_avx512')}"
+                result = check.get("result", {})
+                passed = (doc.get("status") == "passed" and check.get("exit_code") == 0
+                          and result.get("six_accumulators_bits_equal") is True
+                          and result.get("repeated_batches_bits_equal") is True)
+                note = ("实际集成核的局部检查，仍不是整日验收" if doc.get("integrated_source")
+                        else "最终修复候选的局部验证，仍需全市场验收") if passed else "修复前失败记录；不得作为通过证据或收益依据"
+                tests.append(["实测记录", filename, key + ".结果", "通过" if passed else "不通过", note])
+                tests.append(["实测记录", filename, key + ".exit_code", check.get("exit_code"), note])
+                if result:
+                    tests.append(["实测记录", filename, key + ".exact_cases", result.get("exact_cases"), note])
             continue
         for key, value in leaves(doc):
             if any(part in key for part in ("equal", "exact_cases", "passed", "failed", "exit_code",
@@ -476,6 +584,79 @@ def gpt_screening_rows(documents, logs):
     return rows
 
 
+def pair_workload_tables(documents):
+    """Show 28 artifact-proven chains; keep resource models in short footnotes."""
+    filename = "pair_workload_audit.json"
+    audit = documents.get(filename)
+    if not isinstance(audit, dict):
+        return [], []
+    totals = audit.get("totals", {})
+    def count_text(key):
+        value = totals.get(key)
+        return f"{value:,}" if isinstance(value, int) and not isinstance(value, bool) else UNKNOWN
+    diagnostic = audit.get("mass_flags_diagnostic", {})
+    modes = diagnostic.get("modes", {})
+    flag_keys = ("none", "h_only", "g_only", "both")
+    mode_rows = {mode: {row.get("name"): row for row in modes.get(mode, {}).get("rows", [])}
+                 for mode in ("v5m1", "v5m4")}
+    rows = []
+    checks = {"v5m1": [], "v5m4": [], "cross_mode": []}
+    for chain in audit.get("chains", []):
+        name = chain.get("name")
+        pairs = chain.get("accepted_pairs")
+        witnesses = chain.get("count_witnesses", [])
+        witness_ok = bool(witnesses) and all(
+            witness.get("mask_matches") is True and witness.get("verified_equal") is True
+            for witness in witnesses)
+        row = ["产物计数证明/日志实测", chain.get("group"), name, chain.get("n"),
+               chain.get("active_mask_count"), pairs, chain.get("pair_stock_elements"),
+               "通过" if witness_ok else "证据未齐/不通过"]
+        complete_flags = {}
+        for mode in ("v5m1", "v5m4"):
+            measured = mode_rows[mode].get(name, {})
+            values = [measured.get(key) for key in flag_keys]
+            complete = modes.get(mode, {}).get("exit_code") == 0 and all(
+                isinstance(value, int) and not isinstance(value, bool) and value >= 0 for value in values)
+            agrees = (sum(values) == measured.get("pairs") == pairs
+                      and measured.get("equals_v4_pair_count_witness") is True) if complete else None
+            row.extend([" / ".join(map(str, values)) if complete else None,
+                        measured.get("pairs") if complete else None, agrees])
+            checks[mode].append(agrees)
+            if complete:
+                complete_flags[mode] = values
+        cross_mode = (complete_flags["v5m1"] == complete_flags["v5m4"]
+                      if len(complete_flags) == 2 else None)
+        checks["cross_mode"].append(cross_mode)
+        row.extend([cross_mode, filename])
+        rows.append(row)
+    notes = [
+        ["产物计数证明", "配对主循环的真实工作量",
+         f"{count_text('chains')}条链；{count_text('accepted_pairs')}个配对；"
+         f"{count_text('pair_stock_elements')}个配对×股票元素（约1.8618万亿）。"
+         "由活跃掩码和产物TopK计数饱和等式证明，未假设全部股票活跃。仅含split/multi的28条链主循环，"
+         "不含GPT、额外空模型扫描、读文件、组装及下游统计。"],
+        ["实测日志对账", "配对开关flags核对",
+         f"审计状态={diagnostic.get('status', UNKNOWN)}；"
+         + "；".join(f"{mode}通过{sum(value is True for value in values)}/{len(values)}条，"
+                     f"未测{sum(value is None for value in values)}条"
+                     for mode, values in checks.items())
+         + "。工作量审计页四项顺序为none / h_only / g_only / both；完整退出后才展示该模式的计数。"
+         "这里只核对工作量；整日因子一致性与速度重复见严格对账和全市场基准页。"],
+        ["未知", "总理论下限与停止条件",
+         "全程序的、独立于当前算法的理论下限未知，不能声称已经到理论下限的2倍以内。"
+         "CPU秒/50、局部单核吞吐外推和当前指令的条件资源界均不能替代总理论下限。"],
+    ]
+    traffic = audit.get("conditional_logical_traffic_decimal_TB", {})
+    traffic_tb = traffic.get("total_84B_if_all_both_true")
+    if finite(traffic_tb):
+        notes.append(["条件模型附注", "逻辑缓存流量",
+                      f"全部mass标志为both且按pair1实现时，源代码模型约{traffic_tb:.3f} TB；"
+                      "这是寄存器/缓存之间的逻辑载荷，不是实际DRAM流量，也不是磁盘I/O量。"
+                      "理想硬件资源界还依赖当前向量物化、50个物理核、最高频率、"
+                      "理想缓存命中等假设，仅作附注，不能据此预测总耗时或宣称接近极限。"])
+    return rows, notes
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
@@ -540,7 +721,7 @@ def main():
             record["max_load1"] = max(samples) if samples else None
         record["log"] = log
         record["name"] = name
-        reasons = []
+        reasons, record["correctness_evidence"] = output_validation_reasons(record, status, documents)
         if record.get("validation_only", False):
             reasons.append("validation_only：只做数值验证，禁止计入性能")
         if not finite(record.get("call_seconds")):
@@ -561,7 +742,7 @@ def main():
             reasons.append("运行期异常，排除测速：" + exclusion.get("reason", "未记录原因"))
             record["observed_load1"] = exclusion.get("observed_load1", exclusion.get("max_load1"))
         record["eligible"] = not reasons
-        record["reason"] = "计入重复测速" if not reasons else "；".join(reasons)
+        record["reason"] = ("计入重复测速；" + record["correctness_evidence"]) if not reasons else "；".join(reasons)
         runs[name] = record
 
     groups = defaultdict(list)
@@ -581,6 +762,9 @@ def main():
         first_run = first_attempt.get("call_seconds") if first_attempt else None
         first_reason = first_attempt["reason"] if first_attempt else "该组未记录repeat=1"
         state, reason = decision(decisions, "variants", variant)
+        variant_decision = decisions.get("variants", {}).get(variant, {})
+        variant_label = (variant_decision.get("label", status_label(state))
+                         if isinstance(variant_decision, dict) else status_label(state))
         def budget(limit):
             if len(good) < 3:
                 return "未完成3次重复；不作达标结论"
@@ -588,7 +772,7 @@ def main():
         summary_rows.append(["实测/由实测计算", 20241231, variant, module, len(items), len(good),
                              first_run, min(times) if times else None, med,
                              ratio(base_median, med), 60, budget(60), 150, budget(150),
-                             "冻结基线" if variant == "base" else status_label(state),
+                             "冻结基线" if variant == "base" else variant_label,
                              reason, ", ".join(r["name"] for r in items), settings,
                              "；".join(sorted({r["settings_evidence"] for r in items})), first_reason])
 
@@ -604,7 +788,8 @@ def main():
                          run.get("nan_count"), run.get("inf_count"), run.get("module_sha256"),
                          run["eligible"], run["reason"], name + ".json / .log / .status.json",
                          run.get("validation_only", "旧结果未记录"), run["experiment_settings"],
-                         run["settings_evidence"], run["max_load1"], run["load_samples"]])
+                         run["settings_evidence"], run["max_load1"], run["load_samples"],
+                         run["correctness_evidence"]])
         for group, stage, seconds, cumulative, note in log.get("stages", []):
             stage_rows.append(["实测日志/累计值差分", run["date"], run["variant"], run["repeat"],
                                group, stage, seconds, cumulative, note, name + ".log"])
@@ -639,6 +824,7 @@ def main():
 
     local, local_raw, local_tests, excluded = local_tables(documents, decisions)
     gpt_screening = gpt_screening_rows(documents, logs)
+    pair_workload, pair_workload_notes = pair_workload_tables(documents)
     change_rows = []
     for filename, doc in sorted(documents.items()):
         if filename.endswith("_sources.json") and isinstance(doc, list):
@@ -658,7 +844,7 @@ def main():
     now = datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(timespec="seconds")
     notes = [
         ["实测", "生成时间（北京时间）", now],
-        ["说明", "报告状态", "当前证据快照，可重复生成；有未测或证据未齐时不代表完成验收"],
+        ["说明", "报告状态", "当前证据快照，可重复生成；各变体分别判断正确性、测速验收与预算达标，未决实验不混入已验收变体"],
         ["说明", "主计时口径", "函数入口到返回，包含读数据；numpy转换和结果落盘单列；不混入整进程启动时间"],
         ["说明", "基准样本", "20241231全部股票；50线程；启动load1≤50；退出码0；validation_only永不计性能；至少3次才给预算结论"],
         ["说明", "运行期异常排除", "timing_exclusions.json标记或status实测max_load1>100均排除性能汇总；原始读数与数值对账仍保留；未记录运行中load时明确未测"],
@@ -666,9 +852,10 @@ def main():
         ["说明", "实验设置", "旧结果缺失experiment_settings时按默认空设置{}归组，并注明；计算设置不同的运行不能合并。YUPEI_STAGE/YUPEI_VALIDATE_ONLY/YUPEI_VERBOSE/YUPEI_GPT_VERBOSE仅控制运行或日志，排除出设置分组"],
         ["说明", "倍数", "冻结base的合格运行中位数 ÷ 本变体中位数；不足3次时仅为阶段性读数"],
         ["说明", "严格对账", "shape、列名顺序、股票顺序、NaN、值、完整位模式均须通过；比较输入不重新计算"],
+        ["说明", "测速资格的数值门槛", "必须为正行数×18758列；除各日期原始base_r1的历史对照例外外，须有对应compare产物、左右身份及shape一致、names/codes/NaN/值/位模式全通过、差异为0，且status中的comparison_exit_code=0。计算退出0但对账未完成的轮次不进入最低/中位。"],
         ["说明", "分段解释", "顺序总阶段用累计墙钟差分；并行、嵌套子段不相加，不能当作整段总耗时"],
         ["说明", "局部测试", "局部核、合成输入和单次排序的收益不等于全市场收益；未决和废弃候选移到单独页"],
-        ["未知", "理论计算下限", "未提供实测读速与计算吞吐依据；本报告不估造下限"],
+        ["未知", "理论计算下限", "全程序理论下限尚未建立；工作量和条件资源估算不等同于总理论下限，不能声称已在其2倍以内"],
         ["说明", "证据来源", str(folder)],
     ]
     for key in sorted({run_identity(r) for r in runs.values() if r["variant"] != "base"}):
@@ -686,6 +873,21 @@ def main():
                       f"范围={overnight.get('scope', UNKNOWN)}；"
                       "详见源码审计与未测页。后续新增运行以全市场基准页为准，"
                       "CPU秒除以50只描述当前工作量不变时的条件界，不是算法理论下限。"])
+    final_acceptance = documents.get("candidate6_acceptance_summary.json")
+    if isinstance(final_acceptance, dict):
+        notes.append(["已完成验收的实测汇总", "候选6相对冻结基线",
+                      {key: final_acceptance.get(key) for key in
+                       ("base_median_seconds", "candidate_first_seconds", "candidate_min_seconds",
+                        "candidate_median_seconds", "median_seconds_saved", "median_speedup",
+                        "median_time_reduction_pct", "budget_met", "fallback_met")}])
+        notes.append(["独立核验记录", "候选6数值与源码覆盖",
+                      f"来源=candidate6_acceptance_summary.json；核验时间={final_acceptance.get('verified_at', UNKNOWN)}；"
+                      f"三日全股逐位一致日期={final_acceptance.get('correctness_dates', UNKNOWN)}；"
+                      f"核对源码文件数={final_acceptance.get('all_sources_verified', UNKNOWN)}；"
+                      f"模块SHA256={final_acceptance.get('module_sha256', UNKNOWN)}。"
+                      "源码文件数来自该独立核验记录；原始base首轮只有起止负载，作为明示历史例外保留。"
+                      "总理论下限仍未知，不能声称接近极限。"])
+    notes.extend(pair_workload_notes)
     notes.extend(warnings)
 
     wb = Workbook()
@@ -693,7 +895,7 @@ def main():
     sheet(wb, "说明与证据", ["证据类别", "项目", "说明"], notes, "实测、由实测计算、源码记录与未知分开呈现；空缺明确写未测。")
     sheet(wb, "全市场基准", ["证据类别", "日期", "变体", "模块SHA256", "发现运行数", "合格重复数", "首轮调用秒", "最小调用秒", "中位调用秒", "相对base倍数", "预算秒", "60秒结论", "退让线秒", "150秒结论", "变体状态", "状态依据", "来源运行", "experiment_settings", "设置证据", "首轮资格说明"], summary_rows,
           "只汇总20241231；同变体不同模块或实验设置分行；不足3次不宣布达标。")
-    sheet(wb, "所有运行原始读数", ["证据类别", "日期", "变体", "重复号", "调用秒", "进程CPU秒", "CPU除以墙钟", "转numpy秒", "写结果秒", "整进程墙钟秒", "配置线程", "日志线程", "启动load1_5_15", "结束load1_5_15", "运行中异常load1", "退出码", "RSS峰值KiB", "shape", "NaN格数", "Inf格数", "模块SHA256", "计入汇总", "筛选原因", "来源", "validation_only", "experiment_settings", "设置证据", "实测max_load1", "load采样(秒/load1/5/15)"], raw_rows,
+    sheet(wb, "所有运行原始读数", ["证据类别", "日期", "变体", "重复号", "调用秒", "进程CPU秒", "CPU除以墙钟", "转numpy秒", "写结果秒", "整进程墙钟秒", "配置线程", "日志线程", "启动load1_5_15", "结束load1_5_15", "运行中异常load1", "退出码", "RSS峰值KiB", "shape", "NaN格数", "Inf格数", "模块SHA256", "计入汇总", "筛选原因", "来源", "validation_only", "experiment_settings", "设置证据", "实测max_load1", "load采样(秒/load1/5/15)", "数值资格证据"], raw_rows,
           "所有已发现运行均保留；进程CPU时间可以大于墙钟；缺退出码不能按成功计。")
     sheet(wb, "严格对账", ["证据类别", "日期", "左基线", "右候选", "shape记录", "shape一致", "names顺序一致", "codes顺序一致", "NaN位置一致", "array_equal_nan", "bits_equal", "不一致格数", "最大绝对差", "最大相对差", "结论", "来源", "shape依据", "候选模块SHA256", "候选experiment_settings", "设置证据"], compare_rows,
           "只引用完整compare产物；六项全部通过才标通过，不把无定义/未测当作0。")
@@ -705,6 +907,12 @@ def main():
                                   "启动load1", "实测load1峰值", "与参照对账", "资格说明", "采用结论", "来源"],
               gpt_screening,
               "独立py_yupei_gpt包含491列（含leadlag）；四合一仅用其455列、总18758列。每设置只测1次，不并入四合一重复或稳定加速结论。后两次读取变快不能归因于计算改动。")
+    if pair_workload:
+        sheet(wb, "工作量审计", ["证据类别", "组", "链", "股票数", "活跃股票数", "真实配对数",
+                                  "配对×股票元素数", "产物计数证明", "v5m1四类flags", "v5m1配对合计",
+                                  "v5m1与产物对账", "v5m4四类flags", "v5m4配对合计", "v5m4与产物对账",
+                                  "两模式flags一致", "来源"], pair_workload,
+              "28条主循环链的真实工作量，四类flags顺序：none / h_only / g_only / both。总计约1.8618万亿配对×股票元素。全程序理论下限仍未知，不能声称已到2倍以内；范围和条件附注见说明页。")
     local_headers = ["证据类别", "优化层级", "项目", "输入情形", "采用状态", "优化前中位", "优化后中位", "局部倍数", "单位", "基线重复数", "候选重复数", "适用边界", "口径说明", "来源", "采用依据"]
     sheet(wb, "采用候选局部测速", local_headers, local, "这里只列有明确采用记录的局部候选；不能相加或外推为全市场节时。")
     sheet(wb, "局部测速原始读数", ["证据类别", "项目", "来源", "重复号", "路径", "输入长度", "调用次数", "原始耗时", "原始单位", "局部读数", "局部单位", "输入范围", "说明"], local_raw,

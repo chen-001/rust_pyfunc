@@ -1,0 +1,14 @@
+{
+  "xlsx_sha256": "710d8a0e6f211d7f3abbc98c85dc3663f8d0f0a57027ac7223497e6dbe1ab6c0",
+  "bytes": 792501,
+  "sheet_count": 14,
+  "v6_qualified_repeats": 3,
+  "candidate_first_seconds_in_xlsx": 341.9154514688998,
+  "candidate_min_seconds_in_xlsx": 336.9789183456451,
+  "candidate_median_seconds_in_xlsx": 338.2108266521245,
+  "budget_60": "未达标",
+  "fallback_150": "未达标",
+  "source_summary": "candidate6_acceptance_summary.json",
+  "source_and_frozen_module_verified": true,
+  "report_read_warnings": 0
+}

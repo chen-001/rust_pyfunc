@@ -1,0 +1,27 @@
+{
+  "status": "complete",
+  "pid": null,
+  "started_at": 1794114326.1498632,
+  "runs": [
+    "v6:20241231:1",
+    "v6:20160104:1",
+    "v6:20180102:1",
+    "v6:20241231:2",
+    "v6:20241231:3"
+  ],
+  "completed": [
+    "v6:20241231:1",
+    "v6:20160104:1",
+    "v6:20180102:1",
+    "v6:20241231:2",
+    "v6:20241231:3"
+  ],
+  "module_sha256": "5af0780d1cbd587140e1acab9f97b924d1e09689664bfe3be039f7bfd8b30e53",
+  "environment": "All YUPEI variables removed; compiled mass4 default. RAYON=50; BLAS=1.",
+  "default_mass_batch": 4,
+  "source_manifest": "candidate6_sources.json",
+  "active": null,
+  "exit_code": 0,
+  "finished_at": 1794115520.4550416,
+  "review_summary": "candidate6_acceptance_summary.json"
+}
