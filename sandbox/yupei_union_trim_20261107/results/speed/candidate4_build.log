@@ -1,0 +1,3902 @@
+   Compiling rust_pyfunc v0.92.0 (/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107)
+warning: unused imports: `Float64Array` and `Int64Array`
+    --> src/backup_column_cache.rs:1616:24
+     |
+1616 |     use arrow::array::{Float64Array, Int64Array};
+     |                        ^^^^^^^^^^^^  ^^^^^^^^^^
+     |
+     = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `DataType`, `Field`, and `Schema`
+    --> src/backup_column_cache.rs:1617:28
+     |
+1617 |     use arrow::datatypes::{DataType, Field, Schema};
+     |                            ^^^^^^^^  ^^^^^  ^^^^^^
+
+warning: unused import: `arrow::record_batch::RecordBatch`
+    --> src/backup_column_cache.rs:1618:9
+     |
+1618 |     use arrow::record_batch::RecordBatch;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `parquet::arrow::arrow_writer::ArrowWriter`
+    --> src/backup_column_cache.rs:1619:9
+     |
+1619 |     use parquet::arrow::arrow_writer::ArrowWriter;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `memmap2::MmapMut`
+ --> src/parallel_computing.rs:3:5
+  |
+3 | use memmap2::MmapMut;
+  |     ^^^^^^^^^^^^^^^^
+
+warning: unused import: `StockPrep`
+  --> src/yupei_multi/mod.rs:23:61
+   |
+23 | use crate::yupei_dist::matrix_stage::{BUCKET_US, N_BUCKETS, StockPrep};
+   |                                                             ^^^^^^^^^
+
+warning: unused import: `std::f64::consts::PI`
+  --> src/microstructure_pattern_features_v2.rs:38:5
+   |
+38 | use std::f64::consts::PI;
+   |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `is_terminal`
+  --> src/tail_backtest_engine.rs:26:23
+   |
+26 |     init_status_line, is_terminal, read_task_result, reset_status_line, update_status_line,
+   |                       ^^^^^^^^^^^
+
+warning: unused import: `PyArray1`
+  --> src/tlq_gate.rs:12:26
+   |
+12 | use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
+   |                          ^^^^^^^^
+
+warning: unused import: `PyArray1`
+  --> src/tail_v4_fulltest_core.rs:33:22
+   |
+33 | use numpy::{PyArray, PyArray1, PyReadonlyArray1, PyReadonlyArray2};
+   |                      ^^^^^^^^
+
+warning: unused import: `arrow::datatypes::DataType`
+  --> src/tail_v4_fulltest_dataset.rs:22:5
+   |
+22 | use arrow::datatypes::DataType;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `Axis` and `s`
+  --> src/theme_cluster_factors.rs:10:15
+   |
+10 | use ndarray::{s, Array1, Array2, Axis};
+   |               ^                  ^^^^
+
+warning: unnecessary parentheses around block return value
+   --> src/geffe_leak_metrics.rs:468:29
+    |
+468 |             let ib=if d>0.0{((mk[i].total_bid_vol-mk[i].total_ask_vol)/d>0.0)}else{false};
+    |                             ^                                               ^
+    |
+    = note: `#[warn(unused_parens)]` (part of `#[warn(unused)]`) on by default
+help: remove these parentheses
+    |
+468 -             let ib=if d>0.0{((mk[i].total_bid_vol-mk[i].total_ask_vol)/d>0.0)}else{false};
+468 +             let ib=if d>0.0{(mk[i].total_bid_vol-mk[i].total_ask_vol)/d>0.0}else{false};
+    |
+
+warning: unused import: `std::collections::HashSet`
+  --> src/hot_stock_pool_metrics.rs:28:5
+   |
+28 | use std::collections::HashSet;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `SecStat`, `corr_fast`, `cst_midnight_epoch`, `herfindahl`, `kurtosis`, `percentile_sorted`, `rank_pct_in`, `sec_to_idx`, `skew`, `std`, and `top_k_concentration`
+  --> src/hot_pool_ind_metrics.rs:19:49
+   |
+19 |     build_group_features_arr, build_stock_data, corr_fast, cst_midnight_epoch, fill_per_stock_arr,
+   |                                                 ^^^^^^^^^  ^^^^^^^^^^^^^^^^^^
+20 |     herfindahl, kurtosis, list_codes, mean, mean_std, neighbor_mean_inline, percentile_sorted,
+   |     ^^^^^^^^^^  ^^^^^^^^                                                    ^^^^^^^^^^^^^^^^^
+21 |     rank_pct_in, sec_to_idx, skew, std, top_k_concentration, RollingCache, SecStat, StockData,
+   |     ^^^^^^^^^^^  ^^^^^^^^^^  ^^^^  ^^^  ^^^^^^^^^^^^^^^^^^^                ^^^^^^^
+
+warning: unused import: `read_market_fast_inner`
+  --> src/cross_section_example_metrics.rs:21:30
+   |
+21 | use crate::fast_csv_reader::{read_market_fast_inner, read_trade_fast_inner, TradeRecord};
+   |                              ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `MarketRecord` and `TradeRecord`
+  --> src/drop_event_metrics.rs:15:52
+   |
+15 |     read_market_fast_inner, read_trade_fast_inner, MarketRecord, TradeRecord,
+   |                                                    ^^^^^^^^^^^^  ^^^^^^^^^^^
+
+warning: unused import: `read_existing_backup_with_filter`
+  --> src/factor_pipeline.rs:12:28
+   |
+12 | use crate::backup_reader::{read_existing_backup_with_filter, TaskResult};
+   |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `BufReader`, `BufWriter`, and `Write`
+    --> src/factor_pipeline.rs:1451:19
+     |
+1451 |     use std::io::{BufReader, BufWriter, Write};
+     |                   ^^^^^^^^^  ^^^^^^^^^  ^^^^^
+
+warning: unused imports: `Command` and `Stdio`
+    --> src/factor_pipeline.rs:1452:24
+     |
+1452 |     use std::process::{Command, Stdio};
+     |                        ^^^^^^^  ^^^^^
+
+warning: unused import: `Child`
+    --> src/factor_pipeline.rs:1686:24
+     |
+1686 |     use std::process::{Child, Command, Stdio};
+     |                        ^^^^^
+
+warning: unused imports: `BufReader`, `BufWriter`, and `Write`
+    --> src/factor_pipeline.rs:2227:19
+     |
+2227 |     use std::io::{BufReader, BufWriter, Write};
+     |                   ^^^^^^^^^  ^^^^^^^^^  ^^^^^
+
+warning: unused imports: `Command` and `Stdio`
+    --> src/factor_pipeline.rs:2228:24
+     |
+2228 |     use std::process::{Command, Stdio};
+     |                        ^^^^^^^  ^^^^^
+
+warning: unused import: `memmap2::Mmap`
+  --> src/factor_store_v5.rs:24:5
+   |
+24 | use memmap2::Mmap;
+   |     ^^^^^^^^^^^^^
+
+warning: unused import: `pyo3::wrap_pyfunction`
+  --> src/factor_store_v5.rs:26:5
+   |
+26 | use pyo3::wrap_pyfunction;
+   |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::collections::HashMap`
+  --> src/features_f64.rs:31:5
+   |
+31 | use std::collections::HashMap;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::collections::HashMap`
+  --> src/features.rs:16:5
+   |
+16 | use std::collections::HashMap;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused doc comment
+   --> src/minute_data_reader.rs:154:1
+    |
+154 | / /// 多进程模式下每个 worker 是独立进程，各线程打开各自的 HDF5 文件句柄。
+155 | | /// 用 thread_local 避免 HDF5 C 库的线程安全问题。
+    | |_------------------------------------------------^^
+    |   |
+    |   rustdoc does not generate documentation for macro invocations
+    |
+    = help: to document an item produced by a macro, the macro must produce the documentation as part of its expansion
+    = note: `#[warn(unused_doc_comments)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `TradeRecord`
+  --> src/okay_database/hm054.rs:48:53
+   |
+48 | use crate::fast_csv_reader::{read_trade_fast_inner, TradeRecord};
+   |                                                     ^^^^^^^^^^^
+
+warning: unnecessary parentheses around assigned value
+   --> src/okay_database/hm055.rs:570:20
+    |
+570 |         let num5 = (((((((((b1 + b2) + b3) + b4) + b5) - a1) - a2) - a3) - a4) - a5);
+    |                    ^                                                               ^
+    |
+help: remove these parentheses
+    |
+570 -         let num5 = (((((((((b1 + b2) + b3) + b4) + b5) - a1) - a2) - a3) - a4) - a5);
+570 +         let num5 = ((((((((b1 + b2) + b3) + b4) + b5) - a1) - a2) - a3) - a4) - a5;
+    |
+
+warning: unnecessary parentheses around assigned value
+   --> src/okay_database/hm055.rs:571:20
+    |
+571 |         let den5 = (((((((((b1 + b2) + b3) + b4) + b5) + a1) + a2) + a3) + a4) + a5);
+    |                    ^                                                               ^
+    |
+help: remove these parentheses
+    |
+571 -         let den5 = (((((((((b1 + b2) + b3) + b4) + b5) + a1) + a2) + a3) + a4) + a5);
+571 +         let den5 = ((((((((b1 + b2) + b3) + b4) + b5) + a1) + a2) + a3) + a4) + a5;
+    |
+
+warning: unused import: `PyArray2`
+  --> src/order_pair_metrics_pipeline.rs:14:26
+   |
+14 | use numpy::{IntoPyArray, PyArray2, PyReadonlyArray2};
+   |                          ^^^^^^^^
+
+warning: unused import: `HashSet`
+  --> src/order_pair_metrics_pipeline.rs:16:33
+   |
+16 | use std::collections::{HashMap, HashSet};
+   |                                 ^^^^^^^
+
+warning: unused doc comment
+    --> src/yhyb_metrics.rs:1171:1
+     |
+1171 | / /// 线程本地 8×K 个 Gather（K 只 A × 4 时段 × fwd/bwd，时段定制桶长），任务间复用
+1172 | | /// （touched 清零）。rayon 工作线程串行执行任务，borrow 不会嵌套。
+1173 | | /// 桶长 = 时段最大距离秒数（p0 [5400,19620)→14220、p1 [6000,17820)→11820、
+1174 | | /// p2 [17820,19620)→1800、p3 [12600,19800)→7200），每股 8 个共 560KB 落 L2。
+     | |_---------------------------------------------------------------------------^^
+     |   |
+     |   rustdoc does not generate documentation for macro invocations
+     |
+     = help: to document an item produced by a macro, the macro must produce the documentation as part of its expansion
+
+warning: unnecessary trailing semicolon
+    --> src/yhyb_metrics.rs:2905:14
+     |
+2905 |             };
+     |              ^ help: remove this semicolon
+     |
+     = note: `#[warn(redundant_semicolons)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `c_of_m`
+  --> src/yhyb_indtop_metrics.rs:17:28
+   |
+17 |     build_slices_and_null, c_of_m, ln_c_of_m, load_streams, period_slice, EvStream, SliceTable,
+   |                            ^^^^^^
+
+warning: use of deprecated associated function `chrono::NaiveDateTime::from_timestamp_opt`: use `DateTime::from_timestamp` instead
+    --> src/tail_v4_pipeline.rs:1180:29
+     |
+1180 |     let dt = NaiveDateTime::from_timestamp_opt(secs, nanos)
+     |                             ^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated associated function `chrono::NaiveDateTime::from_timestamp_opt`: use `DateTime::from_timestamp` instead
+    --> src/tail_v5_pipeline.rs:2874:29
+     |
+2874 |     let dt = NaiveDateTime::from_timestamp_opt(secs, nanos)
+     |                             ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `Read`
+ --> src/backup_column_cache.rs:9:26
+  |
+9 | use std::io::{BufWriter, Read, Write};
+  |                          ^^^^
+
+warning: unused import: `rayon::prelude`
+  --> src/switch_moment_metrics.rs:17:5
+   |
+17 | use rayon::prelude::*;
+   |     ^^^^^^^^^^^^^^
+
+warning: unused import: `rayon::prelude`
+  --> src/features_f64.rs:30:5
+   |
+30 | use rayon::prelude::*;
+   |     ^^^^^^^^^^^^^^
+
+warning: unused import: `rayon::prelude`
+  --> src/features.rs:15:5
+   |
+15 | use rayon::prelude::*;
+   |     ^^^^^^^^^^^^^^
+
+warning: variable `skipped_foreign_date` is assigned to, but never used
+   --> src/yupei_gpt/input.rs:244:13
+    |
+244 |     let mut skipped_foreign_date = false;
+    |             ^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: consider using `_skipped_foreign_date` instead
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `any_row`
+   --> src/yupei_gpt/input.rs:245:13
+    |
+245 |     let mut any_row = false;
+    |             ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_any_row`
+
+warning: value assigned to `skipped_foreign_date` is never read
+   --> src/yupei_gpt/input.rs:289:13
+    |
+289 |             skipped_foreign_date = true;
+    |             ^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: maybe it is overwritten before being read?
+    = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> src/yupei_gpt/input.rs:245:9
+    |
+245 |     let mut any_row = false;
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> src/yupei_multi/mod.rs:179:21
+    |
+179 |                 let mut flush = |a: usize, b: usize, pts: &mut Vec<(f64, [f32; 4])>| {
+    |                     ----^^^^^
+    |                     |
+    |                     help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/yupei_multi/mod.rs:401:9
+    |
+401 |     let mut flush = |a: usize, b: usize, pts: &mut Vec<(f64, [f32; 4])>| {
+    |         ----^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: unused variable: `ws`
+   --> src/cross_stock_regression.rs:414:13
+    |
+414 |         let ws = if weights[s].is_finite() && weights[s] > 0.0 {
+    |             ^^
+    |
+help: if this is intentional, prefix it with an underscore
+    |
+414 |         let _ws = if weights[s].is_finite() && weights[s] > 0.0 {
+    |             +
+help: you might have meant to pattern match on the similarly named constant `PR_DAMPING`
+    |
+414 -         let ws = if weights[s].is_finite() && weights[s] > 0.0 {
+414 +         let yhyb_network::PR_DAMPING = if weights[s].is_finite() && weights[s] > 0.0 {
+    |
+
+warning: variable does not need to be mutable
+  --> src/cross_stock_regression_fast.rs:78:17
+   |
+78 |             let mut idx = a * (a + 1) / 2 + a;
+   |                 ----^^^
+   |                 |
+   |                 help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/factor_neutralize_std.rs:901:17
+    |
+901 |             let mut keys: Vec<u64> = codes.row(date_idx).iter().map(|&v| mono_key(v)).collect();
+    |                 ----^^^^
+    |                 |
+    |                 help: remove this `mut`
+
+warning: unused variable: `ind`
+    --> src/factor_neutralize_std.rs:2026:9
+     |
+2026 |     let ind = &shared.industry;
+     |         ^^^ help: if this is intentional, prefix it with an underscore: `_ind`
+
+warning: unused variable: `ind`
+    --> src/factor_neutralize_std.rs:2082:9
+     |
+2082 |     let ind = &shared.industry;
+     |         ^^^ help: if this is intentional, prefix it with an underscore: `_ind`
+
+warning: unused variable: `n`
+    --> src/factor_neutralize_std.rs:2185:9
+     |
+2185 |     let n = in_row.len();
+     |         ^
+     |
+help: if this is intentional, prefix it with an underscore
+     |
+2185 |     let _n = in_row.len();
+     |         +
+help: you might have meant to pattern match on the similarly named constant `NB_BUCKET`
+     |
+2185 -     let n = in_row.len();
+2185 +     let yhyb_indtop_metrics::NB_BUCKET = in_row.len();
+     |
+
+warning: unused variable: `ob_spread`
+   --> src/agent_validation/factors_extra.rs:587:5
+    |
+587 |     ob_spread: &[f64],
+    |     ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_ob_spread`
+
+warning: unused variable: `n_pairs`
+   --> src/agent_validation/factors_extra.rs:933:9
+    |
+933 |     let n_pairs = n_agents * (n_agents - 1) / 2;
+    |         ^^^^^^^
+    |
+help: if this is intentional, prefix it with an underscore
+    |
+933 |     let _n_pairs = n_agents * (n_agents - 1) / 2;
+    |         +
+help: you might have meant to pattern match on the similarly named constant `NB_BUCKET`
+    |
+933 -     let n_pairs = n_agents * (n_agents - 1) / 2;
+933 +     let yhyb_indtop_metrics::NB_BUCKET = n_agents * (n_agents - 1) / 2;
+    |
+
+warning: unused variable: `n_fwd_h`
+   --> src/agent_validation/factors_extra.rs:934:9
+    |
+934 |     let n_fwd_h = fwd_horizons_sec.len();
+    |         ^^^^^^^
+    |
+help: if this is intentional, prefix it with an underscore
+    |
+934 |     let _n_fwd_h = fwd_horizons_sec.len();
+    |         +
+help: you might have meant to pattern match on the similarly named constant `NB_BUCKET`
+    |
+934 -     let n_fwd_h = fwd_horizons_sec.len();
+934 +     let yhyb_indtop_metrics::NB_BUCKET = fwd_horizons_sec.len();
+    |
+
+warning: unused variable: `day_range`
+    --> src/agent_validation/factors_extra.rs:1526:9
+     |
+1526 |     let day_range = day_max - day_min;
+     |         ^^^^^^^^^
+     |
+help: if this is intentional, prefix it with an underscore
+     |
+1526 |     let _day_range = day_max - day_min;
+     |         +
+help: you might have meant to pattern match on the similarly named constant `PR_DAMPING`
+     |
+1526 -     let day_range = day_max - day_min;
+1526 +     let yhyb_network::PR_DAMPING = day_max - day_min;
+     |
+
+warning: variable `cum_to_state` is assigned to, but never used
+    --> src/agent_validation/factors_extra.rs:1527:13
+     |
+1527 |     let mut cum_to_state: f64 = 0.0;
+     |             ^^^^^^^^^^^^
+     |
+     = note: consider using `_cum_to_state` instead
+help: you might have meant to pattern match on the similarly named constant `PR_DAMPING`
+     |
+1527 -     let mut cum_to_state: f64 = 0.0;
+1527 +     let mut yhyb_network::PR_DAMPING: f64 = 0.0;
+     |
+
+warning: variable `cum_vo_state` is assigned to, but never used
+    --> src/agent_validation/factors_extra.rs:1528:13
+     |
+1528 |     let mut cum_vo_state: f64 = 0.0;
+     |             ^^^^^^^^^^^^
+     |
+     = note: consider using `_cum_vo_state` instead
+help: you might have meant to pattern match on the similarly named constant `PR_DAMPING`
+     |
+1528 -     let mut cum_vo_state: f64 = 0.0;
+1528 +     let mut yhyb_network::PR_DAMPING: f64 = 0.0;
+     |
+
+warning: unused variable: `state_name`
+    --> src/agent_validation/factors_extra.rs:1564:22
+     |
+1564 |         for (s_idx, &state_name) in ri_simple_states.iter().enumerate() {
+     |                      ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_state_name`
+
+warning: unused variable: `ob_depth`
+   --> src/agent_validation/factors_extra.rs:914:5
+    |
+914 |     ob_depth: &[f64],
+    |     ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_ob_depth`
+
+warning: unused variable: `per_agent_dir`
+   --> src/agent_validation/factors_extra.rs:923:5
+    |
+923 |     per_agent_dir: &[Vec<i32>],
+    |     ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_per_agent_dir`
+
+warning: unused variable: `per_agent_vol`
+   --> src/agent_validation/factors_extra.rs:924:5
+    |
+924 |     per_agent_vol: &[Vec<f64>],
+    |     ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_per_agent_vol`
+
+warning: variable does not need to be mutable
+    --> src/agent_validation/factors_extra.rs:1796:21
+     |
+1796 |                 let mut same_count = 0usize;
+     |                     ----^^^^^^^^^^
+     |                     |
+     |                     help: remove this `mut`
+
+warning: unused variable: `pa_size`
+   --> src/agent_validation/mod.rs:209:9
+    |
+209 |     let pa_size = per_agent_size(n_fwd_h, n_pt_h);
+    |         ^^^^^^^
+    |
+help: if this is intentional, prefix it with an underscore
+    |
+209 |     let _pa_size = per_agent_size(n_fwd_h, n_pt_h);
+    |         +
+help: you might have meant to pattern match on the similarly named constant `NB_BUCKET`
+    |
+209 -     let pa_size = per_agent_size(n_fwd_h, n_pt_h);
+209 +     let yhyb_indtop_metrics::NB_BUCKET = per_agent_size(n_fwd_h, n_pt_h);
+    |
+
+warning: unused variable: `glob_buy_ratio`
+   --> src/agent_validation/mod.rs:428:9
+    |
+428 |     let glob_buy_ratio = safe_mean(&glob_buy_ratios);
+    |         ^^^^^^^^^^^^^^
+    |
+help: if this is intentional, prefix it with an underscore
+    |
+428 |     let _glob_buy_ratio = safe_mean(&glob_buy_ratios);
+    |         +
+help: you might have meant to pattern match on the similarly named constant `PR_DAMPING`
+    |
+428 -     let glob_buy_ratio = safe_mean(&glob_buy_ratios);
+428 +     let yhyb_network::PR_DAMPING = safe_mean(&glob_buy_ratios);
+    |
+
+warning: unused variable: `indices`
+   --> src/allo_microstructure_v3.rs:215:18
+    |
+215 |         for (_, (indices, cumsum)) in data.iter_mut() {
+    |                  ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_indices`
+
+warning: unused variable: `pearson_corr`
+    --> src/copula.rs:1681:9
+     |
+1681 |     let pearson_corr = pearson_correlation(x_slice, y_slice);
+     |         ^^^^^^^^^^^^
+     |
+help: if this is intentional, prefix it with an underscore
+     |
+1681 |     let _pearson_corr = pearson_correlation(x_slice, y_slice);
+     |         +
+help: you might have meant to pattern match on the similarly named constant `PR_DAMPING`
+     |
+1681 -     let pearson_corr = pearson_correlation(x_slice, y_slice);
+1681 +     let yhyb_network::PR_DAMPING = pearson_correlation(x_slice, y_slice);
+     |
+
+warning: unused variable: `n`
+   --> src/microstructure_pattern_features_optimized.rs:224:28
+    |
+224 |     let (pattern, text, m, n) = if m > n { (b, a, n, m) } else { (a, b, m, n) };
+    |                            ^
+    |
+help: if this is intentional, prefix it with an underscore
+    |
+224 |     let (pattern, text, m, _n) = if m > n { (b, a, n, m) } else { (a, b, m, n) };
+    |                            +
+help: you might have meant to pattern match on the similarly named constant `NB_BUCKET`
+    |
+224 -     let (pattern, text, m, n) = if m > n { (b, a, n, m) } else { (a, b, m, n) };
+224 +     let (pattern, text, m, yhyb_indtop_metrics::NB_BUCKET) = if m > n { (b, a, n, m) } else { (a, b, m, n) };
+    |
+
+warning: unused variable: `band_width`
+   --> src/microstructure_pattern_features_optimized.rs:370:5
+    |
+370 |     band_width: usize,
+    |     ^^^^^^^^^^
+    |
+help: if this is intentional, prefix it with an underscore
+    |
+370 |     _band_width: usize,
+    |     +
+help: you might have meant to pattern match on the similarly named constant `NB_BUCKET`
+    |
+370 -     band_width: usize,
+370 +     yhyb_indtop_metrics::NB_BUCKET: usize,
+    |
+
+warning: unused variable: `silence_burst`
+    --> src/microstructure_pattern_features_v2.rs:1136:9
+     |
+1136 |     let silence_burst = calculate_silence_burst(times, flags, 100); // 100ms沉默阈值
+     |         ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_silence_burst`
+
+warning: unused variable: `histogram_bins`
+    --> src/microstructure_pattern_features_v2.rs:1112:5
+     |
+1112 |     histogram_bins: usize,
+     |     ^^^^^^^^^^^^^^
+     |
+help: if this is intentional, prefix it with an underscore
+     |
+1112 |     _histogram_bins: usize,
+     |     +
+help: you might have meant to pattern match on the similarly named constant `NB_BUCKET`
+     |
+1112 -     histogram_bins: usize,
+1112 +     yhyb_indtop_metrics::NB_BUCKET: usize,
+     |
+
+warning: unused variable: `py`
+   --> src/orderflow_ctx_metrics.rs:905:25
+    |
+905 | pub fn py_orderflow_ctx(py: Python<'_>, date: i64) -> PyResult<(Vec<String>, Vec<f32>)> {
+    |                         ^^ help: if this is intentional, prefix it with an underscore: `_py`
+
+warning: unused variable: `t`
+   --> src/tlq_gate.rs:176:10
+    |
+176 |     let (t, n) = values.dim();
+    |          ^
+    |
+help: if this is intentional, prefix it with an underscore
+    |
+176 |     let (_t, n) = values.dim();
+    |          +
+help: you might have meant to pattern match on the similarly named constant `NB_BUCKET`
+    |
+176 -     let (t, n) = values.dim();
+176 +     let (yhyb_indtop_metrics::NB_BUCKET, n) = values.dim();
+    |
+
+warning: unused variable: `t`
+   --> src/tlq_gate.rs:295:10
+    |
+295 |     let (t, n) = values.dim();
+    |          ^
+    |
+help: if this is intentional, prefix it with an underscore
+    |
+295 |     let (_t, n) = values.dim();
+    |          +
+help: you might have meant to pattern match on the similarly named constant `NB_BUCKET`
+    |
+295 -     let (t, n) = values.dim();
+295 +     let (yhyb_indtop_metrics::NB_BUCKET, n) = values.dim();
+    |
+
+warning: unused variable: `t`
+   --> src/tlq_gate.rs:353:10
+    |
+353 |     let (t, n) = values.dim();
+    |          ^
+    |
+help: if this is intentional, prefix it with an underscore
+    |
+353 |     let (_t, n) = values.dim();
+    |          +
+help: you might have meant to pattern match on the similarly named constant `NB_BUCKET`
+    |
+353 -     let (t, n) = values.dim();
+353 +     let (yhyb_indtop_metrics::NB_BUCKET, n) = values.dim();
+    |
+
+warning: unused variable: `t`
+   --> src/tlq_gate.rs:418:10
+    |
+418 |     let (t, n) = resid.dim();
+    |          ^
+    |
+help: if this is intentional, prefix it with an underscore
+    |
+418 |     let (_t, n) = resid.dim();
+    |          +
+help: you might have meant to pattern match on the similarly named constant `NB_BUCKET`
+    |
+418 -     let (t, n) = resid.dim();
+418 +     let (yhyb_indtop_metrics::NB_BUCKET, n) = resid.dim();
+    |
+
+warning: unused variable: `j`
+   --> src/tail_v5_pipeline.rs:896:18
+    |
+896 |             for (j, &v) in ret_sum.row(d).iter().enumerate() {
+    |                  ^
+    |
+help: if this is intentional, prefix it with an underscore
+    |
+896 |             for (_j, &v) in ret_sum.row(d).iter().enumerate() {
+    |                  +
+help: you might have meant to pattern match on the similarly named constant `NB_BUCKET`
+    |
+896 -             for (j, &v) in ret_sum.row(d).iter().enumerate() {
+896 +             for (yhyb_indtop_metrics::NB_BUCKET, &v) in ret_sum.row(d).iter().enumerate() {
+    |
+
+warning: variable does not need to be mutable
+   --> src/tail_v5_pipeline.rs:892:9
+    |
+892 |     let mut build = |ret_sum: &Array2<f32>| -> Result<Vec<Vec<u32>>, String> {
+    |         ----^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: unused variable: `variant_name`
+    --> src/tail_v5_pipeline.rs:7289:5
+     |
+7289 |     variant_name: &str,
+     |     ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_variant_name`
+
+warning: unused variable: `n`
+   --> src/tail_v8_neu_v3.rs:300:9
+    |
+300 |     let n = in_row.len();
+    |         ^
+    |
+help: if this is intentional, prefix it with an underscore
+    |
+300 |     let _n = in_row.len();
+    |         +
+help: you might have meant to pattern match on the similarly named constant `NB_BUCKET`
+    |
+300 -     let n = in_row.len();
+300 +     let yhyb_indtop_metrics::NB_BUCKET = in_row.len();
+    |
+
+warning: unused variable: `valid_cols`
+   --> src/tail_v8_neu_v3.rs:597:24
+    |
+597 |     let (p, valid_idx, valid_cols, _xtx) = &shared.per_date[idx];
+    |                        ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_valid_cols`
+
+warning: unused variable: `lb`
+    --> src/theme_cluster_factors_batch.rs:2104:50
+     |
+2104 |         for (combo_idx, (k, align, dist, thresh, lb)) in param_combos.iter().enumerate() {
+     |                                                  ^^ help: if this is intentional, prefix it with an underscore: `_lb`
+
+warning: variable `buy_vol_sum` is assigned to, but never used
+   --> src/theme_feature_expansion.rs:509:17
+    |
+509 |         let mut buy_vol_sum = 0.0;
+    |                 ^^^^^^^^^^^
+    |
+    = note: consider using `_buy_vol_sum` instead
+help: you might have meant to pattern match on the similarly named constant `PR_DAMPING`
+    |
+509 -         let mut buy_vol_sum = 0.0;
+509 +         let mut yhyb_network::PR_DAMPING = 0.0;
+    |
+
+warning: variable `sell_vol_sum` is assigned to, but never used
+   --> src/theme_feature_expansion.rs:510:17
+    |
+510 |         let mut sell_vol_sum = 0.0;
+    |                 ^^^^^^^^^^^^
+    |
+    = note: consider using `_sell_vol_sum` instead
+help: you might have meant to pattern match on the similarly named constant `PR_DAMPING`
+    |
+510 -         let mut sell_vol_sum = 0.0;
+510 +         let mut yhyb_network::PR_DAMPING = 0.0;
+    |
+
+warning: unused variable: `all_theme_buy`
+    --> src/theme_feature_expansion.rs:1425:13
+     |
+1425 |         let all_theme_buy = all_c.mean_buy_ratio[all_label];
+     |             ^^^^^^^^^^^^^
+     |
+help: if this is intentional, prefix it with an underscore
+     |
+1425 |         let _all_theme_buy = all_c.mean_buy_ratio[all_label];
+     |             +
+help: you might have meant to pattern match on the similarly named constant `PR_DAMPING`
+     |
+1425 -         let all_theme_buy = all_c.mean_buy_ratio[all_label];
+1425 +         let yhyb_network::PR_DAMPING = all_c.mean_buy_ratio[all_label];
+     |
+
+warning: variable does not need to be mutable
+    --> src/theme_feature_expansion.rs:1330:9
+     |
+1330 |     let mut vector_names = vec![
+     |         ----^^^^^^^^^^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: unused variable: `n`
+   --> src/extreme_point_fit_metrics.rs:728:13
+    |
+728 |         let n = trade.len();
+    |             ^
+    |
+help: if this is intentional, prefix it with an underscore
+    |
+728 |         let _n = trade.len();
+    |             +
+help: you might have meant to pattern match on the similarly named constant `NB_BUCKET`
+    |
+728 -         let n = trade.len();
+728 +         let yhyb_indtop_metrics::NB_BUCKET = trade.len();
+    |
+
+warning: unused variable: `n`
+   --> src/extreme_point_fit_metrics.rs:791:13
+    |
+791 |         let n = market.len();
+    |             ^
+    |
+help: if this is intentional, prefix it with an underscore
+    |
+791 |         let _n = market.len();
+    |             +
+help: you might have meant to pattern match on the similarly named constant `NB_BUCKET`
+    |
+791 -         let n = market.len();
+791 +         let yhyb_indtop_metrics::NB_BUCKET = market.len();
+    |
+
+warning: unused variable: `pcts`
+   --> src/yand_divergence.rs:369:9
+    |
+369 |     let pcts = vec![pct];
+    |         ^^^^ help: if this is intentional, prefix it with an underscore: `_pcts`
+
+warning: unused variable: `py`
+    --> src/distill_metrics.rs:1900:5
+     |
+1900 |     py: Python<'_>,
+     |     ^^ help: if this is intentional, prefix it with an underscore: `_py`
+
+warning: unused variable: `dist_names`
+   --> src/distill_tick_metrics.rs:881:13
+    |
+881 |         let dist_names = ["ask_S1", "bid_S1", "ask_S2", "bid_S2", "ask_S3", "bid_S3"];
+    |             ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_dist_names`
+
+warning: unused variable: `sigma_names`
+    --> src/distill_tick_metrics.rs:1296:13
+     |
+1296 |         let sigma_names = ["spread", "short", "early"];
+     |             ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_sigma_names`
+
+warning: unused variable: `scale_names`
+    --> src/distill_tick_metrics.rs:1298:13
+     |
+1298 |         let scale_names = ["S1", "S2", "S3"];
+     |             ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_scale_names`
+
+warning: unused variable: `distances`
+    --> src/distill_tick_metrics.rs:1469:25
+     |
+1469 |                     let distances = match scale {
+     |                         ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_distances`
+
+warning: unused variable: `sigma_spread`
+    --> src/distill_tick_metrics.rs:1288:9
+     |
+1288 |         sigma_spread: &[f32],
+     |         ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_sigma_spread`
+
+warning: unused variable: `sigma_short`
+    --> src/distill_tick_metrics.rs:1289:9
+     |
+1289 |         sigma_short: &[f32],
+     |         ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_sigma_short`
+
+warning: unused variable: `sigma_early`
+    --> src/distill_tick_metrics.rs:1290:9
+     |
+1290 |         sigma_early: f32,
+     |         ^^^^^^^^^^^
+     |
+help: if this is intentional, prefix it with an underscore
+     |
+1290 |         _sigma_early: f32,
+     |         +
+help: you might have meant to pattern match on the similarly named constant `EPS`
+     |
+1290 -         sigma_early: f32,
+1290 +         urgency_metrics::EPS: f32,
+     |
+
+warning: unused variable: `windows`
+    --> src/distill_tick_metrics.rs:1292:9
+     |
+1292 |         windows: &[(usize, usize)],
+     |         ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_windows`
+
+warning: unused variable: `py`
+    --> src/distill_tick_metrics.rs:1706:24
+     |
+1706 | pub fn py_distill_tick(py: Python<'_>, code: &str, date: i64) -> PyResult<Vec<f32>> {
+     |                        ^^ help: if this is intentional, prefix it with an underscore: `_py`
+
+warning: unused variable: `py`
+   --> src/hhi_event_metrics.rs:241:21
+    |
+241 | pub fn py_hhi_event(py: Python<'_>, code: &str, date: i64) -> PyResult<Vec<f32>> {
+    |                     ^^ help: if this is intentional, prefix it with an underscore: `_py`
+
+warning: unused variable: `py`
+   --> src/etp_event_metrics.rs:240:21
+    |
+240 | pub fn py_etp_event(py: Python<'_>, code: &str, date: i64) -> PyResult<Vec<f32>> {
+    |                     ^^ help: if this is intentional, prefix it with an underscore: `_py`
+
+warning: unused variable: `t0`
+    --> src/hidden_arrange_metrics.rs:1055:9
+     |
+1055 |     let t0 = std::time::Instant::now();
+     |         ^^ help: if this is intentional, prefix it with an underscore: `_t0`
+
+warning: unused variable: `t1`
+    --> src/hidden_arrange_metrics.rs:1057:9
+     |
+1057 |     let t1 = std::time::Instant::now();
+     |         ^^ help: if this is intentional, prefix it with an underscore: `_t1`
+
+warning: unused variable: `t2`
+    --> src/hidden_arrange_metrics.rs:1059:9
+     |
+1059 |     let t2 = std::time::Instant::now();
+     |         ^^ help: if this is intentional, prefix it with an underscore: `_t2`
+
+warning: unused variable: `tbg`
+    --> src/hidden_arrange_metrics.rs:1121:21
+     |
+1121 |                 let tbg = std::time::Instant::now();
+     |                     ^^^ help: if this is intentional, prefix it with an underscore: `_tbg`
+
+warning: unused variable: `mx`
+    --> src/hidden_arrange_metrics.rs:1735:13
+     |
+1735 |         let mx = sub_vols.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+     |             ^^
+     |
+help: if this is intentional, prefix it with an underscore
+     |
+1735 |         let _mx = sub_vols.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+     |             +
+help: you might have meant to pattern match on the similarly named constant `PR_DAMPING`
+     |
+1735 -         let mx = sub_vols.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+1735 +         let yhyb_network::PR_DAMPING = sub_vols.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+     |
+
+warning: variable does not need to be mutable
+    --> src/hidden_arrange_metrics.rs:2166:9
+     |
+2166 |     let mut ab: Vec<usize> = a.iter().chain(b.iter()).copied().collect();
+     |         ----^^
+     |         |
+     |         help: remove this `mut`
+
+warning: unused variable: `y`
+    --> src/hidden_arrange_metrics.rs:2893:5
+     |
+2893 |     y: &[f64],
+     |     ^ help: if this is intentional, prefix it with an underscore: `_y`
+
+warning: unused variable: `tb`
+    --> src/hidden_arrange_metrics.rs:3013:13
+     |
+3013 |         let tb = std::time::Instant::now();
+     |             ^^ help: if this is intentional, prefix it with an underscore: `_tb`
+
+warning: unused variable: `tq`
+    --> src/hidden_arrange_metrics.rs:3025:13
+     |
+3025 |         let tq = std::time::Instant::now();
+     |             ^^ help: if this is intentional, prefix it with an underscore: `_tq`
+
+warning: variable `t_gen` is assigned to, but never used
+    --> src/hidden_arrange_metrics.rs:3026:17
+     |
+3026 |         let mut t_gen = 0f64;
+     |                 ^^^^^
+     |
+     = note: consider using `_t_gen` instead
+help: you might have meant to pattern match on the similarly named constant `PR_DAMPING`
+     |
+3026 -         let mut t_gen = 0f64;
+3026 +         let mut yhyb_network::PR_DAMPING = 0f64;
+     |
+
+warning: variable `t_sel` is assigned to, but never used
+    --> src/hidden_arrange_metrics.rs:3027:17
+     |
+3027 |         let mut t_sel = 0f64;
+     |                 ^^^^^
+     |
+     = note: consider using `_t_sel` instead
+help: you might have meant to pattern match on the similarly named constant `PR_DAMPING`
+     |
+3027 -         let mut t_sel = 0f64;
+3027 +         let mut yhyb_network::PR_DAMPING = 0f64;
+     |
+
+warning: variable `t_upd` is assigned to, but never used
+    --> src/hidden_arrange_metrics.rs:3028:17
+     |
+3028 |         let mut t_upd = 0f64;
+     |                 ^^^^^
+     |
+     = note: consider using `_t_upd` instead
+help: you might have meant to pattern match on the similarly named constant `PR_DAMPING`
+     |
+3028 -         let mut t_upd = 0f64;
+3028 +         let mut yhyb_network::PR_DAMPING = 0f64;
+     |
+
+warning: unused variable: `fam_share`
+    --> src/hidden_arrange_metrics.rs:3780:9
+     |
+3780 |     let fam_share = |fam: &str| fam_gmax(fam).max(0.0) / (fam_gmax(fam).max(0.0) + 1e-12);
+     |         ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_fam_share`
+
+warning: unused variable: `py`
+    --> src/hidden_arrange_metrics.rs:3858:26
+     |
+3858 | pub fn py_hidden_arrange(py: Python<'_>, code: &str, date: i64) -> PyResult<Vec<f32>> {
+     |                          ^^ help: if this is intentional, prefix it with an underscore: `_py`
+
+warning: unused variable: `sname`
+   --> src/geffe_leak_metrics.rs:501:14
+    |
+501 |     for (si,(sname,lo,hi)) in SESSIONS.iter().enumerate(){
+    |              ^^^^^ help: if this is intentional, prefix it with an underscore: `_sname`
+
+warning: variable `len` is assigned to, but never used
+   --> src/lfsr_leak_ext1_metrics.rs:313:24
+    |
+313 |     let (mut runs, mut len) = (0usize, 1usize);
+    |                        ^^^
+    |
+    = note: consider using `_len` instead
+help: you might have meant to pattern match on the similarly named constant `NB_BUCKET`
+    |
+313 -     let (mut runs, mut len) = (0usize, 1usize);
+313 +     let (mut runs, mut yhyb_indtop_metrics::NB_BUCKET) = (0usize, 1usize);
+    |
+
+warning: unused variable: `n`
+   --> src/hot_stock_pool_metrics.rs:511:9
+    |
+511 |     let n = secs.len();
+    |         ^
+    |
+help: if this is intentional, prefix it with an underscore
+    |
+511 |     let _n = secs.len();
+    |         +
+help: you might have meant to pattern match on the similarly named constant `NB_BUCKET`
+    |
+511 -     let n = secs.len();
+511 +     let yhyb_indtop_metrics::NB_BUCKET = secs.len();
+    |
+
+warning: unused variable: `t1`
+   --> src/hot_stock_pool_metrics.rs:984:9
+    |
+984 |     let t1 = std::time::Instant::now();
+    |         ^^ help: if this is intentional, prefix it with an underscore: `_t1`
+
+warning: unused variable: `n_valid`
+    --> src/hot_stock_pool_metrics.rs:1002:9
+     |
+1002 |     let n_valid = valid_stocks.len();
+     |         ^^^^^^^
+     |
+help: if this is intentional, prefix it with an underscore
+     |
+1002 |     let _n_valid = valid_stocks.len();
+     |         +
+help: you might have meant to pattern match on the similarly named constant `NB_BUCKET`
+     |
+1002 -     let n_valid = valid_stocks.len();
+1002 +     let yhyb_indtop_metrics::NB_BUCKET = valid_stocks.len();
+     |
+
+warning: unused variable: `col_names`
+    --> src/hot_stock_pool_metrics.rs:1401:9
+     |
+1401 |     let col_names: Vec<String> = (0..FEAT_PER_INCLUSION)
+     |         ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_col_names`
+
+warning: unused variable: `pool_id`
+    --> src/hot_stock_pool_metrics.rs:1299:25
+     |
+1299 |                     let pool_id = pool_log.len();
+     |                         ^^^^^^^
+     |
+help: if this is intentional, prefix it with an underscore
+     |
+1299 |                     let _pool_id = pool_log.len();
+     |                         +
+help: you might have meant to pattern match on the similarly named constant `NB_BUCKET`
+     |
+1299 -                     let pool_id = pool_log.len();
+1299 +                     let yhyb_indtop_metrics::NB_BUCKET = pool_log.len();
+     |
+
+warning: unused variable: `n_rows`
+    --> src/hot_stock_pool_metrics.rs:1919:29
+     |
+1919 | fn entropy_local(c: &[f32], n_rows: usize) -> f32 {
+     |                             ^^^^^^
+     |
+help: if this is intentional, prefix it with an underscore
+     |
+1919 | fn entropy_local(c: &[f32], _n_rows: usize) -> f32 {
+     |                             +
+help: you might have meant to pattern match on the similarly named constant `NB_BUCKET`
+     |
+1919 - fn entropy_local(c: &[f32], n_rows: usize) -> f32 {
+1919 + fn entropy_local(c: &[f32], yhyb_indtop_metrics::NB_BUCKET: usize) -> f32 {
+     |
+
+warning: unused variable: `day_mid`
+    --> src/hot_stock_pool_metrics.rs:2129:9
+     |
+2129 |     let day_mid = cst_midnight_epoch(date);
+     |         ^^^^^^^
+     |
+help: if this is intentional, prefix it with an underscore
+     |
+2129 |     let _day_mid = cst_midnight_epoch(date);
+     |         +
+help: you might have meant to pattern match on the similarly named constant `LO3_S`
+     |
+2129 -     let day_mid = cst_midnight_epoch(date);
+2129 +     let yhyb_metrics::LO3_S = cst_midnight_epoch(date);
+     |
+
+warning: unused variable: `py`
+    --> src/hot_stock_pool_metrics.rs:2222:34
+     |
+2222 | pub fn py_hot_stock_pool_z_stats(py: Python<'_>, date: i64) -> PyResult<(Vec<String>, Vec<i32>)> {
+     |                                  ^^ help: if this is intentional, prefix it with an underscore: `_py`
+
+warning: unused variable: `col_names`
+    --> src/hot_stock_pool_metrics.rs:2634:9
+     |
+2634 |     let col_names: Vec<String> = (0..FEAT_PER_INCLUSION)
+     |         ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_col_names`
+
+warning: unused variable: `pool_id`
+    --> src/hot_stock_pool_metrics.rs:2541:25
+     |
+2541 |                     let pool_id = pool_log.len();
+     |                         ^^^^^^^
+     |
+help: if this is intentional, prefix it with an underscore
+     |
+2541 |                     let _pool_id = pool_log.len();
+     |                         +
+help: you might have meant to pattern match on the similarly named constant `NB_BUCKET`
+     |
+2541 -                     let pool_id = pool_log.len();
+2541 +                     let yhyb_indtop_metrics::NB_BUCKET = pool_log.len();
+     |
+
+warning: value assigned to `mkt_hot_total` is never read
+  --> src/hot_pool_ind_metrics.rs:99:13
+   |
+99 |     let mut mkt_hot_total: u32 = 0;
+   |             ^^^^^^^^^^^^^
+   |
+   = help: maybe it is overwritten before being read?
+
+warning: value assigned to `mkt_cold_total` is never read
+   --> src/hot_pool_ind_metrics.rs:100:13
+    |
+100 |     let mut mkt_cold_total: u32 = 0;
+    |             ^^^^^^^^^^^^^^
+    |
+    = help: maybe it is overwritten before being read?
+
+warning: variable does not need to be mutable
+   --> src/relaynet_six_people.rs:252:9
+    |
+252 |     let mut big30 = vec![0.0f64; N_CELL];
+    |         ----^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/relaynet_six_people.rs:262:9
+    |
+262 |     let mut dom30 = vec![0.0f64; N_CELL];
+    |         ----^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/relaynet_six_people.rs:263:9
+    |
+263 |     let mut domsell30 = vec![0.0f64; N_CELL];
+    |         ----^^^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/relaynet_six_people.rs:309:9
+    |
+309 |         mut vgini30,
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/relaynet_six_people.rs:315:9
+    |
+315 |         mut tspan30,
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: unused variable: `a30`
+    --> src/relaynet_six_people.rs:3347:9
+     |
+3347 |     let a30 = bank.series_mat(7);
+     |         ^^^ help: if this is intentional, prefix it with an underscore: `_a30`
+
+warning: unused variable: `ind_bet_col`
+    --> src/relaynet_six_people.rs:3705:9
+     |
+3705 |     let ind_bet_col = off_ind + 12;
+     |         ^^^^^^^^^^^
+     |
+help: if this is intentional, prefix it with an underscore
+     |
+3705 |     let _ind_bet_col = off_ind + 12;
+     |         +
+help: you might have meant to pattern match on the similarly named constant `NB_BUCKET`
+     |
+3705 -     let ind_bet_col = off_ind + 12;
+3705 +     let yhyb_indtop_metrics::NB_BUCKET = off_ind + 12;
+     |
+
+warning: unused variable: `py`
+   --> src/cross_section_example_metrics.rs:165:33
+    |
+165 | pub fn py_cross_section_example(py: Python<'_>, date: i64) -> PyResult<(Vec<String>, Vec<f32>)> {
+    |                                 ^^ help: if this is intentional, prefix it with an underscore: `_py`
+
+warning: unused variable: `py`
+   --> src/dijkstra_metrics.rs:988:20
+    |
+988 | pub fn py_dijkstra(py: Python<'_>, date: i64) -> PyResult<(Vec<String>, Vec<f32>)> {
+    |                    ^^ help: if this is intentional, prefix it with an underscore: `_py`
+
+warning: unused variable: `a30`
+    --> src/relaynet_metrics.rs:2735:9
+     |
+2735 |     let a30 = bank.series_mat(7);
+     |         ^^^ help: if this is intentional, prefix it with an underscore: `_a30`
+
+warning: unused variable: `ind_bet_col`
+    --> src/relaynet_metrics.rs:3048:9
+     |
+3048 |     let ind_bet_col = off_ind + 12;
+     |         ^^^^^^^^^^^
+     |
+help: if this is intentional, prefix it with an underscore
+     |
+3048 |     let _ind_bet_col = off_ind + 12;
+     |         +
+help: you might have meant to pattern match on the similarly named constant `NB_BUCKET`
+     |
+3048 -     let ind_bet_col = off_ind + 12;
+3048 +     let yhyb_indtop_metrics::NB_BUCKET = off_ind + 12;
+     |
+
+warning: unused variable: `all_events`
+   --> src/drop_event_metrics.rs:726:5
+    |
+726 |     all_events: &[DropEvent],
+    |     ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_all_events`
+
+warning: unused variable: `day_start_sec`
+    --> src/drop_event_metrics.rs:1339:5
+     |
+1339 |     day_start_sec: i64,
+     |     ^^^^^^^^^^^^^
+     |
+help: if this is intentional, prefix it with an underscore
+     |
+1339 |     _day_start_sec: i64,
+     |     +
+help: you might have meant to pattern match on the similarly named constant `LO3_S`
+     |
+1339 -     day_start_sec: i64,
+1339 +     yhyb_metrics::LO3_S: i64,
+     |
+
+warning: unused variable: `py`
+    --> src/drop_event_metrics.rs:1870:22
+     |
+1870 | pub fn py_drop_event(py: Python<'_>, date: i64) -> PyResult<(Vec<String>, Vec<f32>)> {
+     |                      ^^ help: if this is intentional, prefix it with an underscore: `_py`
+
+warning: unused variable: `task_dates`
+   --> src/factor_pipeline.rs:766:13
+    |
+766 |         let task_dates: std::collections::HashSet<i64> =
+    |             ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_task_dates`
+
+warning: unused variable: `progress_log_enabled`
+    --> src/factor_pipeline.rs:1448:5
+     |
+1448 |     progress_log_enabled: bool,
+     |     ^^^^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_progress_log_enabled`
+
+warning: unused variable: `task_dates`
+    --> src/factor_pipeline.rs:1973:13
+     |
+1973 |         let task_dates: std::collections::HashSet<i64> =
+     |             ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_task_dates`
+
+warning: unused variable: `export_names`
+    --> src/factor_pipeline.rs:1875:5
+     |
+1875 |     export_names: Option<Vec<String>>,
+     |     ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_export_names`
+
+warning: unused variable: `export_dir`
+    --> src/factor_pipeline.rs:1876:5
+     |
+1876 |     export_dir: Option<String>,
+     |     ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_export_dir`
+
+warning: unused variable: `export_n_jobs`
+    --> src/factor_pipeline.rs:1877:5
+     |
+1877 |     export_n_jobs: usize,
+     |     ^^^^^^^^^^^^^
+     |
+help: if this is intentional, prefix it with an underscore
+     |
+1877 |     _export_n_jobs: usize,
+     |     +
+help: you might have meant to pattern match on the similarly named constant `NB_BUCKET`
+     |
+1877 -     export_n_jobs: usize,
+1877 +     yhyb_indtop_metrics::NB_BUCKET: usize,
+     |
+
+warning: unused variable: `py`
+    --> src/factor_pipeline.rs:3175:9
+     |
+3175 |     let py = unsafe { Python::assume_gil_acquired() };
+     |         ^^ help: if this is intentional, prefix it with an underscore: `_py`
+
+warning: unused variable: `elapsed`
+    --> src/factor_pipeline.rs:3317:13
+     |
+3317 |         let elapsed = t0.elapsed().as_secs_f64();
+     |             ^^^^^^^
+     |
+help: if this is intentional, prefix it with an underscore
+     |
+3317 |         let _elapsed = t0.elapsed().as_secs_f64();
+     |             +
+help: you might have meant to pattern match on the similarly named constant `PR_DAMPING`
+     |
+3317 -         let elapsed = t0.elapsed().as_secs_f64();
+3317 +         let yhyb_network::PR_DAMPING = t0.elapsed().as_secs_f64();
+     |
+
+warning: variable does not need to be mutable
+    --> src/factor_pipeline.rs:3231:9
+     |
+3231 |     let mut n_skip = 0usize;
+     |         ----^^^^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: unused variable: `n_workers`
+    --> src/factor_pipeline.rs:3862:5
+     |
+3862 |     n_workers: usize,
+     |     ^^^^^^^^^
+     |
+help: if this is intentional, prefix it with an underscore
+     |
+3862 |     _n_workers: usize,
+     |     +
+help: you might have meant to pattern match on the similarly named constant `NB_BUCKET`
+     |
+3862 -     n_workers: usize,
+3862 +     yhyb_indtop_metrics::NB_BUCKET: usize,
+     |
+
+warning: value assigned to `allocated_end` is never read
+   --> src/factor_store_v5.rs:935:17
+    |
+935 |         let mut allocated_end = COLBLK_HEADER_SIZE as u64;
+    |                 ^^^^^^^^^^^^^
+    |
+    = help: maybe it is overwritten before being read?
+
+warning: variable does not need to be mutable
+    --> src/factor_store_v5.rs:3337:9
+     |
+3337 |     let mut writer = FactorStoreWriter::open(&store_dir, &factor_names, false).map_err(pyerr)?;
+     |         ----^^^^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: unused variable: `urg_all`
+   --> src/dagpath_metrics.rs:194:42
+    |
+194 |              cost: &[f64], prev: &[i64], urg_all: &[f64],
+    |                                          ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_urg_all`
+
+warning: variable does not need to be mutable
+   --> src/features_f64.rs:876:13
+    |
+876 |         let mut res = Vec::new();
+    |             ----^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/features_f64.rs:877:13
+    |
+877 |         let mut names = Vec::new();
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/features.rs:716:13
+    |
+716 |         let mut res = Vec::new();
+    |             ----^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/features.rs:717:13
+    |
+717 |         let mut names = Vec::new();
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: unused variable: `ob`
+   --> src/individual_order_ratio_metrics.rs:376:13
+    |
+376 |         let ob = ta + tb;
+    |             ^^
+    |
+help: if this is intentional, prefix it with an underscore
+    |
+376 |         let _ob = ta + tb;
+    |             +
+help: you might have meant to pattern match on the similarly named constant `EPS`
+    |
+376 -         let ob = ta + tb;
+376 +         let urgency_metrics::EPS = ta + tb;
+    |
+
+warning: unused variable: `amt_win`
+   --> src/individual_order_ratio_metrics.rs:477:38
+    |
+477 |     let (buy_win, sell_win, cnt_win, amt_win, last_px) =
+    |                                      ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_amt_win`
+
+warning: unused variable: `ob`
+   --> src/individual_order_ratio_metrics.rs:493:13
+    |
+493 |         let ob = ta + tb;
+    |             ^^
+    |
+help: if this is intentional, prefix it with an underscore
+    |
+493 |         let _ob = ta + tb;
+    |             +
+help: you might have meant to pattern match on the similarly named constant `EPS`
+    |
+493 -         let ob = ta + tb;
+493 +         let urgency_metrics::EPS = ta + tb;
+    |
+
+warning: unused variable: `py`
+   --> src/individual_order_ratio_metrics.rs:953:34
+    |
+953 | pub fn py_individual_order_ratio(py: Python<'_>, code: &str, date: i64) -> PyResult<Vec<f32>> {
+    |                                  ^^ help: if this is intentional, prefix it with an underscore: `_py`
+
+warning: unused variable: `py`
+   --> src/long_order_cross_section_metrics.rs:529:22
+    |
+529 | pub fn py_long_order(py: Python<'_>, date: i64) -> PyResult<(Vec<String>, Vec<f32>)> {
+    |                      ^^ help: if this is intentional, prefix it with an underscore: `_py`
+
+warning: unused variable: `py`
+   --> src/long_order_cross_section_metrics.rs:563:26
+    |
+563 | pub fn py_long_order_raw(py: Python<'_>, date: i64) -> PyResult<(Vec<String>, Vec<f32>, Vec<f32>)> {
+    |                          ^^ help: if this is intentional, prefix it with an underscore: `_py`
+
+warning: unused variable: `n_stocks`
+   --> src/minute_qhsk_anneal_metrics.rs:203:9
+    |
+203 |     let n_stocks = codes_all.len();
+    |         ^^^^^^^^
+    |
+help: if this is intentional, prefix it with an underscore
+    |
+203 |     let _n_stocks = codes_all.len();
+    |         +
+help: you might have meant to pattern match on the similarly named constant `NB_BUCKET`
+    |
+203 -     let n_stocks = codes_all.len();
+203 +     let yhyb_indtop_metrics::NB_BUCKET = codes_all.len();
+    |
+
+warning: unused variable: `k`
+   --> src/multi_factor_capm_metrics.rs:136:17
+    |
+136 | pub fn col_beta(k: usize) -> usize {
+    |                 ^
+    |
+help: if this is intentional, prefix it with an underscore
+    |
+136 | pub fn col_beta(_k: usize) -> usize {
+    |                 +
+help: you might have meant to pattern match on the similarly named constant `NB_BUCKET`
+    |
+136 - pub fn col_beta(k: usize) -> usize {
+136 + pub fn col_beta(yhyb_indtop_metrics::NB_BUCKET: usize) -> usize {
+    |
+
+warning: unused variable: `r10_opp`
+   --> src/observable_order_metrics.rs:599:5
+    |
+599 |     r10_opp: &[[f32; 2]],  // 全天 对手侧 rolling 10 det
+    |     ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_r10_opp`
+
+warning: unused variable: `freq_rare_price_rate`
+   --> src/okay_database/hm049.rs:827:9
+    |
+827 |     let freq_rare_price_rate = freq_rare_price / rare_price;
+    |         ^^^^^^^^^^^^^^^^^^^^
+    |
+help: if this is intentional, prefix it with an underscore
+    |
+827 |     let _freq_rare_price_rate = freq_rare_price / rare_price;
+    |         +
+help: you might have meant to pattern match on the similarly named constant `PR_DAMPING`
+    |
+827 -     let freq_rare_price_rate = freq_rare_price / rare_price;
+827 +     let yhyb_network::PR_DAMPING = freq_rare_price / rare_price;
+    |
+
+warning: variable does not need to be mutable
+   --> src/okay_database/hm055.rs:490:9
+    |
+490 |     let mut flush = |lab: i64, buf: &mut Vec<usize>, out: &mut Vec<[f64; 4]>| {
+    |         ----^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable `sum` is assigned to, but never used
+    --> src/okay_database/hm074.rs:1012:17
+     |
+1012 |         let mut sum = 0.0f64;
+     |                 ^^^
+     |
+     = note: consider using `_sum` instead
+help: you might have meant to pattern match on the similarly named constant `PR_DAMPING`
+     |
+1012 -         let mut sum = 0.0f64;
+1012 +         let mut yhyb_network::PR_DAMPING = 0.0f64;
+     |
+
+warning: variable does not need to be mutable
+    --> src/okay_database/hm074.rs:1236:9
+     |
+1236 |     let mut push = |v: f64, r: &mut [f64; N_METRIC], p: &mut usize| {
+     |         ----^^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: unused variable: `seg`
+   --> src/orderbook_imb_refactor_metrics.rs:539:11
+    |
+539 |     for &(seg, t0, t1) in SEGMENTS.iter() {
+    |           ^^^ help: if this is intentional, prefix it with an underscore: `_seg`
+
+warning: unused variable: `seg`
+   --> src/orderbook_imb_refactor_metrics.rs:688:11
+    |
+688 |     for &(seg, t0, t1) in SEGMENTS.iter() {
+    |           ^^^ help: if this is intentional, prefix it with an underscore: `_seg`
+
+warning: unused variable: `seg`
+    --> src/orderbook_imb_refactor_metrics.rs:1289:15
+     |
+1289 |         for &(seg, t0, t1) in SEGMENTS.iter() {
+     |               ^^^ help: if this is intentional, prefix it with an underscore: `_seg`
+
+warning: unused variable: `seg`
+    --> src/orderbook_imb_refactor_metrics.rs:1489:15
+     |
+1489 |         for &(seg, t0, t1) in SEGMENTS.iter() {
+     |               ^^^ help: if this is intentional, prefix it with an underscore: `_seg`
+
+warning: unused variable: `seg`
+    --> src/orderbook_imb_refactor_metrics.rs:1643:15
+     |
+1643 |         for &(seg, t0, t1) in SEGMENTS.iter() {
+     |               ^^^ help: if this is intentional, prefix it with an underscore: `_seg`
+
+warning: unused variable: `seg`
+    --> src/orderbook_imb_refactor_metrics.rs:1820:15
+     |
+1820 |         for &(seg, t0, t1) in SEGMENTS.iter() {
+     |               ^^^ help: if this is intentional, prefix it with an underscore: `_seg`
+
+warning: unused variable: `seg`
+    --> src/orderbook_imb_refactor_metrics.rs:1927:15
+     |
+1927 |         for &(seg, t0, t1) in SEGMENTS.iter() {
+     |               ^^^ help: if this is intentional, prefix it with an underscore: `_seg`
+
+warning: unused variable: `seg`
+    --> src/orderbook_imb_refactor_metrics.rs:2043:15
+     |
+2043 |         for &(seg, t0, t1) in SEGMENTS.iter() {
+     |               ^^^ help: if this is intentional, prefix it with an underscore: `_seg`
+
+warning: unused variable: `v`
+   --> src/pair_interaction_metrics.rs:228:13
+    |
+228 |         let v = r.volume as f32;
+    |             ^
+    |
+help: if this is intentional, prefix it with an underscore
+    |
+228 |         let _v = r.volume as f32;
+    |             +
+help: you might have meant to pattern match on the similarly named constant `EPS`
+    |
+228 -         let v = r.volume as f32;
+228 +         let urgency_metrics::EPS = r.volume as f32;
+    |
+
+warning: unused variable: `i`
+    --> src/pair_interaction_metrics.rs:2117:10
+     |
+2117 |     for (i, sname) in ["30s", "60s", "300s"].iter().enumerate() {
+     |          ^
+     |
+help: if this is intentional, prefix it with an underscore
+     |
+2117 |     for (_i, sname) in ["30s", "60s", "300s"].iter().enumerate() {
+     |          +
+help: you might have meant to pattern match on the similarly named constant `NB_BUCKET`
+     |
+2117 -     for (i, sname) in ["30s", "60s", "300s"].iter().enumerate() {
+2117 +     for (yhyb_indtop_metrics::NB_BUCKET, sname) in ["30s", "60s", "300s"].iter().enumerate() {
+     |
+
+warning: unused variable: `i`
+    --> src/pair_interaction_metrics.rs:2551:14
+     |
+2551 |         for (i, st) in stocks.iter().enumerate() {
+     |              ^
+     |
+help: if this is intentional, prefix it with an underscore
+     |
+2551 |         for (_i, st) in stocks.iter().enumerate() {
+     |              +
+help: you might have meant to pattern match on the similarly named constant `NB_BUCKET`
+     |
+2551 -         for (i, st) in stocks.iter().enumerate() {
+2551 +         for (yhyb_indtop_metrics::NB_BUCKET, st) in stocks.iter().enumerate() {
+     |
+
+warning: unused variable: `code`
+   --> src/peaks_metrics.rs:293:5
+    |
+293 |     code: &str,
+    |     ^^^^ help: if this is intentional, prefix it with an underscore: `_code`
+
+warning: unused variable: `t1_t`
+    --> src/peaks_metrics.rs:1087:9
+     |
+1087 |     let t1_t = qt[0] * peak_scales[1]; // c2 高峰线（全市场额 top1%）
+     |         ^^^^
+     |
+help: if this is intentional, prefix it with an underscore
+     |
+1087 |     let _t1_t = qt[0] * peak_scales[1]; // c2 高峰线（全市场额 top1%）
+     |         +
+help: you might have meant to pattern match on the similarly named constant `PR_DAMPING`
+     |
+1087 -     let t1_t = qt[0] * peak_scales[1]; // c2 高峰线（全市场额 top1%）
+1087 +     let yhyb_network::PR_DAMPING = qt[0] * peak_scales[1]; // c2 高峰线（全市场额 top1%）
+     |
+
+warning: unused variable: `t10_t`
+    --> src/peaks_metrics.rs:1088:9
+     |
+1088 |     let t10_t = qt[1] * valley_scales[1]; // c2 小峰线
+     |         ^^^^^
+     |
+help: if this is intentional, prefix it with an underscore
+     |
+1088 |     let _t10_t = qt[1] * valley_scales[1]; // c2 小峰线
+     |         +
+help: you might have meant to pattern match on the similarly named constant `PR_DAMPING`
+     |
+1088 -     let t10_t = qt[1] * valley_scales[1]; // c2 小峰线
+1088 +     let yhyb_network::PR_DAMPING = qt[1] * valley_scales[1]; // c2 小峰线
+     |
+
+warning: unused variable: `t5_v`
+    --> src/peaks_metrics.rs:1090:9
+     |
+1090 |     let t5_v = qv[3] * valley_scales[2]; // c3 小峰线 = 基线 top1% 量
+     |         ^^^^
+     |
+help: if this is intentional, prefix it with an underscore
+     |
+1090 |     let _t5_v = qv[3] * valley_scales[2]; // c3 小峰线 = 基线 top1% 量
+     |         +
+help: you might have meant to pattern match on the similarly named constant `PR_DAMPING`
+     |
+1090 -     let t5_v = qv[3] * valley_scales[2]; // c3 小峰线 = 基线 top1% 量
+1090 +     let yhyb_network::PR_DAMPING = qv[3] * valley_scales[2]; // c3 小峰线 = 基线 top1% 量
+     |
+
+warning: unused variable: `py`
+    --> src/peaks_metrics.rs:1275:17
+     |
+1275 | pub fn py_peaks(py: Python<'_>, date: i64) -> PyResult<(Vec<String>, Vec<f32>)> {
+     |                 ^^ help: if this is intentional, prefix it with an underscore: `_py`
+
+warning: unused variable: `py`
+   --> src/urgency_metrics.rs:770:19
+    |
+770 | pub fn py_urgency(py: Python<'_>, date: i64) -> PyResult<(Vec<String>, Vec<f32>)> {
+    |                   ^^ help: if this is intentional, prefix it with an underscore: `_py`
+
+warning: variable does not need to be mutable
+   --> src/volume_segment_leadstock_metrics.rs:193:9
+    |
+193 |     let mut valid: Vec<f32> = col.iter().filter(|v| v.is_finite()).copied().collect();
+    |         ----^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: unused variable: `py`
+   --> src/volume_segment_leadstock_metrics.rs:870:16
+    |
+870 | pub fn py_vsld(py: Python<'_>, date: i64) -> PyResult<(Vec<String>, Vec<f32>)> {
+    |                ^^ help: if this is intentional, prefix it with an underscore: `_py`
+
+warning: variable does not need to be mutable
+   --> src/yhyb_metrics.rs:557:9
+    |
+557 |     let mut l1: Vec<f64> = (0..m).map(|i| bid10[i][0].max(ask10[i][0])).collect();
+    |         ----^^
+    |         |
+    |         help: remove this `mut`
+
+warning: unused variable: `null_t`
+    --> src/yhyb_metrics.rs:1401:5
+     |
+1401 |     null_t: &NullTable,
+     |     ^^^^^^ help: if this is intentional, prefix it with an underscore: `_null_t`
+
+warning: unused variable: `sb`
+    --> src/yhyb_metrics.rs:1535:22
+     |
+1535 |             let Some(sb) = sb else { continue };
+     |                      ^^ help: if this is intentional, prefix it with an underscore: `_sb`
+
+warning: unused variable: `bb`
+    --> src/yhyb_metrics.rs:1685:45
+     |
+1685 |                                         let bb = $bb;
+     |                                             ^^
+...
+2065 |                 agg_k_body!(0);
+     |                 -------------- in this macro invocation
+     |
+     = note: this warning originates in the macro `push_bw` which comes from the expansion of the macro `agg_k_body` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: if this is intentional, prefix it with an underscore
+     |
+1685 |                                         let _bb = $bb;
+     |                                             +
+help: you might have meant to pattern match on the similarly named constant `NB_BUCKET`
+     |
+1685 -                                         let bb = $bb;
+1685 +                                         let yhyb_indtop_metrics::NB_BUCKET = $bb;
+     |
+
+warning: unused variable: `bb`
+    --> src/yhyb_metrics.rs:1711:45
+     |
+1711 |                                         let bb = $bb;
+     |                                             ^^
+...
+2065 |                 agg_k_body!(0);
+     |                 -------------- in this macro invocation
+     |
+     = note: this warning originates in the macro `push_fw` which comes from the expansion of the macro `agg_k_body` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: if this is intentional, prefix it with an underscore
+     |
+1711 |                                         let _bb = $bb;
+     |                                             +
+help: you might have meant to pattern match on the similarly named constant `NB_BUCKET`
+     |
+1711 -                                         let bb = $bb;
+1711 +                                         let yhyb_indtop_metrics::NB_BUCKET = $bb;
+     |
+
+warning: unused variable: `bb`
+    --> src/yhyb_metrics.rs:1685:45
+     |
+1685 |                                         let bb = $bb;
+     |                                             ^^
+...
+2066 |                 agg_k_body!(1);
+     |                 -------------- in this macro invocation
+     |
+     = note: this warning originates in the macro `push_bw` which comes from the expansion of the macro `agg_k_body` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: if this is intentional, prefix it with an underscore
+     |
+1685 |                                         let _bb = $bb;
+     |                                             +
+help: you might have meant to pattern match on the similarly named constant `NB_BUCKET`
+     |
+1685 -                                         let bb = $bb;
+1685 +                                         let yhyb_indtop_metrics::NB_BUCKET = $bb;
+     |
+
+warning: unused variable: `bb`
+    --> src/yhyb_metrics.rs:1711:45
+     |
+1711 |                                         let bb = $bb;
+     |                                             ^^
+...
+2066 |                 agg_k_body!(1);
+     |                 -------------- in this macro invocation
+     |
+     = note: this warning originates in the macro `push_fw` which comes from the expansion of the macro `agg_k_body` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: if this is intentional, prefix it with an underscore
+     |
+1711 |                                         let _bb = $bb;
+     |                                             +
+help: you might have meant to pattern match on the similarly named constant `NB_BUCKET`
+     |
+1711 -                                         let bb = $bb;
+1711 +                                         let yhyb_indtop_metrics::NB_BUCKET = $bb;
+     |
+
+warning: unused variable: `bb`
+    --> src/yhyb_metrics.rs:1685:45
+     |
+1685 |                                         let bb = $bb;
+     |                                             ^^
+...
+2068 |                 agg_k_body!(0);
+     |                 -------------- in this macro invocation
+     |
+     = note: this warning originates in the macro `push_bw` which comes from the expansion of the macro `agg_k_body` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: if this is intentional, prefix it with an underscore
+     |
+1685 |                                         let _bb = $bb;
+     |                                             +
+help: you might have meant to pattern match on the similarly named constant `NB_BUCKET`
+     |
+1685 -                                         let bb = $bb;
+1685 +                                         let yhyb_indtop_metrics::NB_BUCKET = $bb;
+     |
+
+warning: unused variable: `bb`
+    --> src/yhyb_metrics.rs:1711:45
+     |
+1711 |                                         let bb = $bb;
+     |                                             ^^
+...
+2068 |                 agg_k_body!(0);
+     |                 -------------- in this macro invocation
+     |
+     = note: this warning originates in the macro `push_fw` which comes from the expansion of the macro `agg_k_body` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: if this is intentional, prefix it with an underscore
+     |
+1711 |                                         let _bb = $bb;
+     |                                             +
+help: you might have meant to pattern match on the similarly named constant `NB_BUCKET`
+     |
+1711 -                                         let bb = $bb;
+1711 +                                         let yhyb_indtop_metrics::NB_BUCKET = $bb;
+     |
+
+warning: unused variable: `py`
+    --> src/yhyb_metrics.rs:3152:16
+     |
+3152 | pub fn py_yhyb(py: Python<'_>, date: i64, approx: bool) -> PyResult<(Vec<String>, Vec<f32>)> {
+     |                ^^ help: if this is intentional, prefix it with an underscore: `_py`
+
+warning: unused variable: `py`
+    --> src/yhyb_metrics.rs:3186:5
+     |
+3186 |     py: Python<'_>,
+     |     ^^ help: if this is intentional, prefix it with an underscore: `_py`
+
+warning: unused variable: `py`
+    --> src/yhyb_metrics.rs:3346:5
+     |
+3346 |     py: Python<'_>,
+     |     ^^ help: if this is intentional, prefix it with an underscore: `_py`
+
+warning: unused variable: `code_pos`
+   --> src/yhyb_indtop_metrics.rs:156:9
+    |
+156 |     let code_pos: HashMap<&str, usize> = codes.iter().enumerate().map(|(i, c)| (c.as_str(), i)).collect();
+    |         ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_code_pos`
+
+warning: variable does not need to be mutable
+   --> src/yhyb_indtop_metrics.rs:672:9
+    |
+672 |     let mut rows: Vec<Option<Vec<f64>>> = (0..n * N_EVENTS)
+    |         ----^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: type `SoftCfg` is more private than the item `compute_multi_full`
+   --> src/yupei_multi/mod.rs:825:1
+    |
+825 | / pub fn compute_multi_full(
+826 | |     date: i64,
+827 | |     tau: f64,
+828 | |     weight: &str,
+...   |
+834 | |     chains: Option<&[String]>,
+835 | | ) -> io::Result<(Vec<String>, Vec<String>, Vec<f32>)> {
+    | |_____________________________________________________^ function `compute_multi_full` is reachable at visibility `pub`
+    |
+note: but type `SoftCfg` is only usable at visibility `pub(crate)`
+   --> src/yupei_pair/reduce.rs:74:1
+    |
+ 74 | pub(crate) struct SoftCfg {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^
+    = note: `#[warn(private_interfaces)]` on by default
+
+warning: type `SoftCfg` is more private than the item `compute_multi_full_skip_base`
+   --> src/yupei_multi/mod.rs:843:1
+    |
+843 | / pub fn compute_multi_full_skip_base(
+844 | |     date: i64,
+845 | |     tau: f64,
+846 | |     weight: &str,
+...   |
+852 | |     chains: Option<&[String]>,
+853 | | ) -> io::Result<(Vec<String>, Vec<String>, Vec<f32>)> {
+    | |_____________________________________________________^ function `compute_multi_full_skip_base` is reachable at visibility `pub`
+    |
+note: but type `SoftCfg` is only usable at visibility `pub(crate)`
+   --> src/yupei_pair/reduce.rs:74:1
+    |
+ 74 | pub(crate) struct SoftCfg {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: type `SoftCfg` is more private than the item `compute_multi_full_skip_base_trim`
+   --> src/yupei_multi/mod.rs:861:1
+    |
+861 | / pub fn compute_multi_full_skip_base_trim(
+862 | |     date: i64,
+863 | |     tau: f64,
+864 | |     weight: &str,
+...   |
+872 | |     with_lead: bool,
+873 | | ) -> io::Result<(Vec<String>, Vec<String>, Vec<f32>)> {
+    | |_____________________________________________________^ function `compute_multi_full_skip_base_trim` is reachable at visibility `pub`
+    |
+note: but type `SoftCfg` is only usable at visibility `pub(crate)`
+   --> src/yupei_pair/reduce.rs:74:1
+    |
+ 74 | pub(crate) struct SoftCfg {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: type `tail_v5_pipeline::LegacyBacktestResult` is more private than the item `BtAcc::<'a>::finish`
+   --> src/tail_v8_backtest.rs:578:5
+    |
+578 |     pub fn finish(self) -> LegacyBacktestResult {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ method `BtAcc::<'a>::finish` is reachable at visibility `pub`
+    |
+note: but type `tail_v5_pipeline::LegacyBacktestResult` is only usable at visibility `pub(crate)`
+   --> src/tail_v5_pipeline.rs:551:1
+    |
+551 | pub(crate) struct LegacyBacktestResult {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: type `tail_v5_pipeline::TailTask` is more private than the item `process_task_with_values_v8`
+   --> src/tail_v8_pipeline.rs:65:1
+    |
+ 65 | / pub fn process_task_with_values_v8(
+ 66 | |     task: &TailTask,
+ 67 | |     raw_values: Array2<f32>,
+ 68 | |     shared: &SharedInputs,
+ 69 | |     sc: &mut V8Scratch,
+ 70 | | ) -> Result<TailTaskResult, String> {
+    | |___________________________________^ function `process_task_with_values_v8` is reachable at visibility `pub`
+    |
+note: but type `tail_v5_pipeline::TailTask` is only usable at visibility `pub(crate)`
+   --> src/tail_v5_pipeline.rs:155:1
+    |
+155 | pub(crate) struct TailTask {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: type `tail_v5_pipeline::SharedInputs` is more private than the item `process_task_with_values_v8`
+   --> src/tail_v8_pipeline.rs:65:1
+    |
+ 65 | / pub fn process_task_with_values_v8(
+ 66 | |     task: &TailTask,
+ 67 | |     raw_values: Array2<f32>,
+ 68 | |     shared: &SharedInputs,
+ 69 | |     sc: &mut V8Scratch,
+ 70 | | ) -> Result<TailTaskResult, String> {
+    | |___________________________________^ function `process_task_with_values_v8` is reachable at visibility `pub`
+    |
+note: but type `tail_v5_pipeline::SharedInputs` is only usable at visibility `pub(crate)`
+   --> src/tail_v5_pipeline.rs:114:1
+    |
+114 | pub(crate) struct SharedInputs {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: type `tail_v5_pipeline::TailTaskResult` is more private than the item `process_task_with_values_v8`
+   --> src/tail_v8_pipeline.rs:65:1
+    |
+ 65 | / pub fn process_task_with_values_v8(
+ 66 | |     task: &TailTask,
+ 67 | |     raw_values: Array2<f32>,
+ 68 | |     shared: &SharedInputs,
+ 69 | |     sc: &mut V8Scratch,
+ 70 | | ) -> Result<TailTaskResult, String> {
+    | |___________________________________^ function `process_task_with_values_v8` is reachable at visibility `pub`
+    |
+note: but type `tail_v5_pipeline::TailTaskResult` is only usable at visibility `pub(crate)`
+   --> src/tail_v5_pipeline.rs:456:1
+    |
+456 | pub(crate) struct TailTaskResult {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: type `tail_v5_pipeline::PreflightReport` is more private than the item `prod_preflight`
+   --> src/tail_v8_selfcheck.rs:17:1
+    |
+ 17 | / pub fn prod_preflight(
+ 18 | |     slot: &ndarray::ArrayView2<f32>,
+ 19 | |     restrict: &ndarray::ArrayView2<f32>,
+ 20 | |     thr_maj: f64,
+ 21 | |     thr_zero: f64,
+ 22 | |     thr_nan: f64,
+ 23 | | ) -> crate::tail_v5_pipeline::PreflightReport {
+    | |_____________________________________________^ function `prod_preflight` is reachable at visibility `pub`
+    |
+note: but type `tail_v5_pipeline::PreflightReport` is only usable at visibility `pub(crate)`
+   --> src/tail_v5_pipeline.rs:947:1
+    |
+947 | pub(crate) struct PreflightReport {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: type `MarketPairRow` is more private than the item `read_market_pair_inner`
+    --> src/fast_csv_reader.rs:1112:1
+     |
+1112 | / pub fn read_market_pair_inner(
+1113 | |     code: &str,
+1114 | |     date: i64,
+1115 | |     parallel_threshold: usize,
+1116 | | ) -> std::io::Result<Vec<MarketPairRow>> {
+     | |________________________________________^ function `read_market_pair_inner` is reachable at visibility `pub`
+     |
+note: but type `MarketPairRow` is only usable at visibility `pub(self)`
+    --> src/fast_csv_reader.rs:998:1
+     |
+ 998 | struct MarketPairRow {
+     | ^^^^^^^^^^^^^^^^^^^^
+
+warning: field `record_count` is never read
+   --> src/backup_reader.rs:212:5
+    |
+210 | struct ChunkInfo {
+    |        --------- field in this struct
+211 |     compressed_size: usize,
+212 |     record_count: usize,
+    |     ^^^^^^^^^^^^
+    |
+    = note: `ChunkInfo` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: struct `FileHeaderV3` is never constructed
+  --> src/backup_writer.rs:11:8
+   |
+11 | struct FileHeaderV3 {
+   |        ^^^^^^^^^^^^
+
+warning: method `print_stuck_tasks_table` is never used
+   --> src/parallel_computing_date_only.rs:293:8
+    |
+123 | impl DateOnlyMonitorManager {
+    | --------------------------- method in this implementation
+...
+293 |     fn print_stuck_tasks_table(&self) {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: field `code_order` is never read
+   --> src/yupei_gpt/network.rs:556:5
+    |
+538 | struct PostInputs<'a> {
+    |        ---------- field in this struct
+...
+556 |     code_order: &'a [usize],
+    |     ^^^^^^^^^^
+
+warning: function `mass_acc_hg` is never used
+   --> src/yupei_gpt/network_simd.rs:154:8
+    |
+154 | pub fn mass_acc_hg(
+    |        ^^^^^^^^^^^
+
+warning: function `select_topk_keys` is never used
+   --> src/yupei_gpt/network_simd.rs:550:8
+    |
+550 | pub fn select_topk_keys(
+    |        ^^^^^^^^^^^^^^^^
+
+warning: function `mean` is never used
+ --> src/yupei_gpt/network_stats.rs:5:15
+  |
+5 | pub(super) fn mean(v: &[f64]) -> f64 {
+  |               ^^^^
+
+warning: function `quantile_sorted` is never used
+  --> src/yupei_gpt/network_stats.rs:12:15
+   |
+12 | pub(super) fn quantile_sorted(v: &[f64], p: f64) -> f64 {
+   |               ^^^^^^^^^^^^^^^
+
+warning: function `topmean_sorted` is never used
+  --> src/yupei_gpt/network_stats.rs:21:15
+   |
+21 | pub(super) fn topmean_sorted(v: &[f64], k: usize) -> f64 {
+   |               ^^^^^^^^^^^^^^
+
+warning: function `skew` is never used
+  --> src/yupei_gpt/network_stats.rs:24:15
+   |
+24 | pub(super) fn skew(v: &[f64]) -> f64 {
+   |               ^^^^
+
+warning: function `hhi` is never used
+  --> src/yupei_gpt/network_stats.rs:36:15
+   |
+36 | pub(super) fn hhi(v: &[f64]) -> f64 {
+   |               ^^^
+
+warning: function `ranks` is never used
+  --> src/yupei_gpt/network_stats.rs:44:15
+   |
+44 | pub(super) fn ranks(v: &[f64]) -> Vec<f64> {
+   |               ^^^^^
+
+warning: function `correlation` is never used
+  --> src/yupei_gpt/network_stats.rs:62:15
+   |
+62 | pub(super) fn correlation(x: &[f64], y: &[f64]) -> Option<f64> {
+   |               ^^^^^^^^^^^
+
+warning: function `rank_audit` is never used
+  --> src/yupei_gpt/network_stats.rs:76:15
+   |
+76 | pub(super) fn rank_audit(name: String, x: &[f64], y: &[f64]) -> AuditRow {
+   |               ^^^^^^^^^^
+
+warning: fields `mean_x`, `scale`, `mean_y`, `beta`, and `n` are never read
+   --> src/yupei_gpt/network_stats.rs:105:9
+    |
+104 | pub(super) struct Ridge {
+    |                   ----- fields in this struct
+105 |     pub mean_x: [f64; 5],
+    |         ^^^^^^
+106 |     pub scale: [f64; 5],
+    |         ^^^^^
+107 |     pub mean_y: f64,
+    |         ^^^^^^
+108 |     pub beta: [f64; 5],
+    |         ^^^^
+109 |     pub n: usize,
+    |         ^
+    |
+    = note: `Ridge` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: method `residual` is never used
+   --> src/yupei_gpt/network_stats.rs:112:12
+    |
+111 | impl Ridge {
+    | ---------- method in this implementation
+112 |     pub fn residual(&self, x: [f64; 5], y: f64) -> f64 {
+    |            ^^^^^^^^
+
+warning: function `fit_ridge_par` is never used
+   --> src/yupei_gpt/network_stats.rs:210:15
+    |
+210 | pub(super) fn fit_ridge_par<F>(nn: usize, at: &F) -> Option<Ridge>
+    |               ^^^^^^^^^^^^^
+
+warning: constant `AM_CUT` is never used
+  --> src/yupei_multi/mod.rs:42:7
+   |
+42 | const AM_CUT: u32 = 720_000;
+   |       ^^^^^^
+
+warning: function `transpose_f32` is never used
+  --> src/yupei_pair/reduce.rs:99:15
+   |
+99 | pub(crate) fn transpose_f32(a: &[f32], n: usize) -> Vec<f32> {
+   |               ^^^^^^^^^^^^^
+
+warning: function `transpose_f64` is never used
+   --> src/yupei_pair/reduce.rs:116:15
+    |
+116 | pub(crate) fn transpose_f64(a: &[f64], n: usize) -> Vec<f64> {
+    |               ^^^^^^^^^^^^^
+
+warning: function `pair_scan` is never used
+   --> src/yupei_pair/reduce.rs:256:15
+    |
+256 | pub(crate) fn pair_scan(n: usize, rho: &[f32], e: &[f64], ok: &[bool]) -> (Vec<f32>, Vec<i32>, Vec<i32>) {
+    |               ^^^^^^^^^
+
+warning: function `topk_adj` is never used
+   --> src/yupei_pair/reduce.rs:770:15
+    |
+770 | pub(crate) fn topk_adj(n: usize, sq: &[f32], k: usize, ok: &[bool]) -> Vec<bool> {
+    |               ^^^^^^^^
+
+warning: function `topk_adj_multi` is never used
+   --> src/yupei_pair/reduce.rs:812:15
+    |
+812 | pub(crate) fn topk_adj_multi(n: usize, sq: &[f32], ks: &[usize], ok: &[bool]) -> Vec<Vec<bool>> {
+    |               ^^^^^^^^^^^^^^
+
+warning: function `fused_hg_stats` is never used
+   --> src/yupei_pair/simd.rs:123:8
+    |
+123 | pub fn fused_hg_stats(
+    |        ^^^^^^^^^^^^^^
+
+warning: function `argmax_first` is never used
+   --> src/yupei_pair/simd.rs:277:8
+    |
+277 | pub fn argmax_first(v: &[f32]) -> (usize, f32) {
+    |        ^^^^^^^^^^^^
+
+warning: function `argmax_first_two` is never used
+   --> src/yupei_pair/simd.rs:340:8
+    |
+340 | pub fn argmax_first_two(h: &[f32], g: &[f32], mx_h: f32, mx_g: f32) -> (usize, usize) {
+    |        ^^^^^^^^^^^^^^^^
+
+warning: function `pos_stats` is never used
+   --> src/yupei_pair/simd.rs:419:8
+    |
+419 | pub fn pos_stats(h: &[f32], g: &[f32]) -> (f32, f32, f32, u32) {
+    |        ^^^^^^^^^
+
+warning: function `mass_acc_h` is never used
+   --> src/yupei_pair/simd.rs:484:8
+    |
+484 | pub fn mass_acc_h(em: &mut [f32], gm: &mut [f32], g2m: &mut [f32], h: &[f32], g: &[f32], invh: f32) {
+    |        ^^^^^^^^^^
+
+warning: function `mass_acc_g` is never used
+   --> src/yupei_pair/simd.rs:498:8
+    |
+498 | pub fn mass_acc_g(sm: &mut [f32], sgm: &mut [f32], sg2m: &mut [f32], g: &[f32], invg: f32) {
+    |        ^^^^^^^^^^
+
+warning: function `mul_add` is never used
+   --> src/yupei_pair/simd.rs:647:8
+    |
+647 | pub fn mul_add(out: &mut [f32], a: &[f32], b: &[f32], w: f32) {
+    |        ^^^^^^^
+
+warning: function `elem_max_upd_idx` is never used
+   --> src/yupei_pair/simd.rs:679:8
+    |
+679 | pub fn elem_max_upd_idx(best: &mut [f32], idx: &mut [i32], v: &[f32], c: i32) {
+    |        ^^^^^^^^^^^^^^^^
+
+warning: function `collect_gt_idx` is never used
+   --> src/yupei_pair/simd.rs:793:8
+    |
+793 | pub fn collect_gt_idx(out: &mut Vec<u32>, v: &[f32], refv: &[f32]) {
+    |        ^^^^^^^^^^^^^^
+
+warning: function `add_cnt_gt_i32` is never used
+   --> src/yupei_pair/simd.rs:906:8
+    |
+906 | pub fn add_cnt_gt_i32(beat: &mut [i32], v: &[f32], refv: &[f32]) {
+    |        ^^^^^^^^^^^^^^
+
+warning: function `compute_r2` is never used
+   --> src/cross_stock_regression.rs:204:4
+    |
+204 | fn compute_r2(y_pred: &ArrayView1<f64>, y_actual: &ArrayView1<f64>) -> f64 {
+    |    ^^^^^^^^^^
+
+warning: function `neutralize_std_section_owned_v2` is never used
+    --> src/factor_neutralize_std.rs:2020:15
+     |
+2020 | pub(crate) fn neutralize_std_section_owned_v2(
+     |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `neutralize_std_section_owned_v2_resid` is never used
+    --> src/factor_neutralize_std.rs:2066:15
+     |
+2066 | pub(crate) fn neutralize_std_section_owned_v2_resid(
+     |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `neutralize_std_slot_f32_v2` is never used
+    --> src/factor_neutralize_std.rs:2146:15
+     |
+2146 | pub(crate) fn neutralize_std_slot_f32_v2(
+     |               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: field `last_ratio` is never read
+  --> src/agent_simulator/buy_ratio_agent.rs:15:5
+   |
+10 | pub struct BuyRatioAgent {
+   |            ------------- field in this struct
+...
+15 |     last_ratio: f64, // 记录上次的主买占比，用于判断是否变化
+   |     ^^^^^^^^^^
+
+warning: function `safe_div` is never used
+ --> src/agent_validation/factors_extra.rs:9:4
+  |
+9 | fn safe_div(a: f64, b: f64) -> f64 {
+  |    ^^^^^^^^
+
+warning: function `cap_val` is never used
+  --> src/agent_validation/factors_extra.rs:17:4
+   |
+17 | fn cap_val(v: f64, limit: f64) -> f64 {
+   |    ^^^^^^^
+
+warning: function `hilbert_approx` is never used
+   --> src/agent_validation/factors_extra.rs:400:4
+    |
+400 | fn hilbert_approx(signal: &[f64]) -> Vec<f64> {
+    |    ^^^^^^^^^^^^^^
+
+warning: function `plv_and_lead` is never used
+   --> src/agent_validation/factors_extra.rs:423:4
+    |
+423 | fn plv_and_lead(sig_a: &[f64], sig_b: &[f64]) -> (f64, f64) {
+    |    ^^^^^^^^^^^^
+
+warning: struct `StateArrays` is never constructed
+   --> src/agent_validation/factors_extra.rs:557:8
+    |
+557 | struct StateArrays {
+    |        ^^^^^^^^^^^
+
+warning: function `compute_state_arrays` is never used
+   --> src/agent_validation/factors_extra.rs:582:4
+    |
+582 | fn compute_state_arrays(
+    |    ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `hi_lo_diff` is never used
+   --> src/agent_validation/factors_extra.rs:895:4
+    |
+895 | fn hi_lo_diff(lo: usize, hi: usize) -> usize {
+    |    ^^^^^^^^^^
+
+warning: fields `initial_volume` and `initial_level` are never read
+   --> src/allo_microstructure_v2.rs:103:5
+    |
+ 95 | struct ALAEventV2 {
+    |        ---------- fields in this struct
+...
+103 |     initial_volume: f64,
+    |     ^^^^^^^^^^^^^^
+104 |     initial_level: usize, // 触发时的档位（仅用于记录）
+    |     ^^^^^^^^^^^^^
+    |
+    = note: `ALAEventV2` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: fields `initial_volume` and `initial_level` are never read
+   --> src/allo_microstructure_v3.rs:104:5
+    |
+ 96 | struct ALAEventV2 {
+    |        ---------- fields in this struct
+...
+104 |     initial_volume: f64,
+    |     ^^^^^^^^^^^^^^
+105 |     initial_level: usize,
+    |     ^^^^^^^^^^^^^
+    |
+    = note: `ALAEventV2` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: function `gamma` is never used
+   --> src/copula.rs:120:4
+    |
+120 | fn gamma(x: f64) -> f64 {
+    |    ^^^^^
+
+warning: function `incomplete_gamma` is never used
+   --> src/copula.rs:128:4
+    |
+128 | fn incomplete_gamma(a: f64, x: f64) -> f64 {
+    |    ^^^^^^^^^^^^^^^^
+
+warning: function `frank_copula_cdf` is never used
+   --> src/copula.rs:763:4
+    |
+763 | fn frank_copula_cdf(u1: f64, u2: f64, theta: f64) -> f64 {
+    |    ^^^^^^^^^^^^^^^^
+
+warning: variant `SpearmanCorr` is never constructed
+  --> src/microstructure_pattern_features.rs:23:5
+   |
+14 | enum DistanceType {
+   |      ------------ variant in this enum
+...
+23 |     SpearmanCorr,      // Spearman秩相关
+   |     ^^^^^^^^^^^^
+   |
+   = note: `DistanceType` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: function `dtw_distance_optimized` is never used
+   --> src/microstructure_pattern_features_optimized.rs:324:4
+    |
+324 | fn dtw_distance_optimized(a: &[f64], b: &[f64], band_width: usize) -> f64 {
+    |    ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: multiple variants are never constructed
+  --> src/microstructure_pattern_features_v2.rs:44:5
+   |
+42 | enum DistanceType {
+   |      ------------ variants in this enum
+43 |     // 已有度量
+44 |     Wasserstein,
+   |     ^^^^^^^^^^^
+45 |     JensenShannon,
+   |     ^^^^^^^^^^^^^
+46 |     KolmogorovSmirnov,
+   |     ^^^^^^^^^^^^^^^^^
+47 |     EditDistance,
+   |     ^^^^^^^^^^^^
+48 |     DtwDistance,
+   |     ^^^^^^^^^^^
+49 |     Jaccard,
+   |     ^^^^^^^
+...
+52 |     SpearmanCorr,
+   |     ^^^^^^^^^^^^
+53 |     // 新增度量
+54 |     Hellinger,
+   |     ^^^^^^^^^
+55 |     ChiSquare,
+   |     ^^^^^^^^^
+56 |     SampleEntropy,
+   |     ^^^^^^^^^^^^^
+57 |     FftEnergy,
+   |     ^^^^^^^^^
+58 |     MomentDistance,
+   |     ^^^^^^^^^^^^^^
+   |
+   = note: `DistanceType` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: variants `MovingSplitPoint`, `AdjacentRollingWindows`, `CumulativeVsMarginal`, `MaxDiffLocation`, and `ExtremeCrossing` are never constructed
+  --> src/microstructure_pattern_features_v2.rs:65:5
+   |
+63 | enum ConstructionType {
+   |      ---------------- variants in this enum
+64 |     // 已有构造
+65 |     MovingSplitPoint,
+   |     ^^^^^^^^^^^^^^^^
+66 |     AdjacentRollingWindows,
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+67 |     CumulativeVsMarginal,
+   |     ^^^^^^^^^^^^^^^^^^^^
+...
+72 |     MaxDiffLocation,
+   |     ^^^^^^^^^^^^^^^
+...
+75 |     ExtremeCrossing,
+   |     ^^^^^^^^^^^^^^^
+   |
+   = note: `ConstructionType` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: enum `PatternType` is never used
+  --> src/microstructure_pattern_features_v2.rs:81:6
+   |
+81 | enum PatternType {
+   |      ^^^^^^^^^^^
+
+warning: function `calculate_five_rhythm` is never used
+   --> src/microstructure_pattern_features_v2.rs:257:4
+    |
+257 | fn calculate_five_rhythm(times: &[i64], window_size: usize) -> Vec<Vec<u32>> {
+    |    ^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `calculate_window_fragmentation` is never used
+   --> src/microstructure_pattern_features_v2.rs:318:4
+    |
+318 | fn calculate_window_fragmentation(bid_orders: &[i64], window_size: usize) -> Vec<f64> {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `hellinger_distance` is never used
+   --> src/microstructure_pattern_features_v2.rs:367:4
+    |
+367 | fn hellinger_distance(p: &[f64], q: &[f64]) -> f64 {
+    |    ^^^^^^^^^^^^^^^^^^
+
+warning: function `chi_square_distance` is never used
+   --> src/microstructure_pattern_features_v2.rs:381:4
+    |
+381 | fn chi_square_distance(p: &[f64], q: &[f64]) -> f64 {
+    |    ^^^^^^^^^^^^^^^^^^^
+
+warning: function `sample_entropy` is never used
+   --> src/microstructure_pattern_features_v2.rs:398:4
+    |
+398 | fn sample_entropy(data: &[f64], _m: usize, r: f64) -> f64 {
+    |    ^^^^^^^^^^^^^^
+
+warning: function `fft_energy_distance` is never used
+   --> src/microstructure_pattern_features_v2.rs:444:4
+    |
+444 | fn fft_energy_distance(a: &[f64], b: &[f64]) -> f64 {
+    |    ^^^^^^^^^^^^^^^^^^^
+
+warning: function `moment_distance` is never used
+   --> src/microstructure_pattern_features_v2.rs:482:4
+    |
+482 | fn moment_distance(a: &[f64], b: &[f64]) -> f64 {
+    |    ^^^^^^^^^^^^^^^
+
+warning: function `calculate_skew_kurt` is never used
+   --> src/microstructure_pattern_features_v2.rs:494:4
+    |
+494 | fn calculate_skew_kurt(data: &[f64]) -> (f64, f64) {
+    |    ^^^^^^^^^^^^^^^^^^^
+
+warning: function `construct_max_diff_location` is never used
+   --> src/microstructure_pattern_features_v2.rs:639:4
+    |
+639 | fn construct_max_diff_location(
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `construct_extreme_crossing` is never used
+   --> src/microstructure_pattern_features_v2.rs:751:4
+    |
+751 | fn construct_extreme_crossing(
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `calculate_percentile` is never used
+   --> src/microstructure_pattern_features_v2.rs:828:4
+    |
+828 | fn calculate_percentile(data: &[f64], percentile: f64) -> f64 {
+    |    ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `calculate_scalar_distance` is never used
+   --> src/microstructure_pattern_features_v2.rs:843:4
+    |
+843 | fn calculate_scalar_distance(values_a: &[f64], values_b: &[f64], dist_type: DistanceType) -> f64 {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `calculate_histogram_distance` is never used
+   --> src/microstructure_pattern_features_v2.rs:891:4
+    |
+891 | fn calculate_histogram_distance(hist_a: &[f64], hist_b: &[f64], dist_type: DistanceType) -> f64 {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `calculate_sequence_distance` is never used
+   --> src/microstructure_pattern_features_v2.rs:903:4
+    |
+903 | fn calculate_sequence_distance(seq_a: &[u32], seq_b: &[u32], dist_type: DistanceType) -> f64 {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `wasserstein_distance` is never used
+   --> src/microstructure_pattern_features_v2.rs:912:4
+    |
+912 | fn wasserstein_distance(p: &[f64], q: &[f64]) -> f64 {
+    |    ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `jensen_shannon_divergence` is never used
+   --> src/microstructure_pattern_features_v2.rs:929:4
+    |
+929 | fn jensen_shannon_divergence(p: &[f64], q: &[f64]) -> f64 {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `kolmogorov_smirnov` is never used
+   --> src/microstructure_pattern_features_v2.rs:950:4
+    |
+950 | fn kolmogorov_smirnov(p: &[f64], q: &[f64]) -> f64 {
+    |    ^^^^^^^^^^^^^^^^^^
+
+warning: function `edit_distance` is never used
+   --> src/microstructure_pattern_features_v2.rs:972:4
+    |
+972 | fn edit_distance(a: &[u32], b: &[u32]) -> f64 {
+    |    ^^^^^^^^^^^^^
+
+warning: function `jaccard_similarity` is never used
+    --> src/microstructure_pattern_features_v2.rs:1004:4
+     |
+1004 | fn jaccard_similarity(a: &[u32], b: &[u32]) -> f64 {
+     |    ^^^^^^^^^^^^^^^^^^
+
+warning: function `dtw_distance` is never used
+    --> src/microstructure_pattern_features_v2.rs:1019:4
+     |
+1019 | fn dtw_distance(a: &[f64], b: &[f64]) -> f64 {
+     |    ^^^^^^^^^^^^
+
+warning: function `spearman_correlation` is never used
+    --> src/microstructure_pattern_features_v2.rs:1045:4
+     |
+1045 | fn spearman_correlation(a: &[f64], b: &[f64]) -> f64 {
+     |    ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `get_ranks` is never used
+    --> src/microstructure_pattern_features_v2.rs:1076:4
+     |
+1076 | fn get_ranks(values: &[f64]) -> Vec<f64> {
+     |    ^^^^^^^^^
+
+warning: function `construct_adjacent_rolling_windows_sequence` is never used
+    --> src/microstructure_pattern_features_v2.rs:1364:4
+     |
+1364 | fn construct_adjacent_rolling_windows_sequence(
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: associated function `new` is never used
+   --> src/order_pair_metrics.rs:428:8
+    |
+427 | impl ShadowSet {
+    | -------------- associated function in this implementation
+428 |     fn new() -> Self {
+    |        ^^^
+
+warning: function `backtest_block_f32_with_parallel` is never used
+   --> src/tail_v2_backtest_block.rs:554:15
+    |
+554 | pub(crate) fn backtest_block_f32_with_parallel(
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `neutralize_block_f32_out_with_parallel` is never used
+   --> src/tail_v2_block_neutralizer.rs:345:15
+    |
+345 | pub(crate) fn neutralize_block_f32_out_with_parallel(
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `neutralize_block_f32_out_legacy_with_parallel` is never used
+   --> src/tail_v2_block_neutralizer.rs:356:15
+    |
+356 | pub(crate) fn neutralize_block_f32_out_legacy_with_parallel(
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `group_indices` is never used
+  --> src/tlq_gate.rs:87:4
+   |
+87 | fn group_indices(codes: &[f64]) -> Vec<(f64, usize)> {
+   |    ^^^^^^^^^^^^^
+
+warning: function `rank_roll_block_f32_v7` is never used
+   --> src/tail_v2_rank_roll_factor.rs:247:15
+    |
+247 | pub(crate) fn rank_roll_block_f32_v7(
+    |               ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: field `n_t` is never read
+  --> src/tail_v4_fulltest_core.rs:45:5
+   |
+43 | struct Panel {
+   |        ----- field in this struct
+44 |     data: Vec<f64>,
+45 |     n_t: usize,
+   |     ^^^
+
+warning: function `read_h5_series` is never used
+   --> src/tail_v4_fulltest_dataset.rs:229:4
+    |
+229 | fn read_h5_series(
+    |    ^^^^^^^^^^^^^^
+
+warning: field `industry` is never read
+   --> src/tail_v5_pipeline.rs:124:16
+    |
+114 | pub(crate) struct SharedInputs {
+    |                   ------------ field in this struct
+...
+124 |     pub(crate) industry: Option<Arc<Array2<f64>>>,
+    |                ^^^^^^^^
+    |
+    = note: `SharedInputs` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: function `ordinal_ranks_radix` is never used
+   --> src/tail_v5_pipeline.rs:801:4
+    |
+801 | fn ordinal_ranks_radix(values: &[f32]) -> Vec<i64> {
+    |    ^^^^^^^^^^^^^^^^^^^
+
+warning: function `average_ranks_radix` is never used
+   --> src/tail_v5_pipeline.rs:814:15
+    |
+814 | pub(crate) fn average_ranks_radix(values: &[f32]) -> Vec<f64> {
+    |               ^^^^^^^^^^^^^^^^^^^
+
+warning: function `rank_both_radix` is never used
+   --> src/tail_v5_pipeline.rs:871:15
+    |
+871 | pub(crate) fn rank_both_radix(values: &[f32]) -> (Vec<i64>, Vec<f64>) {
+    |               ^^^^^^^^^^^^^^^
+
+warning: function `neutralize_block_legacy_exact_v7` is never used
+    --> src/tail_v5_pipeline.rs:3327:4
+     |
+3327 | fn neutralize_block_legacy_exact_v7(
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: fields `y_v`, `d_val`, `d_spos`, and `vpos` are never read
+    --> src/tail_v8_neu_v3.rs:1000:5
+     |
+ 992 | pub struct V3Scratch {
+     |            --------- fields in this struct
+...
+1000 |     y_v: Vec<f64>,
+     |     ^^^
+...
+1020 |     d_val: Vec<f64>,
+     |     ^^^^^
+1021 |     d_spos: Vec<u32>,
+     |     ^^^^^^
+1022 |     vpos: Vec<u32>,
+     |     ^^^^
+
+warning: field `stats` is never read
+   --> src/theme_cluster_factors.rs:546:5
+    |
+543 | struct DayClusterResult {
+    |        ---------------- field in this struct
+...
+546 |     stats: ClusterStats,  // 统计量
+    |     ^^^^^
+    |
+    = note: `DayClusterResult` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: struct `CacheKey` is never constructed
+  --> src/theme_cluster_factors_batch.rs:22:8
+   |
+22 | struct CacheKey {
+   |        ^^^^^^^^
+
+warning: field `stats` is never read
+  --> src/theme_cluster_factors_batch.rs:34:5
+   |
+29 | struct CachedDayResult {
+   |        --------------- field in this struct
+...
+34 |     stats: ClusterStats,
+   |     ^^^^^
+   |
+   = note: `CachedDayResult` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: function `kmeans_flat` is never used
+   --> src/theme_cluster_factors_batch.rs:475:4
+    |
+475 | fn kmeans_flat(
+    |    ^^^^^^^^^^^
+
+warning: function `cluster_single_day_cached` is never used
+   --> src/theme_cluster_factors_batch.rs:694:4
+    |
+694 | fn cluster_single_day_cached(features: &[f64], n: usize, d: usize, k: usize) -> CachedDayResult {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `FIELD_VOLUME` is never used
+    --> src/theme_cluster_factors_batch.rs:2189:11
+     |
+2189 |     const FIELD_VOLUME: usize = 3;
+     |           ^^^^^^^^^^^^
+
+warning: constant `N_FEATURES` is never used
+    --> src/theme_cluster_factors_batch.rs:2673:11
+     |
+2673 |     const N_FEATURES: usize = 12;
+     |           ^^^^^^^^^^
+
+warning: constant `N_MICRO` is never used
+    --> src/theme_cluster_factors_batch.rs:2674:11
+     |
+2674 |     const N_MICRO: usize = 8;
+     |           ^^^^^^^
+
+warning: constant `N_FACTORS` is never used
+    --> src/theme_cluster_factors_batch.rs:2675:11
+     |
+2675 |     const N_FACTORS: usize = 16 + N_MICRO * 2; // 32
+     |           ^^^^^^^^^
+
+warning: constant `FIELD_VOLUME` is never used
+  --> src/theme_feature_expansion.rs:12:7
+   |
+12 | const FIELD_VOLUME: usize = 5;
+   |       ^^^^^^^^^^^^
+
+warning: multiple fields are never read
+  --> src/theme_feature_expansion.rs:54:5
+   |
+47 | struct SegmentDayFeatures {
+   |        ------------------ fields in this struct
+...
+54 |     log_avg_trade_amt: Vec<f64>,
+   |     ^^^^^^^^^^^^^^^^^
+...
+57 |     tick_balance: Vec<f64>,
+   |     ^^^^^^^^^^^^
+58 |     depth1: Vec<f64>,
+59 |     depth6: Vec<f64>,
+   |     ^^^^^^
+60 |     bid10: Vec<f64>,
+   |     ^^^^^
+61 |     vwap_gap: Vec<f64>,
+   |     ^^^^^^^^
+62 |     vwap_ladder_gap: Vec<f64>,
+   |     ^^^^^^^^^^^^^^^
+63 |     queue1: Vec<f64>,
+   |     ^^^^^^
+64 |     queue123: Vec<f64>,
+   |     ^^^^^^^^
+65 |     flow_eff: Vec<f64>,
+66 |     big_order_ratio: Vec<f64>,
+   |     ^^^^^^^^^^^^^^^
+...
+70 |     cumret_path: Vec<f64>,
+   |     ^^^^^^^^^^^
+71 |     rv_path: Vec<f64>,
+   |     ^^^^^^^
+...
+74 |     buy_ratio_path: Vec<f64>,
+   |     ^^^^^^^^^^^^^^
+75 |     trade_size_path: Vec<f64>,
+   |     ^^^^^^^^^^^^^^^
+76 |     tick_balance_path: Vec<f64>,
+   |     ^^^^^^^^^^^^^^^^^
+77 |     depth1_path: Vec<f64>,
+78 |     depth6_path: Vec<f64>,
+   |     ^^^^^^^^^^^
+79 |     queue_path: Vec<f64>,
+   |     ^^^^^^^^^^
+80 |     quote_gap_path: Vec<f64>,
+   |     ^^^^^^^^^^^^^^
+   |
+   = note: `SegmentDayFeatures` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: field `centers` is never read
+  --> src/theme_feature_expansion.rs:89:5
+   |
+87 | struct ClusterDayResult {
+   |        ---------------- field in this struct
+88 |     labels: Vec<usize>,
+89 |     centers: Vec<f64>,
+   |     ^^^^^^^
+   |
+   = note: `ClusterDayResult` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: function `slope` is never used
+   --> src/theme_feature_expansion.rs:184:4
+    |
+184 | fn slope(values: &[f64]) -> f64 {
+    |    ^^^^^
+
+warning: function `hhi_from_abs` is never used
+   --> src/theme_feature_expansion.rs:247:4
+    |
+247 | fn hhi_from_abs(values: &[f64]) -> f64 {
+    |    ^^^^^^^^^^^^
+
+warning: field `count` is never read
+   --> src/extreme_point_fit_metrics.rs:349:5
+    |
+346 | struct TargetStats {
+    |        ----------- field in this struct
+...
+349 |     count: u32,
+    |     ^^^^^
+
+warning: fields `abr` and `ofi` are never read
+  --> src/distill_metrics.rs:63:5
+   |
+59 | struct MinuteData {
+   |        ---------- fields in this struct
+...
+63 |     abr: Vec<f32>,
+   |     ^^^
+64 |     ofi: Vec<f32>,
+   |     ^^^
+
+warning: constant `M_HHI` is never used
+  --> src/distill_tick_metrics.rs:54:7
+   |
+54 | const M_HHI: usize = 3;
+   |       ^^^^^
+
+warning: constant `M_SKEW` is never used
+  --> src/distill_tick_metrics.rs:57:7
+   |
+57 | const M_SKEW: usize = 6;
+   |       ^^^^^^
+
+warning: constant `M_KURT` is never used
+  --> src/distill_tick_metrics.rs:58:7
+   |
+58 | const M_KURT: usize = 7;
+   |       ^^^^^^
+
+warning: constant `MKT_COL_HIGH_LIMITED` is never used
+   --> src/fast_csv_reader.rs:620:7
+    |
+620 | const MKT_COL_HIGH_LIMITED: usize = 12;
+    |       ^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `MKT_COL_LOW_LIMITED` is never used
+   --> src/fast_csv_reader.rs:621:7
+    |
+621 | const MKT_COL_LOW_LIMITED: usize = 13;
+    |       ^^^^^^^^^^^^^^^^^^^
+
+warning: constant `AFTERNOON_SHIFT_SEC` is never used
+  --> src/hidden_arrange_metrics.rs:15:7
+   |
+15 | const AFTERNOON_SHIFT_SEC: i64 = 90 * 60;
+   |       ^^^^^^^^^^^^^^^^^^^
+
+warning: associated function `load` is never used
+   --> src/hidden_arrange_metrics.rs:480:8
+    |
+479 | impl Window {
+    | ----------- associated function in this implementation
+480 |     fn load(path: &str) -> std::io::Result<Self> {
+    |        ^^^^
+
+warning: function `run_full_game` is never used
+    --> src/hidden_arrange_metrics.rs:1049:4
+     |
+1049 | fn run_full_game(
+     |    ^^^^^^^^^^^^^
+
+warning: function `random_null_y` is never used
+    --> src/hidden_arrange_metrics.rs:1068:4
+     |
+1068 | fn random_null_y(y: &[f64], seed: u64) -> Vec<f64> {
+     |    ^^^^^^^^^^^^^
+
+warning: function `run_game_s1s2` is never used
+    --> src/hidden_arrange_metrics.rs:1081:4
+     |
+1081 | fn run_game_s1s2(
+     |    ^^^^^^^^^^^^^
+
+warning: function `compute_all_factors` is never used
+    --> src/hidden_arrange_metrics.rs:1092:4
+     |
+1092 | fn compute_all_factors(code: &str, date: i64, tws: &[f64], n_null: usize) {
+     |    ^^^^^^^^^^^^^^^^^^^
+
+warning: struct `UF` is never constructed
+    --> src/hidden_arrange_metrics.rs:2025:8
+     |
+2025 | struct UF {
+     |        ^^
+
+warning: associated items `new`, `find`, `union`, and `groups` are never used
+    --> src/hidden_arrange_metrics.rs:2029:8
+     |
+2028 | impl UF {
+     | ------- associated items in this implementation
+2029 |     fn new(nodes: &[usize]) -> Self {
+     |        ^^^
+...
+2036 |     fn find(&mut self, x: usize) -> usize {
+     |        ^^^^
+...
+2045 |     fn union(&mut self, a: usize, b: usize) {
+     |        ^^^^^
+...
+2052 |     fn groups(mut self) -> Vec<Vec<usize>> {
+     |        ^^^^^^
+
+warning: constant `N_QUERIES` is never used
+    --> src/hidden_arrange_metrics.rs:2504:7
+     |
+2504 | const N_QUERIES: usize = 64;
+     |       ^^^^^^^^^
+
+warning: field `names` is never read
+   --> src/geffe_leak_metrics.rs:332:13
+    |
+332 | struct Dom{ names:Vec<String>, bits:Vec<Vec<u8>> }
+    |        ---  ^^^^^
+    |        |
+    |        field in this struct
+    |
+    = note: `Dom` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: constant `AFTERNOON_SHIFT_SEC` is never used
+  --> src/geffe_leak_metrics.rs:24:11
+   |
+24 |     const AFTERNOON_SHIFT_SEC: i64 = 90 * 60;
+   |           ^^^^^^^^^^^^^^^^^^^
+
+warning: function `read_trade_fast` is never used
+   --> src/geffe_leak_metrics.rs:185:12
+    |
+185 |     pub fn read_trade_fast(code: &str, date: i64) -> std::io::Result<Vec<TradeRecord>> {
+    |            ^^^^^^^^^^^^^^^
+
+warning: function `read_market_fast` is never used
+   --> src/geffe_leak_metrics.rs:254:12
+    |
+254 |     pub fn read_market_fast(code: &str, date: i64) -> std::io::Result<Vec<MarketRecord>> {
+    |            ^^^^^^^^^^^^^^^^
+
+warning: field `c` is never read
+   --> src/lfsr_leak_ext1_metrics.rs:520:57
+    |
+520 | struct Spec { name: String, op: Op, a: usize, b: usize, c: usize }
+    |        ---- field in this struct                        ^
+    |
+    = note: `Spec` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: fields `tg_mid` and `tg_imb` are never read
+   --> src/lfsr_leak_ext1_metrics.rs:527:5
+    |
+522 | struct Env {
+    |        --- fields in this struct
+...
+527 |     tg_mid: Vec<u8>,
+    |     ^^^^^^
+528 |     tg_imb: Vec<u8>,
+    |     ^^^^^^
+
+warning: constant `AFTERNOON_SHIFT_SEC` is never used
+  --> src/lfsr_leak_ext1_metrics.rs:31:11
+   |
+31 |     const AFTERNOON_SHIFT_SEC: i64 = 90 * 60;
+   |           ^^^^^^^^^^^^^^^^^^^
+
+warning: field `n_valid` is never read
+   --> src/hot_stock_pool_metrics.rs:104:5
+    |
+102 | struct PoolBitset {
+    |        ---------- field in this struct
+103 |     bits: Vec<u64>,
+104 |     n_valid: usize,
+    |     ^^^^^^^
+
+warning: method `get` is never used
+   --> src/hot_stock_pool_metrics.rs:161:8
+    |
+159 | impl RollingCache {
+    | ----------------- method in this implementation
+160 |     #[inline]
+161 |     fn get(&self, field: usize, sec: usize) -> f32 {
+    |        ^^^
+
+warning: fields `cont_f01`, `cont_f02`, `cont_f03`, `cont_f04`, `cont_f05`, and `cont_f06` are never read
+   --> src/hot_stock_pool_metrics.rs:301:5
+    |
+297 | struct InclusionInfo {
+    |        ------------- fields in this struct
+...
+301 |     cont_f01: f32,
+    |     ^^^^^^^^
+302 |     cont_f02: f32,
+    |     ^^^^^^^^
+303 |     cont_f03: f32,
+    |     ^^^^^^^^
+304 |     cont_f04: f32,
+    |     ^^^^^^^^
+305 |     cont_f05: f32,
+    |     ^^^^^^^^
+306 |     cont_f06: f32,
+    |     ^^^^^^^^
+    |
+    = note: `InclusionInfo` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: function `neighbor_mean` is never used
+   --> src/hot_stock_pool_metrics.rs:355:4
+    |
+355 | fn neighbor_mean(values: &[f32], stock_rank: usize, k: usize) -> f32 {
+    |    ^^^^^^^^^^^^^
+
+warning: function `select_top_bottom_full` is never used
+   --> src/hot_stock_pool_metrics.rs:625:4
+    |
+625 | fn select_top_bottom_full(
+    |    ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `q90_q10_sorted` is never used
+   --> src/hot_stock_pool_metrics.rs:790:4
+    |
+790 | fn q90_q10_sorted(v: &[f32]) -> f32 {
+    |    ^^^^^^^^^^^^^^
+
+warning: function `q90_q10` is never used
+   --> src/hot_stock_pool_metrics.rs:901:4
+    |
+901 | fn q90_q10(v: &[f32]) -> f32 {
+    |    ^^^^^^^
+
+warning: function `spearman` is never used
+   --> src/hot_stock_pool_metrics.rs:929:4
+    |
+929 | fn spearman(a: &[f32], b: &[f32]) -> f32 {
+    |    ^^^^^^^^
+
+warning: function `reduce_matrix_fast` is never used
+    --> src/hot_stock_pool_metrics.rs:1601:4
+     |
+1601 | fn reduce_matrix_fast(data: &ndarray::ArrayView2<f32>) -> Vec<f32> {
+     |    ^^^^^^^^^^^^^^^^^^
+
+warning: function `col_mean_local` is never used
+    --> src/hot_stock_pool_metrics.rs:1759:4
+     |
+1759 | fn col_mean_local(c: &[f32]) -> f32 {
+     |    ^^^^^^^^^^^^^^
+
+warning: function `col_median_local` is never used
+    --> src/hot_stock_pool_metrics.rs:1768:4
+     |
+1768 | fn col_median_local(c: &[f32]) -> f32 {
+     |    ^^^^^^^^^^^^^^^^
+
+warning: function `col_std_local` is never used
+    --> src/hot_stock_pool_metrics.rs:1778:4
+     |
+1778 | fn col_std_local(c: &[f32]) -> f32 {
+     |    ^^^^^^^^^^^^^
+
+warning: function `col_skew_local` is never used
+    --> src/hot_stock_pool_metrics.rs:1787:4
+     |
+1787 | fn col_skew_local(c: &[f32]) -> f32 {
+     |    ^^^^^^^^^^^^^^
+
+warning: function `col_kurt_local` is never used
+    --> src/hot_stock_pool_metrics.rs:1800:4
+     |
+1800 | fn col_kurt_local(c: &[f32]) -> f32 {
+     |    ^^^^^^^^^^^^^^
+
+warning: function `col_quantile_local` is never used
+    --> src/hot_stock_pool_metrics.rs:1813:4
+     |
+1813 | fn col_quantile_local(c: &[f32], q: f32) -> f32 {
+     |    ^^^^^^^^^^^^^^^^^^
+
+warning: function `corr_pair_local` is never used
+    --> src/hot_stock_pool_metrics.rs:1830:4
+     |
+1830 | fn corr_pair_local(a: &[f32], b: &[f32]) -> f32 {
+     |    ^^^^^^^^^^^^^^^
+
+warning: function `trend_local` is never used
+    --> src/hot_stock_pool_metrics.rs:1860:4
+     |
+1860 | fn trend_local(c: &[f32]) -> f32 {
+     |    ^^^^^^^^^^^
+
+warning: function `curvature_local` is never used
+    --> src/hot_stock_pool_metrics.rs:1883:4
+     |
+1883 | fn curvature_local(c: &[f32]) -> f32 {
+     |    ^^^^^^^^^^^^^^^
+
+warning: function `quad_coef_local` is never used
+    --> src/hot_stock_pool_metrics.rs:1895:4
+     |
+1895 | fn quad_coef_local(c: &[f32]) -> f32 {
+     |    ^^^^^^^^^^^^^^^
+
+warning: function `period_diff_local` is never used
+    --> src/hot_stock_pool_metrics.rs:1899:4
+     |
+1899 | fn period_diff_local(c: &[f32], n_rows: usize) -> f32 {
+     |    ^^^^^^^^^^^^^^^^^
+
+warning: function `period_ratio_local` is never used
+    --> src/hot_stock_pool_metrics.rs:1909:4
+     |
+1909 | fn period_ratio_local(c: &[f32], n_rows: usize) -> f32 {
+     |    ^^^^^^^^^^^^^^^^^^
+
+warning: function `entropy_local` is never used
+    --> src/hot_stock_pool_metrics.rs:1919:4
+     |
+1919 | fn entropy_local(c: &[f32], n_rows: usize) -> f32 {
+     |    ^^^^^^^^^^^^^
+
+warning: function `compute_cooccurrence_full` is never used
+    --> src/hot_stock_pool_metrics.rs:1952:4
+     |
+1952 | fn compute_cooccurrence_full(
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `top10_basic_stats` is never used
+    --> src/hot_stock_pool_metrics.rs:1997:4
+     |
+1997 | fn top10_basic_stats(
+     |    ^^^^^^^^^^^^^^^^^
+
+warning: type alias `Rel5` is never used
+  --> src/hot_pool_ind_metrics.rs:57:6
+   |
+57 | type Rel5 = [f32; 5]; // [rk_buy, rk_vol, rk_ba, z_norm, freq]
+   |      ^^^^
+
+warning: fields `cold_cnt`, `cold_nstock_ind`, and `mkt_cold_total` are never read
+  --> src/hot_pool_ind_metrics.rs:65:5
+   |
+59 | struct PiOut {
+   |        ----- fields in this struct
+...
+65 |     cold_cnt: Vec<u32>,
+   |     ^^^^^^^^
+...
+69 |     cold_nstock_ind: [u32; 32],
+   |     ^^^^^^^^^^^^^^^
+70 |     mkt_hot_total: u32,
+71 |     mkt_cold_total: u32,
+   |     ^^^^^^^^^^^^^^
+
+warning: function `skewness` is never used
+   --> src/anneal_volume_metrics.rs:147:4
+    |
+147 | fn skewness(data: &[f32]) -> f32 {
+    |    ^^^^^^^^
+
+warning: function `excess_kurtosis` is never used
+   --> src/anneal_volume_metrics.rs:174:4
+    |
+174 | fn excess_kurtosis(data: &[f32]) -> f32 {
+    |    ^^^^^^^^^^^^^^^
+
+warning: field `last_px` is never read
+  --> src/relaynet_six_people.rs:63:5
+   |
+61 | struct StockPrep {
+   |        --------- field in this struct
+62 |     /// 每格最后一笔成交价（前向填充后取对数收益前的原始价）
+63 |     last_px: [f64; N_CELL],
+   |     ^^^^^^^
+
+warning: function `depth_slope` is never used
+   --> src/relaynet_six_people.rs:448:4
+    |
+448 | fn depth_slope(vols: &[f32; 10]) -> f64 {
+    |    ^^^^^^^^^^^
+
+warning: function `skew10` is never used
+   --> src/relaynet_six_people.rs:465:4
+    |
+465 | fn skew10(vols: &[f32; 10]) -> f64 {
+    |    ^^^^^^
+
+warning: function `dijkstra` is never used
+   --> src/relaynet_six_people.rs:731:4
+    |
+731 | fn dijkstra(g: &UGraph, src: usize) -> Vec<f64> {
+    |    ^^^^^^^^
+
+warning: variant `T` is never constructed
+    --> src/relaynet_six_people.rs:2361:5
+     |
+2357 | enum SimKind {
+     |      ------- variant in this enum
+...
+2361 |     T,
+     |     ^
+     |
+     = note: `SimKind` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: field `last_px` is never read
+  --> src/relaynet_metrics.rs:62:5
+   |
+60 | struct StockPrep {
+   |        --------- field in this struct
+61 |     /// 每格最后一笔成交价（前向填充后取对数收益前的原始价）
+62 |     last_px: [f64; N_CELL],
+   |     ^^^^^^^
+
+warning: variant `T` is never constructed
+    --> src/relaynet_metrics.rs:2204:26
+     |
+2204 | enum SimKind { P, PJ, S, T, L, J }
+     |      -------             ^
+     |      |
+     |      variant in this enum
+     |
+     = note: `SimKind` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: field `day_open` is never read
+  --> src/drop_event_metrics.rs:53:5
+   |
+38 | struct StockData {
+   |        --------- field in this struct
+...
+53 |     day_open: f32,
+   |     ^^^^^^^^
+
+warning: field `criteria` is never read
+  --> src/drop_event_metrics.rs:64:5
+   |
+58 | struct DropEvent {
+   |        --------- field in this struct
+...
+64 |     criteria: u8, // bit0=C1, bit1=C2, bit2=C3, bit3=C4
+   |     ^^^^^^^^
+   |
+   = note: `DropEvent` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: fields `cs_spread_sumsq`, `cs_depth_sumsq`, and `g_cum_turnover` are never read
+  --> src/drop_event_metrics.rs:76:5
+   |
+68 | struct GlobalState {
+   |        ----------- fields in this struct
+...
+76 |     cs_spread_sumsq: Vec<f64>,
+   |     ^^^^^^^^^^^^^^^
+...
+79 |     cs_depth_sumsq: Vec<f64>,
+   |     ^^^^^^^^^^^^^^
+...
+92 |     g_cum_turnover: Vec<f64>,
+   |     ^^^^^^^^^^^^^^
+
+warning: method `mkt_buy_ratio_mean` is never used
+   --> src/drop_event_metrics.rs:677:8
+    |
+598 | impl GlobalState {
+    | ---------------- method in this implementation
+...
+677 |     fn mkt_buy_ratio_mean(&self, s1: usize, s2: usize) -> f32 {
+    |        ^^^^^^^^^^^^^^^^^^
+
+warning: function `buy_ratio_cross_std` is never used
+    --> src/drop_event_metrics.rs:1201:4
+     |
+1201 | fn buy_ratio_cross_std(gs: &GlobalState, s1: usize, s2: usize) -> f32 {
+     |    ^^^^^^^^^^^^^^^^^^^
+
+warning: function `vol_cross_std` is never used
+    --> src/drop_event_metrics.rs:1228:4
+     |
+1228 | fn vol_cross_std(gs: &GlobalState, s1: usize, s2: usize) -> f32 {
+     |    ^^^^^^^^^^^^^
+
+warning: function `slice_to_array2` is never used
+   --> src/factor_pipeline.rs:464:4
+    |
+464 | fn slice_to_array2(data: &[f32], rows: usize, cols: usize) -> ndarray::Array2<f32> {
+    |    ^^^^^^^^^^^^^^^
+
+warning: method `push_max` is never used
+  --> src/dagpath_metrics.rs:43:8
+   |
+42 | impl MonoDq {
+   | ----------- method in this implementation
+43 |     fn push_max(&mut self, i: usize, v: f64) {
+   |        ^^^^^^^^
+
+warning: function `lz_calculate_complexity_reused` is never used
+   --> src/features_f64.rs:506:4
+    |
+506 | fn lz_calculate_complexity_reused(seq: &[u8], sam_buf: &mut Vec<SamState>) -> usize {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: associated function `with_capacity` is never used
+   --> src/features_f64.rs:591:8
+    |
+590 | impl SuffixAutomaton {
+    | -------------------- associated function in this implementation
+591 |     fn with_capacity(capacity: usize) -> Self {
+    |        ^^^^^^^^^^^^^
+
+warning: field `ent_counts` is never read
+    --> src/features_f64.rs:1348:5
+     |
+1345 | pub struct StatsScratch {
+     |            ------------ field in this struct
+...
+1348 |     ent_counts: Vec<usize>, // 熵分箱计数（保留：旧入口仍使用）
+     |     ^^^^^^^^^^
+
+warning: function `lz_calculate_complexity_reused` is never used
+   --> src/features.rs:403:4
+    |
+403 | fn lz_calculate_complexity_reused(seq: &[u8], sam_buf: &mut Vec<SamState>) -> usize {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: associated function `with_capacity` is never used
+   --> src/features.rs:488:8
+    |
+487 | impl SuffixAutomaton {
+    | -------------------- associated function in this implementation
+488 |     fn with_capacity(capacity: usize) -> Self {
+    |        ^^^^^^^^^^^^^
+
+warning: field `ent_counts` is never read
+    --> src/features.rs:1116:5
+     |
+1113 | pub struct StatsScratch {
+     |            ------------ field in this struct
+...
+1116 |     ent_counts: Vec<usize>, // 熵分箱计数（保留：旧入口仍使用）
+     |     ^^^^^^^^^^
+
+warning: field `code_to_col` is never read
+  --> src/minute_data_reader.rs:38:5
+   |
+32 | struct MinuteMeta {
+   |        ---------- field in this struct
+...
+38 |     code_to_col: HashMap<String, usize>,
+   |     ^^^^^^^^^^^
+
+warning: methods `cols` and `read` are never used
+    --> src/multi_factor_capm_metrics.rs:1190:8
+     |
+1173 | impl ComboBuf {
+     | ------------- methods in this implementation
+...
+1190 |     fn cols(&self) -> usize {
+     |        ^^^^
+...
+1204 |     fn read(&self, col: usize, bin: usize, stock: usize) -> f32 {
+     |        ^^^^
+
+warning: struct `ComboScratch` is never constructed
+    --> src/multi_factor_capm_metrics.rs:1237:8
+     |
+1237 | struct ComboScratch {
+     |        ^^^^^^^^^^^^
+
+warning: associated function `new` is never used
+    --> src/multi_factor_capm_metrics.rs:1252:8
+     |
+1251 | impl ComboScratch {
+     | ----------------- associated function in this implementation
+1252 |     fn new(n_stocks: usize) -> Self {
+     |        ^^^
+
+warning: fields `n_per_stock` and `n_shared` are never read
+    --> src/multi_factor_capm_metrics.rs:1689:5
+     |
+1685 | struct ComboMeta {
+     |        --------- fields in this struct
+...
+1689 |     n_per_stock: usize,
+     |     ^^^^^^^^^^^
+1690 |     n_shared: usize,
+     |     ^^^^^^^^
+
+warning: function `col_nansum` is never used
+   --> src/okay_database/hm002.rs:313:4
+    |
+313 | fn col_nansum(v: &[f64]) -> f64 {
+    |    ^^^^^^^^^^
+
+warning: field `total_rows` is never read
+   --> src/okay_database/hm028.rs:140:5
+    |
+137 | struct MinuteMeta {
+    |        ---------- field in this struct
+...
+140 |     total_rows: usize,
+    |     ^^^^^^^^^^
+
+warning: constant `TRD_COL_VOLUME` is never used
+   --> src/okay_database/hm039.rs:147:7
+    |
+147 | const TRD_COL_VOLUME: usize = 8;
+    |       ^^^^^^^^^^^^^^
+
+warning: function `parse_i64_at` is never used
+   --> src/okay_database/hm047.rs:202:4
+    |
+202 | fn parse_i64_at(b: &[u8]) -> i64 {
+    |    ^^^^^^^^^^^^
+
+warning: struct `Row` is never constructed
+   --> src/okay_database/hm047.rs:378:8
+    |
+378 | struct Row {
+    |        ^^^
+
+warning: field `price` is never read
+   --> src/okay_database/hm047.rs:759:5
+    |
+757 | struct Frame {
+    |        ----- field in this struct
+758 |     ns: Vec<i64>,
+759 |     price: Vec<f64>,
+    |     ^^^^^
+
+warning: field `total_rows` is never read
+   --> src/okay_database/hm051.rs:196:5
+    |
+193 | struct MinuteMeta {
+    |        ---------- field in this struct
+...
+196 |     total_rows: usize,
+    |     ^^^^^^^^^^
+
+warning: function `nan_min` is never used
+   --> src/okay_database/hm065.rs:253:4
+    |
+253 | fn nan_min(a: &[f64]) -> f64 {
+    |    ^^^^^^^
+
+warning: function `nan_max` is never used
+   --> src/okay_database/hm065.rs:266:4
+    |
+266 | fn nan_max(a: &[f64]) -> f64 {
+    |    ^^^^^^^
+
+warning: function `parse_f64_at` is never used
+   --> src/okay_database/hm065.rs:304:4
+    |
+304 | fn parse_f64_at(b: &[u8]) -> f64 {
+    |    ^^^^^^^^^^^^
+
+warning: field `price` is never read
+   --> src/okay_database/hm065.rs:643:5
+    |
+641 | struct Frame {
+    |        ----- field in this struct
+642 |     ns: Vec<i64>,
+643 |     price: Vec<f64>,
+    |     ^^^^^
+
+warning: constant `DAY_US` is never used
+   --> src/okay_database/hm066.rs:161:7
+    |
+161 | const DAY_US: i64 = DAY_NS / 1000;
+    |       ^^^^^^
+
+warning: field `tod` is never read
+   --> src/okay_database/hm069.rs:262:5
+    |
+261 | struct Row {
+    |        --- field in this struct
+262 |     tod: i64,
+    |     ^^^
+
+warning: function `parse_i64_at` is never used
+   --> src/okay_database/hm074.rs:743:4
+    |
+743 | fn parse_i64_at(b: &[u8]) -> i64 {
+    |    ^^^^^^^^^^^^
+
+warning: constant `ORIG_COLS` is never used
+  --> src/okay_database/hm078.rs:71:7
+   |
+71 | const ORIG_COLS: [&str; 12] = [
+   |       ^^^^^^^^^
+
+warning: constant `BASE_COLS` is never used
+  --> src/okay_database/hm078.rs:86:7
+   |
+86 | const BASE_COLS: [&str; NBASE] = [
+   |       ^^^^^^^^^
+
+warning: constant `STATS` is never used
+   --> src/okay_database/hm078.rs:114:7
+    |
+114 | const STATS: [&str; 7] = ["mean", "std", "skew", "kurt", "max", "ac", "trend"];
+    |       ^^^^^
+
+warning: function `make_names` is never used
+   --> src/okay_database/hm078.rs:225:4
+    |
+225 | fn make_names(prefix: &str) -> Vec<String> {
+    |    ^^^^^^^^^^
+
+warning: constant `FEAT_SUFFIX` is never used
+  --> src/okay_database/hm084.rs:96:7
+   |
+96 | const FEAT_SUFFIX: [&str; N_FEAT] = [
+   |       ^^^^^^^^^^^
+
+warning: method `get` is never used
+    --> src/okay_database/hm084.rs:1033:8
+     |
+1031 | impl PriceSeries {
+     | ---------------- method in this implementation
+1032 |     #[inline]
+1033 |     fn get(&self, b: i64) -> f64 {
+     |        ^^^
+
+warning: struct `MState` is never constructed
+   --> src/pair_interaction_metrics.rs:334:8
+    |
+334 | struct MState {
+    |        ^^^^^^
+
+warning: function `mstate_step` is never used
+   --> src/pair_interaction_metrics.rs:348:4
+    |
+348 | fn mstate_step(s: &mut MState, a: &[u32], b: &[u32]) {
+    |    ^^^^^^^^^^^
+
+warning: function `merge_x139_multi` is never used
+   --> src/pair_interaction_metrics.rs:445:4
+    |
+445 | fn merge_x139_multi(a: &[u32], bs: &[&[u32]], out: &mut [(f32, f32, f32)]) {
+    |    ^^^^^^^^^^^^^^^^
+
+warning: function `local_max_flags` is never used
+   --> src/peaks_metrics.rs:503:4
+    |
+503 | fn local_max_flags(trades: &[TradeRecord], key: fn(&TradeRecord) -> f64) -> (Vec<bool>, Vec<bool>) {
+    |    ^^^^^^^^^^^^^^^
+
+warning: function `col_mean_std` is never used
+   --> src/peaks_regime.rs:172:4
+    |
+172 | fn col_mean_std(rows: &[Vec<f64>], j: usize) -> (f64, f64) {
+    |    ^^^^^^^^^^^^
+
+warning: function `percentile_sorted` is never used
+  --> src/volume_segment_leadstock_metrics.rs:81:4
+   |
+81 | fn percentile_sorted(sorted: &[f64], p: f64) -> f64 {
+   |    ^^^^^^^^^^^^^^^^^
+
+warning: function `reduce_single` is never used
+   --> src/volume_segment_leadstock_metrics.rs:156:4
+    |
+156 | fn reduce_single(seq: &[f64]) -> Vec<f32> {
+    |    ^^^^^^^^^^^^^
+
+warning: function `ep2_range` is never used
+   --> src/volume_segment_leadstock_metrics.rs:331:4
+    |
+331 | fn ep2_range(ep2: &str) -> (f64, f64) {
+    |    ^^^^^^^^^
+
+warning: struct `Bucket` is never constructed
+   --> src/yhyb_metrics.rs:886:8
+    |
+886 | struct Bucket {
+    |        ^^^^^^
+
+warning: struct `Gather` is never constructed
+   --> src/yhyb_metrics.rs:891:8
+    |
+891 | struct Gather {
+    |        ^^^^^^
+
+warning: multiple associated items are never used
+   --> src/yhyb_metrics.rs:904:8
+    |
+903 | impl Gather {
+    | ----------- associated items in this implementation
+904 |     fn new() -> Self {
+    |        ^^^
+...
+908 |     fn new_sized(nb: usize) -> Self {
+    |        ^^^^^^^^^
+...
+922 |     fn reset(&mut self) {
+    |        ^^^^^
+...
+940 |     fn push1(&mut self, dd: u64, ww: f64, t_us: u64) {
+    |        ^^^^^
+...
+946 |     fn push_b(&mut self, b: usize, ww: f64, dd: u64, t_us: u64) {
+    |        ^^^^^^
+...
+963 |     fn locate(&mut self, half_n: u64, half_w: f64, k: u64) {
+    |        ^^^^^^
+...
+991 |     fn stats(&mut self, n: u64, k: u64) -> [f64; 5] {
+    |        ^^^^^
+
+warning: field `valid_pos` is never read
+    --> src/yhyb_metrics.rs:1362:5
+     |
+1360 | struct L4Ctx<'a> {
+     |        ----- field in this struct
+1361 |     n: usize,
+1362 |     valid_pos: &'a [usize],
+     |     ^^^^^^^^^
+
+warning: method `clear` is never used
+    --> src/yhyb_metrics.rs:2223:8
+     |
+2216 | impl Hist1 {
+     | ---------- method in this implementation
+...
+2223 |     fn clear(&mut self) {
+     |        ^^^^^
+
+warning: method `reset` is never used
+   --> src/yhyb_indtop_metrics.rs:238:8
+    |
+237 | impl PoolDir {
+    | ------------ method in this implementation
+238 |     fn reset(&mut self) {
+    |        ^^^^^
+
+warning: unused `std::result::Result` that must be used
+   --> src/lib.rs:401:5
+    |
+401 | /     m.add_function(wrap_pyfunction!(
+402 | |         factor_store_v5::factor_store_v5_verify_online,
+403 | |         m
+404 | |     )?);
+    | |_______^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+401 |     let _ = m.add_function(wrap_pyfunction!(
+    |     +++++++
+
+warning: calls to `std::mem::drop` with a value that implements `Copy` does nothing
+    --> src/parallel_computing.rs:2148:5
+     |
+2148 |     drop(spawn_worker);
+     |     ^^^^^------------^
+     |          |
+     |          argument has type `{closure@src/parallel_computing.rs:1689:24: 1689:42}`
+     |
+     = note: `#[warn(dropping_copy_types)]` on by default
+help: use `let _ = ...` to ignore the expression or result
+     |
+2148 -     drop(spawn_worker);
+2148 +     let _ = spawn_worker;
+     |
+
+warning: variable `LITE` should have a snake case name
+   --> src/yupei_dist/compute.rs:266:5
+    |
+266 |     LITE: &[&'static str],
+    |     ^^^^ help: convert the identifier to snake case: `lite`
+    |
+    = note: `#[warn(non_snake_case)]` (part of `#[warn(nonstandard_style)]`) on by default
+
+warning: variable `Ra1` should have a snake case name
+   --> src/individual_order_ratio_metrics.rs:421:17
+    |
+421 |             let Ra1 = a[0] / sa10;
+    |                 ^^^ help: convert the identifier to snake case: `ra1`
+
+warning: variable `Rb1` should have a snake case name
+   --> src/individual_order_ratio_metrics.rs:422:17
+    |
+422 |             let Rb1 = b[0] / sb10;
+    |                 ^^^ help: convert the identifier to snake case: `rb1`
+
+warning: variable `waR` should have a snake case name
+   --> src/individual_order_ratio_metrics.rs:424:17
+    |
+424 |             let waR: f32 = (0..10).map(|k| W[k] * a[k] / sa10).sum();
+    |                 ^^^ help: convert the identifier to snake case: `wa_r`
+
+warning: variable `wbR` should have a snake case name
+   --> src/individual_order_ratio_metrics.rs:425:17
+    |
+425 |             let wbR: f32 = (0..10).map(|k| W[k] * b[k] / sb10).sum();
+    |                 ^^^ help: convert the identifier to snake case: `wb_r`
+
+warning: variable `mpR` should have a snake case name
+   --> src/individual_order_ratio_metrics.rs:429:21
+    |
+429 |                 let mpR = (bp[0] * Ra1 + ap[0] * Rb1) / denom;
+    |                     ^^^ help: convert the identifier to snake case: `mp_r`
+
+warning: variable `rcov_Ra1Rb1` should have a snake case name
+   --> src/individual_order_ratio_metrics.rs:448:9
+    |
+448 |     let rcov_Ra1Rb1 = roll_cov(&obi1_r2, &wobi_r2, w); // r2 口径 obi1 与 wobi 的滚动协变（cov(Ra1,Rb1) 的代理）
+    |         ^^^^^^^^^^^ help: convert the identifier to snake case: `rcov_ra1_rb1`
+
+warning: variable `wdRb` should have a snake case name
+   --> src/individual_order_ratio_metrics.rs:473:9
+    |
+473 |     let wdRb = win_diff(&rb1, w);
+    |         ^^^^ help: convert the identifier to snake case: `wd_rb`
+
+warning: variable `wdRa` should have a snake case name
+   --> src/individual_order_ratio_metrics.rs:474:9
+    |
+474 |     let wdRa = win_diff(&ra1, w);
+    |         ^^^^ help: convert the identifier to snake case: `wd_ra`
+
+warning: variable `Ra` should have a snake case name
+   --> src/individual_order_ratio_metrics.rs:519:13
+    |
+519 |         let Ra: [f32; 10] = if r2_ok {
+    |             ^^ help: convert the identifier to snake case: `ra`
+
+warning: variable `Rb` should have a snake case name
+   --> src/individual_order_ratio_metrics.rs:528:13
+    |
+528 |         let Rb: [f32; 10] = if r2_ok {
+    |             ^^ help: convert the identifier to snake case: `rb`
+
+warning: variable `H` should have a snake case name
+   --> src/okay_database/hm000.rs:581:12
+    |
+581 | fn segment(H: &[f64], L: &[f64], A: &[f64], n: usize) -> [Vec<f64>; 3] {
+    |            ^ help: convert the identifier to snake case: `h`
+
+warning: variable `L` should have a snake case name
+   --> src/okay_database/hm000.rs:581:23
+    |
+581 | fn segment(H: &[f64], L: &[f64], A: &[f64], n: usize) -> [Vec<f64>; 3] {
+    |                       ^ help: convert the identifier to snake case: `l`
+
+warning: variable `A` should have a snake case name
+   --> src/okay_database/hm000.rs:581:34
+    |
+581 | fn segment(H: &[f64], L: &[f64], A: &[f64], n: usize) -> [Vec<f64>; 3] {
+    |                                  ^ help: convert the identifier to snake case: `a`
+
+warning: variable `A` should have a snake case name
+   --> src/okay_database/hm000.rs:670:13
+    |
+670 | fn row_mask(A: &[f64], n: usize, keep: &[bool]) -> Vec<f64> {
+    |             ^ help: convert the identifier to snake case: `a`
+
+warning: variable `M` should have a snake case name
+   --> src/pair_interaction_metrics.rs:545:19
+    |
+545 | fn winsorize_rows(M: &mut [f32], _n: usize, t: usize) {
+    |                   ^ help: convert the identifier to snake case: `m`
+
+warning: variable `M` should have a snake case name
+   --> src/pair_interaction_metrics.rs:557:16
+    |
+557 | fn zscore_rows(M: &mut [f32], _n: usize, t: usize) {
+    |                ^ help: convert the identifier to snake case: `m`
+
+warning: variable `M` should have a snake case name
+   --> src/pair_interaction_metrics.rs:579:15
+    |
+579 | fn zscore_mat(M: &mut [f32], n: usize) {
+    |               ^ help: convert the identifier to snake case: `m`
+
+warning: variable `M` should have a snake case name
+   --> src/pair_interaction_metrics.rs:613:15
+    |
+613 | fn matvec_sym(M: &[f32], v: &[f32], n: usize, out: &mut [f32]) {
+    |               ^ help: convert the identifier to snake case: `m`
+
+warning: variable `M` should have a snake case name
+   --> src/pair_interaction_metrics.rs:628:21
+    |
+628 | fn top_eigenvectors(M: &[f32], n: usize, k: usize, max_iter: usize) -> Vec<f32> {
+    |                     ^ help: convert the identifier to snake case: `m`
+
+warning: `rust_pyfunc` (lib) generated 507 warnings (51 duplicates) (run `cargo fix --lib -p rust_pyfunc` to apply 118 suggestions)
+    Finished `release-fast` profile [optimized] target(s) in 1m 19s
+built: /home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/package/rust_pyfunc/rust_pyfunc.abi3.so

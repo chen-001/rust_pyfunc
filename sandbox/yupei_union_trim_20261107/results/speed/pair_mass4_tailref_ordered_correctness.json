@@ -1,0 +1,60 @@
+{
+  "created_at": "2026-11-08T12:39:56.995346+08:00",
+  "measurement": "one_to_four_pair_mass_batch",
+  "performance_benchmark_run": false,
+  "whole_market_performance_claim": false,
+  "cpu": 511,
+  "kernel_threads": 1,
+  "repeats_per_setting": 3,
+  "scope": "Mass update only. Direct and staged inputs have identical values; staged variants copy equal h/g bytes. The extra working-set interaction with score production and TopK remains unmeasured.",
+  "source_sha256": {
+    "frozen/src/yupei_pair/simd.rs": "84284220c4b8adbfdfc5fe0edbac6c5e87dc13c33d2eaf5e4fda49f4098dbabc",
+    "tests/pair_mass4_candidate.rs": "c529e23469aa83a57712b39642e227d10bdcca99b17a9726328b1b0abc02c25e",
+    "tests/pair_mass4_probe.rs": "1e3f02839fbc07d954c9f62283afb8527abcbde858cdf19394fab4d909100933"
+  },
+  "correctness": [
+    {
+      "mass_avx512": "1",
+      "exit_code": 0,
+      "stdout": "{\"exact_cases\":36096,\"six_accumulators_bits_equal\":true,\"repeated_batches_bits_equal\":true,\"avx2_and_avx512f_supported\":true,\"kernel_threads\":1}\n",
+      "stderr": "",
+      "result": {
+        "exact_cases": 36096,
+        "six_accumulators_bits_equal": true,
+        "repeated_batches_bits_equal": true,
+        "avx2_and_avx512f_supported": true,
+        "kernel_threads": 1
+      }
+    },
+    {
+      "mass_avx512": "0",
+      "exit_code": 0,
+      "stdout": "{\"exact_cases\":36096,\"six_accumulators_bits_equal\":true,\"repeated_batches_bits_equal\":true,\"avx2_and_avx512f_supported\":true,\"kernel_threads\":1}\n",
+      "stderr": "",
+      "result": {
+        "exact_cases": 36096,
+        "six_accumulators_bits_equal": true,
+        "repeated_batches_bits_equal": true,
+        "avx2_and_avx512f_supported": true,
+        "kernel_threads": 1
+      }
+    }
+  ],
+  "records": [],
+  "build": {
+    "command": [
+      "rustc",
+      "--edition=2021",
+      "tests/pair_mass4_probe.rs",
+      "-O",
+      "-C",
+      "target-cpu=native",
+      "-o",
+      "/tmp/pair_mass4_ffoy5dai/probe"
+    ],
+    "exit_code": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  "status": "passed"
+}

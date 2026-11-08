@@ -1,0 +1,40 @@
+{
+  "created_at": "2026-11-08T12:39:22.767703+08:00",
+  "measurement": "one_to_four_pair_mass_batch",
+  "performance_benchmark_run": false,
+  "whole_market_performance_claim": false,
+  "cpu": 511,
+  "kernel_threads": 1,
+  "repeats_per_setting": 3,
+  "scope": "Mass update only. Direct and staged inputs have identical values; staged variants copy equal h/g bytes. The extra working-set interaction with score production and TopK remains unmeasured.",
+  "source_sha256": {
+    "frozen/src/yupei_pair/simd.rs": "84284220c4b8adbfdfc5fe0edbac6c5e87dc13c33d2eaf5e4fda49f4098dbabc",
+    "tests/pair_mass4_candidate.rs": "87233692c2f35260dd39cdcee20fb9a5e903437533ff985ad2ed40692607dd95",
+    "tests/pair_mass4_probe.rs": "1e3f02839fbc07d954c9f62283afb8527abcbde858cdf19394fab4d909100933"
+  },
+  "correctness": [
+    {
+      "mass_avx512": "1",
+      "exit_code": 101,
+      "stdout": "",
+      "stderr": "\nthread 'main' (890272) panicked at tests/pair_mass4_probe.rs:74:13:\nassertion `left == right` failed: n=16 batch=1 pattern=0 init=3 meta=2 flags=ff field=3 x=3\n  left: 2143289345\n right: 4290847557\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"
+    }
+  ],
+  "records": [],
+  "build": {
+    "command": [
+      "rustc",
+      "--edition=2021",
+      "tests/pair_mass4_probe.rs",
+      "-O",
+      "-C",
+      "target-cpu=native",
+      "-o",
+      "/tmp/pair_mass4_ydlllngd/probe"
+    ],
+    "exit_code": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  "status": "correctness_failed"
+}

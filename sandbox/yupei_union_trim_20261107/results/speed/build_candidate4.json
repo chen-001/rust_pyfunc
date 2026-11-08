@@ -1,0 +1,8 @@
+{
+  "exit_code": 0,
+  "wall_seconds": 79.16146230138838,
+  "source_manifest": "candidate4_sources.json",
+  "patch": "candidate4_speed.patch",
+  "changes_from_v2": "Only pair scan omits unused maxima; top-K policy remains unchanged.",
+  "module_sha256": "37b83e026600c0679b3ea6c481fe6aae2ffe8b5e243e6635341b9d1702b1e13b"
+}

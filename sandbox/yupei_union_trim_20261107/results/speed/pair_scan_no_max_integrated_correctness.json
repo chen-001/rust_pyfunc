@@ -1,0 +1,48 @@
+{
+  "created_at": "2026-11-08T12:24:01.992464+08:00",
+  "measurement": "pair_scan_without_unused_maxima",
+  "performance_benchmark_run": false,
+  "whole_market_performance_claim": false,
+  "cpu": 511,
+  "kernel_threads": 1,
+  "integrated_sandbox_source": true,
+  "repeats_per_mode_and_kind": 3,
+  "source_sha256": {
+    "frozen/src/yupei_pair/simd.rs": "84284220c4b8adbfdfc5fe0edbac6c5e87dc13c33d2eaf5e4fda49f4098dbabc",
+    "src/yupei_pair_scan_stats.rs": "4d008fd49943fe4c3eafabcb96dc0036767b6aa8d9f6360d1ccb3b702b7be9b0",
+    "tests/pair_scan_no_max_probe.rs": "7c968534674ff3c9d58d07ee33cd7f0a40d65a1ea6437614d66e3c610b6c1fee"
+  },
+  "records": [],
+  "build": {
+    "command": [
+      "rustc",
+      "--edition=2021",
+      "tests/pair_scan_no_max_probe.rs",
+      "-O",
+      "-C",
+      "target-cpu=native",
+      "-o",
+      "/tmp/pair_scan_no_max_kdhnzwwp/bench",
+      "--cfg",
+      "integrated_scan_no_max"
+    ],
+    "exit_code": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  "correctness": {
+    "exit_code": 0,
+    "stdout": "{\"exact_cases\":17964,\"kernel_threads\":1,\"avx2_path_exercised\":true,\"h_g_arrays_bits_equal\":true,\"retained_statistics_bits_equal\":true,\"repeated_calls_bits_equal\":true,\"inputs_unchanged\":true}\n",
+    "stderr": ""
+  },
+  "exactness": {
+    "exact_cases": 17964,
+    "kernel_threads": 1,
+    "avx2_path_exercised": true,
+    "h_g_arrays_bits_equal": true,
+    "retained_statistics_bits_equal": true,
+    "repeated_calls_bits_equal": true,
+    "inputs_unchanged": true
+  },
+  "status": "passed"
+}

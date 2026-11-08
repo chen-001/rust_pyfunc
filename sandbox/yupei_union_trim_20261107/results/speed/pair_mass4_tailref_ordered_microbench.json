@@ -1,0 +1,683 @@
+{
+  "created_at": "2026-11-08T12:40:17.140795+08:00",
+  "measurement": "one_to_four_pair_mass_batch",
+  "performance_benchmark_run": true,
+  "whole_market_performance_claim": false,
+  "cpu": 511,
+  "kernel_threads": 1,
+  "repeats_per_setting": 3,
+  "scope": "Mass update only. Direct and staged inputs have identical values; staged variants copy equal h/g bytes. The extra working-set interaction with score production and TopK remains unmeasured.",
+  "source_sha256": {
+    "frozen/src/yupei_pair/simd.rs": "84284220c4b8adbfdfc5fe0edbac6c5e87dc13c33d2eaf5e4fda49f4098dbabc",
+    "tests/pair_mass4_candidate.rs": "c529e23469aa83a57712b39642e227d10bdcca99b17a9726328b1b0abc02c25e",
+    "tests/pair_mass4_probe.rs": "1e3f02839fbc07d954c9f62283afb8527abcbde858cdf19394fab4d909100933"
+  },
+  "correctness": [
+    {
+      "mass_avx512": "1",
+      "exit_code": 0,
+      "stdout": "{\"exact_cases\":36096,\"six_accumulators_bits_equal\":true,\"repeated_batches_bits_equal\":true,\"avx2_and_avx512f_supported\":true,\"kernel_threads\":1}\n",
+      "stderr": "",
+      "result": {
+        "exact_cases": 36096,
+        "six_accumulators_bits_equal": true,
+        "repeated_batches_bits_equal": true,
+        "avx2_and_avx512f_supported": true,
+        "kernel_threads": 1
+      }
+    },
+    {
+      "mass_avx512": "0",
+      "exit_code": 0,
+      "stdout": "{\"exact_cases\":36096,\"six_accumulators_bits_equal\":true,\"repeated_batches_bits_equal\":true,\"avx2_and_avx512f_supported\":true,\"kernel_threads\":1}\n",
+      "stderr": "",
+      "result": {
+        "exact_cases": 36096,
+        "six_accumulators_bits_equal": true,
+        "repeated_batches_bits_equal": true,
+        "avx2_and_avx512f_supported": true,
+        "kernel_threads": 1
+      }
+    }
+  ],
+  "records": [
+    {
+      "mode": "reference",
+      "access": "direct",
+      "kind": "normal",
+      "n": 5107,
+      "batch": 4,
+      "iterations": 20000,
+      "seconds": 0.190352856,
+      "kernel_threads": 1,
+      "repeat": 1,
+      "exit_code": 0,
+      "mass_avx512": "1",
+      "load_before": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "load_after": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "performance_valid_by_observed_load": true
+    },
+    {
+      "mode": "candidate",
+      "access": "direct",
+      "kind": "normal",
+      "n": 5107,
+      "batch": 4,
+      "iterations": 20000,
+      "seconds": 0.11526822,
+      "kernel_threads": 1,
+      "repeat": 1,
+      "exit_code": 0,
+      "mass_avx512": "1",
+      "load_before": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "load_after": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "performance_valid_by_observed_load": true
+    },
+    {
+      "mode": "reference",
+      "access": "direct",
+      "kind": "mixed_flags",
+      "n": 5107,
+      "batch": 4,
+      "iterations": 20000,
+      "seconds": 0.098671401,
+      "kernel_threads": 1,
+      "repeat": 1,
+      "exit_code": 0,
+      "mass_avx512": "1",
+      "load_before": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "load_after": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "performance_valid_by_observed_load": true
+    },
+    {
+      "mode": "candidate",
+      "access": "direct",
+      "kind": "mixed_flags",
+      "n": 5107,
+      "batch": 4,
+      "iterations": 20000,
+      "seconds": 0.088955292,
+      "kernel_threads": 1,
+      "repeat": 1,
+      "exit_code": 0,
+      "mass_avx512": "1",
+      "load_before": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "load_after": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "performance_valid_by_observed_load": true
+    },
+    {
+      "mode": "reference",
+      "access": "staged",
+      "kind": "normal",
+      "n": 5107,
+      "batch": 4,
+      "iterations": 20000,
+      "seconds": 0.322354431,
+      "kernel_threads": 1,
+      "repeat": 1,
+      "exit_code": 0,
+      "mass_avx512": "1",
+      "load_before": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "load_after": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "performance_valid_by_observed_load": true
+    },
+    {
+      "mode": "candidate",
+      "access": "staged",
+      "kind": "normal",
+      "n": 5107,
+      "batch": 4,
+      "iterations": 20000,
+      "seconds": 0.235211042,
+      "kernel_threads": 1,
+      "repeat": 1,
+      "exit_code": 0,
+      "mass_avx512": "1",
+      "load_before": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "load_after": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "performance_valid_by_observed_load": true
+    },
+    {
+      "mode": "reference",
+      "access": "staged",
+      "kind": "mixed_flags",
+      "n": 5107,
+      "batch": 4,
+      "iterations": 20000,
+      "seconds": 0.226151539,
+      "kernel_threads": 1,
+      "repeat": 1,
+      "exit_code": 0,
+      "mass_avx512": "1",
+      "load_before": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "load_after": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "performance_valid_by_observed_load": true
+    },
+    {
+      "mode": "candidate",
+      "access": "staged",
+      "kind": "mixed_flags",
+      "n": 5107,
+      "batch": 4,
+      "iterations": 20000,
+      "seconds": 0.224129476,
+      "kernel_threads": 1,
+      "repeat": 1,
+      "exit_code": 0,
+      "mass_avx512": "1",
+      "load_before": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "load_after": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "performance_valid_by_observed_load": true
+    },
+    {
+      "mode": "candidate",
+      "access": "direct",
+      "kind": "normal",
+      "n": 5107,
+      "batch": 4,
+      "iterations": 20000,
+      "seconds": 0.112292707,
+      "kernel_threads": 1,
+      "repeat": 2,
+      "exit_code": 0,
+      "mass_avx512": "1",
+      "load_before": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "load_after": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "performance_valid_by_observed_load": true
+    },
+    {
+      "mode": "reference",
+      "access": "direct",
+      "kind": "normal",
+      "n": 5107,
+      "batch": 4,
+      "iterations": 20000,
+      "seconds": 0.166692465,
+      "kernel_threads": 1,
+      "repeat": 2,
+      "exit_code": 0,
+      "mass_avx512": "1",
+      "load_before": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "load_after": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "performance_valid_by_observed_load": true
+    },
+    {
+      "mode": "candidate",
+      "access": "direct",
+      "kind": "mixed_flags",
+      "n": 5107,
+      "batch": 4,
+      "iterations": 20000,
+      "seconds": 0.09119701,
+      "kernel_threads": 1,
+      "repeat": 2,
+      "exit_code": 0,
+      "mass_avx512": "1",
+      "load_before": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "load_after": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "performance_valid_by_observed_load": true
+    },
+    {
+      "mode": "reference",
+      "access": "direct",
+      "kind": "mixed_flags",
+      "n": 5107,
+      "batch": 4,
+      "iterations": 20000,
+      "seconds": 0.109402691,
+      "kernel_threads": 1,
+      "repeat": 2,
+      "exit_code": 0,
+      "mass_avx512": "1",
+      "load_before": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "load_after": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "performance_valid_by_observed_load": true
+    },
+    {
+      "mode": "candidate",
+      "access": "staged",
+      "kind": "normal",
+      "n": 5107,
+      "batch": 4,
+      "iterations": 20000,
+      "seconds": 0.240351085,
+      "kernel_threads": 1,
+      "repeat": 2,
+      "exit_code": 0,
+      "mass_avx512": "1",
+      "load_before": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "load_after": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "performance_valid_by_observed_load": true
+    },
+    {
+      "mode": "reference",
+      "access": "staged",
+      "kind": "normal",
+      "n": 5107,
+      "batch": 4,
+      "iterations": 20000,
+      "seconds": 0.286771828,
+      "kernel_threads": 1,
+      "repeat": 2,
+      "exit_code": 0,
+      "mass_avx512": "1",
+      "load_before": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "load_after": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "performance_valid_by_observed_load": true
+    },
+    {
+      "mode": "candidate",
+      "access": "staged",
+      "kind": "mixed_flags",
+      "n": 5107,
+      "batch": 4,
+      "iterations": 20000,
+      "seconds": 0.214637766,
+      "kernel_threads": 1,
+      "repeat": 2,
+      "exit_code": 0,
+      "mass_avx512": "1",
+      "load_before": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "load_after": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "performance_valid_by_observed_load": true
+    },
+    {
+      "mode": "reference",
+      "access": "staged",
+      "kind": "mixed_flags",
+      "n": 5107,
+      "batch": 4,
+      "iterations": 20000,
+      "seconds": 0.199064447,
+      "kernel_threads": 1,
+      "repeat": 2,
+      "exit_code": 0,
+      "mass_avx512": "1",
+      "load_before": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "load_after": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "performance_valid_by_observed_load": true
+    },
+    {
+      "mode": "reference",
+      "access": "direct",
+      "kind": "normal",
+      "n": 5107,
+      "batch": 4,
+      "iterations": 20000,
+      "seconds": 0.189615493,
+      "kernel_threads": 1,
+      "repeat": 3,
+      "exit_code": 0,
+      "mass_avx512": "1",
+      "load_before": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "load_after": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "performance_valid_by_observed_load": true
+    },
+    {
+      "mode": "candidate",
+      "access": "direct",
+      "kind": "normal",
+      "n": 5107,
+      "batch": 4,
+      "iterations": 20000,
+      "seconds": 0.115778772,
+      "kernel_threads": 1,
+      "repeat": 3,
+      "exit_code": 0,
+      "mass_avx512": "1",
+      "load_before": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "load_after": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "performance_valid_by_observed_load": true
+    },
+    {
+      "mode": "reference",
+      "access": "direct",
+      "kind": "mixed_flags",
+      "n": 5107,
+      "batch": 4,
+      "iterations": 20000,
+      "seconds": 0.096544844,
+      "kernel_threads": 1,
+      "repeat": 3,
+      "exit_code": 0,
+      "mass_avx512": "1",
+      "load_before": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "load_after": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "performance_valid_by_observed_load": true
+    },
+    {
+      "mode": "candidate",
+      "access": "direct",
+      "kind": "mixed_flags",
+      "n": 5107,
+      "batch": 4,
+      "iterations": 20000,
+      "seconds": 0.093055211,
+      "kernel_threads": 1,
+      "repeat": 3,
+      "exit_code": 0,
+      "mass_avx512": "1",
+      "load_before": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "load_after": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "performance_valid_by_observed_load": true
+    },
+    {
+      "mode": "reference",
+      "access": "staged",
+      "kind": "normal",
+      "n": 5107,
+      "batch": 4,
+      "iterations": 20000,
+      "seconds": 0.330190932,
+      "kernel_threads": 1,
+      "repeat": 3,
+      "exit_code": 0,
+      "mass_avx512": "1",
+      "load_before": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "load_after": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "performance_valid_by_observed_load": true
+    },
+    {
+      "mode": "candidate",
+      "access": "staged",
+      "kind": "normal",
+      "n": 5107,
+      "batch": 4,
+      "iterations": 20000,
+      "seconds": 0.242468122,
+      "kernel_threads": 1,
+      "repeat": 3,
+      "exit_code": 0,
+      "mass_avx512": "1",
+      "load_before": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "load_after": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "performance_valid_by_observed_load": true
+    },
+    {
+      "mode": "reference",
+      "access": "staged",
+      "kind": "mixed_flags",
+      "n": 5107,
+      "batch": 4,
+      "iterations": 20000,
+      "seconds": 0.188792652,
+      "kernel_threads": 1,
+      "repeat": 3,
+      "exit_code": 0,
+      "mass_avx512": "1",
+      "load_before": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "load_after": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "performance_valid_by_observed_load": true
+    },
+    {
+      "mode": "candidate",
+      "access": "staged",
+      "kind": "mixed_flags",
+      "n": 5107,
+      "batch": 4,
+      "iterations": 20000,
+      "seconds": 0.221273871,
+      "kernel_threads": 1,
+      "repeat": 3,
+      "exit_code": 0,
+      "mass_avx512": "1",
+      "load_before": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "load_after": [
+        3.42333984375,
+        13.0078125,
+        31.5224609375
+      ],
+      "performance_valid_by_observed_load": true
+    }
+  ],
+  "build": {
+    "command": [
+      "rustc",
+      "--edition=2021",
+      "tests/pair_mass4_probe.rs",
+      "-O",
+      "-C",
+      "target-cpu=native",
+      "-o",
+      "/tmp/pair_mass4_qdf1rck6/probe"
+    ],
+    "exit_code": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  "summaries": [
+    {
+      "access": "direct",
+      "kind": "normal",
+      "reference_first": 0.190352856,
+      "reference_min": 0.166692465,
+      "reference_median": 0.189615493,
+      "candidate_first": 0.11526822,
+      "candidate_min": 0.112292707,
+      "candidate_median": 0.11526822,
+      "median_speedup": 1.6449936764877604
+    },
+    {
+      "access": "direct",
+      "kind": "mixed_flags",
+      "reference_first": 0.098671401,
+      "reference_min": 0.096544844,
+      "reference_median": 0.098671401,
+      "candidate_first": 0.088955292,
+      "candidate_min": 0.088955292,
+      "candidate_median": 0.09119701,
+      "median_speedup": 1.0819587286907764
+    },
+    {
+      "access": "staged",
+      "kind": "normal",
+      "reference_first": 0.322354431,
+      "reference_min": 0.286771828,
+      "reference_median": 0.322354431,
+      "candidate_first": 0.235211042,
+      "candidate_min": 0.235211042,
+      "candidate_median": 0.240351085,
+      "median_speedup": 1.3411815095405124
+    },
+    {
+      "access": "staged",
+      "kind": "mixed_flags",
+      "reference_first": 0.226151539,
+      "reference_min": 0.188792652,
+      "reference_median": 0.199064447,
+      "candidate_first": 0.224129476,
+      "candidate_min": 0.214637766,
+      "candidate_median": 0.221273871,
+      "median_speedup": 0.8996292517520065
+    }
+  ],
+  "status": "completed"
+}

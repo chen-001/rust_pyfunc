@@ -1,0 +1,62 @@
+[
+  {
+    "path": "src/lib.rs",
+    "sha256": "df353831afd080b4051b3e30e17963dc70e96b3c1a168cd372ee56cfc85561bb",
+    "bytes": 57882
+  },
+  {
+    "path": "src/yupei_dist/compute.rs",
+    "sha256": "72d1c826c1a4cdc17273b4f39fea304931ee79114ba45325e7f33434bda35297",
+    "bytes": 20839
+  },
+  {
+    "path": "src/yupei_gpt/compute.rs",
+    "sha256": "7788b4d0e40c1e921aa2ee943ca1c2226105478e6d3af167333d39c13e6dc501",
+    "bytes": 14776
+  },
+  {
+    "path": "src/yupei_gpt/network.rs",
+    "sha256": "3994cec79b5cd8ea57cbfa82013eefe4d852f89f41fffbc9cec238aa7bf37518",
+    "bytes": 40020
+  },
+  {
+    "path": "src/yupei_gpt/network_simd.rs",
+    "sha256": "ce85ecacbae65bd045712d9d1faeea44916b72bb8aa49e30450b9762aaf437c9",
+    "bytes": 24156
+  },
+  {
+    "path": "src/yupei_pair/bitonic_sort.rs",
+    "sha256": "f4c439084f355b96ea9020f10500c87db0534e65f412cf75266eda4fbcc4382b",
+    "bytes": 5800
+  },
+  {
+    "path": "src/yupei_pair/exact_quantile.rs",
+    "sha256": "91c387419051cfb59390f037aefccd8b6463bf5c65fd3933d754977a5c8439d5",
+    "bytes": 1596
+  },
+  {
+    "path": "src/yupei_pair/mod.rs",
+    "sha256": "9cf9c6c47f40f7541af0d93903030b6bf56ffea366f232d215de9ba17c608a66",
+    "bytes": 10785
+  },
+  {
+    "path": "src/yupei_pair/net.rs",
+    "sha256": "9c97241a5f7ed61295485aa272fb6cbe0d976f7cdb45bfad58f4dc5af6662bca",
+    "bytes": 36103
+  },
+  {
+    "path": "src/yupei_pair/reduce2.rs",
+    "sha256": "d46a01b1ab8d61b87a78260c71072d56ef8364f5795c263fc709a7eaf72d789b",
+    "bytes": 50577
+  },
+  {
+    "path": "src/yupei_pair/split.rs",
+    "sha256": "95e6ff7489bfe434e48da653b6a8ced83047a585790afaf917306255fc575c6e",
+    "bytes": 21006
+  },
+  {
+    "path": "src/yupei_pair_scan_stats.rs",
+    "sha256": "4d008fd49943fe4c3eafabcb96dc0036767b6aa8d9f6360d1ccb3b702b7be9b0",
+    "bytes": 5733
+  }
+]
