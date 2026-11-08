@@ -1,0 +1,32 @@
+{
+  "date": 20241231,
+  "variant": "v3wide",
+  "repeat": 1,
+  "shape": [
+    5107,
+    18758
+  ],
+  "threads": 50,
+  "call_seconds": 341.7018194794655,
+  "cpu_seconds": 14731.979250323,
+  "numpy_seconds": 2.3816494196653366,
+  "write_seconds": 0.18804285861551762,
+  "load_before": [
+    18.212890625,
+    29.39306640625,
+    60.54736328125
+  ],
+  "load_after": [
+    45.326171875,
+    41.06103515625,
+    56.13623046875
+  ],
+  "max_rss_kib": 55054256,
+  "module_sha256": "a4b504e261dd5da5f98607259fb046ace908e7971e879f53f1071c1e7d23a759",
+  "validation_only": false,
+  "experiment_settings": {
+    "YUPEI_TOPK100_WIDE_FIRST": "1"
+  },
+  "nan_count": 885629,
+  "inf_count": 0
+}

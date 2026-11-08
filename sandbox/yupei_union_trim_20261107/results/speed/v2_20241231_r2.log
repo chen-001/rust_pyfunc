@@ -1,0 +1,477 @@
+{"event": "start", "date": 20241231, "variant": "v2", "repeat": 2, "load": [37.7900390625, 49.36767578125, 116.470703125], "module_sha256": "b7c4fbafd8f934d4db82d5ff8d812aaf3b2202a5447d2073bcfda4b8849100d9"}
+[lite-stage] read_parse_prepare 6.683018s stocks=5107 threads=50
+[lite-stage] matrices 35.91s
+[yupei_union_all] partial(读盘+预处理+28矩阵) 完成，累计 42.8s
+[lite-mod] betweenness 0.00s cols=0
+[lite-mod] cliqueness 0.00s cols=0
+[lite-mod] maxst 0.00s cols=0
+[lite-mod] motifs 0.00s cols=0
+[lite-mod] community 0.00s cols=0
+[lite-mod] isolation 0.00s cols=0
+[lite-mod] industry 0.00s cols=0
+[lite-mod] clustering 0.00s cols=0
+[lite-mod] pagerank 0.00s cols=0
+[lite-mod] edge_dynamics 0.00s cols=0
+[lite-mod] multiscale 0.00s cols=0
+[lite-mod] eigenvector 0.00s cols=0
+[lite-mod] dynjs 0.00s cols=0
+[lite-mod] neighbor_strength 0.00s cols=0
+[lite-mod] directionality 0.00s cols=0
+[lite-mod] rankdep 0.00s cols=0
+[lite-mod] neighbor_dispersion 0.00s cols=0
+[lite-mod] leader_return 0.00s cols=0
+[lite-mod] percolation 0.00s cols=0
+[lite-mod] reach2 0.00s cols=0
+[lite-mod] reciprocity 0.00s cols=0
+[lite-mod] spectral 0.00s cols=0
+[lite-mod] strength 0.00s cols=0
+[lite-mod] surplus 0.00s cols=0
+[lite-mod] hidden_interaction 0.00s cols=0
+[lite-mod] concentration 0.39s cols=2
+[lite-mod] jsmarg 0.43s cols=3
+[lite-mod] starness 0.44s cols=2
+[lite-mod] network_momentum 0.53s cols=4
+[lite-mod] neighbor_z 0.55s cols=10
+[lite-mod] topk 0.54s cols=11
+[lite-mod] forman 1.19s cols=13
+[lite-mod] leadership 1.21s cols=25
+[lite-mod] basket_hedge 1.23s cols=3
+[lite-mod] trophic 1.97s cols=15
+[lite-mod] w1dist 2.63s cols=13
+[lite-mod] assortativity 2.68s cols=2
+[lite-mod] closeness 2.76s cols=12
+[yupei_union_all] yupei_dist_lite 完成，累计 46.0s
+[gpt-schedule] families=12 batch=12 rayon_threads=50
+[gpt-family] chain=AAp mirror=- n=5107 scan=60.198369s stats=1.821949s post=1.802859s total=63.823181s
+[gpt-family] chain=ppp mirror=- n=5107 scan=60.209447s stats=1.071330s post=2.546916s total=63.827699s
+[gpt-family] chain=ppa mirror=- n=5107 scan=60.560798s stats=2.998946s post=2.252137s total=65.811884s
+[gpt-family] chain=ppm mirror=- n=5107 scan=60.293725s stats=3.390256s post=3.191161s total=66.875147s
+[gpt-family] chain=AAm mirror=- n=5107 scan=60.223953s stats=3.530532s post=3.120889s total=66.875382s
+[gpt-family] chain=AAa mirror=- n=5107 scan=60.304977s stats=3.407508s post=3.163022s total=66.875511s
+[gpt-family] chain=mma mirror=- n=5107 scan=60.321408s stats=3.376610s post=3.177662s total=66.875684s
+[gpt-family] chain=mmp mirror=- n=5107 scan=60.185152s stats=3.605415s post=3.086335s total=66.876919s
+[gpt-family] chain=mmm mirror=- n=5107 scan=60.283168s stats=3.457161s post=3.228936s total=66.969269s
+[gpt-family] chain=pmm mirror=mpm n=5107 scan=60.270347s stats=3.273333s post=3.795610s total=67.339294s
+[gpt-family] chain=pma mirror=mpa n=5107 scan=60.256652s stats=3.519425s post=3.924096s total=67.700179s
+[gpt-family] chain=pmp mirror=mpp n=5107 scan=60.545174s stats=3.181110s post=3.974292s total=67.700582s
+[gpt-stage] {"event_kernel": 9.867971072, "leadlag": 7.124e-6, "network": 67.886145493, "price_and_contrasts": 0.210875787, "read_and_aggregate": 14.685428233, "total_compute": 92.945015741}
+[yupei_union_all] yupei_gpt 完成，累计 139.1s
+[split-stage] m4 10.51s
+[split-stage] rho 0.101953s
+[split-stage] shared_rho_reduce 6.863432s groups 5
+[net-stage] name=spmma stage=setup seconds=1.246804
+[net-stage] name=spAAp stage=setup seconds=1.242984
+[net-stage] name=sppmm stage=setup seconds=1.221298
+[net-stage] name=spppp stage=setup seconds=1.239931
+[net-stage] name=spppm stage=setup seconds=1.248446
+[net-stage] name=spmpa stage=setup seconds=1.175082
+[net-stage] name=sppmp stage=setup seconds=1.233962
+[net-stage] name=spmpp stage=setup seconds=1.242186
+[net-stage] name=sppma stage=setup seconds=1.175361
+[net-stage] name=spAAm stage=setup seconds=1.257294
+[net-stage] name=spmmp stage=setup seconds=1.267833
+[net-stage] name=spmmm stage=setup seconds=1.265289
+[net-stage] name=spmpm stage=setup seconds=1.281162
+[net-stage] name=spAAa stage=setup seconds=1.227683
+[net-stage] name=spppa stage=setup seconds=1.302396
+[net-stage] name=spAAa stage=scan_pairs seconds=81.576818
+[net-stage] name=spmmp stage=scan_pairs seconds=81.599580
+[net-stage] name=spAAa stage=scan_reduce seconds=0.077511
+[net-stage] name=spAAa stage=scan seconds=81.655223
+[net-stage] name=spmpp stage=scan_pairs seconds=81.817093
+[net-stage] name=spAAm stage=scan_pairs seconds=81.778092
+[net-stage] name=spppa stage=scan_pairs seconds=81.737355
+[net-stage] name=spppp stage=scan_pairs seconds=81.826420
+[net-stage] name=spmmm stage=scan_pairs seconds=81.760222
+[net-stage] name=spAAp stage=scan_pairs seconds=81.835473
+[net-stage] name=sppma stage=scan_pairs seconds=81.815040
+[net-stage] name=spmpa stage=scan_pairs seconds=81.819834
+[net-stage] name=sppmp stage=scan_pairs seconds=81.817776
+[net-stage] name=spppm stage=scan_pairs seconds=81.824109
+[net-stage] name=spmpm stage=scan_pairs seconds=81.752457
+[net-stage] name=sppmm stage=scan_pairs seconds=81.826782
+[net-stage] name=spmma stage=scan_pairs seconds=81.835688
+[mirror-stage] name=spAAa seconds=0.082729
+[net-stage] name=spAAa stage=mirror seconds=0.085657
+[net-stage] name=spAAa stage=null_mc seconds=0.004474
+[net-stage] name=spmmp stage=scan_reduce seconds=0.172410
+[net-stage] name=spmmp stage=scan seconds=81.773298
+[mirror-stage] name=spmmp seconds=0.111373
+[net-stage] name=spmmp stage=mirror seconds=0.111439
+[net-stage] name=spppm stage=scan_reduce seconds=0.124307
+[net-stage] name=spppm stage=scan seconds=81.952402
+[net-stage] name=spmmp stage=null_mc seconds=0.004056
+[net-stage] name=sppmp stage=scan_reduce seconds=0.135634
+[net-stage] name=sppmp stage=scan seconds=81.956721
+[net-stage] name=sppma stage=scan_reduce seconds=0.176129
+[net-stage] name=sppma stage=scan seconds=81.994915
+[net-stage] name=spppp stage=scan_reduce seconds=0.210047
+[net-stage] name=spppp stage=scan seconds=82.039042
+[net-stage] name=spmpa stage=scan_reduce seconds=0.212710
+[net-stage] name=spmpa stage=scan seconds=82.036175
+[net-stage] name=spppa stage=scan_reduce seconds=0.229652
+[net-stage] name=spppa stage=scan seconds=81.968987
+[net-stage] name=spmmm stage=scan_reduce seconds=0.308951
+[net-stage] name=spmmm stage=scan seconds=82.087926
+[net-stage] name=spmpm stage=scan_reduce seconds=0.332821
+[net-stage] name=spmpm stage=scan seconds=82.089170
+[net-stage] name=sppmm stage=scan_reduce seconds=0.388969
+[net-stage] name=sppmm stage=scan seconds=82.220298
+[net-stage] name=spmpp stage=scan_reduce seconds=0.430208
+[net-stage] name=spmpp stage=scan seconds=82.250705
+[net-stage] name=spAAm stage=scan_reduce seconds=0.550491
+[net-stage] name=spAAm stage=scan seconds=82.383757
+[net-stage] name=spAAa stage=z seconds=0.658174
+[net-stage] name=spAAp stage=scan_reduce seconds=0.706369
+[net-stage] name=spAAp stage=scan seconds=82.554701
+[net-stage] name=spmmp stage=z seconds=0.787254
+[net-stage] name=spmma stage=scan_reduce seconds=1.044043
+[net-stage] name=spmma stage=scan seconds=82.897848
+[mirror-stage] name=sppmm seconds=1.223966
+[mirror-stage] name=spAAm seconds=1.012142
+[net-stage] name=spAAm stage=mirror seconds=1.012257
+[mirror-stage] name=spmma seconds=0.555613
+[net-stage] name=spmma stage=mirror seconds=0.555990
+[mirror-stage] name=spppa seconds=1.385464
+[net-stage] name=spppa stage=mirror seconds=1.385956
+[mirror-stage] name=sppma seconds=1.437036
+[net-stage] name=sppma stage=mirror seconds=1.437753
+[net-stage] name=sppmm stage=mirror seconds=1.224044
+[net-stage] name=spAAm stage=null_mc seconds=0.002217
+[net-stage] name=spmma stage=null_mc seconds=0.002897
+[net-stage] name=sppmm stage=null_mc seconds=0.003099
+[net-stage] name=sppma stage=null_mc seconds=0.003201
+[net-stage] name=spppa stage=null_mc seconds=0.003494
+[net-stage] name=spAAm stage=z seconds=0.209109
+[net-stage] name=spmma stage=z seconds=0.208373
+[net-stage] name=sppma stage=z seconds=0.207895
+[net-stage] name=spppa stage=z seconds=0.213050
+[net-stage] name=sppmm stage=z seconds=0.213411
+[net-exz-stage] name=spAAa kind=g collect=0.998512 quantile=0.115860 aggregate=0.032628 output=0.075129
+[net-exz-stage] name=spmmp kind=gs collect=0.728666 quantile=0.126812 aggregate=0.068727 output=0.068080
+[mirror-stage] name=spmpp seconds=1.652042
+[net-stage] name=spmpp stage=mirror seconds=1.652142
+[mirror-stage] name=spmmm seconds=1.757566
+[net-stage] name=spmmm stage=mirror seconds=1.757705
+[mirror-stage] name=spAAp seconds=1.366620
+[net-stage] name=spAAp stage=mirror seconds=1.367166
+[mirror-stage] name=spmpm seconds=1.748122
+[net-stage] name=spmpm stage=mirror seconds=1.748889
+[net-exz-stage] name=spAAa kind=gs collect=1.144942 quantile=0.113359 aggregate=0.090405 output=0.070193
+[net-stage] name=spAAa stage=exz seconds=1.420898
+[net-stage] name=spAAa stage=total seconds=85.053612
+[net-stage] name=spAAp stage=null_mc seconds=0.003031
+[net-stage] name=spmmm stage=null_mc seconds=0.003695
+[net-stage] name=spmpp stage=null_mc seconds=0.004758
+[net-stage] name=spmpm stage=null_mc seconds=0.005173
+[net-exz-stage] name=spmmp kind=g collect=0.904410 quantile=0.162326 aggregate=0.048980 output=0.065259
+[net-stage] name=spmmp stage=exz seconds=1.181261
+[net-stage] name=spmmp stage=total seconds=85.125624
+[net-stage] name=spmpp stage=z seconds=0.297090
+[net-stage] name=spmmm stage=z seconds=0.299373
+[net-stage] name=spmpm stage=z seconds=0.298397
+[net-stage] name=spAAp stage=z seconds=0.301703
+[net-exz-stage] name=sppmm kind=gs collect=0.375122 quantile=0.131411 aggregate=0.039238 output=0.064173
+[net-exz-stage] name=spmma kind=g collect=0.346562 quantile=0.138856 aggregate=0.091006 output=0.070680
+[net-exz-stage] name=spmpm kind=g collect=0.234295 quantile=0.109248 aggregate=0.100241 output=0.059060
+[net-exz-stage] name=spmpm kind=gs collect=0.244059 quantile=0.130609 aggregate=0.078631 output=0.074349
+[net-exz-stage] name=spmmm kind=gs collect=0.257451 quantile=0.144546 aggregate=0.063679 output=0.066176
+[net-exz-stage] name=spAAp kind=gs collect=0.274810 quantile=0.117050 aggregate=0.073545 output=0.066420
+[net-exz-stage] name=spmpp kind=gs collect=0.276377 quantile=0.132615 aggregate=0.064079 output=0.068923
+[net-exz-stage] name=spmpp kind=g collect=0.268707 quantile=0.156460 aggregate=0.063666 output=0.060681
+[net-stage] name=spmpm stage=exz seconds=0.552162
+[net-stage] name=spmpm stage=total seconds=85.979944
+[net-stage] name=spmpp stage=exz seconds=0.558949
+[net-stage] name=spmpp stage=total seconds=86.006741
+[net-exz-stage] name=spAAp kind=g collect=0.293116 quantile=0.161296 aggregate=0.038963 output=0.063831
+[net-stage] name=spAAp stage=exz seconds=0.557472
+[net-stage] name=spAAp stage=total seconds=86.030672
+[net-exz-stage] name=spmmm kind=g collect=0.268125 quantile=0.170685 aggregate=0.048552 output=0.079446
+[net-stage] name=spmmm stage=exz seconds=0.567067
+[net-stage] name=spmmm stage=total seconds=85.981681
+[net-exz-stage] name=spAAm kind=gs collect=0.371720 quantile=0.129180 aggregate=0.057293 output=0.604073
+[net-exz-stage] name=spppa kind=gs collect=0.326388 quantile=0.119239 aggregate=0.702250 output=0.057353
+[net-exz-stage] name=sppma kind=g collect=0.323517 quantile=0.109317 aggregate=0.683411 output=0.104569
+[net-exz-stage] name=sppma kind=gs collect=0.301534 quantile=0.106659 aggregate=0.071490 output=0.738083
+[net-stage] name=sppma stage=exz seconds=1.223383
+[net-stage] name=sppma stage=total seconds=86.043811
+[mirror-stage] name=spppp seconds=2.844961
+[net-stage] name=spppp stage=mirror seconds=2.845039
+[net-stage] name=spppp stage=null_mc seconds=0.002058
+[mirror-stage] name=spmpa seconds=2.843630
+[net-stage] name=spmpa stage=mirror seconds=2.843726
+[mirror-stage] name=sppmp seconds=2.921446
+[net-stage] name=sppmp stage=mirror seconds=2.921704
+[net-stage] name=spmpa stage=null_mc seconds=0.003061
+[net-stage] name=sppmp stage=null_mc seconds=0.002928
+[net-exz-stage] name=spmma kind=gs collect=0.369069 quantile=0.757733 aggregate=0.034527 output=0.077367
+[net-stage] name=spmma stage=exz seconds=1.242108
+[net-stage] name=spmma stage=total seconds=86.155348
+[mirror-stage] name=spppm seconds=2.945584
+[net-stage] name=spppm stage=mirror seconds=2.945687
+[net-stage] name=spppm stage=null_mc seconds=0.001986
+[net-exz-stage] name=sppmm kind=g collect=0.361225 quantile=0.765113 aggregate=0.030543 output=0.097793
+[net-stage] name=sppmm stage=exz seconds=1.254906
+[net-stage] name=sppmm stage=total seconds=86.138474
+[net-exz-stage] name=spppa kind=g collect=0.349816 quantile=0.821915 aggregate=0.035458 output=0.085693
+[net-stage] name=spppa stage=exz seconds=1.293140
+[net-stage] name=spppa stage=total seconds=86.167787
+[net-stage] name=spmpa stage=z seconds=0.183400
+[net-stage] name=sppmp stage=z seconds=0.185401
+[net-stage] name=spppp stage=z seconds=0.193052
+[net-stage] name=spppm stage=z seconds=0.182347
+[net-exz-stage] name=spAAm kind=g collect=1.271283 quantile=0.112450 aggregate=0.070502 output=0.068583
+[net-stage] name=spAAm stage=exz seconds=1.523021
+[net-stage] name=spAAm stage=total seconds=86.388214
+[net-exz-stage] name=spmpa kind=gs collect=0.270578 quantile=0.125465 aggregate=0.030577 output=0.068634
+[net-exz-stage] name=spppp kind=gs collect=0.268370 quantile=0.127992 aggregate=0.048566 output=0.056532
+[net-exz-stage] name=spmpa kind=g collect=0.275133 quantile=0.145301 aggregate=0.036678 output=0.056325
+[net-stage] name=spmpa stage=exz seconds=0.513659
+[net-stage] name=spmpa stage=total seconds=86.755611
+[net-exz-stage] name=spppm kind=g collect=0.240607 quantile=0.106483 aggregate=0.050567 output=0.110668
+[net-exz-stage] name=spppm kind=gs collect=0.263434 quantile=0.145406 aggregate=0.043011 output=0.056772
+[net-stage] name=spppm stage=exz seconds=0.512702
+[net-stage] name=spppm stage=total seconds=86.844113
+[net-exz-stage] name=sppmp kind=g collect=0.779868 quantile=0.128596 aggregate=0.071976 output=0.073276
+[net-exz-stage] name=spppp kind=g collect=0.807471 quantile=0.131459 aggregate=0.061731 output=0.078125
+[net-stage] name=spppp stage=exz seconds=1.078978
+[net-stage] name=spppp stage=total seconds=87.398531
+[net-exz-stage] name=sppmp kind=gs collect=0.784347 quantile=0.130600 aggregate=0.089426 output=0.079356
+[net-stage] name=sppmp stage=exz seconds=1.123639
+[net-stage] name=sppmp stage=total seconds=87.424949
+[split-chain] name=spAAa net=85.053720 check=1.299807 produce=6.872497 topk=0.001495
+[split-chain] name=sppmm net=86.138567 check=0.708732 produce=7.032642 topk=0.002378
+[split-chain] name=spmmm net=85.981761 check=0.811459 produce=7.343422 topk=0.001399
+[split-chain] name=spAAp net=86.030775 check=0.907897 produce=7.768511 topk=0.001558
+[split-chain] name=spmmp net=85.125721 check=2.081339 produce=8.163111 topk=0.003860
+[split-chain] name=spmpp net=86.006860 check=2.588611 produce=6.921563 topk=0.033738
+[split-chain] name=spppm net=86.844197 check=0.649227 produce=8.170618 topk=0.003000
+[split-chain] name=spppp net=87.398632 check=3.353367 produce=6.054378 topk=0.001953
+[split-chain] name=sppma net=86.043915 check=1.246366 produce=9.441241 topk=0.001567
+[split-chain] name=sppmp net=87.424997 check=1.931663 produce=7.781360 topk=0.002714
+[split-chain] name=spAAm net=86.388308 check=0.781719 produce=9.953679 topk=0.025174
+[split-chain] name=spmpm net=85.980089 check=1.366846 produce=10.653289 topk=0.001648
+[split-chain] name=spmpa net=86.755702 check=0.680009 produce=10.791622 topk=0.002181
+[split-chain] name=spmma net=86.155432 check=0.749655 produce=11.411729 topk=0.017656
+[split-chain] name=spppa net=86.167886 check=3.356588 produce=9.202437 topk=0.002124
+[split-stage] chains 99.247906s
+[split-stage] assemble 0.087273s
+[split-stage] total 116.813283s
+[yupei_union_all] yupei_pair_split 完成，累计 256.0s
+[multi-stage] name=read seconds=11.151874
+[multi-stage] date=20241231 stocks=5107 thread_count=50
+[multi-stage] name=industry seconds=0.001205
+[multi-stage] name=cells seconds=0.463457
+[multi-stage] name=m4_prepare_ seconds=0.000004
+[multi-stage] name=carrier_ seconds=0.000045
+[multi-stage] name=m4_prepare_or_ seconds=3.479916
+[stage] prefix=or_ m4 0.0s rho 0.1s chains 4
+[stage] prefix=or_ shared_rho_reduce 2.002s groups 1
+[net-stage] name=or_spppp stage=setup seconds=0.498458
+[net-stage] name=or_spmpm stage=setup seconds=0.506686
+[net-stage] name=or_spAAp stage=setup seconds=0.511630
+[net-stage] name=or_spppa stage=setup seconds=0.518924
+[net-stage] name=or_spmpm stage=scan_pairs seconds=13.356442
+[net-stage] name=or_spAAp stage=scan_pairs seconds=13.369204
+[net-stage] name=or_spppa stage=scan_pairs seconds=13.366577
+[net-stage] name=or_spppp stage=scan_pairs seconds=13.403916
+[net-stage] name=or_spAAp stage=scan_reduce seconds=0.027837
+[net-stage] name=or_spAAp stage=scan seconds=13.397871
+[net-stage] name=or_spmpm stage=scan_reduce seconds=0.051715
+[net-stage] name=or_spmpm stage=scan seconds=13.409503
+[net-stage] name=or_spppp stage=scan_reduce seconds=0.051774
+[net-stage] name=or_spppp stage=scan seconds=13.458030
+[net-stage] name=or_spppa stage=scan_reduce seconds=0.056658
+[net-stage] name=or_spppa stage=scan seconds=13.424970
+[mirror-stage] name=or_spppa seconds=0.234473
+[net-stage] name=or_spppa stage=mirror seconds=0.234543
+[mirror-stage] name=or_spmpm seconds=0.255250
+[net-stage] name=or_spmpm stage=mirror seconds=0.255415
+[mirror-stage] name=or_spAAp seconds=0.264390
+[net-stage] name=or_spAAp stage=mirror seconds=0.264658
+[mirror-stage] name=or_spppp seconds=0.238791
+[net-stage] name=or_spppp stage=mirror seconds=0.239265
+[net-stage] name=or_spAAp stage=null_mc seconds=0.001935
+[net-stage] name=or_spppp stage=null_mc seconds=0.002156
+[net-stage] name=or_spmpm stage=null_mc seconds=0.002541
+[net-stage] name=or_spppa stage=null_mc seconds=0.002772
+[net-stage] name=or_spppa stage=z seconds=0.163607
+[net-stage] name=or_spAAp stage=z seconds=0.173084
+[net-stage] name=or_spmpm stage=z seconds=0.174302
+[net-stage] name=or_spppp stage=z seconds=0.310589
+[net-exz-stage] name=or_spppa kind=gs collect=0.305422 quantile=0.133256 aggregate=0.144150 output=0.056003
+[net-exz-stage] name=or_spmpm kind=gs collect=0.298651 quantile=0.193838 aggregate=0.077075 output=0.066514
+[net-exz-stage] name=or_spmpm kind=g collect=0.309724 quantile=0.148340 aggregate=0.121031 output=0.075396
+[net-exz-stage] name=or_spppp kind=gs collect=0.242842 quantile=0.160563 aggregate=0.039470 output=0.075529
+[net-stage] name=or_spmpm stage=exz seconds=0.654691
+[net-stage] name=or_spmpm stage=total seconds=15.003861
+[net-exz-stage] name=or_spAAp kind=gs collect=0.350267 quantile=0.129644 aggregate=0.118303 output=0.064910
+[net-exz-stage] name=or_spppp kind=g collect=0.215032 quantile=0.167192 aggregate=0.089118 output=0.055021
+[net-stage] name=or_spppp stage=exz seconds=0.526586
+[net-stage] name=or_spppp stage=total seconds=15.035586
+[net-exz-stage] name=or_spppa kind=g collect=0.306618 quantile=0.251044 aggregate=0.051438 output=0.064563
+[net-stage] name=or_spppa stage=exz seconds=0.673985
+[net-stage] name=or_spppa stage=total seconds=15.019425
+[net-exz-stage] name=or_spAAp kind=g collect=0.811601 quantile=0.108340 aggregate=0.032306 output=0.060397
+[net-stage] name=or_spAAp stage=exz seconds=1.012829
+[net-stage] name=or_spAAp stage=total seconds=15.362488
+[stage] or_spppp net 15.0s produce 4.9s topk 0.0s
+[stage] or_spppa net 15.0s produce 5.1s topk 0.0s
+[stage] or_spAAp net 15.4s produce 6.2s topk 0.0s
+[stage] or_spmpm net 15.0s produce 6.4s topk 0.0s
+[multi-stage] name=carrier_or_ seconds=28.201900
+[multi-stage] name=m4_prepare_oc_ seconds=2.491791
+[stage] prefix=oc_ m4 0.0s rho 0.1s chains 4
+[stage] prefix=oc_ shared_rho_reduce 2.129s groups 1
+[net-stage] name=oc_spAAp stage=setup seconds=0.483512
+[net-stage] name=oc_spmpm stage=setup seconds=0.489774
+[net-stage] name=oc_spppa stage=setup seconds=0.493275
+[net-stage] name=oc_spppp stage=setup seconds=0.497037
+[net-stage] name=oc_spppa stage=scan_pairs seconds=13.574789
+[net-stage] name=oc_spmpm stage=scan_pairs seconds=13.577061
+[net-stage] name=oc_spAAp stage=scan_pairs seconds=13.605554
+[net-stage] name=oc_spppp stage=scan_pairs seconds=13.570297
+[net-stage] name=oc_spmpm stage=scan_reduce seconds=0.028537
+[net-stage] name=oc_spmpm stage=scan seconds=13.606749
+[mirror-stage] name=oc_spmpm seconds=0.017413
+[net-stage] name=oc_spmpm stage=mirror seconds=0.017485
+[net-stage] name=oc_spmpm stage=null_mc seconds=0.002685
+[net-stage] name=oc_spppa stage=scan_reduce seconds=0.050592
+[net-stage] name=oc_spppa stage=scan seconds=13.626481
+[net-stage] name=oc_spppp stage=scan_reduce seconds=0.055846
+[net-stage] name=oc_spppp stage=scan seconds=13.631349
+[net-stage] name=oc_spAAp stage=scan_reduce seconds=0.072782
+[net-stage] name=oc_spAAp stage=scan seconds=13.682362
+[mirror-stage] name=oc_spAAp seconds=0.024562
+[net-stage] name=oc_spAAp stage=mirror seconds=0.024633
+[mirror-stage] name=oc_spppp seconds=0.040426
+[net-stage] name=oc_spppp stage=mirror seconds=0.040582
+[mirror-stage] name=oc_spppa seconds=0.049864
+[net-stage] name=oc_spppa stage=mirror seconds=0.050166
+[net-stage] name=oc_spppa stage=null_mc seconds=0.003078
+[net-stage] name=oc_spppp stage=null_mc seconds=0.003285
+[net-stage] name=oc_spAAp stage=null_mc seconds=0.010746
+[net-stage] name=oc_spmpm stage=z seconds=0.197126
+[net-stage] name=oc_spppa stage=z seconds=0.186705
+[net-stage] name=oc_spppp stage=z seconds=0.186950
+[net-stage] name=oc_spAAp stage=z seconds=0.215388
+[net-exz-stage] name=oc_spAAp kind=g collect=0.286930 quantile=0.118112 aggregate=0.060565 output=0.113451
+[net-exz-stage] name=oc_spmpm kind=gs collect=0.379136 quantile=0.142595 aggregate=0.090632 output=0.060695
+[net-exz-stage] name=oc_spppp kind=g collect=0.393141 quantile=0.115454 aggregate=0.052000 output=0.077278
+[net-exz-stage] name=oc_spppp kind=gs collect=0.391656 quantile=0.130544 aggregate=0.060148 output=0.061856
+[net-stage] name=oc_spppp stage=exz seconds=0.645284
+[net-stage] name=oc_spppp stage=total seconds=15.005156
+[net-exz-stage] name=oc_spAAp kind=gs collect=0.337957 quantile=0.147870 aggregate=0.072134 output=0.057433
+[net-stage] name=oc_spAAp stage=exz seconds=0.617087
+[net-stage] name=oc_spAAp stage=total seconds=15.034213
+[net-exz-stage] name=oc_spppa kind=g collect=0.341728 quantile=0.225891 aggregate=0.047190 output=0.057248
+[net-exz-stage] name=oc_spppa kind=gs collect=0.775652 quantile=0.105927 aggregate=0.030403 output=0.059884
+[net-stage] name=oc_spppa stage=exz seconds=0.972151
+[net-stage] name=oc_spppa stage=total seconds=15.332493
+[net-exz-stage] name=oc_spmpm kind=g collect=1.148242 quantile=0.119244 aggregate=0.058123 output=0.060772
+[net-stage] name=oc_spmpm stage=exz seconds=1.386610
+[net-stage] name=oc_spmpm stage=total seconds=15.700822
+[stage] oc_spppa net 15.3s produce 3.6s topk 0.0s
+[stage] oc_spppp net 15.0s produce 4.8s topk 0.0s
+[stage] oc_spAAp net 15.0s produce 5.8s topk 0.0s
+[stage] oc_spmpm net 15.7s produce 4.1s topk 0.0s
+[multi-stage] name=carrier_oc_ seconds=27.374584
+[multi-stage] name=m4_prepare_os_ seconds=0.000004
+[stage] prefix=os_ m4 0.0s rho 0.2s chains 5
+[stage] prefix=os_ shared_rho_reduce 1.942s groups 1
+[net-stage] name=os_spAAp stage=setup seconds=0.457273
+[net-stage] name=os_spppp stage=setup seconds=0.468229
+[net-stage] name=os_spppa stage=setup seconds=0.468304
+[net-stage] name=os_sppma stage=setup seconds=0.468371
+[net-stage] name=os_spmpm stage=setup seconds=0.469872
+[net-stage] name=os_sppma stage=scan_pairs seconds=16.695876
+[net-stage] name=os_spppa stage=scan_pairs seconds=16.697510
+[net-stage] name=os_spppp stage=scan_pairs seconds=16.698626
+[net-stage] name=os_spmpm stage=scan_pairs seconds=16.694687
+[net-stage] name=os_spAAp stage=scan_pairs seconds=16.725860
+[net-stage] name=os_spppa stage=scan_reduce seconds=0.027872
+[net-stage] name=os_spppa stage=scan seconds=16.726406
+[net-stage] name=os_sppma stage=scan_reduce seconds=0.053469
+[net-stage] name=os_spmpm stage=scan_reduce seconds=0.053103
+[net-stage] name=os_sppma stage=scan seconds=16.750398
+[net-stage] name=os_spppp stage=scan_reduce seconds=0.054096
+[net-stage] name=os_spmpm stage=scan seconds=16.749676
+[net-stage] name=os_spppp stage=scan seconds=16.754573
+[net-stage] name=os_spAAp stage=scan_reduce seconds=0.068283
+[net-stage] name=os_spAAp stage=scan seconds=16.796991
+[mirror-stage] name=os_spppp seconds=0.130593
+[net-stage] name=os_spppp stage=mirror seconds=0.130660
+[mirror-stage] name=os_sppma seconds=0.132108
+[net-stage] name=os_sppma stage=mirror seconds=0.132340
+[mirror-stage] name=os_spppa seconds=0.157769
+[net-stage] name=os_spppa stage=mirror seconds=0.158180
+[mirror-stage] name=os_spmpm seconds=0.131668
+[net-stage] name=os_spmpm stage=mirror seconds=0.132374
+[mirror-stage] name=os_spAAp seconds=0.115463
+[net-stage] name=os_spAAp stage=mirror seconds=0.116334
+[net-stage] name=os_spppp stage=null_mc seconds=0.001893
+[net-stage] name=os_spAAp stage=null_mc seconds=0.001876
+[net-stage] name=os_spppa stage=null_mc seconds=0.002276
+[net-stage] name=os_spmpm stage=null_mc seconds=0.002113
+[net-stage] name=os_sppma stage=null_mc seconds=0.002746
+[net-stage] name=os_sppma stage=z seconds=0.166578
+[net-stage] name=os_spAAp stage=z seconds=0.167856
+[net-stage] name=os_spmpm stage=z seconds=0.167770
+[net-stage] name=os_spppp stage=z seconds=0.169619
+[net-stage] name=os_spppa stage=z seconds=0.180342
+[net-exz-stage] name=os_spppa kind=gs collect=0.278853 quantile=0.116579 aggregate=0.108434 output=0.056140
+[net-exz-stage] name=os_spppp kind=g collect=0.290199 quantile=0.111403 aggregate=0.129595 output=0.059828
+[net-exz-stage] name=os_spppp kind=gs collect=0.264688 quantile=0.146558 aggregate=0.074784 output=0.061283
+[net-stage] name=os_spppp stage=exz seconds=0.593057
+[net-stage] name=os_spppp stage=total seconds=18.118570
+[net-exz-stage] name=os_spmpm kind=g collect=0.314059 quantile=0.156668 aggregate=0.072398 output=0.055885
+[net-exz-stage] name=os_spppa kind=g collect=0.294306 quantile=0.185897 aggregate=0.056057 output=0.056418
+[net-stage] name=os_spppa stage=exz seconds=0.596520
+[net-stage] name=os_spppa stage=total seconds=18.132647
+[net-exz-stage] name=os_spmpm kind=gs collect=0.319305 quantile=0.176960 aggregate=0.055477 output=0.055872
+[net-stage] name=os_spmpm stage=exz seconds=0.611901
+[net-stage] name=os_spmpm stage=total seconds=18.134478
+[net-exz-stage] name=os_sppma kind=gs collect=0.305267 quantile=0.202433 aggregate=0.052913 output=0.056444
+[net-exz-stage] name=os_spAAp kind=gs collect=0.747873 quantile=0.106509 aggregate=0.030618 output=0.056790
+[net-exz-stage] name=os_spAAp kind=g collect=0.764267 quantile=0.110369 aggregate=0.030874 output=0.058554
+[net-stage] name=os_spAAp stage=exz seconds=0.964277
+[net-stage] name=os_spAAp stage=total seconds=18.505072
+[net-exz-stage] name=os_sppma kind=g collect=0.767141 quantile=0.125677 aggregate=0.030475 output=0.057649
+[net-stage] name=os_sppma stage=exz seconds=0.981207
+[net-stage] name=os_sppma stage=total seconds=18.502321
+[stage] os_spppp net 18.1s produce 5.7s topk 0.0s
+[stage] os_spppa net 18.1s produce 6.0s topk 0.0s
+[stage] os_spmpm net 18.1s produce 7.1s topk 0.0s
+[stage] os_spAAp net 18.5s produce 6.9s topk 0.0s
+[stage] os_sppma net 18.5s produce 7.3s topk 0.0s
+[multi-stage] name=carrier_os_ seconds=28.766294
+[multi-stage] name=lead seconds=0.000001
+[multi-stage] name=svd seconds=3.670892
+[multi-stage] name=assemble seconds=0.088076
+[multi-stage] name=total_compute seconds=99.785070
+[yupei_union_all] yupei_multi_v5 完成，累计 355.8s
+[yupei_union_all] date=20241231 并集 5107 只 × 18758 列（yupei_dist_lite=5107只, yupei_gpt=5107只, yupei_pair_split=5107只, yupei_multi_v5=5107只），总 356.3s
+{"event": "complete", "date": 20241231, "variant": "v2", "repeat": 2, "shape": [5107, 18758], "threads": 50, "call_seconds": 359.13344677723944, "cpu_seconds": 15267.758514749, "numpy_seconds": 2.3767162431031466, "write_seconds": 0.18302745185792446, "load_before": [37.7900390625, 49.36767578125, 116.470703125], "load_after": [41.6162109375, 55.55029296875, 98.6083984375], "max_rss_kib": 55435432, "module_sha256": "b7c4fbafd8f934d4db82d5ff8d812aaf3b2202a5447d2073bcfda4b8849100d9", "validation_only": false, "experiment_settings": {}, "nan_count": 885629, "inf_count": 0}
+	Command being timed: "/home/chenzongwei/.conda/envs/chenzongwei311/bin/python -I /home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/tests/check_speed.py run v2 20241231 2"
+	User time (seconds): 14674.12
+	System time (seconds): 613.31
+	Percent of CPU this job got: 4195%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 6:04.41
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 55435432
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 27661
+	Minor (reclaiming a frame) page faults: 78076787
+	Voluntary context switches: 1867042
+	Involuntary context switches: 26169
+	Swaps: 0
+	File system inputs: 21793640
+	File system outputs: 749688
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0

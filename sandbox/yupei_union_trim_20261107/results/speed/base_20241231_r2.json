@@ -1,0 +1,30 @@
+{
+  "date": 20241231,
+  "variant": "base",
+  "repeat": 2,
+  "shape": [
+    5107,
+    18758
+  ],
+  "threads": 50,
+  "call_seconds": 375.28431347198784,
+  "cpu_seconds": 16358.096842223,
+  "numpy_seconds": 2.3862035293132067,
+  "write_seconds": 0.19460992887616158,
+  "load_before": [
+    8.68017578125,
+    168.193359375,
+    303.74169921875
+  ],
+  "load_after": [
+    77.48974609375,
+    93.3779296875,
+    222.271484375
+  ],
+  "max_rss_kib": 62607772,
+  "module_sha256": "c3a192b8495ab36e66d56df28733797d57a91455e28f41a9eca32971fcec8066",
+  "validation_only": false,
+  "experiment_settings": {},
+  "nan_count": 885629,
+  "inf_count": 0
+}

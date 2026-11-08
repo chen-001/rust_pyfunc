@@ -1,0 +1,16 @@
+{
+  "left": "base_20241231_r1",
+  "right": "base_20241231_r3",
+  "shape": [
+    5107,
+    18758
+  ],
+  "names_exact": true,
+  "codes_exact": true,
+  "nan_exact": true,
+  "array_equal_nan": true,
+  "bits_equal": true,
+  "mismatched_cells": 0,
+  "max_abs_diff": 0.0,
+  "max_rel_diff": 0.0
+}

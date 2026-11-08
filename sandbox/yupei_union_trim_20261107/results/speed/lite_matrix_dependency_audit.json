@@ -1,0 +1,300 @@
+{
+  "created_at": "2026-11-08T12:23:00.709348+08:00",
+  "status": "read_only_feasibility_audit_not_implemented",
+  "unchanged_contract": {
+    "columns": 18758,
+    "lite_columns": 115,
+    "stock_universe": "unchanged, full day",
+    "precision": "unchanged",
+    "threads": 50
+  },
+  "finding": "The apparent 14 retained raw matrices are not the complete dependency closure. Net leadership and hedge-ratio factors require four additional raw matrices, so 18 outputs and 19 original recurrence channels are needed. A 16-slot pack cannot preserve all of them.",
+  "direct_matrix_count": 14,
+  "required_matrix_count": 18,
+  "required_history_channel_count": 19,
+  "additional_hidden_matrices": [
+    "flow_opp_t1",
+    "urg_same_t1",
+    "urg_opp_t1",
+    "urg_opp_t5"
+  ],
+  "hidden_dependencies_by_factor": {
+    "bh_flow_t5_hedge_ratio": [
+      "flow_same_t5",
+      "flow_opp_t5"
+    ],
+    "bh_urg_t5_hedge_ratio": [
+      "urg_same_t5",
+      "urg_opp_t5"
+    ],
+    "bh_urg_t30_hedge_ratio": [
+      "urg_same_t30",
+      "urg_opp_t30"
+    ],
+    "lead_flow_t1_breadth": [
+      "flow_same_t1",
+      "flow_opp_t1"
+    ],
+    "lead_flow_t1_concentration": [
+      "flow_same_t1",
+      "flow_opp_t1"
+    ],
+    "lead_flow_t5_breadth": [
+      "flow_same_t5",
+      "flow_opp_t5"
+    ],
+    "lead_flow_t5_concentration": [
+      "flow_same_t5",
+      "flow_opp_t5"
+    ],
+    "lead_urg_t1_breadth": [
+      "urg_same_t1",
+      "urg_opp_t1"
+    ],
+    "lead_urg_t1_concentration": [
+      "urg_same_t1",
+      "urg_opp_t1"
+    ],
+    "lead_urg_t5_breadth": [
+      "urg_same_t5",
+      "urg_opp_t5"
+    ],
+    "lead_urg_t5_concentration": [
+      "urg_same_t5",
+      "urg_opp_t5"
+    ],
+    "lead_urg_t30_concentration": [
+      "urg_same_t30",
+      "urg_opp_t30"
+    ]
+  },
+  "required_matrix_mapping": [
+    {
+      "matrix": "cnt_t005",
+      "spec_index": 0,
+      "old_channel": 0,
+      "candidate_channel": 0
+    },
+    {
+      "matrix": "cnt_t1",
+      "spec_index": 1,
+      "old_channel": 1,
+      "candidate_channel": 1
+    },
+    {
+      "matrix": "cnt_t30",
+      "spec_index": 2,
+      "old_channel": 2,
+      "candidate_channel": 2
+    },
+    {
+      "matrix": "rvol_t1",
+      "spec_index": 4,
+      "old_channel": 9,
+      "candidate_channel": 3
+    },
+    {
+      "matrix": "logvol_t1",
+      "spec_index": 7,
+      "old_channel": 17,
+      "candidate_channel": 4
+    },
+    {
+      "matrix": "logvol_t3",
+      "spec_index": 8,
+      "old_channel": 18,
+      "candidate_channel": 5
+    },
+    {
+      "matrix": "logvol_t30",
+      "spec_index": 9,
+      "old_channel": 19,
+      "candidate_channel": 6
+    },
+    {
+      "matrix": "flow_same_t1",
+      "spec_index": 14,
+      "old_channel": 28,
+      "candidate_channel": 8
+    },
+    {
+      "matrix": "flow_opp_t1",
+      "spec_index": 15,
+      "old_channel": 29,
+      "candidate_channel": 9
+    },
+    {
+      "matrix": "flow_same_t5",
+      "spec_index": 16,
+      "old_channel": 30,
+      "candidate_channel": 10
+    },
+    {
+      "matrix": "flow_opp_t5",
+      "spec_index": 17,
+      "old_channel": 31,
+      "candidate_channel": 11
+    },
+    {
+      "matrix": "urg_same_t1",
+      "spec_index": 18,
+      "old_channel": 32,
+      "candidate_channel": 12
+    },
+    {
+      "matrix": "urg_opp_t1",
+      "spec_index": 19,
+      "old_channel": 33,
+      "candidate_channel": 13
+    },
+    {
+      "matrix": "urg_same_t5",
+      "spec_index": 20,
+      "old_channel": 34,
+      "candidate_channel": 14
+    },
+    {
+      "matrix": "urg_opp_t5",
+      "spec_index": 21,
+      "old_channel": 35,
+      "candidate_channel": 15
+    },
+    {
+      "matrix": "urg_same_t30",
+      "spec_index": 22,
+      "old_channel": 36,
+      "candidate_channel": 16
+    },
+    {
+      "matrix": "urg_opp_t30",
+      "spec_index": 23,
+      "old_channel": 37,
+      "candidate_channel": 17
+    },
+    {
+      "matrix": "ext_same_t5",
+      "spec_index": 26,
+      "old_channel": 42,
+      "candidate_channel": 18
+    }
+  ],
+  "candidate_layout": {
+    "status": "proposal only",
+    "pack_width": 24,
+    "history_width": 24,
+    "slots": [
+      "cnt_t005",
+      "cnt_t1",
+      "cnt_t30",
+      "rvol_t1",
+      "logvol_t1",
+      "logvol_t3",
+      "logvol_t30",
+      null,
+      "flow_same_t1",
+      "flow_opp_t1",
+      "flow_same_t5",
+      "flow_opp_t5",
+      "urg_same_t1",
+      "urg_opp_t1",
+      "urg_same_t5",
+      "urg_opp_t5",
+      "urg_same_t30",
+      "urg_opp_t30",
+      "ext_same_t5",
+      "ext_opp_t5",
+      null,
+      null,
+      null,
+      null
+    ],
+    "slot19_note": "ext_opp_t5 output is not required, but this slot carries the negative ext_t5 history needed by ext_same_t5; optionally accumulate its unused output to keep adjacent +/- lane structure simple.",
+    "grouping": "First 8 lanes: 7 unsigned fields plus padding; next 16 lanes: signed +/- pairs from flow, urgency and extreme-order families. Every retained output keeps its original lane-local arithmetic."
+  },
+  "equivalence_constraints": [
+    "Keep every preprocessing record, StockPrep/cells/cells_pm, StockStats field, row universe, industry lookup and error policy unchanged.",
+    "Keep phase1 bucket order, 4096-bucket block boundaries, carry state and f32 decay constants. Each retained history uses the same add-half-input and then (state+input)*decay operations; do not replace repeated decay with exponentiation or skip empty buckets.",
+    "Keep phase2 A-cell order, SUB=2 boundaries and per-lane FMA order. Unsigned lanes use the original single FMA; signed lanes use the negative-side inner FMA followed by the positive-side outer FMA. Do not add dummy zero FMAs to unsigned outputs.",
+    "Keep the original per-pair +/- permutation within mixed-family vectors. Same-only extreme output still consumes both positive and negative histories.",
+    "Use an explicit matrix subset interface rather than the existing family mask: all six families remain represented, so FAM_* cannot express this reduction.",
+    "Emit the same 115 named lite columns in the original order. Validate the dependency closure against the fixed name set; missing hidden inputs must not silently become NaN.",
+    "Keep the compact path limited to the union request; legacy full-matrix callers still require all 28 outputs."
+  ],
+  "split_dependency_audit": {
+    "conclusion": "compute_split_from_prep consumes stocks, stats and industry, then builds its own four split matrices; it does not consume the 28 lite matrices.",
+    "source": "src/yupei_pair/split.rs:191-223"
+  },
+  "possible_costs": [
+    "Mixing families means constructing heterogeneous u vectors per cell rather than only broadcasting one family scalar. This can offset savings and requires a dedicated exact microbenchmark.",
+    "Memory layout/less allocation may help, but neither speedup nor peak RSS has been measured for this proposal.",
+    "The existing 6-vector phase1 could become 3 vectors; phase2 lane arithmetic could use 5 rather than 9 eight-lane FMA instructions per cell. These are source-level operation counts, not throughput measurements."
+  ],
+  "measured_stage_cap": {
+    "measurements": [
+      {
+        "run": "base_20241231_r1",
+        "matrix_seconds_from_log": 35.3,
+        "entry_seconds": 374.19691720604897,
+        "log_precision": "0.01 seconds"
+      },
+      {
+        "run": "base_20241231_r2",
+        "matrix_seconds_from_log": 36.75,
+        "entry_seconds": 375.28431347198784,
+        "log_precision": "0.01 seconds"
+      },
+      {
+        "run": "base_20241231_r3",
+        "matrix_seconds_from_log": 36.83,
+        "entry_seconds": 391.2000950369984,
+        "log_precision": "0.01 seconds"
+      },
+      {
+        "run": "v2_20241231_r7",
+        "matrix_seconds_from_log": 36.03,
+        "entry_seconds": 359.1024661064148,
+        "log_precision": "0.01 seconds"
+      }
+    ],
+    "latest_matrix_stage_seconds": 36.03,
+    "interpretation": "36.03 seconds is the latest observed time of the complete matrix stage. Even deleting this entire stage for free would save at most that recorded segment in that run. A real exact compact implementation must still compute the required matrices, so its savings would be smaller. This is not a theoretical hardware lower bound or a promised saving."
+  },
+  "storage_arithmetic_not_rss": {
+    "n": 5107,
+    "old_pair_pack_bytes_excluding_carry": 5007638208,
+    "candidate_pair_pack_bytes_excluding_carry": 2503819104,
+    "pair_pack_bytes_difference": 2503819104,
+    "old_raw_matrix_bytes": 2921122288,
+    "candidate_raw_matrix_bytes": 1877864328,
+    "raw_matrix_bytes_difference": 1043257960,
+    "old_per_thread_history_buffer_bytes": 786432,
+    "candidate_per_thread_history_buffer_bytes": 393216
+  },
+  "prior_work_check": {
+    "reviewed": [
+      "results/speed/report_decisions.json",
+      "results/speed/source_audit_candidate3.json",
+      "optimization.patch",
+      "speed.patch",
+      "baseline_snapshot.patch",
+      "last 8 commits touching src/yupei_dist/matrix_stage.rs"
+    ],
+    "finding": "No compact union-specific 18-output/24-slot experiment was found in this task evidence. The discarded GPT transpose and pair scan16 experiments optimize different kernels; their failure does not establish this proposal is fast or slow. Historical 37-to-28 matrix pruning changed a different contract and must not be repeated here."
+  },
+  "required_before_adoption": [
+    "Standalone phase1/phase2 comparison against frozen 48-slot baseline, including carry across blocks and all retained slots.",
+    "Meaningful microbenchmarks using real/representative sparse cells and complete processing, without changing thread count.",
+    "Three full dates with all 18758 names and values unchanged, then fixed-50-thread entry timing."
+  ],
+  "source_sha256": {
+    "src/yupei_union_all.rs": "4c2902b504c30d4a0e70decc870421e914712e682487ceffbf4d68db5cff8946",
+    "src/yupei_dist/matrix_stage.rs": "8dbeb525bad1fbd8958b115dbd7ae7ba160b6624a1ed37bf5be62e6236ac7b90",
+    "src/yupei_dist/compute.rs": "72d1c826c1a4cdc17273b4f39fea304931ee79114ba45325e7f33434bda35297",
+    "src/yupei_dist/indicator_ctx.rs": "174d214ea40a085f0caa2696674b3331756931251755378819a82dcfcc65ea84",
+    "src/yupei_dist/indicators/basket_hedge.rs": "0fd6051accc844da7585e9eb30075dbfe18259bf9b2b919e525d334aa9bdf60d",
+    "src/yupei_dist/indicators/leadership.rs": "aadbb0bd1d8f5c16f3c1fd1240bb52fd94b40763eb09fa3864a2a78cb2555c9d",
+    "src/yupei_pair/split.rs": "95e6ff7489bfe434e48da653b6a8ced83047a585790afaf917306255fc575c6e"
+  },
+  "implemented": false,
+  "benchmarks_started": false
+}

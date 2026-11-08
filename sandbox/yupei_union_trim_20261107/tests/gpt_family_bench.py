@@ -49,6 +49,8 @@ def main():
     else:
         os.environ.pop("YUPEI_GPT_SHARE_RHO", None)
     os.environ["RAYON_NUM_THREADS"] = "50"
+    for name in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
+        os.environ[name] = "1"
     os.environ["YUPEI_STAGE"] = "1"
     os.environ.pop("YUPEI_GPT_SORT_BASELINE", None)
     os.environ.pop("YUPEI_GPT_SNAP_DIR", None)
@@ -79,6 +81,9 @@ def main():
     manifest_path = args.source_manifest.resolve()
     manifest_bytes = manifest_path.read_bytes()
     manifest = {row["path"]: row["sha256"] for row in json.loads(manifest_bytes)}
+    baseline_manifest = root / "speed_baseline_manifest.json"
+    baseline_bytes = baseline_manifest.read_bytes()
+    baseline_hashes = json.loads(baseline_bytes)["source_hashes"]
     source_names = {str(p.relative_to(root / "frozen")) for p in (root / "frozen/src/yupei_gpt").glob("*.rs")}
     source_names.update(name for name in manifest if name.startswith("src/yupei_gpt/"))
     source_state = {}
@@ -86,11 +91,12 @@ def main():
         changed = name in manifest
         source_path = root / ("frozen/candidate3_src" if changed else "frozen") / name
         source_sha = hashlib.sha256(source_path.read_bytes()).hexdigest()
-        if changed and source_sha != manifest[name]:
-            raise RuntimeError(f"Candidate 3 source hash mismatch: {source_path}")
+        expected_sha = manifest[name] if changed else baseline_hashes[name]
+        if source_sha != expected_sha:
+            raise RuntimeError(f"Frozen GPT source hash mismatch: {source_path}")
         source_state[name] = {"sha256": source_sha, "physical_path": str(source_path),
             "layer": "candidate3_changed" if changed else "original_frozen_unchanged",
-            "manifest_sha256": manifest.get(name)}
+            "manifest_sha256": expected_sha}
     names = list(rp.py_yupei_gpt_names())
     load_start = os.getloadavg()[0]
     if load_start > 50:
@@ -136,6 +142,7 @@ def main():
         "extension_sha256": module_sha, "gpt_source_state": source_state,
         "package_root": str(package_root), "source_manifest_path": str(manifest_path),
         "source_manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
+        "baseline_source_manifest_sha256": hashlib.sha256(baseline_bytes).hexdigest(),
         "save_array_s": time.perf_counter() - save_start,
     }
     if args.baseline:
@@ -152,6 +159,7 @@ def main():
         absolute = np.abs(after - before)
         metadata["comparison"] = {
             "reference_json": str(args.baseline.resolve()), "nan_positions_equal": same_nan,
+            "codes_exact": True, "names_exact": True, "shape_exact": True,
             "defined_values_bits_equal": same_bits,
             "array_equal_equal_nan": bool(np.array_equal(old, result, equal_nan=True)),
             "max_abs_diff": float(absolute.max(initial=0.)),

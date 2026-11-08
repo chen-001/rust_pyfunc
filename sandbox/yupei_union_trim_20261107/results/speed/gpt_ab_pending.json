@@ -1,6 +1,6 @@
 {
-  "status": "pending_not_started_waiting_stopped_by_parent",
-  "performance_runs_executed": 0,
+  "status": "completed_screening_pending_decision",
+  "performance_runs_executed": 3,
   "active_performance_subprocesses": false,
   "active_load_observers": false,
   "external_blocker": {
@@ -139,13 +139,15 @@
   ],
   "script_validation": {
     "previous_version_py_compile_exit_code": 0,
-    "script_sha256": "a6f235373b05fdf460e7c2f54f00a4ead7d1cd445e05c9d198274aa4498c3651",
+    "script_sha256": "149bdfa26a1b634f9aae52d8ad879c1640653652e9df08f732af85f18f71a5f0",
     "shared_rho_script_sha256": "2b3b96165a245682db7695024baefda112c186186b3662935f2edce0e9736a7e",
-    "execution_after_source_routing_patch": false,
-    "note": "Per parent request only scripts and pending-plan metadata were edited; no calculation, standalone Rust test, library build, or performance benchmark ran."
+    "execution_after_source_routing_patch": true,
+    "note": "All three planned screening settings executed and exited 0; both candidates matched complete-output names/order, codes/order, shape, NaN positions and defined-value bits. No source changed during the driver run.",
+    "driver_sha256": "74861c38e117a3a9cac6eb72124113cc3fd496a095be1a8ba65a8ed64affdcfe",
+    "static_ast_parse": "passed both scripts"
   },
-  "recommendation": "Keep both scheduling and shared-input changes opt-in for now. Three-day equality supports numerical safety, but no admissible scheduling/sharing A/B timing has been run, so do not enable them by default or claim a speed benefit yet.",
-  "driver_written": false,
+  "recommendation": "Neither batch1 nor shared-rho is adopted for speed. Batch1 lowers measured one-run RSS but slows the network; shared-rho has <1% one-run network difference and a larger peak RSS. Keep both opt-in and prioritize the full-scan kernel. No further parameter/combination sweep started.",
+  "driver_written": true,
   "artifact_provenance": {
     "experimental_package_root": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/frozen/variants/v3/package",
     "experimental_module_sha256": "a4b504e261dd5da5f98607259fb046ace908e7971e879f53f1071c1e7d23a759",
@@ -154,6 +156,75 @@
     "unchanged_source_root": "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/frozen",
     "selection_rule": "Files listed in candidate3_sources.json come from frozen/candidate3_src/<path>; other GPT files come from frozen/<path>. Changed sources must match saved SHA256.",
     "current_sandbox_role": "candidate2 delivery snapshot; experiment scripts never import its package or inspect its current src",
-    "mtime_used_for_provenance": false
-  }
+    "mtime_used_for_provenance": false,
+    "reverified_module_sha256": "a4b504e261dd5da5f98607259fb046ace908e7971e879f53f1071c1e7d23a759",
+    "reverified_gpt_sources": [
+      {
+        "path": "sandbox/yupei_union_trim_20261107/frozen/candidate3_src/src/yupei_gpt/compute.rs",
+        "sha256": "fac93a3fc06e93dfd5135e0c79840305162d5973df945a7104bf9640177b65e8"
+      },
+      {
+        "path": "sandbox/yupei_union_trim_20261107/frozen/src/yupei_gpt/extensions.rs",
+        "sha256": "128a3ed1ff69d11e1a59a6b9d93c172169d2ada8226e68b76678f2b620a4d980"
+      },
+      {
+        "path": "sandbox/yupei_union_trim_20261107/frozen/src/yupei_gpt/input.rs",
+        "sha256": "05e37f964d9b2fc0ca535b20868797f5d19743fce66b4d6ead1b3b7e26f4a226"
+      },
+      {
+        "path": "sandbox/yupei_union_trim_20261107/frozen/src/yupei_gpt/kernel.rs",
+        "sha256": "2985a48ab33aaab64cbc9de0b33c1690400580a5857104faa5aa29f9f459ef4d"
+      },
+      {
+        "path": "sandbox/yupei_union_trim_20261107/frozen/src/yupei_gpt/leadlag.rs",
+        "sha256": "c815dc96ea99269b07771d86bc6e9f0cc4decc8ccdf3586f1a8988c20e2ecb3e"
+      },
+      {
+        "path": "sandbox/yupei_union_trim_20261107/frozen/src/yupei_gpt/mod.rs",
+        "sha256": "b75f0ab2b04316b141a2a0db7de336f594e613d8b8667e787b432b5cd1a7f0ff"
+      },
+      {
+        "path": "sandbox/yupei_union_trim_20261107/frozen/src/yupei_gpt/model.rs",
+        "sha256": "c7b1a7243b1a53eb04c88595661660ffe3ca529a6e65f7fc7532282601208259"
+      },
+      {
+        "path": "sandbox/yupei_union_trim_20261107/frozen/src/yupei_gpt/names.rs",
+        "sha256": "d2fcb77953245f21590c25b92c8e53e3ae0e9dd4bba336b617903b1be8c676cd"
+      },
+      {
+        "path": "sandbox/yupei_union_trim_20261107/frozen/candidate3_src/src/yupei_gpt/network.rs",
+        "sha256": "cdfc949e4a7345ef3002adf960b9ec266810537fba019cf0f33401f0c3dd0bf3"
+      },
+      {
+        "path": "sandbox/yupei_union_trim_20261107/frozen/candidate3_src/src/yupei_gpt/network_simd.rs",
+        "sha256": "ce85ecacbae65bd045712d9d1faeea44916b72bb8aa49e30450b9762aaf437c9"
+      },
+      {
+        "path": "sandbox/yupei_union_trim_20261107/frozen/src/yupei_gpt/network_stats.rs",
+        "sha256": "6dc78b9f18dd03df6c2c4e5bc2bd10a917c31121c67d78625e5247e77dd1fee5"
+      },
+      {
+        "path": "sandbox/yupei_union_trim_20261107/frozen/src/yupei_gpt/temporal.rs",
+        "sha256": "354d2ab8cdca0a6038e35051b0856a32bfb59b92ddc3c5ccc4b4fa285ec83e12"
+      }
+    ],
+    "unchanged_sources_verified_against": "speed_baseline_manifest.json"
+  },
+  "driver_command": [
+    "/home/chenzongwei/.conda/envs/chenzongwei311/bin/python",
+    "-I",
+    "/home/chenzongwei/rust_pyfunc/sandbox/yupei_union_trim_20261107/tests/run_gpt_screening.py",
+    "--run",
+    "--prefix",
+    "ab_v3_screen_20261108"
+  ],
+  "driver_controls": [
+    "Shared .acceptance_queue.lock refuses overlapping acceptance or GPT experiments.",
+    "Wait at most 600 seconds for load1 <=40 continuously for 30 seconds before each setting.",
+    "Three settings run serially with all/off numeric baseline and complete comparisons.",
+    "One run per setting is screening only; overloaded/failed/mismatched run stops and retains evidence.",
+    "Explicit --run and unique prefix required; no compilation, library source selection or deployment."
+  ],
+  "completed_driver_evidence": "results/speed/gpt_ab_v3_screen_20261108.driver.json",
+  "analysis_evidence": "results/speed/gpt_screening_20261108.json"
 }

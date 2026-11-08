@@ -304,6 +304,47 @@ def local_tables(documents, decisions):
             add("gpt_transpose", str(condition), *pair, "秒/整组", "gpt_transpose_probe.json",
                 "访存/分配", "纯写布局探针，不含分数计算，已废弃")
 
+    for project, filename, flag, baseline_value, exact_field, level in (
+            ("pair_scan16", "pair_scan16_microbench.json", "mode", "reference",
+             "same_inputs_bits_equal", "向量化：16通道保序扫描"),
+            ("pair_topk_wide", "pair_topk_candidate3_microbench.json", "wide_first", False,
+             "complete_keys_exactly_equal", "算法：完整键Top100阈值"),
+            ("pair_scan_no_max", "pair_scan_no_max_microbench.json", "mode", "reference",
+             None, "重复计算：移除未消费的最大值")):
+        doc = documents.get(filename, {})
+        if not isinstance(doc, dict) or not doc:
+            continue
+        exactness = doc.get("exactness", {})
+        doc_exact = (doc.get("correctness", {}).get("exit_code") == 0
+                     and all(exactness.get(key) is True for key in
+                             ("h_g_arrays_bits_equal", "retained_statistics_bits_equal",
+                              "repeated_calls_bits_equal", "inputs_unchanged")))
+        if exact_field is None:
+            for key, value in exactness.items():
+                tests.append(["实测记录", filename, f"exactness.{key}", value,
+                              "只验证该局部核保留输出，不代替三天全市场对账"])
+        grouped = defaultdict(lambda: ([], []))
+        for item in doc.get("records", []):
+            seconds, calls = item.get("seconds"), item.get("iterations")
+            per_call = seconds * 1e9 / calls if finite(seconds) and finite(calls) and calls > 0 else None
+            load = first(item.get("load_before"))
+            exact = item.get(exact_field) is True if exact_field else doc_exact
+            admissible = (doc.get("status") == "completed" and doc.get("kernel_threads") == 1
+                          and item.get("exit_code") == 0 and exact
+                          and finite(load) and load <= 50 and finite(per_call)
+                          and item.get("performance_valid_by_observed_load", True) is True)
+            baseline = item.get(flag) == baseline_value
+            if admissible:
+                grouped[item.get("kind")][0 if baseline else 1].append(per_call)
+            raw.append(["实测局部核", project, filename, item.get("repeat"),
+                        "原版" if baseline else "候选", item.get("n"), calls, seconds, "秒/整组调用",
+                        per_call, "ns/调用", item.get("kind"),
+                        f"单核合成输入；exact={exact}；计入局部汇总={admissible}；"
+                        "不含整日输入读取或其他因子计算"])
+        for kind, (before, after) in grouped.items():
+            add(project, kind, before, after, "ns/调用", filename, level,
+                "单核、合成输入、每配置3次；只评价该内核，不外推50线程全市场收益")
+
     def leaves(value, path=""):
         if isinstance(value, dict):
             for key, child in value.items():
@@ -315,7 +356,7 @@ def local_tables(documents, decisions):
             yield path, value
 
     for filename, doc in documents.items():
-        if not (filename.endswith(("_exact.json", "_tests.json")) or filename == "sort_summary.json"):
+        if not (filename.endswith(("_exact.json", "_tests.json", "_correctness.json")) or filename == "sort_summary.json"):
             continue
         for key, value in leaves(doc):
             if any(part in key for part in ("equal", "exact_cases", "passed", "failed", "exit_code",
@@ -350,9 +391,34 @@ def analysis_tables(documents):
             yield path, value
 
     for filename in ("pair_remaining_analysis.json", "gpt_remaining_analysis.json",
-                     "source_audit_candidate3.json"):
+                     "source_audit_candidate3.json", "overnight_audit_20261108.json"):
         doc = documents.get(filename)
         if not isinstance(doc, dict):
+            continue
+        if filename == "overnight_audit_20261108.json":
+            # Keep this historical snapshot compact. Per-run readings and
+            # comparisons already have their own sheets; the index preserves
+            # the complete JSON and its content hash.
+            boundary = "历史快照，后续新增运行以全市场基准页为准；不足三轮只作阶段性比较。"
+            rows.append(["历史审计快照", filename, "snapshot",
+                         {key: doc.get(key) for key in ("snapshot_at", "scope", "status")}, boundary])
+            for key, value in doc.get("measured_summary", {}).items():
+                rows.append(["历史实测汇总", filename, f"measured_summary.{key}", value, boundary])
+            for value in doc.get("measured_stage_comparison", []):
+                rows.append(["历史实测分段比较", filename,
+                             f"{value.get('group')}.{value.get('stage')}",
+                             {key: value.get(key) for key in
+                              ("base_median_seconds", "v2_median_seconds", "difference_seconds",
+                               "base_repeats", "v2_repeats")}, value.get("interpretation", boundary)])
+            for key, value in doc.get("current_work_condition_only", {}).items():
+                rows.append(["由实测计算的条件界；非理论下限", filename, key, value,
+                             "当前CPU工作量不变、理想均分50线程的条件界；改变算法或指令会改变工作量。"])
+            source = doc.get("source_audit", {})
+            rows.append(["源码审计/分析记录", filename, "source_audit",
+                         {key: value for key, value in source.items() if key != "source_references"},
+                         "源码关系不直接换算为秒数或加速倍率。"])
+            for key, value in doc.get("unknowns", {}).items():
+                rows.append(["未知/未测", filename, key, value, "按该历史快照时点记录；不把未测值当作0。"])
             continue
         for key, value in leaves(doc):
             if "calculated_upper_bound" in key:
@@ -365,6 +431,48 @@ def analysis_tables(documents):
                 category = "源码审计/分析记录"
             rows.append([category, filename, key, value,
                          "原文截至该文件记录时点；不折算秒数或加速倍数。旧的未实现/未测试状态由较新的构建、局部测试、严格对账页补充。"])
+    return rows
+
+
+def gpt_screening_rows(documents, logs):
+    """Keep the standalone 491-column, one-run experiment outside union groups."""
+    screening = documents.get("gpt_screening_20261108.json", {})
+    if not isinstance(screening, dict):
+        return []
+    rows = []
+    decisions = {
+        "all_off": "单轮比较参照",
+        "batch1_off": "不默认采用：峰值内存较低，但网络段更慢；入口差同时受读取时间影响",
+        "all_on": "不默认采用：网络段单次差不足1%，入口差主要来自读取时间；稳定收益未证实",
+    }
+    for record in screening.get("records", []):
+        filename = Path(record.get("evidence_json", "")).name
+        raw = documents.get(filename, {})
+        log = logs.get(Path(filename).stem, {})
+        stages = {name: value for group, name, value, _, _ in log.get("stages", [])
+                  if group == "GPT内部记录"}
+        reference = record.get("setting") == "all_off"
+        comparison = raw.get("comparison", {})
+        exact = (all(comparison.get(key) is True for key in
+                     ("codes_exact", "names_exact", "shape_exact", "nan_positions_equal",
+                      "defined_values_bits_equal", "array_equal_equal_nan"))
+                 and comparison.get("max_abs_diff") == 0 and comparison.get("max_rel_diff") == 0)
+        admissible = (screening.get("status") == "completed_screening_pending_decision"
+                      and record.get("exit_code") == 0 and raw.get("function") == "py_yupei_gpt"
+                      and raw.get("shape") == [5107, 491] and raw.get("rayon_threads") == 50
+                      and raw.get("date") == 20241231 and finite(raw.get("wall_s"))
+                      and raw.get("performance_valid_by_load") is True
+                      and bool(log.get("thread_counts"))
+                      and all(n == 50 for n in log["thread_counts"])
+                      and (reference or exact))
+        rows.append(["实测单轮筛选", record.get("setting"), raw.get("date"), raw.get("shape"),
+                     raw.get("rayon_threads"), 1, raw.get("wall_s"), stages.get("network"),
+                     stages.get("read_and_aggregate"), raw.get("process_cpu_s"), raw.get("max_rss_kib"),
+                     raw.get("load1_start"), raw.get("sampled_load1_max"),
+                     "参照输出" if reference else "值逐位一致、差0" if exact else "证据未齐/不通过",
+                     "单轮筛选通过；不计入union重复" if admissible else "证据未齐/不通过；不作性能结论",
+                     decisions.get(record.get("setting"), "尚无采用决定"),
+                     f"gpt_screening_20261108.json；{filename}；{Path(filename).stem}.log"])
     return rows
 
 
@@ -469,7 +577,9 @@ def main():
         good = [r for r in items if r["eligible"]]
         times = [r["call_seconds"] for r in good]
         med = median(times)
-        first_run = next((r.get("call_seconds") for r in good if r["repeat"] == 1), None)
+        first_attempt = next((r for r in items if r["repeat"] == 1), None)
+        first_run = first_attempt.get("call_seconds") if first_attempt else None
+        first_reason = first_attempt["reason"] if first_attempt else "该组未记录repeat=1"
         state, reason = decision(decisions, "variants", variant)
         def budget(limit):
             if len(good) < 3:
@@ -480,7 +590,7 @@ def main():
                              ratio(base_median, med), 60, budget(60), 150, budget(150),
                              "冻结基线" if variant == "base" else status_label(state),
                              reason, ", ".join(r["name"] for r in items), settings,
-                             "；".join(sorted({r["settings_evidence"] for r in items}))])
+                             "；".join(sorted({r["settings_evidence"] for r in items})), first_reason])
 
     raw_rows, stage_rows = [], []
     for name, run in sorted(runs.items()):
@@ -528,6 +638,7 @@ def main():
         compare_rows.append(["未知", None, None, None, None, *([None] * 6), None, None, None, "尚无对账产物", None, "不读取大矩阵，不伪造一致结论", None, None, None])
 
     local, local_raw, local_tests, excluded = local_tables(documents, decisions)
+    gpt_screening = gpt_screening_rows(documents, logs)
     change_rows = []
     for filename, doc in sorted(documents.items()):
         if filename.endswith("_sources.json") and isinstance(doc, list):
@@ -551,7 +662,7 @@ def main():
         ["说明", "主计时口径", "函数入口到返回，包含读数据；numpy转换和结果落盘单列；不混入整进程启动时间"],
         ["说明", "基准样本", "20241231全部股票；50线程；启动load1≤50；退出码0；validation_only永不计性能；至少3次才给预算结论"],
         ["说明", "运行期异常排除", "timing_exclusions.json标记或status实测max_load1>100均排除性能汇总；原始读数与数值对账仍保留；未记录运行中load时明确未测"],
-        ["说明", "首轮/最低/中位", "首轮为repeat=1；最低和中位使用同变体、同模块SHA、同experiment_settings的合格完成运行；首轮没有人为丢弃"],
+        ["说明", "首轮/最低/中位", "首轮显示repeat=1的原始调用读数，即使该轮不合格也保留并单列资格说明；最低和中位只使用同变体、同模块SHA、同experiment_settings的合格完成运行"],
         ["说明", "实验设置", "旧结果缺失experiment_settings时按默认空设置{}归组，并注明；计算设置不同的运行不能合并。YUPEI_STAGE/YUPEI_VALIDATE_ONLY/YUPEI_VERBOSE/YUPEI_GPT_VERBOSE仅控制运行或日志，排除出设置分组"],
         ["说明", "倍数", "冻结base的合格运行中位数 ÷ 本变体中位数；不足3次时仅为阶段性读数"],
         ["说明", "严格对账", "shape、列名顺序、股票顺序、NaN、值、完整位模式均须通过；比较输入不重新计算"],
@@ -568,12 +679,19 @@ def main():
                       f"模块SHA256={module}；experiment_settings={settings}；通过日期={dates}；三天含20241231：{'通过' if complete else '未完成'}"])
     for note in decisions.get("notes", []):
         notes.append(["记录", "人工采用结论", note])
+    overnight = documents.get("overnight_audit_20261108.json")
+    if isinstance(overnight, dict):
+        notes.append(["历史审计快照", "20261108夜间验收审计",
+                      f"记录时间={overnight.get('snapshot_at', UNKNOWN)}；"
+                      f"范围={overnight.get('scope', UNKNOWN)}；"
+                      "详见源码审计与未测页。后续新增运行以全市场基准页为准，"
+                      "CPU秒除以50只描述当前工作量不变时的条件界，不是算法理论下限。"])
     notes.extend(warnings)
 
     wb = Workbook()
     wb.remove(wb.active)
     sheet(wb, "说明与证据", ["证据类别", "项目", "说明"], notes, "实测、由实测计算、源码记录与未知分开呈现；空缺明确写未测。")
-    sheet(wb, "全市场基准", ["证据类别", "日期", "变体", "模块SHA256", "发现运行数", "合格重复数", "首轮调用秒", "最小调用秒", "中位调用秒", "相对base倍数", "预算秒", "60秒结论", "退让线秒", "150秒结论", "变体状态", "状态依据", "来源运行", "experiment_settings", "设置证据"], summary_rows,
+    sheet(wb, "全市场基准", ["证据类别", "日期", "变体", "模块SHA256", "发现运行数", "合格重复数", "首轮调用秒", "最小调用秒", "中位调用秒", "相对base倍数", "预算秒", "60秒结论", "退让线秒", "150秒结论", "变体状态", "状态依据", "来源运行", "experiment_settings", "设置证据", "首轮资格说明"], summary_rows,
           "只汇总20241231；同变体不同模块或实验设置分行；不足3次不宣布达标。")
     sheet(wb, "所有运行原始读数", ["证据类别", "日期", "变体", "重复号", "调用秒", "进程CPU秒", "CPU除以墙钟", "转numpy秒", "写结果秒", "整进程墙钟秒", "配置线程", "日志线程", "启动load1_5_15", "结束load1_5_15", "运行中异常load1", "退出码", "RSS峰值KiB", "shape", "NaN格数", "Inf格数", "模块SHA256", "计入汇总", "筛选原因", "来源", "validation_only", "experiment_settings", "设置证据", "实测max_load1", "load采样(秒/load1/5/15)"], raw_rows,
           "所有已发现运行均保留；进程CPU时间可以大于墙钟；缺退出码不能按成功计。")
@@ -581,6 +699,12 @@ def main():
           "只引用完整compare产物；六项全部通过才标通过，不把无定义/未测当作0。")
     sheet(wb, "分段耗时", ["证据类别", "日期", "变体", "重复号", "阶段口径", "阶段或原文", "阶段墙钟秒", "累计墙钟秒", "说明", "来源"], stage_rows,
           "严禁把并行子段相加；累计总阶段差分只有日志显示的0.1秒精度。")
+    if gpt_screening:
+        sheet(wb, "GPT单轮筛选", ["证据类别", "设置", "日期", "股票数及列数", "线程", "每配置重复数",
+                                  "入口秒", "网络秒", "读取及聚合秒", "CPU秒", "RSS峰值KiB",
+                                  "启动load1", "实测load1峰值", "与参照对账", "资格说明", "采用结论", "来源"],
+              gpt_screening,
+              "独立py_yupei_gpt包含491列（含leadlag）；四合一仅用其455列、总18758列。每设置只测1次，不并入四合一重复或稳定加速结论。后两次读取变快不能归因于计算改动。")
     local_headers = ["证据类别", "优化层级", "项目", "输入情形", "采用状态", "优化前中位", "优化后中位", "局部倍数", "单位", "基线重复数", "候选重复数", "适用边界", "口径说明", "来源", "采用依据"]
     sheet(wb, "采用候选局部测速", local_headers, local, "这里只列有明确采用记录的局部候选；不能相加或外推为全市场节时。")
     sheet(wb, "局部测速原始读数", ["证据类别", "项目", "来源", "重复号", "路径", "输入长度", "调用次数", "原始耗时", "原始单位", "局部读数", "局部单位", "输入范围", "说明"], local_raw,
