@@ -1609,6 +1609,9 @@ __all__ = [
     "py_anneal_order_profile_v2",
     "py_anneal_order_profile_v2_names",
     "py_anneal_order_profile_v2_from_data",
+    "py_anneal_order_profile_v3",
+    "py_anneal_order_profile_v3_names",
+    "py_anneal_order_profile_v3_from_data",
     "py_anneal_regime_excess",
     "py_anneal_regime_excess_names",
     "py_anneal_regime_excess_from_data",
@@ -1752,4 +1755,27 @@ def py_anneal_regime_excess_from_data(
     ask_order: "numpy.ndarray",
 ) -> List[float]:
     """无磁盘依赖入口：传入逐笔成交列数组计算新版全部 44832 个因子。"""
+    ...
+
+
+def py_anneal_order_profile_v3(code: str, date: int) -> List[float]:
+    """柜员游戏扩展系列2 第三版（单股单日 30045 列）：v1 原始退火指标 + v2 打乱对照超额 + 成交量结构与活跃度，5 个时段，分钟矩阵分全天 / 下午 / 尾盘三段降维。"""
+    ...
+
+
+def py_anneal_order_profile_v3_names() -> List[str]:
+    """返回柜员游戏扩展系列2 第三版全部 30045 个因子名。"""
+    ...
+
+
+def py_anneal_order_profile_v3_from_data(
+    exchtime_us: "numpy.ndarray",
+    price: "numpy.ndarray",
+    volume: "numpy.ndarray",
+    turnover: "numpy.ndarray",
+    flag: "numpy.ndarray",
+    bid_order: "numpy.ndarray",
+    ask_order: "numpy.ndarray",
+) -> List[float]:
+    """无磁盘依赖入口：传入逐笔成交列数组计算第三版全部 30045 个因子。"""
     ...

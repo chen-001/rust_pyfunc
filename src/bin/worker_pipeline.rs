@@ -14,7 +14,7 @@ use rust_pyfunc::factor_pipeline::pipeline_relaynet_six_people;
 use rust_pyfunc::factor_pipeline::{
     ipc_read_result, ipc_read_task, ipc_write, ipc_write_result, pipeline_anneal_cross_peer,
     pipeline_anneal_cross_peer_v2,
-    pipeline_anneal_order_profile, pipeline_anneal_order_profile_v2, pipeline_anneal_regime_diff, pipeline_anneal_regime_excess, pipeline_anneal_volume,
+    pipeline_anneal_order_profile, pipeline_anneal_order_profile_v2, pipeline_anneal_order_profile_v3, pipeline_anneal_regime_diff, pipeline_anneal_regime_excess, pipeline_anneal_volume,
     pipeline_anneal_volume_market, pipeline_cross_section_example, pipeline_dagpath, pipeline_dijkstra, pipeline_distill,
     pipeline_distill_tick, pipeline_drop_event, pipeline_extreme_point_fit,
     pipeline_hhi_event, pipeline_lfsr_ext2, pipeline_lfsr_leak_ext1,
@@ -145,6 +145,8 @@ fn main() {
                         pipeline_anneal_order_profile(date, &code, &trading_days, expected_len)
                     } else if pipeline_name == "anneal_order_profile_v2" {
                         pipeline_anneal_order_profile_v2(date, &code, &trading_days, expected_len)
+                    } else if pipeline_name == "anneal_order_profile_v3" {
+                        pipeline_anneal_order_profile_v3(date, &code, &trading_days, expected_len)
                     } else if pipeline_name == "anneal_regime_excess" {
                         pipeline_anneal_regime_excess(date, &code, &trading_days, expected_len)
                     } else if pipeline_name == "hidden_arrange" {
