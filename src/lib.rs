@@ -145,6 +145,7 @@ pub mod anneal_regime_excess_metrics;
 pub mod anneal_regime_raw_excess_metrics;
 pub mod anneal_cross_peer_metrics;
 pub mod anneal_cross_peer_v2_metrics;
+pub mod anneal_cross_peer_v3_metrics;
 pub mod relaynet_six_people;
 pub mod cross_section_example_metrics;
 pub mod dijkstra_metrics;
@@ -1674,6 +1675,22 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(
         anneal_cross_peer_v2_metrics::py_anneal_cross_peer_v2_from_data,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        anneal_cross_peer_v3_metrics::py_anneal_cross_peer_v3,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        anneal_cross_peer_v3_metrics::py_anneal_cross_peer_v3_names,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        anneal_cross_peer_v3_metrics::py_anneal_cross_peer_v3_profile,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        anneal_cross_peer_v3_metrics::py_anneal_cross_peer_v3_profile_names,
         m
     )?)?;
     Ok(())

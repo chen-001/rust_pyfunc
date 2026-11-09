@@ -3274,6 +3274,54 @@ pub fn pipeline_anneal_cross_peer_v2(date: i64, expected_len: usize) -> Vec<Task
     }
 }
 
+/// 柜员游戏拓展3 v3 第一轮：每天每股 271 列中间数据（组合 pipeline 的前一轮）。
+pub fn pipeline_anneal_cross_peer_v3_profile(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    if expected_len != crate::anneal_cross_peer_v3_metrics::N_PROFILE_COLS {
+        eprintln!("pipeline_anneal_cross_peer_v3_profile expected_len错误 [{date}]: {expected_len} != {}", crate::anneal_cross_peer_v3_metrics::N_PROFILE_COLS);
+        return Vec::new();
+    }
+    match crate::anneal_cross_peer_v3_metrics::compute_anneal_cross_peer_v3_profile_full(date) {
+        Ok((codes, vals)) => vals
+            .chunks(expected_len)
+            .zip(codes.iter())
+            .map(|(facs, code)| TaskResult {
+                date,
+                code: code.clone(),
+                timestamp: 0,
+                facs: facs.to_vec(),
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("pipeline_anneal_cross_peer_v3_profile error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
+/// 柜员游戏拓展3 v3 第二轮：读过去 60 天中间数据算正式因子（42268 列）。
+pub fn pipeline_anneal_cross_peer_v3(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    if expected_len != crate::anneal_cross_peer_v3_metrics::N_FACTORS {
+        eprintln!("pipeline_anneal_cross_peer_v3 expected_len错误 [{date}]: {expected_len} != {}", crate::anneal_cross_peer_v3_metrics::N_FACTORS);
+        return Vec::new();
+    }
+    match crate::anneal_cross_peer_v3_metrics::compute_anneal_cross_peer_v3_full(date) {
+        Ok((codes, vals)) => vals
+            .chunks(expected_len)
+            .zip(codes.iter())
+            .map(|(facs, code)| TaskResult {
+                date,
+                code: code.clone(),
+                timestamp: 0,
+                facs: facs.to_vec(),
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("pipeline_anneal_cross_peer_v3 error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
 /// 柜员游戏扩展系列3：全市场横截面联动与同伴可还原性（anneal_cross_peer，11760 列）。
 pub fn pipeline_anneal_cross_peer(date: i64, expected_len: usize) -> Vec<TaskResult> {
     if expected_len != crate::anneal_cross_peer_metrics::N_FACTORS {
@@ -3619,6 +3667,8 @@ pub fn run_factor_pipeline_cross_section(
         "orderflow_ctx_v2",
         "anneal_cross_peer",
         "anneal_cross_peer_v2",
+        "anneal_cross_peer_v3_profile",
+        "anneal_cross_peer_v3",
     ];
     if !known.contains(&pipeline_name.as_str()) && !pipeline_name.starts_with("okay_") {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(

@@ -6,6 +6,8 @@ from rust_pyfunc.rolling_future import RollingFutureAccessor
 from rust_pyfunc.rolling_past import RollingPastAccessor
 
 _LAZY_EXPORTS = {
+    "prepare_anneal_cross_peer_v3_history_from_store": (".anneal_cross_peer_v3_history", "prepare_anneal_cross_peer_v3_history_from_store"),
+    "prepare_anneal_cross_peer_v3_history_from_h5": (".anneal_cross_peer_v3_history", "prepare_anneal_cross_peer_v3_history_from_h5"),
     "factor_production_runtime": (".factor_production", "factor_production_runtime"),
     "write_selected_factor_base": (".factor_production", "write_selected_factor_base"),
     "write_selected_factor_db": (".factor_production", "write_selected_factor_db"),
