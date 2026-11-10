@@ -20,6 +20,10 @@ name = "align_fold_v3"
 path = "src/align_fold_v3.rs"
 
 [[bin]]
+name = "align_fold_v3_slim"
+path = "src/align_fold_v3_slim.rs"
+
+[[bin]]
 name = "bench_v3"
 path = "src/bench_v3.rs"
 
