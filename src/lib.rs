@@ -44,7 +44,10 @@ pub mod yupei_dist;
 pub mod yupei_gpt;
 pub mod yupei_multi;
 pub mod yupei_pair;
+mod yupei_pair_mass_batch;
+mod yupei_pair_scan_stats;
 pub mod yupei_union_all;
+pub mod yupei_union_trim;
 
 pub mod cross_stock_regression;
 pub mod cross_stock_regression_fast;
@@ -1365,6 +1368,8 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(yupei_union_all::py_yupei_union_all, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(yupei_union_all::py_yupei_union_all_names, m)?)?;
+    m.add_function(wrap_pyfunction!(yupei_union_trim::py_yupei_union_trim, m)?)?;
+    m.add_function(wrap_pyfunction!(yupei_union_trim::py_yupei_union_trim_names, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(yupei_gpt::py_yupei_gpt, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(yupei_gpt::py_yupei_gpt_names, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(

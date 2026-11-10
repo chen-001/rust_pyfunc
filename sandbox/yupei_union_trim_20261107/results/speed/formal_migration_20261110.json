@@ -1,0 +1,117 @@
+{
+  "verified_at": "2026-11-10T12:57:34.294198+08:00",
+  "version": "0.92.0",
+  "sandbox_acceptance_commit": "6ceb878",
+  "migration_parent": "e3cfd257daeebdf0fd22f02a4570a2b56f8f00dd",
+  "production_build_command": "timeout 600s ./alter.sh",
+  "production_profile": "release-fast",
+  "python_entry": "py_yupei_union_trim",
+  "pipeline": "yupei_union_trim",
+  "factor_count": 18758,
+  "legacy_names_count": 20716,
+  "production_vs_frozen_v6": [
+    {
+      "nans_equal": false,
+      "bits_equal": false,
+      "differing_values": 40843412,
+      "values_sha256": "2293c71eef884fc827daf59b42eedf6ea2880e2fe5154ee3427bb66a6a7e3cb3",
+      "max_abs_diff": 182958440448.0,
+      "max_rel_diff": 1.204095872e+21,
+      "date": 20160104,
+      "mode": "direct",
+      "shape": [
+        2543,
+        18758
+      ],
+      "names_exact": true,
+      "codes_exact": true,
+      "legacy_names_exact": true,
+      "validation_only": true,
+      "elapsed_seconds": 65.80829431302845,
+      "threads": 50,
+      "load1_before": 112.10498046875,
+      "load1_after": 62.10302734375,
+      "extension_path": "/home/chenzongwei/rust_pyfunc/python/rust_pyfunc/rust_pyfunc.abi3.so",
+      "extension_sha256": "44978f85e7be19255d015b835da8c26db16a4909cc4aad33d3a82f505ea3376c",
+      "worker_sha256": "9cf56f2a60049a8ec97bddf9c066b7e8579104074a7543309fb3a200a90fa779",
+      "exit_code": 1
+    },
+    {
+      "nans_equal": true,
+      "bits_equal": true,
+      "differing_values": 0,
+      "values_sha256": "26917c844aa7f3981a6ea1dbeff313eba32047e59bbc6dc4bc382d0c40a4d55b",
+      "max_abs_diff": 0.0,
+      "max_rel_diff": 0.0,
+      "date": 20180102,
+      "mode": "direct",
+      "shape": [
+        3248,
+        18758
+      ],
+      "names_exact": true,
+      "codes_exact": true,
+      "legacy_names_exact": true,
+      "validation_only": true,
+      "elapsed_seconds": 105.29756470397115,
+      "threads": 50,
+      "load1_before": 131.80078125,
+      "load1_after": 75.54345703125,
+      "extension_path": "/home/chenzongwei/rust_pyfunc/python/rust_pyfunc/rust_pyfunc.abi3.so",
+      "extension_sha256": "44978f85e7be19255d015b835da8c26db16a4909cc4aad33d3a82f505ea3376c",
+      "worker_sha256": "9cf56f2a60049a8ec97bddf9c066b7e8579104074a7543309fb3a200a90fa779",
+      "exit_code": 0
+    },
+    {
+      "nans_equal": true,
+      "bits_equal": true,
+      "differing_values": 0,
+      "max_abs_diff": 0.0,
+      "max_rel_diff": 0.0,
+      "date": 20241231,
+      "mode": "worker",
+      "shape": [
+        5107,
+        18758
+      ],
+      "names_exact": true,
+      "codes_exact": true,
+      "legacy_names_exact": true,
+      "validation_only": true,
+      "elapsed_seconds": 335.6953310482204,
+      "threads": 50,
+      "load1_before": 115.51904296875,
+      "load1_after": 40.22607421875,
+      "extension_path": "/home/chenzongwei/rust_pyfunc/python/rust_pyfunc/rust_pyfunc.abi3.so",
+      "extension_sha256": "44978f85e7be19255d015b835da8c26db16a4909cc4aad33d3a82f505ea3376c",
+      "worker_sha256": "9cf56f2a60049a8ec97bddf9c066b7e8579104074a7543309fb3a200a90fa779",
+      "exit_code": 0,
+      "direct_segment_only": true,
+      "wrong_width_rejected_before_store_creation": true
+    }
+  ],
+  "reader_control": {
+    "reader_fix_commit": "0815ba5",
+    "source_count": 370,
+    "changed_paths": [
+      "src/fast_csv_reader.rs"
+    ],
+    "formal_reader_sha256": "112fd73547615682e16e1d75a8d95eb4fedb09a1733fc7676435645aee388828",
+    "v6_reader_sha256": "85704dfffc75434b4be594b734b926d4da102f64917a8e906621c7a1eb1e0d77",
+    "comparison": {
+      "date": 20160104,
+      "shape": [
+        2543,
+        18758
+      ],
+      "source_module_sha256": "1a939b75a715049bb20fa9fa45452a03ed26f2d97d321f472899673b74596317",
+      "codes_exact": true,
+      "names_exact": true,
+      "values_sha256": "2293c71eef884fc827daf59b42eedf6ea2880e2fe5154ee3427bb66a6a7e3cb3",
+      "formal_sha256": "2293c71eef884fc827daf59b42eedf6ea2880e2fe5154ee3427bb66a6a7e3cb3",
+      "bits_equal_to_formal": true,
+      "validation_only": true
+    }
+  },
+  "conclusion": "20241231 worker and 20180102 Python match original v6 bitwise. The 20160104 original v6 mismatch disappears when v6 uses the same corrected reader as production. Timing fields are correctness-only diagnostics."
+}

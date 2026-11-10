@@ -641,6 +641,14 @@ def py_yupei_union_all_names() -> List[str]:
     """四合一的 20716 个列名，不读数据，与 py_yupei_union_all 输出逐字一致。"""
     ...
 
+def py_yupei_union_trim(date: int) -> Tuple[List[str], List[str], List[float]]:
+    """玉佩四合一精简版。返回 (codes, names, vals)，vals 为 len(codes) × 18758 的扁平 f32。"""
+    ...
+
+def py_yupei_union_trim_names() -> List[str]:
+    """精简版固定的 18758 个列名，不读数据。"""
+    ...
+
 def py_yupei_gpt(date: int) -> tuple[list[str], list[float]]:
     """玉佩精炼版单日计算：返回 (codes, 491列×股票数 扁平f32)。"""
     ...
@@ -1310,6 +1318,8 @@ __email__ = "noreply@example.com"
 
 # 所有公开的函数和类
 __all__ = [
+    "py_yupei_union_trim",
+    "py_yupei_union_trim_names",
     # 核心函数
     "trend",
     "trend_fast",

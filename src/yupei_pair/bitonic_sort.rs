@@ -2,9 +2,9 @@
 use std::arch::x86_64::*;
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f")]
-unsafe fn stage<const K: usize, const J: usize>(p: *mut u64) {
+unsafe fn stage<const N: usize, const K: usize, const J: usize>(p: *mut u64) {
     if J >= 8 {
-        for i in (0..512).step_by(8) {
+        for i in (0..N).step_by(8) {
             if i & J != 0 {
                 continue;
             }
@@ -33,7 +33,7 @@ unsafe fn stage<const K: usize, const J: usize>(p: *mut u64) {
                 mask |= 1 << l;
             }
         }
-        for i in (0..512).step_by(8) {
+        for i in (0..N).step_by(8) {
             let a = _mm512_loadu_si512(p.add(i) as *const _);
             let b = _mm512_permutexvar_epi64(ix, a);
             let m = if K >= 8 && i & K != 0 { !mask } else { mask };
@@ -44,65 +44,124 @@ unsafe fn stage<const K: usize, const J: usize>(p: *mut u64) {
 }
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f")]
-unsafe fn network(p: *mut u64) {
-    stage::<2, 1>(p);
-    stage::<4, 2>(p);
-    stage::<4, 1>(p);
-    stage::<8, 4>(p);
-    stage::<8, 2>(p);
-    stage::<8, 1>(p);
-    stage::<16, 8>(p);
-    stage::<16, 4>(p);
-    stage::<16, 2>(p);
-    stage::<16, 1>(p);
-    stage::<32, 16>(p);
-    stage::<32, 8>(p);
-    stage::<32, 4>(p);
-    stage::<32, 2>(p);
-    stage::<32, 1>(p);
-    stage::<64, 32>(p);
-    stage::<64, 16>(p);
-    stage::<64, 8>(p);
-    stage::<64, 4>(p);
-    stage::<64, 2>(p);
-    stage::<64, 1>(p);
-    stage::<128, 64>(p);
-    stage::<128, 32>(p);
-    stage::<128, 16>(p);
-    stage::<128, 8>(p);
-    stage::<128, 4>(p);
-    stage::<128, 2>(p);
-    stage::<128, 1>(p);
-    stage::<256, 128>(p);
-    stage::<256, 64>(p);
-    stage::<256, 32>(p);
-    stage::<256, 16>(p);
-    stage::<256, 8>(p);
-    stage::<256, 4>(p);
-    stage::<256, 2>(p);
-    stage::<256, 1>(p);
-    stage::<512, 256>(p);
-    stage::<512, 128>(p);
-    stage::<512, 64>(p);
-    stage::<512, 32>(p);
-    stage::<512, 16>(p);
-    stage::<512, 8>(p);
-    stage::<512, 4>(p);
-    stage::<512, 2>(p);
-    stage::<512, 1>(p);
+unsafe fn network<const N: usize>(p: *mut u64) {
+    stage::<N, 2, 1>(p);
+    stage::<N, 4, 2>(p);
+    stage::<N, 4, 1>(p);
+    stage::<N, 8, 4>(p);
+    stage::<N, 8, 2>(p);
+    stage::<N, 8, 1>(p);
+    stage::<N, 16, 8>(p);
+    stage::<N, 16, 4>(p);
+    stage::<N, 16, 2>(p);
+    stage::<N, 16, 1>(p);
+    stage::<N, 32, 16>(p);
+    stage::<N, 32, 8>(p);
+    stage::<N, 32, 4>(p);
+    stage::<N, 32, 2>(p);
+    stage::<N, 32, 1>(p);
+    if N >= 64 {
+        stage::<N, 64, 32>(p);
+        stage::<N, 64, 16>(p);
+        stage::<N, 64, 8>(p);
+        stage::<N, 64, 4>(p);
+        stage::<N, 64, 2>(p);
+        stage::<N, 64, 1>(p);
+    }
+    if N >= 128 {
+        stage::<N, 128, 64>(p);
+        stage::<N, 128, 32>(p);
+        stage::<N, 128, 16>(p);
+        stage::<N, 128, 8>(p);
+        stage::<N, 128, 4>(p);
+        stage::<N, 128, 2>(p);
+        stage::<N, 128, 1>(p);
+    }
+    if N >= 256 {
+        stage::<N, 256, 128>(p);
+        stage::<N, 256, 64>(p);
+        stage::<N, 256, 32>(p);
+        stage::<N, 256, 16>(p);
+        stage::<N, 256, 8>(p);
+        stage::<N, 256, 4>(p);
+        stage::<N, 256, 2>(p);
+        stage::<N, 256, 1>(p);
+    }
+    if N >= 512 {
+        stage::<N, 512, 256>(p);
+        stage::<N, 512, 128>(p);
+        stage::<N, 512, 64>(p);
+        stage::<N, 512, 32>(p);
+        stage::<N, 512, 16>(p);
+        stage::<N, 512, 8>(p);
+        stage::<N, 512, 4>(p);
+        stage::<N, 512, 2>(p);
+        stage::<N, 512, 1>(p);
+    }
 }
 /// Sorts complete u64 keys, so float score bits and tie-breaking indices are unchanged.
-/// Sentinel padding is never part of the returned 500 keys. No floating-point arithmetic.
+/// Sentinel padding is never part of the returned keys. No floating-point arithmetic.
 pub fn sort_keys(keys: &mut [u64], scratch: &mut [u64]) {
     #[cfg(target_arch = "x86_64")]
     if keys.len() == 500 && scratch.len() >= 512 && is_x86_feature_detected!("avx512f") {
         scratch[..500].copy_from_slice(keys);
         scratch[500..512].fill(u64::MAX);
         unsafe {
-            network(scratch.as_mut_ptr());
+            network::<512>(scratch.as_mut_ptr());
         }
         keys.copy_from_slice(&scratch[..500]);
         return;
     }
+    // Three fresh-process microbenchmarks found the 128-lane network faster for
+    // 100-key random, score-tied, and partitioned input. The 32-lane candidate
+    // lost on 20-key input, so that length continues to use the standard sorter.
+    // Read once, outside later hot calls; set before starting a baseline process.
+    if keys.len() == 100 {
+        static SMALL_SORT_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if *SMALL_SORT_ENABLED
+            .get_or_init(|| std::env::var("YUPEI_SMALL_SORT_BASELINE").as_deref() != Ok("1"))
+            && sort_small_keys(keys, scratch)
+        {
+            return;
+        }
+    }
     keys.sort_unstable();
+}
+
+/// Candidate for the existing 20/100-key top-k callers. Padding only fills scratch;
+/// it cannot change the selected set or the complete u64 score/index ordering.
+/// The benchmark can exercise the 20-key candidate without enabling it by default.
+pub(crate) fn sort_small_keys(keys: &mut [u64], scratch: &mut [u64]) -> bool {
+    #[cfg(target_arch = "x86_64")]
+    if is_x86_feature_detected!("avx512f") {
+        let n = match keys.len() {
+            20 if scratch.len() >= 32 => 32,
+            100 if scratch.len() >= 128 => 128,
+            _ => return false,
+        };
+        // std's sorter is already linear for monotone input. Preserve that case
+        // before selecting the fixed network; comparisons use the entire key.
+        if keys.len() == 100 {
+            if keys.is_sorted() {
+                return true;
+            }
+            if keys.windows(2).all(|pair| pair[0] >= pair[1]) {
+                keys.reverse();
+                return true;
+            }
+        }
+        scratch[..keys.len()].copy_from_slice(keys);
+        scratch[keys.len()..n].fill(u64::MAX);
+        unsafe {
+            if n == 32 {
+                network::<32>(scratch.as_mut_ptr());
+            } else {
+                network::<128>(scratch.as_mut_ptr());
+            }
+        }
+        keys.copy_from_slice(&scratch[..keys.len()]);
+        return true;
+    }
+    #[allow(unreachable_code)]
+    false
 }

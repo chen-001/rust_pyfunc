@@ -42,17 +42,43 @@ fn v5_keep(v5_names: &[String], split_names: &[String]) -> Vec<(usize, String)> 
 
 /// 列名单源：不读数据，毫秒级。与 compute_yupei_union_all 的输出列逐字一致。
 pub fn yupei_union_all_names() -> Vec<String> {
-    let mut names: Vec<String> = crate::yupei_dist::lite_names::YUPEI_DIST_LITE_NAMES
+    union_names(false)
+}
+
+pub(crate) fn union_names(trimmed: bool) -> Vec<String> {
+    let mut names: Vec<String> = union_lite_names(trimmed)
         .iter()
         .map(|s| s.to_string())
         .collect();
-    names.extend(crate::yupei_gpt::names::daily_names());
+    names.extend(union_gpt_names(trimmed));
     let split = crate::yupei_pair::split::split_factor_names(&[], &SPLIT_KS);
-    let v5 = crate::yupei_multi::multi_factor_names(&V5_KS, V5_SVD_K, Some(&v5_chains()));
+    let v5 = union_v5_names(trimmed);
     let keep = v5_keep(&v5, &split);
     names.extend(split);
     names.extend(keep.into_iter().map(|(_, n)| n));
     names
+}
+
+fn union_lite_names(trimmed: bool) -> Vec<&'static str> {
+    if trimmed {
+        crate::yupei_union_trim::lite_trim_names()
+    } else {
+        crate::yupei_dist::lite_names::YUPEI_DIST_LITE_NAMES.to_vec()
+    }
+}
+
+fn union_gpt_names(trimmed: bool) -> Vec<String> {
+    crate::yupei_gpt::names::daily_names()
+        .into_iter()
+        .filter(|name| !trimmed || !name.starts_with("yr_leadlag_"))
+        .collect()
+}
+
+fn union_v5_names(trimmed: bool) -> Vec<String> {
+    crate::yupei_multi::multi_factor_names(&V5_KS, V5_SVD_K, Some(&v5_chains()))
+        .into_iter()
+        .filter(|name| !trimmed || !crate::yupei_union_trim::v5_trimmed_out(name))
+        .collect()
 }
 
 /// 一段结果：代码、列名、行主序数值。
@@ -71,6 +97,25 @@ fn tag_err(tag: &str, e: io::Error) -> io::Error {
 
 /// 单日全市场四段因子并集。返回 (codes, names, vals 行主序 len(codes) × len(names))。
 pub fn compute_yupei_union_all(date: i64) -> io::Result<(Vec<String>, Vec<String>, Vec<f32>)> {
+    compute_union(date, false)
+}
+
+fn with_union_pool<T: Send>(
+    trimmed: bool,
+    f: impl FnOnce() -> T + Send,
+) -> io::Result<T> {
+    if trimmed {
+        // The trimmed entry already runs all four families in one capped pool.
+        Ok(f())
+    } else {
+        crate::yupei_dist::compute::with_compute_pool(f)
+    }
+}
+
+pub(crate) fn compute_union(
+    date: i64,
+    trimmed: bool,
+) -> io::Result<(Vec<String>, Vec<String>, Vec<f32>)> {
     let verbose = std::env::var("YUPEI_STAGE").is_ok();
     let t0 = std::time::Instant::now();
     let log = |tag: &str| {
@@ -83,18 +128,20 @@ pub fn compute_yupei_union_all(date: i64) -> io::Result<(Vec<String>, Vec<String
     // lite 与 split 的上游是同一个函数（读逐笔 + 每股预处理 + 行业），原来各调一次、读两遍盘。
     // 这里只调一次：28 张矩阵交给 lite，预处理结果（stocks/stats/industry）留给 split。
     let (lite_codes, n_prep, prep_stocks, prep_stats, prep_hm, prep_industry) =
-        crate::yupei_dist::compute::with_compute_pool(|| {
+        with_union_pool(trimmed, || {
             crate::yupei_dist::compute::compute_yupei_dist_partial(date)
         })
         .and_then(|r| r)
         .map_err(|e| tag_err("yupei_dist_lite", e))?;
-    let lite_vals = crate::yupei_dist::compute::with_compute_pool(|| {
-        crate::yupei_dist::compute::compute_yupei_dist_lite_from_partial(
+    let lite_names = union_lite_names(trimmed);
+    let lite_vals = with_union_pool(trimmed, || {
+        crate::yupei_dist::compute::compute_yupei_dist_lite_from_partial_named(
             &lite_codes,
             n_prep,
             prep_stats.clone(),
             prep_hm,
             prep_industry.clone(),
+            &lite_names,
         )
     })
     .and_then(|r| r)
@@ -102,27 +149,24 @@ pub fn compute_yupei_union_all(date: i64) -> io::Result<(Vec<String>, Vec<String
     let lite = Part {
         tag: "yupei_dist_lite",
         codes: lite_codes,
-        names: crate::yupei_dist::lite_names::YUPEI_DIST_LITE_NAMES
-            .iter()
-            .map(|s| s.to_string())
-            .collect(),
+        names: lite_names.iter().map(|s| s.to_string()).collect(),
         vals: lite_vals,
         pick: None,
     };
     log("yupei_dist_lite");
 
     let (gpt_codes, gpt_vals) =
-        crate::yupei_gpt::compute::compute_full(date).map_err(|e| tag_err("yupei_gpt", e))?;
+        crate::yupei_gpt::compute::compute_full_opts(date, !trimmed).map_err(|e| tag_err("yupei_gpt", e))?;
     let gpt = Part {
         tag: "yupei_gpt",
         codes: gpt_codes,
-        names: crate::yupei_gpt::names::daily_names(),
+        names: union_gpt_names(trimmed),
         vals: gpt_vals,
         pick: None,
     };
     log("yupei_gpt");
 
-    let (split_codes, split_names, split_vals) = crate::yupei_dist::compute::with_compute_pool(|| {
+    let (split_codes, split_names, split_vals) = with_union_pool(trimmed, || {
         crate::yupei_pair::split::compute_split_from_prep(
             date,
             lite.codes.clone(),
@@ -146,7 +190,7 @@ pub fn compute_yupei_union_all(date: i64) -> io::Result<(Vec<String>, Vec<String
     log("yupei_pair_split");
 
     // v5 跳过原版载体那 5 条链：它们的列与 split 同名同值，原本算完就丢（约占 v5 四分之一）。
-    let (v5_codes, v5_names, v5_vals) = crate::yupei_multi::compute_multi_full_skip_base(
+    let (v5_codes, v5_names, v5_vals) = crate::yupei_multi::compute_multi_full_skip_base_trim(
         date,
         1.0,
         "cnt",
@@ -156,6 +200,8 @@ pub fn compute_yupei_union_all(date: i64) -> io::Result<(Vec<String>, Vec<String
         10,
         V5_SVD_K,
         Some(&v5_chains()),
+        if trimmed { &crate::yupei_union_trim::V5_DROP_CHAINS } else { &[] },
+        !trimmed,
     )
     .map_err(|e| tag_err("yupei_multi_v5", e))?;
     log("yupei_multi_v5");
@@ -172,7 +218,7 @@ pub fn compute_yupei_union_all(date: i64) -> io::Result<(Vec<String>, Vec<String
             ),
         ));
     }
-    let full_v5 = crate::yupei_multi::multi_factor_names(&V5_KS, V5_SVD_K, Some(&v5_chains()));
+    let full_v5 = union_v5_names(trimmed);
     let expect: Vec<String> = v5_keep(&full_v5, &split_names).into_iter().map(|(_, n)| n).collect();
     if expect != v5_names {
         return Err(io::Error::new(

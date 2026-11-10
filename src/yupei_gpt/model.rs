@@ -94,4 +94,6 @@ pub struct Config {
     /// 显式测试股票子集，None=全部白名单。不得按行号隐式截断。
     pub codes: Option<Vec<String>>,
     pub chains: Vec<String>,
+    /// 是否算 36 列 leadlag（默认 true）。四合一关掉：单独回测无一入选。
+    pub with_leadlag: bool,
 }

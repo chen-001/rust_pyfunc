@@ -833,7 +833,7 @@ pub fn compute_multi_full(
     svd_k: usize,
     chains: Option<&[String]>,
 ) -> io::Result<(Vec<String>, Vec<String>, Vec<f32>)> {
-    compute_multi_full_impl(date, tau, weight, ks, sig, null_mc, exz_bins, svd_k, chains, false)
+    compute_multi_full_impl(date, tau, weight, ks, sig, null_mc, exz_bins, svd_k, chains, false, &[], true)
 }
 
 /// 同 compute_multi_full，但跳过「原版载体」（列名前缀为空）那一套链。
@@ -851,7 +851,29 @@ pub fn compute_multi_full_skip_base(
     svd_k: usize,
     chains: Option<&[String]>,
 ) -> io::Result<(Vec<String>, Vec<String>, Vec<f32>)> {
-    compute_multi_full_impl(date, tau, weight, ks, sig, null_mc, exz_bins, svd_k, chains, true)
+    compute_multi_full_impl(date, tau, weight, ks, sig, null_mc, exz_bins, svd_k, chains, true, &[], true)
+}
+
+/// 供 yupei_union_all 精简版用：在 skip_base 基础上，再按 (载体前缀, 链名) 跳过指定链
+/// （如 ("or_", "sppma")），with_lead=false 时不算 6 列 ld_AA_*（同时省掉只给它用的原版四分量矩阵）。
+/// 其余列逐位不变：每条链互相独立，跳过一条不影响别的链。
+#[allow(clippy::too_many_arguments)]
+pub fn compute_multi_full_skip_base_trim(
+    date: i64,
+    tau: f64,
+    weight: &str,
+    ks: &[usize],
+    sig: SoftCfg,
+    null_mc: usize,
+    exz_bins: usize,
+    svd_k: usize,
+    chains: Option<&[String]>,
+    drop_chains: &[(&str, &str)],
+    with_lead: bool,
+) -> io::Result<(Vec<String>, Vec<String>, Vec<f32>)> {
+    compute_multi_full_impl(
+        date, tau, weight, ks, sig, null_mc, exz_bins, svd_k, chains, true, drop_chains, with_lead,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -866,6 +888,8 @@ fn compute_multi_full_impl(
     svd_k: usize,
     chains: Option<&[String]>,
     skip_base_chains: bool,
+    drop_chains: &[(&str, &str)],
+    with_lead: bool,
 ) -> io::Result<(Vec<String>, Vec<String>, Vec<f32>)> {
     let total_started = std::time::Instant::now();
     let stage_enabled = std::env::var("YUPEI_STAGE").is_ok();
@@ -963,6 +987,8 @@ fn compute_multi_full_impl(
         let mut other_m4: Option<[Vec<f32>; 4]> = None;
         match mode {
             // 基础矩阵在四套载体计算后继续用于领先度，避免重算。
+            // 原版载体的链已跳过且不要领先度时，原版矩阵没人用，不算。
+            CellMode::Base if skip_base_chains && !with_lead => {}
             CellMode::Base => base_m4 = Some(compute_split_mats_simd(cells, tau as f32, w)),
             CellMode::Order => order_m4 = Some(compute_split_mats_simd(cells, tau as f32, w)),
             CellMode::OrderSide => {
@@ -983,6 +1009,25 @@ fn compute_multi_full_impl(
             stage(&format!("carrier_{}", mode.tag()), carrier_started);
             continue;
         }
+        // 本载体要跳过的链：从链名单里去掉（链名写 "sppma" 或 "pma" 都认）
+        let all_chains: Vec<String> = match chains {
+            Some(c) => c.to_vec(),
+            None => V5_CHAINS.iter().map(|s| s.to_string()).collect(),
+        };
+        let mode_chains: Vec<String> = all_chains
+            .into_iter()
+            .filter(|c| {
+                let short = c.strip_prefix("sp").unwrap_or(c);
+                !drop_chains.iter().any(|(tag, d)| {
+                    *tag == mode.tag() && (d.strip_prefix("sp").unwrap_or(d) == short)
+                })
+            })
+            .collect();
+        let chains_arg: Option<&[String]> = if drop_chains.is_empty() {
+            chains
+        } else {
+            Some(mode_chains.as_slice())
+        };
         let (ns, cs) = run_chains(
             cells,
             n,
@@ -996,7 +1041,7 @@ fn compute_multi_full_impl(
             null_mc,
             exz_bins,
             mode.tag(),
-            chains,
+            chains_arg,
             cached_m4,
         )?;
         names.extend(ns);
@@ -1006,9 +1051,11 @@ fn compute_multi_full_impl(
 
     // ---- 4. 领先度（矩阵层相减）与横截面分解 ----
     let lead_started = std::time::Instant::now();
-    let (ln, lc) = lead_factors(base_m4.as_ref().expect("base matrix computed"), n);
-    names.extend(ln);
-    cols.extend(lc);
+    if with_lead {
+        let (ln, lc) = lead_factors(base_m4.as_ref().expect("base matrix computed"), n);
+        names.extend(ln);
+        cols.extend(lc);
+    }
     drop(base_m4);
     stage("lead", lead_started);
     let svd_started = std::time::Instant::now();

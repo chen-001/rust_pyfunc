@@ -885,8 +885,37 @@ fn clustering(n: usize, adj: &BitMat, i: usize) -> f64 {
     linked as f64 / (d * (d - 1) / 2) as f64
 }
 
+// BEGIN PAIR_BITSET_ROW_OVERLAP
+/// Count one row's intersection/union without expanding its packed bits.
+/// Rows share boundary words when n is not divisible by 64, so both ends must
+/// be masked exactly as BitMat::deg does. This is integer-only and preserves
+/// the old per-column get(i, j) counts, including the diagonal when it is set.
+#[inline]
+fn bitset_row_overlap_union(a: &[u64], b: &[u64], n: usize, i: usize) -> (usize, usize) {
+    let lo = i * n;
+    let hi = lo + n;
+    let first = lo >> 6;
+    let end = (hi + 63) >> 6;
+    let mut inter = 0usize;
+    let mut union = 0usize;
+    for word in first..end {
+        let mut mask = u64::MAX;
+        if word == first && lo % 64 != 0 {
+            mask &= u64::MAX << (lo % 64);
+        }
+        if word == end - 1 && hi % 64 != 0 {
+            mask &= u64::MAX >> (64 - hi % 64);
+        }
+        inter += ((a[word] & b[word]) & mask).count_ones() as usize;
+        union += ((a[word] | b[word]) & mask).count_ones() as usize;
+    }
+    (inter, union)
+}
+// END PAIR_BITSET_ROW_OVERLAP
+
 fn block_r4(ms: &MatSet, pre: &str, n: usize, ok: &[bool], graph_rows: (&[Vec<u32>], &[Vec<u32>]), out: &mut Out) {
     let t0 = Instant::now();
+    let bits_baseline = std::env::var("YUPEI_R4_BITS_BASELINE").as_deref() == Ok("1");
     let ks = [5usize, 10, 20, 50, 100];
     let graphs: Vec<(&'static str, &[f32])> = vec![
         ("rho", &ms.rho[..]),
@@ -942,13 +971,18 @@ fn block_r4(ms: &MatSet, pre: &str, n: usize, ok: &[bool], graph_rows: (&[Vec<u3
                 if !ok[i] {
                     return;
                 }
-                let mut inter = 0usize;
-                let mut uni = 0usize;
-                for j in 0..n {
-                    let (a, b) = (ar.get(i, j), ag.get(i, j));
-                    inter += (a && b) as usize;
-                    uni += (a || b) as usize;
-                }
+                let (inter, uni) = if bits_baseline {
+                    let mut inter = 0usize;
+                    let mut uni = 0usize;
+                    for j in 0..n {
+                        let (a, b) = (ar.get(i, j), ag.get(i, j));
+                        inter += (a && b) as usize;
+                        uni += (a || b) as usize;
+                    }
+                    (inter, uni)
+                } else {
+                    bitset_row_overlap_union(&ar.bits, &ag.bits, n, i)
+                };
                 *o = inter as f64 / *k as f64;
                 if uni > 0 {
                     *j2 = inter as f64 / uni as f64;

@@ -238,6 +238,9 @@ fn scan_pairs(
         None
     };
     let write_rev = rev.is_some() || symmetric;
+    // Benchmark-only switch, read once per family rather than per pair.
+    let sort_selected = std::env::var_os("YUPEI_GPT_SORT_BASELINE").as_deref()
+        == Some(std::ffi::OsStr::new("1"));
     let fwd_scatter = Scatter {
         ptr: fwd.as_mut_ptr(),
     };
@@ -277,7 +280,7 @@ fn scan_pairs(
                     let (wi, wj) = ((sa[i] / d) as f32, (sb[j] / d) as f32);
                     let pi = &p[i * n..(i + 1) * n];
                     let qj = &q[j * n..(j + 1) * n];
-                    let (_mh, mg, sh, sg, _sq, npos) =
+                    let (mg, sh, sg, npos) =
                         simd::fused_hg_stats(&mut hb, &mut gb, wi, wj, pi, qj, addm, i, j);
                     let ht = 20.min(nv);
                     let gt = 100.min(nv);
@@ -303,6 +306,7 @@ fn scan_pairs(
                         &mut gk,
                         &mut midg,
                         mass,
+                        sort_selected,
                     );
                     let x = code_order[hk[0] as u32 as usize];
                     let h = hb[x];

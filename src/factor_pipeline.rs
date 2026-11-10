@@ -2844,6 +2844,25 @@ pub fn pipeline_yupei_union_all(date: i64, expected_len: usize) -> Vec<TaskResul
     }
 }
 
+/// 玉佩四合一精简版，固定 18758 列。Python 与 worker 使用同一个核心。
+pub fn pipeline_yupei_union_trim(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    if expected_len != crate::yupei_union_trim::N_FACTORS {
+        eprintln!("yupei_union_trim error [{date}]: expected_result_length={expected_len}");
+        return Vec::new();
+    }
+    match crate::yupei_union_trim::compute_yupei_union_trim(date) {
+        Ok((codes, _, vals)) => codes
+            .into_iter()
+            .zip(vals.chunks_exact(expected_len))
+            .map(|(code, facs)| TaskResult { date, code, timestamp: 0, facs: facs.to_vec() })
+            .collect(),
+        Err(e) => {
+            eprintln!("yupei_union_trim error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
 /// 寻找玉佩-多种同步度（v5 定稿版）横截面 pipeline：四套载体 × 五条方向组合 = 12914 列。
 /// 参数固定为 py_yupei_multi_v5 的默认值（tau=1.0s、weight=cnt、ks=[5,20]、svd_k=8、
 /// 软阈值 0.3/2.0、null_mc=20000、exz_bins=10），保证列序与 py_yupei_multi_v5 一致。
@@ -3633,6 +3652,14 @@ pub fn run_factor_pipeline_cross_section(
             crate::relaynet_six_people::n_factors(), expected_result_length
         )));
     }
+    if pipeline == "yupei_union_trim"
+        && expected_result_length != crate::yupei_union_trim::N_FACTORS
+    {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "yupei_union_trim 需要 {} 个因子，expected_result_length={expected_result_length}",
+            crate::yupei_union_trim::N_FACTORS,
+        )));
+    }
     let pipeline_name = pipeline.to_string();
     let known = [
         "relaynet_six_people",
@@ -3649,6 +3676,7 @@ pub fn run_factor_pipeline_cross_section(
         "yupei_gpt_temporal",
         "yupei_multi_v5",
         "yupei_union_all",
+        "yupei_union_trim",
         "pair_interaction",
         "urgency",
         "urgency_ext_cluster",

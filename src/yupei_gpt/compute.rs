@@ -63,6 +63,7 @@ fn default_config(date: i64) -> Config {
         allow_uncomputable_corr: true,
         codes: None,
         chains: CHAINS.iter().map(|s| s.to_string()).collect(),
+        with_leadlag: true,
     }
 }
 
@@ -190,9 +191,14 @@ pub fn compute_daily(config: &Config) -> io::Result<DailyCore> {
     columns.extend(extensions::interaction_columns(&columns, n));
     times.insert("price_and_contrasts".into(), timer.elapsed().as_secs_f64());
     let timer = Instant::now();
-    columns.extend(leadlag::leadlag_columns(&stocks)?);
+    if config.with_leadlag {
+        columns.extend(leadlag::leadlag_columns(&stocks)?);
+    }
     times.insert("leadlag".into(), timer.elapsed().as_secs_f64());
     times.insert("total_compute".into(), total.elapsed().as_secs_f64());
+    if std::env::var_os("YUPEI_STAGE").is_some() {
+        eprintln!("[gpt-stage] {:?}", times);
+    }
     let snapshot = Snapshot {
         schema: SCHEMA.into(),
         config_hash: hash,
@@ -247,7 +253,14 @@ fn write_snapshot(dir: &std::path::Path, snap: &Snapshot) -> io::Result<()> {
 /// pipeline 主入口：一天全市场，491 列（无历史列）。顺手把瘦身快照写入
 /// snap_dir（若设置），供 yupei_gpt_temporal 第二阶段使用。
 pub fn compute_full(date: i64) -> io::Result<(Vec<String>, Vec<f32>)> {
-    let config = default_config(date);
+    compute_full_opts(date, true)
+}
+
+/// 同 compute_full；with_leadlag=false 时不算末尾 36 列 leadlag（其余列逐位不变，
+/// 快照内容也不变——快照只存 SLIM_BASES，不含 leadlag）。
+pub fn compute_full_opts(date: i64, with_leadlag: bool) -> io::Result<(Vec<String>, Vec<f32>)> {
+    let mut config = default_config(date);
+    config.with_leadlag = with_leadlag;
     let core = compute_daily(&config)?;
     if let Some(dir) = &config.snap_dir {
         write_snapshot(dir, &core.snapshot)?;

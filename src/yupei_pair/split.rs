@@ -29,7 +29,9 @@ use rayon::prelude::*;
 
 use super::check::check_net;
 use super::net::{net_one_mat, SplitRho};
-use super::reduce::{matset_from_net, produce_one_mat, MatSet, Out, SoftCfg};
+use super::reduce::{
+    matset_from_net, prepare_shared_rho_reduce, produce_one_mat, produce_one_mat_shared, MatSet, Out, SoftCfg,
+};
 use super::split_mat::{compute_split_mats, PmWeight, MM, MP, PM, PP};
 use super::topk::{finalize_total, topk_one_mat};
 
@@ -203,9 +205,10 @@ pub(crate) fn compute_split_from_prep(
     exz_bins: usize,
 ) -> io::Result<(Vec<String>, Vec<String>, Vec<f32>)> {
     let t_all = std::time::Instant::now();
+    let stage_enabled = std::env::var("YUPEI_STAGE").is_ok();
     // ---- 2. 四分量矩阵 ----
     let m4 = compute_split_mats(stocks, tau as f32, weight);
-    if std::env::var("YUPEI_STAGE").is_ok() {
+    if stage_enabled {
         eprintln!("[split-stage] m4 {:.2}s", t_all.elapsed().as_secs_f64());
     }
     if super::verbose() {
@@ -257,6 +260,7 @@ pub(crate) fn compute_split_from_prep(
     // ---- 3b. 预计算 9 种方向组合的 rho（15 条链共用）----
     // 每条链原本要现算 rbx/rcx/rbc 三张（各 O(n²)，一张 n=5153 约 106MB），
     // 而 15 条链实际只用到 9 种 (行方向, 列方向) 组合 → 45 次构造降到 9 次。
+    let t_rho = std::time::Instant::now();
     let dirs = [D_ALL, D_P, D_M];
     let mut rho_cache: Vec<Vec<f32>> = Vec::with_capacity(9);
     for &a in dirs.iter() {
@@ -268,6 +272,9 @@ pub(crate) fn compute_split_from_prep(
         dirs.iter().position(|&x| x == a).unwrap_or(0) * 3
             + dirs.iter().position(|&x| x == b).unwrap_or(0)
     };
+    if stage_enabled {
+        eprintln!("[split-stage] rho {:.6}s", t_rho.elapsed().as_secs_f64());
+    }
     if super::verbose() {
         eprintln!(
             "[yupei_split] 9 张方向 rho 预计算完成 {:.1}s",
@@ -275,6 +282,42 @@ pub(crate) fn compute_split_from_prep(
         );
     }
 
+    // R2/R3 use only the (B, C) direction pair. Prepare each repeated pair once,
+    // using the same f32 fake_sdir round trip as the chain's original path.
+    // This follows multi::run_chains; initialization stays outside chain workers.
+    let t_shared = std::time::Instant::now();
+    let share_reduce = std::env::var("YUPEI_SPLIT_REDUCE_BASELINE").as_deref() != Ok("1");
+    let mut uses = [0usize; 9];
+    for &(a, b, _, _) in &jobs {
+        uses[ridx(a, b)] += 1;
+    }
+    let shared_reduce: Vec<_> = (0..9usize)
+        .into_par_iter()
+        .map(|key| {
+            if !share_reduce || uses[key] < 2 {
+                return None;
+            }
+            let (a, b) = (dirs[key / 3], dirs[key % 3]);
+            let e_a = energy(&m4, n, a);
+            let mut rho_sym = rho_cache[ridx(a, b)].clone();
+            for i in 0..n {
+                for j in 0..i {
+                    rho_sym[i * n + j] = rho_sym[j * n + i];
+                }
+            }
+            let sdir = fake_sdir(&e_a, &rho_sym, n);
+            let mask: Vec<bool> = e_a.iter().map(|&v| v > 0.0).collect();
+            Some(prepare_shared_rho_reduce(&sdir, n, &mask))
+        })
+        .collect();
+    if stage_enabled {
+        eprintln!(
+            "[split-stage] shared_rho_reduce {:.6}s groups {}",
+            t_shared.elapsed().as_secs_f64(),
+            shared_reduce.iter().filter(|x| x.is_some()).count()
+        );
+    }
+    let t_chains = std::time::Instant::now();
     let results: Vec<ChainOut> = jobs
         .par_iter()
         .map(|(a, b, c_dir, label)| {
@@ -304,6 +347,7 @@ pub(crate) fn compute_split_from_prep(
                 c_row: rcx.as_slice(),
                 bc: rbc.as_slice(),
             };
+            let t_net = std::time::Instant::now();
             let mut net = net_one_mat(
                 &sdir,
                 n,
@@ -316,6 +360,8 @@ pub(crate) fn compute_split_from_prep(
                 Some(ks),
                 Some((&sp, &e_a, &e_b)),
             );
+            let net_s = t_net.elapsed().as_secs_f64();
+            let t_check = std::time::Instant::now();
             let fails = check_net(&net, n, &mask, label);
             if fails > 0 {
                 return Err(io::Error::new(
@@ -325,11 +371,16 @@ pub(crate) fn compute_split_from_prep(
             }
             let tk_total = net.topk_total.take();
             let ms = matset_from_net(net, n);
+            let check_s = t_check.elapsed().as_secs_f64();
             let mut out = Out::new();
             let pre = format!("{label}_");
-            produce_one_mat(
-                &ms, &pre, n, &mask, industry_opt, lnt_opt, has_lnt, sig, &mut out,
+            let t_produce = std::time::Instant::now();
+            produce_one_mat_shared(
+                &ms, &pre, n, &mask, industry_opt, lnt_opt, has_lnt,
+                shared_reduce[ridx(a, b)].as_ref(), sig, &mut out,
             );
+            let produce_s = t_produce.elapsed().as_secs_f64();
+            let t_topk = std::time::Instant::now();
             let (tn, tc) = match tk_total {
                 Some(t) => finalize_total(&t, n, &mask, ks, &pre),
                 None => topk_one_mat(&ms.rho, &ms.e, n, &mask, ks, &pre),
@@ -342,14 +393,24 @@ pub(crate) fn compute_split_from_prep(
                 .map(|c| c.into_iter().map(|v| v as f32).collect())
                 .collect();
             cols.extend(tc);
+            if stage_enabled {
+                eprintln!(
+                    "[split-chain] name={label} net={net_s:.6} check={check_s:.6} produce={produce_s:.6} topk={:.6}",
+                    t_topk.elapsed().as_secs_f64()
+                );
+            }
             if super::verbose() {
                 eprintln!("[yupei_split:{label}] {} 列（活跃 {n_stocks}/{n}）", names.len());
             }
             Ok((label.clone(), names, cols))
         })
         .collect();
+    if stage_enabled {
+        eprintln!("[split-stage] chains {:.6}s", t_chains.elapsed().as_secs_f64());
+    }
 
     // ---- 5. 按 jobs 顺序拼接 ----
+    let t_assemble = std::time::Instant::now();
     let mut names: Vec<String> = Vec::new();
     let mut cols: Vec<Vec<f32>> = Vec::new();
     for r in results {
@@ -367,6 +428,10 @@ pub(crate) fn compute_split_from_prep(
             row[j] = col[i];
         }
     });
+    if stage_enabled {
+        eprintln!("[split-stage] assemble {:.6}s", t_assemble.elapsed().as_secs_f64());
+        eprintln!("[split-stage] total {:.6}s", t_all.elapsed().as_secs_f64());
+    }
     if super::verbose() {
         eprintln!(
             "[yupei_split] 完成：{} 股票 × {} 因子，总 {:.1}s",

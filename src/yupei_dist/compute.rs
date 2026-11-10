@@ -96,6 +96,7 @@ pub fn compute_yupei_dist_partial_need(
     HashMap<String, Vec<f32>>,
     Vec<i16>,
 )> {
+    let stage_read = std::time::Instant::now();
     // ---- 1. 代码枚举（cross-section 标准口径：symbol_map 股票 ∩ 当日 L2 文件，升序）----
     let codes = crate::data_paths::list_stock_codes(date, "transaction");
     let day_start_us = day_start_us_of(date);
@@ -120,8 +121,16 @@ pub fn compute_yupei_dist_partial_need(
     let codes_out: Vec<String> = stocks.iter().map(|s| s.code.clone()).collect();
     let n = codes_out.len();
 
+    if std::env::var("YUPEI_STAGE").is_ok() {
+        eprintln!("[lite-stage] read_parse_prepare {:.6}s stocks={} threads={}",
+            stage_read.elapsed().as_secs_f64(), n, rayon::current_num_threads());
+    }
     // ---- 3. 28 张矩阵 + 统计量 ----
+    let t_m = std::time::Instant::now();
     let (mats, stats) = compute_matrices(&stocks, need);
+    if std::env::var("YUPEI_STAGE").is_ok() {
+        eprintln!("[lite-stage] matrices {:.2}s", t_m.elapsed().as_secs_f64());
+    }
     let mut hm: HashMap<String, Vec<f32>> = HashMap::with_capacity(MATRIX_SPECS.len());
     for (m, spec) in mats.into_iter().zip(MATRIX_SPECS.iter()) {
         // 只把请求的家族搬进 hm：move 零拷贝，省掉 15 张（约 1.56 GB）的整块克隆
@@ -246,12 +255,29 @@ pub fn yupei_dist_names() -> Vec<String> {
 // 本函数负责把幸存者收集并与静态名单对账（缺列/多列都报错）。
 
 pub fn run_indicators_lite(ctx: &IndicatorCtx, n: usize) -> std::io::Result<Vec<f32>> {
-    use super::lite_names::YUPEI_DIST_LITE_NAMES as LITE;
+    run_indicators_named(ctx, n, &super::lite_names::YUPEI_DIST_LITE_NAMES)
+}
+
+/// 同 run_indicators_lite，但幸存列名单由调用方给（必须与 ctx 的 keep 集合一致），
+/// 输出列按该名单顺序排列。四合一用它只算回测里有入选的那部分列。
+pub fn run_indicators_named(
+    ctx: &IndicatorCtx,
+    n: usize,
+    LITE: &[&'static str],
+) -> std::io::Result<Vec<f32>> {
     // 模块间并行（同 run_indicators）：percolation 55s 的串行段是最大头，
     // 并行后 39 个模块同时跑，重模块内部再按矩阵并行。
+    let stage = std::env::var("YUPEI_STAGE").is_ok();
     let per_mod: Vec<Vec<super::indicator_ctx::IndicatorResult>> = super::indicators::all()
         .into_par_iter()
-        .map(|def| (def.compute)(ctx))
+        .map(|def| {
+            let t = std::time::Instant::now();
+            let r = (def.compute)(ctx);
+            if stage {
+                eprintln!("[lite-mod] {} {:.2}s cols={}", def.name, t.elapsed().as_secs_f64(), r.len());
+            }
+            r
+        })
         .collect();
     let mut names: Vec<String> = Vec::with_capacity(LITE.len());
     let mut cols: Vec<Vec<f32>> = Vec::with_capacity(LITE.len());
@@ -376,6 +402,28 @@ pub fn compute_yupei_dist_lite_from_partial(
         super::lite_names::YUPEI_DIST_LITE_NAMES.iter().copied().collect();
     let ctx = IndicatorCtx::with_keep(&set, None, keep);
     run_indicators_lite(&ctx, n)
+}
+
+/// 同 compute_yupei_dist_lite_from_partial，只算 names 里的列（names 须是 741 列名单的子集），
+/// 输出按 names 顺序。各模块对没有幸存列的矩阵整张跳过，所以列越少算得越快。
+pub fn compute_yupei_dist_lite_from_partial_named(
+    codes_out: &[String],
+    n: usize,
+    stats: Vec<crate::yupei_dist::matrix_stage::StockStats>,
+    hm: HashMap<String, Vec<f32>>,
+    industry: Vec<i16>,
+    names: &[&'static str],
+) -> std::io::Result<Vec<f32>> {
+    let set = MatrixSet {
+        n,
+        codes: codes_out.to_vec(),
+        stats,
+        mats: hm,
+        industry: Some(industry),
+    };
+    let keep: std::collections::HashSet<&'static str> = names.iter().copied().collect();
+    let ctx = IndicatorCtx::with_keep(&set, None, keep);
+    run_indicators_named(&ctx, n, names)
 }
 
 /// Python: 精简版因子（741 列）。返回 (codes, names, vals)。

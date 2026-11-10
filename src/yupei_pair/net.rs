@@ -227,6 +227,14 @@ pub(crate) fn net_one_mat(
     split: Option<(&SplitRho, &[f64], &[f64])>,
 ) -> NetMats {
     let t0 = std::time::Instant::now();
+    let total_started = t0;
+    let stage_enabled = std::env::var("YUPEI_STAGE").is_ok();
+    let stage = |name: &str, started: std::time::Instant| {
+        if stage_enabled {
+            eprintln!("[net-stage] name={mat_name} stage={name} seconds={:.6}",
+                started.elapsed().as_secs_f64());
+        }
+    };
     // ---- E_i = 2 * S_dir[i][i] ----
     let e: Vec<f64> = (0..n).map(|i| 2.0 * sdir[i * n + i] as f64).collect();
     let n_bad = e.iter().filter(|&&v| !(v > 0.0)).count();
@@ -290,6 +298,8 @@ pub(crate) fn net_one_mat(
     let mass_vectors: Vec<f32>;
     let mut topk_total: Option<TopkAcc>;
     let mirror_output = std::env::var("YUPEI_NET_MIRROR").as_deref() != Ok("0");
+    stage("setup", t0);
+    let scan_started = std::time::Instant::now();
     {
         let sh = Shared {
             g: g.as_mut_ptr(),
@@ -341,7 +351,12 @@ pub(crate) fn net_one_mat(
         } else {
             None
         };
-        type Mass = (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>, u64, Vec<TopkAcc>);
+        // Exact batching by default; 1 retains the original per-pair path for
+        // comparison. Pair order and the original reduction blocks stay fixed.
+        let mass_batch4 = std::env::var("YUPEI_PAIR_MASS_BATCH").as_deref() != Ok("1");
+        let mass_capacity = if mass_batch4 { 4 } else { 1 };
+        type Mass = (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>, u64, Vec<TopkAcc>, [u64; 4]);
+        let pairs_started = std::time::Instant::now();
         let parts: Vec<Mass> = bounds
             .par_iter()
             .map(|&(b0, b1)| {
@@ -353,8 +368,13 @@ pub(crate) fn net_one_mat(
                 let mut sgm = vec![0.0f32; n];
                 let mut sg2m = vec![0.0f32; n];
                 let mut npair = 0u64;
-                let mut hb = vec![0.0f32; n];
-                let mut gb = vec![0.0f32; n];
+                let mut h_batch = vec![0.0f32; mass_capacity * n];
+                let mut g_batch = vec![0.0f32; mass_capacity * n];
+                let mut mass_scales = [crate::yupei_pair_mass_batch::PairScale {
+                    invh: 1.0, invg: 1.0, do_h: false, do_g: false,
+                }; 4];
+                let mut pending_mass = 0usize;
+                let mut mass_flags = [0u64; 4];
                 // topk 的块内缓冲（热路径上不再分配）
                 let mut kh: Vec<u64> = vec![0u64; n];
                 let mut kg: Vec<u64> = vec![0u64; n];
@@ -402,12 +422,17 @@ pub(crate) fn net_one_mat(
                         let wb = (sb / d) as f32;
                         let wc = (sc / d) as f32;
                         let q = &pc_ref[c * n..c * n + n];
-                        // 一趟算完 h/g（b、c 位置写 -inf），同时累计两个最大值与
-                        // pos_stats 的三个和 + 计数（原来要 fill_h/fill_gap/两次取最大/统计五趟）
-                        let (mx_h, _mx_g, sh_pos, sg_pos, sqg_pos, npos) = simd::fused_hg_stats(
-                            &mut hb, &mut gb, wb, wc, p, q, &addm, b, c,
+                        // Failed/empty pairs reuse this uncommitted slot. Full
+                        // h/g, TopK and pair matrix outputs are computed now.
+                        let slot = pending_mass * n;
+                        let hb = &mut h_batch[slot..slot + n];
+                        let gb = &mut g_batch[slot..slot + n];
+                        // 一趟算完 h/g（b、c 位置写 -inf）及原顺序的三个和 + 计数。
+                        // 此处只需要是否有有效值；省去后续不消费的两个最大值归约。
+                        let (any_valid, sh_pos, sg_pos, sqg_pos, npos) = crate::yupei_pair_scan_stats::fused_hg_stats_no_max(
+                            hb, gb, wb, wc, p, q, &addm, b, c,
                         );
-                        if mx_h == f32::NEG_INFINITY {
+                        if !any_valid {
                             if let Some(t) = tacc.as_mut() { t.skipped += 1; }
                             // No valid explanation: retain -1 winner sentinels and undefined scores.
                             unsafe {
@@ -501,28 +526,54 @@ pub(crate) fn net_one_mat(
                             put(sh.qcs, qcs);
                         }
                         npair += 1;
-                        // h 口径与 gap 口径的六个矩数组并成一趟（原来扫两遍）
-                        simd::mass_acc_hg(
-                            &mut em, &mut gm, &mut g2m,
-                            &mut sm, &mut sgm, &mut sg2m,
-                            &hb, &gb,
-                            // 归一化分母设下限: gap 口径的 Σrelu(g) 可能极小
-                            // （方向拆分下有些配对的"超额解释"整体接近 0），
-                            // 1/极小值会溢出成 inf，污染整列 mass。
-                            if sh_pos > MASS_EPS { 1.0 / sh_pos } else { 1.0 },
-                            if sg_pos > MASS_EPS { 1.0 / sg_pos } else { 1.0 },
-                            sh_pos > MASS_EPS,
-                            sg_pos > MASS_EPS,
-                        );
+                        // Compute the original guarded inverses at exactly
+                        // the old mass-call position, then preserve pair order.
+                        let scale = crate::yupei_pair_mass_batch::PairScale {
+                            invh: if sh_pos > MASS_EPS { 1.0 / sh_pos } else { 1.0 },
+                            invg: if sg_pos > MASS_EPS { 1.0 / sg_pos } else { 1.0 },
+                            do_h: sh_pos > MASS_EPS,
+                            do_g: sg_pos > MASS_EPS,
+                        };
+                        if stage_enabled {
+                            mass_flags[scale.do_h as usize | ((scale.do_g as usize) << 1)] += 1;
+                        }
+                        if mass_batch4 {
+                            mass_scales[pending_mass] = scale;
+                            pending_mass += 1;
+                            if pending_mass == 4 {
+                                crate::yupei_pair_mass_batch::mass_acc_hg_batch4(
+                                    &mut em, &mut gm, &mut g2m, &mut sm, &mut sgm, &mut sg2m,
+                                    &h_batch, &g_batch, &mass_scales,
+                                );
+                                pending_mass = 0;
+                            }
+                        } else {
+                            simd::mass_acc_hg(
+                                &mut em, &mut gm, &mut g2m, &mut sm, &mut sgm, &mut sg2m,
+                                hb, gb, scale.invh, scale.invg, scale.do_h, scale.do_g,
+                            );
+                        }
                     }
                 }
+                    // Never carry pending mass across a TopK subblock or the
+                    // original Mass block; no float reduction groups change.
+                    if pending_mass != 0 {
+                        crate::yupei_pair_mass_batch::mass_acc_hg_batch4(
+                            &mut em, &mut gm, &mut g2m, &mut sm, &mut sgm, &mut sg2m,
+                            &h_batch[..pending_mass * n], &g_batch[..pending_mass * n],
+                            &mass_scales[..pending_mass],
+                        );
+                        pending_mass = 0;
+                    }
                     if let Some(a) = tacc {
                         tks.push(a);
                     }
                 }
-                (em, gm, g2m, sm, sgm, sg2m, npair, tks)
+                (em, gm, g2m, sm, sgm, sg2m, npair, tks, mass_flags)
             })
             .collect();
+        stage("scan_pairs", pairs_started);
+        let merge_started = std::time::Instant::now();
         let mut emass = vec![0.0f64; n];
         let mut gmass = vec![0.0f64; n];
         let mut g2mass = vec![0.0f64; n];
@@ -530,7 +581,8 @@ pub(crate) fn net_one_mat(
         let mut sgmass = vec![0.0f64; n];
         let mut sg2mass = vec![0.0f64; n];
         let mut npair_tot = 0u64;
-        for (em, gm, g2m, sm, sgm, sg2m, np, tks) in parts.iter() {
+        let mut mass_flags_tot = [0u64; 4];
+        for (em, gm, g2m, sm, sgm, sg2m, np, tks, flags) in parts.iter() {
             if let Some(t) = topk_total.as_mut() {
                 for a in tks.iter() {
                     t.add(a);
@@ -545,6 +597,13 @@ pub(crate) fn net_one_mat(
                 sg2mass[x] += sg2m[x] as f64;
             }
             npair_tot += np;
+            if stage_enabled {
+                for kind in 0..4 { mass_flags_tot[kind] += flags[kind]; }
+            }
+        }
+        if stage_enabled {
+            eprintln!("[mass-flags] name={mat_name} batch={mass_capacity} none={} h_only={} g_only={} both={} pairs={npair_tot}",
+                mass_flags_tot[0], mass_flags_tot[1], mass_flags_tot[2], mass_flags_tot[3]);
         }
         npair_eff = npair_tot;
         let inv_p = if npair_tot > 0 { 1.0 / npair_tot as f64 } else { f64::NAN };
@@ -555,7 +614,10 @@ pub(crate) fn net_one_mat(
             }
         }
         mass_vectors = mv;
+        stage("scan_reduce", merge_started);
     }
+    stage("scan", scan_started);
+    let mirror_started = std::time::Instant::now();
     if mirror_output {
         let started = std::time::Instant::now();
         [&mut g, &mut ru, &mut sg, &mut x0, &mut gs, &mut rus, &mut sgs,
@@ -566,6 +628,7 @@ pub(crate) fn net_one_mat(
             eprintln!("[mirror-stage] name={mat_name} seconds={:.6}", started.elapsed().as_secs_f64());
         }
     }
+    stage("mirror", mirror_started);
     if super::verbose() {
         eprintln!(
             "[net:{mat_name}] 有效配对 {npair_eff}（自能量非正 {n_bad}），扫描 {:.1}s",
@@ -662,8 +725,10 @@ pub(crate) fn net_one_mat(
             strata.iter().filter(|s| s.2 >= 30).count()
         );
     }
+    stage("null_mc", t0);
 
     // ---- Z = (G - 层均值) / 层标准差；ZS 同法，用 G* ----
+    let z_started = std::time::Instant::now();
     let mut z = vec![0.0f32; n * n];
     let mut zs = vec![0.0f32; n * n];
     for i in 0..n {
@@ -685,6 +750,7 @@ pub(crate) fn net_one_mat(
             }
         }
     }
+    stage("z", z_started);
 
     // ---- (p,q) 条件空模型：EXZ / EXZS ----
     // G 的 ~99% 方差来自 (p,q) 剖面；把分层变量换成
@@ -693,7 +759,9 @@ pub(crate) fn net_one_mat(
     let t0 = std::time::Instant::now();
     let bins = exz_bins;
     let ncell = bins * bins;
-    let cond_std = |pmat: &[f32], qmat: &[f32], wmat: &[f32]| -> Vec<f32> {
+    let sort_baseline = std::env::var("YUPEI_EXZ_SORT_BASELINE").as_deref() == Ok("1");
+    let cond_std = |kind: &str, pmat: &[f32], qmat: &[f32], wmat: &[f32]| -> Vec<f32> {
+        let collect_started = std::time::Instant::now();
         const RB: usize = 256;
         let nrb = n.div_ceil(RB);
         let uv_pairs: Vec<(Vec<f64>, Vec<f64>)> = (0..nrb)
@@ -727,12 +795,33 @@ pub(crate) fn net_one_mat(
         if m < 100 {
             return out;
         }
-        let mut su = us.clone();
-        let mut sv = vs.clone();
-        su.par_sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
-        sv.par_sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
-        let cuts_u: Vec<f64> = (1..bins).map(|k| su[(k * m / bins).min(m - 1)]).collect();
-        let cuts_v: Vec<f64> = (1..bins).map(|k| sv[(k * m / bins).min(m - 1)]).collect();
+        let collect_s = collect_started.elapsed().as_secs_f64();
+        let quantile_started = std::time::Instant::now();
+        let (cuts_u, cuts_v) = if sort_baseline {
+            let mut su = us.clone();
+            let mut sv = vs.clone();
+            su.par_sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
+            sv.par_sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
+            (
+                (1..bins).map(|k| su[(k * m / bins).min(m - 1)]).collect::<Vec<f64>>(),
+                (1..bins).map(|k| sv[(k * m / bins).min(m - 1)]).collect::<Vec<f64>>(),
+            )
+        } else {
+            // us/vs are not used again. Partition these buffers directly and
+            // release them before aggregation instead of retaining four copies.
+            let cuts = |mut values: Vec<f64>| {
+                match super::exact_quantile::exact_quantile_cuts(&mut values, bins) {
+                    Some(cuts) => cuts,
+                    None => {
+                        values.par_sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
+                        (1..bins).map(|k| values[(k * m / bins).min(m - 1)]).collect()
+                    }
+                }
+            };
+            rayon::join(|| cuts(us), || cuts(vs))
+        };
+        let quantile_s = quantile_started.elapsed().as_secs_f64();
+        let aggregate_started = std::time::Instant::now();
         let cell_of = |u: f64, v: f64| -> usize {
             let du = cuts_u.partition_point(|&c| u > c);
             let dv = cuts_v.partition_point(|&c| v > c);
@@ -783,6 +872,8 @@ pub(crate) fn net_one_mat(
                 stats[c] = (mm, sd);
             }
         }
+        let aggregate_s = aggregate_started.elapsed().as_secs_f64();
+        let output_started = std::time::Instant::now();
         out.par_chunks_mut(n).enumerate().for_each(|(i, row)| {
             for j in (i + 1)..n {
                 let pv = pmat[i * n + j] as f64;
@@ -803,11 +894,17 @@ pub(crate) fn net_one_mat(
                 out[i * n + j] = out[j * n + i];
             }
         }
+        if stage_enabled {
+            eprintln!(
+                "[net-exz-stage] name={mat_name} kind={kind} collect={collect_s:.6} quantile={quantile_s:.6} aggregate={aggregate_s:.6} output={:.6}",
+                output_started.elapsed().as_secs_f64()
+            );
+        }
         out
     };
     let (exz, exzs) = rayon::join(
-        || cond_std(&pbv, &qcv, &g),
-        || cond_std(&pbsv, &qcsv, &gs),
+        || cond_std("g", &pbv, &qcv, &g),
+        || cond_std("gs", &pbsv, &qcsv, &gs),
     );
     if super::verbose() {
         eprintln!(
@@ -816,6 +913,8 @@ pub(crate) fn net_one_mat(
             t0.elapsed().as_secs_f32()
         );
     }
+    stage("exz", t0);
+    stage("total", total_started);
 
     NetMats {
         e, rho, g, ru, sg, x0, gs, rus, sgs, x0s, z, zs,
