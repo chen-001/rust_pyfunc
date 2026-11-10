@@ -1286,11 +1286,19 @@ def tail_backtest_engine(
     io_concurrency: Optional[int] = None,
     io_batch_size: Optional[int] = None,
     io_batch_bytes: int = 67108864,
+    low_coverage_markers: Optional[List[str]] = None,
+    low_coverage_names: Optional[List[str]] = None,
 ) -> dict:
     """批量回测引擎。
 
     ic_only=True 时跳过收益回测（十分组/多空组合），只计算中性化 IC 序列与
     IC 汇总（summary 中收益字段为 0.0），用于“只按中性化 IC 选因子”的快速筛选。
+
+    low_coverage_markers / low_coverage_names：低覆盖放行（默认 None = 关闭，行为不变）。
+    因子名包含任一标记词（如 ["cxl"]）或在名单里的因子，缺失值不填中位数、只在有值股票上
+    计算，不因原始覆盖率或缺失占比被淘汰（众数、零值照常判）。用于撤单类因子：
+    2021-11-05 前沪市没有撤单，只有深市有值。各闸门读数写到
+    {cache_root}/low_coverage_audit/{因子名}.json。只支持 v8 路径。
     """
     ...
 

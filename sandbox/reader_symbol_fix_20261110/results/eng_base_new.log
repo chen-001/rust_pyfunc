@@ -1,0 +1,18 @@
+design_whatever 来源: /home/chenzongwei/design_whatever/tail_v4.py
+✅ [shared-cache] style 命中 (读盘 13.70s)
+✅ [shared-cache] neutralize 命中 (读盘 1.20s)
+✅ [shared-cache] bt_pre 命中 (读盘 0.05s)
+[shared-cache] key=9b521f24a97d8148ffbd7cef9fbeb3f1 dir=/home/chenzongwei/pythoncode/_tail_v2_shared/backtest_inputs/000852_20160104_20241231_5447_8362d8ca133753c9/_engine_shared_cache
+[2026-11-10 11:04:21] Backtest Engine 启动，待处理 3/3 个原始因子 | 累计通过 0 | 淘汰 raw_cov=0 preflight=0 ret_ic=0 未知=0 | 恢复 0 个 | 即将开始处理（n_jobs=3，实际 3 线程）...
+
+  [Engine] 第 1 次筛选完成：gap5 6 个、gap1 5 个，用时 0.1s
+  [TLQ] 分数缓存 /home/chenzongwei/rust_pyfunc/sandbox/reader_symbol_fix_20261110/results/eng_base_new/selected/tlq_scores.json（已有 0 个因子）
+[TLQ] 命中缓存 0 个、新算 3 个（本次名单 6 个，缓存共 3 个）
+[TLQ] 命中缓存 0 个、新算 0 个（本次名单 5 个，缓存共 3 个）
+[EXPORT] assort_flow_opp_t5_corr: 读 0.3s 转置 0.1s 写 0.3s
+[EXPORT] bh_flow_t5_hedge_ratio: 读 0.3s 转置 0.1s 写 0.3s
+[EXPORT] 2 个因子导出完成，总耗时 670.050218ms（n_jobs=32）
+  [TLQ] 分段口径 TLQ 严格大于 0.2：gap5 6 → 5（过门槛 5 个），gap1 5 → 4（过门槛 4 个）
+  [Engine] 从 colblk 导出 2 个 raw 因子到 /home/chenzongwei/rust_pyfunc/sandbox/reader_symbol_fix_20261110/results/eng_base_new_sel
+  [Engine] 导出完成，共 2 个 raw 因子
+入选 gap5/gap1: 5 4 ['assort_flow_opp_t5_corr_min_smooth_20', 'bh_flow_t5_hedge_ratio_max_smooth_10', 'assort_flow_opp_t5_corr_smooth_1', 'assort_flow_opp_t5_corr_std_smooth_20', 'bh_flow_t5_hedge_ratio_min_smooth_20'] ['assort_flow_opp_t5_corr_mean_smooth_5', 'bh_flow_t5_hedge_ratio_max_smooth_5', 'assort_flow_opp_t5_corr_std_smooth_10', 'bh_flow_t5_hedge_ratio_min_smooth_20']

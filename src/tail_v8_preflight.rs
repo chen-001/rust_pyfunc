@@ -169,6 +169,9 @@ pub struct PfAcc {
     nan_sum: f64,
     zero_sum: f64,
     valid_dates: usize,
+    /// 低覆盖放行（撤单类因子）：true 时缺失占比只统计、不参与通过判定与早停。
+    /// 默认 false，行为与生产逐位一致。
+    ignore_nan: bool,
 }
 
 impl PfAcc {
@@ -186,7 +189,13 @@ impl PfAcc {
             nan_sum: 0.0,
             zero_sum: 0.0,
             valid_dates: 0,
+            ignore_nan: false,
         }
+    }
+
+    /// 打开低覆盖放行：缺失占比照常累计（写进对账），但不再因它判失败或早停。
+    pub fn set_ignore_nan(&mut self, ignore: bool) {
+        self.ignore_nan = ignore;
     }
 
     /// 喂入第 [t0, t0+rows) 行（行优先、连续）。
@@ -268,7 +277,8 @@ impl PfAcc {
             return false;
         }
         let t = self.n_dates as f64;
-        if self.nan_sum / t >= self.thr_nan || self.zero_sum / t >= self.thr_zero {
+        let nan_failed = !self.ignore_nan && self.nan_sum / t >= self.thr_nan;
+        if nan_failed || self.zero_sum / t >= self.thr_zero {
             return true;
         }
         if self.count_majority && self.majority_sum / t > self.thr_maj {
@@ -290,7 +300,8 @@ impl PfAcc {
         };
         if !self.count_majority {
             return PfReport {
-                passed: zero_ratio_mean < self.thr_zero && nan_ratio_mean < self.thr_nan,
+                passed: zero_ratio_mean < self.thr_zero
+                    && (self.ignore_nan || nan_ratio_mean < self.thr_nan),
                 majority_count_mean: self.n_stocks as f64,
                 zero_ratio_mean,
                 nan_ratio_mean,
@@ -304,7 +315,7 @@ impl PfAcc {
         PfReport {
             passed: majority_count_mean <= self.thr_maj
                 && zero_ratio_mean < self.thr_zero
-                && nan_ratio_mean < self.thr_nan,
+                && (self.ignore_nan || nan_ratio_mean < self.thr_nan),
             majority_count_mean,
             zero_ratio_mean,
             nan_ratio_mean,

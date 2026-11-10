@@ -1,0 +1,8 @@
+# 大产物不进 git：合成 store、回测临时目录、pipeline 产物、原始输入、编译产物、design_whatever 导出
+results/synth_store/
+results/eng_*/
+results/pipe_*/
+synth_input/
+make_store/target/
+make_store/Cargo.lock
+dw_head/

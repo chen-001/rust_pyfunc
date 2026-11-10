@@ -39,6 +39,7 @@ fn process_single_factor(
     raw_values: Array2<f32>,
     shared: &SharedInputs,
     sc: &mut crate::tail_v8_pipeline::V8Scratch,
+    low_cov: Option<&mut crate::tail_v8_pipeline::LowCoverageAudit>,
 ) -> Result<TailTaskResult, String> {
     let force_v7 = std::env::var("TAIL_ENGINE_V7").is_ok();
     // 注：industry_neutralize=false（纯风格中性化）同样走 v8 融合路径——
@@ -49,9 +50,33 @@ fn process_single_factor(
         && shared.bt_pre.is_some()
         && shared.free_mask.is_some();
     if v8_ok {
-        crate::tail_v8_pipeline::process_task_with_values_v8(task, raw_values, shared, sc)
+        crate::tail_v8_pipeline::process_task_with_values_v8_opts(task, raw_values, shared, sc, low_cov)
+    } else if low_cov.is_some() {
+        // 低覆盖放行只在 v8 融合路径实现；退回旧路径会被悄悄填中位数，必须报错而不是静默改口径。
+        Err(format!(
+            "因子 {} 命中低覆盖放行规则，但当前走的是 v7 旧路径（TAIL_ENGINE_V7 或输入不全），旧路径不支持放行",
+            task.source_factor
+        ))
     } else {
         tail_v5_pipeline::process_task_with_values_v7(task, raw_values, shared)
+    }
+}
+
+/// 低覆盖放行规则：因子名包含任一标记词（如 "cxl"），或在显式名单里，即放行。
+/// 两者都为空 = 不放行任何因子（默认，行为逐位不变）。
+#[derive(Debug, Clone, Default)]
+struct LowCoverageRule {
+    markers: Vec<String>,
+    names: HashSet<String>,
+}
+
+impl LowCoverageRule {
+    fn is_empty(&self) -> bool {
+        self.markers.is_empty() && self.names.is_empty()
+    }
+    fn matches(&self, source_factor: &str) -> bool {
+        self.names.contains(source_factor)
+            || self.markers.iter().any(|m| source_factor.contains(m.as_str()))
     }
 }
 
@@ -99,6 +124,7 @@ fn parse_col_idx(factor_path: &str) -> Option<usize> {
     industry_matrix=None,
     ic_only=false,
     io_concurrency=None, io_batch_size=None, io_batch_bytes=67108864,
+    low_coverage_markers=None, low_coverage_names=None,
 ))]
 #[allow(clippy::too_many_arguments)]
 pub fn tail_backtest_engine<'py>(
@@ -142,7 +168,41 @@ pub fn tail_backtest_engine<'py>(
     io_concurrency: Option<usize>,
     io_batch_size: Option<usize>,
     io_batch_bytes: usize,
+    low_coverage_markers: Option<Vec<String>>,
+    low_coverage_names: Option<Vec<String>>,
 ) -> PyResult<PyObject> {
+    // 低覆盖放行（撤单类因子：2021-11-05 前沪市无撤单，只有深市有值）。默认 None = 关闭。
+    let low_cov_rule = LowCoverageRule {
+        markers: low_coverage_markers
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|m| !m.is_empty())
+            .collect(),
+        names: low_coverage_names.unwrap_or_default().into_iter().collect(),
+    };
+    let low_cov_hits: Vec<&String> =
+        factor_names.iter().filter(|n| low_cov_rule.matches(n)).collect();
+    if !low_cov_rule.is_empty() {
+        println!(
+            "  [Engine] 警告：低覆盖放行已开启（标记词 {:?}，显式名单 {} 个）。命中 {} / {} 个原始因子：\
+             这些因子缺失值不填中位数、不因覆盖率或缺失占比被淘汰，各闸门读数写入 {{cache_root}}/low_coverage_audit/",
+            low_cov_rule.markers,
+            low_cov_rule.names.len(),
+            low_cov_hits.len(),
+            factor_names.len(),
+        );
+        if let Some(missing) = low_cov_rule
+            .names
+            .iter()
+            .filter(|n| !factor_names.contains(n))
+            .min()
+        {
+            return Err(PyValueError::new_err(format!(
+                "low_coverage_names 里有不在本次因子列表中的名字（例如 {missing}），请检查拼写"
+            )));
+        }
+    }
+    let low_cov_rule = Arc::new(low_cov_rule);
     if factor_names.len() != factor_paths.len() {
         return Err(PyValueError::new_err(
             "factor_names 和 factor_paths 长度必须一致",
@@ -334,6 +394,8 @@ pub fn tail_backtest_engine<'py>(
                 let reader = reader.clone();
                 let scatter_maps = scatter_maps.clone();
                 let cache=cache.clone();let cancelled=cancelled.clone();
+                let low_cov_rule = low_cov_rule.clone();
+                let low_cov_dir = cache_root_path.join("low_coverage_audit");
                 let dates_arc = shared_clone.dates.clone();
                 let stocks_arc = shared_clone.stocks.clone();
                 handles.push(thread::spawn(move || {
@@ -377,8 +439,21 @@ pub fn tail_backtest_engine<'py>(
 
                         // 3. 完整计算流水线（rank_roll → preflight → backtest → neutralize → backtest）
                         let task_name = task.source_factor.clone();
-                        let outcome = process_single_factor(&task, raw_values, &shared_clone, &mut v8sc)
-                            .map_err(|err| (task_name, err));
+                        let mut audit = if low_cov_rule.matches(&task.source_factor) {
+                            Some(crate::tail_v8_pipeline::LowCoverageAudit::default())
+                        } else {
+                            None
+                        };
+                        let outcome = process_single_factor(
+                            &task, raw_values, &shared_clone, &mut v8sc, audit.as_mut(),
+                        )
+                        .and_then(|r| {
+                            if let Some(a) = audit.as_ref() {
+                                write_low_coverage_audit(&low_cov_dir, a)?;
+                            }
+                            Ok(r)
+                        })
+                        .map_err(|err| (task_name, err));
 
                         if tx.send(outcome).is_err() {
                             break;
@@ -546,4 +621,25 @@ pub fn tail_backtest_engine<'py>(
     }
     info.set_item("prefill_coverage", prefill_dict)?;
     Ok(info.into())
+}
+
+/// 写一个放行因子的对账文件：{cache_root}/low_coverage_audit/{因子名}.json。
+/// 内容只依赖因子数据与阈值（派生面按固定顺序），同一输入每次写出相同字节。
+fn write_low_coverage_audit(
+    dir: &Path,
+    audit: &crate::tail_v8_pipeline::LowCoverageAudit,
+) -> Result<(), String> {
+    fs::create_dir_all(dir).map_err(|e| format!("创建 low_coverage_audit 目录失败: {e}"))?;
+    let safe: String = audit
+        .source_factor
+        .chars()
+        .map(|c| if c == '/' || c == '\\' { '_' } else { c })
+        .collect();
+    let path = dir.join(format!("{safe}.json"));
+    let tmp = dir.join(format!("{safe}.json.tmp"));
+    let bytes = serde_json::to_vec_pretty(audit)
+        .map_err(|e| format!("序列化低覆盖对账失败: {e}"))?;
+    fs::write(&tmp, bytes).map_err(|e| format!("写低覆盖对账失败: {e}"))?;
+    fs::rename(&tmp, &path).map_err(|e| format!("发布低覆盖对账失败: {e}"))?;
+    Ok(())
 }

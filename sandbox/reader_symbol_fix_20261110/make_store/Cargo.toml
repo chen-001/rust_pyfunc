@@ -1,0 +1,15 @@
+[package]
+name = "make_synth_store"
+version = "0.1.0"
+edition = "2021"
+
+# 独立 crate（主 Cargo.toml 不引用），借用主项目的列式存储写入器写一份合成测试 store。
+[workspace]
+
+[dependencies]
+rust_pyfunc = { path = "../../.." }
+ndarray = "0.15"
+ndarray-npy = "0.8"
+
+[profile.release]
+opt-level = 1

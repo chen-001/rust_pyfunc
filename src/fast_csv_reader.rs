@@ -113,6 +113,48 @@ fn resolve_stock_path(date: i64, subdir: &str, filename: &str) -> std::io::Resul
     ))
 }
 
+/// 把代码字段规范成“去掉前导 0 的纯数字”，用于按数值比较股票代码。
+/// 去掉首尾空格和末尾的 ".0"/".00" 这类小数写法；不是纯数字时返回 None。
+/// 全是 0 时保留一个 "0"。
+#[inline]
+fn normalize_symbol_digits(bytes: &[u8]) -> Option<&[u8]> {
+    let mut s = bytes;
+    while let [b' ', rest @ ..] = s {
+        s = rest;
+    }
+    while let [rest @ .., b' '] = s {
+        s = rest;
+    }
+    if let Some(dot) = s.iter().position(|&b| b == b'.') {
+        if !s[dot + 1..].iter().all(|&b| b == b'0') {
+            return None;
+        }
+        s = &s[..dot];
+    }
+    if s.is_empty() || !s.iter().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let first_nonzero = s.iter().position(|&b| b != b'0').unwrap_or(s.len() - 1);
+    Some(&s[first_nonzero..])
+}
+
+/// 判断 CSV 第 0 列（symbol）是否就是本只股票。
+///
+/// 2016 年部分日期的逐笔、盘口文件把 "000001" 写成 "1"，按原始字节比会把 0 开头的
+/// 深市股票整只丢掉，所以这里按数值比较："1"、"000001"、"1.0" 都算 000001。
+/// 字节完全相同时直接返回，正常日期不多花时间。
+#[inline]
+pub(crate) fn symbol_field_matches(field: &[u8], code: &str) -> bool {
+    let code = code.as_bytes();
+    if field == code {
+        return true;
+    }
+    match (normalize_symbol_digits(field), normalize_symbol_digits(code)) {
+        (Some(a), Some(b)) => a == b,
+        _ => false,
+    }
+}
+
 /// 手写快速解析 i64（比 std::from_str 快，无 Unicode 校验开销）。
 /// 输入为纯 ASCII 数字字节切片，允许前导空格。
 #[inline]
@@ -224,7 +266,7 @@ fn parse_decimal_fast(bytes: &[u8]) -> f64 {
 ///
 /// with_retreat=false 时过滤 flag==32；exchtime 微秒整数转 epoch 秒；
 /// with_afternoon_adjust=true 时做下午时段平移（时间超出 [09:30,11:30]∪[13:00,14:57] 的行被过滤）。
-/// code/date 用于剔除混入文件的非本股票、非本日期行（symbol 列按原始字节比，date 列解析成整数再比，
+/// code/date 用于剔除混入文件的非本股票、非本日期行（symbol 列按数值比（"1" 与 "000001" 视为同一只），date 列解析成整数再比，
 /// 覆盖 "20251031" 与 "20251031.0" 两种写法）。
 #[inline]
 fn parse_line(
@@ -257,7 +299,7 @@ fn parse_line(
 
     // 非本股票 / 非本日期行直接丢（0=symbol, 2=date）。
     // date 列先解析成数值再比较：部分文件写 "20251031.0"，按字节比会误杀整份文件。
-    if fields[0] != code.as_bytes() || parse_i64_fast(fields[2]) != date {
+    if !symbol_field_matches(fields[0], code) || parse_i64_fast(fields[2]) != date {
         return None;
     }
 
@@ -684,7 +726,7 @@ fn parse_market_line(
     }
 
     // 非本股票 / 非本日期行直接丢（0=symbol, 2=date）
-    if fields[0] != code.as_bytes() || parse_i64_fast(fields[2]) != date {
+    if !symbol_field_matches(fields[0], code) || parse_i64_fast(fields[2]) != date {
         return None;
     }
 
@@ -1032,7 +1074,7 @@ fn parse_market_pair_line(line: &[u8], code: &str, date: i64) -> Option<MarketPa
     }
 
     // 非本股票 / 非本日期行直接丢（0=symbol, 2=date）
-    if fields[0] != code.as_bytes() || parse_i64_fast(fields[2]) != date {
+    if !symbol_field_matches(fields[0], code) || parse_i64_fast(fields[2]) != date {
         return None;
     }
 
@@ -1350,6 +1392,31 @@ mod tests {
     }
 
     #[test]
+    fn test_symbol_field_matches_numeric() {
+        // 2016 年部分文件把 000001 写成 1：按数值比必须认得出来
+        assert!(symbol_field_matches(b"000001", "000001"));
+        assert!(symbol_field_matches(b"1", "000001"));
+        assert!(symbol_field_matches(b"1.0", "000001"));
+        assert!(symbol_field_matches(b" 2594 ", "002594"));
+        assert!(symbol_field_matches(b"600000", "600000"));
+        // 混入的别的股票、非数字仍然要丢
+        assert!(!symbol_field_matches(b"2", "000001"));
+        assert!(!symbol_field_matches(b"10", "000001"));
+        assert!(!symbol_field_matches(b"1.5", "000001"));
+        assert!(!symbol_field_matches(b"", "000001"));
+        assert!(!symbol_field_matches(b"abc", "000001"));
+        assert!(!symbol_field_matches(b"600001", "600000"));
+        // 整行解析：代码列写成 "1" 的成交行应保留
+        let utc_sec = 34200i64 + 60 - 8 * 3600;
+        let exchtime_us = utc_sec * 1_000_000i64;
+        let line = format!(
+            "1,t,20160630,0,{},{},1,10.0,100,1000.0,66,,,0,5",
+            exchtime_us, exchtime_us
+        );
+        assert!(parse_line(line.as_bytes(), false, true, "000001", 20160630).is_some());
+    }
+
+    #[test]
     fn test_find_line_boundary() {
         let data = b"abc\ndef\nghi\njkl";
         // 从位置 5 开始找边界，应定位到第二个 \n 之后（位置 8）
@@ -1394,7 +1461,7 @@ fn parse_line_light(
         return None;
     }
     // 非本股票 / 非本日期行直接丢（0=symbol, 2=date）
-    if fields[0] != code.as_bytes() || parse_i64_fast(fields[2]) != date {
+    if !symbol_field_matches(fields[0], code) || parse_i64_fast(fields[2]) != date {
         return None;
     }
     let flag = if fields[COL_FLAG].is_empty() {
