@@ -149,6 +149,11 @@ pub mod anneal_regime_raw_excess_metrics;
 pub mod anneal_cross_peer_metrics;
 pub mod anneal_cross_peer_v2_metrics;
 pub mod anneal_cross_peer_v3_metrics;
+pub mod genedp_common;
+pub mod genedp_day_vs_day_align;
+pub mod genedp_self_repeat_align;
+pub mod genedp_mirror_align;
+pub mod genedp_buysell_fold;
 pub mod relaynet_six_people;
 pub mod cross_section_example_metrics;
 pub mod dijkstra_metrics;
@@ -1688,6 +1693,38 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(
         anneal_cross_peer_v3_metrics::py_anneal_cross_peer_v3_names,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        genedp_day_vs_day_align::py_genedp_day_vs_day_align,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        genedp_day_vs_day_align::py_genedp_day_vs_day_align_names,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        genedp_self_repeat_align::py_genedp_self_repeat_align,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        genedp_self_repeat_align::py_genedp_self_repeat_align_names,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        genedp_mirror_align::py_genedp_mirror_align,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        genedp_mirror_align::py_genedp_mirror_align_names,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        genedp_buysell_fold::py_genedp_buysell_fold,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        genedp_buysell_fold::py_genedp_buysell_fold_names,
         m
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(

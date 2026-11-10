@@ -1,0 +1,6 @@
+genedp_buysell_fold 20241231 列数 249603，含 cxl 46290
+沙箱参考: (5107, 249603)
+pipeline 用时 0.0s
+{'is_projected': True, 'storage_layout': 'direct_segments', 'direct_segment_count': 1}
+比较 2953 列（步长 100）
+逐列比较 2953 列 × 5107 股，用时 655s；不一致 0 列 []

@@ -1646,6 +1646,14 @@ __all__ = [
     "py_anneal_cross_peer_v3_names",
     "py_anneal_cross_peer_v3_profile",
     "py_anneal_cross_peer_v3_profile_names",
+    "py_genedp_day_vs_day_align",
+    "py_genedp_day_vs_day_align_names",
+    "py_genedp_self_repeat_align",
+    "py_genedp_self_repeat_align_names",
+    "py_genedp_mirror_align",
+    "py_genedp_mirror_align_names",
+    "py_genedp_buysell_fold",
+    "py_genedp_buysell_fold_names",
     "prepare_anneal_cross_peer_v3_history_from_store",
     "prepare_anneal_cross_peer_v3_history_from_h5",
 ]
@@ -1862,4 +1870,41 @@ def py_anneal_order_profile_v3_from_data(
     ask_order: "numpy.ndarray",
 ) -> List[float]:
     """无磁盘依赖入口：传入逐笔成交列数组计算第三版全部 30045 个因子。"""
+    ...
+
+
+def py_genedp_day_vs_day_align(date: int) -> Tuple[List[str], List[float]]:
+    """基因动态规划·今天对昨天（42,924 列）。单日全市场（50 线程），返回 (股票代码, 展平因子值)，每股 len(py_genedp_day_vs_day_align_names()) 列。
+    依赖撤单数据的列名含 cxl，撤单数据缺失的日子为空值。"""
+    ...
+
+def py_genedp_day_vs_day_align_names() -> List[str]:
+    """py_genedp_day_vs_day_align 的列名（与输出逐列对齐）。"""
+    ...
+
+def py_genedp_self_repeat_align(date: int) -> Tuple[List[str], List[float]]:
+    """基因动态规划·自比对找重复（30,528 列）。单日全市场（50 线程），返回 (股票代码, 展平因子值)，每股 len(py_genedp_self_repeat_align_names()) 列。
+    依赖撤单数据的列名含 cxl，撤单数据缺失的日子为空值。"""
+    ...
+
+def py_genedp_self_repeat_align_names() -> List[str]:
+    """py_genedp_self_repeat_align 的列名（与输出逐列对齐）。"""
+    ...
+
+def py_genedp_mirror_align(date: int) -> Tuple[List[str], List[float]]:
+    """基因动态规划·镜像比对（16,917 列）。单日全市场（50 线程），返回 (股票代码, 展平因子值)，每股 len(py_genedp_mirror_align_names()) 列。
+    依赖撤单数据的列名含 cxl，撤单数据缺失的日子为空值。"""
+    ...
+
+def py_genedp_mirror_align_names() -> List[str]:
+    """py_genedp_mirror_align 的列名（与输出逐列对齐）。"""
+    ...
+
+def py_genedp_buysell_fold(date: int) -> Tuple[List[str], List[float]]:
+    """基因动态规划·买卖配对折叠（249,603 列）。单日全市场（50 线程），返回 (股票代码, 展平因子值)，每股 len(py_genedp_buysell_fold_names()) 列。
+    依赖撤单数据的列名含 cxl，撤单数据缺失的日子为空值。"""
+    ...
+
+def py_genedp_buysell_fold_names() -> List[str]:
+    """py_genedp_buysell_fold 的列名（与输出逐列对齐）。"""
     ...

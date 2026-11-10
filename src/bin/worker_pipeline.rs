@@ -15,6 +15,7 @@ use rust_pyfunc::factor_pipeline::{
     ipc_read_result, ipc_read_task, ipc_write, ipc_write_result, pipeline_anneal_cross_peer,
     pipeline_anneal_cross_peer_v2,
     pipeline_anneal_cross_peer_v3, pipeline_anneal_cross_peer_v3_profile,
+    pipeline_genedp_day_vs_day_align, pipeline_genedp_self_repeat_align, pipeline_genedp_mirror_align, pipeline_genedp_buysell_fold,
     pipeline_anneal_order_profile, pipeline_anneal_order_profile_v2, pipeline_anneal_order_profile_v3, pipeline_anneal_regime_diff, pipeline_anneal_regime_excess, pipeline_anneal_regime_raw_excess, pipeline_anneal_volume,
     pipeline_anneal_volume_market, pipeline_cross_section_example, pipeline_dagpath, pipeline_dijkstra, pipeline_distill,
     pipeline_distill_tick, pipeline_drop_event, pipeline_extreme_point_fit,
@@ -279,6 +280,14 @@ fn main() {
                         pipeline_anneal_cross_peer_v3_profile(date, expected_len)
                     } else if pipeline_name == "anneal_cross_peer_v3" {
                         pipeline_anneal_cross_peer_v3(date, expected_len)
+                    } else if pipeline_name == "genedp_day_vs_day_align" {
+                        pipeline_genedp_day_vs_day_align(date, expected_len)
+                    } else if pipeline_name == "genedp_self_repeat_align" {
+                        pipeline_genedp_self_repeat_align(date, expected_len)
+                    } else if pipeline_name == "genedp_mirror_align" {
+                        pipeline_genedp_mirror_align(date, expected_len)
+                    } else if pipeline_name == "genedp_buysell_fold" {
+                        pipeline_genedp_buysell_fold(date, expected_len)
                     } else if let Some(series) = pipeline_name.strip_prefix("okay_") {
                         // hm0~hm92 旧框架因子的 Rust 复现（横截面 / 分钟系列，一次一天全市场）
                         match rust_pyfunc::okay_database::dispatch_cross(series, date) {

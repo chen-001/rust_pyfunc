@@ -1,0 +1,19 @@
+=== genedp_day_vs_day_align load average: 32.98, 18.36, 14.05
+genedp_day_vs_day_align 20241231 列数 42924，含 cxl 1893
+沙箱参考: (5107, 42924)
+✅ [横截面多进程] 完成 1 天, 总用时 40.0s, 配置 1进程×50线程
+pipeline 用时 44.6s
+{'is_projected': True, 'storage_layout': 'direct_segments', 'direct_segment_count': 1}
+逐列比较 42924 列 × 5107 股，用时 873s；不一致 0 列 []
+=== genedp_self_repeat_align load average: 70.97, 68.65, 45.37
+genedp_self_repeat_align 20241231 列数 30528，含 cxl 12096
+沙箱参考: (5107, 30528)
+✅ [横截面多进程] 完成 1 天, 总用时 187.0s, 配置 1进程×50线程
+pipeline 用时 190.5s
+{'is_projected': True, 'storage_layout': 'direct_segments', 'direct_segment_count': 1}
+逐列比较 30528 列 × 5107 股，用时 489s；不一致 0 列 []
+=== genedp_buysell_fold load average: 2.38, 16.22, 31.04
+genedp_buysell_fold 20241231 列数 249603，含 cxl 46290
+沙箱参考: (5107, 249603)
+Traceback (most recent call last):
+RuntimeError: 横截面因子批量写入失败: 横截面计算收尾失败: 成功写入 0/1 个日期，                         其余 1/1 个日期为空结果或 worker 失败（未标记完成）

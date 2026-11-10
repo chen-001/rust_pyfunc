@@ -1318,8 +1318,14 @@ pub fn ipc_write_result<W: std::io::Write>(
 ) -> std::io::Result<()> {
     let data =
         bincode::serialize(msg).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-    let len = data.len() as u32;
-    writer.write_all(&len.to_le_bytes())?;
+    // 不足 4 GB：4 字节长度（与历史格式逐字节相同）。
+    // 4 GB 及以上（如基因动态规划·买卖配对折叠一天约 5.1 GB）：先写 u32::MAX 作标记，再写 8 字节长度。
+    if data.len() < u32::MAX as usize {
+        writer.write_all(&(data.len() as u32).to_le_bytes())?;
+    } else {
+        writer.write_all(&u32::MAX.to_le_bytes())?;
+        writer.write_all(&(data.len() as u64).to_le_bytes())?;
+    }
     writer.write_all(&data)?;
     writer.flush()?;
     Ok(())
@@ -1344,7 +1350,13 @@ pub fn ipc_read_task<R: std::io::Read>(reader: &mut R) -> std::io::Result<Option
 pub fn ipc_read_result<R: std::io::Read>(reader: &mut R) -> std::io::Result<ResultMessage> {
     let mut len_bytes = [0u8; 4];
     reader.read_exact(&mut len_bytes)?;
-    let len = u32::from_le_bytes(len_bytes) as usize;
+    let mut len = u32::from_le_bytes(len_bytes) as usize;
+    if len == u32::MAX as usize {
+        // 4 GB 及以上的结果：标记之后是 8 字节真实长度（见 ipc_write_result）
+        let mut long_bytes = [0u8; 8];
+        reader.read_exact(&mut long_bytes)?;
+        len = u64::from_le_bytes(long_bytes) as usize;
+    }
     if len == 0 {
         return Err(std::io::Error::new(
             std::io::ErrorKind::UnexpectedEof,
@@ -3341,6 +3353,106 @@ pub fn pipeline_anneal_cross_peer_v3(date: i64, expected_len: usize) -> Vec<Task
     }
 }
 
+/// 基因动态规划·今天对昨天（42,924 列）：读当天（和前一交易日）全市场原始数据，一次一天。
+pub fn pipeline_genedp_day_vs_day_align(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    let n = crate::genedp_day_vs_day_align::genedp_day_vs_day_align_names().len();
+    if expected_len != n {
+        eprintln!("pipeline_genedp_day_vs_day_align expected_len错误 [{date}]: {expected_len} != {n}");
+        return Vec::new();
+    }
+    match crate::genedp_day_vs_day_align::compute_genedp_day_vs_day_align_full(date) {
+        Ok((codes, vals)) => vals
+            .chunks(expected_len)
+            .zip(codes.iter())
+            .map(|(facs, code)| TaskResult {
+                date,
+                code: code.clone(),
+                timestamp: 0,
+                facs: facs.to_vec(),
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("pipeline_genedp_day_vs_day_align error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
+/// 基因动态规划·自比对找重复（30,528 列）：读当天（和前一交易日）全市场原始数据，一次一天。
+pub fn pipeline_genedp_self_repeat_align(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    let n = crate::genedp_self_repeat_align::genedp_self_repeat_align_names().len();
+    if expected_len != n {
+        eprintln!("pipeline_genedp_self_repeat_align expected_len错误 [{date}]: {expected_len} != {n}");
+        return Vec::new();
+    }
+    match crate::genedp_self_repeat_align::compute_genedp_self_repeat_align_full(date) {
+        Ok((codes, vals)) => vals
+            .chunks(expected_len)
+            .zip(codes.iter())
+            .map(|(facs, code)| TaskResult {
+                date,
+                code: code.clone(),
+                timestamp: 0,
+                facs: facs.to_vec(),
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("pipeline_genedp_self_repeat_align error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
+/// 基因动态规划·镜像比对（16,917 列）：读当天（和前一交易日）全市场原始数据，一次一天。
+pub fn pipeline_genedp_mirror_align(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    let n = crate::genedp_mirror_align::genedp_mirror_align_names().len();
+    if expected_len != n {
+        eprintln!("pipeline_genedp_mirror_align expected_len错误 [{date}]: {expected_len} != {n}");
+        return Vec::new();
+    }
+    match crate::genedp_mirror_align::compute_genedp_mirror_align_full(date) {
+        Ok((codes, vals)) => vals
+            .chunks(expected_len)
+            .zip(codes.iter())
+            .map(|(facs, code)| TaskResult {
+                date,
+                code: code.clone(),
+                timestamp: 0,
+                facs: facs.to_vec(),
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("pipeline_genedp_mirror_align error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
+/// 基因动态规划·买卖配对折叠（249,603 列）：读当天（和前一交易日）全市场原始数据，一次一天。
+pub fn pipeline_genedp_buysell_fold(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    let n = crate::genedp_buysell_fold::genedp_buysell_fold_names().len();
+    if expected_len != n {
+        eprintln!("pipeline_genedp_buysell_fold expected_len错误 [{date}]: {expected_len} != {n}");
+        return Vec::new();
+    }
+    match crate::genedp_buysell_fold::compute_genedp_buysell_fold_full(date) {
+        Ok((codes, vals)) => vals
+            .chunks(expected_len)
+            .zip(codes.iter())
+            .map(|(facs, code)| TaskResult {
+                date,
+                code: code.clone(),
+                timestamp: 0,
+                facs: facs.to_vec(),
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("pipeline_genedp_buysell_fold error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
 /// 柜员游戏扩展系列3：全市场横截面联动与同伴可还原性（anneal_cross_peer，11760 列）。
 pub fn pipeline_anneal_cross_peer(date: i64, expected_len: usize) -> Vec<TaskResult> {
     if expected_len != crate::anneal_cross_peer_metrics::N_FACTORS {
@@ -3697,6 +3809,10 @@ pub fn run_factor_pipeline_cross_section(
         "anneal_cross_peer_v2",
         "anneal_cross_peer_v3_profile",
         "anneal_cross_peer_v3",
+        "genedp_day_vs_day_align",
+        "genedp_self_repeat_align",
+        "genedp_mirror_align",
+        "genedp_buysell_fold",
     ];
     if !known.contains(&pipeline_name.as_str()) && !pipeline_name.starts_with("okay_") {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
