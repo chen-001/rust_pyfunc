@@ -3453,6 +3453,31 @@ pub fn pipeline_genedp_buysell_fold(date: i64, expected_len: usize) -> Vec<TaskR
     }
 }
 
+/// 基因动态规划·买卖配对折叠精简版（67,467 列，保留列与完整版逐字节一致）：读当天（和前一交易日）全市场原始数据，一次一天。
+pub fn pipeline_genedp_buysell_fold_slim(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    let n = crate::genedp_buysell_fold_slim::N_FACTORS;
+    if expected_len != n {
+        eprintln!("pipeline_genedp_buysell_fold_slim expected_len错误 [{date}]: {expected_len} != {n}");
+        return Vec::new();
+    }
+    match crate::genedp_buysell_fold_slim::compute_genedp_buysell_fold_slim_full(date) {
+        Ok((codes, vals)) => vals
+            .chunks(expected_len)
+            .zip(codes.iter())
+            .map(|(facs, code)| TaskResult {
+                date,
+                code: code.clone(),
+                timestamp: 0,
+                facs: facs.to_vec(),
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("pipeline_genedp_buysell_fold_slim error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
 /// 柜员游戏扩展系列3：全市场横截面联动与同伴可还原性（anneal_cross_peer，11760 列）。
 pub fn pipeline_anneal_cross_peer(date: i64, expected_len: usize) -> Vec<TaskResult> {
     if expected_len != crate::anneal_cross_peer_metrics::N_FACTORS {
@@ -3813,6 +3838,7 @@ pub fn run_factor_pipeline_cross_section(
         "genedp_self_repeat_align",
         "genedp_mirror_align",
         "genedp_buysell_fold",
+        "genedp_buysell_fold_slim",
     ];
     if !known.contains(&pipeline_name.as_str()) && !pipeline_name.starts_with("okay_") {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(

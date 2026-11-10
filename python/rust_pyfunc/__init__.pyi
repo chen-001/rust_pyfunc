@@ -1654,6 +1654,8 @@ __all__ = [
     "py_genedp_mirror_align_names",
     "py_genedp_buysell_fold",
     "py_genedp_buysell_fold_names",
+    "py_genedp_buysell_fold_slim",
+    "py_genedp_buysell_fold_slim_names",
     "prepare_anneal_cross_peer_v3_history_from_store",
     "prepare_anneal_cross_peer_v3_history_from_h5",
 ]
@@ -1907,4 +1909,14 @@ def py_genedp_buysell_fold(date: int) -> Tuple[List[str], List[float]]:
 
 def py_genedp_buysell_fold_names() -> List[str]:
     """py_genedp_buysell_fold 的列名（与输出逐列对齐）。"""
+    ...
+
+def py_genedp_buysell_fold_slim(date: int) -> Tuple[List[str], List[float]]:
+    """基因动态规划·买卖配对折叠精简版（67,467 列）。单日全市场（50 线程），返回 (股票代码, 展平因子值)，每股 len(py_genedp_buysell_fold_slim_names()) 列。
+    由完整版按 20241231 全市场排名相关普查去重得到，保留列与完整版逐字节一致；横截面 pipeline 名为 genedp_buysell_fold_slim。
+    依赖撤单数据的列名含 cxl，撤单数据缺失的日子为空值。"""
+    ...
+
+def py_genedp_buysell_fold_slim_names() -> List[str]:
+    """py_genedp_buysell_fold_slim 的列名（与输出逐列对齐）。"""
     ...

@@ -154,6 +154,7 @@ pub mod genedp_day_vs_day_align;
 pub mod genedp_self_repeat_align;
 pub mod genedp_mirror_align;
 pub mod genedp_buysell_fold;
+pub mod genedp_buysell_fold_slim;
 pub mod relaynet_six_people;
 pub mod cross_section_example_metrics;
 pub mod dijkstra_metrics;
@@ -1725,6 +1726,14 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(
         genedp_buysell_fold::py_genedp_buysell_fold_names,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        genedp_buysell_fold_slim::py_genedp_buysell_fold_slim,
+        m
+    )?)?;
+    let _ = m.add_function(wrap_pyfunction!(
+        genedp_buysell_fold_slim::py_genedp_buysell_fold_slim_names,
         m
     )?)?;
     let _ = m.add_function(wrap_pyfunction!(
