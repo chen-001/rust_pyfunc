@@ -128,8 +128,8 @@ fn parse_line(line: &[u8], with_retreat: bool, with_afternoon_adjust: bool, code
         if b == b',' { if col < 15 { fields[col] = &line[start..i]; } col += 1; start = i + 1; }
     }
     if col < 15 { fields[col] = &line[start..]; }
-    // 非本股票 / 非本日期行直接丢（0=symbol, 2=date；date 解析成整数再比，覆盖 "20251031.0"）
-    if fields[0] != code.as_bytes() || parse_i64_fast(fields[2]) != date { return None; }
+    // 非本股票 / 非本日期行直接丢（0=symbol, 2=date）。代码和日期都按数值比较：2016 年部分文件把 000001 写成 1，按字节比会把整只股票误判为无数据
+    if fields[0].is_empty() || parse_i64_fast(fields[0]) != parse_i64_fast(code.as_bytes()) || parse_i64_fast(fields[2]) != date { return None; }
     let flag_bytes = fields[COL_FLAG];
     // 先解析成数值再比较：部分日期的 flag 列写 "32.0"，按字节比 b"32" 会漏掉撤单
     let flag = if flag_bytes.is_empty() { 0 } else { parse_i64_fast(flag_bytes) as i32 };
@@ -189,7 +189,7 @@ fn parse_market_line(line: &[u8], adj: bool, code: &str, date: i64) -> Option<Ma
     }
     if col < 61 { fields[col] = &line[start..]; }
     // 非本股票 / 非本日期行直接丢（0=symbol, 2=date）
-    if fields[0] != code.as_bytes() || parse_i64_fast(fields[2]) != date { return None; }
+    if fields[0].is_empty() || parse_i64_fast(fields[0]) != parse_i64_fast(code.as_bytes()) || parse_i64_fast(fields[2]) != date { return None; }
     let ask_prc1 = parse_f64_fast(fields[MKT_COL_ASK_PRC_BASE]);
     let bid_prc1 = parse_f64_fast(fields[MKT_COL_ASK_PRC_BASE + 2]);
     if ask_prc1 == 0.0 || bid_prc1 == 0.0 { return None; }

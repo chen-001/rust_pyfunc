@@ -182,8 +182,13 @@ fn tier(v: f64, c: &[f64; 4], k: usize) -> usize {
 #[inline]
 fn sign3(v: f64, th: f64) -> usize { if v > th { 0 } else if v < -th { 2 } else { 1 } }
 
+/// 用这一天这一段的量算五档阈值，供第二天的 mag5y 字母表当基准。
+pub fn mag5_ref_cuts(b: &Bars, buf: &mut Vec<f64>) -> [f64; 4] {
+    cuts(&b.mag, |i| b.n[i] > 0.0, 5, buf)
+}
+
 /// 生成字母序列，返回非静默格数。阈值默认来自这一天这一段自身；mag5y 用昨天的阈值，保留今昨量级差别。
-pub fn letters(b: &Bars, reference: &Bars, alpha: usize, out: &mut Vec<u8>, buf: &mut Vec<f64>) -> usize {
+pub fn letters(b: &Bars, ref_cuts: &[f64; 4], alpha: usize, out: &mut Vec<u8>, buf: &mut Vec<f64>) -> usize {
     let l = b.vol.len();
     out.clear(); out.resize(l, 0);
     let (na, nb) = GRID[alpha];
@@ -201,8 +206,7 @@ pub fn letters(b: &Bars, reference: &Bars, alpha: usize, out: &mut Vec<u8>, buf:
             } }
         }
         MAG5 | MAG5Y => {
-            let c = if alpha == MAG5 { cuts(&b.mag, has_trade, 5, buf) }
-                else { cuts(&reference.mag, |i| reference.n[i] > 0.0, 5, buf) };
+            let c = if alpha == MAG5 { cuts(&b.mag, has_trade, 5, buf) } else { *ref_cuts };
             for i in 0..l { if has_trade(i) { set(out, i, mk(tier(b.mag[i], &c, 5), 0)); } }
         }
         SIZEL => {

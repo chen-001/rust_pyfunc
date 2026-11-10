@@ -7,7 +7,13 @@ edition = "2021"
 name = "align_day_vs_day"
 path = "src/main.rs"
 
+[[bin]]
+name = "align_v3"
+path = "src/v3/main.rs"
+
 [dependencies]
+hdf5-metno = { version = "0.12", features = ["static", "zlib"] }
+ndarray = "0.15"
 rayon = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

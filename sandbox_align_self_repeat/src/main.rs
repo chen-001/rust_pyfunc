@@ -19,6 +19,13 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::time::Instant;
 
+use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+static PROF_READ: AtomicU64 = AtomicU64::new(0);
+static PROF_LETTER: AtomicU64 = AtomicU64::new(0);
+static PROF_DP: AtomicU64 = AtomicU64::new(0);
+static PROF_FEAT: AtomicU64 = AtomicU64::new(0);
+static PROF_CELLS: AtomicU64 = AtomicU64::new(0);
+
 const THREADS: usize = 50;
 const SEG_CAP: usize = 20_000;
 const MIN_N: usize = 30;
@@ -629,9 +636,13 @@ fn markov_resample(letters: &mut [u32], k: usize, seed: u64) {
 }
 
 fn per_stock(code: &str, date: i64, null_mode: u8, debug: bool) -> Option<(Vec<f32>, [f32; N_WIN])> {
+    let t_read = Instant::now();
     let trades = read_trade_fast(code, date).ok()?;
     let mk = read_market_fast(code, date).unwrap_or_default();
+    PROF_READ.fetch_add(t_read.elapsed().as_micros() as u64, Relaxed);
+    let t_ev = Instant::now();
     let ev_all = make_events(trades);
+    PROF_LETTER.fetch_add(t_ev.elapsed().as_micros() as u64, Relaxed);
     if ev_all.is_empty() {
         return None;
     }
@@ -645,6 +656,7 @@ fn per_stock(code: &str, date: i64, null_mode: u8, debug: bool) -> Option<(Vec<f
         }
         let cache = ev_cache(&ev);
         for (s, sp) in SPECS.iter().enumerate() {
+            let t_l = Instant::now();
             let seq = match sp.kind {
                 Kind::Side(side) => Some(build_side_seq(side, &ev)),
                 Kind::BarVolFlow(_) | Kind::BarCancelSize(_) | Kind::BarLob(_) => build_bar_seq(sp.kind, &ev, &mk, lo, hi),
@@ -664,9 +676,15 @@ fn per_stock(code: &str, date: i64, null_mode: u8, debug: bool) -> Option<(Vec<f
                 _ => {}
             }
             let lag = if sp.max_lag == 0 { seq.letters.len() / 2 } else { sp.max_lag };
+            PROF_LETTER.fetch_add(t_l.elapsed().as_micros() as u64, Relaxed);
+            let t_d = Instant::now();
+            PROF_CELLS.fetch_add((seq.letters.len() * lag.min(seq.letters.len() - 1)) as u64, Relaxed);
             let Some(ao) = self_align(&seq.letters, seq.k, lag, sp.gap_mult, SEG_CAP) else { continue };
+            PROF_DP.fetch_add(t_d.elapsed().as_micros() as u64, Relaxed);
+            let t_f = Instant::now();
             features(&seq, &ao, &mut row[raw_f(s, w, 0)..raw_f(s, w, 0) + N_F]);
             baselines(&seq, &ao, &mut row[raw_b(s, w, 0)..raw_b(s, w, 0) + N_B]);
+            PROF_FEAT.fetch_add(t_f.elapsed().as_micros() as u64, Relaxed);
             if debug && w == 0 {
                 let (picked, _) = select_nonoverlap(&ao.segs, seq.letters.len());
                 eprintln!("[debug {code} {wname} {}] n={} k={} T={} kept={}", sp.name, seq.letters.len(), seq.k, ao.threshold, picked.len());
@@ -802,6 +820,8 @@ fn main() {
         }
     }
     eprintln!("valid = {} dropped = {dropped}  per-stock {:.1}s", valid.len(), t0.elapsed().as_secs_f64());
+
+    eprintln!("[profile] thread-seconds read={:.0} letters={:.0} dp={:.0} features={:.0}  cells={:.2e}", PROF_READ.load(Relaxed) as f64/1e6, PROF_LETTER.load(Relaxed) as f64/1e6, PROF_DP.load(Relaxed) as f64/1e6, PROF_FEAT.load(Relaxed) as f64/1e6, PROF_CELLS.load(Relaxed) as f64);
 
     // 第 4 层
     let t1 = Instant::now();

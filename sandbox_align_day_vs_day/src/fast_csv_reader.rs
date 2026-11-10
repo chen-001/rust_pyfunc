@@ -118,7 +118,7 @@ fn parse_f64_fast(bytes: &[u8]) -> f64 {
 }
 
 #[inline]
-fn parse_line(line: &[u8], with_retreat: bool, with_afternoon_adjust: bool, code: &str, date: i64) -> Option<TradeRecord> {
+fn parse_line(line: &[u8], with_retreat: bool, with_afternoon_adjust: bool, code: i64, date: i64) -> Option<TradeRecord> {
     if line.is_empty() { return None; }
     let mut fields: [&[u8]; 15] = [&[][..]; 15];
     let mut start = 0; let mut col = 0;
@@ -126,8 +126,9 @@ fn parse_line(line: &[u8], with_retreat: bool, with_afternoon_adjust: bool, code
         if b == b',' { if col < 15 { fields[col] = &line[start..i]; } col += 1; start = i + 1; }
     }
     if col < 15 { fields[col] = &line[start..]; }
-    // 非本股票 / 非本日期行直接丢（0=symbol, 2=date；date 解析成整数再比，覆盖 "20251031.0"）
-    if fields[0] != code.as_bytes() || parse_i64_fast(fields[2]) != date { return None; }
+    // 非本股票 / 非本日期行直接丢（0=symbol, 2=date）。代码和日期都按数值比较：
+    // 2016 年部分文件把 000001 写成 1，日期也有 "20251031.0" 的写法。
+    if parse_i64_fast(fields[0]) != code || parse_i64_fast(fields[2]) != date { return None; }
     let flag_bytes = fields[COL_FLAG];
     // 先解析成数值再比较：部分日期的 flag 列写 "32.0"，按字节比 b"32" 会漏掉撤单
     let flag = if flag_bytes.is_empty() { 0 } else { parse_i64_fast(flag_bytes) as i32 };
@@ -150,6 +151,7 @@ fn parse_line(line: &[u8], with_retreat: bool, with_afternoon_adjust: bool, code
 }
 
 fn parse_chunk(data: &[u8], with_retreat: bool, adj: bool, code: &str, date: i64) -> Vec<TradeRecord> {
+    let code = parse_i64_fast(code.as_bytes());
     let mut out = Vec::with_capacity(data.len() / 80 + 1);
     let mut start = 0;
     for i in 0..data.len() {
@@ -186,7 +188,7 @@ pub fn read_trade_with_cancel(code: &str, date: i64) -> std::io::Result<Vec<Trad
 }
 
 #[inline]
-fn parse_market_line(line: &[u8], adj: bool, code: &str, date: i64) -> Option<MarketRecord> {
+fn parse_market_line(line: &[u8], adj: bool, code: i64, date: i64) -> Option<MarketRecord> {
     if line.is_empty() { return None; }
     let mut fields: [&[u8]; 61] = [&[][..]; 61];
     let mut start = 0; let mut col = 0;
@@ -194,8 +196,8 @@ fn parse_market_line(line: &[u8], adj: bool, code: &str, date: i64) -> Option<Ma
         if b == b',' { if col < 61 { fields[col] = &line[start..i]; } col += 1; start = i + 1; }
     }
     if col < 61 { fields[col] = &line[start..]; }
-    // 非本股票 / 非本日期行直接丢（0=symbol, 2=date）
-    if fields[0] != code.as_bytes() || parse_i64_fast(fields[2]) != date { return None; }
+    // 非本股票 / 非本日期行直接丢（0=symbol, 2=date），代码按数值比较
+    if parse_i64_fast(fields[0]) != code || parse_i64_fast(fields[2]) != date { return None; }
     let ask_prc1 = parse_f64_fast(fields[MKT_COL_ASK_PRC_BASE]);
     let bid_prc1 = parse_f64_fast(fields[MKT_COL_ASK_PRC_BASE + 2]);
     if ask_prc1 == 0.0 || bid_prc1 == 0.0 { return None; }
@@ -228,6 +230,7 @@ fn parse_market_line(line: &[u8], adj: bool, code: &str, date: i64) -> Option<Ma
 }
 
 fn parse_market_chunk(data: &[u8], adj: bool, code: &str, date: i64) -> Vec<MarketRecord> {
+    let code = parse_i64_fast(code.as_bytes());
     let mut out = Vec::with_capacity(data.len() / 200 + 1);
     let mut start = 0;
     for i in 0..data.len() {

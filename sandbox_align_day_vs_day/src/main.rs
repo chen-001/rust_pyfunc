@@ -240,48 +240,172 @@ fn ranks(v: &[f64]) -> Vec<f64> {
     r
 }
 
-/// 每只股票的完整计算。返回 N_RAW 列原始值和当日成交笔数（用于流动性分组）。
-fn per_stock(code: &str, date: i64, prev: i64, tables: &Tables, n_raw: usize,
-             read_ns: &AtomicU64, bar_ns: &AtomicU64, dp_ns: &AtomicU64) -> (Vec<f32>, f64) {
-    let mut out = vec![f32::NAN; n_raw];
-    let t0 = Instant::now();
-    let (Ok(td), Ok(yd)) = (read_trade_with_cancel(code, date), read_trade_with_cancel(code, prev)) else {
-        read_ns.fetch_add(t0.elapsed().as_nanos() as u64, Ordering::Relaxed);
-        return (out, f64::NAN);
-    };
-    let mt = read_market_fast(code, date).unwrap_or_default();
-    let my = read_market_fast(code, prev).unwrap_or_default();
-    read_ns.fetch_add(t0.elapsed().as_nanos() as u64, Ordering::Relaxed);
-    let t1 = Instant::now();
-    let (tt, tc) = split_sorted(td);
-    let (yt, yc) = split_sorted(yd);
-    let n_trades = tt.len() as f64;
-    let (Some(today), Some(yest)) = (build_day(&tt, &tc, &mt), build_day(&yt, &yc, &my)) else {
-        bar_ns.fetch_add(t1.elapsed().as_nanos() as u64, Ordering::Relaxed);
-        return (out, n_trades);
-    };
-    drop((tt, tc, yt, yc, mt, my));
-    bar_ns.fetch_add(t1.elapsed().as_nanos() as u64, Ordering::Relaxed);
+/// “昨天”这一侧计算需要的全部内容。可以当场由逐笔算出，也可以直接从落盘序列读回，两者结果完全相同。
+struct YData { letters: Vec<u8>, vols: Vec<f64>, cuts: Vec<[f64; 4]> }
 
-    let t2 = Instant::now();
+const GROUPS: [(&[usize], usize); 3] = [(&ALPHA_TIME, 0), (&ALPHA_VOL, 2), (&ALPHA_COARSE, 1)];
+
+fn grain_len(wi: usize, si: usize) -> usize {
+    let (_, s, fine, coarse) = WINDOWS[wi];
+    ((DAY_LEN - s) / if si == 1 { coarse } else { fine }) as usize
+}
+/// 一只股票一天的落盘体积（字节）：字母 + 三种格子的逐格成交量 + 阈值
+fn blob_size() -> usize {
+    let mut sz = 0;
+    for wi in 0..WINDOWS.len() {
+        for (alphas, si) in GROUPS { sz += alphas.len() * grain_len(wi, si); }
+        for si in 0..3 { sz += 8 * grain_len(wi, si); }
+        sz += 32;
+    }
+    sz
+}
+
+impl YData {
+    fn from_bars(d: &DayBars, buf: &mut Vec<f64>) -> YData {
+        let (mut letters_out, mut vols, mut cuts) = (Vec::new(), Vec::new(), Vec::new());
+        let mut tmp = Vec::new();
+        for ys in d.sets.iter() {
+            let c = mag5_ref_cuts(&ys[0], buf);
+            for (alphas, si) in GROUPS {
+                for &al in alphas { letters(&ys[si], &c, al, &mut tmp, buf); letters_out.extend_from_slice(&tmp); }
+            }
+            for si in 0..3 { vols.extend_from_slice(&ys[si].vol); }
+            cuts.push(c);
+        }
+        YData { letters: letters_out, vols, cuts }
+    }
+    fn encode(&self) -> Vec<u8> {
+        let mut o = Vec::with_capacity(self.letters.len() + 8 * self.vols.len() + 32 * self.cuts.len());
+        // 按时段顺序：字母和成交量分块写，读取时按固定长度切开
+        o.extend_from_slice(&self.letters);
+        for v in &self.vols { o.extend_from_slice(&v.to_le_bytes()); }
+        for c in &self.cuts { for v in c { o.extend_from_slice(&v.to_le_bytes()); } }
+        o
+    }
+    fn decode(b: &[u8]) -> YData {
+        let (mut nl, mut nv) = (0, 0);
+        for wi in 0..WINDOWS.len() {
+            for (alphas, si) in GROUPS { nl += alphas.len() * grain_len(wi, si); }
+            for si in 0..3 { nv += grain_len(wi, si); }
+        }
+        let letters = b[..nl].to_vec();
+        let f = |c: &[u8]| f64::from_le_bytes(c.try_into().unwrap());
+        let vols: Vec<f64> = b[nl..nl + 8 * nv].chunks_exact(8).map(f).collect();
+        let cuts = b[nl + 8 * nv..].chunks_exact(32).map(|c| {
+            let mut a = [0f64; 4];
+            for (i, x) in c.chunks_exact(8).enumerate() { a[i] = f(x); }
+            a
+        }).collect();
+        YData { letters, vols, cuts }
+    }
+}
+
+/// 落盘的按日序列文件：代码表（6 字节一个，升序）+ 定长数据块。
+struct SeqStore { codes: Vec<u8>, data: Vec<u8>, blob: usize }
+impl SeqStore {
+    fn load(path: &str, blob: usize) -> std::io::Result<SeqStore> {
+        let raw = std::fs::read(path)?;
+        let n = u32::from_le_bytes(raw[0..4].try_into().unwrap()) as usize;
+        Ok(SeqStore { codes: raw[4..4 + 6 * n].to_vec(), data: raw[4 + 6 * n..].to_vec(), blob })
+    }
+    fn get(&self, code: &str) -> Option<&[u8]> {
+        let (cs, b) = (self.codes.as_slice(), code.as_bytes());
+        let n = cs.len() / 6;
+        let (mut lo, mut hi) = (0usize, n);
+        while lo < hi {
+            let m = (lo + hi) / 2;
+            match cs[m * 6..m * 6 + 6].cmp(b) {
+                std::cmp::Ordering::Less => lo = m + 1,
+                std::cmp::Ordering::Greater => hi = m,
+                std::cmp::Ordering::Equal => return Some(&self.data[m * self.blob..(m + 1) * self.blob]),
+            }
+        }
+        None
+    }
+}
+
+#[derive(Default)]
+struct Timers {
+    read_today: AtomicU64, read_yest: AtomicU64, bars_today: AtomicU64, bars_yest: AtomicU64,
+    yest_seq: AtomicU64, letters: AtomicU64, align: AtomicU64, feats: AtomicU64, encode: AtomicU64,
+    trades_sum: AtomicU64,
+}
+#[inline]
+fn add(c: &AtomicU64, t: Instant) { c.fetch_add(t.elapsed().as_nanos() as u64, Ordering::Relaxed); }
+
+/// 每只股票的完整计算。返回原始列、当日成交笔数；需要落盘时一并返回当天序列。
+fn per_stock(code: &str, date: i64, prev: i64, tables: &Tables, n_raw: usize, tm: &Timers,
+             store: Option<&SeqStore>, want_blob: bool) -> (Vec<f32>, f64, Option<Vec<u8>>) {
+    let mut out = vec![f32::NAN; n_raw];
+    let t = Instant::now();
+    let td = read_trade_with_cancel(code, date);
+    let mt = read_market_fast(code, date).unwrap_or_default();
+    add(&tm.read_today, t);
+    let Ok(td) = td else { return (out, f64::NAN, None) };
+    let mut buf = Vec::new();
+    let t = Instant::now();
+    let (tt, tc) = split_sorted(td);
+    let n_trades = tt.len() as f64;
+    tm.trades_sum.fetch_add(tt.len() as u64, Ordering::Relaxed);
+    let today = build_day(&tt, &tc, &mt);
+    add(&tm.bars_today, t);
+    drop((tt, tc, mt));
+    let Some(today) = today else { return (out, n_trades, None) };
+    let blob = if want_blob {
+        let t = Instant::now();
+        let e = YData::from_bars(&today, &mut buf).encode();
+        add(&tm.encode, t);
+        Some(e)
+    } else { None };
+    let yd: Option<YData> = if let Some(s) = store {
+        let t = Instant::now();
+        let r = s.get(code).map(YData::decode);
+        add(&tm.yest_seq, t);
+        r
+    } else {
+        let t = Instant::now();
+        let yr = read_trade_with_cancel(code, prev);
+        let my = read_market_fast(code, prev).unwrap_or_default();
+        add(&tm.read_yest, t);
+        match yr {
+            Ok(yr) => {
+                let t = Instant::now();
+                let (yt, yc) = split_sorted(yr);
+                let y = build_day(&yt, &yc, &my);
+                add(&tm.bars_yest, t);
+                y.map(|y| { let t = Instant::now(); let d = YData::from_bars(&y, &mut buf); add(&tm.yest_seq, t); d })
+            }
+            Err(_) => None,
+        }
+    };
+    let Some(yd) = yd else { return (out, n_trades, blob) };
+
     let mut w = Work::default();
-    let (mut a, mut b, mut buf) = (Vec::new(), Vec::new(), Vec::new());
+    let mut a = Vec::new();
     let mut pos = 0usize;
+    let (mut lp, mut vp) = (0usize, 0usize);
     for (wi, _) in WINDOWS.iter().enumerate() {
-        let (ts, ys) = (&today.sets[wi], &yest.sets[wi]);
-        // 三组：细格时间钟 / 成交量钟 / 粗格时间钟
-        let groups: [(&[usize], usize); 3] = [(&ALPHA_TIME, 0), (&ALPHA_VOL, 2), (&ALPHA_COARSE, 1)];
-        for (alphas, si) in groups {
+        let ts = &today.sets[wi];
+        let (vb0, vb1, vb2) = {
+            let (l0, l1, l2) = (grain_len(wi, 0), grain_len(wi, 1), grain_len(wi, 2));
+            (&yd.vols[vp..vp + l0], &yd.vols[vp + l0..vp + l0 + l1], &yd.vols[vp + l0 + l1..vp + l0 + l1 + l2])
+        };
+        for (alphas, si) in GROUPS {
             for &al in alphas {
-                let (tb, yb) = (&ts[si], &ys[si]);
-                let (ca, cb) = (letters(tb, yb, al, &mut a, &mut buf), letters(yb, yb, al, &mut b, &mut buf));
+                let tb = &ts[si];
+                let vb: &[f64] = match si { 0 => vb0, 1 => vb1, _ => vb2 };
+                let t = Instant::now();
+                let ca = letters(tb, &yd.cuts[wi], al, &mut a, &mut buf);
+                add(&tm.letters, t);
                 let l = a.len();
+                let b = &yd.letters[lp..lp + l];
+                lp += l;
+                let cb = b.iter().filter(|&&x| x != 0).count();
                 let min_active = (l / 20).max(10);
                 let slot = &mut out[pos..pos + N_FEAT];
                 pos += N_FEAT;
                 if ca < min_active || cb < min_active { continue; }
                 let tbl = &tables.t[al];
-                // 朴素基线：不允许错位，逐位计分；随机期望由两天字母频率给出
                 let (mut ug, mut same, mut pairs) = (0i32, 0f32, 0f32);
                 let (mut fa, mut fb) = ([0u32; align::SIZE], [0u32; align::SIZE]);
                 for k in 0..l {
@@ -297,20 +421,31 @@ fn per_stock(code: &str, date: i64, prev: i64, tables: &Tables, n_raw: usize,
                 let e = (e / l as f64) as f32;
                 let band = l / 4;
                 let (sl, ug_f) = (slot, ug as f32);
-                let r = align(&a, &b, tbl, OPEN_LOOSE, EXT_LOOSE, band, false, &mut w);
-                global_features(&a, &b, &tb.vol, &yb.vol, &w.ops, &r, tbl, ug_f, e, &mut sl[..20]);
-                let rt = align(&a, &b, tbl, OPEN_TIGHT, EXT_TIGHT, band, false, &mut w);
+                let t = Instant::now();
+                let r = align(&a, b, tbl, OPEN_LOOSE, EXT_LOOSE, band, false, &mut w);
+                add(&tm.align, t);
+                let t = Instant::now();
+                global_features(&a, b, &tb.vol, vb, &w.ops, &r, tbl, ug_f, e, &mut sl[..20]);
+                add(&tm.feats, t);
+                let t = Instant::now();
+                let rt = align(&a, b, tbl, OPEN_TIGHT, EXT_TIGHT, band, false, &mut w);
+                add(&tm.align, t);
+                let t = Instant::now();
                 let mut tmp = [f32::NAN; 20];
-                global_features(&a, &b, &tb.vol, &yb.vol, &w.ops, &rt, tbl, ug_f, e, &mut tmp);
+                global_features(&a, b, &tb.vol, vb, &w.ops, &rt, tbl, ug_f, e, &mut tmp);
                 for (d, s) in [0usize, 1, 2, 4, 6, 7].iter().enumerate() { sl[20 + d] = tmp[*s]; }
-                let rl = align(&a, &b, tbl, OPEN_LOOSE, EXT_LOOSE, band, true, &mut w);
-                local_features(&a, &b, &tb.vol, &w.ops, &rl, &mut sl[26..32]);
+                add(&tm.feats, t);
+                let t = Instant::now();
+                let rl = align(&a, b, tbl, OPEN_LOOSE, EXT_LOOSE, band, true, &mut w);
+                add(&tm.align, t);
+                let t = Instant::now();
+                local_features(&a, b, &tb.vol, &w.ops, &rl, &mut sl[26..32]);
                 sl[32] = ug_f / (MAX_S * l as f32);
                 sl[33] = if pairs > 0.0 { same / pairs } else { f32::NAN };
+                add(&tm.feats, t);
             }
         }
-        // 朴素替代物：两天分时成交量相关（不做任何字母化和比对）
-        let (va, vb) = (&ts[0].vol, &ys[0].vol);
+        let (va, vb) = (&ts[0].vol, vb0);
         let active = va.iter().filter(|&&v| v > 0.0).count().min(vb.iter().filter(|&&v| v > 0.0).count());
         if active >= (va.len() / 20).max(10) {
             out[pos] = pearson(va, vb);
@@ -320,10 +455,10 @@ fn per_stock(code: &str, date: i64, prev: i64, tables: &Tables, n_raw: usize,
             out[pos + 2] = (com(va) - com(vb)) as f32;
         }
         pos += N_NAIVE;
+        vp += grain_len(wi, 0) + grain_len(wi, 1) + grain_len(wi, 2);
     }
     debug_assert_eq!(pos, n_raw);
-    dp_ns.fetch_add(t2.elapsed().as_nanos() as u64, Ordering::Relaxed);
-    (out, n_trades)
+    (out, n_trades, blob)
 }
 
 fn raw_names() -> Vec<String> {
@@ -415,8 +550,10 @@ fn cross_section(raw: &[Vec<f32>], n_trades: &[f64], names: &mut Vec<String>) ->
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let date: i64 = args.get(1).expect("用法: align_day_vs_day <今天> <昨天>").parse().unwrap();
+    let date: i64 = args.get(1).expect("用法: align_day_vs_day <今天> <昨天> [--write-seq 目录] [--read-seq 目录]").parse().unwrap();
     let prev: i64 = args.get(2).expect("用法: align_day_vs_day <今天> <昨天>").parse().unwrap();
+    let opt = |k: &str| args.iter().position(|a| a == k).and_then(|i| args.get(i + 1).cloned());
+    let (wdir, rdir) = (opt("--write-seq"), opt("--read-seq"));
     let t_all = Instant::now();
     let codes = list_codes(date, "transaction").expect("股票范围或原始目录检查失败");
     eprintln!("codes = {}", codes.len());
@@ -426,11 +563,28 @@ fn main() {
     assert_eq!(ALPHA_TIME.len() + ALPHA_VOL.len() + ALPHA_COARSE.len(), N_STREAMS);
     let tables = Tables { t: (0..ALPHA_NAMES.len()).map(build_score_table).collect() };
     let pool = rayon::ThreadPoolBuilder::new().num_threads(MAX_THREADS).build().unwrap();
-    let (read_ns, bar_ns, dp_ns) = (AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0));
-    let res: Vec<(Vec<f32>, f64)> = pool.install(|| codes.par_iter()
-        .map(|c| per_stock(c, date, prev, &tables, n_raw, &read_ns, &bar_ns, &dp_ns)).collect());
+    let blob = blob_size();
+    let t = Instant::now();
+    let store = rdir.as_ref().map(|d| SeqStore::load(&format!("{d}/{prev}.seq"), blob).expect("序列文件缺失：拒绝计算"));
+    let t_load = t.elapsed().as_secs_f64();
+    let tm = Timers::default();
+    let res: Vec<(Vec<f32>, f64, Option<Vec<u8>>)> = pool.install(|| codes.par_iter()
+        .map(|c| per_stock(c, date, prev, &tables, n_raw, &tm, store.as_ref(), wdir.is_some())).collect());
     let t_stock = t_all.elapsed().as_secs_f64();
-    let (raw, n_tr): (Vec<Vec<f32>>, Vec<f64>) = res.into_iter().unzip();
+    let mut raw = Vec::with_capacity(res.len());
+    let mut n_tr = Vec::with_capacity(res.len());
+    let mut blobs = Vec::new();
+    for (i, (v, n, b)) in res.into_iter().enumerate() { raw.push(v); n_tr.push(n); if let Some(b) = b { blobs.push((i, b)); } }
+    if let Some(d) = &wdir {
+        let t = Instant::now();
+        std::fs::create_dir_all(d).unwrap();
+        let mut o = Vec::with_capacity(4 + blobs.len() * (6 + blob));
+        o.extend_from_slice(&(blobs.len() as u32).to_le_bytes());
+        for (i, _) in &blobs { o.extend_from_slice(codes[*i].as_bytes()); }
+        for (_, b) in &blobs { assert_eq!(b.len(), blob); o.extend_from_slice(b); }
+        std::fs::write(format!("{d}/{date}.seq"), &o).unwrap();
+        eprintln!("seq_file_bytes={} stocks={} write_s={:.2}", o.len(), blobs.len(), t.elapsed().as_secs_f64());
+    }
     let extra = cross_section(&raw, &n_tr, &mut names);
     let mut vals = raw;
     names.push("meta_n_trades".into());
@@ -439,10 +593,12 @@ fn main() {
     let out = Out { names, codes, vals };
     let stdout = std::io::stdout();
     serde_json::to_writer(std::io::BufWriter::with_capacity(1 << 24, stdout.lock()), &out).unwrap();
+    let g = |c: &AtomicU64| c.load(Ordering::Relaxed) as f64 / 1e9;
     eprintln!("threads={MAX_THREADS} columns={} rows={}", out.names.len(), out.codes.len());
-    eprintln!("per_stock_wall={t_stock:.2}s cs_done={t_cs:.2}s total={:.2}s", t_all.elapsed().as_secs_f64());
-    eprintln!("thread_cpu_sum read={:.1}s bars={:.1}s dp={:.1}s",
-        read_ns.load(Ordering::Relaxed) as f64 / 1e9, bar_ns.load(Ordering::Relaxed) as f64 / 1e9, dp_ns.load(Ordering::Relaxed) as f64 / 1e9);
+    eprintln!("per_stock_wall={t_stock:.2}s cs_done={t_cs:.2}s total={:.2}s seq_load_wall={t_load:.2}s", t_all.elapsed().as_secs_f64());
+    eprintln!("thread_sum read_today={:.1} read_yest={:.1} bars_today={:.1} bars_yest={:.1} yest_seq={:.1} letters={:.1} align={:.1} feats={:.1} encode={:.1}",
+        g(&tm.read_today), g(&tm.read_yest), g(&tm.bars_today), g(&tm.bars_yest), g(&tm.yest_seq), g(&tm.letters), g(&tm.align), g(&tm.feats), g(&tm.encode));
+    eprintln!("mean_trades_per_stock={:.0}", tm.trades_sum.load(Ordering::Relaxed) as f64 / out.codes.len() as f64);
 }
 
 #[cfg(test)]

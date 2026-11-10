@@ -55,6 +55,8 @@ pub struct MarketRecord {
     pub ask_vols: [f64; 10],
     pub bid_prcs: [f64; 10],
     pub bid_vols: [f64; 10],
+    pub high_limited: f64,
+    pub low_limited: f64,
 }
 
 fn resolve_stock_path(date: i64, subdir: &str, filename: &str) -> std::io::Result<String> {
@@ -117,6 +119,12 @@ fn parse_f64_fast(bytes: &[u8]) -> f64 {
     std::str::from_utf8(bytes).ok().and_then(|s| s.trim().parse::<f64>().ok()).unwrap_or(f64::NAN)
 }
 
+/// 股票代码转数值（"000001" 与 "1" 都得 1）。
+#[inline]
+fn code_num(code: &str) -> i64 {
+    parse_i64_fast(code.as_bytes())
+}
+
 #[inline]
 fn parse_line(line: &[u8], with_retreat: bool, with_afternoon_adjust: bool, code: &str, date: i64) -> Option<TradeRecord> {
     if line.is_empty() { return None; }
@@ -126,8 +134,9 @@ fn parse_line(line: &[u8], with_retreat: bool, with_afternoon_adjust: bool, code
         if b == b',' { if col < 15 { fields[col] = &line[start..i]; } col += 1; start = i + 1; }
     }
     if col < 15 { fields[col] = &line[start..]; }
-    // 非本股票 / 非本日期行直接丢（0=symbol, 2=date；date 解析成整数再比，覆盖 "20251031.0"）
-    if fields[0] != code.as_bytes() || parse_i64_fast(fields[2]) != date { return None; }
+    // 非本股票 / 非本日期行直接丢（0=symbol, 2=date）。代码按数值比较：
+    // 2016 年部分日期文件把 000001 写成 1，按字节比会把整只股票的数据全丢掉。
+    if parse_i64_fast(fields[0]) != code_num(code) || parse_i64_fast(fields[2]) != date { return None; }
     let flag_bytes = fields[COL_FLAG];
     // 先解析成数值再比较：部分日期的 flag 列写 "32.0"，按字节比 b"32" 会漏掉撤单
     let flag = if flag_bytes.is_empty() { 0 } else { parse_i64_fast(flag_bytes) as i32 };
@@ -185,8 +194,8 @@ fn parse_market_line(line: &[u8], adj: bool, code: &str, date: i64) -> Option<Ma
         if b == b',' { if col < 61 { fields[col] = &line[start..i]; } col += 1; start = i + 1; }
     }
     if col < 61 { fields[col] = &line[start..]; }
-    // 非本股票 / 非本日期行直接丢（0=symbol, 2=date）
-    if fields[0] != code.as_bytes() || parse_i64_fast(fields[2]) != date { return None; }
+    // 非本股票 / 非本日期行直接丢（0=symbol, 2=date）。代码按数值比较（见成交读取处说明）。
+    if parse_i64_fast(fields[0]) != code_num(code) || parse_i64_fast(fields[2]) != date { return None; }
     let ask_prc1 = parse_f64_fast(fields[MKT_COL_ASK_PRC_BASE]);
     let bid_prc1 = parse_f64_fast(fields[MKT_COL_ASK_PRC_BASE + 2]);
     if ask_prc1 == 0.0 || bid_prc1 == 0.0 { return None; }
@@ -215,6 +224,7 @@ fn parse_market_line(line: &[u8], adj: bool, code: &str, date: i64) -> Option<Ma
         volume: parse_f64_fast(fields[MKT_COL_VOLUME]) , turnover: parse_f64_fast(fields[MKT_COL_TURNOVER]) ,
         total_ask_vol: parse_f64_fast(fields[MKT_COL_TOTAL_ASK_VOL]) , total_bid_vol: parse_f64_fast(fields[MKT_COL_TOTAL_BID_VOL]) ,
         ask_prcs, ask_vols, bid_prcs, bid_vols,
+        high_limited: parse_f64_fast(fields[12]), low_limited: parse_f64_fast(fields[13]),
     })
 }
 

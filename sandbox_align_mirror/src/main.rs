@@ -1283,7 +1283,38 @@ struct Out {
     vals: Vec<Vec<f32>>,
 }
 
+/// 单线程测每种比对每格耗时（第二轮估算完整版成本用，不影响因子）
+fn bench() {
+    let tm = make_tab(3, &BASE, true);
+    let ti = make_tab(3, &BASE, false);
+    let mut r = Rng(20261109);
+    for n in [120usize, 300, 474, 1500] {
+        let s: Vec<u8> = (0..n).map(|_| [0u8, 1, 2, 3, 4, 5, 6, 7][r.below(8)]).collect();
+        let cells = (n * n / 2) as f64;
+        let reps = (2.0e8 / cells).ceil() as usize;
+        let mut sc = Scratch::new();
+        let mut sink = 0i64;
+        let t = Instant::now();
+        for _ in 0..reps { sink += nested_score(&s, &tm, 2, 4, &mut sc) as i64; }
+        let a = t.elapsed().as_secs_f64() / reps as f64 / cells * 1e9;
+        let t = Instant::now();
+        for _ in 0..reps { sink += nested_full(&s, &tm, 2, 4, &mut sc).score as i64; }
+        let b = t.elapsed().as_secs_f64() / reps as f64 / cells * 1e9;
+        let t = Instant::now();
+        for _ in 0..reps { sink += forward_score(&s, &ti, 2, 4, &mut sc) as i64; }
+        let c = t.elapsed().as_secs_f64() / reps as f64 / cells * 1e9;
+        let t = Instant::now();
+        for _ in 0..reps { sink += extend_from_split(&s, n / 2, &tm, 2, &mut sc).0 as i64; }
+        let d = t.elapsed().as_secs_f64() / reps as f64 / (n * n / 4) as f64 * 1e9;
+        println!("n={n} ns_per_cell nested_score={a:.2} nested_full={b:.2} forward_score={c:.2} extend={d:.2} sink={sink}");
+    }
+}
+
 fn main() {
+    if std::env::args().nth(1).as_deref() == Some("bench") {
+        bench();
+        return;
+    }
     let date: i64 = std::env::args().nth(1).expect("用法: align_mirror_sandbox <date>").parse().unwrap();
     DATE.set(date).unwrap();
     rayon::ThreadPoolBuilder::new().num_threads(MAX_THREADS).build_global().unwrap();

@@ -18,3 +18,7 @@ opt-level = 3
 codegen-units = 1
 
 [workspace]
+
+[[bin]]
+name = "align_mirror_v3"
+path = "src/v3/main.rs"
