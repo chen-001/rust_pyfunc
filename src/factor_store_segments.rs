@@ -134,6 +134,28 @@ pub struct DirectSegmentWriter {
     pending_dates: HashSet<i64>,
     max_rows: usize,
     poisoned: bool,
+    // 攒满的一段交给后台线程写，计算侧不等它；下一次封段或 finish 才收尾。
+    // 有它，封段期间 append 不再停在写盘上。
+    inflight: Option<InflightFlush>,
+    // 上一段写完后交回来的空缓冲，下一次封段直接换给计算侧用，
+    // 免得每个循环重新分配一整块内存。
+    spare: Vec<Vec<f32>>,
+}
+
+fn fresh_columns(n: usize) -> Vec<Vec<f32>> {
+    (0..n).map(|_| Vec::new()).collect()
+}
+
+/// 已经交给后台线程写、还没等它回话的一段。
+/// 段文件和清单都由这个线程按顺序写（段号在封段时就定好），所以写完就是持久的；
+/// 崩在写盘中途只会留下一个清单里没有的孤儿段，下次重算覆盖它。
+struct InflightFlush {
+    part_index: usize,
+    rows: u64,
+    keys: HashSet<(u32, u32)>,
+    dates: HashSet<i64>,
+    failed: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    handle: std::thread::JoinHandle<(Result<(), String>, Option<SegmentManifest>, Vec<Vec<f32>>)>,
 }
 
 impl DirectSegmentWriter {
@@ -243,6 +265,8 @@ impl DirectSegmentWriter {
             pending_dates: HashSet::new(),
             max_rows,
             poisoned: false,
+            inflight: None,
+            spare: fresh_columns(names.len()),
         })
     }
     fn validate(&self, batch: &[TaskResult]) -> Result<(), String> {
@@ -277,6 +301,16 @@ impl DirectSegmentWriter {
         Ok(())
     }
     pub fn append_batch(&mut self, batch: &[TaskResult]) -> Result<(), String> {
+        // 后台写盘已经报错：先把错误原文抛出来，别让计算再白攒一段。
+        if self
+            .inflight
+            .as_ref()
+            .is_some_and(|f| f.failed.load(std::sync::atomic::Ordering::Relaxed))
+        {
+            self.join_inflight()?;
+            self.poisoned = true;
+            return Err("直接段后台写盘线程报告失败".into());
+        }
         self.validate(batch)?;
         let result = self.append_validated(batch);
         if result.is_err() {
@@ -318,7 +352,12 @@ impl DirectSegmentWriter {
                         c
                     }
                 };
-                if !self.committed.contains(&(d, c)) && self.pending.insert((d, c)) {
+                // 已经交给后台的那一段也算"收过"，避免同一行被写进两个段。
+                let in_flight = self
+                    .inflight
+                    .as_ref()
+                    .is_some_and(|f| f.keys.contains(&(d, c)));
+                if !self.committed.contains(&(d, c)) && !in_flight && self.pending.insert((d, c)) {
                     self.rows.push((d, c));
                     accepted.push(r);
                 }
@@ -328,7 +367,7 @@ impl DirectSegmentWriter {
             }
             offset += take;
             if self.rows.len() == self.max_rows {
-                self.flush()?;
+                self.seal_in_background()?;
             }
         }
         Ok(())
@@ -344,6 +383,7 @@ impl DirectSegmentWriter {
                 .committed
                 .iter()
                 .chain(self.pending.iter())
+                .chain(self.inflight.iter().flat_map(|f| f.keys.iter()))
                 .any(|(di, ci)| {
                     di == d && !codes.contains(self.manifest.codes[*ci as usize].as_str())
                 })
@@ -359,7 +399,120 @@ impl DirectSegmentWriter {
         }
         Ok(())
     }
-    fn flush(&mut self) -> Result<(), String> {
+    /// 把攒满的一段交给后台线程写盘，自己立刻返回；下一次封段或 finish 才等它。
+    /// 这样封段的那几分钟里，计算侧继续往新缓冲里写，不再停在写盘上。
+    fn seal_in_background(&mut self) -> Result<(), String> {
+        // 上一段还没落地就再封，会把段文件顺序和清单顺序打乱，所以先收尾。
+        self.join_inflight()?;
+        let part_index = self.manifest.parts.len();
+        let file = format!("segment_{part_index:08}.bin");
+        let target = self.dir.join(&file);
+        let manifest_path = self.dir.join(MANIFEST_NAME);
+        let rows = std::mem::take(&mut self.rows);
+        let n_columns = self.manifest.factor_names.len();
+        let next_active = if self.spare.len() == n_columns {
+            std::mem::take(&mut self.spare)
+        } else {
+            fresh_columns(n_columns)
+        };
+        let columns = std::mem::replace(&mut self.columns, next_active);
+        let dates = std::mem::take(&mut self.pending_dates);
+        let keys = std::mem::take(&mut self.pending);
+        let n_rows = rows.len() as u64;
+        // 先把"这一段写完之后清单长什么样"算好，交给后台线程自己落账：
+        // 段文件和清单都由同一个线程按顺序写，所以封完就是持久的（和同步写时一致），
+        // 崩在中途只会留下一个清单里没有的孤儿段，下次重算覆盖它。
+        let mut next = self.manifest.clone();
+        next.parts.push(SegmentPart {
+            file: file.clone(),
+            rows: n_rows,
+        });
+        next.completed_dates.extend(dates.iter().copied());
+        next.completed_dates.sort_unstable();
+        next.completed_dates.dedup();
+        let failed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let failed_in_thread = failed.clone();
+        let handle = std::thread::spawn(move || {
+            let tmp = target.with_extension("tmp");
+            let mut result =
+                write_segment(&tmp, &rows, &columns).and_then(|()| publish(&tmp, &target));
+            let mut committed_manifest = None;
+            if result.is_ok() {
+                match serde_json::to_vec(&next) {
+                    Ok(bytes) => {
+                        if let Err(e) = atomic_write(&manifest_path, &bytes) {
+                            result = Err(e);
+                        } else {
+                            committed_manifest = Some(next);
+                        }
+                    }
+                    Err(e) => result = Err(e.to_string()),
+                }
+            }
+            if result.is_err() {
+                failed_in_thread.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            // 缓冲交回去复用：只清长度，容量留着，下一段不必重新分配。
+            let mut columns = columns;
+            for c in &mut columns {
+                c.clear();
+            }
+            (result, committed_manifest, columns)
+        });
+        self.inflight = Some(InflightFlush {
+            part_index,
+            rows: n_rows,
+            keys,
+            dates,
+            failed,
+            handle,
+        });
+        Ok(())
+    }
+
+    fn join_inflight(&mut self) -> Result<(), String> {
+        let Some(inflight) = self.inflight.take() else {
+            return Ok(());
+        };
+        let (result, committed_manifest, columns) = match inflight.handle.join() {
+            Ok(done) => done,
+            Err(_) => (
+                Err("直接段后台写盘线程异常退出".to_string()),
+                None,
+                Vec::new(),
+            ),
+        };
+        // 缓冲交回来，下一段接着用；长度不对（线程崩过）就等下次重新分配。
+        if columns.len() == self.manifest.factor_names.len() {
+            self.spare = columns;
+        }
+        match (result, committed_manifest) {
+            (Ok(()), Some(next)) => {
+                if next.parts.len() != inflight.part_index + 1 {
+                    self.poisoned = true;
+                    return Err("直接段后台写盘的段序号与清单不一致".into());
+                }
+                // 只接段列表和完成日期。日期表/股票表在封段之后还会继续增长
+                // （封段时算的那份快照只是当下的子集），这里拿快照整体覆盖会把新条目丢掉。
+                self.manifest.parts = next.parts;
+                self.manifest.completed_dates = next.completed_dates;
+                self.committed.extend(inflight.keys);
+                Ok(())
+            }
+            (Ok(()), None) => {
+                self.poisoned = true;
+                Err("直接段后台写盘没有落账".into())
+            }
+            (Err(e), _) => {
+                self.poisoned = true;
+                Err(format!("直接段后台写盘失败: {e}"))
+            }
+        }
+    }
+
+    /// 同步封段：先收掉后台那一段，再把剩下的写掉并更新清单。
+    fn flush_blocking(&mut self) -> Result<(), String> {
+        self.join_inflight()?;
         let mut next = self.manifest.clone();
         if !self.rows.is_empty() {
             let file = format!("segment_{:08}.bin", next.parts.len());
@@ -394,10 +547,10 @@ impl DirectSegmentWriter {
         if self.poisoned {
             return Err("直接段写入此前失败；拒绝继续提交".into());
         }
-        if self.rows.is_empty() && self.pending_dates.is_empty() {
+        if self.rows.is_empty() && self.pending_dates.is_empty() && self.inflight.is_none() {
             return Ok(());
         }
-        let result = self.flush();
+        let result = self.flush_blocking();
         if result.is_err() {
             self.poisoned = true;
         }
@@ -423,6 +576,16 @@ impl DirectSegmentWriter {
     }
     pub fn store_dir(&self) -> &Path {
         &self.dir
+    }
+}
+
+impl Drop for DirectSegmentWriter {
+    /// 关掉写入器时收掉后台那一段，保证"已封存"在 close 之后就是持久的。
+    /// 收尾要等那一段写完，最多等一次封段；错误不在这里抛，调用方走 finish/append 已经拿到了。
+    fn drop(&mut self) {
+        if self.inflight.is_some() {
+            let _ = self.join_inflight();
+        }
     }
 }
 
@@ -516,4 +679,190 @@ fn write_segment(path: &Path, rows: &[(u32, u32)], columns: &[Vec<f32>]) -> Resu
     out.flush().map_err(|e| e.to_string())?;
     out.get_ref().set_len(off).map_err(|e| e.to_string())?;
     crate::storage_policy::sync_file(out.get_ref(), "直接段")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 测试用临时目录；按项目约定，因子测试文件一律放 /hdd。
+    struct TempStore(PathBuf);
+    impl TempStore {
+        fn new(tag: &str) -> Self {
+            let dir = Path::new("/hdd/user_home_unsafe/chenzongwei")
+                .join(format!("codex_seg_{tag}_{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            Self(dir)
+        }
+    }
+    impl Drop for TempStore {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// 造 count 条互不重复的 (date, code)，从序号 start 开始。
+    fn make_rows(start: usize, count: usize, cols: usize) -> Vec<TaskResult> {
+        (start..start + count)
+            .map(|i| TaskResult {
+                date: 20220101 + (i / 100) as i64,
+                code: format!("{:06}", i % 100),
+                timestamp: 0,
+                facs: (0..cols).map(|c| (i * cols + c) as f32).collect(),
+            })
+            .collect()
+    }
+
+    /// 模拟真实节奏：算一阵、攒满一段、再接着算。用 sleep 代替计算，
+    /// 比例按实测来（同一个 32 GiB 段，算约 165 秒，写约 181 秒）。
+    #[test]
+    fn seal_overlap_with_compute() {
+        let store = TempStore::new("overlap");
+        let cols = 2000usize;
+        let names: Vec<String> = (0..cols).map(|i| format!("f{i}")).collect();
+        let buffer_bytes = 128 * 1024 * 1024;
+        let max_rows = buffer_bytes / (cols * 4);
+        let slice = max_rows / 8;
+        let mut w = DirectSegmentWriter::open(store.0.to_str().unwrap(), &names, buffer_bytes).unwrap();
+        let mut written = 0usize;
+        let start = std::time::Instant::now();
+        let mut cycle_rows = 0usize;
+        let mut cycle_start = std::time::Instant::now();
+        for cycle in 0..4 {
+            for _ in 0..8 {
+                let batch = make_rows(written, slice, cols);
+                w.append_batch(&batch).unwrap();
+                written += slice;
+                cycle_rows += slice;
+                std::thread::sleep(std::time::Duration::from_millis(150)); // 代替计算
+            }
+            println!(
+                "第 {cycle} 段：{} 行，含计算共 {:.2} s",
+                cycle_rows,
+                cycle_start.elapsed().as_secs_f64()
+            );
+            cycle_rows = 0;
+            cycle_start = std::time::Instant::now();
+        }
+        let t = std::time::Instant::now();
+        w.finish().unwrap();
+        println!("finish：{:.2} s，总墙钟 {:.2} s", t.elapsed().as_secs_f64(), start.elapsed().as_secs_f64());
+        assert_eq!(w.record_count() as usize, written);
+    }
+
+    /// 封段这一下不能等写盘：append 返回时，段还没写完、清单还没动，
+    /// 但下一批数据已经能往新缓冲里写。
+    #[test]
+    fn seal_returns_before_segment_is_written() {
+        let store = TempStore::new("async");
+        let cols = 2000usize;
+        let names: Vec<String> = (0..cols).map(|i| format!("f{i}")).collect();
+        let buffer_bytes = 128 * 1024 * 1024;
+        let max_rows = buffer_bytes / (cols * 4);
+        let mut w =
+            DirectSegmentWriter::open(store.0.to_str().unwrap(), &names, buffer_bytes).unwrap();
+        w.append_batch(&make_rows(0, max_rows, cols)).unwrap();
+        // 刚好攒满：这一段已经在后台写了，计算侧立刻能干别的
+        assert!(w.inflight.is_some(), "攒满后应交给后台写");
+        assert!(w.rows.is_empty(), "缓冲应已换新");
+        assert!(w.committed.is_empty(), "清单还没更新，不算完成");
+        assert_eq!(w.completed_dates().len(), 0);
+        // 后台还在写的时候继续收数据
+        w.append_batch(&make_rows(max_rows, 1000, cols)).unwrap();
+        assert_eq!(w.rows.len(), 1000);
+        // 收尾会把后台那段接上，并把它写进清单
+        w.finish().unwrap();
+        assert!(w.inflight.is_none());
+        assert_eq!(w.record_count() as usize, max_rows + 1000);
+        assert_eq!(load_manifest(&store.0).unwrap().unwrap().parts.len(), 2);
+    }
+
+    /// 一整天的数据刚好攒满一段时，这一天要能在收尾后标记完成。
+    #[test]
+    fn exact_boundary_date_is_committed() {
+        let store = TempStore::new("boundary");
+        let cols = 100usize;
+        let names: Vec<String> = (0..cols).map(|i| format!("f{i}")).collect();
+        let buffer_bytes = 64 * 100 * 4; // 正好 64 行
+        let mut w =
+            DirectSegmentWriter::open(store.0.to_str().unwrap(), &names, buffer_bytes).unwrap();
+        let day = 20220104i64;
+        let batch = make_rows(0, 64, cols);
+        let batch: Vec<TaskResult> = batch
+            .into_iter()
+            .map(|mut r| {
+                r.date = day;
+                r
+            })
+            .collect();
+        w.append_date(day, &batch).unwrap();
+        assert_eq!(w.completed_dates(), HashSet::from([day]));
+        w.finish().unwrap();
+        let m = load_manifest(&store.0).unwrap().unwrap();
+        assert_eq!(m.parts.len(), 1);
+        assert_eq!(m.completed_dates, vec![day]);
+    }
+
+    /// 后台写盘被强杀会留下清单里没有的孤儿段：重开要能容忍，重算时覆盖同名文件。
+    #[test]
+    fn orphan_segment_file_is_tolerated_and_overwritten() {
+        let store = TempStore::new("orphan");
+        let cols = 100usize;
+        let names: Vec<String> = (0..cols).map(|i| format!("f{i}")).collect();
+        let buffer_bytes = 64 * 100 * 4;
+        {
+            let mut w =
+                DirectSegmentWriter::open(store.0.to_str().unwrap(), &names, buffer_bytes).unwrap();
+            w.append_batch(&make_rows(0, 64, cols)).unwrap();
+            w.finish().unwrap();
+        }
+        // 造一个"文件写完、清单还没落账"的孤儿段
+        std::fs::copy(
+            store.0.join("segment_00000000.bin"),
+            store.0.join("segment_00000001.bin"),
+        )
+        .unwrap();
+        assert_eq!(load_manifest(&store.0).unwrap().unwrap().parts.len(), 1);
+        // 重开：不认孤儿段，行数只按清单算
+        let mut w =
+            DirectSegmentWriter::open(store.0.to_str().unwrap(), &names, buffer_bytes).unwrap();
+        assert_eq!(w.record_count(), 64);
+        // 再算一段，落在同名文件上，把它覆盖掉
+        w.append_batch(&make_rows(64, 64, cols)).unwrap();
+        w.finish().unwrap();
+        let m = load_manifest(&store.0).unwrap().unwrap();
+        assert_eq!(m.parts.len(), 2);
+        assert_eq!(m.parts[1].rows, 64);
+        assert_eq!(w.record_count(), 128);
+    }
+
+    /// 封段时 append 会不会被写盘挡住：逐批计时，最后核对行数与取值。
+    #[test]
+    fn seal_latency_report() {
+        let store = TempStore::new("latency");
+        let cols = 2000usize;
+        let names: Vec<String> = (0..cols).map(|i| format!("f{i}")).collect();
+        let buffer_bytes = 128 * 1024 * 1024;
+        let max_rows = buffer_bytes / (cols * 4);
+        let mut w = DirectSegmentWriter::open(store.0.to_str().unwrap(), &names, buffer_bytes).unwrap();
+        let mut written = 0usize;
+        for batch_idx in 0..4 {
+            let batch = make_rows(written, max_rows, cols);
+            let t = std::time::Instant::now();
+            w.append_batch(&batch).unwrap();
+            println!(
+                "append 第 {batch_idx} 批 {} 行：{:.3} s",
+                batch.len(),
+                t.elapsed().as_secs_f64()
+            );
+            written += batch.len();
+        }
+        let t = std::time::Instant::now();
+        w.finish().unwrap();
+        println!("finish：{:.3} s", t.elapsed().as_secs_f64());
+        assert_eq!(w.record_count() as usize, written);
+        let parts = w.manifest.parts.len();
+        assert!(parts >= 4, "预期每批都封一段，实际 {parts} 段");
+        assert_eq!(load_manifest(&store.0).unwrap().unwrap().parts.len(), parts);
+    }
 }
