@@ -3885,42 +3885,65 @@ pub fn factor_store_v5_verify_online(
 }
 
 /// 读取第 col_idx 个因子为扁平数组（date_id[], code_id[], factor[]），供测试/调试
+///
+/// 读盘与展平整段放进 `allow_threads`：这段是纯 Rust 工作，不需要 GIL。
+/// 2026-11-13 实测（sandbox_tlq_par/probe_parallel.py，/hdd 上每因子约 80 MB 的 store）：
+/// 旧实现整段持有 GIL，8 线程并行读 8 个因子只有 1.03x；在 page cache 命中的情况下
+/// 反而 0.73x，纯粹是 GIL 争抢的开销。释放之后 Python 侧线程池才可能真正重叠 IO 等待，
+/// 这也是 tlq_gate 并行化能从 1.33x 继续往上走的前提。
 #[pyfunction]
 pub fn factor_store_v5_read_factor(store_dir: String, col_idx: usize) -> PyResult<PyObject> {
     use numpy::PyArray1;
     use pyo3::types::PyDict;
+
+    /// allow_threads 的闭包返回值必须 Send，PyErr 不是，所以先在纯 Rust 侧用 String 承载错误。
+    /// 用枚举区分两类错误，保持与旧实现一致的 Python 异常类型（越界 ValueError / 读失败 IOError）。
+    enum ReadFactorError {
+        OutOfRange(String),
+        Io(String),
+    }
+
     Python::with_gil(|py| {
-        let reader = FactorStoreReader::open(&store_dir).map_err(pyerr)?;
-        if col_idx >= reader.factor_names().len() {
-            return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "col_idx {col_idx} 超出范围（共 {} 个因子）",
-                reader.factor_names().len()
-            )));
-        }
-        // 用空模板走投影区读取原始三元组
-        // 这里直接读投影段得到 (date_id, code_id, value)
-        // 支持未投影：走 read_factor_to_matrix 的回退路径
-        let tmpl = reader.template_axes();
-        let dates_i32: Vec<i32> = tmpl.0;
-        let stocks: Vec<String> = tmpl.1;
-        // 用 read_factor_to_matrix 读取（支持投影和未投影回退）
-        let matrix = reader
-            .read_factor_to_matrix(col_idx, &dates_i32, &stocks)
-            .map_err(|e| pyo3::exceptions::PyIOError::new_err(e))?;
-        // 展平矩阵为 (date_id, code_id, factor) 三元组
-        let mut dates = Vec::new();
-        let mut codes = Vec::new();
-        let mut factors = Vec::new();
-        for (di, _) in dates_i32.iter().enumerate() {
-            for (ci, _) in stocks.iter().enumerate() {
-                let v = matrix[[di, ci]];
-                if v.is_finite() {
-                    dates.push(di as u32);
-                    codes.push(ci as u32);
-                    factors.push(v);
+        let (dates, codes, factors) = py
+            .allow_threads(|| -> Result<(Vec<u32>, Vec<u32>, Vec<f32>), ReadFactorError> {
+                let reader =
+                    FactorStoreReader::open(&store_dir).map_err(ReadFactorError::Io)?;
+                let n_factors = reader.factor_names().len();
+                if col_idx >= n_factors {
+                    return Err(ReadFactorError::OutOfRange(format!(
+                        "col_idx {col_idx} 超出范围（共 {n_factors} 个因子）"
+                    )));
                 }
-            }
-        }
+                // 用空模板走投影区读取原始三元组
+                // 这里直接读投影段得到 (date_id, code_id, value)
+                // 支持未投影：走 read_factor_to_matrix 的回退路径
+                let tmpl = reader.template_axes();
+                let dates_i32: Vec<i32> = tmpl.0;
+                let stocks: Vec<String> = tmpl.1;
+                // 用 read_factor_to_matrix 读取（支持投影和未投影回退）
+                let matrix = reader
+                    .read_factor_to_matrix(col_idx, &dates_i32, &stocks)
+                    .map_err(ReadFactorError::Io)?;
+                // 展平矩阵为 (date_id, code_id, factor) 三元组
+                let mut dates = Vec::new();
+                let mut codes = Vec::new();
+                let mut factors = Vec::new();
+                for (di, _) in dates_i32.iter().enumerate() {
+                    for (ci, _) in stocks.iter().enumerate() {
+                        let v = matrix[[di, ci]];
+                        if v.is_finite() {
+                            dates.push(di as u32);
+                            codes.push(ci as u32);
+                            factors.push(v);
+                        }
+                    }
+                }
+                Ok((dates, codes, factors))
+            })
+            .map_err(|err| match err {
+                ReadFactorError::OutOfRange(msg) => pyo3::exceptions::PyValueError::new_err(msg),
+                ReadFactorError::Io(msg) => pyo3::exceptions::PyIOError::new_err(msg),
+            })?;
         let dict = PyDict::new(py);
         dict.set_item("date_id", PyArray1::from_vec(py, dates))?;
         dict.set_item("code_id", PyArray1::from_vec(py, codes))?;

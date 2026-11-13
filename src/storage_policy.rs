@@ -48,11 +48,21 @@ impl StorageProfile {
             btrfs: false,
         })
     }
+    /// 同时进行的 IO 批次上限。
+    ///
+    /// 本地盘以前直接放行 n_jobs。2026-11-13 实测（任务 590，n_jobs=300、store 落在
+    /// /hdd 的 8 块机械盘上）：Engine 阶段 42924 个因子 3h59m41s 才读完 1.8 TB，
+    /// 等效 125 MB/s，远低于 8 盘合计带宽；同一时刻 iostat 里 8 块盘只有 1~3 块在动、
+    /// %util 18~20%、aqu-sz 0.62，说明瓶颈是并发过高压出来的寻道排队，不是带宽。
+    /// 机械盘要的是一条长顺序流，不是 300 条随机流；配合 io_batch_bytes 调大、
+    /// 让一个批次覆盖多列连续因子，限到 16 条并发流才跑得起来。
+    ///
+    /// 网络盘维持原来的 8（远程存储上高并发反而更容易超时）。
     pub fn io_concurrency(self, jobs: usize) -> usize {
         if self.network {
             jobs.min(8).max(1)
         } else {
-            jobs.max(1)
+            jobs.min(16).max(1)
         }
     }
     pub fn io_batch_size(self) -> usize {
