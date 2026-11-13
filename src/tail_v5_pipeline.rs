@@ -131,6 +131,10 @@ pub(crate) struct SharedInputs {
     /// None = 关闭（旧行为）。有值时强制走 v1 中性化路径（v2 的逐日 Cholesky 预分解
     /// 只对 10 列成立）。
     pub(crate) cold_style: Option<Arc<Array2<f64>>>,
+    /// 有冷门时是否**同时**再算一遍 10 风格那套（两套指标都留）。
+    /// false（默认）= 只算 11 风格那一套：筛选要的就是它，引擎耗时与没有冷门时基本持平；
+    /// true = 两遍都算，指标齐全但耗时约 2.2~2.6 倍（10 风格的指标只用于人工对照）。
+    pub(crate) cold_dual_pass: bool,
     pub(crate) ret_gap1: Arc<Array2<f32>>,
     pub(crate) ret_sum_gap1: Arc<Array2<f32>>,
     pub(crate) ret_gap5: Arc<Array2<f32>>,
@@ -182,6 +186,8 @@ pub(crate) fn build_shared_inputs(
     industry: Option<Array2<f64>>,
     // 冷门（热度）中性化：第 11 个回归列；None = 关闭
     cold_style: Option<Array2<f64>>,
+    // 有冷门时是否两套指标都算（false = 只算 11 风格，速度快一倍）
+    cold_dual_pass: bool,
     style_vars_dir: &str,
     ret_gap1_path: &str,
     ret_sum_gap1_path: &str,
@@ -362,6 +368,7 @@ pub(crate) fn build_shared_inputs(
         industry_neutralize,
         industry: industry.map(Arc::new),
         cold_style: cold_style.map(Arc::new),
+        cold_dual_pass,
         neutralize_std_shared,
         ret_gap1: Arc::new(ret_g1),
         ret_sum_gap1: Arc::new(ret_s1),
@@ -4444,6 +4451,7 @@ pub fn tail_v5_run_candidates<'py>(
             industry: None,
             neutralize_std_shared: None,
             cold_style: None,
+            cold_dual_pass: false,
             ret_gap1: Arc::new(read_npy(&ret_gap1_path).map_err(|e| format!("读取 ret_gap1.npy 失败: {}", e))?),
             ret_sum_gap1: Arc::new(read_npy(&ret_sum_gap1_path).map_err(|e| format!("读取 ret_sum_gap1.npy 失败: {}", e))?),
             ret_gap5: Arc::new(read_npy(&ret_gap5_path).map_err(|e| format!("读取 ret_gap5.npy 失败: {}", e))?),
@@ -6428,6 +6436,7 @@ pub fn tail_v5_run_candidates_online<'py>(
             industry: None,
             neutralize_std_shared: None,
             cold_style: None,
+            cold_dual_pass: false,
             ret_gap1: Arc::new(read_npy(&ret_gap1_path).map_err(|e| format!("读取 ret_gap1.npy 失败: {}", e))?),
             ret_sum_gap1: Arc::new(read_npy(&ret_sum_gap1_path).map_err(|e| format!("读取 ret_sum_gap1.npy 失败: {}", e))?),
             ret_gap5: Arc::new(read_npy(&ret_gap5_path).map_err(|e| format!("读取 ret_gap5.npy 失败: {}", e))?),
@@ -6915,6 +6924,7 @@ pub fn tail_v5_run_candidates_v7<'py>(
             industry: None,
             neutralize_std_shared: None,
             cold_style: None,
+            cold_dual_pass: false,
             ret_gap1: Arc::new(read_npy(&ret_gap1_path).map_err(|e| format!("读取 ret_gap1.npy 失败: {}", e))?),
             ret_sum_gap1: Arc::new(read_npy(&ret_sum_gap1_path).map_err(|e| format!("读取 ret_sum_gap1.npy 失败: {}", e))?),
             ret_gap5: Arc::new(read_npy(&ret_gap5_path).map_err(|e| format!("读取 ret_gap5.npy 失败: {}", e))?),
@@ -7714,13 +7724,16 @@ fn process_v7_slot(
     // O2 (2026-09): precompute 已带 orders/per_date, v2 用预计算排序与逐日 X'X
     // (数值逐位一致; 因子侧 NaN 日自动回退生产原路径)。
     let _t = Instant::now();
-    let neutralized_slot = {
+    // 只算冷门那一套时（cold_dual_pass=false），10 风格的中性化连算都不用算：
+    // 少一次全市场逐日回归，这就是「开冷门不掉速」的关键。
+    let need_plain = shared.cold_style.is_none() || shared.cold_dual_pass;
+    let neutralized_slot = if need_plain {
         let ns = shared
             .neutralize_std_shared
             .as_ref()
             .expect("tail_backtest_engine 中性化需要预计算的 neutralize_std_shared");
         // 有冷门中性化时强制走 v1 路径（v2 的预分解只对 10 个风格列成立）
-        match (&shared.bt_pre, shared.cold_style.is_some()) {
+        Some(match (&shared.bt_pre, shared.cold_style.is_some()) {
             (Some(_), false) => crate::factor_neutralize_std::neutralize_std_slot_f32_v2_resid(
                 slot_values,
                 ns,
@@ -7732,7 +7745,9 @@ fn process_v7_slot(
                 shared.industry_neutralize,
                 None,
             )?,
-        }
+        })
+    } else {
+        None
     };
     // 冷门（11 风格）那一套：只在开关打开时算，供文档 8 合 1 展示 + 选因子门禁用
     let neutralized_slot_cold = if shared.cold_style.is_some() {
@@ -7750,11 +7765,11 @@ fn process_v7_slot(
         None
     };
     PROF_NEU.fetch_add(_t.elapsed().as_nanos() as u64, AtomicOrdering::Relaxed);
-    match &neutralized_slot_cold {
-        Some(cold_slot) => {
+    match (&neutralized_slot, &neutralized_slot_cold) {
+        (Some(plain), Some(cold_slot)) => {
             // 第一遍：10 风格（只写展示集，不参与门禁）
             process_v7_slot_neu(
-                slot_idx, &neutralized_slot, raw_out.clone(), variant_name, derived_names,
+                slot_idx, plain, raw_out.clone(), variant_name, derived_names,
                 shared, open_symbol_counts, result, false, false,
             )?;
             // 第二遍：11 风格（写 neu11，并做门禁）
@@ -7763,10 +7778,15 @@ fn process_v7_slot(
                 shared, open_symbol_counts, result, true, true,
             )
         }
-        None => process_v7_slot_neu(
-            slot_idx, &neutralized_slot, raw_out, variant_name, derived_names,
+        (None, Some(cold_slot)) => process_v7_slot_neu(
+            slot_idx, cold_slot, raw_out, variant_name, derived_names,
+            shared, open_symbol_counts, result, true, true,
+        ),
+        (Some(plain), None) => process_v7_slot_neu(
+            slot_idx, plain, raw_out, variant_name, derived_names,
             shared, open_symbol_counts, result, false, true,
         ),
+        (None, None) => unreachable!("need_plain 与 cold_style 至少一个为真"),
     }
 }
 
@@ -8193,6 +8213,7 @@ pub fn tail_v5_run_candidates_v7b<'py>(
             industry: None,
             neutralize_std_shared: None,
             cold_style: None,
+            cold_dual_pass: false,
             ret_gap1: Arc::new(read_npy(&ret_gap1_path).map_err(|e| format!("读取 ret_gap1.npy 失败: {}", e))?),
             ret_sum_gap1: Arc::new(read_npy(&ret_sum_gap1_path).map_err(|e| format!("读取 ret_sum_gap1.npy 失败: {}", e))?),
             ret_gap5: Arc::new(read_npy(&ret_gap5_path).map_err(|e| format!("读取 ret_gap5.npy 失败: {}", e))?),

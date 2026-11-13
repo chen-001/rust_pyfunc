@@ -133,6 +133,7 @@ fn parse_col_idx(factor_path: &str) -> Option<usize> {
     industry_neutralize=true,
     industry_matrix=None,
     cold_style=None,
+    cold_dual_pass=true,
     ic_only=false,
     io_concurrency=None, io_batch_size=None, io_batch_bytes=67108864,
     low_coverage_markers=None, low_coverage_names=None,
@@ -177,6 +178,8 @@ pub fn tail_backtest_engine<'py>(
     industry_matrix: Option<numpy::PyReadonlyArray2<'py, f64>>,
     // 冷门（热度）中性化：第 11 个回归列 (T,N) f64；None = 关闭（旧行为）
     cold_style: Option<numpy::PyReadonlyArray2<'py, f64>>,
+    // 有冷门时是否两套指标都算：false（推荐）= 只算 11 风格，速度与没有冷门接近
+    cold_dual_pass: bool,
     ic_only: bool,
     io_concurrency: Option<usize>,
     io_batch_size: Option<usize>,
@@ -284,6 +287,7 @@ pub fn tail_backtest_engine<'py>(
             industry_neutralize,
             Some(industry),
             cold_style_arr,
+            cold_dual_pass,
             &style_vars_dir,
             &ret_gap1_path, &ret_sum_gap1_path,
             &ret_gap5_path, &ret_sum_gap5_path,
