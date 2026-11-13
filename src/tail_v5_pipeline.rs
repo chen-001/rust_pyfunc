@@ -127,6 +127,10 @@ pub(crate) struct SharedInputs {
     /// None=未启用标准中性化 (industry 为 None 的旧路径)。
     pub(crate) neutralize_std_shared:
         Option<Arc<crate::factor_neutralize_std::NeutralizeStdShared>>,
+    /// 冷门（热度）中性化：作为第 11 个回归列参与的 (T,N) 冷得分（正 = 冷门）。
+    /// None = 关闭（旧行为）。有值时强制走 v1 中性化路径（v2 的逐日 Cholesky 预分解
+    /// 只对 10 列成立）。
+    pub(crate) cold_style: Option<Arc<Array2<f64>>>,
     pub(crate) ret_gap1: Arc<Array2<f32>>,
     pub(crate) ret_sum_gap1: Arc<Array2<f32>>,
     pub(crate) ret_gap5: Arc<Array2<f32>>,
@@ -176,6 +180,8 @@ pub(crate) fn build_shared_inputs(
     backtest_start: i32,
     industry_neutralize: bool,
     industry: Option<Array2<f64>>,
+    // 冷门（热度）中性化：第 11 个回归列；None = 关闭
+    cold_style: Option<Array2<f64>>,
     style_vars_dir: &str,
     ret_gap1_path: &str,
     ret_sum_gap1_path: &str,
@@ -355,6 +361,7 @@ pub(crate) fn build_shared_inputs(
         legacy_style_data: Arc::new(style_data),
         industry_neutralize,
         industry: industry.map(Arc::new),
+        cold_style: cold_style.map(Arc::new),
         neutralize_std_shared,
         ret_gap1: Arc::new(ret_g1),
         ret_sum_gap1: Arc::new(ret_s1),
@@ -471,6 +478,23 @@ pub(crate) struct TailTaskResult {
     pub(crate) all_raw_ic_gap5: Vec<IcRecord>,
     pub(crate) all_neu_ic_gap1: Vec<IcRecord>,
     pub(crate) all_neu_ic_gap5: Vec<IcRecord>,
+    // ---- 11 风格（带冷门中性化）一套：与上面 neu 并行存放，供文档 8 合 1 使用 ----
+    #[serde(default)]
+    pub(crate) neu11_summary_gap1: Vec<SummaryRowRecord>,
+    #[serde(default)]
+    pub(crate) neu11_summary_gap5: Vec<SummaryRowRecord>,
+    #[serde(default)]
+    pub(crate) neu11_ic_gap1: Vec<IcRecord>,
+    #[serde(default)]
+    pub(crate) neu11_ic_gap5: Vec<IcRecord>,
+    #[serde(default)]
+    pub(crate) all_neu11_summary_gap1: Vec<SummaryRowRecord>,
+    #[serde(default)]
+    pub(crate) all_neu11_summary_gap5: Vec<SummaryRowRecord>,
+    #[serde(default)]
+    pub(crate) all_neu11_ic_gap1: Vec<IcRecord>,
+    #[serde(default)]
+    pub(crate) all_neu11_ic_gap5: Vec<IcRecord>,
     #[serde(default = "default_nan_f64")]
     pub(crate) raw_cover_before_fill: f64,
     #[serde(default = "default_nan_f64")]
@@ -508,6 +532,15 @@ pub(crate) struct AggregatedCandidates {
     pub(crate) all_raw_ic_gap5: HashMap<String, IcRecord>,
     pub(crate) all_neu_ic_gap1: HashMap<String, IcRecord>,
     pub(crate) all_neu_ic_gap5: HashMap<String, IcRecord>,
+    // 11 风格（带冷门中性化）
+    pub(crate) neu11_summary_gap1: Vec<SummaryRowRecord>,
+    pub(crate) neu11_summary_gap5: Vec<SummaryRowRecord>,
+    pub(crate) neu11_ic_gap1: HashMap<String, IcRecord>,
+    pub(crate) neu11_ic_gap5: HashMap<String, IcRecord>,
+    pub(crate) all_neu11_summary_gap1: Vec<SummaryRowRecord>,
+    pub(crate) all_neu11_summary_gap5: Vec<SummaryRowRecord>,
+    pub(crate) all_neu11_ic_gap1: HashMap<String, IcRecord>,
+    pub(crate) all_neu11_ic_gap5: HashMap<String, IcRecord>,
 }
 
 impl AggregatedCandidates {
@@ -543,6 +576,22 @@ impl AggregatedCandidates {
         }
         for record in task.all_neu_ic_gap5 {
             self.all_neu_ic_gap5.insert(record.factor_name.clone(), record);
+        }
+        self.neu11_summary_gap1.extend(task.neu11_summary_gap1);
+        self.neu11_summary_gap5.extend(task.neu11_summary_gap5);
+        for record in task.neu11_ic_gap1 {
+            self.neu11_ic_gap1.insert(record.factor_name.clone(), record);
+        }
+        for record in task.neu11_ic_gap5 {
+            self.neu11_ic_gap5.insert(record.factor_name.clone(), record);
+        }
+        self.all_neu11_summary_gap1.extend(task.all_neu11_summary_gap1);
+        self.all_neu11_summary_gap5.extend(task.all_neu11_summary_gap5);
+        for record in task.all_neu11_ic_gap1 {
+            self.all_neu11_ic_gap1.insert(record.factor_name.clone(), record);
+        }
+        for record in task.all_neu11_ic_gap5 {
+            self.all_neu11_ic_gap5.insert(record.factor_name.clone(), record);
         }
     }
 }
@@ -4127,6 +4176,48 @@ pub(crate) fn write_aggregated_outputs(
         &ic_dir.join("ic_neu_gap5_all_dates.npy"),
         &aggregated.all_neu_ic_gap5,
     )?;
+
+    // ---- 11 风格（带冷门中性化）一套：与上面 neu 并行落盘，供文档 8 合 1 ----
+    write_summary_parquet(
+        &metrics_dir.join("summary_neu11_gap1_candidates.parquet"),
+        &aggregated.neu11_summary_gap1,
+    )?;
+    write_summary_parquet(
+        &metrics_dir.join("summary_neu11_gap5_candidates.parquet"),
+        &aggregated.neu11_summary_gap5,
+    )?;
+    write_ic_outputs(
+        &ic_dir.join("ic_neu11_gap1.npy"),
+        &ic_dir.join("ic_neu11_gap1_names.json"),
+        &ic_dir.join("ic_neu11_gap1_dates.npy"),
+        &aggregated.neu11_ic_gap1,
+    )?;
+    write_ic_outputs(
+        &ic_dir.join("ic_neu11_gap5.npy"),
+        &ic_dir.join("ic_neu11_gap5_names.json"),
+        &ic_dir.join("ic_neu11_gap5_dates.npy"),
+        &aggregated.neu11_ic_gap5,
+    )?;
+    write_summary_parquet(
+        &metrics_dir.join("summary_neu11_gap1_all.parquet"),
+        &aggregated.all_neu11_summary_gap1,
+    )?;
+    write_summary_parquet(
+        &metrics_dir.join("summary_neu11_gap5_all.parquet"),
+        &aggregated.all_neu11_summary_gap5,
+    )?;
+    write_ic_outputs(
+        &ic_dir.join("ic_neu11_gap1_all.npy"),
+        &ic_dir.join("ic_neu11_gap1_all_names.json"),
+        &ic_dir.join("ic_neu11_gap1_all_dates.npy"),
+        &aggregated.all_neu11_ic_gap1,
+    )?;
+    write_ic_outputs(
+        &ic_dir.join("ic_neu11_gap5_all.npy"),
+        &ic_dir.join("ic_neu11_gap5_all_names.json"),
+        &ic_dir.join("ic_neu11_gap5_all_dates.npy"),
+        &aggregated.all_neu11_ic_gap5,
+    )?;
     Ok(())
 }
 
@@ -4352,6 +4443,7 @@ pub fn tail_v5_run_candidates<'py>(
             industry_neutralize: true,
             industry: None,
             neutralize_std_shared: None,
+            cold_style: None,
             ret_gap1: Arc::new(read_npy(&ret_gap1_path).map_err(|e| format!("读取 ret_gap1.npy 失败: {}", e))?),
             ret_sum_gap1: Arc::new(read_npy(&ret_sum_gap1_path).map_err(|e| format!("读取 ret_sum_gap1.npy 失败: {}", e))?),
             ret_gap5: Arc::new(read_npy(&ret_gap5_path).map_err(|e| format!("读取 ret_gap5.npy 失败: {}", e))?),
@@ -6335,6 +6427,7 @@ pub fn tail_v5_run_candidates_online<'py>(
             industry_neutralize: true,
             industry: None,
             neutralize_std_shared: None,
+            cold_style: None,
             ret_gap1: Arc::new(read_npy(&ret_gap1_path).map_err(|e| format!("读取 ret_gap1.npy 失败: {}", e))?),
             ret_sum_gap1: Arc::new(read_npy(&ret_sum_gap1_path).map_err(|e| format!("读取 ret_sum_gap1.npy 失败: {}", e))?),
             ret_gap5: Arc::new(read_npy(&ret_gap5_path).map_err(|e| format!("读取 ret_gap5.npy 失败: {}", e))?),
@@ -6821,6 +6914,7 @@ pub fn tail_v5_run_candidates_v7<'py>(
             industry_neutralize: true,
             industry: None,
             neutralize_std_shared: None,
+            cold_style: None,
             ret_gap1: Arc::new(read_npy(&ret_gap1_path).map_err(|e| format!("读取 ret_gap1.npy 失败: {}", e))?),
             ret_sum_gap1: Arc::new(read_npy(&ret_sum_gap1_path).map_err(|e| format!("读取 ret_sum_gap1.npy 失败: {}", e))?),
             ret_gap5: Arc::new(read_npy(&ret_gap5_path).map_err(|e| format!("读取 ret_gap5.npy 失败: {}", e))?),
@@ -7277,6 +7371,7 @@ fn legacy_backtest_gap1_gap5_single_slot(
 /// 每个 slot 处理完立即释放，不再同时持有 selected block 和 neutralized block。
 #[allow(clippy::too_many_arguments)]
 /// raw 段 (preflight + 原始回测): 返回 None 表示 preflight 未过且非 metrics-only (提前退出)。
+#[derive(Clone)]
 struct SlotRawOut {
     pre_report: PreflightReport,
     raw_gap1: LegacyBacktestResult,
@@ -7406,8 +7501,41 @@ fn process_v7_slot_neu(
     shared: &SharedInputs,
     open_symbol_counts: &[usize],
     result: &mut TailTaskResult,
+    cold_pass: bool,
+    gate_pass: bool,
 ) -> Result<(), String> {
     let derived_name = &derived_names[slot_idx];
+    // 两套中性化结果并行存放：cold_pass=true 写 neu11（11 风格），否则写 neu（10 风格）
+    let (tgt_s1, tgt_s5, tgt_ic1, tgt_ic5) = if cold_pass {
+        (
+            &mut result.neu11_summary_gap1,
+            &mut result.neu11_summary_gap5,
+            &mut result.neu11_ic_gap1,
+            &mut result.neu11_ic_gap5,
+        )
+    } else {
+        (
+            &mut result.neu_summary_gap1,
+            &mut result.neu_summary_gap5,
+            &mut result.neu_ic_gap1,
+            &mut result.neu_ic_gap5,
+        )
+    };
+    let (atgt_s1, atgt_s5, atgt_ic1, atgt_ic5) = if cold_pass {
+        (
+            &mut result.all_neu11_summary_gap1,
+            &mut result.all_neu11_summary_gap5,
+            &mut result.all_neu11_ic_gap1,
+            &mut result.all_neu11_ic_gap5,
+        )
+    } else {
+        (
+            &mut result.all_neu_summary_gap1,
+            &mut result.all_neu_summary_gap5,
+            &mut result.all_neu_ic_gap1,
+            &mut result.all_neu_ic_gap5,
+        )
+    };
     let pre_report = raw_out.pre_report;
     let raw_gap1_result = raw_out.raw_gap1;
     let raw_gap5_result = raw_out.raw_gap5;
@@ -7486,14 +7614,14 @@ fn process_v7_slot_neu(
     let neu_gap1_keep = pre_report.passed && qualify_neu(&neu_gap1_row, 1, &shared.config);
     let neu_gap5_keep = pre_report.passed && qualify_neu(&neu_gap5_row, 5, &shared.config);
 
-    if raw_gap1_keep || raw_gap5_keep || neu_gap1_keep || neu_gap5_keep {
+    if gate_pass && (raw_gap1_keep || raw_gap5_keep || neu_gap1_keep || neu_gap5_keep) {
         result.passed = true;
     }
 
     // metrics-only：无论是否达到候选阈值，都保存该 derived slot 的全部指标。
     // ic_only 模式 raw 未回测（summary 为 NaN），跳过 raw all 产物，避免写含 NaN 的 JSON。
     if shared.config.save_all_metrics {
-        if !shared.config.ic_only {
+        if gate_pass && !shared.config.ic_only {
             result.all_raw_summary_gap1.push(raw_gap1_row.clone());
             result.all_raw_summary_gap5.push(raw_gap5_row.clone());
             result.all_raw_ic_gap1.push(IcRecord {
@@ -7507,21 +7635,21 @@ fn process_v7_slot_neu(
                 values: raw_gap5_result.ic_values.clone(),
             });
         }
-        result.all_neu_summary_gap1.push(neu_gap1_row.clone());
-        result.all_neu_summary_gap5.push(neu_gap5_row.clone());
-        result.all_neu_ic_gap1.push(IcRecord {
+        atgt_s1.push(neu_gap1_row.clone());
+        atgt_s5.push(neu_gap5_row.clone());
+        atgt_ic1.push(IcRecord {
             factor_name: derived_name.clone(),
             dates: neu_gap1_result.ic_dates.clone(),
             values: neu_gap1_result.ic_values.clone(),
         });
-        result.all_neu_ic_gap5.push(IcRecord {
+        atgt_ic5.push(IcRecord {
             factor_name: derived_name.clone(),
             dates: neu_gap5_result.ic_dates.clone(),
             values: neu_gap5_result.ic_values.clone(),
         });
     }
 
-    if raw_gap1_keep {
+    if gate_pass && raw_gap1_keep {
         result.raw_summary_gap1.push(raw_gap1_row.clone());
         result.raw_ic_gap1.push(IcRecord {
             factor_name: derived_name.clone(),
@@ -7529,7 +7657,7 @@ fn process_v7_slot_neu(
             values: raw_gap1_result.ic_values.clone(),
         });
     }
-    if raw_gap5_keep {
+    if gate_pass && raw_gap5_keep {
         result.raw_summary_gap5.push(raw_gap5_row.clone());
         result.raw_ic_gap5.push(IcRecord {
             factor_name: derived_name.clone(),
@@ -7538,20 +7666,20 @@ fn process_v7_slot_neu(
         });
     }
     if neu_gap1_keep {
-        result.neu_summary_gap1.push(neu_gap1_row.clone());
+        tgt_s1.push(neu_gap1_row.clone());
     }
     if neu_gap5_keep {
-        result.neu_summary_gap5.push(neu_gap5_row.clone());
+        tgt_s5.push(neu_gap5_row.clone());
     }
     if raw_gap1_keep || neu_gap1_keep {
-        result.neu_ic_gap1.push(IcRecord {
+        tgt_ic1.push(IcRecord {
             factor_name: derived_name.clone(),
             dates: neu_gap1_result.ic_dates.clone(),
             values: neu_gap1_result.ic_values.clone(),
         });
     }
     if raw_gap5_keep || neu_gap5_keep {
-        result.neu_ic_gap5.push(IcRecord {
+        tgt_ic5.push(IcRecord {
             factor_name: derived_name.clone(),
             dates: neu_gap5_result.ic_dates.clone(),
             values: neu_gap5_result.ic_values.clone(),
@@ -7591,30 +7719,55 @@ fn process_v7_slot(
             .neutralize_std_shared
             .as_ref()
             .expect("tail_backtest_engine 中性化需要预计算的 neutralize_std_shared");
-        match &shared.bt_pre {
-            Some(_) => crate::factor_neutralize_std::neutralize_std_slot_f32_v2_resid(
+        // 有冷门中性化时强制走 v1 路径（v2 的预分解只对 10 个风格列成立）
+        match (&shared.bt_pre, shared.cold_style.is_some()) {
+            (Some(_), false) => crate::factor_neutralize_std::neutralize_std_slot_f32_v2_resid(
                 slot_values,
                 ns,
                 shared.industry_neutralize,
             )?,
-            None => crate::factor_neutralize_std::neutralize_std_slot_f32(
+            _ => crate::factor_neutralize_std::neutralize_std_slot_f32(
                 slot_values,
                 ns,
                 shared.industry_neutralize,
+                None,
             )?,
         }
     };
+    // 冷门（11 风格）那一套：只在开关打开时算，供文档 8 合 1 展示 + 选因子门禁用
+    let neutralized_slot_cold = if shared.cold_style.is_some() {
+        let ns = shared
+            .neutralize_std_shared
+            .as_ref()
+            .expect("tail_backtest_engine 中性化需要预计算的 neutralize_std_shared");
+        Some(crate::factor_neutralize_std::neutralize_std_slot_f32(
+            slot_values,
+            ns,
+            shared.industry_neutralize,
+            shared.cold_style.as_deref(),
+        )?)
+    } else {
+        None
+    };
     PROF_NEU.fetch_add(_t.elapsed().as_nanos() as u64, AtomicOrdering::Relaxed);
-    process_v7_slot_neu(
-        slot_idx,
-        &neutralized_slot,
-        raw_out,
-        variant_name,
-        derived_names,
-        shared,
-        open_symbol_counts,
-        result,
-    )
+    match &neutralized_slot_cold {
+        Some(cold_slot) => {
+            // 第一遍：10 风格（只写展示集，不参与门禁）
+            process_v7_slot_neu(
+                slot_idx, &neutralized_slot, raw_out.clone(), variant_name, derived_names,
+                shared, open_symbol_counts, result, false, false,
+            )?;
+            // 第二遍：11 风格（写 neu11，并做门禁）
+            process_v7_slot_neu(
+                slot_idx, cold_slot, raw_out, variant_name, derived_names,
+                shared, open_symbol_counts, result, true, true,
+            )
+        }
+        None => process_v7_slot_neu(
+            slot_idx, &neutralized_slot, raw_out, variant_name, derived_names,
+            shared, open_symbol_counts, result, false, true,
+        ),
+    }
 }
 
 /// P3: B 个面按日期批量中性化 (组内 raw 段先行, 中性化一次批处理, neu 段后行)。
@@ -7664,6 +7817,7 @@ fn process_v7_slots_batch(
                         v.clone(),
                         ns,
                         shared.industry_neutralize,
+                        shared.cold_style.as_deref(),
                     )
                 })
                 .collect::<Result<Vec<_>, String>>()?,
@@ -7681,6 +7835,8 @@ fn process_v7_slots_batch(
                 shared,
                 open_symbol_counts,
                 result,
+                false,
+                true,
             )?;
         }
     }
@@ -7781,6 +7937,9 @@ fn process_v7_variant(
     // window 派生 slot：P3 小批量多面 —— 按 TAIL_BATCH_B 分组的流水线
     // (rolling 面按序入缓冲, 满 B 个即 batch 处理; 组内 raw → 批中性化 → neu;
     //  与逐面处理逐位一致)。
+    // 冷门中性化需要每个 slot 做两遍中性化 + 两遍 neu 回测，批处理路径没有对应实现，
+    // 直接退回逐面处理（数值一致，吞吐略降）。
+    let use_batch = shared.cold_style.is_none();
     let b = batch_size_b().max(1);
     let mut buffer: Vec<(usize, Array2<f32>)> = Vec::with_capacity(b);
     for &window in shared.windows.as_slice() {
@@ -7793,28 +7952,46 @@ fn process_v7_variant(
         for (slot_mat, stat_idx) in [(mean, 0usize), (max, 1), (min, 2), (std, 3)].into_iter() {
             buffer.push((slot_idx + stat_idx, slot_mat));
             if buffer.len() >= b {
-                process_v7_slots_batch(
-                    &buffer,
-                    variant_name,
-                    &derived_names,
-                    shared,
-                    open_symbol_counts,
-                    result,
-                )?;
+                if use_batch {
+                    process_v7_slots_batch(
+                        &buffer,
+                        variant_name,
+                        &derived_names,
+                        shared,
+                        open_symbol_counts,
+                        result,
+                    )?;
+                } else {
+                    for (si, m) in buffer.iter() {
+                        process_v7_slot(
+                            *si, m.view(), variant_name, &derived_names,
+                            shared, open_symbol_counts, result,
+                        )?;
+                    }
+                }
                 buffer.clear();
             }
         }
         slot_idx += 4;
     }
     if !buffer.is_empty() {
-        process_v7_slots_batch(
-            &buffer,
-            variant_name,
-            &derived_names,
-            shared,
-            open_symbol_counts,
-            result,
-        )?;
+        if use_batch {
+            process_v7_slots_batch(
+                &buffer,
+                variant_name,
+                &derived_names,
+                shared,
+                open_symbol_counts,
+                result,
+            )?;
+        } else {
+            for (si, m) in buffer.iter() {
+                process_v7_slot(
+                    *si, m.view(), variant_name, &derived_names,
+                    shared, open_symbol_counts, result,
+                )?;
+            }
+        }
     }
     drop(ranked);
     Ok(())
@@ -8015,6 +8192,7 @@ pub fn tail_v5_run_candidates_v7b<'py>(
             industry_neutralize: true,
             industry: None,
             neutralize_std_shared: None,
+            cold_style: None,
             ret_gap1: Arc::new(read_npy(&ret_gap1_path).map_err(|e| format!("读取 ret_gap1.npy 失败: {}", e))?),
             ret_sum_gap1: Arc::new(read_npy(&ret_sum_gap1_path).map_err(|e| format!("读取 ret_sum_gap1.npy 失败: {}", e))?),
             ret_gap5: Arc::new(read_npy(&ret_gap5_path).map_err(|e| format!("读取 ret_gap5.npy 失败: {}", e))?),

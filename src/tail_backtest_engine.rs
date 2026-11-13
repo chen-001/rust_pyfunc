@@ -48,13 +48,23 @@ fn process_single_factor(
     let v8_ok = !force_v7
         && shared.neutralize_std_shared.is_some()
         && shared.bt_pre.is_some()
-        && shared.free_mask.is_some();
+        && shared.free_mask.is_some()
+        // 冷门（11 风格）目前只在 v7 逐面路径实现：v8 的融合中性化没有第 11 列，
+        // 走 v8 会让 neu11 整桶为空（2026-11 实测：ic_neu11_* 全空、names 为 []）。
+        // 代价是开冷门时退回 v7（不做 batch、中性化走 v1），实测约慢一倍。
+        && shared.cold_style.is_none();
     if v8_ok {
         crate::tail_v8_pipeline::process_task_with_values_v8_opts(task, raw_values, shared, sc, low_cov)
     } else if low_cov.is_some() {
         // 低覆盖放行只在 v8 融合路径实现；退回旧路径会被悄悄填中位数，必须报错而不是静默改口径。
         Err(format!(
-            "因子 {} 命中低覆盖放行规则，但当前走的是 v7 旧路径（TAIL_ENGINE_V7 或输入不全），旧路径不支持放行",
+            concat!(
+                "因子 {} 命中低覆盖放行规则，但当前走的是 v7 旧路径",
+                "（TAIL_ENGINE_V7 / 输入不全 / 开了冷门中性化），旧路径不支持放行。",
+                "冷门中性化目前只在 v7 路径实现，与低覆盖放行互斥：",
+                "要么传 cold_neutralize=False，要么先关掉低覆盖放行，",
+                "别让因子被静默填中位数"
+            ),
             task.source_factor
         ))
     } else {
@@ -122,6 +132,7 @@ fn parse_col_idx(factor_path: &str) -> Option<usize> {
     save_all_metrics=false,
     industry_neutralize=true,
     industry_matrix=None,
+    cold_style=None,
     ic_only=false,
     io_concurrency=None, io_batch_size=None, io_batch_bytes=67108864,
     low_coverage_markers=None, low_coverage_names=None,
@@ -164,6 +175,8 @@ pub fn tail_backtest_engine<'py>(
     save_all_metrics: bool,
     industry_neutralize: bool,
     industry_matrix: Option<numpy::PyReadonlyArray2<'py, f64>>,
+    // 冷门（热度）中性化：第 11 个回归列 (T,N) f64；None = 关闭（旧行为）
+    cold_style: Option<numpy::PyReadonlyArray2<'py, f64>>,
     ic_only: bool,
     io_concurrency: Option<usize>,
     io_batch_size: Option<usize>,
@@ -229,6 +242,23 @@ pub fn tail_backtest_engine<'py>(
         .as_array()
         .to_owned();
 
+    // 冷门中性化矩阵必须在 allow_threads 之前转成纯 Rust 数组：
+    // PyReadonlyArray2 内含 PyObject 引用，不能跨线程（不满足 Send）。
+    let cold_style_arr: Option<Array2<f64>> = match cold_style {
+        Some(a) => {
+            let v = a.as_array();
+            if v.dim() != industry.dim() {
+                return Err(PyValueError::new_err(format!(
+                    "cold_style 形状 {:?} 与模板轴 {:?} 不一致",
+                    v.dim(),
+                    industry.dim()
+                )));
+            }
+            Some(v.to_owned())
+        }
+        None => None,
+    };
+
     let output = py.allow_threads(
         || -> Result<(usize, usize, HashMap<String, usize>, HashMap<String, (f64, f64)>), String> {
         let started = Instant::now();
@@ -253,6 +283,7 @@ pub fn tail_backtest_engine<'py>(
             dates, stocks, windows, fold, min_valid, backtest_start,
             industry_neutralize,
             Some(industry),
+            cold_style_arr,
             &style_vars_dir,
             &ret_gap1_path, &ret_sum_gap1_path,
             &ret_gap5_path, &ret_sum_gap5_path,

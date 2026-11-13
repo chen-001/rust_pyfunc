@@ -570,14 +570,16 @@ fn get_residual(
     fv: &Array2<f64>,
     bench: &[Array2<f64>],
     industry: Option<&Array2<f64>>,
+    cold: Option<&Array2<f64>>,
 ) -> Array2<f64> {
     let (t, n) = fv.dim();
     let mut resid = Array2::<f64>::from_elem((t, n), f64::NAN);
-    let k = bench.len();
+    // 冷门中性化：把冷得分当第 11 个回归列（与 10 个风格一起进设计矩阵）
+    let k = bench.len() + if cold.is_some() { 1 } else { 0 };
     let mut valid: Vec<bool> = Vec::with_capacity(n);
     // 行存储: 每只有效股票一行 [y, b0..b9], 定长数组免分配, 顺序访问利于 cache
-    let mut rows: Vec<[f64; 11]> = Vec::with_capacity(n);
-    let mut cur = [0.0_f64; 11];
+    let mut rows: Vec<[f64; 12]> = Vec::with_capacity(n);
+    let mut cur = [0.0_f64; 12];
     // 行业列索引 (有行业模式): -1 = 无行业 (哑变量全 0)
     let mut ind_cols: Vec<i32> = Vec::with_capacity(n);
     // 当日 unique 行业码 (排序)
@@ -611,12 +613,17 @@ fn get_residual(
         rows.clear();
         ind_cols.clear();
         for j in 0..n {
-            let ok = row[j].is_finite() && bench.iter().all(|b| b[[idx, j]].is_finite());
+            let ok = row[j].is_finite()
+                && bench.iter().all(|b| b[[idx, j]].is_finite())
+                && cold.map_or(true, |c| c[[idx, j]].is_finite());
             valid.push(ok);
             if ok {
                 cur[0] = row[j];
-                for c in 0..k {
+                for c in 0..bench.len() {
                     cur[c + 1] = bench[c][[idx, j]];
+                }
+                if let Some(c) = cold {
+                    cur[bench.len() + 1] = c[[idx, j]];
                 }
                 rows.push(cur);
                 if let Some(ind) = industry {
@@ -1079,9 +1086,9 @@ pub fn neutralize_std_section(
 
     // 6. 残差 (默认含截距 10 风格; industry_neutralize=True 时加一级行业 one-hot 无截距)
     let resid = if industry_neutralize {
-        get_residual(&fv_restricted, barra_ranked, Some(ind1))
+        get_residual(&fv_restricted, barra_ranked, Some(ind1), None)
     } else {
-        get_residual(&fv_restricted, barra_ranked, None)
+        get_residual(&fv_restricted, barra_ranked, None, None)
     };
 
     // 7. 残差 rank pct
@@ -1100,6 +1107,7 @@ pub(crate) fn neutralize_std_section_owned(
     mut fv_ranked: Array2<f64>,
     shared: &NeutralizeStdShared,
     industry_neutralize: bool,
+    cold: Option<&Array2<f64>>,
 ) -> Array2<f64> {
     let (t, n) = fv_ranked.dim();
     let industry = &shared.industry;
@@ -1146,9 +1154,9 @@ pub(crate) fn neutralize_std_section_owned(
 
     // 6. 残差
     let resid = if industry_neutralize {
-        get_residual(&fv_filled, barra_ranked, Some(ind1))
+        get_residual(&fv_filled, barra_ranked, Some(ind1), cold)
     } else {
-        get_residual(&fv_filled, barra_ranked, None)
+        get_residual(&fv_filled, barra_ranked, None, cold)
     };
 
     // 7. 残差 rank pct
@@ -1181,6 +1189,7 @@ pub fn neutralize_std_block(
             block.slice(s![.., .., factor_idx]),
             shared,
             industry_neutralize,
+            None,
         )?;
         let out_slice = output.as_slice_mut().unwrap();
         let slot_slice = slot.as_slice().unwrap();
@@ -1200,6 +1209,7 @@ pub(crate) fn neutralize_std_slot_f32(
     slot: ArrayView2<'_, f32>,
     shared: &NeutralizeStdShared,
     industry_neutralize: bool,
+    cold: Option<&Array2<f64>>,
 ) -> Result<Array2<f32>, String> {
     let (n_dates, n_stocks) = slot.dim();
     if shared.industry.dim() != (n_dates, n_stocks)
@@ -1209,7 +1219,7 @@ pub(crate) fn neutralize_std_slot_f32(
     }
 
     let factor_f64 = slot.map(|&v| v as f64);
-    let resid_rank = neutralize_std_section_owned(factor_f64, shared, industry_neutralize);
+    let resid_rank = neutralize_std_section_owned(factor_f64, shared, industry_neutralize, cold);
     let mut output = Array2::<f32>::from_elem((n_dates, n_stocks), f32::NAN);
     let out_slice = output.as_slice_mut().unwrap();
     let rr = resid_rank.as_slice().unwrap();
@@ -1528,7 +1538,7 @@ mod tests {
         let (shared, factor) = make_shared(24, 60, 0x1111_2222_3333_4444);
         for industry_neutralize in [false, true] {
             let expected = neutralize_std_section(&factor, &shared, industry_neutralize);
-            let actual = neutralize_std_section_owned(factor.clone(), &shared, industry_neutralize);
+            let actual = neutralize_std_section_owned(factor.clone(), &shared, industry_neutralize, None);
             assert_f64_eq(&expected, &actual);
         }
     }
@@ -2053,7 +2063,7 @@ pub(crate) fn neutralize_std_section_owned_v2(
     let resid = if industry_neutralize {
         get_residual_v2(&fv_filled, shared)
     } else {
-        get_residual(&fv_filled, barra_ranked, None)
+        get_residual(&fv_filled, barra_ranked, None, None)
     };
     let mut resid_rank = resid;
     rank_pct_all(&mut resid_rank);
@@ -2108,7 +2118,7 @@ fn neutralize_std_section_owned_v2_resid_pre(
     if industry_neutralize {
         get_residual_v2(&fv_filled, shared)
     } else {
-        get_residual(&fv_filled, barra_ranked, None)
+        get_residual(&fv_filled, barra_ranked, None, None)
     }
 }
 
@@ -2933,8 +2943,8 @@ pub(crate) fn get_residual_row_style(fv_row: &[f64], bench_rows: &[&[f64]], resi
     }
     let p = k + 1;
     let mut valid: Vec<bool> = Vec::with_capacity(n);
-    let mut rows: Vec<[f64; 11]> = Vec::with_capacity(n);
-    let mut cur = [0.0_f64; 11];
+    let mut rows: Vec<[f64; 12]> = Vec::with_capacity(n);
+    let mut cur = [0.0_f64; 12];
     for j in 0..n {
         let ok = fv_row[j].is_finite() && bench_rows.iter().all(|b| b[j].is_finite());
         valid.push(ok);
@@ -3216,7 +3226,7 @@ pub fn selfcheck_style_only(data_dir: &str) -> String {
         for j in 0..5 {
             fv[[4, j]] = 1.0; // 有效数 <= 10
         }
-        let want = get_residual(&fv, &bench, None);
+        let want = get_residual(&fv, &bench, None, None);
         let mut got = Array2::<f64>::from_elem((tt, nn), f64::NAN);
         let mut resid_row = vec![f64::NAN; nn];
         let mut bench_rows: Vec<&[f64]> = Vec::with_capacity(k);
