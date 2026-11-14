@@ -7855,40 +7855,89 @@ fn process_v7_slots_batch(
             .expect("tail_backtest_engine 中性化需要预计算的 neutralize_std_shared");
         let _t = Instant::now();
         let views: Vec<ArrayView2<f32>> = need.iter().map(|&i| group[i].1.view()).collect();
-        let neutrals = match &shared.bt_pre {
-            Some(_) => crate::factor_neutralize_std::neutralize_std_slots_f32_v2_resid_batch(
-                &views,
-                ns,
-                shared.industry_neutralize,
-            )?,
-            None => views
-                .iter()
-                .map(|v| {
-                    crate::factor_neutralize_std::neutralize_std_slot_f32(
-                        v.clone(),
-                        ns,
-                        shared.industry_neutralize,
-                        shared.cold_style.as_deref(),
-                    )
+        let (rows, _cols) = views
+            .first()
+            .map(|v| v.dim())
+            .ok_or_else(|| "批处理视图为空".to_string())?;
+        // 10 风格那一遍：只在「没有冷门」或「双跑」时需要
+        let neutrals_plain: Option<Vec<Array2<f32>>> =
+            if shared.cold_style.is_none() || shared.cold_dual_pass {
+                Some(match &shared.bt_pre {
+                    Some(_) => {
+                        crate::factor_neutralize_std::neutralize_std_slots_f32_v2_resid_batch(
+                            &views,
+                            ns,
+                            shared.industry_neutralize,
+                        )?
+                    }
+                    None => views
+                        .iter()
+                        .map(|v| {
+                            crate::factor_neutralize_std::neutralize_std_slot_f32(
+                                v.clone(),
+                                ns,
+                                shared.industry_neutralize,
+                                None,
+                            )
+                        })
+                        .collect::<Result<Vec<_>, String>>()?,
                 })
-                .collect::<Result<Vec<_>, String>>()?,
+            } else {
+                None
+            };
+        // 冷门（11 风格）那一遍：纯风格口径走「逐行区间批量」（B 个面共享每日载入），
+        // 行业 one-hot + 冷门走通用 OLS 兜底（数值一致）。
+        let neutrals_cold: Option<Vec<Array2<f32>>> = match shared.cold_style.as_deref() {
+            Some(cold) if !shared.industry_neutralize && ns.cold_pre.is_some() => Some(
+                crate::factor_neutralize_std::neutralize_std_slots_f32_v2_resid_batch_range_cold(
+                    &views, ns, cold, 0, rows,
+                )?,
+            ),
+            Some(cold) => Some(
+                views
+                    .iter()
+                    .map(|v| {
+                        crate::factor_neutralize_std::neutralize_std_slot_f32(
+                            v.clone(),
+                            ns,
+                            shared.industry_neutralize,
+                            Some(cold),
+                        )
+                    })
+                    .collect::<Result<Vec<_>, String>>()?,
+            ),
+            None => None,
         };
         PROF_NEU.fetch_add(_t.elapsed().as_nanos() as u64, AtomicOrdering::Relaxed);
-        // Phase C: neu 段
+        // Phase C: neu 段（先 10 风格写展示集，再 11 风格写 neu11 并做门禁）
         for (k, &i) in need.iter().enumerate() {
-            let raw_out = raw_outs[i].take().expect("need 已过滤 Some");
-            process_v7_slot_neu(
-                group[i].0,
-                &neutrals[k],
-                raw_out,
-                variant_name,
-                derived_names,
-                shared,
-                open_symbol_counts,
-                result,
-                false,
-                true,
-            )?;
+            let mut raw_out = Some(raw_outs[i].take().expect("need 已过滤 Some"));
+            match (&neutrals_plain, &neutrals_cold) {
+                (Some(plain), Some(coldn)) => {
+                    process_v7_slot_neu(
+                        group[i].0, &plain[k], raw_out.clone().expect("plain 在前"), variant_name, derived_names,
+                        shared, open_symbol_counts, result, false, false,
+                    )?;
+                    process_v7_slot_neu(
+                        group[i].0, &coldn[k], raw_out.take().expect("cold 在后"), variant_name, derived_names,
+                        shared, open_symbol_counts, result, true, true,
+                    )?;
+                }
+                (Some(plain), None) => {
+                    process_v7_slot_neu(
+                        group[i].0, &plain[k], raw_out.take().expect("plain"), variant_name, derived_names,
+                        shared, open_symbol_counts, result, false, true,
+                    )?;
+                }
+                (None, Some(coldn)) => {
+                    process_v7_slot_neu(
+                        group[i].0, &coldn[k], raw_out.take().expect("cold"), variant_name, derived_names,
+                        shared, open_symbol_counts, result, true, true,
+                    )?;
+                }
+                (None, None) => unreachable!("两遍都不需要时不该进批处理"),
+            }
+            let _ = &mut raw_out;
         }
     }
     Ok(())
@@ -7990,7 +8039,8 @@ fn process_v7_variant(
     //  与逐面处理逐位一致)。
     // 冷门中性化需要每个 slot 做两遍中性化 + 两遍 neu 回测，批处理路径没有对应实现，
     // 直接退回逐面处理（数值一致，吞吐略降）。
-    let use_batch = shared.cold_style.is_none();
+    // 冷门也走批处理：11 风格那一遍有专门的按行区间批量实现（B 个面共享每日载入）
+    let use_batch = true;
     let b = batch_size_b().max(1);
     let mut buffer: Vec<(usize, Array2<f32>)> = Vec::with_capacity(b);
     for &window in shared.windows.as_slice() {

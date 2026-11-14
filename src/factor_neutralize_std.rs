@@ -3700,3 +3700,346 @@ pub(crate) fn neutralize_std_slot_f32_v2_resid_cold(
     }
     Ok(output)
 }
+
+/// `get_residual(fv, bench, None, Some(cold))` 的**单行移植**（冷门 11 列），
+/// 用每日预分解回代；预计算有效集里混进因子侧 NaN 时退回通用当日 OLS。
+fn get_residual_row_cold(
+    fv_row: &[f64],
+    bench_rows: &[&[f64]],
+    cold_row: &[f64],
+    pre: &ColdPre,
+    idx: usize,
+    resid_row: &mut [f64],
+) {
+    let n = fv_row.len();
+    for v in resid_row.iter_mut() {
+        *v = f64::NAN;
+    }
+    let (p, valid_idx) = &pre.per_date[idx];
+    if *p == 0 {
+        return;
+    }
+    let k = bench_rows.len() + 1; // 风格 + 冷
+    // 预计算有效集上的 y：必须全有限，否则当日退回通用口径
+    let mut any_nan = false;
+    let mut mn = f64::INFINITY;
+    let mut mx = f64::NEG_INFINITY;
+    for &j in valid_idx {
+        let y = fv_row[j as usize];
+        if !y.is_finite() {
+            any_nan = true;
+            break;
+        }
+        if y < mn {
+            mn = y;
+        }
+        if y > mx {
+            mx = y;
+        }
+    }
+    if !any_nan && mn == mx {
+        for &j in valid_idx {
+            resid_row[j as usize] = 0.5;
+        }
+        return;
+    }
+    let mut xty: [f64; 16] = [0.0; 16];
+    let mut coef: [f64; 16] = [0.0; 16];
+    let xd = &pre.xdays[idx];
+    if !any_nan {
+        let mut y_buf: Vec<f64> = Vec::with_capacity(valid_idx.len());
+        xty[0] = 0.0;
+        for c in 1..(*p).min(16) {
+            xty[c] = 0.0;
+        }
+        for &j in valid_idx {
+            let yv = fv_row[j as usize];
+            y_buf.push(yv);
+            xty[0] += yv;
+        }
+        for (pos, yv) in y_buf.iter().enumerate() {
+            let xrow = &xd[pos * k..pos * k + k];
+            for c in 0..k {
+                xty[c + 1] += xrow[c] * yv;
+            }
+        }
+        let use_svd = valid_idx.len() <= 40 || pre.chols[idx].is_none();
+        let coef_vec: Vec<f64> = if !use_svd {
+            let chol = pre.chols[idx].as_ref().unwrap();
+            let rhs = DMatrix::from_column_slice(*p, 1, &xty[..*p]);
+            chol.solve(&rhs).column(0).iter().copied().collect()
+        } else {
+            let n_r = valid_idx.len();
+            let xm = DMatrix::from_fn(n_r, *p, |r_i, c| {
+                if c == 0 {
+                    1.0
+                } else {
+                    xd[r_i * k + (c - 1)]
+                }
+            });
+            let svd = xm.clone().svd(true, true);
+            let u = svd.u.expect("svd u");
+            let vt = svd.v_t.expect("svd vt");
+            let sv = svd.singular_values;
+            let s_max = sv.iter().cloned().fold(0.0_f64, f64::max);
+            let rcond = s_max * (n_r.max(*p) as f64) * 2.22e-16;
+            let ym = DMatrix::from_fn(n_r, 1, |r_i, _| y_buf[r_i]);
+            let uty = u.transpose() * ym;
+            let mut cf = DMatrix::zeros(*p, 1);
+            for i in 0..*p {
+                if sv[i] > rcond {
+                    cf[(i, 0)] = uty[(i, 0)] / sv[i];
+                }
+            }
+            (vt.transpose() * cf).column(0).iter().copied().collect()
+        };
+        coef[..(*p).min(16)].copy_from_slice(&coef_vec[..(*p).min(16)]);
+        for (pos, &j) in valid_idx.iter().enumerate() {
+            let xrow = &xd[pos * k..pos * k + k];
+            let mut pred = coef[0];
+            for c in 0..k {
+                pred += coef[c + 1] * xrow[c];
+            }
+            resid_row[j as usize] = fv_row[j as usize] - pred;
+        }
+        return;
+    }
+    // 回退：通用当日 OLS（X = [1, 风格..., cold]），与整张 get_residual 逐位一致
+    let mut rows: Vec<Vec<f64>> = Vec::with_capacity(n);
+    let mut vidx: Vec<usize> = Vec::with_capacity(n);
+    for j in 0..n {
+        let y = fv_row[j];
+        let c = cold_row[j];
+        if !y.is_finite() || !c.is_finite() {
+            continue;
+        }
+        if !bench_rows.iter().all(|b| b[j].is_finite()) {
+            continue;
+        }
+        let mut r = Vec::with_capacity(k + 1);
+        r.push(y);
+        for b in bench_rows.iter() {
+            r.push(b[j]);
+        }
+        r.push(c);
+        rows.push(r);
+        vidx.push(j);
+    }
+    let n_valid = rows.len();
+    if n_valid <= 10 {
+        return;
+    }
+    let pp = k + 1;
+    let mut uniq: Vec<f64> = rows.iter().map(|r| r[0]).collect();
+    uniq.sort_by(cmp_f64);
+    uniq.dedup_by(|a, b| (a.is_nan() && b.is_nan()) || a == b);
+    if uniq.len() == 1 {
+        for &j in &vidx {
+            resid_row[j] = 0.5;
+        }
+        return;
+    }
+    let mut xtx = vec![0.0_f64; pp * pp];
+    let mut rty = vec![0.0_f64; pp];
+    for r in rows.iter() {
+        let yv = r[0];
+        rty[0] += yv;
+        xtx[0] += 1.0;
+        for c in 0..k {
+            let b = r[c + 1];
+            rty[c + 1] += b * yv;
+            xtx[c + 1] += b;
+            xtx[(c + 1) * pp] += b;
+        }
+        for c1 in 0..k {
+            let b1 = r[c1 + 1];
+            xtx[(c1 + 1) * pp + (c1 + 1)] += b1 * b1;
+            for c2 in (c1 + 1)..k {
+                let v = b1 * r[c2 + 1];
+                xtx[(c1 + 1) * pp + (c2 + 1)] += v;
+                xtx[(c2 + 1) * pp + (c1 + 1)] += v;
+            }
+        }
+    }
+    let m = DMatrix::from_row_slice(pp, pp, &xtx);
+    let rhs = DMatrix::from_column_slice(pp, 1, &rty);
+    let use_svd = n_valid <= 40 || Cholesky::new(m.clone()).is_none();
+    let cf: Vec<f64> = if !use_svd {
+        let chol = Cholesky::new(m).expect("chol");
+        chol.solve(&rhs).column(0).iter().copied().collect()
+    } else {
+        let xm = DMatrix::from_fn(n_valid, pp, |r_i, c| {
+            if c == 0 {
+                1.0
+            } else {
+                rows[r_i][c]
+            }
+        });
+        let svd = xm.clone().svd(true, true);
+        let u = svd.u.expect("svd u");
+        let vt = svd.v_t.expect("svd vt");
+        let sv = svd.singular_values;
+        let s_max = sv.iter().cloned().fold(0.0_f64, f64::max);
+        let rcond = s_max * (n_valid.max(pp) as f64) * 2.22e-16;
+        let ym = DMatrix::from_fn(n_valid, 1, |r_i, _| rows[r_i][0]);
+        let uty = u.transpose() * ym;
+        let mut cc = DMatrix::zeros(pp, 1);
+        for i in 0..pp {
+            if sv[i] > rcond {
+                cc[(i, 0)] = uty[(i, 0)] / sv[i];
+            }
+        }
+        (vt.transpose() * cc).column(0).iter().copied().collect()
+    };
+    for (pos, &j) in vidx.iter().enumerate() {
+        let r = &rows[pos];
+        let mut pred = cf[0];
+        for c in 0..k {
+            pred += cf[c + 1] * r[c + 1];
+        }
+        resid_row[j] = r[0] - pred;
+    }
+}
+
+/// 冷门（11 风格）**按行区间批量**中性化：B 个面共享每日的行业码/排序/风格载入，
+/// 与逐面 `neutralize_std_slot_f32_v2_resid_cold` 逐位一致。
+pub(crate) fn neutralize_std_slots_f32_v2_resid_batch_range_cold(
+    slots: &[ArrayView2<f32>],
+    shared: &NeutralizeStdShared,
+    cold: &Array2<f64>,
+    t0: usize,
+    t1: usize,
+) -> Result<Vec<Array2<f32>>, String> {
+    if slots.is_empty() {
+        return Ok(Vec::new());
+    }
+    let pre = shared
+        .cold_pre
+        .as_ref()
+        .ok_or_else(|| "冷门批量需要 cold_pre".to_string())?;
+    let (rows, n) = slots[0].dim();
+    let (t, sn) = shared.industry.dim();
+    if sn != n || cold.dim() != (t, sn) {
+        return Err("冷门批量 形状不匹配".to_string());
+    }
+    if t0 > t1 || t1 > t || t1 - t0 != rows {
+        return Err("冷门批量 range 越界".to_string());
+    }
+    let b = slots.len();
+    let k = shared.barra_ranked.len();
+    let mut outs: Vec<Array2<f32>> =
+        (0..b).map(|_| Array2::from_elem((rows, n), f32::NAN)).collect();
+    let mut pct: Vec<Vec<f64>> = vec![vec![0.0; n]; b];
+    let mut filled: Vec<Vec<f64>> = vec![vec![0.0; n]; b];
+    let mut resid: Vec<f64> = vec![f64::NAN; n];
+    let mut keys32 = vec![0u32; n];
+    let mut idxs: Vec<usize> = Vec::with_capacity(n);
+    let mut tmp: Vec<usize> = Vec::with_capacity(n);
+    let mut ranks64: Vec<f64> = Vec::with_capacity(n);
+    let mut keys64: Vec<u64> = vec![0u64; n];
+    let mut ys: Vec<f64> = Vec::with_capacity(n);
+    let mut bs: Vec<f64> = Vec::with_capacity(n);
+    let mut obs: Vec<bool> = Vec::with_capacity(n);
+    let mut sv: Vec<f64> = Vec::with_capacity(n);
+    let mut nan_mask: Vec<bool> = Vec::with_capacity(n);
+    let mut ind0_row: Vec<f64> = Vec::with_capacity(n);
+    let mut bench_rows: Vec<&[f64]> = Vec::with_capacity(k);
+    let base = shared;
+    for idx in t0..t1 {
+        let (ind2_v, ind1_v, size_v) =
+            (base.ind2.row(idx), base.ind1.row(idx), base.size_ranked.row(idx));
+        let (zeros_v, mask_v, restrict_v) =
+            (base.zeros.row(idx), base.ind1_mask.row(idx), base.restrict_f64.row(idx));
+        let (o0_v, o1_v, o2_v) = (
+            base.orders[0].row(idx),
+            base.orders[1].row(idx),
+            base.orders[2].row(idx),
+        );
+        let (o3_v, o4_v) = (base.orders[3].row(idx), base.orders[4].row(idx));
+        let ind2_r = ind2_v.as_slice().unwrap();
+        let ind1_r = ind1_v.as_slice().unwrap();
+        let size_r = size_v.as_slice().unwrap();
+        let zeros_r = zeros_v.as_slice().unwrap();
+        let mask_r = mask_v.as_slice().unwrap();
+        let restrict_r = restrict_v.as_slice().unwrap();
+        let o0 = o0_v.as_slice().unwrap();
+        let o1 = o1_v.as_slice().unwrap();
+        let o2 = o2_v.as_slice().unwrap();
+        let o3 = o3_v.as_slice().unwrap();
+        let o4 = o4_v.as_slice().unwrap();
+        ind0_row.clear();
+        ind0_row.extend(ind1_r.iter().map(|&v| if v.is_nan() { 0.0 } else { 1.0 }));
+        for (f, slot) in slots.iter().enumerate() {
+            let slot_row = slot.row(idx - t0);
+            rank_pct_row_from_f32_in(
+                slot_row.as_slice().unwrap(),
+                &mut pct[f],
+                &mut idxs,
+                &mut tmp,
+                &mut keys32,
+            );
+            fill_ind_reg_row(
+                &mut pct[f],
+                [ind2_r, ind1_r, &ind0_row],
+                size_r,
+                [o0, o1, o2],
+                &mut ys,
+                &mut bs,
+                &mut obs,
+            );
+            for (j, &v) in ind1_r.iter().enumerate() {
+                if v.is_nan() {
+                    pct[f][j] = f64::NAN;
+                }
+            }
+            filled[f].copy_from_slice(&pct[f]);
+        }
+        // 冷得分当日行（预先取出，B 个面共用）
+        let cold_sl = cold.as_slice().expect("cold 需为 C 序连续内存");
+        let cold_row = &cold_sl[idx * n..(idx + 1) * n];
+        for f in 0..b {
+            nan_mask.clear();
+            for &v in filled[f].iter() {
+                nan_mask.push(v.is_nan());
+            }
+            if nan_mask.iter().any(|&x| x) {
+                median_fill_level_row(&mut filled[f], ind2_r, None, o3, &nan_mask, &mut sv);
+            }
+            nan_mask.clear();
+            for &v in filled[f].iter() {
+                nan_mask.push(v.is_nan());
+            }
+            if nan_mask.iter().any(|&x| x) {
+                median_fill_level_row(&mut filled[f], ind1_r, None, o4, &nan_mask, &mut sv);
+            }
+            nan_mask.clear();
+            for &v in filled[f].iter() {
+                nan_mask.push(v.is_nan());
+            }
+            if nan_mask.iter().any(|&x| x) {
+                median_fill_level_row(&mut filled[f], zeros_r, Some(mask_r), o0, &nan_mask, &mut sv);
+            }
+            for (j, &v) in restrict_r.iter().enumerate() {
+                if v != 0.0 {
+                    filled[f][j] = f64::NAN;
+                }
+            }
+            rank_pct_row_f64_in_place(&mut filled[f], &mut ranks64, &mut idxs, &mut tmp, &mut keys64);
+            bench_rows.clear();
+            for c in 0..k {
+                let sl = base.barra_ranked[c]
+                    .as_slice()
+                    .expect("barra_ranked 需为 C 序连续内存");
+                bench_rows.push(&sl[idx * n..(idx + 1) * n]);
+            }
+            get_residual_row_cold(&filled[f], &bench_rows, cold_row, pre, idx, &mut resid);
+            let mut out_row = outs[f].row_mut(idx - t0);
+            let out_sl = out_row.as_slice_mut().unwrap();
+            for j in 0..n {
+                let v = resid[j];
+                out_sl[j] = if v.is_nan() { f32::NAN } else { v as f32 };
+            }
+        }
+    }
+    Ok(outs)
+}
