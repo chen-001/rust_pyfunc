@@ -49,6 +49,7 @@ mod yupei_pair_scan_stats;
 pub mod yupei_union_all;
 pub mod yupei_union_trim;
 
+pub mod cold_fast;
 pub mod cross_stock_regression;
 pub mod cross_stock_regression_fast;
 pub mod cross_stock_regression_peak;
@@ -706,9 +707,16 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         m
     )?);
     let _ = m.add_function(wrap_pyfunction!(
+        factor_neutralize_std::neutralize_std_slot_with_shared,
+        m
+    )?);
+    let _ = m.add_function(wrap_pyfunction!(
         factor_neutralize_std::neutralize_std_precompute_cached_py,
         m
     )?);
+    let _ = m.add_function(wrap_pyfunction!(cold_fast::cold_project_out_2d, m)?);
+    let _ = m.add_function(wrap_pyfunction!(cold_fast::cold_project_out_3d, m)?);
+    let _ = m.add_function(wrap_pyfunction!(cold_fast::cold_build_heat_core, m)?);
     let _ = m.add_class::<tail_v4_pipeline::TailV4LegacyStyleData>()?;
     // Tail V5：列式存储 + IO/CPU 分离（复制自 v4，支持 factor_store_v5）
     let _ = m.add_function(wrap_pyfunction!(
@@ -1408,7 +1416,6 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         orderflow_ctx_metrics::py_orderflow_ctx_names,
         m
     )?)?;
-
     let _ = m.add_function(wrap_pyfunction!(
         orderflow_ctx_v2_metrics::py_orderflow_ctx_v2,
         m
@@ -1417,6 +1424,7 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         orderflow_ctx_v2_metrics::py_orderflow_ctx_v2_names,
         m
     )?)?;
+
     let _ = m.add_function(wrap_pyfunction!(dijkstra_metrics::py_dijkstra, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(dijkstra_metrics::py_dijkstra_names, m)?)?;
     let _ = m.add_function(wrap_pyfunction!(relaynet_metrics::py_relaynet, m)?)?;

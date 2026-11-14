@@ -841,6 +841,8 @@ pub(crate) struct ColdPre {
     pub(crate) chols: Vec<Option<Cholesky<f64, nalgebra::Dyn>>>,
     /// 每日有效集 × 11 列（10 风格 + 冷得分）连续内存，按 valid 顺序行主序。
     pub(crate) xdays: Vec<Vec<f64>>,
+    /// 每日 12×12 X'X（行主序 144 个 f64），供 SharedCache 落盘后逐位复原 Cholesky。
+    pub(crate) xtx_144: Vec<[f64; 144]>,
 }
 
 /// 从 style data + industry + restrict 预计算所有不随因子变化的量。
@@ -1292,6 +1294,7 @@ pub fn neutralize_std_block_py<'py>(
 #[pyclass]
 pub struct NeutralizeStdSharedHandle {
     inner: std::sync::Arc<NeutralizeStdShared>,
+    v3: std::sync::Arc<crate::tail_v8_neu_v3::V3Shared>,
 }
 
 /// 预计算一次，返回可复用句柄（供逐因子调用复用，避免重复读 barra H5）。
@@ -1307,20 +1310,35 @@ pub fn neutralize_std_precompute_py(
 ) -> PyResult<NeutralizeStdSharedHandle> {
     let industry_owned = industry.as_array().to_owned();
     let restrict_owned = restrict.as_array().to_owned();
-    let shared = py
-        .allow_threads(move || -> Result<NeutralizeStdShared, String> {
-            let style_data =
-                IOOptimizedStyleData::load_from_vars_h5(&style_vars_dir)
+    let (inner, v3) = py
+        .allow_threads(
+            move || -> Result<
+                (
+                    std::sync::Arc<NeutralizeStdShared>,
+                    std::sync::Arc<crate::tail_v8_neu_v3::V3Shared>,
+                ),
+                String,
+            > {
+                let style_data = IOOptimizedStyleData::load_from_vars_h5(&style_vars_dir)
                     .map_err(|e| e.to_string())?;
-            neutralize_std_precompute(&industry_owned, &restrict_owned, &style_data, &dates, &stocks)
-        })
+                let shared = neutralize_std_precompute(
+                    &industry_owned,
+                    &restrict_owned,
+                    &style_data,
+                    &dates,
+                    &stocks,
+                )?;
+                let inner = std::sync::Arc::new(shared);
+                let v3 = std::sync::Arc::new(crate::tail_v8_neu_v3::V3Shared::build(inner.clone())?);
+                Ok((inner, v3))
+            },
+        )
         .map_err(PyValueError::new_err)?;
-    Ok(NeutralizeStdSharedHandle {
-        inner: std::sync::Arc::new(shared),
-    })
+    Ok(NeutralizeStdSharedHandle { inner, v3 })
 }
 
 /// 用已预计算的句柄做 block 级标准中性化（不重新读 barra H5）。
+/// 默认走 v3 压缩 + f64 残差精确平均秩快路径（与 legacy 逐位一致）；设置 `TAIL_NEU_V2=1` 回退旧路径。
 #[pyfunction]
 #[pyo3(signature = (factor_block, shared, industry_neutralize=false))]
 pub fn neutralize_std_block_with_shared<'py>(
@@ -1331,8 +1349,38 @@ pub fn neutralize_std_block_with_shared<'py>(
 ) -> PyResult<Py<PyArray3<f32>>> {
     let block = factor_block.as_array().to_owned();
     let inner = shared.inner.clone();
+    let v3 = shared.v3.clone();
     let output = py.allow_threads(move || {
-        neutralize_std_block(block.view(), &inner, industry_neutralize)
+        if std::env::var("TAIL_NEU_V2").is_ok() {
+            neutralize_std_block(block.view(), &inner, industry_neutralize)
+        } else {
+            crate::tail_v8_neu_v3::v3_block_ranked_f32(block.view(), &v3, industry_neutralize)
+        }
+    });
+    Ok(output
+        .map_err(PyValueError::new_err)?
+        .into_pyarray(py)
+        .to_owned())
+}
+
+/// 用已预计算的句柄做单面 `(T, N)` 标准中性化（供 fulltest 按需只算被请求的那一列，避免算满 6 列）。
+#[pyfunction]
+#[pyo3(signature = (slot, shared, industry_neutralize=false))]
+pub fn neutralize_std_slot_with_shared<'py>(
+    py: Python<'py>,
+    slot: PyReadonlyArray2<'py, f32>,
+    shared: &NeutralizeStdSharedHandle,
+    industry_neutralize: bool,
+) -> PyResult<Py<numpy::PyArray2<f32>>> {
+    let slot_owned = slot.as_array().to_owned();
+    let inner = shared.inner.clone();
+    let v3 = shared.v3.clone();
+    let output = py.allow_threads(move || {
+        if std::env::var("TAIL_NEU_V2").is_ok() {
+            neutralize_std_slot_f32(slot_owned.view(), &inner, industry_neutralize, None)
+        } else {
+            crate::tail_v8_neu_v3::v3_slot_ranked_f32(slot_owned.view(), &v3, industry_neutralize)
+        }
     });
     Ok(output
         .map_err(PyValueError::new_err)?
@@ -1459,9 +1507,11 @@ pub fn neutralize_std_precompute_cached_py(
             Ok(v)
         })
         .map_err(PyValueError::new_err)?;
-    Ok(NeutralizeStdSharedHandle {
-        inner: std::sync::Arc::new(shared),
-    })
+    let inner = std::sync::Arc::new(shared);
+    let v3 = std::sync::Arc::new(
+        crate::tail_v8_neu_v3::V3Shared::build(inner.clone()).map_err(PyValueError::new_err)?,
+    );
+    Ok(NeutralizeStdSharedHandle { inner, v3 })
 }
 
 #[cfg(test)]
@@ -3340,10 +3390,12 @@ pub fn selfcheck_style_only(data_dir: &str) -> String {
 //   n_valid<=10 跳过、uniq==1 置 0.5、Cholesky 失败回退 SVD 伪逆（rcond 同式）。
 
 /// 按天预计算冷门那一路的 X'X / Cholesky / 连续 X（仅纯风格口径需要）。
+/// 各日完全独立，用 rayon 并行构建，日内 j 与 pos 累加顺序与串行版逐字一致（0 bit 差异）。
 pub(crate) fn build_cold_pre(
     shared: &NeutralizeStdShared,
     cold: &Array2<f64>,
 ) -> Result<ColdPre, String> {
+    use rayon::prelude::*;
     let (t, n) = shared.industry.dim();
     if cold.dim() != (t, n) {
         return Err(format!(
@@ -3354,72 +3406,81 @@ pub(crate) fn build_cold_pre(
     }
     let barra = &shared.barra_ranked;
     let k = barra.len(); // = 10
-    let p = k + 2; // [1, b0..b9, cold]
-    let mut per_date: Vec<(usize, Vec<u32>)> = Vec::with_capacity(t);
-    let mut chols: Vec<Option<Cholesky<f64, nalgebra::Dyn>>> = Vec::with_capacity(t);
-    let mut xdays: Vec<Vec<f64>> = Vec::with_capacity(t);
-    for idx in 0..t {
-        let mut valid: Vec<u32> = Vec::new();
-        let mut xd: Vec<f64> = Vec::new();
-        for j in 0..n {
-            let c = cold[[idx, j]];
-            if !c.is_finite() {
-                continue;
-            }
-            if shared.restrict_f64[[idx, j]] != 0.0 {
-                continue;
-            }
-            let mut ok = true;
-            for b in barra.iter() {
-                if !b[[idx, j]].is_finite() {
-                    ok = false;
-                    break;
+    let p = k + 2; // [1, b0..b9, cold] = 12
+    let days: Vec<((usize, Vec<u32>), Option<Cholesky<f64, nalgebra::Dyn>>, Vec<f64>, [f64; 144])> =
+        (0..t)
+            .into_par_iter()
+            .map(|idx| {
+                let mut valid: Vec<u32> = Vec::new();
+                let mut xd: Vec<f64> = Vec::new();
+                for j in 0..n {
+                    let c = cold[[idx, j]];
+                    if !c.is_finite() {
+                        continue;
+                    }
+                    if shared.restrict_f64[[idx, j]] != 0.0 {
+                        continue;
+                    }
+                    let mut ok = true;
+                    for b in barra.iter() {
+                        if !b[[idx, j]].is_finite() {
+                            ok = false;
+                            break;
+                        }
+                    }
+                    if !ok {
+                        continue;
+                    }
+                    valid.push(j as u32);
+                    for b in barra.iter() {
+                        xd.push(b[[idx, j]]);
+                    }
+                    xd.push(c);
                 }
-            }
-            if !ok {
-                continue;
-            }
-            valid.push(j as u32);
-            for b in barra.iter() {
-                xd.push(b[[idx, j]]);
-            }
-            xd.push(c);
-        }
-        let nv = valid.len();
-        if nv <= 10 {
-            per_date.push((0, Vec::new()));
-            chols.push(None);
-            xdays.push(Vec::new());
-            continue;
-        }
-        // X'X（与 get_residual 的累积顺序完全一致）
-        let mut xtx = vec![0.0_f64; p * p];
-        for pos in 0..nv {
-            let r = &xd[pos * (k + 1)..pos * (k + 1) + (k + 1)];
-            xtx[0] += 1.0;
-            for c in 0..(k + 1) {
-                xtx[c + 1] += r[c];
-                xtx[(c + 1) * p] += r[c];
-            }
-            for c1 in 0..(k + 1) {
-                let b1 = r[c1];
-                xtx[(c1 + 1) * p + (c1 + 1)] += b1 * b1;
-                for c2 in (c1 + 1)..(k + 1) {
-                    let v = b1 * r[c2];
-                    xtx[(c1 + 1) * p + (c2 + 1)] += v;
-                    xtx[(c2 + 1) * p + (c1 + 1)] += v;
+                let nv = valid.len();
+                if nv <= 10 {
+                    return ((0, Vec::new()), None, Vec::new(), [0.0_f64; 144]);
                 }
-            }
-        }
-        let m = DMatrix::from_row_slice(p, p, &xtx);
-        chols.push(Cholesky::new(m));
-        per_date.push((p, valid));
+                // X'X（与 get_residual 的累积顺序完全一致）
+                let mut xtx = [0.0_f64; 144];
+                for pos in 0..nv {
+                    let r = &xd[pos * (k + 1)..pos * (k + 1) + (k + 1)];
+                    xtx[0] += 1.0;
+                    for c in 0..(k + 1) {
+                        xtx[c + 1] += r[c];
+                        xtx[(c + 1) * p] += r[c];
+                    }
+                    for c1 in 0..(k + 1) {
+                        let b1 = r[c1];
+                        xtx[(c1 + 1) * p + (c1 + 1)] += b1 * b1;
+                        for c2 in (c1 + 1)..(k + 1) {
+                            let v = b1 * r[c2];
+                            xtx[(c1 + 1) * p + (c2 + 1)] += v;
+                            xtx[(c2 + 1) * p + (c1 + 1)] += v;
+                        }
+                    }
+                }
+                let m = DMatrix::from_row_slice(p, p, &xtx);
+                let chol = Cholesky::new(m);
+                ((p, valid), chol, xd, xtx)
+            })
+            .collect();
+
+    let mut per_date = Vec::with_capacity(t);
+    let mut chols = Vec::with_capacity(t);
+    let mut xdays = Vec::with_capacity(t);
+    let mut xtx_144 = Vec::with_capacity(t);
+    for (pd, ch, xd, xtx) in days {
+        per_date.push(pd);
+        chols.push(ch);
         xdays.push(xd);
+        xtx_144.push(xtx);
     }
     Ok(ColdPre {
         per_date,
         chols,
         xdays,
+        xtx_144,
     })
 }
 
@@ -3703,7 +3764,7 @@ pub(crate) fn neutralize_std_slot_f32_v2_resid_cold(
 
 /// `get_residual(fv, bench, None, Some(cold))` 的**单行移植**（冷门 11 列），
 /// 用每日预分解回代；预计算有效集里混进因子侧 NaN 时退回通用当日 OLS。
-fn get_residual_row_cold(
+pub(crate) fn get_residual_row_cold(
     fv_row: &[f64],
     bench_rows: &[&[f64]],
     cold_row: &[f64],

@@ -49,10 +49,9 @@ fn process_single_factor(
         && shared.neutralize_std_shared.is_some()
         && shared.bt_pre.is_some()
         && shared.free_mask.is_some()
-        // 冷门（11 风格）目前只在 v7 逐面路径实现：v8 的融合中性化没有第 11 列，
-        // 走 v8 会让 neu11 整桶为空（2026-11 实测：ic_neu11_* 全空、names 为 []）。
-        // 代价是开冷门时退回 v7（不做 batch、中性化走 v1），实测约慢一倍。
-        && shared.cold_style.is_none();
+        // 11 风格（纯风格 + 冷门）已完整接入 v8 + v3 融合流水线（单跑/双跑均逐位一致）；
+        // 仅在极罕见的「行业 one-hot + 冷门」组合下退回 v7 通用 OLS。
+        && (shared.cold_style.is_none() || !shared.industry_neutralize);
     if v8_ok {
         crate::tail_v8_pipeline::process_task_with_values_v8_opts(task, raw_values, shared, sc, low_cov)
     } else if low_cov.is_some() {
@@ -311,7 +310,9 @@ pub fn tail_backtest_engine<'py>(
                     let has_data = !task_result.raw_summary_gap1.is_empty()
                         || !task_result.raw_summary_gap5.is_empty()
                         || !task_result.neu_summary_gap1.is_empty()
-                        || !task_result.neu_summary_gap5.is_empty();
+                        || !task_result.neu_summary_gap5.is_empty()
+                        || !task_result.neu11_summary_gap1.is_empty()
+                        || !task_result.neu11_summary_gap5.is_empty();
                     if passed {
                         stats.restored_pass += 1;
                     } else if raw_cov {
@@ -617,6 +618,8 @@ pub fn tail_backtest_engine<'py>(
         candidate_counts.insert("rolled_gap5".to_string(), aggregated.raw_summary_gap5.len());
         candidate_counts.insert("neu_gap1".to_string(), aggregated.neu_summary_gap1.len());
         candidate_counts.insert("neu_gap5".to_string(), aggregated.neu_summary_gap5.len());
+        candidate_counts.insert("neu11_gap1".to_string(), aggregated.neu11_summary_gap1.len());
+        candidate_counts.insert("neu11_gap5".to_string(), aggregated.neu11_summary_gap5.len());
         Ok((
             processed_sources,
             restored_sources,

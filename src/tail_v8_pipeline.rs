@@ -251,10 +251,14 @@ fn run_variant_v8(
         ic_only,
         pre,
     };
+    let has_cold = shared.cold_style.is_some();
+    let need_plain = !has_cold || shared.cold_dual_pass;
     let mut raw_bt1: Vec<Option<BtAcc>> = (0..ns).map(|_| None).collect();
     let mut raw_bt5: Vec<Option<BtAcc>> = (0..ns).map(|_| None).collect();
     let mut neu_bt1: Vec<Option<BtAcc>> = (0..ns).map(|_| None).collect();
     let mut neu_bt5: Vec<Option<BtAcc>> = (0..ns).map(|_| None).collect();
+    let mut neu11_bt1: Vec<Option<BtAcc>> = (0..ns).map(|_| None).collect();
+    let mut neu11_bt5: Vec<Option<BtAcc>> = (0..ns).map(|_| None).collect();
     let mut alive = vec![true; ns];
     // metrics-only 需要"preflight 未过也要出 all_* 指标"，此时不做早停
     let early_stop = !cfg.save_all_metrics;
@@ -281,6 +285,8 @@ fn run_variant_v8(
                 raw_bt5[si] = None;
                 neu_bt1[si] = None;
                 neu_bt5[si] = None;
+                neu11_bt1[si] = None;
+                neu11_bt5[si] = None;
             }
         }
 
@@ -298,59 +304,147 @@ fn run_variant_v8(
             }
         }
 
-        // 3) 中性化同一块（批量）→ neu 侧回测
+        // 3) 中性化同一块（批量）→ neu / neu11 侧回测
         let need: Vec<usize> = (0..ns).filter(|&i| alive[i]).collect();
         if !need.is_empty() {
             let views: Vec<ArrayView2<f32>> =
                 need.iter().map(|&i| sc.block_bufs[i].slice(s![0..rows, ..])).collect();
-            // v3（默认，比 v2 快 2.6~2.8×，数值逐位一致）；TAIL_NEU_V2=1 切回 v2 做诊断。
-            // 行业与纯风格共用同一套逐日结构，只有残差那一步差一列行业 one-hot。
             let use_v2 = std::env::var("TAIL_NEU_V2").is_ok();
-            let mut neutrals = if !use_v2 {
-                let v3s = shared
-                    .v3_shared
-                    .as_ref()
-                    .expect("v8 融合路径需要 v3_shared（可用 TAIL_NEU_V2=1 切回 v2）");
-                crate::tail_v8_neu_v3::v3_slots_range(
-                    &views,
-                    v3s,
-                    shared.industry_neutralize,
-                    t0,
-                    t1,
-                    &mut sc.v3sc,
-                )?
-            } else {
-                crate::factor_neutralize_std::neutralize_std_slots_f32_v2_resid_batch_range(
-                    &views,
-                    ns_shared,
-                    shared.industry_neutralize,
-                    t0,
-                    t1,
-                )?
+            let (mut neutrals_plain, mut neutrals_cold): (
+                Option<Vec<Array2<f32>>>,
+                Option<Vec<Array2<f32>>>,
+            ) = match (need_plain, shared.cold_style.as_deref()) {
+                (true, None) => {
+                    let plain = if !use_v2 {
+                        let v3s = shared
+                            .v3_shared
+                            .as_ref()
+                            .expect("v8 融合路径需要 v3_shared（可用 TAIL_NEU_V2=1 切回 v2）");
+                        crate::tail_v8_neu_v3::v3_slots_range(
+                            &views,
+                            v3s,
+                            shared.industry_neutralize,
+                            t0,
+                            t1,
+                            &mut sc.v3sc,
+                        )?
+                    } else {
+                        crate::factor_neutralize_std::neutralize_std_slots_f32_v2_resid_batch_range(
+                            &views,
+                            ns_shared,
+                            shared.industry_neutralize,
+                            t0,
+                            t1,
+                        )?
+                    };
+                    (Some(plain), None)
+                }
+                (false, Some(cold)) => {
+                    let coldn = if !use_v2 {
+                        let v3s = shared
+                            .v3_shared
+                            .as_ref()
+                            .expect("v8 融合路径需要 v3_shared（可用 TAIL_NEU_V2=1 切回 v2）");
+                        crate::tail_v8_neu_v3::v3_slots_range_cold(
+                            &views,
+                            v3s,
+                            cold,
+                            t0,
+                            t1,
+                            &mut sc.v3sc,
+                        )?
+                    } else {
+                        crate::factor_neutralize_std::neutralize_std_slots_f32_v2_resid_batch_range_cold(
+                            &views,
+                            ns_shared,
+                            cold,
+                            t0,
+                            t1,
+                        )?
+                    };
+                    (None, Some(coldn))
+                }
+                (true, Some(cold)) => {
+                    if !use_v2 {
+                        let v3s = shared
+                            .v3_shared
+                            .as_ref()
+                            .expect("v8 融合路径需要 v3_shared（可用 TAIL_NEU_V2=1 切回 v2）");
+                        let (plain, coldn) = crate::tail_v8_neu_v3::v3_slots_range_dual(
+                            &views,
+                            v3s,
+                            cold,
+                            t0,
+                            t1,
+                            &mut sc.v3sc,
+                        )?;
+                        (Some(plain), Some(coldn))
+                    } else {
+                        let plain = crate::factor_neutralize_std::neutralize_std_slots_f32_v2_resid_batch_range(
+                            &views,
+                            ns_shared,
+                            shared.industry_neutralize,
+                            t0,
+                            t1,
+                        )?;
+                        let coldn = crate::factor_neutralize_std::neutralize_std_slots_f32_v2_resid_batch_range_cold(
+                            &views,
+                            ns_shared,
+                            cold,
+                            t0,
+                            t1,
+                        )?;
+                        (Some(plain), Some(coldn))
+                    }
+                }
+                (false, None) => unreachable!("need_plain 与 cold_style 至少一个为真"),
             };
+
             if allow_low_cov {
-                // 放行因子：输入缺失的位置，中性化输出也保持缺失（不让中性化内部的
-                // 行业中位补齐把“没有数据”变成一个数进入回测）。
-                for (k, &si) in need.iter().enumerate() {
-                    let input = sc.block_bufs[si].slice(s![0..rows, ..]);
-                    ndarray::Zip::from(&mut neutrals[k]).and(&input).for_each(|o, &x| {
-                        if !x.is_finite() {
-                            *o = f32::NAN;
-                        }
-                    });
+                // 放行因子：输入缺失的位置，中性化输出也保持缺失
+                if let Some(ref mut plain) = neutrals_plain {
+                    for (k, &si) in need.iter().enumerate() {
+                        let input = sc.block_bufs[si].slice(s![0..rows, ..]);
+                        ndarray::Zip::from(&mut plain[k]).and(&input).for_each(|o, &x| {
+                            if !x.is_finite() {
+                                *o = f32::NAN;
+                            }
+                        });
+                    }
+                }
+                if let Some(ref mut coldn) = neutrals_cold {
+                    for (k, &si) in need.iter().enumerate() {
+                        let input = sc.block_bufs[si].slice(s![0..rows, ..]);
+                        ndarray::Zip::from(&mut coldn[k]).and(&input).for_each(|o, &x| {
+                            if !x.is_finite() {
+                                *o = f32::NAN;
+                            }
+                        });
+                    }
                 }
             }
-            for (k, &si) in need.iter().enumerate() {
-                let nb = neutrals[k].view();
-                let a = neu_bt1[si].get_or_insert_with(|| BtAcc::new(mk_ctx(1)));
-                a.push_block(&nb, t0);
-                let b = neu_bt5[si].get_or_insert_with(|| BtAcc::new(mk_ctx(5)));
-                b.push_block(&nb, t0);
+            if let Some(ref plain) = neutrals_plain {
+                for (k, &si) in need.iter().enumerate() {
+                    let nb = plain[k].view();
+                    let a = neu_bt1[si].get_or_insert_with(|| BtAcc::new(mk_ctx(1)));
+                    a.push_block(&nb, t0);
+                    let b = neu_bt5[si].get_or_insert_with(|| BtAcc::new(mk_ctx(5)));
+                    b.push_block(&nb, t0);
+                }
+            }
+            if let Some(ref coldn) = neutrals_cold {
+                for (k, &si) in need.iter().enumerate() {
+                    let nb = coldn[k].view();
+                    let a = neu11_bt1[si].get_or_insert_with(|| BtAcc::new(mk_ctx(1)));
+                    a.push_block(&nb, t0);
+                    let b = neu11_bt5[si].get_or_insert_with(|| BtAcc::new(mk_ctx(5)));
+                    b.push_block(&nb, t0);
+                }
             }
         }
     }
 
-    // 4) 汇总（与 process_v7_slot_neu 的顺序/条件完全一致）
+    // 4) 汇总（与 process_v7_slots_batch / process_v7_slot_neu 的顺序/条件完全一致）
     let reports: Vec<crate::tail_v8_preflight::PfReport> =
         pf.into_iter().map(|a| a.finish()).collect();
     for si in 0..ns {
@@ -387,98 +481,191 @@ fn run_variant_v8(
             raw_bt1[si].take().map(|a| a.finish()).unwrap_or_else(default_legacy_backtest_result);
         let raw_gap5_result =
             raw_bt5[si].take().map(|a| a.finish()).unwrap_or_else(default_legacy_backtest_result);
-        let neu_gap1_result =
-            neu_bt1[si].take().map(|a| a.finish()).unwrap_or_else(default_legacy_backtest_result);
-        let neu_gap5_result =
-            neu_bt5[si].take().map(|a| a.finish()).unwrap_or_else(default_legacy_backtest_result);
 
         let mut raw_gap1_row =
             summary_from_row(derived_name, "rolled", 1, variant_name, &raw_gap1_result.summary);
         let mut raw_gap5_row =
             summary_from_row(derived_name, "rolled", 5, variant_name, &raw_gap5_result.summary);
-        let mut neu_gap1_row =
-            summary_from_row(derived_name, "neu", 1, variant_name, &neu_gap1_result.summary);
-        let mut neu_gap5_row =
-            summary_from_row(derived_name, "neu", 5, variant_name, &neu_gap5_result.summary);
         raw_gap1_row.preflight_passed = report.passed;
         raw_gap5_row.preflight_passed = report.passed;
-        neu_gap1_row.preflight_passed = report.passed;
-        neu_gap5_row.preflight_passed = report.passed;
 
         let raw_gap1_keep = report.passed && qualify_raw(&raw_gap1_row, 1, cfg);
         let raw_gap5_keep = report.passed && qualify_raw(&raw_gap5_row, 5, cfg);
-        let neu_gap1_keep = report.passed && qualify_neu(&neu_gap1_row, 1, cfg);
-        let neu_gap5_keep = report.passed && qualify_neu(&neu_gap5_row, 5, cfg);
 
-        if raw_gap1_keep || raw_gap5_keep || neu_gap1_keep || neu_gap5_keep {
-            result.passed = true;
-        }
+        // 与 v7 完全对齐：若无 cold，plain 做门禁；若有 cold，plain（若双跑）只写展示集，cold 写 neu11 并做门禁
+        if need_plain {
+            let gate_plain = !has_cold;
+            let neu_gap1_result = neu_bt1[si]
+                .take()
+                .map(|a| a.finish())
+                .unwrap_or_else(default_legacy_backtest_result);
+            let neu_gap5_result = neu_bt5[si]
+                .take()
+                .map(|a| a.finish())
+                .unwrap_or_else(default_legacy_backtest_result);
+            let mut neu_gap1_row =
+                summary_from_row(derived_name, "neu", 1, variant_name, &neu_gap1_result.summary);
+            let mut neu_gap5_row =
+                summary_from_row(derived_name, "neu", 5, variant_name, &neu_gap5_result.summary);
+            neu_gap1_row.preflight_passed = report.passed;
+            neu_gap5_row.preflight_passed = report.passed;
+            let neu_gap1_keep = report.passed && qualify_neu(&neu_gap1_row, 1, cfg);
+            let neu_gap5_keep = report.passed && qualify_neu(&neu_gap5_row, 5, cfg);
 
-        // metrics-only：无论是否达到候选阈值都保存全部指标（ic_only 下 raw 未回测，跳过 raw all）
-        if cfg.save_all_metrics {
-            if !ic_only {
-                result.all_raw_summary_gap1.push(raw_gap1_row.clone());
-                result.all_raw_summary_gap5.push(raw_gap5_row.clone());
-                result.all_raw_ic_gap1.push(IcRecord {
+            if gate_plain && (raw_gap1_keep || raw_gap5_keep || neu_gap1_keep || neu_gap5_keep) {
+                result.passed = true;
+            }
+            if cfg.save_all_metrics {
+                if gate_plain && !ic_only {
+                    result.all_raw_summary_gap1.push(raw_gap1_row.clone());
+                    result.all_raw_summary_gap5.push(raw_gap5_row.clone());
+                    result.all_raw_ic_gap1.push(IcRecord {
+                        factor_name: derived_name.clone(),
+                        dates: raw_gap1_result.ic_dates.clone(),
+                        values: raw_gap1_result.ic_values.clone(),
+                    });
+                    result.all_raw_ic_gap5.push(IcRecord {
+                        factor_name: derived_name.clone(),
+                        dates: raw_gap5_result.ic_dates.clone(),
+                        values: raw_gap5_result.ic_values.clone(),
+                    });
+                }
+                result.all_neu_summary_gap1.push(neu_gap1_row.clone());
+                result.all_neu_summary_gap5.push(neu_gap5_row.clone());
+                result.all_neu_ic_gap1.push(IcRecord {
+                    factor_name: derived_name.clone(),
+                    dates: neu_gap1_result.ic_dates.clone(),
+                    values: neu_gap1_result.ic_values.clone(),
+                });
+                result.all_neu_ic_gap5.push(IcRecord {
+                    factor_name: derived_name.clone(),
+                    dates: neu_gap5_result.ic_dates.clone(),
+                    values: neu_gap5_result.ic_values.clone(),
+                });
+            }
+            if gate_plain && raw_gap1_keep {
+                result.raw_summary_gap1.push(raw_gap1_row.clone());
+                result.raw_ic_gap1.push(IcRecord {
                     factor_name: derived_name.clone(),
                     dates: raw_gap1_result.ic_dates.clone(),
                     values: raw_gap1_result.ic_values.clone(),
                 });
-                result.all_raw_ic_gap5.push(IcRecord {
+            }
+            if gate_plain && raw_gap5_keep {
+                result.raw_summary_gap5.push(raw_gap5_row.clone());
+                result.raw_ic_gap5.push(IcRecord {
                     factor_name: derived_name.clone(),
                     dates: raw_gap5_result.ic_dates.clone(),
                     values: raw_gap5_result.ic_values.clone(),
                 });
             }
-            result.all_neu_summary_gap1.push(neu_gap1_row.clone());
-            result.all_neu_summary_gap5.push(neu_gap5_row.clone());
-            result.all_neu_ic_gap1.push(IcRecord {
-                factor_name: derived_name.clone(),
-                dates: neu_gap1_result.ic_dates.clone(),
-                values: neu_gap1_result.ic_values.clone(),
-            });
-            result.all_neu_ic_gap5.push(IcRecord {
-                factor_name: derived_name.clone(),
-                dates: neu_gap5_result.ic_dates.clone(),
-                values: neu_gap5_result.ic_values.clone(),
-            });
+            if neu_gap1_keep {
+                result.neu_summary_gap1.push(neu_gap1_row.clone());
+            }
+            if neu_gap5_keep {
+                result.neu_summary_gap5.push(neu_gap5_row.clone());
+            }
+            if raw_gap1_keep || neu_gap1_keep {
+                result.neu_ic_gap1.push(IcRecord {
+                    factor_name: derived_name.clone(),
+                    dates: neu_gap1_result.ic_dates.clone(),
+                    values: neu_gap1_result.ic_values.clone(),
+                });
+            }
+            if raw_gap5_keep || neu_gap5_keep {
+                result.neu_ic_gap5.push(IcRecord {
+                    factor_name: derived_name.clone(),
+                    dates: neu_gap5_result.ic_dates.clone(),
+                    values: neu_gap5_result.ic_values.clone(),
+                });
+            }
         }
 
-        if raw_gap1_keep {
-            result.raw_summary_gap1.push(raw_gap1_row.clone());
-            result.raw_ic_gap1.push(IcRecord {
-                factor_name: derived_name.clone(),
-                dates: raw_gap1_result.ic_dates.clone(),
-                values: raw_gap1_result.ic_values.clone(),
-            });
-        }
-        if raw_gap5_keep {
-            result.raw_summary_gap5.push(raw_gap5_row.clone());
-            result.raw_ic_gap5.push(IcRecord {
-                factor_name: derived_name.clone(),
-                dates: raw_gap5_result.ic_dates.clone(),
-                values: raw_gap5_result.ic_values.clone(),
-            });
-        }
-        if neu_gap1_keep {
-            result.neu_summary_gap1.push(neu_gap1_row.clone());
-        }
-        if neu_gap5_keep {
-            result.neu_summary_gap5.push(neu_gap5_row.clone());
-        }
-        if raw_gap1_keep || neu_gap1_keep {
-            result.neu_ic_gap1.push(IcRecord {
-                factor_name: derived_name.clone(),
-                dates: neu_gap1_result.ic_dates.clone(),
-                values: neu_gap1_result.ic_values.clone(),
-            });
-        }
-        if raw_gap5_keep || neu_gap5_keep {
-            result.neu_ic_gap5.push(IcRecord {
-                factor_name: derived_name.clone(),
-                dates: neu_gap5_result.ic_dates.clone(),
-                values: neu_gap5_result.ic_values.clone(),
-            });
+        if has_cold {
+            let neu11_gap1_result = neu11_bt1[si]
+                .take()
+                .map(|a| a.finish())
+                .unwrap_or_else(default_legacy_backtest_result);
+            let neu11_gap5_result = neu11_bt5[si]
+                .take()
+                .map(|a| a.finish())
+                .unwrap_or_else(default_legacy_backtest_result);
+            let mut neu11_gap1_row =
+                summary_from_row(derived_name, "neu", 1, variant_name, &neu11_gap1_result.summary);
+            let mut neu11_gap5_row =
+                summary_from_row(derived_name, "neu", 5, variant_name, &neu11_gap5_result.summary);
+            neu11_gap1_row.preflight_passed = report.passed;
+            neu11_gap5_row.preflight_passed = report.passed;
+            let neu11_gap1_keep = report.passed && qualify_neu(&neu11_gap1_row, 1, cfg);
+            let neu11_gap5_keep = report.passed && qualify_neu(&neu11_gap5_row, 5, cfg);
+
+            if raw_gap1_keep || raw_gap5_keep || neu11_gap1_keep || neu11_gap5_keep {
+                result.passed = true;
+            }
+            if cfg.save_all_metrics {
+                if !ic_only {
+                    result.all_raw_summary_gap1.push(raw_gap1_row.clone());
+                    result.all_raw_summary_gap5.push(raw_gap5_row.clone());
+                    result.all_raw_ic_gap1.push(IcRecord {
+                        factor_name: derived_name.clone(),
+                        dates: raw_gap1_result.ic_dates.clone(),
+                        values: raw_gap1_result.ic_values.clone(),
+                    });
+                    result.all_raw_ic_gap5.push(IcRecord {
+                        factor_name: derived_name.clone(),
+                        dates: raw_gap5_result.ic_dates.clone(),
+                        values: raw_gap5_result.ic_values.clone(),
+                    });
+                }
+                result.all_neu11_summary_gap1.push(neu11_gap1_row.clone());
+                result.all_neu11_summary_gap5.push(neu11_gap5_row.clone());
+                result.all_neu11_ic_gap1.push(IcRecord {
+                    factor_name: derived_name.clone(),
+                    dates: neu11_gap1_result.ic_dates.clone(),
+                    values: neu11_gap1_result.ic_values.clone(),
+                });
+                result.all_neu11_ic_gap5.push(IcRecord {
+                    factor_name: derived_name.clone(),
+                    dates: neu11_gap5_result.ic_dates.clone(),
+                    values: neu11_gap5_result.ic_values.clone(),
+                });
+            }
+            if raw_gap1_keep {
+                result.raw_summary_gap1.push(raw_gap1_row.clone());
+                result.raw_ic_gap1.push(IcRecord {
+                    factor_name: derived_name.clone(),
+                    dates: raw_gap1_result.ic_dates.clone(),
+                    values: raw_gap1_result.ic_values.clone(),
+                });
+            }
+            if raw_gap5_keep {
+                result.raw_summary_gap5.push(raw_gap5_row.clone());
+                result.raw_ic_gap5.push(IcRecord {
+                    factor_name: derived_name.clone(),
+                    dates: raw_gap5_result.ic_dates.clone(),
+                    values: raw_gap5_result.ic_values.clone(),
+                });
+            }
+            if neu11_gap1_keep {
+                result.neu11_summary_gap1.push(neu11_gap1_row.clone());
+            }
+            if neu11_gap5_keep {
+                result.neu11_summary_gap5.push(neu11_gap5_row.clone());
+            }
+            if raw_gap1_keep || neu11_gap1_keep {
+                result.neu11_ic_gap1.push(IcRecord {
+                    factor_name: derived_name.clone(),
+                    dates: neu11_gap1_result.ic_dates.clone(),
+                    values: neu11_gap1_result.ic_values.clone(),
+                });
+            }
+            if raw_gap5_keep || neu11_gap5_keep {
+                result.neu11_ic_gap5.push(IcRecord {
+                    factor_name: derived_name.clone(),
+                    dates: neu11_gap5_result.ic_dates.clone(),
+                    values: neu11_gap5_result.ic_values.clone(),
+                });
+            }
         }
     }
     let _ = Arc::strong_count(&shared.restrict);

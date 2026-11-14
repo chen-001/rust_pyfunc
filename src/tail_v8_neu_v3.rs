@@ -55,7 +55,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use nalgebra::{Cholesky, DMatrix};
-use ndarray::{Array2, ArrayView2};
+use ndarray::{s, Array2, Array3, ArrayView2, ArrayView3};
 
 use crate::factor_neutralize_std::NeutralizeStdShared;
 
@@ -1039,6 +1039,11 @@ pub struct V3Scratch {
     b_coef: Vec<f64>,
     /// 复用的 RHS 矩阵（>= p_solve × b），`solve_mut` 直接写它 → 热路径零分配
     rhs: DMatrix<f64>,
+    // ---- 冷门双跑专用第二批缓冲（仅双跑时按需分配，单跑零额外开销） ----
+    b_y_cold: Vec<f64>,
+    b_n_cold: Vec<usize>,
+    b_mode_cold: Vec<u8>,
+    b_prep_mode: Vec<u8>,
     // ---- 生产回退路径的零分配缓冲 ----
     ind0_row: Vec<f64>,
     rank_vals: Vec<f64>,
@@ -1088,6 +1093,10 @@ impl V3Scratch {
             b_xty: Vec::new(),
             b_coef: Vec::new(),
             rhs: DMatrix::zeros(0, 0),
+            b_y_cold: Vec::new(),
+            b_n_cold: Vec::new(),
+            b_mode_cold: Vec::new(),
+            b_prep_mode: Vec::new(),
             ind0_row: Vec::with_capacity(n),
             rank_vals: Vec::with_capacity(n),
             seen: Vec::with_capacity(16),
@@ -1119,6 +1128,29 @@ impl V3Scratch {
             self.rhs = DMatrix::zeros(nr, nc);
         }
     }
+
+    /// 双跑专用：保证 `b_y_cold` / `b_n_cold` / `b_mode_cold` / `b_prep_mode` 覆盖 b 面 × n。
+    fn ensure_cold_batch(&mut self, b: usize, n: usize) {
+        self.ensure_batch(b, n);
+        let need_y = self.b_cap * self.b_stride;
+        if self.b_y_cold.len() < need_y {
+            self.b_y_cold.resize(need_y, 0.0);
+        }
+        if self.b_n_cold.len() < self.b_cap {
+            self.b_n_cold.resize(self.b_cap, 0);
+            self.b_mode_cold.resize(self.b_cap, M_DONE);
+            self.b_prep_mode.resize(self.b_cap, M_DONE);
+        }
+    }
+}
+
+/// 11 风格（10 Barra + 冷门）在 S 宇宙上的派生压缩索引。
+pub struct V3ColdIndex {
+    pub v_from_s_flat: Vec<u32>,
+    pub v_lens: Vec<u32>,
+    pub v_offsets: Vec<u64>,
+    pub fast_ok: Vec<bool>,
+    pub identity: Vec<bool>,
 }
 
 // ==================== V3Shared（派生索引 + Arc<NeutralizeStdShared>） ====================
@@ -1165,6 +1197,8 @@ pub struct V3Shared {
     pub seg_offsets: Vec<u64>,
     pub seg_lens: Vec<u32>,
     pub has_d: bool,
+    /// 若 `ns.cold_pre` 存在，同步预计算冷门有效集到 S 的映射，供 11 风格批量求解复用。
+    pub cold_idx: Option<V3ColdIndex>,
 }
 
 impl V3Shared {
@@ -1299,6 +1333,43 @@ impl V3Shared {
             // （填充步骤对输出恒等）；否则用 v3_row_d（精确复算 D 的中位填充值）。
             fast_ok[idx] = all_in_s && vi.len() > 10;
         }
+        let cold_idx = ns.cold_pre.as_ref().map(|cp| {
+            let mut cv_lens = vec![0u32; t];
+            let mut cv_offsets = vec![0u64; t + 1];
+            let mut cv_from_s_flat: Vec<u32> = Vec::with_capacity(t * n);
+            let mut c_fast_ok = vec![false; t];
+            let mut c_identity = vec![false; t];
+            for idx in 0..t {
+                let n_s = s_lens[idx] as usize;
+                let s_pos_day = &s_pos_flat[idx * n..idx * n + n];
+                let (cp_p, ref cvi) = cp.per_date[idx];
+                cv_lens[idx] = cvi.len() as u32;
+                cv_offsets[idx + 1] = cv_offsets[idx] + cvi.len() as u64;
+                let mut all_in_s = true;
+                let mut is_id = true;
+                for (pos, &j) in cvi.iter().enumerate() {
+                    let p = s_pos_day[j as usize];
+                    if p == u32::MAX {
+                        all_in_s = false;
+                    }
+                    if p != pos as u32 {
+                        is_id = false;
+                    }
+                    cv_from_s_flat.push(p);
+                }
+                if is_id && n_s == cvi.len() {
+                    c_identity[idx] = true;
+                }
+                c_fast_ok[idx] = cp_p > 0 && all_in_s && cvi.len() > 10;
+            }
+            V3ColdIndex {
+                v_from_s_flat: cv_from_s_flat,
+                v_lens: cv_lens,
+                v_offsets: cv_offsets,
+                fast_ok: c_fast_ok,
+                identity: c_identity,
+            }
+        });
         Ok(V3Shared {
             ns,
             n_stocks: n,
@@ -1328,6 +1399,7 @@ impl V3Shared {
             seg_offsets,
             seg_lens,
             has_d,
+            cold_idx,
         })
     }
 
@@ -2190,6 +2262,1110 @@ pub fn v3_slots_range(
         v3_day_batch(slots, &mut outs, r, idx, shared, sc, &mut times, industry_neutralize);
     }
     Ok(outs)
+}
+
+// ==================== 11 风格（10 Barra + 冷门）单跑 / 双跑 与 Fulltest 残差秩变换 ====================
+
+#[inline]
+fn gather_ybuf_to_cold(cold_idx: &V3ColdIndex, idx: usize, ybuf: &[f64], dst_all: &mut [f64], off: usize) -> usize {
+    let nv = cold_idx.v_lens[idx] as usize;
+    if cold_idx.identity[idx] {
+        dst_all[off..off + nv].copy_from_slice(&ybuf[..nv]);
+    } else {
+        let o2 = cold_idx.v_offsets[idx] as usize;
+        let v_from_s = &cold_idx.v_from_s_flat[o2..o2 + nv];
+        let dst = &mut dst_all[off..off + nv];
+        for (q, &p) in v_from_s.iter().enumerate() {
+            dst[q] = ybuf[p as usize];
+        }
+    }
+    nv
+}
+
+fn cold_residual_row(
+    fv_row: &[f64],
+    ns: &NeutralizeStdShared,
+    cold: &Array2<f64>,
+    cp: &crate::factor_neutralize_std::ColdPre,
+    idx: usize,
+    out_row: &mut [f32],
+    resid: &mut Vec<f64>,
+) {
+    let n = fv_row.len();
+    let views: [ndarray::ArrayView1<'_, f64>; 10] =
+        std::array::from_fn(|c| ns.barra_ranked[c].row(idx));
+    let mut bench_rows: [&[f64]; 10] = [&[]; 10];
+    for c in 0..10 {
+        bench_rows[c] = views[c].as_slice().unwrap();
+    }
+    let cold_v = cold.row(idx);
+    let cold_row = cold_v.as_slice().unwrap();
+    resid.clear();
+    resid.resize(n, f64::NAN);
+    crate::factor_neutralize_std::get_residual_row_cold(
+        fv_row,
+        &bench_rows,
+        cold_row,
+        cp,
+        idx,
+        resid,
+    );
+    for (j, &v) in resid.iter().enumerate() {
+        out_row[j] = if v.is_nan() { f32::NAN } else { v as f32 };
+    }
+}
+
+fn v3_row_prod_cold(
+    row: &[f32],
+    idx: usize,
+    shared: &V3Shared,
+    cold: &Array2<f64>,
+    cp: &crate::factor_neutralize_std::ColdPre,
+    out_row: &mut [f32],
+    sc: &mut V3Scratch,
+) {
+    v3_row_prod_fill(row, idx, shared, sc);
+    cold_residual_row(&sc.filled, &shared.ns, cold, cp, idx, out_row, &mut sc.style_resid);
+}
+
+fn ols_check_cold(
+    y_v: &[f64],
+    cp: &crate::factor_neutralize_std::ColdPre,
+    idx: usize,
+    out_f32_row: &mut [f32],
+) -> u8 {
+    let (pn, valid_idx) = &cp.per_date[idx];
+    if *pn == 0 {
+        return M_DONE;
+    }
+    let mut mn = f64::INFINITY;
+    let mut mx = f64::NEG_INFINITY;
+    for &y in y_v {
+        if y < mn {
+            mn = y;
+        }
+        if y > mx {
+            mx = y;
+        }
+    }
+    if mn == mx {
+        for &j in valid_idx {
+            out_f32_row[j as usize] = 0.5;
+        }
+        return M_DONE;
+    }
+    if valid_idx.len() <= 40 || cp.chols[idx].is_none() {
+        M_STYLE_FB
+    } else {
+        M_READY
+    }
+}
+
+fn ols_acc_day_cold(
+    modes: &[u8],
+    y_all: &[f64],
+    stride: usize,
+    xty: &mut [f64],
+    cp: &crate::factor_neutralize_std::ColdPre,
+    idx: usize,
+    b: usize,
+    p_alloc: usize,
+) {
+    let k = 11usize; // 10 Barra + 1 cold
+    let nv = cp.per_date[idx].1.len();
+    if nv == 0 {
+        return;
+    }
+    let xd = &cp.xdays[idx];
+    for f in 0..b {
+        if modes[f] == M_READY {
+            let base = f * p_alloc;
+            for v in xty[base..base + p_alloc].iter_mut() {
+                *v = 0.0;
+            }
+        }
+    }
+    for pos in 0..nv {
+        let xrow = &xd[pos * k..pos * k + k];
+        for f in 0..b {
+            if modes[f] != M_READY {
+                continue;
+            }
+            let yv = y_all[f * stride + pos];
+            let base = f * p_alloc;
+            xty[base] += yv;
+            for c in 0..k {
+                xty[base + 1 + c] += xrow[c] * yv;
+            }
+        }
+    }
+}
+
+fn ols_write_cold(
+    y_v: &[f64],
+    cp: &crate::factor_neutralize_std::ColdPre,
+    idx: usize,
+    out_f32_row: &mut [f32],
+    coef: &[f64],
+) {
+    let k = 11usize;
+    let (_pn, valid_idx) = &cp.per_date[idx];
+    let xd = &cp.xdays[idx];
+    for (pos, &j) in valid_idx.iter().enumerate() {
+        let ji = j as usize;
+        let xrow = &xd[pos * k..pos * k + k];
+        let mut pred = coef[0];
+        for c in 0..k {
+            pred += coef[c + 1] * xrow[c];
+        }
+        let r = y_v[pos] - pred;
+        out_f32_row[ji] = if r.is_nan() { f32::NAN } else { r as f32 };
+    }
+}
+
+fn v3_day_batch_cold(
+    slots: &[ArrayView2<f32>],
+    outs: &mut [Array2<f32>],
+    r: usize,
+    idx: usize,
+    shared: &V3Shared,
+    cold_idx: &V3ColdIndex,
+    cold: &Array2<f64>,
+    cp: &crate::factor_neutralize_std::ColdPre,
+    sc: &mut V3Scratch,
+    times: &mut V3Times,
+) {
+    let b = slots.len();
+    let n = shared.n_stocks;
+    sc.ensure_batch(b, n);
+
+    if !shared.fast_ok[idx] || !cold_idx.fast_ok[idx] {
+        let s = Instant::now();
+        for f in 0..b {
+            let row_v = slots[f].row(r);
+            let row = row_v.as_slice().unwrap();
+            let mut out_v = outs[f].row_mut(r);
+            let out_row = out_v.as_slice_mut().unwrap();
+            v3_row_prod_cold(row, idx, shared, cold, cp, out_row, sc);
+        }
+        times.fallback += s.elapsed().as_secs_f64();
+        times.slow_rows += b as u64;
+        return;
+    }
+
+    for f in 0..b {
+        sc.b_mode[f] = M_DONE;
+        sc.b_n[f] = 0;
+        let row_v = slots[f].row(r);
+        let row = row_v.as_slice().unwrap();
+        let st = if shared.d_lens[idx] == 0 {
+            let a = v3_row_fast_prep(row, idx, shared, sc, times, f);
+            if a == M_PROD {
+                v3_row_x_prep(row, idx, shared, sc, times, f)
+            } else {
+                a
+            }
+        } else {
+            v3_row_x_prep(row, idx, shared, sc, times, f)
+        };
+        if st == M_READY {
+            let off = f * sc.b_stride;
+            let nv_c = gather_ybuf_to_cold(cold_idx, idx, &sc.ybuf, &mut sc.b_y, off);
+            sc.b_n[f] = nv_c;
+        }
+        sc.b_mode[f] = st;
+    }
+
+    let p_alloc = 12usize;
+    sc.ensure_xty(b, p_alloc);
+    let s_ols = Instant::now();
+    for f in 0..b {
+        if sc.b_mode[f] != M_READY {
+            continue;
+        }
+        let off = f * sc.b_stride;
+        let len = sc.b_n[f];
+        let mut out_v = outs[f].row_mut(r);
+        let out_row = out_v.as_slice_mut().unwrap();
+        sc.b_mode[f] = ols_check_cold(&sc.b_y[off..off + len], cp, idx, out_row);
+    }
+
+    let n_ready = (0..b).filter(|&f| sc.b_mode[f] == M_READY).count();
+    if n_ready > 0 {
+        let stride = sc.b_stride;
+        ols_acc_day_cold(
+            &sc.b_mode[..b],
+            &sc.b_y,
+            stride,
+            &mut sc.b_xty,
+            cp,
+            idx,
+            b,
+            p_alloc,
+        );
+        match cp.chols[idx].as_ref() {
+            Some(ch) => {
+                {
+                    let mut rhs_v = sc.rhs.view_mut((0, 0), (12, b));
+                    for f in 0..b {
+                        if sc.b_mode[f] != M_READY {
+                            continue;
+                        }
+                        let base = f * p_alloc;
+                        for i in 0..12 {
+                            rhs_v[(i, f)] = sc.b_xty[base + i];
+                        }
+                    }
+                    ch.solve_mut(&mut rhs_v);
+                    for f in 0..b {
+                        if sc.b_mode[f] != M_READY {
+                            continue;
+                        }
+                        let base = f * p_alloc;
+                        for i in 0..12 {
+                            sc.b_coef[base + i] = rhs_v[(i, f)];
+                        }
+                    }
+                }
+                for f in 0..b {
+                    if sc.b_mode[f] != M_READY {
+                        continue;
+                    }
+                    let off = f * sc.b_stride;
+                    let len = sc.b_n[f];
+                    let base = f * p_alloc;
+                    let mut out_v = outs[f].row_mut(r);
+                    let out_row = out_v.as_slice_mut().unwrap();
+                    ols_write_cold(
+                        &sc.b_y[off..off + len],
+                        cp,
+                        idx,
+                        out_row,
+                        &sc.b_coef[base..base + 12],
+                    );
+                }
+            }
+            None => {
+                for f in 0..b {
+                    if sc.b_mode[f] == M_READY {
+                        sc.b_mode[f] = M_STYLE_FB;
+                    }
+                }
+            }
+        }
+    }
+    times.ols += s_ols.elapsed().as_secs_f64();
+
+    for f in 0..b {
+        match sc.b_mode[f] {
+            M_STYLE_FB | M_PROD => {
+                let row_v = slots[f].row(r);
+                let row = row_v.as_slice().unwrap();
+                let mut out_v = outs[f].row_mut(r);
+                let out_row = out_v.as_slice_mut().unwrap();
+                let s = Instant::now();
+                v3_row_prod_cold(row, idx, shared, cold, cp, out_row, sc);
+                times.fallback += s.elapsed().as_secs_f64();
+                times.slow_rows += 1;
+            }
+            _ => {
+                times.fast_rows += 1;
+            }
+        }
+    }
+}
+
+/// 双跑（10 风格 + 11 风格）：一次排序/填充链 `sc.ybuf` 同时供出两套 V 序向量，各自做一次批量 Cholesky 写回。
+fn v3_day_batch_dual(
+    slots: &[ArrayView2<f32>],
+    outs_plain: &mut [Array2<f32>],
+    outs_cold: &mut [Array2<f32>],
+    r: usize,
+    idx: usize,
+    shared: &V3Shared,
+    cold_idx: &V3ColdIndex,
+    cold: &Array2<f64>,
+    cp: &crate::factor_neutralize_std::ColdPre,
+    sc: &mut V3Scratch,
+    times: &mut V3Times,
+) {
+    let b = slots.len();
+    let n = shared.n_stocks;
+    sc.ensure_cold_batch(b, n);
+
+    if !shared.fast_ok[idx] || !cold_idx.fast_ok[idx] {
+        let s = Instant::now();
+        for f in 0..b {
+            let row_v = slots[f].row(r);
+            let row = row_v.as_slice().unwrap();
+            v3_row_prod_fill(row, idx, shared, sc);
+            {
+                let mut op_v = outs_plain[f].row_mut(r);
+                style_residual_row(&sc.filled, &shared.ns, idx, op_v.as_slice_mut().unwrap(), &mut sc.style_resid);
+            }
+            {
+                let mut oc_v = outs_cold[f].row_mut(r);
+                cold_residual_row(&sc.filled, &shared.ns, cold, cp, idx, oc_v.as_slice_mut().unwrap(), &mut sc.style_resid);
+            }
+        }
+        times.fallback += s.elapsed().as_secs_f64();
+        times.slow_rows += b as u64;
+        return;
+    }
+
+    // 阶段 1：仅做一次 prep，同时收集 plain 的 b_y[f] 与 cold 的 b_y_cold[f]
+    for f in 0..b {
+        sc.b_mode[f] = M_DONE;
+        sc.b_n[f] = 0;
+        sc.b_mode_cold[f] = M_DONE;
+        sc.b_n_cold[f] = 0;
+        let row_v = slots[f].row(r);
+        let row = row_v.as_slice().unwrap();
+        let st = if shared.d_lens[idx] == 0 {
+            let a = v3_row_fast_prep(row, idx, shared, sc, times, f);
+            if a == M_PROD {
+                v3_row_x_prep(row, idx, shared, sc, times, f)
+            } else {
+                a
+            }
+        } else {
+            v3_row_x_prep(row, idx, shared, sc, times, f)
+        };
+        sc.b_prep_mode[f] = st;
+        sc.b_mode[f] = st;
+        sc.b_mode_cold[f] = st;
+        if st == M_READY {
+            let off = f * sc.b_stride;
+            let nv_c = gather_ybuf_to_cold(cold_idx, idx, &sc.ybuf, &mut sc.b_y_cold, off);
+            sc.b_n_cold[f] = nv_c;
+        }
+    }
+
+    let p_alloc = 12usize;
+    sc.ensure_xty(b, p_alloc);
+    let s_ols = Instant::now();
+
+    // ---- Pass A: 10 风格 (p = 11) ----
+    for f in 0..b {
+        if sc.b_mode[f] != M_READY {
+            continue;
+        }
+        let off = f * sc.b_stride;
+        let len = sc.b_n[f];
+        let mut out_v = outs_plain[f].row_mut(r);
+        sc.b_mode[f] = ols_check_style(&sc.b_y[off..off + len], &shared.ns, idx, out_v.as_slice_mut().unwrap());
+    }
+    let n_ready_plain = (0..b).filter(|&f| sc.b_mode[f] == M_READY).count();
+    if n_ready_plain > 0 {
+        ols_acc_day(sc, &shared.ns, idx, false, b, p_alloc);
+        match shared.ns.chols_style[idx].as_ref() {
+            Some(ch) => {
+                {
+                    let mut rhs_v = sc.rhs.view_mut((0, 0), (11, b));
+                    for f in 0..b {
+                        if sc.b_mode[f] != M_READY {
+                            continue;
+                        }
+                        let base = f * p_alloc;
+                        for i in 0..11 {
+                            rhs_v[(i, f)] = sc.b_xty[base + i];
+                        }
+                    }
+                    ch.solve_mut(&mut rhs_v);
+                    for f in 0..b {
+                        if sc.b_mode[f] != M_READY {
+                            continue;
+                        }
+                        let base = f * p_alloc;
+                        for i in 0..11 {
+                            sc.b_coef[base + i] = rhs_v[(i, f)];
+                        }
+                    }
+                }
+                for f in 0..b {
+                    if sc.b_mode[f] != M_READY {
+                        continue;
+                    }
+                    let off = f * sc.b_stride;
+                    let len = sc.b_n[f];
+                    let base = f * p_alloc;
+                    let mut out_v = outs_plain[f].row_mut(r);
+                    ols_write_style(
+                        &sc.b_y[off..off + len],
+                        &shared.ns,
+                        idx,
+                        out_v.as_slice_mut().unwrap(),
+                        &sc.b_coef[base..base + 11],
+                    );
+                }
+            }
+            None => {
+                for f in 0..b {
+                    if sc.b_mode[f] == M_READY {
+                        sc.b_mode[f] = M_STYLE_FB;
+                    }
+                }
+            }
+        }
+    }
+
+    // ---- Pass B: 11 风格 (p = 12) ----
+    for f in 0..b {
+        if sc.b_mode_cold[f] != M_READY {
+            continue;
+        }
+        let off = f * sc.b_stride;
+        let len = sc.b_n_cold[f];
+        let mut out_v = outs_cold[f].row_mut(r);
+        sc.b_mode_cold[f] = ols_check_cold(&sc.b_y_cold[off..off + len], cp, idx, out_v.as_slice_mut().unwrap());
+    }
+    let n_ready_cold = (0..b).filter(|&f| sc.b_mode_cold[f] == M_READY).count();
+    if n_ready_cold > 0 {
+        let stride = sc.b_stride;
+        ols_acc_day_cold(
+            &sc.b_mode_cold[..b],
+            &sc.b_y_cold,
+            stride,
+            &mut sc.b_xty,
+            cp,
+            idx,
+            b,
+            p_alloc,
+        );
+        match cp.chols[idx].as_ref() {
+            Some(ch) => {
+                {
+                    let mut rhs_v = sc.rhs.view_mut((0, 0), (12, b));
+                    for f in 0..b {
+                        if sc.b_mode_cold[f] != M_READY {
+                            continue;
+                        }
+                        let base = f * p_alloc;
+                        for i in 0..12 {
+                            rhs_v[(i, f)] = sc.b_xty[base + i];
+                        }
+                    }
+                    ch.solve_mut(&mut rhs_v);
+                    for f in 0..b {
+                        if sc.b_mode_cold[f] != M_READY {
+                            continue;
+                        }
+                        let base = f * p_alloc;
+                        for i in 0..12 {
+                            sc.b_coef[base + i] = rhs_v[(i, f)];
+                        }
+                    }
+                }
+                for f in 0..b {
+                    if sc.b_mode_cold[f] != M_READY {
+                        continue;
+                    }
+                    let off = f * sc.b_stride;
+                    let len = sc.b_n_cold[f];
+                    let base = f * p_alloc;
+                    let mut out_v = outs_cold[f].row_mut(r);
+                    ols_write_cold(
+                        &sc.b_y_cold[off..off + len],
+                        cp,
+                        idx,
+                        out_v.as_slice_mut().unwrap(),
+                        &sc.b_coef[base..base + 12],
+                    );
+                }
+            }
+            None => {
+                for f in 0..b {
+                    if sc.b_mode_cold[f] == M_READY {
+                        sc.b_mode_cold[f] = M_STYLE_FB;
+                    }
+                }
+            }
+        }
+    }
+    times.ols += s_ols.elapsed().as_secs_f64();
+
+    // ---- 回退（若两侧任一需要回退，只做一次生产填充链） ----
+    for f in 0..b {
+        let need_fb_plain = matches!(sc.b_mode[f], M_STYLE_FB | M_PROD);
+        let need_fb_cold = matches!(sc.b_mode_cold[f], M_STYLE_FB | M_PROD);
+        if need_fb_plain || need_fb_cold {
+            let s = Instant::now();
+            let row_v = slots[f].row(r);
+            let row = row_v.as_slice().unwrap();
+            v3_row_prod_fill(row, idx, shared, sc);
+            if need_fb_plain {
+                let mut op_v = outs_plain[f].row_mut(r);
+                style_residual_row(&sc.filled, &shared.ns, idx, op_v.as_slice_mut().unwrap(), &mut sc.style_resid);
+            }
+            if need_fb_cold {
+                let mut oc_v = outs_cold[f].row_mut(r);
+                cold_residual_row(&sc.filled, &shared.ns, cold, cp, idx, oc_v.as_slice_mut().unwrap(), &mut sc.style_resid);
+            }
+            times.fallback += s.elapsed().as_secs_f64();
+            times.slow_rows += 1;
+        } else {
+            times.fast_rows += 1;
+        }
+    }
+}
+
+/// v8 融合流水线冷门单跑入口：与 `neutralize_std_slots_f32_v2_resid_batch_range_cold` 逐位一致。
+pub fn v3_slots_range_cold(
+    slots: &[ArrayView2<f32>],
+    shared: &V3Shared,
+    cold: &Array2<f64>,
+    t0: usize,
+    t1: usize,
+    sc: &mut V3Scratch,
+) -> Result<Vec<Array2<f32>>, String> {
+    let b = slots.len();
+    if b == 0 {
+        return Ok(Vec::new());
+    }
+    let cp = shared
+        .ns
+        .cold_pre
+        .as_ref()
+        .ok_or_else(|| "v3_slots_range_cold: 缺少 cold_pre".to_string())?;
+    let cold_idx = shared
+        .cold_idx
+        .as_ref()
+        .ok_or_else(|| "v3_slots_range_cold: 缺少 cold_idx".to_string())?;
+    let (rows, n) = slots[0].dim();
+    let (t, sn) = shared.ns.industry.dim();
+    if sn != n || n != shared.n_stocks || cold.dim() != (t, n) {
+        return Err("v3_slots_range_cold: 形状不匹配".to_string());
+    }
+    if t0 > t1 || t1 > t || t1 - t0 != rows {
+        return Err(format!("v3_slots_range_cold 越界: t0={t0} t1={t1} t={t} rows={rows}"));
+    }
+    for s in slots {
+        if s.dim() != (rows, n) {
+            return Err("v3_slots_range_cold: 各 slot 形状不一致".to_string());
+        }
+    }
+    let mut outs: Vec<Array2<f32>> = (0..b)
+        .map(|_| Array2::<f32>::from_elem((rows, n), f32::NAN))
+        .collect();
+    let mut times = V3Times::default();
+    for r in 0..rows {
+        let idx = t0 + r;
+        v3_day_batch_cold(slots, &mut outs, r, idx, shared, cold_idx, cold, cp, sc, &mut times);
+    }
+    Ok(outs)
+}
+
+/// v8 融合流水线冷门双跑入口（同时产出 10 风格与 11 风格残差块）。
+pub fn v3_slots_range_dual(
+    slots: &[ArrayView2<f32>],
+    shared: &V3Shared,
+    cold: &Array2<f64>,
+    t0: usize,
+    t1: usize,
+    sc: &mut V3Scratch,
+) -> Result<(Vec<Array2<f32>>, Vec<Array2<f32>>), String> {
+    let b = slots.len();
+    if b == 0 {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    let cp = shared
+        .ns
+        .cold_pre
+        .as_ref()
+        .ok_or_else(|| "v3_slots_range_dual: 缺少 cold_pre".to_string())?;
+    let cold_idx = shared
+        .cold_idx
+        .as_ref()
+        .ok_or_else(|| "v3_slots_range_dual: 缺少 cold_idx".to_string())?;
+    let (rows, n) = slots[0].dim();
+    let (t, sn) = shared.ns.industry.dim();
+    if sn != n || n != shared.n_stocks || cold.dim() != (t, n) {
+        return Err("v3_slots_range_dual: 形状不匹配".to_string());
+    }
+    if t0 > t1 || t1 > t || t1 - t0 != rows {
+        return Err(format!("v3_slots_range_dual 越界: t0={t0} t1={t1} t={t} rows={rows}"));
+    }
+    for s in slots {
+        if s.dim() != (rows, n) {
+            return Err("v3_slots_range_dual: 各 slot 形状不一致".to_string());
+        }
+    }
+    let mut outs_plain: Vec<Array2<f32>> = (0..b)
+        .map(|_| Array2::<f32>::from_elem((rows, n), f32::NAN))
+        .collect();
+    let mut outs_cold: Vec<Array2<f32>> = (0..b)
+        .map(|_| Array2::<f32>::from_elem((rows, n), f32::NAN))
+        .collect();
+    let mut times = V3Times::default();
+    for r in 0..rows {
+        let idx = t0 + r;
+        v3_day_batch_dual(
+            slots,
+            &mut outs_plain,
+            &mut outs_cold,
+            r,
+            idx,
+            shared,
+            cold_idx,
+            cold,
+            cp,
+            sc,
+            &mut times,
+        );
+    }
+    Ok((outs_plain, outs_cold))
+}
+
+// ---- Fulltest 专用：在 f64 残差上做第 7 步 rank_pct_all 后再转 f32，与 neutralize_std_slot_f32 逐位一致 ----
+
+fn ols_day_core_f64_ranked(
+    y_buf: &[f64],
+    shared: &NeutralizeStdShared,
+    idx: usize,
+    out_f32_row: &mut [f32],
+    sc: &mut V3Scratch,
+) {
+    let k = 10usize;
+    let (p, valid_idx, valid_cols, _xtx) = &shared.per_date[idx];
+    if *p == 0 {
+        return;
+    }
+    let nv = valid_idx.len();
+    let mut mn = f64::INFINITY;
+    let mut mx = f64::NEG_INFINITY;
+    for &y in y_buf {
+        if y < mn {
+            mn = y;
+        }
+        if y > mx {
+            mx = y;
+        }
+    }
+    if mn == mx {
+        let tied_pct = (((1 + nv) as f64 / 2.0) / (nv as f64)) as f32;
+        for &j in valid_idx {
+            out_f32_row[j as usize] = tied_pct;
+        }
+        return;
+    }
+    sc.xty.clear();
+    sc.xty.resize(*p, 0.0);
+    let xd = &shared.xdays[idx];
+    for (pos, &yv) in y_buf.iter().enumerate() {
+        let xrow = &xd[pos * k..pos * k + k];
+        for c in 0..k {
+            sc.xty[c] += xrow[c] * yv;
+        }
+        let ic = valid_cols[pos];
+        if ic >= 0 {
+            sc.xty[k + ic as usize] += yv;
+        }
+    }
+    let use_svd = nv <= 40 || shared.chols[idx].is_none();
+    let coef: Vec<f64> = if !use_svd {
+        let chol = shared.chols[idx].as_ref().unwrap();
+        let rhs = DMatrix::from_column_slice(*p, 1, &sc.xty);
+        chol.solve(&rhs).column(0).iter().copied().collect()
+    } else {
+        let barra_v: Vec<_> = (0..k).map(|c| shared.barra_ranked[c].row(idx)).collect();
+        let barra_row: Vec<&[f64]> = barra_v.iter().map(|r| r.as_slice().unwrap()).collect();
+        let rows: Vec<[f64; 11]> = valid_idx
+            .iter()
+            .enumerate()
+            .map(|(pos, &j)| {
+                let ji = j as usize;
+                let mut cur = [0.0_f64; 11];
+                cur[0] = y_buf[pos];
+                for c in 0..k {
+                    cur[c + 1] = barra_row[c][ji];
+                }
+                cur
+            })
+            .collect();
+        let xm = DMatrix::from_fn(nv, *p, |r_i, c| {
+            let ic = valid_cols[r_i];
+            if c < k {
+                rows[r_i][c + 1]
+            } else if ic >= 0 && c == k + ic as usize {
+                1.0
+            } else {
+                0.0
+            }
+        });
+        let svd = xm.clone().svd(true, true);
+        let u = svd.u.expect("svd u");
+        let vt = svd.v_t.expect("svd vt");
+        let sv = svd.singular_values;
+        let s_max = sv.iter().cloned().fold(0.0_f64, f64::max);
+        let rcond = s_max * (nv.max(*p) as f64) * 2.22e-16;
+        let ym = DMatrix::from_fn(nv, 1, |r_i, _| rows[r_i][0]);
+        let uty = u.transpose() * ym;
+        let mut cf = DMatrix::zeros(*p, 1);
+        for i in 0..*p {
+            if sv[i] > rcond {
+                cf[(i, 0)] = uty[(i, 0)] / sv[i];
+            }
+        }
+        (vt.transpose() * cf).column(0).iter().copied().collect()
+    };
+    sc.y_v.clear();
+    sc.y_v.reserve(nv);
+    for pos in 0..nv {
+        let yv = y_buf[pos];
+        let xrow = &xd[pos * k..pos * k + k];
+        let mut pred = 0.0;
+        for c in 0..k {
+            pred += coef[c] * xrow[c];
+        }
+        let ic = valid_cols[pos];
+        if ic >= 0 {
+            pred += coef[k + ic as usize];
+        }
+        sc.y_v.push(yv - pred);
+    }
+    rank_pct_row_into(&sc.y_v, &mut sc.sv, &mut sc.idxs, &mut sc.tmp, &mut sc.keys64);
+    for (pos, &j) in valid_idx.iter().enumerate() {
+        let v = sc.sv[pos];
+        out_f32_row[j as usize] = if v.is_nan() { f32::NAN } else { v as f32 };
+    }
+}
+
+fn v3_row_prod_ranked_f32(
+    row: &[f32],
+    idx: usize,
+    shared: &V3Shared,
+    industry_neutralize: bool,
+    out_row: &mut [f32],
+    sc: &mut V3Scratch,
+) {
+    v3_row_prod_fill(row, idx, shared, sc);
+    let n = row.len();
+    if industry_neutralize {
+        let k = 10usize;
+        let (p, valid_idx, _valid_cols, _xtx) = &shared.ns.per_date[idx];
+        if *p == 0 {
+            return;
+        }
+        sc.y_buf_fb.clear();
+        let mut any_nan = false;
+        for &j in valid_idx {
+            let y = sc.filled[j as usize];
+            if !y.is_finite() {
+                any_nan = true;
+                break;
+            }
+            sc.y_buf_fb.push(y);
+        }
+        if any_nan {
+            let barra_v: Vec<_> = (0..k).map(|c| shared.ns.barra_ranked[c].row(idx)).collect();
+            let barra_row: Vec<&[f64]> = barra_v.iter().map(|r| r.as_slice().unwrap()).collect();
+            let ind1_v = shared.ns.ind1.row(idx);
+            let ind1_row = ind1_v.as_slice().unwrap();
+            let mut resid = ols_day_inline_row(&sc.filled, &barra_row, ind1_row);
+            rank_pct_row_f64_in_place(
+                &mut resid,
+                &mut sc.sv,
+                &mut sc.idxs,
+                &mut sc.tmp,
+                &mut sc.keys64,
+                &mut sc.rank_vals,
+            );
+            for (j, &v) in resid.iter().enumerate() {
+                out_row[j] = if v.is_nan() { f32::NAN } else { v as f32 };
+            }
+        } else {
+            let yb = sc.y_buf_fb.clone();
+            ols_day_core_f64_ranked(&yb, &shared.ns, idx, out_row, sc);
+        }
+    } else {
+        let views: [ndarray::ArrayView1<'_, f64>; 10] =
+            std::array::from_fn(|c| shared.ns.barra_ranked[c].row(idx));
+        let mut bench_rows: [&[f64]; 10] = [&[]; 10];
+        for c in 0..10 {
+            bench_rows[c] = views[c].as_slice().unwrap();
+        }
+        sc.style_resid.clear();
+        sc.style_resid.resize(n, f64::NAN);
+        crate::factor_neutralize_std::get_residual_row_style(
+            &sc.filled,
+            &bench_rows,
+            &mut sc.style_resid,
+        );
+        rank_pct_row_f64_in_place(
+            &mut sc.style_resid,
+            &mut sc.sv,
+            &mut sc.idxs,
+            &mut sc.tmp,
+            &mut sc.keys64,
+            &mut sc.rank_vals,
+        );
+        for (j, &v) in sc.style_resid.iter().enumerate() {
+            out_row[j] = if v.is_nan() { f32::NAN } else { v as f32 };
+        }
+    }
+}
+
+fn v3_day_batch_ranked_f32(
+    slots: &[ArrayView2<f32>],
+    outs: &mut [Array2<f32>],
+    r: usize,
+    idx: usize,
+    shared: &V3Shared,
+    sc: &mut V3Scratch,
+    times: &mut V3Times,
+    industry_neutralize: bool,
+) {
+    let b = slots.len();
+    let n = shared.n_stocks;
+    sc.ensure_batch(b, n);
+
+    if !shared.fast_ok[idx] {
+        for f in 0..b {
+            let row_v = slots[f].row(r);
+            let mut out_v = outs[f].row_mut(r);
+            v3_row_prod_ranked_f32(
+                row_v.as_slice().unwrap(),
+                idx,
+                shared,
+                industry_neutralize,
+                out_v.as_slice_mut().unwrap(),
+                sc,
+            );
+        }
+        return;
+    }
+
+    for f in 0..b {
+        sc.b_mode[f] = M_DONE;
+        sc.b_n[f] = 0;
+        let row_v = slots[f].row(r);
+        let row = row_v.as_slice().unwrap();
+        let st = if shared.d_lens[idx] == 0 {
+            let a = v3_row_fast_prep(row, idx, shared, sc, times, f);
+            if a == M_PROD {
+                v3_row_x_prep(row, idx, shared, sc, times, f)
+            } else {
+                a
+            }
+        } else {
+            v3_row_x_prep(row, idx, shared, sc, times, f)
+        };
+        sc.b_mode[f] = st;
+    }
+
+    let p_day = shared.ns.per_date[idx].0;
+    let p_alloc = p_day.max(11);
+    sc.ensure_xty(b, p_alloc);
+
+    let (_pn, valid_idx, valid_cols, _xtx) = &shared.ns.per_date[idx];
+    let nv = valid_idx.len();
+    for f in 0..b {
+        if sc.b_mode[f] != M_READY {
+            continue;
+        }
+        if p_day == 0 {
+            sc.b_mode[f] = M_DONE;
+            continue;
+        }
+        let off = f * sc.b_stride;
+        let len = sc.b_n[f];
+        let y_v = &sc.b_y[off..off + len];
+        let mut mn = f64::INFINITY;
+        let mut mx = f64::NEG_INFINITY;
+        for &y in y_v {
+            if y < mn {
+                mn = y;
+            }
+            if y > mx {
+                mx = y;
+            }
+        }
+        if mn == mx {
+            let tied_pct = (((1 + nv) as f64 / 2.0) / (nv as f64)) as f32;
+            let mut out_v = outs[f].row_mut(r);
+            let out_row = out_v.as_slice_mut().unwrap();
+            for &j in valid_idx {
+                out_row[j as usize] = tied_pct;
+            }
+            sc.b_mode[f] = M_DONE;
+            continue;
+        }
+        if industry_neutralize {
+            if nv <= 40 || shared.ns.chols[idx].is_none() {
+                sc.b_mode[f] = M_SVD;
+            }
+        } else if nv <= 40 || shared.ns.chols_style[idx].is_none() {
+            sc.b_mode[f] = M_STYLE_FB;
+        }
+    }
+
+    let n_ready = (0..b).filter(|&f| sc.b_mode[f] == M_READY).count();
+    if n_ready > 0 {
+        ols_acc_day(sc, &shared.ns, idx, industry_neutralize, b, p_alloc);
+        let p_solve = if industry_neutralize { p_day } else { 11 };
+        let chol = if industry_neutralize {
+            shared.ns.chols[idx].as_ref()
+        } else {
+            shared.ns.chols_style[idx].as_ref()
+        };
+        match chol {
+            Some(ch) => {
+                {
+                    let mut rhs_v = sc.rhs.view_mut((0, 0), (p_solve, b));
+                    for f in 0..b {
+                        if sc.b_mode[f] != M_READY {
+                            continue;
+                        }
+                        let base = f * p_alloc;
+                        for i in 0..p_solve {
+                            rhs_v[(i, f)] = sc.b_xty[base + i];
+                        }
+                    }
+                    ch.solve_mut(&mut rhs_v);
+                    for f in 0..b {
+                        if sc.b_mode[f] != M_READY {
+                            continue;
+                        }
+                        let base = f * p_alloc;
+                        for i in 0..p_solve {
+                            sc.b_coef[base + i] = rhs_v[(i, f)];
+                        }
+                    }
+                }
+                let xd = &shared.ns.xdays[idx];
+                let k = 10usize;
+                for f in 0..b {
+                    if sc.b_mode[f] != M_READY {
+                        continue;
+                    }
+                    let off = f * sc.b_stride;
+                    let base = f * p_alloc;
+                    sc.y_v.clear();
+                    sc.y_v.reserve(nv);
+                    if industry_neutralize {
+                        let coef = &sc.b_coef[base..base + p_day];
+                        for pos in 0..nv {
+                            let xrow = &xd[pos * k..pos * k + k];
+                            let mut pred = 0.0;
+                            for c in 0..k {
+                                pred += coef[c] * xrow[c];
+                            }
+                            let ic = valid_cols[pos];
+                            if ic >= 0 {
+                                pred += coef[k + ic as usize];
+                            }
+                            sc.y_v.push(sc.b_y[off + pos] - pred);
+                        }
+                    } else {
+                        let coef = &sc.b_coef[base..base + 11];
+                        for pos in 0..nv {
+                            let xrow = &xd[pos * k..pos * k + k];
+                            let mut pred = coef[0];
+                            for c in 0..k {
+                                pred += coef[c + 1] * xrow[c];
+                            }
+                            sc.y_v.push(sc.b_y[off + pos] - pred);
+                        }
+                    }
+                    rank_pct_row_into(&sc.y_v, &mut sc.sv, &mut sc.idxs, &mut sc.tmp, &mut sc.keys64);
+                    let mut out_v = outs[f].row_mut(r);
+                    let out_row = out_v.as_slice_mut().unwrap();
+                    for (pos, &j) in valid_idx.iter().enumerate() {
+                        let v = sc.sv[pos];
+                        out_row[j as usize] = if v.is_nan() { f32::NAN } else { v as f32 };
+                    }
+                }
+            }
+            None => {
+                let nm = if industry_neutralize { M_SVD } else { M_STYLE_FB };
+                for f in 0..b {
+                    if sc.b_mode[f] == M_READY {
+                        sc.b_mode[f] = nm;
+                    }
+                }
+            }
+        }
+    }
+
+    for f in 0..b {
+        match sc.b_mode[f] {
+            M_SVD => {
+                let off = f * sc.b_stride;
+                let len = sc.b_n[f];
+                let yb = sc.b_y[off..off + len].to_vec();
+                let mut out_v = outs[f].row_mut(r);
+                ols_day_core_f64_ranked(&yb, &shared.ns, idx, out_v.as_slice_mut().unwrap(), sc);
+            }
+            M_STYLE_FB | M_PROD => {
+                let row_v = slots[f].row(r);
+                let mut out_v = outs[f].row_mut(r);
+                v3_row_prod_ranked_f32(
+                    row_v.as_slice().unwrap(),
+                    idx,
+                    shared,
+                    industry_neutralize,
+                    out_v.as_slice_mut().unwrap(),
+                    sc,
+                );
+            }
+            _ => {}
+        }
+    }
+}
+
+/// 单面 `(T, N)` 标准中性化（含第 7 步 f64 残差平均秩变换），与 `neutralize_std_slot_f32` 逐位一致。
+pub fn v3_slot_ranked_f32(
+    slot: ArrayView2<'_, f32>,
+    shared: &V3Shared,
+    industry_neutralize: bool,
+) -> Result<Array2<f32>, String> {
+    let (t, n) = slot.dim();
+    if shared.ns.industry.dim() != (t, n) || n != shared.n_stocks {
+        return Err("neutralize_std_block industry/restrict 形状不匹配".to_string());
+    }
+    let mut out = Array2::<f32>::from_elem((t, n), f32::NAN);
+    let mut sc = V3Scratch::new(n);
+    let mut times = V3Times::default();
+    let blk = std::slice::from_ref(&slot);
+    let ob = std::slice::from_mut(&mut out);
+    for r in 0..t {
+        v3_day_batch_ranked_f32(blk, ob, r, r, shared, &mut sc, &mut times, industry_neutralize);
+    }
+    Ok(out)
+}
+
+/// 多面 `(T, N, F)` 标准中性化（含第 7 步 f64 残差平均秩变换），与 `neutralize_std_block` 逐位一致。
+pub fn v3_block_ranked_f32(
+    block: ArrayView3<'_, f32>,
+    shared: &V3Shared,
+    industry_neutralize: bool,
+) -> Result<Array3<f32>, String> {
+    let (t, n, b) = block.dim();
+    if shared.ns.industry.dim() != (t, n) || n != shared.n_stocks {
+        return Err("neutralize_std_block industry/restrict 形状不匹配".to_string());
+    }
+    if b == 0 {
+        return Ok(Array3::<f32>::from_elem((t, n, 0), f32::NAN));
+    }
+    let slot_owned: Vec<Array2<f32>> = (0..b).map(|f| block.slice(s![.., .., f]).to_owned()).collect();
+    let views: Vec<ArrayView2<f32>> = slot_owned.iter().map(|a| a.view()).collect();
+    let mut outs: Vec<Array2<f32>> = (0..b)
+        .map(|_| Array2::<f32>::from_elem((t, n), f32::NAN))
+        .collect();
+    let mut sc = V3Scratch::new(n);
+    let mut times = V3Times::default();
+    for r in 0..t {
+        v3_day_batch_ranked_f32(&views, &mut outs, r, r, shared, &mut sc, &mut times, industry_neutralize);
+    }
+    let mut output = Array3::<f32>::from_elem((t, n, b), f32::NAN);
+    let out_slice = output.as_slice_mut().unwrap();
+    for f in 0..b {
+        let s_slice = outs[f].as_slice().unwrap();
+        for i in 0..(t * n) {
+            out_slice[i * b + f] = s_slice[i];
+        }
+    }
+    Ok(output)
 }
 
 /// 逐位比较（NaN 只要求位置一致；其余比 bit 模式）。

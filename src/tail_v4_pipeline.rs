@@ -230,6 +230,7 @@ struct TailV4FulltestWorkerConfig {
     min_valid: usize,
     index_name: String,
     industry_neutralize: bool,
+    cold_neutralize: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -862,6 +863,7 @@ if __name__ == "__main__":
 fn build_fulltest_tasks(
     gap5_selected: &[String],
     gap1_selected: &[String],
+    with_cold: bool,
 ) -> Vec<TailV4FulltestTask> {
     let mut ordered_factors = Vec::<String>::new();
     let mut seen = HashSet::<String>::new();
@@ -888,6 +890,14 @@ fn build_fulltest_tasks(
                 stage: "neu".to_string(),
                 gap: 5,
             });
+            if with_cold {
+                tasks.push(TailV4FulltestTask {
+                    task_key: fulltest_task_key("neu11", 5, &factor_name),
+                    factor_name: factor_name.clone(),
+                    stage: "neu11".to_string(),
+                    gap: 5,
+                });
+            }
         }
         if gap1_set.contains(&factor_name) {
             tasks.push(TailV4FulltestTask {
@@ -902,6 +912,14 @@ fn build_fulltest_tasks(
                 stage: "neu".to_string(),
                 gap: 1,
             });
+            if with_cold {
+                tasks.push(TailV4FulltestTask {
+                    task_key: fulltest_task_key("neu11", 1, &factor_name),
+                    factor_name: factor_name.clone(),
+                    stage: "neu11".to_string(),
+                    gap: 1,
+                });
+            }
         }
     }
     tasks
@@ -911,8 +929,10 @@ fn increment_fulltest_bucket(bucket_counts: &mut HashMap<String, usize>, stage: 
     let key = match (stage, gap) {
         ("raw", 5) => "g5-raw",
         ("neu", 5) => "g5-neu",
+        ("neu11", 5) => "g5-neu11",
         ("raw", 1) => "g1-raw",
         ("neu", 1) => "g1-neu",
+        ("neu11", 1) => "g1-neu11",
         _ => return,
     };
     *bucket_counts.entry(key.to_string()).or_insert(0) += 1;
@@ -924,6 +944,7 @@ fn render_fulltest_progress(
     total: usize,
     started: Instant,
     bucket_counts: &HashMap<String, usize>,
+    with_cold: bool,
 ) -> Result<(), String> {
     let finished = processed + restored;
     let progress = if total > 0 {
@@ -947,48 +968,121 @@ fn render_fulltest_progress(
     let current_time = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
     let g5_raw = bucket_counts.get("g5-raw").copied().unwrap_or(0);
     let g5_neu = bucket_counts.get("g5-neu").copied().unwrap_or(0);
+    let g5_neu11 = bucket_counts.get("g5-neu11").copied().unwrap_or(0);
     let g1_raw = bucket_counts.get("g1-raw").copied().unwrap_or(0);
     let g1_neu = bucket_counts.get("g1-neu").copied().unwrap_or(0);
-    print!(
-        "\r[{}] Fulltest 进度 {}/{} ({:.1}%)，已恢复 {} 个，g5-raw {}，g5-neu {}，g1-raw {}，g1-neu {}，已用{}h{}m{}s，预计剩余{}h{}m{}s",
-        current_time,
-        finished,
-        total,
-        progress * 100.0,
-        restored,
-        g5_raw,
-        g5_neu,
-        g1_raw,
-        g1_neu,
-        elapsed_h,
-        elapsed_m,
-        elapsed_s,
-        remaining_h,
-        remaining_m,
-        remaining_s,
-    );
+    let g1_neu11 = bucket_counts.get("g1-neu11").copied().unwrap_or(0);
+    if with_cold {
+        print!(
+            "\r[{}] Fulltest 进度 {}/{} ({:.1}%)，已恢复 {} 个，g5-raw {}，g5-neu {}，g5-neu11 {}，g1-raw {}，g1-neu {}，g1-neu11 {}，已用{}h{}m{}s，预计剩余{}h{}m{}s",
+            current_time,
+            finished,
+            total,
+            progress * 100.0,
+            restored,
+            g5_raw,
+            g5_neu,
+            g5_neu11,
+            g1_raw,
+            g1_neu,
+            g1_neu11,
+            elapsed_h,
+            elapsed_m,
+            elapsed_s,
+            remaining_h,
+            remaining_m,
+            remaining_s,
+        );
+    } else {
+        print!(
+            "\r[{}] Fulltest 进度 {}/{} ({:.1}%)，已恢复 {} 个，g5-raw {}，g5-neu {}，g1-raw {}，g1-neu {}，已用{}h{}m{}s，预计剩余{}h{}m{}s",
+            current_time,
+            finished,
+            total,
+            progress * 100.0,
+            restored,
+            g5_raw,
+            g5_neu,
+            g1_raw,
+            g1_neu,
+            elapsed_h,
+            elapsed_m,
+            elapsed_s,
+            remaining_h,
+            remaining_m,
+            remaining_s,
+        );
+    }
     std::io::stdout()
         .flush()
         .map_err(|e| format!("刷新 fulltest 进度失败: {}", e))?;
     Ok(())
 }
 
+type TailV4FulltestQueue = (VecDeque<TailV4FulltestTask>, HashMap<usize, String>);
+
+fn pop_next_fulltest_task(
+    state: &mut TailV4FulltestQueue,
+    worker_id: usize,
+    last_factor: Option<&str>,
+) -> Option<TailV4FulltestTask> {
+    let (queue, active) = state;
+    if queue.is_empty() {
+        active.remove(&worker_id);
+        return None;
+    }
+    // 1) 同因子亲和：继续消费当前 worker 刚缓存在内存里的同一个因子（raw/neu/neu11/gap5/gap1 全复用）
+    if let Some(prev) = last_factor {
+        if let Some(pos) = queue.iter().position(|t| t.factor_name == prev) {
+            let t = queue.remove(pos).unwrap();
+            active.insert(worker_id, t.factor_name.clone());
+            return Some(t);
+        }
+    }
+    // 2) 优先认领尚未被其他活跃 worker 占用的新因子，避免多进程重复建同一因子的滚动/中性化缓存
+    if let Some(pos) = queue.iter().position(|t| {
+        !active
+            .iter()
+            .any(|(&wid, fname)| wid != worker_id && fname == &t.factor_name)
+    }) {
+        let t = queue.remove(pos).unwrap();
+        active.insert(worker_id, t.factor_name.clone());
+        return Some(t);
+    }
+    // 3) 工作窃取：剩余因子已被其他 worker 认领但仍有待跑阶段时，空闲 worker 帮忙并行分担
+    let t = queue.pop_front()?;
+    active.insert(worker_id, t.factor_name.clone());
+    Some(t)
+}
+
 fn run_tail_v4_fulltest_worker_process(
     worker_id: usize,
-    task_queue: Arc<Mutex<VecDeque<TailV4FulltestTask>>>,
+    task_queue: Arc<Mutex<TailV4FulltestQueue>>,
     result_sender: Sender<Result<TailV4FulltestWorkerResult, String>>,
     stop_flag: Arc<AtomicBool>,
     pid_registry: TailV4PidRegistry,
     python_path: String,
     worker_config_json: String,
     verbose: bool,
+    retry_counts: Arc<Mutex<HashMap<String, usize>>>,
 ) {
     let script_content = create_tail_v4_fulltest_worker_script();
-    let script_path = format!("/tmp/tail_v4_fulltest_worker_{}.py", worker_id);
+    let script_path = format!(
+        "/tmp/tail_v4_fulltest_worker_{}_{}.py",
+        std::process::id(),
+        worker_id
+    );
     if let Err(err) = fs::write(&script_path, script_content) {
         let _ = result_sender.send(Err(format!("创建 fulltest worker 脚本失败: {}", err)));
         return;
     }
+
+    let project_root =
+        std::env::var("TAIL_V4_PROJECT_ROOT").unwrap_or_else(|_| "/home/chenzongwei".to_string());
+    let pythonpath = match std::env::var("PYTHONPATH") {
+        Ok(existing) if !existing.is_empty() => format!("{}:{}", project_root, existing),
+        _ => project_root.clone(),
+    };
 
     let mut command = Command::new(&python_path);
     command
@@ -996,6 +1090,7 @@ fn run_tail_v4_fulltest_worker_process(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .env("TAIL_V4_WORKER_INDEX", worker_id.to_string())
         .env("OMP_NUM_THREADS", "1")
         .env("OPENBLAS_NUM_THREADS", "1")
         .env("MKL_NUM_THREADS", "1")
@@ -1004,8 +1099,8 @@ fn run_tail_v4_fulltest_worker_process(
         .env("BLIS_NUM_THREADS", "1")
         .env("POLARS_MAX_THREADS", "1")
         .env("RAYON_NUM_THREADS", "1")
-        .env("TAIL_V4_PROJECT_ROOT", "/home/chenzongwei")
-        .env("PYTHONPATH", "/home/chenzongwei")
+        .env("TAIL_V4_PROJECT_ROOT", &project_root)
+        .env("PYTHONPATH", &pythonpath)
         .env("TAIL_V4_FULLTEST_WORKER_CONFIG", worker_config_json);
 
     let mut child = match command.spawn() {
@@ -1067,6 +1162,7 @@ fn run_tail_v4_fulltest_worker_process(
         }
     });
 
+    let mut last_factor: Option<String> = None;
     loop {
         if stop_flag.load(AtomicOrdering::Relaxed) {
             break;
@@ -1080,11 +1176,12 @@ fn run_tail_v4_fulltest_worker_process(
                     break;
                 }
             };
-            guard.pop_front()
+            pop_next_fulltest_task(&mut guard, worker_id, last_factor.as_deref())
         };
         let Some(task) = next_task else {
             break;
         };
+        last_factor = Some(task.factor_name.clone());
 
         let packed_data = match rmp_serde::to_vec_named(&task) {
             Ok(data) => data,
@@ -1106,9 +1203,32 @@ fn run_tail_v4_fulltest_worker_process(
 
         let mut len_buf = [0u8; 4];
         if stdout.read_exact(&mut len_buf).is_err() {
+            // worker 在交出结果前就没了。最常见的成因是并发太高、内存被顶到上限后被内核杀掉
+            // （单 worker 常驻约 4GiB，几十个一起起来时尤其容易）。这里把这个任务放回队首，
+            // 让还活着的 worker 接着做；同一个任务连续 3 次都撞上 worker 死亡才判定为致命错误。
+            // 死掉的 worker 不再补位，并发数自然下降，等于给整条队列一个自我减压的机会。
+            let attempts = {
+                let mut guard = retry_counts.lock().unwrap_or_else(|e| e.into_inner());
+                let counter = guard.entry(task.task_key.clone()).or_insert(0);
+                *counter += 1;
+                *counter
+            };
+            if attempts < 3 {
+                if let Ok(mut guard) = task_queue.lock() {
+                    guard.1.remove(&worker_id);
+                    guard.0.push_front(task);
+                }
+                if verbose {
+                    eprintln!(
+                        "[Tail V4 Fulltest][worker {}] 进程没了，任务放回队列重试（第 {} 次）",
+                        worker_id, attempts
+                    );
+                }
+                break;
+            }
             let _ = result_sender.send(Err(format!(
-                "读取 fulltest worker 结果长度失败: {}",
-                task.task_key
+                "读取 fulltest worker 结果长度失败: {}（重试 {} 次仍失败，worker 反复被中断）",
+                task.task_key, attempts
             )));
             stop_flag.store(true, AtomicOrdering::Relaxed);
             break;
@@ -1116,9 +1236,22 @@ fn run_tail_v4_fulltest_worker_process(
         let result_len = u32::from_le_bytes(len_buf) as usize;
         let mut result_data = vec![0u8; result_len];
         if stdout.read_exact(&mut result_data).is_err() {
+            let attempts = {
+                let mut guard = retry_counts.lock().unwrap_or_else(|e| e.into_inner());
+                let counter = guard.entry(task.task_key.clone()).or_insert(0);
+                *counter += 1;
+                *counter
+            };
+            if attempts < 3 {
+                if let Ok(mut guard) = task_queue.lock() {
+                    guard.1.remove(&worker_id);
+                    guard.0.push_front(task);
+                }
+                break;
+            }
             let _ = result_sender.send(Err(format!(
-                "读取 fulltest worker 结果失败: {}",
-                task.task_key
+                "读取 fulltest worker 结果失败: {}（重试 {} 次仍失败）",
+                task.task_key, attempts
             )));
             stop_flag.store(true, AtomicOrdering::Relaxed);
             break;
@@ -2544,7 +2677,8 @@ pub fn tail_v4_run_candidates<'py>(
     resume=true,
     index_name="000905",
     verbose=false,
-    industry_neutralize=true
+    industry_neutralize=true,
+    with_cold=false
 ))]
 pub fn tail_v4_run_fulltest_queue<'py>(
     py: Python<'py>,
@@ -2565,6 +2699,7 @@ pub fn tail_v4_run_fulltest_queue<'py>(
     index_name: &str,
     verbose: bool,
     industry_neutralize: bool,
+    with_cold: bool,
 ) -> PyResult<PyObject> {
     if fulltest_jobs == 0 {
         return Err(PyValueError::new_err("fulltest_jobs 必须大于 0"));
@@ -2584,7 +2719,7 @@ pub fn tail_v4_run_fulltest_queue<'py>(
                 fs::create_dir_all(&done_dir)
                     .map_err(|e| format!("创建 fulltest done 目录失败: {}", e))?;
 
-                let all_tasks = build_fulltest_tasks(&gap5_selected, &gap1_selected);
+                let all_tasks = build_fulltest_tasks(&gap5_selected, &gap1_selected, with_cold);
                 let total_tasks = all_tasks.len();
 
                 let mut bucket_counts = HashMap::<String, usize>::new();
@@ -2619,6 +2754,7 @@ pub fn tail_v4_run_fulltest_queue<'py>(
                         total_tasks,
                         started,
                         &bucket_counts,
+                        with_cold,
                     )?;
                     println!();
                     return Ok((0, restored_tasks, bucket_counts));
@@ -2645,12 +2781,15 @@ pub fn tail_v4_run_fulltest_queue<'py>(
                     min_valid,
                     index_name: index_name.to_string(),
                     industry_neutralize,
+                    cold_neutralize: with_cold,
                 };
                 let worker_config_json = serde_json::to_string(&worker_config)
                     .map_err(|e| format!("序列化 worker 配置失败: {}", e))?;
 
                 let pending_total = pending_tasks.len();
-                let task_queue = Arc::new(Mutex::new(pending_tasks));
+                let task_queue = Arc::new(Mutex::new((pending_tasks, HashMap::<usize, String>::new())));
+                let retry_counts: Arc<Mutex<HashMap<String, usize>>> =
+                    Arc::new(Mutex::new(HashMap::new()));
                 let stop_flag = Arc::new(AtomicBool::new(false));
                 let pid_registry: TailV4PidRegistry = Arc::new(Mutex::new(HashMap::new()));
                 let (result_sender, result_receiver) =
@@ -2662,6 +2801,7 @@ pub fn tail_v4_run_fulltest_queue<'py>(
                     let sender_clone = result_sender.clone();
                     let stop_clone = Arc::clone(&stop_flag);
                     let pid_registry_clone = Arc::clone(&pid_registry);
+                    let retry_counts_clone = Arc::clone(&retry_counts);
                     let python_path_owned = python_path.to_string();
                     let worker_config_json_clone = worker_config_json.clone();
                     handles.push(thread::spawn(move || {
@@ -2674,6 +2814,7 @@ pub fn tail_v4_run_fulltest_queue<'py>(
                             python_path_owned,
                             worker_config_json_clone,
                             verbose,
+                            retry_counts_clone,
                         );
                     }));
                 }
@@ -2705,6 +2846,7 @@ pub fn tail_v4_run_fulltest_queue<'py>(
                                 total_tasks,
                                 started,
                                 &bucket_counts,
+                                with_cold,
                             )?;
                         }
                         Ok(Err(err)) => {

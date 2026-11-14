@@ -221,30 +221,33 @@ pub(crate) fn build_shared_inputs(
         None
     };
 
-    let t0 = Instant::now();
-    let style_data = match shared_cache.as_ref().and_then(|c| c.load_style()) {
-        Some(d) => {
-            println!(
-                "✅ [shared-cache] style 命中 (读盘 {:.2}s)",
-                t0.elapsed().as_secs_f64()
-            );
-            d
-        }
-        None => {
-            let d = IOOptimizedStyleData::load_from_vars_h5(style_vars_dir)
-                .map_err(|e| e.to_string())?;
-            if let Some(c) = &shared_cache {
-                if let Err(e) = c.store_style(&d) {
-                    println!("⚠️ [shared-cache] style 落盘失败: {}", e);
-                }
+    let load_style_data = || -> Result<IOOptimizedStyleData, String> {
+        let t0 = Instant::now();
+        match shared_cache.as_ref().and_then(|c| c.load_style()) {
+            Some(d) => {
+                println!(
+                    "✅ [shared-cache] style 命中 (读盘 {:.2}s)",
+                    t0.elapsed().as_secs_f64()
+                );
+                Ok(d)
             }
-            println!(
-                "❄️ [shared-cache] style 未命中，H5 解析 {:.2}s",
-                t0.elapsed().as_secs_f64()
-            );
-            d
+            None => {
+                let d = IOOptimizedStyleData::load_from_vars_h5(style_vars_dir)
+                    .map_err(|e| e.to_string())?;
+                if let Some(c) = &shared_cache {
+                    if let Err(e) = c.store_style(&d) {
+                        println!("⚠️ [shared-cache] style 落盘失败: {}", e);
+                    }
+                }
+                println!(
+                    "❄️ [shared-cache] style 未命中，H5 解析 {:.2}s",
+                    t0.elapsed().as_secs_f64()
+                );
+                Ok(d)
+            }
         }
     };
+    let mut style_data_opt: Option<IOOptimizedStyleData> = None;
     // npy 的 fortran_order 是文件自带的：`load_tail_v2_backtest_inputs` 里 ret 由
     // `DataFrame.to_numpy(...).T` 得来（F 序），而 `np.save` **保留**内存序，于是同一批
     // 缓存目录里既有 C 序也有 F 序的 npy。v8 回测逐日按行访问 ret/restrict，
@@ -280,23 +283,26 @@ pub(crate) fn build_shared_inputs(
         read_npy(index_ret_path).map_err(|e| format!("读取 index_ret.npy 失败: {}", e))?;
 
     // 标准中性化预计算：一次性展开 barra/size/行业分级码 (模板轴)，Arc 共享。
-    // 仅在启用标准中性化 (industry 非 None) 时预计算；旧路径 (industry=None) 不触发。
+    // 若 neutralize 已命中磁盘缓存，则完全跳过庞大的 style_<key>.bin 读盘（省约 15s + ~10GiB 常驻内存）！
     let neutralize_std_shared = match &industry {
         Some(ind) => {
             let t0 = Instant::now();
             let ns = match shared_cache.as_ref().and_then(|c| c.load_neutral(ind)) {
                 Some(v) => {
                     println!(
-                        "✅ [shared-cache] neutralize 命中 (读盘 {:.2}s)",
+                        "✅ [shared-cache] neutralize 命中 (读盘 {:.2}s，跳过 style 加载)",
                         t0.elapsed().as_secs_f64()
                     );
                     v
                 }
                 None => {
+                    if style_data_opt.is_none() {
+                        style_data_opt = Some(load_style_data()?);
+                    }
                     let v = crate::factor_neutralize_std::neutralize_std_precompute(
                         ind,
                         &restrict,
-                        &style_data,
+                        style_data_opt.as_ref().unwrap(),
                         &dates,
                         &stocks,
                     )?;
@@ -312,24 +318,46 @@ pub(crate) fn build_shared_inputs(
                     v
                 }
             };
-            // 冷门（11 风格）那一路的每日预分解：与 10 风格共享同一份 style/industry/
-            // restrict，只是把「有效集 ∩ 冷得分有限」再算一遍 X'X 与 Cholesky。
-            // 不放进 shared 磁盘缓存（那份缓存与冷得分无关），每次 run 现建一次：
-            // 实测 2862 天 × 5474 股约几十秒，摊到上千个因子上可以忽略。
+            // 冷门（11 风格）那一路的每日预分解：优先走 shared_cache（键绑定 cold 内容摘要 + base_key），
+            // 未命中时用并行 build_cold_pre 构建并落盘。
             let mut ns = ns;
             if let Some(cold) = cold_style.as_ref() {
                 let t0c = Instant::now();
-                let cp = crate::factor_neutralize_std::build_cold_pre(&ns, cold)?;
+                let cp = match shared_cache.as_ref().and_then(|c| c.load_cold(cold)) {
+                    Some(cached) => {
+                        println!(
+                            "✅ [shared-cache] cold_pre 命中 (读盘 {:.2}s)",
+                            t0c.elapsed().as_secs_f64()
+                        );
+                        cached
+                    }
+                    None => {
+                        let built = crate::factor_neutralize_std::build_cold_pre(&ns, cold)?;
+                        if let Some(c) = &shared_cache {
+                            if let Err(e) = c.store_cold(cold, &built) {
+                                println!("⚠️ [shared-cache] cold_pre 落盘失败: {}", e);
+                            }
+                        }
+                        println!(
+                            "❄️ [shared-cache] cold_pre 未命中，重算 {:.2}s",
+                            t0c.elapsed().as_secs_f64()
+                        );
+                        built
+                    }
+                };
                 ns.cold_pre = Some(cp);
-                println!(
-                    "❄️ [cold] 11 列每日预分解就绪 ({:.2}s)",
-                    t0c.elapsed().as_secs_f64()
-                );
             }
             Some(Arc::new(ns))
         }
-        None => None,
+        None => {
+            style_data_opt = Some(load_style_data()?);
+            None
+        }
     };
+    let style_data = style_data_opt.unwrap_or_else(|| IOOptimizedStyleData {
+        data_by_date: HashMap::new(),
+        file_cache: Arc::new(Mutex::new(Vec::new())),
+    });
 
     // v8 二档：v3 中性化派生索引（依赖 neutralize_std_shared，全 run 建一次）
     let v3_shared = match &neutralize_std_shared {
