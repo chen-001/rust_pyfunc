@@ -312,6 +312,20 @@ pub(crate) fn build_shared_inputs(
                     v
                 }
             };
+            // 冷门（11 风格）那一路的每日预分解：与 10 风格共享同一份 style/industry/
+            // restrict，只是把「有效集 ∩ 冷得分有限」再算一遍 X'X 与 Cholesky。
+            // 不放进 shared 磁盘缓存（那份缓存与冷得分无关），每次 run 现建一次：
+            // 实测 2862 天 × 5474 股约几十秒，摊到上千个因子上可以忽略。
+            let mut ns = ns;
+            if let Some(cold) = cold_style.as_ref() {
+                let t0c = Instant::now();
+                let cp = crate::factor_neutralize_std::build_cold_pre(&ns, cold)?;
+                ns.cold_pre = Some(cp);
+                println!(
+                    "❄️ [cold] 11 列每日预分解就绪 ({:.2}s)",
+                    t0c.elapsed().as_secs_f64()
+                );
+            }
             Some(Arc::new(ns))
         }
         None => None,
@@ -7750,19 +7764,36 @@ fn process_v7_slot(
         None
     };
     // 冷门（11 风格）那一套：只在开关打开时算，供文档 8 合 1 展示 + 选因子门禁用
-    let neutralized_slot_cold = if shared.cold_style.is_some() {
-        let ns = shared
-            .neutralize_std_shared
-            .as_ref()
-            .expect("tail_backtest_engine 中性化需要预计算的 neutralize_std_shared");
-        Some(crate::factor_neutralize_std::neutralize_std_slot_f32(
-            slot_values,
-            ns,
-            shared.industry_neutralize,
-            shared.cold_style.as_deref(),
-        )?)
-    } else {
-        None
+    let neutralized_slot_cold = match (shared.cold_style.as_deref(), shared.industry_neutralize) {
+        (Some(cold), false)
+            if shared
+                .neutralize_std_shared
+                .as_ref()
+                .map_or(false, |ns| ns.cold_pre.is_some()) =>
+        {
+            // 快路径：每日预分解（与 10 风格 v2 同构），比通用 OLS 快一个数量级
+            let ns = shared
+                .neutralize_std_shared
+                .as_ref()
+                .expect("tail_backtest_engine 中性化需要预计算的 neutralize_std_shared");
+            Some(crate::factor_neutralize_std::neutralize_std_slot_f32_v2_resid_cold(
+                slot_values, ns, cold,
+            )?)
+        }
+        (Some(cold), _) => {
+            // 兜底：行业 one-hot + 冷门（生产基本不用）走通用 OLS，数值一致
+            let ns = shared
+                .neutralize_std_shared
+                .as_ref()
+                .expect("tail_backtest_engine 中性化需要预计算的 neutralize_std_shared");
+            Some(crate::factor_neutralize_std::neutralize_std_slot_f32(
+                slot_values,
+                ns,
+                shared.industry_neutralize,
+                Some(cold),
+            )?)
+        }
+        (None, _) => None,
     };
     PROF_NEU.fetch_add(_t.elapsed().as_nanos() as u64, AtomicOrdering::Relaxed);
     match (&neutralized_slot, &neutralized_slot_cold) {

@@ -824,6 +824,23 @@ pub struct NeutralizeStdShared {
     /// 在 valid 集上**同序累积** X'X 后分解；None = 该日 n_valid<=10 或分解失败
     /// （生产相应走「跳过」/ SVD 伪逆）。供 v3 纯风格路径复用。
     pub(crate) chols_style: Vec<Option<Cholesky<f64, nalgebra::Dyn>>>,
+    /// 冷门（11 风格）的每日预分解：有效集 = restrict==0 ∩ 10 风格有限 ∩ 冷得分有限。
+    /// None = 本次没有冷门这一列。只有纯风格口径（industry_neutralize=false）有快路径；
+    /// 行业 one-hot + 冷门那一路仍走通用 OLS（数值一致，只是慢，生产里基本不用）。
+    pub(crate) cold_pre: Option<ColdPre>,
+}
+
+/// 冷门（11 风格）逐日预分解：X = [1, b0..b9, cold]（p = 12）。
+///
+/// 冷得分只在"每日有效集"上取一次值，X'X 与 Cholesky 与因子无关，可按天预计算并
+/// 跨 slot 复用；每个 slot 只剩 y 侧累计 + 回代 + 残差，跟 10 风格那条 v2 快路径同构。
+pub(crate) struct ColdPre {
+    /// 每日 (p, 有效股票下标)。p = 0 表示该日有效数 <= 10（生产路径跳过该日）。
+    pub(crate) per_date: Vec<(usize, Vec<u32>)>,
+    /// 每日 Cholesky（None = 分解失败，该日回退 SVD 伪逆）。
+    pub(crate) chols: Vec<Option<Cholesky<f64, nalgebra::Dyn>>>,
+    /// 每日有效集 × 11 列（10 风格 + 冷得分）连续内存，按 valid 顺序行主序。
+    pub(crate) xdays: Vec<Vec<f64>>,
 }
 
 /// 从 style data + industry + restrict 预计算所有不随因子变化的量。
@@ -1029,6 +1046,7 @@ pub fn neutralize_std_precompute(
         chols,
         xdays,
         chols_style,
+        cold_pre: None,
     })
 }
 
@@ -3306,4 +3324,379 @@ pub fn selfcheck_style_only(data_dir: &str) -> String {
         ),
     );
     lines.join("\n")
+}
+
+// ==================== 冷门（11 风格）每日预分解快路径 (2026-11-14) ====================
+//
+// 背景：`neutralize_std_slot_f32(.., Some(cold))` 走的是通用 `get_residual`，每天现
+// 建设计矩阵、现累计 X'X、现做 Cholesky。冷门只多一列，却把整个中性化从「查表回代」
+// 退化成「每天重做一次分解」——实测 7422 个因子、2862 天 × 5474 股的那一轮里，
+// neutralize 占了单因子耗时的 97.1%。这里把 X'X / Cholesky / 有效集与 10 风格那列
+// 一起按天预计算（跨 slot 共享），每个 slot 只剩 y 侧累计 + 回代 + 残差。
+//
+// 数值口径与 `get_residual(.., None, Some(cold))` 逐位一致：
+//   有效集 = restrict==0 ∩ 10 风格全有限 ∩ 冷得分有限（与生产同一判定顺序）；
+//   X'X 按 j 升序、与生产相同的加法规程累计；同样的 nalgebra Cholesky/solve；
+//   n_valid<=10 跳过、uniq==1 置 0.5、Cholesky 失败回退 SVD 伪逆（rcond 同式）。
+
+/// 按天预计算冷门那一路的 X'X / Cholesky / 连续 X（仅纯风格口径需要）。
+pub(crate) fn build_cold_pre(
+    shared: &NeutralizeStdShared,
+    cold: &Array2<f64>,
+) -> Result<ColdPre, String> {
+    let (t, n) = shared.industry.dim();
+    if cold.dim() != (t, n) {
+        return Err(format!(
+            "冷得分形状 {:?} 与模板轴 {:?} 不一致",
+            cold.dim(),
+            (t, n)
+        ));
+    }
+    let barra = &shared.barra_ranked;
+    let k = barra.len(); // = 10
+    let p = k + 2; // [1, b0..b9, cold]
+    let mut per_date: Vec<(usize, Vec<u32>)> = Vec::with_capacity(t);
+    let mut chols: Vec<Option<Cholesky<f64, nalgebra::Dyn>>> = Vec::with_capacity(t);
+    let mut xdays: Vec<Vec<f64>> = Vec::with_capacity(t);
+    for idx in 0..t {
+        let mut valid: Vec<u32> = Vec::new();
+        let mut xd: Vec<f64> = Vec::new();
+        for j in 0..n {
+            let c = cold[[idx, j]];
+            if !c.is_finite() {
+                continue;
+            }
+            if shared.restrict_f64[[idx, j]] != 0.0 {
+                continue;
+            }
+            let mut ok = true;
+            for b in barra.iter() {
+                if !b[[idx, j]].is_finite() {
+                    ok = false;
+                    break;
+                }
+            }
+            if !ok {
+                continue;
+            }
+            valid.push(j as u32);
+            for b in barra.iter() {
+                xd.push(b[[idx, j]]);
+            }
+            xd.push(c);
+        }
+        let nv = valid.len();
+        if nv <= 10 {
+            per_date.push((0, Vec::new()));
+            chols.push(None);
+            xdays.push(Vec::new());
+            continue;
+        }
+        // X'X（与 get_residual 的累积顺序完全一致）
+        let mut xtx = vec![0.0_f64; p * p];
+        for pos in 0..nv {
+            let r = &xd[pos * (k + 1)..pos * (k + 1) + (k + 1)];
+            xtx[0] += 1.0;
+            for c in 0..(k + 1) {
+                xtx[c + 1] += r[c];
+                xtx[(c + 1) * p] += r[c];
+            }
+            for c1 in 0..(k + 1) {
+                let b1 = r[c1];
+                xtx[(c1 + 1) * p + (c1 + 1)] += b1 * b1;
+                for c2 in (c1 + 1)..(k + 1) {
+                    let v = b1 * r[c2];
+                    xtx[(c1 + 1) * p + (c2 + 1)] += v;
+                    xtx[(c2 + 1) * p + (c1 + 1)] += v;
+                }
+            }
+        }
+        let m = DMatrix::from_row_slice(p, p, &xtx);
+        chols.push(Cholesky::new(m));
+        per_date.push((p, valid));
+        xdays.push(xd);
+    }
+    Ok(ColdPre {
+        per_date,
+        chols,
+        xdays,
+    })
+}
+
+/// 单日回退：与 `get_residual(.., None, Some(cold))` 当天的计算完全相同
+/// （只在「预计算有效集里混进了因子侧 NaN」的日子触发）。
+fn ols_day_cold(
+    fv_filled: &Array2<f64>,
+    barra: &[Array2<f64>],
+    cold: &Array2<f64>,
+    idx: usize,
+) -> Vec<f64> {
+    use nalgebra::{DMatrix, Cholesky};
+    let n = fv_filled.ncols();
+    let k = barra.len() + 1; // 风格 + 冷
+    let mut resid_row = vec![f64::NAN; n];
+    let mut valid: Vec<usize> = Vec::with_capacity(n);
+    let mut rows: Vec<[f64; 12]> = Vec::with_capacity(n);
+    for j in 0..n {
+        let y = fv_filled[[idx, j]];
+        let c = cold[[idx, j]];
+        if !y.is_finite() || !c.is_finite() {
+            continue;
+        }
+        if !barra.iter().all(|b| b[[idx, j]].is_finite()) {
+            continue;
+        }
+        let mut cur = [0.0_f64; 12];
+        cur[0] = y;
+        for (ci, b) in barra.iter().enumerate() {
+            cur[ci + 1] = b[[idx, j]];
+        }
+        cur[k] = c;
+        valid.push(j);
+        rows.push(cur);
+    }
+    let n_valid = rows.len();
+    if n_valid <= 10 {
+        return resid_row;
+    }
+    let p = k + 1;
+    let mut uniq: Vec<f64> = rows.iter().map(|r| r[0]).collect();
+    uniq.sort_by(cmp_f64);
+    uniq.dedup_by(|a, b| (a.is_nan() && b.is_nan()) || a == b);
+    if uniq.len() == 1 {
+        for &j in &valid {
+            resid_row[j] = 0.5;
+        }
+        return resid_row;
+    }
+    let mut xtx = vec![0.0_f64; p * p];
+    let mut xty = vec![0.0_f64; p];
+    for r in rows.iter() {
+        let yv = r[0];
+        xty[0] += yv;
+        xtx[0] += 1.0;
+        for c in 0..k {
+            let b = r[c + 1];
+            xty[c + 1] += b * yv;
+            xtx[c + 1] += b;
+            xtx[(c + 1) * p] += b;
+        }
+        for c1 in 0..k {
+            let b1 = r[c1 + 1];
+            xtx[(c1 + 1) * p + (c1 + 1)] += b1 * b1;
+            for c2 in (c1 + 1)..k {
+                let v = b1 * r[c2 + 1];
+                xtx[(c1 + 1) * p + (c2 + 1)] += v;
+                xtx[(c2 + 1) * p + (c1 + 1)] += v;
+            }
+        }
+    }
+    let m = DMatrix::from_row_slice(p, p, &xtx);
+    let rhs = DMatrix::from_column_slice(p, 1, &xty);
+    let use_svd = n_valid <= 40 || Cholesky::new(m.clone()).is_none();
+    let coef: Vec<f64> = if !use_svd {
+        let chol = Cholesky::new(m).expect("chol");
+        chol.solve(&rhs).column(0).iter().copied().collect()
+    } else {
+        let n_r = n_valid;
+        let xm = DMatrix::from_fn(n_r, p, |r_i, c| {
+            if c == 0 {
+                1.0
+            } else {
+                rows[r_i][c]
+            }
+        });
+        let svd = xm.clone().svd(true, true);
+        let u = svd.u.expect("svd u");
+        let vt = svd.v_t.expect("svd vt");
+        let sv = svd.singular_values;
+        let s_max = sv.iter().cloned().fold(0.0_f64, f64::max);
+        let rcond = s_max * (n_r.max(p) as f64) * 2.22e-16;
+        let ym = DMatrix::from_fn(n_r, 1, |r_i, _| rows[r_i][0]);
+        let uty = u.transpose() * ym;
+        let mut coef = DMatrix::zeros(p, 1);
+        for i in 0..p {
+            if sv[i] > rcond {
+                coef[(i, 0)] = uty[(i, 0)] / sv[i];
+            }
+        }
+        (vt.transpose() * coef).column(0).iter().copied().collect()
+    };
+    for (pos, &j) in valid.iter().enumerate() {
+        let r = &rows[pos];
+        let mut pred = coef[0];
+        for c in 0..k {
+            pred += coef[c + 1] * r[c + 1];
+        }
+        resid_row[j] = r[0] - pred;
+    }
+    resid_row
+}
+
+/// 冷门残差（预分解版）：与 `get_residual(&fv, barra, None, Some(cold))` 逐位一致。
+fn get_residual_cold_pre(
+    fv_filled: &Array2<f64>,
+    shared: &NeutralizeStdShared,
+    cold: &Array2<f64>,
+    pre: &ColdPre,
+) -> Array2<f64> {
+    let (t, n) = fv_filled.dim();
+    let barra = &shared.barra_ranked;
+    let k = barra.len();
+    let mut resid = Array2::<f64>::from_elem((t, n), f64::NAN);
+    let mut y_buf: Vec<f64> = Vec::with_capacity(n);
+    let mut xty: Vec<f64> = Vec::with_capacity(16);
+    let mut n_fallback = 0usize;
+    let mut n_used = 0usize;
+    for idx in 0..t {
+        let (p, valid_idx) = &pre.per_date[idx];
+        if *p == 0 {
+            continue;
+        }
+        y_buf.clear();
+        let mut any_nan = false;
+        let mut mn = f64::INFINITY;
+        let mut mx = f64::NEG_INFINITY;
+        for &j in valid_idx {
+            let y = fv_filled[[idx, j as usize]];
+            if !y.is_finite() {
+                any_nan = true;
+                break;
+            }
+            if y < mn {
+                mn = y;
+            }
+            if y > mx {
+                mx = y;
+            }
+            y_buf.push(y);
+        }
+        if any_nan {
+            // 预计算有效集里混进了因子侧 NaN：当日退回通用口径（与生产逐位一致）
+            n_fallback += 1;
+            let row = ols_day_cold(fv_filled, barra, cold, idx);
+            for j in 0..n {
+                resid[[idx, j]] = row[j];
+            }
+            continue;
+        }
+        if mn == mx {
+            for &j in valid_idx {
+                resid[[idx, j as usize]] = 0.5;
+            }
+            continue;
+        }
+        xty.clear();
+        xty.resize(*p, 0.0);
+        let xd = &pre.xdays[idx];
+        for (pos, &yv) in y_buf.iter().enumerate() {
+            let xrow = &xd[pos * (k + 1)..pos * (k + 1) + (k + 1)];
+            xty[0] += yv;
+            for c in 0..(k + 1) {
+                xty[c + 1] += xrow[c] * yv;
+            }
+        }
+        let use_svd = valid_idx.len() <= 40 || pre.chols[idx].is_none();
+        let coef: Vec<f64> = if !use_svd {
+            let chol = pre.chols[idx].as_ref().unwrap();
+            let rhs = DMatrix::from_column_slice(*p, 1, &xty);
+            chol.solve(&rhs).column(0).iter().copied().collect()
+        } else {
+            let n_r = valid_idx.len();
+            let xm = DMatrix::from_fn(n_r, *p, |r_i, c| {
+                if c == 0 {
+                    1.0
+                } else {
+                    let xrow = &xd[r_i * (k + 1)..r_i * (k + 1) + (k + 1)];
+                    xrow[c - 1]
+                }
+            });
+            let svd = xm.clone().svd(true, true);
+            let u = svd.u.expect("svd u");
+            let vt = svd.v_t.expect("svd vt");
+            let sv = svd.singular_values;
+            let s_max = sv.iter().cloned().fold(0.0_f64, f64::max);
+            let rcond = s_max * (n_r.max(*p) as f64) * 2.22e-16;
+            let ym = DMatrix::from_fn(n_r, 1, |r_i, _| y_buf[r_i]);
+            let uty = u.transpose() * ym;
+            let mut coef = DMatrix::zeros(*p, 1);
+            for i in 0..*p {
+                if sv[i] > rcond {
+                    coef[(i, 0)] = uty[(i, 0)] / sv[i];
+                }
+            }
+            (vt.transpose() * coef).column(0).iter().copied().collect()
+        };
+        for (pos, &j) in valid_idx.iter().enumerate() {
+            let xrow = &xd[pos * (k + 1)..pos * (k + 1) + (k + 1)];
+            let mut pred = coef[0];
+            for c in 0..(k + 1) {
+                pred += coef[c + 1] * xrow[c];
+            }
+            resid[[idx, j as usize]] = y_buf[pos] - pred;
+        }
+        n_used += 1;
+    }
+    if std::env::var("TAIL_COLD_STATS").is_ok() {
+        eprintln!("[cold-stats] 用预分解 {n_used} 天，回退 {n_fallback} 天");
+    }
+    resid
+}
+
+/// 冷门（11 风格）单 slot 中性化，走每日预分解：输出残差（f32，不做最终 rank_pct，
+/// 与 `neutralize_std_slot_f32_v2_resid` 同口径）。
+pub(crate) fn neutralize_std_slot_f32_v2_resid_cold(
+    slot: ArrayView2<'_, f32>,
+    shared: &NeutralizeStdShared,
+    cold: &Array2<f64>,
+) -> Result<Array2<f32>, String> {
+    let (n_dates, n_stocks) = slot.dim();
+    let pre = shared
+        .cold_pre
+        .as_ref()
+        .ok_or_else(|| "冷门快路径需要 cold_pre（build_cold_pre 未执行）".to_string())?;
+    if shared.industry.dim() != (n_dates, n_stocks) {
+        return Err("neutralize_std_slot_f32_v2_resid_cold 形状不匹配".to_string());
+    }
+    // 与 neutralize_std_section_owned_v2_resid_pre 同序：rank → 行业填充 → 清理
+    // → 中位填充 → restrict → rank → 残差
+    let mut fv_ranked = Array2::<f64>::zeros((n_dates, n_stocks));
+    rank_pct_all_from_f32(&slot, &mut fv_ranked);
+    let ind2 = &shared.ind2;
+    let ind1 = &shared.ind1;
+    let zeros = &shared.zeros;
+    let ind1_mask = &shared.ind1_mask;
+    let restrict = &shared.restrict_f64;
+    fill_ind_reg_pre(
+        &mut fv_ranked,
+        ind2,
+        ind1,
+        &shared.size_ranked,
+        &shared.orders[0..3],
+    );
+    for i in 0..(n_dates * n_stocks) {
+        if ind1.as_slice().unwrap()[i].is_nan() {
+            fv_ranked.as_slice_mut().unwrap()[i] = f64::NAN;
+        }
+    }
+    let mut fv_filled = fv_ranked.clone();
+    group_median_fill_pre(&mut fv_filled, ind2, None, &shared.orders[3]);
+    group_median_fill_pre(&mut fv_filled, ind1, None, &shared.orders[4]);
+    group_median_fill_pre(&mut fv_filled, zeros, Some(ind1_mask), &shared.orders[0]);
+    drop(fv_ranked);
+    for i in 0..(n_dates * n_stocks) {
+        if restrict.as_slice().unwrap()[i] != 0.0 {
+            fv_filled.as_slice_mut().unwrap()[i] = f64::NAN;
+        }
+    }
+    rank_pct_all(&mut fv_filled);
+    let resid = get_residual_cold_pre(&fv_filled, shared, cold, pre);
+    let mut output = Array2::<f32>::from_elem((n_dates, n_stocks), f32::NAN);
+    let out_slice = output.as_slice_mut().unwrap();
+    let rr = resid.as_slice().unwrap();
+    for i in 0..(n_dates * n_stocks) {
+        let v = rr[i];
+        out_slice[i] = if v.is_nan() { f32::NAN } else { v as f32 };
+    }
+    Ok(output)
 }

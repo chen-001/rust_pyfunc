@@ -803,6 +803,9 @@ impl SharedCache {
             chols,
             xdays,
             chols_style,
+            // 冷门那一路的每日预分解与 run 相关的冷得分绑定，不进这份 10 风格缓存；
+            // 由 build_shared_inputs 在拿到句柄后按需补建。
+            cold_pre: None,
         })
     }
 
