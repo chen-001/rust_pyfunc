@@ -158,6 +158,147 @@ struct InflightFlush {
     handle: std::thread::JoinHandle<(Result<(), String>, Option<SegmentManifest>, Vec<Vec<f32>>)>,
 }
 
+const TRANSPOSE_TILE: usize = 64;
+
+fn transpose_task_col_chunk(col_chunk: &mut [Vec<f32>], col_base: usize, accepted: &[&TaskResult]) {
+    let n_rows = accepted.len();
+    let cw = col_chunk.len();
+    let mut base_lens = [0usize; TRANSPOSE_TILE];
+    for (c, col) in col_chunk.iter_mut().enumerate() {
+        let old_len = col.len();
+        base_lens[c] = old_len;
+        if col.capacity() < old_len + n_rows {
+            col.reserve(n_rows);
+        }
+        unsafe {
+            col.set_len(old_len + n_rows);
+        }
+    }
+    let mut tile = [0.0f32; TRANSPOSE_TILE * TRANSPOSE_TILE];
+    let mut row_base = 0usize;
+    while row_base < n_rows {
+        let rh = (n_rows - row_base).min(TRANSPOSE_TILE);
+        for r in 0..rh {
+            let src = &accepted[row_base + r].facs[col_base..col_base + cw];
+            tile[r * TRANSPOSE_TILE..r * TRANSPOSE_TILE + cw].copy_from_slice(src);
+        }
+        for (c, col) in col_chunk.iter_mut().enumerate() {
+            let dst_start = base_lens[c] + row_base;
+            let dst = &mut col[dst_start..dst_start + rh];
+            for r in 0..rh {
+                dst[r] = tile[r * TRANSPOSE_TILE + c];
+            }
+        }
+        row_base += rh;
+    }
+}
+
+/// 64×64 L1 分块行转列：仅当当前已在显式受控 Rayon 池中时才并行分块，绝不触发 512 核全局池初始化。
+fn transpose_task_rows_into_columns(columns: &mut [Vec<f32>], accepted: &[&TaskResult]) {
+    let n_rows = accepted.len();
+    let n_cols = columns.len();
+    if n_rows == 0 || n_cols == 0 {
+        return;
+    }
+    let use_par = rayon::current_thread_index().is_some()
+        && rayon::current_num_threads() > 1
+        && n_rows.saturating_mul(n_cols) >= 65_536;
+    if use_par {
+        use rayon::prelude::*;
+        columns
+            .par_chunks_mut(TRANSPOSE_TILE)
+            .enumerate()
+            .for_each(|(chunk_idx, col_chunk)| {
+                transpose_task_col_chunk(col_chunk, chunk_idx * TRANSPOSE_TILE, accepted);
+            });
+    } else {
+        for (chunk_idx, col_chunk) in columns.chunks_mut(TRANSPOSE_TILE).enumerate() {
+            transpose_task_col_chunk(col_chunk, chunk_idx * TRANSPOSE_TILE, accepted);
+        }
+    }
+}
+
+fn transpose_flat_col_chunk(
+    col_chunk: &mut [Vec<f32>],
+    col_base: usize,
+    row_major_vals: &[f32],
+    n_cols: usize,
+    accepted_indices: &[usize],
+) {
+    let n_rows = accepted_indices.len();
+    let cw = col_chunk.len();
+    let mut base_lens = [0usize; TRANSPOSE_TILE];
+    for (c, col) in col_chunk.iter_mut().enumerate() {
+        let old_len = col.len();
+        base_lens[c] = old_len;
+        if col.capacity() < old_len + n_rows {
+            col.reserve(n_rows);
+        }
+        unsafe {
+            col.set_len(old_len + n_rows);
+        }
+    }
+    let mut tile = [0.0f32; TRANSPOSE_TILE * TRANSPOSE_TILE];
+    let mut row_base = 0usize;
+    while row_base < n_rows {
+        let rh = (n_rows - row_base).min(TRANSPOSE_TILE);
+        for r in 0..rh {
+            let row_off = accepted_indices[row_base + r] * n_cols + col_base;
+            let src = &row_major_vals[row_off..row_off + cw];
+            tile[r * TRANSPOSE_TILE..r * TRANSPOSE_TILE + cw].copy_from_slice(src);
+        }
+        for (c, col) in col_chunk.iter_mut().enumerate() {
+            let dst_start = base_lens[c] + row_base;
+            let dst = &mut col[dst_start..dst_start + rh];
+            for r in 0..rh {
+                dst[r] = tile[r * TRANSPOSE_TILE + c];
+            }
+        }
+        row_base += rh;
+    }
+}
+
+/// 直接从 `/dev/shm` 行优先平坦切片 64×64 分块转置进列缓冲。
+fn transpose_flat_rows_into_columns(
+    columns: &mut [Vec<f32>],
+    row_major_vals: &[f32],
+    n_cols: usize,
+    accepted_indices: &[usize],
+) {
+    let n_rows = accepted_indices.len();
+    if n_rows == 0 || columns.is_empty() {
+        return;
+    }
+    let use_par = rayon::current_thread_index().is_some()
+        && rayon::current_num_threads() > 1
+        && n_rows.saturating_mul(n_cols) >= 65_536;
+    if use_par {
+        use rayon::prelude::*;
+        columns
+            .par_chunks_mut(TRANSPOSE_TILE)
+            .enumerate()
+            .for_each(|(chunk_idx, col_chunk)| {
+                transpose_flat_col_chunk(
+                    col_chunk,
+                    chunk_idx * TRANSPOSE_TILE,
+                    row_major_vals,
+                    n_cols,
+                    accepted_indices,
+                );
+            });
+    } else {
+        for (chunk_idx, col_chunk) in columns.chunks_mut(TRANSPOSE_TILE).enumerate() {
+            transpose_flat_col_chunk(
+                col_chunk,
+                chunk_idx * TRANSPOSE_TILE,
+                row_major_vals,
+                n_cols,
+                accepted_indices,
+            );
+        }
+    }
+}
+
 impl DirectSegmentWriter {
     pub fn open(dir: &str, names: &[String], buffer_bytes: usize) -> Result<Self, String> {
         if names.is_empty()
@@ -319,16 +460,15 @@ impl DirectSegmentWriter {
         result
     }
     fn append_validated(&mut self, batch: &[TaskResult]) -> Result<(), String> {
-        // Reserve exact column capacities once, then reuse. RSS may remain at a
-        // plateau even when valid payload drops after publishing a segment.
-        if !batch.is_empty() && self.columns[0].capacity() == 0 {
-            for c in &mut self.columns {
-                c.try_reserve_exact(self.max_rows)
-                    .map_err(|e| format!("分配直接段缓冲失败: {e}"))?;
-            }
-        }
         let mut offset = 0;
         while offset < batch.len() {
+            // Reserve exact column capacities once per buffer (including freshly swapped spare).
+            if self.columns[0].capacity() == 0 {
+                for c in &mut self.columns {
+                    c.try_reserve_exact(self.max_rows)
+                        .map_err(|e| format!("分配直接段缓冲失败: {e}"))?;
+                }
+            }
             let take = (self.max_rows - self.rows.len()).min(batch.len() - offset);
             let mut accepted = Vec::with_capacity(take);
             for r in &batch[offset..offset + take] {
@@ -362,9 +502,7 @@ impl DirectSegmentWriter {
                     accepted.push(r);
                 }
             }
-            for (i, c) in self.columns.iter_mut().enumerate() {
-                c.extend(accepted.iter().map(|r| r.facs[i]));
-            }
+            transpose_task_rows_into_columns(&mut self.columns, &accepted);
             offset += take;
             if self.rows.len() == self.max_rows {
                 self.seal_in_background()?;
@@ -396,6 +534,152 @@ impl DirectSegmentWriter {
         // Exact-full segments may already have committed all rows above.
         if self.rows.is_empty() {
             self.finish()?;
+        }
+        Ok(())
+    }
+    /// 直接从 `/dev/shm` 行优先连续 `f32` 切片转置写入列段缓冲，零中间 `TaskResult` 拷贝。
+    pub fn append_date_flat(
+        &mut self,
+        date: i64,
+        codes: &[&str],
+        row_major_vals: &[f32],
+        n_cols: usize,
+    ) -> Result<(), String> {
+        if self
+            .inflight
+            .as_ref()
+            .is_some_and(|f| f.failed.load(std::sync::atomic::Ordering::Relaxed))
+        {
+            self.join_inflight()?;
+            self.poisoned = true;
+            return Err("直接段后台写盘线程报告失败".into());
+        }
+        if self.poisoned {
+            return Err("直接段写入此前失败；请关闭并重新打开后续算".into());
+        }
+        if codes.is_empty() {
+            return Err("整日直接写入要求非空且日期一致".into());
+        }
+        if n_cols != self.columns.len() {
+            return Err(format!(
+                "直接段结果列数错误: date={}, columns={}，期望 {}",
+                date,
+                n_cols,
+                self.columns.len()
+            ));
+        }
+        let expected_vals = codes
+            .len()
+            .checked_mul(n_cols)
+            .ok_or_else(|| "整日直接写入元素数溢出".to_string())?;
+        if row_major_vals.len() != expected_vals {
+            return Err(format!(
+                "直接段平坦矩阵长度错误: got={}, expected={}",
+                row_major_vals.len(),
+                expected_vals
+            ));
+        }
+        let mut seen = HashSet::with_capacity(codes.len());
+        let is_completed_date = self.manifest.completed_dates.contains(&date);
+        let existing_date_id = self.date_ids.get(&date).copied();
+        for &code in codes {
+            if code.is_empty() {
+                return Err(format!("直接段结果含空股票代码: date={date}"));
+            }
+            if !seen.insert(code) {
+                return Err("批次中 (date, code) 重复".into());
+            }
+            if is_completed_date {
+                let key = existing_date_id.zip(self.code_ids.get(code).copied());
+                if !key.is_some_and(|(d, c)| self.committed.contains(&(d, c))) {
+                    return Err(format!("日期 {date} 已整日提交，不能追加新股票 {code}"));
+                }
+            }
+        }
+        if let Some(d) = existing_date_id {
+            if self
+                .committed
+                .iter()
+                .chain(self.pending.iter())
+                .chain(self.inflight.iter().flat_map(|f| f.keys.iter()))
+                .any(|(di, ci)| {
+                    *di == d && !seen.contains(self.manifest.codes[*ci as usize].as_str())
+                })
+            {
+                return Err(format!("日期 {date} 重算结果缺少已有股票，拒绝标记完成"));
+            }
+        }
+        let append_res = self.append_validated_flat(date, codes, row_major_vals, n_cols);
+        if append_res.is_err() {
+            self.poisoned = true;
+            return append_res;
+        }
+        self.pending_dates.insert(date);
+        if self.rows.is_empty() {
+            if let Err(e) = self.finish() {
+                self.poisoned = true;
+                return Err(e);
+            }
+        }
+        Ok(())
+    }
+    fn append_validated_flat(
+        &mut self,
+        date: i64,
+        codes: &[&str],
+        row_major_vals: &[f32],
+        n_cols: usize,
+    ) -> Result<(), String> {
+        let d = match self.date_ids.get(&date) {
+            Some(&d) => d,
+            None => {
+                let d = u32::try_from(self.manifest.dates.len()).map_err(|_| "日期字典溢出")?;
+                self.manifest.dates.push(date);
+                self.date_ids.insert(date, d);
+                d
+            }
+        };
+        let mut offset = 0usize;
+        while offset < codes.len() {
+            if self.columns[0].capacity() == 0 {
+                for c in &mut self.columns {
+                    c.try_reserve_exact(self.max_rows)
+                        .map_err(|e| format!("分配直接段缓冲失败: {e}"))?;
+                }
+            }
+            let take = (self.max_rows - self.rows.len()).min(codes.len() - offset);
+            let mut accepted_indices = Vec::with_capacity(take);
+            for (rel, &code) in codes[offset..offset + take].iter().enumerate() {
+                let c = match self.code_ids.get(code) {
+                    Some(&c) => c,
+                    None => {
+                        let c =
+                            u32::try_from(self.manifest.codes.len()).map_err(|_| "股票字典溢出")?;
+                        let owned = code.to_string();
+                        self.manifest.codes.push(owned.clone());
+                        self.code_ids.insert(owned, c);
+                        c
+                    }
+                };
+                let in_flight = self
+                    .inflight
+                    .as_ref()
+                    .is_some_and(|f| f.keys.contains(&(d, c)));
+                if !self.committed.contains(&(d, c)) && !in_flight && self.pending.insert((d, c)) {
+                    self.rows.push((d, c));
+                    accepted_indices.push(offset + rel);
+                }
+            }
+            transpose_flat_rows_into_columns(
+                &mut self.columns,
+                row_major_vals,
+                n_cols,
+                &accepted_indices,
+            );
+            offset += take;
+            if self.rows.len() == self.max_rows {
+                self.seal_in_background()?;
+            }
         }
         Ok(())
     }

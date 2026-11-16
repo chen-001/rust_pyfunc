@@ -867,6 +867,150 @@ pub struct FactorStoreWriter {
     incremental: bool,
 }
 
+const COLBLK_TRANSPOSE_TILE: usize = 64;
+
+fn transpose_task_col_chunk_bytes(
+    chunk: &mut [u8],
+    col_base: usize,
+    col_bytes: usize,
+    results: &[TaskResult],
+) {
+    let n_rows = results.len();
+    let cw = chunk.len() / col_bytes;
+    let mut tile = [0.0f32; COLBLK_TRANSPOSE_TILE * COLBLK_TRANSPOSE_TILE];
+    let mut row_base = 0usize;
+    while row_base < n_rows {
+        let rh = (n_rows - row_base).min(COLBLK_TRANSPOSE_TILE);
+        for r in 0..rh {
+            let src = &results[row_base + r].facs[col_base..col_base + cw];
+            tile[r * COLBLK_TRANSPOSE_TILE..r * COLBLK_TRANSPOSE_TILE + cw].copy_from_slice(src);
+        }
+        for c in 0..cw {
+            let dst_off = c * col_bytes + row_base * F32_BYTES;
+            let dst = &mut chunk[dst_off..dst_off + rh * F32_BYTES];
+            for r in 0..rh {
+                dst[r * 4..r * 4 + 4]
+                    .copy_from_slice(&tile[r * COLBLK_TRANSPOSE_TILE + c].to_le_bytes());
+            }
+        }
+        row_base += rh;
+    }
+}
+
+fn transpose_task_results_to_col_bytes(
+    factors_bytes: &mut [u8],
+    results: &[TaskResult],
+    factor_count: usize,
+) {
+    let n_rows = results.len();
+    if n_rows == 0 || factor_count == 0 {
+        return;
+    }
+    let col_bytes = n_rows * F32_BYTES;
+    let tile_chunk_bytes = COLBLK_TRANSPOSE_TILE * col_bytes;
+    let use_par = rayon::current_thread_index().is_some()
+        && rayon::current_num_threads() > 1
+        && n_rows.saturating_mul(factor_count) >= 65_536;
+    if use_par {
+        use rayon::prelude::*;
+        factors_bytes
+            .par_chunks_mut(tile_chunk_bytes)
+            .enumerate()
+            .for_each(|(chunk_idx, chunk)| {
+                transpose_task_col_chunk_bytes(
+                    chunk,
+                    chunk_idx * COLBLK_TRANSPOSE_TILE,
+                    col_bytes,
+                    results,
+                );
+            });
+    } else {
+        for (chunk_idx, chunk) in factors_bytes.chunks_mut(tile_chunk_bytes).enumerate() {
+            transpose_task_col_chunk_bytes(
+                chunk,
+                chunk_idx * COLBLK_TRANSPOSE_TILE,
+                col_bytes,
+                results,
+            );
+        }
+    }
+}
+
+fn transpose_flat_col_chunk_bytes(
+    chunk: &mut [u8],
+    col_base: usize,
+    col_bytes: usize,
+    row_major_vals: &[f32],
+    n_cols: usize,
+    accepted_rows: &[usize],
+) {
+    let n_rows = accepted_rows.len();
+    let cw = chunk.len() / col_bytes;
+    let mut tile = [0.0f32; COLBLK_TRANSPOSE_TILE * COLBLK_TRANSPOSE_TILE];
+    let mut row_base = 0usize;
+    while row_base < n_rows {
+        let rh = (n_rows - row_base).min(COLBLK_TRANSPOSE_TILE);
+        for r in 0..rh {
+            let row_off = accepted_rows[row_base + r] * n_cols + col_base;
+            let src = &row_major_vals[row_off..row_off + cw];
+            tile[r * COLBLK_TRANSPOSE_TILE..r * COLBLK_TRANSPOSE_TILE + cw].copy_from_slice(src);
+        }
+        for c in 0..cw {
+            let dst_off = c * col_bytes + row_base * F32_BYTES;
+            let dst = &mut chunk[dst_off..dst_off + rh * F32_BYTES];
+            for r in 0..rh {
+                dst[r * 4..r * 4 + 4]
+                    .copy_from_slice(&tile[r * COLBLK_TRANSPOSE_TILE + c].to_le_bytes());
+            }
+        }
+        row_base += rh;
+    }
+}
+
+fn transpose_flat_rows_to_col_bytes(
+    factors_bytes: &mut [u8],
+    row_major_vals: &[f32],
+    n_cols: usize,
+    accepted_rows: &[usize],
+) {
+    let n_rows = accepted_rows.len();
+    if n_rows == 0 || n_cols == 0 {
+        return;
+    }
+    let col_bytes = n_rows * F32_BYTES;
+    let tile_chunk_bytes = COLBLK_TRANSPOSE_TILE * col_bytes;
+    let use_par = rayon::current_thread_index().is_some()
+        && rayon::current_num_threads() > 1
+        && n_rows.saturating_mul(n_cols) >= 65_536;
+    if use_par {
+        use rayon::prelude::*;
+        factors_bytes
+            .par_chunks_mut(tile_chunk_bytes)
+            .enumerate()
+            .for_each(|(chunk_idx, chunk)| {
+                transpose_flat_col_chunk_bytes(
+                    chunk,
+                    chunk_idx * COLBLK_TRANSPOSE_TILE,
+                    col_bytes,
+                    row_major_vals,
+                    n_cols,
+                    accepted_rows,
+                );
+            });
+    } else {
+        for (chunk_idx, chunk) in factors_bytes.chunks_mut(tile_chunk_bytes).enumerate() {
+            transpose_flat_col_chunk_bytes(
+                chunk,
+                chunk_idx * COLBLK_TRANSPOSE_TILE,
+                col_bytes,
+                row_major_vals,
+                n_cols,
+                accepted_rows,
+            );
+        }
+    }
+}
+
 impl FactorStoreWriter {
     /// 新建存储（或断点续算）。
     /// `factor_names`：原始因子名列表，长度必须等于每条结果的因子数。
@@ -1338,37 +1482,119 @@ impl FactorStoreWriter {
             self.append_dict_entries(&new_dates, &new_codes)?;
         }
 
-        // ---- 3. 列优先布局序列化 ----
+        // ---- 3. 列优先布局序列化（64×64 L1 分块转置，消除跨行跳跃写缓存未命中）----
         // chunk 体 = [n×u32 date_id][n×u32 code_id][n×F×f32 factors(列优先)]
-        let body_size = n * ID_BYTES * 2 + n * factor_count * F32_BYTES;
-        let mut body: Vec<u8> = Vec::with_capacity(body_size);
-        for &d in &date_ids {
-            body.extend_from_slice(&d.to_le_bytes());
+        let ids_bytes = n * ID_BYTES * 2;
+        let body_size = ids_bytes + n * factor_count * F32_BYTES;
+        let mut body: Vec<u8> = vec![0u8; body_size];
+        for (i, &d) in date_ids.iter().enumerate() {
+            body[i * 4..i * 4 + 4].copy_from_slice(&d.to_le_bytes());
         }
-        for &c in &code_ids {
-            body.extend_from_slice(&c.to_le_bytes());
+        let code_off = n * ID_BYTES;
+        for (i, &c) in code_ids.iter().enumerate() {
+            let off = code_off + i * 4;
+            body[off..off + 4].copy_from_slice(&c.to_le_bytes());
         }
-        // 因子值：列优先（先因子0的 n 个值，再因子1…）。
-        for f_idx in 0..factor_count {
-            for r in results {
-                let v = r.facs[f_idx]; // 长度已严格校验
-                body.extend_from_slice(&v.to_le_bytes());
-            }
+        transpose_task_results_to_col_bytes(&mut body[ids_bytes..], results, factor_count);
+
+        self.write_raw_chunk_body(&body, n)
+    }
+
+    /// 直接从 `/dev/shm` 行优先连续 `f32` 切片按列优先追加整日数据，零 `TaskResult` 分配。
+    pub fn append_date_flat(
+        &mut self,
+        date: i64,
+        codes: &[&str],
+        row_major_vals: &[f32],
+        n_cols: usize,
+        accepted_rows: &[usize],
+    ) -> Result<(), String> {
+        if accepted_rows.is_empty() {
+            return Ok(());
+        }
+        if n_cols != self.factor_count {
+            return Err(format!(
+                "append_date_flat 因子数不匹配: got={}, expected={}",
+                n_cols, self.factor_count
+            ));
+        }
+        let expected_vals = codes
+            .len()
+            .checked_mul(n_cols)
+            .ok_or_else(|| "append_date_flat 元素数溢出".to_string())?;
+        if row_major_vals.len() != expected_vals {
+            return Err(format!(
+                "append_date_flat 平坦矩阵长度不匹配: got={}, expected={}",
+                row_major_vals.len(),
+                expected_vals
+            ));
+        }
+        if self.projected_offset > 0 && !self.incremental {
+            remove_projection_files(&self.store_dir)?;
+            self.projected_offset = 0;
+            self.proj_format_version = 0;
+            write_colblk_header_fields(
+                &mut self.colblk_file,
+                self.record_count,
+                self.factor_count as u32,
+                self.chunk_count,
+                self.dict.dates.len() as u32,
+                self.dict.codes.len() as u32,
+                0,
+                0,
+            )?;
+            eprintln!(
+                "⚠️ store 已投影，自动降级为未投影以便追加（追加完成后需重新投影；\
+                 若只想补算新日期、不想整库重投影，请改用增量投影 incremental_projection=True）: {}",
+                self.store_dir.display()
+            );
         }
 
-        // ---- 4. 不压缩（浮点数据 zstd 压缩比仅 1.15×，但解压 55min/遍太慢）----
-        // chunk 头用 compressed_size=0 标记"不压缩"，data 直接是 body。
+        let n = accepted_rows.len();
+        let factor_count = self.factor_count;
+        let date_base = self.dict.dates.len();
+        let code_base = self.dict.codes.len();
+        let d_id = self.dict.intern_date(date);
+        let mut code_ids = Vec::with_capacity(n);
+        for &row_idx in accepted_rows {
+            code_ids.push(self.dict.intern_code(codes[row_idx]));
+        }
+        let new_dates: Vec<i64> = self.dict.dates[date_base..].to_vec();
+        let new_codes: Vec<String> = self.dict.codes[code_base..].to_vec();
+        if !new_dates.is_empty() || !new_codes.is_empty() {
+            self.append_dict_entries(&new_dates, &new_codes)?;
+        }
+
+        let ids_bytes = n * ID_BYTES * 2;
+        let body_size = ids_bytes + n * factor_count * F32_BYTES;
+        let mut body: Vec<u8> = vec![0u8; body_size];
+        let d_le = d_id.to_le_bytes();
+        for i in 0..n {
+            body[i * 4..i * 4 + 4].copy_from_slice(&d_le);
+        }
+        let code_off = n * ID_BYTES;
+        for (i, &c) in code_ids.iter().enumerate() {
+            let off = code_off + i * 4;
+            body[off..off + 4].copy_from_slice(&c.to_le_bytes());
+        }
+        transpose_flat_rows_to_col_bytes(
+            &mut body[ids_bytes..],
+            row_major_vals,
+            n_cols,
+            accepted_rows,
+        );
+
+        self.write_raw_chunk_body(&body, n)
+    }
+
+    fn write_raw_chunk_body(&mut self, data_bytes: &[u8], n: usize) -> Result<(), String> {
         let compressed_size = 0u32; // 0 = 不压缩标记
-        let data_bytes = &body[..];
-
-        // ---- 5. 追加 chunk 到 data_end（dict 已先落盘，现在写 chunk data）----
         let chunk_total = 8 + data_bytes.len() as u64; // [compressed_size][n_in_batch] + body
         self.ensure_allocated(self.data_end + chunk_total);
         let chunk_head_offset = self.data_end;
         self.colblk_file
             .seek(SeekFrom::Start(chunk_head_offset))
             .map_err(|e| format!("seek data_end 失败: {e}"))?;
-        // 写 chunk 头 [compressed_size][n_in_batch] + 数据
         self.colblk_file
             .write_all(&compressed_size.to_le_bytes())
             .map_err(|e| format!("写 chunk compressed_size 失败: {e}"))?;
@@ -1383,14 +1609,11 @@ impl FactorStoreWriter {
             .map_err(|e| format!("flush chunk 失败: {e}"))?;
         self.data_end += chunk_total;
 
-        // ---- 6. 更新内存状态 ----
-        // chunk_index：data_offset = chunk 头之后；第二元素 = compressed_size（0=不压缩标志）
         self.chunk_index
-            .push((chunk_head_offset + 8, 0u32, n as u32)); // 0 = 不压缩
+            .push((chunk_head_offset + 8, 0u32, n as u32));
         self.chunk_count += 1;
         self.record_count += n as u64;
 
-        // ---- 7. colblk header 降频写（改动 B：每 N chunk 一次；断点续算靠 chunk 区扫描，安全）----
         self.chunks_since_header_sync += 1;
         if self.chunks_since_header_sync >= HEADER_SYNC_EVERY_CHUNKS {
             write_colblk_header_fields(
@@ -1400,14 +1623,11 @@ impl FactorStoreWriter {
                 self.chunk_count,
                 self.dict.dates.len() as u32,
                 self.dict.codes.len() as u32,
-                // 增量投影模式下 projected_offset 就是已投影到的位置，追加期必须保留（不能清零）
                 self.projected_offset,
                 self.proj_format_version,
             )?;
             self.chunks_since_header_sync = 0;
         }
-        // V6：不再每 batch 全量重写 idx（dates/codes 已 append-only 到 dates.bin/codes.bin）。
-
         Ok(())
     }
 
@@ -5103,6 +5323,66 @@ impl ShardedBackupSink {
             Ok(())
         } else {
             shard.append_batch(batch)
+        }
+    }
+    /// 直接将 `/dev/shm` 中的整日 `(股票代码, 行优先连续 f32 切片)` 写入底层列段或分片 colblk，零 `TaskResult` 分配。
+    pub fn append_date_flat(
+        &self,
+        date: i64,
+        codes: &[&str],
+        row_major_vals: &[f32],
+        n_cols: usize,
+    ) -> Result<(), String> {
+        let mut seen = HashSet::with_capacity(codes.len());
+        if codes.iter().any(|c| !seen.insert(*c)) {
+            return Err("日期批次股票代码重复".into());
+        }
+        if let Some(writer) = &self.direct {
+            return writer
+                .lock()
+                .map_err(|e| e.to_string())?
+                .append_date_flat(date, codes, row_major_vals, n_cols);
+        }
+        let shard = &self.shards[date as usize % self.n_shards];
+        if let BackupSink::Colblk { writer } = shard {
+            let mut w = writer.lock().map_err(|e| e.to_string())?;
+            if w.dict.date_to_id.contains_key(&date) {
+                let existing = w.check_completed()?;
+                let missing_rows: Vec<usize> = codes
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, c)| !existing.contains(&(date, (**c).to_string())))
+                    .map(|(i, _)| i)
+                    .collect();
+                w.append_date_flat(date, codes, row_major_vals, n_cols, &missing_rows)?;
+            } else {
+                let all_rows: Vec<usize> = (0..codes.len()).collect();
+                w.append_date_flat(date, codes, row_major_vals, n_cols, &all_rows)?;
+            }
+            Ok(())
+        } else {
+            let expected_vals = codes
+                .len()
+                .checked_mul(n_cols)
+                .ok_or_else(|| "整日平坦切片长度溢出".to_string())?;
+            if row_major_vals.len() != expected_vals {
+                return Err(format!(
+                    "整日平坦切片长度不匹配: got={}, expected={}",
+                    row_major_vals.len(),
+                    expected_vals
+                ));
+            }
+            let batch: Vec<TaskResult> = codes
+                .iter()
+                .enumerate()
+                .map(|(i, &code)| TaskResult {
+                    date,
+                    code: code.to_string(),
+                    timestamp: 0,
+                    facs: row_major_vals[i * n_cols..(i + 1) * n_cols].to_vec(),
+                })
+                .collect();
+            shard.append_batch(&batch)
         }
     }
     pub fn commit_date(&self, date: i64) -> Result<(), String> {

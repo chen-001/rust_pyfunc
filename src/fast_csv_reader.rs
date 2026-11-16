@@ -20,10 +20,47 @@
 use memmap2::Mmap;
 use pyo3::prelude::*;
 use rayon::prelude::*;
+use std::cell::RefCell;
 use std::fs::File;
 use std::io::Read;
 
-/// 读完一个 Level2 文件后，立刻把它占的页缓存丢掉。
+/// 每个工作线程复用一块原始字节缓冲，消除千万次小文件读取中的重复内存分配、扩容拷贝和无意义 UTF-8 校验。
+/// 若单次遇到超大文件（>16 MiB）临时扩容，解析完后缩回 8 MiB，避免数百个进程长期占用峰值内存。
+const RETAINED_CSV_BUF_CAP: usize = 8 * 1024 * 1024;
+const SHRINK_CSV_BUF_THRESHOLD: usize = 16 * 1024 * 1024;
+
+thread_local! {
+    static CSV_READ_BUF: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+}
+
+fn read_file_bytes_with<T>(
+    file: &mut File,
+    file_size: usize,
+    parse_fn: impl FnOnce(&[u8]) -> T,
+) -> std::io::Result<T> {
+    CSV_READ_BUF.with(|cell| {
+        if let Ok(mut buf) = cell.try_borrow_mut() {
+            buf.clear();
+            let needed = file_size.saturating_add(64);
+            if buf.capacity() < needed {
+                buf.reserve(needed);
+            }
+            file.read_to_end(&mut buf)?;
+            let out = parse_fn(&buf);
+            buf.clear();
+            if buf.capacity() > SHRINK_CSV_BUF_THRESHOLD {
+                buf.shrink_to(RETAINED_CSV_BUF_CAP);
+            }
+            Ok(out)
+        } else {
+            let mut tmp = Vec::with_capacity(file_size.saturating_add(64));
+            file.read_to_end(&mut tmp)?;
+            Ok(parse_fn(&tmp))
+        }
+    })
+}
+
+/// 读完一个 Level2 文件后，直接复用已打开的文件句柄把它占的页缓存丢掉（不再二次 open）。
 ///
 /// 背景（2026-10-16 实测）：批量跑 pipeline 时每个 (date, code) 文件只读一次，
 /// 但读进来的干净页会一直留在页缓存里。计算任务的 cgroup 内存因此被顶到 1 TiB 硬上限
@@ -34,17 +71,15 @@ use std::io::Read;
 /// 注意：必须在 mmap 解除映射之后再调——映射还在时页丢不掉。
 /// 丢缓存只是省内存的提示，失败不影响读取结果，所以这里不返回错误。
 #[cfg(unix)]
-fn drop_page_cache(path: &str) {
+fn drop_page_cache_file(file: &File) {
     use std::os::unix::io::AsRawFd;
-    if let Ok(f) = File::open(path) {
-        unsafe {
-            libc::posix_fadvise(f.as_raw_fd(), 0, 0, libc::POSIX_FADV_DONTNEED);
-        }
+    unsafe {
+        libc::posix_fadvise(file.as_raw_fd(), 0, 0, libc::POSIX_FADV_DONTNEED);
     }
 }
 
 #[cfg(not(unix))]
-fn drop_page_cache(_path: &str) {}
+fn drop_page_cache_file(_file: &File) {}
 
 /// 单条逐笔成交记录（已预处理）。
 ///
@@ -93,13 +128,22 @@ const COL_BID_ORDER: usize = 14;
 /// 优先级（见 crate::data_paths）：pipeline 参数 data_root > RUST_PYFUNC_LEVEL2_ROOT
 /// > 旧变量 RUST_PYFUNC_LEVEL2_PATH > /ssd_data/stock > /nas197/binary/stock/sz_alpha/stock。
 /// 显式指定数据目录时只查该目录，不回退。
-fn resolve_stock_path(date: i64, subdir: &str, filename: &str) -> std::io::Result<String> {
+fn open_stock_file(date: i64, subdir: &str, filename: &str) -> std::io::Result<File> {
     let roots = crate::data_paths::level2_roots();
+    let date_str = date.to_string();
+    let mut first_other_err: Option<std::io::Error> = None;
     for root in &roots {
-        let p = root.join(date.to_string()).join(subdir).join(filename);
-        if p.exists() {
-            return Ok(p.to_string_lossy().into_owned());
+        let p = root.join(&date_str).join(subdir).join(filename);
+        match File::open(&p) {
+            Ok(f) => return Ok(f),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => {
+                first_other_err.get_or_insert(e);
+            }
         }
+    }
+    if let Some(err) = first_other_err {
+        return Err(err);
     }
     Err(std::io::Error::new(
         std::io::ErrorKind::NotFound,
@@ -419,24 +463,15 @@ pub fn read_trade_fast_inner(
     parallel_threshold: usize,
 ) -> std::io::Result<Vec<TradeRecord>> {
     let filename = format!("{}_{}_transaction.csv", code, date);
-    let path = resolve_stock_path(date, "transaction", &filename)?;
+    let mut file = open_stock_file(date, "transaction", &filename)?;
+    let file_size = file.metadata()?.len() as usize;
 
-    let file = File::open(&path)?;
-    let meta = file.metadata()?;
-    let file_size = meta.len() as usize;
-
-    // 小文件直接用 read_to_string（避免 mmap 的设置开销）
+    // 小文件（或外层禁用嵌套 rayon 时 parallel_threshold=usize::MAX）直接复用单句柄 + 原始字节缓冲，避免 mmap/二次 open/UTF-8 校验
     if file_size < parallel_threshold {
-        let mut content = String::new();
-        File::open(&path)?.read_to_string(&mut content)?;
-        let out = parse_chunk(
-            content.as_bytes(),
-            with_retreat,
-            with_afternoon_adjust,
-            code,
-            date,
-        );
-        drop_page_cache(&path);
+        let out = read_file_bytes_with(&mut file, file_size, |bytes| {
+            parse_chunk(bytes, with_retreat, with_afternoon_adjust, code, date)
+        })?;
+        drop_page_cache_file(&file);
         return Ok(out);
     }
 
@@ -490,7 +525,7 @@ pub fn read_trade_fast_inner(
     }
     // 先解除映射，再丢页缓存（映射还在时页丢不掉）
     drop(mmap);
-    drop_page_cache(&path);
+    drop_page_cache_file(&file);
     Ok(result)
 }
 
@@ -881,23 +916,20 @@ pub fn read_market_fast_inner(
     parallel_threshold: usize,
 ) -> std::io::Result<Vec<MarketRecord>> {
     let filename = format!("{}_{}_market_data.csv", code, date);
-    let path = resolve_stock_path(date, "market_data", &filename)?;
-
-    let file = File::open(&path)?;
-    let meta = file.metadata()?;
-    let file_size = meta.len() as usize;
+    let mut file = open_stock_file(date, "market_data", &filename)?;
+    let file_size = file.metadata()?.len() as usize;
 
     if file_size < parallel_threshold {
-        let mut content = String::new();
-        File::open(&path)?.read_to_string(&mut content)?;
-        let out = parse_market_chunk(
-            content.as_bytes(),
-            with_high_low_limited,
-            with_afternoon_adjust,
-            code,
-            date,
-        );
-        drop_page_cache(&path);
+        let out = read_file_bytes_with(&mut file, file_size, |bytes| {
+            parse_market_chunk(
+                bytes,
+                with_high_low_limited,
+                with_afternoon_adjust,
+                code,
+                date,
+            )
+        })?;
+        drop_page_cache_file(&file);
         return Ok(out);
     }
 
@@ -950,7 +982,7 @@ pub fn read_market_fast_inner(
     }
     // 先解除映射，再丢页缓存（映射还在时页丢不掉）
     drop(mmap);
-    drop_page_cache(&path);
+    drop_page_cache_file(&file);
     Ok(result)
 }
 
@@ -1157,17 +1189,14 @@ pub fn read_market_pair_inner(
     parallel_threshold: usize,
 ) -> std::io::Result<Vec<MarketPairRow>> {
     let filename = format!("{}_{}_market_data.csv", code, date);
-    let path = resolve_stock_path(date, "market_data", &filename)?;
-
-    let file = File::open(&path)?;
-    let meta = file.metadata()?;
-    let file_size = meta.len() as usize;
+    let mut file = open_stock_file(date, "market_data", &filename)?;
+    let file_size = file.metadata()?.len() as usize;
 
     if file_size < parallel_threshold {
-        let mut content = String::new();
-        File::open(&path)?.read_to_string(&mut content)?;
-        let out = parse_market_pair_chunk(content.as_bytes(), code, date);
-        drop_page_cache(&path);
+        let out = read_file_bytes_with(&mut file, file_size, |bytes| {
+            parse_market_pair_chunk(bytes, code, date)
+        })?;
+        drop_page_cache_file(&file);
         return Ok(out);
     }
 
@@ -1212,7 +1241,7 @@ pub fn read_market_pair_inner(
     }
     // 先解除映射，再丢页缓存（映射还在时页丢不掉）
     drop(mmap);
-    drop_page_cache(&path);
+    drop_page_cache_file(&file);
     Ok(result)
 }
 
@@ -1488,15 +1517,14 @@ fn parse_line_light(
 /// 返回同一批「主买/主卖」记录，但只解析配对网络用得到的列。
 pub fn read_trade_light_inner(code: &str, date: i64) -> std::io::Result<Vec<TradeRecord>> {
     let filename = format!("{}_{}_transaction.csv", code, date);
-    let path = resolve_stock_path(date, "transaction", &filename)?;
-    let file = File::open(&path)?;
+    let mut file = open_stock_file(date, "transaction", &filename)?;
     let file_size = file.metadata()?.len() as usize;
 
     if file_size < 1_000_000 {
-        let mut content = String::new();
-        File::open(&path)?.read_to_string(&mut content)?;
-        let out = parse_chunk_light(content.as_bytes(), true, code, date);
-        drop_page_cache(&path);
+        let out = read_file_bytes_with(&mut file, file_size, |bytes| {
+            parse_chunk_light(bytes, true, code, date)
+        })?;
+        drop_page_cache_file(&file);
         return Ok(out);
     }
     let mmap = unsafe { Mmap::map(&file)? };
@@ -1532,7 +1560,7 @@ pub fn read_trade_light_inner(code: &str, date: i64) -> std::io::Result<Vec<Trad
         result.extend(p);
     }
     drop(mmap);
-    drop_page_cache(&path);
+    drop_page_cache_file(&file);
     Ok(result)
 }
 

@@ -49,15 +49,10 @@ fn main() {
             std::process::exit(1);
         }
     };
-    // 核绑定（可选）
-    if let Ok(idx_str) = std::env::var("RUST_PYFUNC_CORE_AFFINITY_IDX") {
-        if let Ok(idx) = idx_str.parse::<usize>() {
-            let core_ids = core_affinity::get_core_ids().unwrap_or_default();
-            if idx < core_ids.len() {
-                let _ = core_affinity::set_for_current(core_ids[idx]);
-            }
-        }
-    }
+    // 单核绑定或双路处理器 NUMA 芯片就近绑定（必须在任何 Rayon 线程池初始化之前执行）
+    rust_pyfunc::shm_ipc::apply_worker_affinity_from_env();
+    // 打开父进程创建的 /dev/shm 共享槽并立即 unlink 目录项（崩溃或 SIGKILL 零残留）
+    let mut shm_slot = rust_pyfunc::shm_ipc::ShmWorkerSlot::open_from_env();
 
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
@@ -180,12 +175,26 @@ fn main() {
 
                 match result {
                     Ok(vals) => {
-                        let msg = ResultMessage::Result(TaskResult {
-                            date,
-                            code,
-                            timestamp: 0,
-                            facs: vals.iter().map(|&v| v as f32).collect(),
-                        });
+                        let msg = match shm_slot
+                            .as_mut()
+                            .and_then(|s| s.write_stock_f32(&vals).ok())
+                        {
+                            Some((slot_cap, n_floats)) => {
+                                drop(vals);
+                                ResultMessage::ShmResult {
+                                    date,
+                                    code,
+                                    slot_cap,
+                                    n_floats,
+                                }
+                            }
+                            None => ResultMessage::Result(TaskResult {
+                                date,
+                                code,
+                                timestamp: 0,
+                                facs: vals,
+                            }),
+                        };
                         if ipc_write_result(&mut writer, &msg).is_err() {
                             break;
                         }
@@ -313,7 +322,20 @@ fn main() {
 
                 match result {
                     Ok(batch) => {
-                        let msg = ResultMessage::MinuteBatch(batch);
+                        let shm_written = shm_slot
+                            .as_mut()
+                            .and_then(|s| s.write_day_batch(&batch, expected_len).ok().flatten());
+                        let msg = match shm_written {
+                            Some((slot_cap, used_bytes)) => {
+                                drop(batch);
+                                ResultMessage::ShmMinuteBatch {
+                                    date,
+                                    slot_cap,
+                                    used_bytes,
+                                }
+                            }
+                            None => ResultMessage::MinuteBatch(batch),
+                        };
                         if ipc_write_result(&mut writer, &msg).is_err() {
                             break;
                         }

@@ -1298,6 +1298,19 @@ pub enum ResultMessage {
     Ready,
     /// Append only: existing result discriminants and data encoding stay unchanged.
     ParentBoundReady { parent_pid: u32 },
+    /// 单股结果已写入 `/dev/shm` 共享槽（仅传元信息）
+    ShmResult {
+        date: i64,
+        code: String,
+        slot_cap: u64,
+        n_floats: u64,
+    },
+    /// 整日批量结果已写入 `/dev/shm` 共享槽（仅传元信息）
+    ShmMinuteBatch {
+        date: i64,
+        slot_cap: u64,
+        used_bytes: u64,
+    },
 }
 
 /// 写一个 IPC 消息到 writer（4字节长度前缀 + bincode）。
@@ -1572,9 +1585,14 @@ fn run_multiprocess_v2(
         // 结果 channel（worker 线程 → collector 线程）
         let (result_tx, result_rx) = std::sync::mpsc::sync_channel::<TaskResult>(n_jobs * 2);
 
-        // 核绑定信息
+        // 核绑定信息：单核绑定关闭时自动按双路处理器芯片分片就近绑定（尊重当前可用核集）
         let core_ids = if bind_cores {
             core_affinity::get_core_ids()
+        } else {
+            None
+        };
+        let numa_plan = if !bind_cores {
+            crate::shm_ipc::plan_worker_numa_cpulists(n_jobs, 1, "per-stock")
         } else {
             None
         };
@@ -1594,6 +1612,9 @@ fn run_multiprocess_v2(
             } else {
                 None
             };
+            let numa_cpulist = numa_plan
+                .as_ref()
+                .and_then(|plan| plan.get(worker_idx).cloned());
 
             let handle = std::thread::spawn(move || {
                 run_single_worker_manager(
@@ -1607,6 +1628,7 @@ fn run_multiprocess_v2(
                     &trading_days,
                     expected_result_length,
                     core_affinity_idx,
+                    numa_cpulist,
                     direct_write,
                 )
             });
@@ -1784,13 +1806,16 @@ fn run_single_worker_manager(
     trading_days: &[i64],
     expected_len: usize,
     core_affinity_idx: Option<usize>,
+    numa_cpulist: Option<String>,
     strict_worker_errors: bool,
 ) -> Result<(), String> {
     use std::io::{BufReader, BufWriter, Write};
-    use std::process::{Child, Command, Stdio};
+    use std::process::{Command, Stdio};
 
     // 外层循环：管理 worker 进程的生命周期（崩溃后重启）
     'outer: loop {
+        let mut shm_slot = crate::shm_ipc::ShmParentSlot::create(worker_idx);
+
         // spawn worker 进程
         let mut cmd = Command::new(worker_bin);
         crate::worker_lifecycle::configure_parent(&mut cmd);
@@ -1808,6 +1833,11 @@ fn run_single_worker_manager(
         }
         if let Some(idx) = core_affinity_idx {
             cmd.env("RUST_PYFUNC_CORE_AFFINITY_IDX", idx.to_string());
+        } else if let Some(ref cpulist) = numa_cpulist {
+            cmd.env(crate::shm_ipc::ENV_NUMA_CPULIST, cpulist);
+        }
+        if let Some(ref slot) = shm_slot {
+            cmd.env(crate::shm_ipc::ENV_SHM_PATH, slot.path_str());
         }
 
         let mut child = match cmd.spawn() {
@@ -1832,7 +1862,11 @@ fn run_single_worker_manager(
             trading_days: trading_days.to_vec(),
             expected_len,
         };
-        initialize_worker(&mut child, &mut writer, &mut reader, &init_msg)?;
+        let init_res = initialize_worker(&mut child, &mut writer, &mut reader, &init_msg);
+        if let Some(ref mut slot) = shm_slot {
+            slot.unlink_now();
+        }
+        init_res?;
 
         // 内层循环：取任务 → 发任务 → 收结果
         loop {
@@ -1879,6 +1913,62 @@ fn run_single_worker_manager(
 
             // 收结果
             match ipc_read_result(&mut reader) {
+                Ok(ResultMessage::ShmResult {
+                    date: r_date,
+                    code: r_code,
+                    slot_cap,
+                    n_floats,
+                }) => {
+                    if strict_worker_errors && (r_date != date || r_code != code) {
+                        kill_and_reap(&mut child);
+                        return Err(format!("worker{worker_idx} 返回的任务标识与 [{date},{code}] 不一致"));
+                    }
+                    let read_res = match shm_slot.as_mut() {
+                        Some(slot) => slot.read_stock_f32(slot_cap, n_floats),
+                        None => Err("未启用共享内存槽却收到 ShmResult".to_string()),
+                    };
+                    match read_res {
+                        Ok(facs) => {
+                            if result_tx
+                                .send(TaskResult {
+                                    date: r_date,
+                                    code: r_code,
+                                    timestamp: 0,
+                                    facs,
+                                })
+                                .is_err()
+                            {
+                                kill_and_reap(&mut child);
+                                break 'outer;
+                            }
+                        }
+                        Err(err) => {
+                            if strict_worker_errors {
+                                kill_and_reap(&mut child);
+                                return Err(format!(
+                                    "worker{worker_idx} 读取共享内存失败 [{date},{code}]: {err}"
+                                ));
+                            }
+                            eprintln!(
+                                "⚠️ worker{worker_idx} 共享内存读取错误 [{date},{code}]: {err}，重启中..."
+                            );
+                            if result_tx
+                                .send(TaskResult {
+                                    date,
+                                    code,
+                                    timestamp: 0,
+                                    facs: vec![f32::NAN; expected_len],
+                                })
+                                .is_err()
+                            {
+                                kill_and_reap(&mut child);
+                                break 'outer;
+                            }
+                            kill_and_reap(&mut child);
+                            continue 'outer;
+                        }
+                    }
+                }
                 Ok(ResultMessage::Result(r)) => {
                     if strict_worker_errors && (r.date != date || r.code != code) {
                         kill_and_reap(&mut child);
@@ -1919,7 +2009,7 @@ fn run_single_worker_manager(
                     }
                     // 忽略意外的 Ready
                 }
-                Ok(ResultMessage::MinuteBatch(_)) => {
+                Ok(ResultMessage::MinuteBatch(_) | ResultMessage::ShmMinuteBatch { .. }) => {
                     if strict_worker_errors {
                         kill_and_reap(&mut child);
                         return Err(format!("worker{worker_idx} 任务 [{date},{code}] 返回了意外的整日结果"));
@@ -2347,12 +2437,96 @@ fn run_multiprocess_minute(
         }
         drop(task_tx);
 
-        // 结果 channel：MinuteBatch（整天一批，不拆分）
-        let (batch_tx, batch_rx) =
-            std::sync::mpsc::sync_channel::<(i64, Vec<TaskResult>)>(n_jobs * 2);
+        struct MinuteSharedWriter {
+            sharded_sink: crate::factor_store_v5::ShardedBackupSink,
+            store_dir: String,
+            failed: bool,
+            first_err: Option<String>,
+            write_pool: rayon::ThreadPool,
+        }
+        impl MinuteDaySink for MinuteSharedWriter {
+            fn is_failed(&self) -> bool {
+                self.failed
+            }
+            fn write_shm_day(
+                &mut self,
+                date: i64,
+                codes: &[&str],
+                flat_vals: &[f32],
+                n_cols: usize,
+            ) -> Result<(), ()> {
+                if self.failed {
+                    return Err(());
+                }
+                if codes.is_empty() {
+                    return Ok(());
+                }
+                let sharded = &self.sharded_sink;
+                let store_dir = &self.store_dir;
+                let res = self.write_pool.install(|| {
+                    sharded.append_date_flat(date, codes, flat_vals, n_cols)?;
+                    if !sharded.is_direct_segments() {
+                        sharded.commit_date(date)?;
+                        mark_date_complete(store_dir, date)?;
+                    }
+                    Ok::<(), String>(())
+                });
+                match res {
+                    Ok(()) => Ok(()),
+                    Err(e) => {
+                        self.failed = true;
+                        self.first_err.get_or_insert(e);
+                        Err(())
+                    }
+                }
+            }
+            fn write_vec_day(&mut self, date: i64, batch: &[TaskResult]) -> Result<(), ()> {
+                if self.failed {
+                    return Err(());
+                }
+                if batch.is_empty() {
+                    return Ok(());
+                }
+                let sharded = &self.sharded_sink;
+                let store_dir = &self.store_dir;
+                let res = self.write_pool.install(|| {
+                    sharded.append_date(date, batch)?;
+                    if !sharded.is_direct_segments() {
+                        sharded.commit_date(date)?;
+                        mark_date_complete(store_dir, date)?;
+                    }
+                    Ok::<(), String>(())
+                });
+                match res {
+                    Ok(()) => Ok(()),
+                    Err(e) => {
+                        self.failed = true;
+                        self.first_err.get_or_insert(e);
+                        Err(())
+                    }
+                }
+            }
+        }
+
+        let write_pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(WRITER_POOL_THREADS)
+            .build()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("建分钟 writer 线程池失败: {e}")))?;
+        let shared_writer = std::sync::Arc::new(Mutex::new(MinuteSharedWriter {
+            sharded_sink: sharded_sink.clone(),
+            store_dir: store_dir.clone(),
+            failed: false,
+            first_err: None,
+            write_pool,
+        }));
 
         let core_ids = if bind_cores {
             core_affinity::get_core_ids()
+        } else {
+            None
+        };
+        let numa_plan = if !bind_cores {
+            crate::shm_ipc::plan_worker_numa_cpulists(n_jobs, 1, "minute")
         } else {
             None
         };
@@ -2361,7 +2535,7 @@ fn run_multiprocess_minute(
         let mut handles = Vec::with_capacity(n_jobs);
         for worker_idx in 0..n_jobs {
             let task_rx = task_rx.clone();
-            let batch_tx = batch_tx.clone();
+            let shared_writer = shared_writer.clone();
             let params = params.clone();
             let oo_params = oo_params.clone();
             let pipeline_name = pipeline_name.clone();
@@ -2372,54 +2546,33 @@ fn run_multiprocess_minute(
             } else {
                 None
             };
+            let numa_cpulist = numa_plan
+                .as_ref()
+                .and_then(|plan| plan.get(worker_idx).cloned());
 
             let handle = std::thread::spawn(move || {
                 run_single_minute_worker(
                     &worker_bin,
                     worker_idx,
                     task_rx,
-                    batch_tx,
+                    shared_writer,
                     &params,
                     &oo_params,
                     &pipeline_name,
                     &trading_days,
                     expected_result_length,
                     core_affinity_idx,
+                    numa_cpulist,
                 )
             });
             handles.push(handle);
         }
-        drop(batch_tx);
-
-        // writer 线程：从写队列取整天批次 → append_batch → 成功后才 mark_date_complete。
-        // 写入失败会把错误传回主线程并停止标记完成，禁止“数据未写入但日期已完成”。
-        let (writer_err_tx, writer_err_rx) = std::sync::mpsc::channel::<String>();
-        let writer_handle = {
-            let sharded_c = sharded_sink.clone();
-            let store_dir_c = store_dir.clone();
-            std::thread::spawn(move || {
-                while let Ok((date, batch)) = batch_rx.recv() {
-                    if batch.is_empty() {
-                        continue;
-                    }
-                    if let Err(e) = sharded_c
-                        .append_date(date, &batch)
-                        .and_then(|_| sharded_c.commit_date(date))
-                        .and_then(|_| mark_date_complete(&store_dir_c, date))
-                    {
-                        let _ = writer_err_tx.send(e);
-                        break;
-                    }
-                }
-            })
-        };
 
         // 等待所有 worker 管理线程完成
         let managers_result = join_worker_managers(handles);
-        // batch_rx 排空 → writer recv 返回 Err → writer 退出
-        let _ = writer_handle.join();
         managers_result.map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
-        if let Ok(e) = writer_err_rx.try_recv() {
+        let maybe_err = shared_writer.lock().unwrap().first_err.take();
+        if let Some(e) = maybe_err {
             return Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
                 "分钟 colblk 批量写入失败: {e}"
             )));
@@ -2435,22 +2588,28 @@ fn run_multiprocess_minute(
 
 /// 单个分钟 worker 进程的管理器。
 #[allow(clippy::too_many_arguments)]
-fn run_single_minute_worker(
+fn run_single_minute_worker<W>(
     worker_bin: &str,
     worker_idx: usize,
     task_rx: crossbeam::channel::Receiver<i64>,
-    batch_tx: std::sync::mpsc::SyncSender<(i64, Vec<TaskResult>)>,
+    shared_writer: std::sync::Arc<Mutex<W>>,
     params: &Hm90Params,
     oo_params: &ObservableOrderParams,
     pipeline_name: &str,
     trading_days: &[i64],
     expected_len: usize,
     core_affinity_idx: Option<usize>,
-) -> Result<(), String> {
+    numa_cpulist: Option<String>,
+) -> Result<(), String>
+where
+    W: MinuteDaySink,
+{
     use std::io::{BufReader, BufWriter, Write};
     use std::process::{Command, Stdio};
 
     'outer: loop {
+        let mut shm_slot = crate::shm_ipc::ShmParentSlot::create(worker_idx);
+
         let mut cmd = Command::new(worker_bin);
         crate::worker_lifecycle::configure_parent(&mut cmd);
         cmd.stdin(Stdio::piped())
@@ -2466,6 +2625,11 @@ fn run_single_minute_worker(
         }
         if let Some(idx) = core_affinity_idx {
             cmd.env("RUST_PYFUNC_CORE_AFFINITY_IDX", idx.to_string());
+        } else if let Some(ref cpulist) = numa_cpulist {
+            cmd.env(crate::shm_ipc::ENV_NUMA_CPULIST, cpulist);
+        }
+        if let Some(ref slot) = shm_slot {
+            cmd.env(crate::shm_ipc::ENV_SHM_PATH, slot.path_str());
         }
 
         let mut child = match cmd.spawn() {
@@ -2490,7 +2654,11 @@ fn run_single_minute_worker(
             trading_days: trading_days.to_vec(),
             expected_len,
         };
-        initialize_worker(&mut child, &mut writer, &mut reader, &init_msg)?;
+        let init_res = initialize_worker(&mut child, &mut writer, &mut reader, &init_msg);
+        if let Some(ref mut slot) = shm_slot {
+            slot.unlink_now();
+        }
+        init_res?;
 
         // 内层循环：取 date → 发 MinuteTask → 收 MinuteBatch
         loop {
@@ -2506,15 +2674,65 @@ fn run_single_minute_worker(
 
             let task_msg = TaskMessage::MinuteTask { date };
             if ipc_write(&mut writer, &task_msg).is_err() {
-                let _ = batch_tx.send((date, Vec::new()));
+                if shared_writer.lock().unwrap().is_failed() {
+                    kill_and_reap(&mut child);
+                    break 'outer;
+                }
                 kill_and_reap(&mut child);
                 continue 'outer;
             }
 
             match ipc_read_result(&mut reader) {
+                Ok(ResultMessage::ShmMinuteBatch {
+                    date: r_date,
+                    slot_cap,
+                    used_bytes,
+                }) => {
+                    let borrow_res = match shm_slot.as_mut() {
+                        Some(slot) => slot.borrow_day_batch(slot_cap, used_bytes),
+                        None => Err("未启用共享内存槽却收到 ShmMinuteBatch".to_string()),
+                    };
+                    match borrow_res {
+                        Ok((codes, flat_vals, n_cols)) => {
+                            let n_stocks = codes.len();
+                            let write_ok = shared_writer
+                                .lock()
+                                .unwrap()
+                                .write_shm_day(r_date, &codes, flat_vals, n_cols)
+                                .is_ok();
+                            if !write_ok {
+                                kill_and_reap(&mut child);
+                                break 'outer;
+                            }
+                            eprintln!(
+                                "[{}] worker{worker_idx} 完成 {date}: {n_stocks} 股",
+                                Local::now().format("%H:%M:%S")
+                            );
+                        }
+                        Err(err) => {
+                            eprintln!(
+                                "⚠️ minute worker{worker_idx} 共享内存读取错误 [{date}]: {err}，重启中..."
+                            );
+                            if shared_writer.lock().unwrap().is_failed() {
+                                kill_and_reap(&mut child);
+                                break 'outer;
+                            }
+                            kill_and_reap(&mut child);
+                            continue 'outer;
+                        }
+                    }
+                }
                 Ok(ResultMessage::MinuteBatch(batch)) => {
                     let n_stocks = batch.len();
-                    let _ = batch_tx.send((date, batch));
+                    let write_ok = shared_writer
+                        .lock()
+                        .unwrap()
+                        .write_vec_day(date, &batch)
+                        .is_ok();
+                    if !write_ok {
+                        kill_and_reap(&mut child);
+                        break 'outer;
+                    }
                     eprintln!(
                         "[{}] worker{worker_idx} 完成 {date}: {n_stocks} 股",
                         Local::now().format("%H:%M:%S")
@@ -2522,14 +2740,20 @@ fn run_single_minute_worker(
                 }
                 Ok(ResultMessage::Error { date, code, msg }) => {
                     eprintln!("⚠️ minute worker{worker_idx} 错误 [{date},{code}]: {msg}");
-                    let _ = batch_tx.send((date, Vec::new()));
+                    if shared_writer.lock().unwrap().is_failed() {
+                        kill_and_reap(&mut child);
+                        break 'outer;
+                    }
                 }
                 Ok(_) => {
                     // 忽略意外的 Ready/Result
                 }
                 Err(_) => {
                     eprintln!("⚠️ minute worker{worker_idx} IPC 错误，重启中...");
-                    let _ = batch_tx.send((date, Vec::new()));
+                    if shared_writer.lock().unwrap().is_failed() {
+                        kill_and_reap(&mut child);
+                        break 'outer;
+                    }
                     kill_and_reap(&mut child);
                     continue 'outer;
                 }
@@ -2537,6 +2761,18 @@ fn run_single_minute_worker(
         }
     }
     Ok(())
+}
+
+trait MinuteDaySink: Send {
+    fn is_failed(&self) -> bool;
+    fn write_shm_day(
+        &mut self,
+        date: i64,
+        codes: &[&str],
+        flat_vals: &[f32],
+        n_cols: usize,
+    ) -> Result<(), ()>;
+    fn write_vec_day(&mut self, date: i64, batch: &[TaskResult]) -> Result<(), ()>;
 }
 
 // ============================================================
@@ -4001,7 +4237,7 @@ pub fn run_factor_pipeline_cross_section(
     // 标称 N 线程实际退化为单核。仅单线程 worker 才允许单核绑定。
     let effective_bind_cores = bind_cores && threads_per_worker == 1;
     if bind_cores && !effective_bind_cores {
-        println!("🧵 cross-section 多线程 worker 自动关闭单核绑定");
+        println!("🧵 cross-section 多线程 worker 自动关闭单核绑定（改用按处理器芯片 NUMA 就近绑定）");
     }
     println!("📊 横截面 pipeline: n_jobs={n_jobs} → {n_workers} 进程 × {threads_per_worker} 线程（待处理 {total} 天）");
 
@@ -4082,7 +4318,102 @@ fn project_within_budget(
     pool.install(|| sink.finish_and_project(threads))
 }
 
-/// 横截面 pipeline 的多进程调度（per-date 任务 → MinuteBatch 结果 → 整天写入 colblk）。
+struct CrossSectionSharedWriter {
+    sharded_sink: crate::factor_store_v5::ShardedBackupSink,
+    store_dir: String,
+    direct_write: bool,
+    total: usize,
+    start: std::time::Instant,
+    done: usize,
+    failed: bool,
+    first_err: Option<String>,
+    write_pool: rayon::ThreadPool,
+}
+
+impl CrossSectionSharedWriter {
+    fn is_failed(&self) -> bool {
+        self.failed
+    }
+
+    fn finish_day_status(&mut self, date: i64, n: usize, elapsed: f64, written: Result<(), String>) -> Result<(), ()> {
+        match written {
+            Ok(()) => {
+                self.done += 1;
+                eprintln!(
+                    "[{}] ✅ {date} {}: {n} 股 ({}/{}, {elapsed:.0}s)",
+                    Local::now().format("%H:%M:%S"),
+                    if self.direct_write { "已接收，完成状态以封段为准" } else { "完成" },
+                    self.done,
+                    self.total,
+                );
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!(
+                    "[{}] ❌ {date} 写入失败({n}股): {e} — 未标记完成，任务将以失败结束",
+                    Local::now().format("%H:%M:%S")
+                );
+                self.failed = true;
+                self.first_err.get_or_insert(e);
+                Err(())
+            }
+        }
+    }
+
+    fn write_shm_day(
+        &mut self,
+        date: i64,
+        codes: &[&str],
+        flat_vals: &[f32],
+        n_cols: usize,
+    ) -> Result<(), ()> {
+        if self.failed {
+            return Err(());
+        }
+        if codes.is_empty() {
+            return Ok(());
+        }
+        let n = codes.len();
+        let elapsed = self.start.elapsed().as_secs_f64();
+        let sharded = &self.sharded_sink;
+        let store_dir = &self.store_dir;
+        let direct_write = self.direct_write;
+        let written = self.write_pool.install(|| {
+            sharded.append_date_flat(date, codes, flat_vals, n_cols)?;
+            if !direct_write {
+                sharded.commit_date(date)?;
+                mark_date_complete(store_dir, date)?;
+            }
+            Ok::<(), String>(())
+        });
+        self.finish_day_status(date, n, elapsed, written)
+    }
+
+    fn write_vec_day(&mut self, date: i64, batch: &[TaskResult]) -> Result<(), ()> {
+        if self.failed {
+            return Err(());
+        }
+        if batch.is_empty() {
+            return Ok(());
+        }
+        let n = batch.len();
+        let elapsed = self.start.elapsed().as_secs_f64();
+        let sharded = &self.sharded_sink;
+        let store_dir = &self.store_dir;
+        let direct_write = self.direct_write;
+        let written = self.write_pool.install(|| {
+            sharded.append_date(date, batch)?;
+            if !direct_write {
+                sharded.commit_date(date)?;
+                mark_date_complete(store_dir, date)?;
+            }
+            Ok::<(), String>(())
+        });
+        self.finish_day_status(date, n, elapsed, written)
+    }
+}
+
+/// 横截面 pipeline 的多进程调度（per-date 任务 → `/dev/shm` 零拷贝平坦切片直写列段/colblk）。
 #[allow(clippy::too_many_arguments)]
 fn run_multiprocess_cross_section(
     py: Python<'_>,
@@ -4112,12 +4443,30 @@ fn run_multiprocess_cross_section(
         }
         drop(task_tx);
 
-        // 结果 channel：MinuteBatch（整天一批）
-        let (batch_tx, batch_rx) =
-            std::sync::mpsc::sync_channel::<(i64, Vec<TaskResult>)>(if direct_write { 1 } else { n_workers * 2 });
+        // 受控小池（固定 WRITER_POOL_THREADS = 2 线程，严格守住 n_jobs 预算，绝不初始化 512 核全局池）
+        let write_pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(WRITER_POOL_THREADS)
+            .build()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("建 writer 线程池失败: {e}")))?;
+        let shared_writer = std::sync::Arc::new(Mutex::new(CrossSectionSharedWriter {
+            sharded_sink: sharded_sink.clone(),
+            store_dir: store_dir.clone(),
+            direct_write,
+            total,
+            start,
+            done: 0,
+            failed: false,
+            first_err: None,
+            write_pool,
+        }));
 
         let core_ids = if bind_cores {
             core_affinity::get_core_ids()
+        } else {
+            None
+        };
+        let numa_plan = if !bind_cores {
+            crate::shm_ipc::plan_worker_numa_cpulists(n_workers, threads_per_worker, "cross-section")
         } else {
             None
         };
@@ -4126,7 +4475,7 @@ fn run_multiprocess_cross_section(
         let mut handles = Vec::with_capacity(n_workers);
         for worker_idx in 0..n_workers {
             let task_rx = task_rx.clone();
-            let batch_tx = batch_tx.clone();
+            let shared_writer = shared_writer.clone();
             let params = params.clone();
             let oo_params = oo_params.clone();
             let pipeline_name = pipeline_name.clone();
@@ -4137,6 +4486,9 @@ fn run_multiprocess_cross_section(
             } else {
                 None
             };
+            let numa_cpulist = numa_plan
+                .as_ref()
+                .and_then(|plan| plan.get(worker_idx).cloned());
 
             let handle = std::thread::spawn(move || {
                 run_single_cross_section_worker(
@@ -4145,86 +4497,37 @@ fn run_multiprocess_cross_section(
                     threads_per_worker,
                     n_workers,
                     task_rx,
-                    batch_tx,
+                    shared_writer,
                     &params,
                     &oo_params,
                     &pipeline_name,
                     &trading_days,
                     expected_result_length,
                     core_affinity_idx,
+                    numa_cpulist,
                 )
             });
             handles.push(handle);
         }
-        drop(batch_tx);
-
-        // writer 线程：整天批次 → append_batch → 成功后才 mark_date_complete（带进度日志）
-        let (writer_err_tx, writer_err_rx) = std::sync::mpsc::channel::<String>();
-        let writer_handle = {
-            let sharded_c = sharded_sink.clone();
-            let store_dir_c = store_dir.clone();
-            let mut done = 0usize;
-            // append_batch 内部用 rayon par_iter（跨 8 个 shard）。若走全局池会初始化
-            // num_cpus 个线程（512），n_jobs 就守不住了，所以固定用一个 4 线程小池。
-            let write_pool = rayon::ThreadPoolBuilder::new()
-                .num_threads(WRITER_POOL_THREADS)
-                .build()
-                .expect("建 writer 线程池失败");
-            std::thread::spawn(move || {
-                while let Ok((date, batch)) = batch_rx.recv() {
-                    if !batch.is_empty() {
-                        let n = batch.len();
-                        let elapsed = start.elapsed().as_secs_f64();
-                        let written = write_pool.install(|| {
-                            sharded_c.append_date(date, &batch)?;
-                            if !direct_write {
-                                sharded_c.commit_date(date)?;
-                                mark_date_complete(&store_dir_c, date)?;
-                            }
-                            Ok::<(), String>(())
-                        });
-                        match written {
-                            Ok(()) => {
-                                done += 1;
-                                eprintln!(
-                                    "[{}] ✅ {date} {}: {n} 股 ({done}/{total}, {elapsed:.0}s)",
-                                    Local::now().format("%H:%M:%S"),
-                                    if direct_write { "已接收，完成状态以封段为准" } else { "完成" }
-                                );
-                            }
-                            Err(e) => {
-                                // 写入失败: 不标记完成，错误传回主线程，整次任务失败。
-                                eprintln!(
-                                    "[{}] ❌ {date} 写入失败({n}股): {e} — 未标记完成，任务将以失败结束",
-                                    Local::now().format("%H:%M:%S")
-                                );
-                                let _ = writer_err_tx.send(e);
-                                break;
-                            }
-                        }
-                    }
-                }
-                // 收尾闭环：每个 pending 日期都必须有一个非空成功结果。
-                // 空 batch（worker Error/IPC 错误/空 universe）不写不标记，此前会静默变成
-                // "完成全部日期"——现在统一报错，绝不把缺日期当成成功。
-                // 因子作者若想表达"该日无数据"，应输出全 universe 的 NaN 行而不是空 batch。
-                if done < total {
-                    let _ = writer_err_tx.send(format!(
-                        "横截面计算收尾失败: 成功写入 {done}/{total} 个日期，                         其余 {}/{} 个日期为空结果或 worker 失败（未标记完成）",
-                        total - done,
-                        total
-                    ));
-                }
-            })
-        };
 
         // 等待所有 worker
         let managers_result = join_worker_managers(handles);
-        writer_handle.join().map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("横截面存储 writer 线程异常退出"))?;
         managers_result.map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
-        if let Ok(e) = writer_err_rx.try_recv() {
+        let (done, first_err) = {
+            let mut w = shared_writer.lock().unwrap();
+            (w.done, w.first_err.take())
+        };
+        if let Some(e) = first_err {
             return Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
                 "横截面因子批量写入失败: {e}"
+            )));
+        }
+        // 收尾闭环：每个 pending 日期都必须有一个非空成功结果。
+        if done < total {
+            return Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
+                "横截面因子批量写入失败: 横截面计算收尾失败: 成功写入 {done}/{total} 个日期，其余 {}/{} 个日期为空结果或 worker 失败（未标记完成）",
+                total - done,
+                total
             )));
         }
         Ok(())
@@ -4247,20 +4550,23 @@ fn run_single_cross_section_worker(
     worker_bin: &str,
     worker_idx: usize,
     threads_per_worker: usize,
-    n_workers: usize,
+    _n_workers: usize,
     task_rx: crossbeam::channel::Receiver<i64>,
-    batch_tx: std::sync::mpsc::SyncSender<(i64, Vec<TaskResult>)>,
+    shared_writer: std::sync::Arc<Mutex<CrossSectionSharedWriter>>,
     params: &Hm90Params,
     oo_params: &ObservableOrderParams,
     pipeline_name: &str,
     trading_days: &[i64],
     expected_len: usize,
     core_affinity_idx: Option<usize>,
+    numa_cpulist: Option<String>,
 ) -> Result<(), String> {
     use std::io::{BufReader, BufWriter, Write};
     use std::process::{Command, Stdio};
 
     'outer: loop {
+        let mut shm_slot = crate::shm_ipc::ShmParentSlot::create(worker_idx);
+
         let mut cmd = Command::new(worker_bin);
         crate::worker_lifecycle::configure_parent(&mut cmd);
         cmd.stdin(Stdio::piped())
@@ -4282,6 +4588,11 @@ fn run_single_cross_section_worker(
         }
         if let Some(idx) = core_affinity_idx {
             cmd.env("RUST_PYFUNC_CORE_AFFINITY_IDX", idx.to_string());
+        } else if let Some(ref cpulist) = numa_cpulist {
+            cmd.env(crate::shm_ipc::ENV_NUMA_CPULIST, cpulist);
+        }
+        if let Some(ref slot) = shm_slot {
+            cmd.env(crate::shm_ipc::ENV_SHM_PATH, slot.path_str());
         }
 
         let mut child = match cmd.spawn() {
@@ -4306,9 +4617,13 @@ fn run_single_cross_section_worker(
             trading_days: trading_days.to_vec(),
             expected_len,
         };
-        initialize_worker(&mut child, &mut writer, &mut reader, &init_msg)?;
+        let init_res = initialize_worker(&mut child, &mut writer, &mut reader, &init_msg);
+        if let Some(ref mut slot) = shm_slot {
+            slot.unlink_now();
+        }
+        init_res?;
 
-        // 内层循环：取 date → 发 MinuteTask → 收 MinuteBatch
+        // 内层循环：取 date → 发 MinuteTask → 收共享内存或管道整日结果
         loop {
             let date = match task_rx.recv() {
                 Ok(d) => d,
@@ -4322,8 +4637,7 @@ fn run_single_cross_section_worker(
 
             let task_msg = TaskMessage::MinuteTask { date };
             if ipc_write(&mut writer, &task_msg).is_err() {
-                // batch channel 已死（writer 失败已退出）→ 本管理器立即退出。
-                if batch_tx.send((date, Vec::new())).is_err() {
+                if shared_writer.lock().unwrap().is_failed() {
                     kill_and_reap(&mut child);
                     break 'outer;
                 }
@@ -4332,18 +4646,54 @@ fn run_single_cross_section_worker(
             }
 
             match ipc_read_result(&mut reader) {
+                Ok(ResultMessage::ShmMinuteBatch {
+                    date: r_date,
+                    slot_cap,
+                    used_bytes,
+                }) => {
+                    let borrow_res = match shm_slot.as_mut() {
+                        Some(slot) => slot.borrow_day_batch(slot_cap, used_bytes),
+                        None => Err("未启用共享内存槽却收到 ShmMinuteBatch".to_string()),
+                    };
+                    match borrow_res {
+                        Ok((codes, flat_vals, n_cols)) => {
+                            let write_ok = shared_writer
+                                .lock()
+                                .unwrap()
+                                .write_shm_day(r_date, &codes, flat_vals, n_cols)
+                                .is_ok();
+                            if !write_ok {
+                                kill_and_reap(&mut child);
+                                break 'outer;
+                            }
+                        }
+                        Err(err) => {
+                            eprintln!(
+                                "⚠️ cross_section worker{worker_idx} 共享内存读取错误 [{date}]: {err}，重启中..."
+                            );
+                            if shared_writer.lock().unwrap().is_failed() {
+                                kill_and_reap(&mut child);
+                                break 'outer;
+                            }
+                            kill_and_reap(&mut child);
+                            continue 'outer;
+                        }
+                    }
+                }
                 Ok(ResultMessage::MinuteBatch(batch)) => {
-                    // 每天每个 worker 一行「worker{i} 完成 <date>: N 股」在 8 进程下
-                    // 是每天 8 行，信息与 writer 线程的「✅ <date> 完成: N 股 (x/total, Ts)」
-                    // 重复，只有 worker 编号是额外的。这里不再打印。
-                    if batch_tx.send((date, batch)).is_err() {
+                    let write_ok = shared_writer
+                        .lock()
+                        .unwrap()
+                        .write_vec_day(date, &batch)
+                        .is_ok();
+                    if !write_ok {
                         kill_and_reap(&mut child);
                         break 'outer;
                     }
                 }
                 Ok(ResultMessage::Error { date, code, msg }) => {
                     eprintln!("⚠️ cross_section worker{worker_idx} 错误 [{date},{code}]: {msg}");
-                    if batch_tx.send((date, Vec::new())).is_err() {
+                    if shared_writer.lock().unwrap().is_failed() {
                         kill_and_reap(&mut child);
                         break 'outer;
                     }
@@ -4351,7 +4701,7 @@ fn run_single_cross_section_worker(
                 Ok(_) => {}
                 Err(_) => {
                     eprintln!("⚠️ cross_section worker{worker_idx} IPC 错误，重启中...");
-                    if batch_tx.send((date, Vec::new())).is_err() {
+                    if shared_writer.lock().unwrap().is_failed() {
                         kill_and_reap(&mut child);
                         break 'outer;
                     }
