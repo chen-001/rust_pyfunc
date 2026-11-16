@@ -47,7 +47,6 @@
 
 use crate::allo_microstructure::{self, AlloBlock};
 use crate::allo_microstructure_v3::{self, AlloBlockV3};
-use crate::data_paths;
 use crate::features_f64::{self, FeatureOpts};
 use ndarray::Array2;
 
@@ -392,17 +391,7 @@ fn split_fields<'a>(line: &'a [u8], out: &mut [&'a [u8]], n: usize) -> usize {
     commas + 1
 }
 
-/// 读文件的字节（在 level2 根目录里按 <date>/<subdir>/<code>_<date>_<subdir>.csv 找）。
-fn read_csv_bytes(code: &str, date: i64, subdir: &str) -> Option<Vec<u8>> {
-    let filename = format!("{}_{}_{}.csv", code, date, subdir);
-    for root in data_paths::level2_roots() {
-        let path = root.join(date.to_string()).join(subdir).join(&filename);
-        if let Ok(bytes) = std::fs::read(&path) {
-            return Some(bytes);
-        }
-    }
-    None
-}
+
 
 /// 窗口常量（adjust_afternoon 的两段，微秒级闭区间）。
 const DAY_NS: i64 = 86_400 * 1_000_000_000;
@@ -423,7 +412,7 @@ fn read_trade_day(code: &str, date: i64) -> Option<(Vec<i64>, Vec<f64>, Vec<f64>
     const COL_FLAG: usize = 10;
     const NCOLS: usize = 15;
 
-    let data = read_csv_bytes(code, date, "transaction")?;
+    crate::fast_csv_reader::with_transaction_csv_bytes(code, date, |data| {
     let mut morning: Vec<(i64, f64, f64, f64, i32)> = Vec::new();
     let mut afternoon: Vec<(i64, f64, f64, f64, i32)> = Vec::new();
     for (lineno, line) in data.split(|&b| b == b'\n').enumerate() {
@@ -472,6 +461,8 @@ fn read_trade_day(code: &str, date: i64) -> Option<(Vec<i64>, Vec<f64>, Vec<f64>
         f.push(e);
     }
     Some((t, p, v, to, f))
+
+    }).ok()?
 }
 
 /// 一天的盘口：exchtime 纳秒 + 10 档 bid/ask 价量。
@@ -490,7 +481,7 @@ fn read_market_day(code: &str, date: i64) -> Option<MarketDay> {
     const NCOLS: usize = 61;
     const LEVELS: usize = 10;
 
-    let data = read_csv_bytes(code, date, "market_data")?;
+    crate::fast_csv_reader::with_market_csv_bytes(code, date, |data| {
     // 时间戳是 1.7e18 量级的纳秒，超出 f64 能精确表示整数的范围（2^53），必须用 i64 存。
     let mut morning: Vec<(i64, [f64; 40])> = Vec::new();
     let mut afternoon: Vec<(i64, [f64; 40])> = Vec::new();
@@ -547,6 +538,8 @@ fn read_market_day(code: &str, date: i64) -> Option<MarketDay> {
         }
     }
     Some(out)
+
+    }).ok()?
 }
 
 // ============================================================================

@@ -80,7 +80,6 @@
 //! `mai3dan1_corr_shi2jian1jian4ge230perc_jia4ge2_trend_volumeju4he2_sameside`
 //! 出现两次（一项本来带 `_fold`），按规范第二项加 `_dup2` 后缀，值不变、列数不变。
 
-use crate::data_paths;
 use crate::features_f64;
 use ndarray::Array2;
 
@@ -601,19 +600,7 @@ fn read_day(code: &str, date: i64) -> Option<Vec<Row>> {
     const COL_ASK_ORDER: usize = 13;
     const COL_BID_ORDER: usize = 14;
 
-    let filename = format!("{}_{}_transaction.csv", code, date);
-    let mut data = None;
-    for root in data_paths::level2_roots() {
-        let path = root
-            .join(date.to_string())
-            .join("transaction")
-            .join(&filename);
-        if let Ok(bytes) = std::fs::read(&path) {
-            data = Some(bytes);
-            break;
-        }
-    }
-    let data = data?;
+    crate::fast_csv_reader::with_transaction_csv_bytes(code, date, |data| {
 
     let mut morning: Vec<Row> = Vec::new();
     let mut afternoon: Vec<Row> = Vec::new();
@@ -670,6 +657,8 @@ fn read_day(code: &str, date: i64) -> Option<Vec<Row>> {
         return None;
     }
     Some(morning)
+
+    }).ok()?
 }
 
 // ────────────────────────── 排序后的当日数据 ──────────────────────────

@@ -78,8 +78,6 @@
 //! 所以 NaN 行要照样保留。
 
 use std::collections::HashSet;
-use std::fs::File;
-use std::io::Read;
 
 /// 盘口 CSV 的列索引（0 基，与 fast_csv_reader 的常量一致）
 const MKT_COL_EXCHTIME: usize = 4;
@@ -237,19 +235,7 @@ struct Snapshot {
 /// 读 market_data CSV（f64）。行集与 pandas 读整张表一致；exchtime==0 的行也读进来，
 /// 它们会被时段窗口滤掉（旧代码路径完全一样）。
 fn read_market_f64(code: &str, date: i64) -> Option<Vec<Snapshot>> {
-    let filename = format!("{}_{}_market_data.csv", code, date);
-    let mut path = None;
-    for root in crate::data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join("market_data").join(&filename);
-        if p.exists() {
-            path = Some(p);
-            break;
-        }
-    }
-    let path = path?;
-
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_market_csv_str(code, date, |content| {
 
     let mut out: Vec<Snapshot> = Vec::with_capacity(content.len() / 200 + 1);
     let mut lines = content.lines();
@@ -294,6 +280,8 @@ fn read_market_f64(code: &str, date: i64) -> Option<Vec<Snapshot>> {
         out.push(row);
     }
     Some(out)
+
+    }).ok()?
 }
 
 // ============================================================================

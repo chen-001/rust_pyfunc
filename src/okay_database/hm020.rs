@@ -66,8 +66,6 @@
 //!      同理 volume 也是逐行累加再相除，全程按 f64 走。
 //!   列索引与 fast_csv_reader 的常量保持一致（2018 年及以前末尾多一列 num，不影响前 15 列）。
 
-use std::fs::File;
-use std::io::Read;
 
 /// 撤单标记：成交明细里 flag==32 表示这一行是撤单记录
 const FLAG_RETREAT: i64 = 32;
@@ -182,19 +180,7 @@ fn parse_f64_at(b: &[u8]) -> f64 {
 /// （上游会补 NaN）。文件存在但没有数据行时返回空 Vec，此时旧代码照样返回 16 个值
 /// （sum 为 0、autocorr 为 NaN），所以这里不能把空表当成 None。
 fn read_trade_f64(code: &str, date: i64) -> Option<Vec<TradeRow>> {
-    let filename = format!("{}_{}_transaction.csv", code, date);
-    let mut path = None;
-    for root in crate::data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join("transaction").join(&filename);
-        if p.exists() {
-            path = Some(p);
-            break;
-        }
-    }
-    let path = path?;
-
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_transaction_csv_str(code, date, |content| {
 
     let mut out: Vec<TradeRow> = Vec::with_capacity(content.len() / 120 + 1);
     let mut lines = content.lines();
@@ -231,6 +217,8 @@ fn read_trade_f64(code: &str, date: i64) -> Option<Vec<TradeRow>> {
         });
     }
     Some(out)
+
+    }).ok()?
 }
 
 // ============================================================================

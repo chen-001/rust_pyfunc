@@ -157,6 +157,102 @@ fn open_stock_file(date: i64, subdir: &str, filename: &str) -> std::io::Result<F
     ))
 }
 
+/// 统一底层 Level2 文件字节读取入口（按 date + subdir + filename 解析路径）：
+/// - 单次 `File::open`（省去前置 `exists()` 与二次打开）
+/// - 复用线程局部 `Vec<u8>` 缓冲（免堆重分配与 UTF-8 校验，超大文件后自动缩回 8 MiB）
+/// - 解析闭包返回后**无条件**调用 `POSIX_FADV_DONTNEED` 释放 OS 页缓存
+///
+/// 仓库内所有需要自定义列裁剪/特殊行序（如旧框架 `hmXXX` 复现）的模块，
+/// 必须通过本函数或其包装器读取原始字节，禁止自行 `File::open` / `std::fs::read`。
+pub fn with_stock_csv_bytes<T>(
+    date: i64,
+    subdir: &str,
+    filename: &str,
+    parse_fn: impl FnOnce(&[u8]) -> T,
+) -> std::io::Result<T> {
+    let mut file = open_stock_file(date, subdir, filename)?;
+    let file_size = file.metadata().map(|m| m.len() as usize).unwrap_or(0);
+    let res = read_file_bytes_with(&mut file, file_size, parse_fn);
+    drop_page_cache_file(&file);
+    res
+}
+
+/// 统一底层逐笔成交（`transaction`）原始字节读取入口。
+#[inline]
+pub fn with_transaction_csv_bytes<T>(
+    code: &str,
+    date: i64,
+    parse_fn: impl FnOnce(&[u8]) -> T,
+) -> std::io::Result<T> {
+    let filename = format!("{}_{}_transaction.csv", code, date);
+    with_stock_csv_bytes(date, "transaction", &filename, parse_fn)
+}
+
+/// 统一底层盘口快照（`market_data`）原始字节读取入口。
+#[inline]
+pub fn with_market_csv_bytes<T>(
+    code: &str,
+    date: i64,
+    parse_fn: impl FnOnce(&[u8]) -> T,
+) -> std::io::Result<T> {
+    let filename = format!("{}_{}_market_data.csv", code, date);
+    with_stock_csv_bytes(date, "market_data", &filename, parse_fn)
+}
+
+/// 统一底层 Level2 文件字符串视图读取入口（复用线程局部字节缓冲，零 `String` 分配，读后立即释放页缓存）。
+pub fn with_stock_csv_str<T>(
+    date: i64,
+    subdir: &str,
+    filename: &str,
+    parse_fn: impl FnOnce(&str) -> T,
+) -> std::io::Result<T> {
+    let mut file = open_stock_file(date, subdir, filename)?;
+    let file_size = file.metadata().map(|m| m.len() as usize).unwrap_or(0);
+    let res = read_file_bytes_with(&mut file, file_size, |bytes| {
+        std::str::from_utf8(bytes)
+            .map(parse_fn)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+    });
+    drop_page_cache_file(&file);
+    res?
+}
+
+/// 统一底层逐笔成交（`transaction`）字符串视图读取入口。
+#[inline]
+pub fn with_transaction_csv_str<T>(
+    code: &str,
+    date: i64,
+    parse_fn: impl FnOnce(&str) -> T,
+) -> std::io::Result<T> {
+    let filename = format!("{}_{}_transaction.csv", code, date);
+    with_stock_csv_str(date, "transaction", &filename, parse_fn)
+}
+
+/// 统一底层盘口快照（`market_data`）字符串视图读取入口。
+#[inline]
+pub fn with_market_csv_str<T>(
+    code: &str,
+    date: i64,
+    parse_fn: impl FnOnce(&str) -> T,
+) -> std::io::Result<T> {
+    let filename = format!("{}_{}_market_data.csv", code, date);
+    with_stock_csv_str(date, "market_data", &filename, parse_fn)
+}
+
+
+/// 统一底层按显式路径读取 Level2 CSV 原始字节（供已通过 `read_dir` 拿到 `Path` 的模块复用）：
+/// 单次 `File::open` + 线程局部字节缓冲复用 + 读后立即 `POSIX_FADV_DONTNEED` 丢弃页缓存。
+pub fn with_csv_path_bytes<T>(
+    path: &std::path::Path,
+    parse_fn: impl FnOnce(&[u8]) -> T,
+) -> std::io::Result<T> {
+    let mut file = File::open(path)?;
+    let file_size = file.metadata().map(|m| m.len() as usize).unwrap_or(0);
+    let res = read_file_bytes_with(&mut file, file_size, parse_fn);
+    drop_page_cache_file(&file);
+    res
+}
+
 /// 把代码字段规范成“去掉前导 0 的纯数字”，用于按数值比较股票代码。
 /// 去掉首尾空格和末尾的 ".0"/".00" 这类小数写法；不是纯数字时返回 None。
 /// 全是 0 时保留一个 "0"。
@@ -1592,3 +1688,374 @@ fn parse_chunk_light(
     }
     out
 }
+
+// ============================================================================
+// 双精度标准读取（TradeRecordF64 / MarketRecordF64）：
+// 供对价格/成交额 f64 精度敏感、或需要委托序号 index / 涨跌停价 / 原始日内秒数的因子统一复用，
+// 消除各因子模块自行复制一套 reader 导致的页缓存泄漏与多套解析漂移。
+// ============================================================================
+
+const COL_INDEX: usize = 6;
+
+/// 全精度逐笔成交记录（f64 量价 + 委托序号 index + 原始日内秒数 raw_sec）。
+#[derive(Clone, Copy, Debug, Default)]
+pub struct TradeRecordF64 {
+    pub time_us: i64,
+    pub time_sec: f64,
+    pub price: f64,
+    pub volume: f64,
+    pub turnover: f64,
+    pub flag: i32,
+    pub bid_order: i64,
+    pub ask_order: i64,
+    pub index: i64,
+    pub raw_sec: u32,
+}
+
+/// 全精度 10 档盘口快照记录（f64 量价 + 涨跌停价 + 原始日内秒数 raw_sec）。
+#[derive(Clone, Copy, Debug, Default)]
+pub struct MarketRecordF64 {
+    pub time_us: i64,
+    pub time_sec: f64,
+    pub last_prc: f64,
+    pub volume: f64,
+    pub turnover: f64,
+    pub total_ask_vol: f64,
+    pub total_bid_vol: f64,
+    pub high_limited: f64,
+    pub low_limited: f64,
+    pub raw_sec: u32,
+    pub ask_prcs: [f64; 10],
+    pub ask_vols: [f64; 10],
+    pub bid_prcs: [f64; 10],
+    pub bid_vols: [f64; 10],
+}
+
+/// 由已解析字段构造 `TradeRecordF64`（供读盘与外部数组传入路径共用）。
+#[allow(clippy::too_many_arguments)]
+#[inline]
+pub fn build_trade_record_f64(
+    exchtime_us: i64,
+    price: f64,
+    volume: f64,
+    turnover: f64,
+    flag: i32,
+    bid_order: i64,
+    ask_order: i64,
+    index: i64,
+    with_afternoon_adjust: bool,
+) -> Option<TradeRecordF64> {
+    if exchtime_us == 0 {
+        return None;
+    }
+    const OFFSET_US: i64 = 8 * 3600 * 1_000_000;
+    const SHIFT_US: i64 = AFTERNOON_SHIFT_SEC * 1_000_000;
+    let total_us = exchtime_us + OFFSET_US;
+    let day_offset = ((exchtime_us / 1_000_000) + 8 * 3600).rem_euclid(86400);
+    let final_us = if with_afternoon_adjust {
+        if day_offset >= AFTERNOON_START_SEC && day_offset <= AFTERNOON_END_SEC {
+            total_us - SHIFT_US
+        } else if day_offset >= MORNING_START_SEC && day_offset <= MORNING_END_SEC {
+            total_us
+        } else {
+            return None;
+        }
+    } else {
+        total_us
+    };
+    Some(TradeRecordF64 {
+        time_us: final_us,
+        time_sec: (final_us as f64) / 1_000_000.0,
+        price,
+        volume,
+        turnover,
+        flag,
+        bid_order,
+        ask_order,
+        index,
+        raw_sec: day_offset as u32,
+    })
+}
+
+/// 由已解析字段构造 `MarketRecordF64`（供读盘与外部数组传入路径共用）。
+#[allow(clippy::too_many_arguments)]
+#[inline]
+pub fn build_market_record_f64(
+    exchtime_us: i64,
+    last_prc: f64,
+    volume: f64,
+    turnover: f64,
+    total_ask_vol: f64,
+    total_bid_vol: f64,
+    high_limited: f64,
+    low_limited: f64,
+    ask_prcs: [f64; 10],
+    ask_vols: [f64; 10],
+    bid_prcs: [f64; 10],
+    bid_vols: [f64; 10],
+    with_high_low_limited: bool,
+    with_afternoon_adjust: bool,
+) -> Option<MarketRecordF64> {
+    if !with_high_low_limited && (ask_prcs[0] == 0.0 || bid_prcs[0] == 0.0) {
+        return None;
+    }
+    if exchtime_us == 0 {
+        return None;
+    }
+    const OFFSET_US: i64 = 8 * 3600 * 1_000_000;
+    const SHIFT_US: i64 = AFTERNOON_SHIFT_SEC * 1_000_000;
+    let total_us = exchtime_us + OFFSET_US;
+    let day_offset = ((exchtime_us / 1_000_000) + 8 * 3600).rem_euclid(86400);
+    let final_us = if with_afternoon_adjust {
+        if day_offset >= AFTERNOON_START_SEC && day_offset <= AFTERNOON_END_SEC {
+            total_us - SHIFT_US
+        } else if day_offset >= MORNING_START_SEC && day_offset <= MORNING_END_SEC {
+            total_us
+        } else {
+            return None;
+        }
+    } else {
+        total_us
+    };
+    Some(MarketRecordF64 {
+        time_us: final_us,
+        time_sec: (final_us as f64) / 1_000_000.0,
+        last_prc,
+        volume,
+        turnover,
+        total_ask_vol,
+        total_bid_vol,
+        high_limited,
+        low_limited,
+        raw_sec: day_offset as u32,
+        ask_prcs,
+        ask_vols,
+        bid_prcs,
+        bid_vols,
+    })
+}
+
+#[inline]
+fn parse_line_f64(
+    line: &[u8],
+    with_retreat: bool,
+    with_afternoon_adjust: bool,
+    code: &str,
+    date: i64,
+) -> Option<TradeRecordF64> {
+    if line.is_empty() {
+        return None;
+    }
+    let mut fields: [&[u8]; 15] = [&[][..]; 15];
+    let mut start = 0usize;
+    let mut col = 0usize;
+    for i in memchr::memchr_iter(b',', line) {
+        if col < 15 {
+            fields[col] = &line[start..i];
+        }
+        col += 1;
+        start = i + 1;
+    }
+    if col < 15 {
+        fields[col] = &line[start..];
+    }
+    if !symbol_field_matches(fields[0], code) || parse_i64_fast(fields[2]) != date {
+        return None;
+    }
+    let flag_bytes = fields[COL_FLAG];
+    let flag = if flag_bytes.is_empty() {
+        0
+    } else {
+        parse_i64_fast(flag_bytes) as i32
+    };
+    if !with_retreat && flag == 32 {
+        return None;
+    }
+    build_trade_record_f64(
+        parse_i64_fast(fields[COL_EXCHTIME]),
+        parse_f64_fast(fields[COL_PRICE]),
+        parse_f64_fast(fields[COL_VOLUME]),
+        parse_f64_fast(fields[COL_TURNOVER]),
+        flag,
+        parse_i64_fast(fields[COL_BID_ORDER]),
+        parse_i64_fast(fields[COL_ASK_ORDER]),
+        parse_i64_fast(fields[COL_INDEX]),
+        with_afternoon_adjust,
+    )
+}
+
+fn parse_chunk_f64(
+    data: &[u8],
+    with_retreat: bool,
+    with_afternoon_adjust: bool,
+    code: &str,
+    date: i64,
+) -> Vec<TradeRecordF64> {
+    let mut out = Vec::with_capacity(data.len() / 80 + 1);
+    let mut start = 0usize;
+    for nl in memchr::memchr_iter(b'\n', data) {
+        let line = &data[start..nl];
+        let line = if line.last() == Some(&b'\r') {
+            &line[..line.len() - 1]
+        } else {
+            line
+        };
+        if let Some(rec) = parse_line_f64(line, with_retreat, with_afternoon_adjust, code, date) {
+            out.push(rec);
+        }
+        start = nl + 1;
+    }
+    if start < data.len() {
+        let line = &data[start..];
+        let line = if line.last() == Some(&b'\r') {
+            &line[..line.len() - 1]
+        } else {
+            line
+        };
+        if let Some(rec) = parse_line_f64(line, with_retreat, with_afternoon_adjust, code, date) {
+            out.push(rec);
+        }
+    }
+    out
+}
+
+#[inline]
+fn parse_market_line_f64(
+    line: &[u8],
+    with_high_low_limited: bool,
+    with_afternoon_adjust: bool,
+    code: &str,
+    date: i64,
+) -> Option<MarketRecordF64> {
+    if line.is_empty() {
+        return None;
+    }
+    let mut fields: [&[u8]; 61] = [&[][..]; 61];
+    let mut start = 0usize;
+    let mut col = 0usize;
+    for i in memchr::memchr_iter(b',', line) {
+        if col < 61 {
+            fields[col] = &line[start..i];
+        }
+        col += 1;
+        start = i + 1;
+    }
+    if col < 61 {
+        fields[col] = &line[start..];
+    }
+    if !symbol_field_matches(fields[0], code) || parse_i64_fast(fields[2]) != date {
+        return None;
+    }
+    let ask_prc1 = parse_f64_fast(fields[MKT_COL_ASK_PRC_BASE]);
+    let bid_prc1 = parse_f64_fast(fields[MKT_COL_ASK_PRC_BASE + 2]);
+    if !with_high_low_limited && (ask_prc1 == 0.0 || bid_prc1 == 0.0) {
+        return None;
+    }
+    let exchtime_us = parse_i64_fast(fields[MKT_COL_EXCHTIME]);
+    if exchtime_us == 0 {
+        return None;
+    }
+    let mut ask_prcs = [0.0f64; 10];
+    let mut ask_vols = [0.0f64; 10];
+    let mut bid_prcs = [0.0f64; 10];
+    let mut bid_vols = [0.0f64; 10];
+    ask_prcs[0] = ask_prc1;
+    ask_vols[0] = parse_f64_fast(fields[MKT_COL_ASK_PRC_BASE + 1]);
+    bid_prcs[0] = bid_prc1;
+    bid_vols[0] = parse_f64_fast(fields[MKT_COL_ASK_PRC_BASE + 3]);
+    for i in 1..10 {
+        let base = MKT_COL_ASK_PRC_BASE + i * 4;
+        ask_prcs[i] = parse_f64_fast(fields[base]);
+        ask_vols[i] = parse_f64_fast(fields[base + 1]);
+        bid_prcs[i] = parse_f64_fast(fields[base + 2]);
+        bid_vols[i] = parse_f64_fast(fields[base + 3]);
+    }
+    build_market_record_f64(
+        exchtime_us,
+        parse_f64_fast(fields[MKT_COL_LAST_PRC]),
+        parse_f64_fast(fields[MKT_COL_VOLUME]),
+        parse_f64_fast(fields[MKT_COL_TURNOVER]),
+        parse_f64_fast(fields[MKT_COL_TOTAL_ASK_VOL]),
+        parse_f64_fast(fields[MKT_COL_TOTAL_BID_VOL]),
+        parse_f64_fast(fields[MKT_COL_HIGH_LIMITED]),
+        parse_f64_fast(fields[MKT_COL_LOW_LIMITED]),
+        ask_prcs,
+        ask_vols,
+        bid_prcs,
+        bid_vols,
+        true,
+        with_afternoon_adjust,
+    )
+}
+
+fn parse_market_chunk_f64(
+    data: &[u8],
+    with_high_low_limited: bool,
+    with_afternoon_adjust: bool,
+    code: &str,
+    date: i64,
+) -> Vec<MarketRecordF64> {
+    let mut out = Vec::with_capacity(data.len() / 200 + 1);
+    let mut start = 0usize;
+    for nl in memchr::memchr_iter(b'\n', data) {
+        let line = &data[start..nl];
+        let line = if line.last() == Some(&b'\r') {
+            &line[..line.len() - 1]
+        } else {
+            line
+        };
+        if let Some(rec) = parse_market_line_f64(
+            line,
+            with_high_low_limited,
+            with_afternoon_adjust,
+            code,
+            date,
+        ) {
+            out.push(rec);
+        }
+        start = nl + 1;
+    }
+    if start < data.len() {
+        let line = &data[start..];
+        let line = if line.last() == Some(&b'\r') {
+            &line[..line.len() - 1]
+        } else {
+            line
+        };
+        if let Some(rec) = parse_market_line_f64(
+            line,
+            with_high_low_limited,
+            with_afternoon_adjust,
+            code,
+            date,
+        ) {
+            out.push(rec);
+        }
+    }
+    out
+}
+
+/// 统一全精度（f64）逐笔成交读取：单次打开 + 线程缓冲复用 + 读完立即释放 OS 页缓存。
+pub fn read_trade_f64_inner(
+    code: &str,
+    date: i64,
+    with_retreat: bool,
+    with_afternoon_adjust: bool,
+) -> std::io::Result<Vec<TradeRecordF64>> {
+    with_transaction_csv_bytes(code, date, |bytes| {
+        parse_chunk_f64(bytes, with_retreat, with_afternoon_adjust, code, date)
+    })
+}
+
+/// 统一全精度（f64）10 档盘口快照读取：单次打开 + 线程缓冲复用 + 读完立即释放 OS 页缓存。
+pub fn read_market_f64_inner(
+    code: &str,
+    date: i64,
+    with_high_low_limited: bool,
+    with_afternoon_adjust: bool,
+) -> std::io::Result<Vec<MarketRecordF64>> {
+    with_market_csv_bytes(code, date, |bytes| {
+        parse_market_chunk_f64(bytes, with_high_low_limited, with_afternoon_adjust, code, date)
+    })
+}
+

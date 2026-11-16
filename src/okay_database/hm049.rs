@@ -73,8 +73,6 @@
 //!   极小值并列 25 次、其中 4 次与 numpy 的选择不同。这 4 个量**不在** names_save /
 //!   names_in_db / gap5 / gap1 任何一张名单里，不会进因子库。
 
-use std::fs::File;
-use std::io::Read;
 
 /// 盘口 CSV 的列索引（0 基）
 const MKT_COL_EXCHTIME: usize = 4;
@@ -273,19 +271,7 @@ impl Frame {
 /// 读一天的盘口（f64），做 between_time + 下午前移 + 成交量差分。
 /// 顺序严格按旧代码：先上午段（原行序）再下午段（原行序、时刻 -90 分钟）。
 fn read_day(code: &str, date: i64) -> Option<Frame> {
-    let filename = format!("{}_{}_market_data.csv", code, date);
-    let mut path = None;
-    for root in crate::data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join("market_data").join(&filename);
-        if p.exists() {
-            path = Some(p);
-            break;
-        }
-    }
-    let path = path?;
-
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_market_csv_str(code, date, |content| {
 
     let mut f = Frame::default(); // 上午段
     let mut raw_vol: Vec<f64> = Vec::new();
@@ -353,6 +339,8 @@ fn read_day(code: &str, date: i64) -> Option<Frame> {
     }
     f.vol = dv;
     Some(f)
+
+    }).ok()?
 }
 
 fn append_frame(dst: &mut Frame, src: &Frame) {

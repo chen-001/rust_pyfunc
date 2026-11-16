@@ -72,8 +72,6 @@
 //! 这里用「按值稳定排序」代替。实测这 48 个数组一次都没触发。
 
 use std::collections::VecDeque;
-use std::fs::File;
-use std::io::Read;
 
 // ============================================================================
 // 时间常量
@@ -214,16 +212,7 @@ fn split_fields<'a>(line: &'a [u8], f: &mut [&'a [u8]]) {
     }
 }
 
-fn find_file(code: &str, date: i64, kind: &str, suffix: &str) -> Option<std::path::PathBuf> {
-    let filename = format!("{}_{}_{}.csv", code, date, suffix);
-    for root in crate::data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join(kind).join(&filename);
-        if p.exists() {
-            return Some(p);
-        }
-    }
-    None
-}
+
 
 /// 当天钟点（纳秒，含 8 小时偏移，落在 [0, DAY_NS) 内）
 #[inline]
@@ -233,9 +222,8 @@ fn clock_ns(exchtime_us: i64) -> i64 {
 
 /// 逐笔：返回 (平移后钟点纳秒, 价格)，顺序 = 上午段 + 下午段（与 old new_time 一致）
 fn read_trade_new_time(code: &str, date: i64) -> Option<Vec<(i64, f64)>> {
-    let path = find_file(code, date, "transaction", "transaction")?;
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_transaction_csv_str(code, date, |content| {
+
     let mut out: Vec<(i64, f64)> = Vec::with_capacity(content.len() / 120 + 1);
     let mut lines = content.lines();
     lines.next();
@@ -261,14 +249,15 @@ fn read_trade_new_time(code: &str, date: i64) -> Option<Vec<(i64, f64)>> {
     }
     out.extend(first_afternoon);
     Some(out)
+
+    }).ok()?
 }
 
 /// 盘口：先 df[last_prc != 0]，再把 10 档拆成长表（丢掉 price==0 的档），并做下午平移。
 /// 返回 (asks 长表, bids 长表)，每行是 (平移后钟点纳秒, 价, 量)。
 fn read_market_new_time(code: &str, date: i64) -> Option<(Vec<(i64, f64, f64)>, Vec<(i64, f64, f64)>)> {
-    let path = find_file(code, date, "market_data", "market_data")?;
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_market_csv_str(code, date, |content| {
+
     let mut asks: Vec<(i64, f64, f64)> = Vec::new();
     let mut bids: Vec<(i64, f64, f64)> = Vec::new();
     let mut lines = content.lines();
@@ -309,6 +298,8 @@ fn read_market_new_time(code: &str, date: i64) -> Option<(Vec<(i64, f64, f64)>, 
         }
     }
     Some((asks, bids))
+
+    }).ok()?
 }
 
 // ============================================================================

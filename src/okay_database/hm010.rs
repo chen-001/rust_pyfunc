@@ -79,8 +79,6 @@
 //!   这里逐笔与盘口都按 f64 解析（列索引与 fast_csv_reader 的常量一致）。
 
 use std::collections::{HashMap, HashSet};
-use std::fs::File;
-use std::io::Read;
 
 // ── 逐笔 CSV 列索引（0 基；2018 年及以前末尾多一列 num，不影响前 15 列） ──
 const TRD_COL_EXCHTIME: usize = 4;
@@ -218,16 +216,7 @@ fn parse_f64_at(b: &[u8]) -> f64 {
         .unwrap_or(f64::NAN)
 }
 
-fn level2_path(code: &str, date: i64, kind: &str) -> Option<std::path::PathBuf> {
-    let filename = format!("{}_{}_{}.csv", code, date, kind);
-    for root in crate::data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join(kind).join(&filename);
-        if p.exists() {
-            return Some(p);
-        }
-    }
-    None
-}
+
 
 /// 把一行按逗号切成若干段，返回段数（缓冲区固定 64 段，够 62 列的盘口）
 #[inline]
@@ -261,9 +250,8 @@ struct TradeRow {
 /// 表头之后每一行都算，exchtime==0 的行也保留（它排在 08:00，落在窗口外，
 /// 但参与了 sort_values 的排序数组，保留才和旧代码的平局顺序一致）。
 fn read_trade_f64(code: &str, date: i64) -> Option<Vec<TradeRow>> {
-    let path = level2_path(code, date, "transaction")?;
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_transaction_csv_str(code, date, |content| {
+
 
     let mut out: Vec<TradeRow> = Vec::with_capacity(content.len() / 120 + 1);
     let mut lines = content.lines();
@@ -285,6 +273,8 @@ fn read_trade_f64(code: &str, date: i64) -> Option<Vec<TradeRow>> {
         });
     }
     Some(out)
+
+    }).ok()?
 }
 
 /// 一条盘口快照（只留计算要用的档位）
@@ -310,9 +300,8 @@ struct MarketData {
 /// 14:57:00.5 这种行不属于窗口、也就不该出现在 14:57 这一分钟的 last() 里。
 /// 分钟聚合只吃窗口内的行。
 fn read_market_f64(code: &str, date: i64) -> Option<MarketData> {
-    let path = level2_path(code, date, "market_data")?;
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_market_csv_str(code, date, |content| {
+
 
     let mut lines = content.lines();
     let header = lines.next()?;
@@ -383,6 +372,8 @@ fn read_market_f64(code: &str, date: i64) -> Option<MarketData> {
     minutes.sort_by_key(|&(m, _)| m);
 
     Some(MarketData { window, minutes })
+
+    }).ok()?
 }
 
 fn snap_from_fields(f: &[&[u8]], t_us: i64) -> SnapRow {

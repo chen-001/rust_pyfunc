@@ -127,7 +127,6 @@
 //! · 掩码用 isfinite：inf 也算无效（DataFrame.corr 那一路）；Series.corr 那一路
 //!   nancorr 用的是 notna，inf 有效——本文件的四个入参都不会是 inf。
 
-use crate::data_paths;
 
 const N_STATS: usize = 20;
 const N_SERIES: usize = 10;
@@ -284,19 +283,7 @@ fn read_rows(code: &str, date: i64) -> Option<Vec<Row>> {
     const COL_ASK_ORDER: usize = 13;
     const COL_BID_ORDER: usize = 14;
 
-    let filename = format!("{}_{}_transaction.csv", code, date);
-    let mut data = None;
-    for root in data_paths::level2_roots() {
-        let path = root
-            .join(date.to_string())
-            .join("transaction")
-            .join(&filename);
-        if let Ok(bytes) = std::fs::read(&path) {
-            data = Some(bytes);
-            break;
-        }
-    }
-    let data = data?;
+    crate::fast_csv_reader::with_transaction_csv_bytes(code, date, |data| {
 
     let mut rows: Vec<Row> = Vec::new();
     for (lineno, line) in data.split(|&b| b == b'\n').enumerate() {
@@ -365,6 +352,8 @@ fn read_rows(code: &str, date: i64) -> Option<Vec<Row>> {
         });
     }
     Some(rows)
+
+    }).ok()?
 }
 
 /// 去掉字段两端的空白（含行尾的 `\r`）。

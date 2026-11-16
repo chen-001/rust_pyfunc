@@ -72,8 +72,6 @@
 //!    names_save 里 6 个带 `_fold` 的名字由新流水线按「与截面均值的距离」生成。
 
 use std::collections::BTreeMap;
-use std::fs::File;
-use std::io::Read;
 
 /// 盘口 CSV 的列索引（0 基，与文件表头一致；2018 及更早的文件末尾多一列 num）
 const COL_EXCHTIME: usize = 4;
@@ -186,16 +184,7 @@ fn parse_f64(b: &[u8]) -> f64 {
         .unwrap_or(f64::NAN)
 }
 
-fn market_path(code: &str, date: i64) -> Option<std::path::PathBuf> {
-    let filename = format!("{}_{}_market_data.csv", code, date);
-    for root in crate::data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join("market_data").join(&filename);
-        if p.exists() {
-            return Some(p);
-        }
-    }
-    None
-}
+
 
 /// 一行盘口。t = 平移后的当日微秒；v[0]=当日累计 volume，v[1..6] 是盘口量。
 #[derive(Clone, Copy)]
@@ -209,9 +198,8 @@ struct Row {
 ///
 /// 行序 = 上午（文件序）在前、下午（文件序）在后，和 pd.concat([df1, df2]) 一致。
 fn read_rows(code: &str, date: i64) -> Option<Vec<Row>> {
-    let path = market_path(code, date)?;
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_market_csv_str(code, date, |content| {
+
 
     let volume_idx = [COL_VOLUME, COL_ASK_VOL1, COL_BID_VOL1, COL_ASK_VOL2, COL_BID_VOL2, COL_TOTAL_ASK_VOL, COL_TOTAL_BID_VOL];
 
@@ -261,6 +249,8 @@ fn read_rows(code: &str, date: i64) -> Option<Vec<Row>> {
         return None;
     }
     Some(rows)
+
+    }).ok()?
 }
 
 /// df.volume = df.volume.diff()：按位置差分，首行 NaN，任一侧 NaN 传染。

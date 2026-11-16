@@ -26,8 +26,6 @@
 //! 6) res = sing1(整天) + sing2(open30) + sing1(morning) + sing1(afternoon) + sing2(close30)
 //!    = 30 + 15 + 30 + 30 + 15 = 120，顺序与 names 完全一致。
 
-use std::fs::File;
-use std::io::Read;
 
 /// 逐笔 CSV 的列索引（0 基；2018 年及以前末尾多一列 num，不影响前 15 列）
 const TRD_COL_EXCHTIME: usize = 4;
@@ -116,18 +114,7 @@ struct TradeRow {
 }
 
 fn read_trade_f64(code: &str, date: i64) -> Option<Vec<TradeRow>> {
-    let filename = format!("{}_{}_transaction.csv", code, date);
-    let mut path = None;
-    for root in crate::data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join("transaction").join(&filename);
-        if p.exists() {
-            path = Some(p);
-            break;
-        }
-    }
-    let path = path?;
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_transaction_csv_str(code, date, |content| {
 
     let mut out: Vec<TradeRow> = Vec::with_capacity(content.len() / 120 + 1);
     let mut lines = content.lines();
@@ -159,6 +146,8 @@ fn read_trade_f64(code: &str, date: i64) -> Option<Vec<TradeRow>> {
         });
     }
     Some(out)
+
+    }).ok()?
 }
 
 /// rp.dtw_distance(a, b)：标准 DTW 动态规划，代价 |a_i-b_j|，累积上/左/左上取最小。

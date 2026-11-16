@@ -79,9 +79,7 @@
 //!   任何非有限值（inf/-inf）一律写成 NaN，与旧框架落盘时的 replace(inf, nan) 口径一致。
 
 use std::collections::HashMap;
-use std::fs;
 
-use crate::data_paths;
 
 // transaction.csv 的列下标（0-based，与文件头一致）：
 //   symbol,datetime,date,time,exchtime,localtime,index,price,volume,turnover,flag,
@@ -217,16 +215,7 @@ fn parse_line(line: &[u8]) -> Option<RawRow> {
 /// 自己读逐笔成交，price/turnover 保持 f64（TradeRecord 的 f32 会过不了对账）。
 /// 语义与 read_trade_fast_inner(code, date, true, false, usize::MAX) 一致，且保持文件行序。
 fn read_trade_f64(code: &str, date: i64) -> Option<Vec<RawRow>> {
-    let filename = format!("{}_{}_transaction.csv", code, date);
-    let mut path = None;
-    for root in data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join("transaction").join(&filename);
-        if p.exists() {
-            path = Some(p);
-            break;
-        }
-    }
-    let data = fs::read(path?).ok()?;
+    crate::fast_csv_reader::with_transaction_csv_bytes(code, date, |data| {
 
     let mut out: Vec<RawRow> = Vec::with_capacity(data.len() / 80 + 1);
     let mut start = 0usize;
@@ -256,6 +245,8 @@ fn read_trade_f64(code: &str, date: i64) -> Option<Vec<RawRow>> {
         }
     }
     Some(out)
+
+    }).ok()?
 }
 
 /// np.sign(70 - flag)：flag<70 → +1，>70 → -1，==70 → 0

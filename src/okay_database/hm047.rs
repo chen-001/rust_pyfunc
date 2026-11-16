@@ -72,10 +72,7 @@
 //! · Series.autocorr(k) → nanops.nancorr → np.corrcoef 的两遍法，
 //!   成对丢 NaN，结果 clip 到 [-1,1]。
 
-use crate::data_paths;
 use crate::features_f64 as ff;
-use std::fs::File;
-use std::io::Read;
 use std::time::{Duration, Instant};
 
 // ============================================================================
@@ -385,18 +382,7 @@ struct Row {
 /// 读 transaction CSV（列索引与 fast_csv_reader 一致），行序 = 文件序。
 /// 返回 (ns, price, volume, flag) 四列，ns 已含 8 小时偏移。
 fn read_trade(code: &str, date: i64) -> Option<(Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>)> {
-    let filename = format!("{}_{}_transaction.csv", code, date);
-    let mut path = None;
-    for root in data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join("transaction").join(&filename);
-        if p.exists() {
-            path = Some(p);
-            break;
-        }
-    }
-    let path = path?;
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_transaction_csv_str(code, date, |content| {
 
     let mut ns: Vec<f64> = Vec::with_capacity(content.len() / 120 + 1);
     let mut price: Vec<f64> = Vec::with_capacity(content.len() / 120 + 1);
@@ -424,6 +410,8 @@ fn read_trade(code: &str, date: i64) -> Option<(Vec<f64>, Vec<f64>, Vec<f64>, Ve
         let _ = parse_f64_at(buf[TRD_COL_TURNOVER]);
     }
     Some((ns, price, volume, flag))
+
+    }).ok()?
 }
 
 // ============================================================================

@@ -76,7 +76,6 @@
 //! · 旧代码里 read_trade_data_single 的 try/except 会把异常吞成 None，本实现里
 //!   文件不存在或列数不够时同样返回 None。
 
-use crate::data_paths;
 use crate::features_f64 as ff;
 
 /// 逐笔 CSV 的列索引（0 基，与 fast_csv_reader 一致；2018 年及以前末尾多一列 num）
@@ -300,17 +299,7 @@ fn pow10_table() -> &'static [f64; 309] {
 
 /// 读 transaction CSV，丢掉 flag == 32（撤单）。行序 = 文件序。
 fn read_trade(code: &str, date: i64) -> Option<Vec<Raw>> {
-    let filename = format!("{}_{}_transaction.csv", code, date);
-    let mut path = None;
-    for root in data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join("transaction").join(&filename);
-        if p.exists() {
-            path = Some(p);
-            break;
-        }
-    }
-    let path = path?;
-    let content = std::fs::read_to_string(&path).ok()?;
+    crate::fast_csv_reader::with_transaction_csv_str(code, date, |content| {
 
     let mut out: Vec<Raw> = Vec::with_capacity(content.len() / 150 + 1);
     let mut lines = content.lines();
@@ -364,6 +353,8 @@ fn read_trade(code: &str, date: i64) -> Option<Vec<Raw>> {
         out.push(Raw { us, price, volume, flag, extra_nan });
     }
     Some(out)
+
+    }).ok()?
 }
 
 /// pandas `pd.to_timedelta(微秒/1e6, unit="s") + Timestamp("1970-01-01 08:00:00")`

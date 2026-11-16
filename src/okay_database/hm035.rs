@@ -48,8 +48,6 @@
 //! 用 f32 读 price 会让两个本来不同的价格塌成同一个数，把不属于最高价组的成交算进去，
 //! 时间点跟着错，输出整个歪掉。所以这里自己按 f64 解析 CSV，列索引与 fast_csv_reader 一致。
 
-use std::fs::File;
-use std::io::Read;
 
 /// 逐笔 CSV 的列索引（0 基，与 fast_csv_reader 的常量一致）
 const TRD_COL_EXCHTIME: usize = 4;
@@ -275,19 +273,7 @@ fn parse_f64_at(b: &[u8]) -> f64 {
 /// 读 transaction CSV：返回 (当日微秒数, price, volume, flag)，保持文件行序。
 /// 撤单不在这里过滤（下面按数值筛 flag==32），与 pandas 读整张表的行集一致。
 fn read_trade_f64(code: &str, date: i64) -> Option<Vec<(i64, f64, f64, i32)>> {
-    let filename = format!("{}_{}_transaction.csv", code, date);
-    let mut path = None;
-    for root in crate::data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join("transaction").join(&filename);
-        if p.exists() {
-            path = Some(p);
-            break;
-        }
-    }
-    let path = path?;
-
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_transaction_csv_str(code, date, |content| {
 
     let mut out = Vec::with_capacity(content.len() / 120 + 1);
     let mut lines = content.lines();
@@ -321,6 +307,8 @@ fn read_trade_f64(code: &str, date: i64) -> Option<Vec<(i64, f64, f64, i32)>> {
         ));
     }
     Some(out)
+
+    }).ok()?
 }
 
 /// 逐股入口：算不出来返回 None（上游会补 NaN，保证因子个数恒定）。

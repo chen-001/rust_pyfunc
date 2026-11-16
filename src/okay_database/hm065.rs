@@ -65,9 +65,6 @@
 // hm067 开发版：独立可执行文件，直接读 transaction CSV 路径，打印 2340 个值。
 // 核心逻辑与 src/okay_database/hm067.rs 完全一致，只是数据来源换成本地路径。
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::Read;
-use std::path::PathBuf;
 
 const TRD_COL_EXCHTIME: usize = 4;
 const TRD_COL_PRICE: usize = 7;
@@ -1203,22 +1200,10 @@ pub fn names() -> Vec<String> {
     out
 }
 
-fn level2_file(code: &str, date: i64) -> Option<PathBuf> {
-    let filename = format!("{}_{}_transaction.csv", code, date);
-    for root in crate::data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join("transaction").join(&filename);
-        if p.exists() {
-            return Some(p);
-        }
-    }
-    None
-}
+
 
 pub fn compute_stock(code: &str, date: i64) -> Option<Vec<f32>> {
-    let path = level2_file(code, date)?;
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
-    let vals = compute(&content)?;
+    let vals = crate::fast_csv_reader::with_transaction_csv_str(code, date, compute).ok()??;
     Some(vals.iter().map(|&v| v as f32).collect())
 }
 

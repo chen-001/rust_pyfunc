@@ -75,8 +75,6 @@
 //!   这里同样返回 None。
 
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::Read;
 
 /// 逐笔 CSV 的列索引（0 基，与 fast_csv_reader 一致；2018 年及以前末尾多一列 num）
 const TRD_COL_EXCHTIME: usize = 4;
@@ -173,19 +171,7 @@ struct TradeRow {
 }
 
 fn read_trade_f64(code: &str, date: i64) -> Option<Vec<TradeRow>> {
-    let filename = format!("{}_{}_transaction.csv", code, date);
-    let mut path = None;
-    for root in crate::data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join("transaction").join(&filename);
-        if p.exists() {
-            path = Some(p);
-            break;
-        }
-    }
-    let path = path?;
-
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_transaction_csv_str(code, date, |content| {
 
     let mut out: Vec<TradeRow> = Vec::with_capacity(content.len() / 120 + 1);
     let mut lines = content.lines();
@@ -219,6 +205,8 @@ fn read_trade_f64(code: &str, date: i64) -> Option<Vec<TradeRow>> {
         });
     }
     Some(out)
+
+    }).ok()?
 }
 
 // ============================================================================

@@ -58,8 +58,6 @@
 //! · 空 turnover 单元格在 pandas 里是 NaN，.sum() 会跳过它，但该行仍计入 shape[0]。
 //!   这里同样：计数照加，求和跳过 NaN。
 
-use std::fs::File;
-use std::io::Read;
 
 /// 逐笔 CSV 的列索引（0 基，与 fast_csv_reader 一致；2018 年及以前末尾多一列 num，不影响前 15 列）
 const TRD_COL_EXCHTIME: usize = 4;
@@ -204,19 +202,7 @@ fn parse_f64_at(b: &[u8]) -> f64 {
 /// 行集与 pandas 读整张表一致：表头之后每一行都算（含 exchtime 为空／0 的行，
 /// 它们会被窗口过滤掉，但保留才与旧代码的行集一致）。
 fn read_trade_f64(code: &str, date: i64) -> Option<Vec<TradeRow>> {
-    let filename = format!("{}_{}_transaction.csv", code, date);
-    let mut path = None;
-    for root in crate::data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join("transaction").join(&filename);
-        if p.exists() {
-            path = Some(p);
-            break;
-        }
-    }
-    let path = path?;
-
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_transaction_csv_str(code, date, |content| {
 
     let mut out: Vec<TradeRow> = Vec::with_capacity(content.len() / 120 + 1);
     let mut lines = content.lines();
@@ -248,6 +234,8 @@ fn read_trade_f64(code: &str, date: i64) -> Option<Vec<TradeRow>> {
         });
     }
     Some(out)
+
+    }).ok()?
 }
 
 /// 逐股的一天。文件读不到返回 None（上游补整条 NaN，保证因子个数恒定）。

@@ -89,8 +89,6 @@
 //! names_single 共 110 个，没有重名（指标 × 组 × 时段两两不同），不需要 _dup2 后缀。
 //! names_save（45 个）在旧文件的 run_base 里，因子库文件里原样搬运。
 
-use std::fs::File;
-use std::io::Read;
 
 /// 盘口 CSV 的列索引（0 基，与 fast_csv_reader 的常量一致）
 const MKT_COL_EXCHTIME: usize = 4;
@@ -207,22 +205,7 @@ fn parse_f64_at(b: &[u8]) -> f64 {
 /// 读 market_data CSV（f64）。行集与 pandas 读整张表一致：
 /// 表头之后每一行都算（exchtime==0 的行也保留，它参与 volume.diff()）。
 fn read_market_f64(code: &str, date: i64) -> Option<Vec<MktRow>> {
-    let filename = format!("{}_{}_market_data.csv", code, date);
-    let mut path = None;
-    for root in crate::data_paths::level2_roots() {
-        let p = root
-            .join(date.to_string())
-            .join("market_data")
-            .join(&filename);
-        if p.exists() {
-            path = Some(p);
-            break;
-        }
-    }
-    let path = path?;
-
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_market_csv_str(code, date, |content| {
 
     let mut out: Vec<MktRow> = Vec::with_capacity(content.len() / 200 + 1);
     let mut lines = content.lines();
@@ -257,6 +240,8 @@ fn read_market_f64(code: &str, date: i64) -> Option<Vec<MktRow>> {
         });
     }
     Some(out)
+
+    }).ok()?
 }
 
 // ============================================================================

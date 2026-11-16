@@ -78,7 +78,6 @@
 //!
 //! 验证：四组 (日期, 股票) 的 79 个值与旧 go 全部一致（rtol 1e-4）。
 
-use crate::data_paths;
 use crate::features_f64::{self, FeatureOpts};
 use crate::passive_order_features;
 use crate::statistics::solve_linear_system3;
@@ -245,7 +244,7 @@ fn read_trade_day(code: &str, date: i64) -> Option<Trades> {
     const COL_BID_ORDER: usize = 14;
     const NFIELDS: usize = 15;
 
-    let data = read_level2_file(code, date, "transaction", "transaction")?;
+    crate::fast_csv_reader::with_transaction_csv_bytes(code, date, |data| {
 
     let mut morning: Vec<[i64; 5]> = Vec::new();
     let mut afternoon: Vec<[i64; 5]> = Vec::new();
@@ -303,6 +302,8 @@ fn read_trade_day(code: &str, date: i64) -> Option<Trades> {
         t.vol.push(r[4]);
     }
     Some(t)
+
+    }).ok()?
 }
 
 /// 读一个交易日的盘口（只解析用得到的 7 列）。
@@ -316,7 +317,7 @@ fn read_market_day(code: &str, date: i64) -> Option<Market> {
     const COL_BID_PRC1: usize = 23;
     const NFIELDS: usize = 61;
 
-    let data = read_level2_file(code, date, "market_data", "market_data")?;
+    crate::fast_csv_reader::with_market_csv_bytes(code, date, |data| {
 
     let mut morning: Vec<(i64, [f64; 4])> = Vec::new();
     let mut afternoon: Vec<(i64, [f64; 4])> = Vec::new();
@@ -368,19 +369,11 @@ fn read_market_day(code: &str, date: i64) -> Option<Market> {
         m.total_bid_vol.push(vals[3]);
     }
     Some(m)
+
+    }).ok()?
 }
 
-/// 在 level2 数据根目录下找 `<root>/<date>/<sub>/<code>_<date>_<suffix>.csv`。
-fn read_level2_file(code: &str, date: i64, sub: &str, suffix: &str) -> Option<Vec<u8>> {
-    let filename = format!("{}_{}_{}.csv", code, date, suffix);
-    for root in data_paths::level2_roots() {
-        let path = root.join(date.to_string()).join(sub).join(&filename);
-        if let Ok(bytes) = std::fs::read(&path) {
-            return Some(bytes);
-        }
-    }
-    None
-}
+
 
 /// 按逗号切字段，返回切出的字段数（超出容量的部分丢掉）。
 fn split_fields<'a>(line: &'a [u8], out: &mut [&'a [u8]]) -> usize {

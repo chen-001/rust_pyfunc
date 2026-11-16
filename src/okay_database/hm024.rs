@@ -94,7 +94,6 @@
 //!   try/except 吞掉 → 整只股票当日返回 None（全 NaN）。本文件同样返回 None。
 //! · 'all' 时段整体为空 → 直接返回 None。
 
-use crate::data_paths;
 
 /// 一天的纳秒数。
 const DAY_NS: i64 = 86_400_000_000_000;
@@ -1146,19 +1145,7 @@ fn read_day(code: &str, date: i64) -> Option<(Vec<i64>, Vec<f64>, Vec<f64>, Vec<
     const COL_TURNOVER: usize = 9;
     const COL_FLAG: usize = 10;
 
-    let filename = format!("{}_{}_transaction.csv", code, date);
-    let mut data = None;
-    for root in data_paths::level2_roots() {
-        let path = root
-            .join(date.to_string())
-            .join("transaction")
-            .join(&filename);
-        if let Ok(bytes) = std::fs::read(&path) {
-            data = Some(bytes);
-            break;
-        }
-    }
-    let data = data?;
+    crate::fast_csv_reader::with_transaction_csv_bytes(code, date, |data| {
 
     let mut ns_out: Vec<i64> = Vec::new();
     let mut vol_out: Vec<f64> = Vec::new();
@@ -1201,6 +1188,8 @@ fn read_day(code: &str, date: i64) -> Option<(Vec<i64>, Vec<f64>, Vec<f64>, Vec<
         flag_out.push(flag);
     }
     Some((ns_out, vol_out, tov_out, flag_out))
+
+    }).ok()?
 }
 
 // ============================================================================

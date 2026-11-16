@@ -80,7 +80,6 @@
 //!   库里这条通路的输出总长因此是 1522+117=1639，而不是 1522。
 //! · 已知差异：没有。四组 (日期, 股票) 对账全部「通过」。
 
-use crate::data_paths;
 use crate::features_f64::{self, FeatureOpts};
 use ndarray::{Array2, ArrayView2};
 use std::collections::HashSet;
@@ -303,17 +302,7 @@ fn parse_f64_at(b: &[u8]) -> f64 {
 
 /// 读 market_data CSV（f64）。行集与 pandas 读整张表一致（不过滤 status、不过滤涨跌停）。
 fn read_market_rows(code: &str, date: i64) -> Option<Vec<MktRow>> {
-    let filename = format!("{}_{}_market_data.csv", code, date);
-    let mut path = None;
-    for root in data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join("market_data").join(&filename);
-        if p.exists() {
-            path = Some(p);
-            break;
-        }
-    }
-    let path = path?;
-    let content = std::fs::read_to_string(&path).ok()?;
+    crate::fast_csv_reader::with_market_csv_str(code, date, |content| {
 
     let mut out: Vec<MktRow> = Vec::with_capacity(content.len() / 220 + 1);
     let mut lines = content.lines();
@@ -360,6 +349,8 @@ fn read_market_rows(code: &str, date: i64) -> Option<Vec<MktRow>> {
         out.push(row);
     }
     Some(out)
+
+    }).ok()?
 }
 
 // ============================================================================

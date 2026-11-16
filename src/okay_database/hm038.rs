@@ -61,8 +61,6 @@
 
 use ndarray::{s, Array1, Array2, ArrayView1, ArrayView2};
 use std::collections::BTreeMap;
-use std::fs::File;
-use std::io::Read;
 
 const TRD_COL_EXCHTIME: usize = 4;
 const TRD_COL_PRICE: usize = 7;
@@ -138,16 +136,7 @@ fn parse_f64(b: &[u8]) -> f64 {
         .unwrap_or(f64::NAN)
 }
 
-fn transaction_path(code: &str, date: i64) -> Option<std::path::PathBuf> {
-    let filename = format!("{}_{}_transaction.csv", code, date);
-    for root in crate::data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join("transaction").join(&filename);
-        if p.exists() {
-            return Some(p);
-        }
-    }
-    None
-}
+
 
 /// 一行逐笔（已丢掉 flag==32）：当日微秒、成交价、两个挂单号。
 struct Row {
@@ -158,9 +147,8 @@ struct Row {
 }
 
 fn read_rows(code: &str, date: i64) -> Option<Vec<Row>> {
-    let path = transaction_path(code, date)?;
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_transaction_csv_str(code, date, |content| {
+
     let mut rows: Vec<Row> = Vec::new();
     let mut lines = content.lines();
     lines.next();
@@ -208,6 +196,8 @@ fn read_rows(code: &str, date: i64) -> Option<Vec<Row>> {
         return None;
     }
     Some(rows)
+
+    }).ok()?
 }
 
 // ============================================================================

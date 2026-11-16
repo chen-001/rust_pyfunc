@@ -46,8 +46,6 @@
 //!   所以两者都在本文件里按 f64 解析 CSV（列索引与 fast_csv_reader 的常量一致）。
 
 use std::collections::{HashMap, HashSet};
-use std::fs::File;
-use std::io::Read;
 
 /// 逐笔 CSV 的列索引（0 基；2018 年及以前末尾多一列 num，不影响前 15 列）
 const TRD_COL_EXCHTIME: usize = 4;
@@ -181,16 +179,7 @@ fn parse_order_at(b: &[u8]) -> i64 {
     parse_i64_at(b)
 }
 
-fn path_of(code: &str, date: i64, kind: &str) -> Option<std::path::PathBuf> {
-    let filename = format!("{}_{}_{}.csv", code, date, kind);
-    for root in crate::data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join(kind).join(&filename);
-        if p.exists() {
-            return Some(p);
-        }
-    }
-    None
-}
+
 
 // ============================================================================
 // 逐笔 CSV（f64）
@@ -207,9 +196,8 @@ struct TradeRow {
 
 /// 读 transaction CSV（f64）。表头之后每一行都算，后面自己 filter flag != 32。
 fn read_trade_f64(code: &str, date: i64) -> Option<Vec<TradeRow>> {
-    let path = path_of(code, date, "transaction")?;
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_transaction_csv_str(code, date, |content| {
+
 
     let mut out: Vec<TradeRow> = Vec::with_capacity(content.len() / 120 + 1);
     let mut lines = content.lines();
@@ -243,6 +231,8 @@ fn read_trade_f64(code: &str, date: i64) -> Option<Vec<TradeRow>> {
         });
     }
     Some(out)
+
+    }).ok()?
 }
 
 // ============================================================================
@@ -277,9 +267,8 @@ fn sum5(f: &[&[u8]; MKT_NCOL], base: usize) -> f64 {
 }
 
 fn read_market_f64(code: &str, date: i64) -> Option<Vec<MktRow>> {
-    let path = path_of(code, date, "market_data")?;
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_market_csv_str(code, date, |content| {
+
 
     let mut out: Vec<MktRow> = Vec::with_capacity(content.len() / 220 + 1);
     let mut lines = content.lines();
@@ -311,6 +300,8 @@ fn read_market_f64(code: &str, date: i64) -> Option<Vec<MktRow>> {
         });
     }
     Some(out)
+
+    }).ok()?
 }
 
 // ============================================================================

@@ -22,10 +22,11 @@
 //!  5. 预测目标拉长 + 样本外：未来 60 秒、300 秒中间价收益，事件时间「下一次真实价格变动方向」；
 //!     8 格条件均值前半段学、后半段验（及反过来），给出样本外相关。
 //!  6. 多日合并（沙箱的 pool 模式）不进正式库：pipeline 的粒度就是一天，跨日合并用不着。
-use crate::lfsr_leak_ext1_metrics as ext1;
-use crate::lfsr_leak_ext1_metrics::reader::{
-    read_market_fast, read_trade_fast, MarketRecord, TradeRecord,
+use crate::fast_csv_reader::{
+    read_market_f64_inner, read_trade_f64_inner, MarketRecordF64 as MarketRecord,
+    TradeRecordF64 as TradeRecord,
 };
+use crate::lfsr_leak_ext1_metrics as ext1;
 use pyo3::prelude::*;
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -120,7 +121,7 @@ fn build_raw(mkt: &[MarketRecord], tr: Vec<TradeRecord>) -> Option<Raw> {
     for s in mkt {
         let (b, a) = (s.total_bid_vol, s.total_ask_vol);
         let (b1, a1) = (s.bid_vols[0], s.ask_vols[0]);
-        let (bp, ap) = (s.bid_prc1, s.ask_prc1);
+        let (bp, ap) = (s.bid_prcs[0], s.ask_prcs[0]);
         if b + a <= 0.0 || b1 + a1 <= 0.0 || bp <= 0.0 || ap <= 0.0 || ap <= bp {
             continue;
         }
@@ -1101,8 +1102,8 @@ pub fn compute_lfsr_ext2_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f3
     let parts: Vec<Option<(Vec<f64>, Raw)>> = codes
         .par_iter()
         .map(|code| {
-            let mkt = read_market_fast(code, date).ok()?;
-            let tr = read_trade_fast(code, date).ok()?;
+            let mkt = read_market_f64_inner(code, date, false, true).ok()?;
+            let tr = read_trade_f64_inner(code, date, false, true).ok()?;
             let env = ext1::build_env(&mkt, &tr)?;
             let keep: Vec<f64> = specs.iter().map(|sp| ext1::eval_one(sp, &env)).collect();
             let raw = build_raw(&mkt, tr)?;

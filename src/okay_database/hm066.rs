@@ -147,8 +147,6 @@
 //!   （a_mean 从 -0.00407 变成 0.99593），对账直接不过。
 //!   所以这里按 pandas 的公式把纳秒一位不差地算出来，再转 f64。
 
-use std::fs::File;
-use std::io::Read;
 
 /// 逐笔 CSV 的列索引（0 基，与 fast_csv_reader 一致；2018 年及以前末尾多一列 num，不影响前 15 列）
 const TRD_COL_EXCHTIME: usize = 4;
@@ -339,19 +337,7 @@ fn pandas_time_ns(us: f64) -> i64 {
 }
 
 fn read_trade_f64(code: &str, date: i64) -> Option<Vec<Raw>> {
-    let filename = format!("{}_{}_transaction.csv", code, date);
-    let mut path = None;
-    for root in crate::data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join("transaction").join(&filename);
-        if p.exists() {
-            path = Some(p);
-            break;
-        }
-    }
-    let path = path?;
-
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_transaction_csv_str(code, date, |content| {
 
     let mut out: Vec<Raw> = Vec::with_capacity(content.len() / 110 + 1);
     let mut lines = content.lines();
@@ -384,6 +370,8 @@ fn read_trade_f64(code: &str, date: i64) -> Option<Vec<Raw>> {
         });
     }
     Some(out)
+
+    }).ok()?
 }
 
 /// adjust_afternoon 之后的整张表：行序 = 上午段（原序）+ 下午段（原序，时刻已 -90 分钟）

@@ -46,8 +46,6 @@
 //!   所以逐笔与盘口都在本文件里按 f64 解析 CSV（列索引与 fast_csv_reader 的常量一致）。
 
 use std::collections::{HashMap, HashSet};
-use std::fs::File;
-use std::io::Read;
 
 /// 逐笔 CSV 的列索引（0 基，与 fast_csv_reader 一致；2018 年及以前末尾多一列 num，不影响前 15 列）
 const TRD_COL_EXCHTIME: usize = 4;
@@ -125,19 +123,7 @@ struct TradeRow {
 /// 表头之后每一行都算，exchtime==0 的行也保留（旧代码里它排在最早的 08:00，
 /// 会被后面 between_time 丢掉，但它参与了排序数组，保留才和旧代码的平局顺序一致）。
 fn read_trade_f64(code: &str, date: i64) -> Option<Vec<TradeRow>> {
-    let filename = format!("{}_{}_transaction.csv", code, date);
-    let mut path = None;
-    for root in crate::data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join("transaction").join(&filename);
-        if p.exists() {
-            path = Some(p);
-            break;
-        }
-    }
-    let path = path?;
-
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_transaction_csv_str(code, date, |content| {
 
     let mut out: Vec<TradeRow> = Vec::with_capacity(content.len() / 120 + 1);
     let mut lines = content.lines();
@@ -172,6 +158,8 @@ fn read_trade_f64(code: &str, date: i64) -> Option<Vec<TradeRow>> {
         });
     }
     Some(out)
+
+    }).ok()?
 }
 
 // ============================================================================
@@ -230,19 +218,7 @@ fn parse_f64_at(b: &[u8]) -> f64 {
 /// 读 market_data CSV（f64），跳过表头与 exchtime==0 的行。
 /// 行集与 pandas 读整张表的行集一致（旧代码不过滤涨跌停，这里也不过滤）。
 fn read_market_f64(code: &str, date: i64) -> Option<Vec<MktRow>> {
-    let filename = format!("{}_{}_market_data.csv", code, date);
-    let mut path = None;
-    for root in crate::data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join("market_data").join(&filename);
-        if p.exists() {
-            path = Some(p);
-            break;
-        }
-    }
-    let path = path?;
-
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_market_csv_str(code, date, |content| {
 
     let mut out: Vec<MktRow> = Vec::with_capacity(content.len() / 200 + 1);
     let mut lines = content.lines();
@@ -286,6 +262,8 @@ fn read_market_f64(code: &str, date: i64) -> Option<Vec<MktRow>> {
         out.push(row);
     }
     Some(out)
+
+    }).ok()?
 }
 
 // ============================================================================

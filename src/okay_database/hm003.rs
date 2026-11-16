@@ -65,8 +65,6 @@
 //! （verify_series 只对照 get_factor 的 45 个原值，不涉及这一层）。
 
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::Read;
 
 // ============================================================================
 // 时间常量
@@ -199,18 +197,7 @@ struct Row {
 }
 
 fn read_trades(code: &str, date: i64) -> Option<Vec<Row>> {
-    let filename = format!("{}_{}_transaction.csv", code, date);
-    let mut path = None;
-    for root in crate::data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join("transaction").join(&filename);
-        if p.exists() {
-            path = Some(p);
-            break;
-        }
-    }
-    let path = path?;
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_transaction_csv_str(code, date, |content| {
 
     let mut out: Vec<Row> = Vec::with_capacity(content.len() / 120 + 1);
     let mut lines = content.lines();
@@ -238,6 +225,8 @@ fn read_trades(code: &str, date: i64) -> Option<Vec<Row>> {
         });
     }
     Some(out)
+
+    }).ok()?
 }
 
 // ============================================================================

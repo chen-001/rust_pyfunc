@@ -118,8 +118,6 @@
 //! 所以排序次序、并列关系、以及和窗口边界的比较结果都与逐微秒判断一致。
 
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::Read;
 
 /// 逐笔 CSV 的列索引（0 基，与 fast_csv_reader 一致；2018 年及以前末尾多一列 num）
 const TRD_COL_EXCHTIME: usize = 4;
@@ -243,17 +241,7 @@ fn parse_f64_at(b: &[u8]) -> f64 {
         .unwrap_or(f64::NAN)
 }
 
-/// 定位某个日期的逐笔 / 盘口文件（kind 取 "transaction" 或 "market_data"）
-fn level2_file(code: &str, date: i64, kind: &str) -> Option<std::path::PathBuf> {
-    let filename = format!("{}_{}_{}.csv", code, date, kind);
-    for root in crate::data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join(kind).join(&filename);
-        if p.exists() {
-            return Some(p);
-        }
-    }
-    None
-}
+
 
 /// 拆出一行的第 `want` 个字段（0 基）。找不到给空切片。
 #[inline]
@@ -278,9 +266,8 @@ fn field(line: &[u8], want: usize) -> &[u8] {
 /// 读 transaction CSV（f64）。行集与 pandas 读整张表一致（不过滤 exchtime==0 的行，
 /// 它会落在窗口外被 between_time 丢掉，保留不影响结果）。
 fn read_trade_f64(code: &str, date: i64) -> Option<Vec<TradeRow>> {
-    let path = level2_file(code, date, "transaction")?;
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_transaction_csv_str(code, date, |content| {
+
 
     let mut out: Vec<TradeRow> = Vec::with_capacity(content.len() / 120 + 1);
     let mut lines = content.lines();
@@ -297,13 +284,14 @@ fn read_trade_f64(code: &str, date: i64) -> Option<Vec<TradeRow>> {
         });
     }
     Some(out)
+
+    }).ok()?
 }
 
 /// 读 market_data CSV（f64）。行集与 pandas 读整张表的行集一致。
 fn read_market_f64(code: &str, date: i64) -> Option<Vec<MktRow>> {
-    let path = level2_file(code, date, "market_data")?;
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_market_csv_str(code, date, |content| {
+
 
     let mut out: Vec<MktRow> = Vec::with_capacity(content.len() / 200 + 1);
     let mut lines = content.lines();
@@ -322,6 +310,8 @@ fn read_market_f64(code: &str, date: i64) -> Option<Vec<MktRow>> {
         });
     }
     Some(out)
+
+    }).ok()?
 }
 
 // ============================================================================

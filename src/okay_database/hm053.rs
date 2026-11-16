@@ -97,7 +97,6 @@
 //!   没有改公共文件 src/sequence/mod.rs。
 //! · names() 的 1050 个名字无重名（已逐项核对），不需要 _dup2 后缀。
 
-use crate::data_paths;
 
 const NCOL: usize = 21;
 const PER_FRAME: usize = 210;
@@ -703,19 +702,7 @@ impl Frame {
 }
 
 fn build_frame(code: &str, date: i64) -> Option<Frame> {
-    let filename = format!("{}_{}_transaction.csv", code, date);
-    let mut data = None;
-    for root in data_paths::level2_roots() {
-        let path = root
-            .join(date.to_string())
-            .join("transaction")
-            .join(&filename);
-        if let Ok(bytes) = std::fs::read(&path) {
-            data = Some(bytes);
-            break;
-        }
-    }
-    let data = data?;
+    crate::fast_csv_reader::with_transaction_csv_bytes(code, date, |data| {
 
     let mut morning: Vec<(i64, i64, f64, f64)> = Vec::new();
     let mut afternoon: Vec<(i64, i64, f64, f64)> = Vec::new();
@@ -816,6 +803,8 @@ fn build_frame(code: &str, date: i64) -> Option<Frame> {
         price: keep.iter().map(|&i| price[i]).collect(),
         vol: keep.iter().map(|&i| vol[i]).collect(),
     })
+
+    }).ok()?
 }
 
 /// 把 -0.0 归一成 0.0（khash 的浮点键也这么做），其余取位模式。

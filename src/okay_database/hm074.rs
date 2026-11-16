@@ -779,17 +779,7 @@ fn parse_f64_at(b: &[u8]) -> f64 {
 
 /// 读一只票的盘口快照 → 3 秒序列（f64，自己解析 CSV，不用 f32 的 fast reader）。
 fn read_mkt3(code: &str, date: i64) -> Option<Mkt3> {
-    let filename = format!("{}_{}_market_data.csv", code, date);
-    let mut path = None;
-    for root in crate::data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join("market_data").join(&filename);
-        if p.exists() {
-            path = Some(p);
-            break;
-        }
-    }
-    let path = path?;
-    let content = fs::read(&path).ok()?;
+    crate::fast_csv_reader::with_market_csv_bytes(code, date, |content| {
 
     // 第一遍：按行取出 adjust_afternoon 后的 (桶号, 4 列)
     let mut bins: Vec<i64> = Vec::with_capacity(6000);
@@ -899,6 +889,8 @@ fn read_mkt3(code: &str, date: i64) -> Option<Mkt3> {
         ask_vol1,
         bid_vol1,
     })
+
+    }).ok()?
 }
 
 /// 两只票的 3 秒序列在**共同桶区间**上做 Series.corr（成对完整观测 + np.corrcoef）。

@@ -97,16 +97,20 @@ fn integer(bytes: &[u8]) -> i64 {
         .unwrap_or(0)
 }
 
-fn each_csv_row(path: &Path, mut process: impl FnMut(&[&[u8]])) -> io::Result<()> {
-    let data = std::fs::read(path)?;
-    for line in data.split(|&x| x == b'\n').skip(1) {
-        if line.is_empty() {
-            continue;
+fn each_csv_row(path: &Path, mut process: impl FnMut(&[&[u8]])) -> io::Result<bool> {
+    match crate::fast_csv_reader::with_csv_path_bytes(path, |data| {
+        for line in data.split(|&x| x == b'\n').skip(1) {
+            if line.is_empty() {
+                continue;
+            }
+            let fields: Vec<&[u8]> = line.split(|&x| x == b',').collect();
+            process(&fields);
         }
-        let fields: Vec<&[u8]> = line.split(|&x| x == b',').collect();
-        process(&fields);
+    }) {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(e),
     }
-    Ok(())
 }
 
 #[derive(Clone, Copy)]
@@ -162,9 +166,9 @@ fn stock_day(
         }
     }
 
-    if read_trades && trade_path.exists() {
+    if read_trades {
         let mut trades = Vec::new();
-        each_csv_row(&trade_path, |f| {
+        if each_csv_row(&trade_path, |f| {
             if f.len() < 11 {
                 return;
             }
@@ -181,105 +185,105 @@ fn stock_day(
                 flag,
                 order: trades.len(),
             });
-        })?;
-        trades.sort_by_key(|r| (r.time, r.order));
-        let mut prev = None;
-        for r in trades {
-            let Some(i) = bar(r.time) else {
-                continue;
-            };
-            if i >= BARS {
-                continue;
-            }
-            let x = &mut out[i];
-            for j in [2, 7, 8] {
-                if x[j].is_nan() {
-                    x[j] = 0.0;
-                }
-            }
-            x[2] += r.turnover;
-            x[7] += r.volume;
-            x[8] += r.turnover;
-            if x[9].is_nan() || r.price > x[9] {
-                x[9] = r.price;
-            }
-            if x[10].is_nan() || r.price < x[10] {
-                x[10] = r.price;
-            }
-            x[11] = r.price;
-            if r.flag == 66 {
-                if x[0].is_nan() {
-                    x[0] = 0.0;
-                    x[3] = 0.0;
-                }
-                x[0] += r.turnover;
-                x[3] += 1.0;
-            } else if r.flag == 83 {
-                if x[1].is_nan() {
-                    x[1] = 0.0;
-                    x[4] = 0.0;
-                }
-                x[1] += r.turnover;
-                x[4] += 1.0;
-            }
-            if let Some(p) = prev {
-                let j = if r.price > p {
-                    Some(5)
-                } else if r.price < p {
-                    Some(6)
-                } else {
-                    None
+        })? {
+            trades.sort_by_key(|r| (r.time, r.order));
+            let mut prev = None;
+            for r in trades {
+                let Some(i) = bar(r.time) else {
+                    continue;
                 };
-                if let Some(j) = j {
+                if i >= BARS {
+                    continue;
+                }
+                let x = &mut out[i];
+                for j in [2, 7, 8] {
                     if x[j].is_nan() {
                         x[j] = 0.0;
                     }
-                    x[j] += 1.0;
                 }
+                x[2] += r.turnover;
+                x[7] += r.volume;
+                x[8] += r.turnover;
+                if x[9].is_nan() || r.price > x[9] {
+                    x[9] = r.price;
+                }
+                if x[10].is_nan() || r.price < x[10] {
+                    x[10] = r.price;
+                }
+                x[11] = r.price;
+                if r.flag == 66 {
+                    if x[0].is_nan() {
+                        x[0] = 0.0;
+                        x[3] = 0.0;
+                    }
+                    x[0] += r.turnover;
+                    x[3] += 1.0;
+                } else if r.flag == 83 {
+                    if x[1].is_nan() {
+                        x[1] = 0.0;
+                        x[4] = 0.0;
+                    }
+                    x[1] += r.turnover;
+                    x[4] += 1.0;
+                }
+                if let Some(p) = prev {
+                    let j = if r.price > p {
+                        Some(5)
+                    } else if r.price < p {
+                        Some(6)
+                    } else {
+                        None
+                    };
+                    if let Some(j) = j {
+                        if x[j].is_nan() {
+                            x[j] = 0.0;
+                        }
+                        x[j] += 1.0;
+                    }
+                }
+                prev = Some(r.price);
             }
-            prev = Some(r.price);
         }
     }
 
-    if market_path.exists() {
-        let mut quotes = Vec::new();
-        each_csv_row(&market_path, |f| {
-            if f.len() < 61 {
-                return;
-            }
-            let time = integer(f[3]);
-            if time < 91500000 || time > 150100000 {
-                return;
-            }
-            let mut ask_size10 = 0.0;
-            let mut bid_size10 = 0.0;
-            let mut ask_value = 0.0;
-            let mut bid_value = 0.0;
-            for level in 0..10 {
-                let base = 21 + 4 * level;
-                let ap = number(f[base]);
-                let av = number(f[base + 1]);
-                let bp = number(f[base + 2]);
-                let bv = number(f[base + 3]);
-                ask_size10 += av;
-                bid_size10 += bv;
-                ask_value += ap * av;
-                bid_value += bp * bv;
-            }
-            quotes.push(Quote {
-                time,
-                ask_prc1: number(f[21]),
-                bid_prc1: number(f[23]),
-                ask_vol1: number(f[22]),
-                bid_vol1: number(f[24]),
-                bid_vol5: number(f[40]),
-                ask_size10,
-                bid_size10,
-                ask_vwap10: ask_value / ask_size10,
-                bid_vwap10: bid_value / bid_size10,
-                order: quotes.len(),
-            });
-        })?;
+    let mut quotes = Vec::new();
+    if each_csv_row(&market_path, |f| {
+        if f.len() < 61 {
+            return;
+        }
+        let time = integer(f[3]);
+        if time < 91500000 || time > 150100000 {
+            return;
+        }
+        let mut ask_size10 = 0.0;
+        let mut bid_size10 = 0.0;
+        let mut ask_value = 0.0;
+        let mut bid_value = 0.0;
+        for level in 0..10 {
+            let base = 21 + 4 * level;
+            let ap = number(f[base]);
+            let av = number(f[base + 1]);
+            let bp = number(f[base + 2]);
+            let bv = number(f[base + 3]);
+            ask_size10 += av;
+            bid_size10 += bv;
+            ask_value += ap * av;
+            bid_value += bp * bv;
+        }
+        quotes.push(Quote {
+            time,
+            ask_prc1: number(f[21]),
+            bid_prc1: number(f[23]),
+            ask_vol1: number(f[22]),
+            bid_vol1: number(f[24]),
+            bid_vol5: number(f[40]),
+            ask_size10,
+            bid_size10,
+            ask_vwap10: ask_value / ask_size10,
+            bid_vwap10: bid_value / bid_size10,
+            order: quotes.len(),
+        });
+    })? {
         quotes.sort_by_key(|r| (r.time, r.order));
         let mut count = [0usize; BARS];
         let mut spread_sum = [0.0f64; BARS];

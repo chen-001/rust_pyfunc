@@ -50,9 +50,7 @@
 //!   corr 是成对完整观测的 Pearson（样本 < 2 或某列方差为 0 给 NaN）。
 //!   非有限值一律写成 NaN，与旧框架落盘时的 replace(inf, nan) 口径一致。
 
-use std::fs;
 
-use crate::data_paths;
 
 // market_data.csv 的列下标（0-based，与文件头一致）：
 //   symbol,datetime,date,time,exchtime,localtime,last_prc,status,prev_close,open,high,low,
@@ -435,16 +433,7 @@ fn parse_line(line: &[u8]) -> Option<RawRow> {
 /// 用库里的 read_market_fast_inner（f32）会差一点点：实测 300750@20231020 的
 /// ab_vol3_rate_corr_last_prc_close30 相对误差 1.0e-4，刚好压线过不了对账。
 fn read_market_f64(code: &str, date: i64) -> Option<Vec<RawRow>> {
-    let filename = format!("{}_{}_market_data.csv", code, date);
-    let mut path = None;
-    for root in data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join("market_data").join(&filename);
-        if p.exists() {
-            path = Some(p);
-            break;
-        }
-    }
-    let data = fs::read(path?).ok()?;
+    crate::fast_csv_reader::with_market_csv_bytes(code, date, |data| {
 
     let mut out: Vec<RawRow> = Vec::with_capacity(data.len() / 200 + 1);
     let mut start = 0usize;
@@ -474,6 +463,8 @@ fn read_market_f64(code: &str, date: i64) -> Option<Vec<RawRow>> {
         }
     }
     Some(out)
+
+    }).ok()?
 }
 
 /// 逐股入口：算不出来返回 None（上游会补 NaN，保证因子个数恒定）。

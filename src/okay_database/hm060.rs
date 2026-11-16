@@ -93,7 +93,6 @@
 //!
 //! 不改现有 hmXX_okay.py，也不动 src/order_neighborhood.rs 等公共文件。
 
-use crate::data_paths;
 use rayon::prelude::*;
 use std::collections::HashMap;
 
@@ -638,19 +637,7 @@ fn pandas_ns(us: i64) -> i64 {
 /// 读一个交易日的逐笔，复刻 `read_trade_data_single(with_retreat=0)` + `adjust_afternoon`。
 /// 行序 = 上午（文件序）在前、下午（文件序）在后。
 fn read_day(code: &str, date: i64) -> Option<Vec<Row>> {
-    let filename = format!("{}_{}_transaction.csv", code, date);
-    let mut data = None;
-    for root in data_paths::level2_roots() {
-        let path = root
-            .join(date.to_string())
-            .join("transaction")
-            .join(&filename);
-        if let Ok(bytes) = std::fs::read(&path) {
-            data = Some(bytes);
-            break;
-        }
-    }
-    let data = data?;
+    crate::fast_csv_reader::with_transaction_csv_bytes(code, date, |data| {
 
     let mut morning: Vec<Row> = Vec::new();
     let mut afternoon: Vec<Row> = Vec::new();
@@ -702,6 +689,8 @@ fn read_day(code: &str, date: i64) -> Option<Vec<Row>> {
     }
     morning.append(&mut afternoon);
     Some(morning)
+
+    }).ok()?
 }
 
 // ══════════════════════════════════════════════════════════════════════

@@ -47,7 +47,6 @@
 //! 求和/均值用顺序累加，与 numpy 的成对求和差在 1e-16 相对量级；四组对账实测 1400 个值
 //! 全部一致。volume/turnover/order 号只用「是否 > 0」与「首字符」，不做量级算术。
 
-use crate::data_paths;
 
 const N_STATS: usize = 20;
 const N_SERIES: usize = 10;
@@ -163,19 +162,7 @@ fn read_rows(code: &str, date: i64) -> Option<Vec<Row>> {
     const COL_ASK_ORDER: usize = 13;
     const COL_BID_ORDER: usize = 14;
 
-    let filename = format!("{}_{}_transaction.csv", code, date);
-    let mut data = None;
-    for root in data_paths::level2_roots() {
-        let path = root
-            .join(date.to_string())
-            .join("transaction")
-            .join(&filename);
-        if let Ok(bytes) = std::fs::read(&path) {
-            data = Some(bytes);
-            break;
-        }
-    }
-    let data = data?;
+    crate::fast_csv_reader::with_transaction_csv_bytes(code, date, |data| {
 
     let mut rows: Vec<Row> = Vec::new();
     for (lineno, line) in data.split(|&b| b == b'\n').enumerate() {
@@ -220,6 +207,8 @@ fn read_rows(code: &str, date: i64) -> Option<Vec<Row>> {
         });
     }
     Some(rows)
+
+    }).ok()?
 }
 
 fn trim_ascii(raw: &[u8]) -> &[u8] {

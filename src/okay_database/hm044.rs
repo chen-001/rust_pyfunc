@@ -37,8 +37,6 @@
 //!      buy_dtw4, sell_dtw4, buy_dtw5, sell_dtw5, corr_buy_sell, dtw_buy_sell]
 //! 6 个时段 × 32 = 192 个值，names 的顺序是 allday/open30/morning/afternoon/close30/silent。
 
-use std::fs::File;
-use std::io::Read;
 
 const SEC_NS: i64 = 1_000_000_000;
 const DAY_NS: i64 = 86_400 * SEC_NS;
@@ -130,18 +128,7 @@ struct Row {
 }
 
 fn read_trades(code: &str, date: i64) -> Option<Vec<Row>> {
-    let filename = format!("{}_{}_transaction.csv", code, date);
-    let mut path = None;
-    for root in crate::data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join("transaction").join(&filename);
-        if p.exists() {
-            path = Some(p);
-            break;
-        }
-    }
-    let path = path?;
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_transaction_csv_str(code, date, |content| {
     let mut out: Vec<Row> = Vec::with_capacity(content.len() / 120 + 1);
     let mut lines = content.lines();
     lines.next();
@@ -173,6 +160,8 @@ fn read_trades(code: &str, date: i64) -> Option<Vec<Row>> {
         });
     }
     Some(out)
+
+    }).ok()?
 }
 
 // ============================================================================

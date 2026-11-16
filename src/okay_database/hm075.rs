@@ -102,7 +102,6 @@
 //! · 名字与 groupby 的输出顺序无关：names() 里的顺序完全按旧代码 names_list 的拼接顺序。
 
 use std::collections::{BTreeMap, HashSet};
-use std::fs;
 
 use ndarray::{Array1, Array2};
 
@@ -889,19 +888,7 @@ fn split_into<'a>(bytes: &'a [u8], buf: &mut [&'a [u8]; MAX_COLS]) -> usize {
 /// 复刻到 adjust_afternoon 为止：读出 [09:30:00, 11:30:00] ∪ [13:00:00, 14:57:00] 的行，
 /// 下午整体左移 90 分钟，行序 = 上午（文件序）在前、下午（文件序）在后。
 fn read_day(code: &str, date: i64) -> Option<Vec<Raw>> {
-    let filename = format!("{}_{}_transaction.csv", code, date);
-    let mut data = None;
-    for root in crate::data_paths::level2_roots() {
-        let p = root
-            .join(date.to_string())
-            .join("transaction")
-            .join(&filename);
-        if let Ok(bytes) = fs::read(&p) {
-            data = Some(bytes);
-            break;
-        }
-    }
-    let data = data?;
+    crate::fast_csv_reader::with_transaction_csv_bytes(code, date, |data| {
 
     let mut morning: Vec<Raw> = Vec::new();
     let mut afternoon: Vec<Raw> = Vec::new();
@@ -956,6 +943,8 @@ fn read_day(code: &str, date: i64) -> Option<Vec<Raw>> {
         return None;
     }
     Some(morning)
+
+    }).ok()?
 }
 
 // ============================================================================

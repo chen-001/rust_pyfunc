@@ -62,8 +62,6 @@
 //! 不去重，所以重名不会打架；要落盘的 names_save 里不包含这个名字。
 
 use std::collections::HashSet;
-use std::fs::File;
-use std::io::Read;
 
 // ── 盘口 CSV 列下标（0 基，与文件头一致） ──
 // symbol(0) datetime(1) date(2) time(3) exchtime(4) localtime(5) last_prc(6) ...
@@ -198,23 +196,13 @@ struct Entry {
     vol: f64,
 }
 
-fn market_path(code: &str, date: i64) -> Option<std::path::PathBuf> {
-    let filename = format!("{}_{}_market_data.csv", code, date);
-    for root in crate::data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join("market_data").join(&filename);
-        if p.exists() {
-            return Some(p);
-        }
-    }
-    None
-}
+
 
 /// 读一只股票当天的盘口，返回 (ask 挂单, bid 挂单)，按 (exchtime, 档位) 升序。
 /// 两次筛选与旧代码一致：先 `last_prc != 0` 丢快照，再按档位丢 price == 0 的格子。
 fn read_market(code: &str, date: i64) -> Option<(Vec<Entry>, Vec<Entry>)> {
-    let path = market_path(code, date)?;
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_market_csv_str(code, date, |content| {
+
 
     let mut asks: Vec<Entry> = Vec::new();
     let mut bids: Vec<Entry> = Vec::new();
@@ -255,6 +243,8 @@ fn read_market(code: &str, date: i64) -> Option<(Vec<Entry>, Vec<Entry>)> {
     asks.sort_by(key);
     bids.sort_by(key);
     Some((asks, bids))
+
+    }).ok()?
 }
 
 // ============================================================================

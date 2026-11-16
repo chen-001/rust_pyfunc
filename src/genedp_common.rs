@@ -1,26 +1,10 @@
 //! 基因动态规划系列（genedp_*，四个横截面因子）共用的小工具。
 //!
-//! 四个系列各自带一份按 f64 精度解析的逐笔/盘口读取器（从沙箱原样搬来，因子值与沙箱逐字节一致），
-//! 这里统一它们的「数据在哪」：原始数据目录、前一交易日、日频变量目录都走 crate::data_paths，
+//! 四个系列的 Level2 文件打开、缓冲复用与页缓存释放统一委托 `crate::fast_csv_reader`；
+//! 这里统一它们的「目录列举与日频变量路径」：原始数据目录、前一交易日、日频变量目录都走 `crate::data_paths`，
 //! 因此 pipeline 的 data_root 参数、RUST_PYFUNC_LEVEL2_ROOT、RUST_PYFUNC_VARS_DIR 对它们同样生效。
 
 use std::io::{Error, ErrorKind};
-
-/// 原始 Level2 文件路径。与 crate::fast_csv_reader 的同名函数口径相同：
-/// pipeline 参数 data_root > RUST_PYFUNC_LEVEL2_ROOT > 旧变量 RUST_PYFUNC_LEVEL2_PATH > 默认两级目录。
-pub fn resolve_stock_path(date: i64, subdir: &str, filename: &str) -> std::io::Result<String> {
-    let roots = crate::data_paths::level2_roots();
-    for root in &roots {
-        let p = root.join(date.to_string()).join(subdir).join(filename);
-        if p.exists() {
-            return Ok(p.to_string_lossy().into_owned());
-        }
-    }
-    Err(Error::new(
-        ErrorKind::NotFound,
-        format!("股票数据文件未找到: date={date}, subdir={subdir}, file={filename}, 根目录={roots:?}"),
-    ))
-}
 
 /// 生效的 Level2 根目录（字符串形式，供各系列拼 `{root}/{date}/transaction`）。
 pub fn level2_root_string() -> String {

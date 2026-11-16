@@ -236,19 +236,7 @@ fn read_day(code: &str, date: i64) -> Option<Array2<f64>> {
     const COL_BID_ORDER: usize = 14;
     const EXCHANGE_OFFSET_US: i64 = 8 * 3600 * 1_000_000;
 
-    let filename = format!("{}_{}_transaction.csv", code, date);
-    let mut data = None;
-    for root in data_paths::level2_roots() {
-        let path = root
-            .join(date.to_string())
-            .join("transaction")
-            .join(&filename);
-        if let Ok(bytes) = std::fs::read(&path) {
-            data = Some(bytes);
-            break;
-        }
-    }
-    let data = data?;
+    crate::fast_csv_reader::with_transaction_csv_bytes(code, date, |data| {
 
     let mut morning: Vec<[f64; 7]> = Vec::new();
     let mut afternoon: Vec<[f64; 7]> = Vec::new();
@@ -311,6 +299,8 @@ fn read_day(code: &str, date: i64) -> Option<Array2<f64>> {
         }
     }
     Some(out)
+
+    }).ok()?
 }
 
 /// 去掉字段两端的空白（含行尾的 `\r`）。

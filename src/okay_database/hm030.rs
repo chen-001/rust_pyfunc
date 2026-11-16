@@ -50,8 +50,6 @@
 //! 已知偏差：输出是 f32，maxmin_corr* = partmax_corr - partmin_corr 这类「两个大数相减」
 //! 的因子在真值很小时相对误差会被放大，实测本机四个验收组合都在阈值内。
 
-use std::fs::File;
-use std::io::Read;
 
 const SEC_US: i64 = 1_000_000;
 
@@ -146,19 +144,7 @@ fn parse_f64_at(b: &[u8]) -> f64 {
 
 /// 读盘口 CSV，返回 (时间分量微秒, last_prc) 列表，保持文件行序。
 fn read_snapshots(code: &str, date: i64) -> Option<Vec<(i64, f64)>> {
-    let filename = format!("{}_{}_market_data.csv", code, date);
-    let mut path = None;
-    for root in crate::data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join("market_data").join(&filename);
-        if p.exists() {
-            path = Some(p);
-            break;
-        }
-    }
-    let path = path?;
-
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_market_csv_str(code, date, |content| {
 
     let mut out: Vec<(i64, f64)> = Vec::with_capacity(content.len() / 400 + 1);
     let mut lines = content.lines();
@@ -187,6 +173,8 @@ fn read_snapshots(code: &str, date: i64) -> Option<Vec<(i64, f64)>> {
         out.push((t, parse_f64_at(f[MKT_COL_LAST_PRC])));
     }
     Some(out)
+
+    }).ok()?
 }
 
 // ============================================================================

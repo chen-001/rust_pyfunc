@@ -54,8 +54,6 @@
 //!   raw CSV + pandas 解析 → 与旧代码逐位一致。
 
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::Read;
 
 /// 逐笔 CSV 的列索引（0 基，与 fast_csv_reader 一致）
 const TRD_COL_EXCHTIME: usize = 4;
@@ -286,16 +284,7 @@ fn split_cols<'a>(line: &'a str, buf: &mut [&'a [u8]; 64], n: usize) -> usize {
     col
 }
 
-fn find_file(code: &str, date: i64, subdir: &str, suffix: &str) -> Option<std::path::PathBuf> {
-    let filename = format!("{}_{}_{}", code, date, suffix);
-    for root in crate::data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join(subdir).join(&filename);
-        if p.exists() {
-            return Some(p);
-        }
-    }
-    None
-}
+
 
 // ============================================================================
 // 读取
@@ -310,9 +299,8 @@ struct TradeRow {
 }
 
 fn read_trade_f64(code: &str, date: i64) -> Option<Vec<TradeRow>> {
-    let path = find_file(code, date, "transaction", "transaction.csv")?;
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_transaction_csv_str(code, date, |content| {
+
 
     let mut out: Vec<TradeRow> = Vec::with_capacity(content.len() / 120 + 1);
     let mut lines = content.lines();
@@ -331,6 +319,8 @@ fn read_trade_f64(code: &str, date: i64) -> Option<Vec<TradeRow>> {
         });
     }
     Some(out)
+
+    }).ok()?
 }
 
 #[derive(Clone, Copy, Default)]
@@ -341,9 +331,8 @@ struct SnapRow {
 }
 
 fn read_market_f64(code: &str, date: i64) -> Option<Vec<SnapRow>> {
-    let path = find_file(code, date, "market_data", "market_data.csv")?;
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_market_csv_str(code, date, |content| {
+
 
     let mut out: Vec<SnapRow> = Vec::with_capacity(content.len() / 200 + 1);
     let mut lines = content.lines();
@@ -361,6 +350,8 @@ fn read_market_f64(code: &str, date: i64) -> Option<Vec<SnapRow>> {
         });
     }
     Some(out)
+
+    }).ok()?
 }
 
 // ============================================================================

@@ -76,8 +76,6 @@
 //! · Series.quantile(0.7) 是线性插值 ((n-1)*q 位置)。
 
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::Read;
 
 // ============================================================================
 // 常量
@@ -330,16 +328,7 @@ fn split_fields<'a>(line: &'a [u8], f: &mut [&'a [u8]]) {
     }
 }
 
-fn find_file(code: &str, date: i64) -> Option<std::path::PathBuf> {
-    let filename = format!("{}_{}_transaction.csv", code, date);
-    for root in crate::data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join("transaction").join(&filename);
-        if p.exists() {
-            return Some(p);
-        }
-    }
-    None
-}
+
 
 /// 当天钟点（纳秒，含 8 小时偏移）
 #[inline]
@@ -1510,9 +1499,8 @@ fn corr6_real(col0: &[f64], col1: &[f64], exch: &[f64], turn: &[f64]) -> [f64; 6
 }
 
 pub fn compute_stock(code: &str, date: i64) -> Option<Vec<f32>> {
-    let path = find_file(code, date)?;
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_transaction_csv_str(code, date, |content| {
+
 
     // 逐笔：flag != 32；exchtime 走 pandas 的秒→纳秒转换再补 8 小时；
     // 只保留钟点在 [09:30:00, 14:57:00] 的行（旧代码的 between_time）。
@@ -1691,6 +1679,8 @@ pub fn compute_stock(code: &str, date: i64) -> Option<Vec<f32>> {
         }
     }
     Some(out)
+
+    }).ok()?
 }
 
 /// 按 turnover 降序（pandas 并列顺序）重排

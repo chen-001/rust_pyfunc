@@ -60,8 +60,6 @@
 //!   （HashMap 的遍历顺序不能用）。
 
 use std::collections::{HashMap, HashSet};
-use std::fs::File;
-use std::io::Read;
 
 const DAY_US: i64 = 86_400_000_000;
 const SEC_US: i64 = 1_000_000;
@@ -174,19 +172,7 @@ struct Row {
 
 /// 读 transaction CSV（f64），行序保持文件顺序；这里就丢掉 flag==32 的撤单行。
 fn read_rows(code: &str, date: i64) -> Option<Vec<Row>> {
-    let filename = format!("{}_{}_transaction.csv", code, date);
-    let mut path = None;
-    for root in crate::data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join("transaction").join(&filename);
-        if p.exists() {
-            path = Some(p);
-            break;
-        }
-    }
-    let path = path?;
-
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_transaction_csv_str(code, date, |content| {
 
     let mut out: Vec<Row> = Vec::with_capacity(content.len() / 120 + 1);
     let mut lines = content.lines();
@@ -226,6 +212,8 @@ fn read_rows(code: &str, date: i64) -> Option<Vec<Row>> {
         });
     }
     Some(out)
+
+    }).ok()?
 }
 
 // ============================================================================

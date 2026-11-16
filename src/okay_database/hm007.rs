@@ -57,8 +57,6 @@
 //!    names_save 里没有 `_fold` 结尾的名字（旧文件没有 get_abs 那一步）。
 
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::Read;
 
 /// 逐笔 CSV 的列索引（0 基，与 fast_csv_reader 的常量一致；2018 及更早末尾多一列 num）
 const TRD_COL_EXCHTIME: usize = 4;
@@ -127,16 +125,7 @@ fn parse_f64(b: &[u8]) -> f64 {
         .unwrap_or(f64::NAN)
 }
 
-fn transaction_path(code: &str, date: i64) -> Option<std::path::PathBuf> {
-    let filename = format!("{}_{}_transaction.csv", code, date);
-    for root in crate::data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join("transaction").join(&filename);
-        if p.exists() {
-            return Some(p);
-        }
-    }
-    None
-}
+
 
 /// 一行逐笔（已经过滤完 flag==32 与 [09:30,14:57]）。
 struct Row {
@@ -148,10 +137,9 @@ struct Row {
 }
 
 fn read_rows(code: &str, date: i64) -> Option<Vec<Row>> {
-    let path = transaction_path(code, date)?;
+    crate::fast_csv_reader::with_transaction_csv_str(code, date, |content| {
     let mut rows: Vec<Row> = Vec::new();
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+
 
     let mut lines = content.lines();
     lines.next(); // 表头
@@ -225,6 +213,8 @@ fn read_rows(code: &str, date: i64) -> Option<Vec<Row>> {
         return None;
     }
     Some(rows)
+
+    }).ok()?
 }
 
 // ============================================================================

@@ -53,7 +53,6 @@
 //! 验证：hm78_okay.py 对 20250303:000001 / 20250304:600519 / 20180601:000002 /
 //! 20231020:300750 四组，82 个值全部一致（rtol 1e-4）。
 
-use crate::data_paths;
 use crate::statistics::local_correlation::local_correlation_inner;
 use std::collections::BTreeMap;
 
@@ -454,19 +453,7 @@ fn load_series(code: &str, date: i64) -> Option<(Vec<f64>, Vec<f64>)> {
     const LD_1300: i64 = 13 * 3600 * NS_PER_S;
     const LD_1457: i64 = (14 * 3600 + 57 * 60) * NS_PER_S;
 
-    let filename = format!("{}_{}_market_data.csv", code, date);
-    let mut data = None;
-    for root in data_paths::level2_roots() {
-        let path = root
-            .join(date.to_string())
-            .join("market_data")
-            .join(&filename);
-        if let Ok(bytes) = std::fs::read(&path) {
-            data = Some(bytes);
-            break;
-        }
-    }
-    let data = data?;
+    crate::fast_csv_reader::with_market_csv_bytes(code, date, |data| {
 
     // bin → (last_prc, volume) 两个槽，各自记「该列最后一个非空值」。
     // BTreeMap 的键是纳秒时间戳整除 3e9 的商，天然按时间升序，正好是 resample 的行序。
@@ -581,6 +568,8 @@ fn load_series(code: &str, date: i64) -> Option<(Vec<f64>, Vec<f64>)> {
     let vol_norm: Vec<f64> = diff.iter().map(|&x| x / total).collect();
 
     Some((prc_kept, vol_norm))
+
+    }).ok()?
 }
 
 // ============================================================================

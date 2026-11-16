@@ -4,10 +4,7 @@
 //!   3. 每条记录带“是否下午”标记，下午段据此排除 11:30:00 那一秒的上午成交。
 //! 时间：只保留 09:30:00-11:30:00.999 与 13:00:00-14:57:00.999 两段连续竞价；
 //! t 是距 09:30 的微秒数，下午已前移 90 分钟（13:00 对应 7200 秒）。
-use crate::genedp_common::resolve_stock_path as resolve;
-use std::fs::File;
-use std::io::Read;
-use std::path::Path;
+//! 底层文件打开、字节缓冲复用与页缓存释放统一委托 `crate::fast_csv_reader`。
 
 const US: i64 = 1_000_000;
 const DAY_US: i64 = 86_400 * US;
@@ -158,72 +155,70 @@ fn lines(data: &[u8], mut f: impl FnMut(&[u8])) {
 
 /// 逐笔成交 + 撤单（标记 32）。code 按数值比较。
 pub fn read_events(code: &str, date: i64) -> std::io::Result<Vec<Ev>> {
-    let path = resolve(date, "transaction", &format!("{code}_{date}_transaction.csv"))?;
-    let mut buf = Vec::new();
-    File::open(&path)?.read_to_end(&mut buf)?;
-    let code_num: i64 = code.parse().unwrap_or(-1);
-    let mut out = Vec::with_capacity(buf.len() / 90 + 1);
-    let mut first = true;
-    lines(&buf, |line| {
-        if first {
-            first = false;
-            return;
-        }
-        if line.is_empty() {
-            return;
-        }
-        let mut f: [&[u8]; 15] = [&[][..]; 15];
-        split(line, &mut f);
-        if pi(f[0]) != code_num || pi(f[2]) != date {
-            return;
-        }
-        let Some((t, pm)) = session_time(pi(f[4])) else { return };
-        out.push(Ev {
-            t,
-            pm,
-            flag: if f[10].is_empty() { 0 } else { pi(f[10]) as i32 },
-            price: pf(f[7]),
-            volume: pf(f[8]),
-            ask: pi(f[13]),
-            bid: pi(f[14]),
-            index: pi(f[6]),
+    crate::fast_csv_reader::with_transaction_csv_bytes(code, date, |buf| {
+        let code_num: i64 = code.parse().unwrap_or(-1);
+        let mut out = Vec::with_capacity(buf.len() / 90 + 1);
+        let mut first = true;
+        lines(buf, |line| {
+            if first {
+                first = false;
+                return;
+            }
+            if line.is_empty() {
+                return;
+            }
+            let mut f: [&[u8]; 15] = [&[][..]; 15];
+            split(line, &mut f);
+            if pi(f[0]) != code_num || pi(f[2]) != date {
+                return;
+            }
+            let Some((t, pm)) = session_time(pi(f[4])) else { return };
+            out.push(Ev {
+                t,
+                pm,
+                flag: if f[10].is_empty() { 0 } else { pi(f[10]) as i32 },
+                price: pf(f[7]),
+                volume: pf(f[8]),
+                ask: pi(f[13]),
+                bid: pi(f[14]),
+                index: pi(f[6]),
+            });
         });
-    });
-    Ok(out)
+        out
+    })
 }
 
 /// 盘口快照：只取时间与买卖量合计。code 按数值比较。
 pub fn read_snaps(code: &str, date: i64) -> std::io::Result<Vec<Snap>> {
-    let path = resolve(date, "market_data", &format!("{code}_{date}_market_data.csv"))?;
-    let mut buf = Vec::new();
-    File::open(&path)?.read_to_end(&mut buf)?;
-    let code_num: i64 = code.parse().unwrap_or(-1);
-    let mut out = Vec::with_capacity(buf.len() / 400 + 1);
-    let mut first = true;
-    lines(&buf, |line| {
-        if first {
-            first = false;
-            return;
-        }
-        if line.is_empty() {
-            return;
-        }
-        let mut f: [&[u8]; 24] = [&[][..]; 24];
-        split(line, &mut f);
-        if pi(f[0]) != code_num || pi(f[2]) != date {
-            return;
-        }
-        let ask1 = pf(f[21]);
-        let bid1 = pf(f[23]);
-        if ask1 == 0.0 || bid1 == 0.0 {
-            return;
-        }
-        let ex = pi(f[4]);
-        if ex == 0 {
-            return;
-        }
-        let Some((t, pm)) = session_time(ex) else { return };
-        out.push(Snap { t, pm, lv: (pf(f[20]) - pf(f[19])) as f32 });
-    });
-    Ok(out)
+    crate::fast_csv_reader::with_market_csv_bytes(code, date, |buf| {
+        let code_num: i64 = code.parse().unwrap_or(-1);
+        let mut out = Vec::with_capacity(buf.len() / 400 + 1);
+        let mut first = true;
+        lines(buf, |line| {
+            if first {
+                first = false;
+                return;
+            }
+            if line.is_empty() {
+                return;
+            }
+            let mut f: [&[u8]; 24] = [&[][..]; 24];
+            split(line, &mut f);
+            if pi(f[0]) != code_num || pi(f[2]) != date {
+                return;
+            }
+            let ask1 = pf(f[21]);
+            let bid1 = pf(f[23]);
+            if ask1 == 0.0 || bid1 == 0.0 {
+                return;
+            }
+            let ex = pi(f[4]);
+            if ex == 0 {
+                return;
+            }
+            let Some((t, pm)) = session_time(ex) else { return };
+            out.push(Snap { t, pm, lv: (pf(f[20]) - pf(f[19])) as f32 });
+        });
+        out
+    })
 }

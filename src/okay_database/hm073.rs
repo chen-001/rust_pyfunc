@@ -86,8 +86,6 @@
 //! ════════════════════════════════════════════════════════════════════
 //! 四、names_single 有 1588 个。逐项比过旧文件那份字面清单，没有重名，不需要 _dup 后缀。
 
-use std::fs::File;
-use std::io::Read;
 
 use ndarray::{Array1, Array2};
 
@@ -969,22 +967,7 @@ struct Row {
 /// 复刻到 adjust_afternoon 为止：读出 [09:30:00, 11:30:00] ∪ [13:00:00, 14:57:00] 的行。
 /// 行序 = 上午（文件序）在前、下午（文件序）在后，和 pd.concat([df1, df2]) 一致。
 fn read_rows(code: &str, date: i64) -> Option<Vec<Row>> {
-    let filename = format!("{}_{}_market_data.csv", code, date);
-    let mut path = None;
-    for root in crate::data_paths::level2_roots() {
-        let p = root
-            .join(date.to_string())
-            .join("market_data")
-            .join(&filename);
-        if p.exists() {
-            path = Some(p);
-            break;
-        }
-    }
-    let path = path?;
-
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_market_csv_str(code, date, |content| {
 
     let mut morning: Vec<Row> = Vec::new();
     let mut afternoon: Vec<Row> = Vec::new();
@@ -1036,6 +1019,8 @@ fn read_rows(code: &str, date: i64) -> Option<Vec<Row>> {
         return None;
     }
     Some(rows)
+
+    }).ok()?
 }
 
 // ============================================================================

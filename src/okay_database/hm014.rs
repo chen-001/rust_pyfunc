@@ -56,8 +56,6 @@
 //! fast_csv_reader 的常量一致），file 行序与 pandas 一致。
 
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::Read;
 
 /// 逐笔 CSV 的列索引（0 基，与 fast_csv_reader 一致）
 const TRD_COL_EXCHTIME: usize = 4;
@@ -400,19 +398,7 @@ fn parse_f64_at(b: &[u8]) -> f64 {
 /// exchtime 为空/0 的行也保留（它们落在 08:00，后面按窗口切时自然被丢掉），
 /// 保持与 pandas 相同的行序。
 fn read_trade_f64(code: &str, date: i64) -> Option<Vec<TradeRow>> {
-    let filename = format!("{}_{}_transaction.csv", code, date);
-    let mut path = None;
-    for root in crate::data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join("transaction").join(&filename);
-        if p.exists() {
-            path = Some(p);
-            break;
-        }
-    }
-    let path = path?;
-
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_transaction_csv_str(code, date, |content| {
 
     let mut out: Vec<TradeRow> = Vec::with_capacity(content.len() / 120 + 1);
     let mut lines = content.lines();
@@ -447,6 +433,8 @@ fn read_trade_f64(code: &str, date: i64) -> Option<Vec<TradeRow>> {
         });
     }
     Some(out)
+
+    }).ok()?
 }
 
 /// 逐股入口：算不出来返回 None（上游会补 NaN，保证因子个数恒定）。

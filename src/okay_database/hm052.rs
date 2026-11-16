@@ -100,8 +100,6 @@
 
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
-use std::fs::File;
-use std::io::Read;
 
 /// 盘口 CSV 的列索引（0 基，与文件表头一致）
 const COL_DATETIME: usize = 1;
@@ -239,16 +237,7 @@ fn dt_day_us(b: &[u8]) -> Option<i64> {    let s = std::str::from_utf8(b).ok()?.
     Some(us)
 }
 
-fn market_path(code: &str, date: i64) -> Option<std::path::PathBuf> {
-    let filename = format!("{}_{}_market_data.csv", code, date);
-    for root in crate::data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join("market_data").join(&filename);
-        if p.exists() {
-            return Some(p);
-        }
-    }
-    None
-}
+
 
 /// 读一只股票当天的盘口，复刻到旧代码第 5 步为止。
 ///
@@ -258,9 +247,8 @@ fn market_path(code: &str, date: i64) -> Option<std::path::PathBuf> {
 /// （exchtime ∈ [13:00:00, 14:57:00]，整体 -90 分钟）按文件序；
 /// 同一个格里后面的行覆盖前面的行 —— 这就是 resample().last()。
 fn read_bins(code: &str, date: i64) -> Option<(Vec<i64>, Vec<f64>)> {
-    let path = market_path(code, date)?;
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_market_csv_str(code, date, |content| {
+
 
     let mut morning: Vec<(i64, f64)> = Vec::new();
     let mut afternoon: Vec<(i64, f64)> = Vec::new();
@@ -314,6 +302,8 @@ fn read_bins(code: &str, date: i64) -> Option<(Vec<i64>, Vec<f64>)> {
         prices.push(v);
     }
     Some((labels, prices))
+
+    }).ok()?
 }
 
 // ============================================================================

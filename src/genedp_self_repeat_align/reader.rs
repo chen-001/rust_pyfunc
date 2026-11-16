@@ -1,9 +1,5 @@
 //! 精简版数据读取（单线程，无 pyo3/rayon），从 fast_csv_reader.rs 移植。
-//! 读取 transaction / market_data CSV，做 adjust_afternoon 平移。
-use crate::genedp_common::resolve_stock_path;
-use std::fs::File;
-use std::io::Read;
-use std::path::Path;
+//! 底层文件打开、字节缓冲复用与页缓存释放统一委托 `crate::fast_csv_reader`。
 
 const AFTERNOON_START_SEC: i64 = 13 * 3600;
 const AFTERNOON_END_SEC: i64 = 14 * 3600 + 57 * 60;
@@ -168,11 +164,9 @@ fn parse_chunk(data: &[u8], with_retreat: bool, adj: bool, code: &str, date: i64
 }
 
 pub fn read_trade_fast(code: &str, date: i64) -> std::io::Result<Vec<TradeRecord>> {
-    let filename = format!("{}_{}_transaction.csv", code, date);
-    let path = resolve_stock_path(date, "transaction", &filename)?;
-    let mut content = String::new();
-    File::open(&path)?.read_to_string(&mut content)?;
-    Ok(parse_chunk(content.as_bytes(), true, true, code, date))
+    crate::fast_csv_reader::with_transaction_csv_bytes(code, date, |bytes| {
+        parse_chunk(bytes, true, true, code, date)
+    })
 }
 
 #[inline]
@@ -238,9 +232,7 @@ fn parse_market_chunk(data: &[u8], adj: bool, code: &str, date: i64) -> Vec<Mark
 }
 
 pub fn read_market_fast(code: &str, date: i64) -> std::io::Result<Vec<MarketRecord>> {
-    let filename = format!("{}_{}_market_data.csv", code, date);
-    let path = resolve_stock_path(date, "market_data", &filename)?;
-    let mut content = String::new();
-    File::open(&path)?.read_to_string(&mut content)?;
-    Ok(parse_market_chunk(content.as_bytes(), true, code, date))
+    crate::fast_csv_reader::with_market_csv_bytes(code, date, |bytes| {
+        parse_market_chunk(bytes, true, code, date)
+    })
 }

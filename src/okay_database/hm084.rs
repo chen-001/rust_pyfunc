@@ -56,8 +56,6 @@
 //! · 时间只为分档用，不比较纳秒：pandas 的 exchtime→Timestamp 有 ±256ns 噪声，实测本样本上
 //!   分档结果与「精确微秒分档」完全一致。
 
-use std::fs::File;
-use std::io::Read;
 
 // ============================================================================
 // 常量与输出名表
@@ -436,23 +434,7 @@ fn parse_i64(b: &[u8]) -> i64 {
 }
 
 fn read_market(code: &str, date: i64) -> std::io::Result<Market> {
-    let filename = format!("{}_{}_market_data.csv", code, date);
-    let mut path = None;
-    for root in crate::data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join("market_data").join(&filename);
-        if p.exists() {
-            path = Some(p);
-            break;
-        }
-    }
-    let path = path.ok_or_else(|| {
-        std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            format!("market_data 未找到: {filename}"),
-        )
-    })?;
-    let mut content = String::new();
-    File::open(&path)?.read_to_string(&mut content)?;
+    crate::fast_csv_reader::with_market_csv_str(code, date, |content| {
 
     // 第一遍：解析并做 adjust_afternoon，记录档区间
     struct Row {
@@ -531,6 +513,8 @@ fn read_market(code: &str, date: i64) -> std::io::Result<Market> {
         }
     }
     Ok(Market { b0, volume, vols })
+
+    })?
 }
 
 // ============================================================================

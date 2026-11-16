@@ -51,10 +51,7 @@
 //! 给 PriceTree 加了两个 pub(crate) 入口：build_tree_views（纯 Rust 建树，build_tree 现在
 //! 只是它的薄包装）和 features_43（那 43 项按同一顺序算好）。原有行为一个字没改。
 
-use crate::data_paths;
 use crate::tree::PriceTree;
-use std::fs::File;
-use std::io::Read;
 
 /// 逐笔 CSV 的列索引（0 基，与 fast_csv_reader 的常量一致）
 const TRD_COL_EXCHTIME: usize = 4;
@@ -186,19 +183,7 @@ fn parse_f64_at(b: &[u8]) -> f64 {
 
 /// 读 transaction CSV：返回 (当日微秒数, price, volume, flag)，保持文件行序。
 fn read_trade_f64(code: &str, date: i64) -> Option<Vec<(i64, f64, f64, i32)>> {
-    let filename = format!("{}_{}_transaction.csv", code, date);
-    let mut path = None;
-    for root in data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join("transaction").join(&filename);
-        if p.exists() {
-            path = Some(p);
-            break;
-        }
-    }
-    let path = path?;
-
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_transaction_csv_str(code, date, |content| {
 
     let mut out = Vec::with_capacity(content.len() / 120 + 1);
     let mut lines = content.lines();
@@ -232,6 +217,8 @@ fn read_trade_f64(code: &str, date: i64) -> Option<Vec<(i64, f64, f64, i32)>> {
         ));
     }
     Some(out)
+
+    }).ok()?
 }
 
 /// 一个窗口的 43 个特征；笔数不足 5 或建树失败时给 43 个 NaN。

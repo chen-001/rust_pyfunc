@@ -90,8 +90,6 @@
 //! 这样 names_save 里的名字拿到的就是旧库那个值。48 个 `_dup2` 名字都不在 names_save 里。
 
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::Read;
 
 // ── 逐笔 CSV 列号（0 基，与 fast_csv_reader 的常量一致）
 const TRD_COL_EXCHTIME: usize = 4;
@@ -209,16 +207,7 @@ fn split_fields<'a>(line: &'a [u8], f: &mut [&'a [u8]]) {
     }
 }
 
-fn find_file(code: &str, date: i64, kind: &str, suffix: &str) -> Option<std::path::PathBuf> {
-    let filename = format!("{}_{}_{}.csv", code, date, suffix);
-    for root in crate::data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join(kind).join(&filename);
-        if p.exists() {
-            return Some(p);
-        }
-    }
-    None
-}
+
 
 /// 把 f64 微秒的 exchtime 变成旧框架那条链路上的「当日纳秒」（已加 8 小时）。
 ///
@@ -289,9 +278,8 @@ struct MktRow {
 }
 
 fn read_trades(code: &str, date: i64) -> Option<Vec<TradeRow>> {
-    let path = find_file(code, date, "transaction", "transaction")?;
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_transaction_csv_str(code, date, |content| {
+
 
     let mut out: Vec<TradeRow> = Vec::with_capacity(content.len() / 120 + 1);
     let mut lines = content.lines();
@@ -311,12 +299,13 @@ fn read_trades(code: &str, date: i64) -> Option<Vec<TradeRow>> {
         });
     }
     Some(out)
+
+    }).ok()?
 }
 
 fn read_market(code: &str, date: i64) -> Option<Vec<MktRow>> {
-    let path = find_file(code, date, "market_data", "market_data")?;
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_market_csv_str(code, date, |content| {
+
 
     let mut out: Vec<MktRow> = Vec::with_capacity(content.len() / 200 + 1);
     let mut lines = content.lines();
@@ -340,6 +329,8 @@ fn read_market(code: &str, date: i64) -> Option<Vec<MktRow>> {
         out.push(row);
     }
     Some(out)
+
+    }).ok()?
 }
 
 // ============================================================================

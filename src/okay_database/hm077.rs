@@ -98,7 +98,6 @@
 //!   `mai3dan1_corr_..._jia4ge2` 有一部分落在 kurt 那一块），这是旧文件自己生成的标签，
 //!   这里只保证「同一个下标给出同一个值」，不改名也不挪位置。
 
-use crate::data_paths;
 use crate::features_f64;
 use ndarray::Array2;
 // ────────────────────────── 常量 ──────────────────────────
@@ -566,19 +565,7 @@ fn read_day(code: &str, date: i64) -> Option<Vec<Row>> {
     const COL_ASK_ORDER: usize = 13;
     const COL_BID_ORDER: usize = 14;
 
-    let filename = format!("{}_{}_transaction.csv", code, date);
-    let mut data = None;
-    for root in data_paths::level2_roots() {
-        let path = root
-            .join(date.to_string())
-            .join("transaction")
-            .join(&filename);
-        if let Ok(bytes) = std::fs::read(&path) {
-            data = Some(bytes);
-            break;
-        }
-    }
-    let data = data?;
+    crate::fast_csv_reader::with_transaction_csv_bytes(code, date, |data| {
 
     let mut morning: Vec<Row> = Vec::new();
     let mut afternoon: Vec<Row> = Vec::new();
@@ -635,6 +622,8 @@ fn read_day(code: &str, date: i64) -> Option<Vec<Row>> {
         return None;
     }
     Some(morning)
+
+    }).ok()?
 }
 // ────────────────────────── 排序后的当日数据 ──────────────────────────
 

@@ -212,17 +212,7 @@ fn parse_order(b: &[u8]) -> i64 {
 ///                          volume,turnover,flag,order_type,func_code,ask_order,bid_order[,num]
 /// 旧代码 read_csv 之后 sort(['index'])，文件行序并不总是 index 升序，所以这里也排一次。
 fn read_stock(code: &str, date: i64) -> Option<Vec<Raw>> {
-    let filename = format!("{}_{}_transaction.csv", code, date);
-    let mut found = None;
-    for root in data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join("transaction").join(&filename);
-        if p.exists() {
-            found = Some(p);
-            break;
-        }
-    }
-    let path = found?;
-    let content = std::fs::read(&path).ok()?;
+    crate::fast_csv_reader::with_transaction_csv_bytes(code, date, |content| {
 
     let body_start = content
         .iter()
@@ -273,6 +263,8 @@ fn read_stock(code: &str, date: i64) -> Option<Vec<Raw>> {
     }
     out.sort_by_key(|r| r.idx);
     Some(out)
+
+    }).ok()?
 }
 
 /// 去重之后留下来的行（ask 或 bid 一路）。

@@ -83,8 +83,6 @@
 //! · 因子个数恒定：算不出来整条 NaN，不条件跳过。
 
 use std::collections::HashSet;
-use std::fs::File;
-use std::io::Read;
 
 const SEC_US: i64 = 1_000_000;
 /// 下午整体前移 90 分钟
@@ -301,18 +299,7 @@ fn parse_i64_at(b: &[u8]) -> i64 {
 
 /// 读一天的成交明细（f64）。表头之后每行都读，和 pandas 读整张表一致。
 fn read_trade_f64(code: &str, date: i64) -> Option<Vec<TradeRow>> {
-    let filename = format!("{}_{}_transaction.csv", code, date);
-    let mut path = None;
-    for root in crate::data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join("transaction").join(&filename);
-        if p.exists() {
-            path = Some(p);
-            break;
-        }
-    }
-    let path = path?;
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_transaction_csv_str(code, date, |content| {
 
     let mut out: Vec<TradeRow> = Vec::with_capacity(content.len() / 120 + 1);
     let mut lines = content.lines();
@@ -346,6 +333,8 @@ fn read_trade_f64(code: &str, date: i64) -> Option<Vec<TradeRow>> {
         });
     }
     Some(out)
+
+    }).ok()?
 }
 
 // ============================================================================

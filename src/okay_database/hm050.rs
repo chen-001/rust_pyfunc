@@ -64,8 +64,6 @@
 //! · fast_dtw_distance 是 #[pyfunction]，worker 链路不能调（不带 libpython），
 //!   这里按 src/time_series/mod.rs 的 compute_dtw + radius 自动放宽带逐行抄成纯 Rust。
 
-use std::fs::File;
-use std::io::Read;
 
 /// 盘口 CSV 的列索引（0 基）
 const MKT_COL_DATETIME: usize = 1;
@@ -174,19 +172,7 @@ fn parse_datetime_us(b: &[u8]) -> Option<i64> {
 /// 读盘口 CSV（f64），返回 df 坐标（下午前移）的行序列，保持文件原始行序。
 /// 先按 [09:30, 14:57] 过滤，再拆上午/下午两段、下午前移 90 分钟拼回去。
 fn read_rows(code: &str, date: i64) -> Option<Vec<Row>> {
-    let filename = format!("{}_{}_market_data.csv", code, date);
-    let mut path = None;
-    for root in crate::data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join("market_data").join(&filename);
-        if p.exists() {
-            path = Some(p);
-            break;
-        }
-    }
-    let path = path?;
-
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_market_csv_str(code, date, |content| {
 
     let mut morning: Vec<Row> = Vec::new();
     let mut afternoon: Vec<Row> = Vec::new();
@@ -235,6 +221,8 @@ fn read_rows(code: &str, date: i64) -> Option<Vec<Row>> {
     }
     morning.extend(afternoon);
     Some(morning)
+
+    }).ok()?
 }
 
 // ============================================================================

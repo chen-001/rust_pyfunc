@@ -212,8 +212,21 @@ pub fn trade_tasks(
 }
 
 pub fn read_stock(code: &str, path: &Path, industry: i32, date: i64) -> io::Result<Stock> {
-    let content =
-        std::fs::read_to_string(path).map_err(|e| bad(format!("{}: {e}", path.display())))?;
+    crate::fast_csv_reader::with_csv_path_bytes(path, |bytes| {
+        let content =
+            std::str::from_utf8(bytes).map_err(|e| bad(format!("{}: {e}", path.display())))?;
+        parse_stock_content(code, path, industry, date, content)
+    })
+    .map_err(|e| bad(format!("{}: {e}", path.display())))?
+}
+
+fn parse_stock_content(
+    code: &str,
+    path: &Path,
+    industry: i32,
+    date: i64,
+    content: &str,
+) -> io::Result<Stock> {
     let mut lines = content.lines();
     let header = lines.next().ok_or_else(|| bad("empty trade file"))?;
     let names: Vec<_> = header.trim_end_matches('\r').split(',').collect();

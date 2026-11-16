@@ -82,8 +82,6 @@
 //! · 已知残余差异：实测 4 组验收数据里最大相对误差 8.7e-9（出现在一个 6.2e-7 的小量上），
 //!   来自顺序求和与 pandas 内部求和细节的末位差异，远低于 1e-4 验收线。
 
-use std::fs::File;
-use std::io::Read;
 
 // ============================================================================
 // 常量
@@ -188,19 +186,7 @@ fn parse_f64_at(b: &[u8]) -> f64 {
 /// 读一天盘口，按旧代码 adjust_afternoon 的结果给出 27 列矩阵（行序 = 上午段接下午段）。
 /// volume 列这里还是**累计量**的原始值，差分在调用处做（与旧代码顺序一致）。
 fn read_market_rows(code: &str, date: i64) -> Option<Vec<[f64; NCOL]>> {
-    let filename = format!("{}_{}_market_data.csv", code, date);
-    let mut path = None;
-    for root in crate::data_paths::level2_roots() {
-        let p = root.join(date.to_string()).join("market_data").join(&filename);
-        if p.exists() {
-            path = Some(p);
-            break;
-        }
-    }
-    let path = path?;
-
-    let mut content = String::new();
-    File::open(&path).ok()?.read_to_string(&mut content).ok()?;
+    crate::fast_csv_reader::with_market_csv_str(code, date, |content| {
 
     let mut morning: Vec<[f64; NCOL]> = Vec::new();
     let mut afternoon: Vec<[f64; NCOL]> = Vec::new();
@@ -262,6 +248,8 @@ fn read_market_rows(code: &str, date: i64) -> Option<Vec<[f64; NCOL]>> {
         rows[0][2] = f64::NAN;
     }
     Some(rows)
+
+    }).ok()?
 }
 
 // ============================================================================

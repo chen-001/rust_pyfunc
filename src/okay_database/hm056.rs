@@ -65,7 +65,6 @@
 //!   抄写来源：half_extreme_time / half_energy_time 与 hm047.rs 的同名函数逐行一致，
 //!   ffvsp 与 hm048.rs 的同名函数逐行一致。
 
-use crate::data_paths;
 use std::collections::HashSet;
 
 /// 一天的纳秒数。
@@ -998,19 +997,7 @@ fn read_day(code: &str, date: i64) -> Option<(Vec<i64>, Vec<f64>, Vec<f64>, Vec<
     const COL_FLAG: usize = 10;
     const NCOL: usize = 15;
 
-    let filename = format!("{}_{}_transaction.csv", code, date);
-    let mut data = None;
-    for root in data_paths::level2_roots() {
-        let path = root
-            .join(date.to_string())
-            .join("transaction")
-            .join(&filename);
-        if let Ok(bytes) = std::fs::read(&path) {
-            data = Some(bytes);
-            break;
-        }
-    }
-    let data = data?;
+    crate::fast_csv_reader::with_transaction_csv_bytes(code, date, |data| {
 
     let mut ns_out: Vec<i64> = Vec::new();
     let mut price_out: Vec<f64> = Vec::new();
@@ -1053,6 +1040,8 @@ fn read_day(code: &str, date: i64) -> Option<(Vec<i64>, Vec<f64>, Vec<f64>, Vec<
         flag_out.push(flag);
     }
     Some((ns_out, price_out, vol_out, flag_out))
+
+    }).ok()?
 }
 
 // ============================================================================
