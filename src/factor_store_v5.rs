@@ -2636,6 +2636,105 @@ impl SingleStoreReader {
         }
         Ok(())
     }
+    fn read_factors_into_fast(
+        &self,
+        start: usize,
+        end: usize,
+        dm: &[usize],
+        cm: &[usize],
+        outputs: &mut [ndarray::Array2<f32>],
+    ) -> Result<(), String> {
+        if start > end || end > self.hdr.factor_count {
+            return Err(format!(
+                "因子区间 [{start},{end}) 超出 {}",
+                self.hdr.factor_count
+            ));
+        }
+        if start == end || self.hdr.record_count == 0 {
+            return Ok(());
+        }
+        if outputs.len() != end - start {
+            return Err("输出矩阵数量与请求因子区间不一致".into());
+        }
+        if self.is_projected() {
+            let nrows = outputs[0].nrows();
+            let ncols = outputs[0].ncols();
+            let mut rows = 0usize;
+            let mut raw = Vec::new();
+            let mut target_idx = Vec::new();
+            for seg in &self.proj_segments {
+                let (ds, cs) = seg.row_order()?;
+                if ds.is_empty() {
+                    continue;
+                }
+                if seg.meta.val_index.len() < end {
+                    return Err(format!("投影缺少因子列: {:?}", seg.path));
+                }
+                let first = seg.meta.val_index[start].0;
+                let last = seg.meta.val_index[end - 1];
+                let total_len = (last.0 + last.1 - first) as usize;
+                raw.resize(total_len, 0u8);
+                pread_at(&seg.file, &mut raw, first).map_err(|e| {
+                    format!(
+                        "读取投影 {:?}, offset={first}, len={total_len}: {e}",
+                        seg.path
+                    )
+                })?;
+                rows += ds.len();
+                target_idx.clear();
+                target_idx.reserve(ds.len());
+                for i in 0..ds.len() {
+                    let r = *dm.get(ds[i] as usize).ok_or("日期 id 越界")?;
+                    let c = *cm.get(cs[i] as usize).ok_or("股票 id 越界")?;
+                    if r < nrows && c < ncols {
+                        target_idx.push(r * ncols + c);
+                    } else {
+                        target_idx.push(usize::MAX);
+                    }
+                }
+                let mut pos = 0usize;
+                for (fi, f) in (start..end).enumerate() {
+                    let size = seg.meta.val_index[f].1 as usize;
+                    let out_slice = outputs[fi]
+                        .as_slice_memory_order_mut()
+                        .ok_or("输出矩阵内存布局非连续")?;
+                    for (&idx, v) in target_idx
+                        .iter()
+                        .zip(raw[pos..pos + size].chunks_exact(4))
+                    {
+                        if idx != usize::MAX {
+                            let x = f32::from_le_bytes(v.try_into().unwrap());
+                            out_slice[idx] = if x.is_finite() { x } else { f32::NAN };
+                        }
+                    }
+                    pos += size;
+                }
+            }
+            if rows != self.hdr.record_count as usize {
+                return Err(format!(
+                    "投影覆盖不完整: header={}, 实读={rows}",
+                    self.hdr.record_count
+                ));
+            }
+            return Ok(());
+        }
+        let (ds, cs, vs) = self.read_columns(start, end)?;
+        for (fi, vals) in vs.iter().enumerate() {
+            let out = &mut outputs[fi];
+            for i in 0..ds.len() {
+                let r = dm[ds[i] as usize];
+                let c = cm[cs[i] as usize];
+                if r != usize::MAX && c != usize::MAX {
+                    out[[r, c]] = if vals[i].is_finite() {
+                        vals[i]
+                    } else {
+                        f32::NAN
+                    };
+                }
+            }
+        }
+        Ok(())
+    }
     fn read_factors_batch_contiguous(
         &self,
         col_idx_min: usize,
@@ -2800,6 +2899,23 @@ struct FactorStoreGroup {
     factor_count: usize,
     /// group 内的分片（扁平 store 就是单个分片）。
     stores: Vec<SingleStoreReader>,
+}
+
+pub struct ProjectedSegmentRaw {
+    group_idx: usize,
+    store_idx: usize,
+    seg_idx: usize,
+    map_idx: usize,
+    global_start: usize,
+    global_end: usize,
+    first_offset: u64,
+    bytes: Vec<u8>,
+}
+
+pub struct FactorBatchRaw {
+    pub start: usize,
+    pub end: usize,
+    segments: Vec<ProjectedSegmentRaw>,
 }
 
 pub struct FactorStoreReader {
@@ -3128,11 +3244,20 @@ impl FactorStoreReader {
         template_stocks: &[String],
         scatter_maps: &[(Vec<usize>, Vec<usize>)],
     ) -> Result<ndarray::Array2<f32>, String> {
-        let _io_permit = self.io_gate.acquire()?;
+        if let Some(raw) = self.try_read_factors_raw_batch(col_idx, col_idx.saturating_add(1))? {
+            return self.scatter_factor_from_raw_batch(
+                &raw,
+                col_idx,
+                template_dates,
+                template_stocks,
+                scatter_maps,
+            );
+        }
         let mut output = ndarray::Array2::<f32>::from_elem(
             (template_dates.len(), template_stocks.len()),
             f32::NAN,
         );
+        let _io_permit = self.io_gate.acquire()?;
         let (group_idx, local_col_idx) = self.resolve_factor(col_idx)?;
         let mut map_offset = 0usize;
         for (idx, group) in self.groups.iter().enumerate() {
@@ -3220,6 +3345,160 @@ impl FactorStoreReader {
         &self.store_dir
     }
 
+    /// 仅在 io_gate 内做连续区间 [start, end) 的裸字节顺序 pread，不做矩阵分配与 CPU 散射；
+    /// 若任一命中的 store 未投影（旧 colblk chunk 路径），返回 Ok(None) 由调用方回退。
+    pub fn try_read_factors_raw_batch(
+        &self,
+        start: usize,
+        end: usize,
+    ) -> Result<Option<FactorBatchRaw>, String> {
+        if start > end || end > self.factor_names.len() {
+            return Err("因子区间越界".into());
+        }
+        if start == end {
+            return Ok(Some(FactorBatchRaw {
+                start,
+                end,
+                segments: Vec::new(),
+            }));
+        }
+        for group in &self.groups {
+            let a = start.max(group.factor_offset);
+            let b = end.min(group.factor_offset + group.factor_count);
+            if a < b && group.stores.iter().any(|s| !s.is_projected()) {
+                return Ok(None);
+            }
+        }
+        let _io_permit = self.io_gate.acquire()?;
+        let mut segments = Vec::new();
+        let mut map_offset = 0usize;
+        for (group_idx, group) in self.groups.iter().enumerate() {
+            let a = start.max(group.factor_offset);
+            let b = end.min(group.factor_offset + group.factor_count);
+            if a < b {
+                let local_start = a - group.factor_offset;
+                let local_end = b - group.factor_offset;
+                for (store_idx, store) in group.stores.iter().enumerate() {
+                    if store.hdr.record_count == 0 {
+                        continue;
+                    }
+                    let map_idx = map_offset + store_idx;
+                    let mut rows = 0usize;
+                    for (seg_idx, seg) in store.proj_segments.iter().enumerate() {
+                        let (ds, _cs) = seg.row_order()?;
+                        if ds.is_empty() {
+                            continue;
+                        }
+                        if seg.meta.val_index.len() < local_end {
+                            return Err(format!("投影缺少因子列: {:?}", seg.path));
+                        }
+                        let first = seg.meta.val_index[local_start].0;
+                        let last = seg.meta.val_index[local_end - 1];
+                        let span_end = last
+                            .0
+                            .checked_add(last.1)
+                            .ok_or("投影列偏移溢出")?;
+                        for f in local_start..local_end {
+                            let (off, len) = seg.meta.val_index[f];
+                            if off < first
+                                || off.checked_add(len).map_or(true, |e| e > span_end)
+                            {
+                                return Err(format!("投影列偏移非连续单调: {:?}", seg.path));
+                            }
+                        }
+                        let total_len = usize::try_from(span_end - first)
+                            .map_err(|_| "单段连读字节数超出 usize")?;
+                        let mut bytes = vec![0u8; total_len];
+                        pread_at(&seg.file, &mut bytes, first).map_err(|e| {
+                            format!(
+                                "读取投影 {:?}, offset={first}, len={total_len}: {e}",
+                                seg.path
+                            )
+                        })?;
+                        rows += ds.len();
+                        segments.push(ProjectedSegmentRaw {
+                            group_idx,
+                            store_idx,
+                            seg_idx,
+                            map_idx,
+                            global_start: a,
+                            global_end: b,
+                            first_offset: first,
+                            bytes,
+                        });
+                    }
+                    if rows != store.hdr.record_count as usize {
+                        return Err(format!(
+                            "投影覆盖不完整: header={}, 实读={rows}",
+                            store.hdr.record_count
+                        ));
+                    }
+                }
+            }
+            map_offset += group.stores.len();
+        }
+        Ok(Some(FactorBatchRaw {
+            start,
+            end,
+            segments,
+        }))
+    }
+
+    /// 消费端各自在 io_gate 外分配单列输出矩阵并完成散射（多核并行且保持本线程 NUMA 局部性）。
+    pub fn scatter_factor_from_raw_batch(
+        &self,
+        raw: &FactorBatchRaw,
+        col_idx: usize,
+        dates: &[i32],
+        stocks: &[String],
+        maps: &[(Vec<usize>, Vec<usize>)],
+    ) -> Result<ndarray::Array2<f32>, String> {
+        if col_idx < raw.start || col_idx >= raw.end {
+            return Err(format!(
+                "col_idx {col_idx} 不在批次区间 [{}, {}) 内",
+                raw.start, raw.end
+            ));
+        }
+        let nrows = dates.len();
+        let ncols = stocks.len();
+        let mut output = ndarray::Array2::from_elem((nrows, ncols), f32::NAN);
+        let out_slice = output
+            .as_slice_memory_order_mut()
+            .ok_or("输出矩阵内存布局非连续")?;
+        for s in &raw.segments {
+            if col_idx < s.global_start || col_idx >= s.global_end {
+                continue;
+            }
+            let group = &self.groups[s.group_idx];
+            let store = &group.stores[s.store_idx];
+            let seg = &store.proj_segments[s.seg_idx];
+            let (ds, cs) = seg.row_order()?;
+            let (dm, cm) = maps
+                .get(s.map_idx)
+                .ok_or("scatter_maps 数量与 store 分片数不一致")?;
+            let local_col = col_idx - group.factor_offset;
+            let (off, len) = seg.meta.val_index[local_col];
+            let rel = (off - s.first_offset) as usize;
+            let len_usize = len as usize;
+            let col_bytes = s
+                .bytes
+                .get(rel..rel + len_usize)
+                .ok_or("投影列切片越界")?;
+            if col_bytes.len() != ds.len().saturating_mul(4) {
+                return Err(format!("投影列字节长度与段行数不匹配: {:?}", seg.path));
+            }
+            for (i, v) in col_bytes.chunks_exact(4).enumerate() {
+                let r = *dm.get(ds[i] as usize).ok_or("日期 id 越界")?;
+                let c = *cm.get(cs[i] as usize).ok_or("股票 id 越界")?;
+                if r < nrows && c < ncols {
+                    let x = f32::from_le_bytes(v.try_into().unwrap());
+                    out_slice[r * ncols + c] = if x.is_finite() { x } else { f32::NAN };
+                }
+            }
+        }
+        Ok(output)
+    }
+
     pub fn read_factors_batch_v7(
         &self,
         start: usize,
@@ -3244,13 +3523,22 @@ impl FactorStoreReader {
         stocks: &[String],
         maps: &[(Vec<usize>, Vec<usize>)],
     ) -> Result<Vec<ndarray::Array2<f32>>, String> {
-        let _io_permit = self.io_gate.acquire()?;
         if start > end || end > self.factor_names.len() {
             return Err("因子区间越界".into());
+        }
+        if start == end {
+            return Ok(Vec::new());
+        }
+        if let Some(raw) = self.try_read_factors_raw_batch(start, end)? {
+            return (start..end)
+                .into_par_iter()
+                .map(|col| self.scatter_factor_from_raw_batch(&raw, col, dates, stocks, maps))
+                .collect();
         }
         let mut outputs: Vec<_> = (start..end)
             .map(|_| ndarray::Array2::from_elem((dates.len(), stocks.len()), f32::NAN))
             .collect();
+        let _io_permit = self.io_gate.acquire()?;
         let mut map_offset = 0;
         for group in &self.groups {
             let a = start.max(group.factor_offset);
@@ -3258,22 +3546,13 @@ impl FactorStoreReader {
             if a < b {
                 for (si, store) in group.stores.iter().enumerate() {
                     let (dm, cm) = maps.get(map_offset + si).ok_or("scatter map 缺失")?;
-                    let (ds, cs, vs) =
-                        store.read_columns(a - group.factor_offset, b - group.factor_offset)?;
-                    for (fi, vals) in vs.iter().enumerate() {
-                        let out = &mut outputs[a - start + fi];
-                        for i in 0..ds.len() {
-                            let r = dm[ds[i] as usize];
-                            let c = cm[cs[i] as usize];
-                            if r != usize::MAX && c != usize::MAX {
-                                out[[r, c]] = if vals[i].is_finite() {
-                                    vals[i]
-                                } else {
-                                    f32::NAN
-                                };
-                            }
-                        }
-                    }
+                    store.read_factors_into_fast(
+                        a - group.factor_offset,
+                        b - group.factor_offset,
+                        dm,
+                        cm,
+                        &mut outputs[a - start..b - start],
+                    )?;
                 }
             }
             map_offset += group.stores.len();

@@ -134,7 +134,7 @@ fn parse_col_idx(factor_path: &str) -> Option<usize> {
     cold_style=None,
     cold_dual_pass=true,
     ic_only=false,
-    io_concurrency=None, io_batch_size=None, io_batch_bytes=67108864,
+    io_concurrency=None, io_batch_size=None, io_batch_bytes=None,
     low_coverage_markers=None, low_coverage_names=None,
 ))]
 #[allow(clippy::too_many_arguments)]
@@ -182,7 +182,7 @@ pub fn tail_backtest_engine<'py>(
     ic_only: bool,
     io_concurrency: Option<usize>,
     io_batch_size: Option<usize>,
-    io_batch_bytes: usize,
+    io_batch_bytes: Option<usize>,
     low_coverage_markers: Option<Vec<String>>,
     low_coverage_names: Option<Vec<String>>,
 ) -> PyResult<PyObject> {
@@ -231,7 +231,8 @@ pub fn tail_backtest_engine<'py>(
         .map_err(PyRuntimeError::new_err)?;
     let resolved_io = io_concurrency.unwrap_or(profile.io_concurrency(n_jobs));
     let resolved_batch = io_batch_size.unwrap_or(profile.io_batch_size());
-    if resolved_io == 0 || resolved_batch == 0 || io_batch_bytes == 0 {
+    let resolved_batch_bytes = io_batch_bytes.unwrap_or(profile.io_batch_bytes());
+    if resolved_io == 0 || resolved_batch == 0 || resolved_batch_bytes == 0 {
         return Err(PyValueError::new_err(
             "io_concurrency/io_batch_size/io_batch_bytes 必须 > 0",
         ));
@@ -414,7 +415,7 @@ pub fn tail_backtest_engine<'py>(
                 shared_arc.stocks.as_slice(),
             ));
             let valid_cols:Vec<_>=read_cols.iter().copied().filter(|&c|c<reader.factor_names().len()).collect();
-            let cache=Arc::new(crate::storage_read_cache::FactorReadCache::new(&reader,&valid_cols,resolved_batch,shared_arc.dates.len().saturating_mul(shared_arc.stocks.len()).saturating_mul(4),io_batch_bytes)?);
+            let cache=Arc::new(crate::storage_read_cache::FactorReadCache::new(&reader,&valid_cols,resolved_batch,shared_arc.dates.len().saturating_mul(shared_arc.stocks.len()).saturating_mul(4),resolved_batch_bytes)?);
             Some((reader, scatter_maps, cache))
         } else {
             None
@@ -643,6 +644,7 @@ pub fn tail_backtest_engine<'py>(
     )?;
     info.set_item("io_concurrency", resolved_io)?;
     info.set_item("io_batch_size", resolved_batch)?;
+    info.set_item("io_batch_bytes", resolved_batch_bytes)?;
     info.set_item("io_read_groups", read_count.load(AtomicOrdering::Relaxed))?;
     info.set_item("restored_sources", output.1)?;
     let candidate_counts = PyDict::new(py);

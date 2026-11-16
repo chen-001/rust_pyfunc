@@ -65,11 +65,28 @@ impl StorageProfile {
             jobs.min(16).max(1)
         }
     }
+    /// 单次顺序连读的因子列数上限（实际列数还会受 io_batch_bytes 字节预算约束）。
+    ///
+    /// 本地盘此前写死为 1，导致即便把 io_batch_bytes 调到 512 MiB，storage_read_cache 计算
+    /// `max_cols = min(io_batch_size, io_batch_bytes / matrix_bytes)` 后仍恒等于 1，
+    /// 批量连读分支一次都不会进入。本地机械盘放开到 8 列（配合 512 MiB 字节预算，单段每次
+    /// 顺序连读约 6~8 MiB 连续块，既将寻道与系统调用降约 8 倍、避开 >32 MiB 临时分配的
+    /// mmap/TLB 抖动，又保证 n_jobs=128~192 时 16~24 个读取组能持续喂满 16 个并发 IO 槽位）。
     pub fn io_batch_size(self) -> usize {
         if self.network {
             4
         } else {
-            1
+            8
+        }
+    }
+    /// 单次顺序连读的字节预算上限。
+    ///
+    /// 本地盘默认 512 MiB（常规全历史 ~45~55 MiB/列下匹配 8 列上限），NAS 默认 256 MiB（匹配 4 列上限）。
+    pub fn io_batch_bytes(self) -> usize {
+        if self.network {
+            256 * 1024 * 1024
+        } else {
+            512 * 1024 * 1024
         }
     }
     pub fn write_queue_batches(self, batch_bytes: usize) -> usize {
@@ -158,7 +175,7 @@ pub fn factor_store_storage_profile(path: String) -> PyResult<PyObject> {
         d.set_item("preallocate", !p.network)?;
         d.set_item("io_concurrency", p.io_concurrency(192))?;
         d.set_item("io_batch_size", p.io_batch_size())?;
-        d.set_item("io_batch_bytes", 64 * 1024 * 1024usize)?;
+        d.set_item("io_batch_bytes", p.io_batch_bytes())?;
         d.set_item("delta_max_segments", 16usize)?;
         Ok(d.into())
     })

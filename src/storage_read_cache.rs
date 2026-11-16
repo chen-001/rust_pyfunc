@@ -1,6 +1,6 @@
 //! Coalesce adjacent requested factors while retaining the existing thread-per-factor workers.
-//! A group is read once; matrices are moved to consumers, never cloned. Local HDD defaults to 1.
-use crate::factor_store_v5::FactorStoreReader;
+//! A group is read once; matrices are moved to consumers, never cloned.
+use crate::factor_store_v5::{FactorBatchRaw, FactorStoreReader};
 use ndarray::Array2;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -9,7 +9,13 @@ use std::sync::{Arc, Condvar, Mutex};
 enum State {
     Empty,
     Loading,
+    ReadyRaw {
+        raw: Arc<FactorBatchRaw>,
+        taken: Vec<bool>,
+        remaining: usize,
+    },
     Ready(Vec<Option<Array2<f32>>>),
+    Consumed,
     Failed(String),
 }
 struct Group {
@@ -91,35 +97,67 @@ impl FactorReadCache {
         let mut state = group.state.lock().map_err(|e| e.to_string())?;
         loop {
             match &mut *state {
+                State::ReadyRaw {
+                    raw,
+                    taken,
+                    remaining,
+                } => {
+                    let idx = col - group.start;
+                    if *taken.get(idx).ok_or("因子列偏移越界")? {
+                        return Err("因子矩阵被重复消费".into());
+                    }
+                    taken[idx] = true;
+                    *remaining -= 1;
+                    let raw_arc = raw.clone();
+                    if *remaining == 0 {
+                        *state = State::Consumed;
+                    }
+                    drop(state);
+                    return reader.scatter_factor_from_raw_batch(&raw_arc, col, dates, stocks, maps);
+                }
                 State::Ready(values) => {
                     return values[col - group.start]
                         .take()
                         .ok_or_else(|| "因子矩阵被重复消费".into())
                 }
+                State::Consumed => return Err("因子矩阵被重复消费".into()),
                 State::Failed(error) => return Err(error.clone()),
                 State::Loading => state = group.wake.wait(state).map_err(|e| e.to_string())?,
                 State::Empty => {
                     *state = State::Loading;
                     drop(state);
                     self.reads.fetch_add(1, Ordering::Relaxed);
-                    let result = if group.end == group.start + 1 {
-                        reader
-                            .read_factor_to_matrix_fast(col, dates, stocks, maps)
-                            .map(|m| vec![m])
-                    } else {
-                        reader.read_factors_batch_v7_fast(
-                            group.start,
-                            group.end,
-                            dates,
-                            stocks,
-                            maps,
-                        )
-                    };
-                    state = group.state.lock().map_err(|e| e.to_string())?;
-                    *state = match result {
-                        Ok(values) => State::Ready(values.into_iter().map(Some).collect()),
+                    let len = group.end - group.start;
+                    let next_state = match reader.try_read_factors_raw_batch(group.start, group.end)
+                    {
+                        Ok(Some(raw)) => State::ReadyRaw {
+                            raw: Arc::new(raw),
+                            taken: vec![false; len],
+                            remaining: len,
+                        },
+                        Ok(None) => {
+                            let fallback = if len == 1 {
+                                reader
+                                    .read_factor_to_matrix_fast(col, dates, stocks, maps)
+                                    .map(|m| vec![m])
+                            } else {
+                                reader.read_factors_batch_v7_fast(
+                                    group.start,
+                                    group.end,
+                                    dates,
+                                    stocks,
+                                    maps,
+                                )
+                            };
+                            match fallback {
+                                Ok(values) => State::Ready(values.into_iter().map(Some).collect()),
+                                Err(e) => State::Failed(e),
+                            }
+                        }
                         Err(e) => State::Failed(e),
                     };
+                    state = group.state.lock().map_err(|e| e.to_string())?;
+                    *state = next_state;
                     group.wake.notify_all();
                 }
             }
