@@ -289,10 +289,11 @@ impl RichOrder {
     }
 }
 
-/// 复用的聚合容器（避免每分钟重新分配哈希表）
+/// 复用的聚合容器：哈希表只存 (订单号 -> 输出数组下标 u32)，新订单按首次出现位置 i 严格递增直接追加进输出切片，
+/// 既消除 80 字节结构体的哈希桶扫描（values()），又天然满足按 (first_idx, order_id) 升序而无需二次排序。
 struct OrderAgg {
-    bid: FxHashMap<i64, RichOrder>,
-    ask: FxHashMap<i64, RichOrder>,
+    bid: FxHashMap<i64, u32>,
+    ask: FxHashMap<i64, u32>,
 }
 
 impl OrderAgg {
@@ -303,30 +304,70 @@ impl OrderAgg {
         }
     }
 
-    /// 聚合一段成交为订单，返回按首次成交序排好的 [买, 卖, 买卖混合]
-    fn build(&mut self, trades: &[TradeRecord]) -> [Vec<RichOrder>; 3] {
+    /// 聚合一段成交为买卖两侧订单（复用缓冲，不构造混合队列，供 237 分钟循环直接调用）
+    fn build_bid_ask(
+        &mut self,
+        trades: &[TradeRecord],
+        b: &mut Vec<RichOrder>,
+        a: &mut Vec<RichOrder>,
+    ) {
+        use std::collections::hash_map::Entry;
         self.bid.clear();
         self.ask.clear();
+        b.clear();
+        a.clear();
         for (i, t) in trades.iter().enumerate() {
-            self.bid
-                .entry(t.bid_order)
-                .or_insert_with(|| RichOrder::new(t.bid_order, i, t))
-                .add(i, t, t.flag == 66);
-            self.ask
-                .entry(t.ask_order)
-                .or_insert_with(|| RichOrder::new(t.ask_order, i, t))
-                .add(i, t, t.flag == 83);
+            match self.bid.entry(t.bid_order) {
+                Entry::Occupied(o) => {
+                    b[*o.get() as usize].add(i, t, t.flag == 66);
+                }
+                Entry::Vacant(v) => {
+                    let idx = b.len() as u32;
+                    v.insert(idx);
+                    let mut ro = RichOrder::new(t.bid_order, i, t);
+                    ro.add(i, t, t.flag == 66);
+                    b.push(ro);
+                }
+            }
+            match self.ask.entry(t.ask_order) {
+                Entry::Occupied(o) => {
+                    a[*o.get() as usize].add(i, t, t.flag == 83);
+                }
+                Entry::Vacant(v) => {
+                    let idx = a.len() as u32;
+                    v.insert(idx);
+                    let mut ro = RichOrder::new(t.ask_order, i, t);
+                    ro.add(i, t, t.flag == 83);
+                    a.push(ro);
+                }
+            }
         }
-        // HashMap 遍历顺序随机，必须按 (首次成交位置, 订单号) 排序后再用
-        let mut b: Vec<RichOrder> = self.bid.values().copied().collect();
-        b.sort_unstable_by_key(|o| (o.first_idx, o.order_id));
-        let mut a: Vec<RichOrder> = self.ask.values().copied().collect();
-        a.sort_unstable_by_key(|o| (o.first_idx, o.order_id));
-        let mut m: Vec<(usize, u8, i64, RichOrder)> = Vec::with_capacity(b.len() + a.len());
-        m.extend(b.iter().map(|o| (o.first_idx, 0u8, o.order_id, *o)));
-        m.extend(a.iter().map(|o| (o.first_idx, 1u8, o.order_id, *o)));
-        m.sort_unstable_by_key(|x| (x.0, x.1, x.2));
-        let mixed = m.into_iter().map(|x| x.3).collect();
+    }
+
+    /// 聚合一段成交为订单，返回按首次成交序排好的 [买, 卖, 买卖混合]
+    fn build(&mut self, trades: &[TradeRecord]) -> [Vec<RichOrder>; 3] {
+        let mut b = Vec::with_capacity(self.bid.capacity().min(trades.len()));
+        let mut a = Vec::with_capacity(self.ask.capacity().min(trades.len()));
+        self.build_bid_ask(trades, &mut b, &mut a);
+        // b 与 a 已各自按 (first_idx, order_id) 升序，混合序键为 (first_idx, side_tag, order_id)
+        // 其中买单 side_tag=0 < 卖单 side_tag=1，故双指针线性归并结果与元组排序逐元素完全一致
+        let mut mixed = Vec::with_capacity(b.len() + a.len());
+        let (mut ib, mut ia) = (0usize, 0usize);
+        while ib < b.len() && ia < a.len() {
+            if b[ib].first_idx <= a[ia].first_idx {
+                mixed.push(b[ib]);
+                ib += 1;
+            } else {
+                mixed.push(a[ia]);
+                ia += 1;
+            }
+        }
+        if ib < b.len() {
+            mixed.extend_from_slice(&b[ib..]);
+        }
+        if ia < a.len() {
+            mixed.extend_from_slice(&a[ia..]);
+        }
         [b, a, mixed]
     }
 }
@@ -420,11 +461,12 @@ impl XorShift64 {
     }
 }
 
-fn anneal_presorted(
+fn anneal_presorted<const NEED_D: bool>(
     seq: &[f32],
     pre_sorted: &[f32],
     m_max: usize,
     mode: u8,
+    keep_guess: bool,
     buf: &mut FastAnnealBuf,
 ) -> [f32; N_CORE] {
     let n = seq.len();
@@ -449,46 +491,63 @@ fn anneal_presorted(
         return [f32::NAN; N_CORE];
     }
 
-    // 构造初始猜测序列
-    buf.guess.clear();
-    buf.guess.extend_from_slice(pre_sorted);
-    if mode == 1 {
-        // 降序先验
-        buf.guess.reverse();
+    // 构造交错存储的 (guess_k, seq_k) 数组，把每步 4 次随机访存压成 2 次同缓存行读取，同时单趟算初始平方和 s
+    buf.gs.clear();
+    let mut s = 0.0f64;
+    if mode == 0 || mode > 3 {
+        buf.gs.reserve(n);
+        for k in 0..n {
+            let g = pre_sorted[k];
+            let t = seq[k];
+            let d = g as f64 - t as f64;
+            s += d * d;
+            buf.gs.push((g, t));
+        }
+    } else if mode == 1 {
+        buf.gs.reserve(n);
+        for k in 0..n {
+            let g = pre_sorted[n - 1 - k];
+            let t = seq[k];
+            let d = g as f64 - t as f64;
+            s += d * d;
+            buf.gs.push((g, t));
+        }
     } else if mode == 2 {
         // U型先验：大值放两端，小值放中间
-        let sorted = buf.guess.clone();
+        buf.gs.resize(n, (0.0, 0.0));
         let mut left = 0usize;
         let mut right = n - 1;
-        for (idx, &val) in sorted.iter().rev().enumerate() {
+        for (idx, &val) in pre_sorted.iter().rev().enumerate() {
             if idx % 2 == 0 {
-                buf.guess[left] = val;
+                buf.gs[left] = (val, seq[left]);
                 left += 1;
             } else {
-                buf.guess[right] = val;
+                buf.gs[right] = (val, seq[right]);
                 right = right.saturating_sub(1);
             }
         }
-    } else if mode == 3 {
+        for &(g, t) in buf.gs.iter() {
+            let d = g as f64 - t as f64;
+            s += d * d;
+        }
+    } else {
         // 倒U型先验：小值放两端，大值放中间
-        let sorted = buf.guess.clone();
+        buf.gs.resize(n, (0.0, 0.0));
         let mut left = 0usize;
         let mut right = n - 1;
-        for (idx, &val) in sorted.iter().enumerate() {
+        for (idx, &val) in pre_sorted.iter().enumerate() {
             if idx % 2 == 0 {
-                buf.guess[left] = val;
+                buf.gs[left] = (val, seq[left]);
                 left += 1;
             } else {
-                buf.guess[right] = val;
+                buf.gs[right] = (val, seq[right]);
                 right = right.saturating_sub(1);
             }
         }
-    }
-
-    let mut s = 0.0f64;
-    for k in 0..n {
-        let d = buf.guess[k] as f64 - seq[k] as f64;
-        s += d * d;
+        for &(g, t) in buf.gs.iter() {
+            let d = g as f64 - t as f64;
+            s += d * d;
+        }
     }
     let denom = 2.0 * sigma2 * n as f64;
     let inv_denom = 1.0 / denom;
@@ -499,7 +558,6 @@ fn anneal_presorted(
 
     let mut rng = XorShift64::new(SEED ^ ((mode as u64) << 32));
     let mut prev_r = r0;
-    let mut final_r = r0;
     let mut peak_r = r0;
     let mut max_dd = 0.0f64;
 
@@ -509,18 +567,14 @@ fn anneal_presorted(
 
     let mut inertia_sum = 0.0f64;
     let mut declines = 0u32;
-    let mut dr_cnt = 0u32;
     let mut dr_s1 = 0.0f64;
     let mut dr_s2 = 0.0f64;
 
     let s1_end = m_max / 3;
     let s2_end = 2 * (m_max / 3);
-    let mut s1_cnt = 0u32;
     let mut s1_s1 = 0.0f64;
     let mut s1_s2 = 0.0f64;
-    let mut s2_cnt = 0u32;
     let mut s2_decl = 0u32;
-    let mut s3_cnt = 0u32;
     let mut s3_s1 = 0.0f64;
     let mut s3_s2 = 0.0f64;
     let mut r_at_s2 = r0;
@@ -530,17 +584,25 @@ fn anneal_presorted(
     let mut d_flips = 0u32;
     let mut prev_d_sign: i8 = 0;
 
-    let mut actual_steps = 0usize;
+    let mut actual_steps = m_max;
+    let gs = buf.gs.as_mut_slice();
+    assert_eq!(gs.len(), n);
 
     for t in 0..m_max {
         let i = rng.next_index(n);
         let mut j = rng.next_index(n);
         if j == i {
-            j = (i + 1) % n;
+            j = if i + 1 == n { 0 } else { i + 1 };
         }
 
-        if d_cnt < 2000 && buf.guess[i] != buf.guess[j] {
-            let dv = seq[j] - seq[i];
+        // SAFETY: n >= 3 且 next_index(n) 满足 ((u32 as u64) * n) >> 32 < n，j 亦严格小于 n
+        let (gi, ti, gj, tj) = unsafe {
+            let pi = *gs.get_unchecked(i);
+            let pj = *gs.get_unchecked(j);
+            (pi.0, pi.1, pj.0, pj.1)
+        };
+        if NEED_D && d_cnt < 2000 && gi != gj {
+            let dv = tj - ti;
             d_cnt += 1;
             if dv > 0.0 {
                 d_pos += 1;
@@ -560,24 +622,31 @@ fn anneal_presorted(
             }
         }
 
-        let gi = buf.guess[i];
-        let gj = buf.guess[j];
-        let ti = seq[i];
-        let tj = seq[j];
         let ds = 2.0f32 * (gi - gj) * (ti - tj);
-        let ct = sigma2 * (1.0 - t as f64 * inv_m).max(0.0);
-        if (ds as f64) < 0.0 || (ds as f64) < ct {
+        let accepted = (ds as f64) < 0.0
+            || (ds as f64) < sigma2 * (1.0 - t as f64 * inv_m).max(0.0);
+        if accepted {
             s += ds as f64;
-            buf.guess.swap(i, j);
+            unsafe {
+                gs.get_unchecked_mut(i).0 = gj;
+                gs.get_unchecked_mut(j).0 = gi;
+            }
+        }
+
+        // 当 t > 0 且本步未改变平方和 s 时，cr 与 prev_r 逐位相同、dv == +0.0，
+        // 只需累加 inertia_sum 与记录 s2_end 截面值，其余统计与收敛判定均不变
+        if t > 0 && (!accepted || ds == 0.0) {
+            inertia_sum += 1.0 - prev_r;
+            if t + 1 == s2_end {
+                r_at_s2 = prev_r;
+            }
+            continue;
         }
 
         let cr = (1.0 - s * inv_denom).clamp(-1.0, 1.0);
-        final_r = cr;
-        actual_steps = t + 1;
 
         if t > 0 {
             let dv = cr - prev_r;
-            dr_cnt += 1;
             dr_s1 += dv;
             dr_s2 += dv * dv;
             if cr < prev_r {
@@ -587,13 +656,9 @@ fn anneal_presorted(
                 }
             }
             if t < s1_end {
-                s1_cnt += 1;
                 s1_s1 += dv;
                 s1_s2 += dv * dv;
-            } else if t < s2_end {
-                s2_cnt += 1;
-            } else {
-                s3_cnt += 1;
+            } else if t >= s2_end {
                 s3_s1 += dv;
                 s3_s2 += dv * dv;
             }
@@ -622,12 +687,24 @@ fn anneal_presorted(
         }
         prev_r = cr;
         if s <= s_tol {
+            actual_steps = t + 1;
             if t + 1 < s2_end {
                 r_at_s2 = cr;
             }
             break;
         }
     }
+
+    if keep_guess {
+        buf.guess.clear();
+        buf.guess.extend(buf.gs.iter().map(|p| p.0));
+    }
+
+    let final_r = prev_r;
+    let dr_cnt = actual_steps.saturating_sub(1) as u32;
+    let s1_cnt = actual_steps.min(s1_end).saturating_sub(1) as u32;
+    let s2_cnt = actual_steps.min(s2_end).saturating_sub(s1_end.max(1)) as u32;
+    let s3_cnt = actual_steps.saturating_sub(s2_end.max(1)) as u32;
 
     let m_f = m_max as f32;
     let act_f = actual_steps.max(1) as f32;
@@ -722,7 +799,7 @@ impl Ev {
 /// 平均秩（并列取平均名次，名次 0..n-1）。vals 必须是 sorted 的一个排列（真实序列、打乱序列、
 /// 退火后的猜测序列都满足）。并列组按 == 在排好序的数组上划分、组内取平均名次，与 v2 的
 /// 「下标间接排序再分组」结果逐位相同，但只需一次线性扫描加二分查找。
-fn avg_rank_sorted(vals: &[f32], sorted: &[f32], grp: &mut Vec<f32>, out: &mut Vec<f32>) {
+fn build_rank_groups(sorted: &[f32], grp: &mut Vec<f32>) {
     let n = sorted.len();
     grp.clear();
     grp.resize(n, 0.0);
@@ -738,6 +815,10 @@ fn avg_rank_sorted(vals: &[f32], sorted: &[f32], grp: &mut Vec<f32>, out: &mut V
         }
         s = e;
     }
+}
+
+#[inline]
+fn map_ranks_from_groups(vals: &[f32], sorted: &[f32], grp: &[f32], out: &mut Vec<f32>) {
     out.clear();
     out.extend(vals.iter().map(|&v| grp[sorted.partition_point(|&y| y < v)]));
 }
@@ -773,8 +854,9 @@ fn deep8(seq: &[f32], guess: &[f32], sorted: &[f32], grp: &mut Vec<f32>, ra: &mu
     if n < 10 || guess.len() != n {
         return NAN8;
     }
-    avg_rank_sorted(seq, sorted, grp, ra);
-    avg_rank_sorted(guess, sorted, grp, rb);
+    build_rank_groups(sorted, grp);
+    map_ranks_from_groups(seq, sorted, grp, ra);
+    map_ranks_from_groups(guess, sorted, grp, rb);
     let spearman = pearson(ra, rb);
     let inv = 1.0 / (n as f32 - 1.0);
     let (mut tc, mut th, mut td) = (0usize, 0usize, 0.0f32);
@@ -826,7 +908,7 @@ fn shuffle_baseline(sorted: &[f32], cap: usize, n_shuf: usize, want_deep: bool, 
             let j = (xorshift(&mut st) % (i as u64 + 1)) as usize;
             ev.shuf.swap(i, j);
         }
-        let c = anneal_presorted(&ev.shuf, sorted, m, 0, &mut ev.buf);
+        let c = anneal_presorted::<false>(&ev.shuf, sorted, m, 0, want_deep, &mut ev.buf);
         if !c[1].is_finite() {
             return (NAN_ORD, NAN8);
         }
@@ -864,7 +946,7 @@ fn run_true(seq: &[f32], sorted: &[f32], cap: usize, mode: u8, want_deep: bool, 
         return ([f32::NAN; N_CORE], NAN8);
     }
     let m = adaptive_steps(seq.len(), cap);
-    let c = anneal_presorted(seq, sorted, m, mode, &mut ev.buf);
+    let c = anneal_presorted::<true>(seq, sorted, m, mode, want_deep, &mut ev.buf);
     let d = if want_deep && c[1].is_finite() {
         deep8(seq, &ev.buf.guess, sorted, &mut ev.grp, &mut ev.ra, &mut ev.rb)
     } else {
@@ -956,8 +1038,9 @@ fn quantile_sorted(mut v: Vec<f32>, num: usize, den: usize) -> Option<f32> {
     if v.is_empty() {
         return None;
     }
-    v.sort_unstable_by(|a, b| a.total_cmp(b));
-    Some(v[(v.len() * num / den).min(v.len() - 1)])
+    let idx = (v.len() * num / den).min(v.len() - 1);
+    let (_, val, _) = v.select_nth_unstable_by(idx, |a, b| a.total_cmp(b));
+    Some(*val)
 }
 
 /// 12 个博弈子集的订单列表（slice 10/11 为「同时有主动和被动成交」的订单，仅 gametgt 使用）
@@ -966,23 +1049,50 @@ fn game_order_slices(dirs: &[Vec<RichOrder>; 3]) -> [Vec<RichOrder>; 12] {
     let bp70 = quantile_sorted(b.iter().map(|o| o.vol).collect(), 7, 10).unwrap_or(f32::INFINITY);
     let ap70 = quantile_sorted(a.iter().map(|o| o.vol).collect(), 7, 10).unwrap_or(f32::INFINITY);
     let med = quantile_sorted(dirs[2].iter().map(|o| o.vwap()).collect(), 1, 2).unwrap_or(f32::NAN);
-    let f = |v: &Vec<RichOrder>, p: &dyn Fn(&RichOrder) -> bool| -> Vec<RichOrder> {
-        v.iter().copied().filter(|o| p(o)).collect()
-    };
-    [
-        f(b, &|o| o.n_act > 0 && o.sub_cnt >= 2),
-        f(a, &|o| o.n_act > 0 && o.sub_cnt >= 2),
-        f(b, &|o| o.n_pas > 0 && o.sub_cnt >= 2),
-        f(a, &|o| o.n_pas > 0 && o.sub_cnt >= 2),
-        f(b, &|o| o.vol > bp70 && o.sub_cnt <= 2),
-        f(a, &|o| o.vol > ap70 && o.sub_cnt <= 2),
-        f(b, &|o| o.vwap() > med),
-        f(a, &|o| o.vwap() > med),
-        f(b, &|o| o.vwap() < med),
-        f(a, &|o| o.vwap() < med),
-        f(b, &|o| o.n_act > 0 && o.n_pas > 0),
-        f(a, &|o| o.n_act > 0 && o.n_pas > 0),
-    ]
+    let mut out: [Vec<RichOrder>; 12] = std::array::from_fn(|_| Vec::new());
+    for &o in b {
+        if o.n_act > 0 && o.sub_cnt >= 2 {
+            out[0].push(o);
+        }
+        if o.n_pas > 0 && o.sub_cnt >= 2 {
+            out[2].push(o);
+        }
+        if o.vol > bp70 && o.sub_cnt <= 2 {
+            out[4].push(o);
+        }
+        let vw = o.vwap();
+        if vw > med {
+            out[6].push(o);
+        }
+        if vw < med {
+            out[8].push(o);
+        }
+        if o.n_act > 0 && o.n_pas > 0 {
+            out[10].push(o);
+        }
+    }
+    for &o in a {
+        if o.n_act > 0 && o.sub_cnt >= 2 {
+            out[1].push(o);
+        }
+        if o.n_pas > 0 && o.sub_cnt >= 2 {
+            out[3].push(o);
+        }
+        if o.vol > ap70 && o.sub_cnt <= 2 {
+            out[5].push(o);
+        }
+        let vw = o.vwap();
+        if vw > med {
+            out[7].push(o);
+        }
+        if vw < med {
+            out[9].push(o);
+        }
+        if o.n_act > 0 && o.n_pas > 0 {
+            out[11].push(o);
+        }
+    }
+    out
 }
 
 /// 稳定按 time_us 排序（输入已有序时不动）
@@ -1282,30 +1392,61 @@ pub fn compute_anneal_order_profile_v3_from_records(
 
     // ---------------- 分钟矩阵：237 分钟 × 78 列，再分三段降维 ----------------
     let mut min_mat = Array2::<f32>::from_elem((N_MINUTES, N_MIN_COLS), f32::NAN);
+    let mut min_agg = OrderAgg::new(512);
+    let mut min_dirs: [Vec<RichOrder>; 2] = [Vec::with_capacity(512), Vec::with_capacity(512)];
+    let mut min_vol_sorted: [Vec<f32>; 2] = [Vec::with_capacity(512), Vec::with_capacity(512)];
+    let mut min_seq: Vec<f32> = Vec::with_capacity(512);
+    let mut min_sorted: Vec<f32> = Vec::with_capacity(512);
     for mi in 0..N_MINUTES {
         let (lo, hi) = win_range(trades, mi as i64 * 60, (mi as i64 + 1) * 60);
         if hi < lo + 3 {
             continue;
         }
-        let dirs = agg.build(&trades[lo..hi]);
+        let (b_ords, a_ords) = min_dirs.split_at_mut(1);
+        min_agg.build_bid_ask(&trades[lo..hi], &mut b_ords[0], &mut a_ords[0]);
+        for d in 0..2 {
+            min_vol_sorted[d].clear();
+            min_vol_sorted[d].extend(min_dirs[d].iter().map(|o| o.vol));
+            min_vol_sorted[d].sort_unstable_by(|a, b| a.total_cmp(b));
+        }
         for ch in 0..8 {
-            let ords = &dirs[ch % 2];
-            let seq: Vec<f32> = match ch / 2 {
-                0 => ords.iter().map(|o| o.vol).collect(),
-                1 => ords.iter().map(|o| o.target_val(1)).collect(),
-                2 => ords.iter().map(|o| o.target_val(2)).collect(),
-                _ => vol_by_axis(ords, 1),
-            };
-            if seq.len() < 3 {
+            let side = ch % 2;
+            let ords = &min_dirs[side];
+            if ords.len() < 3 {
                 continue;
             }
-            let sorted = sorted_copy(&seq);
+            match ch / 2 {
+                0 => {
+                    min_seq.clear();
+                    min_seq.extend(ords.iter().map(|o| o.vol));
+                }
+                1 => {
+                    min_seq.clear();
+                    min_seq.extend(ords.iter().map(|o| o.target_val(1)));
+                }
+                2 => {
+                    min_seq.clear();
+                    min_seq.extend(ords.iter().map(|o| o.target_val(2)));
+                }
+                _ => {
+                    min_seq = vol_by_axis(ords, 1);
+                }
+            }
+            // ch=0/1 (vol) 与 ch=6/7 (lastord vol) 的排序数组完全相同，直接复用 min_vol_sorted
+            let sorted_ref: &[f32] = if ch / 2 == 0 || ch / 2 == 3 {
+                &min_vol_sorted[side]
+            } else {
+                min_sorted.clear();
+                min_sorted.extend_from_slice(&min_seq);
+                min_sorted.sort_unstable_by(|a, b| a.total_cmp(b));
+                &min_sorted
+            };
             let ex_pos = MIN_EX_CH.iter().position(|&x| x == ch);
             let base = match ex_pos {
-                Some(_) => shuffle_baseline(&sorted, CAP_MIN, N_SHUF_MIN, false, &mut ev).0,
+                Some(_) => shuffle_baseline(sorted_ref, CAP_MIN, N_SHUF_MIN, false, &mut ev).0,
                 None => NAN_ORD,
             };
-            let (c, _) = run_true(&seq, &sorted, CAP_MIN, 0, false, &mut ev);
+            let (c, _) = run_true(&min_seq, sorted_ref, CAP_MIN, 0, false, &mut ev);
             for (j, &k) in MIN_RAW_IDX.iter().enumerate() {
                 min_mat[[mi, ch * 7 + j]] = c[k];
             }
@@ -1317,19 +1458,18 @@ pub fn compute_anneal_order_profile_v3_from_records(
             }
         }
         for d in 0..2 {
-            let vols: Vec<f32> = dirs[d].iter().map(|o| o.vol).collect();
-            let l = lot7(&vols, &mut keys);
+            let l = lot7(&min_vol_sorted[d], &mut keys);
             min_mat[[mi, 68 + d]] = l[6];
             min_mat[[mi, 70 + d]] = l[4];
             min_mat[[mi, 72 + d]] = l[0];
-            let f = flow5(&dirs[d], &mut fbuf);
+            let f = flow5(&min_dirs[d], &mut fbuf);
             min_mat[[mi, 74 + d]] = f[0];
             min_mat[[mi, 76 + d]] = f[1];
         }
     }
-    for &(r0, r1, pfx) in &MIN_RANGES {
+    for &(r0, r1, _) in &MIN_RANGES {
         let view = min_mat.slice(s![r0..r1, ..]);
-        let (reduced, _) = features::get_features_factors_rust_full(&view, &min_col_names(pfx), false);
+        let reduced = features::get_features_factors_rust_values_only(&view, false);
         out.extend_from_slice(&reduced);
     }
 

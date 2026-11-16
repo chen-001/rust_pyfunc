@@ -170,6 +170,7 @@ pub mod storage_policy;
 pub mod storage_read_cache;
 pub mod dagpath_metrics;
 pub mod features_f64;
+pub mod features_core;
 pub mod features;
 pub mod individual_order_ratio_metrics;
 pub mod long_order_cross_section_metrics;
@@ -718,6 +719,10 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     let _ = m.add_function(wrap_pyfunction!(cold_fast::cold_project_out_2d, m)?);
     let _ = m.add_function(wrap_pyfunction!(cold_fast::cold_project_out_3d, m)?);
     let _ = m.add_function(wrap_pyfunction!(cold_fast::cold_build_heat_core, m)?);
+    let _ = m.add_function(wrap_pyfunction!(cold_fast::cold_build_v2_axes_core, m)?);
+    let _ = m.add_function(wrap_pyfunction!(cold_fast::cold_batched_ols_resid_3d, m)?);
+    let _ = m.add_function(wrap_pyfunction!(cold_fast::cold_project_out_multi_2d, m)?);
+    let _ = m.add_function(wrap_pyfunction!(cold_fast::cold_project_out_multi_3d, m)?);
     let _ = m.add_class::<tail_v4_pipeline::TailV4LegacyStyleData>()?;
     // Tail V5：列式存储 + IO/CPU 分离（复制自 v4，支持 factor_store_v5）
     let _ = m.add_function(wrap_pyfunction!(

@@ -7,6 +7,7 @@
 //!   1. 单次 `File::open`（不做前置 `exists()` 二次查找）
 //!   2. 线程局部 `Vec<u8>` 原始字节缓冲复用（免每次堆重分配与 UTF-8 校验）
 //!   3. 解析完立即 `POSIX_FADV_DONTNEED` 释放 OS 页缓存，防止全市场探索挤占系统缓存
+#![allow(dead_code)]
 use std::cell::RefCell;
 use std::fs::File;
 use std::io::Read;
@@ -136,6 +137,7 @@ pub struct TradeRecord {
     pub bid_order: i64,
     pub ask_order: i64,
     pub index: i64,
+    pub raw_sec: u32,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -147,6 +149,7 @@ pub struct MarketRecord {
     pub turnover: f64,
     pub total_ask_vol: f64,
     pub total_bid_vol: f64,
+    pub raw_sec: u32,
     pub ask_prcs: [f64; 10],
     pub ask_vols: [f64; 10],
     pub bid_prcs: [f64; 10],
@@ -327,8 +330,8 @@ fn parse_line(
         return None;
     }
     let total_us = exchtime_us + OFFSET_US;
+    let day_offset = ((exchtime_us / 1_000_000) + 8 * 3600).rem_euclid(86400);
     let final_us = if with_afternoon_adjust {
-        let day_offset = ((exchtime_us / 1_000_000) + 8 * 3600).rem_euclid(86400);
         if day_offset >= AFTERNOON_START_SEC && day_offset <= AFTERNOON_END_SEC {
             total_us - SHIFT_US
         } else if day_offset >= MORNING_START_SEC && day_offset <= MORNING_END_SEC {
@@ -350,6 +353,7 @@ fn parse_line(
         bid_order: parse_i64_fast(fields[COL_BID_ORDER]),
         ask_order: parse_i64_fast(fields[COL_ASK_ORDER]),
         index: parse_i64_fast(fields[COL_INDEX]),
+        raw_sec: day_offset as u32,
     })
 }
 
@@ -384,11 +388,20 @@ fn parse_chunk(data: &[u8], with_retreat: bool, adj: bool, code: &str, date: i64
     out
 }
 
-pub fn read_trade_fast(code: &str, date: i64) -> std::io::Result<Vec<TradeRecord>> {
+pub fn read_trade_fast_inner(
+    code: &str,
+    date: i64,
+    with_retreat: bool,
+    with_afternoon_adjust: bool,
+) -> std::io::Result<Vec<TradeRecord>> {
     let filename = format!("{}_{}_transaction.csv", code, date);
     with_stock_csv_bytes(date, "transaction", &filename, |bytes| {
-        parse_chunk(bytes, false, true, code, date)
+        parse_chunk(bytes, with_retreat, with_afternoon_adjust, code, date)
     })
+}
+
+pub fn read_trade_fast(code: &str, date: i64) -> std::io::Result<Vec<TradeRecord>> {
+    read_trade_fast_inner(code, date, false, true)
 }
 
 #[inline]
@@ -424,8 +437,8 @@ fn parse_market_line(line: &[u8], adj: bool, code: &str, date: i64) -> Option<Ma
         return None;
     }
     let total_us = exchtime_us + OFFSET_US;
+    let day_offset = ((exchtime_us / 1_000_000) + 8 * 3600).rem_euclid(86400);
     let final_us = if adj {
-        let day_offset = ((exchtime_us / 1_000_000) + 8 * 3600).rem_euclid(86400);
         if day_offset >= AFTERNOON_START_SEC && day_offset <= AFTERNOON_END_SEC {
             total_us - SHIFT_US
         } else if day_offset >= MORNING_START_SEC && day_offset <= MORNING_END_SEC {
@@ -456,6 +469,7 @@ fn parse_market_line(line: &[u8], adj: bool, code: &str, date: i64) -> Option<Ma
         turnover: parse_f64_fast(fields[MKT_COL_TURNOVER]),
         total_ask_vol: parse_f64_fast(fields[MKT_COL_TOTAL_ASK_VOL]),
         total_bid_vol: parse_f64_fast(fields[MKT_COL_TOTAL_BID_VOL]),
+        raw_sec: day_offset as u32,
         ask_prcs,
         ask_vols,
         bid_prcs,
@@ -494,9 +508,17 @@ fn parse_market_chunk(data: &[u8], adj: bool, code: &str, date: i64) -> Vec<Mark
     out
 }
 
-pub fn read_market_fast(code: &str, date: i64) -> std::io::Result<Vec<MarketRecord>> {
+pub fn read_market_fast_inner(
+    code: &str,
+    date: i64,
+    with_afternoon_adjust: bool,
+) -> std::io::Result<Vec<MarketRecord>> {
     let filename = format!("{}_{}_market_data.csv", code, date);
     with_stock_csv_bytes(date, "market_data", &filename, |bytes| {
-        parse_market_chunk(bytes, true, code, date)
+        parse_market_chunk(bytes, with_afternoon_adjust, code, date)
     })
+}
+
+pub fn read_market_fast(code: &str, date: i64) -> std::io::Result<Vec<MarketRecord>> {
+    read_market_fast_inner(code, date, true)
 }

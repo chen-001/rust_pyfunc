@@ -199,12 +199,14 @@ impl XorShift64 {
 
 pub struct FastAnnealBuf {
     pub guess: Vec<f32>,
+    pub gs: Vec<(f32, f32)>,
 }
 
 impl FastAnnealBuf {
     pub fn new() -> Self {
         Self {
             guess: Vec::with_capacity(4096),
+            gs: Vec::with_capacity(4096),
         }
     }
 }
@@ -304,7 +306,6 @@ pub fn anneal_core16_with_mode(
 
     let mut rng = XorShift64::new(SEED ^ ((mode as u64) << 32));
     let mut prev_r = r0;
-    let mut final_r = r0;
     let mut peak_r = r0;
     let mut max_dd = 0.0f64;
 
@@ -314,18 +315,14 @@ pub fn anneal_core16_with_mode(
 
     let mut inertia_sum = 0.0f64;
     let mut declines = 0u32;
-    let mut dr_cnt = 0u32;
     let mut dr_s1 = 0.0f64;
     let mut dr_s2 = 0.0f64;
 
     let s1_end = m_max / 3;
     let s2_end = 2 * (m_max / 3);
-    let mut s1_cnt = 0u32;
     let mut s1_s1 = 0.0f64;
     let mut s1_s2 = 0.0f64;
-    let mut s2_cnt = 0u32;
     let mut s2_decl = 0u32;
-    let mut s3_cnt = 0u32;
     let mut s3_s1 = 0.0f64;
     let mut s3_s2 = 0.0f64;
     let mut r_at_s2 = r0;
@@ -335,16 +332,18 @@ pub fn anneal_core16_with_mode(
     let mut d_flips = 0u32;
     let mut prev_d_sign: i8 = 0;
 
-    let mut actual_steps = 0usize;
+    let mut actual_steps = m_max;
 
     for t in 0..m_max {
         let i = rng.next_index(n);
         let mut j = rng.next_index(n);
         if j == i {
-            j = (i + 1) % n;
+            j = if i + 1 == n { 0 } else { i + 1 };
         }
 
-        if d_cnt < 2000 && buf.guess[i] != buf.guess[j] {
+        let gi = buf.guess[i];
+        let gj = buf.guess[j];
+        if d_cnt < 2000 && gi != gj {
             let dv = seq[j] - seq[i];
             d_cnt += 1;
             if dv > 0.0 {
@@ -365,24 +364,28 @@ pub fn anneal_core16_with_mode(
             }
         }
 
-        let gi = buf.guess[i];
-        let gj = buf.guess[j];
         let ti = seq[i];
         let tj = seq[j];
         let ds = 2.0f32 * (gi - gj) * (ti - tj);
-        let ct = sigma2 * (1.0 - t as f64 * inv_m).max(0.0);
-        if (ds as f64) < 0.0 || (ds as f64) < ct {
+        let accepted = (ds as f64) < 0.0
+            || (ds as f64) < sigma2 * (1.0 - t as f64 * inv_m).max(0.0);
+        if accepted {
             s += ds as f64;
             buf.guess.swap(i, j);
         }
 
+        if t > 0 && (!accepted || ds == 0.0) {
+            inertia_sum += 1.0 - prev_r;
+            if t + 1 == s2_end {
+                r_at_s2 = prev_r;
+            }
+            continue;
+        }
+
         let cr = (1.0 - s * inv_denom).clamp(-1.0, 1.0);
-        final_r = cr;
-        actual_steps = t + 1;
 
         if t > 0 {
             let dv = cr - prev_r;
-            dr_cnt += 1;
             dr_s1 += dv;
             dr_s2 += dv * dv;
             if cr < prev_r {
@@ -392,13 +395,9 @@ pub fn anneal_core16_with_mode(
                 }
             }
             if t < s1_end {
-                s1_cnt += 1;
                 s1_s1 += dv;
                 s1_s2 += dv * dv;
-            } else if t < s2_end {
-                s2_cnt += 1;
-            } else {
-                s3_cnt += 1;
+            } else if t >= s2_end {
                 s3_s1 += dv;
                 s3_s2 += dv * dv;
             }
@@ -427,12 +426,19 @@ pub fn anneal_core16_with_mode(
         }
         prev_r = cr;
         if s <= s_tol {
+            actual_steps = t + 1;
             if t + 1 < s2_end {
                 r_at_s2 = cr;
             }
             break;
         }
     }
+
+    let final_r = prev_r;
+    let dr_cnt = actual_steps.saturating_sub(1) as u32;
+    let s1_cnt = actual_steps.min(s1_end).saturating_sub(1) as u32;
+    let s2_cnt = actual_steps.min(s2_end).saturating_sub(s1_end.max(1)) as u32;
+    let s3_cnt = actual_steps.saturating_sub(s2_end.max(1)) as u32;
 
     let m_f = m_max as f32;
     let act_f = actual_steps.max(1) as f32;
@@ -858,9 +864,7 @@ pub fn compute_anneal_regime_diff_from_records(trades: &[TradeRecord]) -> Vec<f3
         }
     }
 
-    let min_col_names = build_min_col_names();
-    let (reduced, _) =
-        features::get_features_factors_rust_full(&min_mat.view(), &min_col_names, false);
+    let reduced = features::get_features_factors_rust_values_only(&min_mat.view(), false);
     out.extend_from_slice(&reduced);
     debug_assert_eq!(out.len(), N_PART1 + N_PART2 + N_PART3);
 
