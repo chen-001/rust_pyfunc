@@ -88,8 +88,9 @@ pub fn big_flags(ts: &[TradeRecord]) -> Vec<bool> {
     for (id, v) in ids { match agg.last_mut() { Some(l) if l.0 == id => l.1 += v, _ => agg.push((id, v)) } }
     if agg.is_empty() { return vec![false; ts.len()]; }
     let mut tot: Vec<f64> = agg.iter().map(|x| x.1).collect();
-    tot.sort_by(|a, b| a.total_cmp(b));
-    let thr = tot[(tot.len() * 9 / 10).min(tot.len() - 1)];
+    let q_idx = (tot.len() * 9 / 10).min(tot.len() - 1);
+    let (_, thr_ref, _) = tot.select_nth_unstable_by(q_idx, |a, b| a.total_cmp(b));
+    let thr = *thr_ref;
     ts.iter().map(|t| {
         let (a, _) = active_passive(t);
         a > 0 && agg.binary_search_by(|x| x.0.cmp(&a)).map(|k| agg[k].1 >= thr).unwrap_or(false)

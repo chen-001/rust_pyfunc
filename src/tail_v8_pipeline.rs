@@ -590,10 +590,25 @@ fn run_variant_v8(
                 .take()
                 .map(|a| a.finish())
                 .unwrap_or_else(default_legacy_backtest_result);
-            let mut neu11_gap1_row =
-                summary_from_row(derived_name, "neu", 1, variant_name, &neu11_gap1_result.summary);
-            let mut neu11_gap5_row =
-                summary_from_row(derived_name, "neu", 5, variant_name, &neu11_gap5_result.summary);
+            let cold_stage_name = if shared.cold_stem.is_empty() {
+                "coldv2"
+            } else {
+                shared.cold_stem.as_str()
+            };
+            let mut neu11_gap1_row = summary_from_row(
+                derived_name,
+                cold_stage_name,
+                1,
+                variant_name,
+                &neu11_gap1_result.summary,
+            );
+            let mut neu11_gap5_row = summary_from_row(
+                derived_name,
+                cold_stage_name,
+                5,
+                variant_name,
+                &neu11_gap5_result.summary,
+            );
             neu11_gap1_row.preflight_passed = report.passed;
             neu11_gap5_row.preflight_passed = report.passed;
             let neu11_gap1_keep = report.passed && qualify_neu(&neu11_gap1_row, 1, cfg);

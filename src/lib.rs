@@ -7,6 +7,7 @@ pub mod backup_writer;
 pub mod shm_ipc;
 pub mod column_correlation;
 pub mod data_paths;
+pub mod funnel_mask;
 pub mod difference_matrix;
 pub mod effective_memory_length;
 pub mod entropy_analysis;
@@ -417,6 +418,10 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         factor_store_v5::factor_store_v5_read_factor,
         m
     )?);
+    let _ = m.add_function(wrap_pyfunction!(
+        factor_store_v5::factor_store_v5_read_factors_batch_matrix,
+        m
+    )?);
     m.add_function(wrap_pyfunction!(
         factor_store_v5::factor_store_v5_verify_online,
         m
@@ -681,6 +686,7 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
         m
     )?);
     let _ = m.add_function(wrap_pyfunction!(tlq_gate::tlq_gate_base_resid, m)?);
+    let _ = m.add_function(wrap_pyfunction!(tlq_gate::tlq_gate_base_resid_batch, m)?);
     let _ = m.add_function(wrap_pyfunction!(tlq_gate::tlq_gate_rank_pct_rows, m)?);
     let _ = m.add_function(wrap_pyfunction!(tlq_gate::tlq_gate_interleave_styles, m)?);
     let _ = m.add_function(wrap_pyfunction!(
@@ -1077,6 +1083,10 @@ fn rust_pyfunc(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(factor_pipeline::run_factor_pipeline, m)?)?;
     m.add_function(wrap_pyfunction!(
         factor_pipeline::run_factor_pipeline_v6,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        factor_pipeline::read_level2_list_fast,
         m
     )?)?;
 

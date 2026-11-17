@@ -111,8 +111,9 @@ fn dead(x: f64, thr: f64) -> i8 {
 
 fn median(mut v: Vec<f64>) -> f64 {
     if v.is_empty() { return f64::NAN; }
-    v.sort_by(|a, b| a.total_cmp(b));
-    v[v.len() / 2]
+    let mid = v.len() / 2;
+    let (_, m, _) = v.select_nth_unstable_by(mid, |a, b| a.total_cmp(b));
+    *m
 }
 
 fn make_seq(side: Vec<i8>, mag: &[f64], vol: &[f64], price: &[f32]) -> Seq {
@@ -171,7 +172,8 @@ impl Bars {
             bgap: z(), bgn: z(), sgap: z(), sgn: z(),
             mk_last: [vec![f64::NAN; n], vec![f64::NAN; n], vec![f64::NAN; n], vec![f64::NAN; n], vec![f64::NAN; n]],
             mk_first: [f64::NAN; 5],
-            events: Vec::new(), trades: Vec::new(),
+            events: Vec::with_capacity(tr.len() / 2),
+            trades: Vec::with_capacity(tr.len()),
         };
         let mut amt = z();
         let (mut prev_flag, mut prev_id, mut last_buy, mut last_sell) = (0i32, -1i64, -1i64, -1i64);
@@ -340,8 +342,12 @@ impl Bars {
             "bigord" => {
                 let ev = &self.events;
                 let mut idx: Vec<u32> = (0..ev.len() as u32).collect();
-                idx.sort_unstable_by(|&x, &y| ev[y as usize].1.total_cmp(&ev[x as usize].1).then(x.cmp(&y)));
-                idx.truncate(n);
+                if idx.len() > n {
+                    idx.select_nth_unstable_by(n - 1, |&x, &y| {
+                        ev[y as usize].1.total_cmp(&ev[x as usize].1).then(x.cmp(&y))
+                    });
+                    idx.truncate(n);
+                }
                 idx.sort_unstable();
                 let side = idx.iter().map(|&i| ev[i as usize].0).collect();
                 let vol: Vec<f64> = idx.iter().map(|&i| ev[i as usize].1).collect();
@@ -390,16 +396,22 @@ pub struct Arc {
     pub clipped: bool,
 }
 
-/// 由同一只股票当天的主动成交建立“委托编号 → 时刻”对照（编号随时间递增），
-/// 撤单的挂单时刻取编号不超过它的最后一个主动委托的时刻；编号早于所有主动委托（如集合竞价挂单）记为无法定位。
-pub fn cancel_arcs(tr: &[TradeRecord], win: &Win) -> Vec<Arc> {
-    let mut map: Vec<(i64, i64)> = tr
-        .iter()
-        .filter(|t| t.flag == 66 || t.flag == 83)
-        .map(|t| (if t.flag == 66 { t.bid_order } else { t.ask_order }, t.time_us))
-        .filter(|x| x.0 > 0)
-        .collect();
+/// 预构建当天主动成交“委托编号 → 时刻”有序表（三个时段共用一次排序，不再重复排序 3 次）。
+pub fn build_cancel_map(tr: &[TradeRecord]) -> Vec<(i64, i64)> {
+    let mut map: Vec<(i64, i64)> = Vec::with_capacity(tr.len());
+    for t in tr {
+        if t.flag == 66 || t.flag == 83 {
+            let oid = if t.flag == 66 { t.bid_order } else { t.ask_order };
+            if oid > 0 {
+                map.push((oid, t.time_us));
+            }
+        }
+    }
     map.sort_unstable();
+    map
+}
+
+pub fn cancel_arcs_with_map(tr: &[TradeRecord], map: &[(i64, i64)], win: &Win) -> Vec<Arc> {
     let lo_us = {
         let t0 = tr.first().map(|t| t.time_us).unwrap_or(0);
         t0 - t0.rem_euclid(86_400_000_000) + win.adj_lo * 1_000_000
@@ -417,4 +429,11 @@ pub fn cancel_arcs(tr: &[TradeRecord], win: &Win) -> Vec<Arc> {
         out.push(Arc { start_us: start, end_us: t.time_us, buy, vol: t.volume, unmapped, clipped });
     }
     out
+}
+
+/// 由同一只股票当天的主动成交建立“委托编号 → 时刻”对照（编号随时间递增），
+/// 撤单的挂单时刻取编号不超过它的最后一个主动委托的时刻；编号早于所有主动委托（如集合竞价挂单）记为无法定位。
+pub fn cancel_arcs(tr: &[TradeRecord], win: &Win) -> Vec<Arc> {
+    let map = build_cancel_map(tr);
+    cancel_arcs_with_map(tr, &map, win)
 }

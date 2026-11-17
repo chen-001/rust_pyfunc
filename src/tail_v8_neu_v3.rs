@@ -2285,27 +2285,28 @@ fn gather_ybuf_to_cold(cold_idx: &V3ColdIndex, idx: usize, ybuf: &[f64], dst_all
 fn cold_residual_row(
     fv_row: &[f64],
     ns: &NeutralizeStdShared,
-    cold: &Array2<f64>,
+    cold: &Array3<f64>,
     cp: &crate::factor_neutralize_std::ColdPre,
     idx: usize,
     out_row: &mut [f32],
     resid: &mut Vec<f64>,
 ) {
     let n = fv_row.len();
+    let m_extra = cp.m_extra;
     let views: [ndarray::ArrayView1<'_, f64>; 10] =
         std::array::from_fn(|c| ns.barra_ranked[c].row(idx));
     let mut bench_rows: [&[f64]; 10] = [&[]; 10];
     for c in 0..10 {
         bench_rows[c] = views[c].as_slice().unwrap();
     }
-    let cold_v = cold.row(idx);
-    let cold_row = cold_v.as_slice().unwrap();
+    let cold_sl = cold.as_slice().expect("cold 需为 C 序连续内存");
+    let cold_day_flat = &cold_sl[idx * n * m_extra..(idx + 1) * n * m_extra];
     resid.clear();
     resid.resize(n, f64::NAN);
     crate::factor_neutralize_std::get_residual_row_cold(
         fv_row,
         &bench_rows,
-        cold_row,
+        cold_day_flat,
         cp,
         idx,
         resid,
@@ -2319,7 +2320,7 @@ fn v3_row_prod_cold(
     row: &[f32],
     idx: usize,
     shared: &V3Shared,
-    cold: &Array2<f64>,
+    cold: &Array3<f64>,
     cp: &crate::factor_neutralize_std::ColdPre,
     out_row: &mut [f32],
     sc: &mut V3Scratch,
@@ -2371,7 +2372,7 @@ fn ols_acc_day_cold(
     b: usize,
     p_alloc: usize,
 ) {
-    let k = 11usize; // 10 Barra + 1 cold
+    let k = 10 + cp.m_extra; // 10 Barra + M extra
     let nv = cp.per_date[idx].1.len();
     if nv == 0 {
         return;
@@ -2408,7 +2409,7 @@ fn ols_write_cold(
     out_f32_row: &mut [f32],
     coef: &[f64],
 ) {
-    let k = 11usize;
+    let k = 10 + cp.m_extra;
     let (_pn, valid_idx) = &cp.per_date[idx];
     let xd = &cp.xdays[idx];
     for (pos, &j) in valid_idx.iter().enumerate() {
@@ -2430,7 +2431,7 @@ fn v3_day_batch_cold(
     idx: usize,
     shared: &V3Shared,
     cold_idx: &V3ColdIndex,
-    cold: &Array2<f64>,
+    cold: &Array3<f64>,
     cp: &crate::factor_neutralize_std::ColdPre,
     sc: &mut V3Scratch,
     times: &mut V3Times,
@@ -2476,7 +2477,8 @@ fn v3_day_batch_cold(
         sc.b_mode[f] = st;
     }
 
-    let p_alloc = 12usize;
+    let p_cold = 11 + cp.m_extra;
+    let p_alloc = p_cold;
     sc.ensure_xty(b, p_alloc);
     let s_ols = Instant::now();
     for f in 0..b {
@@ -2506,13 +2508,13 @@ fn v3_day_batch_cold(
         match cp.chols[idx].as_ref() {
             Some(ch) => {
                 {
-                    let mut rhs_v = sc.rhs.view_mut((0, 0), (12, b));
+                    let mut rhs_v = sc.rhs.view_mut((0, 0), (p_cold, b));
                     for f in 0..b {
                         if sc.b_mode[f] != M_READY {
                             continue;
                         }
                         let base = f * p_alloc;
-                        for i in 0..12 {
+                        for i in 0..p_cold {
                             rhs_v[(i, f)] = sc.b_xty[base + i];
                         }
                     }
@@ -2522,7 +2524,7 @@ fn v3_day_batch_cold(
                             continue;
                         }
                         let base = f * p_alloc;
-                        for i in 0..12 {
+                        for i in 0..p_cold {
                             sc.b_coef[base + i] = rhs_v[(i, f)];
                         }
                     }
@@ -2541,7 +2543,7 @@ fn v3_day_batch_cold(
                         cp,
                         idx,
                         out_row,
-                        &sc.b_coef[base..base + 12],
+                        &sc.b_coef[base..base + p_cold],
                     );
                 }
             }
@@ -2575,7 +2577,7 @@ fn v3_day_batch_cold(
     }
 }
 
-/// 双跑（10 风格 + 11 风格）：一次排序/填充链 `sc.ybuf` 同时供出两套 V 序向量，各自做一次批量 Cholesky 写回。
+/// 双跑（10 风格 + 10+M 扩展风格）：一次排序/填充链 `sc.ybuf` 同时供出两套 V 序向量，各自做一次批量 Cholesky 写回。
 fn v3_day_batch_dual(
     slots: &[ArrayView2<f32>],
     outs_plain: &mut [Array2<f32>],
@@ -2584,7 +2586,7 @@ fn v3_day_batch_dual(
     idx: usize,
     shared: &V3Shared,
     cold_idx: &V3ColdIndex,
-    cold: &Array2<f64>,
+    cold: &Array3<f64>,
     cp: &crate::factor_neutralize_std::ColdPre,
     sc: &mut V3Scratch,
     times: &mut V3Times,
@@ -2641,7 +2643,8 @@ fn v3_day_batch_dual(
         }
     }
 
-    let p_alloc = 12usize;
+    let p_cold = 11 + cp.m_extra;
+    let p_alloc = p_cold;
     sc.ensure_xty(b, p_alloc);
     let s_ols = Instant::now();
 
@@ -2709,7 +2712,7 @@ fn v3_day_batch_dual(
         }
     }
 
-    // ---- Pass B: 11 风格 (p = 12) ----
+    // ---- Pass B: 10 + M 扩展风格 (p = p_cold) ----
     for f in 0..b {
         if sc.b_mode_cold[f] != M_READY {
             continue;
@@ -2735,13 +2738,13 @@ fn v3_day_batch_dual(
         match cp.chols[idx].as_ref() {
             Some(ch) => {
                 {
-                    let mut rhs_v = sc.rhs.view_mut((0, 0), (12, b));
+                    let mut rhs_v = sc.rhs.view_mut((0, 0), (p_cold, b));
                     for f in 0..b {
                         if sc.b_mode_cold[f] != M_READY {
                             continue;
                         }
                         let base = f * p_alloc;
-                        for i in 0..12 {
+                        for i in 0..p_cold {
                             rhs_v[(i, f)] = sc.b_xty[base + i];
                         }
                     }
@@ -2751,7 +2754,7 @@ fn v3_day_batch_dual(
                             continue;
                         }
                         let base = f * p_alloc;
-                        for i in 0..12 {
+                        for i in 0..p_cold {
                             sc.b_coef[base + i] = rhs_v[(i, f)];
                         }
                     }
@@ -2769,7 +2772,7 @@ fn v3_day_batch_dual(
                         cp,
                         idx,
                         out_v.as_slice_mut().unwrap(),
-                        &sc.b_coef[base..base + 12],
+                        &sc.b_coef[base..base + p_cold],
                     );
                 }
             }
@@ -2809,11 +2812,11 @@ fn v3_day_batch_dual(
     }
 }
 
-/// v8 融合流水线冷门单跑入口：与 `neutralize_std_slots_f32_v2_resid_batch_range_cold` 逐位一致。
+/// v8 融合流水线冷门/扩展风格单跑入口：与 `neutralize_std_slots_f32_v2_resid_batch_range_cold` 逐位一致。
 pub fn v3_slots_range_cold(
     slots: &[ArrayView2<f32>],
     shared: &V3Shared,
-    cold: &Array2<f64>,
+    cold: &Array3<f64>,
     t0: usize,
     t1: usize,
     sc: &mut V3Scratch,
@@ -2833,7 +2836,7 @@ pub fn v3_slots_range_cold(
         .ok_or_else(|| "v3_slots_range_cold: 缺少 cold_idx".to_string())?;
     let (rows, n) = slots[0].dim();
     let (t, sn) = shared.ns.industry.dim();
-    if sn != n || n != shared.n_stocks || cold.dim() != (t, n) {
+    if sn != n || n != shared.n_stocks || cold.dim() != (t, n, cp.m_extra) {
         return Err("v3_slots_range_cold: 形状不匹配".to_string());
     }
     if t0 > t1 || t1 > t || t1 - t0 != rows {
@@ -2855,11 +2858,11 @@ pub fn v3_slots_range_cold(
     Ok(outs)
 }
 
-/// v8 融合流水线冷门双跑入口（同时产出 10 风格与 11 风格残差块）。
+/// v8 融合流水线冷门/扩展风格双跑入口（同时产出 10 风格与 10+M 扩展风格残差块）。
 pub fn v3_slots_range_dual(
     slots: &[ArrayView2<f32>],
     shared: &V3Shared,
-    cold: &Array2<f64>,
+    cold: &Array3<f64>,
     t0: usize,
     t1: usize,
     sc: &mut V3Scratch,
@@ -2879,7 +2882,7 @@ pub fn v3_slots_range_dual(
         .ok_or_else(|| "v3_slots_range_dual: 缺少 cold_idx".to_string())?;
     let (rows, n) = slots[0].dim();
     let (t, sn) = shared.ns.industry.dim();
-    if sn != n || n != shared.n_stocks || cold.dim() != (t, n) {
+    if sn != n || n != shared.n_stocks || cold.dim() != (t, n, cp.m_extra) {
         return Err("v3_slots_range_dual: 形状不匹配".to_string());
     }
     if t0 > t1 || t1 > t || t1 - t0 != rows {

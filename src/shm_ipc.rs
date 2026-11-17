@@ -397,6 +397,80 @@ impl ShmWorkerSlot {
         }
         Ok(Some((self.cap as u64, used_bytes as u64)))
     }
+
+    /// 直接将整日 `(codes, row_major_flat_vals)` 写入共享内存，跳过构造 5,000 个 `TaskResult` 的双倍分配与拷贝。
+    pub fn write_day_flat(
+        &mut self,
+        codes: &[String],
+        flat_vals: &[f32],
+        expected_cols: usize,
+    ) -> std::io::Result<Option<(u64, u64)>> {
+        let n_rows = codes.len();
+        if n_rows == 0 || expected_cols == 0 {
+            return Ok(None);
+        }
+        let n_floats = n_rows.checked_mul(expected_cols).ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "矩阵元素数溢出")
+        })?;
+        if flat_vals.len() != n_floats {
+            return Ok(None);
+        }
+        let mut codes_len = n_rows.saturating_sub(1);
+        for code in codes {
+            if code.is_empty() || code.contains('\n') {
+                return Ok(None);
+            }
+            codes_len = codes_len.saturating_add(code.len());
+        }
+        let codes_end = 32usize.checked_add(codes_len).ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "codes_end 溢出")
+        })?;
+        let vals_offset = align_up(codes_end, 64);
+        let vals_bytes = n_floats
+            .checked_mul(std::mem::size_of::<f32>())
+            .ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::InvalidInput, "矩阵字节数溢出")
+            })?;
+        let used_bytes = vals_offset.checked_add(vals_bytes).ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "used_bytes 溢出")
+        })?;
+
+        let buf = self.ensure_capacity(used_bytes)?;
+        buf[0..8].copy_from_slice(&DAY_BATCH_MAGIC.to_le_bytes());
+        buf[8..16].copy_from_slice(&(n_rows as u64).to_le_bytes());
+        buf[16..24].copy_from_slice(&(expected_cols as u64).to_le_bytes());
+        buf[24..32].copy_from_slice(&(codes_len as u64).to_le_bytes());
+
+        let mut pos = 32usize;
+        for (idx, code) in codes.iter().enumerate() {
+            if idx > 0 {
+                buf[pos] = b'\n';
+                pos += 1;
+            }
+            let cb = code.as_bytes();
+            buf[pos..pos + cb.len()].copy_from_slice(cb);
+            pos += cb.len();
+        }
+        for b in &mut buf[codes_end..vals_offset] {
+            *b = 0;
+        }
+
+        let vals_dst = unsafe {
+            std::slice::from_raw_parts_mut(
+                buf.as_mut_ptr().add(vals_offset) as *mut f32,
+                n_floats,
+            )
+        };
+        if vals_bytes >= 16 * 1024 * 1024 && rayon::current_num_threads() > 1 {
+            vals_dst
+                .par_chunks_mut(expected_cols)
+                .zip(flat_vals.par_chunks(expected_cols))
+                .for_each(|(dst, src)| dst.copy_from_slice(src));
+        } else {
+            vals_dst.copy_from_slice(flat_vals);
+        }
+        Ok(Some((self.cap as u64, used_bytes as u64)))
+    }
 }
 
 // ============================================================================

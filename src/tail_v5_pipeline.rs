@@ -127,14 +127,15 @@ pub(crate) struct SharedInputs {
     /// None=未启用标准中性化 (industry 为 None 的旧路径)。
     pub(crate) neutralize_std_shared:
         Option<Arc<crate::factor_neutralize_std::NeutralizeStdShared>>,
-    /// 冷门（热度）中性化：作为第 11 个回归列参与的 (T,N) 冷得分（正 = 冷门）。
-    /// None = 关闭（旧行为）。有值时强制走 v1 中性化路径（v2 的逐日 Cholesky 预分解
-    /// 只对 10 列成立）。
-    pub(crate) cold_style: Option<Arc<Array2<f64>>>,
+    /// 冷门/扩展风格中性化：作为第 11..10+M 个回归列参与的 (T,N,M) 矩阵（M=1 为旧 Cold v1；M=3 为 Cold v2；M=4 为 +TradeSize）。
+    /// None = 关闭（旧行为）。
+    pub(crate) cold_style: Option<Arc<Array3<f64>>>,
     /// 有冷门时是否**同时**再算一遍 10 风格那套（两套指标都留）。
     /// false（默认）= 只算 11 风格那一套：筛选要的就是它，引擎耗时与没有冷门时基本持平；
-    /// true = 两遍都算，指标齐全但耗时约 2.2~2.6 倍（10 风格的指标只用于人工对照）。
+    /// true = 两套都算，指标齐全但耗时约 2.2~2.6 倍（10 风格的指标只用于人工对照）。
     pub(crate) cold_dual_pass: bool,
+    /// 冷门中性化产物后缀名：Cold v2 默认为 `"coldv2"`，旧版 Cold v1 为 `"neu11"`。
+    pub(crate) cold_stem: String,
     pub(crate) ret_gap1: Arc<Array2<f32>>,
     pub(crate) ret_sum_gap1: Arc<Array2<f32>>,
     pub(crate) ret_gap5: Arc<Array2<f32>>,
@@ -184,9 +185,9 @@ pub(crate) fn build_shared_inputs(
     backtest_start: i32,
     industry_neutralize: bool,
     industry: Option<Array2<f64>>,
-    // 冷门（热度）中性化：第 11 个回归列；None = 关闭
-    cold_style: Option<Array2<f64>>,
-    // 有冷门时是否两套指标都算（false = 只算 11 风格，速度快一倍）
+    // 冷门/扩展风格中性化：(T, N, M) 回归列；None = 关闭
+    cold_style: Option<Array3<f64>>,
+    // 有冷门时是否两套指标都算（false = 只算冷门/扩展风格，速度快一倍）
     cold_dual_pass: bool,
     style_vars_dir: &str,
     ret_gap1_path: &str,
@@ -411,6 +412,7 @@ pub(crate) fn build_shared_inputs(
         industry: industry.map(Arc::new),
         cold_style: cold_style.map(Arc::new),
         cold_dual_pass,
+        cold_stem: "neu11".to_string(),
         neutralize_std_shared,
         ret_gap1: Arc::new(ret_g1),
         ret_sum_gap1: Arc::new(ret_s1),
@@ -4138,6 +4140,15 @@ pub(crate) fn write_aggregated_outputs(
     cache_root: &Path,
     aggregated: &AggregatedCandidates,
 ) -> Result<(), String> {
+    write_aggregated_outputs_with_stem(cache_root, aggregated, "neu11")
+}
+
+pub(crate) fn write_aggregated_outputs_with_stem(
+    cache_root: &Path,
+    aggregated: &AggregatedCandidates,
+    cold_stem: &str,
+) -> Result<(), String> {
+    let cold_stem = if cold_stem.is_empty() { "coldv2" } else { cold_stem };
     let metrics_dir = cache_root.join("metrics");
     let ic_dir = cache_root.join("ic_ts");
     write_summary_parquet(
@@ -4226,45 +4237,45 @@ pub(crate) fn write_aggregated_outputs(
         &aggregated.all_neu_ic_gap5,
     )?;
 
-    // ---- 11 风格（带冷门中性化）一套：与上面 neu 并行落盘，供文档 8 合 1 ----
+    // ---- 冷门扩展风格（Cold v2 默认 coldv2；旧版 Cold v1 为 neu11）：与上面 neu 并行落盘 ----
     write_summary_parquet(
-        &metrics_dir.join("summary_neu11_gap1_candidates.parquet"),
+        &metrics_dir.join(format!("summary_{cold_stem}_gap1_candidates.parquet")),
         &aggregated.neu11_summary_gap1,
     )?;
     write_summary_parquet(
-        &metrics_dir.join("summary_neu11_gap5_candidates.parquet"),
+        &metrics_dir.join(format!("summary_{cold_stem}_gap5_candidates.parquet")),
         &aggregated.neu11_summary_gap5,
     )?;
     write_ic_outputs(
-        &ic_dir.join("ic_neu11_gap1.npy"),
-        &ic_dir.join("ic_neu11_gap1_names.json"),
-        &ic_dir.join("ic_neu11_gap1_dates.npy"),
+        &ic_dir.join(format!("ic_{cold_stem}_gap1.npy")),
+        &ic_dir.join(format!("ic_{cold_stem}_gap1_names.json")),
+        &ic_dir.join(format!("ic_{cold_stem}_gap1_dates.npy")),
         &aggregated.neu11_ic_gap1,
     )?;
     write_ic_outputs(
-        &ic_dir.join("ic_neu11_gap5.npy"),
-        &ic_dir.join("ic_neu11_gap5_names.json"),
-        &ic_dir.join("ic_neu11_gap5_dates.npy"),
+        &ic_dir.join(format!("ic_{cold_stem}_gap5.npy")),
+        &ic_dir.join(format!("ic_{cold_stem}_gap5_names.json")),
+        &ic_dir.join(format!("ic_{cold_stem}_gap5_dates.npy")),
         &aggregated.neu11_ic_gap5,
     )?;
     write_summary_parquet(
-        &metrics_dir.join("summary_neu11_gap1_all.parquet"),
+        &metrics_dir.join(format!("summary_{cold_stem}_gap1_all.parquet")),
         &aggregated.all_neu11_summary_gap1,
     )?;
     write_summary_parquet(
-        &metrics_dir.join("summary_neu11_gap5_all.parquet"),
+        &metrics_dir.join(format!("summary_{cold_stem}_gap5_all.parquet")),
         &aggregated.all_neu11_summary_gap5,
     )?;
     write_ic_outputs(
-        &ic_dir.join("ic_neu11_gap1_all.npy"),
-        &ic_dir.join("ic_neu11_gap1_all_names.json"),
-        &ic_dir.join("ic_neu11_gap1_all_dates.npy"),
+        &ic_dir.join(format!("ic_{cold_stem}_gap1_all.npy")),
+        &ic_dir.join(format!("ic_{cold_stem}_gap1_all_names.json")),
+        &ic_dir.join(format!("ic_{cold_stem}_gap1_all_dates.npy")),
         &aggregated.all_neu11_ic_gap1,
     )?;
     write_ic_outputs(
-        &ic_dir.join("ic_neu11_gap5_all.npy"),
-        &ic_dir.join("ic_neu11_gap5_all_names.json"),
-        &ic_dir.join("ic_neu11_gap5_all_dates.npy"),
+        &ic_dir.join(format!("ic_{cold_stem}_gap5_all.npy")),
+        &ic_dir.join(format!("ic_{cold_stem}_gap5_all_names.json")),
+        &ic_dir.join(format!("ic_{cold_stem}_gap5_all_dates.npy")),
         &aggregated.all_neu11_ic_gap5,
     )?;
     Ok(())
@@ -4494,6 +4505,7 @@ pub fn tail_v5_run_candidates<'py>(
             neutralize_std_shared: None,
             cold_style: None,
             cold_dual_pass: false,
+            cold_stem: "neu11".to_string(),
             ret_gap1: Arc::new(read_npy(&ret_gap1_path).map_err(|e| format!("读取 ret_gap1.npy 失败: {}", e))?),
             ret_sum_gap1: Arc::new(read_npy(&ret_sum_gap1_path).map_err(|e| format!("读取 ret_sum_gap1.npy 失败: {}", e))?),
             ret_gap5: Arc::new(read_npy(&ret_gap5_path).map_err(|e| format!("读取 ret_gap5.npy 失败: {}", e))?),
@@ -6479,6 +6491,7 @@ pub fn tail_v5_run_candidates_online<'py>(
             neutralize_std_shared: None,
             cold_style: None,
             cold_dual_pass: false,
+            cold_stem: "neu11".to_string(),
             ret_gap1: Arc::new(read_npy(&ret_gap1_path).map_err(|e| format!("读取 ret_gap1.npy 失败: {}", e))?),
             ret_sum_gap1: Arc::new(read_npy(&ret_sum_gap1_path).map_err(|e| format!("读取 ret_sum_gap1.npy 失败: {}", e))?),
             ret_gap5: Arc::new(read_npy(&ret_gap5_path).map_err(|e| format!("读取 ret_gap5.npy 失败: {}", e))?),
@@ -6967,6 +6980,7 @@ pub fn tail_v5_run_candidates_v7<'py>(
             neutralize_std_shared: None,
             cold_style: None,
             cold_dual_pass: false,
+            cold_stem: "neu11".to_string(),
             ret_gap1: Arc::new(read_npy(&ret_gap1_path).map_err(|e| format!("读取 ret_gap1.npy 失败: {}", e))?),
             ret_sum_gap1: Arc::new(read_npy(&ret_sum_gap1_path).map_err(|e| format!("读取 ret_sum_gap1.npy 失败: {}", e))?),
             ret_gap5: Arc::new(read_npy(&ret_gap5_path).map_err(|e| format!("读取 ret_gap5.npy 失败: {}", e))?),
@@ -8323,6 +8337,7 @@ pub fn tail_v5_run_candidates_v7b<'py>(
             neutralize_std_shared: None,
             cold_style: None,
             cold_dual_pass: false,
+            cold_stem: "neu11".to_string(),
             ret_gap1: Arc::new(read_npy(&ret_gap1_path).map_err(|e| format!("读取 ret_gap1.npy 失败: {}", e))?),
             ret_sum_gap1: Arc::new(read_npy(&ret_sum_gap1_path).map_err(|e| format!("读取 ret_sum_gap1.npy 失败: {}", e))?),
             ret_gap5: Arc::new(read_npy(&ret_gap5_path).map_err(|e| format!("读取 ret_gap5.npy 失败: {}", e))?),

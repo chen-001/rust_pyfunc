@@ -534,6 +534,51 @@ fn nan_vec(len: usize) -> Vec<f32> {
     vec![f32::NAN; len]
 }
 
+/// 解析两阶段漏斗可选参数（优先显式命名参数，其次从 `params` 字典提取 `active_modules` / `keep_col_indices` / `full_result_length`）。
+fn resolve_funnel_args(
+    py: Python<'_>,
+    params: Option<&PyObject>,
+    mut active_modules: Option<Vec<String>>,
+    mut keep_col_indices: Option<Vec<usize>>,
+    mut full_result_length: Option<usize>,
+    expected_result_length: usize,
+) -> PyResult<(Option<Vec<String>>, Option<Vec<usize>>, Option<usize>)> {
+    if let Some(obj) = params {
+        if let Ok(dict) = obj.as_ref(py).downcast::<pyo3::types::PyDict>() {
+            if active_modules.is_none() {
+                if let Some(v) = dict.get_item("active_modules") {
+                    if !v.is_none() {
+                        active_modules = Some(v.extract::<Vec<String>>()?);
+                    }
+                }
+            }
+            if keep_col_indices.is_none() {
+                if let Some(v) = dict.get_item("keep_col_indices") {
+                    if !v.is_none() {
+                        keep_col_indices = Some(v.extract::<Vec<usize>>()?);
+                    }
+                }
+            }
+            if full_result_length.is_none() {
+                if let Some(v) = dict.get_item("full_result_length") {
+                    if !v.is_none() {
+                        full_result_length = Some(v.extract::<usize>()?);
+                    }
+                }
+            }
+        }
+    }
+    if let Some(ref cols) = keep_col_indices {
+        if cols.len() != expected_result_length {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "keep_col_indices 长度 ({}) 必须与 expected_result_length ({expected_result_length}) 一致",
+                cols.len()
+            )));
+        }
+    }
+    Ok((active_modules, keep_col_indices, full_result_length))
+}
+
 /// Python 入口：run_factor_pipeline。
 ///
 /// 参数：
@@ -644,7 +689,8 @@ fn validate_direct_write_options(
     params=None, update_mode=None, bind_cores=true, backup_batch_size=None, progress_log=None, mode=None,
     export_names=None, export_dir=None, export_n_jobs=80,
     store_dir=None, store_factor_names=None, data_root=None,
-    incremental_projection=None, direct_write=None, write_buffer_gb=32.0
+    incremental_projection=None, direct_write=None, write_buffer_gb=32.0,
+    active_modules=None, keep_col_indices=None, full_result_length=None
 ))]
 #[allow(clippy::too_many_arguments)]
 pub fn run_factor_pipeline(
@@ -669,8 +715,26 @@ pub fn run_factor_pipeline(
     incremental_projection: Option<bool>,
     direct_write: Option<bool>,
     write_buffer_gb: f64,
+    active_modules: Option<Vec<String>>,
+    keep_col_indices: Option<Vec<usize>>,
+    full_result_length: Option<usize>,
 ) -> PyResult<PyObject> {
     let py = unsafe { Python::assume_gil_acquired() };
+
+    let (eff_mods, eff_keep_cols, eff_full_len) = resolve_funnel_args(
+        py,
+        params.as_ref(),
+        active_modules,
+        keep_col_indices,
+        full_result_length,
+        expected_result_length,
+    )?;
+    let _funnel_guard = crate::funnel_mask::set_funnel_filter(
+        eff_mods.as_deref(),
+        eff_keep_cols.as_deref(),
+        eff_full_len,
+    )
+    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
     // Level2 数据目录覆盖：进程内生效到本函数结束；worker 子进程通过环境变量透传。
     let _data_root_guard = crate::data_paths::set_level2_root(data_root.as_deref());
@@ -825,10 +889,8 @@ pub fn run_factor_pipeline(
         all_tasks.push((date, code));
     }
 
-    // 断点续算：过滤已完成任务
-    let pending: Vec<(i64, String)> = if update_mode_enabled {
-        let task_dates: std::collections::HashSet<i64> =
-            all_tasks.iter().map(|(d, _)| *d).collect();
+    // 断点续算：过滤已完成任务，并按日期降序（近期大成交量日优先）排列以消除尾段长尾空转
+    let mut pending: Vec<(i64, String)> = if update_mode_enabled {
         let existing = if let Some(ref ss) = sharded_sink {
             ss.check_completed()
                 .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("读取备份失败: {}", e)))?
@@ -838,11 +900,12 @@ pub fn run_factor_pipeline(
         };
         all_tasks
             .into_iter()
-            .filter(|(d, c)| !existing.contains(&(*d, c.clone())))
+            .filter(|pair| !existing.contains(pair))
             .collect()
     } else {
         all_tasks
     };
+    pending.sort_unstable_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
 
     let total = pending.len();
     if total == 0 {
@@ -961,6 +1024,9 @@ pub fn run_factor_pipeline(
                 }
 
                 // 循环取任务并计算（完全串行，无内部并行）
+                let kernel_expected_len =
+                    crate::funnel_mask::current_raw_full_len().unwrap_or(expected_result_length);
+                let keep_cols = crate::funnel_mask::current_keep_cols();
                 while let Ok((date, code)) = task_rx.recv() {
                     if direct_write && cancelled.load(Ordering::Relaxed) {
                         break;
@@ -971,7 +1037,7 @@ pub fn run_factor_pipeline(
                             &code,
                             &oo_params_t,
                             &trading_days,
-                            expected_result_length,
+                            kernel_expected_len,
                         )
                     } else if pipeline_name_t == "individual_order_ratio" {
                         pipeline_individual_order_ratio(
@@ -979,7 +1045,7 @@ pub fn run_factor_pipeline(
                             &code,
                             &oo_params_t,
                             &trading_days,
-                            expected_result_length,
+                            kernel_expected_len,
                         )
                     } else if pipeline_name_t == "orderbook_imb_refactor" {
                         pipeline_orderbook_imb_refactor(
@@ -987,96 +1053,96 @@ pub fn run_factor_pipeline(
                             &code,
                             &oo_params_t,
                             &trading_days,
-                            expected_result_length,
+                            kernel_expected_len,
                         )
                     } else if pipeline_name_t == "extreme_point_fit" {
                         pipeline_extreme_point_fit(
                             date,
                             &code,
                             &trading_days,
-                            expected_result_length,
+                            kernel_expected_len,
                             oo_params_t.with_curvature,
                         )
                     } else if pipeline_name_t == "distill" {
-                        pipeline_distill(date, &code, &trading_days, expected_result_length)
+                        pipeline_distill(date, &code, &trading_days, kernel_expected_len)
                     } else if pipeline_name_t == "distill_tick" {
-                        pipeline_distill_tick(date, &code, &trading_days, expected_result_length)
+                        pipeline_distill_tick(date, &code, &trading_days, kernel_expected_len)
                     } else if pipeline_name_t == "hhi_event" {
-                        pipeline_hhi_event(date, &code, &trading_days, expected_result_length)
+                        pipeline_hhi_event(date, &code, &trading_days, kernel_expected_len)
                     } else if pipeline_name_t == "etp_event" {
-                        pipeline_etp_event(date, &code, &trading_days, expected_result_length)
+                        pipeline_etp_event(date, &code, &trading_days, kernel_expected_len)
                     } else if pipeline_name_t == "anneal_volume" {
-                        pipeline_anneal_volume(date, &code, &trading_days, expected_result_length)
+                        pipeline_anneal_volume(date, &code, &trading_days, kernel_expected_len)
                     } else if pipeline_name_t == "anneal_volume_market" {
                         pipeline_anneal_volume_market(
                             date,
                             &code,
                             &trading_days,
-                            expected_result_length,
+                            kernel_expected_len,
                         )
                     } else if pipeline_name_t == "anneal_regime_diff" {
                         pipeline_anneal_regime_diff(
                             date,
                             &code,
                             &trading_days,
-                            expected_result_length,
+                            kernel_expected_len,
                         )
                     } else if pipeline_name_t == "anneal_order_profile" {
                         pipeline_anneal_order_profile(
                             date,
                             &code,
                             &trading_days,
-                            expected_result_length,
+                            kernel_expected_len,
                         )
                     } else if pipeline_name_t == "anneal_order_profile_v2" {
                         pipeline_anneal_order_profile_v2(
                             date,
                             &code,
                             &trading_days,
-                            expected_result_length,
+                            kernel_expected_len,
                         )
                     } else if pipeline_name_t == "anneal_order_profile_v3" {
                         pipeline_anneal_order_profile_v3(
                             date,
                             &code,
                             &trading_days,
-                            expected_result_length,
+                            kernel_expected_len,
                         )
                     } else if pipeline_name_t == "anneal_regime_excess" {
                         pipeline_anneal_regime_excess(
                             date,
                             &code,
                             &trading_days,
-                            expected_result_length,
+                            kernel_expected_len,
                         )
                     } else if pipeline_name_t == "anneal_regime_raw_excess" {
                         pipeline_anneal_regime_raw_excess(
                             date,
                             &code,
                             &trading_days,
-                            expected_result_length,
+                            kernel_expected_len,
                         )
                     } else if pipeline_name_t == "hidden_arrange" {
                         match crate::hidden_arrange_metrics::compute_hidden_arrange_full(
                             &code, date,
                         ) {
                             Ok((_n, v)) => v,
-                            Err(_) => vec![f32::NAN; expected_result_length],
+                            Err(_) => vec![f32::NAN; kernel_expected_len],
                         }
                     } else if pipeline_name_t == "geffe_leak" {
                         match crate::geffe_leak_metrics::compute_geffe_leak_full(&code, date) {
                             Ok(v) => v,
-                            Err(_) => vec![f32::NAN; expected_result_length],
+                            Err(_) => vec![f32::NAN; kernel_expected_len],
                         }
                     } else if pipeline_name_t == "dagpath" {
-                        pipeline_dagpath(date, &code, &trading_days, expected_result_length)
+                        pipeline_dagpath(date, &code, &trading_days, kernel_expected_len)
                     } else if let Some(series) = pipeline_name_t.strip_prefix("okay_") {
                         // hm0~hm92 旧框架因子的 Rust 复现（逐股系列）
                         crate::okay_database::dispatch_stock(
                             series,
                             &code,
                             date,
-                            expected_result_length,
+                            kernel_expected_len,
                         )
                     } else {
                         pipeline_order_pair_hm90(
@@ -1084,15 +1150,19 @@ pub fn run_factor_pipeline(
                             &code,
                             &params,
                             &trading_days,
-                            expected_result_length,
+                            kernel_expected_len,
                         )
+                    };
+                    let vals = match keep_cols.as_deref() {
+                        Some(cols) => crate::funnel_mask::project_row_f32(&vals, cols),
+                        None => vals,
                     };
 
                     let result = TaskResult {
                         date,
                         code,
                         timestamp: 0,
-                        facs: vals.clone(),
+                        facs: vals,
                     };
 
                     if let Some(ref direct_sink) = direct_sink {
@@ -1686,8 +1756,20 @@ fn run_multiprocess_v2(
             let sharded_c = sharded_sink.clone();
             let write_failed_c = write_failed.clone();
             std::thread::spawn(move || {
+                let write_pool = rayon::ThreadPoolBuilder::new()
+                    .num_threads(4)
+                    .build()
+                    .ok();
                 while let Ok(batch) = write_rx.recv() {
-                    let write_result = if let Some(ref ss) = sharded_c {
+                    let write_result = if let Some(ref pool) = write_pool {
+                        pool.install(|| {
+                            if let Some(ref ss) = sharded_c {
+                                ss.append_batch(&batch)
+                            } else {
+                                sink_c.append_batch(&batch)
+                            }
+                        })
+                    } else if let Some(ref ss) = sharded_c {
                         ss.append_batch(&batch)
                     } else {
                         sink_c.append_batch(&batch)
@@ -1830,6 +1912,15 @@ fn run_single_worker_manager(
         // Level2 数据目录透传：worker 子进程按同一目录读取原始数据。
         if let Some(root) = crate::data_paths::override_level2() {
             cmd.env(crate::data_paths::ENV_LEVEL2_ROOT, root);
+        }
+        if let Some(mods) = crate::funnel_mask::override_active_modules_env() {
+            cmd.env(crate::funnel_mask::ENV_ACTIVE_MODULES, mods);
+        }
+        if let Some(cols_f) = crate::funnel_mask::override_keep_cols_file() {
+            cmd.env(crate::funnel_mask::ENV_KEEP_COLS_FILE, cols_f);
+        }
+        if let Some(raw_n) = crate::funnel_mask::override_raw_full_len() {
+            cmd.env(crate::funnel_mask::ENV_RAW_FULL_LEN, raw_n.to_string());
         }
         if let Some(idx) = core_affinity_idx {
             cmd.env("RUST_PYFUNC_CORE_AFFINITY_IDX", idx.to_string());
@@ -2044,6 +2135,73 @@ fn run_single_worker_manager(
     Ok(())
 }
 
+/// Rust 多线程极速扫描 Level2 任务列表 `[[date, symbol], ...]`（替代 Python 单线程 `os.listdir`）。
+/// 按传入的 `dates` 顺序与 `symbols`（`symbol_map.csv` 白名单顺序）精确过滤并输出，与原 `factor_io_simple.read_level2_list` 逐项完全一致。
+#[pyfunction]
+#[pyo3(signature = (dates, symbols, data_root=None))]
+pub fn read_level2_list_fast(
+    py: Python<'_>,
+    dates: Vec<i64>,
+    symbols: Vec<String>,
+    data_root: Option<String>,
+) -> PyResult<PyObject> {
+    let per_day = py
+        .allow_threads(move || -> Result<Vec<(i64, Vec<String>)>, String> {
+            if dates.is_empty() || symbols.is_empty() {
+                return Ok(Vec::new());
+            }
+            let root = match data_root {
+                Some(ref s) if !s.trim().is_empty() => std::path::PathBuf::from(s),
+                _ => crate::data_paths::level2_roots()[0].clone(),
+            };
+            use rayon::prelude::*;
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(16.min(dates.len().max(1)))
+                .build()
+                .map_err(|e| format!("建扫描线程池失败: {e}"))?;
+            let symbols_ref = &symbols;
+            let root_ref = &root;
+            let out: Vec<(i64, Vec<String>)> = pool.install(|| {
+                dates
+                    .par_iter()
+                    .filter_map(|&d| {
+                        let tx_dir = root_ref.join(d.to_string()).join("transaction");
+                        let rd = std::fs::read_dir(&tx_dir).ok()?;
+                        let suffix = format!("_{d}_transaction.csv");
+                        let mut present: std::collections::HashSet<String> =
+                            std::collections::HashSet::with_capacity(6000);
+                        for f in rd.flatten() {
+                            let fname = f.file_name();
+                            let Some(fs) = fname.to_str() else { continue };
+                            if let Some(sym) = fs.strip_suffix(&suffix) {
+                                present.insert(sym.to_string());
+                            }
+                        }
+                        let matched: Vec<String> = symbols_ref
+                            .iter()
+                            .filter(|s| present.contains(s.as_str()))
+                            .cloned()
+                            .collect();
+                        Some((d, matched))
+                    })
+                    .collect()
+            });
+            Ok(out)
+        })
+        .map_err(pyo3::exceptions::PyIOError::new_err)?;
+
+    let total_len: usize = per_day.iter().map(|(_, v)| v.len()).sum();
+    let mut flat_pairs: Vec<&PyAny> = Vec::with_capacity(total_len);
+    for (d, syms) in per_day {
+        let py_d = d.into_py(py);
+        for s in syms {
+            let item = pyo3::types::PyList::new(py, &[py_d.as_ref(py), s.into_py(py).as_ref(py)]);
+            flat_pairs.push(item.as_ref());
+        }
+    }
+    Ok(pyo3::types::PyList::new(py, &flat_pairs).into())
+}
+
 // ==================== v6：计算+写colblk，不投影（投影由 tail_v5_run_candidates_online 在线转置替代）====================
 #[pyfunction]
 #[pyo3(signature = (
@@ -2166,10 +2324,8 @@ pub fn run_factor_pipeline_v6(
         all_tasks.push((date, code));
     }
 
-    // 断点续算：过滤已完成任务
-    let pending: Vec<(i64, String)> = if update_mode_enabled {
-        let task_dates: std::collections::HashSet<i64> =
-            all_tasks.iter().map(|(d, _)| *d).collect();
+    // 断点续算：过滤已完成任务，并按日期降序（近期大成交量日优先）排列以消除尾段长尾空转
+    let mut pending: Vec<(i64, String)> = if update_mode_enabled {
         let existing = if let Some(ref ss) = sharded_sink {
             ss.check_completed()
                 .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("读取备份失败: {}", e)))?
@@ -2179,11 +2335,12 @@ pub fn run_factor_pipeline_v6(
         };
         all_tasks
             .into_iter()
-            .filter(|(d, c)| !existing.contains(&(*d, c.clone())))
+            .filter(|pair| !existing.contains(pair))
             .collect()
     } else {
         all_tasks
     };
+    pending.sort_unstable_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
 
     let total = pending.len();
     if total == 0 {
@@ -2963,6 +3120,26 @@ pub fn pipeline_orderflow_ctx(date: i64, expected_len: usize) -> Vec<TaskResult>
     }
 }
 
+/// orderflow_ctx_v2 横截面 pipeline：orderflow_ctx 修正版（9900 列）。
+pub fn pipeline_orderflow_ctx_v2(date: i64, expected_len: usize) -> Vec<TaskResult> {
+    match crate::orderflow_ctx_v2_metrics::compute_orderflow_ctx_v2_full(date) {
+        Ok((codes, vals)) => vals
+            .chunks(expected_len)
+            .zip(codes.iter())
+            .map(|(facs, code)| TaskResult {
+                date,
+                code: code.clone(),
+                timestamp: 0,
+                facs: facs.to_vec(),
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("orderflow_ctx_v2 error [{date}]: {e:?}");
+            Vec::new()
+        }
+    }
+}
+
 /// 接力网络（relaynet）横截面 pipeline：全市场股票当节点跑共动图统计。
 /// 与 cross_section_example 同样的 (codes, vals) → TaskResult 展开方式。
 pub fn pipeline_relaynet(date: i64, expected_len: usize) -> Vec<TaskResult> {
@@ -2987,26 +3164,6 @@ pub fn pipeline_relaynet(date: i64, expected_len: usize) -> Vec<TaskResult> {
 }
 
 /// 寻找玉佩-双层版横截面 pipeline 包装：精简版 741 列（去重后幸存）。
-/// orderflow_ctx_v2 横截面 pipeline：orderflow_ctx 修正版（9900 列）。
-pub fn pipeline_orderflow_ctx_v2(date: i64, expected_len: usize) -> Vec<TaskResult> {
-    match crate::orderflow_ctx_v2_metrics::compute_orderflow_ctx_v2_full(date) {
-        Ok((codes, vals)) => vals
-            .chunks(expected_len)
-            .zip(codes.iter())
-            .map(|(facs, code)| TaskResult {
-                date,
-                code: code.clone(),
-                timestamp: 0,
-                facs: facs.to_vec(),
-            })
-            .collect(),
-        Err(e) => {
-            eprintln!("orderflow_ctx_v2 error [{date}]: {e:?}");
-            Vec::new()
-        }
-    }
-}
-
 /// 与 pipeline_yupei_dist 同数据路径，只收窄指标部分；prev=None 时跨日列
 /// （dyn_* 与 dynjs_* 共 308 列）输出 NaN——备份目录 yupei_dist_backup 目前
 /// 只有 industry.bin、没有 mats/*.bin，无处读前一日矩阵。
@@ -3982,7 +4139,8 @@ pub fn run_factor_pipeline_regime(
     pipeline, tasks, n_jobs, expected_result_length, trading_days,
     params=None, n_workers=None, update_mode=None, bind_cores=true,
     store_dir=None, store_factor_names=None, force_clear=None, data_root=None,
-    vars_root=None, incremental_projection=None, direct_write=None, write_buffer_gb=32.0
+    vars_root=None, incremental_projection=None, direct_write=None, write_buffer_gb=32.0,
+    active_modules=None, keep_col_indices=None, full_result_length=None
 ))]
 #[allow(clippy::too_many_arguments)]
 pub fn run_factor_pipeline_cross_section(
@@ -4003,8 +4161,27 @@ pub fn run_factor_pipeline_cross_section(
     incremental_projection: Option<bool>,
     direct_write: Option<bool>,
     write_buffer_gb: f64,
+    active_modules: Option<Vec<String>>,
+    keep_col_indices: Option<Vec<usize>>,
+    full_result_length: Option<usize>,
 ) -> PyResult<PyObject> {
     let py = unsafe { Python::assume_gil_acquired() };
+
+    let (eff_mods, eff_keep_cols, eff_full_len) = resolve_funnel_args(
+        py,
+        params.as_ref(),
+        active_modules,
+        keep_col_indices,
+        full_result_length,
+        expected_result_length,
+    )?;
+    let _funnel_guard = crate::funnel_mask::set_funnel_filter(
+        eff_mods.as_deref(),
+        eff_keep_cols.as_deref(),
+        eff_full_len,
+    )
+    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    let raw_check_len = crate::funnel_mask::override_raw_full_len().unwrap_or(expected_result_length);
 
     // Level2 数据目录覆盖：进程内生效到本函数结束；worker 子进程通过环境变量透传。
     let _data_root_guard = crate::data_paths::set_level2_root(data_root.as_deref());
@@ -4018,18 +4195,18 @@ pub fn run_factor_pipeline_cross_section(
 
     // Reject a wrong column count before touching a store or spawning workers.
     if pipeline == "relaynet_six_people"
-        && expected_result_length != crate::relaynet_six_people::n_factors()
+        && raw_check_len != crate::relaynet_six_people::n_factors()
     {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
-            "relaynet_six_people 需要 {} 个因子，expected_result_length={}",
-            crate::relaynet_six_people::n_factors(), expected_result_length
+            "relaynet_six_people 需要 {} 个因子，raw_expected_length={}",
+            crate::relaynet_six_people::n_factors(), raw_check_len
         )));
     }
     if pipeline == "yupei_union_trim"
-        && expected_result_length != crate::yupei_union_trim::N_FACTORS
+        && raw_check_len != crate::yupei_union_trim::N_FACTORS
     {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
-            "yupei_union_trim 需要 {} 个因子，expected_result_length={expected_result_length}",
+            "yupei_union_trim 需要 {} 个因子，raw_expected_length={raw_check_len}",
             crate::yupei_union_trim::N_FACTORS,
         )));
     }
@@ -4040,6 +4217,7 @@ pub fn run_factor_pipeline_cross_section(
         "lfsr_leak_ext1",
         "lfsr_ext2",
         "orderflow_ctx",
+        "orderflow_ctx_v2",
         "dijkstra",
         "peaks",
         "yupei_dist",
@@ -4065,7 +4243,6 @@ pub fn run_factor_pipeline_cross_section(
         "yhyb_indtop",
         "switch_moment",
         "relaynet",
-        "orderflow_ctx_v2",
         "anneal_cross_peer",
         "anneal_cross_peer_v2",
         "anneal_cross_peer_v3_profile",
@@ -4192,8 +4369,10 @@ pub fn run_factor_pipeline_cross_section(
     }
     let requested_direct_dates = if direct_write { all_dates.clone() } else { Vec::new() };
 
-    // 断点续算：按 date 过滤
-    let pending: Vec<i64> = if update_mode_enabled {
+    // 断点续算：按 date 过滤，并按交易日从近到远（降序）排列：
+    // 1) 优先消化近期 5,200 股高频大成交量交易日，用早期轻量交易日自然填平尾段长尾；
+    // 2) 相邻交易日连续排布，配合 worker 块状连续拉取实现跨日因子特征内存复用。
+    let mut pending: Vec<i64> = if update_mode_enabled {
         let completed = if direct_write {
             sharded_sink.direct_completed_dates()
                 .map_err(pyo3::exceptions::PyIOError::new_err)?
@@ -4209,6 +4388,8 @@ pub fn run_factor_pipeline_cross_section(
     } else {
         all_dates
     };
+    pending.sort_unstable_by(|a, b| b.cmp(a));
+    pending.dedup();
 
     let total = pending.len();
 
@@ -4436,16 +4617,29 @@ fn run_multiprocess_cross_section(
     let start = std::time::Instant::now();
 
     py.allow_threads(|| -> PyResult<()> {
-        // 任务队列：date-only
-        let (task_tx, task_rx) = crossbeam::channel::unbounded::<i64>();
-        for date in pending {
-            let _ = task_tx.send(date);
+        // 任务队列：前段按连续 8 个交易日成块派发（块间从近到远优先消化大日，块内反转成时间升序让昨天=上一轮今天，零重算命中缓存），
+        // 尾段最后 min(total, n_workers * 4) 天拆成单日块精细窃取，彻底消除长尾空转。
+        let (task_tx, task_rx) = crossbeam::channel::unbounded::<Vec<i64>>();
+        let fine_tail = (n_workers * 4).min(pending.len());
+        let bulk_end = pending.len().saturating_sub(fine_tail);
+        for chunk in pending[..bulk_end].chunks(8) {
+            let mut asc_chunk = chunk.to_vec();
+            asc_chunk.reverse();
+            let _ = task_tx.send(asc_chunk);
+        }
+        for &d in &pending[bulk_end..] {
+            let _ = task_tx.send(vec![d]);
         }
         drop(task_tx);
 
-        // 受控小池（固定 WRITER_POOL_THREADS = 2 线程，严格守住 n_jobs 预算，绝不初始化 512 核全局池）
+        // 受控写池：switch_moment 严格守 2 线程预算，其余超宽横截面用 8 线程加速大矩阵分块转置
+        let writer_threads = if pipeline_name == "switch_moment" {
+            WRITER_POOL_THREADS
+        } else {
+            8
+        };
         let write_pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(WRITER_POOL_THREADS)
+            .num_threads(writer_threads)
             .build()
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("建 writer 线程池失败: {e}")))?;
         let shared_writer = std::sync::Arc::new(Mutex::new(CrossSectionSharedWriter {
@@ -4551,7 +4745,7 @@ fn run_single_cross_section_worker(
     worker_idx: usize,
     threads_per_worker: usize,
     _n_workers: usize,
-    task_rx: crossbeam::channel::Receiver<i64>,
+    task_rx: crossbeam::channel::Receiver<Vec<i64>>,
     shared_writer: std::sync::Arc<Mutex<CrossSectionSharedWriter>>,
     params: &Hm90Params,
     oo_params: &ObservableOrderParams,
@@ -4585,6 +4779,15 @@ fn run_single_cross_section_worker(
         // 行业 / 日频变量目录透传（pipeline 参数 vars_root）
         if let Some(root) = crate::data_paths::override_vars() {
             cmd.env(crate::data_paths::ENV_VARS_DIR, root);
+        }
+        if let Some(mods) = crate::funnel_mask::override_active_modules_env() {
+            cmd.env(crate::funnel_mask::ENV_ACTIVE_MODULES, mods);
+        }
+        if let Some(cols_f) = crate::funnel_mask::override_keep_cols_file() {
+            cmd.env(crate::funnel_mask::ENV_KEEP_COLS_FILE, cols_f);
+        }
+        if let Some(raw_n) = crate::funnel_mask::override_raw_full_len() {
+            cmd.env(crate::funnel_mask::ENV_RAW_FULL_LEN, raw_n.to_string());
         }
         if let Some(idx) = core_affinity_idx {
             cmd.env("RUST_PYFUNC_CORE_AFFINITY_IDX", idx.to_string());
@@ -4623,44 +4826,86 @@ fn run_single_cross_section_worker(
         }
         init_res?;
 
-        // 内层循环：取 date → 发 MinuteTask → 收共享内存或管道整日结果
-        loop {
-            let date = match task_rx.recv() {
-                Ok(d) => d,
-                Err(_) => {
-                    let _ = ipc_write(&mut writer, &TaskMessage::Shutdown);
-                    let _ = writer.write_all(&[0u8; 4]);
-                    let _ = child.wait();
-                    break 'outer;
-                }
-            };
-
-            let task_msg = TaskMessage::MinuteTask { date };
-            if ipc_write(&mut writer, &task_msg).is_err() {
-                if shared_writer.lock().unwrap().is_failed() {
-                    kill_and_reap(&mut child);
-                    break 'outer;
-                }
-                kill_and_reap(&mut child);
-                continue 'outer;
+        // 内层循环：流水线化「派发下一日 → 写盘上一日」，使父进程矩阵转置与子进程 50 核计算完全重叠
+        let mut local_dates: std::collections::VecDeque<i64> = std::collections::VecDeque::new();
+        let mut next_date = |local: &mut std::collections::VecDeque<i64>| -> Option<i64> {
+            if let Some(d) = local.pop_front() {
+                return Some(d);
             }
+            if let Ok(chunk) = task_rx.recv() {
+                local.extend(chunk);
+                return local.pop_front();
+            }
+            None
+        };
 
+        let mut inflight_date: Option<i64> = match next_date(&mut local_dates) {
+            Some(d) => {
+                if ipc_write(&mut writer, &TaskMessage::MinuteTask { date: d }).is_err() {
+                    if shared_writer.lock().unwrap().is_failed() {
+                        kill_and_reap(&mut child);
+                        break 'outer;
+                    }
+                    kill_and_reap(&mut child);
+                    continue 'outer;
+                }
+                Some(d)
+            }
+            None => {
+                let _ = ipc_write(&mut writer, &TaskMessage::Shutdown);
+                let _ = writer.write_all(&[0u8; 4]);
+                let _ = child.wait();
+                break 'outer;
+            }
+        };
+
+        while let Some(date) = inflight_date.take() {
             match ipc_read_result(&mut reader) {
                 Ok(ResultMessage::ShmMinuteBatch {
                     date: r_date,
                     slot_cap,
                     used_bytes,
                 }) => {
-                    let borrow_res = match shm_slot.as_mut() {
-                        Some(slot) => slot.borrow_day_batch(slot_cap, used_bytes),
+                    // 先把共享内存切片快速拷到本地缓冲，立刻把下一日任务发给 worker 开跑，再去抢锁转置！
+                    let copied = match shm_slot.as_mut() {
+                        Some(slot) => slot.borrow_day_batch(slot_cap, used_bytes).map(
+                            |(codes, flat_vals, n_cols)| {
+                                let owned_codes: Vec<String> =
+                                    codes.into_iter().map(|s| s.to_string()).collect();
+                                let owned_vals: Vec<f32> = flat_vals.to_vec();
+                                (owned_codes, owned_vals, n_cols)
+                            },
+                        ),
                         None => Err("未启用共享内存槽却收到 ShmMinuteBatch".to_string()),
                     };
-                    match borrow_res {
-                        Ok((codes, flat_vals, n_cols)) => {
+                    match copied {
+                        Ok((owned_codes, owned_vals, n_cols)) => {
+                            if let Some(nd) = next_date(&mut local_dates) {
+                                if ipc_write(&mut writer, &TaskMessage::MinuteTask { date: nd })
+                                    .is_ok()
+                                {
+                                    inflight_date = Some(nd);
+                                } else {
+                                    // 子进程通信断开，把未算的 nd 放回全局队列兜底不丢天
+                                    // 先把已收到的 r_date 落盘
+                                    let code_refs: Vec<&str> =
+                                        owned_codes.iter().map(|s| s.as_str()).collect();
+                                    let _ = shared_writer.lock().unwrap().write_shm_day(
+                                        r_date,
+                                        &code_refs,
+                                        &owned_vals,
+                                        n_cols,
+                                    );
+                                    kill_and_reap(&mut child);
+                                    break 'outer;
+                                }
+                            }
+                            let code_refs: Vec<&str> =
+                                owned_codes.iter().map(|s| s.as_str()).collect();
                             let write_ok = shared_writer
                                 .lock()
                                 .unwrap()
-                                .write_shm_day(r_date, &codes, flat_vals, n_cols)
+                                .write_shm_day(r_date, &code_refs, &owned_vals, n_cols)
                                 .is_ok();
                             if !write_ok {
                                 kill_and_reap(&mut child);
@@ -4681,6 +4926,11 @@ fn run_single_cross_section_worker(
                     }
                 }
                 Ok(ResultMessage::MinuteBatch(batch)) => {
+                    if let Some(nd) = next_date(&mut local_dates) {
+                        if ipc_write(&mut writer, &TaskMessage::MinuteTask { date: nd }).is_ok() {
+                            inflight_date = Some(nd);
+                        }
+                    }
                     let write_ok = shared_writer
                         .lock()
                         .unwrap()
@@ -4697,6 +4947,11 @@ fn run_single_cross_section_worker(
                         kill_and_reap(&mut child);
                         break 'outer;
                     }
+                    if let Some(nd) = next_date(&mut local_dates) {
+                        if ipc_write(&mut writer, &TaskMessage::MinuteTask { date: nd }).is_ok() {
+                            inflight_date = Some(nd);
+                        }
+                    }
                 }
                 Ok(_) => {}
                 Err(_) => {
@@ -4710,6 +4965,10 @@ fn run_single_cross_section_worker(
                 }
             }
         }
+        let _ = ipc_write(&mut writer, &TaskMessage::Shutdown);
+        let _ = writer.write_all(&[0u8; 4]);
+        let _ = child.wait();
+        break 'outer;
     }
     Ok(())
 }

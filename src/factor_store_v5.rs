@@ -2334,10 +2334,11 @@ impl FactorStoreWriter {
 /// 一个投影段（base `factors.proj` 或增量 delta `factors.proj.delta.<end>`）的元信息。
 /// 两者格式完全一致（同一个 write_proj_file 产出），只是行集不同。
 struct ProjMeta {
+    ver: u32,
     rows: u64,
     row_order_offset: u64,
     row_order_csz: u64,
-    /// 每因子 value 段 (offset, compressed_size)
+    /// 每因子 value 段 (offset, byte_len)
     val_index: Vec<(u64, u64)>,
 }
 
@@ -2376,13 +2377,23 @@ impl ProjSegment {
             d.push(u32::from_le_bytes(v[..4].try_into().unwrap()));
             c.push(u32::from_le_bytes(v[4..].try_into().unwrap()));
         }
-        if self
+        let raw_col_bytes = d.len() as u64 * 4;
+        if self.meta.ver <= 3 {
+            if self
+                .meta
+                .val_index
+                .iter()
+                .any(|&(_, len)| len != raw_col_bytes)
+            {
+                return Err(format!("投影值长度与行序不一致: {:?}", self.path));
+            }
+        } else if self
             .meta
             .val_index
             .iter()
-            .any(|&(_, len)| len != d.len() as u64 * 4)
+            .any(|&(_, len)| len == 0 || len > raw_col_bytes)
         {
-            return Err(format!("投影值长度与行序不一致: {:?}", self.path));
+            return Err(format!("压缩投影值长度越界: {:?}", self.path));
         }
         Ok((d, c))
     }
@@ -2394,7 +2405,7 @@ impl ProjSegment {
     }
 }
 
-/// 解析一个 v3 格式投影文件（base 或 delta）的头部，构造读取句柄。
+/// 解析一个 v3（未压缩）或 v4（列级自适应压缩）格式投影文件的头部，构造读取句柄。
 fn open_proj_segment(path: &Path) -> Result<ProjSegment, String> {
     let pf = File::open(path).map_err(|e| format!("打开投影 {path:?}: {e}"))?;
     let size = pf.metadata().map_err(|e| e.to_string())?.len();
@@ -2414,9 +2425,9 @@ fn open_proj_segment(path: &Path) -> Result<ProjSegment, String> {
     };
     let h = read(0, 32)?;
     let ver = u32::from_le_bytes(h[..4].try_into().unwrap());
-    if ver != PROJ_FORMAT_VERSION {
+    if ver != PROJ_FORMAT_VERSION && ver != 4 {
         return Err(format!(
-            "投影格式 {ver}, 期望 {PROJ_FORMAT_VERSION}: {path:?}"
+            "投影格式 {ver}, 期望 {PROJ_FORMAT_VERSION} 或 4: {path:?}"
         ));
     }
     let fc = u32::from_le_bytes(h[4..8].try_into().unwrap()) as usize;
@@ -2434,13 +2445,19 @@ fn open_proj_segment(path: &Path) -> Result<ProjSegment, String> {
     {
         return Err(format!("投影行序越界: {path:?}"));
     }
+    let raw_col_bytes = rows.checked_mul(4).ok_or("投影行数溢出")?;
     let mut val_index = Vec::with_capacity(fc);
     let mut expected = row_order_offset + row_order_csz;
     for v in ix.chunks_exact(16) {
         let off = u64::from_le_bytes(v[..8].try_into().unwrap());
         let len = u64::from_le_bytes(v[8..].try_into().unwrap());
+        let len_ok = if ver == 3 {
+            len == raw_col_bytes
+        } else {
+            (rows == 0 && len == 0) || (len > 0 && len <= raw_col_bytes)
+        };
         if off != expected
-            || rows.checked_mul(4) != Some(len)
+            || !len_ok
             || off.checked_add(len).filter(|&end| end <= size).is_none()
         {
             return Err(format!("投影值索引损坏/截断: {path:?}"));
@@ -2452,6 +2469,7 @@ fn open_proj_segment(path: &Path) -> Result<ProjSegment, String> {
         path: path.to_path_buf(),
         file: pf,
         meta: ProjMeta {
+            ver,
             rows,
             row_order_offset,
             row_order_csz,
@@ -2704,11 +2722,18 @@ impl SingleStoreReader {
                 let raw = seg.pread(first, (last.0 + last.1 - first) as usize)?;
                 ds.extend_from_slice(d);
                 cs.extend_from_slice(c);
+                let mut dec_scratch = Vec::new();
                 let mut pos = 0;
                 for (i, f) in (start..end).enumerate() {
                     let size = seg.meta.val_index[f].1 as usize;
+                    let col_raw = crate::factor_store_segments::decode_f32_column_bytes(
+                        seg.meta.ver,
+                        &raw[pos..pos + size],
+                        d.len(),
+                        &mut dec_scratch,
+                    )?;
                     vs[i].extend(
-                        raw[pos..pos + size]
+                        col_raw
                             .chunks_exact(4)
                             .map(|v| f32::from_le_bytes(v.try_into().unwrap())),
                     );
@@ -2817,6 +2842,7 @@ impl SingleStoreReader {
         }
         if self.is_projected() {
             let mut rows = 0usize;
+            let mut dec_scratch = Vec::new();
             for seg in &self.proj_segments {
                 let (ds, cs) = seg.row_order()?;
                 if ds.is_empty() {
@@ -2824,8 +2850,14 @@ impl SingleStoreReader {
                 }
                 let &(off, len) = seg.meta.val_index.get(col).ok_or("投影缺少因子列")?;
                 let raw = seg.pread(off, len as usize)?;
+                let col_raw = crate::factor_store_segments::decode_f32_column_bytes(
+                    seg.meta.ver,
+                    &raw,
+                    ds.len(),
+                    &mut dec_scratch,
+                )?;
                 rows += ds.len();
-                for (i, v) in raw.chunks_exact(4).enumerate() {
+                for (i, v) in col_raw.chunks_exact(4).enumerate() {
                     let r = *dm.get(ds[i] as usize).ok_or("日期 id 越界")?;
                     let c = *cm.get(cs[i] as usize).ok_or("股票 id 越界")?;
                     if r != usize::MAX && c != usize::MAX {
@@ -2912,15 +2944,22 @@ impl SingleStoreReader {
                         target_idx.push(usize::MAX);
                     }
                 }
+                let mut dec_scratch = Vec::new();
                 let mut pos = 0usize;
                 for (fi, f) in (start..end).enumerate() {
                     let size = seg.meta.val_index[f].1 as usize;
+                    let col_raw = crate::factor_store_segments::decode_f32_column_bytes(
+                        seg.meta.ver,
+                        &raw[pos..pos + size],
+                        ds.len(),
+                        &mut dec_scratch,
+                    )?;
                     let out_slice = outputs[fi]
                         .as_slice_memory_order_mut()
                         .ok_or("输出矩阵内存布局非连续")?;
                     for (&idx, v) in target_idx
                         .iter()
-                        .zip(raw[pos..pos + size].chunks_exact(4))
+                        .zip(col_raw.chunks_exact(4))
                     {
                         if idx != usize::MAX {
                             let x = f32::from_le_bytes(v.try_into().unwrap());
@@ -3517,13 +3556,18 @@ impl FactorStoreReader {
         if n_factors == 0 {
             return Ok(Vec::new());
         }
-        if self.groups.len() > 1 {
+        let is_contiguous = col_idx_batch
+            .windows(2)
+            .all(|w| w[1] == w[0].saturating_add(1));
+        if self.groups.len() > 1 || !is_contiguous {
+            let scatter_maps = self.precompute_scatter_maps(template_dates, template_stocks);
             let mut outputs = Vec::with_capacity(n_factors);
             for &col_idx in col_idx_batch {
-                outputs.push(self.read_factor_to_matrix(
+                outputs.push(self.read_factor_to_matrix_fast(
                     col_idx,
                     template_dates,
                     template_stocks,
+                    &scatter_maps,
                 )?);
             }
             return Ok(outputs);
@@ -3685,6 +3729,7 @@ impl FactorStoreReader {
         let out_slice = output
             .as_slice_memory_order_mut()
             .ok_or("输出矩阵内存布局非连续")?;
+        let mut dec_scratch = Vec::new();
         for s in &raw.segments {
             if col_idx < s.global_start || col_idx >= s.global_end {
                 continue;
@@ -3704,10 +3749,13 @@ impl FactorStoreReader {
                 .bytes
                 .get(rel..rel + len_usize)
                 .ok_or("投影列切片越界")?;
-            if col_bytes.len() != ds.len().saturating_mul(4) {
-                return Err(format!("投影列字节长度与段行数不匹配: {:?}", seg.path));
-            }
-            for (i, v) in col_bytes.chunks_exact(4).enumerate() {
+            let col_raw = crate::factor_store_segments::decode_f32_column_bytes(
+                seg.meta.ver,
+                col_bytes,
+                ds.len(),
+                &mut dec_scratch,
+            )?;
+            for (i, v) in col_raw.chunks_exact(4).enumerate() {
                 let r = *dm.get(ds[i] as usize).ok_or("日期 id 越界")?;
                 let c = *cm.get(cs[i] as usize).ok_or("股票 id 越界")?;
                 if r < nrows && c < ncols {
@@ -4451,6 +4499,54 @@ pub fn factor_store_v5_read_factor(store_dir: String, col_idx: usize) -> PyResul
     })
 }
 
+/// 单次打开 FactorStoreReader，批量合并连读多列因子并按给定 (dates, stocks) 散射为稠密 f32 矩阵列表。
+/// 彻底消除 Python 循环调用 `factor_store_v5_read_factor` 导致的数百次重开库与 `Too many open files`。
+#[pyfunction]
+#[pyo3(signature = (store_dir, col_indices, dates, stocks))]
+pub fn factor_store_v5_read_factors_batch_matrix<'py>(
+    py: Python<'py>,
+    store_dir: String,
+    col_indices: Vec<usize>,
+    dates: Vec<i32>,
+    stocks: Vec<String>,
+) -> PyResult<Vec<&'py numpy::PyArray2<f32>>> {
+    use numpy::IntoPyArray;
+
+    enum BatchReadErr {
+        OutOfRange(String),
+        Io(String),
+    }
+
+    if col_indices.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let matrices = py
+        .allow_threads(|| -> Result<Vec<ndarray::Array2<f32>>, BatchReadErr> {
+            let reader = FactorStoreReader::open(&store_dir).map_err(BatchReadErr::Io)?;
+            let n_factors = reader.factor_names().len();
+            for &idx in &col_indices {
+                if idx >= n_factors {
+                    return Err(BatchReadErr::OutOfRange(format!(
+                        "col_idx {idx} 超出范围（共 {n_factors} 个因子）"
+                    )));
+                }
+            }
+            reader
+                .read_factors_batch_to_matrices(&col_indices, &dates, &stocks)
+                .map_err(BatchReadErr::Io)
+        })
+        .map_err(|err| match err {
+            BatchReadErr::OutOfRange(msg) => pyo3::exceptions::PyValueError::new_err(msg),
+            BatchReadErr::Io(msg) => pyo3::exceptions::PyIOError::new_err(msg),
+        })?;
+
+    Ok(matrices
+        .into_iter()
+        .map(|m| m.into_pyarray(py))
+        .collect())
+}
+
 /// 把 src store 中的指定因子子集复制成新的独立 store（含投影）。
 ///
 /// 用途（补充因子 accepted group）：评估 store 保留整批因子，判定结束后把
@@ -5020,8 +5116,9 @@ impl BackupSink {
                 .map_err(|e| e.to_string()),
             BackupSink::Colblk { writer } => {
                 let mut w = writer.lock().map_err(|e| format!("锁 writer 失败: {e}"))?;
-                w.append_batch(results)?;
-                w.commit()
+                // write_raw_chunk_body 内部已按 HEADER_SYNC_EVERY_CHUNKS=64 节流同步文件头，
+                // 此处不再每批强制 commit（否则每 500 股跨 8 分片触发 32 次 fsync 与磁头回跳）。
+                w.append_batch(results)
             }
         }
     }
@@ -5482,6 +5579,34 @@ impl ShardedBackupSink {
             return writer.lock().map_err(|e| e.to_string())?.finish();
         }
         let n_shards = self.shards.len();
+        if n_shards > 1 && n_jobs >= 4 {
+            // 受控分片级并行投影（每路分配独立小线程池，避免全局 512 核池失控或 8 分片纯单线程排队）
+            let shard_par = 2usize.min(n_shards);
+            let per_shard_threads = (n_jobs / shard_par).clamp(1, 32);
+            let shard_clones: Vec<BackupSink> = self.shards.iter().map(|s| s.clone_handle()).collect();
+            for (chunk_idx, chunk) in shard_clones.chunks(shard_par).enumerate() {
+                let handles: Vec<std::thread::JoinHandle<Result<(), String>>> = chunk
+                    .iter()
+                    .enumerate()
+                    .map(|(off, shard)| {
+                        let shard = shard.clone_handle();
+                        let shard_no = chunk_idx * shard_par + off + 1;
+                        std::thread::spawn(move || {
+                            eprintln!("🏗️ 投影 shard {shard_no}/{n_shards}");
+                            let pool = rayon::ThreadPoolBuilder::new()
+                                .num_threads(per_shard_threads)
+                                .build()
+                                .map_err(|e| format!("建分片投影池失败: {e}"))?;
+                            pool.install(|| shard.finish_and_project(per_shard_threads))
+                        })
+                    })
+                    .collect();
+                for h in handles {
+                    h.join().map_err(|_| "投影线程 panic".to_string())??;
+                }
+            }
+            return Ok(());
+        }
         for (i, shard) in self.shards.iter().enumerate() {
             eprintln!("🏗️ 投影 shard {}/{}", i + 1, n_shards);
             shard.finish_and_project(n_jobs)?;

@@ -10,11 +10,14 @@
 use crate::genedp_buysell_fold::reader::{read_market_fast, read_trade_fast, MarketRecord, TradeRecord};
 use crate::genedp_buysell_fold::v3_feats::{arc_feats, naive_feats, pair_feats};
 use crate::genedp_buysell_fold::v3_kernels::{self, cross_match, hpk, make_ctx, nested, prob_fast, Kern, Mode};
-use crate::genedp_buysell_fold::v3_letters::{base_variant, cancel_arcs, cxl_available, is_cxl, variants, windows, Bars, Seq, Win, HK_BARS, TIER_BARS};
+use crate::genedp_buysell_fold::v3_letters::{
+    base_variant, build_cancel_map, cancel_arcs_with_map, cxl_available, is_cxl, variants, windows,
+    Bars, Seq, Variant, Win, HK_BARS, TIER_BARS,
+};
 use pyo3::prelude::*;
 use rayon::prelude::*;
-use std::path::Path;
-use std::sync::OnceLock;
+use std::collections::{HashMap, VecDeque};
+use std::sync::{Arc, Mutex, OnceLock};
 
 const NV: usize = 38;
 const NW: usize = 3;
@@ -198,51 +201,149 @@ fn series_block(mode: Mode, k: &mut Kern, seq: &Seq, seed: u64, out: &mut [f32])
     }
 }
 
-/// 一只股票的完整版原始层（ROW 列，被删部分为空值）
-fn per_stock(code: &str, date: i64, prev: Option<i64>, mode: Mode) -> Vec<f32> {
+type StockYdaySeqs = [[Option<Seq>; 16]; NW];
+type DayYdayMap = HashMap<String, StockYdaySeqs>;
+
+fn yday_cache() -> &'static Mutex<VecDeque<((String, u64, i64), Arc<DayYdayMap>)>> {
+    static C: OnceLock<Mutex<VecDeque<((String, u64, i64), Arc<DayYdayMap>)>>> = OnceLock::new();
+    C.get_or_init(|| Mutex::new(VecDeque::with_capacity(3)))
+}
+
+fn get_cached_yday(key: &(String, u64, i64)) -> Option<Arc<DayYdayMap>> {
+    let guard = yday_cache().lock().ok()?;
+    guard.iter().find(|(k, _)| k == key).map(|(_, v)| Arc::clone(v))
+}
+
+fn put_cached_yday(key: (String, u64, i64), map: Arc<DayYdayMap>) {
+    if std::env::var("RUST_PYFUNC_DISABLE_GENEDP_CACHE")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+    {
+        return;
+    }
+    if let Ok(mut guard) = yday_cache().lock() {
+        if let Some(pos) = guard.iter().position(|(k, _)| *k == key) {
+            guard.remove(pos);
+        }
+        while guard.len() >= 2 {
+            guard.pop_front();
+        }
+        guard.push_back((key, map));
+    }
+}
+
+fn extract_yday_only(code: &str, day: i64, vs: &[Variant], wins: &[Win; 3]) -> Option<StockYdaySeqs> {
+    let trp = read_trade_fast(code, day).ok()?;
+    let mkp = read_market_fast(code, day).unwrap_or_default();
+    let cxl_ok_prev = cxl_available(code, day);
+    let mut out: StockYdaySeqs = std::array::from_fn(|_| std::array::from_fn(|_| None));
+    for w in 0..NW {
+        let g = if w == 2 { 0 } else { 1 };
+        if let Some(bp) = Bars::new(&trp, &mkp, &wins[w].with_bar(TIER_BARS[w][g])) {
+            for a in 0..16 {
+                let v = base_variant(a);
+                out[w][a] = bp.seq(&vs[v], cxl_ok_prev);
+            }
+        }
+    }
+    Some(out)
+}
+
+/// 一只股票的完整版原始层（ROW 列，被删部分为空值），同时顺带产出供下一交易日跨日复用的 16 基准字母序列
+fn per_stock_with_yday(
+    code: &str,
+    date: i64,
+    prev: Option<i64>,
+    prev_yday: Option<&StockYdaySeqs>,
+    vs: &[Variant],
+    wins: &[Win; 3],
+    base_vars: &[usize; 16],
+    mode: Mode,
+) -> (Vec<f32>, Option<StockYdaySeqs>) {
     let mut row = vec![f32::NAN; ROW];
     v3_kernels::set_hpk_fast(mode == Mode::Fast);
-    let tr: Vec<TradeRecord> = match read_trade_fast(code, date) { Ok(t) => t, Err(_) => return row };
+    let tr: Vec<TradeRecord> = match read_trade_fast(code, date) {
+        Ok(t) => t,
+        Err(_) => return (row, None),
+    };
     let mk: Vec<MarketRecord> = read_market_fast(code, date).unwrap_or_default();
     let cxl_ok = cxl_available(code, date);
-    let (trp, mkp, cxl_ok_prev) = match prev {
-        Some(p) => (read_trade_fast(code, p).ok(), read_market_fast(code, p).unwrap_or_default(), cxl_available(code, p)),
-        None => (None, Vec::new(), false),
-    };
-    let vs = variants();
-    let wins = windows();
     let code_seed = fnv(code.as_bytes());
     let mut k = Kern::new();
-    // 两档粒度的字母序列（保留下来给 H 型假结、跨日、联合配对复用）
+    // 两档粒度的字母序列（被删的 8 个字母版本直接跳过不构建，节省 21% 中位数与分桶开销）
     let mut seqs: Vec<Vec<Option<Seq>>> = Vec::with_capacity(NW * NG);
     for w in 0..NW {
         for g in 0..NG {
             let win = wins[w].with_bar(TIER_BARS[w][g]);
             let bars = Bars::new(&tr, &mk, &win);
-            let ss: Vec<Option<Seq>> = vs.iter().map(|v| bars.as_ref().and_then(|b| b.seq(v, cxl_ok))).collect();
+            let ss: Vec<Option<Seq>> = vs
+                .iter()
+                .map(|v| {
+                    if variant_kept(&v.name) {
+                        bars.as_ref().and_then(|b| b.seq(v, cxl_ok))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
             for v in 0..NV {
-                if !variant_kept(&vs[v].name) { continue; } // 被删的字母版本不计算
+                if !variant_kept(&vs[v].name) {
+                    continue;
+                }
                 if let Some(s) = &ss[v] {
                     let si = sidx(w, g, v);
-                    series_block(mode, &mut k, s, code_seed ^ ((si as u64 + 1) << 24), &mut row[si * BLOCK..(si + 1) * BLOCK]);
+                    series_block(
+                        mode,
+                        &mut k,
+                        s,
+                        code_seed ^ ((si as u64 + 1) << 24),
+                        &mut row[si * BLOCK..(si + 1) * BLOCK],
+                    );
                 }
             }
             seqs.push(ss);
         }
     }
+    // 顺手保存当天用于跨日配对的 16 个基准字母序列（零额外计算）
+    let today_yday: StockYdaySeqs = std::array::from_fn(|w| {
+        let g = if w == 2 { 0 } else { 1 };
+        std::array::from_fn(|a| seqs[w * NG + g][base_vars[a]].clone())
+    });
+
     // H 型假结：每个时段用约 120 个字母的粒度（全天 120 秒、下午 60 秒、尾盘 15 秒）
     for w in 0..NW {
-        let hk_seqs: Vec<Option<Seq>> = if HK_BARS[w] == TIER_BARS[w][1] { seqs[w * NG + 1].clone() }
-            else if HK_BARS[w] == TIER_BARS[w][0] { seqs[w * NG].clone() }
-            else {
-                let b = Bars::new(&tr, &mk, &wins[w].with_bar(HK_BARS[w]));
-                vs.iter().map(|v| b.as_ref().and_then(|b| b.seq(v, cxl_ok))).collect()
-            };
+        let hk_owned: Option<Vec<Option<Seq>>> = if HK_BARS[w] == TIER_BARS[w][1] || HK_BARS[w] == TIER_BARS[w][0] {
+            None
+        } else {
+            let b = Bars::new(&tr, &mk, &wins[w].with_bar(HK_BARS[w]));
+            Some(
+                vs.iter()
+                    .map(|v| {
+                        if variant_kept(&v.name) {
+                            b.as_ref().and_then(|b| b.seq(v, cxl_ok))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect(),
+            )
+        };
+        let hk_seqs: &[Option<Seq>] = if HK_BARS[w] == TIER_BARS[w][1] {
+            &seqs[w * NG + 1]
+        } else if HK_BARS[w] == TIER_BARS[w][0] {
+            &seqs[w * NG]
+        } else {
+            hk_owned.as_deref().unwrap()
+        };
         for v in 0..NV {
-            if !variant_kept(&vs[v].name) { continue; }
+            if !variant_kept(&vs[v].name) {
+                continue;
+            }
             let Some(s) = &hk_seqs[v] else { continue };
             let c = make_ctx(s, None);
-            if !valid(&c) { continue; }
+            if !valid(&c) {
+                continue;
+            }
             let (best, pairs) = hpk(&c, &mut k.hpk);
             let sn = (best as f64 / c.n_buy.min(c.n_sell) as f64) as f32;
             let o = OFF_HK + (w * NV + v) * 19;
@@ -250,18 +351,23 @@ fn per_stock(code: &str, date: i64, prev: Option<i64>, mode: Mode) -> Vec<f32> {
         }
     }
     // 跨日配对：昨天与今天同一时段的字母首尾相接（全天、下午 60 秒，尾盘 15 秒），只用基准阈值版本
-    if let Some(trp) = &trp {
+    if let (Some(p), Some(yday_arr)) = (prev, prev_yday) {
+        let cxl_both = cxl_ok && cxl_available(code, p);
         for w in 0..NW {
             let g = if w == 2 { 0 } else { 1 };
-            let bars_p = Bars::new(trp, &mkp, &wins[w].with_bar(TIER_BARS[w][g]));
             for a in 0..16 {
-                let v = base_variant(a);
-                let (Some(today), Some(bp)) = (&seqs[w * NG + g][v], &bars_p) else { continue };
-                let Some(yday) = bp.seq(&vs[v], cxl_ok && cxl_ok_prev) else { continue };
-                if is_cxl(a) && !(cxl_ok && cxl_ok_prev) { continue; }
-                let cat = Seq::concat(&yday, today);
+                if is_cxl(a) && !cxl_both {
+                    continue;
+                }
+                let v = base_vars[a];
+                let (Some(today), Some(yday)) = (&seqs[w * NG + g][v], &yday_arr[w][a]) else {
+                    continue;
+                };
+                let cat = Seq::concat(yday, today);
                 let c = make_ctx(&cat, None);
-                if !valid(&c) { continue; }
+                if !valid(&c) {
+                    continue;
+                }
                 let ny = yday.side.len();
                 for r in 0..12 {
                     let (sn, pairs) = nested(mode, &mut k, &c, r);
@@ -278,9 +384,13 @@ fn per_stock(code: &str, date: i64, prev: Option<i64>, mode: Mode) -> Vec<f32> {
     // 两字母联合配对：只有两种字母在两端都方向相反才可配对
     for w in 0..NW {
         for (p, &(a, b)) in CO_PAIRS.iter().enumerate() {
-            let (Some(sa), Some(sb)) = (&seqs[w * NG][base_variant(a)], &seqs[w * NG][base_variant(b)]) else { continue };
+            let (Some(sa), Some(sb)) = (&seqs[w * NG][base_vars[a]], &seqs[w * NG][base_vars[b]]) else {
+                continue;
+            };
             let c = make_ctx(sa, Some(&sb.side));
-            if !valid(&c) { continue; }
+            if !valid(&c) {
+                continue;
+            }
             for (ri, &r) in CO_RULES.iter().enumerate() {
                 let (sn, pairs) = nested(mode, &mut k, &c, r);
                 let o = OFF_CO + ((p * NW + w) * CO_RULES.len() + ri) * NF;
@@ -288,12 +398,13 @@ fn per_stock(code: &str, date: i64, prev: Option<i64>, mode: Mode) -> Vec<f32> {
             }
         }
     }
-    // 真实挂撤弧（撤单数据存在才算）
+    // 真实挂撤弧（撤单数据存在才算，三个时段共享一次主动委托映射排序）
     if cxl_ok && !tr.is_empty() {
         let day0 = tr[0].time_us - tr[0].time_us.rem_euclid(86_400_000_000);
+        let cancel_map = build_cancel_map(&tr);
         for w in 0..NW {
             let win: &Win = &wins[w];
-            let arcs = cancel_arcs(&tr, win);
+            let arcs = cancel_arcs_with_map(&tr, &cancel_map, win);
             let lo = day0 + win.adj_lo * 1_000_000;
             let len = (win.adj_hi - win.adj_lo) * 1_000_000;
             for (si, filt) in [Some(true), Some(false), None].iter().enumerate() {
@@ -307,9 +418,12 @@ fn per_stock(code: &str, date: i64, prev: Option<i64>, mode: Mode) -> Vec<f32> {
             }
         }
     }
-    // 单股内的时段差与规则差
-    for (d, &(_, wa, wb)) in WDIFF.iter().enumerate() {
+    // 单股内的时段差（d=2 tail_minus_pm 整层不保留，跳过）与规则差
+    for (d, &(_, wa, wb)) in WDIFF.iter().enumerate().take(2) {
         for v in 0..NV {
+            if !variant_kept(&vs[v].name) {
+                continue;
+            }
             for g in 0..NG {
                 let (sa, sb) = (sidx(wa, g, v) * BLOCK, sidx(wb, g, v) * BLOCK);
                 let o = OFF_WD + ((d * NV + v) * NG + g) * N_DIFFABLE;
@@ -319,31 +433,28 @@ fn per_stock(code: &str, date: i64, prev: Option<i64>, mode: Mode) -> Vec<f32> {
             }
         }
     }
-    for s in 0..NS {
-        for (q, &(_, a, b)) in RDIFF.iter().enumerate() {
-            row[OFF_RD + s * RDIFF.len() + q] = row[s * BLOCK + a] - row[s * BLOCK + b];
+    for w in 0..NW {
+        for g in 0..NG {
+            for v in 0..NV {
+                if !variant_kept(&vs[v].name) {
+                    continue;
+                }
+                let s = sidx(w, g, v);
+                for (q, &(_, a, b)) in RDIFF.iter().enumerate() {
+                    if q == 4 {
+                        continue; // pk2_minus_cnt 整列不保留
+                    }
+                    row[OFF_RD + s * RDIFF.len() + q] = row[s * BLOCK + a] - row[s * BLOCK + b];
+                }
+            }
         }
     }
-    row
+    (row, Some(today_yday))
 }
 
 fn stock_codes(root: &str, date: i64) -> Result<(Vec<String>, String, u64), String> {
     let map = crate::data_paths::basic_info_path("symbol_map.csv");
-    let bytes = std::fs::read(&map).map_err(|e| format!("股票表读取失败 {}: {e}", map.display()))?;
-    let mut reader = csv::Reader::from_reader(&bytes[..]);
-    let column = reader.headers().map_err(|e| e.to_string())?.iter().position(|h| h == "symbol").ok_or("股票表缺少 symbol 列")?;
-    let mut set = std::collections::BTreeSet::new();
-    for rec in reader.records() {
-        let rec = rec.map_err(|e| e.to_string())?;
-        let code = rec.get(column).unwrap_or("").trim();
-        if code.is_empty() || code.len() > 6 || !code.bytes().all(|b| b.is_ascii_digit()) { return Err(format!("股票表含无效代码: {code}")); }
-        set.insert(format!("{code:0>6}"));
-    }
-    if set.is_empty() { return Err("股票白名单为空".into()); }
-    let dir = Path::new(root).join(date.to_string()).join("transaction");
-    if !dir.is_dir() { return Err(format!("原始数据目录不存在: {}", dir.display())); }
-    let codes: Vec<String> = set.into_iter().filter(|c| dir.join(format!("{c}_{date}_transaction.csv")).is_file()).collect();
-    Ok((codes, map.display().to_string(), fnv(&bytes)))
+    crate::genedp_common::stock_codes_whitelisted(root, &map, date, "transaction")
 }
 
 /// 全部列名（67,467 列，与输出逐列对齐）
@@ -355,16 +466,60 @@ pub fn genedp_buysell_fold_slim_names() -> Vec<String> {
 /// 返回 (股票代码, 行优先展平的因子值)，每股 N_FACTORS 列。用当前 rayon 线程池并行。
 pub fn compute_genedp_buysell_fold_slim_full(date: i64) -> std::io::Result<(Vec<String>, Vec<f32>)> {
     let root = crate::genedp_common::level2_root_string();
-    let (codes, _map_path, _map_hash) = stock_codes(&root, date).map_err(crate::genedp_common::invalid)?;
+    let (codes, _map_path, map_hash) = stock_codes(&root, date).map_err(crate::genedp_common::invalid)?;
     let prev = crate::genedp_common::prev_level2_date(date);
+    let vs = variants();
+    let wins = windows();
+    let base_vars: [usize; 16] = std::array::from_fn(base_variant);
+    for &bv in &base_vars {
+        debug_assert!(variant_kept(&vs[bv].name));
+    }
+
+    let prev_map: Option<Arc<DayYdayMap>> = if let Some(p) = prev {
+        let prev_key = (root.clone(), map_hash, p);
+        if let Some(hit) = get_cached_yday(&prev_key) {
+            Some(hit)
+        } else {
+            let mut union_codes: Vec<String> = match stock_codes(&root, p) {
+                Ok((pc, _, _)) => pc,
+                Err(_) => Vec::new(),
+            };
+            let existing: std::collections::HashSet<String> = union_codes.iter().cloned().collect();
+            for c in &codes {
+                if !existing.contains(c) {
+                    union_codes.push(c.clone());
+                }
+            }
+            let built: DayYdayMap = union_codes
+                .par_iter()
+                .filter_map(|c| extract_yday_only(c, p, &vs, &wins).map(|yd| (c.clone(), yd)))
+                .collect();
+            let arc = Arc::new(built);
+            put_cached_yday(prev_key, Arc::clone(&arc));
+            Some(arc)
+        }
+    } else {
+        None
+    };
+
     let keep = &kept().0;
     let mut vals = vec![f32::NAN; codes.len() * N_FACTORS];
-    vals.par_chunks_mut(N_FACTORS).zip(codes.par_iter()).for_each(|(out, c)| {
-        let row = per_stock(c, date, prev, Mode::Fast);
-        for (o, &k) in out.iter_mut().zip(keep) {
-            *o = row[k];
-        }
-    });
+    let today_yday_vec: Vec<Option<(String, StockYdaySeqs)>> = vals
+        .par_chunks_mut(N_FACTORS)
+        .zip(codes.par_iter())
+        .map(|(out, c)| {
+            let py = prev_map.as_deref().and_then(|m| m.get(c));
+            let (row, ty) = per_stock_with_yday(c, date, prev, py, &vs, &wins, &base_vars, Mode::Fast);
+            for (o, &k) in out.iter_mut().zip(keep) {
+                *o = row[k];
+            }
+            ty.map(|y| (c.clone(), y))
+        })
+        .collect();
+
+    let today_map: DayYdayMap = today_yday_vec.into_iter().flatten().collect();
+    put_cached_yday((root, map_hash, date), Arc::new(today_map));
+
     Ok((codes, vals))
 }
 

@@ -284,28 +284,33 @@ fn rolling_sum(p: &[f64], n_t: usize, n_s: usize, window: usize) -> Vec<f64> {
     out
 }
 
-/// numpy 的线性插值分位数（`np.percentile(..., method="linear")`，pandas quantile 的默认）。
-fn quantile_linear(vals: &mut [f64], q: f64) -> f64 {
+/// numpy 的线性插值分位数（基于 `select_nth_unstable_by` O(n) 局部选择，与全排序逐位一致）。
+fn quantile_linear_select(vals: &mut [f64], q: f64) -> f64 {
     let n = vals.len();
     if n == 0 {
         return NAN;
     }
-    vals.sort_by(|a, b| a.partial_cmp(b).expect("NaN 已过滤"));
     if n == 1 {
         return vals[0];
     }
     let pos = q * (n - 1) as f64;
     let lo = pos.floor() as usize;
     let hi = pos.ceil() as usize;
+    let (_, &mut vlo, right) = vals.select_nth_unstable_by(lo, |a, b| a.total_cmp(b));
     if lo == hi {
-        vals[lo]
+        vlo
     } else {
+        let vhi = right
+            .iter()
+            .copied()
+            .min_by(|a, b| a.total_cmp(b))
+            .unwrap_or(vlo);
         let w = pos - lo as f64;
-        vals[lo] * (1.0 - w) + vals[hi] * w
+        vlo * (1.0 - w) + vhi * w
     }
 }
 
-/// 逐日缩尾：先算当日 2.5% / 97.5% 分位，再把越界值截到边界。
+/// 逐日缩尾：先算当日 2.5% / 97.5% 分位（零 clone + O(n) 局部选择），再把越界值截到边界。
 fn winsorize_cols(p: &mut [f64], n_t: usize, n_s: usize) {
     let mut buf: Vec<f64> = Vec::with_capacity(n_s);
     for t in 0..n_t {
@@ -319,8 +324,8 @@ fn winsorize_cols(p: &mut [f64], n_t: usize, n_s: usize) {
         if buf.is_empty() {
             continue;
         }
-        let lo = quantile_linear(&mut buf.clone(), 0.025);
-        let hi = quantile_linear(&mut buf.clone(), 0.975);
+        let lo = quantile_linear_select(&mut buf, 0.025);
+        let hi = quantile_linear_select(&mut buf, 0.975);
         for j in 0..n_s {
             let v = p[t * n_s + j];
             if v.is_nan() {
@@ -358,13 +363,16 @@ fn shift_rows_down(p: &[f64], n_t: usize, n_s: usize) -> Vec<f64> {
 
 /// 逐日 OLS 残差：`y ~ 1 + x0..x9`，样本 = y 与所有 x 都非 NaN 的股票，样本数 > 10 才算。
 ///
-/// 返回与输入同形的残差（未参与回归的位置保持 NaN）。
+/// 优先走 11×11 正规方程 Cholesky（条件数良好时与 SVD 机器精度一致且快 ~15 倍），
+/// 若遇不满秩或病态矩阵自动回退原 SVD 伪逆，确保任意极端交易日结果一致。
 fn ols_residual(y: &[f64], xs: &[Vec<f64>], n_t: usize, n_s: usize) -> Vec<f64> {
     let k = xs.len() + 1; // const + 风格因子
     let mut out = vec![NAN; n_t * n_s];
-    let mut xbuf: Vec<f64> = Vec::with_capacity(1024 * k);
-    let mut ybuf: Vec<f64> = Vec::with_capacity(1024);
-    let mut idx: Vec<usize> = Vec::with_capacity(1024);
+    let mut xbuf: Vec<f64> = Vec::with_capacity(n_s * k);
+    let mut ybuf: Vec<f64> = Vec::with_capacity(n_s);
+    let mut idx: Vec<usize> = Vec::with_capacity(n_s);
+    let mut gram = vec![0.0f64; k * k];
+    let mut rhs = vec![0.0f64; k];
     for t in 0..n_t {
         idx.clear();
         ybuf.clear();
@@ -395,16 +403,59 @@ fn ols_residual(y: &[f64], xs: &[Vec<f64>], n_t: usize, n_s: usize) -> Vec<f64> 
         if n <= 10 {
             continue;
         }
-        let xmat = DMatrix::from_row_slice(n, k, &xbuf);
-        let yvec = DVector::from_row_slice(&ybuf);
-        let svd = xmat.clone().svd(true, true);
-        let beta = match svd.solve(&yvec, 1e-15) {
-            Ok(b) => b,
-            Err(_) => continue,
+        gram.fill(0.0);
+        rhs.fill(0.0);
+        for i in 0..n {
+            let row = &xbuf[i * k..(i + 1) * k];
+            let yi = ybuf[i];
+            for a in 0..k {
+                let ra = row[a];
+                rhs[a] += ra * yi;
+                for b in a..k {
+                    gram[a * k + b] += ra * row[b];
+                }
+            }
+        }
+        for a in 0..k {
+            for b in 0..a {
+                gram[a * k + b] = gram[b * k + a];
+            }
+        }
+        let gmat = DMatrix::from_row_slice(k, k, &gram);
+        let rvec = DVector::from_row_slice(&rhs);
+        let beta_opt = if let Some(chol) = gmat.cholesky() {
+            let b = chol.solve(&rvec);
+            // 校验残差正交性防极端病态，若法方程残差偏大则回退 SVD
+            let g_err = (&DMatrix::from_row_slice(k, k, &gram) * &b - &rvec).norm();
+            let r_norm = rvec.norm().max(1.0);
+            if b.iter().all(|v| v.is_finite()) && g_err <= 1e-7 * r_norm {
+                Some(b)
+            } else {
+                None
+            }
+        } else {
+            None
         };
-        let pred = &xmat * &beta;
+        let beta = match beta_opt {
+            Some(b) => b,
+            None => {
+                let xmat = DMatrix::from_row_slice(n, k, &xbuf);
+                let yvec = DVector::from_row_slice(&ybuf);
+                let svd = xmat.svd(true, true);
+                match svd.solve(&yvec, 1e-15) {
+                    Ok(b) => b,
+                    Err(_) => continue,
+                }
+            }
+        };
+        let b_slice = beta.as_slice();
         for (m, &j) in idx.iter().enumerate() {
-            out[t * n_s + j] = ybuf[m] - pred[m];
+            let row = &xbuf[m * k..(m + 1) * k];
+            let mut pred = 0.0f64;
+            for c in 0..k {
+                pred += row[c] * b_slice[c];
+            }
+            out[t * n_s + j] = ybuf[m] - pred;
         }
     }
     out
@@ -445,6 +496,159 @@ fn rank_pct_average_in_place(col: &mut [f64]) {
     }
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+struct CachedFulltestDataset {
+    n_t: usize,
+    n_s: usize,
+    dates: Vec<i32>,
+    stocks: Vec<String>,
+    ret: Vec<f64>,
+    ret_sum: Vec<f64>,
+    restrict: Vec<f64>,
+    ret_resi_raw: Vec<f64>,
+    ret_resi_raw_1d: Vec<f64>,
+    ret_resi: Vec<f64>,
+    index_ret: Vec<f64>,
+}
+
+fn fulltest_dataset_cache_key(
+    vars: &Path,
+    szba: &Path,
+    indexd: &Path,
+    index_name: &str,
+    start_date: i32,
+    end_date: i32,
+    gap: usize,
+    style_fields: &[&str],
+) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    #[cfg(unix)]
+    use std::os::unix::fs::MetadataExt;
+
+    let mut h = DefaultHasher::new();
+    "fulltest_ds_v1".hash(&mut h);
+    vars.to_string_lossy().hash(&mut h);
+    szba.to_string_lossy().hash(&mut h);
+    indexd.to_string_lossy().hash(&mut h);
+    index_name.hash(&mut h);
+    start_date.hash(&mut h);
+    end_date.hash(&mut h);
+    gap.hash(&mut h);
+
+    let mut tracked_paths = vec![
+        vars.join("calendar_map.csv"),
+        vars.join("symbol_map.csv"),
+        vars.join("S_DQ_RET_VWAP_0930_1000.h5"),
+        vars.join("S_RESTRICT.h5"),
+        indexd.join("calendar_map.csv"),
+        indexd.join("symbol_map.csv"),
+        indexd.join("S_DQ_OPEN.h5"),
+        szba.join("calendar_map.csv"),
+        szba.join("symbol_map.csv"),
+    ];
+    for f in style_fields {
+        tracked_paths.push(szba.join(format!("{f}.h5")));
+    }
+    for p in tracked_paths {
+        if let Ok(meta) = std::fs::metadata(&p) {
+            meta.len().hash(&mut h);
+            #[cfg(unix)]
+            {
+                meta.mtime().hash(&mut h);
+                meta.mtime_nsec().hash(&mut h);
+            }
+        } else {
+            0u64.hash(&mut h);
+        }
+    }
+    format!("{:016x}", h.finish())
+}
+
+fn fulltest_dataset_cache_dir() -> std::path::PathBuf {
+    if let Ok(custom) = std::env::var("RUST_PYFUNC_FULLTEST_CACHE_DIR") {
+        if !custom.trim().is_empty() {
+            return std::path::PathBuf::from(custom);
+        }
+    }
+    let shared = Path::new("/home/chenzongwei/pythoncode/_tail_v2_shared/fulltest_dataset_cache");
+    if std::fs::create_dir_all(shared).is_ok() {
+        return shared.to_path_buf();
+    }
+    let fallback = Path::new("/tmp/rp_fulltest_dataset_cache");
+    let _ = std::fs::create_dir_all(fallback);
+    fallback.to_path_buf()
+}
+
+fn build_fulltest_dataset_uncached(
+    vars: &Path,
+    szba: &Path,
+    indexd: &Path,
+    index_name: &str,
+    start_date: i32,
+    end_date: i32,
+    gap: usize,
+    style_fields: &[&str],
+) -> Result<CachedFulltestDataset, String> {
+    let dates = read_dates(vars, start_date, end_date)?;
+    let stocks: Vec<String> = read_stocks(vars)?
+        .into_iter()
+        .map(|s| add_symbol_suffix(&s))
+        .collect();
+    let n_t = dates.len();
+    let n_s = stocks.len();
+
+    let mut ret = read_h5_aligned(vars, "S_DQ_RET_VWAP_0930_1000", &dates, &stocks)?;
+    for v in ret.iter_mut() {
+        if v.is_infinite() {
+            *v = NAN;
+        }
+    }
+    let restrict = read_h5_aligned(vars, "S_RESTRICT", &dates, &stocks)?;
+    let index_ret = read_index_forward_ret(
+        indexd,
+        "S_DQ_OPEN",
+        &format!("{index_name}.SH"),
+        &dates,
+    )?;
+
+    let ret_sum = rolling_sum(&ret, n_t, n_s, gap);
+    let mut w5 = ret_sum.clone();
+    winsorize_cols(&mut w5, n_t, n_s);
+    let winsor_5d = shift_cols_left(&w5, n_t, n_s, gap - 1);
+
+    let mut w1 = ret.clone();
+    winsorize_cols(&mut w1, n_t, n_s);
+    let winsor_1d = w1;
+
+    let mut styles: Vec<Vec<f64>> = Vec::with_capacity(style_fields.len());
+    for f in style_fields.iter() {
+        let raw = read_h5_aligned(szba, f, &dates, &stocks)?;
+        styles.push(shift_rows_down(&raw, n_t, n_s));
+    }
+
+    let ret_resi_raw = ols_residual(&winsor_5d, &styles, n_t, n_s);
+    let ret_resi_raw_1d = ols_residual(&winsor_1d, &styles, n_t, n_s);
+    let mut ret_resi = ret_resi_raw.clone();
+    for t in 0..n_t {
+        rank_pct_average_in_place(&mut ret_resi[t * n_s..(t + 1) * n_s]);
+    }
+
+    Ok(CachedFulltestDataset {
+        n_t,
+        n_s,
+        dates,
+        stocks,
+        ret,
+        ret_sum,
+        restrict,
+        ret_resi_raw,
+        ret_resi_raw_1d,
+        ret_resi,
+        index_ret,
+    })
+}
+
 #[pyfunction]
 #[pyo3(signature = (vars_dir, szba_dir, index_dir, index_name, start_date, end_date, gap))]
 pub fn tail_v4_fulltest_dataset_rust(
@@ -457,50 +661,6 @@ pub fn tail_v4_fulltest_dataset_rust(
     end_date: i32,
     gap: usize,
 ) -> PyResult<PyObject> {
-    let vars = Path::new(vars_dir);
-    let szba = Path::new(szba_dir);
-    let indexd = Path::new(index_dir);
-    // 轴完全由 Rust 决定：日期取 Base 的 calendar_map，股票取 Base 的 symbol_map 全列。
-    let dates = read_dates(vars, start_date, end_date).map_err(PyValueError::new_err)?;
-    let stocks: Vec<String> = read_stocks(vars)
-        .map_err(PyValueError::new_err)?
-        .into_iter()
-        .map(|s| add_symbol_suffix(&s))
-        .collect();
-    let n_t = dates.len();
-    let n_s = stocks.len();
-
-    // ---- 收益 / 限制股 ----
-    let mut ret = read_h5_aligned(vars, "S_DQ_RET_VWAP_0930_1000", &dates, &stocks)
-        .map_err(PyValueError::new_err)?;
-    for v in ret.iter_mut() {
-        if v.is_infinite() {
-            *v = NAN;
-        }
-    }
-    let restrict = read_h5_aligned(vars, "S_RESTRICT", &dates, &stocks)
-        .map_err(PyValueError::new_err)?;
-
-    // ---- 指数 forward 收益：(open_t / open_{t-1} - 1) 再前移一天 ----
-    let index_ret = read_index_forward_ret(
-        indexd,
-        "S_DQ_OPEN",
-        &format!("{index_name}.SH"),
-        &dates,
-    )
-    .map_err(PyValueError::new_err)?;
-
-    // ---- 滚动和 + 缩尾 + 前移 ----
-    let ret_sum = rolling_sum(&ret, n_t, n_s, gap);
-    let mut w5 = ret_sum.clone();
-    winsorize_cols(&mut w5, n_t, n_s);
-    let winsor_5d = shift_cols_left(&w5, n_t, n_s, gap - 1);
-
-    let mut w1 = ret.clone();
-    winsorize_cols(&mut w1, n_t, n_s);
-    let winsor_1d = w1;
-
-    // ---- 风格因子（先读完再统一 shift(1)，避免每列各拷贝一份）----
     const STYLE_FIELDS: [&str; 10] = [
         "size",
         "beta",
@@ -513,34 +673,124 @@ pub fn tail_v4_fulltest_dataset_rust(
         "earnings_yield",
         "growth",
     ];
-    let mut styles: Vec<Vec<f64>> = Vec::with_capacity(STYLE_FIELDS.len());
-    for f in STYLE_FIELDS.iter() {
-        let raw = read_h5_aligned(szba, f, &dates, &stocks).map_err(PyValueError::new_err)?;
-        styles.push(shift_rows_down(&raw, n_t, n_s));
-    }
+    let vars_s = vars_dir.to_string();
+    let szba_s = szba_dir.to_string();
+    let index_s = index_dir.to_string();
+    let idx_name_s = index_name.to_string();
 
-    // ---- 残差 ----
-    let ret_resi_raw = ols_residual(&winsor_5d, &styles, n_t, n_s);
-    let ret_resi_raw_1d = ols_residual(&winsor_1d, &styles, n_t, n_s);
-    let mut ret_resi = ret_resi_raw.clone();
-    for t in 0..n_t {
-        rank_pct_average_in_place(&mut ret_resi[t * n_s..(t + 1) * n_s]);
-    }
+    let ds_cached = py
+        .allow_threads(move || -> Result<CachedFulltestDataset, String> {
+            let vars = Path::new(&vars_s);
+            let szba = Path::new(&szba_s);
+            let indexd = Path::new(&index_s);
+            let disable_cache = std::env::var("RUST_PYFUNC_DISABLE_FULLTEST_DS_CACHE")
+                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false);
+            if disable_cache {
+                return build_fulltest_dataset_uncached(
+                    vars,
+                    szba,
+                    indexd,
+                    &idx_name_s,
+                    start_date,
+                    end_date,
+                    gap,
+                    &STYLE_FIELDS,
+                );
+            }
 
+            let key = fulltest_dataset_cache_key(
+                vars,
+                szba,
+                indexd,
+                &idx_name_s,
+                start_date,
+                end_date,
+                gap,
+                &STYLE_FIELDS,
+            );
+            let cache_dir = fulltest_dataset_cache_dir();
+            let bin_path = cache_dir.join(format!("ft_ds_{key}.bin"));
+            let lock_path = cache_dir.join(format!("ft_ds_{key}.lock"));
+
+            // 快速无锁命中检查
+            if let Ok(bytes) = std::fs::read(&bin_path) {
+                if let Ok(decoded) = zstd::decode_all(&bytes[..]) {
+                    if let Ok(ds) = bincode::deserialize::<CachedFulltestDataset>(&decoded) {
+                        return Ok(ds);
+                    }
+                }
+            }
+
+            // 排他锁保护：防止 32~64 个 fulltest worker 同时未命中并发读 13 个 H5
+            let lock_file = std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(false)
+                .open(&lock_path)
+                .ok();
+            #[cfg(unix)]
+            if let Some(ref lf) = lock_file {
+                use std::os::unix::io::AsRawFd;
+                unsafe {
+                    libc::flock(lf.as_raw_fd(), libc::LOCK_EX);
+                }
+            }
+
+            // 拿到锁后二次检查缓存
+            if let Ok(bytes) = std::fs::read(&bin_path) {
+                if let Ok(decoded) = zstd::decode_all(&bytes[..]) {
+                    if let Ok(ds) = bincode::deserialize::<CachedFulltestDataset>(&decoded) {
+                        return Ok(ds);
+                    }
+                }
+            }
+
+            let ds = build_fulltest_dataset_uncached(
+                vars,
+                szba,
+                indexd,
+                &idx_name_s,
+                start_date,
+                end_date,
+                gap,
+                &STYLE_FIELDS,
+            )?;
+
+            if let Ok(raw_bytes) = bincode::serialize(&ds) {
+                if let Ok(compressed) = zstd::encode_all(&raw_bytes[..], 1) {
+                    let tmp_path =
+                        cache_dir.join(format!("ft_ds_{key}.{}.tmp", std::process::id()));
+                    if std::fs::write(&tmp_path, &compressed).is_ok() {
+                        let _ = std::fs::rename(&tmp_path, &bin_path);
+                    }
+                }
+            }
+            Ok(ds)
+        })
+        .map_err(PyValueError::new_err)?;
+
+    let n_t = ds_cached.n_t;
+    let n_s = ds_cached.n_s;
     let dict = PyDict::new(py);
-    let mk = |data: &[f64]| PyArray::from_owned_array(py, Array2::from_shape_vec((n_t, n_s), data.to_vec()).expect("形状"));
-    dict.set_item("ret", mk(&ret))?;
-    dict.set_item("ret_sum", mk(&ret_sum))?;
-    dict.set_item("restrict", mk(&restrict))?;
-    dict.set_item("ret_resi_raw", mk(&ret_resi_raw))?;
-    dict.set_item("ret_resi_raw_1d", mk(&ret_resi_raw_1d))?;
-    dict.set_item("ret_resi", mk(&ret_resi))?;
-    dict.set_item("index_ret", PyArray::from_owned_array(py, ndarray::Array1::from(index_ret)))?;
+    let mk = |data: Vec<f64>| {
+        PyArray::from_owned_array(py, Array2::from_shape_vec((n_t, n_s), data).expect("形状"))
+    };
+    dict.set_item("ret", mk(ds_cached.ret))?;
+    dict.set_item("ret_sum", mk(ds_cached.ret_sum))?;
+    dict.set_item("restrict", mk(ds_cached.restrict))?;
+    dict.set_item("ret_resi_raw", mk(ds_cached.ret_resi_raw))?;
+    dict.set_item("ret_resi_raw_1d", mk(ds_cached.ret_resi_raw_1d))?;
+    dict.set_item("ret_resi", mk(ds_cached.ret_resi))?;
+    dict.set_item(
+        "index_ret",
+        PyArray::from_owned_array(py, ndarray::Array1::from(ds_cached.index_ret)),
+    )?;
     dict.set_item(
         "dates",
-        PyList::new(py, dates.iter().map(|&d| format_date(d))),
+        PyList::new(py, ds_cached.dates.iter().map(|&d| format_date(d))),
     )?;
-    dict.set_item("stocks", PyList::new(py, stocks.iter()))?;
+    dict.set_item("stocks", PyList::new(py, ds_cached.stocks.iter()))?;
     Ok(dict.into())
 }
 

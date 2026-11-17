@@ -52,6 +52,88 @@ pub fn load_manifest(dir: &Path) -> Result<Option<SegmentManifest>, String> {
     Ok(Some(m))
 }
 
+/// 4 通道字节分离（Byte-Shuffle）+ Zstd(level=1) 自适应无损列压缩（首字节 0x01 为帧标记）。
+/// 仅当压缩后字节数严格小于原始字节数的 90% 时返回 `Some(compressed)`，否则返回 `None` 存裸 f32。
+pub(crate) fn encode_f32_column_adaptive(col: &[f32]) -> Option<Vec<u8>> {
+    let n = col.len();
+    let raw_len = n.checked_mul(4)?;
+    if n < 64 {
+        return None;
+    }
+    let mut shuffled = vec![0u8; raw_len];
+    let (b0, rest) = shuffled.split_at_mut(n);
+    let (b1, rest) = rest.split_at_mut(n);
+    let (b2, b3) = rest.split_at_mut(n);
+    for (i, &val) in col.iter().enumerate() {
+        let le = val.to_le_bytes();
+        b0[i] = le[0];
+        b1[i] = le[1];
+        b2[i] = le[2];
+        b3[i] = le[3];
+    }
+    let max_dst = zstd::zstd_safe::compress_bound(raw_len);
+    let mut out = vec![0u8; 1 + max_dst];
+    out[0] = 1u8;
+    let csize = zstd::bulk::compress_to_buffer(&shuffled, &mut out[1..], 1).ok()?;
+    let total = 1 + csize;
+    if total < (raw_len * 9) / 10 {
+        out.truncate(total);
+        Some(out)
+    } else {
+        None
+    }
+}
+
+/// 解码投影/直接段单列字节：兼容 v3 裸 f32 列与 v4 自适应 Byte-Shuffle + Zstd 列。
+pub(crate) fn decode_f32_column_bytes<'a>(
+    seg_ver: u32,
+    col_bytes: &'a [u8],
+    expected_rows: usize,
+    scratch: &'a mut Vec<u8>,
+) -> Result<&'a [u8], String> {
+    let raw_len = expected_rows
+        .checked_mul(4)
+        .ok_or_else(|| "投影列字节长度溢出".to_string())?;
+    if seg_ver <= 3 || col_bytes.len() == raw_len {
+        if col_bytes.len() != raw_len {
+            return Err(format!(
+                "投影列字节长度不匹配: got={}, expected={raw_len}",
+                col_bytes.len()
+            ));
+        }
+        return Ok(col_bytes);
+    }
+    if seg_ver != 4 || col_bytes.is_empty() || col_bytes.len() > raw_len {
+        return Err(format!(
+            "无效的压缩投影列头或长度: ver={seg_ver}, len={}, raw={raw_len}",
+            col_bytes.len()
+        ));
+    }
+    if col_bytes[0] != 1u8 {
+        return Err(format!("未知的列压缩编码标记: {}", col_bytes[0]));
+    }
+    let mut shuffled = vec![0u8; raw_len];
+    let dec_len = zstd::bulk::decompress_to_buffer(&col_bytes[1..], &mut shuffled)
+        .map_err(|e| format!("解压投影列失败: {e}"))?;
+    if dec_len != raw_len {
+        return Err(format!(
+            "解压后列字节数不匹配: got={dec_len}, expected={raw_len}"
+        ));
+    }
+    scratch.resize(raw_len, 0u8);
+    let n = expected_rows;
+    let (b0, rest) = shuffled.split_at(n);
+    let (b1, rest) = rest.split_at(n);
+    let (b2, b3) = rest.split_at(n);
+    for (i, dst) in scratch.chunks_exact_mut(4).enumerate() {
+        dst[0] = b0[i];
+        dst[1] = b1[i];
+        dst[2] = b2[i];
+        dst[3] = b3[i];
+    }
+    Ok(&scratch[..])
+}
+
 /// Read only headers and compressed row IDs for recovery, never factor values.
 fn read_keys(dir: &Path, m: &SegmentManifest) -> Result<HashSet<(u32, u32)>, String> {
     let mut keys = HashSet::new();
@@ -64,32 +146,37 @@ fn read_keys(dir: &Path, m: &SegmentManifest) -> Result<HashSet<(u32, u32)>, Str
             .map_err(|e| format!("读取段头 {path:?}: {e}"))?;
         let u32_at = |n| u32::from_le_bytes(h[n..n + 4].try_into().unwrap());
         let u64_at = |n| u64::from_le_bytes(h[n..n + 8].try_into().unwrap());
+        let ver = u32_at(0);
         let fc = m.factor_names.len() as u64;
         let ro = u64_at(16);
         let csz = u64_at(24);
         let values = p.rows.checked_mul(4).ok_or("段行数溢出")?;
-        let expected = ro
-            .checked_add(csz)
-            .and_then(|n| values.checked_mul(fc).and_then(|v| n.checked_add(v)));
-        if u32_at(0) != 3
+        if (ver != 3 && ver != 4)
             || u32_at(4) as u64 != fc
             || u64_at(8) != p.rows
             || ro != 32 + 16 * fc
-            || expected != Some(len)
             || csz == 0
         {
-            return Err(format!("已提交段头/长度损坏: {path:?}"));
+            return Err(format!("已提交段头损坏: {path:?}"));
         }
+        let mut ix_bytes = vec![0u8; (fc as usize).saturating_mul(16)];
+        f.read_exact(&mut ix_bytes).map_err(|e| e.to_string())?;
         let mut expected_off = ro + csz;
-        for _ in 0..fc {
-            let mut ix = [0u8; 16];
-            f.read_exact(&mut ix).map_err(|e| e.to_string())?;
-            if u64::from_le_bytes(ix[..8].try_into().unwrap()) != expected_off
-                || u64::from_le_bytes(ix[8..].try_into().unwrap()) != values
-            {
+        for ix in ix_bytes.chunks_exact(16) {
+            let col_off = u64::from_le_bytes(ix[..8].try_into().unwrap());
+            let col_len = u64::from_le_bytes(ix[8..].try_into().unwrap());
+            let len_ok = if ver == 3 {
+                col_len == values
+            } else {
+                col_len > 0 && col_len <= values
+            };
+            if col_off != expected_off || !len_ok {
                 return Err(format!("已提交段列索引损坏: {path:?}"));
             }
-            expected_off += values;
+            expected_off = expected_off.checked_add(col_len).ok_or("段长度溢出")?;
+        }
+        if expected_off != len {
+            return Err(format!("已提交段长度不匹配: {path:?}"));
         }
         let row_bytes = p.rows.checked_mul(8).ok_or("行索引溢出")?;
         // Bound decompression, including malformed frames; no unbounded decode_all.
@@ -874,6 +961,11 @@ impl Drop for DirectSegmentWriter {
 }
 
 fn write_segment(path: &Path, rows: &[(u32, u32)], columns: &[Vec<f32>]) -> Result<(), String> {
+    for c in columns {
+        if c.len() != rows.len() {
+            return Err("直接段列长度不一致".into());
+        }
+    }
     let mut raw = Vec::with_capacity(rows.len() * 8);
     for (d, c) in rows {
         raw.extend_from_slice(&d.to_le_bytes());
@@ -881,23 +973,22 @@ fn write_segment(path: &Path, rows: &[(u32, u32)], columns: &[Vec<f32>]) -> Resu
     }
     let ro = zstd::encode_all(&raw[..], 1).map_err(|e| e.to_string())?;
     drop(raw);
+
+    let enable_compress = rows.len() >= 64
+        && std::env::var("RUST_PYFUNC_DISABLE_SEGMENT_COMPRESS")
+            .map(|v| v != "1" && !v.eq_ignore_ascii_case("true"))
+            .unwrap_or(true);
+    let seg_version: u32 = if enable_compress { 4 } else { 3 };
+
     let header_len = 32 + columns.len() as u64 * 16;
-    let column_len = rows.len() as u64 * 4;
-    let mut off = header_len + ro.len() as u64;
-    let mut header = Vec::with_capacity(header_len as usize);
-    header.extend_from_slice(&3u32.to_le_bytes());
-    header.extend_from_slice(&(columns.len() as u32).to_le_bytes());
-    header.extend_from_slice(&(rows.len() as u64).to_le_bytes());
-    header.extend_from_slice(&header_len.to_le_bytes());
-    header.extend_from_slice(&(ro.len() as u64).to_le_bytes());
-    for c in columns {
-        if c.len() != rows.len() {
-            return Err("直接段列长度不一致".into());
-        }
-        header.extend_from_slice(&off.to_le_bytes());
-        header.extend_from_slice(&column_len.to_le_bytes());
-        off = off.checked_add(column_len).ok_or("直接段文件长度溢出")?;
-    }
+    let raw_col_len = rows.len() as u64 * 4;
+    let mut header = vec![0u8; header_len as usize];
+    header[0..4].copy_from_slice(&seg_version.to_le_bytes());
+    header[4..8].copy_from_slice(&(columns.len() as u32).to_le_bytes());
+    header[8..16].copy_from_slice(&(rows.len() as u64).to_le_bytes());
+    header[16..24].copy_from_slice(&header_len.to_le_bytes());
+    header[24..32].copy_from_slice(&(ro.len() as u64).to_le_bytes());
+
     let mut file = OpenOptions::new()
         .create(true)
         .truncate(true)
@@ -907,46 +998,70 @@ fn write_segment(path: &Path, rows: &[(u32, u32)], columns: &[Vec<f32>]) -> Resu
         .map_err(|e| e.to_string())?;
     let profile = StorageProfile::detect(path)?;
     #[cfg(target_os = "linux")]
-    {
-        if profile.btrfs {
-            let output = std::process::Command::new("chattr")
-                .arg("+C")
-                .arg(path)
-                .output()
-                .map_err(|e| e.to_string())?;
-            if !output.status.success() {
-                return Err(format!(
-                    "直接段 chattr +C 失败: {}",
-                    String::from_utf8_lossy(&output.stderr)
-                ));
-            }
-        }
-        if !profile.network && off <= i64::MAX as u64 {
-            let rc = unsafe { libc::posix_fallocate(file.as_raw_fd(), 0, off as libc::off_t) };
-            if rc != 0 && rc != libc::EOPNOTSUPP && rc != libc::ENOSYS {
-                return Err(format!(
-                    "直接段预留磁盘空间失败: {}",
-                    std::io::Error::from_raw_os_error(rc)
-                ));
-            }
+    if profile.btrfs {
+        let output = std::process::Command::new("chattr")
+            .arg("+C")
+            .arg(path)
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !output.status.success() {
+            return Err(format!(
+                "直接段 chattr +C 失败: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ));
         }
     }
-    file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
-    file.write_all(&header)
-        .and_then(|_| file.write_all(&ro))
+
+    // 先跳过头部与压缩行序，顺序流式写出各列（v4 按 256 列分批并行自适应压缩，内存峰值仅几十 MB），
+    // 最后精确回填 header 索引并截齐文件长度。
+    let data_start = header_len + ro.len() as u64;
+    file.seek(SeekFrom::Start(data_start))
         .map_err(|e| e.to_string())?;
-    // No full-size transposition copy. BufWriter coalesces short columns into
-    // 8 MiB writes while borrowing the existing column memory on little endian.
     let mut out = std::io::BufWriter::with_capacity(8 * 1024 * 1024, file);
+    let mut off = data_start;
     let mut unsynced = 0usize;
-    for c in columns {
-        #[cfg(target_endian = "little")]
-        {
-            // f32 has no padding; bytes live for this synchronous write call.
-            let bytes = unsafe { std::slice::from_raw_parts(c.as_ptr().cast::<u8>(), c.len() * 4) };
-            for chunk in bytes.chunks(64 * 1024 * 1024) {
-                out.write_all(chunk).map_err(|e| e.to_string())?;
-                unsynced += chunk.len();
+
+    if enable_compress {
+        use rayon::prelude::*;
+        let comp_pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(8.min(columns.len().max(1)))
+            .build()
+            .map_err(|e| format!("建列段压缩线程池失败: {e}"))?;
+        const COMP_BATCH: usize = 256;
+        for (batch_idx, col_batch) in columns.chunks(COMP_BATCH).enumerate() {
+            let encoded: Vec<Option<Vec<u8>>> = comp_pool.install(|| {
+                col_batch
+                    .par_iter()
+                    .map(|c| encode_f32_column_adaptive(c))
+                    .collect()
+            });
+            for (local_i, (c, enc_opt)) in col_batch.iter().zip(encoded.iter()).enumerate() {
+                let global_col = batch_idx * COMP_BATCH + local_i;
+                let ix_pos = 32 + global_col * 16;
+                let written_len: u64 = if let Some(comp_bytes) = enc_opt {
+                    out.write_all(comp_bytes).map_err(|e| e.to_string())?;
+                    unsynced += comp_bytes.len();
+                    comp_bytes.len() as u64
+                } else {
+                    #[cfg(target_endian = "little")]
+                    {
+                        let bytes = unsafe {
+                            std::slice::from_raw_parts(c.as_ptr().cast::<u8>(), c.len() * 4)
+                        };
+                        out.write_all(bytes).map_err(|e| e.to_string())?;
+                        unsynced += bytes.len();
+                    }
+                    #[cfg(target_endian = "big")]
+                    for value in c {
+                        out.write_all(&value.to_le_bytes())
+                            .map_err(|e| e.to_string())?;
+                        unsynced += 4;
+                    }
+                    raw_col_len
+                };
+                header[ix_pos..ix_pos + 8].copy_from_slice(&off.to_le_bytes());
+                header[ix_pos + 8..ix_pos + 16].copy_from_slice(&written_len.to_le_bytes());
+                off = off.checked_add(written_len).ok_or("直接段文件长度溢出")?;
                 if unsynced >= 1024 * 1024 * 1024 {
                     out.flush().map_err(|e| e.to_string())?;
                     crate::storage_policy::sync_file(out.get_ref(), "直接段")?;
@@ -954,15 +1069,42 @@ fn write_segment(path: &Path, rows: &[(u32, u32)], columns: &[Vec<f32>]) -> Resu
                 }
             }
         }
-        #[cfg(target_endian = "big")]
-        for value in c {
-            out.write_all(&value.to_le_bytes())
-                .map_err(|e| e.to_string())?;
+    } else {
+        for (global_col, c) in columns.iter().enumerate() {
+            let ix_pos = 32 + global_col * 16;
+            header[ix_pos..ix_pos + 8].copy_from_slice(&off.to_le_bytes());
+            header[ix_pos + 8..ix_pos + 16].copy_from_slice(&raw_col_len.to_le_bytes());
+            off = off.checked_add(raw_col_len).ok_or("直接段文件长度溢出")?;
+            #[cfg(target_endian = "little")]
+            {
+                let bytes =
+                    unsafe { std::slice::from_raw_parts(c.as_ptr().cast::<u8>(), c.len() * 4) };
+                for chunk in bytes.chunks(64 * 1024 * 1024) {
+                    out.write_all(chunk).map_err(|e| e.to_string())?;
+                    unsynced += chunk.len();
+                    if unsynced >= 1024 * 1024 * 1024 {
+                        out.flush().map_err(|e| e.to_string())?;
+                        crate::storage_policy::sync_file(out.get_ref(), "直接段")?;
+                        unsynced = 0;
+                    }
+                }
+            }
+            #[cfg(target_endian = "big")]
+            for value in c {
+                out.write_all(&value.to_le_bytes())
+                    .map_err(|e| e.to_string())?;
+            }
         }
     }
+
     out.flush().map_err(|e| e.to_string())?;
-    out.get_ref().set_len(off).map_err(|e| e.to_string())?;
-    crate::storage_policy::sync_file(out.get_ref(), "直接段")
+    let mut file = out.into_inner().map_err(|e| e.to_string())?;
+    file.set_len(off).map_err(|e| e.to_string())?;
+    file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
+    file.write_all(&header)
+        .and_then(|_| file.write_all(&ro))
+        .map_err(|e| e.to_string())?;
+    crate::storage_policy::sync_file(&file, "直接段")
 }
 
 #[cfg(test)]

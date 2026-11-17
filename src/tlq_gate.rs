@@ -94,18 +94,24 @@ fn group_indices(codes: &[f64]) -> Vec<(f64, usize)> {
     pairs
 }
 
-/// 排序求中位数（偶数取中间两个的平均）。
+/// 局部选择求中位数（偶数取中间两个的平均，O(n) 替代全排序，结果逐位一致）。
 fn median_sorted(buf: &mut Vec<f64>) -> Option<f64> {
-    if buf.is_empty() {
+    let n = buf.len();
+    if n == 0 {
         return None;
     }
-    buf.sort_by(|a, b| a.total_cmp(b));
-    let n = buf.len();
-    Some(if n % 2 == 1 {
-        buf[n / 2]
+    let mid = n / 2;
+    let (_, &mut upper, _) = buf.select_nth_unstable_by(mid, |a, b| a.total_cmp(b));
+    if n % 2 == 1 {
+        Some(upper)
     } else {
-        (buf[n / 2 - 1] + buf[n / 2]) / 2.0
-    })
+        let lower = buf[..mid]
+            .iter()
+            .copied()
+            .max_by(|a, b| a.total_cmp(b))
+            .unwrap_or(upper);
+        Some((lower + upper) / 2.0)
+    }
 }
 
 /// 最小二乘（正规方程 + 部分主元高斯消元）。design 行主序 (m × p)，p 很小。
@@ -791,4 +797,576 @@ pub fn tlq_gate_base_resid<'py>(
         curves.into_pyarray(py),
         seg_stats.into_pyarray(py),
     ))
+}
+
+/// 每日与因子无关的预计算结构（行业分段 + 标准有效集合下的 Barra 正规方程逆矩阵）。
+struct TlqDayMeta {
+    order_l2: Vec<usize>,
+    l0_ranges: Vec<(usize, usize)>,
+    l1_ranges: Vec<(usize, usize)>,
+    ind_unknown: Vec<usize>,
+    ind_known: Vec<usize>,
+    l1_nan_cols: Vec<usize>,
+    /// 当天 restrict==0 且全部 k 列风格有限的股票列下标
+    base_idx: Vec<usize>,
+    /// 对应 base_idx 的紧凑设计矩阵 (m × p)，p = k + 1，第 0 列恒为 1.0
+    base_design: Vec<f64>,
+    /// 若当天 base_idx 样本数 > 10 且正规方程满秩，预存 (X^T X)^{-1} (p × p)
+    base_gram_inv: Option<Vec<f64>>,
+}
+
+fn invert_spd_or_gauss(gram: &[f64], p: usize) -> Option<Vec<f64>> {
+    let stride = 2 * p;
+    let mut aug = vec![0.0f64; p * stride];
+    for r in 0..p {
+        aug[r * stride..r * stride + p].copy_from_slice(&gram[r * p..(r + 1) * p]);
+        aug[r * stride + p + r] = 1.0;
+    }
+    for col in 0..p {
+        let mut pivot = col;
+        for r in (col + 1)..p {
+            if aug[r * stride + col].abs() > aug[pivot * stride + col].abs() {
+                pivot = r;
+            }
+        }
+        if aug[pivot * stride + col].abs() <= EPS {
+            return None;
+        }
+        if pivot != col {
+            for c in col..stride {
+                aug.swap(col * stride + c, pivot * stride + c);
+            }
+        }
+        let diag = aug[col * stride + col];
+        for c in col..stride {
+            aug[col * stride + c] /= diag;
+        }
+        for r in 0..p {
+            if r != col {
+                let factor = aug[r * stride + col];
+                if factor != 0.0 {
+                    for c in col..stride {
+                        aug[r * stride + c] -= factor * aug[col * stride + c];
+                    }
+                }
+            }
+        }
+    }
+    let mut inv = vec![0.0f64; p * p];
+    for r in 0..p {
+        inv[r * p..(r + 1) * p].copy_from_slice(&aug[r * stride + p..r * stride + 2 * p]);
+    }
+    Some(inv)
+}
+
+fn build_tlq_day_meta(
+    t: usize,
+    n: usize,
+    k: usize,
+    restrict: &[f64],
+    industry: &[f64],
+    barra_flat: &[f64],
+) -> Vec<TlqDayMeta> {
+    let p = k + 1;
+    (0..t)
+        .into_par_iter()
+        .map(|row| {
+            let irow = &industry[row * n..(row + 1) * n];
+            let rrow = &restrict[row * n..(row + 1) * n];
+            let bslice = &barra_flat[row * n * k..(row + 1) * n * k];
+
+            let order_l2 = counting_order_l2(irow, n);
+            let mut l0_ranges = Vec::new();
+            let mut start = 0usize;
+            while start < order_l2.len() {
+                let first_code = code_l2(irow[order_l2[start]]);
+                let mut end = start;
+                while end + 1 < order_l2.len() && code_l2(irow[order_l2[end + 1]]) == first_code {
+                    end += 1;
+                }
+                l0_ranges.push((start, end + 1));
+                start = end + 1;
+            }
+            let mut l1_ranges = Vec::new();
+            start = 0;
+            while start < order_l2.len() {
+                let first_code = code_l1(irow[order_l2[start]]);
+                let mut end = start;
+                while end + 1 < order_l2.len() && code_l1(irow[order_l2[end + 1]]) == first_code {
+                    end += 1;
+                }
+                l1_ranges.push((start, end + 1));
+                start = end + 1;
+            }
+
+            let mut ind_unknown = Vec::new();
+            let mut ind_known = Vec::new();
+            let mut l1_nan_cols = Vec::new();
+            for j in 0..n {
+                if irow[j].is_finite() {
+                    ind_known.push(j);
+                } else {
+                    ind_unknown.push(j);
+                }
+                if code_l1(irow[j]).is_nan() {
+                    l1_nan_cols.push(j);
+                }
+            }
+
+            let mut base_idx = Vec::with_capacity(n);
+            for j in 0..n {
+                if !(rrow[j].is_finite() && rrow[j] == 0.0) {
+                    continue;
+                }
+                let mut ok = true;
+                for c in 0..k {
+                    if !bslice[j * k + c].is_finite() {
+                        ok = false;
+                        break;
+                    }
+                }
+                if ok {
+                    base_idx.push(j);
+                }
+            }
+            let m = base_idx.len();
+            let mut base_design = vec![0.0f64; m * p];
+            let base_gram_inv = if m > 10 && m >= p {
+                let mut gram = vec![0.0f64; p * p];
+                for (i, &j) in base_idx.iter().enumerate() {
+                    let drow = &mut base_design[i * p..(i + 1) * p];
+                    drow[0] = 1.0;
+                    drow[1..p].copy_from_slice(&bslice[j * k..j * k + k]);
+                    for a in 0..p {
+                        let va = drow[a];
+                        for b in a..p {
+                            gram[a * p + b] += va * drow[b];
+                        }
+                    }
+                }
+                for a in 0..p {
+                    for b in 0..a {
+                        gram[a * p + b] = gram[b * p + a];
+                    }
+                }
+                invert_spd_or_gauss(&gram, p)
+            } else {
+                None
+            };
+
+            TlqDayMeta {
+                order_l2,
+                l0_ranges,
+                l1_ranges,
+                ind_unknown,
+                ind_known,
+                l1_nan_cols,
+                base_idx,
+                base_design,
+                base_gram_inv,
+            }
+        })
+        .collect()
+}
+
+/// 单线程处理单个因子的完整 TLQ（供外层跨因子批量并行调用，消除嵌套线程池争抢与重复预分解）。
+#[allow(clippy::too_many_arguments)]
+fn compute_one_factor_tlq_serial(
+    mut value: Array2<f64>,
+    day_meta: &[TlqDayMeta],
+    all_cols: &[usize],
+    size_ranked: &[f64],
+    barra_flat: &[f64],
+    restrict: &[f64],
+    log_exret: &[f64],
+    week_first: &[i32],
+    k: usize,
+    group_from: usize,
+    group_to: usize,
+    curve_points: usize,
+) -> (f64, f64, Array2<f64>) {
+    let (t, n) = value.dim();
+    let p = k + 1;
+    let mut rank_idx: Vec<usize> = Vec::with_capacity(n);
+    let mut seen: Vec<f64> = Vec::with_capacity(10);
+    let mut design: Vec<f64> = Vec::with_capacity(n * p);
+    let mut y: Vec<f64> = Vec::with_capacity(n);
+    let mut missing: Vec<usize> = Vec::with_capacity(n);
+    let mut srow_buf: Vec<f64> = vec![0.0f64; n];
+    let mut med_buf: Vec<f64> = Vec::with_capacity(n);
+    let mut resid_row: Vec<f64> = vec![f64::NAN; n];
+    let mut idx_fallback: Vec<usize> = Vec::with_capacity(n);
+    let mut flag_fallback: Vec<bool> = vec![false; n];
+    let mut rhs: Vec<f64> = vec![0.0f64; p];
+    let mut coef: Vec<f64> = vec![0.0f64; p];
+
+    let rank_row_with_buf = |vals: &mut [f64], idx: &mut Vec<usize>| {
+        idx.clear();
+        for (i, &v) in vals.iter().enumerate() {
+            if v.is_finite() {
+                idx.push(i);
+            }
+        }
+        let nv = idx.len();
+        if nv == 0 {
+            return;
+        }
+        idx.sort_unstable_by_key(|&a| mono_key(vals[a]));
+        let mut i = 0;
+        while i < nv {
+            let mut j = i;
+            while j + 1 < nv && vals[idx[j + 1]] == vals[idx[i]] {
+                j += 1;
+            }
+            let pct = (((i + 1) + (j + 1)) as f64 / 2.0) / nv as f64;
+            for pos in i..=j {
+                vals[idx[pos]] = pct;
+            }
+            i = j + 1;
+        }
+    };
+
+    let v_all = value.as_slice_mut().expect("矩阵连续");
+    for row in 0..t {
+        let vrow = &mut v_all[row * n..(row + 1) * n];
+        let dm = &day_meta[row];
+        let brow = &size_ranked[row * n..(row + 1) * n];
+        let rrow = &restrict[row * n..(row + 1) * n];
+
+        // 1) 初始 rank pct
+        rank_row_with_buf(vrow, &mut rank_idx);
+
+        // 2) 三级行业回归填充
+        seen.clear();
+        for &x in vrow.iter() {
+            if x.is_finite() && !seen.iter().any(|&s| s == x) {
+                seen.push(x);
+                if seen.len() >= 10 {
+                    break;
+                }
+            }
+        }
+        if seen.len() >= 10 {
+            for &(s, e) in &dm.l0_ranges {
+                fill_one_group(&dm.order_l2[s..e], vrow, brow, &mut design, &mut y, &mut missing);
+            }
+            for &(s, e) in &dm.l1_ranges {
+                fill_one_group(&dm.order_l2[s..e], vrow, brow, &mut design, &mut y, &mut missing);
+            }
+            fill_one_group(&dm.ind_unknown, vrow, brow, &mut design, &mut y, &mut missing);
+            fill_one_group(&dm.ind_known, vrow, brow, &mut design, &mut y, &mut missing);
+        }
+
+        // 3) 三级行业中位数填充（基于填充前快照 srow_buf）
+        srow_buf.copy_from_slice(vrow);
+        for &j in &dm.l1_nan_cols {
+            vrow[j] = f64::NAN;
+        }
+        for &(s, e) in &dm.l0_ranges {
+            fill_median_group(&dm.order_l2[s..e], vrow, &srow_buf, &mut med_buf);
+        }
+        for &(s, e) in &dm.l1_ranges {
+            fill_median_group(&dm.order_l2[s..e], vrow, &srow_buf, &mut med_buf);
+        }
+        fill_median_group(all_cols, vrow, &srow_buf, &mut med_buf);
+
+        // 4) 限制股置空 + 二次 rank pct
+        for j in 0..n {
+            if !(rrow[j].is_finite() && rrow[j] == 0.0) {
+                vrow[j] = f64::NAN;
+            }
+        }
+        rank_row_with_buf(vrow, &mut rank_idx);
+
+        // 5) Barra 线性中性化（优先走每日预求逆快路径，遇缺值或退化无缝回退精确消元）
+        let fast_ok = dm.base_gram_inv.is_some()
+            && dm.base_idx.len() > 10
+            && dm.base_idx.iter().all(|&j| vrow[j].is_finite());
+
+        if fast_ok {
+            let m = dm.base_idx.len();
+            let first = vrow[dm.base_idx[0]];
+            if dm.base_idx.iter().all(|&j| vrow[j] == first) {
+                vrow.fill(f64::NAN);
+                for &j in &dm.base_idx {
+                    vrow[j] = 0.5;
+                }
+            } else {
+                rhs.fill(0.0);
+                for i in 0..m {
+                    let y_val = vrow[dm.base_idx[i]];
+                    let drow = &dm.base_design[i * p..(i + 1) * p];
+                    for a in 0..p {
+                        rhs[a] += drow[a] * y_val;
+                    }
+                }
+                let inv = dm.base_gram_inv.as_ref().unwrap();
+                for a in 0..p {
+                    let mut acc = 0.0f64;
+                    for b in 0..p {
+                        acc += inv[a * p + b] * rhs[b];
+                    }
+                    coef[a] = acc;
+                }
+                resid_row.fill(f64::NAN);
+                for i in 0..m {
+                    let j = dm.base_idx[i];
+                    let drow = &dm.base_design[i * p..(i + 1) * p];
+                    let mut pred = coef[0];
+                    for c in 1..p {
+                        pred += coef[c] * drow[c];
+                    }
+                    resid_row[j] = vrow[j] - pred;
+                }
+                vrow.copy_from_slice(&resid_row);
+            }
+        } else {
+            let bslice = &barra_flat[row * n * k..(row + 1) * n * k];
+            flag_fallback.fill(false);
+            idx_fallback.clear();
+            for j in 0..n {
+                let mut ok = vrow[j].is_finite();
+                for c in 0..k {
+                    ok &= bslice[j * k + c].is_finite();
+                }
+                if ok {
+                    flag_fallback[j] = true;
+                    idx_fallback.push(j);
+                }
+            }
+            let m = idx_fallback.len();
+            if m <= 10 {
+                vrow.fill(f64::NAN);
+            } else {
+                let first = vrow[idx_fallback[0]];
+                if idx_fallback.iter().all(|&j| vrow[j] == first) {
+                    for j in 0..n {
+                        vrow[j] = if flag_fallback[j] { 0.5 } else { f64::NAN };
+                    }
+                } else {
+                    design.resize(m * p, 0.0);
+                    y.resize(m, 0.0);
+                    for (i, &j) in idx_fallback.iter().enumerate() {
+                        design[i * p] = 1.0;
+                        design[i * p + 1..i * p + p].copy_from_slice(&bslice[j * k..j * k + k]);
+                        y[i] = vrow[j];
+                    }
+                    resid_row.fill(f64::NAN);
+                    if let Some(sol) = lstsq_solve(&design, m, p, &y) {
+                        for (i, &j) in idx_fallback.iter().enumerate() {
+                            let mut pred = sol[0];
+                            for c in 0..k {
+                                pred += sol[c + 1] * design[i * p + c + 1];
+                            }
+                            resid_row[j] = y[i] - pred;
+                        }
+                    }
+                    vrow.copy_from_slice(&resid_row);
+                }
+            }
+        }
+
+        // 残差 rank pct + group_returns 前置过滤合并在单趟完成
+        rank_row_with_buf(vrow, &mut rank_idx);
+        let mut cnt = 0usize;
+        let mut sum = 0.0f64;
+        let mut sum2 = 0.0f64;
+        for &x in vrow.iter() {
+            if x.is_finite() {
+                cnt += 1;
+                sum += x;
+                sum2 += x * x;
+            }
+        }
+        let zero_var = cnt > 1 && ((sum2 - sum * sum / cnt as f64) / (cnt - 1) as f64) == 0.0;
+        if zero_var {
+            vrow.fill(f64::NAN);
+        } else {
+            for j in 0..n {
+                if !(rrow[j].is_finite() && rrow[j] == 0.0) {
+                    vrow[j] = f64::NAN;
+                }
+            }
+            rank_row_with_buf(vrow, &mut rank_idx);
+            let cnt2 = vrow.iter().filter(|x| x.is_finite()).count();
+            if cnt2 <= 10 {
+                vrow.fill(f64::NAN);
+            }
+        }
+    }
+
+    // 6) 周频十分组日收益 + TLQ
+    let v_slice = value.as_slice().expect("矩阵连续");
+    let gnum_all: Vec<i32> = v_slice
+        .iter()
+        .map(|&pct| {
+            if pct.is_finite() {
+                10 - ((1.0 - pct) * 10.0).floor() as i32
+            } else {
+                -9999
+            }
+        })
+        .collect();
+
+    let n_ret_rows = group_to.saturating_sub(group_from);
+    let mut rets = Array2::<f64>::zeros((n_ret_rows, 10));
+    for (out_r, row) in (group_from..group_to).enumerate() {
+        let mut acc = [0.0f64; 10];
+        let mut cnt = [0usize; 10];
+        let wf = week_first[row];
+        if wf >= 1 {
+            let prev = (wf as usize - 1) * n;
+            let row_off = row * n;
+            for j in 0..n {
+                if !v_slice[row_off + j].is_finite() {
+                    continue;
+                }
+                let g = gnum_all[prev + j];
+                if !(1..=10).contains(&g) {
+                    continue;
+                }
+                let gi = (g - 1) as usize;
+                cnt[gi] += 1;
+                let r = log_exret[row_off + j];
+                if r.is_finite() {
+                    acc[gi] += r;
+                }
+            }
+        }
+        for g in 0..10 {
+            rets[[out_r, g]] = if cnt[g] == 0 {
+                0.0
+            } else {
+                acc[g] / cnt[g] as f64
+            };
+        }
+    }
+
+    let tlq = tlq_from_returns(&rets, curve_points);
+    let (tlq_seg, _) = tlq_segment_from_returns(&rets, curve_points);
+    let (rows, _) = rets.dim();
+    let mut curves = Array2::<f64>::zeros((curve_points, 10));
+    if rows > 0 && curve_points > 0 {
+        let mut cum = vec![0.0f64; rows * 10];
+        for g in 0..10 {
+            let mut acc = 0.0;
+            for i in 0..rows {
+                let r = rets[[i, g]];
+                acc += if r.is_finite() { r } else { 0.0 };
+                cum[i * 10 + g] = acc;
+            }
+        }
+        let pos = sample_positions(rows, curve_points);
+        for (kk, &p_idx) in pos.iter().enumerate() {
+            for g in 0..10 {
+                curves[[kk, g]] = cum[p_idx * 10 + g];
+            }
+        }
+    }
+    (tlq, tlq_seg, curves)
+}
+
+/// 批量计算多个候选因子的 TLQ（一次预分解每日固定结构 + 单层线程池跨因子并行，支持 f32 输入零额外转换）。
+#[pyfunction]
+#[pyo3(signature = (factors_f32, log_exret, restrict, industry, barra_ranked, n_styles, size_ranked, week_first, group_from, group_to, curve_points=160, n_threads=32))]
+#[allow(clippy::too_many_arguments)]
+pub fn tlq_gate_base_resid_batch<'py>(
+    py: Python<'py>,
+    factors_f32: Vec<PyReadonlyArray2<'py, f32>>,
+    log_exret: PyReadonlyArray2<'py, f64>,
+    restrict: PyReadonlyArray2<'py, f64>,
+    industry: PyReadonlyArray2<'py, f64>,
+    barra_ranked: PyReadonlyArray2<'py, f64>,
+    n_styles: usize,
+    size_ranked: PyReadonlyArray2<'py, f64>,
+    week_first: PyReadonlyArray1<'py, i32>,
+    group_from: usize,
+    group_to: usize,
+    curve_points: usize,
+    n_threads: usize,
+) -> PyResult<Vec<(f64, f64, &'py PyArray2<f64>)>> {
+    if factors_f32.is_empty() {
+        return Ok(Vec::new());
+    }
+    let log_exret_arr = log_exret.as_array().as_standard_layout().into_owned();
+    let restrict_arr = restrict.as_array().as_standard_layout().into_owned();
+    let industry_arr = industry.as_array().as_standard_layout().into_owned();
+    let size_arr = size_ranked.as_array().as_standard_layout().into_owned();
+    let barra_arr = barra_ranked.as_array().as_standard_layout().into_owned();
+    let week_first_vec: Vec<i32> = week_first.as_array().to_vec();
+
+    let (t, n) = restrict_arr.dim();
+    if barra_arr.ncols() != n * n_styles {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "barra_ranked 列数必须等于 股票数 × 风格数",
+        ));
+    }
+
+    let mut owned_factors: Vec<Array2<f64>> = Vec::with_capacity(factors_f32.len());
+    for f in &factors_f32 {
+        let view = f.as_array();
+        if view.dim() != (t, n) {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "因子形状 {:?} 与模板 {:?} 不一致",
+                view.dim(),
+                (t, n)
+            )));
+        }
+        let mut mat = Array2::<f64>::zeros((t, n));
+        let dst = mat.as_slice_mut().unwrap();
+        if let Some(src) = view.as_slice() {
+            for (d, &s) in dst.iter_mut().zip(src.iter()) {
+                *d = if s.is_finite() { s as f64 } else { f64::NAN };
+            }
+        } else {
+            for (d, &s) in dst.iter_mut().zip(view.iter()) {
+                *d = if s.is_finite() { s as f64 } else { f64::NAN };
+            }
+        }
+        owned_factors.push(mat);
+    }
+
+    let threads = n_threads.clamp(1, 64).min(owned_factors.len().max(1));
+    let results = py
+        .allow_threads(move || -> Result<Vec<(f64, f64, Array2<f64>)>, String> {
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(threads)
+                .build()
+                .map_err(|e| format!("建 TLQ 线程池失败: {e}"))?;
+            let r_slice = restrict_arr.as_slice().unwrap();
+            let i_slice = industry_arr.as_slice().unwrap();
+            let b_slice = barra_arr.as_slice().unwrap();
+            let s_slice = size_arr.as_slice().unwrap();
+            let l_slice = log_exret_arr.as_slice().unwrap();
+            let all_cols: Vec<usize> = (0..n).collect();
+
+            pool.install(|| {
+                let day_meta = build_tlq_day_meta(t, n, n_styles, r_slice, i_slice, b_slice);
+                Ok(owned_factors
+                    .into_par_iter()
+                    .map(|fmat| {
+                        compute_one_factor_tlq_serial(
+                            fmat,
+                            &day_meta,
+                            &all_cols,
+                            s_slice,
+                            b_slice,
+                            r_slice,
+                            l_slice,
+                            &week_first_vec,
+                            n_styles,
+                            group_from,
+                            group_to,
+                            curve_points,
+                        )
+                    })
+                    .collect())
+            })
+        })
+        .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
+
+    Ok(results
+        .into_iter()
+        .map(|(tlq, seg, curves)| (tlq, seg, curves.into_pyarray(py)))
+        .collect())
 }

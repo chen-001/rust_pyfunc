@@ -424,14 +424,12 @@ fn parse_line(
     let mut fields: [&[u8]; 15] = [&[][..]; 15];
     let mut start = 0usize;
     let mut col = 0usize;
-    for (i, &b) in line.iter().enumerate() {
-        if b == b',' {
-            if col < 15 {
-                fields[col] = &line[start..i];
-            }
-            col += 1;
-            start = i + 1;
+    for i in memchr::memchr_iter(b',', line) {
+        if col < 15 {
+            fields[col] = &line[start..i];
         }
+        col += 1;
+        start = i + 1;
     }
     if col < 15 {
         fields[col] = &line[start..];
@@ -637,20 +635,18 @@ fn parse_chunk(
     let est_lines = data.len() / 80 + 1;
     let mut out = Vec::with_capacity(est_lines);
     let mut start = 0usize;
-    for i in 0..data.len() {
-        if data[i] == b'\n' {
-            let line = &data[start..i];
-            // 去掉行尾 \r
-            let line = if line.last() == Some(&b'\r') {
-                &line[..line.len() - 1]
-            } else {
-                line
-            };
-            if let Some(rec) = parse_line(line, with_retreat, with_afternoon_adjust, code, date) {
-                out.push(rec);
-            }
-            start = i + 1;
+    for i in memchr::memchr_iter(b'\n', data) {
+        let line = &data[start..i];
+        // 去掉行尾 \r
+        let line = if line.last() == Some(&b'\r') {
+            &line[..line.len() - 1]
+        } else {
+            line
+        };
+        if let Some(rec) = parse_line(line, with_retreat, with_afternoon_adjust, code, date) {
+            out.push(rec);
         }
+        start = i + 1;
     }
     // 处理最后一段（无结尾换行的情况）
     if start < data.len() {
@@ -843,14 +839,12 @@ fn parse_market_line(
     let mut fields: [&[u8]; 61] = [&[][..]; 61];
     let mut start = 0usize;
     let mut col = 0usize;
-    for (i, &b) in line.iter().enumerate() {
-        if b == b',' {
-            if col < 61 {
-                fields[col] = &line[start..i];
-            }
-            col += 1;
-            start = i + 1;
+    for i in memchr::memchr_iter(b',', line) {
+        if col < 61 {
+            fields[col] = &line[start..i];
         }
+        col += 1;
+        start = i + 1;
     }
     if col < 61 {
         fields[col] = &line[start..];
@@ -861,12 +855,27 @@ fn parse_market_line(
         return None;
     }
 
+    // 提前校验一档买卖价与时间：被过滤行无需白解析剩余 42 个浮点列
+    let ask_prc1 = parse_f64_fast(fields[MKT_COL_ASK_PRC_BASE]) as f32;
+    let bid_prc1 = parse_f64_fast(fields[MKT_COL_ASK_PRC_BASE + 2]) as f32;
+    if !with_high_low_limited && (ask_prc1 == 0.0 || bid_prc1 == 0.0) {
+        return None;
+    }
+    let exchtime_us = parse_i64_fast(fields[MKT_COL_EXCHTIME]);
+    if exchtime_us == 0 {
+        return None;
+    }
+
     // 解析 10 档 ask/bid（每档 4 列：ask_prc, ask_vol, bid_prc, bid_vol）
     let mut ask_prcs = [0.0f32; 10];
     let mut ask_vols = [0.0f32; 10];
     let mut bid_prcs = [0.0f32; 10];
     let mut bid_vols = [0.0f32; 10];
-    for i in 0..10 {
+    ask_prcs[0] = ask_prc1;
+    ask_vols[0] = parse_f64_fast(fields[MKT_COL_ASK_PRC_BASE + 1]) as f32;
+    bid_prcs[0] = bid_prc1;
+    bid_vols[0] = parse_f64_fast(fields[MKT_COL_ASK_PRC_BASE + 3]) as f32;
+    for i in 1..10 {
         let base = MKT_COL_ASK_PRC_BASE + i * 4;
         ask_prcs[i] = parse_f64_fast(fields[base]) as f32;
         ask_vols[i] = parse_f64_fast(fields[base + 1]) as f32;
@@ -875,7 +884,7 @@ fn parse_market_line(
     }
 
     build_market_record(
-        parse_i64_fast(fields[MKT_COL_EXCHTIME]),
+        exchtime_us,
         parse_f64_fast(fields[MKT_COL_LAST_PRC]) as f32,
         parse_f64_fast(fields[MKT_COL_VOLUME]) as f32,
         parse_f64_fast(fields[MKT_COL_TURNOVER]) as f32,
@@ -885,7 +894,7 @@ fn parse_market_line(
         ask_vols,
         bid_prcs,
         bid_vols,
-        with_high_low_limited,
+        true,
         with_afternoon_adjust,
     )
 }
@@ -959,25 +968,23 @@ fn parse_market_chunk(
     let est_lines = data.len() / 200 + 1; // market_data 行较长
     let mut out = Vec::with_capacity(est_lines);
     let mut start = 0usize;
-    for i in 0..data.len() {
-        if data[i] == b'\n' {
-            let line = &data[start..i];
-            let line = if line.last() == Some(&b'\r') {
-                &line[..line.len() - 1]
-            } else {
-                line
-            };
-            if let Some(rec) = parse_market_line(
-                line,
-                with_high_low_limited,
-                with_afternoon_adjust,
-                code,
-                date,
-            ) {
-                out.push(rec);
-            }
-            start = i + 1;
+    for i in memchr::memchr_iter(b'\n', data) {
+        let line = &data[start..i];
+        let line = if line.last() == Some(&b'\r') {
+            &line[..line.len() - 1]
+        } else {
+            line
+        };
+        if let Some(rec) = parse_market_line(
+            line,
+            with_high_low_limited,
+            with_afternoon_adjust,
+            code,
+            date,
+        ) {
+            out.push(rec);
         }
+        start = i + 1;
     }
     if start < data.len() {
         let line = &data[start..];

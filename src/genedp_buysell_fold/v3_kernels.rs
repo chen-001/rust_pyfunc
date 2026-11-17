@@ -1092,13 +1092,14 @@ pub fn prob_fast(c: &Ctx, buf: &mut ProbBuf) -> [f32; 8] {
                     }
                     ac[j * st + i] += o * ISIG;
                     let t0 = cnt[i];
-                    let brow = &mut bopp[i * nopp + t0..i * nopp + tmax];
-                    let rrow = &ropp[i * nopp + t0..i * nopp + tmax];
-                    let zs = &zo[t0..tmax];
-                    let a2 = &mut acc[t0..tmax];
-                    for q in 0..brow.len() {
-                        brow[q] += o * zs[q];
-                        a2[q] += o * rrow[q];
+                    let len = tmax - t0;
+                    let brow = &mut bopp[i * nopp + t0..i * nopp + t0 + len];
+                    let rrow = &ropp[i * nopp + t0..i * nopp + t0 + len];
+                    let zs = &zo[t0..t0 + len];
+                    let a2 = &mut acc[t0..t0 + len];
+                    for (((b_el, r_el), z_el), a_el) in brow.iter_mut().zip(rrow).zip(zs).zip(a2) {
+                        *b_el += o * *z_el;
+                        *a_el += o * *r_el;
                     }
                 }
             }
@@ -1209,7 +1210,7 @@ pub fn cross_match(c: &Ctx) -> (i64, Vec<(usize, usize)>) {
                 let u_i0 = b.u[i0];
                 let crow = &b.cost[(i0 - 1) * nc..i0 * nc];
                 let (mut d, mut j1) = (INF, 0usize);
-                for j in 1..=nc {
+                for j in 1..(nc + 1) {
                     if !b.used[j] {
                         let cur = crow[j - 1] - u_i0 - b.v[j];
                         if cur < b.minv[j] {
@@ -1226,7 +1227,7 @@ pub fn cross_match(c: &Ctx) -> (i64, Vec<(usize, usize)>) {
                     b.u[b.p[j]] += d;
                     b.v[j] -= d;
                 }
-                for m in &mut b.minv[1..=nc] {
+                for m in &mut b.minv[1..(nc + 1)] {
                     *m -= d;
                 }
                 j0 = j1;

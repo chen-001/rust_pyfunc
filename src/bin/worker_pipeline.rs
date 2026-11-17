@@ -12,11 +12,9 @@
 use rust_pyfunc::backup_reader::TaskResult;
 use rust_pyfunc::factor_pipeline::pipeline_relaynet_six_people;
 use rust_pyfunc::factor_pipeline::{
-    ipc_read_result, ipc_read_task, ipc_write, ipc_write_result, pipeline_anneal_cross_peer,
+    ipc_read_task, ipc_write_result, pipeline_anneal_cross_peer,
     pipeline_anneal_cross_peer_v2,
     pipeline_anneal_cross_peer_v3, pipeline_anneal_cross_peer_v3_profile,
-    pipeline_genedp_day_vs_day_align, pipeline_genedp_self_repeat_align, pipeline_genedp_mirror_align, pipeline_genedp_buysell_fold,
-    pipeline_genedp_buysell_fold_slim,
     pipeline_anneal_order_profile, pipeline_anneal_order_profile_v2, pipeline_anneal_order_profile_v3, pipeline_anneal_regime_diff, pipeline_anneal_regime_excess, pipeline_anneal_regime_raw_excess, pipeline_anneal_volume,
     pipeline_anneal_volume_market, pipeline_cross_section_example, pipeline_dagpath, pipeline_dijkstra, pipeline_distill,
     pipeline_distill_tick, pipeline_drop_event, pipeline_extreme_point_fit,
@@ -61,7 +59,7 @@ fn main() {
     let mut writer = BufWriter::with_capacity(1 << 20, stdout.lock());
 
     // 1. 读 Init 消息
-    let (pipeline_name, params, oo_params, trading_days, expected_len) =
+    let (pipeline_name, params, oo_params, trading_days, out_expected_len) =
         match ipc_read_task(&mut reader) {
             Ok(Some(TaskMessage::Init {
                 pipeline_name,
@@ -75,6 +73,9 @@ fn main() {
                 std::process::exit(1);
             }
         };
+    let expected_len =
+        rust_pyfunc::funnel_mask::current_raw_full_len().unwrap_or(out_expected_len);
+    let keep_cols = rust_pyfunc::funnel_mask::current_keep_cols();
 
     // 回复 Ready
     let ready = match parent_pid {
@@ -175,6 +176,10 @@ fn main() {
 
                 match result {
                     Ok(vals) => {
+                        let vals = match keep_cols.as_deref() {
+                            Some(cols) => rust_pyfunc::funnel_mask::project_row_f32(&vals, cols),
+                            None => vals,
+                        };
                         let msg = match shm_slot
                             .as_mut()
                             .and_then(|s| s.write_stock_f32(&vals).ok())
@@ -212,119 +217,195 @@ fn main() {
                 }
             }
             Ok(Some(TaskMessage::MinuteTask { date })) => {
-                // ---- 分钟 per-date 任务：一次算全市场 ----
-                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    if pipeline_name == "minute_example" {
-                        crate_logic::pipeline_minute_example(date, expected_len)
-                    } else if pipeline_name == "minute_capm" {
-                        crate_logic::pipeline_minute_capm(date, expected_len)
-                    } else if pipeline_name == "relaynet_six_people" {
-                        pipeline_relaynet_six_people(date, expected_len)
-                    } else if pipeline_name == "cross_section_example" {
-                        pipeline_cross_section_example(date, expected_len)
-                    } else if pipeline_name == "lfsr_leak_ext1" {
-                        pipeline_lfsr_leak_ext1(date, expected_len)
-                    } else if pipeline_name == "lfsr_ext2" {
-                        pipeline_lfsr_ext2(date, expected_len)
-                    } else if pipeline_name == "orderflow_ctx" {
-                        pipeline_orderflow_ctx(date, expected_len)
-                    } else if pipeline_name == "relaynet" {
-                        pipeline_relaynet(date, expected_len)
-                    } else if pipeline_name == "orderflow_ctx_v2" {
-                        pipeline_orderflow_ctx_v2(date, expected_len)
-                    } else if pipeline_name == "dijkstra" {
-                        pipeline_dijkstra(date, expected_len)
-                    } else if pipeline_name == "peaks" {
-                        pipeline_peaks(date, expected_len)
-                    } else if pipeline_name == "pair_interaction" {
-                        pipeline_pair_interaction(date, expected_len)
-                    } else if pipeline_name == "yupei_dist" {
-                        pipeline_yupei_dist(date, expected_len)
-                    } else if pipeline_name == "yupei_dist_lite" {
-                        pipeline_yupei_dist_lite(date, expected_len)
-                    } else if pipeline_name == "yupei_pair_split" {
-                        pipeline_yupei_pair_split(date, expected_len)
-                    } else if pipeline_name == "yupei_gpt" {
-                        pipeline_yupei_gpt(date, expected_len)
-                    } else if pipeline_name == "yupei_gpt_temporal" {
-                        pipeline_yupei_gpt_temporal(date, expected_len)
-                    } else if pipeline_name == "yupei_multi_v5" {
-                        pipeline_yupei_multi_v5(date, expected_len)
-                    } else if pipeline_name == "yupei_union_all" {
-                        pipeline_yupei_union_all(date, expected_len)
-                    } else if pipeline_name == "yupei_union_trim" {
-                        pipeline_yupei_union_trim(date, expected_len)
-                    } else if pipeline_name == "yhyb" {
-                        pipeline_yhyb(date, expected_len)
-                    } else if pipeline_name == "yhyb_indtop" {
-                        pipeline_yhyb_indtop(date, expected_len)
-                    } else if pipeline_name == "long_order" {
-                        pipeline_long_order(date, expected_len)
-                    } else if pipeline_name == "microstructure_capm" {
-                        pipeline_microstructure_capm(date, expected_len)
-                    } else if pipeline_name == "switch_moment" {
-                        pipeline_switch_moment(date, expected_len)
-                    } else if pipeline_name == "multi_factor_capm" {
-                        pipeline_multi_factor_capm(date, expected_len)
-                    } else if pipeline_name == "urgency" {
-                        pipeline_urgency(date, expected_len)
-                    } else if pipeline_name == "urgency_ext_cluster" {
-                        pipeline_urgency_ext_cluster(date, expected_len)
-                    } else if pipeline_name == "qhsk_anneal" {
-                        pipeline_qhsk_anneal(date, expected_len)
-                    } else if pipeline_name == "drop_event" {
-                        pipeline_drop_event(date, expected_len)
-                    } else if pipeline_name == "hot_stock_pool" {
-                        pipeline_hot_stock_pool(date, expected_len)
-                    } else if pipeline_name == "hot_stock_pool_v2" {
-                        pipeline_hot_stock_pool_v2(date, expected_len)
-                    } else if pipeline_name == "hot_pool_ind" {
-                        pipeline_hot_pool_ind(date, expected_len)
-                    } else if pipeline_name == "vsld" {
-                        pipeline_vsld(date, expected_len)
-                    } else if pipeline_name == "anneal_cross_peer" {
-                        pipeline_anneal_cross_peer(date, expected_len)
-                    } else if pipeline_name == "anneal_cross_peer_v2" {
-                        pipeline_anneal_cross_peer_v2(date, expected_len)
-                    } else if pipeline_name == "anneal_cross_peer_v3_profile" {
-                        pipeline_anneal_cross_peer_v3_profile(date, expected_len)
-                    } else if pipeline_name == "anneal_cross_peer_v3" {
-                        pipeline_anneal_cross_peer_v3(date, expected_len)
-                    } else if pipeline_name == "genedp_day_vs_day_align" {
-                        pipeline_genedp_day_vs_day_align(date, expected_len)
+                // ---- 分钟 per-date 任务：一次算全市场（支持平坦矩阵直写 /dev/shm，消除拆拼 5,000 个 TaskResult） ----
+                enum CrossOut {
+                    Flat(Vec<String>, Vec<f32>),
+                    Batch(Vec<TaskResult>),
+                }
+                let flat_from_res = |res: std::io::Result<(Vec<String>, Vec<f32>)>, n_cols: usize, tag: &str| -> CrossOut {
+                    if expected_len != n_cols {
+                        eprintln!("pipeline_{tag} expected_len错误 [{date}]: {expected_len} != {n_cols}");
+                        return CrossOut::Batch(Vec::new());
+                    }
+                    match res {
+                        Ok((codes, vals)) => CrossOut::Flat(codes, vals),
+                        Err(e) => {
+                            eprintln!("pipeline_{tag} error [{date}]: {e:?}");
+                            CrossOut::Batch(Vec::new())
+                        }
+                    }
+                };
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> CrossOut {
+                    if pipeline_name == "genedp_day_vs_day_align" {
+                        flat_from_res(
+                            rust_pyfunc::genedp_day_vs_day_align::compute_genedp_day_vs_day_align_full(date),
+                            rust_pyfunc::genedp_day_vs_day_align::N_FACTORS,
+                            "genedp_day_vs_day_align",
+                        )
                     } else if pipeline_name == "genedp_self_repeat_align" {
-                        pipeline_genedp_self_repeat_align(date, expected_len)
+                        let n = rust_pyfunc::genedp_self_repeat_align::genedp_self_repeat_align_names().len();
+                        flat_from_res(
+                            rust_pyfunc::genedp_self_repeat_align::compute_genedp_self_repeat_align_full(date),
+                            n,
+                            "genedp_self_repeat_align",
+                        )
                     } else if pipeline_name == "genedp_mirror_align" {
-                        pipeline_genedp_mirror_align(date, expected_len)
+                        let n = rust_pyfunc::genedp_mirror_align::genedp_mirror_align_names().len();
+                        flat_from_res(
+                            rust_pyfunc::genedp_mirror_align::compute_genedp_mirror_align_full(date),
+                            n,
+                            "genedp_mirror_align",
+                        )
                     } else if pipeline_name == "genedp_buysell_fold" {
-                        pipeline_genedp_buysell_fold(date, expected_len)
+                        let n = rust_pyfunc::genedp_buysell_fold::genedp_buysell_fold_names().len();
+                        flat_from_res(
+                            rust_pyfunc::genedp_buysell_fold::compute_genedp_buysell_fold_full(date),
+                            n,
+                            "genedp_buysell_fold",
+                        )
                     } else if pipeline_name == "genedp_buysell_fold_slim" {
-                        pipeline_genedp_buysell_fold_slim(date, expected_len)
+                        flat_from_res(
+                            rust_pyfunc::genedp_buysell_fold_slim::compute_genedp_buysell_fold_slim_full(date),
+                            rust_pyfunc::genedp_buysell_fold_slim::N_FACTORS,
+                            "genedp_buysell_fold_slim",
+                        )
                     } else if let Some(series) = pipeline_name.strip_prefix("okay_") {
-                        // hm0~hm92 旧框架因子的 Rust 复现（横截面 / 分钟系列，一次一天全市场）
                         match rust_pyfunc::okay_database::dispatch_cross(series, date) {
-                            Some((codes, vals)) => vals
-                                .chunks(expected_len)
-                                .zip(codes.iter())
-                                .map(|(facs, code)| TaskResult {
-                                    date,
-                                    code: code.clone(),
-                                    timestamp: 0,
-                                    facs: facs.to_vec(),
-                                })
-                                .collect(),
-                            None => Vec::new(),
+                            Some((codes, vals)) => CrossOut::Flat(codes, vals),
+                            None => CrossOut::Batch(Vec::new()),
                         }
                     } else {
-                        Vec::new()
+                        CrossOut::Batch(if pipeline_name == "minute_example" {
+                            crate_logic::pipeline_minute_example(date, expected_len)
+                        } else if pipeline_name == "minute_capm" {
+                            crate_logic::pipeline_minute_capm(date, expected_len)
+                        } else if pipeline_name == "relaynet_six_people" {
+                            pipeline_relaynet_six_people(date, expected_len)
+                        } else if pipeline_name == "cross_section_example" {
+                            pipeline_cross_section_example(date, expected_len)
+                        } else if pipeline_name == "lfsr_leak_ext1" {
+                            pipeline_lfsr_leak_ext1(date, expected_len)
+                        } else if pipeline_name == "lfsr_ext2" {
+                            pipeline_lfsr_ext2(date, expected_len)
+                        } else if pipeline_name == "orderflow_ctx" {
+                            pipeline_orderflow_ctx(date, expected_len)
+                        } else if pipeline_name == "orderflow_ctx_v2" {
+                            pipeline_orderflow_ctx_v2(date, expected_len)
+                        } else if pipeline_name == "relaynet" {
+                            pipeline_relaynet(date, expected_len)
+                        } else if pipeline_name == "dijkstra" {
+                            pipeline_dijkstra(date, expected_len)
+                        } else if pipeline_name == "peaks" {
+                            pipeline_peaks(date, expected_len)
+                        } else if pipeline_name == "pair_interaction" {
+                            pipeline_pair_interaction(date, expected_len)
+                        } else if pipeline_name == "yupei_dist" {
+                            pipeline_yupei_dist(date, expected_len)
+                        } else if pipeline_name == "yupei_dist_lite" {
+                            pipeline_yupei_dist_lite(date, expected_len)
+                        } else if pipeline_name == "yupei_pair_split" {
+                            pipeline_yupei_pair_split(date, expected_len)
+                        } else if pipeline_name == "yupei_gpt" {
+                            pipeline_yupei_gpt(date, expected_len)
+                        } else if pipeline_name == "yupei_gpt_temporal" {
+                            pipeline_yupei_gpt_temporal(date, expected_len)
+                        } else if pipeline_name == "yupei_multi_v5" {
+                            pipeline_yupei_multi_v5(date, expected_len)
+                        } else if pipeline_name == "yupei_union_all" {
+                            pipeline_yupei_union_all(date, expected_len)
+                        } else if pipeline_name == "yupei_union_trim" {
+                            pipeline_yupei_union_trim(date, expected_len)
+                        } else if pipeline_name == "yhyb" {
+                            pipeline_yhyb(date, expected_len)
+                        } else if pipeline_name == "yhyb_indtop" {
+                            pipeline_yhyb_indtop(date, expected_len)
+                        } else if pipeline_name == "long_order" {
+                            pipeline_long_order(date, expected_len)
+                        } else if pipeline_name == "microstructure_capm" {
+                            pipeline_microstructure_capm(date, expected_len)
+                        } else if pipeline_name == "switch_moment" {
+                            pipeline_switch_moment(date, expected_len)
+                        } else if pipeline_name == "multi_factor_capm" {
+                            pipeline_multi_factor_capm(date, expected_len)
+                        } else if pipeline_name == "urgency" {
+                            pipeline_urgency(date, expected_len)
+                        } else if pipeline_name == "urgency_ext_cluster" {
+                            pipeline_urgency_ext_cluster(date, expected_len)
+                        } else if pipeline_name == "qhsk_anneal" {
+                            pipeline_qhsk_anneal(date, expected_len)
+                        } else if pipeline_name == "drop_event" {
+                            pipeline_drop_event(date, expected_len)
+                        } else if pipeline_name == "hot_stock_pool" {
+                            pipeline_hot_stock_pool(date, expected_len)
+                        } else if pipeline_name == "hot_stock_pool_v2" {
+                            pipeline_hot_stock_pool_v2(date, expected_len)
+                        } else if pipeline_name == "hot_pool_ind" {
+                            pipeline_hot_pool_ind(date, expected_len)
+                        } else if pipeline_name == "vsld" {
+                            pipeline_vsld(date, expected_len)
+                        } else if pipeline_name == "anneal_cross_peer" {
+                            pipeline_anneal_cross_peer(date, expected_len)
+                        } else if pipeline_name == "anneal_cross_peer_v2" {
+                            pipeline_anneal_cross_peer_v2(date, expected_len)
+                        } else if pipeline_name == "anneal_cross_peer_v3_profile" {
+                            pipeline_anneal_cross_peer_v3_profile(date, expected_len)
+                        } else if pipeline_name == "anneal_cross_peer_v3" {
+                            pipeline_anneal_cross_peer_v3(date, expected_len)
+                        } else {
+                            Vec::new()
+                        })
                     }
                 }));
 
                 match result {
-                    Ok(batch) => {
+                    Ok(CrossOut::Flat(codes, vals)) => {
+                        let vals = match keep_cols.as_deref() {
+                            Some(cols) => {
+                                rust_pyfunc::funnel_mask::project_flat_f32(&vals, expected_len, cols)
+                            }
+                            None => vals,
+                        };
                         let shm_written = shm_slot
                             .as_mut()
-                            .and_then(|s| s.write_day_batch(&batch, expected_len).ok().flatten());
+                            .and_then(|s| s.write_day_flat(&codes, &vals, out_expected_len).ok().flatten());
+                        let msg = match shm_written {
+                            Some((slot_cap, used_bytes)) => {
+                                drop(vals);
+                                drop(codes);
+                                ResultMessage::ShmMinuteBatch {
+                                    date,
+                                    slot_cap,
+                                    used_bytes,
+                                }
+                            }
+                            None => {
+                                let batch: Vec<TaskResult> = vals
+                                    .chunks(out_expected_len)
+                                    .zip(codes.into_iter())
+                                    .map(|(facs, code)| TaskResult {
+                                        date,
+                                        code,
+                                        timestamp: 0,
+                                        facs: facs.to_vec(),
+                                    })
+                                    .collect();
+                                ResultMessage::MinuteBatch(batch)
+                            }
+                        };
+                        if ipc_write_result(&mut writer, &msg).is_err() {
+                            break;
+                        }
+                    }
+                    Ok(CrossOut::Batch(mut batch)) => {
+                        if let Some(cols) = keep_cols.as_deref() {
+                            for item in &mut batch {
+                                item.facs =
+                                    rust_pyfunc::funnel_mask::project_row_f32(&item.facs, cols);
+                            }
+                        }
+                        let shm_written = shm_slot
+                            .as_mut()
+                            .and_then(|s| s.write_day_batch(&batch, out_expected_len).ok().flatten());
                         let msg = match shm_written {
                             Some((slot_cap, used_bytes)) => {
                                 drop(batch);

@@ -149,6 +149,82 @@ def save_factor(
         f["data"][start_pos:end_pos, : len(symbols)] = block.to_numpy(np.float64)
 
 
+def save_factors_batch(
+    factor_dfs: dict,
+    factor_version: str,
+    start_date: int = 20160101,
+    end_date: int = 20240229,
+    look_back_window: int = 1,
+    hdf5_dir_here: str = None,
+) -> None:
+    """批量写多个因子 h5：共享一次目录元数据读写（fields.csv / calendar_map.csv / symbol_map.csv），
+    避免逐个调用 save_factor 时在 NAS 上重复读写数百次 CSV 元数据；同时保持单线程顺序调用 h5py 确保 C 库线程安全。
+    """
+    if not factor_dfs:
+        return
+    data_dir = os.path.join(hdf5_dir_here, factor_version)
+    os.makedirs(data_dir, exist_ok=True)
+
+    symbol_file = os.path.join(data_dir, "symbol_map.csv")
+    if not os.path.exists(symbol_file):
+        shutil.copyfile(_resolve_calendar_path("symbol_map.csv"), symbol_file)
+
+    calendar_file = os.path.join(data_dir, "calendar_map.csv")
+    if not os.path.exists(calendar_file):
+        pd.read_csv(_resolve_calendar_path("calendar.csv"), header=None, names=["date_min"]).to_csv(
+            calendar_file, index=False
+        )
+    _refresh_calendar(data_dir)
+
+    capacity_file = os.path.join(data_dir, "capacity.csv")
+    if not os.path.exists(capacity_file):
+        cfg = pd.read_csv(_resolve_calendar_path("capacity_config.csv"))
+        pd.DataFrame(
+            {
+                "name": ["symbol_capacity", "date_capacity"],
+                "count": [cfg["symbol_capacity"][0], cfg["date_capacity"][0]],
+            }
+        ).to_csv(capacity_file, index=False)
+
+    fields_file = os.path.join(data_dir, "fields.csv")
+    existing_names = pd.read_csv(fields_file)["name"].tolist() if os.path.exists(fields_file) else []
+    existing_set = set(existing_names)
+    added = False
+    for name in factor_dfs:
+        if name not in existing_set:
+            existing_names.append(name)
+            existing_set.add(name)
+            added = True
+    if added:
+        pd.DataFrame({"name": existing_names}).to_csv(fields_file, index=False)
+
+    date_capacity, symbol_capacity = _read_capacity(data_dir)
+    dates, date_pos = _read_calendar(data_dir)
+    symbols = _read_symbols(data_dir)
+    start_pos = date_pos[next_trading_day_tricky(start_date)]
+    end_pos = date_pos[last_trading_day_tricky(end_date)] + 1
+    target_dates = dates[start_pos:end_pos]
+    n_sym = len(symbols)
+
+    for name, factor_df in factor_dfs.items():
+        h5_file = os.path.join(data_dir, f"{name}.h5")
+        if not os.path.exists(h5_file):
+            with h5py.File(h5_file, "w") as f:
+                f.create_dataset(
+                    "data",
+                    shape=(date_capacity, symbol_capacity),
+                    dtype=np.float64,
+                    maxshape=(date_capacity, None),
+                    chunks=True,
+                    fillvalue=np.nan,
+                )
+        block = factor_df.set_axis(_index_to_int(factor_df.index), axis=0).reindex(
+            index=target_dates, columns=symbols
+        )
+        with h5py.File(h5_file, "r+") as f:
+            f["data"][start_pos:end_pos, :n_sym] = block.to_numpy(np.float64)
+
+
 def read_factor(
     factor_version: str,
     name: str,
@@ -285,6 +361,44 @@ def read_factor_from_colblk(
     )
 
 
+def read_factors_from_colblk_batch(
+    store_dir: str, names: list, start_date: int, end_date: int
+) -> dict:
+    """从单个 colblk 存储目录一次打开批量读取多个因子，返回 {name: DataFrame(date×stock, float64)}。
+
+    与逐个调用 read_factor_from_colblk 输出完全一致，但消除了 N×3 次重开 segment 文件的开销。
+    """
+    import rust_pyfunc as rp
+
+    if not names:
+        return {}
+    info = rp.factor_store_v5_info(store_dir)
+    name_to_idx = {n: i for i, n in enumerate(info["factor_names"])}
+    col_indices = []
+    for n in names:
+        if n not in name_to_idx:
+            raise KeyError(f"因子 {n} 不在 colblk 存储中")
+        col_indices.append(name_to_idx[n])
+
+    tmpl = rp.factor_store_v5_template(store_dir)
+    all_dates = np.asarray(tmpl["dates"], dtype=np.int64)
+    all_stocks = [str(s) for s in tmpl["stocks"]]
+    mask = (all_dates >= start_date) & (all_dates <= end_date)
+    sel_dates = all_dates[mask]
+    dt_index = pd.to_datetime(sel_dates.astype(str))
+
+    mats = rp.factor_store_v5_read_factors_batch_matrix(
+        store_dir,
+        col_indices,
+        [int(d) for d in sel_dates],
+        all_stocks,
+    )
+    return {
+        n: pd.DataFrame(mat.astype(np.float64), index=dt_index, columns=all_stocks)
+        for n, mat in zip(names, mats)
+    }
+
+
 def probe_update_window(
     colblk_store_dir: str, start_date: int, end_date: int
 ) -> tuple:
@@ -325,6 +439,8 @@ def read_level2_list(start_date: int, end_date: int) -> list:
     )
     symbol_map_path = "/ssd_data/data/basic_info/symbol_map.csv"
     symbol_list = pd.read_csv(symbol_map_path).symbol.astype(str).str.zfill(6).tolist()
+    if hasattr(rp, "read_level2_list_fast"):
+        return rp.read_level2_list_fast(dates, symbol_list, "/ssd_data/stock")
     pairs = []
     for date in dates:
         day_dir = f"/ssd_data/stock/{date}/transaction"

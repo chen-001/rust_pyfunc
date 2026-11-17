@@ -929,14 +929,16 @@ impl SharedCache {
     }
 
     // ------------------------------------------------------------------------
-    // 4. ColdPre（11 风格每日有效集、12×12 X'X 与连续 X，键绑定 cold 矩阵内容摘要）
+    // 4. ColdPre（10+M 扩展风格每日有效集、p×p X'X 与连续 X，键绑定 cold 矩阵内容摘要）
     // ------------------------------------------------------------------------
 
-    fn cold_kind_tag(cold: &Array2<f64>) -> String {
+    fn cold_kind_tag(cold: &ndarray::Array3<f64>) -> String {
         let mut h = Sha256::new();
-        h.update(b"tail_engine_cold_pre_v1\0");
-        h.update(&(cold.nrows() as u64).to_le_bytes());
-        h.update(&(cold.ncols() as u64).to_le_bytes());
+        h.update(b"tail_engine_cold_pre_v2\0");
+        let (t, n, m) = cold.dim();
+        h.update(&(t as u64).to_le_bytes());
+        h.update(&(n as u64).to_le_bytes());
+        h.update(&(m as u64).to_le_bytes());
         match cold.as_slice() {
             Some(s) => h.update(bytes_of_f64(s)),
             None => {
@@ -948,7 +950,7 @@ impl SharedCache {
         format!("cold_{}", hex_lower(&h.finish()[..16]))
     }
 
-    pub(crate) fn load_cold(&self, cold: &Array2<f64>) -> Option<ColdPre> {
+    pub(crate) fn load_cold(&self, cold: &ndarray::Array3<f64>) -> Option<ColdPre> {
         let tag = Self::cold_kind_tag(cold);
         if !self.exists(&tag) {
             return None;
@@ -962,7 +964,11 @@ impl SharedCache {
         }
     }
 
-    fn try_load_cold(&self, tag: &str, expected_dim: (usize, usize)) -> Result<ColdPre, String> {
+    fn try_load_cold(
+        &self,
+        tag: &str,
+        expected_dim: (usize, usize, usize),
+    ) -> Result<ColdPre, String> {
         let f = File::open(self.path(tag)).map_err(|e| e.to_string())?;
         let mut r = BufReader::with_capacity(IO_BUF, f);
         if !read_header(&mut r, KIND_COLD).map_err(|e| e.to_string())? {
@@ -970,58 +976,71 @@ impl SharedCache {
         }
         let t = rd_u64(&mut r).map_err(|e| e.to_string())? as usize;
         let n = rd_u64(&mut r).map_err(|e| e.to_string())? as usize;
-        if (t, n) != expected_dim {
-            return Err(format!("cold_pre 轴 {:?} != {:?}", (t, n), expected_dim));
+        let m_extra = rd_u64(&mut r).map_err(|e| e.to_string())? as usize;
+        if (t, n, m_extra) != expected_dim {
+            return Err(format!(
+                "cold_pre 轴 {:?} != {:?}",
+                (t, n, m_extra),
+                expected_dim
+            ));
         }
+        let p_expected = 11 + m_extra;
+        let xtx_len = p_expected * p_expected;
         let mut per_date = Vec::with_capacity(t);
         let mut chols = Vec::with_capacity(t);
         let mut xdays = Vec::with_capacity(t);
-        let mut xtx_144 = Vec::with_capacity(t);
+        let mut xtx_flat = Vec::with_capacity(t);
         for _ in 0..t {
             let p = rd_u64(&mut r).map_err(|e| e.to_string())? as usize;
             let nv = rd_u64(&mut r).map_err(|e| e.to_string())? as usize;
             let valid_idx = rd_u32s(&mut r, nv).map_err(|e| e.to_string())?;
-            let xtx_vec = rd_f64s(&mut r, 144).map_err(|e| e.to_string())?;
-            let mut xtx_arr = [0.0f64; 144];
-            xtx_arr.copy_from_slice(&xtx_vec);
+            let xtx_vec = rd_f64s(&mut r, xtx_len).map_err(|e| e.to_string())?;
             let xd_len = rd_u64(&mut r).map_err(|e| e.to_string())? as usize;
             let xd = rd_f64s(&mut r, xd_len).map_err(|e| e.to_string())?;
             if p == 0 {
                 chols.push(None);
             } else {
-                if p != 12 {
-                    return Err(format!("cold_pre p={} 异常（预期 12）", p));
+                if p != p_expected {
+                    return Err(format!("cold_pre p={} 异常（预期 {}）", p, p_expected));
                 }
-                chols.push(Cholesky::new(DMatrix::from_row_slice(12, 12, &xtx_arr)));
+                chols.push(Cholesky::new(DMatrix::from_row_slice(
+                    p_expected, p_expected, &xtx_vec,
+                )));
             }
             per_date.push((p, valid_idx));
             xdays.push(xd);
-            xtx_144.push(xtx_arr);
+            xtx_flat.push(xtx_vec);
         }
         Ok(ColdPre {
+            m_extra,
             per_date,
             chols,
             xdays,
-            xtx_144,
+            xtx_flat,
         })
     }
 
-    pub(crate) fn store_cold(&self, cold: &Array2<f64>, cp: &ColdPre) -> Result<(), String> {
-        let (t, n) = cold.dim();
-        if cp.per_date.len() != t || cp.xdays.len() != t || cp.xtx_144.len() != t {
-            return Err("ColdPre 日数与 cold 矩阵不一致".to_string());
+    pub(crate) fn store_cold(&self, cold: &ndarray::Array3<f64>, cp: &ColdPre) -> Result<(), String> {
+        let (t, n, m_extra) = cold.dim();
+        if cp.m_extra != m_extra
+            || cp.per_date.len() != t
+            || cp.xdays.len() != t
+            || cp.xtx_flat.len() != t
+        {
+            return Err("ColdPre 维度或日数与 cold 矩阵不一致".to_string());
         }
         let tag = Self::cold_kind_tag(cold);
         self.atomic_write(&tag, |w| {
             write_header(w, KIND_COLD)?;
             wr_u64(w, t as u64)?;
             wr_u64(w, n as u64)?;
+            wr_u64(w, m_extra as u64)?;
             for idx in 0..t {
                 let (p, ref valid_idx) = cp.per_date[idx];
                 wr_u64(w, p as u64)?;
                 wr_u64(w, valid_idx.len() as u64)?;
                 wr_u32s(w, valid_idx)?;
-                wr_f64s(w, &cp.xtx_144[idx])?;
+                wr_f64s(w, &cp.xtx_flat[idx])?;
                 let xd = &cp.xdays[idx];
                 wr_u64(w, xd.len() as u64)?;
                 wr_f64s(w, xd)?;

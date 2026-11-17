@@ -864,6 +864,7 @@ fn build_fulltest_tasks(
     gap5_selected: &[String],
     gap1_selected: &[String],
     with_cold: bool,
+    cold_stage: &str,
 ) -> Vec<TailV4FulltestTask> {
     let mut ordered_factors = Vec::<String>::new();
     let mut seen = HashSet::<String>::new();
@@ -892,9 +893,9 @@ fn build_fulltest_tasks(
             });
             if with_cold {
                 tasks.push(TailV4FulltestTask {
-                    task_key: fulltest_task_key("neu11", 5, &factor_name),
+                    task_key: fulltest_task_key(cold_stage, 5, &factor_name),
                     factor_name: factor_name.clone(),
-                    stage: "neu11".to_string(),
+                    stage: cold_stage.to_string(),
                     gap: 5,
                 });
             }
@@ -914,9 +915,9 @@ fn build_fulltest_tasks(
             });
             if with_cold {
                 tasks.push(TailV4FulltestTask {
-                    task_key: fulltest_task_key("neu11", 1, &factor_name),
+                    task_key: fulltest_task_key(cold_stage, 1, &factor_name),
                     factor_name: factor_name.clone(),
-                    stage: "neu11".to_string(),
+                    stage: cold_stage.to_string(),
                     gap: 1,
                 });
             }
@@ -927,15 +928,15 @@ fn build_fulltest_tasks(
 
 fn increment_fulltest_bucket(bucket_counts: &mut HashMap<String, usize>, stage: &str, gap: i32) {
     let key = match (stage, gap) {
-        ("raw", 5) => "g5-raw",
-        ("neu", 5) => "g5-neu",
-        ("neu11", 5) => "g5-neu11",
-        ("raw", 1) => "g1-raw",
-        ("neu", 1) => "g1-neu",
-        ("neu11", 1) => "g1-neu11",
+        ("raw", 5) => "g5-raw".to_string(),
+        ("neu", 5) => "g5-neu".to_string(),
+        ("raw", 1) => "g1-raw".to_string(),
+        ("neu", 1) => "g1-neu".to_string(),
+        (s, 5) if s == "coldv2" || s == "neu11" => format!("g5-{s}"),
+        (s, 1) if s == "coldv2" || s == "neu11" => format!("g1-{s}"),
         _ => return,
     };
-    *bucket_counts.entry(key.to_string()).or_insert(0) += 1;
+    *bucket_counts.entry(key).or_insert(0) += 1;
 }
 
 fn render_fulltest_progress(
@@ -945,6 +946,7 @@ fn render_fulltest_progress(
     started: Instant,
     bucket_counts: &HashMap<String, usize>,
     with_cold: bool,
+    cold_stage: &str,
 ) -> Result<(), String> {
     let finished = processed + restored;
     let progress = if total > 0 {
@@ -968,13 +970,15 @@ fn render_fulltest_progress(
     let current_time = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
     let g5_raw = bucket_counts.get("g5-raw").copied().unwrap_or(0);
     let g5_neu = bucket_counts.get("g5-neu").copied().unwrap_or(0);
-    let g5_neu11 = bucket_counts.get("g5-neu11").copied().unwrap_or(0);
+    let g5_cold_key = format!("g5-{cold_stage}");
+    let g1_cold_key = format!("g1-{cold_stage}");
+    let g5_cold = bucket_counts.get(&g5_cold_key).copied().unwrap_or(0);
     let g1_raw = bucket_counts.get("g1-raw").copied().unwrap_or(0);
     let g1_neu = bucket_counts.get("g1-neu").copied().unwrap_or(0);
-    let g1_neu11 = bucket_counts.get("g1-neu11").copied().unwrap_or(0);
+    let g1_cold = bucket_counts.get(&g1_cold_key).copied().unwrap_or(0);
     if with_cold {
         print!(
-            "\r[{}] Fulltest 进度 {}/{} ({:.1}%)，已恢复 {} 个，g5-raw {}，g5-neu {}，g5-neu11 {}，g1-raw {}，g1-neu {}，g1-neu11 {}，已用{}h{}m{}s，预计剩余{}h{}m{}s",
+            "\r[{}] Fulltest 进度 {}/{} ({:.1}%)，已恢复 {} 个，g5-raw {}，g5-neu {}，{} {}，g1-raw {}，g1-neu {}，{} {}，已用{}h{}m{}s，预计剩余{}h{}m{}s",
             current_time,
             finished,
             total,
@@ -982,10 +986,12 @@ fn render_fulltest_progress(
             restored,
             g5_raw,
             g5_neu,
-            g5_neu11,
+            g5_cold_key,
+            g5_cold,
             g1_raw,
             g1_neu,
-            g1_neu11,
+            g1_cold_key,
+            g1_cold,
             elapsed_h,
             elapsed_m,
             elapsed_s,
@@ -2678,7 +2684,8 @@ pub fn tail_v4_run_candidates<'py>(
     index_name="000905",
     verbose=false,
     industry_neutralize=true,
-    with_cold=false
+    with_cold=false,
+    cold_stage=None
 ))]
 pub fn tail_v4_run_fulltest_queue<'py>(
     py: Python<'py>,
@@ -2700,10 +2707,22 @@ pub fn tail_v4_run_fulltest_queue<'py>(
     verbose: bool,
     industry_neutralize: bool,
     with_cold: bool,
+    cold_stage: Option<&str>,
 ) -> PyResult<PyObject> {
     if fulltest_jobs == 0 {
         return Err(PyValueError::new_err("fulltest_jobs 必须大于 0"));
     }
+    let resolved_cold_stage: String = match cold_stage {
+        Some(s) if !s.trim().is_empty() => s.trim().to_string(),
+        _ => {
+            let mode = std::env::var("TAIL_V4_COLD_MODE").unwrap_or_else(|_| "v2".to_string());
+            if mode.trim().eq_ignore_ascii_case("v1") {
+                "neu11".to_string()
+            } else {
+                "coldv2".to_string()
+            }
+        }
+    };
 
     let output = py
         .allow_threads(
@@ -2719,7 +2738,12 @@ pub fn tail_v4_run_fulltest_queue<'py>(
                 fs::create_dir_all(&done_dir)
                     .map_err(|e| format!("创建 fulltest done 目录失败: {}", e))?;
 
-                let all_tasks = build_fulltest_tasks(&gap5_selected, &gap1_selected, with_cold);
+                let all_tasks = build_fulltest_tasks(
+                    &gap5_selected,
+                    &gap1_selected,
+                    with_cold,
+                    &resolved_cold_stage,
+                );
                 let total_tasks = all_tasks.len();
 
                 let mut bucket_counts = HashMap::<String, usize>::new();
@@ -2755,6 +2779,7 @@ pub fn tail_v4_run_fulltest_queue<'py>(
                         started,
                         &bucket_counts,
                         with_cold,
+                        &resolved_cold_stage,
                     )?;
                     println!();
                     return Ok((0, restored_tasks, bucket_counts));
@@ -2847,6 +2872,7 @@ pub fn tail_v4_run_fulltest_queue<'py>(
                                 started,
                                 &bucket_counts,
                                 with_cold,
+                                &resolved_cold_stage,
                             )?;
                         }
                         Ok(Err(err)) => {

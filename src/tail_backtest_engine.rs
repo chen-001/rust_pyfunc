@@ -22,10 +22,9 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 use crate::tail_v5_pipeline::{
-    self, build_selection_config, build_shared_inputs, factor_result_path, format_hms,
-    init_status_line, is_terminal, read_task_result, reset_status_line, update_status_line,
-    write_aggregated_outputs, write_task_result, AggregatedCandidates, ProcessStats, SharedInputs,
-    TailTask, TailTaskResult,
+    self, build_selection_config, build_shared_inputs, format_hms, init_status_line,
+    read_task_result, reset_status_line, update_status_line, write_aggregated_outputs_with_stem,
+    AggregatedCandidates, ProcessStats, SharedInputs, TailTask, TailTaskResult,
 };
 
 /// 单个因子的完整处理（IO + 计算 + 写结果），在一个线程内串行执行。
@@ -132,10 +131,12 @@ fn parse_col_idx(factor_path: &str) -> Option<usize> {
     industry_neutralize=true,
     industry_matrix=None,
     cold_style=None,
-    cold_dual_pass=true,
+    cold_dual_pass=false,
     ic_only=false,
     io_concurrency=None, io_batch_size=None, io_batch_bytes=None,
     low_coverage_markers=None, low_coverage_names=None,
+    extra_styles=None,
+    cold_stem=None,
 ))]
 #[allow(clippy::too_many_arguments)]
 pub fn tail_backtest_engine<'py>(
@@ -175,9 +176,9 @@ pub fn tail_backtest_engine<'py>(
     save_all_metrics: bool,
     industry_neutralize: bool,
     industry_matrix: Option<numpy::PyReadonlyArray2<'py, f64>>,
-    // 冷门（热度）中性化：第 11 个回归列 (T,N) f64；None = 关闭（旧行为）
+    // 冷门（热度）中性化：单列 (T,N) f64（旧 Cold v1 兼容入口）；None = 关闭
     cold_style: Option<numpy::PyReadonlyArray2<'py, f64>>,
-    // 有冷门时是否两套指标都算：false（推荐）= 只算 11 风格，速度与没有冷门接近
+    // 有冷门/扩展风格时是否两套指标都算：false（推荐）= 只算扩展风格，速度与没有冷门接近
     cold_dual_pass: bool,
     ic_only: bool,
     io_concurrency: Option<usize>,
@@ -185,7 +186,20 @@ pub fn tail_backtest_engine<'py>(
     io_batch_bytes: Option<usize>,
     low_coverage_markers: Option<Vec<String>>,
     low_coverage_names: Option<Vec<String>>,
+    // 多列扩展风格中性化：(T, N, M) f64（如 Cold v2 M=3 或 Cold v2 + TradeSize M=4）；传入时优先于 cold_style
+    extra_styles: Option<numpy::PyReadonlyArray3<'py, f64>>,
+    cold_stem: Option<String>,
 ) -> PyResult<PyObject> {
+    let resolved_cold_stem: String = match cold_stem {
+        Some(ref s) if !s.trim().is_empty() => s.trim().to_string(),
+        _ => {
+            if extra_styles.is_some() {
+                "coldv2".to_string()
+            } else {
+                "neu11".to_string()
+            }
+        }
+    };
     // 低覆盖放行（撤单类因子：2021-11-05 前沪市无撤单，只有深市有值）。默认 None = 关闭。
     let low_cov_rule = LowCoverageRule {
         markers: low_coverage_markers
@@ -245,11 +259,24 @@ pub fn tail_backtest_engine<'py>(
         .as_array()
         .to_owned();
 
-    // 冷门中性化矩阵必须在 allow_threads 之前转成纯 Rust 数组：
-    // PyReadonlyArray2 内含 PyObject 引用，不能跨线程（不满足 Send）。
-    let cold_style_arr: Option<Array2<f64>> = match cold_style {
-        Some(a) => {
-            let v = a.as_array();
+    // 冷门/扩展风格中性化矩阵必须在 allow_threads 之前转成纯 Rust C 序连续 Array3<f64>：
+    // PyReadonlyArray2/3 内含 PyObject 引用，不能跨线程（不满足 Send）。
+    let cold_style_arr: Option<ndarray::Array3<f64>> = match (extra_styles, cold_style) {
+        (Some(a3), _) => {
+            let v = a3.as_array();
+            let (ct, cn, cm) = v.dim();
+            if (ct, cn) != industry.dim() || cm == 0 || cm > 12 {
+                return Err(PyValueError::new_err(format!(
+                    "extra_styles 形状 {:?} 与模板轴 {:?} 不一致（或列数 M={} 不在 1..=12）",
+                    v.dim(),
+                    industry.dim(),
+                    cm
+                )));
+            }
+            Some(v.as_standard_layout().into_owned())
+        }
+        (None, Some(a2)) => {
+            let v = a2.as_array();
             if v.dim() != industry.dim() {
                 return Err(PyValueError::new_err(format!(
                     "cold_style 形状 {:?} 与模板轴 {:?} 不一致",
@@ -257,9 +284,15 @@ pub fn tail_backtest_engine<'py>(
                     industry.dim()
                 )));
             }
-            Some(v.to_owned())
+            let (t_d, n_d) = v.dim();
+            let owned2 = v.as_standard_layout().into_owned();
+            Some(
+                owned2
+                    .into_shape((t_d, n_d, 1))
+                    .map_err(|e| PyValueError::new_err(e.to_string()))?,
+            )
         }
-        None => None,
+        (None, None) => None,
     };
 
     let output = py.allow_threads(
@@ -282,7 +315,7 @@ pub fn tail_backtest_engine<'py>(
             save_all_metrics,
             ic_only,
         );
-        let shared = build_shared_inputs(
+        let mut shared = build_shared_inputs(
             dates, stocks, windows, fold, min_valid, backtest_start,
             industry_neutralize,
             Some(industry),
@@ -294,57 +327,124 @@ pub fn tail_backtest_engine<'py>(
             &restrict_path, &index_ret_path,
             config,
         )?;
+        shared.cold_stem = resolved_cold_stem.clone();
 
-        // ---- 断点续算：恢复已完成因子 ----
+        // ---- 断点续算：优先从单文件批量 WAL 恢复，并兼容历史 *.msgpack 小文件 ----
         let mut aggregated = AggregatedCandidates::default();
         let mut completed_sources = HashSet::<String>::new();
         let mut prefill_coverage = HashMap::<String, (f64, f64)>::new();
         let mut stats = ProcessStats::default();
-        for (source_factor, _factor_path) in factor_names.iter().zip(factor_paths.iter()) {
-            let result_path = factor_result_path(&task_results_dir, source_factor);
-            if result_path.exists() {
+        let requested_set: HashSet<&str> = factor_names.iter().map(|s| s.as_str()).collect();
+
+        let mut record_restored =
+            |task_result: TailTaskResult, completed_sources: &mut HashSet<String>| {
+                let source_factor = task_result.source_factor.clone();
+                if !requested_set.contains(source_factor.as_str())
+                    || completed_sources.contains(&source_factor)
                 {
-                    let task_result=read_task_result(&result_path).map_err(|e|format!("读取已保存因子结果 {source_factor} 失败: {e}"))?;
-                    let passed = task_result.passed;
-                    let raw_cov = task_result.eliminated_by_raw_cover;
-                    let any_window = task_result.any_window_passed_preflight;
-                    let has_data = !task_result.raw_summary_gap1.is_empty()
-                        || !task_result.raw_summary_gap5.is_empty()
-                        || !task_result.neu_summary_gap1.is_empty()
-                        || !task_result.neu_summary_gap5.is_empty()
-                        || !task_result.neu11_summary_gap1.is_empty()
-                        || !task_result.neu11_summary_gap5.is_empty();
-                    if passed {
-                        stats.restored_pass += 1;
-                    } else if raw_cov {
-                        stats.restored_raw_cov += 1;
-                    } else if !any_window && !has_data {
-                        if task_result.preflight_maj_failed_windows > 0
-                            || task_result.preflight_zero_failed_windows > 0
-                            || task_result.preflight_nan_failed_windows > 0
-                        {
-                            stats.restored_preflight += 1;
-                        } else {
-                            stats.restored_unknown += 1;
-                        }
+                    return;
+                }
+                let passed = task_result.passed;
+                let raw_cov = task_result.eliminated_by_raw_cover;
+                let any_window = task_result.any_window_passed_preflight;
+                let has_data = !task_result.raw_summary_gap1.is_empty()
+                    || !task_result.raw_summary_gap5.is_empty()
+                    || !task_result.neu_summary_gap1.is_empty()
+                    || !task_result.neu_summary_gap5.is_empty()
+                    || !task_result.neu11_summary_gap1.is_empty()
+                    || !task_result.neu11_summary_gap5.is_empty();
+                if passed {
+                    stats.restored_pass += 1;
+                } else if raw_cov {
+                    stats.restored_raw_cov += 1;
+                } else if !any_window && !has_data {
+                    if task_result.preflight_maj_failed_windows > 0
+                        || task_result.preflight_zero_failed_windows > 0
+                        || task_result.preflight_nan_failed_windows > 0
+                    {
+                        stats.restored_preflight += 1;
                     } else {
-                        stats.restored_ret_ic += 1;
+                        stats.restored_unknown += 1;
                     }
-                    stats.preflight_maj_windows += task_result.preflight_maj_failed_windows;
-                    stats.preflight_zero_windows += task_result.preflight_zero_failed_windows;
-                    stats.preflight_nan_windows += task_result.preflight_nan_failed_windows;
-                    prefill_coverage.insert(
-                        source_factor.clone(),
-                        (
-                            task_result.raw_cover_before_fill,
-                            task_result.raw_cover_after_fill,
-                        ),
-                    );
-                    aggregated.merge_task(task_result);
-                    completed_sources.insert(source_factor.clone());
+                } else {
+                    stats.restored_ret_ic += 1;
+                }
+                stats.preflight_maj_windows += task_result.preflight_maj_failed_windows;
+                stats.preflight_zero_windows += task_result.preflight_zero_failed_windows;
+                stats.preflight_nan_windows += task_result.preflight_nan_failed_windows;
+                prefill_coverage.insert(
+                    source_factor.clone(),
+                    (
+                        task_result.raw_cover_before_fill,
+                        task_result.raw_cover_after_fill,
+                    ),
+                );
+                aggregated.merge_task(task_result);
+                completed_sources.insert(source_factor);
+            };
+
+        let wal_path = task_results_dir.join("checkpoint_batch.bin");
+        if wal_path.exists() {
+            use std::io::{Read, Seek, SeekFrom};
+            let mut wal_file = fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&wal_path)
+                .map_err(|e| format!("打开批量断点文件失败: {e}"))?;
+            let file_len = wal_file.metadata().map(|m| m.len()).unwrap_or(0);
+            let mut valid_pos = 0u64;
+            let mut hdr = [0u8; 4];
+            let mut payload = Vec::new();
+            while valid_pos + 4 <= file_len {
+                if wal_file.read_exact(&mut hdr).is_err() {
+                    break;
+                }
+                let frame_len = u32::from_le_bytes(hdr) as usize;
+                if frame_len == 0 || valid_pos + 4 + frame_len as u64 > file_len {
+                    break;
+                }
+                payload.resize(frame_len, 0u8);
+                if wal_file.read_exact(&mut payload).is_err() {
+                    break;
+                }
+                match rmp_serde::from_slice::<TailTaskResult>(&payload) {
+                    Ok(tr) => {
+                        valid_pos += 4 + frame_len as u64;
+                        record_restored(tr, &mut completed_sources);
+                    }
+                    Err(_) => break,
                 }
             }
+            if valid_pos < file_len {
+                let _ = wal_file.set_len(valid_pos);
+                let _ = wal_file.seek(SeekFrom::End(0));
+            }
         }
+
+        // 兼容历史遗留的单因子 *.msgpack（单次 read_dir 扫描，避免无旧文件时数万次 stat）
+        if let Ok(entries) = fs::read_dir(&task_results_dir) {
+            let mut legacy_files: Vec<(String, PathBuf)> = entries
+                .filter_map(|e| e.ok())
+                .filter_map(|e| {
+                    let p = e.path();
+                    if p.extension().and_then(|s| s.to_str()) == Some("msgpack") {
+                        let stem = p.file_stem()?.to_str()?.to_string();
+                        if requested_set.contains(stem.as_str()) && !completed_sources.contains(&stem) {
+                            return Some((stem, p));
+                        }
+                    }
+                    None
+                })
+                .collect();
+            legacy_files.sort_by(|a, b| a.0.cmp(&b.0));
+            for (source_factor, result_path) in legacy_files {
+                let task_result = read_task_result(&result_path)
+                    .map_err(|e| format!("读取已保存因子结果 {source_factor} 失败: {e}"))?;
+                record_restored(task_result, &mut completed_sources);
+            }
+        }
+        drop(record_restored);
+
         let restored_sources = stats.restored_pass + stats.restored_raw_cov
             + stats.restored_preflight + stats.restored_ret_ic + stats.restored_unknown;
 
@@ -369,6 +469,47 @@ pub fn tail_backtest_engine<'py>(
         // n_jobs 仍然保持 thread-per-factor 语义，但每个 factor 的内存足迹已通过流式
         // rank_roll / 单 slot 中性化大幅降低（见 process_task_with_values_v7）。
         let n_workers = n_jobs.min(total_pending);
+
+        // 机械盘设备级排他读盘锁：防止多个大系列同时扫同一块 /hdd 机械盘阵列导致随机寻道降速 10~16 倍。
+        // 仅在读盘回测循环期间持有，worker 结束后立即释放，下游筛选/Fulltest 不占锁。
+        let mut hdd_io_lock_guard: Option<fs::File> = None;
+        #[cfg(unix)]
+        if total_pending > 0
+            && !profile.network
+            && (profile.btrfs || colblk_store_dir.starts_with("/hdd"))
+            && std::env::var("RUST_PYFUNC_DISABLE_HDD_LOCK")
+                .map(|v| v != "1" && !v.eq_ignore_ascii_case("true"))
+                .unwrap_or(true)
+        {
+            use std::os::unix::fs::MetadataExt;
+            use std::os::unix::io::AsRawFd;
+            if let Ok(meta) = fs::metadata(&colblk_store_dir) {
+                let dev_id = meta.dev();
+                let lock_path = format!("/tmp/rp_backtest_hdd_dev_{dev_id}.lock");
+                if let Ok(lf) = fs::OpenOptions::new()
+                    .create(true)
+                    .write(true)
+                    .truncate(false)
+                    .open(&lock_path)
+                {
+                    let try_rc = unsafe { libc::flock(lf.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+                    if try_rc != 0 {
+                        let wait_t0 = Instant::now();
+                        println!(
+                            "  [Engine] 检测到同一机械盘阵列 (dev={dev_id}) 有其他回测引擎正在顺序读盘，自动排队错峰等待以避免磁头寻道降速..."
+                        );
+                        unsafe {
+                            libc::flock(lf.as_raw_fd(), libc::LOCK_EX);
+                        }
+                        println!(
+                            "  [Engine] 已获得机械盘读盘锁（排队 {:.1}s），开始顺序连读",
+                            wait_t0.elapsed().as_secs_f64()
+                        );
+                    }
+                    hdd_io_lock_guard = Some(lf);
+                }
+            }
+        }
 
         if total_pending > 0 {
             init_status_line();
@@ -501,21 +642,46 @@ pub fn tail_backtest_engine<'py>(
         }
         drop(result_sender);
 
-        // ---- 主线程收集结果 ----
+        // ---- 主线程收集结果（写入单文件批量 WAL，每 256 个因子或 5 秒 sync 一次，消除 10万+ 次双 fsync） ----
+        let mut wal_writer = if total_pending > 0 {
+            let f = fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&wal_path)
+                .map_err(|e| format!("打开批量断点写入文件失败: {e}"))?;
+            Some(std::io::BufWriter::with_capacity(4 * 1024 * 1024, f))
+        } else {
+            None
+        };
+        let mut unsynced_count = 0usize;
+        let mut last_sync_at = Instant::now();
         let mut processed_sources = 0usize;
         while let Ok(task_outcome) = result_receiver.recv() {
             match task_outcome {
                 Ok(task_result) => {
-                    let result_path = factor_result_path(&task_results_dir, &task_result.source_factor);
                     let is_passed = task_result.passed;
                     let is_raw_cov = task_result.eliminated_by_raw_cover;
                     let any_window = task_result.any_window_passed_preflight;
                     let preflight_maj = task_result.preflight_maj_failed_windows;
                     let preflight_zero = task_result.preflight_zero_failed_windows;
                     let preflight_nan = task_result.preflight_nan_failed_windows;
-                    write_task_result(&result_path, &task_result)?;
-                    // 断点续算完全由「扫 task_results/*.msgpack 是否存在」驱动（见上方恢复循环），
-                    // 旧实现每因子额外 append 一次 logs/completed_sources.txt 纯冗余，已移除。
+                    if let Some(ref mut w) = wal_writer {
+                        use std::io::Write;
+                        let payload = rmp_serde::to_vec_named(&task_result)
+                            .map_err(|e| format!("序列化任务结果失败: {e}"))?;
+                        let len_u32 = u32::try_from(payload.len())
+                            .map_err(|_| "单因子回测结果超出 4GiB".to_string())?;
+                        w.write_all(&len_u32.to_le_bytes())
+                            .and_then(|_| w.write_all(&payload))
+                            .map_err(|e| format!("追加断点记录失败: {e}"))?;
+                        unsynced_count += 1;
+                        if unsynced_count >= 256 || last_sync_at.elapsed().as_secs() >= 5 {
+                            w.flush().map_err(|e| format!("刷新断点缓冲失败: {e}"))?;
+                            let _ = w.get_ref().sync_data();
+                            unsynced_count = 0;
+                            last_sync_at = Instant::now();
+                        }
+                    }
                     prefill_coverage.insert(
                         task_result.source_factor.clone(),
                         (
@@ -600,6 +766,14 @@ pub fn tail_backtest_engine<'py>(
         for handle in handles {
             let _ = handle.join();
         }
+        // 读盘已全部结束，立即释放机械盘排他锁供其它排队任务接力读盘
+        drop(hdd_io_lock_guard);
+
+        if let Some(mut w) = wal_writer {
+            use std::io::Write;
+            w.flush().map_err(|e| format!("收尾刷新断点缓冲失败: {e}"))?;
+            crate::storage_policy::sync_file(w.get_ref(), "回测断点WAL")?;
+        }
 
         if let Some((_,_,cache))=&shared_reader {read_count.store(cache.reads.load(AtomicOrdering::Relaxed),AtomicOrdering::Relaxed);}
         // P0-1 读取闭环断言：走到这里时（没有收到过 Err 结果），每个因子要么被恢复、
@@ -612,15 +786,37 @@ pub fn tail_backtest_engine<'py>(
             ));
         }
 
-        write_aggregated_outputs(&cache_root_path, &aggregated)?;
+        write_aggregated_outputs_with_stem(&cache_root_path, &aggregated, &resolved_cold_stem)?;
+        let stamp_json = serde_json::json!({
+            "version": 1,
+            "requested_sources": requested,
+            "processed_sources": processed_sources,
+            "restored_sources": restored_sources,
+            "ic_only": ic_only,
+            "industry_neutralize": industry_neutralize,
+            "cold_dual_pass": cold_dual_pass,
+            "cold_stem": resolved_cold_stem,
+        });
+        if let Ok(stamp_bytes) = serde_json::to_vec_pretty(&stamp_json) {
+            let _ = crate::storage_policy::atomic_write(
+                &cache_root_path.join("engine_completed.json"),
+                &stamp_bytes,
+            );
+        }
 
         let mut candidate_counts = HashMap::new();
         candidate_counts.insert("rolled_gap1".to_string(), aggregated.raw_summary_gap1.len());
         candidate_counts.insert("rolled_gap5".to_string(), aggregated.raw_summary_gap5.len());
         candidate_counts.insert("neu_gap1".to_string(), aggregated.neu_summary_gap1.len());
         candidate_counts.insert("neu_gap5".to_string(), aggregated.neu_summary_gap5.len());
-        candidate_counts.insert("neu11_gap1".to_string(), aggregated.neu11_summary_gap1.len());
-        candidate_counts.insert("neu11_gap5".to_string(), aggregated.neu11_summary_gap5.len());
+        candidate_counts.insert(
+            format!("{resolved_cold_stem}_gap1"),
+            aggregated.neu11_summary_gap1.len(),
+        );
+        candidate_counts.insert(
+            format!("{resolved_cold_stem}_gap5"),
+            aggregated.neu11_summary_gap5.len(),
+        );
         Ok((
             processed_sources,
             restored_sources,

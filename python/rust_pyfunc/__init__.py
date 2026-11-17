@@ -59,11 +59,13 @@ _LAZY_EXPORTS = {
     "treevisual": (".treevisual", None),
     "read_minute_data": (".minute_data_reader", "read_minute_data"),
     "save_factor": (".factor_io_simple", "save_factor"),
+    "save_factors_batch": (".factor_io_simple", "save_factors_batch"),
     "read_factor": (".factor_io_simple", "read_factor"),
     "get_abs": (".factor_io_simple", "get_abs"),
     "base_to_final": (".factor_io_simple", "base_to_final"),
     "get_factor_names": (".factor_io_simple", "get_factor_names"),
     "read_factor_from_colblk": (".factor_io_simple", "read_factor_from_colblk"),
+    "read_factors_from_colblk_batch": (".factor_io_simple", "read_factors_from_colblk_batch"),
     "probe_update_window": (".factor_io_simple", "probe_update_window"),
     "cleanup_factor_store": (".factor_io_simple", "cleanup_factor_store"),
     "read_level2_list": (".factor_io_simple", "read_level2_list"),
@@ -120,8 +122,8 @@ def _check_build_artifact():
                 "\n⚠️  [rust_pyfunc] 检测到无优化/debug 构建（{name}: {size:.0f}MB，"
                 "正常优化构建 <50MB）。\n"
                 "    回测与因子计算性能将慢 10~50 倍！请重新构建：\n"
-                "      cd /home/chenzongwei/rust_pyfunc && bash dev.sh\n"
-                "      （默认 release-fast，约 1 分钟；发布用 ./alter.sh）\n"
+                "      cd /home/chenzongwei/rust_pyfunc && timeout 600s ./alter.sh\n"
+                "      （默认 release-fast，约 1 分钟；正式发布需征得同意后用 ./alter.sh release）\n"
                 "    原因：裸跑 `maturin develop` 会安装 dev 构建；maturin 守卫应已阻止。\n\n"
                 .format(name=_os.path.basename(biggest), size=size_mb)
             )

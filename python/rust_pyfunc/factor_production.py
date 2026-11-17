@@ -60,18 +60,24 @@ class _ProductionRuntime:
         )
 
     def raw_tasks(self, start, end):
-        symbols = set(
-            pd.read_csv(
-                Path(self.calendar_root) / "basic_info/symbol_map.csv", dtype={"symbol": str}
-            )["symbol"].str.zfill(6)
+        symbols = sorted(
+            set(
+                pd.read_csv(
+                    Path(self.calendar_root) / "basic_info/symbol_map.csv", dtype={"symbol": str}
+                )["symbol"].str.zfill(6)
+            )
         )
+        dates = self.raw_dates(start, end)
+        if hasattr(self.rp, "read_level2_list_fast"):
+            return self.rp.read_level2_list_fast(dates, symbols, self.level2_root)
+        sym_set = set(symbols)
         return [
             [date, path.name[:6]]
-            for date in self.raw_dates(start, end)
+            for date in dates
             for path in sorted(
                 (Path(self.level2_root) / str(date) / "transaction").glob("*_transaction.csv")
             )
-            if path.name[:6] in symbols
+            if path.name[:6] in sym_set
         ]
 
     def prepare_output_axis(self, root, version, extra_symbols=()):
@@ -127,6 +133,19 @@ class _ProductionRuntime:
         )
         return hashlib.sha256(json.dumps(settings, sort_keys=True).encode()).hexdigest()
 
+    def _save_many(self, frames_dict, factor_ver, start_date, end_date, hdf5_dir):
+        if not frames_dict:
+            return
+        if hasattr(self.rp, "save_factors_batch"):
+            self.rp.save_factors_batch(
+                frames_dict, factor_ver, start_date, end_date, 1, hdf5_dir
+            )
+        else:
+            for name, frame in frames_dict.items():
+                self.rp.save_factor(
+                    frame, factor_ver, name, start_date, end_date, 1, hdf5_dir
+                )
+
     def write_selected_base(self, source_dirs, start_date, end_date):
         extra = set()
         if not self.stock_only_input:
@@ -139,21 +158,31 @@ class _ProductionRuntime:
                 )
         self.prepare_output_axis(self.base_hdf5_dir, self.base_factor_ver, extra)
         selected = set(self.names_save)
-        for raw_name in dict.fromkeys((name.removesuffix("_fold") for name in self.names_save)):
-            frame = self.rp.read_factor_from_colblk(
-                source_dirs[raw_name], raw_name, start_date, end_date
-            )
+        ordered_raw = list(dict.fromkeys((name.removesuffix("_fold") for name in self.names_save)))
+        by_dir = {}
+        for raw_name in ordered_raw:
+            by_dir.setdefault(source_dirs[raw_name], []).append(raw_name)
+
+        loaded_raw = {}
+        for directory, dir_names in by_dir.items():
+            if hasattr(self.rp, "read_factors_from_colblk_batch"):
+                loaded_raw.update(
+                    self.rp.read_factors_from_colblk_batch(
+                        directory, dir_names, start_date, end_date
+                    )
+                )
+            else:
+                for rn in dir_names:
+                    loaded_raw[rn] = self.rp.read_factor_from_colblk(
+                        directory, rn, start_date, end_date
+                    )
+
+        to_save = {}
+        for raw_name in ordered_raw:
+            frame = loaded_raw[raw_name]
             frame.columns = [code[:6] for code in frame.columns]
             if raw_name in selected:
-                self.rp.save_factor(
-                    frame,
-                    self.base_factor_ver,
-                    raw_name,
-                    start_date,
-                    end_date,
-                    1,
-                    self.base_hdf5_dir,
-                )
+                to_save[raw_name] = frame
             if raw_name + "_fold" in selected:
                 values = frame.to_numpy(dtype=np.float32)
                 values[~np.isfinite(values)] = np.nan
@@ -169,18 +198,17 @@ class _ProductionRuntime:
                     index=frame.index,
                     columns=frame.columns,
                 )
-                self.rp.save_factor(
-                    folded,
-                    self.base_factor_ver,
-                    raw_name + "_fold",
-                    start_date,
-                    end_date,
-                    1,
-                    self.base_hdf5_dir,
-                )
+                to_save[raw_name + "_fold"] = folded
+        self._save_many(
+            to_save, self.base_factor_ver, start_date, end_date, self.base_hdf5_dir
+        )
+        self._cached_base_window = (start_date, end_date)
+        self._cached_base_frames = to_save
 
     def stock_input_root(self, start_date, end_date):
-        """只给横截面计算器提供股票文件；文件级软链接避免复制原始数据。"""
+        """只给横截面计算器提供股票文件；多线程目录扫描建文件级软链接避免复制原始数据。"""
+        from concurrent.futures import ThreadPoolExecutor
+
         symbols = set(
             pd.read_csv(
                 Path(self.calendar_root) / "basic_info/symbol_map.csv", dtype={"symbol": str}
@@ -193,18 +221,31 @@ class _ProductionRuntime:
             raise ValueError("股票输入临时目录不能是目录软链接")
         if root.exists():
             shutil.rmtree(root)
-        for date in self.raw_dates(start_date, end_date):
+        dates = self.raw_dates(start_date, end_date)
+        l2_root = Path(self.level2_root)
+
+        def _link_day(date):
             for kind in ("transaction", "market_data"):
+                src_dir = l2_root / str(date) / kind
                 directory = root / str(date) / kind
                 directory.mkdir(parents=True, exist_ok=True)
-                for code in sorted(symbols):
-                    name = f"{code}_{date}_{kind}.csv"
-                    source = Path(self.level2_root) / str(date) / kind / name
-                    if source.is_file():
-                        target = directory / name
-                        if target.is_symlink():
-                            target.unlink()
-                        target.symlink_to(source.resolve())
+                if not src_dir.is_dir():
+                    continue
+                suffix = f"_{date}_{kind}.csv"
+                with os.scandir(src_dir) as it:
+                    for entry in it:
+                        fname = entry.name
+                        if fname.endswith(suffix):
+                            code = fname[: -len(suffix)]
+                            if code in symbols and entry.is_file():
+                                os.symlink(os.path.realpath(entry.path), directory / fname)
+
+        if len(dates) <= 2:
+            for d in dates:
+                _link_day(d)
+        else:
+            with ThreadPoolExecutor(max_workers=min(16, len(dates))) as pool:
+                list(pool.map(_link_day, dates))
         return (str(root.resolve()), symbols)
 
     def run_base(self, start_date, end_date, n_jobs=None, stock_only=None):
@@ -265,13 +306,21 @@ class _ProductionRuntime:
 
     def run_db(self, start_date, end_date):
         self.prepare_output_axis(self.db_hdf5_dir, self.db_factor_ver)
+        cached_win = getattr(self, "_cached_base_window", None)
+        cached_frames = getattr(self, "_cached_base_frames", None) or {}
+        batch = {}
         for name in self.names_in_db:
-            frame = self.rp.read_factor(
-                self.base_factor_ver, name, start_date, end_date, 1, self.base_hdf5_dir
-            )
-            self.rp.save_factor(
-                frame, self.db_factor_ver, name, start_date, end_date, 1, self.db_hdf5_dir
-            )
+            if cached_win == (start_date, end_date) and name in cached_frames:
+                batch[name] = cached_frames[name]
+            else:
+                batch[name] = self.rp.read_factor(
+                    self.base_factor_ver, name, start_date, end_date, 1, self.base_hdf5_dir
+                )
+            if len(batch) >= 16:
+                self._save_many(batch, self.db_factor_ver, start_date, end_date, self.db_hdf5_dir)
+                batch.clear()
+        if batch:
+            self._save_many(batch, self.db_factor_ver, start_date, end_date, self.db_hdf5_dir)
 
     def final_frames(self, names, start_date, end_date):
         """复用收尾引擎的 rank → 可交易缺失中位数填充 → rolling，保持 float32 口径。
@@ -303,12 +352,16 @@ class _ProductionRuntime:
                 self.base_factor_ver, source, read_start, end_date, 1, self.base_hdf5_dir
             )
             windows = sorted({window for _, _, window in targets if window > 1})
+            need_autocorr = any(stat == "autocorr" for _, stat, _ in targets)
             values = raw.to_numpy(dtype=np.float32)
             values[~np.isfinite(values)] = np.nan
             mask = restrict.reindex(index=raw.index, columns=raw.columns).to_numpy(dtype=np.float32)
             block = np.asarray(
                 self.rp.tail_v5_rank_fill_roll_block_f32(
-                    np.ascontiguousarray(values), np.ascontiguousarray(mask), windows
+                    np.ascontiguousarray(values),
+                    np.ascontiguousarray(mask),
+                    windows,
+                    need_autocorr,
                 )
             )
             slots = {("smooth", 1): 0}
@@ -329,27 +382,47 @@ class _ProductionRuntime:
 
     def run_h5(self, start_date, end_date):
         self.prepare_output_axis(self.final_hdf5_dir_gap5, self.final_factor_ver_gap5)
+        batch = {}
         for name, frame in self.final_frames(self.names_gap5, start_date, end_date):
-            self.rp.save_factor(
-                frame,
+            batch[name] = frame
+            if len(batch) >= 16:
+                self._save_many(
+                    batch,
+                    self.final_factor_ver_gap5,
+                    start_date,
+                    end_date,
+                    self.final_hdf5_dir_gap5,
+                )
+                batch.clear()
+        if batch:
+            self._save_many(
+                batch,
                 self.final_factor_ver_gap5,
-                name,
                 start_date,
                 end_date,
-                1,
                 self.final_hdf5_dir_gap5,
             )
 
     def run_h1(self, start_date, end_date):
         self.prepare_output_axis(self.final_hdf5_dir_gap1, self.final_factor_ver_gap1)
+        batch = {}
         for name, frame in self.final_frames(self.names_gap1, start_date, end_date):
-            self.rp.save_factor(
-                frame,
+            batch[name] = frame
+            if len(batch) >= 16:
+                self._save_many(
+                    batch,
+                    self.final_factor_ver_gap1,
+                    start_date,
+                    end_date,
+                    self.final_hdf5_dir_gap1,
+                )
+                batch.clear()
+        if batch:
+            self._save_many(
+                batch,
                 self.final_factor_ver_gap1,
-                name,
                 start_date,
                 end_date,
-                1,
                 self.final_hdf5_dir_gap1,
             )
 

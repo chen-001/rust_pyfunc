@@ -89,6 +89,7 @@ fn rank_fill_roll_block_f32(
     data: &Array2<f32>,
     restrict: &Array2<f32>,
     windows: &[usize],
+    include_autocorr: bool,
 ) -> Result<Array3<f32>, String> {
     if data.dim() != restrict.dim() {
         return Err(format!(
@@ -98,28 +99,48 @@ fn rank_fill_roll_block_f32(
         ));
     }
     let ranked = rank_and_fill_missing_cross_sectional_median(data, restrict);
-    let mut arrays = vec![ranked.clone()];
-    for &window in windows {
+    let (n_rows, n_cols) = ranked.dim();
+    let n_slots = 1 + 5 * windows.len();
+    let mut block = Array3::<f32>::from_elem((n_rows, n_cols, n_slots), f32::NAN);
+
+    {
+        let blk_slice = block.as_slice_mut().expect("block 连续");
+        let rnk_slice = ranked.as_slice().expect("ranked 连续");
+        for idx in 0..(n_rows * n_cols) {
+            blk_slice[idx * n_slots] = rnk_slice[idx];
+        }
+    }
+
+    for (wi, &window) in windows.iter().enumerate() {
         if window == 0 {
             return Err("window 必须大于 0".to_string());
         }
         let min_periods = std::cmp::max(1, window / 2);
         let (mean, max, min, std) = rolling_stats_f32_serial(&ranked, window, min_periods);
-        let autocorr = rolling_autocorr_f32_serial(&ranked, window);
-        arrays.push(mean);
-        arrays.push(max);
-        arrays.push(min);
-        arrays.push(std);
-        arrays.push(autocorr);
-    }
-
-    let (n_rows, n_cols) = ranked.dim();
-    let n_slots = arrays.len();
-    let mut block = Array3::<f32>::from_elem((n_rows, n_cols, n_slots), f32::NAN);
-    for (slot_idx, array) in arrays.into_iter().enumerate() {
-        for row_idx in 0..n_rows {
-            for col_idx in 0..n_cols {
-                block[[row_idx, col_idx, slot_idx]] = array[[row_idx, col_idx]];
+        let base_slot = 1 + 5 * wi;
+        let blk_slice = block.as_slice_mut().expect("block 连续");
+        let s0 = mean.as_slice().expect("mean 连续");
+        let s1 = max.as_slice().expect("max 连续");
+        let s2 = min.as_slice().expect("min 连续");
+        let s3 = std.as_slice().expect("std 连续");
+        if include_autocorr {
+            let autocorr = rolling_autocorr_f32_serial(&ranked, window);
+            let s4 = autocorr.as_slice().expect("autocorr 连续");
+            for idx in 0..(n_rows * n_cols) {
+                let dst = &mut blk_slice[idx * n_slots + base_slot..idx * n_slots + base_slot + 5];
+                dst[0] = s0[idx];
+                dst[1] = s1[idx];
+                dst[2] = s2[idx];
+                dst[3] = s3[idx];
+                dst[4] = s4[idx];
+            }
+        } else {
+            for idx in 0..(n_rows * n_cols) {
+                let dst = &mut blk_slice[idx * n_slots + base_slot..idx * n_slots + base_slot + 4];
+                dst[0] = s0[idx];
+                dst[1] = s1[idx];
+                dst[2] = s2[idx];
+                dst[3] = s3[idx];
             }
         }
     }
@@ -127,12 +148,13 @@ fn rank_fill_roll_block_f32(
 }
 
 #[pyfunction]
-#[pyo3(signature = (data, restrict, windows))]
+#[pyo3(signature = (data, restrict, windows, include_autocorr=true))]
 pub fn tail_v5_rank_fill_roll_block_f32<'py>(
     py: Python<'py>,
     data: PyReadonlyArray2<'py, f32>,
     restrict: PyReadonlyArray2<'py, f32>,
     windows: Vec<usize>,
+    include_autocorr: bool,
 ) -> PyResult<Py<PyArray3<f32>>> {
     let data_view = data.as_array();
     let restrict_view = restrict.as_array();
@@ -146,7 +168,7 @@ pub fn tail_v5_rank_fill_roll_block_f32<'py>(
     .map_err(|_| PyValueError::new_err("restrict 形状无效"))?;
 
     let output = py.allow_threads(|| {
-        rank_fill_roll_block_f32(&data_owned, &restrict_owned, &windows)
+        rank_fill_roll_block_f32(&data_owned, &restrict_owned, &windows, include_autocorr)
             .map_err(PyValueError::new_err)
     })?;
 

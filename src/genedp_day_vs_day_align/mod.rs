@@ -72,32 +72,13 @@ fn cxl_available(code: &str, date: i64, prev: i64) -> bool {
     date >= start && prev >= start
 }
 
-fn stock_codes_for_day(dir: &std::path::Path, symbol_map: &std::path::Path, date: i64, subdir: &str)
-    -> std::io::Result<Vec<String>> {
-    use std::io::{Error, ErrorKind};
-    let invalid = |e| Error::new(ErrorKind::InvalidData, e);
-    let mut reader = csv::Reader::from_path(symbol_map).map_err(invalid)?;
-    let column = reader.headers().map_err(invalid)?.iter().position(|h| h == "symbol")
-        .ok_or_else(|| Error::new(ErrorKind::InvalidData, "股票表缺少 symbol 列"))?;
-    let mut stocks = std::collections::BTreeSet::new();
-    for record in reader.records() {
-        let record = record.map_err(invalid)?;
-        let code = record.get(column).unwrap_or("").trim();
-        if code.is_empty() || code.len() > 6 || !code.bytes().all(|b| b.is_ascii_digit()) {
-            return Err(Error::new(ErrorKind::InvalidData, "股票表含无效代码"));
-        }
-        stocks.insert(format!("{code:0>6}"));
-    }
-    if stocks.is_empty() || !dir.is_dir() {
-        return Err(Error::new(ErrorKind::InvalidData, "股票白名单为空或原始数据目录不存在"));
-    }
-    Ok(stocks.into_iter().filter(|code| dir.join(format!("{code}_{date}_{subdir}.csv")).is_file()).collect())
-}
 fn basic_dir() -> String { crate::data_paths::basic_info_path("").to_string_lossy().trim_end_matches('/').to_string() }
 fn list_codes(date: i64, subdir: &str) -> std::io::Result<Vec<String>> {
     let root = crate::genedp_common::level2_root_string();
-    stock_codes_for_day(&std::path::Path::new(&root).join(date.to_string()).join(subdir),
-        &std::path::Path::new(&basic_dir()).join("symbol_map.csv"), date, subdir)
+    let sym_map = std::path::Path::new(&basic_dir()).join("symbol_map.csv");
+    crate::genedp_common::stock_codes_whitelisted(&root, &sym_map, date, subdir)
+        .map(|(codes, _, _)| codes)
+        .map_err(crate::genedp_common::invalid)
 }
 
 /// 读日频 h5 某一天（最后一个 ≤ date 的行）给定股票的值。sym_csv 给出 代码→列号（pos 列）。

@@ -570,22 +570,29 @@ fn get_residual(
     fv: &Array2<f64>,
     bench: &[Array2<f64>],
     industry: Option<&Array2<f64>>,
-    cold: Option<&Array2<f64>>,
+    cold: Option<&Array3<f64>>,
 ) -> Array2<f64> {
     let (t, n) = fv.dim();
     let mut resid = Array2::<f64>::from_elem((t, n), f64::NAN);
-    // 冷门中性化：把冷得分当第 11 个回归列（与 10 个风格一起进设计矩阵）
-    let k = bench.len() + if cold.is_some() { 1 } else { 0 };
+    // 扩展风格中性化：把 M 列冷门/微观轴（如 Cold v1 M=1 / Cold v2 M=3 / +TradeSize M=4）与 10 个风格一起进设计矩阵
+    let m_extra = cold.map_or(0, |c| c.dim().2);
+    assert!(
+        bench.len() + m_extra + 1 <= 24,
+        "get_residual 风格列总数超上限 23: bench={} m_extra={}",
+        bench.len(),
+        m_extra
+    );
+    let k = bench.len() + m_extra;
     let mut valid: Vec<bool> = Vec::with_capacity(n);
-    // 行存储: 每只有效股票一行 [y, b0..b9], 定长数组免分配, 顺序访问利于 cache
-    let mut rows: Vec<[f64; 12]> = Vec::with_capacity(n);
-    let mut cur = [0.0_f64; 12];
+    // 行存储: 每只有效股票一行 [y, b0..b9, extra_0..extra_{m-1}], 定长数组免分配, 顺序访问利于 cache
+    let mut rows: Vec<[f64; 24]> = Vec::with_capacity(n);
+    let mut cur = [0.0_f64; 24];
     // 行业列索引 (有行业模式): -1 = 无行业 (哑变量全 0)
     let mut ind_cols: Vec<i32> = Vec::with_capacity(n);
     // 当日 unique 行业码 (排序)
     let mut ind_codes: Vec<f64> = Vec::with_capacity(40);
-    let mut xtx: Vec<f64> = Vec::with_capacity(42 * 42);
-    let mut xty: Vec<f64> = Vec::with_capacity(42);
+    let mut xtx: Vec<f64> = Vec::with_capacity(56 * 56);
+    let mut xty: Vec<f64> = Vec::with_capacity(56);
     for idx in 0..t {
         let row = fv.row(idx);
         if !row.iter().any(|v| !v.is_nan()) {
@@ -607,7 +614,7 @@ fn get_residual(
         } else {
             0
         };
-        // 特征列数: 无行业 = 截距 + 10 风格; 有行业 = 10 风格 + 行业 one-hot
+        // 特征列数: 无行业 = 截距 + k 风格; 有行业 = k 风格 + 行业 one-hot
         let p = if industry.is_some() { k + n_ind } else { k + 1 };
         valid.clear();
         rows.clear();
@@ -615,7 +622,7 @@ fn get_residual(
         for j in 0..n {
             let ok = row[j].is_finite()
                 && bench.iter().all(|b| b[[idx, j]].is_finite())
-                && cold.map_or(true, |c| c[[idx, j]].is_finite());
+                && cold.map_or(true, |c| (0..m_extra).all(|mc| c[[idx, j, mc]].is_finite()));
             valid.push(ok);
             if ok {
                 cur[0] = row[j];
@@ -623,7 +630,9 @@ fn get_residual(
                     cur[c + 1] = bench[c][[idx, j]];
                 }
                 if let Some(c) = cold {
-                    cur[bench.len() + 1] = c[[idx, j]];
+                    for mc in 0..m_extra {
+                        cur[bench.len() + 1 + mc] = c[[idx, j, mc]];
+                    }
                 }
                 rows.push(cur);
                 if let Some(ind) = industry {
@@ -830,19 +839,21 @@ pub struct NeutralizeStdShared {
     pub(crate) cold_pre: Option<ColdPre>,
 }
 
-/// 冷门（11 风格）逐日预分解：X = [1, b0..b9, cold]（p = 12）。
+/// 冷门/扩展风格（10 + M 风格）逐日预分解：X = [1, b0..b9, extra_0..extra_{M-1}]（p = 11 + M）。
 ///
-/// 冷得分只在"每日有效集"上取一次值，X'X 与 Cholesky 与因子无关，可按天预计算并
+/// 扩展风格只在"每日有效集"上取一次值，X'X 与 Cholesky 与因子无关，可按天预计算并
 /// 跨 slot 复用；每个 slot 只剩 y 侧累计 + 回代 + 残差，跟 10 风格那条 v2 快路径同构。
 pub(crate) struct ColdPre {
-    /// 每日 (p, 有效股票下标)。p = 0 表示该日有效数 <= 10（生产路径跳过该日）。
+    /// 额外风格列数 M（M=1 为旧 Cold v1；M=3 为 Cold v2；M=4 为 Cold v2 + TradeSize）。
+    pub(crate) m_extra: usize,
+    /// 每日 (p, 有效股票下标)。p = 0 表示该日有效数 <= 10（生产路径跳过该日），否则 p = 11 + m_extra。
     pub(crate) per_date: Vec<(usize, Vec<u32>)>,
     /// 每日 Cholesky（None = 分解失败，该日回退 SVD 伪逆）。
     pub(crate) chols: Vec<Option<Cholesky<f64, nalgebra::Dyn>>>,
-    /// 每日有效集 × 11 列（10 风格 + 冷得分）连续内存，按 valid 顺序行主序。
+    /// 每日有效集 × (10 + m_extra) 列连续内存，按 valid 顺序行主序。
     pub(crate) xdays: Vec<Vec<f64>>,
-    /// 每日 12×12 X'X（行主序 144 个 f64），供 SharedCache 落盘后逐位复原 Cholesky。
-    pub(crate) xtx_144: Vec<[f64; 144]>,
+    /// 每日 p×p X'X（行主序 p*p 个 f64），供 SharedCache 落盘后逐位复原 Cholesky。
+    pub(crate) xtx_flat: Vec<Vec<f64>>,
 }
 
 /// 从 style data + industry + restrict 预计算所有不随因子变化的量。
@@ -1127,7 +1138,7 @@ pub(crate) fn neutralize_std_section_owned(
     mut fv_ranked: Array2<f64>,
     shared: &NeutralizeStdShared,
     industry_neutralize: bool,
-    cold: Option<&Array2<f64>>,
+    cold: Option<&Array3<f64>>,
 ) -> Array2<f64> {
     let (t, n) = fv_ranked.dim();
     let industry = &shared.industry;
@@ -1229,7 +1240,7 @@ pub(crate) fn neutralize_std_slot_f32(
     slot: ArrayView2<'_, f32>,
     shared: &NeutralizeStdShared,
     industry_neutralize: bool,
-    cold: Option<&Array2<f64>>,
+    cold: Option<&Array3<f64>>,
 ) -> Result<Array2<f32>, String> {
     let (n_dates, n_stocks) = slot.dim();
     if shared.industry.dim() != (n_dates, n_stocks)
@@ -3389,33 +3400,42 @@ pub fn selfcheck_style_only(data_dir: &str) -> String {
 //   X'X 按 j 升序、与生产相同的加法规程累计；同样的 nalgebra Cholesky/solve；
 //   n_valid<=10 跳过、uniq==1 置 0.5、Cholesky 失败回退 SVD 伪逆（rcond 同式）。
 
-/// 按天预计算冷门那一路的 X'X / Cholesky / 连续 X（仅纯风格口径需要）。
+/// 按天预计算冷门/扩展风格那一路的 X'X / Cholesky / 连续 X（仅纯风格口径需要）。
 /// 各日完全独立，用 rayon 并行构建，日内 j 与 pos 累加顺序与串行版逐字一致（0 bit 差异）。
 pub(crate) fn build_cold_pre(
     shared: &NeutralizeStdShared,
-    cold: &Array2<f64>,
+    cold: &Array3<f64>,
 ) -> Result<ColdPre, String> {
     use rayon::prelude::*;
     let (t, n) = shared.industry.dim();
-    if cold.dim() != (t, n) {
+    let (ct, cn, m_extra) = cold.dim();
+    if (ct, cn) != (t, n) || m_extra == 0 || m_extra > 12 {
         return Err(format!(
-            "冷得分形状 {:?} 与模板轴 {:?} 不一致",
+            "扩展风格形状 {:?} 与模板轴 {:?} 不匹配（或列数 m_extra={} 不在 1..=12）",
             cold.dim(),
-            (t, n)
+            (t, n),
+            m_extra
         ));
     }
     let barra = &shared.barra_ranked;
     let k = barra.len(); // = 10
-    let p = k + 2; // [1, b0..b9, cold] = 12
-    let days: Vec<((usize, Vec<u32>), Option<Cholesky<f64, nalgebra::Dyn>>, Vec<f64>, [f64; 144])> =
+    let k_tot = k + m_extra; // 10 + M
+    let p = 1 + k_tot; // [1, b0..b9, extra_0..extra_{M-1}] = 11 + M
+    let days: Vec<((usize, Vec<u32>), Option<Cholesky<f64, nalgebra::Dyn>>, Vec<f64>, Vec<f64>)> =
         (0..t)
             .into_par_iter()
             .map(|idx| {
                 let mut valid: Vec<u32> = Vec::new();
                 let mut xd: Vec<f64> = Vec::new();
                 for j in 0..n {
-                    let c = cold[[idx, j]];
-                    if !c.is_finite() {
+                    let mut c_ok = true;
+                    for mc in 0..m_extra {
+                        if !cold[[idx, j, mc]].is_finite() {
+                            c_ok = false;
+                            break;
+                        }
+                    }
+                    if !c_ok {
                         continue;
                     }
                     if shared.restrict_f64[[idx, j]] != 0.0 {
@@ -3435,25 +3455,27 @@ pub(crate) fn build_cold_pre(
                     for b in barra.iter() {
                         xd.push(b[[idx, j]]);
                     }
-                    xd.push(c);
+                    for mc in 0..m_extra {
+                        xd.push(cold[[idx, j, mc]]);
+                    }
                 }
                 let nv = valid.len();
                 if nv <= 10 {
-                    return ((0, Vec::new()), None, Vec::new(), [0.0_f64; 144]);
+                    return ((0, Vec::new()), None, Vec::new(), vec![0.0_f64; p * p]);
                 }
                 // X'X（与 get_residual 的累积顺序完全一致）
-                let mut xtx = [0.0_f64; 144];
+                let mut xtx = vec![0.0_f64; p * p];
                 for pos in 0..nv {
-                    let r = &xd[pos * (k + 1)..pos * (k + 1) + (k + 1)];
+                    let r = &xd[pos * k_tot..pos * k_tot + k_tot];
                     xtx[0] += 1.0;
-                    for c in 0..(k + 1) {
+                    for c in 0..k_tot {
                         xtx[c + 1] += r[c];
                         xtx[(c + 1) * p] += r[c];
                     }
-                    for c1 in 0..(k + 1) {
+                    for c1 in 0..k_tot {
                         let b1 = r[c1];
                         xtx[(c1 + 1) * p + (c1 + 1)] += b1 * b1;
-                        for c2 in (c1 + 1)..(k + 1) {
+                        for c2 in (c1 + 1)..k_tot {
                             let v = b1 * r[c2];
                             xtx[(c1 + 1) * p + (c2 + 1)] += v;
                             xtx[(c2 + 1) * p + (c1 + 1)] += v;
@@ -3469,18 +3491,19 @@ pub(crate) fn build_cold_pre(
     let mut per_date = Vec::with_capacity(t);
     let mut chols = Vec::with_capacity(t);
     let mut xdays = Vec::with_capacity(t);
-    let mut xtx_144 = Vec::with_capacity(t);
+    let mut xtx_flat = Vec::with_capacity(t);
     for (pd, ch, xd, xtx) in days {
         per_date.push(pd);
         chols.push(ch);
         xdays.push(xd);
-        xtx_144.push(xtx);
+        xtx_flat.push(xtx);
     }
     Ok(ColdPre {
+        m_extra,
         per_date,
         chols,
         xdays,
-        xtx_144,
+        xtx_flat,
     })
 }
 
@@ -3489,30 +3512,35 @@ pub(crate) fn build_cold_pre(
 fn ols_day_cold(
     fv_filled: &Array2<f64>,
     barra: &[Array2<f64>],
-    cold: &Array2<f64>,
+    cold: &Array3<f64>,
     idx: usize,
 ) -> Vec<f64> {
-    use nalgebra::{DMatrix, Cholesky};
+    use nalgebra::{Cholesky, DMatrix};
     let n = fv_filled.ncols();
-    let k = barra.len() + 1; // 风格 + 冷
+    let m_extra = cold.dim().2;
+    let k = barra.len() + m_extra; // 风格 + 扩展列
     let mut resid_row = vec![f64::NAN; n];
     let mut valid: Vec<usize> = Vec::with_capacity(n);
-    let mut rows: Vec<[f64; 12]> = Vec::with_capacity(n);
+    let mut rows: Vec<[f64; 24]> = Vec::with_capacity(n);
     for j in 0..n {
         let y = fv_filled[[idx, j]];
-        let c = cold[[idx, j]];
-        if !y.is_finite() || !c.is_finite() {
+        if !y.is_finite() {
+            continue;
+        }
+        if !(0..m_extra).all(|mc| cold[[idx, j, mc]].is_finite()) {
             continue;
         }
         if !barra.iter().all(|b| b[[idx, j]].is_finite()) {
             continue;
         }
-        let mut cur = [0.0_f64; 12];
+        let mut cur = [0.0_f64; 24];
         cur[0] = y;
         for (ci, b) in barra.iter().enumerate() {
             cur[ci + 1] = b[[idx, j]];
         }
-        cur[k] = c;
+        for mc in 0..m_extra {
+            cur[barra.len() + 1 + mc] = cold[[idx, j, mc]];
+        }
         valid.push(j);
         rows.push(cur);
     }
@@ -3594,19 +3622,19 @@ fn ols_day_cold(
     resid_row
 }
 
-/// 冷门残差（预分解版）：与 `get_residual(&fv, barra, None, Some(cold))` 逐位一致。
+/// 冷门/扩展风格残差（预分解版）：与 `get_residual(&fv, barra, None, Some(cold))` 逐位一致。
 fn get_residual_cold_pre(
     fv_filled: &Array2<f64>,
     shared: &NeutralizeStdShared,
-    cold: &Array2<f64>,
+    cold: &Array3<f64>,
     pre: &ColdPre,
 ) -> Array2<f64> {
     let (t, n) = fv_filled.dim();
     let barra = &shared.barra_ranked;
-    let k = barra.len();
+    let k_tot = barra.len() + pre.m_extra;
     let mut resid = Array2::<f64>::from_elem((t, n), f64::NAN);
     let mut y_buf: Vec<f64> = Vec::with_capacity(n);
-    let mut xty: Vec<f64> = Vec::with_capacity(16);
+    let mut xty: Vec<f64> = Vec::with_capacity(24);
     let mut n_fallback = 0usize;
     let mut n_used = 0usize;
     for idx in 0..t {
@@ -3651,9 +3679,9 @@ fn get_residual_cold_pre(
         xty.resize(*p, 0.0);
         let xd = &pre.xdays[idx];
         for (pos, &yv) in y_buf.iter().enumerate() {
-            let xrow = &xd[pos * (k + 1)..pos * (k + 1) + (k + 1)];
+            let xrow = &xd[pos * k_tot..pos * k_tot + k_tot];
             xty[0] += yv;
-            for c in 0..(k + 1) {
+            for c in 0..k_tot {
                 xty[c + 1] += xrow[c] * yv;
             }
         }
@@ -3668,7 +3696,7 @@ fn get_residual_cold_pre(
                 if c == 0 {
                     1.0
                 } else {
-                    let xrow = &xd[r_i * (k + 1)..r_i * (k + 1) + (k + 1)];
+                    let xrow = &xd[r_i * k_tot..r_i * k_tot + k_tot];
                     xrow[c - 1]
                 }
             });
@@ -3689,9 +3717,9 @@ fn get_residual_cold_pre(
             (vt.transpose() * coef).column(0).iter().copied().collect()
         };
         for (pos, &j) in valid_idx.iter().enumerate() {
-            let xrow = &xd[pos * (k + 1)..pos * (k + 1) + (k + 1)];
+            let xrow = &xd[pos * k_tot..pos * k_tot + k_tot];
             let mut pred = coef[0];
-            for c in 0..(k + 1) {
+            for c in 0..k_tot {
                 pred += coef[c + 1] * xrow[c];
             }
             resid[[idx, j as usize]] = y_buf[pos] - pred;
@@ -3704,12 +3732,12 @@ fn get_residual_cold_pre(
     resid
 }
 
-/// 冷门（11 风格）单 slot 中性化，走每日预分解：输出残差（f32，不做最终 rank_pct，
+/// 冷门/扩展风格单 slot 中性化，走每日预分解：输出残差（f32，不做最终 rank_pct，
 /// 与 `neutralize_std_slot_f32_v2_resid` 同口径）。
 pub(crate) fn neutralize_std_slot_f32_v2_resid_cold(
     slot: ArrayView2<'_, f32>,
     shared: &NeutralizeStdShared,
-    cold: &Array2<f64>,
+    cold: &Array3<f64>,
 ) -> Result<Array2<f32>, String> {
     let (n_dates, n_stocks) = slot.dim();
     let pre = shared
@@ -3762,12 +3790,13 @@ pub(crate) fn neutralize_std_slot_f32_v2_resid_cold(
     Ok(output)
 }
 
-/// `get_residual(fv, bench, None, Some(cold))` 的**单行移植**（冷门 11 列），
+/// `get_residual(fv, bench, None, Some(cold))` 的**单行移植**（10 风格 + M 列扩展风格），
 /// 用每日预分解回代；预计算有效集里混进因子侧 NaN 时退回通用当日 OLS。
+/// `cold_day_flat` 长度为 `n * pre.m_extra`（按股票优先行主序）。
 pub(crate) fn get_residual_row_cold(
     fv_row: &[f64],
     bench_rows: &[&[f64]],
-    cold_row: &[f64],
+    cold_day_flat: &[f64],
     pre: &ColdPre,
     idx: usize,
     resid_row: &mut [f64],
@@ -3780,7 +3809,8 @@ pub(crate) fn get_residual_row_cold(
     if *p == 0 {
         return;
     }
-    let k = bench_rows.len() + 1; // 风格 + 冷
+    let m_extra = pre.m_extra;
+    let k = bench_rows.len() + m_extra; // 风格 + 扩展列
     // 预计算有效集上的 y：必须全有限，否则当日退回通用口径
     let mut any_nan = false;
     let mut mn = f64::INFINITY;
@@ -3804,13 +3834,13 @@ pub(crate) fn get_residual_row_cold(
         }
         return;
     }
-    let mut xty: [f64; 16] = [0.0; 16];
-    let mut coef: [f64; 16] = [0.0; 16];
+    let mut xty: [f64; 24] = [0.0; 24];
+    let mut coef: [f64; 24] = [0.0; 24];
     let xd = &pre.xdays[idx];
     if !any_nan {
         let mut y_buf: Vec<f64> = Vec::with_capacity(valid_idx.len());
         xty[0] = 0.0;
-        for c in 1..(*p).min(16) {
+        for c in 1..(*p).min(24) {
             xty[c] = 0.0;
         }
         for &j in valid_idx {
@@ -3854,7 +3884,7 @@ pub(crate) fn get_residual_row_cold(
             }
             (vt.transpose() * cf).column(0).iter().copied().collect()
         };
-        coef[..(*p).min(16)].copy_from_slice(&coef_vec[..(*p).min(16)]);
+        coef[..(*p).min(24)].copy_from_slice(&coef_vec[..(*p).min(24)]);
         for (pos, &j) in valid_idx.iter().enumerate() {
             let xrow = &xd[pos * k..pos * k + k];
             let mut pred = coef[0];
@@ -3865,13 +3895,16 @@ pub(crate) fn get_residual_row_cold(
         }
         return;
     }
-    // 回退：通用当日 OLS（X = [1, 风格..., cold]），与整张 get_residual 逐位一致
+    // 回退：通用当日 OLS（X = [1, 风格..., extra_0..extra_{M-1}]），与整张 get_residual 逐位一致
     let mut rows: Vec<Vec<f64>> = Vec::with_capacity(n);
     let mut vidx: Vec<usize> = Vec::with_capacity(n);
     for j in 0..n {
         let y = fv_row[j];
-        let c = cold_row[j];
-        if !y.is_finite() || !c.is_finite() {
+        if !y.is_finite() {
+            continue;
+        }
+        let c_slice = &cold_day_flat[j * m_extra..(j + 1) * m_extra];
+        if !c_slice.iter().all(|v| v.is_finite()) {
             continue;
         }
         if !bench_rows.iter().all(|b| b[j].is_finite()) {
@@ -3882,7 +3915,7 @@ pub(crate) fn get_residual_row_cold(
         for b in bench_rows.iter() {
             r.push(b[j]);
         }
-        r.push(c);
+        r.extend_from_slice(c_slice);
         rows.push(r);
         vidx.push(j);
     }
@@ -3962,12 +3995,12 @@ pub(crate) fn get_residual_row_cold(
     }
 }
 
-/// 冷门（11 风格）**按行区间批量**中性化：B 个面共享每日的行业码/排序/风格载入，
+/// 冷门/扩展风格**按行区间批量**中性化：B 个面共享每日的行业码/排序/风格载入，
 /// 与逐面 `neutralize_std_slot_f32_v2_resid_cold` 逐位一致。
 pub(crate) fn neutralize_std_slots_f32_v2_resid_batch_range_cold(
     slots: &[ArrayView2<f32>],
     shared: &NeutralizeStdShared,
-    cold: &Array2<f64>,
+    cold: &Array3<f64>,
     t0: usize,
     t1: usize,
 ) -> Result<Vec<Array2<f32>>, String> {
@@ -3980,7 +4013,8 @@ pub(crate) fn neutralize_std_slots_f32_v2_resid_batch_range_cold(
         .ok_or_else(|| "冷门批量需要 cold_pre".to_string())?;
     let (rows, n) = slots[0].dim();
     let (t, sn) = shared.industry.dim();
-    if sn != n || cold.dim() != (t, sn) {
+    let (ct, cn, m_extra) = cold.dim();
+    if sn != n || (ct, cn) != (t, sn) || m_extra != pre.m_extra {
         return Err("冷门批量 形状不匹配".to_string());
     }
     if t0 > t1 || t1 > t || t1 - t0 != rows {
@@ -4006,6 +4040,7 @@ pub(crate) fn neutralize_std_slots_f32_v2_resid_batch_range_cold(
     let mut ind0_row: Vec<f64> = Vec::with_capacity(n);
     let mut bench_rows: Vec<&[f64]> = Vec::with_capacity(k);
     let base = shared;
+    let cold_sl = cold.as_slice().expect("cold 需为 C 序连续内存");
     for idx in t0..t1 {
         let (ind2_v, ind1_v, size_v) =
             (base.ind2.row(idx), base.ind1.row(idx), base.size_ranked.row(idx));
@@ -4055,9 +4090,8 @@ pub(crate) fn neutralize_std_slots_f32_v2_resid_batch_range_cold(
             }
             filled[f].copy_from_slice(&pct[f]);
         }
-        // 冷得分当日行（预先取出，B 个面共用）
-        let cold_sl = cold.as_slice().expect("cold 需为 C 序连续内存");
-        let cold_row = &cold_sl[idx * n..(idx + 1) * n];
+        // 扩展风格当日平面切片（预先取出，B 个面共用）
+        let cold_day_flat = &cold_sl[idx * n * m_extra..(idx + 1) * n * m_extra];
         for f in 0..b {
             nan_mask.clear();
             for &v in filled[f].iter() {
@@ -4093,7 +4127,7 @@ pub(crate) fn neutralize_std_slots_f32_v2_resid_batch_range_cold(
                     .expect("barra_ranked 需为 C 序连续内存");
                 bench_rows.push(&sl[idx * n..(idx + 1) * n]);
             }
-            get_residual_row_cold(&filled[f], &bench_rows, cold_row, pre, idx, &mut resid);
+            get_residual_row_cold(&filled[f], &bench_rows, cold_day_flat, pre, idx, &mut resid);
             let mut out_row = outs[f].row_mut(idx - t0);
             let out_sl = out_row.as_slice_mut().unwrap();
             for j in 0..n {
