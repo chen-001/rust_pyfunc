@@ -9,11 +9,11 @@
 # ============================================================================
 # 1. Rust 构建产物
 # ============================================================================
-# 任意层级的 Cargo target/（含 sandbox/xxx/target、sandbox_xxx/xxx/target 等嵌套沙箱）
-target/
+# 任意层级的 Cargo target/ 及变体构建目录（如 target512/、嵌套沙箱 target/）
+target*/
 **/*.rs.bk
 
-# 原生扩展 / 调试符号（PyO3、maturin 产物）
+# 原生扩展 / 调试符号 / worker 二进制（PyO3、maturin、alter.sh 产物）
 *.so
 *.pyd
 *.dylib
@@ -23,6 +23,7 @@ target/
 *.exp
 *.pdb
 *.dSYM/
+python/rust_pyfunc/rust_pyfunc_worker
 
 # Cargo.lock 对本项目需要保留（可复现构建），因此不忽略
 
@@ -82,23 +83,32 @@ cython_debug/
 # ============================================================================
 # 3. 数据与计算产物（体积大、可再生，勿上传）
 # ============================================================================
-# 数值 / 二进制数据
+# 数值 / 序列化 / 二进制数据
 *.npy
 *.npz
 *.parquet
+*.pkl
+*.f32
 *.bin
 *.dat
+*.h5
+*.hdf5
 
-# 沙箱内只入库代码（src/、Cargo.toml、build.sh、*.py），数据产物一律忽略
+# 沙箱内只入库代码与总结图表（src/、Cargo.toml、build.sh、*.py 等），中间数据与打包副本一律忽略
 sandbox*/**/*.json
 sandbox*/**/*.csv
 sandbox*/**/*.txt
-sandbox*/**/*.npy
-sandbox*/**/*.npz
-sandbox*/**/*.parquet
+sandbox*/**/*.out
+sandbox*/out/
+perf_sandbox/yp_pkg*/
+perf_sandbox/yp_old_pkg/
 
-# 回测 / 因子筛选输出（根目录 *_tail_v*_selected.json，如 ab_*、nbs_*、perfprof_*）
+# 回测 / 报告中间产物（根目录 *_tail_v*_selected.json、报告中间目录与解包 XML）
 /*_selected.json
+reports/**/out/
+reports/**/labels.json
+xlsx_xml/
+xlsx_work/
 
 # 因子研究目录（内容私密，整体不上传）
 research_ext_ideas/
@@ -159,8 +169,9 @@ Thumbs.db
 ehthumbs.db
 
 # ============================================================================
-# 6. AI 助手 / 本地工具（含会话、上下文、日志等私有数据，整体不入库）
+# 6. AI 助手 / 本地工具（含会话、上下文、本地权限与日志，整体不入库）
 # ============================================================================
+.claude/
 .cursor/
 .windsurf/
 .crush/
@@ -185,13 +196,3 @@ tests/
 # ============================================================================
 2026-03-26-212555-personalizedmeetingfeatures.txt
 docs/theme_feature_expansion_explanation.md
-python/rust_pyfunc/rust_pyfunc_worker
-
-# ============================================================================
-# 9. 沙箱里可重跑的中间产物（体积大，git 里只留源码与对账文档）
-# ============================================================================
-# perf_sandbox 下打包出来的库副本，每个 20~70MB，内含 22MB 的 worker 二进制
-perf_sandbox/yp_pkg*/
-perf_sandbox/yp_old_pkg/
-# 沙箱单日/单股跑出来的面板输出，单个几百 MB 的 jsonl
-sandbox*/out/
