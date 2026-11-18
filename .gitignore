@@ -113,7 +113,8 @@ xlsx_work/
 # 因子研究目录（内容私密，整体不上传）
 research_ext_ideas/
 
-# 生成的可视化 html（用 html-host 展示台分享即可，不入库）
+# 生成的可视化图表与 html（用 html-host 展示台分享即可，不入库）
+*.png
 viz/
 /factor_idea_sampling_corr.html
 /orderbook_imbalance_indicators.html
