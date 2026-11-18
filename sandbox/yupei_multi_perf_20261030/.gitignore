@@ -1,7 +1,0 @@
-/src/
-/package*/
-/Cargo.toml
-/Cargo.lock
-/build.rs
-/*.log
-!/baseline_sources.json

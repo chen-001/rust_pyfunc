@@ -1,7 +1,0 @@
-*.npy
-*.bin
-xlsx_work/
-*_recalc.xlsx
-baseline_20*.json
-fast_20*.json
-candidate_20*.json

@@ -1,1 +1,0 @@
-/home/chenzongwei/pythoncode/成果hm22_跨股票连结/hm22_okay_database.py

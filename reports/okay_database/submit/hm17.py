@@ -1,1 +1,0 @@
-/home/chenzongwei/pythoncode/成果hm17_色差/hm17_okay_database.py

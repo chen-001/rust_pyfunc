@@ -1,1 +1,0 @@
-/home/chenzongwei/pythoncode/成果hm30_局部趋势与整体趋势/hm30_okay_database.py

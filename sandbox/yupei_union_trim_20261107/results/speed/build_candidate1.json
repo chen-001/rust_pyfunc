@@ -1,9 +1,0 @@
-{
-  "first_attempt_exit_code": 101,
-  "first_attempt_error": "split.rs old single-chain path still needed produce_one_mat import",
-  "retry_exit_code": 0,
-  "retry_profile": "release-fast",
-  "retry_build_seconds": 55.49,
-  "evidence": "build_speed1_retry.log",
-  "module_sha256": "bda96fce89d0b081ef6fc355aa8a735f5ff7a8d896a1aefac4ab042e1f917062"
-}

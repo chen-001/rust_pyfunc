@@ -1,1 +1,0 @@
-{"scope":"single_core_topk2_mass_microbenchmark","runs":[{"pass":0,"sorted":true,"n":5107,"calls":6000,"elapsed_s":0.030831491},{"pass":1,"sorted":false,"n":5107,"calls":6000,"elapsed_s":0.027334794},{"pass":2,"sorted":true,"n":5107,"calls":6000,"elapsed_s":0.030255634},{"pass":3,"sorted":false,"n":5107,"calls":6000,"elapsed_s":0.027314608}]}

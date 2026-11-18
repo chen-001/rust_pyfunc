@@ -1,7 +1,0 @@
-target/
-results/*.json
-Cargo.lock
-results/v3full/*/
-results/v3t/
-results/v3wl/
-*.f32

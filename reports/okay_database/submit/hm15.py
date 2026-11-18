@@ -1,1 +1,0 @@
-/home/chenzongwei/pythoncode/成果hm15_成果hm16_收盘分歧/hm15_okay_database.py

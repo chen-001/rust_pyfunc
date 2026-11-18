@@ -1,1 +1,0 @@
-/home/chenzongwei/pythoncode/成果hm40_洗澡&保洁员应聘/hm40_okay_database.py

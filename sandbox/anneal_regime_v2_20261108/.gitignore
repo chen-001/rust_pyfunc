@@ -1,8 +1,0 @@
-src/fast_csv_reader.rs
-src/data_paths.rs
-src/features.rs
-Cargo.lock
-package/
-target/
-*.npy
-*.so

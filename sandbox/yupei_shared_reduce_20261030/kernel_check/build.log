@@ -1,9 +1,0 @@
-     Locking 6 packages to latest compatible versions
-   Compiling crossbeam-utils v0.8.23
-   Compiling crossbeam-epoch v0.9.21
-   Compiling crossbeam-deque v0.8.8
-   Compiling rayon-core v1.13.0
-   Compiling either v1.19.0
-   Compiling rayon v1.12.0
-   Compiling yupei_two_target_check v0.1.0 (/home/chenzongwei/rust_pyfunc/sandbox/yupei_shared_reduce_20261030/kernel_check)
-    Finished `release` profile [optimized] target(s) in 2.94s

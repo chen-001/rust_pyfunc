@@ -1,1 +1,0 @@
-/home/chenzongwei/pythoncode/成果hm10_黑粉铁粉/hm10_okay_database.py

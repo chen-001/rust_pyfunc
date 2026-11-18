@@ -1,8 +1,0 @@
-/src/
-/Cargo.toml
-/Cargo.lock
-/build.rs
-/package*/
-/*.log
-/selector_probe/
-/.apply_patch

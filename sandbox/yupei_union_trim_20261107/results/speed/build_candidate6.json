@@ -1,8 +1,0 @@
-{
-  "exit_code": 0,
-  "wall_seconds": 51.18143338896334,
-  "source_manifest": "candidate6_sources.json",
-  "patch": "candidate6_speed.patch",
-  "changes_from_v5": "Only default mass batch changes from 1 to 4; YUPEI_PAIR_MASS_BATCH=1 retains exact control path.",
-  "module_sha256": "5af0780d1cbd587140e1acab9f97b924d1e09689664bfe3be039f7bfd8b30e53"
-}

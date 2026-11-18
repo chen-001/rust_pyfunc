@@ -1,8 +1,0 @@
-target/
-results/*.json
-results_q1/*.json
-seq_store/
-accept/root/
-results_v3/*.f32
-accept/root3/
-accept/root_v3/

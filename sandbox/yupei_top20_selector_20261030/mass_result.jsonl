@@ -1,5 +1,0 @@
-{"kind":"correctness","bit_mismatches":0}
-{"kind":"timing","candidate":false,"calls":51200,"seconds":0.157281174,"digest":720841.1941347718}
-{"kind":"timing","candidate":true,"calls":51200,"seconds":0.129777807,"digest":720841.1941347718}
-{"kind":"timing","candidate":true,"calls":51200,"seconds":0.129761184,"digest":720841.1941347718}
-{"kind":"timing","candidate":false,"calls":51200,"seconds":0.157041334,"digest":720841.1941347718}
