@@ -188,8 +188,9 @@ reports/
 experiments/
 
 # ============================================================================
-# 8. 历史遗留的零星未跟踪文件 / 本地对话导出
+# 8. 历史遗留 / 本地留存说明与对话导出
 # ============================================================================
 2026-03-26-212555-personalizedmeetingfeatures.txt
 docs/theme_feature_expansion_explanation.md
+docs/stage1_coldv2_upgrade/
 factor-speed.md
