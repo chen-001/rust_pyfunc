@@ -292,6 +292,168 @@ mod tests {
     }
 }
 
+/// 稀疏版四分量矩阵：只遍历真实成交的桶，不填 4096 格的空场。
+///
+/// 与 `compute_split_mats_from_cells` 数学等价：衰减用同一张「逐次相乘」得到的
+/// 幂表，所以结果逐位一致。原版对每个 tile 每块固定跑 4096 次循环，而一只股票
+/// 在这 40 秒里通常只有几个到几十个成交桶，99% 的循环是空转。
+pub fn compute_split_mats_sparse(
+    cells: &[Vec<(u32, [f32; 4])>],
+    tau: f32,
+    w: PmWeight,
+) -> [Vec<f32>; 4] {
+    let n = cells.len();
+    let (lp, lm) = w.lanes();
+    let decay = (-(BUCKET_US as f32) / (tau * 1e6)).exp();
+    let mut mats: [Vec<f32>; 4] = std::array::from_fn(|_| vec![0.0f32; n * n]);
+
+    // decay 的幂表：用连续相乘构造，与逐桶递推的浮点结果逐位一致
+    let mut dtab = vec![0.0f32; BLOCK_BUCKETS + 1];
+    dtab[0] = 1.0;
+    for k in 1..=BLOCK_BUCKETS {
+        dtab[k] = dtab[k - 1] * decay;
+    }
+
+    // pack: [n*4 累加器][2 跨块 acc][jk:BLOCK][jg:2*BLOCK][jacc:2*BLOCK]
+    const SPAD: usize = BLOCK_BUCKETS * 5;
+    let packs: Vec<std::sync::Mutex<Vec<f32>>> = (0..n)
+        .into_par_iter()
+        .map(|_| std::sync::Mutex::new(vec![0.0f32; n * 4 + 2 + SPAD]))
+        .collect();
+
+    let mut cursors = vec![0usize; n];
+    for block in 0..N_BLOCKS {
+        let k0 = (block * BLOCK_BUCKETS) as u32;
+        let k1 = k0 + BLOCK_BUCKETS as u32;
+
+        let counts: Vec<usize> = cells
+            .par_iter()
+            .enumerate()
+            .map(|(i, st)| {
+                let mut c = cursors[i];
+                while c < st.len() && st[c].0 < k1 {
+                    c += 1;
+                }
+                c - cursors[i]
+            })
+            .collect();
+        let total: usize = counts.iter().sum();
+        if total == 0 {
+            continue;
+        }
+        let mut offs: Vec<usize> = Vec::with_capacity(n + 1);
+        let mut acc = 0usize;
+        for &c in counts.iter() {
+            offs.push(acc);
+            acc += c;
+        }
+        offs.push(acc);
+        let mut buf: Vec<(u32, [f32; 4])> = vec![(0, [0.0f32; 4]); total];
+        for i in 0..n {
+            let s = cursors[i];
+            let c = counts[i];
+            buf[offs[i]..offs[i] + c].copy_from_slice(&cells[i][s..s + c]);
+            cursors[i] += c;
+        }
+
+        let (buf_ref, offs_ref, counts_ref, dtab_ref) = (&buf, &offs, &counts, &dtab);
+        (0..n).into_par_iter().for_each(|j| {
+            let mut g = packs[j].lock().unwrap();
+            let (pack, rest) = g.split_at_mut(n * 4);
+            let (acc, sp) = rest.split_at_mut(2);
+            let (jk, r2) = sp.split_at_mut(BLOCK_BUCKETS);
+            let (jg, jacc) = r2.split_at_mut(BLOCK_BUCKETS * 2);
+            let (acc0p, acc0m) = (acc[0], acc[1]);
+            let bcnt = counts_ref[j];
+            let boff = offs_ref[j];
+
+            // ---- phase1：只在 j 自己的成交桶上推进，建紧凑衰减场 ----
+            let (mut ap, mut am) = (acc0p, acc0m);
+            let mut prev: i32 = -1;
+            for idx in 0..bcnt {
+                let cell = &buf_ref[boff + idx];
+                let k = (cell.0 - k0) as usize;
+                let d = if prev < 0 { dtab_ref[k] } else { dtab_ref[k - prev as usize] };
+                ap *= d;
+                am *= d;
+                jk[idx] = k as f32;
+                let (up, um) = (cell.1[lp], cell.1[lm]);
+                jg[idx * 2] = ap + 0.5 * up;
+                jg[idx * 2 + 1] = am + 0.5 * um;
+                ap = (ap + up) * decay;
+                am = (am + um) * decay;
+                jacc[idx * 2] = ap;
+                jacc[idx * 2 + 1] = am;
+                prev = k as i32;
+            }
+            if bcnt > 0 {
+                let last = jk[bcnt - 1] as usize;
+                let d = dtab_ref[BLOCK_BUCKETS - 1 - last];
+                ap *= d;
+                am *= d;
+            }
+            acc[0] = ap;
+            acc[1] = am;
+
+            // ---- phase2：每个 i 的每个成交桶，用双指针取 j 的场 ----
+            for i in 0..n {
+                let icnt = counts_ref[i];
+                if icnt == 0 {
+                    continue;
+                }
+                let base = i * 4;
+                let mut p = [pack[base], pack[base + 1], pack[base + 2], pack[base + 3]];
+                let mut ptr = 0usize;
+                for t in 0..icnt {
+                    let cell = &buf_ref[offs_ref[i] + t];
+                    let k = (cell.0 - k0) as usize;
+                    let (gp, gm) = if bcnt == 0 || k < jk[0] as usize {
+                        // j 本块没成交，或 i 早于 j 在本块的第一个成交桶：
+                        // 场就是块起点值按桶衰减
+                        (acc0p * dtab_ref[k], acc0m * dtab_ref[k])
+                    } else {
+                        while ptr + 1 < bcnt && (jk[ptr + 1] as usize) <= k {
+                            ptr += 1;
+                        }
+                        if (jk[ptr] as usize) == k {
+                            (jg[ptr * 2], jg[ptr * 2 + 1])
+                        } else {
+                            let d = dtab_ref[k - jk[ptr] as usize];
+                            (jacc[ptr * 2] * d, jacc[ptr * 2 + 1] * d)
+                        }
+                    };
+                    let (up, um) = (cell.1[lp], cell.1[lm]);
+                    p[PP] += up * gp;
+                    p[PM] += up * gm;
+                    p[MP] += um * gp;
+                    p[MM] += um * gm;
+                }
+                pack[base] = p[PP];
+                pack[base + 1] = p[PM];
+                pack[base + 2] = p[MP];
+                pack[base + 3] = p[MM];
+            }
+        });
+    }
+
+    struct Ptr(*mut f32);
+    unsafe impl Send for Ptr {}
+    unsafe impl Sync for Ptr {}
+    let raw: Vec<Ptr> = mats.iter_mut().map(|v| Ptr(v.as_mut_ptr())).collect();
+    (0..n).into_par_iter().for_each(|j| {
+        let g = packs[j].lock().unwrap();
+        let pack = &g[..n * 4];
+        for i in 0..n {
+            for t in 0..4 {
+                unsafe {
+                    *raw[t].0.add(j * n + i) = pack[i * 4 + t];
+                }
+            }
+        }
+    });
+    mats
+}
+
 /// SIMD 版四分量矩阵：把四个分量打包成一个四元组，用 SSE 一次算完。
 ///
 /// 与 `compute_split_mats_from_cells` 数学等价，只有配对累加那一段变了：

@@ -1,8 +1,26 @@
 //! 提速引擎的“完整路径”比对：先用 AVX-512 一次算 32 条序列的分数，同时记下每格的选择方向；
 //! 再从最高分那一格往回走，复原路径上的配对数、匹配数、空位数、先买后卖、配对量与起点。
 //! 选择规则、最高分的先到先得、配对量的累加顺序（从中心往外）都与 dp.rs 的标量版一致，结果逐字节相同。
-use super::batch::{tab16, Tab16, L};
-use super::dp::{self, side_of, Best, Cell, Tab, K, NEG, NEG_HALF};
+use super::dp::{Best, Tab};
+
+pub struct Lane<'a> {
+    pub a: &'a [u8],
+    pub s: &'a [u8],
+    pub vol: &'a [f32],
+    pub tab: &'a Tab,
+    pub center: bool,
+}
+
+pub struct Out {
+    pub best: Best,
+    pub center: Vec<i32>,
+}
+
+#[cfg(target_arch = "x86_64")]
+mod x86_imp {
+use super::{Lane, Out};
+use super::super::batch::{tab16, Tab16, L};
+use super::super::dp::{self, side_of, Best, Cell, K, NEG, NEG_HALF};
 use std::arch::x86_64::*;
 
 #[derive(Clone, Copy, Default)]
@@ -16,19 +34,6 @@ pub struct Dir {
 #[inline]
 fn bit(m: u32, l: usize) -> bool {
     (m >> l) & 1 == 1
-}
-
-pub struct Lane<'a> {
-    pub a: &'a [u8],
-    pub s: &'a [u8],
-    pub vol: &'a [f32],
-    pub tab: &'a Tab,
-    pub center: bool,
-}
-
-pub struct Out {
-    pub best: Best,
-    pub center: Vec<i32>,
 }
 
 type M = __m512i;
@@ -436,3 +441,27 @@ pub fn available() -> bool {
 // 让未用到的导入不报警
 #[allow(dead_code)]
 fn _unused(_: &dp::Scratch) {}
+}
+
+pub fn available() -> bool {
+    #[cfg(target_arch = "x86_64")]
+    {
+        x86_imp::available()
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        false
+    }
+}
+
+pub fn run_group(shape: u8, lanes: &[Lane], o: i32, e: i32, minsep: usize) -> Vec<Out> {
+    #[cfg(target_arch = "x86_64")]
+    {
+        x86_imp::run_group(shape, lanes, o, e, minsep)
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        let _ = (shape, lanes, o, e, minsep);
+        unreachable!("full::available() is false on non-x86_64")
+    }
+}

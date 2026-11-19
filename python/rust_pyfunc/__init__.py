@@ -69,10 +69,14 @@ _LAZY_EXPORTS = {
     "probe_update_window": (".factor_io_simple", "probe_update_window"),
     "cleanup_factor_store": (".factor_io_simple", "cleanup_factor_store"),
     "read_level2_list": (".factor_io_simple", "read_level2_list"),
+    "load_super_factor_cdll": (".super_factor", "load_super_factor_cdll"),
+    "screen_super_factors_from_context": (".super_factor", "screen_super_factors_from_context"),
+    "materialize_super_recipes_from_store": (".super_factor", "materialize_super_recipes_from_store"),
 }
 
 _LAZY_MODULE_EXPORTS = {
     "td": (".trading_day", "td"),
+    "super_factor": (".super_factor", None),
 }
 
 

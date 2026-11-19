@@ -95,8 +95,10 @@ cython_debug/
 *.h5
 *.hdf5
 
-# 回测 / 报告中间产物（根目录 *_tail_v*_selected.json、表格解包临时 XML）
+# 回测 / 报告 / 表格汇总与中间产物（根目录 *_tail_v*_selected.json、Excel/CSV 汇总、临时 XML）
 /*_selected.json
+*.xlsx
+*.csv
 xlsx_xml/
 xlsx_work/
 
@@ -106,8 +108,7 @@ research_ext_ideas/
 # 生成的可视化图表与 html（用 html-host 展示台分享即可，不入库）
 *.png
 viz/
-/factor_idea_sampling_corr.html
-/orderbook_imbalance_indicators.html
+/*.html
 
 # 文档构建产物
 /doc/
@@ -173,25 +174,36 @@ ehthumbs.db
 .vtcode/
 vtcode.toml
 .maturin_zig/
+agents/
 CLAUDE.md
 AGENTS.md
 
 # ============================================================================
-# 7. 测试、沙箱与实验草稿目录策略
+# 7. 测试、沙箱、实验脚本与本地运维工具目录策略
 # ============================================================================
-# 以下目录内的一次性调试脚本、性能探测、沙箱探索与草稿分析默认整体忽略；
-# 若某个正式文件确实需要版本化归档，可用 `git add -f <路径>` 强制加入（已跟踪文件不受影响）
+# 以下目录与一次性实验/分析/展示/验证脚本仅保留在本地，不上传正式版代码库；
+# src/bin/ 下仅保留 Cargo.toml 唯一正式 worker 二进制源码 worker_pipeline.rs。
 tests/
+examples/
 sandbox*/
 perf_sandbox/
 reports/
 experiments/
+lib/okay_database/
+/src/bin/*
+!/src/bin/worker_pipeline.rs
+/factor_gate_pipeline_*.py
+/run_*.py
+/hmm_visualizer.py
 
 # ============================================================================
-# 8. 历史遗留 / 本地留存说明与对话导出
+# 8. 实验规划、分析报告、交接记录与设计草稿（仅保留正式 README.md 与 API 文档）
 # ============================================================================
-2026-03-26-212555-personalizedmeetingfeatures.txt
-docs/theme_feature_expansion_explanation.md
+/*.txt
+/*.md
+!/README.md
+docs/superpowers/
 docs/stage1_coldv2_upgrade/
-/L2_FACTOR_SYNTHESIS_AND_COLLECTIVE_DRAWDOWN_REPORT.md
-factor-speed.md
+docs/*.py
+docs/*.md
+!docs/使用说明.md

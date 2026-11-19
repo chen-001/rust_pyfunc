@@ -1043,6 +1043,162 @@ pub fn select_topk_keys(
     super::bitonic_sort::sort_keys(&mut kh[..take], mid_buf);
 }
 
+pub fn fused_hg_stats_bf16(
+    hb: &mut [f32],
+    gb: &mut [f32],
+    wb: f32,
+    wc: f32,
+    p: &[f32],
+    q16: &[u16],
+    addm: &[f32],
+    b: usize,
+    c: usize,
+) -> (f32, f32, f32, f32, f32, u32) {
+    let n = hb.len();
+    #[cfg(target_arch = "x86_64")]
+    unsafe {
+        if have_avx2() {
+            let wv = _mm256_set1_ps(wb);
+            let cv = _mm256_set1_ps(wc);
+            let zero = _mm256_setzero_ps();
+            let mut mh = _mm256_set1_ps(f32::NEG_INFINITY);
+            let mut mg = _mm256_set1_ps(f32::NEG_INFINITY);
+            let mut sh = _mm256_setzero_ps();
+            let mut sg = _mm256_setzero_ps();
+            let mut sq = _mm256_setzero_ps();
+            let mut cnt = 0u32;
+            let mut x = 0;
+            let mut hbuf = [0f32; 8];
+            let mut gbuf = [0f32; 8];
+            while x + 8 <= n {
+                let (hv, gv);
+                if (b >= x && b < x + 8) || (c >= x && c < x + 8) {
+                    // 含 b/c 的那块：这两个位置必须是 -inf，标量算这 8 个再按原 lane 累加
+                    for i in 0..8 {
+                        let xx = x + i;
+                        let qx = f32::from_bits((q16[xx] as u32) << 16);
+                        let mut h = wb * p[xx] + wc * qx + addm[xx];
+                        let mut g = h - if p[xx] > qx { p[xx] } else { qx };
+                        if xx == b || xx == c {
+                            h = f32::NEG_INFINITY;
+                            g = f32::NEG_INFINITY;
+                        }
+                        hbuf[i] = h;
+                        gbuf[i] = g;
+                    }
+                    for i in 0..8 {
+                        hb[x + i] = hbuf[i];
+                        gb[x + i] = gbuf[i];
+                    }
+                    hv = _mm256_loadu_ps(hbuf.as_ptr());
+                    gv = _mm256_loadu_ps(gbuf.as_ptr());
+                } else {
+                    let a = _mm256_loadu_ps(p.as_ptr().add(x));
+                    let q8 = _mm256_cvtepu16_epi32(_mm_loadu_si128(q16.as_ptr().add(x) as *const __m128i));
+                    let bv = _mm256_castsi256_ps(_mm256_slli_epi32(q8, 16));
+                    let m = _mm256_loadu_ps(addm.as_ptr().add(x));
+                    // 不用 fma：与 fill_h 的两次舍入一致
+                    hv = _mm256_add_ps(
+                        _mm256_add_ps(_mm256_mul_ps(wv, a), _mm256_mul_ps(cv, bv)),
+                        m,
+                    );
+                    gv = _mm256_sub_ps(hv, _mm256_max_ps(a, bv));
+                    _mm256_storeu_ps(hb.as_mut_ptr().add(x), hv);
+                    _mm256_storeu_ps(gb.as_mut_ptr().add(x), gv);
+                }
+                mh = _mm256_max_ps(mh, hv);
+                mg = _mm256_max_ps(mg, gv);
+                sh = _mm256_add_ps(sh, _mm256_max_ps(hv, zero));
+                let gp = _mm256_max_ps(gv, zero);
+                sg = _mm256_add_ps(sg, gp);
+                sq = _mm256_add_ps(sq, _mm256_mul_ps(gp, gp));
+                let mm = _mm256_movemask_ps(_mm256_cmp_ps::<_CMP_GT_OQ>(gv, zero)) as u32;
+                cnt += mm.count_ones();
+                x += 8;
+            }
+            let mut b1 = [0f32; 8];
+            let mut b2 = [0f32; 8];
+            _mm256_storeu_ps(b1.as_mut_ptr(), mh);
+            _mm256_storeu_ps(b2.as_mut_ptr(), mg);
+            let (mut mx_h, mut mx_g) = (f32::NEG_INFINITY, f32::NEG_INFINITY);
+            for i in 0..8 {
+                if b1[i] > mx_h {
+                    mx_h = b1[i];
+                }
+                if b2[i] > mx_g {
+                    mx_g = b2[i];
+                }
+            }
+            let mut b3 = [0f32; 8];
+            let mut b4 = [0f32; 8];
+            let mut b5 = [0f32; 8];
+            _mm256_storeu_ps(b3.as_mut_ptr(), sh);
+            _mm256_storeu_ps(b4.as_mut_ptr(), sg);
+            _mm256_storeu_ps(b5.as_mut_ptr(), sq);
+            let (mut s1, mut s2, mut s3) = (0f32, 0f32, 0f32);
+            for i in 0..8 {
+                s1 += b3[i];
+                s2 += b4[i];
+                s3 += b5[i];
+            }
+            while x < n {
+                let qx = f32::from_bits((q16[x] as u32) << 16);
+                let mut h = wb * p[x] + wc * qx + addm[x];
+                let mut g = h - if p[x] > qx { p[x] } else { qx };
+                if x == b || x == c {
+                    h = f32::NEG_INFINITY;
+                    g = f32::NEG_INFINITY;
+                }
+                hb[x] = h;
+                gb[x] = g;
+                if h > mx_h {
+                    mx_h = h;
+                }
+                if h > 0.0 {
+                    s1 += h;
+                }
+                if g > mx_g {
+                    mx_g = g;
+                }
+                if g > 0.0 {
+                    s2 += g;
+                    s3 += g * g;
+                    cnt += 1;
+                }
+                x += 1;
+            }
+            return (mx_h, mx_g, s1, s2, s3, cnt);
+        }
+    }
+    let (mut mx_h, mut mx_g) = (f32::NEG_INFINITY, f32::NEG_INFINITY);
+    let (mut s1, mut s2, mut s3, mut cnt) = (0f32, 0f32, 0f32, 0u32);
+    for x in 0..n {
+        let qx = f32::from_bits((q16[x] as u32) << 16);
+        let mut h = wb * p[x] + wc * qx + addm[x];
+        let mut g = h - if p[x] > qx { p[x] } else { qx };
+        if x == b || x == c {
+            h = f32::NEG_INFINITY;
+            g = f32::NEG_INFINITY;
+        }
+        hb[x] = h;
+        gb[x] = g;
+        if h > mx_h {
+            mx_h = h;
+        }
+        if h > 0.0 {
+            s1 += h;
+        }
+        if g > mx_g {
+            mx_g = g;
+        }
+        if g > 0.0 {
+            s2 += g;
+            s3 += g * g;
+            cnt += 1;
+        }
+    }
+    (mx_h, mx_g, s1, s2, s3, cnt)
+}
 
 /// Unquantized numeric order, including -0 before +0. NaNs are handled separately.
 #[inline(always)]

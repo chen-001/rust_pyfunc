@@ -271,6 +271,19 @@ pub(crate) fn net_one_mat(
             e.as_slice(),
         ),
     };
+    // 精度实验：设 YUPEI_BF16=1 时把「C 对 X」那一套相关值截断到 16 位精度（bf16），
+    // 用来量出降低精度对最终因子值的影响。默认关闭，行为与原来逐位一致。
+    let pc_trunc: Vec<f32>;
+    let pc: &[f32] = if std::env::var("YUPEI_BF16").is_ok() {
+        pc_trunc = pc
+            .iter()
+            .map(|&x| f32::from_bits(x.to_bits() & 0xFFFF_0000))
+            .collect();
+        &pc_trunc
+    } else {
+        pc
+    };
+
     // ---- 全部配对的 X0 / RHO_U / SINGLE / G + 分数矩阵 + 软质量向量 ----
     let mut g = vec![0.0f32; n * n];
     let mut ru = vec![0.0f32; n * n];

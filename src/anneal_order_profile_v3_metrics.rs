@@ -1177,6 +1177,72 @@ pub fn compute_anneal_order_profile_v3_from_records(
         return vec![f32::NAN; EXPECTED_LEN];
     }
     let mut out: Vec<f32> = Vec::with_capacity(EXPECTED_LEN);
+    let mask = crate::funnel_mask::snapshot();
+    let need_deep = mask.any_active(&["s2v3_deep", "s2v3_deepdiff"]);
+    let need_lf = mask.any_active(&["s2v3_lf", "s2v3_lfdiff"]);
+    let mut need_axis = [false; 4];
+    for ax in 1..4 {
+        let m_direct = format!("s2v3_axis_{}", AXIS3_NAMES[ax - 1]);
+        need_axis[ax] = mask.any_active(&["s2v3_axis", "s2v3_axisdiff", &m_direct])
+            || AXIS_PAIRS.iter().any(|&(a, b, p)| {
+                (a == ax || b == ax) && mask.is_active(&format!("s2v3_axisdiff_{p}"))
+            });
+    }
+    let mut need_prior = [false; 4];
+    for mode in 1..4usize {
+        let m_direct = format!("s2v3_prior_{}", PRIOR3_NAMES[mode - 1]);
+        need_prior[mode] = mask.any_active(&["s2v3_prior", "s2v3_priordiff", &m_direct])
+            || PRIOR_PAIRS.iter().any(|&(a, b, p)| {
+                (a == mode || b == mode) && mask.is_active(&format!("s2v3_priordiff_{p}"))
+            });
+    }
+    let mut need_game = [false; 12];
+    for sl in 0..12 {
+        let m_direct = format!("s2v3_game_{}", GAME_SLICE12_NAMES[sl]);
+        need_game[sl] = mask.any_active(&["s2v3_game", "s2v3_gamediff", &m_direct])
+            || GAME_PAIRS.iter().any(|&(a, b, p)| {
+                (a == sl || b == sl) && mask.is_active(&format!("s2v3_gamediff_{p}"))
+            });
+    }
+    let need_game_from_tgt0 = GAME_PAIRS.iter().any(|&(a, _, p)| {
+        (a == 100 || a == 101)
+            && (mask.is_active("s2v3_gamediff") || mask.is_active(&format!("s2v3_gamediff_{p}")))
+    });
+    let mut need_tgt = [false; 5];
+    for t in 0..5 {
+        let m_direct = format!("s2v3_tgt_{}", TARGET5_NAMES[t]);
+        need_tgt[t] = mask.any_active(&["s2v3_tgt", "s2v3_tgtdiff", &m_direct])
+            || TARGET_PAIRS.iter().any(|&(a, b, p)| {
+                (a == t || b == t) && mask.is_active(&format!("s2v3_tgtdiff_{p}"))
+            });
+    }
+    if need_deep
+        || need_game_from_tgt0
+        || need_axis[1..].iter().any(|&x| x)
+        || need_prior[1..].iter().any(|&x| x)
+        || AXIS_PAIRS.iter().any(|&(a, b, p)| {
+            (a == 0 || b == 0) && mask.is_active(&format!("s2v3_axisdiff_{p}"))
+        })
+        || PRIOR_PAIRS.iter().any(|&(a, b, p)| {
+            (a == 0 || b == 0) && mask.is_active(&format!("s2v3_priordiff_{p}"))
+        })
+    {
+        need_tgt[0] = true;
+    }
+    let mut need_gametgt = [false; 12];
+    for sl in 0..12 {
+        let m_direct = format!("s2v3_gametgt_{}", GAMETGT_SLICE12_NAMES[sl]);
+        need_gametgt[sl] = mask.any_active(&["s2v3_gametgt", &m_direct]);
+    }
+    let mut need_min_range = [false; 3];
+    for (ri, &(_, _, pfx)) in MIN_RANGES.iter().enumerate() {
+        let m0 = format!("s2v3_{pfx}");
+        let m1 = format!("s2v3_{pfx}_bid");
+        let m2 = format!("s2v3_{pfx}_ask");
+        need_min_range[ri] =
+            mask.any_active(&[&m0, &m1, &m2, "s2v3_min", "s2v3_min_bid", "s2v3_min_ask"]);
+    }
+    let need_any_min = need_min_range.iter().any(|&x| x);
     let mut ev = Ev::new();
     let mut agg = OrderAgg::new(trades.len() / 2 + 1);
     let mut keys: Vec<u64> = Vec::with_capacity(4096);
@@ -1212,41 +1278,61 @@ pub fn compute_anneal_order_profile_v3_from_records(
         let (rlo, rhi) = win_range(trades_all, s_lo, s_hi);
 
         // 撤单序列（一侧订单号为 0 的撤单记录，按时间顺序）
-        let mut ret_b = Vec::new();
-        let mut ret_a = Vec::new();
-        for t in &trades_all[rlo..rhi] {
-            if t.flag == 32 {
-                if t.bid_order > 0 && t.ask_order == 0 {
-                    ret_b.push(t.volume);
-                } else if t.ask_order > 0 && t.bid_order == 0 {
-                    ret_a.push(t.volume);
+        if need_game[10] || need_game[11] {
+            let mut ret_b = Vec::new();
+            let mut ret_a = Vec::new();
+            for t in &trades_all[rlo..rhi] {
+                if t.flag == 32 {
+                    if t.bid_order > 0 && t.ask_order == 0 {
+                        ret_b.push(t.volume);
+                    } else if t.ask_order > 0 && t.bid_order == 0 {
+                        ret_a.push(t.volume);
+                    }
                 }
             }
+            if need_game[10] {
+                (game_r[10][w], game_e[10][w]) = raw_and_excess(&ret_b, CAP_WIN, N_SHUF_WIN, &mut ev);
+            }
+            if need_game[11] {
+                (game_r[11][w], game_e[11][w]) = raw_and_excess(&ret_a, CAP_WIN, N_SHUF_WIN, &mut ev);
+            }
         }
-        (game_r[10][w], game_e[10][w]) = raw_and_excess(&ret_b, CAP_WIN, N_SHUF_WIN, &mut ev);
-        (game_r[11][w], game_e[11][w]) = raw_and_excess(&ret_a, CAP_WIN, N_SHUF_WIN, &mut ev);
 
         if hi < lo + 3 {
+            continue;
+        }
+        let need_any_win_ord = need_lf
+            || need_tgt.iter().any(|&x| x)
+            || need_game[..10].iter().any(|&x| x)
+            || (GT_WINS.contains(&w) && need_gametgt.iter().any(|&x| x));
+        if !need_any_win_ord {
             continue;
         }
         let dirs = agg.build(&trades[lo..hi]);
         for d in 0..3 {
             let ords = &dirs[d];
-            let vol_seq: Vec<f32> = ords.iter().map(|o| o.vol).collect();
-            lot[w][d] = lot7(&vol_seq, &mut keys);
-            flow[w][d] = flow5(ords, &mut fbuf);
+            if need_lf {
+                let vol_seq: Vec<f32> = ords.iter().map(|o| o.vol).collect();
+                lot[w][d] = lot7(&vol_seq, &mut keys);
+                flow[w][d] = flow5(ords, &mut fbuf);
+            }
             for t in 0..5 {
+                if !need_tgt[t] {
+                    continue;
+                }
                 let seq: Vec<f32> = ords.iter().map(|o| o.target_val(t)).collect();
-                let want_deep = t == 0;
+                let want_deep = t == 0 && need_deep;
                 let sorted = sorted_copy(&seq);
                 let (base, based) = shuffle_baseline(&sorted, CAP_WIN, N_SHUF_WIN, want_deep, &mut ev);
                 let (c, dd) = run_true(&seq, &sorted, CAP_WIN, 0, want_deep, &mut ev);
                 tgt_r[t][w][d] = c;
                 tgt_e[t][w][d] = excess(&c, &base);
                 if t == 0 {
-                    deep_r[w][d] = dd;
-                    for k in 0..8 {
-                        deep_e[w][d][k] = sd(dd[k], based[k]);
+                    if need_deep {
+                        deep_r[w][d] = dd;
+                        for k in 0..8 {
+                            deep_e[w][d][k] = sd(dd[k], based[k]);
+                        }
                     }
                     axis_r[0][w][d] = c;
                     axis_e[0][w][d] = tgt_e[0][w][d];
@@ -1254,6 +1340,9 @@ pub fn compute_anneal_order_profile_v3_from_records(
                     prior_e[0][w][d] = tgt_e[0][w][d];
                     // 新坐标轴：同一批成交量换顺序，共用 vol 的对照
                     for ax in 1..4 {
+                        if !need_axis[ax] {
+                            continue;
+                        }
                         let s2 = vol_by_axis(ords, ax);
                         let (c2, _) = run_true(&s2, &sorted, CAP_WIN, 0, false, &mut ev);
                         axis_r[ax][w][d] = c2;
@@ -1261,6 +1350,9 @@ pub fn compute_anneal_order_profile_v3_from_records(
                     }
                     // 新先验：同一步数上限，共用 vol 的对照
                     for mode in 1..4u8 {
+                        if !need_prior[mode as usize] {
+                            continue;
+                        }
                         let (c3, _) = run_true(&seq, &sorted, CAP_WIN, mode, false, &mut ev);
                         prior_r[mode as usize][w][d] = c3;
                         prior_e[mode as usize][w][d] = excess(&c3, &base);
@@ -1269,17 +1361,27 @@ pub fn compute_anneal_order_profile_v3_from_records(
             }
         }
         // 博弈子集（成交量序列）
-        let slices = game_order_slices(&dirs);
-        for sl in 0..10 {
-            let seq: Vec<f32> = slices[sl].iter().map(|o| o.vol).collect();
-            (game_r[sl][w], game_e[sl][w]) = raw_and_excess(&seq, CAP_WIN, N_SHUF_WIN, &mut ev);
-        }
-        // 博弈子集 × 其他画像：全天、下午、尾盘
-        if let Some(gi) = GT_WINS.iter().position(|&x| x == w) {
-            for sl in 0..12 {
-                for (ti, &t) in GAMETGT_TARGETS.iter().enumerate() {
-                    let seq: Vec<f32> = slices[sl].iter().map(|o| o.target_val(t)).collect();
-                    (gt_r[sl][gi][ti], gt_e[sl][gi][ti]) = raw_and_excess(&seq, CAP_WIN, N_SHUF_WIN, &mut ev);
+        let need_slices = need_game[..10].iter().any(|&x| x)
+            || (GT_WINS.contains(&w) && need_gametgt.iter().any(|&x| x));
+        if need_slices {
+            let slices = game_order_slices(&dirs);
+            for sl in 0..10 {
+                if !need_game[sl] {
+                    continue;
+                }
+                let seq: Vec<f32> = slices[sl].iter().map(|o| o.vol).collect();
+                (game_r[sl][w], game_e[sl][w]) = raw_and_excess(&seq, CAP_WIN, N_SHUF_WIN, &mut ev);
+            }
+            // 博弈子集 × 其他画像：全天、下午、尾盘
+            if let Some(gi) = GT_WINS.iter().position(|&x| x == w) {
+                for sl in 0..12 {
+                    if !need_gametgt[sl] {
+                        continue;
+                    }
+                    for (ti, &t) in GAMETGT_TARGETS.iter().enumerate() {
+                        let seq: Vec<f32> = slices[sl].iter().map(|o| o.target_val(t)).collect();
+                        (gt_r[sl][gi][ti], gt_e[sl][gi][ti]) = raw_and_excess(&seq, CAP_WIN, N_SHUF_WIN, &mut ev);
+                    }
                 }
             }
         }
@@ -1391,86 +1493,95 @@ pub fn compute_anneal_order_profile_v3_from_records(
     debug_assert_eq!(out.len(), EXPECTED_LEN - N_PART_MIN);
 
     // ---------------- 分钟矩阵：237 分钟 × 78 列，再分三段降维 ----------------
-    let mut min_mat = Array2::<f32>::from_elem((N_MINUTES, N_MIN_COLS), f32::NAN);
-    let mut min_agg = OrderAgg::new(512);
-    let mut min_dirs: [Vec<RichOrder>; 2] = [Vec::with_capacity(512), Vec::with_capacity(512)];
-    let mut min_vol_sorted: [Vec<f32>; 2] = [Vec::with_capacity(512), Vec::with_capacity(512)];
-    let mut min_seq: Vec<f32> = Vec::with_capacity(512);
-    let mut min_sorted: Vec<f32> = Vec::with_capacity(512);
-    for mi in 0..N_MINUTES {
-        let (lo, hi) = win_range(trades, mi as i64 * 60, (mi as i64 + 1) * 60);
-        if hi < lo + 3 {
-            continue;
-        }
-        let (b_ords, a_ords) = min_dirs.split_at_mut(1);
-        min_agg.build_bid_ask(&trades[lo..hi], &mut b_ords[0], &mut a_ords[0]);
-        for d in 0..2 {
-            min_vol_sorted[d].clear();
-            min_vol_sorted[d].extend(min_dirs[d].iter().map(|o| o.vol));
-            min_vol_sorted[d].sort_unstable_by(|a, b| a.total_cmp(b));
-        }
-        for ch in 0..8 {
-            let side = ch % 2;
-            let ords = &min_dirs[side];
-            if ords.len() < 3 {
+    if need_any_min {
+        let mut min_mat = Array2::<f32>::from_elem((N_MINUTES, N_MIN_COLS), f32::NAN);
+        let mut min_agg = OrderAgg::new(512);
+        let mut min_dirs: [Vec<RichOrder>; 2] = [Vec::with_capacity(512), Vec::with_capacity(512)];
+        let mut min_vol_sorted: [Vec<f32>; 2] = [Vec::with_capacity(512), Vec::with_capacity(512)];
+        let mut min_seq: Vec<f32> = Vec::with_capacity(512);
+        let mut min_sorted: Vec<f32> = Vec::with_capacity(512);
+        for mi in 0..N_MINUTES {
+            let (lo, hi) = win_range(trades, mi as i64 * 60, (mi as i64 + 1) * 60);
+            if hi < lo + 3 {
                 continue;
             }
-            match ch / 2 {
-                0 => {
-                    min_seq.clear();
-                    min_seq.extend(ords.iter().map(|o| o.vol));
+            let (b_ords, a_ords) = min_dirs.split_at_mut(1);
+            min_agg.build_bid_ask(&trades[lo..hi], &mut b_ords[0], &mut a_ords[0]);
+            for d in 0..2 {
+                min_vol_sorted[d].clear();
+                min_vol_sorted[d].extend(min_dirs[d].iter().map(|o| o.vol));
+                min_vol_sorted[d].sort_unstable_by(|a, b| a.total_cmp(b));
+            }
+            for ch in 0..8 {
+                let side = ch % 2;
+                let ords = &min_dirs[side];
+                if ords.len() < 3 {
+                    continue;
                 }
-                1 => {
-                    min_seq.clear();
-                    min_seq.extend(ords.iter().map(|o| o.target_val(1)));
+                match ch / 2 {
+                    0 => {
+                        min_seq.clear();
+                        min_seq.extend(ords.iter().map(|o| o.vol));
+                    }
+                    1 => {
+                        min_seq.clear();
+                        min_seq.extend(ords.iter().map(|o| o.target_val(1)));
+                    }
+                    2 => {
+                        min_seq.clear();
+                        min_seq.extend(ords.iter().map(|o| o.target_val(2)));
+                    }
+                    _ => {
+                        min_seq = vol_by_axis(ords, 1);
+                    }
                 }
-                2 => {
-                    min_seq.clear();
-                    min_seq.extend(ords.iter().map(|o| o.target_val(2)));
+                // ch=0/1 (vol) 与 ch=6/7 (lastord vol) 的排序数组完全相同，直接复用 min_vol_sorted
+                let sorted_ref: &[f32] = if ch / 2 == 0 || ch / 2 == 3 {
+                    &min_vol_sorted[side]
+                } else {
+                    min_sorted.clear();
+                    min_sorted.extend_from_slice(&min_seq);
+                    min_sorted.sort_unstable_by(|a, b| a.total_cmp(b));
+                    &min_sorted
+                };
+                let ex_pos = MIN_EX_CH.iter().position(|&x| x == ch);
+                let base = match ex_pos {
+                    Some(_) => shuffle_baseline(sorted_ref, CAP_MIN, N_SHUF_MIN, false, &mut ev).0,
+                    None => NAN_ORD,
+                };
+                let (c, _) = run_true(&min_seq, sorted_ref, CAP_MIN, 0, false, &mut ev);
+                for (j, &k) in MIN_RAW_IDX.iter().enumerate() {
+                    min_mat[[mi, ch * 7 + j]] = c[k];
                 }
-                _ => {
-                    min_seq = vol_by_axis(ords, 1);
+                if let Some(p) = ex_pos {
+                    let e = excess(&c, &base);
+                    for (j, &k) in MIN_EX_IDX.iter().enumerate() {
+                        min_mat[[mi, 56 + p * 3 + j]] = e[k];
+                    }
                 }
             }
-            // ch=0/1 (vol) 与 ch=6/7 (lastord vol) 的排序数组完全相同，直接复用 min_vol_sorted
-            let sorted_ref: &[f32] = if ch / 2 == 0 || ch / 2 == 3 {
-                &min_vol_sorted[side]
+            for d in 0..2 {
+                let l = lot7(&min_vol_sorted[d], &mut keys);
+                min_mat[[mi, 68 + d]] = l[6];
+                min_mat[[mi, 70 + d]] = l[4];
+                min_mat[[mi, 72 + d]] = l[0];
+                let f = flow5(&min_dirs[d], &mut fbuf);
+                min_mat[[mi, 74 + d]] = f[0];
+                min_mat[[mi, 76 + d]] = f[1];
+            }
+        }
+        const N_SINGLE_MIN_RANGE: usize = N_PART_MIN / 3;
+        for (ri, &(r0, r1, _)) in MIN_RANGES.iter().enumerate() {
+            if need_min_range[ri] {
+                let view = min_mat.slice(s![r0..r1, ..]);
+                let reduced = features::get_features_factors_rust_values_only(&view, false);
+                out.extend_from_slice(&reduced);
             } else {
-                min_sorted.clear();
-                min_sorted.extend_from_slice(&min_seq);
-                min_sorted.sort_unstable_by(|a, b| a.total_cmp(b));
-                &min_sorted
-            };
-            let ex_pos = MIN_EX_CH.iter().position(|&x| x == ch);
-            let base = match ex_pos {
-                Some(_) => shuffle_baseline(sorted_ref, CAP_MIN, N_SHUF_MIN, false, &mut ev).0,
-                None => NAN_ORD,
-            };
-            let (c, _) = run_true(&min_seq, sorted_ref, CAP_MIN, 0, false, &mut ev);
-            for (j, &k) in MIN_RAW_IDX.iter().enumerate() {
-                min_mat[[mi, ch * 7 + j]] = c[k];
-            }
-            if let Some(p) = ex_pos {
-                let e = excess(&c, &base);
-                for (j, &k) in MIN_EX_IDX.iter().enumerate() {
-                    min_mat[[mi, 56 + p * 3 + j]] = e[k];
-                }
+                out.resize(out.len() + N_SINGLE_MIN_RANGE, f32::NAN);
             }
         }
-        for d in 0..2 {
-            let l = lot7(&min_vol_sorted[d], &mut keys);
-            min_mat[[mi, 68 + d]] = l[6];
-            min_mat[[mi, 70 + d]] = l[4];
-            min_mat[[mi, 72 + d]] = l[0];
-            let f = flow5(&min_dirs[d], &mut fbuf);
-            min_mat[[mi, 74 + d]] = f[0];
-            min_mat[[mi, 76 + d]] = f[1];
-        }
-    }
-    for &(r0, r1, _) in &MIN_RANGES {
-        let view = min_mat.slice(s![r0..r1, ..]);
-        let reduced = features::get_features_factors_rust_values_only(&view, false);
-        out.extend_from_slice(&reduced);
+    } else {
+        out.resize(out.len() + N_PART_MIN, f32::NAN);
     }
 
     if out.len() != EXPECTED_LEN {

@@ -106,6 +106,7 @@ pub mod tail_v4_fulltest_dataset;
 pub mod tail_v4_fulltest_rust;
 pub mod tail_v4_pipeline;
 pub mod tail_v5_pipeline;
+pub mod super_factor;
 pub mod tail_shared_cache;
 pub mod tail_v8_backtest;
 pub mod tail_v8_neu_v3;

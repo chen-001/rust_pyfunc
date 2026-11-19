@@ -57,11 +57,11 @@ fn transpose(seqs: &[&[u8]], n: usize) -> Vec<[u8; L]> {
 
 /// 嵌套比对最高分（批量）。seqs/tabs 长度 ≤ 32，所有序列长度相同
 pub fn nested_score_batch(seqs: &[&[u8]], tabs: &[Tab16], o: i16, e: i16, minsep: usize) -> Vec<i32> {
+    #[cfg(target_arch = "x86_64")]
     if std::arch::is_x86_feature_detected!("avx512bw") {
-        unsafe { simd::nested(seqs, tabs, o, e, minsep) }
-    } else {
-        nested_score_batch_generic(seqs, tabs, o, e, minsep)
+        return unsafe { simd::nested(seqs, tabs, o, e, minsep) };
     }
+    nested_score_batch_generic(seqs, tabs, o, e, minsep)
 }
 pub fn nested_score_batch_generic(seqs: &[&[u8]], tabs: &[Tab16], o: i16, e: i16, minsep: usize) -> Vec<i32> {
     let m = seqs.len();
@@ -115,11 +115,11 @@ pub fn nested_score_batch_generic(seqs: &[&[u8]], tabs: &[Tab16], o: i16, e: i16
 
 /// 同向比对最高分（批量，含“两段不重叠”的起点记录）
 pub fn forward_score_batch(seqs: &[&[u8]], tabs: &[Tab16], o: i16, e: i16, minsep: usize) -> Vec<i32> {
+    #[cfg(target_arch = "x86_64")]
     if std::arch::is_x86_feature_detected!("avx512bw") {
-        unsafe { simd::forward(seqs, tabs, o, e, minsep) }
-    } else {
-        forward_score_batch_generic(seqs, tabs, o, e, minsep)
+        return unsafe { simd::forward(seqs, tabs, o, e, minsep) };
     }
+    forward_score_batch_generic(seqs, tabs, o, e, minsep)
 }
 pub fn forward_score_batch_generic(seqs: &[&[u8]], tabs: &[Tab16], o: i16, e: i16, minsep: usize) -> Vec<i32> {
     let m = seqs.len();
@@ -202,11 +202,11 @@ pub fn forward_score_batch_generic(seqs: &[&[u8]], tabs: &[Tab16], o: i16, e: i1
 
 /// 两序列局部比对最高分（批量，线性空位）
 pub fn rect_score_batch(as_: &[&[u8]], bs: &[&[u8]], tabs: &[Tab16], g: i16) -> Vec<i32> {
+    #[cfg(target_arch = "x86_64")]
     if std::arch::is_x86_feature_detected!("avx512bw") {
-        unsafe { simd::rect(as_, bs, tabs, g) }
-    } else {
-        rect_score_batch_generic(as_, bs, tabs, g)
+        return unsafe { simd::rect(as_, bs, tabs, g) };
     }
+    rect_score_batch_generic(as_, bs, tabs, g)
 }
 pub fn rect_score_batch_generic(as_: &[&[u8]], bs: &[&[u8]], tabs: &[Tab16], g: i16) -> Vec<i32> {
     let m = as_.len();
@@ -248,6 +248,7 @@ pub fn rect_score_batch_generic(as_: &[&[u8]], bs: &[&[u8]], tabs: &[Tab16], g: 
 }
 
 /// AVX-512 版：一个 512 位寄存器装 32 个 16 位通道。逻辑与上面的通用版逐条对应。
+#[cfg(target_arch = "x86_64")]
 mod simd {
     use super::{Tab16, K, L, NEG16, NEGH16};
     use std::arch::x86_64::*;
