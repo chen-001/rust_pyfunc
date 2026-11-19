@@ -30,7 +30,12 @@
         
         <div class="function-description">
             <h2>描述</h2>
-            <div><p>读取第 col_idx 个因子为扁平数组（date_id[], code_id[], factor[]），供测试/调试</p></div>
+            <div><p>读取第 col_idx 个因子为扁平数组（date_id[], code_id[], factor[]），供测试/调试</p>
+<p>读盘与展平整段放进 <code>allow_threads</code>：这段是纯 Rust 工作，不需要 GIL。
+2026-11-13 实测（sandbox_tlq_par/probe_parallel.py，/hdd 上每因子约 80 MB 的 store）：
+旧实现整段持有 GIL，8 线程并行读 8 个因子只有 1.03x；在 page cache 命中的情况下
+反而 0.73x，纯粹是 GIL 争抢的开销。释放之后 Python 侧线程池才可能真正重叠 IO 等待，
+这也是 tlq_gate 并行化能从 1.33x 继续往上走的前提。</p></div>
         </div>
         
         <div class="function-signature signature">

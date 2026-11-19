@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>cold_build_v2_axes_core - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>cold_build_v2_axes_core</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>Cold v2 三正交冷门轴构造内核：
+输入带前导历史窗口（共 <code>d_full = out_offset + d_out</code> 行）且已完成 <code>lag</code> 平移的行情矩阵，
+以及目标区间 <code>(d_out, s, 10)</code> 的 <code>barra_ranked</code>（<code>rank_pct</code>）和 <code>(d_out, s)</code> 的 <code>restrict</code>（0=正常）。
+返回 <code>(d_out, s, 3)</code> <code>f32</code>：<code>[C1_PriceCold, C2_TurnCold, C3_LotteryCold]</code>，严格正交于 <code>[1, rank_pct(Barra10)]</code>。</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>cold_build_v2_axes_core(close, turn, high, low, raw_close, high_limit, barra_ranked, restrict, out_offset) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                <p>此函数没有参数</p>
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import cold_build_v2_axes_core
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

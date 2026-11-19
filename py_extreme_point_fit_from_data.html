@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>py_extreme_point_fit_from_data - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>py_extreme_point_fit_from_data</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>Python 可调用（数组版，供样例/分享用）：
+<code>py_extreme_point_fit_from_data(trade_arrays, market_arrays, with_curvature=True)</code></p>
+<ul>
+<li>trade_arrays：形状 (n, 7) 的 float64 数组，列序
+  [exchtime_us, price, volume, turnover, flag, bid_order, ask_order]
+  （exchtime_us = 原始 Level2 transaction.csv 的 exchtime 列；flag==32 的撤单在这里丢掉）</li>
+<li>market_arrays：形状 (m, 46) 的 float64 数组，列序
+  [exchtime_us, last_prc, volume, turnover, total_ask_vol, total_bid_vol,
+   ask_prc1..ask_prc10, ask_vol1..ask_vol10, bid_prc1..bid_prc10, bid_vol1..bid_vol10]</li>
+</ul>
+<p>与 py_extreme_point_fit / pipeline=extreme_point_fit 的输出逐位一致。</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>py_extreme_point_fit_from_data(trade_arrays, market_arrays, with_curvature) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                <p>此函数没有参数</p>
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import py_extreme_point_fit_from_data
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

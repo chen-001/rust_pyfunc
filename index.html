@@ -1070,6 +1070,53 @@ market microstructure features, and provides quantitative trading and strategy s
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="cold_batched_ols_resid_3d.html">cold_batched_ols_resid_3d</a></h3>
+                <div><p>多轴线性残差批量投影内核（<code>V0 / V2 / V8</code> 通用）：
+求解每日加权正则方程 <code>(X_t^T X_t + ridge * I) beta_t = X_t^T Y_t</code>，
+将残差在 <code>valid_tn</code> 上按列做总体均方根归一化，输出 <code>(T, N, K)</code> <code>f32</code>（不做残差后再 rank_pct）。</p></div>
+                <a href="cold_batched_ols_resid_3d.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="cold_build_heat_core.html">cold_build_heat_core</a></h3>
+                <div><p>输入已对齐并滞后到 <code>(D, S)</code> 的 <code>close</code>, <code>turn</code> 与 <code>(D, S, 10)</code> 的 <code>styles</code>，返回 <code>(D, S)</code> f32 冷得分。</p></div>
+                <a href="cold_build_heat_core.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="cold_build_v2_axes_core.html">cold_build_v2_axes_core</a></h3>
+                <div><p>Cold v2 三正交冷门轴构造内核：
+输入带前导历史窗口（共 <code>d_full = out_offset + d_out</code> 行）且已完成 <code>lag</code> 平移的行情矩阵，
+以及目标区间 <code>(d_out, s, 10)</code> 的 <code>barra_ranked</code>（<code>rank_pct</code>）和 <code>(d_out, s)</code> 的 <code>restrict</code>（0=正常）。
+返回 <code>(d_out, s, 3)</code> <code>f32</code>：<code>[C1_PriceCold, C2_TurnCold, C3_LotteryCold]</code>，严格正交于 <code>[1, rank_pct(Barra10)]</code>。</p></div>
+                <a href="cold_build_v2_axes_core.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="cold_project_out_2d.html">cold_project_out_2d</a></h3>
+                <div><p>无文档</p></div>
+                <a href="cold_project_out_2d.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="cold_project_out_3d.html">cold_project_out_3d</a></h3>
+                <div><p>无文档</p></div>
+                <a href="cold_project_out_3d.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="cold_project_out_multi_2d.html">cold_project_out_multi_2d</a></h3>
+                <div><p>无文档</p></div>
+                <a href="cold_project_out_multi_2d.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="cold_project_out_multi_3d.html">cold_project_out_multi_3d</a></h3>
+                <div><p>无文档</p></div>
+                <a href="cold_project_out_multi_3d.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="column_correlation_batch.html">column_correlation_batch</a></h3>
                 <div><p>批量计算多列相关系数的优化版本</p>
 <p>为了进一步提升性能，使用批量处理和更好的缓存局部性</p></div>
@@ -1433,6 +1480,12 @@ print(distances.shape)  # (240,)
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="factor_store_storage_profile.html">factor_store_storage_profile</a></h3>
+                <div><p>无文档</p></div>
+                <a href="factor_store_storage_profile.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="factor_store_v5_copy_subset.html">factor_store_v5_copy_subset</a></h3>
                 <div><p>把 src store 中的指定因子子集复制成新的独立 store（含投影）。</p>
 <p>用途（补充因子 accepted group）：评估 store 保留整批因子，判定结束后把
@@ -1510,8 +1563,20 @@ dst 不得已被所在组合 manifest 引用（防止与已注册 group 冲突�
             
             <div class="function-item">
                 <h3 class="function-name"><a href="factor_store_v5_read_factor.html">factor_store_v5_read_factor</a></h3>
-                <div><p>读取第 col_idx 个因子为扁平数组（date_id[], code_id[], factor[]），供测试/调试</p></div>
+                <div><p>读取第 col_idx 个因子为扁平数组（date_id[], code_id[], factor[]），供测试/调试</p>
+<p>读盘与展平整段放进 <code>allow_threads</code>：这段是纯 Rust 工作，不需要 GIL。
+2026-11-13 实测（sandbox_tlq_par/probe_parallel.py，/hdd 上每因子约 80 MB 的 store）：
+旧实现整段持有 GIL，8 线程并行读 8 个因子只有 1.03x；在 page cache 命中的情况下
+反而 0.73x，纯粹是 GIL 争抢的开销。释放之后 Python 侧线程池才可能真正重叠 IO 等待，
+这也是 tlq_gate 并行化能从 1.33x 继续往上走的前提。</p></div>
                 <a href="factor_store_v5_read_factor.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="factor_store_v5_read_factors_batch_matrix.html">factor_store_v5_read_factors_batch_matrix</a></h3>
+                <div><p>单次打开 FactorStoreReader，批量合并连读多列因子并按给定 (dates, stocks) 散射为稠密 f32 矩阵列表。
+彻底消除 Python 循环调用 <code>factor_store_v5_read_factor</code> 导致的数百次重开库与 <code>Too many open files</code>。</p></div>
+                <a href="factor_store_v5_read_factors_batch_matrix.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -2037,6 +2102,12 @@ relative import to an absolute import.</p></div>
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="load_super_factor_cdll.html">load_super_factor_cdll</a></h3>
+                <div><p>加载并绑定 <code>rust_pyfunc</code> 内置的 14 个 <code>sf_*</code> 零拷贝 C-ABI 核函数。</p></div>
+                <a href="load_super_factor_cdll.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="local_correlation.html">local_correlation</a></h3>
                 <div><p>计算价格序列的局部相关性分析</p>
 <p>对于每个价格点，向前取x个值作为局部序列，然后分别向前和向后搜索，
@@ -2082,6 +2153,12 @@ relative import to an absolute import.</p></div>
 对于同一个时间窗口内的相同交易组，标记相同的组号。
 组号从1开始递增，每遇到一个新的交易组就分配一个新的组号。</p></div>
                 <a href="mark_follow_groups_with_flag.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="materialize_super_recipes_from_store.html">materialize_super_recipes_from_store</a></h3>
+                <div><p>仅从 <code>factor_store</code> 按需抽取入选配方涉及的约百余列原始因子，毫秒级合成全部超因子 <code>(K, T, N)</code> 矩阵。</p></div>
+                <a href="materialize_super_recipes_from_store.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -2212,7 +2289,8 @@ Uses Euclidean distance for k-nearest neighbor search</p></div>
             
             <div class="function-item">
                 <h3 class="function-name"><a href="neutralize_std_block_with_shared.html">neutralize_std_block_with_shared</a></h3>
-                <div><p>用已预计算的句柄做 block 级标准中性化（不重新读 barra H5）。</p></div>
+                <div><p>用已预计算的句柄做 block 级标准中性化（不重新读 barra H5）。
+默认走 v3 压缩 + f64 残差精确平均秩快路径（与 legacy 逐位一致）；设置 <code>TAIL_NEU_V2=1</code> 回退旧路径。</p></div>
                 <a href="neutralize_std_block_with_shared.html">查看详情</a>
             </div>
             
@@ -2233,6 +2311,12 @@ style sha256 + restrict sha256 + ret_sum_gap1/5 sha256），所以同一轴、�
                 <h3 class="function-name"><a href="neutralize_std_precompute_py.html">neutralize_std_precompute_py</a></h3>
                 <div><p>预计算一次，返回可复用句柄（供逐因子调用复用，避免重复读 barra H5）。</p></div>
                 <a href="neutralize_std_precompute_py.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="neutralize_std_slot_with_shared.html">neutralize_std_slot_with_shared</a></h3>
+                <div><p>用已预计算的句柄做单面 <code>(T, N)</code> 标准中性化（供 fulltest 按需只算被请求的那一列，避免算满 6 列）。</p></div>
+                <a href="neutralize_std_slot_with_shared.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -2375,6 +2459,18 @@ style sha256 + restrict sha256 + ret_sum_gap1/5 sha256），所以同一轴、�
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="prepare_anneal_cross_peer_v3_history_from_h5.html">prepare_anneal_cross_peer_v3_history_from_h5</a></h3>
+                <div><p>生产期：从 base h5 取第二轮 task_dates 需要的中间数据。</p></div>
+                <a href="prepare_anneal_cross_peer_v3_history_from_h5.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="prepare_anneal_cross_peer_v3_history_from_store.html">prepare_anneal_cross_peer_v3_history_from_store</a></h3>
+                <div><p>研究期：从第一轮的因子库取第二轮 task_dates 需要的中间数据。</p></div>
+                <a href="prepare_anneal_cross_peer_v3_history_from_store.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="prepare_minute_data_for_theme_feature_expansion.html">prepare_minute_data_for_theme_feature_expansion</a></h3>
                 <div><p>无文档</p></div>
                 <a href="prepare_minute_data_for_theme_feature_expansion.html">查看详情</a>
@@ -2384,6 +2480,175 @@ style sha256 + restrict sha256 + ret_sum_gap1/5 sha256），所以同一轴、�
                 <h3 class="function-name"><a href="price_volume_orderbook_correlation.html">price_volume_orderbook_correlation</a></h3>
                 <div><p>无文档</p></div>
                 <a href="price_volume_orderbook_correlation.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_anneal_cross_peer.html">py_anneal_cross_peer</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_anneal_cross_peer.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_anneal_cross_peer_from_data.html">py_anneal_cross_peer_from_data</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_anneal_cross_peer_from_data.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_anneal_cross_peer_names.html">py_anneal_cross_peer_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_anneal_cross_peer_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_anneal_cross_peer_v2.html">py_anneal_cross_peer_v2</a></h3>
+                <div><p>柜员游戏扩展系列3 修正版：读当天全市场逐笔，返回 (股票代码, 展平因子值)，每股 55,680 维</p></div>
+                <a href="py_anneal_cross_peer_v2.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_anneal_cross_peer_v2_from_data.html">py_anneal_cross_peer_v2_from_data</a></h3>
+                <div><p>传数据版：trades_list 每项为 read_trade_fast_us(code, date, 0, True) 返回的 (n, 8) 数组
+[time_us, time_sec, price, volume, turnover, flag, bid_order, ask_order]，读不到的股票传 None。</p></div>
+                <a href="py_anneal_cross_peer_v2_from_data.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_anneal_cross_peer_v2_names.html">py_anneal_cross_peer_v2_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_anneal_cross_peer_v2_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_anneal_cross_peer_v3.html">py_anneal_cross_peer_v3</a></h3>
+                <div><p>柜员游戏扩展系列3 v3：读当天全市场逐笔与历史画像，返回 (股票代码, 展平因子值)，每股 42,268 维</p></div>
+                <a href="py_anneal_cross_peer_v3.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_anneal_cross_peer_v3_names.html">py_anneal_cross_peer_v3_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_anneal_cross_peer_v3_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_anneal_cross_peer_v3_profile.html">py_anneal_cross_peer_v3_profile</a></h3>
+                <div><p>第一轮：当天全市场每股 271 列中间数据，返回 (股票代码, 展平数值)</p></div>
+                <a href="py_anneal_cross_peer_v3_profile.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_anneal_cross_peer_v3_profile_names.html">py_anneal_cross_peer_v3_profile_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_anneal_cross_peer_v3_profile_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_anneal_order_profile.html">py_anneal_order_profile</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_anneal_order_profile.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_anneal_order_profile_from_data.html">py_anneal_order_profile_from_data</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_anneal_order_profile_from_data.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_anneal_order_profile_names.html">py_anneal_order_profile_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_anneal_order_profile_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_anneal_order_profile_v2.html">py_anneal_order_profile_v2</a></h3>
+                <div><p>柜员游戏扩展系列2 修正版（单股单日 7873 列）</p></div>
+                <a href="py_anneal_order_profile_v2.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_anneal_order_profile_v2_from_data.html">py_anneal_order_profile_v2_from_data</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_anneal_order_profile_v2_from_data.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_anneal_order_profile_v2_names.html">py_anneal_order_profile_v2_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_anneal_order_profile_v2_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_anneal_order_profile_v3.html">py_anneal_order_profile_v3</a></h3>
+                <div><p>柜员游戏扩展系列2 第三版（单股单日 30045 列）</p></div>
+                <a href="py_anneal_order_profile_v3.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_anneal_order_profile_v3_from_data.html">py_anneal_order_profile_v3_from_data</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_anneal_order_profile_v3_from_data.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_anneal_order_profile_v3_names.html">py_anneal_order_profile_v3_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_anneal_order_profile_v3_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_anneal_regime_diff.html">py_anneal_regime_diff</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_anneal_regime_diff.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_anneal_regime_diff_from_data.html">py_anneal_regime_diff_from_data</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_anneal_regime_diff_from_data.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_anneal_regime_diff_names.html">py_anneal_regime_diff_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_anneal_regime_diff_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_anneal_regime_excess.html">py_anneal_regime_excess</a></h3>
+                <div><p>单股单日计算（读盘），返回 44832 个因子值</p></div>
+                <a href="py_anneal_regime_excess.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_anneal_regime_excess_from_data.html">py_anneal_regime_excess_from_data</a></h3>
+                <div><p>传入逐笔数组计算（与读盘版共用同一内核）</p></div>
+                <a href="py_anneal_regime_excess_from_data.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_anneal_regime_excess_names.html">py_anneal_regime_excess_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_anneal_regime_excess_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_anneal_regime_raw_excess.html">py_anneal_regime_raw_excess</a></h3>
+                <div><p>单股单日计算（读盘），返回 44694 个因子值</p></div>
+                <a href="py_anneal_regime_raw_excess.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_anneal_regime_raw_excess_from_data.html">py_anneal_regime_raw_excess_from_data</a></h3>
+                <div><p>传入逐笔数组计算（与读盘版共用同一内核）</p></div>
+                <a href="py_anneal_regime_raw_excess_from_data.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_anneal_regime_raw_excess_names.html">py_anneal_regime_raw_excess_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_anneal_regime_raw_excess_names.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -2442,6 +2707,13 @@ total_bid_vol: (n,)   f64  — 全部档位买单挂单量（含 10 档之外）
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="py_bench_split_mats.html">py_bench_split_mats</a></h3>
+                <div><p>基准：同一天、同一批桶单元，标量版与 SIMD 版各跑一遍四分量矩阵。
+返回 (标量耗时秒, SIMD 耗时秒, 两版最大绝对差)。</p></div>
+                <a href="py_bench_split_mats.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="py_compute_drop_event_features.html">py_compute_drop_event_features</a></h3>
                 <div><p>Python 可调用：py_compute_drop_event_features(date)</p>
 <p>返回 dict:
@@ -2490,6 +2762,30 @@ seg_flat 为 row-major 展平的 (seg_rows × NCOLS)，Python 端 reshape 即可
                 <h3 class="function-name"><a href="py_cross_section_example_names.html">py_cross_section_example_names</a></h3>
                 <div><p>Python 拿因子名。</p></div>
                 <a href="py_cross_section_example_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_dagpath.html">py_dagpath</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_dagpath.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_dagpath_names.html">py_dagpath_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_dagpath_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_dijkstra.html">py_dijkstra</a></h3>
+                <div><p>Python 单日：返回 (codes, vals)，每股 N_FACTORS 个值。</p></div>
+                <a href="py_dijkstra.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_dijkstra_names.html">py_dijkstra_names</a></h3>
+                <div><p>Python 拿因子名（与 N_FACTORS 严格对齐）。</p></div>
+                <a href="py_dijkstra_names.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -2555,9 +2851,97 @@ seg_flat 为 row-major 展平的 (seg_rows × NCOLS)，Python 端 reshape 即可
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="py_extreme_point_fit_from_data.html">py_extreme_point_fit_from_data</a></h3>
+                <div><p>Python 可调用（数组版，供样例/分享用）：
+<code>py_extreme_point_fit_from_data(trade_arrays, market_arrays, with_curvature=True)</code></p>
+<ul>
+<li>trade_arrays：形状 (n, 7) 的 float64 数组，列序
+  [exchtime_us, price, volume, turnover, flag, bid_order, ask_order]
+  （exchtime_us = 原始 Level2 transaction.csv 的 exchtime 列；flag==32 的撤单在这里丢掉）</li>
+<li>market_arrays：形状 (m, 46) 的 float64 数组，列序
+  [exchtime_us, last_prc, volume, turnover, total_ask_vol, total_bid_vol,
+   ask_prc1..ask_prc10, ask_vol1..ask_vol10, bid_prc1..bid_prc10, bid_vol1..bid_vol10]</li>
+</ul>
+<p>与 py_extreme_point_fit / pipeline=extreme_point_fit 的输出逐位一致。</p></div>
+                <a href="py_extreme_point_fit_from_data.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="py_extreme_point_fit_names.html">py_extreme_point_fit_names</a></h3>
                 <div><p>Python 拿完整因子名：默认 27360 个；<code>with_curvature=False</code> → 26976 个（19 统计量口径）。</p></div>
                 <a href="py_extreme_point_fit_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_geffe_leak.html">py_geffe_leak</a></h3>
+                <div><p>单股单日调试入口（错误抛异常，可见完整栈）</p></div>
+                <a href="py_geffe_leak.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_geffe_leak_names.html">py_geffe_leak_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_geffe_leak_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_genedp_buysell_fold.html">py_genedp_buysell_fold</a></h3>
+                <div><p>单日全市场调试入口（50 线程）：返回 (股票代码, 展平因子值)，每股 N_FACTORS 列</p></div>
+                <a href="py_genedp_buysell_fold.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_genedp_buysell_fold_names.html">py_genedp_buysell_fold_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_genedp_buysell_fold_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_genedp_buysell_fold_slim.html">py_genedp_buysell_fold_slim</a></h3>
+                <div><p>单日全市场调试入口（50 线程）：返回 (股票代码, 展平因子值)，每股 N_FACTORS 列</p></div>
+                <a href="py_genedp_buysell_fold_slim.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_genedp_buysell_fold_slim_names.html">py_genedp_buysell_fold_slim_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_genedp_buysell_fold_slim_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_genedp_day_vs_day_align.html">py_genedp_day_vs_day_align</a></h3>
+                <div><p>单日全市场调试入口（50 线程）：返回 (股票代码, 展平因子值)，每股 N_FACTORS 列</p></div>
+                <a href="py_genedp_day_vs_day_align.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_genedp_day_vs_day_align_names.html">py_genedp_day_vs_day_align_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_genedp_day_vs_day_align_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_genedp_mirror_align.html">py_genedp_mirror_align</a></h3>
+                <div><p>单日全市场调试入口（50 线程）：返回 (股票代码, 展平因子值)</p></div>
+                <a href="py_genedp_mirror_align.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_genedp_mirror_align_names.html">py_genedp_mirror_align_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_genedp_mirror_align_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_genedp_self_repeat_align.html">py_genedp_self_repeat_align</a></h3>
+                <div><p>单日全市场调试入口（50 线程）：返回 (股票代码, 展平因子值)</p></div>
+                <a href="py_genedp_self_repeat_align.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_genedp_self_repeat_align_names.html">py_genedp_self_repeat_align_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_genedp_self_repeat_align_names.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -2644,6 +3028,30 @@ trade flag=32 过滤、market 涨跌停（ask_prc1/bid_prc1 为 0）过滤、
                 <h3 class="function-name"><a href="py_individual_order_ratio_names.html">py_individual_order_ratio_names</a></h3>
                 <div><p>无文档</p></div>
                 <a href="py_individual_order_ratio_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_lfsr_ext2.html">py_lfsr_ext2</a></h3>
+                <div><p>单日全市场调试入口（错误抛异常，可见完整栈）</p></div>
+                <a href="py_lfsr_ext2.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_lfsr_ext2_names.html">py_lfsr_ext2_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_lfsr_ext2_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_lfsr_leak_ext1.html">py_lfsr_leak_ext1</a></h3>
+                <div><p>单日全市场调试入口（错误抛异常，可见完整栈）</p></div>
+                <a href="py_lfsr_leak_ext1.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_lfsr_leak_ext1_names.html">py_lfsr_leak_ext1_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_lfsr_leak_ext1_names.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -2755,9 +3163,51 @@ trade flag=32 过滤、market 涨跌停（ask_prc1/bid_prc1 为 0）过滤、
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="py_observable_order_from_data.html">py_observable_order_from_data</a></h3>
+                <div><p>Python 可调用（数组版，供样例/分享用）：
+<code>py_observable_order_from_data(trade_arrays, market_arrays, params=None, with_curvature=True)</code></p>
+<ul>
+<li>trade_arrays：形状 (n, 7) 的 float64 数组，列序
+  [exchtime_us, price, volume, turnover, flag, bid_order, ask_order]
+  （exchtime_us = 原始 Level2 transaction.csv 的 exchtime 列；flag==32 的撤单在这里丢掉）</li>
+<li>market_arrays：形状 (m, 46) 的 float64 数组，列序
+  [exchtime_us, last_prc, volume, turnover, total_ask_vol, total_bid_vol,
+   ask_prc1..ask_prc10, ask_vol1..ask_vol10, bid_prc1..bid_prc10, bid_vol1..bid_vol10]</li>
+<li>params：同 py_compute_observable_order_metrics 的参数字典；with_curvature=False 输出
+  19 统计量口径（50400 列），True 输出 21 统计量口径（52416 列）</li>
+</ul>
+<p>与 pipeline=observable_order 的逐股输出逐位一致。</p></div>
+                <a href="py_observable_order_from_data.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="py_orderbook_imb_refactor_names.html">py_orderbook_imb_refactor_names</a></h3>
                 <div><p>无文档</p></div>
                 <a href="py_orderbook_imb_refactor_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_orderflow_ctx.html">py_orderflow_ctx</a></h3>
+                <div><p>Python 单日调试：返回 (codes, vals)。</p></div>
+                <a href="py_orderflow_ctx.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_orderflow_ctx_names.html">py_orderflow_ctx_names</a></h3>
+                <div><p>Python 拿因子名（长度 = N_FACTORS）。</p></div>
+                <a href="py_orderflow_ctx_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_orderflow_ctx_v2.html">py_orderflow_ctx_v2</a></h3>
+                <div><p>Python 单日调试：返回 (codes, vals)。</p></div>
+                <a href="py_orderflow_ctx_v2.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_orderflow_ctx_v2_names.html">py_orderflow_ctx_v2_names</a></h3>
+                <div><p>Python 拿因子名（长度 = N_FACTORS）。</p></div>
+                <a href="py_orderflow_ctx_v2_names.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -2823,6 +3273,30 @@ time_us 由 time_sec（epoch 秒）× 1e6 构造（v2 演示场景秒级精度�
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="py_relaynet.html">py_relaynet</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_relaynet.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_relaynet_names.html">py_relaynet_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_relaynet_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_relaynet_six_people.html">py_relaynet_six_people</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_relaynet_six_people.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_relaynet_six_people_names.html">py_relaynet_six_people_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_relaynet_six_people_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="py_state_read_row.html">py_state_read_row</a></h3>
                 <div><p>调试：读某日标量行。</p></div>
                 <a href="py_state_read_row.html">查看详情</a>
@@ -2853,9 +3327,33 @@ time_us 由 time_sec（epoch 秒）× 1e6 构造（v2 演示场景秒级精度�
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="py_urgency_ext_from_data.html">py_urgency_ext_from_data</a></h3>
+                <div><p>Python 可调用（全市场数组版，供样例/分享用）：
+<code>py_urgency_ext_from_data(codes, trade_arrays)</code></p>
+<p>入参格式与 py_urgency_from_data 完全相同：每只股票一个 (n_i, 7) 数组，
+列序 [exchtime_us, price, volume, turnover, flag, bid_order, ask_order]。
+与 py_urgency_ext(date) 的输出逐位一致。</p></div>
+                <a href="py_urgency_ext_from_data.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="py_urgency_ext_names.html">py_urgency_ext_names</a></h3>
                 <div><p>无文档</p></div>
                 <a href="py_urgency_ext_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_urgency_from_data.html">py_urgency_from_data</a></h3>
+                <div><p>Python 可调用（全市场数组版，供样例/分享用）：
+<code>py_urgency_from_data(codes, trade_arrays)</code></p>
+<ul>
+<li>codes：股票代码列表，顺序就是输出 codes 的顺序</li>
+<li>trade_arrays：每只股票一个 (n_i, 7) 的 float64 数组，列序
+  [exchtime_us, price, volume, turnover, flag, bid_order, ask_order]
+  （exchtime_us = 原始 Level2 transaction.csv 的 exchtime 列；flag==32 的撤单在这里丢掉）</li>
+</ul>
+<p>与 py_urgency(date) 的输出逐位一致（前提是 codes 与逐笔内容和生产当天完全一致）。</p></div>
+                <a href="py_urgency_from_data.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -2937,17 +3435,127 @@ time_us 由 time_sec（epoch 秒）× 1e6 构造（v2 演示场景秒级精度�
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="py_yupei_dist_emit_names.html">py_yupei_dist_emit_names</a></h3>
+                <div><p>再生成 names.rs 用：构造合成 MatrixSet（28 张非零矩阵 + 默认统计量，
+无 prev / 无行业），跑全部指标模块只收集名字（不动 values）。
+结构分支与真实单日运行完全一致：名字集合与数据取值无关，只依赖
+"28 张矩阵是否都在"（无矩阵的模块同样以占位名输出）与 prev=None。
+n=64 足够小（约 28×64×64×4B = 0.44MB 矩阵），又能避开 n&lt;k 的极端分支。</p></div>
+                <a href="py_yupei_dist_emit_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_yupei_dist_lite.html">py_yupei_dist_lite</a></h3>
+                <div><p>Python: 精简版因子（741 列）。返回 (codes, names, vals)。
+names 一并返回——列序与全量版不同，调用方不要混用全量名单。</p></div>
+                <a href="py_yupei_dist_lite.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_yupei_dist_lite_names.html">py_yupei_dist_lite_names</a></h3>
+                <div><p>Python 拿精简版因子名（741 个）。</p></div>
+                <a href="py_yupei_dist_lite_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="py_yupei_dist_names.html">py_yupei_dist_names</a></h3>
                 <div><p>Python 拿因子名（2761 个, 顺序与 py_yupei_dist 输出一致）。</p></div>
                 <a href="py_yupei_dist_names.html">查看详情</a>
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="py_yupei_gpt.html">py_yupei_gpt</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_yupei_gpt.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_yupei_gpt_names.html">py_yupei_gpt_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_yupei_gpt_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_yupei_gpt_temporal.html">py_yupei_gpt_temporal</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_yupei_gpt_temporal.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_yupei_gpt_temporal_names.html">py_yupei_gpt_temporal_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_yupei_gpt_temporal_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_yupei_multi.html">py_yupei_multi</a></h3>
+                <div><p>Python 入口。</p></div>
+                <a href="py_yupei_multi.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_yupei_multi_v5.html">py_yupei_multi_v5</a></h3>
+                <div><p>定稿入口：四套载体（原版、订单级、聚簇、订单方向级）+ 五种方向组合，
+默认使用 Top5/Top20，输出 12914 列；方向组合固定为五条链。</p>
+<p>date: 交易日 YYYYMMDD；tau: 衰减时间尺度（秒），默认 1.0。
+weight: "cnt" 按笔数，"vol" 按成交量平方根，默认 "cnt"。
+ks: 附加 TopK 因子的档位列表，默认 [5, 20]；可显式传其他档位。
+svd_k: 横截面分解成分数，默认 8；sig_temp / sig_thr: 软阈值参数，默认 0.3 / 2.0。
+null_mc: 空模型抽样上限，默认 20000；exz_bins: 条件网格边数，默认 10。
+返回 (股票代码, 因子列名, 按股票逐行展开的因子值)。线程数由 RAYON_NUM_THREADS 控制。</p></div>
+                <a href="py_yupei_multi_v5.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_yupei_multi_v5_names.html">py_yupei_multi_v5_names</a></h3>
+                <div><p>Python 入口：只给 v5 的列名（毫秒级，不读数据）。与 <code>py_yupei_multi_v5</code>
+的输出列逐字一致；流程脚本用它拿名字，不必先跑一整天。</p></div>
+                <a href="py_yupei_multi_v5_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="py_yupei_pair.html">py_yupei_pair</a></h3>
                 <div><p>Python 入口：单日全市场配对互补因子。</p>
-<p><code>mats=None</code> 默认 DEFAULT_MATS 15 张（cnt×9τ + vol×6τ）。
+<p><code>mats=None</code> 默认 DEFAULT_MATS 15 张（cnt×3τ + rvol×3τ）。
 返回 <code>(codes, names, vals)</code>，vals 行主序 len(codes)×len(names)。</p></div>
                 <a href="py_yupei_pair.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_yupei_pair_split.html">py_yupei_pair_split</a></h3>
+                <div><p>Python 入口：单日全市场主买/主卖方向拆分因子。</p></div>
+                <a href="py_yupei_pair_split.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_yupei_pair_split_names.html">py_yupei_pair_split_names</a></h3>
+                <div><p>Python 入口：直接给出 15 条链的因子列名，不读数据、不算因子。</p>
+<p>与 <code>py_yupei_pair_split(...)[1]</code> 返回的名单逐字相同，但耗时从「一整天」降到毫秒。</p></div>
+                <a href="py_yupei_pair_split_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_yupei_union_all.html">py_yupei_union_all</a></h3>
+                <div><p>Python 入口：单日四合一因子。返回 (codes, names, vals)，vals 为行主序扁平 f32。</p></div>
+                <a href="py_yupei_union_all.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_yupei_union_all_names.html">py_yupei_union_all_names</a></h3>
+                <div><p>Python 入口：四合一的列名（20716 个），不读数据。</p></div>
+                <a href="py_yupei_union_all_names.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_yupei_union_trim.html">py_yupei_union_trim</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_yupei_union_trim.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="py_yupei_union_trim_names.html">py_yupei_union_trim_names</a></h3>
+                <div><p>无文档</p></div>
+                <a href="py_yupei_union_trim_names.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -3103,6 +3711,13 @@ time_us 由 time_sec（epoch 秒）× 1e6 构造（v2 演示场景秒级精度�
 <p>这是rust_pyfunc.rank_axis1的DataFrame封装版本，可以直接传入DataFrame
 并返回保持原有索引和列名的DataFrame结果。</p></div>
                 <a href="rank_axis1_df.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="read_level2_list_fast.html">read_level2_list_fast</a></h3>
+                <div><p>Rust 多线程极速扫描 Level2 任务列表 <code>[[date, symbol], ...]</code>（替代 Python 单线程 <code>os.listdir</code>）。
+按传入的 <code>dates</code> 顺序与 <code>symbols</code>（<code>symbol_map.csv</code> 白名单顺序）精确过滤并输出，与原 <code>factor_io_simple.read_level2_list</code> 逐项完全一致。</p></div>
+                <a href="read_level2_list_fast.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -3492,6 +4107,10 @@ quantile=0.9: 90%分位数分割，只有前10%最高成交量为1</p></div>
 <li>incremental_projection: true = 增量投影（store_dir 模式生效）。追加新任务时 base 投影
   不动，只把新行写成 factors.proj.delta.<end>，读取端自动拼接 base + delta；
   默认 false = 追加即删投影、收尾整片重投影（I/O ≈ 2× store 体积）。</li>
+<li>direct_write: 写最终列段，不执行投影；仅新目录或已有同格式目录。
+  默认 None = 自动打开：只要给了 store_dir 且没显式要 incremental_projection，就直写列段；
+  显式 False 走原来的 colblk + 投影路径；显式 True 与 incremental_projection 同时给会报冲突。</li>
+<li>write_buffer_gb: direct_write 的存储缓冲预算（GiB），不限制计算/IPC总内存。</li>
 </ul></div>
                 <a href="run_factor_pipeline.html">查看详情</a>
             </div>
@@ -3549,6 +4168,12 @@ quantile=0.9: 90%分位数分割，只有前10%最高成交量为1</p></div>
                 <h3 class="function-name"><a href="run_pools_simple.html">run_pools_simple</a></h3>
                 <div><p>极简版并行计算函数 - 只执行不返回</p></div>
                 <a href="run_pools_simple.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="screen_super_factors_from_context.html">screen_super_factors_from_context</a></h3>
+                <div><p>给定全市场上下文 <code>ctx</code> 与 <code>factor_store</code> 路径，全自动完成双缓冲扫描、超因子组团与全历史回测。</p></div>
+                <a href="screen_super_factors_from_context.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -3756,9 +4381,36 @@ print(f"super加速比: {time1/time3:.2f}倍")
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="tail_v2_select_by_ic_corr_par_f32.html">tail_v2_select_by_ic_corr_par_f32</a></h3>
+                <div><p><code>tail_v2_select_by_ic_corr_f32</code> 的并行版，参数、返回值与报错文案逐字一致，
+只多一个 <code>n_threads</code>：0 用全局 rayon 池，&gt;0 建一个独立线程池（不污染全局池）。</p></div>
+                <a href="tail_v2_select_by_ic_corr_par_f32.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="tail_v3_rank_roll_block_f32.html">tail_v3_rank_roll_block_f32</a></h3>
                 <div><p>无文档</p></div>
                 <a href="tail_v3_rank_roll_block_f32.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="tail_v4_fulltest_core_rust.html">tail_v4_fulltest_core_rust</a></h3>
+                <div><p>无文档</p></div>
+                <a href="tail_v4_fulltest_core_rust.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="tail_v4_fulltest_dataset_rust.html">tail_v4_fulltest_dataset_rust</a></h3>
+                <div><p>无文档</p></div>
+                <a href="tail_v4_fulltest_dataset_rust.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
+                <h3 class="function-name"><a href="tail_v4_fulltest_factor_rust.html">tail_v4_fulltest_factor_rust</a></h3>
+                <div><p>读一个新格式因子 parquet（<code>date</code> 列 + 每只股票一列），对齐到 (stocks, dates)。</p>
+<p>返回 (n_stocks, n_t) 的 float64 矩阵；缺失位置为 NaN，非有限值也置 NaN
+（与 <code>_read_factor_to_template</code> 的 inf→NaN 一致）。</p></div>
+                <a href="tail_v4_fulltest_factor_rust.html">查看详情</a>
             </div>
             
             <div class="function-item">
@@ -3983,6 +4635,12 @@ print(f"super加速比: {time1/time3:.2f}倍")
             </div>
             
             <div class="function-item">
+                <h3 class="function-name"><a href="tlq_gate_base_resid_batch.html">tlq_gate_base_resid_batch</a></h3>
+                <div><p>批量计算多个候选因子的 TLQ（一次预分解每日固定结构 + 单层线程池跨因子并行，支持 f32 输入零额外转换）。</p></div>
+                <a href="tlq_gate_base_resid_batch.html">查看详情</a>
+            </div>
+            
+            <div class="function-item">
                 <h3 class="function-name"><a href="tlq_gate_interleave_styles.html">tlq_gate_interleave_styles</a></h3>
                 <div><p>把 k 张 (T × N) 矩阵交错成 (T × N*k) 的行主序块，供回测逐行取用。</p></div>
                 <a href="tlq_gate_interleave_styles.html">查看详情</a>
@@ -4161,7 +4819,7 @@ prev_date 给定时从同备份目录加载前一日矩阵（dyn_* 跨日因子�
                 <h3 class="function-name"><a href="yupei_dist_backup_read_stats.html">yupei_dist_backup_read_stats</a></h3>
                 <div><p>读每股统计量: (codes, N×14 f64)。列序同 StockStats 声明序
 （n_trades, amount, total_vol, imb, ret, vol30, vwap, q95u,
-  sum_w_cnt, sum_w_vol, sum_w_logvol, sum_w_flow, sum_w_urg, sum_w_ext）。</p></div>
+  sum_w_cnt, sum_w_rvol, sum_w_logvol, sum_w_flow, sum_w_urg, sum_w_ext）。</p></div>
                 <a href="yupei_dist_backup_read_stats.html">查看详情</a>
             </div>
             

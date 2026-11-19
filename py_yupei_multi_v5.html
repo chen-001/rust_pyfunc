@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>py_yupei_multi_v5 - Rust PyFunc API文档</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="static/search.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <h1 class="navbar-title">Rust PyFunc</h1>
+        <p class="navbar-subtitle">高性能Python函数集合 - API文档</p>
+    </div>
+    
+    
+<div class="container">
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="搜索函数...">
+            <div id="search-results"></div>
+        </div>
+        
+        <h3>导航</h3>
+        <p><a href="index.html">返回首页</a></p>
+    </div>
+    
+    <div class="content">
+        <h1>py_yupei_multi_v5</h1>
+        
+        <div class="function-description">
+            <h2>描述</h2>
+            <div><p>定稿入口：四套载体（原版、订单级、聚簇、订单方向级）+ 五种方向组合，
+默认使用 Top5/Top20，输出 12914 列；方向组合固定为五条链。</p>
+<p>date: 交易日 YYYYMMDD；tau: 衰减时间尺度（秒），默认 1.0。
+weight: "cnt" 按笔数，"vol" 按成交量平方根，默认 "cnt"。
+ks: 附加 TopK 因子的档位列表，默认 [5, 20]；可显式传其他档位。
+svd_k: 横截面分解成分数，默认 8；sig_temp / sig_thr: 软阈值参数，默认 0.3 / 2.0。
+null_mc: 空模型抽样上限，默认 20000；exz_bins: 条件网格边数，默认 10。
+返回 (股票代码, 因子列名, 按股票逐行展开的因子值)。线程数由 RAYON_NUM_THREADS 控制。</p></div>
+        </div>
+        
+        <div class="function-signature signature">
+            <h2>函数签名</h2>
+            <code>py_yupei_multi_v5(date, tau, weight, ks, svd_k, sig_temp, sig_thr, null_mc, exz_bins) -> None</code>
+        </div>
+        
+        <div class="function-parameters">
+            <h2>参数</h2>
+            
+                <p>此函数没有参数</p>
+            
+        </div>
+        
+        <div class="function-returns returns-section">
+            <h2>返回值</h2>
+            <div></div>
+        </div>
+        
+        <div class="function-examples">
+            <h2>示例</h2>
+            
+                <p>暂无示例</p>
+            
+            
+            <div class="example-usage-note">
+                <h3>Python使用示例</h3>
+                <pre><code>import numpy as np
+from rust_pyfunc import py_yupei_multi_v5
+
+# 使用示例
+
+# 请参考文档中的参数说明使用此函数
+</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>
